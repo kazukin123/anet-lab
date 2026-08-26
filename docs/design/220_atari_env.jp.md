@@ -142,9 +142,11 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 | `display_screen` | bool | false | SDL 観戦ウィンドウ（ALE 透過） |
 | `sound` | bool | false | SDL 音声（ALE 透過。display と独立） |
 
-プロトコルプリセット（`Atari.txt` に定義、`AtariEnv.$` AutoMerge で選択。既定 = v5）:
+プロトコルプリセット（`Atari.txt` に定義、`AtariEnv.$` の選択チェーンで指定。既定 = `v5_noop0`）:
 
-- `AtariEnv.v5`: sticky 0.25 / noop_max 0 / episodic_life false / fire_reset false
+- `AtariEnv.v5_noop0`: sticky 0.25 / noop_max **0** / episodic_life false / fire_reset false（raw ALE v5 準拠。sticky のみが確率源）
+- `AtariEnv.v5_noop30`: sticky 0.25 / noop_max **30** / episodic_life false / fire_reset false（v5 + Gymnasium `AtariPreprocessing` 既定）
+  - **`v5` という単独のプリセットは意図的に置いていない。** 「v5」は env id の世代であって noop の有無を決めないため、名前だけで選べてしまうと比較先との食い違いが無言で入る。差分は `noop_max` の 1 行のみ（後述の系統依存の項を参照）。
 - `AtariEnv.classic`: sticky 0.0 / noop_max 30 / episodic_life true / fire_reset true
 - `AtariEnv.100k`: sticky 0.0 / noop_max 30 / episodic_life true / fire_reset false（Atari-100k ベンチ。予算 100k steps = 400k frames は Run 設定側で指定。100k の共通不変は sticky なし+400k frames のみで、torch 系多数派＝SPR/EfficientZero の条件に合わせた。Dopamine 系＝DrQ(ε)/DER(ε)/BBF は noop 0・episodic_life false と分裂しているため、比較先の実装系統を必ず確認する）
 
@@ -233,6 +235,8 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 | GetTensor | `rgb_frame` | 常時（`retain_rgb_frame=true` 時） | 直近 Step の RGB 画面 uint8 `[3, 210, 160]`（CHW） |
 
 バッチ集約（`mean.` 等の prefix）と NaN 慣行は wrapper の共通規約に従う。`GetConfigData()` は実効 config を返す（Run の `config/env.*.txt` ダンプ対象）。
+
+**集約の分母に注意。** 上表で「確定タイミング＝実 game over / truncation」のキーは未確定 step で NaN を返し、バッチ集約は NaN を分母から除外する（`core/anet-core/src/env.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
 
 ### 4.8 人間正規化スコア（HNS）
 

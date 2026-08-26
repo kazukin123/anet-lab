@@ -678,6 +678,6 @@ std::shared_ptr<anet::rl::Agent> anet::rl::img_cls::ImageClsAgentFactory::Create
     std::optional<anet::seed_t> seed) const
 {
     ImageClsAgentConfig config(config_data);
-    anet::nn::NetworkConfig net_config(config_data);
+    anet::nn::NetworkConfig net_config(config_data, GetTargetAgentClassId() + ".net");
     return std::make_shared<ImageClsAgent>(config, net_config, env_spec, batch_env_spec, device, seed);
 }

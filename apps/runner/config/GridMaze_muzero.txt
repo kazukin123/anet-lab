@@ -3,8 +3,8 @@
 # 基本設定
 # ==============================================================================
 
-app.$ = app.online > P
-#app.$ = app.batchrun > P
+app.$ = app.online > P1
+#app.$ = app.batchrun > P1
 
 train.seed = 1
 
@@ -16,7 +16,7 @@ train.num_envs = 4
 
 #GridMazeEnv.$ = GridMazeEnv.baseline
 
-MuZeroAgent.$ = MuZeroAgent.baseline > A
+MuZeroAgent.$ = MuZeroAgent.baseline > A1
 
 
 # ==============================================================================
@@ -26,13 +26,13 @@ MuZeroAgent.$ = MuZeroAgent.baseline > A
 #app.run_name = run_{t}
 
 
-#A.learner.batch_size = 128          # 128
-#A.mcts.num_simulations = 10         # 50
-A.mcts.num_simulations = 40          # 50
-A.buffer.unroll_steps = 3            # 5
-A.mcts.root_dirichlet_alpha = 2.5    # 0.25
-A.mcts.pb_c_init = 2.0               # 1.25 PUCT定数 (c_init)
-A.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
+#A1.learner.batch_size = 128          # 128
+#A1.mcts.num_simulations = 10         # 50
+A1.mcts.num_simulations = 40          # 50
+A1.buffer.unroll_steps = 3            # 5
+A1.mcts.root_dirichlet_alpha = 2.5    # 0.25
+A1.mcts.pb_c_init = 2.0               # 1.25 PUCT定数 (c_init)
+A1.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
 
 
 
@@ -50,7 +50,7 @@ A.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
 app.online.exp_pause_step  = 40,000     # 40K
 app.batchrun.exp_exit_step = 40,000     # 40K
 
-A.actor.temp_decay_steps   =  20,000    # 20K Exp Step
+A1.actor.temp_decay_steps   =  20,000    # 20K Exp Step
 
 
 # ==============================================================================
@@ -181,7 +181,7 @@ metrics.scalar.muzero.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $r
 metrics.scalar.muzero.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
 metrics.scalar.muzero.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
-metrics.scalar.$ = metrics.scalar.muzero > M
+metrics.scalar.$ = metrics.scalar.muzero > M1
 
 
 # ==============================================================================

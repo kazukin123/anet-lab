@@ -21,22 +21,23 @@ public:
         const ConfigData::MapType& cli_overrides)
         : working_map_(source_map), cli_overrides_(cli_overrides)
     {
-        // selection と素材への CLI override は解決入力へ先に反映する。
+        // 全 CLI override を解決入力へ先出しし、源プレフィクス形も selection に渡す。
         for (const auto& [key, value] : cli_overrides_) {
-            if (IsResolverInputKey(key)) {
-                working_map_.Set(key, value);
-            }
+            working_map_.Set(key, value);
         }
     }
 
     ConfigResolverResult Resolve()
     {
+        // CLI 第1相を反映済みの幹を、通常 selection の入力へ先に展開する。
+        ExpandNamedTrunk();
+
         std::vector<std::string> root_selection_keys;
 
         // 未選択素材を dormant のまま保持し、実効 map にはデフォルト直書きだけを置く。
         for (const auto& [key, value] : working_map_) {
             if (EndsWith(key, kSelectionSuffix)) {
-                if (!HasMaterialSegment(key)) {
+                if (key != kNamedTrunkSelectionKey && !HasMaterialSegment(key)) {
                     root_selection_keys.push_back(key);
                 }
             } else if (!HasMaterialSegment(key)) {
@@ -55,7 +56,7 @@ public:
                 1);
         }
 
-        // 実効 leaf の CLI override は selection の産物より後に適用する。
+        // 実効 leaf は第1相に重ねて再適用し、selection と幹の産物より後に勝たせる。
         for (const auto& [key, value] : cli_overrides_) {
             if (!IsResolverInputKey(key)) {
                 effective_map_.Set(key, value);
@@ -77,6 +78,8 @@ public:
 
 private:
     static constexpr const char* kSelectionSuffix = ".$";
+    static constexpr const char* kNamedTrunkSelectionKey = "run.$";
+    static constexpr const char* kNamedTrunkOwner = "run";
     static constexpr int kMaxSelectionDepth = 10;
 
     static bool HasMaterialSegment(const std::string& key)
@@ -120,6 +123,69 @@ private:
             oss << tail;
         }
         return oss.str();
+    }
+
+    static json MakeSelectionChain(
+        const std::string& owner,
+        const std::vector<std::string>& terms)
+    {
+        json chain = json::array();
+        for (const auto& term : terms) {
+            if (!term.empty()) {
+                chain.push_back({
+                    { "term", term },
+                    { "resolved", ResolveSelectionTerm(owner, term) },
+                });
+            }
+        }
+        return chain;
+    }
+
+    void ExpandNamedTrunk()
+    {
+        if (!working_map_.Has(kNamedTrunkSelectionKey)) {
+            return;
+        }
+
+        // 幹の選択経路を通常 selection と同じ形式で先頭に記録する。
+        const auto terms = Split(working_map_.Get(kNamedTrunkSelectionKey), { ">" }, true);
+        selections_.push_back({
+            { "key", kNamedTrunkSelectionKey },
+            { "chain", MakeSelectionChain(kNamedTrunkOwner, terms) },
+        });
+
+        // 幹素材の子をrootへ後書きし、通常 selection のスナップショットへ渡す。
+        for (const auto& term : terms) {
+            if (term.empty()) {
+                continue;
+            }
+            const auto resolved = ResolveSelectionTerm(kNamedTrunkOwner, term);
+            const auto source_prefix = resolved + ".";
+            std::vector<std::pair<std::string, std::string>> source_entries;
+            for (const auto& [source_key, source_value] : working_map_) {
+                if (StartsWith(source_key, source_prefix)) {
+                    source_entries.emplace_back(source_key, source_value);
+                }
+            }
+
+            if (source_entries.empty()
+                && (IsRelativeMaterialTerm(term) || HasMaterialSegment(resolved))) {
+                ANET_SYSTEM_ERROR(
+                    "ConfigResolver: material selection target not found. selection="
+                    << kNamedTrunkSelectionKey << " term=" << term << " resolved=" << resolved
+                    << " scope=" << kNamedTrunkOwner);
+            }
+
+            for (const auto& [source_key, source_value] : source_entries) {
+                const auto target_key = RemovePrefix(source_key, source_prefix);
+                if (target_key == kNamedTrunkSelectionKey) {
+                    ANET_SYSTEM_ERROR(
+                        "ConfigResolver: named trunk must not select another trunk. material="
+                        << resolved << " key=" << source_key);
+                }
+                working_map_.Set(target_key, source_value);
+            }
+        }
     }
 
     void ExpandReferences()
@@ -205,17 +271,10 @@ private:
         path.push_back(declaration_key);
         const auto owner = RemoveSuffix(selection_key, kSelectionSuffix);
         const auto terms = Split(selection_value, { ">" }, true);
-        json chain = json::array();
-        for (const auto& term : terms) {
-            if (term.empty()) {
-                continue;
-            }
-            chain.push_back({
-                { "term", term },
-                { "resolved", ResolveSelectionTerm(owner, term) },
-            });
-        }
-        selections_.push_back({ { "key", selection_key }, { "chain", chain } });
+        selections_.push_back({
+            { "key", selection_key },
+            { "chain", MakeSelectionChain(owner, terms) },
+        });
 
         // 各項の direct leaf を反映してから、その項が生成した nested selection を解決する。
         for (const auto& term : terms) {

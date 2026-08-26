@@ -3,8 +3,8 @@
 # 基本設定
 # ==============================================================================
 
-app.$ = app.online > P
-#app.$ = app.batchrun > P
+app.$ = app.online > P1
+#app.$ = app.batchrun > P1
 
 train.seed = 1
 
@@ -14,21 +14,29 @@ train.num_envs = 128
 #train.num_envs = 10
 #train.num_envs = 1
 
-#net.branch.[main_feature].$ = net.branch.FoodResNet13      #   44%
-#net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  #   61% 1.3h
-#net.branch.[main_feature].$ = net.branch.ResNet18          #   67% 1.5h
-net.branch.[main_feature].$ = net.branch.ResNet18ish_hr    # 86% 6.0h ★
-#net.branch.[main_feature].$ = net.branch.ResNet18ish_mr    #   73% 1.5h
-#net.branch.[main_feature].$ = net.branch.ResNet18ish_MaxPool
-#net.branch.[main_feature].$ = net.branch.ResNet18ish_std
-#net.branch.[main_feature].$ = net.branch.Hybrid_CLS        #   60% 2.0h
-#net.branch.[main_feature].$ = net.branch.Hybrid_GAP        #   56%
-#net.branch.[main_feature].$ = net.branch.ViT_S16_CLS       #   37%
-#net.branch.[main_feature].$ = net.branch.ViT_S16_GAP       #   43%
-#net.branch.[main_feature].$ = net.branch.ConvNeXtTiny
-#net.branch.[main_feature].$ = net.branch.ConvNeXtNano
-#net.branch.[main_feature].$ = net.branch.ConvNeXtFemto     # 83% 12h
-#net.branch.[main_feature].$ = net.branch.ConvNeXtAtto      # 83% 10.0h hr
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@FoodResNet13      #   44%
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@FoodResNet13_GAP  #   61% 1.3h
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ResNet18          #   67% 1.5h
+ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ResNet18ish_hr    # 86% 6.0h ★
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ResNet18ish_mr    #   73% 1.5h
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ResNet18ish_MaxPool
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ResNet18ish_std
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@Hybrid_CLS        #   60% 2.0h
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@Hybrid_GAP        #   56%
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ViT_S16_CLS       #   37%
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ViT_S16_GAP       #   43%
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ConvNeXtTiny
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ConvNeXtNano
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ConvNeXtFemto     # 83% 12h
+#ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ConvNeXtAtto      # 83% 10.0h hr
+
+run.@resnet18ish_hr   : ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ResNet18ish_hr
+run.@resnet18ish_hr   : app.run_name = run_{t}_imgcls_ResNet18HR
+run.@convnext_atto_hr : ImageClsAgent.net.branch.[main_feature].$ = net.branch.@ConvNeXtAtto
+run.@convnext_atto_hr : app.run_name = run_{t}_imgcls_CnAttoHR
+
+#run.$ = run.@resnet18ish_hr
+#run.$ = run.@convnext_atto_hr
 
 app.run_name = run_{t}_imgcls
 
@@ -47,8 +55,8 @@ app.run_name = run_{t}_imgcls_ResNet18HR
 #app.run_name = run_{t}_imgcls_CnFemtoHR
 
 
-#backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
-backend.$ = backend.non-deterministic # 非決定論的（高速化）
+#backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
+backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 
 #train.eval_device_type = cpu
 
@@ -68,16 +76,22 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
 ImageClsAgent.learning_rate.phase.[warmup].steps = 500,000
 
-#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 14,500,000
-ImageClsAgent.learning_rate.phase.[main_cosine].steps = 19,500,000
-#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 29,500,000
+# --- Run 予算の一点化(値参照。予算と cosine 減衰の終端を隣接ペアで持つ) ---
+# main_cosine_steps は「max_exp_step - warmup(500K)」。D7 に演算機能は無いので定数 2 つで書く。
+# 予算を動かすときは必ずこのペアを一緒に動かすこと。
+#@vars : max_exp_step      =  10,000,000    # 10M
+#@vars : main_cosine_steps =   9,500,000
+#@vars : max_exp_step      =  15,000,000    # 15M
+#@vars : main_cosine_steps =  14,500,000
+@vars : max_exp_step      =  20,000,000    # 20M
+@vars : main_cosine_steps =  19,500,000
+#@vars : max_exp_step      =  30,000,000    # 30M
+#@vars : main_cosine_steps =  29,500,000
 
-#app.online.exp_pause_step  = 10,000,000      # 10M
-#app.online.exp_pause_step  = 15,000,000      # 15M
-app.online.exp_pause_step  = 20,000,000      # 20M
-#app.online.exp_pause_step  = 30,000,000      # 30M
-#app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step = ${@vars.max_exp_step}
+ImageClsAgent.learning_rate.phase.[main_cosine].steps = ${@vars.main_cosine_steps}
 
+# batchrun は online と別値(実質未使用のフォールバック)なのでリテラルのまま置く。
 app.batchrun.exp_exit_step  = 100,000,000     # 100M
 
 
@@ -441,50 +455,50 @@ net.block.[TransEnc_H256].tf.attn_dropout_rate = 0.0
 net.block.[TransEnc_H256].tf.droppath_rate = 0.1
 
 
-net.branch.FoodResNet13.bind = grid
-net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop
+net.branch.@FoodResNet13.bind = grid
+net.branch.@FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop
 
-net.branch.FoodResNet13_GAP.bind = grid
-net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop
+net.branch.@FoodResNet13_GAP.bind = grid
+net.branch.@FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop
 
-net.branch.ResNet18.bind = grid
-net.branch.ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D
+net.branch.@ResNet18.bind = grid
+net.branch.@ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D
 
-net.branch.ResNet18ish_MaxPool.bind = grid
-net.branch.ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
+net.branch.@ResNet18ish_MaxPool.bind = grid
+net.branch.@ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
 
-net.branch.ResNet18ish_std.bind = grid
-net.branch.ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
+net.branch.@ResNet18ish_std.bind = grid
+net.branch.@ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
 
-net.branch.ResNet18ish_hr.bind = grid
-net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead
+net.branch.@ResNet18ish_hr.bind = grid
+net.branch.@ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead
 
-net.branch.ResNet18ish_mr.bind = grid
-net.branch.ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead
+net.branch.@ResNet18ish_mr.bind = grid
+net.branch.@ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead
 
-net.branch.Hybrid_CLS.bind = grid
-net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract
+net.branch.@Hybrid_CLS.bind = grid
+net.branch.@Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract
 
-net.branch.Hybrid_GAP.bind = grid
-net.branch.Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D
+net.branch.@Hybrid_GAP.bind = grid
+net.branch.@Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D
 
-net.branch.ViT_S16_CLS.bind = grid
-net.branch.ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract
+net.branch.@ViT_S16_CLS.bind = grid
+net.branch.@ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract
 
-net.branch.ViT_S16_GAP.bind = grid
-net.branch.ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D
+net.branch.@ViT_S16_GAP.bind = grid
+net.branch.@ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D
 
 
-net.body.output.[features] = main_feature
+ImageClsAgent.net.body.output.[features] = main_feature
 
 
 # ==============================================================================
 # scalar metrics
 # ==============================================================================
 
-#metrics.scalar.$ = metrics.scalar.baseline > M
-#metrics.scalar.$ = metrics.scalar.min > M
-#metrics.scalar.$ = metrics.scalar.full > M
+#metrics.scalar.$ = metrics.scalar.@baseline > M1
+#metrics.scalar.$ = metrics.scalar.@min > M1
+#metrics.scalar.$ = metrics.scalar.@full > M1
 
 
 metrics.scalar.[20_eps/10_train_reward]     = $runner train_episode_reward $episode_step @train

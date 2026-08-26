@@ -119,24 +119,28 @@ _Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
 構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
 _Avoid_: config, resolved config
 
-**素材**:
-`@` セグメントを含むキー群。選択(`.$`)や値参照(`${}`)の入力としてのみ使われ、実効設定には選択された分だけが合成される。`config_data.txt` には出力されない。再利用を前提とした named な設定部品。未定義素材への参照は fail-fast、未参照の素材定義は正常(選択肢の在庫)。
-_Avoid_: プリセット, テンプレート
+**プロファイル (設定プロファイル)**:
+`@` セグメントを含むキー群。選択(`.$`)や値参照(`${}`)の入力としてのみ使われ、実効設定には選択された分だけが合成される。`config_data.txt` には出力されない。再利用を前提とした named な設定部品。未定義プロファイルへの参照は fail-fast、未参照のプロファイル定義は正常(選択肢の在庫)。文脈で紛れない限り単に「プロファイル」と呼ぶ。Run プロファイルと対比するときだけ「設定プロファイル」と書く。実装内部の識別子は `material` のままで、用語の対応は本項が正本。
+_Avoid_: 素材(旧称), プリセット, テンプレート, ワークスペース(別概念)
+
+**選択チェーン**:
+`<スロット>.$ = A > B > C` の形でプロファイルと上書き層を合成する記法。**右が後勝ち**。CLI 上書きは選択より前に解決入力へ注入されるため、チェーン内のどのキーにも効く(`config_impl.cpp` の `ResolutionEngine` 構築時)。Run プロファイルの展開は選択より先に走る。
+_Avoid_: include(順序の意味が違う), 継承, マージ
 
 **カタログ**:
-名前で参照される部品定義(NN block、configured eval tag 定義、metrics 定義など)。素材と違い「選択」されるのではなく、コードや structure 記述が名前で引く。実効側に読み口を持つため dump に残る。
+名前で参照される部品定義(NN block、configured eval tag 定義、metrics 定義など)。プロファイルと違い「選択」されるのではなく、コードや structure 記述が名前で引く。実効側に読み口を持つため dump に残る。
 _Avoid_: 部品集(曖昧), library
 
-**幹**:
-Run を特徴づけるスロット選択の束(= Run 署名)。env・agent・予算・backend 等の選択で構成され、値は宣言済み値スロット(game、num_envs 等)のみ持つ。`train.seed` は含まない(同一幹×複数 seed = 比較母集団)。頻用構成は `run.@<name>` で命名できる(named 幹)。
-_Avoid_: Run設定(曖昧), プリセット
+**Run プロファイル**:
+Run を特徴づけるスロット選択の束(= Run 署名)を `run.@<name>` で命名したもの。env・agent・予算・backend 等の選択で構成され、値は宣言済み値スロット(game、num_envs 等)のみ持つ。`train.seed` は含まない(同一 Run プロファイル×複数 seed = 比較母集団)。展開は「ファイル末尾へ中身を追記したのと同一」の後勝ちで、上のラダーや上書き層より強い。`run.$` 自体も選択チェーンなので Run プロファイル同士を合成できる(入れ子定義は fail-fast)。実装内部の識別子は `trunk` のまま。
+_Avoid_: 幹(旧称), Run設定(曖昧), プリセット
 
 **上書き層**:
-A/E/R/X/M/O/P など、named でないファイルローカルの差分キー群。素材と違い `@` を持たず、dump に痕跡が残る。定着した上書きは素材へ、素材の組は named 幹へ昇格する。
-_Avoid_: 実験レイヤ(曖昧), patch
+named でないファイルローカルの差分キー群。名前は直交 2 軸 — 文字=対象(A=Agent / E=Env / M=Metrics / P=app)、番号=恒久度(大番号ほど揮発的。チェーン右に置く=後勝ちで強い)— の全層番号付き(A1/A2/A3、E1、M1/M2、P1)。プロファイルと違い `@` を持たず、dump に痕跡が残る。値は大番号(その場の試行)→小番号(定着中)→プロファイルへ、プロファイルの組は Run プロファイルへ昇格する。
+_Avoid_: 実験レイヤ(曖昧), patch, 旧名 R/X/O(A2/A3/M2 へ吸収済み)
 
 **デフォルト直書き**:
-選択(チェーン)が無い場合に採用される値を宣言する素の設定行。実装側デフォルトの設定ファイルへの可視化であり、チェーン結果に上書きされることを前提とした共存が正常形。
+選択チェーンが無い場合に採用される値を宣言する素の設定行。実装側デフォルトの設定ファイルへの可視化であり、チェーン結果に上書きされることを前提とした共存が正常形。
 _Avoid_: fallback(`auto`戦略のfallbackと混同), 初期値(実装デフォルトと混同)
 
 ### Env・実行
@@ -203,9 +207,9 @@ _Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指す�
 生スコアを`100 * (score - random) / (human - random)`で人間プレイヤー基準へ写した値（100=人間、%表記）。基準表は57ゲーム系（Wang 2016系、現代論文が使う）と49ゲーム系（Mnih 2015）の2系統があり、同じゲームでも値が異なる（Pongのhumanは14.6対9.3）ため、どちらの表で正規化したかを常に添える。分母は絶対値化しない。
 _Avoid_: 正規化スコア（何基準か不明）, CHNS（クリップ版は別概念）, 人間比（口語）
 
-**プロトコルプリセット**:
-sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.v5` / `AtariEnv.classic` / `AtariEnv.100k`）。スコアはプリセット間で直接比較不可であり、比較先の事例がどの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこのプリセットの命名由来だが、anet-labでは条件セット名として扱う。
-_Avoid_: envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
+**プロトコルプロファイル**:
+sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.@v5_noop0` / `AtariEnv.@v5_noop30` / `AtariEnv.@classic` / `AtariEnv.@100k`）。設定プロファイルの一種で、env スロットの選択チェーンから選ぶ。スコアはプロファイル間で直接比較不可であり、比較先の事例がどの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこの命名の由来だが、anet-labでは条件セット名として扱う。**「v5」は env id の世代であって NoOp reset の有無を決めない**（raw ALE v5 に noop start は無く、Gymnasium `AtariPreprocessing` wrapper の既定は `noop_max=30`）。このため v5 系は `@v5_noop0` / `@v5_noop30` の 2 本に分けてあり、`@v5` という単独のプロファイルは置かない。
+_Avoid_: プロトコルプリセット(旧称), envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
 
 ### 実行系統
 
@@ -247,7 +251,7 @@ _Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
 
 **ワークスペース (Workspace)**:
 Runの入力（workspace config）と成果物（`runs/`、`optuna/`）を一体で束ねる自己完結フォルダ。既定の置き場は`apps/runner/workspaces/`直下で、指定はパス（相対=`workspaces/`基準、絶対パスで任意の場所も可。Eclipseのworkspace指定と同形式）。実験系列の分類・退避・削除・復帰はworkspaceフォルダのOS操作だけで行い、フォルダ外に分類のメタデータを持たない。Runner・Metrics Viewer・optunaハーネスはいずれも「workspaceを選んで箱の中で完結する」。既定は`_default`。
-_Avoid_: プロジェクト, プロファイル, runs_dir（出力先設定であって箱ではない）
+_Avoid_: プロジェクト, プロファイル（`@` 側の語。ワークスペースには使わない）, runs_dir（出力先設定であって箱ではない）
 
 **workspace config**:
 `workspaces/<ws>/config/_main.txt`。共通`_main.txt`（common/metrics/agent/nn）の後に後勝ちで重ねる、env選択（`$include <DropMerge.txt>`等）を含むworkspace固有の設定差分。runnerの`--config`明示起動（完全自己記述モード）ではworkspace解決を行わず、configを生成する側が`$include`の並びで合成順に責任を持つ。

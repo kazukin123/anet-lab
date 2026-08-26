@@ -10,75 +10,37 @@ REM  Breakout is a poor lone judge: reward_clip=true makes every brick worth +1
 REM  to the learner while game_score counts 1/4/7, and the 432/864 wall creates a
 REM  phase transition no other game has.
 REM
+REM  SETTINGS LIVE IN CONFIG, NOT HERE.
+REM    Protocol / NN / budget / eval are held by the run.@a5* trunks in
+REM    apps\runner\config\Atari.txt. This file only picks a trunk and loops games.
+REM    Budget: change the @vars pair inside run.@a5 (per_beta_step follows).
+REM
 REM  HOW TO EDIT
-REM    1. BUDGET  - steps per run.
-REM    2. A/B AXIS block - one SET LABEL / SET VARIANT / call trio per arm.
-REM       VARIANT is passed verbatim as config overrides. Empty means baseline.
-REM    3. GAMES - comment out lines in :run_all_games to shorten the sweep.
+REM    1. A/B AXIS block - one SET ARM / call pair per arm.
+REM    2. :run_all_games - comment out games to shorten the sweep.
 REM
-REM  COST (Breakout, IMPALA, num_envs 128, about 2000 steps/s, no GPU sharing)
-REM    50M per run = about 6.9h  ->  2 arms x 5 games = about 69h
-REM    20M per run = about 2.8h  ->  2 arms x 5 games = about 28h
+REM  ARM MUST STAY QUOTED. The trunk chain contains '>', which cmd.exe would
+REM  otherwise treat as output redirection - both in SET and at the call site.
 REM
-REM  WARNING - BUDGET interacts with per_beta_step
-REM    Atari.txt fixes per_beta_step at 50M, so beta reaches 1.0 only at 50M.
-REM    On Breakout the takeoff happened right as beta hit 1.0 (46M onward).
-REM    With a 20M budget beta only reaches 0.64, so the sweep never leaves the
-REM    pre-takeoff regime and every arm looks flat. Either keep BUDGET at 50M,
-REM    or scale per_beta_step with it and accept that you are then testing a
-REM    different schedule than the Breakout baseline.
-REM
-REM  Numbers are written without commas on purpose - cmd.exe treats commas as
-REM  argument separators in some contexts.
+REM  COST (2,150 steps/s measured on Breakout, no GPU sharing)
+REM    20M per run = about 2.6h  ->  5 games = about 13h  ->  2 arms = about 26h
+REM    50M per run = about 6.5h  ->  5 games = about 32h  ->  2 arms = about 65h
 REM ============================================================================
 
 cd /d "%~dp0runner"
 
-REM ---- workspace config -------------------------------------------------------
-REM  --workspace creates a missing workspace from config\_workspace_template.txt,
-REM  whose default include is LunarLander. Without this block a fresh clone would
-REM  run the whole sweep on the wrong env and never report an error.
-SET WS=atari-5
-SET WSCONF=workspaces\%WS%\config\_main.txt
+SET EXE="bin\Release\AnetRLRunner.exe" --workspace atari-5
+REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe" --workspace atari-5
 
-if not exist "%WSCONF%" (
-    if not exist "workspaces\%WS%\config" mkdir "workspaces\%WS%\config"
-    >"%WSCONF%" echo $include ^<Atari.txt^>
-    echo Created %WSCONF%
-)
-
-findstr /B /C:"$include <Atari.txt>" "%WSCONF%" >nul
-if errorlevel 1 (
-    echo ERROR: %WSCONF% does not select Atari.txt.
-    echo Delete the file and rerun to regenerate it, or fix the include by hand.
-    pause
-    exit /b 1
-)
-
-SET EXE="bin\Release\AnetRLRunner.exe" --workspace atari-5 app.$=app.batchrun
-REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe" --workspace atari-5 app.$=app.batchrun
-
-SET BUDGET=app.batchrun.exp_exit_step=50000000
-REM SET BUDGET=app.batchrun.exp_exit_step=20000000
-REM SET BUDGET=app.batchrun.exp_exit_step=2000000
+SET "BASE=run.@v5_iqn_impala_x2>run.@a5"
 
 REM ---- A/B AXIS --------------------------------------------------------------
 
-SET LABEL=base
-SET VARIANT=
+SET "ARM=run.$=%BASE%>run.@a5_base"
 call:run_all_games
 
-SET LABEL=tau30
-SET VARIANT=X.learner.grad_clip_tau=30
+SET "ARM=run.$=%BASE%>run.@a5_apex"
 call:run_all_games
-
-REM  Other axes, for later. Keep exactly one thing different per arm.
-REM    SET VARIANT=A.train_policy.eps_end=0.001
-REM    SET VARIANT=X.learner.per_beta_end=0.55
-REM    SET VARIANT=A.learner.per_beta_step=20000000
-REM    SET VARIANT=net.branch.[main_feature].$=net.branch.AtariImpalaViT
-REM    SET VARIANT=train.seed=2
-REM    SET VARIANT=AtariEnv.$=AtariEnv.classic
 
 REM ----------------------------------------------------------------------------
 
@@ -96,7 +58,7 @@ exit /b
 
 
 :run_game
-call:run_exe app.run_name=run_{t}_a5-%1-%LABEL% E.game=%1 %BUDGET% %VARIANT%
+call:run_exe "%ARM%" E1.game=%1
 exit /b
 
 

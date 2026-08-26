@@ -9,6 +9,7 @@
 #include <future>
 #include <numeric>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include "anet/metrics_logger.hpp"
@@ -1612,8 +1613,41 @@ void DefaultReplayBuffer::StoreTensorVectorCache(const std::string& key, int64_t
     });
 }
 
+namespace per_scalar_detail {
+
+// PERスカラーmetricsのキー一覧。
+// GetScalar の契約は「未知キーのときだけ nullopt」。PERを切っただけでmetrics定義を
+// 書き換えずに済むよう、既知キーはPER無効でも「データなし」= NaN を返す。
+bool IsPerScalarKey(std::string_view key)
+{
+    constexpr const char* kKeys[] = {
+        ReplayBuffer::PER_TOTAL,
+        ReplayBuffer::PER_INITIAL_MASS_RATIO,
+        ReplayBuffer::PER_FIXED_INITIAL_MASS_RATIO,
+        ReplayBuffer::PER_MAX_INITIAL_MASS_RATIO,
+        ReplayBuffer::PER_ACTOR_INITIAL_MASS_RATIO,
+        ReplayBuffer::PER_ACTOR_COMPLETION_ATTEMPT_COUNT,
+        ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_COUNT,
+        ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_RATIO,
+        ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT,
+        ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_RATIO,
+        ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_COUNT,
+        ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_RATIO,
+        ReplayBuffer::PER_PRIORITY_UPDATE_STALE_DROP_COUNT,
+        ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO,
+    };
+    for (const auto* known : kKeys) {
+        if (key == known) return true;
+    }
+    return false;
+}
+
+}  // namespace per_scalar_detail
+
 std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
 {
+    // PER無効・completer未生成でも既知キーには NaN を返す(§per_scalar_detail)。
+    const auto no_data = std::optional<float>(std::numeric_limits<float>::quiet_NaN());
     const auto ratio = [](int64_t numerator, int64_t denominator) {
         return denominator > 0
             ? static_cast<float>(numerator) / static_cast<float>(denominator)
@@ -1624,7 +1658,7 @@ std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int6
         || key == PER_ACTOR_TRUNCATION_FALLBACK_RATIO || key == PER_ACTOR_NONFINITE_FALLBACK_COUNT
         || key == PER_ACTOR_NONFINITE_FALLBACK_RATIO) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        if (!initial_priority_completer_) return std::nullopt;
+        if (!initial_priority_completer_) return no_data;
         const auto stats = initial_priority_completer_->GetStats();
         if (key == PER_ACTOR_COMPLETION_ATTEMPT_COUNT) return static_cast<float>(stats.attempt_count);
         if (key == PER_ACTOR_COMPLETION_SUCCESS_COUNT) return static_cast<float>(stats.success_count);
@@ -1642,17 +1676,18 @@ std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int6
     }
     if (key == PER_PRIORITY_UPDATE_STALE_DROP_COUNT) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        if (!priority_store_) return std::nullopt;
+        if (!priority_store_) return no_data;
         return static_cast<float>(priority_update_stale_drop_count_);
     }
     if (key == PER_LAST_EVICTED_NEVER_SAMPLED_RATIO) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        return priority_store_ ? std::optional<float>(last_evicted_never_sampled_ratio_) : std::nullopt;
+        return priority_store_ ? std::optional<float>(last_evicted_never_sampled_ratio_) : no_data;
     }
     if (priority_store_) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
         return priority_store_->GetScalar(key);
     }
+    if (per_scalar_detail::IsPerScalarKey(key)) return no_data;
     return std::nullopt;
 }
 

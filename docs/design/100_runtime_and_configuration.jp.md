@@ -28,13 +28,18 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 1. `Properties`が共通main configと`$include`先を読み込む。各行は最初の`=`より左をkeyとし、key内の空白を除去して単一の`:`を`.`へ正規化する。複数の`:`または空の区間はfail-fastする。旧parserで`:`をkey/value境界としていた`foo: bar`形式は廃止し、`=`のない行は読み飛ばす。
 2. workspaceモードではRunnerが`app.runs_dir=<workspace>/runs`を注入し、workspaceの`config/_main.txt`を後勝ちで重ねる。workspace内includeは共通config directoryへfallbackして解決する。
-3. `ConfigResolver`がbase、注入値、後勝ちoverlay、CLI第1相をsource mapへ統合する。CLI第1相は`.$` selectionと`@`素材への指定だけを解決入力へ反映する。
-4. `ConfigResolver`が`.$`を宣言順のDFSで解決する。単独の`@name`はselection所有者配下の相対素材、それ以外はrootからの絶対prefixである。チェーンは左から右へ適用し、右側を後勝ちとする。素材から生成されたnested `.$`も同じ規則で再帰解決する。
-5. CLI第2相として実効leafを上書きし、その後で`${full.key}`を参照先の最終値へ1段だけ展開する。未定義素材、selection循環、深さ10超過、未定義・連鎖・未解決の値参照はfail-fastする。
-6. `.$`と`@` segmentを持つ素材定義を除いた`ConfigData`と、解決順を記録したresolution JSONを返す。workspaceモードでは最終`app.runs_dir`が注入値と文字列完全一致することを検証し、各`Config` classが型付きfieldを読む。
-7. Runnerは同じ初期化境界で、実効設定を`config/config_data.txt`へ保存し、selectionと値参照の構造化記録を既存`MetricsLogger::Log("config_resolution", json)`へ渡す。後者は`json/config_resolution.json`へ`type` / `tag` / `data` envelope付きで保存され、timestamp付きの同じrecordがMetrics masterにも記録される。
+3. `ConfigResolver`がbase、注入値、後勝ちoverlay、CLI第1相をsource mapへ統合する。CLI第1相は全CLI overrideを解決入力へ先出しするため、選択の源プレフィクス形もselectionの複製に反映される。実効leafはCLI第2相で再適用し、selectionとRunプロファイルの産物へ最終的に勝つ。
+4. `run.$`があれば、`ConfigResolver`は通常selectionのスナップショット前にRunプロファイルを展開する。単独の`@name`は`run.@name`、それ以外はroot絶対prefixとして解決し、Runプロファイルの子をprefix剥がしでrootへ後書きする。
+5. `ConfigResolver`が残りの`.$`を宣言順のDFSで解決する。単独の`@name`はselection所有者配下の相対プロファイル、それ以外はrootからの絶対prefixである。チェーンは左から右へ適用し、右側を後勝ちとする。プロファイルから生成されたnested `.$`も同じ規則で再帰解決する。
+6. CLI第2相として実効leafを上書きし、その後で`${full.key}`を参照先の最終値へ1段だけ展開する。未定義プロファイル、selection循環、深さ10超過、未定義・連鎖・未解決の値参照はfail-fastする。
+7. `.$`と`@` segmentを持つプロファイル定義を除いた`ConfigData`と、解決順を記録したresolution JSONを返す。workspaceモードでは最終`app.runs_dir`が注入値と文字列完全一致することを検証し、各`Config` classが型付きfieldを読む。
+8. Runnerは同じ初期化境界で、実効設定を`config/config_data.txt`へ保存し、selectionと値参照の構造化記録を既存`MetricsLogger::Log("config_resolution", json)`へ渡す。後者は`json/config_resolution.json`へ`type` / `tag` / `data` envelope付きで保存され、timestamp付きの同じrecordがMetrics masterにも記録される。
 
-同一の実効`.$` keyがチェーン内の複数素材から生成される場合、`selections`には適用ごとに同じ`key`のentryが解決順で並ぶ。これは右勝ちに至る適用履歴を保持するためであり、重複を集約しない。
+Runプロファイルの展開は「その中身を設定file末尾へ追記した」のと同じ優先順位を持つ。展開段自身は`effective_map`を更新せず、Runプロファイルがrootへ供給した`.$`は直後の通常selectionで1回だけ解決する。resolutionの`selections`では`run.$`が先頭entryになり、処理済み`run.$`と`run.@*`プロファイルは実効設定へ残らない。Runプロファイルが別の`run.$`を供給するRunプロファイルのネストはfail-fastし、`run.foo`のような通常keyは特別扱いしない。
+
+同一の実効`.$` keyがチェーン内の複数プロファイルから生成される場合、`selections`には適用ごとに同じ`key`のentryが解決順で並ぶ。これは右勝ちに至る適用履歴を保持するためであり、重複を集約しない。
+
+DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、PRD 059 Phase 1aではrootに維持する。
 
 `--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
@@ -282,7 +287,7 @@ sequenceDiagram
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |
 
-完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。選択した素材と`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
+完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。選択したプロファイルと`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
 
 ### 7.2 lifetimeと終了
 

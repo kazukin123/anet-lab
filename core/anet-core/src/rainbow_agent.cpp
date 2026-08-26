@@ -221,6 +221,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(
 
     // Actor を生成
     const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
+        && config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     auto actor = std::make_shared<Actor>(
         action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint);
@@ -266,7 +267,7 @@ std::shared_ptr<anet::rl::Agent> RainbowAgentFactory::CreateAgent(
     std::shared_ptr<anet::rl::Notifier> notifier, std::optional<anet::seed_t> seed) const
 {
     RainbowAgentConfig config(config_data);
-    anet::nn::NetworkConfig net_config(config_data);
+    anet::nn::NetworkConfig net_config(config_data, GetTargetAgentClassId() + ".net");
     auto agent = std::make_shared<RainbowAgent>(config, net_config, batch_env_spec, env_spec, device, seed);
     return agent;
 

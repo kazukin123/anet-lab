@@ -2409,7 +2409,7 @@ TEST_CASE("ReplayBuffer PER keeps eviction statistics alive with frame stack his
     CHECK(*never_sampled_eviction_ratio == Catch::Approx(1.0f).margin(1.0e-5));
 }
 
-TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampling", "[replay_buffer][visualization][per]")
+TEST_CASE("ReplayBuffer PER scalar keys report no data for uniform sampling", "[replay_buffer][visualization][per]")
 {
     auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::UNIFORM), 1);
 
@@ -2417,9 +2417,23 @@ TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampl
     PushTime(buffer, 1);
 
     REQUIRE(buffer.rb->Size() == 1);
-    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL).has_value());
-    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO).has_value());
-    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO).has_value());
+
+    // GetScalar が nullopt を返すのは未知キーのときだけ。既知の PER キーは PER 無効でも
+    // 「データなし」= NaN を返し、PER を切るためだけの metrics 定義切り替えを不要にする。
+    for (const auto* key : {
+        rl::ReplayBuffer::PER_TOTAL,
+        rl::ReplayBuffer::PER_INITIAL_MASS_RATIO,
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO,
+        rl::ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_RATIO,
+        rl::ReplayBuffer::PER_PRIORITY_UPDATE_STALE_DROP_COUNT }) {
+        CAPTURE(key);
+        const auto value = buffer.rb->GetScalar(key);
+        REQUIRE(value.has_value());
+        CHECK(std::isnan(*value));
+    }
+    CHECK_FALSE(buffer.rb->GetScalar("replaybuffer.per.unknown_key").has_value());
+
+    // tensor 系は従来どおり nullopt(GetScalar の契約とは別)。
     REQUIRE_FALSE(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, 0).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST).has_value());

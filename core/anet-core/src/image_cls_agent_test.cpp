@@ -897,6 +897,29 @@ TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head
     CHECK(probs.dtype() == torch::kFloat32);
 }
 
+TEST_CASE("ImageClsAgentFactory reads its class-owned net tree", "[image_cls][config][tracer]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto config_data = MakeImageClsSerializeTestConfigData();
+    config_data.Set("net.block.[Flatten].type", "Flatten");
+    config_data.Set("ImageClsAgent.net.branch.[main_feature].bind", anet::rl::ObsKeys::kGrid);
+    config_data.Set("ImageClsAgent.net.branch.[main_feature].structure", "Flatten");
+    config_data.Set("ImageClsAgent.net.body.output.[features]", "main_feature");
+
+    anet::rl::img_cls::ImageClsAgentFactory factory;
+    const auto agent = factory.CreateAgent(
+        MakeImageClsEnvSpec(),
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        config_data,
+        nullptr,
+        123);
+
+    REQUIRE(agent != nullptr);
+}
+
 TEST_CASE("ImageCls actor and learner gate BF16 autocast around forward", "[image_cls][bf16]")
 {
     const auto grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);

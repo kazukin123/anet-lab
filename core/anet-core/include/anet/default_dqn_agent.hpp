@@ -397,6 +397,12 @@ namespace anet::rl::dqn {
         ) const override;
 
         std::string GetTargetAgentClassId() const override { return "DefaultDQNAgent"; }
+
+    private:
+        static void ValidateQuantileNetworkContract(
+            const DefaultDQNAgentConfig& config,
+            const anet::nn::NetworkConfig& net_config,
+            const std::string& net_config_prefix);
     };
 
 }// namespace anet::rl

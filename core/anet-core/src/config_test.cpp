@@ -53,39 +53,6 @@ void WriteConfig(const std::filesystem::path& path, std::initializer_list<std::s
     }
 }
 
-anet::ConfigData ResolveWithFrozenLegacyAutoMerge(anet::ConfigData config_data)
-{
-    // Phase 0 の同値性検証専用に、置換前 AutoMerge の単一パス挙動を凍結する。
-    constexpr const char* merge_suffix = ".$";
-    const auto source_map = config_data.Map();
-    anet::ConfigData resolved;
-    std::vector<std::string> merge_keys;
-
-    for (const auto& [key, value] : source_map) {
-        if (anet::EndsWith(key, merge_suffix)) {
-            merge_keys.push_back(key);
-        } else {
-            resolved.Set(key, value);
-        }
-    }
-
-    for (const auto& merge_key : merge_keys) {
-        const auto owner = anet::RemoveSuffix(merge_key, merge_suffix);
-        for (const auto& term : anet::Split(source_map.Get(merge_key), { ">" }, true)) {
-            if (term.empty()) {
-                continue;
-            }
-            const auto source_prefix = term + ".";
-            for (const auto& [source_key, source_value] : source_map) {
-                if (!anet::StartsWith(source_key, source_prefix)) {
-                    continue;
-                }
-                resolved.Set(owner + anet::RemovePrefix(source_key, term), source_value);
-            }
-        }
-    }
-    return resolved;
-}
 
 class ProfiledValueOwnerConfig final : public anet::Config {
 public:
@@ -719,6 +686,227 @@ TEST_CASE("ConfigManager resolves relative material selection and records resolu
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("ConfigManager expands a named trunk before root selections", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-named-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@verify.env.class_id = AtariEnv",
+        "run.@verify.AtariEnv.$ = @v5",
+        "AtariEnv.@v5.repeat_action_probability = 0.25",
+        "run.$ = run.@verify",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("env.class_id") == "AtariEnv");
+    CHECK(config_data.Get("AtariEnv.repeat_action_probability") == "0.25");
+    CHECK_FALSE(config_data.Has("run.$"));
+    CHECK_FALSE(config_data.Has("run.@verify.env.class_id"));
+
+    const auto resolution = manager.GetResolutionJson();
+    CHECK(resolution["schema_version"] == 1);
+    REQUIRE(resolution["selections"].size() == 2);
+    CHECK(resolution["selections"][0]["key"] == "run.$");
+    CHECK(resolution["selections"][0]["chain"][0]["resolved"] == "run.@verify");
+    CHECK(resolution["selections"][1]["key"] == "AtariEnv.$");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager resolves a relative named trunk term", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-relative-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@verify.env.class_id = AtariEnv",
+        "run.$ = @verify",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("env.class_id") == "AtariEnv");
+    CHECK(manager.GetResolutionJson()["selections"][0]["chain"][0]["resolved"]
+        == "run.@verify");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies named trunk terms from left to right", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-trunk-chain-order-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@a.env.class_id = EnvA",
+        "run.@b.env.class_id = EnvB",
+        "run.$ = @a > @b",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("env.class_id") == "EnvB");
+
+    const auto chain = manager.GetResolutionJson()["selections"][0]["chain"];
+    REQUIRE(chain.size() == 2);
+    CHECK(chain[0]["resolved"] == "run.@a");
+    CHECK(chain[1]["resolved"] == "run.@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies a named trunk as a file-tail overwrite", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-trunk-tail-overwrite-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "env.class_id = OldEnv",
+        "Env.@a.shared = a",
+        "Env.@a.only_a = stale",
+        "Env.@b.shared = b",
+        "Env.$ = @a",
+        "run.@verify.env.class_id = NewEnv",
+        "run.@verify.Env.$ = @b",
+        "run.$ = @verify",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("env.class_id") == "NewEnv");
+    CHECK(config_data.Get("Env.shared") == "b");
+    CHECK_FALSE(config_data.Has("Env.only_a"));
+
+    const auto selections = manager.GetResolutionJson()["selections"];
+    REQUIRE(selections.size() == 2);
+    CHECK(selections[1]["key"] == "Env.$");
+    CHECK(selections[1]["chain"][0]["term"] == "@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager switches the named trunk from CLI phase one", "[config][resolver][trunk][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-trunk-switch-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@a.env.class_id = EnvA",
+        "run.@b.env.class_id = EnvB",
+        "run.$ = @a",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "run.$=run.@b");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    CHECK(manager.GetConfigData().Get("env.class_id") == "EnvB");
+    CHECK(manager.GetResolutionJson()["selections"][0]["chain"][0]["term"] == "run.@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies CLI leaf override after named trunk expansion", "[config][resolver][trunk][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-trunk-leaf-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@verify.env.class_id = TrunkEnv",
+        "run.$ = @verify",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "env.class_id=CliEnv");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    CHECK(manager.GetConfigData().Get("env.class_id") == "CliEnv");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects a named trunk that selects another trunk", "[config][resolver][trunk][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-nested-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@outer.run.$ = @inner",
+        "run.@inner.env.class_id = NestedEnv",
+        "run.$ = @outer",
+    });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("named trunk must not select another trunk")
+        && Catch::Matchers::ContainsSubstring("material=run.@outer")
+        && Catch::Matchers::ContainsSubstring("key=run.@outer.run.$"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects an undefined named trunk material", "[config][resolver][trunk][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-undefined-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, { "run.$ = run.@missing" });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("material selection target not found")
+        && Catch::Matchers::ContainsSubstring("selection=run.$")
+        && Catch::Matchers::ContainsSubstring("resolved=run.@missing"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager leaves ordinary run keys unchanged without a named trunk", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-no-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.foo = value",
+        "env.class_id = AtariEnv",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("run.foo") == "value");
+    CHECK(manager.GetConfigData().Get("env.class_id") == "AtariEnv");
+    CHECK(manager.GetResolutionJson()["selections"].empty());
+
+    std::filesystem::remove_all(root);
+}
+
 TEST_CASE("ConfigManager resolves nested selection copied from material", "[config][resolver]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
@@ -804,6 +992,62 @@ TEST_CASE("ConfigManager applies CLI selection and material before effective lea
     const auto selections = manager.GetResolutionJson()["selections"];
     REQUIRE(selections.size() == 1);
     CHECK(selections[0]["chain"][0]["term"] == "@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[config][resolver][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-source-prefix-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "app.batchrun.exp_exit_step = 100",
+        "app.$ = app.batchrun",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "app.batchrun.exp_exit_step=200");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("app.exp_exit_step") == "200");
+    CHECK(config_data.Get("app.batchrun.exp_exit_step") == "200");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager keeps a literal CLI leaf after value-reference selection", "[config][resolver][reference][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-reference-source-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "@vars.max_exp_step = 100",
+        "app.@batchrun.exp_exit_step = ${@vars.max_exp_step}",
+        "app.$ = @batchrun",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "app.exp_exit_step=200");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    CHECK(manager.GetConfigData().Get("app.exp_exit_step") == "200");
+    CHECK(manager.GetResolutionJson()["references"].empty());
 
     std::filesystem::remove_all(root);
 }
@@ -1030,35 +1274,8 @@ TEST_CASE("Properties rejects invalid colon sugar", "[config][resolver][properti
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("ConfigResolver matches frozen AutoMerge for current runner overlays", "[config][resolver][golden]")
-{
-    const auto config_dir = std::filesystem::current_path() / "apps" / "runner" / "config";
-    const auto main_path = config_dir / "_main.txt";
-    const std::vector<std::string> overlays = {
-        "CartPole.txt",
-        "GridMaze.txt",
-        "GridMaze_muzero.txt",
-        "ImageCls.txt",
-        "Atari.txt",
-        "DropMerge.txt",
-        "LunarLander.txt",
-    };
-
-    for (const auto& overlay : overlays) {
-        INFO("overlay=" << overlay);
-        anet::ConfigManagerOptions options;
-        options.config_search_dirs = { config_dir };
-        options.overwrite_config_paths = { config_dir / overlay };
-
-        auto legacy_input = anet::Properties(main_path, options).ToConfigData();
-        legacy_input.OverwriteFrom(
-            anet::Properties(config_dir / overlay, options).ToConfigData());
-        const auto legacy = ResolveWithFrozenLegacyAutoMerge(std::move(legacy_input));
-
-        const anet::ConfigManager manager(main_path.string(), nullptr, options);
-        CHECK(manager.GetConfigData().ToPropertiesString() == legacy.ToPropertiesString());
-    }
-}
+// 凍結旧 AutoMerge との golden 比較は PH0/PH1a の移行検証として役目を終えた(素材 `@` 化後は
+// 旧 AutoMerge が相対参照を解決できず oracle が成立しない)。以後の回帰は resolver 単体テスト群が守る。
 
 TEST_CASE("ConfigManager resolves include paths from parent before config search dirs", "[config]")
 {

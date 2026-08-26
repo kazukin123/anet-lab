@@ -1504,6 +1504,32 @@ TEST_CASE("Network config profile expands linear markers by branch order", "[nn]
     CHECK(rates[15] > rates[14]);
 }
 
+TEST_CASE("NetworkConfig merges global catalogs into an agent-owned net tree", "[nn][config][agent_net]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Drop].type", "Dropout");
+    config_data.Set("net.block.[Drop].dropout_rate", 0.25);
+    config_data.Set("net.config_profile.[dp].type", "linear");
+    config_data.Set("net.config_profile.[dp].start", 0.0);
+    config_data.Set("net.config_profile.[dp].end", 0.5);
+    config_data.Set("DefaultDQNAgent.net.block.[Drop].dropout_rate", 0.4);
+    config_data.Set("DefaultDQNAgent.net.config_profile.[dp].end", 0.75);
+    config_data.Set("DefaultDQNAgent.net.branch.[feature].bind", "obs");
+    config_data.Set("DefaultDQNAgent.net.branch.[feature].structure", "Drop(*2)");
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "feature");
+
+    const anet::nn::NetworkConfig config(config_data, "DefaultDQNAgent.net");
+
+    REQUIRE(config.block_configs.contains("Drop"));
+    CHECK(config.block_configs.at("Drop").type == "Dropout");
+    CHECK(config.block_configs.at("Drop").config_data.Get("dropout_rate") == "0.4");
+    REQUIRE(config.config_profiles.contains("dp"));
+    CHECK(config.config_profiles.at("dp").start == Catch::Approx(0.0));
+    CHECK(config.config_profiles.at("dp").end == Catch::Approx(0.75));
+    REQUIRE(config.branches.contains("feature"));
+    CHECK(config.output_keys.at("features") == "feature");
+}
+
 TEST_CASE("Network config profile returns start for a single marker", "[nn][config_profile]")
 {
     EnsureNNInitialized();

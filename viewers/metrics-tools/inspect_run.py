@@ -36,6 +36,9 @@ WORKSPACES_ROOT = REPO_ROOT / "apps" / "runner" / "workspaces"
 CONFIG_DIR_NAME = "config"
 CONFIG_DATA_NAME = "config_data.txt"
 CONFIG_REL_PATH = Path(CONFIG_DIR_NAME) / CONFIG_DATA_NAME
+RESOLUTION_JSON_REL_PATH = Path("json") / "config_resolution.json"
+LEGACY_RESOLUTION_REL_PATH = Path("config") / "config_resolution.json"
+RESOLUTION_SCHEMA_VERSION = 1
 
 SERIES_MAX_POINTS = 128
 SERIES_BUCKETS = 42
@@ -1639,6 +1642,127 @@ def command_config(args) -> tuple[dict, int]:
     return result, exit_code
 
 
+def read_resolution_document(path: Path) -> dict:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeFailure(f"Failed to read resolution artifact: {path}: {exc}") from exc
+    if not isinstance(document, dict):
+        raise RuntimeFailure(f"Invalid resolution artifact: {path}: expected object")
+    return document
+
+
+def validate_resolution_payload(path: Path, payload: dict) -> None:
+    selections = payload.get("selections")
+    references = payload.get("references")
+    if not isinstance(selections, list):
+        raise RuntimeFailure(f"Invalid resolution payload: {path}: expected selections array")
+    if not isinstance(references, list):
+        raise RuntimeFailure(f"Invalid resolution payload: {path}: expected references array")
+    for selection in selections:
+        if not isinstance(selection, dict) or not isinstance(selection.get("chain"), list):
+            raise RuntimeFailure(
+                f"Invalid resolution payload: {path}: expected selection object with chain array"
+            )
+        if not isinstance(selection.get("key"), str):
+            raise RuntimeFailure(
+                f"Invalid resolution payload: {path}: expected selection key string"
+            )
+        if not all(isinstance(item, dict) for item in selection["chain"]):
+            raise RuntimeFailure(
+                f"Invalid resolution payload: {path}: expected selection chain objects"
+            )
+    if not all(isinstance(item, dict) for item in references):
+        raise RuntimeFailure(
+            f"Invalid resolution payload: {path}: expected reference objects"
+        )
+
+
+def read_resolution_artifact(run_dir: Path) -> tuple[Path | None, dict | None]:
+    path = run_dir / RESOLUTION_JSON_REL_PATH
+    if path.is_file():
+        document = read_resolution_document(path)
+        if document.get("type") != "json" or document.get("tag") != "config_resolution":
+            raise RuntimeFailure(
+                f"Invalid resolution envelope: {path}: expected type=json tag=config_resolution"
+            )
+        payload = document.get("data")
+        if not isinstance(payload, dict):
+            raise RuntimeFailure(f"Invalid resolution envelope: {path}: expected object data")
+        validate_resolution_payload(path, payload)
+        return RESOLUTION_JSON_REL_PATH, payload
+
+    path = run_dir / LEGACY_RESOLUTION_REL_PATH
+    if path.is_file():
+        payload = read_resolution_document(path)
+        validate_resolution_payload(path, payload)
+        return LEGACY_RESOLUTION_REL_PATH, payload
+
+    return None, None
+
+
+def command_resolution(args) -> tuple[dict, int]:
+    result = run_envelope("resolution")
+    exit_code = EXIT_OK
+    for value in args.runs:
+        resolved = resolve_run(value)
+        try:
+            source_path, payload = read_resolution_artifact(resolved.run_dir)
+        except RuntimeFailure as exc:
+            source_path = (
+                RESOLUTION_JSON_REL_PATH
+                if (resolved.run_dir / RESOLUTION_JSON_REL_PATH).is_file()
+                else LEGACY_RESOLUTION_REL_PATH
+            )
+            node = run_node(resolved)
+            node["resolution"] = {
+                "status": "source_error",
+                "source": str(source_path).replace("\\", "/"),
+                "schema_version": None,
+                "trunk": None,
+                "selections": [],
+                "references": [],
+            }
+            node["warnings"] = [str(exc)]
+            result["runs"].append(node)
+            exit_code = EXIT_RUNTIME
+            continue
+
+        if payload is None:
+            node = run_node(resolved)
+            node["resolution"] = {
+                "status": "missing",
+                "source": None,
+                "schema_version": None,
+                "trunk": None,
+                "selections": [],
+                "references": [],
+            }
+            node["warnings"] = []
+            result["runs"].append(node)
+            continue
+
+        selections = payload.get("selections", [])
+        schema_version = payload.get("schema_version")
+        warnings = []
+        if schema_version != RESOLUTION_SCHEMA_VERSION:
+            warnings.append(f"unsupported resolution schema_version={schema_version}")
+        node = run_node(resolved)
+        node["resolution"] = {
+            "status": "ok",
+            "source": str(source_path).replace("\\", "/"),
+            "schema_version": schema_version,
+            "trunk": selections[0]
+            if selections and selections[0].get("key") == "run.$"
+            else None,
+            "selections": selections,
+            "references": payload.get("references", []),
+        }
+        node["warnings"] = warnings
+        result["runs"].append(node)
+    return result, exit_code
+
+
 def command_tags(args) -> tuple[dict, int]:
     want_observed = not args.no_observed
     result = run_envelope("tags")
@@ -1816,6 +1940,51 @@ def render_config_markdown(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_resolution_markdown(result: dict) -> str:
+    lines = _md_header(result, "Config resolution")
+    for run in result["runs"]:
+        resolution = run["resolution"]
+        lines.append(f"## {run['run_name']}")
+        lines.append("")
+        lines.append(f"- status: {_cell(resolution['status'])}")
+        lines.append(f"- source: {_cell(resolution['source'])}")
+        lines.append(f"- resolution_schema_version: {_cell(resolution['schema_version'])}")
+        trunk = resolution["trunk"]
+        if trunk is not None:
+            trunk_terms = " > ".join(
+                f"{_cell(item.get('term'))} => {_cell(item.get('resolved'))}"
+                for item in trunk.get("chain", [])
+            )
+            lines.append(f"- trunk: {trunk_terms or '(empty)'}")
+        lines.append("")
+
+        lines.append("### Selections")
+        lines.append("")
+        _table(
+            lines,
+            ["key", "term", "resolved"],
+            [
+                [selection.get("key"), item.get("term"), item.get("resolved")]
+                for selection in resolution["selections"]
+                for item in selection.get("chain", [])
+            ],
+        )
+
+        lines.append("### References")
+        lines.append("")
+        _table(
+            lines,
+            ["source", "target", "value"],
+            [
+                [item.get("source"), item.get("target"), item.get("value")]
+                for item in resolution["references"]
+            ],
+        )
+
+    lines.extend(_md_warnings(result))
+    return "\n".join(lines) + "\n"
+
+
 def render_metrics_markdown(result: dict) -> str:
     lines = _md_header(result, "Metrics")
     lines.append(f"- ranges: {', '.join(item['label'] for item in result['ranges'])}")
@@ -1916,6 +2085,7 @@ MARKDOWN_RENDERERS = {
     "runs": render_runs_markdown,
     "tags": render_tags_markdown,
     "config": render_config_markdown,
+    "resolution": render_resolution_markdown,
     "metrics": render_metrics_markdown,
 }
 
@@ -2057,6 +2227,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_options(config)
 
+    resolution = subparsers.add_parser(
+        "resolution",
+        help="show config selection and value-reference resolution",
+        description="Show config selections, named trunk and value references for each Run.",
+        epilog=(
+            "examples:\n"
+            "  inspect_run.py resolution run_a\n"
+            "  inspect_run.py resolution run_a run_b --format md"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    resolution.add_argument("runs", metavar="RUN", nargs="+", help=RUN_HELP)
+    _add_common_options(resolution)
+
     metrics = subparsers.add_parser(
         "metrics",
         help="extract scalar metrics, aggregate them over ranges and compare runs",
@@ -2132,6 +2316,7 @@ COMMANDS = {
     "runs": command_runs,
     "tags": command_tags,
     "config": command_config,
+    "resolution": command_resolution,
     "metrics": command_metrics,
 }
 

@@ -152,15 +152,11 @@ void anet::rl::dqn::ValidateReplayPriorityConfig(
     if (!std::isfinite(config.per_eps) || config.per_eps < 0.0f) {
         ANET_SYSTEM_ERROR("Invalid learner.per_eps=" << config.per_eps << ". Expected a finite value >= 0.");
     }
-    if (!config.use_per && initial_priority_mode != ReplayInitialPriorityMode::FIXED) {
-        ANET_SYSTEM_ERROR("learner.per_initial_priority_mode=" << config.per_initial_priority_mode
-            << " requires learner.use_per=true; set the mode to fixed or enable PER.");
-    }
     if (config.use_per && config.per_eps == 0.0f) {
         LOG::warn() << "learner.per_eps=0 is allowed with learner.use_per=true, but zero-TD-error transitions may "
             << "receive zero sampling priority. Set learner.per_eps to a finite value > 0 to keep a positive priority floor.";
     }
-    if (initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
+    if (config.use_per && initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
         LOG::warn() << "learner.per_initial_priority_mode=actor_approx with learner.per_alpha=0 is allowed, but Actor "
             << "priority does not affect sampling. Set learner.per_alpha to a finite value > 0 to enable prioritized sampling.";
     }
@@ -1890,8 +1886,10 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
 
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, false, seed);
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, true, seed);
+    // PER無効時のmodeはPER有効化に備えた設定値でしかない(sampler=UNIFORMでReplayBufferへ渡さない)。
+    // estimatorもActorヒントも作らず完全に不活性にする。
     std::unique_ptr<InitialPriorityEstimator> estimator;
-    if (initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX) {
+    if (config_.use_per && initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX) {
         estimator = CreateInitialPriorityEstimator(config_);
     }
     this->replay_buffer_ = anet::rl::CreateReplayBuffer(

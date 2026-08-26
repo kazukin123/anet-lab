@@ -1,10 +1,10 @@
-﻿
+
 # ==============================================================================
 # 基本設定
 # ==============================================================================
 
-app.$ = app.online > P
-#app.$ = app.batchrun > P
+app.$ = app.online > P1
+#app.$ = app.batchrun > P1
 
 #train.seed = 5542346184581256364  # 
 #train.seed = 540080446186335311 # N-STEP評価用
@@ -17,9 +17,9 @@ train.num_envs = 256
 #train.num_envs = 10
 #train.num_envs = 1
 
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > BF16.agent > R
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R
+#DefaultDQNAgent.$ = @baseline > @qr > @heavy > A1 > @bf16 > A2
+DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
+#DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > A2
 
 #agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
 agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
@@ -31,14 +31,17 @@ app.run_name = run_{t}_ll
 # Run設定
 # ==============================================================================
 
-#backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
-backend.$ = backend.non-deterministic # 非決定論的（高速化）
+#backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
+backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 
-#net.$ = net.qr
-#R.quantile_mode = qr
+# ALGO プロファイル(@qr / @iqn)は agent.txt の共通定義を参照(切替はチェーンの 1 項)。配線実体 net.@qr / net.@iqn は本ファイル所有。
 
-R.quantile_mode = iqn
-net.$ = net.iqn
+# --- Run プロファイル ---
+run.@repro : backend.$ = backend.@deterministic
+run.@repro : DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
+run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
+
+#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
 
 
 # ==============================================================================
@@ -47,94 +50,94 @@ net.$ = net.iqn
 
 app.run_name = run_{t}_ll_iqn
 
-R.learner.iqn.current_taus.num_taus = 32
-R.learner.iqn.target_taus.num_taus = 32
+A2.learner.iqn.current_taus.num_taus = 32
+A2.learner.iqn.target_taus.num_taus = 32
 
-R.learner.update_warmup_steps = 8,192
-#R.learner.update_warmup_steps = 38,400
-#R.learner.update_warmup_steps = 76,800
+A2.learner.update_warmup_steps = 8,192
+#A2.learner.update_warmup_steps = 38,400
+#A2.learner.update_warmup_steps = 76,800
 
-#R.learner.replay_capacity = 256,000
-R.learner.replay_capacity = 512,000
+#A2.learner.replay_capacity = 256,000
+A2.learner.replay_capacity = 512,000
 
-R.train_policy.policy_type = UQE
-#R.train_policy.uqe_use_tail_mean = true
-R.train_policy.uqe_use_tail_mean = false
-R.train_policy.uqe_tau_start = 0.9
-#R.train_policy.uqe_tau_end = 0.7
-R.train_policy.uqe_tau_end = 0.5
-R.train_policy.tau_rule.sample_mode = random
-R.train_policy.tau_rule.num_taus = 32
-R.train_policy.uqe_eps_start = 0.3
-#R.train_policy.uqe_eps_end = 0.05
-R.train_policy.uqe_eps_end = 0.0
+A2.train_policy.policy_type = UQE
+#A2.train_policy.uqe_use_tail_mean = true
+A2.train_policy.uqe_use_tail_mean = false
+A2.train_policy.uqe_tau_start = 0.9
+#A2.train_policy.uqe_tau_end = 0.7
+A2.train_policy.uqe_tau_end = 0.5
+A2.train_policy.tau_rule.sample_mode = random
+A2.train_policy.tau_rule.num_taus = 32
+A2.train_policy.uqe_eps_start = 0.3
+#A2.train_policy.uqe_eps_end = 0.05
+A2.train_policy.uqe_eps_end = 0.0
 
-#R.train_policy.policy_type = EpsilonGreedy
-#R.train_policy.eps_start = 0.3
-#R.train_policy.eps_end = 0.0
-#R.train_policy.tau_rule.sample_mode = fixed
-#R.train_policy.tau_rule.num_taus = 32
-#R.train_policy.use_spatial_exploration = true
-
-
-R.eval_policy.policy_type = UQE
-#R.eval_policy.uqe_use_tail_mean = true
-R.eval_policy.uqe_use_tail_mean = false
-R.eval_policy.uqe_tau_start = 0.25
-R.eval_policy.uqe_tau_end = 0.25
-R.eval_policy.tau_rule.sample_mode = fixed
-R.eval_policy.tau_rule.num_taus = 32
-R.eval_policy.full_distribution_query.enabled = true
-R.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
-R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+#A2.train_policy.policy_type = EpsilonGreedy
+#A2.train_policy.eps_start = 0.3
+#A2.train_policy.eps_end = 0.0
+#A2.train_policy.tau_rule.sample_mode = fixed
+#A2.train_policy.tau_rule.num_taus = 32
+#A2.train_policy.use_spatial_exploration = true
 
 
-R.learner.replay_ratio = 8
-#R.learner.replay_batch_size = 512
-#R.learner.replay_batch_size = 1024
+A2.eval_policy.policy_type = UQE
+#A2.eval_policy.uqe_use_tail_mean = true
+A2.eval_policy.uqe_use_tail_mean = false
+A2.eval_policy.uqe_tau_start = 0.25
+A2.eval_policy.uqe_tau_end = 0.25
+A2.eval_policy.tau_rule.sample_mode = fixed
+A2.eval_policy.tau_rule.num_taus = 32
+A2.eval_policy.full_distribution_query.enabled = true
+A2.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+A2.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+
+
+A2.learner.replay_ratio = 8
+#A2.learner.replay_batch_size = 512
+#A2.learner.replay_batch_size = 1024
 
 train.eval.[eval_panel].env.limit_step = 200
 app.online.eval_panel.eval_config_tag = eval_panel
 
-#E.terrain_noise_height = 0.25
+#E1.terrain_noise_height = 0.25
 
-E.obs_include_action = true   # 風POMDP対策: 直前actionをobsに含める(032)
+E1.obs_include_action = true   # 風POMDP対策: 直前actionをobsに含める(032)
 
-#R.learner.per_initial_priority = 10
-R.learner.per_initial_priority_mode = max
+#A2.learner.per_initial_priority = 10
+A2.learner.per_initial_priority_mode = max
 
-R.learner.use_rb_prefetch = true
+A2.learner.use_rb_prefetch = true
 
-#R.train_policy.uqe_tau_start = 0.95 #0.9
-#R.train_policy.uqe_tau_end = 0.5  # 0.5
+#A2.train_policy.uqe_tau_start = 0.95 #0.9
+#A2.train_policy.uqe_tau_end = 0.5  # 0.5
 
-#E.contact_mode = pad           # ground pad
+#E1.contact_mode = pad           # ground pad
 
-E.landing_detection_mode = not_awake
+E1.landing_detection_mode = not_awake
 
-R.head_init.mode = orthogonal
-R.head_init.manual_gain = 0.01
+A2.head_init.mode = orthogonal
+A2.head_init.manual_gain = 0.01
 
-R.learner.use_tbo = false
+A2.learner.use_tbo = false
 
-R.learner.n_step = 5
+A2.learner.n_step = 5
 
-R.learner.weight_decay = 1e-4
+A2.learner.weight_decay = 1e-4
 
-R.model.soft_update_tau = 0.005
+A2.model.soft_update_tau = 0.005
 
-#R.qr.num_quantiles = 51
-R.qr.num_quantiles = 32
+#A2.qr.num_quantiles = 51
+A2.qr.num_quantiles = 32
 
-#R.learner.alpha = 1e-3  # 5e-4
+#A2.learner.alpha = 1e-3  # 5e-4
 
-R.train_policy.use_spatial_exploration = true
+A2.train_policy.use_spatial_exploration = true
 
-app.exp_pause_step  = 2,000,000
+# Run 予算は「ステップ数 依存設定」章の @vars : max_exp_step で一点化した
 
-#E.enable_wind = false
+#E1.enable_wind = false
 
-#R.learner.alpha = 5e-3
+#A2.learner.alpha = 5e-3
 
 
 # ==============================================================================
@@ -172,18 +175,18 @@ net.block.[Linear128].linear.out_features = 128
 net.block.[Linear128].init.mode = xavier
 
 
-net.branch.[main_feature].bind = vector
+DefaultDQNAgent.net.branch.[main_feature].bind = vector
 
-#net.branch.[main_feature].structure = Flatten > Linear256 > ReLU > Linear128 > ReLU
-#net.branch.[main_feature].structure = Flatten > Linear256 > SiLU > Linear128 > SiLU
-#net.branch.[main_feature].structure = Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
-#net.branch.[main_feature].structure = Flatten > Linear512 > LN512 > SiLU > Linear256 > LN256 > SiLU
-#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > SiLU > Linear128 > SiLU
-net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
+#DefaultDQNAgent.net.branch.[main_feature].structure = Flatten > Linear256 > ReLU > Linear128 > ReLU
+#DefaultDQNAgent.net.branch.[main_feature].structure = Flatten > Linear256 > SiLU > Linear128 > SiLU
+#DefaultDQNAgent.net.branch.[main_feature].structure = Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
+#DefaultDQNAgent.net.branch.[main_feature].structure = Flatten > Linear512 > LN512 > SiLU > Linear256 > LN256 > SiLU
+#DefaultDQNAgent.net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > SiLU > Linear128 > SiLU
+DefaultDQNAgent.net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
 
 
 # --- Dueling V/A: [デフォルト] 単一 features を Head が内部で V/A 分割（V1 と同一挙動）
-#net.body.output.[features] = main_feature
+#DefaultDQNAgent.net.body.output.[features] = main_feature
 
 # --- Dueling V/A: [代替] 明示的な V/A ストリーム
 #   切替時は上の output.[features] をコメントアウトし、下の6行を有効化する
@@ -197,81 +200,82 @@ net.block.[HeadFC128].init.mode = xavier
 net.block.[CosEmb].type = CosineEmbedding
 net.block.[CosEmb].cos.num_basis = 64
 net.block.[TauProj].type = Linear
-net.block.[TauProj].linear.out_features = 128     # main_feature 最終次元 128 と一致させる
+net.block.[TauProj].linear.out_features = ${net.block.[Linear128].linear.out_features}   # main_feature 最終次元へ値参照で追随(手動同期を廃止)
 net.block.[TauProj].init.mode = xavier
 
-#net.branch.[value_stream].structure = HeadFC128 > SiLU
-net.branch.[value_stream].structure = HeadFC128 > LN128 > SiLU
+#DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC128 > SiLU
+DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC128 > LN128 > SiLU
 
-#net.branch.[adv_stream].structure = HeadFC128 > SiLU
-net.branch.[adv_stream].structure = HeadFC128 > LN128 > SiLU
+#DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > SiLU
+DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > LN128 > SiLU
 
-net.body.output.[value_feature] = value_stream
-net.body.output.[adv_feature] = adv_stream
+DefaultDQNAgent.net.body.output.[value_feature] = value_stream
+DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 
-A.head_init.mode = xavier
-A.head_init.manual_gain = 0.0
+A1.head_init.mode = xavier
+A1.head_init.manual_gain = 0.0
 
 
-## --- 切替用
+## --- 切替用配線プロファイル(ALGO プロファイルの net.$ から参照される。config_data.txt には出ない) ---
 
-net.qr.branch.[value_stream].bind = main_feature
-net.qr.branch.[adv_stream].bind = main_feature
+net.@qr  : branch.[value_stream].bind = main_feature
+net.@qr  : branch.[adv_stream].bind = main_feature
 
-net.iqn.branch.[tau_embedding].bind = taus
-net.iqn.branch.[tau_embedding].structure = CosEmb > TauProj > SiLU              # (B,K,128)
-net.iqn.branch.[fusion].bind = main_feature * tau_embedding                     # (B,1,128)×(B,K,128)→(B,K,128)
-net.iqn.branch.[fusion].structure = Linear128 > LN128 > SiLU
-net.iqn.branch.[value_stream].bind = fusion
-net.iqn.branch.[adv_stream].bind = fusion
+net.@iqn : branch.[tau_embedding].bind = taus
+net.@iqn : branch.[tau_embedding].structure = CosEmb > TauProj > SiLU            # (B,K,128)
+net.@iqn : branch.[fusion].bind = main_feature * tau_embedding                   # (B,1,128)×(B,K,128)→(B,K,128)
+net.@iqn : branch.[fusion].structure = Linear128 > LN128 > SiLU
+net.@iqn : branch.[value_stream].bind = fusion
+net.@iqn : branch.[adv_stream].bind = fusion
 
 
 # ==============================================================================
 # ステップ数 依存設定
 # ==============================================================================
 
-#A.learner.per_beta_step = 1,000,000              # 1M
-A.learner.per_beta_step = 500,000
+#A1.learner.per_beta_step = 1,000,000              # 1M
+A1.learner.per_beta_step = 500,000
 
-#app.online.exp_pause_step  = -1
-#app.online.exp_pause_step  = 50,000
-#app.online.exp_pause_step  = 10,000,000   # 10M
-#app.online.exp_pause_step  = 4,000,000   # 4M
-app.online.exp_pause_step   = 2,000,000   # 2M
-#app.online.exp_pause_step   = 1,000,000   # 1M
-app.batchrun.exp_exit_step  = 2,000,000   # 2M
-#app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
+# --- Run 予算の一点化(値参照。schedule 系は予算非連動のため ${} で繋がない=059 D11) ---
+#@vars : max_exp_step = 50,000
+#@vars : max_exp_step = 10,000,000   # 10M
+#@vars : max_exp_step = 4,000,000    # 4M
+@vars : max_exp_step = 2,000,000     # 2M
+#@vars : max_exp_step = 1,000,000    # 1M
 
-#A.action_policy.eps_decay_step = 10,000,000      # 10M
-#A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
+app.online.exp_pause_step  = ${@vars.max_exp_step}
+app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 
-A.train_policy.uqe_eps_decay_steps = 1,000,000
-A.train_policy.uqe_tau_decay_steps = 1,000,000  # 10M
+#A1.action_policy.eps_decay_step = 10,000,000      # 10M
+#A1.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
+
+A1.train_policy.uqe_eps_decay_steps = 1,000,000
+A1.train_policy.uqe_tau_decay_steps = 1,000,000  # 10M
 
 
 # ==============================================================================
 # 環境依存Agent設定
 # ==============================================================================
 
-A.stucker.use_stacker = true
-A.stucker.stack_count = 4
-#A.stucker.stack_count = 8
+A1.stucker.use_stacker = true
+A1.stucker.stack_count = 4
+#A1.stucker.stack_count = 8
 
-A.learner.use_tbo = true
+A1.learner.use_tbo = true
 
-A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
+A1.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
 
 #train.eval_schedule.[test1].interval = 100
 train.eval_schedule.[test1].interval = 0
 #train.eval_schedule.[test1].interval = 1000
 train.eval.[test1].run_mode = eval1
-train.eval.[test1].env.$ = LunarLanderEnv.test1
+train.eval.[test1].env.$ = LunarLanderEnv.@test1
 
 #train.eval_schedule.[test2].interval = 100
 train.eval_schedule.[test2].interval = 0
 #train.eval_schedule.[test2].interval = 1000
 train.eval.[test2].run_mode = eval1
-train.eval.[test2].env.$ = LunarLanderEnv.test2
+train.eval.[test2].env.$ = LunarLanderEnv.@test2
 
 #metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
 #metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
@@ -279,15 +283,15 @@ train.eval.[test2].env.$ = LunarLanderEnv.test2
 #metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
-#A.learner.gamma = 0.99
-#A.reward_scaler.reference_q_std = 10.0
+#A1.learner.gamma = 0.99
+#A1.reward_scaler.reference_q_std = 10.0
 
 
 # ==============================================================================
 # デバッグ
 # ==============================================================================
 
-#A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
+#A1.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
 
 #app.online.train_panel.fps = 120
 #app.online.train_panel.fps = 30
@@ -300,16 +304,7 @@ train.eval.[test2].env.$ = LunarLanderEnv.test2
 # BF16
 # ==============================================================================
 
-#BF16.agent.train_policy.use_amp = true
-#BF16.agent.train_policy.use_amp_bf16 = true
-#BF16.agent.eval_policy.use_amp = true
-#BF16.agent.eval_policy.use_amp_bf16 = true
-#BF16.agent.target_policy.use_amp = true
-#BF16.agent.target_policy.use_amp_bf16 = true
-BF16.agent.learner.use_amp = true
-BF16.agent.learner.use_amp_bf16 = true
-BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
-#BF16.agent.learner.grad_clip_tau = 30.0
+# BF16 プロファイル(@bf16)は agent.txt の共通定義を参照。
 
 #net.block.[LN512].force_fp32 = false
 #net.block.[LN256].force_fp32 = false
@@ -325,38 +320,38 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
-metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
-#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.@per-prio > image.phm.@s01
+#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.@visit-maxq
 
-#metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
-metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
-#metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
-##metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
+#metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.@per-prio
+metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.@qmax > image.shm.@s01
+#metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.@qmax > image.shm.@s02
+##metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.@qmax > image.shm.01
 #metrics.image.[45_agent_img/05_shm_01_maxq_01].interval = 100
 
-#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
-#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
+#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.@per-prio > image.phm.@s01 > image.@test
+#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.@qmax > image.shm.01 > image.@test
 
 
 # ==============================================================================
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.$ = metrics.scalar.baseline > metrics.scalar.iqn_search_p0 > M
-#metrics.scalar.$ = metrics.scalar.min > M
-#metrics.scalar.$ = metrics.scalar.full > M
+metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1
+#metrics.scalar.$ = metrics.scalar.@min > M1
+#metrics.scalar.$ = metrics.scalar.@full > M1
 
-M.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.01
-M.[90_perf/82_exp_step] = exp_step @train $runner interval:100
-M.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
-M.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100
-M.[36_agent_iqn/02_target_mc_scale_ema] = iqn_target_mc_scale @learn $exp_step $ema interval:100
-M.[36_agent_iqn/03_priority_mc_ratio_ema] = iqn_priority_mc_ratio @learn $exp_step $ema interval:100
-M.[36_agent_iqn/04_first_priority_mc_ratio_ema] = iqn_first_priority_mc_ratio @learn $exp_step $ema interval:100
-M.[36_agent_iqn/05_first_pair_abs_td_ema] = iqn_first_pair_abs_td @learn $exp_step $ema interval:100
-M.[36_agent_iqn/06_first_cancellation_ratio_ema] = iqn_first_cancellation_ratio @learn $exp_step $ema interval:100
-M.[36_agent_iqn/07_first_quantile_loss_norm_ema] = iqn_first_quantile_loss_norm @learn $exp_step $ema interval:100
-M.[36_agent_iqn/08_sample_initial_count_ema] = per_sample_initial_count @learn $exp_step $ema interval:100
+M1.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.01
+M1.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+M1.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
+M1.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/02_target_mc_scale_ema] = iqn_target_mc_scale @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/03_priority_mc_ratio_ema] = iqn_priority_mc_ratio @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/04_first_priority_mc_ratio_ema] = iqn_first_priority_mc_ratio @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/05_first_pair_abs_td_ema] = iqn_first_pair_abs_td @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/06_first_cancellation_ratio_ema] = iqn_first_cancellation_ratio @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/07_first_quantile_loss_norm_ema] = iqn_first_quantile_loss_norm @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/08_sample_initial_count_ema] = per_sample_initial_count @learn $exp_step $ema interval:100
 
 
 # ==============================================================================
@@ -372,53 +367,53 @@ env.class_id = LunarLanderEnv
 # LunarLanderEnv
 # ==============================================================================
 
-#LunarLanderEnv.$ = LunarLanderEnv.normal > E
-#LunarLanderEnv.$ = LunarLanderEnv.easy > E
-LunarLanderEnv.$ = LunarLanderEnv.trunk > E
+#LunarLanderEnv.$ = LunarLanderEnv.@normal > E1
+#LunarLanderEnv.$ = LunarLanderEnv.@easy > E1
+LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
 
-LunarLanderEnv.test1.limit_step = 400
-LunarLanderEnv.test1.enable_wind = true
-LunarLanderEnv.test1.wind_power = 3.0
-LunarLanderEnv.test1.turbulence_power = 0.5
-LunarLanderEnv.test1.init.x_range = 1.5  # 1.0
-LunarLanderEnv.test1.init.y_range = 0.5
-LunarLanderEnv.test1.init.x_velocity_range = 4.0
-LunarLanderEnv.test1.init.y_velocity_range = 2.0
-LunarLanderEnv.test1.init.angle_range = 0.4              # 0.2=11.5度 0.4=23度 0.8=46度
-LunarLanderEnv.test1.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
+LunarLanderEnv.@test1.limit_step = 400
+LunarLanderEnv.@test1.enable_wind = true
+LunarLanderEnv.@test1.wind_power = 3.0
+LunarLanderEnv.@test1.turbulence_power = 0.5
+LunarLanderEnv.@test1.init.x_range = 1.5  # 1.0
+LunarLanderEnv.@test1.init.y_range = 0.5
+LunarLanderEnv.@test1.init.x_velocity_range = 4.0
+LunarLanderEnv.@test1.init.y_velocity_range = 2.0
+LunarLanderEnv.@test1.init.angle_range = 0.4              # 0.2=11.5度 0.4=23度 0.8=46度
+LunarLanderEnv.@test1.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
 
-LunarLanderEnv.test2.limit_step = 400
-LunarLanderEnv.test2.enable_wind = true
-LunarLanderEnv.test2.wind_power = 15.0
-LunarLanderEnv.test2.turbulence_power = 1.5
-LunarLanderEnv.test2.init.x_range = 1.5  # 1.0
-LunarLanderEnv.test2.init.y_range = 0.5
-LunarLanderEnv.test2.init.x_velocity_range = 4.0
-LunarLanderEnv.test2.init.y_velocity_range = 2.0
-LunarLanderEnv.test2.init.angle_range = 0.4              # 0.2=11.5度 0.4=23度 0.8=46度
-LunarLanderEnv.test2.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
-
-
-LunarLanderEnv.trunk.enable_wind = true
-LunarLanderEnv.trunk.wind_power = 3.0
-LunarLanderEnv.trunk.turbulence_power = 0.5
-LunarLanderEnv.trunk.terrain_point_count = 10
-LunarLanderEnv.trunk.terrain_noise_height = 0.7
-LunarLanderEnv.trunk.ground_y = 0.0
+LunarLanderEnv.@test2.limit_step = 400
+LunarLanderEnv.@test2.enable_wind = true
+LunarLanderEnv.@test2.wind_power = 15.0
+LunarLanderEnv.@test2.turbulence_power = 1.5
+LunarLanderEnv.@test2.init.x_range = 1.5  # 1.0
+LunarLanderEnv.@test2.init.y_range = 0.5
+LunarLanderEnv.@test2.init.x_velocity_range = 4.0
+LunarLanderEnv.@test2.init.y_velocity_range = 2.0
+LunarLanderEnv.@test2.init.angle_range = 0.4              # 0.2=11.5度 0.4=23度 0.8=46度
+LunarLanderEnv.@test2.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
 
 
-LunarLanderEnv.easy.enable_wind = false
-LunarLanderEnv.easy.terrain_point_count = 2
-LunarLanderEnv.easy.terrain_noise_height = 0.0
-LunarLanderEnv.easy.ground_y = 0.0
+LunarLanderEnv.@trunk.enable_wind = true
+LunarLanderEnv.@trunk.wind_power = 3.0
+LunarLanderEnv.@trunk.turbulence_power = 0.5
+LunarLanderEnv.@trunk.terrain_point_count = 10
+LunarLanderEnv.@trunk.terrain_noise_height = 0.7
+LunarLanderEnv.@trunk.ground_y = 0.0
 
-LunarLanderEnv.normal.enable_wind = true
-LunarLanderEnv.normal.wind_power = 15.0
-LunarLanderEnv.normal.turbulence_power = 1.5
-LunarLanderEnv.normal.ground_y = 0.2
-LunarLanderEnv.normal.terrain_point_count = 11 #21
-LunarLanderEnv.normal.terrain_noise_height = 1.0
+
+LunarLanderEnv.@easy.enable_wind = false
+LunarLanderEnv.@easy.terrain_point_count = 2
+LunarLanderEnv.@easy.terrain_noise_height = 0.0
+LunarLanderEnv.@easy.ground_y = 0.0
+
+LunarLanderEnv.@normal.enable_wind = true
+LunarLanderEnv.@normal.wind_power = 15.0
+LunarLanderEnv.@normal.turbulence_power = 1.5
+LunarLanderEnv.@normal.ground_y = 0.2
+LunarLanderEnv.@normal.terrain_point_count = 11 #21
+LunarLanderEnv.@normal.terrain_noise_height = 1.0
 
 LunarLanderEnv.limit_step = 1000
 LunarLanderEnv.contact_mode = ground           # ground pad

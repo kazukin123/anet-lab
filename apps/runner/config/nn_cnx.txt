@@ -201,14 +201,14 @@ net.block.[CLinearOut].type = Linear
 net.block.[CLinearOut].linear.out_features = 101
 net.block.[CLinearOut].init.mode = trunc_normal
 
-net.branch.ConvNeXtTiny.bind = grid
-net.branch.ConvNeXtTiny.structure = CStemConv96 > CStemLN96 > CN96(*3) > CDownLN96 > CDownConv96to192 > CN192(*3) > CDownLN192 > CDownConv192to384 > CN384(*9) > CDownLN384 > CDownConv384to768 > CN768(*3) > GAP2D > CLayerNormHead768 > CLinearOut
+net.branch.@ConvNeXtTiny.bind = grid
+net.branch.@ConvNeXtTiny.structure = CStemConv96 > CStemLN96 > CN96(*3) > CDownLN96 > CDownConv96to192 > CN192(*3) > CDownLN192 > CDownConv192to384 > CN384(*9) > CDownLN384 > CDownConv384to768 > CN768(*3) > GAP2D > CLayerNormHead768 > CLinearOut
 
-net.branch.ConvNeXtNano.bind = grid
-net.branch.ConvNeXtNano.structure = CStemConv80 > CStemLN80 > CN80(*2) > CDownLN80 > CDownConv80to160 > CN160(*2) > CDownLN160 > CDownConv160to320 > CN320(*8) > CDownLN320 > CDownConv320to640 > CN640(*2) > GAP2D > CLayerNormHead640 > CLinearOut
+net.branch.@ConvNeXtNano.bind = grid
+net.branch.@ConvNeXtNano.structure = CStemConv80 > CStemLN80 > CN80(*2) > CDownLN80 > CDownConv80to160 > CN160(*2) > CDownLN160 > CDownConv160to320 > CN320(*8) > CDownLN320 > CDownConv320to640 > CN640(*2) > GAP2D > CLayerNormHead640 > CLinearOut
 
-net.branch.ConvNeXtFemto.bind = grid
-net.branch.ConvNeXtFemto.structure = CStemConv48 > CStemLN48 > CN48(*2) > CDownLN48 > CDownConv48to96 > CN96(*2) > CDownLN96 > CDownConv96to192 > CN192(*6) > CDownLN192 > CDownConv192to384 > CN384(*2) > GAP2D > CLayerNormHead384 > CLinearOut
+net.branch.@ConvNeXtFemto.bind = grid
+net.branch.@ConvNeXtFemto.structure = CStemConv48 > CStemLN48 > CN48(*2) > CDownLN48 > CDownConv48to96 > CN96(*2) > CDownLN96 > CDownConv96to192 > CN192(*6) > CDownLN192 > CDownConv192to384 > CN384(*2) > GAP2D > CLayerNormHead384 > CLinearOut
 
-net.branch.ConvNeXtAtto.bind = grid
-net.branch.ConvNeXtAtto.structure = CStemConv40 > CStemLN40 > CN40(*2) > CDownLN40 > CDownConv40to80 > CN80(*2) > CDownLN80 > CDownConv80to160 > CN160(*6) > CDownLN160 > CDownConv160to320 > CN320(*2) > GAP2D > CLayerNormHead320 > CLinearOut
+net.branch.@ConvNeXtAtto.bind = grid
+net.branch.@ConvNeXtAtto.structure = CStemConv40 > CStemLN40 > CN40(*2) > CDownLN40 > CDownConv40to80 > CN80(*2) > CDownLN80 > CDownConv80to160 > CN160(*6) > CDownLN160 > CDownConv160to320 > CN320(*2) > GAP2D > CLayerNormHead320 > CLinearOut

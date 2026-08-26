@@ -418,11 +418,11 @@ anet::ConfigData MakeIqnTracerConfigData()
     config_data.Set("net.block.[CosEmb].cos.num_basis", 4);
     config_data.Set("net.block.[TauProj].type", "Linear");
     config_data.Set("net.block.[TauProj].linear.out_features", 4);
-    config_data.Set("net.branch.[main].bind", kVectorKey);
-    config_data.Set("net.branch.[tau_embedding].bind", anet::nn::kKey_Taus);
-    config_data.Set("net.branch.[tau_embedding].structure", "CosEmb > TauProj");
-    config_data.Set("net.branch.[fusion].bind", "main * tau_embedding");
-    config_data.Set("net.body.output.[features]", "fusion");
+    config_data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].bind", anet::nn::kKey_Taus);
+    config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].structure", "CosEmb > TauProj");
+    config_data.Set("DefaultDQNAgent.net.branch.[fusion].bind", "main * tau_embedding");
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "fusion");
     return config_data;
 }
 
@@ -1631,9 +1631,11 @@ TEST_CASE("DQN replay priority validation preserves invalid configuration errors
     config.per_eps = 1.0e-6f;
     config.use_per = false;
     config.per_initial_priority_mode = "max";
-    CHECK_THROWS(dqn::ValidateReplayPriorityConfig(
+    // PER無効時のmodeはPER有効化に備えた設定値であり正常ケース。エラーにもWARNにもしない。
+    CHECK_NOTHROW(dqn::ValidateReplayPriorityConfig(
         config, dqn::ParseReplayInitialPriorityMode(config)));
 
+    config.use_per = true;
     config.per_initial_priority_mode = "fixed";
     config.use_per_prio_clip = true;
     for (const float invalid : {
@@ -2504,12 +2506,13 @@ TEST_CASE("DefaultDQNAgent IQN acts through the public ConfigData path", "[dqn][
     const auto config_data = MakeIqnTracerConfigData();
     const auto env_spec = MakeIqnTracerEnvSpec();
     const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
-    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
-        dqn::DefaultDQNAgentConfig(config_data),
-        anet::nn::NetworkConfig(config_data),
-        batch_env_spec,
+    dqn::DefaultDQNAgentFactory factory;
+    auto agent = factory.CreateAgent(
         env_spec,
+        batch_env_spec,
         torch::Device(torch::kCPU),
+        config_data,
+        nullptr,
         123);
     auto actor = agent->CreateActor(
         batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
@@ -2538,18 +2541,99 @@ TEST_CASE("DefaultDQNAgent IQN acts through the public ConfigData path", "[dqn][
     CHECK_FALSE(state.obs.Contains(anet::nn::kKey_Taus));
 }
 
+TEST_CASE("DefaultDQNAgentFactory rejects IQN without a taus bind", "[dqn][iqn][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].bind", kVectorKey);
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring("DefaultDQNAgent.net.branch.[*].bind"));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects IQN without a selected tau branch", "[dqn][iqn][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    config_data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring("DefaultDQNAgent.net.branch.[*].bind"));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects QR with a taus bind", "[dqn][qr][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.quantile_mode", "qr");
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring(
+                "DefaultDQNAgent.net.branch.[tau_embedding].bind"));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects non-quantile mode with a taus bind", "[dqn][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.quantile_mode", "none");
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring(
+                "DefaultDQNAgent.net.branch.[tau_embedding].bind"));
+}
+
 TEST_CASE("DefaultDQNAgent IQN rejects a dead tau fusion branch", "[dqn][iqn][tracer]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::nn::InitNN();
     auto config_data = MakeIqnTracerConfigData();
-    config_data.Set("net.body.output.[features]", "main");
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
     const auto env_spec = MakeIqnTracerEnvSpec();
 
     CHECK_THROWS_WITH(
         dqn::DefaultDQNAgent(
             dqn::DefaultDQNAgentConfig(config_data),
-            anet::nn::NetworkConfig(config_data),
+            anet::nn::NetworkConfig(config_data, "DefaultDQNAgent.net"),
             rl::BatchEnvSpec{ 2, 1 },
             env_spec,
             torch::Device(torch::kCPU),
@@ -2590,7 +2674,7 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
         const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
         auto agent = std::make_shared<dqn::DefaultDQNAgent>(
             dqn::DefaultDQNAgentConfig(config_data),
-            anet::nn::NetworkConfig(config_data),
+            anet::nn::NetworkConfig(config_data, "DefaultDQNAgent.net"),
             batch_env_spec,
             env_spec,
             device,
@@ -2923,6 +3007,29 @@ TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[d
 
     REQUIRE(out.Get("q").has_value());
     CHECK(out.At("q").device().type() == torch::kCUDA);
+}
+
+TEST_CASE("RainbowAgentFactory reads its class-owned net tree", "[dqn][rainbow][config][tracer]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    anet::ConfigData config_data;
+    config_data.Set("RainbowAgent.use_dueling_net", false);
+    config_data.Set("RainbowAgent.learner.replay_capacity", 16);
+    config_data.Set("RainbowAgent.learner.replay_batch_size", 2);
+    config_data.Set("RainbowAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("RainbowAgent.net.body.output.[features]", "main");
+
+    dqn::RainbowAgentFactory factory;
+    const auto agent = factory.CreateAgent(
+        MakeIqnTracerEnvSpec(),
+        rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        config_data,
+        nullptr,
+        123);
+
+    REQUIRE(agent != nullptr);
 }
 
 TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][snapshot][rainbow]")

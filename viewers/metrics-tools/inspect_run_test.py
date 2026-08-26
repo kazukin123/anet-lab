@@ -66,6 +66,20 @@ class InspectRunTestBase(unittest.TestCase):
         config_path.write_text(text, encoding="utf-8")
         return config_path
 
+    def write_resolution(self, run_dir: Path, payload: dict, legacy: bool = False) -> Path:
+        relative_path = Path("config/config_resolution.json") if legacy else Path(
+            "json/config_resolution.json"
+        )
+        path = run_dir / relative_path
+        path.parent.mkdir(exist_ok=True)
+        document = payload if legacy else {
+            "type": "json",
+            "tag": "config_resolution",
+            "data": payload,
+        }
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
     def scalar_lines(self, points: list) -> str:
         # points は (tag, step, value)。MetricsLogger と同じ4 field だけを書く。
         return "".join(
@@ -701,6 +715,233 @@ class ConfigSubcommandTest(InspectRunTestBase):
             self.assertIn("agent.lr", text)
             self.assertIn("1e-3", text)
             self.assertIn("5e-4", text)
+
+
+class ResolutionSubcommandTest(InspectRunTestBase):
+    def test_reads_envelope_and_reports_named_trunk(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": [
+                    {
+                        "key": "run.$",
+                        "chain": [{"term": "@verify", "resolved": "run.@verify"}],
+                    },
+                    {
+                        "key": "AtariEnv.$",
+                        "chain": [{"term": "@v5", "resolved": "AtariEnv.@v5"}],
+                    },
+                ],
+                "references": [
+                    {"source": "app.limit", "target": "@vars.limit", "value": "100"}
+                ],
+            })
+
+            code, result, _ = self.run_cli_json(repo, ["resolution", "run_a"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["schema_version"], 2)
+            self.assertEqual(result["subcommand"], "resolution")
+            resolution = result["runs"][0]["resolution"]
+            self.assertEqual(resolution["status"], "ok")
+            self.assertEqual(resolution["source"], "json/config_resolution.json")
+            self.assertEqual(resolution["schema_version"], 1)
+            self.assertEqual(resolution["trunk"]["key"], "run.$")
+            self.assertEqual(resolution["selections"][1]["key"], "AtariEnv.$")
+            self.assertEqual(resolution["references"][0]["value"], "100")
+
+    def test_falls_back_to_legacy_raw_payload(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": [],
+                "references": [],
+            }, legacy=True)
+
+            code, result, _ = self.run_cli_json(repo, ["resolution", "run_a"])
+
+            self.assertEqual(code, 0)
+            resolution = result["runs"][0]["resolution"]
+            self.assertEqual(resolution["status"], "ok")
+            self.assertEqual(resolution["source"], "config/config_resolution.json")
+            self.assertIsNone(resolution["trunk"])
+
+    def test_reports_missing_resolution_as_normal(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self.make_run(repo, "ws1", "run_a")
+
+            code, result, err = self.run_cli_json(repo, ["resolution", "run_a"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            resolution = result["runs"][0]["resolution"]
+            self.assertEqual(resolution["status"], "missing")
+            self.assertIsNone(resolution["source"])
+            self.assertIsNone(resolution["schema_version"])
+            self.assertIsNone(resolution["trunk"])
+            self.assertEqual(resolution["selections"], [])
+            self.assertEqual(resolution["references"], [])
+
+    def test_warns_and_displays_unknown_resolution_schema(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 2,
+                "selections": [
+                    {"key": "Env.$", "chain": [{"term": "@a", "resolved": "Env.@a"}]}
+                ],
+                "references": [],
+            })
+
+            code, result, err = self.run_cli_json(repo, ["resolution", "run_a"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["runs"][0]["resolution"]["schema_version"], 2)
+            self.assertEqual(result["runs"][0]["resolution"]["selections"][0]["key"], "Env.$")
+            self.assertIn("unsupported resolution schema_version=2", err)
+            self.assertIn("unsupported resolution schema_version=2", result["runs"][0]["warnings"])
+
+    def test_primary_source_error_does_not_fall_back_to_legacy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": [],
+                "references": [],
+            }, legacy=True)
+            primary = run_dir / "json" / "config_resolution.json"
+            primary.parent.mkdir(exist_ok=True)
+            primary.write_text("{broken", encoding="utf-8")
+
+            code, out, err = self.run_cli(repo, ["resolution", "run_a"])
+            result = json.loads(out)
+
+            self.assertEqual(code, 1)
+            resolution = result["runs"][0]["resolution"]
+            self.assertEqual(resolution["status"], "source_error")
+            self.assertEqual(resolution["source"], "json/config_resolution.json")
+            self.assertEqual(resolution["selections"], [])
+            self.assertIn("Failed to read resolution artifact", err)
+
+    def test_invalid_resolution_payload_is_a_source_error(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": {},
+                "references": [],
+            })
+
+            code, result, err = self.run_cli_json(repo, ["resolution", "run_a"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual(result["runs"][0]["resolution"]["status"], "source_error")
+            self.assertIn("expected selections array", err)
+
+    def test_multiple_runs_report_resolution_independently(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            broken = self.make_run(repo, "ws1", "run_a")
+            broken_path = broken / "json" / "config_resolution.json"
+            broken_path.parent.mkdir(exist_ok=True)
+            broken_path.write_text("{broken", encoding="utf-8")
+            valid = self.make_run(repo, "ws1", "run_b")
+            self.write_resolution(valid, {
+                "schema_version": 1,
+                "selections": [],
+                "references": [],
+            })
+
+            code, result, _ = self.run_cli_json(
+                repo, ["resolution", "run_a", "run_b"]
+            )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(
+                [run["resolution"]["status"] for run in result["runs"]],
+                ["source_error", "ok"],
+            )
+
+    def test_markdown_reports_trunk_before_resolution_details(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": [
+                    {
+                        "key": "run.$",
+                        "chain": [{"term": "@verify", "resolved": "run.@verify"}],
+                    },
+                    {
+                        "key": "Env.$",
+                        "chain": [{"term": "@a", "resolved": "Env.@a"}],
+                    },
+                ],
+                "references": [
+                    {"source": "app.limit", "target": "@vars.limit", "value": "100"}
+                ],
+            })
+
+            code, text, _ = self.run_cli(
+                repo, ["resolution", "run_a", "--format", "md"]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("# Config resolution", text)
+            self.assertIn("- trunk: @verify => run.@verify", text)
+            self.assertLess(text.index("- trunk:"), text.index("### Selections"))
+            self.assertIn("| Env.$ | @a | Env.@a |", text)
+            self.assertIn("| app.limit | @vars.limit | 100 |", text)
+
+    def test_markdown_omits_trunk_summary_when_absent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": [
+                    {"key": "Env.$", "chain": [{"term": "@a", "resolved": "Env.@a"}]}
+                ],
+                "references": [],
+            })
+
+            code, text, _ = self.run_cli(
+                repo, ["resolution", "run_a", "--format", "md"]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertNotIn("- trunk:", text)
+            self.assertIn("| Env.$ | @a | Env.@a |", text)
+
+    def test_does_not_open_metrics_sources_or_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            run_dir = self.make_run(repo, "ws1", "run_a")
+            self.write_resolution(run_dir, {
+                "schema_version": 1,
+                "selections": [],
+                "references": [],
+            })
+
+            with mock.patch.object(subject, "open_run", side_effect=AssertionError("open_run")), \
+                    mock.patch.object(
+                        subject, "resolve_run_metrics", side_effect=AssertionError("metrics")
+                    ), mock.patch.object(
+                        subject.sqlite3, "connect", side_effect=AssertionError("cache")
+                    ):
+                code, result, _ = self.run_cli_json(repo, ["resolution", "run_a"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["runs"][0]["resolution"]["status"], "ok")
 
 
 class MetricsSubcommandTest(CacheFixtureMixin):

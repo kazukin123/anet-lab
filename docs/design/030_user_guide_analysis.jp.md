@@ -322,7 +322,19 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 
 `--diff`は値または存在有無がRun間で異なるkeyだけを返す。欠損は`present: false`で表し、値`null`と区別する。設定差がseedだけであることの確認や、反復Runが本当に同一設定であることの確認に使う。
 
-### 6.7 Metricsキャッシュとの関係
+### 6.7 設定の解決経路を確認する
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py resolution run_A run_B --format md
+```
+
+`resolution`は、selectionの適用順と`${}`値参照をRunごとに表示する。先頭selectionが`run.$`ならnamed幹として先に要約し、その後に各selectionの`key` / `term` / `resolved`と、各referenceの`source` / `target` / `value`を表示する。幹を使っていないRunでは幹要約を出さない。
+
+読み込みは`json/config_resolution.json`の`type=json` / `tag=config_resolution` envelopeを優先し、無ければ過渡期Runの`config/config_resolution.json`素payloadを読む。両方無いPH0以前のRunは`status: missing`として正常終了する。未知のresolution `schema_version`はwarning付きでbest-effort表示し、優先sourceが壊れている場合は下位sourceへ黙ってfallbackせず`status: source_error`と終了値1を返す。
+
+このsubcommandはmirrorだけを読み、`metrics.jsonl` / `metrics.jsonl.gz` / `metrics_cache.db`を開かない。複数Runを指定した場合も、一つのRunのresolution欠損や破損から他Runの表示を独立させる。
+
+### 6.8 Metricsキャッシュとの関係
 
 `metrics_cache.db`は完全にcurrentなときだけread-onlyで使い、それ以外はMetricsマスタへ自動fallbackする。判定結果と理由（`current` / `absent` / `invalid` / `partial` / `stale` / `error`）は`runs`と`metrics`の結果に載る。toolはキャッシュの作成・更新・修復・削除を一切行わない。
 
@@ -330,7 +342,7 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 
 Runner実行中のRunも読める。rawは実行開始時のサイズまでを読み、未終端の末尾行を取り込まず、読み取り中にマスタが変化した場合は`provisional`と`source_changed_during_read`を立てる。
 
-### 6.8 終了値
+### 6.9 終了値
 
 | 値 | 意味 |
 |---|---|

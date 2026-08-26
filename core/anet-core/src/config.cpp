@@ -752,7 +752,7 @@ namespace anet {
             OverwriteFromFile(overwrite_config_path);
         }
 
-        // CLI は一度だけ読み、selection/material と実効 leaf を resolver 内で二相適用する。
+        // CLI は一度だけ読み、全キーの第1相と実効 leaf の第2相を resolver 内で適用する。
         const auto cli_overrides = cmdLine
             ? ReadCmdLineOverrides(*cmdLine)
             : ConfigData::MapType{};

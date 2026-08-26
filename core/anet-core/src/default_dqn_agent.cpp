@@ -511,6 +511,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(
 
     // Actor を生成
     const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
+        && config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     const auto snapshot_sync_interval = is_train_actor && clone_model
         ? std::optional<anet::ProfiledValueConfig<step_t>>(config_.train_actor.sync_interval)
@@ -568,9 +569,51 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
     return result_list;
 }
 
+
 // ======================================================
 // DefaultDQNAgentFactory
 // ======================================================
+
+void DefaultDQNAgentFactory::ValidateQuantileNetworkContract(
+    const DefaultDQNAgentConfig& config,
+    const anet::nn::NetworkConfig& net_config,
+    const std::string& net_config_prefix)
+{
+    // 各 branch の解析済み bind factor から、taus を直接要求する設定キーを列挙する。
+    std::vector<std::string> taus_bind_keys;
+    for (const auto& [branch_name, branch_config] : net_config.branches) {
+        bool binds_taus = false;
+        for (const auto& term : branch_config.bind_terms) {
+            if (std::find(term.begin(), term.end(), anet::nn::kKey_Taus) != term.end()) {
+                binds_taus = true;
+                break;
+            }
+        }
+        if (binds_taus) {
+            taus_bind_keys.push_back(
+                net_config_prefix + ".branch.[" + branch_name + "].bind");
+        }
+    }
+
+    // quantile_mode と自分の net サブツリーとの局所契約を、モデル構築前に検証する。
+    if (config.quantile_mode == "iqn" && taus_bind_keys.empty()) {
+        ANET_SYSTEM_ERROR(
+            "Invalid DefaultDQNAgent.quantile_mode='iqn': expected at least one 'taus' factor in "
+            << net_config_prefix << ".branch.[*].bind.");
+    }
+    if (config.quantile_mode != "iqn" && !taus_bind_keys.empty()) {
+        std::string joined_keys;
+        for (const auto& key : taus_bind_keys) {
+            if (!joined_keys.empty()) {
+                joined_keys += ", ";
+            }
+            joined_keys += key;
+        }
+        ANET_SYSTEM_ERROR(
+            "Invalid DefaultDQNAgent.quantile_mode='" << config.quantile_mode
+            << "': unexpected 'taus' factor in " << joined_keys << ".");
+    }
+}
 
 std::shared_ptr<anet::rl::Agent> DefaultDQNAgentFactory::CreateAgent(
     const EnvSpec& env_spec, const BatchEnvSpec& batch_env_spec,
@@ -578,7 +621,9 @@ std::shared_ptr<anet::rl::Agent> DefaultDQNAgentFactory::CreateAgent(
     std::shared_ptr<anet::rl::Notifier> notifier, std::optional<anet::seed_t> seed) const
 {
     DefaultDQNAgentConfig config(config_data);
-	anet::nn::NetworkConfig net_config(config_data);
+    const auto net_config_prefix = GetTargetAgentClassId() + ".net";
+    anet::nn::NetworkConfig net_config(config_data, net_config_prefix);
+    ValidateQuantileNetworkContract(config, net_config, net_config_prefix);
     auto agent = std::make_shared<DefaultDQNAgent>(config, net_config, batch_env_spec, env_spec, device, seed);
     return agent;
 
