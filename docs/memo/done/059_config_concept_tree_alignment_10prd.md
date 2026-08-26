@@ -7,7 +7,7 @@
 > v2 = 3者レビュー(設計スレッド / Atari 側 / DropMerge・Optuna 担当)合意版。
 > v1(問題の一般化・選定なし)の分析は付録 A〜D に保全した。決定の根拠として本文から参照する。
 > 起点: QR/IQN の切替が `net.$` と `R.quantile_mode` の 2 行セット操作になる件。一般化すると「1 つの概念の切替が複数 namespace の同時編集を要求し、揃え忘れると起動時エラーか静かな不整合になる」箇所が 12 件ある(付録 B)。
-> 関連: [adr/0018-iqn-via-bind-product-dag.md](../adr/0018-iqn-via-bind-product-dag.md)、[adr/0027-eval-definition-schedule-separation.md](../adr/0027-eval-definition-schedule-separation.md)、[adr/0021-run-classification-by-workspace-folder.md](../adr/0021-run-classification-by-workspace-folder.md)、[029_config_profile_param_interp_10prd.md](done/029_config_profile_param_interp_10prd.md)、[033_imagecls_bf16_head_10prd.md](done/033_imagecls_bf16_head_10prd.md)、[052_eval_schedule_separation_10prd.md](done/052_eval_schedule_separation_10prd.md)、`CONTEXT.md`「Module Config」「Property」「configured eval tag」「eval schedule」。
+> 関連: [adr/0018-iqn-via-bind-product-dag.md](../../adr/0018-iqn-via-bind-product-dag.md)、[adr/0027-eval-definition-schedule-separation.md](../../adr/0027-eval-definition-schedule-separation.md)、[adr/0021-run-classification-by-workspace-folder.md](../../adr/0021-run-classification-by-workspace-folder.md)、[029_config_profile_param_interp_10prd.md](029_config_profile_param_interp_10prd.md)、[033_imagecls_bf16_head_10prd.md](033_imagecls_bf16_head_10prd.md)、[052_eval_schedule_separation_10prd.md](052_eval_schedule_separation_10prd.md)、`CONTEXT.md`「Module Config」「Property」「configured eval tag」「eval schedule」。
 > 概念図(2 ビュー: 構造ツリー / 合成フロー): https://claude.ai/code/artifact/695e8d24-d520-4096-b33d-0779ed1d2494
 > 設計分担: Claude=設計/PRD、実装=Codex、Run/commit=ユーザー。本書は self-contained。実装時は行番号ではなく、近傍のシンボル名・キー名で再検索する。
 
@@ -513,7 +513,7 @@ grill スキルの final simplification pass(done/058_grill_simplification_pass_
 
 ## 付録 A. 現行機構の事実(v1 §1.3 / §1.4、コード確認済み)
 
-合成機構は `ConfigManager::AutoMerge`([config.cpp](../../core/anet-core/src/config.cpp) の `MERGE_KEYWORD = ".$"` 以下、約 60 行)が全て。
+合成機構は `ConfigManager::AutoMerge`([config.cpp](../../../core/anet-core/src/config.cpp) の `MERGE_KEYWORD = ".$"` 以下、約 60 行)が全て。
 
 | 事実 | 根拠 |
 |---|---|

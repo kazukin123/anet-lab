@@ -14,4 +14,4 @@ QR/IQN のようなアルゴリズム概念の切替が `net.$`(グローバル 
 - ADR 0018 の Consequences にあった「QR との切替が quantile_mode と NN 設定の差し替えだけで完結する」(2 行切替を利点とする記述)は本 ADR が supersede する。ADR 0018 の bind `*` DAG・Body/Head 役割分担・検証責任境界は不変。
 - `NetworkConfig` を使う全 Agent(DefaultDQN / ImageCls / Rainbow)が同一規則に従う。RainbowAgent は Agent 柔軟性実証として保持され(059 D22)、本規則の適用対象(現用 env 構成に使用なし)。
 - 過去 Run の `config_data.txt` との自動 diff は net 系キーで断絶する(実効値の意味は不変、キー名のみ変更)。移行は golden comparison(旧/新 resolver の実効 leaf map 突合)で検証する(059 §8)。
-- 仕様詳細は `docs/memo/059_config_concept_tree_alignment_10prd.md`(D19 / §3.5)。
+- 仕様詳細は `docs/memo/done/059_config_concept_tree_alignment_10prd.md`(D19 / §3.5)。
