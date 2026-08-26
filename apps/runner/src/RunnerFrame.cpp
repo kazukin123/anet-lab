@@ -57,6 +57,9 @@ enum {
     ID_LogLevelVerbose,
     ID_LogLevelWarn,
     ID_LogLevelError,
+    ID_AlwaysOnTopOff,
+    ID_AlwaysOnTopAlways,
+    ID_AlwaysOnTopWhileRunning,
     ID_TrainPanel,
     ID_EvalPanel,
     ID_QValuePanel,
@@ -225,6 +228,13 @@ void RunnerFrame::SetupMenuBar()
     wxMenu* view_menu = new wxMenu;
     view_menu->Append(ID_ResetLayout, "&Reset Layout", "Reset to default layout");
     view_menu->AppendCheckItem(ID_LogView, "&Log View")->Check(true);
+
+    // topmost モードは起動中だけ保持し、毎回 Off から開始する。
+    wxMenu* always_on_top_menu = new wxMenu;
+    always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopOff, "&Off")->Check(true);
+    always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopAlways, "&Always");
+    always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopWhileRunning, "&While Running");
+    view_menu->AppendSubMenu(always_on_top_menu, "Always on &Top");
 
     // ログレベルメニューの追加
     wxMenu* log_level_menu = new wxMenu;
@@ -545,6 +555,31 @@ void RunnerFrame::UpdateToggleBitmap(
     toolbar->Refresh(false);
 }
 
+void RunnerFrame::SetAlwaysOnTopMode(AlwaysOnTopMode mode)
+{
+    // 選択を起動中の状態へ反映し、次回の定期更新を待たずに topmost を切り替える。
+    always_on_top_mode_ = mode;
+    ApplyAlwaysOnTopMode();
+}
+
+void RunnerFrame::ApplyAlwaysOnTopMode()
+{
+    // While Running は描画頻度や pane 表示ではなく、既存の再生/一時停止状態だけで判定する。
+    const bool train_active = wxGetApp().IsTrainingRunning() && !wxGetApp().IsTrainingPaused();
+    const bool eval_active = initialized_ && eval_panel_ != nullptr && !eval_panel_->IsPaused();
+    const bool should_stay_on_top = always_on_top_mode_ == AlwaysOnTopMode::Always
+        || (always_on_top_mode_ == AlwaysOnTopMode::WhileRunning && (train_active || eval_active));
+
+    // wxWidgets の window style を必要な場合だけ更新し、フォーカスや表示状態は変更しない。
+    const long current_style = GetWindowStyleFlag();
+    const bool stays_on_top = (current_style & wxSTAY_ON_TOP) != 0;
+    if (stays_on_top == should_stay_on_top) return;
+
+    SetWindowStyleFlag(should_stay_on_top
+        ? current_style | wxSTAY_ON_TOP
+        : current_style & ~wxSTAY_ON_TOP);
+}
+
 void RunnerFrame::UpdateToolBarBitmaps()
 {
     if (run_control_toolbar_ == nullptr) return;
@@ -585,6 +620,19 @@ void RunnerFrame::SetupEvents()
     Bind(wxEVT_MENU, &RunnerFrame::OnEvalStep, this, ID_EvalStep);
     Bind(wxEVT_MENU, &RunnerFrame::OnSaveAgent, this, ID_SaveAgent);
     Bind(wxEVT_MENU, &RunnerFrame::OnOpenRunFolder, this, ID_OpenRunFolder);
+
+    // topmost モードの選択と radio 表示を同じ一時状態へ同期する。
+    const std::pair<int, AlwaysOnTopMode> always_on_top_items[] = {
+        {ID_AlwaysOnTopOff, AlwaysOnTopMode::Off},
+        {ID_AlwaysOnTopAlways, AlwaysOnTopMode::Always},
+        {ID_AlwaysOnTopWhileRunning, AlwaysOnTopMode::WhileRunning},
+    };
+    for (const auto& [id, mode] : always_on_top_items) {
+        Bind(wxEVT_MENU, [this, mode](wxCommandEvent&) { SetAlwaysOnTopMode(mode); }, id);
+        Bind(wxEVT_UPDATE_UI, [this, mode](wxUpdateUIEvent& event) {
+            event.Check(always_on_top_mode_ == mode);
+        }, id);
+    }
 
     // パネル表示/非表示メニュー連動 (トグル・✕・チェック同期は基底が処理)
     RegisterPaneMenu(ID_LogView, log_panel_);
@@ -1108,6 +1156,7 @@ void RunnerFrame::OnOpenRunFolder(wxCommandEvent& WXUNUSED(event))
 void RunnerFrame::OnUpdateTrainStatus(wxUpdateUIEvent& WXUNUSED(event))
 {
     UpdateTrainStatus();
+    ApplyAlwaysOnTopMode();
 }
 
 bool RunnerFrame::TrySaveAgent(const std::filesystem::path& file_path)

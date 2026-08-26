@@ -47,6 +47,12 @@ protected:
     // AuiLayoutFrame フック
     void OnApplyLayoutPolicy() override;
 private:
+    enum class AlwaysOnTopMode {
+        Off,
+        Always,
+        WhileRunning,
+    };
+
     // 初期構築
     void SetupMenuBar();
     void CreateStatusBar();
@@ -54,6 +60,8 @@ private:
     void SetupPanes(const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config);
     void SetupEvents();
 private:
+    void SetAlwaysOnTopMode(AlwaysOnTopMode mode);
+    void ApplyAlwaysOnTopMode();
     void UpdateToggleBitmap(wxAuiToolBar* toolbar, int tool_id, bool running, std::optional<bool>& shown_as_running);
     void UpdateToolBarBitmaps();
     void UpdateTrainStatus();
@@ -102,6 +110,7 @@ private:
     // toggle bitmap へ反映済みの実行状態 (未反映は nullopt)。再生/一時停止の差し替え判定に使う。
     std::optional<bool> train_toggle_running_;
     std::optional<bool> eval_toggle_running_;
+    AlwaysOnTopMode always_on_top_mode_ = AlwaysOnTopMode::Off;
 
     const float train_config_fps_;
     const float eval_config_fps_;
