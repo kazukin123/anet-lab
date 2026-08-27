@@ -17,9 +17,9 @@ namespace eval_panel_detail {
 
 void ValidateEvalFps(float fps, const char* key)
 {
-	if (!std::isfinite(fps) || fps <= 0.0f || fps > 1000.0f) {
+	if (!std::isfinite(fps) || fps < 0.0f || fps > 1000.0f) {
 		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << fps
-			<< " (expected: finite number in (0, 1000])");
+			<< " (expected: finite number in [0, 1000])");
 	}
 }
 
@@ -133,7 +133,11 @@ void EvalPanel::SetFps(float fps)
 	update_timer_.Stop();
 	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
 	ANET_LOG_DEBUG("interval=" << interval);
-	update_timer_.Start(interval);
+	if (interval <= 0) {
+		update_timer_.Stop();
+	} else {
+		update_timer_.Start(interval);
+	}
 }
 
 void EvalPanel::DoStep()
