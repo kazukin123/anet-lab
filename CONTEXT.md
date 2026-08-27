@@ -311,6 +311,10 @@ _Avoid_: HTTPセッション（同一ブラウザの別タブが同一になり�
 同じquery channelのより新しいmetrics queryが、そのchannelの古いqueryを取り消して同時実行枠を明け渡させる規則。frontendのHTTP切断の検出には依存せず、サーバが連番の大小だけで判定する。異なるchannelは相互に取り消さず、プロセス全体の同時実行枠だけを共有する。取り消されたqueryはエラーではなく「追い出された」ものとして扱い、画面の更新失敗表示に出さない。
 _Avoid_: キャンセル（利用者の明示操作と混同）, abort（frontend側のHTTP打ち切りを指す別概念）, タイムアウト（時間経過による打ち切りと混同）
 
+**購読ヒント**:
+scalar metrics 定義から起動時に集約した購読一覧（key・event・target・interval）を生産者（agent 等）へ渡す静的ヒント。汎用機構であり、消費側が関心キーを filter して解釈し、購読の無い計測は行わない。内容は metrics定義レコードと同源（「実際にこう構築された」解決済み定義）。
+_Avoid_: subscription（一般語）, lazy metrics, plasticity hint（固有機構ではない）
+
 ### 観測と可視化
 
 **Observation**:
@@ -374,3 +378,17 @@ _Avoid_: eval episode 長, eval バッチ, サンプル数（size と区別）
 **accuracy**（env scalar キー）:
 直近に確定した採点サイクルの正解率。サイクル＝train は epoch（wrap で確定、初回 wrap 前は NaN）、eval は eval 1 回分（終端で確定）。境界で snapshot し `GetScalar("accuracy")` は常に snapshot を読む。per-lane の窓値（旧 episode 単位 stream キー）は持たない。
 _Avoid_: episode_accuracy, pass_accuracy, batch_accuracy
+
+### 可塑性・表現統計
+
+**srank**:
+バッチ特徴行列 (N, D) の特異値の累積寄与が 1−δ（δ=0.01 固定）に達する最小本数。上限は min(N, D) で、ランク崩壊の直接指標として読む。
+_Avoid_: effective rank（δ 規約を伴わない多義語）, rank
+
+**dormant unit**:
+バッチ平均絶対活性を層平均で正規化したスコアが τ 以下のユニット。τ=0.025 が dormant、τ=0 が dead（dead は dormant の部分集合）。
+_Avoid_: dead neuron（τ=0 の dead と τ=0.025 の dormant を区別しない呼び方）
+
+**部分 forward**:
+NetworkBody のトポロジカルソート済み branch 列から、対象 branch の依存閉包だけを実行して打ち切り、実行済み state を返す測定専用 forward（ForwardUpTo）。NoGrad + eval mode 固定で、学習経路の数値系列に影響しない。
+_Avoid_: partial forward（表記ゆれ）, probe forward, feature forward
