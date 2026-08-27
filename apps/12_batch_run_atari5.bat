@@ -22,9 +22,11 @@ REM
 REM  ARM MUST STAY QUOTED. The trunk chain contains '>', which cmd.exe would
 REM  otherwise treat as output redirection - both in SET and at the call site.
 REM
-REM  COST (2,150 steps/s measured on Breakout, no GPU sharing)
-REM    20M per run = about 2.6h  ->  5 games = about 13h  ->  2 arms = about 26h
-REM    50M per run = about 6.5h  ->  5 games = about 32h  ->  2 arms = about 65h
+REM  COST (Atari-5 measured 2026-08-27: 5,335 - 5,905 steps/s at RR1, 20M in about 57 min/game)
+REM    20M per run -> 5 games = about 4.8h   (measured)
+REM    50M per run -> 5 games = about 12h    (current budget, extrapolated)
+REM    RR4 arm is about 2.6x slower per run.
+REM  20M was too short: battle_zone / name_this_game / qbert were all still climbing.
 REM ============================================================================
 
 cd /d "%~dp0runner"
@@ -36,11 +38,18 @@ SET "BASE=run.@v5_iqn_impala_x2>run.@a5"
 
 REM ---- A/B AXIS --------------------------------------------------------------
 
-SET "ARM=run.$=%BASE%>run.@a5_base"
-call:run_all_games
-
+REM STAGE 1: wiring check + per-game baseline (about 4.2h)
 SET "ARM=run.$=%BASE%>run.@a5_apex"
 call:run_all_games
+
+REM STAGE 2: does RR1 beat RR4 outside Breakout? BTR uses the RR4 equivalent.
+REM   Uncomment the two lines below (keep STAGE 1 as the first arm).
+REM SET "ARM=run.$=%BASE%>run.@a5_apex>run.@a5_rr4"
+REM call:run_all_games
+
+REM LADDER A/B: settled on Breakout (block 20). Kept for cross-env recheck.
+REM SET "ARM=run.$=%BASE%>run.@a5_base"
+REM call:run_all_games
 
 REM ----------------------------------------------------------------------------
 
@@ -48,12 +57,20 @@ pause
 exit /b
 
 
+REM Order: readable first, then by Atari-5 regression weight, with phoenix pinned last.
+REM   qbert is the clearest signal; battle_zone + name_this_game carry 69 percent of the
+REM   median estimate; double_dunk has the lowest weight (0.068) and stays below random at 20M.
+REM
+REM   PHOENIX MUST STAY LAST until 999_batchrun_fatal_error_handling is implemented.
+REM   On 2026-08-27 it died with bad_alloc at 12.3M/20M after its episodes hit the 27,000
+REM   step truncation cap. A modal error dialog then blocked the queue for 13m48s. Running
+REM   it last means a repeat delays nothing.
 :run_all_games
-call:run_game battle_zone
-call:run_game double_dunk
-call:run_game name_this_game
-call:run_game phoenix
 call:run_game qbert
+call:run_game battle_zone
+call:run_game name_this_game
+call:run_game double_dunk
+call:run_game phoenix
 exit /b
 
 

@@ -21,8 +21,8 @@ DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
 #DefaultDQNAgent.$ = @baseline > A1 > @bf16 > @nature > A2 > A3         # Nature DQN 2015 再現(run.@nature_dqn を推奨)
 #DefaultDQNAgent.$ = @baseline > @random                             # Random Policy (env 天井の実測用)
 
-AtariEnv.$ = AtariEnv.@v5_noop0 > E1    # raw ALE v5 準拠(sticky 0.25 / noop 0 / episodic_life false / fire_reset false)
-#AtariEnv.$ = AtariEnv.@v5_noop30 > E1  # v5 + Gymnasium AtariPreprocessing 既定(上と noop_max だけが違う)
+#AtariEnv.$ = AtariEnv.@v5_noop0 > E1   # raw ALE v5(sticky のみが確率源)
+AtariEnv.$ = AtariEnv.@v5_noop30 > E1   # BTR 準拠(sticky + noop 30)。上と noop_max だけが違う
 #AtariEnv.$ = AtariEnv.@classic > E1    # クラシックプロファイル(sticky なし+NoOp+episodic life+fire reset)
 #AtariEnv.$ = AtariEnv.@100k > E1       # Atari-100k プロファイル(予算 100k steps とセット。Run設定 章参照)
 
@@ -37,6 +37,7 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 #run.$ = run.@v5_iqn_impala_x2
 #run.$ = run.@classic_iqn_impala_x2
 #run.$ = run.@nature_dqn
+#run.$ = run.@breakout_rr1_100m  # RR 探索終了時点(旧バンドル)の再現
 #run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_base  # 基本は 12_batch_run_atari5.bat から起動
 #run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex  # 基本は 12_batch_run_atari5.bat から起動
 
@@ -196,7 +197,7 @@ app.batchrun.exp_exit_step = 2,500,000
 #app.batchrun.exp_exit_step = 100,000       # Atari-100k 予算
 
 A1.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位) Dopamine / Rainbow は 250k steps 固定
-A1.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相当(exp_step 単位)
+A1.learner.update_warmup_steps = 200,000       # BTR Minimum Replay Size(exp_step 単位)。Dopamine 相当は 20,000
 
 
 # ==============================================================================
@@ -266,11 +267,44 @@ run.@nature_dqn            : train.eval.[eval2].env.max_episode_frames = 18,000
 run.@nature_dqn            : A2.eval_policy.eps_start = 0.05
 run.@nature_dqn            : A2.eval_policy.eps_end   = 0.05
 
+# RR 探索終了時点(旧バンドル)の再現。run_20260826-185555_atari_breakout_apex_rr1_100m と同条件。
+# 2026-08-27 の BTR 寄せで A1 と root ラダーが変わったため、差分を A3(チェーン最右)で明示して戻す。
+run.@breakout_rr1_100m : app.$ = app.online > P1
+run.@breakout_rr1_100m : backend.$ = backend.@non-deterministic
+run.@breakout_rr1_100m : AtariEnv.$ = AtariEnv.@v5_noop0 > E1     # 旧プロトコル(noop 0)
+run.@breakout_rr1_100m : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
+run.@breakout_rr1_100m : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
+run.@breakout_rr1_100m : E1.game = breakout                       # CLI で上書き可
+run.@breakout_rr1_100m : train.num_envs = 128
+run.@breakout_rr1_100m : train.seed = 1
+run.@breakout_rr1_100m : app.run_name = run_{t}_repro_rr1_${E1.game}_100m
+
+run.@breakout_rr1_100m : @vars.max_exp_step  = 100,000,000
+run.@breakout_rr1_100m : @vars.half_exp_step =  50,000,000
+
+run.@breakout_rr1_100m : A3.learner.replay_ratio = 1                # 内点最適(探索ブロック 25)
+run.@breakout_rr1_100m : A3.train_policy.use_spatial_exploration = true
+run.@breakout_rr1_100m : A3.train_policy.eps_start = 0.4            # ラダー上端(探索ブロック 20)
+run.@breakout_rr1_100m : A3.eval_policy.policy_type = EpsilonGreedy
+run.@breakout_rr1_100m : A3.eval_policy.eps_start = 0.01
+run.@breakout_rr1_100m : A3.eval_policy.eps_end   = 0.01
+
+# BTR 寄せ前の値。ここを外すと現行 A1(BTR 初期値)が効いて再現にならない。
+run.@breakout_rr1_100m : A3.learner.per_alpha = 0.5
+run.@breakout_rr1_100m : A3.learner.adam_eps = 1e-4
+run.@breakout_rr1_100m : A3.learner.grad_clip_tau = 30
+run.@breakout_rr1_100m : A3.learner.update_warmup_steps = 20,000
+run.@breakout_rr1_100m : A3.learner.iqn.current_taus.num_taus = 32
+run.@breakout_rr1_100m : A3.learner.iqn.target_taus.num_taus  = 32
+run.@breakout_rr1_100m : A3.train_policy.tau_rule.num_taus    = 32
+run.@breakout_rr1_100m : A3.eval_policy.tau_rule.num_taus     = 32
+run.@breakout_rr1_100m : train.eval_schedule.[eval1].interval = 2500
+
 # --- Atari-5 ---
 
 run.@a5      : app.$ = app.batchrun > P1
-run.@a5      : @vars.max_exp_step  = 20,000,000
-run.@a5      : @vars.half_exp_step = 10,000,000
+run.@a5      : @vars.max_exp_step  = 50,000,000   # BTR 予算(200M frames)。20M は 3 ゲームが上昇中で不足
+run.@a5      : @vars.half_exp_step = 25,000,000
 run.@a5      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 run.@a5      : A2.learner.replay_ratio = 1  # ★
 
@@ -281,6 +315,10 @@ run.@a5_base : app.run_name = run_{t}_a5_${E1.game}_base
 run.@a5_apex : A2.train_policy.use_spatial_exploration = true
 run.@a5_apex : A2.train_policy.eps_start = 0.4
 run.@a5_apex : app.run_name = run_{t}_a5_${E1.game}_apex
+
+# RR の env 汎化を見る腕。run.@a5_apex の後に重ねて使う(BTR 相当の RR=4)
+run.@a5_rr4  : A2.learner.replay_ratio = 4
+run.@a5_rr4  : app.run_name = run_{t}_a5_${E1.game}_rr4
 
 
 # ==============================================================================
@@ -329,6 +367,12 @@ DefaultDQNAgent.@nature.train_policy.eps_decay_steps = 250,000  # final explorat
 # quantile_mode は ALGO プロファイル(@qr / @iqn)が供給する。A 層へ直書きするとチェーン上 qr へ戻すので置かない。
 A1.qr.num_quantiles = 200                      # QR-DQN 論文値(@qr 選択時のみ効く)
 
+# IQN の τ 数。BTR は online / target / 行動選択とも 8(サーベイ §4.3)。@baseline 既定は 32。
+A1.learner.iqn.current_taus.num_taus = 8       # N
+A1.learner.iqn.target_taus.num_taus  = 8       # N'
+A1.train_policy.tau_rule.num_taus    = 8       # K(行動推論)
+A1.eval_policy.tau_rule.num_taus     = 8       # K(評価)
+
 # --- 探索 ---
 A1.train_policy.policy_type = EpsilonGreedy
 A1.train_policy.eps_start = 1.00
@@ -336,11 +380,13 @@ A1.train_policy.eps_end = 0.01
 
 # --- optimizer ---
 A1.learner.alpha = 1e-4                        # ★ lr。batch 256 の Atari 相場
-#A1.learner.adam_eps = 1.5e-4                   # Dopamine 系(0.01/batch)準拠
-A1.learner.adam_eps = 1e-4                     # 実測ベース
+#A1.learner.adam_eps = 1.5e-4                  # Dopamine 系(0.01/batch)準拠
+#A1.learner.adam_eps = 1e-4                    # 旧既定
+A1.learner.adam_eps = 1.95e-5                  # BTR Table D6(0.005/batch)
 A1.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
                                               # WD 0.1 は BBF(Atari-100k)由来で、探索ブロック 13 で不採用
-A1.learner.grad_clip_tau = 30
+A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm 実測 0.5-1.4 に対し平常時は不発
+#A1.learner.grad_clip_tau = 30                 # 探索ブロック 12 の採用値
 #A1.learner.grad_clip_tau = 5                  # 旧既定(@baseline 継承値)
 
 # --- TD ---
@@ -356,7 +402,7 @@ A1.learner.replay_ratio = 8                    # ★ samples/insert。古典 DQN
 A1.learner.use_rb_prefetch = true
 
 # --- PER ---
-A1.learner.per_alpha = 0.5                     # Rainbow 値
+A1.learner.per_alpha = 0.2                     # BTR Table D6。Rainbow 値は 0.5
 A1.learner.per_beta_start = 0.4
 A1.learner.per_beta_end = 1.0
 A1.learner.per_initial_priority_mode = max     # 文献の max-priority 初期化
@@ -606,7 +652,7 @@ AtariEnv.sound = false
 # eval コストは「1 エピソードの長さ × 発火回数」。エピソード長はスキルと共に伸びるので Run 後半ほど重い。
 
 # eval1 = target net / eval2 = online net(dqn_based_agent.cpp の IsForTarget)。両者の差は探索記録を参照。
-train.eval_schedule.[eval1].interval = 2500
+train.eval_schedule.[eval1].interval = 1000  # RR1 で BTR 相当(1M frames = 250K exp step)。旧 2500
 #train.eval_schedule.[eval2].interval = 2500
 #train.eval_schedule.[eval1].interval = 0    # num_envs ラダー等、eval コストを排除したい測定用
 train.eval_schedule.[eval2].interval = 0     # eval2 破棄。online net の評価と eval1/eval2 比の健全性指標を失う
@@ -685,8 +731,8 @@ M1.[52_eval2/24_game_len_max]         = $eval.[eval2] @episode_end $env max.game
 # app
 # ==============================================================================
 
-app.batchrun.train_panel.fps = 0
-app.batchrun.eval_panel.fps = 0
+#app.batchrun.train_panel.fps = 0
+#app.batchrun.eval_panel.fps = 0
 
 Conv2dPanel.conv2d.flip_vertical = false
 
