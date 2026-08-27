@@ -228,6 +228,15 @@ ExperienceSamples cpu_samples;
 }
 ```
 
+## GetScalar 実装ルール
+
+`GetScalar()` の `std::optional<float>` は、key の認識可否と値の成立可否を分けて扱ってください。
+
+- 指定された key が未知、または委譲先でも処理できない場合だけ `std::nullopt` を返す。
+- 指定された key が既知だが、現在の状態、タイミング、設定、入力不足により値を出力できない場合は `std::numeric_limits<float>::quiet_NaN()` を返す。
+- 未初期化 EMA、episode 未確定、PER 無効、batch 不足、非対応条件などは、既知 key なら `NaN` とし、0、前回値、既定値に偽装しない。
+- wrapper / aggregator は `std::nullopt` を未知 key、`NaN` を値未成立として扱う。
+
 ## Agent 系実装の所有権ルール
 
 Agent 関連の変数・オブジェクト追加時は、必ず以下の資料に従ってください。
