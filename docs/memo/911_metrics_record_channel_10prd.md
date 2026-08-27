@@ -56,14 +56,14 @@ Breakout が単独に寄っているのは λ ≈ 0.07 だからで、**ゲー�
 - **per-env アクセサも既にある**: `DiscreteBatchEnvBase::GetScalar(key, index)` は `index >= 0` で個別 env を返す（[`env.cpp:274`](../../core/anet-core/src/env.cpp:274)）。env 側の改修は不要。
 - 足りないのはメトリクス DSL の index セレクタで、現在の attr は `key` / `event` / `step` / `target` のみ（`observers.cpp` の ObserverFactory）。
 
-### 7. `TraceSink` は既に別概念で使われている
+### 7. `TraceCallback` は既に別概念で使われている
 
 ```cpp
-using TraceSink = std::function<void(std::string_view, const torch::Tensor&)>;
+using TraceCallback = std::function<void(std::string_view, const torch::Tensor&)>;
 ```
 [`common.hpp:27`](../../core/anet-core/include/anet/common.hpp:27)
 
-NN の層別 activation を viewer へ流すタップで、`MakeActionTraceSink` は `.slice(0, 0, 1)` で **env 0 だけ**を抜く（[`rl.cpp:20-25`](../../core/anet-core/src/rl.cpp:20)）。2026-07 のコアレビューで「常時 ON」を指摘済み。**「トレース」という語を新機構に当てると層 activation と衝突する。**
+NN の層別 activation を viewer へ流すタップで、`MakeActionTraceCallback` は `.slice(0, 0, 1)` で **env 0 だけ**を抜く（[`rl.cpp:20-25`](../../core/anet-core/src/rl.cpp:20)）。2026-07 のコアレビューで「常時 ON」を指摘済み。**「トレース」という語を新機構に当てると層 activation と衝突する。**
 
 ## 問題
 
@@ -132,7 +132,7 @@ Atari-5 sweep では 5 ゲームで λ が異なるため、`mean.game_score` �
 
 - ③ と **emission のコストは同じ**（transport が共通。§6）。違いは契約の有無だけ。
 - 912 / 932 が同じ器に乗る。932 の `EpisodeId` はそのまま本チャネルの識別子欄になる。
-- レベルがあることで、`TraceSink` が踏んだ「常時 ON で払い続ける」轍を避けられる。
+- レベルがあることで、`TraceCallback` が踏んだ「常時 ON で払い続ける」轍を避けられる。
 
 ## 目標契約（案。要確定）
 
@@ -164,7 +164,7 @@ metrics.record.[env_episode].fields = env,game_score,game_len,game_frames,lives
 
 | # | 論点 | 備考 |
 |---|---|---|
-| D1 | **名前** | 「トレース」は `TraceSink`（NN activation）と衝突する（§7）。932 が既に「Episode Journal」を使っているので `record` / `journal` 系へ寄せるか。CONTEXT.md の用語追加も含む |
+| D1 | **名前** | 「トレース」は `TraceCallback`（NN activation）と衝突する（§7）。932 が既に「Episode Journal」を使っているので `record` / `journal` 系へ寄せるか。CONTEXT.md の用語追加も含む |
 | D2 | level の enum と既定値 | 3 段でよいか。既定は `record` か `off` か |
 | D3 | 識別子欄の必須集合 | `env` / `episode_id` / `runner` / `model_version` のどこまでを共通契約にするか。912 が要求するのは `model_version` |
 | D4 | `fields` の宣言方法 | config で列挙するか、producer が決めるか。列挙するなら未知キーは fail-fast か |

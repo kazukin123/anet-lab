@@ -17,7 +17,7 @@ namespace LOG = anet::log;
 
 namespace anet::rl {
 
-anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace)
+anet::TraceCallback MakeActionTraceCallback(anet::TensorDict& trace)
 {
     return [&trace](std::string_view key, const torch::Tensor& activation) {
         trace.Set(std::string(key), activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone());

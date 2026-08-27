@@ -56,7 +56,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     ANET_PROFILE_SCOPE_NEXT(obs_to_device);
     auto obs = state.obs.To(device_);
     anet::TensorDict trace;
-    anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
+    anet::TraceCallback callback = anet::rl::MakeActionTraceCallback(trace);
     ANET_PROFILE_SCOPE_NEXT(forward);
     anet::TensorDict outputs;
     {
@@ -64,7 +64,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
             device_,
             config_.bf16.enabled && config_.bf16.actor,
             torch::kBFloat16);
-        outputs = network_->Forward(obs, sink);
+        outputs = network_->Forward(obs, callback);
     }
 
     // 推論後処理

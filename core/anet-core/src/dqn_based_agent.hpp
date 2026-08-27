@@ -504,17 +504,17 @@ namespace anet::rl::dqn {
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceSink& sink = {}) const = 0;
+            const anet::TraceCallback& callback = {}) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceCallback& callback) const;
         anet::TensorDict ForwardForActionWithTaus(
             const anet::TensorDict& obs, const torch::Tensor& taus,
-            std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
+            std::shared_ptr<anet::nn::Network> network, const anet::TraceCallback& callback) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
@@ -545,7 +545,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceSink& sink) const;
+            const anet::TraceCallback& callback) const;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -566,13 +566,13 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceSink& sink) const;
+            const anet::TraceCallback& callback) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink,
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback,
             bool iqn_use_full_range = false) const;
         void UpdateTau(step_t step);
     private:
@@ -589,7 +589,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceSink& sink) const;
+            const anet::TraceCallback& callback) const;
         void OnLearn(const StepCounts& counts) override;
     };
 

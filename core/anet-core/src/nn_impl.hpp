@@ -145,7 +145,7 @@ namespace anet::nn {
     public:
         explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks = {});
 
-        torch::Tensor Forward(torch::Tensor input, const anet::TraceSink& sink = {});
+        torch::Tensor Forward(torch::Tensor input, const anet::TraceCallback& callback = {});
         const std::vector<std::shared_ptr<NetworkBlock>>& GetBlocks() const { return blocks_; }
     private:
         std::vector<std::shared_ptr<NetworkBlock>> blocks_;
@@ -162,7 +162,7 @@ namespace anet::nn {
             std::shared_ptr<NetworkStruct> network_struct);
 
         /// 現在のTensorDictから必要な入力(bind)を拾って結合し、処理を実行して結果をDictに書き戻す
-        void Execute(anet::TensorDict& current_state, const anet::TraceSink& sink = {});
+        void Execute(anet::TensorDict& current_state, const anet::TraceCallback& callback = {});
 
         const std::string& GetName() const { return name_; }
         const std::vector<std::vector<std::string>>& GetBindTerms() const { return bind_terms_; }
@@ -213,7 +213,7 @@ namespace anet::nn {
             std::map<std::string, std::string> output_keys);
 
         // DAG全体のForward実行
-        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceSink& sink = {});
+        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceCallback& callback = {});
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
         const std::map<std::string, std::string>& GetOutputKeys() const { return output_keys_; }
 

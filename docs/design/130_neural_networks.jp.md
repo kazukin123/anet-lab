@@ -136,7 +136,7 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +Forward(input, sink)
+  +Forward(input, callback)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -213,7 +213,7 @@ sequenceDiagram
     N-->>C: output
 ```
 
-`TraceSink`を渡した場合は、module/branchの中間Tensorを可視化・診断用に収集できる。
+`TraceCallback`を渡した場合は、module/branchの中間Tensorを可視化・診断用に収集できる。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -244,7 +244,7 @@ sequenceDiagram
 ### 7.4 可視化と性能
 
 - `MakeGraphViz`はNetworkのbranch、factorごとの依存edge、block、shape、parameter情報を構築情報から出力する。branch設定詳細を有効にした場合は`bind_concat_dim`も表示する。
-- `GetTensorDictFunction`とTraceSinkはConv2d可視化やprobeからNetwork内部へ到達するseamである。
+- `GetTensorDictFunction`とTraceCallbackはConv2d可視化やprobeからNetwork内部へ到達するseamである。
 - forward、attention、主要blockはprofile対象であり、module追加時はshape/batch sizeに応じたcostを実測する。
 - moduleを細分化しすぎたprofile rangeは測定noiseになるため、意味のある処理境界を選ぶ。
 

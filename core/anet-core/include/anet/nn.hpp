@@ -125,7 +125,7 @@ namespace anet::nn {
             std::shared_ptr<NetworkBody> body,
             std::shared_ptr<NetworkHead> head);
 
-        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceSink& sink = {});
+        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceCallback& callback = {});
 
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)

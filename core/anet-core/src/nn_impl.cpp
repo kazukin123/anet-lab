@@ -734,18 +734,18 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
     }
 }
 
-torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceSink& sink)
+torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceCallback& callback)
 {
     ANET_PROFILE_FUNC();
 
-    if (sink) sink("00_Input", input);
+    if (callback) callback("00_Input", input);
 
     torch::Tensor x = input;
     int index = 1;
     for (const auto& block : blocks_) {
         x = block->Forward(x);
-        if (sink && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
-            sink(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
+        if (callback && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
+            callback(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
         }
     }
     return x;
@@ -856,7 +856,7 @@ NetworkBranch::NetworkBranch(
     register_module("network_struct", network_struct_);
 }
 
-void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSink& sink)
+void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceCallback& callback)
 {
     torch::Tensor block_input;
 
@@ -956,15 +956,15 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSi
         }
     }
 
-    anet::TraceSink branch_sink;
-    if (sink) {
+    anet::TraceCallback branch_callback;
+    if (callback) {
         const std::string prefix = name_ + "/";
-        branch_sink = [&sink, prefix](std::string_view key, const torch::Tensor& tensor) {
-            sink(prefix + std::string(key), tensor);
+        branch_callback = [&callback, prefix](std::string_view key, const torch::Tensor& tensor) {
+            callback(prefix + std::string(key), tensor);
         };
     }
 
-    torch::Tensor output = network_struct_->Forward(block_input, branch_sink);
+    torch::Tensor output = network_struct_->Forward(block_input, branch_callback);
     current_state.Set(name_, output);
 }
 
@@ -987,7 +987,7 @@ NetworkBody::NetworkBody(
     }
 }
 
-anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
+anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet::TraceCallback& callback)
 {
     ANET_PROFILE_FUNC();
 
@@ -996,7 +996,7 @@ anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet:
 
     // 入力順ソートされた順序でブランチ群を実行
     for (const auto& branch : branches_) {
-        branch->Execute(state, sink);
+        branch->Execute(state, callback);
     }
 
     // 指定されたマッピングに従って Head用の TensorDict を構築
@@ -1317,12 +1317,12 @@ Network::Network(
     if (head_) register_module("head", head_);
 }
 
-anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
+anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::TraceCallback& callback)
 {
     ANET_PROFILE_FUNC();
 
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
-    auto features = body_->Forward(input, sink);
+    auto features = body_->Forward(input, callback);
 
     // Head部を実行
     if (head_) {

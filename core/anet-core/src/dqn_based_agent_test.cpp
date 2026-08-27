@@ -85,7 +85,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     using dqn::ActionPolicy::CreateSpatialLaneTensor;
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
-        std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
+        std::shared_ptr<anet::RandomGenerator>, const anet::TraceCallback&) const override
     {
         return std::make_shared<dqn::DQNActionInfo>();
     }

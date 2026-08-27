@@ -1031,19 +1031,19 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const
+    const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceCallback& callback) const
 {
-    return network->Forward(obs, sink);
+    return network->Forward(obs, callback);
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     const anet::TensorDict& obs, const torch::Tensor& taus,
-    std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const
+    std::shared_ptr<anet::nn::Network> network, const anet::TraceCallback& callback) const
 {
     // 呼び出し元やReplayBufferが所有する辞書を変更せず、forward専用入力へtausを足す。
     anet::TensorDict network_input = obs;
     network_input.Set(anet::nn::kKey_Taus, taus);
-    return ForwardForAction(network_input, std::move(network), sink);
+    return ForwardForAction(network_input, std::move(network), callback);
 }
 
 torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialTensor(
@@ -1242,7 +1242,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
 }
 
 std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
+    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback) const
 {
     ANET_PROFILE_FUNC();
 
@@ -1256,9 +1256,9 @@ std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const ane
         auto taus = GenerateTaus(
             obs.Size(0), config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
             0.0f, 1.0f, obs.device(), *rnd);
-        out = ForwardForActionWithTaus(obs, taus, network, sink);
+        out = ForwardForActionWithTaus(obs, taus, network, callback);
     } else {
-        out = ForwardForAction(obs, network, sink);
+        out = ForwardForAction(obs, network, callback);
     }
     auto q_values = out.At("q");
     torch::Tensor q_quantiles;
@@ -1422,7 +1422,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink,
+    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback,
     bool iqn_use_full_range) const
 {
     ANET_PROFILE_FUNC();
@@ -1491,10 +1491,10 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         }
 
         ANET_PROFILE_SCOPE_NEXT(forward);
-        out = ForwardForActionWithTaus(obs, iqn_taus, network, sink);
+        out = ForwardForActionWithTaus(obs, iqn_taus, network, callback);
     } else {
         ANET_PROFILE_SCOPE_NEXT(forward);
-        out = ForwardForAction(obs, network, sink);
+        out = ForwardForAction(obs, network, callback);
     }
     // Headのqは連結した全tausの平均になるため、full query有効時は使わず各領域から平均を再計算する。
     ANET_PROFILE_SCOPE_NEXT(split_outputs);
@@ -1591,14 +1591,14 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
+    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback) const
 {
     if (IsSpatialExplorationEnabled()) {
         const int64_t N = obs.Size(0);
         auto tau_tensor = GetSpatialTauTensor(N, obs.device()).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, callback);
     }
-    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd, sink);
+    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd, callback);
 }
 
 
@@ -1621,19 +1621,19 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& coun
 }
 
 std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
+    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback) const
 {
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
     const int64_t N = obs.Size(0);
     auto device = obs.device();
     if (IsSpatialExplorationEnabled()) {
         auto tau_tensor = GetSpatialTauTensor(N, device).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, callback);
     }
 
     if (config_.quantile_mode == "iqn") {
         return MakeUQEActionInfo(
-            0.0f, torch::Tensor(), obs, greedy_only, network, rnd, sink,
+            0.0f, torch::Tensor(), obs, greedy_only, network, rnd, callback,
             /*iqn_use_full_range=*/true);
     }
 
@@ -1641,7 +1641,7 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
     auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
 
     // tau_tensor(ランダム)でUQE適用
-    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
+    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, callback);
 }
 
 
@@ -1728,15 +1728,15 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     // 行動選択
     auto rnd = context_->GetRandomGenerator();
     anet::TensorDict trace;
-    anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
+    anet::TraceCallback callback = anet::rl::MakeActionTraceCallback(trace);
     std::shared_ptr<DQNActionInfo> act_info;
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, sink);
+        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, callback);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, sink);
+        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, callback);
     }
 
     // 学習Actorだけが、既存forwardの平均Qから初期優先度用ヒントをpackする。
