@@ -1,20 +1,18 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPOutputStream;
@@ -37,6 +35,180 @@ class MetricsIngestorIntegrationTest {
 
 	@TempDir
 	private Path tempDir;
+
+	@Test
+	void unchangedReadyRunSkipsFingerprintAndDatabaseWork() throws Exception {
+		final String runId = "run-ready-fast-path";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLines(0, 2),
+				StandardCharsets.UTF_8);
+
+		final CountingDatabase database = new CountingDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		assertEquals(IngestState.READY, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+		database.resetCounts();
+		final MetricsSource unchangedSource = spy(MetricsSource.select(runDir).orElseThrow());
+
+		final MetricsIngestor.IngestOutcome idle = ingestor.ingestBlock(
+				runId, runDir, unchangedSource);
+
+		assertFalse(idle.didWork());
+		assertFalse(idle.immediateRetry());
+		assertEquals(IngestState.READY, idle.state());
+		assertEquals(0, database.prepareCount());
+		assertEquals(0, database.openWriteCount());
+		verify(unchangedSource, never()).headSha256();
+		verify(unchangedSource, never()).headSha256(org.mockito.ArgumentMatchers.anyLong());
+		verify(unchangedSource, never()).sha256Before(org.mockito.ArgumentMatchers.anyLong());
+	}
+
+	@Test
+	void unchangedErrorRunSkipsFingerprintAndDatabaseWork() throws Exception {
+		final String runId = "run-error-fast-path";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				"{invalid json}\n",
+				StandardCharsets.UTF_8);
+
+		final CountingDatabase database = new CountingDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		assertEquals(IngestState.ERROR, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+		database.resetCounts();
+		final MetricsSource unchangedSource = spy(MetricsSource.select(runDir).orElseThrow());
+
+		final MetricsIngestor.IngestOutcome idle = ingestor.ingestBlock(
+				runId, runDir, unchangedSource);
+
+		assertFalse(idle.didWork());
+		assertEquals(IngestState.ERROR, idle.state());
+		assertEquals(0, database.prepareCount());
+		assertEquals(0, database.openWriteCount());
+		verify(unchangedSource, never()).headSha256();
+		verify(unchangedSource, never()).sha256Before(org.mockito.ArgumentMatchers.anyLong());
+	}
+
+	@Test
+	void failedErrorPersistenceDoesNotPublishFastPathObservation() throws Exception {
+		final String runId = "run-error-persistence-failure";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				"{invalid json}\n",
+				StandardCharsets.UTF_8);
+
+		final FailErrorPersistenceDatabase database = new FailErrorPersistenceDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		assertEquals(IngestState.ERROR, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+		database.resetCounts();
+
+		assertEquals(IngestState.ERROR, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+
+		assertEquals(1, database.prepareCount());
+		assertTrue(database.openWriteCount() > 0);
+	}
+
+	@Test
+	void runReentryAfterWorkSetPruneUsesFullValidation() throws Exception {
+		final String runId = "run-reentry";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLines(0, 1),
+				StandardCharsets.UTF_8);
+
+		final CountingDatabase database = new CountingDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		assertEquals(IngestState.READY, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+		ingestor.retainRuns(Set.of());
+		database.resetCounts();
+
+		assertEquals(IngestState.READY, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+
+		assertEquals(1, database.prepareCount());
+		assertEquals(1, database.openWriteCount());
+	}
+
+	@Test
+	void newIngestorDoesNotReuseAnotherProcessObservation() throws Exception {
+		final String runId = "run-process-restart";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLines(0, 1),
+				StandardCharsets.UTF_8);
+
+		final CountingDatabase database = new CountingDatabase();
+		assertEquals(IngestState.READY, new MetricsIngestor(database).ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+		database.resetCounts();
+
+		assertEquals(IngestState.READY, new MetricsIngestor(database).ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+
+		assertEquals(1, database.prepareCount());
+		assertEquals(1, database.openWriteCount());
+	}
+
+	@Test
+	void cacheDatabaseAttributeChangeReturnsToFullValidation() throws Exception {
+		final String runId = "run-cache-attribute-change";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLines(0, 1),
+				StandardCharsets.UTF_8);
+
+		final CountingDatabase database = new CountingDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		assertEquals(IngestState.READY, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+		final Path cache = runDir.resolve("metrics_cache.db");
+		final FileTime changedMtime = FileTime.fromMillis(
+				Files.getLastModifiedTime(cache).toMillis() + 2_000L);
+		Files.setLastModifiedTime(cache, changedMtime);
+		database.resetCounts();
+
+		assertEquals(IngestState.READY, ingestor.ingestBlock(
+				runId,
+				runDir,
+				MetricsSource.select(runDir).orElseThrow()).state());
+
+		assertEquals(1, database.prepareCount());
+		assertEquals(1, database.openWriteCount());
+	}
 
 	@Test
 	void switchYieldCommitsCompleteLinesAndNextBlockResumesFromCommittedOffset()
@@ -64,6 +236,7 @@ class MetricsIngestorIntegrationTest {
 		final MetricsIngestor.IngestOutcome yielded =
 				ingestor.ingestBlock(runId, runDir, source);
 		assertEquals(IngestState.CONVERTING, yielded.state());
+		assertTrue(yielded.immediateRetry());
 		try (ConnectionHandle handle = database.openRead(runDir)) {
 			assertEquals(2L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
 			assertEquals("converting", queryString(
@@ -75,6 +248,7 @@ class MetricsIngestorIntegrationTest {
 		final MetricsIngestor.IngestOutcome resumed =
 				ingestor.ingestBlock(runId, runDir, source);
 		assertEquals(IngestState.READY, resumed.state());
+		assertFalse(resumed.immediateRetry());
 		try (ConnectionHandle handle = database.openRead(runDir)) {
 			assertEquals(5L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
 			assertEquals("ready", queryString(
@@ -792,6 +966,51 @@ class MetricsIngestorIntegrationTest {
 		public ConnectionHandle openWrite(Path runDir) throws SQLException {
 			if (writeCount.incrementAndGet() == 2) {
 				throw new SQLException("Injected Metrics cache write failure");
+			}
+			return super.openWrite(runDir);
+		}
+	}
+
+	private static class CountingDatabase extends MetricsCacheDatabase {
+		private final AtomicInteger prepareCount = new AtomicInteger();
+		private final AtomicInteger openWriteCount = new AtomicInteger();
+
+		@Override
+		public CachePreparation prepare(
+				Path runDir,
+				MetricsSource source,
+				boolean activeGzipSession) throws java.io.IOException, SQLException {
+			prepareCount.incrementAndGet();
+			return super.prepare(runDir, source, activeGzipSession);
+		}
+
+		@Override
+		public ConnectionHandle openWrite(Path runDir) throws SQLException {
+			openWriteCount.incrementAndGet();
+			return super.openWrite(runDir);
+		}
+
+		void resetCounts() {
+			prepareCount.set(0);
+			openWriteCount.set(0);
+		}
+
+		int prepareCount() {
+			return prepareCount.get();
+		}
+
+		int openWriteCount() {
+			return openWriteCount.get();
+		}
+	}
+
+	private static final class FailErrorPersistenceDatabase extends CountingDatabase {
+		private final AtomicInteger totalOpenWriteCount = new AtomicInteger();
+
+		@Override
+		public ConnectionHandle openWrite(Path runDir) throws SQLException {
+			if (totalOpenWriteCount.incrementAndGet() == 2) {
+				throw new SQLException("Injected error persistence failure");
 			}
 			return super.openWrite(runDir);
 		}

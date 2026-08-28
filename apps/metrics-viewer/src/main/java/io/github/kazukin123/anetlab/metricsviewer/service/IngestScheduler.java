@@ -3,6 +3,7 @@ package io.github.kazukin123.anetlab.metricsviewer.service;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,6 +29,7 @@ public class IngestScheduler {
 	private int cycleSlot;
 	private List<String> cyclePriorityRuns = List.of();
 	private List<String> cycleBackgroundRuns = List.of();
+	private final Set<String> cycleExhaustedRuns = new HashSet<>();
 
 	public IngestScheduler(
 			RunScanner runScanner,
@@ -53,19 +55,20 @@ public class IngestScheduler {
 
 		// 4 slot周期の現在位置に従い、優先Runまたは背景Runへ1 blockを配分する。
 		final boolean preferPriority = cycleSlot < 3;
-		boolean didWork = preferPriority
+		AttemptResult result = preferPriority
 				? attemptNext(cyclePriorityRuns, true)
 				: attemptNext(cycleBackgroundRuns, false);
-		if (!didWork) {
-			didWork = preferPriority
+		if (!result.consumedSlot()) {
+			result = preferPriority
 					? attemptNext(cycleBackgroundRuns, false)
 					: attemptNext(cyclePriorityRuns, true);
 		}
 		cycleSlot = (cycleSlot + 1) % 4;
-		return didWork;
+		return result.immediateRetry();
 	}
 
 	private void refreshWorkSet() {
+		cycleExhaustedRuns.clear();
 		final Set<String> priorityAtScanStart = priorityRunIds.get();
 		final List<String> allRuns = runScanner.listRunId();
 		final Set<String> existing = Set.copyOf(allRuns);
@@ -76,8 +79,10 @@ public class IngestScheduler {
 					&& !existing.contains(runId));
 			return Set.copyOf(retained);
 		});
-		gzipSessions.retainRuns(allRuns.stream().map(runScanner::resolveRunDir).collect(
-				java.util.stream.Collectors.toUnmodifiableSet()));
+		final Set<Path> runDirs = allRuns.stream().map(runScanner::resolveRunDir).collect(
+				java.util.stream.Collectors.toUnmodifiableSet());
+		gzipSessions.retainRuns(runDirs);
+		ingestor.retainRuns(runDirs);
 		warningRegistry.retainRuns(existing);
 
 		final Set<String> priority = priorityRunIds.get();
@@ -91,29 +96,40 @@ public class IngestScheduler {
 		cycleBackgroundRuns = List.copyOf(background);
 	}
 
-	private boolean attemptNext(List<String> runIds, boolean priority) {
-		if (runIds.isEmpty()) return false;
+	private AttemptResult attemptNext(List<String> runIds, boolean priority) {
+		if (runIds.isEmpty()) return AttemptResult.NONE;
 		int cursor = Math.floorMod(priority ? priorityCursor : backgroundCursor, runIds.size());
 		for (int attempt = 0; attempt < runIds.size(); attempt++) {
 			final String runId = runIds.get(cursor);
 			cursor = (cursor + 1) % runIds.size();
 			if (priority) priorityCursor = cursor;
 			else backgroundCursor = cursor;
-			if (ingestOne(runId)) return true;
+			if (cycleExhaustedRuns.contains(runId)) continue;
+			final AttemptResult result = ingestOne(runId);
+			if (result.exhausted()) cycleExhaustedRuns.add(runId);
+			if (result.consumedSlot()) return result;
 		}
-		return false;
+		return AttemptResult.NONE;
 	}
 
-	private boolean ingestOne(String runId) {
+	private AttemptResult ingestOne(String runId) {
 		final Path runDir = runScanner.resolveRunDir(runId);
 		try {
 			warnForDuplicateSources(runId, runDir);
 			final MetricsSource source = MetricsSource.select(runDir).orElse(null);
-			if (source == null) return false;
-			return ingestor.ingestBlock(runId, runDir, source).didWork();
+			if (source == null) {
+				ingestor.forgetRun(runDir);
+				return AttemptResult.EXHAUSTED;
+			}
+			final MetricsIngestor.IngestOutcome outcome =
+					ingestor.ingestBlock(runId, runDir, source);
+			return new AttemptResult(
+					outcome.didWork() || outcome.immediateRetry(),
+					outcome.immediateRetry(),
+					!outcome.immediateRetry());
 		} catch (Exception e) {
 			log.warn("Failed to ingest Metrics source: run={} message={}", runId, e.getMessage());
-			return false;
+			return AttemptResult.EXHAUSTED;
 		}
 	}
 
@@ -123,5 +139,13 @@ public class IngestScheduler {
 				&& warningRegistry.firstDuplicateSource(runId)) {
 			log.warn("Both metrics.jsonl and metrics.jsonl.gz exist; using metrics.jsonl: run={}", runId);
 		}
+	}
+
+	private record AttemptResult(
+			boolean consumedSlot,
+			boolean immediateRetry,
+			boolean exhausted) {
+		private static final AttemptResult NONE = new AttemptResult(false, false, false);
+		private static final AttemptResult EXHAUSTED = new AttemptResult(false, false, true);
 	}
 }

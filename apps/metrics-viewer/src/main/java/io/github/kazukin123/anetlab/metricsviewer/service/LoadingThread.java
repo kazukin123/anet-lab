@@ -49,7 +49,7 @@ public class LoadingThread extends Thread {
 		try {
 			while (running && !isInterrupted()) {
 				try {
-					// 全Runが停止状態のときだけpoll間隔を空ける。
+					// 即時処理すべきbacklogやworkspace切替が残らないときだけpoll間隔を空ける。
 					if (!workspaceManager.runIngestCycle()) Thread.sleep(idleSleepMs);
 				} catch (RuntimeException e) {
 					// cycle境界の予期しない失敗を記録し、HTTPを生かしたまま次cycleで回復を試みる。

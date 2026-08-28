@@ -1,15 +1,8 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -41,11 +34,23 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
-import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CachePreparation;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
 class WorkspaceManagerTest {
+
+	@Test
+	void readyCommitDoesNotRequestAnImmediateFollowUpCycle() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-manager-ready-cycle-");
+		createRawRun(root, "ws-a", "ready-run");
+		final WorkspaceManager manager = workspaceManager(
+				root.toString(), "ws-a", new MetricsCacheDatabase(), settings());
+		try {
+			assertFalse(manager.runIngestCycle());
+		} finally {
+			manager.shutdown();
+		}
+	}
 
 	@Test
 	void switchedWorkspaceCancelsQueriesBoundToThePreviousEpoch() throws Exception {
@@ -483,7 +488,7 @@ class WorkspaceManagerTest {
 
 			database.releaseWrite();
 			shuttingDown.get(2, TimeUnit.SECONDS);
-			assertTrue(cycle.get(2, TimeUnit.SECONDS));
+			assertFalse(cycle.get(2, TimeUnit.SECONDS));
 			assertEquals(1, database.writeCount());
 		} finally {
 			database.releaseWrite();

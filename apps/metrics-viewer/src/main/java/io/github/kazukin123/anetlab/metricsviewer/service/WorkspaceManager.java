@@ -141,20 +141,20 @@ public class WorkspaceManager {
 
 	public boolean runIngestCycle() {
 		try (Lease lease = acquireLease()) {
-			boolean didWork = false;
+			boolean immediateRetry = false;
 			for (int slot = 0; slot < 4; slot++) {
 				ingestGate.lock();
 				try {
 					// shutdown開始後は現在blockより先へ進まず、取得済みleaseの解放へ移る。
-					if (shutdown) return didWork;
+					if (shutdown) return immediateRetry;
 					// 切替済みなら旧snapshotへ残りblockを割り当てず、次cycleを即時実行させる。
 					if (current.get().epoch() != lease.epoch()) return true;
-					didWork |= lease.ingestScheduler().runNextBlock();
+					immediateRetry |= lease.ingestScheduler().runNextBlock();
 				} finally {
 					ingestGate.unlock();
 				}
 			}
-			return didWork;
+			return immediateRetry;
 		}
 	}
 
