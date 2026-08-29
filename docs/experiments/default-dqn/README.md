@@ -6,6 +6,7 @@ DefaultDQNAgent 系の探索記録です。ReplayBuffer、PER、batch、replay r
 
 | Env | 記録 | 概要 |
 |---|---|---|
+| Atari | [Atari 探索記録](atari/README.md) | ALE 直結。ベースライン定義（Breakout / Pong）、Atari-5 横断、可塑性メトリクスの較正と保護機構 |
 | DropMerge | [DropMerge 探索記録](dropmerge/README.md) | 長期 Run における batch size と replay ratio を中心とした探索 |
 | LunarLander | [LunarLander 探索記録](lunarlander/README.md) | IQN 導入、QR/IQN 比較、ReplayBuffer capacity、warmup、UQE、quantile sample 数の探索 |
 
@@ -61,6 +62,43 @@ IQN lossはcurrent側sample数 `N` をsumし、target側sample数 `M` をmeanす
 - `N`を減らしてloss、grad norm、clip ratioが下がること自体は契約上の期待でもあり、過学習軽減の証拠とは限らない。
 - `M`を減らした不安定化はtarget sampling分散の増加と整合するが、単一seedでは断定しない。
 - QRと計算規模を揃える比較では、QRのquantile数とIQNの`N/M`によるpair数も明記する。
+
+### 表現の摩耗は勾配 step で決まり、replay ratio は摩耗あたりの新規データ量を決める
+
+可塑性メトリクス（`34_agent_plasticity` 群）で表現側を直接測ると、**摩耗の総量は `replay_ratio` にほぼ依存せず、勾配 step の関数**である。
+Breakout の RR8 と RR4 を同一 grad step（約 150k）で並べると、パラメータノルム `weight_norm_feature` が 63.9 対 67.4（差 5.5% = 反復のブレ幅内）、
+`dead_ratio` の谷からの倍率が 5.9 対 5.8 で一致する。
+
+`replay_ratio` が決めているのは摩耗量ではなく、**同じ摩耗を買うのに何件の新規データが付いてきたか**である。
+
+```text
+摩耗量        ≈ f(grad step)
+新規データ量  = grad step × batch size / replay_ratio
+```
+
+同じ 150k grad step の時点で RR8 は 5M exp 分、RR4 は 10M exp 分しか見ておらず、前者は崩壊し後者は凹んで回復した。
+Kumar 2021 / Sokar 2023 の "updates per datum" がそのまま観測された形である。
+
+この分離は、価値側の代理指標と組で扱うと読みやすい。**`q_gap` の過渡は `replay_ratio` の関数、表現側の摩耗は勾配 step の関数**という役割分担になる。
+
+実務上の扱い。
+
+- `replay_ratio` を動かすときは「摩耗が増える/減る」ではなく「摩耗あたりのデータ量が変わる」と考える。摩耗そのものは予算（勾配 step）で決まる。
+- 損傷の署名は `dead_ratio` の谷（そこから上昇へ転じる）と `weight_norm_feature` の底が同じ窓に来る形で現れ、その窓は性能ピークの直後にある。
+- **署名が出ないことは最適の証明にならない。** 予算内で摩耗律速に達していないだけの可能性がある。実際 RR1 は 20M では署名が出ず、優位が確認できたのは 100M 側だった。
+
+機序自体は学習機構の性質なので Env 共通として扱うが、**摩耗が成績を崩す閾値と、そこへ到達する予算は Env 依存**である。現時点の実測は Breakout 単一 Env（[可塑性 campaign](atari/2026-08-28_plasticity.md)）。
+
+### 重み減衰は重み成長を抑えるのではなく均衡させる
+
+減衰項 λ·w は w が小さくなるほど弱まるため、勾配側の押し上げと釣り合う点で止まる。
+`weight_decay` を入れた Run のパラメータノルムは単調減少ではなく **V 字**を描く。
+
+Breakout / RR8 / 10M の実測では `weight_norm_feature` が 45.8 → 30.5（3.0M で底）→ 43.4（8.0M）→ 41.4 と推移した。
+水準は抑えられる（無保護は同条件 5M 時点で 62.7 まで伸びる）が、**早期に稼いだ分の大半は押し戻される**。
+
+したがって「`weight_decay` で重みを寝かせる」という読みは短い予算でしか成立しない。
+重みノルムを制御対象にする実験では、終端値だけでなく底とその後の回復まで見る。
 
 ### アルゴリズム比較ではseedより先に実効設定を揃える
 

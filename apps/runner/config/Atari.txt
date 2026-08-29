@@ -300,6 +300,139 @@ run.@breakout_rr1_100m : A3.train_policy.tau_rule.num_taus    = 32
 run.@breakout_rr1_100m : A3.eval_policy.tau_rule.num_taus     = 32
 run.@breakout_rr1_100m : train.eval_schedule.[eval1].interval = 2500
 
+# --- 可塑性メトリクス検証(PRD062)。run.@breakout_rr1_100m へ重ねて RR だけ振る ---
+# RR は再現プロファイルが A3 に書くので、上書きも A3 で行う(A2 では届かない)。
+# half_exp_step は据え置き。per_beta_step だけが依存するので、打ち切り Run が 100M 参照 Run の prefix になる。
+run.@plasticity      : app.$ = app.batchrun > P1
+run.@plasticity      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
+run.@plasticity      : @vars.max_exp_step = 20,000,000   # RR4 の谷 18.5M を含む
+
+run.@plasticity_rr8  : A3.learner.replay_ratio = 8
+run.@plasticity_rr8  : @vars.max_exp_step = 5,000,000    # ピーク 2.75M の直後に崩壊(探索ブロック 15)
+run.@plasticity_rr8  : app.run_name = run_{t}_plasticity_rr8_${E1.game}
+run.@plasticity_rr4  : A3.learner.replay_ratio = 4       # 過渡 -31.5%(探索ブロック 23)
+run.@plasticity_rr4  : app.run_name = run_{t}_plasticity_rr4_${E1.game}
+run.@plasticity_rr1  : A3.learner.replay_ratio = 1       # 過渡なし。ゼロ対照(探索ブロック 24)
+run.@plasticity_rr1  : app.run_name = run_{t}_plasticity_rr1_${E1.game}
+
+# --- 可塑性メトリクス A/B(Phase 0/P/S)。run.@plasticity_rr8 へ重ねる ---
+# 行の無効化は interval を巨大値にして cadence ごと止める。空値は ObserverFactory が
+# LOG::error して skip するためログが荒れる(observers.cpp:1341)。上書き先は M2(チェーン最右)。
+# interval にカンマは使えない(std::stoi が途中で切れる)。
+
+run.@pl_x_actual   : M2.[34_agent_plasticity/01_srank] = plasticity_srank @learn $learn_step $update_result interval:99999999
+run.@pl_x_actual   : M2.[34_agent_plasticity/02_srank_ratio] = plasticity_srank_ratio @learn $learn_step $update_result interval:99999999
+run.@pl_x_actual   : M2.[34_agent_plasticity/03_dormant_ratio] = plasticity_dormant_ratio @learn $learn_step $update_result interval:99999999
+run.@pl_x_actual   : M2.[34_agent_plasticity/04_dead_ratio] = plasticity_dead_ratio @learn $learn_step $update_result interval:99999999
+run.@pl_x_actual   : M2.[34_agent_plasticity/05_feature_norm] = plasticity_feature_norm @learn $learn_step $update_result interval:99999999
+run.@pl_x_actual   : M2.[34_agent_plasticity/12_srank_ratio_ema] = plasticity_srank_ratio @learn $learn_step $update_result interval:99999999 $ema
+run.@pl_x_actual   : M2.[34_agent_plasticity/13_dormant_ratio_ema] = plasticity_dormant_ratio @learn $learn_step $update_result interval:99999999 $ema
+
+run.@pl_x_probe    : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/43_probe_dormant_ratio] = $agent plasticity_probe_dormant_ratio @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/44_probe_dead_ratio] = $agent plasticity_probe_dead_ratio @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/45_probe_feature_norm] = $agent plasticity_probe_feature_norm @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:99999999
+run.@pl_x_probe    : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:99999999
+
+run.@pl_x_wn       : M2.[34_agent_plasticity/06_weight_norm_feature] = plasticity_weight_norm_feature @learn $learn_step $update_result interval:99999999
+run.@pl_x_wn       : M2.[34_agent_plasticity/07_weight_norm_readout] = plasticity_weight_norm_readout @learn $learn_step $update_result interval:99999999
+
+# P4 用: probe だけ interval 500
+run.@pl_i500       : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/43_probe_dormant_ratio] = $agent plasticity_probe_dormant_ratio @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/44_probe_dead_ratio] = $agent plasticity_probe_dead_ratio @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/45_probe_feature_norm] = $agent plasticity_probe_feature_norm @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:500
+run.@pl_i500       : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:500
+
+# 学習系は DefaultDQNAgent.$ チェーンのレイヤへ書く。素の DefaultDQNAgent.learner.* は解決時に上書きされる。
+run.@pl_b4096      : A3.learner.plasticity.probe.batch_size = 4096   # N>>D。MP 境界を抜ける
+
+# 需要駆動統計の分離測定。non-rank 43-45 は baseline の interval 100 を維持し、
+# srank 系6行だけを同時に振る。明示的にchainへ追加したRunだけで有効になる。
+run.@pl_dd_i100     : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:100
+run.@pl_dd_i100     : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:100
+run.@pl_dd_i100     : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:100
+run.@pl_dd_i100     : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:100
+run.@pl_dd_i100     : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:100
+run.@pl_dd_i100     : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:100
+
+run.@pl_dd_i1000    : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:1000
+run.@pl_dd_i1000    : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:1000
+run.@pl_dd_i1000    : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:1000
+run.@pl_dd_i1000    : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:1000
+run.@pl_dd_i1000    : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:1000
+run.@pl_dd_i1000    : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:1000
+
+run.@pl_dd_b4096_control : A3.learner.plasticity.probe.batch_size = 4096
+run.@pl_dd_b4096_control : app.run_name = run_{t}_dd_b4096_i100
+run.@pl_dd_b4096_coarse  : A3.learner.plasticity.probe.batch_size = 4096
+run.@pl_dd_b4096_coarse  : app.run_name = run_{t}_dd_b4096_i1000
+run.@pl_dd_b512_control  : A3.learner.plasticity.probe.batch_size = 512
+run.@pl_dd_b512_control  : app.run_name = run_{t}_dd_b512_i100
+run.@pl_dd_b512_coarse   : A3.learner.plasticity.probe.batch_size = 512
+run.@pl_dd_b512_coarse   : app.run_name = run_{t}_dd_b512_i1000
+
+# Phase P 共通。コスト測定なので eval を切って分散を落とす
+run.@pl_p          : @vars.max_exp_step = 1,000,000
+run.@pl_p          : train.eval_schedule.[eval1].interval = 0
+
+run.@pl_phase0     : @vars.max_exp_step = 100,000
+run.@pl_phase0     : train.eval_schedule.[eval1].interval = 0
+run.@pl_phase0     : app.run_name = run_{t}_ab_phase0_wiring
+
+run.@pl_p0         : app.run_name = run_{t}_ab_p0_none
+run.@pl_p1         : app.run_name = run_{t}_ab_p1_probe
+run.@pl_p2         : app.run_name = run_{t}_ab_p2_actual
+run.@pl_p3         : app.run_name = run_{t}_ab_p3_both
+run.@pl_p4         : app.run_name = run_{t}_ab_p4_probe_i500
+run.@pl_p5         : app.run_name = run_{t}_ab_p5_probe_b4096
+run.@pl_p6         : app.run_name = run_{t}_ab_p6_wn_only
+run.@pl_s2         : app.run_name = run_{t}_ab_s2_probe_b4096_5m
+
+# --- A1(δ 決着) / A3(weight_decay 再訪)。run.@plasticity_rr8 へ重ねる ---
+# δ 行は既定コメントアウトなので M2 で足す。3 つの δ は 1 回の SVD から出るので追加コストなし。
+run.@pl_delta      : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:100
+run.@pl_delta      : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:100
+run.@pl_delta      : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:100
+run.@pl_delta      : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:100
+
+run.@pl_a1_wd0     : app.run_name = run_{t}_a1_delta_wd0        # δ 比較の基準。WD=0 対照も兼ねる
+run.@pl_wd001      : A3.learner.weight_decay = 0.01
+run.@pl_wd001      : app.run_name = run_{t}_a3_wd001
+run.@pl_wd003      : A3.learner.weight_decay = 0.03
+run.@pl_wd003      : app.run_name = run_{t}_a3_wd003
+run.@pl_wd010      : A3.learner.weight_decay = 0.1              # 探索ブロック 13 の値
+run.@pl_wd010      : app.run_name = run_{t}_a3_wd010
+
+# --- 正規化 x weight_decay の 2x2(可塑性 A3)。run.@pl_delta の後に重ねる ---
+# branch 差し替えは run.@breakout_rr1_100m に前例がある経路。学習系は A3 レイヤへ書く。
+run.@pl_gn         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2GN
+
+run.@pl_check      : @vars.max_exp_step = 100,000
+run.@pl_check      : train.eval_schedule.[eval1].interval = 0
+run.@pl_check      : app.run_name = run_{t}_check_gn_wiring
+
+run.@pl_gn_wd0     : app.run_name = run_{t}_a3_gn_wd0
+run.@pl_gn_wd001   : A3.learner.weight_decay = 0.01
+run.@pl_gn_wd001   : app.run_name = run_{t}_a3_gn_wd001
+run.@pl_gn_wd003   : A3.learner.weight_decay = 0.03
+run.@pl_gn_wd003   : app.run_name = run_{t}_a3_gn_wd003
+run.@pl_gn_wd010   : A3.learner.weight_decay = 0.1
+run.@pl_gn_wd010   : app.run_name = run_{t}_a3_gn_wd010
+run.@pl_gn_wd030   : A3.learner.weight_decay = 0.3
+run.@pl_gn_wd030   : app.run_name = run_{t}_a3_gn_wd030
+
+run.@pl_gn_10m     : @vars.max_exp_step = 10,000,000   # 保護の持続を見る
+run.@pl_gn_10m     : app.run_name = run_{t}_a3_gn_wd010_10m
+
 # --- Atari-5 ---
 
 run.@a5      : app.$ = app.batchrun > P1
@@ -515,6 +648,29 @@ net.block.[AtariImpalaRes64].res.activation_mode = pre
 net.block.[AtariImpalaRes64].res.norm_type = none
 net.block.[AtariImpalaRes64].res.droppath_rate = 0.0
 #net.block.[AtariImpalaRes64].res.droppath_rate = 0.03
+
+# --- GroupNorm 版 IMPALA-X2(可塑性 A3)。norm_type 以外は素の版と同一 ---
+# 正規化があると直前 conv の重みスケールが出力に効かなくなり、‖w‖ 成長が機能的に無害になる。
+net.block.[AtariImpalaRes32GN].type = ResBlock
+net.block.[AtariImpalaRes32GN].res.channels = 32
+net.block.[AtariImpalaRes32GN].res.kernel_size = 3
+net.block.[AtariImpalaRes32GN].res.activation = relu
+net.block.[AtariImpalaRes32GN].res.activation_mode = pre
+net.block.[AtariImpalaRes32GN].res.norm_type = group
+net.block.[AtariImpalaRes32GN].res.group_norm_groups = 4
+net.block.[AtariImpalaRes32GN].res.droppath_rate = 0.0
+
+net.block.[AtariImpalaRes64GN].type = ResBlock
+net.block.[AtariImpalaRes64GN].res.channels = 64
+net.block.[AtariImpalaRes64GN].res.kernel_size = 3
+net.block.[AtariImpalaRes64GN].res.activation = relu
+net.block.[AtariImpalaRes64GN].res.activation_mode = pre
+net.block.[AtariImpalaRes64GN].res.norm_type = group
+net.block.[AtariImpalaRes64GN].res.group_norm_groups = 4
+net.block.[AtariImpalaRes64GN].res.droppath_rate = 0.0
+
+net.branch.@AtariImpalaX2GN.bind = grid
+net.branch.@AtariImpalaX2GN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
 # --- Atari IMPALA + ViT ハイブリッド ---
 

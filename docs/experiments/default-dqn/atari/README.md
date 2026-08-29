@@ -7,7 +7,8 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | 期間 | 文書 | 主題 | 状態 |
 |---|---|---|---|
 | 2026-08-14〜2026-08-27 | [ベースライン定義（Breakout / Pong）](2026-08-17_baseline.md) | プロトコルプロファイル、num_envs、NN 構成、`grad_clip_tau`、PER β、spatial exploration、`replay_ratio` 探索、予算 | 主要軸は決着。数値は**旧バンドル**のもの（2026-08-27 に config を BTR 寄せへ変更した） |
-| 2026-08-27〜 | [Atari-5 横断スイープ](2026-08-27_atari5.md) | Breakout で決めた構成の env 汎化、57 ゲーム median の推定。**新バンドル**（環境 BTR 寄せ + 未探索ハイパラを BTR 初期値へ） | active。初回 20M で Atari-5 median 推定 **55.4% HNS**。3 ゲームが上昇中で予算不足 |
+| 2026-08-27〜 | [Atari-5 横断スイープ](2026-08-27_atari5.md) | Breakout で決めた構成の env 汎化、57 ゲーム median の推定。**新バンドル**（未探索ハイパラを BTR 初期値へ。環境と `adam_eps` は寄せに失敗し旧値のまま） | active。初回 20M で Atari-5 median 推定 **55.4% HNS**。3 ゲームが上昇中で予算不足 |
+| 2026-08-28〜08-29 | [可塑性メトリクスの較正と保護機構](2026-08-28_plasticity.md) | PRD062 / 063 のメトリクスが損傷を検出するかの検証、コスト特性、正規化 × weight_decay の初回評価。**旧バンドル固定** | 器の較正は決着。保護機構は継続中。摩耗は勾配 step の関数で `replay_ratio` に依存しないことを確認 |
 
 ## 現時点の判断
 
@@ -25,9 +26,9 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | `num_envs = 128` | 採用 | throughput が 128 で頭打ち（+9.1%）、学習効率は 128 まで無傷で 256 から崩れる（−17%）。ただし**この結論は learner コストに依存**し、`replay_ratio` を 4 → 1 に変えた後の再評価は未実施 |
 | BF16 | 採用。**ULP 余裕は監視不要** | γ 0.997 で相対 action gap が 4〜5 分の 1 に潰れ、余裕は 1.2-1.7 ULP。1 を割る局面でも成績は最良で、6 例の反例により**成績の予測子ではない**と確定した |
 | `q_gap`（定常値） | **成績の予測子ではない** | 95-100M で RR2 0.0798 > RR1 0.0729 > RR4 0.0579 となりスコア順（RR1 > RR2 > RR4）と一致しない。可塑性の代理として使えるのは**過渡の深さ**だけであってレベルではない |
-| プロトコル | **v5 + noop 30**（BTR 準拠） | sticky 0.25 が Breakout で支配的（0 にすると train 生スコア 42 → 119）。`episodic_life` は単独では効果ゼロ。noop は 2026-08-27 に 0 → 30 へ変更（BTR 実装が Gymnasium `AtariPreprocessing` の既定 30 を上書きしていないため） |
+| プロトコル | **v5 + noop 0**（実効値） | sticky 0.25 が Breakout で支配的（0 にすると train 生スコア 42 → 119）。`episodic_life` は単独では効果ゼロ。noop は 2026-08-27 に root ラダーを 30 へ変更したが、`run.@v5_iqn_impala_x2` が `@v5_noop0` を再指定して打ち消しており、**全 Run が noop 0 で走っている**（`Atari.txt:25` 対 `:246`。2026-08-29 に実行時ダンプで判明） |
 | eval | eval1 = target net、ε 0.01、**1 本評価** | ε=0 は `fire_reset=false` と組で FIRE デッドロックに落ちる（`q_gap` が大きい良い方策ほど発生率が高い）。eval1 は全 Run で eval2（online net）よりスコアも安定性も上。**1 本評価は分散が大きく NN 構成の A/B を判定できない**（`060_eval_batch_episodes_10prd.md` 待ち） |
-| `per_alpha` / `adam_eps` / `update_warmup_steps` / IQN τ 数 | **未探索。BTR 初期値を採用** | 0.2 / 1.95e-5 / 200,000 / 8（online・target・行動選択とも）。相関で最適でない組み合わせが出る可能性は許容し、今後の探索へ委ねる |
+| `per_alpha` / `adam_eps` / `update_warmup_steps` / IQN τ 数 | **未探索。BTR 初期値を採用**（`adam_eps` のみ不発） | 0.2 / **1e-4** / 200,000 / 8（online・target・行動選択とも）。`adam_eps` は `A1` に 1.95e-5 を置いたが後段の `@bf16` が 1e-4 で上書きしており実効値は旧値のまま。相関で最適でない組み合わせが出る可能性は許容し、今後の探索へ委ねる |
 | `soft_update_tau = 0.001` | 据え置き（BTR は hard C=500 grad step） | BTR の C は RR4 前提で「32K env step ごと」。RR1 でそのまま写すと 128K exp step = **4 倍の遅れ**になる。soft → hard は値でなく機構の変更でもある（`940_target_update_step_axis_10prd.md`） |
 | 予算 | 100M で相転移が起きる | ラダー構成では 45M→80M で `≥432` が約 3-4 倍に立ち上がる。ただし**ラダー無しの対照は 30M で完全に頭打ち**。予算が効くかどうかは予算の問題ではなく**データ被覆の問題**だった可能性がある |
 
@@ -82,8 +83,16 @@ eval interval は learn_step 基準なので、**RR を下げるほど exp 軸�
 **位置は grad 軸にも exp 軸にも揃わず、深さだけが `replay_ratio` に単調**である
 （RR8 −62% / RR4 −31.5% / RR2 −11.8% / RR1 なし / RR0.5 なし）。
 `q_gap` の過渡の深さは可塑性の代理として使えるが、**定常のレベルは使えない**（前掲）。
-表現側は `34_agent_plasticity` 群（srank / dormant、`062_plasticity_metrics_10prd.md`）で直接測れるようになった。
-読み方は `docs/design/030_user_guide_analysis.jp.md` 4.7節（probe 系が主読み、srank_ratio はチャネル間で絶対値比較不可）。
+
+表現側を `34_agent_plasticity` 群で直接測った結果、**摩耗そのものは勾配 step の関数で `replay_ratio` に
+ほぼ依存しない**ことが分かった（同 grad step で `weight_norm_feature` 63.9 対 67.4、`dead_ratio` の
+谷からの倍率 5.9 対 5.8）。RR が決めるのは摩耗量ではなく、**その摩耗を買うのに何件の新規データが
+付いてきたか**である。したがって価値側（`q_gap`）が RR の関数、表現側が勾配 step の関数、という
+役割分担になる（[2026-08-28_plasticity.md](2026-08-28_plasticity.md)）。
+
+主読みは `dead_ratio`（谷が転換点を予告）と `weight_norm_feature`（絶対値が勾配軸で揃う）の 2 本。
+**srank は今回の損傷モード（ユニットの死）には反応しない** — δ 3 種・probe batch 2 種で深さ −3〜6%、
+同じ事象で `dead_ratio` は +490%。読み方は `docs/design/030_user_guide_analysis.jp.md` 4.7 節。
 
 ## 探索環境としての位置付け
 
