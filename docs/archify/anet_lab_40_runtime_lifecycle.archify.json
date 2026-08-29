@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "anet-lab runtime の状態遷移",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      630
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Run のフェーズ"
+    },
+    {
+      "id": "branch",
+      "label": "保留"
+    },
+    {
+      "id": "terminal",
+      "label": "終端"
+    }
+  ],
+  "states": [
+    {
+      "id": "resolving",
+      "type": "start",
+      "label": "設定解決",
+      "sublabel": "workspace と ConfigData",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "未初期化"
+    },
+    {
+      "id": "constructing",
+      "type": "active",
+      "label": "構築中",
+      "sublabel": "Env / Agent / Runner",
+      "lane": "main",
+      "col": 1,
+      "step": "02"
+    },
+    {
+      "id": "running",
+      "type": "active",
+      "label": "学習中",
+      "sublabel": "step の反復",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "RUNNING"
+    },
+    {
+      "id": "completed",
+      "type": "success",
+      "label": "完了",
+      "sublabel": "COMPLETED",
+      "lane": "main",
+      "col": 3,
+      "step": "04"
+    },
+    {
+      "id": "shutdown",
+      "type": "neutral",
+      "label": "終了処理",
+      "sublabel": "flush と Reset",
+      "lane": "main",
+      "col": 4,
+      "step": "05"
+    },
+    {
+      "id": "paused",
+      "type": "waiting",
+      "label": "保留中",
+      "sublabel": "次 step を抑止",
+      "lane": "branch",
+      "col": 0,
+      "tag": "手動と自動"
+    },
+    {
+      "id": "failed",
+      "type": "failure",
+      "label": "失敗",
+      "sublabel": "例外を main へ再送出",
+      "lane": "terminal",
+      "col": 2,
+      "tag": "終端"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "resolve-build",
+      "from": "resolving",
+      "to": "constructing",
+      "label": "解決完了",
+      "variant": "emphasis",
+      "labelDy": 55
+    },
+    {
+      "id": "build-run",
+      "from": "constructing",
+      "to": "running",
+      "label": "自動開始",
+      "variant": "emphasis",
+      "labelDy": 55,
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight",
+      "labelDx": -40
+    },
+    {
+      "id": "run-complete",
+      "from": "running",
+      "to": "completed",
+      "label": "STOP 判定",
+      "variant": "emphasis",
+      "labelDy": 55,
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "complete-shutdown",
+      "from": "completed",
+      "to": "shutdown",
+      "label": "OnExit",
+      "variant": "emphasis",
+      "labelDy": 55
+    },
+    {
+      "id": "build-paused",
+      "from": "constructing",
+      "to": "paused",
+      "label": "Pause 状態で Start",
+      "variant": "dashed",
+      "labelDy": 50
+    },
+    {
+      "id": "run-pause",
+      "from": "running",
+      "to": "paused",
+      "label": "Pause",
+      "labelDy": 40,
+      "labelDx": 45,
+      "channelX": 422
+    },
+    {
+      "id": "pause-run",
+      "from": "paused",
+      "to": "running",
+      "label": "Resume",
+      "variant": "dashed",
+      "channelX": 382,
+      "labelDx": 34
+    },
+    {
+      "id": "run-failed",
+      "from": "running",
+      "to": "failed",
+      "label": "例外",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "channelY": 244
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "状態の実体",
+      "items": [
+        "RunnerStatus は NOT_INITIALIZED / RUNNING / COMPLETED の 3 値しか持たない",
+        "保留は RunnerThread の paused_ フラグで、開始待ちと Pause 中は同じ状態になる",
+        "根拠: core/anet-core/include/anet/rl.hpp:1066-1070 / thread.hpp:26-31"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "評価はどの状態か",
+      "items": [
+        "評価は独立状態ではなく、LearnEvent 通知の中で EpisodeEvalObserver が起動する",
+        "use_background=true では専用 worker で並行に走り、次の起動時に例外を回収する",
+        "根拠: core/anet-core/src/observers.cpp:552-587"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失敗を終端として描く理由",
+      "items": [
+        "worker の例外は保存して main thread へ再送出し、ErrorDialog を表示する",
+        "OnExceptionInMainLoop は false を返し、学習中へ戻す遷移は実装されていない",
+        "根拠: apps/runner/src/RunnerApp.cpp:623-649"
+      ]
+    }
+  ]
+}

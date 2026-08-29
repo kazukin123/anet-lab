@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "anet-lab Run 実行ワークフロー",
+    "quality_profile": "showcase",
+    "viewBox": [
+      720,
+      352
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Run の主経路"
+    },
+    {
+      "id": "side",
+      "label": "評価と分析"
+    }
+  ],
+  "phases": [
+    {
+      "id": "prepare",
+      "label": "準備",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "loop",
+      "label": "構築と反復",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "after",
+      "label": "完了と分析",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "select_ws",
+    "setup",
+    "train_step",
+    "complete",
+    "analyze"
+  ],
+  "nodes": [
+    {
+      "id": "select_ws",
+      "lane": "main",
+      "col": 0,
+      "type": "frontend",
+      "label": "workspace 選択",
+      "sublabel": "起動時に決定",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "setup",
+      "lane": "main",
+      "col": 2,
+      "type": "backend",
+      "label": "設定解決と構築",
+      "sublabel": "ConfigData から Runner",
+      "width": 100,
+      "height": 64
+    },
+    {
+      "id": "train_step",
+      "lane": "main",
+      "col": 3,
+      "type": "backend",
+      "label": "学習ステップ反復",
+      "sublabel": "DoUpdateFrame(1)",
+      "width": 104,
+      "height": 64
+    },
+    {
+      "id": "complete",
+      "lane": "main",
+      "col": 5,
+      "type": "database",
+      "label": "Run 完了",
+      "sublabel": "成果物を確定",
+      "width": 110,
+      "height": 64
+    },
+    {
+      "id": "eval_round",
+      "lane": "side",
+      "col": 4,
+      "type": "backend",
+      "label": "評価 Episode",
+      "sublabel": "終端まで実行",
+      "width": 80,
+      "height": 64
+    },
+    {
+      "id": "analyze",
+      "lane": "side",
+      "col": 5,
+      "type": "external",
+      "label": "Run 分析",
+      "sublabel": "Viewer と bridge",
+      "width": 100,
+      "height": 64
+    }
+  ],
+  "edges": [
+    {
+      "id": "ws-setup",
+      "from": "select_ws",
+      "to": "setup",
+      "role": "main",
+      "variant": "emphasis"
+    },
+    {
+      "id": "setup-step",
+      "from": "setup",
+      "to": "train_step",
+      "role": "main",
+      "variant": "emphasis"
+    },
+    {
+      "id": "step-complete",
+      "from": "train_step",
+      "to": "complete",
+      "label": "終了条件",
+      "role": "main",
+      "variant": "emphasis"
+    },
+    {
+      "id": "complete-analyze",
+      "from": "complete",
+      "to": "analyze",
+      "label": "読み取り",
+      "role": "main",
+      "variant": "emphasis",
+      "labelDy": 35
+    },
+    {
+      "id": "step-eval",
+      "from": "train_step",
+      "to": "eval_round",
+      "label": "interval 到達",
+      "role": "branch"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "設定の解決順",
+      "items": [
+        "workspace 側の config/_main.txt を executable root の設定へ後勝ちで重ねる",
+        "--config 指定時は workspace 解決を迂回し、RunManager が Env / Agent / Runner を構築する",
+        "根拠: apps/runner/src/RunnerApp.cpp:231-289 / core/anet-core/src/trainer.cpp:997"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "反復と終了条件",
+      "items": [
+        "RunnerThread::ProcessStep が DoUpdateFrame(1) を呼び、COMPLETED まで反復する",
+        "train_exit_step または exp_exit_step が STOP を返して Run を完了へ移す",
+        "Pause は次 step の抑止であり、進行中の step は中断しない"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "評価が起動する条件",
+      "items": [
+        "train.eval.[tag] の定義と eval_schedule.[tag].interval>0 が揃ったときだけ生成する",
+        "評価メトリクスも同じ Run 成果物へ記録される",
+        "根拠: core/anet-core/src/trainer.cpp:864-935 / observers.cpp:527-587"
+      ]
+    }
+  ]
+}
