@@ -6,13 +6,17 @@ NetworkModel、ReplayBuffer、Notifier、Observer、MetricsLogger、Run 成果�
 
 ## 推奨閲覧順
 
-| 順序 | 図 | 何が分かるか | JSON | HTML |
+`表示` は GitHub Pages 上のレンダリング結果、`html` と `json` はリポジトリ内の実ファイルです。
+GitHub と VS Code はどちらも相対リンク先の `.html` を HTML ソースとして開くため、
+図として見る場合は `表示` の絶対 URL を使ってください（[HTML の表示方法](#html-の表示方法)）。
+
+| 順序 | 図 | 何が分かるか | 表示 | ファイル |
 |---:|---|---|---|---|
-| 1 | システム構成 | 主要コンポーネント、主経路、スレッド境界、外部依存 | [json](anet_lab_00_system_architecture.archify.json) | [html](anet_lab_00_system_architecture.html) |
-| 2 | Run 実行ワークフロー | workspace 選択から成果物分析までの工程 | [json](anet_lab_10_run_workflow.archify.json) | [html](anet_lab_10_run_workflow.html) |
-| 3 | 学習ステップの呼び出し順序 | 1 step の呼び出しと通知の順序 | [json](anet_lab_20_training_step_sequence.archify.json) | [html](anet_lab_20_training_step_sequence.html) |
-| 4 | 実験データの流れ | 設定、Tensor、経験、metrics、成果物の流れ | [json](anet_lab_30_experiment_dataflow.archify.json) | [html](anet_lab_30_experiment_dataflow.html) |
-| 5 | runtime の状態遷移 | 構築、実行、保留、完了、失敗の遷移 | [json](anet_lab_40_runtime_lifecycle.archify.json) | [html](anet_lab_40_runtime_lifecycle.html) |
+| 1 | システム構成 | 主要コンポーネント、主経路、スレッド境界、外部依存 | [表示](https://kazukin123.github.io/anet-lab/docs/archify/anet_lab_00_system_architecture.html) | [html](anet_lab_00_system_architecture.html) / [json](anet_lab_00_system_architecture.archify.json) |
+| 2 | Run 実行ワークフロー | workspace 選択から成果物分析までの工程 | [表示](https://kazukin123.github.io/anet-lab/docs/archify/anet_lab_10_run_workflow.html) | [html](anet_lab_10_run_workflow.html) / [json](anet_lab_10_run_workflow.archify.json) |
+| 3 | 学習ステップの呼び出し順序 | 1 step の呼び出しと通知の順序 | [表示](https://kazukin123.github.io/anet-lab/docs/archify/anet_lab_20_training_step_sequence.html) | [html](anet_lab_20_training_step_sequence.html) / [json](anet_lab_20_training_step_sequence.archify.json) |
+| 4 | 実験データの流れ | 設定、Tensor、経験、metrics、成果物の流れ | [表示](https://kazukin123.github.io/anet-lab/docs/archify/anet_lab_30_experiment_dataflow.html) | [html](anet_lab_30_experiment_dataflow.html) / [json](anet_lab_30_experiment_dataflow.archify.json) |
+| 5 | runtime の状態遷移 | 構築、実行、保留、完了、失敗の遷移 | [表示](https://kazukin123.github.io/anet-lab/docs/archify/anet_lab_40_runtime_lifecycle.html) | [html](anet_lab_40_runtime_lifecycle.html) / [json](anet_lab_40_runtime_lifecycle.archify.json) |
 
 ## 生成根拠の Git revision
 
