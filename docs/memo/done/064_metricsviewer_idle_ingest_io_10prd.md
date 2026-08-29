@@ -4,7 +4,7 @@
 > 状態: **implementation ready**
 > 対象: `apps/metrics-viewer` backend
 > 起点: 2026-08-28、Metrics Viewer の `javaw.exe` で累積約 5.94 TB read / 0.90 TB write を観測し、停止・未選択 Run への定期アクセス有無を診断した。
-> 関連: [041_metrics_sqlite_cache_10prd.md](done/041_metrics_sqlite_cache_10prd.md)、[ADR 0015](../adr/0015-metrics-cache-disposable-derivative.md)、`CONTEXT.md`「Run作業セット」「Metricsマスタ」「Metricsキャッシュ」「Metricsキャッシュ世代」
+> 関連: [041_metrics_sqlite_cache_10prd.md](041_metrics_sqlite_cache_10prd.md)、[ADR 0015](../../adr/0015-metrics-cache-disposable-derivative.md)、`CONTEXT.md`「Run作業セット」「Metricsマスタ」「Metricsキャッシュ」「Metricsキャッシュ世代」
 
 ---
 

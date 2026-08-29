@@ -206,7 +206,7 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 - srankは方向の分布を、dormant / deadは脱落したユニット数を測るので、ほぼ直交する。ユニットの死が主体の損傷では、srankは`min(N, D)`の何割かで平坦なまま動かないことがある。srankが動かない＝健康、ではない。
 - δ違い（`x6`-`x9`）は同じ特異値ベクトルから求めるのでSVD回数を増やさない。上位方向へのエネルギー集中を見たい時だけ有効化する。
 - target系はonlineの`soft_update_tau`遅れの観測で、平時はほぼ冗長なので既定OFFである。崩壊機序を精査する時に有効化し、online→targetの伝播ラグから「まだ健康なtargetが引き戻す」構図か「両方巻き込まれた自走崩壊」かを識別する。
-- exp軸tagとの突き合わせは exp_step = learn_step × batch size / `replay_ratio` で換算する（batch 256でRR8=×32 / RR4=×64 / RR1=×256）。step軸選択の一般注意は4.2節と6.3節、指標定義と測定契約は[DQN系Agent](200_dqn_agents.jp.md)9.4章と[062_plasticity_metrics_10prd.md](../memo/062_plasticity_metrics_10prd.md)を参照する。
+- exp軸tagとの突き合わせは exp_step = learn_step × batch size / `replay_ratio` で換算する（batch 256でRR8=×32 / RR4=×64 / RR1=×256）。step軸選択の一般注意は4.2節と6.3節、指標定義と測定契約は[DQN系Agent](200_dqn_agents.jp.md)9.4章と[062_plasticity_metrics_10prd.md](../memo/done/062_plasticity_metrics_10prd.md)を参照する。
 
 
 ## 5. Optuna結果を分析する
