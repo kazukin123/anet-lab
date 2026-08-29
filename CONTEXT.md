@@ -396,3 +396,7 @@ _Avoid_: partial forward（表記ゆれ）, probe forward, feature forward
 **weight norm 分割（feature/readout）**:
 feature key の依存閉包に属する学習パラメータを feature、閉包外 branch と head の学習パラメータを readout とする二群分割。各群の一括 L2 を、activation の feature norm と区別して扱う。
 _Avoid_: feature norm（activation側との混同）, body/head 分割
+
+**実効重み**:
+Spectral Normalization 適用層で forward が実際に使う W/σ。optimizer が更新する生パラメータ W とは区別し、SN 下では生ノルムが制約されず実効側だけが σ で固定される。SN 非適用層では生パラメータと一致する。
+_Avoid_: normalized weight（手法名の Weight Normalization と紛れる）, W_eff（記号は文書内の式でのみ使う）
