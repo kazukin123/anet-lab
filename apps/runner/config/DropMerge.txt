@@ -250,18 +250,6 @@ A2.learner.grad_clip_tau = 5
 #E1.use_settle_after_drop = true   # false
 #E1.use_settle_after_drop = false  # false
 
-#A2.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
-#A2.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet
-#A2.auto_load_file = ../../runs/run_20260503-144213_gs_5846.anet
-#A2.auto_load_file = ../../runs/run_20260505-231853_gs_5846_cy4/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260507-015149_gs_5846_cy5/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260508-040234_gs_5846_cy6/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260509-101008_gs_5846_cy7_rr05/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260510-130727_gs_5846_cy8/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260511-081219_gs_5846_cy9/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260512-012723_gs_5846_cy10/agent_close.anet
-#A2.auto_load_file = ../../runs/run_20260512-171248_gs_5846_cy11/agent_close.anet
-
 #E1.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
 #A2.use_dueling_net = false
