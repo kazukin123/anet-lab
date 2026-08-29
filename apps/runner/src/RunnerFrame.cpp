@@ -75,12 +75,14 @@ enum {
     ID_TrainFps1,
     ID_TrainFps5,
     ID_TrainFps10,
+    ID_TrainFps15,
     ID_TrainFps30,
     ID_TrainFps60,
     ID_EvalFpsConfig,
     ID_EvalFps1,
     ID_EvalFps5,
     ID_EvalFps10,
+    ID_EvalFps15,
     ID_EvalFps30,
     ID_EvalFps60,
     ID_EvalFps120,
@@ -227,7 +229,6 @@ void RunnerFrame::SetupMenuBar()
     // View Menu
     wxMenu* view_menu = new wxMenu;
     view_menu->Append(ID_ResetLayout, "&Reset Layout", "Reset to default layout");
-    view_menu->AppendCheckItem(ID_LogView, "&Log View")->Check(true);
 
     // topmost モードは起動中だけ保持し、毎回 Off から開始する。
     wxMenu* always_on_top_menu = new wxMenu;
@@ -235,6 +236,12 @@ void RunnerFrame::SetupMenuBar()
     always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopAlways, "&Always");
     always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopWhileRunning, "&While Running");
     view_menu->AppendSubMenu(always_on_top_menu, "Always on &Top");
+
+    // 区切り
+    view_menu->AppendSeparator();
+
+    // ログViewメニューの追加
+    view_menu->AppendCheckItem(ID_LogView, "&Log View")->Check(true);
 
     // ログレベルメニューの追加
     wxMenu* log_level_menu = new wxMenu;
@@ -244,15 +251,18 @@ void RunnerFrame::SetupMenuBar()
     log_level_menu->AppendRadioItem(ID_LogLevelVerbose, "&Verbose");
     view_menu->AppendSubMenu(log_level_menu, "L&og Level");
 
+    // 区切り
     view_menu->AppendSeparator();
 
-    // その他Viewメニュー項目
+    // Eval View関連メニュー項目
     //view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
     view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(false);
     view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(false);
 
+    // 区切り
     view_menu->AppendSeparator();
 
+    // Train View FPS
     // FPS は実行時 UI 操作であり、起動時 config 自体は変更しない。
     wxMenu* train_fps_menu = new wxMenu;
     train_fps_menu->AppendRadioItem(ID_TrainFpsConfig, FormatFpsConfigLabel(train_config_fps_))->Check(true);
@@ -260,22 +270,27 @@ void RunnerFrame::SetupMenuBar()
     train_fps_menu->AppendRadioItem(ID_TrainFps1, "1");
     train_fps_menu->AppendRadioItem(ID_TrainFps5, "5");
     train_fps_menu->AppendRadioItem(ID_TrainFps10, "10");
+    train_fps_menu->AppendRadioItem(ID_TrainFps15, "15");
     train_fps_menu->AppendRadioItem(ID_TrainFps30, "30");
     train_fps_menu->AppendRadioItem(ID_TrainFps60, "60");
     view_menu->AppendSubMenu(train_fps_menu, "Train View FPS");
 
+    // Eval View FPS
     wxMenu* eval_fps_menu = new wxMenu;
     eval_fps_menu->AppendRadioItem(ID_EvalFpsConfig, FormatFpsConfigLabel(eval_config_fps_))->Check(true);
     eval_fps_menu->AppendRadioItem(ID_EvalFps1, "1");
     eval_fps_menu->AppendRadioItem(ID_EvalFps5, "5");
     eval_fps_menu->AppendRadioItem(ID_EvalFps10, "10");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps15, "15");
     eval_fps_menu->AppendRadioItem(ID_EvalFps30, "30");
     eval_fps_menu->AppendRadioItem(ID_EvalFps60, "60");
     eval_fps_menu->AppendRadioItem(ID_EvalFps120, "120");
     view_menu->AppendSubMenu(eval_fps_menu, "Eval View FPS");
 
+    // 区切り
     view_menu->AppendSeparator();
 
+    // その他Viewメニュー項目
     view_menu->Append(ID_HeatMap, "&HeatMap");
     view_menu->Append(ID_Conv2d, "&Conv2d");
     menu_bar->Append(view_menu, "&View");
@@ -677,7 +692,8 @@ void RunnerFrame::SetupEvents()
 
     const std::pair<int, float> train_fps_items[] = {
         {ID_TrainFpsConfig, train_config_fps_}, {ID_TrainFpsOff, 0.0f}, {ID_TrainFps1, 1.0f},
-        {ID_TrainFps5, 5.0f}, {ID_TrainFps10, 10.0f}, {ID_TrainFps30, 30.0f}, {ID_TrainFps60, 60.0f},
+        {ID_TrainFps5, 5.0f}, {ID_TrainFps10, 10.0f}, {ID_TrainFps15, 15.0f},
+        {ID_TrainFps30, 30.0f}, {ID_TrainFps60, 60.0f},
     };
     for (const auto& [id, fps] : train_fps_items) {
         Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { train_panel_->SetFps(fps); }, id);
@@ -686,7 +702,8 @@ void RunnerFrame::SetupEvents()
 
     const std::pair<int, float> eval_fps_items[] = {
         {ID_EvalFpsConfig, eval_config_fps_}, {ID_EvalFps1, 1.0f}, {ID_EvalFps5, 5.0f},
-        {ID_EvalFps10, 10.0f}, {ID_EvalFps30, 30.0f}, {ID_EvalFps60, 60.0f}, {ID_EvalFps120, 120.0f},
+        {ID_EvalFps10, 10.0f}, {ID_EvalFps15, 15.0f}, {ID_EvalFps30, 30.0f},
+        {ID_EvalFps60, 60.0f}, {ID_EvalFps120, 120.0f},
     };
     for (const auto& [id, fps] : eval_fps_items) {
         Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { eval_panel_->SetFps(fps); }, id);
