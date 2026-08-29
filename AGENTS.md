@@ -457,6 +457,24 @@ Topic Issue 番号は以下の対応表から、変更目的と対象領域に�
 | 325_AGENT個別実装 > MuZero系列 | #21 |
 | 330_ハイパラ探索 | #22 |
 
+## Run 命名・後片付けルール
+
+Run はフォルダがそのまま管理単位なので、**「消してよいか」が Run 名だけで判別できる**ことを規約とします。
+
+- **確認用の使い捨て Run には、名前へ `tmp` を含める。** 配線確認、疎通確認、パラメータの当たり確認など、
+  結果を記録に残さず後で削除する Run が対象です。`app.run_name = run_{t}_tmp_wiring` のように書きます。
+- **用途別のキーワードを増やさない。** `tmp` が担うのは「消してよいか」の 1 軸だけで、用途は後続の語で表します
+  （`run_{t}_tmp_wiring` / `run_{t}_tmp_smoke_065`）。語を分けると glob が増えて消し漏れます。
+- **成果物として残す Run には付けない。** PRD の受入条件を満たした証拠として保存する smoke Run などは正規 Run です。
+  この線引きを `tmp` の有無で表現します。
+- **`tmp` はタイムスタンプの後に置く。** Run フォルダ名の先頭は `run_` のままにしてください
+  （`viewers/metrics-tools/mlflow_bridge.py` が `run_*` で glob しており、prefix を変えると発見できなくなります）。
+- 一括削除は次で行えます。実行はユーザーが行い、AI エージェントは削除しません。削除する場合はユーザの指示もしくは同意が必須。
+
+```powershell
+Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
+```
+
 ## AI エージェントのRun結果分析ルール
 
 Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
