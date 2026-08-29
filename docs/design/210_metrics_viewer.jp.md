@@ -258,8 +258,8 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `GzipInputSessions` | convert中のgzip展開streamをblock間で保持し、Run単位で解放する |
 | `MetricsIngestor` | 1 blockのJSONL parse、L0書込み、LOD追記、`TagStats`、source位置を同一transactionで確定する |
 | `LodIngestWriter` / `LodBucket` | 子16件がそろうたびに親bucketを合成して`scalars_lod`へ書く追記専用writerとbucket値 |
-| `IngestScheduler` | Run作業セットを走査し、priority 3 : background 1で1 blockずつ配分する |
-| `LoadingThread` | `WorkspaceManager.runIngestCycle()`を回す単一writer thread。全Runが停止状態のときだけidle sleepする |
+| `IngestScheduler` | Run作業セットを走査し、actionableなRunへpriority 3 : background 1で1 blockずつ配分する。terminal/no-op Runは同一cycleで再検査しない |
+| `LoadingThread` | `WorkspaceManager.runIngestCycle()`を回す単一writer thread。即時処理可能なbacklogもworkspace切替も残らないときだけidle sleepする |
 | `MetricsQueryCoordinator` | process-globalなfair permit、query channelごとの最新sequence、live ticket、workspace epoch、terminal shutdownを一体管理し、supersede時にcheckpointと実行中SQLを停止する |
 | `MetricsRepository` | Runごとに1本のread snapshotを開き、Run metadataとseries queryを解決する |
 | `MetricsQueryPlanner` | 系列ごとのavailability判定と、request全体の点予算配分を決める |
@@ -381,36 +381,42 @@ sequenceDiagram
         W->>W: 切替gate取得、epoch/shutdown確認
         W->>S: runNextBlock()
         S->>S: slot 0ならRun列挙、priority/backgroundへ分割
-        S->>I: ingestBlock(runId, runDir, source)
-        I->>R: prepare(database)
-        R->>D: source fingerprint照合
-        alt 不一致
-            D->>D: cache全破棄と新generationで再作成
-        end
-        alt readRequired = false
-            I-->>S: didWork = false
+        S->>I: ingestBlock(runId, runDir, source属性)
+        I->>I: source/cache属性を検証済み観測と照合
+        alt 属性一致かつ前回stateがready/error
+            I-->>S: didWork=false, immediateRetry=false
         else
-            I->>D: BEGIN
-            loop 最大1,000,000行
-                I->>R: 完全行を1行読む
-                I->>I: JSON parse
-                alt type = scalar
-                    I->>D: scalars INSERT
-                    I->>D: 子16件がそろえばscalars_lod INSERT
-                else 非scalar
-                    I->>D: json_lines INSERT
-                end
+            I->>R: prepare(database)
+            R->>D: source fingerprint照合
+            alt 不一致
+                D->>D: cache全破棄と新generationで再作成
             end
-            I->>D: tag_stats UPSERT
-            I->>D: source_meta（offset・fingerprint・state）更新
-            I->>D: COMMIT
-            I-->>S: didWork、次state
+            alt readRequired = false
+                I-->>S: didWork=false, immediateRetry=false
+            else
+                I->>D: BEGIN
+                loop 最大1,000,000行
+                    I->>R: 完全行を1行読む
+                    I->>I: JSON parse
+                    alt type = scalar
+                        I->>D: scalars INSERT
+                        I->>D: 子16件がそろえばscalars_lod INSERT
+                    else 非scalar
+                        I->>D: json_lines INSERT
+                    end
+                end
+                I->>D: tag_stats UPSERT
+                I->>D: source_meta（offset・fingerprint・state）更新
+                I->>D: COMMIT
+                I-->>S: didWork、次state、immediateRetry
+            end
         end
-        S-->>W: didWork
+        S->>S: terminal/no-op Runをcycle内でexhausted化
+        S-->>W: immediateRetry
         W->>W: 切替gate解放
     end
     W->>W: snapshot lease解放
-    alt どのRunも進まなかった
+    alt immediateRetry = false
         L->>L: 10秒sleep
     end
 ```
@@ -849,7 +855,7 @@ lod : { "kind":"lod",
 
 - `MetricsService`の`@PostConstruct`で`LoadingThread`を開始する。`@PreDestroy`は`MetricsQueryCoordinator.cancelAll()`、`LoadingThread`の最大30秒停止待ち、`WorkspaceManager.shutdown()`の順で実行する。
 - metrics queryはcoordinatorのpermit取得後にworkspace leaseを取得する。終了時はSQL/connection、lease、permitの順に解放し、切替でretireされた旧resourceをpermit返却前に閉じる。
-- `LoadingThread`はdaemon threadで、1 cycleで1 blockも進まなかったときだけ10秒sleepする。cycle境界のRuntimeExceptionは記録して次cycleで回復を試み、HTTPは生かしたままにする。
+- `LoadingThread`はdaemon threadで、`converting` backlogまたはworkspace切替による即時再試行が不要なとき10秒sleepする。小さなappendを`ready`までcommitしたcycleもsleepし、cycle境界のRuntimeExceptionは記録して10秒後に回復を試みる。
 - `WorkspaceManager.shutdown()`はterminalである。開始後の新規leaseとworkspace切替は`IllegalStateException`で即時終了し、進行中cycleは現在blockの安全な終了後に停止する。取得済みleaseは利用を継続でき、最後のreleaseがretire済みresourceを1回だけ閉じる。
 - gzip変換中のRunは展開済みstreamを`GzipInputSessions`がblock間で保持する。この間はそのRun folderの移動をサポートしない。`ready`到達、失敗、作業セットからの消失で解放する。
 - `LodPageCache`は完成pageだけを保持し、Run消失と世代変更で破棄する。容量超過時はアクセス順のLRUで追い出す。
@@ -878,6 +884,7 @@ lod : { "kind":"lod",
 ### 10.4 性能特性
 
 - 取り込みは1 block最大1,000,000行のstreaming parseで、中間Listを作らない。上限は定常時に維持し、workspace切替要求時だけ完全行境界で短いblockとして確定する。L0、LOD、`TagStats`、source位置はどちらも同一commit境界で確定する。
+- 完全検証済みの`ready` / `error` Runはprocess memoryにsource/cache属性を保持し、属性不変のpollではfingerprint、Metricsマスタ本文、SQLite connectionへ入らない。観測はRun消失、workspace snapshot破棄、process restartで失われる。
 - range queryのコストはstep二分探索、bucket読み出し、部分bucketの再集約に分かれる。再集約が必要なのは、viewport端がbucket境界と揃わないbucketと、まだ子16件がそろっていない末尾bucketだけである。
 - LOD pageは1024 bucket単位で読み、完成pageだけheapに残す。1 pageは`1024 × 96` byte（long 8列 + double 4列）である。
 - 応答はBase64 binaryのため、HTTP圧縮は既定で無効にしてCPUを使わない。
