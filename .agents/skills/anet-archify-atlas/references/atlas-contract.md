@@ -77,8 +77,8 @@
 
 - 全候補で `meta.quality_profile: "showcase"` を使用する。
 - 各図は Archify showcase の9 artifact checks、composition errors 0、warnings 0を満たす。
-- `deliver` 成功後の specification SHA-256 と artifact SHA-256 を記録する。
-- visual-check exit 0では画像を実際に確認し、結果を `reviewed` とする。目視手段がない場合または visual-check exit 2では `skipped` とし、理由を添える。exit 1は公開失敗とする。
+- `deliver` 成功後の specification SHA-256 と artifact SHA-256 は、公開可否を判断する一時的な作業記録として確認する。公開コンテンツには追加しない。
+- visual-check exit 0では画像を実際に確認する。目視手段がない場合または visual-check exit 2では作業結果を `skipped` として扱う。exit 1は公開失敗とする。個別の visual review status は公開コンテンツには追加しない。
 - 5図のいずれかが最小要素、validation、delivery、visual containmentを満たさなければ、公開版全体を更新しない。
 - 公開操作ではこのマニフェストの既存ファイルだけをバックアップ対象にする。失敗時は対象だけを復元し、`README.md`を更新しない。
 
@@ -89,9 +89,8 @@ Atlas index は次を簡潔に記録する。
 1. Atlasの目的と5図の推奨閲覧順
 2. 生成根拠となったGit revision
 3. 各JSON/HTMLへの相対リンク
-4. 各図のtype、showcase結果、specification/artifact SHA-256、`visual_review`
-5. evidence gap
-6. doc/code drift
-7. authored contentは日本語、固定Viewer UIは英語であること
+4. evidence gap
+5. doc/code drift
+6. authored contentは日本語、固定Viewer UIは英語であること
 
-時刻だけが変化する情報や、一時ファイルのパスは記録しない。既知の不足がない場合も、未確認領域まで網羅したとは主張しない。
+個別の検証結果、receipt、SHA-256、visual review status、時刻だけが変化する情報、一時ファイルのパスは記録しない。既知の不足がない場合も、未確認領域まで網羅したとは主張しない。

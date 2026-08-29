@@ -7,8 +7,6 @@ NetworkModel、ReplayBuffer、Notifier、Observer、MetricsLogger、Run 成果�
 ## 推奨閲覧順
 
 `表示` は GitHub Pages 上のレンダリング結果、`html` と `json` はリポジトリ内の実ファイルです。
-GitHub と VS Code はどちらも相対リンク先の `.html` を HTML ソースとして開くため、
-図として見る場合は `表示` の絶対 URL を使ってください（[HTML の表示方法](#html-の表示方法)）。
 
 | 順序 | 図 | 何が分かるか | 表示 | ファイル |
 |---:|---|---|---|---|
@@ -22,21 +20,6 @@ GitHub と VS Code はどちらも相対リンク先の `.html` を HTML ソー�
 
 `8755992cd26f751b79a35700ec38e600af29d581`（branch `main`）の作業ツリーを調査対象としています。
 未コミットの作業ツリー変更も現行 checkout の一部として扱っています。
-
-## 各図の検証結果
-
-`meta.quality_profile` は 5 図とも `showcase` で、Archify の 9 artifact checks・composition errors 0・warnings 0 を満たしています。
-
-| 図 | Archify type | showcase | specification SHA-256 | artifact SHA-256 | visual_review |
-|---|---|---|---|---|---|
-| anet_lab_00_system_architecture | `architecture` | 9/9 checks, errors 0 / warnings 0 | `cdfb6a11054aab8c553c4c3e3ed8143cb62c6374f56d9c29f6f66d57beb11819` | `e1a6920aa2201f61ad78de218f1753120fb0f6e687ba38898795cb60f258af60` | reviewed |
-| anet_lab_10_run_workflow | `workflow` | 9/9 checks, errors 0 / warnings 0 | `a4613ad9e502154008a3d1e3e94976c5940472e4e5d6d2226b83a5c3b92be513` | `79de2fbba027474b335f07af09de543747db9d52fbc00ca047d7660c652653fe` | reviewed |
-| anet_lab_20_training_step_sequence | `sequence` | 9/9 checks, errors 0 / warnings 0 | `23455e07fd671eaa05d6301c3a0155b704e68dea3e1e53db120d32dd95b4553c` | `eb11c74f5ea16f811ca50f3ed35b60195b24d62ab0cf1b33a0f1f6368ad30e1b` | reviewed |
-| anet_lab_30_experiment_dataflow | `dataflow` | 9/9 checks, errors 0 / warnings 0 | `d76fc8b852e70064bca4c01619be53553eafe6099d1ea9e872f151d84905f450` | `a4fca58ab7d56bd8eaa0b83c5dac7de5221f2669514edd037c2b2f04cfd345b5` | reviewed |
-| anet_lab_40_runtime_lifecycle | `lifecycle` | 9/9 checks, errors 0 / warnings 0 | `486fbcf9c544c88205b8124d2d903816717a71f38d0a59133a4b0966436c0829` | `b85afaf025c8fe772df2f53e648c69c8deef6f313a14cd575a94fe6c9fb70ede` | reviewed |
-
-visual-check は 1440x900 / 1600x1000 / 1920x1080 / 2048x1320 の 4 サイズで containment と capture が成功し、
-light / dark のスクリーンショットを実際に目視して `reviewed` としています。visual-check の画像・HTML・JSON sidecar は公開していません。
 
 ## Evidence gap
 

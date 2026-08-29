@@ -43,7 +43,7 @@ anet-lab の現行 checkout を根拠から調査し、全体像から実行時�
    - 画像を確認できる場合は、生成された contact sheet と light/dark screenshots を実際に目視する。
    - 目視で問題を見つけた場合は、1図につき最大2回まで原因を限定して候補を修正し、validation、delivery、visual-check をやり直す。
    - visual-check が overflow または capture failure を報告した場合は公開しない。
-   - Chrome/Chromium または目視手段が利用できない場合は警告にとどめ、index の `visual_review` を `skipped` とする。目視していないものを reviewed と記録しない。
+   - Chrome/Chromium または目視手段が利用できない場合は警告にとどめ、作業結果では visual review を `skipped` として扱う。目視していないものを reviewed と扱わない。
    - visual-check の画像、HTML、JSON sidecar は確認後に一時領域から削除し、永続化しない。
 8. 全5図が契約を満たした場合だけ、`docs/archify/` へ公開する。
    - [Atlas contract](references/atlas-contract.md) の固定マニフェストだけを置換対象にする。
@@ -62,6 +62,6 @@ anet-lab の現行 checkout を根拠から調査し、全体像から実行時�
 ## 完了報告
 
 - 5図と Atlas index のリポジトリ相対パスを閲覧順に示す。
-- 各図の type、showcase 検証結果、specification/artifact SHA-256、`visual_review` を示す。
+- 全5図が内部検証を通過したことだけを短く示す。個別の検証結果、SHA-256、visual review status は公開コンテンツへ追加しない。
 - evidence gap と資料・コードの不一致を要約する。
 - C++ の build/test はこのスキルの作業に含めず、実行していないことを明記する。
