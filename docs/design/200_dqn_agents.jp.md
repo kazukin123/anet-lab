@@ -379,6 +379,14 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
 - DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
 
+### 9.4 可塑性メトリクス
+
+DQNは2チャネルを持つ。actualはonline/targetのTD計算で使ったtrain-mode/autocast forwardから`main_feature`等の指定branchを捕捉し、target更新前の特徴を同じ`BatchUpdateResult`へ載せる。probeはReplayBufferの一様・非復元sampleを既存obs正規化へ通し、NoGrad・eval mode・learnerと同じautocastで`ForwardOnlineUpTo`を実行してAgent最新値として公開する。
+
+online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`feature_key`は購読時だけ必須・branch存在検証し、購読ゼロならNoCareでcapture/sample/statsを行わない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド](030_user_guide_analysis.jp.md)4.7節を参照する。
+
+parameter側は、online networkを`feature_key`の依存閉包でfeature/readoutへ分けたweight norm 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、同じ`BatchUpdateResult`へ載せる。データ非依存のためprobe/target変種は持たず、購読が無ければparameter列挙も行わない。
+
 ## 10. テストと拡張時の確認事項
 
 主なDQN testは[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)と[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)に置く。

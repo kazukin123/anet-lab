@@ -1,4 +1,4 @@
-#include "anet/catch_test.hpp"
+﻿#include "anet/catch_test.hpp"
 
 #include "anet/replay_buffer.hpp"
 #include "anet/transfer.hpp"
@@ -14,6 +14,7 @@
 #include <exception>
 #include <mutex>
 #include <numeric>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <thread>
@@ -468,6 +469,19 @@ public:
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
     }
 
+    bool SampleUniqueUniform(rl::ExperienceSamples& out_samples, int64_t batch_size) const override
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++unique_sample_count;
+        push_count_at_unique_sample = push_count;
+        out_samples.replay_item_keys = torch::full(
+            { batch_size }, 100 + push_count, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.is_weights = torch::ones(
+            { batch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        cv.notify_all();
+        return true;
+    }
+
     int64_t Size() const override
     {
         return size_value;
@@ -559,6 +573,18 @@ public:
         return push_count;
     }
 
+    int UniqueSampleCount() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return unique_sample_count;
+    }
+
+    int PushCountAtUniqueSample() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return push_count_at_unique_sample;
+    }
+
     int PushCountAtSampleStart(int sample_index) const
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -603,6 +629,8 @@ public:
     mutable std::mutex mutex;
     mutable std::condition_variable cv;
     mutable int sample_count = 0;
+    mutable int unique_sample_count = 0;
+    mutable int push_count_at_unique_sample = -1;
     mutable std::vector<int> push_count_at_sample_start;
     mutable bool first_sample_started = false;
     mutable bool release_first_sample = false;
@@ -1102,6 +1130,100 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
             StateValue(env_idx, time_idx)
         });
     }
+}
+
+TEST_CASE("ReplayBuffer reads a unique uniform probe batch without replacement", "[replay_buffer][unique_uniform][plasticity]")
+{
+    auto buffer = MakeBuffer(
+        MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
+        1,
+        false,
+        777);
+    for (int64_t t = 0; t <= 6; ++t) {
+        PushTime(buffer, t);
+    }
+    REQUIRE(buffer.rb->Size() == 6);
+
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, 5));
+
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+    CHECK(std::set<int64_t>(keys.begin(), keys.end()).size() == 5);
+    CHECK(torch::equal(samples.is_weights, torch::ones_like(samples.is_weights)));
+    CHECK(samples.replay_item_keys.device().is_cpu());
+}
+
+TEST_CASE("ReplayBuffer plasticity probe does not mark samples or change PER statistics", "[replay_buffer][unique_uniform][plasticity][per]")
+{
+    auto buffer = MakeBuffer(
+        MakeConfig(4, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
+        1,
+        false,
+        4321);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+
+    const auto per_total_before = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
+    const auto initial_mass_before = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
+    const auto eviction_ratio_before = buffer.rb->GetScalar(
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(per_total_before.has_value());
+    REQUIRE(initial_mass_before.has_value());
+    REQUIRE(eviction_ratio_before.has_value());
+
+    rl::ExperienceSamples probe;
+    REQUIRE(buffer.rb->SampleUniqueUniform(probe, buffer.rb->Size()));
+
+    CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == Catch::Approx(*per_total_before));
+    CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO)
+        == Catch::Approx(*initial_mass_before));
+    CHECK(std::isnan(*eviction_ratio_before));
+    CHECK(std::isnan(*buffer.rb->GetScalar(
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO)));
+
+    // probe が MarkSampledOnce に触れていなければ、最古のsampleable slotは未sampleのまま追い出される。
+    PushTime(buffer, 4);
+    const auto eviction_ratio_after = buffer.rb->GetScalar(
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(eviction_ratio_after.has_value());
+    CHECK(*eviction_ratio_after == Catch::Approx(1.0f));
+}
+
+TEST_CASE("ReplayBuffer plasticity probe has an isolated deterministic RNG", "[replay_buffer][unique_uniform][plasticity]")
+{
+    auto make_populated = [] {
+        auto buffer = MakeBuffer(
+            MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
+            1,
+            false,
+            1234);
+        for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t);
+        return buffer;
+    };
+    auto probed = make_populated();
+    auto probe_sequence_control = make_populated();
+    auto normal_sample_control = make_populated();
+
+    rl::ExperienceSamples unchanged;
+    unchanged.replay_item_keys = torch::tensor({ 999 }, torch::TensorOptions().dtype(torch::kInt64));
+    CHECK_FALSE(probed.rb->SampleUniqueUniform(unchanged, 7));
+    CHECK(unchanged.replay_item_keys.item<int64_t>() == 999);
+
+    rl::ExperienceSamples all_items;
+    REQUIRE(probed.rb->SampleUniqueUniform(all_items, 6));
+    rl::ExperienceSamples probe_after_all;
+    rl::ExperienceSamples control_probe;
+    REQUIRE(probed.rb->SampleUniqueUniform(probe_after_all, 5));
+    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(control_probe, 5));
+    CHECK(torch::equal(probe_after_all.replay_item_keys, control_probe.replay_item_keys));
+
+    rl::ExperienceSamples normal_after_probe;
+    rl::ExperienceSamples normal_control;
+    probed.rb->Sample(normal_after_probe, 5, 0.4f);
+    normal_sample_control.rb->Sample(normal_control, 5, 0.4f);
+    CHECK(torch::equal(normal_after_probe.replay_item_keys, normal_control.replay_item_keys));
 }
 
 TEST_CASE("ReplayBuffer samples one-step transitions for each env", "[replay_buffer][basic][multi_env]")
@@ -2658,6 +2780,39 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     CHECK(inner_state->PushCount() == 1);
     CHECK_FALSE(inner_state->PushWasCalledBeforeSecondSampleFinished());
     CHECK(inner_state->PushCountAtSampleStart(3) == 1);
+}
+
+TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe without consuming the prefetched batch", "[replay_buffer][prefetch][plasticity]")
+{
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rl::ExperienceSamples first_samples;
+    rb.Sample(first_samples, 1, 0.0f);
+    CHECK(TensorToInt64Vector(first_samples.replay_item_keys) == std::vector<int64_t>{ 1 });
+    inner_state->WaitForSecondSampleStarted();
+
+    std::thread pusher([&] { rb.Push(rl::BatchExperience{}); });
+    pusher.join();
+    CHECK(inner_state->PushCount() == 0);
+
+    rl::ExperienceSamples probe_samples;
+    std::atomic<bool> probe_ok = false;
+    std::thread probe([&] {
+        probe_ok = rb.SampleUniqueUniform(probe_samples, 1);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(inner_state->UniqueSampleCount() == 0);
+
+    inner_state->ReleaseSecondSample();
+    probe.join();
+    CHECK(probe_ok.load());
+    CHECK(inner_state->PushCountAtUniqueSample() == 1);
+    CHECK(TensorToInt64Vector(probe_samples.replay_item_keys) == std::vector<int64_t>{ 101 });
+
+    rl::ExperienceSamples second_samples;
+    rb.Sample(second_samples, 1, 0.0f);
+    CHECK(TensorToInt64Vector(second_samples.replay_item_keys) == std::vector<int64_t>{ 2 });
 }
 
 TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller scope", "[replay_buffer][prefetch][thread]")

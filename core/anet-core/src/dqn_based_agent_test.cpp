@@ -11,6 +11,7 @@
 #include "nn_heads.hpp"
 
 #include <ATen/autocast_mode.h>
+#include <torch/csrc/autograd/profiler_legacy.h>
 
 #include <algorithm>
 #include <array>
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -37,6 +39,23 @@ namespace {
 
 namespace rl = anet::rl;
 namespace dqn = anet::rl::dqn;
+
+size_t CountProfileOperator(const std::function<void()>& operation, const std::string& operator_name)
+{
+    std::ostringstream output;
+    {
+        torch::autograd::profiler::RecordProfile profile(output);
+        operation();
+    }
+
+    const std::string trace = output.str();
+    const std::string needle = "\"name\": \"" + operator_name + "\"";
+    size_t count = 0;
+    for (size_t offset = 0; (offset = trace.find(needle, offset)) != std::string::npos; offset += needle.size()) {
+        ++count;
+    }
+    return count;
+}
 
 struct AutocastProbeState {
     void Record(torch::DeviceType device_type)
@@ -267,11 +286,47 @@ public:
         replay_buffer_ = std::move(replay_buffer);
     }
 
+    void EnablePlasticityForward(bool include_target)
+    {
+        run_plasticity_forward_ = true;
+        run_plasticity_target_forward_ = include_target;
+    }
+
+    void MutateOnlineParametersDuringUpdate(float delta)
+    {
+        parameter_mutation_delta_ = delta;
+    }
+
     std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
+        if (run_plasticity_forward_) {
+            model_.ForwardOnlineWithTrain(samples.obs);
+            if (run_plasticity_target_forward_) model_.ForwardTarget(samples.next_state.next_obs);
+            if (parameter_mutation_delta_.has_value()) {
+                torch::NoGradGuard no_grad;
+                for (auto& parameter : model_.GetOnlineParameters()) {
+                    parameter.add_(*parameter_mutation_delta_);
+                }
+            }
+            dqn::OptimizerStepResult opt_result;
+            dqn::PerPriorityUpdateInfo per_info;
+            const auto batch_size = samples.actions.size(0);
+            return MakeBatchUpdateResult(
+                torch::tensor(0.0f),
+                torch::zeros({ batch_size }),
+                opt_result,
+                torch::zeros({ batch_size }),
+                torch::zeros({ batch_size }),
+                per_info);
+        }
         return nullptr;
     }
+
+private:
+    bool run_plasticity_forward_ = false;
+    bool run_plasticity_target_forward_ = false;
+    std::optional<float> parameter_mutation_delta_;
 };
 
 class RecordingReplayBuffer final : public rl::ReplayBuffer {
@@ -298,6 +353,14 @@ public:
         out_samples.replay_item_keys = torch::arange(minibatch_size, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
         out_samples.per_priority_sources = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt8));
+    }
+
+    bool SampleUniqueUniform(rl::ExperienceSamples& out_samples, int64_t batch_size) const override
+    {
+        ++unique_sample_count;
+        if (!unique_sample_enabled) return false;
+        Sample(out_samples, batch_size, 0.0f);
+        return true;
     }
 
     int64_t Size() const override
@@ -348,6 +411,8 @@ public:
     std::vector<float> last_priorities;
     int push_count = 0;
     mutable int sample_count = 0;
+    mutable int unique_sample_count = 0;
+    bool unique_sample_enabled = false;
     mutable int size_count = 0;
     int update_count = 0;
     std::optional<rl::ReplayPriorityUpdateResult> priority_update_result;
@@ -4588,6 +4653,19 @@ TEST_CASE("DefaultDQNAgentConfig reads fused optimizer setting", "[dqn][config][
     CHECK_FALSE(config.learner.use_fused_optimizer);
 }
 
+TEST_CASE("DefaultDQNAgentConfig reads and validates plasticity probe settings", "[dqn][config][plasticity]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.plasticity.feature_key", "main_feature");
+    config_data.Set("DefaultDQNAgent.learner.plasticity.probe.batch_size", 512);
+    const dqn::DefaultDQNAgentConfig config(config_data);
+    CHECK(config.learner.plasticity.feature_key == "main_feature");
+    CHECK(config.learner.plasticity.probe.batch_size == 512);
+
+    config_data.Set("DefaultDQNAgent.learner.plasticity.probe.batch_size", 0);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+}
+
 TEST_CASE("DQN configs read sample prefetch setting", "[dqn][config][prefetch]")
 {
     dqn::DefaultDQNAgentConfig default_config(anet::ConfigData{});
@@ -4777,4 +4855,336 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
         auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network, rnd);
         CHECK(torch::equal(action_info->GetAction().cpu(), expected_actions));
     }
+}
+
+TEST_CASE("DQN update result exposes captured plasticity metrics lazily", "[dqn][plasticity]")
+{
+    dqn::BatchUpdateResult result;
+    result.plasticity_features = torch::eye(2, torch::TensorOptions().dtype(torch::kFloat32));
+    result.plasticity_request = anet::nn::PlasticityMetricRequest::All();
+    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f });
+
+    REQUIRE(result.GetScalar("plasticity_srank").has_value());
+    CHECK(*result.GetScalar("plasticity_srank") == 2.0f);
+    CHECK(*result.GetScalar("plasticity_srank_ratio") == Catch::Approx(1.0f));
+    CHECK(*result.GetScalar("plasticity_srank_delta_005") == 2.0f);
+    CHECK(*result.GetScalar("plasticity_srank_ratio_delta_020") == Catch::Approx(1.0f));
+    CHECK(std::isnan(*result.GetScalar("plasticity_target_srank")));
+    CHECK_FALSE(result.plasticity_weight_norms_cpu.defined());
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature") == Catch::Approx(3.0f));
+    REQUIRE(result.plasticity_weight_norms_cpu.defined());
+    const auto* cpu_data = result.plasticity_weight_norms_cpu.data_ptr<float>();
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout") == Catch::Approx(4.0f));
+    CHECK(result.plasticity_weight_norms_cpu.data_ptr<float>() == cpu_data);
+    CHECK_FALSE(result.GetScalar("plasticity_unknown").has_value());
+
+    dqn::BatchUpdateResult partial_result;
+    partial_result.plasticity_features = result.plasticity_features;
+    partial_result.plasticity_request.Add(anet::nn::PlasticityMetric::FEATURE_NORM);
+    CHECK(std::isfinite(*partial_result.GetScalar("plasticity_feature_norm")));
+    CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank")));
+    CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank_delta_005")));
+}
+
+TEST_CASE("DQN learner reports subscribed parameter norm without activating feature metrics", "[dqn][plasticity][weight_norm]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 2.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    auto env_spec = MakeLearnerEnvSpec();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.EnablePlasticityForward(false);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_feature",
+            .event = rl::EventType::LEARN,
+            .interval = 2,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_readout",
+            .event = rl::EventType::LEARN,
+            .interval = 3,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+
+    REQUIRE(results.size() == 1);
+    const auto feature_norm = results.front()->GetScalar("plasticity_weight_norm_feature");
+    const auto readout_norm = results.front()->GetScalar("plasticity_weight_norm_readout");
+    REQUIRE(feature_norm.has_value());
+    REQUIRE(readout_norm.has_value());
+    CHECK(std::isfinite(*feature_norm));
+    CHECK(std::isfinite(*readout_norm));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_srank")));
+    CHECK(replay_buffer->unique_sample_count == 0);
+
+    const auto skipped = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(skipped.size() == 1);
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_weight_norm_feature")));
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_weight_norm_readout")));
+
+    const auto measured_again = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(measured_again.size() == 1);
+    CHECK(std::isfinite(*measured_again.front()->GetScalar("plasticity_weight_norm_feature")));
+    CHECK(std::isfinite(*measured_again.front()->GetScalar("plasticity_weight_norm_readout")));
+}
+
+TEST_CASE("DQN parameter norm records the value before the learner update", "[dqn][plasticity][weight_norm]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    const float expected_readout = model.GetOnlineNetwork()
+        ->ComputeParameterNormSplit(kFeatureKey).readout.item<float>();
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 2.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+    learner.EnablePlasticityForward(false);
+    learner.MutateOnlineParametersDuringUpdate(1.0f);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_readout",
+        .event = rl::EventType::LEARN,
+        .interval = 1,
+        .scope = rl::RunnerScope::TRAIN,
+    } });
+
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+
+    REQUIRE(results.size() == 1);
+    CHECK(*results.front()->GetScalar("plasticity_weight_norm_readout")
+        == Catch::Approx(expected_readout));
+    const float updated_readout = model.GetOnlineNetwork()
+        ->ComputeParameterNormSplit(kFeatureKey).readout.item<float>();
+    CHECK(updated_readout != Catch::Approx(expected_readout));
+}
+
+TEST_CASE("DQN plasticity subscriptions gate actual target and probe work independently", "[dqn][plasticity]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 2.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    config.plasticity.probe.batch_size = 2;
+    auto env_spec = MakeLearnerEnvSpec();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.EnablePlasticityForward(true);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    replay_buffer->unique_sample_enabled = true;
+    learner.UseReplayBuffer(replay_buffer);
+
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_srank",
+            .event = rl::EventType::LEARN,
+            .interval = 2,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_feature_norm",
+            .event = rl::EventType::LEARN,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_target_srank",
+            .event = rl::EventType::LEARN,
+            .interval = 3,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_probe_srank",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::AGENT,
+            .interval = 2,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto first = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(first.size() == 1);
+    CHECK(std::isfinite(*first.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isfinite(*first.front()->GetScalar("plasticity_target_srank")));
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    const auto second = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(second.size() == 1);
+    CHECK(std::isnan(*second.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isfinite(*second.front()->GetScalar("plasticity_feature_norm")));
+    CHECK(std::isnan(*second.front()->GetScalar("plasticity_target_srank")));
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    const auto third = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(third.size() == 1);
+    CHECK(std::isfinite(*third.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isnan(*third.front()->GetScalar("plasticity_target_srank")));
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 2);
+
+    replay_buffer->unique_sample_enabled = false;
+    const auto fourth = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(fourth.size() == 1);
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    const auto fifth = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(fifth.size() == 1);
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 3);
+}
+
+TEST_CASE("DQN plasticity probe survives later updates in the same LearnEvent",
+    "[dqn][plasticity][demand]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 8.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    config.plasticity.probe.batch_size = 2;
+    TestLearner learner(
+        config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    replay_buffer->unique_sample_enabled = true;
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_probe_srank",
+        .event = rl::EventType::LEARN,
+        .target = rl::EventField::AGENT,
+        .interval = 8,
+        .scope = rl::RunnerScope::TRAIN,
+    } });
+
+    // 1 event 内の4 updateの先頭だけで測定しても、後続3 update後まで値を保持する。
+    const auto first = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(first.size() == 4);
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    // 次の event に測定stepが無ければ、前eventの値を再利用しない。
+    const auto second = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(second.size() == 4);
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    const auto third = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(third.size() == 4);
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 2);
+}
+
+TEST_CASE("DQN plasticity srank interval reduces SVD executions independently of capture cadence",
+    "[dqn][plasticity][demand]")
+{
+    const auto count_svd = [](const int srank_interval) {
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        config.replay_batch_size = 2;
+        config.update_warmup_steps = 0;
+        config.update_interval = 1;
+        config.replay_ratio = 2.0f;
+        config.plasticity.feature_key = kFeatureKey;
+        TestLearner learner(
+            config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+        learner.EnablePlasticityForward(true);
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 2 });
+        learner.UseReplayBuffer(replay_buffer);
+        learner.ConfigureScalarMetricSubscriptions({
+            rl::ScalarMetricSubscription{
+                .source_key = "plasticity_feature_norm",
+                .event = rl::EventType::LEARN,
+                .interval = 1,
+                .scope = rl::RunnerScope::TRAIN,
+            },
+            rl::ScalarMetricSubscription{
+                .source_key = "plasticity_srank",
+                .event = rl::EventType::LEARN,
+                .interval = srank_interval,
+                .scope = rl::RunnerScope::TRAIN,
+            },
+        });
+
+        return CountProfileOperator([&] {
+            for (int step = 0; step < 10; ++step) {
+                const auto results = learner.UpdateFromBatch(
+                    rl::StepCounts{}, rl::BatchExperience{});
+                REQUIRE(results.size() == 1);
+                CHECK(std::isfinite(*results.front()->GetScalar("plasticity_feature_norm")));
+                const auto srank = results.front()->GetScalar("plasticity_srank");
+                REQUIRE(srank.has_value());
+                if (step % srank_interval == 0) {
+                    CHECK(std::isfinite(*srank));
+                } else {
+                    CHECK(std::isnan(*srank));
+                }
+            }
+        }, "aten::linalg_svdvals");
+    };
+
+    CHECK(count_svd(1) == 10);
+    CHECK(count_svd(10) == 1);
+}
+
+TEST_CASE("DQN plasticity feature key is validated only when subscribed", "[dqn][plasticity][config]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    auto env_spec = MakeLearnerEnvSpec();
+    dqn::LearnerConfig config;
+    config.plasticity.feature_key.clear();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({}));
+    CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_srank",
+        .event = rl::EventType::LEARN,
+    } }));
+    CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_feature",
+        .event = rl::EventType::LEARN,
+    } }));
+
+    dqn::LearnerConfig unknown_config;
+    unknown_config.plasticity.feature_key = "missing";
+    TestLearner unknown_learner(unknown_config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    CHECK_THROWS_WITH(unknown_learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_srank",
+        .event = rl::EventType::LEARN,
+    } }), Catch::Matchers::ContainsSubstring("available_branches"));
+    CHECK_THROWS_WITH(unknown_learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_readout",
+        .event = rl::EventType::LEARN,
+    } }), Catch::Matchers::ContainsSubstring("available_branches"));
 }

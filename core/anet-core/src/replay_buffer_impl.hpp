@@ -417,6 +417,7 @@ namespace anet::rl {
             std::unique_ptr<ExperienceQueueController> queue_controller,
             std::unique_ptr<ReplayExperienceBuilder> builder,
             std::shared_ptr<ReplayExperienceSampler> sampler,
+            std::shared_ptr<ReplayExperienceSampler> unique_uniform_sampler,
             std::shared_ptr<ReplayPriorityStore> priority_store,
             std::shared_ptr<ExperienceSampleExtractor> extractor,
             std::unique_ptr<InitialPriorityCompleter> initial_priority_completer,
@@ -425,6 +426,7 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
@@ -472,6 +474,7 @@ namespace anet::rl {
         std::unique_ptr<ExperienceQueueController> queue_controller_;
         std::unique_ptr<ReplayExperienceBuilder> builder_;
         std::shared_ptr<ReplayExperienceSampler> sampler_;
+        std::shared_ptr<ReplayExperienceSampler> unique_uniform_sampler_;
         std::shared_ptr<ReplayPriorityStore> priority_store_;
         std::shared_ptr<ExperienceSampleExtractor> extractor_;
         std::unique_ptr<InitialPriorityCompleter> initial_priority_completer_;

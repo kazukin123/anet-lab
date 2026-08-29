@@ -134,12 +134,24 @@ namespace anet::rl::dqn {
         torch::Tensor iqn_diagnostics;
         float upper_tail_priority_spearman = std::numeric_limits<float>::quiet_NaN();
 
+        // 可塑性メトリクス元特徴。CPU統計は購読側が初めて読む時だけ計算する。
+        torch::Tensor plasticity_features;
+        torch::Tensor plasticity_target_features;
+        torch::Tensor plasticity_weight_norms;
+        anet::nn::PlasticityMetricRequest plasticity_request;
+        anet::nn::PlasticityMetricRequest plasticity_target_request;
+        mutable torch::Tensor plasticity_weight_norms_cpu;
+        mutable std::optional<anet::nn::PlasticityMetrics> plasticity_metrics_cache;
+        mutable std::optional<anet::nn::PlasticityMetrics> plasticity_target_metrics_cache;
+
     public:
         BatchUpdateResult() = default;
 
-        std::optional<float> GetScalar(const std::string& key, int64_t index) const override
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
             // 必要になって初めてCPUに転送する
+
+            if (auto value = GetPlasticityScalar(key)) return value;
 
             // loss/td/grad
             if (key == "loss") return loss.item<float>();
@@ -340,6 +352,51 @@ namespace anet::rl::dqn {
             return std::nullopt;
         }
     private:
+        std::optional<float> GetPlasticityScalar(const std::string& key) const
+        {
+            if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+                if (!plasticity_weight_norms.defined()) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                if (!plasticity_weight_norms_cpu.defined()) {
+                    plasticity_weight_norms_cpu = plasticity_weight_norms.cpu();
+                }
+                const int64_t index = key == "plasticity_weight_norm_feature" ? 0 : 1;
+                return plasticity_weight_norms_cpu[index].item<float>();
+            }
+
+            const torch::Tensor* features = nullptr;
+            const anet::nn::PlasticityMetricRequest* request = nullptr;
+            std::optional<anet::nn::PlasticityMetrics>* cache = nullptr;
+            std::string suffix;
+            if (key.starts_with("plasticity_target_")) {
+                features = &plasticity_target_features;
+                request = &plasticity_target_request;
+                cache = &plasticity_target_metrics_cache;
+                suffix = key.substr(std::string("plasticity_target_").size());
+            } else if (key.starts_with("plasticity_")) {
+                features = &plasticity_features;
+                request = &plasticity_request;
+                cache = &plasticity_metrics_cache;
+                suffix = key.substr(std::string("plasticity_").size());
+            } else {
+                return std::nullopt;
+            }
+
+            const auto metric = anet::nn::ParsePlasticityMetricSuffix(suffix);
+            if (!metric.has_value()) return std::nullopt;
+            if (!request->Contains(*metric)) return std::numeric_limits<float>::quiet_NaN();
+            if (!features->defined()) return std::numeric_limits<float>::quiet_NaN();
+            if (!cache->has_value()) {
+                *cache = anet::nn::ComputePlasticityMetrics(*features, *request);
+            }
+            const auto value = cache->value().Get(*metric);
+            if (!value.has_value()) {
+                ANET_SYSTEM_ERROR("BatchUpdateResult plasticity cache is missing a requested metric.");
+            }
+            return value;
+        }
+
         void TransQToCpu() const
         {
             if (max_q_cpu.defined()) return;
@@ -436,6 +493,11 @@ namespace anet::rl::dqn {
         anet::TensorDict ForwardOnline(const anet::TensorDict& obs) const;
         anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs) const;
         anet::TensorDict ForwardTarget(const anet::TensorDict& obs) const;
+        anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key) const;
+        void SetBranchCaptureRequests(
+            anet::nn::NetworkBranchCapture* online_capture,
+            anet::nn::NetworkBranchCapture* target_capture);
+        void ClearBranchCaptureRequests();
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
@@ -467,6 +529,8 @@ namespace anet::rl::dqn {
 
         int64_t n_actions_;
         bool distributional_;
+        anet::nn::NetworkBranchCapture* online_capture_ = nullptr;
+        anet::nn::NetworkBranchCapture* target_capture_ = nullptr;
     };
 
 
@@ -642,6 +706,8 @@ namespace anet::rl::dqn {
             std::optional<anet::seed_t> target_seed = std::nullopt);
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
+        void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions);
 
         virtual ~Learner() = default;
     public:
@@ -686,6 +752,7 @@ namespace anet::rl::dqn {
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
+        void CapturePlasticityProbe();
     protected:
         const torch::Device device_;
         int num_envs_;
@@ -702,6 +769,50 @@ namespace anet::rl::dqn {
         anet::GradScaler grad_scaler_;
         std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
+        struct PlasticityState {
+            struct DemandEntry {
+                anet::nn::PlasticityMetric metric;
+                anet::IntervalGate gate;
+
+                DemandEntry(anet::nn::PlasticityMetric metric, int interval)
+                    : metric(metric), gate(static_cast<uint64_t>(interval)) {}
+            };
+
+            struct ChannelDemand {
+                bool enabled = false;
+                int interval = 1;
+                std::vector<DemandEntry> entries;
+
+                void Add(anet::nn::PlasticityMetric metric, int candidate_interval) {
+                    interval = enabled ? std::min(interval, candidate_interval) : candidate_interval;
+                    enabled = true;
+                    entries.emplace_back(metric, candidate_interval);
+                }
+
+                anet::nn::PlasticityMetricRequest MakeRequest(uint64_t step) {
+                    anet::nn::PlasticityMetricRequest request;
+                    if (!enabled || step % static_cast<uint64_t>(interval) != 0) return request;
+                    for (auto& entry : entries) {
+                        if (entry.gate.ShouldFire(step)) request.Add(entry.metric);
+                    }
+                    return request;
+                }
+            };
+
+            ChannelDemand online;
+            ChannelDemand target;
+            ChannelDemand probe;
+            bool weight_norm_enabled = false;
+            int weight_norm_interval = 1;
+            anet::nn::NetworkBranchCapture online_capture;
+            anet::nn::NetworkBranchCapture target_capture;
+            anet::nn::PlasticityMetricRequest online_request;
+            anet::nn::PlasticityMetricRequest target_request;
+            anet::nn::PlasticityMetricRequest probe_request;
+            torch::Tensor probe_features;
+            torch::Tensor weight_norms;
+            mutable std::optional<anet::nn::PlasticityMetrics> probe_metrics_cache;
+        } plasticity_;
     protected:
         float update_credit_ = 0.0f;
     private:

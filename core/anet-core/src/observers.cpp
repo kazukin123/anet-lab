@@ -816,11 +816,11 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
 }
 
 /// BATCH_UPDATE_RESULT専用のメトリクス情報取得処理
-MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(
+MetricsLogObserverBase::UpdateResultMetricsLookup MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(
     const StepCounts& counts,
     const BatchUpdateResultList* update_result_list)
 {
-    MetricsDataList ret;
+    UpdateResultMetricsLookup ret;
 
     // 取得元のBatchUpdateResultList
     auto learn_step = counts.learn_step;
@@ -834,8 +834,11 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
         for (const auto& update_result : *update_result_list) {
             // メトリクス情報取得
             auto scaler = update_result->GetScalar(this->key_);
+            if (scaler.has_value()) {
+                ret.recognized = true;
+            }
             MetricsData data{ learn_step, scaler };
-            ret.push_back(data);
+            ret.data_list.push_back(data);
 
             // カウント進める
             learn_step++;
@@ -848,6 +851,9 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
         for (const auto& update_result : *update_result_list) {
             auto scaler = update_result->GetScalar(this->key_);
             if (!scaler.has_value()) continue;
+            // key認識は有限値の成立可否と分離し、既知NaNから他sourceへ探索させない。
+            ret.recognized = true;
+            if (!std::isfinite(*scaler)) continue;
             sum += *scaler;
             count++;
         }
@@ -860,7 +866,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
             // メトリクス情報追加
             MetricsData data{ step, mean };
-            ret.push_back(data);
+            ret.data_list.push_back(data);
         }
     }
 
@@ -883,8 +889,8 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
         if (*event_field_ == anet::rl::EventField::UPDATE_RESULT) {
             // UpdateResultList用メソッドでメトリクス情報を取得
-            auto data_list = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
-            ret = std::move(data_list);
+            auto lookup = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
+            ret = std::move(lookup.data_list);
         } else {
             // その他メソッドでメトリクス情報を取得
             auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, *event_field_);
@@ -894,9 +900,10 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
         // 対象フィールドが指定されていない場合、順番に試す
 
         // BatchUpdateResultList
-        auto data_list = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
-        if (!data_list.empty()) {
-            ret = std::move(data_list);
+        auto lookup = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
+        if (lookup.recognized) {
+            // 既知keyなら有限な出力がなくてもsource探索をここで終了する。
+            ret = std::move(lookup.data_list);
         } else {
             // Agent
             auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::AGENT);
@@ -984,6 +991,7 @@ void MetricsLogObserverBase::OnGenericUpdate(
 
         // EMA更新（出力しない場合も更新、クリッピング前の値で更新）
         if (value_opt.has_value()) {
+            if (!std::isfinite(*value_opt)) continue;
             if (is_ema_) {
                 val_ema_.Update(*value_opt);
                 if (val_ema_.IsInitialized())
@@ -1382,6 +1390,14 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 .interval = interval,
                 .scope = runner_scope,
                 .eval_name = eval_name,
+                .subscription = ScalarMetricSubscription{
+                    .source_key = key,
+                    .event = event,
+                    .target = field_opt,
+                    .interval = interval,
+                    .scope = runner_scope,
+                    .eval_name = eval_name,
+                },
                 });
 
             switch (event) {

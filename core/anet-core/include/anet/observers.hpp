@@ -321,6 +321,10 @@ namespace anet::rl {
     private:
         using MetricsData = std::pair<step_t, std::optional<float>>;
         using MetricsDataList = std::vector<MetricsData>;
+        struct UpdateResultMetricsLookup {
+            bool recognized = false;
+            MetricsDataList data_list;
+        };
     private:
         MetricsDataList GetMetricsDataList(
             const StepCounts& counts,
@@ -339,7 +343,7 @@ namespace anet::rl {
             const BatchExperience* experience,
             std::shared_ptr<const BatchActionInfo> action_info,
             EventField event_field);
-        MetricsDataList GetMetricsDataListFromUpdateResultList(
+        UpdateResultMetricsLookup GetMetricsDataListFromUpdateResultList(
             const StepCounts& counts,
             const BatchUpdateResultList* update_result_list);
 
@@ -458,6 +462,7 @@ namespace anet::rl {
             int interval = 1;
             RunnerScope scope = RunnerScope::TRAIN;
             std::string eval_name;
+            ScalarMetricSubscription subscription;
         };
     public:
         ObserverFactory(const ConfigData& config_data);

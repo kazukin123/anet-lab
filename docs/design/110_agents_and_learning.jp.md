@@ -204,6 +204,10 @@ checkpoint対応を追加・変更するときは、保存しないStateを明�
 - Actor推論とLearner更新は高頻度境界であり、Network forward、optimizer、ReplayBuffer、device転送などの具象処理へ計測範囲を置く。
 - model cloneと同期は一貫したsnapshotを得られる一方、copy時間と追加memoryを伴う。共有か複製かをRunModeごとに実測する。
 
+### 7.5 scalar metric購読
+
+`RunManager`は実際にattachしたscalar metrics定義を`ScalarMetricSubscription`へ変換し、学習開始前に`Agent::ConfigureScalarMetricSubscriptions()`へ1回渡す。購読はsource key、event、optional target、interval、runner scope、eval名を保持する。基底Agentはno-opであり、具象Agentは自身が所有するtrain-scope `LEARN` keyだけをfilterして、重いcaptureやprobeのON/OFFとcadenceを決める。購読が無いmetric処理は完全に不活性でなければならない。
+
 ## 8. テストと拡張時の確認事項
 
 共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。

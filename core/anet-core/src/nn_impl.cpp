@@ -31,6 +31,130 @@ static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
 
 
+std::optional<PlasticityMetric> anet::nn::ParsePlasticityMetricSuffix(const std::string_view suffix)
+{
+    if (suffix == "srank") return PlasticityMetric::SRANK_DELTA_001;
+    if (suffix == "srank_delta_005") return PlasticityMetric::SRANK_DELTA_005;
+    if (suffix == "srank_delta_020") return PlasticityMetric::SRANK_DELTA_020;
+    if (suffix == "srank_ratio") return PlasticityMetric::SRANK_RATIO_DELTA_001;
+    if (suffix == "srank_ratio_delta_005") return PlasticityMetric::SRANK_RATIO_DELTA_005;
+    if (suffix == "srank_ratio_delta_020") return PlasticityMetric::SRANK_RATIO_DELTA_020;
+    if (suffix == "dormant_ratio") return PlasticityMetric::DORMANT_RATIO;
+    if (suffix == "dead_ratio") return PlasticityMetric::DEAD_RATIO;
+    if (suffix == "feature_norm") return PlasticityMetric::FEATURE_NORM;
+    return std::nullopt;
+}
+
+std::optional<float> PlasticityMetrics::Get(const PlasticityMetric metric) const
+{
+    switch (metric) {
+    case PlasticityMetric::SRANK_DELTA_001: return srank[0];
+    case PlasticityMetric::SRANK_DELTA_005: return srank[1];
+    case PlasticityMetric::SRANK_DELTA_020: return srank[2];
+    case PlasticityMetric::SRANK_RATIO_DELTA_001: return srank_ratio[0];
+    case PlasticityMetric::SRANK_RATIO_DELTA_005: return srank_ratio[1];
+    case PlasticityMetric::SRANK_RATIO_DELTA_020: return srank_ratio[2];
+    case PlasticityMetric::DORMANT_RATIO: return dormant_ratio;
+    case PlasticityMetric::DEAD_RATIO: return dead_ratio;
+    case PlasticityMetric::FEATURE_NORM: return feature_norm;
+    case PlasticityMetric::COUNT: break;
+    }
+    ANET_SYSTEM_ERROR("PlasticityMetrics::Get received an invalid metric.");
+    return std::nullopt;
+}
+
+PlasticityMetrics anet::nn::ComputePlasticityMetrics(
+    const torch::Tensor& features,
+    const PlasticityMetricRequest& request)
+{
+    ANET_PROFILE_FUNC();
+
+    // 公開契約のshapeは要求が空でも同じ境界で検証する。
+    if (!features.defined() || features.dim() != 2) {
+        ANET_SYSTEM_ERROR("ComputePlasticityMetrics: features must be rank-2 (N, D). shape="
+            << (features.defined() ? features.sizes() : torch::IntArrayRef{}));
+    }
+    PlasticityMetrics result;
+    if (!request.Any()) return result;
+
+    torch::NoGradGuard no_grad;
+
+    // 要求された統計を一度のCPU転送から計算する。
+    ANET_PROFILE_SCOPE(to_cpu);
+    const auto cpu_features = features.detach().to(
+        torch::TensorOptions().device(torch::kCPU).dtype(torch::kFloat32));
+    ANET_PROFILE_SCOPE_END(to_cpu);
+
+    // srank系は、要求されたδの数にかかわらずSVDとcumsumを一度だけ実行する。
+    const std::array<PlasticityMetric, 3> srank_metrics{
+        PlasticityMetric::SRANK_DELTA_001,
+        PlasticityMetric::SRANK_DELTA_005,
+        PlasticityMetric::SRANK_DELTA_020,
+    };
+    const std::array<PlasticityMetric, 3> srank_ratio_metrics{
+        PlasticityMetric::SRANK_RATIO_DELTA_001,
+        PlasticityMetric::SRANK_RATIO_DELTA_005,
+        PlasticityMetric::SRANK_RATIO_DELTA_020,
+    };
+    bool needs_srank = false;
+    for (size_t i = 0; i < srank_metrics.size(); ++i) {
+        needs_srank = needs_srank
+            || request.Contains(srank_metrics[i])
+            || request.Contains(srank_ratio_metrics[i]);
+    }
+    if (needs_srank) {
+        ANET_PROFILE_SCOPE(svd);
+        const auto singular_values = torch::linalg_svdvals(cpu_features);
+        const float singular_sum = singular_values.sum().item<float>();
+        const auto cumulative = singular_values.cumsum(0);
+        const float rank_limit = static_cast<float>(std::min(cpu_features.size(0), cpu_features.size(1)));
+        for (size_t i = 0; i < kPlasticitySrankDeltas.size(); ++i) {
+            if (!request.Contains(srank_metrics[i]) && !request.Contains(srank_ratio_metrics[i])) continue;
+            float srank = 0.0f;
+            if (singular_sum > 0.0f) {
+                const auto reached = cumulative >= singular_sum * (1.0f - kPlasticitySrankDeltas[i]);
+                srank = static_cast<float>(reached.to(torch::kInt64).argmax().item<int64_t>() + 1);
+            }
+            if (request.Contains(srank_metrics[i])) result.srank[i] = srank;
+            if (request.Contains(srank_ratio_metrics[i])) {
+                result.srank_ratio[i] = singular_sum > 0.0f ? srank / rank_limit : 0.0f;
+            }
+        }
+        ANET_PROFILE_SCOPE_END(svd);
+    }
+
+    // dormant/deadは共通のunit activationを作り、要求された比較だけを行う。
+    if (request.Contains(PlasticityMetric::DORMANT_RATIO)
+        || request.Contains(PlasticityMetric::DEAD_RATIO)) {
+        ANET_PROFILE_SCOPE(activation);
+        const auto unit_activations = cpu_features.abs().mean(0);
+        const float mean_activation = unit_activations.mean().item<float>();
+        if (mean_activation > 0.0f) {
+            const auto normalized = unit_activations / mean_activation;
+            if (request.Contains(PlasticityMetric::DORMANT_RATIO)) {
+                result.dormant_ratio = (normalized <= kPlasticityDormantTau)
+                    .to(torch::kFloat32).mean().item<float>();
+            }
+            if (request.Contains(PlasticityMetric::DEAD_RATIO)) {
+                result.dead_ratio = (normalized <= 0.0f).to(torch::kFloat32).mean().item<float>();
+            }
+        } else {
+            if (request.Contains(PlasticityMetric::DORMANT_RATIO)) result.dormant_ratio = 1.0f;
+            if (request.Contains(PlasticityMetric::DEAD_RATIO)) result.dead_ratio = 1.0f;
+        }
+        ANET_PROFILE_SCOPE_END(activation);
+    }
+
+    if (request.Contains(PlasticityMetric::FEATURE_NORM)) {
+        ANET_PROFILE_SCOPE(feature_norm);
+        result.feature_norm = torch::linalg_vector_norm(cpu_features, 2, { 1 }).mean().item<float>();
+        ANET_PROFILE_SCOPE_END(feature_norm);
+    }
+
+    return result;
+}
+
+
 // ===========================================================================
 // Helper Functions (Internal)
 // ===========================================================================
@@ -987,7 +1111,10 @@ NetworkBody::NetworkBody(
     }
 }
 
-anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet::TraceCallback& callback)
+anet::TensorDict NetworkBody::Forward(
+    const anet::TensorDict& input,
+    const anet::TraceCallback& callback,
+    NetworkBranchCapture* capture)
 {
     ANET_PROFILE_FUNC();
 
@@ -997,6 +1124,22 @@ anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet:
     // 入力順ソートされた順序でブランチ群を実行
     for (const auto& branch : branches_) {
         branch->Execute(state, callback);
+    }
+
+    // 要求された場合だけ、実 forward が生成した branch 出力を参照として切り離す
+    if (capture != nullptr) {
+        if (auto output = state.Get(capture->branch_key)) {
+            capture->output = output->detach();
+        } else {
+            std::ostringstream available;
+            const auto branch_names = GetBranchNames();
+            for (size_t i = 0; i < branch_names.size(); ++i) {
+                if (i > 0) available << ", ";
+                available << branch_names[i];
+            }
+            ANET_SYSTEM_ERROR("Network::Forward: unknown capture branch_key='" << capture->branch_key
+                << "'. available_branches=[" << available.str() << "]");
+        }
     }
 
     // 指定されたマッピングに従って Head用の TensorDict を構築
@@ -1009,6 +1152,68 @@ anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet:
         }
     }
     return out;
+}
+
+anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
+{
+    ANET_PROFILE_FUNC();
+
+    const auto required_branches = ComputeDependencyClosure(branch_key);
+
+    // Format 済み入力へ、閉包内 branch だけを既存のトポロジカル順で実行
+    auto state = preprocessor_.Format(input);
+    for (const auto& branch : branches_) {
+        if (required_branches.contains(branch->GetName())) {
+            branch->Execute(state);
+        }
+    }
+    return state;
+}
+
+std::set<std::string> NetworkBody::ComputeDependencyClosure(const std::string& branch_key) const
+{
+    // 対象名を検証し、名前から branch を引ける表を構築
+    std::map<std::string, std::shared_ptr<NetworkBranch>> branches_by_name;
+    for (const auto& branch : branches_) {
+        branches_by_name.emplace(branch->GetName(), branch);
+    }
+    if (!branches_by_name.contains(branch_key)) {
+        std::ostringstream available;
+        bool first = true;
+        for (const auto& [name, branch] : branches_by_name) {
+            (void)branch;
+            if (!first) available << ", ";
+            available << name;
+            first = false;
+        }
+        ANET_SYSTEM_ERROR("Network: unknown branch_key='" << branch_key
+            << "'. available_branches=[" << available.str() << "]");
+    }
+
+    // bind を逆向きに辿り、入力 key を同名 branch より優先して依存閉包を確定
+    std::set<std::string> required_branches;
+    std::function<void(const std::string&)> add_dependencies = [&](const std::string& name) {
+        if (!required_branches.insert(name).second) return;
+        const auto& branch = branches_by_name.at(name);
+        for (const auto& term : branch->GetBindTerms()) {
+            for (const auto& factor : term) {
+                if (preprocessor_.HasInputKey(factor)) continue;
+                if (branches_by_name.contains(factor)) add_dependencies(factor);
+            }
+        }
+    };
+    add_dependencies(branch_key);
+    return required_branches;
+}
+
+std::vector<std::string> NetworkBody::GetBranchNames() const
+{
+    std::vector<std::string> names;
+    names.reserve(branches_.size());
+    for (const auto& branch : branches_) {
+        names.push_back(branch->GetName());
+    }
+    return names;
 }
 
 
@@ -1317,12 +1522,15 @@ Network::Network(
     if (head_) register_module("head", head_);
 }
 
-anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::TraceCallback& callback)
+anet::TensorDict Network::Forward(
+    const anet::TensorDict& input,
+    const anet::TraceCallback& callback,
+    NetworkBranchCapture* capture)
 {
     ANET_PROFILE_FUNC();
 
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
-    auto features = body_->Forward(input, callback);
+    auto features = body_->Forward(input, callback, capture);
 
     // Head部を実行
     if (head_) {
@@ -1335,6 +1543,56 @@ anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::Tra
 		// Headが無い場合はBodyの出力をそのまま返す
         return features;
     }
+}
+
+anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
+{
+    return body_->ForwardUpTo(input, branch_key);
+}
+
+NetworkParameterNormSplit Network::ComputeParameterNormSplit(const std::string& feature_key) const
+{
+    torch::NoGradGuard no_grad;
+    const auto feature_branches = body_->ComputeDependencyClosure(feature_key);
+
+    // Networkが通常どおり単一deviceへ配置されている前提で、空群用scalarのdeviceを確定する。
+    torch::Device device(torch::kCPU);
+    const auto all_parameters = parameters();
+    if (!all_parameters.empty()) {
+        device = all_parameters.front().device();
+    } else {
+        const auto all_buffers = buffers();
+        if (!all_buffers.empty()) device = all_buffers.front().device();
+    }
+    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    auto feature_squared_norm = torch::zeros({}, options);
+    auto readout_squared_norm = torch::zeros({}, options);
+
+    const auto accumulate = [](const torch::nn::Module& module, torch::Tensor& squared_norm) {
+        for (const auto& parameter : module.parameters()) {
+            if (!parameter.requires_grad()) continue;
+            squared_norm.add_(parameter.detach().to(torch::kFloat32).square().sum());
+        }
+    };
+
+    // branchを依存閉包の内外で分け、headは常にreadoutへ帰属させる。
+    for (const auto& branch : body_->GetBranches()) {
+        auto& squared_norm = feature_branches.contains(branch->GetName())
+            ? feature_squared_norm
+            : readout_squared_norm;
+        accumulate(*branch, squared_norm);
+    }
+    if (head_) accumulate(*head_, readout_squared_norm);
+
+    return NetworkParameterNormSplit{
+        .feature = feature_squared_norm.sqrt(),
+        .readout = readout_squared_norm.sqrt(),
+    };
+}
+
+std::vector<std::string> Network::GetBranchNames() const
+{
+    return body_->GetBranchNames();
 }
 
 std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std::string& key)

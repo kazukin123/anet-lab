@@ -6,6 +6,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include "anet/image_cls_agent.hpp"
@@ -332,8 +333,16 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
 
     torch::Tensor logits;
     torch::Tensor loss;
+    torch::Tensor plasticity_weight_norms;
     MixResult mix;
     double current_learning_rate = learning_rate_->Value();
+    anet::nn::NetworkBranchCapture plasticity_capture{
+        .branch_key = config_.plasticity.feature_key,
+    };
+    const auto plasticity_request = MakePlasticityRequest(step.learn_step);
+    const bool measure_plasticity = plasticity_request.Any();
+    const bool measure_plasticity_weight_norm = plasticity_weight_norm_enabled_
+        && step.learn_step % plasticity_weight_norm_interval_ == 0;
 
     {
         // ネットワーク更新準備 (排他ロック)
@@ -349,6 +358,13 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         ANET_PROFILE_SCOPE_NEXT(mix);
         mix = ApplyMix(obs, targets);
 
+        // 学習forwardと同じ重みを、optimizer更新前かつ購読cadenceでのみ集計する。
+        if (measure_plasticity_weight_norm) {
+            ANET_PROFILE_SCOPE(plasticity_weight_norm);
+            const auto norms = network_->ComputeParameterNormSplit(config_.plasticity.feature_key);
+            plasticity_weight_norms = torch::stack({ norms.feature, norms.readout });
+        }
+
         // Forward推論
         ANET_PROFILE_SCOPE_NEXT(forward);
         anet::TensorDict outputs;
@@ -357,7 +373,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
                 device_,
                 config_.bf16.enabled && config_.bf16.learner,
                 torch::kBFloat16);
-            outputs = network_->Forward(obs);
+            outputs = network_->Forward(obs, {}, measure_plasticity ? &plasticity_capture : nullptr);
         }
 
         // 出力ロジットの取得
@@ -415,6 +431,17 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         .to(torch::kFloat32)
         .mean();
     result->pred_max_prob = std::get<0>(probs.max(/*dim=*/1)).mean();
+    result->plasticity_request = plasticity_request;
+    if (plasticity_capture.output.defined()) {
+        if (plasticity_capture.output.dim() != 2) {
+            ANET_SYSTEM_ERROR("ImageCls plasticity feature must be rank-2 (N, D). feature_key='"
+                << plasticity_capture.branch_key << "' shape=" << plasticity_capture.output.sizes());
+        }
+        result->plasticity_features = plasticity_capture.output;
+    }
+    if (plasticity_weight_norms.defined()) {
+        result->plasticity_weight_norms = plasticity_weight_norms;
+    }
     if (mix.mode != "none") {
         result->same_class_pair_ratio = (targets == mix.targets_b)
             .to(torch::kFloat32)
@@ -447,6 +474,60 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     }
 
     return { result };
+}
+
+void ImageClsLearner::ConfigureScalarMetricSubscriptions(
+    const std::vector<ScalarMetricSubscription>& subscriptions)
+{
+    plasticity_enabled_ = false;
+    plasticity_interval_ = 1;
+    plasticity_demands_.clear();
+    plasticity_weight_norm_enabled_ = false;
+    plasticity_weight_norm_interval_ = 1;
+    for (const auto& subscription : subscriptions) {
+        if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
+        const auto& key = subscription.source_key;
+        if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+            plasticity_weight_norm_interval_ = plasticity_weight_norm_enabled_
+                ? std::min(plasticity_weight_norm_interval_, subscription.interval)
+                : subscription.interval;
+            plasticity_weight_norm_enabled_ = true;
+            continue;
+        }
+        if (!key.starts_with("plasticity_")) continue;
+        const auto metric = anet::nn::ParsePlasticityMetricSuffix(
+            key.substr(std::string("plasticity_").size()));
+        if (!metric.has_value()) continue;
+        plasticity_interval_ = plasticity_enabled_
+            ? std::min(plasticity_interval_, subscription.interval)
+            : subscription.interval;
+        plasticity_enabled_ = true;
+        plasticity_demands_.emplace_back(*metric, subscription.interval);
+    }
+    if (!plasticity_enabled_ && !plasticity_weight_norm_enabled_) return;
+    if (config_.plasticity.feature_key.empty()) {
+        ANET_SYSTEM_ERROR("ImageClsAgent.plasticity.feature_key is required when plasticity metrics are subscribed.");
+    }
+    const auto branch_names = network_->GetBranchNames();
+    if (std::ranges::find(branch_names, config_.plasticity.feature_key) == branch_names.end()) {
+        std::ostringstream available;
+        for (size_t i = 0; i < branch_names.size(); ++i) {
+            if (i > 0) available << ", ";
+            available << branch_names[i];
+        }
+        ANET_SYSTEM_ERROR("Unknown ImageClsAgent.plasticity.feature_key='" << config_.plasticity.feature_key
+            << "'. available_branches=[" << available.str() << "]");
+    }
+}
+
+anet::nn::PlasticityMetricRequest ImageClsLearner::MakePlasticityRequest(const uint64_t step)
+{
+    anet::nn::PlasticityMetricRequest request;
+    if (!plasticity_enabled_ || step % static_cast<uint64_t>(plasticity_interval_) != 0) return request;
+    for (auto& demand : plasticity_demands_) {
+        if (demand.gate.ShouldFire(step)) request.Add(demand.metric);
+    }
+    return request;
 }
 
 int64_t ImageClsLearner::Save(anet::OutputArchive& archive) const
@@ -652,6 +733,13 @@ std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()
 {
     // Agent 所有の Learner を返し、optimizer state を run 断面保存の対象に保つ
     return learner_;
+}
+
+void ImageClsAgent::ConfigureScalarMetricSubscriptions(
+    const std::vector<ScalarMetricSubscription>& subscriptions)
+{
+    std::unique_lock lock(*mutex_);
+    learner_->ConfigureScalarMetricSubscriptions(subscriptions);
 }
 
 std::optional<float> ImageClsAgent::GetScalar(const std::string& key, int64_t index) const

@@ -110,6 +110,8 @@ srank_δ(Φ) = min{ k : (σ₁+…+σ_k) / (σ₁+…+σ_{min(N,D)}) ≥ 1−δ 
 
 **上限は min(N, D)**（σ は min(N,D) 本しか存在しない）。学習初期の健康な表現は上限近くに張り付き、
 ランク崩壊で下がる、という読み方をする。エッジ: Φ が全ゼロ（Σσ = 0）のときのみ srank = 0 と定義する。
+実装は δ ∈ {0.01, 0.05, 0.20} の 3 本を同一の特異値ベクトルから算出する（同一 step なら SVD は 1 回。
+無印 key = δ0.01 = 既存 Run 互換。0.05 / 0.20 は裾でなく上位方向へのエネルギー集中を見る感度読み）。
 注意（censoring）: @learn 系（Atari N=256 < D=512）は天井が D の半分で、健康な期間は張り付きで差が見えない可能性がある。
 **天井の無い読みは probe 系（N ≥ D）で行う**。@learn 系は崩壊（大幅低下）の検出と RR 間比較用で、天井付近の微差は読まない。
 
@@ -130,20 +132,26 @@ s_i = E_x[|h_i(x)|] / ( (1/D) Σ_k E_x[|h_k(x)|] )
 
 | tag | スカラーキー（経路） | 内容 |
 |---|---|---|
-| `34_agent_plasticity/01_srank` | `plasticity_srank`（$update_result） | srank_0.01（0〜min(N,D) の整数値） |
-| `34_agent_plasticity/02_srank_ratio` | `plasticity_srank_ratio`（$update_result） | srank / min(N, D)。**1.0 = 測定上限**（N < D なら batch 律速の上限、N ≥ D なら真のフルランク） |
-| `34_agent_plasticity/03_dormant_ratio` | `plasticity_dormant_ratio`（$update_result） | τ=0.025 の dormant 率 |
-| `34_agent_plasticity/04_dead_ratio` | `plasticity_dead_ratio`（$update_result） | τ=0 の dormant 率 |
-| `34_agent_plasticity/05_feature_norm` | `plasticity_feature_norm`（$update_result） | E[‖φ‖₂]（値スケール成長の随伴観測） |
-| `34_agent_plasticity/12_srank_ratio_ema` | （02 の `$ema`） | config のみ。α 既定 0.01 = 測定点単位の時定数 |
-| `34_agent_plasticity/13_dormant_ratio_ema` | （03 の `$ema`） | config のみ。同上 |
-| `34_agent_plasticity/21〜25_target_*` | `plasticity_target_*`（$update_result） | target net 側の同 5 指標。**コメントアウト待機**（uncomment だけで capture も発動） |
-| `34_agent_plasticity/41〜45_probe_*` | `plasticity_probe_*`（**$agent**） | RB 一様サンプルでの同 5 指標。**既定 ON**（不要ならコメントアウト） |
+番号は decade がチャネル（`0x` actual / `2x` target / `4x` probe）、下 1 桁が統計種。
+下 1 桁は 3 チャネル共通で、`x1`-`x5` が既定 ON・`x6`-`x9` が既定 OFF。
+
+| tag（下 1 桁） | source key | 内容 |
+|---|---|---|
+| `x1_dormant_ratio` | `plasticity_[probe_|target_]dormant_ratio` | τ=0.025 の dormant 率 |
+| `x2_dead_ratio` | 同上 `dead_ratio` | τ=0 の dormant 率 |
+| `x3_feature_norm` | 同上 `feature_norm` | E[‖φ‖₂]（値スケール成長の随伴観測） |
+| `x4_srank` | 同上 `srank` | srank_0.01（0〜min(N,D) の整数値） |
+| `x5_srank_ratio` | 同上 `srank_ratio` | srank / min(N, D)。**1.0 = 測定上限**（N < D なら batch 律速の上限、N ≥ D なら真のフルランク） |
+| `x6`〜`x9`（δ 感度） | 同上 `srank(_ratio)_delta_005/020` | δ=0.05 / 0.20 の srank / srank_ratio。**全チャネル既定コメントアウト** |
+
+actual 系は `$update_result`、probe 系は **`$agent`** 経路。target 系（`2x`）は**チャネルごとコメントアウト待機**
+（uncomment だけで capture も発動）。probe 系（`4x`）は**既定 ON**。
 
 群番号 34 は scalar / image 両空間の全 config 走査で確認した空き（空きは 34 / 35 / 46-50）。当初案の 43 は
 `43_agent_img`（CartPole / LunarLander で現用）と番号が重なり、Viewer ツリーで同じ番号が 2 つの別物を指すため回避した。
 名称は `plasticity` フル表記（切り詰め形は辞書で引けず不採用）。
-δ / τ は**固定定数**（config 化しない。値を変えると過去 Run と比較不能になるため）。
+δ / τ は**固定定数**（config 化しない。値を変えると過去 Run と比較不能になるため）。δ は実装時に
+{0.01, 0.05, 0.20} の 3 本へ拡張した（固定定数のまま本数だけ追加。無印 key = δ0.01 で既存 Run 互換を保つ）。
 
 ## 決定事項（2026-08-27 グリル + レビュー 4 ラウンド）
 
@@ -155,9 +163,9 @@ s_i = E_x[|h_i(x)|] / ( (1/D) Σ_k E_x[|h_k(x)|] )
 | D4 | 測定点 | `feature_key`（branch 名）で**明示必須**。既定値は @baseline の `main_feature`（全 env config の慣習名）。branch 出力は **rank-2 (N, D) 契約**、違反は shape 入りで fail-fast |
 | D5 | 精度 | **@learn 系 = 実 forward の精度そのもの**（capture 引数による実 forward 捕捉なので必然的に learner の Autocast 構成。bf16 構成では BF16 の表現）。**probe 系 = learner と同じ Autocast 構成を eval forward に再現**（数値レジームを揃える）。**stats は FP32 cast → CPU 固定**（`svdvals` が BF16 非対応のため強制。D6 と一体）。bf16 ON/OFF の Run 間では指標に精度差が乗る（§測定上の注意） |
 | D6 | 決定論 | 統計計算は **CPU 固定**（`svdvals` 含む）。CUDA の deterministic 検証課題を構造で回避。前例 = Spearman 相関の CPU 計算（`dqn_based_agent.cpp:641-680`） |
-| D7 | タグ構成 | 群 `34_agent_plasticity`: @learn 系 5 本 + EMA 2 本 + target 5 本（コメントアウト）+ probe 系 5 本（既定 ON）。probe の target / EMA は作らない |
+| D7 | タグ構成 | 群 `34_agent_plasticity`: @learn 系 5 本（既定 ON）+ target 5 本（コメントアウト）+ probe 系 5 本（既定 ON）。decade = チャネル、下 1 桁 = 統計種。EMA 行は作らない（生系列で読めるうえ、既定 α が interval に対して過平滑） |
 | D8 | 対象 agent | **DefaultDQN 系 + ImageCls の 2 系統**。タップは共有 `dqn::Learner` ループで TD/QR/IQN 自動対応。計算部は共有ヘルパ。**Rainbow は配線見送り**（`RainbowAgent.net.*` が全 env config に無く実行 smoke 不能。将来必要時に数行）。MuZero はスコープ外（@baseline チェーン不使用） |
-| D9 | τ と δ | δ=0.01 / τ={0, 0.025} を**固定定数**とする。config 化しない |
+| D9 | τ と δ | δ={0.01, 0.05, 0.20} / τ={0, 0.025} を**固定定数**とする。config 化しない。無印 srank key は δ=0.01（既存 Run 互換）、δ0.05 / 0.20 は `*_delta_005/020` キーで全チャネルに用意し**行は既定コメントアウト**（2026-08-28 実装時拡張。同一 step の 3δ は 1 回の SVD を共有） |
 | D10 | target net 側 | コードは対応、**発動は `plasticity_target_*` 行の uncomment**（購読ヒントが検出して capture 開始。専用 config キーは持たない）。測るのは「この update の TD 計算が使った target」（UpdateTargetNetwork 前） |
 | D11 | 受入 | **smoke + 実測**（§受入基準の 5 項目）。RR ラダーの科学検証は受入外の §検証計画、結果は実験記録側へ |
 | 配線 | 全体構成 | **capture（GPU）/ stats（CPU・GetScalar 時 lazy）分離** + **購読ヒント駆動**。@learn 系の capture = **実 forward への capture 引数**（ループは capture request を立てるだけ）、probe 系の capture = ループ内の eval 部分 forward（RB の `SampleUniqueUniform` 公開 API 経由。§5）。@learn 系は UpdateResult に疎搭載、probe 系は agent 最新値。**疎・未測定は NaN**（既知 key の「値なし」表現。nullopt は未知 key = typo 検出 WARN のまま）。GetScalar でのその場 forward は**しない** |
@@ -189,8 +197,9 @@ std::vector<std::string> GetBranchNames() const;   // 起動時検証・診断�
   `main_feature` の閉包に `tau_embedding` / `iqn_fusion` が含まれず、**`taus` 入力なし・無関係 branch の
   計算ゼロ**が機構的に保証される。RNG も消費しない。
 - 閉包の計算元: 各 branch は `GetName()` / `GetBindTerms()` を公開している（`nn_impl.hpp:167-168`）ので、
-  NetworkBody は保持済みの `branches_` だけから bind グラフを再構成できる（factor が branch 名なら再帰、
-  入力 key なら終端）。閉包集合は呼び出し毎に作っても branch_key ごとにキャッシュしてもよい。
+  NetworkBody は保持済みの `branches_` だけから bind グラフを再構成できる。依存解決は現行 builder と同じく
+  **input key を同名 branch より優先**し、factor が input spec に存在すれば終端入力として扱う。それ以外で
+  factor が branch 名なら再帰する。閉包集合は呼び出し毎に作っても branch_key ごとにキャッシュしてもよい。
 - `NetworkModel` に probe 用 wrapper を追加: `ForwardOnlineWithTrain`（`dqn_based_agent.cpp:405-409`）の並びに
   `ForwardOnlineUpTo` を置き、内部で `torch::NoGradGuard` + `anet::TrainingModeGuard(net, false)` を張る。
   **追加 forward である probe は eval mode 固定が必須** — RNG を消費せず running stats も汚さないことで、
@@ -365,7 +374,7 @@ DefaultDQNAgent.@baseline.learner.plasticity.feature_key      = main_feature   #
 DefaultDQNAgent.@baseline.learner.plasticity.probe.batch_size = 512            # probe 系の一様サンプル数（≥ D 推奨）
 
 # ImageCls.txt
-ImageClsAgent.learner.plasticity.feature_key = main_feature
+ImageClsAgent.plasticity.feature_key = main_feature
 ```
 
 - **interval 系・measure_target のキーは持たない**（頻度と ON/OFF と target 発動の正 = metrics 行。§2）。
@@ -381,31 +390,29 @@ ImageClsAgent.learner.plasticity.feature_key = main_feature
 ```
 # metrics_scalar.txt（@baseline 追加分）
 # --- @learn 系: この update が見た表現（$target 省略 = 既定 $update_result。interval:N が計算 cadence の正）---
-metrics.scalar.@baseline.[34_agent_plasticity/01_srank]         = plasticity_srank @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/02_srank_ratio]   = plasticity_srank_ratio @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/03_dormant_ratio] = plasticity_dormant_ratio @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/04_dead_ratio]    = plasticity_dead_ratio @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/05_feature_norm]  = plasticity_feature_norm @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/12_srank_ratio_ema]   = plasticity_srank_ratio @learn interval:100 $ema
-metrics.scalar.@baseline.[34_agent_plasticity/13_dormant_ratio_ema] = plasticity_dormant_ratio @learn interval:100 $ema
+metrics.scalar.@baseline.[34_agent_plasticity/01_dormant_ratio] = plasticity_dormant_ratio @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/02_dead_ratio] = plasticity_dead_ratio @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/03_feature_norm] = plasticity_feature_norm @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/04_srank] = plasticity_srank @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/05_srank_ratio] = plasticity_srank_ratio @learn $learn_step interval:500
 # --- target 側（uncomment だけで target capture が発動する）---
-#metrics.scalar.@baseline.[34_agent_plasticity/21_target_srank]         = plasticity_target_srank @learn interval:100
-#metrics.scalar.@baseline.[34_agent_plasticity/22_target_srank_ratio]   = plasticity_target_srank_ratio @learn interval:100
-#metrics.scalar.@baseline.[34_agent_plasticity/23_target_dormant_ratio] = plasticity_target_dormant_ratio @learn interval:100
-#metrics.scalar.@baseline.[34_agent_plasticity/24_target_dead_ratio]    = plasticity_target_dead_ratio @learn interval:100
-#metrics.scalar.@baseline.[34_agent_plasticity/25_target_feature_norm]  = plasticity_target_feature_norm @learn interval:100
+#metrics.scalar.@baseline.[34_agent_plasticity/21_target_dormant_ratio] = plasticity_target_dormant_ratio @learn $learn_step interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/22_target_dead_ratio] = plasticity_target_dead_ratio @learn $learn_step interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/23_target_feature_norm] = plasticity_target_feature_norm @learn $learn_step interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/24_target_srank] = plasticity_target_srank @learn $learn_step interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/25_target_srank_ratio] = plasticity_target_srank_ratio @learn $learn_step interval:500
 # --- $agent probe 系: RB 一様サンプルの状態スナップショット（不要ならコメントアウトで完全 OFF）---
-metrics.scalar.@baseline.[34_agent_plasticity/41_probe_srank]         = $agent plasticity_probe_srank @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/42_probe_srank_ratio]   = $agent plasticity_probe_srank_ratio @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/43_probe_dormant_ratio] = $agent plasticity_probe_dormant_ratio @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/44_probe_dead_ratio]    = $agent plasticity_probe_dead_ratio @learn interval:100
-metrics.scalar.@baseline.[34_agent_plasticity/45_probe_feature_norm]  = $agent plasticity_probe_feature_norm @learn interval:100
+metrics.scalar.@baseline.[34_agent_plasticity/41_probe_dormant_ratio] = $agent plasticity_probe_dormant_ratio @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/42_probe_dead_ratio] = $agent plasticity_probe_dead_ratio @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/43_probe_feature_norm] = $agent plasticity_probe_feature_norm @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/44_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:500
+metrics.scalar.@baseline.[34_agent_plasticity/45_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:500
 ```
 
 - DQN 系 env（Atari / LunarLander / CartPole / DropMerge / GridMaze）は `metrics.scalar.$` チェーンが
   `@baseline` を含むため追記不要。`@min` / `@full` セットには足さない（@min 選択 = 自動 OFF）。
 - ImageCls は @baseline チェーンを使っていない（`ImageCls.txt:499` コメントアウト）ので、
-  **@learn 系 5 + EMA 2 本のみ**をフラットな `metrics.scalar.[34_agent_plasticity/...]` 行として追加
+  **@learn 系 5 本のみ**をフラットな `metrics.scalar.[34_agent_plasticity/...]` 行として追加
   （probe 系は書かない = ImageCls に RB が無いため）。
 - @learn 系の点は測定 learn_step に正確に乗る（疎 + NaN skip）。EMA は有効値の点でのみ更新されるため
   **測定点単位の時定数**（α=0.01 ≈ 100 測定点）で、RR 依存の密度問題はない。

@@ -124,6 +124,7 @@ ImageClsAgent.weight_decay = 0.05
 ImageClsAgent.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
 ImageClsAgent.label_smoothing = 0.1
 ImageClsAgent.grad_clip_max_norm = 1.0
+ImageClsAgent.plasticity.feature_key = main_feature
 
 ImageClsAgent.mixup.enabled      = true   # Mixup/CutMix 有効化
 ImageClsAgent.mixup.mixup_alpha  = 0.2    # Mixup の混合率。小さいほど弱め、大きいほど 50:50 寄り
@@ -509,6 +510,23 @@ metrics.scalar.[21_eval/02_test_reward_ema] = $eval.[eval1] $runner eps_total_re
 
 metrics.scalar.[32_agent_base/04_lr]        = $agent learning_rate @learn interval:100
 metrics.scalar.[39_agent/09_learning_rate]  = $agent learning_rate @learn interval:100
+
+# 番号規約: decade = チャネル(0x actual / 2x target / 4x probe / 6x weight norm)、
+#           下 1 桁 = 統計種(x1 dormant / x2 dead / x3 feature_norm / x4 srank / x5 srank_ratio / x6-x9 δ 変種)。
+#           x1-x5 が既定 ON、x6-x9 が既定 OFF。weight norm はチャネル非依存なので独立 decade。
+
+metrics.scalar.[34_agent_plasticity/01_dormant_ratio] = plasticity_dormant_ratio @learn $learn_step $update_result interval:500
+metrics.scalar.[34_agent_plasticity/02_dead_ratio] = plasticity_dead_ratio @learn $learn_step $update_result interval:500
+metrics.scalar.[34_agent_plasticity/03_feature_norm] = plasticity_feature_norm @learn $learn_step $update_result interval:500
+metrics.scalar.[34_agent_plasticity/04_srank] = plasticity_srank @learn $learn_step $update_result interval:500
+metrics.scalar.[34_agent_plasticity/05_srank_ratio] = plasticity_srank_ratio @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/06_srank_delta_005] = plasticity_srank_delta_005 @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/07_srank_ratio_delta_005] = plasticity_srank_ratio_delta_005 @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/08_srank_delta_020] = plasticity_srank_delta_020 @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/09_srank_ratio_delta_020] = plasticity_srank_ratio_delta_020 @learn $learn_step $update_result interval:500
+
+metrics.scalar.[34_agent_plasticity/61_weight_norm_feature] = plasticity_weight_norm_feature @learn $learn_step $update_result interval:500
+metrics.scalar.[34_agent_plasticity/62_weight_norm_readout] = plasticity_weight_norm_readout @learn $learn_step $update_result interval:500
 
 metrics.scalar.[38_agent/01_loss]           = loss @learn
 metrics.scalar.[38_agent/02_loss_ema]       = loss @learn $ema

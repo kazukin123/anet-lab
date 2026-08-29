@@ -248,6 +248,16 @@ sequenceDiagram
 - forward、attention、主要blockはprofile対象であり、module追加時はshape/batch sizeに応じたcostを実測する。
 - moduleを細分化しすぎたprofile rangeは測定noiseになるため、意味のある処理境界を選ぶ。
 
+### 7.5 branch captureと部分forward
+
+`Network::Forward`はoptionalな`NetworkBranchCapture`を受け取り、通常のbranch loop後・`output_keys`変換前の内部tensorをdetachして返す。captureを渡さない既存forward、TraceCallback、Actor経路は不変である。
+
+`ForwardUpTo(input, branch_key)`はFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
+
+可塑性統計はrank-2 `(N,D)` の特徴と指標要求集合を受け、detachしたFP32 CPU特徴から要求された統計だけを計算して呼出側でcacheする。srank系を要求しないstepではSVDを実行せず、δ=0.01 / 0.05 / 0.20を同時要求した場合も1回の`svdvals`とcumsumを共有する。結果の各値はoptionalであり、未計算フィールドを成立値として読めない。無印のsrankはδ=0.01を表す。
+
+`ComputeParameterNormSplit(feature_key)`は同じ依存閉包を使い、閉包内branchの学習parameterをfeature、閉包外branchとheadをreadoutとして、各群の一括L2をFP32 device scalarで返す。forwardとRNGを使わず、`requires_grad`がfalseのparameterは対象外とする。
+
 ## 8. テストと拡張時の確認事項
 
 Networkを変更する場合は次を確認する。

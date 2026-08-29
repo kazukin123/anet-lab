@@ -722,6 +722,8 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
+    struct ScalarMetricSubscription;
+
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
         virtual std::shared_ptr<Actor> CreateActor(
@@ -732,6 +734,11 @@ namespace anet::rl {
             std::optional<torch::Device> device = std::nullopt) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
         virtual torch::Device GetDevice() const = 0;
+        virtual void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions)
+        {
+            (void)subscriptions;
+        }
     public:
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }
@@ -823,6 +830,7 @@ namespace anet::rl {
     public:
         virtual void Push(const BatchExperience& batch_exp) = 0;
         virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
+        virtual bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
@@ -877,6 +885,15 @@ namespace anet::rl {
         UPDATE_RESULT,
         RUNNER,
         ACTION_INFO,
+    };
+
+    struct ScalarMetricSubscription {
+        std::string source_key;
+        EventType event = EventType::TRAIN;
+        std::optional<EventField> target;
+        int interval = 1;
+        RunnerScope scope = RunnerScope::TRAIN;
+        std::string eval_name;
     };
 
     struct UpdateEvent {

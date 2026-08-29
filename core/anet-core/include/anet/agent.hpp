@@ -239,6 +239,13 @@ namespace anet::rl {
                 };
             } iqn;
 
+            struct PlasticityConfig {
+                std::string feature_key;
+                struct ProbeConfig {
+                    int batch_size = 512;
+                } probe;
+            } plasticity;
+
             bool use_amp = false;
             bool use_amp_bf16 = false;
         };

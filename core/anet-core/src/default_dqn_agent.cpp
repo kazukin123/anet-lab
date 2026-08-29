@@ -388,7 +388,7 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
     }
-    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
+    if (key.starts_with("plasticity_probe_") || key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetScalar(key);
     }
@@ -402,6 +402,13 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
     }
 
     return std::nullopt;
+}
+
+void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
+    const std::vector<ScalarMetricSubscription>& subscriptions)
+{
+    std::unique_lock<std::shared_mutex> lock(*mutex_);
+    learner_->ConfigureScalarMetricSubscriptions(subscriptions);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const

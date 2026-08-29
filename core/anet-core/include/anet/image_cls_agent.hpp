@@ -28,6 +28,9 @@ namespace anet::rl::img_cls {
         double grad_clip_max_norm = 1.0;
         int64_t learn_log_interval = 0;
         std::string auto_load_file;
+        struct PlasticityConfig {
+            std::string feature_key;
+        } plasticity;
 
         struct MixupConfig {
             bool enabled = false;
@@ -59,6 +62,7 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, grad_clip_max_norm);
             ANET_READ_CONFIG(config_data, learn_log_interval);
             ANET_READ_CONFIG(config_data, auto_load_file);
+            ANET_READ_CONFIG(config_data, plasticity.feature_key);
 
             ANET_READ_CONFIG(config_data, mixup.enabled);
             ANET_READ_CONFIG(config_data, mixup.mixup_alpha);
@@ -122,6 +126,9 @@ namespace anet::rl::img_cls {
         torch::Tensor accuracy_either;
         torch::Tensor pred_max_prob;
         torch::Tensor same_class_pair_ratio;
+        torch::Tensor plasticity_features;
+        torch::Tensor plasticity_weight_norms;
+        anet::nn::PlasticityMetricRequest plasticity_request;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override
         {
@@ -132,6 +139,34 @@ namespace anet::rl::img_cls {
             if (key == "accuracy_either") return GetCachedScalar(accuracy_either, accuracy_either_cache_);
             if (key == "pred_max_prob") return GetCachedScalar(pred_max_prob, pred_max_prob_cache_);
             if (key == "same_class_pair_ratio") return GetCachedScalar(same_class_pair_ratio, same_class_pair_ratio_cache_);
+            if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+                if (!plasticity_weight_norms.defined()) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                if (!plasticity_weight_norms_cpu_.defined()) {
+                    plasticity_weight_norms_cpu_ = plasticity_weight_norms.cpu();
+                }
+                const int64_t norm_index = key == "plasticity_weight_norm_feature" ? 0 : 1;
+                return plasticity_weight_norms_cpu_[norm_index].item<float>();
+            }
+            if (key.starts_with("plasticity_")) {
+                const auto metric = anet::nn::ParsePlasticityMetricSuffix(
+                    key.substr(std::string("plasticity_").size()));
+                if (!metric.has_value()) return std::nullopt;
+                if (!plasticity_request.Contains(*metric)) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                if (!plasticity_features.defined()) return std::numeric_limits<float>::quiet_NaN();
+                if (!plasticity_metrics_cache_.has_value()) {
+                    plasticity_metrics_cache_ = anet::nn::ComputePlasticityMetrics(
+                        plasticity_features, plasticity_request);
+                }
+                const auto value = plasticity_metrics_cache_->Get(*metric);
+                if (!value.has_value()) {
+                    ANET_SYSTEM_ERROR("ImageClsUpdateResult plasticity cache is missing a requested metric.");
+                }
+                return value;
+            }
             return std::nullopt;
         }
 
@@ -163,6 +198,8 @@ namespace anet::rl::img_cls {
         mutable std::optional<float> accuracy_either_cache_;
         mutable std::optional<float> pred_max_prob_cache_;
         mutable std::optional<float> same_class_pair_ratio_cache_;
+        mutable torch::Tensor plasticity_weight_norms_cpu_;
+        mutable std::optional<anet::nn::PlasticityMetrics> plasticity_metrics_cache_;
     };
 
 
@@ -206,18 +243,28 @@ namespace anet::rl::img_cls {
         anet::rl::BatchUpdateResultList UpdateFromBatch(
             const anet::rl::StepCounts& step,
             const anet::rl::BatchExperience& experiences) override;
+        void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions);
 
         int64_t Save(anet::OutputArchive& archive) const;
         int64_t Load(anet::InputArchive& archive);
     private:
         struct CutMixBox;
         struct MixResult;
+        struct PlasticityDemandEntry {
+            anet::nn::PlasticityMetric metric;
+            anet::IntervalGate gate;
+
+            PlasticityDemandEntry(anet::nn::PlasticityMetric metric, int interval)
+                : metric(metric), gate(static_cast<uint64_t>(interval)) {}
+        };
     private:
         double SampleBeta(double alpha);
         bool Bernoulli(double probability);
         CutMixBox SampleCutMixBox(int64_t height, int64_t width, double lambda);
 
         MixResult ApplyMix(anet::TensorDict& obs, const torch::Tensor& targets);
+        anet::nn::PlasticityMetricRequest MakePlasticityRequest(uint64_t step);
     private:
         const ImageClsAgentConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;
@@ -225,6 +272,11 @@ namespace anet::rl::img_cls {
         std::shared_ptr<anet::ProfiledValue<double>> learning_rate_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         torch::Device device_;
+        bool plasticity_enabled_ = false;
+        int plasticity_interval_ = 1;
+        std::vector<PlasticityDemandEntry> plasticity_demands_;
+        bool plasticity_weight_norm_enabled_ = false;
+        int plasticity_weight_norm_interval_ = 1;
     };
 
 
@@ -245,6 +297,8 @@ namespace anet::rl::img_cls {
             std::optional<torch::Device> device = std::nullopt) const override;
 
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
+        void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions) override;
 
         int64_t Save(anet::OutputArchive& archive) const override;
 

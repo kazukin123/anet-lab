@@ -173,6 +173,42 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 - `upper_tail_priority_spearman`は、PERで既に偏ってsamplingされたminibatch内に限った、upper-tail幅とclip後raw priorityの順位相関である。高い正相関は両者が似た経験を強調している可能性を示すがReplayBuffer全体の冗長性を証明せず、低相関や負相関も新しい信号の有用性を証明しない。
 - PER無効、batch不足、定数順位列、Policy full distribution欠損、`K < 2`では該当値が`NaN`になる。0との一致や相関0へ読み替えない。ただしcrossing深度p90は、入力が成立していてpositive crossingがない場合、またはrangeが0の場合を正常値`0`とする。TBO有効時は実空間ではなく現行Policy score / priorityと同じh空間なので、TBO有効/無効Runの絶対値を直接比較しない。
 
+### 4.7 可塑性メトリクスを読む
+
+`34_agent_plasticity`群は、NNの表現がどれだけ健康かを直接測る。測るのは3種類ある。**活性の分布**（どれだけのユニットが発火しているか＝`dormant_ratio` / `dead_ratio`、特徴ベクトルの大きさ＝`feature_norm`）、**方向の分布**（特徴が実効的に使っている方向数＝`srank` / `srank_ratio`）、そして**パラメータの大きさ**（`weight_norm_feature` / `weight_norm_readout`）である。用語の定義は`CONTEXT.md`の可塑性・表現統計節を参照する。
+
+番号はdecadeがチャネル、下1桁が統計種を表す。
+
+| decade | チャネル | 既定 |
+|---|---|---|
+| `0x` | actual（学習forwardが生成した特徴。測定バッチはPERが選んだ現行updateバッチ） | ON |
+| `2x` | target（同じupdateのTD計算でtarget networkが生成した特徴） | OFF |
+| `4x` | probe（ReplayBuffer全域から一様・非復元でsampleし、NoGrad・eval modeで部分forward） | ON |
+| `6x` | weight norm（パラメータ側。データに依存しないのでチャネルを持たない） | ON |
+
+下1桁は3チャネル共通で、`x1` dormant / `x2` dead / `x3` feature_norm / `x4` srank / `x5` srank_ratio / `x6`-`x9` はδ違いのsrank（既定OFF）。`02` / `22` / `42`のように並べれば同じ統計をチャネル間で比べられる。チャネルは購読行の有無で独立に有効化されるので、まず解決済み`config/config_data.txt`で`learner.plasticity.feature_key`と購読行を確認する。全行`$learn_step`軸である。
+
+**probe系を基準に読む。** 一様サンプルなのでPERの偏りが入らず、`probe.batch_size`が特徴次元より大きければsrankの天井にも当たらない。Run間・`replay_ratio`間の比較はprobe系で行う。actual系との差はPERが見せている分布の偏りそのもので、actual系のdormantがprobe系より高ければ、PERが「表現が苦しんでいる状態」へ学習を集中させている兆候になる。
+
+**`42_probe_dead_ratio`の谷が転換点の目印になる。** 学習初期に下がりきってから上昇へ転じるので、その転換が性能のピークと同じ窓に来る。`61_weight_norm_feature`も同じ窓で下げ止まって増加へ転じるため、2本を並べて一致を確認する。
+
+**`feature_norm`は単体では読めない。** HeadはQ = w・φの形なので、`q_max`が横ばいで`43_probe_feature_norm`だけ伸びる局面は「wが縮んだ」のか「Qに寄与しない方向へφが伸びた」のか区別できない。`61` / `62`と対で見て初めて帰属が閉じる。`62`低下ならreadout縮小とのスケール移送、`62`平坦で`61`上昇ならbackbone側のscale成長、両方上昇ならNetwork全体のscale成長である。
+
+比較するときの制約が3つある。
+
+- **`srank_ratio`はチャネル間で絶対値を比較しない。** ratio = srank / min(N, D)で、Nがactual系はlearnerのbatch size、probe系は`probe.batch_size`と異なる。比べるのは時間方向の形（低下開始点・低下率・回復）だけである。
+- **`dead_ratio`は`probe.batch_size`が違うRun間で水準を比較しない。** サンプル数が少ないほど「たまにしか発火しないユニット」が死んで見えるため、値そのものがバッチサイズに依存する。同一設定内の時間変化として読む。
+- **weight normはparameter数に依存する。** 同一構成の時系列か、同一構成Run間だけを比べる。
+
+その他の読み方。
+
+- `dead_ratio`（τ=0）は`dormant_ratio`（τ=0.025）の部分集合で、通常は追随する。乖離した時だけ独立情報になる（浅い休眠ではなく不可逆な死が増えている）。振幅はdeadの方が大きく出る。
+- srankは方向の分布を、dormant / deadは脱落したユニット数を測るので、ほぼ直交する。ユニットの死が主体の損傷では、srankは`min(N, D)`の何割かで平坦なまま動かないことがある。srankが動かない＝健康、ではない。
+- δ違い（`x6`-`x9`）は同じ特異値ベクトルから求めるのでSVD回数を増やさない。上位方向へのエネルギー集中を見たい時だけ有効化する。
+- target系はonlineの`soft_update_tau`遅れの観測で、平時はほぼ冗長なので既定OFFである。崩壊機序を精査する時に有効化し、online→targetの伝播ラグから「まだ健康なtargetが引き戻す」構図か「両方巻き込まれた自走崩壊」かを識別する。
+- exp軸tagとの突き合わせは exp_step = learn_step × batch size / `replay_ratio` で換算する（batch 256でRR8=×32 / RR4=×64 / RR1=×256）。step軸選択の一般注意は4.2節と6.3節、指標定義と測定契約は[DQN系Agent](200_dqn_agents.jp.md)9.4章と[062_plasticity_metrics_10prd.md](../memo/062_plasticity_metrics_10prd.md)を参照する。
+
+
 ## 5. Optuna結果を分析する
 
 ### 5.1 Metrics ViewerとDashboardの役割

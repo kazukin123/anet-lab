@@ -221,6 +221,12 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
             ANET_READ_CONFIG(config_data, learner.iqn.target_taus.sample_mode);
             ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
+            ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
+            if (learner.plasticity.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.plasticity.probe.batch_size: value="
+                    << learner.plasticity.probe.batch_size << " expected integer >= 1");
+            }
             if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
                 ANET_SYSTEM_ERROR(
                     "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon
@@ -354,6 +360,8 @@ namespace anet::rl::dqn {
             std::optional<bool> clone_model_override = std::nullopt,
             std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
+        void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions) override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;

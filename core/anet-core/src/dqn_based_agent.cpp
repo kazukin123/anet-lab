@@ -6,6 +6,7 @@
 #include <mutex>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <utility>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
@@ -405,12 +406,34 @@ anet::TensorDict NetworkModel::ForwardOnline(const anet::TensorDict& obs) const
 anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
-    return online_net_->Forward(obs);
+    return online_net_->Forward(obs, {}, online_capture_);
 }
 
 anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs) const
 {
-    return target_net_->Forward(obs);
+    return target_net_->Forward(obs, {}, target_capture_);
+}
+
+anet::TensorDict NetworkModel::ForwardOnlineUpTo(
+    const anet::TensorDict& obs, const std::string& branch_key) const
+{
+    torch::NoGradGuard no_grad;
+    anet::TrainingModeGuard guard(*online_net_, false);
+    return online_net_->ForwardUpTo(obs, branch_key);
+}
+
+void NetworkModel::SetBranchCaptureRequests(
+    anet::nn::NetworkBranchCapture* online_capture,
+    anet::nn::NetworkBranchCapture* target_capture)
+{
+    online_capture_ = online_capture;
+    target_capture_ = target_capture;
+}
+
+void NetworkModel::ClearBranchCaptureRequests()
+{
+    online_capture_ = nullptr;
+    target_capture_ = nullptr;
 }
 
 bool NetworkModel::IsDistributional() const
@@ -1820,11 +1843,97 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
 {
+    if (key.starts_with("plasticity_probe_")) {
+        const auto suffix = key.substr(std::string("plasticity_probe_").size());
+        const auto metric = anet::nn::ParsePlasticityMetricSuffix(suffix);
+        if (!metric.has_value()) return std::nullopt;
+        if (!plasticity_.probe_request.Contains(*metric)) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        if (!plasticity_.probe_features.defined()) return std::numeric_limits<float>::quiet_NaN();
+        if (!plasticity_.probe_metrics_cache.has_value()) {
+            plasticity_.probe_metrics_cache = anet::nn::ComputePlasticityMetrics(
+                plasticity_.probe_features, plasticity_.probe_request);
+        }
+        const auto value = plasticity_.probe_metrics_cache->Get(*metric);
+        if (!value.has_value()) {
+            ANET_SYSTEM_ERROR("Learner plasticity probe cache is missing a requested metric.");
+        }
+        return value;
+    }
     if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr) {
         return replay_buffer_->GetScalar(key);
     }
 
     return std::nullopt;
+}
+
+void Learner::ConfigureScalarMetricSubscriptions(
+    const std::vector<ScalarMetricSubscription>& subscriptions)
+{
+    plasticity_ = PlasticityState{};
+    const auto update_min = [](int current, int candidate, bool was_enabled) {
+        return was_enabled ? std::min(current, candidate) : candidate;
+    };
+    for (const auto& subscription : subscriptions) {
+        if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
+        const auto& key = subscription.source_key;
+        if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+            plasticity_.weight_norm_interval = update_min(
+                plasticity_.weight_norm_interval, subscription.interval, plasticity_.weight_norm_enabled);
+            plasticity_.weight_norm_enabled = true;
+        } else if (key.starts_with("plasticity_probe_")) {
+            const auto metric = anet::nn::ParsePlasticityMetricSuffix(
+                key.substr(std::string("plasticity_probe_").size()));
+            if (metric.has_value()) plasticity_.probe.Add(*metric, subscription.interval);
+        } else if (key.starts_with("plasticity_target_")) {
+            const auto metric = anet::nn::ParsePlasticityMetricSuffix(
+                key.substr(std::string("plasticity_target_").size()));
+            if (metric.has_value()) plasticity_.target.Add(*metric, subscription.interval);
+        } else if (key.starts_with("plasticity_")) {
+            const auto metric = anet::nn::ParsePlasticityMetricSuffix(
+                key.substr(std::string("plasticity_").size()));
+            if (metric.has_value()) plasticity_.online.Add(*metric, subscription.interval);
+        }
+    }
+
+    if (!plasticity_.online.enabled && !plasticity_.target.enabled
+        && !plasticity_.probe.enabled && !plasticity_.weight_norm_enabled) return;
+    if (config_.plasticity.feature_key.empty()) {
+        ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.plasticity.feature_key is required when plasticity metrics are subscribed.");
+    }
+    const auto branch_names = model_.GetOnlineNetwork()->GetBranchNames();
+    if (std::ranges::find(branch_names, config_.plasticity.feature_key) == branch_names.end()) {
+        std::ostringstream available;
+        for (size_t i = 0; i < branch_names.size(); ++i) {
+            if (i > 0) available << ", ";
+            available << branch_names[i];
+        }
+        ANET_SYSTEM_ERROR("Unknown DefaultDQNAgent.learner.plasticity.feature_key='"
+            << config_.plasticity.feature_key << "'. available_branches=[" << available.str() << "]");
+    }
+    plasticity_.online_capture.branch_key = config_.plasticity.feature_key;
+    plasticity_.target_capture.branch_key = config_.plasticity.feature_key;
+}
+
+void Learner::CapturePlasticityProbe()
+{
+    ANET_PROFILE_SCOPE(plasticity_probe);
+
+    ExperienceSamples cpu_samples;
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.plasticity.probe.batch_size)) return;
+    auto samples = cpu_samples.To(device_);
+    ValidateDeviceSamples(samples, config_.plasticity.probe.batch_size);
+    const auto norm_samples = NormalizeSampleObservations(samples);
+    const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
+    anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
+    const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, config_.plasticity.feature_key);
+    plasticity_.probe_features = state.At(config_.plasticity.feature_key).detach();
+    if (plasticity_.probe_features.dim() != 2) {
+        ANET_SYSTEM_ERROR("Plasticity probe feature must be rank-2 (N, D). feature_key='"
+            << config_.plasticity.feature_key << "' shape=" << plasticity_.probe_features.sizes());
+    }
+    plasticity_.probe_metrics_cache.reset();
 }
 
 std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int64_t index) const
@@ -2243,6 +2352,25 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->q_gap_rel = q_gap_rel;
     result->iqn_diagnostics = per_info.iqn_diagnostics;
     result->upper_tail_priority_spearman = per_info.upper_tail_priority_spearman;
+    if (plasticity_.online_capture.output.defined()) {
+        if (plasticity_.online_capture.output.dim() != 2) {
+            ANET_SYSTEM_ERROR("Plasticity feature must be rank-2 (N, D). feature_key='"
+                << plasticity_.online_capture.branch_key << "' shape=" << plasticity_.online_capture.output.sizes());
+        }
+        result->plasticity_features = plasticity_.online_capture.output;
+    }
+    result->plasticity_request = plasticity_.online_request;
+    if (plasticity_.target_capture.output.defined()) {
+        if (plasticity_.target_capture.output.dim() != 2) {
+            ANET_SYSTEM_ERROR("Target plasticity feature must be rank-2 (N, D). feature_key='"
+                << plasticity_.target_capture.branch_key << "' shape=" << plasticity_.target_capture.output.sizes());
+        }
+        result->plasticity_target_features = plasticity_.target_capture.output;
+    }
+    result->plasticity_target_request = plasticity_.target_request;
+    if (plasticity_.weight_norms.defined()) {
+        result->plasticity_weight_norms = plasticity_.weight_norms;
+    }
     if (per_info.per_minibatch_size > 0) {
         result->per_minibatch_size = per_info.per_minibatch_size;
         result->per_clipped_count = per_info.per_clipped_count;
@@ -2327,6 +2455,12 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
     // 戻り値のUpdateResultを準備
     BatchUpdateResultList result_list;
 
+    // Agent source の probe 値は、この LearnEvent に対応する update 群だけで共有する。
+    // 群の途中で cadence が発火した値は後続 update で消さず、次の event 開始時に失効させる。
+    plasticity_.probe_request = {};
+    plasticity_.probe_features = torch::Tensor();
+    plasticity_.probe_metrics_cache.reset();
+
     // Update不可なら空の結果を返す
     if (!CanUpdate(counts.exp_step)) {
         return result_list;  // 空配列
@@ -2359,9 +2493,46 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         // Check shapes & dtypes
         ValidateDeviceSamples(dev_samples, B);
 
+        // 現在の learn_step に対応する actual/probe 測定要求を準備
+        plasticity_.online_request = plasticity_.online.MakeRequest(vars_.learn_step);
+        plasticity_.target_request = plasticity_.target.MakeRequest(vars_.learn_step);
+        const auto probe_request = plasticity_.probe.MakeRequest(vars_.learn_step);
+        const bool measure_online = plasticity_.online_request.Any();
+        const bool measure_target = plasticity_.target_request.Any();
+        plasticity_.online_capture.output = torch::Tensor();
+        plasticity_.target_capture.output = torch::Tensor();
+        plasticity_.weight_norms = torch::Tensor();
+        if (measure_online || measure_target) {
+            model_.SetBranchCaptureRequests(
+                measure_online ? &plasticity_.online_capture : nullptr,
+                measure_target ? &plasticity_.target_capture : nullptr);
+        }
+        if (probe_request.Any()) {
+            plasticity_.probe_request = probe_request;
+            plasticity_.probe_features = torch::Tensor();
+            plasticity_.probe_metrics_cache.reset();
+            CapturePlasticityProbe();
+        }
+
+        // このupdateが適用される直前のonline parameterを、購読cadenceでのみ集計する。
+        if (plasticity_.weight_norm_enabled
+            && vars_.learn_step % plasticity_.weight_norm_interval == 0) {
+            ANET_PROFILE_SCOPE(plasticity_weight_norm);
+            const auto norms = model_.GetOnlineNetwork()->ComputeParameterNormSplit(
+                config_.plasticity.feature_key);
+            plasticity_.weight_norms = torch::stack({ norms.feature, norms.readout });
+        }
+
         // 固有処理呼び出し
         //auto samples = raw_samples.FlattenStates();
-        auto result = UpdateFromSamples(dev_samples);
+        std::shared_ptr<const anet::rl::BatchUpdateResult> result;
+        try {
+            result = UpdateFromSamples(dev_samples);
+        } catch (...) {
+            model_.ClearBranchCaptureRequests();
+            throw;
+        }
+        model_.ClearBranchCaptureRequests();
         result_list.push_back(result);
 
         // 更新後処理

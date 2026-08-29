@@ -196,6 +196,8 @@ DefaultDQNAgent.@baseline.learner.use_tbo = false            # Transformed Bellm
 DefaultDQNAgent.@baseline.learner.tbo_epsilon = 0.01         # TBO変換関数hの正則化項
 DefaultDQNAgent.@baseline.learner.use_amp = false
 DefaultDQNAgent.@baseline.learner.use_amp_bf16 = false
+DefaultDQNAgent.@baseline.learner.plasticity.feature_key = main_feature
+DefaultDQNAgent.@baseline.learner.plasticity.probe.batch_size = 4096  # N>>D。512(=D)だと dead_ratio が標本ノイズで過大に出る
 DefaultDQNAgent.@baseline.reward_scaler.use_clipping = false
 DefaultDQNAgent.@baseline.reward_scaler.clip_range = 10
 DefaultDQNAgent.@baseline.reward_scaler.constant_scale = 0.01

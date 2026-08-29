@@ -382,7 +382,7 @@ _Avoid_: episode_accuracy, pass_accuracy, batch_accuracy
 ### 可塑性・表現統計
 
 **srank**:
-バッチ特徴行列 (N, D) の特異値の累積寄与が 1−δ（δ=0.01 固定）に達する最小本数。上限は min(N, D) で、ランク崩壊の直接指標として読む。
+バッチ特徴行列 (N, D) の特異値の累積寄与が 1−δ に達する最小本数。上限は min(N, D) で、ランク崩壊の直接指標として読む。観測δは0.01 / 0.05 / 0.20で、無印のsrank keyは既存Runとの比較用にδ=0.01を表す。
 _Avoid_: effective rank（δ 規約を伴わない多義語）, rank
 
 **dormant unit**:
@@ -392,3 +392,7 @@ _Avoid_: dead neuron（τ=0 の dead と τ=0.025 の dormant を区別しない
 **部分 forward**:
 NetworkBody のトポロジカルソート済み branch 列から、対象 branch の依存閉包だけを実行して打ち切り、実行済み state を返す測定専用 forward（ForwardUpTo）。NoGrad + eval mode 固定で、学習経路の数値系列に影響しない。
 _Avoid_: partial forward（表記ゆれ）, probe forward, feature forward
+
+**weight norm 分割（feature/readout）**:
+feature key の依存閉包に属する学習パラメータを feature、閉包外 branch と head の学習パラメータを readout とする二群分割。各群の一括 L2 を、activation の feature norm と区別して扱う。
+_Avoid_: feature norm（activation側との混同）, body/head 分割

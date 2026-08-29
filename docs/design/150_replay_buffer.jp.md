@@ -308,6 +308,12 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 加えてDQN側のwarmup latchとPER betaもcheckpoint対象外である。したがって読込後はReplayBufferが空の新しいRunとしてwarmupをやり直し、旧Runと同じsample列や学習stepの連続性を保証しない。DQN archiveの保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
+### 7.7 一様・非復元probe sample
+
+`SampleUniqueUniform(out, batch_size)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。件数不足時は`false`を返し、出力とprobe専用RNGを変更しない。全件要求時もRNGを消費しない。専用RNGはReplayBuffer seedから`plasticity_probe`名で派生し、通常sampler、priority、`MarkSampledOnce`、eviction統計へ触れない。
+
+`PrefetchingReplayBuffer`は呼出時までに受理したPushとin-flight prefetchをFIFO順でsettleしてからinnerへ委譲するが、通常prefetched batchは消費・並べ替えない。このためprobeの有無で通常sample列を変えない。
+
 ## 8. テストと拡張時の確認事項
 
 [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)には、現行source上で次のtest caseが置かれている。

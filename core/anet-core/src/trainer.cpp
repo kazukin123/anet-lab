@@ -987,6 +987,12 @@ RunManager::RunManager(const ConfigData& config_data)
         anet::MetricsLogger::Instance()->Log("metrics.defs", metric_defs);
     }
 
+    // 実際に attach された定義だけを、学習開始前の静的な購読情報として Agent へ渡す。
+    std::vector<ScalarMetricSubscription> subscriptions;
+    subscriptions.reserve(attached_defs.size());
+    for (const auto& def : attached_defs) subscriptions.push_back(def.subscription);
+    agent_->ConfigureScalarMetricSubscriptions(subscriptions);
+
     // 成功！
     status_ = anet::rl::RunnerStatus::RUNNING;
 }

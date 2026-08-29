@@ -199,6 +199,7 @@ namespace anet::nn {
 
         /// フォーマット済みのTensorDictを生成して返す
         anet::TensorDict Format(const anet::TensorDict& raw_input) const;
+        bool HasInputKey(const std::string& key) const { return specs_.contains(key); }
     private:
         anet::TensorSpecMap specs_;
         std::set<std::string> raw_keys_; // 検索速度のため set に保持
@@ -213,7 +214,13 @@ namespace anet::nn {
             std::map<std::string, std::string> output_keys);
 
         // DAG全体のForward実行
-        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceCallback& callback = {});
+        anet::TensorDict Forward(
+            const anet::TensorDict& input,
+            const anet::TraceCallback& callback = {},
+            NetworkBranchCapture* capture = nullptr);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
+        std::set<std::string> ComputeDependencyClosure(const std::string& branch_key) const;
+        std::vector<std::string> GetBranchNames() const;
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
         const std::map<std::string, std::string>& GetOutputKeys() const { return output_keys_; }
 

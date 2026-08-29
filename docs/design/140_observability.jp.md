@@ -243,6 +243,12 @@ QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarは
 
 debug logは`ANET_LOG_DEBUG_PREFIXED(expr)`を使用する。このmacroは`ANET_LOG_DEBUG(log.prefix() << expr)`へ委譲し、デバッガ接続・level guard、source情報、`ANET_ENABLE_DEBUG_LOG=0`での式非評価を維持する。Env nameは表示専用の不透明な文字列であり、`MetricsLogger`のtag、JSONL field、artifact path、runner scopeを変更・代替しない。Viewは共通Env accessorから表示に利用できるが、nameをEnv挙動やmetric identityの分岐へ使用しない。
 
+### 7.1 疎なscalarと購読情報
+
+既知keyだが現在値が成立しない疎なscalarは`NaN`、未知keyは`nullopt`とする。Observerは非有限値をEMA更新前、および複数UpdateResultの平均へ加える前に除外する。後続の有限値は直前までの有限なEMA stateから正常に再開する。
+
+scalar定義のsource key、event、target、interval、runner scope、eval名は、実際にattachされた定義から型付き購読情報としてAgentへ渡される。metrics行の`interval`が重い計測のcadenceの正になる機能では、定義のコメントアウトが計算自体の停止まで到達する必要がある。
+
 ## 8. Profilingと性能上の注意
 
 - 関数全体は`ANET_PROFILE_FUNC()`、通常phaseは`ANET_PROFILE_SCOPE(phase)`を使う。

@@ -2,8 +2,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <optional>
 #include <vector>
 #include <functional>
@@ -16,6 +19,61 @@
 
 
 namespace anet::nn {
+
+
+    enum class PlasticityMetric {
+        SRANK_DELTA_001,
+        SRANK_DELTA_005,
+        SRANK_DELTA_020,
+        SRANK_RATIO_DELTA_001,
+        SRANK_RATIO_DELTA_005,
+        SRANK_RATIO_DELTA_020,
+        DORMANT_RATIO,
+        DEAD_RATIO,
+        FEATURE_NORM,
+        COUNT,
+    };
+
+    struct PlasticityMetricRequest {
+        std::array<bool, static_cast<size_t>(PlasticityMetric::COUNT)> requested{};
+
+        void Add(PlasticityMetric metric) {
+            requested[static_cast<size_t>(metric)] = true;
+        }
+
+        bool Contains(PlasticityMetric metric) const {
+            return requested[static_cast<size_t>(metric)];
+        }
+
+        bool Any() const {
+            return std::ranges::any_of(requested, [](bool value) { return value; });
+        }
+
+        static PlasticityMetricRequest All() {
+            PlasticityMetricRequest result;
+            result.requested.fill(true);
+            return result;
+        }
+    };
+
+    struct PlasticityMetrics {
+        std::array<std::optional<float>, 3> srank;
+        std::array<std::optional<float>, 3> srank_ratio;
+        std::optional<float> dormant_ratio;
+        std::optional<float> dead_ratio;
+        std::optional<float> feature_norm;
+
+        std::optional<float> Get(PlasticityMetric metric) const;
+    };
+
+    // 無印の plasticity_srank / plasticity_srank_ratio は index 0、δ=0.01 を表す。
+    inline constexpr std::array<float, 3> kPlasticitySrankDeltas{ 0.01f, 0.05f, 0.20f };
+    inline constexpr float kPlasticityDormantTau = 0.025f;
+
+    std::optional<PlasticityMetric> ParsePlasticityMetricSuffix(std::string_view suffix);
+    PlasticityMetrics ComputePlasticityMetrics(
+        const torch::Tensor& features,
+        const PlasticityMetricRequest& request);
 
 
     // ===========================================================================
@@ -116,6 +174,16 @@ namespace anet::nn {
 
     class NetworkBody;
 
+    struct NetworkBranchCapture {
+        std::string branch_key;
+        torch::Tensor output;
+    };
+
+    struct NetworkParameterNormSplit {
+        torch::Tensor feature;
+        torch::Tensor readout;
+    };
+
     class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider {
     public:
         Network(
@@ -125,8 +193,15 @@ namespace anet::nn {
             std::shared_ptr<NetworkBody> body,
             std::shared_ptr<NetworkHead> head);
 
-        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceCallback& callback = {});
+        anet::TensorDict Forward(
+            const anet::TensorDict& input,
+            const anet::TraceCallback& callback = {},
+            NetworkBranchCapture* capture = nullptr);
 
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
+        NetworkParameterNormSplit ComputeParameterNormSplit(const std::string& feature_key) const;
+
+        std::vector<std::string> GetBranchNames() const;
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
         void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)

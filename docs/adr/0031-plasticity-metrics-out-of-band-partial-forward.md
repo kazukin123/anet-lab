@@ -25,3 +25,10 @@ RR ラダー（8/4/2/1）で「損傷 ∝ 勾配 step / 修復 ∝ 新規デー�
 - 将来の保護機構（Spectral Norm / ReDo / reset）導入時の効果測定器になる。ReDo は dormant 率がトリガー指標そのもの。
 - ADR 0018（IQN bind 積 DAG）とは整合: capture 引数（body forward 末尾で内部 state を参照するのみ）も `ForwardUpTo` も branch の実行・bind 契約を変えず、DAG 構造・検証責任境界は不変。
 - 仕様詳細は `docs/memo/062_plasticity_metrics_10prd.md`（決定事項 D1〜D11 + 配線、実装仕様、シーケンス図）。
+
+## Implementation Follow-up (2026-08-27)
+
+- 購読ヒントは `ScalarMetricSubscription`（source key、event、optional target、interval、runner scope、eval 名）として型付きで渡す。`RunManager` は設定全体ではなく、実際に attach した scalar 定義だけを学習開始前に 1 回 Agent へ通知する。
+- DQN の online actual、target actual、probe はそれぞれ購読行の最小 interval を cadence として持つ。target 行は既定でコメントアウトし、購読ゼロ時は capture request、probe sample、統計計算を行わない。
+- `ForwardUpTo` の依存解決は現行 builder と同じく input key を同名 branch より優先する。bind factor が input spec に存在すれば終端入力であり、同名 branch を ancestor に加えない。
+- metrics 定義の新規 `@learn` 行はすべて `$learn_step` を明示し、疎な測定点と cadence の座標系を一致させる。

@@ -82,7 +82,8 @@ eval interval は learn_step 基準なので、**RR を下げるほど exp 軸�
 **位置は grad 軸にも exp 軸にも揃わず、深さだけが `replay_ratio` に単調**である
 （RR8 −62% / RR4 −31.5% / RR2 −11.8% / RR1 なし / RR0.5 なし）。
 `q_gap` の過渡の深さは可塑性の代理として使えるが、**定常のレベルは使えない**（前掲）。
-表現側を直接測る手段は現状存在せず、`062_plasticity_metrics_10prd.md`（srank / dormant）が待ち。
+表現側は `34_agent_plasticity` 群（srank / dormant、`062_plasticity_metrics_10prd.md`）で直接測れるようになった。
+読み方は `docs/design/030_user_guide_analysis.jp.md` 4.7節（probe 系が主読み、srank_ratio はチャネル間で絶対値比較不可）。
 
 ## 探索環境としての位置付け
 
