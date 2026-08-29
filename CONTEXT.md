@@ -398,5 +398,5 @@ feature key の依存閉包に属する学習パラメータを feature、閉包
 _Avoid_: feature norm（activation側との混同）, body/head 分割
 
 **実効重み**:
-Spectral Normalization 適用層で forward が実際に使う W/σ。optimizer が更新する生パラメータ W とは区別し、SN 下では生ノルムが制約されず実効側だけが σ で固定される。SN 非適用層では生パラメータと一致する。
+Spectral Normalization 適用層で forward が実際に使う正規化後の重み。optimizer が更新する生パラメータとは区別し、SN 下では生ノルムが制約されず実効側だけが正規化で抑えられる。SN 非適用層では生パラメータと一致する。
 _Avoid_: normalized weight（手法名の Weight Normalization と紛れる）, W_eff（記号は文書内の式でのみ使う）
