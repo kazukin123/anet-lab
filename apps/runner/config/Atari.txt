@@ -212,6 +212,11 @@ A1.learner.update_warmup_steps = 200,000       # BTR Minimum Replay Size(exp_ste
 A2.learner.replay_ratio = 1          # 8,219 step/s = 100M で約 3.4h
 #A2.learner.replay_ratio = 0.5
 
+# adam_eps は @bf16(agent.txt:91 = 1e-4)より後段でないと効かないので A1 ではなく A2 に置く。
+#A2.learner.adam_eps = 1.5e-4         # Dopamine 系(0.01/batch)準拠
+#A2.learner.adam_eps = 1e-4           # 旧既定(@bf16 の値)
+A2.learner.adam_eps = 1.95e-5        # ★ BTR Table D6(0.005/batch)
+
 A2.train_policy.eps_start = 0.4          # ラダー上端。4 点(0.01/0.2/0.4/1.0)で単峰、0.4 が最適(探索ブロック 20)
 A2.train_policy.use_spatial_exploration = true
 
@@ -242,8 +247,8 @@ A2.eval_policy.eps_end = 0.01
 
 # 有効化は #run.$ を 1 行 uncomment するか CLI で run.$=run.@<name>。ファイル末尾追記と同じ後勝ちで上のラダーより強い。
 
-# raw ALE v5 準拠(noop 0)
-run.@v5_iqn_impala_x2      : AtariEnv.$ = AtariEnv.@v5_noop0 > E1   # 比較先が Gymnasium 標準前処理なら @v5_noop30
+# BTR 準拠(sticky 0.25 + noop 30)。root ラダー(:25)と同値を明示ピンする
+run.@v5_iqn_impala_x2      : AtariEnv.$ = AtariEnv.@v5_noop30 > E1  # raw ALE v5(sticky のみ)と比べるなら @v5_noop0
 run.@v5_iqn_impala_x2      : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
 run.@v5_iqn_impala_x2      : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
 run.@v5_iqn_impala_x2      : A2.eval_policy.eps_start = 0.01     # BTR Table D6
@@ -289,7 +294,7 @@ run.@breakout_rr1_100m : A3.eval_policy.policy_type = EpsilonGreedy
 run.@breakout_rr1_100m : A3.eval_policy.eps_start = 0.01
 run.@breakout_rr1_100m : A3.eval_policy.eps_end   = 0.01
 
-# BTR 寄せ前の値。ここを外すと現行 A1(BTR 初期値)が効いて再現にならない。
+# BTR 寄せ前の値。ここを外すと現行の A1 / A2(BTR 初期値)が効いて再現にならない。
 run.@breakout_rr1_100m : A3.learner.per_alpha = 0.5
 run.@breakout_rr1_100m : A3.learner.adam_eps = 1e-4
 run.@breakout_rr1_100m : A3.learner.grad_clip_tau = 30
@@ -315,123 +320,17 @@ run.@plasticity_rr4  : app.run_name = run_{t}_plasticity_rr4_${E1.game}
 run.@plasticity_rr1  : A3.learner.replay_ratio = 1       # 過渡なし。ゼロ対照(探索ブロック 24)
 run.@plasticity_rr1  : app.run_name = run_{t}_plasticity_rr1_${E1.game}
 
-# --- 可塑性メトリクス A/B(Phase 0/P/S)。run.@plasticity_rr8 へ重ねる ---
-# 行の無効化は interval を巨大値にして cadence ごと止める。空値は ObserverFactory が
-# LOG::error して skip するためログが荒れる(observers.cpp:1341)。上書き先は M2(チェーン最右)。
-# interval にカンマは使えない(std::stoi が途中で切れる)。
-
-run.@pl_x_actual   : M2.[34_agent_plasticity/01_srank] = plasticity_srank @learn $learn_step $update_result interval:99999999
-run.@pl_x_actual   : M2.[34_agent_plasticity/02_srank_ratio] = plasticity_srank_ratio @learn $learn_step $update_result interval:99999999
-run.@pl_x_actual   : M2.[34_agent_plasticity/03_dormant_ratio] = plasticity_dormant_ratio @learn $learn_step $update_result interval:99999999
-run.@pl_x_actual   : M2.[34_agent_plasticity/04_dead_ratio] = plasticity_dead_ratio @learn $learn_step $update_result interval:99999999
-run.@pl_x_actual   : M2.[34_agent_plasticity/05_feature_norm] = plasticity_feature_norm @learn $learn_step $update_result interval:99999999
-run.@pl_x_actual   : M2.[34_agent_plasticity/12_srank_ratio_ema] = plasticity_srank_ratio @learn $learn_step $update_result interval:99999999 $ema
-run.@pl_x_actual   : M2.[34_agent_plasticity/13_dormant_ratio_ema] = plasticity_dormant_ratio @learn $learn_step $update_result interval:99999999 $ema
-
-run.@pl_x_probe    : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/43_probe_dormant_ratio] = $agent plasticity_probe_dormant_ratio @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/44_probe_dead_ratio] = $agent plasticity_probe_dead_ratio @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/45_probe_feature_norm] = $agent plasticity_probe_feature_norm @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:99999999
-run.@pl_x_probe    : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:99999999
-
-run.@pl_x_wn       : M2.[34_agent_plasticity/06_weight_norm_feature] = plasticity_weight_norm_feature @learn $learn_step $update_result interval:99999999
-run.@pl_x_wn       : M2.[34_agent_plasticity/07_weight_norm_readout] = plasticity_weight_norm_readout @learn $learn_step $update_result interval:99999999
-
-# P4 用: probe だけ interval 500
-run.@pl_i500       : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/43_probe_dormant_ratio] = $agent plasticity_probe_dormant_ratio @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/44_probe_dead_ratio] = $agent plasticity_probe_dead_ratio @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/45_probe_feature_norm] = $agent plasticity_probe_feature_norm @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:500
-run.@pl_i500       : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:500
-
-# 学習系は DefaultDQNAgent.$ チェーンのレイヤへ書く。素の DefaultDQNAgent.learner.* は解決時に上書きされる。
-run.@pl_b4096      : A3.learner.plasticity.probe.batch_size = 4096   # N>>D。MP 境界を抜ける
-
-# 需要駆動統計の分離測定。non-rank 43-45 は baseline の interval 100 を維持し、
-# srank 系6行だけを同時に振る。明示的にchainへ追加したRunだけで有効になる。
-run.@pl_dd_i100     : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:100
-run.@pl_dd_i100     : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:100
-run.@pl_dd_i100     : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:100
-run.@pl_dd_i100     : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:100
-run.@pl_dd_i100     : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:100
-run.@pl_dd_i100     : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:100
-
-run.@pl_dd_i1000    : M2.[34_agent_plasticity/41_probe_srank] = $agent plasticity_probe_srank @learn $learn_step interval:1000
-run.@pl_dd_i1000    : M2.[34_agent_plasticity/42_probe_srank_ratio] = $agent plasticity_probe_srank_ratio @learn $learn_step interval:1000
-run.@pl_dd_i1000    : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:1000
-run.@pl_dd_i1000    : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:1000
-run.@pl_dd_i1000    : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:1000
-run.@pl_dd_i1000    : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:1000
-
-run.@pl_dd_b4096_control : A3.learner.plasticity.probe.batch_size = 4096
-run.@pl_dd_b4096_control : app.run_name = run_{t}_dd_b4096_i100
-run.@pl_dd_b4096_coarse  : A3.learner.plasticity.probe.batch_size = 4096
-run.@pl_dd_b4096_coarse  : app.run_name = run_{t}_dd_b4096_i1000
-run.@pl_dd_b512_control  : A3.learner.plasticity.probe.batch_size = 512
-run.@pl_dd_b512_control  : app.run_name = run_{t}_dd_b512_i100
-run.@pl_dd_b512_coarse   : A3.learner.plasticity.probe.batch_size = 512
-run.@pl_dd_b512_coarse   : app.run_name = run_{t}_dd_b512_i1000
-
-# Phase P 共通。コスト測定なので eval を切って分散を落とす
-run.@pl_p          : @vars.max_exp_step = 1,000,000
-run.@pl_p          : train.eval_schedule.[eval1].interval = 0
-
-run.@pl_phase0     : @vars.max_exp_step = 100,000
-run.@pl_phase0     : train.eval_schedule.[eval1].interval = 0
-run.@pl_phase0     : app.run_name = run_{t}_ab_phase0_wiring
-
-run.@pl_p0         : app.run_name = run_{t}_ab_p0_none
-run.@pl_p1         : app.run_name = run_{t}_ab_p1_probe
-run.@pl_p2         : app.run_name = run_{t}_ab_p2_actual
-run.@pl_p3         : app.run_name = run_{t}_ab_p3_both
-run.@pl_p4         : app.run_name = run_{t}_ab_p4_probe_i500
-run.@pl_p5         : app.run_name = run_{t}_ab_p5_probe_b4096
-run.@pl_p6         : app.run_name = run_{t}_ab_p6_wn_only
-run.@pl_s2         : app.run_name = run_{t}_ab_s2_probe_b4096_5m
-
-# --- A1(δ 決着) / A3(weight_decay 再訪)。run.@plasticity_rr8 へ重ねる ---
-# δ 行は既定コメントアウトなので M2 で足す。3 つの δ は 1 回の SVD から出るので追加コストなし。
-run.@pl_delta      : M2.[34_agent_plasticity/46_probe_srank_delta_005] = $agent plasticity_probe_srank_delta_005 @learn $learn_step interval:100
-run.@pl_delta      : M2.[34_agent_plasticity/47_probe_srank_ratio_delta_005] = $agent plasticity_probe_srank_ratio_delta_005 @learn $learn_step interval:100
-run.@pl_delta      : M2.[34_agent_plasticity/48_probe_srank_delta_020] = $agent plasticity_probe_srank_delta_020 @learn $learn_step interval:100
-run.@pl_delta      : M2.[34_agent_plasticity/49_probe_srank_ratio_delta_020] = $agent plasticity_probe_srank_ratio_delta_020 @learn $learn_step interval:100
-
-run.@pl_a1_wd0     : app.run_name = run_{t}_a1_delta_wd0        # δ 比較の基準。WD=0 対照も兼ねる
-run.@pl_wd001      : A3.learner.weight_decay = 0.01
-run.@pl_wd001      : app.run_name = run_{t}_a3_wd001
-run.@pl_wd003      : A3.learner.weight_decay = 0.03
-run.@pl_wd003      : app.run_name = run_{t}_a3_wd003
-run.@pl_wd010      : A3.learner.weight_decay = 0.1              # 探索ブロック 13 の値
-run.@pl_wd010      : app.run_name = run_{t}_a3_wd010
-
-# --- 正規化 x weight_decay の 2x2(可塑性 A3)。run.@pl_delta の後に重ねる ---
+# --- 保護機構の腕(可塑性 A3)。run.@plasticity_rr8 へ重ねる ---
 # branch 差し替えは run.@breakout_rr1_100m に前例がある経路。学習系は A3 レイヤへ書く。
 run.@pl_gn         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2GN
-
-run.@pl_check      : @vars.max_exp_step = 100,000
-run.@pl_check      : train.eval_schedule.[eval1].interval = 0
-run.@pl_check      : app.run_name = run_{t}_check_gn_wiring
-
-run.@pl_gn_wd0     : app.run_name = run_{t}_a3_gn_wd0
-run.@pl_gn_wd001   : A3.learner.weight_decay = 0.01
-run.@pl_gn_wd001   : app.run_name = run_{t}_a3_gn_wd001
-run.@pl_gn_wd003   : A3.learner.weight_decay = 0.03
-run.@pl_gn_wd003   : app.run_name = run_{t}_a3_gn_wd003
-run.@pl_gn_wd010   : A3.learner.weight_decay = 0.1
-run.@pl_gn_wd010   : app.run_name = run_{t}_a3_gn_wd010
-run.@pl_gn_wd030   : A3.learner.weight_decay = 0.3
+run.@pl_gn_wd030   : A3.learner.weight_decay = 0.3   # 5M で唯一回復した腕(n=1)。複製が残件
 run.@pl_gn_wd030   : app.run_name = run_{t}_a3_gn_wd030
 
-run.@pl_gn_10m     : @vars.max_exp_step = 10,000,000   # 保護の持続を見る
-run.@pl_gn_10m     : app.run_name = run_{t}_a3_gn_wd010_10m
+run.@pl_check      : @vars.max_exp_step = 100,000    # 配線確認。eval を切って 2 分で回す
+run.@pl_check      : train.eval_schedule.[eval1].interval = 0
+run.@pl_check      : app.run_name = run_{t}_check_wiring
+
+run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る。run_name は腕から継ぐ
 
 # --- Atari-5 ---
 
@@ -513,9 +412,7 @@ A1.train_policy.eps_end = 0.01
 
 # --- optimizer ---
 A1.learner.alpha = 1e-4                        # ★ lr。batch 256 の Atari 相場
-#A1.learner.adam_eps = 1.5e-4                  # Dopamine 系(0.01/batch)準拠
-#A1.learner.adam_eps = 1e-4                    # 旧既定
-A1.learner.adam_eps = 1.95e-5                  # BTR Table D6(0.005/batch)
+# adam_eps は A2 が持つ。A1 に書くとチェーン後段の @bf16(agent.txt:91)が 1e-4 で打ち消す。
 A1.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
                                               # WD 0.1 は BBF(Atari-100k)由来で、探索ブロック 13 で不採用
 A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm 実測 0.5-1.4 に対し平常時は不発
