@@ -79,6 +79,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
     auto learner_seed = seed_maker.MakeNamedSeed("learner");
+    auto network_seed = seed_maker.MakeNamedSeed("network");
     this->action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
 
     // RuntimeVars生成
@@ -170,7 +171,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->model_ = std::make_unique<NetworkModel>(
         config_.model, device_,
         net_config, network_obs_spec, n_actions_, head_factory,
-        is_distributional
+        is_distributional, network_seed
     );
 
     // Network グラフ可視化

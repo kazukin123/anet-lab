@@ -30,6 +30,115 @@ namespace LOG = anet::log;
 static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
 
+WeightNormMode anet::nn::ParseWeightNormMode(const std::string& mode)
+{
+    if (mode == "none") return WeightNormMode::kNone;
+    if (mode == "spectral") return WeightNormMode::kSpectral;
+    if (mode == "spectral_cap") return WeightNormMode::kSpectralCap;
+    ANET_SYSTEM_ERROR("Invalid config key weight_norm.mode: value=\"" << mode
+        << "\" expected one of: none, spectral, spectral_cap");
+    return WeightNormMode::kNone;
+}
+
+std::shared_ptr<anet::RandomGenerator> ModuleRandomSource::Get(const std::string& purpose)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = generators_.find(purpose);
+    if (it != generators_.end()) return it->second;
+
+    auto generator = std::make_shared<anet::RandomGenerator>(seed_maker_.MakeNamedSeed(purpose.c_str()));
+    generators_.emplace(purpose, generator);
+    return generator;
+}
+
+void anet::nn::PowerIterationStep(const torch::Tensor& weight_mat, SpectralNormState& state)
+{
+    constexpr double kEps = 1.0e-12;
+    torch::NoGradGuard no_grad;
+    anet::Autocast disable_amp(weight_mat.device(), false, torch::kFloat32);
+    const auto weight_fp32 = weight_mat.to(torch::kFloat32);
+    const auto u_fp32 = state.u.to(torch::kFloat32);
+    const auto v_fp32 = state.v.to(torch::kFloat32);
+
+    // u を先に更新し、ゼロ候補では既存値を保持する。
+    const auto u_candidate = torch::mv(weight_fp32, v_fp32);
+    const auto u_norm = u_candidate.norm();
+    const auto normalized_u = u_candidate / u_norm.clamp_min(kEps);
+    const auto next_u = torch::where(u_norm.gt(kEps), normalized_u, u_fp32);
+    state.u.copy_(next_u.to(state.u.scalar_type()));
+
+    // 更新済み u から v を進め、同じ保持ガードを適用する。
+    const auto v_candidate = torch::mv(weight_fp32.transpose(0, 1), next_u);
+    const auto v_norm = v_candidate.norm();
+    const auto normalized_v = v_candidate / v_norm.clamp_min(kEps);
+    const auto next_v = torch::where(v_norm.gt(kEps), normalized_v, v_fp32);
+    state.v.copy_(next_v.to(state.v.scalar_type()));
+}
+
+torch::Tensor anet::nn::ComputeSpectralSigma(
+    const torch::Tensor& weight_mat, const torch::Tensor& u, const torch::Tensor& v)
+{
+    constexpr double kEps = 1.0e-12;
+    anet::Autocast disable_amp(weight_mat.device(), false, torch::kFloat32);
+    const auto u_fp32 = u.detach().to(torch::kFloat32);
+    const auto v_fp32 = v.detach().to(torch::kFloat32);
+    const auto normalized_u = u_fp32 / u_fp32.norm().clamp_min(kEps);
+    const auto normalized_v = v_fp32 / v_fp32.norm().clamp_min(kEps);
+    return torch::dot(normalized_u, torch::mv(weight_mat.to(torch::kFloat32), normalized_v));
+}
+
+SpectralNormState anet::nn::MakeSpectralNormState(
+    const torch::Tensor& weight,
+    WeightNormMode mode,
+    const std::string& name,
+    anet::RandomGenerator& rnd)
+{
+    constexpr double kEps = 1.0e-12;
+    const auto weight_mat = weight.reshape({ weight.size(0), -1 });
+    const auto options = weight.options().dtype(torch::kFloat32).requires_grad(false);
+    auto generator = rnd.GetTorchGenerator(weight.device());
+
+    SpectralNormState state{
+        .u = torch::randn({ weight_mat.size(0) }, generator, options),
+        .v = torch::randn({ weight_mat.size(1) }, generator, options),
+    };
+    state.u = state.u / state.u.norm().clamp_min(kEps);
+    state.v = state.v / state.v.norm().clamp_min(kEps);
+
+    // 参照実装と同じ回数で初期ベクトルを重みに馴染ませる。
+    for (int i = 0; i < kSpectralNormWarmStartIters; ++i) {
+        PowerIterationStep(weight_mat, state);
+    }
+
+    const double sigma = ComputeSpectralSigma(weight_mat, state.u, state.v).detach().item<double>();
+    if (!std::isfinite(sigma)
+        || (mode == WeightNormMode::kSpectral && sigma <= 0.0)) {
+        ANET_SYSTEM_ERROR("Spectral normalization initialization failed: name=" << name
+            << " sigma=" << sigma
+            << " mode=" << (mode == WeightNormMode::kSpectral ? "spectral" : "spectral_cap")
+            << ". spectral requires a non-degenerate weight; for a zero-initialized ResBlock conv2, "
+            << "set init2.mode=he or use weight_norm.mode=spectral_cap.");
+    }
+    return state;
+}
+
+torch::Tensor anet::nn::MakeSpectralNormalizedWeight(
+    const torch::Tensor& weight,
+    WeightNormMode mode,
+    SpectralNormState& state,
+    bool update_state)
+{
+    ANET_CHECK_MSG(mode != WeightNormMode::kNone,
+        "MakeSpectralNormalizedWeight requires spectral or spectral_cap mode.");
+    const auto weight_mat = weight.reshape({ weight.size(0), -1 });
+    if (update_state) PowerIterationStep(weight_mat, state);
+    const auto sigma = ComputeSpectralSigma(weight_mat, state.u, state.v);
+    if (mode == WeightNormMode::kSpectralCap) {
+        return weight / sigma.abs().clamp_min(1.0);
+    }
+    return weight / sigma;
+}
+
 
 std::optional<PlasticityMetric> anet::nn::ParsePlasticityMetricSuffix(const std::string_view suffix)
 {
@@ -1338,15 +1447,18 @@ static void ValidateConfigProfileExpansionPlan(
 } // namespace
 
 std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
-    const NetworkConfig& root_config, const std::string& structure_str)
+    const NetworkConfig& root_config,
+    const std::string& structure_str,
+    std::shared_ptr<ModuleRandomSource> random_source)
 {
-    return Build(root_config, structure_str, root_config.config_profiles);
+    return Build(root_config, structure_str, root_config.config_profiles, std::move(random_source));
 }
 
 std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
     const NetworkConfig& root_config,
     const std::string& structure_str,
-    const std::map<std::string, ConfigProfileConfig>& config_profiles)
+    const std::map<std::string, ConfigProfileConfig>& config_profiles,
+    std::shared_ptr<ModuleRandomSource> random_source)
 {
     if (structure_str.empty()) return std::make_shared<NetworkStruct>();
 
@@ -1362,7 +1474,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
         const auto& block_cfg = root_config.block_configs.at(block_def_name);
 
         auto factory = NetworkModuleRepository::Instance().GetFactory(block_cfg.type);
-        ModuleContext ctx;
+        ModuleContext ctx{ .random_source = random_source };
 
         std::shared_ptr<NetworkModule> inner_module;
         if (instance.markers.empty()) {
@@ -1392,7 +1504,10 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
 // NetworkBodyBuilder
 // ===========================================================================
 
-std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& config, const anet::TensorSpecMap& input_specs)
+std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(
+    const NetworkConfig& config,
+    const anet::TensorSpecMap& input_specs,
+    std::shared_ptr<ModuleRandomSource> random_source)
 {
     std::map<std::string, std::shared_ptr<NetworkBranch>> all_branches;
     std::map<std::string, int> in_degree;
@@ -1428,7 +1543,8 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
     // 各ブランチの生成と初期化
     for (const auto& [b_name, b_cfg] : config.branches) {
         const auto effective_profiles = MergeConfigProfileConfig(config.config_profiles, b_cfg.config_profiles);
-        auto engine = NetworkStructBuilder::Build(config, b_cfg.structure_str, effective_profiles);
+        auto engine = NetworkStructBuilder::Build(
+            config, b_cfg.structure_str, effective_profiles, random_source);
         all_branches[b_name] = std::make_shared<NetworkBranch>(
             b_name, b_cfg.bind_terms, b_cfg.bind_concat_dim, engine);
         in_degree[b_name] = 0;
@@ -1511,15 +1627,18 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
 
 Network::Network(
     const NetworkConfig& config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory,
-    std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head)
+    std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head, anet::seed_t construction_seed)
     : config_(config)
     , input_specs_(input_specs)
     , head_factory_(head_factory)
     , body_(std::move(body))
     , head_(std::move(head))
+    , construction_seed_(construction_seed)
 {
     register_module("body", body_);
     if (head_) register_module("head", head_);
+    // Builder の dummy forward 後なので、全 lazy module の SN 有無を一度だけ確定できる。
+    has_spectral_norm_ = !GetSpectralNormEntries().empty();
 }
 
 anet::TensorDict Network::Forward(
@@ -1567,6 +1686,11 @@ NetworkParameterNormSplit Network::ComputeParameterNormSplit(const std::string& 
     const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     auto feature_squared_norm = torch::zeros({}, options);
     auto readout_squared_norm = torch::zeros({}, options);
+    auto feature_effective_squared_norm = torch::zeros({}, options);
+    auto readout_effective_squared_norm = torch::zeros({}, options);
+    auto invalid_count = torch::zeros({}, options);
+    torch::Tensor sigma_feature_max;
+    torch::Tensor sigma_readout_max;
 
     const auto accumulate = [](const torch::nn::Module& module, torch::Tensor& squared_norm) {
         for (const auto& parameter : module.parameters()) {
@@ -1575,19 +1699,120 @@ NetworkParameterNormSplit Network::ComputeParameterNormSplit(const std::string& 
         }
     };
 
+    const auto accumulate_spectral = [&invalid_count](
+        const SpectralNormEntry& entry,
+        torch::Tensor& effective_squared_norm,
+        torch::Tensor& sigma_max) {
+        const auto weight_mat = entry.weight.reshape({ entry.weight.size(0), -1 });
+        const auto sigma_raw = ComputeSpectralSigma(weight_mat, entry.u, entry.v);
+        const auto sigma_report = entry.mode == WeightNormMode::kSpectralCap
+            ? sigma_raw.abs()
+            : sigma_raw;
+        const auto denominator = entry.mode == WeightNormMode::kSpectralCap
+            ? sigma_raw.abs().clamp_min(1.0)
+            : sigma_raw;
+
+        // parameter norm の既存契約に合わせ、学習対象weightだけを実効値へ置換する。
+        if (entry.weight.requires_grad()) {
+            const auto raw_squared_norm = entry.weight.detach().to(torch::kFloat32).square().sum();
+            effective_squared_norm.sub_(raw_squared_norm);
+            effective_squared_norm.add_(raw_squared_norm / denominator.square());
+        }
+
+        sigma_max = sigma_max.defined() ? torch::maximum(sigma_max, sigma_report) : sigma_report;
+        auto invalid = torch::logical_not(torch::isfinite(sigma_raw));
+        if (entry.mode == WeightNormMode::kSpectral) {
+            invalid = torch::logical_or(invalid, sigma_raw.le(0.0));
+        }
+        invalid_count.add_(invalid.to(torch::kFloat32));
+    };
+
     // branchを依存閉包の内外で分け、headは常にreadoutへ帰属させる。
     for (const auto& branch : body_->GetBranches()) {
-        auto& squared_norm = feature_branches.contains(branch->GetName())
-            ? feature_squared_norm
-            : readout_squared_norm;
+        const bool is_feature = feature_branches.contains(branch->GetName());
+        auto& squared_norm = is_feature ? feature_squared_norm : readout_squared_norm;
+        auto& effective_squared_norm = is_feature
+            ? feature_effective_squared_norm
+            : readout_effective_squared_norm;
+        auto& sigma_max = is_feature ? sigma_feature_max : sigma_readout_max;
         accumulate(*branch, squared_norm);
+        accumulate(*branch, effective_squared_norm);
+
+        const auto network_struct = branch->GetNetworkStruct();
+        if (!network_struct) continue;
+        for (const auto& block : network_struct->GetBlocks()) {
+            const auto module = block->GetModule();
+            if (!module) continue;
+            for (const auto& entry : module->GetSpectralNormEntries()) {
+                accumulate_spectral(entry, effective_squared_norm, sigma_max);
+            }
+        }
     }
-    if (head_) accumulate(*head_, readout_squared_norm);
+    if (head_) {
+        accumulate(*head_, readout_squared_norm);
+        accumulate(*head_, readout_effective_squared_norm);
+    }
+
+    const auto nan = torch::full({}, std::numeric_limits<float>::quiet_NaN(), options);
+    if (!sigma_feature_max.defined()) sigma_feature_max = nan.clone();
+    if (!sigma_readout_max.defined()) sigma_readout_max = nan.clone();
 
     return NetworkParameterNormSplit{
         .feature = feature_squared_norm.sqrt(),
         .readout = readout_squared_norm.sqrt(),
+        .feature_effective = feature_effective_squared_norm.clamp_min(0.0).sqrt(),
+        .readout_effective = readout_effective_squared_norm.clamp_min(0.0).sqrt(),
+        .sigma_feature_max = sigma_feature_max,
+        .sigma_readout_max = sigma_readout_max,
+        .invalid_count = invalid_count,
     };
+}
+
+torch::Tensor Network::ComputeSpectralNormValidity() const
+{
+    torch::NoGradGuard no_grad;
+    const auto entries = GetSpectralNormEntries();
+    torch::Device device(torch::kCPU);
+    if (!entries.empty()) {
+        device = entries.front().weight.device();
+    } else {
+        const auto all_parameters = parameters();
+        if (!all_parameters.empty()) {
+            device = all_parameters.front().device();
+        } else {
+            const auto all_buffers = buffers();
+            if (!all_buffers.empty()) device = all_buffers.front().device();
+        }
+    }
+    auto invalid_count = torch::zeros({}, torch::TensorOptions().dtype(torch::kFloat32).device(device));
+    for (const auto& entry : entries) {
+        const auto sigma = ComputeSpectralSigma(
+            entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v);
+        auto invalid = torch::logical_not(torch::isfinite(sigma));
+        if (entry.mode == WeightNormMode::kSpectral) {
+            invalid = torch::logical_or(invalid, sigma.le(0.0));
+        }
+        invalid_count.add_(invalid.to(torch::kFloat32));
+    }
+    return invalid_count;
+}
+
+std::vector<SpectralNormEntry> Network::GetSpectralNormEntries() const
+{
+    std::vector<SpectralNormEntry> entries;
+    for (const auto& branch : body_->GetBranches()) {
+        const auto network_struct = branch->GetNetworkStruct();
+        if (!network_struct) continue;
+        for (const auto& block : network_struct->GetBlocks()) {
+            const auto module = block->GetModule();
+            if (!module) continue;
+            for (auto entry : module->GetSpectralNormEntries()) {
+                entry.name = branch->GetName() + "." + block->GetName() + "." + entry.name;
+                entries.push_back(std::move(entry));
+            }
+        }
+    }
+    return entries;
 }
 
 std::vector<std::string> Network::GetBranchNames() const
@@ -1776,7 +2001,7 @@ std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) con
     }
 
     // config と input_specs を元に新しいインスタンスを再構築する
-    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_specs_, head_factory_, target_device);
+    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_specs_, head_factory_, construction_seed_, target_device);
 
     // デバイス移動
     cloned_net->to(target_device);
@@ -1812,6 +2037,18 @@ void Network::SoftCopyTo(Network& target, double tau) const
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
+
+    const bool has_spectral_norm = has_spectral_norm_ || target.has_spectral_norm_;
+    const bool valid_tau = std::isfinite(tau)
+        && ((tau >= 0.0 && tau <= kSpectralNormMaxSoftUpdateTau) || tau == 1.0);
+    if (has_spectral_norm && !valid_tau) {
+        ANET_SYSTEM_ERROR("Network::SoftCopyTo invalid tau=" << tau
+            << " for spectral normalization; expected finite tau in [0, 0.1] or tau=1.");
+    }
+    // SN buffer の再正規化が必要な構成だけ、entry walk を実行する。
+    const auto target_sn_entries = target.has_spectral_norm_
+        ? target.GetSpectralNormEntries()
+        : std::vector<SpectralNormEntry>{};
 
     // パラメータのブレンド: target = tau * src + (1 - tau) * target
     auto src_params = this->named_parameters(true);
@@ -1849,6 +2086,16 @@ void Network::SoftCopyTo(Network& target, double tau) const
     if (!dst_float_buffers.empty()) {
         torch::_foreach_lerp_(dst_float_buffers, src_float_buffers, tau);
     }
+
+    if (!target_sn_entries.empty()) {
+        ANET_PROFILE_SCOPE(spectral_norm_buffers);
+        constexpr double kEps = 1.0e-12;
+        // soft update 後も次回 forward が単位ベクトルを前提にできるよう buffer を復元する。
+        for (const auto& entry : target_sn_entries) {
+            entry.u.copy_(entry.u / entry.u.norm().clamp_min(kEps));
+            entry.v.copy_(entry.v / entry.v.norm().clamp_min(kEps));
+        }
+    }
 }
 
 // ===========================================================================
@@ -1885,12 +2132,17 @@ std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const 
 // ===========================================================================
 
 std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
-    const NetworkConfig& network_config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory, std::optional<torch::Device> device)
+    const NetworkConfig& network_config,
+    const anet::TensorSpecMap& input_specs,
+    std::shared_ptr<NetworkHeadFactory> head_factory,
+    anet::seed_t seed,
+    std::optional<torch::Device> device)
 {
 	ANET_LOG_DEBUG("network_config=" << network_config.ToJson().dump());
 
     // Body (DAG) の構築
-    auto body = NetworkBodyBuilder::Build(network_config, input_specs);
+    auto random_source = std::make_shared<ModuleRandomSource>(seed);
+    auto body = NetworkBodyBuilder::Build(network_config, input_specs, random_source);
 
     // ダミー入力を作成 (Lazyモジュールの初期化 兼 Shape推論用)
     anet::TensorDict dummy_input;
@@ -1923,5 +2175,5 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     std::shared_ptr<anet::nn::NetworkHead> head = head_factory ? head_factory->CreateHead(dummy_feature) : nullptr;
 
     // Network作って終わり
-    return std::make_shared<Network>(network_config, input_specs, head_factory, body, head);
+    return std::make_shared<Network>(network_config, input_specs, head_factory, body, head, seed);
 }

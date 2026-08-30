@@ -3,6 +3,8 @@
 #pragma once
 
 #include <cmath>
+#include <map>
+#include <mutex>
 
 #include "anet/nn.hpp" 
 
@@ -14,8 +16,6 @@ namespace anet::nn {
     // ===========================================================================
 
     torch::nn::init::NonlinearityType GetNonlinearityType(const std::string& name);
-    torch::Tensor SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x);
-    torch::Tensor DropPath(const torch::Tensor& x, double drop_prob, bool training);
 
     class WeightInitializer {
     public:
@@ -108,11 +108,58 @@ namespace anet::nn {
             tensor.clamp_(config.trunc_a, config.trunc_b);
         }
     };
+    
+    
+    // ===========================================================================
+    // Network Internal Utils
+    // ===========================================================================
+
+    inline constexpr int kSpectralNormWarmStartIters = 15;
+
+    struct SpectralNormState {
+        torch::Tensor u;
+        torch::Tensor v;
+    };
+
+    WeightNormMode ParseWeightNormMode(const std::string& mode);
+    
+    void PowerIterationStep(const torch::Tensor& weight_mat, SpectralNormState& state);
+    SpectralNormState MakeSpectralNormState(
+        const torch::Tensor& weight,
+        WeightNormMode mode,
+        const std::string& name,
+        anet::RandomGenerator& rnd);
+        
+    torch::Tensor MakeSpectralNormalizedWeight(
+        const torch::Tensor& weight,
+        WeightNormMode mode,
+        SpectralNormState& state,
+        bool update_state);
+
+    torch::Tensor SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x);
+
+    torch::Tensor SdpaSelfAttention(
+        const torch::nn::MultiheadAttention& mha,
+        const torch::Tensor& x,
+        const torch::Tensor& in_proj_weight,
+        const torch::Tensor& out_proj_weight);
+
+    torch::Tensor DropPath(const torch::Tensor& x, double drop_prob, bool training);
 
 
     // ===========================================================================
     // Network Internal Components
     // ===========================================================================
+
+    class ModuleRandomSource {
+    public:
+        explicit ModuleRandomSource(anet::seed_t base_seed) : seed_maker_(base_seed) { }
+        std::shared_ptr<anet::RandomGenerator> Get(const std::string& purpose);
+    private:
+        anet::SeedMaker seed_maker_;
+        std::mutex mutex_;
+        std::map<std::string, std::shared_ptr<anet::RandomGenerator>> generators_;
+    };
 
     /// anet管理下のニューラルネットモジュール基底クラス
     class NetworkModule : public torch::nn::Module {
@@ -122,6 +169,7 @@ namespace anet::nn {
         virtual torch::Tensor Forward(torch::Tensor input) = 0;
         virtual bool IsConv2dVisualizable() const { return false; }
         virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
+        virtual std::vector<SpectralNormEntry> GetSpectralNormEntries() const { return {}; }
         virtual ~NetworkModule() = default;
     };
 
@@ -177,13 +225,16 @@ namespace anet::nn {
 
     class NetworkStructBuilder {
     public:
-        /// @brief Config全体と、パース対象の構造文字列を受け取り、NetworkStructを構築する
-        static std::shared_ptr<NetworkStruct> Build(
-            const NetworkConfig& root_config, const std::string& structure_str);
+        /// Config全体と、パース対象の構造文字列を受け取り、NetworkStructを構築する
         static std::shared_ptr<NetworkStruct> Build(
             const NetworkConfig& root_config,
             const std::string& structure_str,
-            const std::map<std::string, ConfigProfileConfig>& config_profiles);
+            std::shared_ptr<ModuleRandomSource> random_source);
+        static std::shared_ptr<NetworkStruct> Build(
+            const NetworkConfig& root_config,
+            const std::string& structure_str,
+            const std::map<std::string, ConfigProfileConfig>& config_profiles,
+            std::shared_ptr<ModuleRandomSource> random_source);
     };
 
 
@@ -234,7 +285,9 @@ namespace anet::nn {
     public:
         /// 設定とSpecからDAG全体を解析・トポロジカルソートし、NetworkBodyを構築する
         static std::shared_ptr<NetworkBody> Build(
-            const NetworkConfig& config, const anet::TensorSpecMap& input_specs);
+            const NetworkConfig& config,
+            const anet::TensorSpecMap& input_specs,
+            std::shared_ptr<ModuleRandomSource> random_source);
     };
 
 
@@ -244,7 +297,7 @@ namespace anet::nn {
 
     /// モジュール生成時のコンテキスト情報（構造情報）
     struct ModuleContext {
-    	// メンバ無し（今後の拡張用）
+        std::shared_ptr<ModuleRandomSource> random_source;
     };
 
     class NetworkModuleFactory {

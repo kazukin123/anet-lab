@@ -178,7 +178,7 @@ sequenceDiagram
     participant D as NetworkBody
     participant H as NetworkHeadFactory
 
-    A->>B: BuildNetwork(config, input_specs, head_factory, device)
+    A->>B: BuildNetwork(config, input_specs, head_factory, seed, device)
     B->>C: branch DAGを構築
     C->>R: block typeごとにfactoryを解決
     R-->>C: NetworkModuleFactory
@@ -191,6 +191,8 @@ sequenceDiagram
 ```
 
 dummy forwardにより、設定で省略可能な入出力次元を実Tensor shapeから確定し、Headの入力shapeを構築時に検証する。
+
+`seed`はNetworkの構築情報として保持され、`Clone()`時にも再利用される。module固有乱数は1 Network 1個の`ModuleRandomSource`からpurpose名ごとに遅延生成される。spectral normalizationは`"spectral_norm"` streamだけを使うため、parameter初期化が使うglobal torch RNGを消費しない。DefaultDQN / Rainbow / ImageClsはAgent seedから`"network"`、MuZeroは`"network.rep"` / `"network.dyn"` / `"network.pred"`を導出する。
 
 ### 6.2 Forward
 
@@ -225,12 +227,16 @@ sequenceDiagram
 - input specと実入力TensorDictのshape/dtypeが一致しない場合はNetwork境界で検出する。
 - IQN Headはrank 3 `(B,K,D)`、IQN Dueling Headはvalue/advantageのB/K一致を局所入力契約としてdummy forward時に検証する。これは`taus`が最終出力へ意味的に寄与することの証明ではない。
 - Weight初期化modeは`default`、`xavier`、`he`、`orthogonal`、`constant`、`trunc_normal`を受け付け、未知値をfail-fastする。
+- `Linear`、`Conv1d`、`Conv2d`、`ResBlock`、`CNBlock`、`TransformerEncoder`の`weight_norm.mode`は`none`、`spectral`、`spectral_cap`だけを受け付ける。未知値はkey、指定値、許容値を含めてfail-fastする。
+- `spectral`はzero-init weightを構築時に拒否する。zero-initを維持する残差blockには`init2.mode=he`等を指定するか、`spectral_cap`を使う。
+- TransformerEncoderでSNを使う場合は`tf.use_sdpa=true`を要求する。
 - config profileはblockの出現順へ値を展開する。profile名や補間設定の誤りを暗黙に無視しない。
 
 ### 7.2 cloneとmodel同期
 
 - `Clone(device)`は同じ構築情報とparameterを持つ別Network instanceを作る。
 - `CopyTo`はhard update、`SoftCopyTo`はtauによるsoft updateを行う。
+- SNを含む`SoftCopyTo`は、source/targetを変更する前に`tau`を検証し、`0 <= tau <= 0.1`または`tau=1`だけを許可する。bufferをlerpした後、targetのu/vを単位normへ戻す。SNを含まないNetworkの既存tau契約は変えない。
 - Policy/Target Networkの更新時期と所有権は具象Agentが決める。
 - Eval用cloneはsnapshotの一貫性を得る代わりにcopy時間と追加memoryを使う。
 
@@ -241,14 +247,22 @@ sequenceDiagram
 - BatchNormやLayerNormなど、数値安定性のためFP32実行を選べるmoduleがある。
 - Observationの`uint8`から浮動小数への変換などはBoundaryPreprocessorのcontractとして扱う。
 
-### 7.4 可視化と性能
+### 7.4 spectral normalization
+
+SN対象はmoduleが所有するweightだけであり、Head、embedding、bias、normalization affine、layerscale、cls tokenは対象外である。ResBlockは`conv1` / `conv2` / `downsample`、CNBlockは`dwconv` / `pwconv1` / `pwconv2`、TransformerEncoderは各layerのQ / K / V / `out_proj` / `linear1` / `linear2`を独立に扱う。
+
+u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationする。SN計算はFP32・autocast OFFで行い、u/vの更新はtrain modeかつGradMode有効なforwardだけである。sigmaは毎forwardでweightから再計算し、weightへの勾配をdetachしない。`spectral`の実効weightは`W / sigma`、`spectral_cap`は`W / max(1, abs(sigma))`である。
+
+`NetworkModule::GetSpectralNormEntries()`は既定空で、各対象moduleがweight、mode、u/vを公開する。Networkはbranch/block walkで完全layer名を付与する。parameter normは生L2に加えて、SN weightの寄与だけを実効weightへ置換した実効L2、feature/readout別の最大sigma、invalid-count device scalarを返す。SN layerがない場合、実効L2は生L2と一致し、sigmaは`NaN`である。
+
+### 7.5 可視化と性能
 
 - `MakeGraphViz`はNetworkのbranch、factorごとの依存edge、block、shape、parameter情報を構築情報から出力する。branch設定詳細を有効にした場合は`bind_concat_dim`も表示する。
 - `GetTensorDictFunction`とTraceCallbackはConv2d可視化やprobeからNetwork内部へ到達するseamである。
 - forward、attention、主要blockはprofile対象であり、module追加時はshape/batch sizeに応じたcostを実測する。
 - moduleを細分化しすぎたprofile rangeは測定noiseになるため、意味のある処理境界を選ぶ。
 
-### 7.5 branch captureと部分forward
+### 7.6 branch captureと部分forward
 
 `Network::Forward`はoptionalな`NetworkBranchCapture`を受け取り、通常のbranch loop後・`output_keys`変換前の内部tensorをdetachして返す。captureを渡さない既存forward、TraceCallback、Actor経路は不変である。
 
@@ -256,7 +270,7 @@ sequenceDiagram
 
 可塑性統計はrank-2 `(N,D)` の特徴と指標要求集合を受け、detachしたFP32 CPU特徴から要求された統計だけを計算して呼出側でcacheする。srank系を要求しないstepではSVDを実行せず、δ=0.01 / 0.05 / 0.20を同時要求した場合も1回の`svdvals`とcumsumを共有する。結果の各値はoptionalであり、未計算フィールドを成立値として読めない。無印のsrankはδ=0.01を表す。
 
-`ComputeParameterNormSplit(feature_key)`は同じ依存閉包を使い、閉包内branchの学習parameterをfeature、閉包外branchとheadをreadoutとして、各群の一括L2をFP32 device scalarで返す。forwardとRNGを使わず、`requires_grad`がfalseのparameterは対象外とする。
+`ComputeParameterNormSplit(feature_key)`は同じ依存閉包を使い、閉包内branchの学習parameterをfeature、閉包外branchとheadをreadoutとして、各群の生L2、実効L2、最大sigmaをFP32 device scalarで返す。forwardとRNGを使わず、`requires_grad`がfalseのparameterはnorm対象外とする。
 
 ## 8. テストと拡張時の確認事項
 

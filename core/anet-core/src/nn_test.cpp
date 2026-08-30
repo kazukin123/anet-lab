@@ -73,6 +73,11 @@ void EnsureNNInitialized()
     (void)initialized;
 }
 
+std::shared_ptr<anet::nn::ModuleRandomSource> MakeTestModuleRandomSource()
+{
+    return std::make_shared<anet::nn::ModuleRandomSource>(0);
+}
+
 std::vector<torch::Tensor> MakeAdamWTestParams(const torch::Device& device)
 {
     auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
@@ -897,7 +902,7 @@ TEST_CASE("Network bind product fuses feature and tau tensors", "[nn][bind]")
         .dtype = torch::kFloat32,
     };
 
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     anet::TensorDict input;
     input.Set("features", torch::tensor({ { 2.0f, 3.0f }, { 5.0f, 7.0f } }));
     input.Set("tau_embedding", torch::tensor({
@@ -1008,7 +1013,7 @@ TEST_CASE("NetworkBodyBuilder warns once only for directly unused inputs", "[nn]
     };
 
     anet::test::LogCaptureGuard logs;
-    (void)anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    (void)anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     logs.Flush();
 
     int unused_warning_count = 0;
@@ -1128,7 +1133,8 @@ TEST_CASE("Network bind product factors participate in DAG validation", "[nn][bi
         config_data.Set("net.body.output.[features]", "fusion");
         const anet::nn::NetworkConfig config(config_data);
         auto body = anet::nn::NetworkBodyBuilder::Build(
-            config, anet::TensorSpecMap{ { "obs", spec }, { "scale", spec } });
+            config, anet::TensorSpecMap{ { "obs", spec }, { "scale", spec } },
+            MakeTestModuleRandomSource());
         REQUIRE(body->GetBranches().size() == 2);
         CHECK(body->GetBranches()[0]->GetName() == "base");
         CHECK(body->GetBranches()[1]->GetName() == "fusion");
@@ -1143,7 +1149,8 @@ TEST_CASE("Network bind product factors participate in DAG validation", "[nn][bi
         config_data.Set("net.branch.[b].structure", "");
         const anet::nn::NetworkConfig config(config_data);
         CHECK_THROWS_WITH(
-            anet::nn::NetworkBodyBuilder::Build(config, anet::TensorSpecMap{ { "obs", spec } }),
+            anet::nn::NetworkBodyBuilder::Build(
+                config, anet::TensorSpecMap{ { "obs", spec } }, MakeTestModuleRandomSource()),
             Catch::Matchers::ContainsSubstring("Cycle detected"));
     }
 }
@@ -1186,6 +1193,7 @@ TEST_CASE("BatchNorm2d runs in FP32 after BF16 autocast convolution", "[nn][batc
             network_config,
             input_specs,
             nullptr,
+            0,
             device);
 
         anet::TensorDict input;
@@ -1578,7 +1586,8 @@ TEST_CASE("NetworkBuilder builds MaxPool2d and GAP2D pipeline", "[nn][pool]")
     input_specs["obs"] = obs_spec;
 
     auto network_config = anet::nn::NetworkConfig(config_data);
-    auto network = anet::nn::NetworkBuilder::BuildNetwork(network_config, input_specs, nullptr, torch::Device(torch::kCPU));
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        network_config, input_specs, nullptr, 0, torch::Device(torch::kCPU));
 
     anet::TensorDict input;
     input.Set("obs", torch::arange(0, 16, torch::kFloat32).reshape({ 1, 1, 4, 4 }));
@@ -1612,7 +1621,7 @@ TEST_CASE("Network config profile expands linear markers by branch order", "[nn]
     CHECK(json.at("config_profiles").at("dp").at("end") == 0.1);
 
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
-        config, config.branches.at("feature").structure_str);
+        config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
     const auto rates = GetDropoutRates(network_struct);
 
     REQUIRE(rates.size() == 18);
@@ -1667,7 +1676,7 @@ TEST_CASE("Network config profile returns start for a single marker", "[nn][conf
 
     anet::nn::NetworkConfig config(config_data);
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
-        config, config.branches.at("feature").structure_str);
+        config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
     const auto rates = GetDropoutRates(network_struct);
 
     REQUIRE(rates.size() == 1);
@@ -1696,7 +1705,7 @@ TEST_CASE("Network config profile supports branch-local overrides", "[nn][config
 
     anet::TensorSpecMap input_specs;
     input_specs["obs"] = MakeConfigProfileVectorSpec();
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     REQUIRE(body);
 
     const auto base_rates = GetDropoutRates(GetBranchNetworkStruct(body, "base"));
@@ -1726,11 +1735,11 @@ TEST_CASE("Network config profile leaves marker-free branches on original config
     anet::nn::NetworkConfig config(config_data);
     anet::TensorSpecMap input_specs;
     input_specs["obs"] = MakeConfigProfileVectorSpec();
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     REQUIRE(body);
 
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
-        config, config.branches.at("feature").structure_str);
+        config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
     const auto rates = GetDropoutRates(network_struct);
 
     REQUIRE(rates.size() == 1);
@@ -1748,7 +1757,8 @@ TEST_CASE("Network config profile rejects invalid marker settings", "[nn][config
     undefined_group.Set("net.branch.[feature].structure", std::string("Drop"));
     anet::nn::NetworkConfig undefined_config(undefined_group);
     CHECK_THROWS(anet::nn::NetworkStructBuilder::Build(
-        undefined_config, undefined_config.branches.at("feature").structure_str));
+        undefined_config, undefined_config.branches.at("feature").structure_str,
+        MakeTestModuleRandomSource()));
 
     anet::ConfigData missing_end;
     missing_end.Set("net.config_profile.[dp].type", std::string("linear"));
@@ -1789,7 +1799,7 @@ TEST_CASE("Network config profile expands same group independently per branch", 
     input_specs["obs_a"] = MakeConfigProfileVectorSpec();
     input_specs["obs_b"] = MakeConfigProfileVectorSpec();
 
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     REQUIRE(body);
 
     const auto a_rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature_a"));
@@ -2213,7 +2223,7 @@ TEST_CASE("Network dot view emits an edge for every bind product factor", "[nn][
         .dtype = torch::kFloat32,
     };
     auto network = anet::nn::NetworkBuilder::BuildNetwork(
-        config, input_specs, nullptr, torch::Device(torch::kCPU));
+        config, input_specs, nullptr, 0, torch::Device(torch::kCPU));
 
     anet::nn::NetworkGraphVizConfig viz_config;
     viz_config.show_branch_config = true;
@@ -2285,6 +2295,7 @@ TEST_CASE("Network partial forward executes only the target dependency closure",
         anet::nn::NetworkConfig(config_data),
         anet::TensorSpecMap{ { "obs", spec }, { "aux", spec } },
         nullptr,
+        0,
         torch::Device(torch::kCPU));
 
     anet::TensorDict input;
@@ -2303,6 +2314,539 @@ TEST_CASE("Network partial forward executes only the target dependency closure",
         == std::set<std::string>{ "base", "target", "unrelated" });
 }
 
+TEST_CASE("Linear spectral normalization is constructed from config", "[nn][spectral_norm]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].init.mode", "xavier");
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        65065,
+        torch::Device(torch::kCPU));
+
+    const auto entries = network->GetSpectralNormEntries();
+    REQUIRE(entries.size() == 1);
+    CHECK(entries.front().name == "feature.Linear_0.linear");
+    CHECK(entries.front().u.dim() == 1);
+    CHECK(entries.front().v.dim() == 1);
+
+    network->eval();
+    anet::TensorDict input;
+    const auto x = torch::tensor({ { 1.0f, -2.0f } });
+    input.Set("obs", x);
+    const auto output = network->Forward(input).At("feature");
+
+    const auto& entry = entries.front();
+    const auto sigma = anet::nn::ComputeSpectralSigma(
+        entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v);
+    torch::Tensor bias;
+    for (const auto& item : network->named_parameters(true)) {
+        if (item.key().ends_with("linear.bias")) bias = item.value();
+    }
+    REQUIRE(bias.defined());
+    const auto expected = torch::nn::functional::linear(x, entry.weight / sigma, bias);
+    CHECK(torch::allclose(output, expected, 1.0e-5, 1.0e-6));
+}
+
+TEST_CASE("Spectral normalization sigma and gradient match an analytic diagonal matrix", "[nn][spectral_norm][math]")
+{
+    auto weight = torch::tensor(
+        { { 3.0f, 0.0f }, { 0.0f, 2.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+    anet::nn::SpectralNormState state{
+        .u = torch::tensor({ 1.0f, 0.0f }),
+        .v = torch::tensor({ 1.0f, 0.0f }),
+    };
+
+    const auto sigma = anet::nn::ComputeSpectralSigma(weight, state.u, state.v);
+    CHECK(sigma.scalar_type() == torch::kFloat32);
+    CHECK(sigma.item<float>() == Catch::Approx(3.0f));
+
+    const auto normalized = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectral, state, /*update_state=*/false);
+    normalized.sum().backward();
+    const auto expected_gradient = torch::tensor(
+        { { -2.0f / 9.0f, 1.0f / 3.0f }, { 1.0f / 3.0f, 1.0f / 3.0f } });
+    CHECK(torch::allclose(weight.grad(), expected_gradient, 1.0e-6, 1.0e-6));
+}
+
+TEST_CASE("Spectral normalization gradient matches central difference", "[nn][spectral_norm][math]")
+{
+    auto weight = torch::tensor(
+        { { 2.0f, 0.5f }, { -0.25f, 1.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+    anet::nn::SpectralNormState state{
+        .u = torch::tensor({ 1.0f, 0.0f }),
+        .v = torch::tensor({ 1.0f, 0.0f }),
+    };
+    const auto loss = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectral, state, /*update_state=*/false).square().sum();
+    loss.backward();
+    const float analytic = weight.grad()[0][1].item<float>();
+
+    constexpr float kEps = 1.0e-3f;
+    const auto evaluate = [&](float delta) {
+        auto perturbed = weight.detach().clone();
+        perturbed[0][1].add_(delta);
+        return anet::nn::MakeSpectralNormalizedWeight(
+            perturbed, anet::nn::WeightNormMode::kSpectral, state,
+            /*update_state=*/false).square().sum().item<float>();
+    };
+    const float numeric = (evaluate(kEps) - evaluate(-kEps)) / (2.0f * kEps);
+    CHECK(analytic == Catch::Approx(numeric).margin(2.0e-3f));
+}
+
+TEST_CASE("Spectral normalization computes sigma in FP32 with autocast enabled", "[nn][spectral_norm][autocast]")
+{
+    auto weight = torch::tensor(
+        { { 3.0f, 0.0f }, { 0.0f, 2.0f } },
+        torch::TensorOptions().dtype(torch::kBFloat16));
+    const auto u = torch::tensor({ 1.0f, 0.0f });
+    const auto v = torch::tensor({ 1.0f, 0.0f });
+
+    anet::Autocast autocast(torch::Device(torch::kCPU), true, torch::kBFloat16);
+    const auto sigma = anet::nn::ComputeSpectralSigma(weight, u, v);
+
+    CHECK(sigma.scalar_type() == torch::kFloat32);
+    CHECK(sigma.item<float>() == Catch::Approx(3.0f));
+}
+
+TEST_CASE("Spectral cap preserves zero initialization and activates after a nonzero transition", "[nn][spectral_norm][spectral_cap]")
+{
+    auto weight = torch::zeros(
+        { 2, 2 }, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+    anet::RandomGenerator rnd(65065);
+    auto state = anet::nn::MakeSpectralNormState(
+        weight, anet::nn::WeightNormMode::kSpectralCap, "zero", rnd);
+    const auto u_before = state.u.clone();
+    const auto v_before = state.v.clone();
+
+    auto effective = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectralCap, state, /*update_state=*/true);
+    CHECK(torch::equal(effective, weight));
+    CHECK(torch::equal(state.u, u_before));
+    CHECK(torch::equal(state.v, v_before));
+    effective.sum().backward();
+    CHECK(torch::equal(weight.grad(), torch::ones_like(weight)));
+
+    {
+        torch::NoGradGuard no_grad;
+        weight[0][0].fill_(2.0f);
+    }
+    effective = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectralCap, state, /*update_state=*/true);
+    const auto sigma = anet::nn::ComputeSpectralSigma(weight, state.u, state.v).abs();
+    CHECK(sigma.item<float>() == Catch::Approx(2.0f).margin(1.0e-5f));
+    CHECK(effective[0][0].item<float>() == Catch::Approx(1.0f).margin(1.0e-5f));
+}
+
+TEST_CASE("Spectral normalization rejects a degenerate spectral initialization", "[nn][spectral_norm][config]")
+{
+    auto weight = torch::zeros({ 2, 2 }, torch::kFloat32);
+    anet::RandomGenerator rnd(65065);
+
+    CHECK_THROWS_WITH(
+        anet::nn::MakeSpectralNormState(
+            weight, anet::nn::WeightNormMode::kSpectral, "zero_linear", rnd),
+        Catch::Matchers::ContainsSubstring("zero_linear")
+            && Catch::Matchers::ContainsSubstring("spectral_cap"));
+    CHECK_THROWS_WITH(
+        anet::nn::ParseWeightNormMode("mystery"),
+        Catch::Matchers::ContainsSubstring("weight_norm.mode")
+            && Catch::Matchers::ContainsSubstring("mystery")
+            && Catch::Matchers::ContainsSubstring("none, spectral, spectral_cap"));
+}
+
+TEST_CASE("Spectral normalization requires an explicit network random source", "[nn][spectral_norm][seed]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 3);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+
+    CHECK_THROWS_WITH(
+        anet::nn::NetworkBodyBuilder::Build(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr),
+        Catch::Matchers::ContainsSubstring("Linear")
+            && Catch::Matchers::ContainsSubstring("Network-scoped ModuleRandomSource"));
+}
+
+TEST_CASE("Spectral normalization updates buffers only in training with GradMode", "[nn][spectral_norm][buffer]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 3);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 65065, torch::Device(torch::kCPU));
+    anet::TensorDict input{ { "obs", torch::tensor({ { 0.25f, -1.5f } }) } };
+    {
+        torch::NoGradGuard no_grad;
+        auto entry = network->GetSpectralNormEntries().front();
+        entry.u.copy_(torch::tensor({ 1.0f, 0.0f, 0.0f }));
+        entry.v.copy_(torch::tensor({ 1.0f, 0.0f }));
+    }
+    const auto initial_u = network->GetSpectralNormEntries().front().u.clone();
+
+    network->eval();
+    (void)network->Forward(input);
+    CHECK(torch::equal(network->GetSpectralNormEntries().front().u, initial_u));
+
+    network->train();
+    {
+        torch::NoGradGuard no_grad;
+        (void)network->Forward(input);
+    }
+    CHECK(torch::equal(network->GetSpectralNormEntries().front().u, initial_u));
+
+    (void)network->Forward(input);
+    CHECK_FALSE(torch::equal(network->GetSpectralNormEntries().front().u, initial_u));
+}
+
+TEST_CASE("Spectral normalization covers convolution residual ConvNeXt and Transformer weights", "[nn][spectral_norm][modules]")
+{
+    EnsureNNInitialized();
+    const auto create = [](const std::string& type, anet::ConfigData config_data) {
+        config_data.Set("weight_norm.mode", "spectral");
+        anet::nn::ModuleContext context{
+            .random_source = std::make_shared<anet::nn::ModuleRandomSource>(65065),
+        };
+        return anet::nn::NetworkModuleRepository::Instance().GetFactory(type)->CreateModule(config_data, context);
+    };
+    const auto check_module = [](const auto& module, const std::set<std::string>& expected) {
+        std::set<std::string> actual;
+        for (const auto& entry : module->GetSpectralNormEntries()) actual.insert(entry.name);
+        CHECK(actual == expected);
+        CHECK(module->GetCurrentConfigData().Get("weight_norm.mode") == "spectral");
+    };
+
+    SECTION("Conv1d") {
+        anet::ConfigData config;
+        config.Set("conv.out_channels", 4);
+        config.Set("conv.kernel_size", 3);
+        auto module = create("Conv1d", config);
+        auto input = torch::randn({ 2, 3, 8 });
+        CHECK(module->Forward(input).sizes() == torch::IntArrayRef({ 2, 4, 6 }));
+        check_module(module, { "conv" });
+    }
+    SECTION("Conv2d") {
+        anet::ConfigData config;
+        config.Set("conv.out_channels", 4);
+        config.Set("conv.kernel_size", 3);
+        auto module = create("Conv2d", config);
+        auto input = torch::randn({ 2, 3, 8, 8 });
+        CHECK(module->Forward(input).sizes() == torch::IntArrayRef({ 2, 4, 6, 6 }));
+        check_module(module, { "conv2d" });
+    }
+    SECTION("ResBlock") {
+        anet::ConfigData config;
+        config.Set("res.channels", 4);
+        config.Set("res.kernel_size", 3);
+        config.Set("res.padding", 1);
+        config.Set("res.stride", 2);
+        config.Set("init2.mode", "he");
+        auto module = create("ResBlock", config);
+        auto input = torch::randn({ 2, 3, 8, 8 });
+        CHECK(module->Forward(input).sizes() == torch::IntArrayRef({ 2, 4, 4, 4 }));
+        check_module(module, { "conv1", "conv2", "downsample" });
+    }
+    SECTION("CNBlock") {
+        anet::ConfigData config;
+        config.Set("cn.channels", 3);
+        config.Set("cn.kernel_size", 3);
+        config.Set("cn.ffn_expand_ratio", 2);
+        auto module = create("CNBlock", config);
+        auto input = torch::randn({ 2, 3, 8, 8 });
+        CHECK(module->Forward(input).sizes() == input.sizes());
+        check_module(module, { "dwconv", "pwconv1", "pwconv2" });
+    }
+    SECTION("TransformerEncoder") {
+        anet::ConfigData config;
+        config.Set("tf.d_model", 4);
+        config.Set("tf.nhead", 2);
+        config.Set("tf.num_layers", 2);
+        config.Set("tf.dim_feedforward", 8);
+        config.Set("tf.use_sdpa", true);
+        auto module = create("TransformerEncoder", config);
+        auto input = torch::randn({ 2, 3, 4 });
+        input.requires_grad_(true);
+        const auto output = module->Forward(input);
+        CHECK(output.sizes() == input.sizes());
+        check_module(module, {
+            "layer_0.q", "layer_0.k", "layer_0.v", "layer_0.out_proj", "layer_0.linear1", "layer_0.linear2",
+            "layer_1.q", "layer_1.k", "layer_1.v", "layer_1.out_proj", "layer_1.linear1", "layer_1.linear2" });
+        output.backward(torch::randn_like(output));
+        const auto packed_grad = GetNamedParameter(*module, "layer_0.self_attn.in_proj_weight").grad();
+        REQUIRE(packed_grad.defined());
+        const auto qkv_grad = packed_grad.chunk(3, 0);
+        CHECK(qkv_grad[0].abs().sum().item<float>() > 0.0f);
+        CHECK(qkv_grad[1].abs().sum().item<float>() > 0.0f);
+        CHECK(qkv_grad[2].abs().sum().item<float>() > 0.0f);
+    }
+}
+
+TEST_CASE("Transformer spectral normalization requires SDPA", "[nn][spectral_norm][transformer][config]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config;
+    config.Set("tf.d_model", 4);
+    config.Set("tf.nhead", 2);
+    config.Set("tf.use_sdpa", false);
+    config.Set("weight_norm.mode", "spectral");
+    anet::nn::ModuleContext context{
+        .random_source = std::make_shared<anet::nn::ModuleRandomSource>(65065),
+    };
+
+    CHECK_THROWS_WITH(
+        anet::nn::NetworkModuleRepository::Instance().GetFactory("TransformerEncoder")
+            ->CreateModule(config, context),
+        Catch::Matchers::ContainsSubstring("weight_norm.mode=spectral")
+            && Catch::Matchers::ContainsSubstring("tf.use_sdpa=true"));
+}
+
+TEST_CASE("Spectral normalization uses reproducible purpose-local randomness", "[nn][spectral_norm][seed]")
+{
+    anet::nn::ModuleRandomSource first(65065);
+    const auto first_spectral = first.Get("spectral_norm");
+    const auto spectral_value = first_spectral->RandUint64();
+    const auto other_value = first.Get("other")->RandUint64();
+    CHECK(first.Get("spectral_norm") == first_spectral);
+
+    anet::nn::ModuleRandomSource reordered(65065);
+    CHECK(reordered.Get("other")->RandUint64() == other_value);
+    CHECK(reordered.Get("spectral_norm")->RandUint64() == spectral_value);
+}
+
+TEST_CASE("Spectral normalization seed does not perturb parameter initialization", "[nn][spectral_norm][seed]")
+{
+    EnsureNNInitialized();
+    const auto build = [](const std::string& mode, anet::seed_t seed) {
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 3);
+        config_data.Set("net.block.[Linear].weight_norm.mode", mode);
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        const anet::TensorSpec spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        return anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr, seed, torch::Device(torch::kCPU));
+    };
+
+    torch::manual_seed(9123);
+    auto without_sn = build("none", 1);
+    torch::manual_seed(9123);
+    auto with_sn = build("spectral", 65065);
+    const auto without_params = without_sn->named_parameters(true);
+    const auto with_params = with_sn->named_parameters(true);
+    REQUIRE(without_params.size() == with_params.size());
+    for (const auto& item : without_params) {
+        INFO(item.key());
+        CHECK(torch::equal(item.value(), with_params[item.key()]));
+    }
+
+    torch::manual_seed(9123);
+    auto same_seed = build("spectral", 65065);
+    const auto first_entries = with_sn->GetSpectralNormEntries();
+    const auto same_entries = same_seed->GetSpectralNormEntries();
+    REQUIRE(first_entries.size() == same_entries.size());
+    CHECK(torch::equal(first_entries.front().u, same_entries.front().u));
+    CHECK(torch::equal(first_entries.front().v, same_entries.front().v));
+
+    without_sn->eval();
+    anet::TensorDict input{ { "obs", torch::tensor({ { 0.5f, -2.0f } }) } };
+    torch::NoGradGuard no_grad;
+    const auto direct = without_sn->Forward(input).At("feature");
+    torch::manual_seed(9123);
+    auto explicit_none = build("none", 999);
+    explicit_none->eval();
+    CHECK(torch::equal(direct, explicit_none->Forward(input).At("feature")));
+}
+
+TEST_CASE("Network parameter norm replaces only spectral weights with effective values", "[nn][spectral_norm][plasticity]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 65065, torch::Device(torch::kCPU));
+    auto entry = network->GetSpectralNormEntries().front();
+    torch::Tensor bias;
+    for (const auto& item : network->named_parameters(true)) {
+        if (item.key().ends_with("linear.bias")) bias = item.value();
+    }
+    REQUIRE(bias.defined());
+    {
+        torch::NoGradGuard no_grad;
+        entry.weight.copy_(torch::tensor({ { 3.0f, 0.0f }, { 0.0f, 2.0f } }));
+        bias.copy_(torch::tensor({ 4.0f, 0.0f }));
+        entry.u.copy_(torch::tensor({ 1.0f, 0.0f }));
+        entry.v.copy_(torch::tensor({ 1.0f, 0.0f }));
+    }
+
+    const auto norms = network->ComputeParameterNormSplit("feature");
+    CHECK(norms.feature.item<float>() == Catch::Approx(std::sqrt(29.0f)));
+    CHECK(norms.feature_effective.item<float>() == Catch::Approx(std::sqrt(157.0f / 9.0f)));
+    CHECK(norms.sigma_feature_max.item<float>() == Catch::Approx(3.0f));
+    CHECK(norms.readout.item<float>() == 0.0f);
+    CHECK(norms.readout_effective.item<float>() == 0.0f);
+    CHECK(std::isnan(norms.sigma_readout_max.item<float>()));
+    CHECK(norms.invalid_count.item<float>() == 0.0f);
+}
+
+TEST_CASE("Spectral normalization buffers survive clone copy and serialization", "[nn][spectral_norm][seed][serialize]")
+{
+    EnsureNNInitialized();
+    const auto build = [](anet::seed_t seed) {
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 3);
+        config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        const anet::TensorSpec spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        return anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr, seed, torch::Device(torch::kCPU));
+    };
+
+    torch::manual_seed(1001);
+    auto source = build(65065);
+    auto cloned = source->Clone(torch::Device(torch::kCPU));
+    const auto source_entry = source->GetSpectralNormEntries().front();
+    const auto cloned_entry = cloned->GetSpectralNormEntries().front();
+    CHECK(torch::equal(source_entry.u, cloned_entry.u));
+    CHECK(torch::equal(source_entry.v, cloned_entry.v));
+    CHECK(source_entry.u.data_ptr<float>() != cloned_entry.u.data_ptr<float>());
+
+    torch::manual_seed(1002);
+    auto copied = build(123);
+    source->CopyTo(*copied);
+    CHECK(torch::equal(source_entry.u, copied->GetSpectralNormEntries().front().u));
+    CHECK(torch::equal(source_entry.v, copied->GetSpectralNormEntries().front().v));
+
+    torch::manual_seed(1003);
+    auto restored = build(456);
+    std::stringstream archive(std::ios::in | std::ios::out | std::ios::binary);
+    std::shared_ptr<torch::nn::Module> source_base = source;
+    torch::save(source_base, archive);
+    archive.seekg(0);
+    std::shared_ptr<torch::nn::Module> restored_base = restored;
+    torch::load(restored_base, archive);
+    CHECK(torch::equal(source_entry.u, restored->GetSpectralNormEntries().front().u));
+    CHECK(torch::equal(source_entry.v, restored->GetSpectralNormEntries().front().v));
+}
+
+TEST_CASE("Spectral normalization soft copy validates tau before mutation and renormalizes buffers", "[nn][spectral_norm][soft-copy]")
+{
+    EnsureNNInitialized();
+    const auto build = [](anet::seed_t seed) {
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 3);
+        config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        const anet::TensorSpec spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        return anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr, seed, torch::Device(torch::kCPU));
+    };
+
+    torch::manual_seed(111);
+    auto source = build(65065);
+    torch::manual_seed(222);
+    auto target = build(65066);
+    std::map<std::string, torch::Tensor> target_before;
+    for (const auto& item : target->named_parameters(true)) {
+        target_before.emplace(item.key(), item.value().detach().clone());
+    }
+    for (const auto& item : target->named_buffers(true)) {
+        target_before.emplace(item.key(), item.value().detach().clone());
+    }
+
+    for (const double invalid_tau : {
+        -0.001, 0.100001, 0.5, std::numeric_limits<double>::quiet_NaN() }) {
+        CHECK_THROWS(source->SoftCopyTo(*target, invalid_tau));
+        for (const auto& item : target->named_parameters(true)) {
+            CHECK(torch::equal(item.value(), target_before.at(item.key())));
+        }
+        for (const auto& item : target->named_buffers(true)) {
+            CHECK(torch::equal(item.value(), target_before.at(item.key())));
+        }
+    }
+
+    for (const double valid_tau : { 0.0, static_cast<double>(0.1f), 1.0 }) {
+        CHECK_NOTHROW(source->SoftCopyTo(*target, valid_tau));
+        for (const auto& entry : target->GetSpectralNormEntries()) {
+            CHECK(entry.u.norm().item<float>() == Catch::Approx(1.0f).margin(1.0e-5f));
+            CHECK(entry.v.norm().item<float>() == Catch::Approx(1.0f).margin(1.0e-5f));
+        }
+    }
+}
+
 TEST_CASE("Network splits parameter norm at the feature dependency closure", "[nn][plasticity][weight_norm]")
 {
     auto network = MakeParameterNormTestNetwork();
@@ -2315,6 +2859,11 @@ TEST_CASE("Network splits parameter norm at the feature dependency closure", "[n
     CHECK(norms.readout.scalar_type() == torch::kFloat32);
     CHECK(norms.feature.item<float>() == Catch::Approx(5.0f));
     CHECK(norms.readout.item<float>() == Catch::Approx(13.0f));
+    CHECK(norms.feature_effective.item<float>() == Catch::Approx(5.0f));
+    CHECK(norms.readout_effective.item<float>() == Catch::Approx(13.0f));
+    CHECK(std::isnan(norms.sigma_feature_max.item<float>()));
+    CHECK(std::isnan(norms.sigma_readout_max.item<float>()));
+    CHECK(norms.invalid_count.item<float>() == 0.0f);
 }
 
 TEST_CASE("Network parameter norm includes weight bias and normalization affine parameters", "[nn][plasticity][weight_norm]")
@@ -2524,6 +3073,7 @@ TEST_CASE("Network partial forward stops before IQN tau fusion without taus inpu
             } },
         },
         nullptr,
+        0,
         torch::Device(torch::kCPU));
 
     anet::TensorDict input;
@@ -2555,6 +3105,7 @@ TEST_CASE("Network partial forward gives input keys precedence over same-named b
         anet::nn::NetworkConfig(config_data),
         anet::TensorSpecMap{ { "obs", spec }, { "aux", spec } },
         nullptr,
+        0,
         torch::Device(torch::kCPU));
 
     anet::TensorDict input;
@@ -2584,6 +3135,7 @@ TEST_CASE("Network branch capture returns the actual forward feature without cha
         anet::nn::NetworkConfig(config_data),
         anet::TensorSpecMap{ { "obs", spec } },
         nullptr,
+        0,
         torch::Device(torch::kCPU));
 
     anet::TensorDict input;

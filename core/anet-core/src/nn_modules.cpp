@@ -20,6 +20,17 @@ static void ValidateDropRate(const std::string& key, double value)
     }
 }
 
+static std::shared_ptr<anet::RandomGenerator> GetSpectralNormRandom(
+    const ModuleContext& context, WeightNormMode mode, const std::string& module_type)
+{
+    if (mode == WeightNormMode::kNone) return nullptr;
+    if (!context.random_source) {
+        ANET_SYSTEM_ERROR(module_type
+            << " weight_norm.mode requires a Network-scoped ModuleRandomSource.");
+    }
+    return context.random_source->Get("spectral_norm");
+}
+
 static std::string FormatInt64Vector(const std::vector<int64_t>& values)
 {
     std::ostringstream oss;
@@ -66,8 +77,18 @@ torch::Tensor anet::nn::DropPath(const torch::Tensor& x, double drop_prob, bool 
 // Lazy Linear Implementation
 class LinearModule : public NetworkModule {
 public:
-    LinearModule(int64_t out_features, bool bias, const WeightInitConfig& init_config)
-        : out_features_(out_features), with_bias_(bias), init_config_(init_config)
+    LinearModule(
+        int64_t out_features,
+        bool bias,
+        const WeightInitConfig& init_config,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
+        : out_features_(out_features)
+        , with_bias_(bias)
+        , init_config_(init_config)
+        , weight_norm_config_(weight_norm_config)
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
     }
 
@@ -90,10 +111,27 @@ public:
             // デバイス同期 (入力と同じデバイスへ移動)
             linear->to(x.device(), x.scalar_type());
 
-			// 重み初期化
+            // 重み初期化
             WeightInitializer::Initialize(linear, init_config_);
+
+            if (weight_norm_mode_ != WeightNormMode::kNone) {
+                ANET_CHECK_MSG(spectral_norm_rnd_ != nullptr,
+                    "Linear spectral normalization requires ModuleRandomSource.");
+                spectral_norm_state_ = MakeSpectralNormState(
+                    linear->weight, weight_norm_mode_, "linear", *spectral_norm_rnd_);
+                spectral_norm_state_.u = register_buffer("sn_u_linear", spectral_norm_state_.u);
+                spectral_norm_state_.v = register_buffer("sn_v_linear", spectral_norm_state_.v);
+            }
         }
-        return linear->forward(x);
+        if (weight_norm_mode_ == WeightNormMode::kNone) return linear->forward(x);
+
+        ANET_PROFILE_SCOPE(spectral_norm);
+        auto effective_weight = MakeSpectralNormalizedWeight(
+            linear->weight,
+            weight_norm_mode_,
+            spectral_norm_state_,
+            is_training() && torch::GradMode::is_enabled());
+        return torch::nn::functional::linear(x, effective_weight, linear->bias);
     }
 
     // NetworkModule interface override
@@ -107,13 +145,30 @@ public:
         anet::ConfigData cd;
         cd.Set("out_features", out_features_);
         cd.Set("bias", with_bias_);
+        cd.Set("weight_norm.mode", weight_norm_config_.mode);
         if (linear) {
             cd.Set("in_features", linear->options.in_features());
         }
         return cd;
     }
+
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const override
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone || !linear) return {};
+        return { SpectralNormEntry{
+            .name = "linear",
+            .mode = weight_norm_mode_,
+            .weight = linear->weight,
+            .u = spectral_norm_state_.u,
+            .v = spectral_norm_state_.v,
+        } };
+    }
 private:
     WeightInitConfig init_config_;
+    WeightNormConfig weight_norm_config_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
+    std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd_;
+    SpectralNormState spectral_norm_state_;
     torch::nn::Linear linear{ nullptr };
     int64_t out_features_;
     bool with_bias_;
@@ -123,8 +178,15 @@ private:
 class Conv1dModule : public NetworkModule {
 public:
 
-    Conv1dModule(int64_t out_channels, int64_t kernel_size, int64_t stride, int64_t padding, int64_t dilation, const WeightInitConfig& init_config)
-        : out_channels_(out_channels), kernel_size_(kernel_size), stride_(stride), padding_(padding), dilation_(dilation), init_config_(init_config)
+    Conv1dModule(
+        int64_t out_channels, int64_t kernel_size, int64_t stride, int64_t padding, int64_t dilation,
+        const WeightInitConfig& init_config,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
+        : out_channels_(out_channels), kernel_size_(kernel_size), stride_(stride), padding_(padding), dilation_(dilation)
+        , init_config_(init_config), weight_norm_config_(weight_norm_config)
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
     }
 
@@ -151,8 +213,25 @@ public:
 
             // 重み初期化
             WeightInitializer::Initialize(conv, init_config_);
+            if (weight_norm_mode_ != WeightNormMode::kNone) {
+                spectral_norm_state_ = MakeSpectralNormState(
+                    conv->weight, weight_norm_mode_, "conv", *spectral_norm_rnd_);
+                spectral_norm_state_.u = register_buffer("sn_u_conv", spectral_norm_state_.u);
+                spectral_norm_state_.v = register_buffer("sn_v_conv", spectral_norm_state_.v);
+            }
         }
-        return conv->forward(x);
+        if (weight_norm_mode_ == WeightNormMode::kNone) return conv->forward(x);
+        ANET_PROFILE_SCOPE(spectral_norm);
+        const auto weight = MakeSpectralNormalizedWeight(
+            conv->weight, weight_norm_mode_, spectral_norm_state_,
+            is_training() && torch::GradMode::is_enabled());
+        const auto options = torch::nn::functional::Conv1dFuncOptions()
+            .bias(conv->bias)
+            .stride(conv->options.stride())
+            .padding(conv->options.padding())
+            .dilation(conv->options.dilation())
+            .groups(conv->options.groups());
+        return torch::nn::functional::conv1d(x, weight, options);
     }
 
     torch::Tensor Forward(torch::Tensor input) override {
@@ -167,13 +246,25 @@ public:
         cd.Set("stride", stride_);
         cd.Set("padding", padding_);
         cd.Set("dilation", dilation_);
+        cd.Set("weight_norm.mode", weight_norm_config_.mode);
         if (conv) {
             cd.Set("in_channels", conv->options.in_channels());
         }
         return cd;
     }
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const override
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone || !conv) return {};
+        return { SpectralNormEntry{
+            .name = "conv", .mode = weight_norm_mode_, .weight = conv->weight,
+            .u = spectral_norm_state_.u, .v = spectral_norm_state_.v } };
+    }
 private:
     WeightInitConfig init_config_;
+    WeightNormConfig weight_norm_config_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
+    std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd_;
+    SpectralNormState spectral_norm_state_;
     torch::nn::Conv1d conv{ nullptr };
     int64_t out_channels_;
     int64_t kernel_size_;
@@ -184,8 +275,15 @@ private:
 
 class Conv2dModule : public NetworkModule {
 public:
-    Conv2dModule(int64_t out_channels, int64_t kernel_size, int64_t stride, int64_t padding, int64_t dilation, const WeightInitConfig& init_config)
-		: out_channels_(out_channels), kernel_size_(kernel_size), stride_(stride), padding_(padding), dilation_(dilation), init_config_(init_config)
+    Conv2dModule(
+        int64_t out_channels, int64_t kernel_size, int64_t stride, int64_t padding, int64_t dilation,
+        const WeightInitConfig& init_config,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
+		: out_channels_(out_channels), kernel_size_(kernel_size), stride_(stride), padding_(padding), dilation_(dilation)
+        , init_config_(init_config), weight_norm_config_(weight_norm_config)
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
     }
 
@@ -213,8 +311,25 @@ public:
 
             // 重み初期化
             WeightInitializer::Initialize(conv_, init_config_);
+            if (weight_norm_mode_ != WeightNormMode::kNone) {
+                spectral_norm_state_ = MakeSpectralNormState(
+                    conv_->weight, weight_norm_mode_, "conv2d", *spectral_norm_rnd_);
+                spectral_norm_state_.u = register_buffer("sn_u_conv2d", spectral_norm_state_.u);
+                spectral_norm_state_.v = register_buffer("sn_v_conv2d", spectral_norm_state_.v);
+            }
         }
-        return conv_->forward(x);
+        if (weight_norm_mode_ == WeightNormMode::kNone) return conv_->forward(x);
+        ANET_PROFILE_SCOPE(spectral_norm);
+        const auto weight = MakeSpectralNormalizedWeight(
+            conv_->weight, weight_norm_mode_, spectral_norm_state_,
+            is_training() && torch::GradMode::is_enabled());
+        const auto options = torch::nn::functional::Conv2dFuncOptions()
+            .bias(conv_->bias)
+            .stride(conv_->options.stride())
+            .padding(conv_->options.padding())
+            .dilation(conv_->options.dilation())
+            .groups(conv_->options.groups());
+        return torch::nn::functional::conv2d(x, weight, options);
     }
 
     torch::Tensor Forward(torch::Tensor input) override {
@@ -229,13 +344,25 @@ public:
         cd.Set("stride", stride_);
         cd.Set("padding", padding_);
         cd.Set("dilation", dilation_);
+        cd.Set("weight_norm.mode", weight_norm_config_.mode);
         if (conv_) {
             cd.Set("in_channels", conv_->options.in_channels());
         }
         return cd;
     }
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const override
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone || !conv_) return {};
+        return { SpectralNormEntry{
+            .name = "conv2d", .mode = weight_norm_mode_, .weight = conv_->weight,
+            .u = spectral_norm_state_.u, .v = spectral_norm_state_.v } };
+    }
 private:
     WeightInitConfig init_config_;
+    WeightNormConfig weight_norm_config_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
+    std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd_;
+    SpectralNormState spectral_norm_state_;
     torch::nn::Conv2d conv_{ nullptr };
     int64_t out_channels_;
     int64_t kernel_size_;
@@ -809,8 +936,17 @@ private:
     enum class ActType { ReLU, SiLU };
     enum class ActMode { Post, Pre };
 public:
-    ResBlockModule(const ResBlockConfig& config, const WeightInitConfig& init1_config, const WeightInitConfig& init2_config, const WeightInitConfig& init_ds_config)
+    ResBlockModule(
+        const ResBlockConfig& config,
+        const WeightInitConfig& init1_config,
+        const WeightInitConfig& init2_config,
+        const WeightInitConfig& init_ds_config,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
         : config_(config), init1_config_(init1_config), init2_config_(init2_config), init_ds_config_(init_ds_config)
+        , weight_norm_config_(weight_norm_config)
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
         // 活性化関数設定取得
         if (config_.activation == "SiLU" || config_.activation == "silu" ||
@@ -854,6 +990,7 @@ public:
             conv1_ = register_module("conv1", torch::nn::Conv2d(conv1_opts));
             conv1_->to(device, dtype);
             WeightInitializer::Initialize(conv1_, init1_config_);
+            InitializeSpectralNorm("conv1", conv1_->weight, spectral_norm_conv1_);
 
             norm1_ = CreateAndRegisterNorm("norm1", config_.channels);
 
@@ -869,6 +1006,7 @@ public:
             conv2_->to(device, dtype);
 
             WeightInitializer::Initialize(conv2_, init2_config_);
+            InitializeSpectralNorm("conv2", conv2_->weight, spectral_norm_conv2_);
 
             if (config_.dropout_rate > 0.0) {
                 dropout2d_ = register_module("dropout2d",
@@ -888,77 +1026,26 @@ public:
                 downsample_conv_ = register_module("ds_conv", torch::nn::Conv2d(ds_opts));
                 downsample_conv_->to(device, dtype);
                 WeightInitializer::Initialize(downsample_conv_, init_ds_config_);
+                InitializeSpectralNorm("downsample", downsample_conv_->weight, spectral_norm_downsample_);
 
                 // Shortcut Norm (Conv1x1 -> Norm)
                 norm_ds_ = CreateAndRegisterNorm("ds_norm", config_.channels);
             }
         }
 
-        // --- Forwarding ---
-        if (act_mode_ == ActMode::Pre) {
-
-            // ==================================================
-            // Pre-Activation (ResNet v2)
-            // ==================================================
-            ANET_PROFILE_SCOPE(pre_act);
-
-            // 共通の Pre-Activation (Norm -> Act)
-            torch::Tensor pre_act = input;
-            if (norm1_) pre_act = norm1_->Forward(pre_act);
-            pre_act = Activate(pre_act);
-
-            // Shortcut Path
-            torch::Tensor residual = input;
-            if (downsample_conv_) {
-                // 次元が変わる場合、Pre-Actされた値から1x1 Convで射影する（v2の標準）
-                residual = downsample_conv_->forward(pre_act);
-                if (norm_ds_) residual = norm_ds_->Forward(residual);
-            }
-
-            // Main Path
-
-            // Conv1
-            torch::Tensor out = conv1_->forward(pre_act);
-
-            // Norm2 -> Act -> Conv2
-            if (norm2_) out = norm2_->Forward(out);
-            out = Activate(out);
-            if (dropout2d_) out = dropout2d_->forward(out);
-            out = conv2_->forward(out);
-
-            // DropPath は残差枝だけを落とし、shortcut/downsample は落とさない。
-            return DropPath(out, config_.droppath_rate, is_training()) + residual;
-        } else {
-            // ==================================================
-            // Post-Activation (ResNet v1)
-            // ==================================================
-            ANET_PROFILE_SCOPE(post_act);
-
-            // Block 1: Conv -> Norm -> Act
-            torch::Tensor out = conv1_->forward(input);
-            if (norm1_) out = norm1_->Forward(out);
-            out = Activate(out);
-            if (dropout2d_) out = dropout2d_->forward(out);
-
-            // Block 2: Conv -> Norm
-            out = conv2_->forward(out);
-            if (norm2_) out = norm2_->Forward(out);
-
-            // Down-sample
-            torch::Tensor residual = input;
-            if (downsample_conv_) { // 次元合わせが必要な場合の1x1Conv
-                residual = downsample_conv_->forward(residual);
-                if (norm_ds_) residual = norm_ds_->Forward(residual);
-            }
-
-            // Add & Act
-            // DropPath は残差枝だけを落とし、shortcut/downsample は落とさない。
-            out = DropPath(out, config_.droppath_rate, is_training());
-            out += residual;
-            out = Activate(out);
-
-            return out;
+        // none は block ごとに一度だけ分岐し、既存の module forward を直接通す。
+        // SN ON 時だけ functional conv へ切り替え、OFF の per-conv 分岐を避ける。
+        if (weight_norm_mode_ == WeightNormMode::kNone) {
+            return ForwardImpl(input,
+                [](torch::nn::Conv2d& conv, const torch::Tensor& value, SpectralNormState&) {
+                    return conv->forward(value);
+                });
         }
+        ANET_PROFILE_SCOPE(spectral_norm);
+        return ForwardImpl(input,
+            [this](torch::nn::Conv2d& conv, const torch::Tensor& value, SpectralNormState& state) {
+                return ForwardSpectralConv(conv, value, state);
+            });
     }
 
     anet::ConfigData GetCurrentConfigData() const override
@@ -978,12 +1065,100 @@ public:
         cd.Set("conv2_bias", config_.conv2_bias);
         cd.Set("droppath_rate", config_.droppath_rate);
         cd.Set("dropout_rate", config_.dropout_rate);
+        cd.Set("weight_norm.mode", weight_norm_config_.mode);
         if (conv1_) {
             cd.Set("in_channels", conv1_->options.in_channels());
         }
         return cd;
     }
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const override
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone || !conv1_) return {};
+        std::vector<SpectralNormEntry> entries{
+            { .name = "conv1", .mode = weight_norm_mode_, .weight = conv1_->weight,
+              .u = spectral_norm_conv1_.u, .v = spectral_norm_conv1_.v },
+            { .name = "conv2", .mode = weight_norm_mode_, .weight = conv2_->weight,
+              .u = spectral_norm_conv2_.u, .v = spectral_norm_conv2_.v },
+        };
+        if (downsample_conv_) {
+            entries.push_back({ .name = "downsample", .mode = weight_norm_mode_,
+                .weight = downsample_conv_->weight,
+                .u = spectral_norm_downsample_.u, .v = spectral_norm_downsample_.v });
+        }
+        return entries;
+    }
 private:
+    template <typename ConvForward>
+    torch::Tensor ForwardImpl(torch::Tensor input, ConvForward&& forward_conv)
+    {
+        if (act_mode_ == ActMode::Pre) {
+            // Pre-Activation は Norm -> Act を両枝で共有してから畳み込む。
+            ANET_PROFILE_SCOPE(pre_act);
+            torch::Tensor pre_act = input;
+            if (norm1_) pre_act = norm1_->Forward(pre_act);
+            pre_act = Activate(pre_act);
+
+            torch::Tensor residual = input;
+            if (downsample_conv_) {
+                // 次元が変わる場合は Pre-Act 済みの値から shortcut を射影する。
+                residual = forward_conv(downsample_conv_, pre_act, spectral_norm_downsample_);
+                if (norm_ds_) residual = norm_ds_->Forward(residual);
+            }
+
+            torch::Tensor out = forward_conv(conv1_, pre_act, spectral_norm_conv1_);
+            if (norm2_) out = norm2_->Forward(out);
+            out = Activate(out);
+            if (dropout2d_) out = dropout2d_->forward(out);
+            out = forward_conv(conv2_, out, spectral_norm_conv2_);
+
+            // DropPath は残差枝だけを落とし、shortcut/downsample は維持する。
+            return DropPath(out, config_.droppath_rate, is_training()) + residual;
+        }
+
+        // Post-Activation は Conv -> Norm -> Act の既存順序を維持する。
+        ANET_PROFILE_SCOPE(post_act);
+        torch::Tensor out = forward_conv(conv1_, input, spectral_norm_conv1_);
+        if (norm1_) out = norm1_->Forward(out);
+        out = Activate(out);
+        if (dropout2d_) out = dropout2d_->forward(out);
+
+        out = forward_conv(conv2_, out, spectral_norm_conv2_);
+        if (norm2_) out = norm2_->Forward(out);
+
+        torch::Tensor residual = input;
+        if (downsample_conv_) {
+            residual = forward_conv(downsample_conv_, residual, spectral_norm_downsample_);
+            if (norm_ds_) residual = norm_ds_->Forward(residual);
+        }
+
+        // DropPath 後に shortcut を加算し、最後の活性化を適用する。
+        out = DropPath(out, config_.droppath_rate, is_training());
+        out += residual;
+        return Activate(out);
+    }
+
+    void InitializeSpectralNorm(
+        const std::string& name, const torch::Tensor& weight, SpectralNormState& state)
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone) return;
+        state = MakeSpectralNormState(weight, weight_norm_mode_, name, *spectral_norm_rnd_);
+        state.u = register_buffer("sn_u_" + name, state.u);
+        state.v = register_buffer("sn_v_" + name, state.v);
+    }
+
+    torch::Tensor ForwardSpectralConv(
+        torch::nn::Conv2d& conv, const torch::Tensor& input, SpectralNormState& state)
+    {
+        const auto weight = MakeSpectralNormalizedWeight(
+            conv->weight, weight_norm_mode_, state,
+            is_training() && torch::GradMode::is_enabled());
+        const auto options = torch::nn::functional::Conv2dFuncOptions()
+            .bias(conv->bias)
+            .stride(conv->options.stride()).padding(conv->options.padding())
+            .dilation(conv->options.dilation()).groups(conv->options.groups());
+        return torch::nn::functional::conv2d(input, weight, options);
+    }
+
     std::shared_ptr<NetworkModule> CreateAndRegisterNorm(const std::string& name, int64_t channels)
     {
         std::shared_ptr<NetworkModule> mod = nullptr;
@@ -1013,6 +1188,12 @@ private:
     WeightInitConfig init1_config_;
     WeightInitConfig init2_config_;
     WeightInitConfig init_ds_config_;
+    WeightNormConfig weight_norm_config_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
+    std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd_;
+    SpectralNormState spectral_norm_conv1_;
+    SpectralNormState spectral_norm_conv2_;
+    SpectralNormState spectral_norm_downsample_;
 
     ActType act_type_ = ActType::ReLU;
 	ActMode act_mode_ = ActMode::Post;
@@ -1037,6 +1218,7 @@ private:
         WeightInitConfig init1;
         WeightInitConfig init2;
         WeightInitConfig init_ds;
+        WeightNormConfig weight_norm;
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
@@ -1082,12 +1264,14 @@ private:
             ANET_READ_CONFIG(config_data, init_ds.trunc_std);
             ANET_READ_CONFIG(config_data, init_ds.trunc_a);
             ANET_READ_CONFIG(config_data, init_ds.trunc_b);
+            ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
         ValidateDropRate("res.droppath_rate", config.res.droppath_rate);
         ValidateDropRate("res.dropout_rate", config.res.dropout_rate);
         if (config.res.dropout_rate > 0.0 && config.res.norm_type == "batch") {
@@ -1096,7 +1280,9 @@ public:
                 << " reason=channel dropout can shift BatchNorm statistics"
                 << " recommended=use res.droppath_rate or set res.norm_type to group/none.";
         }
-        return std::make_shared<ResBlockModule>(config.res, config.init1, config.init2, config.init_ds);
+        auto rnd = GetSpectralNormRandom(context, mode, "ResBlock");
+        return std::make_shared<ResBlockModule>(
+            config.res, config.init1, config.init2, config.init_ds, config.weight_norm, std::move(rnd));
     }
 };
 
@@ -1121,8 +1307,13 @@ public:
         const CNBlockConfig& config,
         const WeightInitConfig& init_dw,
         const WeightInitConfig& init_pw1,
-        const WeightInitConfig& init_pw2)
+        const WeightInitConfig& init_pw2,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
         : config_(config), init_dw_(init_dw), init_pw1_(init_pw1), init_pw2_(init_pw2)
+        , weight_norm_config_(weight_norm_config)
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
     }
 
@@ -1152,6 +1343,7 @@ public:
             dwconv_ = register_module("dwconv", torch::nn::Conv2d(dw_opts));
             dwconv_->to(device, dtype);
             WeightInitializer::Initialize(dwconv_, init_dw_);
+            InitializeSpectralNorm("dwconv", dwconv_->weight, spectral_norm_dw_);
 
             if (config_.norm_type == "layernorm2d") {
                 norm_ = register_module("norm", std::make_shared<LayerNorm2dModule>(
@@ -1168,11 +1360,13 @@ public:
                 torch::nn::Conv2d(torch::nn::Conv2dOptions(config_.channels, hidden_channels, 1).bias(true)));
             pwconv1_->to(device, dtype);
             WeightInitializer::Initialize(pwconv1_, init_pw1_);
+            InitializeSpectralNorm("pwconv1", pwconv1_->weight, spectral_norm_pw1_);
 
             pwconv2_ = register_module("pwconv2",
                 torch::nn::Conv2d(torch::nn::Conv2dOptions(hidden_channels, config_.channels, 1).bias(true)));
             pwconv2_->to(device, dtype);
             WeightInitializer::Initialize(pwconv2_, init_pw2_);
+            InitializeSpectralNorm("pwconv2", pwconv2_->weight, spectral_norm_pw2_);
 
             if (config_.layerscale_init > 0.0) {
                 gamma_ = register_parameter("gamma",
@@ -1180,18 +1374,23 @@ public:
             }
         }
 
-        torch::Tensor residual = input;
-        torch::Tensor out = dwconv_->forward(input);
-        if (norm_) {
-            out = norm_->Forward(out);
-        }
-        out = pwconv1_->forward(out);
-        out = torch::gelu(out, "none");
-        out = pwconv2_->forward(out);
-        if (gamma_.defined()) {
-            out = out * gamma_.view({ 1, config_.channels, 1, 1 });
-        }
-        return DropPath(out, config_.droppath_rate, is_training()) + residual;
+        const auto forward_block = [&]() {
+            torch::Tensor residual = input;
+            torch::Tensor out = ForwardConv(dwconv_, input, spectral_norm_dw_);
+            if (norm_) {
+                out = norm_->Forward(out);
+            }
+            out = ForwardConv(pwconv1_, out, spectral_norm_pw1_);
+            out = torch::gelu(out, "none");
+            out = ForwardConv(pwconv2_, out, spectral_norm_pw2_);
+            if (gamma_.defined()) {
+                out = out * gamma_.view({ 1, config_.channels, 1, 1 });
+            }
+            return DropPath(out, config_.droppath_rate, is_training()) + residual;
+        };
+        if (weight_norm_mode_ == WeightNormMode::kNone) return forward_block();
+        ANET_PROFILE_SCOPE(spectral_norm);
+        return forward_block();
     }
 
     anet::ConfigData GetCurrentConfigData() const override
@@ -1204,17 +1403,60 @@ public:
         cd.Set("droppath_rate", config_.droppath_rate);
         cd.Set("norm_type", config_.norm_type);
         cd.Set("norm_force_fp32", config_.norm_force_fp32);
+        cd.Set("weight_norm.mode", weight_norm_config_.mode);
         if (dwconv_) {
             cd.Set("in_channels", dwconv_->options.in_channels());
         }
         return cd;
     }
 
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const override
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone || !dwconv_) return {};
+        return {
+            { .name = "dwconv", .mode = weight_norm_mode_, .weight = dwconv_->weight,
+              .u = spectral_norm_dw_.u, .v = spectral_norm_dw_.v },
+            { .name = "pwconv1", .mode = weight_norm_mode_, .weight = pwconv1_->weight,
+              .u = spectral_norm_pw1_.u, .v = spectral_norm_pw1_.v },
+            { .name = "pwconv2", .mode = weight_norm_mode_, .weight = pwconv2_->weight,
+              .u = spectral_norm_pw2_.u, .v = spectral_norm_pw2_.v },
+        };
+    }
+
 private:
+    void InitializeSpectralNorm(
+        const std::string& name, const torch::Tensor& weight, SpectralNormState& state)
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone) return;
+        state = MakeSpectralNormState(weight, weight_norm_mode_, name, *spectral_norm_rnd_);
+        state.u = register_buffer("sn_u_" + name, state.u);
+        state.v = register_buffer("sn_v_" + name, state.v);
+    }
+
+    torch::Tensor ForwardConv(
+        torch::nn::Conv2d& conv, const torch::Tensor& input, SpectralNormState& state)
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone) return conv->forward(input);
+        const auto weight = MakeSpectralNormalizedWeight(
+            conv->weight, weight_norm_mode_, state,
+            is_training() && torch::GradMode::is_enabled());
+        const auto options = torch::nn::functional::Conv2dFuncOptions()
+            .bias(conv->bias)
+            .stride(conv->options.stride()).padding(conv->options.padding())
+            .dilation(conv->options.dilation()).groups(conv->options.groups());
+        return torch::nn::functional::conv2d(input, weight, options);
+    }
+
     CNBlockConfig config_;
     WeightInitConfig init_dw_;
     WeightInitConfig init_pw1_;
     WeightInitConfig init_pw2_;
+    WeightNormConfig weight_norm_config_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
+    std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd_;
+    SpectralNormState spectral_norm_dw_;
+    SpectralNormState spectral_norm_pw1_;
+    SpectralNormState spectral_norm_pw2_;
     torch::nn::Conv2d dwconv_{ nullptr };
     torch::nn::Conv2d pwconv1_{ nullptr };
     torch::nn::Conv2d pwconv2_{ nullptr };
@@ -1229,6 +1471,7 @@ private:
         WeightInitConfig init_dw;
         WeightInitConfig init_pw1;
         WeightInitConfig init_pw2;
+        WeightNormConfig weight_norm;
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
@@ -1270,6 +1513,7 @@ private:
             ANET_READ_CONFIG(config_data, init_pw2.trunc_std);
             ANET_READ_CONFIG(config_data, init_pw2.trunc_a);
             ANET_READ_CONFIG(config_data, init_pw2.trunc_b);
+            ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
 
@@ -1277,6 +1521,7 @@ public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
         if (config.cn.channels <= 0) {
             ANET_SYSTEM_ERROR("CNBlock: 'cn.channels' must be strictly positive.");
         }
@@ -1291,7 +1536,10 @@ public:
                 << "' expected one of: layernorm2d, none");
         }
         ValidateDropRate("cn.droppath_rate", config.cn.droppath_rate);
-        return std::make_shared<CNBlockModule>(config.cn, config.init_dw, config.init_pw1, config.init_pw2);
+        auto rnd = GetSpectralNormRandom(context, mode, "CNBlock");
+        return std::make_shared<CNBlockModule>(
+            config.cn, config.init_dw, config.init_pw1, config.init_pw2,
+            config.weight_norm, std::move(rnd));
     }
 };
 
@@ -1654,6 +1902,15 @@ private:
 
 torch::Tensor anet::nn::SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x)
 {
+    return SdpaSelfAttention(mha, x, mha->in_proj_weight, mha->out_proj->weight);
+}
+
+torch::Tensor anet::nn::SdpaSelfAttention(
+    const torch::nn::MultiheadAttention& mha,
+    const torch::Tensor& x,
+    const torch::Tensor& in_proj_weight,
+    const torch::Tensor& out_proj_weight)
+{
     namespace F = torch::nn::functional;
 
     ANET_CHECK_MSG(x.dim() == 3, "SdpaSelfAttention: input must have shape [B, S, E]. actual_dim=" << x.dim());
@@ -1665,21 +1922,21 @@ torch::Tensor anet::nn::SdpaSelfAttention(const torch::nn::MultiheadAttention& m
     const int64_t batch_size = x.size(0);
     const int64_t seq_len = x.size(1);
     const int64_t embed_dim = x.size(2);
-    const int64_t expected_embed_dim = mha->in_proj_weight.size(1);
+    const int64_t expected_embed_dim = in_proj_weight.size(1);
     const int64_t num_heads = mha->options.num_heads();
     const int64_t head_dim = mha->head_dim;
 
     ANET_CHECK_MSG(embed_dim == expected_embed_dim,
         "SdpaSelfAttention: input embed_dim mismatch. expected=" << expected_embed_dim << " actual=" << embed_dim);
-    ANET_CHECK_MSG(mha->in_proj_weight.size(0) == 3 * expected_embed_dim,
-        "SdpaSelfAttention: in_proj_weight must have shape [3E, E]. actual=" << mha->in_proj_weight.sizes());
+    ANET_CHECK_MSG(in_proj_weight.size(0) == 3 * expected_embed_dim,
+        "SdpaSelfAttention: in_proj_weight must have shape [3E, E]. actual=" << in_proj_weight.sizes());
     ANET_CHECK_MSG(num_heads > 0, "SdpaSelfAttention: num_heads must be positive. actual=" << num_heads);
     ANET_CHECK_MSG(head_dim > 0 && embed_dim == num_heads * head_dim,
         "SdpaSelfAttention: invalid head layout. embed_dim=" << embed_dim
         << " num_heads=" << num_heads << " head_dim=" << head_dim);
 
     // QKVをまとめて射影し、最後の次元を [Q, K, V] に分割する。
-    torch::Tensor qkv = F::linear(x, mha->in_proj_weight, mha->in_proj_bias);
+    torch::Tensor qkv = F::linear(x, in_proj_weight, mha->in_proj_bias);
     std::vector<torch::Tensor> chunks = qkv.chunk(3, /*dim=*/-1);
 
     auto to_heads = [&](const torch::Tensor& t) {
@@ -1695,7 +1952,7 @@ torch::Tensor anet::nn::SdpaSelfAttention(const torch::nn::MultiheadAttention& m
         q, k, v, /*attn_mask=*/{}, dropout_p, /*is_causal=*/false);
 
     attn = attn.transpose(1, 2).reshape({ batch_size, seq_len, embed_dim });
-    return F::linear(attn, mha->out_proj->weight, mha->out_proj->bias);
+    return F::linear(attn, out_proj_weight, mha->out_proj->bias);
 }
 
 /// libtorchの制約（Post-LN固定、[SeqLen, Batch, d_model] 形式の入力）を突破するためカスタムのTransformer層を用意
@@ -1704,11 +1961,15 @@ public:
     CustomTransformerEncoderLayer(
         int64_t d_model, int64_t nhead, int64_t dim_feedforward,
         bool norm_first, const std::string& activation, bool use_sdpa,
-        double hidden_dropout_rate, double attn_dropout_rate, double droppath_rate)
+        double hidden_dropout_rate, double attn_dropout_rate, double droppath_rate,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
         : norm_first_(norm_first)
         , use_sdpa_(use_sdpa)
         , droppath_rate_(droppath_rate)
         , use_gelu_(anet::ToLower(activation) == "gelu")
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
         // Multihead Attention
         torch::nn::MultiheadAttentionOptions mha_opts(d_model, nhead);
@@ -1718,6 +1979,16 @@ public:
         // Feed Forward Network (FFN)
         linear1_ = register_module("linear1", torch::nn::Linear(d_model, dim_feedforward));
         linear2_ = register_module("linear2", torch::nn::Linear(dim_feedforward, d_model));
+
+        if (weight_norm_mode_ != WeightNormMode::kNone) {
+            const auto qkv = mha_->in_proj_weight.chunk(3, 0);
+            InitializeSpectralNorm("q", qkv[0], spectral_norm_q_);
+            InitializeSpectralNorm("k", qkv[1], spectral_norm_k_);
+            InitializeSpectralNorm("v", qkv[2], spectral_norm_v_);
+            InitializeSpectralNorm("out_proj", mha_->out_proj->weight, spectral_norm_out_);
+            InitializeSpectralNorm("linear1", linear1_->weight, spectral_norm_linear1_);
+            InitializeSpectralNorm("linear2", linear2_->weight, spectral_norm_linear2_);
+        }
 
         // Transformer の hidden_dropout_rate は attention/FFN の要素 dropout。
         if (hidden_dropout_rate > 0.0) {
@@ -1748,7 +2019,7 @@ public:
             ANET_PROFILE_SCOPE_NEXT(self_attn);
             torch::Tensor attn_out;
             if (use_sdpa_) {
-                attn_out = anet::nn::SdpaSelfAttention(mha_, x_norm);
+                attn_out = ForwardAttention(x_norm);
             } else {
                 // libtorchのMHAは [SeqLen, Batch, d_model] 形式なので旧経路だけ転置する。
                 torch::Tensor x_norm_t = x_norm.transpose(0, 1);
@@ -1763,12 +2034,12 @@ public:
             ANET_PROFILE_SCOPE_NEXT(ffn_norm);
             x_norm = norm2_->forward(x);
             ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
-            torch::Tensor ffn_out = linear1_->forward(x_norm);
+            torch::Tensor ffn_out = ForwardLinear(linear1_, x_norm, spectral_norm_linear1_);
             ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
             ffn_out = ApplyDropout(ffn_out);
             ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
-            ffn_out = linear2_->forward(ffn_out);
+            ffn_out = ForwardLinear(linear2_, ffn_out, spectral_norm_linear2_);
 
             // Skip Connection (Add)
             ANET_PROFILE_SCOPE_NEXT(ffn_residual);
@@ -1782,7 +2053,7 @@ public:
             ANET_PROFILE_SCOPE(self_attn);
             torch::Tensor attn_out;
             if (use_sdpa_) {
-                attn_out = anet::nn::SdpaSelfAttention(mha_, x);
+                attn_out = ForwardAttention(x);
             } else {
                 // libtorchのMHAは [SeqLen, Batch, d_model] 形式なので旧経路だけ転置する。
                 torch::Tensor x_t = x.transpose(0, 1);
@@ -1793,12 +2064,12 @@ public:
             x = norm1_->forward(x + DropPath(attn_out, droppath_rate_, is_training()));
 
             ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
-            torch::Tensor ffn_out = linear1_->forward(x);
+            torch::Tensor ffn_out = ForwardLinear(linear1_, x, spectral_norm_linear1_);
             ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
             ffn_out = ApplyDropout(ffn_out);
             ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
-            ffn_out = linear2_->forward(ffn_out);
+            ffn_out = ForwardLinear(linear2_, ffn_out, spectral_norm_linear2_);
             ANET_PROFILE_SCOPE_NEXT(ffn_residual_norm);
             ffn_out = ApplyDropout(ffn_out);
             x = norm2_->forward(x + DropPath(ffn_out, droppath_rate_, is_training()));
@@ -1807,7 +2078,55 @@ public:
         return x;
     }
 
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone) return {};
+        const auto qkv = mha_->in_proj_weight.chunk(3, 0);
+        return {
+            { .name = "q", .mode = weight_norm_mode_, .weight = qkv[0], .u = spectral_norm_q_.u, .v = spectral_norm_q_.v },
+            { .name = "k", .mode = weight_norm_mode_, .weight = qkv[1], .u = spectral_norm_k_.u, .v = spectral_norm_k_.v },
+            { .name = "v", .mode = weight_norm_mode_, .weight = qkv[2], .u = spectral_norm_v_.u, .v = spectral_norm_v_.v },
+            { .name = "out_proj", .mode = weight_norm_mode_, .weight = mha_->out_proj->weight, .u = spectral_norm_out_.u, .v = spectral_norm_out_.v },
+            { .name = "linear1", .mode = weight_norm_mode_, .weight = linear1_->weight, .u = spectral_norm_linear1_.u, .v = spectral_norm_linear1_.v },
+            { .name = "linear2", .mode = weight_norm_mode_, .weight = linear2_->weight, .u = spectral_norm_linear2_.u, .v = spectral_norm_linear2_.v },
+        };
+    }
+
 private:
+    void InitializeSpectralNorm(
+        const std::string& name, const torch::Tensor& weight, SpectralNormState& state)
+    {
+        state = MakeSpectralNormState(weight, weight_norm_mode_, name, *spectral_norm_rnd_);
+        state.u = register_buffer("sn_u_" + name, state.u);
+        state.v = register_buffer("sn_v_" + name, state.v);
+    }
+
+    torch::Tensor EffectiveWeight(const torch::Tensor& weight, SpectralNormState& state)
+    {
+        return MakeSpectralNormalizedWeight(
+            weight, weight_norm_mode_, state,
+            is_training() && torch::GradMode::is_enabled());
+    }
+
+    torch::Tensor ForwardAttention(const torch::Tensor& input)
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone) return anet::nn::SdpaSelfAttention(mha_, input);
+        const auto qkv = mha_->in_proj_weight.chunk(3, 0);
+        const auto in_weight = torch::cat({
+            EffectiveWeight(qkv[0], spectral_norm_q_),
+            EffectiveWeight(qkv[1], spectral_norm_k_),
+            EffectiveWeight(qkv[2], spectral_norm_v_) }, 0);
+        const auto out_weight = EffectiveWeight(mha_->out_proj->weight, spectral_norm_out_);
+        return anet::nn::SdpaSelfAttention(mha_, input, in_weight, out_weight);
+    }
+
+    torch::Tensor ForwardLinear(
+        torch::nn::Linear& linear, const torch::Tensor& input, SpectralNormState& state)
+    {
+        if (weight_norm_mode_ == WeightNormMode::kNone) return linear->forward(input);
+        return torch::nn::functional::linear(input, EffectiveWeight(linear->weight, state), linear->bias);
+    }
+
     torch::Tensor ApplyDropout(torch::Tensor x)
     {
         if (dropout_) {
@@ -1820,6 +2139,14 @@ private:
     const bool use_sdpa_;
     bool use_gelu_;
     const double droppath_rate_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
+    std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd_;
+    SpectralNormState spectral_norm_q_;
+    SpectralNormState spectral_norm_k_;
+    SpectralNormState spectral_norm_v_;
+    SpectralNormState spectral_norm_out_;
+    SpectralNormState spectral_norm_linear1_;
+    SpectralNormState spectral_norm_linear2_;
     torch::nn::MultiheadAttention mha_{ nullptr };
     torch::nn::Linear linear1_{ nullptr };
     torch::nn::Linear linear2_{ nullptr };
@@ -1844,8 +2171,12 @@ struct TransformerConfig {
 // --- TransformerEncoderModule 本体 ---
 class TransformerEncoderModule : public NetworkModule {
 public:
-    TransformerEncoderModule(const TransformerConfig& config)
-        : config_(config)
+    TransformerEncoderModule(
+        const TransformerConfig& config,
+        const WeightNormConfig& weight_norm_config,
+        std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
+        : config_(config), weight_norm_config_(weight_norm_config)
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
     {
         ANET_CHECK_MSG(config_.d_model % config_.nhead == 0, "TransformerEncoder: d_model must be divisible by nhead.");
 
@@ -1854,7 +2185,8 @@ public:
             auto layer = std::make_shared<CustomTransformerEncoderLayer>(
                 config_.d_model, config_.nhead, config_.dim_feedforward,
                 config_.norm_first, config_.activation, config_.use_sdpa,
-                config_.hidden_dropout_rate, config_.attn_dropout_rate, config_.droppath_rate
+                config_.hidden_dropout_rate, config_.attn_dropout_rate, config_.droppath_rate,
+                weight_norm_config_, spectral_norm_rnd
             );
             layers_.push_back(register_module("layer_" + std::to_string(i), layer));
         }
@@ -1889,9 +2221,17 @@ public:
         {
             ANET_PROFILE_SCOPE(layers);
 
-            // レイヤーを順番に適用
-            for (auto& layer : layers_) {
-                out = layer->forward(out);
+            if (weight_norm_mode_ == WeightNormMode::kNone) {
+                // OFF時は既存のlayer forwardだけを通し、SN計測rangeを作らない。
+                for (auto& layer : layers_) {
+                    out = layer->forward(out);
+                }
+            } else {
+                // 全layerのSN経路を、encoderとして意味のある単一範囲で測定する。
+                ANET_PROFILE_SCOPE(spectral_norm);
+                for (auto& layer : layers_) {
+                    out = layer->forward(out);
+                }
             }
         }
 
@@ -1917,10 +2257,24 @@ public:
         cd.Set("hidden_dropout_rate", config_.hidden_dropout_rate);
         cd.Set("attn_dropout_rate", config_.attn_dropout_rate);
         cd.Set("droppath_rate", config_.droppath_rate);
+        cd.Set("weight_norm.mode", weight_norm_config_.mode);
         return cd;
+    }
+    std::vector<SpectralNormEntry> GetSpectralNormEntries() const override
+    {
+        std::vector<SpectralNormEntry> entries;
+        for (size_t i = 0; i < layers_.size(); ++i) {
+            for (auto entry : layers_[i]->GetSpectralNormEntries()) {
+                entry.name = "layer_" + std::to_string(i) + "." + entry.name;
+                entries.push_back(std::move(entry));
+            }
+        }
+        return entries;
     }
 private:
     TransformerConfig config_;
+    WeightNormConfig weight_norm_config_;
+    WeightNormMode weight_norm_mode_ = WeightNormMode::kNone;
     bool initialized_ = false;
     std::vector<std::shared_ptr<CustomTransformerEncoderLayer>> layers_;
     torch::nn::LayerNorm norm_{ nullptr };
@@ -1930,6 +2284,7 @@ class TransformerEncoderModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
         TransformerConfig tf;
+        WeightNormConfig weight_norm;
 
         Config(const anet::ConfigData& config_data) : anet::Config("") {
             ANET_READ_CONFIG(config_data, tf.d_model);
@@ -1942,16 +2297,24 @@ private:
             ANET_READ_CONFIG(config_data, tf.hidden_dropout_rate);
             ANET_READ_CONFIG(config_data, tf.attn_dropout_rate);
             ANET_READ_CONFIG(config_data, tf.droppath_rate);
+            ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
         ValidateDropRate("tf.hidden_dropout_rate", config.tf.hidden_dropout_rate);
         ValidateDropRate("tf.attn_dropout_rate", config.tf.attn_dropout_rate);
         ValidateDropRate("tf.droppath_rate", config.tf.droppath_rate);
-        return std::make_shared<TransformerEncoderModule>(config.tf);
+        if (mode != WeightNormMode::kNone && !config.tf.use_sdpa) {
+            ANET_SYSTEM_ERROR("Invalid TransformerEncoder config: weight_norm.mode="
+                << config.weight_norm.mode << " requires tf.use_sdpa=true.");
+        }
+        auto rnd = GetSpectralNormRandom(context, mode, "TransformerEncoder");
+        return std::make_shared<TransformerEncoderModule>(
+            config.tf, config.weight_norm, std::move(rnd));
     }
 };
 
@@ -2222,6 +2585,7 @@ private:
     struct Config : anet::Config {
         LinearConfig linear;
         WeightInitConfig init;
+        WeightNormConfig weight_norm;
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
@@ -2234,13 +2598,17 @@ private:
             ANET_READ_CONFIG(config_data, init.trunc_std);
             ANET_READ_CONFIG(config_data, init.trunc_a);
             ANET_READ_CONFIG(config_data, init.trunc_b);
+            ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        return std::make_shared<LinearModule>(config.linear.out_features, config.linear.bias, config.init);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
+        auto rnd = GetSpectralNormRandom(context, mode, "Linear");
+        return std::make_shared<LinearModule>(
+            config.linear.out_features, config.linear.bias, config.init, config.weight_norm, std::move(rnd));
     }
 };
 
@@ -2249,6 +2617,7 @@ private:
     struct Config : anet::Config {
         ConvConfig conv;
         WeightInitConfig init;
+        WeightNormConfig weight_norm;
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
@@ -2265,14 +2634,18 @@ private:
             ANET_READ_CONFIG(config_data, init.trunc_std);
             ANET_READ_CONFIG(config_data, init.trunc_a);
             ANET_READ_CONFIG(config_data, init.trunc_b);
+            ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
+        auto rnd = GetSpectralNormRandom(context, mode, "Conv1d");
         return std::make_shared<Conv1dModule>(
-            config.conv.out_channels, config.conv.kernel_size, config.conv.stride, config.conv.padding, config.conv.dilation, config.init);
+            config.conv.out_channels, config.conv.kernel_size, config.conv.stride, config.conv.padding,
+            config.conv.dilation, config.init, config.weight_norm, std::move(rnd));
     }
 };
 
@@ -2281,6 +2654,7 @@ private:
     struct Config : anet::Config {
         ConvConfig conv;
         WeightInitConfig init;
+        WeightNormConfig weight_norm;
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
@@ -2297,14 +2671,18 @@ private:
             ANET_READ_CONFIG(config_data, init.trunc_std);
             ANET_READ_CONFIG(config_data, init.trunc_a);
             ANET_READ_CONFIG(config_data, init.trunc_b);
+            ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
+        auto rnd = GetSpectralNormRandom(context, mode, "Conv2d");
         return std::make_shared<Conv2dModule>(
-            config.conv.out_channels, config.conv.kernel_size, config.conv.stride, config.conv.padding, config.conv.dilation, config.init);
+            config.conv.out_channels, config.conv.kernel_size, config.conv.stride, config.conv.padding,
+            config.conv.dilation, config.init, config.weight_norm, std::move(rnd));
     }
 };
 

@@ -134,6 +134,41 @@ checkpoint または Run serialization bundle は、データ本体とは別に 
 - 明示した group を保存できない場合、黙って省略しない。`auto` profile だけが WARN 付き fallback を定義できる。
 - Run close、手動 snapshot、AutoPause、異常終了 recovery で、どこまで同じ fidelity を保証するかを別途定義する。
 
+## 決定性と等価性検証
+
+Run serialization は、checkpoint を **等価性アッセイの対象として使える**ことを要求に含める。改修前後で挙動が変わっていないことを証明する手段として、checkpoint が使えるかどうかという観点である。
+
+### 現行の観測
+
+2026-08-30、[065](065_nn_spectral_norm_10prd.md) の「OFF 完全不変」検証で次が判明した。
+
+- 同一の保存済み実行体を、同一 seed・同一 config・determinism 既定 ON で 2 回実行しても、`agent_close.anet` の raw SHA-256 は一致しない。
+- 全 checkpoint のサイズは同じで、base/new ペアと base/base-repeat ペアの最初の差分位置も同じ model archive 内 offset `0x025A7EE4` だった。
+- 同じ Run の metrics マスタ（`loss` / `q_max_mean` / `q_max_max` / `61` / `62` の全 `(tag, step, value)`）は完全一致していた。したがって学習側の非決定ではなく **serialize 側の非決定**である。原因は未特定。
+
+サイズ一致かつ差分開始位置一致は、可変長の内容差ではなく **固定位置フィールドの内容差**を示唆する（保存時刻、build identifier、未初期化 padding のいずれか）。作り直し時に当該 offset 周辺を直接 dump すれば切り分けられる。
+
+この帰結として、062 / 063 / 065 が受入基準へ据えていた「`agent_close.anet` の checksum 一致で OFF 完全不変を証明する」手順は現行コードでは成立しない。065 は受入 1 を metrics checksum のみのゲートへ改訂し、checkpoint はサイズと hash を観測値として記録するに留めた。
+
+### タイムスタンプとの両立
+
+「再実行でバイト一致」を archive 全体へ課すと、保存時刻・Run ID・build version を書けなくなる。これらは manifest の仕事（§Manifest と実効値の要求の Run metadata）なので、決定性の要求は archive 全体ではなく **State group ごとの payload** へ課す。
+
+| 領域 | 決定性の要求 |
+|---|---|
+| manifest / Run metadata | 要求しない。保存時刻、Run ID、lineage、build version は非決定で当然であり、むしろ持つことが仕事である |
+| State group の payload | 決定論 Run（学習系列が bit 一致する条件）では、同一 seed・同一 config・同一 build の再実行で **group ごとの payload digest が一致する** |
+
+manifest は既に「含まれる State group、保存先、サイズ、整合性情報」を持つ要求があるので、その整合性情報を **payload digest** として定義すれば、等価性アッセイは「manifest の group digest を比較する」で閉じる。raw ファイル比較は使わない。同時に、この digest は load 側の破損検出・generation 突合とも同じ値を共有できる。
+
+payload 側で決定性を成立させるには、少なくとも次を contract に含める。
+
+- group payload に保存時刻、絶対 path、ホスト名、非決定な走査順（`unordered_map` 等）を混ぜない。可変情報は manifest 側へ寄せる。
+- 未初期化領域を書き出さない。padding は明示的にゼロ埋めする。
+- tensor の serialize 順を安定名で固定する。
+
+決定性を要求する範囲は「学習系列が bit 一致する条件下の Run」に限る。非決定論 Run の bit-exact 再現は Out of Scope のままである。
+
 ## User Stories
 
 1. 長期 Run 実施者として、Run を停止しても Step と schedule を含めて同じ進行位置から再開したい。
@@ -144,6 +179,7 @@ checkpoint または Run serialization bundle は、データ本体とは別に 
 6. 実験比較者として、Config に書いた値と load 後の実効 optimizer 値が異なる場合に、その差を見落としたくない。
 7. 保守者として、互換性のない State group を混ぜた Run を部分 load のまま開始させたくない。
 8. 保守者として、新しい Agent や Env を Run serialization へ追加するとき、State group と互換性 contract を局所的に実装したい。
+9. 実装者として、改修前後で OFF 構成が完全に不変であることを、checkpoint の group digest 比較で証明したい。
 
 ## Testing Decisions
 
@@ -172,6 +208,13 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 - 途中で中断した Save、欠損 group、破損 manifest、未知 schema を完成済み checkpoint として load しないこと。
 - load の途中失敗後に、一部だけ復元された Run を開始しないこと。
 
+### 決定性 regression
+
+- 決定論設定で同一 Run を 2 回実行し、State group ごとの payload digest が一致すること。manifest の Run metadata は一致しなくてよい。
+- group digest が manifest へ記録され、load 側が source と突合できること。
+- 保存時刻や build identifier を group payload へ混入させた変更が、この digest 比較で検出されること。
+- この regression が緑になるまで、他 PRD の等価性受入で raw checkpoint checksum をゲートに使わないこと。現行は非決定であり、判定不能である。
+
 ## Out of Scope
 
 - 本メモの段階で最終的な設定 key、ファイル配置、archive library、圧縮形式を確定すること。
@@ -190,6 +233,8 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 - ReplayBuffer の大容量 Save / Load を実時間とディスク容量の両面でどう成立させるか。
 - Run 中 snapshot の consistency barrier をどの層が所有するか。
 - CUDA RNG、非決定論 kernel、Box2D 等の物理状態について、どの fidelity を保証可能と呼ぶか。
+- 現行 archive の非決定の実体（model archive 内 offset `0x025A7EE4` 付近）が、保存時刻、build identifier、未初期化 padding のどれか。
+- payload digest を group 単位だけで持つか、bundle 全体の合成 digest も持つか。
 - 現行 `.anet` checkpoint と `auto_load_file` の互換移行期間をどう設けるか。
 - `config_data.txt` と serialization manifest の requested/effective Config をどう重複なく提示するか。
 

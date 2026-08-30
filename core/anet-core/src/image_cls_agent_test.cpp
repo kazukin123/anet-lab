@@ -1540,9 +1540,13 @@ TEST_CASE("ImageCls update result exposes captured plasticity metrics", "[image_
     CHECK(*result.GetScalar("plasticity_dormant_ratio", -1) == Catch::Approx(0.0f));
     CHECK(std::isnan(*result.GetScalar("plasticity_weight_norm_feature", -1)));
     CHECK(std::isnan(*result.GetScalar("plasticity_weight_norm_readout", -1)));
-    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f });
+    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.0f });
     CHECK(*result.GetScalar("plasticity_weight_norm_feature", -1) == Catch::Approx(3.0f));
     CHECK(*result.GetScalar("plasticity_weight_norm_readout", -1) == Catch::Approx(4.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature_effective", -1) == Catch::Approx(5.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout_effective", -1) == Catch::Approx(6.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_feature", -1) == Catch::Approx(7.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_readout", -1) == Catch::Approx(8.0f));
     CHECK_FALSE(result.GetScalar("plasticity_weight_norm_unknown", -1).has_value());
 
     anet::rl::img_cls::ImageClsUpdateResult partial_result;
@@ -1551,6 +1555,43 @@ TEST_CASE("ImageCls update result exposes captured plasticity metrics", "[image_
     CHECK(std::isfinite(*partial_result.GetScalar("plasticity_feature_norm", -1)));
     CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank", -1)));
     CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank_delta_020", -1)));
+}
+
+TEST_CASE("ImageCls spectral normalization sentinel reports the invalid layer", "[image_cls][spectral_norm][plasticity]")
+{
+    anet::nn::InitNN();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        65065,
+        torch::Device(torch::kCPU));
+    {
+        torch::NoGradGuard no_grad;
+        network->GetSpectralNormEntries().front().v.fill_(
+            std::numeric_limits<float>::quiet_NaN());
+    }
+
+    anet::rl::img_cls::ImageClsUpdateResult result;
+    result.plasticity_weight_norms = torch::tensor({
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f });
+    result.plasticity_network = network;
+
+    CHECK_THROWS_WITH(
+        result.GetScalar("plasticity_weight_norm_feature", -1),
+        Catch::Matchers::ContainsSubstring("feature.Linear_0.linear"));
 }
 
 TEST_CASE("ImageCls learner reports subscribed parameter norm without activating feature metrics", "[image_cls][plasticity][weight_norm]")
@@ -1577,6 +1618,18 @@ TEST_CASE("ImageCls learner reports subscribed parameter norm without activating
             .interval = 3,
             .scope = anet::rl::RunnerScope::TRAIN,
         },
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_readout_effective",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 4,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_spectral_sigma_feature",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 5,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
     });
 
     const auto results = learner.UpdateFromBatch(
@@ -1589,6 +1642,8 @@ TEST_CASE("ImageCls learner reports subscribed parameter norm without activating
     REQUIRE(readout_norm.has_value());
     CHECK(std::isfinite(*feature_norm));
     CHECK(std::isfinite(*readout_norm));
+    CHECK(std::isfinite(*results.front()->GetScalar("plasticity_weight_norm_readout_effective")));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_spectral_sigma_feature")));
     CHECK(std::isnan(*results.front()->GetScalar("plasticity_srank")));
 
     anet::rl::StepCounts skipped_step;

@@ -169,6 +169,29 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
         head);
 }
 
+std::shared_ptr<anet::nn::Network> MakeSpectralLinearNetwork(anet::seed_t seed = 65065)
+{
+    anet::nn::InitNN();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", kVectorKey);
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec vector_spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    return anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { kVectorKey, vector_spec } },
+        nullptr,
+        seed,
+        torch::Device(torch::kCPU));
+}
+
 std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
     const std::shared_ptr<AutocastProbeState>& probe_state,
     torch::Device device)
@@ -4862,7 +4885,7 @@ TEST_CASE("DQN update result exposes captured plasticity metrics lazily", "[dqn]
     dqn::BatchUpdateResult result;
     result.plasticity_features = torch::eye(2, torch::TensorOptions().dtype(torch::kFloat32));
     result.plasticity_request = anet::nn::PlasticityMetricRequest::All();
-    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f });
+    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.0f, 0.0f });
 
     REQUIRE(result.GetScalar("plasticity_srank").has_value());
     CHECK(*result.GetScalar("plasticity_srank") == 2.0f);
@@ -4875,6 +4898,10 @@ TEST_CASE("DQN update result exposes captured plasticity metrics lazily", "[dqn]
     REQUIRE(result.plasticity_weight_norms_cpu.defined());
     const auto* cpu_data = result.plasticity_weight_norms_cpu.data_ptr<float>();
     CHECK(*result.GetScalar("plasticity_weight_norm_readout") == Catch::Approx(4.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature_effective") == Catch::Approx(5.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout_effective") == Catch::Approx(6.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_feature") == Catch::Approx(7.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_readout") == Catch::Approx(8.0f));
     CHECK(result.plasticity_weight_norms_cpu.data_ptr<float>() == cpu_data);
     CHECK_FALSE(result.GetScalar("plasticity_unknown").has_value());
 
@@ -4884,6 +4911,72 @@ TEST_CASE("DQN update result exposes captured plasticity metrics lazily", "[dqn]
     CHECK(std::isfinite(*partial_result.GetScalar("plasticity_feature_norm")));
     CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank")));
     CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank_delta_005")));
+}
+
+TEST_CASE("DQN spectral normalization sentinel reports the invalid network and layer", "[dqn][spectral_norm][plasticity]")
+{
+    auto online = MakeSpectralLinearNetwork();
+    auto target = online->Clone(torch::Device(torch::kCPU));
+    {
+        torch::NoGradGuard no_grad;
+        online->GetSpectralNormEntries().front().u.fill_(
+            std::numeric_limits<float>::quiet_NaN());
+    }
+
+    dqn::BatchUpdateResult result;
+    result.plasticity_weight_norms = torch::tensor({
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f });
+    result.plasticity_online_network = online;
+    result.plasticity_target_network = target;
+
+    CHECK_THROWS_WITH(
+        result.GetScalar("plasticity_weight_norm_feature"),
+        Catch::Matchers::ContainsSubstring("network=online")
+            && Catch::Matchers::ContainsSubstring("feature.Linear_0.linear"));
+}
+
+TEST_CASE("DQN validates spectral soft update tau only for a soft update configuration", "[dqn][spectral_norm][config]")
+{
+    auto make_model = [](const dqn::NetworkModelConfig& model_config) {
+        const anet::TensorSpec vector_spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 2);
+        config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+        config_data.Set("net.branch.[feature].bind", kVectorKey);
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        return std::make_shared<dqn::NetworkModel>(
+            model_config,
+            torch::Device(torch::kCPU),
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { kVectorKey, vector_spec } },
+            1,
+            nullptr,
+            false,
+            65065);
+    };
+
+    anet::nn::InitNN();
+    CHECK_THROWS_WITH(
+        make_model(dqn::NetworkModelConfig{
+            .soft_update_tau = 0.5f,
+            .hard_update_interval = -1,
+        }),
+        Catch::Matchers::ContainsSubstring("model.soft_update_tau=0.5")
+            && Catch::Matchers::ContainsSubstring("[0, 0.1] or 1"));
+    CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
+        .soft_update_tau = 0.1f,
+        .hard_update_interval = -1,
+    }));
+    CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
+        .soft_update_tau = 0.5f,
+        .hard_update_interval = 100,
+    }));
 }
 
 TEST_CASE("DQN learner reports subscribed parameter norm without activating feature metrics", "[dqn][plasticity][weight_norm]")
@@ -4916,6 +5009,18 @@ TEST_CASE("DQN learner reports subscribed parameter norm without activating feat
             .interval = 3,
             .scope = rl::RunnerScope::TRAIN,
         },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_feature_effective",
+            .event = rl::EventType::LEARN,
+            .interval = 4,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_spectral_sigma_readout",
+            .event = rl::EventType::LEARN,
+            .interval = 5,
+            .scope = rl::RunnerScope::TRAIN,
+        },
     });
 
     const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
@@ -4927,6 +5032,8 @@ TEST_CASE("DQN learner reports subscribed parameter norm without activating feat
     REQUIRE(readout_norm.has_value());
     CHECK(std::isfinite(*feature_norm));
     CHECK(std::isfinite(*readout_norm));
+    CHECK(std::isfinite(*results.front()->GetScalar("plasticity_weight_norm_feature_effective")));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_spectral_sigma_readout")));
     CHECK(std::isnan(*results.front()->GetScalar("plasticity_srank")));
     CHECK(replay_buffer->unique_sample_count == 0);
 

@@ -362,7 +362,15 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         if (measure_plasticity_weight_norm) {
             ANET_PROFILE_SCOPE(plasticity_weight_norm);
             const auto norms = network_->ComputeParameterNormSplit(config_.plasticity.feature_key);
-            plasticity_weight_norms = torch::stack({ norms.feature, norms.readout });
+            plasticity_weight_norms = torch::stack({
+                norms.feature,
+                norms.readout,
+                norms.feature_effective,
+                norms.readout_effective,
+                norms.sigma_feature_max,
+                norms.sigma_readout_max,
+                norms.invalid_count,
+            });
         }
 
         // Forward推論
@@ -441,6 +449,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     }
     if (plasticity_weight_norms.defined()) {
         result->plasticity_weight_norms = plasticity_weight_norms;
+        result->plasticity_network = network_;
     }
     if (mix.mode != "none") {
         result->same_class_pair_ratio = (targets == mix.targets_b)
@@ -487,7 +496,12 @@ void ImageClsLearner::ConfigureScalarMetricSubscriptions(
     for (const auto& subscription : subscriptions) {
         if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
         const auto& key = subscription.source_key;
-        if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+        if (key == "plasticity_weight_norm_feature"
+            || key == "plasticity_weight_norm_readout"
+            || key == "plasticity_weight_norm_feature_effective"
+            || key == "plasticity_weight_norm_readout_effective"
+            || key == "plasticity_spectral_sigma_feature"
+            || key == "plasticity_spectral_sigma_readout") {
             plasticity_weight_norm_interval_ = plasticity_weight_norm_enabled_
                 ? std::min(plasticity_weight_norm_interval_, subscription.interval)
                 : subscription.interval;
@@ -576,10 +590,13 @@ ImageClsAgent::ImageClsAgent(
     anet::nn::WeightInitConfig head_init_config;
     head_init_config.mode = "he";
     auto head_factory = std::make_shared<anet::nn::LinearHeadFactory>(num_classes, "logits", head_init_config);
+    anet::SeedMaker seed_maker(GetSeed());
+    const auto network_seed = seed_maker.MakeNamedSeed("network");
     network_ = anet::nn::NetworkBuilder::BuildNetwork(
         network_config,
         env_spec.state_spec.obs_spec,
         head_factory,
+        network_seed,
         device_);
 	network_->to(device_);
     network_->eval();
@@ -601,7 +618,6 @@ ImageClsAgent::ImageClsAgent(
     }
 
     // Learner は optimizer state 復元対象なので Agent と同じ lifetime で保持する
-    anet::SeedMaker seed_maker(GetSeed());
     const auto learner_seed = seed_maker.MakeNamedSeed("learner");
     learner_ = std::make_shared<ImageClsLearner>(config_, mutex_, network_, learning_rate_, device_, learner_seed);
 

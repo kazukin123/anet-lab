@@ -27,6 +27,7 @@ metrics.scalar.@baseline.[32_agent_base/06_per_beta] = $agent per_beta @learn $e
 # 番号規約: decade = チャネル(0x actual / 2x target / 4x probe / 6x weight norm)、
 #           下 1 桁 = 統計種(x1 dormant / x2 dead / x3 feature_norm / x4 srank / x5 srank_ratio / x6-x9 δ 変種)。
 #           x1-x5 が既定 ON、x6-x9 が既定 OFF。weight norm はチャネル非依存なので独立 decade。
+#           6x は独立 decade: 61/62 = 生ノルム（既定 ON）、63-66 = SN 系（既定 OFF）。
 
 metrics.scalar.@baseline.[34_agent_plasticity/01_dormant_ratio] = plasticity_dormant_ratio @learn $learn_step $update_result interval:500
 metrics.scalar.@baseline.[34_agent_plasticity/02_dead_ratio] = plasticity_dead_ratio @learn $learn_step $update_result interval:500
@@ -60,6 +61,10 @@ metrics.scalar.@baseline.[34_agent_plasticity/45_probe_srank_ratio] = $agent pla
 
 metrics.scalar.@baseline.[34_agent_plasticity/61_weight_norm_feature] = plasticity_weight_norm_feature @learn $learn_step $update_result interval:500
 metrics.scalar.@baseline.[34_agent_plasticity/62_weight_norm_readout] = plasticity_weight_norm_readout @learn $learn_step $update_result interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/63_weight_norm_feature_effective] = plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/64_weight_norm_readout_effective] = plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/65_spectral_sigma_feature] = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
+#metrics.scalar.@baseline.[34_agent_plasticity/66_spectral_sigma_readout] = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
 
 metrics.scalar.@baseline.[37_agent_qtd/01_td_mean] = td_mean @learn $update_result
 metrics.scalar.@baseline.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $update_result $ema

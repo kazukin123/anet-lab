@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <string>
@@ -128,6 +129,7 @@ namespace anet::rl::img_cls {
         torch::Tensor same_class_pair_ratio;
         torch::Tensor plasticity_features;
         torch::Tensor plasticity_weight_norms;
+        std::shared_ptr<anet::nn::Network> plasticity_network;
         anet::nn::PlasticityMetricRequest plasticity_request;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override
@@ -139,15 +141,26 @@ namespace anet::rl::img_cls {
             if (key == "accuracy_either") return GetCachedScalar(accuracy_either, accuracy_either_cache_);
             if (key == "pred_max_prob") return GetCachedScalar(pred_max_prob, pred_max_prob_cache_);
             if (key == "same_class_pair_ratio") return GetCachedScalar(same_class_pair_ratio, same_class_pair_ratio_cache_);
-            if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+            int64_t weight_norm_index = -1;
+            if (key == "plasticity_weight_norm_feature") weight_norm_index = 0;
+            else if (key == "plasticity_weight_norm_readout") weight_norm_index = 1;
+            else if (key == "plasticity_weight_norm_feature_effective") weight_norm_index = 2;
+            else if (key == "plasticity_weight_norm_readout_effective") weight_norm_index = 3;
+            else if (key == "plasticity_spectral_sigma_feature") weight_norm_index = 4;
+            else if (key == "plasticity_spectral_sigma_readout") weight_norm_index = 5;
+            if (weight_norm_index >= 0) {
                 if (!plasticity_weight_norms.defined()) {
                     return std::numeric_limits<float>::quiet_NaN();
                 }
                 if (!plasticity_weight_norms_cpu_.defined()) {
                     plasticity_weight_norms_cpu_ = plasticity_weight_norms.cpu();
                 }
-                const int64_t norm_index = key == "plasticity_weight_norm_feature" ? 0 : 1;
-                return plasticity_weight_norms_cpu_[norm_index].item<float>();
+                if (plasticity_weight_norms_cpu_.numel() != 7) {
+                    ANET_SYSTEM_ERROR("ImageCls plasticity weight norm pack has invalid size="
+                        << plasticity_weight_norms_cpu_.numel() << " expected=7.");
+                }
+                ValidateSpectralNormSentinel(plasticity_weight_norms_cpu_[6].item<float>());
+                return plasticity_weight_norms_cpu_[weight_norm_index].item<float>();
             }
             if (key.starts_with("plasticity_")) {
                 const auto metric = anet::nn::ParsePlasticityMetricSuffix(
@@ -181,6 +194,27 @@ namespace anet::rl::img_cls {
         }
 
     private:
+        void ValidateSpectralNormSentinel(float invalid_count) const
+        {
+            if (invalid_count < 1.0f) return;
+            if (!plasticity_network) {
+                ANET_SYSTEM_ERROR("ImageCls spectral normalization sentinel failed: invalid_count="
+                    << invalid_count << " network handle is unavailable.");
+            }
+            for (const auto& entry : plasticity_network->GetSpectralNormEntries()) {
+                const auto sigma = anet::nn::ComputeSpectralSigma(
+                    entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v).item<float>();
+                const bool valid = std::isfinite(sigma)
+                    && (entry.mode == anet::nn::WeightNormMode::kSpectralCap || sigma > 0.0f);
+                if (!valid) {
+                    ANET_SYSTEM_ERROR("ImageCls spectral normalization is invalid: layer="
+                        << entry.name << " sigma=" << sigma << ".");
+                }
+            }
+            ANET_SYSTEM_ERROR("ImageCls spectral normalization sentinel mismatch: invalid_count="
+                << invalid_count << ".");
+        }
+
         static std::optional<float> GetCachedScalar(const torch::Tensor& tensor, std::optional<float>& cache)
         {
             if (!tensor.defined()) {

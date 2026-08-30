@@ -184,7 +184,7 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 | `0x` | actual（学習forwardが生成した特徴。測定バッチはPERが選んだ現行updateバッチ） | ON |
 | `2x` | target（同じupdateのTD計算でtarget networkが生成した特徴） | OFF |
 | `4x` | probe（ReplayBuffer全域から一様・非復元でsampleし、NoGrad・eval modeで部分forward） | ON |
-| `6x` | weight norm（パラメータ側。データに依存しないのでチャネルを持たない） | ON |
+| `6x` | weight norm / spectral sigma（パラメータ側。データに依存しないのでチャネルを持たない） | 61/62のみON |
 
 下1桁は3チャネル共通で、`x1` dormant / `x2` dead / `x3` feature_norm / `x4` srank / `x5` srank_ratio / `x6`-`x9` はδ違いのsrank（既定OFF）。`02` / `22` / `42`のように並べれば同じ統計をチャネル間で比べられる。チャネルは購読行の有無で独立に有効化されるので、まず解決済み`config/config_data.txt`で`learner.plasticity.feature_key`と購読行を確認する。全行`$learn_step`軸である。
 
@@ -193,6 +193,10 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 **`42_probe_dead_ratio`の谷が転換点の目印になる。** 学習初期に下がりきってから上昇へ転じるので、その転換が性能のピークと同じ窓に来る。`61_weight_norm_feature`も同じ窓で下げ止まって増加へ転じるため、2本を並べて一致を確認する。
 
 **`feature_norm`は単体では読めない。** HeadはQ = w・φの形なので、`q_max`が横ばいで`43_probe_feature_norm`だけ伸びる局面は「wが縮んだ」のか「Qに寄与しない方向へφが伸びた」のか区別できない。`61` / `62`と対で見て初めて帰属が閉じる。`62`低下ならreadout縮小とのスケール移送、`62`平坦で`61`上昇ならbackbone側のscale成長、両方上昇ならNetwork全体のscale成長である。
+
+SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生parameterのL2、`63_weight_norm_feature_effective` / `64_weight_norm_readout_effective`はforwardで実際に使うweightへSNを適用したL2である。bias、normalization affine、非SN parameterは両者で同じ寄与を保つため、差はSN weightだけに由来する。`65_spectral_sigma_feature` / `66_spectral_sigma_readout`は各群で最大のsigmaであり、該当SN layerがない群は`NaN`になる。63–66は既定OFFなので、実験時に購読行を有効化する。
+
+`spectral`ではsigmaに応じて常に正規化されるため、61/62の成長を63/64の成長と同一視しない。`spectral_cap`ではsigmaが1以下のweightは変化せず、65/66が1を越えた群だけcapが効く。sigmaはlayer別系列ではなく群内最大値なので、異常layerの同定用途ではなく、cap発動とscale傾向の診断に使う。
 
 比較するときの制約が3つある。
 

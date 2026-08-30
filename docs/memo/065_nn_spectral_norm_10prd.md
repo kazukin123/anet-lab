@@ -186,13 +186,13 @@ Atari Impala backbone は standalone Conv2d（3 本）+ ResBlock 群 + Linear512
 | D3 | 数理 | **参照実装準拠の標準一式**（常時除算 / 勾配は σ 経由でも流す / power iteration 1 回・NoGrad・eps=1e-12・**u 先順** / conv reshape / bias 対象外）。参照 = リポジトリ採用 libtorch と同版の `parametrizations.spectral_norm`（deprecated 旧 API ではない。2026-08-29 Codex レビューで pin）。cap 型 `W/max(1,σ)` は **`spectral` の数理としては採らない**（参照 parity を守る）— zero-init サポート用の併存モード `spectral_cap` として D13 で採用（parity 非主張の別モード）。σ detach は方向正則化項が消え学習動態が別物になるため棄却 |
 | D4 | σ の意味論 | **参照実装 parity**: σ は buffer にせず**毎 forward その場の W で再計算**。buffer は u/v の 2 本のみ。意図的逸脱は §逸脱表の 6 件のみ（使用時 normalize / FP32 強制 / QKV 別 σ / 退化 σ fail-fast / power iteration ゲートの GradMode 条件 / 保持ガード）。対抗案の「σ を buffer に焼き非 training forward は読むだけ」（追加計算ゼロ）は、参照と異なる独自意味論の記述コストが残るため棄却（[ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)） |
 | D5 | u/v 更新点 | **`is_training() && GradMode::is_enabled()` の forward のみ**（= learner online 学習 forward だけ。target 常時 eval / actor / probe は非変異、構築時 dummy forward と Clone 時 forward は NoGrad+training のため GradMode 条件で除外 — §事実 14。2026-08-29 Codex レビュー P1-3 対応。参照ゲートは `self.training` のみのため意味論差として逸脱表 5 に計上）。soft update の u/v lerp 継承は許容し、**使用時 normalize** で頑健化（頑健性は D14② で τ ≤ 0.1（または τ=1）+ 再正規化契約として定量化 — §逸脱表 1 の注記。退化経路は D14（抑止 + 残余明示）が扱う） |
-| D6 | 初期化 | **warm-start = 参照 parity + 専用 RNG**: weight 実体化時に randn-normalize + ガード付き power iteration **15 回**（`kSpectralNormWarmStartIters = 15` = 参照実装の init と同数）+ σ 検証 fail-fast（mode 別基準 = D14①）。**u/v の乱数は専用 RNG 系統**（2026-08-30 第 5R で供給経路を確定）: `NetworkBuilder::BuildNetwork()` に **必須 `seed_t` 引数**を追加する（既定値なし = クリーンブレーク。シグネチャ `BuildNetwork(config, input_specs, head_factory, seed, device)`）。agent seed から network identity の base seed を名前付き導出し、DefaultDQN / Rainbow / ImageCls は `SeedMaker(GetSeed()).MakeNamedSeed("network")`、MuZero は rep / dyn / pred ごとに `"network.rep"` / `"network.dyn"` / `"network.pred"` を使う。**現用呼び出し元は同一変更で全移行**する: DefaultDQNAgent / RainbowAgent → NetworkModel、ImageClsAgent、MuZeroNetworkModel の rep / dyn / pred、Network::Clone、全テストおよびその他の直接 `BuildNetwork` 呼び出し。**BuildNetwork は受け取った network base seed をそのまま**汎用 registry **`ModuleRandomSource`（仮名。1 network につき 1 個。2026-08-30 追加裁定で SN 専用クラスから昇格）**へ渡し、**purpose seed の導出は registry が一度だけ**行う（`SeedMaker(base).MakeNamedSeed(purpose)` で lazily 生成・キャッシュ。BuildNetwork 側では導出しない — network identity 導出と purpose 導出は別階層であり、purpose の二重導出を禁止。第 6R P1-1）。registry は purpose 名ごとの**独立 stream** を鋳造し **`ModuleContext` の汎用スロット（`std::shared_ptr<ModuleRandomSource> random_source`）**で共有する。ModuleContext は各ブロック構築時にローカル生成のため、registry の `shared_ptr` を **`BuildNetwork → NetworkBodyBuilder → NetworkStructBuilder` へ引数伝播**し、全 factory 呼び出しの `random_source` が**同一インスタンス**を指す（1 network 1 registry の実現手段）。**purpose stream 独立性は今回の必須要件**（同 purpose 再取得の同一性・異 purpose 独立性・base seed 再現をテストで保証）。SN は初利用者（`Get("spectral_norm")`）で、SN 配線 module が取得 stream を lazy init = 構築時 dummy forward 中の weight 実体化まで保持（生存は参照で担保。draw 順 = branch 実行順で決定的）。**purpose stream の独立性により、消費者の追加・ON/OFF が他 stream の draw 系列を変えない**（paired 比較性の一般化）。registry は単一 rnd_ の mixin である `RandomHolder` の形に合わないため継承しない — component 単位の RNG 所有は従来どおり RandomHolder（AgentBase / Env / Learner の棚。§事実 17）、module 層は本 registry が担う。Network / NetworkBody への RandomHolder 直継承は広い契約になるため不採用。Clone は **Network が保持する構築時 network base seed** を必須 seed 引数として `BuildNetwork(config_, input_specs_, head_factory_, construction_seed_, target_device)` へ再度渡し、再構築後の u/v は直後の CopyTo で上書きする（機能的には初期 u/v に依存しないが、seed 経路を決定的に閉じる）。**parameter 初期化の global RNG 系列を消費しない** → 同 seed なら mode（none / spectral / spectral_cap）を変えても全 parameter tensor が一致し、検証計画の paired 比較（B/C）と受入 1 の突合が成立（第 4R レビュー P1-4）。**ModuleContext の初拡張**（「今後の拡張用」の空構造体を module 乱数 registry の汎用共有口にする — 当初の「拡張しない」裁定を第 5R で改訂し、2026-08-30 に SN 専用から registry へ汎化） |
+| D6 | 初期化 | **warm-start = 参照 parity + 専用 RNG**: weight 実体化時に randn-normalize + ガード付き power iteration **15 回**（`kSpectralNormWarmStartIters = 15` = 参照実装の init と同数）+ σ 検証 fail-fast（mode 別基準 = D14①）。**u/v の乱数は専用 RNG 系統**（2026-08-30 第 5R で供給経路を確定）: `NetworkBuilder::BuildNetwork()` に **必須 `seed_t` 引数**を追加する（既定値なし = クリーンブレーク。シグネチャ `BuildNetwork(config, input_specs, head_factory, seed, device)`）。agent seed から network identity の base seed を名前付き導出し、DefaultDQN / Rainbow / ImageCls は `SeedMaker(GetSeed()).MakeNamedSeed("network")`、MuZero は rep / dyn / pred ごとに `"network.rep"` / `"network.dyn"` / `"network.pred"` を使う。**現用呼び出し元は同一変更で全移行**する: DefaultDQNAgent / RainbowAgent → NetworkModel、ImageClsAgent、MuZeroNetworkModel の rep / dyn / pred、Network::Clone、全テストおよびその他の直接 `BuildNetwork` 呼び出し。**BuildNetwork は受け取った network base seed をそのまま**汎用 registry **`ModuleRandomSource`（仮名。1 network につき 1 個。2026-08-30 追加裁定で SN 専用クラスから昇格）**へ渡し、**purpose seed の導出は registry が一度だけ**行う（`SeedMaker(base).MakeNamedSeed(purpose)` で lazily 生成・キャッシュ。BuildNetwork 側では導出しない — network identity 導出と purpose 導出は別階層であり、purpose の二重導出を禁止。第 6R P1-1）。registry は purpose 名ごとの**独立 stream** を鋳造し **`ModuleContext` の汎用スロット（`std::shared_ptr<ModuleRandomSource> random_source`）**で共有する。ModuleContext は各ブロック構築時にローカル生成のため、registry の `shared_ptr` を **`BuildNetwork → NetworkBodyBuilder → NetworkStructBuilder` へ引数伝播**し、全 factory 呼び出しの `random_source` が**同一インスタンス**を指す（1 network 1 registry の実現手段）。両sub-builderの`random_source`は**既定値なしの必須引数**とし、null時にseed 0のregistryを暗黙生成するfallbackを置かない。**purpose stream 独立性は今回の必須要件**（同 purpose 再取得の同一性・異 purpose 独立性・base seed 再現をテストで保証）。SN は初利用者（`Get("spectral_norm")`）で、SN 配線 module が取得 stream を lazy init = 構築時 dummy forward 中の weight 実体化まで保持（生存は参照で担保。draw 順 = branch 実行順で決定的）。**purpose stream の独立性により、消費者の追加・ON/OFF が他 stream の draw 系列を変えない**（paired 比較性の一般化）。registry は単一 rnd_ の mixin である `RandomHolder` の形に合わないため継承しない — component 単位の RNG 所有は従来どおり RandomHolder（AgentBase / Env / Learner の棚。§事実 17）、module 層は本 registry が担う。Network / NetworkBody への RandomHolder 直継承は広い契約になるため不採用。Clone は **Network が保持する構築時 network base seed** を必須 seed 引数として `BuildNetwork(config_, input_specs_, head_factory_, construction_seed_, target_device)` へ再度渡し、再構築後の u/v は直後の CopyTo で上書きする（機能的には初期 u/v に依存しないが、seed 経路を決定的に閉じる）。**parameter 初期化の global RNG 系列を消費しない** → 同 seed なら mode（none / spectral / spectral_cap）を変えても全 parameter tensor が一致し、検証計画の paired 比較（B/C）と受入 1 の突合が成立（第 4R レビュー P1-4）。**ModuleContext の初拡張**（「今後の拡張用」の空構造体を module 乱数 registry の汎用共有口にする — 当初の「拡張しない」裁定を第 5R で改訂し、2026-08-30 に SN 専用から registry へ汎化） |
 | D7 | 精度 | power iteration / σ / 除算は **FP32 固定**（Autocast 局所 OFF。`force_fp32` イディオム踏襲）。conv/linear 演算は autocast 任せ |
 | D8 | メトリクス | **4 本追加・既定コメントアウト**（§メトリクス拡張）。61/62 は無改修（生ノルムを測り続ける）。「61 を実効重みで計算し直す」案は既存 Run との互換破壊（61 の意味が Run 世代で変わる）で棄却。**63〜66 の σ は eval 型**（保存済み u/v × その時点の W = target / actor が使うのと同じ規則。測定は update 適用直前で 61/62 と同じスナップショット座標系。直後の学習 forward が実際に使う σ とは 1 power iteration 分ずれる — 2026-08-29 Codex レビュー P1-4 裁定。学習 forward からの capture 案は 062 型機構の追加が重く座標系も割れるため棄却） |
 | D9 | 収集の口 | **`NetworkModule` 基底の既定実装（空を返す）つき仮想関数 `GetSpectralNormEntries()`** を SN 配線 6 モジュールが override。walk は全 module への仮想呼び出し（**dynamic_cast は使わない** — AGENTS.md:170 が production での使用を禁止し仮想関数で表現せよと定める。2026-08-29 Codex レビュー P1-1 対応）。entry は **by-value の `torch::Tensor`**（weight は packed のスライス view 可、u/v は buffer ハンドル — Tensor は共有ハンドルなので by-value で安全。P1-2 対応）。buffer 命名規約のパターンマッチは文字列規約の暗黙契約化で棄却 |
 | D10 | 受入 | §受入基準の 5 項目（OFF 完全不変 / ON 決定性 / smoke / 単体テスト / ラウンドロビン throughput 実測） |
 | D11 | 粒度と境界（2026-08-29 追加グリル） | **1 ブロック 1 mode**（ON = 内部全重み行列。BTR 適用範囲準拠のブロック一様。per-weight override（`weight_norm2` 式の per-weight メンバ）は Gogianu 型の層選択実験 — 1 層だけ SN が全層適用を上回るケースの追試 — が pin されたら追加 = deferred gate）。対象は乗算パイプラインの**重み行列のみ**: bias・normalization affine・layerscale γ・embedding テーブル・cls token は対象外。TransformerEncoder は packed `in_proj_weight` を **Q/K/V 別 σ**（スライスごとに独立 state、実効 = cat(Wq/σq, Wk/σk, Wv/σv)。「1 重み行列 = 1 σ」の契約を全ブロックで揃える。packed のまま 1 σ は最大射影の σ で他 2 つも割る非標準結合で棄却）。**mode ≠ `none` × `use_sdpa=false` は fail-fast**（旧 MHA 経路は SDPA 等価性確認用の互換参照。functional 書き換え対応は必要が pin されたら） |
-| D12 | SN × zero-init（2026-08-29 Codex レビュー） | **`spectral` は非退化 init 必須**。ResBlock 既定の zero-init（`init2.mode=constant`/0 = identity 開始。§事実 15）との併用は warm-start σ 検証で**説明付き fail-fast**（層名・σ 値・衝突キー `init2.mode=constant`・対処 `res.init2.mode = he` を含む）。退避策（σ floor / 遅延有効化）は設けない — ゼロ除算だけ守っても初回 update で微小 W₂ が σ=1 へフルスケール射影され、identity 開始はどのみち破壊されるため。**BTR 公式実装に zero-init は無い**（§事実 16）。実験 C は **BTR 型標準 SN = `spectral` + ローカル He init** と位置づけ、BTR の init distribution parity は主張しない |
+| D12 | SN × zero-init（2026-08-29 Codex レビュー） | **`spectral` は非退化 init 必須**。ResBlock 既定の zero-init（`init2.mode=constant`/0 = identity 開始。§事実 15）との併用は warm-start σ 検証で**説明付き fail-fast**（層名・σ 値・衝突キー `init2.mode=constant`・対処 `init2.mode = he` を含む）。退避策（σ floor / 遅延有効化）は設けない — ゼロ除算だけ守っても初回 update で微小 W₂ が σ=1 へフルスケール射影され、identity 開始はどのみち破壊されるため。**BTR 公式実装に zero-init は無い**（§事実 16）。実験 C は **BTR 型標準 SN = `spectral` + ローカル He init** と位置づけ、BTR の init distribution parity は主張しない |
 | D13 | `spectral_cap` 併存モード | W_eff = W / max(1, \|σ_raw\|)。σ<1 は恒等（σ への勾配経路なし = subgradient 契約）で **zero-init を正式サポート**（identity 開始・初回 backward からの conv2 勾配・ゼロからの漸進成長を全て温存）。参照 parity は主張しない**弱い近似 cap**: 保証は「u/v が固定点に落ちない」（§実装仕様 1 のガード付き power iteration）ことのみで、非ゼロ遷移直後の一時的 under-clamp を許容（σ_est=\|σ_raw\| は下界、収束は通常 forward 内 PI で進む。全 forward での厳密 σ_max ≤ 1 は保証しない）。厳密上限が要件化されたときの遷移時 warm-start は deferred gate。warm-start 検証は**非有限のみ**（σ=0 は正常）。ガードは `spectral` でも横長 conv の nullspace 経由で理論上到達可能なため**逸脱 6 として計上**（挙動は参照より安全側） |
 | D14 | 退化経路の抑止と残余の明示（2026-08-30 第 5R で「クロージャ」から弱化） | 実行時（forward hot path）検証は追加しない。**① 構築時** = warm-start σ 検証（`spectral`: 非有限 or ≤0 fail-fast + D12 ヒント / `spectral_cap`: 非有限のみ）— **init 由来の退化はここで閉じる**。**② 二重 τ 検証 + soft update 後の再正規化契約** = (a) soft 経路（`hard_update_interval ≤ 0`）が有効で mode ≠ none の層が 1 つでも存在する場合、`soft_update_tau` は **finite 必須・許容集合 = {0 ≤ τ ≤ 0.1} ∪ {τ = 1}**（毎 step 正確コピー相当）。負・0.1<τ<1・τ>1・NaN/Inf は agent 構築時に両キー名入り fail-fast（hard 経路では未使用のため検証対象外。`soft_update_tau` の一般値域検証は現行コードに無く、本検証は SN 層存在時のみ = 一般検証はスコープ外）。数学注記: 単位ベクトル対の lerp 下界は正確には **\|1−2τ\|** で τ≥0.9 側も下界 0.8 を持つが、許容集合は数学上の最大範囲ではなく**運用意図（小刻み追従 τ≤0.1 か正確コピー τ=1 か）による意図的制限**。(b) 公開 API **`Network::SoftCopyTo()` 自身も、source または target に SN entry がある場合は parameter / buffer を変更する前に同じ有限性・許容集合を検証**する。違反は τ 実値と許容集合入りで fail-fast し target を一切変更しない（NetworkModel の (a) は設定キー付き早期診断として併存）。(c) 検証通過後、**`Network::SoftCopyTo()` が buffer lerp 直後に dst の SN buffer（u/v）再正規化までを原子的に行う**（公開 API が自身の不変量を守る — 呼び出し側手順では SoftCopyTo 単体利用で不変量が破れる。第 6R P1-3 / 第 8R 公開 API 事前条件。§実装仕様 1。NoGrad・device 上・同期なし・SN 層ゼロなら no-op・`ANET_PROFILE_SCOPE` 対象）。単発の lerp 下界 **‖(1−τ)u+τu′‖ ≥ 1−2τ** は再正規化なしでは帰納しない（τ=0.1 でも反対向き source が続くと 1→0.8→0.62→…と反復縮小し 0 を交差する）が、(b)(c) により「毎 lerp 前に両辺が単位ノルム」を帰納不変量として適用可能な範囲へ API を閉じ、**u/v ノルムの退化（buffer のゼロ化）は帰納法で閉じる — ただしこれは u/v ノルムの保証であって σ>0 の保証ではない**。**③ 残余リスクの明示** = **soft update の W lerp が target W を σ≈0 近傍へ通す遷移は排除を証明できない**。scalar 反例: target（W=1, u=v=1, σ=1）と source（W=−9, u=−1, v=1, σ=9）は各々正常な状態だが、τ=0.1 で W′ = 0.9·1 + 0.1·(−9) = 0 — u/v は再正規化後も単位ノルムのまま σ′=0（raw W のスケールは SN 下でゲージ自由なので、online/target の大スケール反平行を証明付きで排除できない）。連続追従の τ≤0.1 運用で raw W が反平行になる経路は実質想定外だが、契約上は**残余リスク**とする。**この残余は `spectral` のみ**（`spectral_cap` は σ=0 が合法で分母 max(1,\|σ\|)=1 → W_eff=W となり非有限は発生しない — W→0 は cap のサポート内正常領域。第 6R P2-4）。検出は**メトリクス経路の online / target validity sentinel**（§実装仕様 4。第 3 の防衛線）と下流症状（`spectral` の loss 非有限）に委ねる。厳密閉鎖（SoftUpdate 後の σ 検証）は soft update = 毎 learn step のため毎 update D2H 同期となり不採用（§複雑度監査）。旧主張「supported configuration に W/0 への経路が残らない」「残余は FP32 underflow のみ」は撤回 |
 
@@ -235,7 +235,7 @@ torch::Tensor ComputeSpectralSigma(const torch::Tensor& weight_mat, const torch:
 // parameter 初期化の global RNG 系列を消費しない）、ガード付き PowerIterationStep を
 // kSpectralNormWarmStartIters 回実行（特例分岐なし — W=0 でもそのまま回してよい）、最後に σ を mode 別に検証:
 //   spectral     : 非有限 or ≤0 → ANET_SYSTEM_ERROR（name・σ 値・衝突キー init2.mode=constant と
-//                  対処 res.init2.mode = he のヒントを含む。D12）
+//                  対処 init2.mode = he のヒントを含む。D12）
 //   spectral_cap : 非有限のみ → ANET_SYSTEM_ERROR（σ=0 は正常 = zero-init）
 // name はエラーメッセージ用のみで state には保持しない。
 SpectralNormState MakeSpectralNormState(const torch::Tensor& weight, WeightNormMode mode, const std::string& name,
@@ -391,7 +391,7 @@ struct WeightNormConfig {
 
 ```
 # nn.txt カタログ（既定 none なのでコメントアウト行 + 説明。force_fp32 の慣習と同じ）
-#net.block.[ResA].weight_norm.mode = spectral          # 重み正規化モード(none|spectral|spectral_cap)。spectral=W/σ射影(BTR系可塑性保護、zero-initとは併用不可=要res.init2.mode=he)。spectral_cap=W/max(1,|σ|)でzero-init可。default=none
+#net.block.[ResA].weight_norm.mode = spectral          # 重み正規化モード(none|spectral|spectral_cap)。spectral=W/σ射影(BTR系可塑性保護、zero-initとは併用不可=要init2.mode=he)。spectral_cap=W/max(1,|σ|)でzero-init可。default=none
 #net.block.[ConvA].weight_norm.mode = spectral         # 同上（キーは全ブロック型で一律）
 #net.block.[AtariLinear512].weight_norm.mode = spectral   # 同上
 #net.block.[CN64].weight_norm.mode = spectral          # 同上
@@ -443,7 +443,7 @@ struct WeightNormConfig {
 - **cap の subgradient**: `spectral_cap` で σ<1 のとき ∂W_eff/∂W = I（σ への勾配経路なし = 恒等）、
   σ>1 のとき `spectral` と同じ勾配。
 - **zero-init × mode**: `spectral` × 全ゼロ weight → **説明付き fail-fast**（メッセージに name・σ 値・
-  衝突キー `init2.mode=constant`・対処 `res.init2.mode = he` を含む。D12）/ `spectral_cap` × 全ゼロ weight →
+  衝突キー `init2.mode=constant`・対処 `init2.mode = he` を含む。D12）/ `spectral_cap` × 全ゼロ weight →
   構築成功・W_eff = W（恒等）・conv2 相当へ勾配が流れる・W 成長後 σ>1 で cap が発動（除算開始）。
 - **保持ガード**: W=0 で PI を複数回 → u/v が randn 初期値のまま単位ノルム維持 → W 非ゼロ化 → 次の PI 1 回で
   σ > 0（固定点に落ちない。D13）。ガード経路で **NaN テンソルが生成されない**（anomaly 検出 ON で警告なし —
@@ -491,7 +491,7 @@ struct WeightNormConfig {
 - **メトリクス**: SN 層ゼロ群で `*_effective` が 61/62 と同値・`sigma_*` が NaN / SN 層あり群で実効 < 生（σ>1 の場合）/
   interface 経由の収集が walk の帰属（feature/readout）と一致。
 - **warm-start 決定性**: 同 seed で u/v 初期値・σ が一致（専用 generator。2 回構築で再現）。
-- **ON/OFF 等価性**: mode=none の同 seed Run で学習系列 + `agent_close.anet` が SN コード追加前と一致（受入 1 の単体版）。
+- **ON/OFF 等価性**: mode=none の同 seed Run でparameter初期値と学習系列がSNコード追加前と一致（受入1の単体版）。checkpointはserialize / load後のparameter・buffer復元をテストし、raw archive checksumは合否に使わない。
 
 ## 複雑度監査（グリル簡素化パスの記録）
 
@@ -533,8 +533,8 @@ struct WeightNormConfig {
 | 腕 | mode | init | 役割 |
 |---|---|---|---|
 | A | none | zero-init（現行既定） | 無保護対照（実績 = `run_20260829-143027` / `run_20260829-153617`（plasticity_rr8_breakout）— 下表の −57% / −53% の出典） |
-| B | none | `res.init2.mode = he` | **init 変更の confound 分離**（D6 の専用 RNG により同 seed で B/C の parameter 初期値が一致する paired 比較 — C との差分だけが SN の帰属になる） |
-| C | `spectral`（全層） | `res.init2.mode = he` | 参照準拠 SN（D12 により he 必須） |
+| B | none | `init2.mode = he` | **init 変更の confound 分離**（D6 の専用 RNG により同 seed で B/C の parameter 初期値が一致する paired 比較 — C との差分だけが SN の帰属になる） |
+| C | `spectral`（全層） | `init2.mode = he` | 参照準拠 SN（D12 により he 必須） |
 | D | `spectral_cap`（全層） | zero-init（現行既定） | identity 開始を温存する近似 cap |
 
 判定は単一 Run の last 値でなく**複数 Run の終盤平均ブレ幅基準**（eval ピーク高の既知変動 ±26% を明記した上で読む）:
@@ -568,7 +568,7 @@ ResBlock 全部 + Linear512）を推奨 — GroupNorm 試験の部分適用の�
   （conv 64×576 / Linear 512×3136）でいずれも概算 ≈1.9〜2.0。`spectral` ON の瞬間に全 SN 層の実効重みが
   約半分になり、立ち上がりの学習曲線・q_max スケール
   （BF16 ULP 余裕の文脈含む）は OFF 腕と初手から別物になる。**立ち上がりの差を SN の保護効果と誤読しない**。
-  さらに C 腕（`spectral`）は D12 により `res.init2.mode = he` 化するため **conv2 の identity 開始も失う** —
+  さらに C 腕（`spectral`）は D12 により `init2.mode = he` 化するため **conv2 の identity 開始も失う** —
   zero-init 由来の効果と SN の帰属は B 腕（none + he）が分離する。`spectral_cap`（D 腕）が温存するのは
   **conv2 の zero-init（identity 開始）と σ<1 重みの非拡大のみ**で、σ>1 の非ゼロ層（He 初期化の Conv /
   Xavier 初期化の AtariLinear512、σ≈1.9〜2.0）は D 腕でも初回から約 1/σ に縮小される — ネットワーク全体の
@@ -597,15 +597,17 @@ ResBlock 全部 + Linear512）を推奨 — GroupNorm 試験の部分適用の�
 ## 受入基準
 
 1. **OFF 完全不変**（手順で証明する）: (a) **本改修直前の base commit** で smoke 構成を固定実行
-   （config・`train.seed`・step 数は実装計画で 1 組に固定して記載）し、`agent_close.anet` と metrics マスタの
+   （config・`train.seed`・step 数は実装計画で 1 組に固定して記載）し、解決済みconfigとmetricsマスタの
    主要 tag（loss / q_max / 61/62）の checksum を記録 → (b) 改修後ビルドで**同一コマンド**を実行 →
-   (c) checksum 一致（063 受入 3 と同型を手順化したもの）。加えて `weight_norm.mode = none`（既定）では
+   (c) metrics checksum 一致。`agent_close.anet`のraw SHA-256は同一base実行体の再実行間でも一致しない既存serialize非決定性があるため合否ゲートにせず、サイズとhashを観測値として記録する
+   （実測と恒久対処の観点は [930_serialize_10prd](930_serialize_10prd.md) §決定性と等価性検証へ記録済み）。加えて `weight_norm.mode = none`（既定）では
    **SN の数値経路（state 生成・power iteration・除算）に不到達**
    （`GetSpectralNormEntries()` が空を返す仮想関数呼び出し自体は走ってよい）。
-2. **ON 決定性**: `spectral`（+ `res.init2.mode = he`）と `spectral_cap`（zero-init のまま）の**各々**で
+2. **ON 決定性**: `spectral`（+ `init2.mode = he`）と `spectral_cap`（zero-init のまま）の**各々**で
    同 seed 2 Run の学習系列一致（determinism 既定 ON 前提）。
-3. **smoke**: Atari 構成 mode=`spectral`（全層）+ **`res.init2.mode = he`（全 ResBlock へ明示上書き。D12）** +
-   63〜66 uncomment → `inspect_run.py tags` で `34_agent_plasticity/6x` 全 6 本が status=ok・count>0。
+3. **smoke**: Atari 構成 mode=`spectral`（全層）+ **`init2.mode = he`（全 ResBlock へ明示上書き。D12）** +
+   63〜66 uncomment → `inspect_run.py tags` で `34_agent_plasticity/61`〜`65`が status=ok・count>0。
+   `66_spectral_sigma_readout`はreadout側にSN対象層がある構成でのみcount>0とし、対象層がなければ契約どおりNaN（status=ok・count=0）とする。
    61/62 は従来どおり生ノルム。**別項: `spectral_cap`（全層）は init 変更なし（zero-init のまま）で
    同じ smoke が通ること**を確認する。
 4. **単体テスト**: §実装仕様 7 の全項目が緑。
@@ -691,7 +693,7 @@ Phase 1 で止めても悪化しない（既定 none なので存在自体が無
     zero-init し、identity から開始する」と明記（`Atari.txt:492`）。→ D12 の根拠（`spectral` との数学的非互換）。
 16. **BTR 公式実装（networks.py）に zero-init は存在しない**: PyTorch 既定 init のままで、SN の適用は
     residual block の conv 2 本のみ（2026-08-29 ユーザーによるコード確認）。本 PRD の実験 C は
-    `spectral` + `res.init2.mode = he` で **BTR 同様の非 zero-init 側を測る BTR 型標準 SN** だが、ローカル He と
+    `spectral` + `init2.mode = he` で **BTR 同様の非 zero-init 側を測る BTR 型標準 SN** だが、ローカル He と
     PyTorch 既定 init は分布が異なるため init distribution parity は主張しない。適用範囲だけを揃える場合は ResBlock のみ。
 17. **forward 時の確率的 module は global RNG 頼み**: DropPath は `bernoulli_(keep_prob)` を generator 未指定で
     呼び（`nn_modules.cpp:57`）、`torch::nn::Dropout` は ATen 内部で per-device の global generator を参照する

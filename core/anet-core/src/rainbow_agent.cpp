@@ -42,6 +42,7 @@ RainbowAgent::RainbowAgent(
     //seed
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
+    auto network_seed = seed_maker.MakeNamedSeed("network");
     //auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
 
     // RuntimeVars生成
@@ -93,7 +94,8 @@ RainbowAgent::RainbowAgent(
 
     // NetworkModel生成
     this->model_ = std::make_unique<NetworkModel>(
-        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory, is_distributional);
+        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory,
+        is_distributional, network_seed);
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<EpsilonGreedyActionPolicy>(config_.action_policy);

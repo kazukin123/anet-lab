@@ -344,7 +344,7 @@ std::unique_ptr<anet::rl::InitialPriorityEstimator> anet::rl::dqn::CreateInitial
 NetworkModel::NetworkModel(
     const NetworkModelConfig& config, const torch::Device device,
     const anet::nn::NetworkConfig& network_config, const anet::TensorSpecMap& obs_spec, int64_t n_actions, std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
-    bool distributional)
+    bool distributional, anet::seed_t network_seed)
     : config_(config)
     , n_actions_(n_actions)
     , distributional_(distributional)
@@ -352,7 +352,7 @@ NetworkModel::NetworkModel(
     ANET_ASSERT(n_actions_ > 0);
 
     // メインネットワークを作る
-    online_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, obs_spec, head_factory, device);
+    online_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, obs_spec, head_factory, network_seed, device);
     online_net_->to(device);
     online_net_->eval();
 
@@ -368,6 +368,8 @@ NetworkModel::NetworkModel(
     // メインネットワークをコピーしてターゲットネットワークを作る
     target_net_ = online_net_->Clone(device);
     target_net_->eval();
+
+    ValidateSpectralNormSoftUpdateConfig();
 
     LOG::info() << "========== MODEL SHAPE DUMP ==========";
     for (const auto& pair : online_net_->named_parameters()) {
@@ -396,6 +398,24 @@ NetworkModel::NetworkModel(
     ANET_ASSERT(target_net_ != nullptr);
     online_net_->eval();
     target_net_->eval();
+    ValidateSpectralNormSoftUpdateConfig();
+}
+
+void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
+{
+    // hard update 構成では未使用の tau を検証対象にしない。
+    if (config_.hard_update_interval > 0) return;
+    if (online_net_->GetSpectralNormEntries().empty()
+        && target_net_->GetSpectralNormEntries().empty()) return;
+
+    const double tau = config_.soft_update_tau;
+    if (!std::isfinite(tau)
+        || !((tau >= 0.0 && tau <= anet::nn::kSpectralNormMaxSoftUpdateTau) || tau == 1.0)) {
+        ANET_SYSTEM_ERROR("Invalid DQN soft update config with spectral normalization: "
+            << "model.hard_update_interval=" << config_.hard_update_interval
+            << " model.soft_update_tau=" << tau
+            << " expected finite model.soft_update_tau in [0, 0.1] or 1 when model.hard_update_interval<=0.");
+    }
 }
 
 anet::TensorDict NetworkModel::ForwardOnline(const anet::TensorDict& obs) const
@@ -1878,7 +1898,12 @@ void Learner::ConfigureScalarMetricSubscriptions(
     for (const auto& subscription : subscriptions) {
         if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
         const auto& key = subscription.source_key;
-        if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+        if (key == "plasticity_weight_norm_feature"
+            || key == "plasticity_weight_norm_readout"
+            || key == "plasticity_weight_norm_feature_effective"
+            || key == "plasticity_weight_norm_readout_effective"
+            || key == "plasticity_spectral_sigma_feature"
+            || key == "plasticity_spectral_sigma_readout") {
             plasticity_.weight_norm_interval = update_min(
                 plasticity_.weight_norm_interval, subscription.interval, plasticity_.weight_norm_enabled);
             plasticity_.weight_norm_enabled = true;
@@ -2370,6 +2395,8 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->plasticity_target_request = plasticity_.target_request;
     if (plasticity_.weight_norms.defined()) {
         result->plasticity_weight_norms = plasticity_.weight_norms;
+        result->plasticity_online_network = model_.GetOnlineNetwork();
+        result->plasticity_target_network = model_.GetTargetNetwork();
     }
     if (per_info.per_minibatch_size > 0) {
         result->per_minibatch_size = per_info.per_minibatch_size;
@@ -2520,7 +2547,17 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
             ANET_PROFILE_SCOPE(plasticity_weight_norm);
             const auto norms = model_.GetOnlineNetwork()->ComputeParameterNormSplit(
                 config_.plasticity.feature_key);
-            plasticity_.weight_norms = torch::stack({ norms.feature, norms.readout });
+            const auto target_invalid = model_.GetTargetNetwork()->ComputeSpectralNormValidity();
+            plasticity_.weight_norms = torch::stack({
+                norms.feature,
+                norms.readout,
+                norms.feature_effective,
+                norms.readout_effective,
+                norms.sigma_feature_max,
+                norms.sigma_readout_max,
+                norms.invalid_count,
+                target_invalid,
+            });
         }
 
         // 固有処理呼び出し

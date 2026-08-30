@@ -1,5 +1,6 @@
 ﻿// rainbow_agent_impl.hpp
 
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <limits>
@@ -138,6 +139,8 @@ namespace anet::rl::dqn {
         torch::Tensor plasticity_features;
         torch::Tensor plasticity_target_features;
         torch::Tensor plasticity_weight_norms;
+        std::shared_ptr<anet::nn::Network> plasticity_online_network;
+        std::shared_ptr<anet::nn::Network> plasticity_target_network;
         anet::nn::PlasticityMetricRequest plasticity_request;
         anet::nn::PlasticityMetricRequest plasticity_target_request;
         mutable torch::Tensor plasticity_weight_norms_cpu;
@@ -354,15 +357,29 @@ namespace anet::rl::dqn {
     private:
         std::optional<float> GetPlasticityScalar(const std::string& key) const
         {
-            if (key == "plasticity_weight_norm_feature" || key == "plasticity_weight_norm_readout") {
+            int64_t weight_norm_index = -1;
+            if (key == "plasticity_weight_norm_feature") weight_norm_index = 0;
+            else if (key == "plasticity_weight_norm_readout") weight_norm_index = 1;
+            else if (key == "plasticity_weight_norm_feature_effective") weight_norm_index = 2;
+            else if (key == "plasticity_weight_norm_readout_effective") weight_norm_index = 3;
+            else if (key == "plasticity_spectral_sigma_feature") weight_norm_index = 4;
+            else if (key == "plasticity_spectral_sigma_readout") weight_norm_index = 5;
+            if (weight_norm_index >= 0) {
                 if (!plasticity_weight_norms.defined()) {
                     return std::numeric_limits<float>::quiet_NaN();
                 }
                 if (!plasticity_weight_norms_cpu.defined()) {
                     plasticity_weight_norms_cpu = plasticity_weight_norms.cpu();
                 }
-                const int64_t index = key == "plasticity_weight_norm_feature" ? 0 : 1;
-                return plasticity_weight_norms_cpu[index].item<float>();
+                if (plasticity_weight_norms_cpu.numel() != 8) {
+                    ANET_SYSTEM_ERROR("DQN plasticity weight norm pack has invalid size="
+                        << plasticity_weight_norms_cpu.numel() << " expected=8.");
+                }
+                ValidateSpectralNormSentinel(
+                    plasticity_weight_norms_cpu[6].item<float>(), "online", plasticity_online_network);
+                ValidateSpectralNormSentinel(
+                    plasticity_weight_norms_cpu[7].item<float>(), "target", plasticity_target_network);
+                return plasticity_weight_norms_cpu[weight_norm_index].item<float>();
             }
 
             const torch::Tensor* features = nullptr;
@@ -395,6 +412,30 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("BatchUpdateResult plasticity cache is missing a requested metric.");
             }
             return value;
+        }
+
+        static void ValidateSpectralNormSentinel(
+            float invalid_count,
+            const std::string& network_name,
+            const std::shared_ptr<anet::nn::Network>& network)
+        {
+            if (invalid_count < 1.0f) return;
+            if (!network) {
+                ANET_SYSTEM_ERROR("DQN spectral normalization sentinel failed: network="
+                    << network_name << " invalid_count=" << invalid_count << " network handle is unavailable.");
+            }
+            for (const auto& entry : network->GetSpectralNormEntries()) {
+                const auto sigma = anet::nn::ComputeSpectralSigma(
+                    entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v).item<float>();
+                const bool valid = std::isfinite(sigma)
+                    && (entry.mode == anet::nn::WeightNormMode::kSpectralCap || sigma > 0.0f);
+                if (!valid) {
+                    ANET_SYSTEM_ERROR("DQN spectral normalization is invalid: network="
+                        << network_name << " layer=" << entry.name << " sigma=" << sigma << ".");
+                }
+            }
+            ANET_SYSTEM_ERROR("DQN spectral normalization sentinel mismatch: network="
+                << network_name << " invalid_count=" << invalid_count << ".");
         }
 
         void TransQToCpu() const
@@ -478,7 +519,8 @@ namespace anet::rl::dqn {
             const anet::TensorSpecMap& obs_spec,
             int64_t n_actions,
             std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
-            bool distributional);
+            bool distributional,
+            anet::seed_t network_seed);
     protected:
         NetworkModel(
             const NetworkModelConfig& config,
@@ -520,6 +562,7 @@ namespace anet::rl::dqn {
         int64_t Save(OutputArchive& archive) const override;
         int64_t Load(InputArchive& archive) override;
     private:
+        void ValidateSpectralNormSoftUpdateConfig() const;
         void SoftUpdate();
         void HardUpdate();
     private:

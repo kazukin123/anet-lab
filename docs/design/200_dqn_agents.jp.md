@@ -318,6 +318,8 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 `RainbowAgent`は現行コードで独自の`Save()` / `Load()`をoverrideせず、基底Agentのno-opを使う。DefaultDQNと同じcheckpoint対応があると仮定しない。
 
+NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target Networkとともに保存・復元される。`Clone()`は構築seedを再利用して同じ構造を再構築してから、parameterとbufferを完全copyする。
+
 ## 9. 可観測性・性能・エラー
 
 ### 9.1 metric
@@ -378,6 +380,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 - `actor_approx`のhintは`float32[B,2]`を要求し、schema違反はfail-fastする。nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
 - DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
+- online/targetのどちらかにSNがあり、soft update構成（`model.hard_update_interval<=0`）の場合、`model.soft_update_tau`は有限かつ`[0, 0.1]`または`1`でなければ起動時にfail-fastする。hard update構成では未使用tauを検証しない。
 
 ### 9.4 可塑性メトリクス
 
@@ -385,7 +388,7 @@ DQNは2チャネルを持つ。actualはonline/targetのTD計算で使ったtrai
 
 online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`feature_key`は購読時だけ必須・branch存在検証し、購読ゼロならNoCareでcapture/sample/statsを行わない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド](030_user_guide_analysis.jp.md)4.7節を参照する。
 
-parameter側は、online networkを`feature_key`の依存閉包でfeature/readoutへ分けたweight norm 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、同じ`BatchUpdateResult`へ載せる。データ非依存のためprobe/target変種は持たず、購読が無ければparameter列挙も行わない。
+parameter側は、online networkを`feature_key`の依存閉包でfeature/readoutへ分け、生weight norm 2値、SN適用後の実効weight norm 2値、各群の最大sigma 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、online/targetのSN validity sentinelとともに固定長8要素packとして同じ`BatchUpdateResult`へ載せる。6公開値のいずれかを初めて読むときだけpack全体をCPUへ移し、同じevent内でcacheする。sentinelが異常を示した場合だけNetworkを再walkし、online/targetと完全layer名を含めてfail-fastする。SN layerがない群のsigmaは`NaN`、実効normは生normと同じである。購読が無ければparameter列挙もD2Hも行わない。
 
 ## 10. テストと拡張時の確認事項
 

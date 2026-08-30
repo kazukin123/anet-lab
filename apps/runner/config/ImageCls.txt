@@ -527,6 +527,10 @@ metrics.scalar.[34_agent_plasticity/05_srank_ratio] = plasticity_srank_ratio @le
 
 metrics.scalar.[34_agent_plasticity/61_weight_norm_feature] = plasticity_weight_norm_feature @learn $learn_step $update_result interval:500
 metrics.scalar.[34_agent_plasticity/62_weight_norm_readout] = plasticity_weight_norm_readout @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/63_weight_norm_feature_effective] = plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/64_weight_norm_readout_effective] = plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/65_spectral_sigma_feature] = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
+#metrics.scalar.[34_agent_plasticity/66_spectral_sigma_readout] = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
 
 metrics.scalar.[38_agent/01_loss]           = loss @learn
 metrics.scalar.[38_agent/02_loss_ema]       = loss @learn $ema

@@ -43,7 +43,7 @@ MuZeroAgent::MuZeroAgent(
     auto rb_seed = seed_maker.MakeNamedSeed("ReplayBuffer");
 
     // MuZeroNetworkModel生成
-    model_ = std::make_shared<MuZeroNetworkModel>(config_.model, config_data, env_spec_.state_spec, env_spec_.action_spec);
+    model_ = std::make_shared<MuZeroNetworkModel>(config_.model, config_data, env_spec_.state_spec, env_spec_.action_spec, GetSeed());
     model_->To(device_);
     model_->GetSuite()->eval();
     {

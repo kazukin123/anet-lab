@@ -16,6 +16,7 @@
 #include "anet/config.hpp"
 #include "anet/common.hpp"
 #include "anet/graphviz.hpp"
+#include "anet/random.hpp"
 
 
 namespace anet::nn {
@@ -125,6 +126,30 @@ namespace anet::nn {
         double trunc_b = 2.0;               ///< for TruncNormal
     };
 
+    struct WeightNormConfig {
+        std::string mode = "none";      ///< "none", "spectral", "spectral_cap"
+    };
+
+    enum class WeightNormMode {
+        kNone,
+        kSpectral,
+        kSpectralCap,
+    };
+
+    // Configのfloat値0.1fをdoubleへ拡幅した境界まで同値として受け入れる。
+    inline constexpr double kSpectralNormMaxSoftUpdateTau = static_cast<double>(0.1f);
+
+    struct SpectralNormEntry {
+        std::string name;
+        WeightNormMode mode = WeightNormMode::kNone;
+        torch::Tensor weight;
+        torch::Tensor u;
+        torch::Tensor v;
+    };
+
+    torch::Tensor ComputeSpectralSigma(
+        const torch::Tensor& weight_mat, const torch::Tensor& u, const torch::Tensor& v);
+
     struct NetworkGraphVizConfig {
         bool show_param_shapes = false;
         bool show_param_count = false;
@@ -182,30 +207,37 @@ namespace anet::nn {
     struct NetworkParameterNormSplit {
         torch::Tensor feature;
         torch::Tensor readout;
+        torch::Tensor feature_effective;
+        torch::Tensor readout_effective;
+        torch::Tensor sigma_feature_max;
+        torch::Tensor sigma_readout_max;
+        torch::Tensor invalid_count;
     };
 
     class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider {
-    public:
+    public: // コンストラクタ
         Network(
             const NetworkConfig& config,
             const anet::TensorSpecMap& input_specs,
             std::shared_ptr<NetworkHeadFactory> head_factory,
             std::shared_ptr<NetworkBody> body,
-            std::shared_ptr<NetworkHead> head);
-
+            std::shared_ptr<NetworkHead> head,
+            anet::seed_t construction_seed = 0);
+    public: // Forward
         anet::TensorDict Forward(
             const anet::TensorDict& input,
             const anet::TraceCallback& callback = {},
             NetworkBranchCapture* capture = nullptr);
-
         anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
-        NetworkParameterNormSplit ComputeParameterNormSplit(const std::string& feature_key) const;
-
+	public: // 情報取得
         std::vector<std::string> GetBranchNames() const;
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
         void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)
-
+	public: // パラメータ正規化関連
+        NetworkParameterNormSplit ComputeParameterNormSplit(const std::string& feature_key) const;
+        torch::Tensor ComputeSpectralNormValidity() const;
+        std::vector<SpectralNormEntry> GetSpectralNormEntries() const;
     public: //可視化関連
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
@@ -218,6 +250,8 @@ namespace anet::nn {
         NetworkConfig config_;
         anet::TensorSpecMap input_specs_;
         std::shared_ptr<NetworkHeadFactory> head_factory_;
+        anet::seed_t construction_seed_;
+        bool has_spectral_norm_ = false;
     };
 
 
@@ -231,6 +265,7 @@ namespace anet::nn {
             const NetworkConfig& network_config,
             const anet::TensorSpecMap& input_specs,
             std::shared_ptr<NetworkHeadFactory> head_factory,
+            anet::seed_t seed,
             std::optional<torch::Device> device = std::nullopt);
     };
 

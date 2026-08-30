@@ -28,7 +28,14 @@
 #   CosineEmbedding, SpatialEmbedder, SpatialPositionalEmbedding2D
 #
 # 【Layer (Core)】
-#   Linear, Conv1d, Conv2d, ResBlock, TransformerEncoder
+#   Linear, Conv1d, Conv2d, ResBlock, CNBlock, TransformerEncoder
+#
+# 【Weight normalization（上記6 type共通）】
+#   net.block.[BlockName].weight_norm.mode = none | spectral | spectral_cap
+#   default: none
+#   spectral     : weightを毎forwardのsigmaで除算する。zero-init weightは構築時にfail-fastする。
+#   spectral_cap : abs(sigma)>1のときだけ除算する。ResBlockのzero-init conv2にも使用できる。
+#   TransformerEncoderでnone以外を指定する場合はtf.use_sdpa=trueが必須。
 #
 # 【ViT / Token】
 #   ClsAppend, ClsExtract
