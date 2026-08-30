@@ -1,26 +1,55 @@
 @echo off
 REM ============================================================================
-REM  Plasticity collapse assay - standing harness
+REM  atari-2nd  -  SN screening, BTR-faithful scope
 REM ----------------------------------------------------------------------------
-REM  THE ASSAY
-REM    RR8 / 5M / breakout / old bundle. eval1 peaks in the 2.0-2.5M window and
-REM    falls to about 31. 54 min per run. Every arm is that assay with one thing
-REM    changed, so "did the collapse point move" is the read.
+REM  WHY THE SCOPE CHANGED  (2026-08-30, run_20260830-131655_c_spectral)
+REM    The all-layers arm DIVERGED. q_max went 0.89 -> 12 -> 267 -> 2700 between
+REM    exp 660k and 1014k, td_mean reached 7.9e4, grad_clip_ratio pinned at 1.0.
 REM
-REM    IT IS 4/5, NOT 5/5. One run out of five identical-config runs did not
-REM    collapse. An n=1 arm cannot be judged - always pair a new arm with at
-REM    least one replicate.
+REM    SN ITSELF WORKED. Over the same window:
+REM        61 raw norm        49.4 -> 53.2   still growing, as designed
+REM        63 effective norm  28.2 -> 26.5   FLAT - stage (1) finally braked
+REM        65 sigma           1.88 -> 3.50   the clamp is engaging
+REM    That is the three-point signature the PRD predicted, and it is the first
+REM    time stage (1) has been stopped in any arm. The weights did not blow up;
+REM    the value function did.
 REM
-REM  CURRENT OPEN ARM
-REM    group + WD 0.3 was the only cell that recovered at 5M (peak 74, end 73)
-REM    but it is n=1. The control has a 20 pct natural non-collapse rate, so it
-REM    is not yet distinguishable. This batch replicates it against the control.
+REM    The likely cause is scope. SN pinned the feature's effective norm at ~27
+REM    and stopped it growing, but gamma=0.997 needs q_max around 12 (measured
+REM    on the control). 64_weight_norm_readout_effective equals 62 exactly, i.e.
+REM    the readout is NOT under SN, so the whole burden of producing large Q
+REM    lands on an unconstrained head fed by a frozen-scale feature.
+REM    A second candidate: 'spectral' always divides, so layers with sigma < 1
+REM    get AMPLIFIED. 65 reports the MAX sigma over the group, so per-layer
+REM    sigma < 1 is invisible here. Separating the two needs per-layer sigma.
+REM
+REM  WHY NOT PUT SN ON THE HEAD
+REM    The head is what sets the value scale. Projecting it to sigma=1 removes
+REM    the freedom to represent q_max ~ 12 at all. It would remove the escape
+REM    route rather than fix the pressure.
+REM
+REM  BTR-FAITHFUL SCOPE IS THE ANSWER
+REM    BTR applies spectral_norm to the two convs inside each residual block and
+REM    to nothing else - not the stem conv, not the downsample, not the final
+REM    linear (verified in VIPTankz/BTR networks.py). The all-layers choice was
+REM    ours, argued from the GroupNorm partial-application trap. That argument
+REM    does not transfer: GroupNorm attacks stage (2) and has to cover the
+REM    measurement point; SN attacks stage (1) and does not.
+REM
+REM  ARMS
+REM    C2  spectral      residual convs only, init2=he    (BTR faithful)
+REM    D2  spectral_cap  residual convs only, zero-init kept
+REM    The all-layers cap arm (run.@pl_sncap) is defined in Atari.txt but is NOT
+REM    in this batch. It would only tell us WHY the all-layers spectral arm
+REM    diverged; finding a scope that works comes first.
 REM
 REM  WHAT TO LOOK AT
-REM    34_agent_plasticity/42_probe_dead_ratio  - the trough is the turning point
-REM    34_agent_plasticity/61_weight_norm_feature - the floor lands in the same window
-REM    Both land just after the eval1 peak. Compare within an arm over time;
-REM    the LEVEL does not compare across arms.
+REM    First: 37_agent_qtd/11_q_max_mean must stay in the 0.5-8 band the control
+REM    walks. If it leaves that band the arm is diverging, stop reading further.
+REM    Then the three-point set 61 (raw, climbing) / 65 (sigma, climbing) /
+REM    63 (effective, flat) - that is SN working.
+REM    Then the assay readout: eval1 peak window and the fall from it.
+REM    Control band from four runs: peak 240-324, end 113-139, fall -53 to -61%.
 REM
 REM  ARM MUST STAY QUOTED. The chain contains '>', which cmd.exe would otherwise
 REM  treat as output redirection - both in SET and at the call site.
@@ -35,17 +64,32 @@ if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
 
-SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace plasticity
+SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-2nd
 
-SET "BASE=run.@breakout_rr1_100m>run.@plasticity>run.@plasticity_rr8"
-SET "GN=%BASE%>run.@pl_gn"
+SET "FIX1=backend.$=backend.@non-deterministic"
+SET "FIX2=E1.game=breakout"
 
-echo === 1. control  (norm none, WD 0) ===
-call:run_exe "run.$=%BASE%"
+SET "ASSAY=run.@v5_iqn_impala_x2>run.@plasticity>run.@plasticity_rr8"
+SET "M=%ASSAY%>run.@pl_snmetrics"
 
-echo === 2. group + WD 0.3  x2 ===
-call:run_exe "run.$=%GN%>run.@pl_gn_wd030"
-call:run_exe "run.$=%GN%>run.@pl_gn_wd030"
+echo === 0. wiring check: BTR-scope branches (4 min) ===
+call:run_exe "run.$=%M%>run.@pl_snr>run.@pl_check"
+call:run_exe "run.$=%M%>run.@pl_capr>run.@pl_check"
+
+echo === 1. FIRST LOOK: BTR-faithful spectral and cap (about 2.2h) ===
+call:run_exe "run.$=%M%>run.@pl_snr"
+call:run_exe "run.$=%M%>run.@pl_capr"
+
+echo === 2. replicates of the BTR-faithful arms (about 2.2h) ===
+call:run_exe "run.$=%M%>run.@pl_snr"
+call:run_exe "run.$=%M%>run.@pl_capr"
+
+echo === 3. F: LayerNorm replicate - r1 was n=1 and out of the control band ===
+call:run_exe "run.$=%ASSAY%>run.@pl_ln512"
+
+echo === 4. B redo: init2.mode key was wrong the first time (about 2.2h) ===
+call:run_exe "run.$=%ASSAY%>run.@pl_he"
+call:run_exe "run.$=%ASSAY%>run.@pl_he"
 
 echo === ALL DONE ===
 pause
@@ -54,7 +98,7 @@ exit /b
 
 :run_exe
 echo %DATE% %TIME% START %*
-%EXE% %*
+%EXE% %* %FIX1% %FIX2%
 echo   %DATE% %TIME% END   %*
 exit /b
 

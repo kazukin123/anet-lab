@@ -328,9 +328,46 @@ run.@pl_gn_wd030   : app.run_name = run_{t}_a3_gn_wd030
 
 run.@pl_check      : @vars.max_exp_step = 100,000    # 配線確認。eval を切って 2 分で回す
 run.@pl_check      : train.eval_schedule.[eval1].interval = 0
-run.@pl_check      : app.run_name = run_{t}_check_wiring
+run.@pl_check      : app.run_name = run_{t}_tmp_wiring
 
 run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る。run_name は腕から継ぐ
+
+# --- config のみで試せる保護機構の腕(可塑性 screening)。run.@plasticity_rr8 へ重ねる ---
+# 機序: ①重み成長 -> ②活性成長 -> ③ReLU 負側で恒久死 -> ④表現が痩せる。腕は狙う段で分ける。
+# B(init): zero-init residual の実効を測る対照。C 腕(spectral)は init も同時に変わるのでその分離も兼ねる。
+run.@pl_he         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2He
+run.@pl_he         : app.run_name = run_{t}_b_init_he
+
+# E(③): 活性化を SiLU へ。ResBlock 内 12 箇所 + 素の 2 箇所 = 14 箇所すべてを覆う(部分適用の罠を避ける)。
+run.@pl_silu       : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SiLU
+run.@pl_silu       : app.run_name = run_{t}_e_silu
+
+# F(②): 測定点の直前(main_feature を作る Linear512 の後)だけを正規化する単変数。
+# GroupNorm 版(@AtariImpalaX2GN)は ResBlock 内部のみで測定点が素のままだった。本腕はその補集合。
+run.@pl_ln512      : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@pl_ln512      : app.run_name = run_{t}_f_ln512
+
+# C(1): Spectral Norm 全層。init2=he は必須(zero-init は sigma=0 で fail-fast)。B 腕が init 交絡の対照。
+run.@pl_sn         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SN
+run.@pl_sn         : app.run_name = run_{t}_c_spectral
+
+# D(1): spectral_cap 全層。sigma<1 は無変換なので zero-init を維持できる。
+run.@pl_sncap      : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2CAP
+run.@pl_sncap      : app.run_name = run_{t}_d_spectral_cap
+
+# C2 / D2: BTR 忠実(residual のみ)。全層版が発散したための本命。
+run.@pl_snr        : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNR
+run.@pl_snr        : app.run_name = run_{t}_c2_spectral_res
+
+run.@pl_capr       : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2CAPR
+run.@pl_capr       : app.run_name = run_{t}_d2_spectral_cap_res
+
+# SN 実験用メトリクス。63/64=実効ノルム、65/66=sigma。既定はコメントアウトなので M2 で足す。
+# 退化 sigma の実行時検出もこの経路が担うため、SN 腕では購読必須(PRD 065)。
+run.@pl_snmetrics  : M2.[34_agent_plasticity/63_weight_norm_feature_effective] = plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500
+run.@pl_snmetrics  : M2.[34_agent_plasticity/64_weight_norm_readout_effective] = plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500
+run.@pl_snmetrics  : M2.[34_agent_plasticity/65_spectral_sigma_feature] = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
+run.@pl_snmetrics  : M2.[34_agent_plasticity/66_spectral_sigma_readout] = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
 
 # --- Atari-5 ---
 
@@ -568,6 +605,201 @@ net.block.[AtariImpalaRes64GN].res.droppath_rate = 0.0
 
 net.branch.@AtariImpalaX2GN.bind = grid
 net.branch.@AtariImpalaX2GN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# --- config のみの screening 腕(可塑性)。素の X2 から 1 点だけ変えた 3 branch ---
+
+# B(init): conv2 の zero-init を he へ。他は素の X2 と同一。
+net.block.[AtariImpalaRes32He].type = ResBlock
+net.block.[AtariImpalaRes32He].res.channels = 32
+net.block.[AtariImpalaRes32He].res.kernel_size = 3
+net.block.[AtariImpalaRes32He].res.activation = relu
+net.block.[AtariImpalaRes32He].res.activation_mode = pre
+net.block.[AtariImpalaRes32He].res.norm_type = none
+net.block.[AtariImpalaRes32He].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32He].init2.mode = he
+
+net.block.[AtariImpalaRes64He].type = ResBlock
+net.block.[AtariImpalaRes64He].res.channels = 64
+net.block.[AtariImpalaRes64He].res.kernel_size = 3
+net.block.[AtariImpalaRes64He].res.activation = relu
+net.block.[AtariImpalaRes64He].res.activation_mode = pre
+net.block.[AtariImpalaRes64He].res.norm_type = none
+net.block.[AtariImpalaRes64He].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64He].init2.mode = he
+
+net.branch.@AtariImpalaX2He.bind = grid
+net.branch.@AtariImpalaX2He.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# E(3): 活性化のみ SiLU。ResBlock 内は res.activation、素の 2 箇所は SiLU ブロックで置換。
+net.block.[AtariImpalaRes32S].type = ResBlock
+net.block.[AtariImpalaRes32S].res.channels = 32
+net.block.[AtariImpalaRes32S].res.kernel_size = 3
+net.block.[AtariImpalaRes32S].res.activation = silu
+net.block.[AtariImpalaRes32S].res.activation_mode = pre
+net.block.[AtariImpalaRes32S].res.norm_type = none
+net.block.[AtariImpalaRes32S].res.droppath_rate = 0.0
+
+net.block.[AtariImpalaRes64S].type = ResBlock
+net.block.[AtariImpalaRes64S].res.channels = 64
+net.block.[AtariImpalaRes64S].res.kernel_size = 3
+net.block.[AtariImpalaRes64S].res.activation = silu
+net.block.[AtariImpalaRes64S].res.activation_mode = pre
+net.block.[AtariImpalaRes64S].res.norm_type = none
+net.block.[AtariImpalaRes64S].res.droppath_rate = 0.0
+
+net.block.[AtariSiLU].type = SiLU
+
+net.branch.@AtariImpalaX2SiLU.bind = grid
+net.branch.@AtariImpalaX2SiLU.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariSiLU > Flatten > AtariLinear512 > AtariSiLU
+
+# F(2): Linear512 の直後に LayerNorm。ResBlock は素のまま(測定点だけを正規化する単変数)。
+net.block.[AtariLN512].type = LayerNorm
+net.block.[AtariLN512].normalized_shape = 512
+
+net.branch.@AtariImpalaX2LN.bind = grid
+net.branch.@AtariImpalaX2LN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+# --- SN screening(PRD 065)。全層適用: standalone Conv2d 3 + ResBlock 全部 + Linear512。
+# キーは weight_norm.mode(init.mode と同じ独立 namespace。ブロック型 prefix の外)。
+# C 腕は spectral + init2=he(zero-init は W/sigma と非互換で fail-fast)。D 腕は cap + zero-init 維持。
+# 素の版と block 名を分けるのは、mode 違いを 1 つの branch 図で共存させるため。
+
+# C 腕: weight_norm.mode = spectral
+net.block.[AtariImpalaConv32SN].type = Conv2d
+net.block.[AtariImpalaConv32SN].conv.out_channels = 32
+net.block.[AtariImpalaConv32SN].conv.kernel_size = 3
+net.block.[AtariImpalaConv32SN].conv.stride = 1
+net.block.[AtariImpalaConv32SN].conv.padding = 1
+net.block.[AtariImpalaConv32SN].init.mode = he
+net.block.[AtariImpalaConv32SN].weight_norm.mode = spectral
+
+net.block.[AtariImpalaConv64SN].type = Conv2d
+net.block.[AtariImpalaConv64SN].conv.out_channels = 64
+net.block.[AtariImpalaConv64SN].conv.kernel_size = 3
+net.block.[AtariImpalaConv64SN].conv.stride = 1
+net.block.[AtariImpalaConv64SN].conv.padding = 1
+net.block.[AtariImpalaConv64SN].init.mode = he
+net.block.[AtariImpalaConv64SN].weight_norm.mode = spectral
+
+net.block.[AtariImpalaRes32SN].type = ResBlock
+net.block.[AtariImpalaRes32SN].res.channels = 32
+net.block.[AtariImpalaRes32SN].res.kernel_size = 3
+net.block.[AtariImpalaRes32SN].res.activation = relu
+net.block.[AtariImpalaRes32SN].res.activation_mode = pre
+net.block.[AtariImpalaRes32SN].res.norm_type = none
+net.block.[AtariImpalaRes32SN].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32SN].weight_norm.mode = spectral
+net.block.[AtariImpalaRes32SN].init2.mode = he
+
+net.block.[AtariImpalaRes64SN].type = ResBlock
+net.block.[AtariImpalaRes64SN].res.channels = 64
+net.block.[AtariImpalaRes64SN].res.kernel_size = 3
+net.block.[AtariImpalaRes64SN].res.activation = relu
+net.block.[AtariImpalaRes64SN].res.activation_mode = pre
+net.block.[AtariImpalaRes64SN].res.norm_type = none
+net.block.[AtariImpalaRes64SN].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64SN].weight_norm.mode = spectral
+net.block.[AtariImpalaRes64SN].init2.mode = he
+
+net.block.[AtariLinear512SN].type = Linear
+net.block.[AtariLinear512SN].linear.out_features = 512
+net.block.[AtariLinear512SN].init.mode = xavier
+net.block.[AtariLinear512SN].weight_norm.mode = spectral
+
+net.branch.@AtariImpalaX2SN.bind = grid
+net.branch.@AtariImpalaX2SN.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512SN > ReLU
+
+# D 腕: weight_norm.mode = spectral_cap
+net.block.[AtariImpalaConv32CAP].type = Conv2d
+net.block.[AtariImpalaConv32CAP].conv.out_channels = 32
+net.block.[AtariImpalaConv32CAP].conv.kernel_size = 3
+net.block.[AtariImpalaConv32CAP].conv.stride = 1
+net.block.[AtariImpalaConv32CAP].conv.padding = 1
+net.block.[AtariImpalaConv32CAP].init.mode = he
+net.block.[AtariImpalaConv32CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaConv64CAP].type = Conv2d
+net.block.[AtariImpalaConv64CAP].conv.out_channels = 64
+net.block.[AtariImpalaConv64CAP].conv.kernel_size = 3
+net.block.[AtariImpalaConv64CAP].conv.stride = 1
+net.block.[AtariImpalaConv64CAP].conv.padding = 1
+net.block.[AtariImpalaConv64CAP].init.mode = he
+net.block.[AtariImpalaConv64CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaRes32CAP].type = ResBlock
+net.block.[AtariImpalaRes32CAP].res.channels = 32
+net.block.[AtariImpalaRes32CAP].res.kernel_size = 3
+net.block.[AtariImpalaRes32CAP].res.activation = relu
+net.block.[AtariImpalaRes32CAP].res.activation_mode = pre
+net.block.[AtariImpalaRes32CAP].res.norm_type = none
+net.block.[AtariImpalaRes32CAP].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaRes64CAP].type = ResBlock
+net.block.[AtariImpalaRes64CAP].res.channels = 64
+net.block.[AtariImpalaRes64CAP].res.kernel_size = 3
+net.block.[AtariImpalaRes64CAP].res.activation = relu
+net.block.[AtariImpalaRes64CAP].res.activation_mode = pre
+net.block.[AtariImpalaRes64CAP].res.norm_type = none
+net.block.[AtariImpalaRes64CAP].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariLinear512CAP].type = Linear
+net.block.[AtariLinear512CAP].linear.out_features = 512
+net.block.[AtariLinear512CAP].init.mode = xavier
+net.block.[AtariLinear512CAP].weight_norm.mode = spectral_cap
+
+net.branch.@AtariImpalaX2CAP.bind = grid
+net.branch.@AtariImpalaX2CAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > ReLU
+
+# --- BTR 忠実版 SN: residual conv のみ(BTR networks.py 実装と同範囲)。
+# 入口 conv / downsample / Linear512 は素のまま = 値のスケールを作る経路を縛らない。
+# 全層版(X2SN)は 2026-08-30 に Q 値発散(q_max 0.89 -> 12 -> 2700)。
+# SN は特徴の実効ノルムを固定するが readout は素なので、負荷が readout へ寄る。
+
+net.block.[AtariImpalaRes32SNR].type = ResBlock
+net.block.[AtariImpalaRes32SNR].res.channels = 32
+net.block.[AtariImpalaRes32SNR].res.kernel_size = 3
+net.block.[AtariImpalaRes32SNR].res.activation = relu
+net.block.[AtariImpalaRes32SNR].res.activation_mode = pre
+net.block.[AtariImpalaRes32SNR].res.norm_type = none
+net.block.[AtariImpalaRes32SNR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32SNR].weight_norm.mode = spectral
+net.block.[AtariImpalaRes32SNR].init2.mode = he
+
+net.block.[AtariImpalaRes64SNR].type = ResBlock
+net.block.[AtariImpalaRes64SNR].res.channels = 64
+net.block.[AtariImpalaRes64SNR].res.kernel_size = 3
+net.block.[AtariImpalaRes64SNR].res.activation = relu
+net.block.[AtariImpalaRes64SNR].res.activation_mode = pre
+net.block.[AtariImpalaRes64SNR].res.norm_type = none
+net.block.[AtariImpalaRes64SNR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64SNR].weight_norm.mode = spectral
+net.block.[AtariImpalaRes64SNR].init2.mode = he
+
+net.branch.@AtariImpalaX2SNR.bind = grid
+net.branch.@AtariImpalaX2SNR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+net.block.[AtariImpalaRes32CAPR].type = ResBlock
+net.block.[AtariImpalaRes32CAPR].res.channels = 32
+net.block.[AtariImpalaRes32CAPR].res.kernel_size = 3
+net.block.[AtariImpalaRes32CAPR].res.activation = relu
+net.block.[AtariImpalaRes32CAPR].res.activation_mode = pre
+net.block.[AtariImpalaRes32CAPR].res.norm_type = none
+net.block.[AtariImpalaRes32CAPR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32CAPR].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaRes64CAPR].type = ResBlock
+net.block.[AtariImpalaRes64CAPR].res.channels = 64
+net.block.[AtariImpalaRes64CAPR].res.kernel_size = 3
+net.block.[AtariImpalaRes64CAPR].res.activation = relu
+net.block.[AtariImpalaRes64CAPR].res.activation_mode = pre
+net.block.[AtariImpalaRes64CAPR].res.norm_type = none
+net.block.[AtariImpalaRes64CAPR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64CAPR].weight_norm.mode = spectral_cap
+
+net.branch.@AtariImpalaX2CAPR.bind = grid
+net.branch.@AtariImpalaX2CAPR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
 # --- Atari IMPALA + ViT ハイブリッド ---
 
