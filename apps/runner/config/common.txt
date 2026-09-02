@@ -139,7 +139,8 @@ app.online.eval_panel.step_per_frame = 1
 
 app.batchrun.train_auto_start = true
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
-app.batchrun.train_panel.fps = 0.5
+app.batchrun.train_panel.fps = 0.0
+#app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
 app.batchrun.eval_panel.step_per_frame = 10
 

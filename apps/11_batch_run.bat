@@ -1,55 +1,62 @@
 @echo off
 REM ============================================================================
-REM  atari-2nd  -  SN screening, BTR-faithful scope
+REM  atari-2nd  -  NN structure first.   about 15.4h
 REM ----------------------------------------------------------------------------
-REM  WHY THE SCOPE CHANGED  (2026-08-30, run_20260830-131655_c_spectral)
-REM    The all-layers arm DIVERGED. q_max went 0.89 -> 12 -> 267 -> 2700 between
-REM    exp 660k and 1014k, td_mean reached 7.9e4, grad_clip_ratio pinned at 1.0.
+REM  TWO-BATCH ROTATION. This is bat A. Edit 15_batch_run_nn_b.bat while this
+REM  one runs, never this file - cmd.exe re-reads a batch by byte offset between
+REM  lines, so editing a live .bat makes it jump into garbage.
 REM
-REM    SN ITSELF WORKED. Over the same window:
-REM        61 raw norm        49.4 -> 53.2   still growing, as designed
-REM        63 effective norm  28.2 -> 26.5   FLAT - stage (1) finally braked
-REM        65 sigma           1.88 -> 3.50   the clamp is engaging
-REM    That is the three-point signature the PRD predicted, and it is the first
-REM    time stage (1) has been stopped in any arm. The weights did not blow up;
-REM    the value function did.
+REM  WHY NN FIRST
+REM    Every positive result in this campaign came from the network, none from
+REM    the learner hyperparameters.
+REM      LN512      RR1 wall rate 0.47 -> 1.32 percent
+REM      head ReLU  wall rate 1.35 (pair mean) -> 3.65 percent
+REM      6x6 pool   neutral
+REM      SN + he    0.43 percent, below the unprotected control
+REM      per_beta   neutral | PER fixed 0.3  0.75 percent | BTR exploration  eval declining
+REM    Four architecture arms produced two large wins; four learner arms
+REM    produced none.
 REM
-REM    The likely cause is scope. SN pinned the feature's effective norm at ~27
-REM    and stopped it growing, but gamma=0.997 needs q_max around 12 (measured
-REM    on the control). 64_weight_norm_readout_effective equals 62 exactly, i.e.
-REM    the readout is NOT under SN, so the whole burden of producing large Q
-REM    lands on an unconstrained head fed by a frozen-scale feature.
-REM    A second candidate: 'spectral' always divides, so layers with sigma < 1
-REM    get AMPLIFIED. 65 reports the MAX sigma over the group, so per-layer
-REM    sigma < 1 is invisible here. Separating the two needs per-layer sigma.
+REM  THE BASE IS NOW head/fusion ReLU (run_20260901-115207)
+REM    eval1 25-50M 478.4 +- 42.6 | 45-50M 490.3
+REM    train 25-50M pooled: n 14531, mean 209.5, >=432 3.65%, >=600 110
+REM    eval 25-50M distribution: NOTHING below 200 in 98 episodes, p10 381,
+REM      p50 428, p90 699, one 864 (two racks cleared), >=432 43.9%
+REM    still climbing at 50M: 35-40M 3.38% -> 40-45M 5.57% -> 45-50M 5.66%
+REM    n=1. Block 1 doubles as its replicate - see below.
 REM
-REM  WHY NOT PUT SN ON THE HEAD
-REM    The head is what sets the value scale. Projecting it to sigma=1 removes
-REM    the freedom to represent q_max ~ 12 at all. It would remove the escape
-REM    route rather than fix the pressure.
+REM  BLOCK 1 DOES TWO JOBS AT ONCE
+REM    per_beta is now fixed at 0.2, so half_exp_step has no consumer left
+REM    (per_beta_step was the only one, Atari.txt:194) and max_exp_step only
+REM    sets the stop point. A 100M run's first 50M is therefore a strict prefix
+REM    of the matching 50M run - same seed, same everything, later stop.
+REM    So block 1 gives the headrelu REPLICATE at 50M and the extension to 100M
+REM    in one 5.1h run.
 REM
-REM  BTR-FAITHFUL SCOPE IS THE ANSWER
-REM    BTR applies spectral_norm to the two convs inside each residual block and
-REM    to nothing else - not the stem conv, not the downsample, not the final
-REM    linear (verified in VIPTankz/BTR networks.py). The all-layers choice was
-REM    ours, argued from the GroupNorm partial-application trap. That argument
-REM    does not transfer: GroupNorm attacks stage (2) and has to cover the
-REM    measurement point; SN attacks stage (1) and does not.
+REM  BLOCKS 2 AND 3 SPLIT headrelu
+REM    headrelu changed three activations at once. Block 2 changes only the IQN
+REM    tau embedding, block 3 only the V/A hidden layers. If block 2 alone
+REM    reproduces the win, the mechanism is IQN-specific: ReLU turns the cos
+REM    embedding product from a smooth rescale into a gate.
 REM
-REM  ARMS
-REM    C2  spectral      residual convs only, init2=he    (BTR faithful)
-REM    D2  spectral_cap  residual convs only, zero-init kept
-REM    The all-layers cap arm (run.@pl_sncap) is defined in Atari.txt but is NOT
-REM    in this batch. It would only tell us WHY the all-layers spectral arm
-REM    diverged; finding a scope that works comes first.
+REM  BLOCK 4 IS RR4 ON PURPOSE
+REM    C=500 only carries BTR's meaning at RR4. BTR's --rr 1 is one grad step
+REM    per 64 env steps, so C=500 means "every 32,000 exp steps". Copying C=500
+REM    to our RR1 (one grad step per 256 exp steps) would be 128,000 exp steps,
+REM    a 4x longer lag. The env-time-matched RR1 version would be C=125.
+REM    This is also the only arm where 15_target_sync_age emits values at all.
 REM
-REM  WHAT TO LOOK AT
-REM    First: 37_agent_qtd/11_q_max_mean must stay in the 0.5-8 band the control
-REM    walks. If it leaves that band the arm is diverging, stop reading further.
-REM    Then the three-point set 61 (raw, climbing) / 65 (sigma, climbing) /
-REM    63 (effective, flat) - that is SN working.
-REM    Then the assay readout: eval1 peak window and the fall from it.
-REM    Control band from four runs: peak 240-324, end 113-139, fall -53 to -61%.
+REM  WIRING CHECK: blocks 2 and 3 are new profiles. Block 0 dumps both.
+REM    block 2: tau_embedding ends in ReLU, value_stream/adv_stream stay SiLU
+REM    block 3: value_stream/adv_stream end in ReLU, tau_embedding stays SiLU
+REM  Block 1 reuses run.@rr1_ln_headrelu (verified) plus run.@to_100m, which
+REM  only moves max_exp_step / half_exp_step. Block 4 was dumped on 08-31.
+REM
+REM  JUDGE ON THE WALL, NOT ON eval1, and against the calibrated spread.
+REM    Same-config replicate pair measured 2026-09-01: eval 25-50M 396.3 vs
+REM    428.7, wall 192 vs 244 episodes (1.18 vs 1.52 percent). Anything inside
+REM    that is not a difference. Use 42_env/10_game_score_mean pooled over
+REM    25-50M and count >= 432 (one Breakout screen) and >= 600.
 REM
 REM  ARM MUST STAY QUOTED. The chain contains '>', which cmd.exe would otherwise
 REM  treat as output redirection - both in SET and at the call site.
@@ -69,27 +76,24 @@ SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-2nd
 SET "FIX1=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
-SET "ASSAY=run.@v5_iqn_impala_x2>run.@plasticity>run.@plasticity_rr8"
-SET "M=%ASSAY%>run.@pl_snmetrics"
+SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex"
+SET "RR4=%A5%>run.@a5_rr4"
 
-echo === 0. wiring check: BTR-scope branches (4 min) ===
-call:run_exe "run.$=%M%>run.@pl_snr>run.@pl_check"
-call:run_exe "run.$=%M%>run.@pl_capr>run.@pl_check"
+echo === 0. wiring check x2 - VERIFY hr_tau / hr_va IN THE DUMPS (6 min) ===
+call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_ln_hr_tau>run.@pl_check"
+call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_ln_hr_va>run.@pl_check"
 
-echo === 1. FIRST LOOK: BTR-faithful spectral and cap (about 2.2h) ===
-call:run_exe "run.$=%M%>run.@pl_snr"
-call:run_exe "run.$=%M%>run.@pl_capr"
+echo === 1. head/fusion ReLU at 100M - replicate + extension (5.1h) ===
+call:run_exe "run.$=%A5%>run.@rr1_ln_headrelu>run.@to_100m"
 
-echo === 2. replicates of the BTR-faithful arms (about 2.2h) ===
-call:run_exe "run.$=%M%>run.@pl_snr"
-call:run_exe "run.$=%M%>run.@pl_capr"
+echo === 2. ReLU on the IQN tau embedding ONLY, 50M (2.6h) ===
+call:run_exe "run.$=%A5%>run.@rr1_ln_hr_tau"
 
-echo === 3. F: LayerNorm replicate - r1 was n=1 and out of the control band ===
-call:run_exe "run.$=%ASSAY%>run.@pl_ln512"
+echo === 3. ReLU on the V/A hidden layers ONLY, 50M (2.6h) ===
+call:run_exe "run.$=%A5%>run.@rr1_ln_hr_va"
 
-echo === 4. B redo: init2.mode key was wrong the first time (about 2.2h) ===
-call:run_exe "run.$=%ASSAY%>run.@pl_he"
-call:run_exe "run.$=%ASSAY%>run.@pl_he"
+echo === 4. RR4 + LN512 + BTR-faithful hard C=500, 50M (5.1h) ===
+call:run_exe "run.$=%RR4%>run.@rr4_ln_hard"
 
 echo === ALL DONE ===
 pause
