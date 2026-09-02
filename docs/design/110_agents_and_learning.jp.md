@@ -43,7 +43,7 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 
 Agent系の所有権は次の原則に従う。
 
-- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。
+- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。probe等の機能専用RNGもAgentがnamed seedから所有し、利用moduleは非所有参照だけを持つ。
 - 「Agent所有」はAgent classの直接fieldだけを意味しない。Agentが所有するLearnerやActorの配下へ配置しても、Agentのlifetime内に閉じていればよい。
 - epsilon、EMA、warmup counterなどの可変Stateは、それを更新するコンポーネントが所有する。
 - 特定Actorだけが使用するsnapshot NetworkはActor所有のprivate Resource、複数ActorとLearnerが参照するNetworkはAgent所有のshared Resourceとして区別する。

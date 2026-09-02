@@ -469,7 +469,8 @@ public:
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
     }
 
-    bool SampleUniqueUniform(rl::ExperienceSamples& out_samples, int64_t batch_size) const override
+    bool SampleUniqueUniform(
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&) const override
     {
         std::lock_guard<std::mutex> lock(mutex);
         ++unique_sample_count;
@@ -1132,7 +1133,7 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
     }
 }
 
-TEST_CASE("ReplayBuffer reads a unique uniform probe batch without replacement", "[replay_buffer][unique_uniform][plasticity]")
+TEST_CASE("ReplayBuffer reads a caller-random unique uniform probe batch without replacement", "[replay_buffer][probe][unique_uniform]")
 {
     auto buffer = MakeBuffer(
         MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
@@ -1145,7 +1146,8 @@ TEST_CASE("ReplayBuffer reads a unique uniform probe batch without replacement",
     REQUIRE(buffer.rb->Size() == 6);
 
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, 5));
+    anet::RandomGenerator probe_random(777);
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, 5, probe_random));
 
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
     CHECK(std::set<int64_t>(keys.begin(), keys.end()).size() == 5);
@@ -1153,7 +1155,7 @@ TEST_CASE("ReplayBuffer reads a unique uniform probe batch without replacement",
     CHECK(samples.replay_item_keys.device().is_cpu());
 }
 
-TEST_CASE("ReplayBuffer plasticity probe does not mark samples or change PER statistics", "[replay_buffer][unique_uniform][plasticity][per]")
+TEST_CASE("ReplayBuffer probe does not mark samples or change PER statistics", "[replay_buffer][probe][unique_uniform][per]")
 {
     auto buffer = MakeBuffer(
         MakeConfig(4, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
@@ -1174,7 +1176,8 @@ TEST_CASE("ReplayBuffer plasticity probe does not mark samples or change PER sta
     REQUIRE(eviction_ratio_before.has_value());
 
     rl::ExperienceSamples probe;
-    REQUIRE(buffer.rb->SampleUniqueUniform(probe, buffer.rb->Size()));
+    anet::RandomGenerator probe_random(4321);
+    REQUIRE(buffer.rb->SampleUniqueUniform(probe, buffer.rb->Size(), probe_random));
 
     CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == Catch::Approx(*per_total_before));
     CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO)
@@ -1191,7 +1194,7 @@ TEST_CASE("ReplayBuffer plasticity probe does not mark samples or change PER sta
     CHECK(*eviction_ratio_after == Catch::Approx(1.0f));
 }
 
-TEST_CASE("ReplayBuffer plasticity probe has an isolated deterministic RNG", "[replay_buffer][unique_uniform][plasticity]")
+TEST_CASE("ReplayBuffer caller-owned probe RNG is deterministic and isolated", "[replay_buffer][probe][unique_uniform]")
 {
     auto make_populated = [] {
         auto buffer = MakeBuffer(
@@ -1205,19 +1208,34 @@ TEST_CASE("ReplayBuffer plasticity probe has an isolated deterministic RNG", "[r
     auto probed = make_populated();
     auto probe_sequence_control = make_populated();
     auto normal_sample_control = make_populated();
+    anet::RandomGenerator probed_random(1234);
+    anet::RandomGenerator control_random(1234);
 
     rl::ExperienceSamples unchanged;
     unchanged.replay_item_keys = torch::tensor({ 999 }, torch::TensorOptions().dtype(torch::kInt64));
-    CHECK_FALSE(probed.rb->SampleUniqueUniform(unchanged, 7));
+    CHECK_FALSE(probed.rb->SampleUniqueUniform(unchanged, 7, probed_random));
     CHECK(unchanged.replay_item_keys.item<int64_t>() == 999);
 
     rl::ExperienceSamples all_items;
-    REQUIRE(probed.rb->SampleUniqueUniform(all_items, 6));
+    REQUIRE(probed.rb->SampleUniqueUniform(all_items, 6, probed_random));
     rl::ExperienceSamples probe_after_all;
     rl::ExperienceSamples control_probe;
-    REQUIRE(probed.rb->SampleUniqueUniform(probe_after_all, 5));
-    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(control_probe, 5));
+    REQUIRE(probed.rb->SampleUniqueUniform(probe_after_all, 5, probed_random));
+    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(control_probe, 5, control_random));
     CHECK(torch::equal(probe_after_all.replay_item_keys, control_probe.replay_item_keys));
+
+    // 一方の probe consumer が乱数を消費しても、別 caller 所有 RNG の系列は変わらない。
+    anet::RandomGenerator plasticity_random(11);
+    anet::RandomGenerator churn_random(22);
+    anet::RandomGenerator churn_control_random(22);
+    rl::ExperienceSamples plasticity_probe;
+    rl::ExperienceSamples churn_probe;
+    rl::ExperienceSamples churn_control_probe;
+    REQUIRE(probed.rb->SampleUniqueUniform(plasticity_probe, 5, plasticity_random));
+    REQUIRE(probed.rb->SampleUniqueUniform(churn_probe, 5, churn_random));
+    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(
+        churn_control_probe, 5, churn_control_random));
+    CHECK(torch::equal(churn_probe.replay_item_keys, churn_control_probe.replay_item_keys));
 
     rl::ExperienceSamples normal_after_probe;
     rl::ExperienceSamples normal_control;
@@ -2782,7 +2800,7 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     CHECK(inner_state->PushCountAtSampleStart(3) == 1);
 }
 
-TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe without consuming the prefetched batch", "[replay_buffer][prefetch][plasticity]")
+TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe without consuming the prefetched batch", "[replay_buffer][probe][prefetch]")
 {
     auto inner_state = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
@@ -2798,8 +2816,9 @@ TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe witho
 
     rl::ExperienceSamples probe_samples;
     std::atomic<bool> probe_ok = false;
+    anet::RandomGenerator probe_random(2802);
     std::thread probe([&] {
-        probe_ok = rb.SampleUniqueUniform(probe_samples, 1);
+        probe_ok = rb.SampleUniqueUniform(probe_samples, 1, probe_random);
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     CHECK(inner_state->UniqueSampleCount() == 0);

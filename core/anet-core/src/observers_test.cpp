@@ -727,6 +727,42 @@ TEST_CASE("ObserverFactory preserves weight norm UpdateResult subscriptions", "[
     }
 }
 
+TEST_CASE("ObserverFactory preserves policy churn baseline subscriptions", "[observer_factory][metrics_defs][policy_churn]")
+{
+    const std::array<std::pair<const char*, const char*>, 7> metrics = { {
+        { "35_agent_churn/01_action_churn_ratio", "policy_churn_action_ratio" },
+        { "35_agent_churn/02_q_delta_abs_mean", "policy_churn_q_delta_abs_mean" },
+        { "35_agent_churn/03_q_delta_signed_max", "policy_churn_q_delta_signed_max" },
+        { "35_agent_churn/04_q_delta_signed_min", "policy_churn_q_delta_signed_min" },
+        { "35_agent_churn/11_target_policy_disagreement", "policy_churn_target_policy_disagreement" },
+        { "35_agent_churn/12_target_q_delta_abs_mean", "policy_churn_target_q_delta_abs_mean" },
+        { "35_agent_churn/13_target_sync_age", "policy_churn_target_sync_age" },
+    } };
+    anet::ConfigData config;
+    for (const auto& [tag, source_key] : metrics) {
+        config.Set(
+            std::string("metrics.scalar.[") + tag + "]",
+            std::string(source_key) + " @learn $learn_step $update_result interval:503");
+    }
+
+    rl::ObserverFactory factory(config);
+    const auto defs = factory.GetScalarMetricDefs();
+    REQUIRE(defs.size() == metrics.size());
+    for (const auto& [tag, source_key] : metrics) {
+        const auto found = std::ranges::find_if(defs, [&](const auto& def) { return def.tag == tag; });
+        REQUIRE(found != defs.end());
+        CHECK(found->source_key == source_key);
+        CHECK(found->step_axis == "learn_step");
+        CHECK(found->event == "learn");
+        CHECK(found->target == "update_result");
+        CHECK(found->interval == 503);
+        CHECK(found->subscription.scope == rl::RunnerScope::TRAIN);
+        CHECK(found->subscription.event == rl::EventType::LEARN);
+        REQUIRE(found->subscription.target.has_value());
+        CHECK(*found->subscription.target == rl::EventField::UPDATE_RESULT);
+    }
+}
+
 TEST_CASE("ObserverFactory preserves delta-specific plasticity subscriptions", "[observer_factory][metrics_defs][plasticity][demand]")
 {
     anet::ConfigData config;

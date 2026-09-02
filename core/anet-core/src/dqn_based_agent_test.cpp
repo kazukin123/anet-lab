@@ -141,7 +141,7 @@ private:
     torch::nn::Linear linear_{ nullptr };
 };
 
-std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
+std::shared_ptr<anet::nn::Network> MakeLinearNetwork(int64_t n_actions = 1)
 {
     anet::TensorSpec vector_spec;
     vector_spec.type = anet::SpaceType::Vector;
@@ -159,7 +159,7 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
         input_specs,
         std::vector<std::string>{},
         network_config.output_keys);
-    auto head = std::make_shared<TestLinearHead>(2, 1);
+    auto head = std::make_shared<TestLinearHead>(2, n_actions);
 
     return std::make_shared<anet::nn::Network>(
         network_config,
@@ -194,7 +194,8 @@ std::shared_ptr<anet::nn::Network> MakeSpectralLinearNetwork(anet::seed_t seed =
 
 std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
     const std::shared_ptr<AutocastProbeState>& probe_state,
-    torch::Device device)
+    torch::Device device,
+    int64_t n_actions = 1)
 {
     anet::TensorSpec vector_spec;
     vector_spec.type = anet::SpaceType::Vector;
@@ -221,7 +222,7 @@ std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
         input_specs,
         std::vector<std::string>{},
         network_config.output_keys);
-    auto head = std::make_shared<TestLinearHead>(2, 1);
+    auto head = std::make_shared<TestLinearHead>(2, n_actions);
 
     auto network = std::make_shared<anet::nn::Network>(
         network_config,
@@ -235,12 +236,15 @@ std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
 
 class TestNetworkModel final : public dqn::NetworkModel {
 public:
-    explicit TestNetworkModel(bool distributional = false)
+    explicit TestNetworkModel(
+        bool distributional = false,
+        int64_t n_actions = 1,
+        dqn::NetworkModelConfig config = {})
         : dqn::NetworkModel(
-            dqn::NetworkModelConfig{},
-            MakeLinearNetwork(),
-            MakeLinearNetwork(),
-            1,
+            config,
+            MakeLinearNetwork(n_actions),
+            MakeLinearNetwork(n_actions),
+            n_actions,
             distributional)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
@@ -253,12 +257,13 @@ class AutocastProbeNetworkModel final : public dqn::NetworkModel {
 public:
     AutocastProbeNetworkModel(
         const std::shared_ptr<AutocastProbeState>& probe_state,
-        torch::Device device)
+        torch::Device device,
+        int64_t n_actions = 1)
         : dqn::NetworkModel(
             dqn::NetworkModelConfig{},
-            MakeAutocastProbeNetwork(probe_state, device),
-            MakeAutocastProbeNetwork(probe_state, device),
-            1,
+            MakeAutocastProbeNetwork(probe_state, device, n_actions),
+            MakeAutocastProbeNetwork(probe_state, device, n_actions),
+            n_actions,
             false)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
@@ -266,6 +271,18 @@ public:
         GetTargetNetwork()->eval();
     }
 };
+
+anet::RandomGenerator& TestPlasticityProbeRandom()
+{
+    static anet::RandomGenerator random(6001);
+    return random;
+}
+
+anet::RandomGenerator& TestPolicyChurnProbeRandom()
+{
+    static anet::RandomGenerator random(6002);
+    return random;
+}
 
 class TestLearner final : public dqn::Learner {
 public:
@@ -286,7 +303,9 @@ public:
             123,
             std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}),
             std::nullopt,
-            456)
+            456,
+            &TestPlasticityProbeRandom(),
+            &TestPolicyChurnProbeRandom())
     {
     }
 
@@ -320,9 +339,30 @@ public:
         parameter_mutation_delta_ = delta;
     }
 
-    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+    void EnablePolicyChurnOptimizerUpdate()
+    {
+        run_policy_churn_optimizer_update_ = true;
+    }
+
+    std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
+        if (run_policy_churn_optimizer_update_) {
+            // action 1 の Q を上げる決定論的な 1 update を作り、公開結果から churn を観測する。
+            auto q_values = model_.ForwardOnlineWithTrain(samples.obs).At("q");
+            const int64_t optimized_action = n_actions_ > 1 ? 1 : 0;
+            auto loss = -q_values.select(1, optimized_action).mean();
+            auto opt_result = Optimize(loss);
+            dqn::PerPriorityUpdateInfo per_info;
+            const auto batch_size = samples.actions.size(0);
+            return MakeBatchUpdateResult(
+                loss,
+                torch::zeros({ batch_size }),
+                opt_result,
+                std::get<0>(q_values.detach().max(1)),
+                q_values.detach().select(1, 0),
+                per_info);
+        }
         if (run_plasticity_forward_) {
             model_.ForwardOnlineWithTrain(samples.obs);
             if (run_plasticity_target_forward_) model_.ForwardTarget(samples.next_state.next_obs);
@@ -349,6 +389,7 @@ public:
 private:
     bool run_plasticity_forward_ = false;
     bool run_plasticity_target_forward_ = false;
+    bool run_policy_churn_optimizer_update_ = false;
     std::optional<float> parameter_mutation_delta_;
 };
 
@@ -364,12 +405,16 @@ public:
         ++sample_count;
 
         out_samples.obs = anet::TensorDict{
-            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+            { kVectorKey, torch::full(
+                { minibatch_size, 2 }, vector_value,
+                torch::TensorOptions().dtype(torch::kFloat32)) },
         };
         out_samples.actions = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.target_returns = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
         out_samples.next_state.next_obs = anet::TensorDict{
-            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+            { kVectorKey, torch::full(
+                { minibatch_size, 2 }, vector_value,
+                torch::TensorOptions().dtype(torch::kFloat32)) },
         };
         out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
         out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
@@ -378,7 +423,8 @@ public:
         out_samples.per_priority_sources = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt8));
     }
 
-    bool SampleUniqueUniform(rl::ExperienceSamples& out_samples, int64_t batch_size) const override
+    bool SampleUniqueUniform(
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&) const override
     {
         ++unique_sample_count;
         if (!unique_sample_enabled) return false;
@@ -436,6 +482,7 @@ public:
     mutable int sample_count = 0;
     mutable int unique_sample_count = 0;
     bool unique_sample_enabled = false;
+    float vector_value = 0.0f;
     mutable int size_count = 0;
     int update_count = 0;
     std::optional<rl::ReplayPriorityUpdateResult> priority_update_result;
@@ -892,7 +939,7 @@ public:
     }
 
 protected:
-    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+    std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
         torch::NoGradGuard no_grad;
@@ -2757,6 +2804,8 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
         config_data.Set("DefaultDQNAgent.learner.use_amp", use_amp_bf16);
         config_data.Set("DefaultDQNAgent.learner.use_amp_bf16", use_amp_bf16);
         config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+        config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 2);
+        config_data.Set("DefaultDQNAgent.learner.policy_churn.iqn.num_taus", 5);
 
         const auto env_spec = MakeIqnTracerEnvSpec();
         const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
@@ -2768,6 +2817,17 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
             device,
             321);
         auto learner = agent->CreateLearner();
+        std::vector<rl::ScalarMetricSubscription> churn_subscriptions;
+        for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(6)) {
+            churn_subscriptions.push_back(rl::ScalarMetricSubscription{
+                .source_key = key,
+                .event = rl::EventType::LEARN,
+                .target = rl::EventField::UPDATE_RESULT,
+                .interval = 1,
+                .scope = rl::RunnerScope::TRAIN,
+            });
+        }
+        agent->ConfigureScalarMetricSubscriptions(churn_subscriptions);
 
         const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
         const auto episode_start = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kBool));
@@ -2821,6 +2881,12 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
         CHECK(ShapeOf(result->td_error) == std::vector<int64_t>{ 2 });
         CHECK(torch::isfinite(result->loss).all().item<bool>());
         CHECK(torch::isfinite(result->td_error).all().item<bool>());
+        // stride-0へexpandしたfixed midpoint tausを実IQN headの最大3 forwardへ通す。
+        for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(6)) {
+            const auto churn = result->GetScalar(key);
+            REQUIRE(churn.has_value());
+            CHECK(std::isfinite(*churn));
+        }
         if (use_per) {
             CHECK(ShapeOf(result->per_priorities) == std::vector<int64_t>{ 2 });
             CHECK(torch::isfinite(result->per_priorities).all().item<bool>());
@@ -4689,6 +4755,34 @@ TEST_CASE("DefaultDQNAgentConfig reads and validates plasticity probe settings",
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
 }
 
+TEST_CASE("DefaultDQNAgentConfig reads and validates policy churn settings", "[dqn][config][policy_churn]")
+{
+    const dqn::DefaultDQNAgentConfig default_config(anet::ConfigData{});
+    CHECK(default_config.learner.policy_churn.probe.batch_size == 1024);
+    CHECK(default_config.learner.policy_churn.iqn.num_taus == 32);
+    CHECK(default_config.learner.quantile_mode == default_config.quantile_mode);
+
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 64);
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.iqn.num_taus", 8);
+    const dqn::DefaultDQNAgentConfig config(config_data);
+    CHECK(config.learner.policy_churn.probe.batch_size == 64);
+    CHECK(config.learner.policy_churn.iqn.num_taus == 8);
+
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 0);
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.learner.policy_churn.probe.batch_size")
+            && Catch::Matchers::ContainsSubstring("value=0"));
+
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 64);
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.iqn.num_taus", 0);
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.learner.policy_churn.iqn.num_taus")
+            && Catch::Matchers::ContainsSubstring("value=0"));
+}
+
 TEST_CASE("DQN configs read sample prefetch setting", "[dqn][config][prefetch]")
 {
     dqn::DefaultDQNAgentConfig default_config(anet::ConfigData{});
@@ -4977,6 +5071,419 @@ TEST_CASE("DQN validates spectral soft update tau only for a soft update configu
         .soft_update_tau = 0.5f,
         .hard_update_interval = 100,
     }));
+}
+
+TEST_CASE("DQN learner reports greedy action churn for one optimizer update", "[dqn][policy_churn]")
+{
+    // 1 update で action 0 から action 1 へ反転する合成 network と probe を準備する。
+    TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineParameters().front().copy_(torch::tensor({
+            { 1.0f, 0.0f },
+            { 0.0f, 0.0f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(4)) {
+        subscriptions.push_back(rl::ScalarMetricSubscription{
+            .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        });
+    }
+    learner.ConfigureScalarMetricSubscriptions(subscriptions);
+
+    // public update result から、probe 1 件の greedy action が反転した割合を読む。
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(results.size() == 1);
+    const auto churn = results.front()->GetScalar("policy_churn_action_ratio");
+    REQUIRE(churn.has_value());
+    CHECK(*churn == Catch::Approx(1.0f));
+    CHECK(*results.front()->GetScalar("policy_churn_q_delta_abs_mean") == Catch::Approx(1.0f));
+    CHECK(*results.front()->GetScalar("policy_churn_q_delta_signed_max") == Catch::Approx(2.0f));
+    CHECK(*results.front()->GetScalar("policy_churn_q_delta_signed_min") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][policy_churn][target]")
+{
+    // learn_step 1 は非 sync、learn_step 2 は hard sync となる network を準備する。
+    TestNetworkModel model(
+        /*distributional=*/false,
+        /*n_actions=*/2,
+        dqn::NetworkModelConfig{ .hard_update_interval = 2 });
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineParameters().front().copy_(torch::tensor({
+            { 1.0f, 0.0f },
+            { 0.0f, 0.0f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    vars.learn_step = 1;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_policy_disagreement",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_q_delta_abs_mean",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    // 非 sync update では既知差と age=1、次の sync update では厳密なゼロ点を返す。
+    const auto non_sync = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(*non_sync->GetScalar("policy_churn_target_policy_disagreement") == Catch::Approx(1.0f));
+    CHECK(*non_sync->GetScalar("policy_churn_target_q_delta_abs_mean") == Catch::Approx(1.0f));
+    CHECK(*non_sync->GetScalar("policy_churn_target_sync_age") == Catch::Approx(1.0f));
+
+    const auto sync = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(*sync->GetScalar("policy_churn_target_policy_disagreement") == Catch::Approx(0.0f));
+    CHECK(*sync->GetScalar("policy_churn_target_q_delta_abs_mean") == Catch::Approx(0.0f));
+    CHECK(*sync->GetScalar("policy_churn_target_sync_age") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown keys", "[dqn][policy_churn][gate]")
+{
+    const auto make_learner = [](TestNetworkModel& model, dqn::RuntimeVars& vars) {
+        dqn::LearnerConfig config;
+        config.replay_batch_size = 1;
+        config.update_warmup_steps = 0;
+        config.update_interval = 1;
+        config.replay_ratio = -1.0f;
+        config.use_per = false;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        return std::make_unique<TestLearner>(
+            config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    };
+
+    SECTION("age-only on soft target performs no probe sampling") {
+        TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+        dqn::RuntimeVars vars;
+        auto learner = make_learner(model, vars);
+        learner->UseSgd(0.0f);
+        learner->EnablePolicyChurnOptimizerUpdate();
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 1 });
+        learner->UseReplayBuffer(replay_buffer);
+        learner->ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        } });
+
+        const auto result = learner->UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        REQUIRE(result->GetScalar("policy_churn_target_sync_age").has_value());
+        CHECK(std::isnan(*result->GetScalar("policy_churn_target_sync_age")));
+        CHECK(replay_buffer->unique_sample_count == 0);
+    }
+
+    SECTION("incomplete probe publishes NaN and unknown key remains nullopt") {
+        TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+        dqn::RuntimeVars vars;
+        auto learner = make_learner(model, vars);
+        learner->UseSgd(0.0f);
+        learner->EnablePolicyChurnOptimizerUpdate();
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 1 });
+        replay_buffer->unique_sample_enabled = false;
+        learner->UseReplayBuffer(replay_buffer);
+        learner->ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_action_ratio",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        } });
+
+        const auto result = learner->UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        REQUIRE(result->GetScalar("policy_churn_action_ratio").has_value());
+        CHECK(std::isnan(*result->GetScalar("policy_churn_action_ratio")));
+        CHECK_FALSE(result->GetScalar("policy_churn_unknown").has_value());
+        CHECK(replay_buffer->unique_sample_count == 1);
+    }
+}
+
+TEST_CASE("DQN policy churn uses post-soft-update target values", "[dqn][policy_churn][target][soft]")
+{
+    // soft tau=0.01 の update 後 target と online-after を比較する。
+    TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineParameters().front().copy_(torch::tensor({
+            { 1.0f, 0.0f },
+            { 0.0f, 0.0f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_policy_disagreement",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_q_delta_abs_mean",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(*result->GetScalar("policy_churn_target_policy_disagreement") == Catch::Approx(1.0f));
+    CHECK(*result->GetScalar("policy_churn_target_q_delta_abs_mean") == Catch::Approx(0.99f));
+    CHECK(std::isnan(*result->GetScalar("policy_churn_target_sync_age")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+}
+
+TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][policy_churn][warning]")
+{
+    const auto make_subscription = [](int interval) {
+        return rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = interval,
+            .scope = rl::RunnerScope::TRAIN,
+        };
+    };
+
+    SECTION("single phase emits one aggregated warning") {
+        TestNetworkModel model(
+            /*distributional=*/false,
+            /*n_actions=*/2,
+            dqn::NetworkModelConfig{ .hard_update_interval = 503 });
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        anet::test::LogCaptureGuard logs;
+        learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
+        learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
+        logs.Flush();
+
+        int matches = 0;
+        for (const auto& record : logs.Records()) {
+            if (record.level != wxLOG_Warning
+                || record.message.find("Policy churn metrics observe one hard-target phase") == std::string::npos) {
+                continue;
+            }
+            ++matches;
+            CHECK(record.message.find("target_sync_age=0") != std::string::npos);
+            CHECK(record.message.find("metrics_interval=503") != std::string::npos);
+            CHECK(record.message.find("hard_update_interval=503") != std::string::npos);
+        }
+        CHECK(matches == 1);
+    }
+
+    SECTION("multiple phases emit no warning") {
+        TestNetworkModel model(
+            /*distributional=*/false,
+            /*n_actions=*/2,
+            dqn::NetworkModelConfig{ .hard_update_interval = 500 });
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        anet::test::LogCaptureGuard logs;
+        learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
+        logs.Flush();
+
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+    }
+}
+
+TEST_CASE("DQN policy churn disables outer BF16 autocast for probe forwards", "[dqn][policy_churn][amp][bf16]")
+{
+    const auto device = torch::Device(torch::kCPU);
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, device, /*n_actions=*/2);
+    {
+        torch::NoGradGuard no_grad;
+        // BF16では更新前後とも両actionが1.0へ丸まる近接Qを作る。
+        model.GetOnlineParameters().at(0).copy_(torch::tensor({
+            { 0.5010f, 0.5010f },
+            { 0.5005f, 0.5005f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.use_amp = true;
+    config.use_amp_bf16 = true;
+    config.use_grad_clip = false;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(0.001f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(4)) {
+        subscriptions.push_back(rl::ScalarMetricSubscription{
+            .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        });
+    }
+    learner.ConfigureScalarMetricSubscriptions(subscriptions);
+
+    anet::Autocast outer_autocast(device, true, torch::kBFloat16);
+    const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    // FP32では [1.002, 1.001] -> [1.002, 1.003] と反転し、BF16なら差が消える。
+    CHECK(*result->GetScalar("policy_churn_action_ratio") == Catch::Approx(1.0f));
+    CHECK(*result->GetScalar("policy_churn_q_delta_abs_mean") == Catch::Approx(0.001f).margin(1.0e-6f));
+    CHECK(*result->GetScalar("policy_churn_q_delta_signed_max") == Catch::Approx(0.002f).margin(1.0e-6f));
+    CHECK(*result->GetScalar("policy_churn_q_delta_signed_min") == Catch::Approx(0.0f).margin(1.0e-6f));
+    CHECK(probe_state->forward_count == 3);
+    CHECK(probe_state->enabled_count == 1);
+}
+
+TEST_CASE("DQN policy churn follows subscription cadence and stays inactive without demand", "[dqn][policy_churn][gate]")
+{
+    const auto run_case = [](std::optional<int> interval) {
+        TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        config.replay_batch_size = 1;
+        config.update_warmup_steps = 0;
+        config.update_interval = 1;
+        config.replay_ratio = -1.0f;
+        config.use_per = false;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        learner.UseSgd(0.0f);
+        learner.EnablePolicyChurnOptimizerUpdate();
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 1 });
+        replay_buffer->unique_sample_enabled = true;
+        replay_buffer->vector_value = 1.0f;
+        learner.UseReplayBuffer(replay_buffer);
+        if (interval.has_value()) {
+            learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+                .source_key = "policy_churn_action_ratio",
+                .event = rl::EventType::LEARN,
+                .target = rl::EventField::UPDATE_RESULT,
+                .interval = *interval,
+                .scope = rl::RunnerScope::TRAIN,
+            } });
+        } else {
+            learner.ConfigureScalarMetricSubscriptions({});
+        }
+
+        std::vector<std::shared_ptr<const rl::BatchUpdateResult>> results;
+        for (int i = 0; i < 4; ++i) {
+            results.push_back(learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front());
+        }
+        return std::pair{ replay_buffer->unique_sample_count, std::move(results) };
+    };
+
+    const auto [sample_count, cadence_results] = run_case(3);
+    CHECK(sample_count == 2);
+    CHECK(*cadence_results[0]->GetScalar("policy_churn_action_ratio") == Catch::Approx(0.0f));
+    CHECK(std::isnan(*cadence_results[1]->GetScalar("policy_churn_action_ratio")));
+    CHECK(std::isnan(*cadence_results[2]->GetScalar("policy_churn_action_ratio")));
+    CHECK(*cadence_results[3]->GetScalar("policy_churn_action_ratio") == Catch::Approx(0.0f));
+
+    const auto [inactive_sample_count, inactive_results] = run_case(std::nullopt);
+    CHECK(inactive_sample_count == 0);
+    CHECK(std::isnan(*inactive_results.front()->GetScalar("policy_churn_action_ratio")));
 }
 
 TEST_CASE("DQN learner reports subscribed parameter norm without activating feature metrics", "[dqn][plasticity][weight_norm]")

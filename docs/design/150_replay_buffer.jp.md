@@ -310,7 +310,9 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 ### 7.7 一様・非復元probe sample
 
-`SampleUniqueUniform(out, batch_size)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。件数不足時は`false`を返し、出力とprobe専用RNGを変更しない。全件要求時もRNGを消費しない。専用RNGはReplayBuffer seedから`plasticity_probe`名で派生し、通常sampler、priority、`MarkSampledOnce`、eviction統計へ触れない。
+`SampleUniqueUniform(out, batch_size, random)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。RNGはcallerが所有し、ReplayBufferはprobe用RNGを保持しない。件数不足時は`false`を返し、出力とcaller RNGを変更しない。全件要求時もRNGを消費しない。通常sampler、priority、`MarkSampledOnce`、eviction統計へは触れない。
+
+DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`から独立した`RandomGenerator` Resourceを作り、inner Learnerが非所有参照で各sample呼出しへ渡す。このためpolicy churnのON/OFFやcadenceは、通常Replay sampleとplasticity probeの乱数系列を変えない。callerごとの系列再現性はcaller seedの責務であり、ReplayBuffer seedからprobe系列を暗黙生成しない。
 
 `PrefetchingReplayBuffer`は呼出時までに受理したPushとin-flight prefetchをFIFO順でsettleしてからinnerへ委譲するが、通常prefetched batchは消費・並べ替えない。このためprobeの有無で通常sample列を変えない。
 
@@ -325,6 +327,7 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 - visualization accessor
 - concurrent Push/Sample/UpdatePriorities
 - CPU/CUDA device transfer
+- caller-owned probe RNGの決定性・consumer間分離・件数不足/全件時の非消費
 - PrefetchingReplayBufferの決定性、FIFO順序、Push/priority更新との同期、write-behind payloadのlifetime
 
 変更時は公開`ReplayBuffer` contractを保ち、同じseedに対するsample列、PER metadata、CPU path、CUDAが利用可能な場合の非同期pathを確認する。capacityとlane数を変更するtestでは要求容量ではなく`actual_capacity`も確認する。background workerの例外伝播やshutdown順序を変更する場合は、既存test範囲に含まれると仮定せず専用回帰testを追加する。

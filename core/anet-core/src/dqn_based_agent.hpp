@@ -1,10 +1,12 @@
 ﻿// rainbow_agent_impl.hpp
 
+#include <array>
 #include <cmath>
 #include <memory>
 #include <optional>
 #include <limits>
 #include <span>
+#include <unordered_set>
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
@@ -17,6 +19,24 @@
 
 
 namespace anet::rl::dqn {
+
+    inline constexpr std::array<const char*, 7> kPolicyChurnMetricKeys = {
+        "policy_churn_action_ratio",
+        "policy_churn_q_delta_abs_mean",
+        "policy_churn_q_delta_signed_max",
+        "policy_churn_q_delta_signed_min",
+        "policy_churn_target_policy_disagreement",
+        "policy_churn_target_q_delta_abs_mean",
+        "policy_churn_target_sync_age",
+    };
+
+    inline std::optional<size_t> ParsePolicyChurnMetric(const std::string& key)
+    {
+        for (size_t i = 0; i < kPolicyChurnMetricKeys.size(); ++i) {
+            if (key == kPolicyChurnMetricKeys[i]) return i;
+        }
+        return std::nullopt;
+    }
 
     ReplayInitialPriorityMode ParseReplayInitialPriorityMode(const LearnerConfig& config);
     void ValidateReplayPriorityConfig(const LearnerConfig& config, ReplayInitialPriorityMode initial_priority_mode);
@@ -147,12 +167,26 @@ namespace anet::rl::dqn {
         mutable std::optional<anet::nn::PlasticityMetrics> plasticity_metrics_cache;
         mutable std::optional<anet::nn::PlasticityMetrics> plasticity_target_metrics_cache;
 
+        // policy churn の 7 scalar を key 順に保持する CPU float32 pack。
+        torch::Tensor policy_churn_metrics;
+
     public:
         BatchUpdateResult() = default;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
             // 必要になって初めてCPUに転送する
+
+            if (const auto metric = ParsePolicyChurnMetric(key)) {
+                if (!policy_churn_metrics.defined()) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                if (policy_churn_metrics.numel() != static_cast<int64_t>(kPolicyChurnMetricKeys.size())) {
+                    ANET_SYSTEM_ERROR("DQN policy churn scalar pack has invalid size="
+                        << policy_churn_metrics.numel() << " expected=" << kPolicyChurnMetricKeys.size() << ".");
+                }
+                return policy_churn_metrics[static_cast<int64_t>(*metric)].item<float>();
+            }
 
             if (auto value = GetPlasticityScalar(key)) return value;
 
@@ -555,6 +589,7 @@ namespace anet::rl::dqn {
 
         /// target network 同期
         void UpdateTarget(anet::rl::step_t learn_step);
+        int GetHardUpdateInterval() const { return config_.hard_update_interval; }
 
         /// メトリクス用：TensorDict
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key, const torch::Device& device);
@@ -746,7 +781,9 @@ namespace anet::rl::dqn {
             torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
-            std::optional<anet::seed_t> target_seed = std::nullopt);
+            std::optional<anet::seed_t> target_seed = std::nullopt,
+            anet::RandomGenerator* plasticity_probe_random = nullptr,
+            anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
         void ConfigureScalarMetricSubscriptions(
@@ -762,7 +799,7 @@ namespace anet::rl::dqn {
         int64_t Load(InputArchive& archive) override;
     protected:
         // アルゴリズム固有の更新処理 (Loss計算, Backprop, Priority更新)
-        virtual std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        virtual std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) = 0;
     protected:
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
@@ -796,6 +833,12 @@ namespace anet::rl::dqn {
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
         void CapturePlasticityProbe();
+        void PreparePolicyChurnRequest();
+        void CapturePolicyChurnProbe();
+        void CapturePolicyChurnOnlineBefore();
+        void CapturePolicyChurnOnlineAfter();
+        void FinalizePolicyChurn(BatchUpdateResult& result);
+        torch::Tensor ForwardPolicyChurnExpectedQ(bool target) const;
     protected:
         const torch::Device device_;
         int num_envs_;
@@ -810,6 +853,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         anet::GradScaler grad_scaler_;
+        anet::RandomGenerator* plasticity_probe_random_ = nullptr;
+        anet::RandomGenerator* policy_churn_probe_random_ = nullptr;
         std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
         struct PlasticityState {
@@ -856,6 +901,47 @@ namespace anet::rl::dqn {
             torch::Tensor weight_norms;
             mutable std::optional<anet::nn::PlasticityMetrics> probe_metrics_cache;
         } plasticity_;
+        struct PolicyChurnState {
+            struct DemandEntry {
+                size_t metric_index;
+                int interval;
+                anet::IntervalGate gate;
+
+                DemandEntry(size_t metric_index, int interval)
+                    : metric_index(metric_index), interval(interval), gate(static_cast<uint64_t>(interval)) {}
+            };
+
+            std::vector<DemandEntry> demand;
+            std::array<bool, kPolicyChurnMetricKeys.size()> request{};
+            anet::TensorDict probe_obs;
+            torch::Tensor fixed_taus;
+            torch::Tensor online_before;
+            torch::Tensor online_after;
+
+            bool AnyQRequest() const
+            {
+                for (size_t i = 0; i < request.size() - 1; ++i) {
+                    if (request[i]) return true;
+                }
+                return false;
+            }
+
+            bool NeedsOnlineBefore() const
+            {
+                return request[0] || request[1] || request[2] || request[3];
+            }
+
+            bool NeedsOnlineAfter() const
+            {
+                return AnyQRequest();
+            }
+
+            bool NeedsTargetAfter() const
+            {
+                return request[4] || request[5];
+            }
+        } policy_churn_;
+        std::unordered_set<int> policy_churn_warned_intervals_;
     protected:
         float update_credit_ = 0.0f;
     private:
@@ -869,7 +955,9 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
-            std::optional<anet::seed_t> target_seed = std::nullopt);
+            std::optional<anet::seed_t> target_seed = std::nullopt,
+            anet::RandomGenerator* plasticity_probe_random = nullptr,
+            anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
         virtual ~QuantileLearnerBase() = default;
     protected:
@@ -891,9 +979,11 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
-            std::optional<anet::seed_t> target_seed = std::nullopt);
+            std::optional<anet::seed_t> target_seed = std::nullopt,
+            anet::RandomGenerator* plasticity_probe_random = nullptr,
+            anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
-        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;
     };
 
@@ -903,9 +993,11 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
-            std::optional<anet::seed_t> target_seed = std::nullopt);
+            std::optional<anet::seed_t> target_seed = std::nullopt,
+            anet::RandomGenerator* plasticity_probe_random = nullptr,
+            anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
-        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;
     private:
         torch::Tensor tau_i_; // QuantileHuberLoss 算出用
@@ -917,9 +1009,11 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
-            std::optional<anet::seed_t> target_seed = std::nullopt);
+            std::optional<anet::seed_t> target_seed = std::nullopt,
+            anet::RandomGenerator* plasticity_probe_random = nullptr,
+            anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
-        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;
     };
 

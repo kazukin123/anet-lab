@@ -81,6 +81,10 @@ DefaultDQNAgent::DefaultDQNAgent(
     auto learner_seed = seed_maker.MakeNamedSeed("learner");
     auto network_seed = seed_maker.MakeNamedSeed("network");
     this->action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
+    this->plasticity_probe_random_ = std::make_shared<anet::RandomGenerator>(
+        seed_maker.MakeNamedSeed("plasticity_probe"));
+    this->policy_churn_probe_random_ = std::make_shared<anet::RandomGenerator>(
+        seed_maker.MakeNamedSeed("policy_churn_probe"));
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
@@ -198,16 +202,22 @@ DefaultDQNAgent::DefaultDQNAgent(
     // Learner生成
     if (config_.quantile_mode == "iqn") {
         this->learner_ = std::make_unique<IQNLearner>(
-            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
+            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, config_.stucker, learner_seed,
+            plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
             << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")";
     } else if (config_.quantile_mode == "qr") {
         this->learner_ = std::make_unique<QRLearner>(
-            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
+            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, config_.stucker, learner_seed,
+            plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")";
     } else {
         this->learner_ = std::make_unique<TDLearner>(
-            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
+            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, config_.stucker, learner_seed,
+            plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized TDLearner";
     }
 

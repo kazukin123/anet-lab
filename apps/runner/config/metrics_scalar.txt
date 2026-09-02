@@ -66,6 +66,20 @@ metrics.scalar.@baseline.[34_agent_plasticity/62_weight_norm_readout] = plastici
 #metrics.scalar.@baseline.[34_agent_plasticity/65_spectral_sigma_feature] = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
 #metrics.scalar.@baseline.[34_agent_plasticity/66_spectral_sigma_readout] = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
 
+metrics.scalar.@baseline.[35_agent_churn/01_action_churn_ratio] = policy_churn_action_ratio @learn $learn_step $update_result interval:503
+metrics.scalar.@baseline.[35_agent_churn/02_action_churn_ratio_ema] = policy_churn_action_ratio @learn $learn_step $update_result $ema ema_alpha:0.1 interval:503
+metrics.scalar.@baseline.[35_agent_churn/03_q_delta_abs] = policy_churn_q_delta_abs_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@baseline.[35_agent_churn/04_q_delta_abs_ema] = policy_churn_q_delta_abs_mean @learn $learn_step $update_result $ema ema_alpha:0.1 interval:503
+metrics.scalar.@baseline.[35_agent_churn/05_q_delta_signed_max] = policy_churn_q_delta_signed_max @learn $learn_step $update_result interval:503
+metrics.scalar.@baseline.[35_agent_churn/06_q_delta_signed_max_ema] = policy_churn_q_delta_signed_max @learn $learn_step $update_result $ema ema_alpha:0.1 interval:503
+metrics.scalar.@baseline.[35_agent_churn/07_q_delta_signed_min] = policy_churn_q_delta_signed_min @learn $learn_step $update_result interval:503
+metrics.scalar.@baseline.[35_agent_churn/08_q_delta_signed_min_ema] = policy_churn_q_delta_signed_min @learn $learn_step $update_result $ema ema_alpha:0.1 interval:503
+metrics.scalar.@baseline.[35_agent_churn/11_target_disagreement] = policy_churn_target_policy_disagreement @learn $learn_step $update_result interval:503
+metrics.scalar.@baseline.[35_agent_churn/12_target_disagreement_ema] = policy_churn_target_policy_disagreement @learn $learn_step $update_result $ema ema_alpha:0.1 interval:503
+metrics.scalar.@baseline.[35_agent_churn/13_target_q_delta_abs] = policy_churn_target_q_delta_abs_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@baseline.[35_agent_churn/14_target_q_delta_abs_ema] = policy_churn_target_q_delta_abs_mean @learn $learn_step $update_result $ema ema_alpha:0.1 interval:503
+metrics.scalar.@baseline.[35_agent_churn/15_target_sync_age] = policy_churn_target_sync_age @learn $learn_step $update_result interval:503
+
 metrics.scalar.@baseline.[37_agent_qtd/01_td_mean] = td_mean @learn $update_result
 metrics.scalar.@baseline.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $update_result $ema
 metrics.scalar.@baseline.[37_agent_qtd/04_td_std] = td_std @learn $update_result

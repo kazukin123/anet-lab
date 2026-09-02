@@ -179,7 +179,8 @@ public:
     }
 
     void Sample(rl::ExperienceSamples&, int64_t, float) const override {}
-    bool SampleUniqueUniform(rl::ExperienceSamples&, int64_t) const override { return false; }
+    bool SampleUniqueUniform(
+        rl::ExperienceSamples&, int64_t, anet::RandomGenerator&) const override { return false; }
     int64_t Size() const override { return 0; }
     rl::ReplayPriorityUpdateResult UpdatePriorities(
         const std::vector<int64_t>&, const std::vector<float>&) override

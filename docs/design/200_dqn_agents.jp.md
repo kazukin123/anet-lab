@@ -296,10 +296,10 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 ### 8.1 ResourceとState
 
-- 外側Agentが`RuntimeVars`、`NetworkModel`、Policy、inner Learner、scaler類のlifetimeを所有する。
+- 外側Agentが`RuntimeVars`、`NetworkModel`、Policy、inner Learner、scaler類、plasticity/policy churn probe用RNG Resourceのlifetimeを所有する。
 - inner Learnerは外側の`NetworkModel`と`RuntimeVars`を参照し、OptimizerとReplayBufferを直接所有する。
 - shared ActorはAgent所有Networkを参照し、clone Actorはprivate Networkを所有する。どちらもLearnerそのものは参照しない。
-- epsilonとUQE tau減衰scheduleはActionPolicy、update creditとwarmup latchはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。IQNのtau配置方式は設定であり、各forwardのtausはPolicyまたはLearnerが所有するRNGから生成する一時入力である。
+- epsilonとUQE tau減衰scheduleはActionPolicy、update creditとwarmup latch、policy churnのupdate単位request/probe/Qはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。IQNのtau配置方式は設定であり、各forwardのtausはPolicyまたはLearnerが所有するRNGから生成する一時入力である。policy churnのfixed midpoint tausは乱数を使わず、同じupdateの最大3 forwardで共有する。
 - outer Agentの共有mutexはLearner更新、shared Actor forward、clone/sync copyの境界を直列化する。
 
 ### 8.2 checkpoint
@@ -308,7 +308,8 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 次は現行DefaultDQN checkpointへ保存・復元しない。
 
-- ReplayBufferの内容、generation、priority、sample RNG、prefetch状態
+- ReplayBufferの内容、generation、priority、通常sample RNG、prefetch状態
+- plasticity/policy churn probe RNGと、update途中のpolicy churn測定State
 - `RuntimeVars`、update credit、warmup latch、PER betaなどの学習進行State
 - RewardScalerとObservationNormalizerの統計
 - RunのStepCountsとmetric系列
@@ -390,6 +391,26 @@ online actual、target actual、probeの有効化とcapture cadenceは、各plas
 
 parameter側は、online networkを`feature_key`の依存閉包でfeature/readoutへ分け、生weight norm 2値、SN適用後の実効weight norm 2値、各群の最大sigma 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、online/targetのSN validity sentinelとともに固定長8要素packとして同じ`BatchUpdateResult`へ載せる。6公開値のいずれかを初めて読むときだけpack全体をCPUへ移し、同じevent内でcacheする。sentinelが異常を示した場合だけNetworkを再walkし、online/targetと完全layer名を含めてfail-fastする。SN layerがない群のsigmaは`NaN`、実効normは生normと同じである。購読が無ければparameter列挙もD2Hも行わない。
 
+### 9.5 Policy churnメトリクス
+
+DefaultDQNは、ReplayBufferの一様・非復元probe上で1 learner updateによるonline expected Qとgreedy actionの変化を測り、target update後のonline/target差と合わせて`35_agent_churn`へ7 scalarを公開する。測定本体は共通`dqn::Learner`に置くが、config、購読、baseline公開はDefaultDQNだけであり、Rainbow、ImageCls、NoisyNetは現行対象外である。
+
+測定順は次に固定する。
+
+1. Q由来keyがその`learn_step`で発火した場合だけ、caller-owned `policy_churn_probe` RNGで完全なprobe batchを1回取得し、既存Observation正規化を適用する。
+2. 通常学習のforward、backward、grad clipを完了する。
+3. 実際のoptimizer step直前に`online-before`、直後に`online-after`を取得する。
+4. 通常のhard copyまたはsoft updateを実行する。
+5. target系keyが必要なら`target-after`を取得し、固定長7要素float32 CPU packを`BatchUpdateResult`へ確定する。
+
+churn forwardは`NoGrad`、eval mode、autocast明示無効のFP32で行い、外側LearnerがBF16/FP16でも精度契約を変えない。TD/QRはNetworkの`q`を使う。IQNは`learner.policy_churn.iqn.num_taus`本の`(i+0.5)/K`をprobe batchへ展開し、同一Tensorをbefore/after/targetで共有して得た`q`をexpected Qとする。TBOの逆変換は行わずNetwork出力空間で差を取る。
+
+online 4指標はaction churn率、全状態・行動のabsolute Q差平均、行動ごとの状態平均signed Q差の最大/最小である。target 2指標はtarget update後のgreedy不一致率とabsolute Q差平均である。`target_sync_age`はhard update後の`learn_step % hard_update_interval`、soft updateでは`NaN`とする。hard sync stepではonline/target指標が厳密に0となる。
+
+購読はtrain scopeの`@learn $learn_step $update_result`だけを解釈し、keyごとの`IntervalGate`で発火を決める。online群はbefore+after、target群はafter+target、ageだけならsample/forwardなしとし、複合購読ではprobeとafterを共有する。購読ゼロではsample、forward、集計、payloadを作らない。完全なprobe batchを取得できない場合は縮小せずQ由来6値を`NaN`にする。7 keyは常に既知として扱い、未発火・未成立は`NaN`、未知keyだけを`nullopt`にする。
+
+baselineは7行ともinterval 503である。hard update intervalを`C`、metrics intervalを`I`としたとき`C / gcd(C, I) == 1`なら、観測位相が`target_sync_age=0`へ固定されるため、intervalごとに1回だけWARNする。位相数2以上とsoft updateは許容し、警告しない。
+
 ## 10. テストと拡張時の確認事項
 
 主なDQN testは[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)と[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)に置く。
@@ -404,6 +425,7 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 6. `actor_approx` schemaをDQN layerに閉じ、共通ReplayBufferへQ値の意味を持ち込まない。
 7. 保存対象と非保存Stateを列挙し、互換checkpointと非互換checkpointの結果をtestする。
 8. 追加metricのsource、step軸、未対応Agentでの`nullopt`または`NaN`条件を定義する。
+9. policy churnを変更する場合は、zero update、online差分、hard/soft target、FP32 autocast境界、IQN fixed taus、購読ゲート、caller-owned probe RNGの非干渉を確認する。
 
 ## 11. 関連文書
 

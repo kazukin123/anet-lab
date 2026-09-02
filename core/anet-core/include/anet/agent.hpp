@@ -187,6 +187,7 @@ namespace anet::rl {
         };
 
         struct LearnerConfig {
+            std::string quantile_mode = "none"; ///< Agent config から解決して渡す内部mode
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
             float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
@@ -245,6 +246,15 @@ namespace anet::rl {
                     int batch_size = 512;
                 } probe;
             } plasticity;
+
+            struct PolicyChurnConfig {
+                struct ProbeConfig {
+                    int batch_size = 1024;
+                } probe;
+                struct IqnConfig {
+                    int num_taus = 32;
+                } iqn;
+            } policy_churn;
 
             bool use_amp = false;
             bool use_amp_bf16 = false;

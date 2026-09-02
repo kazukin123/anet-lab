@@ -834,11 +834,10 @@ private:
     torch::TensorOptions opt_float_;
 };
 
-class UniqueUniformSampler : public ReplayExperienceSampler, public anet::RandomHolder {
+class UniqueUniformSampler final : public ReplayExperienceSampler {
 public:
-    explicit UniqueUniformSampler(std::optional<anet::seed_t> seed)
-        : anet::RandomHolder(seed)
-        , gen_(rnd_->GetTorchGenerator(torch::kCPU))
+    explicit UniqueUniformSampler(anet::RandomGenerator& random)
+        : gen_(random.GetTorchGenerator(torch::kCPU))
         , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
         , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
     {
@@ -1253,7 +1252,6 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     std::unique_ptr<ExperienceQueueController> queue_controller,
     std::unique_ptr<ReplayExperienceBuilder> builder,
     std::shared_ptr<ReplayExperienceSampler> sampler,
-    std::shared_ptr<ReplayExperienceSampler> unique_uniform_sampler,
     std::shared_ptr<ReplayPriorityStore> priority_store,
     std::shared_ptr<ExperienceSampleExtractor> extractor,
     std::unique_ptr<InitialPriorityCompleter> initial_priority_completer,
@@ -1263,7 +1261,6 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     , queue_controller_(std::move(queue_controller))
     , builder_(std::move(builder))
     , sampler_(sampler)
-    , unique_uniform_sampler_(std::move(unique_uniform_sampler))
     , priority_store_(std::move(priority_store))
     , extractor_(extractor)
     , initial_priority_completer_(std::move(initial_priority_completer))
@@ -1538,7 +1535,8 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
     ANET_PROFILE_SCOPE_END(extract);
 }
 
-bool DefaultReplayBuffer::SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size) const
+bool DefaultReplayBuffer::SampleUniqueUniform(
+    ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const
 {
     ANET_PROFILE_FUNC();
     ANET_ASSERT_MSG(batch_size >= 1, "SampleUniqueUniform requires batch_size >= 1. batch_size=" << batch_size);
@@ -1550,8 +1548,9 @@ bool DefaultReplayBuffer::SampleUniqueUniform(ExperienceSamples& out_samples, in
         config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
     if (valid_1d.size(0) < batch_size) return false;
 
-    // 専用 RNG で一様・非復元抽選し、priority や sampled-once 統計には触れない
-    const auto idx_result = unique_uniform_sampler_->SampleIndices(batch_size, valid_1d, 0.0f);
+    // caller 所有 RNG で一様・非復元抽選し、priority や sampled-once 統計には触れない
+    UniqueUniformSampler unique_uniform_sampler(random);
+    const auto idx_result = unique_uniform_sampler.SampleIndices(batch_size, valid_1d, 0.0f);
     metadata_lock.unlock();
 
     ExperienceSamples samples;
@@ -2113,7 +2112,8 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
     }
 }
 
-bool PrefetchingReplayBuffer::SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size) const
+bool PrefetchingReplayBuffer::SampleUniqueUniform(
+    ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const
 {
     ANET_PROFILE_FUNC();
 
@@ -2121,7 +2121,7 @@ bool PrefetchingReplayBuffer::SampleUniqueUniform(ExperienceSamples& out_samples
     // 呼び出し時点までの worker FIFO を確定し、通常 prefetch future は消費しない
     state_->WaitForPrefetchLocked();
     state_->WaitForQueuedPushesLocked();
-    return inner_->SampleUniqueUniform(out_samples, batch_size);
+    return inner_->SampleUniqueUniform(out_samples, batch_size, random);
 }
 
 int64_t PrefetchingReplayBuffer::Size() const
@@ -2216,13 +2216,9 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     auto initial_priority_completer = CreateInitialPriorityCompleter(
         config, num_envs, std::move(initial_priority_estimator));
 
-    anet::SeedMaker probe_seed_maker(seed);
-    auto unique_uniform_sampler = std::make_shared<UniqueUniformSampler>(
-        probe_seed_maker.MakeNamedSeed("plasticity_probe"));
-
     auto extractor = std::make_shared<DefaultSampleExtractor>(config.stack_keys);
 
     return std::make_shared<DefaultReplayBuffer>(
-        config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler, unique_uniform_sampler,
+        config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler,
         priority_store, extractor, std::move(initial_priority_completer), storage_device, pin_memory);
 }

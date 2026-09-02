@@ -400,3 +400,13 @@ _Avoid_: feature norm（activation側との混同）, body/head 分割
 **実効重み**:
 Spectral Normalization 適用層で forward が実際に使う正規化後の重み。optimizer が更新する生パラメータとは区別し、SN 下では生ノルムが制約されず実効側だけが正規化で抑えられる。SN 非適用層では生パラメータと一致する。
 _Avoid_: normalized weight（手法名の Weight Normalization と紛れる）, W_eff（記号は文書内の式でのみ使う）
+
+### 方策更新統計
+
+**policy churn**:
+同じ状態集合に対して、1 回の learner update の前後で expected Q の greedy 行動が変わった割合。表現の健全性ではなく、更新による方策の落ち着かなさを表す。
+_Avoid_: plasticity churn（可塑性指標と混同）, action churn（探索行動の変化とも読める）, policy drift（複数 update にまたがる変化と混同）
+
+**target policy disagreement**:
+同じ状態集合に対して、online network と target network の expected Q の greedy 行動が食い違う割合。target の遅れを方策空間で表し、target network 自身の update 前後 churn とは区別する。
+_Avoid_: target churn（target update 前後の変化と混同）, policy churn target（online update 前後の指標と混同）, target lag（値・Q差・時間のどれを指すか曖昧）

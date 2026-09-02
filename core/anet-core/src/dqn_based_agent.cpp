@@ -1838,12 +1838,15 @@ void Actor::Sync()
 
 Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), model_(model), vars_(vars), obs_norm_(std::move(obs_norm))
     , num_envs_(batch_env_spec.num_envs)
     , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
     , target_policy_(std::move(target_policy))
+    , plasticity_probe_random_(plasticity_probe_random)
+    , policy_churn_probe_random_(policy_churn_probe_random)
 {
     // Credit計算
     if (config_.replay_ratio > 0) {
@@ -1892,12 +1895,20 @@ void Learner::ConfigureScalarMetricSubscriptions(
     const std::vector<ScalarMetricSubscription>& subscriptions)
 {
     plasticity_ = PlasticityState{};
+    policy_churn_.demand.clear();
     const auto update_min = [](int current, int candidate, bool was_enabled) {
         return was_enabled ? std::min(current, candidate) : candidate;
     };
     for (const auto& subscription : subscriptions) {
         if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
         const auto& key = subscription.source_key;
+        if (policy_churn_probe_random_ != nullptr
+            && subscription.target == EventField::UPDATE_RESULT) {
+            if (const auto metric = ParsePolicyChurnMetric(key)) {
+                policy_churn_.demand.emplace_back(*metric, subscription.interval);
+                continue;
+            }
+        }
         if (key == "plasticity_weight_norm_feature"
             || key == "plasticity_weight_norm_readout"
             || key == "plasticity_weight_norm_feature_effective"
@@ -1919,6 +1930,20 @@ void Learner::ConfigureScalarMetricSubscriptions(
             const auto metric = anet::nn::ParsePlasticityMetricSuffix(
                 key.substr(std::string("plasticity_").size()));
             if (metric.has_value()) plasticity_.online.Add(*metric, subscription.interval);
+        }
+    }
+
+    // hard update と同一位相だけを観測する interval を、設定単位で一度だけ診断する。
+    const int hard_update_interval = model_.GetHardUpdateInterval();
+    if (hard_update_interval > 0) {
+        for (const auto& entry : policy_churn_.demand) {
+            const int metrics_interval = entry.interval;
+            const int phase_count = hard_update_interval / std::gcd(hard_update_interval, metrics_interval);
+            if (phase_count == 1 && policy_churn_warned_intervals_.insert(metrics_interval).second) {
+                LOG::warn() << "Policy churn metrics observe one hard-target phase: target_sync_age=0"
+                    << " metrics_interval=" << metrics_interval
+                    << " hard_update_interval=" << hard_update_interval << ".";
+            }
         }
     }
 
@@ -1945,8 +1970,12 @@ void Learner::CapturePlasticityProbe()
 {
     ANET_PROFILE_SCOPE(plasticity_probe);
 
+    if (plasticity_probe_random_ == nullptr) {
+        ANET_SYSTEM_ERROR("Plasticity probe RNG is unavailable for a subscribed probe metric.");
+    }
     ExperienceSamples cpu_samples;
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.plasticity.probe.batch_size)) return;
+    if (!replay_buffer_->SampleUniqueUniform(
+        cpu_samples, config_.plasticity.probe.batch_size, *plasticity_probe_random_)) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.plasticity.probe.batch_size);
     const auto norm_samples = NormalizeSampleObservations(samples);
@@ -1959,6 +1988,120 @@ void Learner::CapturePlasticityProbe()
             << config_.plasticity.feature_key << "' shape=" << plasticity_.probe_features.sizes());
     }
     plasticity_.probe_metrics_cache.reset();
+}
+
+void Learner::PreparePolicyChurnRequest()
+{
+    // update を跨ぐ probe と Q を失効させ、現在 cadence の要求だけを再構築する。
+    policy_churn_.request.fill(false);
+    policy_churn_.probe_obs = {};
+    policy_churn_.fixed_taus = torch::Tensor();
+    policy_churn_.online_before = torch::Tensor();
+    policy_churn_.online_after = torch::Tensor();
+    for (auto& entry : policy_churn_.demand) {
+        if (entry.gate.ShouldFire(vars_.learn_step)) {
+            policy_churn_.request[entry.metric_index] = true;
+        }
+    }
+}
+
+void Learner::CapturePolicyChurnProbe()
+{
+    if (!policy_churn_.AnyQRequest()) return;
+    ANET_PROFILE_SCOPE_FULL(sample, "Learner::PolicyChurn.sample");
+    if (policy_churn_probe_random_ == nullptr) {
+        ANET_SYSTEM_ERROR("Policy churn probe RNG is unavailable for a subscribed metric.");
+    }
+
+    // 完全な一様非復元 batch を取得できる場合だけ、同一 update の比較入力を確定する。
+    ExperienceSamples cpu_samples;
+    if (!replay_buffer_->SampleUniqueUniform(
+        cpu_samples, config_.policy_churn.probe.batch_size, *policy_churn_probe_random_)) return;
+    auto samples = cpu_samples.To(device_);
+    ValidateDeviceSamples(samples, config_.policy_churn.probe.batch_size);
+    policy_churn_.probe_obs = NormalizeSampleObservations(samples).obs;
+
+    if (config_.quantile_mode == "iqn") {
+        const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device_);
+        const auto midpoint = torch::arange(config_.policy_churn.iqn.num_taus, options) + 0.5f;
+        policy_churn_.fixed_taus = midpoint.div(static_cast<float>(config_.policy_churn.iqn.num_taus))
+            .unsqueeze(0)
+            .expand({ config_.policy_churn.probe.batch_size, config_.policy_churn.iqn.num_taus });
+    }
+}
+
+torch::Tensor Learner::ForwardPolicyChurnExpectedQ(bool target) const
+{
+    torch::NoGradGuard no_grad;
+    anet::Autocast autocast_guard(device_, false, torch::kFloat32);
+    auto network = target ? model_.GetTargetNetwork() : model_.GetOnlineNetwork();
+    anet::TrainingModeGuard training_guard(*network, false);
+
+    // IQN は 1 update 内で共有する固定 midpoint taus を shallow copy へ注入する。
+    auto input = policy_churn_.probe_obs;
+    if (config_.quantile_mode == "iqn") {
+        input.Set(anet::nn::kKey_Taus, policy_churn_.fixed_taus);
+    }
+    const auto q = network->Forward(input).At("q");
+    if (q.scalar_type() != torch::kFloat32) {
+        ANET_SYSTEM_ERROR("Policy churn forward must produce float32 Q values. dtype="
+            << c10::toString(q.scalar_type()) << ".");
+    }
+    return q.detach();
+}
+
+void Learner::CapturePolicyChurnOnlineBefore()
+{
+    if (!policy_churn_.NeedsOnlineBefore() || !policy_churn_.probe_obs.Defined()) return;
+    ANET_PROFILE_SCOPE_FULL(online_before, "Learner::PolicyChurn.online_before");
+    policy_churn_.online_before = ForwardPolicyChurnExpectedQ(false);
+}
+
+void Learner::CapturePolicyChurnOnlineAfter()
+{
+    if (!policy_churn_.NeedsOnlineAfter() || !policy_churn_.probe_obs.Defined()) return;
+    ANET_PROFILE_SCOPE_FULL(online_after, "Learner::PolicyChurn.online_after");
+    policy_churn_.online_after = ForwardPolicyChurnExpectedQ(false);
+}
+
+void Learner::FinalizePolicyChurn(BatchUpdateResult& result)
+{
+    const bool any_request = std::ranges::any_of(policy_churn_.request, [](bool value) { return value; });
+    if (!any_request) return;
+    ANET_PROFILE_SCOPE_FULL(aggregate, "Learner::PolicyChurn.aggregate");
+
+    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+    auto values = torch::full(
+        { static_cast<int64_t>(kPolicyChurnMetricKeys.size()) },
+        std::numeric_limits<float>::quiet_NaN(), options);
+    const auto set_value = [&](size_t index, const torch::Tensor& value) {
+        if (policy_churn_.request[index]) values[static_cast<int64_t>(index)] = value.to(torch::kCPU);
+    };
+
+    // online update 差分は before/after の両方が成立した場合だけ集計する。
+    if (policy_churn_.online_before.defined() && policy_churn_.online_after.defined()) {
+        const auto delta = policy_churn_.online_after - policy_churn_.online_before;
+        set_value(0, policy_churn_.online_before.argmax(1).ne(
+            policy_churn_.online_after.argmax(1)).to(torch::kFloat32).mean());
+        set_value(1, delta.abs().mean());
+        const auto action_mean = delta.mean(0);
+        set_value(2, action_mean.max());
+        set_value(3, action_mean.min());
+    }
+
+    // target 指標は通常 target update 後の online/target を同一 probe 上で比較する。
+    if (policy_churn_.NeedsTargetAfter() && policy_churn_.online_after.defined()) {
+        ANET_PROFILE_SCOPE_FULL(target_after_profile, "Learner::PolicyChurn.target_after");
+        const auto target_after = ForwardPolicyChurnExpectedQ(true);
+        set_value(4, policy_churn_.online_after.argmax(1).ne(
+            target_after.argmax(1)).to(torch::kFloat32).mean());
+        set_value(5, (policy_churn_.online_after - target_after).abs().mean());
+    }
+
+    if (policy_churn_.request[6] && model_.GetHardUpdateInterval() > 0) {
+        values[6] = static_cast<float>(vars_.learn_step % model_.GetHardUpdateInterval());
+    }
+    result.policy_churn_metrics = std::move(values);
 }
 
 std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int64_t index) const
@@ -2075,11 +2218,15 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
             anet::ForeachClipGradNorm_(grads, result.grad_norm_tensor, config_.grad_clip_tau);
 
             ANET_PROFILE_SCOPE_NEXT(optimizer_step);
+            CapturePolicyChurnOnlineBefore();
             optimizer_->step();
+            CapturePolicyChurnOnlineAfter();
             return result;
         } else {
             ANET_PROFILE_SCOPE_NEXT(optimizer_step);
+            CapturePolicyChurnOnlineBefore();
             optimizer_->step();
+            CapturePolicyChurnOnlineAfter();
             return result;
         }
     }
@@ -2105,14 +2252,18 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
             anet::ForeachClipGradNorm_(grads, result.grad_norm_tensor, config_.grad_clip_tau);
 
             ANET_PROFILE_SCOPE_NEXT(scaler_step);
+            CapturePolicyChurnOnlineBefore();
             grad_scaler_.Step(*optimizer_);
+            CapturePolicyChurnOnlineAfter();
 
             ANET_PROFILE_SCOPE_NEXT(scaler_update);
             grad_scaler_.Update();
             return result;
         } else {
             ANET_PROFILE_SCOPE_NEXT(scaler_step);
+            CapturePolicyChurnOnlineBefore();
             grad_scaler_.Step(*optimizer_);
+            CapturePolicyChurnOnlineAfter();
 
             ANET_PROFILE_SCOPE_NEXT(scaler_update);
             grad_scaler_.Update();
@@ -2151,12 +2302,16 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
         anet::ForeachClipGradNorm_(grads, result.grad_norm_tensor, config_.grad_clip_tau);
 
         ANET_PROFILE_SCOPE_NEXT(optimizer_step);
+        CapturePolicyChurnOnlineBefore();
         optimizer_->step();
+        CapturePolicyChurnOnlineAfter();
         return result;
     }
 
     ANET_PROFILE_SCOPE_NEXT(optimizer_step);
+    CapturePolicyChurnOnlineBefore();
     optimizer_->step();
+    CapturePolicyChurnOnlineAfter();
     return result;
 }
 
@@ -2521,6 +2676,8 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         ValidateDeviceSamples(dev_samples, B);
 
         // 現在の learn_step に対応する actual/probe 測定要求を準備
+        PreparePolicyChurnRequest();
+        CapturePolicyChurnProbe();
         plasticity_.online_request = plasticity_.online.MakeRequest(vars_.learn_step);
         plasticity_.target_request = plasticity_.target.MakeRequest(vars_.learn_step);
         const auto probe_request = plasticity_.probe.MakeRequest(vars_.learn_step);
@@ -2562,7 +2719,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // 固有処理呼び出し
         //auto samples = raw_samples.FlattenStates();
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result;
+        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> result;
         try {
             result = UpdateFromSamples(dev_samples);
         } catch (...) {
@@ -2570,10 +2727,11 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
             throw;
         }
         model_.ClearBranchCaptureRequests();
-        result_list.push_back(result);
 
         // 更新後処理
         UpdateTargetNetwork(vars_.learn_step);
+        FinalizePolicyChurn(*result);
+        result_list.push_back(result);
         UpdatePerBeta(counts.exp_step);
 
         // カウント系更新
@@ -2605,8 +2763,10 @@ int64_t Learner::Load(InputArchive& archive)
 
 QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
-    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, std::move(target_policy), stucker_config, target_seed)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
+    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
+        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
 }
 
@@ -2789,14 +2949,16 @@ IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
 
 TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
-    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, device, replay_seed, std::move(target_policy), stucker_config, target_seed)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
+    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, device, replay_seed,
+        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
+std::shared_ptr<anet::rl::dqn::BatchUpdateResult>
 TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ANET_PROFILE_FUNC();
@@ -2942,8 +3104,10 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
-    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, std::move(target_policy), stucker_config, target_seed)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
+    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
+        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -2954,7 +3118,7 @@ QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVa
     ANET_ASSERT_SHAPE(tau_i_, { 1, N, 1 });
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
+std::shared_ptr<anet::rl::dqn::BatchUpdateResult>
 QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ANET_PROFILE_FUNC();
@@ -3083,15 +3247,16 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), stucker_config, target_seed)
+        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
+std::shared_ptr<anet::rl::dqn::BatchUpdateResult>
 IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ANET_PROFILE_FUNC();

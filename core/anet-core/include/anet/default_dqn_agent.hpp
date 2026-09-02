@@ -223,9 +223,19 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
             ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
             ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.policy_churn.iqn.num_taus);
             if (learner.plasticity.probe.batch_size < 1) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.plasticity.probe.batch_size: value="
                     << learner.plasticity.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.policy_churn.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.policy_churn.probe.batch_size: value="
+                    << learner.policy_churn.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.policy_churn.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.policy_churn.iqn.num_taus: value="
+                    << learner.policy_churn.iqn.num_taus << " expected integer >= 1");
             }
             if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
                 ANET_SYSTEM_ERROR(
@@ -270,6 +280,7 @@ namespace anet::rl::dqn {
             train_policy.quantile_mode = quantile_mode;
             eval_policy.quantile_mode = quantile_mode;
             target_policy.quantile_mode = quantile_mode;
+            learner.quantile_mode = quantile_mode;
             learner.num_quantiles = qr.num_quantiles;
 
             // 現行の分布表現契約と全tau ruleを、利用前の設定境界で検証する。
@@ -386,6 +397,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
+        std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource
+        std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     private:
         seed_t action_context_seed_;

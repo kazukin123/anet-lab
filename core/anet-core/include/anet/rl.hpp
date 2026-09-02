@@ -830,7 +830,8 @@ namespace anet::rl {
     public:
         virtual void Push(const BatchExperience& batch_exp) = 0;
         virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
-        virtual bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size) const = 0;
+        virtual bool SampleUniqueUniform(
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
