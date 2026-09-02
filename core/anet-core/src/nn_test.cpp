@@ -2344,6 +2344,14 @@ TEST_CASE("Linear spectral normalization is constructed from config", "[nn][spec
     CHECK(entries.front().name == "feature.Linear_0.linear");
     CHECK(entries.front().u.dim() == 1);
     CHECK(entries.front().v.dim() == 1);
+    bool has_sn_u_linear = false;
+    bool has_sn_v_linear = false;
+    for (const auto& item : network->named_buffers(true)) {
+        has_sn_u_linear |= item.key().ends_with("sn_u_linear");
+        has_sn_v_linear |= item.key().ends_with("sn_v_linear");
+    }
+    CHECK(has_sn_u_linear);
+    CHECK(has_sn_v_linear);
 
     network->eval();
     anet::TensorDict input;

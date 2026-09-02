@@ -78,8 +78,8 @@ Pop-Location
 
 - Phase 1 / Phase 2 と6 block、seed契約、SoftCopy、DQN / ImageCls metrics pack、設定・設計文書の同期を完了した。
 - 第1ラウンドでは、Debug全core testが `520 cases / 5190 assertions`（`518 passed / 2 failed as expected`）で完走し、Release全体ビルドも成功した。
-- レビュー修正後は、`cmake --build --preset x64-Debug` による全targetの再ビルドが成功した。対象テストは `[spectral_norm]` が `18 test cases / 103 assertions`、`[nn]` が `92 test cases / 875 assertions` で、いずれも全件成功した。
-- レビュー修正後のDebug全core test再実行は、並行稼働中の `AnetRLRunner_ab.exe` とCUDA資源が競合して長時間停止したため中断した。テスト失敗は観測していないが、レビュー修正後の全件case / assertion数は未確定であり、上記 `520 cases / 5190 assertions` は第1ラウンドの結果として扱う。
+- レビュー修正とSN対応moduleの共通基底化後は、`cmake --build --preset x64-Debug` による全targetの再ビルドが成功した。対象テストは `[spectral_norm]` が `18 test cases / 105 assertions`、`[nn]` が `92 test cases / 877 assertions` で、いずれも全件成功した。
+- 最終Debug全core testは `521 cases / 5193 assertions`（test caseは`519 passed / 2 failed as expected`、assertionは`5191 passed / 2 failed as expected`）で完走した。
 - OFFの `loss`、`q_max_mean/max`、61/62はbase/new各935行が完全一致し、canonical SHA-256は `77A80741B636BDDA529445ABBCA12FC7A3C22C1B1F931A899CC7FD534497F855` だった。
 - OFF throughputの20k〜100k step中央値はbase平均 `5800.997`、new平均 `5758.811`、差分 `-0.727%` で `<2%` gateを満たした。
 - 最終ReleaseでのON smokeは両modeとも100k stepを完走し、lossは全311点finiteだった。`spectral` は先行run/final run各938行のcanonical SHA-256が `644D1B0AA1206B2FF5A980F8457EE483A433DAD8DBA5E39AB855BA017E216549`、`spectral_cap` は `CC81B9CF508746EC429123D8DCAB18C2815B26BA41029F3C1B6E791EC39AEC25` でそれぞれ完全一致した。
