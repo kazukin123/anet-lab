@@ -12,7 +12,7 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | 2026-08-29〜 | [設定修正後の再ベースラインと RR の勾配軸決着](2026-08-29_bundle-fix-rebaseline.md) | `noop_max` / `adam_eps` 修正後のアンカー取り直し、崩壊アッセイのバンドル移行、RR1 / RR4 の 50M 比較 | 再ベースライン決着。**RR1 @ 50M ≈ 440 でまだ登り坂**、RR4 は 5-10M で天井。摩耗の勾配軸依存を RR 8/4/1 で確認 |
 | 2026-08-30 | [可塑性の保護機構 screening](2026-08-30_protection-screening.md) | 機序の各段を叩く 5 腕（SiLU / LayerNorm / spectral 全層・BTR 範囲 / spectral_cap）を RR8 アッセイで比較 | 一次 screening 完了。**対照を有意に上回った腕はゼロ**。機序指標は 大きく動く（LN512 で実効ランク +14σ）のに `q_gap_rel` が全腕で不動 |
 | 2026-08-31 | [RR4 天井と LayerNorm](2026-08-31_rr4-ceiling-ln512.md) | LN512 の RR4 / RR1 での効果、432 点の壁の発見、eval1 の検出力、τ 整合単独と LN 併用 | 決着。**LN512 は RR4 の天井を押し上げる**が RR1 には届かない。τ 腕は測定済みの行き止まり。**判定軸を eval1 から train 側の壁突破率へ移した** |
-| 2026-08-31〜 | [BTR ソース差分の腕別スクリーニング](2026-09-01_btr-feedback-arms.md) | BTR 実装読解で特定した差分を RR1 / 50M の 1 変数腕で個別に測る。同一設定の複製対によるブレ幅較正、`35_agent_churn` 群の基準値取得、head 活性の分解と BTR 構造ラダー | active。壁突破率 1.35%(基準) → **V/A ReLU 3.48%** → **hard C=125 6.29%**。τ 側の ReLU は純粋なコスト。**6×6 pooling は τ 融合 2304 とセットでないと効果を消す**。100M で崩壊せず 8.70%。**`01_action_churn_ratio` は成績を順序付けない（4 例）**。`eval1`=target net が hard 腕を過小評価する疑い |
+| 2026-08-31〜 | [BTR ソース差分の腕別スクリーニング](2026-09-01_btr-feedback-arms.md) | BTR 実装読解で特定した差分を RR1 / 50M の 1 変数腕で個別に測る。同一設定の複製対によるブレ幅較正、`35_agent_churn` 群の基準値取得、head 活性の分解と BTR 構造ラダー、target 更新速度の掃引 | active。壁突破率 1.35%(基準) → **adv_stream の ReLU で 3.31%** → **`soft_update_tau` 0.001→0.008 で 6.16%**。**hard update に固有の効果は無く、τ が 8 倍遅すぎただけだった**。τ 側の ReLU と BTR 構造は複製で上積みが消えた。**`01_action_churn_ratio` は成績を順序付けない（LeakyReLU 対 ReLU で機序一致・成績 1.4 倍差が決定打）**。`52_eval2` 有効化で **eval1=target net が soft 腕を 5〜15% 嵩上げしていた**ことが確定 |
 
 ## 現時点の判断
 

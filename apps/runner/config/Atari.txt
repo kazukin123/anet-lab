@@ -328,6 +328,7 @@ run.@pl_gn_wd030   : app.run_name = run_{t}_a3_gn_wd030
 
 run.@pl_check      : @vars.max_exp_step = 100,000    # 配線確認。eval を切って 2 分で回す
 run.@pl_check      : train.eval_schedule.[eval1].interval = 0
+run.@pl_check      : train.eval_schedule.[eval2].interval = 0
 run.@pl_check      : app.run_name = run_{t}_tmp_wiring
 
 run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る。run_name は腕から継ぐ
@@ -494,6 +495,86 @@ run.@rr1_va_btrstruct : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosE
 run.@rr1_va_btrstruct : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
 run.@rr1_va_btrstruct : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
 run.@rr1_va_btrstruct : app.run_name = run_{t}_z2_rr1_va_btrstruct_${E1.game}
+
+# ---- head 活性の V/A 分離(2026-09-03) --------------------------------------
+# dueling の集約は q = v + (a - mean_a a) なので argmax_a Q = argmax_a A。
+# churn(argmax の変化率)は A ストリームだけで決まり、V の活性は直接影響できない。
+#   A のみ → churn 効果を完全再現するはず
+#   V のみ → churn はほぼ動かないはず(動けば「表現の勾配干渉」説が残る)
+run.@rr1_a_relu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_a_relu : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_a_relu : app.run_name = run_{t}_v4_rr1_a_relu_${E1.game}
+
+run.@rr1_v_relu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_v_relu : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_v_relu : app.run_name = run_{t}_v5_rr1_v_relu_${E1.game}
+
+# 疎性説と折れ点説の分離。LeakyReLU は硬いゼロを外して折れ点だけ残す
+# (negative_slope 既定 0.01)。疎性が機序なら SiLU 寄り、折れ点が機序なら ReLU 寄り。
+run.@rr1_va_leaky : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_va_leaky : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > LeakyReLU
+run.@rr1_va_leaky : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > LeakyReLU
+run.@rr1_va_leaky : app.run_name = run_{t}_v6_rr1_va_leaky_${E1.game}
+
+# 構造最良(btrstruct 4.18%)と target 最良(hard C=125 6.29%)の合成。両者は
+# NN 結線と target 同期で直交する。チェーンで重ねると main_feature が
+# 後勝ちで壊れるので専用プロファイルにする。
+run.@rr1_va_btrstruct_hard125 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
+run.@rr1_va_btrstruct_hard125 : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > SiLU
+run.@rr1_va_btrstruct_hard125 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_btrstruct_hard125 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_btrstruct_hard125 : A2.model.soft_update_tau = 0
+run.@rr1_va_btrstruct_hard125 : A2.model.hard_update_interval = 125
+run.@rr1_va_btrstruct_hard125 : app.run_name = run_{t}_z3_rr1_va_btr_hard125_${E1.game}
+
+# ---- 構造ラダーの続き(2026-09-03) ------------------------------------------
+# BTR は maxpool が性能を下げることを論文で認めた上で、計算アクセシビリティの
+# ために採用している(Table 2 の w/o Maxpool は ε=0 で 406k 対 330k)。
+# うちは RTX5090 / RR1 でその制約が無いので、pool を外した版を測る。
+# 融合次元は conv 出力そのまま 11x11x64 = 7744。head 領域は約 8.4M params
+# (btrstruct 2.5M / 現行基準 4.5M)。要素積は (B*K, 7744) になる。
+net.block.[AtariIQNTauProj7744].type = Linear
+net.block.[AtariIQNTauProj7744].linear.out_features = 7744
+net.block.[AtariIQNTauProj7744].init.mode = xavier
+
+net.branch.@AtariImpalaX2Flat.bind = grid
+net.branch.@AtariImpalaX2Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten
+
+# ViT ハイブリッドに LN512 を足した版。既存 @AtariImpalaViT は旧バンドル時代の
+# もので LN512 が無く、conv も 16/32/32 と細い。conv 幅はそのままにして
+# 正規化だけ現行基準へ揃える。
+net.branch.@AtariImpalaViTLN.bind = grid
+net.branch.@AtariImpalaViTLN.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+# 段 4: btrstruct から pool6 を外す。トランク除去と広い融合はそのままで、
+# 空間ダウンサンプリングだけを分離する。btrstruct との 1 変数差。
+run.@rr1_va_btrflat : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Flat
+run.@rr1_va_btrflat : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj7744 > SiLU
+run.@rr1_va_btrflat : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_btrflat : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_btrflat : app.run_name = run_{t}_z4_rr1_va_btrflat_${E1.game}
+
+# 段 5: btrstruct の τ を BTR どおり ReLU にする(networks.py:219)。
+# τ ReLU は融合 512 で dormant 2.9 倍・利得ゼロだったが、2304 では
+# 半分潰しても 1152 残るのでコストが相対的に小さい可能性がある。
+run.@rr1_va_btrstruct_taurelu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
+run.@rr1_va_btrstruct_taurelu : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
+run.@rr1_va_btrstruct_taurelu : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_btrstruct_taurelu : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_btrstruct_taurelu : app.run_name = run_{t}_z5_rr1_va_btr_taurelu_${E1.game}
+
+# ViT ハイブリッド。構造腕なので hard125 は載せず V/A ReLU 基準で測る。
+run.@rr1_va_vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViTLN
+run.@rr1_va_vit : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_vit : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_vit : app.run_name = run_{t}_h2_rr1_va_vit_${E1.game}
+
+# soft の時定数を hard C=125 に合わせる。鮮度説なら並ぶ、定常性説なら並ばない。
+run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft008 : A2.model.soft_update_tau = 0.008
+run.@rr1_va_soft008 : app.run_name = run_{t}_n3_rr1_va_soft008_${E1.game}
 
 # ---- VA 基準の非構造腕 -----------------------------------------------------
 # env 時間で揃えた hard update。BTR の C=500 は RR4 で 32,000 exp step ごと。
@@ -1172,7 +1253,9 @@ AtariEnv.sound = false
 train.eval_schedule.[eval1].interval = 1000  # RR1 で BTR 相当(1M frames = 250K exp step)。旧 2500
 #train.eval_schedule.[eval2].interval = 2500
 #train.eval_schedule.[eval1].interval = 0    # num_envs ラダー等、eval コストを排除したい測定用
-train.eval_schedule.[eval2].interval = 0     # eval2 破棄。online net の評価と eval1/eval2 比の健全性指標を失う
+train.eval_schedule.[eval2].interval = 1009  # online net 評価を復活(2026-09-03)。eval1=1000 と互いに素にして
+                                            # eval1/eval2 の同位相発火(EpisodeEvalObserver の停滞要因)を避ける。
+#train.eval_schedule.[eval2].interval = 0    # eval2 破棄。online net の評価と eval1/eval2 比の健全性指標を失う
 
 # eval エピソード上限はプロトコルと対。Nature 2015 = 18,000 frames(5 分)、v5 / BTR = env 既定の 108,000。下の 2 行は Classic 用。
 #train.eval.[eval1].env.max_episode_frames = 18,000
