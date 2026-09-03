@@ -229,6 +229,26 @@ _Avoid_: eval interval 設定（キー名でなく機構名で呼ぶ）, スケ�
 定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
 _Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ, interval=0 タグ（旧契約の宣言方法）
 
+**episode scope**（エピソードスコープ）:
+BatchEnvのlaneを論理episodeへまとめる範囲。`PER_LANE`は各laneが独立したepisodeを持ち、`SHARED`は全laneが一つのepisode lifecycleを共有する。並列度であるlane数と、評価で数えるepisode数を分離するための語彙。
+_Avoid_: 終端モード, global count mode, batch episode数
+
+**episode group**（エピソードグループ）:
+一つのepisode lifecycleを共有するlaneの集合。`PER_LANE`では1 lane、`SHARED`では全laneが1 groupになる。episodeの開始・完了・採用はlaneではなくgroupを単位に解釈する。
+_Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
+
+**episode return**（エピソードリターン）:
+一つのepisode groupが開始から完了までに得たrewardの総和。`PER_LANE`では当該laneの総和、`SHARED`では全lane・全stepの総和になる。評価session内の複数returnにはmean / max / min / stdを適用できる。
+_Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
+
+**評価セッション**（evaluation session）:
+eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@episode_end` 1点として記録する。lane数（`eval_batch_size`）は並列度であって本数ではない。
+_Avoid_: 評価エピソード（1本と誤読させる）, eval 1回（何本かが伝わらない）, eval batch
+
+**採用エピソード**（adopted episode）:
+評価セッションで、開始境界に採用権（grant）を与えられたepisode。セッション開始時はgroup index順に先頭`min(N, G)` groupへ採用権を発行し、採用episodeが完了したときに残りがあれば、そのgroupの次episodeへ発行する。発行したN本は完了まで集計対象であり、終了後に最初のN完了を選ぶものではない。採用権のないepisodeは完了しても集計しない。
+_Avoid_: 完走エピソード（非採用の完走を含む）, 最初に終わったN本, 終了順採用エピソード
+
 ### Runner GUI
 
 **主領域**:
@@ -372,7 +392,7 @@ _Avoid_: train/eval catalog, dataset profile, paired source
 _Avoid_: pass, round, sweep
 
 **eval window**:
-eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating.size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を episode（lane 0 の done）へ翻訳して報告する。
+eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating.size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を全 lane 同時の episode 終端（done）へ翻訳して報告する。lane は window の slice であり、lane 0 だけを代表にしない。
 _Avoid_: eval episode 長, eval バッチ, サンプル数（size と区別）
 
 **accuracy**（env scalar キー）:

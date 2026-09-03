@@ -67,7 +67,8 @@ virtual std::shared_ptr<Actor> CreateActor(
 ### 6. metrics の束ね直しはスロットタグ基準
 
 ```
-metrics.scalar.full.[21_eval/01_target_reward] = eps_total_reward $runner @episode_end $eval.[eval1] clip:3000
+# PRD 060 P2 適用後。左辺の metrics tag は維持し、Runner source key だけを移行する。
+metrics.scalar.full.[21_eval/01_target_reward] = mean.episode_return $runner @episode_end $eval.[eval1] clip:3000
 ```
 `apps/runner/config/metrics_scalar.txt:120`
 
