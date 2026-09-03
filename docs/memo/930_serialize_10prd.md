@@ -140,7 +140,7 @@ Run serialization は、checkpoint を **等価性アッセイの対象として
 
 ### 現行の観測
 
-2026-08-30、[065](065_nn_spectral_norm_10prd.md) の「OFF 完全不変」検証で次が判明した。
+2026-08-30、[065](done/065_nn_spectral_norm_10prd.md) の「OFF 完全不変」検証で次が判明した。
 
 - 同一の保存済み実行体を、同一 seed・同一 config・determinism 既定 ON で 2 回実行しても、`agent_close.anet` の raw SHA-256 は一致しない。
 - 全 checkpoint のサイズは同じで、base/new ペアと base/base-repeat ペアの最初の差分位置も同じ model archive 内 offset `0x025A7EE4` だった。

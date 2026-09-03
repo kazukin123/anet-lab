@@ -240,7 +240,7 @@ BTR の `replay_ratio` は 4 である。旧バンドルでは「崩壊しない
 
 ## 次の検証
 
-- **保護機構の screening。** 崩壊アッセイ（RR8 / 5M / 65 分）が新バンドルで使えるようになった。config のみで試せる腕（init2=he / 活性化の SiLU 化 / Linear512 直後の LayerNorm）と、[PRD 065](../../../memo/065_nn_spectral_norm_10prd.md) の Spectral Norm を同じ器で比較する。
+- **保護機構の screening。** 崩壊アッセイ（RR8 / 5M / 65 分）が新バンドルで使えるようになった。config のみで試せる腕（init2=he / 活性化の SiLU 化 / Linear512 直後の LayerNorm）と、[PRD 065](../../../memo/done/065_nn_spectral_norm_10prd.md) の Spectral Norm を同じ器で比較する。
 - **screening が再現しないモードの扱い。** RR1 長期で観測されたランク浸食（`probe srank_ratio` −20%）を RR8 アッセイは再現しない。screening 合格を運用点有効の証明として扱わず、RR1 @ 50M での confirmation を必須とする。アンカーは本記録の **約 440**（終盤 2 窓）。
 - **RR1 の 100M / 200M 側。** 50M でまだ登り坂であり、天井も摩耗の閾値も未観測。778k 勾配（200M exp）で RR4 と同じ壁に当たるかは未確認。
 - **新バンドルのピーク 2 倍の帰属。** BTR 寄せ 5 項目と修正 2 件のどれが効いたかは未分離。

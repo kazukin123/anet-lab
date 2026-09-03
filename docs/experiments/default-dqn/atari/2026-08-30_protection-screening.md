@@ -46,7 +46,7 @@
 
 ### 探索観点
 
-[PRD 065](../../../memo/065_nn_spectral_norm_10prd.md) の SN を初めて実行する。PRD の検証計画は「初手は全層（standalone Conv2d 3 本 + ResBlock 全部 + Linear512）」を推奨していた — 2026-08-28 の GroupNorm 試験が ResBlock 内部のみで測定点を覆わず公正にならなかった反省による。
+[PRD 065](../../../memo/done/065_nn_spectral_norm_10prd.md) の SN を初めて実行する。PRD の検証計画は「初手は全層（standalone Conv2d 3 本 + ResBlock 全部 + Linear512）」を推奨していた — 2026-08-28 の GroupNorm 試験が ResBlock 内部のみで測定点を覆わず公正にならなかった反省による。
 
 ### 探索結果
 

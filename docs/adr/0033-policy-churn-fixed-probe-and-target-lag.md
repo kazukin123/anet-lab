@@ -19,4 +19,4 @@ status: proposed
 - ReplayBuffer の `SampleUniqueUniform` は caller が RNG を渡す契約へクリーンブレークし、plasticity と churn は別の named seed を所有する。この移行は既存の plasticity probe 抽選系列を意図的に断絶するため、新旧ビルド間の metrics checksum では `34_agent_plasticity/4x_probe_*` を除外するか、本変更を基準断絶点として扱う。
 - target 指標のゼロ点は hard sync 後に置かれ、hard / soft のどちらでも「更新後の online と target の不一致」という意味を保つ。hard update の位相は独立した `target_sync_age` で記録する。
 - 初回の公開範囲は DefaultDQN に限定する。ImageCls、Rainbow、NoisyNet は各ゲートの契約が確定するまで拡張しない。
-- 詳細なメトリクス、cadence、NaN、購読ゲート、受入条件は [PRD 066](../memo/066_policy_churn_metrics_10prd.md) を正本とする。
+- 詳細なメトリクス、cadence、NaN、購読ゲート、受入条件は [PRD 066](../memo/done/066_policy_churn_metrics_10prd.md) を正本とする。

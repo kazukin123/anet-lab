@@ -2,12 +2,12 @@
 
 > 状態: 正式 PRD。2026-09-01 のグリルで未決事項 0 件、文書契約上は実装着手可能。
 > 本書は実装着手を意味しない。実装は別の明示依頼と実装計画で行う。
-> 起点: 2026-08-31 の BTR 公開実装の読解（[調査記録](../../reports/btr_code_reading_2026-08-31.md)）。
-> 関連: [ADR 0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、
-> [PRD 062](done/062_plasticity_metrics_10prd.md)、
-> [PRD 063](done/063_plasticity_weight_norm_10prd.md)、
+> 起点: 2026-08-31 の BTR 公開実装の読解（[調査記録](../../../reports/btr_code_reading_2026-08-31.md)）。
+> 関連: [ADR 0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、
+> [PRD 062](062_plasticity_metrics_10prd.md)、
+> [PRD 063](063_plasticity_weight_norm_10prd.md)、
 > [PRD 065](065_nn_spectral_norm_10prd.md)、
-> [Atari 探索記録](../experiments/default-dqn/atari/2026-08-31_rr4-ceiling-ln512.md)。
+> [Atari 探索記録](../../experiments/default-dqn/atari/2026-08-31_rr4-ceiling-ln512.md)。
 
 ## Context / Problem Statement
 
@@ -36,7 +36,7 @@
 
 ## 用語と数理契約
 
-正規用語は [CONTEXT.md](../../CONTEXT.md) の `policy churn` と `target policy disagreement` に従う。
+正規用語は [CONTEXT.md](../../../CONTEXT.md) の `policy churn` と `target policy disagreement` に従う。
 
 ### Expected Q と greedy 行動
 

@@ -1,7 +1,7 @@
 # NN Spectral Normalization（weight_norm.mode）PRD
 
 > 起点: 2026-08-28〜29、高 `replay_ratio` Breakout 崩壊の機序確定（①重み成長→②活性成長→③ReLU恒久死→④表現痩せ）と
-> weight_decay の限界実証（[探索ブロック 04 / 05](../experiments/default-dqn/atari/2026-08-28_plasticity.md)）。
+> weight_decay の限界実証（[探索ブロック 04 / 05](../../experiments/default-dqn/atari/2026-08-28_plasticity.md)）。
 > 裁定: 2026-08-29〜30 グリル（D1〜D14 + 簡素化監査 6 項目）で全決定済み、Codex 実装前レビュー 8 ラウンド
 > （P1×7+P2×4 / 追指摘×2 / P1×3+P2×3 = zero-init 衝突→2 モード分割 D12〜D14 /
 > P1×4+P2×2 = 再正規化契約・逸脱 6・u/v 専用 RNG / P1×3+P2×3 = D14 弱化・RNG 供給経路・τ 許容集合 /
@@ -9,18 +9,18 @@
 > ImageCls sentinel 形状・65/66 語義・BTR/init 表現・未実測性能記述 / 第 8R = `SoftCopyTo` 公開 API の
 > 変更前 τ 検証・受入/BTR/メトリクス表現整合）を反映済み。
 > 設計分担: Claude=設計/PRD、実装=Codex。本書は self-contained。
-> 関連: [ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)（本 PRD の決定記録）、
-> [062](done/062_plasticity_metrics_10prd.md)（可塑性メトリクス。本 PRD は「保護機構の効果測定器」の最初の利用者）、
-> [063](done/063_plasticity_weight_norm_10prd.md)（weight norm 2 群。本 PRD のメトリクス増分は 63 の同型拡張）、
-> [2026-08-17_baseline.md](../experiments/default-dqn/atari/2026-08-17_baseline.md)（探索ブロック 15: BTR / BBF / 本記録の保護機構比較表）、
-> [999_MunchausenRL_10prd.md](999_MunchausenRL_10prd.md)（同じ「コストだけ採って補償器を採っていない」系列の別件）。
+> 関連: [ADR 0032](../../adr/0032-spectral-norm-self-impl-buffer-semantics.md)（本 PRD の決定記録）、
+> [062](062_plasticity_metrics_10prd.md)（可塑性メトリクス。本 PRD は「保護機構の効果測定器」の最初の利用者）、
+> [063](063_plasticity_weight_norm_10prd.md)（weight norm 2 群。本 PRD のメトリクス増分は 63 の同型拡張）、
+> [2026-08-17_baseline.md](../../experiments/default-dqn/atari/2026-08-17_baseline.md)（探索ブロック 15: BTR / BBF / 本記録の保護機構比較表）、
+> [999_MunchausenRL_10prd.md](../999_MunchausenRL_10prd.md)（同じ「コストだけ採って補償器を採っていない」系列の別件）。
 
 ## Context（背景・目的）
 
 ### 機序と weight_decay の限界
 
 高 `replay_ratio`（RR≥4 目安）の Breakout で起きる崩壊の機序は次の一本道に絞れている
-（数値の正本は [2026-08-28_plasticity.md](../experiments/default-dqn/atari/2026-08-28_plasticity.md)）:
+（数値の正本は [2026-08-28_plasticity.md](../../experiments/default-dqn/atari/2026-08-28_plasticity.md)）:
 
 ```
 ① 重みが止まらず育つ → ② 活性が育つ → ③ ReLU の負側で恒久的に死ぬ → ④ 表現が痩せる → スコア低下
@@ -32,7 +32,7 @@ weight_decay は①のレバーとして正しいことが実証済み — `61_w
 
 Spectral Normalization（SN）はペナルティではなく**毎 step の射影**（forward が常に W/σ を使う）なので、この均衡が存在しない。
 BTR は SN を全 conv residual layer に適用して RR=4 で走れており、本コードベースは「BTR の γ 0.997 を Munchausen なしで、
-高 RR を SN なしで」回している構図が記録済み（[2026-08-17_baseline.md](../experiments/default-dqn/atari/2026-08-17_baseline.md) 探索ブロック 15）。
+高 RR を SN なしで」回している構図が記録済み（[2026-08-17_baseline.md](../../experiments/default-dqn/atari/2026-08-17_baseline.md) 探索ブロック 15）。
 
 ### 部分適用の罠（D1 の背景）
 
@@ -184,7 +184,7 @@ Atari Impala backbone は standalone Conv2d（3 本）+ ResBlock 群 + Linear512
 | D1 | 適用範囲 | **重み行列を所有する全登録ブロック = 6 型**（Linear / Conv1d / Conv2d / ResBlock / CNBlock / TransformerEncoder）。当初は Atari baseline 使用の 4 型 + CNBlock/Transformer deferred としたが、2026-08-29 追加グリルで**共通部品化**（配線は全部・実使用は config の判断、型レベルの部分適用罠を残さない）へ改訂。独立 SpectralNorm ブロック（チェーン後置）は原理的に不成立で棄却、builder の wrap 機構（前ブロックを食う DSL）は 1関心2機構 + 新DSL で棄却。Conv1d も全型共通部品の方針で配線対象（当初は ConvConfig 共有による黙殺キー回避が理由だったが、D2 の WeightNormConfig 化で ConvConfig には触れなくなり黙殺懸念自体が消滅 — 方針は不変） |
 | D2 | config 形式 | bool flag でなく**専用 config struct `WeightNormConfig`**（`WeightInitConfig` と同じ棚の共通部品。各 factory Config に `weight_norm` メンバとして合成し、キーは全ブロック型一律 **`weight_norm.mode = none \| spectral \| spectral_cap`**、既定 `none`。3 値目は D13 で追加）。**2026-08-30 追加裁定**: 当初のブロック既存 Config への直埋め（`res.weight_norm_mode` 等）はキー綴りが型ごとに割れ共通部品の拡張性を欠くため struct 化へ改訂 — 将来モードのパラメータは struct フィールドで閉じる。文字列モードの拡張性（将来 `direction` 等）と house style（`norm_type` / `activation` / weight init mode が全て文字列モード）は不変。値は綴り出し `spectral`（`sn` は将来 Salimans WN 追加時に値名が衝突気味になる） |
 | D3 | 数理 | **参照実装準拠の標準一式**（常時除算 / 勾配は σ 経由でも流す / power iteration 1 回・NoGrad・eps=1e-12・**u 先順** / conv reshape / bias 対象外）。参照 = リポジトリ採用 libtorch と同版の `parametrizations.spectral_norm`（deprecated 旧 API ではない。2026-08-29 Codex レビューで pin）。cap 型 `W/max(1,σ)` は **`spectral` の数理としては採らない**（参照 parity を守る）— zero-init サポート用の併存モード `spectral_cap` として D13 で採用（parity 非主張の別モード）。σ detach は方向正則化項が消え学習動態が別物になるため棄却 |
-| D4 | σ の意味論 | **参照実装 parity**: σ は buffer にせず**毎 forward その場の W で再計算**。buffer は u/v の 2 本のみ。意図的逸脱は §逸脱表の 6 件のみ（使用時 normalize / FP32 強制 / QKV 別 σ / 退化 σ fail-fast / power iteration ゲートの GradMode 条件 / 保持ガード）。対抗案の「σ を buffer に焼き非 training forward は読むだけ」（追加計算ゼロ）は、参照と異なる独自意味論の記述コストが残るため棄却（[ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)） |
+| D4 | σ の意味論 | **参照実装 parity**: σ は buffer にせず**毎 forward その場の W で再計算**。buffer は u/v の 2 本のみ。意図的逸脱は §逸脱表の 6 件のみ（使用時 normalize / FP32 強制 / QKV 別 σ / 退化 σ fail-fast / power iteration ゲートの GradMode 条件 / 保持ガード）。対抗案の「σ を buffer に焼き非 training forward は読むだけ」（追加計算ゼロ）は、参照と異なる独自意味論の記述コストが残るため棄却（[ADR 0032](../../adr/0032-spectral-norm-self-impl-buffer-semantics.md)） |
 | D5 | u/v 更新点 | **`is_training() && GradMode::is_enabled()` の forward のみ**（= learner online 学習 forward だけ。target 常時 eval / actor / probe は非変異、構築時 dummy forward と Clone 時 forward は NoGrad+training のため GradMode 条件で除外 — §事実 14。2026-08-29 Codex レビュー P1-3 対応。参照ゲートは `self.training` のみのため意味論差として逸脱表 5 に計上）。soft update の u/v lerp 継承は許容し、**使用時 normalize** で頑健化（頑健性は D14② で τ ≤ 0.1（または τ=1）+ 再正規化契約として定量化 — §逸脱表 1 の注記。退化経路は D14（抑止 + 残余明示）が扱う） |
 | D6 | 初期化 | **warm-start = 参照 parity + 専用 RNG**: weight 実体化時に randn-normalize + ガード付き power iteration **15 回**（`kSpectralNormWarmStartIters = 15` = 参照実装の init と同数）+ σ 検証 fail-fast（mode 別基準 = D14①）。**u/v の乱数は専用 RNG 系統**（2026-08-30 第 5R で供給経路を確定）: `NetworkBuilder::BuildNetwork()` に **必須 `seed_t` 引数**を追加する（既定値なし = クリーンブレーク。シグネチャ `BuildNetwork(config, input_specs, head_factory, seed, device)`）。agent seed から network identity の base seed を名前付き導出し、DefaultDQN / Rainbow / ImageCls は `SeedMaker(GetSeed()).MakeNamedSeed("network")`、MuZero は rep / dyn / pred ごとに `"network.rep"` / `"network.dyn"` / `"network.pred"` を使う。**現用呼び出し元は同一変更で全移行**する: DefaultDQNAgent / RainbowAgent → NetworkModel、ImageClsAgent、MuZeroNetworkModel の rep / dyn / pred、Network::Clone、全テストおよびその他の直接 `BuildNetwork` 呼び出し。**BuildNetwork は受け取った network base seed をそのまま**汎用 registry **`ModuleRandomSource`（仮名。1 network につき 1 個。2026-08-30 追加裁定で SN 専用クラスから昇格）**へ渡し、**purpose seed の導出は registry が一度だけ**行う（`SeedMaker(base).MakeNamedSeed(purpose)` で lazily 生成・キャッシュ。BuildNetwork 側では導出しない — network identity 導出と purpose 導出は別階層であり、purpose の二重導出を禁止。第 6R P1-1）。registry は purpose 名ごとの**独立 stream** を鋳造し **`ModuleContext` の汎用スロット（`std::shared_ptr<ModuleRandomSource> random_source`）**で共有する。ModuleContext は各ブロック構築時にローカル生成のため、registry の `shared_ptr` を **`BuildNetwork → NetworkBodyBuilder → NetworkStructBuilder` へ引数伝播**し、全 factory 呼び出しの `random_source` が**同一インスタンス**を指す（1 network 1 registry の実現手段）。両sub-builderの`random_source`は**既定値なしの必須引数**とし、null時にseed 0のregistryを暗黙生成するfallbackを置かない。**purpose stream 独立性は今回の必須要件**（同 purpose 再取得の同一性・異 purpose 独立性・base seed 再現をテストで保証）。SN は初利用者（`Get("spectral_norm")`）で、SN 配線 module が取得 stream を lazy init = 構築時 dummy forward 中の weight 実体化まで保持（生存は参照で担保。draw 順 = branch 実行順で決定的）。**purpose stream の独立性により、消費者の追加・ON/OFF が他 stream の draw 系列を変えない**（paired 比較性の一般化）。registry は単一 rnd_ の mixin である `RandomHolder` の形に合わないため継承しない — component 単位の RNG 所有は従来どおり RandomHolder（AgentBase / Env / Learner の棚。§事実 17）、module 層は本 registry が担う。Network / NetworkBody への RandomHolder 直継承は広い契約になるため不採用。Clone は **Network が保持する構築時 network base seed** を必須 seed 引数として `BuildNetwork(config_, input_specs_, head_factory_, construction_seed_, target_device)` へ再度渡し、再構築後の u/v は直後の CopyTo で上書きする（機能的には初期 u/v に依存しないが、seed 経路を決定的に閉じる）。**parameter 初期化の global RNG 系列を消費しない** → 同 seed なら mode（none / spectral / spectral_cap）を変えても全 parameter tensor が一致し、検証計画の paired 比較（B/C）と受入 1 の突合が成立（第 4R レビュー P1-4）。**ModuleContext の初拡張**（「今後の拡張用」の空構造体を module 乱数 registry の汎用共有口にする — 当初の「拡張しない」裁定を第 5R で改訂し、2026-08-30 に SN 専用から registry へ汎化） |
 | D7 | 精度 | power iteration / σ / 除算は **FP32 固定**（Autocast 局所 OFF。`force_fp32` イディオム踏襲）。conv/linear 演算は autocast 任せ |
@@ -511,11 +511,11 @@ struct WeightNormConfig {
 | CNBlock / TransformerEncoder への mode | keep（2026-08-29 改訂） | 当初 deferred gate としたが、共通部品化（配線は全部・実使用は config の判断、型レベルの部分適用罠を残さない）で全 6 型配線へ改訂（D1/D11） |
 | per-weight override（ResBlock の init1/init2 と同様に `weight_norm1` / `weight_norm2` の per-weight `WeightNormConfig` メンバを足す形） | **deferred gate** | Gogianu 型の層選択実験（1 層だけ SN）が pin されたら追加。空間的選択は当面ブロック・インスタンス単位で足りる |
 | mode ≠ `none` × `use_sdpa=false` の旧 MHA 経路対応 | **cut**（fail-fast） | 旧経路は SDPA 等価性確認用の互換参照。functional multi_head_attention_forward への書き換えは必要が pin されたら |
-| 層別 σ の詳細 | **deferred gate** | [920_nn_block_metrics](920_nn_block_metrics_10prd.md) の領分 |
+| 層別 σ の詳細 | **deferred gate** | [920_nn_block_metrics](../920_nn_block_metrics_10prd.md) の領分 |
 | actor クローン時に σ を確定して再計算 skip | **deferred gate** | actor 側 throughput が実測で問題になったとき |
 | power iteration 回数の config 化 / σ₀ 目標係数 | **cut** | 文献標準は 1 回・σ₀ 無し。必要になった実験が存在しない |
 | 独立 SpectralNorm ブロック（wrap DSL） | **cut** | 原理的に不成立（重み所有 forward 内でしか実現できない）+ 1関心2機構 |
-| σ buffer 継承（非 training forward は読むだけ） | **cut** | PyTorch と異なる独自意味論の記述コスト。[ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md) |
+| σ buffer 継承（非 training forward は読むだけ） | **cut** | PyTorch と異なる独自意味論の記述コスト。[ADR 0032](../../adr/0032-spectral-norm-self-impl-buffer-semantics.md) |
 | 61 の実効重み差し替え | **cut** | 既存 Run との互換破壊（61 の意味が Run 世代で変わる） |
 | forward 毎の退化 σ 検証 | **cut** | 毎 forward × SN 層数の D2H 同期コスト。init / buffer 経路は D14 ①② が抑止（W lerp 由来は D14③ の残余）、メトリクス経路は validity sentinel を含む第 3 の防衛線 |
 | learner の低頻度周期 σ 検証 | **cut** | 残余リスク（W lerp 由来の σ≈0 = D14③）の検出は第 3 防衛線と下流症状に委ねる裁定。毎/低頻度の D2H 同期を避ける判断を維持 |
@@ -588,7 +588,7 @@ ResBlock 全部 + Linear512）を推奨 — GroupNorm 試験の部分適用の�
 ## スコープ外
 
 - reset 系（Shrink-and-Perturb / ReDo）— 抑制系と別系統の保護機構。探索ブロック 05 の「次の検証」に残置。
-- Munchausen（[999_MunchausenRL_10prd.md](999_MunchausenRL_10prd.md)）、eval N 本平均（[060](060_eval_batch_episodes_10prd.md)）。
+- Munchausen（[999_MunchausenRL_10prd.md](../999_MunchausenRL_10prd.md)）、eval N 本平均（[060](../060_eval_batch_episodes_10prd.md)）。
 - ResBlock への leaky ReLU / LayerNorm 追加など③への直接介入。
 - `direction`（Salimans WN）等の追加モード実装（モード空間の予約のみ）。
 - Rainbow / MuZero 専用の SN 実験・smoke・メトリクス配線（062 D8 と同じ理由: 実行 smoke 不能）はスコープ外。
@@ -600,7 +600,7 @@ ResBlock 全部 + Linear512）を推奨 — GroupNorm 試験の部分適用の�
    （config・`train.seed`・step 数は実装計画で 1 組に固定して記載）し、解決済みconfigとmetricsマスタの
    主要 tag（loss / q_max / 61/62）の checksum を記録 → (b) 改修後ビルドで**同一コマンド**を実行 →
    (c) metrics checksum 一致。`agent_close.anet`のraw SHA-256は同一base実行体の再実行間でも一致しない既存serialize非決定性があるため合否ゲートにせず、サイズとhashを観測値として記録する
-   （実測と恒久対処の観点は [930_serialize_10prd](930_serialize_10prd.md) §決定性と等価性検証へ記録済み）。加えて `weight_norm.mode = none`（既定）では
+   （実測と恒久対処の観点は [930_serialize_10prd](../930_serialize_10prd.md) §決定性と等価性検証へ記録済み）。加えて `weight_norm.mode = none`（既定）では
    **SN の数値経路（state 生成・power iteration・除算）に不到達**
    （`GetSpectralNormEntries()` が空を返す仮想関数呼び出し自体は走ってよい）。
 2. **ON 決定性**: `spectral`（+ `init2.mode = he`）と `spectral_cap`（zero-init のまま）の**各々**で

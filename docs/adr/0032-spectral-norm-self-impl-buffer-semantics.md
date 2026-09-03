@@ -143,4 +143,4 @@ SoftUpdate 後の σ 検証は毎 update 同期コストのため不採用。(5)
   power iteration 回数 config、σ₀ 目標係数、σ floor / 遅延有効化、learner の低頻度周期 σ 検証、
   cap の遷移時 warm-start、stochastic module（DropPath / Dropout）の purpose stream 化は deferred / cut
   （065 PRD の複雑度監査）。
-- 仕様詳細は `docs/memo/065_nn_spectral_norm_10prd.md`（決定事項 D1〜D14、実装仕様、受入基準）。
+- 仕様詳細は `docs/memo/done/065_nn_spectral_norm_10prd.md`（決定事項 D1〜D14、実装仕様、受入基準）。

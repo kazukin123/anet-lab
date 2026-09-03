@@ -1,7 +1,7 @@
 # 標準 Spectral Normalization と residual identity 開始を両立する α ゲート暫定 PRD
 
 > 状態: **暫定メモ / deferred gate**。本 PRD は実装着手を意味しない。
-> 起点: [PRD 065](065_nn_spectral_norm_10prd.md) の zero-init × Spectral Normalization 裁定後に、
+> 起点: [PRD 065](done/065_nn_spectral_norm_10prd.md) の zero-init × Spectral Normalization 裁定後に、
 > 代替案として Near-Zero Init / α ゲート / normalization γ=0 の 3 案を比較した。
 > 現時点で将来候補として残すのは **α ゲートだけ**とする。
 > 関連: [ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)。

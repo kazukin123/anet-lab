@@ -2,7 +2,7 @@
 
 ## 概要
 
-- [PRD066](./066_policy_churn_metrics_10prd.md) と [ADR0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md) を正本とし、DefaultDQN の 1 learner update 前後の online expected Q / greedy action 変化と、target update 後の online / target 差を `35_agent_churn` の 7 scalar として公開する。
+- [PRD066](./066_policy_churn_metrics_10prd.md) と [ADR0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md) を正本とし、DefaultDQN の 1 learner update 前後の online expected Q / greedy action 変化と、target update 後の online / target 差を `35_agent_churn` の 7 scalar として公開する。
 - churn 専用 probe は ReplayBuffer から一様・非復元で 1024 件取得し、online-before / online-after / target-after で同じ Observation と、IQN では同じ fixed midpoint taus 32 本を共有する。
 - probe RNG は `DefaultDQNAgent` 所有 Resource とする。`ReplayBuffer::SampleUniqueUniform` は caller-owned `RandomGenerator&` を受ける契約へクリーンブレークし、通常 sample と plasticity probe の乱数系列から churn を分離する。
 - 購読された source key と cadence に必要な sample、forward、集計だけを行い、購読ゼロでは churn payload を含む全処理を不活性にする。初回公開は DefaultDQN のみとし、Rainbow / ImageCls / NoisyNet は対象外とする。
