@@ -52,15 +52,15 @@ Bellman ターゲットを可逆な変換関数 h で圧縮し、大きな Q 値
 _Avoid_: value transform, Bellman transform
 
 **Munchausen項**:
-実行行動の scaled log-policy を clip した量 `α·[τ·ln π(a_t|s_t)]_{l0}^0`（常に ≤0）。target return と同じ報酬側の量として先頭遷移 t にだけ加え、N-step 内の後続遷移には加えず、終端マスクの対象にもしない。π は `log_policy_source` で選んだ network（target / online）の実空間Q値から softmax(Q/τ) で作る。
+実行行動の scaled log-policy を clip し、Bellmanターゲットの報酬側へ加える補正項。N-step target return では先頭遷移に一度だけ加え、終端マスクの対象にはしない。
 _Avoid_: log-policy bonus（soft価値側の τ·ln π と区別できない）, entropy bonus（soft価値ブートストラップの項と混同）, Munchausen reward（報酬そのものではない）
 
 **soft価値ブートストラップ**:
-次状態の bootstrap 価値を argmax の Q でなく `Σ_a π(a|s')(Q'(s',a) − τ·ln π(a|s'))`（= τ·logsumexp(Q'/τ)）で取る方式。分位点表現では分位点ごとに同じ π で混合する。行動選択を伴わないため、Double DQN や optimistic target の argmax 選択は効かない。
+次状態の bootstrap 価値を hard argmax ではなく、方策で重み付けした entropy 正則化付きの継続価値として求める方式。
 _Avoid_: soft Q（価値関数の名前と紛れる）, max-entropy target（手法一般の総称）, softmax bootstrap（方策そのものと混同）
 
 **方策温度**:
-Munchausen が π = softmax(Q/τ) を作るときの温度 τ_ent（設定キー `learner.munchausen.entropy_tau`）。IQN の taus（τサンプル）、`soft_update_tau`、`grad_clip_tau`、UQE の `uqe_tau_*` とはいずれも別概念で、無修飾の「τ」「tau」では指さない。
+Munchausen RL の方策分布の軟らかさを制御する温度。IQN の taus や network 更新率など、他の tau 系パラメータとは別概念である。
 _Avoid_: tau（多義）, τ（無修飾）, 温度（何の温度か不明）
 
 **taus（τサンプル）**:
@@ -78,7 +78,7 @@ _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **Actor Qヒント**:
-Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した全行動scoreから作る `[Q(s,a), bootstrap状態価値, Munchausen項]` の3列を指す。bootstrap状態価値は Munchausen OFF なら `max_a Q_online(s,a)`、ON なら soft価値（Q空間で格納）、Munchausen項は OFF なら 0。通常Q/QRでは平均Q、IQN+UQEでは同一forwardから得たrisk-biased action score（upper-tail meanまたは`Zτ`）を使い、全分布平均`E[Z]`のための追加forwardは行わない。ReplayBuffer共通層は列の意味を解釈しない。
+Replay初期優先度ヒントへ格納するDQN固有payload。実行行動の価値、bootstrap用の状態価値、任意のMunchausen項をActorから初期優先度推定器へ渡す。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:

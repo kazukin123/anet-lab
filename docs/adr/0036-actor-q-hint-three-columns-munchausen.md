@@ -1,26 +1,30 @@
-# Actor Qヒントを 3 列へ拡張し、近似Actor初期優先度を Munchausen ターゲットと同型にする
+# Actor Qヒントを3列へ拡張し、近似Actor初期優先度をMunchausenターゲットと同型にする
 
-ADR 0010 / ADR 0012 の Actor Qヒントは `[Q(s,a), max_a Q(s,·)]` の 2 列で、`DqnInitialPriorityEstimator` は `target_return + discount·h⁻¹(max Q)` → `h` の Bellman ターゲットで近似 TD 誤差を作る。ADR 0035 で Munchausen ターゲットが `target_return + bonus + discount·V_soft` へ変わると、推定器はそのままでは Munchausen項（∈ [α·l0, 0]、clip 報酬と同オーダー）と soft価値を知らず、`per_initial_priority_mode = actor_approx` の初期優先度が Learner 優先度と系統的にずれる。Ape-X 型の actor 側初期優先度と Munchausen を併用した公開実装は見当たらない（Dopamine 公式 / BTR は max または uniform、Acme は定数）ため、整合は自前で決める必要がある。
+ADR 0010 / ADR 0012のActor Qヒントは `[Q(s,a), max_a Q(s,.)]` の2列で、`DqnInitialPriorityEstimator` はその値から近似Bellmanターゲットを作る。PRD 067でLearner targetへMunchausen項とsoft価値を導入すると、従来のhintでは `per_initial_priority_mode=actor_approx` の初期優先度がLearner targetと構造的に一致しない。
 
-**Actor Qヒントを `[q_sa, state_value, munchausen_term]` の 3 列へ拡張する**ことを決定する。`state_value` は Munchausen OFF なら従来どおり `max_a Q`、ON なら soft価値 `τ·logsumexp(Q_real/τ)` を Q空間（TBO なら `h` を掛けた値）で格納し、推定器の `h⁻¹` 経路を無改修で通す。`munchausen_term` は OFF なら 0、ON なら `α·clip(τ·ln π(a|s), l0, 0)`（実空間）とする。どちらも Actor が行動推論で既に持つ全行動 Q から logsumexp 1 回で計算し、追加 forward は行わない（ADR 0010 の前提を維持）。
+**Actor Qヒントを常時 `[q_sa, state_value, munchausen_term]` の3列へ拡張する**ことを決定する。`state_value` はMunchausen OFFなら従来のmax Q、ONならsoft価値とする。`munchausen_term` はOFFなら0、ONならclip済みscaled log-policyとする。Actorが既存の行動推論で得た全行動scoreから計算し、追加network forwardは行わない。
 
-推定器は `target = target_return + start.munchausen_term; if (!terminal) target += discount·h⁻¹(boot.state_value); if (use_tbo) target = h(target)` とし、Learner の Munchausen ターゲットと同じ形になる。`ValidateHint` は 3 列すべての finite を要求する。`DQNActionInfo::WithAction` は行動差し替え時に `q_sa` と `munchausen_term` を再 gather し、`state_value` を維持する。そのため Actor は per-action の Munchausen項 `[B,A]` を aux（`munchausen_term_all`）に一時保持し、hint がある `WithAction` ではその欠落を契約違反とする。
+推定器は `target = target_return + start.munchausen_term` とし、非終端時だけ `discount * h^-1(boot.state_value)` を加え、TBO有効時は完成後のtargetへ `h` を適用する。`ValidateHint` は3列すべてのfiniteを要求する。`DQNActionInfo::WithAction` は行動差し替え時に `q_sa` と `munchausen_term` を再gatherし、`state_value` を維持する。hintを持つ `WithAction` で再gather用のper-action Munchausen値が欠落していれば契約違反とする。
 
-Actor が使う network は Train Actor snapshot（online 系）であり、Learner の `log_policy_source = target` でも hint 側は online 近似になる。IQN+UQE では `q_values` が risk-biased action score（ADR 0019）なので π もその近似になる。いずれも初期優先度の目的が初回サンプリング前の順位付けであることから、ADR 0010 が許容した系統差の延長として受け入れる。
+**Actorへ渡す設定は必要値だけを持つ狭い `ActorQHintConfig` とする**。保持するのは `enabled`、`alpha`、`entropy_tau`、`clip_value_min`、`use_tbo`、`tbo_epsilon` だけであり、Learner config全体や `log_policy_mode` は渡さない。Actor側はmodeによらずTrain Actor snapshotのonline scoreを使う近似であり、Learnerと同じnetwork sourceを再現する契約ではない。
+
+通常Q/QRでは同一forwardの平均Qを使う。IQN+UQEでは同一forwardから得るrisk-biased action scoreを使い、分布平均を得るための追加forwardは行わない。これらの系統差は、初回sampling前の順位付けを目的とするADR 0010の近似契約の範囲として扱う。
 
 ## Considered Options
 
-- **文書化のみ**: コード変更ゼロだが、actor_approx 併用時の初期優先度が Munchausen項の分だけ系統的にずれ、PRD 035 の計器（Actor/Learner 順位相関）が読めなくなるため棄却。
-- **併用時に WARN のみ**: ずれを知らせるだけで解消しないため棄却。
-- **別 PRD へ defer**: 影響は Actor / hint codec / 推定器に閉じ、RB 共通層は hint 幅を動的に扱うため（`payload.size(1)`、`SmallVector<float, 4>`）、PRD 067 内で一括して契約を揃える方が二度手間にならないと判断した。
-- **hint を target network で計算**: ADR 0010 の「追加 forward なし」に反するため棄却。
-- **ON 時だけ 3 列にする可変幅**: 推定器の schema 検証が mode 依存になり、`WithAction` と pack の契約が二重になるため棄却。常に 3 列とし OFF は 0 を入れる。
+- **従来の2列を維持する**: actor_approx時にMunchausen項を表現できず、Learner targetと構造がずれるため棄却する。
+- **併用を許可して診断だけ出す**: 構造的なずれを解消しないため棄却する。
+- **別PRDへdeferする**: hint carrierは動的幅を運べるため、PRD 067内でproducer、codec、`WithAction`、推定器を一括して新schemaへ移す方が単純である。
+- **ActorへLearner config全体を渡す**: Actorが不要な学習方針へ依存し、所有権境界を広げるため棄却する。
+- **hintをtarget networkで計算する**: ADR 0010の追加forwardなしという前提に反するため棄却する。
+- **ON時だけ3列にする**: schema検証とcodec契約がmode依存になるため棄却し、OFFでもゼロ列を持つK3に固定する。
 
 ## Consequences
 
-- ADR 0010 の「Actorヒントは 3 値固定（`actor_q_sa` / `actor_state_value` / 有効性マスク）」と ADR 0012 の「DQN payload は `K = 2`」は本 ADR で `K = 3` へ改訂する。ADR 0012 の carrier（単一 `float32[B,K]`）、completer、推定器の責務分離、ADR 0010 の平均Q近似・追加 forward 禁止・UQE 再現見送りは不変である。
-- `kActorQHintColumnCount` は 3 になり、旧 2 列 payload は schema 違反として fail-fast する。RB 共通層と `InitialPriorityCompleter` は変更しない。
-- Munchausen OFF では `state_value = max Q`、`munchausen_term = 0` なので推定値は現行と同値である。
-- Actor の per-step コストは `[B,A]` の logsumexp と `[B,A]` の aux tensor 1 本分増える（`emit_actor_q_hint` が立つ actor_approx 構成でのみ）。
-- `CONTEXT.md`「Actor Qヒント」を 3 列の定義へ改訂する。詳細契約は `docs/memo/067_MunchausenRL_10prd.md` §8、当時の 2 列契約は `docs/memo/done/035_approx_actor_priority_per_10prd.md` に記録として残る。
-- 再訪条件: actor_approx と Munchausen の併用で Actor/Learner 順位相関（`39_agent_per/01`）が非 Munchausen 構成より明確に低い実測が得られた場合、hint 側の π を Learner と揃える手段（target snapshot の保持等）を ADR 0010 の再訪条件と合わせて検討する。
+- `kActorQHintColumnCount` は3となり、旧K2 payloadはschema違反としてfail-fastする。互換aliasや旧schema分岐は持たない。
+- ADR 0010 / ADR 0012のcarrier、completer、推定器の責務分離と追加forward禁止は維持する。現行文書の同期範囲はPRD 067に従う。
+- `actor_approx + Munchausen OFF` は初期優先度の数値だけを従来と同値にする。K3 transport、ゼロ列生成、一時aux tensorは許容し、命令列やRNGを含む完全不変は保証しない。
+- 標準Atariのmax初期化構成はhint経路を使わず、Learner OFFの数値経路・RNG不変契約に従う。RainbowはMunchausenアルゴリズムOFFだが、共通K3 transportは利用し得る。
+- Actorのper-step追加費用は、hintを生成するactor_approx構成におけるsoft価値計算とper-action Munchausen用auxに限定する。
+- `CONTEXT.md` はActor Qヒントをドメイン用語としてだけ定義し、列数やnetwork sourceなどの実装契約は本ADRとPRD 067に置く。
+- 再訪条件は、actor_approxとMunchausenの併用でActor/Learner順位相関が非Munchausen構成より明確に低い実測が得られた場合とする。
