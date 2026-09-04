@@ -51,6 +51,18 @@ _Avoid_: reward normalizer, reward transform
 Bellman ターゲットを可逆な変換関数 h で圧縮し、大きな Q 値に対する学習を安定させる手法。anet-lab では TBO と略す。
 _Avoid_: value transform, Bellman transform
 
+**Munchausen項**:
+実行行動の scaled log-policy を clip した量 `α·[τ·ln π(a_t|s_t)]_{l0}^0`（常に ≤0）。target return と同じ報酬側の量として先頭遷移 t にだけ加え、N-step 内の後続遷移には加えず、終端マスクの対象にもしない。π は `log_policy_source` で選んだ network（target / online）の実空間Q値から softmax(Q/τ) で作る。
+_Avoid_: log-policy bonus（soft価値側の τ·ln π と区別できない）, entropy bonus（soft価値ブートストラップの項と混同）, Munchausen reward（報酬そのものではない）
+
+**soft価値ブートストラップ**:
+次状態の bootstrap 価値を argmax の Q でなく `Σ_a π(a|s')(Q'(s',a) − τ·ln π(a|s'))`（= τ·logsumexp(Q'/τ)）で取る方式。分位点表現では分位点ごとに同じ π で混合する。行動選択を伴わないため、Double DQN や optimistic target の argmax 選択は効かない。
+_Avoid_: soft Q（価値関数の名前と紛れる）, max-entropy target（手法一般の総称）, softmax bootstrap（方策そのものと混同）
+
+**方策温度**:
+Munchausen が π = softmax(Q/τ) を作るときの温度 τ_ent（設定キー `learner.munchausen.entropy_tau`）。IQN の taus（τサンプル）、`soft_update_tau`、`grad_clip_tau`、UQE の `uqe_tau_*` とはいずれも別概念で、無修飾の「τ」「tau」では指さない。
+_Avoid_: tau（多義）, τ（無修飾）, 温度（何の温度か不明）
+
 **taus（τサンプル）**:
 IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環境が渡す Observation ではなく、Agent（ActionPolicy / Learner）が forward 直前に NN 入力へ注入する。
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
@@ -66,7 +78,7 @@ _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **Actor Qヒント**:
-Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した、実行行動のaction scoreと全行動中の最大scoreの2列を指す。通常Q/QRでは`Q(s,a)`と`max_a Q_online(s,a)`、IQN+UQEでは同一forwardから得たrisk-biased action score（upper-tail meanまたは`Zτ`）を使い、全分布平均`E[Z]`のための追加forwardは行わない。ReplayBuffer共通層は列の意味を解釈しない。
+Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した全行動scoreから作る `[Q(s,a), bootstrap状態価値, Munchausen項]` の3列を指す。bootstrap状態価値は Munchausen OFF なら `max_a Q_online(s,a)`、ON なら soft価値（Q空間で格納）、Munchausen項は OFF なら 0。通常Q/QRでは平均Q、IQN+UQEでは同一forwardから得たrisk-biased action score（upper-tail meanまたは`Zτ`）を使い、全分布平均`E[Z]`のための追加forwardは行わない。ReplayBuffer共通層は列の意味を解釈しない。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:
@@ -216,6 +228,14 @@ _Avoid_: プロトコルプリセット(旧称), envバージョン（Gymnasium�
 **RunMode**:
 Train / Eval 系（Eval, Eval1, Eval2）という実行系統の区分。Env は生成時に自分の RunMode を固定して保持し（Sampler 選択・終端契約・挙動分岐に使う。`GetRunMode()` で参照）、Reset / Step の実行時引数では受け取らない。Actor の network 選択にも同じ区分を使う。configured eval tag のタグ名（eval1 等）とは別概念。
 _Avoid_: per-call mode, eval flag, 実行時モード引数
+
+**online 構成**:
+人が Runner の GUI を監視・操作する実行構成。エラー通知ではログに加えてダイアログを表示する。Train / Eval を表す `RunMode` とは別概念。
+_Avoid_: online RunMode, interactive RunMode
+
+**batchrun 構成**:
+人の応答なしに期限まで Runner を走らせ、終了後に次の Run へ制御を返す実行構成。エラー通知はモーダル表示せずログへ出す。Train / Eval を表す `RunMode` とは別概念。
+_Avoid_: batch mode, batch RunMode
 
 **configured eval tag**（評価タグ）:
 `train.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。

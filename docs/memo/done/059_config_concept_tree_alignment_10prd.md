@@ -456,7 +456,7 @@ v2 の残裁定 8 項目は grill(2026-08-23)で全て決着した(§11 複雑�
 |---|---|---|
 | HEAD 軸(`@dueling/@plain`) | dueling 切替で最初に事故したとき | §3.2 / §3.4 設計メモ |
 | exploration 軸(`@uqe` 等) | 探索構成の切替で最初に事故したとき | §3.2 |
-| TARGET 軸(`@munchausen`) | M-IQN 等へ着手するとき | §3.2 / 067_MunchausenRL_10prd.md |
+| TARGET 軸(`@munchausen`) | M-IQN 等へ着手するとき → **発動済み(2026-09-04、[PRD 067](../067_MunchausenRL_10prd.md) が軸を定義)** | §3.2 / 067_MunchausenRL_10prd.md |
 | features 固定インターフェースの shape 裏取り | HEAD 軸の着手時(連動) | §3.4 設計メモ |
 | precision 軸(BF16) | ImageCls 系 bf16 語彙(033)との統一検討時。root 横断素材の初実例となり、root 持ち上げの一般化(run 以外)を要する | 付録 B #6 |
 | MuZero 最終ツリー(`net.rep/dyn/pred`)の `<agent>.net` 移設 | MuZero への再着手時(D19 の一般規則へ寄せる。保留中は root 残置で実害なし) | §3.5 |
