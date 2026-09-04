@@ -39,4 +39,4 @@ EvalRunnerは`RunSession(event_counts)`で`Sync()`、`EvalSessionEnv::Reset()`�
 - ImageCls evalは1 windowを1 episodeとして、全lane同時終端、`n_episode_end=1`、global scalar captureにする。reward metrics tagは削除し、accuracyを残す。
 - DropMergeのP2出荷既定はL=N=1を維持する。一時test configでL=N=16を有効化できることだけを確認し、N / L / intervalは`WaitBackgroundEval`の停止時間を含むP3実測で一体として決める。
 - EvalPanelはdecorator対象外。background evalのschedule、counts、step軸、例外伝播、PRD 912のsnapshot順序は変更しない。
-- 詳細契約と受入条件は`docs/memo/060_eval_batch_episodes_10prd.md`に置く。
+- 詳細契約と受入条件は`docs/memo/done/060_eval_batch_episodes_10prd.md`に置く。

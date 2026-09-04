@@ -13,7 +13,7 @@
 > [062](062_plasticity_metrics_10prd.md)（可塑性メトリクス。本 PRD は「保護機構の効果測定器」の最初の利用者）、
 > [063](063_plasticity_weight_norm_10prd.md)（weight norm 2 群。本 PRD のメトリクス増分は 63 の同型拡張）、
 > [2026-08-17_baseline.md](../../experiments/default-dqn/atari/2026-08-17_baseline.md)（探索ブロック 15: BTR / BBF / 本記録の保護機構比較表）、
-> [999_MunchausenRL_10prd.md](../999_MunchausenRL_10prd.md)（同じ「コストだけ採って補償器を採っていない」系列の別件）。
+> [067_MunchausenRL_10prd.md](../067_MunchausenRL_10prd.md)（同じ「コストだけ採って補償器を採っていない」系列の別件）。
 
 ## Context（背景・目的）
 
@@ -588,7 +588,7 @@ ResBlock 全部 + Linear512）を推奨 — GroupNorm 試験の部分適用の�
 ## スコープ外
 
 - reset 系（Shrink-and-Perturb / ReDo）— 抑制系と別系統の保護機構。探索ブロック 05 の「次の検証」に残置。
-- Munchausen（[999_MunchausenRL_10prd.md](../999_MunchausenRL_10prd.md)）、eval N 本平均（[060](../060_eval_batch_episodes_10prd.md)）。
+- Munchausen（[067_MunchausenRL_10prd.md](../067_MunchausenRL_10prd.md)）、eval N 本平均（[060](060_eval_batch_episodes_10prd.md)）。
 - ResBlock への leaky ReLU / LayerNorm 追加など③への直接介入。
 - `direction`（Salimans WN）等の追加モード実装（モード空間の予約のみ）。
 - Rainbow / MuZero 専用の SN 実験・smoke・メトリクス配線（062 D8 と同じ理由: 実行 smoke 不能）はスコープ外。
