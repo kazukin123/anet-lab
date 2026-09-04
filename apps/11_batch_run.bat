@@ -16,26 +16,18 @@ SET "FIX2=E1.game=breakout"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex"
 
-echo === 0. wiring check x4 (12 min) ===
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_a_relu>run.@pl_check"
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_v_relu>run.@pl_check"
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_leaky>run.@pl_check"
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_btrstruct_hard125>run.@pl_check"
+echo === 0. PRD060 eval smoke x2 - N=1 and L=10/N=10 (12 min) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_soft008>run.@eval_smoke"
+call:run_exe "run.$=%A5%>run.@rr1_va_evalN10>run.@eval_smoke"
 
-echo === 1. adv_stream only ReLU, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_a_relu"
+echo === 1. btrstruct with tau ReLU - BTR faithful, 50M (2.6h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_btrstruct_taurelu"
 
-echo === 2. value_stream only ReLU, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_v_relu"
+echo === 2. ViT hybrid + LN512 on V/A ReLU base, 50M (2.6h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_vit"
 
-echo === 3. hard C=125 remeasure with eval2, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125"
-
-echo === 4. BTR structure + hard C=125, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_btrstruct_hard125"
-
-echo === 5. V/A LeakyReLU, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_leaky"
+echo === 3. V/A ReLU base with eval L=10 N=10 - PRD060 calibration, 50M (2.6h+) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_evalN10"
 
 echo === ALL DONE ===
 pause

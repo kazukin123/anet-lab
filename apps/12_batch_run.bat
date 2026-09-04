@@ -15,27 +15,25 @@ SET "FIX1=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex"
+SET "EV=run.@evalN10"
 
 echo === 0. wiring check x4 (12 min) ===
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_soft008>run.@pl_check"
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_btrflat>run.@pl_check"
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_btrstruct_taurelu>run.@pl_check"
-call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_vit>run.@pl_check"
+call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_soft020>%EV%>run.@pl_check"
+call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_soft050>%EV%>run.@pl_check"
+call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_btr_default>%EV%>run.@pl_check"
+call:run_exe "run.$=%A5%>run.@a5_20m>run.@rr1_va_soft008_btr>%EV%>run.@pl_check"
 
-echo === 1. soft tau 0.008 - freshness vs stationarity, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_soft008"
+echo === 1. soft tau 0.02 - sweep, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_soft020>%EV%"
 
-echo === 2. btrstruct replicate with eval2, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_btrstruct"
+echo === 2. soft tau 0.05 - sweep upper end, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_soft050>%EV%"
 
-echo === 3. btrstruct without maxpool - fusion at 7744, 50M (2.6h+) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_btrflat"
+echo === 3. BTR NN full match - btrstruct + tau ReLU + default init, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_btr_default>%EV%"
 
-echo === 4. btrstruct with tau ReLU - BTR faithful, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_btrstruct_taurelu"
-
-echo === 5. ViT hybrid + LN512 on V/A ReLU base, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_vit"
+echo === 4. soft tau 0.008 + BTR structure - does tau mask structure, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_soft008_btr>%EV%"
 
 echo === ALL DONE ===
 pause
