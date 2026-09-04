@@ -63,6 +63,10 @@ _Avoid_: soft Q（価値関数の名前と紛れる）, max-entropy target（手
 Munchausen RL の方策分布の軟らかさを制御する温度。IQN の taus や network 更新率など、他の tau 系パラメータとは別概念である。
 _Avoid_: tau（多義）, τ（無修飾）, 温度（何の温度か不明）
 
+**楽観ターゲット**:
+次状態の bootstrap 方策を、期待値ではなく分布の上側を見る risk-biased スコアで決める target 計算。Munchausen OFF では hard argmax、ON では soft 混合として同じ設定が効く。
+_Avoid_: optimistic bootstrap（価値側まで楽観と誤解される）, UQE ターゲット（方策の実装名で呼ばない）, 楽観 Q（価値関数の名前と紛れる）
+
 **taus（τサンプル）**:
 IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環境が渡す Observation ではなく、Agent（ActionPolicy / Learner）が forward 直前に NN 入力へ注入する。
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
