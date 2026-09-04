@@ -133,6 +133,7 @@ app.eval_panel.model_sync.time_interval_ms = 10000   # 1000
 app.eval_panel.model_sync.episode_interval = 1
 
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
+app.online.show_error_dialog = true
 app.online.train_panel.fps = 30
 #app.online.eval_panel.fps = 15
 #app.online.eval_panel.step_per_frame = 3
@@ -141,6 +142,7 @@ app.online.eval_panel.step_per_frame = 1
 
 app.batchrun.train_auto_start = true
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
+app.batchrun.show_error_dialog = false
 app.batchrun.train_panel.fps = 0.0
 #app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5

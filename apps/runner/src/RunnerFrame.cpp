@@ -171,7 +171,7 @@ void ShowUiOperationError(
 {
     const wxString message = operation + " failed.\npath=" + wxString(path.wstring())
         + "\nreason=" + reason;
-    ShowErrorDialog(message, detail);
+    ReportError(message, detail, wxGetApp().ShouldShowErrorDialog());
 }
 
 }  // namespace runner_frame_detail

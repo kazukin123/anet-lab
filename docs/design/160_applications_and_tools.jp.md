@@ -309,9 +309,10 @@ sequenceDiagram
 
 ### 7.1 Runner
 
-- `RunnerApp`が`RunManager`、`RunnerThread`、Frameを保持し、loggerの初期化・flush・停止順序を統括する。Run directoryと`run_dir_`は`MetricsLogger`が所有する。
-- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。close時Saveが失敗してもErrorDialogで通知した後に後続cleanupを続行する。
-- GUI callbackで発生した契約違反の例外はErrorDialogへ表示してmain loopを終了し、Trainer threadの例外はmain threadへ転送する。一方、初期化完了後のSave/Open Run Folderという対話的操作の環境依存失敗はRunnerFrame内で捕捉し、対象pathと理由を通知してRunを継続する。
+- `RunnerApp`が`RunManager`、`RunnerThread`、Frameを保持し、loggerの初期化・flush・停止順序を統括する。Run directoryと`run_dir_`は`MetricsLogger`が所有する。`app.show_error_dialog`は未指定時`true`で、online構成は`true`、batchrun構成は`false`へ解決する。構成名はコードで推測しない。
+- batchrun構成では、`ConfigData`解決直後から既定GUI loggerをapp所有の`wxLogStderr`へ切り替える。Run成立前は親stderr、standard stream開始後は`stderr.log`、通常logger構築後は既存Run logへ出し、部分初期化と終了時もactive targetをdanglingさせない。online構成では従来どおりエラーダイアログを表示する。
+- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。close時Saveが失敗しても共通error reporterで通知した後に後続cleanupを続行する。Save/Open Run Folderの失敗はnon-fatalであり、Run継続とprocess終了コードを変えない。
+- GUI callbackで発生した契約違反の例外は共通error reporterで英語のerror logをflushしてmain loopを終了し、Trainer threadの例外は現在例外をmain threadへ転送する。両例外callbackはmain thread所有のfatal latchを設定する。`RunnerApp::OnRun()`はwxWidgetsの元の非ゼロ値を保ち、元が0でもfatal済みなら1を返す。`OnExit()`はcleanup専用である。
 - Train panelのFPSは描画頻度だけを制御し、0では描画timerを停止しても学習は継続する。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
 - `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
 

@@ -456,6 +456,12 @@ run.@rr1_ln_hr_va : app.run_name = run_{t}_v3_rr1_ln_hr_va_${E1.game}
 run.@to_100m : @vars.max_exp_step  = 100,000,000
 run.@to_100m : @vars.half_exp_step =  50,000,000
 
+# シードだけ変える合成用(run_name は腕から継ぐ)。2026-09-04 時点の Run は
+# すべて train.seed = 1 かつ backend.@non-deterministic なので、これまでの
+# 「複製対」は数値的非決定だけを見ており、シード分散は未測定である。
+run.@seed2 : train.seed = 2
+run.@seed3 : train.seed = 3
+
 # ---- BTR 構造ラダー(2026-09-02) -------------------------------------------
 # BTR は pooling 直後の 2304 に cos 埋め込みを乗せ、V/A は共有トランク無しで
 # そこから独立に 512 へ落とす(reports/btr_code_reading_2026-08-31.md 3.5)。

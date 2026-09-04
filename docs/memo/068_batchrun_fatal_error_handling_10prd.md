@@ -1,17 +1,17 @@
-# batchrun の致命エラー処理（ダイアログ抑止・終了コード・bat 検出）暫定 PRD
+# PRD 068: batchrun の致命エラー処理（ダイアログ抑止・終了コード・bat 検出）
 
-> 状態: 暫定メモ。案と決定事項 D1〜D8 は未確定。詳細は別途グリルで詰める。本 PRD は実装着手を意味しない。
+> 状態: 確定。D1〜D8、complexity audit、受入基準を実装契約とする。
 > 起点: 2026-08-27 の Atari-5 初回スイープで phoenix が `bad allocation` で落ちた際、**モーダルダイアログが
-> 後続 4 本を 13 分 48 秒ブロックした**こと。batch モードは定義上無人なので、ダイアログは通知として機能せず
+> 後続 4 本を 13 分 48 秒ブロックした**こと。batchrun 構成は定義上無人なので、ダイアログは通知として機能せず
 > 待ち時間だけを生む。
 > 関連: `../experiments/default-dqn/atari/2026-08-27_atari5.md`（実測。phoenix の異常終了）、
-> `apps/12_batch_run_atari5.bat`、`docs/design/100_runtime_and_configuration.jp.md`（app プロファイルの選択）。
+> `apps/18_batch_run_atari5.bat`、`docs/design/100_runtime_and_configuration.jp.md`（app プロファイルの選択）。
 
 ## Context（背景・目的）
 
 ### 実測（2026-08-27 Atari-5 スイープ）
 
-`12_batch_run_atari5.bat` で 5 ゲームを連続実行した際の Run 間隔。
+`18_batch_run_atari5.bat` の前身で 5 ゲームを連続実行した際の Run 間隔。
 
 | 遷移 | 間隔 |
 |---|---|
@@ -26,34 +26,34 @@
 
 ### 問題は 3 つある
 
-1. **batch モードでダイアログが後続をブロックする。** 止まるべきは失敗した Run であり、それは既に止まっている
+1. **batchrun 構成でダイアログが後続をブロックする。** 止まるべきは失敗した Run であり、それは既に止まっている
    （プロセスが死んでいる）。ダイアログが追加で止めているのは無関係な後続である。
-   しかも batch は無人なので、通知としての価値もない。
-2. **終了コードが常に 0。** `RunnerApp::OnExit()` は無条件で `return 0` を返す（§事実 4）。
-   ダイアログを消すだけだと**失敗が完走と見分けられなくなる**ため、ここが①の前提条件になる。
+   しかも batchrun 構成は無人なので、通知としての価値もない。
+2. **fatal を process 終了コードへ反映する経路がない。** `wxApp::OnRun()` の結果を補正していないため、
+   main loop が 0 を返す fatal 終了を完走と見分けられない。`OnExit()` は cleanup 用であり、process 終了コードには使われない。
 3. **bat が `errorlevel` を見ていない。** スイープの出力が自己記述的でなく、後から各 Run のログを
    grep して回る必要がある。
 
-## 現行コードで確定している事実（実装の下地）
+## 実装着手時に確認した事実（実装の下地）
 
 | # | 事実 | 位置 |
 |---|---|---|
-| 1 | `ShowErrorDialog` は **`LOG::error()` でログを書いてから** `dlg.ShowModal()` する。つまり**ログはダイアログの有無と無関係に残る** | `apps/runner/src/ErrorDialog.cpp:13`（ログ）、`:81`（modal） |
-| 2 | `ShowErrorDialog` の呼び出しは **3 箇所すべて無条件** | `RunnerApp.cpp:631`（AnetException）、`:634`（std::exception）、`RunnerFrame.cpp:172`（`ShowUiOperationError`） |
-| 3 | 未知例外は素の `wxMessageBox` を直接呼ぶ。**4 箇所目のブロック点**でありログも残らない | `RunnerApp.cpp:636` |
-| 4 | **`OnExit()` は無条件で `return 0`** | `RunnerApp.cpp:613-621` |
-| 5 | `showFatalError()` の入口は 2 つ | `RunnerApp.cpp:640`（`OnExceptionInMainLoop`）、`:644`（`OnUnhandledException`） |
-| 6 | ワーカスレッド例外は `catch(...)` でログを書いて `OnException()` を呼ぶ（ログ文字列は `Thrad [name]: Exception caught.` — **`Thrad` は誤字**） | `core/anet-core/src/thread.cpp:60-63` |
-| 7 | **`RunnerApp::Config` は prefix `"app"` で読む。** 選択チェーン（`app.$ = app.online > P1`）解決後の実効値しか見えず、**コードからは online / batchrun を判別できない** | `RunnerApp.cpp:70` |
-| 8 | 現在のモード区別は `exp_pause_step` / `exp_exit_step` の正負による**暗黙**のもの | `RunnerApp.cpp:385`（exit）、`:399`（pause） |
-| 9 | **`app.online.*` / `app.batchrun.*` の並行キーは既に前例がある** | `Atari.txt:193`/`:196`（exp_pause/exit_step）、`:739-740`（`eval_panel.auto_start`） |
-| 10 | bat に `errorlevel` の検査は無い | `apps/12_batch_run_atari5.bat` |
+| 1 | 既存 `ShowErrorDialog` は `LOG::error()` の後に `ShowModal()` していた。ログと表示の責務を分離できる | `apps/runner/src/ErrorDialog.cpp` |
+| 2 | fatal、未知例外、checkpoint 保存、Open Run Folder の通知が modal 経路を通り得る | `RunnerApp.cpp`、`RunnerFrame.cpp` |
+| 3 | 未知例外は素の `wxMessageBox` を直接呼んでいたため、ログを共通化する必要がある | `RunnerApp.cpp` |
+| 4 | wxWidgets の process 終了コードは `OnRun()` の戻り値であり、`OnExit()` の戻り値は使われない | [wxApp API](https://github.com/wxWidgets/wxWidgets/blob/master/interface/wx/app.h)、[entry implementation](https://github.com/wxWidgets/wxWidgets/blob/master/src/common/init.cpp) |
+| 5 | `showFatalError()` の入口は `OnExceptionInMainLoop()` と `OnUnhandledException()` の 2 つ | `RunnerApp.cpp` |
+| 6 | ワーカスレッド例外は `catch(...)` でログを書いて `OnException()` を呼ぶ（ログ文字列は `Thrad [name]: Exception caught.` — **`Thrad` は誤字**） | `core/anet-core/src/thread.cpp` |
+| 7 | **`RunnerApp::Config` は prefix `"app"` で読む。** 選択チェーン（`app.$ = app.online > P1`）解決後の実効値しか見えず、**コードからは online / batchrun を判別できない** | `RunnerApp.cpp` |
+| 8 | 実装着手時の構成差は `exp_pause_step` / `exp_exit_step` の正負に暗黙依存していた | `RunnerApp.cpp` |
+| 9 | **`app.online.*` / `app.batchrun.*` の並行キーは既に前例がある** | `apps/runner/config/common.txt`、`Atari.txt` |
+| 10 | bat に `errorlevel` の検査は無い | `apps/11_batch_run.bat`、`apps/12_batch_run.bat`、`apps/18_batch_run_atari5.bat` |
 
 **事実 7 + 9 が設計上重要である。** 選択チェーンが既にモードごとの値を運んでいるので、
 `app.online.show_error_dialog` / `app.batchrun.show_error_dialog` の 2 行を置けば、
 **コード側にモード判定を足さずに**モード由来の既定が成立する。実効設定は単一の `app.show_error_dialog` になる。
 
-## 案（グリルで選択）
+## 比較履歴
 
 | 案 | 内容 | 長所 | 短所 |
 |---|---|---|---|
@@ -61,29 +61,40 @@
 | B: 裸のフラグ 1 個 | `app.show_error_dialog = false` を batch 用 config へ書く | 変更最小 | **書き忘れると元の症状に戻る**。batch を新規に作るたび再発しうる |
 | C: bat 側だけで回避 | `start /wait` にタイムアウトを付ける等 | アプリ無改修 | ダイアログが出たまま。終了コードも 0 のままで失敗検出は解決しない |
 
-案 A を軸に詰める想定。
+案 A を採用する。モード名を実行時に推測せず、選択チェーンで単一の実効設定へ解決する。
 
-## 決定事項（未確定）
+## 確定した D1〜D8
 
-| # | 論点 | メモ |
+| # | 決定 | 契約 |
 |---|---|---|
-| D1 | キー名と既定 | `app.<mode>.show_error_dialog`（online=true / batchrun=false）でよいか。名前は `suppress_*` でなく肯定形を推奨（既存 `auto_start` と同じ向き） |
-| D2 | **終了コードの持ち方** | fatal を通った事実をどこに持って `OnExit()` へ渡すか（`RunnerApp` のメンバ / atomic）。値は 1 でよいか、種別で分けるか |
-| D3 | `ShowUiOperationError` の扱い | `RunnerFrame.cpp:172` は UI 操作（保存等）の失敗で、batch では原理的に起きないはず。同じフラグで抑止するか、対象外にするか |
-| D4 | 未知例外の素 `wxMessageBox` | `RunnerApp.cpp:636` は**ログすら残らない**。抑止対象に含めるのは当然として、**ログを追加すべき**ではないか（本 PRD で直すか別件か） |
-| D5 | 抑止時の代替通知 | ログのみで足りるか、stderr にも 1 行出すか（bat のコンソールに出ると気づきやすい） |
-| D6 | bat の検出形式 | `if errorlevel 1 echo *** FAILED ***` の文言と、END 行との関係 |
-| D7 | **1 本目失敗でスイープを中断するか** | ゲーム横断は独立なので継続が既定で正しいが、config エラーなら残り全部が確実に落ちる。「1 本目だけ fail-fast」は bat 2 行で済む。実装不要なので先行適用も可 |
-| D8 | ワーカスレッド例外と main loop 例外 | `thread.cpp` 経由と `OnExceptionInMainLoop` 経由で扱いを分ける必要があるか。今回の `bad allocation` は前者 |
+| D1 | キー名と既定 | `app.show_error_dialog: bool`。`app.online.show_error_dialog=true`、`app.batchrun.show_error_dialog=false`、未指定時は `true`。不正値は既定 `true` の状態で fail-fast する |
+| D2 | fatal と終了コード | main thread 所有の `fatal_error_seen_` を持つ。`OnRun()` は元の非ゼロを保ち、元が 0 でも fatal 済みなら 1 を返す。公開契約は正常 0 / fatal 非ゼロだけとする |
+| D3 | 非 fatal UI 操作 | checkpoint 保存と Open Run Folder も同じ表示フラグへ従うが、失敗後は Run を継続し、終了コードへ影響させない |
+| D4 | 未知例外 | 共通 `ReportError` で英語の error log と flush を必ず行い、許可時だけ dialog を表示する |
+| D5 | 抑止時のログ先 | `ConfigData` 解決直後に `wxLogStderr` へ切り替える。Run 成立前は親 stderr、標準 stream logger 開始後は `stderr.log`、通常 logger 構築後は既存 Run log へ残す |
+| D6 | launcher の検出 | Run 直後に `%ERRORLEVEL%` を保存する。成功時だけ既存 `END`、失敗時は日時付き `[ERROR] RUN FAILED exit_code=<code> args=<args>` と件数を出す |
+| D7 | 失敗後の継続 | subroutine は常に 0 で戻り、残りの Run を必ず継続する。最後の `pause` 後、全成功は 0、1 件以上失敗は 1 を返す |
+| D8 | worker 例外 | 既存どおり worker から main thread へ現在例外を転送し、同じ fatal 経路で扱う。latch は atomic にしない |
 
-## 受入基準（案）
+ユーザー操作用の About、file picker、workspace 選択 dialog は `app.show_error_dialog` の対象外とする。
 
-1. **batch 構成でダイアログが出ない。** 意図的に fatal を発生させた smoke で、モーダルが表示されず即座にプロセスが終了する。
-2. **同構成で終了コードが非ゼロ。** bat から `errorlevel` で検出できる。
-3. **online 構成では従来どおりダイアログが出る**（既定の回帰なし）。
-4. **ログの内容が抑止前後で同一。** `ShowErrorDialog` はログを先に書くので（事実 1）、抑止してもログは欠けない。
-5. **bat の出力に失敗が現れる。** 5 本走らせて 1 本失敗させたとき、出力だけで «どれが落ちたか» が分かる。
-6. 正常終了時の終了コードは 0 のまま。
+## Complexity audit
+
+- Keep: 1 個の bool 設定、早期 stderr target、fatal latch + `OnRun()`、3 launcher の局所集計、設定/thread/smoke/launcher の検証、文書同期。
+- Shrink: 終了コードは 0 / 非ゼロだけ、latch は非 atomic、batch helper は作らず、PowerShell smoke は 1 本にまとめる。
+- Defer: worker fatal の完全 E2E 故障注入、online dialog の UI 自動化。
+- Cut: 例外種別別終了コード、初回失敗時中断、専用 startup log、ADR、`Thrad` 誤字修正。
+
+## 受入基準
+
+1. `app.$=app.online` は実効 `app.show_error_dialog=true`、`app.$=app.batchrun` は `false` へ解決され、source-prefix CLI override も選択前に適用される。
+2. batchrun 構成で解決済み設定以降に fatal が起きても modal で停止せず、英語の error log を flush して 15 秒以内に非ゼロ終了する。
+3. online 構成では従来どおり error dialog を表示する。未指定時も `true` とし、不正 bool は黙って `false` にしない。
+4. worker 例外は callback が一度だけ現在例外を受け取り、thread が停止し、main thread の fatal 処理へ転送できる。
+5. Save Checkpoint / Open Run Folder の失敗は同じ表示方針へ従うが、Run 継続と終了コード 0 の契約を維持する。
+6. 3 launcher は失敗した Run の code と args を出力し、後続 Run を続け、最後に失敗件数を表示して 1 を返す。全成功時は成功件数と 0 failures を表示して 0 を返す。
+7. launcher の Run 一覧・順序、最終 `pause`、`apps/12_batch_run.bat` の既存実験追加、CP932 + CRLF を保持する。
+8. `OnExit()` は cleanup 専用のまま、process 終了コードは `OnRun()` が決める。
 
 ## 非目標
 
@@ -91,4 +102,6 @@
   `2026-08-27_atari5.md` の pending に残っている（プロセスメモリのメトリクスが無く事後追跡不能）。
 - ダイアログ自体の UI 改善（スタックトレース表示、クリップボードコピー等は現状のまま）。
 - クラッシュレポートの外部送信。
-- `thread.cpp:61` の誤字 `Thrad` 修正。grep しづらいだけで実害はないが、触るついでに直すかは D 枠外の判断。
+- 例外種別別の終了コード、初回失敗時の batch 中断、専用 startup log。
+- 実 dialog の UI 自動化、worker fatal の完全 E2E 故障注入。
+- `thread.cpp:61` の誤字 `Thrad` 修正。

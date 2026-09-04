@@ -56,6 +56,7 @@ struct RunnerApp::Config : public anet::Config {
     std::string runs_dir = "runs";
     std::string log_level = "info";
     int log_flush_interval_ms = 500;
+    bool show_error_dialog = true;
     bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
@@ -73,6 +74,7 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, runs_dir);
         ANET_READ_CONFIG(config_data, log_level);
         ANET_READ_CONFIG(config_data, log_flush_interval_ms);
+        ANET_READ_CONFIG(config_data, show_error_dialog);
 
         ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
@@ -136,6 +138,43 @@ private:
         }
     }
 };
+
+RunnerApp::~RunnerApp()
+{
+    ShutdownNonModalErrorLogging();
+}
+
+void RunnerApp::SetupNonModalErrorLogging()
+{
+    if (non_modal_log_target_ != nullptr) {
+        return;
+    }
+
+    // 解決済み設定以降の起動失敗を、既定の GUI logger ではなく stderr へ送る。
+    auto log_target = std::make_unique<wxLogStderr>();
+    previous_log_target_ = wxLog::SetActiveTarget(log_target.get());
+    non_modal_log_target_ = std::move(log_target);
+}
+
+void RunnerApp::ShutdownNonModalErrorLogging()
+{
+    if (non_modal_log_target_ == nullptr) {
+        return;
+    }
+
+    // UI logger が先に破棄されて stderr target へ戻った後、安全に元の target を復元する。
+    wxLog::FlushActive();
+    if (wxLog::GetActiveTarget() == non_modal_log_target_.get()) {
+        wxLog* const detached_target = wxLog::SetActiveTarget(previous_log_target_);
+        if (detached_target == non_modal_log_target_.get()) {
+            non_modal_log_target_.reset();
+        }
+    } else {
+        // 他 target がまだ参照している場合は、dangling を避けて process lifetime まで残す。
+        non_modal_log_target_.release();
+    }
+    previous_log_target_ = nullptr;
+}
 
 std::filesystem::path GetConfigFilePath()
 {
@@ -286,6 +325,12 @@ bool RunnerApp::OnInit()
                 workspace_root_text.size());
     }
     auto config_data = config_mgr_->GetConfigData();
+
+    // 不正値では既定 true のまま例外を送出し、構成名から表示方針を推測しない。
+    show_error_dialog_ = config_data.Get<bool>("app.show_error_dialog", true);
+    if (!show_error_dialog_) {
+        SetupNonModalErrorLogging();
+    }
 
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
@@ -610,9 +655,20 @@ void RunnerApp::StopTraining()
     trainer_thread_->Stop();
 }
 
+int RunnerApp::OnRun()
+{
+    const int exit_code = wxApp::OnRun();
+    if (exit_code != 0) {
+        return exit_code;
+    }
+    return fatal_error_seen_ ? 1 : 0;
+}
+
 int RunnerApp::OnExit()
 {
-    trainer_thread_->Stop();
+    if (trainer_thread_ != nullptr) {
+        trainer_thread_->Stop();
+    }
     ShutdownRunLogging();
     anet::MetricsLogger::Reset();
     standard_stream_logger_.Flush();
@@ -628,23 +684,25 @@ void RunnerApp::showFatalError()
     } catch (const anet::AnetException& e1) {
         auto msg = wxString::FromUTF8(e1.what());
         auto detail = wxString::FromUTF8(e1.stack_trace());
-        ShowErrorDialog(msg, detail);
+        ReportError(msg, detail, show_error_dialog_);
     } catch (const std::exception& e) {
         auto msg = wxString::FromUTF8(e.what());
-        ShowErrorDialog(msg);
+        ReportError(msg, wxEmptyString, show_error_dialog_);
     } catch (...) {
-        wxMessageBox("System error", "System Error", wxICON_ERROR);
+        ReportError("Unknown exception.", wxEmptyString, show_error_dialog_);
     }
 }
 
 bool RunnerApp::OnExceptionInMainLoop()
 {
+    fatal_error_seen_ = true;
     showFatalError();
     return false;
 }
 
 void RunnerApp::OnUnhandledException()
 {
+    fatal_error_seen_ = true;
     showFatalError();
 }
 

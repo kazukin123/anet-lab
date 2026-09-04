@@ -32,6 +32,9 @@ REM ============================================================================
 cd /d "%~dp0runner"
 
 SET EXE="bin\Release\AnetRLRunner.exe" --workspace atari-5
+
+SET /A SUCCEEDED_RUNS=0
+SET /A FAILED_RUNS=0
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe" --workspace atari-5
 
 SET "BASE=run.@v5_iqn_impala_x2>run.@a5"
@@ -53,18 +56,25 @@ REM call:run_all_games
 
 REM ----------------------------------------------------------------------------
 
+if "%FAILED_RUNS%"=="0" goto :all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 pause
-exit /b
+exit /b 1
+
+:all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, 0 FAILED ===
+pause
+exit /b 0
 
 
 REM Order: readable first, then by Atari-5 regression weight, with phoenix pinned last.
 REM   qbert is the clearest signal; battle_zone + name_this_game carry 69 percent of the
 REM   median estimate; double_dunk has the lowest weight (0.068) and stays below random at 20M.
 REM
-REM   PHOENIX MUST STAY LAST until 999_batchrun_fatal_error_handling is implemented.
-REM   On 2026-08-27 it died with bad_alloc at 12.3M/20M after its episodes hit the 27,000
-REM   step truncation cap. A modal error dialog then blocked the queue for 13m48s. Running
-REM   it last means a repeat delays nothing.
+REM   phoenix remains last as the historical 2026-08-27 failure case.
+REM   It died with bad_alloc at 12.3M/20M after its episodes hit the 27,000 step
+REM   truncation cap, and a modal error dialog blocked the queue for 13m48s.
+REM   PRD 068 removes that blocking dependency; the order remains for comparison continuity.
 :run_all_games
 call:run_game qbert
 call:run_game battle_zone
@@ -82,5 +92,13 @@ exit /b
 :run_exe
 echo %DATE% %TIME% START %*
 %EXE% %*
+SET "RUN_EXIT_CODE=%ERRORLEVEL%"
+if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
+echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
+SET /A FAILED_RUNS+=1
+exit /b 0
+
+:run_succeeded
+SET /A SUCCEEDED_RUNS+=1
 echo   %DATE% %TIME% END   %*
-exit /b
+exit /b 0

@@ -11,6 +11,9 @@ if errorlevel 1 goto :no_exe
 
 SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-2nd
 
+SET /A SUCCEEDED_RUNS=0
+SET /A FAILED_RUNS=0
+
 SET "FIX1=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
@@ -29,16 +32,30 @@ call:run_exe "run.$=%A5%>run.@rr1_va_vit"
 echo === 3. V/A ReLU base with eval L=10 N=10 - PRD060 calibration, 50M (2.6h+) ===
 call:run_exe "run.$=%A5%>run.@rr1_va_evalN10"
 
-echo === ALL DONE ===
+if "%FAILED_RUNS%"=="0" goto :all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 pause
-exit /b
+exit /b 1
+
+:all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, 0 FAILED ===
+pause
+exit /b 0
 
 
 :run_exe
 echo %DATE% %TIME% START %*
 %EXE% %* %FIX1% %FIX2%
+SET "RUN_EXIT_CODE=%ERRORLEVEL%"
+if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
+echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
+SET /A FAILED_RUNS+=1
+exit /b 0
+
+:run_succeeded
+SET /A SUCCEEDED_RUNS+=1
 echo   %DATE% %TIME% END   %*
-exit /b
+exit /b 0
 
 
 :no_exe

@@ -1024,6 +1024,50 @@ TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[c
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli]")
+{
+    const auto repo_root = std::filesystem::path(__FILE__)
+        .parent_path().parent_path().parent_path().parent_path();
+    const auto config_path = repo_root / "apps" / "runner" / "config" / "common.txt";
+    REQUIRE(std::filesystem::exists(config_path));
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+
+    SECTION("online configuration enables dialogs")
+    {
+        wxCmdLineParser command_line(description, "app.$=app.online");
+        REQUIRE(command_line.Parse(false) == 0);
+
+        const anet::ConfigManager manager(config_path.string(), &command_line);
+        CHECK(manager.GetConfigData().Get("app.show_error_dialog") == "true");
+    }
+
+    SECTION("batchrun configuration disables dialogs")
+    {
+        wxCmdLineParser command_line(description, "app.$=app.batchrun");
+        REQUIRE(command_line.Parse(false) == 0);
+
+        const anet::ConfigManager manager(config_path.string(), &command_line);
+        CHECK(manager.GetConfigData().Get("app.show_error_dialog") == "false");
+    }
+
+    SECTION("source-prefix CLI override is applied before selection")
+    {
+        wxCmdLineParser command_line(
+            description, "app.batchrun.show_error_dialog=true app.$=app.batchrun");
+        REQUIRE(command_line.Parse(false) == 0);
+
+        const anet::ConfigManager manager(config_path.string(), &command_line);
+        const auto config_data = manager.GetConfigData();
+        CHECK(config_data.Get("app.show_error_dialog") == "true");
+        CHECK(config_data.Get("app.batchrun.show_error_dialog") == "true");
+    }
+}
+
 TEST_CASE("ConfigManager keeps a literal CLI leaf after value-reference selection", "[config][resolver][reference][cli]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" /

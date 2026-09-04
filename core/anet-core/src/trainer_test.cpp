@@ -7,12 +7,18 @@
 #include "anet/trainer.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -72,6 +78,34 @@ rl::EnvSpec MakeEnvSpec()
     spec.reward_range = { -1.0f, 1.0f };
     return spec;
 }
+
+class ThrowingRunner final : public rl::Runner {
+public:
+    rl::StepCounts DoStep() override
+    {
+        throw std::runtime_error("runner failure");
+    }
+
+    rl::StepCounts DoUpdateFrame(int, ControlFunction, ControlFunction) override
+    {
+        throw std::runtime_error("runner failure");
+    }
+
+    rl::RunnerStatus GetStatus() const override { return rl::RunnerStatus::RUNNING; }
+    void Shutdown() override {}
+    rl::StepCounts GetCounts() const override { return {}; }
+    const std::string& GetName() const override { return name_; }
+    std::shared_ptr<rl::BatchEnv> GetBatchEnv() const override { return nullptr; }
+    std::shared_ptr<rl::Agent> GetAgent() const override { return nullptr; }
+    std::shared_ptr<rl::Notifier> GetNotifier() const override { return nullptr; }
+    std::optional<float> GetScalar(const std::string&, int64_t) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(
+        const std::string&, int64_t) const override { return std::nullopt; }
+
+private:
+    std::string name_ = "ThrowingRunner";
+};
 
 class TestResetResult final : public rl::BatchResetResult {
 public:
@@ -930,4 +964,35 @@ TEST_CASE("RunManager reserves Env names only after successful construction", "[
     auto second_manager = std::make_shared<rl::RunManager>(config);
     REQUIRE(second_manager->GetStatus() == rl::RunnerStatus::RUNNING);
     CHECK(second_manager->CreateEvalRunner("retry")->GetBatchEnv()->GetName() == "retry");
+}
+
+TEST_CASE("RunnerThread forwards a worker exception once and stops", "[trainer][thread]")
+{
+    auto runner = std::make_shared<ThrowingRunner>();
+    std::atomic<int> callback_count = 0;
+    std::exception_ptr callback_exception;
+    std::promise<void> callback_called;
+    auto callback_future = callback_called.get_future();
+
+    rl::RunnerThread thread(
+        "ThrowingRunnerThread",
+        runner,
+        nullptr,
+        nullptr,
+        [&] {
+            // worker の catch 節にある現在例外を、main thread 側で検証できる形に保存する。
+            callback_exception = std::current_exception();
+            callback_count.fetch_add(1);
+            callback_called.set_value();
+        });
+
+    // callback の通知を待ってから join し、停止状態と転送された例外を確認する。
+    thread.Start();
+    REQUIRE(callback_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    thread.Stop();
+
+    CHECK(callback_count.load() == 1);
+    CHECK_FALSE(thread.IsRunning());
+    REQUIRE(callback_exception != nullptr);
+    CHECK_THROWS_WITH(std::rethrow_exception(callback_exception), "runner failure");
 }

@@ -49,6 +49,7 @@ $include <DropMerge.txt>
 | `app.run_name` | Run名。`{t}`は起動時刻へ展開される |
 | `app.runs_dir` | workspaceモードでは`<workspace>/runs`へRunnerが導出する。設定やCLIからの変更は禁止 |
 | `app.train_auto_start` | `true`ならGUI初期化後に学習を開始する |
+| `app.show_error_dialog` | error logに加えてモーダルダイアログを表示するか。未指定時は`true` |
 | `app.eval_panel.auto_start` | 手動EvalPanelを起動直後から動かすか |
 | `train.seed` | Runの基準seed |
 | `train.num_envs` | Train用BatchEnvのlane数 |
@@ -92,12 +93,14 @@ apps\runner\bin\Release\AnetRLRunner.exe `
 5. Train、Eval、QValue、Logの各パネルを接続する。
 6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
 
-起動に失敗した場合は、画面のエラーダイアログだけでなく、対象Runの`stderr.log`と`<run_name>.log`も確認する。
+起動に失敗した場合はerror logを確認する。online構成ではログに加えてエラーダイアログを表示する。batchrun構成ではモーダル表示せず、Run directory成立前は親processのstderr、`StandardStreamLogger`開始後は対象Runの`stderr.log`、通常logger構築後は`<run_name>.log`へ記録する。fatalを処理したprocessは非ゼロで終了する。
 
 ### 3.2 自動停止・自動pause
 
 `app.train_exit_step`、`app.exp_exit_step`は上限到達時にRunを終了する。`app.train_pause_step`、`app.exp_pause_step`は一度だけ自動pauseする。
-batch実験では、`app.$=app.batchrun`で低FPS表示と`exp_exit_step`をまとめて選ぶ構成が用意されている。
+batch実験では、`app.$=app.batchrun`で低FPS表示、`exp_exit_step`、`app.show_error_dialog=false`をまとめて選ぶbatchrun構成が用意されている。人が操作するonline構成は`app.$=app.online`で`app.show_error_dialog=true`を選ぶ。これらはTrain / Evalの`RunMode`とは別概念である。
+
+`apps/11_batch_run.bat`、`apps/12_batch_run.bat`、`apps/18_batch_run_atari5.bat`は各Runの終了コードを記録する。失敗したRunでは`[ERROR] RUN FAILED exit_code=<code> args=<args>`を表示して後続Runを続け、全Run終了後の`pause`を経て1を返す。全Run成功時は0を返す。
 
 ## 4. AP画面
 
@@ -164,9 +167,9 @@ Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text�
 
 WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止、`agent_close.anet`保存、Run出力のflush、GUI破棄の順に進む。保存中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
 
-`Save Checkpoint`は押下時にTrainが走行中なら先にpauseする。これはdialog操作中にstepが進み、既定ファイル名と保存内容がずれるのを防ぐためで、保存やcancelの後もTrainは自動再開しない。再開はRun制御ツールバーの`Train`か`Shift`で行う。保存処理自体はTrain走行中でも安全である。`DefaultDQNAgent`はserialization全体をAgentのshared lockで保護し、Learner更新と排他する。保存先の権限、空き容量、file lockなどで失敗した場合は対象pathと理由をErrorDialogへ表示し、Runは継続する。失敗したfileは不完全な可能性があるが自動削除されないため、内容を確認してから処理する。有効なpathを選べば再度Saveできる。
+`Save Checkpoint`は押下時にTrainが走行中なら先にpauseする。これはdialog操作中にstepが進み、既定ファイル名と保存内容がずれるのを防ぐためで、保存やcancelの後もTrainは自動再開しない。再開はRun制御ツールバーの`Train`か`Shift`で行う。保存処理自体はTrain走行中でも安全である。`DefaultDQNAgent`はserialization全体をAgentのshared lockで保護し、Learner更新と排他する。保存先の権限、空き容量、file lockなどで失敗した場合は対象pathと理由をerror logへ記録し、online構成ではダイアログも表示する。これはnon-fatalで、Runとprocess終了コードには影響しない。失敗したfileは不完全な可能性があるが自動削除されないため、内容を確認してから処理する。有効なpathを選べば再度Saveできる。
 
-close時の`agent_close.anet`保存に失敗した場合もErrorDialogで通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから再開に使う。
+close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから再開に使う。
 
 checkpointから再開する場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。再開後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
@@ -194,9 +197,9 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 - Evalが進まない: `Evaluation View`を表示し、`app.eval_panel.auto_start`または`Space`を確認する。
 - toolbarのcheck状態が操作と合わない: 最大200ms待って実状態への同期を確認する。配置が崩れた場合は`View > Reset Layout`を使う。
 - Train Viewだけ更新されない: `View > Train View FPS`が`0 (Off)`になっていないか確認する。
-- Saveに失敗する: ErrorDialogの対象pathと失敗段階を確認する。権限、空き容量、file lockを解消するか別pathを選んで再実行する。Runは継続しているが、失敗した出力fileは不完全な可能性がある。
+- Saveに失敗する: error log（online構成ではダイアログも表示）の対象pathと失敗段階を確認する。権限、空き容量、file lockを解消するか別pathを選んで再実行する。Runは継続しているが、失敗した出力fileは不完全な可能性がある。
 - Save結果が0 byteになる: `<run_name>.log`の対象path付きWARNを確認する。利用中AgentがSaveを実装していない可能性がある。
-- Run folderが開かない: ErrorDialogに表示される対象pathとOS側のfolder関連付けを確認する。起動失敗後もRunは継続する。
+- Run folderが開かない: error log（online構成ではダイアログも表示）の対象pathとOS側のfolder関連付けを確認する。失敗後もRunは継続する。
 - CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device_type`、eval deviceを確認する。
 - 期待したEnvでない: 選択workspaceの`config/_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
 - workspaceを選び直したい: `--select-workspace`で起動する。履歴は`GetAppDataDir()/history.txt`、ダイアログ選好は`prefs.txt`を削除すると個別にリセットできる。
