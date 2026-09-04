@@ -210,7 +210,7 @@ sequenceDiagram
     A->>T: Start()
 ```
 
-GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で独立EvalRunnerを進めるため、configured background evalとは別用途である。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
+GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で通常の`BatchEnv`を持つ独立EvalRunnerをstep単位で進めるため、`EvalSessionEnv`を使うconfigured background evalとは別用途である。強制Actionと既存のmodel同期方式もEvalPanel側に維持する。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
 
 RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
 

@@ -12,13 +12,13 @@
 
 metrics.scalar.@baseline.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
 #metrics.scalar.@baseline.[10_train/12_epsilon] = $agent epsilon @train
-metrics.scalar.@baseline.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
-metrics.scalar.@baseline.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001 # clip:1000
+metrics.scalar.@baseline.[20_eps/10_train_reward]     = $runner $episode_step max.episode_return @train
+metrics.scalar.@baseline.[20_eps/11_train_reward_ema] = $runner $episode_step max.episode_return @train $ema ema_alpha:0.001 # clip:1000
 
-metrics.scalar.@baseline.[21_eval/01_target_reward] = eps_total_reward $runner @episode_end $eval.[eval1]
-metrics.scalar.@baseline.[21_eval/02_policy_reward] = eps_total_reward $runner @episode_end $eval.[eval2]
-metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.1 #clip:3000
-metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.1 #clip:3000
+metrics.scalar.@baseline.[21_eval/01_target_reward] = mean.episode_return $runner @episode_end $eval.[eval1]
+metrics.scalar.@baseline.[21_eval/02_policy_reward] = mean.episode_return $runner @episode_end $eval.[eval2]
+metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval1] $ema ema_alpha:0.1 #clip:3000
+metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval2] $ema ema_alpha:0.1 #clip:3000
 
 metrics.scalar.@baseline.[32_agent_base/04_uqe_tau] = $agent uqe_tau @learn $exp_step
 metrics.scalar.@baseline.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn $exp_step
@@ -162,7 +162,7 @@ metrics.scalar.@iqn_search_p0.[90_perf/90_elapse_hour] = elapse_hour @train $run
 
 
 metrics.scalar.@min.[00_train/11_eps_count] = $runner episode_count @train $runner interval:100
-metrics.scalar.@min.[10_eps/10_eps_reward] = $runner $episode_step train_episode_reward @train
+metrics.scalar.@min.[10_eps/10_eps_reward] = $runner $episode_step max.episode_return @train
 #metrics.scalar.@min.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 #metrics.scalar.@min.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.@min.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
@@ -172,12 +172,12 @@ metrics.scalar.@min.[90_perf/90_elapse_hour] = elapse_hour @train $runner interv
 
 metrics.scalar.@full.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
 metrics.scalar.@full.[10_train/12_epsilon] = $agent epsilon @train
-metrics.scalar.@full.[20_eps/10_train_reward] = $runner $episode_step train_episode_reward @train
-metrics.scalar.@full.[20_eps/11_train_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
-metrics.scalar.@full.[21_eval/01_target_reward] = eps_total_reward $runner @episode_end $eval.[eval1] clip:3000
-metrics.scalar.@full.[21_eval/02_policy_reward] = eps_total_reward $runner @episode_end $eval.[eval2] clip:3000
-metrics.scalar.@full.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.001 clip:1000
-metrics.scalar.@full.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.001 clip:1000
+metrics.scalar.@full.[20_eps/10_train_reward] = $runner $episode_step max.episode_return @train
+metrics.scalar.@full.[20_eps/11_train_reward_ema] = $runner max.episode_return @train $ema ema_alpha:0.001 clip:1000
+metrics.scalar.@full.[21_eval/01_target_reward] = mean.episode_return $runner @episode_end $eval.[eval1] clip:3000
+metrics.scalar.@full.[21_eval/02_policy_reward] = mean.episode_return $runner @episode_end $eval.[eval2] clip:3000
+metrics.scalar.@full.[21_eval/03_target_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval1] $ema ema_alpha:0.001 clip:1000
+metrics.scalar.@full.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval2] $ema ema_alpha:0.001 clip:1000
 metrics.scalar.@full.[32_agent_base/04_uqe_tau] = $agent uqe_tau @learn $exp_step
 metrics.scalar.@full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn $exp_step
 metrics.scalar.@full.[32_agent_base/06_tau] = $agent tau @learn $exp_step

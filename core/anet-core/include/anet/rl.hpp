@@ -290,9 +290,15 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
+    enum class EpisodeScope {
+        PER_LANE,  ///< 各laneを独立したepisode groupとして扱う。
+        SHARED,    ///< 全laneを1つの共有episode groupとして扱う。
+    };
+
     struct BatchEnvSpec {
         int num_envs;
         int num_threads;
+        EpisodeScope episode_scope = EpisodeScope::PER_LANE;
 
         anet::json ToJson() const;
         std::string ToString() const;
@@ -920,7 +926,6 @@ namespace anet::rl {
         const std::shared_ptr<const Agent> agent;
         const std::shared_ptr<const BatchEnv> env;
         int env_index;
-        float eps_total_reward;
     };
 
     class TrainObserver {
@@ -1098,8 +1103,6 @@ namespace anet::rl {
     public:
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
-        static constexpr const char* TRAIN_EPISODE_REWARD = "train_episode_reward";
-        static constexpr const char* EPS_TOTAL_REWARD = "eps_total_reward";
         static constexpr const char* TRAIN_STEP = "train_step";
         static constexpr const char* EXP_STEP = "exp_step";
         static constexpr const char* LEARN_STEP = "learn_step";

@@ -24,12 +24,12 @@
 |---|---|
 | `TrainEvent` | Env step後のExperience、ActionInfo、Env、Agent、Runner、countsを運ぶevent |
 | `LearnEvent` | Learner更新後のExperience、UpdateResult、Agent、Runner、countsを運ぶevent |
-| `EpisodeEndEvent` | episode終端lane、累積reward、Agent、Env、Runner、countsを運ぶevent |
+| `EpisodeEndEvent` | episode終端group、Agent、Env、Runner、countsを運ぶevent。return値はRunner scalarから取得する |
 | `Notifier` | 3種類のObserverを登録し、対応eventを同期的に配信するRun内hub。`RunManager`がTrain/Eval間で共有する |
 | Runner-scoped Observer | Trainまたは特定Eval Runnerのeventだけを実Observerへ通すwrapper |
 | `ObserverFactory` | `metrics.scalar.*`、`metrics.graph.*`などのConfigDataからObserverを組み立てるfactory |
 | `MetricsLog*Observer` | event内の指定sourceからscalarを取得し、step選択、interval、EMA、clipを適用するObserver |
-| `EpisodeEvalObserver` | Learn eventを契機にconfigured Evalを同期またはbackgroundで駆動するObserver |
+| `EpisodeEvalObserver` | Learn eventを契機にconfigured Eval sessionを同期またはbackgroundで駆動し、worker例外を呼出側へ再送出するObserver |
 | Image/Graph Observer | ProbeやNN出力からHeatMap、TimeHistogram、Conv2d、GraphVizを生成するObserver |
 | `MetricsLogger` | Run名とRun directoryを所有し、scalar、JSON、画像、動画、DOTを共通形式で保存するsingleton |
 | `IBackend` / `JsonlBackend` | metric recordの永続化境界。現行backendは`metrics.jsonl`へ追記する |
@@ -143,6 +143,8 @@ sequenceDiagram
 ```
 
 Observer callbackは`Notify()`を呼んだthread上で実行される。重いrender、device同期、I/Oを追加する場合はTrain/Learnのcritical pathへ入ることを前提にprofileする。`EpisodeEvalObserver`のbackground evalは専用poolを使う例外であり、完了時の例外は次の境界で呼び出し側へ再送出する。
+
+Runnerは直近Stepで完了したepisode return群を共通集約し、`mean.episode_return`、`max.episode_return`、`min.episode_return`、`std.episode_return`を公開する。trainの従来値は`max.episode_return`、configured Evalはsessionで採用したN本の集約である。`EvalSessionEnv`は解決済みmetric定義のうち対象Evalの`@episode_end $env` source keyだけを購読し、episode完了Step直後に値をsnapshotする。`nullopt`が一つでもあれば集約も`nullopt`、NaNは除外する。有効値0件の集約と有効値1件のstdはNaN、2件以上のstdは母集団標準偏差とする。
 
 ### 5.2 Run終了時の出力確定
 

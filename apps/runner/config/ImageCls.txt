@@ -502,11 +502,8 @@ ImageClsAgent.net.body.output.[features] = main_feature
 #metrics.scalar.$ = metrics.scalar.@full > M1
 
 
-metrics.scalar.[20_eps/10_train_reward]     = $runner train_episode_reward $episode_step @train
-metrics.scalar.[20_eps/11_train_reward_ema] = $runner train_episode_reward $episode_step @train $ema ema_alpha:0.001
-
-metrics.scalar.[21_eval/01_test_reward]     = $eval.[eval1] $runner eps_total_reward @episode_end
-metrics.scalar.[21_eval/02_test_reward_ema] = $eval.[eval1] $runner eps_total_reward @episode_end $ema
+metrics.scalar.[20_eps/10_train_reward]     = $runner max.episode_return $episode_step @train
+metrics.scalar.[20_eps/11_train_reward_ema] = $runner max.episode_return $episode_step @train $ema ema_alpha:0.001
 
 metrics.scalar.[32_agent_base/04_lr]        = $agent learning_rate @learn interval:100
 metrics.scalar.[39_agent/09_learning_rate]  = $agent learning_rate @learn interval:100

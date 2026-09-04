@@ -227,7 +227,7 @@ namespace anet::rl {
 
         ~EpisodeEvalObserver() override;
     private:
-        void RunEvaluationEpisode(const StepCounts& event_counts);      ///< EvalRunnerをエピソード終端まで駆動
+        void RunEvaluationSession(const StepCounts& event_counts);      ///< EvalRunnerを評価session完了まで駆動
         void RethrowCompletedBackgroundEval();                          ///< 完了済みのバックグラウンド評価失敗を呼び出し元へ伝播
         void WaitBackgroundEval();                                      ///< 前回のバックグラウンド評価を待ち、失敗していれば呼び出し元へ伝播
     private:

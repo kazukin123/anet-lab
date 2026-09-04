@@ -1233,16 +1233,16 @@ metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1
 #metrics.scalar.$ = metrics.scalar.@min > M1 > M2
 #metrics.scalar.$ = metrics.scalar.@full > M1 > M2
 
-M1.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.01
-M1.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.01
+M1.[21_eval/03_target_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval1] $ema ema_alpha:0.01
+M1.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval2] $ema ema_alpha:0.01
 
 M1.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
 #M1.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
-#M1.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1]
-#M1.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2]
-#M1.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001
-#M1.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001
+#M1.[22_eval/01_test1_reward]     = mean.episode_return $runner @episode_end $eval.[test1]
+#M1.[22_eval/02_test2_reward]     = mean.episode_return $runner @episode_end $eval.[test2]
+#M1.[22_eval/03_test1_reward_ema] = mean.episode_return $runner @episode_end $eval.[test1] $ema ema_alpha:0.001
+#M1.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @episode_end $eval.[test2] $ema ema_alpha:0.001
 
 M1.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 M1.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100

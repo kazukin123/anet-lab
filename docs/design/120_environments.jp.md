@@ -32,13 +32,14 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 
 標準Observationキーは`vector`、`grid`、`action_mask`である。`action_mask`は合法手を表すメタデータであり、通常のNetwork入力とは分けて扱う。
 
-`BatchEnvSpec`は`num_envs`と`num_threads`を持ち、batch側の並列度をAgentへ伝える。
+`BatchEnvSpec`は`num_envs`、`num_threads`、`episode_scope`を持つ。`episode_scope=PER_LANE`では各laneが一つのepisode group、`SHARED`ではbatch全体が一つのepisode groupである。JSON表記は`per_lane` / `shared`とする。
 
 ### 2.2 ResetとStep
 
 - Envは生成時に`RunMode`を固定し、`GetRunMode()`で公開する。
 - `Reset()`はepisodeを開始し、初期Stateを返す。
 - `Step(Action)`はActionを適用し、次State、Reward、終端情報を返す。
+- Resetは全episode groupの`episode_start`をtrueにする。Stepではgroup内の`done` / `truncated` / `continue_state.episode_start`を一致させ、`continue_state.episode_start == (done || truncated)`、`n_episode_end == 完了group数`を満たす。`done && truncated`は許容する。
 - Train/Eval固有の乱数、augmentation、終端は生成時の`RunMode`で分ける。呼出し時に異なるmodeを渡す経路はない。
 - wrapper系BatchEnvには一部Result buffer再利用が残るため、呼び出し側が後続Stepを越えて保持する場合は各実装契約を確認する。native ImageClsはReset/Stepごとにfresh Tensorを返し、呼出し側へ所有権を渡す。
 
@@ -52,7 +53,7 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 - `VectorizedDiscreteBatchEnv`: 呼び出しthread上で複数Envを順に実行する。
 - `ThreadPoolDiscreteEnv`: thread poolを使って複数Envを並列実行する。
 
-ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。
+ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。trainは`PER_LANE`、evalは`SHARED`であり、eval window終端時は全laneの`done`と`continue_state.episode_start`を立てて`n_episode_end=1`を返す。
 
 ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`train.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
 
@@ -185,7 +186,7 @@ sequenceDiagram
     B-->>R: Reward・終端・次Stateを集約
 ```
 
-episode終了laneのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
+episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。`EpisodeReturnAccumulator`は`PER_LANE`ならlane別、`SHARED`なら全lane・全stepのreward合計をepisode returnとして確定する。configured Evalの`EvalSessionEnv`は動的グラントで正確にN本を採用し、全groupがfreshなときだけ直前の`continue_state`を次sessionのReset結果として再利用する。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
 
 ### 6.2 構築
 

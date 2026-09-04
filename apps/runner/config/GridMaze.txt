@@ -145,17 +145,17 @@ DefaultDQNAgent.net.body.output.[features] = main_feature
 
 metrics.scalar.$ = metrics.scalar.@baseline > M1
 
-#metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
-#metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval1] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @episode_end $eval.[eval2] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
 
 #metrics.scalar.@baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
 #metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
-#metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
-#metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
-#metrics.scalar.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
-#metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/01_test1_reward]     = mean.episode_return $runner @episode_end $eval.[test1] clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = mean.episode_return $runner @episode_end $eval.[test2] clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = mean.episode_return $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
 metrics.scalar.[42_env/51_wall_collisions_max]  = $env max.wall_collisions @train

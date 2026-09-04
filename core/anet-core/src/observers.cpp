@@ -524,12 +524,9 @@ EpisodeEvalObserver::~EpisodeEvalObserver()
     }
 }
 
-void EpisodeEvalObserver::RunEvaluationEpisode(const StepCounts& event_counts)
+void EpisodeEvalObserver::RunEvaluationSession(const StepCounts& event_counts)
 {
-    eval_runner_->Sync();
-    do {
-        eval_runner_->DoStep(event_counts);
-    } while (!eval_runner_->LastStepHadEpisodeEnd());
+    eval_runner_->RunSession(event_counts);
 }
 
 void EpisodeEvalObserver::RethrowCompletedBackgroundEval()
@@ -569,18 +566,18 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
             const StepCounts event_counts = event.counts;
             eval_future_ = eval_pool_->EnqueueFuture(0, [this, event_counts]() {
                 try {
-                    this->RunEvaluationEpisode(event_counts);
+                    this->RunEvaluationSession(event_counts);
                 } catch (const std::exception& e) {
-                    LOG::fatal() << this->ToString() << " RunEvaluationEpisode failed: " << e.what();
+                    LOG::fatal() << this->ToString() << " RunEvaluationSession failed: " << e.what();
                     throw;
                 } catch (...) {
-                    LOG::fatal() << this->ToString() << " RunEvaluationEpisode failed: unknown exception";
+                    LOG::fatal() << this->ToString() << " RunEvaluationSession failed: unknown exception";
                     throw;
                 }
                 });
         } else {
             // フォアグラウンド実行
-            RunEvaluationEpisode(event.counts);
+            RunEvaluationSession(event.counts);
         }
     }
 }

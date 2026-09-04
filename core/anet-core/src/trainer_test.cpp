@@ -51,6 +51,13 @@ rl::BatchState MakeState(int64_t num_envs)
     return rl::BatchState{ MakeObs(num_envs), BoolTensor(flags), BoolTensor(flags), BoolTensor(flags) };
 }
 
+rl::BatchState MakeResetState(int64_t num_envs)
+{
+    const std::vector<bool> flags(static_cast<size_t>(num_envs), false);
+    const std::vector<bool> starts(static_cast<size_t>(num_envs), true);
+    return rl::BatchState{ MakeObs(num_envs), BoolTensor(flags), BoolTensor(flags), BoolTensor(starts) };
+}
+
 rl::EnvSpec MakeEnvSpec()
 {
     anet::TensorSpec vector_spec;
@@ -69,7 +76,7 @@ rl::EnvSpec MakeEnvSpec()
 class TestResetResult final : public rl::BatchResetResult {
 public:
     explicit TestResetResult(int64_t num_envs)
-        : rl::BatchResetResult(MakeState(num_envs))
+        : rl::BatchResetResult(MakeResetState(num_envs))
         , num_envs_(num_envs)
     {
     }
@@ -109,9 +116,18 @@ private:
 
 class TestBatchEnv final : public rl::BatchEnvBase {
 public:
-    TestBatchEnv(const std::string& name, int num_envs, torch::Device device)
-        : rl::BatchEnvBase(name, num_envs)
-        , batch_spec_{ num_envs, 1 }
+    TestBatchEnv(
+        const std::string& name,
+        int num_envs,
+        torch::Device device,
+        rl::RunMode run_mode = rl::RunMode::Train,
+        rl::EpisodeScope episode_scope = rl::EpisodeScope::PER_LANE)
+        : rl::BatchEnvBase(name, num_envs, run_mode)
+        , batch_spec_{
+            .num_envs = num_envs,
+            .num_threads = 1,
+            .episode_scope = episode_scope,
+        }
         , device_(std::move(device))
     {
     }
@@ -352,6 +368,29 @@ private:
     std::shared_ptr<RunManagerEnvFactoryState> state_;
 };
 
+class RunManagerSharedBatchEnvFactory final : public rl::BatchEnvFactory {
+public:
+    std::shared_ptr<rl::BatchEnv> CreateBatchEnv(
+        const anet::ConfigData&,
+        const torch::Device& device,
+        const std::string& name,
+        std::optional<anet::seed_t>,
+        int num_envs,
+        rl::RunMode run_mode,
+        const std::string&) override
+    {
+        const auto episode_scope = run_mode == rl::RunMode::Train
+            ? rl::EpisodeScope::PER_LANE : rl::EpisodeScope::SHARED;
+        return std::make_shared<TestBatchEnv>(
+            name, num_envs, device, run_mode, episode_scope);
+    }
+
+    std::string GetTargetEnvClassId() const override
+    {
+        return "RunManagerSharedBatchEnv";
+    }
+};
+
 class RunManagerTestAgentFactory final : public rl::AgentFactory {
 public:
     std::shared_ptr<rl::Agent> CreateAgent(
@@ -409,6 +448,7 @@ std::shared_ptr<RunManagerEnvFactoryState> RegisterRunManagerNameTestFactories()
     static std::once_flag register_once;
     std::call_once(register_once, [&] {
         rl::EnvRepository::Instance().Regist(std::make_shared<RunManagerTestEnvFactory>(state));
+        rl::EnvRepository::Instance().Regist(std::make_shared<RunManagerSharedBatchEnvFactory>());
         rl::AgentRepository::Instance().Register(std::make_shared<RunManagerTestAgentFactory>());
     });
     state->creation_count = 0;
@@ -615,7 +655,7 @@ TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "
     config.Set("train.eval_schedule.[sleep].interval", "0");
     config.Set(
         "metrics.scalar.[sleep_reward]",
-        "eps_total_reward $runner @episode_end $eval.[sleep]");
+        "mean.episode_return $runner @episode_end $eval.[sleep]");
 
     auto manager = std::make_shared<rl::RunManager>(config);
     REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
@@ -635,10 +675,10 @@ TEST_CASE("RunManager keeps definition-only Eval tags dormant", "[trainer][eval_
     config.Set("train.eval.[sleep].run_mode", "eval1");
     config.Set(
         "metrics.scalar.[sleep_reward_a]",
-        "eps_total_reward $runner @episode_end $eval.[sleep]");
+        "mean.episode_return $runner @episode_end $eval.[sleep]");
     config.Set(
         "metrics.scalar.[sleep_reward_b]",
-        "eps_total_reward $runner @episode_end $eval.[sleep]");
+        "mean.episode_return $runner @episode_end $eval.[sleep]");
 
     auto manager = std::make_shared<rl::RunManager>(config);
     logs.Flush();
@@ -665,6 +705,98 @@ TEST_CASE("RunManager rejects schedules for undefined Eval tags", "[trainer][eva
         std::make_shared<rl::RunManager>(config),
         Catch::Matchers::ContainsSubstring("train.eval.[ghost]"));
     CHECK(factory_state->creation_count == 0);
+}
+
+TEST_CASE("RunManager validates Eval session cardinality and ENV scalar prefixes", "[trainer][eval_session]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+
+    SECTION("eval_episodes must be positive even for a definition-only tag") {
+        auto factory_state = RegisterRunManagerNameTestFactories();
+        auto config = MakeRunManagerNameTestConfig();
+        config.Set("train.eval.[sleep].run_mode", "eval1");
+        config.Set("train.eval.[sleep].eval_episodes", "0");
+        CHECK_THROWS_WITH(
+            std::make_shared<rl::RunManager>(config),
+            Catch::Matchers::ContainsSubstring("train.eval.[sleep].eval_episodes=0"));
+        CHECK(factory_state->creation_count == 1);
+    }
+
+    SECTION("multi-episode ENV metrics require an aggregation prefix") {
+        auto factory_state = RegisterRunManagerNameTestFactories();
+        auto config = MakeRunManagerNameTestConfig();
+        config.Set("train.eval.[eval1].run_mode", "eval1");
+        config.Set("train.eval.[eval1].eval_episodes", "2");
+        config.Set("train.eval_schedule.[eval1].interval", "100");
+        config.Set("metrics.scalar.[eval_score]", "score $env @episode_end $eval.[eval1]");
+        CHECK_THROWS_WITH(
+            std::make_shared<rl::RunManager>(config),
+            Catch::Matchers::ContainsSubstring("requires an aggregation prefix"));
+        CHECK(factory_state->creation_count == 1);
+    }
+}
+
+TEST_CASE("RunManager decorates configured Eval but leaves EvalPanel step-driven", "[trainer][eval_session]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[eval1].run_mode", "eval1");
+    config.Set("train.eval.[eval1].eval_batch_size", "2");
+    config.Set("train.eval.[eval1].eval_episodes", "1");
+    config.Set("train.eval_schedule.[eval1].interval", "100");
+    config.Set("metrics.scalar.[eval_score]", "mean.score $env @episode_end $eval.[eval1]");
+    config.Set("train.eval.[eval2].run_mode", "eval2");
+    config.Set("train.eval.[eval2].eval_batch_size", "2");
+    config.Set("train.eval.[eval2].eval_episodes", "1");
+    config.Set("train.eval_schedule.[eval2].interval", "100");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(dynamic_cast<rl::EvalSessionEnv*>(
+        manager->GetEvalRunner("eval1")->GetBatchEnv().get()) != nullptr);
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning
+            && ContainsText(record.message, "eval_tag='eval1'")
+            && ContainsText(record.message, "eval_episodes=1")
+            && ContainsText(record.message, "group_count=2");
+    }) == 1);
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning
+            && ContainsText(record.message, "eval_tag='eval2'")
+            && ContainsText(record.message, "eval_episodes=1")
+            && ContainsText(record.message, "group_count=2");
+    }) == 1);
+
+    const int creation_count_before_panel = factory_state->creation_count;
+    const auto eval_panel = manager->CreateEvalRunner("EvalPanel");
+    CHECK(dynamic_cast<rl::EvalSessionEnv*>(eval_panel->GetBatchEnv().get()) == nullptr);
+    CHECK(factory_state->creation_count == creation_count_before_panel + 1);
+}
+
+TEST_CASE("RunManager does not warn when shared Eval adopts its only group", "[trainer][eval_session]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("env.class_id", "RunManagerSharedBatchEnv");
+    config.Set("train.eval.[shared].run_mode", "eval1");
+    config.Set("train.eval.[shared].eval_batch_size", "2");
+    config.Set("train.eval.[shared].eval_episodes", "1");
+    config.Set("train.eval_schedule.[shared].interval", "100");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
+
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(std::ranges::none_of(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning
+            && ContainsText(record.message, "eval_tag='shared'")
+            && ContainsText(record.message, "fewer adopted episodes");
+    }));
 }
 
 TEST_CASE("RunManager requires an interval for every Eval schedule", "[trainer][eval_schedule]")

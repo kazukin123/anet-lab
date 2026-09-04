@@ -1,4 +1,5 @@
 #include <limits>
+#include <unordered_set>
 #include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
@@ -96,15 +97,11 @@ void RunnerBase::InitializeMetrics()
 {
     ANET_CHECK(env_ != nullptr);
 
-    auto env_device = env_->GetDevice();
     auto batch_env_spec = env_->GetBatchSpec();
 
     // メトリクス初期化
-    auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
-    episode_total_reward_cur_ = torch::zeros({ batch_env_spec.num_envs }, fopt);
-    ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.num_envs });
-    eps_total_reward_per_env_.assign(static_cast<size_t>(batch_env_spec.num_envs), 0.0f);
-    last_episode_total_reward_ = std::numeric_limits<float>::quiet_NaN();
+    episode_return_accumulator_ = std::make_unique<EpisodeReturnAccumulator>(batch_env_spec);
+    completed_episode_returns_.Reset();
     last_step_had_episode_end_ = false;
 }
 
@@ -115,15 +112,6 @@ void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
     last_reward_ = step_reward_mean;
     reward_ema_.Update(last_reward_);
 
-    // エピソード合計報酬更新
-    ANET_CHECK(episode_total_reward_cur_.defined());
-    episode_total_reward_cur_ += result->reward; // 現エピソード報酬加算
-    auto finished = result->next_state.done.to(torch::kBool) | result->next_state.truncated.to(torch::kBool);   // 終了マスク
-    episode_total_reward_comp_ = episode_total_reward_cur_.masked_select(finished);  // 終了したエピソードの報酬を確定
-    episode_total_reward_cur_.masked_fill_(finished, 0.0f);  // 終了したENVのエピソード総報酬をゼロクリア
-    //ANET_LOG_DEBUG("finished=" << anet::ToString(finished));
-    //ANET_LOG_DEBUG("episode_total_reward_comp_=" << anet::ToString(episode_total_reward_comp_));
-    //ANET_LOG_DEBUG("episode_total_reward_cur_=" << anet::ToString(episode_total_reward_cur_));
 }
 
 bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
@@ -135,53 +123,29 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
     ANET_CHECK(result != nullptr);
 
     const auto batch_env_spec = env_->GetBatchSpec();
-    const int64_t num_envs = batch_env_spec.num_envs;
-    if (static_cast<int64_t>(eps_total_reward_per_env_.size()) != num_envs) {
-        eps_total_reward_per_env_.assign(static_cast<size_t>(num_envs), 0.0f);
-    }
+    ValidateEpisodeStructure(env_->GetName(), batch_env_spec, *result);
+    const auto completed = episode_return_accumulator_->Add(*result);
+    completed_episode_returns_.Reset();
+    last_step_had_episode_end_ = !completed.empty();
 
-    // CPUテンソルに揃え、accessor取得の前提として contiguous 化しておく
-    auto rewards_cpu = result->reward.to(torch::kCPU).contiguous();
-    auto finished_cpu = (result->next_state.done.to(torch::kBool) | result->next_state.truncated.to(torch::kBool))
-        .to(torch::kCPU).contiguous();
-    ANET_ASSERT_SHAPE(rewards_cpu, { num_envs });
-    ANET_ASSERT_SHAPE(finished_cpu, { num_envs });
-
-    // ループ外で1度だけaccessorを取得し、per-elementの Tensor::operator[] + item() を回避
-    auto rewards_acc = rewards_cpu.accessor<float, 1>();
-    auto finished_acc = finished_cpu.accessor<bool, 1>();
-
-    last_step_had_episode_end_ = false;
-    float completed_total_reward_sum = 0.0f;
-
-    // 終了したenvのindexを1パスで集める（2回目のループでfinishedを再評価しないため）
-    std::vector<int> finished_indices;
-    finished_indices.reserve(static_cast<size_t>(num_envs));
-
-    // 第1パス: 報酬を各envに累積し、終了したenvを集計
-    for (int64_t i = 0; i < num_envs; ++i) {
-        eps_total_reward_per_env_[static_cast<size_t>(i)] += rewards_acc[i];
-        if (!finished_acc[i]) continue;
-
-        last_step_had_episode_end_ = true;
-        completed_total_reward_sum += eps_total_reward_per_env_[static_cast<size_t>(i)];
-        finished_indices.push_back(static_cast<int>(i));
-    }
-
-    // 完了エピソードの平均total_rewardを更新
-    if (!finished_indices.empty()) {
-        last_episode_total_reward_ = completed_total_reward_sum / static_cast<float>(finished_indices.size());
-    }
-
-    // 第2パス: 終了envについてEpisodeEndEvent通知＆累積リセット（昇順index順）
-    for (int idx : finished_indices) {
-        const float eps_total_reward = eps_total_reward_per_env_[static_cast<size_t>(idx)];
-        EpisodeEndEvent event{ self, event_counts, agent_, env_, idx, eps_total_reward };
+    // 完了 group を昇順で通知し、直近 Step の return 群を保持する。
+    for (const auto& episode : completed) {
+        completed_episode_returns_.Add(episode.episode_return);
+        const int env_index = batch_env_spec.episode_scope == EpisodeScope::PER_LANE
+            ? static_cast<int>(episode.group_index) : -1;
+        EpisodeEndEvent event{ self, event_counts, agent_, env_, env_index };
         notifier_->Notify(event);
-        eps_total_reward_per_env_[static_cast<size_t>(idx)] = 0.0f;
     }
 
     return last_step_had_episode_end_;
+}
+
+void RunnerBase::SetCompletedEpisodeReturns(const std::vector<float>& episode_returns)
+{
+    completed_episode_returns_.Reset();
+    for (float episode_return : episode_returns) {
+        completed_episode_returns_.Add(episode_return);
+    }
 }
 
 StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
@@ -242,7 +206,10 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
 
     if (key == REWARD) return last_reward_;
     if (key == REWARD_EMA) return reward_ema_.Value();
-    if (key == EPS_TOTAL_REWARD) return last_episode_total_reward_;
+    const auto aggregation_key = anet::ParseScalarAggregationKey(key);
+    if (aggregation_key.has_value() && aggregation_key->base_key == "episode_return") {
+        return completed_episode_returns_.Get(aggregation_key->aggregation);
+    }
 
 
     return std::nullopt;
@@ -265,6 +232,19 @@ EvalRunner::EvalRunner(
 {
 }
 
+EvalRunner::EvalRunner(
+    std::shared_ptr<anet::rl::EvalSessionEnv> env,
+    std::shared_ptr<anet::rl::Agent> agent,
+    std::shared_ptr<anet::rl::Notifier> notifier,
+    RunMode run_mode,
+    bool clone_model,
+    std::optional<torch::Device> device,
+    std::string name)
+    : RunnerBase(env, agent, notifier, run_mode, clone_model, device, std::move(name))
+    , session_env_(std::move(env))
+{
+}
+
 void EvalRunner::Sync()
 {
     actor_->Sync();
@@ -272,12 +252,19 @@ void EvalRunner::Sync()
 
 StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
 {
+    return DoStepInternal(action, event_counts, true);
+}
+
+StepCounts EvalRunner::DoStepInternal(
+    int64_t action, const StepCounts& event_counts, bool notify_episode_end)
+{
     ANET_PROFILE_FUNC();
     torch::NoGradGuard grad_guard;
 
     if (!env_initialized_) {
         // 環境初期化
         auto reset_result = env_->Reset();
+        ValidateEpisodeStructure(env_->GetName(), env_->GetBatchSpec(), *reset_result);
         state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
@@ -327,7 +314,11 @@ StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
     auto self = this->shared_from_this();
     anet::rl::TrainEvent event{ exp, self, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
     notifier_->Notify(event);
-    AccumulateAndNotifyEpisodeEnd(self, result, event_counts);
+    if (notify_episode_end) {
+        AccumulateAndNotifyEpisodeEnd(self, result, event_counts);
+    } else {
+        last_step_had_episode_end_ = false;
+    }
     state_ = result->continue_state;
 
     return step_counts_;
@@ -348,6 +339,31 @@ StepCounts EvalRunner::DoStep()
     return DoStep(-1);
 }
 
+void EvalRunner::RunSession(const StepCounts& event_counts)
+{
+    ANET_PROFILE_FUNC();
+    ANET_CHECK_MSG(session_env_ != nullptr,
+        "EvalRunner::RunSession is only available for configured Eval. runner='" << name_ << "'.");
+
+    Sync();
+    const auto reset_result = session_env_->Reset();
+    ValidateEpisodeStructure(env_->GetName(), env_->GetBatchSpec(), *reset_result);
+    state_ = reset_result->state;
+    env_initialized_ = true;
+
+    // decorator が正確な N 本を確定するまで中間 EpisodeEndEvent を抑制する。
+    while (!session_env_->GetSessionResult().has_value()) {
+        DoStepInternal(-1, event_counts, false);
+    }
+
+    const auto session_result = session_env_->GetSessionResult();
+    ANET_CHECK(session_result.has_value());
+    SetCompletedEpisodeReturns(session_result->episode_returns);
+    last_step_had_episode_end_ = true;
+    EpisodeEndEvent event{ shared_from_this(), event_counts, agent_, env_, -1 };
+    notifier_->Notify(event);
+}
+
 
 // ======================================================
 // TrainRunner
@@ -365,22 +381,6 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
 {
     if (key == TRAIN_REWARD) return last_reward_;
     if (key == TRAIN_REWARD_EMA) return reward_ema_.Value();
-
-    if (key == TRAIN_EPISODE_REWARD) {
-        if (episode_total_reward_comp_.defined()) {
-			/// @todo 平均・最大選択可能にする
-            /// @todo Train単位ではなくExpもしくはエピソード単位で取得可能とする
-            //auto ret = anet::ToFloat(episode_total_reward_comp_.mean());   // エピソード総報酬の平均
-            if (episode_total_reward_comp_.numel() == 0) {
-                return std::numeric_limits<float>::quiet_NaN();
-			}
-            auto ret = anet::ToFloat(episode_total_reward_comp_.max());   // エピソード総報酬の最大
-            ANET_LOG_DEBUG("key=" << key << " ret=" << ret << " episode_total_reward_comp_=" << anet::ToString(episode_total_reward_comp_));
-            return ret;
-        } else {
-            return std::numeric_limits<float>::quiet_NaN();
-        }
-    }
 
     if (key == TRAIN_STEP_PER_SEC) {
         return train_step_per_sec_ema_.IsInitialized()
@@ -459,6 +459,7 @@ StepCounts SerialTrainRunner::DoStep()
 
         // 環境初期化
         auto reset_result = env_->Reset();
+        ValidateEpisodeStructure(env_->GetName(), env_->GetBatchSpec(), *reset_result);
         state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
@@ -596,6 +597,7 @@ StepCounts PipelineTrainRunner::DoStep()
 
         // 環境初期化
         auto reset_result = env_->Reset();
+        ValidateEpisodeStructure(env_->GetName(), env_->GetBatchSpec(), *reset_result);
         state_ = reset_result->state;
         env_initialized_ = true;
         //ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
@@ -883,6 +885,13 @@ RunManager::RunManager(const ConfigData& config_data)
                 << eval_batch_size << ". Expected a positive value.");
         }
 
+        int eval_episodes = 1;
+        eval_config_data.Read("eval_episodes", eval_episodes, eval_episodes);
+        if (eval_episodes <= 0) {
+            ANET_SYSTEM_ERROR("Invalid train.eval.[" << tag << "].eval_episodes="
+                << eval_episodes << ". Expected a positive value.");
+        }
+
         // Eval actor の network clone 有無を選ぶ (デフォルト true)
         bool clone_model = true;
         eval_config_data.Read("clone_model", clone_model, clone_model);
@@ -911,6 +920,26 @@ RunManager::RunManager(const ConfigData& config_data)
         LOG::info() << "eval tag '" << tag << "': scheduled (interval=" << interval
             << ", background=" << (use_background ? "true" : "false") << ")";
 
+        // この active Eval の episode-end ENV metrics だけを decorator の購読対象にする。
+        std::vector<std::string> subscribed_env_keys;
+        std::unordered_set<std::string> subscribed_env_key_set;
+        for (const auto& def : factory.GetScalarMetricDefs()) {
+            const auto& subscription = def.subscription;
+            if (def.scope != RunnerScope::EVAL || def.eval_name != tag
+                || subscription.event != EventType::EPISODE_END
+                || subscription.target != EventField::ENV) {
+                continue;
+            }
+            if (eval_episodes > 1 && !anet::ParseScalarAggregationKey(def.source_key).has_value()) {
+                ANET_SYSTEM_ERROR("Multi-episode Eval ENV scalar requires an aggregation prefix. "
+                    "eval_tag='" << tag << "' eval_episodes=" << eval_episodes
+                    << " source_key='" << def.source_key << "' expected=mean|max|min|std.");
+            }
+            if (subscribed_env_key_set.insert(def.source_key).second) {
+                subscribed_env_keys.push_back(def.source_key);
+            }
+        }
+
         // EvalRunner生成&登録
         auto actor_device = config_->GetEvalDevice();
         const auto owner = "configured Eval tag '" + tag + "'";
@@ -919,9 +948,19 @@ RunManager::RunManager(const ConfigData& config_data)
         const auto eval_seed = master_seed_->GetGroupSeed(eval_seed_domain.c_str());
         auto eval_env = env_factory_->CreateBatchEnv(
             tag, eval_seed, eval_batch_size, run_mode, config_prefix);
-        LogEnvConfig(*eval_env);
+        const auto batch_spec = eval_env->GetBatchSpec();
+        const int64_t group_count = batch_spec.episode_scope == EpisodeScope::PER_LANE
+            ? batch_spec.num_envs : 1;
+        if (eval_episodes < group_count) {
+            LOG::warn() << "Eval session has fewer adopted episodes than episode groups. "
+                << "eval_tag='" << tag << "' eval_episodes=" << eval_episodes
+                << " group_count=" << group_count << ".";
+        }
+        auto session_env = std::make_shared<EvalSessionEnv>(
+            eval_env, eval_episodes, std::move(subscribed_env_keys));
+        LogEnvConfig(*session_env);
         auto eval_runner = std::make_shared<EvalRunner>(
-            eval_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
+            session_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
         eval_runners.emplace(tag, eval_runner);
         RegisterEnvName(tag, owner);
 

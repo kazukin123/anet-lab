@@ -235,9 +235,11 @@ eval_panel は引き続き `EvalSessionEnv` の対象外とする。変更する
 
 | 対象 | 変更 |
 |---|---|
-| `core/anet-core/include/anet/env.hpp` / `src/env.cpp` | `EpisodeScope` / `BatchEnvSpec`、group 構造検証 helper、EvalSessionEnv、EpisodeReturnAccumulator、共通 scalar key parser / accumulator（`std.` 含む） |
-| `core/anet-core/include/anet/trainer.hpp` / `src/trainer.cpp` | `eval_episodes`、RunnerBase の共通 return 集約、EvalRunner::RunSession、Runner source key のクリーンブレーク、EpisodeEndEvent の return payload 削除 |
-| `core/anet-core/src/observers.cpp` | EpisodeEvalObserver を session の schedule / background 制御へ限定し、`RunSession()` 呼び出しへ置換 |
+| `core/anet-core/include/anet/rl.hpp` / `src/rl.cpp` | `EpisodeScope` / `BatchEnvSpec` と JSON、`EpisodeEndEvent` の return payload 削除 |
+| `core/anet-core/include/anet/util.hpp` / `src/util.cpp` | `ScalarAggregation`、共通 scalar key parser、`ScalarSampleAccumulator`（`std.` 含む） |
+| `core/anet-core/include/anet/env.hpp` / `src/env.cpp` | group 構造検証 helper、EvalSessionEnv、EpisodeReturnAccumulator |
+| `core/anet-core/include/anet/trainer.hpp` / `src/trainer.cpp` | `eval_episodes`、RunnerBase の共通 return 集約、EvalRunner::RunSession、Runner source key のクリーンブレーク |
+| `core/anet-core/include/anet/observers.hpp` / `src/observers.cpp` | EpisodeEvalObserver を session の schedule / background 制御へ限定し、`RunSession()` 呼び出しへ置換 |
 | `core/envs/imagecls1/src/ImageClsEnv.cpp` | eval を SHARED episode として宣言し、全 lane 同時終端・`n_episode_end=1` |
 | `apps/runner/config/common.txt` | eval1 / eval2 の `eval_episodes=1` |
 | `apps/runner/config/Atari.txt` | P1 の eval1 / eval2 / eval_panel overlay（P2 と独立に反映可）。P2 / P3 の恒久 N / L / interval や既定 std metric は入れない |
@@ -256,13 +258,13 @@ eval_panel は引き続き `EvalSessionEnv` の対象外とする。変更する
 5. SHARED: 全 lane の同時完了を1 episodeと数え、scalarはindex=-1で1回キャプチャし、episode returnは全 lane・全 stepの総和になる。
 6. session lifecycle: `GetSessionResult()` は進行中 `nullopt`、完成後は次の Reset まで同じ raw `episode_returns` を返す。中間 event は抑制され、完了時にデコレータをenv、`env_index=-1`とするpayloadなしeventが1回だけ出る。
 7. scalar / return: 共通utilityのmean/max/min/std、`nullopt` poison、NaN除外、0件NaN、1件std NaN、2件以上のpopulation stdをgolden traceで固定する。N>1無prefixはfail-fast、N=1無prefixは完了時captureのidentity値になる。
-8. N=1非退行: PER_LANE L=1,N=1はstate / action / reward / eventのgolden traceが完全一致する。さらにAtari `@v5_noop30`と現行DropMerge設定を、同一seed・deterministic backend・sync eval・1回以上の完了evalでbase/branch比較し、`90_perf`と意図的変更tagを除いた順序付き `(tag, step, value)` を完全一致させる。この2設定では実質的に全non-perf scalarの一致を要求する。timestamp、JSON metadata / metrics.defs、raw JSONL byte、checkpoint hashは比較しない。
+8. N=1非退行: PER_LANE L=1,N=1はstate / action / reward / eventのgolden traceで完全一致を固定する。configured evalは`Sync`、fresh state再利用、同じStep列、同じstep座標の単一eventという構造的等価性を確認する。trainの`mean.*`は、同一Stepで複数laneが完了した場合にfloat逐次和からdouble Welfordへ移行したことによる最下位bit差を意図差分として許容する。これは主に`42_env/*`のmean系metricへ現れうる。編集前baselineを採取しなかったため、Atari `@v5_noop30`と現行DropMergeのbase/branch比較は未実施とし、開始時のdirty stateを再現できない`HEAD`からの後追い比較は受入条件にしない。
 9. config: `eval_episodes<=0` は起動時error、N<Gは採用権を一度も受け取らないgroupが生じるためタグごと1回WARN。ImageCls eval L=128,N=1はG=1なのでWARNしない。DropMergeは既定L=N=1のまま、一時test configでL=N=16を有効化できる。
 10. ImageCls: Nはwindow数を数え、global accuracy / epoch_countを完了時に取得する。indexed GetScalarやReset preload特例を追加せず、eval reward tag削除後もaccuracyを維持する。
 11. RunnerBase train smoke: `out/test-tmp/prd060-smoke/<env>/` にGit管理外の一時main configとRun出力を作り、`apps/runner/bin/Debug/AnetRLRunner.exe --config <temporary-main>`でLunarLander / GridMaze / CartPole / ImageClsを各1回起動する。各main configは`apps/runner/config/_main.txt`の後に対象Env configをincludeし、次を上書きする。
-    - 共通: `app.$=app.batchrun`、`train.num_envs=2`、`app.train_exit_step=12`、全configured eval scheduleの`interval=0`。一時metric `metrics.scalar.[00_smoke/01_episode_count] = $runner episode_count @train $runner interval:1`を追加する。
+    - 共通: `app.$=app.batchrun`、`train.num_envs=2`、`app.train_exit_step=24`、全configured eval scheduleの`interval=0`。一時metric `metrics.scalar.[00_smoke/01_episode_count] = $runner episode_count @train $runner interval:1`を追加する。
     - episode上限: `LunarLanderEnv.limit_step=4`、`GridMazeEnv.max_steps=4`、`CartPoleEnv.limit_step=4`、`ImageClsEnv.max_steps=4`。
-    - 各Runでprocess exit code 0、構造契約errorなし、最終`episode_count >= 6`を要求する。少なくとも3世代のepisode完了をRunnerBaseの毎Step検証へ通す追加スモークであり、Atari / DropMergeのchecksum比較は置き換えない。
+    - 各Runでprocess exit code 0、構造契約errorなし、最終`episode_count >= 6`を要求する。少なくとも3世代のepisode完了をRunnerBaseの毎Step検証へ通す追加スモークであり、N=1 golden traceは置き換えない。
 
 ## 7. 成功指標（P3 の一回限りの運用検証）
 

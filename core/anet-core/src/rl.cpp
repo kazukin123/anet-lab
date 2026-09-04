@@ -293,6 +293,17 @@ anet::json BatchEnvSpec::ToJson() const
     anet::json j;
     j["num_envs"] = num_envs;
     j["num_threads"] = num_threads;
+    switch (episode_scope) {
+    case EpisodeScope::PER_LANE:
+        j["episode_scope"] = "per_lane";
+        break;
+    case EpisodeScope::SHARED:
+        j["episode_scope"] = "shared";
+        break;
+    default:
+        ANET_SYSTEM_ERROR("Unknown BatchEnvSpec episode_scope="
+            << static_cast<int>(episode_scope) << ".");
+    }
     return j;
 }
 

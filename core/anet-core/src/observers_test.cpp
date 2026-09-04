@@ -51,14 +51,18 @@ anet::TensorDict MakeObs(int64_t num_envs)
     return anet::TensorDict{ { kVectorKey, torch::zeros({ num_envs, 1 }, torch::kFloat32) } };
 }
 
-rl::BatchState MakeState(const std::vector<bool>& done, const std::vector<bool>& truncated)
+rl::BatchState MakeState(
+    const std::vector<bool>& done,
+    const std::vector<bool>& truncated,
+    std::optional<std::vector<bool>> episode_start = std::nullopt)
 {
     const int64_t num_envs = static_cast<int64_t>(done.size());
     return rl::BatchState{
         MakeObs(num_envs),
         BoolTensor(done),
         BoolTensor(truncated),
-        BoolTensor(std::vector<bool>(static_cast<size_t>(num_envs), false))
+        BoolTensor(episode_start.value_or(
+            std::vector<bool>(static_cast<size_t>(num_envs), false)))
     };
 }
 
@@ -88,7 +92,12 @@ public:
             MakeState(done, truncated),
             MakeState(
                 std::vector<bool>(done.size(), false),
-                std::vector<bool>(done.size(), false)),
+                std::vector<bool>(done.size(), false),
+                [&]() {
+                    std::vector<bool> starts(done.size());
+                    for (size_t i = 0; i < done.size(); ++i) starts[i] = done[i] || truncated[i];
+                    return starts;
+                }()),
             static_cast<uint32_t>(rewards.size()),
             CountEpisodeEnds(done, truncated))
         , num_envs_(static_cast<int>(rewards.size()))
@@ -119,7 +128,8 @@ public:
     explicit TestResetResult(int64_t num_envs)
         : rl::BatchResetResult(MakeState(
             std::vector<bool>(static_cast<size_t>(num_envs), false),
-            std::vector<bool>(static_cast<size_t>(num_envs), false)))
+            std::vector<bool>(static_cast<size_t>(num_envs), false),
+            std::vector<bool>(static_cast<size_t>(num_envs), true)))
         , num_envs_(static_cast<int>(num_envs))
     {
     }
@@ -522,15 +532,14 @@ TEST_CASE("RunnerScopedEpisodeEndObserver only forwards target runner events", "
     CHECK(other_runner->GetName() == "other");
 
     rl::StepCounts counts;
-    rl::EpisodeEndEvent target_event{ target_runner, counts, agent, env, 0, 1.0f };
-    rl::EpisodeEndEvent other_event{ other_runner, counts, agent, env, 0, 2.0f };
+    rl::EpisodeEndEvent target_event{ target_runner, counts, agent, env, 0 };
+    rl::EpisodeEndEvent other_event{ other_runner, counts, agent, env, 0 };
 
     scoped.OnEpisodeEnd(other_event);
     CHECK(real_observer->events.empty());
 
     scoped.OnEpisodeEnd(target_event);
     REQUIRE(real_observer->events.size() == 1);
-    CHECK(real_observer->events[0].eps_total_reward == Catch::Approx(1.0f));
 }
 
 TEST_CASE("MetricsLogEpisodeEndObserver logs runner and env scalars", "[episode_end][metrics][observers]")
@@ -548,7 +557,7 @@ TEST_CASE("MetricsLogEpisodeEndObserver logs runner and env scalars", "[episode_
     auto runner = std::make_shared<TestRunner>(env, agent, notifier);
 
     notifier->Attach(std::make_shared<rl::MetricsLogEpisodeEndObserver>(
-        "runner_reward", rl::Runner::EPS_TOTAL_REWARD, rl::StepAxis::TRAIN,
+        "runner_reward", "mean.episode_return", rl::StepAxis::TRAIN,
         rl::EventField::RUNNER, 1, false, 0.01f, std::nullopt));
     notifier->Attach(std::make_shared<rl::MetricsLogEpisodeEndObserver>(
         "env_score", "mean.env_score", rl::StepAxis::TRAIN,
@@ -612,8 +621,8 @@ TEST_CASE("MetricsLogTrainObserver skips undefined action-info scalar", "[metric
 TEST_CASE("ObserverFactory parses episode-end scopes and rejects unsupported combinations", "[episode_end][observer_factory][observers]")
 {
     anet::ConfigData valid_config;
-    valid_config.Set("metrics.scalar.[train_eps]", "eps_total_reward $runner @episode_end $train");
-    valid_config.Set("metrics.scalar.[eval_eps]", "eps_total_reward $runner @episode_end $eval.[eval1]");
+    valid_config.Set("metrics.scalar.[train_eps]", "mean.episode_return $runner @episode_end $train");
+    valid_config.Set("metrics.scalar.[eval_eps]", "mean.episode_return $runner @episode_end $eval.[eval1]");
     valid_config.Set("metrics.scalar.[eval_action]", "action_uqe_win_rate.[0] $action_info @train $eval.[eval1]");
     valid_config.Set("metrics.scalar.[eval_action_margin]", "action_uqe_margin.[0] $action_info @train $eval.[eval1]");
 
@@ -630,14 +639,14 @@ TEST_CASE("ObserverFactory parses episode-end scopes and rejects unsupported com
     CHECK(train_obs[1].scope == rl::RunnerScope::EVAL);
     CHECK(train_obs[1].eval_name == "eval1");
 
-    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $runner @train $eval.[eval1]")));
-    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $runner @learn $eval.[eval1]")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("mean.episode_return $runner @train $eval.[eval1]")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("mean.episode_return $runner @learn $eval.[eval1]")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_win_rate.[0] $action_info @learn $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_win_rate.[0] $action_info @episode_end $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_margin.[0] $action_info @learn $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_margin.[0] $action_info @episode_end $train")));
-    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $exp @episode_end $train")));
-    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $update_result @episode_end $train")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("mean.episode_return $exp @episode_end $train")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("mean.episode_return $update_result @episode_end $train")));
 }
 
 TEST_CASE("ObserverFactory records the resolved step coordinate space per scalar metric", "[observer_factory][metrics_defs][observers]")
@@ -1495,7 +1504,8 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
 {
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, false, 0.0f, "forced eval failure");
-    auto env = std::make_shared<TestBatchEnv>("observer-scope", 1);
+    auto inner_env = std::make_shared<TestBatchEnv>("observer-scope", 1);
+    auto env = std::make_shared<rl::EvalSessionEnv>(inner_env, 1, std::vector<std::string>{});
     auto runner = std::make_shared<rl::EvalRunner>(
         env,
         agent,

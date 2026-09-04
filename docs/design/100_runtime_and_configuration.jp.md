@@ -166,7 +166,7 @@ sequenceDiagram
 
 構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名`train`、全configured Eval tag、予約名`EvalPanel`は最初のBatchEnv構築前に一括検証する。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
 
-`train.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`train.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`train.eval.[tag].env.eval.*`のoverlayを使用する。
+`train.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`train.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。activeなconfigured Evalでは`RunManager`がEnvを`EvalSessionEnv`で包み、`eval_batch_size`を並列lane数、`eval_episodes`を採用episode本数として独立に扱う。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`train.eval.[tag].env.eval.*`のoverlayを使用する。
 
 ### 6.2 Serial Train step
 
@@ -271,6 +271,10 @@ sequenceDiagram
 
 初回はEnvをResetし、保持済みExperienceがないためLearner更新を投入しない。定常状態では、LearnThreadのLearner更新とRunnerThreadのEnv Stepが並行し、学習結果の回収と通知は後続`DoStep()`の冒頭まで遅延する。RunnerThreadはActor推論を終えてから学習を投入するため、Actor推論とLearner更新は同時実行しない。
 
+### 6.4 configured Eval session
+
+`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。`RunSession()`はActorを同期して`EvalSessionEnv::Reset()`を呼び、採用episode N本が完了するまでstepを進める。途中のepisode終端では`EpisodeEndEvent`を出さず、完了後にdecorator Env、`env_index=-1`、発火元countsを持つeventを1回だけ通知する。EvalPanelはsession decoratorを使わず、従来のstep駆動、強制Action、同期方式を維持する。
+
 ## 7. 設定・lifetime・エラー・性能特性
 
 ### 7.1 主な構築設定
@@ -281,7 +285,7 @@ sequenceDiagram
 | `train.num_envs` | 主Train BatchEnvのlane数 |
 | `train.main_runner_type` | `serial`または`pipeline` |
 | `train.eval_device_type/index` | configured Evalのdevice |
-| `train.eval.[tag].*` | configured EvalのRunMode、`eval_batch_size`、Env override、model clone |
+| `train.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、model clone |
 | `train.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`と`use_background` |
 | `env.*` | Env class、worker、device |
 | `agent.*` | Agent class、device |

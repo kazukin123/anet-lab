@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -19,6 +20,40 @@ namespace anet {
     inline bool Contains(const Container& container, const T& value) {
         return std::find(container.begin(), container.end(), value) != container.end();
     }
+
+    // ============================================================
+    // Scalar aggregation
+    // ============================================================
+
+    enum class ScalarAggregation {
+        MEAN,
+        MAX,
+        MIN,
+        STD,
+    };
+
+    struct ScalarAggregationKey {
+        ScalarAggregation aggregation;
+        std::string base_key;
+    };
+
+    std::optional<ScalarAggregationKey> ParseScalarAggregationKey(const std::string& key);
+
+    /// scalar sample の unknown と未成立を区別して集約する。
+    class ScalarSampleAccumulator {
+    public:
+        void Reset();
+        void Add(std::optional<float> sample);
+        std::optional<float> Get(ScalarAggregation aggregation) const;
+
+    private:
+        bool poisoned_ = false;
+        size_t count_ = 0;
+        double mean_ = 0.0;
+        double m2_ = 0.0;
+        float min_ = 0.0f;
+        float max_ = 0.0f;
+    };
 
     // ============================================================
     // EmaFilter

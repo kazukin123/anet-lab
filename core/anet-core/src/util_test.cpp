@@ -2,7 +2,56 @@
 
 #include "anet/util.hpp"
 
+#include <cmath>
 #include <limits>
+
+TEST_CASE("ScalarSampleAccumulator preserves unknown and unavailable semantics", "[util][scalar_aggregation]")
+{
+    const auto parsed = anet::ParseScalarAggregationKey("std.game_score");
+    REQUIRE(parsed.has_value());
+    CHECK(parsed->aggregation == anet::ScalarAggregation::STD);
+    CHECK(parsed->base_key == "game_score");
+    CHECK_FALSE(anet::ParseScalarAggregationKey("game_score").has_value());
+
+    anet::ScalarSampleAccumulator values;
+    values.Add(1.0f);
+    values.Add(std::numeric_limits<float>::quiet_NaN());
+    values.Add(3.0f);
+    CHECK(values.Get(anet::ScalarAggregation::MEAN) == 2.0f);
+    CHECK(values.Get(anet::ScalarAggregation::MAX) == 3.0f);
+    CHECK(values.Get(anet::ScalarAggregation::MIN) == 1.0f);
+    CHECK(values.Get(anet::ScalarAggregation::STD) == 1.0f);
+
+    anet::ScalarSampleAccumulator unavailable;
+    unavailable.Add(std::numeric_limits<float>::quiet_NaN());
+    for (const auto aggregation : {
+        anet::ScalarAggregation::MEAN,
+        anet::ScalarAggregation::MAX,
+        anet::ScalarAggregation::MIN,
+        anet::ScalarAggregation::STD,
+    }) {
+        const auto value = unavailable.Get(aggregation);
+        REQUIRE(value.has_value());
+        CHECK(std::isnan(*value));
+    }
+
+    anet::ScalarSampleAccumulator single;
+    single.Add(7.0f);
+    REQUIRE(single.Get(anet::ScalarAggregation::STD).has_value());
+    CHECK(std::isnan(*single.Get(anet::ScalarAggregation::STD)));
+
+    anet::ScalarSampleAccumulator poisoned;
+    poisoned.Add(1.0f);
+    poisoned.Add(std::nullopt);
+    for (const auto aggregation : {
+        anet::ScalarAggregation::MEAN,
+        anet::ScalarAggregation::MAX,
+        anet::ScalarAggregation::MIN,
+        anet::ScalarAggregation::STD,
+    }) {
+        CHECK_FALSE(poisoned.Get(aggregation).has_value());
+    }
+}
 
 TEST_CASE("EmaFilter debiases initial observations", "[util][ema]")
 {

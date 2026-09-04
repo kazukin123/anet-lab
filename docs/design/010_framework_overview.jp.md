@@ -293,7 +293,7 @@ sequenceDiagram
 
 #### 6.7.3 評価
 
-`train.eval.[tag]`で定義され、`train.eval_schedule.[tag]`の`interval>0`で定期駆動される評価は、学習更新数がintervalに達したとき`EpisodeEvalObserver`から起動されます。scheduleが無いか`interval=0`の定義はdormantとなり、評価用Env、Runner、Observerを生成しません。起動された評価用Actorは学習中のモデルを同期し、評価Episodeが終わるまで行動選択とEnv Stepを繰り返します。評価中にLearnerは呼び出しません。
+`train.eval.[tag]`で定義され、`train.eval_schedule.[tag]`の`interval>0`で定期駆動される評価は、学習更新数がintervalに達したとき`EpisodeEvalObserver`から起動されます。scheduleが無いか`interval=0`の定義はdormantとなり、評価用Env、Runner、Observerを生成しません。起動された評価用Actorは学習中のモデルを同期し、採用エピソード N 本からなる評価セッションが完了するまで行動選択とEnv Stepを繰り返します。評価中にLearnerは呼び出しません。
 
 ```mermaid
 sequenceDiagram
@@ -309,22 +309,24 @@ sequenceDiagram
     TR->>N: Notify LearnEvent
     N->>EO: OnLearn(event)
     alt learn_step が評価 interval に一致
-        EO->>ER: Sync()
+        EO->>ER: RunSession(event.counts)
         ER->>EA: Sync model
-        loop EpisodeEnd まで
+        ER->>EE: Reset session
+        loop 評価セッション完了まで
             ER->>EA: MakeAction(state)
             EA->>EN: forward(Observation)
             EN-->>EA: evaluation output
             EA-->>ER: action
             ER->>EE: Step(action)
             EE-->>ER: reward, next_state, done
-            ER->>N: Notify scoped TrainEvent and EpisodeEndEvent
-            N->>MO: Record evaluation metrics
+            ER->>N: Notify scoped TrainEvent
         end
+        ER->>N: Notify final EpisodeEndEvent
+        N->>MO: Record aggregated evaluation metrics
     end
 ```
 
-`use_background` が有効な評価は専用 worker で実行します。GUI の Eval View から行う評価も同じ `EvalRunner` の契約を利用します。
+`use_background` が有効な評価は専用 worker で実行します。GUI の Eval View は同じ `EvalRunner` を利用しますが、評価セッション用 decorator には載せず、従来どおり step-driven に操作します。
 
 実行方式、設定、thread、終了処理は[実行基盤と設定](100_runtime_and_configuration.jp.md)を参照してください。
 

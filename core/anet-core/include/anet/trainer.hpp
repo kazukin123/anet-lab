@@ -53,6 +53,7 @@ namespace anet::rl {
             std::shared_ptr<const Runner> self,
             std::shared_ptr<const BatchStepResult> result,
             const StepCounts& event_counts);
+        void SetCompletedEpisodeReturns(const std::vector<float>& episode_returns);
     protected:
         // 内部状態
         std::string name_;
@@ -73,10 +74,8 @@ namespace anet::rl {
         //std::chrono::high_resolution_clock::time_point last_time_;
         float last_reward_ = 0.0f;
         anet::EmaFilter<float> reward_ema_;
-        torch::Tensor episode_total_reward_cur_;        ///< エピソード単位総報酬を集計するために現在値
-        torch::Tensor episode_total_reward_comp_;       ///< エピソード単位総報酬
-        std::vector<float> eps_total_reward_per_env_;   ///< EpisodeEndEvent用のENV単位総報酬累積
-        float last_episode_total_reward_ = std::numeric_limits<float>::quiet_NaN();
+        std::unique_ptr<EpisodeReturnAccumulator> episode_return_accumulator_;
+        anet::ScalarSampleAccumulator completed_episode_returns_;
         bool last_step_had_episode_end_ = false;
     };
 
@@ -95,6 +94,14 @@ namespace anet::rl {
             bool clone_model = false,
             std::optional<torch::Device> device = std::nullopt,
             std::string name = "eval");
+        EvalRunner(
+            std::shared_ptr<anet::rl::EvalSessionEnv> env,
+            std::shared_ptr<anet::rl::Agent> agent,
+            std::shared_ptr<anet::rl::Notifier> notifier,
+            RunMode run_mode = RunMode::Eval,
+            bool clone_model = false,
+            std::optional<torch::Device> device = std::nullopt,
+            std::string name = "eval");
 
         void Sync();
         void Shutdown() override { }
@@ -104,6 +111,12 @@ namespace anet::rl {
         StepCounts DoStep(int64_t action, const StepCounts& event_counts);
         StepCounts DoStep(const StepCounts& event_counts);
         StepCounts DoStep() override;
+        void RunSession(const StepCounts& event_counts);
+
+    private:
+        StepCounts DoStepInternal(
+            int64_t action, const StepCounts& event_counts, bool notify_episode_end);
+        std::shared_ptr<EvalSessionEnv> session_env_;
     };
 
 

@@ -277,10 +277,10 @@ train.eval_schedule.[test2].interval = 0
 train.eval.[test2].run_mode = eval1
 train.eval.[test2].env.$ = LunarLanderEnv.@test2
 
-#metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
-#metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
-#metrics.scalar.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
-#metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/01_test1_reward]     = mean.episode_return $runner @episode_end $eval.[test1] clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = mean.episode_return $runner @episode_end $eval.[test2] clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = mean.episode_return $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
 #A1.learner.gamma = 0.99
@@ -341,7 +341,7 @@ metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1
 #metrics.scalar.$ = metrics.scalar.@min > M1
 #metrics.scalar.$ = metrics.scalar.@full > M1
 
-M1.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.01
+M1.[20_eps/11_train_reward_ema] = $runner $episode_step max.episode_return @train $ema ema_alpha:0.01
 M1.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 M1.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
 M1.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100

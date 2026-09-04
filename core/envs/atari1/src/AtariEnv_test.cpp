@@ -101,7 +101,7 @@ TEST_CASE("AtariEnvConfig exposes the v5 default contract", "[atari][config]")
     CHECK_FALSE(config.sound);
 }
 
-TEST_CASE("Atari.txt synthesizes v5 and classic presets through AutoMerge", "[atari][config]")
+TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge", "[atari][config]")
 {
     const auto source_root = std::filesystem::path(ANET_SOURCE_DIR);
     const auto config_dir = source_root / "apps" / "runner" / "config";
@@ -113,7 +113,7 @@ TEST_CASE("Atari.txt synthesizes v5 and classic presets through AutoMerge", "[at
         {
             std::ofstream overlay(overlay_path);
             overlay << "$include <Atari.txt>\n";
-            overlay << "AtariEnv.$ = AtariEnv." << preset << "\n";
+            overlay << "AtariEnv.$ = AtariEnv.@" << preset << "\n";
         }
         anet::ConfigManagerOptions options;
         options.config_search_dirs = { config_dir };
@@ -121,9 +121,9 @@ TEST_CASE("Atari.txt synthesizes v5 and classic presets through AutoMerge", "[at
         return anet::ConfigManager(config_dir / "_main.txt", nullptr, options).GetConfigData();
     };
 
-    const auto v5 = load_preset("v5");
+    const auto v5 = load_preset("v5_noop30");
     CHECK(v5.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.25f));
-    CHECK(v5.Get<int>("AtariEnv.noop_max") == 0);
+    CHECK(v5.Get<int>("AtariEnv.noop_max") == 30);
     CHECK_FALSE(v5.Get<bool>("AtariEnv.episodic_life"));
     CHECK_FALSE(v5.Get<bool>("AtariEnv.fire_reset"));
 

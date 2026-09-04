@@ -331,6 +331,11 @@ run.@pl_check      : train.eval_schedule.[eval1].interval = 0
 run.@pl_check      : train.eval_schedule.[eval2].interval = 0
 run.@pl_check      : app.run_name = run_{t}_tmp_wiring
 
+# eval 経路の疎通確認。pl_check は eval を切るので 060 系の確認には使えない。
+# eval interval は既定のまま残し、予算だけ削る。RR1 2M step で eval1 が約 7 セッション。
+run.@eval_smoke    : @vars.max_exp_step = 2,000,000
+run.@eval_smoke    : app.run_name = run_{t}_tmp_eval
+
 run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る。run_name は腕から継ぐ
 
 # --- config のみで試せる保護機構の腕(可塑性 screening)。run.@plasticity_rr8 へ重ねる ---
@@ -568,6 +573,70 @@ run.@rr1_va_vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@Atar
 run.@rr1_va_vit : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
 run.@rr1_va_vit : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
 run.@rr1_va_vit : app.run_name = run_{t}_h2_rr1_va_vit_${E1.game}
+
+# BTR の head init に揃えた版のブロック。BTR の NoisyLinear は
+#   scale = 1 / sqrt(in_features); init.uniform_(weight_mu, -scale, scale)
+# で、libtorch の nn::Linear 既定 kaiming_uniform_(sqrt(5)) と代数的に同値。
+# コード内コメントは "He initialization" と書いているが実体は He ではない
+# (He fan_in なら sqrt(6/fan_in) で約 2.4 倍大きい)。init.mode=default は
+# 「初期化を上書きしない」= libtorch 既定を使う、の意味。
+# 実効スケール(fan_in 2304 / fan_out 512): default 0.0208 / xavier 0.0462 / he(kFanOut) 0.0625
+net.block.[AtariHeadFC512Def].type = Linear
+net.block.[AtariHeadFC512Def].linear.out_features = 512
+net.block.[AtariHeadFC512Def].init.mode = default
+
+net.block.[AtariIQNTauProj2304Def].type = Linear
+net.block.[AtariIQNTauProj2304Def].linear.out_features = 2304
+net.block.[AtariIQNTauProj2304Def].init.mode = default
+
+# BTR NN 構成の完全寄せ。btrstruct + tau ReLU に head init を足した。
+# 残る NN 差分は NoisyLinear / residual conv の SN / pooling の型の 3 点だけになる。
+run.@rr1_va_btr_default : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
+run.@rr1_va_btr_default : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304Def > ReLU
+run.@rr1_va_btr_default : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512Def > ReLU
+run.@rr1_va_btr_default : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512Def > ReLU
+run.@rr1_va_btr_default : app.run_name = run_{t}_z6_rr1_va_btr_default_${E1.game}
+
+# soft_update_tau の掃引。0.001(3.48%) と 0.008(6.16%) の 2 点しか無く単峰性が未確認。
+# tgtD/q_gap は 0.008 でも 1.69 で 1 を超えており、上げる余地があるという予測が立つ。
+run.@rr1_va_soft020 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_va_soft020 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft020 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft020 : A2.model.soft_update_tau = 0.02
+run.@rr1_va_soft020 : app.run_name = run_{t}_n4_rr1_va_soft020_${E1.game}
+
+run.@rr1_va_soft050 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_va_soft050 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft050 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft050 : A2.model.soft_update_tau = 0.05
+run.@rr1_va_soft050 : app.run_name = run_{t}_n5_rr1_va_soft050_${E1.game}
+
+# 最良同士の合成。soft008 が構造の寄与をマスクするか(hard125 は btrstruct を消した)。
+run.@rr1_va_soft008_btr : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
+run.@rr1_va_soft008_btr : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
+run.@rr1_va_soft008_btr : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft008_btr : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_soft008_btr : A2.model.soft_update_tau = 0.008
+run.@rr1_va_soft008_btr : app.run_name = run_{t}_z7_rr1_va_soft008_btr_${E1.game}
+
+# eval を lane 10 / 本数 10 にするだけの合成用。任意の腕へ後付けできる(run_name は腕から継ぐ)。
+run.@evalN10 : train.eval.[eval1].eval_batch_size = 10
+run.@evalN10 : train.eval.[eval1].eval_episodes = 10
+run.@evalN10 : train.eval.[eval2].eval_batch_size = 10
+run.@evalN10 : train.eval.[eval2].eval_episodes = 10
+
+# PRD 060 の較正腕。V/A ReLU 基準のまま eval だけ lane 10 / 本数 10 にする。
+# eval1 の 1 点が 1 本平均から 10 本平均へ変わるので、以降の Run と過去 Run を
+# 繋ぐための不連続点をここで測る。lane と本数を同数にすると各 lane が 1 本ずつ
+# 担当する形になり、N < G の WARN も出ない。
+run.@rr1_va_evalN10 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@rr1_va_evalN10 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_evalN10 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+run.@rr1_va_evalN10 : train.eval.[eval1].eval_batch_size = 10
+run.@rr1_va_evalN10 : train.eval.[eval1].eval_episodes = 10
+run.@rr1_va_evalN10 : train.eval.[eval2].eval_batch_size = 10
+run.@rr1_va_evalN10 : train.eval.[eval2].eval_episodes = 10
+run.@rr1_va_evalN10 : app.run_name = run_{t}_e2_rr1_va_evalN10_${E1.game}
 
 # soft の時定数を hard C=125 に合わせる。鮮度説なら並ぶ、定常性説なら並ばない。
 run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
@@ -1260,6 +1329,8 @@ train.eval_schedule.[eval2].interval = 1009  # online net 評価を復活(2026-0
 # eval エピソード上限はプロトコルと対。Nature 2015 = 18,000 frames(5 分)、v5 / BTR = env 既定の 108,000。下の 2 行は Classic 用。
 #train.eval.[eval1].env.max_episode_frames = 18,000
 #train.eval.[eval2].env.max_episode_frames = 18,000
+train.eval.[eval1].env.episodic_life = false
+train.eval.[eval2].env.episodic_life = false
 
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
@@ -1349,6 +1420,7 @@ train.eval.[eval_panel].run_mode = eval1
 #train.eval.[eval_panel].env.sound = true   # タイマー精度の問題で音がおかしくなるのは現状の制限事項
 #train.eval.[eval_panel].env.display_screen = true
 train.eval.[eval_panel].env.max_episode_frames = 108,000
+train.eval.[eval_panel].env.episodic_life = false
 
 # 既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れ悪化。
 # 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
