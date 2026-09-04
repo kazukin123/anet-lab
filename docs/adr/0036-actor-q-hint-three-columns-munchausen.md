@@ -25,6 +25,7 @@ ADR 0010 / ADR 0012のActor Qヒントは `[Q(s,a), max_a Q(s,.)]` の2列で、
 - ADR 0010 / ADR 0012のcarrier、completer、推定器の責務分離と追加forward禁止は維持する。現行文書の同期範囲はPRD 067に従う。
 - `actor_approx + Munchausen OFF` は初期優先度の数値だけを従来と同値にする。K3 transport、ゼロ列生成、一時aux tensorは許容し、命令列やRNGを含む完全不変は保証しない。
 - 標準Atariのmax初期化構成はhint経路を使わず、Learner OFFの数値経路・RNG不変契約に従う。RainbowはMunchausenアルゴリズムOFFだが、共通K3 transportは利用し得る。
+- `Actor` の構築引数に `ActorQHintConfig` が加わるため、DefaultDQNだけでなくRainbowのActor生成箇所も同じ変更内で更新する。Rainbowは `enabled=false` の狭いconfigを渡し、Munchausen計算を有効化せずK3 schemaへ追従する。
 - Actorのper-step追加費用は、hintを生成するactor_approx構成におけるsoft価値計算とper-action Munchausen用auxに限定する。
 - `CONTEXT.md` はActor Qヒントをドメイン用語としてだけ定義し、列数やnetwork sourceなどの実装契約は本ADRとPRD 067に置く。
 - 再訪条件は、actor_approxとMunchausenの併用でActor/Learner順位相関が非Munchausen構成より明確に低い実測が得られた場合とする。

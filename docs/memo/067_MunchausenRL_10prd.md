@@ -1,18 +1,18 @@
 # Munchausen RL（M-DQN / M-QR / M-IQN）PRD
 
-> Status: **Decision Complete**
->
 > 起点: 2026-09のAtari BTR差分キャンペーン。BTRは `gamma=0.997` とMunchausenを同時に採用するが、本コードベースはgammaだけを採用している。
 >
 > 一次根拠: [Munchausen Reinforcement Learning（NeurIPS 2020）](https://proceedings.neurips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Paper.pdf)、[Supplementary Material](https://papers.nips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Supplemental.pdf)
 >
-> 関連決定: [ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)
+> 関連決定: [ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[done/059](done/059_config_concept_tree_alignment_10prd.md)（TARGET軸の配置と遅延ゲート）、[999_noisynet](999_noisynet_10prd.md)（BTR採用部品のうち別途扱う未実装機能）
 >
 > 履歴資料: [done/035](done/035_approx_actor_priority_per_10prd.md)は当時のK2契約を記録した資料として変更しない。
 
 ## Context（背景・目的）
 
 Munchausen RLは、Bellmanターゲットの報酬側へエージェント自身のscaled log-policyを加え、次状態のhard argmax bootstrapをsoft価値へ置き換える。NeurIPS論文はM-DQNを1-step、M-IQNを3-stepで評価しているため、本PRDでは論文の1-step式とanet-labのN-step target returnを一括して同一視しない。補遺の分位点ごとの方策混合を根拠にしつつ、bonusのN-step上の帰属はBTR互換の拡張として明示する。
+
+本PRDの起点は、`gamma=0.997` がaction gapを犠牲にして地平を延ばしているという[baseline探索ブロック19](../experiments/default-dqn/atari/2026-08-17_baseline.md)と、補償器であるMunchausenが未実装だと整理した[可塑性保護screening](../experiments/default-dqn/atari/2026-08-30_protection-screening.md)である。[BTR survey Table 2](../../reports/btr_hyperparams_survey_2026-08-26.md)にはMunchausen除去時のAction GapとPolicy Churnの差が記録されている。一方、[Atari実験README](../experiments/default-dqn/atari/README.md)は定常 `q_gap` を成績の予測子として採用しないと裁定しているため、本PRDもaction gapやscoreを合否ゲートにしない。
 
 本PRDの目的は、Munchausen RLをDQNBasedの3 Learnerに共通する既定OFFの契約として実装可能な状態へ確定することである。対象は `TDLearner`、`QRLearner`、`IQNLearner` と、近似Actor初期優先度を成立させるActor Qヒントである。性能改善やスコア改善の証明ではなく、数理・設定・transport・診断・検証の契約を固定する。
 
@@ -161,7 +161,7 @@ learner.munchausen.clip_value_min
 - `entropy_tau` はfiniteかつ `> 0`。
 - `clip_value_min` はfiniteかつ `<= 0`。
 
-旧 `log_policy_source` はクリーンブレークで廃止する。旧キーのalias、変換、互換分岐、専用tripwireは持たない。
+`log_policy_source` は前版PRDの草案だけに存在した未実装名であり、production codeや現用configからの削除作業は発生しない。新規実装は `log_policy_mode` だけを認識し、草案名のalias、変換、互換分岐、専用tripwireは持たない。
 
 Munchausen ON時は次の組み合わせを構築時に別々にfail-fastする。
 
@@ -178,6 +178,7 @@ Munchausen ON時は次の組み合わせを構築時に別々にfail-fastする�
 - target networkを `[2B,...]` で1回forwardし、先頭Bをcurrent bonus、後半Bをnext soft価値へ使う。
 - target networkはeval modeのまま使う。
 - IQNはtarget規則のM tausを2B分生成し、連結batchへ注入する。
+- target側plasticity captureが有効な場合、forward直後のcapture shapeを `[2B,F]` と検証し、後半B行を `narrow(0,B,B)` して `plasticity_target_features` へ渡す。先頭Bのcurrent bonus用特徴を混ぜず、PRD 062の「TD bootstrapに使ったnext-state target特徴、B行」という意味を維持する。
 - `forward_target` はこの2B forward全体を計測する。
 
 #### `online`
@@ -209,7 +210,7 @@ struct MunchausenTargetTerms {
 
 helperはcurrent/nextの実空間Q、actions、`MunchausenConfig` を受け取る。AMP領域から呼ばれても入力をFP32へcastし、安定式でscaled log-policyを計算する。`munchausen_target` はbonus、方策、soft価値、target組立の範囲を計測する。
 
-TDのON経路はsoft scalar targetを作り、以降のTD error、clip、Huber、PER処理は既存経路へ戻す。QR / IQNのON経路は全行動・全分位点から `soft_dist[B,M]` を作り、既存lossとPER優先度計算へ渡す。ON時はargmax用の `SelectTargetActions` / `target_policy` を呼ばない。
+TDのON経路はsoft scalar targetを作り、以降のTD error、clip、Huber、PER処理は既存経路へ戻す。QR / IQNのON経路は全行動・全分位点から実空間の `soft_dist[B,M]` を作り、ON専用の `CalcMunchausenTargetQuantiles(samples, soft_dist, bonus)` でreturn、bonus、terminal mask、`gamma^n` を合成し、完成後にだけ `h` を適用する。既存 `CalcTargetQuantiles` は内部で `h^-1` を適用するためOFF専用のままとし、ON経路から呼ばない。これによりTBO時の `h^-1` 二重適用を構造的に防ぐ。target完成後は既存lossとPER優先度計算へ戻す。ON時はargmax用の `SelectTargetActions` / `target_policy` を呼ばない。
 
 ### 4. Actor Qヒント
 
@@ -279,13 +280,13 @@ raw 5値を `BatchUpdateResult` へ運び、2つのEMA購読を加えて7行と�
 - `PerPriorityUpdateInfo::munchausen_diagnostics`
 - `BatchUpdateResult::munchausen_diagnostics`
 
-readbackの並びは、priority、IQN diagnostics、Munchausen diagnostics、upper-tail統計とする。`PreparePerPriorityUpdate` でcountとoffsetを決め、`ApplyPerPriorityUpdate` と結果生成で同じ並びを使う。PERがOFFでもMunchausen diagnosticsをreadbackできることを保証する。
+readbackの並びは、priority、IQN diagnostics、Munchausen diagnostics、upper-tail統計とする。`PreparePerPriorityUpdate` に `munchausen_diagnostics` 引数を追加し、早期returnは `!use_per && !iqn_diagnostics.defined() && !munchausen_diagnostics.defined()` の場合だけとする。Munchausen diagnosticsだけが定義済みでもpendingを有効化する。`PreparePerPriorityUpdate` でcountとoffsetを決め、`ApplyPerPriorityUpdate` と結果生成で同じ並びを使う。これによりPERがOFFでもMunchausen diagnosticsをreadbackできることを保証する。
 
 metricsは次の7 tagとする。
 
 ```text
-metrics.scalar.@munchausen.[36_agent_munchausen/01_scaled_log_policy_mean] = munchausen_scaled_log_policy_mean @learn $update_result
-metrics.scalar.@munchausen.[36_agent_munchausen/02_scaled_log_policy_mean_ema] = munchausen_scaled_log_policy_mean @learn $update_result $ema
+metrics.scalar.@munchausen.[36_agent_munchausen/01_scaled_logp_mean] = munchausen_scaled_log_policy_mean @learn $update_result
+metrics.scalar.@munchausen.[36_agent_munchausen/02_scaled_logp_mean_ema] = munchausen_scaled_log_policy_mean @learn $update_result $ema
 metrics.scalar.@munchausen.[36_agent_munchausen/03_clip_ratio] = munchausen_clip_ratio @learn $update_result
 metrics.scalar.@munchausen.[36_agent_munchausen/04_bonus_mean] = munchausen_bonus_mean @learn $update_result
 metrics.scalar.@munchausen.[36_agent_munchausen/05_bonus_mean_ema] = munchausen_bonus_mean @learn $update_result $ema
@@ -295,7 +296,7 @@ metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_g
 
 ### 7. ProfileRange
 
-- `forward_target`: 通常のtarget forward。`target` modeでは `obs | next_obs` の2B forward全体。
+- `forward_target`: 通常のtarget forward。`target` modeでは `obs ∥ next_obs` の2B forward全体。
 - `forward_munchausen_online`: `online` modeだけのNoGrad・eval fresh online forward。
 - `munchausen_target`: FP32実空間化、方策・bonus・soft価値、target組立。
 
@@ -303,7 +304,7 @@ metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_g
 
 ### 8. 設定プロファイル
 
-`apps/runner/config/agent.txt` のbaselineへ5値を明示する。
+`apps/runner/config/agent.txt` のbaselineへ5値を明示する。`@munchausen` は[done/059](done/059_config_concept_tree_alignment_10prd.md)が定義した、NN配線を持たずALGO軸と直交するTARGET軸であり、本PRDが同文書の遅延ゲートを発動する。
 
 ```text
 DefaultDQNAgent.@baseline.learner.munchausen.enabled = false
@@ -322,7 +323,9 @@ DefaultDQNAgent.@munchausen.learner.use_double_dqn = false
 DefaultDQNAgent.@munchausen.use_optimistic_target = false
 ```
 
-現行Run chainはbaselineより後で `@munchausen` を適用し、その後のA1/A2/A3は両競合キーを再定義しない。実行時はeffective configと `config_resolution.json` の両方で解決結果を確認する。
+下記Atari Run chainはbaselineより後で `@munchausen` を適用し、その後のA1/A2/A3は両競合キーを再定義しない。実行時はeffective configと `config_resolution.json` の両方で解決結果を確認する。
+
+他envへ `@munchausen` を組み込む場合は、後段overlayを含む最終effective configで `learner.use_double_dqn=false` と `use_optimistic_target=false` を確認する。たとえば現行DropMergeは `A1.use_optimistic_target=true` を後段の `A2.use_optimistic_target=false` が戻すことで成立しており、A2側を外すとMunchausen構成は意図どおりfail-fastする。既存A層を一括変更せず、利用するRunごとに最終解決値を確認する。
 
 `metrics.scalar.@munchausen` は上記7 tagを購読し、`run.@munchausen` がagent profileとmetrics profileを束ねる。mode差分Runは解決後leafの `log_policy_mode` を明示的に上書きする。
 
@@ -342,18 +345,19 @@ productionへtest-only APIを追加せず、既存のforward-count probe、netwo
 2. `target` が2B target forward 1回、`online` が既存forward後のNoGrad・eval online forward 1回、`online_reuse` が追加forwardなしであることを検証する。
 3. IQNのtaus shape、current/target/fresh-onlineの生成規則、生成順、各modeの追加RNG有無を検証する。
 4. N-step returnへのbonus 1回加算、`gamma^n`、terminalでbonusを残してbootstrapだけを消すことを検証する。
-5. clip境界、`alpha=0`、TBO ON/OFF、TD/QR/IQNのFP32実空間計算を検証する。
+5. clip境界、`alpha=0`、TBO ON/OFF、TD/QR/IQNのFP32実空間計算を検証する。quantileのTBO ONではON専用target組立が `h^-1` を一度だけ適用し、既存 `CalcTargetQuantiles` を経由しないことを既知値で確認する。
 6. `tau -> 0` のmax bootstrap極限は `alpha=0` と組み合わせ、残存bonusを比較へ混ぜない。
 7. CUDAが利用可能な環境ではBF16 autocast下でもtargetとdiagnosticsがFP32計算になることを検証する。
 8. mode不正、alpha不正、entropy tau不正、clip下限不正を `enabled` に関係なくfail-fastさせる。
 9. Munchausen ON + `use_double_dqn=true` と、Munchausen ON + `use_optimistic_target=true` を別々の構築エラーとして検証する。メッセージの両キー、指定値、期待値も確認する。
 10. Munchausen OFFでは `use_double_dqn=true` と `use_optimistic_target=true` がそれぞれ許可されることを確認する。
-11. diagnostics readbackがPER ON/OFFの両方で正しいoffsetと5値を返すことを確認する。
+11. diagnostics readbackがPER ON/OFFの両方で正しいoffsetと5値を返すことを確認する。PER OFFかつMunchausen diagnosticsだけが定義された場合も早期returnせず、pendingが有効になることを確認する。
 12. diagnosticsについてfiniteに加え、scaled log-policy `<= 0`、clip ratio `[0,1]`、bonus `[alpha*l0,0]`、entropy `[0,ln A]`、soft gap `[0,tau*ln A]` を許容差付きで検証する。
 13. K3 pack/decode round-trip、旧K2拒否、全列finite、`WithAction` の再gather、aux欠落時のfail-fastを検証する。
 14. `DqnInitialPriorityEstimator` がMunchausen込みtargetをTBO ON/OFFで再現し、OFF時の初期優先度数値が従来と一致することを検証する。
 15. 同じseedで各ON modeを2回実行し、各mode内のloss/TD error系列が再現することを確認する。
 16. 既存DQNテストとRainbowのMunchausen OFFを確認する。transportのK3化に伴う期待値更新は許容する。
+17. `target` modeでplasticity targetを購読し、2B forwardのcaptureがB行へnarrowされ、各行が後半の `next_obs` に対応することを確認する。通常target forwardと他modeのcapture shape・意味は変更しない。
 
 ## 実装時の受入基準
 
@@ -385,7 +389,9 @@ run base: run.@v5_iqn_impala_x2
 - `online_reuse`
 - `target + per_initial_priority_mode=actor_approx`
 
-各Runでeffective configとresolutionを確認し、7つの診断tagが `status=ok`、count > 0、finite、契約範囲内であること、lossがfiniteであることを確認する。actor_approx Runでは `39_agent_per/05_sample_actor_init_ratio` が非ゼロで、`52_actor_learner_pair_count` が有効であることも確認する。
+各Runでeffective configとresolutionを確認し、`learner.use_double_dqn=false`、`use_optimistic_target=false`、意図した `log_policy_mode` が最終leafであることを確認する。短縮後の `01_scaled_logp_mean` / `02_scaled_logp_mean_ema` を含む7つの診断tagが `status=ok`、count > 0、finite、契約範囲内であること、lossがfiniteであることを確認する。actor_approx Runでは `39_agent_per/05_sample_actor_init_ratio` が非ゼロで、`52_actor_learner_pair_count` が有効であることも確認する。
+
+4本は確認用の使い捨てRunなので、恒久的な `run.@munchausen` の `app.run_name` をそのまま使わず、CLIで順に `run_{t}_tmp_smoke_067_target_${E1.game}`、`run_{t}_tmp_smoke_067_online_${E1.game}`、`run_{t}_tmp_smoke_067_online_reuse_${E1.game}`、`run_{t}_tmp_smoke_067_target_actor_approx_${E1.game}` へ上書きする。
 
 ### 4. Throughput記録
 
@@ -410,7 +416,8 @@ action gap、policy churn、score改善は本PRDの合否に含めない。`acti
 - `ForwardOnlineWithTrain` はonline networkを一時的にtrain modeでforwardし、`ForwardOnline` はeval modeでforwardする。
 - 3 Learnerともcurrent online出力を既に持つため、`online_reuse` はdetach再利用できる。
 - IQNのTauGeneratorは行ごとに独立してtausを生成するため、target modeの2B生成で前後batchを表現できる。
-- `PreparePerPriorityUpdate` の固定index readbackは現状IQN diagnosticsとupper-tail統計を扱うが、Munchausen専用count/offsetはまだない。
+- `PreparePerPriorityUpdate` の固定index readbackは現状IQN diagnosticsとupper-tail統計を扱うが、Munchausen専用count/offsetはまだない。さらに `!use_per && !iqn_diagnostics.defined()` で早期returnするため、PER OFFのMunchausen diagnosticsを運ぶにはこのゲートも変更する必要がある。
+- `ForwardTarget` はtarget側branch captureを常に同じforwardへ渡す。`target` modeの2B forwardをそのまま使うとcaptureも2Bになるため、PRD 062の既存意味を保つには後半Bへのnarrowが必要である。
 - ReplayBuffer共通層はhint幅を動的に運び、K3は既存inline capacity内に収まる。
 - BTRの非IQN経路はtarget current、IQN経路はfresh online currentでbonusを計算し、集約済みN-step returnへbonusを一度加え `gamma^n` bootstrapを使う。BTRに `online_reuse` の前例があるとは主張しない。
 - 論文著者のGoogle Research参照実装はDopamineを基盤とするが、本PRDの一次根拠は論文と補遺である。
@@ -464,6 +471,7 @@ action gap、policy churn、score改善は本PRDの合否に含めない。`acti
 | `core/anet-core/include/anet/agent.hpp` | `LearnerConfig::MunchausenConfig` |
 | `core/anet-core/include/anet/default_dqn_agent.hpp` | 5キーの読取・検証、競合組み合わせのfail-fast |
 | `core/anet-core/src/default_dqn_agent.cpp` | 狭い `ActorQHintConfig` の組立 |
+| `core/anet-core/src/rainbow_agent.cpp` | `Actor` 構築時にMunchausen OFFの `ActorQHintConfig` を渡し、共通K3 transportへ追従 |
 | `core/anet-core/src/dqn_based_agent.hpp` / `.cpp` | 3 Learner、3 mode、実空間helper、K3 hint、診断readback、ProfileRange |
 | `core/anet-core/src/dqn_based_agent_test.cpp` | テスト契約の実装 |
 | `apps/runner/config/agent.txt` | baselineと `@munchausen` profile |

@@ -8,7 +8,7 @@ Munchausen RL（Vieillard et al. 2020）は、Bellmanターゲットの報酬側
 
 **bonusのlog-policyは `learner.munchausen.log_policy_mode = target | online | online_reuse` で選び、既定を `target` とする**。
 
-- `target`: 正規化済み `obs` と `next_obs` をbatch方向へ連結し、target networkを2Bで1回forwardする。IQNはtarget規則のM tausを2B分生成する。
+- `target`: 正規化済み `obs` と `next_obs` をbatch方向へ連結し、target networkを2Bで1回forwardする。IQNはtarget規則のM tausを2B分生成する。target側plasticity captureは後半Bの `next_obs` 行へnarrowし、PRD 062のtarget actualの意味とB行shapeを維持する。
 - `online`: 既存のcurrent/target forward後、online networkをNoGradかつeval modeで追加forwardする。IQNはcurrent規則のN tausを新規生成する。
 - `online_reuse`: 既存のtrain-mode current出力をdetachして再利用し、追加forwardも追加RNG消費も行わない。
 
@@ -16,7 +16,7 @@ IQNでは既存current/targetのtau生成順を維持した後に `online` 用ta
 
 **soft価値ブートストラップはargmax選択を行わない**。このため `munchausen.enabled=true` と `learner.use_double_dqn=true`、または `munchausen.enabled=true` と `use_optimistic_target=true` の併用は、明示設定が効果を持たない互換性のない組み合わせとして構築時に `ANET_SYSTEM_ERROR` でfail-fastする。エラーには競合する両キー、指定値、期待値 `false` を含める。Munchausenがdisabledの場合は従来機能として許可する。
 
-設定は `learner.munchausen.{enabled, log_policy_mode, alpha, entropy_tau, clip_value_min}` とし、`enabled` に関わらず常時検証する。modeは閉じた3値、`alpha` はfiniteな `[0,1]`、`entropy_tau` はfiniteかつ `> 0`、`clip_value_min` はfiniteかつ `<= 0` とする。旧 `log_policy_source` はクリーンブレークで廃止し、aliasや互換分岐を持たない。
+設定は `learner.munchausen.{enabled, log_policy_mode, alpha, entropy_tau, clip_value_min}` とし、`enabled` に関わらず常時検証する。modeは閉じた3値、`alpha` はfiniteな `[0,1]`、`entropy_tau` はfiniteかつ `> 0`、`clip_value_min` はfiniteかつ `<= 0` とする。`log_policy_source` は前版PRDの草案だけに存在した未実装名であるため削除作業は発生しない。新規実装は `log_policy_mode` だけを認識し、草案名のaliasや互換分岐を持たない。
 
 ## Considered Options
 
@@ -33,6 +33,7 @@ IQNでは既存current/targetのtau生成順を維持した後に `online` 用ta
 
 - Learnerの数値経路とRNGについて、`enabled=false` の標準Atari構成は実装前と完全一致させる。Rainbowはアルゴリズム上OFFのままだが、共通transportのshape不変までは保証しない。
 - `target` は2Bのtarget forward、`online` は独立したfresh online forward、`online_reuse` は追加forwardなしとなる。ProfileRangeは `forward_target`、`forward_munchausen_online`、`munchausen_target` を区別する。
+- QR / IQNのMunchausen ON経路は、実空間 `soft_dist` をON専用target組立へ渡して完成後にだけ `h` を適用する。内部で `h^-1` を適用する既存 `CalcTargetQuantiles` はOFF専用とし、TBO時の二重逆変換を防ぐ。
 - PERのLearner優先度はMunchausen込みtargetへ追従する。診断5値とEMA 2行、および固定index readbackの詳細契約はPRD 067に置く。
 - throughput、`exp_step_per_sec`、ProfileRangeはmodeごとに記録するが、本ADRでは性能の合否閾値を設けない。
 - `action_mask` は既知の未対応事項である。非合法行動をsoft価値へ含め得るため将来対応が必要だが、現行実装との相対的な安全性は主張しない。

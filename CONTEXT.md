@@ -78,7 +78,7 @@ _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **Actor Qヒント**:
-Replay初期優先度ヒントへ格納するDQN固有payload。実行行動の価値、bootstrap用の状態価値、任意のMunchausen項をActorから初期優先度推定器へ渡す。
+Replay初期優先度ヒントへ格納するDQN固有payload。実行行動の価値、bootstrap用の状態価値、Munchausen項（OFFでは0）をActorから初期優先度推定器へ渡す。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:
