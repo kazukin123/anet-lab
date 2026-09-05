@@ -27,6 +27,6 @@ ADR 0010 / ADR 0012のActor Qヒントは `[Q(s,a), max_a Q(s,.)]` の2列で、
 - 標準Atariのmax初期化構成はhint経路を使わず、Learner OFFの数値経路・RNG不変契約に従う。RainbowはMunchausenアルゴリズムOFFだが、共通K3 transportは利用し得る。
 - `Actor` の構築引数に `ActorQHintConfig` が加わるため、DefaultDQNだけでなくRainbowのActor生成箇所も同じ変更内で更新する。Rainbowは `enabled=false` の狭いconfigを渡し、Munchausen計算を有効化せずK3 schemaへ追従する。
 - Actorのper-step追加費用は、hintを生成するactor_approx構成におけるsoft価値計算とper-action Munchausen用auxに限定する。
-- `train_policy=UQE` ではActorの `q_values` が既にrisk-biased action score（ADR 0019）なので、hint側の方策はADR 0035のsoft楽観ターゲット（`use_optimistic_target=true`）と自動的に同じスコア源になる。hintの価値側はそのスコアをそのまま使う近似であり、Learnerが全分布を混合する点とは一致しないが、ADR 0010の近似契約の範囲として扱う。
+- IQN+UQEではActorの `q_values` が既にrisk-biased action score（ADR 0019）なので、hint側の方策はADR 0035のsoft楽観ターゲット（`use_optimistic_target=true`）と同じスコア源になる。QR+UQEでは `q_values` は平均でrisk値は別aux `uqe_values` のため、hint側の方策は平均近似のままでLearnerのrisk方策とは一致しない。いずれもhintの価値側はそのスコアをそのまま使う近似であり、Learnerが全分布を混合する点とは一致しないが、ADR 0010の近似契約の範囲として扱い、hintを `uqe_values` から作る改修はしない。
 - `CONTEXT.md` はActor Qヒントをドメイン用語としてだけ定義し、列数やnetwork sourceなどの実装契約は本ADRとPRD 067に置く。
 - 再訪条件は、actor_approxとMunchausenの併用でActor/Learner順位相関が非Munchausen構成より明確に低い実測が得られた場合とする。

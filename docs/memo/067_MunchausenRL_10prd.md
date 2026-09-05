@@ -18,7 +18,7 @@ Munchausen RLは、Bellmanターゲットの報酬側へエージェント自身
 
 本PRDの目的は、Munchausen RLをDQNBasedの3 Learnerに共通する既定OFFの契約として実装可能な状態へ確定することである。対象は `TDLearner`、`QRLearner`、`IQNLearner` と、近似Actor初期優先度を成立させるActor Qヒントである。性能改善やスコア改善の証明ではなく、数理・設定・transport・診断・検証の契約を固定する。
 
-実装は1フェーズで行う。推奨する実装順は、① `MakeRiskBiasedScore` の抽出（単独で完結するリファクタ。OFF数値不変）→ ② Munchausen本体 → ③ `GetRiskScoreSpec` seamとsoft楽観ターゲット（D15）である。③に着手せず止まる場合は、D5を「`use_optimistic_target=true` との併用もfail-fast」へ戻して整合させる。今回の改訂作業は文書のみであり、production code、config、テスト、現行実装を説明する `docs/design` は変更しない。
+実装は1フェーズで行う。推奨する実装順は、① `MakeRiskBiasedScore` の抽出（単独で完結するリファクタ。OFF数値不変）→ ② Munchausen本体 → ③ `GetRiskScoreSpec` seamとsoft楽観ターゲット（D15）である。①〜③はいずれも本PRDの必須範囲であり、③を省いた状態を完了としない。今回の改訂作業は文書のみであり、production code、config、テスト、現行実装を説明する `docs/design` は変更しない。
 
 ## Goals
 
@@ -130,8 +130,8 @@ soft価値ブートストラップは行動選択を行わないが、方策 `pi
 | `target_policy.policy_type`（`use_optimistic_target=true` ならtrain_policyのコピー） | `s` |
 |---|---|
 | `Greedy`、`EpsilonGreedy`（構成時にGreedyへ強制） | `mean_j Z_real[.,.,j]`（既定） |
-| `ThompsonSampling` | `mean_j Z_real[.,.,j]`（Thompsonのscoreは乱択tausの平均で、target tausの平均と同じ量） |
-| `UQE` | `MakeRiskBiasedScore(tau_risk, uqe_use_tail_mean, Z_real)`: 分位点を値で昇順ソートし、index `floor(tau_risk * (M - 1))` からのtail平均（`true`）または1点（`false`） |
+| `ThompsonSampling` | 非対応。構成時にfail-fast（QRのhard Thompsonはサンプルごとに乱択tauでrisk選択するため、平均へ落とすとOFF/ONで意味が割れる。soft版は追加RNGが要るため未定義） |
+| `UQE` | `MakeRiskBiasedScore(tau_risk, uqe_use_tail_mean, Z_real)`: 分位点を値で昇順ソートし、index `floor(tau_risk * (M - 1))` からのtail平均（`true`）または1点（`false`）。QRではhard経路の `MakeUQEValues` と同一定義、IQNではM本の経験分位による近似 |
 
 `tau_risk` は `target_policy` が保持する現在の `uqe_tau`（`uqe_tau_start` から `uqe_tau_end` へexp_step減衰）であり、`uqe_use_tail_mean` も同じpolicyの値を使う。`s_current`（bonus側、`s_t`）と `s_next`（soft価値側、`s_{t+n}`）は同じスコア関数・同じ `tau_risk` で作る。
 
@@ -145,7 +145,7 @@ soft_dist[i,j] = sum_a pi_next[i,a] * (Z_next_real[i,a,j] - scaled_log_policy_ne
 risk-biasedスコアは方策にだけ入り、価値側は全分布 `Z_real` のままである（hard楽観ターゲットが「選択はrisk、評価は選んだ行動の全分布」であるのと同じ分離）。`tau -> 0` でsoft楽観ターゲットはhard楽観ターゲット（実空間でのrisk argmax）へ収束する。risk方策では `V_soft = E_pi[q_mean] + tau * H(pi)` であり、`LSE_tau(q_mean)` とは一致しない。
 
 - スコアは実空間 `Z_real`（TBO時は分位点ごとに `h^-1` 済み）から作るため、`uqe_use_tail_mean=true` もTBO下で成立する。`apps/runner/config/DropMerge.txt` のhard経路向け注記（h空間では単一分位点だけがargmax不変）はsoft経路には及ばない。同じ `target_policy.uqe_use_tail_mean` が両経路を支配する。
-- soft経路のrisk-biasedスコアはM本の経験分位であり、networkを `tau` で直接問うhard経路のIQNとは一致しない。`target_taus.sample_mode = fixed / stratified` なら決定的、`random` では揺れる。
+- soft経路のrisk-biasedスコアはM本の経験分位である。QRではhard経路の `MakeUQEValues` と同一定義だが、IQNのhard経路はrisk tausをnetworkへ直接与えて平均するため、soft経路のIQNは別契約の近似になる。`target_taus.sample_mode = fixed / stratified` なら決定的、`random` では揺れる。
 - TD Learner（`quantile_mode=none`）では `target_policy=UQE` が既存検証でfail-fastするため、soft楽観ターゲットは分位点表現でだけ成立する。
 
 ## 決定事項
@@ -156,7 +156,7 @@ risk-biasedスコアは方策にだけ入り、価値側は全分布 `Z_real` �
 | D2 | log-policy mode | 閉じた文字列enum `target` / `online` / `online_reuse`。既定は `target`。 |
 | D3 | N-step | bonusは集約済みreturnの先頭へ1回だけ加え、終端でも残す。bootstrapだけをmaskし `gamma^n` を掛けるBTR互換拡張。 |
 | D4 | 数値空間 | TD / QR / IQNすべてFP32実空間。TBOは分位点ごとの `h^-1` とtarget完成後の `h`。 |
-| D5 | 競合設定 | Munchausen ON + `learner.use_double_dqn=true` は構築時に `ANET_SYSTEM_ERROR`（soft doubleは未定義）。`use_optimistic_target=true` は競合ではなくD15のスコア源として尊重する。disabled時は両方とも従来どおり許可。 |
+| D5 | 競合設定 | Munchausen ON + `learner.use_double_dqn=true` は構築時に `ANET_SYSTEM_ERROR`（soft doubleは未定義）。Munchausen ON + `target_policy.policy_type=ThompsonSampling`（`use_optimistic_target=true` のcopy経由を含む）も同様にfail-fast（soft版Thompsonは未定義）。`use_optimistic_target=true` 自体は競合ではなくD15のスコア源として尊重する。disabled時はいずれも従来どおり許可。 |
 | D6 | Actor hint | 常時K3 `[q_sa, state_value, munchausen_term]`。旧K2はschema違反。 |
 | D7 | Actor config | 狭い `ActorQHintConfig` だけを渡す。Learner config全体とmodeは渡さない。 |
 | D8 | OFF保証 | Learner数値経路・RNGと標準Atari構成の完全不変。actor_approxは優先度数値同値のみ。 |
@@ -166,7 +166,7 @@ risk-biasedスコアは方策にだけ入り、価値側は全分布 `Z_real` �
 | D12 | action mask | 既知の未対応事項として記録し、現行比の相対安全性は主張しない。 |
 | D13 | M-SAC | SACのActor/Critic契約成立後、共通処理が実際に2利用箇所になった時点で抽出を再検討する。 |
 | D14 | 成績・性能 | runtimeと性能値は記録するが、合否閾値や成績ゲートは置かない。 |
-| D15 | soft楽観ターゲット | Munchausen ON時の方策スコアは `target_policy` の種類で決まる（UQEならrisk-biased、他は分位点平均）。新キーなし。`ActionPolicy::GetRiskScoreSpec()` と `MakeRiskBiasedScore` の2機構で実装し、スコアは経験分位、診断は平均基準、初期化ログへスコア源を追記。採用根拠は設計整合（`target_policy` = bootstrap方策をhard/soft両経路が尊重）と後付け実装を避ける判断であり、RL効果の実測ではない。 |
+| D15 | soft楽観ターゲット | Munchausen ON時の方策スコアは `target_policy` の種類で決まる（UQEならrisk-biased、Greedy / EpsilonGreedyは分位点平均、ThompsonSamplingは非対応でfail-fast）。新キーなし。`ActionPolicy::GetRiskScoreSpec()` と `MakeRiskBiasedScore` の2機構で実装し、スコアは経験分位（QRはhard経路と同一定義、IQNは近似）、診断は平均基準、初期化ログへスコア源を追記。採用根拠は設計整合（`target_policy` = bootstrap方策をhard/soft両経路が尊重）と後付け実装を避ける判断であり、RL効果の実測ではない。 |
 
 ## 実装契約
 
@@ -203,11 +203,12 @@ learner.munchausen.clip_value_min
 
 `log_policy_source` は前版PRDの草案だけに存在した未実装名であり、production codeや現用configからの削除作業は発生しない。新規実装は `log_policy_mode` だけを認識し、草案名のalias、変換、互換分岐、専用tripwireは持たない。
 
-Munchausen ON時は次の組み合わせを構築時にfail-fastする。
+Munchausen ON時は次の組み合わせを構築時に別々にfail-fastする。置き場は既存の `DefaultDQNAgentConfig` の検証ブロック（`is_thompson` を再利用）である。
 
-- `learner.munchausen.enabled=true` と `learner.use_double_dqn=true`
+- `learner.munchausen.enabled=true` と `learner.use_double_dqn=true`。エラーには競合する両キー、実際の指定値 `true`、期待値 `false` を含める。
+- `learner.munchausen.enabled=true` と `target_policy.policy_type=ThompsonSampling`（`use_optimistic_target=true` で `train_policy` からcopyされた場合を含む）。エラーには両キー、実際の指定値、許容値（Greedy / EpsilonGreedy / UQE）と、copy経由ならその旨（`use_optimistic_target=true`）を含める。
 
-エラーには競合する両キー、実際の指定値 `true`、期待値 `false` を含める。`use_optimistic_target=true` は競合ではなく、D15のとおり `target_policy` のスコアがsoft経路の方策に入る。Munchausen OFF時は両機能を従来どおり許可する。
+`use_optimistic_target=true` 自体は競合ではなく、D15のとおり `target_policy` のスコアがsoft経路の方策に入る。Munchausen OFF時はいずれの機能も従来どおり許可する。
 
 ### 2. 3つのlog-policy mode
 
@@ -251,8 +252,8 @@ helperはcurrent/nextの実空間Q、actions、`MunchausenConfig` を受け取�
 
 方策スコアの入力は次で決める。`target_policy_->GetRiskScoreSpec()` が `std::nullopt` なら `q_current_real` / `q_next_real` は分位点平均（scalar TDでは `q` そのもの）、specがあれば両方を `MakeRiskBiasedScore(spec.tau, spec.use_tail_mean, Z_real)` で置き換えてからhelperへ渡す。helperのsignatureは変えない。
 
-- `ActionPolicy::GetRiskScoreSpec()` は仮想関数で既定 `std::nullopt`。`UQEActionPolicy` は `{現在のuqe_tau, config_.uqe_use_tail_mean}` を返し、`ThompsonSamplingActionPolicy` は `std::nullopt` を返す（Thompsonのscoreは乱択tausの平均）。target policyはspatial explorationを持たないためscalar tauで足りる。現在のtauは既存の `OnLearn` によるexp_step減衰をそのまま使う。
-- `MakeRiskBiasedScore(float tau, bool use_tail_mean, const torch::Tensor& quantiles)` は `UQEActionPolicy::MakeUQEValues` の本体を `anet::rl::dqn` 名前空間のfree関数へ抽出したもので、policy側のprivateメソッドはそのforwarderにする。スコア定義はhard経路と1箇所で共有する。この抽出はOFF経路のコードを書き換えるが数値とRNGは不変で、D8の範囲内である。
+- `ActionPolicy::GetRiskScoreSpec()` は仮想関数で既定 `std::nullopt`（= 分位点平均）。`UQEActionPolicy` は `{現在のuqe_tau, config_.uqe_use_tail_mean}` を返す。`ThompsonSamplingActionPolicy` は `UQEActionPolicy` を継承するためoverrideして `std::nullopt` を返すが、Munchausen ON + Thompson targetは構成検証で除外されるためこの値は参照されない。target policyはspatial explorationを持たないためscalar tauで足りる。現在のtauは既存の `OnLearn` によるexp_step減衰をそのまま使う。
+- `MakeRiskBiasedScore(float tau, bool use_tail_mean, const torch::Tensor& quantiles)` は `UQEActionPolicy::MakeUQEValues` の本体を `anet::rl::dqn` 名前空間のfree関数へ抽出したもので、policy側のprivateメソッドはそのforwarderにする。スコア定義はQRのhard経路と1箇所で共有する。IQNのhard経路はrisk tausをnetworkへ直接与えてその平均を使い `MakeUQEValues` を通らないため共有対象外であり、IQNのsoft経路は同じfree関数を全範囲tausの経験分位へ適用する近似である。この抽出はOFF経路のコードを書き換えるが数値とRNGは不変で、D8の範囲内である。
 - Learner構築時の既存初期化ログ（`Initialized IQNLearner (...)` 系）へ、Munchausen ON時は `log_policy_mode` とスコア源（`mean` / `risk_biased(tau=..., tail_mean=...)`）を追記する。新規のログ機構やWARNは足さない。
 
 TDのON経路はsoft scalar targetを作り、以降のTD error、clip、Huber、PER処理は既存経路へ戻す。QR / IQNのON経路は全行動・全分位点から実空間の `soft_dist[B,M]` を作り、ON専用の `CalcMunchausenTargetQuantiles(samples, soft_dist, bonus)` でreturn、bonus、terminal mask、`gamma^n` を合成し、完成後にだけ `h` を適用する。既存 `CalcTargetQuantiles` は内部で `h^-1` を適用するためOFF専用のままとし、ON経路から呼ばない。これによりTBO時の `h^-1` 二重適用を構造的に防ぐ。target完成後は既存lossとPER優先度計算へ戻す。ON時はargmax用の `SelectTargetActions` / `target_policy_->SelectAction` を呼ばない（`target_policy_` はスコア仕様の問い合わせにだけ使う）。
@@ -395,7 +396,7 @@ productionへtest-only APIを追加せず、既存のforward-count probe、netwo
 6. `tau -> 0` のmax bootstrap極限は `alpha=0` と組み合わせ、残存bonusを比較へ混ぜない。
 7. CUDAが利用可能な環境ではBF16 autocast下でもtargetとdiagnosticsがFP32計算になることを検証する。
 8. mode不正、alpha不正、entropy tau不正、clip下限不正を `enabled` に関係なくfail-fastさせる。
-9. Munchausen ON + `use_double_dqn=true` を構築エラーとして検証する。メッセージの両キー、指定値、期待値も確認する。
+9. Munchausen ON + `use_double_dqn=true` と、Munchausen ON + `target_policy.policy_type=ThompsonSampling`（明示指定と `use_optimistic_target=true` のcopy経由の両方）を別々の構築エラーとして検証する。メッセージの両キー、指定値、期待値または許容値も確認する。
 10. Munchausen OFFでは `use_double_dqn=true` と `use_optimistic_target=true` がそれぞれ許可されることを確認する。Munchausen ON + `use_optimistic_target=true`（train_policy=UQE）は許可され、方策スコアがrisk-biasedになることを確認する。
 11. diagnostics readbackがPER ON/OFFの両方で正しいoffsetと5値を返すことを確認する。PER OFFかつMunchausen diagnosticsだけが定義された場合も早期returnせず、pendingが有効になることを確認する。
 12. diagnosticsについてfiniteに加え、scaled log-policy `<= 0`、clip ratio `[0,1]`、bonus `[alpha*l0,0]`、entropy `[0,ln A]` を許容差付きで検証する。soft gap `[0,tau*ln A]` は方策スコアが平均のときだけ検証し、risk-biased時はfiniteのみとする。
@@ -404,9 +405,9 @@ productionへtest-only APIを追加せず、既存のforward-count probe、netwo
 15. 同じseedで各ON modeを2回実行し、各mode内のloss/TD error系列が再現することを確認する。
 16. 既存DQNテストとRainbowのMunchausen OFFを確認する。transportのK3化に伴う期待値更新は許容する。
 17. `target` modeでplasticity targetを購読し、2B forwardのcaptureがB行へnarrowされ、各行が後半の `next_obs` に対応することを確認する。通常target forwardと他modeのcapture shape・意味は変更しない。
-18. `MakeRiskBiasedScore` が、同じquantile tensorに対して `UQEActionPolicy` の `uqe_values` aux（QRの固定分位とIQN）を再現することを確認する。抽出リファクタ前後でhard経路のスコアが同値であることの担保である。
-19. soft楽観ターゲットの既知値を検証する。QR × IQN × `uqe_use_tail_mean` true/false × `target` / `online_reuse` について、oracleはtestコード側で値ソート→index→tail平均または1点のスコアから方策を作り、全分布を混合する。さらに `tau -> 0`（`alpha=0`）でsoft楽観ターゲットが実空間のhard楽観ターゲット（risk-biased argmaxの行動の全分布 + return + `gamma^n` mask）に許容差内で一致することを確認する。
-20. `target_policy` がGreedy / EpsilonGreedy / ThompsonSamplingのとき、Munchausen ONのtargetが平均スコア経路と同値であることを確認する。
+18. `MakeRiskBiasedScore` が、QRの固定分位tensorに対して `UQEActionPolicy` の `uqe_values` aux を再現することを確認する（tail_mean true/false）。抽出リファクタ前後でQRのhard経路のスコアが同値であることの担保である。IQNのhard経路は `MakeUQEValues` を通らないため対象外とする。
+19. soft楽観ターゲットの既知値を検証する。QR × IQN × `uqe_use_tail_mean` true/false × `target` / `online` / `online_reuse` について、oracleはtestコード側で同じ `Z_real` から値ソート→index→tail平均または1点のスコアを作り、方策を作って全分布を混合する。さらに `tau -> 0`（`alpha=0`）でsoft楽観ターゲットが、同じ `Z_real` からtest側で作るhard版oracle（risk-biased argmaxの行動の全分布 + return + `gamma^n` mask）に許容差内で一致することを確認する。QR + 1点UQE（`uqe_use_tail_mean=false`）に限り、その極限のargmaxがproductionのhard選択 `SelectTargetActions` と一致することも確認する（hは単調なので1点なら不変。tail_mean × TBOとIQNは対象外）。
+20. `target_policy` がGreedy / EpsilonGreedyのとき、Munchausen ONのtargetが平均スコア経路と同値であることを確認する。
 
 ## 実装時の受入基準
 
@@ -437,7 +438,7 @@ run base: run.@v5_iqn_impala_x2
 - `online`
 - `online_reuse`
 - `target + per_initial_priority_mode=actor_approx`
-- `target + use_optimistic_target=true + train_policy.policy_type=UQE`（soft楽観ターゲット。D15）
+- `target + use_optimistic_target=true + train_policy.policy_type=UQE`（soft楽観ターゲット。D15。Atariは `@iqn` なので経験分位近似の契約の疎通確認になる）
 
 各Runでeffective configとresolutionを確認し、`learner.use_double_dqn=false`、意図した `use_optimistic_target`（5本目だけ `true`、他は `false`）、意図した `log_policy_mode` が最終leafであることを確認する。5本目では `target_policy.policy_type=UQE` が解決され、初期化ログのスコア源が `risk_biased` で、`07_soft_gap` は負でもよい（finiteのみ）。短縮後の `01_scaled_logp_mean` / `02_scaled_logp_mean_ema` を含む7つの診断tagが `status=ok`、count > 0、finite、契約範囲内であること、lossがfiniteであることを確認する。actor_approx Runでは `39_agent_per/05_sample_actor_init_ratio` が非ゼロで、`52_actor_learner_pair_count` が有効であることも確認する。
 
@@ -489,6 +490,7 @@ action gap、policy churn、score改善は本PRDの合否に含めない。`acti
 - soft経路のrisk-biasedスコアはM本の経験分位で、Atariの `M=8` では粗い。`target_taus.sample_mode=random` では揺れ、`fixed` / `stratified` で決定的になる。
 - 同じ `target_policy.uqe_use_tail_mean` がhard / soft両経路を支配する。hard経路のTBO都合で `false` にした設定はsoft経路でも1点UQEになる。
 - `use_optimistic_target=true` はfail-fastしないため、env側A層に残った `true` が黙ってsoft楽観ターゲットになる。config dumpと初期化ログのスコア源で確認する。
+- QR+UQEでは、Actorの `q_values` は平均でrisk値は別aux `uqe_values` のため、actor_approxのhintが作る方策は平均近似のままでLearnerのrisk方策と一致しない（IQN+UQEでは `q_values` 自体がrisk-biased scoreなので一致する）。ADR 0010の近似契約の範囲として扱い、hintを `uqe_values` から作る改修はしない。
 
 ## Complexity Audit
 
@@ -503,7 +505,8 @@ action gap、policy churn、score改善は本PRDの合否に含めない。`acti
 - 1フェーズ実装。TD / QRも、現用のNature DQN / QR control profileが存在するため対象から外さない。
 - soft楽観ターゲット（D15）。新キーなしで `target_policy` のスコアをsoft経路が尊重する。根拠は設計整合と後付け実装を避けるユーザー判断であり、RL効果の実測ではない（2026-09-05追補）。
 - `ActionPolicy::GetRiskScoreSpec()` seam。切るとtau減衰をLearnerへ二重実装することになる。
-- `MakeRiskBiasedScore` の抽出。切るとスコア定義が2箇所に複製され乖離する。
+- `MakeRiskBiasedScore` の抽出。切るとQRのhard経路とsoft経路でスコア定義が2箇所に複製され乖離する。
+- Munchausen ON + Thompson targetの構成時fail-fast。平均へ落とすとhard（サンプルごと乱択tauのrisk選択）とsoftで `target_policy` の意味が割れるため、soft版が未定義であることを明示する。
 
 ### Shrink
 
@@ -527,6 +530,8 @@ action gap、policy churn、score改善は本PRDの合否に含めない。`acti
 - `use_double_dqn=true` との併用を許容して警告だけ出す契約。
 - `munchausen.*` 配下の独立キー（`policy_score` / `risk_tau` / `risk_use_tail_mean`）。同じ概念の二重表現になり、tau減衰も持てない。
 - risk-biased専用の追加メトリクス。
+- ThompsonSampling targetを分位点平均へ落とす近似。OFF/ONで意味が割れるため、fail-fastに置き換えた。
+- soft版Thompson（サンプルごとに乱択したtau_riskでスコアを作る）。Learnerへ追加RNG消費が要るため作らない。
 - `action_mask` についての「現行比で相対劣化しない」という主張。
 
 ## 影響ファイル（実装時）
