@@ -266,7 +266,7 @@ _Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
 _Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
 
 **評価セッション**（evaluation session）:
-eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@episode_end` 1点として記録する。lane数（`eval_batch_size`）は並列度であって本数ではない。
+eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@session_end` 1点として記録する。採用episodeの完了はそれぞれ`@episode_end`としても発火し、個体単位のtraceはそちらに乗る。lane数（`eval_batch_size`）は並列度であって本数ではない。
 _Avoid_: 評価エピソード（1本と誤読させる）, eval 1回（何本かが伝わらない）, eval batch
 
 **採用エピソード**（adopted episode）:
@@ -324,7 +324,7 @@ _Avoid_: schema version（様式の版であって内容の同一性ではない
 _Avoid_: viewport stats, LOD stats, range summary
 
 **序数**（メトリクス点の）:
-1つのtag内での記録の出現順（0始まり）。同一tagのstepは非減少だが一意ではない（同一stepへ複数episodeの値が正当に載る）ため、点のidentityと順序は序数が持ち、stepは座標値として扱う。
+同一チャネル・同一tagの系列内での記録の出現順（0始まり）。scalarとtraceの同名tagは別系列であり、序数も別に数える。同一系列のstepは非減少だが一意ではない（同一stepへ複数episodeの値が正当に載る）ため、点のidentityと順序は序数が持ち、stepは座標値として扱う。
 _Avoid_: index（多義）, step（座標値であってidentityではない）
 
 **LODバケット**:
@@ -340,12 +340,16 @@ _Avoid_: debiased EMA（表記ゆれ）, ウォームアップEMA（累積平均
 _Avoid_: 移動平均（窓幅方式と混同）, サンプル重みEMA（重み付けの基準が逆）
 
 **step座標系**:
-メトリクス点のstep値がどの座標上の値かを決める、カウンタ所有Runnerとstep軸の組。`exp_step`のような軸名だけでは同一性が決まらず、train runnerの`exp_step`とeval runnerの`exp_step`は別座標系である（同じeval tagでも`@episode_end`はtrain側、`@train`はeval側のカウンタに載る）。2つのtagを同じ横軸で比較してよいのは座標系が一致するときだけで、到達step基準の相対範囲も座標系ごとに解決する。
+メトリクス点のstep値がどの座標上の値かを決める、カウンタ所有Runnerとstep軸の組。`exp_step`のような軸名だけでは同一性が決まらず、train runnerの`exp_step`とeval runnerの`exp_step`は別座標系である（同じeval tagでも`@episode_end` / `@session_end`はtrain側、`@train`はeval側のカウンタに載る）。2つのtagを同じ横軸で比較してよいのは座標系が一致するときだけで、到達step基準の相対範囲も座標系ごとに解決する。
 _Avoid_: step軸（軸名だけでは所有Runnerが決まらない）, タイムライン（実時間と混同）
 
 **metrics定義レコード**:
-Runnerが構築したmetrics observerの解決済み定義を、tag単位でMetricsマスタへ書き出した記録。「設定にこう書いた」ではなく「実際にこう構築された」を表し、step座標系、source key、event、target、EMA、intervalを含む。解析側はこれを正本とし、設定ファイルから軸や定義を再導出しない。
+Runnerが構築したmetrics observerの解決済み定義を、チャネルとtagで区別してMetricsマスタへ書き出した記録。「設定にこう書いた」ではなく「実際にこう構築された」を表し、step座標系、source key、event、target、EMA、intervalを含む。チャネル（scalar / trace）ごとに別レコードを持ち、trace側はsource keyの代わりに宣言順のkey列を含む。解析側はこれを正本とし、設定ファイルから軸や定義を再導出しない。
 _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レコードの様式ではなく内容を指す）
+
+**trace**（トレース）:
+統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの層別activationを可視化へ流す`TraceCallback`（activationタップ）とは別概念。
+_Avoid_: activationトレース（`TraceCallback`側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
 
 **query channel**:
 Metrics Viewerのmetrics queryの発行系列で、1つのブラウザタブに対応する。ページロード時に生成した識別子と、そのタブ内で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けばchannelは2つになる。

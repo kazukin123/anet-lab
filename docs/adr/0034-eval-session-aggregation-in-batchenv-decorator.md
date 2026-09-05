@@ -16,7 +16,7 @@ P2対象の`PER_LANE`では全groupが同じ固定policy / Env分布から独立
 
 RunManagerは現在のconfigured eval tagについて、`scope=EVAL`、`event=EPISODE_END`、`target=ENV`の`ScalarMetricSubscription`だけを抽出し、正確なsource key一覧をdecoratorへ渡す。N>1では`mean.` / `max.` / `min.` / `std.` prefixを起動時に必須とし、N=1の無prefix keyも完了時にidentity値としてcaptureする。購読対象外keyとindexed lookupはwrapper transparencyとしてinnerへ委譲できるが、セッション集約を保証するのは購読済みkeyだけである。
 
-EvalRunnerは`RunSession(event_counts)`で`Sync()`、`EvalSessionEnv::Reset()`、結果完成までの`DoStep()`、最終`EpisodeEndEvent` 1回を所有する。group、採用権、scalar captureの詳細は知らない。configured eval中のper-group eventは抑制し、最終eventは`env=EvalSessionEnv`、`env_index=-1`とする。EpisodeEvalObserverはschedule、foreground / background、`WaitBackgroundEval`、例外伝播だけを担当する。
+EvalRunnerは`RunSession(event_counts)`で`Sync()`、`EvalSessionEnv::Reset()`、結果完成までの`DoStep()`、最終`EpisodeEndEvent` 1回を所有する。group、採用権、scalar captureの詳細は知らない。configured eval中のper-group eventは抑制し、最終eventは`env=EvalSessionEnv`、`env_index=-1`とする。EpisodeEvalObserverはschedule、foreground / background、`WaitBackgroundEval`、例外伝播だけを担当する。（採用 episode とセッション完了のイベント分離、および対応する scalar 購読抽出の変更は [ADR 0037](0037-metrics-trace-channel-and-session-end-event.md) を参照。）
 
 ## Considered Options
 

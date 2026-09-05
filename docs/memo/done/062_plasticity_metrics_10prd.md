@@ -9,7 +9,7 @@
 > `../experiments/default-dqn/atari/2026-08-17_baseline.md`（探索ブロック 15 / 20 / 21 / 23 / 24、知見 26）、
 > `frozen/999_nn_embedding_tsne_10prd.md`（特徴取得の口 = 部分 forward を将来共用）、
 > `940_target_update_step_axis_10prd.md`（RR ラダーに乗る `soft_update_tau` の交絡。§測定上の注意）、
-> `069_metrics_record_channel_10prd.md`（独立。本 PRD は既存 scalar 経路だけで完結する。§7 の TraceCallback 常時 ON 問題は購読ヒントの将来流用先）、
+> `069_metrics_trace_channel_10prd.md`（独立。本 PRD は既存 scalar 経路だけで完結する。§7 の TraceCallback 常時 ON 問題は購読ヒントの将来流用先）、
 > 将来: Spectral Norm（BTR）/ shrink-and-perturb・ReDo（BBF/Sokar）導入 PRD。
 
 ## Context（背景・目的）
@@ -226,7 +226,7 @@ std::vector<std::string> GetBranchNames() const;   // 起動時検証・診断�
   - 購読ゼロ → 完全不活性（forward もサンプルも一切走らない）。
 - 「metrics 側が測りたいタイミングを事前に伝える」は standing な予約として実装する
   （interval は静的 config なので、毎回のシグナルと等価）。
-- 将来の流用候補: TraceCallback の常時 ON 問題（`069_metrics_record_channel_10prd.md` §7）等。
+- 将来の流用候補: TraceCallback の常時 ON 問題（`069_metrics_trace_channel_10prd.md` §7）等。
 
 ### 3. 測定タップ（2 チャネル・DQN 系）
 
@@ -622,7 +622,7 @@ RR ラダーの過渡の深さ（RR8 −62% / RR4 −31.5% / RR2 −11.8% / RR1 
 - **保護機構そのもの**（Spectral Norm / shrink-and-perturb / ReDo）。本 PRD は計測のみ。導入判断はこの計測の結果を見てから別 PRD。
 - **t-SNE / 埋め込み可視化**（frozen/999_nn_embedding_tsne）。`ForwardUpTo` という口を共用するだけで、可視化側の凍結状態は
   変えない（同 PRD の「予約 key 6 行」案が現構成で不成立になった事実の反映は、再開時に同 PRD 側で行う）。
-- **record チャネル**（069_metrics_record_channel）。本 PRD の出力は集約済みスカラーなので既存 scalar 経路で完結する
+- **record チャネル**（069_metrics_trace_channel）。本 PRD の出力は集約済みスカラーなので既存 scalar 経路で完結する
   （購読ヒントは同 PRD §7 の TraceCallback 常時 ON 問題への将来流用候補）。
 - **`soft_update_tau` の正規化**（940_target_update_step_axis）。本 PRD は交絡を注記するだけで、修正はしない。
 - **Rainbow の配線**（D8。実行 smoke 不能のため見送り。将来は購読ヒント + feature_key の配線数行）/ **MuZero 系**。
