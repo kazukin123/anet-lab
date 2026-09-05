@@ -227,6 +227,7 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 | API | キー | 確定タイミング | 値 |
 |---|---|---|---|
 | GetScalar | `game_score` | 実 game over / truncation | 生スコアのゲーム 1 回分の合計（未確定 step は NaN） |
+| GetScalar | `game_score.ge.[N]` | 同上 | `game_score >= N` なら 1、未満なら 0（未確定 step は NaN）。`N` は float として解釈し負値も許す |
 | GetScalar | `game_len` | 同上 | agent step 数 |
 | GetScalar | `game_frames` | 同上 | エミュレータフレーム数 |
 | GetScalar | `hns57` | 同上 | 人間正規化スコア %（57 ゲーム表。§4.8） |
@@ -237,6 +238,8 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 バッチ集約（`mean.` 等の prefix）と NaN 慣行は wrapper の共通規約に従う。`GetConfigData()` は実効 config を返す（Run の `config/env.*.txt` ダンプ対象）。
 
 **集約の分母に注意。** 上表で「確定タイミング＝実 game over / truncation」のキーは未確定 step で NaN を返し、バッチ集約は NaN を分母から除外する（`core/anet-core/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
+
+`game_score.ge.[N]` はこの分母を `game_score` と共有する 0/1 指標で、`mean.` を取ると「その step でゲームを終えた env のうち N 点以上だった割合」になる。窓平均すれば発火イベント単位ではなく**ゲーム 1 回単位の割合**が得られるため、閾値越えの頻度を見る用途では `mean.` の潰れと `max.` の飽和の両方を避けられる（`mean.` は二山分布の両端を潰し、`max.` は評価セッションの episode 数を増やすほど飽和する）。Breakout の 1 画面 = 432 のようにゲーム依存の閾値は §4.8 の HNS 表と違いキー側のパラメータで持つ。1 Run で複数の閾値を同時に測るためと、閾値がゲームの物理定数ではなく解析上の判定基準だからである。
 
 ### 4.8 人間正規化スコア（HNS）
 

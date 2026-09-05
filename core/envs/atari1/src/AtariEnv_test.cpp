@@ -593,6 +593,56 @@ TEST_CASE("AtariEnv reports an ALE-frame limit as truncation with completion met
     CHECK(std::isnan(*env->GetScalar("game_score")));
 }
 
+TEST_CASE("AtariEnv exposes game_score threshold indicators", "[atari][rom][terminal]")
+{
+    const auto rom = FindRom("pong");
+    if (!rom.has_value()) {
+        SKIP("pong.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+
+    anet::ConfigData config_data;
+    config_data.Set("AtariEnv.game", "pong");
+    config_data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    config_data.Set("AtariEnv.frame_skip", 1);
+    config_data.Set("AtariEnv.max_episode_frames", 2);
+    anet::rl::env::AtariEnvFactory factory;
+    // 閾値不正の fail-fast を確認するので、wx ログを捕捉してダイアログを出さない。
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto env = factory.CreateSingleEnv(
+        config_data, torch::Device(torch::kCPU), "atari-score-threshold", 123,
+        anet::rl::RunMode::Train);
+
+    env->Reset();
+
+    // 未確定 step は game_score と同じく NaN。0 を返すと集約の分母が完了 env 数でなくなる。
+    const auto pending = env->GetScalar("game_score.ge.[0]");
+    REQUIRE(pending.has_value());
+    CHECK(std::isnan(*pending));
+
+    env->Step(0);
+    env->Step(0);
+    const auto score = env->GetScalar("game_score");
+    REQUIRE(score.has_value());
+    REQUIRE(std::isfinite(*score));
+
+    CHECK(*env->GetScalar("game_score.ge.[-1000]") == 1.0f);  // 負の閾値も許す(Pong は -21..21)
+    CHECK(*env->GetScalar("game_score.ge.[1000]") == 0.0f);
+    CHECK(*env->GetScalar("game_score.ge.[0]") == (*score >= 0.0f ? 1.0f : 0.0f));
+    CHECK(*env->GetScalar("game_score.ge.[0.5]") == (*score >= 0.5f ? 1.0f : 0.0f));
+
+    // 前方一致しないキーは未知キーのまま返し、GetScalar の既定経路へ落とす。
+    CHECK_FALSE(env->GetScalar("game_score.ge").has_value());
+    CHECK_FALSE(env->GetScalar("game_score_ge432").has_value());
+
+    // 前方一致するのに閾値が読めないキーは黙って無視せず停止する。
+    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[]"),
+        Catch::Matchers::ContainsSubstring("threshold is empty"));
+    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[abc]"),
+        Catch::Matchers::ContainsSubstring("invalid threshold"));
+    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[1x]"),
+        Catch::Matchers::ContainsSubstring("invalid threshold"));
+}
+
 TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score", "[atari][rom][reward][terminal]")
 {
     const auto rom = FindRom("pong");

@@ -587,11 +587,45 @@ std::shared_ptr<const SingleStepResult> AtariEnv::Step(int64_t action)
     return std::make_shared<const AtariStepResult>(reward, std::move(state), MakeAuxData());
 }
 
+// `game_score.ge.[N]` の N を返す。閾値はゲーム定数ではなく判定基準（Breakout の 1 画面 = 432）
+// なので、hns の静的表（§4.8）ではなくキー側のパラメータとして持つ。1 Run で複数の閾値を同時に
+// 測るため、ゲーム名で引く表では表現できない。前方一致しないキーは nullopt で呼び出し側へ返す。
+static std::optional<float> ParseGameScoreThreshold(const std::string& key)
+{
+    static constexpr std::string_view kPrefix = "game_score.ge.[";
+    if (!key.starts_with(kPrefix) || !key.ends_with(']')) return std::nullopt;
+
+    const std::string threshold_text = key.substr(kPrefix.size(), key.size() - kPrefix.size() - 1);
+    if (threshold_text.empty()) {
+        ANET_SYSTEM_ERROR("AtariEnv: threshold is empty in scalar key: " << key);
+    }
+
+    float threshold = 0.0f;
+    size_t parsed_len = 0;
+    try {
+        threshold = std::stof(threshold_text, &parsed_len);
+    } catch (const std::exception&) {
+        ANET_SYSTEM_ERROR("AtariEnv: invalid threshold in scalar key: " << key);
+    }
+    // 末尾に余りがあるキー（`[1x]` 等）を黙って受理しない。
+    if (parsed_len != threshold_text.size()) {
+        ANET_SYSTEM_ERROR("AtariEnv: invalid threshold in scalar key: " << key);
+    }
+    return threshold;
+}
+
 std::optional<float> AtariEnv::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == "lives") return static_cast<float>(current_lives_);
     if (key == "game_score") {
         return completion_available_ ? completed_game_score_ : std::numeric_limits<float>::quiet_NaN();
+    }
+    // 閾値越えを 0/1 で返す。`mean.` 集約がそのまま「越えたゲームの割合」になる。確定タイミングと
+    // NaN 契約は game_score と揃える。未確定 step で 0 を返すと分母が完了 env 数ではなく num_envs
+    // になり割合が壊れるため、ここは必ず NaN（§4.7）。
+    if (const auto threshold = ParseGameScoreThreshold(key)) {
+        if (!completion_available_) return std::numeric_limits<float>::quiet_NaN();
+        return completed_game_score_ >= *threshold ? 1.0f : 0.0f;
     }
     if (key == "game_len") {
         return completion_available_ ? static_cast<float>(completed_game_len_) : std::numeric_limits<float>::quiet_NaN();
