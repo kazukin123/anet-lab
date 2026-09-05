@@ -877,7 +877,8 @@ namespace anet::rl {
     enum class EventType {
         TRAIN,
         LEARN,
-        EPISODE_END
+        EPISODE_END,
+        SESSION_END
     };
 
     enum class RunnerScope {
@@ -928,6 +929,13 @@ namespace anet::rl {
         int env_index;
     };
 
+    struct SessionEndEvent {
+        const std::shared_ptr<const Runner> runner;
+        const StepCounts counts;
+        const std::shared_ptr<const Agent> agent;
+        const std::shared_ptr<const BatchEnv> env;
+    };
+
     class TrainObserver {
     public:
         virtual void OnTrain(const TrainEvent& event) = 0;
@@ -947,6 +955,13 @@ namespace anet::rl {
         virtual void OnEpisodeEnd(const EpisodeEndEvent& event) = 0;
         virtual std::string ToString() const = 0;
         virtual ~EpisodeEndObserver() = default;
+    };
+
+    class SessionEndObserver {
+    public:
+        virtual void OnSessionEnd(const SessionEndEvent& event) = 0;
+        virtual std::string ToString() const = 0;
+        virtual ~SessionEndObserver() = default;
     };
 
     // -----------------------------------------------------------------
@@ -989,6 +1004,16 @@ namespace anet::rl {
         std::shared_ptr<const Runner> target_runner_;
     };
 
+    class RunnerScopedSessionEndObserver : public SessionEndObserver {
+    public:
+        RunnerScopedSessionEndObserver(std::shared_ptr<SessionEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
+        void OnSessionEnd(const SessionEndEvent& event) override;
+        std::string ToString() const override;
+    private:
+        std::shared_ptr<SessionEndObserver> real_observer_;
+        std::shared_ptr<const Runner> target_runner_;
+    };
+
     // =============================================================
     // Notifier
     // =============================================================
@@ -1011,6 +1036,11 @@ namespace anet::rl {
         void Detach(std::shared_ptr<EpisodeEndObserver> observer);
         void Detach(const EpisodeEndObserver* observer);
         void Notify(const EpisodeEndEvent& event);
+
+        std::shared_ptr<SessionEndObserver> Attach(std::shared_ptr<SessionEndObserver> observer);
+        void Detach(std::shared_ptr<SessionEndObserver> observer);
+        void Detach(const SessionEndObserver* observer);
+        void Notify(const SessionEndEvent& event);
 
         void Clear();
 
@@ -1039,6 +1069,10 @@ namespace anet::rl {
                 auto wrapper = std::make_shared<RunnerScopedEpisodeEndObserver>(obs, target_runner);
                 this->Attach(wrapper);
             }
+            if constexpr (std::is_base_of_v<SessionEndObserver, T>) {
+                auto wrapper = std::make_shared<RunnerScopedSessionEndObserver>(obs, target_runner);
+                this->Attach(wrapper);
+            }
             return obs;
         }
         std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> observer, std::shared_ptr<const Runner> target_runner)
@@ -1059,10 +1093,17 @@ namespace anet::rl {
             this->Attach(wrapper);
             return observer;
         }
+        std::shared_ptr<SessionEndObserver> AttachScoped(std::shared_ptr<SessionEndObserver> observer, std::shared_ptr<const Runner> target_runner)
+        {
+            auto wrapper = std::make_shared<RunnerScopedSessionEndObserver>(observer, target_runner);
+            this->Attach(wrapper);
+            return observer;
+        }
     private:
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
         std::vector<std::shared_ptr<EpisodeEndObserver>> episode_end_observers_;
+        std::vector<std::shared_ptr<SessionEndObserver>> session_end_observers_;
     };
 
     // =============================================================

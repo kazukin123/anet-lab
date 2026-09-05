@@ -1381,9 +1381,15 @@ train.eval.[eval2].env.episodic_life = false
 # ==============================================================================
 # 報酬・TD・loss・PER・throughput は metrics.scalar.@baseline が提供済み。ここは env 固有(42_env)と eval 別 env 集計(51/52)のみ。
 # game_score / game_len / game_frames は「ゲーム 1 回」の確定値で、実 game over / truncation でのみ非 NaN(§4.5)。lives だけは現在値で毎 round。
-# EMA alpha は発火頻度で分ける(@train=毎 round / @episode_end=eval 発火時のみ)。
+# EMA alpha は発火頻度で分ける(@train=毎 round / @session_end=eval 発火時のみ)。
 
 metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
+
+# metrics.trace.[tag] = $target @episode_end key1 [key2 ...] [$step] [$train | $eval.[name]]
+metrics.trace.$ = metrics.trace.@atari
+metrics.trace.@atari.[51_eval1/episode] = $eval.[eval1] @episode_end $env game_score game_len game_frames hns57
+metrics.trace.@atari.[52_eval2/episode] = $eval.[eval2] @episode_end $env game_score game_len game_frames hns57
+#metrics.trace.@atari.[42_env/episode] = $train @episode_end $env game_score game_len game_frames hns57
 
 M1.[42_env/10_game_score_mean]      = $env mean.game_score  @train $exp_step
 M1.[42_env/11_game_score_mean_ema]  = $env mean.game_score  @train $exp_step $ema ema_alpha:0.001
@@ -1401,37 +1407,37 @@ M1.[42_env/31_lives_mean_ema]       = $env mean.lives       @train $exp_step $em
 M1.[42_env/16_game_score_max]       = $env max.game_score   @train $exp_step   # mean の分母は完了 env 数なのでゲーム長が短いほどピークを潰す(§4.7)
 M1.[42_env/24_game_len_max]         = $env max.game_len     @train $exp_step
 
-M1.[51_eval1/10_game_score_mean]      = $eval.[eval1] @episode_end $env mean.game_score
-M1.[51_eval1/11_game_score_mean_ema]  = $eval.[eval1] @episode_end $env mean.game_score  $ema ema_alpha:0.1
-M1.[51_eval1/12_hns57_mean]           = $eval.[eval1] @episode_end $env mean.hns57
-M1.[51_eval1/13_hns57_mean_ema]       = $eval.[eval1] @episode_end $env mean.hns57       $ema ema_alpha:0.1
-M1.[51_eval1/14_hns49_mean]           = $eval.[eval1] @episode_end $env mean.hns49
-M1.[51_eval1/15_hns49_mean_ema]       = $eval.[eval1] @episode_end $env mean.hns49       $ema ema_alpha:0.1
-M1.[51_eval1/20_game_len_mean]        = $eval.[eval1] @episode_end $env mean.game_len
-M1.[51_eval1/21_game_len_mean_ema]    = $eval.[eval1] @episode_end $env mean.game_len    $ema ema_alpha:0.1
-M1.[51_eval1/22_game_frames_mean]     = $eval.[eval1] @episode_end $env mean.game_frames
-M1.[51_eval1/23_game_frames_mean_ema] = $eval.[eval1] @episode_end $env mean.game_frames $ema ema_alpha:0.1
-M1.[51_eval1/30_lives_mean]           = $eval.[eval1] @episode_end $env mean.lives
-M1.[51_eval1/31_lives_mean_ema]       = $eval.[eval1] @episode_end $env mean.lives       $ema ema_alpha:0.1
+M1.[51_eval1/10_game_score_mean]      = $eval.[eval1] @session_end $env mean.game_score
+M1.[51_eval1/11_game_score_mean_ema]  = $eval.[eval1] @session_end $env mean.game_score  $ema ema_alpha:0.1
+M1.[51_eval1/12_hns57_mean]           = $eval.[eval1] @session_end $env mean.hns57
+M1.[51_eval1/13_hns57_mean_ema]       = $eval.[eval1] @session_end $env mean.hns57       $ema ema_alpha:0.1
+M1.[51_eval1/14_hns49_mean]           = $eval.[eval1] @session_end $env mean.hns49
+M1.[51_eval1/15_hns49_mean_ema]       = $eval.[eval1] @session_end $env mean.hns49       $ema ema_alpha:0.1
+M1.[51_eval1/20_game_len_mean]        = $eval.[eval1] @session_end $env mean.game_len
+M1.[51_eval1/21_game_len_mean_ema]    = $eval.[eval1] @session_end $env mean.game_len    $ema ema_alpha:0.1
+M1.[51_eval1/22_game_frames_mean]     = $eval.[eval1] @session_end $env mean.game_frames
+M1.[51_eval1/23_game_frames_mean_ema] = $eval.[eval1] @session_end $env mean.game_frames $ema ema_alpha:0.1
+M1.[51_eval1/30_lives_mean]           = $eval.[eval1] @session_end $env mean.lives
+M1.[51_eval1/31_lives_mean_ema]       = $eval.[eval1] @session_end $env mean.lives       $ema ema_alpha:0.1
 
-M1.[51_eval1/16_game_score_max]       = $eval.[eval1] @episode_end $env max.game_score
-M1.[51_eval1/24_game_len_max]         = $eval.[eval1] @episode_end $env max.game_len
+M1.[51_eval1/16_game_score_max]       = $eval.[eval1] @session_end $env max.game_score
+M1.[51_eval1/24_game_len_max]         = $eval.[eval1] @session_end $env max.game_len
 
-M1.[52_eval2/10_game_score_mean]      = $eval.[eval2] @episode_end $env mean.game_score
-M1.[52_eval2/11_game_score_mean_ema]  = $eval.[eval2] @episode_end $env mean.game_score  $ema ema_alpha:0.1
-M1.[52_eval2/12_hns57_mean]           = $eval.[eval2] @episode_end $env mean.hns57
-M1.[52_eval2/13_hns57_mean_ema]       = $eval.[eval2] @episode_end $env mean.hns57       $ema ema_alpha:0.1
-M1.[52_eval2/14_hns49_mean]           = $eval.[eval2] @episode_end $env mean.hns49
-M1.[52_eval2/15_hns49_mean_ema]       = $eval.[eval2] @episode_end $env mean.hns49       $ema ema_alpha:0.1
-M1.[52_eval2/20_game_len_mean]        = $eval.[eval2] @episode_end $env mean.game_len
-M1.[52_eval2/21_game_len_mean_ema]    = $eval.[eval2] @episode_end $env mean.game_len    $ema ema_alpha:0.1
-M1.[52_eval2/22_game_frames_mean]     = $eval.[eval2] @episode_end $env mean.game_frames
-M1.[52_eval2/23_game_frames_mean_ema] = $eval.[eval2] @episode_end $env mean.game_frames $ema ema_alpha:0.1
-M1.[52_eval2/30_lives_mean]           = $eval.[eval2] @episode_end $env mean.lives
-M1.[52_eval2/31_lives_mean_ema]       = $eval.[eval2] @episode_end $env mean.lives       $ema ema_alpha:0.1
+M1.[52_eval2/10_game_score_mean]      = $eval.[eval2] @session_end $env mean.game_score
+M1.[52_eval2/11_game_score_mean_ema]  = $eval.[eval2] @session_end $env mean.game_score  $ema ema_alpha:0.1
+M1.[52_eval2/12_hns57_mean]           = $eval.[eval2] @session_end $env mean.hns57
+M1.[52_eval2/13_hns57_mean_ema]       = $eval.[eval2] @session_end $env mean.hns57       $ema ema_alpha:0.1
+M1.[52_eval2/14_hns49_mean]           = $eval.[eval2] @session_end $env mean.hns49
+M1.[52_eval2/15_hns49_mean_ema]       = $eval.[eval2] @session_end $env mean.hns49       $ema ema_alpha:0.1
+M1.[52_eval2/20_game_len_mean]        = $eval.[eval2] @session_end $env mean.game_len
+M1.[52_eval2/21_game_len_mean_ema]    = $eval.[eval2] @session_end $env mean.game_len    $ema ema_alpha:0.1
+M1.[52_eval2/22_game_frames_mean]     = $eval.[eval2] @session_end $env mean.game_frames
+M1.[52_eval2/23_game_frames_mean_ema] = $eval.[eval2] @session_end $env mean.game_frames $ema ema_alpha:0.1
+M1.[52_eval2/30_lives_mean]           = $eval.[eval2] @session_end $env mean.lives
+M1.[52_eval2/31_lives_mean_ema]       = $eval.[eval2] @session_end $env mean.lives       $ema ema_alpha:0.1
 
-M1.[52_eval2/16_game_score_max]       = $eval.[eval2] @episode_end $env max.game_score
-M1.[52_eval2/24_game_len_max]         = $eval.[eval2] @episode_end $env max.game_len
+M1.[52_eval2/16_game_score_max]       = $eval.[eval2] @session_end $env max.game_score
+M1.[52_eval2/24_game_len_max]         = $eval.[eval2] @session_end $env max.game_len
 
 # --- Breakout 固有(1 画面 = 18 ×(1+1+4+4+7+7) = 432、2 画面 = 864) ---
 
@@ -1440,15 +1446,15 @@ metrics.scalar.@breakout.[42_env/41_game_score_ge432_ema] = $env mean.game_score
 metrics.scalar.@breakout.[42_env/42_game_score_ge600]     = $env mean.game_score.ge.[600] @train $exp_step
 metrics.scalar.@breakout.[42_env/43_game_score_ge600_ema] = $env mean.game_score.ge.[600] @train $exp_step $ema ema_alpha:0.001
 
-metrics.scalar.@breakout.[51_eval1/40_game_score_ge432]     = $eval.[eval1] @episode_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[51_eval1/41_game_score_ge432_ema] = $eval.[eval1] @episode_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
-metrics.scalar.@breakout.[51_eval1/42_game_score_ge600]     = $eval.[eval1] @episode_end $env mean.game_score.ge.[600]
-metrics.scalar.@breakout.[51_eval1/43_game_score_ge600_ema] = $eval.[eval1] @episode_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
+metrics.scalar.@breakout.[51_eval1/40_game_score_ge432]     = $eval.[eval1] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout.[51_eval1/41_game_score_ge432_ema] = $eval.[eval1] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
+metrics.scalar.@breakout.[51_eval1/42_game_score_ge600]     = $eval.[eval1] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout.[51_eval1/43_game_score_ge600_ema] = $eval.[eval1] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
 
-metrics.scalar.@breakout.[52_eval2/40_game_score_ge432]     = $eval.[eval2] @episode_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[52_eval2/41_game_score_ge432_ema] = $eval.[eval2] @episode_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
-metrics.scalar.@breakout.[52_eval2/42_game_score_ge600]     = $eval.[eval2] @episode_end $env mean.game_score.ge.[600]
-metrics.scalar.@breakout.[52_eval2/43_game_score_ge600_ema] = $eval.[eval2] @episode_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
+metrics.scalar.@breakout.[52_eval2/40_game_score_ge432]     = $eval.[eval2] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout.[52_eval2/41_game_score_ge432_ema] = $eval.[eval2] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
+metrics.scalar.@breakout.[52_eval2/42_game_score_ge600]     = $eval.[eval2] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout.[52_eval2/43_game_score_ge600_ema] = $eval.[eval2] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
 
 # --- SN 実験用(63/64=実効ノルム、65/66=sigma。@baseline では既定 OFF) ---
 # 退化 sigma の実行時検出もこの経路が担うため、SN 腕では購読必須(PRD 065)。選択は run.@pl_snmetrics。

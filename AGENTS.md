@@ -517,7 +517,7 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 - Run名の探索範囲は `apps/runner/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
 - 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
 - **`config_data.txt` には実効値のほかにマージ元と未選択のprofileが同居する。** `AS.*`、`A.*`、`R.*`、`X.*`、`M.*`、`metrics.scalar.baseline.*`、`metrics.scalar.full.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
-- **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@episode_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
+- **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
 - 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
 
 - Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。Run artifactが失われている場合は、`docs/experiments/<agent>/<env>/config/<Run名>.txt`に複製がある（前節）。

@@ -116,7 +116,7 @@ LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結�
 
 `metrics.jsonl`のscalar recordは`type`、`tag`、`step`、`value`を持つが、`step`が`train_step`、`learn_step`、`episode_step`、`exp_step`などのどれかはrecord自体に保存しない。軸はRun内のmetrics設定で決まる。
 
-比較時は同じtag名だけでなく、`metrics.scalar.[tag]`の定義が同じstep軸を選んでいることを確認する。現行設定では、`@learn`と`@episode_end`は明示がなければ`exp_step`、`@train`は`train_step`が既定である。`$exp_step`などの明示指定があればそれを優先する。
+比較時は同じtag名だけでなく、`metrics.scalar.[tag]`の定義が同じstep軸を選んでいることを確認する。現行設定では、`@learn`、`@episode_end`、`@session_end`は明示がなければ`exp_step`、`@train`は`train_step`が既定である。`$exp_step`などの明示指定があればそれを優先する。
 
 ### 4.3 matched `exp_step`範囲で比較する
 
@@ -297,7 +297,7 @@ Metrics Viewerは人間向けの可視化画面である。shellから構造化�
 51_eval1/41_noop_uqe_win_rate           runner=eval1   max_step    151,185
 ```
 
-どちらも`config/config_data.txt`では`$eval.[eval1] ... $exp_step`と書かれているが、`@episode_end`はtrain runnerのstep、`@train $action_info`はeval runner自身のstepに載る。train側のstep範囲をeval側のtagへ当てると、エラーにならず結果が空になる。比率は学習が進むと変わるため換算もできない。
+どちらも`config/config_data.txt`では`$eval.[eval1] ... $exp_step`と書かれているが、`@session_end`はtrain runnerのstep、`@train $action_info`はeval runner自身のstepに載る。train側のstep範囲をeval側のtagへ当てると、エラーにならず結果が空になる。比率は学習が進むと変わるため換算もできない。
 
 `inspect_run.py`は相対的なrange（百分率、末尾相対、`common`）をこの座標系ごとに独立して解決するので、両方のtagを同じ呼び出しで指定してもそれぞれ正しい範囲になる。
 

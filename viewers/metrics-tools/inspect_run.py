@@ -43,12 +43,13 @@ RESOLUTION_SCHEMA_VERSION = 1
 SERIES_MAX_POINTS = 128
 SERIES_BUCKETS = 42
 
-METRICS_DEFS_TAG = "metrics.defs"
+METRICS_DEFS_TAG = "metrics.scalar.defs"
+LEGACY_METRICS_DEFS_TAG = "metrics.defs"
 METRIC_KEY_PREFIX = "metrics.scalar.["
 STEP_AXIS_NAMES = frozenset(
     ["train_step", "learn_step", "episode_step", "exp_step", "update_step", "sim_step"]
 )
-EVENT_NAMES = frozenset(["train", "learn", "episode_end"])
+EVENT_NAMES = frozenset(["train", "learn", "episode_end", "session_end"])
 TARGET_TOKENS = {
     "agent": "agent",
     "env": "env",
@@ -432,7 +433,7 @@ def metric_defs_from_config(config_entries) -> dict[str, MetricDef]:
 
 
 def metric_defs_from_record(data) -> dict[str, MetricDef]:
-    """metrics.defs レコードの data を MetricDef へ変換する。"""
+    """metrics.scalar.defs レコードの data を MetricDef へ変換する。"""
     defs: dict[str, MetricDef] = {}
     if not isinstance(data, dict):
         return defs
@@ -699,7 +700,7 @@ class CacheInventory:
 
 
 def read_cache_inventory(cache_path: Path, want_observed: bool) -> CacheInventory:
-    """1 read transaction で tags / tag_stats / metrics.defs を読む。"""
+    """1 read transaction で tags / tag_stats / metrics.scalar.defs を読む。"""
     try:
         connection = open_cache_readonly(cache_path)
     except sqlite3.Error as exc:
@@ -726,6 +727,11 @@ def read_cache_inventory(cache_path: Path, want_observed: bool) -> CacheInventor
             "SELECT json FROM json_lines WHERE tag = ? ORDER BY ordinal DESC LIMIT 1",
             (METRICS_DEFS_TAG,),
         ).fetchone()
+        if row is None:
+            row = connection.execute(
+                "SELECT json FROM json_lines WHERE tag = ? ORDER BY ordinal DESC LIMIT 1",
+                (LEGACY_METRICS_DEFS_TAG,),
+            ).fetchone()
         if row is not None:
             try:
                 inventory.defs = metric_defs_from_record(json.loads(row[0]).get("data"))
@@ -871,6 +877,7 @@ def _scalar_fields(record: dict):
 def scan_master(master_path: Path, tags: list[str] | None, byte_limit: int | None) -> MasterScan:
     """必要な全 tag を 1 pass で読む。tags が None なら inventory だけを集める。"""
     scan = MasterScan()
+    has_scalar_defs = False
     wanted = set(tags) if tags is not None else set()
     if tags is not None:
         scan.series = {tag: TagSeries() for tag in tags}
@@ -888,6 +895,9 @@ def scan_master(master_path: Path, tags: list[str] | None, byte_limit: int | Non
                 record = _parse_record(line)
                 if record["type"] != "scalar":
                     if record.get("tag") == METRICS_DEFS_TAG:
+                        scan.defs = metric_defs_from_record(record.get("data"))
+                        has_scalar_defs = True
+                    elif record.get("tag") == LEGACY_METRICS_DEFS_TAG and not has_scalar_defs:
                         scan.defs = metric_defs_from_record(record.get("data"))
                     continue
 
@@ -1269,11 +1279,11 @@ def open_run(resolved: ResolvedRun, want_config: bool) -> RunContext:
 
 
 def apply_config_fallback(context: RunContext) -> None:
-    """metrics.defs が無い Run は解決済み config から導出する（互換経路）。"""
+    """scalar 定義レコードが無い Run は解決済み config から導出する（互換経路）。"""
     context.defs = metric_defs_from_config(context.config_entries)
     context.def_source = "config_derived"
     context.warnings.append(
-        "metrics.defs record is absent; metric definitions were derived from "
+        "scalar metric definitions record is absent; metric definitions were derived from "
         "config/config_data.txt (def_source=config_derived)"
     )
 
@@ -1387,7 +1397,7 @@ def load_metric_series(context: RunContext, tags: list[str], warnings: list) -> 
         context.defs = scan.defs
         context.def_source = "metrics_defs"
         context.warnings = [
-            item for item in context.warnings if "metrics.defs record is absent" not in item
+            item for item in context.warnings if "scalar metric definitions record is absent" not in item
         ]
     if scan.trailing_bytes:
         context.artifacts["master"]["provisional"] = True

@@ -37,6 +37,32 @@ class MetricsIngestorIntegrationTest {
 	private Path tempDir;
 
 	@Test
+	void traceAndScalarWithSameTagRemainSeparateAndReady() throws Exception {
+		final Path runDir = tempDir.resolve("run-trace-same-tag");
+		Files.createDirectories(runDir);
+		Files.writeString(runDir.resolve("metrics.jsonl"), """
+				{"type":"json","tag":"metrics.scalar.defs","data":{"score":{"event":"session_end"}}}
+				{"type":"json","tag":"metrics.trace.defs","data":{"score":{"keys":["game_score","game_len"]}}}
+				{"type":"trace","tag":"score","step":5,"lane":0,"data":{"game_score":1,"game_len":3}}
+				{"type":"scalar","tag":"score","step":5,"value":2}
+				{"type":"trace","tag":"score","step":5,"lane":1,"data":{"game_score":3,"game_len":null}}
+				""", StandardCharsets.UTF_8);
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		final MetricsIngestor.IngestOutcome outcome = ingestor.ingestBlock(
+				"run-trace-same-tag", runDir, MetricsSource.select(runDir).orElseThrow());
+		assertEquals(IngestState.READY, outcome.state());
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			final Connection connection = handle.connection();
+			assertEquals(1L, queryLong(connection, "SELECT COUNT(*) FROM scalars"));
+			assertEquals(1L, queryLong(connection, "SELECT COUNT(*) FROM tags"));
+			assertEquals(4L, queryLong(connection, "SELECT COUNT(*) FROM json_lines"));
+			assertEquals(2L, queryLong(connection, "SELECT COUNT(*) FROM json_lines WHERE type='trace'"));
+			assertEquals("ok", queryString(connection, "SELECT status FROM tags WHERE key='score'"));
+		}
+	}
+
+	@Test
 	void unchangedReadyRunSkipsFingerprintAndDatabaseWork() throws Exception {
 		final String runId = "run-ready-fast-path";
 		final Path runDir = tempDir.resolve(runId);

@@ -277,10 +277,10 @@ train.eval_schedule.[test2].interval = 0
 train.eval.[test2].run_mode = eval1
 train.eval.[test2].env.$ = LunarLanderEnv.@test2
 
-#metrics.scalar.[22_eval/01_test1_reward]     = mean.episode_return $runner @episode_end $eval.[test1] clip:3000
-#metrics.scalar.[22_eval/02_test2_reward]     = mean.episode_return $runner @episode_end $eval.[test2] clip:3000
-#metrics.scalar.[22_eval/03_test1_reward_ema] = mean.episode_return $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
-#metrics.scalar.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/01_test1_reward]     = mean.episode_return $runner @session_end $eval.[test1] clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = mean.episode_return $runner @session_end $eval.[test2] clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = mean.episode_return $runner @session_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @session_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
 #A1.learner.gamma = 0.99

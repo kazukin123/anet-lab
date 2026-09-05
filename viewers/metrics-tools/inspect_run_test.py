@@ -87,10 +87,10 @@ class InspectRunTestBase(unittest.TestCase):
             for tag, step, value in points
         )
 
-    def defs_line(self, defs: dict) -> str:
+    def defs_line(self, defs: dict, tag: str = "metrics.scalar.defs") -> str:
         record = {
             "type": "json",
-            "tag": "metrics.defs",
+            "tag": tag,
             "timestamp": "2026-08-15T00:00:00",
             "data": defs,
         }
@@ -246,7 +246,7 @@ class CacheFixtureMixin(InspectRunTestBase):
             if defs is not None and "json_lines" not in overrides.get("drop_tables", ()):
                 connection.execute(
                     "INSERT INTO json_lines(ordinal, type, tag, json) VALUES(?,?,?,?)",
-                    (1, "json", "metrics.defs", self.defs_line(defs).strip()),
+                    (1, "json", "metrics.scalar.defs", self.defs_line(defs).strip()),
                 )
             if "source_meta" not in overrides.get("drop_tables", ()):
                 connection.executemany(
@@ -416,7 +416,7 @@ class ArtifactInspectionTest(CacheFixtureMixin):
 
 EVAL_DEFS = {
     "51_eval1/13_double_suika_created_mean": {
-        "step_axis": "exp_step", "runner": "train", "event": "episode_end",
+        "step_axis": "exp_step", "runner": "train", "event": "session_end",
         "target": "env", "source_key": "mean.ep_double_suika_created",
         "ema_alpha": None, "interval": None,
     },
@@ -429,7 +429,7 @@ EVAL_DEFS = {
 
 EVAL_CONFIG = {
     "metrics.scalar.[51_eval1/13_double_suika_created_mean]":
-        "$eval.[eval1] @episode_end $env $exp_step mean.ep_double_suika_created",
+        "$eval.[eval1] @session_end $env $exp_step mean.ep_double_suika_created",
     "metrics.scalar.[51_eval1/41_noop_uqe_win_rate]":
         "$eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info",
 }
@@ -1414,6 +1414,83 @@ class ComparisonAndOutputTest(CacheFixtureMixin):
             self.assertEqual(code, 0)
             self.assertEqual(opener.call_count, 2)
             self.assertEqual(len(result["runs"][0]["metrics"][0]["ranges"]), 2)
+
+
+class TraceChannelDefinitionsTest(CacheFixtureMixin):
+    def test_master_old_and_new_defs_ignore_same_tag_trace(self):
+        for name in ("metrics.defs", "metrics.scalar.defs"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp)
+                run = self.make_run(repo, "ws1", "run_trace")
+                master = run / "metrics.jsonl"
+                records = self.defs_line({"score": self.metric_def()}, tag=name)
+                records += json.dumps({"type": "trace", "tag": "score", "step": 5,
+                                       "lane": 0, "data": {"score": 9}}) + "\n"
+                records += json.dumps({"type": "scalar", "tag": "score", "step": 5,
+                                       "value": 2}) + "\n"
+                master.write_text(records, encoding="utf-8")
+                code, result, err = self.run_cli_json(repo, ["tags", str(run)])
+                self.assertEqual(code, 0)
+                self.assertEqual(err, "")
+                self.assertEqual(result["runs"][0]["def_source"], "metrics_defs")
+                self.assertEqual(len(result["runs"][0]["tags"]), 1)
+                code, result, err = self.run_cli_json(repo, ["metrics", str(run), "--metric", "score"])
+                self.assertEqual(code, 0)
+                self.assertEqual(err, "")
+
+    def test_cache_reads_old_and_new_definitions_with_new_name_priority(self):
+        for names in (("metrics.defs",), ("metrics.scalar.defs",),
+                      ("metrics.scalar.defs", "metrics.defs"), ("metrics.defs", "metrics.scalar.defs")):
+            with self.subTest(names=names), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp)
+                run, master, cache = self.make_cached_run(repo)
+                with sqlite3.connect(cache) as conn:
+                    conn.execute("DELETE FROM json_lines")
+                    for ordinal, name in enumerate(names):
+                        record = {"type": "json", "tag": name, "data": {
+                            "t/a": self.metric_def(source_key=name)}}
+                        conn.execute("INSERT INTO json_lines(ordinal,type,tag,json) VALUES(?,?,?,?)",
+                                     (ordinal, "json", name, json.dumps(record)))
+                conn.close()
+                code, result, err = self.run_cli_json(repo, ["tags", str(run)])
+                self.assertEqual(code, 0)
+                self.assertEqual(err, "")
+                self.assertEqual(result["runs"][0]["def_source"], "metrics_defs")
+                expected = "metrics.scalar.defs" if "metrics.scalar.defs" in names else "metrics.defs"
+                self.assertEqual(result["runs"][0]["tags"][0]["source_key"], expected)
+
+    def test_uncached_session_end_definition_uses_train_counts_and_exp_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_run(repo, "ws1", "run_session")
+            self.write_config(run, {
+                "metrics.scalar.[score]": "$eval.[eval1] @session_end $env mean.score",
+                "metrics.scalar.[explicit]": "$eval.[eval1] event:session_end $env $learn_step mean.score",
+            })
+            self.write_raw_master(run, [("score", 17, 2.0), ("explicit", 3, 2.0)])
+            code, result, err = self.run_cli_json(repo, ["tags", str(run), "--no-observed"])
+            self.assertEqual(code, 0)
+            by_tag = {r["tag"]: r for r in result["runs"][0]["tags"]}
+            self.assertEqual(by_tag["score"]["event"], "session_end")
+            self.assertEqual(by_tag["score"]["step_axis"], "exp_step")
+            self.assertEqual(by_tag["score"]["runner"], "train")
+            self.assertEqual(by_tag["explicit"]["step_axis"], "learn_step")
+            code, result, err = self.run_cli_json(repo, ["metrics", str(run), "--metric", "s*"])
+            self.assertEqual(code, 0)
+            self.assertEqual(result["runs"][0]["metrics"][0]["step_axis"], "exp_step")
+
+    def test_master_prefers_scalar_defs_regardless_of_record_order(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "metrics.jsonl"
+            old = self.defs_line({"score": self.metric_def(source_key="old")}, tag="metrics.defs")
+            new = self.defs_line({"score": self.metric_def(source_key="new", event="session_end")}).replace(
+                '"metrics.defs"', '"metrics.scalar.defs"')
+            for records in (old + new, new + old):
+                with self.subTest(records=records):
+                    path.write_text(records, encoding="utf-8")
+                    scan = subject.scan_master(path, None, None)
+                    self.assertEqual(scan.defs["score"].source_key, "new")
+                    self.assertEqual(scan.defs["score"].event, "session_end")
 
 
 if __name__ == "__main__":

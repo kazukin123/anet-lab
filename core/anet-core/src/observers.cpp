@@ -3,6 +3,7 @@
 #include "anet/observers.hpp"
 #include <chrono>
 #include <limits>
+#include <unordered_set>
 #include <wx/log.h>
 #include "anet/profile.hpp"
 #include "anet/str_util.hpp"
@@ -751,6 +752,51 @@ MetricsLogEpisodeEndObserver::MetricsLogEpisodeEndObserver(const std::string& ta
     ;
 }
 
+MetricsLogSessionEndObserver::MetricsLogSessionEndObserver(const std::string& tag, const std::string& key,
+    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+    int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha, clip)
+{
+    ;
+}
+
+MetricsLogTraceObserver::MetricsLogTraceObserver(const std::string& tag,
+    std::vector<std::string> keys, StepAxis step_axis, EventField field)
+    : TaggedObserver(tag), keys_(std::move(keys)), step_axis_(step_axis), field_(field)
+{
+}
+
+void MetricsLogTraceObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
+{
+    ANET_PROFILE_FUNC();
+    
+    // 対象を一度だけ解決し、次の Step が確定値を消す前に宣言順で読む。
+    const anet::Module* target = nullptr;
+    const char* target_name = "unknown";
+    switch (field_) {
+    case EventField::ENV:
+        target_name = "env";
+        target = event.env != nullptr ? event.env.get()
+            : (event.runner != nullptr ? event.runner->GetBatchEnv().get() : nullptr);
+        break;
+    case EventField::AGENT: target_name = "agent"; target = event.agent.get(); break;
+    case EventField::RUNNER: target_name = "runner"; target = event.runner.get(); break;
+    default: break;
+    }
+    anet::json data = anet::json::object();
+    for (const auto& key : keys_) {
+        const auto value = target != nullptr ? target->GetScalar(key, event.env_index) : std::nullopt;
+        if (!value.has_value()) {
+            ANET_SYSTEM_ERROR("Trace metric key is unavailable. tag='" << tag_
+                << "' key='" << key << "' lane=" << event.env_index << " target=" << target_name
+                << " expected=recognized scalar key.");
+        }
+        data[key] = *value;
+    }
+    // 一つの episode を原子的な JSONL 行にし、非有限値の null 化は既存 JSON writer に任せる。
+    anet::MetricsLogger::Instance()->LogTrace(tag_, event.counts.GetByAxis(step_axis_), event.env_index, data);
+}
+
 /// BATCH_UPDATE_RESULT以外用のメトリクス情報取得処理
 MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
     const StepCounts& counts,
@@ -1139,6 +1185,7 @@ namespace metrics_def_names {
         case EventType::TRAIN:       return "train";
         case EventType::LEARN:       return "learn";
         case EventType::EPISODE_END: return "episode_end";
+        case EventType::SESSION_END: return "session_end";
         default:                     return "unknown";
         }
     }
@@ -1159,8 +1206,8 @@ namespace metrics_def_names {
 
     /// step counter を所有する Runner を返す。
     /// EvalRunner::DoStep() は @train 系 event へ自分の step_counts_ を載せ、
-    /// @episode_end へは呼び出し元 (train runner) から渡された event_counts を載せる
-    /// (trainer.cpp の EvalRunner::DoStep / AccumulateAndNotifyEpisodeEnd を参照)。
+    /// @episode_end / @session_end へは呼び出し元 (train runner) の event_counts を載せる
+    /// (trainer.cpp の EvalRunner::RunSession を参照)。
     /// このため同じ $eval.[name] $exp_step でも event によって座標系が変わる。
     static std::string OwningRunner(
         anet::rl::RunnerScope scope, anet::rl::EventType event, const std::string& eval_name)
@@ -1188,6 +1235,90 @@ anet::json anet::rl::ScalarMetricDefsToJson(
     return payload;
 }
 
+anet::json anet::rl::TraceMetricDefsToJson(const std::vector<ObserverFactory::TraceMetricDef>& defs)
+{
+    anet::json payload = anet::json::object();
+    // チャネル内の tag ごとに、実際に解決した座標系と順序付きキー列を残す。
+    for (const auto& def : defs) {
+        payload[def.tag] = {{"step_axis", def.step_axis}, {"runner", def.runner},
+            {"event", def.event}, {"target", def.target}, {"keys", def.keys}};
+    }
+    return payload;
+}
+
+namespace metric_tokens {
+    enum class Kind { KEY, EVENT, STEP, TARGET, SCOPE, EMA, ATTRIBUTE };
+    struct Token {
+        Kind kind = Kind::KEY;
+        std::string raw;
+        std::string value;
+        std::string attribute;
+        std::optional<EventType> event;
+        std::optional<StepAxis> step;
+        std::optional<EventField> field;
+    };
+
+    // 宣言順と各指定の出現を残し、既定値・後勝ち・診断はチャネル側へ委ねる。
+    static std::vector<Token> ParseMetricTokens(const std::string& definition)
+    {
+        std::vector<Token> tokens;
+        for (const auto& raw : anet::Split(definition, { " " }, true)) {
+            Token token{ .raw = raw, .value = raw };
+            if (raw == "@train" || raw == "@learn" || raw == "@episode_end" || raw == "@session_end") {
+                token.kind = Kind::EVENT;
+                token.value = raw.substr(1);
+            } else if (raw == "$train_step" || raw == "$learn_step" || raw == "$episode_step"
+                || raw == "$exp_step" || raw == "$update_step" || raw == "$sim_step") {
+                token.kind = Kind::STEP;
+                token.value = raw.substr(1);
+            } else if (raw == "$agent" || raw == "$env" || raw == "$runner"
+                || raw == "$batch_experience" || raw == "$exp" || raw == "$batch_update_result"
+                || raw == "$update_result" || raw == "$result" || raw == "$action" || raw == "$action_info") {
+                token.kind = Kind::TARGET;
+                token.value = raw.substr(1);
+            } else if (raw == "$train" || anet::StartsWith(raw, "$eval.[")) {
+                token.kind = Kind::SCOPE;
+                token.value = raw == "$train" ? "train" : anet::ExtractBetween(raw, "$eval.[", "]");
+            } else if (raw == "$ema") {
+                token.kind = Kind::EMA;
+            } else {
+                const auto attr = anet::Split(raw, { ":" }, true);
+                if (attr.size() == 2) {
+                    token.kind = Kind::ATTRIBUTE;
+                    token.attribute = attr[0];
+                    token.value = attr[1];
+                    if (attr[0] == "event") token.kind = Kind::EVENT;
+                    else if (attr[0] == "step" || attr[0] == "step_axis") token.kind = Kind::STEP;
+                    else if (attr[0] == "target") token.kind = Kind::TARGET;
+                }
+            }
+            if (token.kind == Kind::EVENT) {
+                if (token.value == "train") token.event = EventType::TRAIN;
+                else if (token.value == "learn") token.event = EventType::LEARN;
+                else if (token.value == "episode_end") token.event = EventType::EPISODE_END;
+                else if (token.value == "session_end") token.event = EventType::SESSION_END;
+            } else if (token.kind == Kind::STEP) {
+                // 属性形は従来の短縮名を受理し、$ 形だけ train_step / learn_step を受理する。
+                if (token.value == "train" || (token.attribute.empty() && token.value == "train_step")) token.step = StepAxis::TRAIN;
+                else if (token.value == "learn" || (token.attribute.empty() && token.value == "learn_step")) token.step = StepAxis::LEARN;
+                else if (token.value == "episode" || token.value == "episode_step") token.step = StepAxis::EPISODE;
+                else if (token.value == "exp" || token.value == "exp_step") token.step = StepAxis::EXP;
+                else if (token.value == "update" || token.value == "update_step") token.step = StepAxis::UPDATE;
+                else if (token.value == "sim" || token.value == "sim_step") token.step = StepAxis::SIM;
+            } else if (token.kind == Kind::TARGET) {
+                if (token.value == "agent") token.field = EventField::AGENT;
+                else if (token.value == "env") token.field = EventField::ENV;
+                else if (token.value == "runner") token.field = EventField::RUNNER;
+                else if (token.value == "exp" || token.value == "batch_experience") token.field = EventField::EXPERIENCE;
+                else if (token.value == "update_result" || token.value == "batch_update_result" || token.value == "result") token.field = EventField::UPDATE_RESULT;
+                else if (token.value == "action_info" || token.value == "action") token.field = EventField::ACTION_INFO;
+            }
+            tokens.push_back(std::move(token));
+        }
+        return tokens;
+    }
+}
+
 ObserverFactory::ObserverFactory(const ConfigData& config_data)
 {
     ConfigData::MapType config_map = config_data.Map();
@@ -1204,7 +1335,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 		if (!scalar_metrics_tag.empty())
         {
             ANET_LOG_DEBUG("ObserverFactory: scalar: key=" << scalar_metrics_tag  << " value=" << config_value);
-            auto values = anet::Split(config_value, { " " }, true);
+            const auto tokens = metric_tokens::ParseMetricTokens(config_value);
 
             // メトリクス定義情報を取得
             std::optional<std::string> key_opt;
@@ -1218,116 +1349,47 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 			float ema_alpha = 0.01;
             std::optional<float> clip;
 
-            for (auto v : values) {
-                if (v == "@train") {
-                    event_opt = EventType::TRAIN;
-                } else if (v == "@learn") {
-                    event_opt = EventType::LEARN;   /// @todo TRAINとLEARN以外の EventType も対応
-                } else if (v == "@episode_end") {
-                    event_opt = EventType::EPISODE_END;
-                } else if (v == "$train_step") {
-                    step_axis_opt = StepAxis::TRAIN;
-                } else if (v == "$learn_step") {
-                    step_axis_opt = StepAxis::LEARN;
-                } else if (v == "$episode_step") {
-                    step_axis_opt = StepAxis::EPISODE;
-                } else if (v == "$exp_step") {
-                    step_axis_opt = StepAxis::EXP;
-                } else if (v == "$update_step") {
-                    step_axis_opt = StepAxis::UPDATE;
-                } else if (v == "$sim_step") {
-                    step_axis_opt = StepAxis::SIM;
-                } else if (v == "$agent") {
-                    field_opt = EventField::AGENT;
-                } else if (v == "$env") {
-                    field_opt = EventField::ENV;
-                } else if (v == "$batch_experience" || v == "$exp") {
-                    field_opt = EventField::EXPERIENCE;
-                } else if (v == "$batch_update_result" || v == "$update_result" || v == "$result") {
-                    field_opt = EventField::UPDATE_RESULT;
-                } else if (v == "$runner") {
-                    field_opt = EventField::RUNNER;
-                } else if (v == "$action" || v == "$action_info") {
-                    field_opt = EventField::ACTION_INFO;
-                } else if (v == "$train") {
-                    runner_scope_opt = RunnerScope::TRAIN;
-                } else if (anet::StartsWith(v, "$eval.[")) {
-                    auto parsed_eval_name = anet::ExtractBetween(v, "$eval.[", "]");
-                    if (parsed_eval_name.empty()) {
-                        ANET_SYSTEM_ERROR("ObserverFactory: invalid eval runner scope. config_key=" << config_key
-                            << " config_value=" << config_value << " token=" << v);
-                    }
-                    runner_scope_opt = RunnerScope::EVAL;
-                    eval_name = parsed_eval_name;
-                } else if (v == "$ema") {
-                    is_ema = true;
-                } else {
-					auto attr_kv = anet::Split(v, { ":" }, true);
-                    if (attr_kv.size() == 2) {
-                        auto attr_key = attr_kv[0];
-                        auto attr_val = attr_kv[1];
-                        if (attr_key == "key") {
-                            key_opt = attr_val;
-                        } else if (attr_key == "event") {
-                            if (attr_val == "train")
-                                event_opt = EventType::TRAIN;
-                            else if (attr_val == "learn")
-                                event_opt = EventType::LEARN;
-                            else if (attr_val == "episode_end")
-                                event_opt = EventType::EPISODE_END;
-                            else {
-                                LOG::warn() << "Unknown event value. config_key=" << config_key
-                                    << " config_value=" << config_value << " attr_val=" << attr_val;
-                            }
-                        } else if (attr_key == "step" || attr_key == "step_axis") {
-                            if (attr_val == "train")
-                                step_axis_opt = StepAxis::TRAIN;
-                            else if (attr_val == "learn")
-                                step_axis_opt = StepAxis::LEARN;
-                            else if (attr_val == "episode_step" || attr_val == "episode")
-                                step_axis_opt = StepAxis::EPISODE;
-                            else if (attr_val == "exp_step" || attr_val == "exp")
-                                step_axis_opt = StepAxis::EXP;
-                            else if (attr_val == "update_step" || attr_val == "update")
-                                step_axis_opt = StepAxis::UPDATE;
-                            else if (attr_val == "sim_step" || attr_val == "sim")
-                                step_axis_opt = StepAxis::SIM;
-                            else {
-                                LOG::warn() << "Unknown step value. config_key=" << config_key
-                                    << " config_value=" << config_value << " attr_val=" << attr_val;
-                            }
-                        } else if (attr_key == "target") {
-                            if (attr_val == "agent")
-                                field_opt = EventField::AGENT;
-                            else if (attr_val == "env")
-                                field_opt = EventField::ENV;
-                            else if (attr_val == "batch_experience" || attr_val == "exp")
-                                field_opt = EventField::EXPERIENCE;
-                            else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result")
-                                field_opt = EventField::UPDATE_RESULT;
-                            else if (attr_val == "runner")
-                                field_opt = EventField::RUNNER;
-                            else if (attr_val == "action" || attr_val == "action_info")
-                                field_opt = EventField::ACTION_INFO;
-                            else {
-                                LOG::warn() << "Unknown target value. config_key=" << config_key
-                                    << " config_value=" << config_value << " attr_val = " << attr_val;
-                            }
-                        } else if (attr_key == "interval") {
-							interval = std::stoi(attr_val);
-                        } else if (attr_key == "ema_alpha") {
-                            is_ema = true;
-                            ema_alpha = std::stof(attr_val);
-                        } else if (attr_key == "clip") {
-                            clip = std::stof(attr_val);
-                        } else {
-                            LOG::warn() << "Unknown attribute key. config_key=" << config_key
-                                << " config_value=" << config_value << " attr_key=" << attr_key;
+            // scalar は既存の後勝ち・既定値・WARN 診断を保つ。
+            for (const auto& token : tokens) {
+                using metric_tokens::Kind;
+                switch (token.kind) {
+                case Kind::EVENT:
+                    if (token.event) event_opt = token.event;
+                    else LOG::warn() << "Unknown event value. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_val=" << token.value;
+                    break;
+                case Kind::STEP:
+                    if (token.step) step_axis_opt = token.step;
+                    else LOG::warn() << "Unknown step value. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_val=" << token.value;
+                    break;
+                case Kind::TARGET:
+                    if (token.field) field_opt = token.field;
+                    else LOG::warn() << "Unknown target value. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_val = " << token.value;
+                    break;
+                case Kind::SCOPE:
+                    if (token.raw == "$train") runner_scope_opt = RunnerScope::TRAIN;
+                    else {
+                        if (token.value.empty()) {
+                            ANET_SYSTEM_ERROR("ObserverFactory: invalid eval runner scope. config_key=" << config_key
+                                << " config_value=" << config_value << " token=" << token.raw);
                         }
-                    } else {
-                        key_opt = v;
+                        runner_scope_opt = RunnerScope::EVAL;
+                        eval_name = token.value;
                     }
-				}
+                    break;
+                case Kind::EMA: is_ema = true; break;
+                case Kind::ATTRIBUTE:
+                    if (token.attribute == "key") key_opt = token.value;
+                    else if (token.attribute == "interval") interval = std::stoi(token.value);
+                    else if (token.attribute == "ema_alpha") { is_ema = true; ema_alpha = std::stof(token.value); }
+                    else if (token.attribute == "clip") clip = std::stof(token.value);
+                    else LOG::warn() << "Unknown attribute key. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_key=" << token.attribute;
+                    break;
+                case Kind::KEY: key_opt = token.raw; break;
+                }
             }
 //            # metrics.scalar.[tag] = key [@event] [$target] [$step] [$ema] [interval:N] [ema_alpha:A]
 //              #   @event   : (default: @train) @learn || @train
@@ -1344,19 +1406,28 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             auto event = event_opt.value_or(EventType::TRAIN);
             auto runner_scope = runner_scope_opt.value_or(RunnerScope::TRAIN);
 
+            // eval の個体完了とセッション集約を混同する束縛を拒否する。
+            if (runner_scope == RunnerScope::EVAL && event == EventType::EPISODE_END) {
+                ANET_SYSTEM_ERROR("eval scalar metrics fire once per evaluation session; replace @episode_end with @session_end. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+            if (runner_scope == RunnerScope::TRAIN && event == EventType::SESSION_END) {
+                ANET_SYSTEM_ERROR("ObserverFactory: @session_end requires $eval.[name] scope. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
             // 不整合チェック
             const bool is_eval_action_info_train =runner_scope == RunnerScope::EVAL && event == EventType::TRAIN && field_opt == EventField::ACTION_INFO;
-            if (runner_scope == RunnerScope::EVAL && event != EventType::EPISODE_END && !is_eval_action_info_train) {
-                ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @episode_end or @train $action_info. "
+            if (runner_scope == RunnerScope::EVAL && event != EventType::SESSION_END && !is_eval_action_info_train) {
+                ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @session_end or @train $action_info. "
                     << "config_key=" << config_key << " config_value=" << config_value);
             }
             if (field_opt == EventField::ACTION_INFO && event != EventType::TRAIN) {
                 ANET_SYSTEM_ERROR("ObserverFactory: $action_info scalar metrics are only supported with @train. "
                     << "config_key=" << config_key << " config_value=" << config_value);
             }
-            if (event == EventType::EPISODE_END && field_opt.has_value()
+            if ((event == EventType::EPISODE_END || event == EventType::SESSION_END) && field_opt.has_value()
                 && (*field_opt == EventField::EXPERIENCE || *field_opt == EventField::UPDATE_RESULT)) {
-                ANET_SYSTEM_ERROR("ObserverFactory: @episode_end does not support $exp or $update_result. "
+                ANET_SYSTEM_ERROR("ObserverFactory: episode/session end does not support $exp or $update_result. "
                     << "config_key=" << config_key << " config_value=" << config_value);
             }
 
@@ -1419,9 +1490,94 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     episode_end_observers_.push_back({ runner_scope, eval_name, episode_end_obs });
                 }
                 break;
+            case EventType::SESSION_END:
+                {
+                    auto session_end_obs = std::make_shared<MetricsLogSessionEndObserver>(scalar_metrics_tag, key, step_axis, field_opt
+                        , interval, is_ema, ema_alpha, clip);
+                    session_end_observers_.push_back({ runner_scope, eval_name, session_end_obs });
+                }
+                break;
             }
         }
  
+        const auto trace_tag = anet::ExtractBetween(config_key, "metrics.trace.[", "]");
+        if (!trace_tag.empty()) {
+            std::vector<std::string> keys;
+            std::optional<EventField> field;
+            StepAxis axis = StepAxis::EXP;
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            bool event_seen = false, target_seen = false, scope_seen = false, step_seen = false;
+            std::unordered_set<std::string> seen_keys;
+            auto invalid = [&](const std::string& token, const std::string& expected) {
+                ANET_SYSTEM_ERROR("Invalid trace declaration. config_key=" << config_key
+                    << " token='" << token << "' expected=" << expected << ".");
+            };
+            auto unique = [&](bool& seen, const metric_tokens::Token& token) {
+                if (seen) invalid(token.raw, "one specification per event, target, scope or step axis");
+                seen = true;
+            };
+            // 出現順に検証し、同値や別表記の重複・後続上書きも拒否する。
+            for (const auto& token : metric_tokens::ParseMetricTokens(config_value)) {
+                using metric_tokens::Kind;
+                switch (token.kind) {
+                case Kind::EVENT:
+                    unique(event_seen, token);
+                    if (token.event != EventType::EPISODE_END) {
+                        invalid(token.raw, "trace supports @episode_end only in this version");
+                    }
+                    break;
+                case Kind::TARGET:
+                    unique(target_seen, token);
+                    if (token.field != EventField::ENV && token.field != EventField::RUNNER && token.field != EventField::AGENT) {
+                        invalid(token.raw, "$env, $runner or $agent");
+                    }
+                    field = token.field;
+                    break;
+                case Kind::STEP:
+                    unique(step_seen, token);
+                    if (!token.step) invalid(token.raw, "a recognized step axis");
+                    axis = *token.step;
+                    break;
+                case Kind::SCOPE:
+                    unique(scope_seen, token);
+                    if (token.raw != "$train") {
+                        if (token.value.empty() || token.raw != "$eval.[" + token.value + "]") {
+                            invalid(token.raw, "$train or $eval.[name]");
+                        }
+                        scope = RunnerScope::EVAL;
+                        eval_name = token.value;
+                    }
+                    break;
+                case Kind::EMA:
+                case Kind::ATTRIBUTE:
+                    invalid(token.raw, "bare scalar keys without EMA, clip, interval or key attributes");
+                    break;
+                case Kind::KEY:
+                    if (token.raw.starts_with("@") || token.raw.starts_with("$") || token.raw.find(':') != std::string::npos) {
+                        invalid(token.raw, "a recognized control token or a bare scalar key");
+                    }
+                    if (token.raw.starts_with("mean.") || token.raw.starts_with("max.")
+                        || token.raw.starts_with("min.") || token.raw.starts_with("std.")) {
+                        invalid(token.raw, "an individual scalar key without aggregation prefix");
+                    }
+                    if (!seen_keys.insert(token.raw).second) invalid(token.raw, "unique scalar keys");
+                    keys.push_back(token.raw);
+                    break;
+                }
+            }
+            if (!event_seen) invalid("<missing>", "an explicit @episode_end event");
+            if (!target_seen) invalid("<missing>", "an explicit $env, $runner or $agent target");
+            if (keys.empty()) invalid("<missing>", "at least one bare scalar key");
+            trace_metric_defs_.push_back(TraceMetricDef{
+                .tag = trace_tag, .step_axis = metrics_def_names::StepAxisToken(axis),
+                .runner = metrics_def_names::OwningRunner(scope, EventType::EPISODE_END, eval_name),
+                .event = "episode_end", .target = metrics_def_names::FieldToken(field),
+                .keys = keys, .scope = scope, .eval_name = eval_name });
+            episode_end_observers_.push_back({ scope, eval_name,
+                std::make_shared<MetricsLogTraceObserver>(trace_tag, std::move(keys), axis, *field) });
+        }
+
         // ===================================================================
         // GraphVizObserver のパースと生成
         // ===================================================================

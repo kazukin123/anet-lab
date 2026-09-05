@@ -395,6 +395,33 @@ namespace anet::rl {
         virtual std::string ToString() const override { return ToStringInternal(); }
     };
 
+    class MetricsLogSessionEndObserver : public MetricsLogObserverBase, public SessionEndObserver {
+    public:
+        MetricsLogSessionEndObserver(const std::string& tag, const std::string& key,
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+            int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
+
+        void OnSessionEnd(const SessionEndEvent& event) override
+        {
+            OnGenericUpdate(event.counts, event.agent, event.runner, event.env, nullptr, nullptr);
+        }
+        std::string GetClassName() const override { return "MetricsLogSessionEndObserver"; }
+        virtual std::string ToString() const override { return ToStringInternal(); }
+    };
+
+
+    class MetricsLogTraceObserver : public TaggedObserver, public EpisodeEndObserver {
+    public:
+        MetricsLogTraceObserver(const std::string& tag, std::vector<std::string> keys,
+            StepAxis step_axis, EventField field);
+        void OnEpisodeEnd(const EpisodeEndEvent& event) override;
+        std::string GetClassName() const override { return "MetricsLogTraceObserver"; }
+        std::string ToString() const override { return ToStringInternal(); }
+    private:
+        std::vector<std::string> keys_;
+        StepAxis step_axis_;
+        EventField field_;
+    };
 
     // -----------------------------------------------------------------
     // GraphVizObserver
@@ -446,6 +473,11 @@ namespace anet::rl {
             std::string eval_name;
             std::shared_ptr<anet::rl::EpisodeEndObserver> obs;
         };
+        struct ParsedSessionEndObserver {
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::shared_ptr<anet::rl::SessionEndObserver> obs;
+        };
 
         /// scalar metric 1 件の解決済み定義。
         /// 設定の書き方ではなく、実際に構築した Observer の内容を表す。
@@ -454,7 +486,7 @@ namespace anet::rl {
             std::string tag;
             std::string step_axis;      ///< train_step / exp_step など、config token と同じ表記
             std::string runner;         ///< step counter を所有する Runner。train または eval 名
-            std::string event;          ///< train / learn / episode_end
+            std::string event;          ///< train / learn / episode_end / session_end
             std::string target;         ///< agent / env / exp / update_result / runner / action_info。未指定は空
             std::string source_key;     ///< metric key として採用した token
             bool has_ema = false;
@@ -464,21 +496,39 @@ namespace anet::rl {
             std::string eval_name;
             ScalarMetricSubscription subscription;
         };
+        /// trace の解決済み定義。keys の順序は値の取得順と同じ。
+        struct TraceMetricDef {
+            std::string tag;
+            std::string step_axis;
+            std::string runner;
+            std::string event;
+            std::string target;
+            std::vector<std::string> keys;
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+        };
     public:
         ObserverFactory(const ConfigData& config_data);
 
         std::vector<ParsedTrainObserver> GetUpdateObservers() { return train_observers_; }
         std::vector<ParsedLearnObserver> GetLearnObservers() { return learn_observers_; }
         std::vector<ParsedEpisodeEndObserver> GetEpisodeEndObservers() { return episode_end_observers_; }
+        std::vector<ParsedSessionEndObserver> GetSessionEndObservers() { return session_end_observers_; }
         const std::vector<ScalarMetricDef>& GetScalarMetricDefs() const { return scalar_metric_defs_; }
+        const std::vector<TraceMetricDef>& GetTraceMetricDefs() const { return trace_metric_defs_; }
     private:
         std::vector<ParsedTrainObserver> train_observers_;
         std::vector<ParsedLearnObserver> learn_observers_;
         std::vector<ParsedEpisodeEndObserver> episode_end_observers_;
+        std::vector<ParsedSessionEndObserver> session_end_observers_;
         std::vector<ScalarMetricDef> scalar_metric_defs_;
+        std::vector<TraceMetricDef> trace_metric_defs_;
     };
 
-    /// scalar metric の解決済み定義を `metrics.defs` レコードの data 部へ変換する。
+    /// scalar metric の解決済み定義を `metrics.scalar.defs` レコードの data 部へ変換する。
     /// tag をキーにした object を返し、未設定の target と EMA は null にする。
     anet::json ScalarMetricDefsToJson(const std::vector<ObserverFactory::ScalarMetricDef>& defs);
+    /// trace metric の定義を、宣言順の keys 配列を持つ object へ変換する。
+    anet::json TraceMetricDefsToJson(const std::vector<ObserverFactory::TraceMetricDef>& defs);
+
 }

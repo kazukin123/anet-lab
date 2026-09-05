@@ -385,8 +385,10 @@ TEST_CASE("EvalSessionEnv dynamically grants exactly N per-lane episodes", "[env
     CHECK(inner->GetResetCount() == 1);
     CHECK_FALSE(env.GetSessionResult().has_value());
     env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0, 1 });
     CHECK_FALSE(env.GetSessionResult().has_value());
     env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
 
     const auto result = env.GetSessionResult();
     REQUIRE(result.has_value());
@@ -396,6 +398,7 @@ TEST_CASE("EvalSessionEnv dynamically grants exactly N per-lane episodes", "[env
 
     // 全 group が fresh なら cached continue_state を空 AuxData とともに再利用する。
     const auto reused = env.Reset();
+    CHECK(env.LastAdoptedGroups().empty());
     CHECK(inner->GetResetCount() == 1);
     CHECK(reused->GetAuxDataList().size() == 2);
     CHECK(reused->GetAuxDataList()[0].empty());
@@ -415,7 +418,9 @@ TEST_CASE("EvalSessionEnv supports shared episodes and resets a partially fresh 
     rl::EvalSessionEnv shared(shared_inner, 2, { "mean.score" });
     shared.Reset();
     shared.Step(nullptr);
+    CHECK(shared.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
     shared.Step(nullptr);
+    CHECK(shared.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
     REQUIRE(shared.GetSessionResult().has_value());
     CHECK(shared.GetSessionResult()->episode_returns == std::vector<float>{ 3.0f, 7.0f });
     CHECK(shared.GetScalar("mean.score") == 0.75f);
@@ -460,10 +465,13 @@ TEST_CASE("EvalSessionEnv waits for every adopted per-lane episode", "[env][eval
 
     env.Reset();
     env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
     CHECK_FALSE(env.GetSessionResult().has_value());
     env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups().empty());
     CHECK_FALSE(env.GetSessionResult().has_value());
     env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 1 });
 
     REQUIRE(env.GetSessionResult().has_value());
     CHECK(env.GetSessionResult()->episode_returns == std::vector<float>{ 1.0f, 60.0f });
@@ -484,6 +492,7 @@ TEST_CASE("EvalSessionEnv keeps the N=1 single-lane trace and scalar identity", 
     CHECK(reset->state.obs.At(rl::ObsKeys::kVector).item<float>() == 0.0f);
 
     const auto step = env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
     CHECK(step->reward.item<float>() == 2.5f);
     CHECK(step->next_state.done.item<bool>());
     CHECK_FALSE(step->next_state.truncated.item<bool>());

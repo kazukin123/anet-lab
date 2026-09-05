@@ -277,6 +277,7 @@ bool EvalSessionEnv::HasAllFreshGroups(const BatchState& state) const
 
 void EvalSessionEnv::BeginSession()
 {
+    last_adopted_groups_.clear();
     return_accumulator_.Reset();
     for (auto& subscription : subscriptions_) subscription.accumulator.Reset();
     std::fill(adopted_groups_.begin(), adopted_groups_.end(), false);
@@ -328,6 +329,7 @@ std::shared_ptr<const BatchStepResult> EvalSessionEnv::Step(
     std::shared_ptr<BatchActionInfo> action_info)
 {
     ANET_PROFILE_FUNC();
+    last_adopted_groups_.clear();
     ANET_CHECK_MSG(session_started_,
         "EvalSessionEnv::Reset must be called before Step. env='" << GetName() << "'.");
     ANET_CHECK_MSG(!session_result_.has_value(),
@@ -346,6 +348,7 @@ std::shared_ptr<const BatchStepResult> EvalSessionEnv::Step(
         if (!adopted_groups_[static_cast<size_t>(group)]) continue;
 
         CaptureScalars(group);
+        last_adopted_groups_.push_back(group);
         adopted_groups_[static_cast<size_t>(group)] = false;
         completed_episodes_++;
         captured_episode_returns_.push_back(completed_returns[i].episode_return);

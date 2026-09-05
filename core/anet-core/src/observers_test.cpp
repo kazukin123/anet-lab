@@ -144,7 +144,7 @@ private:
     int num_envs_ = 0;
 };
 
-class TestBatchEnv final : public rl::BatchEnvBase {
+class TestBatchEnv : public rl::BatchEnvBase {
 public:
     TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f)
         : rl::BatchEnvBase(name, num_envs)
@@ -622,16 +622,18 @@ TEST_CASE("ObserverFactory parses episode-end scopes and rejects unsupported com
 {
     anet::ConfigData valid_config;
     valid_config.Set("metrics.scalar.[train_eps]", "mean.episode_return $runner @episode_end $train");
-    valid_config.Set("metrics.scalar.[eval_eps]", "mean.episode_return $runner @episode_end $eval.[eval1]");
+    valid_config.Set("metrics.scalar.[eval_eps]", "mean.episode_return $runner @session_end $eval.[eval1]");
     valid_config.Set("metrics.scalar.[eval_action]", "action_uqe_win_rate.[0] $action_info @train $eval.[eval1]");
     valid_config.Set("metrics.scalar.[eval_action_margin]", "action_uqe_margin.[0] $action_info @train $eval.[eval1]");
 
     rl::ObserverFactory factory(valid_config);
     auto episode_end_obs = factory.GetEpisodeEndObservers();
-    REQUIRE(episode_end_obs.size() == 2);
+    REQUIRE(episode_end_obs.size() == 1);
     CHECK(episode_end_obs[0].scope == rl::RunnerScope::TRAIN);
-    CHECK(episode_end_obs[1].scope == rl::RunnerScope::EVAL);
-    CHECK(episode_end_obs[1].eval_name == "eval1");
+    const auto session_end_obs = factory.GetSessionEndObservers();
+    REQUIRE(session_end_obs.size() == 1);
+    CHECK(session_end_obs[0].scope == rl::RunnerScope::EVAL);
+    CHECK(session_end_obs[0].eval_name == "eval1");
     auto train_obs = factory.GetUpdateObservers();
     REQUIRE(train_obs.size() == 2);
     CHECK(train_obs[0].scope == rl::RunnerScope::EVAL);
@@ -653,7 +655,7 @@ TEST_CASE("ObserverFactory records the resolved step coordinate space per scalar
 {
     anet::ConfigData config;
     config.Set("metrics.scalar.[eval_episode]",
-        "$eval.[eval1] @episode_end $env $exp_step mean.ep_double_suika_created");
+        "$eval.[eval1] @session_end $env $exp_step mean.ep_double_suika_created");
     config.Set("metrics.scalar.[eval_action]",
         "$eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.01 interval:100");
     config.Set("metrics.scalar.[train_plain]", "mean.ep_step $env @train");
@@ -668,11 +670,11 @@ TEST_CASE("ObserverFactory records the resolved step coordinate space per scalar
     for (const auto& def : defs) by_tag.emplace(def.tag, def);
 
     // 同じ $eval.[eval1] かつ $exp_step でも、counts を載せる Runner は @event で変わる。
-    // @episode_end は呼び出し元 (train runner) の counts、@train は eval runner 自身の counts。
+    // @session_end は呼び出し元 (train runner) の counts、@train は eval runner 自身の counts。
     const auto& eval_episode = by_tag.at("eval_episode");
     CHECK(eval_episode.step_axis == "exp_step");
     CHECK(eval_episode.runner == "train");
-    CHECK(eval_episode.event == "episode_end");
+    CHECK(eval_episode.event == "session_end");
     CHECK(eval_episode.target == "env");
     CHECK(eval_episode.source_key == "mean.ep_double_suika_created");
 
@@ -1404,7 +1406,7 @@ TEST_CASE("Train event keeps recognized nonfinite UpdateResult from falling thro
     anet::MetricsLogger::Reset();
 }
 
-TEST_CASE("ScalarMetricDefsToJson emits the metrics.defs payload", "[observer_factory][metrics_defs][observers]")
+TEST_CASE("ScalarMetricDefsToJson emits the metrics.scalar.defs payload", "[observer_factory][metrics_defs][observers]")
 {
     anet::ConfigData config;
     config.Set("metrics.scalar.[eval_action]",
@@ -1534,4 +1536,132 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
         CHECK(ContainsText(e.what(), "forced eval failure"));
     }
     CHECK(rethrown);
+}
+
+TEST_CASE("Trace DSL rejects missing duplicate unknown and forbidden declarations", "[trace][observer_factory]")
+{
+    const std::vector<std::string> invalid = {
+        "$env score", "@episode_end score", "@episode_end $env",
+        "@train $env score", "@learn $env score", "@session_end $env score",
+        "event:train $env score", "event:learn $env score", "event:session_end $env score",
+        "@episode_end $exp score", "@episode_end $update_result score", "@episode_end $action_info score",
+        "@episode_end $env mean.score", "@episode_end $env max.score",
+        "@episode_end $env min.score", "@episode_end $env std.score",
+        "@episode_end $env score score", "@episode_end $env $ema score",
+        "@episode_end $env ema_alpha:0.1 score", "@episode_end $env clip:1 score",
+        "@episode_end $env interval:1 score", "@episode_end $env key:score",
+        "@episode_end @episode_end $env score", "@episode_end event:episode_end $env score",
+        "@train @episode_end $env score", "@episode_end @train $env score",
+        "@episode_end $env $env score", "@episode_end $env target:env score",
+        "@episode_end $agent $env score", "@episode_end $exp $env score",
+        "@episode_end $env $train $train score", "@episode_end $env $eval.[x] $eval.[x] score",
+        "@episode_end $env $train $eval.[x] score", "@episode_end $env $eval.[x] $train score",
+        "@episode_end $env $exp_step step:exp score", "@episode_end $env step:exp step_axis:exp score",
+        "@episode_end $env $exp_step $learn_step score", "@episode_end $env $unknown score",
+        "@unknown @episode_end $env score", "event:unknown @episode_end $env score",
+        "target:unknown @episode_end $env score", "@episode_end $env step:unknown $exp_step score",
+        "@episode_end $env unknown:value score", "@episode_end $env interval:no interval:1 score",
+        "@episode_end $env event: score", "@episode_end $env target:env:extra score",
+        "@episode_end $env $eval.[] score", "@episode_end $env $eval.[x]extra score"
+    };
+    for (const auto& definition : invalid) {
+        CAPTURE(definition);
+        anet::ConfigData config;
+        config.Set("metrics.trace.[test]", definition);
+        CHECK_THROWS_WITH(rl::ObserverFactory(config), Catch::Matchers::ContainsSubstring("metrics.trace.[test]"));
+    }
+}
+
+TEST_CASE("Scalar and trace enforce the scope event target matrix", "[trace][observer_factory]")
+{
+    for (const bool eval : { false, true }) {
+        for (const auto& event : { "train", "learn", "episode_end", "session_end" }) {
+            for (const auto& target : { "", "$env", "$agent", "$runner", "$exp", "$update_result", "$action_info" }) {
+                const std::string event_name(event), target_name(target);
+                const std::string definition = std::string(eval ? "$eval.[x] " : "$train ")
+                    + "@" + event_name + " " + target_name + " score";
+                CAPTURE(definition);
+                const bool end_target = target_name != "$exp" && target_name != "$update_result" && target_name != "$action_info";
+                const bool scalar_ok = eval
+                    ? ((event_name == "train" && target_name == "$action_info") || (event_name == "session_end" && end_target))
+                    : (event_name == "train" || (event_name == "learn" && target_name != "$action_info")
+                        || (event_name == "episode_end" && end_target));
+                anet::ConfigData scalar;
+                scalar.Set("metrics.scalar.[test]", definition);
+                if (scalar_ok) CHECK_NOTHROW(rl::ObserverFactory(scalar));
+                else CHECK_THROWS(rl::ObserverFactory(scalar));
+                anet::ConfigData trace;
+                trace.Set("metrics.trace.[test]", definition);
+                const bool trace_ok = event_name == "episode_end"
+                    && (target_name == "$env" || target_name == "$agent" || target_name == "$runner");
+                if (trace_ok) CHECK_NOTHROW(rl::ObserverFactory(trace));
+                else CHECK_THROWS(rl::ObserverFactory(trace));
+            }
+        }
+    }
+}
+
+TEST_CASE("Shared metric token classification preserves scalar last assignment and defaults", "[observer_factory][trace]")
+{
+    anet::ConfigData config;
+    config.Set("metrics.scalar.[legacy]", "first key:second third $agent target:env @learn event:train $learn_step step:exp step:unknown unknown:value");
+    rl::ObserverFactory factory(config);
+    const auto& def = factory.GetScalarMetricDefs().at(0);
+    CHECK(def.source_key == "third");
+    CHECK(def.target == "env");
+    CHECK(def.event == "train");
+    CHECK(def.step_axis == "exp_step");
+    CHECK(def.interval == 1);
+}
+
+TEST_CASE("Train trace reads keys in declaration order and preserves nonfinite fields", "[trace][observers]")
+{
+    class ProbeEnv final : public TestBatchEnv {
+    public:
+        ProbeEnv() : TestBatchEnv("probe", 2) {}
+        mutable std::vector<std::pair<std::string, int64_t>> queries;
+        std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+        {
+            queries.emplace_back(key, lane);
+            if (key == "z") return std::numeric_limits<float>::quiet_NaN();
+            if (key == "a") return std::numeric_limits<float>::infinity();
+            if (key == "m") return 42.0f;
+            return std::nullopt;
+        }
+    };
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* captured = backend.get();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "trace_probe";
+    anet::MetricsLogger::Init(std::move(backend), logger_config,
+        std::filesystem::current_path() / "out" / "test-tmp" / "prd069");
+    struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
+    auto env = std::make_shared<ProbeEnv>();
+    auto agent = std::make_shared<TestAgent>();
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    anet::ConfigData config;
+    config.Set("metrics.trace.[ordered]", "$train @episode_end $env z a m $learn_step");
+    rl::ObserverFactory factory(config);
+    notifier->AttachScoped(factory.GetEpisodeEndObservers()[0].obs, runner);
+    rl::StepCounts counts;
+    counts.learn_step = 123;
+    auto result = std::make_shared<TestStepResult>(
+        std::vector<float>{ 1, 2 }, std::vector<bool>{ false, true }, std::vector<bool>{ false, false });
+    runner->FireEpisodeEnd(result, counts);
+    REQUIRE(env->queries == std::vector<std::pair<std::string, int64_t>>{ { "z", 1 }, { "a", 1 }, { "m", 1 } });
+    std::vector<anet::json> traces;
+    for (const auto& record : captured->records) {
+        if (record.value("type", "") == "trace") traces.push_back(record);
+    }
+    REQUIRE(traces.size() == 1);
+    // 本番 backend と同じ JSON シリアライズで NaN/Inf の null 化を確認する。
+    const auto row = anet::json::parse(traces[0].dump());
+    CHECK(row.at("data").size() == 3);
+    CHECK(row.at("data").at("z").is_null());
+    CHECK(row.at("data").at("a").is_null());
+    CHECK(row.at("data").at("m") == 42.0f);
+    CHECK(row.at("step") == 123);
+    CHECK(row.at("lane") == 1);
 }

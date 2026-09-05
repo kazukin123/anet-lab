@@ -158,6 +158,8 @@ namespace anet::rl {
             const std::string& key, int64_t index = -1) const override;
 
         std::optional<EvalSessionResult> GetSessionResult() const { return session_result_; }
+        /// 直前 Step で完了した採用 episode の group index（昇順）。次の Step / Reset まで有効。
+        const std::vector<int64_t>& LastAdoptedGroups() const { return last_adopted_groups_; }
 
     private:
         struct ScalarSubscription {
@@ -178,6 +180,7 @@ namespace anet::rl {
         EpisodeReturnAccumulator return_accumulator_;
         std::vector<ScalarSubscription> subscriptions_;
         std::vector<bool> adopted_groups_;
+        std::vector<int64_t> last_adopted_groups_;
         int issued_episodes_ = 0;
         int completed_episodes_ = 0;
         bool session_started_ = false;

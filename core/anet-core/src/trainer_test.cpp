@@ -689,7 +689,7 @@ TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "
     config.Set("train.eval_schedule.[sleep].interval", "0");
     config.Set(
         "metrics.scalar.[sleep_reward]",
-        "mean.episode_return $runner @episode_end $eval.[sleep]");
+        "mean.episode_return $runner @session_end $eval.[sleep]");
 
     auto manager = std::make_shared<rl::RunManager>(config);
     REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
@@ -709,10 +709,10 @@ TEST_CASE("RunManager keeps definition-only Eval tags dormant", "[trainer][eval_
     config.Set("train.eval.[sleep].run_mode", "eval1");
     config.Set(
         "metrics.scalar.[sleep_reward_a]",
-        "mean.episode_return $runner @episode_end $eval.[sleep]");
+        "mean.episode_return $runner @session_end $eval.[sleep]");
     config.Set(
         "metrics.scalar.[sleep_reward_b]",
-        "mean.episode_return $runner @episode_end $eval.[sleep]");
+        "mean.episode_return $runner @session_end $eval.[sleep]");
 
     auto manager = std::make_shared<rl::RunManager>(config);
     logs.Flush();
@@ -762,7 +762,7 @@ TEST_CASE("RunManager validates Eval session cardinality and ENV scalar prefixes
         config.Set("train.eval.[eval1].run_mode", "eval1");
         config.Set("train.eval.[eval1].eval_episodes", "2");
         config.Set("train.eval_schedule.[eval1].interval", "100");
-        config.Set("metrics.scalar.[eval_score]", "score $env @episode_end $eval.[eval1]");
+        config.Set("metrics.scalar.[eval_score]", "score $env @session_end $eval.[eval1]");
         CHECK_THROWS_WITH(
             std::make_shared<rl::RunManager>(config),
             Catch::Matchers::ContainsSubstring("requires an aggregation prefix"));
@@ -780,7 +780,7 @@ TEST_CASE("RunManager decorates configured Eval but leaves EvalPanel step-driven
     config.Set("train.eval.[eval1].eval_batch_size", "2");
     config.Set("train.eval.[eval1].eval_episodes", "1");
     config.Set("train.eval_schedule.[eval1].interval", "100");
-    config.Set("metrics.scalar.[eval_score]", "mean.score $env @episode_end $eval.[eval1]");
+    config.Set("metrics.scalar.[eval_score]", "mean.score $env @session_end $eval.[eval1]");
     config.Set("train.eval.[eval2].run_mode", "eval2");
     config.Set("train.eval.[eval2].eval_batch_size", "2");
     config.Set("train.eval.[eval2].eval_episodes", "1");
@@ -995,4 +995,68 @@ TEST_CASE("RunnerThread forwards a worker exception once and stops", "[trainer][
     CHECK_FALSE(thread.IsRunning());
     REQUIRE(callback_exception != nullptr);
     CHECK_THROWS_WITH(std::rethrow_exception(callback_exception), "runner failure");
+}
+
+TEST_CASE("RunManager writes attached scalar and trace definitions separately", "[trace][metrics_defs][trainer]")
+{
+    const bool active_trace = GENERATE(false, true);
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd069-defs";
+    const auto run_dir = root / "runs" / "defs_test";
+    anet::MetricsLogger::Reset();
+    std::filesystem::remove(run_dir / "metrics.jsonl");
+    std::filesystem::remove(run_dir / "json" / "metrics.scalar.defs.json");
+    std::filesystem::remove(run_dir / "json" / "metrics.trace.defs.json");
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "defs_test";
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), logger_config, root);
+    struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
+    RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[active].run_mode", "eval1");
+    config.Set("train.eval_schedule.[active].interval", "1");
+    config.Set("train.eval_schedule.[active].use_background", "false");
+    config.Set("train.eval.[sleep].run_mode", "eval2");
+    config.Set("metrics.scalar.[same]", "$eval.[active] @session_end $env mean.score");
+    if (active_trace) config.Set("metrics.trace.[same]", "$eval.[active] @episode_end $env second first");
+    config.Set("metrics.trace.[sleep]", "$eval.[sleep] @episode_end $env score");
+    if (active_trace) config.Set("metrics.trace.[training]", "$train @episode_end $runner reward");
+    auto manager = std::make_shared<rl::RunManager>(config);
+    anet::MetricsLogger::Instance()->Flush();
+
+    REQUIRE(std::filesystem::exists(run_dir / "json" / "metrics.scalar.defs.json"));
+    if (!active_trace) {
+        CHECK_FALSE(std::filesystem::exists(run_dir / "json" / "metrics.trace.defs.json"));
+        std::ifstream master(run_dir / "metrics.jsonl");
+        for (std::string line; std::getline(master, line);) {
+            CHECK(anet::json::parse(line).value("tag", "") != "metrics.trace.defs");
+        }
+        return;
+    }
+    REQUIRE(std::filesystem::exists(run_dir / "json" / "metrics.trace.defs.json"));
+    std::ifstream scalar_file(run_dir / "json" / "metrics.scalar.defs.json");
+    std::ifstream trace_file(run_dir / "json" / "metrics.trace.defs.json");
+    const auto scalar = anet::json::parse(scalar_file).at("data");
+    const auto trace = anet::json::parse(trace_file).at("data");
+    REQUIRE(scalar.size() == 1);
+    CHECK(scalar.at("same").at("event") == "session_end");
+    REQUIRE(trace.size() == 2);
+    CHECK_FALSE(trace.contains("sleep"));
+    CHECK(trace.at("same").at("keys") == anet::json::array({ "second", "first" }));
+    CHECK(trace.at("same").at("runner") == "train");
+    CHECK(trace.at("same").at("step_axis") == "exp_step");
+    CHECK(trace.at("same").at("event") == "episode_end");
+    CHECK(trace.at("same").at("target") == "env");
+    CHECK(trace.at("same").size() == 5);
+    CHECK(trace.at("training").at("target") == "runner");
+    std::ifstream master(run_dir / "metrics.jsonl");
+    int scalar_defs = 0, trace_defs = 0;
+    for (std::string line; std::getline(master, line);) {
+        const auto record = anet::json::parse(line);
+        const auto tag = record.value("tag", "");
+        CHECK(tag != "metrics.defs");
+        if (tag == "metrics.scalar.defs") scalar_defs++;
+        if (tag == "metrics.trace.defs") trace_defs++;
+    }
+    CHECK(scalar_defs == 1);
+    CHECK(trace_defs == 1);
 }

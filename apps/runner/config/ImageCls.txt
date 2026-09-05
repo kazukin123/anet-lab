@@ -551,9 +551,9 @@ metrics.scalar.[42_env/04_accuracy]       = $env accuracy @train $exp_step
 metrics.scalar.[42_env/05_accuracy_ema]   = $env accuracy @train $exp_step $ema ema_alpha:0.001
 metrics.scalar.[42_env/06_epoch_count]    = $env epoch_count @train $exp_step
 
-metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval1] $env accuracy @episode_end
-metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval1] $env accuracy @episode_end $ema ema_alpha:0.01
-metrics.scalar.[51_eval1/05_epoch_count]       = $eval.[eval1] $env epoch_count @episode_end
+metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval1] $env accuracy @session_end
+metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval1] $env accuracy @session_end $ema ema_alpha:0.01
+metrics.scalar.[51_eval1/05_epoch_count]       = $eval.[eval1] $env epoch_count @session_end
 
 metrics.scalar.[90_perf/12_exp_step_per_sec]     = $runner exp_step_per_sec @train $exp_step interval:100
 metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = $runner exp_step_per_sec @train $exp_step interval:100 $ema ema_alpha:0.001

@@ -351,16 +351,28 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
     state_ = reset_result->state;
     env_initialized_ = true;
 
-    // decorator が正確な N 本を確定するまで中間 EpisodeEndEvent を抑制する。
+    // 通常の完了通知を抑制し、採用 episode の確定値が有効な Step 直後にだけ通知する。
     while (!session_env_->GetSessionResult().has_value()) {
         DoStepInternal(-1, event_counts, false);
+        for (const int64_t group : session_env_->LastAdoptedGroups()) {
+            const int env_index = session_env_->GetBatchSpec().episode_scope == EpisodeScope::PER_LANE
+                ? static_cast<int>(group) : -1;
+            notifier_->Notify(EpisodeEndEvent{
+                .runner = shared_from_this(), .counts = event_counts,
+                .agent = agent_, .env = session_env_, .env_index = env_index });
+        }
     }
 
+    // Runner の return 集約は全採用 episode の完了後に確定し、セッションを一度だけ通知する。
     const auto session_result = session_env_->GetSessionResult();
     ANET_CHECK(session_result.has_value());
     SetCompletedEpisodeReturns(session_result->episode_returns);
     last_step_had_episode_end_ = true;
-    EpisodeEndEvent event{ shared_from_this(), event_counts, agent_, env_, -1 };
+    SessionEndEvent event{
+    	.runner = shared_from_this(),
+    	.counts = event_counts,
+        .agent = agent_,
+        .env = env_ };
     notifier_->Notify(event);
 }
 
@@ -920,13 +932,13 @@ RunManager::RunManager(const ConfigData& config_data)
         LOG::info() << "eval tag '" << tag << "': scheduled (interval=" << interval
             << ", background=" << (use_background ? "true" : "false") << ")";
 
-        // この active Eval の episode-end ENV metrics だけを decorator の購読対象にする。
+        // この active Eval の session-end ENV metrics だけを decorator の購読対象にする。
         std::vector<std::string> subscribed_env_keys;
         std::unordered_set<std::string> subscribed_env_key_set;
         for (const auto& def : factory.GetScalarMetricDefs()) {
             const auto& subscription = def.subscription;
             if (def.scope != RunnerScope::EVAL || def.eval_name != tag
-                || subscription.event != EventType::EPISODE_END
+                || subscription.event != EventType::SESSION_END
                 || subscription.target != EventField::ENV) {
                 continue;
             }
@@ -985,7 +997,7 @@ RunManager::RunManager(const ConfigData& config_data)
                 }
                 return nullptr;
             }
-            ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics.scalar config.");
+            ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics config.");
         }
         return it->second;
     };
@@ -1011,6 +1023,12 @@ RunManager::RunManager(const ConfigData& config_data)
         auto scoped_obs = std::make_shared<RunnerScopedEpisodeEndObserver>(p.obs, runner);
         notifier_->Attach(scoped_obs);
     }
+    for (const auto& p : factory.GetSessionEndObservers()) {
+        auto runner = resolve_runner(p.scope, p.eval_name);
+        if (runner == nullptr) continue;
+        auto scoped_obs = std::make_shared<RunnerScopedSessionEndObserver>(p.obs, runner);
+        notifier_->Attach(scoped_obs);
+    }
 
     // 実際に attach した scalar metric の解決済み定義を 1 レコードだけ残す。
     // 解析側が config から step 座標系や source key を再導出しないための正本 (ADR 0029)。
@@ -1023,7 +1041,18 @@ RunManager::RunManager(const ConfigData& config_data)
     }
     anet::json metric_defs = anet::rl::ScalarMetricDefsToJson(attached_defs);
     if (!metric_defs.empty()) {
-        anet::MetricsLogger::Instance()->Log("metrics.defs", metric_defs);
+        anet::MetricsLogger::Instance()->Log("metrics.scalar.defs", metric_defs);
+    }
+
+    // trace は別チャネルの定義とし、dormant eval と scalar 購読ヒントから分離する。
+    std::vector<ObserverFactory::TraceMetricDef> attached_trace_defs;
+    for (const auto& def : factory.GetTraceMetricDefs()) {
+        if (resolve_runner(def.scope, def.eval_name) == nullptr) continue;
+        attached_trace_defs.push_back(def);
+    }
+    const auto trace_defs = TraceMetricDefsToJson(attached_trace_defs);
+    if (!trace_defs.empty()) {
+        anet::MetricsLogger::Instance()->Log("metrics.trace.defs", trace_defs);
     }
 
     // 実際に attach された定義だけを、学習開始前の静的な購読情報として Agent へ渡す。
