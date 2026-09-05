@@ -492,8 +492,11 @@ namespace anet::rl {
             bool has_ema = false;
             float ema_alpha = 0.0f;
             int interval = 1;
+            std::optional<float> clip;
             RunnerScope scope = RunnerScope::TRAIN;
             std::string eval_name;
+            std::optional<int> eval_episodes;  ///< RunManager が付与するセッション採用予定数
+            std::optional<int64_t> num_envs;   ///< 構築済み eval Env の lane 数。SHARED の group 数ではない
             ScalarMetricSubscription subscription;
         };
         /// trace の解決済み定義。keys の順序は値の取得順と同じ。
@@ -506,6 +509,8 @@ namespace anet::rl {
             std::vector<std::string> keys;
             RunnerScope scope = RunnerScope::TRAIN;
             std::string eval_name;
+            std::optional<int> eval_episodes;
+            std::optional<int64_t> num_envs;
         };
     public:
         ObserverFactory(const ConfigData& config_data);
@@ -526,7 +531,7 @@ namespace anet::rl {
     };
 
     /// scalar metric の解決済み定義を `metrics.scalar.defs` レコードの data 部へ変換する。
-    /// tag をキーにした object を返し、未設定の target と EMA は null にする。
+    /// tag をキーにした object を返す。未設定の target / EMA / clip と train scope の eval 情報は null。
     anet::json ScalarMetricDefsToJson(const std::vector<ObserverFactory::ScalarMetricDef>& defs);
     /// trace metric の定義を、宣言順の keys 配列を持つ object へ変換する。
     anet::json TraceMetricDefsToJson(const std::vector<ObserverFactory::TraceMetricDef>& defs);

@@ -1493,5 +1493,80 @@ class TraceChannelDefinitionsTest(CacheFixtureMixin):
                     self.assertEqual(scan.defs["score"].event, "session_end")
 
 
+class MetricDefinitionMetadataTest(CacheFixtureMixin):
+    def test_master_and_cache_preserve_subscription_eval_conditions_and_clip(self):
+        defs = {
+            "t/a": {**self.metric_def(event="session_end"), "scope": "eval", "eval_name": "eval1",
+                    "eval_episodes": 3, "num_envs": 2, "clip": 7.5},
+            "other": {**self.metric_def(runner="eval2", event="train"), "scope": "eval", "eval_name": "eval2",
+                      "eval_episodes": 1, "num_envs": 4, "clip": None},
+            "52_eval2/misleading": {**self.metric_def(), "scope": "train", "eval_name": None,
+                                   "eval_episodes": None, "num_envs": None, "clip": None},
+        }
+        for cached in (False, True):
+            with self.subTest(cached=cached), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp)
+                if cached:
+                    run, _, _ = self.make_cached_run(repo, run_defs=defs)
+                else:
+                    run = self.make_run(repo, "ws1", "run_a")
+                    self.write_raw_master(run, [("t/a", 10, 2.0)], defs=defs)
+                code, result, err = self.run_cli_json(repo, ["tags", str(run)])
+                self.assertEqual((code, err), (0, ""))
+                node = result["runs"][0]
+                self.assertEqual(node["metrics_source"]["selected"], "cache" if cached else "master")
+                by_tag = {item["tag"]: item for item in node["tags"]}
+                for tag, expected in defs.items():
+                    for key, value in expected.items():
+                        self.assertEqual(by_tag[tag][key], value, (tag, key))
+                code, output, err = self.run_cli(repo, ["tags", str(run), "--format", "md"])
+                self.assertEqual((code, err), (0, ""))
+                self.assertIn("| clip | scope | eval_name | eval_episodes | num_envs |", output)
+                self.assertIn("| 7.5 | eval | eval1 | 3 | 2 |", output)
+
+    def test_old_records_leave_missing_metadata_unknown_even_with_config(self):
+        for cached in (False, True):
+            with self.subTest(cached=cached), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp)
+                run, _, cache = self.make_cached_run(repo)
+                if not cached:
+                    cache.unlink()
+                code, result, err = self.run_cli_json(repo, ["tags", str(run)])
+                self.assertEqual((code, err), (0, ""))
+                definition = result["runs"][0]["tags"][0]
+                for key in ("scope", "eval_name", "eval_episodes", "num_envs", "clip"):
+                    self.assertIsNone(definition[key], key)
+
+    def test_config_derives_subscription_and_clip_without_assuming_eval_conditions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_run(repo, "ws1", "run_config")
+            self.write_config(run, {
+                "metrics.scalar.[a]": "$eval.[eval1] @session_end $env mean.score clip:2 clip:3",
+                "metrics.scalar.[b]": "$eval.[eval2] @train $action_info score",
+                "metrics.scalar.[c]": "$eval.[ignored] $train @train $env score clip:0",
+                "train.eval.[eval1].eval_episodes": "10",
+                "train.eval.[eval1].eval_batch_size": "5",
+            })
+            self.write_raw_master(run, [("a", 10, 1.0)])
+            for options in ([], ["--no-observed"]):
+                with self.subTest(options=options):
+                    code, result, _ = self.run_cli_json(repo, ["tags", str(run)] + options)
+                    self.assertEqual(code, 0)
+                    node = result["runs"][0]
+                    self.assertEqual(node["def_source"], "config_derived")
+                    by_tag = {item["tag"]: item for item in node["tags"]}
+                    for tag, scope, name, runner, clip in (
+                        ("a", "eval", "eval1", "train", 3.0),
+                        ("b", "eval", "eval2", "eval2", None),
+                        ("c", "train", None, "train", 0.0),
+                    ):
+                        entry = by_tag[tag]
+                        self.assertEqual((entry["scope"], entry["eval_name"], entry["runner"], entry["clip"]),
+                                         (scope, name, runner, clip))
+                        self.assertIsNone(entry["eval_episodes"])
+                        self.assertIsNone(entry["num_envs"])
+
+
 if __name__ == "__main__":
     unittest.main()

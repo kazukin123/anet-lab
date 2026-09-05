@@ -19,6 +19,8 @@ scalar 行 `{step, tag, value}` には主体欄が無く、`mean.` 等の集約�
 
 ## Consequences
 
+- 2026-09-05 の追加合意: 両チャネルの定義へ `scope` / `eval_name` / `eval_episodes` / `num_envs`、scalar 定義へ `clip` を追加する。`runner` は座標系所有者として維持し、購読先とは区別する。eval の採用予定数と構築済み lane 数は各 metric 定義へ重複保存する。train scope の eval 情報と未指定 clip は `null`。過去定義の欠落も不明として扱い、tag から推測しない。詳細は PRD §4.7 と現行 observability 設計に置く。
+
 - eval scalar の設定行は `@episode_end` → `@session_end` へ機械置換する（リポジトリ内の現用設定・テスト・現行ドキュメントを同じ変更で移行。過去 Run の `config_data.txt` は記録として触らない）。ADR 0034 の「configured eval 中の per-group event を抑制する」は本 ADR で置き換える。
 - scalar 定義の writer・ミラー・現用 fixture・文書は `metrics.scalar.defs` へ移行する。writer は空でない定義を新名で1回だけ出力する。`inspect_run.py` の master / cache 読み取りは基本として新名を読み、なければ旧 `metrics.defs` を読む。新 Run・過去 Run のどちらでも `def_source=metrics_defs` とし、旧名を読むことだけを理由とする WARN は出さない。
 - 互換対象は旧名の定義を持つ現用の過去 Run artifact。移行方法は新しい Run の実行で、現用 Run 作業セットが全て `metrics.scalar.defs` を持つまで旧名を読み、その時点を削除条件とする。過去 artifact は書き換えず、旧名を二重出力しない。ADR 0029 の過去 Run 向け設定導出 fallback も削除条件を新名へ読み替える。

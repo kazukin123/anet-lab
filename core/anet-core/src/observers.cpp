@@ -1225,11 +1225,18 @@ anet::json anet::rl::ScalarMetricDefsToJson(
         payload[def.tag] = {
             {"step_axis", def.step_axis},
             {"runner", def.runner},
+            {"scope", def.scope == RunnerScope::EVAL ? "eval" : "train"},
+            {"eval_name", def.scope == RunnerScope::EVAL ? anet::json(def.eval_name) : anet::json(nullptr)},
+            {"eval_episodes", def.scope == RunnerScope::EVAL && def.eval_episodes
+                ? anet::json(*def.eval_episodes) : anet::json(nullptr)},
+            {"num_envs", def.scope == RunnerScope::EVAL && def.num_envs
+                ? anet::json(*def.num_envs) : anet::json(nullptr)},
             {"event", def.event},
             {"target", def.target.empty() ? anet::json(nullptr) : anet::json(def.target)},
             {"source_key", def.source_key},
             {"ema_alpha", def.has_ema ? anet::json(def.ema_alpha) : anet::json(nullptr)},
             {"interval", def.interval},
+            {"clip", def.clip ? anet::json(*def.clip) : anet::json(nullptr)},
         };
     }
     return payload;
@@ -1238,9 +1245,15 @@ anet::json anet::rl::ScalarMetricDefsToJson(
 anet::json anet::rl::TraceMetricDefsToJson(const std::vector<ObserverFactory::TraceMetricDef>& defs)
 {
     anet::json payload = anet::json::object();
-    // チャネル内の tag ごとに、実際に解決した座標系と順序付きキー列を残す。
+    // 座標系の所有者と購読先を分け、eval 条件と順序付きキー列を tag ごとに残す。
     for (const auto& def : defs) {
         payload[def.tag] = {{"step_axis", def.step_axis}, {"runner", def.runner},
+            {"scope", def.scope == RunnerScope::EVAL ? "eval" : "train"},
+            {"eval_name", def.scope == RunnerScope::EVAL ? anet::json(def.eval_name) : anet::json(nullptr)},
+            {"eval_episodes", def.scope == RunnerScope::EVAL && def.eval_episodes
+                ? anet::json(*def.eval_episodes) : anet::json(nullptr)},
+            {"num_envs", def.scope == RunnerScope::EVAL && def.num_envs
+                ? anet::json(*def.num_envs) : anet::json(nullptr)},
             {"event", def.event}, {"target", def.target}, {"keys", def.keys}};
     }
     return payload;
@@ -1456,6 +1469,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 .has_ema = is_ema,
                 .ema_alpha = ema_alpha,
                 .interval = interval,
+                .clip = clip,
                 .scope = runner_scope,
                 .eval_name = eval_name,
                 .subscription = ScalarMetricSubscription{

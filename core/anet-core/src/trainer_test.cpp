@@ -1000,6 +1000,7 @@ TEST_CASE("RunnerThread forwards a worker exception once and stops", "[trainer][
 TEST_CASE("RunManager writes attached scalar and trace definitions separately", "[trace][metrics_defs][trainer]")
 {
     const bool active_trace = GENERATE(false, true);
+    const bool shared = GENERATE(false, true);
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd069-defs";
     const auto run_dir = root / "runs" / "defs_test";
     anet::MetricsLogger::Reset();
@@ -1012,12 +1013,24 @@ TEST_CASE("RunManager writes attached scalar and trace definitions separately", 
     struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
     RegisterRunManagerNameTestFactories();
     auto config = MakeRunManagerNameTestConfig();
+    if (shared) config.Set("env.class_id", "RunManagerSharedBatchEnv");
     config.Set("train.eval.[active].run_mode", "eval1");
+    config.Set("train.eval.[active].eval_episodes", "3");
+    config.Set("train.eval.[active].eval_batch_size", "2");
     config.Set("train.eval_schedule.[active].interval", "1");
     config.Set("train.eval_schedule.[active].use_background", "false");
     config.Set("train.eval.[sleep].run_mode", "eval2");
-    config.Set("metrics.scalar.[same]", "$eval.[active] @session_end $env mean.score");
+    config.Set("train.eval.[alternate].run_mode", "eval2");
+    config.Set("train.eval.[alternate].eval_episodes", "1");
+    config.Set("train.eval.[alternate].eval_batch_size", "4");
+    config.Set("train.eval_schedule.[alternate].interval", "1");
+    config.Set("train.eval_schedule.[alternate].use_background", "false");
+    config.Set("metrics.scalar.[same]", "$eval.[active] @session_end $env mean.score clip:7");
+    config.Set("metrics.scalar.[action]", "$eval.[alternate] @train $action_info score");
+    config.Set("metrics.scalar.[training]", "$train @episode_end $runner reward");
+    config.Set("metrics.scalar.[sleep]", "$eval.[sleep] @session_end $env mean.score");
     if (active_trace) config.Set("metrics.trace.[same]", "$eval.[active] @episode_end $env second first");
+    if (active_trace) config.Set("metrics.trace.[other]", "$eval.[alternate] @episode_end $env score");
     config.Set("metrics.trace.[sleep]", "$eval.[sleep] @episode_end $env score");
     if (active_trace) config.Set("metrics.trace.[training]", "$train @episode_end $runner reward");
     auto manager = std::make_shared<rl::RunManager>(config);
@@ -1037,25 +1050,57 @@ TEST_CASE("RunManager writes attached scalar and trace definitions separately", 
     std::ifstream trace_file(run_dir / "json" / "metrics.trace.defs.json");
     const auto scalar = anet::json::parse(scalar_file).at("data");
     const auto trace = anet::json::parse(trace_file).at("data");
-    REQUIRE(scalar.size() == 1);
+    REQUIRE(scalar.size() == 3);
+    CHECK_FALSE(scalar.contains("sleep"));
     CHECK(scalar.at("same").at("event") == "session_end");
-    REQUIRE(trace.size() == 2);
+    CHECK(scalar.at("same").at("runner") == "train");
+    CHECK(scalar.at("same").at("clip") == 7.0f);
+    CHECK(scalar.at("action").at("runner") == "alternate");
+    CHECK(scalar.at("action").at("clip").is_null());
+    REQUIRE(trace.size() == 3);
     CHECK_FALSE(trace.contains("sleep"));
     CHECK(trace.at("same").at("keys") == anet::json::array({ "second", "first" }));
     CHECK(trace.at("same").at("runner") == "train");
     CHECK(trace.at("same").at("step_axis") == "exp_step");
     CHECK(trace.at("same").at("event") == "episode_end");
     CHECK(trace.at("same").at("target") == "env");
-    CHECK(trace.at("same").size() == 5);
+    CHECK(trace.at("same").size() == 9);
     CHECK(trace.at("training").at("target") == "runner");
+    // tag や step 所有者に依存せず、各チャネルに実際の購読先と eval 条件を残す。
+    for (const auto* def : { &scalar.at("same"), &trace.at("same") }) {
+        CHECK(def->at("scope") == "eval");
+        CHECK(def->at("eval_name") == "active");
+        CHECK(def->at("eval_episodes") == 3);
+        CHECK(def->at("num_envs") == 2);
+    }
+    for (const auto* def : { &scalar.at("action"), &trace.at("other") }) {
+        CHECK(def->at("scope") == "eval");
+        CHECK(def->at("eval_name") == "alternate");
+        CHECK(def->at("eval_episodes") == 1);
+        CHECK(def->at("num_envs") == 4);
+    }
+    for (const auto* def : { &scalar.at("training"), &trace.at("training") }) {
+        CHECK(def->at("scope") == "train");
+        CHECK(def->at("eval_name").is_null());
+        CHECK(def->at("eval_episodes").is_null());
+        CHECK(def->at("num_envs").is_null());
+    }
+    CHECK(manager->GetEvalRunner("active")->GetBatchEnv()->GetBatchSpec().episode_scope
+        == (shared ? rl::EpisodeScope::SHARED : rl::EpisodeScope::PER_LANE));
     std::ifstream master(run_dir / "metrics.jsonl");
     int scalar_defs = 0, trace_defs = 0;
     for (std::string line; std::getline(master, line);) {
         const auto record = anet::json::parse(line);
         const auto tag = record.value("tag", "");
         CHECK(tag != "metrics.defs");
-        if (tag == "metrics.scalar.defs") scalar_defs++;
-        if (tag == "metrics.trace.defs") trace_defs++;
+        if (tag == "metrics.scalar.defs") {
+            scalar_defs++;
+            CHECK(record.at("data") == scalar);
+        }
+        if (tag == "metrics.trace.defs") {
+            trace_defs++;
+            CHECK(record.at("data") == trace);
+        }
     }
     CHECK(scalar_defs == 1);
     CHECK(trace_defs == 1);

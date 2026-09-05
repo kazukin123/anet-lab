@@ -206,7 +206,11 @@ metrics.scalar.[51_eval1/41_noop_uqe_win_rate]         = $eval.[eval1] @train $e
 
 実測では前者の最大stepが19,993,856、後者が151,185で、比はRun中に0.000039から0.0075へ単調にドリフトする。定数倍の換算は成立しない。configには「どのRunnerのcountsか」を書くtokenが無いため、この区別は`@event`と`$runner_scope`の組からしか導けない。
 
-解析側がこの導出を再実装しないよう、Runnerは構築済みobserverの解決済み定義を`metrics.scalar.defs`として出力する（[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)）。tagごとに`step_axis`、`runner`、`event`、`target`、`source_key`、`ema_alpha`、`interval`を持ち、既存の`type: "json"` recordとしてMetricsマスタへ1回だけ書く。scalar定義は既存のJSON recordであり、Metrics ViewerのSQLite schemaを変更しない。`runner`は「runner scopeがEVALかつeventが`train`のときだけそのeval名、それ以外は`train`」となる。
+解析側がこの導出を再実装しないよう、Runnerは構築済みobserverの解決済み定義を`metrics.scalar.defs`として出力する（[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)）。tagごとに`step_axis`、`runner`、`scope`、`eval_name`、`eval_episodes`、`num_envs`、`event`、`target`、`source_key`、`ema_alpha`、`interval`、`clip`を持ち、既存の`type: "json"` recordとしてMetricsマスタへ1回だけ書く。scalar定義は既存のJSON recordであり、Metrics ViewerのSQLite schemaを変更しない。`runner`は「runner scopeがEVALかつeventが`train`のときだけそのeval名、それ以外は`train`」となる。
+
+scalar / trace の各定義には、座標系所有者の `runner` と別に、購読先の `scope`（`train` / `eval`）、`eval_name`、`eval_episodes`、`num_envs` を保存する。`eval_episodes` は1セッションの採用予定数、`num_envs` は構築済み eval Env の lane 数（`GetBatchSpec().num_envs`）である。SHARED では複数 lane が1エピソードを共有するため並列エピソード数とは限らず、採用予定数もセッション完了を保証しない。train scope では `eval_name` / `eval_episodes` / `num_envs` は `null`。eval の情報は各 metric 定義に重複して持たせ、tag 名から推測しない。
+
+scalar 定義には `clip` も保存する。未指定は `null`、指定時は出力時に適用する対称クリップ幅であり、値取得 → EMA 更新 → interval 判定 → clip → 出力の順に適用する。解決済みの購読先と clip は Factory、eval の実条件は RunManager が attach 済み定義に付与する。
 
 `$ema`は、ゼロ初期化した内部値と観測済み重み和を同じ`ema_alpha`で更新し、内部値を重み和で正規化するバイアス補正EMAを使う。初回サンプルから欠損なく値を出力し、途中で`ema_alpha`が変わっても観測済み重み和に基づく補正を継続する。
 
@@ -246,7 +250,7 @@ trace は統計を集約せず、完了した採用 episode を1行で保存す�
 
 `EvalSessionEnv::LastAdoptedGroups()` は直前 Step で完了した採用 group のみを返し、EvalRunner は Step 直後・次の Step より前に通知する。SHARED の group 0 は通知時に -1 へ変換する。確定値は callback 内で読むため、個体値列を decorator に蓄積しない。セッション末尾の return 集約と SessionEnd は一度だけ行う。train も同じ trace observer を使う。
 
-attach 済み定義だけを `metrics.scalar.defs` / `metrics.trace.defs` に分けて記録し、dormant eval を除外する。空の定義は出力しない。trace 定義は `{tag: {step_axis, runner, event, target, keys}}` で、両定義は `json/<定義tag>.json` にミラーされる。Agent への購読ヒントは scalar 定義だけを渡す。
+attach 済み定義だけを `metrics.scalar.defs` / `metrics.trace.defs` に分けて記録し、dormant eval を除外する。空の定義は出力しない。trace 定義は `{tag: {step_axis, runner, scope, eval_name, eval_episodes, num_envs, event, target, keys}}` で、両定義は同じ内容で `json/<定義tag>.json` にミラーされる。Agent への購読ヒントは scalar 定義だけを渡す。
 
 `inspect_run` の master/cache は新名 `metrics.scalar.defs` を優先し、不在時だけ旧 `metrics.defs` を読む。どちらも `def_source=metrics_defs` で、改名のみを理由とする WARN は出さない。旧名の互換読取りは現用 Run 作業セットがすべて新名になるまでの例外で、過去 artifact は変更しない。定義不在時の設定導出は維持し、cache 未構築時の selector 展開と `tags --no-observed` でも `session_end` を導出する。
 

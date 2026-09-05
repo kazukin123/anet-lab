@@ -282,7 +282,11 @@ Metrics Viewerは人間向けの可視化画面である。shellから構造化�
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags run_A --format md
 ```
 
-`tags`はtagごとに、解決済み定義（`step_axis`、`runner`、`event`、`target`、`source_key`、`ema_alpha`、`interval`）と観測範囲（`count`、`min_step`、`max_step`）を返す。`--metric`へ何を渡せるかと、各tagがどこまで到達しているかがこれで分かるので、range指定はこの結果を見てから決める。
+`tags`はtagごとに、解決済み定義（`step_axis`、`runner`、`scope`、`eval_name`、`eval_episodes`、`num_envs`、`event`、`target`、`source_key`、`ema_alpha`、`interval`、`clip`）と観測範囲（`count`、`min_step`、`max_step`）をJSON / Markdownで返す。`--metric`へ何を渡せるかと、各tagがどこまで到達しているかがこれで分かるので、range指定はこの結果を見てから決める。
+
+`runner` は step counter の所有者、`scope` / `eval_name` は購読先を表す。eval1 / eval2 のセッション集約がともに `runner: "train"` でも、`eval_name` で区別できる。`eval_episodes` は1セッションの採用予定数、`num_envs` は構築済み eval Env の lane 数であり、セッション完了や並列エピソード数を保証しない。train scope の eval 情報と未指定の `clip` は `null`。
+
+master / cache の両経路で定義の追加情報を保持する。過去 Run の定義に無い追加項目は不明（`null`）とし、tag や config から補わない。定義不在時の既存 config 導出経路（cache 未構築の `tags --no-observed` を含む）では購読先と clip を復元するが、構築後の実条件を推測しないため `eval_episodes` / `num_envs` は `null` とする。過去 artifact は書き換えない。
 
 `source_key`は`metrics.scalar.[tag]`の右辺で採用されたmetric keyである。値の意味を確認したいときは、この文字列でコードを検索する。
 

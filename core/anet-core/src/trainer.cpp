@@ -874,6 +874,8 @@ RunManager::RunManager(const ConfigData& config_data)
     // 設定からObserverを生成して登録
     anet::rl::ObserverFactory factory(config_data);
 
+    // 構築した eval の採用予定数を、後段で attach 済み metric 定義へ付与する。
+    std::unordered_map<std::string, int> eval_episode_counts;
     // EpisodeEvalObserver
     for (const auto& kv : eval_configs) {
         // Eval設定取得
@@ -974,6 +976,7 @@ RunManager::RunManager(const ConfigData& config_data)
         auto eval_runner = std::make_shared<EvalRunner>(
             session_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
         eval_runners.emplace(tag, eval_runner);
+        eval_episode_counts.emplace(tag, eval_episodes);
         RegisterEnvName(tag, owner);
 
         // EvalObserver生成&登録
@@ -1033,11 +1036,20 @@ RunManager::RunManager(const ConfigData& config_data)
     // 実際に attach した scalar metric の解決済み定義を 1 レコードだけ残す。
     // 解析側が config から step 座標系や source key を再導出しないための正本 (ADR 0029)。
     // 既存の type="json" record を使うため、Metrics Viewer の取り込みと cache 契約は変わらない。
+    const auto complete_metric_definition = [&](auto& def) {
+        // dormant eval は除外し、実際の購読先から eval 条件を確定する。
+        const auto runner = resolve_runner(def.scope, def.eval_name);
+        if (runner == nullptr) return false;
+        if (def.scope == RunnerScope::EVAL) {
+            def.eval_episodes = eval_episode_counts.at(def.eval_name);
+            def.num_envs = runner->GetBatchEnv()->GetBatchSpec().num_envs;
+        }
+        return true;
+    };
     std::vector<anet::rl::ObserverFactory::ScalarMetricDef> attached_defs;
-    for (const auto& def : factory.GetScalarMetricDefs()) {
-        // dormant な eval tag は observer を attach していないので定義も残さない。
-        if (resolve_runner(def.scope, def.eval_name) == nullptr) continue;
-        attached_defs.push_back(def);
+    for (auto def : factory.GetScalarMetricDefs()) {
+        if (!complete_metric_definition(def)) continue;
+        attached_defs.push_back(std::move(def));
     }
     anet::json metric_defs = anet::rl::ScalarMetricDefsToJson(attached_defs);
     if (!metric_defs.empty()) {
@@ -1046,9 +1058,9 @@ RunManager::RunManager(const ConfigData& config_data)
 
     // trace は別チャネルの定義とし、dormant eval と scalar 購読ヒントから分離する。
     std::vector<ObserverFactory::TraceMetricDef> attached_trace_defs;
-    for (const auto& def : factory.GetTraceMetricDefs()) {
-        if (resolve_runner(def.scope, def.eval_name) == nullptr) continue;
-        attached_trace_defs.push_back(def);
+    for (auto def : factory.GetTraceMetricDefs()) {
+        if (!complete_metric_definition(def)) continue;
+        attached_trace_defs.push_back(std::move(def));
     }
     const auto trace_defs = TraceMetricDefsToJson(attached_trace_defs);
     if (!trace_defs.empty()) {

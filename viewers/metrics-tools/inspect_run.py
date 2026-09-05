@@ -316,6 +316,11 @@ class MetricDef:
     source_key: str | None = None
     ema_alpha: float | None = None
     interval: int | None = None
+    scope: str | None = None
+    eval_name: str | None = None
+    eval_episodes: int | None = None
+    num_envs: int | None = None
+    clip: float | None = None
 
     def space(self) -> tuple[str, str]:
         """step 座標系。軸名だけでは同一性が決まらないので Runner との組で識別する。"""
@@ -333,6 +338,11 @@ class MetricDef:
             "source_key": self.source_key,
             "ema_alpha": self.ema_alpha,
             "interval": self.interval,
+            "scope": self.scope,
+            "eval_name": self.eval_name,
+            "eval_episodes": self.eval_episodes,
+            "num_envs": self.num_envs,
+            "clip": self.clip,
         }
 
 
@@ -348,10 +358,12 @@ def metric_def_from_definition(definition: str) -> MetricDef:
     axis: str | None = None
     event: str | None = None
     runner_scope = TRAIN_RUNNER
+    scope = "train"
     target: str | None = None
     source_key: str | None = None
     ema_alpha: float | None = None
     interval: int | None = None
+    clip: float | None = None
 
     for token in definition.split():
         if token.startswith("$"):
@@ -362,8 +374,10 @@ def metric_def_from_definition(definition: str) -> MetricDef:
                 target = TARGET_TOKENS[name]
             elif name == TRAIN_RUNNER:
                 runner_scope = TRAIN_RUNNER
+                scope = "train"
             elif name.startswith("eval.[") and name.endswith("]"):
                 runner_scope = name[len("eval.[") : -1] or UNKNOWN
+                scope = "eval"
             elif name == "ema" and ema_alpha is None:
                 ema_alpha = 0.01
             continue
@@ -387,10 +401,15 @@ def metric_def_from_definition(definition: str) -> MetricDef:
             ema_alpha = _safe_float(tail)
         elif head == "interval":
             interval = _safe_int(tail)
+        elif head == "clip":
+            clip = _safe_float(tail)
 
+    # 購読先は token から復元するが、実際の eval 条件は config から推測しない。
+    eval_name = runner_scope if scope == "eval" and runner_scope != UNKNOWN else None
     resolved_event = event if event in EVENT_NAMES else ("train" if event is None else UNKNOWN)
     if resolved_event == UNKNOWN:
-        return MetricDef(source_key=source_key, ema_alpha=ema_alpha, interval=interval)
+        return MetricDef(source_key=source_key, ema_alpha=ema_alpha, interval=interval,
+                         scope=scope, eval_name=eval_name, clip=clip)
 
     # 明示指定を最優先し、無い場合だけ event 既定へ落とす。
     if axis is None:
@@ -404,6 +423,9 @@ def metric_def_from_definition(definition: str) -> MetricDef:
         source_key=source_key,
         ema_alpha=ema_alpha,
         interval=interval,
+        scope=scope,
+        eval_name=eval_name,
+        clip=clip,
     )
 
 
@@ -448,6 +470,11 @@ def metric_defs_from_record(data) -> dict[str, MetricDef]:
             source_key=entry.get("source_key"),
             ema_alpha=entry.get("ema_alpha"),
             interval=entry.get("interval"),
+            scope=entry.get("scope"),
+            eval_name=entry.get("eval_name"),
+            eval_episodes=entry.get("eval_episodes"),
+            num_envs=entry.get("num_envs"),
+            clip=entry.get("clip"),
         )
     return defs
 
@@ -1898,11 +1925,13 @@ def render_tags_markdown(result: dict) -> str:
         _table(
             lines,
             ["tag", "step_axis", "runner", "event", "target", "source_key",
-             "ema_alpha", "interval", "status", "count", "min_step", "max_step"],
+             "ema_alpha", "interval", "clip", "scope", "eval_name", "eval_episodes", "num_envs",
+             "status", "count", "min_step", "max_step"],
             [
                 [
                     item["tag"], item["step_axis"], item["runner"], item["event"],
                     item["target"], item["source_key"], item["ema_alpha"], item["interval"],
+                    item["clip"], item["scope"], item["eval_name"], item["eval_episodes"], item["num_envs"],
                     item["status"],
                     (item["observed"] or {}).get("count"),
                     (item["observed"] or {}).get("min_step"),

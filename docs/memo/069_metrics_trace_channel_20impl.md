@@ -158,3 +158,32 @@ SQLite loader が既存の古い一時 DLL を削除できない `AccessDeniedEx
 ```
 
 現用 eval scalar の旧イベント指定は移行済み。残る旧表記は拒否テスト、trace、座標系説明、過去資料のもの。`git diff --check` は成功。計画で指定したビルド・回帰・前後 Run・reader の未実施項目はなく、期待済み失敗と環境依存診断は上記に区別して記録した。
+
+## 追加対応: 購読先・eval 条件の定義出力（2026-09-05）
+
+試行 Run の feedback を受け、`runner` を step counter 所有者のまま維持し、購読先を独立して識別する以下の計画が承認された。上記の前後 Run 記録は初回実装時の結果として保持する。
+
+- scalar / trace の各定義に `scope`、`eval_name`、`eval_episodes`、`num_envs` を保存する。eval 条件は各定義へ重複保存し、独立した eval 定義レコードは作らない。
+- `scope` は `train` / `eval`。train の eval 情報は `null`。`eval_episodes` は1セッションの採用予定数、`num_envs` は構築済み Env の lane 数であり、SHARED のエピソード group 数へ変換しない。予定数を完了の証拠として扱わない。
+- scalar に、Observer が使う解決済み `clip` を保存する（未指定は `null`）。Factory の購読先・clip に、RunManager が attach 済み eval の実条件を付与する。dormant eval は除外する。
+- JSONL と定義ミラーを一致させる。trace の行契約、scalar の値取得・EMA・interval・clip の実行処理、座標系の規則は変更しない。
+- `inspect_run tags` の JSON / Markdown と master / cache の両経路に追加情報を反映する。過去の定義で欠ける情報は不明とし、tag / config から補完しない。定義不在時の既存 config 導出では購読先と clip だけを復元し、eval の実条件は推測しない。trace ダンプ CLI は別件。
+- PRD §4.7 / §6、ADR 0037、現行設計 030 / 140 を同期する。
+
+評価 Run 中はコード・文書の編集だけを進め、ユーザーから「終了済み」の回答を受けてからビルド・テストを開始した。関連テストは tag に依存しない購読先、N=3 / lane=2 と N=1 / lane=4、PER_LANE / SHARED、dormant、同名 scalar / trace、clip の後勝ちと未指定、train scope への上書き、JSONL / ミラー一致、新旧 reader と config 導出を対象とした。
+
+Python の初回実行は、追加テストが既存 fixture に未対応の引数を渡して1件エラーとなった。旧 fixture を維持し、新形式の辞書を追加テスト内で構築するよう修正後、60テストが成功した。
+
+最終検証はすべて exit 0。
+
+```powershell
+cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug'
+core\anet-core\bin\Debug\anet-core-test.exe '[metrics_defs],[trace],[eval_session],[observers],[observer_factory]'
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run_test.py
+git diff --check
+```
+
+- Debug 全体ビルド成功（Runner と各 Env の利用側を含む）。既存の `/Zi` → `/Z7` 上書き警告、初回ビルド時の `getenv` 非推奨警告が出たが、コンパイル・リンクエラーはない。
+- 関連 C++ は **40 test cases / 768 assertions 成功**。ログ: [metadata-cpp-test.log](../../out/test-tmp/prd069/metadata-cpp-test.log)。末尾の trace unknown key / background failure は意図した例外伝播テストの診断であり、失敗ケースではない。
+- Python は **60 tests 成功**。新規3テストで master / cache、JSON / Markdown、旧定義の欠落、config 導出を検証した。
+- 今回は定義メタデータの追加のみで、学習・評価の実行処理は変更していない。Release ビルド、C++ 全テスト、実学習 Run の前後比較、Viewer 再検証は追加対応の対象に含めず、再実行していない。上記の初回 PRD069 実装時の実 Run 検証とは区別する。

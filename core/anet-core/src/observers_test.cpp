@@ -1410,8 +1410,8 @@ TEST_CASE("ScalarMetricDefsToJson emits the metrics.scalar.defs payload", "[obse
 {
     anet::ConfigData config;
     config.Set("metrics.scalar.[eval_action]",
-        "$eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.01 interval:100");
-    config.Set("metrics.scalar.[train_plain]", "mean.ep_step $env @train");
+        "$eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.01 interval:100 clip:2 clip:3");
+    config.Set("metrics.scalar.[train_plain]", "mean.ep_step $env @train $eval.[ignored] $train");
 
     rl::ObserverFactory factory(config);
     auto payload = rl::ScalarMetricDefsToJson(factory.GetScalarMetricDefs());
@@ -1427,12 +1427,24 @@ TEST_CASE("ScalarMetricDefsToJson emits the metrics.scalar.defs payload", "[obse
     CHECK(eval_action.at("source_key").get<std::string>() == "action_uqe_win_rate.[0]");
     CHECK(eval_action.at("ema_alpha").get<double>() == Catch::Approx(0.01));
     CHECK(eval_action.at("interval").get<int>() == 100);
+    CHECK(eval_action.at("scope") == "eval");
+    CHECK(eval_action.at("eval_name") == "eval1");
+    CHECK(eval_action.at("clip") == 3.0f);
+    // Factory だけでは構築後の eval 条件は分からない。
+    CHECK(eval_action.at("eval_episodes").is_null());
+    CHECK(eval_action.at("num_envs").is_null());
 
     // EMA を使わない metric は ema_alpha を null にし、既定値を混ぜない。
     const auto& train_plain = payload.at("train_plain");
     CHECK(train_plain.at("ema_alpha").is_null());
     CHECK(train_plain.at("interval").get<int>() == 1);
     CHECK(train_plain.at("target").get<std::string>() == "env");
+    // scalar の後勝ちで train に戻った場合も eval 名を漏らさない。
+    CHECK(train_plain.at("scope") == "train");
+    CHECK(train_plain.at("eval_name").is_null());
+    CHECK(train_plain.at("eval_episodes").is_null());
+    CHECK(train_plain.at("num_envs").is_null());
+    CHECK(train_plain.at("clip").is_null());
 
     // target 未指定は null。空文字と区別する。
     anet::ConfigData learn_config;
