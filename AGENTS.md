@@ -476,6 +476,26 @@ Run はフォルダがそのまま管理単位なので、**「消してよい�
 Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
 ```
 
+## 実験記録と実効 config の保存ルール
+
+`apps/runner/workspaces` は `.gitignore` 済みで Run artifact は失われうるため、
+実験記録の再現性と再見性は記録側だけで完結させます。
+**実験記録が参照する Run の実効 config を、記録と同じ場所へ複製してください。**
+
+- **置き場は `docs/experiments/<agent>/<env>/config/<Run フォルダ名>.txt`。** 内容は Run artifact の
+  `config/config_data.txt` をそのままコピーしたものです。env ごとにフラットな 1 ディレクトリへ置きます。
+- **ファイル名は Run フォルダ名から `★` などの可変マーカーを除いたもの。** 記録側がタイムスタンプだけで
+  Run を参照している場合があるため、**`run_YYYYMMDD-HHMMSS` を join キーとして扱います**。
+- **対象は実験記録の本文に Run 名が出るものだけ。** 配線確認や捨て Run（`tmp` 付き）は複製しません。
+- **タイミングは実験記録を更新するコミットと同じ。** 記録を書く時点で一緒に複製すれば漏れません。
+- **複製した config は再実行できます。** `--config <保存した config>` は workspace 解決を省く完全自己記述モードです。
+  実行時は `app.run_name` を書き換え、`app.runs_dir` が相対パスなので `apps/runner` を作業ディレクトリにしてください。
+- **ただし再現できるのは実効設定であって解決過程ではありません。** `config_data.txt` は `.$` が消費済みのリーフなので、
+  プロファイル合成やチェーンの挙動を検証したいときは `run.$` チェーンで引き直してください。
+- **`run.$` チェーンを記録へ書くことは複製の代わりになりません。** プロファイルは改名・削除・内容変更されるため、
+  チェーンは当時の env 設定ファイルとセットでしか意味を持ちません。
+- **複製時は公開できない値が混ざっていないか走査してください。** 絶対パス、ユーザー名、認証情報、メール、URL、IP。
+
 ## AI エージェントのRun結果分析ルール
 
 Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
@@ -500,7 +520,7 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 - **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@episode_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
 - 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
 
-- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。
+- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。Run artifactが失われている場合は、`docs/experiments/<agent>/<env>/config/<Run名>.txt`に複製がある（前節）。
 - 分析開始時に到達step、停止理由、artifactの更新時刻を確認し、実行途中の分析は暫定結果と明記する。完了後は終盤値を再取得して結論を更新する。
 - Run成立性、主目的score、変更機構の健全性、Env挙動、throughput・実所要時間・資源消費を分けて評価し、機構が正常なことと成績改善を混同しない。
 - 報酬は単一の最終点や短期の立ち上がりではなく、比較可能な同一step範囲の終盤window、水準、傾き、急落からの回復を確認する。ユーザーが指定した評価期間とseed数を優先する。
