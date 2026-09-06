@@ -738,7 +738,7 @@ class PlotlyController {
 						xRange: viewport?.range ?? null,
 						yRange: this.app.manualYRange(tagKey)
 								?? this._outlierDisplayRange(outlierRange, signedLogScale),
-						dragMode: this.app.graphScrollLockEnabled
+						dragMode: this.app.graphScrollLockActive()
 								? false
 								: this.app.plotDragMode(tagKey)
 					});
@@ -768,7 +768,7 @@ class PlotlyController {
 			});
 			plot.on("plotly_relayout", event => {
 				if (plot.__mvUpdatingPlot) return;
-				if (this.app.graphScrollLockEnabled
+				if (this.app.graphScrollLockActive()
 						&& Object.prototype.hasOwnProperty.call(event ?? {}, "dragmode")
 						&& event.dragmode !== false) {
 					Plotly.relayout(plot, { dragmode: false });
@@ -1309,21 +1309,26 @@ class UIController {
 		const isGraphTarget = target => target instanceof Element
 				&& Boolean(target.closest(".js-plotly-plot"))
 				&& !target.closest(".modebar");
+		// スクリーンショットモードでは #main-area の overflow が visible になり、
+		// スクロールはドキュメント側で起きる。
+		const scrollTarget = () => this.app.mode === Mode.SCREENSHOT
+				? (document.scrollingElement ?? document.documentElement)
+				: mainArea;
 		const begin = (target, clientY, touchId = null) => {
-			if (!this.app.graphScrollLockEnabled || !isGraphTarget(target)) return;
+			if (!this.app.graphScrollLockActive() || !isGraphTarget(target)) return;
 			state.active = true;
 			state.startY = clientY;
 			state.lastY = clientY;
 			state.touchId = touchId;
 		};
 		const move = (event, clientY) => {
-			if (!state.active || !this.app.graphScrollLockEnabled) return;
+			if (!state.active || !this.app.graphScrollLockActive()) return;
 			const total = clientY - state.startY;
 			if (!state.scrolling && Math.abs(total) < GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX) return;
 			state.scrolling = true;
 			const delta = state.lastY - clientY;
 			state.lastY = clientY;
-			mainArea.scrollTop += delta;
+			scrollTarget().scrollTop += delta;
 			if (event.cancelable) event.preventDefault();
 			event.stopPropagation();
 		};
@@ -1989,8 +1994,12 @@ class MetricsViewerClientApp {
 		this._syncGraphScrollLockUi();
 	}
 
+	graphScrollLockActive() {
+		return this.graphScrollLockEnabled || this.mode === Mode.SCREENSHOT;
+	}
+
 	_syncGraphScrollLockUi() {
-		document.body.classList.toggle("graph-scroll-locked", this.graphScrollLockEnabled);
+		document.body.classList.toggle("graph-scroll-locked", this.graphScrollLockActive());
 		const button = document.getElementById("btn-graph-scroll-lock");
 		if (button) {
 			button.textContent = this.graphScrollLockEnabled
@@ -1999,7 +2008,7 @@ class MetricsViewerClientApp {
 			button.classList.toggle("active", this.graphScrollLockEnabled);
 			button.setAttribute("aria-pressed", this.graphScrollLockEnabled ? "true" : "false");
 		}
-		this.plotly.applyGraphScrollLock(this.graphScrollLockEnabled);
+		this.plotly.applyGraphScrollLock(this.graphScrollLockActive());
 	}
 
 	onToggleAutoReload() {
@@ -2050,6 +2059,7 @@ class MetricsViewerClientApp {
 		const enabled = document.body.classList.toggle("screenshot-mode");
 		document.documentElement.classList.toggle("screenshot-mode", enabled);
 		this.setMode(enabled ? Mode.SCREENSHOT : Mode.NORMAL);
+		this._syncGraphScrollLockUi();
 		document.getElementById("btn-screenshot-toggle").textContent = enabled ? "➡" : "⬅";
 		const header = document.getElementById("screenshot-header");
 		header.textContent = this.selectedRuns.length === 1

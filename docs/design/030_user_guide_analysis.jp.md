@@ -79,7 +79,7 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | グラフの`Log` | 正負と0を扱えるsigned-log表示を切り替える |
 | グラフの`p5–p95` | 各Runについて、現在表示している有限値のp5–p95内だけを表示する |
 | `Scroll Lock` | グラフ操作を抑え、drag/swipeを縦scrollへ使う |
-| Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える |
+| Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える。この間はScroll Lock相当となり、graph上のdrag/swipeを縦scrollへ使う |
 
 Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる。`Autoscale`ボタンは重複を避けるため非表示である。グラフ本体のdouble-clickはPlotlyのaxis resetを維持しつつ、ViewerのReloadも実行する。
 
