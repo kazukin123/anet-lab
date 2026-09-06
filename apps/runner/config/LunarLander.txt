@@ -1,4 +1,4 @@
-
+﻿
 # ==============================================================================
 # 基本設定
 # ==============================================================================
@@ -21,8 +21,7 @@ train.num_envs = 256
 DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 #DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > A2
 
-#agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
-agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
+#agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い場合がある
 
 app.run_name = run_{t}_ll
 
