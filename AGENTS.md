@@ -422,6 +422,7 @@ commit message は Conventional Commits 形式を適用し、Topic Issue 番号�
   例: `feat(DropMerge): 前回エピソード終了理由表示を追加 #3 #18`
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
 - `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
+- subjectのsummary部では変更の主目的を簡潔に表す。その変更に不随した修正についてはその意図を差分として確認出来る限り含めない。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
 - AI エージェントが commit message 案を提示する場合は、個々の修正差分ではなく、人間がこれから staging / commit する予定の、同一作業コンテキストに関連する未コミット変更のまとまりに対する案として提示する。
 - PRD 対応や機能追加の途中で局所的な不具合修正を含んだ場合でも、それを独立 commit にしない限り、commit message は局所修正ではなく commit 対象全体の主目的を表す。
