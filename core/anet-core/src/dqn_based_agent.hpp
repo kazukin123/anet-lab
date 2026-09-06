@@ -223,13 +223,18 @@ namespace anet::rl::dqn {
             if (auto value = GetPlasticityScalar(key)) return value;
 
             // loss/td/grad
-            if (key == "loss") return loss.item<float>();
+            if (key == "loss") {
+                if (!loss.defined()) return std::numeric_limits<float>::quiet_NaN();
+                return loss.item<float>();
+            }
             if (key == "td_mean") {
+                if (!td_error.defined()) return std::numeric_limits<float>::quiet_NaN();
                 if (!td_error_abs_cpu.defined())
                     td_error_abs_cpu = td_error.abs().cpu();
                 return td_error_abs_cpu.mean().item<float>();
             }
             if (key == "td_std") {
+                if (!td_error.defined()) return std::numeric_limits<float>::quiet_NaN();
                 if (!td_error_abs_cpu.defined())
                     td_error_abs_cpu = td_error.abs().cpu();
                 return td_error_abs_cpu.std().item<float>();
@@ -239,10 +244,12 @@ namespace anet::rl::dqn {
                     return *grad_norm;
                 if (grad_norm_tensor.defined())
                     return grad_norm_tensor.item<float>();
-                return std::nullopt;
+                // 既知keyなのでnulloptではなくNaN。nulloptは購読側で未知key扱いになり、
+                // 値未成立のupdateごとにWARNを出させてしまう。
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "grad_clip_ratio") {
-                if (!grad_norm_tensor.defined()) return 0.0f;
+                if (!grad_norm_tensor.defined()) return std::numeric_limits<float>::quiet_NaN();
                 return (grad_norm_tensor.item<float>() > grad_clip_tau) ? 1.0f : 0.0f;
             }
 
@@ -281,15 +288,15 @@ namespace anet::rl::dqn {
             }
             if (key == "q_std") {
                 if (q_std.defined()) return anet::ToFloat(q_std);
-                return 0.0f;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_gap") {
                 if (q_gap.defined()) return anet::ToFloat(q_gap);
-                return 0.0f;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_gap_rel") {
                 if (q_gap_rel.defined()) return anet::ToFloat(q_gap_rel);
-                return 0.0f;
+                return std::numeric_limits<float>::quiet_NaN();
             }
 
             int64_t iqn_diagnostic_index = -1;
@@ -507,7 +514,8 @@ namespace anet::rl::dqn {
         void TransQToCpu() const
         {
             if (max_q_cpu.defined()) return;
-            max_q_cpu = max_q.cpu();
+            // 未測定のupdateではmax_qがundefinedなので、real側と同じくCPU転送を試みない。
+            if (max_q.defined()) max_q_cpu = max_q.cpu();
         }
         void TransRealQToCpu() const
         {

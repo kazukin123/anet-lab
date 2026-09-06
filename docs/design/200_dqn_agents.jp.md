@@ -200,33 +200,39 @@ sequenceDiagram
     R->>G: UpdateFromBatch(step_counts, experience)
     G->>G: mutex取得とAgent固有前処理
     G->>L: UpdateFromBatch(processed experience)
-    L->>B: Push(experience)
-    alt warmupまたはsample数が不足
-        L-->>G: 空のBatchUpdateResultList
-    else 更新可能
-        loop update creditが1以上
-            L->>B: Sample(minibatch, beta)
-            B-->>L: ExperienceSamples
-            opt IQNLearner
-                L->>L: current/target用tausを独立生成
+    alt learner.enabled=false
+        L-->>G: 未測定のBatchUpdateResultを1件
+    else 学習有効
+        L->>B: Push(experience)
+        alt warmupまたはsample数が不足
+            L-->>G: 空のBatchUpdateResultList
+        else 更新可能
+            loop update creditが1以上
+                L->>B: Sample(minibatch, beta)
+                B-->>L: ExperienceSamples
+                opt IQNLearner
+                    L->>L: current/target用tausを独立生成
+                end
+                L->>N: currentとtargetを計算
+                N-->>L: lossとTD error
+                L->>O: backwardとstep
+                opt PER有効
+                    L->>B: UpdatePriorities(item_keys, priorities)
+                    B-->>L: appliedとstale件数
+                end
+                L->>N: target Networkを更新
+                L->>L: betaとlearn_stepを更新
             end
-            L->>N: currentとtargetを計算
-            N-->>L: lossとTD error
-            L->>O: backwardとstep
-            opt PER有効
-                L->>B: UpdatePriorities(item_keys, priorities)
-                B-->>L: appliedとstale件数
-            end
-            L->>N: target Networkを更新
-            L->>L: betaとlearn_stepを更新
+            L-->>G: 1件以上のBatchUpdateResult
         end
-        L-->>G: 1件以上のBatchUpdateResult
     end
     G->>G: ActionPolicyのscheduleを更新
     G-->>R: BatchUpdateResultList
 ```
 
 DefaultDQNは外側AgentでRewardをscaleし、ObservationNormalizerの統計を更新してから生Observationとscale済みRewardを内側へ渡す。Rainbowはこの前処理を持たず、同じinner Learner contractへ直接委譲する。
+
+`learner.enabled=false`は学習を完全に止めた評価専用Runのための設定である。既定は`true`。falseではReplayBufferを構築せず、Push、Sample、forward、backward、optimizer stepのいずれも呼ばない。Optimizerはcheckpointのpayload互換のため構築したままとする。**空のリストではなく、全診断keyが未成立=NaNの`BatchUpdateResult`を1件返す**。LEARNイベントは`update_results`が空だと発火せず、評価は`EpisodeEvalObserver::OnLearn`からしか駆動されないためである。この形で1 train stepが1 learn stepになり、`eval_schedule`の`interval`をそのままtrain step周期として使える。外側Agentの前処理（Reward scaleとObservationNormalizer統計、ActionPolicyのschedule）は無効時も従来どおり動くので、統計を凍結する場合は`obs_norm`と`reward_scaler`の設定で行う。`auto_load_file`を伴わない`learner.enabled=false`は初期重みの評価になるため、構築エラーにはせず1度だけWARNする。
 
 ### 6.3 Munchausen RL
 
@@ -299,7 +305,7 @@ sequenceDiagram
 | Network/Head | `quantile_mode=none|qr|iqn`、QR quantile数、Dueling、初期化、online/target同期 |
 | ActionPolicy | Policy種類、epsilon、UQE tau減衰、IQN tau配置方式、Train/Eval/targetの選択 |
 | Train Actor | shared/clone、snapshot同期周期 |
-| Learner | optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
+| Learner | 学習の有効化(`enabled`)、optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
 
@@ -307,7 +313,7 @@ sequenceDiagram
 
 DefaultDQNでは`quantile_mode`の既定が`qr`、`qr.num_quantiles`の既定が51である。IQN learnerは勾配側`learner.iqn.current_taus`とtarget分布側`learner.iqn.target_taus`を独立に持ち、どちらも既定random×64でN≠Mを許す。target action選択はこの2系統とは別に`target_policy.tau_rule`を使う。旧DefaultDQN keyの`use_qr`と直下`num_quantiles`は現行契約に含めず、Rainbowの`use_qr`と`num_quantiles`は維持する。
 
-IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で除算する。`N = 1`では分散の不偏推定を使わず、`q_std`を明示的に0とする。
+IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で除算する。`N = 1`では分散の不偏推定を使わず、`q_std`を明示的に0とする。分位数を持たない`quantile_mode=none`では`q_std`が成立しないため`NaN`を返し、0へ偽装しない。
 
 `per_initial_priority_mode`は`fixed`、`max`、`actor_approx`を受け付ける。`max`と`actor_approx`はPER有効を要求し、priority、epsilon、clip値、profile構造などはConfig構築時に検証する。不正な組合せを暗黙に既定値へ戻さない。
 

@@ -3,6 +3,7 @@
 #include "anet/agent.hpp"
 #include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
 
@@ -263,10 +264,22 @@ private:
     int push_count_ = 0;
 };
 
+/// LEARNイベントの発火は件数だけで決まるので、値を持たない最小の結果で足りる。
+class TestBatchUpdateResult final : public rl::BatchUpdateResult {
+public:
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+};
+
 class TestLearner final : public rl::Learner {
 public:
-    explicit TestLearner(std::shared_ptr<rl::ReplayBuffer> replay_buffer)
+    TestLearner(std::shared_ptr<rl::ReplayBuffer> replay_buffer, int result_count)
         : replay_buffer_(std::move(replay_buffer))
+        , result_count_(result_count)
     {
     }
 
@@ -274,11 +287,16 @@ public:
         const rl::StepCounts&, const rl::BatchExperience& batch_exp) override
     {
         replay_buffer_->Push(batch_exp);
-        return {};
+        rl::BatchUpdateResultList results;
+        for (int i = 0; i < result_count_; ++i) {
+            results.push_back(std::make_shared<TestBatchUpdateResult>());
+        }
+        return results;
     }
 
 private:
     std::shared_ptr<rl::ReplayBuffer> replay_buffer_;
+    int result_count_ = 0;
 };
 
 class TestAgent final : public rl::Agent {
@@ -310,8 +328,10 @@ public:
 
     std::shared_ptr<rl::Learner> CreateLearner() override
     {
-        return std::make_shared<TestLearner>(replay_buffer_);
+        return std::make_shared<TestLearner>(replay_buffer_, learner_result_count_);
     }
+
+    void SetLearnerResultCount(int count) { learner_result_count_ = count; }
 
     std::shared_ptr<const HintRecordingReplayBuffer> GetReplayBuffer() const { return replay_buffer_; }
 
@@ -326,6 +346,7 @@ private:
     mutable std::optional<bool> last_clone_model_override_ = true;
     mutable std::shared_ptr<TestActor> last_actor_;
     std::shared_ptr<HintRecordingReplayBuffer> replay_buffer_;
+    int learner_result_count_ = 0;
 };
 
 class RunManagerTestSingleEnv final : public rl::SingleDiscreteEnvBase {
@@ -554,6 +575,60 @@ TEST_CASE("Train runners preserve opaque K3 replay priority hints to the replay 
         auto payload = run_and_get_payload(true);
         REQUIRE(payload.defined());
         CHECK(torch::equal(payload, expected));
+    }
+}
+
+TEST_CASE("Train runners fire LearnEvent only for a non-empty update result list", "[trainer][learn_event]")
+{
+    // 評価は EpisodeEvalObserver::OnLearn からしか駆動されないため、update結果が空だと
+    // 学習を止めたRunで評価が1回も走らない。learner.enabled=false が空listではなく
+    // 1件返す設計の根拠になっている契約なので、両Runnerで固定する。
+    const auto run_case = [](bool pipeline, int result_count) {
+        auto env = std::make_shared<TestBatchEnv>("learn-event", 1, torch::Device(torch::kCPU));
+        auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+        agent->SetLearnerResultCount(result_count);
+        auto notifier = std::make_shared<rl::Notifier>();
+
+        int learn_event_count = 0;
+        notifier->Attach(std::make_shared<rl::FunctionLearnObserver>(
+            [&learn_event_count](const rl::LearnEvent&) { ++learn_event_count; }));
+
+        rl::StepCounts counts;
+        if (pipeline) {
+            auto runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier);
+            // 1step目は前ステップの経験が無く、2step目で学習を投入し、3step目で結果を回収する。
+            runner->DoStep();
+            runner->DoStep();
+            counts = runner->DoStep();
+            runner->Shutdown();
+        } else {
+            auto runner = std::make_shared<rl::SerialTrainRunner>(env, agent, notifier);
+            counts = runner->DoStep();
+            runner->Shutdown();
+        }
+        return std::pair<int, rl::step_t>{ learn_event_count, counts.learn_step };
+    };
+
+    SECTION("Serial")
+    {
+        const auto empty = run_case(false, 0);
+        CHECK(empty.first == 0);
+        CHECK(empty.second == 0);
+
+        const auto single = run_case(false, 1);
+        CHECK(single.first == 1);
+        CHECK(single.second == 1);
+    }
+
+    SECTION("Pipeline")
+    {
+        const auto empty = run_case(true, 0);
+        CHECK(empty.first == 0);
+        CHECK(empty.second == 0);
+
+        const auto single = run_case(true, 1);
+        CHECK(single.first == 1);
+        CHECK(single.second == 1);
     }
 }
 

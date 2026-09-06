@@ -295,7 +295,7 @@ Metrics Viewerは人間向けの可視化画面である。shellから構造化�
 
 引数なしの`runs`は全workspaceのRunを列挙する。`RUN`を渡すとそのRunだけを詳しく返す。`RUN`はRun名、または既存の相対・絶対directory pathを取る。Run名の探索範囲は`apps/runner/workspaces/*/runs/`直下だけである。同名Runが複数workspaceにある場合は候補pathを示して終了値2で止まり、どのworkspaceも暗黙選択しない。`apps/runner/runs_*`のlegacy配置はdirectory pathで明示すれば読める。
 
-`runs`はMetricsマスタを開かない。artifactのpath・size・更新時刻、`config/config_data.txt`のSHA-256、Metricsマスタの選択結果、Metricsキャッシュの状態と理由、`*.log`と`agent_close.anet`の一覧を返す。`agent_close.anet`の有無と更新時刻は、Runが完了したか途中で止まったかの手がかりになる。
+`runs`はMetricsマスタを開かない。artifactのpath・size・更新時刻、`config/config_data.txt`のSHA-256、Metricsマスタの選択結果、Metricsキャッシュの状態と理由、`*.log`と`agent_close.anet`の一覧を返す。`agent_close.anet`の有無と更新時刻は、Runが完了したか途中で止まったかの手がかりになる。ただし`app.save_agent_on_close=false`のRunでは正常終了しても作られないので、無いことだけを異常終了の根拠にしない。
 
 ### 6.2 何が取れるかを見る
 

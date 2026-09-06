@@ -50,6 +50,7 @@ $include <DropMerge.txt>
 | `app.runs_dir` | workspaceモードでは`<workspace>/runs`へRunnerが導出する。設定やCLIからの変更は禁止 |
 | `app.train_auto_start` | `true`ならGUI初期化後に学習を開始する |
 | `app.show_error_dialog` | error logに加えてモーダルダイアログを表示するか。未指定時は`true` |
+| `app.save_agent_on_close` | 終了時に`agent_close.anet`を自動保存するか。未指定時は`true`。`false`でも手動のSave Checkpointは使える |
 | `app.eval_panel.auto_start` | 手動EvalPanelを起動直後から動かすか |
 | `train.seed` | Runの基準seed |
 | `train.num_envs` | Train用BatchEnvのlane数 |
@@ -165,7 +166,7 @@ Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text�
 
 ### 5.4 停止、保存、checkpointからの再開
 
-WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止、`agent_close.anet`保存、Run出力のflush、GUI破棄の順に進む。保存中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止、`agent_close.anet`保存、Run出力のflush、GUI破棄の順に進む。`app.save_agent_on_close=false`のRunではこの保存だけを省き、他の順序は変わらない。保存中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
 
 `Save Checkpoint`は押下時にTrainが走行中なら先にpauseする。これはdialog操作中にstepが進み、既定ファイル名と保存内容がずれるのを防ぐためで、保存やcancelの後もTrainは自動再開しない。再開はRun制御ツールバーの`Train`か`Shift`で行う。保存処理自体はTrain走行中でも安全である。`DefaultDQNAgent`はserialization全体をAgentのshared lockで保護し、Learner更新と排他する。保存先の権限、空き容量、file lockなどで失敗した場合は対象pathと理由をerror logへ記録し、online構成ではダイアログも表示する。これはnon-fatalで、Runとprocess終了コードには影響しない。失敗したfileは不完全な可能性があるが自動削除されないため、内容を確認してから処理する。有効なpathを選べば再度Saveできる。
 
@@ -184,7 +185,7 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 | `config/*.txt`、`json/*.json` | コンポーネント別の注入済み設定・metadata dump。Envは`config/env.<Env name>.txt` |
 | `<run_name>.log` | timestampとlevelを含むrunner text log |
 | `stdout.log` / `stderr.log` | process標準出力・標準エラー |
-| `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint |
+| `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint。`app.save_agent_on_close=false`では作られない |
 | `videos/*.mkv` | image系Observerが生成した動画 |
 | `images/<tag>/*.png` | `app.metrics_logger.use_png_dump=true`時の個別frame |
 | `dot/**/*.dot` | GraphViz Observerの出力 |

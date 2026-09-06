@@ -58,6 +58,7 @@ struct RunnerApp::Config : public anet::Config {
     std::string log_level = "info";
     int log_flush_interval_ms = 500;
     bool show_error_dialog = true;
+    bool save_agent_on_close = true;
     bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
@@ -76,6 +77,7 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, log_level);
         ANET_READ_CONFIG(config_data, log_flush_interval_ms);
         ANET_READ_CONFIG(config_data, show_error_dialog);
+        ANET_READ_CONFIG(config_data, save_agent_on_close);
 
         ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
@@ -339,6 +341,7 @@ bool RunnerApp::OnInit()
 
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
+    save_agent_on_close_ = config_->save_agent_on_close;
 
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), config_->metrics_logger, anet::GetExecutableRootDir());

@@ -184,6 +184,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.num_taus);
             target_policy.use_spatial_exploration = false;
 
+            ANET_READ_CONFIG(config_data, learner.enabled);
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.adam_eps);
@@ -297,6 +298,13 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, quantile_mode);
             ANET_READ_CONFIG(config_data, qr.num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
+
+            // 学習も読み込みもしないRunは初期重みの評価になる。意図的な構成もあり得るので止めず、書き忘れ検出用に1度だけWARNする。
+            if (!learner.enabled && auto_load_file.empty()) {
+                anet::log::warn()
+                    << "learner.enabled=false without DefaultDQNAgent.auto_load_file; "
+                    << "the run evaluates freshly initialized weights.";
+            }
 
             // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
             train_policy.quantile_mode = quantile_mode;

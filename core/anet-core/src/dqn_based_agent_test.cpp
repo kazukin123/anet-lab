@@ -2099,6 +2099,128 @@ TEST_CASE("Learner stops polling replay buffer size after minibatch threshold is
     REQUIRE(replay_buffer->push_count == 3);
 }
 
+TEST_CASE("Disabled learner leaves the replay buffer and the network untouched", "[dqn][learner][enabled]")
+{
+    // 学習停止時はReplayBuffer・forward・parameterのどれも動かさない。
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.enabled = false;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    // 有効ならUpdateFromSamplesがforwardするので、probeが0のままならupdate自体が起きていない。
+    learner.EnablePlasticityForward(false);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1024 });
+    // 注入しても一切参照しないことを見る(本番ではRB自体を構築しない)。
+    learner.UseReplayBuffer(replay_buffer);
+
+    std::vector<torch::Tensor> before;
+    for (const auto& parameter : model.GetOnlineParameters()) {
+        before.push_back(parameter.detach().clone());
+    }
+
+    for (rl::step_t step = 0; step < 3; ++step) {
+        rl::StepCounts counts;
+        counts.train_step = step;
+        counts.exp_step = step;
+        auto results = learner.UpdateFromBatch(counts, rl::BatchExperience{});
+        // 空を返すとLearnEventが発火せずevalが駆動されないので、1件返す契約。
+        REQUIRE(results.size() == 1);
+        REQUIRE(results.front() != nullptr);
+    }
+
+    CHECK(replay_buffer->push_count == 0);
+    CHECK(replay_buffer->sample_count == 0);
+    CHECK(replay_buffer->unique_sample_count == 0);
+    CHECK(replay_buffer->size_count == 0);
+    CHECK(replay_buffer->update_count == 0);
+    CHECK(probe_state->forward_count == 0);
+    CHECK(vars.learn_step == 0);
+
+    const auto after = model.GetOnlineParameters();
+    REQUIRE(after.size() == before.size());
+    for (size_t i = 0; i < after.size(); ++i) {
+        CHECK(after[i].equal(before[i]));
+    }
+}
+
+TEST_CASE("Disabled learner reports known diagnostic keys as NaN", "[dqn][learner][enabled][nan]")
+{
+    // 未測定の既知keyはnullopt(未知扱い)でも 0(偽装)でもなくNaNで返す。
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.enabled = false;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(results.size() == 1);
+    const auto& result = results.front();
+
+    for (const char* key : {
+        "loss", "td_mean", "td_std", "grad_norm", "grad_clip_ratio",
+        "q_std", "q_gap", "q_gap_rel",
+        "q_max_mean", "q_max_max", "q_max_std", "q_sa_mean",
+        "per_td_error_abs_max", "per_prio_clip_ratio" }) {
+        CAPTURE(key);
+        const auto value = result->GetScalar(key);
+        REQUIRE(value.has_value());
+        CHECK(std::isnan(*value));
+    }
+    CHECK_FALSE(result->GetScalar("no_such_metric_key").has_value());
+
+    // $agent 経由の replaybuffer.* も Learner が所有する既知の名前空間なので、
+    // RBを構築しないRunでもNaNで返す。nullopt だと購読側がupdateごとにWARNを出す。
+    for (const char* key : {
+        "replaybuffer.per.last_evicted_never_sampled_ratio",
+        "replaybuffer.per.actor_initial_mass_ratio",
+        "replaybuffer.size" }) {
+        CAPTURE(key);
+        const auto value = learner.GetScalar(key);
+        REQUIRE(value.has_value());
+        CHECK(std::isnan(*value));
+    }
+    CHECK_FALSE(learner.GetScalar("no_such_agent_key").has_value());
+}
+
+TEST_CASE("LearnerConfig keeps learning enabled by default", "[dqn][learner][enabled][config]")
+{
+    CHECK(dqn::LearnerConfig{}.enabled);
+    CHECK(dqn::DefaultDQNAgentConfig(anet::ConfigData{}).learner.enabled);
+}
+
+TEST_CASE("DefaultDQNAgentConfig warns when learning is disabled without a checkpoint", "[dqn][learner][enabled][config]")
+{
+    // 初期重みの評価も意図的な構成としてあり得るので、止めずWARNだけ出す。
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.enabled", "false");
+
+    anet::test::LogCaptureGuard logs;
+    const dqn::DefaultDQNAgentConfig config(config_data);
+    logs.Flush();
+
+    CHECK_FALSE(config.learner.enabled);
+    CHECK(anet::test::HasRecordContaining(
+        logs.Records(), wxLOG_Warning, { "learner.enabled=false", "auto_load_file" }));
+
+    config_data.Set("DefaultDQNAgent.auto_load_file", "agent_close.anet");
+    anet::test::LogCaptureGuard loaded_logs;
+    const dqn::DefaultDQNAgentConfig loaded(config_data);
+    loaded_logs.Flush();
+
+    CHECK_FALSE(loaded.learner.enabled);
+    CHECK_FALSE(anet::test::HasRecordContaining(
+        loaded_logs.Records(), wxLOG_Warning, { "learner.enabled=false" }));
+}
+
 TEST_CASE("PER raw priority batch counts strict pre-clip changes on CPU and CUDA", "[dqn][per][clip]")
 {
     std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };

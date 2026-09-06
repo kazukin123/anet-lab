@@ -195,6 +195,7 @@ namespace anet::rl {
         };
 
         struct LearnerConfig {
+            bool enabled = true;         ///< falseで学習を完全停止する(評価専用Run)。ReplayBuffer構築も勾配更新も行わない
             std::string quantile_mode = "none"; ///< Agent config から解決して渡す内部mode
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
             float weight_decay = 1e-2f;  ///< AdamWの重み減衰率

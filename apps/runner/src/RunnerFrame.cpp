@@ -1216,7 +1216,9 @@ void RunnerFrame::OnClose(wxCloseEvent& event)
 
     wxGetApp().StopTraining();
     DetachTrainStatusObserver();
-    TrySaveAgent(wxGetApp().GetRunDir() / "agent_close.anet");
+    if (wxGetApp().ShouldSaveAgentOnClose()) {
+        TrySaveAgent(wxGetApp().GetRunDir() / "agent_close.anet");
+    }
     wxGetApp().ShutdownRunLogging();
 
     if (eval_panel_) {

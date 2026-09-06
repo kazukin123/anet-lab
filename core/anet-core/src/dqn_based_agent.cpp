@@ -1943,6 +1943,10 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     }
 
     LOG::info() << "Learner: U = " << earned_credit_;
+    if (!config_.enabled) {
+        LOG::info() << "Learner: learning is disabled (learner.enabled=false)."
+            << " No replay buffer and no gradient updates.";
+    }
 
     if (device_.is_cuda()) {
         per_priority_copy_stream_ = at::cuda::getStreamFromPool(false);
@@ -1969,7 +1973,11 @@ std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) c
         }
         return value;
     }
-    if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr) {
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
+        // ReplayBufferを持たないRun(learner.enabled=false)でも、この prefix は Learner が所有する
+        // 既知の名前空間なので値未成立としてNaNを返す。nullopt は購読側で未知key扱いになり、
+        // 他sourceを探索した末にupdateごとのWARNへ落ちる。
+        if (replay_buffer_ == nullptr) return std::numeric_limits<float>::quiet_NaN();
         return replay_buffer_->GetScalar(key);
     }
 
@@ -2220,6 +2228,11 @@ void Learner::SetupOptimizer()
 
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
 {
+    // 学習しないRunではcapacity分の確保が丸ごと無駄になるため構築しない。
+    // 学習経路の無条件derefはUpdateFromBatchの早期returnで到達不能で、
+    // metrics accessor側(GetScalar/GetTensor/GetTensorVector)は既にnullptrガード済み。
+    if (!config_.enabled) return;
+
     const auto initial_priority_mode = ParseReplayInitialPriorityMode(config_);
     ValidateReplayPriorityConfig(config_, initial_priority_mode);
     anet::rl::ReplayBufferConfig rep_config{};
@@ -2730,6 +2743,13 @@ anet::rl::BatchUpdateResultList
 Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences)
 {
     ANET_PROFILE_FUNC();
+
+    // 学習停止時。空listを返すとLearnEventが発火せず(trainer側の発火条件が非空)、
+    // evalの唯一の駆動源であるEpisodeEvalObserver::OnLearnが呼ばれない。
+    // 全診断値が未成立(=NaN)の結果を1件だけ返し、trainer側にlearn_stepを1進めさせる。
+    if (!config_.enabled) {
+        return { std::make_shared<BatchUpdateResult>() };
+    }
 
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);

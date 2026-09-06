@@ -293,7 +293,7 @@ sequenceDiagram
 
 #### 6.7.3 評価
 
-`train.eval.[tag]`で定義され、`train.eval_schedule.[tag]`の`interval>0`で定期駆動される評価は、学習更新数がintervalに達したとき`EpisodeEvalObserver`から起動されます。scheduleが無いか`interval=0`の定義はdormantとなり、評価用Env、Runner、Observerを生成しません。起動された評価用Actorは学習中のモデルを同期し、採用エピソード N 本からなる評価セッションが完了するまで行動選択とEnv Stepを繰り返します。評価中にLearnerは呼び出しません。
+`train.eval.[tag]`で定義され、`train.eval_schedule.[tag]`の`interval>0`で定期駆動される評価は、学習更新数がintervalに達したとき`EpisodeEvalObserver`から起動されます。scheduleが無いか`interval=0`の定義はdormantとなり、評価用Env、Runner、Observerを生成しません。起動された評価用Actorは学習中のモデルを同期し、採用エピソード N 本からなる評価セッションが完了するまで行動選択とEnv Stepを繰り返します。評価中にLearnerは呼び出しません。`learner.enabled=false`のRunでは1 train stepが1 learn stepになるため、`interval`はそのまま「N train stepごと」として働きます。
 
 ```mermaid
 sequenceDiagram

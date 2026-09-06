@@ -51,6 +51,7 @@ public:
     void FlushRunOutputs();
     void ShutdownRunLogging();
     bool ShouldShowErrorDialog() const { return show_error_dialog_; }
+    bool ShouldSaveAgentOnClose() const { return save_agent_on_close_; }
 private:
     void SetTrainingPaused(bool paused);
     void InitTrainer();
@@ -76,6 +77,7 @@ private:
     wxTimer text_log_flush_timer_;
     wxLogChain* run_log_chain_ = nullptr;
     bool show_error_dialog_ = true;
+    bool save_agent_on_close_ = true;
     bool fatal_error_seen_ = false;
     bool auto_pause_done_ = false;
     RunnerFrame* frame_ = nullptr;

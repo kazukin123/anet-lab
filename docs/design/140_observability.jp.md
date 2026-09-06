@@ -161,8 +161,10 @@ sequenceDiagram
 
     UI->>A: StopTraining()
     A->>T: Stop()
-    UI->>A: SaveAgent(agent_close.anet)
-    A->>G: Save(archive)
+    opt app.save_agent_on_close=true
+        UI->>A: SaveAgent(agent_close.anet)
+        A->>G: Save(archive)
+    end
     UI->>A: ShutdownRunLogging()
     A->>A: periodic text-log timerを停止
     A->>M: Flush()
