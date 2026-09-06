@@ -17,27 +17,16 @@ SET /A FAILED_RUNS=0
 SET "BK=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
-SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex"
+SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "EV=run.@evalN10"
-SET "BM=run.@breakout_metrics"
-SET "BR=app.$=app.batchrun>P1"
-SET "S400K=@vars.max_exp_step=400000"
-SET "X400K=app.batchrun.exp_exit_step=400000"
+SET "ARM=run.@hard125>run.@munch"
+SET "CKPT=A3.auto_load_file=workspaces/atari-2nd/runs/run_20260906-034637_mu1_hard125_munch_breakout/agent_close.anet"
 
-echo === 0. PRD067 ON smoke - risk biased soft target, retry with UQE train policy ===
-call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "A3.use_optimistic_target=true" "A3.train_policy.policy_type=UQE" "app.run_name=run_{t}_tmp_smoke_067_target_risk_${E1.game}"
+echo === 0. wiring: %ARM% + resume (400k) ===
+call:run_exe "run.$=%A5%>%ARM%>%EV%>run.@to_400k" "%CKPT%" "app.run_name=run_{t}_tmp_wiring_resume"
 
-echo === 1. ARM - hard125 + Munchausen(target), 50M (2.9h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>run.@m_on>%EV%"
-
-echo === 2. CONTROL - hard125 + use_double_dqn=false, 50M (2.9h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>%BM%>run.@m_ctrl>%EV%"
-
-echo === 3. ARM r2 - hard125 + Munchausen(target) replicate, 50M (2.9h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>run.@m_on>%EV%"
-
-echo === 4. BASELINE r4 - hard125 reference replicate, 50M (2.9h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>%BM%>%EV%"
+echo === 1. %ARM% resume from 50M, +50M (3h) ===
+call:run_exe "run.$=%A5%>%ARM%>%EV%" "%CKPT%" "app.run_name=run_{t}_hard125_munch_resume50m"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

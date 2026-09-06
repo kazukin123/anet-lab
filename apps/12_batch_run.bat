@@ -6,13 +6,10 @@ SET "BUILD=RelWithDebInfo"
 REM SET "BUILD=Release"
 
 if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
-if not exist "bin\%BUILD%\AnetRLRunner_base.exe" goto :no_base
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
 
-SET "NEW=bin\%BUILD%\AnetRLRunner_ab.exe"
-SET "BASE=bin\%BUILD%\AnetRLRunner_base.exe"
-SET EXE="%NEW%" --workspace atari-2nd
+SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-2nd
 
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
@@ -20,37 +17,23 @@ SET /A FAILED_RUNS=0
 SET "BK=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
-SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex"
-SET "EV=run.@evalN10"
-SET "BM=run.@breakout_metrics"
-SET "S400K=@vars.max_exp_step=400000"
-SET "X400K=app.batchrun.exp_exit_step=400000"
-SET "BR=app.$=app.batchrun>P1"
+SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
+SET "ARM=run.@hard125>run.@munch"
+SET "EO=run.@evalonly>run.@to_50"
+SET "CK100=A3.auto_load_file=workspaces/atari-2nd/runs/run_20260906-161947_hard125_munch_resume50m/agent_close.anet"
+SET "CK50=A3.auto_load_file=workspaces/atari-2nd/runs/run_20260906-034637_mu1_hard125_munch_breakout/agent_close.anet"
 
-echo === 0. PRD067 OFF equivalence - base commit vs new binary, deterministic ===
-SET "BK=backend.$=backend.@deterministic"
-SET EXE="%BASE%" --workspace atari-2nd
-call:run_exe "run.$=run.@v5_iqn_impala_x2" "%BR%" "%S400K%" "%X400K%" "app.run_name=run_{t}_tmp_off_base"
-SET EXE="%NEW%" --workspace atari-2nd
-call:run_exe "run.$=run.@v5_iqn_impala_x2" "%BR%" "%S400K%" "%X400K%" "app.run_name=run_{t}_tmp_off_new"
-SET "BK=backend.$=backend.@non-deterministic"
+echo === 0. NoLearn check: 100M ckpt, eps=0.01 (vs run_20260906-205239) ===
+call:run_exe "run.$=%A5%>%ARM%>%EO%" "%CK100%" "app.run_name=run_{t}_nolearn_100m_eps001"
 
-echo === 1. PRD067 ON smoke x5 - 400k each ===
-call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "app.run_name=run_{t}_tmp_smoke_067_target_${E1.game}"
-call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "A3.learner.munchausen.log_policy_mode=online" "app.run_name=run_{t}_tmp_smoke_067_online_${E1.game}"
-call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "A3.learner.munchausen.log_policy_mode=online_reuse" "app.run_name=run_{t}_tmp_smoke_067_online_reuse_${E1.game}"
-call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "A3.learner.per_initial_priority_mode=actor_approx" "app.run_name=run_{t}_tmp_smoke_067_target_actor_approx_${E1.game}"
-call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "A3.use_optimistic_target=true" "app.run_name=run_{t}_tmp_smoke_067_target_risk_${E1.game}"
+echo === 1. NoLearn check: 100M ckpt, eps=0 (vs run_20260906-200907) ===
+call:run_exe "run.$=%A5%>%ARM%>%EO%>run.@greedy_eval" "%CK100%" "app.run_name=run_{t}_nolearn_100m_greedy"
 
-echo === 2. wiring check - m_ctrl / m_on on hard125 base, 400k each ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>%BM%>run.@m_ctrl>%EV%>run.@to_400k" "app.run_name=run_{t}_tmp_wiring_mu0"
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>run.@m_on>%EV%>run.@to_400k" "app.run_name=run_{t}_tmp_wiring_mu1"
+echo === 2. 50M ckpt, eps=0 ===
+call:run_exe "run.$=%A5%>%ARM%>%EO%>run.@greedy_eval" "%CK50%" "app.run_name=run_{t}_nolearn_50m_greedy"
 
-echo === 3. CONTROL - hard125 + use_double_dqn=false, 50M (2.9h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>%BM%>run.@m_ctrl>%EV%"
-
-echo === 4. ARM - hard125 + Munchausen(target), 50M (2.9h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_hard125>run.@m_on>%EV%"
+echo === 3. 50M ckpt, eps=0.01 ===
+call:run_exe "run.$=%A5%>%ARM%>%EO%" "%CK50%" "app.run_name=run_{t}_nolearn_50m_eps001"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -77,11 +60,6 @@ SET /A SUCCEEDED_RUNS+=1
 echo   %DATE% %TIME% END   %*
 exit /b 0
 
-
-:no_base
-echo *** bin\%BUILD%\AnetRLRunner_base.exe not found. Nothing was run.
-pause
-exit /b 1
 
 :no_exe
 echo *** bin\%BUILD%\AnetRLRunner.exe not found or copy failed. Nothing was run.

@@ -229,7 +229,7 @@ SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生paramet
 
 `04_bonus_mean`は`01_scaled_logp_mean`の`alpha`倍ではない。clipが下限へ当たった分だけ縮むので、**両者の比が`alpha`からどれだけ離れているかがclipの実効的な効き方を表す**。Breakout 50Mでは`03_clip_ratio`が0.6%しか発火していないのに比は0.78で、`alpha=0.9`から13%削られていた。発火率が低くても深く沈んだ外れ値に当たるためで、`03`が小さいことをもって`clip_value_min`が効いていないと読まない。
 
-5つのraw診断はTBO時もFP32実空間で計算し、PER OFFでも回収する。機能OFFまたは未成立の既知keyは`NaN`であり、0へ読み替えない。readbackはpriority・clip件数、IQN診断、Munchausen診断、upper-tail統計の順に一括転送する。Actorの`actor_approx`は既存action scoreによる近似なので、Learnerの経験分位近似とは別の近似として扱う。
+5つのraw診断（`01` / `03` / `04` / `06` / `07`）はTBO時もFP32実空間で計算し、PER OFFでも回収する。**既定OFFなのは`07`のメトリクス出力だけで、計算とreadbackは5つとも従来どおり行う。**機能OFFまたは未成立の既知keyは`NaN`であり、0へ読み替えない。readbackはpriority・clip件数、IQN診断、Munchausen診断、upper-tail統計の順に一括転送する。Actorの`actor_approx`は既存action scoreによる近似なので、Learnerの経験分位近似とは別の近似として扱う。
 
 mode間の負荷は`forward_target`、`forward_munchausen_online`、`munchausen_target`と、同じexp step区間のelapsed time差で比較する。診断や1 seedの成績だけで改善を断定しない。
 

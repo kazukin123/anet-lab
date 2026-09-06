@@ -290,11 +290,15 @@ metrics.scalar.@full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train
 metrics.scalar.@full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.@full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
-# Munchausen診断。実空間のraw 5値とEMA 2行を任意profileへまとめる。
+# Munchausen診断。実空間のraw 5値とEMA 2行を任意profileへまとめる(既定は 07 を除く 6 行)。
 metrics.scalar.@munchausen.[36_agent_munchausen/01_scaled_logp_mean] = munchausen_scaled_log_policy_mean @learn $update_result
 metrics.scalar.@munchausen.[36_agent_munchausen/02_scaled_logp_mean_ema] = munchausen_scaled_log_policy_mean @learn $update_result $ema
 metrics.scalar.@munchausen.[36_agent_munchausen/03_clip_ratio] = munchausen_clip_ratio @learn $update_result
 metrics.scalar.@munchausen.[36_agent_munchausen/04_bonus_mean] = munchausen_bonus_mean @learn $update_result
 metrics.scalar.@munchausen.[36_agent_munchausen/05_bonus_mean_ema] = munchausen_bonus_mean @learn $update_result $ema
 metrics.scalar.@munchausen.[36_agent_munchausen/06_next_entropy] = munchausen_next_entropy @learn $update_result
-metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_gap @learn $update_result
+# 07 は 06_next_entropy とほぼ同じ量の別汎関数で、50M 実測の相関は r=0.979 / 0.978(2 本)。
+# 群は 50M で全 scalar 行の 15.5% を占めるので既定では出さない。
+# ただし D15(use_optimistic_target=true) の risk-biased スコアでは 07 だけが負を取りうる唯一の
+# 指標なので、楽観ターゲットの腕を引くときは戻すこと。
+#metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_gap @learn $update_result

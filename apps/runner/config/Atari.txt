@@ -283,36 +283,8 @@ run.@nature_dqn            : A2.eval_policy.eps_end   = 0.05
 
 # RR 探索終了時点(旧バンドル)の再現。run_20260826-185555_atari_breakout_apex_rr1_100m と同条件。
 # 2026-08-27 の BTR 寄せで A1 と root ラダーが変わったため、差分を A3(チェーン最右)で明示して戻す。
-run.@breakout_rr1_100m : app.$ = app.online > P1
-run.@breakout_rr1_100m : backend.$ = backend.@non-deterministic
-run.@breakout_rr1_100m : AtariEnv.$ = AtariEnv.@v5_noop0 > E1     # 旧プロトコル(noop 0)
-run.@breakout_rr1_100m : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
-run.@breakout_rr1_100m : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
-run.@breakout_rr1_100m : E1.game = breakout                       # CLI で上書き可
-run.@breakout_rr1_100m : train.num_envs = 128
-run.@breakout_rr1_100m : train.seed = 1
-run.@breakout_rr1_100m : app.run_name = run_{t}_repro_rr1_${E1.game}_100m
-
-run.@breakout_rr1_100m : @vars.max_exp_step  = 100,000,000
-run.@breakout_rr1_100m : @vars.half_exp_step =  50,000,000
-
-run.@breakout_rr1_100m : A3.learner.replay_ratio = 1                # 内点最適(探索ブロック 25)
-run.@breakout_rr1_100m : A3.train_policy.use_spatial_exploration = true
-run.@breakout_rr1_100m : A3.train_policy.eps_start = 0.4            # ラダー上端(探索ブロック 20)
-run.@breakout_rr1_100m : A3.eval_policy.policy_type = EpsilonGreedy
-run.@breakout_rr1_100m : A3.eval_policy.eps_start = 0.01
-run.@breakout_rr1_100m : A3.eval_policy.eps_end   = 0.01
 
 # BTR 寄せ前の値。ここを外すと現行の A1 / A2(BTR 初期値)が効いて再現にならない。
-run.@breakout_rr1_100m : A3.learner.per_alpha = 0.5
-run.@breakout_rr1_100m : A3.learner.adam_eps = 1e-4
-run.@breakout_rr1_100m : A3.learner.grad_clip_tau = 30
-run.@breakout_rr1_100m : A3.learner.update_warmup_steps = 20,000
-run.@breakout_rr1_100m : A3.learner.iqn.current_taus.num_taus = 32
-run.@breakout_rr1_100m : A3.learner.iqn.target_taus.num_taus  = 32
-run.@breakout_rr1_100m : A3.train_policy.tau_rule.num_taus    = 32
-run.@breakout_rr1_100m : A3.eval_policy.tau_rule.num_taus     = 32
-run.@breakout_rr1_100m : train.eval_schedule.[eval1].interval = 2500
 
 # --- 土台(実行モードと予算。腕を重ねて使う) ---
 
@@ -334,19 +306,8 @@ run.@a5      : A2.learner.replay_ratio = 1  # ★
 #   例: run.$=%A5%>run.@va_base>run.@soft030
 # 既存の rr1_va_* / rr1_ln_* は同じ 3 行を自前で持つフル指定形のまま残す。書き換えると
 # 実験記録に残る過去レシピの意味が変わり、しかもエラーにならず走ってしまうため。
-run.@va_base : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@va_base : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@va_base : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
 
 # --- 可塑性アッセイ(RR ラダーで摩耗を測る計測リグ) ---
-
-run.@plasticity_rr8  : A3.learner.replay_ratio = 8
-run.@plasticity_rr8  : @vars.max_exp_step = 5,000,000    # ピーク 2.75M の直後に崩壊(探索ブロック 15)
-run.@plasticity_rr8  : app.run_name = run_{t}_plasticity_rr8_${E1.game}
-run.@plasticity_rr4  : A3.learner.replay_ratio = 4       # 過渡 -31.5%(探索ブロック 23)
-run.@plasticity_rr4  : app.run_name = run_{t}_plasticity_rr4_${E1.game}
-run.@plasticity_rr1  : A3.learner.replay_ratio = 1       # 過渡なし。ゼロ対照(探索ブロック 24)
-run.@plasticity_rr1  : app.run_name = run_{t}_plasticity_rr1_${E1.game}
 
 # --- Atari-5 ---
 
@@ -381,6 +342,16 @@ run.@to_100m : @vars.half_exp_step =  50,000,000
 run.@to_400k : @vars.max_exp_step  = 400,000
 run.@to_400k : @vars.half_exp_step = 200,000
 
+# 評価専用 Run の予算。learner.enabled=false かつ num_envs=1 では
+# 1 exp step = 1 train step = 1 learn step なので、interval 10 と合わせて
+# 「max_exp_step / 10」セッションになる。50 なら 5 セッション = 500 エピソード。
+run.@to_50 : @vars.max_exp_step  = 50
+run.@to_50 : @vars.half_exp_step = 25
+
+# 1M の step 予算。評価専用 Run (run.@evalonly) や長めの慣らしへ重ねる。
+run.@to_1m : @vars.max_exp_step  = 1,000,000
+run.@to_1m : @vars.half_exp_step =   500,000
+
 # シードだけ変える合成用(run_name は腕から継ぐ)。2026-09-04 時点の Run は
 # すべて train.seed = 1 かつ backend.@non-deterministic なので、これまでの
 # 「複製対」は数値的非決定だけを見ており、シード分散は未測定である。
@@ -392,6 +363,33 @@ run.@evalN10 : train.eval.[eval1].eval_batch_size = 10
 run.@evalN10 : train.eval.[eval1].eval_episodes = 10
 run.@evalN10 : train.eval.[eval2].eval_batch_size = 10
 run.@evalN10 : train.eval.[eval2].eval_episodes = 10
+
+# 学習を完全に止めて eval だけ回す (評価専用 / デモ)。checkpoint は A3.auto_load_file で渡す。
+# learner.enabled=false では 1 train step = 1 learn step になるので、interval はそのまま
+# 「N train step ごと」として読む。ReplayBuffer を構築しないので host RAM が約 7GB 空く。
+# step 予算は run.@to_400k などをチェーン末尾へ重ねて与える。
+run.@evalonly : A3.learner.enabled = false
+run.@evalonly : app.save_agent_on_close = false
+run.@evalonly : train.num_envs = 1
+run.@evalonly : train.eval.[eval1].eval_batch_size = 100
+run.@evalonly : train.eval.[eval1].eval_episodes = 100
+run.@evalonly : train.eval.[eval2].eval_batch_size = 100
+run.@evalonly : train.eval.[eval2].eval_episodes = 100
+run.@evalonly : train.eval_schedule.[eval1].interval = 10
+run.@evalonly : train.eval_schedule.[eval2].interval = 11
+# lane = 本数なので 1 セッション = 1 ラウンド。train が 128 env で回る以上 100 は安全側。
+# セッション時間が最長エピソードで決まるので空転を打ち切る。実測(2026-09-06)では
+# 15,000 step 未満へ下げると満点(864)まで行った良い試合を切り始める。15,000 なら
+# 切られるのは 428 点前後で空転している本だけ(全体の 11%)。frame = step x 4。
+run.@evalonly : train.eval.[eval1].env.max_episode_frames = 60,000
+run.@evalonly : train.eval.[eval2].env.max_episode_frames = 60,000
+
+# 評価を greedy にする。eval の eps はエージェント単位なので eval1/eval2 の両方へ効く
+# (スロットごとの指定は PRD 061)。実測(2026-09-06、100M checkpoint、online net)で
+# eps 0.01 -> 0 は平均 640.0 -> 715.1、満点率 13.3% -> 24.7%。代わりに上限空転が
+# 0.1% -> 10.4% へ増えるので、上の max_episode_frames とセットで使う。
+run.@greedy_eval : A3.eval_policy.eps_start = 0
+run.@greedy_eval : A3.eval_policy.eps_end   = 0
 
 run.@pl_check      : @vars.max_exp_step = 100,000    # 配線確認。eval を切って 2 分で回す
 run.@pl_check      : train.eval_schedule.[eval1].interval = 0
@@ -414,371 +412,63 @@ run.@breakout_metrics : metrics.scalar.$ = metrics.scalar.@baseline > metrics.sc
 # 大きなパターンごとに 1 本ずつ。1 変数の探索腕は「実験用」章へ置く。
 
 # RR1 + LayerNorm。RR4 で天井が動いたので運用点でも効くかを見る。branch は同一、run 名だけ分ける。
-run.@rr1_ln  : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln  : app.run_name = run_{t}_j_rr1_ln512_${E1.game}
-
-run.@rr1_ln_hr_va : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_hr_va : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_ln_hr_va : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_ln_hr_va : app.run_name = run_{t}_v3_rr1_ln_hr_va_${E1.game}
 
 # soft の時定数を hard C=125 に合わせる。鮮度説なら並ぶ、定常性説なら並ばない。
-run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft008 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft008 : A2.model.soft_update_tau = 0.008
-run.@rr1_va_soft008 : app.run_name = run_{t}_n3_rr1_va_soft008_${E1.game}
 
 # 段 3: BTR そのもの。共有トランク無し、V/A が 2304 から独立に 512 へ。
 # LN512 も同時に消える(置き場所が無い)ので、段 2 との差は 2 変数になる。
-run.@rr1_va_btrstruct : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@rr1_va_btrstruct : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > SiLU
-run.@rr1_va_btrstruct : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrstruct : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrstruct : app.run_name = run_{t}_z2_rr1_va_btrstruct_${E1.game}
 
 # ViT ハイブリッド。構造腕なので hard125 は載せず V/A ReLU 基準で測る。
-run.@rr1_va_vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViTLN
-run.@rr1_va_vit : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_vit : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_vit : app.run_name = run_{t}_h2_rr1_va_vit_${E1.game}
 
 # C2 / D2: BTR 忠実(residual のみ)。全層版が発散したための本命。
-run.@pl_snr        : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNR
-run.@pl_snr        : app.run_name = run_{t}_c2_spectral_res
 
 # GroupNorm。保護機構の腕(可塑性 A3)なので run.@plasticity_rr8 へ重ねる。
 # branch 差し替えは run.@breakout_rr1_100m に前例がある経路。学習系は A3 レイヤへ書く。
-run.@pl_gn         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2GN
-run.@pl_gn_wd030   : A3.learner.weight_decay = 0.3   # 5M で唯一回復した腕(n=1)。複製が残件
-run.@pl_gn_wd030   : app.run_name = run_{t}_a3_gn_wd030
-
-# ==============================================================================
-# Run プロファイル(実験用。役目を終えたら削る候補)
-# ==============================================================================
-
-# 探索の 1 変数腕。日付つき小見出しで当時の文脈を残す。
-
-# --- config のみで試せる保護機構の腕(可塑性 screening)。run.@plasticity_rr8 へ重ねる ---
-# 機序: ①重み成長 -> ②活性成長 -> ③ReLU 負側で恒久死 -> ④表現が痩せる。腕は狙う段で分ける。
-# B(init): zero-init residual の実効を測る対照。C 腕(spectral)は init も同時に変わるのでその分離も兼ねる。
-run.@pl_he         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2He
-run.@pl_he         : app.run_name = run_{t}_b_init_he
-
-# E(③): 活性化を SiLU へ。ResBlock 内 12 箇所 + 素の 2 箇所 = 14 箇所すべてを覆う(部分適用の罠を避ける)。
-run.@pl_silu       : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SiLU
-run.@pl_silu       : app.run_name = run_{t}_e_silu
-
-# F(②): 測定点の直前(main_feature を作る Linear512 の後)だけを正規化する単変数。
-# GroupNorm 版(@AtariImpalaX2GN)は ResBlock 内部のみで測定点が素のままだった。本腕はその補集合。
-run.@pl_ln512      : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@pl_ln512      : app.run_name = run_{t}_f_ln512
-
-# C(1): Spectral Norm 全層。init2=he は必須(zero-init は sigma=0 で fail-fast)。B 腕が init 交絡の対照。
-run.@pl_sn         : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SN
-run.@pl_sn         : app.run_name = run_{t}_c_spectral
-
-# D(1): spectral_cap 全層。sigma<1 は無変換なので zero-init を維持できる。
-run.@pl_sncap      : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2CAP
-run.@pl_sncap      : app.run_name = run_{t}_d_spectral_cap
-
-# D2: spectral_cap を residual のみへ。C2(run.@pl_snr、確立済み章)の cap 版。
-run.@pl_capr       : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2CAPR
-run.@pl_capr       : app.run_name = run_{t}_d2_spectral_cap_res
-
-# --- RR4 の天井を保護機構で押し上げられるか(2026-08-30 以降の本命) ---
-# RR8 の崩壊と RR4 の天井は別現象。RR4 は崩壊署名が出ないまま 5-10M で頭打ちする。
-# 無保護 RR4 の対照は run_20260829-190614_a5_breakout_rr4(50M 完走)を流用する。
-
-# RR4 + spectral_cap(BTR 範囲)。branch は run.@pl_capr と同じものを使い run 名だけ分ける。
-run.@rr4_cap : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2CAPR
-run.@rr4_cap : app.run_name = run_{t}_g_rr4_cap_${E1.game}
-
-# RR4 + LayerNorm(Linear512 直後)。branch は run.@pl_ln512 と同じで run 名だけ分ける。
-# RR8 では機序側が 5 腕中最良(実効ランク +14 sigma)だが成績は同等〜悪だった。
-# RR4 は崩壊せず天井を打つ別の失敗モードなので、前提が違う条件で測り直す。
-run.@rr4_ln  : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr4_ln  : app.run_name = run_{t}_i_rr4_ln512_${E1.game}
-
-# target 追従の exp 軸を RR1 と揃えた RR4(PRD 940)。256/(4 x .00025) = 256,000 = RR1 の 256/(1 x .001)。
-# RR4 vs RR1 が 2 変数(RR と target の遅れ)になっている交絡を切る因果試験。
-run.@rr4_tau : A2.model.soft_update_tau = 0.00025
-run.@rr4_tau : app.run_name = run_{t}_k_rr4_tau_matched_${E1.game}
-
-# --- 2026-08-31 夜 広域腕。すべて RR1+LN512 基準からの 1 変数、50M ---
-# BTR 準拠の Spectral Norm(residual conv のみ)を LN512 の上に重ねる。SNR ブロックは
-# weight_norm.mode = spectral と init2.mode = he をセットで持つ(BTR は zero-init を採らない)
-# ので、厳密には「BTR の residual ブロック」1 個ぶんの差分であり SN 単独ではない。
-# 2026-08-30 の screening は RR8 崩壊 assay で測っており、RR1 では未測定。
-
-run.@rr1_ln_snr : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNSNR
-run.@rr1_ln_snr : app.run_name = run_{t}_x_rr1_ln_snr_${E1.game}
-
-# BTR 式の探索へ差し替え。BTR は spatial exploration を持たず、eps 1.0 -> 0.01 を 2M step
-# (8M frames)で減衰させて以降は NoisyNet に任せる。ラダーは anet-lab 固有の機構で、
-# BTR との差分として残っている最大級の 1 つ(reports/btr_code_reading_2026-08-31.md)。
-# A3 に書くのは A2 のラダー設定より後段に置くため(既存 run.@breakout_rr1_100m と同じ流儀)。
-run.@rr1_ln_btrexp : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_btrexp : A3.train_policy.use_spatial_exploration = false
-run.@rr1_ln_btrexp : A3.train_policy.eps_start = 1.00
-run.@rr1_ln_btrexp : A3.train_policy.eps_end = 0.01
-run.@rr1_ln_btrexp : A3.train_policy.eps_decay_steps = 2,000,000
-run.@rr1_ln_btrexp : app.run_name = run_{t}_y_rr1_ln_btrexp_${E1.game}
-
-# --- 2026-08-31 BTR ソース読解を受けた腕。基準は RR1+LN512(探索記録 2026-08-31) ---
-# per_beta 0.2 固定は 2026-09-01 に A1 ベースラインへ昇格した(A1.learner.per_beta_start / _end)。以下 2 腕は
-# 昇格前の実測 Run と run 名を対応させるために残す。現在は @rr4_ln / @rr1_ln と等価。
-run.@rr4_ln_beta02 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr4_ln_beta02 : app.run_name = run_{t}_s_rr4_ln_beta02_${E1.game}
-
-run.@rr1_ln_beta02 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_beta02 : app.run_name = run_{t}_t_rr1_ln_beta02_${E1.game}
-
-# RR1+LN512 の 100M。25-50M の壁突破率 1.32% は素の RR1 が 75-100M で到達する 1.31% と同水準で、
-# train score も 50M 時点で単調上昇のままだった(探索記録 まとめ 5・6)。
-run.@rr1_ln_100m : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_100m : @vars.max_exp_step  = 100,000,000
-run.@rr1_ln_100m : @vars.half_exp_step =  50,000,000
-run.@rr1_ln_100m : app.run_name = run_{t}_u_rr1_ln512_100m_${E1.game}
-
-# head/fusion を BTR 準拠の ReLU へ、LN512 基準の上で。
-run.@rr1_ln_headrelu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_headrelu : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_ln_headrelu : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_ln_headrelu : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > ReLU
-run.@rr1_ln_headrelu : app.run_name = run_{t}_v_rr1_ln_headrelu_${E1.game}
-
-# headrelu の分解。3 箇所を同時に変えたので、どれが効いたかを 1 箇所ずつで見る。
-# tau_embedding は net.@iqn 所有のリーフなので、run 層の直キーでは黙殺される。素材側へ書く。
-run.@rr1_ln_hr_tau : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_hr_tau : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > ReLU
-run.@rr1_ln_hr_tau : app.run_name = run_{t}_v2_rr1_ln_hr_tau_${E1.game}
-
-# ---- BTR 構造ラダー(2026-09-02) -------------------------------------------
-# BTR は pooling 直後の 2304 に cos 埋め込みを乗せ、V/A は共有トランク無しで
-# そこから独立に 512 へ落とす(reports/btr_code_reading_2026-08-31.md 3.5)。
-# iqn_fusion.bind = main_feature * tau_embedding なので融合次元は main_feature
-# 次元に等しい。トランクを iqn_fusion.structure へ移せば「融合点だけ」動かせる。
-# Linear の in_features は入力から推論される(nn_modules.cpp:203)ので out のみ指定。
-#
-#   VA 基準 : Flatten(7744) > Linear512 > LN > ReLU > *tau(512) > V/A(512->512)
-#   段 1    : Pool6 > Flatten(2304) > Linear512 > LN > ReLU > *tau(512) > V/A   (= pool6 対照)
-#   段 2    : Pool6 > Flatten(2304) > *tau(2304) > Linear512 > LN > ReLU > V/A  (融合点のみ)
-#   段 3    : Pool6 > Flatten(2304) > *tau(2304) > V/A(2304->512)               (= BTR)
-#
-# 注意: body.output.[features] = iqn_fusion なので、段 3 では probe 特徴が
-# 2304 次元になる。44_probe_srank は段をまたいで比較できない。
 
 
-# 段 1: VA + pool6。段 2/3 の対照(pool6 単独の寄与を切り分ける)。
-run.@rr1_va_pool6 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNPool6
-run.@rr1_va_pool6 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_pool6 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_pool6 : app.run_name = run_{t}_o_rr1_va_pool6_${E1.game}
+# --- 軸ごとの修飾子(1 プロファイル 1 軸。腕はチェーンで組む) ---
+# run_name は持たせない。チェーンで重ねると最後の 1 本しか勝たず腕を表現できないため、
+# bat 側から app.run_name を渡す。
+#   例: run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch
 
-# 段 2: 融合点だけを 2304 へ。トランクは iqn_fusion の後ろへ移すので総段数は不変。
-run.@rr1_va_fuse2304 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@rr1_va_fuse2304 : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > SiLU
-run.@rr1_va_fuse2304 : net.@iqn.branch.[iqn_fusion].structure = AtariLinear512 > AtariLN512 > ReLU
-run.@rr1_va_fuse2304 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_fuse2304 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_fuse2304 : app.run_name = run_{t}_z_rr1_va_fuse2304_${E1.game}
+# 構造。2026-09-02 以降の全腕の土台(LN512 + head ReLU)。
+run.@va_base : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@va_base : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@va_base : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
 
-# ---- head 活性の V/A 分離(2026-09-03) --------------------------------------
-# dueling の集約は q = v + (a - mean_a a) なので argmax_a Q = argmax_a A。
-# churn(argmax の変化率)は A ストリームだけで決まり、V の活性は直接影響できない。
-#   A のみ → churn 効果を完全再現するはず
-#   V のみ → churn はほぼ動かないはず(動けば「表現の勾配干渉」説が残る)
-run.@rr1_a_relu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_a_relu : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_a_relu : app.run_name = run_{t}_v4_rr1_a_relu_${E1.game}
+# target 更新。env 時間 32,000 exp step で揃える。RR1 は 1 grad = 256 exp step なので C=125、
+# RR4 は 64 exp step なので C=500(BTR の値と同一)。RR とセットで選ぶこと。
+run.@hard125 : A2.model.soft_update_tau = 0
+run.@hard125 : A2.model.hard_update_interval = 125
+run.@hard500 : A2.model.soft_update_tau = 0
+run.@hard500 : A2.model.hard_update_interval = 500
+run.@soft008 : A2.model.soft_update_tau = 0.008    # env 時間は hard125 と等価。soft/hard 軸の対照
 
-run.@rr1_v_relu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_v_relu : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_v_relu : app.run_name = run_{t}_v5_rr1_v_relu_${E1.game}
+# replay ratio。RR1 は run.@a5 の既定なので rr4 だけ置く。
+run.@rr4 : A2.learner.replay_ratio = 4
 
-# 疎性説と折れ点説の分離。LeakyReLU は硬いゼロを外して折れ点だけ残す
-# (negative_slope 既定 0.01)。疎性が機序なら SiLU 寄り、折れ点が機序なら ReLU 寄り。
-run.@rr1_va_leaky : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_leaky : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > LeakyReLU
-run.@rr1_va_leaky : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > LeakyReLU
-run.@rr1_va_leaky : app.run_name = run_{t}_v6_rr1_va_leaky_${E1.game}
+# アルゴ。@munchausen 素材が use_double_dqn=false を強制する(併用は構築時 fail-fast、PRD 067 D5)。
+# metrics.scalar.$ は run.@breakout_metrics と同じスロットなので @breakout と @munchausen を
+# 1 本にまとめて宣言する。この腕に run.@breakout_metrics は重ねない。
+run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > M1 > M2
 
-# 構造最良(btrstruct 4.18%)と target 最良(hard C=125 6.29%)の合成。両者は
-# NN 結線と target 同期で直交する。チェーンで重ねると main_feature が
-# 後勝ちで壊れるので専用プロファイルにする。
-run.@rr1_va_btrstruct_hard125 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@rr1_va_btrstruct_hard125 : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > SiLU
-run.@rr1_va_btrstruct_hard125 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrstruct_hard125 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrstruct_hard125 : A2.model.soft_update_tau = 0
-run.@rr1_va_btrstruct_hard125 : A2.model.hard_update_interval = 125
-run.@rr1_va_btrstruct_hard125 : app.run_name = run_{t}_z3_rr1_va_btr_hard125_${E1.game}
+# Munchausen OFF の対照。Double 除去だけを分離する。
+run.@nodouble : A3.learner.use_double_dqn = false
 
-# ---- 構造ラダーの続き(2026-09-03) ------------------------------------------
-# BTR は maxpool が性能を下げることを論文で認めた上で、計算アクセシビリティの
-# ために採用している(Table 2 の w/o Maxpool は ε=0 で 406k 対 330k)。
-# うちは RTX5090 / RR1 でその制約が無いので、pool を外した版を測る。
-# 融合次元は conv 出力そのまま 11x11x64 = 7744。head 領域は約 8.4M params
-# (btrstruct 2.5M / 現行基準 4.5M)。要素積は (B*K, 7744) になる。
+# --- 再訪予定の腕 ---
 
-# 段 4: btrstruct から pool6 を外す。トランク除去と広い融合はそのままで、
-# 空間ダウンサンプリングだけを分離する。btrstruct との 1 変数差。
-run.@rr1_va_btrflat : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Flat
-run.@rr1_va_btrflat : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj7744 > SiLU
-run.@rr1_va_btrflat : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrflat : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrflat : app.run_name = run_{t}_z4_rr1_va_btrflat_${E1.game}
+# PER 初期優先度。RR1 では中立だった(探索ブロック 15)。RR4 では未訪問 eviction が
+# e^-4 = 1.8% まで下がるので、順位情報が初めてデータ損失に化けずに済む。per_alpha と 2 軸で引く。
+run.@aainit : A2.learner.per_initial_priority_mode = actor_approx
 
-# 段 5: btrstruct の τ を BTR どおり ReLU にする(networks.py:219)。
-# τ ReLU は融合 512 で dormant 2.9 倍・利得ゼロだったが、2304 では
-# 半分潰しても 1152 残るのでコストが相対的に小さい可能性がある。
-run.@rr1_va_btrstruct_taurelu : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@rr1_va_btrstruct_taurelu : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
-run.@rr1_va_btrstruct_taurelu : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrstruct_taurelu : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_btrstruct_taurelu : app.run_name = run_{t}_z5_rr1_va_btr_taurelu_${E1.game}
+# ViT ハイブリッド。V/A ReLU 基準で 0.64 倍だった(探索ブロック 25)。
+run.@vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViTLN
 
-# BTR NN 構成の完全寄せ。btrstruct + tau ReLU に head init を足した。
-# 残る NN 差分は NoisyLinear / residual conv の SN / pooling の型の 3 点だけになる。
-run.@rr1_va_btr_default : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@rr1_va_btr_default : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304Def > ReLU
-run.@rr1_va_btr_default : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512Def > ReLU
-run.@rr1_va_btr_default : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512Def > ReLU
-run.@rr1_va_btr_default : app.run_name = run_{t}_z6_rr1_va_btr_default_${E1.game}
+# gamma を BTR 値 0.997 から旧既定 0.99 へ戻す踏み絵。
+# BTR は gamma 0.997 と Munchausen(gap を広げる操作子)を同時に採る。
+run.@g99 : A2.learner.gamma = 0.99
 
-# soft_update_tau の掃引。0.001(3.48%) と 0.008(6.16%) の 2 点しか無く単峰性が未確認。
-# tgtD/q_gap は 0.008 でも 1.69 で 1 を超えており、上げる余地があるという予測が立つ。
-run.@rr1_va_soft020 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_soft020 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft020 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft020 : A2.model.soft_update_tau = 0.02
-run.@rr1_va_soft020 : app.run_name = run_{t}_n4_rr1_va_soft020_${E1.game}
-
-run.@rr1_va_soft050 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_soft050 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft050 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft050 : A2.model.soft_update_tau = 0.05
-run.@rr1_va_soft050 : app.run_name = run_{t}_n5_rr1_va_soft050_${E1.game}
-
-# 最良同士の合成。soft008 が構造の寄与をマスクするか(hard125 は btrstruct を消した)。
-run.@rr1_va_soft008_btr : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@rr1_va_soft008_btr : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
-run.@rr1_va_soft008_btr : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft008_btr : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_soft008_btr : A2.model.soft_update_tau = 0.008
-run.@rr1_va_soft008_btr : app.run_name = run_{t}_z7_rr1_va_soft008_btr_${E1.game}
-
-# PRD 060 の較正腕。V/A ReLU 基準のまま eval だけ lane 10 / 本数 10 にする。
-# eval1 の 1 点が 1 本平均から 10 本平均へ変わるので、以降の Run と過去 Run を
-# 繋ぐための不連続点をここで測る。lane と本数を同数にすると各 lane が 1 本ずつ
-# 担当する形になり、N < G の WARN も出ない。
-run.@rr1_va_evalN10 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_evalN10 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_evalN10 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_evalN10 : train.eval.[eval1].eval_batch_size = 10
-run.@rr1_va_evalN10 : train.eval.[eval1].eval_episodes = 10
-run.@rr1_va_evalN10 : train.eval.[eval2].eval_batch_size = 10
-run.@rr1_va_evalN10 : train.eval.[eval2].eval_episodes = 10
-run.@rr1_va_evalN10 : app.run_name = run_{t}_e2_rr1_va_evalN10_${E1.game}
-
-# ---- VA 基準の非構造腕 -----------------------------------------------------
-# env 時間で揃えた hard update。BTR の C=500 は RR4 で 32,000 exp step ごと。
-# RR1 は 1 grad = 256 exp step なので C=125 が同じ遅れになる。
-run.@rr1_va_hard125 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_hard125 : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_hard125 : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_hard125 : A2.model.soft_update_tau = 0
-run.@rr1_va_hard125 : A2.model.hard_update_interval = 125
-run.@rr1_va_hard125 : app.run_name = run_{t}_n2_rr1_va_hard125_${E1.game}
-
-# Ape-X 方式の初期優先度。39_agent_per/05・50・52 は max モードでは全 Run 0 で、
-# actor_approx だけがこれらを点灯させる。非有限ヒントは NDEBUG では黙って max へ
-# 退避する(replay_buffer_impl.cpp:381)ので、52 で推定が効いているか要確認。
-run.@rr1_va_aainit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_va_aainit : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_aainit : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@rr1_va_aainit : A2.learner.per_initial_priority_mode = actor_approx
-run.@rr1_va_aainit : app.run_name = run_{t}_m2_rr1_va_aainit_${E1.game}
-
-run.@rr1_ln_pool6 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNPool6
-run.@rr1_ln_pool6 : app.run_name = run_{t}_w_rr1_ln_pool6_${E1.game}
-
-# --- 2026-08-31 の解離を受けた組み合わせ腕。基準は RR4+LN512 の 50M(378.4) ---
-# LN512 と tau は互いに直交していた(15-20M 実測): LN512 は dead .067 / q_max 10.7、
-# tau 整合は dead .335(対照 .338 と同一) / q_max 4.9。tau は可塑性に一切効かず、
-# LN512 は立ち上がり速度に効かない。tau 単独は 7.5-10M で 420.6 まで伸びて -24% 崩壊した。
-run.@rr4_ln_tau : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr4_ln_tau : A2.model.soft_update_tau = 0.00025
-run.@rr4_ln_tau : app.run_name = run_{t}_p_rr4_ln_tau_${E1.game}
-
-# 同上の BTR 忠実版。LN512 基準からの 1 変数。
-run.@rr4_ln_hard : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr4_ln_hard : A2.model.soft_update_tau = 0
-run.@rr4_ln_hard : A2.model.hard_update_interval = 500
-run.@rr4_ln_hard : app.run_name = run_{t}_q_rr4_ln_hard500_${E1.game}
-
-# PER 初期優先度を max から fixed へ。DropMerge では max が振るわず、07_evicted_unsampled_ratio
-# を観測しながら fixed 0.3 に固定した実績がある(DropMerge.txt:185,211)。Atari は A1.learner.per_initial_priority_mode で
-# 既定(@baseline の fixed)を max へ意図的に上書きしている。
-# RR1 側に置く理由: alpha=0.2・clip 20 では最優先と中央値の抽選比が最大 2.3 倍しかなく、
-# 1 件あたり平均 4 回引く RR4 では誰も 0 回にならない(実測 evicted 0.0001)。除外が生きている
-# のは RR1 だけ(実測 0.249)で、そこでのみ初期優先度が「どの 25% を捨てるか」を変えられる。
-# 値 0.3 は Atari の td_mean(0.30-0.38) と同水準 = 新データを中央値並みに扱う狙い。
-# 判定は 07_evicted_unsampled_ratio が 0.249 から動くかどうか。動かなければ値が高すぎる。
-run.@rr1_ln_perfix : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
-run.@rr1_ln_perfix : A2.learner.per_initial_priority_mode = fixed
-run.@rr1_ln_perfix : A2.learner.per_initial_priority = 0.3
-run.@rr1_ln_perfix : app.run_name = run_{t}_r_rr1_ln_perfix_${E1.game}
-
-# zero-init 除去の対照(修正版)。旧 B 腕は res.init2.mode と誤記して黙殺されていた。
-run.@he_only : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2He
-run.@he_only : app.run_name = run_{t}_l_init_he_${E1.game}
-
-# BTR 忠実の target 更新: hard C=500(learn_step 単位 = 勾配 step)。soft を切る。
-# BTR は EMA を試して悪化させ hard を採用したと報告(Codex 調査)。tau 整合腕とは別物なので
-# 因果分離(run.@rr4_tau)と BTR 忠実(本腕)は必ず別腕にする。
-run.@rr4_hard : A2.model.soft_update_tau = 0
-run.@rr4_hard : A2.model.hard_update_interval = 500
-run.@rr4_hard : app.run_name = run_{t}_m_rr4_hard500_${E1.game}
-
-# head / IQN fusion を BTR 準拠の ReLU へ。trunk は ReLU なのに head と tau 埋め込みだけ SiLU
-# という不整合が現状ある。trunk の rank/dead を改善しても score が動かないなら、bottleneck が
-# readout 側にある可能性(Codex 仮説 5)。
-# tau_embedding は net.@iqn 素材の所有(net.@iqn : branch.[tau_embedding].structure)で、素材展開が run 層の直接キーを上書きする。
-# 2026-08-31 の配線確認で実測: value/adv は ReLU 化されたが tau_embedding は SiLU のまま黙殺
-# された(res.init2.mode と同型)。よって素材の中身そのものを書き換える形に変更。要 dump 確認。
-run.@head_relu : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
-run.@head_relu : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
-run.@head_relu : net.@iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > ReLU
-run.@head_relu : app.run_name = run_{t}_n_head_relu_${E1.game}
-
-# gamma を BTR 値 0.997 から旧既定 0.99 へ戻す踏み絵。A2 に書く(A1 は @bf16 より前段だが
-# gamma は @bf16 が触らないので A1 でも届く。A2 にするのは実験レイヤの規約に合わせるため)。
-# 探索ブロック 19: gamma 0.997 で相対 action gap が 0.81%(BF16 の 1.55 ULP)まで潰れている。
-# BTR は gamma 0.997 と Munchausen(gap を広げる操作子)を同時に採るが、本実装は gamma だけ採った。
-run.@g99     : A2.learner.gamma = 0.99
-run.@g99     : app.run_name = run_{t}_h_gamma099_${E1.game}
-
-# ---- Munchausen(2026-09-05) ------------------------------------------------
-# run.@munchausen(幹)は PRD 067 の受入 smoke 用で、基準線が 2026-08 のまま(LN 無し・
-# V/A ReLU 無し・soft tau=0.001・ge432 メトリクス無し)。実験腕には使えないので、
-# hard125 基準へ重ねる修飾子をここに置く。smoke は幹をそのまま使う。
-#   例: run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@rr1_va_hard125>run.@m_on
-
-# Munchausen ON。DefaultDQNAgent.$ を再宣言するのは @munchausen を A1 より前へ差し込むため。
-# metrics.scalar.$ は run.@breakout_metrics と同じスロットで丸ごと後勝ちになるので、
-# @breakout(ge432 = 判定軸)と @munchausen(診断 7 tag)を 1 本にまとめて宣言する。
-# よってこの腕に run.@breakout_metrics は重ねない。重ねるとどちらか一方が黙って消える。
-run.@m_on   : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
-run.@m_on   : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > M1 > M2
-run.@m_on   : app.run_name = run_{t}_mu1_hard125_munch_${E1.game}
-
-# Munchausen OFF の対照。@munchausen が use_double_dqn=false を強制する(併用は構築時
-# fail-fast、PRD 067 D5)ため、これが無いと m_on は「Munchausen 追加」と「Double 除去」の
-# 2 変数になる。BTR も同じ理由で Double を落としている(次状態の argmax を使わないため)。
-run.@m_ctrl : A3.learner.use_double_dqn = false
-run.@m_ctrl : app.run_name = run_{t}_mu0_hard125_nodouble_${E1.game}
 
 # ==============================================================================
 # デバッグ用
