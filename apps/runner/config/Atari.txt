@@ -256,6 +256,13 @@ run.@v5_iqn_impala_x2      : DefaultDQNAgent.net.branch.[main_feature].$ = net.b
 run.@v5_iqn_impala_x2      : A2.eval_policy.eps_start = 0.01     # BTR Table D6
 run.@v5_iqn_impala_x2      : A2.eval_policy.eps_end   = 0.01
 
+# Munchausen IQN。mode/riskの比較はA3の後段overlayで指定する。
+run.@munchausen : AtariEnv.$ = AtariEnv.@v5_noop30 > E1
+run.@munchausen : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+run.@munchausen : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
+run.@munchausen : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > M1 > M2
+run.@munchausen : app.run_name = run_{t}_munchausen_${E1.game}
+
 # デモ・長時間 Run 用。学習構成は上と同一で、プロトコルと eval だけ Nature 系へ振る。
 run.@classic_iqn_impala_x2 : AtariEnv.$ = AtariEnv.@classic > E1
 run.@classic_iqn_impala_x2 : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
@@ -368,6 +375,11 @@ run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る�
 # 100M Run の前半 50M は同設定 50M Run の厳密な prefix になる。
 run.@to_100m : @vars.max_exp_step  = 100,000,000
 run.@to_100m : @vars.half_exp_step =  50,000,000
+
+# 配線確認用の 400k。CLI の `@vars.max_exp_step=...` は run.@a5 の代入に負けるので
+# (プロファイル解決が CLI 追記より後)、短縮は必ずプロファイルとしてチェーン末尾へ重ねる。
+run.@to_400k : @vars.max_exp_step  = 400,000
+run.@to_400k : @vars.half_exp_step = 200,000
 
 # シードだけ変える合成用(run_name は腕から継ぐ)。2026-09-04 時点の Run は
 # すべて train.seed = 1 かつ backend.@non-deterministic なので、これまでの
@@ -747,6 +759,26 @@ run.@head_relu : app.run_name = run_{t}_n_head_relu_${E1.game}
 # BTR は gamma 0.997 と Munchausen(gap を広げる操作子)を同時に採るが、本実装は gamma だけ採った。
 run.@g99     : A2.learner.gamma = 0.99
 run.@g99     : app.run_name = run_{t}_h_gamma099_${E1.game}
+
+# ---- Munchausen(2026-09-05) ------------------------------------------------
+# run.@munchausen(幹)は PRD 067 の受入 smoke 用で、基準線が 2026-08 のまま(LN 無し・
+# V/A ReLU 無し・soft tau=0.001・ge432 メトリクス無し)。実験腕には使えないので、
+# hard125 基準へ重ねる修飾子をここに置く。smoke は幹をそのまま使う。
+#   例: run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@rr1_va_hard125>run.@m_on
+
+# Munchausen ON。DefaultDQNAgent.$ を再宣言するのは @munchausen を A1 より前へ差し込むため。
+# metrics.scalar.$ は run.@breakout_metrics と同じスロットで丸ごと後勝ちになるので、
+# @breakout(ge432 = 判定軸)と @munchausen(診断 7 tag)を 1 本にまとめて宣言する。
+# よってこの腕に run.@breakout_metrics は重ねない。重ねるとどちらか一方が黙って消える。
+run.@m_on   : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+run.@m_on   : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > M1 > M2
+run.@m_on   : app.run_name = run_{t}_mu1_hard125_munch_${E1.game}
+
+# Munchausen OFF の対照。@munchausen が use_double_dqn=false を強制する(併用は構築時
+# fail-fast、PRD 067 D5)ため、これが無いと m_on は「Munchausen 追加」と「Double 除去」の
+# 2 変数になる。BTR も同じ理由で Double を落としている(次状態の argmax を使わないため)。
+run.@m_ctrl : A3.learner.use_double_dqn = false
+run.@m_ctrl : app.run_name = run_{t}_mu0_hard125_nodouble_${E1.game}
 
 # ==============================================================================
 # デバッグ用

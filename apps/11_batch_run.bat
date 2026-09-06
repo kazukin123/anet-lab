@@ -14,23 +14,30 @@ SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-2nd
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
 
-SET "FIX1=backend.$=backend.@non-deterministic"
+SET "BK=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex"
+SET "EV=run.@evalN10"
+SET "BM=run.@breakout_metrics"
+SET "BR=app.$=app.batchrun>P1"
+SET "S400K=@vars.max_exp_step=400000"
+SET "X400K=app.batchrun.exp_exit_step=400000"
 
-echo === 0. PRD060 eval smoke x2 - N=1 and L=10/N=10 (12 min) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_soft008>run.@eval_smoke"
-call:run_exe "run.$=%A5%>run.@rr1_va_evalN10>run.@eval_smoke"
+echo === 0. PRD067 ON smoke - risk biased soft target, retry with UQE train policy ===
+call:run_exe "run.$=run.@munchausen" "%BR%" "%S400K%" "%X400K%" "A3.use_optimistic_target=true" "A3.train_policy.policy_type=UQE" "app.run_name=run_{t}_tmp_smoke_067_target_risk_${E1.game}"
 
-echo === 1. btrstruct with tau ReLU - BTR faithful, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_btrstruct_taurelu"
+echo === 1. ARM - hard125 + Munchausen(target), 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_hard125>run.@m_on>%EV%"
 
-echo === 2. ViT hybrid + LN512 on V/A ReLU base, 50M (2.6h) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_vit"
+echo === 2. CONTROL - hard125 + use_double_dqn=false, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_hard125>%BM%>run.@m_ctrl>%EV%"
 
-echo === 3. V/A ReLU base with eval L=10 N=10 - PRD060 calibration, 50M (2.6h+) ===
-call:run_exe "run.$=%A5%>run.@rr1_va_evalN10"
+echo === 3. ARM r2 - hard125 + Munchausen(target) replicate, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_hard125>run.@m_on>%EV%"
+
+echo === 4. BASELINE r4 - hard125 reference replicate, 50M (2.9h) ===
+call:run_exe "run.$=%A5%>run.@rr1_va_hard125>%BM%>%EV%"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -45,7 +52,7 @@ exit /b 0
 
 :run_exe
 echo %DATE% %TIME% START %*
-%EXE% %* %FIX1% %FIX2%
+%EXE% %* %BK% %FIX2%
 SET "RUN_EXIT_CODE=%ERRORLEVEL%"
 if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
 echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
