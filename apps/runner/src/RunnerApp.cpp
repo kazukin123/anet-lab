@@ -4,6 +4,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <new>
 #include <vector>
 #include <wx/cmdline.h>
 #include <wx/filename.h>
@@ -241,6 +242,10 @@ static wxCmdLineEntryDesc desc[] = {
 bool RunnerApp::OnInit()
 {
     anet::ProfileThreadName th("MainThread");
+
+    // 確保失敗の診断を最初に登録する。
+    // bad_alloc は catch した時点で巻き戻り済みなので、失敗スレッド上で要求サイズを残す。
+    anet::InstallAllocationFailureLogger();
 
     // wxWidgets初期化
     wxInitAllImageHandlers();
@@ -685,6 +690,22 @@ void RunnerApp::showFatalError()
         auto msg = wxString::FromUTF8(e1.what());
         auto detail = wxString::FromUTF8(e1.stack_trace());
         ReportError(msg, detail, show_error_dialog_);
+    } catch (const std::bad_alloc& e) {
+        // bad_alloc の what() は "bad allocation" だけなので、
+        // new handler が失敗時点で記録した要求サイズを detail に添える。
+        const auto info = anet::GetAllocationFailureInfo();
+        wxString detail;
+        if (info.failure_count == 0) {
+            detail = "No operator new failure was recorded. "
+                "The allocation failed in another allocator.";
+        } else {
+            detail = wxString::Format(
+                "requested_bytes=%llu\nfailure_count=%llu\n"
+                "See stderr.log for the allocation stack trace.",
+                static_cast<unsigned long long>(info.last_request_bytes),
+                static_cast<unsigned long long>(info.failure_count));
+        }
+        ReportError(wxString::FromUTF8(e.what()), detail, show_error_dialog_);
     } catch (const std::exception& e) {
         auto msg = wxString::FromUTF8(e.what());
         ReportError(msg, wxEmptyString, show_error_dialog_);
