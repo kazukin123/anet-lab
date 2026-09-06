@@ -289,3 +289,12 @@ metrics.scalar.@full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @t
 metrics.scalar.@full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.@full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.@full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+# Munchausen診断。実空間のraw 5値とEMA 2行を任意profileへまとめる。
+metrics.scalar.@munchausen.[36_agent_munchausen/01_scaled_logp_mean] = munchausen_scaled_log_policy_mean @learn $update_result
+metrics.scalar.@munchausen.[36_agent_munchausen/02_scaled_logp_mean_ema] = munchausen_scaled_log_policy_mean @learn $update_result $ema
+metrics.scalar.@munchausen.[36_agent_munchausen/03_clip_ratio] = munchausen_clip_ratio @learn $update_result
+metrics.scalar.@munchausen.[36_agent_munchausen/04_bonus_mean] = munchausen_bonus_mean @learn $update_result
+metrics.scalar.@munchausen.[36_agent_munchausen/05_bonus_mean_ema] = munchausen_bonus_mean @learn $update_result $ema
+metrics.scalar.@munchausen.[36_agent_munchausen/06_next_entropy] = munchausen_next_entropy @learn $update_result
+metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_gap @learn $update_result

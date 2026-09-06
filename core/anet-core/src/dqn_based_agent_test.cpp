@@ -1643,8 +1643,8 @@ TEST_CASE("DQN initial priority estimator completes a one-step bootstrap", "[dqn
     config.use_per_prio_clip = false;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
 
-    const std::array<float, 2> start_hint{ 4.0f, 5.0f };
-    const std::array<float, 2> bootstrap_hint{ 6.0f, 2.0f };
+    const std::array<float, 3> start_hint{ 4.0f, 5.0f, 0.0f };
+    const std::array<float, 3> bootstrap_hint{ 6.0f, 2.0f, 0.0f };
     const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
         .bootstrap_hint = bootstrap_hint,
@@ -1794,8 +1794,8 @@ TEST_CASE("DQN initial priority estimator distinguishes n-step bootstrap and tru
     config.per_eps = 0.0f;
     config.use_per_prio_clip = false;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
-    const std::array<float, 2> start_hint{ 4.0f, 99.0f };
-    const std::array<float, 2> bootstrap_hint{ 88.0f, 3.0f };
+    const std::array<float, 3> start_hint{ 4.0f, 99.0f, 0.0f };
+    const std::array<float, 3> bootstrap_hint{ 88.0f, 3.0f, 0.0f };
 
     const auto n_step_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
@@ -1831,8 +1831,8 @@ TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn
 
     const float actor_q_sa = torch::tensor({ 2.0f, 4.0f }).mean().item<float>();
     const float bootstrap_state_value = torch::tensor({ 1.0f, 5.0f }).mean().item<float>();
-    const std::array<float, 2> start_hint{ actor_q_sa, 0.0f };
-    const std::array<float, 2> bootstrap_hint{ 0.0f, bootstrap_state_value };
+    const std::array<float, 3> start_hint{ actor_q_sa, 0.0f, 0.0f };
+    const std::array<float, 3> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
     const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
         .bootstrap_hint = bootstrap_hint,
@@ -1856,7 +1856,7 @@ TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn
 
 TEST_CASE("DQN initial priority estimator preserves zero and clip boundaries", "[dqn][per][actor_initial][estimator]")
 {
-    const std::array<float, 2> start_hint{ 2.0f, 0.0f };
+    const std::array<float, 3> start_hint{ 2.0f, 0.0f, 0.0f };
 
     dqn::LearnerConfig zero_config;
     zero_config.per_eps = 0.0f;
@@ -1894,9 +1894,9 @@ TEST_CASE("DQN initial priority estimator distinguishes schema errors and non-fi
 {
     dqn::LearnerConfig config;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
-    const std::array<float, 2> finite_hint{ 1.0f, 2.0f };
-    const std::array<float, 2> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f };
-    const std::array<float, 2> inf_hint{ 1.0f, std::numeric_limits<float>::infinity() };
+    const std::array<float, 3> finite_hint{ 1.0f, 2.0f, 0.0f };
+    const std::array<float, 3> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f, 0.0f };
+    const std::array<float, 3> inf_hint{ 1.0f, std::numeric_limits<float>::infinity(), 0.0f };
 
     CHECK(estimator->ValidateHint(finite_hint));
     CHECK_FALSE(estimator->ValidateHint(nan_hint));
@@ -1982,8 +1982,8 @@ TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "
         REQUIRE(result->td_error.numel() == 1);
         REQUIRE(result->q_sa.numel() == 1);
 
-        const std::array<float, 2> start_hint{ result->q_sa.item<float>(), 0.0f };
-        const std::array<float, 2> bootstrap_hint{ 0.0f, bootstrap_state_value };
+        const std::array<float, 3> start_hint{ result->q_sa.item<float>(), 0.0f, 0.0f };
+        const std::array<float, 3> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
         auto estimator = dqn::CreateInitialPriorityEstimator(config);
         const auto actor_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
             .start_hint = start_hint,
@@ -2127,6 +2127,7 @@ TEST_CASE("PER raw priority batch counts strict pre-clip changes on CPU and CUDA
 
 TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping", "[dqn][per][clip]")
 {
+    const bool with_diagnostics = GENERATE(false, true);
     dqn::LearnerConfig config;
     config.use_per = true;
     config.per_eps = 0.1f;
@@ -2162,8 +2163,10 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
     // clip前priorityが上限未満・等値・超過となる3境界を同時に検証する。
     auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f });
     auto upper_tail_std = torch::tensor({ 1.0f, 2.0f, 3.0f });
+    const auto iqn_diagnostics = with_diagnostics ? torch::arange(7, torch::kFloat32) + 10.0f : torch::Tensor();
+    const auto munchausen_diagnostics = with_diagnostics ? torch::arange(5, torch::kFloat32) + 20.0f : torch::Tensor();
     auto pending = learner.PreparePerPriorityUpdate(
-        samples, td_error, torch::Tensor(), upper_tail_std);
+        samples, td_error, iqn_diagnostics, upper_tail_std, munchausen_diagnostics);
 
     REQUIRE(pending.enabled);
     const auto expected_indices = std::vector<int64_t>{ 3, 4, 5 };
@@ -2172,6 +2175,10 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
     CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
 
     auto result = learner.ApplyPerPriorityUpdate(std::move(pending));
+    if (with_diagnostics) {
+        CHECK(torch::equal(result.iqn_diagnostics, iqn_diagnostics));
+        CHECK(torch::equal(result.munchausen_diagnostics, munchausen_diagnostics));
+    }
 
     CHECK(replay_buffer->update_count == 1);
     CHECK(replay_buffer->last_indices == expected_indices);
@@ -4208,12 +4215,12 @@ TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[
     CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[3]"));
 }
 
-TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][actor_initial][hint]")
+TEST_CASE("DQN Actor Q hint schema packs and decodes three columns", "[dqn][per][actor_initial][hint]")
 {
     auto q_sa = torch::tensor({ 2.0f, 3.0f });
     auto state_value = torch::tensor({ 5.0f, 7.0f });
 
-    auto packed = dqn::PackActorQHint(q_sa, state_value);
+    auto packed = dqn::PackActorQHint(q_sa, state_value, torch::zeros_like(q_sa));
     CHECK(packed.scalar_type() == torch::kFloat32);
     CHECK(packed.sizes() == torch::IntArrayRef({ 2, dqn::kActorQHintColumnCount }));
 
@@ -4221,12 +4228,12 @@ TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][a
     CHECK(torch::equal(batch.actor_q_sa, q_sa));
     CHECK(torch::equal(batch.actor_state_value, state_value));
 
-    const std::array<float, 2> row{ 11.0f, 13.0f };
+    const std::array<float, 3> row{ 11.0f, 13.0f, 0.0f };
     const auto decoded_row = dqn::DecodeActorQHint(std::span<const float>(row));
     CHECK(decoded_row.actor_q_sa == Catch::Approx(11.0f));
     CHECK(decoded_row.actor_state_value == Catch::Approx(13.0f));
 
-    CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 3 }, torch::kFloat32)));
+    CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 2 }, torch::kFloat32)));
     CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
 }
 
@@ -4238,7 +4245,8 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     });
     rl::AuxData aux;
     aux["q_values"] = q_values;
-    auto packed = torch::tensor({ { 5.0f, 5.0f }, { 7.0f, 7.0f } });
+    aux["munchausen_terms"] = torch::zeros_like(q_values);
+    auto packed = torch::tensor({ { 5.0f, 5.0f, 0.0f }, { 7.0f, 7.0f, 0.0f } });
     dqn::DQNActionInfo info(
         torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
         {},
@@ -4249,7 +4257,7 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
     CHECK(torch::equal(
         replaced->GetReplayInitialPriorityHint()->GetPayload(),
-        torch::tensor({ { 2.0f, 5.0f }, { 3.0f, 7.0f } })));
+        torch::tensor({ { 2.0f, 5.0f, 0.0f }, { 3.0f, 7.0f, 0.0f } })));
     const auto& first_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     const auto& second_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
@@ -5801,4 +5809,132 @@ TEST_CASE("DQN plasticity feature key is validated only when subscribed", "[dqn]
         .source_key = "plasticity_weight_norm_readout",
         .event = rl::EventType::LEARN,
     } }), Catch::Matchers::ContainsSubstring("available_branches"));
+}
+
+TEST_CASE("QR UQE preserves sorted point and tail scores", "[dqn][qr][uqe][munchausen]")
+{
+    // 非整列の固定分位点から、既存hard経路の点選択とtail平均を固定する。
+    const auto quantiles = torch::tensor({ { { 7.0f, 1.0f, 3.0f, 5.0f }, { 0.0f, 20.0f, 10.0f, 2.0f } } });
+    const anet::TensorDict obs{ { "q", quantiles.mean(-1) }, { "q_dist", quantiles } };
+    for (const bool tail_mean : { false, true }) {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "qr";
+        config.uqe_tau_start = 0.5f;
+        config.uqe_tau_end = 0.5f;
+        config.uqe_use_tail_mean = tail_mean;
+        dqn::UQEActionPolicy policy(config);
+        const auto result = policy.SelectAction(obs, true, MakePassthroughNetwork(2, 4),
+            std::make_shared<anet::RandomGenerator>(67001), {});
+        const auto expected = tail_mean ? torch::tensor({ { 5.0f, 32.0f / 3.0f } })
+                                        : torch::tensor({ { 3.0f, 2.0f } });
+        CHECK(torch::equal(result->GetAuxData().at("uqe_values"), expected));
+        CHECK(result->GetAction().item<int64_t>() == (tail_mean ? 1 : 0));
+    }
+}
+
+TEST_CASE("TD Munchausen target adds one bonus and masks only bootstrap", "[dqn][learner][munchausen][tracer]")
+{
+    const std::string mode = GENERATE("target", "online", "online_reuse");
+    CAPTURE(mode);
+    // 設定読取から実Learner更新までを通し、未知キーを無視する旧実装では数値で失敗させる。
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.learner.munchausen.enabled", true);
+    data.Set("DefaultDQNAgent.learner.munchausen.entropy_tau", 0.5f);
+    data.Set("DefaultDQNAgent.learner.munchausen.log_policy_mode", mode);
+    data.Set("DefaultDQNAgent.learner.munchausen.clip_value_min", -10.0f);
+    data.Set("DefaultDQNAgent.learner.use_double_dqn", false);
+    auto config = dqn::DefaultDQNAgentConfig(data).learner;
+    config.alpha = 0.0f;
+    config.use_fused_optimizer = false;
+    config.use_grad_clip = false;
+    config.use_td_clip = false;
+    config.use_per = false;
+    config.replay_capacity = 8;
+    config.replay_batch_size = 2;
+    config.gamma = 0.9f;
+    TestNetworkModel model(false, 2);
+    {
+        torch::NoGradGuard guard;
+        model.GetOnlineNetwork()->parameters().at(0).copy_(torch::eye(2));
+        model.GetTargetNetwork()->parameters().at(0).copy_(2.0f * torch::eye(2));
+    }
+    auto spec = MakeLearnerEnvSpec();
+    spec.action_spec.value_labels = { "a0", "a1" };
+    dqn::RuntimeVars vars;
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    dqn::TDLearner learner(config, model, vars, nullptr, rl::BatchEnvSpec{ 2, 2 }, spec,
+        torch::kCPU, 67002, policy, std::nullopt, 67003);
+    auto samples = MakeAutocastProbeSamples(torch::kCPU);
+    samples.n_steps = torch::tensor({ 3, 2 }, torch::kInt64);
+    samples.next_state.terminals = torch::tensor({ false, true });
+    const auto result = learner.UpdateFromSamples(samples);
+    const double score_gap = mode == "target" ? 2.0 : 1.0;
+    const double bonus = 0.9 * (-score_gap - 0.5 * std::log1p(std::exp(-score_gap / 0.5)));
+    const double next_soft = 2.0 + 0.5 * std::log1p(std::exp(-2.0));
+    CHECK(result->td_error[0].item<float>() == Catch::Approx(1.0 - (0.1 + bonus + std::pow(0.9, 3) * next_soft)).margin(1e-5));
+    CHECK(result->td_error[1].item<float>() == Catch::Approx(3.0 - (0.2 + bonus)).margin(1e-5));
+    const auto diagnostic = result->GetScalar("munchausen_bonus_mean");
+    REQUIRE(diagnostic.has_value());
+    CHECK(*diagnostic == Catch::Approx(bonus).margin(1e-5));
+}
+
+TEST_CASE("DefaultDQNAgent forwards Munchausen settings to Actor approximation", "[dqn][munchausen][actor_munchausen]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const bool tbo = GENERATE(false, true);
+    const bool tail_mean = GENERATE(false, true);
+    CAPTURE(tbo, tail_mean);
+    const auto make_action = [&](bool enabled) {
+        auto data = MakeIqnTracerConfigData();
+        data.Set("DefaultDQNAgent.learner.munchausen.enabled", enabled);
+        data.Set("DefaultDQNAgent.learner.munchausen.entropy_tau", 0.7f);
+        data.Set("DefaultDQNAgent.learner.munchausen.clip_value_min", -2.0f);
+        data.Set("DefaultDQNAgent.learner.use_double_dqn", false);
+        data.Set("DefaultDQNAgent.learner.use_tbo", tbo);
+        data.Set("DefaultDQNAgent.learner.tbo_epsilon", 0.001f);
+        data.Set("DefaultDQNAgent.learner.use_per", true);
+        data.Set("DefaultDQNAgent.learner.per_initial_priority_mode", "actor_approx");
+        data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+        data.Set("DefaultDQNAgent.train_policy.uqe_tau_start", 0.65f);
+        data.Set("DefaultDQNAgent.train_policy.uqe_tau_end", 0.65f);
+        data.Set("DefaultDQNAgent.train_policy.uqe_use_tail_mean", tail_mean);
+        data.Set("DefaultDQNAgent.train_policy.full_distribution_query.enabled", true);
+        data.Set("DefaultDQNAgent.train_policy.full_distribution_query.tau_rule.num_taus", 5);
+        dqn::DefaultDQNAgentFactory factory;
+        const auto spec = MakeIqnTracerEnvSpec();
+        const rl::BatchEnvSpec batch_spec{ 2, 1 };
+        const auto agent = factory.CreateAgent(spec, batch_spec, torch::kCPU, data, nullptr, 67020);
+        const auto actor = agent->CreateActor(batch_spec, spec, rl::RunMode::Train, std::nullopt, torch::kCPU);
+        const auto flags = torch::zeros({ 2 }, torch::kBool);
+        const rl::BatchState state(anet::TensorDict{ { kVectorKey,
+            torch::tensor({ { 1.0f, 2.0f, 3.0f, 4.0f }, { 4.0f, 3.0f, 2.0f, 1.0f } }) } }, flags, flags, flags);
+        return actor->MakeAction(rl::StepCounts{}, state);
+    };
+    const auto off = make_action(false);
+    const auto on = make_action(true);
+    REQUIRE(off->GetReplayInitialPriorityHint().has_value());
+    REQUIRE(on->GetReplayInitialPriorityHint().has_value());
+    CHECK(torch::equal(off->GetReplayInitialPriorityHint()->GetPayload().select(1, 2), torch::zeros({ 2 })));
+    const auto payload = on->GetReplayInitialPriorityHint()->GetPayload();
+    const auto scores = on->GetAuxData().at("q_values").to(torch::kFloat64);
+    REQUIRE(on->GetAuxData().contains("full_q_values"));
+    const auto h = [](double x) { return std::copysign(std::sqrt(std::abs(x) + 1.0) - 1.0, x) + 0.001 * x; };
+    const auto h_inv = [](double x) {
+        const double t = (std::sqrt(1.0 + 0.004 * (std::abs(x) + 1.001)) - 1.0) / 0.002;
+        return std::copysign(t * t - 1.0, x);
+    };
+    // full queryの平均ではなく、既存risk scoreを実空間へ戻した近似を独立式で検証する。
+    for (int b = 0; b < 2; ++b) {
+        std::array<double, 2> real{};
+        for (int a = 0; a < 2; ++a) real[a] = tbo ? h_inv(scores[b][a].item<double>()) : scores[b][a].item<double>();
+        const double maximum = std::max(real[0], real[1]);
+        const double log_z = std::log(std::exp((real[0] - maximum) / 0.7) + std::exp((real[1] - maximum) / 0.7));
+        const double soft = maximum + 0.7 * log_z;
+        const int64_t action = on->GetAction()[b].item<int64_t>();
+        const double bonus = 0.9 * std::clamp(real[action] - maximum - 0.7 * log_z, -2.0, 0.0);
+        CHECK(payload[b][0].item<float>() == Catch::Approx(scores[b][action].item<double>()));
+        CHECK(payload[b][1].item<float>() == Catch::Approx(tbo ? h(soft) : soft).margin(3e-4));
+        CHECK(payload[b][2].item<float>() == Catch::Approx(bonus).margin(3e-4));
+    }
 }

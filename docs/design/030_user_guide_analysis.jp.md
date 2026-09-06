@@ -213,6 +213,22 @@ SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生paramet
 - exp軸tagとの突き合わせは exp_step = learn_step × batch size / `replay_ratio` で換算する（batch 256でRR8=×32 / RR4=×64 / RR1=×256）。step軸選択の一般注意は4.2節と6.3節、指標定義と測定契約は[DQN系Agent](200_dqn_agents.jp.md)9.4章と[062_plasticity_metrics_10prd.md](../memo/done/062_plasticity_metrics_10prd.md)を参照する。
 
 
+### 4.8 Munchausen診断を読む
+
+`metrics.scalar.@munchausen`は`36_agent_munchausen`へ7 tagを追加する。最初に解決済み設定のenabled、mode、Double DQN OFFと、初期化ログのscore源を確認する。`target_policy=UQE`では経験分位によるrisk scoreを使い、平均Qを使う構成とは区別して読む。
+
+| tag | 読み方 |
+|---|---|
+| `01_scaled_logp_mean` / `02_scaled_logp_mean_ema` | 実行actionのclip前scaled log-policyの平均とEMA。0以下 |
+| `03_clip_ratio` | bonus下限clipの発生率。0〜1 |
+| `04_bonus_mean` / `05_bonus_mean_ema` | targetへ1回加えるbonusの平均とEMA。`alpha * clip_value_min`〜0 |
+| `06_next_entropy` | next方策entropy。0〜`ln(action数)` |
+| `07_soft_gap` | soft state valueと最大平均Qの差。平均scoreなら0〜`entropy_tau * ln(action数)`、risk scoreなら負も許す |
+
+5つのraw診断はTBO時もFP32実空間で計算し、PER OFFでも回収する。機能OFFまたは未成立の既知keyは`NaN`であり、0へ読み替えない。readbackはpriority・clip件数、IQN診断、Munchausen診断、upper-tail統計の順に一括転送する。Actorの`actor_approx`は既存action scoreによる近似なので、Learnerの経験分位近似とは別の近似として扱う。
+
+mode間の負荷は`forward_target`、`forward_munchausen_online`、`munchausen_target`と、同じexp step区間のelapsed time差で比較する。診断や1 seedの成績だけで改善を断定しない。
+
 ## 5. Optuna結果を分析する
 
 ### 5.1 Metrics ViewerとDashboardの役割

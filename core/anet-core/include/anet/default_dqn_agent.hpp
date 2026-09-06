@@ -211,6 +211,28 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.per_prio_clip_value);
             ANET_READ_CONFIG(config_data, learner.quantile_huber_kappa);
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
+            ANET_READ_CONFIG(config_data, learner.munchausen.enabled);
+            ANET_READ_CONFIG(config_data, learner.munchausen.log_policy_mode);
+            ANET_READ_CONFIG(config_data, learner.munchausen.alpha);
+            ANET_READ_CONFIG(config_data, learner.munchausen.entropy_tau);
+            ANET_READ_CONFIG(config_data, learner.munchausen.clip_value_min);
+
+            // 休眠中も認識済みの設定値を検証し、ON/OFF切替で不正値を潜伏させない。
+            const auto& munchausen = learner.munchausen;
+            if (munchausen.log_policy_mode != "target" && munchausen.log_policy_mode != "online"
+                && munchausen.log_policy_mode != "online_reuse") {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.log_policy_mode='" << munchausen.log_policy_mode
+                    << "'; expected target, online, or online_reuse.");
+            }
+            if (!std::isfinite(munchausen.alpha) || munchausen.alpha < 0.0f || munchausen.alpha > 1.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.alpha=" << munchausen.alpha << "; expected finite [0,1].");
+            }
+            if (!std::isfinite(munchausen.entropy_tau) || munchausen.entropy_tau <= 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.entropy_tau=" << munchausen.entropy_tau << "; expected finite > 0.");
+            }
+            if (!std::isfinite(munchausen.clip_value_min) || munchausen.clip_value_min > 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.clip_value_min=" << munchausen.clip_value_min << "; expected finite <= 0.");
+            }
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
             ANET_READ_CONFIG(config_data, learner.use_tbo);
@@ -318,6 +340,16 @@ namespace anet::rl::dqn {
 
             const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
             const auto is_thompson = [](const std::string& type) { return type == "ThompsonSampling" || type == "2"; };
+            // コピーと明示overlayを解決した最終target policyに対して競合を検証する。
+            if (learner.munchausen.enabled && learner.use_double_dqn) {
+                ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with learner.use_double_dqn=true; expected learner.use_double_dqn=false.");
+            }
+            // MunchausenとThompsonは共存付加
+            if (learner.munchausen.enabled && is_thompson(target_policy.policy_type)) {
+                ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with target_policy.policy_type='"
+                    << target_policy.policy_type << "'; expected Greedy, EpsilonGreedy, or UQE. use_optimistic_target="
+                    << (use_optimistic_target ? "true (train_policy copy before target overrides)" : "false"));
+            }
             const auto validate_distributional_policy = [&](const ActionPolicyConfig& policy, const char* key) {
                 if ((is_uqe(policy.policy_type) || is_thompson(policy.policy_type)) && quantile_mode == "none") {
                     ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type

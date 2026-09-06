@@ -7,6 +7,7 @@
 #include <limits>
 #include <span>
 #include <unordered_set>
+#include <utility>
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
@@ -19,6 +20,25 @@
 
 
 namespace anet::rl::dqn {
+
+    inline constexpr std::array<const char*, 5> kMunchausenMetricKeys = {
+        "munchausen_scaled_log_policy_mean", "munchausen_clip_ratio", "munchausen_bonus_mean",
+        "munchausen_next_entropy", "munchausen_soft_gap",
+    };
+
+    torch::Tensor MakeRiskBiasedScore(float tau, const torch::Tensor& q_quantiles, bool use_tail_mean);
+
+    struct MunchausenTargetTerms {
+        torch::Tensor bonus;
+        torch::Tensor next_policy;
+        torch::Tensor next_scaled_log_policy;
+        torch::Tensor diagnostics;
+    };
+
+    MunchausenTargetTerms MakeMunchausenTargetTerms(
+        const torch::Tensor& current_score, const torch::Tensor& next_score,
+        const torch::Tensor& next_mean_q, const torch::Tensor& actions,
+        const MunchausenConfig& config);
 
     inline constexpr std::array<const char*, 7> kPolicyChurnMetricKeys = {
         "policy_churn_action_ratio",
@@ -74,22 +94,25 @@ namespace anet::rl::dqn {
         float td_error, float per_eps, bool use_clip, float clip_value);
     std::unique_ptr<InitialPriorityEstimator> CreateInitialPriorityEstimator(const LearnerConfig& config);
 
-    inline constexpr int64_t kActorQHintColumnCount = 2;
+    inline constexpr int64_t kActorQHintColumnCount = 3;
     inline constexpr int64_t kActorQSaColumn = 0;
     inline constexpr int64_t kActorStateValueColumn = 1;
+    inline constexpr int64_t kActorMunchausenTermColumn = 2;
 
     struct ActorQHintBatch {
         torch::Tensor actor_q_sa;
         torch::Tensor actor_state_value;
+        torch::Tensor munchausen_term;
     };
 
     struct ActorQHintRow {
         float actor_q_sa = 0.0f;
         float actor_state_value = 0.0f;
+        float munchausen_term = 0.0f;
     };
 
     torch::Tensor PackActorQHint(
-        const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value);
+        const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value, const torch::Tensor& munchausen_term);
     ActorQHintBatch DecodeActorQHint(const torch::Tensor& payload);
     ActorQHintRow DecodeActorQHint(std::span<const float> payload);
 
@@ -153,6 +176,7 @@ namespace anet::rl::dqn {
 
         // IQN診断（CPU scalar pack）
         torch::Tensor iqn_diagnostics;
+        torch::Tensor munchausen_diagnostics; ///< CPU上の固定長5値。未成立時はundefined。
         float upper_tail_priority_spearman = std::numeric_limits<float>::quiet_NaN();
 
         // 可塑性メトリクス元特徴。CPU統計は購読側が初めて読む時だけ計算する。
@@ -175,6 +199,14 @@ namespace anet::rl::dqn {
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
+            for (size_t i = 0; i < kMunchausenMetricKeys.size(); ++i) {
+                if (key != kMunchausenMetricKeys[i]) continue;
+                if (!munchausen_diagnostics.defined()) return std::numeric_limits<float>::quiet_NaN();
+                if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != 5) {
+                    ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes() << "; expected [5].");
+                }
+                return munchausen_diagnostics[static_cast<int64_t>(i)].item<float>();
+            }
             // 必要になって初めてCPUに転送する
 
             if (const auto metric = ParsePolicyChurnMetric(key)) {
@@ -507,6 +539,7 @@ namespace anet::rl::dqn {
         ReplayPriorityUpdateResult per_update_result; ///< ReplayBufferへ適用済みの更新結果
         long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
         torch::Tensor iqn_diagnostics;                ///< IQN診断scalarのCPU pack
+        torch::Tensor munchausen_diagnostics;         ///< Munchausen診断scalarのCPU pack
         float upper_tail_priority_spearman = std::numeric_limits<float>::quiet_NaN();
     };
 
@@ -520,7 +553,8 @@ namespace anet::rl::dqn {
         torch::Tensor per_sample_actor_initial_count;   ///< actor_initial sourceのサンプル件数
         long per_minibatch_size = 0;                    ///< source比率の分母となるminibatch size
         int64_t iqn_diagnostics_count = 0;              ///< pack末尾のIQN診断scalar数
-        int64_t upper_tail_std_count = 0;                ///< pack末尾のsample単位upper-tail幅数
+        int64_t munchausen_diagnostics_count = 0;       ///< IQN診断に続くMunchausen診断scalar数
+        int64_t upper_tail_std_count = 0;               ///< pack末尾のsample単位upper-tail幅数
         bool per_enabled = false;                       ///< ReplayBuffer priority更新を行うか
         bool enabled = false;                           ///< packed readbackが必要なminibatchか
     };
@@ -638,6 +672,11 @@ namespace anet::rl::dqn {
         mutable torch::Tensor quantile_tail_diagnostics_cpu_;
     };
 
+    struct RiskScoreSpec {
+        float tau;
+        bool use_tail_mean;
+    };
+
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
         ActionPolicy(const ActionPolicyConfig& config,
@@ -648,6 +687,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceCallback& callback = {}) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
+        virtual std::optional<RiskScoreSpec> GetRiskScoreSpec() const { return std::nullopt; }
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
@@ -712,6 +752,10 @@ namespace anet::rl::dqn {
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
+        std::optional<RiskScoreSpec> GetRiskScoreSpec() const override
+        {
+            return RiskScoreSpec{ .tau = current_uqe_tau_, .use_tail_mean = config_.uqe_use_tail_mean };
+        }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback,
@@ -724,6 +768,7 @@ namespace anet::rl::dqn {
 
     class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
     public:
+        std::optional<RiskScoreSpec> GetRiskScoreSpec() const override { return std::nullopt; }
         ThompsonSamplingActionPolicy(const ActionPolicyConfig& config,
             bool enable_spatial_exploration = false,
             int64_t num_envs = 0,
@@ -740,6 +785,12 @@ namespace anet::rl::dqn {
     // Actor
     // ======================================================
 
+    struct ActorQHintConfig {
+        MunchausenConfig munchausen;
+        bool use_tbo = false;
+        float tbo_epsilon = 0.01f;
+    };
+
     class Actor : public anet::rl::Actor {
     public:
         Actor(std::shared_ptr<ActionPolicy> policy,
@@ -750,7 +801,8 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::nn::Network> src_network,
             bool emit_actor_q_hint = false,
             std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval = std::nullopt,
-            bool emit_snapshot_metrics = false);
+            bool emit_snapshot_metrics = false,
+            ActorQHintConfig actor_q_hint_config = {});
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
     private:
@@ -764,6 +816,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
         bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
+        const ActorQHintConfig actor_q_hint_config_;
         mutable std::optional<anet::ProfiledValue<step_t>> snapshot_sync_interval_;
         mutable step_t last_snapshot_sync_train_step_ = 0;
         mutable bool reset_snapshot_age_on_next_action_ = false;
@@ -811,7 +864,8 @@ namespace anet::rl::dqn {
             const anet::rl::ExperienceSamples& samples,
             const torch::Tensor& td_error,
             const torch::Tensor& iqn_diagnostics = torch::Tensor(),
-            const torch::Tensor& upper_tail_std = torch::Tensor());
+            const torch::Tensor& upper_tail_std = torch::Tensor(),
+            const torch::Tensor& munchausen_diagnostics = torch::Tensor());
         PerPriorityUpdateInfo ApplyPerPriorityUpdate(PerPriorityUpdatePending pending);
         PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
     protected:
@@ -964,6 +1018,11 @@ namespace anet::rl::dqn {
         torch::Tensor GatherActionQuantiles(const torch::Tensor& quantiles, const torch::Tensor& actions) const;
         torch::Tensor SelectTargetActions(const anet::TensorDict& next_obs);
         torch::Tensor CalcTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const;
+        torch::Tensor CalcMunchausenTargetQuantiles(const anet::rl::ExperienceSamples& samples,
+            const torch::Tensor& soft_dist, const torch::Tensor& bonus) const;
+        std::pair<torch::Tensor, torch::Tensor> MakeMunchausenTarget(
+            const anet::rl::ExperienceSamples& samples, const anet::TensorDict& obs,
+            const anet::TensorDict& next_obs, const torch::Tensor& current_dist_all);
         QuantileMetrics MakeQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const;
         torch::Tensor ComputeQuantileHuberLoss(
         	const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const;

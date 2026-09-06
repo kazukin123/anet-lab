@@ -226,7 +226,8 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(
         && config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     auto actor = std::make_shared<Actor>(
-        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint);
+        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint,
+        std::nullopt, false, ActorQHintConfig{ .munchausen = MunchausenConfig{ .enabled = false } });
 
     // 生成したActorを返す
     return actor;

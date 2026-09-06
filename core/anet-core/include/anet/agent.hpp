@@ -186,6 +186,14 @@ namespace anet::rl {
 			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
         };
 
+        struct MunchausenConfig {
+            bool enabled = false;
+            std::string log_policy_mode = "target"; ///< Learner専用。Actorのヒント生成では参照しない。
+            float alpha = 0.9f;
+            float entropy_tau = 0.03f;
+            float clip_value_min = -1.0f;
+        };
+
         struct LearnerConfig {
             std::string quantile_mode = "none"; ///< Agent config から解決して渡す内部mode
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
@@ -220,6 +228,7 @@ namespace anet::rl {
             float per_prio_clip_value = 50.0f; ///< 優先度の上限値
 
             bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
+            MunchausenConfig munchausen;
             bool use_n_step = true;       ///< N-STEPを使用するか
             bool use_per = true;          ///< PERを使用するか
 

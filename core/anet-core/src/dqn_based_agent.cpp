@@ -21,6 +21,50 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
+static torch::Tensor MakeScaledLogPolicy(const torch::Tensor& score, float entropy_tau)
+{
+    // maxを引いてから指数化し、温度を掛けたlog-policyをFP32実空間で返す。
+    const auto q = score.detach().to(torch::kFloat32);
+    const auto centered = q - std::get<0>(q.max(1, true));
+    return centered - entropy_tau * torch::logsumexp(centered / entropy_tau, 1, true);
+}
+
+MunchausenTargetTerms anet::rl::dqn::MakeMunchausenTargetTerms(
+    const torch::Tensor& current_score, const torch::Tensor& next_score,
+    const torch::Tensor& next_mean_q, const torch::Tensor& actions,
+    const MunchausenConfig& config)
+{
+    ANET_PROFILE_FUNC();
+    torch::NoGradGuard guard;
+    
+    if (current_score.dim() != 2 || current_score.size(1) < 1
+        || next_score.sizes() != current_score.sizes() || next_mean_q.sizes() != next_score.sizes()
+        || actions.dim() != 1 || actions.size(0) != current_score.size(0)) {
+        ANET_SYSTEM_ERROR("Munchausen requires matching scores/mean Q [B,A] and actions [B]; current="
+            << current_score.sizes() << " next=" << next_score.sizes() << " mean=" << next_mean_q.sizes()
+            << " actions=" << actions.sizes());
+    }
+
+    // 方策スコアと価値用平均Qを分離し、risk方策でも平均Q基準のsoft gapを保持する。
+    const auto current_log = MakeScaledLogPolicy(current_score, config.entropy_tau);
+    const auto selected_log = current_log.gather(1, actions.unsqueeze(1)).squeeze(1);
+    const auto bonus = config.alpha * selected_log.clamp(config.clip_value_min, 0.0f);
+    const auto next_log = MakeScaledLogPolicy(next_score, config.entropy_tau);
+    const auto next_policy = (next_log / config.entropy_tau).exp();
+    const auto mean_q = next_mean_q.detach().to(torch::kFloat32);
+    const auto soft_value = (next_policy * (mean_q - next_log)).sum(1);
+    const auto diagnostics = torch::stack({
+        selected_log.mean(),
+        selected_log.lt(config.clip_value_min).to(torch::kFloat32).mean(),
+        bonus.mean(),
+        -(next_policy * next_log).sum(1).mean() / config.entropy_tau,
+        (soft_value - std::get<0>(mean_q.max(1))).mean(),
+    });
+    return MunchausenTargetTerms{
+        .bonus = bonus, .next_policy = next_policy, .next_scaled_log_policy = next_log, .diagnostics = diagnostics,
+    };
+}
+
 static void ValidateTauGeneratorArguments(int64_t batch_size, int64_t num_taus, const std::string& sample_mode)
 {
     if (batch_size < 0) {
@@ -236,22 +280,22 @@ float anet::rl::dqn::MakePerRawPriority(
 }
 
 torch::Tensor anet::rl::dqn::PackActorQHint(
-    const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value)
+    const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value, const torch::Tensor& munchausen_term)
 {
     // ActorとWithActionが同じ列順でpackできるよう、DQN payloadの構築を一元化する。
-    if (!actor_q_sa.defined() || !actor_state_value.defined()) {
+    if (!actor_q_sa.defined() || !actor_state_value.defined() || !munchausen_term.defined()) {
         ANET_SYSTEM_ERROR("PackActorQHint requires defined tensors.");
     }
-    if (actor_q_sa.dim() != 1 || actor_state_value.dim() != 1
-        || actor_q_sa.sizes() != actor_state_value.sizes()) {
+    if (actor_q_sa.dim() != 1 || actor_state_value.dim() != 1 || munchausen_term.dim() != 1
+        || actor_q_sa.sizes() != actor_state_value.sizes() || actor_q_sa.sizes() != munchausen_term.sizes()) {
         ANET_SYSTEM_ERROR("PackActorQHint expected matching rank-1 tensors. actor_q_sa="
-            << actor_q_sa.sizes() << " actor_state_value=" << actor_state_value.sizes());
+            << actor_q_sa.sizes() << " actor_state_value=" << actor_state_value.sizes() << " munchausen_term=" << munchausen_term.sizes());
     }
-    if (actor_q_sa.device() != actor_state_value.device()) {
+    if (actor_q_sa.device() != actor_state_value.device() || actor_q_sa.device() != munchausen_term.device()) {
         ANET_SYSTEM_ERROR("PackActorQHint expected tensors on the same device. actor_q_sa="
-            << actor_q_sa.device() << " actor_state_value=" << actor_state_value.device());
+            << actor_q_sa.device() << " actor_state_value=" << actor_state_value.device() << " munchausen_term=" << munchausen_term.device());
     }
-    return torch::stack({ actor_q_sa, actor_state_value }, 1).to(torch::kFloat32).contiguous();
+    return torch::stack({ actor_q_sa, actor_state_value, munchausen_term }, 1).to(torch::kFloat32).contiguous();
 }
 
 ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
@@ -262,11 +306,12 @@ ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
     }
     if (payload.dim() != 2 || payload.scalar_type() != torch::kFloat32
         || payload.size(1) != kActorQHintColumnCount) {
-        ANET_SYSTEM_ERROR("DQN Actor Q hint must be float32 [B,2]. actual=" << payload.sizes());
+        ANET_SYSTEM_ERROR("DQN Actor Q hint must be float32 [B,3]. actual=" << payload.sizes());
     }
     return ActorQHintBatch{
         .actor_q_sa = payload.select(1, kActorQSaColumn),
         .actor_state_value = payload.select(1, kActorStateValueColumn),
+        .munchausen_term = payload.select(1, kActorMunchausenTermColumn),
     };
 }
 
@@ -274,11 +319,12 @@ ActorQHintRow anet::rl::dqn::DecodeActorQHint(std::span<const float> payload)
 {
     // ReplayBufferから渡されたopaque rowは、DQN推定器に入る時点でだけ列へdecodeする。
     if (payload.size() != kActorQHintColumnCount) {
-        ANET_SYSTEM_ERROR("DQN Actor Q hint must have K=2. actual=" << payload.size());
+        ANET_SYSTEM_ERROR("DQN Actor Q hint must have K=3. actual=" << payload.size());
     }
     return ActorQHintRow{
         .actor_q_sa = payload[kActorQSaColumn],
         .actor_state_value = payload[kActorStateValueColumn],
+        .munchausen_term = payload[kActorMunchausenTermColumn],
     };
 }
 
@@ -295,7 +341,8 @@ public:
     bool ValidateHint(std::span<const float> hint) const override
     {
         const auto decoded = DecodeActorQHint(hint);
-        return std::isfinite(decoded.actor_q_sa) && std::isfinite(decoded.actor_state_value);
+        return std::isfinite(decoded.actor_q_sa) && std::isfinite(decoded.actor_state_value)
+            && std::isfinite(decoded.munchausen_term);
     }
 
     std::optional<float> Estimate(const anet::rl::InitialPriorityEstimateInput& input) const override
@@ -306,7 +353,7 @@ public:
         }
         const auto start_hint = DecodeActorQHint(input.start_hint);
         // TBOではbootstrap値を実空間へ戻してn-step収益と加算し、Learnerと同じh空間へ再変換する。
-        float target = input.target_return;
+        float target = input.target_return + start_hint.munchausen_term;
         if (!input.terminal) {
             const float bootstrap_state_value = DecodeActorQHint(input.bootstrap_hint).actor_state_value;
             const float bootstrap = use_tbo_
@@ -558,20 +605,30 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tens
 {
     auto hint = replay_initial_priority_hint_;
     if (hint.has_value()) {
-        // 実行行動の差し替え後も、既存forwardの全行動QからQ(s,a)だけを再取得してhint契約を保つ。
+        // 行動Qとbonusを同じ実行行動へ揃え、行動に依存しないstate valueは維持する。
         const auto it = aux_.find("q_values");
         if (it == aux_.end() || !it->second.defined()) {
             ANET_SYSTEM_ERROR(
                 "DQNActionInfo::WithAction requires aux[q_values] when an Actor Q hint is present.");
         }
         const auto& q_values = it->second;
+        const auto term_it = aux_.find("munchausen_terms");
+        if (term_it == aux_.end() || !term_it->second.defined()) {
+            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires aux[munchausen_terms] when an Actor Q hint is present.");
+        }
+        const auto& terms = term_it->second;
+        if (terms.sizes() != q_values.sizes() || terms.device() != q_values.device()) {
+            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires matching q_values/munchausen_terms shape and device. q_values="
+                << q_values.sizes() << " on " << q_values.device() << " terms=" << terms.sizes() << " on " << terms.device());
+        }
         if (action.device() != q_values.device()) {
             ANET_SYSTEM_ERROR("DQNActionInfo::WithAction cannot replace a hinted action across devices. action="
                 << action.device() << " q_values=" << q_values.device());
         }
         auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1).to(torch::kFloat32);
         const auto decoded = DecodeActorQHint(hint->GetPayload());
-        auto packed = PackActorQHint(q_sa, decoded.actor_state_value);
+        const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+        auto packed = PackActorQHint(q_sa, decoded.actor_state_value, bonus);
         hint = ReplayInitialPriorityHint(std::move(packed));
     }
     auto result = std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
@@ -1371,6 +1428,13 @@ void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
 torch::Tensor UQEActionPolicy::MakeUQEValues(float tau, const torch::Tensor& q_quantiles) const
 {
     ANET_PROFILE_FUNC();
+    
+    // hard方策の演算順を維持し、soft方策とも同じ経験分位計算を共有する。
+    return MakeRiskBiasedScore(tau, q_quantiles, config_.uqe_use_tail_mean);
+}
+
+torch::Tensor anet::rl::dqn::MakeRiskBiasedScore(float tau, const torch::Tensor& q_quantiles, bool use_tail_mean)
+{
 
     // GPU同期を避けるため、sizes() からメタデータのみ取得
     const int64_t n_quantiles = q_quantiles.size(-1);
@@ -1384,7 +1448,7 @@ torch::Tensor UQEActionPolicy::MakeUQEValues(float tau, const torch::Tensor& q_q
     torch::Tensor sorted_quantiles = std::get<0>(q_quantiles.sort(-1, /*descending=*/false));
 
     torch::Tensor uqe_values;
-    if (config_.uqe_use_tail_mean) {
+    if (use_tail_mean) {
         // 上位分位点すべての平均を使う場合
 
         // tau_idx から 最後まで (N-1) の範囲を切り出す
@@ -1700,9 +1764,11 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::shared_ptr<anet::nn::Network> src_network,
     bool emit_actor_q_hint,
     std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval,
-    bool emit_snapshot_metrics)
+    bool emit_snapshot_metrics,
+    ActorQHintConfig actor_q_hint_config)
     : policy_(std::move(policy)), obs_norm_(std::move(obs_norm)), context_(std::move(context)), mutex_(std::move(mutex))
     , network_(std::move(network)), src_network_(std::move(src_network)), emit_actor_q_hint_(emit_actor_q_hint)
+    , actor_q_hint_config_(actor_q_hint_config)
     , emit_snapshot_metrics_(emit_snapshot_metrics)
 {
     if (snapshot_sync_interval.has_value()) {
@@ -1784,6 +1850,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
 
     // 学習Actorだけが、既存forwardの平均Qから初期優先度用ヒントをpackする。
     if (emit_actor_q_hint_) {
+        ANET_PROFILE_SCOPE(actor_q_hint);
+        
         const auto q_it = act_info->GetAuxData().find("q_values");
         if (q_it == act_info->GetAuxData().end() || !q_it->second.defined()) {
             ANET_SYSTEM_ERROR("actor_approx requires ActionPolicy aux[q_values].");
@@ -1796,7 +1864,24 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         }
         auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
         auto state_value = std::get<0>(q_values.max(1));
-        auto packed = PackActorQHint(q_sa, state_value);
+        
+        // Actorは既存scoreから近似する。IQN+UQEでもfull queryへの差し替えや追加forwardはしない。
+        auto terms = torch::zeros_like(q_values);
+        if (actor_q_hint_config_.munchausen.enabled) {
+            const auto& config = actor_q_hint_config_;
+            // log_policy_modeはLearner専用。Actorは常に既存のaction scoreから近似する。
+            const auto& munchausen = config.munchausen;
+            const auto real_score = config.use_tbo ? TransformHInv(q_values, config.tbo_epsilon) : q_values;
+            const auto scaled_log = MakeScaledLogPolicy(real_score, munchausen.entropy_tau);
+            const auto soft_value = ((scaled_log / munchausen.entropy_tau).exp() * (real_score - scaled_log)).sum(1);
+            state_value = config.use_tbo ? TransformH(soft_value, config.tbo_epsilon) : soft_value;
+            terms = munchausen.alpha * scaled_log.clamp(munchausen.clip_value_min, 0.0f);
+        }
+        
+        // OFFも第3列ゼロの同じschemaを運び、WithAction用の全行動bonusを保持する。
+        act_info->GetAuxData()["munchausen_terms"] = terms;
+        const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+        auto packed = PackActorQHint(q_sa, state_value, bonus);
         act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(packed)));
     }
 
@@ -2319,11 +2404,12 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     const anet::rl::ExperienceSamples& samples,
     const torch::Tensor& td_error,
     const torch::Tensor& iqn_diagnostics,
-    const torch::Tensor& upper_tail_std)
+    const torch::Tensor& upper_tail_std,
+    const torch::Tensor& munchausen_diagnostics)
 {
     PerPriorityUpdatePending pending;
 
-    if (!config_.use_per && !iqn_diagnostics.defined()) {
+    if (!config_.use_per && !iqn_diagnostics.defined() && !munchausen_diagnostics.defined()) {
         return pending;
     }
 
@@ -2333,6 +2419,7 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     pending.per_enabled = config_.use_per;
     pending.per_minibatch_size = batch_size;
     pending.iqn_diagnostics_count = iqn_diagnostics.defined() ? iqn_diagnostics.numel() : 0;
+    pending.munchausen_diagnostics_count = munchausen_diagnostics.defined() ? munchausen_diagnostics.numel() : 0;
     pending.upper_tail_std_count = config_.use_per && upper_tail_std.defined() ? upper_tail_std.numel() : 0;
     if (samples.is_weights.defined()) {
         pending.per_is_weights = samples.is_weights;
@@ -2391,6 +2478,14 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
         readback_parts.push_back(iqn_diagnostics.detach().to(
             torch::TensorOptions().dtype(torch::kFloat32).device(td_error.device())).contiguous());
     }
+    if (munchausen_diagnostics.defined()) {
+        // PERなしでも診断だけを既存の単一readbackへ載せる。
+        if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != 5) {
+            ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes() << "; expected [5].");
+        }
+        readback_parts.push_back(munchausen_diagnostics.detach().to(
+            torch::TensorOptions().dtype(torch::kFloat32).device(td_error.device())).contiguous());
+    }
     if (pending.upper_tail_std_count > 0) {
         if (upper_tail_std.dim() != 1 || upper_tail_std.size(0) != batch_size) {
             ANET_SYSTEM_ERROR("Learner::PreparePerPriorityUpdate expected upper_tail_std shape ["
@@ -2402,7 +2497,7 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     auto packed_readback = torch::cat(readback_parts).contiguous();
     const int64_t priority_value_count = config_.use_per ? batch_size + 1 : 0;
     ANET_ASSERT_SHAPE(packed_readback, {
-        priority_value_count + pending.iqn_diagnostics_count + pending.upper_tail_std_count });
+        priority_value_count + pending.iqn_diagnostics_count + pending.munchausen_diagnostics_count + pending.upper_tail_std_count });
 
     if (packed_readback.is_cuda() && per_priority_copy_stream_.has_value()) {
         ANET_PROFILE_SCOPE_FULL(launch, "Learner::PerPriorityD2H.launch");
@@ -2448,7 +2543,7 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
         ANET_ASSERT_DEVICE_CPU(packed_cpu);
         const int64_t priority_value_count = pending.per_enabled ? batch_size + 1 : 0;
         ANET_ASSERT_SHAPE(packed_cpu, {
-            priority_value_count + pending.iqn_diagnostics_count + pending.upper_tail_std_count });
+            priority_value_count + pending.iqn_diagnostics_count + pending.munchausen_diagnostics_count + pending.upper_tail_std_count });
 
         torch::Tensor priorities_cpu;
         if (pending.per_enabled) {
@@ -2465,10 +2560,14 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
             info.iqn_diagnostics = packed_cpu.narrow(
                 0, priority_value_count, pending.iqn_diagnostics_count).contiguous();
         }
+        if (pending.munchausen_diagnostics_count > 0) {
+            info.munchausen_diagnostics = packed_cpu.narrow(
+                0, priority_value_count + pending.iqn_diagnostics_count, pending.munchausen_diagnostics_count).contiguous();
+        }
         if (pending.upper_tail_std_count > 0) {
             const auto upper_tail_std_cpu = packed_cpu.narrow(
                 0,
-                priority_value_count + pending.iqn_diagnostics_count,
+                priority_value_count + pending.iqn_diagnostics_count + pending.munchausen_diagnostics_count,
                 pending.upper_tail_std_count).contiguous();
             info.upper_tail_priority_spearman = CalculateSpearmanCorrelation(
                 upper_tail_std_cpu, priorities_cpu);
@@ -2531,6 +2630,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->q_gap = q_gap;
     result->q_gap_rel = q_gap_rel;
     result->iqn_diagnostics = per_info.iqn_diagnostics;
+    result->munchausen_diagnostics = per_info.munchausen_diagnostics;
     result->upper_tail_priority_spearman = per_info.upper_tail_priority_spearman;
     if (plasticity_.online_capture.output.defined()) {
         if (plasticity_.online_capture.output.dim() != 2) {
@@ -2814,6 +2914,80 @@ torch::Tensor QuantileLearnerBase::CalcTargetQuantiles(const anet::rl::Experienc
     return target_dist;
 }
 
+std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeMunchausenTarget(
+    const anet::rl::ExperienceSamples& samples, const anet::TensorDict& obs,
+    const anet::TensorDict& next_obs, const torch::Tensor& current_dist_all)
+{
+    torch::NoGradGuard no_grad;
+    
+    const int64_t B = samples.actions.size(0);
+    const bool target_mode = config_.munchausen.log_policy_mode == "target";
+    const bool iqn = config_.quantile_mode == "iqn";
+
+    // 正規化済み入力を連結し、target規則のtauをcurrent生成の後に消費する。
+    ANET_PROFILE_SCOPE(forward_target);
+    anet::TensorDict target_input = next_obs;
+    if (target_mode) {
+        for (const auto& [key, value] : obs) target_input.Set(key, torch::cat({ value, next_obs.At(key) }, 0));
+    }
+    if (iqn) {
+        target_input.Set(anet::nn::kKey_Taus, GenerateTaus(target_mode ? 2 * B : B,
+            config_.iqn.target_taus.num_taus, config_.iqn.target_taus.sample_mode,
+            0.0f, 1.0f, device_, *GetRandomGenerator()));
+    }
+    const auto target_values = model_.ForwardTarget(target_input).At("q_dist");
+    torch::Tensor current_values = target_mode ? target_values.narrow(0, 0, B) : current_dist_all.detach();
+    const auto next_values = target_mode ? target_values.narrow(0, B, B) : target_values;
+    if (target_mode && plasticity_.target_capture.output.defined()) {
+        const auto& capture = plasticity_.target_capture.output;
+        if (capture.dim() != 2 || capture.size(0) != 2 * B) {
+            ANET_SYSTEM_ERROR("Munchausen target capture expected [2B,F], actual=" << capture.sizes());
+        }
+        plasticity_.target_capture.output = capture.narrow(0, B, B);
+    }
+    ANET_PROFILE_SCOPE_END(forward_target);
+
+    // fresh onlineだけevalで追加評価する。capture済みtrain特徴と既存tau集合は上書きしない。
+    if (config_.munchausen.log_policy_mode == "online") {
+        ANET_PROFILE_SCOPE(forward_munchausen_online);
+        anet::TensorDict current_input = obs;
+        if (iqn) {
+            current_input.Set(anet::nn::kKey_Taus, GenerateTaus(B,
+                config_.iqn.current_taus.num_taus, config_.iqn.current_taus.sample_mode,
+                0.0f, 1.0f, device_, *GetRandomGenerator()));
+        }
+        anet::TrainingModeGuard eval_guard(*model_.GetOnlineNetwork(), false);
+        current_values = model_.ForwardOnline(current_input).At("q_dist");
+    }
+
+    // 分位点を個別に実空間へ戻し、方策と全分布混合をFP32で計算する。
+    ANET_PROFILE_SCOPE(munchausen_target);
+    const auto current_real = config_.use_tbo ? TransformHInv(current_values.to(torch::kFloat32)) : current_values.to(torch::kFloat32);
+    const auto next_real = config_.use_tbo ? TransformHInv(next_values.to(torch::kFloat32)) : next_values.to(torch::kFloat32);
+    const auto next_mean = next_real.mean(2);
+    // tauの減衰StateはPolicyが所有する。IQNでは既存tau集合の経験分位を近似スコアとして使う。
+    const auto risk = target_policy_->GetRiskScoreSpec();
+    const auto current_score = risk ? MakeRiskBiasedScore(risk->tau, current_real, risk->use_tail_mean) : current_real.mean(2);
+    const auto next_score = risk ? MakeRiskBiasedScore(risk->tau, next_real, risk->use_tail_mean) : next_mean;
+    const auto terms = MakeMunchausenTargetTerms(current_score, next_score, next_mean, samples.actions, config_.munchausen);
+    const auto soft_dist = (terms.next_policy.unsqueeze(2)
+        * (next_real - terms.next_scaled_log_policy.unsqueeze(2))).sum(1);
+
+    return { CalcMunchausenTargetQuantiles(samples, soft_dist, terms.bonus), terms.diagnostics };
+}
+
+torch::Tensor QuantileLearnerBase::CalcMunchausenTargetQuantiles(
+    const anet::rl::ExperienceSamples& samples, const torch::Tensor& soft_dist, const torch::Tensor& bonus) const
+{
+    torch::NoGradGuard no_grad;
+    // bonusは先頭returnへ1回だけ加える。終端でも残し、完成targetだけをh空間へ写す。
+    const auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)).unsqueeze(1);
+    const auto mask = (1.0f - samples.next_state.terminals.to(torch::kFloat32)).unsqueeze(1);
+    const auto raw_target = samples.target_returns.to(torch::kFloat32).unsqueeze(1)
+        + bonus.unsqueeze(1) + gamma_n * mask * soft_dist;
+    return config_.use_tbo ? TransformH(raw_target) : raw_target;
+}
+
 QuantileMetrics QuantileLearnerBase::MakeQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const
 {
     QuantileMetrics metrics;
@@ -2980,6 +3154,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor q_sa;
     torch::Tensor gap_abs;
     torch::Tensor gap_rel;
+    torch::Tensor munchausen_diagnostics;
 
     // ============================================================
     // Forward & Loss Calculation (Autocast Scope)
@@ -3027,7 +3202,46 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // max_a' Q(s', a')
         // ------------------------------------------------------------
         torch::Tensor max_next_q;
-        {
+        torch::Tensor td_target;
+        if (config_.munchausen.enabled) {
+            torch::NoGradGuard no_grad;
+            // target modeだけ2Bをまとめ、他modeはnextの価値を先に評価する。
+            ANET_PROFILE_SCOPE(forward_target);
+            const bool target_mode = config_.munchausen.log_policy_mode == "target";
+            anet::TensorDict target_input = next_obs;
+            if (target_mode) {
+                for (const auto& [key, value] : obs) target_input.Set(key, torch::cat({ value, next_obs.At(key) }, 0));
+            }
+            const auto target_q = model_.ForwardTarget(target_input).At("q");
+            torch::Tensor current_policy_q = target_mode ? target_q.narrow(0, 0, B) : q_all.detach();
+            const auto next_policy_q = target_mode ? target_q.narrow(0, B, B) : target_q;
+            if (target_mode && plasticity_.target_capture.output.defined()) {
+                const auto& capture = plasticity_.target_capture.output;
+                if (capture.dim() != 2 || capture.size(0) != 2 * B) {
+                    ANET_SYSTEM_ERROR("Munchausen target capture expected [2B,F], actual=" << capture.sizes());
+                }
+                plasticity_.target_capture.output = capture.narrow(0, B, B);
+            }
+            ANET_PROFILE_SCOPE_END(forward_target);
+            if (config_.munchausen.log_policy_mode == "online") {
+                ANET_PROFILE_SCOPE(forward_munchausen_online);
+                anet::TrainingModeGuard eval_guard(*model_.GetOnlineNetwork(), false);
+                current_policy_q = model_.ForwardOnline(obs).At("q");
+            }
+
+            ANET_PROFILE_SCOPE(munchausen_target);
+            const auto current_q = config_.use_tbo ? TransformHInv(current_policy_q.to(torch::kFloat32)) : current_policy_q.to(torch::kFloat32);
+            const auto next_q = config_.use_tbo ? TransformHInv(next_policy_q.to(torch::kFloat32)) : next_policy_q.to(torch::kFloat32);
+            const auto terms = MakeMunchausenTargetTerms(current_q, next_q, next_q, samples.actions, config_.munchausen);
+            max_next_q = (terms.next_policy * (next_q - terms.next_scaled_log_policy)).sum(1);
+            munchausen_diagnostics = terms.diagnostics;
+            // 実空間のbonusを先頭returnへ加え、完成したtargetだけを再変換する。
+            const auto not_terminal = 1.0f - terminals.to(torch::kFloat32);
+            const auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32));
+            const auto raw_target = target_returns.detach().to(torch::kFloat32) + terms.bonus
+                + not_terminal * gamma_n * max_next_q;
+            td_target = config_.use_tbo ? TransformH(raw_target) : raw_target;
+        } else {
             torch::NoGradGuard no_grad;
 
             // 行動 a' を決定
@@ -3035,7 +3249,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             auto network = (config_.use_double_dqn) ? model_.GetOnlineNetwork() : model_.GetTargetNetwork();
 
             // target_policy_ に行動を選ばせる
-            // ※ここで greedy_only=false にすることで、UQE設定時は楽観的に選ばれる
+            // greedy_only=trueはepsilonだけを無効化し、UQEのrisk選択は維持する。
             auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, network, this->GetRandomGenerator());
             torch::Tensor next_actions = target_action_info->GetAction(device_);
 
@@ -3053,11 +3267,13 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         // TD target & TD Error
         // ------------------------------------------------------------
-        auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
-        auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)); // (B,)
-        auto bootstrap = config_.use_tbo ? TransformHInv(max_next_q.detach()) : max_next_q.detach();
-        auto raw_td_target = target_returns.detach() + not_terminal * gamma_n * bootstrap; // (B,)
-        auto td_target = config_.use_tbo ? TransformH(raw_td_target) : raw_td_target;
+        if (!config_.munchausen.enabled) {
+            auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
+            auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)); // (B,)
+            auto bootstrap = config_.use_tbo ? TransformHInv(max_next_q.detach()) : max_next_q.detach();
+            auto raw_td_target = target_returns.detach() + not_terminal * gamma_n * bootstrap; // (B,)
+            td_target = config_.use_tbo ? TransformH(raw_td_target) : raw_td_target;
+        }
         td_error = q_sa - td_target; // (B,)
         ANET_ASSERT_SHAPE(td_error, { B });
         ANET_ASSERT_DTYPE(td_error, torch::kFloat32);
@@ -3085,7 +3301,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     } // End of Autocast Scope
 
     ANET_PROFILE_SCOPE(prepare_per);
-    auto per_pending = PreparePerPriorityUpdate(samples, td_error);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error, {}, {}, munchausen_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);
@@ -3144,6 +3360,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor loss;
     torch::Tensor td_error_tensor;
     torch::Tensor upper_tail_std;
+    torch::Tensor munchausen_diagnostics;
     QuantileMetrics metrics;
 
     // ============================================================
@@ -3176,7 +3393,10 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ターゲット分布計算: r + gamma * Z(s', a*)
         // ------------------------------------------------------------
         torch::Tensor target_dist;  // (B, N)
-        {
+        if (config_.munchausen.enabled) {
+            ANET_PROFILE_SCOPE_END(forward_current);
+            std::tie(target_dist, munchausen_diagnostics) = MakeMunchausenTarget(samples, obs, next_obs, current_dist_all);
+        } else {
             torch::NoGradGuard grad_guard;
 
             torch::Tensor next_actions;
@@ -3225,7 +3445,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     } // End of Autocast Scope
 
     ANET_PROFILE_SCOPE(prepare_per);
-    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, torch::Tensor(), upper_tail_std);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, torch::Tensor(), upper_tail_std, munchausen_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);
@@ -3283,6 +3503,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor td_error_tensor;
     torch::Tensor iqn_diagnostics;
     torch::Tensor upper_tail_std;
+    torch::Tensor munchausen_diagnostics;
     QuantileMetrics metrics;
 
     // current・target-policy・target-valueで異なるtau集合を使い、行動選択と分布回帰の役割を分離する。
@@ -3312,7 +3533,10 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         metrics = MakeQuantileMetrics(current_dist, q_values_mean);
 
         torch::Tensor target_dist;
-        {
+        if (config_.munchausen.enabled) {
+            ANET_PROFILE_SCOPE_END(forward_current);
+            std::tie(target_dist, munchausen_diagnostics) = MakeMunchausenTarget(samples, obs, next_obs, current_dist_all);
+        } else {
             torch::NoGradGuard grad_guard;
 
             // Double DQNと同様にtarget-policy側で次actionを選ぶ。policy自身のtau ruleはlearnerのN/Mから独立する。
@@ -3424,7 +3648,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // backward前にTD errorからPER更新内容を準備し、optimizer完了後にReplayBufferへ反映する。
     ANET_PROFILE_SCOPE(prepare_per);
-    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, iqn_diagnostics, upper_tail_std);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, iqn_diagnostics, upper_tail_std, munchausen_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);

@@ -78,6 +78,11 @@ DefaultDQNAgent.@qr  : net.$ = net.@qr
 DefaultDQNAgent.@iqn : quantile_mode = iqn
 DefaultDQNAgent.@iqn : net.$ = net.@iqn
 
+# --- TARGET プロファイル(分布表現と直交するsoft Bellman target) ---
+DefaultDQNAgent.@munchausen.learner.munchausen.enabled = true
+DefaultDQNAgent.@munchausen.learner.munchausen.log_policy_mode = target
+DefaultDQNAgent.@munchausen.learner.use_double_dqn = false
+
 
 # --- BF16 プロファイル(AMP/BF16 の学習系設定。全 env 共通) ---
 #DefaultDQNAgent.@bf16.train_policy.use_amp = true
@@ -190,6 +195,11 @@ DefaultDQNAgent.@baseline.learner.iqn.current_taus.num_taus = 32   # N
 DefaultDQNAgent.@baseline.learner.iqn.target_taus.sample_mode = random
 DefaultDQNAgent.@baseline.learner.iqn.target_taus.num_taus = 32    # N'
 DefaultDQNAgent.@baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+DefaultDQNAgent.@baseline.learner.munchausen.enabled = false
+DefaultDQNAgent.@baseline.learner.munchausen.log_policy_mode = target
+DefaultDQNAgent.@baseline.learner.munchausen.alpha = 0.9
+DefaultDQNAgent.@baseline.learner.munchausen.entropy_tau = 0.03
+DefaultDQNAgent.@baseline.learner.munchausen.clip_value_min = -1
 DefaultDQNAgent.@baseline.learner.use_n_step = true
 DefaultDQNAgent.@baseline.learner.use_per = true
 DefaultDQNAgent.@baseline.learner.use_tbo = false            # Transformed Bellman OperatorでBellmanターゲットを圧縮するか

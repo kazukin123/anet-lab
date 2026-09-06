@@ -59,16 +59,17 @@ Actorは、構成に応じてActionContextによるframe stackとdevice転送を
 
 内側の`dqn::Learner`はCPU上の共通ReplayBufferを所有し、ExperienceをPushしてからwarmup、sample可能数、update creditを確認する。更新可能な間はminibatchをsampleし、学習deviceへ移してTDまたはquantile lossを計算する。N-step、frame stack、generation-aware item key、PER、prefetchの共通contractは[ReplayBuffer](150_replay_buffer.jp.md)を正本とする。
 
-PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存forwardからDQN固有の`float32[B,2]` hintを作る。列は次の順序である。
+PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存forwardからDQN固有の`float32[B,3]` hintを作る。列は次の順序である。
 
 | 列 | 値 |
 |---:|---|
 | 0 | 実際に選択したActionのaction score |
-| 1 | `max_a` action scoreで表すActor側state value |
+| 1 | OFFでは`max_a` action score、Munchausen ONではsoft state value（TBO時はh空間） |
+| 2 | Munchausen bonus（実空間）。OFFでは0 |
 
-共通ReplayBufferはpayloadをopaqueな行として運び、DQNの`InitialPriorityEstimator`だけが`K = 2`を検証・decodeする。N-step確定後、開始hint、bootstrap hint、確定収益、割引からLearner更新前のraw priorityを推定する。true terminalではbootstrapを使わず、TBO有効時はLearnerと同じ変換空間で計算する。
+共通ReplayBufferはpayloadをopaqueな行として運び、DQNの`InitialPriorityEstimator`だけが`K = 3`を検証・decodeする。N-step確定後、確定収益へ開始hintのbonusを1回加え、bootstrap hintのstate valueと割引からLearner更新前のraw priorityを推定する。true terminalでもbonusを残し、bootstrapだけを使わない。TBO有効時はstate valueを実空間へ戻して合成し、完成targetをh空間へ変換する。
 
-通常Q/QRではこの2列は平均Qである。IQN+UQEでは追加forwardを行わず、行動選択と同じrisk-biased action scoreを使う。`uqe_use_tail_mean=true`はupper-tail mean、`false`は`Zτ`であり、full queryを有効にしてもActor Qヒントへfull分布平均は使わない。
+通常Q/QRでは既存の平均Q、IQN+UQEでは行動選択と同じrisk-biased action scoreからhintを作る。`uqe_use_tail_mean=true`はupper-tail mean、`false`は`Zτ`であり、full queryを有効にしてもActor Qヒントへfull分布平均は使わない。Munchausen ONでも追加forwardは行わず、この既存scoreのsoft化による近似である。`WithAction`は行動Qとbonusをauxから再gatherし、state valueを維持する。`ActorQHintConfig`は共通の`MunchausenConfig`を`munchausen`として保持し、TBO設定を併せて持つ。`munchausen.enabled`はMunchausen計算だけを制御し、ヒント全体の出力可否は`emit_actor_q_hint`が制御する。共通設定の`log_policy_mode`はLearner専用でActorは参照しない。RainbowはMunchausen OFFのまま同じK3 transportを使う。
 
 ## 3. コンポーネント定義
 
@@ -178,7 +179,7 @@ sequenceDiagram
     N-->>P: q または q_dist
     P-->>A: DQNActionInfo
     opt actor_approx
-        A->>A: Q hintをfloat32 Bx2でpack
+        A->>A: Q hintをfloat32 Bx3でpack
     end
     A-->>R: DQNActionInfo
 ```
@@ -227,7 +228,25 @@ sequenceDiagram
 
 DefaultDQNは外側AgentでRewardをscaleし、ObservationNormalizerの統計を更新してから生Observationとscale済みRewardを内側へ渡す。Rainbowはこの前処理を持たず、同じinner Learner contractへ直接委譲する。
 
-### 6.3 DefaultDQN Train Actor snapshot
+### 6.3 Munchausen RL
+
+DefaultDQNのTD / QR / IQNは`learner.munchausen.enabled=false`を既定とする。`log_policy_mode=target`、`alpha=0.9`、`entropy_tau=0.03`、`clip_value_min=-1`が既定値である。OFFでもmodeと値域を検証し、ONとDouble DQNまたは解決後のThompson targetとの併用は構築エラーにする。`use_optimistic_target`によるPolicyコピー後に判定する。
+
+| mode | bonus用current出力 | next価値・方策用出力 |
+|---|---|---|
+| `target` | 正規化済みcurrent/nextを連結した2B target forwardの前半 | 同じforwardの後半 |
+| `online` | current train・target-valueの後のNoGrad / eval fresh online | B target forward |
+| `online_reuse` | 既存current train出力をdetach | B target forward |
+
+ONではhard action選択を呼ばない。IQNはcurrent N本、target M本、必要ならfresh online N本の順にtauを生成する。target modeのbonusはM本、他modeはN本を使う。OFFのforward順とRNG消費は維持する。target modeのplasticity captureは`[2B,F]`を検証し、nextに対応する後半B行を返す。
+
+方策・bonus・soft bootstrapはNoGrad・FP32実空間で計算する。TBO時は各分位点を個別に逆変換する。先頭状態のclip済みbonusをN-step returnへ1回加え、終端maskはbootstrapだけへ掛ける。TDはsoft state value、QR/IQNは各行動の全分布を方策確率で混合し、完成したtargetだけをh変換する。
+
+`target_policy->GetRiskScoreSpec()`がUQEの現在tauとtail-mean設定を返す場合、`MakeRiskBiasedScore`で実空間分位点をソートして方策scoreを求める。他の対応Policyは分位点平均を使う。QR hard経路も同じ抽出計算を使うが、IQN softは既存tau集合の経験分位近似であり、hard IQNとの厳密一致は保証しない。helperはcurrent/next scoreと別にnext平均Qを受け取り、`soft_gap`を常に平均Q基準で求める。UQEのtau減衰StateはPolicyが所有する。
+
+`forward_target`、`forward_munchausen_online`、`munchausen_target`を別々に計測する。後者は実空間化からtarget組立までを含む。初期化ログでmodeと平均/risk score源を確認できる。`@munchausen` agent profileはenabledとtarget mode、Double DQN OFFを設定し、Atariの`run.@munchausen`がIQN構成と診断購読を束ねる。
+
+### 6.4 DefaultDQN Train Actor snapshot
 
 `DefaultDQNAgent.train_actor.clone_model=true`のTrain Actorだけがprivate Networkの定期snapshotを持つ。同期周期profileは`exp_step`で更新し、現在のageは`train_step`で測る。判定とcopyは`MakeAction()`のforward直前に行うため、Serial/Pipeline Runnerのどちらでも同じaction境界になる。
 
@@ -378,7 +397,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 
 - shared ActorのdeviceがAgent deviceと異なる場合は、cloneを有効にするか同じdeviceを指定する。
 - Action数、Observation shape、sample tensorのshape・dtype・deviceをAgent、Actor、Learner境界で検証する。
-- `actor_approx`のhintは`float32[B,2]`を要求し、schema違反はfail-fastする。nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
+- `actor_approx`のhintは`float32[B,3]`を要求し、schema違反はfail-fastする。全列をfinite検証し、nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
 - DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
 - online/targetのどちらかにSNがあり、soft update構成（`model.hard_update_interval<=0`）の場合、`model.soft_update_tau`は有限かつ`[0, 0.1]`または`1`でなければ起動時にfail-fastする。hard update構成では未使用tauを検証しない。

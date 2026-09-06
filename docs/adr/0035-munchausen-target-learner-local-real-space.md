@@ -4,7 +4,7 @@ Munchausen RL（Vieillard et al. 2020）は、Bellmanターゲットの報酬側
 
 **Munchausenターゲットは `TDLearner` / `QRLearner` / `IQNLearner` のtarget計算へ局所化する**ことを決定する。bonusはReplayBufferが集約済みのN-step returnの先頭遷移へ一度だけ加え、終端でも残す。bootstrapだけを終端でmaskし、実際のstep数に対応する `gamma^n` を掛ける。これは論文の1-step表記をそのまま同一視したものではなく、BTR互換のN-step拡張として扱う。
 
-**すべてのMunchausen計算はFP32実空間で行う**。TBO有効時はscalar Qまたは各分位点へ個別に `h^-1` を適用してから平均、方策、bonus、soft価値を計算し、target完成後に `h` を適用する。分位点表現では実空間分位点の平均から共通方策を作り、各分位点を同じ方策で行動方向に混合する。
+**すべてのMunchausen計算はFP32実空間で行う**。TBO有効時はscalar Qまたは各分位点へ個別に `h^-1` を適用してから平均、方策、bonus、soft価値を計算し、target完成後に `h` を適用する。通常の平均スコア経路では実空間分位点の平均から共通方策を作り、各分位点を同じ方策で行動方向に混合する。
 
 **bonusのlog-policyは `learner.munchausen.log_policy_mode = target | online | online_reuse` で選び、既定を `target` とする**。
 
@@ -14,7 +14,9 @@ Munchausen RL（Vieillard et al. 2020）は、Bellmanターゲットの報酬側
 
 IQNでは既存current/targetのtau生成順を維持した後に `online` 用tausを生成する。したがって `online` と `online_reuse` の差は、fresh eval forwardとそれに伴うRNG消費として観測できる。
 
-**soft価値ブートストラップはargmax選択を行わないが、方策を作るスコアは `target_policy` に従う**（2026-09-05改訂）。`target_policy` がGreedy / EpsilonGreedy（構成時にGreedyへ強制）なら分位点平均、UQEなら実空間の分位点から作るrisk-biasedスコア（値で昇順ソートし `floor(tau*(M-1))` からのtail平均または1点。tauはpolicyが減衰させる現在の `uqe_tau`）で、bonus側とsoft価値側の両方に同じスコア関数を使う。ThompsonSamplingはhard経路がサンプルごとに乱択tauでrisk選択する方策であり、soft版は追加RNGなしに定義できないため非対応とする。risk-biasedスコアは方策にだけ入り、価値側は全分布のままとする。方策温度を0へ寄せるとhard楽観ターゲット（risk-biased argmax）へ実空間で収束する。これにより `use_optimistic_target=true` は、Munchausen OFFではhard、ONではsoftの楽観ターゲットとして同じ意味を持ち、`@munchausen` プロファイルは同キーを書かない。スコア定義は `UQEActionPolicy::MakeUQEValues` の本体を名前付きnamespaceのfree関数 `MakeRiskBiasedScore` へ抽出してQRのhard経路と共有し（IQNのhard経路はrisk tausをnetworkへ直接与えて平均するため共有対象外で、IQNのsoft経路は全範囲tausの経験分位による近似）、policyは `ActionPolicy::GetRiskScoreSpec()`（既定nullopt、UQEだけ現在tauとtail_meanを返す）でLearnerへスコア仕様を渡す。
+helperはcurrent/nextの方策スコアに加え、価値用next実空間平均Qを別引数で受け取る。診断5値をhelper内で完成させ、risk方策でもsoft_gapの基準を平均Qに保つ。
+
+**soft価値ブートストラップはargmax選択を行わないが、方策を作るスコアは `target_policy` に従う**（2026-09-05改訂）。`target_policy` がGreedy / EpsilonGreedy（構成時にGreedyへ強制）なら分位点平均、UQEなら実空間の分位点から作るrisk-biasedスコア（値で昇順ソートし `floor(tau*(K-1))`（Kはその入力の分位点数） からのtail平均または1点。tauはpolicyが減衰させる現在の `uqe_tau`）で、bonus側とsoft価値側の両方に同じスコア関数を使う。ThompsonSamplingはhard経路がサンプルごとに乱択tauでrisk選択する方策であり、soft版は追加RNGなしに定義できないため非対応とする。risk-biasedスコアは方策にだけ入り、価値側は全分布のままとする。方策温度を0へ寄せるとhard楽観ターゲット（risk-biased argmax）へ実空間で収束する。これにより `use_optimistic_target=true` は、Munchausen OFFではhard、ONではsoftの楽観ターゲットとして同じ意味を持ち、`@munchausen` プロファイルは同キーを書かない。スコア定義は `UQEActionPolicy::MakeUQEValues` の本体を名前付きnamespaceのfree関数 `MakeRiskBiasedScore` へ抽出してQRのhard経路と共有し（IQNのhard経路はrisk tausをnetworkへ直接与えて平均するため共有対象外で、IQNのsoft経路は全範囲tausの経験分位による近似）、policyは `ActionPolicy::GetRiskScoreSpec()`（既定nullopt、UQEだけ現在tauとtail_meanを返す）でLearnerへスコア仕様を渡す。
 
 `munchausen.enabled=true` と `learner.use_double_dqn=true` の併用は、soft doubleが未定義で明示設定が効果を持たない組み合わせとして構築時に `ANET_SYSTEM_ERROR` でfail-fastする。`munchausen.enabled=true` と `target_policy.policy_type=ThompsonSampling`（`use_optimistic_target=true` のcopy経由を含む）の併用も、soft版が未定義の明示要求として同じ検証ブロックでfail-fastする。エラーには競合する両キー、指定値、期待値または許容値を含める。Munchausenがdisabledの場合はいずれも従来機能として許可する。
 
@@ -42,7 +44,7 @@ IQNでは既存current/targetのtau生成順を維持した後に `online` 用ta
 - `target` は2Bのtarget forward、`online` は独立したfresh online forward、`online_reuse` は追加forwardなしとなる。ProfileRangeは `forward_target`、`forward_munchausen_online`、`munchausen_target` を区別する。
 - QR / IQNのMunchausen ON経路は、実空間 `soft_dist` をON専用target組立へ渡して完成後にだけ `h` を適用する。内部で `h^-1` を適用する既存 `CalcTargetQuantiles` はOFF専用とし、TBO時の二重逆変換を防ぐ。
 - PERのLearner優先度はMunchausen込みtargetへ追従する。診断5値とEMA 2行、および固定index readbackの詳細契約はPRD 067に置く。
-- soft楽観ターゲット（`target_policy=UQE`）では、bonus差がrisk-biasedスコア差に比例し暗黙KLの基準がrisk方策になるため、論文のaction gap拡大や policy churn抑制の保証は失う。採用理由は設計整合であり、効果は実験記録側で測る。診断の `soft_gap` は分位点平均基準のため負になり得る。スコアはM本の経験分位で、QRではhard経路と同一定義だが、networkをtauで直接問うhard経路のIQNとは一致しない。soft経路では `target_policy.tau_rule` は選択forwardが無いため休眠する。
+- soft楽観ターゲット（`target_policy=UQE`）では、bonus差がrisk-biasedスコア差に比例し暗黙KLの基準がrisk方策になるため、論文のaction gap拡大や policy churn抑制の保証は失う。採用理由は設計整合であり、効果は実験記録側で測る。診断の `soft_gap` は分位点平均基準のため負になり得る。next側スコアはM本、bonus側はtarget modeでM本、online / online_reuseでN本の経験分位で、QRではhard経路と同一定義だが、networkをtauで直接問うhard経路のIQNとは一致しない。soft経路では `target_policy.tau_rule` は選択forwardが無いため休眠する。
 - throughput、`exp_step_per_sec`、ProfileRangeはmodeごとに記録するが、本ADRでは性能の合否閾値を設けない。
 - `action_mask` は既知の未対応事項である。非合法行動をsoft価値へ含め得るため将来対応が必要だが、現行実装との相対的な安全性は主張しない。
 - Actor初期優先度用hintはADR 0036の狭いActor側契約に従い、LearnerのmodeをActorへ伝播しない。

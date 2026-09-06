@@ -3,6 +3,7 @@
 #include "anet/default_dqn_agent.hpp"
 #include "dqn_based_agent.hpp"
 #include <memory>
+#include <sstream>
 #include <torch/torch.h>
 #include <cmath>
 #include "anet/str_util.hpp"
@@ -199,6 +200,14 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->eval_policy_ = CreateActionPolicy(config_.eval_policy, false, num_envs_, device_);
     this->target_policy_ = CreateActionPolicy(config_.target_policy, false, num_envs_, device_);
 
+    // 解決済みのbootstrap方策をログへ示し、平均と経験分位のsoft targetを区別する。
+    const auto risk_score = target_policy_->GetRiskScoreSpec();
+    std::ostringstream munchausen_info;
+    munchausen_info << " munchausen=" << (config_.learner.munchausen.enabled ? "on" : "off")
+        << " log_policy_mode=" << config_.learner.munchausen.log_policy_mode
+        << " score_source=" << (risk_score ? "risk_biased" : "mean");
+    if (risk_score) munchausen_info << " risk_tau=" << risk_score->tau << " use_tail_mean=" << risk_score->use_tail_mean;
+
     // Learner生成
     if (config_.quantile_mode == "iqn") {
         this->learner_ = std::make_unique<IQNLearner>(
@@ -206,19 +215,19 @@ DefaultDQNAgent::DefaultDQNAgent(
             target_policy_, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
-            << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")";
+            << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")" << munchausen_info.str();
     } else if (config_.quantile_mode == "qr") {
         this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
             target_policy_, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
-        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")";
+        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")" << munchausen_info.str();
     } else {
         this->learner_ = std::make_unique<TDLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
             target_policy_, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
-        LOG::info() << "Initialized TDLearner";
+        LOG::info() << "Initialized TDLearner" << munchausen_info.str();
     }
 
     // load
@@ -534,8 +543,13 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(
     const auto snapshot_sync_interval = is_train_actor && clone_model
         ? std::optional<anet::ProfiledValueConfig<step_t>>(config_.train_actor.sync_interval)
         : std::nullopt;
+    const ActorQHintConfig hint_config{
+        .munchausen = config_.learner.munchausen,
+        .use_tbo = config_.learner.use_tbo,
+        .tbo_epsilon = config_.learner.tbo_epsilon,
+    };
     auto actor = std::make_shared<Actor>(
-        policy, obs_norm_, ctx, this->mutex_, network, src_network, emit_actor_q_hint, snapshot_sync_interval, true);
+        policy, obs_norm_, ctx, this->mutex_, network, src_network, emit_actor_q_hint, snapshot_sync_interval, true, hint_config);
 
     // 生成したActorを返す
     return actor;
