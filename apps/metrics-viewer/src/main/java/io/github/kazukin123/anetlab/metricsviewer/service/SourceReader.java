@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.util.function.BooleanSupplier;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CachePreparation;
@@ -47,7 +48,10 @@ interface SourceReader extends AutoCloseable {
 
 	boolean reachedLogicalEnd(long consumedSourceBytes);
 
-	default ReadResult readCompleteLines(int maxBlockLines, LineConsumer consumer)
+	default ReadResult readCompleteLines(
+			int maxBlockLines,
+			BooleanSupplier yieldRequested,
+			LineConsumer consumer)
 			throws Exception {
 		// 未終端行をblock外へ公開せず、改行まで読めた行だけをtransactionへ渡す。
 		final ByteArrayOutputStream lineBuffer = new ByteArrayOutputStream(4096);
@@ -66,6 +70,8 @@ interface SourceReader extends AutoCloseable {
 				lineBuffer.reset();
 				if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
 				consumer.accept(line, consumedSourceBytes);
+				// 切替要求中は完全行をtransactionへ反映した境界でblockを確定する。
+				if (yieldRequested.getAsBoolean()) break;
 			} else {
 				lineBuffer.write(value);
 			}

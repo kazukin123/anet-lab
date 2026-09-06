@@ -11,6 +11,7 @@
 #include "nn_heads.hpp"
 
 #include <ATen/autocast_mode.h>
+#include <torch/csrc/autograd/profiler_legacy.h>
 
 #include <algorithm>
 #include <array>
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -37,6 +39,23 @@ namespace {
 
 namespace rl = anet::rl;
 namespace dqn = anet::rl::dqn;
+
+size_t CountProfileOperator(const std::function<void()>& operation, const std::string& operator_name)
+{
+    std::ostringstream output;
+    {
+        torch::autograd::profiler::RecordProfile profile(output);
+        operation();
+    }
+
+    const std::string trace = output.str();
+    const std::string needle = "\"name\": \"" + operator_name + "\"";
+    size_t count = 0;
+    for (size_t offset = 0; (offset = trace.find(needle, offset)) != std::string::npos; offset += needle.size()) {
+        ++count;
+    }
+    return count;
+}
 
 struct AutocastProbeState {
     void Record(torch::DeviceType device_type)
@@ -72,6 +91,7 @@ private:
 
 struct QuantileLearnerBaseAccess : public dqn::QuantileLearnerBase {
     using dqn::QuantileLearnerBase::ComputeQuantileHuberLoss;
+    using dqn::QuantileLearnerBase::ComputeIqnQuantileHuberLoss;
 };
 
 struct ActionPolicyAccess : public dqn::ActionPolicy {
@@ -84,7 +104,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     using dqn::ActionPolicy::CreateSpatialLaneTensor;
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
-        std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
+        std::shared_ptr<anet::RandomGenerator>, const anet::TraceCallback&) const override
     {
         return std::make_shared<dqn::DQNActionInfo>();
     }
@@ -121,7 +141,7 @@ private:
     torch::nn::Linear linear_{ nullptr };
 };
 
-std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
+std::shared_ptr<anet::nn::Network> MakeLinearNetwork(int64_t n_actions = 1)
 {
     anet::TensorSpec vector_spec;
     vector_spec.type = anet::SpaceType::Vector;
@@ -139,7 +159,7 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
         input_specs,
         std::vector<std::string>{},
         network_config.output_keys);
-    auto head = std::make_shared<TestLinearHead>(2, 1);
+    auto head = std::make_shared<TestLinearHead>(2, n_actions);
 
     return std::make_shared<anet::nn::Network>(
         network_config,
@@ -149,9 +169,33 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
         head);
 }
 
+std::shared_ptr<anet::nn::Network> MakeSpectralLinearNetwork(anet::seed_t seed = 65065)
+{
+    anet::nn::InitNN();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", kVectorKey);
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec vector_spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    return anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { kVectorKey, vector_spec } },
+        nullptr,
+        seed,
+        torch::Device(torch::kCPU));
+}
+
 std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
     const std::shared_ptr<AutocastProbeState>& probe_state,
-    torch::Device device)
+    torch::Device device,
+    int64_t n_actions = 1)
 {
     anet::TensorSpec vector_spec;
     vector_spec.type = anet::SpaceType::Vector;
@@ -170,14 +214,15 @@ std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         kFeatureKey,
-        std::vector<std::string>{ kVectorKey },
+        std::vector<std::vector<std::string>>{ { kVectorKey } },
+        1,
         network_struct);
     auto body = std::make_shared<anet::nn::NetworkBody>(
         std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
         input_specs,
         std::vector<std::string>{},
         network_config.output_keys);
-    auto head = std::make_shared<TestLinearHead>(2, 1);
+    auto head = std::make_shared<TestLinearHead>(2, n_actions);
 
     auto network = std::make_shared<anet::nn::Network>(
         network_config,
@@ -191,13 +236,16 @@ std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
 
 class TestNetworkModel final : public dqn::NetworkModel {
 public:
-    explicit TestNetworkModel(int64_t num_quantiles = 1)
+    explicit TestNetworkModel(
+        bool distributional = false,
+        int64_t n_actions = 1,
+        dqn::NetworkModelConfig config = {})
         : dqn::NetworkModel(
-            dqn::NetworkModelConfig{},
-            MakeLinearNetwork(),
-            MakeLinearNetwork(),
-            1,
-            num_quantiles)
+            config,
+            MakeLinearNetwork(n_actions),
+            MakeLinearNetwork(n_actions),
+            n_actions,
+            distributional)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
         GetOnlineNetwork()->eval();
@@ -209,19 +257,32 @@ class AutocastProbeNetworkModel final : public dqn::NetworkModel {
 public:
     AutocastProbeNetworkModel(
         const std::shared_ptr<AutocastProbeState>& probe_state,
-        torch::Device device)
+        torch::Device device,
+        int64_t n_actions = 1)
         : dqn::NetworkModel(
             dqn::NetworkModelConfig{},
-            MakeAutocastProbeNetwork(probe_state, device),
-            MakeAutocastProbeNetwork(probe_state, device),
-            1,
-            1)
+            MakeAutocastProbeNetwork(probe_state, device, n_actions),
+            MakeAutocastProbeNetwork(probe_state, device, n_actions),
+            n_actions,
+            false)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
         GetOnlineNetwork()->eval();
         GetTargetNetwork()->eval();
     }
 };
+
+anet::RandomGenerator& TestPlasticityProbeRandom()
+{
+    static anet::RandomGenerator random(6001);
+    return random;
+}
+
+anet::RandomGenerator& TestPolicyChurnProbeRandom()
+{
+    static anet::RandomGenerator random(6002);
+    return random;
+}
 
 class TestLearner final : public dqn::Learner {
 public:
@@ -242,7 +303,9 @@ public:
             123,
             std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}),
             std::nullopt,
-            456)
+            456,
+            &TestPlasticityProbeRandom(),
+            &TestPolicyChurnProbeRandom())
     {
     }
 
@@ -265,11 +328,69 @@ public:
         replay_buffer_ = std::move(replay_buffer);
     }
 
-    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+    void EnablePlasticityForward(bool include_target)
+    {
+        run_plasticity_forward_ = true;
+        run_plasticity_target_forward_ = include_target;
+    }
+
+    void MutateOnlineParametersDuringUpdate(float delta)
+    {
+        parameter_mutation_delta_ = delta;
+    }
+
+    void EnablePolicyChurnOptimizerUpdate()
+    {
+        run_policy_churn_optimizer_update_ = true;
+    }
+
+    std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
+        if (run_policy_churn_optimizer_update_) {
+            // action 1 の Q を上げる決定論的な 1 update を作り、公開結果から churn を観測する。
+            auto q_values = model_.ForwardOnlineWithTrain(samples.obs).At("q");
+            const int64_t optimized_action = n_actions_ > 1 ? 1 : 0;
+            auto loss = -q_values.select(1, optimized_action).mean();
+            auto opt_result = Optimize(loss);
+            dqn::PerPriorityUpdateInfo per_info;
+            const auto batch_size = samples.actions.size(0);
+            return MakeBatchUpdateResult(
+                loss,
+                torch::zeros({ batch_size }),
+                opt_result,
+                std::get<0>(q_values.detach().max(1)),
+                q_values.detach().select(1, 0),
+                per_info);
+        }
+        if (run_plasticity_forward_) {
+            model_.ForwardOnlineWithTrain(samples.obs);
+            if (run_plasticity_target_forward_) model_.ForwardTarget(samples.next_state.next_obs);
+            if (parameter_mutation_delta_.has_value()) {
+                torch::NoGradGuard no_grad;
+                for (auto& parameter : model_.GetOnlineParameters()) {
+                    parameter.add_(*parameter_mutation_delta_);
+                }
+            }
+            dqn::OptimizerStepResult opt_result;
+            dqn::PerPriorityUpdateInfo per_info;
+            const auto batch_size = samples.actions.size(0);
+            return MakeBatchUpdateResult(
+                torch::tensor(0.0f),
+                torch::zeros({ batch_size }),
+                opt_result,
+                torch::zeros({ batch_size }),
+                torch::zeros({ batch_size }),
+                per_info);
+        }
         return nullptr;
     }
+
+private:
+    bool run_plasticity_forward_ = false;
+    bool run_plasticity_target_forward_ = false;
+    bool run_policy_churn_optimizer_update_ = false;
+    std::optional<float> parameter_mutation_delta_;
 };
 
 class RecordingReplayBuffer final : public rl::ReplayBuffer {
@@ -284,18 +405,31 @@ public:
         ++sample_count;
 
         out_samples.obs = anet::TensorDict{
-            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+            { kVectorKey, torch::full(
+                { minibatch_size, 2 }, vector_value,
+                torch::TensorOptions().dtype(torch::kFloat32)) },
         };
         out_samples.actions = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.target_returns = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
         out_samples.next_state.next_obs = anet::TensorDict{
-            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+            { kVectorKey, torch::full(
+                { minibatch_size, 2 }, vector_value,
+                torch::TensorOptions().dtype(torch::kFloat32)) },
         };
         out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
         out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.replay_item_keys = torch::arange(minibatch_size, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
         out_samples.per_priority_sources = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt8));
+    }
+
+    bool SampleUniqueUniform(
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&) const override
+    {
+        ++unique_sample_count;
+        if (!unique_sample_enabled) return false;
+        Sample(out_samples, batch_size, 0.0f);
+        return true;
     }
 
     int64_t Size() const override
@@ -346,6 +480,9 @@ public:
     std::vector<float> last_priorities;
     int push_count = 0;
     mutable int sample_count = 0;
+    mutable int unique_sample_count = 0;
+    bool unique_sample_enabled = false;
+    float vector_value = 0.0f;
     mutable int size_count = 0;
     int update_count = 0;
     std::optional<rl::ReplayPriorityUpdateResult> priority_update_result;
@@ -382,10 +519,110 @@ anet::nn::NetworkConfig MakeAgentForwardNetworkConfig()
     return config;
 }
 
+rl::EnvSpec MakeIqnTracerEnvSpec()
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.type = anet::SpaceType::Vector;
+    vector_spec.shape = { 4 };
+    vector_spec.dtype = torch::kFloat32;
+
+    rl::EnvSpec spec;
+    spec.state_spec.obs_spec[kVectorKey] = vector_spec;
+    spec.action_spec.is_discrete = true;
+    spec.action_spec.value_labels = { "a0", "a1" };
+    spec.reward_range = { -1.0f, 1.0f };
+    return spec;
+}
+
+anet::ConfigData MakeIqnTracerConfigData()
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    config_data.Set("DefaultDQNAgent.use_dueling_net", false);
+    config_data.Set("DefaultDQNAgent.stucker.use_stacker", false);
+    config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+    config_data.Set("DefaultDQNAgent.train_policy.eps_start", 0.0f);
+    config_data.Set("DefaultDQNAgent.train_policy.eps_end", 0.0f);
+    config_data.Set("DefaultDQNAgent.train_policy.tau_rule.num_taus", 3);
+    config_data.Set("DefaultDQNAgent.train_policy.tau_rule.sample_mode", "fixed");
+    config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
+    config_data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
+    config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+
+    config_data.Set("net.block.[CosEmb].type", "CosineEmbedding");
+    config_data.Set("net.block.[CosEmb].cos.num_basis", 4);
+    config_data.Set("net.block.[TauProj].type", "Linear");
+    config_data.Set("net.block.[TauProj].linear.out_features", 4);
+    config_data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].bind", anet::nn::kKey_Taus);
+    config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].structure", "CosEmb > TauProj");
+    config_data.Set("DefaultDQNAgent.net.branch.[fusion].bind", "main * tau_embedding");
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "fusion");
+    return config_data;
+}
+
+void PrepareNativeStackNetworkTest()
+{
+    anet::nn::InitNN();
+    // Debug版libtorchのoneDNNはCPU Convでthread検証assertを起こすため、
+    // native stackのCPUテストではmkldnnを無効化する。
+    at::globalContext().setUserEnabledMkldnn(false);
+}
+
+anet::ConfigData MakeNativeStackConfigData()
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "none");
+    config_data.Set("DefaultDQNAgent.use_dueling_net", false);
+    config_data.Set("DefaultDQNAgent.stucker.use_stacker", true);
+    config_data.Set("DefaultDQNAgent.stucker.stack_count", 4);
+    config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+    config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
+    config_data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
+    config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+    config_data.Set("net.block.[Flatten].type", "Flatten");
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 8);
+    config_data.Set("net.body.output.[features]", "main_feature");
+    return config_data;
+}
+
+rl::EnvSpec MakeNativeStackEnvSpec(anet::TensorSpecMap obs_spec)
+{
+    rl::EnvSpec env_spec;
+    env_spec.state_spec.obs_spec = std::move(obs_spec);
+    env_spec.action_spec.is_discrete = true;
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    env_spec.reward_range = { -1.0f, 1.0f };
+    return env_spec;
+}
+
+std::shared_ptr<dqn::DQNActionInfo> ActWithNativeStack(
+    const anet::ConfigData& config_data,
+    const rl::EnvSpec& env_spec,
+    anet::TensorDict raw_obs)
+{
+    const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        dqn::DefaultDQNAgentConfig(config_data),
+        anet::nn::NetworkConfig(config_data),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto actor = agent->CreateActor(
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+
+    const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(std::move(raw_obs), flags, flags, flags);
+    return std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor->MakeAction(rl::StepCounts{}, state));
+}
+
 dqn::DefaultDQNAgentConfig MakeDeviceForwardDefaultDqnConfig()
 {
     dqn::DefaultDQNAgentConfig config;
-    config.use_qr = false;
+    config.quantile_mode = "none";
     config.use_dueling_net = false;
     config.stucker.use_stacker = false;
     config.obs_norm.pass_through = true;
@@ -702,7 +939,7 @@ public:
     }
 
 protected:
-    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+    std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
         torch::NoGradGuard no_grad;
@@ -1158,6 +1395,78 @@ anet::TensorDict MakeSpatialUQEInput()
     };
 }
 
+struct TauEchoState {
+    int forward_count = 0;
+    torch::Tensor last_taus;
+};
+
+class TauEchoHead final : public anet::nn::NetworkHead {
+public:
+    explicit TauEchoHead(std::shared_ptr<TauEchoState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    {
+        const auto taus = feature_dict.At(anet::nn::kKey_Taus);
+        ++state_->forward_count;
+        state_->last_taus = taus.detach().clone();
+
+        auto q_dist = torch::stack({ taus, 1.0f - taus }, 1);
+        return anet::TensorDict{
+            { "q", q_dist.mean(2) },
+            { "q_dist", q_dist },
+        };
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string&) override
+    {
+        return std::nullopt;
+    }
+
+private:
+    std::shared_ptr<TauEchoState> state_;
+};
+
+std::shared_ptr<anet::nn::Network> MakeTauEchoNetwork(
+    int64_t nominal_num_taus,
+    const std::shared_ptr<TauEchoState>& state)
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.shape = { 1 };
+    vector_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpec tau_spec;
+    tau_spec.shape = { nominal_num_taus };
+    tau_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs{
+        { kVectorKey, vector_spec },
+        { anet::nn::kKey_Taus, tau_spec },
+    };
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys[anet::nn::kKey_Taus] = anet::nn::kKey_Taus;
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{},
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+    return std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        std::make_shared<TauEchoHead>(state));
+}
+
+anet::TensorDict MakeTauEchoObservation()
+{
+    return anet::TensorDict{
+        { kVectorKey, torch::zeros({ 2, 1 }) },
+    };
+}
+
 } // namespace
 
 TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
@@ -1174,6 +1483,75 @@ TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
 
     REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
     REQUIRE(loss.item<float>() == Catch::Approx(0.625f).margin(1.0e-6f));
+}
+
+TEST_CASE("IQN quantile huber loss sums current samples and averages target samples", "[dqn][iqn][loss]")
+{
+    auto current_dist = torch::tensor({ { 1.0f, 3.0f } });
+    auto target_dist = torch::tensor({ { 2.0f, 3.25f, 4.0f } });
+    auto taus = torch::tensor({ 0.25f, 0.75f }).view({ 1, 2, 1 });
+
+    auto result = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        current_dist,
+        target_dist,
+        taus,
+        0.5f);
+
+    REQUIRE(ShapeOf(result.element_loss) == std::vector<int64_t>{ 1 });
+    REQUIRE(result.element_loss.item<float>() == Catch::Approx(139.0f / 192.0f).margin(1.0e-6f));
+    CHECK(result.pair_abs_td.item<float>() == Catch::Approx(17.0f / 12.0f).margin(1.0e-6f));
+    CHECK(result.cancellation_ratio.item<float>() == Catch::Approx(4.0f / 17.0f).margin(1.0e-6f));
+}
+
+TEST_CASE("IQN and QR quantile huber losses agree when sample counts and kappa are one", "[dqn][iqn][loss]")
+{
+    auto current_dist = torch::tensor({ { 1.0f, 3.0f }, { -1.0f, 2.0f } });
+    auto target_dist = torch::tensor({ { 2.0f, 4.0f }, { 0.5f, 3.0f } });
+    auto taus = torch::tensor({ { 0.25f, 0.75f }, { 0.2f, 0.8f } }).unsqueeze(2);
+
+    auto qr_loss = QuantileLearnerBaseAccess::ComputeQuantileHuberLoss(
+        current_dist, target_dist, taus, 1.0f);
+    auto iqn_loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        current_dist, target_dist, taus, 1.0f);
+
+    REQUIRE(torch::allclose(iqn_loss.element_loss, qr_loss, 1.0e-6, 1.0e-6));
+}
+
+TEST_CASE("IQN quantile huber loss is finite for one current sample", "[dqn][iqn][loss]")
+{
+    auto current_dist = torch::tensor({ { 1.0f } });
+    auto target_dist = torch::tensor({ { 0.5f, 2.0f, 4.0f } });
+    auto taus = torch::tensor({ 0.5f }).view({ 1, 1, 1 });
+
+    auto loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        current_dist, target_dist, taus, 0.5f);
+
+    REQUIRE(ShapeOf(loss.element_loss) == std::vector<int64_t>{ 1 });
+    REQUIRE(torch::isfinite(loss.element_loss).all().item<bool>());
+}
+
+TEST_CASE("IQN diagnostics preserve cancellation and N-normalized loss contracts", "[dqn][iqn][loss][metrics]")
+{
+    const auto target_dist = torch::tensor({ { -1.0f, 1.0f } });
+    const auto one_current = torch::tensor({ { 0.0f } });
+    const auto one_tau = torch::tensor({ 0.5f }).view({ 1, 1, 1 });
+    const auto cancelling = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        one_current, target_dist, one_tau, 1.0f);
+    CHECK(cancelling.pair_abs_td.item<float>() == Catch::Approx(1.0f));
+    CHECK(cancelling.cancellation_ratio.item<float>() == Catch::Approx(1.0f));
+
+    const auto same_sign_target = torch::tensor({ { 1.0f, 1.0f } });
+    const auto same_sign = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        one_current, same_sign_target, one_tau, 1.0f);
+    CHECK(same_sign.cancellation_ratio.item<float>() == Catch::Approx(0.0f).margin(1.0e-6f));
+
+    // current quantileを同じ値で2本に増やすとsample lossは2倍になるが、/N後は一致する。
+    const auto two_current = torch::tensor({ { 0.0f, 0.0f } });
+    const auto two_taus = torch::tensor({ 0.5f, 0.5f }).view({ 1, 2, 1 });
+    const auto two_samples = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        two_current, same_sign_target, two_taus, 1.0f);
+    CHECK(two_samples.element_loss.item<float>() / 2.0f
+        == Catch::Approx(same_sign.element_loss.item<float>()).margin(1.0e-6f));
 }
 
 TEST_CASE("TBO transform is monotonic and invertible on representative values", "[dqn][tbo]")
@@ -1265,8 +1643,8 @@ TEST_CASE("DQN initial priority estimator completes a one-step bootstrap", "[dqn
     config.use_per_prio_clip = false;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
 
-    const std::array<float, 2> start_hint{ 4.0f, 5.0f };
-    const std::array<float, 2> bootstrap_hint{ 6.0f, 2.0f };
+    const std::array<float, 3> start_hint{ 4.0f, 5.0f, 0.0f };
+    const std::array<float, 3> bootstrap_hint{ 6.0f, 2.0f, 0.0f };
     const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
         .bootstrap_hint = bootstrap_hint,
@@ -1388,9 +1766,11 @@ TEST_CASE("DQN replay priority validation preserves invalid configuration errors
     config.per_eps = 1.0e-6f;
     config.use_per = false;
     config.per_initial_priority_mode = "max";
-    CHECK_THROWS(dqn::ValidateReplayPriorityConfig(
+    // PER無効時のmodeはPER有効化に備えた設定値であり正常ケース。エラーにもWARNにもしない。
+    CHECK_NOTHROW(dqn::ValidateReplayPriorityConfig(
         config, dqn::ParseReplayInitialPriorityMode(config)));
 
+    config.use_per = true;
     config.per_initial_priority_mode = "fixed";
     config.use_per_prio_clip = true;
     for (const float invalid : {
@@ -1414,8 +1794,8 @@ TEST_CASE("DQN initial priority estimator distinguishes n-step bootstrap and tru
     config.per_eps = 0.0f;
     config.use_per_prio_clip = false;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
-    const std::array<float, 2> start_hint{ 4.0f, 99.0f };
-    const std::array<float, 2> bootstrap_hint{ 88.0f, 3.0f };
+    const std::array<float, 3> start_hint{ 4.0f, 99.0f, 0.0f };
+    const std::array<float, 3> bootstrap_hint{ 88.0f, 3.0f, 0.0f };
 
     const auto n_step_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
@@ -1451,8 +1831,8 @@ TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn
 
     const float actor_q_sa = torch::tensor({ 2.0f, 4.0f }).mean().item<float>();
     const float bootstrap_state_value = torch::tensor({ 1.0f, 5.0f }).mean().item<float>();
-    const std::array<float, 2> start_hint{ actor_q_sa, 0.0f };
-    const std::array<float, 2> bootstrap_hint{ 0.0f, bootstrap_state_value };
+    const std::array<float, 3> start_hint{ actor_q_sa, 0.0f, 0.0f };
+    const std::array<float, 3> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
     const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
         .bootstrap_hint = bootstrap_hint,
@@ -1476,7 +1856,7 @@ TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn
 
 TEST_CASE("DQN initial priority estimator preserves zero and clip boundaries", "[dqn][per][actor_initial][estimator]")
 {
-    const std::array<float, 2> start_hint{ 2.0f, 0.0f };
+    const std::array<float, 3> start_hint{ 2.0f, 0.0f, 0.0f };
 
     dqn::LearnerConfig zero_config;
     zero_config.per_eps = 0.0f;
@@ -1514,9 +1894,9 @@ TEST_CASE("DQN initial priority estimator distinguishes schema errors and non-fi
 {
     dqn::LearnerConfig config;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
-    const std::array<float, 2> finite_hint{ 1.0f, 2.0f };
-    const std::array<float, 2> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f };
-    const std::array<float, 2> inf_hint{ 1.0f, std::numeric_limits<float>::infinity() };
+    const std::array<float, 3> finite_hint{ 1.0f, 2.0f, 0.0f };
+    const std::array<float, 3> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f, 0.0f };
+    const std::array<float, 3> inf_hint{ 1.0f, std::numeric_limits<float>::infinity(), 0.0f };
 
     CHECK(estimator->ValidateHint(finite_hint));
     CHECK_FALSE(estimator->ValidateHint(nan_hint));
@@ -1602,8 +1982,8 @@ TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "
         REQUIRE(result->td_error.numel() == 1);
         REQUIRE(result->q_sa.numel() == 1);
 
-        const std::array<float, 2> start_hint{ result->q_sa.item<float>(), 0.0f };
-        const std::array<float, 2> bootstrap_hint{ 0.0f, bootstrap_state_value };
+        const std::array<float, 3> start_hint{ result->q_sa.item<float>(), 0.0f, 0.0f };
+        const std::array<float, 3> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
         auto estimator = dqn::CreateInitialPriorityEstimator(config);
         const auto actor_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
             .start_hint = start_hint,
@@ -1747,6 +2127,7 @@ TEST_CASE("PER raw priority batch counts strict pre-clip changes on CPU and CUDA
 
 TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping", "[dqn][per][clip]")
 {
+    const bool with_diagnostics = GENERATE(false, true);
     dqn::LearnerConfig config;
     config.use_per = true;
     config.per_eps = 0.1f;
@@ -1781,7 +2162,11 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
 
     // clip前priorityが上限未満・等値・超過となる3境界を同時に検証する。
     auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f });
-    auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
+    auto upper_tail_std = torch::tensor({ 1.0f, 2.0f, 3.0f });
+    const auto iqn_diagnostics = with_diagnostics ? torch::arange(7, torch::kFloat32) + 10.0f : torch::Tensor();
+    const auto munchausen_diagnostics = with_diagnostics ? torch::arange(5, torch::kFloat32) + 20.0f : torch::Tensor();
+    auto pending = learner.PreparePerPriorityUpdate(
+        samples, td_error, iqn_diagnostics, upper_tail_std, munchausen_diagnostics);
 
     REQUIRE(pending.enabled);
     const auto expected_indices = std::vector<int64_t>{ 3, 4, 5 };
@@ -1790,6 +2175,10 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
     CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
 
     auto result = learner.ApplyPerPriorityUpdate(std::move(pending));
+    if (with_diagnostics) {
+        CHECK(torch::equal(result.iqn_diagnostics, iqn_diagnostics));
+        CHECK(torch::equal(result.munchausen_diagnostics, munchausen_diagnostics));
+    }
 
     CHECK(replay_buffer->update_count == 1);
     CHECK(replay_buffer->last_indices == expected_indices);
@@ -1835,6 +2224,92 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
     CHECK(batch_result->GetScalar("per_actor_learner_ratio_median", -1).value() == Catch::Approx(1.25f));
     CHECK(batch_result->GetScalar("per_actor_learner_log_ratio_mean", -1).value() == Catch::Approx(-0.5f));
     CHECK(batch_result->GetScalar("per_actor_learner_spearman", -1).value() == Catch::Approx(0.6f));
+    const auto upper_tail_spearman = batch_result->GetScalar("upper_tail_priority_spearman", -1);
+    REQUIRE(upper_tail_spearman.has_value());
+    CHECK(*upper_tail_spearman == Catch::Approx(std::sqrt(3.0f) / 2.0f).margin(1.0e-6f));
+}
+
+TEST_CASE("Upper-tail priority Spearman handles rank direction and undefined cases", "[dqn][per][quantile][metrics]")
+{
+    auto calculate = [](const torch::Tensor& td_error, const torch::Tensor& upper_tail_std, bool use_per) {
+        dqn::LearnerConfig config;
+        config.use_per = use_per;
+        config.per_eps = 0.0f;
+
+        auto env_spec = MakeLearnerEnvSpec();
+        TestNetworkModel model;
+        dqn::RuntimeVars vars;
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        learner.UseReplayBuffer(replay_buffer);
+
+        const int64_t batch_size = td_error.size(0);
+        rl::ExperienceSamples samples;
+        samples.replay_item_keys = torch::arange(
+            batch_size, torch::TensorOptions().dtype(torch::kInt64));
+        auto pending = learner.PreparePerPriorityUpdate(
+            samples, td_error, torch::Tensor(), upper_tail_std);
+        auto per_result = learner.ApplyPerPriorityUpdate(std::move(pending));
+        auto batch_result = learner.MakeBatchUpdateResult(
+            torch::tensor(0.0f),
+            td_error,
+            dqn::OptimizerStepResult{},
+            torch::zeros({ batch_size }),
+            torch::zeros({ batch_size }),
+            per_result);
+        return batch_result->GetScalar("upper_tail_priority_spearman", -1).value();
+    };
+
+    // raw priorityと同順・逆順なら、それぞれ順位相関は+1・-1になる。
+    const auto increasing_priority = torch::tensor({ 1.0f, 2.0f, 3.0f });
+    CHECK(calculate(increasing_priority, torch::tensor({ 1.0f, 2.0f, 3.0f }), true)
+        == Catch::Approx(1.0f));
+    CHECK(calculate(increasing_priority, torch::tensor({ 3.0f, 2.0f, 1.0f }), true)
+        == Catch::Approx(-1.0f));
+
+    // 順位分散がない場合、batch不足、PER無効は相関を定義しない。
+    CHECK(std::isnan(calculate(torch::tensor({ 1.0f }), torch::tensor({ 2.0f }), true)));
+    CHECK(std::isnan(calculate(increasing_priority, torch::ones({ 3 }), true)));
+    CHECK(std::isnan(calculate(torch::tensor({ 1.0f, -1.0f, 1.0f }),
+        torch::tensor({ 1.0f, 2.0f, 3.0f }), true)));
+    CHECK(std::isnan(calculate(increasing_priority, torch::tensor({ 1.0f, 2.0f, 3.0f }), false)));
+}
+
+TEST_CASE("PER IQN diagnostics classify only explicit initial priority sources", "[dqn][per][iqn][metrics]")
+{
+    dqn::LearnerConfig config;
+    config.use_per = true;
+    config.per_eps = 0.0f;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    learner.UseReplayBuffer(replay_buffer);
+
+    rl::ExperienceSamples samples;
+    samples.replay_item_keys = torch::arange(5, torch::TensorOptions().dtype(torch::kInt64));
+    samples.is_weights = torch::ones({ 5 });
+    samples.per_priority_sources = torch::tensor(
+        { static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::NONE),
+          static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED) },
+        torch::TensorOptions().dtype(torch::kInt8));
+    const auto diagnostics = torch::tensor({ 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f });
+
+    auto pending = learner.PreparePerPriorityUpdate(samples, torch::zeros({ 5 }), diagnostics);
+    CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(3.0f));
+    CHECK(pending.per_sample_fixed_initial_count.item<float>() == Catch::Approx(1.0f));
+    CHECK(pending.per_sample_max_initial_count.item<float>() == Catch::Approx(1.0f));
+    CHECK(pending.per_sample_actor_initial_count.item<float>() == Catch::Approx(1.0f));
+
+    const auto result = learner.ApplyPerPriorityUpdate(std::move(pending));
+    CHECK(replay_buffer->update_count == 1);
+    REQUIRE(result.iqn_diagnostics.defined());
+    CHECK(torch::equal(result.iqn_diagnostics, diagnostics));
 }
 
 TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn][optimizer]")
@@ -1960,6 +2435,185 @@ TEST_CASE("AgentBase exposes configured device", "[agent][device]")
     CHECK(agent.GetDevice().is_cpu());
 }
 
+TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // Reshapeを使わない時間軸Conv1D構成とstack=4のAgentをpublic設定経路から構築する。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.block.[TemporalPermute].type", "Permute");
+    config_data.Set("net.block.[TemporalPermute].permute.dims", "0 2 1");
+    config_data.Set("net.block.[TemporalConv].type", "Conv1d");
+    config_data.Set("net.block.[TemporalConv].conv.out_channels", 4);
+    config_data.Set("net.block.[TemporalConv].conv.kernel_size", 2);
+    config_data.Set("net.branch.[main_feature].bind", kVectorKey);
+    config_data.Set("net.branch.[main_feature].structure", "TemporalPermute > TemporalConv > Flatten > Linear");
+
+    anet::TensorSpec vector_spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 8 },
+        .dtype = torch::kFloat32,
+    };
+    const auto env_spec = MakeNativeStackEnvSpec({ { kVectorKey, vector_spec } });
+
+    // dummy forwardと同じNetworkをActorの実stack入力へ接続する。
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) } });
+
+    // traceでbranch入口のstack軸とpublic出力を観測する。
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+}
+
+TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // stack軸を保持したbranch入力をFlattenで従来の4*F特徴へ落とす。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.branch.[main_feature].bind", kVectorKey);
+    config_data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { kVectorKey, anet::TensorSpec{
+                          .type = anet::SpaceType::Vector,
+                          .shape = { 8 },
+                          .dtype = torch::kFloat32,
+                      } },
+    });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) } });
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+}
+
+TEST_CASE("DefaultDQNAgent merges continuous Grid stacks before Conv2d", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // 連続Gridはbranch入口でstack軸を保持し、明示したStackMergeでchannelへ統合する。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.block.[StackMerge].type", "StackMerge");
+    config_data.Set("net.block.[GridConv].type", "Conv2d");
+    config_data.Set("net.block.[GridConv].conv.out_channels", 2);
+    config_data.Set("net.block.[GridConv].conv.kernel_size", 1);
+    config_data.Set("net.branch.[main_feature].bind", rl::ObsKeys::kGrid);
+    config_data.Set("net.branch.[main_feature].structure", "StackMerge > GridConv > Flatten > Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { rl::ObsKeys::kGrid, anet::TensorSpec{
+                                  .type = anet::SpaceType::Grid,
+                                  .shape = { 1, 4, 4 },
+                                  .dtype = torch::kFloat32,
+                              } },
+    });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ {
+            rl::ObsKeys::kGrid,
+            torch::arange(32, torch::kFloat32).reshape({ 2, 1, 4, 4 }),
+        } });
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 1, 4, 4 });
+}
+
+TEST_CASE("DefaultDQNAgent keeps discrete Grid one-hot channel merging", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // 離散Gridは既存のNN境界でone-hot化し、stackとclassをConv2dのchannelへ統合する。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.block.[GridConv].type", "Conv2d");
+    config_data.Set("net.block.[GridConv].conv.out_channels", 2);
+    config_data.Set("net.block.[GridConv].conv.kernel_size", 1);
+    config_data.Set("net.branch.[main_feature].bind", rl::ObsKeys::kGrid);
+    config_data.Set("net.branch.[main_feature].structure", "GridConv > Flatten > Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { rl::ObsKeys::kGrid, anet::TensorSpec{
+                                  .type = anet::SpaceType::Grid,
+                                  .shape = { 1, 4, 4 },
+                                  .dtype = torch::kInt8,
+                                  .num_classes = 3,
+                              } },
+    });
+    const auto grid = torch::arange(32, torch::kInt64).remainder(3).reshape({ 2, 1, 4, 4 });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ { rl::ObsKeys::kGrid, grid } });
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 12, 4, 4 });
+}
+
+TEST_CASE("DefaultDQNAgent leaves stack_keys exclusions unstacked", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // stack_keysに含めたvectorだけへstack軸を追加し、auxのspecと実入力は元rankを保つ。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set(
+        "DefaultDQNAgent.stucker.stack_keys",
+        std::vector<std::string>{ kVectorKey });
+    config_data.Set("net.branch.[main_feature].bind", kVectorKey);
+    config_data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+    config_data.Set("net.branch.[aux_feature].bind", "aux");
+    config_data.Set("net.branch.[aux_feature].structure", "Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { kVectorKey, anet::TensorSpec{
+                          .type = anet::SpaceType::Vector,
+                          .shape = { 8 },
+                          .dtype = torch::kFloat32,
+                      } },
+        { "aux", anet::TensorSpec{
+                     .type = anet::SpaceType::Vector,
+                     .shape = { 3 },
+                     .dtype = torch::kFloat32,
+                 } },
+    });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{
+            { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) },
+            { "aux", torch::arange(6, torch::kFloat32).reshape({ 2, 3 }) },
+        });
+
+    REQUIRE(action_info != nullptr);
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    REQUIRE(trace.Contains("aux_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+    CHECK(ShapeOf(trace.At("aux_feature/00_Input")) == std::vector<int64_t>{ 1, 3 });
+}
+
 TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", "[dqn][network_model][device]")
 {
     if (!torch::cuda::is_available()) return;
@@ -1985,6 +2639,369 @@ TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", 
 
     REQUIRE(out.Get("q").has_value());
     CHECK(out.At("q").device().type() == torch::kCUDA);
+}
+
+TEST_CASE("DefaultDQNAgent IQN acts through the public ConfigData path", "[dqn][iqn][tracer]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto config_data = MakeIqnTracerConfigData();
+    const auto env_spec = MakeIqnTracerEnvSpec();
+    const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+    dqn::DefaultDQNAgentFactory factory;
+    auto agent = factory.CreateAgent(
+        env_spec,
+        batch_env_spec,
+        torch::Device(torch::kCPU),
+        config_data,
+        nullptr,
+        123);
+    auto actor = agent->CreateActor(
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+
+    const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({
+            { 1.0f, 2.0f, 3.0f, 4.0f },
+            { 4.0f, 3.0f, 2.0f, 1.0f },
+        }) } },
+        flags,
+        flags,
+        flags);
+    REQUIRE_FALSE(state.obs.Contains(anet::nn::kKey_Taus));
+
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor->MakeAction(rl::StepCounts{}, state));
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
+    const auto& aux = action_info->GetAuxData();
+    REQUIRE(ShapeOf(aux.at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    REQUIRE(ShapeOf(aux.at("q_quantiles")) == std::vector<int64_t>{ 2, 2, 3 });
+    CHECK(torch::isfinite(aux.at("q_values")).all().item<bool>());
+    CHECK(torch::isfinite(aux.at("q_quantiles")).all().item<bool>());
+    CHECK_FALSE(state.obs.Contains(anet::nn::kKey_Taus));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects IQN without a taus bind", "[dqn][iqn][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].bind", kVectorKey);
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring("DefaultDQNAgent.net.branch.[*].bind"));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects IQN without a selected tau branch", "[dqn][iqn][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    config_data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring("DefaultDQNAgent.net.branch.[*].bind"));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects QR with a taus bind", "[dqn][qr][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.quantile_mode", "qr");
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring(
+                "DefaultDQNAgent.net.branch.[tau_embedding].bind"));
+}
+
+TEST_CASE("DefaultDQNAgentFactory rejects non-quantile mode with a taus bind", "[dqn][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.quantile_mode", "none");
+
+    dqn::DefaultDQNAgentFactory factory;
+    CHECK_THROWS_WITH(
+        factory.CreateAgent(
+            MakeIqnTracerEnvSpec(),
+            rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            config_data,
+            nullptr,
+            123),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+            && Catch::Matchers::ContainsSubstring(
+                "DefaultDQNAgent.net.branch.[tau_embedding].bind"));
+}
+
+TEST_CASE("DefaultDQNAgent IQN rejects a dead tau fusion branch", "[dqn][iqn][tracer]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
+    const auto env_spec = MakeIqnTracerEnvSpec();
+
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgent(
+            dqn::DefaultDQNAgentConfig(config_data),
+            anet::nn::NetworkConfig(config_data, "DefaultDQNAgent.net"),
+            rl::BatchEnvSpec{ 2, 1 },
+            env_spec,
+            torch::Device(torch::kCPU),
+            123),
+        Catch::Matchers::ContainsSubstring("IQNHead expected rank-3")
+            && Catch::Matchers::ContainsSubstring("IQN fusion branch"));
+}
+
+TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path", "[dqn][iqn][learner]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+
+    auto run_update = [](
+        int64_t current_num_taus,
+        int64_t target_num_taus = 3,
+        bool use_per = true,
+        bool use_tbo = false,
+        torch::Device device = torch::Device(torch::kCPU),
+        bool use_amp_bf16 = false) {
+        auto config_data = MakeIqnTracerConfigData();
+        config_data.Set("DefaultDQNAgent.learner.iqn.current_taus.num_taus", current_num_taus);
+        config_data.Set("DefaultDQNAgent.learner.iqn.current_taus.sample_mode", "fixed");
+        config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.num_taus", target_num_taus);
+        config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.sample_mode", "fixed");
+        config_data.Set("DefaultDQNAgent.target_policy.tau_rule.num_taus", 4);
+        config_data.Set("DefaultDQNAgent.target_policy.tau_rule.sample_mode", "fixed");
+        config_data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+        config_data.Set("DefaultDQNAgent.learner.update_interval", 1);
+        config_data.Set("DefaultDQNAgent.learner.use_n_step", false);
+        config_data.Set("DefaultDQNAgent.learner.use_per", use_per);
+        config_data.Set("DefaultDQNAgent.learner.use_tbo", use_tbo);
+        config_data.Set("DefaultDQNAgent.learner.use_amp", use_amp_bf16);
+        config_data.Set("DefaultDQNAgent.learner.use_amp_bf16", use_amp_bf16);
+        config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+        config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 2);
+        config_data.Set("DefaultDQNAgent.learner.policy_churn.iqn.num_taus", 5);
+
+        const auto env_spec = MakeIqnTracerEnvSpec();
+        const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+        auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+            dqn::DefaultDQNAgentConfig(config_data),
+            anet::nn::NetworkConfig(config_data, "DefaultDQNAgent.net"),
+            batch_env_spec,
+            env_spec,
+            device,
+            321);
+        auto learner = agent->CreateLearner();
+        std::vector<rl::ScalarMetricSubscription> churn_subscriptions;
+        for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(6)) {
+            churn_subscriptions.push_back(rl::ScalarMetricSubscription{
+                .source_key = key,
+                .event = rl::EventType::LEARN,
+                .target = rl::EventField::UPDATE_RESULT,
+                .interval = 1,
+                .scope = rl::RunnerScope::TRAIN,
+            });
+        }
+        agent->ConfigureScalarMetricSubscriptions(churn_subscriptions);
+
+        const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+        const auto episode_start = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({
+                { 1.0f, 2.0f, 3.0f, 4.0f },
+                { 4.0f, 3.0f, 2.0f, 1.0f },
+            }) } },
+            flags,
+            flags,
+            episode_start);
+        rl::BatchState next_state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({
+                { 1.5f, 2.5f, 3.5f, 4.5f },
+                { 3.5f, 2.5f, 1.5f, 0.5f },
+            }) } },
+            flags,
+            flags,
+            flags);
+        auto action_info = std::make_shared<rl::BatchActionInfo>(
+            torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+        rl::BatchExperience experience(
+            state,
+            action_info,
+            torch::tensor({ 0.25f, -0.5f }),
+            next_state);
+        rl::BatchState final_state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({
+                { 2.0f, 3.0f, 4.0f, 5.0f },
+                { 3.0f, 2.0f, 1.0f, 0.0f },
+            }) } },
+            flags,
+            flags,
+            flags);
+        rl::BatchExperience next_experience(
+            next_state,
+            action_info,
+            torch::tensor({ -0.25f, 0.5f }),
+            final_state);
+
+        rl::StepCounts counts;
+        counts.exp_step = 0;
+        REQUIRE(learner->UpdateFromBatch(counts, experience).empty());
+        counts.exp_step = 2;
+        auto results = learner->UpdateFromBatch(counts, next_experience);
+
+        REQUIRE(results.size() == 1);
+        auto result = std::dynamic_pointer_cast<const dqn::BatchUpdateResult>(results.front());
+        REQUIRE(result != nullptr);
+        CHECK(ShapeOf(result->loss).empty());
+        CHECK(ShapeOf(result->td_error) == std::vector<int64_t>{ 2 });
+        CHECK(torch::isfinite(result->loss).all().item<bool>());
+        CHECK(torch::isfinite(result->td_error).all().item<bool>());
+        // stride-0へexpandしたfixed midpoint tausを実IQN headの最大3 forwardへ通す。
+        for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(6)) {
+            const auto churn = result->GetScalar(key);
+            REQUIRE(churn.has_value());
+            CHECK(std::isfinite(*churn));
+        }
+        if (use_per) {
+            CHECK(ShapeOf(result->per_priorities) == std::vector<int64_t>{ 2 });
+            CHECK(torch::isfinite(result->per_priorities).all().item<bool>());
+            const auto expected_priorities = dqn::MakePerRawPriorityBatch(
+                result->td_error, 1.0e-6f, false, 50.0f).priorities.to(torch::kFloat32).cpu();
+            CHECK(torch::equal(result->per_priorities, expected_priorities));
+            CHECK(result->per_update_result.applied_count == 2);
+            CHECK(result->per_update_result.stale_count == 0);
+        } else {
+            CHECK_FALSE(result->per_priorities.defined());
+        }
+        CHECK(torch::isfinite(result->q_std).all().item<bool>());
+        CHECK(torch::isfinite(result->max_q).all().item<bool>());
+        CHECK(torch::isfinite(result->q_sa).all().item<bool>());
+        CHECK(torch::isfinite(result->q_gap).all().item<bool>());
+        CHECK(torch::isfinite(result->q_gap_rel).all().item<bool>());
+        REQUIRE(result->iqn_diagnostics.defined());
+        CHECK(result->iqn_diagnostics.device().is_cpu());
+        CHECK(result->iqn_diagnostics.scalar_type() == torch::kFloat32);
+        CHECK(ShapeOf(result->iqn_diagnostics) == std::vector<int64_t>{ 7 });
+        const auto current_mc_scale = result->GetScalar("iqn_current_mc_scale", -1);
+        REQUIRE(current_mc_scale.has_value());
+        if (current_num_taus >= 2) {
+            CHECK(std::isfinite(*current_mc_scale));
+        } else {
+            CHECK(std::isnan(*current_mc_scale));
+        }
+        const auto target_mc_scale = result->GetScalar("iqn_target_mc_scale", -1);
+        REQUIRE(target_mc_scale.has_value());
+        if (target_num_taus >= 2) {
+            CHECK(std::isfinite(*target_mc_scale));
+        } else {
+            CHECK(std::isnan(*target_mc_scale));
+        }
+        const auto priority_mc_ratio = result->GetScalar("iqn_priority_mc_ratio", -1);
+        REQUIRE(priority_mc_ratio.has_value());
+        if (current_num_taus >= 2 && target_num_taus >= 2) {
+            CHECK(std::isfinite(*priority_mc_ratio));
+        } else {
+            CHECK(std::isnan(*priority_mc_ratio));
+        }
+        const auto upper_tail_spearman = result->GetScalar("upper_tail_priority_spearman", -1);
+        REQUIRE(upper_tail_spearman.has_value());
+        if (use_per && current_num_taus >= 2) {
+            CHECK(std::isfinite(*upper_tail_spearman));
+        } else {
+            CHECK(std::isnan(*upper_tail_spearman));
+        }
+
+        const auto initial_count = result->GetScalar("per_sample_initial_count", -1);
+        REQUIRE(initial_count.has_value());
+        CHECK(*initial_count == Catch::Approx(use_per ? 2.0f : 0.0f));
+        for (const char* key : {
+            "iqn_first_priority_mc_ratio",
+            "iqn_first_pair_abs_td",
+            "iqn_first_cancellation_ratio",
+            "iqn_first_quantile_loss_norm",
+        }) {
+            const auto value = result->GetScalar(key, -1);
+            REQUIRE(value.has_value());
+            if (!use_per || (std::string_view(key) == "iqn_first_priority_mc_ratio"
+                    && (current_num_taus < 2 || target_num_taus < 2))) {
+                CHECK(std::isnan(*value));
+            } else {
+                CHECK(std::isfinite(*value));
+            }
+        }
+        CHECK_FALSE(experience.state.obs.Contains(anet::nn::kKey_Taus));
+        CHECK_FALSE(experience.next_state.obs.Contains(anet::nn::kKey_Taus));
+        CHECK_FALSE(next_experience.state.obs.Contains(anet::nn::kKey_Taus));
+        CHECK_FALSE(next_experience.next_state.obs.Contains(anet::nn::kKey_Taus));
+        return result;
+    };
+
+    SECTION("current and target sample counts may differ")
+    {
+        const auto result = run_update(2);
+        CHECK(result->q_std.item<float>() >= 0.0f);
+    }
+
+    SECTION("one current sample reports finite zero q_std")
+    {
+        const auto result = run_update(1);
+        CHECK(result->q_std.item<float>() == Catch::Approx(0.0f));
+    }
+
+    SECTION("one target sample leaves only target-dependent ratios undefined")
+    {
+        run_update(2, 1);
+    }
+
+    SECTION("PER disabled keeps general IQN diagnostics and disables first-update diagnostics")
+    {
+        run_update(2, 3, false);
+    }
+
+    SECTION("TBO keeps IQN diagnostics in the learner priority path")
+    {
+        run_update(2, 3, true, true);
+    }
+
+    SECTION("BF16 diagnostics use one CPU float32 pack on each available device")
+    {
+        run_update(2, 3, true, false, torch::Device(torch::kCPU), true);
+        if (torch::cuda::is_available()) {
+            run_update(2, 3, true, false, torch::Device(torch::kCUDA, 0), true);
+        }
+    }
 }
 
 TEST_CASE("DefaultDQNAgent resolves Train Actor snapshot clone overrides", "[dqn][actor][snapshot]")
@@ -2153,6 +3170,29 @@ TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[d
     CHECK(out.At("q").device().type() == torch::kCUDA);
 }
 
+TEST_CASE("RainbowAgentFactory reads its class-owned net tree", "[dqn][rainbow][config][tracer]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    anet::ConfigData config_data;
+    config_data.Set("RainbowAgent.use_dueling_net", false);
+    config_data.Set("RainbowAgent.learner.replay_capacity", 16);
+    config_data.Set("RainbowAgent.learner.replay_batch_size", 2);
+    config_data.Set("RainbowAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("RainbowAgent.net.body.output.[features]", "main");
+
+    dqn::RainbowAgentFactory factory;
+    const auto agent = factory.CreateAgent(
+        MakeIqnTracerEnvSpec(),
+        rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        config_data,
+        nullptr,
+        123);
+
+    REQUIRE(agent != nullptr);
+}
+
 TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][snapshot][rainbow]")
 {
     ScopedNoopMetricsLogger metrics_logger;
@@ -2212,13 +3252,13 @@ TEST_CASE("NetworkModel routes TensorDictFunction by network side and function k
     CHECK_FALSE(model.GetTensorDictFunction("unknown-net.forward", torch::kCPU).has_value());
 }
 
-TEST_CASE("NetworkModel distributionality depends only on quantile count", "[dqn][network_model]")
+TEST_CASE("NetworkModel exposes the resolved distributional mode", "[dqn][network_model]")
 {
-    TestNetworkModel dqn_model(1);
-    TestNetworkModel qr_model(8);
+    TestNetworkModel scalar_model(false);
+    TestNetworkModel distributional_model(true);
 
-    CHECK_FALSE(dqn_model.IsDistributional());
-    CHECK(qr_model.IsDistributional());
+    CHECK_FALSE(scalar_model.IsDistributional());
+    CHECK(distributional_model.IsDistributional());
 }
 
 TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
@@ -2492,6 +3532,438 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
     }
 }
 
+TEST_CASE("QR policy exposes quantile tail diagnostics through action info", "[dqn][qr][action_policy][metrics]")
+{
+    auto network = MakePassthroughNetwork(2, 4);
+    const auto q_quantiles = torch::tensor({
+        {
+            { 0.0f, 1.0f, 2.0f, 3.0f },
+            { 0.0f, 0.0f, 0.0f, 4.0f },
+        },
+        {
+            { 0.0f, 0.0f, 0.0f, 0.0f },
+            { -4.0f, 0.0f, 0.0f, 0.0f },
+        },
+    });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+    const float selected_tail_mean = std::sqrt(1.25f) / 2.0f;
+    const auto crossing_depth_p90 =
+        action_info->GetScalar("policy_selected_crossing_depth_p90_ratio");
+    const auto upper = action_info->GetScalar("policy_upper_truncated_std");
+    const auto lower = action_info->GetScalar("policy_lower_truncated_std");
+    const auto disagreement = action_info->GetScalar("lower_risk_full_q_argmax_disagreement");
+    const auto crossing = action_info->GetScalar("quantile_crossing_ratio");
+    REQUIRE(crossing_depth_p90.has_value());
+    REQUIRE(upper.has_value());
+    REQUIRE(lower.has_value());
+    REQUIRE(disagreement.has_value());
+    REQUIRE(crossing.has_value());
+    CHECK(*upper == Catch::Approx(selected_tail_mean));
+    CHECK(*lower == Catch::Approx(selected_tail_mean));
+    CHECK(*disagreement == Catch::Approx(0.5f));
+    CHECK(*crossing == Catch::Approx(0.0f));
+    CHECK(*crossing_depth_p90 == Catch::Approx(0.0f));
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.0f));
+
+    // action差し替え後は上下幅だけを最終actionから再集約し、global診断は維持する。
+    auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action_info->WithAction(torch::ones(
+        { 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(replaced != nullptr);
+    CHECK(*replaced->GetScalar("policy_upper_truncated_std") == Catch::Approx(std::sqrt(2.0f)));
+    CHECK(*replaced->GetScalar("policy_lower_truncated_std") == Catch::Approx(std::sqrt(2.0f)));
+    CHECK(*replaced->GetScalar("lower_risk_full_q_argmax_disagreement") == Catch::Approx(0.5f));
+    CHECK(*replaced->GetScalar("quantile_crossing_ratio") == Catch::Approx(0.0f));
+    CHECK(*replaced->GetScalar("policy_selected_crossing_depth_p90_ratio") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("QR policy exposes selected action crossing depth p90", "[dqn][qr][action_policy][metrics]")
+{
+    const auto q_quantiles = torch::tensor({ { { 0.0f, 2.0f, 1.0f, 4.0f, 2.0f } } });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+
+    const auto crossing_depth_p90 =
+        action_info->GetScalar("policy_selected_crossing_depth_p90_ratio");
+    REQUIRE(crossing_depth_p90.has_value());
+    CHECK(*crossing_depth_p90 == Catch::Approx(0.5f));
+}
+
+TEST_CASE("QR policy reports zero crossing depth without positive crossings", "[dqn][qr][action_policy][metrics]")
+{
+    const auto q_quantiles = torch::tensor({
+        { { 0.0f, 1.0f, 2.0f, 3.0f, 4.0f } },
+        { { 2.0f, 2.0f, 2.0f, 2.0f, 2.0f } },
+    });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.0f));
+}
+
+TEST_CASE("QR selected crossing depth aggregates BF16 quantiles in float32", "[dqn][qr][action_policy][metrics][bf16]")
+{
+    const auto q_quantiles = torch::tensor({ { { 0.0f, 2.0f, 1.0f, 4.0f, 2.0f } } })
+        .to(torch::kBFloat16);
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.5f));
+}
+
+TEST_CASE("QR selected crossing depth follows the final action per lane", "[dqn][qr][action_policy][metrics]")
+{
+    const auto q_quantiles = torch::tensor({
+        {
+            { 10.0f, 12.0f, 11.0f, 14.0f, 12.0f },
+            { 0.0f, 1.0f, 2.0f, 3.0f, 4.0f },
+        },
+        {
+            { 10.0f, 11.0f, 12.0f, 13.0f, 14.0f },
+            { 0.0f, 3.0f, 0.0f, 4.0f, 0.0f },
+        },
+    });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(2, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.25f));
+
+    auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action_info->WithAction(torch::ones(
+        { 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(replaced != nullptr);
+    CHECK(*replaced->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.5f));
+}
+
+TEST_CASE("QR policy tail diagnostics exclude the odd median and reject K below two", "[dqn][qr][action_policy][metrics]")
+{
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+
+    const auto odd_quantiles = torch::tensor({ { { 0.0f, 1.0f, 5.0f } } });
+    const auto odd_obs = anet::TensorDict{
+        { "q", odd_quantiles.mean(2) },
+        { "q_dist", odd_quantiles },
+    };
+    auto odd_info = policy.SelectAction(
+        odd_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 3), rnd, {});
+    CHECK(*odd_info->GetScalar("policy_upper_truncated_std") == Catch::Approx(4.0f));
+    CHECK(*odd_info->GetScalar("policy_lower_truncated_std") == Catch::Approx(1.0f));
+
+    const auto one_quantile = torch::tensor({ { { 2.0f } } });
+    const auto one_obs = anet::TensorDict{
+        { "q", one_quantile.mean(2) },
+        { "q_dist", one_quantile },
+    };
+    auto one_info = policy.SelectAction(
+        one_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 1), rnd, {});
+    CHECK(std::isnan(*one_info->GetScalar("policy_upper_truncated_std")));
+    CHECK(std::isnan(*one_info->GetScalar("policy_lower_truncated_std")));
+    CHECK(std::isnan(*one_info->GetScalar("lower_risk_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*one_info->GetScalar("quantile_crossing_ratio")));
+    CHECK(std::isnan(*one_info->GetScalar("policy_selected_crossing_depth_p90_ratio")));
+}
+
+TEST_CASE("IQN action policies inject their tau rules without mutating observations", "[dqn][iqn][action_policy]")
+{
+    auto run_policy = [](
+        const std::shared_ptr<dqn::ActionPolicy>& policy,
+        const torch::Tensor& expected_taus) {
+        auto state = std::make_shared<TauEchoState>();
+        auto network = MakeTauEchoNetwork(expected_taus.size(1), state);
+        auto obs = MakeTauEchoObservation();
+        auto rnd = std::make_shared<anet::RandomGenerator>(123);
+
+        REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network, rnd);
+
+        REQUIRE(state->forward_count == 1);
+        REQUIRE(state->last_taus.defined());
+        CHECK(torch::allclose(state->last_taus, expected_taus, 1.0e-6, 1.0e-6));
+        CHECK_FALSE(obs.Contains(anet::nn::kKey_Taus));
+        const auto& aux = action_info->GetAuxData();
+        REQUIRE(aux.count("q_values") == 1);
+        REQUIRE(aux.count("q_quantiles") == 1);
+        CHECK(aux.count("full_q_values") == 0);
+        CHECK(aux.count("full_q_quantiles") == 0);
+        CHECK(torch::allclose(aux.at("q_values"), aux.at("q_quantiles").mean(2)));
+        return action_info;
+    };
+
+    SECTION("epsilon greedy and greedy score the full interval")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.eps_start = 0.0f;
+        config.eps_end = 0.0f;
+        config.tau_rule.num_taus = 4;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({ 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
+
+        run_policy(std::make_shared<dqn::EpsilonGreedyActionPolicy>(config), expected);
+    }
+
+    SECTION("UQE tail mean scores the sampled upper tail")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.uqe_tau_start = 0.5f;
+        config.uqe_tau_end = 0.5f;
+        config.uqe_use_tail_mean = true;
+        config.uqe_eps_start = 0.0f;
+        config.uqe_eps_end = 0.0f;
+        config.tau_rule.num_taus = 2;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({ 0.625f, 0.875f }).repeat({ 2, 1 });
+
+        auto action_info = run_policy(std::make_shared<dqn::UQEActionPolicy>(config), expected);
+        CHECK(torch::allclose(
+            action_info->GetAuxData().at("q_values"),
+            action_info->GetAuxData().at("uqe_values")));
+    }
+
+    SECTION("UQE point score uses the decayed Z tau")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.uqe_tau_start = 0.2f;
+        config.uqe_tau_end = 0.6f;
+        config.uqe_tau_decay_steps = 10;
+        config.uqe_use_tail_mean = false;
+        config.uqe_eps_start = 0.0f;
+        config.uqe_eps_end = 0.0f;
+        config.tau_rule.num_taus = 3;
+        config.tau_rule.sample_mode = "fixed";
+        auto policy = std::make_shared<dqn::UQEActionPolicy>(config);
+        policy->OnLearn(rl::StepCounts{ .exp_step = 5 });
+        auto expected = torch::full({ 2, 3 }, 0.4f);
+
+        auto action_info = run_policy(policy, expected);
+        CHECK(torch::allclose(
+            action_info->GetAuxData().at("q_values"),
+            action_info->GetAuxData().at("uqe_values")));
+    }
+
+    SECTION("non spatial Thompson sampling scores the full interval")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.tau_rule.num_taus = 2;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({ 0.25f, 0.75f }).repeat({ 2, 1 });
+
+        run_policy(std::make_shared<dqn::ThompsonSamplingActionPolicy>(config), expected);
+    }
+
+    SECTION("spatial UQE and Thompson sampling use per-env lower bounds")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.use_spatial_exploration = true;
+        config.spatial_scale_type = "linear";
+        config.uqe_tau_start = 0.0f;
+        config.uqe_tau_end = 0.5f;
+        config.uqe_use_tail_mean = true;
+        config.uqe_eps_start = 0.0f;
+        config.uqe_eps_end = 0.0f;
+        config.tau_rule.num_taus = 2;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({
+            { 0.625f, 0.875f },
+            { 0.25f, 0.75f },
+        });
+
+        run_policy(
+            std::make_shared<dqn::UQEActionPolicy>(config, true, 2, torch::Device(torch::kCPU)),
+            expected);
+        run_policy(
+            std::make_shared<dqn::ThompsonSamplingActionPolicy>(config, true, 2, torch::Device(torch::kCPU)),
+            expected);
+    }
+}
+
+TEST_CASE("IQN UQE point query exports a full distribution from the same forward", "[dqn][iqn][action_policy]")
+{
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "iqn";
+    config.uqe_tau_start = 0.4f;
+    config.uqe_tau_end = 0.4f;
+    config.uqe_use_tail_mean = false;
+    config.uqe_eps_start = 0.0f;
+    config.uqe_eps_end = 0.0f;
+    config.tau_rule.num_taus = 3;
+    config.tau_rule.sample_mode = "fixed";
+    config.full_distribution_query.enabled = true;
+    config.full_distribution_query.tau_rule.num_taus = 4;
+    config.full_distribution_query.tau_rule.sample_mode = "fixed";
+
+    auto state = std::make_shared<TauEchoState>();
+    auto network = MakeTauEchoNetwork(5, state);
+    auto obs = MakeTauEchoObservation();
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+    auto policy = std::make_shared<dqn::UQEActionPolicy>(config);
+
+    REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
+    auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+    const auto expected_taus = torch::tensor({ 0.4f, 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
+    REQUIRE(state->forward_count == 1);
+    CHECK(torch::allclose(state->last_taus, expected_taus, 1.0e-6, 1.0e-6));
+    CHECK_FALSE(obs.Contains(anet::nn::kKey_Taus));
+
+    const auto& aux = action_info->GetAuxData();
+    REQUIRE(aux.count("full_q_values") == 1);
+    REQUIRE(aux.count("full_q_quantiles") == 1);
+    CHECK((ShapeOf(aux.at("q_quantiles")) == std::vector<int64_t>{ 2, 2, 1 }));
+    CHECK((ShapeOf(aux.at("full_q_quantiles")) == std::vector<int64_t>{ 2, 2, 4 }));
+    CHECK(torch::allclose(aux.at("q_values"), aux.at("q_quantiles").mean(2)));
+    CHECK(torch::allclose(aux.at("uqe_values"), aux.at("q_values")));
+    CHECK(torch::allclose(aux.at("full_q_values"), aux.at("full_q_quantiles").mean(2)));
+    CHECK(torch::equal(action_info->GetAction().cpu(), torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+
+    // point queryのK=1ではscaleを定義せず、full Qとの選択差だけを公開する。
+    const auto margin_ratio = action_info->GetScalar("iqn_policy_margin_mc_ratio");
+    REQUIRE(margin_ratio.has_value());
+    CHECK(std::isnan(*margin_ratio));
+    const auto disagreement = action_info->GetScalar("iqn_uqe_full_q_argmax_disagreement");
+    REQUIRE(disagreement.has_value());
+    CHECK(*disagreement == Catch::Approx(1.0f));
+}
+
+TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][iqn][action_policy]")
+{
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "iqn";
+    config.uqe_tau_start = 0.5f;
+    config.uqe_tau_end = 0.5f;
+    config.uqe_use_tail_mean = true;
+    config.uqe_eps_start = 0.0f;
+    config.uqe_eps_end = 0.0f;
+    config.tau_rule.num_taus = 2;
+    config.tau_rule.sample_mode = "fixed";
+    config.full_distribution_query.enabled = true;
+    config.full_distribution_query.tau_rule.num_taus = 2;
+    config.full_distribution_query.tau_rule.sample_mode = "fixed";
+
+    auto state = std::make_shared<TauEchoState>();
+    auto network = MakeTauEchoNetwork(4, state);
+    auto obs = MakeTauEchoObservation();
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+    dqn::UQEActionPolicy policy(config);
+
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+    const auto expected_taus = torch::tensor({ 0.625f, 0.875f, 0.25f, 0.75f }).repeat({ 2, 1 });
+    REQUIRE(state->forward_count == 1);
+    CHECK(torch::allclose(state->last_taus, expected_taus, 1.0e-6, 1.0e-6));
+
+    const auto& aux = action_info->GetAuxData();
+    CHECK((ShapeOf(aux.at("q_quantiles")) == std::vector<int64_t>{ 2, 2, 2 }));
+    CHECK((ShapeOf(aux.at("full_q_quantiles")) == std::vector<int64_t>{ 2, 2, 2 }));
+    CHECK(torch::allclose(aux.at("q_values"), torch::tensor({ { 0.75f, 0.25f }, { 0.75f, 0.25f } })));
+    CHECK(torch::allclose(aux.at("full_q_values"), torch::full({ 2, 2 }, 0.5f)));
+    CHECK(torch::equal(action_info->GetAction().cpu(), torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+
+    // 同じforwardのrisk/full quantileからPolicy診断を公開する。
+    const auto margin_ratio = action_info->GetScalar("iqn_policy_margin_mc_ratio");
+    REQUIRE(margin_ratio.has_value());
+    CHECK(*margin_ratio == Catch::Approx(2.828411f));
+    const auto disagreement = action_info->GetScalar("iqn_uqe_full_q_argmax_disagreement");
+    REQUIRE(disagreement.has_value());
+    CHECK(*disagreement == Catch::Approx(0.0f));
+    const auto noop_margin = action_info->GetScalar("action_full_q_margin.[0]");
+    REQUIRE(noop_margin.has_value());
+    CHECK(*noop_margin == Catch::Approx(0.0f));
+    CHECK(*action_info->GetScalar("policy_upper_truncated_std") == Catch::Approx(0.25f));
+    CHECK(*action_info->GetScalar("policy_lower_truncated_std") == Catch::Approx(0.25f));
+    CHECK(*action_info->GetScalar("lower_risk_full_q_argmax_disagreement") == Catch::Approx(0.0f));
+    CHECK(*action_info->GetScalar("quantile_crossing_ratio") == Catch::Approx(0.5f));
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio") == Catch::Approx(0.0f));
+    CHECK_THROWS_WITH(
+        action_info->GetScalar("action_full_q_margin.[2]"),
+        Catch::Matchers::ContainsSubstring("index=2")
+            && Catch::Matchers::ContainsSubstring("valid_range=[0,1]"));
+    CHECK(state->forward_count == 1);
+
+    // full queryを無効化してもrisk診断は残り、full依存診断だけNaNになる。
+    config.full_distribution_query.enabled = false;
+    auto risk_only_state = std::make_shared<TauEchoState>();
+    auto risk_only = dqn::UQEActionPolicy(config).SelectAction(
+        obs, /*greedy_only=*/true, MakeTauEchoNetwork(2, risk_only_state), rnd, {});
+    CHECK_FALSE(std::isnan(*risk_only->GetScalar("iqn_policy_margin_mc_ratio")));
+    CHECK(std::isnan(*risk_only->GetScalar("iqn_uqe_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*risk_only->GetScalar("action_full_q_margin.[0]")));
+    CHECK(std::isnan(*risk_only->GetScalar("policy_upper_truncated_std")));
+    CHECK(std::isnan(*risk_only->GetScalar("policy_lower_truncated_std")));
+    CHECK(std::isnan(*risk_only->GetScalar("lower_risk_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*risk_only->GetScalar("quantile_crossing_ratio")));
+    CHECK(std::isnan(*risk_only->GetScalar("policy_selected_crossing_depth_p90_ratio")));
+    CHECK(risk_only_state->forward_count == 1);
+
+    // random full queryはtau順が保証されないため、tail診断payloadを作らない。
+    config.full_distribution_query.enabled = true;
+    config.full_distribution_query.tau_rule.sample_mode = "random";
+    auto random_full_state = std::make_shared<TauEchoState>();
+    auto random_full = dqn::UQEActionPolicy(config).SelectAction(
+        obs, /*greedy_only=*/true, MakeTauEchoNetwork(4, random_full_state), rnd, {});
+    CHECK(std::isnan(*random_full->GetScalar("policy_upper_truncated_std")));
+    CHECK(std::isnan(*random_full->GetScalar("policy_lower_truncated_std")));
+    CHECK(std::isnan(*random_full->GetScalar("lower_risk_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*random_full->GetScalar("quantile_crossing_ratio")));
+    CHECK(std::isnan(*random_full->GetScalar("policy_selected_crossing_depth_p90_ratio")));
+    CHECK(random_full_state->forward_count == 1);
+}
+
 TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][action_policy][amp][bf16]")
 {
     std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
@@ -2633,6 +4105,9 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     auto undefined_margin = non_uqe.GetScalar("action_uqe_margin.[0]");
     REQUIRE(undefined_margin.has_value());
     CHECK(std::isnan(*undefined_margin));
+    CHECK(std::isnan(*non_uqe.GetScalar("iqn_policy_margin_mc_ratio")));
+    CHECK(std::isnan(*non_uqe.GetScalar("iqn_uqe_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*non_uqe.GetScalar("action_full_q_margin.[0]")));
 
     auto replaced = win_info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
     CHECK(torch::equal(replaced->GetAction(), torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64))));
@@ -2740,12 +4215,12 @@ TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[
     CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[3]"));
 }
 
-TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][actor_initial][hint]")
+TEST_CASE("DQN Actor Q hint schema packs and decodes three columns", "[dqn][per][actor_initial][hint]")
 {
     auto q_sa = torch::tensor({ 2.0f, 3.0f });
     auto state_value = torch::tensor({ 5.0f, 7.0f });
 
-    auto packed = dqn::PackActorQHint(q_sa, state_value);
+    auto packed = dqn::PackActorQHint(q_sa, state_value, torch::zeros_like(q_sa));
     CHECK(packed.scalar_type() == torch::kFloat32);
     CHECK(packed.sizes() == torch::IntArrayRef({ 2, dqn::kActorQHintColumnCount }));
 
@@ -2753,12 +4228,12 @@ TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][a
     CHECK(torch::equal(batch.actor_q_sa, q_sa));
     CHECK(torch::equal(batch.actor_state_value, state_value));
 
-    const std::array<float, 2> row{ 11.0f, 13.0f };
+    const std::array<float, 3> row{ 11.0f, 13.0f, 0.0f };
     const auto decoded_row = dqn::DecodeActorQHint(std::span<const float>(row));
     CHECK(decoded_row.actor_q_sa == Catch::Approx(11.0f));
     CHECK(decoded_row.actor_state_value == Catch::Approx(13.0f));
 
-    CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 3 }, torch::kFloat32)));
+    CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 2 }, torch::kFloat32)));
     CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
 }
 
@@ -2770,7 +4245,8 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     });
     rl::AuxData aux;
     aux["q_values"] = q_values;
-    auto packed = torch::tensor({ { 5.0f, 5.0f }, { 7.0f, 7.0f } });
+    aux["munchausen_terms"] = torch::zeros_like(q_values);
+    auto packed = torch::tensor({ { 5.0f, 5.0f, 0.0f }, { 7.0f, 7.0f, 0.0f } });
     dqn::DQNActionInfo info(
         torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
         {},
@@ -2781,7 +4257,7 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
     CHECK(torch::equal(
         replaced->GetReplayInitialPriorityHint()->GetPayload(),
-        torch::tensor({ { 2.0f, 5.0f }, { 3.0f, 7.0f } })));
+        torch::tensor({ { 2.0f, 5.0f, 0.0f }, { 3.0f, 7.0f, 0.0f } })));
     const auto& first_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     const auto& second_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
@@ -2853,6 +4329,286 @@ TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][c
     CHECK(config.train_policy.use_spatial_exploration);
     CHECK_FALSE(config.eval_policy.use_spatial_exploration);
     CHECK_FALSE(config.target_policy.use_spatial_exploration);
+}
+
+TEST_CASE("DefaultDQNAgentConfig defines IQN and QR sampling defaults", "[dqn][iqn][config]")
+{
+    const dqn::DefaultDQNAgentConfig config(anet::ConfigData{});
+
+    CHECK(config.quantile_mode == "qr");
+    CHECK(config.qr.num_quantiles == 51);
+    CHECK(config.train_policy.tau_rule.num_taus == 32);
+    CHECK(config.train_policy.tau_rule.sample_mode == "random");
+    CHECK(config.eval_policy.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.tau_rule.sample_mode == "fixed");
+    CHECK(config.target_policy.tau_rule.num_taus == 32);
+    CHECK(config.target_policy.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.train_policy.full_distribution_query.enabled);
+    CHECK(config.train_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.train_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.eval_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.target_policy.full_distribution_query.enabled);
+    CHECK(config.target_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.target_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK(config.learner.iqn.current_taus.num_taus == 64);
+    CHECK(config.learner.iqn.current_taus.sample_mode == "random");
+    CHECK(config.learner.iqn.target_taus.num_taus == 64);
+    CHECK(config.learner.iqn.target_taus.sample_mode == "random");
+}
+
+TEST_CASE("DefaultDQNAgentConfig propagates quantile mode to every policy", "[dqn][iqn][config]")
+{
+    for (const auto& mode : { "none", "qr", "iqn" }) {
+        INFO("mode=" << mode);
+        anet::ConfigData config_data;
+        config_data.Set("DefaultDQNAgent.quantile_mode", mode);
+        const dqn::DefaultDQNAgentConfig config(config_data);
+
+        CHECK(config.train_policy.quantile_mode == mode);
+        CHECK(config.eval_policy.quantile_mode == mode);
+        CHECK(config.target_policy.quantile_mode == mode);
+    }
+}
+
+TEST_CASE("DefaultDQNAgentConfig reads an optional IQN UQE full distribution query", "[dqn][iqn][config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    config_data.Set("DefaultDQNAgent.eval_policy.policy_type", "UQE");
+    config_data.Set("DefaultDQNAgent.eval_policy.full_distribution_query.enabled", true);
+    config_data.Set("DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule.num_taus", 5);
+    config_data.Set("DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule.sample_mode", "random");
+
+    const dqn::DefaultDQNAgentConfig config(config_data);
+
+    CHECK_FALSE(config.train_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.num_taus == 5);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.sample_mode == "random");
+    CHECK_FALSE(config.target_policy.full_distribution_query.enabled);
+}
+
+TEST_CASE("DefaultDQNAgent config fixture resolves the IQN profile chain", "[dqn][iqn][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "default-dqn-iqn-profile-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    // live実験値から分離したprofile連鎖を作り、後段IQN設定の上書きを固定する。
+    const auto config_path = root / "config.txt";
+    {
+        std::ofstream stream(config_path);
+        REQUIRE(stream.is_open());
+        stream << "DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > IQN\n";
+        stream << "DefaultDQNAgent.baseline.quantile_mode = qr\n";
+        stream << "A.learner.iqn.current_taus.num_taus = 64\n";
+        stream << "A.learner.iqn.target_taus.num_taus = 64\n";
+        stream << "IQN.quantile_mode = iqn\n";
+        stream << "IQN.train_policy.policy_type = UQE\n";
+        stream << "IQN.train_policy.tau_rule.num_taus = 32\n";
+        stream << "IQN.train_policy.tau_rule.sample_mode = random\n";
+        stream << "IQN.eval_policy.policy_type = UQE\n";
+        stream << "IQN.eval_policy.uqe_use_tail_mean = true\n";
+        stream << "IQN.eval_policy.tau_rule.num_taus = 32\n";
+        stream << "IQN.eval_policy.tau_rule.sample_mode = fixed\n";
+        stream << "IQN.eval_policy.full_distribution_query.enabled = true\n";
+        stream << "IQN.eval_policy.full_distribution_query.tau_rule.num_taus = 32\n";
+        stream << "IQN.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed\n";
+        stream << "IQN.learner.iqn.current_taus.num_taus = 32\n";
+        stream << "IQN.learner.iqn.target_taus.num_taus = 32\n";
+        stream << "net.$ = net.base > net.iqn\n";
+        stream << "net.base.branch.[value_stream].bind = main_feature\n";
+        stream << "net.base.branch.[adv_stream].bind = main_feature\n";
+        stream << "net.iqn.block.[IQNTauProjFixture].linear.out_features = 2048\n";
+        stream << "net.iqn.branch.[tau_embedding].bind = taus\n";
+        stream << "net.iqn.branch.[iqn_fusion].bind = main_feature * tau_embedding\n";
+        stream << "net.iqn.branch.[value_stream].bind = iqn_fusion\n";
+        stream << "net.iqn.branch.[adv_stream].bind = iqn_fusion\n";
+    }
+
+    anet::ConfigManager config_manager(config_path.string());
+    const auto config_data = config_manager.GetConfigData();
+    const dqn::DefaultDQNAgentConfig config(config_data);
+
+    // Agent設定とNN設定の両方で、profile連鎖の最終値が読み出せることを確認する。
+    CHECK(config.quantile_mode == "iqn");
+    CHECK(config.train_policy.policy_type == "UQE");
+    CHECK(config.train_policy.tau_rule.num_taus == 32);
+    CHECK(config.train_policy.tau_rule.sample_mode == "random");
+    CHECK_FALSE(config.train_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.policy_type == "UQE");
+    CHECK(config.eval_policy.uqe_use_tail_mean);
+    CHECK(config.eval_policy.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.tau_rule.sample_mode == "fixed");
+    CHECK(config.eval_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.target_policy.full_distribution_query.enabled);
+    CHECK(config_data.Get("A.learner.iqn.current_taus.num_taus") == "64");
+    CHECK(config.learner.iqn.current_taus.num_taus == 32);
+    CHECK(config.learner.iqn.target_taus.num_taus == 32);
+    CHECK(config_data.Get("net.block.[IQNTauProjFixture].linear.out_features") == "2048");
+    CHECK(config_data.Get("net.branch.[tau_embedding].bind") == "taus");
+    CHECK(config_data.Get("net.branch.[iqn_fusion].bind") == "main_feature * tau_embedding");
+    CHECK(config_data.Get("net.branch.[value_stream].bind") == "iqn_fusion");
+    CHECK(config_data.Get("net.branch.[adv_stream].bind") == "iqn_fusion");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("DefaultDQNAgentConfig restores deterministic target taus after optimistic policy copy", "[dqn][iqn][config]")
+{
+    anet::ConfigData inherited_data;
+    inherited_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    inherited_data.Set("DefaultDQNAgent.use_optimistic_target", true);
+    inherited_data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    inherited_data.Set("DefaultDQNAgent.train_policy.tau_rule.num_taus", 7);
+    inherited_data.Set("DefaultDQNAgent.train_policy.tau_rule.sample_mode", "random");
+    inherited_data.Set("DefaultDQNAgent.train_policy.full_distribution_query.enabled", true);
+    inherited_data.Set("DefaultDQNAgent.train_policy.full_distribution_query.tau_rule.num_taus", 7);
+    inherited_data.Set("DefaultDQNAgent.train_policy.full_distribution_query.tau_rule.sample_mode", "random");
+    const dqn::DefaultDQNAgentConfig inherited(inherited_data);
+
+    CHECK(inherited.target_policy.policy_type == "UQE");
+    CHECK(inherited.target_policy.tau_rule.num_taus == 32);
+    CHECK(inherited.target_policy.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(inherited.target_policy.full_distribution_query.enabled);
+    CHECK(inherited.target_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(inherited.target_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+
+    auto explicit_data = inherited_data;
+    explicit_data.Set("DefaultDQNAgent.target_policy.tau_rule.num_taus", 5);
+    explicit_data.Set("DefaultDQNAgent.target_policy.tau_rule.sample_mode", "random");
+    explicit_data.Set("DefaultDQNAgent.target_policy.full_distribution_query.enabled", true);
+    explicit_data.Set("DefaultDQNAgent.target_policy.full_distribution_query.tau_rule.num_taus", 5);
+    explicit_data.Set("DefaultDQNAgent.target_policy.full_distribution_query.tau_rule.sample_mode", "random");
+    const dqn::DefaultDQNAgentConfig explicit_target(explicit_data);
+
+    CHECK(explicit_target.target_policy.tau_rule.num_taus == 5);
+    CHECK(explicit_target.target_policy.tau_rule.sample_mode == "random");
+    CHECK(explicit_target.target_policy.full_distribution_query.enabled);
+    CHECK(explicit_target.target_policy.full_distribution_query.tau_rule.num_taus == 5);
+    CHECK(explicit_target.target_policy.full_distribution_query.tau_rule.sample_mode == "random");
+}
+
+TEST_CASE("DefaultDQNAgentConfig validates quantile modes and tau rules", "[dqn][iqn][config]")
+{
+    SECTION("mode and QR width")
+    {
+        anet::ConfigData invalid_mode;
+        invalid_mode.Set("DefaultDQNAgent.quantile_mode", "invalid");
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_mode));
+
+        anet::ConfigData invalid_qr;
+        invalid_qr.Set("DefaultDQNAgent.quantile_mode", "qr");
+        invalid_qr.Set("DefaultDQNAgent.qr.num_quantiles", 1);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_qr));
+    }
+
+    SECTION("all tau rules")
+    {
+        const std::vector<std::string> prefixes{
+            "DefaultDQNAgent.train_policy.tau_rule",
+            "DefaultDQNAgent.eval_policy.tau_rule",
+            "DefaultDQNAgent.target_policy.tau_rule",
+            "DefaultDQNAgent.train_policy.full_distribution_query.tau_rule",
+            "DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule",
+            "DefaultDQNAgent.target_policy.full_distribution_query.tau_rule",
+            "DefaultDQNAgent.learner.iqn.current_taus",
+            "DefaultDQNAgent.learner.iqn.target_taus",
+        };
+        for (const auto& prefix : prefixes) {
+            INFO("prefix=" << prefix);
+
+            for (const auto& mode : { "stratified", "systematic", "antithetic" }) {
+                INFO("mode=" << mode);
+                anet::ConfigData valid_mode;
+                valid_mode.Set(prefix + ".sample_mode", mode);
+                CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(valid_mode));
+            }
+
+            anet::ConfigData invalid_count;
+            invalid_count.Set(prefix + ".num_taus", 0);
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_count));
+
+            anet::ConfigData invalid_mode;
+            invalid_mode.Set(prefix + ".sample_mode", "sorted_random");
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_mode));
+        }
+    }
+
+    SECTION("full distribution query compatibility")
+    {
+        for (const auto& [mode, policy_type] : {
+                 std::pair{ "none", "Greedy" },
+                 std::pair{ "qr", "UQE" },
+             }) {
+            INFO("mode=" << mode);
+            anet::ConfigData non_iqn;
+            non_iqn.Set("DefaultDQNAgent.quantile_mode", mode);
+            non_iqn.Set("DefaultDQNAgent.eval_policy.policy_type", policy_type);
+            non_iqn.Set("DefaultDQNAgent.eval_policy.full_distribution_query.enabled", true);
+
+            const dqn::DefaultDQNAgentConfig config(non_iqn);
+
+            CHECK(config.eval_policy.full_distribution_query.enabled);
+        }
+
+        anet::ConfigData non_uqe;
+        non_uqe.Set("DefaultDQNAgent.quantile_mode", "iqn");
+        non_uqe.Set("DefaultDQNAgent.eval_policy.policy_type", "Greedy");
+        non_uqe.Set("DefaultDQNAgent.eval_policy.full_distribution_query.enabled", true);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(non_uqe));
+    }
+
+    SECTION("IQN kappa")
+    {
+        for (const auto& value : { "0", "-0.5", "nan", "inf" }) {
+            INFO("kappa=" << value);
+            anet::ConfigData config_data;
+            config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+            config_data.Set("DefaultDQNAgent.learner.quantile_huber_kappa", value);
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+        }
+    }
+}
+
+TEST_CASE("DefaultDQNAgentConfig validates IQN risk ranges only when consumed", "[dqn][iqn][config]")
+{
+    for (const auto& type : { "UQE", "ThompsonSampling" }) {
+        INFO("type=" << type);
+        anet::ConfigData none_data;
+        none_data.Set("DefaultDQNAgent.quantile_mode", "none");
+        none_data.Set("DefaultDQNAgent.train_policy.policy_type", type);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(none_data));
+    }
+
+    anet::ConfigData uqe_data;
+    uqe_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    uqe_data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    uqe_data.Set("DefaultDQNAgent.train_policy.uqe_tau_start", -0.1f);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(uqe_data));
+
+    anet::ConfigData non_spatial_thompson;
+    non_spatial_thompson.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.policy_type", "ThompsonSampling");
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.use_spatial_exploration", false);
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.uqe_tau_start", -0.1f);
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.uqe_tau_end", 1.1f);
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(non_spatial_thompson));
+
+    auto spatial_thompson = non_spatial_thompson;
+    spatial_thompson.Set("DefaultDQNAgent.train_policy.use_spatial_exploration", true);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(spatial_thompson));
+
+    anet::ConfigData qr_uqe;
+    qr_uqe.Set("DefaultDQNAgent.quantile_mode", "qr");
+    qr_uqe.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    qr_uqe.Set("DefaultDQNAgent.train_policy.uqe_tau_start", -0.1f);
+    qr_uqe.Set("DefaultDQNAgent.train_policy.uqe_tau_end", 1.1f);
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(qr_uqe));
 }
 
 TEST_CASE("DefaultDQNAgentConfig defaults Train Actor snapshot to shared mode", "[dqn][config][snapshot]")
@@ -2992,6 +4748,47 @@ TEST_CASE("DefaultDQNAgentConfig reads fused optimizer setting", "[dqn][config][
     config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", "false");
     dqn::DefaultDQNAgentConfig config(config_data);
     CHECK_FALSE(config.learner.use_fused_optimizer);
+}
+
+TEST_CASE("DefaultDQNAgentConfig reads and validates plasticity probe settings", "[dqn][config][plasticity]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.plasticity.feature_key", "main_feature");
+    config_data.Set("DefaultDQNAgent.learner.plasticity.probe.batch_size", 512);
+    const dqn::DefaultDQNAgentConfig config(config_data);
+    CHECK(config.learner.plasticity.feature_key == "main_feature");
+    CHECK(config.learner.plasticity.probe.batch_size == 512);
+
+    config_data.Set("DefaultDQNAgent.learner.plasticity.probe.batch_size", 0);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+}
+
+TEST_CASE("DefaultDQNAgentConfig reads and validates policy churn settings", "[dqn][config][policy_churn]")
+{
+    const dqn::DefaultDQNAgentConfig default_config(anet::ConfigData{});
+    CHECK(default_config.learner.policy_churn.probe.batch_size == 1024);
+    CHECK(default_config.learner.policy_churn.iqn.num_taus == 32);
+    CHECK(default_config.learner.quantile_mode == default_config.quantile_mode);
+
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 64);
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.iqn.num_taus", 8);
+    const dqn::DefaultDQNAgentConfig config(config_data);
+    CHECK(config.learner.policy_churn.probe.batch_size == 64);
+    CHECK(config.learner.policy_churn.iqn.num_taus == 8);
+
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 0);
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.learner.policy_churn.probe.batch_size")
+            && Catch::Matchers::ContainsSubstring("value=0"));
+
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 64);
+    config_data.Set("DefaultDQNAgent.learner.policy_churn.iqn.num_taus", 0);
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.learner.policy_churn.iqn.num_taus")
+            && Catch::Matchers::ContainsSubstring("value=0"));
 }
 
 TEST_CASE("DQN configs read sample prefetch setting", "[dqn][config][prefetch]")
@@ -3182,5 +4979,962 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network, rnd);
         CHECK(torch::equal(action_info->GetAction().cpu(), expected_actions));
+    }
+}
+
+TEST_CASE("DQN update result exposes captured plasticity metrics lazily", "[dqn][plasticity]")
+{
+    dqn::BatchUpdateResult result;
+    result.plasticity_features = torch::eye(2, torch::TensorOptions().dtype(torch::kFloat32));
+    result.plasticity_request = anet::nn::PlasticityMetricRequest::All();
+    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.0f, 0.0f });
+
+    REQUIRE(result.GetScalar("plasticity_srank").has_value());
+    CHECK(*result.GetScalar("plasticity_srank") == 2.0f);
+    CHECK(*result.GetScalar("plasticity_srank_ratio") == Catch::Approx(1.0f));
+    CHECK(*result.GetScalar("plasticity_srank_delta_005") == 2.0f);
+    CHECK(*result.GetScalar("plasticity_srank_ratio_delta_020") == Catch::Approx(1.0f));
+    CHECK(std::isnan(*result.GetScalar("plasticity_target_srank")));
+    CHECK_FALSE(result.plasticity_weight_norms_cpu.defined());
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature") == Catch::Approx(3.0f));
+    REQUIRE(result.plasticity_weight_norms_cpu.defined());
+    const auto* cpu_data = result.plasticity_weight_norms_cpu.data_ptr<float>();
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout") == Catch::Approx(4.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature_effective") == Catch::Approx(5.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout_effective") == Catch::Approx(6.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_feature") == Catch::Approx(7.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_readout") == Catch::Approx(8.0f));
+    CHECK(result.plasticity_weight_norms_cpu.data_ptr<float>() == cpu_data);
+    CHECK_FALSE(result.GetScalar("plasticity_unknown").has_value());
+
+    dqn::BatchUpdateResult partial_result;
+    partial_result.plasticity_features = result.plasticity_features;
+    partial_result.plasticity_request.Add(anet::nn::PlasticityMetric::FEATURE_NORM);
+    CHECK(std::isfinite(*partial_result.GetScalar("plasticity_feature_norm")));
+    CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank")));
+    CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank_delta_005")));
+}
+
+TEST_CASE("DQN spectral normalization sentinel reports the invalid network and layer", "[dqn][spectral_norm][plasticity]")
+{
+    auto online = MakeSpectralLinearNetwork();
+    auto target = online->Clone(torch::Device(torch::kCPU));
+    {
+        torch::NoGradGuard no_grad;
+        online->GetSpectralNormEntries().front().u.fill_(
+            std::numeric_limits<float>::quiet_NaN());
+    }
+
+    dqn::BatchUpdateResult result;
+    result.plasticity_weight_norms = torch::tensor({
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f });
+    result.plasticity_online_network = online;
+    result.plasticity_target_network = target;
+
+    CHECK_THROWS_WITH(
+        result.GetScalar("plasticity_weight_norm_feature"),
+        Catch::Matchers::ContainsSubstring("network=online")
+            && Catch::Matchers::ContainsSubstring("feature.Linear_0.linear"));
+}
+
+TEST_CASE("DQN validates spectral soft update tau only for a soft update configuration", "[dqn][spectral_norm][config]")
+{
+    auto make_model = [](const dqn::NetworkModelConfig& model_config) {
+        const anet::TensorSpec vector_spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 2);
+        config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+        config_data.Set("net.branch.[feature].bind", kVectorKey);
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        return std::make_shared<dqn::NetworkModel>(
+            model_config,
+            torch::Device(torch::kCPU),
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { kVectorKey, vector_spec } },
+            1,
+            nullptr,
+            false,
+            65065);
+    };
+
+    anet::nn::InitNN();
+    CHECK_THROWS_WITH(
+        make_model(dqn::NetworkModelConfig{
+            .soft_update_tau = 0.5f,
+            .hard_update_interval = -1,
+        }),
+        Catch::Matchers::ContainsSubstring("model.soft_update_tau=0.5")
+            && Catch::Matchers::ContainsSubstring("[0, 0.1] or 1"));
+    CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
+        .soft_update_tau = 0.1f,
+        .hard_update_interval = -1,
+    }));
+    CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
+        .soft_update_tau = 0.5f,
+        .hard_update_interval = 100,
+    }));
+}
+
+TEST_CASE("DQN learner reports greedy action churn for one optimizer update", "[dqn][policy_churn]")
+{
+    // 1 update で action 0 から action 1 へ反転する合成 network と probe を準備する。
+    TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineParameters().front().copy_(torch::tensor({
+            { 1.0f, 0.0f },
+            { 0.0f, 0.0f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(4)) {
+        subscriptions.push_back(rl::ScalarMetricSubscription{
+            .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        });
+    }
+    learner.ConfigureScalarMetricSubscriptions(subscriptions);
+
+    // public update result から、probe 1 件の greedy action が反転した割合を読む。
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(results.size() == 1);
+    const auto churn = results.front()->GetScalar("policy_churn_action_ratio");
+    REQUIRE(churn.has_value());
+    CHECK(*churn == Catch::Approx(1.0f));
+    CHECK(*results.front()->GetScalar("policy_churn_q_delta_abs_mean") == Catch::Approx(1.0f));
+    CHECK(*results.front()->GetScalar("policy_churn_q_delta_signed_max") == Catch::Approx(2.0f));
+    CHECK(*results.front()->GetScalar("policy_churn_q_delta_signed_min") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][policy_churn][target]")
+{
+    // learn_step 1 は非 sync、learn_step 2 は hard sync となる network を準備する。
+    TestNetworkModel model(
+        /*distributional=*/false,
+        /*n_actions=*/2,
+        dqn::NetworkModelConfig{ .hard_update_interval = 2 });
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineParameters().front().copy_(torch::tensor({
+            { 1.0f, 0.0f },
+            { 0.0f, 0.0f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    vars.learn_step = 1;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_policy_disagreement",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_q_delta_abs_mean",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    // 非 sync update では既知差と age=1、次の sync update では厳密なゼロ点を返す。
+    const auto non_sync = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(*non_sync->GetScalar("policy_churn_target_policy_disagreement") == Catch::Approx(1.0f));
+    CHECK(*non_sync->GetScalar("policy_churn_target_q_delta_abs_mean") == Catch::Approx(1.0f));
+    CHECK(*non_sync->GetScalar("policy_churn_target_sync_age") == Catch::Approx(1.0f));
+
+    const auto sync = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(*sync->GetScalar("policy_churn_target_policy_disagreement") == Catch::Approx(0.0f));
+    CHECK(*sync->GetScalar("policy_churn_target_q_delta_abs_mean") == Catch::Approx(0.0f));
+    CHECK(*sync->GetScalar("policy_churn_target_sync_age") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown keys", "[dqn][policy_churn][gate]")
+{
+    const auto make_learner = [](TestNetworkModel& model, dqn::RuntimeVars& vars) {
+        dqn::LearnerConfig config;
+        config.replay_batch_size = 1;
+        config.update_warmup_steps = 0;
+        config.update_interval = 1;
+        config.replay_ratio = -1.0f;
+        config.use_per = false;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        return std::make_unique<TestLearner>(
+            config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    };
+
+    SECTION("age-only on soft target performs no probe sampling") {
+        TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+        dqn::RuntimeVars vars;
+        auto learner = make_learner(model, vars);
+        learner->UseSgd(0.0f);
+        learner->EnablePolicyChurnOptimizerUpdate();
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 1 });
+        learner->UseReplayBuffer(replay_buffer);
+        learner->ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        } });
+
+        const auto result = learner->UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        REQUIRE(result->GetScalar("policy_churn_target_sync_age").has_value());
+        CHECK(std::isnan(*result->GetScalar("policy_churn_target_sync_age")));
+        CHECK(replay_buffer->unique_sample_count == 0);
+    }
+
+    SECTION("incomplete probe publishes NaN and unknown key remains nullopt") {
+        TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+        dqn::RuntimeVars vars;
+        auto learner = make_learner(model, vars);
+        learner->UseSgd(0.0f);
+        learner->EnablePolicyChurnOptimizerUpdate();
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 1 });
+        replay_buffer->unique_sample_enabled = false;
+        learner->UseReplayBuffer(replay_buffer);
+        learner->ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_action_ratio",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        } });
+
+        const auto result = learner->UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        REQUIRE(result->GetScalar("policy_churn_action_ratio").has_value());
+        CHECK(std::isnan(*result->GetScalar("policy_churn_action_ratio")));
+        CHECK_FALSE(result->GetScalar("policy_churn_unknown").has_value());
+        CHECK(replay_buffer->unique_sample_count == 1);
+    }
+}
+
+TEST_CASE("DQN policy churn uses post-soft-update target values", "[dqn][policy_churn][target][soft]")
+{
+    // soft tau=0.01 の update 後 target と online-after を比較する。
+    TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineParameters().front().copy_(torch::tensor({
+            { 1.0f, 0.0f },
+            { 0.0f, 0.0f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_policy_disagreement",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_q_delta_abs_mean",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(*result->GetScalar("policy_churn_target_policy_disagreement") == Catch::Approx(1.0f));
+    CHECK(*result->GetScalar("policy_churn_target_q_delta_abs_mean") == Catch::Approx(0.99f));
+    CHECK(std::isnan(*result->GetScalar("policy_churn_target_sync_age")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+}
+
+TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][policy_churn][warning]")
+{
+    const auto make_subscription = [](int interval) {
+        return rl::ScalarMetricSubscription{
+            .source_key = "policy_churn_target_sync_age",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = interval,
+            .scope = rl::RunnerScope::TRAIN,
+        };
+    };
+
+    SECTION("single phase emits one aggregated warning") {
+        TestNetworkModel model(
+            /*distributional=*/false,
+            /*n_actions=*/2,
+            dqn::NetworkModelConfig{ .hard_update_interval = 503 });
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        anet::test::LogCaptureGuard logs;
+        learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
+        learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
+        logs.Flush();
+
+        int matches = 0;
+        for (const auto& record : logs.Records()) {
+            if (record.level != wxLOG_Warning
+                || record.message.find("Policy churn metrics observe one hard-target phase") == std::string::npos) {
+                continue;
+            }
+            ++matches;
+            CHECK(record.message.find("target_sync_age=0") != std::string::npos);
+            CHECK(record.message.find("metrics_interval=503") != std::string::npos);
+            CHECK(record.message.find("hard_update_interval=503") != std::string::npos);
+        }
+        CHECK(matches == 1);
+    }
+
+    SECTION("multiple phases emit no warning") {
+        TestNetworkModel model(
+            /*distributional=*/false,
+            /*n_actions=*/2,
+            dqn::NetworkModelConfig{ .hard_update_interval = 500 });
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        anet::test::LogCaptureGuard logs;
+        learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
+        logs.Flush();
+
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+    }
+}
+
+TEST_CASE("DQN policy churn disables outer BF16 autocast for probe forwards", "[dqn][policy_churn][amp][bf16]")
+{
+    const auto device = torch::Device(torch::kCPU);
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, device, /*n_actions=*/2);
+    {
+        torch::NoGradGuard no_grad;
+        // BF16では更新前後とも両actionが1.0へ丸まる近接Qを作る。
+        model.GetOnlineParameters().at(0).copy_(torch::tensor({
+            { 0.5010f, 0.5010f },
+            { 0.5005f, 0.5005f },
+        }));
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.use_amp = true;
+    config.use_amp_bf16 = true;
+    config.use_grad_clip = false;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseSgd(0.001f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 1 });
+    replay_buffer->unique_sample_enabled = true;
+    replay_buffer->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay_buffer);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto* key : std::span(dqn::kPolicyChurnMetricKeys).first(4)) {
+        subscriptions.push_back(rl::ScalarMetricSubscription{
+            .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        });
+    }
+    learner.ConfigureScalarMetricSubscriptions(subscriptions);
+
+    anet::Autocast outer_autocast(device, true, torch::kBFloat16);
+    const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    // FP32では [1.002, 1.001] -> [1.002, 1.003] と反転し、BF16なら差が消える。
+    CHECK(*result->GetScalar("policy_churn_action_ratio") == Catch::Approx(1.0f));
+    CHECK(*result->GetScalar("policy_churn_q_delta_abs_mean") == Catch::Approx(0.001f).margin(1.0e-6f));
+    CHECK(*result->GetScalar("policy_churn_q_delta_signed_max") == Catch::Approx(0.002f).margin(1.0e-6f));
+    CHECK(*result->GetScalar("policy_churn_q_delta_signed_min") == Catch::Approx(0.0f).margin(1.0e-6f));
+    CHECK(probe_state->forward_count == 3);
+    CHECK(probe_state->enabled_count == 1);
+}
+
+TEST_CASE("DQN policy churn follows subscription cadence and stays inactive without demand", "[dqn][policy_churn][gate]")
+{
+    const auto run_case = [](std::optional<int> interval) {
+        TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        config.replay_batch_size = 1;
+        config.update_warmup_steps = 0;
+        config.update_interval = 1;
+        config.replay_ratio = -1.0f;
+        config.use_per = false;
+        auto env_spec = MakeLearnerEnvSpec();
+        env_spec.action_spec.value_labels = { "a0", "a1" };
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        learner.UseSgd(0.0f);
+        learner.EnablePolicyChurnOptimizerUpdate();
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 1 });
+        replay_buffer->unique_sample_enabled = true;
+        replay_buffer->vector_value = 1.0f;
+        learner.UseReplayBuffer(replay_buffer);
+        if (interval.has_value()) {
+            learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+                .source_key = "policy_churn_action_ratio",
+                .event = rl::EventType::LEARN,
+                .target = rl::EventField::UPDATE_RESULT,
+                .interval = *interval,
+                .scope = rl::RunnerScope::TRAIN,
+            } });
+        } else {
+            learner.ConfigureScalarMetricSubscriptions({});
+        }
+
+        std::vector<std::shared_ptr<const rl::BatchUpdateResult>> results;
+        for (int i = 0; i < 4; ++i) {
+            results.push_back(learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front());
+        }
+        return std::pair{ replay_buffer->unique_sample_count, std::move(results) };
+    };
+
+    const auto [sample_count, cadence_results] = run_case(3);
+    CHECK(sample_count == 2);
+    CHECK(*cadence_results[0]->GetScalar("policy_churn_action_ratio") == Catch::Approx(0.0f));
+    CHECK(std::isnan(*cadence_results[1]->GetScalar("policy_churn_action_ratio")));
+    CHECK(std::isnan(*cadence_results[2]->GetScalar("policy_churn_action_ratio")));
+    CHECK(*cadence_results[3]->GetScalar("policy_churn_action_ratio") == Catch::Approx(0.0f));
+
+    const auto [inactive_sample_count, inactive_results] = run_case(std::nullopt);
+    CHECK(inactive_sample_count == 0);
+    CHECK(std::isnan(*inactive_results.front()->GetScalar("policy_churn_action_ratio")));
+}
+
+TEST_CASE("DQN learner reports subscribed parameter norm without activating feature metrics", "[dqn][plasticity][weight_norm]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 2.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    auto env_spec = MakeLearnerEnvSpec();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.EnablePlasticityForward(false);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_feature",
+            .event = rl::EventType::LEARN,
+            .interval = 2,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_readout",
+            .event = rl::EventType::LEARN,
+            .interval = 3,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_feature_effective",
+            .event = rl::EventType::LEARN,
+            .interval = 4,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_spectral_sigma_readout",
+            .event = rl::EventType::LEARN,
+            .interval = 5,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+
+    REQUIRE(results.size() == 1);
+    const auto feature_norm = results.front()->GetScalar("plasticity_weight_norm_feature");
+    const auto readout_norm = results.front()->GetScalar("plasticity_weight_norm_readout");
+    REQUIRE(feature_norm.has_value());
+    REQUIRE(readout_norm.has_value());
+    CHECK(std::isfinite(*feature_norm));
+    CHECK(std::isfinite(*readout_norm));
+    CHECK(std::isfinite(*results.front()->GetScalar("plasticity_weight_norm_feature_effective")));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_spectral_sigma_readout")));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_srank")));
+    CHECK(replay_buffer->unique_sample_count == 0);
+
+    const auto skipped = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(skipped.size() == 1);
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_weight_norm_feature")));
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_weight_norm_readout")));
+
+    const auto measured_again = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(measured_again.size() == 1);
+    CHECK(std::isfinite(*measured_again.front()->GetScalar("plasticity_weight_norm_feature")));
+    CHECK(std::isfinite(*measured_again.front()->GetScalar("plasticity_weight_norm_readout")));
+}
+
+TEST_CASE("DQN parameter norm records the value before the learner update", "[dqn][plasticity][weight_norm]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    const float expected_readout = model.GetOnlineNetwork()
+        ->ComputeParameterNormSplit(kFeatureKey).readout.item<float>();
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 2.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+    learner.EnablePlasticityForward(false);
+    learner.MutateOnlineParametersDuringUpdate(1.0f);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_readout",
+        .event = rl::EventType::LEARN,
+        .interval = 1,
+        .scope = rl::RunnerScope::TRAIN,
+    } });
+
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+
+    REQUIRE(results.size() == 1);
+    CHECK(*results.front()->GetScalar("plasticity_weight_norm_readout")
+        == Catch::Approx(expected_readout));
+    const float updated_readout = model.GetOnlineNetwork()
+        ->ComputeParameterNormSplit(kFeatureKey).readout.item<float>();
+    CHECK(updated_readout != Catch::Approx(expected_readout));
+}
+
+TEST_CASE("DQN plasticity subscriptions gate actual target and probe work independently", "[dqn][plasticity]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 2.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    config.plasticity.probe.batch_size = 2;
+    auto env_spec = MakeLearnerEnvSpec();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.EnablePlasticityForward(true);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    replay_buffer->unique_sample_enabled = true;
+    learner.UseReplayBuffer(replay_buffer);
+
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_srank",
+            .event = rl::EventType::LEARN,
+            .interval = 2,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_feature_norm",
+            .event = rl::EventType::LEARN,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_target_srank",
+            .event = rl::EventType::LEARN,
+            .interval = 3,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+        rl::ScalarMetricSubscription{
+            .source_key = "plasticity_probe_srank",
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::AGENT,
+            .interval = 2,
+            .scope = rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto first = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(first.size() == 1);
+    CHECK(std::isfinite(*first.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isfinite(*first.front()->GetScalar("plasticity_target_srank")));
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    const auto second = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(second.size() == 1);
+    CHECK(std::isnan(*second.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isfinite(*second.front()->GetScalar("plasticity_feature_norm")));
+    CHECK(std::isnan(*second.front()->GetScalar("plasticity_target_srank")));
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    const auto third = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(third.size() == 1);
+    CHECK(std::isfinite(*third.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isnan(*third.front()->GetScalar("plasticity_target_srank")));
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 2);
+
+    replay_buffer->unique_sample_enabled = false;
+    const auto fourth = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(fourth.size() == 1);
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    const auto fifth = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(fifth.size() == 1);
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 3);
+}
+
+TEST_CASE("DQN plasticity probe survives later updates in the same LearnEvent",
+    "[dqn][plasticity][demand]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = 8.0f;
+    config.plasticity.feature_key = kFeatureKey;
+    config.plasticity.probe.batch_size = 2;
+    TestLearner learner(
+        config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 2 });
+    replay_buffer->unique_sample_enabled = true;
+    learner.UseReplayBuffer(replay_buffer);
+    learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_probe_srank",
+        .event = rl::EventType::LEARN,
+        .target = rl::EventField::AGENT,
+        .interval = 8,
+        .scope = rl::RunnerScope::TRAIN,
+    } });
+
+    // 1 event 内の4 updateの先頭だけで測定しても、後続3 update後まで値を保持する。
+    const auto first = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(first.size() == 4);
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    // 次の event に測定stepが無ければ、前eventの値を再利用しない。
+    const auto second = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(second.size() == 4);
+    CHECK(std::isnan(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 1);
+
+    const auto third = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+    REQUIRE(third.size() == 4);
+    CHECK(std::isfinite(*learner.GetScalar("plasticity_probe_srank")));
+    CHECK(replay_buffer->unique_sample_count == 2);
+}
+
+TEST_CASE("DQN plasticity srank interval reduces SVD executions independently of capture cadence",
+    "[dqn][plasticity][demand]")
+{
+    const auto count_svd = [](const int srank_interval) {
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+        dqn::RuntimeVars vars;
+        dqn::LearnerConfig config;
+        config.replay_batch_size = 2;
+        config.update_warmup_steps = 0;
+        config.update_interval = 1;
+        config.replay_ratio = 2.0f;
+        config.plasticity.feature_key = kFeatureKey;
+        TestLearner learner(
+            config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+        learner.EnablePlasticityForward(true);
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        replay_buffer->SetSizeValues({ 2 });
+        learner.UseReplayBuffer(replay_buffer);
+        learner.ConfigureScalarMetricSubscriptions({
+            rl::ScalarMetricSubscription{
+                .source_key = "plasticity_feature_norm",
+                .event = rl::EventType::LEARN,
+                .interval = 1,
+                .scope = rl::RunnerScope::TRAIN,
+            },
+            rl::ScalarMetricSubscription{
+                .source_key = "plasticity_srank",
+                .event = rl::EventType::LEARN,
+                .interval = srank_interval,
+                .scope = rl::RunnerScope::TRAIN,
+            },
+        });
+
+        return CountProfileOperator([&] {
+            for (int step = 0; step < 10; ++step) {
+                const auto results = learner.UpdateFromBatch(
+                    rl::StepCounts{}, rl::BatchExperience{});
+                REQUIRE(results.size() == 1);
+                CHECK(std::isfinite(*results.front()->GetScalar("plasticity_feature_norm")));
+                const auto srank = results.front()->GetScalar("plasticity_srank");
+                REQUIRE(srank.has_value());
+                if (step % srank_interval == 0) {
+                    CHECK(std::isfinite(*srank));
+                } else {
+                    CHECK(std::isnan(*srank));
+                }
+            }
+        }, "aten::linalg_svdvals");
+    };
+
+    CHECK(count_svd(1) == 10);
+    CHECK(count_svd(10) == 1);
+}
+
+TEST_CASE("DQN plasticity feature key is validated only when subscribed", "[dqn][plasticity][config]")
+{
+    auto probe_state = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe_state, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    auto env_spec = MakeLearnerEnvSpec();
+    dqn::LearnerConfig config;
+    config.plasticity.feature_key.clear();
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({}));
+    CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_srank",
+        .event = rl::EventType::LEARN,
+    } }));
+    CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_feature",
+        .event = rl::EventType::LEARN,
+    } }));
+
+    dqn::LearnerConfig unknown_config;
+    unknown_config.plasticity.feature_key = "missing";
+    TestLearner unknown_learner(unknown_config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    CHECK_THROWS_WITH(unknown_learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_srank",
+        .event = rl::EventType::LEARN,
+    } }), Catch::Matchers::ContainsSubstring("available_branches"));
+    CHECK_THROWS_WITH(unknown_learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_readout",
+        .event = rl::EventType::LEARN,
+    } }), Catch::Matchers::ContainsSubstring("available_branches"));
+}
+
+TEST_CASE("QR UQE preserves sorted point and tail scores", "[dqn][qr][uqe][munchausen]")
+{
+    // 非整列の固定分位点から、既存hard経路の点選択とtail平均を固定する。
+    const auto quantiles = torch::tensor({ { { 7.0f, 1.0f, 3.0f, 5.0f }, { 0.0f, 20.0f, 10.0f, 2.0f } } });
+    const anet::TensorDict obs{ { "q", quantiles.mean(-1) }, { "q_dist", quantiles } };
+    for (const bool tail_mean : { false, true }) {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "qr";
+        config.uqe_tau_start = 0.5f;
+        config.uqe_tau_end = 0.5f;
+        config.uqe_use_tail_mean = tail_mean;
+        dqn::UQEActionPolicy policy(config);
+        const auto result = policy.SelectAction(obs, true, MakePassthroughNetwork(2, 4),
+            std::make_shared<anet::RandomGenerator>(67001), {});
+        const auto expected = tail_mean ? torch::tensor({ { 5.0f, 32.0f / 3.0f } })
+                                        : torch::tensor({ { 3.0f, 2.0f } });
+        CHECK(torch::equal(result->GetAuxData().at("uqe_values"), expected));
+        CHECK(result->GetAction().item<int64_t>() == (tail_mean ? 1 : 0));
+    }
+}
+
+TEST_CASE("TD Munchausen target adds one bonus and masks only bootstrap", "[dqn][learner][munchausen][tracer]")
+{
+    const std::string mode = GENERATE("target", "online", "online_reuse");
+    CAPTURE(mode);
+    // 設定読取から実Learner更新までを通し、未知キーを無視する旧実装では数値で失敗させる。
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.learner.munchausen.enabled", true);
+    data.Set("DefaultDQNAgent.learner.munchausen.entropy_tau", 0.5f);
+    data.Set("DefaultDQNAgent.learner.munchausen.log_policy_mode", mode);
+    data.Set("DefaultDQNAgent.learner.munchausen.clip_value_min", -10.0f);
+    data.Set("DefaultDQNAgent.learner.use_double_dqn", false);
+    auto config = dqn::DefaultDQNAgentConfig(data).learner;
+    config.alpha = 0.0f;
+    config.use_fused_optimizer = false;
+    config.use_grad_clip = false;
+    config.use_td_clip = false;
+    config.use_per = false;
+    config.replay_capacity = 8;
+    config.replay_batch_size = 2;
+    config.gamma = 0.9f;
+    TestNetworkModel model(false, 2);
+    {
+        torch::NoGradGuard guard;
+        model.GetOnlineNetwork()->parameters().at(0).copy_(torch::eye(2));
+        model.GetTargetNetwork()->parameters().at(0).copy_(2.0f * torch::eye(2));
+    }
+    auto spec = MakeLearnerEnvSpec();
+    spec.action_spec.value_labels = { "a0", "a1" };
+    dqn::RuntimeVars vars;
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    dqn::TDLearner learner(config, model, vars, nullptr, rl::BatchEnvSpec{ 2, 2 }, spec,
+        torch::kCPU, 67002, policy, std::nullopt, 67003);
+    auto samples = MakeAutocastProbeSamples(torch::kCPU);
+    samples.n_steps = torch::tensor({ 3, 2 }, torch::kInt64);
+    samples.next_state.terminals = torch::tensor({ false, true });
+    const auto result = learner.UpdateFromSamples(samples);
+    const double score_gap = mode == "target" ? 2.0 : 1.0;
+    const double bonus = 0.9 * (-score_gap - 0.5 * std::log1p(std::exp(-score_gap / 0.5)));
+    const double next_soft = 2.0 + 0.5 * std::log1p(std::exp(-2.0));
+    CHECK(result->td_error[0].item<float>() == Catch::Approx(1.0 - (0.1 + bonus + std::pow(0.9, 3) * next_soft)).margin(1e-5));
+    CHECK(result->td_error[1].item<float>() == Catch::Approx(3.0 - (0.2 + bonus)).margin(1e-5));
+    const auto diagnostic = result->GetScalar("munchausen_bonus_mean");
+    REQUIRE(diagnostic.has_value());
+    CHECK(*diagnostic == Catch::Approx(bonus).margin(1e-5));
+}
+
+TEST_CASE("DefaultDQNAgent forwards Munchausen settings to Actor approximation", "[dqn][munchausen][actor_munchausen]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const bool tbo = GENERATE(false, true);
+    const bool tail_mean = GENERATE(false, true);
+    CAPTURE(tbo, tail_mean);
+    const auto make_action = [&](bool enabled) {
+        auto data = MakeIqnTracerConfigData();
+        data.Set("DefaultDQNAgent.learner.munchausen.enabled", enabled);
+        data.Set("DefaultDQNAgent.learner.munchausen.entropy_tau", 0.7f);
+        data.Set("DefaultDQNAgent.learner.munchausen.clip_value_min", -2.0f);
+        data.Set("DefaultDQNAgent.learner.use_double_dqn", false);
+        data.Set("DefaultDQNAgent.learner.use_tbo", tbo);
+        data.Set("DefaultDQNAgent.learner.tbo_epsilon", 0.001f);
+        data.Set("DefaultDQNAgent.learner.use_per", true);
+        data.Set("DefaultDQNAgent.learner.per_initial_priority_mode", "actor_approx");
+        data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+        data.Set("DefaultDQNAgent.train_policy.uqe_tau_start", 0.65f);
+        data.Set("DefaultDQNAgent.train_policy.uqe_tau_end", 0.65f);
+        data.Set("DefaultDQNAgent.train_policy.uqe_use_tail_mean", tail_mean);
+        data.Set("DefaultDQNAgent.train_policy.full_distribution_query.enabled", true);
+        data.Set("DefaultDQNAgent.train_policy.full_distribution_query.tau_rule.num_taus", 5);
+        dqn::DefaultDQNAgentFactory factory;
+        const auto spec = MakeIqnTracerEnvSpec();
+        const rl::BatchEnvSpec batch_spec{ 2, 1 };
+        const auto agent = factory.CreateAgent(spec, batch_spec, torch::kCPU, data, nullptr, 67020);
+        const auto actor = agent->CreateActor(batch_spec, spec, rl::RunMode::Train, std::nullopt, torch::kCPU);
+        const auto flags = torch::zeros({ 2 }, torch::kBool);
+        const rl::BatchState state(anet::TensorDict{ { kVectorKey,
+            torch::tensor({ { 1.0f, 2.0f, 3.0f, 4.0f }, { 4.0f, 3.0f, 2.0f, 1.0f } }) } }, flags, flags, flags);
+        return actor->MakeAction(rl::StepCounts{}, state);
+    };
+    const auto off = make_action(false);
+    const auto on = make_action(true);
+    REQUIRE(off->GetReplayInitialPriorityHint().has_value());
+    REQUIRE(on->GetReplayInitialPriorityHint().has_value());
+    CHECK(torch::equal(off->GetReplayInitialPriorityHint()->GetPayload().select(1, 2), torch::zeros({ 2 })));
+    const auto payload = on->GetReplayInitialPriorityHint()->GetPayload();
+    const auto scores = on->GetAuxData().at("q_values").to(torch::kFloat64);
+    REQUIRE(on->GetAuxData().contains("full_q_values"));
+    const auto h = [](double x) { return std::copysign(std::sqrt(std::abs(x) + 1.0) - 1.0, x) + 0.001 * x; };
+    const auto h_inv = [](double x) {
+        const double t = (std::sqrt(1.0 + 0.004 * (std::abs(x) + 1.001)) - 1.0) / 0.002;
+        return std::copysign(t * t - 1.0, x);
+    };
+    // full queryの平均ではなく、既存risk scoreを実空間へ戻した近似を独立式で検証する。
+    for (int b = 0; b < 2; ++b) {
+        std::array<double, 2> real{};
+        for (int a = 0; a < 2; ++a) real[a] = tbo ? h_inv(scores[b][a].item<double>()) : scores[b][a].item<double>();
+        const double maximum = std::max(real[0], real[1]);
+        const double log_z = std::log(std::exp((real[0] - maximum) / 0.7) + std::exp((real[1] - maximum) / 0.7));
+        const double soft = maximum + 0.7 * log_z;
+        const int64_t action = on->GetAction()[b].item<int64_t>();
+        const double bonus = 0.9 * std::clamp(real[action] - maximum - 0.7 * log_z, -2.0, 0.0);
+        CHECK(payload[b][0].item<float>() == Catch::Approx(scores[b][action].item<double>()));
+        CHECK(payload[b][1].item<float>() == Catch::Approx(tbo ? h(soft) : soft).margin(3e-4));
+        CHECK(payload[b][2].item<float>() == Catch::Approx(bonus).margin(3e-4));
     }
 }

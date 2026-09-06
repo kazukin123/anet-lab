@@ -12,6 +12,7 @@
 #include "anet/log.hpp"
 #include "anet/thread.hpp"
 #include "anet/rl.hpp"
+#include "anet/util.hpp"
 
 namespace anet::rl {
 
@@ -95,6 +96,97 @@ namespace anet::rl {
 
     private:
         std::vector<AuxData> aux_data_;
+    };
+
+    // ==============
+
+    struct CompletedEpisodeReturn {
+        int64_t group_index;
+        float episode_return;
+
+        bool operator==(const CompletedEpisodeReturn&) const = default;
+    };
+
+    /// episode group 単位で step reward を累積する。
+    class EpisodeReturnAccumulator {
+    public:
+        explicit EpisodeReturnAccumulator(BatchEnvSpec batch_spec);
+
+        void Reset();
+        std::vector<CompletedEpisodeReturn> Add(const BatchStepResult& result);
+
+    private:
+        BatchEnvSpec batch_spec_;
+        std::vector<float> current_returns_;
+    };
+
+    void ValidateEpisodeStructure(
+        const std::string& env_name,
+        const BatchEnvSpec& batch_spec,
+        const BatchResetResult& result);
+    std::vector<int64_t> ValidateEpisodeStructure(
+        const std::string& env_name,
+        const BatchEnvSpec& batch_spec,
+        const BatchStepResult& result);
+
+    struct EvalSessionResult {
+        std::vector<float> episode_returns;
+    };
+
+    /// configured Eval の採用 episode と scalar snapshot を集約する decorator。
+    class EvalSessionEnv final : public BatchEnvBase {
+    public:
+        EvalSessionEnv(
+            std::shared_ptr<BatchEnv> inner,
+            int eval_episodes,
+            std::vector<std::string> subscribed_env_keys);
+
+        EnvSpec GetSpec() const override { return inner_->GetSpec(); }
+        BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
+        torch::Device GetDevice() const override { return inner_->GetDevice(); }
+
+        std::shared_ptr<const BatchResetResult> Reset() override;
+        std::shared_ptr<const BatchStepResult> Step(
+            std::shared_ptr<BatchActionInfo> action_info) override;
+        void Shutdown() override { inner_->Shutdown(); }
+
+        std::optional<float> GetScalar(
+            const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(
+            const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(
+            const std::string& key, int64_t index = -1) const override;
+
+        std::optional<EvalSessionResult> GetSessionResult() const { return session_result_; }
+        /// 直前 Step で完了した採用 episode の group index（昇順）。次の Step / Reset まで有効。
+        const std::vector<int64_t>& LastAdoptedGroups() const { return last_adopted_groups_; }
+
+    private:
+        struct ScalarSubscription {
+            std::string source_key;
+            std::string base_key;
+            anet::ScalarAggregation aggregation;
+            anet::ScalarSampleAccumulator accumulator;
+        };
+
+        bool HasAllFreshGroups(const BatchState& state) const;
+        void BeginSession();
+        void CaptureScalars(int64_t group_index);
+
+        std::shared_ptr<BatchEnv> inner_;
+        BatchEnvSpec batch_spec_;
+        int eval_episodes_;
+        int64_t group_count_;
+        EpisodeReturnAccumulator return_accumulator_;
+        std::vector<ScalarSubscription> subscriptions_;
+        std::vector<bool> adopted_groups_;
+        std::vector<int64_t> last_adopted_groups_;
+        int issued_episodes_ = 0;
+        int completed_episodes_ = 0;
+        bool session_started_ = false;
+        std::vector<float> captured_episode_returns_;
+        std::shared_ptr<const BatchStepResult> cached_step_result_;
+        std::optional<EvalSessionResult> session_result_;
     };
 
     // ==============

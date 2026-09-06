@@ -1,6 +1,6 @@
-﻿
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline
-RainbowAgent.$ = RainbowAgent.baseline
+
+DefaultDQNAgent.$ = @baseline
+RainbowAgent.$ = @baseline
 
 
 # ==============================================================================
@@ -70,110 +70,175 @@ MuZeroAgent.baseline.learner.reward_loss_weight = 1.0     # Reward Lossの重み
 # 設定どれくらい複雑か？ → Network Size設定　（大きすぎると過学習気味になる。単純なモデルなら中間層 64とかに下げる）
 
 
-DefaultDQNAgent.baseline.head_init.manual_gain = 0.0
-DefaultDQNAgent.baseline.head_init.mode = xavier
-DefaultDQNAgent.baseline.model.soft_update_tau = 0.001      # 1.0 0.004  0.01 0.005
+# --- ALGO プロファイル(分布表現の選択。quantile_mode と NN 配線を 1 選択で束ねる) ---
+# 切替はチェーンの @qr / @iqn の 1 項だけ。配線実体(net.@qr / net.@iqn)は各 env ファイルが所有する。
+DefaultDQNAgent.@qr  : quantile_mode = qr
+DefaultDQNAgent.@qr  : net.$ = net.@qr
 
-DefaultDQNAgent.baseline.nn_viz.show_param_shapes = true
-DefaultDQNAgent.baseline.nn_viz.show_param_count = true
-DefaultDQNAgent.baseline.nn_viz.show_tensor_specs = true
-DefaultDQNAgent.baseline.nn_viz.show_head_info = true
-DefaultDQNAgent.baseline.nn_viz.layout = LR  # TB LR
-DefaultDQNAgent.baseline.nn_viz.cluster_branches = true
-DefaultDQNAgent.baseline.nn_viz.float_precision = 3
+DefaultDQNAgent.@iqn : quantile_mode = iqn
+DefaultDQNAgent.@iqn : net.$ = net.@iqn
 
-DefaultDQNAgent.baseline.stucker.use_stacker = true
-DefaultDQNAgent.baseline.stucker.stack_count = 4
-DefaultDQNAgent.baseline.stucker.stack_keys = 
-
-DefaultDQNAgent.baseline.use_optimistic_target = false           # Q値にtrain_policy（UQE）を反映させるならtrue
-
-DefaultDQNAgent.baseline.train_policy.policy_type = UQE         # EpsilonGreedy / UQE / ThompsonSampling / Greedy
-DefaultDQNAgent.baseline.train_policy.eps_start = 1.00          # for EpsilonGreedy
-DefaultDQNAgent.baseline.train_policy.eps_end = 0.05            # for EpsilonGreedy
-DefaultDQNAgent.baseline.train_policy.eps_decay_steps = 10,000,000 # for EpsilonGreedy
-DefaultDQNAgent.baseline.train_policy.uqe_tau_start = 0.9       # for UQE (探索の楽観度)
-DefaultDQNAgent.baseline.train_policy.uqe_tau_end = 0.5         # for UQE
-DefaultDQNAgent.baseline.train_policy.uqe_tau_decay_steps = 10,000,000 # for UQE
-DefaultDQNAgent.baseline.train_policy.uqe_eps_start = 0.05      # for UQEハイブリッド時のランダムノイズ
-DefaultDQNAgent.baseline.train_policy.uqe_eps_end = 0.05
-DefaultDQNAgent.baseline.train_policy.uqe_eps_decay_steps = 0    # 0=減衰なし固定
-DefaultDQNAgent.baseline.train_policy.uqe_use_tail_mean = false
-DefaultDQNAgent.baseline.train_policy.use_amp = false
-DefaultDQNAgent.baseline.train_policy.use_amp_bf16 = false
-DefaultDQNAgent.baseline.train_policy.use_spatial_exploration = false # ApeXのVectorized Explorationを有効にするか。 num_envs<32の場合は不安定化するのでfalse推奨。
-DefaultDQNAgent.baseline.train_policy.spatial_scale_type = log        # log or linear
-
-DefaultDQNAgent.baseline.eval_policy.policy_type = Greedy       # 常に平均Q値最大を選択
-DefaultDQNAgent.baseline.eval_policy.use_amp = false
-DefaultDQNAgent.baseline.eval_policy.use_amp_bf16 = false
-
-#DefaultDQNAgent.baseline.target_policy.policy_type = Greedy     # Greedyが基本。長期戦略が必要な場合はUQEを検討
-#DefaultDQNAgent.baseline.target_policy.use_amp = false
-#DefaultDQNAgent.baseline.target_policy.use_amp_bf16 = false
+# --- TARGET プロファイル(分布表現と直交するsoft Bellman target) ---
+DefaultDQNAgent.@munchausen.learner.munchausen.enabled = true
+DefaultDQNAgent.@munchausen.learner.munchausen.log_policy_mode = target
+DefaultDQNAgent.@munchausen.learner.use_double_dqn = false
 
 
-DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 num_envsを上げたら少し上げて良い
-DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
-DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
-DefaultDQNAgent.baseline.learner.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
-DefaultDQNAgent.baseline.learner.weight_decay = 1e-2          # AdamWの重み減衰
-DefaultDQNAgent.baseline.learner.use_grad_clip = true         # ★
-DefaultDQNAgent.baseline.learner.grad_clip_tau = 5            # ★10 25 40 1 5 10
-DefaultDQNAgent.baseline.learner.use_td_clip = false          # 
-DefaultDQNAgent.baseline.learner.td_clip_value = 30.0         # 4.0 20 30
-DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # num_envs=256向け。
-DefaultDQNAgent.baseline.learner.replay_batch_size = 1024     # 128 256 1024 大きいと実時間は早くなるが局所解に陥りやすくなる
-DefaultDQNAgent.baseline.learner.update_warmup_steps = 8192  # 1000　exp_step単位。replay_batch_size * 32 もしくは num_envs * エピソードの平均長、どちらか大きい方
-DefaultDQNAgent.baseline.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
-DefaultDQNAgent.baseline.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
-DefaultDQNAgent.baseline.learner.n_step = 3
-DefaultDQNAgent.baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0.0:ランダム選択, 1.0:優先度のみ考慮して選択)
-DefaultDQNAgent.baseline.learner.per_beta_start = 0.4        # 「beta」の初期値 β：同じ行動を選び続けないように優先度補正する強度
-DefaultDQNAgent.baseline.learner.per_beta_end = 1.0          # 「beta」の収束値 β：同じ行動を選び続けないように優先度補正する強度
-DefaultDQNAgent.baseline.learner.per_beta_step = 10,000,000  # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
-DefaultDQNAgent.baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
-DefaultDQNAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
-DefaultDQNAgent.baseline.learner.per_initial_priority_mode = fixed # fixed max actor_approx
-DefaultDQNAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
-DefaultDQNAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
-DefaultDQNAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
-DefaultDQNAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
-DefaultDQNAgent.baseline.learner.use_n_step = true
-DefaultDQNAgent.baseline.learner.use_per = true
-DefaultDQNAgent.baseline.learner.use_tbo = false            # Transformed Bellman OperatorでBellmanターゲットを圧縮するか
-DefaultDQNAgent.baseline.learner.tbo_epsilon = 0.01         # TBO変換関数hの正則化項
-DefaultDQNAgent.baseline.learner.use_amp = false
-DefaultDQNAgent.baseline.learner.use_amp_bf16 = false
-DefaultDQNAgent.baseline.reward_scaler.use_clipping = false
-DefaultDQNAgent.baseline.reward_scaler.clip_range = 10
-DefaultDQNAgent.baseline.reward_scaler.constant_scale = 0.01
-DefaultDQNAgent.baseline.reward_scaler.use_dynamic_scaling = true
-DefaultDQNAgent.baseline.reward_scaler.epsilon = 1e-8
-DefaultDQNAgent.baseline.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか
-DefaultDQNAgent.baseline.reward_scaler.reference_q_std = 30.0       # 自動設定時のQ値分散目標スケール (推奨: 3.0～50.0)
-DefaultDQNAgent.baseline.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
-DefaultDQNAgent.baseline.obs_norm.pass_through = true               # ★LunarLanderにおいては効果を確認出来ていない(逆に悪化)のでtrue
-#DefaultDQNAgent.baseline.obs_norm.constant_mean = 0 0 0 0 0 0 0 0
-#DefaultDQNAgent.baseline.obs_norm.constant_std = 1.273 1.275 1.39 2.0 1.814 4.365 1.013 1.016
-DefaultDQNAgent.baseline.obs_norm.use_clipping = false
-DefaultDQNAgent.baseline.obs_norm.clip_range = 10.0
-DefaultDQNAgent.baseline.obs_norm.use_dynamic_scaling = true        # 
-DefaultDQNAgent.baseline.obs_norm.use_centering = false             # ★LunarLanderにおいては零点が意味を持つのでfalseのほうが良い
-DefaultDQNAgent.baseline.obs_norm.epsilon = 1                       # 1 0.1 小さいとContractが異常値扱いで弾かれるので1.0推奨
-DefaultDQNAgent.baseline.obs_norm.use_robust_update = true
-DefaultDQNAgent.baseline.obs_norm.robust_warmup_count = 200
-DefaultDQNAgent.baseline.obs_norm.robust_std_threshold = 5.0
-DefaultDQNAgent.baseline.obs_norm.post_process_type = 1             # 0=none 1=SymLog 2=Tanh 3=Softsign
-DefaultDQNAgent.baseline.obs_norm.post_process_threshold = 10.0
-DefaultDQNAgent.baseline.use_dueling_net = true       #  
-DefaultDQNAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
-DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
+# --- BF16 プロファイル(AMP/BF16 の学習系設定。全 env 共通) ---
+#DefaultDQNAgent.@bf16.train_policy.use_amp = true
+#DefaultDQNAgent.@bf16.train_policy.use_amp_bf16 = true
+#DefaultDQNAgent.@bf16.eval_policy.use_amp = true
+#DefaultDQNAgent.@bf16.eval_policy.use_amp_bf16 = true
+#DefaultDQNAgent.@bf16.target_policy.use_amp = true
+#DefaultDQNAgent.@bf16.target_policy.use_amp_bf16 = true
+DefaultDQNAgent.@bf16.learner.use_amp = true
+DefaultDQNAgent.@bf16.learner.use_amp_bf16 = true
+DefaultDQNAgent.@bf16.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
+#DefaultDQNAgent.@bf16.learner.grad_clip_tau = 30.0
+
+
+# --- Random Policy プロファイル(env 天井の実測用。学習しないため capacity 圧縮・decay 停止は全 env 共通で無害) ---
+DefaultDQNAgent.@random.train_policy.policy_type = EpsilonGreedy
+DefaultDQNAgent.@random.train_policy.eps_start = 1.00
+DefaultDQNAgent.@random.train_policy.eps_end = 1.00
+DefaultDQNAgent.@random.train_policy.eps_decay_steps = 0
+DefaultDQNAgent.@random.learner.replay_capacity = 256,000
+DefaultDQNAgent.@random.learner.update_warmup_steps = 999,999,999
+DefaultDQNAgent.@random.learner.alpha = 0
+
+
+DefaultDQNAgent.@baseline.head_init.manual_gain = 0.0
+DefaultDQNAgent.@baseline.head_init.mode = xavier
+DefaultDQNAgent.@baseline.model.soft_update_tau = 0.001      # 1.0 0.004  0.01 0.005
+
+DefaultDQNAgent.@baseline.nn_viz.show_param_shapes = true
+DefaultDQNAgent.@baseline.nn_viz.show_param_count = true
+DefaultDQNAgent.@baseline.nn_viz.show_tensor_specs = true
+DefaultDQNAgent.@baseline.nn_viz.show_head_info = true
+DefaultDQNAgent.@baseline.nn_viz.layout = LR  # TB LR
+DefaultDQNAgent.@baseline.nn_viz.cluster_branches = true
+DefaultDQNAgent.@baseline.nn_viz.float_precision = 3
+
+DefaultDQNAgent.@baseline.stucker.use_stacker = true
+DefaultDQNAgent.@baseline.stucker.stack_count = 4
+DefaultDQNAgent.@baseline.stucker.stack_keys =
+
+DefaultDQNAgent.@baseline.use_optimistic_target = false           # Q値にtrain_policy（UQE）を反映させるならtrue
+
+DefaultDQNAgent.@baseline.train_policy.policy_type = UQE         # EpsilonGreedy / UQE / ThompsonSampling / Greedy
+DefaultDQNAgent.@baseline.train_policy.eps_start = 1.00          # for EpsilonGreedy
+DefaultDQNAgent.@baseline.train_policy.eps_end = 0.05            # for EpsilonGreedy
+DefaultDQNAgent.@baseline.train_policy.eps_decay_steps = 10,000,000 # for EpsilonGreedy
+DefaultDQNAgent.@baseline.train_policy.uqe_tau_start = 0.9       # for UQE (探索の楽観度)
+DefaultDQNAgent.@baseline.train_policy.uqe_tau_end = 0.5         # for UQE
+DefaultDQNAgent.@baseline.train_policy.uqe_tau_decay_steps = 10,000,000 # for UQE
+DefaultDQNAgent.@baseline.train_policy.uqe_eps_start = 0.05      # for UQEハイブリッド時のランダムノイズ
+DefaultDQNAgent.@baseline.train_policy.uqe_eps_end = 0.05
+DefaultDQNAgent.@baseline.train_policy.uqe_eps_decay_steps = 0    # 0=減衰なし固定
+DefaultDQNAgent.@baseline.train_policy.uqe_use_tail_mean = false
+DefaultDQNAgent.@baseline.train_policy.tau_rule.sample_mode = random      # random / fixed / stratified / systematic / antithetic
+DefaultDQNAgent.@baseline.train_policy.tau_rule.num_taus = 32             # IQNの行動推論に使うτ数 K
+DefaultDQNAgent.@baseline.train_policy.full_distribution_query.enabled = false
+DefaultDQNAgent.@baseline.train_policy.full_distribution_query.tau_rule.sample_mode = fixed
+DefaultDQNAgent.@baseline.train_policy.full_distribution_query.tau_rule.num_taus = 32
+DefaultDQNAgent.@baseline.train_policy.use_amp = false
+DefaultDQNAgent.@baseline.train_policy.use_amp_bf16 = false
+DefaultDQNAgent.@baseline.train_policy.use_spatial_exploration = false # ApeXのVectorized Explorationを有効にするか。 num_envs<32の場合は不安定化するのでfalse推奨。
+DefaultDQNAgent.@baseline.train_policy.spatial_scale_type = log        # log or linear
+
+DefaultDQNAgent.@baseline.eval_policy.policy_type = Greedy       # 常に平均Q値最大を選択
+DefaultDQNAgent.@baseline.eval_policy.tau_rule.sample_mode = fixed # 決定的評価
+DefaultDQNAgent.@baseline.eval_policy.tau_rule.num_taus = 32
+DefaultDQNAgent.@baseline.eval_policy.full_distribution_query.enabled = false
+DefaultDQNAgent.@baseline.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+DefaultDQNAgent.@baseline.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+DefaultDQNAgent.@baseline.eval_policy.use_amp = false
+DefaultDQNAgent.@baseline.eval_policy.use_amp_bf16 = false
+
+#DefaultDQNAgent.@baseline.target_policy.policy_type = Greedy     # Greedyが基本。長期戦略が必要な場合はUQEを検討
+#DefaultDQNAgent.@baseline.target_policy.tau_rule.sample_mode = fixed # optimistic targetでも既定は固定配置
+#DefaultDQNAgent.@baseline.target_policy.tau_rule.num_taus = 32
+#DefaultDQNAgent.@baseline.target_policy.full_distribution_query.enabled = false
+#DefaultDQNAgent.@baseline.target_policy.full_distribution_query.tau_rule.sample_mode = fixed
+#DefaultDQNAgent.@baseline.target_policy.full_distribution_query.tau_rule.num_taus = 32
+#DefaultDQNAgent.@baseline.target_policy.use_amp = false
+#DefaultDQNAgent.@baseline.target_policy.use_amp_bf16 = false
+
+
+DefaultDQNAgent.@baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 num_envsを上げたら少し上げて良い
+DefaultDQNAgent.@baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+DefaultDQNAgent.@baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
+DefaultDQNAgent.@baseline.learner.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
+DefaultDQNAgent.@baseline.learner.weight_decay = 1e-2          # AdamWの重み減衰
+DefaultDQNAgent.@baseline.learner.use_grad_clip = true         # ★
+DefaultDQNAgent.@baseline.learner.grad_clip_tau = 5            # ★10 25 40 1 5 10
+DefaultDQNAgent.@baseline.learner.use_td_clip = false          #
+DefaultDQNAgent.@baseline.learner.td_clip_value = 30.0         # 4.0 20 30
+DefaultDQNAgent.@baseline.learner.replay_capacity = 2560000    # num_envs=256向け。
+DefaultDQNAgent.@baseline.learner.replay_batch_size = 1024     # 128 256 1024 大きいと実時間は早くなるが局所解に陥りやすくなる
+DefaultDQNAgent.@baseline.learner.update_warmup_steps = 8192  # 1000　exp_step単位。replay_batch_size * 32 もしくは num_envs * エピソードの平均長、どちらか大きい方
+DefaultDQNAgent.@baseline.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
+DefaultDQNAgent.@baseline.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
+DefaultDQNAgent.@baseline.learner.n_step = 3
+DefaultDQNAgent.@baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0.0:ランダム選択, 1.0:優先度のみ考慮して選択)
+DefaultDQNAgent.@baseline.learner.per_beta_start = 0.4        # 「beta」の初期値 β：同じ行動を選び続けないように優先度補正する強度
+DefaultDQNAgent.@baseline.learner.per_beta_end = 1.0          # 「beta」の収束値 β：同じ行動を選び続けないように優先度補正する強度
+DefaultDQNAgent.@baseline.learner.per_beta_step = 10,000,000  # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
+DefaultDQNAgent.@baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
+DefaultDQNAgent.@baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+DefaultDQNAgent.@baseline.learner.per_initial_priority_mode = fixed # fixed max actor_approx
+DefaultDQNAgent.@baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+DefaultDQNAgent.@baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+DefaultDQNAgent.@baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
+DefaultDQNAgent.@baseline.learner.iqn.current_taus.sample_mode = random
+DefaultDQNAgent.@baseline.learner.iqn.current_taus.num_taus = 32   # N
+DefaultDQNAgent.@baseline.learner.iqn.target_taus.sample_mode = random
+DefaultDQNAgent.@baseline.learner.iqn.target_taus.num_taus = 32    # N'
+DefaultDQNAgent.@baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+DefaultDQNAgent.@baseline.learner.munchausen.enabled = false
+DefaultDQNAgent.@baseline.learner.munchausen.log_policy_mode = target
+DefaultDQNAgent.@baseline.learner.munchausen.alpha = 0.9
+DefaultDQNAgent.@baseline.learner.munchausen.entropy_tau = 0.03
+DefaultDQNAgent.@baseline.learner.munchausen.clip_value_min = -1
+DefaultDQNAgent.@baseline.learner.use_n_step = true
+DefaultDQNAgent.@baseline.learner.use_per = true
+DefaultDQNAgent.@baseline.learner.use_tbo = false            # Transformed Bellman OperatorでBellmanターゲットを圧縮するか
+DefaultDQNAgent.@baseline.learner.tbo_epsilon = 0.01         # TBO変換関数hの正則化項
+DefaultDQNAgent.@baseline.learner.use_amp = false
+DefaultDQNAgent.@baseline.learner.use_amp_bf16 = false
+DefaultDQNAgent.@baseline.learner.plasticity.feature_key = main_feature
+DefaultDQNAgent.@baseline.learner.plasticity.probe.batch_size = 4096  # N>>D。512(=D)だと dead_ratio が標本ノイズで過大に出る
+DefaultDQNAgent.@baseline.learner.policy_churn.probe.batch_size = 1024
+DefaultDQNAgent.@baseline.learner.policy_churn.iqn.num_taus = 32
+DefaultDQNAgent.@baseline.reward_scaler.use_clipping = false
+DefaultDQNAgent.@baseline.reward_scaler.clip_range = 10
+DefaultDQNAgent.@baseline.reward_scaler.constant_scale = 0.01
+DefaultDQNAgent.@baseline.reward_scaler.use_dynamic_scaling = true
+DefaultDQNAgent.@baseline.reward_scaler.epsilon = 1e-8
+DefaultDQNAgent.@baseline.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか
+DefaultDQNAgent.@baseline.reward_scaler.reference_q_std = 30.0       # 自動設定時のQ値分散目標スケール (推奨: 3.0～50.0)
+DefaultDQNAgent.@baseline.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
+DefaultDQNAgent.@baseline.obs_norm.pass_through = true               # ★LunarLanderにおいては効果を確認出来ていない(逆に悪化)のでtrue
+#DefaultDQNAgent.@baseline.obs_norm.constant_mean = 0 0 0 0 0 0 0 0
+#DefaultDQNAgent.@baseline.obs_norm.constant_std = 1.273 1.275 1.39 2.0 1.814 4.365 1.013 1.016
+DefaultDQNAgent.@baseline.obs_norm.use_clipping = false
+DefaultDQNAgent.@baseline.obs_norm.clip_range = 10.0
+DefaultDQNAgent.@baseline.obs_norm.use_dynamic_scaling = true        #
+DefaultDQNAgent.@baseline.obs_norm.use_centering = false             # ★LunarLanderにおいては零点が意味を持つのでfalseのほうが良い
+DefaultDQNAgent.@baseline.obs_norm.epsilon = 1                       # 1 0.1 小さいとContractが異常値扱いで弾かれるので1.0推奨
+DefaultDQNAgent.@baseline.obs_norm.use_robust_update = true
+DefaultDQNAgent.@baseline.obs_norm.robust_warmup_count = 200
+DefaultDQNAgent.@baseline.obs_norm.robust_std_threshold = 5.0
+DefaultDQNAgent.@baseline.obs_norm.post_process_type = 1             # 0=none 1=SymLog 2=Tanh 3=Softsign
+DefaultDQNAgent.@baseline.obs_norm.post_process_threshold = 10.0
+DefaultDQNAgent.@baseline.use_dueling_net = true       #
+DefaultDQNAgent.@baseline.quantile_mode = qr            # none / qr / iqn
+DefaultDQNAgent.@baseline.qr.num_quantiles = 51         # QR-DQNの分位数 N
 
 # ==============================================================================
 # 【 Action Policy 設定ガイドライン 】
 # エージェントの「行動選択」と「価値計算」の基準を設定。
-# 
+#
 # [1] train_policy (学習用のデータ収集・探索向け)
 #     - 役割: 未知の領域を効率よく開拓するための「行動方策 (Behavior Policy)」。
 #     - 推奨: UQE (不確実性による探索) または EpsilonGreedy。
@@ -215,36 +280,36 @@ DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラ�
 # RainbowAgent
 # ==============================================================================
 
-RainbowAgent.baseline.head_init.manual_gain = 0.0
-RainbowAgent.baseline.head_init.mode = xavier
-RainbowAgent.baseline.model.soft_update_tau = 0.001     # 1.0 0.004  0.01 0.005
-RainbowAgent.baseline.action_policy.eps_start = 1.00              # 指数減衰  
-RainbowAgent.baseline.action_policy.eps_end = 0.05              # 0.1 0.05
-RainbowAgent.baseline.action_policy.eps_decay_steps = 10,000,000    # 10M
-RainbowAgent.baseline.learner.alpha = 5e-4                # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-RainbowAgent.baseline.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
-RainbowAgent.baseline.learner.use_grad_clip = true        # ★
-RainbowAgent.baseline.learner.grad_clip_tau = 30          # ★10 25 40 1 5 10
-RainbowAgent.baseline.learner.use_td_clip = false         # 
-RainbowAgent.baseline.learner.td_clip_value = 30.0        # 4.0 20 30
-RainbowAgent.baseline.learner.replay_capacity = 100,000   #  10000 30000
-RainbowAgent.baseline.learner.replay_batch_size = 128     #
-RainbowAgent.baseline.learner.update_warmup_steps = 1000  # 1000
-RainbowAgent.baseline.learner.update_interval = 5         #
-RainbowAgent.baseline.learner.n_step = 3
-RainbowAgent.baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0:uniform, 1:full)
-RainbowAgent.baseline.learner.per_beta_start = 0.4        # IS重みの補正度合い「beta」の初期値
-RainbowAgent.baseline.learner.per_beta_end = 1.0          # IS重みの補正度合い「beta」の収束値
-RainbowAgent.baseline.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
-RainbowAgent.baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
-RainbowAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
-RainbowAgent.baseline.learner.per_initial_priority_mode = fixed
-RainbowAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
-RainbowAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
-RainbowAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
-RainbowAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
-RainbowAgent.baseline.learner.use_n_step = true
-RainbowAgent.baseline.learner.use_per = true
-RainbowAgent.baseline.use_dueling_net = true       #  
-RainbowAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
-RainbowAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
+RainbowAgent.@baseline.head_init.manual_gain = 0.0
+RainbowAgent.@baseline.head_init.mode = xavier
+RainbowAgent.@baseline.model.soft_update_tau = 0.001     # 1.0 0.004  0.01 0.005
+RainbowAgent.@baseline.action_policy.eps_start = 1.00              # 指数減衰
+RainbowAgent.@baseline.action_policy.eps_end = 0.05              # 0.1 0.05
+RainbowAgent.@baseline.action_policy.eps_decay_steps = 10,000,000    # 10M
+RainbowAgent.@baseline.learner.alpha = 5e-4                # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+RainbowAgent.@baseline.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+RainbowAgent.@baseline.learner.use_grad_clip = true        # ★
+RainbowAgent.@baseline.learner.grad_clip_tau = 30          # ★10 25 40 1 5 10
+RainbowAgent.@baseline.learner.use_td_clip = false         #
+RainbowAgent.@baseline.learner.td_clip_value = 30.0        # 4.0 20 30
+RainbowAgent.@baseline.learner.replay_capacity = 100,000   #  10000 30000
+RainbowAgent.@baseline.learner.replay_batch_size = 128     #
+RainbowAgent.@baseline.learner.update_warmup_steps = 1000  # 1000
+RainbowAgent.@baseline.learner.update_interval = 5         #
+RainbowAgent.@baseline.learner.n_step = 3
+RainbowAgent.@baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0:uniform, 1:full)
+RainbowAgent.@baseline.learner.per_beta_start = 0.4        # IS重みの補正度合い「beta」の初期値
+RainbowAgent.@baseline.learner.per_beta_end = 1.0          # IS重みの補正度合い「beta」の収束値
+RainbowAgent.@baseline.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
+RainbowAgent.@baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
+RainbowAgent.@baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+RainbowAgent.@baseline.learner.per_initial_priority_mode = fixed
+RainbowAgent.@baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+RainbowAgent.@baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+RainbowAgent.@baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
+RainbowAgent.@baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.@baseline.learner.use_n_step = true
+RainbowAgent.@baseline.learner.use_per = true
+RainbowAgent.@baseline.use_dueling_net = true       #
+RainbowAgent.@baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
+RainbowAgent.@baseline.use_qr = true                # QR-DQN 有効化フラグ

@@ -170,7 +170,9 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - `dynamic_cast` はテストコード内に限定し、production code では使用しない。型ごとの分岐が必要な場合は、仮想関数、明示的な interface、既存 API の拡張、または型情報を持つデータ構造で表現する。
 - 例外、安全性、境界条件を意識する。
 - 大規模な整形変更や無関係なリネームは避ける。
-- 改行コードは LF で統一。
+- 改行コードは原則 LF で統一。ただし `.bat` は Windows batch として Shift-JIS（Windows CP932）+ CRLF を維持する。
+- `.bat` ファイルを新規作成・編集する場合は、文字コードを Shift-JIS（Windows CP932）とし、UTF-8 へ変換しない。
+  PowerShell や Python で生成・置換する場合も、明示的に Shift-JIS / CP932 で読み書きする。
 - `.hpp`、`.cpp`、`.java`、`.md`、`.editorconfig`、`.gitattributes` は `.editorconfig` と `.gitattributes` の LF 指定に従う。
 - `third_party/` 配下は外部依存として改行コード統一の一括対象から除外する。
 
@@ -225,6 +227,15 @@ ExperienceSamples cpu_samples;
     inner_->Sample(cpu_samples, minibatch_size, beta);
 }
 ```
+
+## GetScalar 実装ルール
+
+`GetScalar()` の `std::optional<float>` は、key の認識可否と値の成立可否を分けて扱ってください。
+
+- 指定された key が未知、または委譲先でも処理できない場合だけ `std::nullopt` を返す。
+- 指定された key が既知だが、現在の状態、タイミング、設定、入力不足により値を出力できない場合は `std::numeric_limits<float>::quiet_NaN()` を返す。
+- 未初期化 EMA、episode 未確定、PER 無効、batch 不足、非対応条件などは、既知 key なら `NaN` とし、0、前回値、既定値に偽装しない。
+- wrapper / aggregator は `std::nullopt` を未知 key、`NaN` を値未成立として扱う。
 
 ## Agent 系実装の所有権ルール
 
@@ -292,7 +303,22 @@ Doxygen ドキュメントを確認する場合:
 cmake --build --preset x64-Debug --target doc
 ```
 
-テストが追加された場合は、このドキュメントに標準のテスト実行手順を追記してください。
+Runner workspace 機構と補助 launcher、MLflow bridge の標準テスト手順:
+
+```powershell
+core\anet-core\bin\Debug\anet-core-test.exe "[workspace]"
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\resolve_workspace_test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\batchrun_fatal_error_handling_test.ps1
+.\.venv\Scripts\python.exe apps\runner\tools\compress_workspace_metrics_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\mlflow_bridge_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\metrics_source_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\tb_bridge_test.py
+.\.venv\Scripts\python.exe apps\runner\tools\optuna_workspace_test.py
+.\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
+```
+
+新しいテスト実行体や専用スクリプトが追加された場合は、この節に標準の実行手順を追記してください。
 
 ## Python 補助ツールの実行
 
@@ -397,7 +423,12 @@ commit message は Conventional Commits 形式を適用し、Topic Issue 番号�
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
 - `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
-- AI エージェントは作業まとめ時またはユーザーから求められたときに、変更内容に合う commit message 案を適宜提示する。
+- AI エージェントが commit message 案を提示する場合は、個々の修正差分ではなく、人間がこれから staging / commit する予定の、同一作業コンテキストに関連する未コミット変更のまとまりに対する案として提示する。
+- PRD 対応や機能追加の途中で局所的な不具合修正を含んだ場合でも、それを独立 commit にしない限り、commit message は局所修正ではなく commit 対象全体の主目的を表す。
+- 作業まとめ時に常に commit message 案を出す必要はない。ユーザーが commit する段階、または未コミット変更のまとまりが明確になった段階で必要に応じて提示する。
+
+Topic Issue 番号は、個々の修正経緯ではなく、commit 対象全体の主目的と主な対象領域に基づいて選ぶ。
+例: workspace 機能追加 PRD の中で局所的な不具合修正を含んだ場合でも、同じ commit にまとめるなら主目的は `030_機能追加` とし、独立した不具合修正 commit にする場合だけ `040_不具合対応` を付ける。
 
 Topic Issue 番号は以下の対応表から、変更目的と対象領域に合うものを選ぶ。
 
@@ -427,11 +458,69 @@ Topic Issue 番号は以下の対応表から、変更目的と対象領域に�
 | 325_AGENT個別実装 > MuZero系列 | #21 |
 | 330_ハイパラ探索 | #22 |
 
+## Run 命名・後片付けルール
+
+Run はフォルダがそのまま管理単位なので、**「消してよいか」が Run 名だけで判別できる**ことを規約とします。
+
+- **確認用の使い捨て Run には、名前へ `tmp` を含める。** 配線確認、疎通確認、パラメータの当たり確認など、
+  結果を記録に残さず後で削除する Run が対象です。`app.run_name = run_{t}_tmp_wiring` のように書きます。
+- **用途別のキーワードを増やさない。** `tmp` が担うのは「消してよいか」の 1 軸だけで、用途は後続の語で表します
+  （`run_{t}_tmp_wiring` / `run_{t}_tmp_smoke_065`）。語を分けると glob が増えて消し漏れます。
+- **成果物として残す Run には付けない。** PRD の受入条件を満たした証拠として保存する smoke Run などは正規 Run です。
+  この線引きを `tmp` の有無で表現します。
+- **`tmp` はタイムスタンプの後に置く。** Run フォルダ名の先頭は `run_` のままにしてください
+  （`viewers/metrics-tools/mlflow_bridge.py` が `run_*` で glob しており、prefix を変えると発見できなくなります）。
+- 一括削除は次で行えます。実行はユーザーが行い、AI エージェントは削除しません。削除する場合はユーザの指示もしくは同意が必須。
+
+```powershell
+Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
+```
+
+## 実験記録と実効 config の保存ルール
+
+`apps/runner/workspaces` は `.gitignore` 済みで Run artifact は失われうるため、
+実験記録の再現性と再見性は記録側だけで完結させます。
+**実験記録が参照する Run の実効 config を、記録と同じ場所へ複製してください。**
+
+- **置き場は `docs/experiments/<agent>/<env>/config/<Run フォルダ名>.txt`。** 内容は Run artifact の
+  `config/config_data.txt` をそのままコピーしたものです。env ごとにフラットな 1 ディレクトリへ置きます。
+- **ファイル名は Run フォルダ名から `★` などの可変マーカーを除いたもの。** 記録側がタイムスタンプだけで
+  Run を参照している場合があるため、**`run_YYYYMMDD-HHMMSS` を join キーとして扱います**。
+- **対象は実験記録の本文に Run 名が出るものだけ。** 配線確認や捨て Run（`tmp` 付き）は複製しません。
+- **タイミングは実験記録を更新するコミットと同じ。** 記録を書く時点で一緒に複製すれば漏れません。
+- **複製した config は再実行できます。** `--config <保存した config>` は workspace 解決を省く完全自己記述モードです。
+  実行時は `app.run_name` を書き換え、`app.runs_dir` が相対パスなので `apps/runner` を作業ディレクトリにしてください。
+- **ただし再現できるのは実効設定であって解決過程ではありません。** `config_data.txt` は `.$` が消費済みのリーフなので、
+  プロファイル合成やチェーンの挙動を検証したいときは `run.$` チェーンで引き直してください。
+- **`run.$` チェーンを記録へ書くことは複製の代わりになりません。** プロファイルは改名・削除・内容変更されるため、
+  チェーンは当時の env 設定ファイルとセットでしか意味を持ちません。
+- **複製時は公開できない値が混ざっていないか走査してください。** 絶対パス、ユーザー名、認証情報、メール、URL、IP。
+
 ## AI エージェントのRun結果分析ルール
 
 Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
 
-- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。
+ユーザーがRun名（またはRunフォルダのパス）だけを提示した場合は、原則としてRun分析の依頼として扱ってください。
+分析の入口には `inspect_run.py` を使い、Run treeを再帰 `rg` / `Get-ChildItem -Recurse` で探索しないでください。
+`metrics.jsonl` は数百MB〜数GBになるため、直接 `Get-Content` / `Select-String` しないでください。
+このtoolはread-onlyで、実行中のRunへ当てても artifact を変更しません。
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py runs
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags RUN
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config RUN [RUN ...] --diff
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics RUN [RUN ...] --metric TAG --range -4M:
+```
+
+- `runs` はRun発見とartifact・Metricsマスタ・Metricsキャッシュの状態、`tags` はmetric tagの一覧と定義・到達step、`config` は実効設定と差分、`metrics` はscalar抽出と比較。
+- **metricは1回の呼び出しへ束ねる。** Metricsマスタの走査はRunごとに1 passで、tag数には比例しない。tagごとに呼び分けるとpassの回数だけ時間が増える。
+- Run名の探索範囲は `apps/runner/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
+- 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
+- **`config_data.txt` には実効値のほかにマージ元と未選択のprofileが同居する。** `AS.*`、`A.*`、`R.*`、`X.*`、`M.*`、`metrics.scalar.baseline.*`、`metrics.scalar.full.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
+- **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
+- 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
+
+- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。Run artifactが失われている場合は、`docs/experiments/<agent>/<env>/config/<Run名>.txt`に複製がある（前節）。
 - 分析開始時に到達step、停止理由、artifactの更新時刻を確認し、実行途中の分析は暫定結果と明記する。完了後は終盤値を再取得して結論を更新する。
 - Run成立性、主目的score、変更機構の健全性、Env挙動、throughput・実所要時間・資源消費を分けて評価し、機構が正常なことと成績改善を混同しない。
 - 報酬は単一の最終点や短期の立ち上がりではなく、比較可能な同一step範囲の終盤window、水準、傾き、急落からの回復を確認する。ユーザーが指定した評価期間とseed数を優先する。
@@ -495,6 +584,8 @@ runner アプリと同じ実行時配置に揃えています。
 
 Implementation issues live as Markdown files under `.scratch/<feature>/`;
 PRDs and implementation plans remain under `docs/memo/`.
+Completed, frozen, and dropped PRDs move into the `done/`, `frozen/`, and
+`dropped/` subfolders; see `docs/memo/README.md`.
 See `docs/agents/issue-tracker.md`.
 
 ### Triage labels

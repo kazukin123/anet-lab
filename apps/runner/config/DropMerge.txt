@@ -3,8 +3,8 @@
 # 基本設定
 # ==============================================================================
 
-app.$ = app.online > P
-#app.$ = app.batchrun > P
+app.$ = app.online > P1
+#app.$ = app.batchrun > P1
 
 train.seed = 1
 #train.seed = 2
@@ -15,486 +15,96 @@ train.num_envs = 256
 #train.num_envs = 10
 #train.num_envs = 1
 
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
+#DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > @bf16 > A2 > A3
+#DefaultDQNAgent.$ = @baseline > @qr  > @fast > A1 > @bf16 > A2 > A3
+#DefaultDQNAgent.$ = @baseline > @random     # Random Policy
+DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > @bf16 > A2 > A3
+
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G2032 > E1
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G4064 > E1
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G4064 > DropMergeEnv.@fun1 > E1
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G4064 > DropMergeEnv.@realistic > E1
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G4064 > DropMergeEnv.@heavy > E1
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G4050 > DropMergeEnv.@heavy > E1
+#DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G6444 > DropMergeEnv.@heavy > E1
+DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
 
 
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.fun1 > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4050 > DropMergeEnv.heavy > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G6444 > DropMergeEnv.heavy > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G5846 > DropMergeEnv.heavy > E
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNet4064_06
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNet4064_10
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNet4064_10d_64
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNet4064_18
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNet4064_10d     # ☆
 
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNetD_Control
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNetD_ViT
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaResNet_ViT
 
-#net.body.$ = net.body.SuikaResNet4064_06
-#net.body.$ = net.body.SuikaResNet4064_10
-#net.body.$ = net.body.SuikaResNet4064_10d_64
-#net.body.$ = net.body.SuikaResNet4064_18
-#net.body.$ = net.body.SuikaResNet4064_10d     # ☆
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaViT_Flatten
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaViT_Small
 
-#net.body.$ = net.body.SuikaResNetD_Control
-#net.body.$ = net.body.SuikaResNetD_ViT
-#net.body.$ = net.body.SuikaResNet_ViT
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_Small
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_Flatten_128  # ★
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_Flatten_256
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_Flatten_128g8
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_CLS_128
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_CLS_256_LC
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_GAP_128
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_Flatten_128HR
+#DefaultDQNAgent.net.body.$ = net.body.@SuikaHybrid_Flatten_64HR
 
-#net.body.$ = net.body.SuikaViT_Flatten
-#net.body.$ = net.body.SuikaViT_Small
+#DefaultDQNAgent.net.branch.[vector_feature].structure = Embed4064_v2
+#DefaultDQNAgent.net.branch.[vector_feature].structure = Embed4050_v2
+#DefaultDQNAgent.net.branch.[vector_feature].structure = Embed6444_v2
+DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
 
-#net.body.$ = net.body.SuikaHybrid_Small
-#net.body.$ = net.body.SuikaHybrid_Flatten_128  # ★
-#net.body.$ = net.body.SuikaHybrid_Flatten_256
-#net.body.$ = net.body.SuikaHybrid_Flatten_128g8
-#net.body.$ = net.body.SuikaHybrid_CLS_128
-#net.body.$ = net.body.SuikaHybrid_CLS_256_LC
-#net.body.$ = net.body.SuikaHybrid_GAP_128
-#net.body.$ = net.body.SuikaHybrid_Flatten_128HR
-#net.body.$ = net.body.SuikaHybrid_Flatten_64HR
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaResNet4064_10d
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaViT_Flatten_128_pre
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaHybrid_Flatten_128
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaHybrid_Flatten_128_pre2
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaHybrid_Flatten_128_pre2_dp
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaConvNeXt_S128
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaConvNeXt_ViT128
 
-#net.branch.[vector_feature].structure = Embed4064_v2
-#net.branch.[vector_feature].structure = Embed4050_v2
-#net.branch.[vector_feature].structure = Embed6444_v2
-net.branch.[vector_feature].structure = Embed5846_v2
+DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128  # ★
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128_GN
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala3_ViT128
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala3_ViT128_GN
 
-#net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
-#net.branch.[main_feature].$ = net.branch.SuikaViT_Flatten_128_pre
-#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
-#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
-#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2_dp
-#net.branch.[main_feature].$ = net.branch.SuikaConvNeXt_S128
-#net.branch.[main_feature].$ = net.branch.SuikaConvNeXt_ViT128
-
-net.branch.[main_feature].$ = net.branch.SuikaImpala2_ViT128  # ★
-#net.branch.[main_feature].$ = net.branch.SuikaImpala2_ViT128_GN
-#net.branch.[main_feature].$ = net.branch.SuikaImpala3_ViT128
-#net.branch.[main_feature].$ = net.branch.SuikaImpala3_ViT128_GN
-
-app.run_name = run_{t}_dm
 
 # ==============================================================================
 # Run設定
 # ==============================================================================
 
-#app.run_name = run_{t}_gs_5846_cy12_apx1
-#app.run_name = run_{t}_gs_apx1_L1024_p1
-#app.run_name = run_{t}_gs_apx1_L1024_p1_bf16
-#app.run_name = run_{t}_apx_L2048_orts2
-#app.run_name = run_{t}_apx_L2048_ortg1o
-#app.run_name = run_{t}_apx_L2048_tbo
-#app.run_name = run_{t}_apx_tbo_rs001
-#app.run_name = run_{t}_apx_tbo_rs001_va1024
-#app.run_name = run_{t}_apx_tbo_rs001_va1024p
-#app.run_name = run_{t}_apx_tbo_rs001_va1024_ot2
-#app.run_name = run_{t}_apx_tbo_va1024_ot2np
-#app.run_name = run_{t}_apx_tbo_va1024_ot2npa2e4
-#app.run_name = run_{t}_apx_tbo_va1024_ndp0
-#app.run_name = run_{t}_apx_tbo_va1024_vit
-#app.run_name = run_{t}_apx_tbo_va1024_ot2np_res2
-#app.run_name = run_{t}_bf16-2
-#app.run_name = run_{t}_rb_prefetch
-#app.run_name = run_{t}_apx_cy01
-#app.run_name = run_{t}_apx_deton-2off
-#app.run_name = run_{t}_apx_deton-2off
-#app.run_name = run_{t}_apx_cy01-dp03mix
-#app.run_name = run_{t}_apx_cy01-dp08
-#app.run_name = run_{t}_apx_cy01-gn
-#app.run_name = run_{t}_apx_cy01-gn8
-#app.run_name = run_{t}_base
-#app.run_name = run_{t}_BF16-1
-#app.run_name = run_{t}_p060_r150
-#app.run_name = run_{t}_p030_r150
-#app.run_name = run_{t}_PER_fixed_r125
-#app.run_name = run_{t}_TA_snap400_fixed
-#app.run_name = run_{t}_TA_snap000_fixed
-#app.run_name = run_{t}_TA_snap200_fixed
-#app.run_name = run_{t}_TA_snap200_fixed-L
-#app.run_name = run_{t}_TA_snap200_aa-L
-#app.run_name = run_{t}_cnx-s128
-#app.run_name = run_{t}_cnx-vit128
-#app.run_name = run_{t}_imp2-vit128
-#app.run_name = run_{t}_imp2-vit128_gn
-#app.run_name = run_{t}_imp3-vit128
-#app.run_name = run_{t}_imp3-vit128_gn
-#app.run_name = run_{t}_imp2-vit128_tgtg-nose
-#app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
-#app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
+#app.run_name = run_{t}_dm
+#app.run_name = run_{t}_dm_iqn32
+app.run_name = run_{t}_dm_iqn-k32-n32-m32
 
 #app.online.exp_pause_step  = 9,000,000    # 9M
 #app.online.exp_pause_step  = 15,000,000      # 15M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
-#app.online.exp_pause_step  = 50,000,000      # 50M
+app.online.exp_pause_step  = 50,000,000      # 50M
 #app.online.exp_pause_step  = 80,000,000    # 80M
 #app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 160,000,000    # 160M
-app.online.exp_pause_step  = 200,000,000    # 200M
-
-#A.learner.per_beta_step = 10,000,000              # 10M
-A.learner.per_beta_step = 20,000,000              # 20M
-#A.learner.per_beta_step = 40,000,000              # 40M
-#A.learner.per_beta_step = 100,000,000            # 100M
-
-#backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
-backend.$ = backend.non-deterministic # 非決定論的（高速化）
-
-
-# ==============================================================================
-# 長期Run
-# ==============================================================================
-
-#app.run_name = run_{t}_apx-ll_cy08
-#R.auto_load_file = ../../runs/run_20260805-115101_apx-ll_cy07/agent_close.anet
-#R.learner.per_beta_start = 0.6
-
-
-# ==============================================================================
-# 実験
-# ==============================================================================
-
-E.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
-E.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の class 12 で表示
-
-#R.learner.alpha = 7.5e-5
-R.learner.alpha = 3e-4
-
-#R.learner.replay_batch_size = 256
-R.learner.replay_batch_size = 512
-
-#R.learner.replay_ratio = 1.0
-#R.learner.replay_ratio = 0.5
-#R.learner.replay_ratio = 1.25
-#R.learner.replay_ratio = 1.5
-R.learner.replay_ratio = 2.0
-
-#E.action_mode = move_fast     # move move_fast direct direct_noop
-
-R.learner.per_alpha = 0.2
-
-#R.learner.per_initial_priority_mode = actor_approx
-R.learner.per_initial_priority_mode = fixed
-#R.learner.per_initial_priority_mode = max
-
-
-R.train_policy.use_spatial_exploration = true
-#R.train_policy.use_spatial_exploration = false
-
-#R.use_optimistic_target = true
-R.use_optimistic_target = false
-
-#train.eval.[eval1].eval_batch_size = 16
-#train.eval.[eval2].eval_batch_size = 16
-
-E.use_no_legal_adjudication = true
-E.no_legal_min_blocked_frames = 60
-E.no_drop_timeout_gameover_penalty = -10
-
-M.[33_agent_action/11_train_actor_snapshot_interval] = train_actor_snapshot_interval @train $action_info
-M.[33_agent_action/12_train_actor_snapshot_age] = train_actor_snapshot_age @train $action_info
-
-#R.train_actor.clone_model = false
-R.train_actor.clone_model = true
-R.train_actor.sync_interval.type = constant
-#R.train_actor.sync_interval.value = 400
-R.train_actor.sync_interval.value = 200
-
-
-R.learner.per_initial_priority = 0.3
-
-
-R.learner.use_rb_prefetch = true
-
-#R.learner.use_td_clip = true
-R.learner.use_td_clip = false
-R.learner.td_clip_value = 10.0
-
-R.reward_scaler.constant_scale = 0.01
-
-R.learner.use_tbo = true
-
-#backend.cuda_launch_blocking = on
-#R.learner.use_rb_prefetch = false
-
-R.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
-
-R.learner.grad_clip_tau = 5
-
-#E.use_no_drop_timeout_gameover = true
-#E.use_no_drop_timeout_gameover = false
-#E.no_drop_timeout_gameover_penalty = -10.0
-
-#E.no_drop_timeout_steps = 100
-
-
-#E.game_over_penalty = -1.0   #-10.0
-
-#R.train_policy.spatial_scale_type = linear
-#R.learner.weight_decay        = 0.0002
-
-#R.target_policy.policy_type = Greedy
-#R.train_policy.uqe_tau_start = 0.5
-#R.train_policy.uqe_tau_end = 0.5
-#R.train_policy.uqe_eps_start = 0.3
-#R.train_policy.uqe_eps_end = 0.05
-
-#R.eval_policy.uqe_tau_start = 0.5
-#R.eval_policy.uqe_tau_end = 0.5
-
-#E.use_settle_after_drop = true   # false
-#E.use_settle_after_drop = false  # false
-
-#R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
-#R.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet
-#R.auto_load_file = ../../runs/run_20260503-144213_gs_5846.anet
-#R.auto_load_file = ../../runs/run_20260505-231853_gs_5846_cy4/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260507-015149_gs_5846_cy5/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260508-040234_gs_5846_cy6/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260509-101008_gs_5846_cy7_rr05/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260510-130727_gs_5846_cy8/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260511-081219_gs_5846_cy9/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260512-012723_gs_5846_cy10/agent_close.anet
-#R.auto_load_file = ../../runs/run_20260512-171248_gs_5846_cy11/agent_close.anet
-
-#E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
-
-#R.use_dueling_net = false
-
-#E.damping = 0
-#E.friction = 0.0              # 本家相当？:摩擦無し
-#E.restitution = 0.1           # 本家相当？:果物同士の反発係数
-#E.box_restitution = 0         # 本家相当？:地面＆壁の反発無し
-
-#R.learner.replay_ratio = 0.5
-
-#R.learner.n_step = 3
-
-#R.learner.replay_capacity = 1,000,000
-
-#R.learner.weight_decay = 1e-2 # p1 p2
-#R.learner.weight_decay = 1e-3 # p3
-#R.learner.weight_decay = 1e-1 # p4
-#R.learner.weight_decay = 0 # p5
-
-#E.learner.alpha = 1e-4
-#E.learner.weight_decay = 1e-2
-
-#E.learner.adam_eps = 1e-5
-
-#E.game_over_grace_step = 60 # 5
-
-#R.stucker.stack_count = 4
-
-#R.stucker.stack_count = 1    #4
-
-#R.learner.use_grad_clip = false
-
-#R.learner.use_per = false
-
-#train.main_runner_type = serial
-
-#R.model.soft_update_tau = 0.0
-
-#R.learner.replay_batch_size = 1
-
-#R.learner.replay_capacity = 524,280
-
-#R.train_policy.uqe_eps_end = 0.0
-
-#R.train_policy.uqe_tau_start = 0.95 # 0.95
-#R.train_policy.uqe_tau_end = 0.95   # 0.85
-
-#R.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
-#R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
-
-#app.online.exp_pause_step  = 80,000,000      # 80M
-
-#R.train_policy.uqe_eps_decay_steps = 5,000,000   # 5M
-#R.train_policy.uqe_eps_decay_steps = 20,000,000  # 20M
-
-#R.train_policy.uqe_tau_decay_steps = 5,000,000   # 5M
-#R.train_policy.uqe_tau_decay_steps = 20,000,000  # 20M
-
-#R.learner.per_beta_step = 5,000,000              # 5M
-#R.learner.per_beta_step = 20,000,000             # 20M
-
-#R.num_quantiles = 101
-
-#R.learner.per_alpha = 0
-#R.learner.per_alpha = 0.4
-
-#R.learner.update_warmup_steps = 51,200
-
-#R.learner.replay_ratio = 4.0
-
-#R.stucker.use_stacker = false
-
-#E.action_mode = direct      # move move_fast direct direct_noop
-#E.action_mode = direct_noop # move move_fast direct direct_noop
-
-#E.settle_max_steps = 1000   # 500
-#E.settle_max_steps = 300   # 500
-
-#E.use_instant_drop = false
-
-#E.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
-#E.settle_angular_threshold = 0.05  # 0.1 安定判定の角速度閾値 (rad/s)
-#E.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
-#E.settle_angular_threshold = 0.5  # 0.1 安定判定の角速度閾値 (rad/s)
-#E.settle_velocity_threshold = 1.0 # 0.1 安定判定の線速度閾値 (m/s)
-#E.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
-
-#R.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
-#R.learner.replay_capacity =  1,048,576
-
-#R.target_policy.uqe_tau_start = 0.85
-
-#R.use_optimistic_target = true # Q値にtrain_policy（UQE）を反映させるならtrue
-
-#E.dropper_speed2 = 0.50 #0.30
-#E.dropper_speed2 = 1.00 #0.30
-
-#E.box_height = 8.0      # 4.0
-
-#R.eval_policy.policy_type = UQE
-#R.eval_policy.uqe_tau_start = 0.65
-
-#R.train_policy.policy_type = EpsilonGreedy
-#R.train_policy.policy_type = UQE
-#R.train_policy.policy_type = ThompsonSampling
-
-#R.train_policy.uqe_use_tail_mean = true
-#R.target.uqe_use_tail_mean = true
-
-#R.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy  
-#R.train_policy.eps_end = 0.05               # 0.1 0.05 for EpsilonGreedy
-#R.train_policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
-#R.train_policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
-
-#R.eval_policy.policy_type = EpsilonGreedy
-#R.eval_policy.eps_start = 0.05
-#R.eval_policy.eps_end = 0.05
-
-#E.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
-#E.no_drop_timeout_steps = 300
-
-#E.friction = 0.01              # 0.1 ツッルツル 重い果物が下に落ちやすい
-#E.restitution = 0.1            # 0.05 反発係数  少しバウンドする事で衝撃による変動が起きやすい
-#E.drop_noise = 0.04           # 0.01 
-#E.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
-
-#E.use_dropper_x_grid = false  # true
-
-#R.stucker.stack_count = 1    #4
-#R.stucker.stack_count = 12    #4
-
-#R.learner.replay_capacity = 500,000
-
-#R.learner.per_alpha = 0.4      # 0.6
-#R.learner.per_alpha = 0.2      # 0.6
-
-#R.reward_scaler.constant_scale = 1.0         # ★
-#R.reward_scaler.constant_scale = 0.1         # ★
-#R.reward_scaler.constant_scale = 0.01         # ★
-#R.reward_scaler.constant_scale = 0.001         # ★
-#R.reward_scaler.constant_scale = 0.0005         # ★
-#R.reward_scaler.constant_scale = 0.0001         # ★
-
-#E.game_over_penalty = -10.0
-#E.game_over_penalty = -5.0
-#E.game_over_penalty = -10.0
-#E.game_over_penalty = 0.0
-#E.game_over_penalty = -200.0
-#E.game_over_penalty = -500.0
-
-##E.time_penalty = -0.0001    # NEET対策
-#E.time_penalty = -0.005    # NEET対策
-#E.time_penalty = -0.001    # NEET対策
-#E.time_penalty = -0.01    # NEET対策
-#E.time_penalty = -0.02    # NEET対策
-#E.time_penalty = -0.1    # NEET対策
-#E.time_penalty = 0
-
-##R.learner.grad_clip_tau = 0.5 # ★
-#R.learner.grad_clip_tau = 1.0 # ★
-#R.learner.grad_clip_tau = 10.0 # ★
-#R.learner.grad_clip_tau = 30.0 # ★
-
-##R.learner.replay_batch_size = 128   # 256
-#R.learner.replay_batch_size = 64   # 256
-
-#R.learner.replay_ratio = 2.0  # 1.0
-
-#E.seed_mode = fixed
-#E.seed_mode = global_fixed
-#E.global_seed = 12345
-
-#E.use_fast_move = false
-#E.use_instant_drop = false
-
-#R.learner.adam_eps = 1.5e-4
-
-#R.train_policy.uqe_eps_start = 1.00
-
-#R.train_policy.uqe_eps_end = 0.60
-#R.train_policy.uqe_eps_end = 0.05
-#R.train_policy.uqe_eps_end = 0.0
-
-#R.train_policy.uqe_tau_start = 0.75  # ビビリ対策
-#R.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-#R.train_policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
-
-#R.learner.alpha = 5e-6
-#R.learner.alpha = 1e-5
-#R.learner.alpha = 5e-5
-#R.learner.alpha = 5e-4
-#R.learner.alpha = 1e-4
-
-#R.learner.gamma = 0.999  # ★ 長期戦略考慮
-#R.learner.gamma = 0.997   # ★ horizon=333
-#R.learner.gamma = 0.995   # ★ horizon=200 
-#R.learner.gamma = 0.99   # ★
-#R.learner.gamma = 0.95   # ★
-#R.learner.gamma = 0.92   # ★
-#R.learner.gamma = 0.9   # ★
-
-#R.learner.n_step = 30   # ★長期戦略考慮
-#R.learner.n_step = 20
-#R.learner.n_step = 10
-#R.learner.n_step = 5
-#R.learner.n_step = 3
-#R.learner.n_step = 1
-
-#R.learner.replay_capacity = 800,000
-#R.learner.replay_capacity  =  500,000
-#R.learner.replay_capacity  =  200,000
-#R.learner.replay_capacity =  100,000
-
-#R.learner.per_prio_clip_value = 50                # 30 
-
-##R.model.soft_update_tau = 0.005                 # 0.01
-#R.model.soft_update_tau = 0.001                 # 0.01
-
-#R.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
-#R.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
-
-#R.reward_scaler.use_dynamic_scaling = true
-#R.reward_scaler.use_auto_post_scale = true
-
-
-# ==============================================================================
-# デバッグ用
-# ==============================================================================
-
-#app.online.exp_exit_step  = 200,000
-
-#R.learner.update_warmup_steps = 2,560
-#R.learner.update_warmup_steps = 0
-
-#app.train_auto_start = false
+#app.online.exp_pause_step  = 200,000,000    # 200M
+
+app.batchrun.exp_exit_step  = 100,000,000    # 100M
+
+#A1.learner.per_beta_step = 10,000,000              # 10M
+A1.learner.per_beta_step = 20,000,000              # 20M
+#A1.learner.per_beta_step = 40,000,000              # 40M
+#A1.learner.per_beta_step = 100,000,000            # 100M
+
+#backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
+backend.$ = backend.@non-deterministic # 非決定論的（高速化）
+
+#run.$ = run.@iqn32_stratified
+#run.$ = run.@qr51_control
+#run.$ = run.@iqn32_antithetic
+#run.$ = run.@iqn32_actor_approx
+#run.$ = run.@iqn32_repro
 
 
 # ==============================================================================
@@ -505,91 +115,543 @@ R.learner.grad_clip_tau = 5
 #app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 160,000,000     # 160M
 
-#A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
-A.train_policy.uqe_eps_decay_steps = 5,000,000      # 5M
-#A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
-#A.train_policy.uqe_eps_decay_steps = 20,000,000      # 20M
+#A1.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
+A1.train_policy.uqe_eps_decay_steps = 5,000,000      # 5M
+#A1.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
+#A1.train_policy.uqe_eps_decay_steps = 20,000,000      # 20M
 
-#A.train_policy.uqe_tau_decay_steps = 2,000,000   # 2M
-#A.train_policy.uqe_tau_decay_steps = 10,000,000   # 10M
-A.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
-#A.train_policy.uqe_tau_decay_steps = 40,000,000   # 40M
-#A.train_policy.uqe_tau_decay_steps = 100,000,000 # 100M
+#A1.train_policy.uqe_tau_decay_steps = 2,000,000   # 2M
+#A1.train_policy.uqe_tau_decay_steps = 10,000,000   # 10M
+A1.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
+#A1.train_policy.uqe_tau_decay_steps = 40,000,000   # 40M
+#A1.train_policy.uqe_tau_decay_steps = 100,000,000 # 100M
 
 
 # ==============================================================================
-# BF16
+# 継続Run
 # ==============================================================================
 
-#BF16.agent.train_policy.use_amp = true
-#BF16.agent.train_policy.use_amp_bf16 = true
-#BF16.agent.eval_policy.use_amp = true
-#BF16.agent.eval_policy.use_amp_bf16 = true
-#BF16.agent.target_policy.use_amp = true
-#BF16.agent.target_policy.use_amp_bf16 = true
-BF16.agent.learner.use_amp = true
-BF16.agent.learner.use_amp_bf16 = true
-BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
-#BF16.agent.learner.grad_clip_tau = 30.0
-#BF16.agent.reward_scaler.constant_scale = 0.1
-#BF16.env.time_penalty = -0.01    # NEET対策
+#app.run_name = run_{t}_apx-ll_cy08
+#A2.auto_load_file = ../../runs/run_20260805-115101_apx-ll_cy07/agent_close.anet
+#A2.auto_load_file = ../../runs/run_20260809-033908_dm_iqn32-b128-rr125/agent_close.anet
+#A2.learner.per_beta_start = 0.6
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+
+A3.train_policy.tau_rule.sample_mode = stratified
+A3.learner.iqn.current_taus.sample_mode = stratified
+A3.learner.iqn.target_taus.sample_mode = stratified
+
+A2.train_policy.tau_rule.sample_mode = random
+A2.train_policy.tau_rule.num_taus = 32
+A2.eval_policy.policy_type = UQE
+A2.eval_policy.tau_rule.sample_mode = fixed
+A2.eval_policy.tau_rule.num_taus = 32
+A2.eval_policy.uqe_use_tail_mean = true
+A2.eval_policy.full_distribution_query.enabled = true
+A2.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+A2.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+A2.learner.iqn.current_taus.sample_mode = random
+A2.learner.iqn.current_taus.num_taus = 32
+A2.learner.iqn.target_taus.sample_mode = random
+A2.learner.iqn.target_taus.num_taus = 32
+
+
+E1.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
+E1.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の class 12 で表示
+
+#A2.learner.alpha = 7.5e-5
+#A2.learner.alpha = 3e-4
+A2.learner.alpha = 1e-4
+
+#A2.learner.replay_batch_size = 128
+A2.learner.replay_batch_size = 256
+#A2.learner.replay_batch_size = 512
+
+A2.learner.replay_ratio = 1.0
+#A2.learner.replay_ratio = 0.5
+#A2.learner.replay_ratio = 1.25
+#A2.learner.replay_ratio = 1.5
+#A2.learner.replay_ratio = 2.0
+
+#E1.action_mode = move_fast     # move move_fast direct direct_noop
+
+A2.learner.per_alpha = 0.2
+
+#A2.learner.per_initial_priority_mode = actor_approx
+A2.learner.per_initial_priority_mode = fixed
+#A2.learner.per_initial_priority_mode = max
+
+
+A2.train_policy.use_spatial_exploration = true
+#A2.train_policy.use_spatial_exploration = false
+
+#A2.use_optimistic_target = true
+A2.use_optimistic_target = false
+
+#train.eval.[eval1].eval_batch_size = 16
+#train.eval.[eval2].eval_batch_size = 16
+
+E1.use_no_legal_adjudication = true
+E1.no_legal_min_blocked_frames = 60
+E1.no_drop_timeout_gameover_penalty = -10
+
+M1.[33_agent_action/11_train_actor_snapshot_interval] = train_actor_snapshot_interval @train $action_info
+M1.[33_agent_action/12_train_actor_snapshot_age] = train_actor_snapshot_age @train $action_info
+
+#A2.train_actor.clone_model = false
+A2.train_actor.clone_model = true
+A2.train_actor.sync_interval.type = constant
+#A2.train_actor.sync_interval.value = 400
+A2.train_actor.sync_interval.value = 200
+
+A2.learner.per_initial_priority = 0.3
+
+A2.learner.use_rb_prefetch = true
+
+#A2.learner.use_td_clip = true
+A2.learner.use_td_clip = false
+A2.learner.td_clip_value = 10.0
+
+A2.reward_scaler.constant_scale = 0.01
+
+A2.learner.use_tbo = true
+
+#backend.cuda_launch_blocking = on
+#A2.learner.use_rb_prefetch = false
+
+A2.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
+
+A2.learner.grad_clip_tau = 5
+
+#E1.use_no_drop_timeout_gameover = true
+#E1.use_no_drop_timeout_gameover = false
+#E1.no_drop_timeout_gameover_penalty = -10.0
+
+#E1.no_drop_timeout_steps = 100
+
+#E1.game_over_penalty = -1.0   #-10.0
+
+#A2.train_policy.spatial_scale_type = linear
+#A2.learner.weight_decay        = 0.0002
+
+#A2.target_policy.policy_type = Greedy
+#A2.train_policy.uqe_tau_start = 0.5
+#A2.train_policy.uqe_tau_end = 0.5
+#A2.train_policy.uqe_eps_start = 0.3
+#A2.train_policy.uqe_eps_end = 0.05
+
+#A2.eval_policy.uqe_tau_start = 0.5
+#A2.eval_policy.uqe_tau_end = 0.5
+
+#E1.use_settle_after_drop = true   # false
+#E1.use_settle_after_drop = false  # false
+
+#E1.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
+
+#A2.use_dueling_net = false
+
+#E1.damping = 0
+#E1.friction = 0.0              # 本家相当？:摩擦無し
+#E1.restitution = 0.1           # 本家相当？:果物同士の反発係数
+#E1.box_restitution = 0         # 本家相当？:地面＆壁の反発無し
+
+#A2.learner.replay_ratio = 0.5
+
+#A2.learner.n_step = 3
+
+#A2.learner.replay_capacity = 1,000,000
+
+#A2.learner.weight_decay = 1e-2 # p1 p2
+#A2.learner.weight_decay = 1e-3 # p3
+#A2.learner.weight_decay = 1e-1 # p4
+#A2.learner.weight_decay = 0 # p5
+
+#E1.learner.alpha = 1e-4
+#E1.learner.weight_decay = 1e-2
+
+#E1.learner.adam_eps = 1e-5
+
+#E1.game_over_grace_step = 60 # 5
+
+#A2.stucker.stack_count = 4
+
+#A2.stucker.stack_count = 1    #4
+
+#A2.learner.use_grad_clip = false
+
+#A2.learner.use_per = false
+
+#train.main_runner_type = serial
+
+#A2.model.soft_update_tau = 0.0
+
+#A2.learner.replay_batch_size = 1
+
+#A2.learner.replay_capacity = 524,280
+
+#A2.train_policy.uqe_eps_end = 0.0
+
+#A2.train_policy.uqe_tau_start = 0.95 # 0.95
+#A2.train_policy.uqe_tau_end = 0.95   # 0.85
+
+#A2.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
+#A2.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
+
+#app.online.exp_pause_step  = 80,000,000      # 80M
+
+#A2.train_policy.uqe_eps_decay_steps = 5,000,000   # 5M
+#A2.train_policy.uqe_eps_decay_steps = 20,000,000  # 20M
+
+#A2.train_policy.uqe_tau_decay_steps = 5,000,000   # 5M
+#A2.train_policy.uqe_tau_decay_steps = 20,000,000  # 20M
+
+#A2.learner.per_beta_step = 5,000,000              # 5M
+#A2.learner.per_beta_step = 20,000,000             # 20M
+
+#A2.qr.num_quantiles = 101
+
+#A2.learner.per_alpha = 0
+#A2.learner.per_alpha = 0.4
+
+#A2.learner.update_warmup_steps = 51,200
+
+#A2.learner.replay_ratio = 4.0
+
+#A2.stucker.use_stacker = false
+
+#E1.action_mode = direct      # move move_fast direct direct_noop
+#E1.action_mode = direct_noop # move move_fast direct direct_noop
+
+#E1.settle_max_steps = 1000   # 500
+#E1.settle_max_steps = 300   # 500
+
+#E1.use_instant_drop = false
+
+#E1.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
+#E1.settle_angular_threshold = 0.05  # 0.1 安定判定の角速度閾値 (rad/s)
+#E1.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
+#E1.settle_angular_threshold = 0.5  # 0.1 安定判定の角速度閾値 (rad/s)
+#E1.settle_velocity_threshold = 1.0 # 0.1 安定判定の線速度閾値 (m/s)
+#E1.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
+
+#A2.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
+#A2.learner.replay_capacity =  1,048,576
+
+#A2.target_policy.uqe_tau_start = 0.85
+
+#A2.use_optimistic_target = true # Q値にtrain_policy（UQE）を反映させるならtrue
+
+#E1.dropper_speed2 = 0.50 #0.30
+#E1.dropper_speed2 = 1.00 #0.30
+
+#E1.box_height = 8.0      # 4.0
+
+#A2.eval_policy.policy_type = UQE
+#A2.eval_policy.uqe_tau_start = 0.65
+
+#A2.train_policy.policy_type = EpsilonGreedy
+#A2.train_policy.policy_type = UQE
+#A2.train_policy.policy_type = ThompsonSampling
+
+#A2.train_policy.uqe_use_tail_mean = true
+#A2.target.uqe_use_tail_mean = true
+
+#A2.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy
+#A2.train_policy.eps_end = 0.05               # 0.1 0.05 for EpsilonGreedy
+#A2.train_policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
+#A2.train_policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
+
+#A2.eval_policy.policy_type = EpsilonGreedy
+#A2.eval_policy.eps_start = 0.05
+#A2.eval_policy.eps_end = 0.05
+
+#E1.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
+#E1.no_drop_timeout_steps = 300
+
+#E1.friction = 0.01              # 0.1 ツッルツル 重い果物が下に落ちやすい
+#E1.restitution = 0.1            # 0.05 反発係数  少しバウンドする事で衝撃による変動が起きやすい
+#E1.drop_noise = 0.04           # 0.01
+#E1.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
+
+#E1.use_dropper_x_grid = false  # true
+
+#A2.stucker.stack_count = 1    #4
+#A2.stucker.stack_count = 12    #4
+
+#A2.learner.replay_capacity = 500,000
+
+#A2.learner.per_alpha = 0.4      # 0.6
+#A2.learner.per_alpha = 0.2      # 0.6
+
+#A2.reward_scaler.constant_scale = 1.0         # ★
+#A2.reward_scaler.constant_scale = 0.1         # ★
+#A2.reward_scaler.constant_scale = 0.01         # ★
+#A2.reward_scaler.constant_scale = 0.001         # ★
+#A2.reward_scaler.constant_scale = 0.0005         # ★
+#A2.reward_scaler.constant_scale = 0.0001         # ★
+
+#E1.game_over_penalty = -10.0
+#E1.game_over_penalty = -5.0
+#E1.game_over_penalty = -10.0
+#E1.game_over_penalty = 0.0
+#E1.game_over_penalty = -200.0
+#E1.game_over_penalty = -500.0
+
+##E1.time_penalty = -0.0001    # NEET対策
+#E1.time_penalty = -0.005    # NEET対策
+#E1.time_penalty = -0.001    # NEET対策
+#E1.time_penalty = -0.01    # NEET対策
+#E1.time_penalty = -0.02    # NEET対策
+#E1.time_penalty = -0.1    # NEET対策
+#E1.time_penalty = 0
+
+##A2.learner.grad_clip_tau = 0.5 # ★
+#A2.learner.grad_clip_tau = 1.0 # ★
+#A2.learner.grad_clip_tau = 10.0 # ★
+#A2.learner.grad_clip_tau = 30.0 # ★
+
+##A2.learner.replay_batch_size = 128   # 256
+#A2.learner.replay_batch_size = 64   # 256
+
+#A2.learner.replay_ratio = 2.0  # 1.0
+
+#E1.seed_mode = fixed
+#E1.seed_mode = global_fixed
+#E1.global_seed = 12345
+
+#E1.use_fast_move = false
+#E1.use_instant_drop = false
+
+#A2.learner.adam_eps = 1.5e-4
+
+#A2.train_policy.uqe_eps_start = 1.00
+
+#A2.train_policy.uqe_eps_end = 0.60
+#A2.train_policy.uqe_eps_end = 0.05
+#A2.train_policy.uqe_eps_end = 0.0
+
+#A2.train_policy.uqe_tau_start = 0.75  # ビビリ対策
+#A2.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+#A2.train_policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
+
+#A2.learner.alpha = 5e-6
+#A2.learner.alpha = 1e-5
+#A2.learner.alpha = 5e-5
+#A2.learner.alpha = 5e-4
+#A2.learner.alpha = 1e-4
+
+#A2.learner.gamma = 0.999  # ★ 長期戦略考慮
+#A2.learner.gamma = 0.997   # ★ horizon=333
+#A2.learner.gamma = 0.995   # ★ horizon=200
+#A2.learner.gamma = 0.99   # ★
+#A2.learner.gamma = 0.95   # ★
+#A2.learner.gamma = 0.92   # ★
+#A2.learner.gamma = 0.9   # ★
+
+#A2.learner.n_step = 30   # ★長期戦略考慮
+#A2.learner.n_step = 20
+#A2.learner.n_step = 10
+#A2.learner.n_step = 5
+#A2.learner.n_step = 3
+#A2.learner.n_step = 1
+
+#A2.learner.replay_capacity = 800,000
+#A2.learner.replay_capacity  =  500,000
+#A2.learner.replay_capacity  =  200,000
+#A2.learner.replay_capacity =  100,000
+
+#A2.learner.per_prio_clip_value = 50                # 30
+
+##A2.model.soft_update_tau = 0.005                 # 0.01
+#A2.model.soft_update_tau = 0.001                 # 0.01
+
+#A2.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
+#A2.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
+
+#A2.reward_scaler.use_dynamic_scaling = true
+#A2.reward_scaler.use_auto_post_scale = true
+
+# ==============================================================================
+# Runプロファイル
+# ==============================================================================
+# 定着済み・比較対照・次期実験・再現検証に使う構成だけを定義する。
+# 既定はすべてOFF。run.$の1行またはCLIのrun.$=run.@<name>で選択する。
+
+# IQN K/N/M=32 + stratified。現行の主力構成。
+run.@iqn32_stratified : backend.$ = backend.@non-deterministic
+run.@iqn32_stratified : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
+run.@iqn32_stratified : DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > @bf16 > A2 > A3
+run.@iqn32_stratified : DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
+run.@iqn32_stratified : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128
+run.@iqn32_stratified : A2.train_policy.tau_rule.num_taus = 32
+run.@iqn32_stratified : A2.eval_policy.tau_rule.sample_mode = fixed
+run.@iqn32_stratified : A2.eval_policy.tau_rule.num_taus = 32
+run.@iqn32_stratified : A2.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+run.@iqn32_stratified : A2.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+run.@iqn32_stratified : A2.learner.iqn.current_taus.num_taus = 32
+run.@iqn32_stratified : A2.learner.iqn.target_taus.num_taus = 32
+run.@iqn32_stratified : A2.learner.per_alpha = 0.2
+run.@iqn32_stratified : A2.learner.per_initial_priority_mode = fixed
+run.@iqn32_stratified : A2.learner.per_initial_priority = 0.3
+run.@iqn32_stratified : A3.train_policy.tau_rule.sample_mode = stratified
+run.@iqn32_stratified : A3.learner.iqn.current_taus.sample_mode = stratified
+run.@iqn32_stratified : A3.learner.iqn.target_taus.sample_mode = stratified
+
+# 同一Env/BODY/学習条件のQR51比較対照。
+run.@qr51_control : backend.$ = backend.@non-deterministic
+run.@qr51_control : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
+run.@qr51_control : DefaultDQNAgent.$ = @baseline > @qr > @fast > A1 > @bf16 > A2 > A3
+run.@qr51_control : DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
+run.@qr51_control : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128
+run.@qr51_control : DefaultDQNAgent.qr.num_quantiles = 51
+run.@qr51_control : A2.learner.per_alpha = 0.2
+run.@qr51_control : A2.learner.per_initial_priority_mode = fixed
+run.@qr51_control : A2.learner.per_initial_priority = 0.3
+
+# 100M比較済みのIQN sampling代替候補。
+run.@iqn32_antithetic : backend.$ = backend.@non-deterministic
+run.@iqn32_antithetic : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
+run.@iqn32_antithetic : DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > @bf16 > A2 > A3
+run.@iqn32_antithetic : DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
+run.@iqn32_antithetic : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128
+run.@iqn32_antithetic : A2.train_policy.tau_rule.num_taus = 32
+run.@iqn32_antithetic : A2.eval_policy.tau_rule.sample_mode = fixed
+run.@iqn32_antithetic : A2.eval_policy.tau_rule.num_taus = 32
+run.@iqn32_antithetic : A2.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+run.@iqn32_antithetic : A2.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+run.@iqn32_antithetic : A2.learner.iqn.current_taus.num_taus = 32
+run.@iqn32_antithetic : A2.learner.iqn.target_taus.num_taus = 32
+run.@iqn32_antithetic : A2.learner.per_alpha = 0.2
+run.@iqn32_antithetic : A2.learner.per_initial_priority_mode = fixed
+run.@iqn32_antithetic : A2.learner.per_initial_priority = 0.3
+run.@iqn32_antithetic : A3.train_policy.tau_rule.sample_mode = antithetic
+run.@iqn32_antithetic : A3.learner.iqn.current_taus.sample_mode = antithetic
+run.@iqn32_antithetic : A3.learner.iqn.target_taus.sample_mode = antithetic
+
+# 次期PER探索候補。samplingとK/N/Mは主力構成を維持する。
+run.@iqn32_actor_approx : backend.$ = backend.@non-deterministic
+run.@iqn32_actor_approx : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
+run.@iqn32_actor_approx : DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > @bf16 > A2 > A3
+run.@iqn32_actor_approx : DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
+run.@iqn32_actor_approx : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128
+run.@iqn32_actor_approx : A2.train_policy.tau_rule.num_taus = 32
+run.@iqn32_actor_approx : A2.eval_policy.tau_rule.sample_mode = fixed
+run.@iqn32_actor_approx : A2.eval_policy.tau_rule.num_taus = 32
+run.@iqn32_actor_approx : A2.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+run.@iqn32_actor_approx : A2.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+run.@iqn32_actor_approx : A2.learner.iqn.current_taus.num_taus = 32
+run.@iqn32_actor_approx : A2.learner.iqn.target_taus.num_taus = 32
+run.@iqn32_actor_approx : A2.learner.per_alpha = 0.2
+run.@iqn32_actor_approx : A2.learner.per_initial_priority_mode = actor_approx
+run.@iqn32_actor_approx : A2.learner.per_initial_priority = 0.3
+run.@iqn32_actor_approx : A3.train_policy.tau_rule.sample_mode = stratified
+run.@iqn32_actor_approx : A3.learner.iqn.current_taus.sample_mode = stratified
+run.@iqn32_actor_approx : A3.learner.iqn.target_taus.sample_mode = stratified
+
+# 非決定論誤差の切り分け用。seed は Run プロファイルの外で指定する。
+run.@iqn32_repro : backend.$ = backend.@deterministic
+run.@iqn32_repro : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
+run.@iqn32_repro : DefaultDQNAgent.$ = @baseline > @iqn > @fast > A1 > @bf16 > A2 > A3
+run.@iqn32_repro : DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
+run.@iqn32_repro : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128
+run.@iqn32_repro : A2.train_policy.tau_rule.num_taus = 32
+run.@iqn32_repro : A2.eval_policy.tau_rule.sample_mode = fixed
+run.@iqn32_repro : A2.eval_policy.tau_rule.num_taus = 32
+run.@iqn32_repro : A2.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+run.@iqn32_repro : A2.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+run.@iqn32_repro : A2.learner.iqn.current_taus.num_taus = 32
+run.@iqn32_repro : A2.learner.iqn.target_taus.num_taus = 32
+run.@iqn32_repro : A2.learner.per_alpha = 0.2
+run.@iqn32_repro : A2.learner.per_initial_priority_mode = fixed
+run.@iqn32_repro : A2.learner.per_initial_priority = 0.3
+run.@iqn32_repro : A3.train_policy.tau_rule.sample_mode = stratified
+run.@iqn32_repro : A3.learner.iqn.current_taus.sample_mode = stratified
+run.@iqn32_repro : A3.learner.iqn.target_taus.sample_mode = stratified
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#app.online.exp_exit_step  = 200,000
+
+#A2.learner.update_warmup_steps = 2,560
+#A2.learner.update_warmup_steps = 0
+
+#app.train_auto_start = false
 
 
 # ==============================================================================
 # Env依存 Agent設定
 # ==============================================================================
 
-A.stucker.use_stacker = true
-A.stucker.stack_count = 4
+A1.train_policy.tau_rule.sample_mode = random
+A1.train_policy.tau_rule.num_taus = 32
+A1.eval_policy.policy_type = UQE
+A1.eval_policy.uqe_use_tail_mean = true
+A1.eval_policy.tau_rule.sample_mode = fixed
+A1.eval_policy.tau_rule.num_taus = 32
+A1.eval_policy.full_distribution_query.enabled = true
+A1.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+A1.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+A1.learner.iqn.current_taus.sample_mode = random
+A1.learner.iqn.current_taus.num_taus = 32
+A1.learner.iqn.target_taus.sample_mode = random
+A1.learner.iqn.target_taus.num_taus = 32
 
-A.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
+A1.stucker.use_stacker = true
+A1.stucker.stack_count = 4
 
-A.train_policy.policy_type = UQE
-A.train_policy.uqe_eps_start = 0.60
-A.train_policy.uqe_eps_end = 0.0     # 0.05 0.0
-A.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-A.train_policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
-A.train_policy.uqe_use_tail_mean = true
+A1.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
 
-A.eval_policy.policy_type = UQE
+A1.train_policy.policy_type = UQE
+A1.train_policy.uqe_eps_start = 0.60
+A1.train_policy.uqe_eps_end = 0.0     # 0.05 0.0
+A1.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+A1.train_policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
+A1.train_policy.uqe_use_tail_mean = true
 
-A.target_policy.uqe_tau_start = 0.85
-#A.target_policy.uqe_use_tail_mean = true
+A1.eval_policy.policy_type = UQE
 
-A.learner.alpha = 1e-4         # ★
-A.learner.weight_decay = 1e-3  # ★
-A.learner.gamma = 0.997        # ★長期戦略必要
-A.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
-A.learner.replay_ratio = 1.0
-#A.learner.replay_capacity = 1,000,000
-A.learner.replay_capacity = 524,288
-A.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
-#A.learner.use_rb_prefetch = true            # Sample+H2Dを1バッチ先読みする。serial比較時はfalse/未指定
-A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
-A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
+A1.target_policy.uqe_tau_start = 0.85
+#A1.target_policy.uqe_use_tail_mean = true
 
-A.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
-A.learner.per_beta_start = 0.4               # デフォルト 0.4
-A.learner.per_beta_end = 0.6                 # デフォルト 1.0
-A.learner.per_prio_clip_value = 50           # 30 
-#A.learner.use_per_prio_clip = true           #  true 優先度をクリッピングするか
+A1.learner.alpha = 1e-4         # ★
+A1.learner.weight_decay = 1e-3  # ★
+A1.learner.gamma = 0.997        # ★長期戦略必要
+A1.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
+A1.learner.replay_ratio = 1.0
+#A1.learner.replay_capacity = 1,000,000
+A1.learner.replay_capacity = 524,288
+A1.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
+#A1.learner.use_rb_prefetch = true            # Sample+H2Dを1バッチ先読みする。serial比較時はfalse/未指定
+A1.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
+A1.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
 
-A.reward_scaler.use_dynamic_scaling = false
-A.reward_scaler.use_auto_post_scale = false
-A.reward_scaler.constant_scale = 0.001       # ★（報酬値を変えたら要調整）
-A.reward_scaler.use_clipping = false
-A.reward_scaler.clip_range = 10.0
+A1.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
+A1.learner.per_beta_start = 0.4               # デフォルト 0.4
+A1.learner.per_beta_end = 0.6                 # デフォルト 1.0
+A1.learner.per_prio_clip_value = 50           # 30
+#A1.learner.use_per_prio_clip = true           #  true 優先度をクリッピングするか
 
-A.model.soft_update_tau = 0.005              # 0.001 高め
+A1.reward_scaler.use_dynamic_scaling = false
+A1.reward_scaler.use_auto_post_scale = false
+A1.reward_scaler.constant_scale = 0.001       # ★（報酬値を変えたら要調整）
+A1.reward_scaler.use_clipping = false
+A1.reward_scaler.clip_range = 10.0
 
+A1.model.soft_update_tau = 0.005              # 0.001 高め
 
-
-B.train_policy.policy_type = EpsilonGreedy
-B.train_policy.eps_start = 1.00    # Random
-B.train_policy.eps_end = 1.00      # Random
-B.learner.replay_capacity = 256,000 
-B.learner.update_warmup_steps = 999999999
-B.learner.alpha = 0
+DefaultDQNAgent.@random : train_policy.policy_type = EpsilonGreedy
+DefaultDQNAgent.@random : train_policy.eps_start = 1.00    # Random
+DefaultDQNAgent.@random : train_policy.eps_end = 1.00
+DefaultDQNAgent.@random : learner.replay_capacity = 256,000
+DefaultDQNAgent.@random : learner.update_warmup_steps = 999999999
+DefaultDQNAgent.@random : learner.alpha = 0
 
 
 # ==============================================================================
@@ -642,7 +704,7 @@ net.block.[LinearOut].init.manual_gain = 0.01
 # ==============================================================================
 
 # Layer 1 : 縦横半分に圧縮
-# Input: 20x20 -> Output: 10x10 
+# Input: 20x20 -> Output: 10x10
 # Input: 20x32 -> Output: 10x16
 net.block.[Conv1].type = Conv2d
 #net.block.[Conv1].conv.out_channels = 32
@@ -673,8 +735,8 @@ net.block.[Conv3].conv.padding = 1
 net.block.[Conv3].init.mode = he
 
 # Structure
-net.body.SuikaNet2032.structure = Embed2032 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
-net.body.SuikaNet4064.structure = Embed4064 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
+net.body.@SuikaNet2032 : structure = Embed2032 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
+net.body.@SuikaNet4064 : structure = Embed4064 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
 
 
 # ==============================================================================
@@ -746,11 +808,11 @@ net.block.[ConvCompress].conv.padding = 0
 net.block.[ConvCompress].init.mode = he
 
 # 構造定義
-net.body.SuikaResNet4064_06.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_10d.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_10.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_18.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_10d_64.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
+net.body.@SuikaResNet4064_06 : structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.@SuikaResNet4064_10d : structure = Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
+net.body.@SuikaResNet4064_10 : structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.@SuikaResNet4064_18 : structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.@SuikaResNet4064_10d_64 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
 
 
 # ==============================================================================
@@ -837,25 +899,25 @@ net.block.[GroupNorm_128g8].num_groups = 8
 
 
 # [SuikaViT_Flatten]    空間埋め込み(Stack吸収) -> パッチ化 -> d_model圧縮 -> 位置情報付与 -> Transformer -> 平坦化
-net.body.SuikaViT_Flatten.structure = Embed4064 >  ViT_PatchConv > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc > Flatten
+net.body.@SuikaViT_Flatten : structure = Embed4064 >  ViT_PatchConv > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc > Flatten
 
 # [SuikaHybrid_Flatten] ResNet + ViT
-net.body.SuikaHybrid_Flatten_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
-net.body.SuikaHybrid_Flatten_128g8.structure = Embed4064 > ConvInit64 > GroupNorm_64g8 > SiLU > ResBlock64g8(*4) > ConvDown64 > GroupNorm_64g8 > SiLU > ViT_Proj_128 > GroupNorm_128g8 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
-net.body.SuikaHybrid_Flatten_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
+net.body.@SuikaHybrid_Flatten_128 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.body.@SuikaHybrid_Flatten_128g8 : structure = Embed4064 > ConvInit64 > GroupNorm_64g8 > SiLU > ResBlock64g8(*4) > ConvDown64 > GroupNorm_64g8 > SiLU > ViT_Proj_128 > GroupNorm_128g8 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.body.@SuikaHybrid_Flatten_256 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
 
 
 # [SuikaHybrid_CLS] ResNet + ViT + CLS
-net.body.SuikaHybrid_CLS_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > ClsAppend > TransEnc_128 > ClsExtract
-net.body.SuikaHybrid_CLS_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
-net.body.SuikaHybrid_CLS_256_LC.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*2) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
+net.body.@SuikaHybrid_CLS_128 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > ClsAppend > TransEnc_128 > ClsExtract
+net.body.@SuikaHybrid_CLS_256 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
+net.body.@SuikaHybrid_CLS_256_LC : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*2) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
 
-net.body.SuikaHybrid_GAP_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > GAP1D
-net.body.SuikaHybrid_GAP_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > GAP1D
+net.body.@SuikaHybrid_GAP_128 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > GAP1D
+net.body.@SuikaHybrid_GAP_256 : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > GAP1D
 
-net.body.SuikaHybrid_Flatten_64HR.structure  = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_64  > SiLU > PosEmbed2D > TransEnc_64  > Flatten
-net.body.SuikaHybrid_Flatten_128HR.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
-net.body.SuikaHybrid_Flatten_256HR.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
+net.body.@SuikaHybrid_Flatten_64HR : structure  = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_64  > SiLU > PosEmbed2D > TransEnc_64  > Flatten
+net.body.@SuikaHybrid_Flatten_128HR : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.body.@SuikaHybrid_Flatten_256HR : structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
 
 
 # ==============================================================================
@@ -911,6 +973,13 @@ net.block.[Linear_2048].init.manual_gain=1.0
 net.block.[HeadFC1024].type = Linear
 net.block.[HeadFC1024].linear.out_features = 1024
 net.block.[HeadFC1024].init.mode = xavier
+
+net.block.[IQNCosEmb].type = CosineEmbedding
+net.block.[IQNCosEmb].cos.num_basis = 64
+
+net.block.[IQNTauProj2048].type = Linear
+net.block.[IQNTauProj2048].linear.out_features = 2048
+net.block.[IQNTauProj2048].init.mode = xavier
 
 
 # --- DropMerge ConvNeXt ---
@@ -1089,196 +1158,230 @@ net.block.[DMImpalaTrans128].tf.attn_dropout_rate = 0.0
 net.block.[DMImpalaTrans128].tf.droppath_rate = 0.0
 #net.block.[DMImpalaTrans128].tf.droppath_rate = 0.02
 
+# --- body ---
+
+DefaultDQNAgent.net.body.output.[value_feature] = value_stream
+DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 
 # --- branches ---
+DefaultDQNAgent.net.branch.[vector_feature].bind = vector
+DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC1024 > SiLU
+DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC1024 > SiLU
 
-net.branch.[vector_feature].bind = vector
-#net.body.output.[features] = main_feature
+# 切替用
 
-# Dueling head 用の任意 V/A ストリーム。有効化する場合はまとめてコメント解除
+net.@iqn : branch.[tau_embedding].bind = taus
+net.@iqn : branch.[tau_embedding].structure = IQNCosEmb > IQNTauProj2048 > SiLU
+net.@iqn : branch.[iqn_fusion].bind = main_feature * tau_embedding                  # (B,1,128)×(B,K,128)→(B,K,128)
+net.@iqn : branch.[iqn_fusion].structure =
+net.@iqn : branch.[value_stream].bind = iqn_fusion
+net.@iqn : branch.[adv_stream].bind = iqn_fusion
 
-net.branch.[value_stream].bind = main_feature
-net.branch.[value_stream].structure = HeadFC1024 > SiLU
-
-net.branch.[adv_stream].bind = main_feature
-net.branch.[adv_stream].structure = HeadFC1024 > SiLU
-
-net.body.output.[value_feature] = value_stream
-net.body.output.[adv_feature] = adv_stream
+net.@qr : branch.[value_stream].bind = main_feature
+net.@qr : branch.[adv_stream].bind = main_feature
 
 
-net.branch.SuikaResNet_10d.bind = grid, vector_feature
-net.branch.SuikaResNet_10d.structure =  ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
+net.branch.@SuikaResNet_10d : bind = grid, vector_feature
+net.branch.@SuikaResNet_10d : structure =  ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
 
-net.branch.SuikaViT_Flatten_128_pre.bind = grid, vector_feature
-net.branch.SuikaViT_Flatten_128_pre.structure = ConvInit64 > SiLU > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaViT_Flatten_128_pre : bind = grid, vector_feature
+net.branch.@SuikaViT_Flatten_128_pre : structure = ConvInit64 > SiLU > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 
-net.branch.SuikaHybrid_Flatten_128.bind = grid, vector_feature
-net.branch.SuikaHybrid_Flatten_128.structure     = ConvInit64 > SiLU > ResBlock64(*4)  > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.branch.@SuikaHybrid_Flatten_128 : bind = grid, vector_feature
+net.branch.@SuikaHybrid_Flatten_128 : structure     = ConvInit64 > SiLU > ResBlock64(*4)  > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 
-net.branch.SuikaHybrid_Flatten_128_pre.bind = grid, vector_feature
-net.branch.SuikaHybrid_Flatten_128_pre.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.branch.@SuikaHybrid_Flatten_128_pre : bind = grid, vector_feature
+net.branch.@SuikaHybrid_Flatten_128_pre : structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 
-net.branch.SuikaHybrid_Flatten_128_pre2.bind = grid, vector_feature
-#net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
-#net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_1024 > SiLU
-#net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*2) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
-net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaHybrid_Flatten_128_pre2 : bind = grid, vector_feature
+#net.branch.@SuikaHybrid_Flatten_128_pre2 : structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+#net.branch.@SuikaHybrid_Flatten_128_pre2 : structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_1024 > SiLU
+#net.branch.@SuikaHybrid_Flatten_128_pre2 : structure = ConvInit64 >        ResBlock64p(*2) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaHybrid_Flatten_128_pre2 : structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 
-net.branch.SuikaHybrid_Flatten_128_pre2_dp.bind = grid, vector_feature
-net.branch.SuikaHybrid_Flatten_128_pre2_dp.structure = ConvInit64 > ResBlock64p_dp(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128_dp > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaHybrid_Flatten_128_pre2_dp : bind = grid, vector_feature
+net.branch.@SuikaHybrid_Flatten_128_pre2_dp : structure = ConvInit64 > ResBlock64p_dp(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128_dp > Flatten > Linear_2048 > SiLU
 
-net.branch.SuikaConvNeXt_S128.bind = grid, vector_feature
-net.branch.SuikaConvNeXt_S128.structure = DMCnxStem64 > DMCnxStemLN64 > DMCnx64(*2) > DMCnxDownLN64 > DMCnxDown64to128 > DMCnx128(*6) > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaConvNeXt_S128 : bind = grid, vector_feature
+net.branch.@SuikaConvNeXt_S128 : structure = DMCnxStem64 > DMCnxStemLN64 > DMCnx64(*2) > DMCnxDownLN64 > DMCnxDown64to128 > DMCnx128(*6) > Flatten > Linear_2048 > SiLU
 
-net.branch.SuikaConvNeXt_ViT128.bind = grid, vector_feature
-net.branch.SuikaConvNeXt_ViT128.structure = DMCnxStem64 > DMCnxStemLN64 > DMCnx64(*2) > DMCnxDownLN64 > DMCnxDown64to128 > DMCnx128(*2) > PosEmbed2D > DMCnxTrans128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaConvNeXt_ViT128 : bind = grid, vector_feature
+net.branch.@SuikaConvNeXt_ViT128 : structure = DMCnxStem64 > DMCnxStemLN64 > DMCnx64(*2) > DMCnxDownLN64 > DMCnxDown64to128 > DMCnx128(*2) > PosEmbed2D > DMCnxTrans128 > Flatten > Linear_2048 > SiLU
 
 # 2段IMPALA風: 12x15 (180 token)。旧Hybridと同token数でViTの後半成長を狙うが、ConvNeXt_ViT128よりtoken/head容量が大きい。
-net.branch.SuikaImpala2_ViT128.bind = grid, vector_feature
-net.branch.SuikaImpala2_ViT128.structure = DMImpalaConv64 > DMImpalaPool > DMImpalaRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaImpala2_ViT128 : bind = grid, vector_feature
+net.branch.@SuikaImpala2_ViT128 : structure = DMImpalaConv64 > DMImpalaPool > DMImpalaRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
 
 # 2段安定化版: 12x15 (180 token)。SiLU + GroupNorm(8)を加えるが、ConvNeXt_ViT128との比較はiso-computeではない。
-net.branch.SuikaImpala2_ViT128_GN.bind = grid, vector_feature
-net.branch.SuikaImpala2_ViT128_GN.structure = DMImpalaConv64 > DMImpalaPool > DMImpalaGNRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaGNRes128(*2) > GroupNorm_128g8 > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaImpala2_ViT128_GN : bind = grid, vector_feature
+net.branch.@SuikaImpala2_ViT128_GN : structure = DMImpalaConv64 > DMImpalaPool > DMImpalaGNRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaGNRes128(*2) > GroupNorm_128g8 > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
 
 # 3段IMPALA風: 6x8 (48 token)。stem段数とtoken/head容量を同時に変え、TransformerとFlatten headを軽量化する。
-net.branch.SuikaImpala3_ViT128.bind = grid, vector_feature
-net.branch.SuikaImpala3_ViT128.structure = DMImpalaConv32 > DMImpalaPool > DMImpalaRes32(*2) > DMImpalaConv64 > DMImpalaPool > DMImpalaRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaImpala3_ViT128 : bind = grid, vector_feature
+net.branch.@SuikaImpala3_ViT128 : structure = DMImpalaConv32 > DMImpalaPool > DMImpalaRes32(*2) > DMImpalaConv64 > DMImpalaPool > DMImpalaRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
 
 # 3段安定化版: 6x8 (48 token)。軽量性を保ってSiLU + GroupNorm(8)を加え、2段系との比較ではstem段数とhead容量も変わる。
-net.branch.SuikaImpala3_ViT128_GN.bind = grid, vector_feature
-net.branch.SuikaImpala3_ViT128_GN.structure = DMImpalaConv32 > DMImpalaPool > DMImpalaGNRes32(*2) > DMImpalaConv64 > DMImpalaPool > DMImpalaGNRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaGNRes128(*2) > GroupNorm_128g8 > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
+net.branch.@SuikaImpala3_ViT128_GN : bind = grid, vector_feature
+net.branch.@SuikaImpala3_ViT128_GN : structure = DMImpalaConv32 > DMImpalaPool > DMImpalaGNRes32(*2) > DMImpalaConv64 > DMImpalaPool > DMImpalaGNRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaGNRes128(*2) > GroupNorm_128g8 > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU
 
 
 # ==============================================================================
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.$ = metrics.scalar.baseline > M > O
-#metrics.scalar.$ = metrics.scalar.min > M > O
-#metrics.scalar.$ = metrics.scalar.full > M > O
+metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1 > M2
+#metrics.scalar.$ = metrics.scalar.@min > M1 > M2
+#metrics.scalar.$ = metrics.scalar.@full > M1 > M2
 
-M.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.01
-M.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.01
+M1.[21_eval/03_target_reward_ema] = mean.episode_return $runner @session_end $eval.[eval1] $ema ema_alpha:0.01
+M1.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval2] $ema ema_alpha:0.01
 
-M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
-#M.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+M1.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
+#M1.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
-#M.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1]
-#M.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2]
-#M.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001
-#M.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001
+#M1.[22_eval/01_test1_reward]     = mean.episode_return $runner @session_end $eval.[test1]
+#M1.[22_eval/02_test2_reward]     = mean.episode_return $runner @session_end $eval.[test2]
+#M1.[22_eval/03_test1_reward_ema] = mean.episode_return $runner @session_end $eval.[test1] $ema ema_alpha:0.001
+#M1.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @session_end $eval.[test2] $ema ema_alpha:0.001
 
-M.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
+M1.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
+M1.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
 
-M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
-M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema
-M.[38_agent_loss/02_loss_ema] = loss @learn  $ema
+M1.[36_agent_quantile/01_upper_tail_priority_spearman_ema] = upper_tail_priority_spearman @learn $exp_step $ema ema_alpha:0.01 interval:100
 
-M.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
-#M.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
-##M.[42_env/03_tr_timeout_max]  = $env max.term_reason_timeout @train
-##M.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
-##M.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
-#M.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
-M.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
+M1.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/02_target_mc_scale_ema] = iqn_target_mc_scale @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/03_priority_mc_ratio_ema] = iqn_priority_mc_ratio @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/04_first_priority_mc_ratio_ema] = iqn_first_priority_mc_ratio @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/05_first_pair_abs_td_ema] = iqn_first_pair_abs_td @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/06_first_cancellation_ratio_ema] = iqn_first_cancellation_ratio @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/07_first_quantile_loss_norm_ema] = iqn_first_quantile_loss_norm @learn $exp_step $ema interval:100
+M1.[36_agent_iqn/08_sample_initial_count_ema] = per_sample_initial_count @learn $exp_step $ema interval:100
 
-#M.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
-M.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
-M.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_no_drop_timeout @train
-M.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
-M.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
-#M.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
-M.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
-M.[42_env/18_tr_no_legal_mean] = $env mean.term_reason_no_legal_drop @train
+M1.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
+M1.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema
+M1.[38_agent_loss/02_loss_ema] = loss @learn  $ema
+
+M1.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
+#M1.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
+##M1.[42_env/03_tr_timeout_max]  = $env max.term_reason_timeout @train
+##M1.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
+##M1.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
+#M1.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
+M1.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
+
+#M1.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
+M1.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
+M1.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_no_drop_timeout @train
+M1.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
+M1.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
+#M1.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
+M1.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
+M1.[42_env/18_tr_no_legal_mean] = $env mean.term_reason_no_legal_drop @train
 
 # --- NoLegal candidate 診断 (PRD039 PH1) ---
-M.[42_env/21_blkdrop_cand_mean]      = $env mean.blocked_drop_on_candidate @train
-M.[42_env/22_timeout_cand_mean]      = $env mean.no_drop_timeout_on_candidate @train
-M.[42_env/23_ep_mean_blocked_frames] = $env mean.ep_mean_blocked_frames @train
-M.[42_env/24_ep_max_blocked_frames]  = $env max.ep_max_blocked_frames @train
-M.[42_env/25_ep_terminal_blocked_frames_max] = $env max.ep_terminal_blocked_frames @train
-M.[42_env/26_ep_blocked_run_count_mean] = $env mean.ep_blocked_run_count @train
-M.[42_env/27_same_drop_col_ratio_mean] = $env mean.ep_same_drop_col_ratio @train
+M1.[42_env/21_blkdrop_cand_mean]      = $env mean.blocked_drop_on_candidate @train
+M1.[42_env/22_timeout_cand_mean]      = $env mean.no_drop_timeout_on_candidate @train
+M1.[42_env/23_ep_mean_blocked_frames] = $env mean.ep_mean_blocked_frames @train
+M1.[42_env/24_ep_max_blocked_frames]  = $env max.ep_max_blocked_frames @train
+M1.[42_env/25_ep_terminal_blocked_frames_max] = $env max.ep_terminal_blocked_frames @train
+M1.[42_env/26_ep_blocked_run_count_mean] = $env mean.ep_blocked_run_count @train
+M1.[42_env/27_same_drop_col_ratio_mean] = $env mean.ep_same_drop_col_ratio @train
+M1.[42_env/31_double_suika_created_mean] = $env mean.ep_double_suika_created @train $exp_step
 
-#M.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
-#M.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
-##M.[42_env/53_tr_timeout_max_ema]  = $env max.term_reason_timeout @train $ema ema_alpha:0.001
-##M.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
-##M.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
-##M.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
-M.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
+#M1.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
+#M1.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
+##M1.[42_env/53_tr_timeout_max_ema]  = $env max.term_reason_timeout @train $ema ema_alpha:0.001
+##M1.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
+##M1.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
+##M1.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
+M1.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
 
-M.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
-M.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
-M.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_no_drop_timeout @train $ema ema_alpha:0.001
-M.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
-M.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
-#M.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
-M.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
-M.[42_env/69_tr_no_legal_mean_ema] = $env mean.term_reason_no_legal_drop @train $ema ema_alpha:0.001
-M.[42_env/71_blkdrop_cand_mean_ema] = $env mean.blocked_drop_on_candidate @train $ema ema_alpha:0.001
-M.[42_env/72_timeout_cand_mean_ema] = $env mean.no_drop_timeout_on_candidate @train $ema ema_alpha:0.001
-M.[42_env/73_same_drop_col_ratio_mean_ema] = $env mean.ep_same_drop_col_ratio @train $ema ema_alpha:0.001
+M1.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
+M1.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
+M1.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_no_drop_timeout @train $ema ema_alpha:0.001
+M1.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
+M1.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
+#M1.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
+M1.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
+M1.[42_env/69_tr_no_legal_mean_ema] = $env mean.term_reason_no_legal_drop @train $ema ema_alpha:0.001
+M1.[42_env/71_blkdrop_cand_mean_ema] = $env mean.blocked_drop_on_candidate @train $ema ema_alpha:0.001
+M1.[42_env/72_timeout_cand_mean_ema] = $env mean.no_drop_timeout_on_candidate @train $ema ema_alpha:0.001
+M1.[42_env/73_same_drop_col_ratio_mean_ema] = $env mean.ep_same_drop_col_ratio @train $ema ema_alpha:0.001
+M1.[42_env/81_double_suika_achieved_ema] = $env mean.ep_double_suika_achieved @train $exp_step $ema ema_alpha:0.001
 
-M.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
-M.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
+M1.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
+M1.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
 
 
-M.[51_eval1/00_ep_step_mean]         = $eval.[eval1] @episode_end $env mean.ep_step            
-M.[51_eval1/00_ep_step_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_step                   $ema ema_alpha:0.01
-M.[51_eval1/01_ep_maxrank_max]       = $eval.[eval1] @episode_end $env max.ep_max_rank
-M.[51_eval1/12_ep_frct_mean]         = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count 
-M.[51_eval1/41_noop_uqe_win_rate]    = $eval.[eval1] @train action_uqe_win_rate.[0] $action_info
-M.[51_eval1/42_noop_uqe_margin]      = $eval.[eval1] @train action_uqe_margin.[0] $action_info
-M.[51_eval1/43_reset_noop_uqe_margin] = $eval.[eval1] @train $exp_step episode_start_action_uqe_margin.[0] $action_info
-M.[51_eval1/44_reset_noop_q_margin]   = $eval.[eval1] @train $exp_step episode_start_action_q_margin.[0] $action_info
-M.[51_eval1/51_noop_uqe_win_rate_ema] = $eval.[eval1] @train action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
-M.[51_eval1/52_noop_uqe_margin_ema]  = $eval.[eval1] @train action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
-M.[51_eval1/61_ep_maxrank_mean_ema]  = $eval.[eval1] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
-M.[51_eval1/62_ep_frct_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
-M.[51_eval1/73_tr_blk_mean]          = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked
-M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout
-M.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop
-M.[51_eval1/77_blkdrop_cand_mean]    = $eval.[eval1] @episode_end $env mean.blocked_drop_on_candidate
-M.[51_eval1/78_timeout_cand_mean]    = $eval.[eval1] @episode_end $env mean.no_drop_timeout_on_candidate
-M.[51_eval1/79_terminal_blocked_frames_mean] = $eval.[eval1] @episode_end $env mean.ep_terminal_blocked_frames
-M.[51_eval1/80_blocked_run_count_mean] = $eval.[eval1] @episode_end $env mean.ep_blocked_run_count
-M.[51_eval1/81_same_drop_col_ratio_mean] = $eval.[eval1] @episode_end $env mean.ep_same_drop_col_ratio
-M.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
-M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01  # TODO max -> min
-M.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
-M.[51_eval1/86_blkdrop_cand_mean_ema] = $eval.[eval1] @episode_end $env mean.blocked_drop_on_candidate $ema ema_alpha:0.01
-M.[51_eval1/87_timeout_cand_mean_ema] = $eval.[eval1] @episode_end $env mean.no_drop_timeout_on_candidate $ema ema_alpha:0.01
-M.[51_eval1/88_same_drop_col_ratio_mean_ema] = $eval.[eval1] @episode_end $env mean.ep_same_drop_col_ratio $ema ema_alpha:0.01
+M1.[51_eval1/00_ep_step_mean]         = $eval.[eval1] @session_end $env mean.ep_step
+M1.[51_eval1/00_ep_step_mean_ema]     = $eval.[eval1] @session_end $env mean.ep_step                   $ema ema_alpha:0.01
+M1.[51_eval1/01_ep_maxrank_max]       = $eval.[eval1] @session_end $env max.ep_max_rank
+M1.[51_eval1/12_ep_frct_mean]         = $eval.[eval1] @session_end $env mean.ep_end_fruit_count
+M1.[51_eval1/13_double_suika_created_mean] = $eval.[eval1] @session_end $env $exp_step mean.ep_double_suika_created
+M1.[51_eval1/41_noop_uqe_win_rate]    = $eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info
+M1.[51_eval1/42_noop_uqe_margin]      = $eval.[eval1] @train $exp_step action_uqe_margin.[0] $action_info
+M1.[51_eval1/43_reset_noop_uqe_margin] = $eval.[eval1] @train $exp_step episode_start_action_uqe_margin.[0] $action_info
+M1.[51_eval1/44_reset_noop_q_margin]   = $eval.[eval1] @train $exp_step episode_start_action_q_margin.[0] $action_info
+M1.[51_eval1/51_noop_uqe_win_rate_ema] = $eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
+M1.[51_eval1/52_noop_uqe_margin_ema]  = $eval.[eval1] @train $exp_step action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
+M1.[51_eval1/53_iqn_policy_margin_mc_ratio_ema] = $eval.[eval1] @train $exp_step iqn_policy_margin_mc_ratio $action_info $ema ema_alpha:0.01 interval:100
+M1.[51_eval1/54_iqn_uqe_full_q_argmax_disagreement_ema] = $eval.[eval1] @train $exp_step iqn_uqe_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
+M1.[51_eval1/55_noop_full_q_margin_ema] = $eval.[eval1] @train $exp_step action_full_q_margin.[0] $action_info $ema ema_alpha:0.01 interval:100
+M1.[51_eval1/61_ep_maxrank_mean_ema]  = $eval.[eval1] @session_end $env mean.ep_max_rank               $ema ema_alpha:0.01
+M1.[51_eval1/62_ep_frct_mean_ema]     = $eval.[eval1] @session_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
+M1.[51_eval1/63_double_suika_achieved_ema] = $eval.[eval1] @session_end $env $exp_step mean.ep_double_suika_achieved $ema ema_alpha:0.01
+M1.[51_eval1/73_tr_blk_mean]          = $eval.[eval1] @session_end $env mean.term_reason_spawn_blocked
+M1.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @session_end $env mean.term_reason_no_drop_timeout
+M1.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @session_end $env mean.term_reason_no_legal_drop
+M1.[51_eval1/77_blkdrop_cand_mean]    = $eval.[eval1] @session_end $env mean.blocked_drop_on_candidate
+M1.[51_eval1/78_timeout_cand_mean]    = $eval.[eval1] @session_end $env mean.no_drop_timeout_on_candidate
+M1.[51_eval1/79_terminal_blocked_frames_mean] = $eval.[eval1] @session_end $env mean.ep_terminal_blocked_frames
+M1.[51_eval1/80_blocked_run_count_mean] = $eval.[eval1] @session_end $env mean.ep_blocked_run_count
+M1.[51_eval1/81_same_drop_col_ratio_mean] = $eval.[eval1] @session_end $env mean.ep_same_drop_col_ratio
+M1.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @session_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
+M1.[51_eval1/84_tr_timeout_mean_ema]   = $eval.[eval1] @session_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01  # TODO max -> min
+M1.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @session_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
+M1.[51_eval1/86_blkdrop_cand_mean_ema] = $eval.[eval1] @session_end $env mean.blocked_drop_on_candidate $ema ema_alpha:0.01
+M1.[51_eval1/87_timeout_cand_mean_ema] = $eval.[eval1] @session_end $env mean.no_drop_timeout_on_candidate $ema ema_alpha:0.01
+M1.[51_eval1/88_same_drop_col_ratio_mean_ema] = $eval.[eval1] @session_end $env mean.ep_same_drop_col_ratio $ema ema_alpha:0.01
 
-M.[52_eval2/00_ep_step_mean]         = $eval.[eval2] @episode_end $env mean.ep_step
-M.[52_eval2/00_ep_step_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_step                   $ema ema_alpha:0.01
-M.[52_eval2/01_ep_maxrank_max]       = $eval.[eval2] @episode_end $env max.ep_max_rank
-M.[52_eval2/12_ep_frct_mean]         = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count
-M.[52_eval2/41_noop_uqe_win_rate]    = $eval.[eval2] @train action_uqe_win_rate.[0] $action_info
-M.[52_eval2/42_noop_uqe_margin]      = $eval.[eval2] @train action_uqe_margin.[0] $action_info
-M.[52_eval2/43_reset_noop_uqe_margin] = $eval.[eval2] @train $exp_step episode_start_action_uqe_margin.[0] $action_info
-M.[52_eval2/44_reset_noop_q_margin]   = $eval.[eval2] @train $exp_step episode_start_action_q_margin.[0] $action_info
-M.[52_eval2/51_noop_uqe_win_rate_ema] = $eval.[eval2] @train action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
-M.[52_eval2/52_noop_uqe_margin_ema]  = $eval.[eval2] @train action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
-M.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
-M.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
-M.[52_eval2/73_tr_blk_mean]          = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked
-M.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout
-M.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop
-M.[52_eval2/77_blkdrop_cand_mean]    = $eval.[eval2] @episode_end $env mean.blocked_drop_on_candidate
-M.[52_eval2/78_timeout_cand_mean]    = $eval.[eval2] @episode_end $env mean.no_drop_timeout_on_candidate
-M.[52_eval2/79_terminal_blocked_frames_mean] = $eval.[eval2] @episode_end $env mean.ep_terminal_blocked_frames
-M.[52_eval2/80_blocked_run_count_mean] = $eval.[eval2] @episode_end $env mean.ep_blocked_run_count
-M.[52_eval2/81_same_drop_col_ratio_mean] = $eval.[eval2] @episode_end $env mean.ep_same_drop_col_ratio
-M.[52_eval2/83_tr_blk_mean_ema]      = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
-M.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01
-M.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
-M.[52_eval2/86_blkdrop_cand_mean_ema] = $eval.[eval2] @episode_end $env mean.blocked_drop_on_candidate $ema ema_alpha:0.01
-M.[52_eval2/87_timeout_cand_mean_ema] = $eval.[eval2] @episode_end $env mean.no_drop_timeout_on_candidate $ema ema_alpha:0.01
-M.[52_eval2/88_same_drop_col_ratio_mean_ema] = $eval.[eval2] @episode_end $env mean.ep_same_drop_col_ratio $ema ema_alpha:0.01
+M1.[52_eval2/00_ep_step_mean]         = $eval.[eval2] @session_end $env mean.ep_step
+M1.[52_eval2/00_ep_step_mean_ema]     = $eval.[eval2] @session_end $env mean.ep_step                   $ema ema_alpha:0.01
+M1.[52_eval2/01_ep_maxrank_max]       = $eval.[eval2] @session_end $env max.ep_max_rank
+M1.[52_eval2/12_ep_frct_mean]         = $eval.[eval2] @session_end $env mean.ep_end_fruit_count
+M1.[52_eval2/13_double_suika_created_mean] = $eval.[eval2] @session_end $env $exp_step mean.ep_double_suika_created
+M1.[52_eval2/41_noop_uqe_win_rate]    = $eval.[eval2] @train $exp_step action_uqe_win_rate.[0] $action_info
+M1.[52_eval2/42_noop_uqe_margin]      = $eval.[eval2] @train $exp_step action_uqe_margin.[0] $action_info
+M1.[52_eval2/43_reset_noop_uqe_margin] = $eval.[eval2] @train $exp_step episode_start_action_uqe_margin.[0] $action_info
+M1.[52_eval2/44_reset_noop_q_margin]   = $eval.[eval2] @train $exp_step episode_start_action_q_margin.[0] $action_info
+M1.[52_eval2/51_noop_uqe_win_rate_ema] = $eval.[eval2] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
+M1.[52_eval2/52_noop_uqe_margin_ema]  = $eval.[eval2] @train $exp_step action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
+M1.[52_eval2/53_iqn_policy_margin_mc_ratio_ema] = $eval.[eval2] @train $exp_step iqn_policy_margin_mc_ratio $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/54_iqn_uqe_full_q_argmax_disagreement_ema] = $eval.[eval2] @train $exp_step iqn_uqe_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/55_noop_full_q_margin_ema] = $eval.[eval2] @train $exp_step action_full_q_margin.[0] $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/56_policy_upper_truncated_std_ema] = $eval.[eval2] @train $exp_step policy_upper_truncated_std $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/57_policy_lower_truncated_std_ema] = $eval.[eval2] @train $exp_step policy_lower_truncated_std $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/58_lower_risk_full_q_argmax_disagreement_ema] = $eval.[eval2] @train $exp_step lower_risk_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/59_quantile_crossing_ratio_ema] = $eval.[eval2] @train $exp_step quantile_crossing_ratio $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/60_policy_selected_crossing_depth_p90_ratio_ema] = $eval.[eval2] @train $exp_step policy_selected_crossing_depth_p90_ratio $action_info $ema ema_alpha:0.01 interval:100
+M1.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @session_end $env mean.ep_max_rank               $ema ema_alpha:0.01
+M1.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @session_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
+M1.[52_eval2/63_double_suika_achieved_ema] = $eval.[eval2] @session_end $env $exp_step mean.ep_double_suika_achieved $ema ema_alpha:0.01
+M1.[52_eval2/73_tr_blk_mean]          = $eval.[eval2] @session_end $env mean.term_reason_spawn_blocked
+M1.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @session_end $env mean.term_reason_no_drop_timeout
+M1.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @session_end $env mean.term_reason_no_legal_drop
+M1.[52_eval2/77_blkdrop_cand_mean]    = $eval.[eval2] @session_end $env mean.blocked_drop_on_candidate
+M1.[52_eval2/78_timeout_cand_mean]    = $eval.[eval2] @session_end $env mean.no_drop_timeout_on_candidate
+M1.[52_eval2/79_terminal_blocked_frames_mean] = $eval.[eval2] @session_end $env mean.ep_terminal_blocked_frames
+M1.[52_eval2/80_blocked_run_count_mean] = $eval.[eval2] @session_end $env mean.ep_blocked_run_count
+M1.[52_eval2/81_same_drop_col_ratio_mean] = $eval.[eval2] @session_end $env mean.ep_same_drop_col_ratio
+M1.[52_eval2/83_tr_blk_mean_ema]      = $eval.[eval2] @session_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
+M1.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @session_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01
+M1.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @session_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
+M1.[52_eval2/86_blkdrop_cand_mean_ema] = $eval.[eval2] @session_end $env mean.blocked_drop_on_candidate $ema ema_alpha:0.01
+M1.[52_eval2/87_timeout_cand_mean_ema] = $eval.[eval2] @session_end $env mean.no_drop_timeout_on_candidate $ema ema_alpha:0.01
+M1.[52_eval2/88_same_drop_col_ratio_mean_ema] = $eval.[eval2] @session_end $env mean.ep_same_drop_col_ratio $ema ema_alpha:0.01
 
 
 # ==============================================================================
@@ -1290,25 +1393,25 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 5000 # 重い場合
 
-#metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
-#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+#metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.@per-prio > image.phm.@s01
+#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.@visit-maxq
 
-#metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
-#image.thg.per-prio.histgram.probe.value.key = replaybuffer.per.distribution
-#image.thg.per-prio.histgram.frame_interval = 200 # 10
-#image.thg.per-prio.interval = 100
-#image.thg.per-prio.interval = 500
-#image.thg.per-prio.interval = 1000
+#metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.@per-prio
+#image.thg.@per-prio.histgram.probe.value.key = replaybuffer.per.distribution
+#image.thg.@per-prio.histgram.frame_interval = 200 # 10
+#image.thg.@per-prio.interval = 100
+#image.thg.@per-prio.interval = 500
+#image.thg.@per-prio.interval = 1000
 
-#metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
-#metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
-##metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
+#metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.@qmax > image.shm.@s01
+#metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.@qmax > image.shm.@s02
+##metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.@qmax > image.shm.01
 #metrics.image.[45_agent_img/05_shm_01_maxq_01].interval = 100
 
-#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
-#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
+#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.@per-prio > image.phm.@s01 > image.@test
+#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.@qmax > image.shm.01 > image.@test
 
-#metrics.image.[60_agent_img/01_conv2d].$ = image.conv2d
+#metrics.image.[60_agent_img/01_conv2d].$ = image.@conv2d
 
 #metrics.image.[60_agent_img/01_conv2d_16p].type = Conv2d
 #metrics.image.[60_agent_img/01_conv2d_16p].interval = 5
@@ -1388,95 +1491,95 @@ env.class_id = DropMergeEnv
 
 # --- DropMergeEnv ---
 
-DropMergeEnv.G2032.grid_cols = 20
-DropMergeEnv.G2032.grid_rows = 32
+DropMergeEnv.@G2032 : grid_cols = 20
+DropMergeEnv.@G2032 : grid_rows = 32
 
-DropMergeEnv.G4064.grid_cols = 40
-DropMergeEnv.G4064.grid_rows = 64
+DropMergeEnv.@G4064 : grid_cols = 40
+DropMergeEnv.@G4064 : grid_rows = 64
 
-DropMergeEnv.G4050.grid_cols = 40
-DropMergeEnv.G4050.grid_rows = 50
+DropMergeEnv.@G4050 : grid_cols = 40
+DropMergeEnv.@G4050 : grid_rows = 50
 
-DropMergeEnv.G6444.grid_cols = 64
-DropMergeEnv.G6444.grid_rows = 44
+DropMergeEnv.@G6444 : grid_cols = 64
+DropMergeEnv.@G6444 : grid_rows = 44
 
-DropMergeEnv.G5846.grid_cols = 58
-DropMergeEnv.G5846.grid_rows = 46
+DropMergeEnv.@G5846 : grid_cols = 58
+DropMergeEnv.@G5846 : grid_rows = 46
 
 
 # --- DropMergeEnv fun1
 
-#DropMergeEnv.fun1.gravity = -2.0            # -10.0。フワッフワ
-DropMergeEnv.fun1.restitution = 0.95        # スーパーボール。壁や床で跳ねまくり
-DropMergeEnv.fun1.pop_force = 2.0           # 合体した瞬間に周囲の果物を豪快に吹き飛ばし
-DropMergeEnv.fun1.game_over_grace_step=9999 # 画面外にぶっ飛んでもゲームオーバーにならない
-DropMergeEnv.fun1.fruit_densities = 500.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.01, 0.001  # さくらんぼがブラックホール
-DropMergeEnv.fun1.spin_noise = 200          # 果物がドリルのように超高速回転
-DropMergeEnv.fun1.friction = 1              # 高摩擦
-DropMergeEnv.fun1.box_friction = 1          # 箱の摩擦
-DropMergeEnv.fun1.damping = 0.0             # 一度回ったら永遠に止まらない
-DropMergeEnv.fun1.use_instant_drop = false
+#DropMergeEnv.@fun1 : gravity = -2.0            # -10.0。フワッフワ
+DropMergeEnv.@fun1 : restitution = 0.95        # スーパーボール。壁や床で跳ねまくり
+DropMergeEnv.@fun1 : pop_force = 2.0           # 合体した瞬間に周囲の果物を豪快に吹き飛ばし
+DropMergeEnv.@fun1 : game_over_grace_step=9999 # 画面外にぶっ飛んでもゲームオーバーにならない
+DropMergeEnv.@fun1 : fruit_densities = 500.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.01, 0.001  # さくらんぼがブラックホール
+DropMergeEnv.@fun1 : spin_noise = 200          # 果物がドリルのように超高速回転
+DropMergeEnv.@fun1 : friction = 1              # 高摩擦
+DropMergeEnv.@fun1 : box_friction = 1          # 箱の摩擦
+DropMergeEnv.@fun1 : damping = 0.0             # 一度回ったら永遠に止まらない
+DropMergeEnv.@fun1 : use_instant_drop = false
 
 
 # --- DropMergeEnv Realistic 現実に近い感じ スイカ作りやすい？
 
-DropMergeEnv.realistic.friction = 0.1      # 摩擦ツルツルなので重い果物が下方に落ち込みやすい
-DropMergeEnv.realistic.restitution = 0.05  # 反発係数 弾みにくい
-# DropMergeEnv.realistic.fruit_densities = 3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0 　 # 全部同じ密度。面積が大きいほど重い。スイカはサクランボの約87倍の重さ
-DropMergeEnv.realistic.fruit_densities = 3.0  2.9  3.4  4.0  5.0  6.4  8.4  11.5  16.2  24.0  35.3  # 質量保存の法則 スイカはさくらんぼの1024倍重い！
+DropMergeEnv.@realistic : friction = 0.1      # 摩擦ツルツルなので重い果物が下方に落ち込みやすい
+DropMergeEnv.@realistic : restitution = 0.05  # 反発係数 弾みにくい
+# DropMergeEnv.@realistic : fruit_densities = 3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0 　 # 全部同じ密度。面積が大きいほど重い。スイカはサクランボの約87倍の重さ
+DropMergeEnv.@realistic : fruit_densities = 3.0  2.9  3.4  4.0  5.0  6.4  8.4  11.5  16.2  24.0  35.3  # 質量保存の法則 スイカはさくらんぼの1024倍重い！
 
 
 # --- DropMergeEnv Heavy ドバドバ落としても難しい物性
 
-DropMergeEnv.heavy.friction = 0.3      # 摩擦: 0.1(液体) -> 0.3(物体)  隙間に勝手に滑り込むのを防ぐ
-DropMergeEnv.heavy.restitution = 0.1   # 0.05(粘土) -> 0.2(ゴム)       適当に落とすと弾かれて計算が狂う
-#DropMergeEnv.heavy.fruit_densities = 10.0  6.5  4.8  3.4  2.4  1.75  1.26  0.93  0.75  0.59  0.48  # ランクが上がるごとに少しずつ重くなる (スイカはさくらんぼの4倍重い）
-DropMergeEnv.heavy.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
-# DropMergeEnv.heavy.pop_force = 0.1   # 爆発で事故を少し誘発
+DropMergeEnv.@heavy : friction = 0.3      # 摩擦: 0.1(液体) -> 0.3(物体)  隙間に勝手に滑り込むのを防ぐ
+DropMergeEnv.@heavy : restitution = 0.1   # 0.05(粘土) -> 0.2(ゴム)       適当に落とすと弾かれて計算が狂う
+#DropMergeEnv.@heavy : fruit_densities = 10.0  6.5  4.8  3.4  2.4  1.75  1.26  0.93  0.75  0.59  0.48  # ランクが上がるごとに少しずつ重くなる (スイカはさくらんぼの4倍重い）
+DropMergeEnv.@heavy : fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
+# DropMergeEnv.@heavy : pop_force = 0.1   # 爆発で事故を少し誘発
 
 
 # --- DropMergeEnv 通常設定
 
 # 果物スコア
 #                                     1    2    3    4   5   6   7   8   9    10   11
-#DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.6  1.0 1.5 2.1 2.8 3.6  4.5  5.5   6.6      # 本家相当。ただし本家ではダブルスイカ(ランク11)でスコア入らない
-#DropMergeEnv.baseline.fruit_scores = 0.01 0.02 0.05 0.1 0.2 0.5 1.5 4.0 10.0 30.0 100.0
-#DropMergeEnv.baseline.fruit_scores = 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 1.0  4.0  10.0 100.0
-#DropMergeEnv.baseline.fruit_scores  = 0.001  0.002  0.005  0.01   0.05   0.15   0.50   1.50 4.00 10.0 100.0
-DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000.0  # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
+#DropMergeEnv.@baseline : fruit_scores = 0.1  0.3  0.6  1.0 1.5 2.1 2.8 3.6  4.5  5.5   6.6      # 本家相当。ただし本家ではダブルスイカ(ランク11)でスコア入らない
+#DropMergeEnv.@baseline : fruit_scores = 0.01 0.02 0.05 0.1 0.2 0.5 1.5 4.0 10.0 30.0 100.0
+#DropMergeEnv.@baseline : fruit_scores = 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 1.0  4.0  10.0 100.0
+#DropMergeEnv.@baseline : fruit_scores  = 0.001  0.002  0.005  0.01   0.05   0.15   0.50   1.50 4.00 10.0 100.0
+DropMergeEnv.@baseline : fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000.0  # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
 
-DropMergeEnv.baseline.use_fast_move = true
-DropMergeEnv.baseline.use_instant_drop = true
+DropMergeEnv.@baseline : use_fast_move = true
+DropMergeEnv.@baseline : use_instant_drop = true
 
-#DropMergeEnv.baseline.restitution = 0.05      # 反発係数
-#DropMergeEnv.baseline.restitution = 0.10        # 反発係数
-DropMergeEnv.baseline.restitution = 0.05        # 反発係数 衝撃吸収
+#DropMergeEnv.@baseline : restitution = 0.05      # 反発係数
+#DropMergeEnv.@baseline : restitution = 0.10        # 反発係数
+DropMergeEnv.@baseline : restitution = 0.05        # 反発係数 衝撃吸収
 
-#DropMergeEnv.baseline.friction = 0.3          # 摩擦
-DropMergeEnv.baseline.friction = 0.1          # 摩擦 ツルツル
+#DropMergeEnv.@baseline : friction = 0.3          # 摩擦
+DropMergeEnv.@baseline : friction = 0.1          # 摩擦 ツルツル
 
-#DropMergeEnv.baseline.time_penalty = -0.0001   # NEET対策
-#DropMergeEnv.baseline.time_penalty = -0.005    # NEET対策
-DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ無し
+#DropMergeEnv.@baseline : time_penalty = -0.0001   # NEET対策
+#DropMergeEnv.@baseline : time_penalty = -0.005    # NEET対策
+DropMergeEnv.@baseline : time_penalty = 0.0        # 時間ペナルティ無し
 
-DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
-#DropMergeEnv.baseline.game_over_penalty = -5.0    # GameOverペナルティ
-#DropMergeEnv.baseline.game_over_penalty = -100.0  # GameOverペナルティ
-#DropMergeEnv.baseline.game_over_penalty = 0.0     # GameOverペナルティ 与えるとDROPしないNEETになってしまう場合が多い
+DropMergeEnv.@baseline : game_over_penalty = -10.0   # GameOverペナルティ
+#DropMergeEnv.@baseline : game_over_penalty = -5.0    # GameOverペナルティ
+#DropMergeEnv.@baseline : game_over_penalty = -100.0  # GameOverペナルティ
+#DropMergeEnv.@baseline : game_over_penalty = 0.0     # GameOverペナルティ 与えるとDROPしないNEETになってしまう場合が多い
 
-DropMergeEnv.baseline.action_mode = direct_noop  # move move_fast direct direct_noop
-DropMergeEnv.baseline.use_settle_after_drop = false
-DropMergeEnv.baseline.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
-DropMergeEnv.baseline.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
-DropMergeEnv.baseline.no_drop_timeout_steps = 100  # 物性安定待ち挙動に対応
+DropMergeEnv.@baseline : action_mode = direct_noop  # move move_fast direct direct_noop
+DropMergeEnv.@baseline : use_settle_after_drop = false
+DropMergeEnv.@baseline : settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
+DropMergeEnv.@baseline : damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
+DropMergeEnv.@baseline : no_drop_timeout_steps = 100  # 物性安定待ち挙動に対応
 
 
 # --- DropMergeEnv 本家風
 
-DropMergeEnv.orig.fruit_scores = 0.1 0.3 0.6 1.0 1.5 2.1 2.8 3.6 4.5 5.5 0.0    #  ダブルスイカ(ランク11)でスコア入らない
-DropMergeEnv.orig.use_fast_move = false
-DropMergeEnv.orig.use_instant_drop = false
-DropMergeEnv.orig.game_over_grace_step = 1
+DropMergeEnv.@orig : fruit_scores = 0.1 0.3 0.6 1.0 1.5 2.1 2.8 3.6 4.5 5.5 0.0    #  ダブルスイカ(ランク11)でスコア入らない
+DropMergeEnv.@orig : use_fast_move = false
+DropMergeEnv.@orig : use_instant_drop = false
+DropMergeEnv.@orig : game_over_grace_step = 1
 
 
 # --- DropMergeEnv デフォルト設定
@@ -1530,19 +1633,18 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 # --- Eval設定 ---
 
 
-#train.eval.[eval1].interval = 0
-#train.eval.[eval2].interval = 0
-#train.eval.[eval1].interval = 1000
-#train.eval.[eval2].interval = 10
-#train.eval.[eval1].interval = 500
-#train.eval.[eval2].interval = 500
-train.eval.[eval1].interval = 100
-train.eval.[eval2].interval = 100
+#train.eval_schedule.[eval1].interval = 0
+#train.eval_schedule.[eval2].interval = 0
+#train.eval_schedule.[eval1].interval = 1000
+#train.eval_schedule.[eval2].interval = 10
+#train.eval_schedule.[eval1].interval = 500
+#train.eval_schedule.[eval2].interval = 500
+train.eval_schedule.[eval1].interval = 100
+train.eval_schedule.[eval2].interval = 100
 
 #DropMergeEnv.test1.max_step = 8000
-#train.eval.[test1].interval = 5000
+#train.eval_schedule.[test1].interval = 5000
 #train.eval.[test1].run_mode = eval1
-#train.eval.[test1].env.$ = DropMergeEnv.standard > DropMergeEnv.test1 > E1
 
 
 ##==================================================================
@@ -1553,14 +1655,14 @@ train.eval.[eval2].interval = 100
 # Rank	果物	単体報酬	必要DROP数	累積コスト 累積獲得報酬 純利益 備考
 #1   サクランボ	-			1			-0.06	0.0		-0.06	落下のみは赤字
 #2		イチゴ	0.3			2			-0.12	0.3		+0.18	ここから黒字化
-#3		ブドウ	0.7			4			-0.24	1.3		+1.06	
-#4	デコポン	1.5			8			-0.48	4.1		+3.62	
-#5		カキ	3.1			16			-0.96	11.3	+10.34	
-#6		リンゴ	6.3			32			-1.92	28.9	+26.98	
-#7		ナシ	12.7		64			-3.84	70.5	+66.66	
-#8		モモ	25.5		128			-7.68	166.5	+158.82	
-#9		パイン	51.1		256			-15.36	384.1	+368.74	
-#10		メロン	102.3		512			-30.72	870.5	+839.78	
+#3		ブドウ	0.7			4			-0.24	1.3		+1.06
+#4	デコポン	1.5			8			-0.48	4.1		+3.62
+#5		カキ	3.1			16			-0.96	11.3	+10.34
+#6		リンゴ	6.3			32			-1.92	28.9	+26.98
+#7		ナシ	12.7		64			-3.84	70.5	+66.66
+#8		モモ	25.5		128			-7.68	166.5	+158.82
+#9		パイン	51.1		256			-15.36	384.1	+368.74
+#10		メロン	102.3		512			-30.72	870.5	+839.78
 #11		スイカ	205.0		1024		-61.44	1946.0	+1884.56	圧倒的黒字
 ##==================================================================
 

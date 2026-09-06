@@ -29,26 +29,34 @@ wxDECLARE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 class RunnerApp final : public wxApp {
 public:
+    ~RunnerApp() override;
     bool OnInit() override;
+    int OnRun() override;
     int OnExit() override;
     bool OnExceptionInMainLoop() override;
     void OnUnhandledException() override;
 public:
     void ToggleTraining();
+    void PauseTraining();
     void StopTraining();
+    bool IsTrainingPaused() const;
+    bool IsTrainingRunning() const;
     anet::ConfigData GetConfigData() const { return config_mgr_->GetConfigData(); }
     anet::rl::RunManager& GetRunManager() { return *run_manager_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 	wxFrame* GetMainFrame() { return frame_; }
     
     std::filesystem::path GetRunDir();
-    std::ofstream GetOutputStream(const std::string& file_name);
-    int64_t SaveAgent(const std::string& file_name);
+    int64_t SaveAgent(const std::filesystem::path& file_path);
     void FlushRunOutputs();
     void ShutdownRunLogging();
+    bool ShouldShowErrorDialog() const { return show_error_dialog_; }
 private:
+    void SetTrainingPaused(bool paused);
     void InitTrainer();
     void showFatalError();
+    void SetupNonModalErrorLogging();
+    void ShutdownNonModalErrorLogging();
     bool WriteLastRunName(const std::string& run_name) const;
     void SetupLogging();
     void FlushTextLog();
@@ -63,10 +71,14 @@ private:
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
     std::unique_ptr<anet::rl::ImageProviderManager> img_prov_mgr_;
     anet::StandardStreamLogger standard_stream_logger_;
+    std::unique_ptr<wxLogStderr> non_modal_log_target_;
+    wxLog* previous_log_target_ = nullptr;
     wxTimer text_log_flush_timer_;
     wxLogChain* run_log_chain_ = nullptr;
+    bool show_error_dialog_ = true;
+    bool fatal_error_seen_ = false;
     bool auto_pause_done_ = false;
-    RunnerFrame* frame_;
+    RunnerFrame* frame_ = nullptr;
 };
 
 wxDECLARE_APP(RunnerApp);

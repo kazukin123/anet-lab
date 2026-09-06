@@ -132,6 +132,8 @@ namespace anet::rl {
         TimeHistogramObserverConfig config_;
         std::unique_ptr<anet::TimeHistogram> histogram_;    ///< @todo ptr外し
         std::shared_ptr<VectorProbe> probe_;
+        std::optional<anet::IntervalGate> frame_gate_;      ///< frame_interval <= 0 で無効
+        std::optional<anet::IntervalGate> log_gate_;        ///< log_interval <= 0 で無効
     private:
         std::shared_mutex mutex_;
         step_t captured_step_ = 0;
@@ -207,6 +209,7 @@ namespace anet::rl {
         int grid_w_ = 0;
         int grid_h_ = 0;
         std::unique_ptr<anet::HeatMap> heatmap_;
+        std::optional<anet::IntervalGate> log_gate_;    ///< log_interval <= 0 で無効
     private:
         std::shared_mutex mutex_;
         step_t captured_step_ = 0;
@@ -224,13 +227,13 @@ namespace anet::rl {
 
         ~EpisodeEvalObserver() override;
     private:
-        void RunEvaluationEpisode(const StepCounts& event_counts);      ///< EvalRunnerをエピソード終端まで駆動
+        void RunEvaluationSession(const StepCounts& event_counts);      ///< EvalRunnerを評価session完了まで駆動
         void RethrowCompletedBackgroundEval();                          ///< 完了済みのバックグラウンド評価失敗を呼び出し元へ伝播
         void WaitBackgroundEval();                                      ///< 前回のバックグラウンド評価を待ち、失敗していれば呼び出し元へ伝播
     private:
         std::shared_ptr<EvalRunner> eval_runner_;
-        const int eval_interval_;
         const bool use_background_;
+        std::optional<anet::IntervalGate> eval_gate_;   ///< eval_interval <= 0 で無効
 
         std::unique_ptr<anet::PinnedThreadPool> eval_pool_;
         std::future<void> eval_future_;
@@ -318,6 +321,10 @@ namespace anet::rl {
     private:
         using MetricsData = std::pair<step_t, std::optional<float>>;
         using MetricsDataList = std::vector<MetricsData>;
+        struct UpdateResultMetricsLookup {
+            bool recognized = false;
+            MetricsDataList data_list;
+        };
     private:
         MetricsDataList GetMetricsDataList(
             const StepCounts& counts,
@@ -336,15 +343,18 @@ namespace anet::rl {
             const BatchExperience* experience,
             std::shared_ptr<const BatchActionInfo> action_info,
             EventField event_field);
-        MetricsDataList GetMetricsDataListFromUpdateResultList(
+        UpdateResultMetricsLookup GetMetricsDataListFromUpdateResultList(
             const StepCounts& counts,
             const BatchUpdateResultList* update_result_list);
+
+        /// interval を検証して IntervalGate 用の値へ変換する（1 未満は ANET_SYSTEM_ERROR）
+        static uint64_t ValidateMetricsInterval(const std::string& tag, int interval);
     protected:
         std::string key_;
         anet::rl::StepAxis step_axis_;
         std::optional<anet::rl::EventField> event_field_;
         bool is_ema_;
-		int interval_;
+		anet::IntervalGate gate_;
 		anet::EmaFilter<float> val_ema_;
         std::optional<float> clip_;
     };
@@ -385,6 +395,33 @@ namespace anet::rl {
         virtual std::string ToString() const override { return ToStringInternal(); }
     };
 
+    class MetricsLogSessionEndObserver : public MetricsLogObserverBase, public SessionEndObserver {
+    public:
+        MetricsLogSessionEndObserver(const std::string& tag, const std::string& key,
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+            int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
+
+        void OnSessionEnd(const SessionEndEvent& event) override
+        {
+            OnGenericUpdate(event.counts, event.agent, event.runner, event.env, nullptr, nullptr);
+        }
+        std::string GetClassName() const override { return "MetricsLogSessionEndObserver"; }
+        virtual std::string ToString() const override { return ToStringInternal(); }
+    };
+
+
+    class MetricsLogTraceObserver : public TaggedObserver, public EpisodeEndObserver {
+    public:
+        MetricsLogTraceObserver(const std::string& tag, std::vector<std::string> keys,
+            StepAxis step_axis, EventField field);
+        void OnEpisodeEnd(const EpisodeEndEvent& event) override;
+        std::string GetClassName() const override { return "MetricsLogTraceObserver"; }
+        std::string ToString() const override { return ToStringInternal(); }
+    private:
+        std::vector<std::string> keys_;
+        StepAxis step_axis_;
+        EventField field_;
+    };
 
     // -----------------------------------------------------------------
     // GraphVizObserver
@@ -436,15 +473,67 @@ namespace anet::rl {
             std::string eval_name;
             std::shared_ptr<anet::rl::EpisodeEndObserver> obs;
         };
+        struct ParsedSessionEndObserver {
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::shared_ptr<anet::rl::SessionEndObserver> obs;
+        };
+
+        /// scalar metric 1 件の解決済み定義。
+        /// 設定の書き方ではなく、実際に構築した Observer の内容を表す。
+        /// 解析側はこれを正本として読み、設定から step 座標系を再導出しない (ADR 0029)。
+        struct ScalarMetricDef {
+            std::string tag;
+            std::string step_axis;      ///< train_step / exp_step など、config token と同じ表記
+            std::string runner;         ///< step counter を所有する Runner。train または eval 名
+            std::string event;          ///< train / learn / episode_end / session_end
+            std::string target;         ///< agent / env / exp / update_result / runner / action_info。未指定は空
+            std::string source_key;     ///< metric key として採用した token
+            bool has_ema = false;
+            float ema_alpha = 0.0f;
+            int interval = 1;
+            std::optional<float> clip;
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::optional<int> eval_episodes;  ///< RunManager が付与するセッション採用予定数
+            std::optional<int64_t> num_envs;   ///< 構築済み eval Env の lane 数。SHARED の group 数ではない
+            ScalarMetricSubscription subscription;
+        };
+        /// trace の解決済み定義。keys の順序は値の取得順と同じ。
+        struct TraceMetricDef {
+            std::string tag;
+            std::string step_axis;
+            std::string runner;
+            std::string event;
+            std::string target;
+            std::vector<std::string> keys;
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::optional<int> eval_episodes;
+            std::optional<int64_t> num_envs;
+        };
     public:
         ObserverFactory(const ConfigData& config_data);
 
         std::vector<ParsedTrainObserver> GetUpdateObservers() { return train_observers_; }
         std::vector<ParsedLearnObserver> GetLearnObservers() { return learn_observers_; }
         std::vector<ParsedEpisodeEndObserver> GetEpisodeEndObservers() { return episode_end_observers_; }
+        std::vector<ParsedSessionEndObserver> GetSessionEndObservers() { return session_end_observers_; }
+        const std::vector<ScalarMetricDef>& GetScalarMetricDefs() const { return scalar_metric_defs_; }
+        const std::vector<TraceMetricDef>& GetTraceMetricDefs() const { return trace_metric_defs_; }
     private:
         std::vector<ParsedTrainObserver> train_observers_;
         std::vector<ParsedLearnObserver> learn_observers_;
         std::vector<ParsedEpisodeEndObserver> episode_end_observers_;
+        std::vector<ParsedSessionEndObserver> session_end_observers_;
+        std::vector<ScalarMetricDef> scalar_metric_defs_;
+        std::vector<TraceMetricDef> trace_metric_defs_;
     };
+
+    /// scalar metric の解決済み定義を `metrics.scalar.defs` レコードの data 部へ変換する。
+    /// tag をキーにした object を返す。未設定の target / EMA / clip と train scope の eval 情報は null。
+    anet::json ScalarMetricDefsToJson(const std::vector<ObserverFactory::ScalarMetricDef>& defs);
+    /// trace metric の定義を、宣言順の keys 配列を持つ object へ変換する。
+    anet::json TraceMetricDefsToJson(const std::vector<ObserverFactory::TraceMetricDef>& defs);
+
 }

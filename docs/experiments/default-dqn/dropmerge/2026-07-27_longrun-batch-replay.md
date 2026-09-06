@@ -7,20 +7,23 @@
 | 対象 Agent | DefaultDQNAgent 系 |
 | 対象 Env | DropMerge |
 | 開始日 | 2026-07-27 |
-| 最終更新 | 2026-08-08 |
-| 状態 | active |
+| 最終更新 | 2026-08-12 |
+| 状態 | 一旦クローズ（機構分離・再現性の残件は次 campaign へ保留） |
 | 主目的 | 長期 Run の最終成績を優先しつつ、実時間効率を悪化させる冗長な更新を減らす |
 | 比較上の注意 | 非決定論・単一 lineage が中心。小差を因果効果として断定しない |
 
 ## 現時点のまとめ
 
-1. 現在の最終成績優先ラインは `batch_size=512`, `replay_ratio=2.0` とする。
+1. 成熟した checkpoint から継続する最終成績優先ラインは `batch_size=512`, `replay_ratio=2.0` とする。scratch 初期からの適用は Q 過熱リスクがあり、主力としない。
 2. `batch_size=256`, `replay_ratio=1.0` は throughput に優れるが、cy07 の同一 checkpoint 分岐では 107M までに性能差を回収できず、後半も停滞した。
 3. B512/RR2 の優位は「batch を大きくした効果」と「1 experience あたりの再生 sample 数を増やした効果」をまだ分離できていない。
 4. `batch_size=512`, `replay_ratio=1.0` は、その分離に使える未実行の診断候補である。ただし最終成績を直接改善する事前期待は低い。
 5. 設定上の `alpha` を変更した Run は、checkpoint から AdamW の param group options が復元されるため、学習率 A/B としては無効化する。batch / replay の履歴まで無効になるわけではない。
 6. ここでの判断は single-seed、非決定論、継続学習 lineage 上のものとし、普遍的な最適値とは扱わない。
 7. cy07 から B512/RR2 を再開した追加 100M では、終盤の Eval と Double Suika 率が cy07 終盤を上回った。改善余地は残るが、異常終了により checkpoint は保存されていない。
+8. B512/RR2 を scratch から開始した 80M Run では、Q バブル、条件付き NEET、Eval reward 低下が同期した。成熟 lineage での成功を scratch 初期へ一般化しない。
+9. IQN 対応後 binary の QR51 / B128/RR1.25 対照は 35.59M で正常 close した。旧 cy01 と同一 window の Eval 差は約2〜3%、Q / loss は同水準であり、QR 互換性と scratch 安定性を再確認した。
+10. 後続の QR51 / B256/RR1 scratch 100M は、B128/RR1.25 と同等水準の終盤 reward をより短い実時間で維持した。B256/RR1 は短期探索基準、B512/RR2 は成熟 checkpoint の最終成績優先という段階別の使い分けで campaign を閉じる。
 
 ## この文書の読み方・更新規則
 
@@ -286,7 +289,7 @@ DefaultDQN の checkpoint は AdamW optimizer state と param group options を�
 したがって、これらを学習率 A/B として解釈してはいけない。
 一方、B512/RR2 で長期学習が成立したこと、各 cycle の性能・安定性・PER 観測は、alpha 以外の時系列証拠として残る。
 
-checkpoint の save / load 契約、optimizer の扱い、Run 全体の serialization 方針は `docs/memo/999_serialize_10prd.txt` に暫定整理している。
+checkpoint の save / load 契約、optimizer の扱い、Run 全体の serialization 方針は `docs/memo/930_serialize_10prd.md` に暫定整理している。
 
 ### 次の探索
 
@@ -378,7 +381,7 @@ B512/RR2 の利点候補は二つ残る。
 ## 探索ブロック 08: B512/RR1 で batch と sample budget を分離する
 
 **記録時点:** 2026-08-08  
-**状態:** pending  
+**状態:** deferred / 未実行
 **確度:** 未実行
 
 ### 探索観点
@@ -494,13 +497,155 @@ batch size と replay sample budget の寄与を分離する場合は、探索�
 
 ---
 
-## 未解決の問い
+## 探索ブロック 10: scratch 開始 B512/RR2 の Q バブルと条件付き NEET
 
-1. B512/RR2 の優位は batch size と RR2 のどちらが支配的か。
-2. B512/RR2 の追加実時間は、さらに cycle を重ねた最終成績差として回収できるか。
-3. 長期後半に ReplayBuffer capacity、sample age、PER alpha を調整すると plateau を越えられるか。
-4. optimizer / scheduler / scaler を含む Run 全体の save / load 契約を確立した後、学習率を再探索すべきか。
-5. single-seed の lineage 依存と、設定差の再現性をどこまで切り分けるか。
+**記録時点:** 2026-08-10
+
+**状態:** completed / 正常 close
+
+**確度:** medium-low、single-seed・非決定論。v0.3.0 release binary と過去 Run の binary 差を含む
+
+### 探索観点
+
+成熟した QR lineage で性能優先設定として採用した B512/RR2 を、scratch 初期から適用しても安定に学習できるかを確認する。
+特に、B128/RR1.25 から段階的に B256/RR1、B512/RR2 へ移した過去 lineage と異なり、初期の不安定な価値推定へ replay sample budget 2.0 を直接与えた場合の Q、NEET、終端、報酬を観測する。
+
+### 探索条件・対象 Run
+
+| Run | 親 | 実効設定 | 到達・停止 |
+|---|---|---|---|
+| `run_20260810-001224_dm_B512R200★` | なし（scratch） | v0.3.0、QR51、IMPALA2-ViT128、B512/RR2 | `80,000,256 exp-step`、約9時間53分。正常 close、checkpoint 899,155,310 bytes、stderr 空 |
+
+Run artifact の `config/config_data.txt` で、`use_qr=true`、`num_quantiles=51`、`replay_batch_size=512`、`replay_ratio=2.0`、`gamma=0.997`、n-step 1、`use_optimistic_target=false` を確認した。
+Env は `direct_noop`、`use_instant_drop=true`、stack 4、NoLegal Phase 2（N=60）、prev-action trio / DROP marker ON、NoDrop timeout 100 / penalty -10、`time_penalty=0`、`noop_penalty=0` である。
+
+外部映像証拠として、Train の `2026-08-10 09-55-56.mp4` と Eval の `2026-08-10 10-13-52.mp4` を取得した。保存先は Run artifact と別管理のため、文書からローカル絶対パスは参照しない。
+
+### 探索結果
+
+#### Run 内の推移
+
+| 指標 | 10〜20M | 40〜50M | 70〜80M | 判断 |
+|---|---:|---:|---:|---|
+| Eval target reward EMA | 約830 | 約734 | 約707 | 初期ピークから低下 |
+| Eval policy reward EMA | 約813 | 約642 | 約659 | 初期ピークを回収せず |
+| `q_max_real_mean` | 約33.9 | 約437.6 | 約73.9 | 大きな山の後に収縮中 |
+| `q_max_real_max` 平均 | 約90.7 | 約6,936.5 | 約654.2 | 40〜50M の区間最大は約25,226 |
+| loss EMA | 約0.059 | 約31.9 | 約0.86 | 収縮したが未正常化 |
+
+70〜80Mの最終記録値はEval target約768、policy約696、`q_max_real_mean`約59.5、`q_max_real_max`約402、loss約0.42まで回復した。
+しかし区間水準は10〜20Mのrewardを回収せず、正常なB128/RR1.25のQ / loss水準にも戻っていない。
+
+#### B128/RR1.25 scratch 基準との同一 step 比較
+
+| 指標（70〜80M） | B512/RR2 scratch | cy01 B128/RR1.25 scratch | 傾向 |
+|---|---:|---:|---|
+| Eval target reward EMA | 約707 | 約1621 | B512/RR2が約56%低い |
+| Eval policy reward EMA | 約659 | 約1551 | B512/RR2が約57%低い |
+| `q_max_real_mean` | 約73.9 | 約8.17 | B512/RR2が約9倍 |
+| `q_max_real_max` 平均 | 約654 | 約12.97 | B512/RR2が約50倍 |
+| loss EMA | 約0.86 | 約0.026 | B512/RR2が約33倍 |
+| Eval1 NoDropTimeout EMA | 約7.6% | 約1.5% | B512/RR2で増加 |
+| Eval2 NoDropTimeout EMA | 約10.1% | 約1.3% | B512/RR2で増加 |
+
+比較対象は主要なAgent / Env / NN設定を揃えているが、single-seed、非決定論、binary時点差があるため、B512/RR2の因果効果量とは断定しない。
+
+#### NOOP、終端、映像所見
+
+- 70〜80MのEval NOOP UQE優位率EMAはEval1約84.0%、Eval2約85.1%だった。一方、margin EMAは両Evalとも約+0.0038で、広い状態で薄いNOOP優位が残った。これらのNOOP EMAはartifact上でtrain-step軸のため、`num_envs=256`を掛けてexp-stepへ換算した。
+- NoDropTimeout EMAの70〜80M平均はEval1約7.6%、Eval2約10.1%。最終値は約2.4% / 3.4%まで回復したが、終盤window全体では高い。
+- 80M最終時点のNoLegal EMAは両Evalとも0、SpawnBlocked EMAは約96.4%。Double Suika（Rank 12）はログで未観測だった。
+- reset NOOP marginは負であり、Reset直後からNOOPへ固定される方策ではなかった。映像でも、数回DROPして盤面を形成した後、果実の落下・移動中にNOOPを選び、混雑盤面ではDROPへ戻る状態依存性を確認した。
+- Eval Q tableでは、物性待ち状態でNOOPのmeanがDROP群を上回り、分布stdも小さかった。混雑盤面では差が消えたため、全actionの順位が無秩序になった全面的なNN破綻ではない。
+
+### 考察
+
+NOOPでも物理演算と既存fruitのmergeが進み、そのstepのmerge scoreを報酬として受け取れるため、物性安定待ちは局所的に合理的な技能である。
+本Runはその技能自体を獲得したが、薄いNOOP優位が広い状態へ汎化し、NoDropTimeout増加とEval reward低下を伴った。したがって「技能の発見には成功したが、適用範囲と価値推定に失敗した」Runと扱う。
+
+Qの絶対値は20〜50Mに大きく膨張し、その後収縮した一方、映像上のaction順位には状態依存の構造が残った。
+絶対Qの校正不良と相対順位の部分的な有効性は両立しており、Qバブルが局所的な待機価値を過剰汎化した有力仮説である。
+
+ただし、B512/RR2が原因とは確定しない。single-seed、非決定論、binary差があり、初期経験分布や偶発的な局所 attractor も候補に残る。
+成熟checkpointからのB512/RR2は探索ブロック05〜09で性能改善と安定継続を示しているため、その結果を無効化しない。
+
+### 次の探索
+
+`run_20260809-210009_iqn_qr`は探索ブロック11の時点で終了した。
+この対照だけでB512/RR2との因果を確定せず、B512/RR1によるbatch sizeとsample budgetの分離を将来課題として残す。
+
+### 現在の判断
+
+- **B512/RR2の成熟checkpoint継続:** 最終成績優先ラインとして維持
+- **B512/RR2のscratch開始:** Q過熱と局所技能の過剰汎化リスクがあるため主力から外す
+- **本Run:** 正常checkpointを持つ条件付きNEET / Qバブルの診断artifact
+- **因果判断:** B512/RR2を第一候補とするが未確定
+- **次の対照:** B128/RR1.25の`run_20260809-210009_iqn_qr`は正常終了。結果は探索ブロック11へ更新
+
+---
+
+## 探索ブロック 11: B128/RR1.25対照の終了とcampaignクローズ
+
+**記録時点:** 2026-08-12
+**状態:** completed / campaign close
+**確度:** medium-low、single-seed・非決定論。35.59Mの短期対照と別campaignの100M結果を含む
+
+### 探索観点
+
+IQN対応後binaryでもQR51 / B128/RR1.25のscratch安定性と旧cy01の傾向を再現できるかを確認し、scratch B512/RR2で観測したQ / NEETバブルがQR経路や新binary全般の破綻ではないことを確認する。
+あわせて、後続のB256/RR1 scratch 100Mを参照し、長期Run campaignの運用上の基準を確定する。
+
+### 探索条件・対象 Run
+
+| Run | 親 | 実効設定 | 到達・停止 |
+|---|---|---|---|
+| `run_20260809-210009_iqn_qr` | なし（scratch） | QR51、IMPALA2-ViT128、B128/RR1.25 | `35,594,496 exp-step`。正常 close、checkpoint 899,156,352 bytes、stderr空 |
+
+Run artifactの`config/config_data.txt`で、`quantile_mode=qr`、`qr.num_quantiles=51`、`replay_batch_size=128`、`replay_ratio=1.25`、`per_alpha=0.2`、`use_optimistic_target=false`、`use_spatial_exploration=true`を確認した。
+AutoPause後の再開を含むため、Runフォルダの開始・終了時刻から得られるwall timeはthroughput比較に使用しない。
+
+### 探索結果
+
+30〜35.59Mのmatched exp-step windowを旧cy01と比較した。
+
+| 指標 | 終了済みQR対照 | 旧cy01 B128/RR1.25 | 差・判断 |
+|---|---:|---:|---|
+| Eval target reward EMA | 約1386.0 | 約1417.7 | 約2.2%低い |
+| Eval policy reward EMA | 約1304.3 | 約1343.9 | 約2.9%低い |
+| `q_max_real_mean` | 約6.52 | 約6.84 | 同水準 |
+| `q_max_real_max`平均 | 約11.10 | 約11.63 | 同水準 |
+| loss EMA | 約0.0273 | 約0.0277 | 同水準 |
+| Double Suika | 両Eval 0 / 546 | 両Eval 0 / 546 | この早期windowでは未到達 |
+
+Evalの小差はsingle-seed・非決定論の範囲を分離できない。一方、scratch B512/RR2で見られた数十〜数千規模のQやloss膨張はなく、Q / lossの健康域と旧cy01に近い立ち上がりを再現した。
+35.59Mで終了したため、最終成績やNoLegal獲得を評価する長期Runとしては不足しているが、互換性・初期安定性の対照としては目的を満たした。
+
+別campaignで完了したQR51 / B256/RR1 scratch 100Mは、90〜100MのEval target reward EMA約1629、policy reward EMA約1584で、過去B128/RR1.25基準と同等水準を維持した。詳細は[IQN導入・QR比較](2026-08-09_iqn.md)を参照する。
+
+### 判断更新
+
+- **scratchの安定参照:** B128/RR1.25。更新密度が高く実時間は重いが、初期Q / lossの基準として残す。
+- **100M級ハイパラ探索の高速基準:** B256/RR1。scratch QRでは品質を維持したが、成熟checkpoint分岐では停滞したため、長期最終性能までは保証しない。
+- **成熟checkpointの最終成績優先:** B512/RR2。scratch初期からは使わず、十分学習した後の継続候補とする。
+- **普遍的な最適値:** 未確定。段階別の使い分けは今回lineageの運用判断であり、batch sizeを自動的に上げれば常に改善するとは結論しない。
+- **保存済みlineageの終点:** cy07。cy08は改善余地を示したがcheckpointを保存できなかった診断Runであり、再実行はcampaign closeの条件にしない。
+
+### クローズ判断
+
+このcampaignは、長期lineageをさらに延長して収束を証明するよりも、得られた段階別設定を次のIQN / QR探索へ引き継ぐ段階に達したと判断する。
+B512/RR1、batch schedule、ReplayBuffer後半調整、multi-seedは未解決だが、いずれも現lineageのクローズを妨げる必須作業ではない。
+
+---
+
+## 次campaignへ保留する残件
+
+1. **B512/RR1分離診断:** B512/RR2の優位がbatch sizeとreplay sample budgetのどちらに由来するかを切り分ける。機構理解の最優先残件だが、採用設定を決めるための必須Runではない。
+2. **段階的batch schedule:** B128→B256→B512のProfiledValue化を検討する。切替時はbatch sizeとRRを一組として定義し、replay credit、prefetch済みbatch、実効sample数、切替stepを診断できる実装が前提となる。
+3. **長期plateauのreplay診断:** ReplayBuffer capacity、sample age、PER coverageを観測してから一軸比較する。`per_alpha=0.1`の再試行は優先しない。
+4. **Run全体serialize後のoptimizer再探索:** optimizer / scheduler / scalerを含むsave / load契約を確立した後、実効学習率を確認して再探索する。今回の`alpha`分岐は学習率A/Bとして再利用しない。
+5. **再現性:** 採用候補のmulti-seedまたは独立scratch Runで、single-lineage依存を切り分ける。
+6. **NEET介入:** 学習後Evalで持続的NEETが再発した場合だけ、episode forensicを先に行い、小さい`noop_penalty` / `time_penalty`を一軸比較する。
+7. **真の収束:** B512/RR2をさらにcycle継続したときの限界は未確認。現lineageは追加実時間に対する情報利得が小さいため、今回のcampaignでは追わない。
 
 ## 次回追記用テンプレート
 

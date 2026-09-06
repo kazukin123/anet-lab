@@ -86,6 +86,8 @@ ANET は、異なる処理量を一つの step へ混在させず、複数の軸
 
 グラフや Run を比較するときは、同じ意味の軸と範囲を揃える必要があります。
 
+これらの counter は Runner ごとのメンバであり、**軸名はグローバルに一意な座標を指しません**。train runner の `exp_step` と eval runner の `exp_step` は別の座標系です。同じ横軸で比較してよいのは、軸名と所有 Runner の両方が一致するときだけです。詳細は[可観測性](140_observability.jp.md)の step 座標系を参照してください。
+
 ## 4. ソフトウェア構成
 
 ### 4.1 全体構成
@@ -233,7 +235,7 @@ ReplayBufferは、RunnerからLearnerへ渡されたExperienceをlane別のring 
 
 ### 6.6 ニューラルネットワーク
 
-ニューラルネットワーク機能は、設定から `NetworkModel`、module、head、optimizer を構築し、`TensorDict` の Observation を policy、value、Q 値などの出力へ変換します。shape、dtype、device を境界で検証し、CPU 上の Env データを Actor または Learner の利用 device へ転送します。
+ニューラルネットワーク機能は、設定から `NetworkModel`、module、head、optimizer を構築し、`TensorDict` の入力を policy、value、Q 値などの出力へ変換します。入力specはEnvのObservationを基礎とし、Agentが所有する推論入力を追加できる。DefaultDQNのIQNでは、AgentがStacker調整後のinput specへEnv由来ではない`taus`を追加してNetworkを構築し、PolicyまたはLearnerがforward直前にObservationのshallow copyへ`taus` Tensorを注入する。shape、dtype、deviceをNetwork境界で検証し、CPU上のEnvデータをActorまたはLearnerの利用deviceへ転送します。
 
 module 構成、入出力契約、device の扱いは[ニューラルネットワーク](130_neural_networks.jp.md)を参照してください。
 
@@ -291,7 +293,7 @@ sequenceDiagram
 
 #### 6.7.3 評価
 
-設定された評価は、学習更新数が interval に達したとき `EpisodeEvalObserver` から起動されます。評価用 Actor は学習中のモデルを同期し、評価 Episode が終わるまで行動選択と Env Step を繰り返します。評価中に Learner は呼び出しません。
+`train.eval.[tag]`で定義され、`train.eval_schedule.[tag]`の`interval>0`で定期駆動される評価は、学習更新数がintervalに達したとき`EpisodeEvalObserver`から起動されます。scheduleが無いか`interval=0`の定義はdormantとなり、評価用Env、Runner、Observerを生成しません。起動された評価用Actorは学習中のモデルを同期し、採用エピソード N 本からなる評価セッションが完了するまで行動選択とEnv Stepを繰り返します。評価中にLearnerは呼び出しません。
 
 ```mermaid
 sequenceDiagram
@@ -307,22 +309,24 @@ sequenceDiagram
     TR->>N: Notify LearnEvent
     N->>EO: OnLearn(event)
     alt learn_step が評価 interval に一致
-        EO->>ER: Sync()
+        EO->>ER: RunSession(event.counts)
         ER->>EA: Sync model
-        loop EpisodeEnd まで
+        ER->>EE: Reset session
+        loop 評価セッション完了まで
             ER->>EA: MakeAction(state)
             EA->>EN: forward(Observation)
             EN-->>EA: evaluation output
             EA-->>ER: action
             ER->>EE: Step(action)
             EE-->>ER: reward, next_state, done
-            ER->>N: Notify scoped TrainEvent and EpisodeEndEvent
-            N->>MO: Record evaluation metrics
+            ER->>N: Notify scoped TrainEvent
         end
+        ER->>N: Notify final EpisodeEndEvent
+        N->>MO: Record aggregated evaluation metrics
     end
 ```
 
-`use_background` が有効な評価は専用 worker で実行します。GUI の Eval View から行う評価も同じ `EvalRunner` の契約を利用します。
+`use_background` が有効な評価は専用 worker で実行します。GUI の Eval View は同じ `EvalRunner` を利用しますが、評価セッション用 decorator には載せず、従来どおり step-driven に操作します。
 
 実行方式、設定、thread、終了処理は[実行基盤と設定](100_runtime_and_configuration.jp.md)を参照してください。
 
@@ -364,9 +368,9 @@ Agent共通の拡張契約は[Agent と学習](110_agents_and_learning.jp.md)、
 
 ## 7. 設定、Run、成果物
 
-`AnetRLRunner` は既定で executable root の `config/_main.txt` を読みます。現在の通常配置では `apps/runner/config/_main.txt` です。`_main.txt` から共通設定、メトリクス、Agent、NetworkModel、対象 Env の設定を `$include` し、必要に応じて設定グループのマージやコマンドラインの `key=value` で上書きします。
+`AnetRLRunner` はworkspaceを選択し、executable rootの`config/_main.txt`に`<workspace>/config/_main.txt`を後勝ちで重ねます。共通mainはメトリクス、Agent、NetworkModelを、workspace configは対象Envを`$include`します。Run出力先は`<workspace>/runs`へ導出され、設定グループのmergeとコマンドライン`key=value`の後にも変更されていないことを検証します。`--config`明示時だけはworkspaceを使わない完全自己記述モードです。
 
-一回の起動につき、`app.runs_dir` 配下へ Run ディレクトリを作成します。代表的な成果物は次のとおりです。
+一回の起動につき、選択workspaceの`runs/`配下へRunディレクトリを作成します。代表的な成果物は次のとおりです。
 
 | 成果物 | 内容 |
 |---|---|

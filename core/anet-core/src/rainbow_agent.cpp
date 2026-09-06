@@ -42,6 +42,7 @@ RainbowAgent::RainbowAgent(
     //seed
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
+    auto network_seed = seed_maker.MakeNamedSeed("network");
     //auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
 
     // RuntimeVars生成
@@ -93,7 +94,8 @@ RainbowAgent::RainbowAgent(
 
     // NetworkModel生成
     this->model_ = std::make_unique<NetworkModel>(
-        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory, config_.num_quantiles);
+        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory,
+        is_distributional, network_seed);
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<EpsilonGreedyActionPolicy>(config_.action_policy);
@@ -221,9 +223,11 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(
 
     // Actor を生成
     const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
+        && config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     auto actor = std::make_shared<Actor>(
-        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint);
+        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint,
+        std::nullopt, false, ActorQHintConfig{ .munchausen = MunchausenConfig{ .enabled = false } });
 
     // 生成したActorを返す
     return actor;
@@ -266,7 +270,7 @@ std::shared_ptr<anet::rl::Agent> RainbowAgentFactory::CreateAgent(
     std::shared_ptr<anet::rl::Notifier> notifier, std::optional<anet::seed_t> seed) const
 {
     RainbowAgentConfig config(config_data);
-    anet::nn::NetworkConfig net_config(config_data);
+    anet::nn::NetworkConfig net_config(config_data, GetTargetAgentClassId() + ".net");
     auto agent = std::make_shared<RainbowAgent>(config, net_config, batch_env_spec, env_spec, device, seed);
     return agent;
 

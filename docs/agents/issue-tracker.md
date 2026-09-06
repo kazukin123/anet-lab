@@ -11,6 +11,11 @@ documentation source of truth.
 - An implementation plan defines the overall implementation approach, order, and
   validation for its PRD. It lives beside the PRD as
   `docs/memo/NNN_<slug>_2ximpl.md`.
+- `docs/memo/` carries the state of each PRD as a subfolder: active PRDs sit
+  directly under `docs/memo/`, while completed, frozen, and dropped ones move
+  into `done/`, `frozen/`, and `dropped/`. Filenames stay unique across all of
+  them, so resolving a PRD by exact filename still works, but the search must
+  recurse into the subfolders. See `docs/memo/README.md`.
 - An implementation issue is an independently claimable execution unit with its
   own status and dependencies. It lives at
   `.scratch/<feature-slug>/issues/<NN>-<slug>.md`.

@@ -1,6 +1,7 @@
 //env.cpp
 
 #include "anet/env.hpp"
+#include <algorithm>
 #include <functional>
 #include <deque>
 #include <vector>
@@ -63,6 +64,331 @@ void BatchEnvBase::SetConfigData(ConfigData config_data)
     ANET_CHECK_MSG(!config_data_.has_value(),
         "BatchEnv config snapshot must be assigned only once. name='" << name_ << "'");
     config_data_ = std::move(config_data);
+}
+
+
+//----------------------------------------------
+// Episode group validation and aggregation
+//----------------------------------------------
+
+namespace anet::rl::episode_structure_detail {
+
+std::vector<bool> ReadBoolMask(
+    const std::string& env_name,
+    const std::string& mask_name,
+    const torch::Tensor& mask,
+    int64_t num_envs)
+{
+    if (mask.dim() != 1 || mask.size(0) != num_envs || mask.scalar_type() != torch::kBool) {
+        ANET_SYSTEM_ERROR("Invalid episode mask. env='" << env_name << "' mask=" << mask_name
+            << " expected=Bool[" << num_envs << "] actual=" << anet::ToString(mask) << ".");
+    }
+    auto cpu = mask.to(torch::kCPU).contiguous();
+    auto accessor = cpu.accessor<bool, 1>();
+    std::vector<bool> values(static_cast<size_t>(num_envs));
+    for (int64_t lane = 0; lane < num_envs; ++lane) {
+        values[static_cast<size_t>(lane)] = accessor[lane];
+    }
+    return values;
+}
+
+void ValidateSharedMask(
+    const std::string& env_name,
+    const std::string& mask_name,
+    const std::vector<bool>& values)
+{
+    const bool expected = values.front();
+    for (size_t lane = 1; lane < values.size(); ++lane) {
+        if (values[lane] != expected) {
+            ANET_SYSTEM_ERROR("Episode group structure mismatch. env='" << env_name
+                << "' group=0 lane=" << lane << " mask=" << mask_name
+                << " expected=" << expected << " actual=" << values[lane] << ".");
+        }
+    }
+}
+
+} // namespace anet::rl::episode_structure_detail
+
+void anet::rl::ValidateEpisodeStructure(
+    const std::string& env_name,
+    const BatchEnvSpec& batch_spec,
+    const BatchResetResult& result)
+{
+    const auto episode_start = episode_structure_detail::ReadBoolMask(
+        env_name, "state.episode_start", result.state.episode_start, batch_spec.num_envs);
+    if (batch_spec.episode_scope == EpisodeScope::SHARED) {
+        episode_structure_detail::ValidateSharedMask(
+            env_name, "state.episode_start", episode_start);
+    }
+    for (size_t lane = 0; lane < episode_start.size(); ++lane) {
+        if (!episode_start[lane]) {
+            const int64_t group = batch_spec.episode_scope == EpisodeScope::PER_LANE
+                ? static_cast<int64_t>(lane) : 0;
+            ANET_SYSTEM_ERROR("Reset must return a fresh episode group. env='" << env_name
+                << "' group=" << group << " lane=" << lane
+                << " mask=state.episode_start expected=true actual=false.");
+        }
+    }
+}
+
+std::vector<int64_t> anet::rl::ValidateEpisodeStructure(
+    const std::string& env_name,
+    const BatchEnvSpec& batch_spec,
+    const BatchStepResult& result)
+{
+    const auto done = episode_structure_detail::ReadBoolMask(
+        env_name, "done", result.next_state.done, batch_spec.num_envs);
+    const auto truncated = episode_structure_detail::ReadBoolMask(
+        env_name, "truncated", result.next_state.truncated, batch_spec.num_envs);
+    const auto episode_start = episode_structure_detail::ReadBoolMask(
+        env_name, "continue_state.episode_start",
+        result.continue_state.episode_start, batch_spec.num_envs);
+
+    if (batch_spec.episode_scope == EpisodeScope::SHARED) {
+        episode_structure_detail::ValidateSharedMask(env_name, "done", done);
+        episode_structure_detail::ValidateSharedMask(env_name, "truncated", truncated);
+        episode_structure_detail::ValidateSharedMask(
+            env_name, "continue_state.episode_start", episode_start);
+    }
+
+    std::vector<int64_t> completed_groups;
+    const int64_t group_count = batch_spec.episode_scope == EpisodeScope::PER_LANE
+        ? batch_spec.num_envs : 1;
+    completed_groups.reserve(static_cast<size_t>(group_count));
+    for (int64_t group = 0; group < group_count; ++group) {
+        const int64_t lane = batch_spec.episode_scope == EpisodeScope::PER_LANE ? group : 0;
+        const bool completed = done[static_cast<size_t>(lane)] || truncated[static_cast<size_t>(lane)];
+        if (episode_start[static_cast<size_t>(lane)] != completed) {
+            ANET_SYSTEM_ERROR("Episode continuation structure mismatch. env='" << env_name
+                << "' group=" << group << " lane=" << lane
+                << " mask=continue_state.episode_start expected=" << completed
+                << " actual=" << episode_start[static_cast<size_t>(lane)] << ".");
+        }
+        if (completed) completed_groups.push_back(group);
+    }
+
+    if (result.n_episode_end != completed_groups.size()) {
+        ANET_SYSTEM_ERROR("Episode completion count mismatch. env='" << env_name
+            << "' n_episode_end expected=" << completed_groups.size()
+            << " actual=" << result.n_episode_end << ".");
+    }
+    return completed_groups;
+}
+
+EpisodeReturnAccumulator::EpisodeReturnAccumulator(BatchEnvSpec batch_spec)
+    : batch_spec_(batch_spec)
+    , current_returns_(static_cast<size_t>(
+        batch_spec.episode_scope == EpisodeScope::PER_LANE ? batch_spec.num_envs : 1), 0.0f)
+{
+    ANET_CHECK_MSG(batch_spec_.num_envs > 0,
+        "EpisodeReturnAccumulator num_envs must be positive. actual=" << batch_spec_.num_envs);
+}
+
+void EpisodeReturnAccumulator::Reset()
+{
+    std::fill(current_returns_.begin(), current_returns_.end(), 0.0f);
+}
+
+std::vector<CompletedEpisodeReturn> EpisodeReturnAccumulator::Add(const BatchStepResult& result)
+{
+    auto rewards = result.reward.to(torch::kCPU).contiguous();
+    ANET_ASSERT_SHAPE(rewards, { batch_spec_.num_envs });
+    auto rewards_acc = rewards.accessor<float, 1>();
+    auto finished = (result.next_state.done.to(torch::kBool)
+        | result.next_state.truncated.to(torch::kBool)).to(torch::kCPU).contiguous();
+    ANET_ASSERT_SHAPE(finished, { batch_spec_.num_envs });
+    auto finished_acc = finished.accessor<bool, 1>();
+
+    // scope に応じて lane reward を episode group へ畳み込む。
+    if (batch_spec_.episode_scope == EpisodeScope::PER_LANE) {
+        for (int64_t lane = 0; lane < batch_spec_.num_envs; ++lane) {
+            current_returns_[static_cast<size_t>(lane)] += rewards_acc[lane];
+        }
+    } else {
+        for (int64_t lane = 0; lane < batch_spec_.num_envs; ++lane) {
+            current_returns_[0] += rewards_acc[lane];
+        }
+    }
+
+    std::vector<CompletedEpisodeReturn> completed;
+    const int64_t group_count = batch_spec_.episode_scope == EpisodeScope::PER_LANE
+        ? batch_spec_.num_envs : 1;
+    for (int64_t group = 0; group < group_count; ++group) {
+        const int64_t lane = batch_spec_.episode_scope == EpisodeScope::PER_LANE ? group : 0;
+        if (!finished_acc[lane]) continue;
+        completed.push_back({
+            .group_index = group,
+            .episode_return = current_returns_[static_cast<size_t>(group)],
+        });
+        current_returns_[static_cast<size_t>(group)] = 0.0f;
+    }
+    return completed;
+}
+
+EvalSessionEnv::EvalSessionEnv(
+    std::shared_ptr<BatchEnv> inner,
+    int eval_episodes,
+    std::vector<std::string> subscribed_env_keys)
+    : BatchEnvBase(
+        inner != nullptr ? inner->GetName() : std::string(),
+        inner != nullptr ? inner->GetBatchSpec().num_envs : 0,
+        inner != nullptr ? inner->GetRunMode() : RunMode::Eval,
+        inner != nullptr ? inner->GetConfigData() : std::nullopt)
+    , inner_(std::move(inner))
+    , batch_spec_(inner_->GetBatchSpec())
+    , eval_episodes_(eval_episodes)
+    , group_count_(batch_spec_.episode_scope == EpisodeScope::PER_LANE
+        ? batch_spec_.num_envs : 1)
+    , return_accumulator_(batch_spec_)
+    , adopted_groups_(static_cast<size_t>(group_count_), false)
+{
+    ANET_CHECK(inner_ != nullptr);
+    if (eval_episodes_ <= 0) {
+        ANET_SYSTEM_ERROR("EvalSessionEnv eval_episodes must be positive. env='"
+            << GetName() << "' actual=" << eval_episodes_ << ".");
+    }
+
+    subscriptions_.reserve(subscribed_env_keys.size());
+    for (const auto& source_key : subscribed_env_keys) {
+        const auto parsed = anet::ParseScalarAggregationKey(source_key);
+        if (!parsed.has_value() && eval_episodes_ > 1) {
+            ANET_SYSTEM_ERROR("EvalSessionEnv requires an aggregation prefix for multi-episode "
+                "ENV scalar. env='" << GetName() << "' eval_episodes=" << eval_episodes_
+                << " source_key='" << source_key << "' expected=mean|max|min|std.");
+        }
+        subscriptions_.push_back({
+            .source_key = source_key,
+            .base_key = parsed.has_value() ? parsed->base_key : source_key,
+            .aggregation = parsed.has_value() ? parsed->aggregation : anet::ScalarAggregation::MEAN,
+        });
+    }
+}
+
+bool EvalSessionEnv::HasAllFreshGroups(const BatchState& state) const
+{
+    auto episode_start = state.episode_start.to(torch::kCPU).contiguous();
+    ANET_ASSERT_SHAPE(episode_start, { batch_spec_.num_envs });
+    auto accessor = episode_start.accessor<bool, 1>();
+    for (int64_t lane = 0; lane < batch_spec_.num_envs; ++lane) {
+        if (!accessor[lane]) return false;
+    }
+    return true;
+}
+
+void EvalSessionEnv::BeginSession()
+{
+    last_adopted_groups_.clear();
+    return_accumulator_.Reset();
+    for (auto& subscription : subscriptions_) subscription.accumulator.Reset();
+    std::fill(adopted_groups_.begin(), adopted_groups_.end(), false);
+    issued_episodes_ = 0;
+    completed_episodes_ = 0;
+    captured_episode_returns_.clear();
+    session_result_.reset();
+    session_started_ = true;
+
+    // group index 順で最初の採用権を発行する。
+    const int initial_grants = std::min(eval_episodes_, static_cast<int>(group_count_));
+    for (int group = 0; group < initial_grants; ++group) {
+        adopted_groups_[static_cast<size_t>(group)] = true;
+        issued_episodes_++;
+    }
+}
+
+std::shared_ptr<const BatchResetResult> EvalSessionEnv::Reset()
+{
+    BeginSession();
+
+    // 前回 Step の全 group が fresh なら、余分な Reset を避けて継続状態を再利用する。
+    if (cached_step_result_ != nullptr
+        && HasAllFreshGroups(cached_step_result_->continue_state)) {
+        return std::make_shared<PlainBatchResetResult>(
+            cached_step_result_->continue_state,
+            std::vector<AuxData>(static_cast<size_t>(batch_spec_.num_envs)));
+    }
+
+    cached_step_result_.reset();
+    auto result = inner_->Reset();
+    ANET_CHECK(result != nullptr);
+    ValidateEpisodeStructure(GetName(), batch_spec_, *result);
+    return result;
+}
+
+void EvalSessionEnv::CaptureScalars(int64_t group_index)
+{
+    ANET_PROFILE_SCOPE(capture);
+
+    const int64_t scalar_index = batch_spec_.episode_scope == EpisodeScope::PER_LANE
+        ? group_index : -1;
+    for (auto& subscription : subscriptions_) {
+        subscription.accumulator.Add(inner_->GetScalar(subscription.base_key, scalar_index));
+    }
+}
+
+std::shared_ptr<const BatchStepResult> EvalSessionEnv::Step(
+    std::shared_ptr<BatchActionInfo> action_info)
+{
+    ANET_PROFILE_FUNC();
+    last_adopted_groups_.clear();
+    ANET_CHECK_MSG(session_started_,
+        "EvalSessionEnv::Reset must be called before Step. env='" << GetName() << "'.");
+    ANET_CHECK_MSG(!session_result_.has_value(),
+        "EvalSessionEnv session is already complete. env='" << GetName() << "'.");
+
+    auto result = inner_->Step(std::move(action_info));
+    ANET_CHECK(result != nullptr);
+    const auto completed_groups = ValidateEpisodeStructure(GetName(), batch_spec_, *result);
+    const auto completed_returns = return_accumulator_.Add(*result);
+    ANET_CHECK(completed_groups.size() == completed_returns.size());
+
+    // 完了 group を index 順に処理し、採用 episode だけを snapshot する。
+    for (size_t i = 0; i < completed_groups.size(); ++i) {
+        const int64_t group = completed_groups[i];
+        ANET_CHECK(completed_returns[i].group_index == group);
+        if (!adopted_groups_[static_cast<size_t>(group)]) continue;
+
+        CaptureScalars(group);
+        last_adopted_groups_.push_back(group);
+        adopted_groups_[static_cast<size_t>(group)] = false;
+        completed_episodes_++;
+        captured_episode_returns_.push_back(completed_returns[i].episode_return);
+
+        // auto-reset 後の同じ group へ、残りがある場合だけ次の採用権を渡す。
+        if (issued_episodes_ < eval_episodes_) {
+            adopted_groups_[static_cast<size_t>(group)] = true;
+            issued_episodes_++;
+        }
+    }
+
+    if (completed_episodes_ == eval_episodes_) {
+        session_result_ = EvalSessionResult{ .episode_returns = captured_episode_returns_ };
+    }
+    cached_step_result_ = result;
+    return result;
+}
+
+std::optional<float> EvalSessionEnv::GetScalar(const std::string& key, int64_t index) const
+{
+    if (index < 0) {
+        for (const auto& subscription : subscriptions_) {
+            if (subscription.source_key == key) {
+                return subscription.accumulator.Get(subscription.aggregation);
+            }
+        }
+    }
+    return inner_->GetScalar(key, index);
+}
+
+std::optional<torch::Tensor> EvalSessionEnv::GetTensor(
+    const std::string& key, int64_t index) const
+{
+    return inner_->GetTensor(key, index);
+}
+
+std::optional<std::vector<torch::Tensor>> EvalSessionEnv::GetTensorVector(
+    const std::string& key, int64_t index) const
+{
+    return inner_->GetTensorVector(key, index);
 }
 
 
@@ -276,69 +602,20 @@ std::optional<float> DiscreteBatchEnvBase::GetScalar(const std::string& key, int
         return envs_[index]->GetScalar(key, -1);
     }
 
-    // バッチ全体(index == -1)の場合、プレフィックスを解析して集計
-    enum class AggType { None, Max, Mean, Min };
-    AggType agg_type = AggType::None;
-    std::string subkey = key;
-
-    if (key.rfind("max.", 0) == 0) {
-        agg_type = AggType::Max;
-        subkey = key.substr(4);
-    } else if (key.rfind("mean.", 0) == 0) {
-        agg_type = AggType::Mean;
-        subkey = key.substr(5);
-    } else if (key.rfind("min.", 0) == 0) {
-        agg_type = AggType::Min;
-        subkey = key.substr(4);
-    } else {
+    // バッチ全体(index == -1)の場合、共通 parser と accumulator で集約する。
+    const auto parsed = anet::ParseScalarAggregationKey(key);
+    if (!parsed.has_value()) {
         // 集約方法が指定されない要求は、意味を暗黙に補わず設定箇所で検出させる。
         ANET_SYSTEM_ERROR("DiscreteBatchEnvBase scalar key requires an aggregation prefix. key='"
-            << key << "' expected_prefix='max.|mean.|min.'");
+            << key << "' expected_prefix='max.|mean.|min.|std.'");
     }
-
-    float agg_val = 0.0f;
-    if (agg_type == AggType::Max) agg_val = std::numeric_limits<float>::lowest();
-    if (agg_type == AggType::Min) agg_val = std::numeric_limits<float>::max();
-    float sum_val = 0.0f;
-    int valid_count = 0;
 
     // 全ENVのデータを収集
+    anet::ScalarSampleAccumulator samples;
     for (const auto& env : envs_) {
-        auto val_opt = env->GetScalar(subkey, -1);
-
-        // 1つでも nullopt (未対応/未取得) があれば、直ちに nullopt を返す
-        if (!val_opt.has_value()) {
-            return std::nullopt;
-        }
-
-        // 取れた値
-        float val = val_opt.value();
-
-        // NaN は集計から除外
-        if (std::isnan(val)) continue;
-
-        // 集計
-        valid_count++;
-        if (agg_type == AggType::Max) {
-            agg_val = std::max(agg_val, val);
-        } else if (agg_type == AggType::Min) {
-            agg_val = std::min(agg_val, val);
-        } else if (agg_type == AggType::Mean) {
-            sum_val += val;
-        }
+        samples.Add(env->GetScalar(parsed->base_key, -1));
     }
-
-    // 全ての環境が NaN だった場合 (有効な値が1つも無い)
-    if (valid_count == 0) {
-        return std::numeric_limits<float>::quiet_NaN();
-    }
-
-    // 集計結果を返す
-    if (agg_type == AggType::Mean) {
-        return sum_val / static_cast<float>(valid_count);
-    }
-
-    return agg_val;
+    return samples.Get(parsed->aggregation);
 }
 
 std::optional<torch::Tensor> DiscreteBatchEnvBase::GetTensor(const std::string& key, int64_t index) const

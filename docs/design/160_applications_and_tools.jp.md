@@ -26,10 +26,12 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | コンポーネント | 定義 |
 |---|---|
 | `RunnerApp` | wxWidgets application entry。config、RunManager、RunnerThread、GUI、loggingのlifecycleを統括する。Run directory自体は`MetricsLogger`が保持する |
-| `RunnerFrame` | menu、status bar、wxAUI paneとclose順序を管理するmain window。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
+| `WorkspaceService` | coreのapplication共通基盤。workspace pathと新規名の検証・解決・新規生成、MRU、`last_workspace.txt`、config合成、`app.runs_dir`不変条件を管理する |
+| workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
+| `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50）を持つ。paneの表示切り替えでwindow sizeは変更しない |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
-| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す |
+| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
 | `LogPanel` | wxLogの画面表示とlevel filterを提供する |
 | `DefaultViewFactory` | Env class IDからTrain/Eval用Viewを生成する |
 | `ImageProviderManager` | configで定義された画像Provider/Observerを生成・登録する |
@@ -43,7 +45,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `RunScanner` | runs directory直下から`metrics.jsonl`または`metrics.jsonl.gz`を持つRunを列挙する |
 | `MetricsCacheDatabase` | RunごとのSQLite cache、source fingerprint、generation、短命connectionを管理する |
 | `MetricsIngestor` / `LodIngestWriter` | JSONL/gzipをstreaming parseし、L0、factor 16 LOD、`TagStats`を同一transactionで更新する |
-| `IngestScheduler` / `LoadingThread` | priority 3 : background 1で1 blockずつ単一writerへ配分する |
+| `IngestScheduler` / `LoadingThread` | actionable Runへpriority 3 : background 1で1 blockずつ単一writerへ配分し、terminal/no-op Runは同一cycleで再検査しない |
 | `MetricsRepository` | Runごとの短命read snapshotでrange解決、点数quota、単一LOD projectionを組み立てる |
 | `MetricsService` | Run metadata、range query semaphore、priority集合を提供するapplication service |
 | `MetricsViewerController` | `/api/runs.json`、`/api/metrics.json`、`/api/runs/prioritize`を公開するREST controller |
@@ -59,9 +61,10 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `DropMergeDomain` | 探索空間、generated config、cost、score tagをまとめるdomain adapter |
 | `OptunaHarnessRuntime` | dry-run、run-trial、run-study、summary、cleanupを実行する共通runtime |
 | `RunnerProcessManager` | runner子processの起動、timeout、中断、終了を管理する |
-| `MetricsSummarizer` | `metrics.jsonl`を指定`exp_step` windowで集計する |
+| `MetricsSummarizer` | `metrics.jsonl`または`metrics.jsonl.gz`を指定`exp_step` windowで集計する |
 | Optuna storage/artifact store | trial state/attributesとDashboard用artifactを永続化する |
-| `.bat` launcher | Runner、通常/Optuna Metrics Viewer、Optuna Dashboardの既定pathとportを固定する |
+| `compress_workspace_metrics.py` | workspaceの完了Runを検査し、検証済みgzipへRun単位で移行する |
+| `.bat` launcher | Runner、通常/Optuna Metrics Viewer、Optuna Dashboard、workspace metrics圧縮の入口を提供する |
 
 ## 3. コードマップ
 
@@ -70,6 +73,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | 領域 | 主なファイル |
 |---|---|
 | application entry、config、logging | [RunnerApp.hpp](../../apps/runner/src/RunnerApp.hpp)、[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) |
+| workspace共通基盤 | [app_util.hpp](../../core/anet-core/include/anet/app_util.hpp)、[app_util.cpp](../../core/anet-core/src/app_util.cpp) |
+| workspace選択GUI | [WorkspaceDialog.hpp](../../apps/runner/src/WorkspaceDialog.hpp)、[WorkspaceDialog.cpp](../../apps/runner/src/WorkspaceDialog.cpp) |
 | main frame、pane、入力操作 | [RunnerFrame.hpp](../../apps/runner/src/RunnerFrame.hpp)、[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) |
 | Train View | [TrainPanel.hpp](../../apps/runner/src/TrainPanel.hpp)、[TrainPanel.cpp](../../apps/runner/src/TrainPanel.cpp) |
 | Eval View、model同期 | [EvalPanel.hpp](../../apps/runner/src/EvalPanel.hpp)、[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) |
@@ -95,7 +100,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/runner/tools/dropmerge_optuna.py) |
 | harness共通runtime | [optuna_common.py](../../apps/runner/tools/optuna_common.py) |
 | Runner launcher | [10_run.bat](../../apps/10_run.bat) |
-| Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)、[22_metrics_viewer_java_optuna.bat](../../apps/22_metrics_viewer_java_optuna.bat) |
+| workspace対応補助launcher | [resolve_workspace.bat](../../apps/runner/tools/resolve_workspace.bat)、[31_tb_bridge.bat](../../apps/31_tb_bridge.bat)、[41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
+| Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) |
 | Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
 | 詳細運用仕様 | [optuna.md](../optuna.md) |
 
@@ -180,6 +186,7 @@ RunnerはviewerやDashboardへ直接接続しない。Run directory、Optuna DB�
 sequenceDiagram
     participant OS as OS/wxWidgets
     participant A as RunnerApp
+    participant W as WorkspaceService/Dialog
     participant C as ConfigManager
     participant M as MetricsLogger
     participant R as RunManager
@@ -187,7 +194,9 @@ sequenceDiagram
     participant T as RunnerThread
 
     OS->>A: OnInit()
-    A->>C: main config読込 + CLI override + merge
+    A->>W: CLI / dialog / history / _defaultからworkspace確定
+    W-->>A: config path + runs path
+    A->>C: 共通main + runs注入 + workspace config + CLI + merge
     C-->>A: ConfigData
     A->>M: Init(JsonlBackend, app設定)
     M-->>A: Run directory
@@ -201,7 +210,11 @@ sequenceDiagram
     A->>T: Start()
 ```
 
-GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で独立EvalRunnerを進めるため、configured background evalとは別用途である。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
+GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で通常の`BatchEnv`を持つ独立EvalRunnerをstep単位で進めるため、`EvalSessionEnv`を使うconfigured background evalとは別用途である。強制Actionと既存のmodel同期方式もEvalPanel側に維持する。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
+
+RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
+
+補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
 
 ### 5.2 Metrics Viewerの取り込みとviewport range更新
 
@@ -243,6 +256,8 @@ sequenceDiagram
 
 HTTP requestはMetricsマスタを直接読まず、background writerがcommitしたSQLite snapshotを読む。
 各rangeは前回応答へ依存せず、clientはviewport左右1画面を含む3画面windowを置換する。
+完全検証済みの`ready` / `error` Runはsource/cache属性が不変なら本文・fingerprint・SQLiteへ入らず、
+即時処理可能な`converting` backlogがないcycleは10秒sleepする。
 取り込み中Runがある間はRun metadataを4秒pollして進捗表示だけを更新し、Auto Reloadは30秒ごとにmetadataを取り直して最新stepへfollow中の系列だけrangeを更新する。
 
 ### 5.3 Optunaのmulti-seed trial
@@ -254,7 +269,7 @@ sequenceDiagram
     participant O as Optuna Study
     participant P as RunnerProcessManager
     participant X as AnetRLRunner child
-    participant R as runs_optuna
+    participant R as workspace/runs
     participant S as MetricsSummarizer
 
     U->>H: run-study / run-trial
@@ -279,14 +294,14 @@ sequenceDiagram
 
 | 用途 | Entry point | 既定出力・URL |
 |---|---|---|
-| GUI Run | `apps/10_run.bat` | `apps/runner/runs` |
+| GUI Run | `apps/10_run.bat [--workspace <path>]` | `<workspace>/runs` |
 | 通常Runの可視化 | `apps/22_metrics_viewer_java.bat` | `http://localhost:8082` |
-| Optuna seed runの可視化 | `apps/22_metrics_viewer_java_optuna.bat` | `http://localhost:8083` |
-| Optuna study/artifact | `apps/23_optuna_dashboard.bat` | `http://127.0.0.1:8088` |
-| DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study ...` | `apps/runner/runs_optuna` |
+| Optuna study/artifact | `apps/23_optuna_dashboard.bat <workspace_path>` | `<workspace>/optuna`、`http://127.0.0.1:8088` |
+| DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study --workspace <path> ...` | `<workspace>/runs`、`<workspace>/optuna` |
 
-- Runnerのmain configは`--config`で差し替え、実験差分は末尾の`key=value` overrideで渡す。
-- Viewerのruns directoryは`--metricsviewer.runs-dir`で差し替える。
+- 通常Runnerはworkspaceを選び、実験差分は末尾の`key=value` overrideで渡す。`--config`はworkspaceを使わない完全自己記述起動に限定する。
+- Viewerは`apps/runner/workspaces`を既定の親directoryとし、画面のselectorでcurrent workspaceを切り替える。親directoryは`--metricsviewer.workspaces-dir`で差し替える。
+- Optuna harnessは既存workspaceと`config/_main.txt`をpreflightし、Runを`runs/`、SQLite storage・artifact store・harness logを`optuna/`へ固定する。run系の出力overrideは選択workspaceの`optuna/`配下だけを許可する。
 - Optuna harnessのPythonはrepository rootの`.venv`を使う。
 - Viewer frontendはbuild工程を持たず、外部依存はCDNのPlotlyだけを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
 
@@ -294,14 +309,17 @@ sequenceDiagram
 
 ### 7.1 Runner
 
-- `RunnerApp`が`RunManager`、`RunnerThread`、Frameを保持し、loggerの初期化・flush・停止順序を統括する。Run directoryと`run_dir_`は`MetricsLogger`が所有する。
-- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。
-- GUI callbackで発生した例外はErrorDialogへ表示し、Trainer threadの例外はmain threadへ転送する。
-- Train/Eval panelのFPSは描画頻度であり、学習step頻度そのものではない。
+- `RunnerApp`が`RunManager`、`RunnerThread`、Frameを保持し、loggerの初期化・flush・停止順序を統括する。Run directoryと`run_dir_`は`MetricsLogger`が所有する。`app.show_error_dialog`は未指定時`true`で、online構成は`true`、batchrun構成は`false`へ解決する。構成名はコードで推測しない。
+- batchrun構成では、`ConfigData`解決直後から既定GUI loggerをapp所有の`wxLogStderr`へ切り替える。Run成立前は親stderr、standard stream開始後は`stderr.log`、通常logger構築後は既存Run logへ出し、部分初期化と終了時もactive targetをdanglingさせない。online構成では従来どおりエラーダイアログを表示する。
+- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。close時Saveが失敗しても共通error reporterで通知した後に後続cleanupを続行する。Save/Open Run Folderの失敗はnon-fatalであり、Run継続とprocess終了コードを変えない。
+- GUI callbackで発生した契約違反の例外は共通error reporterで英語のerror logをflushしてmain loopを終了し、Trainer threadの例外は現在例外をmain threadへ転送する。両例外callbackはmain thread所有のfatal latchを設定する。`RunnerApp::OnRun()`はwxWidgetsの元の非ゼロ値を保ち、元が0でもfatal済みなら1を返す。`OnExit()`はcleanup専用である。
+- Train panelのFPSは描画頻度だけを制御し、0では描画timerを停止しても学習は継続する。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
+- `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
 
 ### 7.2 Metrics Viewer
 
 - `MetricsService`の`@PostConstruct`でLoadingThreadを開始し、`@PreDestroy`で最大30秒待って停止する。
+- `WorkspaceManager`はcurrent workspaceをepoch付きsnapshotとして保持し、APIとingest cycleへleaseを渡す。切替はingest gateで直列化し、旧snapshotのgzip sessionは最終lease解放時に閉じる。
 - source kind、size、mtime、先頭/commit直前hashが一致しない場合はSQLite cacheを破棄して新しいgenerationで再構築する。
 - `TagStats`はcommit済みL0全点、LODは完成した16子だけから作り、viewport queryから独立して保持する。
 - Reload/Auto ReloadはPlotly DOMを再構築するため、選択tag、LOD表示mode、signed-log、scroll lockなどのpage stateはclient appが所有する。
@@ -317,7 +335,7 @@ sequenceDiagram
 
 ## 8. テストと変更時の確認事項
 
-- Runner UI変更: Frame close順序、pane menu連動、Train/Eval入力、model syncを確認する。
+- Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
 - Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`で、Run/Tag操作、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを関心別に確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。

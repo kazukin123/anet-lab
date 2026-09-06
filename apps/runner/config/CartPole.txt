@@ -1,4 +1,4 @@
-﻿
+
 app.$ = app.online
 #app.$ = app.batchrun
 
@@ -11,9 +11,7 @@ train.num_envs = 256
 #train.num_envs = 1
 
 
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
+DefaultDQNAgent.$ = @baseline > A1
 
 
 # ==============================================================================
@@ -27,48 +25,48 @@ net.block.FC1.init.mode = xavier
 net.block.FC2.init.mode = xavier
 
 # --- Body 本体ブランチ（vector 観測 -> MLP）
-net.branch.[main_feature].bind = vector
-net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+DefaultDQNAgent.net.branch.[main_feature].bind = vector
+DefaultDQNAgent.net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 
 # --- Dueling V/A: [デフォルト] 単一 features を Head が内部で V/A 分割
-#net.body.output.[features] = main_feature
+#DefaultDQNAgent.net.body.output.[features] = main_feature
 
 # --- Dueling V/A: [代替] 明示的な V/A ストリーム
 #   切替時は上の output.[features] をコメントアウトし、下の6行を有効化する
 net.block.[HeadFC80].type = Linear
 net.block.[HeadFC80].linear.out_features = 80
 net.block.[HeadFC80].init.mode = xavier
-net.branch.[value_stream].bind = main_feature
-net.branch.[value_stream].structure = HeadFC80 > ReLU
-net.branch.[adv_stream].bind = main_feature
-net.branch.[adv_stream].structure = HeadFC80 > ReLU
-net.body.output.[value_feature] = value_stream
-net.body.output.[adv_feature] = adv_stream
+DefaultDQNAgent.net.branch.[value_stream].bind = main_feature
+DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC80 > ReLU
+DefaultDQNAgent.net.branch.[adv_stream].bind = main_feature
+DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC80 > ReLU
+DefaultDQNAgent.net.body.output.[value_feature] = value_stream
+DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 
-A.head_init.mode = xavier
-A.head_init.manual_gain = 0.0
+A1.head_init.mode = xavier
+A1.head_init.manual_gain = 0.0
 
 
 # ==============================================================================
 # 環境依存Agent設定
 # ==============================================================================
 
-A.learner.gamma = 0.99
-A.learner.update_warmup_steps = 51200
-A.reward_scaler.reference_q_std = 10.0
-A.learner.replay_batch_size = 128
-A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+A1.learner.gamma = 0.99
+A1.learner.update_warmup_steps = 51200
+A1.reward_scaler.reference_q_std = 10.0
+A1.learner.replay_batch_size = 128
+A1.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 
 
 # ==============================================================================
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.$ = metrics.scalar.baseline > M
-#metrics.scalar.$ = metrics.scalar.min > M
-#metrics.scalar.$ = metrics.scalar.full > M
+metrics.scalar.$ = metrics.scalar.@baseline > M1
+#metrics.scalar.$ = metrics.scalar.@min > M1
+#metrics.scalar.$ = metrics.scalar.@full > M1
 
-metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s02
+metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.@per-prio > image.phm.@s02
 
 
 # ==============================================================================
@@ -84,8 +82,6 @@ CartPoleEnv.limit_step = 200
 # ==============================================================================
 
 env.class_id = CartPoleEnv
-
-train.eval_interval = 10
 
 agent.device_type = 1    # 0=cpu 1=cuda
 agent.device_index = -1  # GPU index -1=current device

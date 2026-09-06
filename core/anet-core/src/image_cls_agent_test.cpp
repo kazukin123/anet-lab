@@ -64,7 +64,7 @@ public:
     torch::Tensor Forward(torch::Tensor input) override
     {
         last_input = input.detach().to(torch::kCPU).clone();
-        return input;
+        return input.flatten(1);
     }
 
     torch::Tensor last_input;
@@ -152,7 +152,8 @@ std::shared_ptr<anet::nn::Network> MakeImageClsTraceTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -189,7 +190,8 @@ std::shared_ptr<anet::nn::Network> MakeImageClsTrainableTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -238,7 +240,8 @@ ImageClsRecordingNetworkFixture MakeImageClsRecordingTestNetwork(
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -277,7 +280,8 @@ ImageClsAutocastProbeNetworkFixture MakeImageClsAutocastProbeTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -401,7 +405,8 @@ std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult> RunImageClsRecord
     const anet::rl::img_cls::ImageClsAgentConfig& config,
     const anet::rl::StepCounts& step,
     const anet::rl::BatchExperience& experience,
-    std::optional<anet::seed_t> seed = 123)
+    std::optional<anet::seed_t> seed = 123,
+    bool subscribe_plasticity = false)
 {
     auto mutex = std::make_shared<std::shared_mutex>();
     auto learning_rate = std::make_shared<anet::ProfiledValue<double>>(config.learning_rate);
@@ -412,6 +417,14 @@ std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult> RunImageClsRecord
         learning_rate,
         torch::Device(torch::kCPU),
         seed);
+    if (subscribe_plasticity) {
+        learner.ConfigureScalarMetricSubscriptions({ anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_srank",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 1,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        } });
+    }
 
     auto result_list = learner.UpdateFromBatch(step, experience);
     REQUIRE(result_list.size() == 1);
@@ -893,6 +906,29 @@ TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head
     CHECK(probs.dtype() == torch::kFloat32);
 }
 
+TEST_CASE("ImageClsAgentFactory reads its class-owned net tree", "[image_cls][config][tracer]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto config_data = MakeImageClsSerializeTestConfigData();
+    config_data.Set("net.block.[Flatten].type", "Flatten");
+    config_data.Set("ImageClsAgent.net.branch.[main_feature].bind", anet::rl::ObsKeys::kGrid);
+    config_data.Set("ImageClsAgent.net.branch.[main_feature].structure", "Flatten");
+    config_data.Set("ImageClsAgent.net.body.output.[features]", "main_feature");
+
+    anet::rl::img_cls::ImageClsAgentFactory factory;
+    const auto agent = factory.CreateAgent(
+        MakeImageClsEnvSpec(),
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        config_data,
+        nullptr,
+        123);
+
+    REQUIRE(agent != nullptr);
+}
+
 TEST_CASE("ImageCls actor and learner gate BF16 autocast around forward", "[image_cls][bf16]")
 {
     const auto grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);
@@ -988,6 +1024,7 @@ TEST_CASE("ImageClsLearner applies deterministic Mixup before network forward", 
 {
     constexpr anet::seed_t seed = 42;
     auto config = MakeImageClsMixTestConfig(MakeImageClsMixTestConfigData());
+    config.plasticity.feature_key = "main_feature";
     auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
     auto grid = torch::tensor(
         { 255, 0, 0, 0,
@@ -1007,9 +1044,11 @@ TEST_CASE("ImageClsLearner applies deterministic Mixup before network forward", 
         config,
         anet::rl::StepCounts{},
         MakeImageClsLearningExperience(grid, labels),
-        seed);
+        seed,
+        /*subscribe_plasticity=*/true);
 
     RequireTensorClose(fixture.recorder->last_input, expected_input);
+    RequireTensorClose(result->plasticity_features, expected_input.flatten(1));
     const auto expected_metrics = MakeExpectedImageClsMetrics(
         expected_input, labels, expected, config.label_smoothing, true);
     CheckImageClsScalar(result, "target_prob_mix_norm", expected_metrics.target_prob_mix_norm);
@@ -1486,4 +1525,238 @@ TEST_CASE("ImageClsAgent exposes current learning rate scalar", "[image_cls][lea
     REQUIRE(current_learning_rate.has_value());
     CHECK(*current_learning_rate == Catch::Approx(0.055));
     CHECK_FALSE(agent.GetScalar("unknown").has_value());
+}
+
+TEST_CASE("ImageCls update result exposes captured plasticity metrics", "[image_cls][plasticity]")
+{
+    anet::rl::img_cls::ImageClsUpdateResult result;
+    result.plasticity_features = torch::eye(3, torch::TensorOptions().dtype(torch::kFloat32));
+    result.plasticity_request = anet::nn::PlasticityMetricRequest::All();
+
+    CHECK(*result.GetScalar("plasticity_srank", -1) == 3.0f);
+    CHECK(*result.GetScalar("plasticity_srank_ratio", -1) == Catch::Approx(1.0f));
+    CHECK(*result.GetScalar("plasticity_srank_delta_005", -1) == 3.0f);
+    CHECK(*result.GetScalar("plasticity_srank_ratio_delta_020", -1) == Catch::Approx(1.0f));
+    CHECK(*result.GetScalar("plasticity_dormant_ratio", -1) == Catch::Approx(0.0f));
+    CHECK(std::isnan(*result.GetScalar("plasticity_weight_norm_feature", -1)));
+    CHECK(std::isnan(*result.GetScalar("plasticity_weight_norm_readout", -1)));
+    result.plasticity_weight_norms = torch::tensor({ 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.0f });
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature", -1) == Catch::Approx(3.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout", -1) == Catch::Approx(4.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_feature_effective", -1) == Catch::Approx(5.0f));
+    CHECK(*result.GetScalar("plasticity_weight_norm_readout_effective", -1) == Catch::Approx(6.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_feature", -1) == Catch::Approx(7.0f));
+    CHECK(*result.GetScalar("plasticity_spectral_sigma_readout", -1) == Catch::Approx(8.0f));
+    CHECK_FALSE(result.GetScalar("plasticity_weight_norm_unknown", -1).has_value());
+
+    anet::rl::img_cls::ImageClsUpdateResult partial_result;
+    partial_result.plasticity_features = result.plasticity_features;
+    partial_result.plasticity_request.Add(anet::nn::PlasticityMetric::FEATURE_NORM);
+    CHECK(std::isfinite(*partial_result.GetScalar("plasticity_feature_norm", -1)));
+    CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank", -1)));
+    CHECK(std::isnan(*partial_result.GetScalar("plasticity_srank_delta_020", -1)));
+}
+
+TEST_CASE("ImageCls spectral normalization sentinel reports the invalid layer", "[image_cls][spectral_norm][plasticity]")
+{
+    anet::nn::InitNN();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        65065,
+        torch::Device(torch::kCPU));
+    {
+        torch::NoGradGuard no_grad;
+        network->GetSpectralNormEntries().front().v.fill_(
+            std::numeric_limits<float>::quiet_NaN());
+    }
+
+    anet::rl::img_cls::ImageClsUpdateResult result;
+    result.plasticity_weight_norms = torch::tensor({
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f });
+    result.plasticity_network = network;
+
+    CHECK_THROWS_WITH(
+        result.GetScalar("plasticity_weight_norm_feature", -1),
+        Catch::Matchers::ContainsSubstring("feature.Linear_0.linear"));
+}
+
+TEST_CASE("ImageCls learner reports subscribed parameter norm without activating feature metrics", "[image_cls][plasticity][weight_norm]")
+{
+    auto config = MakeImageClsLearningRateTestConfig();
+    config.plasticity.feature_key = "main_feature";
+    auto network = MakeImageClsTrainableTestNetwork();
+    anet::rl::img_cls::ImageClsLearner learner(
+        config,
+        std::make_shared<std::shared_mutex>(),
+        network,
+        std::make_shared<anet::ProfiledValue<double>>(config.learning_rate),
+        torch::Device(torch::kCPU));
+    learner.ConfigureScalarMetricSubscriptions({
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_feature",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 2,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_readout",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 3,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_weight_norm_readout_effective",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 4,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_spectral_sigma_feature",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 5,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+    });
+
+    const auto results = learner.UpdateFromBatch(
+        anet::rl::StepCounts{}, MakeImageClsLearningExperience());
+
+    REQUIRE(results.size() == 1);
+    const auto feature_norm = results.front()->GetScalar("plasticity_weight_norm_feature");
+    const auto readout_norm = results.front()->GetScalar("plasticity_weight_norm_readout");
+    REQUIRE(feature_norm.has_value());
+    REQUIRE(readout_norm.has_value());
+    CHECK(std::isfinite(*feature_norm));
+    CHECK(std::isfinite(*readout_norm));
+    CHECK(std::isfinite(*results.front()->GetScalar("plasticity_weight_norm_readout_effective")));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_spectral_sigma_feature")));
+    CHECK(std::isnan(*results.front()->GetScalar("plasticity_srank")));
+
+    anet::rl::StepCounts skipped_step;
+    skipped_step.learn_step = 1;
+    const auto skipped = learner.UpdateFromBatch(
+        skipped_step, MakeImageClsLearningExperience());
+    REQUIRE(skipped.size() == 1);
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_weight_norm_feature")));
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_weight_norm_readout")));
+
+    anet::rl::StepCounts measured_again_step;
+    measured_again_step.learn_step = 2;
+    const auto measured_again = learner.UpdateFromBatch(
+        measured_again_step, MakeImageClsLearningExperience());
+    REQUIRE(measured_again.size() == 1);
+    CHECK(std::isfinite(*measured_again.front()->GetScalar("plasticity_weight_norm_feature")));
+    CHECK(std::isfinite(*measured_again.front()->GetScalar("plasticity_weight_norm_readout")));
+}
+
+TEST_CASE("ImageCls parameter norm records the value before the optimizer update", "[image_cls][plasticity][weight_norm]")
+{
+    auto config = MakeImageClsLearningRateTestConfig();
+    config.plasticity.feature_key = "main_feature";
+    auto network = MakeImageClsTrainableTestNetwork();
+    const float expected_readout = network->ComputeParameterNormSplit("main_feature")
+        .readout.item<float>();
+    anet::rl::img_cls::ImageClsLearner learner(
+        config,
+        std::make_shared<std::shared_mutex>(),
+        network,
+        std::make_shared<anet::ProfiledValue<double>>(config.learning_rate),
+        torch::Device(torch::kCPU));
+    learner.ConfigureScalarMetricSubscriptions({ anet::rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_readout",
+        .event = anet::rl::EventType::LEARN,
+        .interval = 1,
+        .scope = anet::rl::RunnerScope::TRAIN,
+    } });
+
+    const auto results = learner.UpdateFromBatch(
+        anet::rl::StepCounts{}, MakeImageClsLearningExperience());
+
+    REQUIRE(results.size() == 1);
+    CHECK(*results.front()->GetScalar("plasticity_weight_norm_readout")
+        == Catch::Approx(expected_readout));
+    const float updated_readout = network->ComputeParameterNormSplit("main_feature")
+        .readout.item<float>();
+    CHECK(updated_readout != Catch::Approx(expected_readout));
+}
+
+TEST_CASE("ImageCls plasticity captures the subscribed training forward on cadence", "[image_cls][plasticity]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto config = MakeImageClsLearningRateTestConfig();
+    config.plasticity.feature_key = "main_feature";
+    anet::rl::img_cls::ImageClsAgent agent(
+        config,
+        MakeImageClsAgentNetworkConfig(),
+        MakeImageClsEnvSpec(),
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        123);
+    auto learner = agent.CreateLearner();
+    agent.ConfigureScalarMetricSubscriptions({
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_srank",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 2,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+        anet::rl::ScalarMetricSubscription{
+            .source_key = "plasticity_feature_norm",
+            .event = anet::rl::EventType::LEARN,
+            .interval = 1,
+            .scope = anet::rl::RunnerScope::TRAIN,
+        },
+    });
+
+    anet::rl::StepCounts measured_step;
+    measured_step.learn_step = 0;
+    const auto measured = learner->UpdateFromBatch(measured_step, MakeImageClsLearningExperience());
+    REQUIRE(measured.size() == 1);
+    CHECK(std::isfinite(*measured.front()->GetScalar("plasticity_srank")));
+
+    anet::rl::StepCounts skipped_step;
+    skipped_step.learn_step = 1;
+    const auto skipped = learner->UpdateFromBatch(skipped_step, MakeImageClsLearningExperience());
+    REQUIRE(skipped.size() == 1);
+    CHECK(std::isnan(*skipped.front()->GetScalar("plasticity_srank")));
+    CHECK(std::isfinite(*skipped.front()->GetScalar("plasticity_feature_norm")));
+}
+
+TEST_CASE("ImageCls plasticity feature key is NoCare without subscriptions", "[image_cls][plasticity][config]")
+{
+    auto config = MakeImageClsLearningRateTestConfig();
+    config.plasticity.feature_key.clear();
+    auto network = MakeImageClsTrainableTestNetwork();
+    auto learner = anet::rl::img_cls::ImageClsLearner(
+        config,
+        std::make_shared<std::shared_mutex>(),
+        network,
+        std::make_shared<anet::ProfiledValue<double>>(config.learning_rate),
+        torch::Device(torch::kCPU));
+
+    CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({}));
+    CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ anet::rl::ScalarMetricSubscription{
+        .source_key = "plasticity_srank",
+        .event = anet::rl::EventType::LEARN,
+    } }));
+    CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ anet::rl::ScalarMetricSubscription{
+        .source_key = "plasticity_weight_norm_feature",
+        .event = anet::rl::EventType::LEARN,
+    } }));
 }

@@ -34,9 +34,11 @@ namespace anet::rl::dqn {
         anet::nn::NetworkGraphVizConfig nn_viz;
         std::string auto_load_file;
 
-        int num_quantiles = 51;
+        struct QrConfig {
+            int num_quantiles = 51;
+        } qr;
+        std::string quantile_mode = "qr";
         bool use_dueling_net = true;
-        bool use_qr = true;
         bool use_optimistic_target = false;
 
     public:
@@ -91,6 +93,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, train_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, train_policy.use_amp);
             ANET_READ_CONFIG(config_data, train_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, train_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, train_policy.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.enabled);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.num_taus);
 
             eval_policy.policy_type = "Greedy";     // デフォルトでGreedy
             eval_policy.eps_start = 0.0f;           // デフォルトでGreedy
@@ -104,6 +111,7 @@ namespace anet::rl::dqn {
             eval_policy.eps_end = train_policy.eps_end;
             eval_policy.uqe_eps_start = 0.0f; // デフォルトでGreedy
             eval_policy.uqe_eps_end = 0.0f;   // デフォルトでGreedy
+            eval_policy.tau_rule.sample_mode = "fixed";
             //eval_policy.uqe_eps_start = train_policy.uqe_eps_end;
             //eval_policy.uqe_eps_end = train_policy.uqe_eps_end;
             ANET_READ_CONFIG(config_data, eval_policy.policy_type);
@@ -119,6 +127,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, eval_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, eval_policy.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.enabled);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.num_taus);
             eval_policy.use_spatial_exploration = false;
 
 
@@ -143,6 +156,13 @@ namespace anet::rl::dqn {
                 target_policy.policy_type = "Greedy";   // デフォルトは安全なGreedy
             }
 
+            // 楽観policyのコピー対象にせず、target推定品質の既定を決定的な32点へ戻す。
+            target_policy.tau_rule = TauRuleConfig{
+                .sample_mode = "fixed",
+                .num_taus = 32,
+            };
+            target_policy.full_distribution_query = FullDistributionQueryConfig{};
+
             // target_policy.*の設定があれば、継承したかもしれないデフォルト値から上書き反映
             ANET_READ_CONFIG(config_data, target_policy.policy_type);
             ANET_READ_CONFIG(config_data, target_policy.eps_start);
@@ -157,6 +177,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, target_policy.use_amp);
             ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, target_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, target_policy.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.enabled);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.num_taus);
             target_policy.use_spatial_exploration = false;
 
             ANET_READ_CONFIG(config_data, learner.alpha);
@@ -186,12 +211,54 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.per_prio_clip_value);
             ANET_READ_CONFIG(config_data, learner.quantile_huber_kappa);
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
+            ANET_READ_CONFIG(config_data, learner.munchausen.enabled);
+            ANET_READ_CONFIG(config_data, learner.munchausen.log_policy_mode);
+            ANET_READ_CONFIG(config_data, learner.munchausen.alpha);
+            ANET_READ_CONFIG(config_data, learner.munchausen.entropy_tau);
+            ANET_READ_CONFIG(config_data, learner.munchausen.clip_value_min);
+
+            // 休眠中も認識済みの設定値を検証し、ON/OFF切替で不正値を潜伏させない。
+            const auto& munchausen = learner.munchausen;
+            if (munchausen.log_policy_mode != "target" && munchausen.log_policy_mode != "online"
+                && munchausen.log_policy_mode != "online_reuse") {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.log_policy_mode='" << munchausen.log_policy_mode
+                    << "'; expected target, online, or online_reuse.");
+            }
+            if (!std::isfinite(munchausen.alpha) || munchausen.alpha < 0.0f || munchausen.alpha > 1.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.alpha=" << munchausen.alpha << "; expected finite [0,1].");
+            }
+            if (!std::isfinite(munchausen.entropy_tau) || munchausen.entropy_tau <= 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.entropy_tau=" << munchausen.entropy_tau << "; expected finite > 0.");
+            }
+            if (!std::isfinite(munchausen.clip_value_min) || munchausen.clip_value_min > 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.clip_value_min=" << munchausen.clip_value_min << "; expected finite <= 0.");
+            }
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
             ANET_READ_CONFIG(config_data, learner.use_tbo);
             ANET_READ_CONFIG(config_data, learner.tbo_epsilon);
             ANET_READ_CONFIG(config_data, learner.use_amp);
             ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.sample_mode);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.sample_mode);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
+            ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.policy_churn.iqn.num_taus);
+            if (learner.plasticity.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.plasticity.probe.batch_size: value="
+                    << learner.plasticity.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.policy_churn.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.policy_churn.probe.batch_size: value="
+                    << learner.policy_churn.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.policy_churn.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.policy_churn.iqn.num_taus: value="
+                    << learner.policy_churn.iqn.num_taus << " expected integer >= 1");
+            }
             if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
                 ANET_SYSTEM_ERROR(
                     "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon
@@ -227,11 +294,92 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
 
             ANET_READ_CONFIG(config_data, auto_load_file);
-            ANET_READ_CONFIG(config_data, num_quantiles);
+            ANET_READ_CONFIG(config_data, quantile_mode);
+            ANET_READ_CONFIG(config_data, qr.num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
-            ANET_READ_CONFIG(config_data, use_qr);
 
-            learner.num_quantiles = num_quantiles;
+            // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
+            train_policy.quantile_mode = quantile_mode;
+            eval_policy.quantile_mode = quantile_mode;
+            target_policy.quantile_mode = quantile_mode;
+            learner.quantile_mode = quantile_mode;
+            learner.num_quantiles = qr.num_quantiles;
+
+            // 現行の分布表現契約と全tau ruleを、利用前の設定境界で検証する。
+            if (quantile_mode != "none" && quantile_mode != "qr" && quantile_mode != "iqn") {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.quantile_mode: value='" << quantile_mode
+                    << "' expected one of: none, qr, iqn");
+            }
+            if (quantile_mode == "qr" && qr.num_quantiles <= 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.qr.num_quantiles: value=" << qr.num_quantiles
+                    << " expected > 1 when quantile_mode=qr");
+            }
+
+            const auto validate_tau_rule = [](const TauRuleConfig& rule, const char* key) {
+                if (rule.num_taus <= 0) {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".num_taus: value=" << rule.num_taus << " expected > 0");
+                }
+                if (rule.sample_mode != "random" && rule.sample_mode != "fixed"
+                    && rule.sample_mode != "stratified" && rule.sample_mode != "systematic"
+                    && rule.sample_mode != "antithetic") {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".sample_mode: value='" << rule.sample_mode
+                        << "' expected one of: random, fixed, stratified, systematic, antithetic");
+                }
+            };
+            validate_tau_rule(train_policy.tau_rule, "DefaultDQNAgent.train_policy.tau_rule");
+            validate_tau_rule(eval_policy.tau_rule, "DefaultDQNAgent.eval_policy.tau_rule");
+            validate_tau_rule(target_policy.tau_rule, "DefaultDQNAgent.target_policy.tau_rule");
+            validate_tau_rule(train_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.train_policy.full_distribution_query.tau_rule");
+            validate_tau_rule(eval_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule");
+            validate_tau_rule(target_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.target_policy.full_distribution_query.tau_rule");
+            validate_tau_rule(learner.iqn.current_taus, "DefaultDQNAgent.learner.iqn.current_taus");
+            validate_tau_rule(learner.iqn.target_taus, "DefaultDQNAgent.learner.iqn.target_taus");
+
+            const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
+            const auto is_thompson = [](const std::string& type) { return type == "ThompsonSampling" || type == "2"; };
+            // コピーと明示overlayを解決した最終target policyに対して競合を検証する。
+            if (learner.munchausen.enabled && learner.use_double_dqn) {
+                ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with learner.use_double_dqn=true; expected learner.use_double_dqn=false.");
+            }
+            // MunchausenとThompsonは共存付加
+            if (learner.munchausen.enabled && is_thompson(target_policy.policy_type)) {
+                ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with target_policy.policy_type='"
+                    << target_policy.policy_type << "'; expected Greedy, EpsilonGreedy, or UQE. use_optimistic_target="
+                    << (use_optimistic_target ? "true (train_policy copy before target overrides)" : "false"));
+            }
+            const auto validate_distributional_policy = [&](const ActionPolicyConfig& policy, const char* key) {
+                if ((is_uqe(policy.policy_type) || is_thompson(policy.policy_type)) && quantile_mode == "none") {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
+                        << "' expected quantile_mode=qr or iqn");
+                }
+                // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
+                if (policy.full_distribution_query.enabled
+                    && quantile_mode == "iqn" && !is_uqe(policy.policy_type)) {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".full_distribution_query.enabled: value=true"
+                        << " expected policy_type=UQE when quantile_mode=iqn, actual quantile_mode='"
+                        << quantile_mode << "' policy_type='" << policy.policy_type << "'");
+                }
+                const bool uses_iqn_tau_range = quantile_mode == "iqn"
+                    && (is_uqe(policy.policy_type) || (is_thompson(policy.policy_type) && policy.use_spatial_exploration));
+                if (uses_iqn_tau_range
+                    && (!std::isfinite(policy.uqe_tau_start) || policy.uqe_tau_start < 0.0f || policy.uqe_tau_start > 1.0f
+                        || !std::isfinite(policy.uqe_tau_end) || policy.uqe_tau_end < 0.0f || policy.uqe_tau_end > 1.0f)) {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".uqe_tau_start/end: values="
+                        << policy.uqe_tau_start << "," << policy.uqe_tau_end << " expected finite values in [0,1]");
+                }
+            };
+            validate_distributional_policy(train_policy, "DefaultDQNAgent.train_policy");
+            validate_distributional_policy(eval_policy, "DefaultDQNAgent.eval_policy");
+            validate_distributional_policy(target_policy, "DefaultDQNAgent.target_policy");
+
+            if (quantile_mode == "iqn"
+                && (!std::isfinite(learner.quantile_huber_kappa) || learner.quantile_huber_kappa <= 0.0f)) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.quantile_huber_kappa: value="
+                    << learner.quantile_huber_kappa << " expected finite value > 0 when quantile_mode=iqn");
+            }
         }
     };
 
@@ -255,6 +403,8 @@ namespace anet::rl::dqn {
             std::optional<bool> clone_model_override = std::nullopt,
             std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
+        void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions) override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -279,6 +429,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
+        std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource
+        std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     private:
         seed_t action_context_seed_;
@@ -298,6 +450,12 @@ namespace anet::rl::dqn {
         ) const override;
 
         std::string GetTargetAgentClassId() const override { return "DefaultDQNAgent"; }
+
+    private:
+        static void ValidateQuantileNetworkContract(
+            const DefaultDQNAgentConfig& config,
+            const anet::nn::NetworkConfig& net_config,
+            const std::string& net_config_prefix);
     };
 
 }// namespace anet::rl

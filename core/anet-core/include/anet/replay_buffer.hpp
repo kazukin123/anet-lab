@@ -110,6 +110,8 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        bool SampleUniqueUniform(
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;

@@ -1,11 +1,25 @@
-#include "RunnerFrame.hpp"
+﻿#include "RunnerFrame.hpp"
 #include <algorithm>
+#include <cmath>
+#include <exception>
+#include <filesystem>
+#include <iterator>
+#include <string>
+#include <utility>
+#include <wx/artprov.h>
+#include <wx/filedlg.h>
+#include <wx/settings.h>
+#include <wx/utils.h>
+#include "anet/exception.hpp"
 #include "anet/log.hpp"
+#include "anet/observers.hpp"
+#include "anet/str_util.hpp"
 #include "RunnerApp.hpp"
 #include "LogPanel.hpp"
 #include "TrainPanel.hpp"
 #include "HeatMapPanel.hpp"
 #include "Conv2dPanel.hpp"
+#include "ErrorDialog.hpp"
 
 namespace LOG = anet::log;
 
@@ -22,6 +36,14 @@ constexpr int kMinTrainWidth = 200;
 constexpr int kMinEvalWidth = 200;
 constexpr int kMinQValueWidth = 300;
 constexpr int kMinAuxWidth = 100;
+const wxSize kToolBitmapSize(16, 16);
+
+constexpr const char* kPlaySvg =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#000000" d="M4 2 L13 8 L4 14 Z"/></svg>)";
+constexpr const char* kPauseSvg =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="#000000" x="4" y="2" width="3" height="12"/><rect fill="#000000" x="9" y="2" width="3" height="12"/></svg>)";
+constexpr const char* kStepSvg =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#000000" d="M3 2 L10 8 L3 14 Z"/><rect fill="#000000" x="11.5" y="2" width="2.5" height="12"/></svg>)";
 
 }  // namespace runner_layout
 
@@ -35,29 +57,150 @@ enum {
     ID_LogLevelVerbose,
     ID_LogLevelWarn,
     ID_LogLevelError,
+    ID_AlwaysOnTopOff,
+    ID_AlwaysOnTopAlways,
+    ID_AlwaysOnTopWhileRunning,
     ID_TrainPanel,
     ID_EvalPanel,
     ID_QValuePanel,
     ID_HeatMap,
     ID_Conv2d,
+    ID_TrainToggle,
+    ID_EvalToggle,
+    ID_EvalStep,
+    ID_SaveAgent,
+    ID_OpenRunFolder,
+    ID_TrainFpsConfig,
+    ID_TrainFpsOff,
+    ID_TrainFps1,
+    ID_TrainFps5,
+    ID_TrainFps10,
+    ID_TrainFps15,
+    ID_TrainFps30,
+    ID_TrainFps60,
+    ID_EvalFpsConfig,
+    ID_EvalFps1,
+    ID_EvalFps5,
+    ID_EvalFps10,
+    ID_EvalFps15,
+    ID_EvalFps30,
+    ID_EvalFps60,
+    ID_EvalFps120,
 };
+
+namespace runner_frame_detail {
+
+class RunnerDockArt final : public wxAuiDefaultDockArt {
+public:
+    RunnerDockArt()
+    {
+        UpdateColoursFromSystem();
+    }
+
+    wxAuiDockArt* Clone() override
+    {
+        return new RunnerDockArt(*this);
+    }
+
+    void UpdateColoursFromSystem() override
+    {
+        // 標準テーマを反映した後、非アクティブ pane 名だけを読みやすいシステム文字色へ揃える。
+        wxAuiDefaultDockArt::UpdateColoursFromSystem();
+        SetColour(wxAUI_DOCKART_INACTIVE_CAPTION_TEXT_COLOUR,
+            wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
+    }
+};
+
+wxBitmapBundle MakeSystemTextSvg(const char* source)
+{
+    std::string svg(source);
+    const auto colour = wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)
+        .GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
+    constexpr const char* token = "#000000";
+    size_t offset = 0;
+    while ((offset = svg.find(token, offset)) != std::string::npos) {
+        svg.replace(offset, std::char_traits<char>::length(token), colour);
+        offset += colour.size();
+    }
+    return wxBitmapBundle::FromSVG(svg.c_str(), kToolBitmapSize);
+}
+
+wxString FormatFpsConfigLabel(float fps)
+{
+    return wxString::Format("Config (%g)", static_cast<double>(fps));
+}
+
+wxString FormatRate(const std::optional<float>& rate)
+{
+    if (!rate.has_value() || !std::isfinite(*rate) || *rate < 0.0f) {
+        return "-";
+    }
+    return wxString::FromUTF8(anet::FormatWithCommas(std::llround(*rate)));
+}
+
+wxString FormatStepRates(const wxString& exp_rate, const wxString& train_rate)
+{
+    return "exp " + exp_rate + " steps/s    train " + train_rate + " steps/s";
+}
+
+wxString FormatElapsed(
+    const std::optional<float>& elapsed_hour,
+    std::chrono::steady_clock::time_point captured_at)
+{
+    if (!elapsed_hour.has_value() || !std::isfinite(*elapsed_hour) || *elapsed_hour < 0.0f) {
+        return "--:--:--";
+    }
+
+    const double captured_seconds = static_cast<double>(*elapsed_hour) * 3600.0;
+    const double extrapolated_seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - captured_at).count();
+    const int64_t total_seconds = static_cast<int64_t>(
+        std::max(0.0, captured_seconds + extrapolated_seconds));
+    const int64_t hours = total_seconds / 3600;
+    const int64_t minutes = (total_seconds / 60) % 60;
+    const int64_t seconds = total_seconds % 60;
+    return wxString::Format("%lld:%02lld:%02lld",
+        static_cast<long long>(hours), static_cast<long long>(minutes), static_cast<long long>(seconds));
+}
+
+void ShowUiOperationError(
+    const wxString& operation,
+    const std::filesystem::path& path,
+    const wxString& reason,
+    const wxString& detail = wxEmptyString)
+{
+    const wxString message = operation + " failed.\npath=" + wxString(path.wstring())
+        + "\nreason=" + reason;
+    ReportError(message, detail, wxGetApp().ShouldShowErrorDialog());
+}
+
+}  // namespace runner_frame_detail
+
+using namespace runner_frame_detail;
 
 
 RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
-    : anet::rl::gui::AuiLayoutFrame(title, wxSize(800, 1024))
+    : anet::rl::gui::AuiLayoutFrame(title, wxSize(1024, 1024)),
+    train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps)
 {
+    // pane の dock/float とテーマ変更の両方で Runner 用 caption 配色を維持する。
+    aui_mgr_.SetArtProvider(new RunnerDockArt());
+
     // フラグ設定
     aui_mgr_.SetFlags(wxAUI_MGR_ALLOW_FLOATING | wxAUI_MGR_TRANSPARENT_DRAG | wxAUI_MGR_TRANSPARENT_HINT);
+
     // 既定の30%制約だと右側の複数列表示が狭くなるため、補助列を含めて広げられるようにする。
     aui_mgr_.SetDockSizeConstraint(0.85, 0.3);
 
     // 画面レイアウトを作る (SetupPanes は client size を読むため、メニュー/ステータスバーより後)
     SetupMenuBar();
     CreateStatusBar();
+    SetupToolBars();
     SetupPanes(train_panel_config, eval_panel_config);
 
     // イベントハンドラ登録
     SetupEvents();
+    wxUpdateUIEvent::SetUpdateInterval(200);
 
     // AUIレイアウトを反映
     aui_mgr_.Update();
@@ -86,6 +229,18 @@ void RunnerFrame::SetupMenuBar()
     // View Menu
     wxMenu* view_menu = new wxMenu;
     view_menu->Append(ID_ResetLayout, "&Reset Layout", "Reset to default layout");
+
+    // topmost モードは起動中だけ保持し、毎回 Off から開始する。
+    wxMenu* always_on_top_menu = new wxMenu;
+    always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopOff, "&Off")->Check(true);
+    always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopAlways, "&Always");
+    always_on_top_menu->AppendRadioItem(ID_AlwaysOnTopWhileRunning, "&While Running");
+    view_menu->AppendSubMenu(always_on_top_menu, "Always on &Top");
+
+    // 区切り
+    view_menu->AppendSeparator();
+
+    // ログViewメニューの追加
     view_menu->AppendCheckItem(ID_LogView, "&Log View")->Check(true);
 
     // ログレベルメニューの追加
@@ -96,15 +251,46 @@ void RunnerFrame::SetupMenuBar()
     log_level_menu->AppendRadioItem(ID_LogLevelVerbose, "&Verbose");
     view_menu->AppendSubMenu(log_level_menu, "L&og Level");
 
+    // 区切り
     view_menu->AppendSeparator();
 
-    // その他Viewメニュー項目
+    // Eval View関連メニュー項目
     //view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
     view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(false);
     view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(false);
 
+    // 区切り
     view_menu->AppendSeparator();
 
+    // Train View FPS
+    // FPS は実行時 UI 操作であり、起動時 config 自体は変更しない。
+    wxMenu* train_fps_menu = new wxMenu;
+    train_fps_menu->AppendRadioItem(ID_TrainFpsConfig, FormatFpsConfigLabel(train_config_fps_))->Check(true);
+    train_fps_menu->AppendRadioItem(ID_TrainFpsOff, "0 (Off)");
+    train_fps_menu->AppendRadioItem(ID_TrainFps1, "1");
+    train_fps_menu->AppendRadioItem(ID_TrainFps5, "5");
+    train_fps_menu->AppendRadioItem(ID_TrainFps10, "10");
+    train_fps_menu->AppendRadioItem(ID_TrainFps15, "15");
+    train_fps_menu->AppendRadioItem(ID_TrainFps30, "30");
+    train_fps_menu->AppendRadioItem(ID_TrainFps60, "60");
+    view_menu->AppendSubMenu(train_fps_menu, "Train View FPS");
+
+    // Eval View FPS
+    wxMenu* eval_fps_menu = new wxMenu;
+    eval_fps_menu->AppendRadioItem(ID_EvalFpsConfig, FormatFpsConfigLabel(eval_config_fps_))->Check(true);
+    eval_fps_menu->AppendRadioItem(ID_EvalFps1, "1");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps5, "5");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps10, "10");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps15, "15");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps30, "30");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps60, "60");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps120, "120");
+    view_menu->AppendSubMenu(eval_fps_menu, "Eval View FPS");
+
+    // 区切り
+    view_menu->AppendSeparator();
+
+    // その他Viewメニュー項目
     view_menu->Append(ID_HeatMap, "&HeatMap");
     view_menu->Append(ID_Conv2d, "&Conv2d");
     menu_bar->Append(view_menu, "&View");
@@ -119,9 +305,104 @@ void RunnerFrame::SetupMenuBar()
 
 void RunnerFrame::CreateStatusBar()
 {
-    // ステータスバーを作成
+    // ステータスバーを作成し、頻繁に変わる表示欄の幅を固定する。
     wxStatusBar* statusBar = wxFrame::CreateStatusBar(3);
+    const int rate_width =
+        statusBar->GetTextExtent(FormatStepRates("1,234,567", "1,234,567")).GetWidth() + 16;
+    const int elapsed_width = statusBar->GetTextExtent("999:59:59").GetWidth() + 16;
+    const int widths[] = {-1, rate_width, elapsed_width};
+    statusBar->SetStatusWidths(3, widths);
+
+    // wxAuiToolBar の hover は wxFrame::DoGiveHelp 経由で help pane を書き換え、tool から
+    // 離れるときに hover 直前の文字列へ戻す (auibar.cpp:1519-1528)。この復元が toolbar 操作で
+    // 出した pause/resume メッセージを消すため、help pane を無効化して field 0 を操作結果専用にする。
+    SetStatusBarPane(-1);
     statusBar->SetStatusText("Ready", 0);
+    statusBar->SetStatusText(FormatStepRates("-", "-"), 1);
+    statusBar->SetStatusText("--:--:--", 2);
+}
+
+void RunnerFrame::SetupToolBars()
+{
+    // ToolbarPaneのgripperはAddPane時にwxAuiToolBar内蔵側へ移される。
+    // toolbar artと各state色も含め、wxWidgets標準の表現に任せる。
+    const long style = wxAUI_TB_DEFAULT_STYLE | wxAUI_TB_HORZ_TEXT;
+
+    // Run 制御は 1 本にまとめ、Train と Eval 系 (toggle + 手動 step) を separator で分ける。
+    run_control_toolbar_ = new wxAuiToolBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, style);
+    run_control_toolbar_->SetToolBitmapSize(kToolBitmapSize);
+    run_control_toolbar_->SetOverflowVisible(false);
+    // 生成時は停止状態の再生アイコンを置き、実行状態に応じた差し替えは UpdateToggleBitmap が行う。
+    run_control_toolbar_->AddTool(ID_TrainToggle, "Train", MakeSystemTextSvg(kPlaySvg),
+        "Pause/resume training (Shift / left-click)", wxITEM_CHECK);
+    run_control_toolbar_->AddSeparator();
+    run_control_toolbar_->AddTool(ID_EvalToggle, "Eval", MakeSystemTextSvg(kPlaySvg),
+        "Pause/resume evaluation (Space / right-click)", wxITEM_CHECK);
+    run_control_toolbar_->AddTool(ID_EvalStep, "Step", MakeSystemTextSvg(kStepSvg),
+        "Advance evaluation by one step (Ctrl)");
+    run_control_toolbar_->EnableTool(ID_TrainToggle, false);
+    run_control_toolbar_->EnableTool(ID_EvalToggle, false);
+    run_control_toolbar_->EnableTool(ID_EvalStep, false);
+    run_control_toolbar_->Realize();
+
+    // step名はtoolbar上のlabel、値は選択・コピー可能な標準read-only text controlで表示する。
+    step_toolbar_ = new wxAuiToolBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, style);
+    step_toolbar_->SetOverflowVisible(false);
+    auto* exp_label = new wxStaticText(step_toolbar_, wxID_ANY, "exp");
+    step_toolbar_->AddControl(exp_label);
+    exp_step_text_ = new wxTextCtrl(step_toolbar_, wxID_ANY, "-",
+        wxDefaultPosition, wxDefaultSize, wxTE_READONLY | wxTE_RIGHT);
+    exp_step_text_->SetMinSize(wxSize(
+        exp_step_text_->GetTextExtent("1,234,567,890").GetWidth() + 16, -1));
+    step_toolbar_->AddControl(exp_step_text_);
+
+    step_toolbar_->AddSeparator();
+    auto* train_label = new wxStaticText(step_toolbar_, wxID_ANY, "train");
+    step_toolbar_->AddControl(train_label);
+    train_step_text_ = new wxTextCtrl(step_toolbar_, wxID_ANY, "-",
+        wxDefaultPosition, wxDefaultSize, wxTE_READONLY | wxTE_RIGHT);
+    train_step_text_->SetMinSize(wxSize(
+        train_step_text_->GetTextExtent("1,234,567,890").GetWidth() + 16, -1));
+    step_toolbar_->AddControl(train_step_text_);
+    step_toolbar_->Realize();
+
+    // Run 成果物の操作は標準 art を使い、テーマ側の表現に合わせる。
+    run_ops_toolbar_ = new wxAuiToolBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, style);
+    run_ops_toolbar_->SetToolBitmapSize(kToolBitmapSize);
+    run_ops_toolbar_->SetOverflowVisible(false);
+    run_ops_toolbar_->AddTool(ID_SaveAgent, wxEmptyString,
+        wxArtProvider::GetBitmapBundle(wxART_FILE_SAVE, wxART_TOOLBAR, kToolBitmapSize), "Save Checkpoint");
+    run_ops_toolbar_->AddTool(ID_OpenRunFolder, wxEmptyString,
+        wxArtProvider::GetBitmapBundle(wxART_FOLDER_OPEN, wxART_TOOLBAR, kToolBitmapSize), "Open Run Folder");
+    run_ops_toolbar_->EnableTool(ID_SaveAgent, false);
+    run_ops_toolbar_->Realize();
+
+    // Panel 表示ツールは View menu と同じ ID を共有し、同じ pane 操作へ到達させる。
+    panel_toolbar_ = new wxAuiToolBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, style);
+    panel_toolbar_->SetOverflowVisible(false);
+    panel_toolbar_->AddTool(ID_LogView, "Logs", wxBitmapBundle(), "Show/hide Logs", wxITEM_CHECK);
+    panel_toolbar_->AddTool(ID_EvalPanel, "Eval View", wxBitmapBundle(), "Show/hide Eval View", wxITEM_CHECK);
+    panel_toolbar_->AddTool(ID_QValuePanel, "Q-Values", wxBitmapBundle(), "Show/hide Q-Values", wxITEM_CHECK);
+    panel_toolbar_->Realize();
+
+    // float 時のミニフレームは pane caption を window title に使うため、name とは別に caption を与える。
+    struct ToolBarPaneDef {
+        wxAuiToolBar* toolbar;
+        wxString name;
+        wxString caption;
+    };
+    const ToolBarPaneDef toolbars[] = {
+        {.toolbar = run_control_toolbar_, .name = "RunControlToolBar", .caption = "Run Control"},
+        {.toolbar = step_toolbar_, .name = "StepToolBar", .caption = "Steps"},
+        {.toolbar = run_ops_toolbar_, .name = "RunOpsToolBar", .caption = "Run Operations"},
+        {.toolbar = panel_toolbar_, .name = "PanelToolBar", .caption = "Panels"},
+    };
+    for (int position = 0; position < static_cast<int>(std::size(toolbars)); ++position) {
+        aui_mgr_.AddPane(toolbars[position].toolbar, wxAuiPaneInfo()
+            .Name(toolbars[position].name).Caption(toolbars[position].caption)
+            .ToolbarPane().Top().Row(0).Position(position)
+            .CloseButton(false));
+    }
 }
 
 void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
@@ -198,6 +479,136 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
         eval_panel_->DoStep(action);
         eval_panel_->Refresh();
     });
+
+    // Trainer thread 上で status snapshot を作り、UI から可変 Runner 状態を直読しない。
+    AttachTrainStatusObserver(run_manager);
+    initialized_ = true;
+}
+
+void RunnerFrame::AttachTrainStatusObserver(const std::shared_ptr<anet::rl::RunManager>& run_manager)
+{
+    auto train_runner = run_manager->GetTrainRunner();
+    auto observer = std::make_shared<anet::rl::FunctionTrainObserver>(
+        [this, train_runner](const anet::rl::TrainEvent& event) {
+            if (!train_status_store_.ShouldUpdate()) return;
+
+            const TrainStatusSnapshot snapshot{
+                .counts = event.counts,
+                .exp_sps = train_runner->GetScalar(anet::rl::Runner::EXP_STEP_PER_SEC),
+                .train_sps = train_runner->GetScalar(anet::rl::Runner::TRAIN_STEP_PER_SEC),
+                .elapsed_hour = train_runner->GetScalar(anet::rl::Runner::ELAPSE_HOUR),
+                .captured_at = std::chrono::steady_clock::now(),
+            };
+            train_status_store_.Update(snapshot);
+        },
+        "RunnerToolBar");
+
+    // AttachScoped() の返り値ではなく、Notifier が実際に保持する wrapper を保持して detach する。
+    train_status_notifier_ = run_manager->GetNotifier();
+    train_status_observer_ = std::make_shared<anet::rl::RunnerScopedTrainObserver>(observer, train_runner);
+    train_status_notifier_->Attach(train_status_observer_);
+}
+
+void RunnerFrame::DetachTrainStatusObserver()
+{
+    if (train_status_notifier_ && train_status_observer_) {
+        train_status_notifier_->Detach(train_status_observer_);
+    }
+    train_status_observer_.reset();
+    train_status_notifier_.reset();
+}
+
+void RunnerFrame::UpdateTrainStatus()
+{
+    // 最新 snapshot を取り込み、同じ断面から toolbar と status bar を更新する。
+    if (auto snapshot = train_status_store_.Get()) {
+        latest_train_status_ = std::move(snapshot);
+    }
+
+    wxString exp_step_text = "-";
+    wxString train_step_text = "-";
+    wxString rate_text = FormatStepRates("-", "-");
+    wxString elapsed_text = "--:--:--";
+    if (latest_train_status_) {
+        exp_step_text = wxString::FromUTF8(
+            anet::FormatWithCommas(latest_train_status_->counts.exp_step));
+        train_step_text = wxString::FromUTF8(
+            anet::FormatWithCommas(latest_train_status_->counts.train_step));
+        rate_text = FormatStepRates(
+            FormatRate(latest_train_status_->exp_sps), FormatRate(latest_train_status_->train_sps));
+        elapsed_text = FormatElapsed(
+            latest_train_status_->elapsed_hour, latest_train_status_->captured_at);
+    }
+
+    // 値が変化した場合だけ描画更新を要求する。
+    if (exp_step_text_ && exp_step_text_->GetValue() != exp_step_text) {
+        exp_step_text_->ChangeValue(exp_step_text);
+    }
+    if (train_step_text_ && train_step_text_->GetValue() != train_step_text) {
+        train_step_text_->ChangeValue(train_step_text);
+    }
+    if (GetStatusBar()->GetStatusText(1) != rate_text) {
+        SetStatusText(rate_text, 1);
+    }
+    if (GetStatusBar()->GetStatusText(2) != elapsed_text) {
+        SetStatusText(elapsed_text, 2);
+    }
+}
+
+void RunnerFrame::UpdateToggleBitmap(
+    wxAuiToolBar* toolbar, int tool_id, bool running, std::optional<bool>& shown_as_running)
+{
+    // 走行中は次に起きる操作 (一時停止)、停止中は再生を示す。無効時の淡色表示も wxAUI が
+    // この bitmap から都度生成するため、差し替えはこの 1 箇所で足りる。
+    if (toolbar == nullptr) return;
+
+    // 200ms 周期で呼ばれるため、表示が実状態と一致している間は再描画を要求しない。
+    if (shown_as_running.has_value() && *shown_as_running == running) return;
+
+    toolbar->SetToolBitmap(tool_id, MakeSystemTextSvg(running ? kPauseSvg : kPlaySvg));
+    shown_as_running = running;
+    toolbar->Refresh(false);
+}
+
+void RunnerFrame::SetAlwaysOnTopMode(AlwaysOnTopMode mode)
+{
+    // 選択を起動中の状態へ反映し、次回の定期更新を待たずに topmost を切り替える。
+    always_on_top_mode_ = mode;
+    ApplyAlwaysOnTopMode();
+}
+
+void RunnerFrame::ApplyAlwaysOnTopMode()
+{
+    // While Running は描画頻度や pane 表示ではなく、既存の再生/一時停止状態だけで判定する。
+    const bool train_active = wxGetApp().IsTrainingRunning() && !wxGetApp().IsTrainingPaused();
+    const bool eval_active = initialized_ && eval_panel_ != nullptr && !eval_panel_->IsPaused();
+    const bool should_stay_on_top = always_on_top_mode_ == AlwaysOnTopMode::Always
+        || (always_on_top_mode_ == AlwaysOnTopMode::WhileRunning && (train_active || eval_active));
+
+    // wxWidgets の window style を必要な場合だけ更新し、フォーカスや表示状態は変更しない。
+    const long current_style = GetWindowStyleFlag();
+    const bool stays_on_top = (current_style & wxSTAY_ON_TOP) != 0;
+    if (stays_on_top == should_stay_on_top) return;
+
+    SetWindowStyleFlag(should_stay_on_top
+        ? current_style | wxSTAY_ON_TOP
+        : current_style & ~wxSTAY_ON_TOP);
+}
+
+void RunnerFrame::UpdateToolBarBitmaps()
+{
+    if (run_control_toolbar_ == nullptr) return;
+
+    // 現在の実行状態を保ったまま bitmap を作り直す。
+    const bool train_running = train_toggle_running_.value_or(false);
+    const bool eval_running = eval_toggle_running_.value_or(false);
+    train_toggle_running_.reset();
+    eval_toggle_running_.reset();
+    UpdateToggleBitmap(run_control_toolbar_, ID_TrainToggle, train_running, train_toggle_running_);
+    UpdateToggleBitmap(run_control_toolbar_, ID_EvalToggle, eval_running, eval_toggle_running_);
+    run_control_toolbar_->SetToolBitmap(ID_EvalStep, MakeSystemTextSvg(kStepSvg));
+    run_control_toolbar_->Realize();
+    run_control_toolbar_->Refresh(false);
 }
 
 void RunnerFrame::SetupEvents()
@@ -210,6 +621,8 @@ void RunnerFrame::SetupEvents()
 
     // UI基本イベント
     Bind(wxEVT_CLOSE_WINDOW, &RunnerFrame::OnClose, this);
+    Bind(wxEVT_SYS_COLOUR_CHANGED, &RunnerFrame::OnSystemColourChanged, this);
+    Bind(wxEVT_UPDATE_UI, &RunnerFrame::OnUpdateTrainStatus, this, GetId());
 
     // メニューイベント
     Bind(wxEVT_MENU, &RunnerFrame::OnExit, this, wxID_EXIT);
@@ -217,12 +630,85 @@ void RunnerFrame::SetupEvents()
     Bind(wxEVT_MENU, &RunnerFrame::OnResetLayout, this, ID_ResetLayout);
     Bind(wxEVT_MENU, &RunnerFrame::OnHeatMap, this, ID_HeatMap);
     Bind(wxEVT_MENU, &RunnerFrame::OnConv2d, this, ID_Conv2d);
+    Bind(wxEVT_MENU, &RunnerFrame::OnToggleTraining, this, ID_TrainToggle);
+    Bind(wxEVT_MENU, &RunnerFrame::OnToggleEval, this, ID_EvalToggle);
+    Bind(wxEVT_MENU, &RunnerFrame::OnEvalStep, this, ID_EvalStep);
+    Bind(wxEVT_MENU, &RunnerFrame::OnSaveAgent, this, ID_SaveAgent);
+    Bind(wxEVT_MENU, &RunnerFrame::OnOpenRunFolder, this, ID_OpenRunFolder);
+
+    // topmost モードの選択と radio 表示を同じ一時状態へ同期する。
+    const std::pair<int, AlwaysOnTopMode> always_on_top_items[] = {
+        {ID_AlwaysOnTopOff, AlwaysOnTopMode::Off},
+        {ID_AlwaysOnTopAlways, AlwaysOnTopMode::Always},
+        {ID_AlwaysOnTopWhileRunning, AlwaysOnTopMode::WhileRunning},
+    };
+    for (const auto& [id, mode] : always_on_top_items) {
+        Bind(wxEVT_MENU, [this, mode](wxCommandEvent&) { SetAlwaysOnTopMode(mode); }, id);
+        Bind(wxEVT_UPDATE_UI, [this, mode](wxUpdateUIEvent& event) {
+            event.Check(always_on_top_mode_ == mode);
+        }, id);
+    }
 
     // パネル表示/非表示メニュー連動 (トグル・✕・チェック同期は基底が処理)
     RegisterPaneMenu(ID_LogView, log_panel_);
     RegisterPaneMenu(ID_TrainPanel, train_panel_);
     RegisterPaneMenu(ID_EvalPanel, eval_panel_);
     RegisterPaneMenu(ID_QValuePanel, q_value_panel_);
+
+    // Update UI は操作経路に依存せず、実状態から menu と toolbar を同期する。
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        const bool running = wxGetApp().IsTrainingRunning();
+        const bool active = running && !wxGetApp().IsTrainingPaused();
+        event.Enable(running);
+        event.Check(active);
+        UpdateToggleBitmap(run_control_toolbar_, ID_TrainToggle, active, train_toggle_running_);
+    }, ID_TrainToggle);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        const bool available = initialized_ && eval_panel_ != nullptr;
+        const bool active = available && !eval_panel_->IsPaused();
+        event.Enable(available);
+        event.Check(active);
+        UpdateToggleBitmap(run_control_toolbar_, ID_EvalToggle, active, eval_toggle_running_);
+    }, ID_EvalToggle);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        event.Enable(initialized_ && eval_panel_ != nullptr);
+    }, ID_EvalStep);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        event.Enable(initialized_);
+    }, ID_SaveAgent);
+
+    const std::pair<int, wxWindow*> panel_bindings[] = {
+        {ID_LogView, log_panel_},
+        {ID_EvalPanel, eval_panel_},
+        {ID_QValuePanel, q_value_panel_},
+    };
+    for (const auto& [id, window] : panel_bindings) {
+        Bind(wxEVT_UPDATE_UI, [this, window](wxUpdateUIEvent& event) {
+            auto& pane = aui_mgr_.GetPane(window);
+            event.Enable(pane.IsOk());
+            event.Check(pane.IsOk() && pane.IsShown());
+        }, id);
+    }
+
+    const std::pair<int, float> train_fps_items[] = {
+        {ID_TrainFpsConfig, train_config_fps_}, {ID_TrainFpsOff, 0.0f}, {ID_TrainFps1, 1.0f},
+        {ID_TrainFps5, 5.0f}, {ID_TrainFps10, 10.0f}, {ID_TrainFps15, 15.0f},
+        {ID_TrainFps30, 30.0f}, {ID_TrainFps60, 60.0f},
+    };
+    for (const auto& [id, fps] : train_fps_items) {
+        Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { train_panel_->SetFps(fps); }, id);
+        Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) { event.Enable(initialized_); }, id);
+    }
+
+    const std::pair<int, float> eval_fps_items[] = {
+        {ID_EvalFpsConfig, eval_config_fps_}, {ID_EvalFps1, 1.0f}, {ID_EvalFps5, 5.0f},
+        {ID_EvalFps10, 10.0f}, {ID_EvalFps15, 15.0f}, {ID_EvalFps30, 30.0f},
+        {ID_EvalFps60, 60.0f}, {ID_EvalFps120, 120.0f},
+    };
+    for (const auto& [id, fps] : eval_fps_items) {
+        Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { eval_panel_->SetFps(fps); }, id);
+        Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) { event.Enable(initialized_); }, id);
+    }
 
     // ログレベルメニュー
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (log_panel_) log_panel_->SetLogLevel("info"); }, ID_LogLevelInfo);
@@ -233,14 +719,6 @@ void RunnerFrame::SetupEvents()
     // きーまう
     Bind(anet::rl::gui::EVT_FORWARDED_MOUSE, &RunnerFrame::OnMouse, this);
     Bind(anet::rl::gui::EVT_FORWARDED_KEY, &RunnerFrame::OnKey, this);
-}
-
-void RunnerFrame::OnPaneHiding(wxAuiPaneInfo& pane)
-{
-    // Eval を隠すときはフレーム縮退用に直前の幅を控える
-    if (pane.window == eval_panel_) {
-        pending_eval_compact_width_ = std::max(pending_eval_compact_width_, pane.rect.GetWidth());
-    }
 }
 
 bool RunnerFrame::IsAuxPane(const wxAuiPaneInfo& pane) const
@@ -289,58 +767,11 @@ int RunnerFrame::ResolveAuxDockWidth()
     return kDefaultAuxDockWidth;
 }
 
-void RunnerFrame::RestoreFrameSizeIfNeeded()
-{
-    auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
-    if (!compact_restore_size_.has_value() || !eval_pane.IsOk() || !eval_pane.IsShown() || IsMaximized()) {
-        return;
-    }
-
-    const wxSize restore_size = *compact_restore_size_;
-    compact_restore_size_.reset();
-    SetSize(wxDefaultCoord, wxDefaultCoord, restore_size.GetWidth(), restore_size.GetHeight(), wxSIZE_USE_EXISTING);
-}
-
-void RunnerFrame::CompactFrameForHiddenEval()
-{
-    auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
-    auto& train_pane = aui_mgr_.GetPane(train_panel_);
-    if (!eval_pane.IsOk() || eval_pane.IsShown() || !train_pane.IsOk() || !train_pane.IsShown()) {
-        pending_eval_compact_width_ = 0;
-        return;
-    }
-    if (pending_eval_compact_width_ <= 0) {
-        return;
-    }
-    if (compact_restore_size_.has_value() || IsMaximized()) {
-        pending_eval_compact_width_ = 0;
-        return;
-    }
-
-    int shrink_width = pending_eval_compact_width_;
-    shrink_width = std::max(shrink_width, eval_pane.rect.GetWidth());
-    shrink_width = std::max(shrink_width, eval_pane.best_size.GetWidth());
-    shrink_width = std::max(shrink_width, kMinEvalWidth);
-    pending_eval_compact_width_ = 0;
-
-    const wxSize current_size = GetSize();
-    const int min_width = std::max(480, GetMinSize().GetWidth());
-    const int new_width = std::max(min_width, current_size.GetWidth() - shrink_width);
-    if (new_width >= current_size.GetWidth()) return;
-
-    compact_restore_size_ = current_size;
-    SetSize(wxDefaultCoord, wxDefaultCoord, new_width, current_size.GetHeight(), wxSIZE_USE_EXISTING);
-}
-
 void RunnerFrame::OnApplyLayoutPolicy()
 {
     // maximize 中は LoadLayout 往復が復元情報 (savedHiddenState) を壊すため何もしない。
     // restore 後に基底の restore ハンドラ経由で再適用される。
     if (HasMaximizedPane()) return;
-
-    // Eval 非表示時のフレーム縮退と、再表示時の復元
-    RestoreFrameSizeIfNeeded();
-    CompactFrameForHiddenEval();
 
     // 主領域ポリシー (Train/Eval 50:50) は両 pane が定位置にいる時だけ適用する
     auto& train_pane = aui_mgr_.GetPane(train_panel_);
@@ -474,6 +905,19 @@ void RunnerFrame::HideAuxPanes()
 
 void RunnerFrame::RestoreDefaultPanes()
 {
+    // toolbar はフロート中でも上端 Row 0 の既定順へ回収する。
+    const std::pair<wxAuiToolBar*, int> toolbars[] = {
+        {run_control_toolbar_, 0}, {step_toolbar_, 1}, {run_ops_toolbar_, 2}, {panel_toolbar_, 3},
+    };
+    for (const auto& [toolbar, position] : toolbars) {
+        auto& pane = aui_mgr_.GetPane(toolbar);
+        if (!pane.IsOk()) continue;
+        // ToolbarPane()は pane 側のgripperも再度有効化するため、AddPane後と同じく
+        // wxAuiToolBar内蔵gripperだけが残る状態へ戻す。
+        pane.Show(true).Restore().Dock().ToolbarPane().Gripper(false)
+            .Top().Row(0).Position(position).CloseButton(false);
+    }
+
     auto& log_pane = aui_mgr_.GetPane(log_panel_);
     if (log_pane.IsOk()) {
         log_pane.Show(true).Dock().Bottom().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
@@ -529,7 +973,7 @@ void RunnerFrame::OnMouse(anet::rl::gui::ForwardedMouseEvent& event)
     if (mouse_event.LeftDown())
         wxGetApp().ToggleTraining();    // 左クリック：Trainingトグル
     else
-        eval_panel_->TogglePause();     // 右クリック：Evalトグル
+        ToggleEvalPause();              // 右クリック：Evalトグル (resume 時は pane も表示)
 }
 
 void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
@@ -617,14 +1061,6 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
 
 void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))
 {
-    // Eval 非表示で縮退していた場合はフレームサイズを元へ戻す
-    if (compact_restore_size_.has_value() && !IsMaximized()) {
-        const wxSize restore_size = *compact_restore_size_;
-        SetSize(wxDefaultCoord, wxDefaultCoord, restore_size.GetWidth(), restore_size.GetHeight(), wxSIZE_USE_EXISTING);
-    }
-    compact_restore_size_.reset();
-    pending_eval_compact_width_ = 0;
-
     // live pane の dock 情報と記憶幅を既定値へ戻す
     RestoreDefaultPanes();
 
@@ -654,6 +1090,120 @@ void RunnerFrame::OnExit(wxCommandEvent& WXUNUSED(event))
     Close(true);
 }
 
+void RunnerFrame::OnToggleTraining(wxCommandEvent& WXUNUSED(event))
+{
+    if (wxGetApp().IsTrainingRunning()) {
+        wxGetApp().ToggleTraining();
+    }
+}
+
+void RunnerFrame::ShowEvalPaneIfHidden()
+{
+    // Eval を進める操作では、結果が見えるよう対象 pane を先に表示する。
+    // メニュー・toolbar のチェック同期は UPDATE_UI と基底の pane 連動に任せる。
+    auto& pane = aui_mgr_.GetPane(eval_panel_);
+    if (!pane.IsOk() || pane.IsShown()) return;
+
+    pane.Show(true);
+    aui_mgr_.Update();
+    ApplyLayoutPolicy();
+}
+
+void RunnerFrame::ToggleEvalPause()
+{
+    if (!eval_panel_) return;
+
+    // resume 要求時だけ対象 pane を先に表示し、操作対象を画面上でも明示する。
+    if (eval_panel_->IsPaused()) {
+        ShowEvalPaneIfHidden();
+    }
+    eval_panel_->TogglePause();
+}
+
+void RunnerFrame::OnToggleEval(wxCommandEvent& WXUNUSED(event))
+{
+    if (!initialized_) return;
+    ToggleEvalPause();
+}
+
+void RunnerFrame::OnEvalStep(wxCommandEvent& WXUNUSED(event))
+{
+    if (!initialized_ || !eval_panel_) return;
+
+    // 手動 step も結果を見るための操作なので、Eval toggle と同じく pane を表示してから進める。
+    ShowEvalPaneIfHidden();
+    eval_panel_->DoStep();
+    eval_panel_->Refresh();
+}
+
+void RunnerFrame::OnSaveAgent(wxCommandEvent& WXUNUSED(event))
+{
+    if (!initialized_) return;
+
+    // dialog 表示中に step が進むと既定ファイル名と保存内容がずれるため、走行中なら先に pause する
+    // (保存後・cancel 後の自動 resume はしない)。
+    wxGetApp().PauseTraining();
+
+    // 最新 snapshot の exp_step を既定名へ反映する。未取得時は 0 を使う。
+    UpdateTrainStatus();
+    const auto exp_step = latest_train_status_ ? latest_train_status_->counts.exp_step : 0;
+    const wxString default_name = "agent_" + wxString::FromUTF8(std::to_string(exp_step)) + ".anet";
+    const auto run_dir = wxGetApp().GetRunDir();
+    wxFileDialog dialog(
+        this,
+        "Save Checkpoint",
+        wxString(run_dir.wstring()),
+        default_name,
+        "ANET checkpoint (*.anet)|*.anet|All files (*.*)|*.*",
+        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (dialog.ShowModal() != wxID_OK) return;
+
+    TrySaveAgent(std::filesystem::path(dialog.GetPath().ToStdWstring()));
+}
+
+void RunnerFrame::OnOpenRunFolder(wxCommandEvent& WXUNUSED(event))
+{
+    const auto run_dir = wxGetApp().GetRunDir();
+    if (!wxLaunchDefaultApplication(wxString(run_dir.wstring()))) {
+        ShowUiOperationError(
+            "Open Run Folder", run_dir, "The operating system could not open the folder.");
+    }
+}
+
+void RunnerFrame::OnUpdateTrainStatus(wxUpdateUIEvent& WXUNUSED(event))
+{
+    UpdateTrainStatus();
+    ApplyAlwaysOnTopMode();
+}
+
+bool RunnerFrame::TrySaveAgent(const std::filesystem::path& file_path)
+{
+    // UI 操作の環境依存失敗はこの境界で通知し、Run と終了 cleanup へ伝播させない。
+    const wxString incomplete_warning =
+        "The target file may be incomplete. It was not deleted automatically.";
+    try {
+        wxGetApp().SaveAgent(file_path);
+        return true;
+    } catch (const anet::AnetException& e) {
+        ShowUiOperationError("Save Checkpoint", file_path,
+            wxString::FromUTF8(e.what()) + "\n" + incomplete_warning,
+            wxString::FromUTF8(e.stack_trace()));
+    } catch (const std::exception& e) {
+        ShowUiOperationError("Save Checkpoint", file_path,
+            wxString::FromUTF8(e.what()) + "\n" + incomplete_warning);
+    } catch (...) {
+        ShowUiOperationError("Save Checkpoint", file_path,
+            "Unknown exception.\n" + incomplete_warning);
+    }
+    return false;
+}
+
+void RunnerFrame::OnSystemColourChanged(wxSysColourChangedEvent& event)
+{
+    UpdateToolBarBitmaps();
+    event.Skip();
+}
+
 void RunnerFrame::OnAbout(wxCommandEvent& WXUNUSED(event))
 {
     wxMessageBox("Anet RL Runner\nIntegrated Reinforcement Learning Environment",
@@ -665,7 +1215,8 @@ void RunnerFrame::OnClose(wxCloseEvent& event)
     LOG::info() << "RunnerFrame::OnClose() called.";
 
     wxGetApp().StopTraining();
-    wxGetApp().SaveAgent("agent_close.anet");
+    DetachTrainStatusObserver();
+    TrySaveAgent(wxGetApp().GetRunDir() / "agent_close.anet");
     wxGetApp().ShutdownRunLogging();
 
     if (eval_panel_) {

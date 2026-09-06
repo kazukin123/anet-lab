@@ -51,12 +51,28 @@ _Avoid_: reward normalizer, reward transform
 Bellman ターゲットを可逆な変換関数 h で圧縮し、大きな Q 値に対する学習を安定させる手法。anet-lab では TBO と略す。
 _Avoid_: value transform, Bellman transform
 
+**Munchausen項**:
+実行行動の scaled log-policy を clip し、Bellmanターゲットの報酬側へ加える補正項。N-step target return では先頭遷移に一度だけ加え、終端マスクの対象にはしない。
+_Avoid_: log-policy bonus（soft価値側の τ·ln π と区別できない）, entropy bonus（soft価値ブートストラップの項と混同）, Munchausen reward（報酬そのものではない）
+
+**soft価値ブートストラップ**:
+次状態の bootstrap 価値を hard argmax ではなく、方策で重み付けした entropy 正則化付きの継続価値として求める方式。
+_Avoid_: soft Q（価値関数の名前と紛れる）, max-entropy target（手法一般の総称）, softmax bootstrap（方策そのものと混同）
+
+**方策温度**:
+Munchausen RL の方策分布の軟らかさを制御する温度。IQN の taus や network 更新率など、他の tau 系パラメータとは別概念である。
+_Avoid_: tau（多義）, τ（無修飾）, 温度（何の温度か不明）
+
+**楽観ターゲット**:
+次状態の bootstrap 方策を、期待値ではなく分布の上側を見る risk-biased スコアで決める target 計算。Munchausen OFF では hard argmax、ON では soft 混合として同じ設定が効く。
+_Avoid_: optimistic bootstrap（価値側まで楽観と誤解される）, UQE ターゲット（方策の実装名で呼ばない）, 楽観 Q（価値関数の名前と紛れる）
+
 **taus（τサンプル）**:
 IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環境が渡す Observation ではなく、Agent（ActionPolicy / Learner）が forward 直前に NN 入力へ注入する。
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 
 **tau配置方式**:
-taus の並べ方の区分（random / fixed_midpoint）。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
+taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 
 ### Replay・PER
@@ -66,7 +82,7 @@ _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **Actor Qヒント**:
-Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した、実行行動の`Q(s,a)`と`max_a Q_online(s,a)`の2列を指す。ReplayBuffer共通層は列の意味を解釈しない。
+Replay初期優先度ヒントへ格納するDQN固有payload。実行行動の価値、bootstrap用の状態価値、Munchausen項（OFFでは0）をActorから初期優先度推定器へ渡す。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:
@@ -76,6 +92,10 @@ _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 **優先度source**:
 現在のSumTree leafへ適用した値の由来を表す`none`、`fixed_initial`、`max_initial`、`actor_initial`、`learner_updated`の区分。初期状態かどうか、フォールバック理由、item generationとは別の概念。
 _Avoid_: initial flag, fallback reason, priority type
+
+**初回Learner priority更新**:
+ReplayBufferからsampleした時点の優先度sourceが`fixed_initial`、`max_initial`、`actor_initial`のいずれかである行へ、Learnerが初めて計算済みpriorityを反映する更新。`none`と`learner_updated`は含めない。
+_Avoid_: 初回sample, 初回minibatch, initial priority投入
 
 **raw priority**:
 `per_alpha`適用前の非負優先度。Learnerと近似Actorでは`abs(TD error) + per_eps`へ必要なclipを適用した値を指す。
@@ -93,6 +113,18 @@ _Avoid_: index, physical index, logical index, slot index
 ReplayBuffer内部のリングストレージ上の物理位置。全envを1次元化した位置は`flat_slot_index`と呼び、外向けのreplay item keyとは区別する。
 _Avoid_: replay item key, logical index, sample index
 
+**ready range**:
+env laneごとの、未来側条件（N-stepに必要な未来観測の書込完了・unroll終端確定・未上書き）をすべて満たした論理時刻区間。過去のstack履歴が残っているかは含まない。`InitialPriorityCompleter`とeviction統計の判定基準。
+_Avoid_: valid range（dummy除外前後のどちらとも読める）, sampleable（stack込みの最終集合と混同する）
+
+**sampleable range**:
+ready rangeへwrap後のhistory marginを適用した、sample候補の最終論理時刻区間。uniform sampling、PER、`Size()`、可視化accessorが共有する唯一の集合。dummyはこの区間に含まれたまま列挙時にphysical slot単位で除外する。
+_Avoid_: valid indices（実装上の列挙結果であって概念名ではない）, ready range（未来側条件のみの広い区間と混同する）
+
+**history margin**:
+ring折り返し後に、保持最古のlogical timeから`stack_count - 1`件をsample不可とする下限側の余白。過去stack frameが上書きで失われたtransitionを候補から除外するためのもので、wrap前は0。episode境界のpaddingとは別概念（上書き由来の履歴喪失はpaddingしない）。
+_Avoid_: stack margin（NN構成の語と紛れる）, padding幅（padding可否とは独立の除外幅）
+
 ### Module・設定参照
 
 **Module Config**:
@@ -102,6 +134,30 @@ _Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
 **Property**:
 構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
 _Avoid_: config, resolved config
+
+**プロファイル (設定プロファイル)**:
+`@` セグメントを含むキー群。選択(`.$`)や値参照(`${}`)の入力としてのみ使われ、実効設定には選択された分だけが合成される。`config_data.txt` には出力されない。再利用を前提とした named な設定部品。未定義プロファイルへの参照は fail-fast、未参照のプロファイル定義は正常(選択肢の在庫)。文脈で紛れない限り単に「プロファイル」と呼ぶ。Run プロファイルと対比するときだけ「設定プロファイル」と書く。実装内部の識別子は `material` のままで、用語の対応は本項が正本。
+_Avoid_: 素材(旧称), プリセット, テンプレート, ワークスペース(別概念)
+
+**選択チェーン**:
+`<スロット>.$ = A > B > C` の形でプロファイルと上書き層を合成する記法。**右が後勝ち**。CLI 上書きは選択より前に解決入力へ注入されるため、チェーン内のどのキーにも効く(`config_impl.cpp` の `ResolutionEngine` 構築時)。Run プロファイルの展開は選択より先に走る。
+_Avoid_: include(順序の意味が違う), 継承, マージ
+
+**カタログ**:
+名前で参照される部品定義(NN block、configured eval tag 定義、metrics 定義など)。プロファイルと違い「選択」されるのではなく、コードや structure 記述が名前で引く。実効側に読み口を持つため dump に残る。
+_Avoid_: 部品集(曖昧), library
+
+**Run プロファイル**:
+Run を特徴づけるスロット選択の束(= Run 署名)を `run.@<name>` で命名したもの。env・agent・予算・backend 等の選択で構成され、値は宣言済み値スロット(game、num_envs 等)のみ持つ。`train.seed` は含まない(同一 Run プロファイル×複数 seed = 比較母集団)。展開は「ファイル末尾へ中身を追記したのと同一」の後勝ちで、上のラダーや上書き層より強い。`run.$` 自体も選択チェーンなので Run プロファイル同士を合成できる(入れ子定義は fail-fast)。実装内部の識別子は `trunk` のまま。
+_Avoid_: 幹(旧称), Run設定(曖昧), プリセット
+
+**上書き層**:
+named でないファイルローカルの差分キー群。名前は直交 2 軸 — 文字=対象(A=Agent / E=Env / M=Metrics / P=app)、番号=恒久度(大番号ほど揮発的。チェーン右に置く=後勝ちで強い)— の全層番号付き(A1/A2/A3、E1、M1/M2、P1)。プロファイルと違い `@` を持たず、dump に痕跡が残る。値は大番号(その場の試行)→小番号(定着中)→プロファイルへ、プロファイルの組は Run プロファイルへ昇格する。
+_Avoid_: 実験レイヤ(曖昧), patch, 旧名 R/X/O(A2/A3/M2 へ吸収済み)
+
+**デフォルト直書き**:
+選択チェーンが無い場合に採用される値を宣言する素の設定行。実装側デフォルトの設定ファイルへの可視化であり、チェーン結果に上書きされることを前提とした共存が正常形。
+_Avoid_: fallback(`auto`戦略のfallbackと混同), 初期値(実装デフォルトと混同)
 
 ### Env・実行
 
@@ -149,19 +205,73 @@ _Avoid_: prev_actionキー（PRD900の別キー設計と混同）, action one-ho
 direct系action modeでは未使用になるgridのdropper classを再利用し、直前DROPの命令列をtop rowに描画するマーカー。move系の「現在のdropper位置」表示とは別意味。
 _Avoid_: dropper marker（move系表示と混同）
 
+### Atari/ALE
+
+**sticky actions**:
+確率`repeat_action_probability`で当該フレームの入力行動を無視し、直前の実行行動を継続させるALEの確率性注入。ALE内部RNGがエミュレータフレーム単位で判定する（AtariEnvの自前skipループでもact()単位=フレーム単位なので原義と同一）。丸暗記方策（open-loop）を壊すための機構で、frame_skip（時間抽象化）とは別概念。
+_Avoid_: action repeat（frame_skipと混同）, 行動ノイズ
+
+**flavor**:
+Atariゲームのモード×難易度の組合せ（`setMode`/`setDifficulty`、Machado et al. 2018の用語）。同一ROMからルール違いの環境バリエーションを作る軸で、ゲーム（ROM）の選択とは別階層。
+_Avoid_: game variant, ステージ
+
+**生スコア**:
+reward clip適用前の環境スコア。AtariEnvでは`game_score`（GetScalar、実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。集計単位はRLのエピソードではなくゲーム1回であり、`episodic_life=true`では両者が一致しない。
+_Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）, episode_score（旧キー名。エピソード単位と誤読させる）
+
+**人間正規化スコア**（HNS）:
+生スコアを`100 * (score - random) / (human - random)`で人間プレイヤー基準へ写した値（100=人間、%表記）。基準表は57ゲーム系（Wang 2016系、現代論文が使う）と49ゲーム系（Mnih 2015）の2系統があり、同じゲームでも値が異なる（Pongのhumanは14.6対9.3）ため、どちらの表で正規化したかを常に添える。分母は絶対値化しない。
+_Avoid_: 正規化スコア（何基準か不明）, CHNS（クリップ版は別概念）, 人間比（口語）
+
+**プロトコルプロファイル**:
+sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.@v5_noop0` / `AtariEnv.@v5_noop30` / `AtariEnv.@classic` / `AtariEnv.@100k`）。設定プロファイルの一種で、env スロットの選択チェーンから選ぶ。スコアはプロファイル間で直接比較不可であり、比較先の事例がどの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこの命名の由来だが、anet-labでは条件セット名として扱う。**「v5」は env id の世代であって NoOp reset の有無を決めない**（raw ALE v5 に noop start は無く、Gymnasium `AtariPreprocessing` wrapper の既定は `noop_max=30`）。このため v5 系は `@v5_noop0` / `@v5_noop30` の 2 本に分けてあり、`@v5` という単独のプロファイルは置かない。
+_Avoid_: プロトコルプリセット(旧称), envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
+
 ### 実行系統
 
 **RunMode**:
 Train / Eval 系（Eval, Eval1, Eval2）という実行系統の区分。Env は生成時に自分の RunMode を固定して保持し（Sampler 選択・終端契約・挙動分岐に使う。`GetRunMode()` で参照）、Reset / Step の実行時引数では受け取らない。Actor の network 選択にも同じ区分を使う。configured eval tag のタグ名（eval1 等）とは別概念。
 _Avoid_: per-call mode, eval flag, 実行時モード引数
 
+**online 構成**:
+人が Runner の GUI を監視・操作する実行構成。エラー通知ではログに加えてダイアログを表示する。Train / Eval を表す `RunMode` とは別概念。
+_Avoid_: online RunMode, interactive RunMode
+
+**batchrun 構成**:
+人の応答なしに期限まで Runner を走らせ、終了後に次の Run へ制御を返す実行構成。エラー通知はモーダル表示せずログへ出す。Train / Eval を表す `RunMode` とは別概念。
+_Avoid_: batch mode, batch RunMode
+
 **configured eval tag**（評価タグ）:
-`train.eval.[tag]` で宣言する常設評価系の宣言と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になる）で、`interval=0` なら定義のみの寝タグ。EvalPanel はタグの内容（run_mode / env overlay）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。
+`train.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。
 _Avoid_: eval profile, eval preset, RunMode（別概念）
 
+**eval schedule**（定期駆動）:
+`train.eval_schedule.[tag]` で configured eval tag を名前参照し、定期評価の駆動（interval / use_background）を宣言するエントリ。Env + Runner + Observer の生成はこのエントリが駆動し、消費者は EpisodeEvalObserver ただ一つ。interval は必須（`0` = 明示 OFF = dormant）で、未定義タグの参照は fail-fast。
+_Avoid_: eval interval 設定（キー名でなく機構名で呼ぶ）, スケジューラ（消費者コンポーネントと混同）
+
 **dormant**（寝タグの状態）:
-`interval=0` の評価タグが持つ「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
-_Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ
+定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
+_Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ, interval=0 タグ（旧契約の宣言方法）
+
+**episode scope**（エピソードスコープ）:
+BatchEnvのlaneを論理episodeへまとめる範囲。`PER_LANE`は各laneが独立したepisodeを持ち、`SHARED`は全laneが一つのepisode lifecycleを共有する。並列度であるlane数と、評価で数えるepisode数を分離するための語彙。
+_Avoid_: 終端モード, global count mode, batch episode数
+
+**episode group**（エピソードグループ）:
+一つのepisode lifecycleを共有するlaneの集合。`PER_LANE`では1 lane、`SHARED`では全laneが1 groupになる。episodeの開始・完了・採用はlaneではなくgroupを単位に解釈する。
+_Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
+
+**episode return**（エピソードリターン）:
+一つのepisode groupが開始から完了までに得たrewardの総和。`PER_LANE`では当該laneの総和、`SHARED`では全lane・全stepの総和になる。評価session内の複数returnにはmean / max / min / stdを適用できる。
+_Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
+
+**評価セッション**（evaluation session）:
+eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@session_end` 1点として記録する。採用episodeの完了はそれぞれ`@episode_end`としても発火し、個体単位のtraceはそちらに乗る。lane数（`eval_batch_size`）は並列度であって本数ではない。
+_Avoid_: 評価エピソード（1本と誤読させる）, eval 1回（何本かが伝わらない）, eval batch
+
+**採用エピソード**（adopted episode）:
+評価セッションで、開始境界に採用権（grant）を与えられたepisode。セッション開始時はgroup index順に先頭`min(N, G)` groupへ採用権を発行し、採用episodeが完了したときに残りがあれば、そのgroupの次episodeへ発行する。発行したN本は完了まで集計対象であり、終了後に最初のN完了を選ぶものではない。採用権のないepisodeは完了しても集計しない。
+_Avoid_: 完走エピソード（非採用の完走を含む）, 最初に終わったN本, 終了順採用エピソード
 
 ### Runner GUI
 
@@ -173,10 +283,28 @@ _Avoid_: main area, センター領域
 HeatMap・Conv2d のように View メニューから動的追加される右端の可視化 pane 群。名前は生成時刻で一意化され、追加時に既存の補助 pane 列（最外周の右列）へ同じ幅で縦積みされる。Train/Eval/QValue/Log の常設 pane とは寿命も配置規約も異なる。
 _Avoid_: aux panel, ツールパネル, サブパネル
 
+**ツールバー pane**:
+Runner 画面上端に既定配置される操作バー群（Run 制御 / Step 表示 / Run 操作 / Panel 表示）の pane 種別。バーは役割ごとに分かれ、Run 制御のように 1 本へ複数の対象が載る場合は区切りで対象の境界を示す。ドラッグ・アンドック・再ドックはできるが閉じることはできず、Reset Layout で既定位置（上端 1 行）へ戻る。常設 pane・補助 pane とは別カテゴリ。
+_Avoid_: コマンドバー, ribbon, ツールバーウィンドウ
+
+**実行時 UI 操作**:
+pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実行中に GUI から行う一時的な操作の区分。実効設定（config dump）には記録されないため、Run の比較・再現の根拠にしない。設定変更（config）とは区別する。
+_Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
+
+### Run管理
+
+**ワークスペース (Workspace)**:
+Runの入力（workspace config）と成果物（`runs/`、`optuna/`）を一体で束ねる自己完結フォルダ。既定の置き場は`apps/runner/workspaces/`直下で、指定はパス（相対=`workspaces/`基準、絶対パスで任意の場所も可。Eclipseのworkspace指定と同形式）。実験系列の分類・退避・削除・復帰はworkspaceフォルダのOS操作だけで行い、フォルダ外に分類のメタデータを持たない。Runner・Metrics Viewer・optunaハーネスはいずれも「workspaceを選んで箱の中で完結する」。既定は`_default`。
+_Avoid_: プロジェクト, プロファイル（`@` 側の語。ワークスペースには使わない）, runs_dir（出力先設定であって箱ではない）
+
+**workspace config**:
+`workspaces/<ws>/config/_main.txt`。共通`_main.txt`（common/metrics/agent/nn）の後に後勝ちで重ねる、env選択（`$include <DropMerge.txt>`等）を含むworkspace固有の設定差分。runnerの`--config`明示起動（完全自己記述モード）ではworkspace解決を行わず、configを生成する側が`$include`の並びで合成順に責任を持つ。
+_Avoid_: workspace設定ファイル（あいまい）, プロファイルconfig
+
 ### Metrics基盤
 
 **Run作業セット**:
-`runs`ディレクトリ直下のRunフォルダ群。Metrics Viewerが可視化とキャッシュ構築の対象とする「見たいRun」の集合で、フォルダを入れる・出す・リネームするというファイル操作だけが登録・解除・改名の手段。Viewerは作業セット外のRunを追跡しない。
+選択中workspaceの`runs/`ディレクトリ直下のRunフォルダ群。Metrics Viewerが可視化とキャッシュ構築の対象とする「見たいRun」の集合で、workspaceの切替とフォルダを入れる・出す・リネームするというファイル操作だけが登録・解除・改名の手段。Viewerは作業セット外のRunを追跡しない。
 _Avoid_: runs list（UI表示と混同）, アーカイブ（作業セット外の保管側を指す）
 
 **Metricsマスタ**:
@@ -196,12 +324,44 @@ _Avoid_: schema version（様式の版であって内容の同一性ではない
 _Avoid_: viewport stats, LOD stats, range summary
 
 **序数**（メトリクス点の）:
-1つのtag内での記録の出現順（0始まり）。同一tagのstepは非減少だが一意ではない（同一stepへ複数episodeの値が正当に載る）ため、点のidentityと順序は序数が持ち、stepは座標値として扱う。
+同一チャネル・同一tagの系列内での記録の出現順（0始まり）。scalarとtraceの同名tagは別系列であり、序数も別に数える。同一系列のstepは非減少だが一意ではない（同一stepへ複数episodeの値が正当に載る）ため、点のidentityと順序は序数が持ち、stepは座標値として扱う。
 _Avoid_: index（多義）, step（座標値であってidentityではない）
 
 **LODバケット**:
 tag内の連続する序数区間（幅は固定倍率の冪）をmin/max/last/件数/総和へ畳み込んだ集約単位。バケット幅は序数で数え、step幅では数えない（tag間・区間内のstep密度差に依存しないため）。全スケールでの描画とバケット境界に整合する区間統計はここから導出する。
 _Avoid_: ダウンサンプル点（単一代表値と混同）, ビン（step軸の等幅分割と混同）
+
+**バイアス補正EMA**:
+ゼロ初期化した EMA 内部値を観測済みサンプルの重み和で正規化して読み出す平滑方式。出力は常に「これまで観測したサンプルの指数重み付き平均」となり、初回サンプルを引きずる初期値バイアスが O(1/t) で消える。ウォームアップ中も欠損なく step 1 から有効値を出力するため、tag 間の step 整列を壊さない。
+_Avoid_: debiased EMA（表記ゆれ）, ウォームアップEMA（累積平均遷移方式と混同）, Adam補正（最適化器の文脈と混同）
+
+**時間重みEMA**:
+各観測の重みを経過時間に比例させる平滑方式。更新間隔が不揃いでも「観測1回＝1票」ではなく「その観測が持続した時間の分だけの票」になるため、長く停滞した区間が正しく支配的になり、実経過時間どおりの平均へ収束する。throughputのように停滞が長時間続きうる量で、サンプル重みの平滑が停滞を過小評価するのを防ぐ。
+_Avoid_: 移動平均（窓幅方式と混同）, サンプル重みEMA（重み付けの基準が逆）
+
+**step座標系**:
+メトリクス点のstep値がどの座標上の値かを決める、カウンタ所有Runnerとstep軸の組。`exp_step`のような軸名だけでは同一性が決まらず、train runnerの`exp_step`とeval runnerの`exp_step`は別座標系である（同じeval tagでも`@episode_end` / `@session_end`はtrain側、`@train`はeval側のカウンタに載る）。2つのtagを同じ横軸で比較してよいのは座標系が一致するときだけで、到達step基準の相対範囲も座標系ごとに解決する。
+_Avoid_: step軸（軸名だけでは所有Runnerが決まらない）, タイムライン（実時間と混同）
+
+**metrics定義レコード**:
+Runnerが構築したmetrics observerの解決済み定義を、チャネルとtagで区別してMetricsマスタへ書き出した記録。「設定にこう書いた」ではなく「実際にこう構築された」を表し、step座標系、source key、event、target、EMA、intervalを含む。チャネル（scalar / trace）ごとに別レコードを持ち、trace側はsource keyの代わりに宣言順のkey列を含む。解析側はこれを正本とし、設定ファイルから軸や定義を再導出しない。
+_Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レコードの様式ではなく内容を指す）
+
+**trace**（トレース）:
+統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの層別activationを可視化へ流す`TraceCallback`（activationタップ）とは別概念。
+_Avoid_: activationトレース（`TraceCallback`側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
+
+**query channel**:
+Metrics Viewerのmetrics queryの発行系列で、1つのブラウザタブに対応する。ページロード時に生成した識別子と、そのタブ内で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けばchannelは2つになる。
+_Avoid_: HTTPセッション（同一ブラウザの別タブが同一になり単位が合わない）, 接続（TCP接続と1対1ではない）, クライアント（プロセスとタブのどちらとも読める）
+
+**query supersede**:
+同じquery channelのより新しいmetrics queryが、そのchannelの古いqueryを取り消して同時実行枠を明け渡させる規則。frontendのHTTP切断の検出には依存せず、サーバが連番の大小だけで判定する。異なるchannelは相互に取り消さず、プロセス全体の同時実行枠だけを共有する。取り消されたqueryはエラーではなく「追い出された」ものとして扱い、画面の更新失敗表示に出さない。
+_Avoid_: キャンセル（利用者の明示操作と混同）, abort（frontend側のHTTP打ち切りを指す別概念）, タイムアウト（時間経過による打ち切りと混同）
+
+**購読ヒント**:
+scalar metrics 定義から起動時に集約した購読一覧（key・event・target・interval）を生産者（agent 等）へ渡す静的ヒント。汎用機構であり、消費側が関心キーを filter して解釈し、購読の無い計測は行わない。内容は metrics定義レコードと同源（「実際にこう構築された」解決済み定義）。
+_Avoid_: subscription（一般語）, lazy metrics, plasticity hint（固有機構ではない）
 
 ### 観測と可視化
 
@@ -260,9 +420,41 @@ _Avoid_: train/eval catalog, dataset profile, paired source
 _Avoid_: pass, round, sweep
 
 **eval window**:
-eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating.size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を episode（lane 0 の done）へ翻訳して報告する。
+eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating.size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を全 lane 同時の episode 終端（done）へ翻訳して報告する。lane は window の slice であり、lane 0 だけを代表にしない。
 _Avoid_: eval episode 長, eval バッチ, サンプル数（size と区別）
 
 **accuracy**（env scalar キー）:
 直近に確定した採点サイクルの正解率。サイクル＝train は epoch（wrap で確定、初回 wrap 前は NaN）、eval は eval 1 回分（終端で確定）。境界で snapshot し `GetScalar("accuracy")` は常に snapshot を読む。per-lane の窓値（旧 episode 単位 stream キー）は持たない。
 _Avoid_: episode_accuracy, pass_accuracy, batch_accuracy
+
+### 可塑性・表現統計
+
+**srank**:
+バッチ特徴行列 (N, D) の特異値の累積寄与が 1−δ に達する最小本数。上限は min(N, D) で、ランク崩壊の直接指標として読む。観測δは0.01 / 0.05 / 0.20で、無印のsrank keyは既存Runとの比較用にδ=0.01を表す。
+_Avoid_: effective rank（δ 規約を伴わない多義語）, rank
+
+**dormant unit**:
+バッチ平均絶対活性を層平均で正規化したスコアが τ 以下のユニット。τ=0.025 が dormant、τ=0 が dead（dead は dormant の部分集合）。
+_Avoid_: dead neuron（τ=0 の dead と τ=0.025 の dormant を区別しない呼び方）
+
+**部分 forward**:
+NetworkBody のトポロジカルソート済み branch 列から、対象 branch の依存閉包だけを実行して打ち切り、実行済み state を返す測定専用 forward（ForwardUpTo）。NoGrad + eval mode 固定で、学習経路の数値系列に影響しない。
+_Avoid_: partial forward（表記ゆれ）, probe forward, feature forward
+
+**weight norm 分割（feature/readout）**:
+feature key の依存閉包に属する学習パラメータを feature、閉包外 branch と head の学習パラメータを readout とする二群分割。各群の一括 L2 を、activation の feature norm と区別して扱う。
+_Avoid_: feature norm（activation側との混同）, body/head 分割
+
+**実効重み**:
+Spectral Normalization 適用層で forward が実際に使う正規化後の重み。optimizer が更新する生パラメータとは区別し、SN 下では生ノルムが制約されず実効側だけが正規化で抑えられる。SN 非適用層では生パラメータと一致する。
+_Avoid_: normalized weight（手法名の Weight Normalization と紛れる）, W_eff（記号は文書内の式でのみ使う）
+
+### 方策更新統計
+
+**policy churn**:
+同じ状態集合に対して、1 回の learner update の前後で expected Q の greedy 行動が変わった割合。表現の健全性ではなく、更新による方策の落ち着かなさを表す。
+_Avoid_: plasticity churn（可塑性指標と混同）, action churn（探索行動の変化とも読める）, policy drift（複数 update にまたがる変化と混同）
+
+**target policy disagreement**:
+同じ状態集合に対して、online network と target network の expected Q の greedy 行動が食い違う割合。target の遅れを方策空間で表し、target network 自身の update 前後 churn とは区別する。
+_Avoid_: target churn（target update 前後の変化と混同）, policy churn target（online update 前後の指標と混同）, target lag（値・Q差・時間のどれを指すか曖昧）

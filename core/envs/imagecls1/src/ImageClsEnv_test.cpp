@@ -174,6 +174,7 @@ TEST_CASE("ImageClsEnv factory runs a native eval batch from the dataset catalog
     CHECK(env->GetEnvName(0) == "imagecls-native-test[0]");
     CHECK(env->GetEnvName(1) == "imagecls-native-test[1]");
     CHECK(env->GetRunMode() == anet::rl::RunMode::Eval1);
+    CHECK(env->GetBatchSpec().episode_scope == anet::rl::EpisodeScope::SHARED);
     CHECK_FALSE(env->GetSpec().info.contains("image_dataset_key"));
     const auto env_config = env->GetConfigData();
     REQUIRE(env_config.has_value());
@@ -191,10 +192,38 @@ TEST_CASE("ImageClsEnv factory runs a native eval batch from the dataset catalog
     auto step_result = env->Step(action_info);
     CHECK(step_result->reward.equal(torch::tensor({ 1.0f, 0.0f })));
     CHECK(TensorBoolAt(step_result->next_state.done, 0));
-    CHECK_FALSE(TensorBoolAt(step_result->next_state.done, 1));
+    CHECK(TensorBoolAt(step_result->next_state.done, 1));
     CHECK(step_result->n_transitions == 1);
     CHECK(step_result->n_episode_end == 1);
     CHECK(env->GetScalar("accuracy").value() == Catch::Approx(1.0f));
+}
+
+TEST_CASE("ImageCls shared eval completes an N-window EvalSession", "[image_cls_env][eval_session]")
+{
+    EnsureWxImageSupport();
+
+    TinyImageClsDataset dataset;
+    anet::rl::env::ImageClsEnvFactory factory;
+    auto inner = factory.CreateBatchEnv(
+        dataset.MakeNativeConfigData(/*max_steps=*/100),
+        torch::Device(torch::kCPU),
+        "imagecls-session-test",
+        /*seed=*/1,
+        /*num_envs=*/2,
+        anet::rl::RunMode::Eval1,
+        /*config_prefix=*/"");
+    anet::rl::EvalSessionEnv env(inner, 2, { "mean.accuracy" });
+    auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
+        torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64)));
+
+    env.Reset();
+    env.Step(action_info);
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(action_info);
+
+    REQUIRE(env.GetSessionResult().has_value());
+    CHECK(env.GetSessionResult()->episode_returns == std::vector<float>{ 1.0f, 1.0f });
+    CHECK(env.GetScalar("mean.accuracy").value() == Catch::Approx(1.0f));
 }
 
 TEST_CASE("ImageDatasetManager registers a catalog atomically and shares a DatasetKey", "[image_cls_env][dataset_manager]")
@@ -431,7 +460,7 @@ TEST_CASE("ImageCls does not publish a partial batch after worker failure", "[im
     CHECK_THROWS(env->Reset());
 }
 
-TEST_CASE("ImageClsEnv returns fresh observations and representative eval termination", "[image_cls_env][eval_window]")
+TEST_CASE("ImageClsEnv returns fresh observations and shared eval termination", "[image_cls_env][eval_window]")
 {
     EnsureWxImageSupport();
 
@@ -451,10 +480,11 @@ TEST_CASE("ImageClsEnv returns fresh observations and representative eval termin
 
     CHECK(reset_grid.data_ptr() != next_grid.data_ptr());
     CHECK(reset_grid.equal(reset_snapshot));
+    CHECK(env->GetBatchSpec().episode_scope == anet::rl::EpisodeScope::SHARED);
     CHECK(TensorBoolAt(step_result->next_state.done, 0));
-    CHECK_FALSE(TensorBoolAt(step_result->next_state.done, 1));
+    CHECK(TensorBoolAt(step_result->next_state.done, 1));
     CHECK(TensorBoolAt(step_result->continue_state.episode_start, 0));
-    CHECK_FALSE(TensorBoolAt(step_result->continue_state.episode_start, 1));
+    CHECK(TensorBoolAt(step_result->continue_state.episode_start, 1));
     CHECK(step_result->n_transitions == 1);
 }
 
@@ -483,7 +513,7 @@ TEST_CASE("ImageCls rotating eval window uses exact valid count and padding", "[
     CHECK(second->n_transitions == 1);
     CHECK(second->n_episode_end == 1);
     CHECK(TensorBoolAt(second->next_state.done, 0));
-    CHECK_FALSE(TensorBoolAt(second->next_state.done, 1));
+    CHECK(TensorBoolAt(second->next_state.done, 1));
     CHECK(env->GetScalar("accuracy").value() == Catch::Approx(1.0f));
 }
 
@@ -502,6 +532,7 @@ TEST_CASE("ImageClsEnv train mode terminates every lane and counts dataset cycle
         torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64)));
     const auto step_result = env->Step(action_info);
 
+    CHECK(env->GetBatchSpec().episode_scope == anet::rl::EpisodeScope::PER_LANE);
     CHECK(TensorBoolAt(step_result->next_state.done, 0));
     CHECK(TensorBoolAt(step_result->next_state.done, 1));
     CHECK(step_result->n_transitions == 2);

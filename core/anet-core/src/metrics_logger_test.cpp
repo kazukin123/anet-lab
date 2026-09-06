@@ -277,6 +277,55 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("MetricsLogger writes config resolution as JSON metadata", "[metrics][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-config-resolution-test";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "config_resolution_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root);
+
+    const anet::json resolution = {
+        { "schema_version", 1 },
+        { "selections", anet::json::array() },
+        { "references", anet::json::array() },
+    };
+    anet::MetricsLogger::Instance()->Log("config_resolution", resolution);
+    anet::MetricsLogger::Instance()->Flush();
+
+    const auto run_dir = root / "runs" / "config_resolution_test";
+    const auto artifact_path = run_dir / "json" / "config_resolution.json";
+    REQUIRE(std::filesystem::exists(artifact_path));
+    const auto artifact = anet::json::parse(ReadTextFile(artifact_path));
+    CHECK(artifact["type"] == "json");
+    CHECK(artifact["tag"] == "config_resolution");
+    CHECK(artifact["data"] == resolution);
+
+    anet::json metrics_record;
+    int resolution_record_count = 0;
+    std::istringstream metrics_stream(ReadTextFile(run_dir / "metrics.jsonl"));
+    for (std::string line; std::getline(metrics_stream, line);) {
+        const auto record = anet::json::parse(line);
+        if (record.value("tag", std::string()) == "config_resolution") {
+            metrics_record = record;
+            ++resolution_record_count;
+        }
+    }
+    REQUIRE(resolution_record_count == 1);
+    CHECK(metrics_record["type"] == "json");
+    CHECK(metrics_record["tag"] == "config_resolution");
+    CHECK(metrics_record["data"] == resolution);
+    CHECK(metrics_record.contains("timestamp"));
+    CHECK_FALSE(std::filesystem::exists(run_dir / "config" / "config_resolution.json"));
+
+    anet::MetricsLogger::Reset();
+    std::filesystem::remove_all(root);
+}
+
 TEST_CASE("MetricsLogger writes individual Config files without run-root config.txt", "[metrics][config]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
@@ -319,6 +368,34 @@ TEST_CASE("MetricsLogger uses configured runs directory", "[metrics][config]")
     CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
 
     anet::MetricsLogger::Instance()->LogScalar("test/value", 7, 1.25);
+    anet::MetricsLogger::Instance()->Flush();
+
+    anet::MetricsLogger::Reset();
+    CHECK(ContainsText(ReadTextFile(run_dir / "metrics.jsonl"), "\"tag\":\"test/value\""));
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("MetricsLogger uses UTF-8 absolute runs directory", "[metrics][config][utf8]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-utf8-absolute-runs-dir-test";
+    const auto runs_dir = root / std::filesystem::path(u8"日本語 workspace") / "runs";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    const auto runs_dir_utf8 = runs_dir.u8string();
+    logger_config.runs_dir.assign(
+        reinterpret_cast<const char*>(runs_dir_utf8.data()), runs_dir_utf8.size());
+    logger_config.run_name_tmpl = "utf8_absolute_runs_dir_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root / "ignored-root");
+
+    const auto run_dir = runs_dir / "utf8_absolute_runs_dir_test";
+    CHECK(anet::MetricsLogger::Instance()->GetRunDir() == run_dir);
+    CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
+
+    anet::MetricsLogger::Instance()->LogScalar("test/value", 9, 2.5);
     anet::MetricsLogger::Instance()->Flush();
 
     anet::MetricsLogger::Reset();

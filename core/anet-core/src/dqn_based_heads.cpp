@@ -401,6 +401,229 @@ private:
 };
 
 // ===========================================================================
+// IQNHead
+// ===========================================================================
+
+class IQNHead : public anet::nn::NetworkHead {
+public:
+    IQNHead(int64_t in_features, int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
+        : action_dim_(action_dim)
+    {
+        linear_ = register_module("linear", torch::nn::Linear(in_features, action_dim));
+        anet::nn::WeightInitializer::Initialize(linear_, init_config);
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    {
+        ANET_PROFILE_FUNC();
+
+        // IQN Head の局所入力契約を確認してから、tau 次元を末尾へ移す。
+        const auto x = GetFeature(feature_dict, anet::nn::kKey_DefaultOutput);
+        ValidateInput(x);
+        const auto q_dist = linear_->forward(x).permute({ 0, 2, 1 }).contiguous();
+
+        anet::TensorDict out;
+        out.Set("q_dist", q_dist);
+        out.Set("q", q_dist.mean(2));
+        return out;
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+    {
+        if (key == "forward" || key == "forward.q" || key == "q_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto q_dist = ForwardDistribution(features);
+                anet::TensorDict out;
+                out.Set("q", q_dist.mean(2));
+                return out;
+                };
+        }
+        if (key == "forward.dist" || key == "distributions") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                anet::TensorDict out;
+                out.Set("q_dist", ForwardDistribution(features));
+                return out;
+                };
+        }
+        return std::nullopt;
+    }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "IQNHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "q_dist", { action_dim_, -1 } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        return info;
+    }
+
+private:
+    void ValidateInput(const torch::Tensor& x) const
+    {
+        if (x.dim() != 3) {
+            ANET_SYSTEM_ERROR("IQNHead expected rank-3 'features' input (B,K,D), but got shape=" << x.sizes()
+                << ". The features output may not pass through the IQN fusion branch.");
+        }
+    }
+
+    torch::Tensor ForwardDistribution(const anet::TensorDict& features)
+    {
+        const auto x = GetFeature(features, anet::nn::kKey_DefaultOutput);
+        ValidateInput(x);
+        return linear_->forward(x).permute({ 0, 2, 1 }).contiguous();
+    }
+
+    torch::nn::Linear linear_{ nullptr };
+    int64_t action_dim_;
+};
+
+// ===========================================================================
+// IQNDuelingHead
+// ===========================================================================
+
+class IQNDuelingHead : public anet::nn::NetworkHead {
+public:
+    IQNDuelingHead(
+        int64_t value_in_features,
+        int64_t adv_in_features,
+        int64_t action_dim,
+        std::string value_key,
+        std::string adv_key,
+        const anet::nn::WeightInitConfig& init_config)
+        : action_dim_(action_dim)
+        , value_key_(std::move(value_key))
+        , adv_key_(std::move(adv_key))
+    {
+        value_ = register_module("value", torch::nn::Linear(value_in_features, 1));
+        adv_ = register_module("adv", torch::nn::Linear(adv_in_features, action_dim));
+        anet::nn::WeightInitializer::Initialize(value_, init_config);
+        anet::nn::WeightInitializer::Initialize(adv_, init_config);
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    {
+        ANET_PROFILE_FUNC();
+
+        // value/adv を同じ (B,K) 標本上で合成し、公開 shape へ並べ替える。
+        const auto distributions = ForwardDistributions(feature_dict);
+        anet::TensorDict out;
+        out.Set("q_dist", distributions.q_dist);
+        out.Set("q", distributions.q_dist.mean(2));
+        out.Set("v_dist", distributions.v_dist);
+        out.Set("a_dist", distributions.a_dist);
+        return out;
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+    {
+        if (key == "forward" || key == "forward.q" || key == "q_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto distributions = ForwardDistributions(features);
+                anet::TensorDict out;
+                out.Set("q", distributions.q_dist.mean(2));
+                return out;
+                };
+        }
+        if (key == "forward.dist" || key == "distributions") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                anet::TensorDict out;
+                out.Set("q_dist", ForwardDistributions(features).q_dist);
+                return out;
+                };
+        }
+        if (key == "forward.v" || key == "v_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto x = GetFeature(features, value_key_);
+                ValidateInput(x, value_key_);
+                anet::TensorDict out;
+                out.Set("v_dist", value_->forward(x).permute({ 0, 2, 1 }).contiguous());
+                return out;
+                };
+        }
+        if (key == "forward.a" || key == "a_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto x = GetFeature(features, adv_key_);
+                ValidateInput(x, adv_key_);
+                anet::TensorDict out;
+                out.Set("a_dist", adv_->forward(x).permute({ 0, 2, 1 }).contiguous());
+                return out;
+                };
+        }
+        return std::nullopt;
+    }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "IQNDuelingHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "q_dist", { action_dim_, -1 } });
+        info.outputs.push_back({ "v_dist", { 1, -1 } });
+        info.outputs.push_back({ "a_dist", { action_dim_, -1 } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        info.details.push_back({ "streams", "value, adv" });
+        info.details.push_back({ "mode", value_key_ == adv_key_ ? "shared" : "branched" });
+        info.details.push_back({ "value_input_key", value_key_ });
+        info.details.push_back({ "adv_input_key", adv_key_ });
+        return info;
+    }
+
+private:
+    struct Distributions {
+        torch::Tensor q_dist;
+        torch::Tensor v_dist;
+        torch::Tensor a_dist;
+    };
+
+    void ValidateInput(const torch::Tensor& x, const std::string& key) const
+    {
+        if (x.dim() != 3) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead expected rank-3 '" << key << "' input (B,K,D), but got shape=" << x.sizes()
+                << ". The output may not pass through the IQN fusion branch.");
+        }
+    }
+
+    void ValidateInputs(const torch::Tensor& value_x, const torch::Tensor& adv_x) const
+    {
+        ValidateInput(value_x, value_key_);
+        ValidateInput(adv_x, adv_key_);
+        if (value_x.size(0) != adv_x.size(0) || value_x.size(1) != adv_x.size(1)) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead requires matching B and K dimensions for value and advantage inputs, but value_shape="
+                << value_x.sizes() << " and advantage_shape=" << adv_x.sizes() << ".");
+        }
+    }
+
+    Distributions ForwardDistributions(const anet::TensorDict& features)
+    {
+        const auto value_x = GetFeature(features, value_key_);
+        const auto adv_x = GetFeature(features, adv_key_);
+        ValidateInputs(value_x, adv_x);
+
+        const auto value_k = value_->forward(value_x);
+        const auto adv_k = adv_->forward(adv_x);
+        const auto q_k = value_k + (adv_k - adv_k.mean(2, true));
+        return {
+            .q_dist = q_k.permute({ 0, 2, 1 }).contiguous(),
+            .v_dist = value_k.permute({ 0, 2, 1 }).contiguous(),
+            .a_dist = adv_k.permute({ 0, 2, 1 }).contiguous(),
+        };
+    }
+
+    torch::nn::Linear value_{ nullptr };
+    torch::nn::Linear adv_{ nullptr };
+    int64_t action_dim_;
+    std::string value_key_;
+    std::string adv_key_;
+};
+
+// ===========================================================================
 // Factories
 // ===========================================================================
 
@@ -482,5 +705,58 @@ std::shared_ptr<anet::nn::NetworkHead> QuantileDuelingHeadFactory::CreateHead(co
     int64_t input_dim = t.size(-1);
     return std::make_shared<QuantileDuelingHead>(
         input_dim, input_dim, action_dim_, num_quantiles_,
+        anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_);
+}
+
+IQNHeadFactory::IQNHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
+    : HeadFactoryBase(action_dim, init_config)
+{
+}
+
+std::shared_ptr<anet::nn::NetworkHead> IQNHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
+{
+    const auto t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
+    if (t.dim() != 3) {
+        ANET_SYSTEM_ERROR("IQNHead expected rank-3 'features' input (B,K,D), but got shape=" << t.sizes()
+            << ". The features output may not pass through the IQN fusion branch.");
+    }
+    return std::make_shared<IQNHead>(t.size(-1), action_dim_, init_config_);
+}
+
+IQNDuelingHeadFactory::IQNDuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
+    : HeadFactoryBase(action_dim, init_config)
+{
+}
+
+std::shared_ptr<anet::nn::NetworkHead> IQNDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
+{
+    auto value_feature = dummy_features.Get(kKey_ValueFeature);
+    auto adv_feature = dummy_features.Get(kKey_AdvFeature);
+    if (value_feature && adv_feature) {
+        if (value_feature->dim() != 3 || adv_feature->dim() != 3) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead expected rank-3 value and advantage inputs (B,K,D), but value_shape="
+                << value_feature->sizes() << " and advantage_shape=" << adv_feature->sizes()
+                << ". Both outputs must pass through the IQN fusion branch.");
+        }
+        if (value_feature->size(0) != adv_feature->size(0) || value_feature->size(1) != adv_feature->size(1)) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead requires matching B and K dimensions for value and advantage inputs, but value_shape="
+                << value_feature->sizes() << " and advantage_shape=" << adv_feature->sizes() << ".");
+        }
+        return std::make_shared<IQNDuelingHead>(
+            value_feature->size(-1), adv_feature->size(-1), action_dim_,
+            kKey_ValueFeature, kKey_AdvFeature, init_config_);
+    }
+    if (value_feature || adv_feature) {
+        ANET_SYSTEM_ERROR("IQNDuelingHead requires both 'value_feature' and 'adv_feature', or neither. "
+            "Please configure both 'net.body.output.[value_feature]' and 'net.body.output.[adv_feature]'.");
+    }
+
+    const auto t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
+    if (t.dim() != 3) {
+        ANET_SYSTEM_ERROR("IQNDuelingHead expected rank-3 'features' input (B,K,D), but got shape=" << t.sizes()
+            << ". The features output may not pass through the IQN fusion branch.");
+    }
+    return std::make_shared<IQNDuelingHead>(
+        t.size(-1), t.size(-1), action_dim_,
         anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_);
 }

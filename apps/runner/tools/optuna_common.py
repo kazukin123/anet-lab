@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
+import gzip
 import itertools
 import json
 import math
@@ -128,6 +129,16 @@ class TrialContext:
     artifact_dir: str
     run_dir: str
     config_path: str
+
+
+@dataclass(frozen=True)
+class WorkspacePaths:
+    input: str
+    root: Path
+    config_file: Path
+    runs_dir: Path
+    runs_config_value: str
+    optuna_dir: Path
 
 
 @dataclass(frozen=True)
@@ -281,6 +292,52 @@ def resolve_runner_relative_path(repo_root: Path, path_text: str) -> Path:
     return runner_root(repo_root) / path
 
 
+def resolve_workspace_paths(repo_root: Path, raw_input: str, *, require_config: bool = True) -> WorkspacePaths:
+    """Runner と同じ基準で既存 workspace を副作用なしに解決する。"""
+    workspace_input = raw_input.strip()
+    if not workspace_input:
+        raise TrialExecutionError("Invalid --workspace: value must not be empty.")
+    normalized_separators = workspace_input.replace("/", "\\")
+    if "#" in workspace_input:
+        raise TrialExecutionError(f"Invalid --workspace: value must not contain '#'. value={raw_input}")
+    if "//" in workspace_input:
+        raise TrialExecutionError(f"Invalid --workspace: value must not contain '//'. value={raw_input}")
+    if workspace_input.endswith(";"):
+        raise TrialExecutionError(f"Invalid --workspace: value must not end with ';'. value={raw_input}")
+    if Path(normalized_separators).drive.startswith("\\\\"):
+        raise TrialExecutionError(f"Invalid --workspace: UNC roots are not supported. value={raw_input}")
+
+    input_path = Path(workspace_input)
+    runner = runner_root(repo_root)
+    relative = not input_path.is_absolute() and not input_path.drive
+    root = (runner / "workspaces" / input_path) if relative else input_path
+    root = root.resolve(strict=False)
+    config_file = root / "config" / "_main.txt"
+    if not root.is_dir():
+        raise TrialExecutionError(
+            f"Workspace directory does not exist: input={workspace_input} resolved_path={root}"
+        )
+    if require_config and not config_file.is_file():
+        raise TrialExecutionError(
+            f"Workspace config file does not exist: workspace={root} expected={config_file}"
+        )
+
+    runs_dir = root / "runs"
+    runs_config_value = (
+        Path(os.path.relpath(runs_dir, runner)).as_posix()
+        if relative
+        else runs_dir.as_posix()
+    )
+    return WorkspacePaths(
+        input=workspace_input,
+        root=root,
+        config_file=config_file,
+        runs_dir=runs_dir,
+        runs_config_value=runs_config_value,
+        optuna_dir=root / "optuna",
+    )
+
+
 def parse_window_raw_value(raw_value: object, option_name: str) -> int | str:
     if isinstance(raw_value, int):
         return raw_value
@@ -397,17 +454,37 @@ def log_harness_exception(
 
 
 
-def storage_url_from_text(repo_root: Path, storage_text: str) -> str:
+def storage_path_from_text(repo_root: Path, storage_text: str) -> Path:
+    """SQLite URL または filesystem path を副作用なしで絶対 path に解決する。"""
     sqlite_prefix = "sqlite:///"
     if storage_text.startswith(sqlite_prefix):
-        storage_path = Path(storage_text[len(sqlite_prefix):])
+        path_text = storage_text[len(sqlite_prefix):]
+    elif re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", storage_text):
+        raise TrialExecutionError(
+            f"Invalid storage: only SQLite URLs or filesystem paths are supported. value={storage_text}"
+        )
     else:
-        storage_path = Path(storage_text)
+        path_text = storage_text
 
+    if not path_text:
+        raise TrialExecutionError(f"Invalid storage: path must not be empty. value={storage_text}")
+    normalized_separators = path_text.replace("/", "\\")
+    if "#" in path_text or "//" in path_text:
+        raise TrialExecutionError(
+            f"Invalid storage path: path must not contain '#' or '//'. value={storage_text}"
+        )
+    if Path(normalized_separators).drive.startswith("\\\\"):
+        raise TrialExecutionError(f"Invalid storage path: UNC roots are not supported. value={storage_text}")
+
+    storage_path = Path(path_text)
     if not storage_path.is_absolute():
         storage_path = runner_root(repo_root) / storage_path
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    return f"{sqlite_prefix}{storage_path.as_posix()}"
+    return storage_path.resolve(strict=False)
+
+
+def storage_url_from_text(repo_root: Path, storage_text: str) -> str:
+    storage_path = storage_path_from_text(repo_root, storage_text)
+    return f"sqlite:///{storage_path.as_posix()}"
 
 
 def storage_url_from_arg(args: argparse.Namespace) -> str:
@@ -438,33 +515,49 @@ def create_optuna_storage(
     return storage_url
 
 
-def resolve_optuna_artifact_dir(args: argparse.Namespace) -> Path:
-    return resolve_runner_relative_path(Path(args.repo_root).resolve(), str(args.optuna_artifact_dir))
-
-
 def resolve_artifact_dir_from_text(args: argparse.Namespace, path_text: str) -> Path:
     return resolve_runner_relative_path(Path(args.repo_root).resolve(), path_text)
 
 
-def create_optuna_artifact_context(args: argparse.Namespace) -> OptunaArtifactContext | None:
-    try:
-        from optuna.artifacts import FileSystemArtifactStore
-        from optuna.artifacts import upload_artifact
-    except Exception as e:
-        print(f"[WARN] Optuna artifacts are unavailable: {e}", file=sys.stderr)
-        return None
-
-    try:
-        base_path = resolve_optuna_artifact_dir(args)
-        base_path.mkdir(parents=True, exist_ok=True)
-        return OptunaArtifactContext(
-            base_path=base_path,
-            artifact_store=FileSystemArtifactStore(base_path=str(base_path)),
-            upload_artifact=upload_artifact,
+def output_path_from_text(repo_root: Path, path_text: str, option_name: str) -> Path:
+    """出力先 path を禁止形式の検証後に副作用なしで解決する。"""
+    if not path_text:
+        raise TrialExecutionError(f"Invalid {option_name}: path must not be empty.")
+    normalized_separators = path_text.replace("/", "\\")
+    if "#" in path_text or "//" in path_text:
+        raise TrialExecutionError(
+            f"Invalid {option_name}: path must not contain '#' or '//'. value={path_text}"
         )
-    except Exception as e:
-        print(f"[WARN] Failed to initialize Optuna artifact store: {e}", file=sys.stderr)
-        return None
+    if Path(normalized_separators).drive.startswith("\\\\"):
+        raise TrialExecutionError(f"Invalid {option_name}: UNC roots are not supported. value={path_text}")
+    return resolve_runner_relative_path(repo_root, path_text).resolve(strict=False)
+
+
+def require_contained_path(target: Path, root: Path, option_name: str) -> None:
+    """component 単位の包含判定で workspace bucket 外への出力を拒否する。"""
+    canonical_target = target.resolve(strict=False)
+    canonical_root = root.resolve(strict=False)
+    if canonical_target == canonical_root or not canonical_target.is_relative_to(canonical_root):
+        raise TrialExecutionError(
+            f"Invalid {option_name}: resolved path must be a child of workspace optuna directory. "
+            f"path={canonical_target} expected_root={canonical_root}"
+        )
+
+
+def require_compatible_storage_artifact_paths(
+    storage_path: Path,
+    artifact_path: Path,
+    storage_option: str,
+    artifact_option: str,
+) -> None:
+    """file target が artifact directory 自身やその親になる組み合わせを拒否する。"""
+    canonical_storage = storage_path.resolve(strict=False)
+    canonical_artifact = artifact_path.resolve(strict=False)
+    if canonical_artifact == canonical_storage or canonical_artifact.is_relative_to(canonical_storage):
+        raise TrialExecutionError(
+            f"Invalid output paths: {artifact_option} must not equal or be under the {storage_option} file path. "
+            f"storage={canonical_storage} artifact={canonical_artifact}"
+        )
 
 
 def create_required_filesystem_artifact_context(optuna, base_path: Path, label: str) -> OptunaArtifactContext:
@@ -513,11 +606,6 @@ def register_optuna_trial_artifacts(
 
 class ArtifactStore:
     """Optuna Dashboard 用 artifact store の初期化と trial artifact 登録を担当する。"""
-
-    @staticmethod
-    def create_optional_context(args: argparse.Namespace) -> OptunaArtifactContext | None:
-        """run-study 用に artifact store を初期化する。失敗しても study 実行は継続する。"""
-        return create_optuna_artifact_context(args)
 
     @staticmethod
     def create_required_context(optuna, base_path: Path, label: str) -> OptunaArtifactContext:
@@ -822,9 +910,32 @@ def completed_run_values(seed_runs: list[dict], field: str) -> list[float]:
     return values
 
 
+def resolve_metrics_path(metrics_path: Path) -> Path:
+    """rawを優先し、無ければ同じRunのimmutable gzipを選ぶ。"""
+    path = Path(metrics_path)
+    if path.is_dir():
+        raw_path = path / "metrics.jsonl"
+        gzip_path = path / "metrics.jsonl.gz"
+    else:
+        raw_path = path
+        gzip_path = path.with_name("metrics.jsonl.gz") if path.name == "metrics.jsonl" else path
+    if raw_path.is_file():
+        return raw_path
+    if gzip_path.is_file():
+        return gzip_path
+    raise FileNotFoundError(f"metrics.jsonl(.gz) not found: {path}")
+
+
+def open_metrics_text(metrics_path: Path):
+    path = resolve_metrics_path(metrics_path)
+    if path.name == "metrics.jsonl.gz":
+        return gzip.open(path, "rt", encoding="utf-8-sig")
+    return path.open("r", encoding="utf-8-sig")
+
+
 
 def scalar_records(metrics_path: Path) -> Iterable[dict]:
-    with metrics_path.open("r", encoding="utf-8-sig") as stream:
+    with open_metrics_text(metrics_path) as stream:
         for line in stream:
             line = line.strip()
             if not line:
@@ -882,6 +993,7 @@ def summarize_metrics_window(
 
 
 def summarize_metrics(metrics_path: Path, window: ScoreWindow, spec: MetricsSpec) -> dict:
+    metrics_path = resolve_metrics_path(metrics_path)
     tag_summary, score = summarize_metrics_window(metrics_path, window, spec)
     analysis_windows: dict[str, dict[str, object]] = {}
     for name, raw_start, raw_end in spec.late_score_windows:
@@ -1232,6 +1344,95 @@ class OptunaHarnessRuntime:
             return args.budget, float(args.cost_budget)
         return args.budget, float(self.budget_presets[args.budget])
 
+    def prepare_run_workspace(self, args: argparse.Namespace) -> WorkspacePaths:
+        """run 系 command が使う workspace path を検証して args へ固定する。"""
+        workspace = resolve_workspace_paths(Path(args.repo_root).resolve(), str(args.workspace))
+        args.workspace = workspace.input
+        args.workspace_config = str(workspace.config_file)
+        args.runs_dir = workspace.runs_config_value
+        args._workspace_paths = workspace
+        return workspace
+
+    def prepare_optuna_run_paths(self, args: argparse.Namespace) -> WorkspacePaths:
+        """run-trial/run-study の全 path を検証後に一括生成する。"""
+        workspace = self.prepare_run_workspace(args)
+        repo_root = Path(args.repo_root).resolve()
+        storage_text = str(args.storage) if args.storage else str(workspace.optuna_dir / "optuna.db")
+        artifact_text = (
+            str(args.optuna_artifact_dir)
+            if args.optuna_artifact_dir
+            else str(workspace.optuna_dir / "artifacts")
+        )
+        storage_path = storage_path_from_text(repo_root, storage_text)
+        artifact_path = output_path_from_text(repo_root, artifact_text, "--optuna-artifact-dir")
+        require_contained_path(storage_path, workspace.optuna_dir, "--storage")
+        require_contained_path(artifact_path, workspace.optuna_dir, "--optuna-artifact-dir")
+        require_compatible_storage_artifact_paths(
+            storage_path,
+            artifact_path,
+            "--storage",
+            "--optuna-artifact-dir",
+        )
+        if storage_path.exists() and not storage_path.is_file():
+            raise TrialExecutionError(f"Storage target is not a regular file: path={storage_path}")
+        if artifact_path.exists() and not artifact_path.is_dir():
+            raise TrialExecutionError(f"Artifact target is not a directory: path={artifact_path}")
+
+        storage_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.mkdir(parents=True, exist_ok=True)
+        args.storage = f"sqlite:///{storage_path.as_posix()}"
+        args.optuna_artifact_dir = str(artifact_path)
+        args._storage_path = storage_path
+        args._optuna_artifact_path = artifact_path
+        return workspace
+
+    def prepare_summarize_paths(self, args: argparse.Namespace) -> None:
+        """summarize-study の source/target を全検証してから target を生成する。"""
+        repo_root = Path(args.repo_root).resolve()
+        workspace = None
+        if args.source_storage is None or args.source_artifact_dir is None:
+            workspace = resolve_workspace_paths(repo_root, str(args.workspace), require_config=False)
+
+        source_storage_text = (
+            str(args.source_storage)
+            if args.source_storage is not None
+            else str(workspace.optuna_dir / "optuna.db")
+        )
+        source_artifact_text = (
+            str(args.source_artifact_dir)
+            if args.source_artifact_dir is not None
+            else str(workspace.optuna_dir / "artifacts")
+        )
+        target_storage_text = str(args.target_storage) if args.target_storage else source_storage_text
+        target_artifact_text = str(args.target_artifact_dir) if args.target_artifact_dir else source_artifact_text
+
+        source_storage = storage_path_from_text(repo_root, source_storage_text)
+        target_storage = storage_path_from_text(repo_root, target_storage_text)
+        source_artifact = output_path_from_text(repo_root, source_artifact_text, "--source-artifact-dir")
+        target_artifact = output_path_from_text(repo_root, target_artifact_text, "--target-artifact-dir")
+
+        if not source_storage.is_file():
+            raise TrialExecutionError(f"Source storage is not a regular file: path={source_storage}")
+        if not source_artifact.is_dir():
+            raise TrialExecutionError(f"Source artifact is not a directory: path={source_artifact}")
+        if target_storage.exists() and not target_storage.is_file():
+            raise TrialExecutionError(f"Target storage is not a regular file: path={target_storage}")
+        if target_artifact.exists() and not target_artifact.is_dir():
+            raise TrialExecutionError(f"Target artifact is not a directory: path={target_artifact}")
+        require_compatible_storage_artifact_paths(
+            target_storage,
+            target_artifact,
+            "--target-storage",
+            "--target-artifact-dir",
+        )
+
+        target_storage.parent.mkdir(parents=True, exist_ok=True)
+        target_artifact.mkdir(parents=True, exist_ok=True)
+        args.source_storage = f"sqlite:///{source_storage.as_posix()}"
+        args.target_storage = f"sqlite:///{target_storage.as_posix()}"
+        args.source_artifact_dir = str(source_artifact)
+        args.target_artifact_dir = str(target_artifact)
+
     @staticmethod
     def validate_name_part(name: str, option_name: str) -> None:
         """study/trial 名に path separator が混ざる誤用を防ぐ。"""
@@ -1247,13 +1448,8 @@ class OptunaHarnessRuntime:
     def scan_existing_trial_numbers(self, args: argparse.Namespace, budget_name: str) -> list[int]:
         """既存 run folder から同一 study の最大 trial 番号を探す。"""
         repo_root = Path(args.repo_root).resolve()
-        placeholders = {
-            "study": args.study_name,
-            "budget": budget_name,
-            "trial": "",
-            "run": "",
-        }
-        root = resolve_runner_relative_path(repo_root, args.runs_dir.format(**placeholders))
+        del budget_name
+        root = resolve_runner_relative_path(repo_root, args.runs_dir)
         run_name_pattern = re.compile(rf"^{re.escape(args.study_name)}_t(\d{{5}})$")
         numbers: list[int] = []
         if not root.is_dir():
@@ -1309,7 +1505,7 @@ class OptunaHarnessRuntime:
         trial_number, trial_name = self.resolve_trial_identity(args, budget_name, trial_number, trial_name_override)
         self.validate_name_part(trial_name, "--trial-name")
         run_name = f"{args.study_name}_{trial_name}"
-        runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial=trial_name, run=run_name)
+        runs_dir = args.runs_dir
         run_dir = run_root / runs_dir / run_name
         artifact_dir = run_dir / "trial"
         config_path = artifact_dir / "config.txt"
@@ -1328,19 +1524,15 @@ class OptunaHarnessRuntime:
             config_path=str(config_path),
         )
 
-    def resolve_runs_root(self, args: argparse.Namespace) -> Path:
-        """harness log と Optuna run が置かれる runs root を解決する。"""
-        repo_root = Path(args.repo_root).resolve()
-        budget_name, _ = self.resolve_budget(args)
-        runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial="", run="")
-        return resolve_runner_relative_path(repo_root, runs_dir)
-
     def attach_harness_logger(self, args: argparse.Namespace) -> HarnessLogger:
         """同一 process 内で共有する harness.log writer を args に保持する。"""
         existing = getattr(args, "_harness_logger", None)
         if existing is not None:
             return existing
-        logger = HarnessLogger(self.resolve_runs_root(args) / "harness.log")
+        workspace = getattr(args, "_workspace_paths", None)
+        if workspace is None:
+            raise TrialExecutionError("Workspace preflight was not completed before harness logger initialization.")
+        logger = HarnessLogger(workspace.optuna_dir / "harness.log")
         setattr(args, "_harness_logger", logger)
         return logger
 
@@ -1352,8 +1544,8 @@ class OptunaHarnessRuntime:
 
         parts = ["run-study"]
         append_cli_arg(parts, "--study-name", args.study_name)
+        append_cli_arg(parts, "--workspace", args.workspace)
         append_cli_arg(parts, "--storage", storage_url)
-        append_cli_arg(parts, "--runs-dir", args.runs_dir)
         append_cli_arg(parts, "--budget", args.budget)
         if args.cost_budget is not None:
             append_cli_arg(parts, "--cost-budget", args.cost_budget)
@@ -1408,7 +1600,7 @@ class OptunaHarnessRuntime:
             "last_storage_timeout_sec": storage_timeout_sec,
             "last_heartbeat_interval_sec": getattr(args, "heartbeat_interval_sec", None),
             "last_heartbeat_grace_period_sec": getattr(args, "heartbeat_grace_period_sec", None),
-            "last_runs_dir": args.runs_dir,
+            "last_workspace": args.workspace,
             "last_budget": budget_name,
             "last_cost_budget": cost_budget,
             "last_cost_k": args.cost_k,
@@ -1663,6 +1855,7 @@ class OptunaHarnessRuntime:
         manifest = {
             "params": self.params_to_dict(params),
             "context": asdict(ctx),
+            "workspace": args.workspace,
             "base_config": args.base_config,
             "extra_config": args.extra_config,
             "cost_k": args.cost_k,
@@ -1701,8 +1894,8 @@ class OptunaHarnessRuntime:
     def write_trial_files(self, args: argparse.Namespace, params, ctx: TrialContext) -> None:
         """runner 起動前に config と manifest を保存する。"""
         artifact_dir = Path(ctx.artifact_dir)
-        artifact_dir.mkdir(parents=True, exist_ok=True)
         config_text = self.domain.render_config(params, ctx, args)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
         Path(ctx.config_path).write_text(config_text, encoding="utf-8", newline="\n")
         self.write_manifest_file(self.make_manifest(args, params, ctx), artifact_dir)
 
@@ -1921,6 +2114,7 @@ class OptunaHarnessRuntime:
     def command_dry_run(self, args: argparse.Namespace) -> int:
         """trial config と manifest を生成し、runner は起動しない。"""
         params = self.domain.params_from_args(args)
+        self.prepare_run_workspace(args)
         ctx = self.make_trial_context(args, params, args.trial_number)
         score_window = resolve_score_window(args)
         try:
@@ -2324,6 +2518,8 @@ class OptunaHarnessRuntime:
             print("Optuna is required for summarize-study. Install optuna in the Python environment.", file=sys.stderr)
             return 2
 
+        self.prepare_summarize_paths(args)
+
         repo_root = Path(args.repo_root).resolve()
         source_storage_url = storage_url_from_text(repo_root, args.source_storage)
         target_storage_url = storage_url_from_text(repo_root, args.target_storage or args.source_storage)
@@ -2520,26 +2716,32 @@ class OptunaHarnessRuntime:
     def command_run_trial(self, args: argparse.Namespace) -> int:
         """CLI 固定 params を Optuna trial として multi-seed 評価する。"""
         clear_interrupt_flag()
-        self.attach_harness_logger(args)
         resolve_score_window(args)
         parse_seed_list(args.seeds)
         if args.storage_timeout_sec < 0:
             print("storage-timeout-sec must be >= 0.", file=sys.stderr)
             return 2
+        fixed_params = self.params_to_dict(self.domain.params_from_args(args))
         try:
             import optuna
         except ImportError:
             print("Optuna is required for run-trial. Install optuna in the Python environment.", file=sys.stderr)
             return 2
 
-        fixed_params = self.params_to_dict(self.domain.params_from_args(args))
+        self.prepare_optuna_run_paths(args)
+        optuna_artifact_context = ArtifactStore.create_required_context(
+            optuna,
+            Path(args.optuna_artifact_dir),
+            "run-trial",
+        )
+        self.attach_harness_logger(args)
+
         sampler = optuna.samplers.PartialFixedSampler(
             fixed_params,
             optuna.samplers.RandomSampler(),
         )
         storage_url = storage_url_from_arg(args)
         storage = create_optuna_storage(optuna, storage_url, args.storage_timeout_sec)
-        optuna_artifact_context = ArtifactStore.create_optional_context(args)
         study = optuna.create_study(
             study_name=args.study_name,
             storage=storage,
@@ -2694,9 +2896,10 @@ class OptunaHarnessRuntime:
         if returncode != 0:
             raise TrialFailedError(f"runner failed: returncode={returncode}")
 
-        metrics_path = Path(ctx.run_dir) / "metrics.jsonl"
-        if not metrics_path.exists():
-            raise TrialFailedError(f"metrics.jsonl not found: {metrics_path}")
+        try:
+            metrics_path = resolve_metrics_path(Path(ctx.run_dir))
+        except FileNotFoundError as error:
+            raise TrialFailedError(str(error)) from error
 
         summary = MetricsSummarizer.summarize(metrics_path, score_window, self.metrics_spec)
         MetricsSummarizer.write_single_seed_summary(summary, Path(ctx.artifact_dir))
@@ -3005,7 +3208,6 @@ class OptunaHarnessRuntime:
     def command_run_study(self, args: argparse.Namespace) -> int:
         """Optuna study 全体を実行し、trial ごとに runner を別 process で起動する。"""
         clear_interrupt_flag()
-        self.attach_harness_logger(args)
         resolve_score_window(args)
         parse_seed_list(args.seeds)
         if args.n_trials is not None and args.n_trials < 0:
@@ -3032,6 +3234,14 @@ class OptunaHarnessRuntime:
             print("Optuna is required for run-study. Install optuna in the Python environment.", file=sys.stderr)
             return 2
 
+        self.prepare_optuna_run_paths(args)
+        optuna_artifact_context = ArtifactStore.create_required_context(
+            optuna,
+            Path(args.optuna_artifact_dir),
+            "run-study",
+        )
+        self.attach_harness_logger(args)
+
         if args.search_mode == "grid":
             # grid mode は harness 側で params + seed batch を enqueue 管理する。
             # sampler は enqueue trial 消化用の最小限のものに留める。
@@ -3057,7 +3267,6 @@ class OptunaHarnessRuntime:
             args.heartbeat_interval_sec,
             args.heartbeat_grace_period_sec,
         )
-        optuna_artifact_context = ArtifactStore.create_optional_context(args)
         study = optuna.create_study(
             study_name=args.study_name,
             storage=storage,

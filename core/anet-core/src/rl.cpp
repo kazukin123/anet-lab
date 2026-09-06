@@ -17,7 +17,7 @@ namespace LOG = anet::log;
 
 namespace anet::rl {
 
-anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace)
+anet::TraceCallback MakeActionTraceCallback(anet::TensorDict& trace)
 {
     return [&trace](std::string_view key, const torch::Tensor& activation) {
         trace.Set(std::string(key), activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone());
@@ -293,6 +293,17 @@ anet::json BatchEnvSpec::ToJson() const
     anet::json j;
     j["num_envs"] = num_envs;
     j["num_threads"] = num_threads;
+    switch (episode_scope) {
+    case EpisodeScope::PER_LANE:
+        j["episode_scope"] = "per_lane";
+        break;
+    case EpisodeScope::SHARED:
+        j["episode_scope"] = "shared";
+        break;
+    default:
+        ANET_SYSTEM_ERROR("Unknown BatchEnvSpec episode_scope="
+            << static_cast<int>(episode_scope) << ".");
+    }
     return j;
 }
 
@@ -869,6 +880,25 @@ std::string RunnerScopedEpisodeEndObserver::ToString() const
 }
 
 
+RunnerScopedSessionEndObserver::RunnerScopedSessionEndObserver(std::shared_ptr<SessionEndObserver> real_observer, std::shared_ptr<const Runner> target_runner)
+    : real_observer_(real_observer), target_runner_(target_runner)
+{
+    ANET_CHECK(target_runner_ != nullptr);
+}
+
+void RunnerScopedSessionEndObserver::OnSessionEnd(const SessionEndEvent& event)
+{
+    if (event.runner == target_runner_) {
+        real_observer_->OnSessionEnd(event);
+    }
+}
+
+std::string RunnerScopedSessionEndObserver::ToString() const
+{
+    return "RunnerScopedSessionEndObserver(" + real_observer_->ToString() + ")";
+}
+
+
 // =============================================================
 // Notifier
 // =============================================================
@@ -893,6 +923,12 @@ std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> o
 std::shared_ptr<EpisodeEndObserver> Notifier::Attach(std::shared_ptr<EpisodeEndObserver> obs)
 {
     episode_end_observers_.push_back(obs);
+    return obs;
+}
+
+std::shared_ptr<SessionEndObserver> Notifier::Attach(std::shared_ptr<SessionEndObserver> obs)
+{
+    session_end_observers_.push_back(obs);
     return obs;
 }
 
@@ -935,6 +971,19 @@ void Notifier::Detach(std::shared_ptr<EpisodeEndObserver> obs)
     );
 }
 
+void Notifier::Detach(std::shared_ptr<SessionEndObserver> obs)
+{
+    session_end_observers_.erase(
+        std::remove_if(
+            session_end_observers_.begin(), session_end_observers_.end(),
+            [&](const std::shared_ptr<SessionEndObserver>& o) {
+                return o == obs;
+            }
+        ),
+        session_end_observers_.end()
+    );
+}
+
 void Notifier::Detach(const TrainObserver* observer)
 {
     train_observers_.erase(
@@ -974,11 +1023,25 @@ void Notifier::Detach(const EpisodeEndObserver* observer)
     );
 }
 
+void Notifier::Detach(const SessionEndObserver* observer)
+{
+    session_end_observers_.erase(
+        std::remove_if(
+            session_end_observers_.begin(), session_end_observers_.end(),
+            [&](const std::shared_ptr<SessionEndObserver>& o) {
+                return o.get() == observer;
+            }
+        ),
+        session_end_observers_.end()
+    );
+}
+
 void Notifier::Clear()
 {
     train_observers_.clear();
     learn_observers_.clear();
     episode_end_observers_.clear();
+    session_end_observers_.clear();
 }
 
 void Notifier::Notify(const TrainEvent& event)
@@ -1008,6 +1071,15 @@ void Notifier::Notify(const EpisodeEndEvent& event)
     }
 }
 
+void Notifier::Notify(const SessionEndEvent& event)
+{
+    ANET_PROFILE_FUNC();
+
+    for (auto obs : session_end_observers_) {
+        obs->OnSessionEnd(event);
+    }
+}
+
 void Notifier::LogObservers() const
 {
     int idx = 0;
@@ -1023,6 +1095,11 @@ void Notifier::LogObservers() const
     idx = 0;
     for (auto obs : episode_end_observers_) {
         LOG::info() << "Notifier: EPISODE_END [" << idx << "] " << obs->ToString();
+        idx++;
+    }
+    idx = 0;
+    for (auto obs : session_end_observers_) {
+        LOG::info() << "Notifier: SESSION_END [" << idx << "] " << obs->ToString();
         idx++;
     }
 }

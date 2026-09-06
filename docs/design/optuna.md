@@ -12,15 +12,15 @@ runner の `--config` は、指定 path が作業ディレクトリ基準で見�
 runner project root の `config/` 配下を基準に解決する。
 trial config 内の相対 `$include` は、まず include 元ファイルのディレクトリ基準で解決し、
 見つからない場合だけ runner project root の `config/` 配下を試す。
-Optuna harness が生成する trial config は、`--base-config` で指定した main config と
-`--extra-config` で指定した domain 専用 config を順に `$include` し、その後ろに trial override を書く。
+Optuna harness が生成する trial config は、`--base-config` で指定した main config、選択 workspace の
+`config/_main.txt`、`--extra-config` で指定した domain 専用 config を順に `$include` し、その後ろに trial override を書く。
 
 この文書では、runner 起動、Optuna storage、artifact、multi-seed、summary study などを
 「Harness 共通仕様」として扱い、DropMerge の探索対象、generated config、score tag、cost proxy を
 「DropMerge Domain 仕様」として分けて説明する。
 
 DropMerge domain v1 は `Flatten` 固定、探索対象は NN 構成のみ。
-既定では `$include <_main.txt>` の直後に `$include <DropMerge_optuna.txt>` を置く。
+既定では `$include <_main.txt>`、workspace config、`$include <DropMerge_optuna.txt>` の順に置く。
 学習系ハイパラは baseline または `DropMerge_optuna.txt` 側で固定する。
 
 用語の対応:
@@ -42,32 +42,36 @@ DropMerge domain v1 は `Flatten` 固定、探索対象は NN 構成のみ。
 
 ## Harness 共通仕様: 出力レイアウト
 
-既定の出力先は `apps/runner/runs_optuna/`。
+`--workspace` は既定 `_default` で、相対値は `apps/runner/workspaces/` 基準、絶対 path も使用できる。
+出力は workspace 内の `runs/` と `optuna/` に分離する。
 
 ```text
-apps/runner/runs_optuna/
-  optuna.db
-  harness.log                           # harness 共通デバッグログ。容量ベースで harness.log.1/.2 へ rotate。
-  artifacts/                            # Optuna Dashboard 用 artifact store。内部構造には依存しない。
-  <study_name>_<trial_name>/          # multi-seed trial の代表フォルダ。metrics.jsonl は持たない。
-    trial/
-      manifest.json
-      multiseed_summary.json
-      multiseed_summary.csv
-      seed_runs.json
-  <study_name>_<trial_name>_s<seed>/  # seed run。metrics-viewer の run になる。
-    metrics.jsonl
-    config.txt
-    stdout.log
-    stderr.log
-    trial/
+apps/runner/workspaces/<workspace>/
+  config/_main.txt                      # Env選択を含むworkspace config。
+  optuna/
+    optuna.db
+    harness.log                         # harness共通デバッグログ。harness.log.1/.2へrotate。
+    artifacts/                          # Optuna Dashboard用artifact store。
+  runs/
+    <study_name>_<trial_name>/          # multi-seed trialの代表フォルダ。metrics.jsonlは持たない。
+      trial/
+        manifest.json
+        multiseed_summary.json
+        multiseed_summary.csv
+        seed_runs.json
+    <study_name>_<trial_name>_s<seed>/  # seed run。Metrics ViewerのRunになる。
+      metrics.jsonl
       config.txt
-      manifest.json
-      process.json
-      metrics_summary.json
-      metrics_summary.csv
       stdout.log
       stderr.log
+      trial/
+        config.txt
+        manifest.json
+        process.json
+        metrics_summary.json
+        metrics_summary.csv
+        stdout.log
+        stderr.log
 ```
 
 `trial_name` は `t00000` 形式を基本にする。
@@ -78,9 +82,9 @@ seed run の `run_name` は `<study_name>_<trial_name>_s<seed>`。
 例:
 
 ```text
-apps/runner/runs_optuna/dropmergeSmall_t00001/trial/multiseed_summary.json
-apps/runner/runs_optuna/dropmergeSmall_t00001_s12345/metrics.jsonl
-apps/runner/runs_optuna/dropmergeSmall_t00001_s12345/trial/manifest.json
+apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001/trial/multiseed_summary.json
+apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001_s12345/metrics.jsonl
+apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001_s12345/trial/manifest.json
 ```
 
 trial artifact には、主に次のファイルを保存する。
@@ -93,22 +97,32 @@ trial artifact には、主に次のファイルを保存する。
 - `multiseed_summary.json`, `multiseed_summary.csv`: 代表フォルダに置く seed 集約結果。seed 別 score に加えて late window 指標の平均とばらつきも保存する。
 - `seed_runs.json`: 代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、late window 指標、path、error などを残す。
 
-`runs_optuna/harness.log` は study/trial artifact ではなく、harness 自体の診断用ログである。
+`<workspace>/optuna/harness.log` は study/trial artifact ではなく、harness 自体の診断用ログである。
 `trial-start`、`seed-start`、`runner-start pid=...`、`runner-exit returncode=...`、`trial-complete`、`trial-pruned`、`trial-failed` などの進行ログを 1 行 text で追記する。
 既定では `harness.log` が 5 MiB 以上になった次の書き込み前に `harness.log.1` へ rotate し、既存 `.1` は `.2` へ送る。
 `.2` より古いログは保持しない。
 
-`runs_optuna/<run_name>/trial` は人間と harness が直接読む artifact 置き場である。
-一方、`runs_optuna/artifacts` は Optuna の `FileSystemArtifactStore` が管理する Dashboard 用 artifact store であり、階層やファイル名に依存しない。
+`<workspace>/runs/<run_name>/trial` は人間と harness が直接読む artifact 置き場である。
+一方、`<workspace>/optuna/artifacts` は Optuna の `FileSystemArtifactStore` が管理する Dashboard 用 artifact store であり、階層やファイル名に依存しない。
 Dashboard で `Show Artifacts` を有効にするには、`run-study` / `run-trial` が `upload_artifact()` で trial に artifact metadata を登録し、optuna-dashboard を `--artifact-dir artifacts` 付きで起動する必要がある。
 `summarize-study` が作る summary study では、target trial の詳細を `group_summary.json` として同じ artifact store に登録する。
 
-metrics-viewer で Optuna run を横断表示する場合は、viewer の runs dir に
-`apps/runner/runs_optuna` を指定する。
+Metrics Viewer では画面上部の workspace selector から Optuna workspace を選択する。
 metrics-viewer は直下フォルダに `metrics.jsonl` があるものだけを run として認識するため、multi-seed 代表フォルダは表示されず、seed run だけが表示される。
 
 `<run_name>` フォルダを削除しても `optuna.db` 内の trial レコードは消えない。
 DB には params、score、user_attrs、保存済み path が残るため、削除後は `run_dir` や `artifact_dir` が stale path になる。
+
+### workspace preflight と出力境界
+
+run 系 command は、既存 workspace directory と `config/_main.txt` を要求する。
+`--storage` と `--optuna-artifact-dir` の override は、path component 単位で解決後の `<workspace>/optuna/` 配下に含まれる場合だけ許可する。
+`<workspace>/runs/`、SQLite DB の親 directory、artifact store は、引数・workspace・出力 path・既存 target type の検証がすべて成功した後にだけ生成する。
+検証失敗時は Optuna 接続、runner 起動、config/manifest/log 出力を行わない。
+
+`cleanup-running` は `--storage` を明示した場合、その storage だけで完結し、workspace を要求しない。
+`summarize-study` は source storage/artifact を明示した場合、それらだけで source を解決する。
+target storage/artifact を省略した場合は source と同じ場所を継承するため、別 workspace への暗黙出力は行わない。
 
 ## Harness 共通仕様: コマンド概要
 
@@ -120,9 +134,9 @@ Harness 共通の引数と DropMerge domain 固有の引数が同じ command に
 Harness 共通:
 
 - `--repo-root`: `anet-lab` のリポジトリルート。path 解決の基準。
+- `--workspace`: Run、storage、artifact を束ねる workspace path。既定は `_default`。
 - `--base-config`: trial config が最初に `$include` する main config。既定は `_main.txt`。
 - `--study-name`: study 名。`run_name` の prefix になり、`dry-run` / `run-trial` / `run-study` / `cleanup-running` では必須。
-- `--runs-dir`: runner の `app.runs_dir` に渡す出力先。既定は `runs_optuna`。
 - `--exp-exit-step`: proxy trial の `app.batchrun.exp_exit_step`。負数相対 window と `%` window の基準にもなる。
 
 DropMerge domain 固有:
@@ -141,7 +155,7 @@ DropMerge domain 固有:
 未指定の NN params は既定探索候補のまま残り、指定した NN params だけその値に固定される。
 
 `dry-run` で `--trial-name` と `--trial-number` をどちらも省略した場合、
-`runs_optuna` 直下の `<study_name>_tNNNNN` を見て次番号を決める。
+選択 workspace の `runs/` 直下にある `<study_name>_tNNNNN` を見て次番号を決める。
 既存番号の穴埋めはせず、最大番号+1を使う。
 
 ### `dry-run`
@@ -206,11 +220,11 @@ grid mode は同一 params の duplicate PRUNED を作らないが、`cost_tf > 
 主な引数:
 
 - `--study-name`: Optuna study 名。
-- `--storage`: Optuna SQLite DB URL または path。既定は `sqlite:///runs_optuna/optuna.db`。相対時は runner project root 基準。
+- `--storage`: Optuna SQLite DB URL または path。既定は `<workspace>/optuna/optuna.db`。run系のoverrideはworkspaceの`optuna/`配下だけを許可する。
 - `--storage-timeout-sec`: SQLite storage の lock 待ち timeout 秒。既定は `120.0`。
 - `--heartbeat-interval-sec`: Optuna RDBStorage heartbeat interval 秒。既定は `60`。`0` で heartbeat を無効にする。
 - `--heartbeat-grace-period-sec`: heartbeat が途絶えた `RUNNING` trial を stale とみなす猶予秒。既定は `600`。
-- `--optuna-artifact-dir`: Optuna Dashboard 用 artifact store の base path。既定は `runs_optuna/artifacts`。相対時は runner project root 基準。
+- `--optuna-artifact-dir`: Optuna Dashboard 用 artifact store。既定は `<workspace>/optuna/artifacts`。overrideもworkspaceの`optuna/`配下だけを許可する。
 - `--n-trials`: この実行で追加する trial 数。`tpe` 未指定時は `10`、`grid` 未指定時は未実行 combo 全件。
 - `--n-jobs`: Optuna の並列 worker 数。
 - `--study-note`: Study User Attributes の `note` に保存する任意メモ。未指定時は既存 `note` を変更しない。
@@ -285,7 +299,8 @@ artifact は削除せず、DB state だけを直す。
 主な引数:
 
 - `--study-name`: cleanup 対象の Optuna study 名。
-- `--storage`: Optuna SQLite DB URL または path。
+- `--workspace`: `--storage` 省略時にstorageを導出するworkspace。明示storageだけで完結する場合はworkspace configを参照しない。
+- `--storage`: Optuna SQLite DB URL または path。省略時は`<workspace>/optuna/optuna.db`。
 - `--dry-run`: 対象 trial number を表示するだけで DB を変更しない。
 
 `RUNNING` trial が残ると、`--constant-liar` や duplicate 判定で「まだ実行中の trial」として扱われる。
@@ -301,10 +316,11 @@ target study は multi-objective study で、1 params group を 1 target trial �
 
 - `--source-study-name`: 集約元の Optuna study 名。必須。
 - `--target-study-name`: 集約先の Optuna study 名。未指定時は `<source-study-name>_summary`。
-- `--source-storage`: 集約元 Optuna SQLite DB URL または path。既定は `sqlite:///runs_optuna/optuna.db`。
+- `--workspace`: source省略時にstorage/artifactを導出するworkspace。
+- `--source-storage`: 集約元 Optuna SQLite DB URL または path。省略時は`<workspace>/optuna/optuna.db`。
 - `--target-storage`: 集約先 Optuna SQLite DB URL または path。未指定時は source と同じ。
-- `--source-artifact-dir`: 集約元 Dashboard artifact store。既定は `runs_optuna/artifacts`。
-- `--target-artifact-dir`: 集約先 Dashboard artifact store。既定は `runs_optuna/artifacts`。
+- `--source-artifact-dir`: 集約元 Dashboard artifact store。省略時は`<workspace>/optuna/artifacts`。
+- `--target-artifact-dir`: 集約先 Dashboard artifact store。未指定時は source と同じ。
 - `--overwrite-target-study`: 既存 target study を削除して作り直す。未指定時に target study が存在する場合はエラー。
 
 group key は `TrialParams` の 8 項目完全一致である。
@@ -356,7 +372,7 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 | `last_storage_timeout_sec` | `run-study` | SQLite storage lock 待ち timeout 秒。 |
 | `last_heartbeat_interval_sec` | `run-study` | RDBStorage heartbeat interval 秒。`0` は無効。 |
 | `last_heartbeat_grace_period_sec` | `run-study` | stale `RUNNING` trial とみなす heartbeat 猶予秒。 |
-| `last_runs_dir` | `run-study` | runner 出力先として使った `runs_dir`。 |
+| `last_workspace` | `run-study` | 起動時に採用したworkspace入力。 |
 | `last_budget` | `run-study` | `small` / `medium` などの budget preset 名。 |
 | `last_cost_budget` | `run-study` | 実効 `cost_budget`。 |
 | `last_cost_k` | `run-study` | `cost_tf` の `N*M^2` 項に掛けた係数。 |
@@ -513,7 +529,7 @@ import optuna
 
 study = optuna.load_study(
     study_name="dropmergeSmall",
-    storage="sqlite:///runs_optuna/optuna.db",
+    storage="sqlite:///apps/runner/workspaces/dm_opt/optuna/optuna.db",
 )
 
 df = study.trials_dataframe()
@@ -589,15 +605,15 @@ python apps\runner\tools\dropmerge_optuna.py run-study --help
 ### 3. dry-run で config 生成を確認する
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py dry-run --study-name dropmergeSmall --trial-name t00001 --budget small
+python apps\runner\tools\dropmerge_optuna.py dry-run --workspace dm_opt --study-name dropmergeSmall --trial-name t00001 --budget small
 ```
 
 確認点:
 
 - `run_name` が `dropmergeSmall_t00001`。
-- `runs_dir` が `runs_optuna`。
-- `run_dir` が `apps/runner/runs_optuna/dropmergeSmall_t00001`。
-- `artifact_dir` が `apps/runner/runs_optuna/dropmergeSmall_t00001/trial`。
+- `runs_dir` が `workspaces/dm_opt/runs`。
+- `run_dir` が `apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001`。
+- `artifact_dir` が `apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001/trial`。
 - `pruned_by_cost` が期待どおり。
 
 `--trial-name` を省略すると、同一 `study_name` の既存 `<study_name>_tNNNNN` 出力から次番号が採番される。
@@ -607,20 +623,20 @@ python apps\runner\tools\dropmerge_optuna.py dry-run --study-name dropmergeSmall
 短い step で runner 起動、metrics 生成、summary 生成まで確認する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-trial --study-name dropmergeSmoke --trial-name t00000 --budget small --exp-exit-step 2000 --window-start 0 --window-end 100% --timeout-sec 600
+python apps\runner\tools\dropmerge_optuna.py run-trial --workspace dm_opt --study-name dropmergeSmoke --trial-name t00000 --budget small --exp-exit-step 2000 --window-start 0 --window-end 100% --timeout-sec 600
 ```
 
 確認点:
 
-- `apps/runner/runs_optuna/dropmergeSmoke_t00000_s12345/metrics.jsonl` がある。
-- `apps/runner/runs_optuna/dropmergeSmoke_t00000/trial/manifest.json` がある。
-- `apps/runner/runs_optuna/dropmergeSmoke_t00000/trial/multiseed_summary.json` の `score` が `null` ではない。
+- `apps/runner/workspaces/dm_opt/runs/dropmergeSmoke_t00000_s12345/metrics.jsonl` がある。
+- `apps/runner/workspaces/dm_opt/runs/dropmergeSmoke_t00000/trial/manifest.json` がある。
+- `apps/runner/workspaces/dm_opt/runs/dropmergeSmoke_t00000/trial/multiseed_summary.json` の `score` が `null` ではない。
 - Optuna DB の `dropmergeSmoke` study に `COMPLETE` trial が登録される。
 
 cost prune だけ確認する場合:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-trial --study-name dropmergeSmoke --trial-name tCost --cost-budget 1
+python apps\runner\tools\dropmerge_optuna.py run-trial --workspace dm_opt --study-name dropmergeSmoke --trial-name tCost --cost-budget 1
 ```
 
 この場合 runner は起動せず、exit code `2` になる。
@@ -631,19 +647,19 @@ Optuna DB には `PRUNED` trial として残る。
 small study:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeSmall --budget small --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --duplicate-params-policy reseed --duplicate-params-max-runs 3 --exp-exit-step 1000000
+python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeSmall --budget small --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --duplicate-params-policy reseed --duplicate-params-max-runs 3 --exp-exit-step 1000000
 ```
 
 medium study:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeMedium --budget medium --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --exp-exit-step 1000000
+python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeMedium --budget medium --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --exp-exit-step 1000000
 ```
 
 一部の NN params を固定して探索する場合:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeStrong128 --budget medium --n-trials 20 --seeds 12345,23456,34567 --token-mode stronger --d-model 128
+python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeStrong128 --budget medium --n-trials 20 --seeds 12345,23456,34567 --token-mode stronger --d-model 128
 ```
 
 この例では `token_mode=stronger` と `d_model=128` だけを固定し、`cnn_channels`、`res_blocks`、`transformer_layers`、`ff_mult`、`trunk_width`、`head_width` は通常どおり探索する。
@@ -651,7 +667,7 @@ python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeStr
 固定済み params の残り組み合わせを重複なしで総当たりする場合:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeGridD96 --budget medium --search-mode grid --n-jobs 2 --seeds 1,2,3 --cnn-channels 64 --token-mode current --d-model 96 --trunk-width 2048 --head-width 1024
+python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeGridD96 --budget medium --search-mode grid --n-jobs 2 --seeds 1,2,3 --cnn-channels 64 --token-mode current --d-model 96 --trunk-width 2048 --head-width 1024
 ```
 
 この例では残りが `res_blocks x transformer_layers x ff_mult = 8` combo になる。
@@ -665,7 +681,7 @@ cost 超過 combo は `PRUNED` として残るため、どの組み合わせが 
 multi-seed は 1 Optuna trial の内部で seed を逐次実行する。`--n-jobs > 1` の場合は、複数 params 候補が並列に進む。
 SQLite storage で `--n-jobs > 1` を使うと、Optuna の trial / user attrs 書き込みが競合し `database is locked` になることがある。
 既定では `--storage-timeout-sec 120.0` を設定して短い lock 競合を待つ。
-それでも再発する場合は `--n-jobs 1` にするか、SQLite ではなく PostgreSQL / MySQL などの RDB storage を使う。
+それでも再発する場合は `--n-jobs 1` にする。PH3 の harness CLI は SQLite storage だけを受け付け、非 SQLite URL は fail-fast する。
 
 同じ `--study-name` と `--storage` で再実行すると study は再開され、trial が追加される。
 同じ study を再現性重視で回す場合は、`--sampler-seed` を固定し、`--n-startup-trials` も明示しておく。
@@ -678,7 +694,7 @@ Debug runner を使う場合は、従来どおり `--runner-exe apps/runner/bin/
 seed 固定・決定論設定で duplicate params が完全に無駄になる場合は、次のように prune する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeFixed --budget small --n-trials 20 --seeds 1,2,3 --duplicate-params-policy prune
+python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeFixed --budget small --n-trials 20 --seeds 1,2,3 --duplicate-params-policy prune
 ```
 
 有望 params を何度も seed を変えて再評価したい場合は、既定の `reseed` を使う。無制限に再評価を許す場合は `--duplicate-params-max-runs 0` を指定する。
@@ -690,12 +706,12 @@ python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeFix
 既存の heartbeat 無し `RUNNING` や、すぐ手動確認したい場合は次の手順で後処理する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py cleanup-running --study-name dropmergeSmall --dry-run
-python apps\runner\tools\dropmerge_optuna.py cleanup-running --study-name dropmergeSmall
+python apps\runner\tools\dropmerge_optuna.py cleanup-running --workspace dm_opt --study-name dropmergeSmall --dry-run
+python apps\runner\tools\dropmerge_optuna.py cleanup-running --workspace dm_opt --study-name dropmergeSmall
 ```
 
-実行中のどの段階で止まったかは、まず `apps/runner/runs_optuna/harness.log` を見る。
-seed run が runner 起動まで進んでいれば、`runs_optuna/<run_name>/trial/process.json` が `status="running"` で先に作られる。
+実行中のどの段階で止まったかは、まず `apps/runner/workspaces/dm_opt/optuna/harness.log` を見る。
+seed run が runner 起動まで進んでいれば、`apps/runner/workspaces/dm_opt/runs/<run_name>/trial/process.json` が `status="running"` で先に作られる。
 親 Python が落ちた場合は `process.json` が `running` のまま残ることがあり、その場合は `runner_pid`、`started_at`、`command`、`config_path` が調査の手掛かりになる。
 
 ### 6. summary study を作る
@@ -703,28 +719,23 @@ seed run が runner 起動まで進んでいれば、`runs_optuna/<run_name>/tri
 同じ params の reseed 結果を 1 trial として Dashboard で見る場合は、source study から summary study を作る。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize-study --source-study-name dropmergeSmall
+python apps\runner\tools\dropmerge_optuna.py summarize-study --workspace dm_opt --source-study-name dropmergeSmall
 ```
 
-既定では `dropmergeSmall_summary` が同じ `runs_optuna/optuna.db` 内に作られる。
+既定では `dropmergeSmall_summary` が同じ `apps/runner/workspaces/dm_opt/optuna/optuna.db` 内に作られる。
 optuna-dashboard の study list で source study と summary study を切り替えて見る。
 
 target study が既にある場合は、誤って手作業メモや既存 summary を消さないように停止する。
 作り直す場合だけ明示する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize-study --source-study-name dropmergeSmall --overwrite-target-study
+python apps\runner\tools\dropmerge_optuna.py summarize-study --workspace dm_opt --source-study-name dropmergeSmall --overwrite-target-study
 ```
 
 ### 7. metrics-viewer で見る
 
-metrics-viewer の runs dir に次を指定する。
-
-```text
-apps/runner/runs_optuna
-```
-
-viewer 側では、この直下の `<run_name>/metrics.jsonl` が run として扱われる。
+Metrics Viewer の workspace selector で `dm_opt` を選択する。
+viewer 側では、選択 workspace の `runs/` 直下にある `<run_name>/metrics.jsonl` が run として扱われる。
 `run-study` の代表フォルダ `<study_name>_<trial_name>` は `metrics.jsonl` を持たないため表示対象外になり、`<study_name>_<trial_name>_s<seed>` の seed run だけが表示される。
 study をまたいだ比較をしたい場合も、`dropmergeSmall_t00000`、`dropmergeMedium_t00000` のように同じ viewer root で横断表示する。
 summary study は Dashboard 閲覧用であり、metrics-viewer の run にはならない。
@@ -732,13 +743,13 @@ summary study は Dashboard 閲覧用であり、metrics-viewer の run には�
 ### 8. 既存 metrics を再集計する
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/runs_optuna/dropmergeSmall_t00000/metrics.jsonl --window-start 80% --window-end 100% --output-dir apps/runner/runs_optuna/dropmergeSmall_t00000/trial
+python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/metrics.jsonl --window-start 80% --window-end 100% --output-dir apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/trial
 ```
 
 相対 window で再集計する例:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/runs_optuna/dropmergeSmall_t00000/metrics.jsonl --exp-exit-step 1000000 --window-start -200000 --output-dir apps/runner/runs_optuna/dropmergeSmall_t00000/trial
+python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/metrics.jsonl --exp-exit-step 1000000 --window-start -200000 --output-dir apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/trial
 ```
 
 ## DropMerge Domain 仕様: 探索対象と制約
@@ -751,8 +762,9 @@ token 数計算、`cost_tf`、primary/supplemental score tag、late window、gen
 generated config は次の順で構成する。
 
 1. `$include <_main.txt>` または `--base-config`。
-2. `$include <DropMerge_optuna.txt>` または `--extra-config`。
-3. trial 固有 override。`app.run_name`、`app.runs_dir`、`app.batchrun.exp_exit_step`、`train.seed`、DropMerge NN block / branch 設定を書く。
+2. 選択 workspace の `config/_main.txt`。
+3. `$include <DropMerge_optuna.txt>` または `--extra-config`。
+4. trial 固有 override。`app.run_name`、`app.runs_dir`、`app.batchrun.exp_exit_step`、`train.seed`、DropMerge NN block / branch 設定を書く。
 
 DropMerge domain v1 の generated branch は `net.branch.OptunaDropMerge` で、入力 bind は `grid, vector_feature`。
 `P=Flatten` は固定し、`token_mode` に応じて `ConvDown` / `ConvDown2` の有無だけを変える。
@@ -816,5 +828,15 @@ cost_tf = L * (N^2 * M + k * N * M^2)
 - 既定では duplicate params は `reseed` され、最大 3 回まで seed を変えて再評価される。
 - 手動の `dry-run` では、`--trial-name` 未指定時に既存出力から最大番号+1で採番する。`run-trial` は Optuna trial number を使う。
 - `study_name` と `trial_name` に path separator は使えない。
-- 既存の `runs/` とは混ぜない。Optuna 関連は `apps/runner/runs_optuna/` 配下へ集約する。
-- 既存 `runs_optina/` 生成物の migration はしない。
+- Run、storage、artifact、harness log は同じ workspace に束ねる。Run は `<workspace>/runs/`、Optuna 管理物は `<workspace>/optuna/` に置く。
+- PH3 は旧 `apps/runner/runs_optuna/` からの自動 migration を行わない。
+
+### 旧 `runs_optuna` からの手動移行
+
+1. 対象の `run-study`、`run-trial`、Optuna Dashboard を停止する。
+2. seed run と代表 trial folder を対象 workspace の `runs/` へ移す。
+3. `optuna.db`、`harness.log*`、`artifacts/` を同じ workspace の `optuna/` へ移す。SQLite の `-wal` / `-shm` が存在する場合は DB と一緒に移す。
+4. 旧 `00_last_run_study_args` はそのまま再利用しない。`--workspace` を追加し、廃止された `--runs-dir` を削除し、必要なら `--storage` / `--optuna-artifact-dir` override を新しい workspace 内 path に更新する。
+5. `apps\23_optuna_dashboard.bat <workspace_path>` で DB と artifact store を確認してから探索を再開する。
+
+履歴 artifact や過去の実験記録は当時の path を保持してよい。現行 harness は旧 path の alias や自動変換を持たない。

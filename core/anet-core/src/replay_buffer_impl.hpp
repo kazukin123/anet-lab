@@ -109,7 +109,7 @@ namespace anet::rl {
         /// 指定位置にデータが書き込まれたことを通知 (この時点ではまだサンプリング封印状態)
         void MarkWritten(int64_t env_idx, int64_t time_idx);
 
-        /// N-Step等を経て「未来」が担保され、完全にサンプリング可能になったことを通知 (封印解除)
+        /// N-Step等を経て「未来」が担保され、readyになったことを通知 (封印解除)
         void MarkValid(int64_t env_idx);
 
         /// ダミーデータが書き込まれた事を通知
@@ -121,16 +121,14 @@ namespace anet::rl {
         /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックスのリストを返す
         torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const;
 
-        int64_t GetValidCount() const;
-
         int64_t GetSampleableCount(int stack_count, int unroll_steps, int n_step) const;
 
-        bool IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const;
+        bool IsOverwritingReady(int64_t env_idx, int64_t time_idx, int unroll_steps, int n_step) const;
         int64_t GetWriteCursor(int64_t env_idx) const { return write_cursors_[env_idx]; }
         /// 指定logical indexが上書き境界、未来観測、unroll終端の全条件を満たすか判定する。
-        bool IsLogicalSampleable(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
+        bool IsLogicalReady(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
     private:
-        struct LogicalSampleableRange {
+        struct LogicalReadyRange {
             int64_t start = 0; ///< 未上書きで保持されている最古のlogical index
             int64_t end = -1;  ///< 未来観測とunroll終端が確定済みの最新logical index
 
@@ -146,18 +144,22 @@ namespace anet::rl {
          * dummyは論理的な時系列幅へ含まれるため、このrangeでは除外しない。
          * 列挙と上書き判定の各処理が物理slotのdummy状態を別途判断する。
          */
-        std::optional<LogicalSampleableRange> GetLogicalSampleableRange(
+        std::optional<LogicalReadyRange> GetLogicalReadyRange(
             int64_t env_idx, int unroll_steps, int n_step) const;
 
         template <class Fn>
         void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
         {
-            (void)stack_count;
-
-            const auto range = GetLogicalSampleableRange(env, unroll_steps, n_step);
+            const auto range = GetLogicalReadyRange(env, unroll_steps, n_step);
             if (!range.has_value()) return;
 
-            int64_t start_phys = range->start % capacity_per_env_;
+            // ring折り返し後は、上書き済みの過去frameを必要とする先頭側を候補から除外する。
+            const int64_t retained_start = range->start;
+            const int64_t history_margin = retained_start > 0 ? stack_count - 1 : 0;
+            const int64_t sample_start = retained_start + history_margin;
+            if (sample_start > range->end) return;
+
+            int64_t start_phys = sample_start % capacity_per_env_;
             int64_t end_phys = range->end % capacity_per_env_;
 
             auto visit_range = [&](int64_t p_start, int64_t p_end) {
@@ -423,6 +425,7 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
