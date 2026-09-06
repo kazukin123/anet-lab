@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import csv
 import hashlib
 import json
 import math
@@ -45,6 +46,11 @@ SERIES_BUCKETS = 42
 
 METRICS_DEFS_TAG = "metrics.scalar.defs"
 LEGACY_METRICS_DEFS_TAG = "metrics.defs"
+TRACE_DEFS_TAG = "metrics.trace.defs"
+TRACE_RECORD_TYPE = "trace"
+# trace CSV の固定属性列。data 由来の列はこの後ろへ宣言順で続く。
+# 先頭の row_no は出力先ごとの 1 始まり通番で、表計算で並べ替えた後に元の順へ戻すためだけに置く。
+TRACE_FIXED_COLUMNS = ("row_no", "run", "tag", "step", "lane")
 METRIC_KEY_PREFIX = "metrics.scalar.["
 STEP_AXIS_NAMES = frozenset(
     ["train_step", "learn_step", "episode_step", "exp_step", "update_step", "sim_step"]
@@ -476,6 +482,29 @@ def metric_defs_from_record(data) -> dict[str, MetricDef]:
             num_envs=entry.get("num_envs"),
             clip=entry.get("clip"),
         )
+    return defs
+
+
+@dataclass(frozen=True)
+class TraceDef:
+    """trace 定義レコード 1 tag 分。scalar と違い source key ではなく宣言順の key 列を持つ。"""
+
+    keys: tuple[str, ...] = ()
+
+
+def trace_defs_from_record(data) -> dict[str, TraceDef]:
+    """metrics.trace.defs レコードの data を TraceDef へ変換する。"""
+    defs: dict[str, TraceDef] = {}
+    if not isinstance(data, dict):
+        return defs
+    for tag, entry in data.items():
+        if not isinstance(entry, dict):
+            continue
+        raw_keys = entry.get("keys")
+        # keys は宣言順の配列。列順の正本なので、文字列以外が混ざる形は採用しない。
+        if not isinstance(raw_keys, list) or not all(isinstance(key, str) for key in raw_keys):
+            continue
+        defs[str(tag)] = TraceDef(keys=tuple(raw_keys))
     return defs
 
 
@@ -966,6 +995,157 @@ def scan_master(master_path: Path, tags: list[str] | None, byte_limit: int | Non
 
     scan.trailing_bytes = reader.trailing_bytes
     return scan
+
+
+# ---------------------------------------------------------------------------
+# trace チャネル
+# ---------------------------------------------------------------------------
+
+
+def _trace_fields(record: dict):
+    """trace 行の固定属性を検証して取り出す。step / lane は整数、data は object を要求する。"""
+    tag = record.get("tag")
+    if not isinstance(tag, str):
+        raise SourceError("invalid trace record: missing tag")
+    step = record.get("step")
+    if isinstance(step, bool) or not isinstance(step, int):
+        raise SourceError(f"invalid step for trace tag {tag}")
+    if step < 0 or step > MAX_SAFE_STEP:
+        raise SourceError(f"invalid step for trace tag {tag}: {step}")
+    lane = record.get("lane")
+    if isinstance(lane, bool) or not isinstance(lane, int):
+        raise SourceError(f"invalid lane for trace tag {tag}")
+    data = record.get("data")
+    if not isinstance(data, dict):
+        raise SourceError(f"invalid data for trace tag {tag}")
+    return tag, step, lane, data
+
+
+def read_master_trace_defs(master_path: Path, byte_limit: int | None) -> dict | None:
+    """定義行を探して見つかった時点で読み終える。定義は起動時に1回書かれるので通常は先頭で止まる。"""
+    try:
+        handle = open_metrics_binary(master_path)
+    except OSError as exc:
+        raise RuntimeFailure(f"Failed to open metrics master: {master_path}: {exc}") from exc
+
+    with handle:
+        reader = MasterLineReader(handle, byte_limit)
+        try:
+            for line in reader.lines():
+                record = _parse_record(line)
+                if record["type"] != "scalar" and record.get("tag") == TRACE_DEFS_TAG:
+                    return trace_defs_from_record(record.get("data"))
+        except (EOFError, OSError) as exc:
+            raise SourceError(f"failed to read metrics master: {exc}") from exc
+    return None
+
+
+def read_cache_trace_defs(cache_path: Path) -> dict | None:
+    """cache の json_lines に素通しされた定義行を読む。マスタ走査と同じ内容が入っている。"""
+    try:
+        connection = open_cache_readonly(cache_path)
+    except sqlite3.Error as exc:
+        raise RuntimeFailure(f"Failed to open metrics cache: {cache_path}: {exc}") from exc
+
+    try:
+        row = connection.execute(
+            "SELECT json FROM json_lines WHERE tag = ? ORDER BY ordinal DESC LIMIT 1",
+            (TRACE_DEFS_TAG,),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        raise RuntimeFailure(f"Metrics cache query failed: {cache_path}: {exc}") from exc
+    finally:
+        connection.close()
+
+    if row is None:
+        return None
+    try:
+        return trace_defs_from_record(json.loads(row[0]).get("data"))
+    except ValueError:
+        return None
+
+
+def iter_master_trace_rows(master_path: Path, byte_limit: int | None, state: dict):
+    """マスタを 1 pass 読み、trace 行だけを出現順で yield する。scalar 経路は変更しない。"""
+    try:
+        handle = open_metrics_binary(master_path)
+    except OSError as exc:
+        raise RuntimeFailure(f"Failed to open metrics master: {master_path}: {exc}") from exc
+
+    is_gzip = master_path.name == GZIP_NAME
+    with handle:
+        reader = MasterLineReader(handle, byte_limit)
+        try:
+            for line in reader.lines():
+                record = _parse_record(line)
+                if record["type"] != TRACE_RECORD_TYPE:
+                    continue
+                yield _trace_fields(record)
+        except (EOFError, OSError) as exc:
+            raise SourceError(f"failed to read metrics master: {exc}") from exc
+
+    # gzip は immutable source なので、未終端行を追記待ちにせず source error とする。
+    if is_gzip and reader.trailing_bytes:
+        raise SourceError("gzip ended with an unterminated JSON line")
+    state["trailing_bytes"] = reader.trailing_bytes
+
+
+def iter_cache_trace_rows(cache_path: Path):
+    """cache の json_lines から trace 行を ordinal 順で yield する。"""
+    try:
+        connection = open_cache_readonly(cache_path)
+    except sqlite3.Error as exc:
+        raise RuntimeFailure(f"Failed to open metrics cache: {cache_path}: {exc}") from exc
+
+    try:
+        connection.execute("BEGIN")
+        for payload in connection.execute(
+            "SELECT json FROM json_lines WHERE type = ? ORDER BY ordinal", (TRACE_RECORD_TYPE,)
+        ):
+            try:
+                record = json.loads(payload[0])
+            except ValueError as exc:
+                raise SourceError(f"invalid trace record in metrics cache: {exc}") from exc
+            if not isinstance(record, dict):
+                raise SourceError("invalid trace record in metrics cache: not an object")
+            yield _trace_fields(record)
+        connection.execute("ROLLBACK")
+    except sqlite3.Error as exc:
+        raise RuntimeFailure(f"Metrics cache query failed: {cache_path}: {exc}") from exc
+    finally:
+        connection.close()
+
+
+def load_trace_defs(context: RunContext, warnings: list) -> dict | None:
+    """cache が current ならそこから、そうでなければマスタの先頭側から定義だけを取る。"""
+    if context.cache_status.is_current():
+        context.selected_source = "cache"
+        return read_cache_trace_defs(context.resolved.run_dir / CACHE_NAME)
+
+    if context.master_path is None:
+        context.selected_source = None
+        return None
+
+    context.selected_source = "master"
+    if context.cache_status.status != "absent":
+        warnings.append(
+            f"{context.resolved.run_name}: metrics cache not usable "
+            f"({context.cache_status.status}: {context.cache_status.reason}), "
+            f"falling back to the metrics master"
+        )
+    byte_limit = None if context.master_path.name == GZIP_NAME else context.snapshot[0]
+    return read_master_trace_defs(context.master_path, byte_limit)
+
+
+def iter_trace_rows(context: RunContext, state: dict):
+    """定義解決で選ばれたのと同じ経路から trace 行を読む。"""
+    if context.cache_status.is_current():
+        yield from iter_cache_trace_rows(context.resolved.run_dir / CACHE_NAME)
+        return
+    if context.master_path is None:
+        return
+    byte_limit = None if context.master_path.name == GZIP_NAME else context.snapshot[0]
+    yield from iter_master_trace_rows(context.master_path, byte_limit, state)
 
 
 # ---------------------------------------------------------------------------
@@ -1826,6 +2006,291 @@ def command_tags(args) -> tuple[dict, int]:
     return result, EXIT_OK
 
 
+# Windows のファイル名に使えない文字。tag の階層区切り "/" もここで潰れる。
+FILENAME_RESERVED = '\\/:*?"<>|'
+
+
+def trace_filename(tag: str) -> str:
+    """tag をファイル名 1 つへ写す。予約文字だけを _ に置換し、階層は掘らない。"""
+    return "".join("_" if char in FILENAME_RESERVED else char for char in tag)
+
+
+class TraceCsvStream:
+    """1 出力先分の csv writer。target が None なら stdout へ直書きする。"""
+
+    def __init__(self, stdout, target: Path | None):
+        self.target = target
+        self.temporary: Path | None = None
+        self.handle = None
+        if target is None:
+            self.writer = csv.writer(stdout, lineterminator="\n")
+            return
+        # 途中失敗で既存 file を壊さないよう、同じ directory の一時 file へ流してから置換する。
+        try:
+            handle = tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                newline="",
+                dir=target.parent,
+                prefix=target.name + ".",
+                suffix=".tmp",
+                delete=False,
+            )
+        except OSError as exc:
+            raise RuntimeFailure(f"Failed to write output: {target}: {exc}") from exc
+        self.temporary = Path(handle.name)
+        self.handle = handle
+        self.writer = csv.writer(handle, lineterminator="\n")
+
+    def writerow(self, values) -> None:
+        try:
+            self.writer.writerow(values)
+        except OSError as exc:
+            raise RuntimeFailure(f"Failed to write output: {self.target}: {exc}") from exc
+
+    def commit(self) -> None:
+        if self.handle is None:
+            return
+        try:
+            self.handle.flush()
+            os.fsync(self.handle.fileno())
+            self.handle.close()
+            os.replace(self.temporary, self.target)
+        except OSError as exc:
+            raise RuntimeFailure(f"Failed to write output: {self.target}: {exc}") from exc
+        self.temporary = None
+
+    def abort(self) -> None:
+        if self.handle is None:
+            return
+        self.handle.close()
+        if self.temporary is not None:
+            self.temporary.unlink(missing_ok=True)
+            self.temporary = None
+
+
+class TraceCsvOutput:
+    """1 枚 / tag ごとの 2 形態をまとめる。tag ごとでも同時に開いて 1 pass で書き分ける。"""
+
+    def __init__(self, stdout, target: Path | None, output_dir: Path | None):
+        self._stdout = stdout
+        self._target = target
+        self._output_dir = output_dir
+        self._streams: dict = {}
+        # row_no は出力先ごとに数える。分割してもファイル単体で 1..N が途切れない。
+        self._row_counts: dict = {}
+
+    def open(self, columns: list, tags: list) -> None:
+        """見出しを先に書く。tag ごとに分けても列は共通にし、後から結合できる形へ揃える。"""
+        if self._output_dir is None:
+            stream = TraceCsvStream(self._stdout, self._target)
+            self._streams[None] = stream
+            self._row_counts[None] = 0
+            stream.writerow(columns)
+            return
+
+        # 先に全 tag のファイル名を決め、sanitize 後の衝突を書き出す前に落とす。
+        names: dict = {}
+        for tag in tags:
+            name = trace_filename(tag) + ".csv"
+            if name in names:
+                raise UsageError(
+                    f"trace tags collide in the output file name: "
+                    f"'{names[name]}' and '{tag}' both map to {name}"
+                )
+            names[name] = tag
+        try:
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeFailure(
+                f"Failed to create output directory: {self._output_dir}: {exc}"
+            ) from exc
+        for name, tag in names.items():
+            stream = TraceCsvStream(self._stdout, self._output_dir / name)
+            self._streams[tag] = stream
+            self._row_counts[tag] = 0
+            stream.writerow(columns)
+
+    def writerow(self, tag: str, values) -> None:
+        # 1 枚のときは唯一の stream、tag ごとのときは open() で作った tag の stream へ流す。
+        key = tag if self._output_dir is not None else None
+        self._row_counts[key] += 1
+        self._streams[key].writerow([self._row_counts[key], *values])
+
+    def commit(self) -> None:
+        for stream in self._streams.values():
+            stream.commit()
+
+    def abort(self) -> None:
+        for stream in self._streams.values():
+            stream.abort()
+
+
+def expand_trace_selectors(selectors: list, known: list) -> list:
+    """選択子が空なら既知 tag をすべて採る。glob は既知集合へ、完全一致はそのまま通す。"""
+    if not selectors:
+        return list(known)
+    tags: list = []
+    for selector in selectors:
+        if not has_glob_meta(selector):
+            tags.append(selector)
+            continue
+        pattern = compile_selector(selector)
+        tags.extend(tag for tag in known if pattern.match(tag))
+    return dedupe(tags)
+
+
+@dataclass
+class TraceRunPlan:
+    """1 Run 分の trace 出力計画。定義が取れなかった Run はバッファ経路へ落ちる。"""
+
+    context: RunContext
+    defs: dict | None
+    node: dict
+    tags: list = field(default_factory=list)
+    buffered: list | None = None
+    row_count: int = 0
+
+
+def _trace_row_values(columns: list, run_name: str, tag: str, step: int, lane: int, data: dict):
+    """固定属性のあとに列順どおり data を並べる。null もキー欠落も空セルになる。
+
+    先頭の row_no は出力先ごとの位置なので、ここでは付けず TraceCsvOutput が前置する。
+    """
+    values = [run_name, tag, step, lane]
+    values.extend(data.get(column) for column in columns[len(TRACE_FIXED_COLUMNS):])
+    return values
+
+
+def _note_trace_master_state(plan, state: dict, warnings: list) -> None:
+    """マスタ経路の未終端行と読み取り中の変化を、scalar 経路と同じ形で報告する。"""
+    context = plan.context
+    if state.get("trailing_bytes"):
+        context.artifacts["master"]["provisional"] = True
+        plan.node["metrics_source"]["provisional"] = True
+        warnings.append(
+            f"{context.resolved.run_name}: dropped an unterminated trailing line "
+            f"({state['trailing_bytes']} bytes)"
+        )
+    if context.snapshot is not None and context.master_path is not None:
+        if _source_snapshot(context.master_path) != context.snapshot:
+            plan.node["metrics_source"]["source_changed_during_read"] = True
+            plan.node["metrics_source"]["provisional"] = True
+            warnings.append(f"{context.resolved.run_name}: metrics master changed during read")
+
+
+def command_trace_csv(args, target: Path | None, stdout) -> tuple:
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else None
+    selectors = dedupe(args.tag)
+
+    result = run_envelope("trace-csv")
+    plans: list = []
+
+    # 段階1: 各 Run の trace 定義を解決する。列順の正本は定義レコードの keys（宣言順）。
+    for value in args.runs:
+        context = open_run(resolve_run(value), want_config=False)
+        try:
+            defs = load_trace_defs(context, result["warnings"])
+        except SourceError as exc:
+            context.warnings.append(f"source_error: {exc}")
+            defs = None
+        node = run_node(context.resolved)
+        node["metrics_source"] = context.source_node()
+        node["warnings"] = context.warnings
+        result["runs"].append(node)
+        plans.append(TraceRunPlan(context=context, defs=defs, node=node))
+
+    # 段階2: 全 Run で定義が揃っていれば見出しを先に確定でき、そのまま streaming できる。
+    streaming = all(plan.defs is not None for plan in plans)
+    columns = list(TRACE_FIXED_COLUMNS)
+    if streaming:
+        for plan in plans:
+            plan.tags = expand_trace_selectors(selectors, sorted(plan.defs))
+            for tag in plan.tags:
+                definition = plan.defs.get(tag)
+                if definition is None:
+                    continue
+                columns.extend(key for key in definition.keys if key not in columns)
+    else:
+        # 定義の無い Run があると列を先に決められないので、全行を読み切ってから見出しを出す。
+        observed_keys: set = set()
+        for plan in plans:
+            if plan.defs is None:
+                plan.node["warnings"].append(
+                    "trace definitions record is absent; the column order falls back to the "
+                    "observed key order"
+                )
+            plan.buffered = []
+            state: dict = {}
+            observed_tags: list = []
+            try:
+                for tag, step, lane, data in iter_trace_rows(plan.context, state):
+                    if tag not in observed_tags:
+                        observed_tags.append(tag)
+                    plan.buffered.append((tag, step, lane, data))
+                    observed_keys.update(data)
+            except SourceError as exc:
+                plan.node["warnings"].append(f"source_error: {exc}")
+            _note_trace_master_state(plan, state, result["warnings"])
+            known = sorted(set(observed_tags) | set(plan.defs or {}))
+            plan.tags = expand_trace_selectors(selectors, known)
+        # 宣言順が取れた分を先に並べ、残った観測キーだけをソートして後ろへ足す。
+        declared: list = []
+        for plan in plans:
+            for tag in plan.tags:
+                definition = (plan.defs or {}).get(tag)
+                if definition is None:
+                    continue
+                declared.extend(key for key in definition.keys if key not in declared)
+        columns.extend(declared)
+        columns.extend(sorted(key for key in observed_keys if key not in columns))
+
+    selected = dedupe([tag for plan in plans for tag in plan.tags])
+    if not selected:
+        for plan in plans:
+            plan.node["warnings"].append("no trace tag matched in this run")
+        return result, EXIT_RUNTIME
+
+    # 段階3: 見出しを書いてから行を流す。tag ごと出力でも列は共通のまま書き分ける。
+    output = TraceCsvOutput(stdout, target, output_dir)
+    try:
+        output.open(columns, selected)
+        for plan in plans:
+            wanted = set(plan.tags)
+            run_name = plan.context.resolved.run_name
+            if plan.buffered is not None:
+                for tag, step, lane, data in plan.buffered:
+                    if tag not in wanted:
+                        continue
+                    output.writerow(
+                        tag, _trace_row_values(columns, run_name, tag, step, lane, data)
+                    )
+                    plan.row_count += 1
+            else:
+                state = {}
+                try:
+                    for tag, step, lane, data in iter_trace_rows(plan.context, state):
+                        if tag not in wanted:
+                            continue
+                        output.writerow(
+                            tag, _trace_row_values(columns, run_name, tag, step, lane, data)
+                        )
+                        plan.row_count += 1
+                except SourceError as exc:
+                    plan.node["warnings"].append(f"source_error: {exc}")
+                _note_trace_master_state(plan, state, result["warnings"])
+            plan.node["trace_tags"] = plan.tags
+            plan.node["trace_rows"] = plan.row_count
+            if plan.row_count == 0:
+                plan.node["warnings"].append("no trace row was found for the selected tags")
+        output.commit()
+    except (UsageError, RuntimeFailure, SourceError):
+        output.abort()
+        raise
+
+    return result, EXIT_OK
+
+
 # ---------------------------------------------------------------------------
 # 出力
 # ---------------------------------------------------------------------------
@@ -2337,6 +2802,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_options(metrics)
 
+    trace_csv = subparsers.add_parser(
+        "trace-csv",
+        help="dump trace channel rows as CSV",
+        description=(
+            "Dump trace channel rows as CSV. One row is one recorded individual, such as an "
+            "adopted eval episode, and is never an aggregate. The output is always CSV, so "
+            "there is no --format. The leading row_no column is a 1-based counter per "
+            "output, kept so a spreadsheet can restore the original order after sorting. "
+            "The data column order comes from the metrics.trace.defs record, which keeps "
+            "the declaration order used in the config."
+        ),
+        epilog=(
+            "examples:\n"
+            "  inspect_run.py trace-csv run_a\n"
+            "  inspect_run.py trace-csv run_a run_b --tag '51_eval1/*'\n"
+            "  inspect_run.py trace-csv run_a --output-dir out/trace"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    trace_csv.add_argument("runs", metavar="RUN", nargs="+", help=RUN_HELP)
+    trace_csv.add_argument(
+        "--tag",
+        metavar="TAG_OR_GLOB",
+        action="append",
+        default=[],
+        help="trace tag or glob (repeatable). Only * and ? are glob meta characters. "
+        "Every declared trace tag is dumped when this is omitted.",
+    )
+    destination = trace_csv.add_mutually_exclusive_group()
+    destination.add_argument(
+        "--output",
+        metavar="PATH",
+        help="write one CSV to this file instead of stdout (parent directory must exist)",
+    )
+    destination.add_argument(
+        "--output-dir",
+        metavar="DIR",
+        help="write one CSV per trace tag into this directory, named after the tag with the "
+        "path separators replaced by _ (unlike --output, the directory is created when missing)",
+    )
+
     return parser
 
 
@@ -2357,7 +2863,11 @@ COMMANDS = {
     "config": command_config,
     "resolution": command_resolution,
     "metrics": command_metrics,
+    "trace-csv": command_trace_csv,
 }
+
+# 出力を自分で書き出すコマンド。render_output のオンメモリ経路を通さない。
+STREAMING_COMMANDS = frozenset(["trace-csv"])
 
 
 def main(argv=None, stdout=None, stderr=None) -> int:
@@ -2376,8 +2886,11 @@ def main(argv=None, stdout=None, stderr=None) -> int:
             if target is not None and not target.parent.is_dir():
                 raise UsageError(f"output parent directory does not exist: {target.parent}")
 
-            result, exit_code = COMMANDS[args.subcommand](args)
-            write_output(render_output(result, args.format), target, out)
+            if args.subcommand in STREAMING_COMMANDS:
+                result, exit_code = COMMANDS[args.subcommand](args, target, out)
+            else:
+                result, exit_code = COMMANDS[args.subcommand](args)
+                write_output(render_output(result, args.format), target, out)
         except UsageError as exc:
             print(f"error: {exc}", file=err)
             return EXIT_USAGE

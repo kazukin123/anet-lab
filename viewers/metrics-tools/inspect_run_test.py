@@ -96,6 +96,38 @@ class InspectRunTestBase(unittest.TestCase):
         }
         return json.dumps(record) + "\n"
 
+    def trace_def(self, keys: list, event="episode_end", target="env", step_axis="exp_step",
+                  runner="train", scope="eval", eval_name="eval1") -> dict:
+        return {
+            "step_axis": step_axis,
+            "runner": runner,
+            "scope": scope,
+            "eval_name": eval_name,
+            "eval_episodes": len(keys),
+            "num_envs": 2,
+            "event": event,
+            "target": target,
+            "keys": list(keys),
+        }
+
+    def trace_lines(self, rows: list) -> str:
+        # rows は (tag, step, lane, data)。data のキー順はディスク上は保証されない。
+        return "".join(
+            json.dumps({"data": data, "lane": lane, "step": step, "tag": tag, "type": "trace"},
+                       sort_keys=True) + "\n"
+            for tag, step, lane, data in rows
+        )
+
+    def write_trace_master(self, run_dir: Path, rows: list, trace_defs: dict | None,
+                           points: list | None = None) -> Path:
+        """trace 定義行 + trace 行 + 任意の scalar 行を持つ Metrics マスタを作る。"""
+        master_path = run_dir / "metrics.jsonl"
+        text = self.defs_line(trace_defs, tag="metrics.trace.defs") if trace_defs else ""
+        text += self.trace_lines(rows)
+        text += self.scalar_lines(points or [])
+        master_path.write_text(text, encoding="utf-8")
+        return master_path
+
     def write_raw_master(self, run_dir: Path, points: list, defs: dict | None = None) -> Path:
         master_path = run_dir / "metrics.jsonl"
         text = self.defs_line(defs) if defs else ""
@@ -248,6 +280,15 @@ class CacheFixtureMixin(InspectRunTestBase):
                     "INSERT INTO json_lines(ordinal, type, tag, json) VALUES(?,?,?,?)",
                     (1, "json", "metrics.scalar.defs", self.defs_line(defs).strip()),
                 )
+            if "json_lines" not in overrides.get("drop_tables", ()):
+                # Metrics Viewer の ingest は非 scalar 行を json_lines へ素通しする。
+                for ordinal, record in enumerate(overrides.get("json_records", ()), start=2):
+                    connection.execute(
+                        "INSERT INTO json_lines(ordinal, type, tag, step, json)"
+                        " VALUES(?,?,?,?,?)",
+                        (ordinal, record["type"], record.get("tag"), record.get("step"),
+                         json.dumps(record, sort_keys=True)),
+                    )
             if "source_meta" not in overrides.get("drop_tables", ()):
                 connection.executemany(
                     "INSERT INTO source_meta(k, v) VALUES(?,?)", sorted(meta.items())
@@ -1491,6 +1532,228 @@ class TraceChannelDefinitionsTest(CacheFixtureMixin):
                     scan = subject.scan_master(path, None, None)
                     self.assertEqual(scan.defs["score"].source_key, "new")
                     self.assertEqual(scan.defs["score"].event, "session_end")
+
+
+class TraceCsvSubcommandTest(CacheFixtureMixin):
+    EVAL1 = "51_eval1/episode"
+    EVAL2 = "52_eval2/episode"
+
+    def defs_for(self, keys1: list, keys2: list | None = None) -> dict:
+        defs = {self.EVAL1: self.trace_def(keys1)}
+        if keys2 is not None:
+            defs[self.EVAL2] = self.trace_def(keys2, eval_name="eval2")
+        return defs
+
+    def sample_rows(self) -> list:
+        return [
+            (self.EVAL1, 100, 0, {"game_score": 4.0, "game_len": 1200.0, "hns": -5.5}),
+            (self.EVAL2, 100, 0, {"game_score": 1.0, "game_len": 900.0, "hns": -8.25}),
+            (self.EVAL1, 100, 1, {"game_score": 0.0, "game_len": 1100.0, "hns": -9.0}),
+            (self.EVAL1, 200, -1, {"game_score": 7.0, "game_len": 1500.0, "hns": 2.5}),
+        ]
+
+    def make_trace_run(self, repo: Path, run_name: str = "run_t", workspace: str = "ws1",
+                       rows: list | None = None, trace_defs: dict | None = None,
+                       cached: bool = False):
+        run_dir = self.make_run(repo, workspace, run_name)
+        rows = self.sample_rows() if rows is None else rows
+        keys = ["game_score", "game_len", "hns"]
+        trace_defs = self.defs_for(keys, keys) if trace_defs is None else trace_defs
+        master = self.write_trace_master(run_dir, rows, trace_defs)
+        if cached:
+            records = []
+            if trace_defs:
+                records.append({"type": "json", "tag": "metrics.trace.defs",
+                                "timestamp": "2026-09-05T00:00:00", "data": trace_defs})
+            records.extend(
+                {"type": "trace", "tag": tag, "step": step, "lane": lane, "data": data}
+                for tag, step, lane, data in rows
+            )
+            self.make_cache(run_dir, master, {}, defs=None, json_records=records)
+        return run_dir
+
+    def csv_lines(self, text: str) -> list:
+        return [line for line in text.split("\n") if line]
+
+    def test_dumps_every_declared_tag_with_the_declared_column_order(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_trace_run(repo)
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run)])
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            lines = self.csv_lines(out)
+            # 見出しは defs の keys 順。ディスク上の data はアルファベット順なので一致しない。
+            self.assertEqual(lines[0], "row_no,run,tag,step,lane,game_score,game_len,hns")
+            self.assertEqual(len(lines), 5)
+            self.assertEqual(lines[1], "1,run_t,51_eval1/episode,100,0,4.0,1200.0,-5.5")
+            self.assertEqual(lines[2], "2,run_t,52_eval2/episode,100,0,1.0,900.0,-8.25")
+            # SHARED の lane は -1 のまま出す。row_no は出力順の 1 始まり通番。
+            self.assertEqual(lines[4], "4,run_t,51_eval1/episode,200,-1,7.0,1500.0,2.5")
+
+    def test_tag_glob_selects_a_subset_and_no_match_exits_one(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_trace_run(repo)
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run), "--tag", "51_eval1/*"])
+            self.assertEqual(code, 0)
+            lines = self.csv_lines(out)
+            self.assertEqual(len(lines), 4)
+            self.assertTrue(all(",51_eval1/episode," in line for line in lines[1:]))
+
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run), "--tag", "nope/*"])
+            self.assertEqual(code, 1)
+            self.assertEqual(out, "")
+            self.assertIn("no trace tag matched", err)
+
+    def test_multiple_runs_share_one_csv_in_command_line_order(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            first = self.make_trace_run(repo, "run_first")
+            second = self.make_trace_run(repo, "run_second", workspace="ws2")
+            code, out, err = self.run_cli(
+                repo, ["trace-csv", str(second), str(first), "--tag", self.EVAL2]
+            )
+            self.assertEqual(code, 0)
+            lines = self.csv_lines(out)
+            self.assertEqual([line.split(",")[1] for line in lines[1:]],
+                             ["run_second", "run_first"])
+            # row_no は出力先ごとの通番なので、Run をまたいでも連続する。
+            self.assertEqual([line.split(",")[0] for line in lines[1:]], ["1", "2"])
+
+    def test_columns_union_across_tags_leaves_missing_keys_empty(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            rows = [
+                (self.EVAL1, 10, 0, {"game_score": 1.0, "game_len": 2.0}),
+                (self.EVAL2, 10, 0, {"game_score": 3.0, "drop_rate": 0.25}),
+            ]
+            defs = {
+                self.EVAL1: self.trace_def(["game_score", "game_len"]),
+                self.EVAL2: self.trace_def(["game_score", "drop_rate"], eval_name="eval2"),
+            }
+            run = self.make_trace_run(repo, rows=rows, trace_defs=defs)
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run)])
+            self.assertEqual(code, 0)
+            lines = self.csv_lines(out)
+            self.assertEqual(lines[0], "row_no,run,tag,step,lane,game_score,game_len,drop_rate")
+            self.assertEqual(lines[1], "1,run_t,51_eval1/episode,10,0,1.0,2.0,")
+            self.assertEqual(lines[2], "2,run_t,52_eval2/episode,10,0,3.0,,0.25")
+
+    def test_null_values_become_empty_cells_and_numbers_are_not_rounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            rows = [(self.EVAL1, 10, 0,
+                     {"game_score": None, "game_len": 1234, "hns": -5.902778148651123})]
+            defs = self.defs_for(["game_score", "game_len", "hns"])
+            run = self.make_trace_run(repo, rows=rows, trace_defs=defs)
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run)])
+            self.assertEqual(code, 0)
+            lines = self.csv_lines(out)
+            self.assertEqual(lines[1], "1,run_t,51_eval1/episode,10,0,,1234,-5.902778148651123")
+
+    def test_cache_and_master_paths_produce_the_same_csv(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            cached = self.make_trace_run(repo, "run_a", workspace="ws1", cached=True)
+            plain = self.make_trace_run(repo, "run_a", workspace="ws2", cached=False)
+
+            code, cached_out, err = self.run_cli(repo, ["trace-csv", str(cached)])
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            code, plain_out, err = self.run_cli(repo, ["trace-csv", str(plain)])
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            self.assertEqual(cached_out, plain_out)
+
+    def test_missing_trace_definitions_falls_back_to_sorted_observed_keys(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_trace_run(repo, trace_defs={})
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run)])
+            self.assertEqual(code, 0)
+            self.assertIn("trace definitions record is absent", err)
+            lines = self.csv_lines(out)
+            # 宣言順が無いので観測キーのソート順へ落とす。
+            self.assertEqual(lines[0], "row_no,run,tag,step,lane,game_len,game_score,hns")
+            self.assertEqual(len(lines), 5)
+
+    def test_output_writes_a_single_file_and_output_dir_splits_per_tag(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_trace_run(repo)
+            single = repo / "trace.csv"
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run), "--output", str(single)])
+            self.assertEqual(code, 0)
+            self.assertEqual(out, "")
+            self.assertEqual(len(self.csv_lines(single.read_text(encoding="utf-8"))), 5)
+
+            split = repo / "made" / "here"
+            code, out, err = self.run_cli(
+                repo, ["trace-csv", str(run), "--output-dir", str(split)]
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(out, "")
+            # DIR は無ければ作る。tag の / は _ へ潰し、階層は掘らない。
+            self.assertEqual(sorted(path.name for path in split.iterdir()),
+                             ["51_eval1_episode.csv", "52_eval2_episode.csv"])
+            eval1 = self.csv_lines((split / "51_eval1_episode.csv").read_text(encoding="utf-8"))
+            self.assertEqual(eval1[0], "row_no,run,tag,step,lane,game_score,game_len,hns")
+            self.assertEqual(len(eval1), 4)
+            # 分割しても row_no は各ファイルで 1 から数え直し、途切れない。
+            self.assertEqual([line.split(",")[0] for line in eval1[1:]], ["1", "2", "3"])
+            eval2 = self.csv_lines((split / "52_eval2_episode.csv").read_text(encoding="utf-8"))
+            self.assertEqual([line.split(",")[0] for line in eval2[1:]], ["1"])
+
+    def test_output_and_output_dir_are_mutually_exclusive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_trace_run(repo)
+            code, out, err = self.run_cli(
+                repo,
+                ["trace-csv", str(run), "--output", str(repo / "a.csv"),
+                 "--output-dir", str(repo / "d")],
+            )
+            self.assertEqual(code, 2)
+            self.assertEqual(out, "")
+
+    def test_colliding_sanitized_file_names_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            defs = {
+                "eval/episode": self.trace_def(["game_score"]),
+                "eval_episode": self.trace_def(["game_score"]),
+            }
+            rows = [("eval/episode", 10, 0, {"game_score": 1.0}),
+                    ("eval_episode", 10, 0, {"game_score": 2.0})]
+            run = self.make_trace_run(repo, rows=rows, trace_defs=defs)
+            code, out, err = self.run_cli(
+                repo, ["trace-csv", str(run), "--output-dir", str(repo / "d")]
+            )
+            self.assertEqual(code, 2)
+            self.assertIn("collide", err)
+            self.assertFalse(list((repo / "d").iterdir()) if (repo / "d").is_dir() else [])
+
+    def test_run_without_trace_rows_reports_the_gap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            # 定義はあるが行がまだ無い Run。gap として報告し、見出しだけを出す。
+            run = self.make_trace_run(repo, rows=[])
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run)])
+            self.assertEqual(code, 0)
+            self.assertEqual(self.csv_lines(out),
+                             ["row_no,run,tag,step,lane,game_score,game_len,hns"])
+            self.assertIn("no trace row was found", err)
+
+    def test_run_without_the_trace_channel_exits_one(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run = self.make_run(repo, "ws1", "run_scalar_only")
+            self.write_raw_master(run, [("t/a", 1, 2.0)], defs={"t/a": self.metric_def()})
+            code, out, err = self.run_cli(repo, ["trace-csv", str(run)])
+            self.assertEqual(code, 1)
+            self.assertEqual(out, "")
+            self.assertIn("no trace tag matched", err)
 
 
 class MetricDefinitionMetadataTest(CacheFixtureMixin):

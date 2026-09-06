@@ -254,7 +254,7 @@ attach 済み定義だけを `metrics.scalar.defs` / `metrics.trace.defs` に分
 
 `inspect_run` の master/cache は新名 `metrics.scalar.defs` を優先し、不在時だけ旧 `metrics.defs` を読む。どちらも `def_source=metrics_defs` で、改名のみを理由とする WARN は出さない。旧名の互換読取りは現用 Run 作業セットがすべて新名になるまでの例外で、過去 artifact は変更しない。定義不在時の設定導出は維持し、cache 未構築時の selector 展開と `tags --no-observed` でも `session_end` を導出する。
 
-Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混ぜない。trace の可視化・専用 reader、追加イベント、episode_id、model_version は本機能の範囲外。決定の背景は [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) を参照する。
+Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混ぜない。読み取りは `inspect_run.py trace-csv` が担い、行をそのまま CSV へ落とす（[030 §6.9](030_user_guide_analysis.jp.md#69-traceの個体行をcsvで取り出す)）。分位点・閾値越え率などの集約、Metrics Viewer 上の可視化、追加イベント、`episode_id`、`model_version` は本機能の範囲外。決定の背景は [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) を参照する。
 
 ## 7. 出力とlifetime
 

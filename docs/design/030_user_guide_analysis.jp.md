@@ -1,4 +1,4 @@
-# Run分析ユーザーガイド
+﻿# Run分析ユーザーガイド
 
 > 主たる観点: 行程単位（成果物確認、可視化、比較、解釈）
 
@@ -215,7 +215,7 @@ SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生paramet
 
 ### 4.8 Munchausen診断を読む
 
-`metrics.scalar.@munchausen`は`36_agent_munchausen`へ7 tagを追加する。最初に解決済み設定のenabled、mode、Double DQN OFFと、初期化ログのscore源を確認する。`target_policy=UQE`では経験分位によるrisk scoreを使い、平均Qを使う構成とは区別して読む。
+`metrics.scalar.@munchausen`は`36_agent_munchausen`へ最大7 tagを追加する。**既定では`07_soft_gap`をコメントアウトしており、有効なのは6 tagである**。最初に解決済み設定のenabled、mode、Double DQN OFFと、初期化ログのscore源を確認する。`target_policy=UQE`では経験分位によるrisk scoreを使い、平均Qを使う構成とは区別して読む。
 
 | tag | 読み方 |
 |---|---|
@@ -223,7 +223,11 @@ SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生paramet
 | `03_clip_ratio` | bonus下限clipの発生率。0〜1 |
 | `04_bonus_mean` / `05_bonus_mean_ema` | targetへ1回加えるbonusの平均とEMA。`alpha * clip_value_min`〜0 |
 | `06_next_entropy` | next方策entropy。0〜`ln(action数)` |
-| `07_soft_gap` | soft state valueと最大平均Qの差。平均scoreなら0〜`entropy_tau * ln(action数)`、risk scoreなら負も許す |
+| `07_soft_gap`（既定OFF） | soft state valueと最大平均Qの差。平均scoreなら0〜`entropy_tau * ln(action数)`、risk scoreなら負も許す |
+
+`07_soft_gap`は`06_next_entropy`と同じQ分布の別汎関数であり、Breakout 50Mの実測相関はr=0.979 / 0.978（複製2本）だった。診断群は全scalar行の15.5%を占めるため、既定では`06`だけを出す。**ただしD15（`use_optimistic_target=true`）のrisk-biasedスコアでは`07`だけが負を取りうる唯一の指標なので、楽観ターゲットの腕では`metrics_scalar.txt`のコメントを外して有効化する。**
+
+`04_bonus_mean`は`01_scaled_logp_mean`の`alpha`倍ではない。clipが下限へ当たった分だけ縮むので、**両者の比が`alpha`からどれだけ離れているかがclipの実効的な効き方を表す**。Breakout 50Mでは`03_clip_ratio`が0.6%しか発火していないのに比は0.78で、`alpha=0.9`から13%削られていた。発火率が低くても深く沈んだ外れ値に当たるためで、`03`が小さいことをもって`clip_value_min`が効いていないと読まない。
 
 5つのraw診断はTBO時もFP32実空間で計算し、PER OFFでも回収する。機能OFFまたは未成立の既知keyは`NaN`であり、0へ読み替えない。readbackはpriority・clip件数、IQN診断、Munchausen診断、upper-tail統計の順に一括転送する。Actorの`actor_approx`は既存action scoreによる近似なので、Learnerの経験分位近似とは別の近似として扱う。
 
@@ -279,8 +283,9 @@ Metrics Viewerは人間向けの可視化画面である。shellから構造化�
 | `tags` | metric tagの一覧。定義（step座標系、source key）と到達step |
 | `config` | 実効設定の抽出とRun間差分 |
 | `metrics` | scalarの抽出、range集約、Run間比較 |
+| `trace-csv` | traceチャネルの個体行をCSVで取り出す |
 
-全subcommandに`--format json|md`と`--output PATH`がある。既定はJSONで、`--output`は一時file経由でatomicに置換する。
+`trace-csv`以外の全subcommandに`--format json|md`と`--output PATH`がある。既定はJSONで、`--output`は一時file経由でatomicに置換する。`trace-csv`は出力がCSV固定なので`--format`を持たない。
 
 ### 6.1 Runを見つける
 
@@ -402,13 +407,36 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 
 Runner実行中のRunも読める。rawは実行開始時のサイズまでを読み、未終端の末尾行を取り込まず、読み取り中にマスタが変化した場合は`provisional`と`source_changed_during_read`を立てる。
 
-### 6.9 終了値
+### 6.9 traceの個体行をCSVで取り出す
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py trace-csv run_A --tag "51_eval1/*"
+```
+
+`metrics`が扱うのはscalar、つまり集約後の統計である。評価セッション1回はscalarでは1点へ畳まれるため、分位点、閾値越え率、score×lenの同時分布は復元できない。`trace-csv`はtraceチャネルの行、つまり採用episode 1本を1行としてCSVへ落とし、そこから先の集計をExcelやpandasへ渡す。
+
+出力は`row_no,run,tag,step,lane,<key...>`の見出し行を持つCSV 1枚である。1行が1エピソードで、集約は一切かからない。同じ`(tag, step)`に複数行が並ぶのが正常な状態で、それが1回の評価セッションのlane別内訳になる。`lane`はイベントの`env_index`で、SHARED構成では`-1`になる。
+
+| 対象 | 規則 |
+|---|---|
+| tag選択 | `--tag`無指定なら宣言済みの全trace tag。`--tag`はglob可（`*`と`?`のみ、繰り返し指定可） |
+| `row_no` | 出力先ごとの1始まり通番。表計算で並べ替えた後に元の順へ戻すための列で、記録のidentityではない。`--tag`を変えれば同じ行に別の番号が付く |
+| 列順 | `metrics.trace.defs`の`keys`（設定に書いた宣言順）が正本。JSONL上の`data`のキー順はアルファベット順で宣言順ではないため、これを使わない |
+| 複数Run・複数tag | 1枚に混ぜ、`run`列と`tag`列で区別する。列は初出順のunionで、宣言していないキーは空cell |
+| 空cell | 値が`null`（NaN / ±Inf）の場合と、他tagのキーが列に入っている場合の両方。数値は丸めずJSONの値をそのまま出す |
+| 出力先 | 既定はstdout。`--output PATH`で1 file、`--output-dir DIR`でtagごとに分割する（tag名の`/`は`_`へ潰し、階層は掘らない）。分割してもfile単体で`row_no`が1から途切れずに並ぶ |
+
+`--output`と`--output-dir`は同時に指定できない。`--output`は親directoryが存在している必要があるが、`--output-dir`は無ければ作る。どちらもCSVを流しながら書き、完了時にatomicへ置換する。
+
+読み取り経路は他subcommandと同じで、Metricsキャッシュがcurrentなら`json_lines`から、そうでなければMetricsマスタを1 pass走査してwarningを出す。定義レコードが読めないRunでは列順を確定できないため、全行を読み切ってから観測キーのsort順で見出しを出し、warningを添える。
+
+### 6.10 終了値
 
 | 値 | 意味 |
 |---|---|
 | `0` | 正常。一部Runだけのtag/key欠損は`missing`として結果に載る |
-| `1` | source読み取りやquery失敗、または指定したmetric/config selectorが全Runで1件も成立しない |
-| `2` | 引数やrangeの構文エラー、Run未発見・曖昧性、`--output`の親directory不在 |
+| `1` | source読み取りやquery失敗、または指定したmetric/config selectorが全Runで1件も成立しない（`trace-csv`ではtrace tagが全Runで0個） |
+| `2` | 引数やrangeの構文エラー、Run未発見・曖昧性、`--output`の親directory不在、`trace-csv`の`--output`と`--output-dir`の併用やfile名衝突 |
 
 ## 7. 最小分析チェックリスト
 

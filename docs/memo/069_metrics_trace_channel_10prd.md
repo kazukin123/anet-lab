@@ -322,7 +322,8 @@ F8 から導かれる、行を書く側の制約:
 | trace の `@train` / `@learn`（per-step lane fan-out、per-sample update_result） | 932 forensic、または lane ごとの毎 step 記録が要るとき | 検証行列の分岐 + observer 1 種 |
 | trace の `@session_end`（セッション 1 行に `model_version` 等） | 912 着手 | 同上 + 欄の追加 |
 | `episode_id` 欄 | 932 で `EpisodeId` が実装されたとき | 固定属性 1 つ |
-| inspect_run の `trace` サブコマンド（分位点・閾値越え率） | eval 分布の解析を 2 回目に手書きしたとき | reader 側 |
+| ~~inspect_run の trace ダンプ~~ | **開けた**: `inspect_run.py trace-csv`（行をそのまま CSV へ落とすだけ） | 実施済み |
+| inspect_run の trace 集約（分位点・閾値越え率） | CSV を受け取った側での集計を 2 回目に手書きしたとき | reader 側 |
 | trace の購読ヒント（`$agent` の遅延計算キー） | 初めて `$agent` キーを trace に書くとき | 購読ヒントの型拡張 |
 | DropMerge eval の trace 宣言 | DropMerge で分布が要るとき | 設定 1 行 |
 | `tb_bridge.py` の trace skip | trace を使う Run で TensorBoard bridge を回すとき | 分岐 1 つ |
