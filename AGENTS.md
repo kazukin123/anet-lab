@@ -342,6 +342,33 @@ C:\Python314\python.exe -m venv .venv
 Python 補助ツールの検証も、同じ `.venv` の Python で行ってください。
 `.venv` はローカル実行環境として扱い、Git 管理対象にしないでください。
 
+## 人間へ提示するコマンドの書き方
+
+ユーザーが受け取ったコマンドは、実行ボタンからそのままターミナルへ流されます。
+**提示するコマンドは、編集せずに実行できる状態にしてください。**
+
+- **プレースホルダを書かないでください。** `<run名>` のような山括弧は PowerShell が
+  リダイレクト演算子として解釈し、`演算子 '<' は、今後の使用のために予約されています` で
+  パースエラーになります。Run 名やパスが実行時にしか決まらない場合は、
+  `Get-ChildItem ... | Sort-Object Name -Descending | Select-Object -First 1` のように
+  **コマンド自身に解決させてください**。
+- **既定のシェルは PowerShell です。** `&&` / `||`、三項演算子、`2>/dev/null`、
+  bash の制御構文は使えません。`;` と `if ($?) { }`、`2>$null`、`Test-Path` を使います。
+  Git Bash 構文が必要な場合は、その旨をコマンドに添えてください。
+- **提示前に実行して確認してください。** 同じコマンドを既存の Run や既存のファイルに対して
+  一度通し、出力形まで確かめてから提示します。
+- **既定は 1 ブロック 1 行にしてください。** 実行ボタンが出るのは 1 コマンドのブロックだけで、
+  複数行のブロックはコピーボタンしか出ません。手順が複数ステップになる場合は
+  `;` で連結し、条件分岐は `if (...) { ... } else { ... }` を同じ行へ畳みます。
+- **1 行でも、読んで何をするか分かる形にしてください。** ユーザーは実行前にコマンドを読んで
+  監査します。省略記法で詰めるより、`Get-ChildItem` / `Select-String` / `Where-Object` を
+  そのまま書き、`-Filter` や `-Pattern` に意図が出るようにします。
+  エイリアス（`gci` / `?` / `%`）と位置引数の省略は避け、パイプの各段が 1 つの意味を持つよう並べます。
+  1 行に収めると読めなくなるほど長い手順は、スクリプトにするか、実行ボタンを諦めて
+  「コピーして貼り付けてください」と明示します。
+- **コードフェンスは ```bash を使ってください。** 中身が PowerShell でも、
+  実行ボタンが付くのは shell タグのブロックです。
+
 ## 編集しない・慎重に扱う領域
 
 以下は生成物、ローカル環境、または外部依存として扱います。
@@ -511,9 +538,11 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags RUN
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config RUN [RUN ...] --diff
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics RUN [RUN ...] --metric TAG --range -4M:
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py trace-csv RUN [RUN ...] --tag TAG
 ```
 
-- `runs` はRun発見とartifact・Metricsマスタ・Metricsキャッシュの状態、`tags` はmetric tagの一覧と定義・到達step、`config` は実効設定と差分、`metrics` はscalar抽出と比較。
+- `runs` はRun発見とartifact・Metricsマスタ・Metricsキャッシュの状態、`tags` はmetric tagの一覧と定義・到達step、`config` は実効設定と差分、`metrics` はscalar抽出と比較、`trace-csv` はtraceチャネルの個体行のCSV出力。
+- **分位点・閾値越え率・同時分布はscalarから復元できない。** scalarは集約後の統計で、評価セッション1回が1点に畳まれている。個体単位で見たい場合は `trace-csv` を使い、集計はCSVを受け取った側で行う。
 - **metricは1回の呼び出しへ束ねる。** Metricsマスタの走査はRunごとに1 passで、tag数には比例しない。tagごとに呼び分けるとpassの回数だけ時間が増える。
 - Run名の探索範囲は `apps/runner/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
 - 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
