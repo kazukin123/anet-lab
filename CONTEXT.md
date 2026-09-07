@@ -280,7 +280,7 @@ _Avoid_: 完走エピソード（非採用の完走を含む）, 最初に終わ
 _Avoid_: train_policy / eval_policy（旧キー）, Agent 設定（上位概念）, actor profile（`@` プロファイルと混同）
 
 **Actor キー**（ActorKey）:
-利用者が Actor 設定カタログで明示する Actor 設定の identity。`run.train.actor_key` / `run.eval.[tag].actor_key` が参照し、省略時は Runner 名（`train` / eval タグ名）を使う。既知キー `train` / `eval` は Runner の既定値であって Agent 実装は名前を解釈しない。未定義キーの参照は fail-fast、dormant スロットでは解決しない。
+利用者が Actor 設定カタログで明示する Actor 設定の identity。`run.train.actor_key` / `run.eval.[tag].actor_key` が参照し、省略時は Runner 名（`train` / eval タグ名）を使う。既知キー `train` / `eval` は Runner の既定値であって Agent 実装は名前を解釈しない（唯一の例外は DefaultDQN の `use_optimistic_target` で、Learner の target_policy の既定コピー元として `[train]` の policy を参照する。未定義なら fail-fast）。未定義キーの参照は fail-fast、dormant スロットでは解決しない。
 _Avoid_: actor name（instance 名と混同）, run_mode（用途ラベル）, actor_config（キーとも名前とも読めない）
 
 **Actor 生成要求**（ActorRequest）:
