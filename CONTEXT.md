@@ -12,7 +12,7 @@ anet-lab は libtorch を基盤とした強化学習実験プロジェクトで�
 _Avoid_: Q Agent, value agent
 
 **Train Actor network snapshot**:
-`DefaultDQNAgent`のTrain Actorがaction forwardに使用する、Learner online networkから複製されたparameterとbufferの時点コピー。snapshot間で固定されるのはnetworkだけで、ActionPolicy、ObservationNormalizer、RNGは含まない。
+`DefaultDQNAgent`のTrain Actorがaction forwardに使用する、Learner online networkから複製されたparameterとbufferの時点コピー。snapshot間で固定されるのはnetworkだけで、ActionPolicy、ObservationNormalizer、RNGは含まない。定期同期の周期は Actor 設定 `actor.[train].sync_interval` が持ち、宣言されたときだけ定期 snapshot を行う。
 _Avoid_: policy snapshot, frozen policy, 方策固定
 
 **価値ストリーム**:
@@ -148,7 +148,7 @@ _Avoid_: include(順序の意味が違う), 継承, マージ
 _Avoid_: 部品集(曖昧), library
 
 **Run プロファイル**:
-Run を特徴づけるスロット選択の束(= Run 署名)を `run.@<name>` で命名したもの。env・agent・予算・backend 等の選択で構成され、値は宣言済み値スロット(game、num_envs 等)のみ持つ。`train.seed` は含まない(同一 Run プロファイル×複数 seed = 比較母集団)。展開は「ファイル末尾へ中身を追記したのと同一」の後勝ちで、上のラダーや上書き層より強い。`run.$` 自体も選択チェーンなので Run プロファイル同士を合成できる(入れ子定義は fail-fast)。実装内部の識別子は `trunk` のまま。
+Run を特徴づけるスロット選択の束(= Run 署名)を `run.@<name>` で命名したもの。env・agent・予算・backend 等の選択で構成され、値は宣言済み値スロット(game、num_envs 等)のみ持つ。`run.seed` は含まない(同一 Run プロファイル×複数 seed = 比較母集団)。`run.` は Run 構成の root 名前空間(`run.seed` / `run.train.*` / `run.eval.[tag].*` / `run.eval_schedule.[tag].*`)でもあり、Run プロファイルはその名前付き束である(リゾルバが特別扱いするのは `run.$` と `run.@<name>` だけ)。展開は「ファイル末尾へ中身を追記したのと同一」の後勝ちで、上のラダーや上書き層より強い。`run.$` 自体も選択チェーンなので Run プロファイル同士を合成できる(入れ子定義は fail-fast)。実装内部の識別子は `trunk` のまま。
 _Avoid_: 幹(旧称), Run設定(曖昧), プリセット
 
 **上書き層**:
@@ -230,8 +230,8 @@ _Avoid_: プロトコルプリセット(旧称), envバージョン（Gymnasium�
 ### 実行系統
 
 **RunMode**:
-Train / Eval 系（Eval, Eval1, Eval2）という実行系統の区分。Env は生成時に自分の RunMode を固定して保持し（Sampler 選択・終端契約・挙動分岐に使う。`GetRunMode()` で参照）、Reset / Step の実行時引数では受け取らない。Actor の network 選択にも同じ区分を使う。configured eval tag のタグ名（eval1 等）とは別概念。
-_Avoid_: per-call mode, eval flag, 実行時モード引数
+Train / Eval 系（Eval, Eval1, Eval2）という Env の実行系統の区分。Env は生成時に自分の RunMode を固定して保持し（Sampler 選択・終端契約・挙動分岐に使う。`GetRunMode()` で参照）、Reset / Step の実行時引数では受け取らない。Agent インタフェース（Actor 生成要求）は RunMode を受け取らず、Actor の方策・network 選択は Actor 設定が決める。Eval1 / Eval2 の区別は Env 用途にだけ残る（PRD 061 P3 で再考）。configured eval tag のタグ名（eval_target 等）とは別概念。
+_Avoid_: per-call mode, eval flag, 実行時モード引数, actor mode（Actor の用途ラベルとしては使わない）
 
 **online 構成**:
 人が Runner の GUI を監視・操作する実行構成。エラー通知ではログに加えてダイアログを表示する。Train / Eval を表す `RunMode` とは別概念。
@@ -242,15 +242,15 @@ _Avoid_: online RunMode, interactive RunMode
 _Avoid_: batch mode, batch RunMode
 
 **configured eval tag**（評価タグ）:
-`train.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。
+`run.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になり、省略時の Actor キーにもなる。`actor_key` で別のカタログ項目を指せる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay / actor_key）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。標準タグは `eval`（online net）と `eval_target`（target net。target net の無い Agent では dormant にする）。
 _Avoid_: eval profile, eval preset, RunMode（別概念）
 
 **eval schedule**（定期駆動）:
-`train.eval_schedule.[tag]` で configured eval tag を名前参照し、定期評価の駆動（interval / use_background）を宣言するエントリ。Env + Runner + Observer の生成はこのエントリが駆動し、消費者は EpisodeEvalObserver ただ一つ。interval は必須（`0` = 明示 OFF = dormant）で、未定義タグの参照は fail-fast。
+`run.eval_schedule.[tag]` で configured eval tag を名前参照し、定期評価の駆動（interval / use_background）を宣言するエントリ。Env + Runner + Observer の生成はこのエントリが駆動し、消費者は EpisodeEvalObserver ただ一つ。interval は必須（`0` = 明示 OFF = dormant）で、未定義タグの参照は fail-fast。
 _Avoid_: eval interval 設定（キー名でなく機構名で呼ぶ）, スケジューラ（消費者コンポーネントと混同）
 
 **dormant**（寝タグの状態）:
-定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
+定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない（Actor を作らないので Actor キーの参照先も解決しない）。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
 _Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ, interval=0 タグ（旧契約の宣言方法）
 
 **episode scope**（エピソードスコープ）:
@@ -272,6 +272,24 @@ _Avoid_: 評価エピソード（1本と誤読させる）, eval 1回（何本�
 **採用エピソード**（adopted episode）:
 評価セッションで、開始境界に採用権（grant）を与えられたepisode。セッション開始時はgroup index順に先頭`min(N, G)` groupへ採用権を発行し、採用episodeが完了したときに残りがあれば、そのgroupの次episodeへ発行する。発行したN本は完了まで集計対象であり、終了後に最初のN完了を選ぶものではない。採用権のないepisodeは完了しても集計しない。
 _Avoid_: 完走エピソード（非採用の完走を含む）, 最初に終わったN本, 終了順採用エピソード
+
+### Actor 設定
+
+**Actor 設定**（actor config）:
+`CreateActor` が消費する設定の総体。方策とそのスケジュール、network 選択（online / target）、clone と同期周期、推論精度、探索器（MuZero の温度・noise）を含む。スキーマは Agent が所有し、`<AgentPrefix>.actor.[key].*` のカタログ項目として宣言する。Learner 側の `target_policy` は含まない。
+_Avoid_: train_policy / eval_policy（旧キー）, Agent 設定（上位概念）, actor profile（`@` プロファイルと混同）
+
+**Actor キー**（ActorKey）:
+利用者が Actor 設定カタログで明示する Actor 設定の identity。`run.train.actor_key` / `run.eval.[tag].actor_key` が参照し、省略時は Runner 名（`train` / eval タグ名）を使う。既知キー `train` / `eval` は Runner の既定値であって Agent 実装は名前を解釈しない。未定義キーの参照は fail-fast、dormant スロットでは解決しない。
+_Avoid_: actor name（instance 名と混同）, run_mode（用途ラベル）, actor_config（キーとも名前とも読めない）
+
+**Actor 生成要求**（ActorRequest）:
+Runner が Agent へ渡す「どの env に、どの device と seed で、どの Actor キーの Actor を作るか」の宣言。Actor 設定の中身は含まず、用途ラベル（RunMode）も含まない。seed は Runner が master seed から `actor/<Runner 名>` で派生する。
+_Avoid_: ActorSpec（Spec は出来上がったものの仕様を指す）, CreateActor 引数, actor context（Observation 加工の部品）
+
+**学習側 counts**（source counts）:
+Actor のスケジュール更新と snapshot 判定に使う、直近の Sync 時点の train runner の StepCounts。train runner 自身は live、configured eval はセッション開始時の値、EvalPanel はパネルが Sync した時点の値を Actor の MakeAction に渡す。eval runner 自身の counts（eval 座標系の metrics 用）とは別。
+_Avoid_: event_counts（実装名）, eval step（eval 座標系と混同）
 
 ### Runner GUI
 
@@ -362,6 +380,10 @@ _Avoid_: キャンセル（利用者の明示操作と混同）, abort（fronten
 **購読ヒント**:
 scalar metrics 定義から起動時に集約した購読一覧（key・event・target・interval）を生産者（agent 等）へ渡す静的ヒント。汎用機構であり、消費側が関心キーを filter して解釈し、購読の無い計測は行わない。内容は metrics定義レコードと同源（「実際にこう構築された」解決済み定義）。
 _Avoid_: subscription（一般語）, lazy metrics, plasticity hint（固有機構ではない）
+
+**`$actor`**:
+scalar / trace metrics の参照先の一つで、当該 Runner の Actor を指す。ε・温度など Actor 所有の実行時値を読む。`$eval.[tag]` と組み合わせればスロット別の値になる。Learner 側の `target_policy` は `$agent` のまま。
+_Avoid_: `$agent epsilon`（旧。Agent 経由の policy 値参照）, `$runner actor.*`（prefix 委譲方式は採らない）
 
 ### 観測と可視化
 
