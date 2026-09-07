@@ -371,18 +371,12 @@ run.@evalN10 : train.eval.[eval2].eval_episodes = 10
 run.@evalonly : A3.learner.enabled = false
 run.@evalonly : app.save_agent_on_close = false
 run.@evalonly : train.num_envs = 1
-run.@evalonly : train.eval.[eval1].eval_batch_size = 100
+run.@evalonly : train.eval.[eval1].eval_batch_size = 16
 run.@evalonly : train.eval.[eval1].eval_episodes = 100
-run.@evalonly : train.eval.[eval2].eval_batch_size = 100
+run.@evalonly : train.eval.[eval2].eval_batch_size = 16
 run.@evalonly : train.eval.[eval2].eval_episodes = 100
 run.@evalonly : train.eval_schedule.[eval1].interval = 10
 run.@evalonly : train.eval_schedule.[eval2].interval = 11
-# lane = 本数なので 1 セッション = 1 ラウンド。train が 128 env で回る以上 100 は安全側。
-# セッション時間が最長エピソードで決まるので空転を打ち切る。実測(2026-09-06)では
-# 15,000 step 未満へ下げると満点(864)まで行った良い試合を切り始める。15,000 なら
-# 切られるのは 428 点前後で空転している本だけ(全体の 11%)。frame = step x 4。
-run.@evalonly : train.eval.[eval1].env.max_episode_frames = 60,000
-run.@evalonly : train.eval.[eval2].env.max_episode_frames = 60,000
 
 # 評価を greedy にする。eval の eps はエージェント単位なので eval1/eval2 の両方へ効く
 # (スロットごとの指定は PRD 061)。実測(2026-09-06、100M checkpoint、online net)で
@@ -390,6 +384,9 @@ run.@evalonly : train.eval.[eval2].env.max_episode_frames = 60,000
 # 0.1% -> 10.4% へ増えるので、上の max_episode_frames とセットで使う。
 run.@greedy_eval : A3.eval_policy.eps_start = 0
 run.@greedy_eval : A3.eval_policy.eps_end   = 0
+
+# eval1(target net) を止めて eval2(online net) だけ回す
+run.@eval2only : train.eval_schedule.[eval1].interval = 0
 
 run.@pl_check      : @vars.max_exp_step = 100,000    # 配線確認。eval を切って 2 分で回す
 run.@pl_check      : train.eval_schedule.[eval1].interval = 0

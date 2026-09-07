@@ -9,7 +9,7 @@ if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
 
-SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-2nd
+SET EXE="bin\%BUILD%\AnetRLRunner_ab.exe" --workspace atari-3rd
 
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
@@ -18,15 +18,22 @@ SET "BK=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
-SET "EV=run.@evalN10"
+SET "RR4=run.@hard500>run.@rr4>run.@munch"
 SET "ARM=run.@hard125>run.@munch"
-SET "CKPT=A3.auto_load_file=workspaces/atari-2nd/runs/run_20260906-034637_mu1_hard125_munch_breakout/agent_close.anet"
+SET "EV0=run.@evalonly>run.@greedy_eval>run.@to_50"
+SET "EV1=run.@evalonly>run.@to_50"
 
-echo === 0. wiring: %ARM% + resume (400k) ===
-call:run_exe "run.$=%A5%>%ARM%>%EV%>run.@to_400k" "%CKPT%" "app.run_name=run_{t}_tmp_wiring_resume"
+SET "CK_RR4=A3.auto_load_file=workspaces/atari-3rd/runs/run_20260907-121338_rr4_munch/agent_close.anet"
+SET "CK_RR1R1=A3.auto_load_file=workspaces/atari-2nd/runs/run_20260905-221731_mu1_hard125_munch_breakout/agent_close.anet"
 
-echo === 1. %ARM% resume from 50M, +50M (3h) ===
-call:run_exe "run.$=%A5%>%ARM%>%EV%" "%CKPT%" "app.run_name=run_{t}_hard125_munch_resume50m"
+echo === 1. RR4 50M eps=0 (18min) ===
+call:run_exe "run.$=%A5%>%RR4%>%EV0%" "%CK_RR4%" "app.run_name=run_{t}_ev_rr4_50m_greedy"
+
+echo === 2. RR4 50M eps=0.01 (18min) ===
+call:run_exe "run.$=%A5%>%RR4%>%EV1%" "%CK_RR4%" "app.run_name=run_{t}_ev_rr4_50m_eps001"
+
+echo === 3. RR1 r1 50M eps=0 (18min) ===
+call:run_exe "run.$=%A5%>%ARM%>%EV0%" "%CK_RR1R1%" "app.run_name=run_{t}_ev_rr1r1_50m_greedy"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
