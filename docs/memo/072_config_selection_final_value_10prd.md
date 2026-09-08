@@ -1,6 +1,6 @@
 # PRD 072: 設定リゾルバの `$` 選択が source の最終値を読むようにする(書き込み優先順位は不変)
 
-- 起票日: 2026-09-07、改訂: 2026-09-08(Codex レビュー「nested 選択の後回しで後段 overlay が負ける」を受け、§3〜§6 を「順序の並べ替え」から「読み取りだけ最終値にする」へ書き直し。同日第 2 改訂: Codex レビュー「同順再実行の反復では継承元が毎周リセットされる」「`Set` の dirty flag では収束判定できない」を受け、§4〜§6 を読み取り状態と書き込み状態を分離する Jacobi 反復へ書き直し。同日第 3 改訂: Codex レビュー「反復上限 10 は選択深さ 10 と別物」「CLI 最終上書きを継承に含むか不明確」を受け、周回上限を『観測した選択キー数 S + 1』に、CLI 第 2 相の leaf 再適用を各周の末尾へ移動(§4-2 / §4-5 / §4-6 / §4-9 / §5 / §6)。同日第 4 改訂: Codex レビュー「選択キー数 S では依存鎖長を制限できない」「12 段 root 鎖の受入例は nested を発生させる」を受け、周回上限を廃止して last-writer graph の循環検出へ(§4-5 / §5 / §6-9 / §6-13 / §7)。同日第 5 改訂: Codex レビュー「identity copy の例は現行の循環検出と矛盾」を受け、§4-5 の `X.$ = X` の例を削除し、term 循環検出(先に走る・緩めない)と writer graph 検出の対象を区別)
+- 起票日: 2026-09-07、改訂: 2026-09-08(Codex レビュー「nested 選択の後回しで後段 overlay が負ける」を受け、§3〜§6 を「順序の並べ替え」から「読み取りだけ最終値にする」へ書き直し。同日第 2 改訂: Codex レビュー「同順再実行の反復では継承元が毎周リセットされる」「`Set` の dirty flag では収束判定できない」を受け、§4〜§6 を読み取り状態と書き込み状態を分離する Jacobi 反復へ書き直し。同日第 3 改訂: Codex レビュー「反復上限 10 は選択深さ 10 と別物」「CLI 最終上書きを継承に含むか不明確」を受け、周回上限を『観測した選択キー数 S + 1』に、CLI 第 2 相の leaf 再適用を各周の末尾へ移動(§4-2 / §4-5 / §4-6 / §4-9 / §5 / §6)。同日第 4 改訂: Codex レビュー「選択キー数 S では依存鎖長を制限できない」「12 段 root 鎖の受入例は nested を発生させる」を受け、周回上限を廃止して last-writer graph の循環検出へ(§4-5 / §5 / §6-9 / §6-13 / §7)。同日第 5 改訂: Codex レビュー「identity copy の例は現行の循環検出と矛盾」を受け、§4-5 の `X.$ = X` の例を削除し、term 循環検出(先に走る・緩めない)と writer graph 検出の対象を区別。同日第 6 改訂: Codex Atari レビュー「受入 11 を gate に」「代表プロファイルの名指し」「安全弁の実コスト」「事前確認 A・B」を受け、§2 末尾・§4-5・§5・§6-11 を改訂)
 - 状態: **起票済み・実装待ち**。PRD 061 P2 の前提として先に対応する
 - 対象: `core/anet-core/src/config_impl.cpp`(`ConfigResolver::Resolve` / `ResolveSelection` / `ApplyTerm`)、`core/anet-core/src/config_test.cpp`(`[config][resolver]` 群)
 - 関連: PRD 061(§5.3 のカタログ項目間継承がこの PRD を必要とする)、`done/059_config_concept_tree_alignment_10prd.md`(選択チェーン / プロファイル / 上書き層の用語と現行リゾルバ)、ADR 0038
@@ -30,6 +30,8 @@ DefaultDQNAgent.$ = @iqn > A2
   term `@iqn` のコピーで現れた `DefaultDQNAgent.net.$` が即時展開されて `iqn_fusion` を書き、続く term `A2` が `alternative` を書く → **`alternative` が勝つ**。nested 選択を後回しにすると `iqn_fusion` が最後に書かれて逆転する。root 選択同士でも同じで、重なる領域を書く 2 つの root 選択の順序を入れ替えれば宣言順の勝敗が反転する
 - 既存の保護: 循環検出(`:265-269`、経路付き)、深さ上限 `kMaxSelectionDepth = 10`(`:260-263`)、未定義素材の fail-fast(`:304-309`)、`resolution.json` に選択の記録(`selections` / `references`)
 - 既存 config に「別の選択の産物を source にする選択」は無い(env の `train.eval.[tag].env.$ = AtariEnv.@… > E1` は素材とファイルローカル層だけを source にする)。したがって読み取り時点を変えても既存 config の実効値は変わらないはずである(受入で実証する)
+- Atari の裏取り(Codex Atari 担当、2026-09-08): `run_20260907-121338_rr4_munch`(`run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@capall`)の `config_resolution.json` は選択 13・参照 6 で、source は全て宣言(`@` 素材と `E1` / `A1〜A3` / `M1` / `M2` の上書き層)。別の選択の産物を source にする選択は 1 つも無いので、`R(0)` に全 source が揃い、`W(1)` は現行結果と一致し、`W(2) == W(1)` で 2 周終了する
+- CLI の位相(同上): 現行の bat が渡す `E1.game=…` / `A3.auto_load_file=…` / `backend.$=…` は resolver 入力キーなので第 1 相(`config_impl.cpp:17-27`)で解決前に働き、選択コピーから既に見えている。§4-6 の第 2 相移動が効くのは「周内で選択が書いた値を CLI の直接キー(実効キー)で上書きし、それを継承先が読む」形だけで、PRD 061 のカタログ固有
 
 ## 3. ゴールと非ゴール
 
@@ -43,7 +45,7 @@ DefaultDQNAgent.$ = @iqn > A2
 2. **読み取りは最終値**: 選択のコピーが target へ書く値は、**全展開が終わった後の source キーの値**である(**CLI 第 2 相の leaf override を含む**)。source 自身が別の選択のコピー先なら、その最終値を再帰的に読む
 3. **キー集合も最終**: コピー対象は「全展開が終わった後に source prefix 配下に存在するキー」の集合である。後段の term や overlay が source に新しいキーを足した場合も target に現れる(値だけを遅延させる方式では漏れるため、この項を契約に含める)
 4. **意味論の一文**: 「各選択を宣言位置で展開したものとして扱い、コピーする値と対象キー集合だけを展開完了後の source の状態で確定する」
-5. **循環と非収束**: 周回数の上限は設けない。停止は §4-9 の周末状態一致だけで判定し、**非収束は last-writer graph の循環で検出する**。各周で「target キー ← そのキーを最後に書いた source キー」(直書き leaf / CLI / 宣言は根)を記録し、周末で `W` が変化していれば graph の循環を DFS で探す。循環があれば経路付きで `ANET_SYSTEM_ERROR`。コピーは値を変換しないので、graph が非循環なら最長経路 + 1 周で必ず収束し、収束しないのは循環があるときだけである。検出の順序と対象を区別する: **既存の term 経路の循環検出は周内で先に走り、緩めない**(`X.$ = X` のような自己包含は `X.$` 自身を写して nested 再帰に入り、周末比較の前にここで止まる)。writer graph の検出は、term 経路の検出に掛からない値レベルの循環だけを対象にする。安全弁として周数が「現在の `W` のキー数 + 1」を超えたら内部エラー(非循環 graph の最長経路はキー数を超えないため、超過は実装欠陥の検出であって利用者の契約ではない)。既存の term 経路の循環検出と深さ上限 `kMaxSelectionDepth = 10` は**周内の term 経路の制限**として維持する。**`[key].$` の直列鎖(`[a2].$ = [a1]`、`[a1].$ = [a0]` …)は `[a1]` 配下の `.$` も写して周内で再帰的に歩かれるため、この深さ制限の対象**(現行と同じ制限)。周回数を選択キー数や定数で制限しない理由: owner が source を包含する選択(`X.$ = X.part`)では鎖長がキーの深さで決まり、選択 1 個でも深さ分の周が要る
+5. **循環と非収束**: 周回数の上限は設けない。停止は §4-9 の周末状態一致だけで判定し、**非収束は last-writer graph の循環で検出する**。各周で「target キー ← そのキーを最後に書いた source キー」(直書き leaf / CLI / 宣言は根)を記録し、周末で `W` が変化していれば graph の循環を DFS で探す。循環があれば経路付きで `ANET_SYSTEM_ERROR`。コピーは値を変換しないので、graph が非循環なら最長経路 + 1 周で必ず収束し、収束しないのは循環があるときだけである。検出の順序と対象を区別する: **既存の term 経路の循環検出は周内で先に走り、緩めない**(`X.$ = X` のような自己包含は `X.$` 自身を写して nested 再帰に入り、周末比較の前にここで止まる)。writer graph の検出は、term 経路の検出に掛からない値レベルの循環だけを対象にする。安全弁として周数が「現在の `W` のキー数 + 1」を超えたら内部エラー(非循環 graph の最長経路はキー数を超えないため、超過は実装欠陥の検出であって利用者の契約ではない)。安全弁の到達コストは (|W| + 1) 周 × 1 周の全展開で、Atari(`config_data.txt` は素材を除いて約 910 キー、選択 13・参照 6)なら約 1,000 周・数百万 Set 程度であり、到達しても数秒で内部エラーに落ちる。**上限を小さい定数へ戻さない**(第 2〜4 改訂で却下済み。§7)。既存の term 経路の循環検出と深さ上限 `kMaxSelectionDepth = 10` は**周内の term 経路の制限**として維持する。**`[key].$` の直列鎖(`[a2].$ = [a1]`、`[a1].$ = [a0]` …)は `[a1]` 配下の `.$` も写して周内で再帰的に歩かれるため、この深さ制限の対象**(現行と同じ制限)。周回数を選択キー数や定数で制限しない理由: owner が source を包含する選択(`X.$ = X.part`)では鎖長がキーの深さで決まり、選択 1 個でも深さ分の周が要る
 6. **trunk / CLI / `${}`**: `run.$` の trunk 展開は従来どおり先頭。CLI leaf override(第 2 相)は**各周の末尾で `W(n+1)` に重ねる**。これにより選択コピーが読む「最終値」は CLI 込みになり、CLI で継承元(例 `X.[a].k` や `DefaultDQNAgent.actor.[eval].policy.uqe_tau_start`)を直接変えても継承先(`X.[b]`、`[eval_target]`)へ届く。CLI leaf が同じキーの最後の書き込みとして勝つ優先順位は不変。`${}` 展開はループ後の 1 段のまま
 7. **記録**: `resolution.json` の `selections` は最終周の展開順で記録する(内容・順序とも現行と同じになる)
 8. **source 未発見の判定は最終状態で行う**: 周の途中で source が空でもエラーにしない(素材が同じ周の前段コピーで生まれる場合があるため)。収束後、term の resolved prefix に 1 つもキーが無ければ、`@` 段を含む term(素材)は現行どおり fail-fast、**`[…]` 段を含む term(カタログ項目の参照)も fail-fast**(typo を黙って空写ししない)、それ以外(素の上書き層 A3 等)は空で正常
@@ -55,7 +57,7 @@ DefaultDQNAgent.$ = @iqn > A2
   - 状態を 2 つ持つ。**読み取り状態 `R(n)`** = 宣言(trunk 展開後の working map)に前周の完成状態 `W(n)` を重ねたもの(`W(n)` が勝つ)。**書き込み状態 `W(n+1)`** = 直書き leaf(素材以外)から始める新しい map。展開が終わったら **CLI 第 2 相の leaf override(`!IsResolverInputKey`)を `W(n+1)` に重ねて**完成状態とする
   - 周 n+1 の展開は現行とまったく同じ順序(root 選択は宣言順、term は左→右、コピーで現れた nested `.$` はその場で解く)で `W(n+1)` へ書く。ただし **`ApplyTerm` の source 列挙は `R(n)` から読む**(書きかけの `W(n+1)` は読まない)。同じ target への後の書き込みが勝つ規則は周内で保たれるので、優先順位は現行実装そのもの
   - 周 1 の `R(0)` は宣言のみ。同じ周の前段コピーで生まれる source(`DefaultDQNAgent.actor.[eval]`、`DefaultDQNAgent.actor.@target` 等)は周 1 では空写しになり、周 2 以降で最終値を写す。収束周数は参照鎖の深さ + 1
-  - `W(n+1) == W(n)` で終了。周回上限は持たない。`ApplyTerm` の `Set` 時に `writer[target] = source`(直書き leaf / CLI / 宣言は根)を記録し、周末に未収束なら writer graph を DFS して循環があれば経路付きで fail-fast、無ければ次の周へ。安全弁として周数が `W` のキー数 + 1 を超えたら内部エラー。`kMaxSelectionDepth` は周内の term 経路の深さ制限として据え置き、周回数には使わない
+  - `W(n+1) == W(n)` で終了。周回上限は持たない。`ApplyTerm` の `Set` 時に `writer[target] = source`(直書き leaf / CLI / 宣言は根)を記録し、周末に未収束なら writer graph を DFS して循環があれば経路付きで fail-fast、無ければ次の周へ。安全弁として周数が `W` のキー数 + 1 を超えたら内部エラー(到達コストは §4-5 のとおり秒オーダー。定数上限へ戻さない)。`kMaxSelectionDepth` は周内の term 経路の深さ制限として据え置き、周回数には使わない
   - `selections_` / `references_` の記録と §4-8 の未発見判定は最終周で行う。循環検出(term 経路)と深さ上限は各周でそのまま走らせる
   - 実効 map = 最終 `W` の非素材キー。CLI leaf override はループ内(各周末尾)へ移り、`${}` だけがループ後の 1 段展開として残る
   - なぜ `[b]` が最終値を読めるか(Codex の例 2、§6-2): 周 1 は `@base` が `[a].k = 1` を書き、nested `[b].$` は `R(0)` に `[a]` が無いので何も写さず、`L` が `[a].k = 2` を書く(`W(1)`: a=2)。周 2 は nested `[b].$` が `R(1)` の `[a].k = 2` を写す(`W(2)`: a=2, b=2)。周 3 は `W(3) == W(2)` で終了。同じ周内で `@base` が `[a]` を 1 に戻しても、読むのは前周の完成状態なので影響しない
@@ -83,7 +85,14 @@ DefaultDQNAgent.$ = @iqn > A2
 8. **空参照**: 最終状態で空の `[key]` 参照(typo)は fail-fast、空の素の上書き層(`> A3` で A3 に行が無い)は正常
 9. **循環 / 非収束**: `X.[a].$ = X.[b]`、`X.[b].$ = X.[a]` は term 経路の循環として経路付きで fail-fast。term 経路の検出に掛からない値レベルの循環は、周末の writer graph の循環検出で経路付きで fail-fast することをテストで固定(テスト用に writer graph へ循環を注入できる構成を用意する。実 config で作れない場合は安全弁の内部エラーをテストする)。既存の循環・深さ・未定義素材テストは緑
 10. **trunk / CLI**: 既存の `[trunk]` / `[cli]` テストが緑。CLI leaf が選択の後に勝つことは不変
-11. **等価性**: リポジトリ管理下の全 env config(`Atari.txt` / `DropMerge.txt` / `LunarLander.txt` / `GridMaze.txt` / `GridMaze_muzero.txt` / `ImageCls.txt` / `CartPole.txt`)× 代表 Run プロファイル(各ファイルの主要 `run.@…`)で、修正前後の実効 dump(`config_data.txt`)と `resolution.json` が一致する。差が出た場合は「現行が古い値を読んでいた箇所」なので、盲目的に受け入れず 1 件ずつ確認して記録する
+11. **等価性(gate)**: リポジトリ管理下の全 env config(`Atari.txt` / `DropMerge.txt` / `LunarLander.txt` / `GridMaze.txt` / `GridMaze_muzero.txt` / `ImageCls.txt` / `CartPole.txt`)× 代表 Run プロファイルで、修正前後の実効 dump(`config_data.txt`)と `resolution.json` が一致する。**差分ゼロが合格条件**であり、差が出た場合は記録して進むのではなく**止めて相談する**(§2 の「別の選択の産物を source にする選択は無い」が崩れている箇所であり想定外。Atari は既存約 40 本の Run との比較線(hard125 6.00 ± 0.304pt、Munchausen 11.435 の判定帯)がこの一致に乗っているため特に厳格)。Atari の代表プロファイルは次の 5 本(`AtariEnv.$` / `DefaultDQNAgent.$` / `DefaultDQNAgent.net.$` / `DefaultDQNAgent.net.branch.[main_feature].$` / `metrics.scalar.$` / `app.$` / `backend.$` が全て通る):
+    - `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch`
+    - `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@capall`(`run.@capall` は 2026-09-08 時点で未コミットの SN 実験設定)
+    - `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@evalonly>run.@greedy_eval>run.@to_50`
+    - `run.@nature_dqn`
+    - `run.@classic_iqn_impala_x2`
+    
+    他 env は各ファイルの主要 `run.@…`(DropMerge は IQN32 の現行チェーンと `run.@qr51_control`)
 12. **CLI 継承**: 受入 2 の構成に CLI leaf `X.[a].k = 3` を足すと `X.[a].k == 3` かつ `X.[b].k == 3`。CLI leaf を `X.[b].k = 9` に置いた場合は `[b]` が 9(CLI が最後に勝つ)。既存の「CLI leaf が選択の後に勝つ」テストも緑
 13. **長い伝播(nested なし)**: `X.$ = X.part`、`X.part.part.part.value = 1` → `X.value == 1`、4 周で終了し fail-fast しない。深さ 12 の `part` 鎖でも 13 周で終了する。`[key].$` の直列鎖は 3 段(`X.[a2].$ = X.[a1]`、`X.[a1].$ = X.[a0]`)+ 後段 overlay で `[a0]` を変更 → `[a2]` へ伝播することを確認し、11 段以上の `[key].$` 鎖は周内の深さ制限で fail-fast する(現行と同じ)ことをテストで固定する
 
