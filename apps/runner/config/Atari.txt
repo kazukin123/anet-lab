@@ -433,16 +433,31 @@ run.@va_base : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariIm
 run.@va_base : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
 run.@va_base : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
 
-# target 更新。env 時間 32,000 exp step で揃える。RR1 は 1 grad = 256 exp step なので C=125、
-# RR4 は 64 exp step なので C=500(BTR の値と同一)。RR とセットで選ぶこと。
+# target 更新。env 時間 32,000 exp step で揃える。1 grad あたりの exp step は
+# U = num_envs x replay_ratio / replay_batch_size の逆数なので、batch を変えると C も変わる。
+#   RR1/B256 = 256 exp step -> C=125   RR2/B256 = 128 -> C=250   RR4/B256 = 64 -> C=500(BTR 値)
+#   RR2/B512 = 256 exp step -> C=125   RR3/B256 = 85.3 -> C=375
+#   RR4/B512 = 128 exp step -> C=250   RR4/B1024 = 256 -> C=125
+# RR と batch とセットで選ぶこと。
 run.@hard125 : A2.model.soft_update_tau = 0
 run.@hard125 : A2.model.hard_update_interval = 125
+run.@hard250 : A2.model.soft_update_tau = 0
+run.@hard250 : A2.model.hard_update_interval = 250
+run.@hard375 : A2.model.soft_update_tau = 0
+run.@hard375 : A2.model.hard_update_interval = 375
 run.@hard500 : A2.model.soft_update_tau = 0
 run.@hard500 : A2.model.hard_update_interval = 500
 run.@soft008 : A2.model.soft_update_tau = 0.008    # env 時間は hard125 と等価。soft/hard 軸の対照
 
-# replay ratio。RR1 は run.@a5 の既定なので rr4 だけ置く。
+# replay ratio。RR1 は run.@a5 の既定なので置かない。RR は「1 遷移あたりの平均抽出回数」。
+run.@rr2 : A2.learner.replay_ratio = 2
+run.@rr3 : A2.learner.replay_ratio = 3
 run.@rr4 : A2.learner.replay_ratio = 4
+
+# batch。RR を保ったまま勾配回数だけ減らす軸(U = N x RR / B)。RR2+B512 は
+# 「RR2 の再利用・RR1 の勾配回数」になる。target は env 時間で揃えるので hard125 と組む。
+run.@b512  : A2.learner.replay_batch_size = 512
+run.@b1024 : A2.learner.replay_batch_size = 1024
 
 # アルゴ。@munchausen 素材が use_double_dqn=false を強制する(併用は構築時 fail-fast、PRD 067 D5)。
 # metrics.scalar.$ は run.@breakout_metrics と同じスロットなので @breakout と @munchausen を
@@ -459,12 +474,33 @@ run.@nodouble : A3.learner.use_double_dqn = false
 # e^-4 = 1.8% まで下がるので、順位情報が初めてデータ損失に化けずに済む。per_alpha と 2 軸で引く。
 run.@aainit : A2.learner.per_initial_priority_mode = actor_approx
 
+# PER の選択性。alpha=0.2(BTR 値)は p ∝ TD^0.2 で極端に平坦で、TD 100 倍差が抽選 2.5 倍にしか
+# ならない。0.6 は Schaul 2015 proportional の既定値で、同じ 100 倍差が 16 倍になる。
+# per_beta は 0.2 固定のままなので、選択性と補正不足が同時に強まる点に注意。
+run.@alpha06 : A2.learner.per_alpha = 0.6
+
+# 過学習側の対策。RR4 は 1 遷移を平均 4 回学習に入れるので、同じ入力の上塗りが起きる。
+# DropPath は残差枝をサンプル単位で落とす(nn_modules.cpp:1156)ので、同じ遷移が引かれる
+# たびに別のサブネットワークを通る。Learner の更新 forward だけ train mode になる
+# (ForwardOnlineWithTrain, dqn_based_agent.cpp:475)ので Actor/eval には効かない。
+# ResBlock は 6 個なので rate 0.1 で「少なくとも 1 個落ちる」確率が 47%。
+run.@dp010 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.1
+run.@dp010 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.1
+
+# weight_decay。既定は A1 で 0(BTR 整合)。0.1 は RR1/8M で -43.4% の前科があるので軽め。
+run.@wd001 : A2.learner.weight_decay = 0.01
+
 # ViT ハイブリッド。V/A ReLU 基準で 0.64 倍だった(探索ブロック 25)。
 run.@vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViTLN
 
 # gamma を BTR 値 0.997 から旧既定 0.99 へ戻す踏み絵。
 # BTR は gamma 0.997 と Munchausen(gap を広げる操作子)を同時に採る。
 run.@g99 : A2.learner.gamma = 0.99
+
+# 全層 spectral_cap。sigma>1 のときだけ割るので sigma<1 の層を拡大せず、全層 spectral の
+# 発散要因の一つを踏まない。@munch の後ろに置いて metrics チェーンへ @sn(63-66)を足す。
+run.@capall : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNCAP
+run.@capall : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > metrics.scalar.@sn > M1 > M2
 
 
 # ==============================================================================
@@ -837,6 +873,13 @@ net.block.[AtariLinear512CAP].weight_norm.mode = spectral_cap
 
 net.branch.@AtariImpalaX2CAP.bind = grid
 net.branch.@AtariImpalaX2CAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > ReLU
+
+# LN512 を足した全層 CAP 版。run.@capall が使う。現行基準(@AtariImpalaX2LN)からの 1 変数。
+# 全層 spectral は Q が発散し(2026-08-30 探索ブロック 01、q_max 2,700)、BTR 範囲の cap は
+# 依存閉包で見ると生ノルムと一緒に伸びた(61 = 65.7 / 63 = 60.8)。素の Linear512 が
+# ノルムの大半を占めるためで、cap を Linear512 まで広げた組は未試行である。
+net.branch.@AtariImpalaX2LNCAP.bind = grid
+net.branch.@AtariImpalaX2LNCAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > AtariLN512 > ReLU
 
 # --- BTR 忠実版 SN: residual conv のみ(BTR networks.py 実装と同範囲)。
 # 入口 conv / downsample / Linear512 は素のまま = 値のスケールを作る経路を縛らない。

@@ -18,22 +18,22 @@ SET "BK=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
+SET "EV=run.@evalN10"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
-SET "ARM=run.@hard125>run.@munch"
-SET "EV0=run.@evalonly>run.@greedy_eval>run.@to_50"
-SET "EV1=run.@evalonly>run.@to_50"
 
-SET "CK_RR4=A3.auto_load_file=workspaces/atari-3rd/runs/run_20260907-121338_rr4_munch/agent_close.anet"
-SET "CK_RR1R1=A3.auto_load_file=workspaces/atari-2nd/runs/run_20260905-221731_mu1_hard125_munch_breakout/agent_close.anet"
+echo === 0. wiring: dp010 / alpha06 / wd001 (100k) ===
+call:run_exe "run.$=%A5%>%RR4%>run.@dp010>%EV%>run.@pl_check" "app.run_name=run_{t}_tmp_wiring_dp010"
+call:run_exe "run.$=%A5%>%RR4%>run.@alpha06>%EV%>run.@pl_check" "app.run_name=run_{t}_tmp_wiring_alpha06"
+call:run_exe "run.$=%A5%>%RR4%>run.@wd001>%EV%>run.@pl_check" "app.run_name=run_{t}_tmp_wiring_wd001"
 
-echo === 1. RR4 50M eps=0 (18min) ===
-call:run_exe "run.$=%A5%>%RR4%>%EV0%" "%CK_RR4%" "app.run_name=run_{t}_ev_rr4_50m_greedy"
+echo === 1. RR4 + DropPath 0.1 50M (8h) ===
+call:run_exe "run.$=%A5%>%RR4%>run.@dp010>%EV%" "app.run_name=run_{t}_rr4_dp010_munch"
 
-echo === 2. RR4 50M eps=0.01 (18min) ===
-call:run_exe "run.$=%A5%>%RR4%>%EV1%" "%CK_RR4%" "app.run_name=run_{t}_ev_rr4_50m_eps001"
+echo === 2. RR4 + per_alpha 0.6 50M (8h) ===
+call:run_exe "run.$=%A5%>%RR4%>run.@alpha06>%EV%" "app.run_name=run_{t}_rr4_alpha06_munch"
 
-echo === 3. RR1 r1 50M eps=0 (18min) ===
-call:run_exe "run.$=%A5%>%ARM%>%EV0%" "%CK_RR1R1%" "app.run_name=run_{t}_ev_rr1r1_50m_greedy"
+echo === 3. RR4 + weight_decay 0.01 50M (8h) ===
+call:run_exe "run.$=%A5%>%RR4%>run.@wd001>%EV%" "app.run_name=run_{t}_rr4_wd001_munch"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
