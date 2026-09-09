@@ -125,6 +125,30 @@ _Avoid_: valid indices（実装上の列挙結果であって概念名ではな�
 ring折り返し後に、保持最古のlogical timeから`stack_count - 1`件をsample不可とする下限側の余白。過去stack frameが上書きで失われたtransitionを候補から除外するためのもので、wrap前は0。episode境界のpaddingとは別概念（上書き由来の履歴喪失はpaddingしない）。
 _Avoid_: stack margin（NN構成の語と紛れる）, padding幅（padding可否とは独立の除外幅）
 
+**replay 抽選履歴群**:
+学習用に抽選可能なreplayの遷移集合を、学習用抽選を経験したかどうかで分けた群。未抽選群と抽選済み群からなり、観測自体の既知・未知や学習からの除外を表さない。
+_Avoid_: train / validation split, held-out split, 学習履歴群
+
+**未抽選群**:
+replay 抽選履歴群のうち、現在保持している遷移として学習用抽選を一度も経験していない集合。
+_Avoid_: 未学習群, held-out, validation set
+
+**抽選済み群**:
+replay 抽選履歴群のうち、現在保持している遷移として学習用抽選を一度以上経験した集合。学習更新の適用完了は条件に含めず、処理中・先読み済みの対象も含む。
+_Avoid_: 学習済み群, trained set
+
+**遷移の年齢**:
+ReplayBuffer内の遷移について、その遷移が属するlaneのwrite cursor（Push済み件数）から当該遷移のlogical indexを引いた値。単位はlaneのPush回数（= train step）であり、laneをまたいだexp stepではない。sampleable rangeの遷移にだけ定義し、dummyは持たない。replay 抽選履歴群の構成記述子として群ごとの平均を記録する。
+_Avoid_: staleness（`target_sync_age`のtargetの古さと混同）, recency（定性語）, exp step年齢（単位が違う）
+
+**replay 当てはまり診断**:
+`replay_fit`。未抽選群・抽選済み群と実PERバッチを、学習と同じtarget式・固定分位点・FP32・eval modeの共通条件で評価したTD・損失・母数・平均年齢・PER 選択比の診断群。学習系列に触れず、held-out分割でも過学習の判定器でもない。
+_Avoid_: held-out TD, overfit metrics, td_holdout_ratio, 汎化ギャップ, 記憶ギャップ
+
+**PER 選択比**:
+実PERバッチの平均絶対TDを、母数で加重したreplay全体の平均絶対TDの推定で割った比。1付近は「この評価条件で平均TDに差がない」までを意味し、一様抽選への退化とは断定しない。
+_Avoid_: PER bias, priority ratio（SumTree leaf priorityの比と紛れる）, selectivity（無修飾）
+
 ### Module・設定参照
 
 **Module Config**:
