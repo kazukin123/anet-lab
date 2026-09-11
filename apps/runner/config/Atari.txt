@@ -465,6 +465,12 @@ run.@b1024 : A2.learner.replay_batch_size = 1024
 run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
 run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > M1 > M2
 
+# 計測。46_agent_replay_fit(PRD 073)を @munch のチェーンへ足す。metrics.scalar.$ は
+# 同じスロットなので @munch より後ろへ置くこと。probe は NoGrad / eval mode / FP32 で
+# 回る(dqn_based_agent.cpp:2129)ので、DropPath や bf16 は測定値へ混ざらない。
+# 発火は interval:503 の learn_step 基準。probe batch 1024 / IQN tau 32 は既定のまま。
+run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2
+
 # Munchausen OFF の対照。Double 除去だけを分離する。
 run.@nodouble : A3.learner.use_double_dqn = false
 
@@ -482,10 +488,16 @@ run.@alpha06 : A2.learner.per_alpha = 0.6
 # 過学習側の対策。RR4 は 1 遷移を平均 4 回学習に入れるので、同じ入力の上塗りが起きる。
 # DropPath は残差枝をサンプル単位で落とす(nn_modules.cpp:1156)ので、同じ遷移が引かれる
 # たびに別のサブネットワークを通る。Learner の更新 forward だけ train mode になる
-# (ForwardOnlineWithTrain, dqn_based_agent.cpp:475)ので Actor/eval には効かない。
+# (ForwardOnlineWithTrain, dqn_based_agent.cpp:476)ので Actor/eval には効かない。
 # ResBlock は 6 個なので rate 0.1 で「少なくとも 1 個落ちる」確率が 47%。
 run.@dp010 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.1
 run.@dp010 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.1
+
+# 用量。1-(1-p)^6 は 0.1 で 47%、0.2 で 74%、0.3 で 88%。
+run.@dp020 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.2
+run.@dp020 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.2
+run.@dp030 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.3
+run.@dp030 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.3
 
 # weight_decay。既定は A1 で 0(BTR 整合)。0.1 は RR1/8M で -43.4% の前科があるので軽め。
 run.@wd001 : A2.learner.weight_decay = 0.01
@@ -496,6 +508,21 @@ run.@vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpala
 # gamma を BTR 値 0.997 から旧既定 0.99 へ戻す踏み絵。
 # BTR は gamma 0.997 と Munchausen(gap を広げる操作子)を同時に採る。
 run.@g99 : A2.learner.gamma = 0.99
+
+# BTR 構造へ寄せる。Flatten 後の 512 ボトルネックを外し、6x6 pool で 2304 にして
+# そこで tau を融合する。V/A は各自 Linear(2304->512) を持つ形になり BTR と一致する。
+# tau 側の活性も BTR は relu(cos_embedding(cos)) なので SiLU から変える。
+# RR1 では利得が無かった(2026-09-02、3.48% -> 4.18%、複製幅 0.72pt)が、BTR は
+# 同じ再利用 4 回で成立しているので、構造と再利用の交互作用が本題。@va_base の後ろへ置く。
+run.@btrnet : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
+run.@btrnet : DefaultDQNAgent.net.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
+
+# 上へ重ねて spectral norm も BTR へ揃える。main_feature だけ差し替え、tau 側は @btrnet を継ぐ。
+run.@btrsn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool6Flat
+
+# num_envs を BTR の 64 へ。replay_ratio は 1 遷移あたりの定義なので
+# 1 更新 = 64 exp step は変わらず、target は hard500 のままで env 時間 32,000 を保つ。
+run.@envs64 : train.num_envs = 64
 
 # 全層 spectral_cap。sigma>1 のときだけ割るので sigma<1 の層を拡大せず、全層 spectral の
 # 発散要因の一つを踏まない。@munch の後ろに置いて metrics チェーンへ @sn(63-66)を足す。
@@ -1002,6 +1029,12 @@ net.block.[AtariIQNTauProj7744].linear.out_features = 7744
 net.block.[AtariIQNTauProj7744].init.mode = xavier
 
 # トランクを持たない main_feature。Pool6 で 6x6x64 = 2304。
+# spectral norm 版の Pool6Flat。BTR は --spectral 1 が既定で、checkpoint にも
+# parametrizations.weight.original が入っている(2026-09-11 に実機確認)。
+# 共有トランクを持たないので AtariLinear512SN は使わない。
+net.branch.@AtariImpalaX2SNPool6Flat.bind = grid
+net.branch.@AtariImpalaX2SNPool6Flat.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
+
 net.branch.@AtariImpalaX2Pool6Flat.bind = grid
 net.branch.@AtariImpalaX2Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
 

@@ -20,20 +20,20 @@ SET "FIX2=E1.game=breakout"
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "EV=run.@evalN10"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
+SET "RF=run.@rfit"
+SET "CHK=%EV%>run.@pl_check>run.@to_400k"
 
-echo === 0. wiring: dp010 / alpha06 / wd001 (100k) ===
-call:run_exe "run.$=%A5%>%RR4%>run.@dp010>%EV%>run.@pl_check" "app.run_name=run_{t}_tmp_wiring_dp010"
-call:run_exe "run.$=%A5%>%RR4%>run.@alpha06>%EV%>run.@pl_check" "app.run_name=run_{t}_tmp_wiring_alpha06"
-call:run_exe "run.$=%A5%>%RR4%>run.@wd001>%EV%>run.@pl_check" "app.run_name=run_{t}_tmp_wiring_wd001"
+echo === 0. wiring: btrnet structure 400k ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>%CHK%" "app.run_name=run_{t}_tmp_wiring_btrnet"
 
-echo === 1. RR4 + DropPath 0.1 50M (8h) ===
-call:run_exe "run.$=%A5%>%RR4%>run.@dp010>%EV%" "app.run_name=run_{t}_rr4_dp010_munch"
+echo === 0b. wiring: btrnet + btrsn + envs64 400k ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn>run.@envs64>%CHK%" "app.run_name=run_{t}_tmp_wiring_btrfull"
 
-echo === 2. RR4 + per_alpha 0.6 50M (8h) ===
-call:run_exe "run.$=%A5%>%RR4%>run.@alpha06>%EV%" "app.run_name=run_{t}_rr4_alpha06_munch"
+echo === 1. RR4 + BTR structure 50M (8h) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>%EV%" "app.run_name=run_{t}_rr4_btrnet_munch"
 
-echo === 3. RR4 + weight_decay 0.01 50M (8h) ===
-call:run_exe "run.$=%A5%>%RR4%>run.@wd001>%EV%" "app.run_name=run_{t}_rr4_wd001_munch"
+echo === 2. RR4 + BTR structure + SN + envs64 50M (9h) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn>run.@envs64>%EV%" "app.run_name=run_{t}_rr4_btrfull_munch"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
