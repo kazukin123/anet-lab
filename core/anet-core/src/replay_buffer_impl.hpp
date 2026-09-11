@@ -147,6 +147,8 @@ namespace anet::rl {
         std::optional<LogicalReadyRange> GetLogicalReadyRange(
             int64_t env_idx, int unroll_steps, int n_step) const;
 
+    public:
+        // snapshotを所有する利用側へsampleable slotを列挙し、集計だけならTensorを作らない。
         template <class Fn>
         void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
         {
@@ -179,6 +181,7 @@ namespace anet::rl {
             }
         }
 
+    private:
         int64_t num_envs_;
         int64_t capacity_per_env_;
         std::vector<int64_t> valid_cursors_;
@@ -426,6 +429,8 @@ namespace anet::rl {
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
         bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
+        SamplingHistoryProbeResult ProbeSamplingHistory(
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;

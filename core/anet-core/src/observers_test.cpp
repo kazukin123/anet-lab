@@ -738,6 +738,37 @@ TEST_CASE("ObserverFactory preserves weight norm UpdateResult subscriptions", "[
     }
 }
 
+TEST_CASE("ObserverFactory attaches replay fit only through its independent profile", "[observer_factory][replay_fit][profile]")
+{
+    const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+    const auto config_dir = root / "apps" / "runner" / "config";
+    anet::ConfigManagerOptions options;
+    options.config_search_dirs = std::vector<std::filesystem::path>{ config_dir };
+    options.injected_config.Set("metrics.scalar.$", "metrics.scalar.@replay_fit");
+    const anet::ConfigManager manager((config_dir / "_main.txt").string(), nullptr, options);
+    const auto defs = rl::ObserverFactory(manager.GetConfigData()).GetScalarMetricDefs();
+    int count = 0;
+    for (const auto& def : defs) {
+        if (!def.tag.starts_with("46_agent_replay_fit/")) continue;
+        ++count;
+        CHECK(def.source_key.starts_with("replay_fit_"));
+        CHECK(def.step_axis == "learn_step");
+        CHECK(def.runner == "train");
+        CHECK(def.event == "learn");
+        CHECK(def.target == "update_result");
+        CHECK(def.interval == 503);
+        CHECK_FALSE(def.has_ema);
+    }
+    CHECK(count == 13);
+    // 同じ材料profileが読まれていても、選択されなければ購読は生まれない。
+    options.injected_config.Set("metrics.scalar.$", "metrics.scalar.@baseline");
+    const anet::ConfigManager baseline((config_dir / "_main.txt").string(), nullptr, options);
+    const rl::ObserverFactory baseline_factory(baseline.GetConfigData());
+    for (const auto& def : baseline_factory.GetScalarMetricDefs()) {
+        CHECK_FALSE(def.source_key.starts_with("replay_fit_"));
+    }
+}
+
 TEST_CASE("ObserverFactory preserves policy churn baseline subscriptions", "[observer_factory][metrics_defs][policy_churn]")
 {
     const std::array<std::pair<const char*, const char*>, 7> metrics = { {

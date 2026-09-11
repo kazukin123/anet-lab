@@ -823,6 +823,22 @@ namespace anet::rl {
     };
 
 
+    /// 同一sampleable snapshotに対する履歴別の集計・抽出要求。
+    struct SamplingHistoryProbeRequest {
+        bool counts = false;
+        std::optional<int64_t> unsampled_batch_size;
+        std::optional<int64_t> sampled_batch_size;
+    };
+
+    struct SamplingHistoryProbeResult {
+        int64_t unsampled_count = 0;
+        int64_t sampled_count = 0;
+        float unsampled_age_mean = std::numeric_limits<float>::quiet_NaN();
+        float sampled_age_mean = std::numeric_limits<float>::quiet_NaN();
+        std::optional<ExperienceSamples> unsampled;
+        std::optional<ExperienceSamples> sampled;
+    };
+
     class ReplayPriorityController {
     public:
         virtual ReplayPriorityUpdateResult UpdatePriorities(
@@ -838,6 +854,8 @@ namespace anet::rl {
         virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
         virtual bool SampleUniqueUniform(
             ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const = 0;
+        virtual SamplingHistoryProbeResult ProbeSamplingHistory(
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;

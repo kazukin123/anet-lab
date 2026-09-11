@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <limits>
@@ -38,7 +39,7 @@ namespace anet::rl::dqn {
     MunchausenTargetTerms MakeMunchausenTargetTerms(
         const torch::Tensor& current_score, const torch::Tensor& next_score,
         const torch::Tensor& next_mean_q, const torch::Tensor& actions,
-        const MunchausenConfig& config);
+        const MunchausenConfig& config, bool diagnostics = true);
 
     inline constexpr std::array<const char*, 7> kPolicyChurnMetricKeys = {
         "policy_churn_action_ratio",
@@ -49,6 +50,23 @@ namespace anet::rl::dqn {
         "policy_churn_target_q_delta_abs_mean",
         "policy_churn_target_sync_age",
     };
+
+    inline constexpr std::array<const char*, 13> kReplayFitMetricKeys = {
+        "replay_fit_unsampled_td_mean", "replay_fit_sampled_td_mean", "replay_fit_unsampled_td_ratio",
+        "replay_fit_unsampled_loss_mean", "replay_fit_sampled_loss_mean", "replay_fit_unsampled_loss_ratio",
+        "replay_fit_unsampled_count", "replay_fit_sampled_count",
+        "replay_fit_unsampled_age_mean", "replay_fit_sampled_age_mean",
+        "replay_fit_uniform_td_mean", "replay_fit_per_td_mean", "replay_fit_per_selectivity",
+    };
+    using ReplayFitMetrics = std::array<float, kReplayFitMetricKeys.size()>;
+
+    inline std::optional<size_t> ParseReplayFitMetric(const std::string& key)
+    {
+        for (size_t i = 0; i < kReplayFitMetricKeys.size(); ++i) {
+            if (key == kReplayFitMetricKeys[i]) return i;
+        }
+        return std::nullopt;
+    }
 
     inline std::optional<size_t> ParsePolicyChurnMetric(const std::string& key)
     {
@@ -193,12 +211,16 @@ namespace anet::rl::dqn {
 
         // policy churn の 7 scalar を key 順に保持する CPU float32 pack。
         torch::Tensor policy_churn_metrics;
+        std::optional<ReplayFitMetrics> replay_fit_metrics; ///< 測定回だけ生成するCPU結果。
 
     public:
         BatchUpdateResult() = default;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
+            if (const auto metric = ParseReplayFitMetric(key)) {
+                return replay_fit_metrics ? (*replay_fit_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
+            }
             for (size_t i = 0; i < kMunchausenMetricKeys.size(); ++i) {
                 if (key != kMunchausenMetricKeys[i]) continue;
                 if (!munchausen_diagnostics.defined()) return std::numeric_limits<float>::quiet_NaN();
@@ -680,6 +702,29 @@ namespace anet::rl::dqn {
         mutable torch::Tensor quantile_tail_diagnostics_cpu_;
     };
 
+    struct DiagnosticActionEvaluation {
+        int64_t num_taus;
+    };
+
+    struct TargetEvaluation {
+        bool diagnostic = false;
+        std::function<torch::Tensor(int64_t)> current_taus;
+        std::function<torch::Tensor(int64_t)> target_taus;
+    };
+
+    struct ElementErrorRequest {
+        bool td = true;
+        bool loss = true;
+        bool auxiliary = false;
+    };
+
+    struct ElementError {
+        torch::Tensor td; ///< 符号付き期待TD。診断の絶対値化は集約側で行う。
+        torch::Tensor loss;
+        torch::Tensor pair_abs_td;
+        torch::Tensor cancellation_ratio;
+    };
+
     struct RiskScoreSpec {
         float tau;
         bool use_tail_mean;
@@ -693,7 +738,8 @@ namespace anet::rl::dqn {
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceCallback& callback = {}) const = 0;
+            const anet::TraceCallback& callback = {},
+            const DiagnosticActionEvaluation* evaluation = nullptr) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
         virtual std::optional<RiskScoreSpec> GetRiskScoreSpec() const { return std::nullopt; }
 
@@ -735,7 +781,8 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceCallback& callback) const;
+            const anet::TraceCallback& callback,
+            const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -756,7 +803,8 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceCallback& callback) const;
+            const anet::TraceCallback& callback,
+            const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
@@ -767,7 +815,7 @@ namespace anet::rl::dqn {
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback,
-            bool iqn_use_full_range = false) const;
+            bool iqn_use_full_range = false, const DiagnosticActionEvaluation* evaluation = nullptr) const;
         void UpdateTau(step_t step);
     private:
         torch::Tensor MakeUQEValues(float tau, const torch::Tensor& q_quantiles) const;
@@ -784,7 +832,8 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
-            const anet::TraceCallback& callback) const;
+            const anet::TraceCallback& callback,
+            const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -848,7 +897,8 @@ namespace anet::rl::dqn {
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
         void ConfigureScalarMetricSubscriptions(
-            const std::vector<ScalarMetricSubscription>& subscriptions);
+            const std::vector<ScalarMetricSubscription>& subscriptions,
+            anet::RandomGenerator* replay_fit_probe_random = nullptr);
 
         virtual ~Learner() = default;
     public:
@@ -865,6 +915,14 @@ namespace anet::rl::dqn {
     protected:
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
+        TargetEvaluation MakeTargetEvaluation(bool diagnostic);
+        virtual std::pair<torch::Tensor, torch::Tensor> MakeTarget(
+            const ExperienceSamples& samples, const anet::TensorDict& obs,
+            const anet::TensorDict& next_obs, const torch::Tensor& current_all,
+            const TargetEvaluation& evaluation);
+        virtual ElementError ComputeElementError(const torch::Tensor& current,
+            const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
+            const torch::Tensor& current_mean = {}) const;
         NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
         OptimizerStepResult Optimize(const torch::Tensor& loss);
     protected:
@@ -901,6 +959,8 @@ namespace anet::rl::dqn {
         void CapturePolicyChurnOnlineAfter();
         void FinalizePolicyChurn(BatchUpdateResult& result);
         torch::Tensor ForwardPolicyChurnExpectedQ(bool target) const;
+        std::optional<ReplayFitMetrics> CaptureReplayFit(const ExperienceSamples& samples);
+        std::pair<float, float> EvaluateReplayFit(const ExperienceSamples& samples, bool td, bool loss);
     protected:
         const torch::Device device_;
         int num_envs_;
@@ -1004,6 +1064,14 @@ namespace anet::rl::dqn {
             }
         } policy_churn_;
         std::unordered_set<int> policy_churn_warned_intervals_;
+        struct ReplayFitDemandEntry {
+            size_t metric;
+            anet::IntervalGate gate;
+            ReplayFitDemandEntry(size_t metric, int interval)
+                : metric(metric), gate(static_cast<uint64_t>(interval)) {}
+        };
+        std::vector<ReplayFitDemandEntry> replay_fit_demand_;
+        anet::RandomGenerator* replay_fit_probe_random_ = nullptr;
     protected:
         float update_credit_ = 0.0f;
     private:
@@ -1024,20 +1092,30 @@ namespace anet::rl::dqn {
         virtual ~QuantileLearnerBase() = default;
     protected:
         torch::Tensor GatherActionQuantiles(const torch::Tensor& quantiles, const torch::Tensor& actions) const;
-        torch::Tensor SelectTargetActions(const anet::TensorDict& next_obs);
+        torch::Tensor SelectTargetActions(const anet::TensorDict& next_obs,
+            const TargetEvaluation& evaluation);
+        std::pair<torch::Tensor, torch::Tensor> MakeTarget(
+            const ExperienceSamples& samples, const anet::TensorDict& obs,
+            const anet::TensorDict& next_obs, const torch::Tensor& current_all,
+            const TargetEvaluation& evaluation) override;
+        ElementError ComputeElementError(const torch::Tensor& current,
+            const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
+            const torch::Tensor& current_mean = {}) const override;
         torch::Tensor CalcTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const;
         torch::Tensor CalcMunchausenTargetQuantiles(const anet::rl::ExperienceSamples& samples,
             const torch::Tensor& soft_dist, const torch::Tensor& bonus) const;
         std::pair<torch::Tensor, torch::Tensor> MakeMunchausenTarget(
             const anet::rl::ExperienceSamples& samples, const anet::TensorDict& obs,
-            const anet::TensorDict& next_obs, const torch::Tensor& current_dist_all);
+            const anet::TensorDict& next_obs, const torch::Tensor& current_dist_all,
+            const TargetEvaluation& evaluation);
         QuantileMetrics MakeQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const;
         torch::Tensor ComputeQuantileHuberLoss(
         	const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const;
         static torch::Tensor ComputeQuantileHuberLoss(
             const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
         static IqnLossResult ComputeIqnQuantileHuberLoss(
-            const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
+            const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa,
+            bool auxiliary = true);
     };
 
     class TDLearner final : public anet::rl::dqn::Learner {

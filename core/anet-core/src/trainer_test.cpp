@@ -219,6 +219,8 @@ private:
 
 class HintRecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
+    rl::SamplingHistoryProbeResult ProbeSamplingHistory(
+        const rl::SamplingHistoryProbeRequest&, anet::RandomGenerator*) const override { return {}; }
     void Push(const rl::BatchExperience& batch_exp) override
     {
         std::lock_guard<std::mutex> lock(mutex_);

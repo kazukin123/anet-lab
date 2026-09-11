@@ -436,6 +436,18 @@ online 4指標はaction churn率、全状態・行動のabsolute Q差平均、�
 
 baselineは7行ともinterval 503である。hard update intervalを`C`、metrics intervalを`I`としたとき`C / gcd(C, I) == 1`なら、観測位相が`target_sync_age=0`へ固定されるため、intervalごとに1回だけWARNする。位相数2以上とsoft updateは許容し、警告しない。
 
+### 9.6 Replay当てはまり診断
+
+`metrics.scalar.@replay_fit`を明示選択すると、`46_agent_replay_fit`の13指標を既定503 learner updatesごとに観測する。既定のprofileには含めない。各行のIntervalGateで当該更新の要求を合成し、母数だけ、片群だけ、TDだけ、損失だけ、実PERだけの要求を分ける。PER無効時の実PER平均と選択比はNaNで、それらだけの要求では群も評価しない。
+
+測定位置は既存plasticity/policy churn probeの後、`UpdateFromSamples`の前である。両Networkをeval・NoGrad・FP32で評価し、modeを例外時も復元する。学習capture・正規化統計・optimizer・PER更新へ触れない。IQNは固定midpointを使い、hard UQEのtail/point選択はPolicy所有のrisk Stateに従う。Policyの診断指定は内部autocast、補助full query、方策診断も制御する。
+
+target組立は`MakeTarget`、サンプル別誤差は`ComputeElementError`を学習と共有する。IQNのtau生成関数は従来の生成位置で呼び、通常のRNG消費順序を保持する。診断のbatch次元は入力shapeから決める。TDは符号付き残差の絶対値、損失は方式別のIS適用前の値を使い、TD clipはTD系損失だけに適用する。QR/IQNのsum/mean・kappa規約は学習と同じである。
+
+各群の件数は`learner.replay_fit.probe.batch_size=1024`、IQNの固定分位点数は`learner.replay_fit.iqn.num_taus=32`で、どちらも正整数。結果は更新ごとの`BatchUpdateResult`に保存し、未購読・非測定回・件数不足・ゼロ分母はNaN、未知keyだけnulloptを返す。uniform TDは母数加重平均、比は平均同士の比である。空群は加重和へ寄与せず、非空の不足群は全体平均をNaNにする。
+
+学習有効時に解決済みtarget PolicyがThompsonSamplingであれば、購読設定時にfail-fastする。学習無効時は測定しない。採用理由と完全な指標表は[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)と[PRD073](../memo/073_replay_fit_metrics_10prd.md)を参照する。
+
 ## 10. テストと拡張時の確認事項
 
 主なDQN testは[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)と[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)に置く。

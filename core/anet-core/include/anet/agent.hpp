@@ -266,6 +266,15 @@ namespace anet::rl {
                 } iqn;
             } policy_churn;
 
+            struct ReplayFitConfig {
+                struct ProbeConfig {
+                    int batch_size = 1024;
+                } probe;
+                struct IqnConfig {
+                    int num_taus = 32;
+                } iqn;
+            } replay_fit;
+
             bool use_amp = false;
             bool use_amp_bf16 = false;
         };

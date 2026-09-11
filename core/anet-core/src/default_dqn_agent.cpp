@@ -428,7 +428,29 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
     const std::vector<ScalarMetricSubscription>& subscriptions)
 {
     std::unique_lock<std::shared_mutex> lock(*mutex_);
-    learner_->ConfigureScalarMetricSubscriptions(subscriptions);
+    // 購読内容からResourceの必要性を決め、母数・実PERのみの購読では専用RNGを作らない。
+    bool needs_sampling = false;
+    bool replay_fit_enabled = false;
+    if (config_.learner.enabled) {
+        for (const auto& subscription : subscriptions) {
+            if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN
+                || subscription.target != EventField::UPDATE_RESULT) continue;
+            const auto metric = dqn::ParseReplayFitMetric(subscription.source_key);
+            if (!metric) continue;
+            replay_fit_enabled = true;
+            needs_sampling |= *metric <= 5 || *metric == 10 || (*metric == 12 && config_.learner.use_per);
+        }
+    }
+    if (replay_fit_enabled && (config_.target_policy.policy_type == "ThompsonSampling"
+        || config_.target_policy.policy_type == "2")) {
+        ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; target_policy.policy_type="
+            << config_.target_policy.policy_type << " expected Greedy, EpsilonGreedy, or UQE.");
+    }
+    if (needs_sampling && !replay_fit_probe_random_) {
+        anet::SeedMaker seed_maker(GetSeed());
+        replay_fit_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("replay_fit_probe"));
+    }
+    learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const

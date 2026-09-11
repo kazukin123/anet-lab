@@ -248,6 +248,16 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
             ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);
             ANET_READ_CONFIG(config_data, learner.policy_churn.iqn.num_taus);
+            ANET_READ_CONFIG(config_data, learner.replay_fit.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.replay_fit.iqn.num_taus);
+            if (learner.replay_fit.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.replay_fit.probe.batch_size: value="
+                    << learner.replay_fit.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.replay_fit.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.replay_fit.iqn.num_taus: value="
+                    << learner.replay_fit.iqn.num_taus << " expected integer >= 1");
+            }
             if (learner.plasticity.probe.batch_size < 1) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.plasticity.probe.batch_size: value="
                     << learner.plasticity.probe.batch_size << " expected integer >= 1");
@@ -439,6 +449,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource
         std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
+        std::shared_ptr<anet::RandomGenerator> replay_fit_probe_random_; ///< 群抽出メトリクス購読時だけ作るResource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     private:
         seed_t action_context_seed_;

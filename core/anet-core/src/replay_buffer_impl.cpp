@@ -1567,6 +1567,85 @@ bool DefaultReplayBuffer::SampleUniqueUniform(
     return true;
 }
 
+SamplingHistoryProbeResult DefaultReplayBuffer::ProbeSamplingHistory(
+    const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const
+{
+    ANET_PROFILE_FUNC();
+    SamplingHistoryProbeResult result;
+    for (const auto& [name, size] : {
+        std::pair{ "unsampled_batch_size", request.unsampled_batch_size },
+        std::pair{ "sampled_batch_size", request.sampled_batch_size } }) {
+        if (size && *size < 1) {
+            ANET_SYSTEM_ERROR("ProbeSamplingHistory " << name << "=" << *size << " expected integer >= 1.");
+        }
+    }
+    const bool extract = request.unsampled_batch_size.has_value() || request.sampled_batch_size.has_value();
+    if (extract && random == nullptr) {
+        ANET_SYSTEM_ERROR("ProbeSamplingHistory requires a non-null random generator when requesting a batch.");
+    }
+    if (!request.counts && !extract) return result;
+
+    // 通常Sampleと同じ排他順で履歴とwrite cursorを固定し、sampleableな群だけ集計する。
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
+    std::unique_lock<std::mutex> metadata_lock(metadata_mutex_);
+    double unsampled_age_sum = 0.0;
+    double sampled_age_sum = 0.0;
+    std::vector<int64_t> unsampled_indices;
+    std::vector<int64_t> sampled_indices;
+    ANET_PROFILE_SCOPE(scan);
+    for (int64_t env = 0; env < num_envs_; ++env) {
+        const auto cursor = index_manager_->GetWriteCursor(env);
+        index_manager_->ForEachSampleableIndex(env, config_.stack_count, config_.muzero.unroll_steps,
+            config_.n_step, [&](int64_t slot) {
+                const bool sampled = sampled_once_[static_cast<size_t>(slot)] != 0;
+                if (request.counts) {
+                    const auto physical = slot % capacity_per_env_;
+                    const auto age = 1 + (cursor - 1 - physical) % capacity_per_env_;
+                    if (sampled) {
+                        ++result.sampled_count;
+                        sampled_age_sum += static_cast<double>(age);
+                    } else {
+                        ++result.unsampled_count;
+                        unsampled_age_sum += static_cast<double>(age);
+                    }
+                }
+                if (sampled && request.sampled_batch_size) sampled_indices.push_back(slot);
+                if (!sampled && request.unsampled_batch_size) unsampled_indices.push_back(slot);
+            });
+    }
+    if (result.unsampled_count > 0) result.unsampled_age_mean = static_cast<float>(unsampled_age_sum / result.unsampled_count);
+    if (result.sampled_count > 0) result.sampled_age_mean = static_cast<float>(sampled_age_sum / result.sampled_count);
+    if (!extract) return result;
+
+    // 必要な群だけ同じmetadata snapshotで抽選し、不足群は他群やRNGへ影響させない。
+    ANET_PROFILE_SCOPE_NEXT(sample);
+    const auto select = [&](const std::vector<int64_t>& indices, std::optional<int64_t> size)
+        -> std::optional<IndexSampleResult> {
+        if (!size || static_cast<int64_t>(indices.size()) < *size) return std::nullopt;
+        UniqueUniformSampler sampler(*random);
+        return sampler.SampleIndices(*size, torch::tensor(indices, torch::kInt64), 0.0f);
+    };
+    const auto unsampled = select(unsampled_indices, request.unsampled_batch_size);
+    const auto sampled = select(sampled_indices, request.sampled_batch_size);
+    metadata_lock.unlock();
+
+    // storage共有lockを保ち、frame stack/n-stepと世代keyを同じitemから復元する。
+    ANET_PROFILE_SCOPE_NEXT(extract);
+    const auto extract_samples = [&](const IndexSampleResult& indices) {
+        ExperienceSamples samples;
+        extractor_->ExtractSamples(samples, *storage_, indices, config_.stack_count, config_.muzero.unroll_steps);
+        const auto flat = indices.flat_slot_indices.contiguous();
+        const auto slots = flat.accessor<int64_t, 1>();
+        std::vector<int64_t> keys(static_cast<size_t>(flat.numel()));
+        for (int64_t i = 0; i < flat.numel(); ++i) keys[static_cast<size_t>(i)] = EncodeReplayItemKey(slots[i]);
+        samples.replay_item_keys = torch::tensor(keys, torch::kInt64);
+        return samples;
+    };
+    if (unsampled) result.unsampled = extract_samples(*unsampled);
+    if (sampled) result.sampled = extract_samples(*sampled);
+    return result;
+}
+
 int64_t DefaultReplayBuffer::Size() const
 {
     ANET_PROFILE_FUNC();
@@ -2122,6 +2201,17 @@ bool PrefetchingReplayBuffer::SampleUniqueUniform(
     state_->WaitForPrefetchLocked();
     state_->WaitForQueuedPushesLocked();
     return inner_->SampleUniqueUniform(out_samples, batch_size, random);
+}
+
+SamplingHistoryProbeResult PrefetchingReplayBuffer::ProbeSamplingHistory(
+    const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const
+{
+    ANET_PROFILE_FUNC();
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    // 通常prefetchを消費せず、呼び出し時点までのPushと抽選履歴を確定する。
+    state_->WaitForPrefetchLocked();
+    state_->WaitForQueuedPushesLocked();
+    return inner_->ProbeSamplingHistory(request, random);
 }
 
 int64_t PrefetchingReplayBuffer::Size() const

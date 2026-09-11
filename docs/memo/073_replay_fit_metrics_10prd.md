@@ -2,7 +2,8 @@
 
 起点: 2026-09-09。仕様合意: 2026-09-10。最終グリル: 2026-09-10（決定 D1〜D7 を本文へ反映。理由と棄却案は [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)）。
 本書は DefaultDQN 共通の任意診断である `replay_fit` の実装契約を定める。
-今回の承認範囲は本書、`CONTEXT.md`、ADR 0039 の文書更新までであり、コード・設定の実装、ビルド、実験は後続とする。
+2026-09-10 に実装へ進む承認を受けた。実装・検証の正本は[実装メモ](073_replay_fit_metrics_20impl.md)とし、target生成関数の命名は `MakeTarget` に確定した。
+同日に実装と機能・非干渉の検証を完了した。性能は別Runとの並行稼働条件で数値基準を満たした。測定条件と証跡は実装メモに記録する。
 測定対象は厳密な held-out 集合ではなく、既存の抽選履歴で分けた群である。
 
 ## 1. 背景とゴール
@@ -285,10 +286,12 @@ pure virtual として追加し、`DefaultReplayBuffer`、`PrefetchingReplayBuff
 
 target 組立とサンプル別誤差の計算を、learner（TD / QR / IQN）ごとの 2 関数へ抽出し、**学習経路と測定経路の両方が同じ関数を呼ぶ**。
 
-- `BuildTarget`: NoGrad の target 組立。入力は samples（target return・実 n-step・terminal・action）、正規化済み obs / next_obs、
-  Munchausen 用の detach 済み current 出力、IQN では target taus。target 行動選択（Greedy / UQE、Double DQN の network 選択）、
+- `MakeTarget`: NoGrad の target 組立。入力は samples（target return・実 n-step・terminal・action）、正規化済み obs / next_obs、
+  Munchausen 用の detach 済み current 出力、IQN では taus の生成関数。target 行動選択（Greedy / UQE、Double DQN の network 選択）、
   Munchausen の 3 mode、TBO の実空間化と再変換、n-step 割引と terminal mask を現行式のまま内包する。
-  IQN の taus と Munchausen 用 current 出力は呼び出し側が渡す。学習側は現在と同じ位置・順序で RNG を消費して taus を生成し、診断側は固定 midpoint を渡す。
+  IQN の taus は呼び出し側が渡す生成関数を、従来の生成位置で呼ぶ。学習側は現在と同じ位置・順序で RNG を消費し、診断側は固定 midpoint を返す。
+  これにより hard target の行動選択後の target taus 生成と、Munchausen `online` の target forward 後の fresh current taus 生成を前倒ししない。
+  Munchausen 用の detach 済み current 出力は呼び出し側から渡す。`Build` は Builder パターン用の命名と区別するため使わない。
   hard IQN UQE の target 行動選択は §4.1 の risk taus 注入で行う。
 - `ComputeElementError`: current 出力と target からサンプル別の `abs_td`（§4.2 の `d(x)`）と `element_loss`（同 `l(x)`、IS 重み適用前）を返す純粋関数。
   既存の `ComputeQuantileHuberLoss` / `ComputeIqnQuantileHuberLoss` / Smooth L1 をこの中で使う。
@@ -409,7 +412,7 @@ RR1 / RR2 / RR4 / RR4 + DropPath の長期比較と、件数・分位点数を�
 | 成功の測定可能性 | keep / defer-behind-gate | 数式・抽出・非干渉・配線・5%上限を実装受入とする。実データ上の比較精度の較正は計器完成後の実験に置く |
 | 一部 OFF 時の処理 | shrink | 出力ごとの依存で必要群・誤差計算を絞る。常時の母数カウンタ、不要群の抽出、不要な全ペア損失計算、未購読時の専用資源を残さない |
 | 群の平均年齢（グリル D1） | add | 群の構成記述子。母数と同じ走査内の加算だけで、forward・抽出・RNG は増えない。腕をまたぐ比の差に若さの違いが伴うかを追える |
-| target 組立の共有（グリル D2 / D3） | keep | learner ごとの `BuildTarget` / `ComputeElementError` を学習経路も呼ぶ。式の正本を 1 箇所にし、同 seed 等価性ゲートで学習側不変を担保する。hard IQN UQE は risk taus 注入で policy 実装を使う |
+| target 組立の共有（グリル D2 / D3） | keep | learner ごとの `MakeTarget` / `ComputeElementError` を学習経路も呼ぶ。式の正本を 1 箇所にし、同 seed 等価性ゲートで学習側不変を担保する。hard IQN UQE は risk taus 注入で policy 実装を使う |
 | chunk 分割の固定（グリル D4） | cut | 共有関数を batch 次元非依存にすれば不要。契約は件数維持と全件平均だけにする |
 
 厳密 held-out は、この観測だけでは必要な因果の切り分けができないと判明した場合に別の実験設計として再検討する。

@@ -10,6 +10,8 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <cstdlib>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <shared_mutex>
@@ -74,7 +76,11 @@ private:
 
 class SoftIdentity final : public nn::NetworkModule {
 public:
+    explicit SoftIdentity(bool stateful = false) {
+        if (stateful) norm_ = register_module("norm", torch::nn::BatchNorm1d(2));
+    }
     torch::Tensor Forward(torch::Tensor input) override {
+        if (norm_) return nn::DropPath(norm_->forward(input), 0.25, is_training());
         // NetworkがheadのAMPを切る前のbody境界で、CUDA BF16が実際に有効なことを確認する。
         if (input.is_cuda()) {
             CHECK(at::autocast::is_autocast_enabled(at::kCUDA));
@@ -82,10 +88,12 @@ public:
         }
         return input;
     }
+private:
+    torch::nn::BatchNorm1d norm_{ nullptr };
 };
 
 std::shared_ptr<nn::Network> MakeSoftOracleNetwork(const std::string& mode, float scale, bool tbo,
-    const std::shared_ptr<std::vector<SoftForward>>& records, torch::Device device)
+    const std::shared_ptr<std::vector<SoftForward>>& records, torch::Device device, bool stateful = false)
 {
     TensorSpecMap specs{ { ObsKeys::kVector, TensorSpec{ .type = SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 } } };
     nn::NetworkConfig config;
@@ -94,7 +102,7 @@ std::shared_ptr<nn::Network> MakeSoftOracleNetwork(const std::string& mode, floa
         specs[nn::kKey_Taus] = TensorSpec{ .shape = { 4 }, .dtype = torch::kFloat32 };
         config.output_keys[nn::kKey_Taus] = nn::kKey_Taus;
     }
-    auto block = std::make_shared<nn::NetworkBlock>("identity", std::make_shared<SoftIdentity>());
+    auto block = std::make_shared<nn::NetworkBlock>("identity", std::make_shared<SoftIdentity>(stateful));
     auto structure = std::make_shared<nn::NetworkStruct>(std::vector<std::shared_ptr<nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<nn::NetworkBranch>("feature",
         std::vector<std::vector<std::string>>{ { ObsKeys::kVector } }, 1, structure);
@@ -111,9 +119,9 @@ class SoftOracleModel final : public NetworkModel {
 public:
     SoftOracleModel(const std::string& mode, bool tbo, torch::Device device,
         const std::shared_ptr<std::vector<SoftForward>>& online,
-        const std::shared_ptr<std::vector<SoftForward>>& target)
-        : NetworkModel(NetworkModelConfig{}, MakeSoftOracleNetwork(mode, 1.0f, tbo, online, device),
-            MakeSoftOracleNetwork(mode, 2.0f, tbo, target, device), 2, mode != "none") {}
+        const std::shared_ptr<std::vector<SoftForward>>& target, bool stateful = false)
+        : NetworkModel(NetworkModelConfig{}, MakeSoftOracleNetwork(mode, 1.0f, tbo, online, device, stateful),
+            MakeSoftOracleNetwork(mode, 2.0f, tbo, target, device, stateful), 2, mode != "none") {}
 };
 
 // hard選択そのものを検証するため、既存protected境界だけをtest側で公開する。
@@ -121,6 +129,7 @@ class SoftHardSelector final : public QuantileLearnerBase {
 public:
     using QuantileLearnerBase::QuantileLearnerBase;
     using QuantileLearnerBase::SelectTargetActions;
+    using QuantileLearnerBase::MakeTargetEvaluation;
     std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(const ExperienceSamples&) override { return {}; }
 };
 
@@ -166,7 +175,7 @@ std::array<double, 2> OracleLogPolicy(const std::array<double, 2>& scores, doubl
 
 } // namespace
 
-TEST_CASE("Atari Munchausen profile resolves algorithm settings and all diagnostics", "[dqn][munchausen][munchausen_profile]")
+TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diagnostics", "[dqn][munchausen][munchausen_profile]")
 {
     const std::string mode = GENERATE("target", "online", "online_reuse");
     const bool risk = GENERATE(false, true);
@@ -193,9 +202,10 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and all diagnost
     CHECK(config.use_optimistic_target == risk);
     CHECK(config.target_policy.policy_type == (risk ? "UQE" : "Greedy"));
     for (const auto* suffix : { "01_scaled_logp_mean", "02_scaled_logp_mean_ema", "03_clip_ratio", "04_bonus_mean",
-        "05_bonus_mean_ema", "06_next_entropy", "07_soft_gap" }) {
+        "05_bonus_mean_ema", "06_next_entropy" }) {
         CHECK_FALSE(data.Get(std::string("metrics.scalar.[36_agent_munchausen/") + suffix + "]").empty());
     }
+    CHECK(data.Get("metrics.scalar.[36_agent_munchausen/07_soft_gap]").empty());
     // 解決後ConfigDataは材料キーを公開しないため、従来Runの実効設定からOFFを検証する。
     options.injected_config.Set("run.$", "run.@v5_iqn_impala_x2");
     const ConfigManager baseline_manager((config_dir / "_main.txt").string(), nullptr, options);
@@ -400,7 +410,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         if (kind == "qr" && risk_mode == 1 && scenario == 2) {
             SoftHardSelector selector(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
                 device, 67010, policy, std::nullopt, 67011);
-            hard_actions = selector.SelectTargetActions(SoftSamples(device).next_state.next_obs);
+            hard_actions = selector.SelectTargetActions(SoftSamples(device).next_state.next_obs, selector.MakeTargetEvaluation(false));
         }
         double expected_loss = 0.0;
         std::array<double, 5> expected_diagnostics{};
@@ -617,4 +627,308 @@ TEST_CASE("Munchausen clip ratio counts strictly below the lower boundary", "[dq
     const auto terms = MakeMunchausenTargetTerms(scores, scores, scores, actions, config);
     CHECK(torch::allclose(terms.bonus, torch::tensor({ -1.8f, -1.8f, 0.0f })));
     CHECK(terms.diagnostics[1].item<float>() == Catch::Approx(1.0 / 3.0));
+}
+
+
+TEST_CASE("Replay fit TD and quantile losses match independent fixed-distribution oracles", "[dqn][replay_fit][oracle]")
+{
+    const std::string kind = GENERATE("none", "qr", "iqn");
+    const bool double_dqn = GENERATE(false, true);
+    CAPTURE(kind, double_dqn);
+    auto online = std::make_shared<std::vector<SoftForward>>();
+    auto target = std::make_shared<std::vector<SoftForward>>();
+    SoftOracleModel model(kind, false, torch::kCPU, online, target);
+    RuntimeVars vars;
+    LearnerConfig config;
+    config.quantile_mode = kind;
+    config.num_quantiles = 3;
+    config.iqn.current_taus.num_taus = 4;
+    config.iqn.target_taus.num_taus = 3;
+    config.replay_fit.iqn.num_taus = 5;
+    config.replay_fit.probe.batch_size = 1;
+    config.replay_capacity = 32;
+    config.replay_batch_size = 2;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.update_warmup_steps = 6;
+    config.use_per = false;
+    config.use_n_step = false;
+    config.use_td_clip = false;
+    config.use_double_dqn = double_dqn;
+    config.gamma = 0.9f;
+    config.quantile_huber_kappa = 2.0f;
+    ActionPolicyConfig policy_config;
+    policy_config.quantile_mode = kind;
+    auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
+    std::shared_ptr<const anet::rl::BatchUpdateResult> measured;
+    const auto run = [&]<typename ConcreteLearner>() {
+        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+            torch::kCPU, 73041, policy, std::nullopt, 73042);
+        RandomGenerator random(73043);
+        std::vector<ScalarMetricSubscription> subscriptions;
+        for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
+            .source_key = key, .event = EventType::LEARN, .target = EventField::UPDATE_RESULT,
+            .interval = 1, .scope = RunnerScope::TRAIN });
+        learner.ConfigureScalarMetricSubscriptions(subscriptions, &random);
+        const auto flags = torch::zeros({ 2 }, torch::kBool);
+        const TensorDict obs{ { ObsKeys::kVector, torch::tensor({ { 1.0f, 3.0f }, { 1.0f, 3.0f } }) } };
+        const BatchExperience experience(BatchState(obs, flags, flags, flags),
+            std::make_shared<BatchActionInfo>(torch::zeros({ 2 }, torch::kInt64)),
+            torch::full({ 2 }, 0.1f), BatchState(obs, flags, flags, flags));
+        for (step_t step = 0; step <= 3; ++step) {
+            const auto results = learner.UpdateFromBatch(StepCounts{ .exp_step = 2 * step }, experience);
+            if (!results.empty()) measured = results.front();
+        }
+    };
+    if (kind == "none") run.operator()<TDLearner>();
+    else if (kind == "qr") run.operator()<QRLearner>();
+    else run.operator()<IQNLearner>();
+    REQUIRE(measured);
+    // IQNのonline平均は同点なのでDouble DQNはaction 0を選ぶ。他はaction 1。
+    // 実装helperを使わず全ペアをdoubleで積算する。
+    const std::vector<double> taus = kind == "qr" ? std::vector<double>{ 0.9, 0.1, 0.4 }
+        : std::vector<double>{ 0.1, 0.3, 0.5, 0.7, 0.9 };
+    double td = 4.5, loss = 4.0;
+    if (kind != "none") {
+        const auto next_value = [&](double tau) {
+            return kind == "iqn" && double_dqn ? 2.0 + 6.0 * tau : 8.0 - 2.0 * tau;
+        };
+        double current_mean = 0.0, target_mean = 0.0;
+        loss = 0.0;
+        for (size_t i = 0; i < taus.size(); ++i) {
+            const double current = 1.0 + 6.0 * taus[i];
+            current_mean += current / taus.size();
+            target_mean += (0.1 + 0.9 * next_value(taus[i])) / taus.size();
+            const double weight_tau = kind == "qr" ? (i + 0.5) / taus.size() : taus[i];
+            for (const double tau : taus) {
+                const double delta = 0.1 + 0.9 * next_value(tau) - current;
+                const double absolute = std::abs(delta);
+                const double huber = absolute < 2.0 ? 0.5 * delta * delta : 2.0 * (absolute - 1.0);
+                loss += std::abs(weight_tau - (delta < 0.0 ? 1.0 : 0.0)) * huber / taus.size()
+                    / (kind == "iqn" ? 2.0 : 1.0);
+            }
+        }
+        td = std::abs(current_mean - target_mean);
+    }
+    for (const auto* key : { "replay_fit_unsampled_td_mean", "replay_fit_sampled_td_mean", "replay_fit_uniform_td_mean" })
+        CHECK(*measured->GetScalar(key) == Catch::Approx(td).margin(1e-5));
+    for (const auto* key : { "replay_fit_unsampled_loss_mean", "replay_fit_sampled_loss_mean" })
+        CHECK(*measured->GetScalar(key) == Catch::Approx(loss).margin(1e-5));
+    CHECK(*measured->GetScalar("replay_fit_unsampled_td_ratio") == Catch::Approx(1.0));
+    CHECK(*measured->GetScalar("replay_fit_unsampled_loss_ratio") == Catch::Approx(1.0));
+}
+
+TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distributions", "[dqn][replay_fit][noninterference]")
+{
+    const std::string kind = GENERATE("none", "qr", "iqn");
+    const std::string mode = GENERATE("off", "target", "online", "online_reuse");
+    const bool tbo = GENERATE(false, true);
+    const bool risk = GENERATE(false, true);
+    if (kind == "none" && risk) return;
+    CAPTURE(kind, mode, tbo, risk);
+    std::vector<torch::Tensor> reference;
+    for (const bool enabled : { false, true }) {
+        torch::manual_seed(73011);
+        auto online = std::make_shared<std::vector<SoftForward>>();
+        auto target = std::make_shared<std::vector<SoftForward>>();
+        SoftOracleModel model(kind, tbo, torch::kCPU, online, target, true);
+        RuntimeVars vars;
+        LearnerConfig config;
+        config.quantile_mode = kind;
+        config.num_quantiles = 3;
+        config.iqn.current_taus.num_taus = 4;
+        config.iqn.target_taus.num_taus = 3;
+        config.replay_fit.iqn.num_taus = 5;
+        config.replay_fit.probe.batch_size = 1;
+        config.replay_capacity = 32;
+        config.replay_batch_size = 2;
+        config.update_interval = 1;
+        config.replay_ratio = -1.0f;
+        config.update_warmup_steps = 8;
+        config.use_per = true;
+        config.use_tbo = tbo;
+        config.munchausen.enabled = mode != "off";
+        config.munchausen.log_policy_mode = mode == "off" ? "target" : mode;
+        config.use_double_dqn = mode == "off";
+        ActionPolicyConfig policy_config;
+        policy_config.quantile_mode = kind;
+        policy_config.use_amp = true;
+        policy_config.use_amp_bf16 = true;
+        policy_config.uqe_tau_start = policy_config.uqe_tau_end = 0.65f;
+        policy_config.tau_rule.num_taus = 4;
+        policy_config.full_distribution_query.enabled = true;
+        policy_config.full_distribution_query.tau_rule.num_taus = 3;
+        std::shared_ptr<ActionPolicy> policy = risk
+            ? std::shared_ptr<ActionPolicy>(std::make_shared<UQEActionPolicy>(policy_config))
+            : std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config));
+        std::vector<torch::Tensor> observed;
+        const auto keep = [&](const torch::Tensor& value) { observed.push_back(value.detach().clone()); };
+        const auto run = [&]<typename ConcreteLearner>() {
+            ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+                torch::kCPU, 73012, policy, std::nullopt, 73013);
+            RandomGenerator random(73014);
+            std::vector<ScalarMetricSubscription> subscriptions;
+            if (enabled) for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
+                .source_key = key, .event = EventType::LEARN, .target = EventField::UPDATE_RESULT,
+                .interval = 1, .scope = RunnerScope::TRAIN });
+            learner.ConfigureScalarMetricSubscriptions(subscriptions, &random);
+            const auto samples = SoftSamples(torch::kCPU);
+            const auto flags = torch::zeros({ 2 }, torch::kBool);
+            for (step_t step = 0; step < 9; ++step) {
+                online->clear();
+                target->clear();
+                const auto results = learner.UpdateFromBatch(StepCounts{ .exp_step = 2 * step },
+                    BatchExperience(BatchState(samples.obs, flags, flags, flags),
+                        std::make_shared<BatchActionInfo>(samples.actions), samples.target_returns,
+                        BatchState(samples.obs, flags, flags, flags)));
+                for (const auto& base : results) {
+                    const auto result = std::dynamic_pointer_cast<const anet::rl::dqn::BatchUpdateResult>(base);
+                    REQUIRE(result);
+                    keep(result->td_error);
+                    keep(result->loss);
+                    keep(result->per_priorities);
+                    for (const auto& network : { model.GetOnlineNetwork(), model.GetTargetNetwork() }) {
+                        CHECK_FALSE(network->is_training());
+                        for (const auto& tensor : network->parameters()) keep(tensor);
+                        for (const auto& tensor : network->buffers()) keep(tensor);
+                    }
+                    if (enabled) {
+                        CHECK(std::isfinite(*result->GetScalar("replay_fit_sampled_td_mean")));
+                        CHECK(std::isfinite(*result->GetScalar("replay_fit_sampled_loss_mean")));
+                        if (kind == "iqn") {
+                            // 診断currentはK=5の全範囲midpointを使い、trainのN=4と区別できる。
+                            REQUIRE(online->front().taus.size(1) == 5);
+                            CHECK_FALSE(online->front().training);
+                            CHECK_FALSE(online->front().grad_enabled);
+                            CHECK(torch::allclose(online->front().taus[0], torch::tensor({ 0.1f, 0.3f, 0.5f, 0.7f, 0.9f })));
+                        }
+                    }
+                }
+                keep(learner.GetRandomGenerator()->GetTorchGenerator(torch::kCPU).get_state());
+            }
+        };
+        if (kind == "none") run.operator()<TDLearner>();
+        else if (kind == "qr") run.operator()<QRLearner>();
+        else run.operator()<IQNLearner>();
+        if (!enabled) reference = std::move(observed);
+        else {
+            REQUIRE(observed.size() == reference.size());
+            for (size_t i = 0; i < observed.size(); ++i) {
+                CAPTURE(i);
+                CHECK(torch::equal(observed[i], reference[i]));
+            }
+        }
+    }
+}
+
+TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dqn][replay_fit_baseline]")
+{
+    // 明示指定された検証出力先へ、公開結果とnetwork境界のTensorを損失なく保存する。
+    const char* output_dir = std::getenv("ANET_PRD073_BASELINE_DIR");
+    if (output_dir == nullptr) return;
+    std::filesystem::create_directories(output_dir);
+    const std::string kind = GENERATE("none", "qr", "iqn");
+    const std::string mode = GENERATE("off", "target", "online", "online_reuse");
+    const bool tbo = GENERATE(false, true);
+    const bool per = GENERATE(false, true);
+    const bool risk = GENERATE(false, true);
+    if (kind == "none" && risk) return;
+    CAPTURE(kind, mode, tbo, per, risk);
+    const auto name = kind + "_" + mode + "_" + std::to_string(tbo) + "_" + std::to_string(per) + "_" + std::to_string(risk);
+    std::ofstream output(std::filesystem::path(output_dir) / (name + ".bin"), std::ios::binary);
+    REQUIRE(output.good());
+    const auto write_tensor = [&](const torch::Tensor& tensor) {
+        const int64_t rank = tensor.defined() ? tensor.dim() : -1;
+        output.write(reinterpret_cast<const char*>(&rank), sizeof(rank));
+        if (rank < 0) return;
+        const auto cpu = tensor.detach().to(torch::kCPU).contiguous();
+        const auto dtype = static_cast<int>(cpu.scalar_type());
+        output.write(reinterpret_cast<const char*>(&dtype), sizeof(dtype));
+        for (const int64_t size : cpu.sizes()) output.write(reinterpret_cast<const char*>(&size), sizeof(size));
+        output.write(reinterpret_cast<const char*>(cpu.const_data_ptr()), static_cast<std::streamsize>(cpu.nbytes()));
+    };
+
+    // 方式・target・PER・TBOごとに独立seedから同じ更新系列を作る。
+    const torch::Device device(torch::kCPU);
+    LearnerConfig config;
+    config.quantile_mode = kind;
+    config.num_quantiles = 3;
+    config.iqn.current_taus.num_taus = 4;
+    config.iqn.target_taus.num_taus = 3;
+    config.iqn.current_taus.sample_mode = "random";
+    config.iqn.target_taus.sample_mode = "random";
+    config.munchausen.enabled = mode != "off";
+    config.munchausen.log_policy_mode = mode == "off" ? "target" : mode;
+    config.use_double_dqn = mode == "off";
+    config.use_tbo = tbo;
+    config.use_amp = false;
+    config.use_td_clip = true;
+    config.td_clip_value = 1.0f;
+    config.use_per = per;
+    config.replay_capacity = 8;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 1000;
+    config.gamma = 0.9f;
+    auto online = std::make_shared<std::vector<SoftForward>>();
+    auto target = std::make_shared<std::vector<SoftForward>>();
+    SoftOracleModel model(kind, tbo, device, online, target);
+    RuntimeVars vars;
+    ActionPolicyConfig policy_config;
+    policy_config.quantile_mode = kind;
+    policy_config.eps_start = policy_config.eps_end = 0.0f;
+    policy_config.uqe_tau_start = policy_config.uqe_tau_end = 0.65f;
+    policy_config.uqe_use_tail_mean = true;
+    policy_config.tau_rule.num_taus = 5;
+    policy_config.tau_rule.sample_mode = "random";
+    std::shared_ptr<ActionPolicy> policy = risk
+        ? std::shared_ptr<ActionPolicy>(std::make_shared<UQEActionPolicy>(policy_config))
+        : std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config));
+    const auto run = [&]<typename ConcreteLearner>() {
+        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+            device, 73001, policy, std::nullopt, 73002);
+        // PER更新の対象slotを公開収集経路から用意し、実在する第1世代keyを使用する。
+        const auto initial = SoftSamples(device);
+        const auto flags = torch::zeros({ 2 }, torch::kBool);
+        for (step_t step = 0; step < 3; ++step) {
+            learner.UpdateFromBatch(StepCounts{ .exp_step = step }, BatchExperience(
+                BatchState(initial.obs, flags, flags, flags),
+                std::make_shared<BatchActionInfo>(initial.actions), initial.target_returns,
+                BatchState(initial.next_state.next_obs, flags, flags, flags)));
+        }
+        online->clear();
+        target->clear();
+        for (int step = 0; step < 4; ++step) {
+            auto samples = SoftSamples(device);
+            samples.is_weights = torch::tensor({ 0.25f, 1.0f });
+            samples.replay_item_keys = torch::tensor({ 8, 12 }, torch::kInt64);
+            const auto result = learner.UpdateFromSamples(samples);
+            write_tensor(result->td_error);
+            write_tensor(result->munchausen_diagnostics);
+            for (const char* key : { "loss", "td_mean", "td_std", "q_mean", "q_std" }) {
+                const auto scalar = result->GetScalar(key);
+                write_tensor(scalar ? torch::tensor(*scalar) : torch::Tensor());
+            }
+            for (const auto& value : model.GetOnlineNetwork()->parameters()) write_tensor(value);
+            for (const auto& value : model.GetTargetNetwork()->parameters()) write_tensor(value);
+            for (const auto& value : model.GetOnlineNetwork()->buffers()) write_tensor(value);
+            for (const auto& value : model.GetTargetNetwork()->buffers()) write_tensor(value);
+        }
+        write_tensor(learner.GetRandomGenerator()->GetTorchGenerator(device).get_state());
+        // taus の配置も含めてforward順序、値、mode、勾配有効状態を記録する。
+        for (const auto& records : { online, target }) {
+            const int64_t count = static_cast<int64_t>(records->size());
+            output.write(reinterpret_cast<const char*>(&count), sizeof(count));
+            for (const auto& record : *records) {
+                output.put(record.training ? 1 : 0);
+                output.put(record.grad_enabled ? 1 : 0);
+                write_tensor(record.values);
+                write_tensor(record.taus);
+                write_tensor(record.features);
+            }
+        }
+    };
+    if (kind == "none") run.operator()<TDLearner>();
+    else if (kind == "qr") run.operator()<QRLearner>();
+    else run.operator()<IQNLearner>();
+    REQUIRE(output.good());
 }

@@ -302,3 +302,18 @@ metrics.scalar.@munchausen.[36_agent_munchausen/06_next_entropy] = munchausen_ne
 # ただし D15(use_optimistic_target=true) の risk-biased スコアでは 07 だけが負を取りうる唯一の
 # 指標なので、楽観ターゲットの腕を引くときは戻すこと。
 #metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_gap @learn $update_result
+
+# Replay の未抽選群・抽選済み群を、更新直前の同一条件で評価する。明示選択時だけ有効。
+metrics.scalar.@replay_fit.[46_agent_replay_fit/01_unsampled_td_mean] = replay_fit_unsampled_td_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/02_sampled_td_mean] = replay_fit_sampled_td_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/03_unsampled_td_ratio] = replay_fit_unsampled_td_ratio @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/11_unsampled_loss_mean] = replay_fit_unsampled_loss_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/12_sampled_loss_mean] = replay_fit_sampled_loss_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/13_unsampled_loss_ratio] = replay_fit_unsampled_loss_ratio @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/21_unsampled_count] = replay_fit_unsampled_count @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/22_sampled_count] = replay_fit_sampled_count @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/23_unsampled_age_mean] = replay_fit_unsampled_age_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/24_sampled_age_mean] = replay_fit_sampled_age_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/31_uniform_td_mean] = replay_fit_uniform_td_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/32_per_td_mean] = replay_fit_per_td_mean @learn $learn_step $update_result interval:503
+metrics.scalar.@replay_fit.[46_agent_replay_fit/33_per_selectivity] = replay_fit_per_selectivity @learn $learn_step $update_result interval:503

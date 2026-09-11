@@ -316,6 +316,16 @@ DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`か�
 
 `PrefetchingReplayBuffer`は呼出時までに受理したPushとin-flight prefetchをFIFO順でsettleしてからinnerへ委譲するが、通常prefetched batchは消費・並べ替えない。このためprobeの有無で通常sample列を変えない。
 
+### 7.8 抽選履歴別のprobe
+
+`ProbeSamplingHistory(request, random)`は同じstorage/metadata snapshotのsampleable集合を、既存の`sampled_once_`で未抽選群Uと抽選済み群Sに分ける。通常Sample（prefetch済みを含む）でSへ移り、ringへのPushで新世代に置換されるとUへ戻る。dummyやhistory marginは候補に含めない。
+
+`counts`は両群の母数と平均年齢を返す。年齢はlaneのwrite cursorと保持中のlogical indexとの差で、単位はそのlaneへのPush回数である。空群の平均年齢はNaN。母数だけなら候補Tensor・抽選RNG・経験バッチを作らない。
+
+`unsampled_batch_size`と`sampled_batch_size`は独立した任意の抽出要求で、要求された群の候補だけを保持し、一様・非復元抽出する。件数は正整数、抽出時のcaller RNGは必須。不足群はnulloptとし、他群の結果を失効させない。IS weightは1で、既存extractorによりframe stack・n-step・generation-aware keyを復元する。通常sample系列、抽選履歴、PER priorityを変更しない。
+
+Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとprefetchをsettleしてから委譲する。次回の通常batchは保持する。DefaultDQNの群抽出RNGは外側Agent所有のnamed seed `replay_fit_probe`から作り、群抽出の購読が必要になるまで生成しない。
+
 ## 8. テストと拡張時の確認事項
 
 [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)には、現行source上で次のtest caseが置かれている。

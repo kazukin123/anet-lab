@@ -483,6 +483,18 @@ public:
         return true;
     }
 
+    rl::SamplingHistoryProbeResult ProbeSamplingHistory(
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const override
+    {
+        rl::SamplingHistoryProbeResult result;
+        if (request.unsampled_batch_size) {
+            rl::ExperienceSamples samples;
+            SampleUniqueUniform(samples, *request.unsampled_batch_size, *random);
+            result.unsampled = std::move(samples);
+        }
+        return result;
+    }
+
     int64_t Size() const override
     {
         return size_value;
@@ -1153,6 +1165,76 @@ TEST_CASE("ReplayBuffer reads a caller-random unique uniform probe batch without
     CHECK(std::set<int64_t>(keys.begin(), keys.end()).size() == 5);
     CHECK(torch::equal(samples.is_weights, torch::ones_like(samples.is_weights)));
     CHECK(samples.replay_item_keys.device().is_cpu());
+}
+
+TEST_CASE("ReplayBuffer sampling history returns requested disjoint groups from one snapshot", "[replay_buffer][replay_fit]")
+{
+    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 1, false, 73001);
+    for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t);
+    rl::ExperienceSamples normal;
+    buffer.rb->Sample(normal, 1, 0.4f);
+    const auto selected_key = normal.replay_item_keys.item<int64_t>();
+    anet::RandomGenerator random(73002);
+    anet::RandomGenerator control(73002);
+
+    // 全件抽出でも群は混ぜず、通常Sampleの履歴とcaller RNGをそのまま保つ。
+    const auto result = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
+        .counts = true, .unsampled_batch_size = 5, .sampled_batch_size = 1 }, &random);
+    CHECK(result.unsampled_count == 5);
+    CHECK(result.sampled_count == 1);
+    REQUIRE(result.unsampled.has_value());
+    REQUIRE(result.sampled.has_value());
+    const auto unsampled_keys = TensorToInt64Vector(result.unsampled->replay_item_keys);
+    CHECK(std::set<int64_t>(unsampled_keys.begin(), unsampled_keys.end()).size() == 5);
+    CHECK(std::ranges::find(unsampled_keys, selected_key) == unsampled_keys.end());
+    CHECK(result.sampled->replay_item_keys.item<int64_t>() == selected_key);
+    CHECK(torch::equal(result.unsampled->is_weights, torch::ones({ 5 })));
+    CHECK(random.RandUint64() == control.RandUint64());
+    const auto sampled_age = 7 - selected_key % 20;
+    CHECK(result.sampled_age_mean == Catch::Approx(static_cast<float>(sampled_age)));
+    CHECK(result.unsampled_age_mean == Catch::Approx((27.0f - sampled_age) / 5.0f));
+    const auto after = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr);
+    CHECK(after.unsampled_count == 5);
+    CHECK(after.sampled_count == 1);
+}
+
+TEST_CASE("ReplayBuffer history probes preserve ring generations and sample reconstruction", "[replay_buffer][replay_fit][history]")
+{
+    const int n_step = GENERATE(1, 3);
+    const int stack = GENERATE(1, 3);
+    auto buffer = MakeBuffer(MakeConfig(24, n_step, 0.5f, stack, rl::ReplaySamplerType::PRIORITIZED), 2, false, 73021);
+    anet::RandomGenerator random(73022);
+    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 0 }, &random));
+    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .sampled_batch_size = 1 }, nullptr));
+    const auto empty = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr);
+    CHECK(empty.unsampled_count == 0);
+    CHECK(empty.sampled_count == 0);
+    CHECK(std::isnan(empty.unsampled_age_mean));
+    for (int64_t t = 0; t < 10; ++t) PushTime(buffer, t);
+    rl::ExperienceSamples ordinary;
+    buffer.rb->Sample(ordinary, 2, 0.4f);
+    // 全slotを上書きした後は旧世代の抽選履歴が残らない。
+    for (int64_t t = 10; t < 30; ++t) PushTime(buffer, t);
+    const auto before = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr);
+    CHECK(before.sampled_count == 0);
+    CHECK(before.unsampled_count == buffer.rb->Size());
+    const auto total = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
+    const auto result = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
+        .counts = true, .unsampled_batch_size = buffer.rb->Size(), .sampled_batch_size = 1 }, &random);
+    REQUIRE(result.unsampled);
+    CHECK_FALSE(result.sampled);
+    rl::ExperienceSamples control;
+    REQUIRE(buffer.rb->SampleUniqueUniform(control, buffer.rb->Size(), random));
+    CHECK(torch::equal(result.unsampled->replay_item_keys, control.replay_item_keys));
+    CHECK(torch::equal(result.unsampled->target_returns, control.target_returns));
+    CHECK(torch::equal(result.unsampled->n_steps, control.n_steps));
+    CHECK(torch::equal(result.unsampled->obs.At(kVectorKey), control.obs.At(kVectorKey)));
+    CHECK(torch::equal(result.unsampled->next_state.next_obs.At(kVectorKey), control.next_state.next_obs.At(kVectorKey)));
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == total);
+    const auto insufficient = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
+        .counts = true, .unsampled_batch_size = buffer.rb->Size() + 1 }, &random);
+    CHECK_FALSE(insufficient.unsampled);
+    CHECK(insufficient.unsampled_count == before.unsampled_count);
 }
 
 TEST_CASE("ReplayBuffer probe does not mark samples or change PER statistics", "[replay_buffer][probe][unique_uniform][per]")
@@ -2802,6 +2884,7 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
 
 TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe without consuming the prefetched batch", "[replay_buffer][probe][prefetch]")
 {
+    const bool history = GENERATE(false, true);
     auto inner_state = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
@@ -2818,7 +2901,11 @@ TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe witho
     std::atomic<bool> probe_ok = false;
     anet::RandomGenerator probe_random(2802);
     std::thread probe([&] {
-        probe_ok = rb.SampleUniqueUniform(probe_samples, 1, probe_random);
+        if (history) {
+            const auto result = rb.ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 1 }, &probe_random);
+            probe_ok = result.unsampled.has_value();
+            if (result.unsampled) probe_samples = *result.unsampled;
+        } else probe_ok = rb.SampleUniqueUniform(probe_samples, 1, probe_random);
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     CHECK(inner_state->UniqueSampleCount() == 0);

@@ -104,7 +104,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     using dqn::ActionPolicy::CreateSpatialLaneTensor;
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
-        std::shared_ptr<anet::RandomGenerator>, const anet::TraceCallback&) const override
+        std::shared_ptr<anet::RandomGenerator>, const anet::TraceCallback&, const dqn::DiagnosticActionEvaluation*) const override
     {
         return std::make_shared<dqn::DQNActionInfo>();
     }
@@ -395,6 +395,20 @@ private:
 
 class RecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
+    rl::SamplingHistoryProbeResult ProbeSamplingHistory(
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*) const override
+    {
+        ++history_probe_count;
+        last_history_request = request;
+        auto result = history_result;
+        if (!request.unsampled_batch_size) result.unsampled.reset();
+        if (!request.sampled_batch_size) result.sampled.reset();
+        return result;
+    }
+    mutable int history_probe_count = 0;
+    mutable rl::SamplingHistoryProbeRequest last_history_request;
+    rl::SamplingHistoryProbeResult history_result;
+
     void Push(const rl::BatchExperience&) override
     {
         ++push_count;
@@ -5253,6 +5267,242 @@ TEST_CASE("DQN learner reports greedy action churn for one optimizer update", "[
     CHECK(*results.front()->GetScalar("policy_churn_q_delta_abs_mean") == Catch::Approx(1.0f));
     CHECK(*results.front()->GetScalar("policy_churn_q_delta_signed_max") == Catch::Approx(2.0f));
     CHECK(*results.front()->GetScalar("policy_churn_q_delta_signed_min") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("DQN replay fit evaluates the received PER batch before optimization", "[dqn][replay_fit][per_probe]")
+{
+    // sampleとnetworkを既存の公開境界で固定し、学習後ではなく更新直前の値を確認する。
+    const auto probe = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe, torch::kCPU);
+    {
+        torch::NoGradGuard no_grad;
+        for (auto& parameter : model.GetOnlineParameters()) parameter.fill_(1.0f);
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = true;
+    config.gamma = 0.5f;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+    const auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 2 });
+    replay->vector_value = 1.0f;
+    learner.UseReplayBuffer(replay);
+    learner.UseSgd(1.0f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{ .source_key = "replay_fit_per_td_mean", .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN },
+    });
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{ .exp_step = 5 }, MakeDeterminismExperience(5, 1));
+    REQUIRE(results.size() == 1);
+    const auto value = results.front()->GetScalar("replay_fit_per_td_mean");
+    REQUIRE(value.has_value());
+    CHECK(*value == Catch::Approx(1.0f));
+    CHECK(replay->history_probe_count == 0);
+    CHECK(replay->sample_count == 1);
+    CHECK(probe->forward_count == 4);
+}
+
+TEST_CASE("Replay fit policy evaluation suppresses inner AMP and stochastic auxiliary queries", "[dqn][replay_fit][policy]")
+{
+    std::vector<torch::Device> devices{ torch::kCPU };
+    if (torch::cuda::is_available()) devices.emplace_back(torch::kCUDA, 0);
+    for (const auto& device : devices) {
+        const auto probe = std::make_shared<AutocastProbeState>();
+        const auto network = MakeAutocastProbeNetwork(probe, device);
+        dqn::ActionPolicyConfig config;
+        config.use_amp = true;
+        config.use_amp_bf16 = true;
+        dqn::EpsilonGreedyActionPolicy greedy(config);
+        auto random = std::make_shared<anet::RandomGenerator>(73031);
+        const dqn::DiagnosticActionEvaluation evaluation{ .num_taus = 4 };
+        {
+            anet::Autocast outer(device, true, torch::kBFloat16);
+            greedy.SelectAction(MakeAutocastProbePolicyInput(device), true, network, random, {}, &evaluation);
+        }
+        CHECK(probe->forward_count == 1);
+        CHECK(probe->enabled_count == 0);
+        for (const bool tail : { false, true }) {
+            const auto echo = std::make_shared<TauEchoState>();
+            const auto iqn_network = MakeTauEchoNetwork(9, echo);
+            iqn_network->to(device);
+            config.quantile_mode = "iqn";
+            config.uqe_use_tail_mean = tail;
+            config.uqe_tau_start = config.uqe_tau_end = 0.5f;
+            config.tau_rule.num_taus = 9;
+            config.tau_rule.sample_mode = "random";
+            config.full_distribution_query.enabled = true;
+            config.full_distribution_query.tau_rule.num_taus = 7;
+            dqn::UQEActionPolicy policy(config);
+            const auto rng_before = random->GetTorchGenerator(device).get_state();
+            const auto result = policy.SelectAction(MakeTauEchoObservation().To(device), true, iqn_network, random, {}, &evaluation);
+            CHECK(echo->forward_count == 1);
+            CHECK(echo->last_taus.size(1) == (tail ? 4 : 1));
+            const auto expected = tail ? torch::tensor({ 0.5625f, 0.6875f, 0.8125f, 0.9375f }) : torch::tensor({ 0.5f });
+            CHECK(torch::equal(echo->last_taus[0].cpu(), expected));
+            CHECK(torch::equal(random->GetTorchGenerator(device).get_state(), rng_before));
+            CHECK(result->GetAuxData().empty());
+        }
+    }
+}
+
+TEST_CASE("Replay fit validates its configuration and resolved target subscription", "[dqn][replay_fit][config]")
+{
+    ScopedNoopMetricsLogger logger;
+    anet::nn::InitNN();
+    auto data = MakeIqnTracerConfigData();
+    const dqn::DefaultDQNAgentConfig defaults(data);
+    CHECK(defaults.learner.replay_fit.probe.batch_size == 1024);
+    CHECK(defaults.learner.replay_fit.iqn.num_taus == 32);
+    for (const auto* field : { "probe.batch_size", "iqn.num_taus" }) {
+        for (const auto* value : { "0", "-1", "0.5", "nan" }) {
+            auto invalid = data;
+            invalid.Set(std::string("DefaultDQNAgent.learner.replay_fit.") + field, value);
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid));
+        }
+    }
+    for (const bool enabled : { false, true }) {
+        for (const bool overridden : { false, true }) {
+            auto config_data = data;
+            config_data.Set("DefaultDQNAgent.learner.enabled", enabled);
+            config_data.Set("DefaultDQNAgent.use_optimistic_target", true);
+            config_data.Set("DefaultDQNAgent.train_policy.policy_type", "ThompsonSampling");
+            if (overridden) config_data.Set("DefaultDQNAgent.target_policy.policy_type", "Greedy");
+            auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(config_data),
+                anet::nn::NetworkConfig(config_data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{ 2, 1 },
+                MakeIqnTracerEnvSpec(), torch::kCPU, 73032);
+            const std::vector<rl::ScalarMetricSubscription> subscriptions{
+                rl::ScalarMetricSubscription{ .source_key = "replay_fit_unsampled_count",
+                    .event = rl::EventType::LEARN, .target = rl::EventField::UPDATE_RESULT,
+                    .interval = 503, .scope = rl::RunnerScope::TRAIN } };
+            if (enabled && !overridden) CHECK_THROWS_WITH(agent->ConfigureScalarMetricSubscriptions(subscriptions),
+                Catch::Matchers::ContainsSubstring("ThompsonSampling"));
+            else CHECK_NOTHROW(agent->ConfigureScalarMetricSubscriptions(subscriptions));
+        }
+    }
+}
+
+TEST_CASE("DQN replay fit populations reach the update result without another forward", "[dqn][replay_fit][tracer]")
+{
+    // 実ReplayBufferに未抽選遷移を用意し、通常Sample直後の二群を公開結果で観測する。
+    const auto env_spec = MakeLearnerEnvSpec();
+    rl::ReplayBufferConfig replay_config;
+    replay_config.capacity = 32;
+    const auto replay = rl::CreateReplayBuffer(replay_config, env_spec, 1, torch::kCPU, false, 73001);
+    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1));
+    auto probe = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe, torch::kCPU);
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 1;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = false;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    learner.UseReplayBuffer(replay);
+    learner.UseSgd(0.01f);
+    learner.EnablePolicyChurnOptimizerUpdate();
+    learner.ConfigureScalarMetricSubscriptions({
+        rl::ScalarMetricSubscription{ .source_key = "replay_fit_unsampled_count", .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN },
+        rl::ScalarMetricSubscription{ .source_key = "replay_fit_sampled_count", .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN },
+    });
+    const auto before = probe->forward_count;
+    const auto results = learner.UpdateFromBatch(rl::StepCounts{ .exp_step = 5 }, MakeDeterminismExperience(5, 1));
+    REQUIRE(results.size() == 1);
+    const auto unsampled = results.front()->GetScalar("replay_fit_unsampled_count");
+    const auto sampled = results.front()->GetScalar("replay_fit_sampled_count");
+    REQUIRE(unsampled.has_value());
+    REQUIRE(sampled.has_value());
+    CHECK(*sampled == 1.0f);
+    CHECK(*unsampled == static_cast<float>(replay->Size() - 1));
+    CHECK(probe->forward_count == before + 1);
+}
+
+TEST_CASE("DQN replay fit routes each subscription and retains update-specific values", "[dqn][replay_fit][demand]")
+{
+    // 各出力を単独購読し、依存する群・forward数・公開する値を同じ数値oracleで確認する。
+    const int metric = GENERATE(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13);
+    const bool per = GENERATE(false, true);
+    CAPTURE(metric, per);
+    const auto probe = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe, torch::kCPU);
+    {
+        torch::NoGradGuard no_grad;
+        for (auto& parameter : model.GetOnlineParameters()) parameter.fill_(1.0f);
+        model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
+    }
+    dqn::RuntimeVars vars;
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.use_per = per;
+    config.gamma = 0.5f;
+    config.use_td_clip = false;
+    config.replay_fit.probe.batch_size = 2;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec());
+    const auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 2 });
+    rl::ExperienceSamples u, s;
+    replay->vector_value = 2.0f;
+    replay->Sample(u, 2, 0.0f);
+    replay->vector_value = 1.0f;
+    replay->Sample(s, 2, 0.0f);
+    replay->history_result = rl::SamplingHistoryProbeResult{
+        .unsampled_count = 6, .sampled_count = 2, .unsampled_age_mean = 3.0f, .sampled_age_mean = 5.0f,
+        .unsampled = u, .sampled = s,
+    };
+    replay->vector_value = 3.0f;
+    replay->sample_count = 0;
+    learner.UseReplayBuffer(replay);
+    learner.EnablePlasticityForward(false);
+    anet::RandomGenerator random(73003);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    if (metric < 13) subscriptions.push_back(rl::ScalarMetricSubscription{
+        .source_key = dqn::kReplayFitMetricKeys[metric], .event = rl::EventType::LEARN,
+        .target = rl::EventField::UPDATE_RESULT, .interval = 2, .scope = rl::RunnerScope::TRAIN });
+    learner.ConfigureScalarMetricSubscriptions(subscriptions, &random);
+    const auto first = learner.UpdateFromBatch(rl::StepCounts{ .exp_step = 5 }, MakeDeterminismExperience(5, 1));
+    REQUIRE(first.size() == 1);
+    const bool uniform = metric == 10 || (per && metric == 12);
+    const bool need_u = metric == 0 || metric == 2 || metric == 3 || metric == 5 || uniform;
+    const bool need_s = metric == 1 || metric == 2 || metric == 4 || metric == 5 || uniform;
+    const bool need_per = per && (metric == 11 || metric == 12);
+    const bool counts = (metric >= 6 && metric <= 9) || uniform;
+    CHECK(replay->history_probe_count == (need_u || need_s || counts ? 1 : 0));
+    CHECK(replay->last_history_request.unsampled_batch_size.has_value() == need_u);
+    CHECK(replay->last_history_request.sampled_batch_size.has_value() == need_s);
+    CHECK(replay->last_history_request.counts == counts);
+    CHECK(probe->forward_count == 1 + 3 * (int(need_u) + int(need_s) + int(need_per)));
+    CHECK(replay->sample_count == 1);
+    const std::array<float, 13> expected{ 2.0f, 1.0f, 2.0f, 1.5f, 0.5f, 3.0f,
+        6.0f, 2.0f, 3.0f, 5.0f, 1.75f, 3.0f, 3.0f / 1.75f };
+    for (int i = 0; i < 13; ++i) {
+        const auto value = first.front()->GetScalar(dqn::kReplayFitMetricKeys[i]);
+        REQUIRE(value.has_value());
+        if (i == metric && (per || i < 11)) CHECK(*value == Catch::Approx(expected[i]));
+        else CHECK(std::isnan(*value));
+    }
+    CHECK_FALSE(first.front()->GetScalar("replay_fit_unknown").has_value());
+    const int forwards = probe->forward_count;
+    const int probes = replay->history_probe_count;
+    const auto second = learner.UpdateFromBatch(rl::StepCounts{ .exp_step = 6 }, MakeDeterminismExperience(6, 1));
+    REQUIRE(second.size() == 1);
+    CHECK(probe->forward_count == forwards + 1);
+    CHECK(replay->history_probe_count == probes);
+    if (metric < 13) {
+        CHECK(std::isnan(*second.front()->GetScalar(dqn::kReplayFitMetricKeys[metric])));
+        if (per || metric < 11) CHECK(*first.front()->GetScalar(dqn::kReplayFitMetricKeys[metric]) == Catch::Approx(expected[metric]));
+    }
 }
 
 TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][policy_churn][target]")
