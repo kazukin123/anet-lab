@@ -1,9 +1,9 @@
 # PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 
 - 起票日: 2026-08-24(draft)、グリル: 2026-09-06〜07(`/grill-with-docs`。裁定は §5・§9、決定の記録は ADR 0038)、改訂: 2026-09-08(Codex DropMerge レビュー反映: §2.7-2.8、§5.3-5.4、§7.3-7.6、§8-10。同日 Codex Atari レビュー反映: §1-B/G/H、§2.1、§2.7、§3、§5.4、§5.7、§7.1、§7.3、§7.5、§7.6、§8-5/6/8/9、§9、§11)
-- 状態: **グリル完了・実装待ち**。実装順は PRD 072(設定リゾルバの選択コピーが source の最終値を読むようにする、別起票)→ 本 PRD P1 → P2。P3 は着手時に別途グリル
+- 状態: **グリル完了・実装待ち**。実装順は PRD 072(カタログの組み立てと完成結果の参照、別起票)→ 本 PRD P1 → P2。P3 は着手時に別途グリル
 - 対象: `core/anet-core`(`rl.hpp` / `agent.hpp` の Agent・Actor IF、4 Agent 実装、`trainer.*` の RunManager / RunnerBase / EvalRunner、`observers.*` の metrics 参照先)、`apps/runner`(EvalPanel / RunnerFrame / RunnerApp)、`apps/runner/config` 全 env config と `agent.txt` / `common.txt` / `metrics_scalar.txt`、`viewers/metrics-tools/inspect_run.py`、`apps/runner/tools/dropmerge_optuna.py`
-- 関連: PRD 072(前提。設定リゾルバの選択コピーが source の最終値を読む)、`done/060_eval_batch_episodes_10prd.md`(本数。§「本 PRD では解けない隣接論点」で本件を名指し)、`done/052_eval_schedule_separation_10prd.md` / ADR 0027(定義とスケジュールの分離)、`done/059_config_concept_tree_alignment_10prd.md`(カタログ / プロファイル / 上書き層の用語)、`912_background_eval_snapshot_ordering_10prd.md`(同じ eval 経路の別論点)、ADR 0038(本 PRD の決定と却下案)
+- 関連: [PRD 072](072_config_selection_final_value_10prd.md)(前提。カタログの完成結果と継承規則)、`done/060_eval_batch_episodes_10prd.md`(本数。§「本 PRD では解けない隣接論点」で本件を名指し)、`done/052_eval_schedule_separation_10prd.md` / ADR 0027(定義とスケジュールの分離)、`done/059_config_concept_tree_alignment_10prd.md`(カタログ / プロファイル / 上書き層の用語)、`912_background_eval_snapshot_ordering_10prd.md`(同じ eval 経路の別論点)、ADR 0038(本 PRD の決定と却下案)
 - 発見経緯: Atari Breakout の探索(`docs/experiments/default-dqn/atari/2026-08-17_baseline.md` 探索ブロック 14 / 16 / 17 / 18 / 19)で、eval の ε と評価対象 network が Run 単位でしか選べないために測れなかった項目が積み上がった。起票後、`Atari.txt` の `run.@greedy_eval`(2026-09-06 実測)と `run.@evalonly`(checkpoint 評価専用 Run)で実需が 2 件増えた
 
 ## 1. 背景と実害
@@ -59,7 +59,7 @@ ImageClsActor は run_mode を保持するだけで参照しない。Env 側の 
 ### 2.5 設定機構
 
 - `anet::Config(config_data, default_prefix, override_prefix)`(`config.hpp:167,179-196`)。`MakeSubConfigData(prefix)` で `prefix.[key]` を列挙(`config.cpp:454-484`)。`$` チェーンの RHS は任意 prefix(`config_impl.cpp:288-324`)
-- **リゾルバは root の `$` 選択を宣言順、term のコピーで生じた nested `$` を即時解決する**(`config_impl.cpp:30-77`)。カタログ項目間の継承(`X.[b].$ = X.[a] > …`)は宣言時点のコピーになり、後段 overlay の `[a]` 変更が `[b]` へ伝播しない → PRD 072
+- **リゾルバは root の `$` 選択を宣言順、term のコピーで生じた nested `$` を即時解決する**(`config_impl.cpp:30-77`)。例えば `DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target` は宣言時点のコピーになり、後段 overlay の eval 変更が eval_target へ伝播しない → PRD 072。その他の通常選択の動作は維持する
 - Agent は生 ConfigData を保持しない(factory `default_dqn_agent.cpp:650-663`)。`docs/ownership_guideline.md`: Config は Agent 所有の読み取り専用 Resource、epsilon 等のスケジュール状態は ActionPolicy の State、Actor 専用 snapshot は Actor 所有の private Resource
 - 前例: `ImageClsEnv.train.dataset_key = food101_train` → カタログ `ImageDataset.[food101_train]`(CONTEXT「DatasetKey」)
 
@@ -135,28 +135,33 @@ virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 
 
 ### 5.3 Actor 設定カタログと参照規則
 
-```text
-# Agent 側(定義側)。各 Agent が自分の prefix 配下にカタログを持つ
-DefaultDQNAgent.actor.[train].policy.policy_type = UQE        # 現 train_policy.*
-DefaultDQNAgent.actor.[train].clone_model = true              # 現 train_actor.clone_model
-DefaultDQNAgent.actor.[train].sync_interval.value = 400       # 現 train_actor.sync_interval.*
-DefaultDQNAgent.actor.[eval].policy.policy_type = Greedy      # 現 eval_policy.*(既定導出をやめて明示)
-DefaultDQNAgent.actor.[eval].network = online
-DefaultDQNAgent.actor.@target.network = target                # 差分プロファイル(未選択なら dormant)
-DefaultDQNAgent.actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target
+以下は PRD 072 と本 PRD の導入後の設定例。共通設定は `@eval_base`、実際に参照する Actor キーは `[eval]` / `[eval_target]` として区別する。
 
-# Runner 側(利用側)。名前参照のみ
-run.train.actor_key = train                 # 既定 train。推論専用 Run なら eval を指せる
-run.eval.[eval_target].actor_key = eval_target   # 省略時はタグ名。この行は書かなくてよい
-run.eval.[eval].actor_key = eval
-run.eval.[nature].actor_key = nature        # DefaultDQNAgent.actor.[nature].$ = …[eval] > …@nature を定義して参照
+```text
+# Agent 側。対象・プロファイルを : の左、具体的な Key-Value を右に書く
+DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy
+DefaultDQNAgent.actor.@eval_base : network = online
+DefaultDQNAgent.actor.@target : network = target
+DefaultDQNAgent.@baseline : actor.[train].policy.policy_type = UQE
+DefaultDQNAgent.@baseline : actor.[train].clone_model = true
+DefaultDQNAgent.@baseline : actor.[train].sync_interval.value = 400
+DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base
+DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target
+DefaultDQNAgent : $ = @baseline > A2 > A3
+
+# Runner 側。名前参照のみ（ここにない Actor 設定は §5.4 のスキーマに従う）
+run.train : actor_key = train
+run.eval.[eval_target] : actor_key = eval_target
+run.eval.[eval] : actor_key = eval
 ```
 
 - **参照は名前だけ**。スロット内に Actor 設定の上書き層は持たない。差分はカタログ側で `$` 継承と `@` プロファイルを使って書く(直書きはチェーン結果に負ける既存規則どおり)
 - **既知キー `train` / `eval` は Runner の既定値**であり、Agent 実装は名前を解釈しない。推論専用 Run は `run.train.actor_key = eval` で `[train]` を定義せずに済む。**唯一の例外**は DefaultDQN の `use_optimistic_target=true` で、Learner の `target_policy` の既定コピー元として `actor.[train].policy` を参照する(Learner を回す構成でしか使わないので `[train]` は定義済みが前提。未定義なら fail-fast。§5.4)
 - **eval タグ名を改名する**: eval1 → `eval_target`、eval2 → `eval`。省略時の Actor キーがタグ名なので、`common.txt` は `run.eval.[eval_target]` / `run.eval.[eval]` を宣言するだけで各 Agent の `actor.[eval_target]` / `actor.[eval]` へつながる。target net の無い ImageCls / MuZero は env ファイルで `run.eval_schedule.[eval_target].interval = 0`(dormant)にする
 - **metrics の tag 名(LHS)は全て不変**。RHS の `$eval.[eval1]` → `$eval.[eval_target]`、`$eval.[eval2]` → `$eval.[eval]` だけを再指定し、`21_eval/01_target_reward` = target net、`02_policy_reward` = online net、`51_eval1/*` = target、`52_eval2/*` = online という過去 Run との意味の一致を保つ
-- 上書き層(A1 / A2 / A3 等)は `A2.actor.[eval].policy.eps_start = 0.01` のように**カタログ項目へ**書く。`[eval_target]` へは PRD 072(選択コピーが source の最終値と最終キー集合を読む。書き込み優先順位は不変)によって伝播する。CLI で `actor.[eval].policy.*` を直接上書きした場合も同様に伝播する(PRD 072 §4-6)
+- 後段変更は `A2 : actor.[eval].policy.eps_start = 0.01` のようにカタログ項目へ、または `A2 : actor.@eval_base.policy.eps_start = 0.01` のように共通プロファイルへ書ける。前者は eval の利用先、後者は共通プロファイルの利用先へ届く。上の Greedy 例で ε を使う場合は、policy_type も EpsilonGreedy として設定する。
+- PRD 072 はカタログの組み立てでプロファイル・カタログの完成値と最終キー集合を読み、カタログの部分参照やカタログ外へのコピーにも同じ規則を適用する。CLI の `DefaultDQNAgent.actor.[eval].policy.eps_start` 指定も継承先へ届くが、継承先の後段指定は元の優先順位を保つ。その他の通常選択は変更しない。
+- 同じカタログ項目・配下の `.$` は最後のチェーンだけを採用し、旧チェーンだけに由来する値を残さない。親の `.$` を子で再実行しない。原則・具体例・記録・異常系の正本は [PRD 072](072_config_selection_final_value_10prd.md) §3〜§7。
 - **fail-fast**: 参照先 `actor.[<key>]` が未定義 → `ANET_SYSTEM_ERROR`(参照元 Runner 名・キー・定義済みキー一覧・`actor_key` の指定方法を含める)。`network` の未知値、`clone_model=false` で actor device ≠ agent device、MuZero での `clone_model=true`(非対応)も fail-fast
 - **dormant スロット**(定義済みだが有効 schedule 無し)は Actor を作らないので `actor_key` を解決しない(定義側の宣言検証だけ行う)。EvalPanel が参照する definition-only タグは Actor を作るので解決する
 
@@ -195,7 +200,7 @@ run.eval.[nature].actor_key = nature        # DefaultDQNAgent.actor.[nature].$ =
 
 | Phase | 内容 | 位置付け |
 |---|---|---|
-| P0 | **PRD 072**: 設定リゾルバの選択コピーが source の最終値を読むようにする(書き込み優先順位は不変。別 PRD、先行) | §5.3 の `[eval_target].$ = …[eval] > …@target` が後段 overlay を取りこぼさないための前提 |
+| P0 | **PRD 072**: カタログの組み立てと完成結果の参照を解決する(通常選択と書き込み優先順位を維持。別 PRD、単独で完了可能) | §5.3 の `[eval_target].$ = …[eval] > …@target` が後段 overlay を取りこぼさないための前提 |
 | P1 | **`train.` root → `run.` 改名**(機械的・別コミット) | `run.seed` / `run.train.num_envs` / `run.train.runner_type` / `run.eval_device_type` / `run.eval.[tag].*` / `run.eval_schedule.[tag].*`。単独で成立し、P2 の新キーは新 root の下に生まれる |
 | P2 | **Actor 設定カタログ**(本体) | §5.2〜5.7 の全部と config 移行。単独でゴールを達成する |
 | P3 | **env 側**(方向のみ) | `<Env>.[key].*` カタログ + `run.train.env_key` / `run.eval.[tag].env_key`(省略時タグ名)。スロット内 `env.*` 上書き層の存廃、`run_mode` キーと Eval1 / Eval2 の Env 側整理は着手時にグリル |
@@ -252,7 +257,7 @@ P0 / P1 は単独で成立し、P2 で止めても P3 無しで一貫した状�
 
 **手順(キー移動ではなく、env ごとの typed 実効値の移植)**
 
-1. P2 着手前に現行コードで、各 env config(Atari / DropMerge / LunarLander / GridMaze / GridMaze_muzero / CartPole / ImageCls)× 代表 Run プロファイル(Atari は PRD 072 §6-11 の 5 本。プロファイル族ごとに実効値が違うので env 単位では足りない)について Agent の Module Config dump(`config/DefaultDQNAgent.txt` 等)を採取する。これは `ANET_READ_CONFIG` が既定補完後の値を記録したものなので、コード導出(eval の τ = train 終端、uqe_eps 0、spatial false、`use_optimistic_target` のコピー)を含む**実効値**である
+1. P2 着手前に現行コードで、各 env config(Atari / DropMerge / LunarLander / GridMaze / GridMaze_muzero / CartPole / ImageCls)× 代表 Run プロファイル(Atari は [PRD 072](072_config_selection_final_value_10prd.md) §7 の 5 本。プロファイル族ごとに実効値が違うので env 単位では足りない)について Agent の Module Config dump(`config/DefaultDQNAgent.txt` 等)を採取する。これは `ANET_READ_CONFIG` が既定補完後の値を記録したものなので、コード導出(eval の τ = train 終端、uqe_eps 0、spatial false、`use_optimistic_target` のコピー)を含む**実効値**である
 2. 新カタログ(`actor.[train]` / `[eval]` / `[eval_target]` と `target_policy.*`)を、その実効値と一致するように書き出す。旧キー → 新キーの対応表(`train_policy.X` → `actor.[train].policy.X`、`eval_policy.X` → `actor.[eval].policy.X` と `actor.[eval_target].policy.X`、`train_actor.X` → `actor.[train].X`、スロット `clone_model` → `actor.[eval*].clone_model`)を PRD 実装ノートに残す
 3. 移行後の dump を対応表で照合し、**全フィールド一致**を確認する。UQE では不使用の `eps_*` など「効かないフィールド」も差があれば明示して一致させる(判定を policy 種別に依存させない)
 
@@ -291,7 +296,7 @@ Atari の期待値(`run.@v5_iqn_impala_x2 > … > run.@munch` 系。classic / na
 | `[train]` | EpsilonGreedy(`A1:528`)、`eps_start` は spatial ラダー上端 0.4(`A2:220`)/ `eps_end` 0.01 / decay 250,000、spatial true、`tau_rule` fixed / 8。ラダー下では `current_epsilon_` が NaN | 明示 |
 | `target_policy.*` | Greedy(`use_optimistic_target` は未設定 = `@baseline` の false) | |
 
-- `agent.txt` `@baseline`: `actor.[train].{policy.*, clone_model, sync_interval.*}`、`actor.[eval].{policy.*(明示), network = online}`、`actor.@target.network = target`、`actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target`
+- `agent.txt`: §5.3 のように、共通設定は `DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy` 等、network 差分は `DefaultDQNAgent.actor.@target : network = target` として定義する。`@baseline` には actor.[train] の policy / clone / sync_interval と、actor.[eval] / actor.[eval_target] の選択を置く。左辺の `@` は原則 1 個とし、外側の選択に内側の定義を連動させる場合だけ入れ子を使う。
 - env ファイル: `A?.train_policy.*` → `A?.actor.[train].policy.*`、`A?.eval_policy.*` → `A?.actor.[eval].policy.*`、`A?.train_actor.*` → `A?.actor.[train].*`、`run.@…` の同種行も同様
 - eval タグ改名(eval1 → `eval_target`、eval2 → `eval`)を 8 ファイル 194 箇所へ(metrics RHS `$eval.[…]`、`run.eval_schedule`、`app.*.eval_panel.eval_config_tag` を含む)。`run_mode = eval1 / eval2` 行は削除(既定で IsEval)。スロットの `clone_model` 行は削除し、各 Agent の `[eval]` / `[eval_target]` に `clone_model = true` を明示する(ImageCls も true、MuZero は false)
 - ImageCls.txt / GridMaze_muzero.txt: `run.eval_schedule.[eval_target].interval = 0`
@@ -348,7 +353,7 @@ Atari の期待値(`run.@v5_iqn_impala_x2 > … > run.@munch` 系。classic / na
 | 17 | Rainbow の eval policy 分離 | keep | 潜在バグ修正 |
 | 18 | `run.` 改名 | P1 | 命名負債 |
 | 19 | policy カタログ + `policy_key` | cut | PRD 072 で不要 |
-| 20 | リゾルバの選択コピーの最終値読み(不動点反復) | 別 PRD 072(先行) | カタログ項目間の継承が後段 overlay を取りこぼす |
+| 20 | カタログの完成結果の参照とチェーン差し替え | 別 PRD 072(先行) | カタログ項目間の継承が後段 overlay を取りこぼす |
 | 21 | `use_optimistic_target`(コピー元を `actor.[train].policy` へ) | keep | optimistic 化のたびに `target_policy.*` を丸ごと書き換える保守コスト。D1 の唯一の例外として明記。コピー元が非分布方策なら `LOG::warn`(fail-fast にはしない) |
 | 22 | IQN の spec K を Learner の N から取る | keep | `[train]` 非依存の構築。runtime の K はカタログ項目ごとに自由 |
 
@@ -363,7 +368,7 @@ Atari の期待値(`run.@v5_iqn_impala_x2 > … > run.@munch` 系。classic / na
 - **2 ベース案(`train_actor` / `eval_actor` + スロット `actor.*` 上書き)**: Agent 実装に train / eval の固定分岐が残る
 - **override prefix の併設(ENV と完全対称)**: request が 2 フィールドになり、Agent 側に未消費キー検査が要る。差分はカタログ側 `$` で書けるので過剰
 - **RunMode を request に残す**: 用途ラベルで分岐する構造が残る
-- **policy カタログ + `policy_key`**(`DefaultDQNAgent.policy.[key]`): リゾルバの宣言順コピー問題の回避策として提案したが、似た概念の二重化になる。リゾルバ側を直す(PRD 072)ことで不要
+- **policy カタログ + `policy_key`**(`DefaultDQNAgent.policy.[key]`): リゾルバの宣言順コピー問題の回避策として提案したが、似た概念の二重化になる。カタログの完成結果を継承する(PRD 072)ことで不要。通常選択全体の意味は変更しない
 - **`${}` 値参照で `[eval_target]` を同期**: policy 17 キー分の行が要り 1 段限定
 - **eval タグ名の維持(eval1 / eval2)**: 名前が意味を持たず、Actor キーと一致させられない。改名して metrics RHS だけ再指定した
 - **`use_optimistic_target` の廃止**(2026-09-08 検討): 実効値は明示指定で同じになるが、optimistic 化のたびに `target_policy.*` を丸ごと書き換える(戻しも含む)保守コストが戻る。コピー元を `actor.[train].policy` に変えて維持する

@@ -9,7 +9,7 @@ configured eval tag は env・並列度・本数・clone をタグ単位で持�
 - **スロット内上書き層(`train.eval.[tag].agent.eval_policy.*`、ENV と対称)**: 実害は満たすが Agent / Actor の定義に遡らない場当たり。request に override prefix が要り、Agent 側に未消費キー検査が要る。却下
 - **2 ベース(`train_actor` / `eval_actor`)+ スロット上書き**: Agent 実装に train / eval の固定分岐が残る。却下
 - **RunMode を request に残す**: 用途ラベルで分岐する構造が温存される。却下
-- **policy カタログ + `policy_key`**: `[eval]` と `[eval_target]` の共有部分を宣言順コピーの制約下で書くための回避策。似た概念の二重化になるため却下し、リゾルバの選択コピーが source の最終値を読むようにする(PRD 072)ことで解く
+- **policy カタログ + `policy_key`**: `[eval]` と `[eval_target]` の共有部分を宣言順コピーの制約下で書くための回避策。似た概念の二重化になるため却下し、カタログが共通プロファイル・カタログの完成結果を継承する([PRD 072](../memo/072_config_selection_final_value_10prd.md))ことで解く
 - **env もカタログ参照へ(記法の完全対称化)**: env は「スロットが所有する上書き層」、actor は「スロットが参照するカタログ」という関係の違いがあり、`common.txt` のスロットが Agent 非依存のまま残る利点がある。P3 として方向だけ残す
 
 ## Consequences
@@ -20,5 +20,6 @@ configured eval tag は env・並列度・本数・clone をタグ単位で持�
 - RunMode 別共有 RNG を Actor 別 seed(`actor/<Runner 名>`)に置き換えるため、新旧バージョン間の同 seed bit 一致は不成立になる(新バージョン内の再現は成立)。EvalPanel と configured eval が同じ RNG stream を消費する結合は解消する
 - metrics の参照先に `$actor` を追加し、`$agent epsilon` 等の Agent 経由の policy 値は削除する
 - `clone_model` は Actor 設定の事項になり、EvalPanel の `model_sync.mode = shared` は廃止する
-- カタログ項目間の `$` 継承が後段 overlay を取りこぼさないよう、設定リゾルバの選択コピーが source の最終値と最終キー集合を読むように変える(書き込みの優先順位は不変。PRD 072、先行)
+- カタログの組み立ては、選択元のプロファイル・カタログの完成値と最終キー集合を読む。カタログからの部分参照やカタログ外へのコピーにも適用する。後段 overlay と CLI を含め、その他の通常選択と書き込み優先順位は維持する
+- カタログ項目・配下の同じ `.$` は最後のチェーンへ差し替え、旧チェーンだけに由来する値を残さない。親の選択命令を子で再実行しない。詳細契約とマニュアル草稿は [PRD 072](../memo/072_config_selection_final_value_10prd.md)。方式として全設定の反復を必須にせず、PRD 072 はリゾルバ単独、Actor のコード・設定移行は PRD 061 として完了を分ける
 - 詳細契約と受入条件は `docs/memo/061_eval_slot_policy_override_10prd.md`
