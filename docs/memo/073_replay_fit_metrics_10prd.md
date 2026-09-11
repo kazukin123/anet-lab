@@ -2,8 +2,7 @@
 
 起点: 2026-09-09。仕様合意: 2026-09-10。最終グリル: 2026-09-10（決定 D1〜D7 を本文へ反映。理由と棄却案は [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)）。
 本書は DefaultDQN 共通の任意診断である `replay_fit` の実装契約を定める。
-2026-09-10 に実装へ進む承認を受けた。実装・検証の正本は[実装メモ](073_replay_fit_metrics_20impl.md)とし、target生成関数の命名は `MakeTarget` に確定した。
-同日に実装と機能・非干渉の検証を完了した。性能は別Runとの並行稼働条件で数値基準を満たした。測定条件と証跡は実装メモに記録する。
+実装計画と検証記録は[実装メモ](073_replay_fit_metrics_20impl.md)を参照する。
 測定対象は厳密な held-out 集合ではなく、既存の抽選履歴で分けた群である。
 
 ## 1. 背景とゴール
@@ -74,8 +73,8 @@ S は現在処理中・prefetch 済みのバッチの遷移を含み、学習更
 測定用の抽出では U から S へ移さない。
 
 遷移の年齢を、その遷移が属する lane の write cursor（Push 済み件数）から当該遷移の logical index を引いた値と定義する。
-単位は lane の Push 回数（= train step）であり、lane をまたいだ exp step ではない。
-両群の平均年齢を `age_U`、`age_S` とする。母数と同じ snapshot の 1 回走査で加算して求め、dummy は sampleable 外なので年齢にも含めない。
+単位は episode 終端の dummy を含む lane の Push 回数であり、train step や lane をまたいだ exp step とは異なる。
+両群の平均年齢を `age_U`、`age_S` とする。母数と同じ snapshot の 1 回走査で加算して求め、dummy 自体は sampleable 外なので平均の対象に含めない。
 年齢は群の構成記述子であり、年齢を揃えた対照群を作ることはしない（§1.3）。
 
 ### 3.2 一回の測定

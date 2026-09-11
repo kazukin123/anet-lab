@@ -357,19 +357,18 @@ namespace anet::rl::dqn {
             validate_tau_rule(learner.iqn.target_taus, "DefaultDQNAgent.learner.iqn.target_taus");
 
             const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
-            const auto is_thompson = [](const std::string& type) { return type == "ThompsonSampling" || type == "2"; };
             // コピーと明示overlayを解決した最終target policyに対して競合を検証する。
             if (learner.munchausen.enabled && learner.use_double_dqn) {
                 ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with learner.use_double_dqn=true; expected learner.use_double_dqn=false.");
             }
             // MunchausenとThompsonは共存付加
-            if (learner.munchausen.enabled && is_thompson(target_policy.policy_type)) {
+            if (learner.munchausen.enabled && target_policy.IsThompsonSampling()) {
                 ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with target_policy.policy_type='"
                     << target_policy.policy_type << "'; expected Greedy, EpsilonGreedy, or UQE. use_optimistic_target="
                     << (use_optimistic_target ? "true (train_policy copy before target overrides)" : "false"));
             }
             const auto validate_distributional_policy = [&](const ActionPolicyConfig& policy, const char* key) {
-                if ((is_uqe(policy.policy_type) || is_thompson(policy.policy_type)) && quantile_mode == "none") {
+                if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == "none") {
                     ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
                         << "' expected quantile_mode=qr or iqn");
                 }
@@ -381,7 +380,7 @@ namespace anet::rl::dqn {
                         << quantile_mode << "' policy_type='" << policy.policy_type << "'");
                 }
                 const bool uses_iqn_tau_range = quantile_mode == "iqn"
-                    && (is_uqe(policy.policy_type) || (is_thompson(policy.policy_type) && policy.use_spatial_exploration));
+                    && (is_uqe(policy.policy_type) || (policy.IsThompsonSampling() && policy.use_spatial_exploration));
                 if (uses_iqn_tau_range
                     && (!std::isfinite(policy.uqe_tau_start) || policy.uqe_tau_start < 0.0f || policy.uqe_tau_start > 1.0f
                         || !std::isfinite(policy.uqe_tau_end) || policy.uqe_tau_end < 0.0f || policy.uqe_tau_end > 1.0f)) {

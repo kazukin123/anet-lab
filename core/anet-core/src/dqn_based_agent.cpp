@@ -1358,8 +1358,8 @@ std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const ane
     anet::TensorDict out;
     if (config_.quantile_mode == "iqn") {
         auto taus = evaluation
-            ? ((torch::arange(evaluation->num_taus, torch::TensorOptions().dtype(torch::kFloat32).device(obs.device())) + 0.5f)
-                / static_cast<float>(evaluation->num_taus)).unsqueeze(0).expand({ obs.Size(0), evaluation->num_taus })
+            ? MakeTauMidpointPositions(evaluation->num_taus, torch::TensorOptions().dtype(torch::kFloat32).device(obs.device()))
+                .unsqueeze(0).expand({ obs.Size(0), evaluation->num_taus })
             : GenerateTaus(obs.Size(0), config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
                 0.0f, 1.0f, obs.device(), *rnd);
         out = ForwardForActionWithTaus(obs, taus, network, callback);
@@ -1568,8 +1568,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         if (evaluation) {
             // 診断は固定midpoint。point UQEでは同一の基準分位を1点だけ評価する。
             const int64_t count = config_.uqe_use_tail_mean ? evaluation->num_taus : 1;
-            const auto unit = (torch::arange(count, torch::TensorOptions().dtype(torch::kFloat32).device(obs.device())) + 0.5f)
-                / static_cast<float>(count);
+            const auto unit = MakeTauMidpointPositions(count, torch::TensorOptions().dtype(torch::kFloat32).device(obs.device()));
             const auto lower = use_vectorized_tau ? tau_tensor.reshape({ N, 1 })
                 : torch::full({ N, 1 }, effective_tau, unit.options());
             risk_taus = config_.uqe_use_tail_mean ? lower + (1.0f - lower) * unit.unsqueeze(0) : lower;
@@ -2087,6 +2086,22 @@ void Learner::ConfigureScalarMetricSubscriptions(
     plasticity_.target_capture.branch_key = config_.plasticity.feature_key;
 }
 
+ReplayFitRequirements anet::rl::dqn::ResolveReplayFitRequirements(
+    const std::array<bool, kReplayFitMetricKeys.size()>& request, bool use_per)
+{
+    // 購読時のResource確保と測定回ごとの処理で、同じ指標依存を使う。
+    const bool uniform = request[10] || (use_per && request[12]);
+    return ReplayFitRequirements{
+        .uniform = uniform,
+        .per = use_per && (request[11] || request[12]),
+        .td_u = request[0] || request[2] || uniform,
+        .td_s = request[1] || request[2] || uniform,
+        .loss_u = request[3] || request[5],
+        .loss_s = request[4] || request[5],
+        .counts = request[6] || request[7] || request[8] || request[9] || uniform,
+    };
+}
+
 std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSamples& samples)
 {
     // 未購読では測定用配列やpackを作らず、cadence判定へも入らない。
@@ -2104,13 +2119,7 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
     ReplayFitMetrics values;
     values.fill(std::numeric_limits<float>::quiet_NaN());
     // その回の出力の依存だけを合成し、PER無効時の比だけでは群を抽出しない。
-    const bool uniform = request[10] || (config_.use_per && request[12]);
-    const bool per = config_.use_per && (request[11] || request[12]);
-    const bool td_u = request[0] || request[2] || uniform;
-    const bool td_s = request[1] || request[2] || uniform;
-    const bool loss_u = request[3] || request[5];
-    const bool loss_s = request[4] || request[5];
-    const bool counts = request[6] || request[7] || request[8] || request[9] || uniform;
+    const auto [uniform, per, td_u, td_s, loss_u, loss_s, counts] = ResolveReplayFitRequirements(request, config_.use_per);
     SamplingHistoryProbeResult snapshot;
     if (counts || td_u || td_s || loss_u || loss_s) {
         snapshot = replay_buffer_->ProbeSamplingHistory(SamplingHistoryProbeRequest{
@@ -2182,13 +2191,7 @@ std::pair<float, float> Learner::EvaluateReplayFit(const ExperienceSamples& inpu
         ? all.gather(1, batch.actions.view({ size, 1, 1 }).expand({ size, 1, all.size(2) })).squeeze(1)
         : all.gather(1, batch.actions.unsqueeze(1)).squeeze(1);
     const auto [target, ignored] = MakeTarget(batch, normalized.obs, normalized.next_obs, all, evaluation);
-    if (loss && distributional) {
-        if (config_.quantile_mode == "iqn") taus = taus.unsqueeze(2);
-        else {
-            const int64_t count = selected.size(1);
-            taus = torch::arange(0.5f / count, 1.0f, 1.0f / count, device_).view({ 1, count, 1 });
-        }
-    }
+    if (loss && config_.quantile_mode == "iqn") taus = taus.unsqueeze(2);
     ANET_PROFILE_SCOPE_NEXT(error);
     const auto error = ComputeElementError(selected, target, taus, ElementErrorRequest{ .td = td, .loss = loss });
     // 必要な平均だけをまとめてCPUへ移し、IS weightや学習時の補助診断は適用しない。
@@ -3305,8 +3308,8 @@ TargetEvaluation Learner::MakeTargetEvaluation(bool diagnostic)
         const auto& rule = current ? config_.iqn.current_taus : config_.iqn.target_taus;
         if (diagnostic) {
             const int64_t count = config_.replay_fit.iqn.num_taus;
-            return ((torch::arange(count, torch::TensorOptions().dtype(torch::kFloat32).device(device_)) + 0.5f)
-                / static_cast<float>(count)).unsqueeze(0).expand({ batch, count });
+            return MakeTauMidpointPositions(count, torch::TensorOptions().dtype(torch::kFloat32).device(device_))
+                .unsqueeze(0).expand({ batch, count });
         }
         return GenerateTaus(batch, rule.num_taus, rule.sample_mode, 0.0f, 1.0f, device_, *GetRandomGenerator());
     };
@@ -3577,6 +3580,14 @@ QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVa
     ANET_ASSERT_SHAPE(tau_i_, { 1, N, 1 });
 }
 
+ElementError QRLearner::ComputeElementError(const torch::Tensor& current,
+    const torch::Tensor& target, const torch::Tensor&, const ElementErrorRequest& request,
+    const torch::Tensor& current_mean) const
+{
+    // QRの固定分位点はLearnerが所有し、学習・診断の両経路で共有する。
+    return QuantileLearnerBase::ComputeElementError(current, target, tau_i_, request, current_mean);
+}
+
 std::shared_ptr<anet::rl::dqn::BatchUpdateResult>
 QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
@@ -3646,7 +3657,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_PROFILE_SCOPE(loss);
 
         // target_dist: (B, N) -> mean -> (B)
-        const auto error = ComputeElementError(current_dist, target_dist, tau_i_, {}, metrics.q_sa);
+        const auto error = ComputeElementError(current_dist, target_dist, {}, {}, metrics.q_sa);
         td_error_tensor = error.td;
 
         // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う

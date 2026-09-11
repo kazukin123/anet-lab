@@ -169,6 +169,11 @@ namespace anet::rl {
             TauRuleConfig tau_rule;
             FullDistributionQueryConfig full_distribution_query;
             std::string quantile_mode = "none";
+
+            bool IsThompsonSampling() const
+            {
+                return policy_type == "ThompsonSampling" || policy_type == "2";
+            }
         };
 
         struct TrainActorConfig {

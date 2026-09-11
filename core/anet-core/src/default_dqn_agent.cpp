@@ -250,7 +250,7 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
                 << "' requires quantile_mode=qr or iqn, actual='" << config_.quantile_mode << "'");
         }
         return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
-    } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
+    } else if (policy_config.IsThompsonSampling()) {
         //ThompsonSampling
         if (config_.quantile_mode == "none") {
             ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
@@ -429,7 +429,7 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
 {
     std::unique_lock<std::shared_mutex> lock(*mutex_);
     // 購読内容からResourceの必要性を決め、母数・実PERのみの購読では専用RNGを作らない。
-    bool needs_sampling = false;
+    std::array<bool, dqn::kReplayFitMetricKeys.size()> request{};
     bool replay_fit_enabled = false;
     if (config_.learner.enabled) {
         for (const auto& subscription : subscriptions) {
@@ -438,14 +438,14 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
             const auto metric = dqn::ParseReplayFitMetric(subscription.source_key);
             if (!metric) continue;
             replay_fit_enabled = true;
-            needs_sampling |= *metric <= 5 || *metric == 10 || (*metric == 12 && config_.learner.use_per);
+            request[*metric] = true;
         }
     }
-    if (replay_fit_enabled && (config_.target_policy.policy_type == "ThompsonSampling"
-        || config_.target_policy.policy_type == "2")) {
+    if (replay_fit_enabled && config_.target_policy.IsThompsonSampling()) {
         ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; target_policy.policy_type="
             << config_.target_policy.policy_type << " expected Greedy, EpsilonGreedy, or UQE.");
     }
+    const bool needs_sampling = dqn::ResolveReplayFitRequirements(request, config_.learner.use_per).NeedsSampling();
     if (needs_sampling && !replay_fit_probe_random_) {
         anet::SeedMaker seed_maker(GetSeed());
         replay_fit_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("replay_fit_probe"));

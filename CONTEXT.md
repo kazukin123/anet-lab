@@ -138,7 +138,7 @@ replay 抽選履歴群のうち、現在保持している遷移として学習�
 _Avoid_: 学習済み群, trained set
 
 **遷移の年齢**:
-ReplayBuffer内の遷移について、その遷移が属するlaneのwrite cursor（Push済み件数）から当該遷移のlogical indexを引いた値。単位はlaneのPush回数（= train step）であり、laneをまたいだexp stepではない。sampleable rangeの遷移にだけ定義し、dummyは持たない。replay 抽選履歴群の構成記述子として群ごとの平均を記録する。
+ReplayBuffer内の遷移について、その遷移が属するlaneのwrite cursor（Push済み件数）から当該遷移のlogical indexを引いた値。単位はepisode終端のdummyを含むlaneのPush回数であり、train stepやlaneをまたいだexp stepとは異なる。sampleable rangeの遷移にだけ定義し、dummy自体は平均の対象に含めない。replay 抽選履歴群の構成記述子として群ごとの平均を記録する。
 _Avoid_: staleness（`target_sync_age`のtargetの古さと混同）, recency（定性語）, exp step年齢（単位が違う）
 
 **replay 当てはまり診断**:

@@ -39,7 +39,7 @@ namespace anet::rl::dqn {
     MunchausenTargetTerms MakeMunchausenTargetTerms(
         const torch::Tensor& current_score, const torch::Tensor& next_score,
         const torch::Tensor& next_mean_q, const torch::Tensor& actions,
-        const MunchausenConfig& config, bool diagnostics = true);
+        const MunchausenConfig& config, bool collect_diagnostics = true);
 
     inline constexpr std::array<const char*, 7> kPolicyChurnMetricKeys = {
         "policy_churn_action_ratio",
@@ -59,6 +59,21 @@ namespace anet::rl::dqn {
         "replay_fit_uniform_td_mean", "replay_fit_per_td_mean", "replay_fit_per_selectivity",
     };
     using ReplayFitMetrics = std::array<float, kReplayFitMetricKeys.size()>;
+
+    struct ReplayFitRequirements {
+        bool uniform;
+        bool per;
+        bool td_u;
+        bool td_s;
+        bool loss_u;
+        bool loss_s;
+        bool counts;
+
+        bool NeedsSampling() const { return td_u || td_s || loss_u || loss_s; }
+    };
+
+    ReplayFitRequirements ResolveReplayFitRequirements(
+        const std::array<bool, kReplayFitMetricKeys.size()>& request, bool use_per);
 
     inline std::optional<size_t> ParseReplayFitMetric(const std::string& key)
     {
@@ -1145,6 +1160,9 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;
     private:
+        ElementError ComputeElementError(const torch::Tensor& current,
+            const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
+            const torch::Tensor& current_mean = {}) const override;
         torch::Tensor tau_i_; // QuantileHuberLoss 算出用
     };
 

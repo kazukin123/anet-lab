@@ -320,7 +320,7 @@ DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`か�
 
 `ProbeSamplingHistory(request, random)`は同じstorage/metadata snapshotのsampleable集合を、既存の`sampled_once_`で未抽選群Uと抽選済み群Sに分ける。通常Sample（prefetch済みを含む）でSへ移り、ringへのPushで新世代に置換されるとUへ戻る。dummyやhistory marginは候補に含めない。
 
-`counts`は両群の母数と平均年齢を返す。年齢はlaneのwrite cursorと保持中のlogical indexとの差で、単位はそのlaneへのPush回数である。空群の平均年齢はNaN。母数だけなら候補Tensor・抽選RNG・経験バッチを作らない。
+`counts`は両群の母数と平均年齢を返す。年齢はlaneのwrite cursorと保持中のlogical indexとの差で、単位はepisode終端のdummyを含むそのlaneへのPush回数である。dummy自体は平均の対象に含めない。空群の平均年齢はNaN。母数だけなら候補Tensor・抽選RNG・経験バッチを作らない。
 
 `unsampled_batch_size`と`sampled_batch_size`は独立した任意の抽出要求で、要求された群の候補だけを保持し、一様・非復元抽出する。件数は正整数、抽出時のcaller RNGは必須。不足群はnulloptとし、他群の結果を失効させない。IS weightは1で、既存extractorによりframe stack・n-step・generation-aware keyを復元する。通常sample系列、抽選履歴、PER priorityを変更しない。
 
