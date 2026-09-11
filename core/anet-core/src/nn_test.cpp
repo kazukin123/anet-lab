@@ -10,6 +10,7 @@
 #include "nn_heads.hpp"
 
 #include <ATen/autocast_mode.h>
+#include <torch/csrc/autograd/profiler_legacy.h>
 
 #include <cmath>
 #include <filesystem>
@@ -20,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -41,6 +43,23 @@ bool Contains(const std::string& text, const std::string& pattern)
     return text.find(pattern) != std::string::npos;
 }
 
+size_t CountProfileOperator(const std::function<void()>& operation, const std::string& operator_name)
+{
+    std::ostringstream output;
+    {
+        torch::autograd::profiler::RecordProfile profile(output);
+        operation();
+    }
+
+    const std::string trace = output.str();
+    const std::string needle = "\"name\": \"" + operator_name + "\"";
+    size_t count = 0;
+    for (size_t offset = 0; (offset = trace.find(needle, offset)) != std::string::npos; offset += needle.size()) {
+        ++count;
+    }
+    return count;
+}
+
 void EnsureNNInitialized()
 {
     static const bool initialized = [] {
@@ -52,6 +71,11 @@ void EnsureNNInitialized()
         return true;
     }();
     (void)initialized;
+}
+
+std::shared_ptr<anet::nn::ModuleRandomSource> MakeTestModuleRandomSource()
+{
+    return std::make_shared<anet::nn::ModuleRandomSource>(0);
 }
 
 std::vector<torch::Tensor> MakeAdamWTestParams(const torch::Device& device)
@@ -296,6 +320,16 @@ std::shared_ptr<anet::nn::NetworkModule> MakeDropoutTestModule(double dropout_ra
     }
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("Dropout");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeCosineEmbeddingTestModule(int64_t num_basis = 64)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("cos.num_basis", num_basis);
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("CosineEmbedding");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
 }
 
@@ -545,6 +579,109 @@ public:
     }
 };
 
+class ParameterNormTestModule final : public anet::nn::NetworkModule {
+public:
+    explicit ParameterNormTestModule(
+        const torch::Tensor& parameter,
+        std::shared_ptr<int> forward_count = nullptr)
+        : forward_count_(std::move(forward_count))
+    {
+        parameter_ = register_parameter("parameter", parameter.clone());
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        if (forward_count_) ++*forward_count_;
+        return input;
+    }
+
+private:
+    torch::Tensor parameter_;
+    std::shared_ptr<int> forward_count_;
+};
+
+class ParameterNormTestHead final : public anet::nn::NetworkHead {
+public:
+    explicit ParameterNormTestHead(const torch::Tensor& parameter)
+    {
+        parameter_ = register_parameter("parameter", parameter.clone());
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    {
+        return feature_dict;
+    }
+
+private:
+    torch::Tensor parameter_;
+};
+
+class ParameterNormAffineTestModule final : public anet::nn::NetworkModule {
+public:
+    ParameterNormAffineTestModule()
+    {
+        weight_ = register_parameter("weight", torch::tensor({ 3.0f, 4.0f }));
+        bias_ = register_parameter("bias", torch::tensor({ 5.0f }));
+        norm_ = register_module(
+            "norm",
+            torch::nn::LayerNorm(torch::nn::LayerNormOptions({ 2 })));
+        torch::NoGradGuard no_grad;
+        norm_->weight.copy_(torch::tensor({ 6.0f, 8.0f }));
+        norm_->bias.copy_(torch::tensor({ 12.0f, 0.0f }));
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return norm_->forward(input);
+    }
+
+private:
+    torch::Tensor weight_;
+    torch::Tensor bias_;
+    torch::nn::LayerNorm norm_{ nullptr };
+};
+
+std::shared_ptr<anet::nn::Network> MakeParameterNormTestNetwork(
+    std::shared_ptr<int> forward_count = nullptr)
+{
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    const auto make_branch = [&forward_count](
+        const std::string& name,
+        const std::string& bind,
+        const torch::Tensor& parameter) {
+        auto block = std::make_shared<anet::nn::NetworkBlock>(
+            name + "_block",
+            std::make_shared<ParameterNormTestModule>(parameter, forward_count));
+        auto structure = std::make_shared<anet::nn::NetworkStruct>(
+            std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+        return std::make_shared<anet::nn::NetworkBranch>(
+            name,
+            std::vector<std::vector<std::string>>{ { bind } },
+            1,
+            structure);
+    };
+
+    auto main_feature = make_branch("main_feature", "obs", torch::tensor({ 3.0f, 4.0f }));
+    auto value_stream = make_branch("value_stream", "main_feature", torch::tensor({ 12.0f }));
+    anet::nn::NetworkConfig config;
+    config.output_keys["features"] = "value_stream";
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ main_feature, value_stream },
+        anet::TensorSpecMap{ { "obs", spec } },
+        std::vector<std::string>{},
+        config.output_keys);
+    return std::make_shared<anet::nn::Network>(
+        config,
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        body,
+        std::make_shared<ParameterNormTestHead>(torch::tensor({ 5.0f })));
+}
+
 std::shared_ptr<anet::nn::Network> MakeDotTestNetwork(
     std::shared_ptr<anet::nn::NetworkHead> head = nullptr,
     const std::string& head_key = "feature")
@@ -564,13 +701,14 @@ std::shared_ptr<anet::nn::Network> MakeDotTestNetwork(
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
     anet::nn::NetworkBranchConfig branch_config;
     branch_config.name = "feature";
-    branch_config.bind_keys = { "obs" };
+    branch_config.bind_terms = { { "obs" } };
     branch_config.raw_keys = { "obs" };
     branch_config.auto_format = false;
     branch_config.structure_str = "Scale_0";
@@ -608,7 +746,8 @@ std::shared_ptr<anet::nn::Network> MakeSoftCopyTestNetwork(float base, int64_t c
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -645,7 +784,8 @@ std::shared_ptr<anet::nn::Network> MakeBodyOnlyDotTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -740,6 +880,281 @@ TEST_CASE("Network keeps head output FP32 under CPU autocast", "[nn][head][bf16]
     REQUIRE(func_output.At("logits").dtype() == torch::kFloat32);
 }
 
+TEST_CASE("Network bind product fuses feature and tau tensors", "[nn][bind]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[fusion].bind", "features * tau_embedding");
+    config_data.Set("net.branch.[fusion].structure", "");
+    config_data.Set("net.body.output.[features]", "fusion");
+    anet::nn::NetworkConfig config(config_data);
+
+    anet::TensorSpecMap input_specs;
+    input_specs["features"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    input_specs["tau_embedding"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 3, 2 },
+        .dtype = torch::kFloat32,
+    };
+
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
+    anet::TensorDict input;
+    input.Set("features", torch::tensor({ { 2.0f, 3.0f }, { 5.0f, 7.0f } }));
+    input.Set("tau_embedding", torch::tensor({
+        { { 1.0f, 2.0f }, { 3.0f, 4.0f }, { 5.0f, 6.0f } },
+        { { 2.0f, 3.0f }, { 4.0f, 5.0f }, { 6.0f, 7.0f } },
+    }));
+
+    const auto output = body->Forward(input);
+    const auto expected = torch::tensor({
+        { { 2.0f, 6.0f }, { 6.0f, 12.0f }, { 10.0f, 18.0f } },
+        { { 10.0f, 21.0f }, { 20.0f, 35.0f }, { 30.0f, 49.0f } },
+    });
+    CheckTensorClose(expected, output.At("features"));
+}
+
+TEST_CASE("CosineEmbedding expands taus into cosine basis features", "[nn][iqn][cosine_embedding]")
+{
+    auto module = MakeCosineEmbeddingTestModule(4);
+    const auto taus = torch::tensor(
+        { { 0.0, 0.5, 1.0 }, { 0.25, 0.75, 0.0 } },
+        torch::TensorOptions().dtype(torch::kFloat64));
+    const auto output = module->Forward(taus);
+
+    CHECK(output.sizes() == torch::IntArrayRef({ 2, 3, 4 }));
+    CHECK(output.dtype() == torch::kFloat64);
+    CHECK(output.device() == taus.device());
+    CHECK(module->GetCurrentConfigData().Get("num_basis") == "4");
+    CHECK(torch::allclose(output.select(-1, 0), torch::ones({ 2, 3 }, taus.options())));
+    CHECK(torch::allclose(output[0][0], torch::ones({ 4 }, taus.options())));
+    CHECK(torch::allclose(
+        output[0][2],
+        torch::tensor({ 1.0, -1.0, 1.0, -1.0 }, taus.options()),
+        1.0e-12,
+        1.0e-12));
+}
+
+TEST_CASE("CosineEmbedding validates its local input and config contracts", "[nn][iqn][cosine_embedding]")
+{
+    CHECK_THROWS_WITH(
+        MakeCosineEmbeddingTestModule(0),
+        Catch::Matchers::ContainsSubstring("cos.num_basis")
+        && Catch::Matchers::ContainsSubstring("value=0")
+        && Catch::Matchers::ContainsSubstring("expected=>0"));
+
+    auto module = MakeCosineEmbeddingTestModule(4);
+    CHECK_THROWS_WITH(
+        module->Forward(torch::zeros({ 2, 3, 1 })),
+        Catch::Matchers::ContainsSubstring("CosineEmbedding")
+        && Catch::Matchers::ContainsSubstring("rank=3")
+        && Catch::Matchers::ContainsSubstring("expected=2"));
+}
+
+TEST_CASE("Network bind config exposes product terms and concat dimension", "[nn][bind][config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[fusion].bind", " a(raw) * b * c , d, , ");
+    config_data.Set("net.branch.[fusion].bind_concat_dim", -1);
+    config_data.Set("net.branch.[fusion].structure", "");
+
+    const anet::nn::NetworkConfig config(config_data);
+    const auto& branch = config.branches.at("fusion");
+    CHECK(branch.bind_terms == std::vector<std::vector<std::string>>{ { "a", "b", "c" }, { "d" } });
+    CHECK(branch.bind_concat_dim == -1);
+    CHECK(branch.raw_keys == std::vector<std::string>{ "a" });
+
+    const auto json = config.ToJson();
+    const auto& branch_json = json.at("branches").at("fusion");
+    CHECK(branch_json.at("bind_terms") == branch.bind_terms);
+    CHECK(branch_json.at("bind_concat_dim") == -1);
+    CHECK(branch_json.at("raw_keys") == branch.raw_keys);
+    CHECK(branch_json.at("structure") == "");
+    CHECK_FALSE(branch_json.contains("bind_keys"));
+}
+
+TEST_CASE("Network bind product rejects empty factors with context", "[nn][bind][config]")
+{
+    for (const std::string bind : { "a**b", "*a", "a*" }) {
+        INFO("bind=" << bind);
+        anet::ConfigData config_data;
+        config_data.Set("net.branch.[fusion].bind", bind);
+        config_data.Set("net.branch.[fusion].structure", "");
+        CHECK_THROWS_WITH(
+            anet::nn::NetworkConfig(config_data),
+            Catch::Matchers::ContainsSubstring("branch 'fusion'")
+            && Catch::Matchers::ContainsSubstring("bind=\"")
+            && Catch::Matchers::ContainsSubstring(bind));
+    }
+}
+
+TEST_CASE("NetworkBodyBuilder warns once only for directly unused inputs", "[nn][bind][warning]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[feature].bind", "used");
+    config_data.Set("net.branch.[feature].structure", "");
+    config_data.Set("net.body.output.[features]", "feature");
+    config_data.Set("net.body.output.[direct]", "direct_input");
+    const anet::nn::NetworkConfig config(config_data);
+
+    anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    anet::TensorSpecMap input_specs{
+        { "used", spec },
+        { "direct_input", spec },
+        { "unused", spec },
+    };
+
+    anet::test::LogCaptureGuard logs;
+    (void)anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
+    logs.Flush();
+
+    int unused_warning_count = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.level == wxLOG_Warning && Contains(record.message, "input key 'unused'")
+            && Contains(record.message, "not bound")) {
+            ++unused_warning_count;
+        }
+        CHECK_FALSE((Contains(record.message, "input key 'direct_input'") && Contains(record.message, "not bound")));
+        CHECK_FALSE((Contains(record.message, "input key 'used'") && Contains(record.message, "not bound")));
+    }
+    CHECK(unused_warning_count == 1);
+}
+
+TEST_CASE("Network bind concat honors non-batch dimensions", "[nn][bind]")
+{
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>();
+    anet::nn::NetworkBranch branch(
+        "concat",
+        std::vector<std::vector<std::string>>{ { "a" }, { "b" } },
+        -1,
+        network_struct);
+
+    anet::TensorDict state;
+    state.Set("a", torch::tensor({ { 1.0f, 2.0f }, { 3.0f, 4.0f } }));
+    state.Set("b", torch::tensor({ { 5.0f }, { 6.0f } }));
+    branch.Execute(state);
+
+    CHECK(torch::equal(
+        state.At("concat"),
+        torch::tensor({ { 1.0f, 2.0f, 5.0f }, { 3.0f, 4.0f, 6.0f } })));
+}
+
+TEST_CASE("Network bind enforces product and concat batch contracts", "[nn][bind]")
+{
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>();
+
+    SECTION("product factors must have matching batches")
+    {
+        anet::nn::NetworkBranch branch(
+            "fusion", { { "a", "b" } }, 1, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3 }));
+        state.Set("b", torch::ones({ 3, 1, 3 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'fusion'")
+            && Catch::Matchers::ContainsSubstring("factor 'a'")
+            && Catch::Matchers::ContainsSubstring("factor 'b'")
+            && Catch::Matchers::ContainsSubstring("shape="));
+    }
+
+    SECTION("concat terms must have matching batches")
+    {
+        anet::nn::NetworkBranch branch(
+            "concat", { { "a" }, { "b" } }, 1, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3 }));
+        state.Set("b", torch::ones({ 3, 4 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
+            && Catch::Matchers::ContainsSubstring("batch size mismatch")
+            && Catch::Matchers::ContainsSubstring("term_shapes="));
+    }
+}
+
+TEST_CASE("Network bind rejects batch and out-of-range concat dimensions", "[nn][bind]")
+{
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>();
+    for (const int64_t concat_dim : { int64_t{ 0 }, int64_t{ -2 }, int64_t{ 2 } }) {
+        INFO("bind_concat_dim=" << concat_dim);
+        anet::nn::NetworkBranch branch(
+            "concat", { { "a" }, { "b" } }, concat_dim, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3 }));
+        state.Set("b", torch::ones({ 2, 4 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
+            && Catch::Matchers::ContainsSubstring("value=" + std::to_string(concat_dim))
+            && Catch::Matchers::ContainsSubstring("rank=2")
+            && Catch::Matchers::ContainsSubstring("term_shapes="));
+    }
+
+    SECTION("concat dimension must exist in every term")
+    {
+        anet::nn::NetworkBranch branch(
+            "concat", { { "a" }, { "b" } }, 2, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3, 4 }));
+        state.Set("b", torch::ones({ 2, 5 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
+            && Catch::Matchers::ContainsSubstring("value=2")
+            && Catch::Matchers::ContainsSubstring("term_rank=2")
+            && Catch::Matchers::ContainsSubstring("term_shapes="));
+    }
+}
+
+TEST_CASE("Network bind product factors participate in DAG validation", "[nn][bind]")
+{
+    anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+
+    SECTION("factor dependency determines execution order")
+    {
+        anet::ConfigData config_data;
+        config_data.Set("net.branch.[base].bind", "obs");
+        config_data.Set("net.branch.[base].structure", "");
+        config_data.Set("net.branch.[fusion].bind", "base * scale");
+        config_data.Set("net.branch.[fusion].structure", "");
+        config_data.Set("net.body.output.[features]", "fusion");
+        const anet::nn::NetworkConfig config(config_data);
+        auto body = anet::nn::NetworkBodyBuilder::Build(
+            config, anet::TensorSpecMap{ { "obs", spec }, { "scale", spec } },
+            MakeTestModuleRandomSource());
+        REQUIRE(body->GetBranches().size() == 2);
+        CHECK(body->GetBranches()[0]->GetName() == "base");
+        CHECK(body->GetBranches()[1]->GetName() == "fusion");
+    }
+
+    SECTION("factor dependency cycles fail fast")
+    {
+        anet::ConfigData config_data;
+        config_data.Set("net.branch.[a].bind", "obs * b");
+        config_data.Set("net.branch.[a].structure", "");
+        config_data.Set("net.branch.[b].bind", "a");
+        config_data.Set("net.branch.[b].structure", "");
+        const anet::nn::NetworkConfig config(config_data);
+        CHECK_THROWS_WITH(
+            anet::nn::NetworkBodyBuilder::Build(
+                config, anet::TensorSpecMap{ { "obs", spec } }, MakeTestModuleRandomSource()),
+            Catch::Matchers::ContainsSubstring("Cycle detected"));
+    }
+}
+
 TEST_CASE("BatchNorm2d runs in FP32 after BF16 autocast convolution", "[nn][batchnorm][bf16]")
 {
     EnsureNNInitialized();
@@ -778,6 +1193,7 @@ TEST_CASE("BatchNorm2d runs in FP32 after BF16 autocast convolution", "[nn][batc
             network_config,
             input_specs,
             nullptr,
+            0,
             device);
 
         anet::TensorDict input;
@@ -1041,7 +1457,8 @@ std::shared_ptr<anet::nn::Network> MakeTraceTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -1169,7 +1586,8 @@ TEST_CASE("NetworkBuilder builds MaxPool2d and GAP2D pipeline", "[nn][pool]")
     input_specs["obs"] = obs_spec;
 
     auto network_config = anet::nn::NetworkConfig(config_data);
-    auto network = anet::nn::NetworkBuilder::BuildNetwork(network_config, input_specs, nullptr, torch::Device(torch::kCPU));
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        network_config, input_specs, nullptr, 0, torch::Device(torch::kCPU));
 
     anet::TensorDict input;
     input.Set("obs", torch::arange(0, 16, torch::kFloat32).reshape({ 1, 1, 4, 4 }));
@@ -1203,7 +1621,7 @@ TEST_CASE("Network config profile expands linear markers by branch order", "[nn]
     CHECK(json.at("config_profiles").at("dp").at("end") == 0.1);
 
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
-        config, config.branches.at("feature").structure_str);
+        config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
     const auto rates = GetDropoutRates(network_struct);
 
     REQUIRE(rates.size() == 18);
@@ -1215,6 +1633,32 @@ TEST_CASE("Network config profile expands linear markers by branch order", "[nn]
     CHECK(rates[3] > rates[2]);
     CHECK(rates[6] > rates[5]);
     CHECK(rates[15] > rates[14]);
+}
+
+TEST_CASE("NetworkConfig merges global catalogs into an agent-owned net tree", "[nn][config][agent_net]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Drop].type", "Dropout");
+    config_data.Set("net.block.[Drop].dropout_rate", 0.25);
+    config_data.Set("net.config_profile.[dp].type", "linear");
+    config_data.Set("net.config_profile.[dp].start", 0.0);
+    config_data.Set("net.config_profile.[dp].end", 0.5);
+    config_data.Set("DefaultDQNAgent.net.block.[Drop].dropout_rate", 0.4);
+    config_data.Set("DefaultDQNAgent.net.config_profile.[dp].end", 0.75);
+    config_data.Set("DefaultDQNAgent.net.branch.[feature].bind", "obs");
+    config_data.Set("DefaultDQNAgent.net.branch.[feature].structure", "Drop(*2)");
+    config_data.Set("DefaultDQNAgent.net.body.output.[features]", "feature");
+
+    const anet::nn::NetworkConfig config(config_data, "DefaultDQNAgent.net");
+
+    REQUIRE(config.block_configs.contains("Drop"));
+    CHECK(config.block_configs.at("Drop").type == "Dropout");
+    CHECK(config.block_configs.at("Drop").config_data.Get("dropout_rate") == "0.4");
+    REQUIRE(config.config_profiles.contains("dp"));
+    CHECK(config.config_profiles.at("dp").start == Catch::Approx(0.0));
+    CHECK(config.config_profiles.at("dp").end == Catch::Approx(0.75));
+    REQUIRE(config.branches.contains("feature"));
+    CHECK(config.output_keys.at("features") == "feature");
 }
 
 TEST_CASE("Network config profile returns start for a single marker", "[nn][config_profile]")
@@ -1232,7 +1676,7 @@ TEST_CASE("Network config profile returns start for a single marker", "[nn][conf
 
     anet::nn::NetworkConfig config(config_data);
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
-        config, config.branches.at("feature").structure_str);
+        config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
     const auto rates = GetDropoutRates(network_struct);
 
     REQUIRE(rates.size() == 1);
@@ -1261,7 +1705,7 @@ TEST_CASE("Network config profile supports branch-local overrides", "[nn][config
 
     anet::TensorSpecMap input_specs;
     input_specs["obs"] = MakeConfigProfileVectorSpec();
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     REQUIRE(body);
 
     const auto base_rates = GetDropoutRates(GetBranchNetworkStruct(body, "base"));
@@ -1291,11 +1735,11 @@ TEST_CASE("Network config profile leaves marker-free branches on original config
     anet::nn::NetworkConfig config(config_data);
     anet::TensorSpecMap input_specs;
     input_specs["obs"] = MakeConfigProfileVectorSpec();
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     REQUIRE(body);
 
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
-        config, config.branches.at("feature").structure_str);
+        config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
     const auto rates = GetDropoutRates(network_struct);
 
     REQUIRE(rates.size() == 1);
@@ -1313,7 +1757,8 @@ TEST_CASE("Network config profile rejects invalid marker settings", "[nn][config
     undefined_group.Set("net.branch.[feature].structure", std::string("Drop"));
     anet::nn::NetworkConfig undefined_config(undefined_group);
     CHECK_THROWS(anet::nn::NetworkStructBuilder::Build(
-        undefined_config, undefined_config.branches.at("feature").structure_str));
+        undefined_config, undefined_config.branches.at("feature").structure_str,
+        MakeTestModuleRandomSource()));
 
     anet::ConfigData missing_end;
     missing_end.Set("net.config_profile.[dp].type", std::string("linear"));
@@ -1354,7 +1799,7 @@ TEST_CASE("Network config profile expands same group independently per branch", 
     input_specs["obs_a"] = MakeConfigProfileVectorSpec();
     input_specs["obs_b"] = MakeConfigProfileVectorSpec();
 
-    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     REQUIRE(body);
 
     const auto a_rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature_a"));
@@ -1754,6 +2199,40 @@ TEST_CASE("Network dot view emits structure by default and configurable details"
     CHECK(Contains(branch_detail_dot, ">false</TD>"));
     CHECK(Contains(branch_detail_dot, "raw_keys"));
     CHECK(Contains(branch_detail_dot, ">obs</TD>"));
+    CHECK(Contains(branch_detail_dot, "bind_concat_dim"));
+    CHECK(Contains(branch_detail_dot, ">1</TD>"));
+}
+
+TEST_CASE("Network dot view emits an edge for every bind product factor", "[nn][bind][dot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[fusion].bind", "features * tau_embedding");
+    config_data.Set("net.branch.[fusion].structure", "");
+    config_data.Set("net.body.output.[features]", "fusion");
+    const anet::nn::NetworkConfig config(config_data);
+
+    anet::TensorSpecMap input_specs;
+    input_specs["features"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    input_specs["tau_embedding"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 3, 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        config, input_specs, nullptr, 0, torch::Device(torch::kCPU));
+
+    anet::nn::NetworkGraphVizConfig viz_config;
+    viz_config.show_branch_config = true;
+    const auto dot = network->MakeGraphViz(viz_config)->ToDotString();
+    CHECK(Contains(dot, "\"input_features\" -> \"branch_fusion\""));
+    CHECK(Contains(dot, "label=\"features\""));
+    CHECK(Contains(dot, "\"input_tau_embedding\" -> \"branch_fusion\""));
+    CHECK(Contains(dot, "label=\"tau_embedding\""));
+    CHECK(Contains(dot, "bind_concat_dim"));
 }
 
 TEST_CASE("Network dot view emits head outputs and optional head info", "[nn][dot][head]")
@@ -1792,6 +2271,1013 @@ TEST_CASE("Network dot view emits head outputs and optional head info", "[nn][do
     CHECK(Contains(detail_dot, ">shape</TD>"));
     CHECK(Contains(detail_dot, "[3, 5]"));
     CHECK(Contains(detail_dot, "num_quantiles"));
+}
+
+TEST_CASE("Network partial forward executes only the target dependency closure", "[nn][partial_forward][plasticity]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[base].bind", "obs");
+    config_data.Set("net.branch.[base].structure", "");
+    config_data.Set("net.branch.[target].bind", "base");
+    config_data.Set("net.branch.[target].structure", "");
+    config_data.Set("net.branch.[unrelated].bind", "aux");
+    config_data.Set("net.branch.[unrelated].structure", "");
+    config_data.Set("net.body.output.[features]", "target");
+
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec }, { "aux", spec } },
+        nullptr,
+        0,
+        torch::Device(torch::kCPU));
+
+    anet::TensorDict input;
+    input.Set("obs", torch::tensor({ { 1.0f, 2.0f } }));
+    input.Set("aux", torch::tensor({ { 3.0f, 4.0f } }));
+
+    const auto state = network->ForwardUpTo(input, "target");
+
+    CHECK(state.Contains("obs"));
+    CHECK(state.Contains("aux"));
+    CHECK(state.Contains("base"));
+    CHECK(state.Contains("target"));
+    CHECK_FALSE(state.Contains("unrelated"));
+    const auto branch_names = network->GetBranchNames();
+    CHECK(std::set<std::string>(branch_names.begin(), branch_names.end())
+        == std::set<std::string>{ "base", "target", "unrelated" });
+}
+
+TEST_CASE("Linear spectral normalization is constructed from config", "[nn][spectral_norm]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].init.mode", "xavier");
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        65065,
+        torch::Device(torch::kCPU));
+
+    const auto entries = network->GetSpectralNormEntries();
+    REQUIRE(entries.size() == 1);
+    CHECK(entries.front().name == "feature.Linear_0.linear");
+    CHECK(entries.front().u.dim() == 1);
+    CHECK(entries.front().v.dim() == 1);
+    bool has_sn_u_linear = false;
+    bool has_sn_v_linear = false;
+    for (const auto& item : network->named_buffers(true)) {
+        has_sn_u_linear |= item.key().ends_with("sn_u_linear");
+        has_sn_v_linear |= item.key().ends_with("sn_v_linear");
+    }
+    CHECK(has_sn_u_linear);
+    CHECK(has_sn_v_linear);
+
+    network->eval();
+    anet::TensorDict input;
+    const auto x = torch::tensor({ { 1.0f, -2.0f } });
+    input.Set("obs", x);
+    const auto output = network->Forward(input).At("feature");
+
+    const auto& entry = entries.front();
+    const auto sigma = anet::nn::ComputeSpectralSigma(
+        entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v);
+    torch::Tensor bias;
+    for (const auto& item : network->named_parameters(true)) {
+        if (item.key().ends_with("linear.bias")) bias = item.value();
+    }
+    REQUIRE(bias.defined());
+    const auto expected = torch::nn::functional::linear(x, entry.weight / sigma, bias);
+    CHECK(torch::allclose(output, expected, 1.0e-5, 1.0e-6));
+}
+
+TEST_CASE("Spectral normalization sigma and gradient match an analytic diagonal matrix", "[nn][spectral_norm][math]")
+{
+    auto weight = torch::tensor(
+        { { 3.0f, 0.0f }, { 0.0f, 2.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+    anet::nn::SpectralNormState state{
+        .u = torch::tensor({ 1.0f, 0.0f }),
+        .v = torch::tensor({ 1.0f, 0.0f }),
+    };
+
+    const auto sigma = anet::nn::ComputeSpectralSigma(weight, state.u, state.v);
+    CHECK(sigma.scalar_type() == torch::kFloat32);
+    CHECK(sigma.item<float>() == Catch::Approx(3.0f));
+
+    const auto normalized = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectral, state, /*update_state=*/false);
+    normalized.sum().backward();
+    const auto expected_gradient = torch::tensor(
+        { { -2.0f / 9.0f, 1.0f / 3.0f }, { 1.0f / 3.0f, 1.0f / 3.0f } });
+    CHECK(torch::allclose(weight.grad(), expected_gradient, 1.0e-6, 1.0e-6));
+}
+
+TEST_CASE("Spectral normalization gradient matches central difference", "[nn][spectral_norm][math]")
+{
+    auto weight = torch::tensor(
+        { { 2.0f, 0.5f }, { -0.25f, 1.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+    anet::nn::SpectralNormState state{
+        .u = torch::tensor({ 1.0f, 0.0f }),
+        .v = torch::tensor({ 1.0f, 0.0f }),
+    };
+    const auto loss = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectral, state, /*update_state=*/false).square().sum();
+    loss.backward();
+    const float analytic = weight.grad()[0][1].item<float>();
+
+    constexpr float kEps = 1.0e-3f;
+    const auto evaluate = [&](float delta) {
+        auto perturbed = weight.detach().clone();
+        perturbed[0][1].add_(delta);
+        return anet::nn::MakeSpectralNormalizedWeight(
+            perturbed, anet::nn::WeightNormMode::kSpectral, state,
+            /*update_state=*/false).square().sum().item<float>();
+    };
+    const float numeric = (evaluate(kEps) - evaluate(-kEps)) / (2.0f * kEps);
+    CHECK(analytic == Catch::Approx(numeric).margin(2.0e-3f));
+}
+
+TEST_CASE("Spectral normalization computes sigma in FP32 with autocast enabled", "[nn][spectral_norm][autocast]")
+{
+    auto weight = torch::tensor(
+        { { 3.0f, 0.0f }, { 0.0f, 2.0f } },
+        torch::TensorOptions().dtype(torch::kBFloat16));
+    const auto u = torch::tensor({ 1.0f, 0.0f });
+    const auto v = torch::tensor({ 1.0f, 0.0f });
+
+    anet::Autocast autocast(torch::Device(torch::kCPU), true, torch::kBFloat16);
+    const auto sigma = anet::nn::ComputeSpectralSigma(weight, u, v);
+
+    CHECK(sigma.scalar_type() == torch::kFloat32);
+    CHECK(sigma.item<float>() == Catch::Approx(3.0f));
+}
+
+TEST_CASE("Spectral cap preserves zero initialization and activates after a nonzero transition", "[nn][spectral_norm][spectral_cap]")
+{
+    auto weight = torch::zeros(
+        { 2, 2 }, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+    anet::RandomGenerator rnd(65065);
+    auto state = anet::nn::MakeSpectralNormState(
+        weight, anet::nn::WeightNormMode::kSpectralCap, "zero", rnd);
+    const auto u_before = state.u.clone();
+    const auto v_before = state.v.clone();
+
+    auto effective = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectralCap, state, /*update_state=*/true);
+    CHECK(torch::equal(effective, weight));
+    CHECK(torch::equal(state.u, u_before));
+    CHECK(torch::equal(state.v, v_before));
+    effective.sum().backward();
+    CHECK(torch::equal(weight.grad(), torch::ones_like(weight)));
+
+    {
+        torch::NoGradGuard no_grad;
+        weight[0][0].fill_(2.0f);
+    }
+    effective = anet::nn::MakeSpectralNormalizedWeight(
+        weight, anet::nn::WeightNormMode::kSpectralCap, state, /*update_state=*/true);
+    const auto sigma = anet::nn::ComputeSpectralSigma(weight, state.u, state.v).abs();
+    CHECK(sigma.item<float>() == Catch::Approx(2.0f).margin(1.0e-5f));
+    CHECK(effective[0][0].item<float>() == Catch::Approx(1.0f).margin(1.0e-5f));
+}
+
+TEST_CASE("Spectral normalization rejects a degenerate spectral initialization", "[nn][spectral_norm][config]")
+{
+    auto weight = torch::zeros({ 2, 2 }, torch::kFloat32);
+    anet::RandomGenerator rnd(65065);
+
+    CHECK_THROWS_WITH(
+        anet::nn::MakeSpectralNormState(
+            weight, anet::nn::WeightNormMode::kSpectral, "zero_linear", rnd),
+        Catch::Matchers::ContainsSubstring("zero_linear")
+            && Catch::Matchers::ContainsSubstring("spectral_cap"));
+    CHECK_THROWS_WITH(
+        anet::nn::ParseWeightNormMode("mystery"),
+        Catch::Matchers::ContainsSubstring("weight_norm.mode")
+            && Catch::Matchers::ContainsSubstring("mystery")
+            && Catch::Matchers::ContainsSubstring("none, spectral, spectral_cap"));
+}
+
+TEST_CASE("Spectral normalization requires an explicit network random source", "[nn][spectral_norm][seed]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 3);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+
+    CHECK_THROWS_WITH(
+        anet::nn::NetworkBodyBuilder::Build(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr),
+        Catch::Matchers::ContainsSubstring("Linear")
+            && Catch::Matchers::ContainsSubstring("Network-scoped ModuleRandomSource"));
+}
+
+TEST_CASE("Spectral normalization updates buffers only in training with GradMode", "[nn][spectral_norm][buffer]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 3);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 65065, torch::Device(torch::kCPU));
+    anet::TensorDict input{ { "obs", torch::tensor({ { 0.25f, -1.5f } }) } };
+    {
+        torch::NoGradGuard no_grad;
+        auto entry = network->GetSpectralNormEntries().front();
+        entry.u.copy_(torch::tensor({ 1.0f, 0.0f, 0.0f }));
+        entry.v.copy_(torch::tensor({ 1.0f, 0.0f }));
+    }
+    const auto initial_u = network->GetSpectralNormEntries().front().u.clone();
+
+    network->eval();
+    (void)network->Forward(input);
+    CHECK(torch::equal(network->GetSpectralNormEntries().front().u, initial_u));
+
+    network->train();
+    {
+        torch::NoGradGuard no_grad;
+        (void)network->Forward(input);
+    }
+    CHECK(torch::equal(network->GetSpectralNormEntries().front().u, initial_u));
+
+    (void)network->Forward(input);
+    CHECK_FALSE(torch::equal(network->GetSpectralNormEntries().front().u, initial_u));
+}
+
+TEST_CASE("Spectral normalization covers convolution residual ConvNeXt and Transformer weights", "[nn][spectral_norm][modules]")
+{
+    EnsureNNInitialized();
+    const auto create = [](const std::string& type, anet::ConfigData config_data) {
+        config_data.Set("weight_norm.mode", "spectral");
+        anet::nn::ModuleContext context{
+            .random_source = std::make_shared<anet::nn::ModuleRandomSource>(65065),
+        };
+        return anet::nn::NetworkModuleRepository::Instance().GetFactory(type)->CreateModule(config_data, context);
+    };
+    const auto check_module = [](const auto& module, const std::set<std::string>& expected) {
+        std::set<std::string> actual;
+        for (const auto& entry : module->GetSpectralNormEntries()) actual.insert(entry.name);
+        CHECK(actual == expected);
+        CHECK(module->GetCurrentConfigData().Get("weight_norm.mode") == "spectral");
+    };
+
+    SECTION("Conv1d") {
+        anet::ConfigData config;
+        config.Set("conv.out_channels", 4);
+        config.Set("conv.kernel_size", 3);
+        auto module = create("Conv1d", config);
+        auto input = torch::randn({ 2, 3, 8 });
+        CHECK(module->Forward(input).sizes() == torch::IntArrayRef({ 2, 4, 6 }));
+        check_module(module, { "conv" });
+    }
+    SECTION("Conv2d") {
+        anet::ConfigData config;
+        config.Set("conv.out_channels", 4);
+        config.Set("conv.kernel_size", 3);
+        auto module = create("Conv2d", config);
+        auto input = torch::randn({ 2, 3, 8, 8 });
+        CHECK(module->Forward(input).sizes() == torch::IntArrayRef({ 2, 4, 6, 6 }));
+        check_module(module, { "conv2d" });
+    }
+    SECTION("ResBlock") {
+        anet::ConfigData config;
+        config.Set("res.channels", 4);
+        config.Set("res.kernel_size", 3);
+        config.Set("res.padding", 1);
+        config.Set("res.stride", 2);
+        config.Set("init2.mode", "he");
+        auto module = create("ResBlock", config);
+        auto input = torch::randn({ 2, 3, 8, 8 });
+        CHECK(module->Forward(input).sizes() == torch::IntArrayRef({ 2, 4, 4, 4 }));
+        check_module(module, { "conv1", "conv2", "downsample" });
+    }
+    SECTION("CNBlock") {
+        anet::ConfigData config;
+        config.Set("cn.channels", 3);
+        config.Set("cn.kernel_size", 3);
+        config.Set("cn.ffn_expand_ratio", 2);
+        auto module = create("CNBlock", config);
+        auto input = torch::randn({ 2, 3, 8, 8 });
+        CHECK(module->Forward(input).sizes() == input.sizes());
+        check_module(module, { "dwconv", "pwconv1", "pwconv2" });
+    }
+    SECTION("TransformerEncoder") {
+        anet::ConfigData config;
+        config.Set("tf.d_model", 4);
+        config.Set("tf.nhead", 2);
+        config.Set("tf.num_layers", 2);
+        config.Set("tf.dim_feedforward", 8);
+        config.Set("tf.use_sdpa", true);
+        auto module = create("TransformerEncoder", config);
+        auto input = torch::randn({ 2, 3, 4 });
+        input.requires_grad_(true);
+        const auto output = module->Forward(input);
+        CHECK(output.sizes() == input.sizes());
+        check_module(module, {
+            "layer_0.q", "layer_0.k", "layer_0.v", "layer_0.out_proj", "layer_0.linear1", "layer_0.linear2",
+            "layer_1.q", "layer_1.k", "layer_1.v", "layer_1.out_proj", "layer_1.linear1", "layer_1.linear2" });
+        output.backward(torch::randn_like(output));
+        const auto packed_grad = GetNamedParameter(*module, "layer_0.self_attn.in_proj_weight").grad();
+        REQUIRE(packed_grad.defined());
+        const auto qkv_grad = packed_grad.chunk(3, 0);
+        CHECK(qkv_grad[0].abs().sum().item<float>() > 0.0f);
+        CHECK(qkv_grad[1].abs().sum().item<float>() > 0.0f);
+        CHECK(qkv_grad[2].abs().sum().item<float>() > 0.0f);
+    }
+}
+
+TEST_CASE("Transformer spectral normalization requires SDPA", "[nn][spectral_norm][transformer][config]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config;
+    config.Set("tf.d_model", 4);
+    config.Set("tf.nhead", 2);
+    config.Set("tf.use_sdpa", false);
+    config.Set("weight_norm.mode", "spectral");
+    anet::nn::ModuleContext context{
+        .random_source = std::make_shared<anet::nn::ModuleRandomSource>(65065),
+    };
+
+    CHECK_THROWS_WITH(
+        anet::nn::NetworkModuleRepository::Instance().GetFactory("TransformerEncoder")
+            ->CreateModule(config, context),
+        Catch::Matchers::ContainsSubstring("weight_norm.mode=spectral")
+            && Catch::Matchers::ContainsSubstring("tf.use_sdpa=true"));
+}
+
+TEST_CASE("Spectral normalization uses reproducible purpose-local randomness", "[nn][spectral_norm][seed]")
+{
+    anet::nn::ModuleRandomSource first(65065);
+    const auto first_spectral = first.Get("spectral_norm");
+    const auto spectral_value = first_spectral->RandUint64();
+    const auto other_value = first.Get("other")->RandUint64();
+    CHECK(first.Get("spectral_norm") == first_spectral);
+
+    anet::nn::ModuleRandomSource reordered(65065);
+    CHECK(reordered.Get("other")->RandUint64() == other_value);
+    CHECK(reordered.Get("spectral_norm")->RandUint64() == spectral_value);
+}
+
+TEST_CASE("Spectral normalization seed does not perturb parameter initialization", "[nn][spectral_norm][seed]")
+{
+    EnsureNNInitialized();
+    const auto build = [](const std::string& mode, anet::seed_t seed) {
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 3);
+        config_data.Set("net.block.[Linear].weight_norm.mode", mode);
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        const anet::TensorSpec spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        return anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr, seed, torch::Device(torch::kCPU));
+    };
+
+    torch::manual_seed(9123);
+    auto without_sn = build("none", 1);
+    torch::manual_seed(9123);
+    auto with_sn = build("spectral", 65065);
+    const auto without_params = without_sn->named_parameters(true);
+    const auto with_params = with_sn->named_parameters(true);
+    REQUIRE(without_params.size() == with_params.size());
+    for (const auto& item : without_params) {
+        INFO(item.key());
+        CHECK(torch::equal(item.value(), with_params[item.key()]));
+    }
+
+    torch::manual_seed(9123);
+    auto same_seed = build("spectral", 65065);
+    const auto first_entries = with_sn->GetSpectralNormEntries();
+    const auto same_entries = same_seed->GetSpectralNormEntries();
+    REQUIRE(first_entries.size() == same_entries.size());
+    CHECK(torch::equal(first_entries.front().u, same_entries.front().u));
+    CHECK(torch::equal(first_entries.front().v, same_entries.front().v));
+
+    without_sn->eval();
+    anet::TensorDict input{ { "obs", torch::tensor({ { 0.5f, -2.0f } }) } };
+    torch::NoGradGuard no_grad;
+    const auto direct = without_sn->Forward(input).At("feature");
+    torch::manual_seed(9123);
+    auto explicit_none = build("none", 999);
+    explicit_none->eval();
+    CHECK(torch::equal(direct, explicit_none->Forward(input).At("feature")));
+}
+
+TEST_CASE("Network parameter norm replaces only spectral weights with effective values", "[nn][spectral_norm][plasticity]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 2);
+    config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Linear");
+    config_data.Set("net.body.output.[feature]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 65065, torch::Device(torch::kCPU));
+    auto entry = network->GetSpectralNormEntries().front();
+    torch::Tensor bias;
+    for (const auto& item : network->named_parameters(true)) {
+        if (item.key().ends_with("linear.bias")) bias = item.value();
+    }
+    REQUIRE(bias.defined());
+    {
+        torch::NoGradGuard no_grad;
+        entry.weight.copy_(torch::tensor({ { 3.0f, 0.0f }, { 0.0f, 2.0f } }));
+        bias.copy_(torch::tensor({ 4.0f, 0.0f }));
+        entry.u.copy_(torch::tensor({ 1.0f, 0.0f }));
+        entry.v.copy_(torch::tensor({ 1.0f, 0.0f }));
+    }
+
+    const auto norms = network->ComputeParameterNormSplit("feature");
+    CHECK(norms.feature.item<float>() == Catch::Approx(std::sqrt(29.0f)));
+    CHECK(norms.feature_effective.item<float>() == Catch::Approx(std::sqrt(157.0f / 9.0f)));
+    CHECK(norms.sigma_feature_max.item<float>() == Catch::Approx(3.0f));
+    CHECK(norms.readout.item<float>() == 0.0f);
+    CHECK(norms.readout_effective.item<float>() == 0.0f);
+    CHECK(std::isnan(norms.sigma_readout_max.item<float>()));
+    CHECK(norms.invalid_count.item<float>() == 0.0f);
+}
+
+TEST_CASE("Spectral normalization buffers survive clone copy and serialization", "[nn][spectral_norm][seed][serialize]")
+{
+    EnsureNNInitialized();
+    const auto build = [](anet::seed_t seed) {
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 3);
+        config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        const anet::TensorSpec spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        return anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr, seed, torch::Device(torch::kCPU));
+    };
+
+    torch::manual_seed(1001);
+    auto source = build(65065);
+    auto cloned = source->Clone(torch::Device(torch::kCPU));
+    const auto source_entry = source->GetSpectralNormEntries().front();
+    const auto cloned_entry = cloned->GetSpectralNormEntries().front();
+    CHECK(torch::equal(source_entry.u, cloned_entry.u));
+    CHECK(torch::equal(source_entry.v, cloned_entry.v));
+    CHECK(source_entry.u.data_ptr<float>() != cloned_entry.u.data_ptr<float>());
+
+    torch::manual_seed(1002);
+    auto copied = build(123);
+    source->CopyTo(*copied);
+    CHECK(torch::equal(source_entry.u, copied->GetSpectralNormEntries().front().u));
+    CHECK(torch::equal(source_entry.v, copied->GetSpectralNormEntries().front().v));
+
+    torch::manual_seed(1003);
+    auto restored = build(456);
+    std::stringstream archive(std::ios::in | std::ios::out | std::ios::binary);
+    std::shared_ptr<torch::nn::Module> source_base = source;
+    torch::save(source_base, archive);
+    archive.seekg(0);
+    std::shared_ptr<torch::nn::Module> restored_base = restored;
+    torch::load(restored_base, archive);
+    CHECK(torch::equal(source_entry.u, restored->GetSpectralNormEntries().front().u));
+    CHECK(torch::equal(source_entry.v, restored->GetSpectralNormEntries().front().v));
+}
+
+TEST_CASE("Spectral normalization soft copy validates tau before mutation and renormalizes buffers", "[nn][spectral_norm][soft-copy]")
+{
+    EnsureNNInitialized();
+    const auto build = [](anet::seed_t seed) {
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Linear].type", "Linear");
+        config_data.Set("net.block.[Linear].linear.out_features", 3);
+        config_data.Set("net.block.[Linear].weight_norm.mode", "spectral");
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Linear");
+        config_data.Set("net.body.output.[feature]", "feature");
+        const anet::TensorSpec spec{
+            .type = anet::SpaceType::Vector,
+            .shape = { 2 },
+            .dtype = torch::kFloat32,
+        };
+        return anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(config_data),
+            anet::TensorSpecMap{ { "obs", spec } }, nullptr, seed, torch::Device(torch::kCPU));
+    };
+
+    torch::manual_seed(111);
+    auto source = build(65065);
+    torch::manual_seed(222);
+    auto target = build(65066);
+    std::map<std::string, torch::Tensor> target_before;
+    for (const auto& item : target->named_parameters(true)) {
+        target_before.emplace(item.key(), item.value().detach().clone());
+    }
+    for (const auto& item : target->named_buffers(true)) {
+        target_before.emplace(item.key(), item.value().detach().clone());
+    }
+
+    for (const double invalid_tau : {
+        -0.001, 0.100001, 0.5, std::numeric_limits<double>::quiet_NaN() }) {
+        CHECK_THROWS(source->SoftCopyTo(*target, invalid_tau));
+        for (const auto& item : target->named_parameters(true)) {
+            CHECK(torch::equal(item.value(), target_before.at(item.key())));
+        }
+        for (const auto& item : target->named_buffers(true)) {
+            CHECK(torch::equal(item.value(), target_before.at(item.key())));
+        }
+    }
+
+    for (const double valid_tau : { 0.0, static_cast<double>(0.1f), 1.0 }) {
+        CHECK_NOTHROW(source->SoftCopyTo(*target, valid_tau));
+        for (const auto& entry : target->GetSpectralNormEntries()) {
+            CHECK(entry.u.norm().item<float>() == Catch::Approx(1.0f).margin(1.0e-5f));
+            CHECK(entry.v.norm().item<float>() == Catch::Approx(1.0f).margin(1.0e-5f));
+        }
+    }
+}
+
+TEST_CASE("Network splits parameter norm at the feature dependency closure", "[nn][plasticity][weight_norm]")
+{
+    auto network = MakeParameterNormTestNetwork();
+
+    const auto norms = network->ComputeParameterNormSplit("main_feature");
+
+    CHECK(norms.feature.dim() == 0);
+    CHECK(norms.readout.dim() == 0);
+    CHECK(norms.feature.scalar_type() == torch::kFloat32);
+    CHECK(norms.readout.scalar_type() == torch::kFloat32);
+    CHECK(norms.feature.item<float>() == Catch::Approx(5.0f));
+    CHECK(norms.readout.item<float>() == Catch::Approx(13.0f));
+    CHECK(norms.feature_effective.item<float>() == Catch::Approx(5.0f));
+    CHECK(norms.readout_effective.item<float>() == Catch::Approx(13.0f));
+    CHECK(std::isnan(norms.sigma_feature_max.item<float>()));
+    CHECK(std::isnan(norms.sigma_readout_max.item<float>()));
+    CHECK(norms.invalid_count.item<float>() == 0.0f);
+}
+
+TEST_CASE("Network parameter norm includes weight bias and normalization affine parameters", "[nn][plasticity][weight_norm]")
+{
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto block = std::make_shared<anet::nn::NetworkBlock>(
+        "affine_block",
+        std::make_shared<ParameterNormAffineTestModule>());
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "main_feature",
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
+        std::make_shared<anet::nn::NetworkStruct>(
+            std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block }));
+    anet::nn::NetworkConfig config;
+    config.output_keys["features"] = "main_feature";
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        anet::TensorSpecMap{ { "obs", spec } },
+        std::vector<std::string>{},
+        config.output_keys);
+    auto network = std::make_shared<anet::nn::Network>(
+        config,
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        body,
+        nullptr);
+
+    const auto norms = network->ComputeParameterNormSplit("main_feature");
+
+    CHECK(norms.feature.item<float>() == Catch::Approx(std::sqrt(294.0f)));
+    CHECK(norms.readout.item<float>() == 0.0f);
+}
+
+TEST_CASE("Network parameter norm returns CPU zeros when the network has no tensors", "[nn][plasticity][weight_norm]")
+{
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "main_feature",
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
+        std::make_shared<anet::nn::NetworkStruct>(
+            std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{}));
+    anet::nn::NetworkConfig config;
+    config.output_keys["features"] = "main_feature";
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        anet::TensorSpecMap{ { "obs", spec } },
+        std::vector<std::string>{},
+        config.output_keys);
+    auto network = std::make_shared<anet::nn::Network>(
+        config,
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        body,
+        nullptr);
+
+    const auto norms = network->ComputeParameterNormSplit("main_feature");
+
+    CHECK(norms.feature.device().is_cpu());
+    CHECK(norms.readout.device().is_cpu());
+    CHECK(norms.feature.item<float>() == 0.0f);
+    CHECK(norms.readout.item<float>() == 0.0f);
+}
+
+TEST_CASE("Network computes BF16 parameter norm in FP32 without changing parameters", "[nn][plasticity][weight_norm][bf16]")
+{
+    auto network = MakeParameterNormTestNetwork();
+    network->to(torch::kBFloat16);
+
+    const auto norms = network->ComputeParameterNormSplit("main_feature");
+
+    CHECK(norms.feature.scalar_type() == torch::kFloat32);
+    CHECK(norms.readout.scalar_type() == torch::kFloat32);
+    CHECK(norms.feature.item<float>() == Catch::Approx(5.0f));
+    CHECK(norms.readout.item<float>() == Catch::Approx(13.0f));
+    for (const auto& parameter : network->parameters()) {
+        CHECK(parameter.scalar_type() == torch::kBFloat16);
+    }
+}
+
+TEST_CASE("Network excludes frozen parameters and returns zero for empty groups", "[nn][plasticity][weight_norm]")
+{
+    auto network = MakeParameterNormTestNetwork();
+    for (auto& item : network->named_parameters()) {
+        if (item.key().find("value_stream") != std::string::npos
+            || item.key().starts_with("head.")) {
+            item.value().requires_grad_(false);
+        }
+    }
+
+    const auto readout_empty = network->ComputeParameterNormSplit("main_feature");
+    CHECK(readout_empty.feature.item<float>() == Catch::Approx(5.0f));
+    CHECK(readout_empty.readout.item<float>() == 0.0f);
+
+    for (auto& item : network->named_parameters()) {
+        item.value().requires_grad_(false);
+    }
+    const auto both_empty = network->ComputeParameterNormSplit("main_feature");
+    CHECK(both_empty.feature.item<float>() == 0.0f);
+    CHECK(both_empty.readout.item<float>() == 0.0f);
+}
+
+TEST_CASE("Network keeps IQN tau fusion and readout branches outside the feature norm group", "[nn][plasticity][weight_norm][iqn]")
+{
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    const auto make_parameter_branch = [](
+        const std::string& name,
+        std::vector<std::vector<std::string>> bind_terms,
+        const torch::Tensor& parameter) {
+        auto block = std::make_shared<anet::nn::NetworkBlock>(
+            name + "_block",
+            std::make_shared<ParameterNormTestModule>(parameter));
+        auto structure = std::make_shared<anet::nn::NetworkStruct>(
+            std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+        return std::make_shared<anet::nn::NetworkBranch>(
+            name, std::move(bind_terms), 1, structure);
+    };
+    auto main_feature = make_parameter_branch(
+        "main_feature", { { "obs" } }, torch::tensor({ 3.0f, 4.0f }));
+    auto tau_embedding = make_parameter_branch(
+        "tau_embedding", { { "taus" } }, torch::tensor({ 6.0f, 8.0f }));
+    auto fusion = std::make_shared<anet::nn::NetworkBranch>(
+        "fusion",
+        std::vector<std::vector<std::string>>{ { "main_feature", "tau_embedding" } },
+        1,
+        std::make_shared<anet::nn::NetworkStruct>(
+            std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{}));
+    auto value_stream = make_parameter_branch(
+        "value_stream", { { "fusion" } }, torch::tensor({ 12.0f }));
+    anet::nn::NetworkConfig config;
+    config.output_keys["features"] = "value_stream";
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{
+            main_feature, tau_embedding, fusion, value_stream },
+        anet::TensorSpecMap{ { "obs", spec }, { "taus", spec } },
+        std::vector<std::string>{},
+        config.output_keys);
+    auto network = std::make_shared<anet::nn::Network>(
+        config,
+        anet::TensorSpecMap{ { "obs", spec }, { "taus", spec } },
+        nullptr,
+        body,
+        std::make_shared<ParameterNormTestHead>(torch::tensor({ 5.0f })));
+
+    const auto norms = network->ComputeParameterNormSplit("main_feature");
+
+    CHECK(norms.feature.item<float>() == Catch::Approx(5.0f));
+    CHECK(norms.readout.item<float>() == Catch::Approx(std::sqrt(269.0f)));
+    CHECK_THROWS_WITH(network->ComputeParameterNormSplit("missing"),
+        Catch::Matchers::ContainsSubstring("available_branches"));
+}
+
+TEST_CASE("Network parameter norm does not run forward or consume RNG", "[nn][plasticity][weight_norm]")
+{
+    auto forward_count = std::make_shared<int>(0);
+    auto network = MakeParameterNormTestNetwork(forward_count);
+    torch::manual_seed(32063);
+    const auto expected_random = torch::randn({ 8 });
+
+    torch::manual_seed(32063);
+    const auto norms = network->ComputeParameterNormSplit("main_feature");
+    const auto actual_random = torch::randn({ 8 });
+
+    CHECK(norms.feature.item<float>() == Catch::Approx(5.0f));
+    CHECK(*forward_count == 0);
+    CHECK(torch::equal(actual_random, expected_random));
+}
+
+TEST_CASE("Network partial forward stops before IQN tau fusion without taus input", "[nn][partial_forward][plasticity][iqn]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[main_feature].bind", "obs");
+    config_data.Set("net.branch.[main_feature].structure", "");
+    config_data.Set("net.branch.[tau_embedding].bind", "taus");
+    config_data.Set("net.branch.[tau_embedding].structure", "");
+    config_data.Set("net.branch.[fusion].bind", "main_feature * tau_embedding");
+    config_data.Set("net.branch.[fusion].structure", "");
+    config_data.Set("net.body.output.[features]", "fusion");
+
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{
+            { "obs", anet::TensorSpec{
+                .type = anet::SpaceType::Vector,
+                .shape = { 2 },
+                .dtype = torch::kFloat32,
+            } },
+            { "taus", anet::TensorSpec{
+                .type = anet::SpaceType::Vector,
+                .shape = { 3, 2 },
+                .dtype = torch::kFloat32,
+            } },
+        },
+        nullptr,
+        0,
+        torch::Device(torch::kCPU));
+
+    anet::TensorDict input;
+    input.Set("obs", torch::tensor({ { 1.0f, 2.0f } }));
+    const auto state = network->ForwardUpTo(input, "main_feature");
+
+    CHECK(torch::equal(state.At("main_feature"), input.At("obs")));
+    CHECK_FALSE(state.Contains("taus"));
+    CHECK_FALSE(state.Contains("tau_embedding"));
+    CHECK_FALSE(state.Contains("fusion"));
+}
+
+TEST_CASE("Network partial forward gives input keys precedence over same-named branches", "[nn][partial_forward][plasticity]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[obs].bind", "aux");
+    config_data.Set("net.branch.[obs].structure", "");
+    config_data.Set("net.branch.[target].bind", "obs");
+    config_data.Set("net.branch.[target].structure", "");
+    config_data.Set("net.body.output.[features]", "target");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec }, { "aux", spec } },
+        nullptr,
+        0,
+        torch::Device(torch::kCPU));
+
+    anet::TensorDict input;
+    input.Set("obs", torch::tensor({ { 1.0f, 2.0f } }));
+    input.Set("aux", torch::tensor({ { 9.0f, 9.0f } }));
+    const auto state = network->ForwardUpTo(input, "target");
+
+    CHECK(torch::equal(state.At("target"), input.At("obs")));
+    CHECK_THROWS_WITH(network->ForwardUpTo(input, "missing"),
+        Catch::Matchers::ContainsSubstring("available_branches"));
+}
+
+TEST_CASE("Network branch capture returns the actual forward feature without changing outputs", "[nn][branch_capture][plasticity]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "");
+    config_data.Set("net.body.output.[features]", "feature");
+    const anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        anet::nn::NetworkConfig(config_data),
+        anet::TensorSpecMap{ { "obs", spec } },
+        nullptr,
+        0,
+        torch::Device(torch::kCPU));
+
+    anet::TensorDict input;
+    input.Set("obs", torch::tensor({ { 1.0f, 2.0f }, { 3.0f, 4.0f } }));
+    std::vector<std::pair<std::string, torch::Tensor>> expected_trace;
+    const auto expected = network->Forward(input, [&](std::string_view name, const torch::Tensor& value) {
+        expected_trace.emplace_back(name, value.detach().clone());
+    });
+
+    anet::nn::NetworkBranchCapture capture{ .branch_key = "feature" };
+    std::vector<std::pair<std::string, torch::Tensor>> actual_trace;
+    const auto actual = network->Forward(input, [&](std::string_view name, const torch::Tensor& value) {
+        actual_trace.emplace_back(name, value.detach().clone());
+    }, &capture);
+
+    CHECK(torch::equal(actual.At("features"), expected.At("features")));
+    REQUIRE(actual_trace.size() == expected_trace.size());
+    for (size_t i = 0; i < expected_trace.size(); ++i) {
+        CHECK(actual_trace[i].first == expected_trace[i].first);
+        CHECK(torch::equal(actual_trace[i].second, expected_trace[i].second));
+    }
+    REQUIRE(capture.output.defined());
+    CHECK(torch::equal(capture.output, expected.At("features")));
+    CHECK_FALSE(capture.output.requires_grad());
+}
+
+TEST_CASE("Plasticity metrics describe a full-rank feature matrix", "[nn][plasticity_metrics]")
+{
+    const auto features = torch::eye(2, torch::TensorOptions().dtype(torch::kFloat32));
+
+    const auto metrics = anet::nn::ComputePlasticityMetrics(
+        features, anet::nn::PlasticityMetricRequest::All());
+
+    CHECK(metrics.srank[0] == 2.0f);
+    CHECK(metrics.srank_ratio[0].value() == Catch::Approx(1.0f));
+    CHECK(metrics.dormant_ratio.value() == Catch::Approx(0.0f));
+    CHECK(metrics.dead_ratio.value() == Catch::Approx(0.0f));
+    CHECK(metrics.feature_norm.value() == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Plasticity metrics compute BF16 features through FP32", "[nn][plasticity_metrics][bf16]")
+{
+    const auto features = torch::eye(
+        2, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCPU));
+
+    const auto metrics = anet::nn::ComputePlasticityMetrics(
+        features, anet::nn::PlasticityMetricRequest::All());
+
+    CHECK(features.scalar_type() == torch::kBFloat16);
+    CHECK(metrics.srank[0] == 2.0f);
+    CHECK(metrics.srank_ratio[0].value() == Catch::Approx(1.0f));
+    CHECK(metrics.dormant_ratio.value() == Catch::Approx(0.0f));
+    CHECK(metrics.dead_ratio.value() == Catch::Approx(0.0f));
+    CHECK(metrics.feature_norm.value() == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Plasticity metrics handle rank-one and all-zero features", "[nn][plasticity_metrics]")
+{
+    const auto rank_one = torch::tensor({ { 1.0f, 2.0f }, { 2.0f, 4.0f } });
+    const auto rank_one_metrics = anet::nn::ComputePlasticityMetrics(
+        rank_one, anet::nn::PlasticityMetricRequest::All());
+    CHECK(rank_one_metrics.srank[0] == 1.0f);
+    CHECK(rank_one_metrics.srank_ratio[0].value() == Catch::Approx(0.5f));
+
+    const auto all_zero = torch::zeros({ 4, 3 }, torch::TensorOptions().dtype(torch::kFloat32));
+    const auto zero_metrics = anet::nn::ComputePlasticityMetrics(
+        all_zero, anet::nn::PlasticityMetricRequest::All());
+    CHECK(zero_metrics.srank[0] == 0.0f);
+    CHECK(zero_metrics.srank_ratio[0] == 0.0f);
+    CHECK(zero_metrics.dormant_ratio.value() == 1.0f);
+    CHECK(zero_metrics.dead_ratio.value() == 1.0f);
+    CHECK(zero_metrics.feature_norm.value() == 0.0f);
+}
+
+TEST_CASE("Plasticity metrics reject a non-matrix input", "[nn][plasticity_metrics]")
+{
+    CHECK_THROWS(anet::nn::ComputePlasticityMetrics(
+        torch::ones({ 3 }), anet::nn::PlasticityMetricRequest::All()));
+}
+
+TEST_CASE("Plasticity metrics compute three srank deltas from one SVD", "[nn][plasticity_metrics][srank]")
+{
+    const auto features = torch::diag(torch::tensor({ 70.0f, 20.0f, 6.0f, 4.0f }));
+    anet::nn::PlasticityMetricRequest request;
+    request.Add(anet::nn::PlasticityMetric::SRANK_DELTA_001);
+    request.Add(anet::nn::PlasticityMetric::SRANK_DELTA_005);
+    request.Add(anet::nn::PlasticityMetric::SRANK_DELTA_020);
+    request.Add(anet::nn::PlasticityMetric::SRANK_RATIO_DELTA_001);
+    request.Add(anet::nn::PlasticityMetric::SRANK_RATIO_DELTA_005);
+    request.Add(anet::nn::PlasticityMetric::SRANK_RATIO_DELTA_020);
+
+    anet::nn::PlasticityMetrics metrics;
+    const size_t svd_count = CountProfileOperator([&] {
+        metrics = anet::nn::ComputePlasticityMetrics(features, request);
+    }, "aten::linalg_svdvals");
+
+    CHECK(svd_count == 1);
+    CHECK(metrics.srank[0] == 4.0f);
+    CHECK(metrics.srank[1] == 3.0f);
+    CHECK(metrics.srank[2] == 2.0f);
+    CHECK(metrics.srank_ratio[0].value() == Catch::Approx(1.0f));
+    CHECK(metrics.srank_ratio[1].value() == Catch::Approx(0.75f));
+    CHECK(metrics.srank_ratio[2].value() == Catch::Approx(0.5f));
+}
+
+TEST_CASE("Plasticity metrics leave unrequested fields unavailable", "[nn][plasticity_metrics][demand]")
+{
+    const auto features = torch::eye(3, torch::TensorOptions().dtype(torch::kFloat32));
+    anet::nn::PlasticityMetricRequest request;
+    request.Add(anet::nn::PlasticityMetric::FEATURE_NORM);
+
+    anet::nn::PlasticityMetrics metrics;
+    const size_t svd_count = CountProfileOperator([&] {
+        metrics = anet::nn::ComputePlasticityMetrics(features, request);
+    }, "aten::linalg_svdvals");
+
+    CHECK(svd_count == 0);
+    CHECK_FALSE(metrics.srank[0].has_value());
+    CHECK_FALSE(metrics.srank_ratio[0].has_value());
+    CHECK_FALSE(metrics.dormant_ratio.has_value());
+    CHECK_FALSE(metrics.dead_ratio.has_value());
+    REQUIRE(metrics.feature_norm.has_value());
+    CHECK(*metrics.feature_norm == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Plasticity metrics empty request performs no tensor statistics", "[nn][plasticity_metrics][demand]")
+{
+    const auto features = torch::eye(3, torch::TensorOptions().dtype(torch::kFloat32));
+    const anet::nn::PlasticityMetricRequest request;
+
+    const auto metrics = anet::nn::ComputePlasticityMetrics(features, request);
+
+    CHECK_FALSE(metrics.feature_norm.has_value());
+    CHECK_FALSE(metrics.srank[0].has_value());
 }
 
 TEST_CASE("Agent configs read nn_viz keys, ignore old keys, and reject invalid layout", "[nn][dot][config]")

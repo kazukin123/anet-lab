@@ -1,0 +1,1289 @@
+﻿# ==============================================================================
+# 基本設定
+# ==============================================================================
+
+app.$ = app.online > P1
+#app.$ = app.batchrun > P1
+
+train.seed = 1
+#train.seed = 2
+#train.seed = 3
+
+#train.num_envs = 512
+#train.num_envs = 256
+train.num_envs = 128
+#train.num_envs = 64
+#train.num_envs = 1
+
+#DefaultDQNAgent.$ = @baseline > @iqn > A1 > A2 > A3
+DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
+#DefaultDQNAgent.$ = @baseline > @qr  > A1 > @bf16 > A2 > A3            # QR-DQN
+#DefaultDQNAgent.$ = @baseline > A1 > @bf16 > @nature > A2 > A3         # Nature DQN 2015 再現(run.@nature_dqn を推奨)
+#DefaultDQNAgent.$ = @baseline > @random                             # Random Policy (env 天井の実測用)
+
+#AtariEnv.$ = AtariEnv.@v5_noop0 > E1   # raw ALE v5(sticky のみが確率源)
+AtariEnv.$ = AtariEnv.@v5_noop30 > E1   # BTR 準拠(sticky + noop 30)。上と noop_max だけが違う
+#AtariEnv.$ = AtariEnv.@classic > E1    # クラシックプロファイル(sticky なし+NoOp+episodic life+fire reset)
+#AtariEnv.$ = AtariEnv.@100k > E1       # Atari-100k プロファイル(予算 100k steps とセット。Run設定 章参照)
+
+# ALGO プロファイル(@qr / @iqn)は agent.txt の共通定義を参照(切替はチェーンの 1 項)。配線実体 net.@qr / net.@iqn は本ファイル所有。
+
+# main_feature の実体選択
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariNature
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpala        # IMPALA-CNN 16/32/32)
+DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # BTR 準拠 Scale=2(32/64/64)
+#DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViT     # IMPALA+ViT ハイブリッド
+
+#run.$ = run.@v5_iqn_impala_x2
+#run.$ = run.@classic_iqn_impala_x2
+#run.$ = run.@nature_dqn
+#run.$ = run.@breakout_rr1_100m  # RR 探索終了時点(旧バンドル)の再現
+#run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_base  # 基本は 18_batch_run_atari5.bat から起動
+#run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex  # 基本は 18_batch_run_atari5.bat から起動
+
+
+# ==============================================================================
+# Run設定
+# ==============================================================================
+
+app.run_name = run_{t}_atari_${E1.game}
+
+
+# --- 定番(DQN 系譜の頻出。検収・比較向き) ---
+#E1.game = pong
+E1.game = breakout
+#E1.game = space_invaders
+#E1.game = seaquest
+#E1.game = beam_rider
+#E1.game = enduro
+#E1.game = ms_pacman
+#E1.game = boxing
+#E1.game = freeway
+#E1.game = frostbite
+#E1.game = crazy_climber
+#E1.game = asterix
+#E1.game = hero
+#E1.game = montezuma_revenge    # 探索難の代表(ベースラインではほぼ 0 点が正常)
+
+# --- Atari-5(57 ゲーム median 推定サブセット) ---
+#E1.game = battle_zone
+#E1.game = double_dunk
+#E1.game = name_this_game
+#E1.game = phoenix
+#E1.game = qbert
+
+# --- その他(アルファベット順。combat / surround / warlords 等は対戦前提) ---
+#E1.game = adventure
+#E1.game = air_raid
+#E1.game = alien
+#E1.game = amidar
+#E1.game = assault
+#E1.game = asteroids
+#E1.game = atlantis
+#E1.game = atlantis2
+#E1.game = backgammon
+#E1.game = bank_heist
+#E1.game = basic_math
+#E1.game = berzerk
+#E1.game = blackjack
+#E1.game = bowling
+#E1.game = carnival
+#E1.game = casino
+#E1.game = centipede
+#E1.game = chopper_command
+#E1.game = combat
+#E1.game = crossbow
+#E1.game = darkchambers
+#E1.game = defender
+#E1.game = demon_attack
+#E1.game = donkey_kong
+#E1.game = earthworld
+#E1.game = elevator_action
+#E1.game = entombed
+#E1.game = et
+#E1.game = fishing_derby
+#E1.game = flag_capture
+#E1.game = frogger
+#E1.game = galaxian
+#E1.game = gopher
+#E1.game = gravitar
+#E1.game = hangman
+#E1.game = haunted_house
+#E1.game = human_cannonball
+#E1.game = ice_hockey
+#E1.game = jamesbond
+#E1.game = journey_escape
+#E1.game = joust
+#E1.game = kaboom
+#E1.game = kangaroo
+#E1.game = keystone_kapers
+#E1.game = king_kong
+#E1.game = klax
+#E1.game = koolaid
+#E1.game = krull
+#E1.game = kung_fu_master
+#E1.game = laser_gates
+#E1.game = lost_luggage
+#E1.game = mario_bros
+#E1.game = maze_craze
+#E1.game = miniature_golf
+#E1.game = mr_do
+#E1.game = othello
+#E1.game = pacman
+#E1.game = pitfall
+#E1.game = pitfall2
+#E1.game = pooyan
+#E1.game = private_eye
+#E1.game = riverraid
+#E1.game = road_runner
+#E1.game = robotank
+#E1.game = sir_lancelot
+#E1.game = skiing
+#E1.game = solaris
+#E1.game = space_war
+#E1.game = star_gunner
+#E1.game = superman
+#E1.game = surround
+#E1.game = tennis
+#E1.game = tetris
+#E1.game = tic_tac_toe_3d
+#E1.game = time_pilot
+#E1.game = trondead
+#E1.game = turmoil
+#E1.game = tutankham
+#E1.game = up_n_down
+#E1.game = venture
+#E1.game = video_checkers
+#E1.game = video_chess
+#E1.game = video_cube
+#E1.game = video_pinball
+#E1.game = warlords
+#E1.game = wizard_of_wor
+#E1.game = word_zapper
+#E1.game = yars_revenge
+#E1.game = zaxxon
+
+#backend.$ = backend.@deterministic        # 同seed再現(+11%コスト)
+backend.$ = backend.@non-deterministic    # 高速化
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+# 現状、per_beta_step は「予算の半分」が最良。演算機能は無いので定数 2 つで書く。
+# ターゲットstep数を動かすときは必ずこのペアを一緒に動かすこと。
+#@vars : max_exp_step  =     100,000    # Atari-100k(AtariEnv.@100k とセット。eps_decay/warmup も要見直し)
+#@vars : half_exp_step =      50,000
+#@vars : max_exp_step  =   2,500,000    # 2.5M(10M emulator frames / frame_skip 4)
+#@vars : half_exp_step =   1,250,000
+#@vars : max_exp_step  =   5,000,000    # 5M
+#@vars : half_exp_step =   2,500,000
+#@vars : max_exp_step  =   8,000,000    # 8M(1Run 2〜3h 目安)
+#@vars : half_exp_step =   4,000,000
+#@vars : max_exp_step  =  10,000,000    # 10M
+#@vars : half_exp_step =   5,000,000
+#@vars : max_exp_step  =  50,000,000    # 50M(= BTR の 200M frames)
+#@vars : half_exp_step =  25,000,000
+@vars : max_exp_step  = 100,000,000     # 100M(RR4 10.9h / RR2 5.9h 実測、RR1 約 3.4h 外挿)★
+@vars : half_exp_step =  50,000,000
+#@vars : max_exp_step  = 200,000,000    # 200M
+#@vars : half_exp_step = 100,000,000
+
+app.online.exp_pause_step = ${@vars.max_exp_step}
+A1.learner.per_beta_step   = ${@vars.half_exp_step}
+
+app.batchrun.exp_exit_step = 2,500,000
+#app.batchrun.exp_exit_step = 100,000       # Atari-100k 予算
+
+A1.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位) Dopamine / Rainbow は 250k steps 固定
+A1.learner.update_warmup_steps = 200,000       # BTR Minimum Replay Size(exp_step 単位)。Dopamine 相当は 20,000
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+
+#app.run_name = run_{t}_atari_${E1.game}_apex_rr100_100m
+
+
+#A2.learner.replay_ratio = 4          # 100M 10.95h / 2,538 step/s
+#A2.learner.replay_ratio = 2
+A2.learner.replay_ratio = 1          # 8,219 step/s = 100M で約 3.4h
+#A2.learner.replay_ratio = 0.5
+
+# adam_eps は @bf16(agent.txt:91 = 1e-4)より後段でないと効かないので A1 ではなく A2 に置く。
+#A2.learner.adam_eps = 1.5e-4         # Dopamine 系(0.01/batch)準拠
+#A2.learner.adam_eps = 1e-4           # 旧既定(@bf16 の値)
+A2.learner.adam_eps = 1.95e-5        # ★ BTR Table D6(0.005/batch)
+
+A2.train_policy.eps_start = 0.4          # ラダー上端。4 点(0.01/0.2/0.4/1.0)で単峰、0.4 が最適(探索ブロック 20)
+A2.train_policy.use_spatial_exploration = true
+
+#A2.learner.weight_decay = 0.1    # 探索ブロック 13 で不採用(45-50M で -43.4%)
+#A2.learner.weight_decay = 0.01   # 軽め。予算 8M での累積は exp(-0.25)
+#A2.learner.weight_decay = 1e-4   # 予算 8M では exp(-0.0025) で実質効かない
+
+#A2.qr.num_quantiles = 101 # 200
+#A2.qr.num_quantiles = 51  # 200
+
+#app.batchrun.exp_exit_step = 10,000,000
+#app.batchrun.exp_exit_step = 2,000,000
+#app.online.exp_exit_step  = 200,000     # 0.2M=
+
+A2.eval_policy.policy_type = EpsilonGreedy
+A2.eval_policy.eps_start = 0.01
+A2.eval_policy.eps_end = 0.01
+
+# この 3 行は必ずコメントのまま。1 つでも生かすとプロトコルプロファイルが崩れて比較不能になる。
+#E1.episodic_life = true
+#E1.repeat_action_probability = 0.0
+#E1.fire_reset = true
+
+
+# ==============================================================================
+# Run プロファイル(確立済み)
+# ==============================================================================
+
+# 有効化は #run.$ を 1 行 uncomment するか CLI で run.$=run.@<name>。ファイル末尾追記と同じ後勝ちで上のラダーより強い。
+
+# --- 幹(単体で run.$ = run.@X として起動できる) ---
+
+# BTR 準拠(sticky 0.25 + noop 30)。root ラダー(AtariEnv.$)と同値を明示ピンする
+run.@v5_iqn_impala_x2      : AtariEnv.$ = AtariEnv.@v5_noop30 > E1  # raw ALE v5(sticky のみ)と比べるなら @v5_noop0
+run.@v5_iqn_impala_x2      : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
+run.@v5_iqn_impala_x2      : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
+run.@v5_iqn_impala_x2      : A2.eval_policy.eps_start = 0.01     # BTR Table D6
+run.@v5_iqn_impala_x2      : A2.eval_policy.eps_end   = 0.01
+
+# Munchausen IQN。mode/riskの比較はA3の後段overlayで指定する。
+run.@munchausen : AtariEnv.$ = AtariEnv.@v5_noop30 > E1
+run.@munchausen : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+run.@munchausen : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
+run.@munchausen : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > M1 > M2
+run.@munchausen : app.run_name = run_{t}_munchausen_${E1.game}
+
+# デモ・長時間 Run 用。学習構成は上と同一で、プロトコルと eval だけ Nature 系へ振る。
+run.@classic_iqn_impala_x2 : AtariEnv.$ = AtariEnv.@classic > E1
+run.@classic_iqn_impala_x2 : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
+run.@classic_iqn_impala_x2 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
+run.@classic_iqn_impala_x2 : train.eval.[eval1].env.max_episode_frames = 18,000
+run.@classic_iqn_impala_x2 : train.eval.[eval2].env.max_episode_frames = 18,000
+run.@classic_iqn_impala_x2 : A2.eval_policy.eps_start = 0.05     # Mnih 2015
+run.@classic_iqn_impala_x2 : A2.eval_policy.eps_end   = 0.05
+
+# Nature DQN 2015 再現
+run.@nature_dqn            : AtariEnv.$ = AtariEnv.@classic > E1
+run.@nature_dqn            : DefaultDQNAgent.$ = @baseline > A1 > @bf16 > @nature > A2 > A3
+run.@nature_dqn            : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariNature
+run.@nature_dqn            : train.eval.[eval1].env.max_episode_frames = 18,000
+run.@nature_dqn            : train.eval.[eval2].env.max_episode_frames = 18,000
+run.@nature_dqn            : A2.eval_policy.eps_start = 0.05
+run.@nature_dqn            : A2.eval_policy.eps_end   = 0.05
+
+# RR 探索終了時点(旧バンドル)の再現。run_20260826-185555_atari_breakout_apex_rr1_100m と同条件。
+# 2026-08-27 の BTR 寄せで A1 と root ラダーが変わったため、差分を A3(チェーン最右)で明示して戻す。
+
+# BTR 寄せ前の値。ここを外すと現行の A1 / A2(BTR 初期値)が効いて再現にならない。
+
+# --- 土台(実行モードと予算。腕を重ねて使う) ---
+
+# 可塑性メトリクス検証(PRD062)。run.@breakout_rr1_100m へ重ねて RR だけ振る。
+# RR は再現プロファイルが A3 に書くので、上書きも A3 で行う(A2 では届かない)。
+# half_exp_step は据え置き。per_beta_step だけが依存するので、打ち切り Run が 100M 参照 Run の prefix になる。
+run.@plasticity      : app.$ = app.batchrun > P1
+run.@plasticity      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
+run.@plasticity      : @vars.max_exp_step = 20,000,000   # RR4 の谷 18.5M を含む
+
+run.@a5      : app.$ = app.batchrun > P1
+run.@a5      : @vars.max_exp_step  = 50,000,000   # BTR 予算(200M frames)。20M は 3 ゲームが上昇中で不足
+run.@a5      : @vars.half_exp_step = 25,000,000
+run.@a5      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
+run.@a5      : A2.learner.replay_ratio = 1  # ★
+
+# V/A 基準線(LN512 + head ReLU)。2026-09-02 以降の腕はほぼ全部これを土台にしている。
+# 以降の新規腕はこの 3 行を再宣言せず、run.@va_base へ重ねて 1 変数だけ書く。
+#   例: run.$=%A5%>run.@va_base>run.@soft030
+# 既存の rr1_va_* / rr1_ln_* は同じ 3 行を自前で持つフル指定形のまま残す。書き換えると
+# 実験記録に残る過去レシピの意味が変わり、しかもエラーにならず走ってしまうため。
+
+# --- 可塑性アッセイ(RR ラダーで摩耗を測る計測リグ) ---
+
+# --- Atari-5 ---
+
+run.@a5_base : A2.train_policy.use_spatial_exploration = false
+run.@a5_base : A2.train_policy.eps_start = 1.00
+run.@a5_base : app.run_name = run_{t}_a5_${E1.game}_base
+
+run.@a5_apex : A2.train_policy.use_spatial_exploration = true
+run.@a5_apex : A2.train_policy.eps_start = 0.4
+run.@a5_apex : app.run_name = run_{t}_a5_${E1.game}_apex
+
+# RR の env 汎化を見る腕。run.@a5_apex の後に重ねて使う(BTR 相当の RR=4)
+run.@a5_rr4  : A2.learner.replay_ratio = 4
+run.@a5_rr4  : app.run_name = run_{t}_a5_${E1.game}_rr4
+
+# --- 修飾子・ツール(run_name を持たず、任意の腕へ後付けする) ---
+
+# 予算 20M は天井が見える最小。RR4 実測 2,739 step/s で約 2.0h。
+run.@a5_20m  : @vars.max_exp_step  = 20,000,000
+run.@a5_20m  : @vars.half_exp_step = 10,000,000
+
+run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る。run_name は腕から継ぐ
+
+# 予算だけの合成用。任意の腕へ後付けできる(run_name は腕から継ぐ)。
+# per_beta を 0.2 固定にして half_exp_step の消費者が消えたので、
+# 100M Run の前半 50M は同設定 50M Run の厳密な prefix になる。
+run.@to_100m : @vars.max_exp_step  = 100,000,000
+run.@to_100m : @vars.half_exp_step =  50,000,000
+
+# 配線確認用の 400k。CLI の `@vars.max_exp_step=...` は run.@a5 の代入に負けるので
+# (プロファイル解決が CLI 追記より後)、短縮は必ずプロファイルとしてチェーン末尾へ重ねる。
+run.@to_400k : @vars.max_exp_step  = 400,000
+run.@to_400k : @vars.half_exp_step = 200,000
+
+# 評価専用 Run の予算。learner.enabled=false かつ num_envs=1 では
+# 1 exp step = 1 train step = 1 learn step なので、interval 10 と合わせて
+# 「max_exp_step / 10」セッションになる。50 なら 5 セッション = 500 エピソード。
+run.@to_50 : @vars.max_exp_step  = 50
+run.@to_50 : @vars.half_exp_step = 25
+
+# 1M の step 予算。評価専用 Run (run.@evalonly) や長めの慣らしへ重ねる。
+run.@to_1m : @vars.max_exp_step  = 1,000,000
+run.@to_1m : @vars.half_exp_step =   500,000
+
+# シードだけ変える合成用(run_name は腕から継ぐ)。2026-09-04 時点の Run は
+# すべて train.seed = 1 かつ backend.@non-deterministic なので、これまでの
+# 「複製対」は数値的非決定だけを見ており、シード分散は未測定である。
+run.@seed2 : train.seed = 2
+run.@seed3 : train.seed = 3
+
+# eval を lane 10 / 本数 10 にするだけの合成用。任意の腕へ後付けできる(run_name は腕から継ぐ)。
+run.@evalN10 : train.eval.[eval1].eval_batch_size = 10
+run.@evalN10 : train.eval.[eval1].eval_episodes = 10
+run.@evalN10 : train.eval.[eval2].eval_batch_size = 10
+run.@evalN10 : train.eval.[eval2].eval_episodes = 10
+
+# 学習を完全に止めて eval だけ回す (評価専用 / デモ)。checkpoint は A3.auto_load_file で渡す。
+# learner.enabled=false では 1 train step = 1 learn step になるので、interval はそのまま
+# 「N train step ごと」として読む。ReplayBuffer を構築しないので host RAM が約 7GB 空く。
+# step 予算は run.@to_400k などをチェーン末尾へ重ねて与える。
+run.@evalonly : A3.learner.enabled = false
+run.@evalonly : app.save_agent_on_close = false
+run.@evalonly : train.num_envs = 1
+run.@evalonly : train.eval.[eval1].eval_batch_size = 16
+run.@evalonly : train.eval.[eval1].eval_episodes = 100
+run.@evalonly : train.eval.[eval2].eval_batch_size = 16
+run.@evalonly : train.eval.[eval2].eval_episodes = 100
+run.@evalonly : train.eval_schedule.[eval1].interval = 10
+run.@evalonly : train.eval_schedule.[eval2].interval = 11
+
+# 評価を greedy にする。eval の eps はエージェント単位なので eval1/eval2 の両方へ効く
+# (スロットごとの指定は PRD 061)。実測(2026-09-06、100M checkpoint、online net)で
+# eps 0.01 -> 0 は平均 640.0 -> 715.1、満点率 13.3% -> 24.7%。代わりに上限空転が
+# 0.1% -> 10.4% へ増えるので、上の max_episode_frames とセットで使う。
+run.@greedy_eval : A3.eval_policy.eps_start = 0
+run.@greedy_eval : A3.eval_policy.eps_end   = 0
+
+# eval1(target net) を止めて eval2(online net) だけ回す
+run.@eval2only : train.eval_schedule.[eval1].interval = 0
+
+run.@pl_check      : @vars.max_exp_step = 100,000    # 配線確認。eval を切って 2 分で回す
+run.@pl_check      : train.eval_schedule.[eval1].interval = 0
+run.@pl_check      : train.eval_schedule.[eval2].interval = 0
+run.@pl_check      : app.run_name = run_{t}_tmp_wiring
+
+# eval 経路の疎通確認。pl_check は eval を切るので 060 系の確認には使えない。
+# eval interval は既定のまま残し、予算だけ削る。RR1 2M step で eval1 が約 7 セッション。
+run.@eval_smoke    : @vars.max_exp_step = 2,000,000
+run.@eval_smoke    : app.run_name = run_{t}_tmp_eval
+
+# SN 実験用メトリクス。定義は metrics.scalar.@sn 素材(scalar metrics 節)。
+run.@pl_snmetrics  : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@sn > M1 > M2
+
+# Breakout 固有メトリクス(1画面=432、2画面=864)
+run.@breakout_metrics : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > M1 > M2
+
+# --- パターン代表(NN 構成・保護機構の基準線) ---
+
+# 大きなパターンごとに 1 本ずつ。1 変数の探索腕は「実験用」章へ置く。
+
+# RR1 + LayerNorm。RR4 で天井が動いたので運用点でも効くかを見る。branch は同一、run 名だけ分ける。
+
+# soft の時定数を hard C=125 に合わせる。鮮度説なら並ぶ、定常性説なら並ばない。
+
+# 段 3: BTR そのもの。共有トランク無し、V/A が 2304 から独立に 512 へ。
+# LN512 も同時に消える(置き場所が無い)ので、段 2 との差は 2 変数になる。
+
+# ViT ハイブリッド。構造腕なので hard125 は載せず V/A ReLU 基準で測る。
+
+# C2 / D2: BTR 忠実(residual のみ)。全層版が発散したための本命。
+
+# GroupNorm。保護機構の腕(可塑性 A3)なので run.@plasticity_rr8 へ重ねる。
+# branch 差し替えは run.@breakout_rr1_100m に前例がある経路。学習系は A3 レイヤへ書く。
+
+
+# --- 軸ごとの修飾子(1 プロファイル 1 軸。腕はチェーンで組む) ---
+# run_name は持たせない。チェーンで重ねると最後の 1 本しか勝たず腕を表現できないため、
+# bat 側から app.run_name を渡す。
+#   例: run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch
+
+# 構造。2026-09-02 以降の全腕の土台(LN512 + head ReLU)。
+run.@va_base : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@va_base : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > ReLU
+run.@va_base : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > ReLU
+
+# target 更新。env 時間 32,000 exp step で揃える。1 grad あたりの exp step は
+# U = num_envs x replay_ratio / replay_batch_size の逆数なので、batch を変えると C も変わる。
+#   RR1/B256 = 256 exp step -> C=125   RR2/B256 = 128 -> C=250   RR4/B256 = 64 -> C=500(BTR 値)
+#   RR2/B512 = 256 exp step -> C=125   RR3/B256 = 85.3 -> C=375
+#   RR4/B512 = 128 exp step -> C=250   RR4/B1024 = 256 -> C=125
+# RR と batch とセットで選ぶこと。
+run.@hard125 : A2.model.soft_update_tau = 0
+run.@hard125 : A2.model.hard_update_interval = 125
+run.@hard250 : A2.model.soft_update_tau = 0
+run.@hard250 : A2.model.hard_update_interval = 250
+run.@hard375 : A2.model.soft_update_tau = 0
+run.@hard375 : A2.model.hard_update_interval = 375
+run.@hard500 : A2.model.soft_update_tau = 0
+run.@hard500 : A2.model.hard_update_interval = 500
+run.@soft008 : A2.model.soft_update_tau = 0.008    # env 時間は hard125 と等価。soft/hard 軸の対照
+
+# replay ratio。RR1 は run.@a5 の既定なので置かない。RR は「1 遷移あたりの平均抽出回数」。
+run.@rr2 : A2.learner.replay_ratio = 2
+run.@rr3 : A2.learner.replay_ratio = 3
+run.@rr4 : A2.learner.replay_ratio = 4
+
+# batch。RR を保ったまま勾配回数だけ減らす軸(U = N x RR / B)。RR2+B512 は
+# 「RR2 の再利用・RR1 の勾配回数」になる。target は env 時間で揃えるので hard125 と組む。
+run.@b512  : A2.learner.replay_batch_size = 512
+run.@b1024 : A2.learner.replay_batch_size = 1024
+
+# アルゴ。@munchausen 素材が use_double_dqn=false を強制する(併用は構築時 fail-fast、PRD 067 D5)。
+# metrics.scalar.$ は run.@breakout_metrics と同じスロットなので @breakout と @munchausen を
+# 1 本にまとめて宣言する。この腕に run.@breakout_metrics は重ねない。
+run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > M1 > M2
+
+# 計測。46_agent_replay_fit(PRD 073)を @munch のチェーンへ足す。metrics.scalar.$ は
+# 同じスロットなので @munch より後ろへ置くこと。probe は NoGrad / eval mode / FP32 で
+# 回る(dqn_based_agent.cpp:2129)ので、DropPath や bf16 は測定値へ混ざらない。
+# 発火は interval:503 の learn_step 基準。probe batch 1024 / IQN tau 32 は既定のまま。
+run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2
+
+# Munchausen OFF の対照。Double 除去だけを分離する。
+run.@nodouble : A3.learner.use_double_dqn = false
+
+# --- 再訪予定の腕 ---
+
+# PER 初期優先度。RR1 では中立だった(探索ブロック 15)。RR4 では未訪問 eviction が
+# e^-4 = 1.8% まで下がるので、順位情報が初めてデータ損失に化けずに済む。per_alpha と 2 軸で引く。
+run.@aainit : A2.learner.per_initial_priority_mode = actor_approx
+
+# PER の選択性。alpha=0.2(BTR 値)は p ∝ TD^0.2 で極端に平坦で、TD 100 倍差が抽選 2.5 倍にしか
+# ならない。0.6 は Schaul 2015 proportional の既定値で、同じ 100 倍差が 16 倍になる。
+# per_beta は 0.2 固定のままなので、選択性と補正不足が同時に強まる点に注意。
+run.@alpha06 : A2.learner.per_alpha = 0.6
+
+# 過学習側の対策。RR4 は 1 遷移を平均 4 回学習に入れるので、同じ入力の上塗りが起きる。
+# DropPath は残差枝をサンプル単位で落とす(nn_modules.cpp:1156)ので、同じ遷移が引かれる
+# たびに別のサブネットワークを通る。Learner の更新 forward だけ train mode になる
+# (ForwardOnlineWithTrain, dqn_based_agent.cpp:476)ので Actor/eval には効かない。
+# ResBlock は 6 個なので rate 0.1 で「少なくとも 1 個落ちる」確率が 47%。
+run.@dp010 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.1
+run.@dp010 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.1
+
+# 用量。1-(1-p)^6 は 0.1 で 47%、0.2 で 74%、0.3 で 88%。
+run.@dp020 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.2
+run.@dp020 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.2
+run.@dp030 : net.block.[AtariImpalaRes32].res.droppath_rate = 0.3
+run.@dp030 : net.block.[AtariImpalaRes64].res.droppath_rate = 0.3
+
+# weight_decay。既定は A1 で 0(BTR 整合)。0.1 は RR1/8M で -43.4% の前科があるので軽め。
+run.@wd001 : A2.learner.weight_decay = 0.01
+
+# ViT ハイブリッド。V/A ReLU 基準で 0.64 倍だった(探索ブロック 25)。
+run.@vit : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViTLN
+
+# gamma を BTR 値 0.997 から旧既定 0.99 へ戻す踏み絵。
+# BTR は gamma 0.997 と Munchausen(gap を広げる操作子)を同時に採る。
+run.@g99 : A2.learner.gamma = 0.99
+
+# BTR 構造へ寄せる。Flatten 後の 512 ボトルネックを外し、6x6 pool で 2304 にして
+# そこで tau を融合する。V/A は各自 Linear(2304->512) を持つ形になり BTR と一致する。
+# tau 側の活性も BTR は relu(cos_embedding(cos)) なので SiLU から変える。
+# RR1 では利得が無かった(2026-09-02、3.48% -> 4.18%、複製幅 0.72pt)が、BTR は
+# 同じ再利用 4 回で成立しているので、構造と再利用の交互作用が本題。@va_base の後ろへ置く。
+run.@btrnet : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
+run.@btrnet : DefaultDQNAgent.net.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
+
+# 上へ重ねて spectral norm も BTR へ揃える。main_feature だけ差し替え、tau 側は @btrnet を継ぐ。
+run.@btrsn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool6Flat
+
+# num_envs を BTR の 64 へ。replay_ratio は 1 遷移あたりの定義なので
+# 1 更新 = 64 exp step は変わらず、target は hard500 のままで env 時間 32,000 を保つ。
+run.@envs64 : train.num_envs = 64
+
+# 全層 spectral_cap。sigma>1 のときだけ割るので sigma<1 の層を拡大せず、全層 spectral の
+# 発散要因の一つを踏まない。@munch の後ろに置いて metrics チェーンへ @sn(63-66)を足す。
+run.@capall : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNCAP
+run.@capall : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > metrics.scalar.@sn > M1 > M2
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#app.train_auto_start = false
+
+#train.num_envs = 1
+#env.worker_type = 1                  # SINGLE_THREAD
+
+#E1.display_screen = true              # SDL 観戦窓。sandbox/単発用(N lane では N 窓+worker スレッド未サポート)
+#E1.sound = true
+#A1.learner.update_warmup_steps = 512
+
+
+# ==============================================================================
+# Nature DQN 2015 再現構成
+# ==============================================================================
+# Mnih et al. 2015 の Breakout 401.2 が再現できるかの検証用。成績追求ではなく実装の健全性の切り分け。
+# 合わせる: 素の DQN(分布 RL / PER / n-step / dueling / double を全て切る)、Extended Data Table 1、classic env(noop 30 / fire_reset)。
+# 合わせない: optimizer(RMSProp 未実装のため Adam)、minibatch(論文 32 → 256。更新回数 8 倍で実行時間が伸びる)、BF16(速度設定)。RR 8 は論文と一致。
+# use_dueling_net=false でも value_stream / adv_stream は写像されず実行され続ける(死に計算。Linear(512→512)×2 で conv に対しては誤差)。
+
+# quantile_mode=none の配線は QR と同一(V/A を main_feature 直結)。fusion が要るのは IQN だけなので @none は作らない。
+DefaultDQNAgent.@nature : quantile_mode = none    # 分布 RL なし(単一 Q)
+DefaultDQNAgent.@nature : net.$ = net.@qr
+DefaultDQNAgent.@nature.use_dueling_net = false
+DefaultDQNAgent.@nature.learner.use_per = false
+DefaultDQNAgent.@nature.learner.use_double_dqn = false
+DefaultDQNAgent.@nature.learner.n_step = 1
+DefaultDQNAgent.@nature.learner.gamma = 0.99                    # discount factor
+DefaultDQNAgent.@nature.learner.replay_capacity = 1,000,000     # replay memory size
+DefaultDQNAgent.@nature.learner.update_warmup_steps = 50,000    # replay start size
+DefaultDQNAgent.@nature.model.soft_update_tau = 0               # soft を切って hard update へ
+DefaultDQNAgent.@nature.model.hard_update_interval = 10,000     # target network update frequency(更新回数単位)
+DefaultDQNAgent.@nature.train_policy.eps_start = 1.00           # initial exploration
+DefaultDQNAgent.@nature.train_policy.eps_end = 0.1              # final exploration(現行ベースラインの 0.01 と違う)
+DefaultDQNAgent.@nature.train_policy.eps_decay_steps = 250,000  # final exploration frame 1M frames / frame_skip 4
+
+
+# ==============================================================================
+# Env依存 Agent設定
+# ==============================================================================
+
+# quantile_mode は ALGO プロファイル(@qr / @iqn)が供給する。A 層へ直書きするとチェーン上 qr へ戻すので置かない。
+A1.qr.num_quantiles = 200                      # QR-DQN 論文値(@qr 選択時のみ効く)
+
+# IQN の τ 数。BTR は online / target / 行動選択とも 8(サーベイ §4.3)。@baseline 既定は 32。
+A1.learner.iqn.current_taus.num_taus = 8       # N
+A1.learner.iqn.target_taus.num_taus  = 8       # N'
+A1.train_policy.tau_rule.num_taus    = 8       # K(行動推論)
+A1.eval_policy.tau_rule.num_taus     = 8       # K(評価)
+
+# --- 探索 ---
+A1.train_policy.policy_type = EpsilonGreedy
+A1.train_policy.eps_start = 1.00
+A1.train_policy.eps_end = 0.01
+
+# --- optimizer ---
+A1.learner.alpha = 1e-4                        # ★ lr。batch 256 の Atari 相場
+# adam_eps は A2 が持つ。A1 に書くとチェーン後段の @bf16(agent.txt:91)が 1e-4 で打ち消す。
+A1.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
+                                              # WD 0.1 は BBF(Atari-100k)由来で、探索ブロック 13 で不採用
+A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm 実測 0.5-1.4 に対し平常時は不発
+#A1.learner.grad_clip_tau = 30                 # 探索ブロック 12 の採用値
+#A1.learner.grad_clip_tau = 5                  # 旧既定(@baseline 継承値)
+
+# --- TD ---
+#A1.learner.gamma = 0.99                       # 旧既定(Atari 標準・Rainbow 値)
+A1.learner.gamma = 0.997                       # ★ BTR / BBF 準拠。実効ホライズン 100 -> 333 step
+
+A1.learner.n_step = 3                          # Rainbow 標準
+
+# --- Replay ---
+A1.learner.replay_capacity = 1,048,576         # 文献 1M。uint8 単フレーム保存で ~7GB host RAM
+A1.learner.replay_batch_size = 256             # ★
+A1.learner.replay_ratio = 8                    # ★ samples/insert。古典 DQN=8(batch32×1update/4steps)
+A1.learner.use_rb_prefetch = true
+
+# --- PER ---
+A1.learner.per_alpha = 0.2                     # BTR Table D6。Rainbow 値は 0.5
+# IS 重みの指数。start と end を揃えてアニール自体を消す(2026-09-01)。
+# 理由1: BTR は IS 重みを beta ではなく alpha=0.2 で計算しており(PER.py:324、著者コメントが
+#   手違い由来と明記)、beta という自由度が無い。正味の優先度指数は p^(alpha*(1-beta)) で、
+#   beta_end=1.0 は p^0 = 一様サンプリング等価。つまり PER の勾配バイアスを自分で打ち消していた。
+# 理由2: per_beta_step が half_exp_step 参照(A1.learner.per_beta_step)のため、beta は「予算依存の唯一の学習ハイパラ」
+#   だった。20M/50M/100M で同一 step の beta が違い、prefix 比較が原理的に成立しない。固定で解消。
+# 実測: RR1・RR4 とも成績中立(壁突破 211 対 192 事象で 1sigma 未満、eval 差 1SE)。動くのは
+#   grad_norm 2.8 倍・loss 3.1 倍だけで TD 統計は不変。Adam のスケール不変性で説明が付く。
+# per_beta_step は同値補間で不活性になるが、将来戻す場合に備えてキーは残す。
+A1.learner.per_beta_start = 0.2
+A1.learner.per_beta_end = 0.2
+A1.learner.per_initial_priority_mode = max     # 文献の max-priority 初期化
+
+# --- target ---
+A1.model.soft_update_tau = 0.001
+#A1.model.soft_update_tau = 0                  # hard 切替時はこの 2 行を有効化
+#A1.model.hard_update_interval = 8000          # learn_step 単位(Dopamine 相当)
+
+# --- actor snapshot ---
+A1.train_actor.clone_model = true
+A1.train_actor.sync_interval.type = constant
+A1.train_actor.sync_interval.value = 400
+
+# --- reward scaler ---
+A1.reward_scaler.use_dynamic_scaling = false
+A1.reward_scaler.use_auto_post_scale = false
+A1.reward_scaler.constant_scale = 1.0  # sign clip 済み ±1 を素通し
+
+
+# ==============================================================================
+# NN
+# ==============================================================================
+
+# 入力: grid uint8 [stack4 → StackMerge → (B,4,84,84)]。NN 境界で自動 /255。
+# main_feature 最終次元は 512(AtariLinear512)。IQN の TauProj もこれに一致させる。
+
+# --- Atari Nature CNN (DQN 2015。疎通実績あり) ---
+
+net.block.[AtariConv32].type = Conv2d
+net.block.[AtariConv32].conv.out_channels = 32
+net.block.[AtariConv32].conv.kernel_size = 8
+net.block.[AtariConv32].conv.stride = 4
+net.block.[AtariConv32].conv.padding = 0
+net.block.[AtariConv32].init.mode = he
+
+net.block.[AtariConv64].type = Conv2d
+net.block.[AtariConv64].conv.out_channels = 64
+net.block.[AtariConv64].conv.kernel_size = 4
+net.block.[AtariConv64].conv.stride = 2
+net.block.[AtariConv64].conv.padding = 0
+net.block.[AtariConv64].init.mode = he
+
+net.block.[AtariConv64Final].type = Conv2d
+net.block.[AtariConv64Final].conv.out_channels = 64
+net.block.[AtariConv64Final].conv.kernel_size = 3
+net.block.[AtariConv64Final].conv.stride = 1
+net.block.[AtariConv64Final].conv.padding = 0
+net.block.[AtariConv64Final].init.mode = he
+
+net.block.[AtariLinear512].type = Linear
+net.block.[AtariLinear512].linear.out_features = 512
+net.block.[AtariLinear512].init.mode = xavier
+
+# --- Atari IMPALA (文献準拠 16/32/32・ReLU。DropMerge の SiLU 版とは意図的に別) ---
+# 84 → pool → 42 → pool → 21 → pool → 11。Flatten 32*11*11=3872。
+# 全 ResBlock は既定の init2.mode=constant で conv2 を zero-init し、identity から開始する。
+
+net.block.[AtariImpalaConv16].type = Conv2d
+net.block.[AtariImpalaConv16].conv.out_channels = 16
+net.block.[AtariImpalaConv16].conv.kernel_size = 3
+net.block.[AtariImpalaConv16].conv.stride = 1
+net.block.[AtariImpalaConv16].conv.padding = 1
+net.block.[AtariImpalaConv16].init.mode = he
+
+net.block.[AtariImpalaConv32].type = Conv2d
+net.block.[AtariImpalaConv32].conv.out_channels = 32
+net.block.[AtariImpalaConv32].conv.kernel_size = 3
+net.block.[AtariImpalaConv32].conv.stride = 1
+net.block.[AtariImpalaConv32].conv.padding = 1
+net.block.[AtariImpalaConv32].init.mode = he
+
+net.block.[AtariImpalaPool].type = MaxPool2d
+net.block.[AtariImpalaPool].pool.kernel_size = 3
+net.block.[AtariImpalaPool].pool.stride = 2
+net.block.[AtariImpalaPool].pool.padding = 1
+
+net.block.[AtariImpalaRes16].type = ResBlock
+net.block.[AtariImpalaRes16].res.channels = 16
+net.block.[AtariImpalaRes16].res.kernel_size = 3
+net.block.[AtariImpalaRes16].res.activation = relu
+net.block.[AtariImpalaRes16].res.activation_mode = pre
+net.block.[AtariImpalaRes16].res.norm_type = none
+net.block.[AtariImpalaRes16].res.droppath_rate = 0.0
+#net.block.[AtariImpalaRes16].res.droppath_rate = 0.03
+
+net.block.[AtariImpalaRes32].type = ResBlock
+net.block.[AtariImpalaRes32].res.channels = 32
+net.block.[AtariImpalaRes32].res.kernel_size = 3
+net.block.[AtariImpalaRes32].res.activation = relu
+net.block.[AtariImpalaRes32].res.activation_mode = pre
+net.block.[AtariImpalaRes32].res.norm_type = none
+net.block.[AtariImpalaRes32].res.droppath_rate = 0.0
+#net.block.[AtariImpalaRes32].res.droppath_rate = 0.03
+
+# --- Atari IMPALA Scale=2 用の追加 block(BTR 準拠。32/64/64) ---
+
+net.block.[AtariImpalaConv64].type = Conv2d
+net.block.[AtariImpalaConv64].conv.out_channels = 64
+net.block.[AtariImpalaConv64].conv.kernel_size = 3
+net.block.[AtariImpalaConv64].conv.stride = 1
+net.block.[AtariImpalaConv64].conv.padding = 1
+net.block.[AtariImpalaConv64].init.mode = he
+
+net.block.[AtariImpalaRes64].type = ResBlock
+net.block.[AtariImpalaRes64].res.channels = 64
+net.block.[AtariImpalaRes64].res.kernel_size = 3
+net.block.[AtariImpalaRes64].res.activation = relu
+net.block.[AtariImpalaRes64].res.activation_mode = pre
+net.block.[AtariImpalaRes64].res.norm_type = none
+net.block.[AtariImpalaRes64].res.droppath_rate = 0.0
+#net.block.[AtariImpalaRes64].res.droppath_rate = 0.03
+
+# --- GroupNorm 版 IMPALA-X2(可塑性 A3)。norm_type 以外は素の版と同一 ---
+# 正規化があると直前 conv の重みスケールが出力に効かなくなり、‖w‖ 成長が機能的に無害になる。
+net.block.[AtariImpalaRes32GN].type = ResBlock
+net.block.[AtariImpalaRes32GN].res.channels = 32
+net.block.[AtariImpalaRes32GN].res.kernel_size = 3
+net.block.[AtariImpalaRes32GN].res.activation = relu
+net.block.[AtariImpalaRes32GN].res.activation_mode = pre
+net.block.[AtariImpalaRes32GN].res.norm_type = group
+net.block.[AtariImpalaRes32GN].res.group_norm_groups = 4
+net.block.[AtariImpalaRes32GN].res.droppath_rate = 0.0
+
+net.block.[AtariImpalaRes64GN].type = ResBlock
+net.block.[AtariImpalaRes64GN].res.channels = 64
+net.block.[AtariImpalaRes64GN].res.kernel_size = 3
+net.block.[AtariImpalaRes64GN].res.activation = relu
+net.block.[AtariImpalaRes64GN].res.activation_mode = pre
+net.block.[AtariImpalaRes64GN].res.norm_type = group
+net.block.[AtariImpalaRes64GN].res.group_norm_groups = 4
+net.block.[AtariImpalaRes64GN].res.droppath_rate = 0.0
+
+net.branch.@AtariImpalaX2GN.bind = grid
+net.branch.@AtariImpalaX2GN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# --- config のみの screening 腕(可塑性)。素の X2 から 1 点だけ変えた 3 branch ---
+
+# B(init): conv2 の zero-init を he へ。他は素の X2 と同一。
+net.block.[AtariImpalaRes32He].type = ResBlock
+net.block.[AtariImpalaRes32He].res.channels = 32
+net.block.[AtariImpalaRes32He].res.kernel_size = 3
+net.block.[AtariImpalaRes32He].res.activation = relu
+net.block.[AtariImpalaRes32He].res.activation_mode = pre
+net.block.[AtariImpalaRes32He].res.norm_type = none
+net.block.[AtariImpalaRes32He].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32He].init2.mode = he
+
+net.block.[AtariImpalaRes64He].type = ResBlock
+net.block.[AtariImpalaRes64He].res.channels = 64
+net.block.[AtariImpalaRes64He].res.kernel_size = 3
+net.block.[AtariImpalaRes64He].res.activation = relu
+net.block.[AtariImpalaRes64He].res.activation_mode = pre
+net.block.[AtariImpalaRes64He].res.norm_type = none
+net.block.[AtariImpalaRes64He].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64He].init2.mode = he
+
+net.branch.@AtariImpalaX2He.bind = grid
+net.branch.@AtariImpalaX2He.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# E(3): 活性化のみ SiLU。ResBlock 内は res.activation、素の 2 箇所は SiLU ブロックで置換。
+net.block.[AtariImpalaRes32S].type = ResBlock
+net.block.[AtariImpalaRes32S].res.channels = 32
+net.block.[AtariImpalaRes32S].res.kernel_size = 3
+net.block.[AtariImpalaRes32S].res.activation = silu
+net.block.[AtariImpalaRes32S].res.activation_mode = pre
+net.block.[AtariImpalaRes32S].res.norm_type = none
+net.block.[AtariImpalaRes32S].res.droppath_rate = 0.0
+
+net.block.[AtariImpalaRes64S].type = ResBlock
+net.block.[AtariImpalaRes64S].res.channels = 64
+net.block.[AtariImpalaRes64S].res.kernel_size = 3
+net.block.[AtariImpalaRes64S].res.activation = silu
+net.block.[AtariImpalaRes64S].res.activation_mode = pre
+net.block.[AtariImpalaRes64S].res.norm_type = none
+net.block.[AtariImpalaRes64S].res.droppath_rate = 0.0
+
+net.block.[AtariSiLU].type = SiLU
+
+net.branch.@AtariImpalaX2SiLU.bind = grid
+net.branch.@AtariImpalaX2SiLU.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariSiLU > Flatten > AtariLinear512 > AtariSiLU
+
+# F(2): Linear512 の直後に LayerNorm。ResBlock は素のまま(測定点だけを正規化する単変数)。
+net.block.[AtariLN512].type = LayerNorm
+net.block.[AtariLN512].normalized_shape = 512
+
+net.branch.@AtariImpalaX2LN.bind = grid
+net.branch.@AtariImpalaX2LN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+# --- SN screening(PRD 065)。全層適用: standalone Conv2d 3 + ResBlock 全部 + Linear512。
+# キーは weight_norm.mode(init.mode と同じ独立 namespace。ブロック型 prefix の外)。
+# C 腕は spectral + init2=he(zero-init は W/sigma と非互換で fail-fast)。D 腕は cap + zero-init 維持。
+# 素の版と block 名を分けるのは、mode 違いを 1 つの branch 図で共存させるため。
+
+# C 腕: weight_norm.mode = spectral
+net.block.[AtariImpalaConv32SN].type = Conv2d
+net.block.[AtariImpalaConv32SN].conv.out_channels = 32
+net.block.[AtariImpalaConv32SN].conv.kernel_size = 3
+net.block.[AtariImpalaConv32SN].conv.stride = 1
+net.block.[AtariImpalaConv32SN].conv.padding = 1
+net.block.[AtariImpalaConv32SN].init.mode = he
+net.block.[AtariImpalaConv32SN].weight_norm.mode = spectral
+
+net.block.[AtariImpalaConv64SN].type = Conv2d
+net.block.[AtariImpalaConv64SN].conv.out_channels = 64
+net.block.[AtariImpalaConv64SN].conv.kernel_size = 3
+net.block.[AtariImpalaConv64SN].conv.stride = 1
+net.block.[AtariImpalaConv64SN].conv.padding = 1
+net.block.[AtariImpalaConv64SN].init.mode = he
+net.block.[AtariImpalaConv64SN].weight_norm.mode = spectral
+
+net.block.[AtariImpalaRes32SN].type = ResBlock
+net.block.[AtariImpalaRes32SN].res.channels = 32
+net.block.[AtariImpalaRes32SN].res.kernel_size = 3
+net.block.[AtariImpalaRes32SN].res.activation = relu
+net.block.[AtariImpalaRes32SN].res.activation_mode = pre
+net.block.[AtariImpalaRes32SN].res.norm_type = none
+net.block.[AtariImpalaRes32SN].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32SN].weight_norm.mode = spectral
+net.block.[AtariImpalaRes32SN].init2.mode = he
+
+net.block.[AtariImpalaRes64SN].type = ResBlock
+net.block.[AtariImpalaRes64SN].res.channels = 64
+net.block.[AtariImpalaRes64SN].res.kernel_size = 3
+net.block.[AtariImpalaRes64SN].res.activation = relu
+net.block.[AtariImpalaRes64SN].res.activation_mode = pre
+net.block.[AtariImpalaRes64SN].res.norm_type = none
+net.block.[AtariImpalaRes64SN].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64SN].weight_norm.mode = spectral
+net.block.[AtariImpalaRes64SN].init2.mode = he
+
+net.block.[AtariLinear512SN].type = Linear
+net.block.[AtariLinear512SN].linear.out_features = 512
+net.block.[AtariLinear512SN].init.mode = xavier
+net.block.[AtariLinear512SN].weight_norm.mode = spectral
+
+net.branch.@AtariImpalaX2SN.bind = grid
+net.branch.@AtariImpalaX2SN.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512SN > ReLU
+
+# D 腕: weight_norm.mode = spectral_cap
+net.block.[AtariImpalaConv32CAP].type = Conv2d
+net.block.[AtariImpalaConv32CAP].conv.out_channels = 32
+net.block.[AtariImpalaConv32CAP].conv.kernel_size = 3
+net.block.[AtariImpalaConv32CAP].conv.stride = 1
+net.block.[AtariImpalaConv32CAP].conv.padding = 1
+net.block.[AtariImpalaConv32CAP].init.mode = he
+net.block.[AtariImpalaConv32CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaConv64CAP].type = Conv2d
+net.block.[AtariImpalaConv64CAP].conv.out_channels = 64
+net.block.[AtariImpalaConv64CAP].conv.kernel_size = 3
+net.block.[AtariImpalaConv64CAP].conv.stride = 1
+net.block.[AtariImpalaConv64CAP].conv.padding = 1
+net.block.[AtariImpalaConv64CAP].init.mode = he
+net.block.[AtariImpalaConv64CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaRes32CAP].type = ResBlock
+net.block.[AtariImpalaRes32CAP].res.channels = 32
+net.block.[AtariImpalaRes32CAP].res.kernel_size = 3
+net.block.[AtariImpalaRes32CAP].res.activation = relu
+net.block.[AtariImpalaRes32CAP].res.activation_mode = pre
+net.block.[AtariImpalaRes32CAP].res.norm_type = none
+net.block.[AtariImpalaRes32CAP].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaRes64CAP].type = ResBlock
+net.block.[AtariImpalaRes64CAP].res.channels = 64
+net.block.[AtariImpalaRes64CAP].res.kernel_size = 3
+net.block.[AtariImpalaRes64CAP].res.activation = relu
+net.block.[AtariImpalaRes64CAP].res.activation_mode = pre
+net.block.[AtariImpalaRes64CAP].res.norm_type = none
+net.block.[AtariImpalaRes64CAP].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64CAP].weight_norm.mode = spectral_cap
+
+net.block.[AtariLinear512CAP].type = Linear
+net.block.[AtariLinear512CAP].linear.out_features = 512
+net.block.[AtariLinear512CAP].init.mode = xavier
+net.block.[AtariLinear512CAP].weight_norm.mode = spectral_cap
+
+net.branch.@AtariImpalaX2CAP.bind = grid
+net.branch.@AtariImpalaX2CAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > ReLU
+
+# LN512 を足した全層 CAP 版。run.@capall が使う。現行基準(@AtariImpalaX2LN)からの 1 変数。
+# 全層 spectral は Q が発散し(2026-08-30 探索ブロック 01、q_max 2,700)、BTR 範囲の cap は
+# 依存閉包で見ると生ノルムと一緒に伸びた(61 = 65.7 / 63 = 60.8)。素の Linear512 が
+# ノルムの大半を占めるためで、cap を Linear512 まで広げた組は未試行である。
+net.branch.@AtariImpalaX2LNCAP.bind = grid
+net.branch.@AtariImpalaX2LNCAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > AtariLN512 > ReLU
+
+# --- BTR 忠実版 SN: residual conv のみ(BTR networks.py 実装と同範囲)。
+# 入口 conv / downsample / Linear512 は素のまま = 値のスケールを作る経路を縛らない。
+# 全層版(X2SN)は 2026-08-30 に Q 値発散(q_max 0.89 -> 12 -> 2700)。
+# SN は特徴の実効ノルムを固定するが readout は素なので、負荷が readout へ寄る。
+
+net.block.[AtariImpalaRes32SNR].type = ResBlock
+net.block.[AtariImpalaRes32SNR].res.channels = 32
+net.block.[AtariImpalaRes32SNR].res.kernel_size = 3
+net.block.[AtariImpalaRes32SNR].res.activation = relu
+net.block.[AtariImpalaRes32SNR].res.activation_mode = pre
+net.block.[AtariImpalaRes32SNR].res.norm_type = none
+net.block.[AtariImpalaRes32SNR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32SNR].weight_norm.mode = spectral
+net.block.[AtariImpalaRes32SNR].init2.mode = he
+
+net.block.[AtariImpalaRes64SNR].type = ResBlock
+net.block.[AtariImpalaRes64SNR].res.channels = 64
+net.block.[AtariImpalaRes64SNR].res.kernel_size = 3
+net.block.[AtariImpalaRes64SNR].res.activation = relu
+net.block.[AtariImpalaRes64SNR].res.activation_mode = pre
+net.block.[AtariImpalaRes64SNR].res.norm_type = none
+net.block.[AtariImpalaRes64SNR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64SNR].weight_norm.mode = spectral
+net.block.[AtariImpalaRes64SNR].init2.mode = he
+
+net.branch.@AtariImpalaX2SNR.bind = grid
+net.branch.@AtariImpalaX2SNR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# LN512 を足した SNR 版。run.@rr1_ln_snr が使う。
+net.branch.@AtariImpalaX2LNSNR.bind = grid
+net.branch.@AtariImpalaX2LNSNR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+net.block.[AtariImpalaRes32CAPR].type = ResBlock
+net.block.[AtariImpalaRes32CAPR].res.channels = 32
+net.block.[AtariImpalaRes32CAPR].res.kernel_size = 3
+net.block.[AtariImpalaRes32CAPR].res.activation = relu
+net.block.[AtariImpalaRes32CAPR].res.activation_mode = pre
+net.block.[AtariImpalaRes32CAPR].res.norm_type = none
+net.block.[AtariImpalaRes32CAPR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes32CAPR].weight_norm.mode = spectral_cap
+
+net.block.[AtariImpalaRes64CAPR].type = ResBlock
+net.block.[AtariImpalaRes64CAPR].res.channels = 64
+net.block.[AtariImpalaRes64CAPR].res.kernel_size = 3
+net.block.[AtariImpalaRes64CAPR].res.activation = relu
+net.block.[AtariImpalaRes64CAPR].res.activation_mode = pre
+net.block.[AtariImpalaRes64CAPR].res.norm_type = none
+net.block.[AtariImpalaRes64CAPR].res.droppath_rate = 0.0
+net.block.[AtariImpalaRes64CAPR].weight_norm.mode = spectral_cap
+
+net.block.[AtariHeadFC512Def].type = Linear
+net.block.[AtariHeadFC512Def].linear.out_features = 512
+net.block.[AtariHeadFC512Def].init.mode = default
+
+net.block.[AtariIQNTauProj2304Def].type = Linear
+net.block.[AtariIQNTauProj2304Def].linear.out_features = 2304
+net.block.[AtariIQNTauProj2304Def].init.mode = default
+
+net.block.[AtariIQNTauProj2304].type = Linear
+net.block.[AtariIQNTauProj2304].linear.out_features = 2304
+net.block.[AtariIQNTauProj2304].init.mode = xavier
+
+net.branch.@AtariImpalaX2CAPR.bind = grid
+net.branch.@AtariImpalaX2CAPR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# --- Atari IMPALA + ViT ハイブリッド ---
+
+net.block.[AtariViTProj128].type = Conv2d
+net.block.[AtariViTProj128].conv.out_channels = 128
+net.block.[AtariViTProj128].conv.kernel_size = 1
+net.block.[AtariViTProj128].conv.stride = 1
+net.block.[AtariViTProj128].conv.padding = 0
+net.block.[AtariViTProj128].init.mode = he
+
+net.block.[AtariImpalaTrans128].type = TransformerEncoder
+net.block.[AtariImpalaTrans128].tf.d_model = 128
+net.block.[AtariImpalaTrans128].tf.nhead = 8
+net.block.[AtariImpalaTrans128].tf.num_layers = 4
+net.block.[AtariImpalaTrans128].tf.dim_feedforward = 512
+net.block.[AtariImpalaTrans128].tf.norm_first = true
+net.block.[AtariImpalaTrans128].tf.use_sdpa = true
+net.block.[AtariImpalaTrans128].tf.activation = gelu
+net.block.[AtariImpalaTrans128].tf.hidden_dropout_rate = 0.0
+#net.block.[AtariImpalaTrans128].tf.hidden_dropout_rate = 0.03
+net.block.[AtariImpalaTrans128].tf.attn_dropout_rate = 0.0
+net.block.[AtariImpalaTrans128].tf.droppath_rate = 0.0
+#net.block.[AtariImpalaTrans128].tf.droppath_rate = 0.02
+
+# --- head / IQN 用 ---
+
+net.block.[AtariHeadFC512].type = Linear
+net.block.[AtariHeadFC512].linear.out_features = 512
+net.block.[AtariHeadFC512].init.mode = xavier
+
+net.block.[AtariIQNCosEmb].type = CosineEmbedding
+net.block.[AtariIQNCosEmb].cos.num_basis = 64
+
+net.block.[AtariIQNTauProj512].type = Linear
+net.block.[AtariIQNTauProj512].linear.out_features = ${net.block.[AtariLinear512].linear.out_features}   # main_feature 最終次元へ値参照で追随(手動同期を廃止)
+net.block.[AtariIQNTauProj512].init.mode = xavier
+
+
+# --- BTR 構造ラダー用(Pool6 / トランク無し) ---
+
+# 使う腕: run.@rr1_va_pool6 / fuse2304 / btrstruct / btrflat /
+#         btrstruct_taurelu / btr_default / soft008_btr / rr1_ln_pool6
+
+# BTR の 6x6 AdaptiveMaxPool 相当。AdaptiveMaxPool2d ブロック型は未実装だが、入力が 11x11 固定
+# なので MaxPool2d(kernel=2, stride=2, padding=1) で floor((11+2-2)/2)+1 = 6 となり同じ形状が出る。
+# 窓の重なり方は adaptive 版と厳密には異なる。Linear 入力 7744 -> 2304、Linear パラメータ
+# 3.97M -> 1.18M。BTR 自身は「性能は下がるが計算量が決定的に下がる」と評価している。
+net.block.[AtariPool6].type = MaxPool2d
+net.block.[AtariPool6].pool.kernel_size = 2
+net.block.[AtariPool6].pool.stride = 2
+net.block.[AtariPool6].pool.padding = 1
+
+net.block.[AtariIQNTauProj7744].type = Linear
+net.block.[AtariIQNTauProj7744].linear.out_features = 7744
+net.block.[AtariIQNTauProj7744].init.mode = xavier
+
+# トランクを持たない main_feature。Pool6 で 6x6x64 = 2304。
+# spectral norm 版の Pool6Flat。BTR は --spectral 1 が既定で、checkpoint にも
+# parametrizations.weight.original が入っている(2026-09-11 に実機確認)。
+# 共有トランクを持たないので AtariLinear512SN は使わない。
+net.branch.@AtariImpalaX2SNPool6Flat.bind = grid
+net.branch.@AtariImpalaX2SNPool6Flat.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
+
+net.branch.@AtariImpalaX2Pool6Flat.bind = grid
+net.branch.@AtariImpalaX2Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
+
+net.branch.@AtariImpalaX2LNPool6.bind = grid
+net.branch.@AtariImpalaX2LNPool6.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+net.branch.@AtariImpalaX2Flat.bind = grid
+net.branch.@AtariImpalaX2Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten
+
+# --- ブランチプロファイル ---
+
+net.branch.@AtariNature.bind = grid
+net.branch.@AtariNature.structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten > AtariLinear512 > ReLU
+
+net.branch.@AtariImpala.bind = grid
+net.branch.@AtariImpala.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+# Scale=2。84 -> pool -> 42 -> pool -> 21 -> pool -> 11。Flatten 64*11*11=7744。
+net.branch.@AtariImpalaX2.bind = grid
+net.branch.@AtariImpalaX2.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+net.branch.@AtariImpalaViT.bind = grid
+net.branch.@AtariImpalaViT.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > ReLU
+
+# ViT ハイブリッドに LN512 を足した版。既存 @AtariImpalaViT は旧バンドル時代の
+# もので LN512 が無く、conv も 16/32/32 と細い。conv 幅はそのままにして
+# 正規化だけ現行基準へ揃える。
+net.branch.@AtariImpalaViTLN.bind = grid
+net.branch.@AtariImpalaViTLN.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+# dueling は明示 V/A ストリーム方式(IQN 切替を DefaultDQNAgent.net.$ で成立させるため)
+DefaultDQNAgent.net.body.output.[value_feature] = value_stream
+DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
+DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > SiLU
+DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > SiLU
+
+# use_dueling_net=false 時の Head は `features`(nn_heads.hpp の kKey_DefaultOutput)だけを読む。この 1 行が無いと起動時に落ちる。
+DefaultDQNAgent.net.body.output.[features] = main_feature
+
+
+# --- 切替用配線プロファイル(ALGO プロファイルの net.$ から参照される) ---
+
+# QR: V/A は main_feature 直結。quantile_mode=none(NatureDQN)もこの配線を使う。
+net.@qr  : branch.[value_stream].bind = main_feature
+net.@qr  : branch.[adv_stream].bind = main_feature
+
+# IQN: tau 埋め込みとの要素積に V/A を接続
+net.@iqn : branch.[tau_embedding].bind = taus
+net.@iqn : branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > SiLU
+net.@iqn : branch.[iqn_fusion].bind = main_feature * tau_embedding
+net.@iqn : branch.[iqn_fusion].structure =
+net.@iqn : branch.[value_stream].bind = iqn_fusion
+net.@iqn : branch.[adv_stream].bind = iqn_fusion
+
+# IQNHead(dueling なし)は rank-3 (B,K,D) を要求するため、main_feature ではなく fusion 後を渡す。
+net.@iqn : body.output.[features] = iqn_fusion
+
+
+# ==============================================================================
+# AtariEnv
+# ==============================================================================
+
+env.class_id = AtariEnv
+
+# --- プロトコルプロファイル(スコアはプロファイル間で直接比較不可) ---
+
+# 「v5」は noop を含意しないので 2 本に分ける。差分は noop_max だけ(docs/design/220_atari_env.jp.md 3 章)。
+
+# raw ALE v5 準拠(sticky のみが確率源)
+AtariEnv.@v5_noop0.repeat_action_probability = 0.25
+AtariEnv.@v5_noop0.noop_max = 0
+AtariEnv.@v5_noop0.episodic_life = false
+AtariEnv.@v5_noop0.fire_reset = false
+
+# v5 + Gymnasium AtariPreprocessing 既定(sticky と noop の併用)
+AtariEnv.@v5_noop30.repeat_action_probability = 0.25
+AtariEnv.@v5_noop30.noop_max = 30
+AtariEnv.@v5_noop30.episodic_life = false
+AtariEnv.@v5_noop30.fire_reset = false
+
+# クラシック(DeepMind 2015 系。CleanRL/SB3 の数字と比較する時用)
+AtariEnv.@classic.repeat_action_probability = 0.0
+AtariEnv.@classic.noop_max = 30
+AtariEnv.@classic.episodic_life = true
+AtariEnv.@classic.fire_reset = true
+
+# Atari-100k(SimPLe 起点。26 ゲーム・400k frames)。共通不変は sticky なしと予算だけで残りは実装系統で分裂。exp_pause/exit_step = 100,000 とセット。
+AtariEnv.@100k.repeat_action_probability = 0.0
+AtariEnv.@100k.noop_max = 30
+AtariEnv.@100k.episodic_life = true
+AtariEnv.@100k.fire_reset = false
+
+
+# --- デフォルト設定 ---
+
+AtariEnv.game = pong
+AtariEnv.rom_dir =                            # 空 = 環境変数 ATARI_ROM_DIR を参照
+AtariEnv.screen_size = 84
+AtariEnv.frame_skip = 4
+AtariEnv.max_pool = true
+AtariEnv.reward_clip = true
+AtariEnv.full_action_space = false
+AtariEnv.mode = -1                            # -1 = ALE 既定(flavor)
+AtariEnv.difficulty = -1
+AtariEnv.max_episode_frames = 108,000         # v5 既定(emulator frame 単位)
+AtariEnv.retain_rgb_frame = true              # AtariView 用 RGB 保持
+AtariEnv.display_screen = false
+AtariEnv.sound = false
+
+
+# --- Eval設定 ---
+
+# eval コストは「1 エピソードの長さ × 発火回数」。エピソード長はスキルと共に伸びるので Run 後半ほど重い。
+
+# eval1 = target net / eval2 = online net(dqn_based_agent.cpp の IsForTarget)。両者の差は探索記録を参照。
+train.eval_schedule.[eval1].interval = 1000  # RR1 で BTR 相当(1M frames = 250K exp step)。旧 2500
+#train.eval_schedule.[eval2].interval = 2500
+#train.eval_schedule.[eval1].interval = 0    # num_envs ラダー等、eval コストを排除したい測定用
+train.eval_schedule.[eval2].interval = 1009  # online net 評価を復活(2026-09-03)。eval1=1000 と互いに素にして
+                                            # eval1/eval2 の同位相発火(EpisodeEvalObserver の停滞要因)を避ける。
+#train.eval_schedule.[eval2].interval = 0    # eval2 破棄。online net の評価と eval1/eval2 比の健全性指標を失う
+
+# eval エピソード上限はプロトコルと対。Nature 2015 = 18,000 frames(5 分)、v5 / BTR = env 既定の 108,000。下の 2 行は Classic 用。
+#train.eval.[eval1].env.max_episode_frames = 18,000
+#train.eval.[eval2].env.max_episode_frames = 18,000
+train.eval.[eval1].env.episodic_life = false
+train.eval.[eval2].env.episodic_life = false
+
+
+# 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
+#AtariEnv.@test1.difficulty = 1
+#train.eval_schedule.[test1].interval = 5000
+#train.eval.[test1].run_mode = eval1
+#train.eval.[test1].env.$ = AtariEnv.@v5_noop0 > AtariEnv.@test1 > E1
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+# 報酬・TD・loss・PER・throughput は metrics.scalar.@baseline が提供済み。ここは env 固有(42_env)と eval 別 env 集計(51/52)のみ。
+# game_score / game_len / game_frames は「ゲーム 1 回」の確定値で、実 game over / truncation でのみ非 NaN(§4.5)。lives だけは現在値で毎 round。
+# EMA alpha は発火頻度で分ける(@train=毎 round / @session_end=eval 発火時のみ)。
+
+metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
+
+# metrics.trace.[tag] = $target @episode_end key1 [key2 ...] [$step] [$train | $eval.[name]]
+metrics.trace.$ = metrics.trace.@atari
+metrics.trace.@atari.[51_eval1/episode] = $eval.[eval1] @episode_end $env game_score game_len game_frames hns57
+metrics.trace.@atari.[52_eval2/episode] = $eval.[eval2] @episode_end $env game_score game_len game_frames hns57
+#metrics.trace.@atari.[42_env/episode] = $train @episode_end $env game_score game_len game_frames hns57
+
+M1.[42_env/10_game_score_mean]      = $env mean.game_score  @train $exp_step
+M1.[42_env/11_game_score_mean_ema]  = $env mean.game_score  @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/12_hns57_mean]           = $env mean.hns57       @train $exp_step
+M1.[42_env/13_hns57_mean_ema]       = $env mean.hns57       @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/14_hns49_mean]           = $env mean.hns49       @train $exp_step
+M1.[42_env/15_hns49_mean_ema]       = $env mean.hns49       @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/20_game_len_mean]        = $env mean.game_len    @train $exp_step
+M1.[42_env/21_game_len_mean_ema]    = $env mean.game_len    @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/22_game_frames_mean]     = $env mean.game_frames @train $exp_step
+M1.[42_env/23_game_frames_mean_ema] = $env mean.game_frames @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/30_lives_mean]           = $env mean.lives       @train $exp_step
+M1.[42_env/31_lives_mean_ema]       = $env mean.lives       @train $exp_step $ema ema_alpha:0.001
+
+M1.[42_env/16_game_score_max]       = $env max.game_score   @train $exp_step   # mean の分母は完了 env 数なのでゲーム長が短いほどピークを潰す(§4.7)
+M1.[42_env/24_game_len_max]         = $env max.game_len     @train $exp_step
+
+M1.[51_eval1/10_game_score_mean]      = $eval.[eval1] @session_end $env mean.game_score
+M1.[51_eval1/11_game_score_mean_ema]  = $eval.[eval1] @session_end $env mean.game_score  $ema ema_alpha:0.1
+M1.[51_eval1/12_hns57_mean]           = $eval.[eval1] @session_end $env mean.hns57
+M1.[51_eval1/13_hns57_mean_ema]       = $eval.[eval1] @session_end $env mean.hns57       $ema ema_alpha:0.1
+M1.[51_eval1/14_hns49_mean]           = $eval.[eval1] @session_end $env mean.hns49
+M1.[51_eval1/15_hns49_mean_ema]       = $eval.[eval1] @session_end $env mean.hns49       $ema ema_alpha:0.1
+M1.[51_eval1/20_game_len_mean]        = $eval.[eval1] @session_end $env mean.game_len
+M1.[51_eval1/21_game_len_mean_ema]    = $eval.[eval1] @session_end $env mean.game_len    $ema ema_alpha:0.1
+M1.[51_eval1/22_game_frames_mean]     = $eval.[eval1] @session_end $env mean.game_frames
+M1.[51_eval1/23_game_frames_mean_ema] = $eval.[eval1] @session_end $env mean.game_frames $ema ema_alpha:0.1
+M1.[51_eval1/30_lives_mean]           = $eval.[eval1] @session_end $env mean.lives
+M1.[51_eval1/31_lives_mean_ema]       = $eval.[eval1] @session_end $env mean.lives       $ema ema_alpha:0.1
+
+M1.[51_eval1/16_game_score_max]       = $eval.[eval1] @session_end $env max.game_score
+M1.[51_eval1/24_game_len_max]         = $eval.[eval1] @session_end $env max.game_len
+
+M1.[52_eval2/10_game_score_mean]      = $eval.[eval2] @session_end $env mean.game_score
+M1.[52_eval2/11_game_score_mean_ema]  = $eval.[eval2] @session_end $env mean.game_score  $ema ema_alpha:0.1
+M1.[52_eval2/12_hns57_mean]           = $eval.[eval2] @session_end $env mean.hns57
+M1.[52_eval2/13_hns57_mean_ema]       = $eval.[eval2] @session_end $env mean.hns57       $ema ema_alpha:0.1
+M1.[52_eval2/14_hns49_mean]           = $eval.[eval2] @session_end $env mean.hns49
+M1.[52_eval2/15_hns49_mean_ema]       = $eval.[eval2] @session_end $env mean.hns49       $ema ema_alpha:0.1
+M1.[52_eval2/20_game_len_mean]        = $eval.[eval2] @session_end $env mean.game_len
+M1.[52_eval2/21_game_len_mean_ema]    = $eval.[eval2] @session_end $env mean.game_len    $ema ema_alpha:0.1
+M1.[52_eval2/22_game_frames_mean]     = $eval.[eval2] @session_end $env mean.game_frames
+M1.[52_eval2/23_game_frames_mean_ema] = $eval.[eval2] @session_end $env mean.game_frames $ema ema_alpha:0.1
+M1.[52_eval2/30_lives_mean]           = $eval.[eval2] @session_end $env mean.lives
+M1.[52_eval2/31_lives_mean_ema]       = $eval.[eval2] @session_end $env mean.lives       $ema ema_alpha:0.1
+
+M1.[52_eval2/16_game_score_max]       = $eval.[eval2] @session_end $env max.game_score
+M1.[52_eval2/24_game_len_max]         = $eval.[eval2] @session_end $env max.game_len
+
+# --- Breakout 固有(1 画面 = 18 ×(1+1+4+4+7+7) = 432、2 画面 = 864) ---
+
+metrics.scalar.@breakout.[42_env/40_game_score_ge432]     = $env mean.game_score.ge.[432] @train $exp_step
+metrics.scalar.@breakout.[42_env/41_game_score_ge432_ema] = $env mean.game_score.ge.[432] @train $exp_step $ema ema_alpha:0.001
+metrics.scalar.@breakout.[42_env/42_game_score_ge600]     = $env mean.game_score.ge.[600] @train $exp_step
+metrics.scalar.@breakout.[42_env/43_game_score_ge600_ema] = $env mean.game_score.ge.[600] @train $exp_step $ema ema_alpha:0.001
+
+metrics.scalar.@breakout.[51_eval1/40_game_score_ge432]     = $eval.[eval1] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout.[51_eval1/41_game_score_ge432_ema] = $eval.[eval1] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
+metrics.scalar.@breakout.[51_eval1/42_game_score_ge600]     = $eval.[eval1] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout.[51_eval1/43_game_score_ge600_ema] = $eval.[eval1] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
+
+metrics.scalar.@breakout.[52_eval2/40_game_score_ge432]     = $eval.[eval2] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout.[52_eval2/41_game_score_ge432_ema] = $eval.[eval2] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
+metrics.scalar.@breakout.[52_eval2/42_game_score_ge600]     = $eval.[eval2] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout.[52_eval2/43_game_score_ge600_ema] = $eval.[eval2] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
+
+# --- SN 実験用(63/64=実効ノルム、65/66=sigma。@baseline では既定 OFF) ---
+# 退化 sigma の実行時検出もこの経路が担うため、SN 腕では購読必須(PRD 065)。選択は run.@pl_snmetrics。
+
+metrics.scalar.@sn.[34_agent_plasticity/63_weight_norm_feature_effective] = plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500
+metrics.scalar.@sn.[34_agent_plasticity/64_weight_norm_readout_effective] = plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500
+metrics.scalar.@sn.[34_agent_plasticity/65_spectral_sigma_feature]        = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
+metrics.scalar.@sn.[34_agent_plasticity/66_spectral_sigma_readout]        = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+#app.batchrun.train_panel.fps = 0
+#app.batchrun.eval_panel.fps = 0
+
+Conv2dPanel.conv2d.flip_vertical = false
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
+app.online.eval_panel.eval_config_tag = eval_panel
+app.batchrun.eval_panel.eval_config_tag = eval_panel
+app.batchrun.eval_panel.step_per_frame = 1
+
+# 観戦用。SDL 音声には SDL2.dll が要る(third_party/runtime_dlls/)。Windows の無音バグはAtariEnv が自動回避する(docs/design/220_atari_env.jp.md §4.2)。
+# schedule エントリを書かなければ definition-only となり背景 eval は生成されない(sound=1 の ALE を EvalPanel だけが所有し audio device の競合を避ける)。
+train.eval.[eval_panel].run_mode = eval1
+#train.eval.[eval_panel].env.sound = true   # タイマー精度の問題で音がおかしくなるのは現状の制限事項
+#train.eval.[eval_panel].env.display_screen = true
+train.eval.[eval_panel].env.max_episode_frames = 108,000
+train.eval.[eval_panel].env.episodic_life = false
+
+# 既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れ悪化。
+# 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
+app.online.eval_panel.fps = 14.5

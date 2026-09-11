@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "anet-lab 実験データの流れ",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1068,
+      490
+    ]
+  },
+  "stages": [
+    {
+      "label": "設定"
+    },
+    {
+      "label": "相互作用"
+    },
+    {
+      "label": "経験と Event"
+    },
+    {
+      "label": "蓄積と記録"
+    },
+    {
+      "label": "学習と分析"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "ConfigData",
+      "sublabel": "解決済み設定",
+      "tag": "Run へ dump",
+      "stage": 0,
+      "row": 1,
+      "width": 128
+    },
+    {
+      "id": "state",
+      "type": "backend",
+      "label": "BatchState",
+      "sublabel": "obs の TensorDict",
+      "tag": "CPU",
+      "stage": 1,
+      "row": 0,
+      "width": 128
+    },
+    {
+      "id": "action",
+      "type": "backend",
+      "label": "BatchActionInfo",
+      "sublabel": "行動と aux",
+      "stage": 1,
+      "row": 2,
+      "width": 128
+    },
+    {
+      "id": "experience",
+      "type": "backend",
+      "label": "BatchExperience",
+      "sublabel": "state / action / reward",
+      "stage": 2,
+      "row": 0,
+      "width": 128
+    },
+    {
+      "id": "events",
+      "type": "messagebus",
+      "label": "Event",
+      "sublabel": "Train / Learn / EpisodeEnd",
+      "stage": 2,
+      "row": 2,
+      "width": 128
+    },
+    {
+      "id": "replay",
+      "type": "database",
+      "label": "ReplayBuffer",
+      "sublabel": "lane ring / N-step / PER",
+      "tag": "プロセス内のみ",
+      "stage": 3,
+      "row": 0,
+      "width": 128
+    },
+    {
+      "id": "artifacts",
+      "type": "database",
+      "label": "Run 成果物",
+      "sublabel": "metrics.jsonl ほか",
+      "tag": "正本",
+      "stage": 3,
+      "row": 2,
+      "width": 128
+    },
+    {
+      "id": "net_update",
+      "type": "backend",
+      "label": "Network と loss",
+      "sublabel": "forward / backward",
+      "tag": "学習 device",
+      "stage": 4,
+      "row": 0,
+      "width": 128
+    },
+    {
+      "id": "cache",
+      "type": "database",
+      "label": "metrics_cache.db",
+      "sublabel": "再構築可能な cache",
+      "tag": "破棄可能",
+      "stage": 4,
+      "row": 1,
+      "width": 128
+    },
+    {
+      "id": "bridges",
+      "type": "external",
+      "label": "TensorBoard / MLflow",
+      "sublabel": "bridge の出力",
+      "tag": "導出物",
+      "stage": 4,
+      "row": 2,
+      "width": 128
+    }
+  ],
+  "flows": [
+    {
+      "id": "cfg-state",
+      "from": "config",
+      "to": "state",
+      "label": "EnvSpec 準拠",
+      "classification": "仕様",
+      "variant": "emphasis"
+    },
+    {
+      "id": "state-action",
+      "from": "state",
+      "to": "action",
+      "label": "device へ転送",
+      "classification": "device 転送",
+      "labelDy": -40
+    },
+    {
+      "id": "action-exp",
+      "from": "action",
+      "to": "experience",
+      "label": "遷移を結合",
+      "classification": "CPU",
+      "variant": "emphasis"
+    },
+    {
+      "id": "exp-replay",
+      "from": "experience",
+      "to": "replay",
+      "label": "Push",
+      "classification": "揮発",
+      "variant": "emphasis"
+    },
+    {
+      "id": "replay-net",
+      "from": "replay",
+      "to": "net_update",
+      "label": "Sample",
+      "classification": "学習 device",
+      "variant": "emphasis"
+    },
+    {
+      "id": "exp-events",
+      "from": "experience",
+      "to": "events",
+      "label": "Event 化",
+      "classification": "同期通知",
+      "labelDy": 40
+    },
+    {
+      "id": "events-artifacts",
+      "from": "events",
+      "to": "artifacts",
+      "label": "記録",
+      "classification": "Observer 経由"
+    },
+    {
+      "id": "artifacts-cache",
+      "from": "artifacts",
+      "to": "cache",
+      "label": "LOD 構築",
+      "classification": "従属導出",
+      "variant": "dashed",
+      "labelDy": -30
+    },
+    {
+      "id": "artifacts-bridges",
+      "from": "artifacts",
+      "to": "bridges",
+      "label": "読み替え",
+      "classification": "従属導出",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight",
+      "labelDy": 30
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "正本と導出物",
+      "items": [
+        "metrics.jsonl が scalar と成果物参照の正本で、Run ディレクトリのファイルとして残る",
+        "metrics_cache.db は破棄可能な従属導出物で、不整合時は全破棄・再構築する",
+        "根拠: docs/adr/0015-metrics-cache-disposable-derivative.md"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "device と process の境界",
+      "items": [
+        "Observation と Experience は CPU 上に置き、minibatch だけ学習 device へ転送する",
+        "ReplayBuffer は学習プロセス内だけに存在し、Run 成果物へは書き出さない"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "読み書き双方で確認した形式",
+      "items": [
+        "書き手は run_dir/metrics.jsonl を追記し、images と videos への参照を残す",
+        "読み手は metrics.jsonl か metrics.jsonl.gz を選び、無ければ Run として扱わない",
+        "根拠: metrics_logger.cpp:190/748/770 / MetricsSource.java:20-29"
+      ]
+    }
+  ]
+}

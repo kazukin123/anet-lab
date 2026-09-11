@@ -3,8 +3,8 @@
 # 基本設定
 # ==============================================================================
 
-app.$ = app.online > P
-#app.$ = app.batchrun > P
+app.$ = app.online > P1
+#app.$ = app.batchrun > P1
 
 train.seed = 1
 
@@ -16,7 +16,7 @@ train.num_envs = 4
 
 #GridMazeEnv.$ = GridMazeEnv.baseline
 
-MuZeroAgent.$ = MuZeroAgent.baseline > A
+MuZeroAgent.$ = MuZeroAgent.baseline > A1
 
 
 # ==============================================================================
@@ -26,13 +26,13 @@ MuZeroAgent.$ = MuZeroAgent.baseline > A
 #app.run_name = run_{t}
 
 
-#A.learner.batch_size = 128          # 128
-#A.mcts.num_simulations = 10         # 50
-A.mcts.num_simulations = 40          # 50
-A.buffer.unroll_steps = 3            # 5
-A.mcts.root_dirichlet_alpha = 2.5    # 0.25
-A.mcts.pb_c_init = 2.0               # 1.25 PUCT定数 (c_init)
-A.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
+#A1.learner.batch_size = 128          # 128
+#A1.mcts.num_simulations = 10         # 50
+A1.mcts.num_simulations = 40          # 50
+A1.buffer.unroll_steps = 3            # 5
+A1.mcts.root_dirichlet_alpha = 2.5    # 0.25
+A1.mcts.pb_c_init = 2.0               # 1.25 PUCT定数 (c_init)
+A1.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
 
 
 
@@ -50,7 +50,7 @@ A.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
 app.online.exp_pause_step  = 40,000     # 40K
 app.batchrun.exp_exit_step = 40,000     # 40K
 
-A.actor.temp_decay_steps   =  20,000    # 20K Exp Step
+A1.actor.temp_decay_steps   =  20,000    # 20K Exp Step
 
 
 # ==============================================================================
@@ -149,10 +149,10 @@ metrics.graph.[01_mcts] = $action mcts_tree episode_interval:50
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.muzero.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
-metrics.scalar.muzero.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.05 # clip:1000
-metrics.scalar.muzero.[21_eval/02_policy_reward] = eps_total_reward $runner @episode_end $eval.[eval2]
-metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.05 #clip:3000
+metrics.scalar.muzero.[20_eps/10_train_reward]     = $runner $episode_step max.episode_return @train
+metrics.scalar.muzero.[20_eps/11_train_reward_ema] = $runner $episode_step max.episode_return @train $ema ema_alpha:0.05 # clip:1000
+metrics.scalar.muzero.[21_eval/02_policy_reward] = mean.episode_return $runner @session_end $eval.[eval2]
+metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval2] $ema ema_alpha:0.05 #clip:3000
 
 metrics.scalar.muzero.[32_agent_base/06_tau] = $agent tau @train $exp_step
 
@@ -181,7 +181,7 @@ metrics.scalar.muzero.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $r
 metrics.scalar.muzero.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
 metrics.scalar.muzero.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
-metrics.scalar.$ = metrics.scalar.muzero > M
+metrics.scalar.$ = metrics.scalar.muzero > M1
 
 
 # ==============================================================================
@@ -244,15 +244,15 @@ GridMazeEnv.max_steps = 100
 # Eval設定
 # ==============================================================================
 
-train.eval.[eval1].interval = 0
+train.eval_schedule.[eval1].interval = 0
 
-#train.eval.[eval2].interval = 0
-train.eval.[eval2].interval = 5
-#train.eval.[eval2].interval = 10
-#train.eval.[eval2].interval = 50
+#train.eval_schedule.[eval2].interval = 0
+train.eval_schedule.[eval2].interval = 5
+#train.eval_schedule.[eval2].interval = 10
+#train.eval_schedule.[eval2].interval = 50
 
 #GridMazeEnv.test1.max_step = 1000
-#train.eval.[test1].interval = 5000
+#train.eval_schedule.[test1].interval = 5000
 #train.eval.[test1].run_mode = eval1
 #train.eval.[test1].env.$ = > GridMazeEnv.test1 > E1
 

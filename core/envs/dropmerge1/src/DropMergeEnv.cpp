@@ -1591,6 +1591,14 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
         }
         return display_rank;
     }
+    if (key == "ep_double_suika_created") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(ep_double_suika_created_);
+    }
+    if (key == "ep_double_suika_achieved") {
+        if (!episode_just_ended_) return nan;
+        return ep_double_suika_created_ > 0 ? 1.0f : 0.0f;
+    }
     if (key == "ep_end_fruit_count") {
         if (!episode_just_ended_) return nan;
         return static_cast<float>(ep_end_fruit_count_);

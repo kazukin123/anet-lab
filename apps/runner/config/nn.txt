@@ -25,10 +25,17 @@
 #   GroupNorm, LayerNorm, BatchNorm2d, GAP1D
 #
 # 【Embedding / Bridge】
-#   SpatialEmbedder, SpatialPositionalEmbedding2D
+#   CosineEmbedding, SpatialEmbedder, SpatialPositionalEmbedding2D
 #
 # 【Layer (Core)】
-#   Linear, Conv1d, Conv2d, ResBlock, TransformerEncoder
+#   Linear, Conv1d, Conv2d, ResBlock, CNBlock, TransformerEncoder
+#
+# 【Weight normalization（上記6 type共通）】
+#   net.block.[BlockName].weight_norm.mode = none | spectral | spectral_cap
+#   default: none
+#   spectral     : weightを毎forwardのsigmaで除算する。zero-init weightは構築時にfail-fastする。
+#   spectral_cap : abs(sigma)>1のときだけ除算する。ResBlockのzero-init conv2にも使用できる。
+#   TransformerEncoderでnone以外を指定する場合はtf.use_sdpa=trueが必須。
 #
 # 【ViT / Token】
 #   ClsAppend, ClsExtract
@@ -160,7 +167,7 @@ net.block.[ResA].res.dropout_rate = 0.0     # default=0.0 conv1->conv2間の cha
 # net.config_profile.[res_dp_sample].start = 0.0
 # net.config_profile.[res_dp_sample].end = 0.1
 # net.block.[ResA].res.droppath_rate = @res_dp_sample
-# net.body.Conv2D_ProfileSample.structure = Conv2d_S > ReLU > ResA(*3) > Flatten
+# net.body.@Conv2D_ProfileSample.structure = Conv2d_S > ReLU > ResA(*3) > Flatten
 
 
 # --- Transformer / ViT Components ---
@@ -205,21 +212,21 @@ net.block.[LayerNorm].normalized_shape = 32
 
 # [Pattern 1] Simple MLP
 # 入力 -> Flatten -> Dense -> Dense -> (Vector Output)
-net.body.MLP.structure = Flatten > Linear_120 > ReLU > Linear_84 > ReLU
+net.body.@MLP.structure = Flatten > Linear_120 > ReLU > Linear_84 > ReLU
 
 
 # [Pattern 2] 1D-CNN (Atari Style)
 # Conv -> Conv -> Flatten -> (Vector Output)
-net.body.Conv1D.structure = Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten
+net.body.@Conv1D.structure = Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten
 
 
 # [Pattern 3] 2D-CNN (Image Style)
 # Conv -> Conv -> Flatten -> (Vector Output)
-net.body.Conv2D.structure = Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten
+net.body.@Conv2D.structure = Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten
 
 
 # [Pattern 4] ResNet-like (Complex Graph)
-net.body.ResNet.structure = Linear_128 > ReLU > Linear_128(=skip_val) > Linear_128 > ReLU > Linear_128(=proc_val) > Add(@skip_val @proc_val) > ReLU > Linear_512 > MyReLU
+net.body.@ResNet.structure = Linear_128 > ReLU > Linear_128(=skip_val) > Linear_128 > ReLU > Linear_128(=proc_val) > Add(@skip_val @proc_val) > ReLU > Linear_512 > MyReLU
 
 
 
@@ -228,15 +235,15 @@ net.body.ResNet.structure = Linear_128 > ReLU > Linear_128(=skip_val) > Linear_1
 
 
 # [Pattern 5] Flatten方式 (位置に厳密だがパラメータ数が多い)
-net.body.ViT_Flatten.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > TransEnc > Flatten
+net.body.@ViT_Flatten.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > TransEnc > Flatten
 
 
 # [Pattern 6] Global Average Pooling方式 (パラメータを節約し、大局的な判断を促す)
-net.body.ViT_GAP.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > TransEnc > GAP1D
+net.body.@ViT_GAP.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > TransEnc > GAP1D
 
 
 # [Pattern 7] [CLS]トークン方式 (Transformer自身に盤面を要約させる最強アプローチ)
-net.body.ViT_CLS.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > ClsAppend > TransEnc > ClsExtract
+net.body.@ViT_CLS.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > ClsAppend > TransEnc > ClsExtract
 
 
 
@@ -248,8 +255,8 @@ net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1  # default: out_f
 net.block.[MLP_FC2].$ = net.block.[Linear_84] > net.block.FC2   # default: out_features = 84
 net.block.[MLP_FC3].$ = net.block.[Linear_84] > net.block.FC3   # default: out_features = 84
 
-net.body.MLP2.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
-net.body.MLP3.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > ReLU
+net.body.@MLP2.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+net.body.@MLP3.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > ReLU
 
 
 
@@ -273,7 +280,7 @@ net.block.[Linear_Out].init.mode = xavier
 net.block.[ResBlock].type = Composite
 net.block.[ResBlock].structure = Linear_Hid > ReLU > Linear_Hid(=proc) > Add(@input @proc) > ReLU
 
-net.body.MLP_RES.structure = Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU
+net.body.@MLP_RES.structure = Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU
 
 
 # ------------------------------------------------------------------------------
@@ -299,7 +306,7 @@ net.block.[Conv1D_Linear].linear.out_features = 128
 net.block.[Conv1D_Linear].init.mode = xavier
 net.block.[Conv1D_Linear].init.nonlinearity = relu
 
-net.body.Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU
+net.body.@Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU
 
 
 # ------------------------------------------------------------------------------
@@ -307,9 +314,24 @@ net.body.Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Co
 # ------------------------------------------------------------------------------
 
 # 使用するバックボーンを選択
-# net.body.$ = net.body.MLP2
-# net.body.$ = net.body.Conv1D
-# net.body.$ = net.body.Conv2D
+# <agent>.net.body.$ = net.body.@MLP2
+# <agent>.net.body.$ = net.body.@Conv1D
+# <agent>.net.body.$ = net.body.@Conv2D
+
+# --- IQN taus / fusion ブランチ例（inactive、MLP系backbone向け） ---
+# net.block.[CosEmb].type = CosineEmbedding
+# net.block.[CosEmb].cos.num_basis = 64
+# net.block.[TauProj].type = Linear
+# net.block.[TauProj].linear.out_features = 84       # main_feature最終次元と一致させる
+# net.block.[FusionFC].type = Linear
+# net.block.[FusionFC].linear.out_features = 84
+# DefaultDQNAgent.net.branch.[main_feature].bind = vector
+# DefaultDQNAgent.net.branch.[main_feature].structure = Flatten > Linear_84 > ReLU
+# DefaultDQNAgent.net.branch.[tau_embedding].bind = taus
+# DefaultDQNAgent.net.branch.[tau_embedding].structure = CosEmb > TauProj > ReLU             # (B,K,84)
+# DefaultDQNAgent.net.branch.[fusion].bind = main_feature * tau_embedding                    # (B,1,84)×(B,K,84)→(B,K,84)
+# DefaultDQNAgent.net.branch.[fusion].structure = FusionFC > ReLU
+# DefaultDQNAgent.net.body.output.[features] = fusion
 
 
 

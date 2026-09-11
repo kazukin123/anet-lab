@@ -21,15 +21,15 @@ class LoadingThreadTest {
 	void runtimeFailureIsLoggedAndNextCycleRuns(CapturedOutput output) throws Exception {
 		final CountDownLatch secondCycleStarted = new CountDownLatch(1);
 		final AtomicInteger cycleCount = new AtomicInteger();
-		final IngestScheduler scheduler = mock(IngestScheduler.class);
-		when(scheduler.runCycle()).thenAnswer(invocation -> {
+		final WorkspaceManager workspaceManager = mock(WorkspaceManager.class);
+		when(workspaceManager.runIngestCycle()).thenAnswer(invocation -> {
 			if (cycleCount.incrementAndGet() == 1) {
 				throw new IllegalStateException("Injected cycle failure");
 			}
 			secondCycleStarted.countDown();
 			return false;
 		});
-		final LoadingThread thread = new LoadingThread(scheduler, 1);
+		final LoadingThread thread = new LoadingThread(workspaceManager, 1);
 
 		thread.start();
 		try {

@@ -2,7 +2,7 @@
 
 ImageCls を batch-native 化するにあたり、既存の `EnvRepository`（class_id → `SingleDiscreteEnvFactory` の1本 map）は「single env を N 個 wrap して batch を作る」前提で、env 固有の batch 実装を差し込めない。案A（single/batch を別 registry に分離）／案B（1 factory に single と batch の両 capability を持たせ ImageCls だけ batch を override）／案C-new（registry は1本のまま、class_id ごとに single XOR batch を variant として排他登録）を比較し、**案C-new** を採用する。根拠: standalone single env の本番消費者はゼロ（train/eval/wrap いずれも batch 経由で、tests は concrete class を直接 new し registry 非依存）なので single/batch は排他で十分。案B は ImageCls に使われない single capability を死蔵させ、eval が惰性で B=1 に留まりやすい。案A は registry・登録・lookup が二重化する。
 
-あわせて命名/レイヤも整理する。現行 `BatchEnvFactory`(IF) は実装が `DefaultBatchEnvFactory` の1つだけで、trainer も concrete を直接保持しており、**単一実装の死んだ抽象**（IF が polymorphism に使われていない）。命名規則を「AbstractFactory 相当（IF＋種別ごと具象、registry 登録）= Factory、config と Factory で必要なインスタンスを組む単一の上位層 = Builder（1種1インスタンス＝IF 不要）」と定め、①現行 `BatchEnvFactory` IF を削除、②上位層 `DefaultBatchEnvFactory` を単一 concrete `BatchEnvBuilder`（+`BatchEnvBuilderConfig`）へ改名、③空いた `BatchEnvFactory` 名を **per-class abstract factory IF**（`SingleDiscreteEnvFactory` と対、`BatchEnv` を作る）として再定義する。さらに `BatchEnvBuilder::CreateBatchEnv` に `config_prefix` を追加し、eval env の構築も builder 経由に統一する（従来 eval は config_prefix を渡せず factory をバイパスして `VectorizedDiscreteBatchEnv` を直接構築していた＝`docs/memo/999` の FLAG）。詳細設計・実装フェーズは `docs/memo/034_imagecls_batch_input_10prd.md`。
+あわせて命名/レイヤも整理する。現行 `BatchEnvFactory`(IF) は実装が `DefaultBatchEnvFactory` の1つだけで、trainer も concrete を直接保持しており、**単一実装の死んだ抽象**（IF が polymorphism に使われていない）。命名規則を「AbstractFactory 相当（IF＋種別ごと具象、registry 登録）= Factory、config と Factory で必要なインスタンスを組む単一の上位層 = Builder（1種1インスタンス＝IF 不要）」と定め、①現行 `BatchEnvFactory` IF を削除、②上位層 `DefaultBatchEnvFactory` を単一 concrete `BatchEnvBuilder`（+`BatchEnvBuilderConfig`）へ改名、③空いた `BatchEnvFactory` 名を **per-class abstract factory IF**（`SingleDiscreteEnvFactory` と対、`BatchEnv` を作る）として再定義する。さらに `BatchEnvBuilder::CreateBatchEnv` に `config_prefix` を追加し、eval env の構築も builder 経由に統一する（従来 eval は config_prefix を渡せず factory をバイパスして `VectorizedDiscreteBatchEnv` を直接構築していた＝`docs/memo/999` の FLAG）。詳細設計・実装フェーズは `docs/memo/done/034_imagecls_batch_input_10prd.md`。
 
 ## Consequences
 
@@ -18,7 +18,7 @@ ImageCls を batch-native 化するにあたり、既存の `EnvRepository`（cl
 
 ## Follow-up: PRD 037先行によるEnv name伝播
 
-このfollow-upは、上記のregistry variant化、Factory/Builder再レイヤ、configured EvalのBuilder統一という元の決定と理由を変更しない。[PRD 037](../memo/037_env_instance_name_10prd.md)を[PRD 034](../memo/034_imagecls_batch_input_10prd.md)より先に実装することに伴い、Env生成seamへ人間向けの必須`name`を追加する。
+このfollow-upは、上記のregistry variant化、Factory/Builder再レイヤ、configured EvalのBuilder統一という元の決定と理由を変更しない。[PRD 037](../memo/done/037_env_instance_name_10prd.md)を[PRD 034](../memo/done/034_imagecls_batch_input_10prd.md)より先に実装することに伴い、Env生成seamへ人間向けの必須`name`を追加する。
 
 - 実装順序をPRD 037→PRD 034とし、PRD 034 Phase 0はPRD 037完了後をbaselineとする。
 - PRD 034 Phase 0では、旧top-level `BatchEnvFactory::CreateBatchEnv(name, seed, num_envs)`を維持したまま`DefaultBatchEnvFactory`を`BatchEnvBuilder`へ改名する。

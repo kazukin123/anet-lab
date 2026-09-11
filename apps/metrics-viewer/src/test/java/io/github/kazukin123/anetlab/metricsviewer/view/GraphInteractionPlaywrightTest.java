@@ -17,7 +17,7 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
@@ -157,6 +157,34 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 			dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
 					readFirstGraphCenterY(page) - 130);
 			waitForMainAreaScrolled(page);
+			waitForPlotlyDragCoverRemoved(page);
+		}
+	}
+
+	@Test
+	void screenshotModeAllowsVerticalTouchScrollingOnGraph() {
+		reopenPage(new Browser.NewContextOptions()
+			.setViewportSize(1280, 720)
+			.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
+
+		page.navigate(baseUrl + "/?screenshotTouchScrollTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraphCount(page, 5);
+
+		page.click("#btn-screenshot");
+		page.waitForFunction("document.body.classList.contains('screenshot-mode')",
+				null, new Page.WaitForFunctionOptions().setTimeout(30000));
+		waitForPlotlyDragModeFalse(page);
+		assertTrue(isDocumentScrollable(page));
+
+		for (int attempt = 0; attempt < 2; attempt++) {
+			setDocumentScrollTop(page, 0);
+			dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
+					readFirstGraphCenterY(page) - 130);
+			waitForDocumentScrolled(page);
 			waitForPlotlyDragCoverRemoved(page);
 		}
 	}

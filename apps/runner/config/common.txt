@@ -3,20 +3,22 @@
 
 train.main_runner_type = pipeline
 
-train.eval.[eval1].interval = 100
+train.eval_schedule.[eval1].interval = 100
 train.eval.[eval1].run_mode = eval1
-#train.eval.[eval1].use_background = false
-train.eval.[eval1].use_background = true
+#train.eval_schedule.[eval1].use_background = false
+train.eval_schedule.[eval1].use_background = true
 # clone_model=false は学習中networkを共有し、clone/syncコストを避ける代わりにlearner更新とeval forwardがlock境界で直列化される
 train.eval.[eval1].clone_model = true
 train.eval.[eval1].eval_batch_size = 1
+train.eval.[eval1].eval_episodes = 1
 
-train.eval.[eval2].interval = 100
+train.eval_schedule.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
-#train.eval.[eval2].use_background = false
-train.eval.[eval2].use_background = true
+#train.eval_schedule.[eval2].use_background = false
+train.eval_schedule.[eval2].use_background = true
 train.eval.[eval2].clone_model = true
 train.eval.[eval2].eval_batch_size = 1
+train.eval.[eval2].eval_episodes = 1
 
 app.online.eval_panel.eval_config_tag = eval1
 app.batchrun.eval_panel.eval_config_tag = eval1
@@ -39,16 +41,16 @@ agent.device_index = -1  # GPU index -1=current device
 # replay_ratio      : ENVステップあたりのUpdate回数→大きいほど学習効率が上がるが実時間がかかる
 
 # 早い(局所解に陥りやすい？)
-AS.fast.learner.replay_batch_size = 1024
-AS.fast.learner.replay_ratio = 4
+DefaultDQNAgent.@fast.learner.replay_batch_size = 1024
+DefaultDQNAgent.@fast.learner.replay_ratio = 4
 
 # バランス型
-AS.balance.learner.replay_batch_size = 256
-AS.balance.learner.replay_ratio = 2         
+DefaultDQNAgent.@balance.learner.replay_batch_size = 256
+DefaultDQNAgent.@balance.learner.replay_ratio = 2
 
 # 高精度(遅い)
-AS.heavy.learner.replay_batch_size = 256
-AS.heavy.learner.replay_ratio = 4
+DefaultDQNAgent.@heavy.learner.replay_batch_size = 256
+DefaultDQNAgent.@heavy.learner.replay_ratio = 4
 
 
 # --- env
@@ -84,7 +86,7 @@ Conv2dPanel.conv2d.min_block_size = 40
 # --- backend
 
 backend.cuda_launch_blocking = inherit # ★  on:性能を犠牲にしてCUDA呼び出しを同期化してデバッグしやすくする inhert:環境変数 CUDA_LAUNCH_BLOCKING=1を引き継ぐ
-#backend.cuda_launch_blocking = on      # ★ 
+#backend.cuda_launch_blocking = on      # ★
 
 #backend.torch_num_threads = -1     # -1:Auto(使えるだけ使う)
 backend.torch_num_threads = 1       # 1スレッドに制限
@@ -99,13 +101,13 @@ backend.deterministic_algorithms = true   # ★ true:SDPA等の非決定opも決
 backend.deterministic_warn_only = false   # true:非決定opを例外でなく警告で素通り(再現性は保証されない/将来op追加でthrowした時の一時退避)
 
 
-backend.deterministic.cudnn_benchmark = false
-backend.deterministic.cudnn_deterministic = true
-backend.deterministic.deterministic_algorithms = true
+backend.@deterministic.cudnn_benchmark = false
+backend.@deterministic.cudnn_deterministic = true
+backend.@deterministic.deterministic_algorithms = true
 
-backend.non-deterministic.cudnn_benchmark = true
-backend.non-deterministic.cudnn_deterministic = false
-backend.non-deterministic.deterministic_algorithms = false
+backend.@non-deterministic.cudnn_benchmark = true
+backend.@non-deterministic.cudnn_deterministic = false
+backend.@non-deterministic.deterministic_algorithms = false
 
 
 
@@ -131,6 +133,7 @@ app.eval_panel.model_sync.time_interval_ms = 10000   # 1000
 app.eval_panel.model_sync.episode_interval = 1
 
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
+app.online.show_error_dialog = true
 app.online.train_panel.fps = 30
 #app.online.eval_panel.fps = 15
 #app.online.eval_panel.step_per_frame = 3
@@ -139,18 +142,19 @@ app.online.eval_panel.step_per_frame = 1
 
 app.batchrun.train_auto_start = true
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
-app.batchrun.train_panel.fps = 0.5
+app.batchrun.show_error_dialog = false
+app.batchrun.train_panel.fps = 0.0
+#app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
 app.batchrun.eval_panel.step_per_frame = 10
 
-app.runs_dir = runs
 app.metrics_logger.video_codec = auto
 #app.metrics_logger.video_codec = libx264
 #app.metrics_logger.video_codec = h264_nvenc
 #app.metrics_logger.video_fps = 30
 app.metrics_logger.video_fps = 15
 
-#app.metrics_logger.use_png_dump = true  # default:false 
+#app.metrics_logger.use_png_dump = true  # default:false
 
 ## MEMO: smooth_radius
 # 計算式: Bins (510) ÷ Quantile数 (N) 程度が目安。

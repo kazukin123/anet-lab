@@ -1,4 +1,4 @@
-﻿# anet-lab/apps/runner/CMakeLists.txt
+# anet-lab/apps/runner/CMakeLists.txt
 
 
 # ---------------------------------------------------------------------
@@ -55,6 +55,11 @@ target_link_libraries(AnetRLRunner PRIVATE
     ImageClsEnv
 )
 
+if(ANET_ATARI_ENABLED)
+    target_link_libraries(AnetRLRunner PRIVATE AtariEnv)
+    target_compile_definitions(AnetRLRunner PRIVATE ANET_HAS_ATARI)
+endif()
+
 if (WIN32)
   set_target_properties(AnetRLRunner PROPERTIES
       WIN32_EXECUTABLE TRUE
@@ -72,7 +77,6 @@ set_target_properties(AnetRLRunner PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release
 )
-
 
 # ---------------------------------------------------------------------
 #  DLLコピー
@@ -116,6 +120,26 @@ if (MSVC)
           COMMENT "Copying wxWidgets DLLs"
       )
     endif()
+  endif()
+
+  # --- 汎用 runtime DLLコピー（third_party/runtime_dlls に置いた DLL を配備） ---
+  # 実行時ロードされる DLL（SDL2.dll 等）の置き場。詳細は third_party/runtime_dlls/README.md。
+  # DLL 追加・削除後は再 configure が必要（GLOB は configure 時評価）。
+  set(ANET_RUNTIME_DLL_DIR "${CMAKE_SOURCE_DIR}/third_party/runtime_dlls")
+  file(GLOB ANET_RUNTIME_DLLS "${ANET_RUNTIME_DLL_DIR}/*.dll")
+
+  if(ANET_RUNTIME_DLLS)
+    add_custom_command(TARGET AnetRLRunner POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${ANET_RUNTIME_DLLS}
+                $<TARGET_FILE_DIR:AnetRLRunner>
+        COMMENT "Copying runtime DLLs"
+    )
+  elseif(NOT IS_DIRECTORY "${ANET_RUNTIME_DLL_DIR}")
+    # ディレクトリごと見つからないのは配置ミス。STATUS だと埋もれるので WARNING で出す。
+    message(WARNING "Runtime DLL directory not found: ${ANET_RUNTIME_DLL_DIR}")
+  else()
+    message(STATUS "No runtime DLLs in ${ANET_RUNTIME_DLL_DIR} (skip)")
   endif()
 endif()
 

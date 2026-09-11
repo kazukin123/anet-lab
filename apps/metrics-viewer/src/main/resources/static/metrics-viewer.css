@@ -25,6 +25,19 @@ html, body {
 	overflow: hidden;
 }
 
+.toast {
+	position: fixed;
+	top: 10px;
+	left: 50%;
+	transform: translateX(-50%);
+	padding: 8px 16px;
+	border-radius: 6px;
+	background: rgba(255, 64, 64, 0.92);
+	color: #fff;
+	font-size: 13px;
+	z-index: 1000;
+}
+
 /* チェックボックス */
 input[type="checkbox"] {
 	appearance: none;
@@ -157,9 +170,27 @@ input[type="checkbox"]:checked::after {
 /* --- Global Controls --- */
 .global-controls {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 6px;
 	margin: 0;
 	padding: 0;
+}
+.workspace-control {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	width: 100%;
+	font-size: 12px;
+	color: #aaa;
+}
+.workspace-control select {
+	min-width: 0;
+	flex: 1;
+	background: #252525;
+	color: #ddd;
+	border: 1px solid #444;
+	border-radius: 2px;
+	padding: 3px 5px;
 }
 .global-controls button {
 	background: #252525;
@@ -436,10 +467,13 @@ input[type="checkbox"]:checked::after {
 	margin-bottom: 10px;
 	height: 300px;
 	position: relative;
+	/* z-order をブロック内で完結させ、Plotly の modebar(z-index:1001) を外へ漏らさない */
+	isolation: isolate;
 }
 .graph-block > .js-plotly-plot {
+	/* z-index を持たせると stacking context ができ、modebar が .graph-header の下に閉じ込められる。
+	   外部への漏れは .graph-block の isolation: isolate が防ぐ。 */
 	position: relative;
-	z-index: 1;
 }
 body.graph-scroll-locked .js-plotly-plot,
 body.graph-scroll-locked .js-plotly-plot .draglayer,
@@ -461,6 +495,11 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   gap: 6px;
   max-width: calc(100% - 16px);
 }
+/* 統計表示(.graph-stats)と重なっても操作できるよう modebar を .graph-header(10) より前面へ。
+   Plotly 自身の .js-plotly-plot .plotly .modebar より詳細度を高くするため class 4 個で書く。 */
+.graph-block > .js-plotly-plot .plotly .modebar {
+  z-index: 20;
+}
 .graph-title {
   font-family: 'Segoe UI', 'Noto Sans JP', sans-serif;
   font-size: 13px;
@@ -474,7 +513,9 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   letter-spacing: 0.2px;
   line-height: 1.5;
 }
-.graph-log-toggle {
+.graph-log-toggle,
+.graph-outlier-toggle,
+.graph-wide-outlier-toggle {
   height: 20px;
   min-width: 34px;
   margin: 4px 0 2px 0;
@@ -487,17 +528,23 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   font-size: 11px;
   line-height: 16px;
 }
-.graph-log-toggle:hover {
+.graph-log-toggle:hover,
+.graph-outlier-toggle:hover,
+.graph-wide-outlier-toggle:hover {
   color: #fff;
   border-color: #777;
   background: #252525;
 }
-.graph-log-toggle.active {
+.graph-log-toggle.active,
+.graph-outlier-toggle.active,
+.graph-wide-outlier-toggle.active {
   color: var(--active-text);
   border-color: var(--active-accent);
   background: var(--active-background);
 }
-.graph-log-toggle.active:hover { background: var(--active-hover); }
+.graph-log-toggle.active:hover,
+.graph-outlier-toggle.active:hover,
+.graph-wide-outlier-toggle.active:hover { background: var(--active-hover); }
 
 /* Hover時：軽い明度アップでインタラクティブ感 */
 .graph-title:hover {

@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-rem === batãƒ•ã‚¡ã‚¤ãƒ«ã®å ´æ‰€ã‚’åŸºæº–ã«ãƒ‘ã‚¹ã‚’æ§‹ç¯‰ ===
+rem === batƒtƒ@ƒCƒ‹‚ÌêŠ‚ðŠî€‚ÉƒpƒX‚ð\’z ===
 set ROOT=%~dp0..
 rem cd /d "%ROOT%"
 
@@ -14,7 +14,7 @@ echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...
 start "MetricsViewer" cmd /c ^
    "java -Xmx1g -Xverify:none -jar %VIEWER_JAR% --server.port=%VIEWER_PORT%"
 
-rem === Spring Bootèµ·å‹•å¾…æ©Ÿï¼ˆTomcatåˆæœŸåŒ–ï¼‰ ===
+rem === Spring Boot‹N“®‘Ò‹@iTomcat‰Šú‰»j ===
 timeout /t 20 /nobreak >nul
 
 echo.

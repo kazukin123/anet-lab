@@ -8,7 +8,6 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CachePreparation;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
-import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.GzipCorruptException;
 
 /**
  * 同じgzip streamの展開済みbufferをblock間で引き継ぐreader。

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
@@ -36,6 +38,44 @@ class IngestSchedulerTest {
 	private Path tempDir;
 
 	@Test
+	void terminalNoOpRunIsInspectedOnlyOncePerFourSlotCycle() throws Exception {
+		final String runId = "ready";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				"{}\n",
+				StandardCharsets.UTF_8);
+		final RunScanner scanner = mock(RunScanner.class);
+		when(scanner.listRunId()).thenReturn(List.of(runId));
+		when(scanner.resolveRunDir(runId)).thenReturn(runDir);
+		final MetricsIngestor ingestor = mock(MetricsIngestor.class);
+		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
+				.thenReturn(new MetricsIngestor.IngestOutcome(
+						false, IngestState.READY, false));
+		final IngestScheduler scheduler = new IngestScheduler(
+				scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
+
+		runBlocks(scheduler, 4);
+
+		verify(ingestor, times(1)).ingestBlock(anyString(), any(Path.class), any());
+	}
+
+	@Test
+	void terminalPriorityRunYieldsEverySlotToActionableBackground() throws Exception {
+		final List<String> processed = runMixedCycle("p", "b", Set.of("p"));
+
+		assertEquals(List.of("p", "b", "b", "b", "b"), processed);
+	}
+
+	@Test
+	void terminalBackgroundRunYieldsItsSlotToActionablePriority() throws Exception {
+		final List<String> processed = runMixedCycle("b", "p", Set.of("p"));
+
+		assertEquals(List.of("p", "p", "p", "b", "p"), processed);
+	}
+
+	@Test
 	void priorityAndBackgroundRunsReceiveBlocksInAThreeToOneRatio() throws Exception {
 		final List<String> runIds = List.of("p1", "p2", "b1", "b2");
 		final RunScanner scanner = mock(RunScanner.class);
@@ -55,15 +95,15 @@ class IngestSchedulerTest {
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
 				.thenAnswer(invocation -> {
 					processed.add(invocation.getArgument(0));
-					return new MetricsIngestor.IngestOutcome(true, IngestState.CONVERTING);
+					return new MetricsIngestor.IngestOutcome(
+							true, IngestState.CONVERTING, true);
 				});
 		final IngestScheduler scheduler =
 				new IngestScheduler(
 						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 		scheduler.replacePriority(Set.of("p1", "p2"));
 
-		scheduler.runCycle();
-		scheduler.runCycle();
+		for (int block = 0; block < 8; block++) scheduler.runNextBlock();
 
 		assertEquals(List.of("p1", "p2", "p1", "b1", "p2", "p1", "p2", "b2"), processed);
 	}
@@ -88,13 +128,14 @@ class IngestSchedulerTest {
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
 				.thenAnswer(invocation -> {
 					processed.add(invocation.getArgument(0));
-					return new MetricsIngestor.IngestOutcome(true, IngestState.CONVERTING);
+					return new MetricsIngestor.IngestOutcome(
+							true, IngestState.CONVERTING, true);
 				});
 		final IngestScheduler scheduler =
 				new IngestScheduler(
 						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 
-		scheduler.runCycle();
+		for (int block = 0; block < 4; block++) scheduler.runNextBlock();
 
 		assertEquals(List.of("b1", "b2", "b1", "b2"), processed);
 	}
@@ -117,7 +158,7 @@ class IngestSchedulerTest {
 		final ExecutorService executor = Executors.newSingleThreadExecutor();
 
 		try {
-			final Future<Boolean> cycle = executor.submit(scheduler::runCycle);
+			final Future<Boolean> cycle = executor.submit(scheduler::runNextBlock);
 			assertTrue(scanStarted.await(2, TimeUnit.SECONDS));
 			scheduler.replacePriority(Set.of("new-run"));
 			finishScan.countDown();
@@ -149,15 +190,15 @@ class IngestSchedulerTest {
 		when(scanner.resolveRunDir(runId)).thenReturn(runDir);
 		final MetricsIngestor ingestor = mock(MetricsIngestor.class);
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
-				.thenReturn(new MetricsIngestor.IngestOutcome(false, IngestState.READY));
+				.thenReturn(new MetricsIngestor.IngestOutcome(false, IngestState.READY, false));
 		final IngestScheduler scheduler =
 				new IngestScheduler(
 						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 
-		scheduler.runCycle();
-		scheduler.runCycle();
-		scheduler.runCycle();
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
 
 		assertEquals(2, countOccurrences(
 				output.getAll(),
@@ -190,21 +231,63 @@ class IngestSchedulerTest {
 				gzipSessions,
 				warningRegistry);
 
-		scheduler.runCycle();
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
 		Files.move(source, parkedSource);
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
 		Files.move(parkedSource, source);
 		Files.writeString(
 				source,
 				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":2,\"value\":null}\n",
 				StandardCharsets.UTF_8,
 				StandardOpenOption.APPEND);
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
 
 		assertEquals(2, countOccurrences(
 				output.getAll(),
 				"run=scalar-warning tag=loss reason=null"));
+	}
+
+	private static void runBlocks(IngestScheduler scheduler, int count) {
+		for (int block = 0; block < count; block++) scheduler.runNextBlock();
+	}
+
+	private List<String> runMixedCycle(
+			String terminalRun,
+			String convertingRun,
+			Set<String> priorityRuns) throws Exception {
+		final List<String> runIds = List.of("p", "b");
+		final RunScanner scanner = mock(RunScanner.class);
+		when(scanner.listRunId()).thenReturn(runIds);
+		for (String runId : runIds) {
+			final Path runDir = tempDir.resolve(runId);
+			Files.createDirectories(runDir);
+			Files.writeString(
+					runDir.resolve("metrics.jsonl"),
+					"{}\n",
+					StandardCharsets.UTF_8);
+			when(scanner.resolveRunDir(runId)).thenReturn(runDir);
+		}
+		final List<String> processed = new ArrayList<>();
+		final MetricsIngestor ingestor = mock(MetricsIngestor.class);
+		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
+				.thenAnswer(invocation -> {
+					final String runId = invocation.getArgument(0);
+					processed.add(runId);
+					if (runId.equals(terminalRun)) {
+						return new MetricsIngestor.IngestOutcome(
+								false, IngestState.READY, false);
+					}
+					assertEquals(convertingRun, runId);
+					return new MetricsIngestor.IngestOutcome(
+							true, IngestState.CONVERTING, true);
+				});
+		final IngestScheduler scheduler = new IngestScheduler(
+				scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
+		scheduler.replacePriority(priorityRuns);
+
+		runBlocks(scheduler, 4);
+		return processed;
 	}
 
 	private static int countOccurrences(String text, String needle) {

@@ -236,15 +236,19 @@ MuZeroNetworkSuite::MuZeroNetworkSuite(
 // ======================================================
 
 MuZeroNetworkModel::MuZeroNetworkModel(
-    const ModelConfig& config, const ConfigData& config_data, const anet::rl::StateSpec& state_spec, const anet::rl::ActionSpec& action_spec)
+    const ModelConfig& config, const ConfigData& config_data,
+    const anet::rl::StateSpec& state_spec, const anet::rl::ActionSpec& action_spec,
+    anet::seed_t agent_seed)
     : config_(config)
     , num_actions_(action_spec.GetNumActions())
 {
+    const anet::SeedMaker seed_maker(agent_seed);
     // Representation Network を構築
     anet::nn::NetworkConfig rep_config{ config_data, "net.rep" };
     anet::MetricsLogger::Instance()->Log("net.rep", rep_config.ToJson());
     auto rep_head_factory = std::make_shared<MuZeroRepresentationHeadFactory>(config_.hidden_state_dim);
-    auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(rep_config, state_spec.obs_spec, rep_head_factory);
+    auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(
+        rep_config, state_spec.obs_spec, rep_head_factory, seed_maker.MakeNamedSeed("network.rep"));
 
     // Dynamics Network を構築
     /// @todo MuZero試作制約：隠れ状態を1次元固定ではなく多次元表現に対応する。アクション用のプレーン(チャンネル)を考慮する必要がある
@@ -257,7 +261,8 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     dyn_input_specs["hidden_state"].shape = { config_.hidden_state_dim };
     dyn_input_specs["action_one_hot"].shape = { action_dim };
     auto dyn_head_factory = std::make_shared<MuZeroDynamicsHeadFactory>(config_.head_init_weight.reward);
-    auto dyn_net = anet::nn::NetworkBuilder::BuildNetwork(dyn_config, dyn_input_specs, dyn_head_factory);
+    auto dyn_net = anet::nn::NetworkBuilder::BuildNetwork(
+        dyn_config, dyn_input_specs, dyn_head_factory, seed_maker.MakeNamedSeed("network.dyn"));
 
     //  Prediction Network を構築
     /// @todo MuZero試作制約：価値(Value)と報酬(Reward)をスカラー値ではなく、Two - Hotエンコーディング等を用いたカテゴリカル分布で予測・学習する
@@ -268,7 +273,8 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     pred_input_specs["hidden_state"].shape = { config_.hidden_state_dim };
     auto pred_head_factory = std::make_shared<MuZeroPredictionHeadFactory>(
         num_actions_, config_.head_init_weight.value, config_.head_init_weight.policy);
-    auto pred_net = anet::nn::NetworkBuilder::BuildNetwork(pred_config, pred_input_specs, pred_head_factory);
+    auto pred_net = anet::nn::NetworkBuilder::BuildNetwork(
+        pred_config, pred_input_specs, pred_head_factory, seed_maker.MakeNamedSeed("network.pred"));
 
     // 自身が所有するSuiteを生成
     suite_ = std::make_shared<MuZeroNetworkSuite>(rep_net, dyn_net, pred_net);

@@ -35,7 +35,7 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
@@ -446,5 +446,52 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		final List<String> buttonTitles = readModeBarButtonTitles(page);
 		assertTrue(buttonTitles.contains("Autoscale"));
 		assertTrue(buttonTitles.contains("Reset axes"));
+	}
+
+	@Test
+	void plotlyModeBarStaysAboveGraphStats() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?plotlyModeBarZOrderTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		final Boolean modeBarOnTop = (Boolean) page.evaluate("""
+				() => {
+					const header = document.querySelector('.graph-header');
+					header.style.maxWidth = 'none';
+					header.style.width = '100%';
+					const button = document.querySelector('.modebar-btn');
+					const rect = button.getBoundingClientRect();
+					const hit = document.elementFromPoint(
+						rect.left + rect.width / 2, rect.top + rect.height / 2);
+					return Boolean(hit && hit.closest('.modebar'));
+				}
+				""");
+		assertTrue(modeBarOnTop);
+	}
+
+	@Test
+	void plotlyModeBarStaysBelowFloatingControls() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?plotlyModeBarFloatingTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		final Boolean floatingControlsOnTop = (Boolean) page.evaluate("""
+				() => {
+					// グラフが #floating-controls の下へ潜り込む状況を再現する
+					document.getElementById('main-area').style.paddingTop = '0px';
+					const target = document.getElementById('btn-reset-view');
+					const rect = target.getBoundingClientRect();
+					const hit = document.elementFromPoint(
+						rect.left + rect.width / 2, rect.top + rect.height / 2);
+					return Boolean(hit && hit.closest('#floating-controls'));
+				}
+				""");
+		assertTrue(floatingControlsOnTop);
 	}
 }

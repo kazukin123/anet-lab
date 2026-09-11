@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,9 +41,13 @@ public class MetricsViewerController {
 	/** Metricsデータ取得 */
 	@PostMapping(value = "/metrics.json", consumes = "application/json")
 	@ResponseBody
-	public ResponseEntity<?> getMetrics(@RequestBody GetMetricsRequest request) {
+	public ResponseEntity<?> getMetrics(
+			@RequestBody GetMetricsRequest request,
+			@RequestHeader(value = "X-Query-Channel", required = false) String queryChannel,
+			@RequestHeader(value = "X-Query-Sequence", required = false) String querySequence) {
 		try {
-			final GetMetricsResponse response = metricsService.getMetrics(request);
+			final GetMetricsResponse response = metricsService.getMetrics(
+					request, queryChannel, querySequence);
 			log.debug("getMetrics() series={}",
 					request.getSeries() == null ? 0 : request.getSeries().size());
 			return ResponseEntity.ok(response);

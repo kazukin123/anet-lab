@@ -310,6 +310,30 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
+	protected static boolean isDocumentScrollable(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.scrollingElement ?? document.documentElement;
+					return el.scrollHeight > el.clientHeight;
+				}
+				"""));
+	}
+
+	protected static void setDocumentScrollTop(Page page, int scrollTop) {
+		page.evaluate("""
+				scrollTop => {
+					const el = document.scrollingElement ?? document.documentElement;
+					el.scrollTop = scrollTop;
+				}
+				""", scrollTop);
+	}
+
+	protected static void waitForDocumentScrolled(Page page) {
+		page.waitForFunction("""
+				() => (document.scrollingElement ?? document.documentElement).scrollTop > 0
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
 	protected static void waitForPlotlyDragCoverRemoved(Page page) {
 		page.waitForFunction("""
 				() => !document.querySelector('.dragcover')

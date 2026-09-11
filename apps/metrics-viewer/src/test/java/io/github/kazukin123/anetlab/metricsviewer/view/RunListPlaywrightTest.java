@@ -11,6 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -23,8 +27,109 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
+
+	@Test
+	void metricsRequestsKeepOneChannelAndIncreaseTheirSequence() throws Exception {
+		final List<Map<String, String>> headers = new CopyOnWriteArrayList<>();
+		final CountDownLatch twoRequests = new CountDownLatch(2);
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			headers.add(route.request().headers());
+			twoRequests.countDown();
+			fulfillJson(route, metricsJson());
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?queryChannelTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.evaluate("() => app.requestVisibleData({ force: true })");
+		assertTrue(twoRequests.await(5, TimeUnit.SECONDS));
+
+		final String channel = headers.get(0).get("x-query-channel");
+		assertTrue(channel != null && !channel.isBlank());
+		assertEquals(channel, headers.get(1).get("x-query-channel"));
+		assertEquals("0", headers.get(0).get("x-query-sequence"));
+		assertEquals("1", headers.get(1).get("x-query-sequence"));
+	}
+
+	@Test
+	void metricsRequestsUseFallbackChannelWhenRandomUuidIsUnavailable() throws Exception {
+		final List<Map<String, String>> headers = new CopyOnWriteArrayList<>();
+		final CountDownLatch twoRequests = new CountDownLatch(2);
+		page.addInitScript("""
+				Object.defineProperty(globalThis.crypto, 'randomUUID', {
+					configurable: true,
+					value: undefined
+				});
+				""");
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			headers.add(route.request().headers());
+			twoRequests.countDown();
+			fulfillJson(route, metricsJson());
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?queryChannelFallbackTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		assertEquals("undefined", page.evaluate("() => typeof crypto.randomUUID"));
+		page.evaluate("() => app.requestVisibleData({ force: true })");
+		assertTrue(twoRequests.await(5, TimeUnit.SECONDS));
+
+		final String channel = headers.get(0).get("x-query-channel");
+		assertTrue(channel != null && !channel.isBlank());
+		assertTrue(channel.length() <= 128);
+		assertEquals(channel, headers.get(1).get("x-query-channel"));
+		assertEquals("0", headers.get(0).get("x-query-sequence"));
+		assertEquals("1", headers.get(1).get("x-query-sequence"));
+	}
+
+	@Test
+	void supersededMetricsResponseIsNotShownOrLoggedAsAnUpdateFailure() {
+		final AtomicInteger metricsRequests = new AtomicInteger();
+		final List<String> consoleErrors = new CopyOnWriteArrayList<>();
+		page.onConsoleMessage(message -> {
+			if ("error".equals(message.type())
+					&& !message.text().startsWith("Failed to load resource:")) {
+				consoleErrors.add(message.text());
+			}
+		});
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			if (metricsRequests.incrementAndGet() == 1) {
+				fulfillJson(route, metricsJson());
+				return;
+			}
+			route.fulfill(new Route.FulfillOptions()
+					.setStatus(409)
+					.setContentType("application/json")
+					.setBody("{\"code\":\"superseded\",\"message\":\"newer query\"}"));
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?supersededTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.waitForResponse("**/api/metrics.json", () -> page.evaluate("""
+				() => {
+					app.fetcher.fetchMetrics([]).catch(error => {
+						app._setUpdateFailure('metrics', error);
+						app._handleQueryError(error);
+					});
+				}
+				"""));
+		page.waitForFunction("""
+				() => !document.getElementById('loading-spinner')?.classList.contains('active')
+				""");
+		page.waitForTimeout(100);
+
+		assertFalse(page.locator("#update-status").isVisible());
+		assertEquals(List.of(), consoleErrors);
+	}
 
 	@Test
 	void runRowsToggleImmediatelyAllowEmptySelectionAndSoloOnTheSecondClick() {

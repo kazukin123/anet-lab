@@ -22,15 +22,6 @@ wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
 
 namespace {
 
-std::string ConfigDataToConfigString(const ConfigData& config_data)
-{
-    std::ostringstream oss;
-    for (const auto& kv : config_data.Map()) {
-        oss << kv.first << " = " << kv.second << std::endl;
-    }
-    return oss.str();
-}
-
 constexpr size_t kMaxCapturedStderr = 4096;
 constexpr auto kFfmpegStartupCheckDelay = std::chrono::milliseconds(250);
 // wx の Windows pipe は非ブロッキングなので、大きい frame は小分けに書き込む。
@@ -595,12 +586,15 @@ MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> backend, const MetricsLog
         run_name_ = CreateRunName(config_.run_name_tmpl);
     }
 
-    auto runs_dir = root_dir / config_.runs_dir;
+    const std::u8string configured_runs_dir_text(
+        reinterpret_cast<const char8_t*>(config_.runs_dir.data()), config_.runs_dir.size());
+    const std::filesystem::path configured_runs_dir(configured_runs_dir_text);
+    auto runs_dir = root_dir / configured_runs_dir;
     backend_->Open(runs_dir, run_name_);
     json meta = { {"type","meta"}, {"event","start"}, {"timestamp", GetCurrentTimeStr()} };
     backend_->WriteJsonl(meta);
 
-    run_dir_ = root_dir / config_.runs_dir / run_name_;
+    run_dir_ = root_dir / configured_runs_dir / run_name_;
 }
 
 std::string MetricsLogger::CreateTimeStampStr() const
@@ -678,7 +672,7 @@ void MetricsLogger::Log(const std::string& tag, const ConfigData& config_data)
 {
     std::lock_guard<std::mutex> lock(log_mutex_);
 
-    auto config_str = ConfigDataToConfigString(config_data);
+    const auto config_str = config_data.ToPropertiesString();
 
     // Configと同じディレクトリにバラのファイルとしてダンプ
     std::string safe_tag = SanitizeFilename(tag);

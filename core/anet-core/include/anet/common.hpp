@@ -24,7 +24,7 @@ namespace anet {
     // ===========================================================================
 
     using TensorDictFunction = std::function<anet::TensorDict(const anet::TensorDict&)>;
-    using TraceSink = std::function<void(std::string_view, const torch::Tensor&)>;
+    using TraceCallback = std::function<void(std::string_view, const torch::Tensor&)>;
 
     class TensorDictFunctionProvider {
     public:
@@ -60,6 +60,8 @@ namespace anet {
     class Module {
     public:
         virtual std::optional<ConfigData> GetConfigData() const { return std::nullopt; }
+        /// 指定 key が未知の場合だけ std::nullopt を返す。
+        /// key が既知だが現在値を出力できない場合は quiet_NaN() を返す。
         virtual std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const = 0;

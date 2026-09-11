@@ -377,23 +377,42 @@ C:\Python314\python.exe -m venv .venv
 
 `.venv` はローカル開発環境であり、Git管理対象にしません。
 
-### 7.2 MLflow bridge
+### 7.2 workspace metrics圧縮
 
-MLflow bridgeとMLflow serverは、リポジトリルートの `.venv` と `apps/runner/runs/mlflow.db` を共有します。依存packageは次のコマンドで導入します。
+完了Runの`metrics.jsonl`をまとめてgzipへ移行する場合は、次のlauncherを起動する。
+
+```powershell
+apps\70_compress_workspace_metrics.bat
+apps\70_compress_workspace_metrics.bat dm-iqn
+apps\70_compress_workspace_metrics.bat dm-iqn --dry-run --no-pause
+```
+
+workspace指定を省略すると、`apps/runner/workspaces/`直下で`runs/`を持つ候補から番号選択する。
+`[0] EXIT`は固定の終了選択肢である。各workspaceの処理結果を表示した後は、dry-runや取消を含めて
+pauseし、キー入力後にworkspace選択へ戻るため、複数workspaceを続けて処理できる。
+`--no-pause`指定時はpauseを省略する。workspaceを引数指定した場合は1回で終了する。
+preflight後は`YES`で実行、`NO`で取消、`DRY-RUN`で変更なしの確認を選ぶ。
+自動実行では`--dry-run`でpromptを省略でき、`--no-pause`で終了時のキー入力待ちを無効化できる。
+workspaceを引数指定して1回実行した場合の終了codeは、成功またはblockerなしのdry-runが0、
+未処理Runありが1、利用者取消が2である。
+
+### 7.3 MLflow bridge
+
+MLflow bridgeとMLflow serverは、リポジトリルートの `.venv` と選択workspaceの`runs/mlflow.db`を共有します。launcherの第1引数でworkspaceを指定し、省略時はRunnerが保存した`last_workspace.txt`、取得不能時は`_default`を使います。依存packageは次のコマンドで導入します。
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r viewers\metrics-tools\requirements.txt
 ```
 
-`requirements.txt` はMLflowを `3.13.0` に固定しています。MLflow 3.14.0のserverはPython 3.14で削除された `importlib.abc.Traversable` をimportするため、この組み合わせでは起動できません。`apps/41_mlflow_bridge.bat` と `apps/42_start_mlflow.bat` は、要求versionが導入されていない場合にfail-fastします。
+`requirements.txt` はMLflowを `3.13.0` に固定しています。MLflow 3.14.0のserverはPython 3.14で削除された `importlib.abc.Traversable` をimportするため、この組み合わせでは起動できません。`apps/41_mlflow_bridge.bat` と `apps/42_start_mlflow.bat` は、要求versionが導入されていない場合にfail-fastします。`41_mlflow_bridge.bat`のversion確認はMLflow本体をimportせずpackage metadataを参照し、本体importの開始前に進捗をconsoleへ表示します。
 
 MLflow bridgeは対象Runの `config/config_data.txt` を読み、各 `key = value` をMLflow parameterとして記録します。parameter名で使用できない `[` と `]` は除去し、その他の使用不可文字は `_` へ置換します。変換後のparameter名が衝突する場合は、値を上書きせずfail-fastします。
 
-`apps/41_mlflow_bridge.bat` は `apps/runner/runs/run_*/metrics.jsonl` を列挙し、起動時点で存在するすべての直下RunをMLflowへ変換します。監視中に追加された直下Runも自動的に対象へ追加します。
+`apps/41_mlflow_bridge.bat` は選択workspaceの`runs/run_*/metrics.jsonl(.gz)`を列挙し、起動時点で存在するすべての直下RunをMLflowへ変換します。両方がある場合はrawを優先し、監視中に追加された直下Runも自動的に対象へ追加します。rawからgzipへ移行しても同じMLflow Runと展開後byte offsetを継続します。
 
 更新時刻が最も新しいRunは、保存済みoffsetが現在の末尾へ追いつくまで優先して変換します。最新Runの処理中も、10 batchごとに過去Runを1 batch処理し、対象はround-robinで交代します。追いついた後は、他のRunを1 batchずつ変換します。
 
-監視中は、前回表示後にmetricsの処理が進んだRunに限り、最大10秒間隔で最新Runと過去Runを区別して、Run名、処理offset、末尾までの遅延量をconsoleへ表示します。`runs/group/run_*/metrics.jsonl` のように別directoryの下へネストされたRunは対象外です。
+監視中は、前回表示後にmetricsの処理が進んだRunに限り、最大10秒間隔で最新Runと過去Runを区別して、Run名、処理offset、末尾までの遅延量をconsoleへ表示します。`runs/group/run_*/metrics.jsonl(.gz)` のように別directoryの下へネストされたRunは対象外です。
 
 MLflowの `Status=RUNNING` は学習processの生存状態ではなく、bridgeが継続監視する対象として登録したことを示します。`--once` で変換した場合だけ、現在の末尾まで取り込んだ後に `Status=FINISHED` とします。
 

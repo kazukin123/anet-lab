@@ -1,10 +1,32 @@
 ﻿// TrainPanel.cpp
 
 #include "TrainPanel.hpp"
+#include <algorithm>
+#include <cmath>
 #include "RunnerApp.hpp"
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
 #include "anet/observers.hpp"
+
+namespace train_panel_detail {
+
+void ValidateTrainFps(float fps, const char* key)
+{
+	if (!std::isfinite(fps) || fps < 0.0f || fps > 1000.0f) {
+		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << fps
+			<< " (expected: finite number in [0, 1000])");
+	}
+}
+
+}  // namespace train_panel_detail
+
+using namespace train_panel_detail;
+
+
+void TrainPanelConfig::Validate() const
+{
+	ValidateTrainFps(fps, "app.train_panel.fps");
+}
 
 
 TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
@@ -12,6 +34,7 @@ TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
 		wxTAB_TRAVERSAL | wxFULL_REPAINT_ON_RESIZE),
 	config_(config), update_timer_(this, wxID_ANY)
 {
+	config_.Validate();
 	SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BACKGROUND));
 	SetDoubleBuffered(true);
 	Bind(wxEVT_SIZE, &TrainPanel::OnSize, this);
@@ -40,9 +63,23 @@ void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 		},
 		"TrainPanel");
 
-	// Timer開始
+	// Timer開始。0 は表示更新を意図的に停止する。
 	Bind(wxEVT_TIMER, &TrainPanel::OnTimer, this, update_timer_.GetId());
-	int interval = 1000 / config_.fps;
+	SetFps(config_.fps);
+}
+
+void TrainPanel::SetFps(float fps)
+{
+	ValidateTrainFps(fps, "TrainPanel::SetFps fps");
+
+	// 実行時変更では既存 timer を止めてから、新しい周期を確定する。
+	update_timer_.Stop();
+	if (fps == 0.0f) {
+		ANET_LOG_DEBUG("TrainPanel view updates disabled");
+		return;
+	}
+
+	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
 	ANET_LOG_DEBUG("interval=" << interval);
 	update_timer_.Start(interval);
 }

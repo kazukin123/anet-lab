@@ -32,6 +32,48 @@ option(ANET_ENABLE_PROFILE "Enable anet profiling scopes." ON)
 option(ANET_ENABLE_TRACY "Enable Tracy profiling backend." ON)
 option(ANET_ENABLE_NVTX "Enable NVTX profiling backend." ON)
 
+set(ANET_ENABLE_ATARI "AUTO" CACHE STRING "Atari/ALE env module (AUTO/ON/OFF)")
+set_property(CACHE ANET_ENABLE_ATARI PROPERTY STRINGS AUTO ON OFF)
+string(TOUPPER "${ANET_ENABLE_ATARI}" ANET_ENABLE_ATARI)
+if(NOT ANET_ENABLE_ATARI STREQUAL "AUTO"
+    AND NOT ANET_ENABLE_ATARI STREQUAL "ON"
+    AND NOT ANET_ENABLE_ATARI STREQUAL "OFF")
+    message(FATAL_ERROR
+        "ANET_ENABLE_ATARI must be AUTO, ON, or OFF, but was '${ANET_ENABLE_ATARI}'.")
+endif()
+
+if(DEFINED ALE_ROOT)
+    set(ANET_ALE_ROOT "${ALE_ROOT}")
+elseif(DEFINED ENV{ALE_ROOT})
+    set(ANET_ALE_ROOT "$ENV{ALE_ROOT}")
+else()
+    set(ANET_ALE_ROOT "")
+endif()
+
+if(ANET_ALE_ROOT)
+    cmake_path(ABSOLUTE_PATH ANET_ALE_ROOT NORMALIZE OUTPUT_VARIABLE ANET_ALE_ROOT)
+endif()
+set(ANET_ALE_HEADER "${ANET_ALE_ROOT}/src/ale/ale_interface.hpp")
+set(ANET_ATARI_ENABLED FALSE)
+if(ANET_ENABLE_ATARI STREQUAL "ON")
+    if(NOT ANET_ALE_ROOT OR NOT EXISTS "${ANET_ALE_HEADER}")
+        message(FATAL_ERROR
+            "ANET_ENABLE_ATARI=ON requires ALE_ROOT with src/ale/ale_interface.hpp. "
+            "Resolved ALE_ROOT='${ANET_ALE_ROOT}'.")
+    endif()
+    set(ANET_ATARI_ENABLED TRUE)
+elseif(ANET_ENABLE_ATARI STREQUAL "AUTO")
+    if(ANET_ALE_ROOT AND EXISTS "${ANET_ALE_HEADER}")
+        set(ANET_ATARI_ENABLED TRUE)
+    endif()
+endif()
+
+if(ANET_ATARI_ENABLED)
+    message(STATUS "Atari/ALE env enabled. ALE_ROOT=${ANET_ALE_ROOT}")
+else()
+    message(STATUS "Atari/ALE env disabled. ANET_ENABLE_ATARI=${ANET_ENABLE_ATARI}, ALE_ROOT=${ANET_ALE_ROOT}")
+endif()
+
 add_compile_definitions(
     $<$<CONFIG:Debug>:_DEBUG>
     $<$<CONFIG:Debug>:DEBUG>
@@ -186,6 +228,9 @@ add_subdirectory(core/envs/cartpole2)
 add_subdirectory(core/envs/dropmerge1)
 add_subdirectory(core/envs/gridmaze1)
 add_subdirectory(core/envs/imagecls1)
+if(ANET_ATARI_ENABLED)
+    add_subdirectory(core/envs/atari1)
+endif()
 add_subdirectory(apps/runner)
 
 

@@ -16,6 +16,7 @@ final class MetricsViewerPlaywrightTestData {
 	static final String RELOAD_OLD_TAG = "reload/old";
 	static final String RELOAD_NEW_TAG = "reload/new";
 	static final String SIGNED_LOG_TAG = "signed/log";
+	static final String OUTLIER_TAG = "outlier/range";
 	static final String GENERATION = "00000000-0000-0000-0000-000000000001";
 	static final List<String> RUN_IDS = List.of(
 			"run_01", "run_02", "run_03", "run_04", "run_05", "run_06",
@@ -96,6 +97,118 @@ final class MetricsViewerPlaywrightTestData {
 				SIGNED_LOG_TAG,
 				new double[] {0, 1, 2, 3, 4},
 				new float[] {-100, 20, 25, 30, 100}) + "]}";
+	}
+
+	static String outlierRunsJson() {
+		return "{\"runs\":[" + runJson("run_outlier", 100, OUTLIER_TAG) + "]}";
+	}
+
+	static String outlierMetricsJson() {
+		final double[] steps = new double[101];
+		final float[] values = new float[101];
+		for (int i = 0; i < 100; i++) {
+			steps[i] = i;
+			values[i] = i;
+		}
+		steps[100] = 100;
+		values[100] = 1000;
+		return "{\"data\":[" + rawSeriesJson("run_outlier", OUTLIER_TAG, steps, values) + "]}";
+	}
+
+	static String interleavedOutlierMetricsJson() {
+		final double[] steps = new double[101];
+		final float[] values = new float[101];
+		for (int i = 0; i < values.length; i++) {
+			steps[i] = i;
+			values[i] = 6 + i % 9;
+		}
+		for (int i : new int[] {5, 15, 25, 35, 45}) values[i] = 0;
+		for (int i : new int[] {55, 65, 75, 85, 95}) values[i] = 30;
+		return "{\"data\":[" + rawSeriesJson("run_outlier", OUTLIER_TAG, steps, values) + "]}";
+	}
+
+	static String signedOutlierMetricsJson() {
+		final double[] steps = new double[101];
+		final float[] values = new float[101];
+		for (int i = 0; i < 101; i++) {
+			steps[i] = i;
+			values[i] = i - 50;
+		}
+		return "{\"data\":[" + rawSeriesJson("run_outlier", OUTLIER_TAG, steps, values) + "]}";
+	}
+
+	static String constantOutlierMetricsJson() {
+		final double[] steps = new double[101];
+		final float[] values = new float[101];
+		for (int i = 0; i < 101; i++) {
+			steps[i] = i;
+			values[i] = 7;
+		}
+		return "{\"data\":[" + rawSeriesJson("run_outlier", OUTLIER_TAG, steps, values) + "]}";
+	}
+
+	static String multiRunOutlierRunsJson() {
+		return "{\"runs\":["
+				+ runJson("run_outlier_a", 100, OUTLIER_TAG)
+				+ ","
+				+ runJson("run_outlier_b", 100, OUTLIER_TAG)
+				+ "]}";
+	}
+
+	static String multiRunOutlierMetricsJson() {
+		final double[] steps = new double[101];
+		final float[] valuesA = new float[101];
+		final float[] valuesB = new float[101];
+		for (int i = 0; i < 100; i++) {
+			steps[i] = i;
+			valuesA[i] = i;
+			valuesB[i] = 100 + i;
+		}
+		steps[100] = 100;
+		valuesA[100] = 1000;
+		valuesB[100] = 2000;
+		return "{\"data\":["
+				+ rawSeriesJson("run_outlier_a", OUTLIER_TAG, steps, valuesA)
+				+ ","
+				+ rawSeriesJson("run_outlier_b", OUTLIER_TAG, steps, valuesB)
+				+ "]}";
+	}
+
+	static String outlierLodRunsJson() {
+		return "{\"runs\":[" + runJson("run_outlier_lod", 1600, OUTLIER_TAG) + "]}";
+	}
+
+	static String outlierLodMetricsJson() {
+		final double[] minMaxSteps = new double[101];
+		final float[] minMaxValues = new float[101];
+		final double[] summarySteps = new double[100];
+		final float[] mins = new float[100];
+		final float[] maxs = new float[100];
+		final float[] means = new float[100];
+		for (int i = 0; i < 100; i++) {
+			minMaxSteps[i] = i * 16.0;
+			minMaxValues[i] = i;
+			summarySteps[i] = i * 16.0;
+			mins[i] = i;
+			maxs[i] = i + 10;
+			means[i] = i + 5;
+		}
+		minMaxSteps[100] = 1600;
+		minMaxValues[100] = 1000;
+		return "{\"data\":[{"
+				+ "\"runId\":\"run_outlier_lod\",\"tagKey\":\"" + OUTLIER_TAG + "\","
+				+ "\"generation\":\"" + GENERATION + "\","
+				+ "\"fromStep\":0,\"toStep\":1600,\"availability\":\"ok\","
+				+ "\"pointBudget\":101,\"level\":1,\"bucketWidth\":16,\"issues\":[],"
+				+ "\"projection\":{\"kind\":\"lod\","
+				+ "\"minMax\":{\"steps\":\"" + encodeFloat64(minMaxSteps) + "\","
+				+ "\"values\":\"" + encodeFloat32(minMaxValues) + "\"},"
+				+ "\"summary\":{\"steps\":\"" + encodeFloat64(summarySteps) + "\","
+				+ "\"mins\":\"" + encodeFloat32(mins) + "\","
+				+ "\"maxs\":\"" + encodeFloat32(maxs) + "\","
+				+ "\"means\":\"" + encodeFloat32(means) + "\","
+				+ "\"minSteps\":\"" + encodeFloat64(summarySteps) + "\","
+				+ "\"maxSteps\":\"" + encodeFloat64(summarySteps) + "\"}}}]}";
 	}
 
 	static String splitTagRunsJson() {

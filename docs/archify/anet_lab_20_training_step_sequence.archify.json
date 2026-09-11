@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "anet-lab 学習ステップの呼び出し順序",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      668
+    ],
+    "column_fit": "spread"
+  },
+  "participants": [
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "TrainRunner",
+      "sublabel": "RunnerThread"
+    },
+    {
+      "id": "actor",
+      "type": "backend",
+      "label": "Train Actor",
+      "sublabel": "行動選択"
+    },
+    {
+      "id": "network",
+      "type": "backend",
+      "label": "Network",
+      "sublabel": "online"
+    },
+    {
+      "id": "env",
+      "type": "backend",
+      "label": "BatchEnv",
+      "sublabel": "CPU 実行"
+    },
+    {
+      "id": "learner",
+      "type": "backend",
+      "label": "Learner",
+      "sublabel": "DQN 更新"
+    },
+    {
+      "id": "replay",
+      "type": "database",
+      "label": "ReplayBuffer",
+      "sublabel": "lane ring"
+    },
+    {
+      "id": "notifier",
+      "type": "messagebus",
+      "label": "Notifier",
+      "sublabel": "Event 配信"
+    },
+    {
+      "id": "metrics",
+      "type": "backend",
+      "label": "MetricsLogger",
+      "sublabel": "metrics.jsonl"
+    }
+  ],
+  "segments": [
+    {
+      "from": 148,
+      "to": 258,
+      "label": "行動選択"
+    },
+    {
+      "from": 264,
+      "to": 342,
+      "label": "環境 Step"
+    },
+    {
+      "from": 348,
+      "to": 510,
+      "label": "学習更新"
+    },
+    {
+      "from": 516,
+      "to": 594,
+      "label": "Event 通知と記録"
+    }
+  ],
+  "messages": [
+    {
+      "id": "make-action",
+      "from": "runner",
+      "to": "actor",
+      "y": 160,
+      "label": "MakeAction",
+      "variant": "emphasis"
+    },
+    {
+      "id": "actor-forward",
+      "from": "actor",
+      "to": "network",
+      "y": 188,
+      "label": "forward(obs)"
+    },
+    {
+      "id": "q-values",
+      "from": "network",
+      "to": "actor",
+      "y": 216,
+      "label": "Q 値",
+      "variant": "return"
+    },
+    {
+      "id": "action-info",
+      "from": "actor",
+      "to": "runner",
+      "y": 244,
+      "label": "BatchActionInfo",
+      "variant": "return"
+    },
+    {
+      "id": "env-step",
+      "from": "runner",
+      "to": "env",
+      "y": 272,
+      "label": "Step(action)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "step-result",
+      "from": "env",
+      "to": "runner",
+      "y": 300,
+      "label": "reward / next_state / continue_state",
+      "variant": "return"
+    },
+    {
+      "id": "episode-end",
+      "from": "runner",
+      "to": "notifier",
+      "y": 328,
+      "label": "EpisodeEndEvent",
+      "variant": "dashed"
+    },
+    {
+      "id": "update-batch",
+      "from": "runner",
+      "to": "learner",
+      "y": 356,
+      "label": "UpdateFromBatch(Experience)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "replay-push",
+      "from": "learner",
+      "to": "replay",
+      "y": 384,
+      "label": "Push"
+    },
+    {
+      "id": "replay-sample",
+      "from": "learner",
+      "to": "replay",
+      "y": 412,
+      "label": "Sample"
+    },
+    {
+      "id": "samples",
+      "from": "replay",
+      "to": "learner",
+      "y": 440,
+      "label": "minibatch",
+      "variant": "return"
+    },
+    {
+      "id": "learn-forward",
+      "from": "learner",
+      "to": "network",
+      "y": 468,
+      "label": "loss と backward"
+    },
+    {
+      "id": "update-results",
+      "from": "learner",
+      "to": "runner",
+      "y": 496,
+      "label": "BatchUpdateResultList",
+      "variant": "return"
+    },
+    {
+      "id": "learn-event",
+      "from": "runner",
+      "to": "notifier",
+      "y": 524,
+      "label": "LearnEvent"
+    },
+    {
+      "id": "train-event",
+      "from": "runner",
+      "to": "notifier",
+      "y": 552,
+      "label": "TrainEvent",
+      "variant": "emphasis"
+    },
+    {
+      "id": "record",
+      "from": "notifier",
+      "to": "metrics",
+      "y": 580,
+      "label": "記録"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "runner",
+      "from": 154,
+      "to": 560,
+      "type": "backend"
+    },
+    {
+      "participant": "actor",
+      "from": 156,
+      "to": 250,
+      "type": "backend"
+    },
+    {
+      "participant": "network",
+      "from": 182,
+      "to": 226,
+      "type": "backend"
+    },
+    {
+      "participant": "env",
+      "from": 266,
+      "to": 310,
+      "type": "backend"
+    },
+    {
+      "participant": "learner",
+      "from": 351,
+      "to": 504,
+      "type": "backend"
+    },
+    {
+      "participant": "replay",
+      "from": 378,
+      "to": 448,
+      "type": "database"
+    },
+    {
+      "participant": "network",
+      "from": 462,
+      "to": 482,
+      "type": "backend"
+    },
+    {
+      "participant": "notifier",
+      "from": 518,
+      "to": 566,
+      "type": "messagebus"
+    },
+    {
+      "participant": "metrics",
+      "from": 574,
+      "to": 590,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "代表経路の前提",
+      "items": [
+        "SerialTrainRunner の 1 step を代表として描いている",
+        "PipelineTrainRunner では Push と Sample が 1 step 遅れる",
+        "初回 step だけ env->Reset() を実行する"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "学習が何回起きるか",
+      "items": [
+        "Push は毎 step、学習は CanUpdate と update_credit により 0 回以上",
+        "更新結果が空の step では LearnEvent を通知しない",
+        "根拠: core/anet-core/src/dqn_based_agent.cpp:2448-2547"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "通知順の契約",
+      "items": [
+        "EpisodeEnd、Learn、Train の順に通知後 continue_state を state へ移す",
+        "counter は通知後に進むため counts は step 開始時点の値",
+        "根拠: core/anet-core/src/trainer.cpp:447-556"
+      ]
+    }
+  ]
+}

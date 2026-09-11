@@ -11,11 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.springframework.stereotype.Component;
-
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 
-@Component
 public class LodPageCache {
 
 	static final int LOD_PAGE_BUCKETS = 1024;
@@ -36,7 +33,9 @@ public class LodPageCache {
 			String runId,
 			long tagId,
 			int level,
-			long bucket) throws SQLException {
+			long bucket,
+			QueryExecution query) throws SQLException {
+		query.checkpoint();
 		final long width = LodBucket.widthForLevel(level);
 		final long pageIndex = Math.floorDiv(bucket, LOD_PAGE_BUCKETS);
 		final PageKey key = new PageKey(generation, runId, tagId, level, pageIndex);
@@ -46,14 +45,14 @@ public class LodPageCache {
 		}
 		if (page == null) {
 			if (capacityBytes == 0L) {
-				return loadBucket(connection, tagId, level, bucket);
+				return loadBucket(connection, tagId, level, bucket, query);
 			}
-			final Page loaded = loadPage(connection, tagId, level, pageIndex);
+			final Page loaded = loadPage(connection, tagId, level, pageIndex, query);
 			page = !loaded.isComplete(pageIndex, width)
 					? loaded
 					: retain(key, loaded);
 		}
-		return page.find(bucket, width);
+		return page.find(bucket, width, query);
 	}
 
 	public synchronized void retainRuns(Set<String> runIds) {
@@ -91,18 +90,21 @@ public class LodPageCache {
 			Connection connection,
 			long tagId,
 			int level,
-			long bucket) throws SQLException {
+			long bucket,
+			QueryExecution query) throws SQLException {
 		try (PreparedStatement statement = connection.prepareStatement("""
 				SELECT bucket, cnt, step_first, step_last,
 				       min_ordinal, min_step, vmin,
 				       max_ordinal, max_step, vmax, vmean, vlast
 				FROM scalars_lod
 				WHERE tag_id=? AND level=? AND bucket=?
-				""")) {
+				""");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			statement.setLong(1, tagId);
 			statement.setInt(2, level);
 			statement.setLong(3, bucket);
 			try (ResultSet result = statement.executeQuery()) {
+				query.checkpoint();
 				return result.next() ? LodBucket.fromLodRow(result, level) : null;
 			}
 		}
@@ -131,7 +133,8 @@ public class LodPageCache {
 			Connection connection,
 			long tagId,
 			int level,
-			long pageIndex) throws SQLException {
+			long pageIndex,
+			QueryExecution query) throws SQLException {
 		final long firstBucket = Math.multiplyExact(pageIndex, LOD_PAGE_BUCKETS);
 		final long lastBucketExclusive = Math.addExact(firstBucket, LOD_PAGE_BUCKETS);
 		final List<LodBucket> rows = new ArrayList<>();
@@ -142,18 +145,20 @@ public class LodPageCache {
 				FROM scalars_lod
 				WHERE tag_id=? AND level=? AND bucket>=? AND bucket<?
 				ORDER BY bucket
-				""")) {
+				""");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			statement.setLong(1, tagId);
 			statement.setInt(2, level);
 			statement.setLong(3, firstBucket);
 			statement.setLong(4, lastBucketExclusive);
 			try (ResultSet result = statement.executeQuery()) {
 				while (result.next()) {
+					query.checkpoint();
 					rows.add(LodBucket.fromLodRow(result, level));
 				}
 			}
 		}
-		return Page.from(rows, LodBucket.widthForLevel(level));
+		return Page.from(rows, LodBucket.widthForLevel(level), query);
 	}
 
 	private record PageKey(
@@ -193,9 +198,10 @@ public class LodPageCache {
 			lastValues = new double[size];
 		}
 
-		private static Page from(List<LodBucket> rows, long width) {
+		private static Page from(List<LodBucket> rows, long width, QueryExecution query) {
 			final Page page = new Page(rows.size());
 			for (int i = 0; i < rows.size(); i++) {
+				query.checkpoint();
 				final LodBucket row = rows.get(i);
 				page.buckets[i] = row.ordinalFrom() / width;
 				page.counts[i] = row.count();
@@ -213,10 +219,11 @@ public class LodPageCache {
 			return page;
 		}
 
-		private LodBucket find(long bucket, long width) {
+		private LodBucket find(long bucket, long width, QueryExecution query) {
 			int low = 0;
 			int high = buckets.length - 1;
 			while (low <= high) {
+				query.checkpoint();
 				final int middle = (low + high) >>> 1;
 				if (buckets[middle] < bucket) low = middle + 1;
 				else if (buckets[middle] > bucket) high = middle - 1;

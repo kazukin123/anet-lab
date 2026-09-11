@@ -1,10 +1,20 @@
-﻿#include "anet/config.hpp"
+﻿// config.cpp
+
+#include "anet/config.hpp"
+
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cmath>
 #include <sstream>
 #include <fstream>
 #include <type_traits>
 #include <utility>
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <unistd.h>
+#endif
 #include <wx/string.h>
 #include <wx/cmdline.h>
 #include "anet/app_util.hpp"
@@ -12,12 +22,22 @@
 #include "anet/json_util.hpp"
 #include "anet/str_util.hpp"
 #include "anet/log.hpp"
+#include "config_impl.hpp"
 
 namespace LOG = anet::log;
 
 namespace anet {
 
     namespace {
+
+    uint64_t GetCurrentProcessIdValue()
+    {
+#ifdef _WIN32
+        return static_cast<uint64_t>(::GetCurrentProcessId());
+#else
+        return static_cast<uint64_t>(::getpid());
+#endif
+    }
 
     [[noreturn]] void ThrowReadFailure(
         const std::string& key, const std::string& value, const char* expected_type)
@@ -222,15 +242,15 @@ namespace anet {
 
     } // namespace
 
-    // train.eval.[greedy].interval = 100
-    // train.eval.[greedy].run_mode = 1
+    // train.eval.[greedy].eval_batch_size = 1
+    // train.eval.[greedy].run_mode = eval1
     // train.eval.[greedy].env.init.x_range = 0.0
     //   prefix = "train.eval"
     //   key_prefix = "train.eval.["
     //   key_suffix = "]"
     //   tag = greedy
-	//   sub_key = interval, run_mode, env.init.x_range
-	//   value = 100, 1, 0.0
+	//   sub_key = eval_batch_size, run_mode, env.init.x_range
+	//   value = 1, eval1, 0.0
 
     bool ConfigData::Read(const std::string& key, std::string& value, const std::string& value_if_missing) const
     {
@@ -357,6 +377,80 @@ namespace anet {
         }
     }
 
+    void ConfigData::OverwriteFrom(const ConfigData& other)
+    {
+        // 後から与えられた設定値を優先し、既存キーの定義順は維持する。
+        for (const auto& [key, value] : other.Map()) {
+            map_.Set(key, value);
+        }
+    }
+
+    std::string ConfigData::ToPropertiesString() const
+    {
+        std::ostringstream oss;
+        for (const auto& [key, value] : map_) {
+            oss << key << " = " << value << '\n';
+        }
+        return oss.str();
+    }
+
+    void ConfigData::SaveProperties(const std::filesystem::path& path) const
+    {
+        // Properties のコメント・終端記号に再解釈される値は、黙って変形せず拒否する。
+        for (const auto& [key, value] : map_) {
+            const auto last_non_whitespace = value.find_last_not_of(" \t\r\n");
+            const bool has_terminal_semicolon = last_non_whitespace != std::string::npos
+                && value[last_non_whitespace] == ';';
+            ANET_CHECK_MSG(
+                value.find('#') == std::string::npos
+                && value.find("//") == std::string::npos
+                && !has_terminal_semicolon,
+                "ConfigData::SaveProperties rejected an unsafe value. key=" << key
+                << " value=\"" << value << "\"");
+        }
+
+        // 同一ディレクトリへ一時ファイルを書き、完成後に置換する。
+        const auto parent = path.parent_path();
+        if (!parent.empty()) {
+            std::filesystem::create_directories(parent);
+        }
+        static std::atomic_uint64_t next_id = 0;
+        auto temp_path = path;
+        temp_path += ".tmp."
+            + std::to_string(GetCurrentProcessIdValue()) + "."
+            + std::to_string(next_id.fetch_add(1));
+        {
+            std::ofstream ofs(temp_path, std::ios::binary | std::ios::trunc);
+            ANET_CHECK_MSG(ofs, "ConfigData::SaveProperties failed to open a temporary file. path=" << temp_path.string());
+            ofs << ToPropertiesString();
+            ofs.flush();
+            if (!ofs) {
+                ofs.close();
+                std::filesystem::remove(temp_path);
+                ANET_SYSTEM_ERROR(
+                    "ConfigData::SaveProperties failed to write a temporary file. path=" << temp_path.string());
+            }
+        }
+
+        std::error_code error;
+#ifdef _WIN32
+        if (!::MoveFileExW(
+            temp_path.c_str(),
+            path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            error = std::error_code(static_cast<int>(::GetLastError()), std::system_category());
+        }
+#else
+        std::filesystem::rename(temp_path, path, error);
+#endif
+        if (error) {
+            std::filesystem::remove(temp_path);
+            ANET_SYSTEM_ERROR(
+                "ConfigData::SaveProperties failed to replace the destination. path=" << path.string()
+                << " error=" << error.message());
+        }
+    }
+
     std::unordered_map<std::string, ConfigData> ConfigData::MakeSubConfigData(const std::string& prefix) const
     {
         //std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
@@ -416,6 +510,31 @@ namespace anet {
         if (b == std::string::npos) return "";
         size_t e = s.find_last_not_of(ws);
         return s.substr(b, e - b + 1);
+    }
+
+    std::string NormalizePropertyKey(
+        std::string key,
+        const std::filesystem::path& filename)
+    {
+        // Key 部の空白を除去し、視覚区切りの ':' をドット正規形へ落とす。
+        key.erase(std::remove_if(key.begin(), key.end(), [](unsigned char c) {
+            return std::isspace(c) != 0;
+        }), key.end());
+
+        const auto colon = key.find(':');
+        if (colon == std::string::npos) {
+            return key;
+        }
+        ANET_CHECK_MSG(
+            key.find(':', colon + 1) == std::string::npos,
+            "Properties: config key contains multiple ':' separators. path="
+            << filename.string() << " key=" << key);
+        ANET_CHECK_MSG(
+            colon > 0 && colon + 1 < key.size(),
+            "Properties: config key contains an empty ':' segment. path="
+            << filename.string() << " key=" << key);
+        key[colon] = '.';
+        return key;
     }
 
     void Properties::Load(const std::filesystem::path& filename, int depth)
@@ -527,13 +646,12 @@ namespace anet {
             }
             // ---------------------
 
-            size_t pos = line.find('=');    // '=' または ':' で区切る
-            if (pos == std::string::npos)
-                pos = line.find(':');
+            // 最初の '=' だけを key/value 境界とし、':' は key 内の糖衣として扱う。
+            size_t pos = line.find('=');
             if (pos == std::string::npos)
                 continue;
 
-            std::string key = Trim(line.substr(0, pos));
+            std::string key = NormalizePropertyKey(line.substr(0, pos), filename);
             std::string value = Trim(line.substr(pos + 1));
 
             // 末尾 ';' を除去
@@ -618,7 +736,7 @@ namespace anet {
     // ---- ConfigManager ----
 
     ConfigManager::ConfigManager(
-        const std::string& filePath,
+        const std::filesystem::path& filePath,
         const wxCmdLineParser* cmdLine,
         ConfigManagerOptions options)
         : options_(options)
@@ -626,31 +744,44 @@ namespace anet {
         // ベース読み込み
         LoadFromFile(filePath);
 
-        // コマンドライン引数を上書き
-        if (cmdLine) {
-            ApplyCmdLineOverrides(*cmdLine);
+        // 呼出側が確定した設定と追加ファイルを、ベース設定へ順番に重ねる。
+        ConfigData config_data(map_);
+        config_data.OverwriteFrom(options_.injected_config);
+        map_ = config_data.Map();
+        for (const auto& overwrite_config_path : options_.overwrite_config_paths) {
+            OverwriteFromFile(overwrite_config_path);
         }
 
-        // マージ実行（.$ = を展開）
-        AutoMerge();
-
-		// 再度コマンドライン引数を上書き（マージされた値よりコマンドライン指定を優先させるため）
-        if (cmdLine) {
-            ApplyCmdLineOverrides(*cmdLine);
-        }
+        // CLI は一度だけ読み、全キーの第1相と実効 leaf の第2相を resolver 内で適用する。
+        const auto cli_overrides = cmdLine
+            ? ReadCmdLineOverrides(*cmdLine)
+            : ConfigData::MapType{};
+        auto resolved = detail::ConfigResolver::Resolve(map_, cli_overrides);
+        map_ = std::move(resolved.effective_map);
+        resolution_json_ = std::move(resolved.resolution_json);
     }
 
-    void ConfigManager::LoadFromFile(const std::string& filePath)
+    void ConfigManager::LoadFromFile(const std::filesystem::path& filePath)
     {
         const auto resolved_path = ResolveMainConfigPath(filePath, options_);
-        Properties props(resolved_path.string(), options_);
+        Properties props(resolved_path, options_);
         map_ = props.ToConfigData().Map();
     }
 
-    void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine)
+    void ConfigManager::OverwriteFromFile(const std::filesystem::path& filePath)
+    {
+        const auto resolved_path = ResolveMainConfigPath(filePath, options_);
+        const Properties props(resolved_path, options_);
+        ConfigData config_data(map_);
+        config_data.OverwriteFrom(props.ToConfigData());
+        map_ = config_data.Map();
+    }
+
+    ConfigData::MapType ConfigManager::ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const
     {
         // 例: agent.lr=0.001 をパラメータとして渡す
         // executable agent.lr=0.001 train.max_steps=20000
+        ConfigData::MapType overrides;
         const int count = cmdLine.GetParamCount();
         for (int i = 0; i < count; ++i) {
             wxString s = cmdLine.GetParam(i);
@@ -659,81 +790,16 @@ namespace anet {
             const auto pos = p.find('=');
             if (pos == std::string::npos) continue;
 
-            const std::string key = p.substr(0, pos);
+            const std::string key = NormalizePropertyKey(
+                p.substr(0, pos),
+                "<command-line>");
             const std::string val = p.substr(pos + 1);
 
             if (!key.empty()) {
-                map_.Set(key, val);
+                overrides.Set(key, val);
             }
         }
-    }
-
-    static constexpr const char* MERGE_KEYWORD = ".$";
-
-    void ConfigManager::AutoMerge()
-    {
-        // env.$ = env.common > env.trunk
-        // env.xxx = 1
-        // env.yyy = 2
-        // env.common.yyy = 10
-        // env.common.zzz = 20
-        // env.trunk.zzz = 200
-        // 
-        //   ↓
-        // 
-        // env.xxx = 1
-        // env.yyy = 10
-        // env.zzz = 200
-        //
-
-        ConfigData::MapType new_map;
-        ConfigData::MapType map = map_;
-
-		std::vector<std::string> merge_keys;
-
-        // マージキー以外をそのままコピー
-        for (const auto& kv : map) {
-            const std::string key = kv.first;
-            const std::string val = kv.second;
-            if (!anet::EndsWith(key, MERGE_KEYWORD)) {
-                new_map.Set(key, val);
-            } else {
-				merge_keys.push_back(key);
-            }
-        }
-
-        // マージキーの上書き処理
-        for (const auto& merge_key : merge_keys) {
-			auto base_key = anet::RemoveSuffix(merge_key, MERGE_KEYWORD);   // env.$ -> env
-
-			auto merge_val = map.Get(merge_key);                                             // "env.common > env.trunk"
-			std::vector<std::string> merge_target_keys = Split(merge_val, { ">" }, true);    // { env.common, env.trunk }
-            if (merge_target_keys.empty()) continue;
-
-            for (auto merge_target_key : merge_target_keys) {   // env.common, env.trunk
-                if (merge_target_key.empty()) continue;
-
-                // 設定階層の子孫だけを対象にし、env.common_value のような単なる前方一致を除外する。
-                const std::string merge_target_prefix = merge_target_key + ".";
-
-                for (const auto& kv2 : map) {
-                    std::string key2 = kv2.first;
-                    std::string val2 = kv2.second;
-                    if (anet::StartsWith(key2, merge_target_prefix)) {                 // env.common.yyy, env.common.zzz
-                        // ERASE: env.common.yyy, env.common.zzz
-                        //new_map.Erase(key2);	// 2回目のマージで困るので消さない
-
-                        auto key_suffix = anet::RemovePrefix(key2, merge_target_key);  // .yyy, .zzz
-                        auto target_key = base_key + key_suffix;                       // env.yyy, env.zzz
-
-                        // マージ対象のValueをマージ元のKeyでSet
-                        new_map.Set(target_key, val2);
-                    }
-                }
-            }
-        }
-
-        map_ = new_map;
+        return overrides;
     }
 
 } // namespace anet

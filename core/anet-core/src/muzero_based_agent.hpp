@@ -48,7 +48,8 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
     public:
         explicit MuZeroNetworkModel(
             const ModelConfig& config, const ConfigData& config_data,
-            const anet::rl::StateSpec& state_spec, const anet::rl::ActionSpec& action_spec);
+            const anet::rl::StateSpec& state_spec, const anet::rl::ActionSpec& action_spec,
+            anet::seed_t agent_seed);
 
         /// @brief 初期推論: 観測(Observation)から、隠れ状態(s0)、価値(v0)、方策(p0)を算出
         /// @param obs 生の観測テンソル (B, state_dim...)
@@ -254,4 +255,3 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
 
 
 } // namespace anet::rl::muzero_proto
-

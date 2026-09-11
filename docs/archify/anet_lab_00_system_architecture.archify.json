@@ -1,0 +1,503 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "anet-lab システム構成",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/kazukin123/anet-lab",
+      "revision": "8755992cd26f751b79a35700ec38e600af29d581"
+    }
+  },
+  "components": [
+    {
+      "id": "runner_app",
+      "type": "frontend",
+      "label": "AnetRLRunner",
+      "sublabel": "wxWidgets GUI 入口",
+      "tag": "RunnerApp",
+      "pos": [
+        40,
+        70
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "apps/runner/src/RunnerApp.cpp",
+          "line": 202,
+          "label": "OnInit"
+        },
+        {
+          "path": "apps/runner/src/RunnerApp.hpp",
+          "line": 30,
+          "label": "wxApp 派生"
+        }
+      ]
+    },
+    {
+      "id": "config_mgr",
+      "type": "backend",
+      "label": "ConfigManager",
+      "sublabel": "workspace と設定の解決",
+      "tag": "ConfigData",
+      "pos": [
+        385,
+        70
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/config.hpp",
+          "line": 250,
+          "label": "ConfigManager"
+        },
+        {
+          "path": "core/anet-core/include/anet/app_util.hpp",
+          "line": 40,
+          "label": "WorkspaceService"
+        },
+        {
+          "path": "apps/runner/config/_main.txt",
+          "line": 2,
+          "label": "$include 連鎖"
+        }
+      ]
+    },
+    {
+      "id": "run_manager",
+      "type": "backend",
+      "label": "RunManager",
+      "sublabel": "Run 構成要素を構築",
+      "tag": "1 Run = 1 起動",
+      "pos": [
+        730,
+        70
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/trainer.hpp",
+          "line": 210,
+          "label": "RunManager"
+        },
+        {
+          "path": "core/anet-core/src/trainer.cpp",
+          "line": 997,
+          "label": "status_ = RUNNING"
+        }
+      ]
+    },
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "TrainRunner / EvalRunner",
+      "sublabel": "Serial / Pipeline 実行",
+      "tag": "RunnerThread",
+      "pos": [
+        730,
+        240
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/trainer.hpp",
+          "line": 114,
+          "label": "TrainRunner"
+        },
+        {
+          "path": "core/anet-core/src/trainer.cpp",
+          "line": 447,
+          "label": "SerialTrainRunner::DoStep"
+        },
+        {
+          "path": "core/anet-core/src/trainer.cpp",
+          "line": 1100,
+          "label": "RunnerThread::ProcessStep"
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent",
+      "sublabel": "Actor / Learner を所有",
+      "tag": "DefaultDQNAgent",
+      "pos": [
+        1090,
+        240
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/rl.hpp",
+          "line": 727,
+          "label": "Agent interface"
+        },
+        {
+          "path": "core/anet-core/src/dqn_based_agent.cpp",
+          "line": 2448,
+          "label": "Learner::UpdateFromBatch"
+        }
+      ]
+    },
+    {
+      "id": "network",
+      "type": "backend",
+      "label": "NetworkModel",
+      "sublabel": "libtorch forward",
+      "tag": "TensorDict 入出力",
+      "pos": [
+        1090,
+        410
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/nn.hpp",
+          "line": 187,
+          "label": "Network"
+        },
+        {
+          "path": "CMakeLists.txt",
+          "line": 177,
+          "label": "find_package(Torch)"
+        }
+      ]
+    },
+    {
+      "id": "batch_env",
+      "type": "backend",
+      "label": "BatchEnv",
+      "sublabel": "Reset / Step (CPU)",
+      "tag": "ThreadPoolDiscreteEnv",
+      "pos": [
+        385,
+        240
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/rl.hpp",
+          "line": 658,
+          "label": "BatchEnv interface"
+        },
+        {
+          "path": "core/anet-core/include/anet/env.hpp",
+          "line": 164,
+          "label": "ThreadPoolDiscreteEnv"
+        },
+        {
+          "path": "core/anet-core/include/anet/env.hpp",
+          "line": 188,
+          "label": "EnvRepository"
+        }
+      ]
+    },
+    {
+      "id": "replay_buffer",
+      "type": "database",
+      "label": "ReplayBuffer",
+      "sublabel": "lane ring / N-step / PER",
+      "tag": "PrefetchingReplayBuffer",
+      "pos": [
+        730,
+        410
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/rl.hpp",
+          "line": 829,
+          "label": "ReplayBuffer interface"
+        },
+        {
+          "path": "core/anet-core/include/anet/replay_buffer.hpp",
+          "line": 106,
+          "label": "prefetch 実装"
+        }
+      ]
+    },
+    {
+      "id": "notifier",
+      "type": "messagebus",
+      "label": "Notifier",
+      "sublabel": "Event を Observer へ配信",
+      "tag": "Observer 配信",
+      "pos": [
+        385,
+        410
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/rl.hpp",
+          "line": 990,
+          "label": "Notifier"
+        },
+        {
+          "path": "core/anet-core/include/anet/rl.hpp",
+          "line": 899,
+          "label": "Event 定義"
+        }
+      ]
+    },
+    {
+      "id": "metrics_logger",
+      "type": "backend",
+      "label": "MetricsLogger",
+      "sublabel": "JSONL / 画像 / 動画 出力",
+      "tag": "Observer から呼ばれる",
+      "pos": [
+        385,
+        580
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/include/anet/metrics_logger.hpp",
+          "line": 38,
+          "label": "JsonlBackend"
+        },
+        {
+          "path": "core/anet-core/src/metrics_logger.cpp",
+          "line": 190,
+          "label": "metrics.jsonl を開く"
+        }
+      ]
+    },
+    {
+      "id": "run_artifact",
+      "type": "database",
+      "label": "Run 成果物",
+      "sublabel": "metrics.jsonl と関連出力",
+      "tag": "runs/<run_name>",
+      "pos": [
+        730,
+        580
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/src/metrics_logger.cpp",
+          "line": 748,
+          "label": "images 出力"
+        },
+        {
+          "path": "core/anet-core/src/metrics_logger.cpp",
+          "line": 770,
+          "label": "videos 出力"
+        },
+        {
+          "path": "core/anet-core/include/anet/app_util.hpp",
+          "line": 21,
+          "label": "WorkspacePaths"
+        }
+      ]
+    },
+    {
+      "id": "metrics_viewer",
+      "type": "external",
+      "label": "Metrics Viewer",
+      "sublabel": "Spring Boot + SQLite",
+      "tag": "別プロセス",
+      "pos": [
+        1090,
+        580
+      ],
+      "size": [
+        190,
+        80
+      ],
+      "sources": [
+        {
+          "path": "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java",
+          "line": 20,
+          "label": "metrics.jsonl 読み取り"
+        },
+        {
+          "path": "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java",
+          "line": 28,
+          "label": "metrics_cache.db"
+        },
+        {
+          "path": "apps/metrics-viewer/pom.xml",
+          "line": 79,
+          "label": "sqlite-jdbc"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Env worker thread",
+      "wraps": [
+        "batch_env"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "RunnerThread の学習経路",
+      "wraps": [
+        "runner",
+        "agent",
+        "replay_buffer",
+        "network"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "学習プロセス外 (ファイル境界)",
+      "wraps": [
+        "run_artifact",
+        "metrics_viewer"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "app-config",
+      "from": "runner_app",
+      "to": "config_mgr",
+      "label": "workspace 選択と設定解決",
+      "variant": "emphasis"
+    },
+    {
+      "id": "config-run",
+      "from": "config_mgr",
+      "to": "run_manager",
+      "label": "検証済み ConfigData",
+      "variant": "emphasis"
+    },
+    {
+      "id": "run-runner",
+      "from": "run_manager",
+      "to": "runner",
+      "label": "構築して起動",
+      "variant": "emphasis",
+      "labelDy": 45
+    },
+    {
+      "id": "runner-agent",
+      "from": "runner",
+      "to": "agent",
+      "label": "MakeAction / UpdateFromBatch",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-network",
+      "from": "agent",
+      "to": "network",
+      "label": "forward / backward",
+      "variant": "emphasis",
+      "labelDy": 45
+    },
+    {
+      "id": "runner-env",
+      "from": "runner",
+      "to": "batch_env",
+      "label": "Reset / Step"
+    },
+    {
+      "id": "agent-replay",
+      "from": "agent",
+      "to": "replay_buffer",
+      "label": "Push / Sample"
+    },
+    {
+      "id": "runner-notifier",
+      "from": "runner",
+      "to": "notifier",
+      "label": "Notify(Event)"
+    },
+    {
+      "id": "app-notifier",
+      "from": "runner_app",
+      "to": "notifier",
+      "label": "GUI が Observer を購読",
+      "variant": "dashed"
+    },
+    {
+      "id": "notifier-metrics",
+      "from": "notifier",
+      "to": "metrics_logger",
+      "label": "Observer が記録",
+      "labelDy": 45
+    },
+    {
+      "id": "metrics-artifact",
+      "from": "metrics_logger",
+      "to": "run_artifact",
+      "label": "追記と保存"
+    },
+    {
+      "id": "artifact-viewer",
+      "from": "run_artifact",
+      "to": "metrics_viewer",
+      "label": "取り込みと比較",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "起動と構築",
+      "items": [
+        "workspace の config を executable root の設定へ後勝ちで重ね、Run 出力先も同じ workspace へ導出する",
+        "--config 指定時は workspace を使わない完全自己記述モードになる",
+        "RunManager の構築が成功したときだけ RunnerStatus::RUNNING を立てる"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "スレッドと device の境界",
+      "items": [
+        "RunnerThread が DoUpdateFrame(1) を反復し、Env の Step は worker thread へ分配する",
+        "Observation と Experience は CPU、NN の forward と backward は学習 device で実行する",
+        "PipelineTrainRunner は前回 Experience の学習を専用 LearnThread へ重ねる"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "外部依存とファイル境界",
+      "items": [
+        "build 宣言の外部依存は libtorch、wxWidgets、Box2D、Catch2、Tracy、NVTX3、nlohmann/json",
+        "Atari/ALE は ANET_ENABLE_ATARI と外部 ALE_ROOT 参照によるオプショナルビルド",
+        "Run 成果物はファイルとして確定し、Viewer と metrics-tools はそれだけを読む"
+      ]
+    }
+  ]
+}
