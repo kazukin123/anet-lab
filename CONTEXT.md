@@ -270,7 +270,7 @@ _Avoid_: online RunMode, interactive RunMode
 _Avoid_: batch mode, batch RunMode
 
 **configured eval tag**（評価タグ）:
-`run.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になり、省略時の Actor キーにもなる。`actor_key` で別のカタログ項目を指せる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay / actor_key）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。標準タグは `eval`（online net）と `eval_target`（target net。target net の無い Agent では dormant にする）。
+`run.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になり、省略時の Actor キーにもなる。`actor` で別のカタログ項目を指せる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay / actor）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。標準タグは `eval`（online net）と `eval_target`（target net。target net の無い Agent では dormant にする）。
 _Avoid_: eval profile, eval preset, RunMode（別概念）
 
 **eval schedule**（定期駆動）:
@@ -308,8 +308,8 @@ _Avoid_: 完走エピソード（非採用の完走を含む）, 最初に終わ
 _Avoid_: train_policy / eval_policy（旧キー）, Agent 設定（上位概念）, actor profile（`@` プロファイルと混同）
 
 **Actor キー**（ActorKey）:
-利用者が Actor 設定カタログで明示する Actor 設定の identity。`run.train.actor_key` / `run.eval.[tag].actor_key` が参照し、省略時は Runner 名（`train` / eval タグ名）を使う。既知キー `train` / `eval` は Runner の既定値であって Agent 実装は名前を解釈しない（唯一の例外は DefaultDQN の `use_optimistic_target` で、Learner の target_policy の既定コピー元として `[train]` の policy を参照する。未定義なら fail-fast）。未定義キーの参照は fail-fast、dormant スロットでは解決しない。
-_Avoid_: actor name（instance 名と混同）, run_mode（用途ラベル）, actor_config（キーとも名前とも読めない）
+利用者が Actor 設定カタログで明示する Actor 設定の identity。設定キー `run.train.actor` / `run.eval.[tag].actor` が参照し（C++ 側は `ActorRequest::actor_key`）、省略時は Runner 名（`train` / eval タグ名）を使う。既知キー `train` / `eval` は Runner の既定値であって Agent 実装は名前を解釈しない（唯一の例外は DefaultDQN の `use_optimistic_target` で、Learner の target_policy の既定コピー元として `[train]` の policy を参照する。未定義なら fail-fast）。未定義キーの参照は fail-fast、dormant スロットでは解決しない。
+_Avoid_: actor name（instance 名と混同）, run_mode（用途ラベル）, actor_config（キーとも名前とも読めない）, 設定キーとしての actor_key（旧綴り。Runner 側の actor 要素は参照 1 つだけなので `actor`）
 
 **Actor 生成要求**（ActorRequest）:
 Runner が Agent へ渡す「どの env に、どの device と seed で、どの Actor キーの Actor を作るか」の宣言。Actor 設定の中身は含まず、用途ラベル（RunMode）も含まない。seed は Runner が master seed から `actor/<Runner 名>` で派生する。

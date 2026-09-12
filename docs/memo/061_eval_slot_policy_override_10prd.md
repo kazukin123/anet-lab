@@ -1,6 +1,6 @@
 # PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 
-- 起票日: 2026-08-24(draft)、グリル: 2026-09-06〜07(`/grill-with-docs`。裁定は §5・§9、決定の記録は ADR 0038)、改訂: 2026-09-08(Codex DropMerge レビュー反映: §2.7-2.8、§5.3-5.4、§7.3-7.6、§8-10。同日 Codex Atari レビュー反映: §1-B/G/H、§2.1、§2.7、§3、§5.4、§5.7、§7.1、§7.3、§7.5、§7.6、§8-5/6/8/9、§9、§11)
+- 起票日: 2026-08-24(draft)、グリル: 2026-09-06〜07(`/grill-with-docs`。裁定は §5・§9、決定の記録は ADR 0038)、改訂: 2026-09-08(Codex DropMerge レビュー反映: §2.7-2.8、§5.3-5.4、§7.3-7.6、§8-10。同日 Codex Atari レビュー反映: §1-B/G/H、§2.1、§2.7、§3、§5.4、§5.7、§7.1、§7.3、§7.5、§7.6、§8-5/6/8/9、§9、§11)、2026-09-12(PRD 072 最終形への同期。設定キー `actor_key` → `actor`: §5.1、§5.3、§5.7、§6、§7.2、§7.6、§9、§10)
 - 状態: **グリル完了・実装待ち**。実装順は PRD 072(選択の最終値参照と Run プロファイルの優先順位、別起票)→ 本 PRD P1 → P2。P3 は着手時に別途グリル
 - 対象: `core/anet-core`(`rl.hpp` / `agent.hpp` の Agent・Actor IF、4 Agent 実装、`trainer.*` の RunManager / RunnerBase / EvalRunner、`observers.*` の metrics 参照先)、`apps/runner`(EvalPanel / RunnerFrame / RunnerApp)、`apps/runner/config` 全 env config と `agent.txt` / `common.txt` / `metrics_scalar.txt`、`viewers/metrics-tools/inspect_run.py`、`apps/runner/tools/dropmerge_optuna.py`
 - 関連: [PRD 072](072_config_selection_final_value_10prd.md)(前提。全選択の最終値参照・チェーン差し替え・Run プロファイルを含む 4 段優先順位)、`done/060_eval_batch_episodes_10prd.md`(本数。§「本 PRD では解けない隣接論点」で本件を名指し)、`done/052_eval_schedule_separation_10prd.md` / ADR 0027(定義とスケジュールの分離)、`done/059_config_concept_tree_alignment_10prd.md`(カタログ / プロファイル / 上書き層の用語)、`912_background_eval_snapshot_ordering_10prd.md`(同じ eval 経路の別論点)、ADR 0038(本 PRD の決定と却下案)
@@ -111,7 +111,7 @@ ImageClsActor は run_mode を保持するだけで参照しない。Env 側の 
 | 用語 | 意味 |
 |---|---|
 | **Actor 設定**(actor config) | `CreateActor` が消費する設定の総体(方策とそのスケジュール、network 選択、clone / 同期周期、推論精度、探索器)。スキーマは Agent が所有し、`<AgentPrefix>.actor.[key].*` のカタログ項目として宣言する。Learner 側の `target_policy` は含まない |
-| **Actor キー**(ActorKey) | 利用者が Actor 設定カタログで明示する Actor 設定の identity。`run.train.actor_key` / `run.eval.[tag].actor_key` が参照し、省略時は Runner 名(`train` / eval タグ名) |
+| **Actor キー**(ActorKey) | 利用者が Actor 設定カタログで明示する Actor 設定の identity。設定キー `run.train.actor` / `run.eval.[tag].actor` が参照し、省略時は Runner 名(`train` / eval タグ名)。C++ 側は `ActorRequest::actor_key` |
 | **Actor 生成要求**(ActorRequest) | Runner が Agent へ渡す「どの env に、どの device と seed で、どの Actor キーの Actor を作るか」の宣言。用途ラベル(RunMode)を含まない |
 | **学習側 counts**(source counts) | Actor のスケジュールと snapshot 判定に使う、直近の Sync 時点の train runner の StepCounts。train runner 自身は live。eval runner 自身の counts(eval 座標系)とは別 |
 | **`$actor`** | metrics の参照先で、当該 Runner の Actor を指す。ε・温度など Actor 所有の実行時値を読む |
@@ -124,7 +124,7 @@ struct ActorRequest {
     EnvSpec env_spec;              // 既存引数そのまま
     torch::Device device;          // Runner が決める推論 device(既定 agent device、eval は run.eval_device_type)
     seed_t seed;                   // Runner が master seed から派生した Actor 専用 seed(domain "actor/<Runner 名>")
-    std::string actor_key;         // Actor 設定カタログのキー
+    std::string actor_key;         // Actor 設定カタログのキー(設定キー run.train.actor / run.eval.[tag].actor の値)
 };
 virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
 ```
@@ -150,20 +150,20 @@ DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]
 DefaultDQNAgent : $ = @baseline > A2 > A3
 
 # Runner 側。名前参照のみ（ここにない Actor 設定は §5.4 のスキーマに従う）
-run.train : actor_key = train
-run.eval.[eval_target] : actor_key = eval_target
-run.eval.[eval] : actor_key = eval
+run.train : actor = train
+run.eval.[eval_target] : actor = eval_target
+run.eval.[eval] : actor = eval
 ```
 
 - **参照は名前だけ**。スロット内に Actor 設定の上書き層は持たない。差分はカタログ側で `$` 継承と `@` プロファイルを使って書く(直書きはチェーン結果に負ける既存規則どおり)
-- **既知キー `train` / `eval` は Runner の既定値**であり、Agent 実装は名前を解釈しない。推論専用 Run は `run.train.actor_key = eval` で `[train]` を定義せずに済む。**唯一の例外**は DefaultDQN の `use_optimistic_target=true` で、Learner の `target_policy` の既定コピー元として `actor.[train].policy` を参照する(Learner を回す構成でしか使わないので `[train]` は定義済みが前提。未定義なら fail-fast。§5.4)
+- **既知キー `train` / `eval` は Runner の既定値**であり、Agent 実装は名前を解釈しない。推論専用 Run は `run.train.actor = eval` で `[train]` を定義せずに済む。**唯一の例外**は DefaultDQN の `use_optimistic_target=true` で、Learner の `target_policy` の既定コピー元として `actor.[train].policy` を参照する(Learner を回す構成でしか使わないので `[train]` は定義済みが前提。未定義なら fail-fast。§5.4)
 - **eval タグ名を改名する**: eval1 → `eval_target`、eval2 → `eval`。省略時の Actor キーがタグ名なので、`common.txt` は `run.eval.[eval_target]` / `run.eval.[eval]` を宣言するだけで各 Agent の `actor.[eval_target]` / `actor.[eval]` へつながる。target net の無い ImageCls / MuZero は env ファイルで `run.eval_schedule.[eval_target].interval = 0`(dormant)にする
 - **metrics の tag 名(LHS)は全て不変**。RHS の `$eval.[eval1]` → `$eval.[eval_target]`、`$eval.[eval2]` → `$eval.[eval]` だけを再指定し、`21_eval/01_target_reward` = target net、`02_policy_reward` = online net、`51_eval1/*` = target、`52_eval2/*` = online という過去 Run との意味の一致を保つ
 - 後段変更は `A2 : actor.[eval].policy.eps_start = 0.01` のようにカタログ項目へ、または `A2 : actor.@eval_base.policy.eps_start = 0.01` のように共通プロファイルへ書ける。前者は eval の利用先、後者は共通プロファイルの利用先へ届く。上の Greedy 例で ε を使う場合は、policy_type も EpsilonGreedy として設定する。
 - PRD 072 により、全ての選択が参照先の最終値と最終キー集合(選択段・Run プロファイル第 2 相・CLI 第 2 相を全て適用した後)を読む。`[key]` かどうかで読み方は変わらない。CLI や Run プロファイルで `DefaultDQNAgent.actor.[eval].policy.eps_start` を直接変えても継承先へ届き、継承先の後段指定は元の優先順位を保つ。
 - 同じコピー先への複数の `.$` は最後に適用されるものだけを採用し、旧チェーンだけに由来する値を残さない。組み立て済みの参照先の `.$` を子で再実行しない。原則・具体例・記録・異常系の正本は [PRD 072](072_config_selection_final_value_10prd.md) §3〜§7。
-- **fail-fast**: 参照先 `actor.[<key>]` が未定義 → `ANET_SYSTEM_ERROR`(参照元 Runner 名・キー・定義済みキー一覧・`actor_key` の指定方法を含める)。`network` の未知値、`clone_model=false` で actor device ≠ agent device、MuZero での `clone_model=true`(非対応)も fail-fast
-- **dormant スロット**(定義済みだが有効 schedule 無し)は Actor を作らないので `actor_key` を解決しない(定義側の宣言検証だけ行う)。EvalPanel が参照する definition-only タグは Actor を作るので解決する
+- **fail-fast**: 参照先 `actor.[<key>]` が未定義 → `ANET_SYSTEM_ERROR`(参照元 Runner 名・キー・定義済みキー一覧・`run.*.actor` の指定方法を含める)。`network` の未知値、`clone_model=false` で actor device ≠ agent device、MuZero での `clone_model=true`(非対応)も fail-fast
+- **dormant スロット**(定義済みだが有効 schedule 無し)は Actor を作らないので `actor` を解決しない(定義側の宣言検証だけ行う)。EvalPanel が参照する definition-only タグは Actor を作るので解決する
 
 ### 5.4 各 Agent のカタログスキーマ(`<Agent>.actor.[key].*`)
 
@@ -187,7 +187,7 @@ run.eval.[eval] : actor_key = eval
 - Actor Q ヒントの送出は役割を見ず Agent の PER 設定(`use_per && ACTOR_APPROX`)だけで決める。全 Actor が付け、eval runner は無視する
 - seed は Runner が `master_seed_->GetGroupSeed("actor/<Runner 名>")` で派生して request に載せる。RunMode 別共有 RNG は廃止し、EvalPanel と configured eval が同じ stream を消費する現状の結合を解く
 - `clone_model` は Actor 設定の事項。`ValidateSharedActorDevice`(trainer)と各 Agent の重複チェックは `AgentBase::ValidateActorDevice(bool clone_model, const torch::Device& actor_device)` に共通化する。`run.eval_device_type / index` は Runner 側に残り、request の `device` になる
-- EvalPanel の `model_sync.mode = shared` は廃止する(clone は参照タグの Actor 設定が決める。`frame / time / episode` の同期スケジュールは GUI の責務のまま)。EvalPanel は `app.*.eval_panel.eval_config_tag` で参照するタグの `actor_key` と env prefix を鏡写しする
+- EvalPanel の `model_sync.mode = shared` は廃止する(clone は参照タグの Actor 設定が決める。`frame / time / episode` の同期スケジュールは GUI の責務のまま)。EvalPanel は `app.*.eval_panel.eval_config_tag` で参照するタグの `actor` と env prefix を鏡写しする
 
 ### 5.7 metrics
 
@@ -203,7 +203,7 @@ run.eval.[eval] : actor_key = eval
 | P0 | **PRD 072**: 全選択の最終値参照と Run プロファイルを含む 4 段優先順位(書き込み位置は宣言位置のまま。別 PRD、単独で完了可能) | §5.3 の `[eval_target].$ = …[eval] > …@target` が後段 overlay を取りこぼさないための前提 |
 | P1 | **`train.` root → `run.` 改名**(機械的・別コミット) | `run.seed` / `run.train.num_envs` / `run.train.runner_type` / `run.eval_device_type` / `run.eval.[tag].*` / `run.eval_schedule.[tag].*`。単独で成立し、P2 の新キーは新 root の下に生まれる |
 | P2 | **Actor 設定カタログ**(本体) | §5.2〜5.7 の全部と config 移行。単独でゴールを達成する |
-| P3 | **env 側**(方向のみ) | `<Env>.[key].*` カタログ + `run.train.env_key` / `run.eval.[tag].env_key`(省略時タグ名)。スロット内 `env.*` 上書き層の存廃、`run_mode` キーと Eval1 / Eval2 の Env 側整理は着手時にグリル |
+| P3 | **env 側**(方向のみ) | `<Env>.[key].*` カタログ + `run.train.env_key` / `run.eval.[tag].env_key`(省略時タグ名)。スロット内 `env.*` 上書き層の存廃(廃止するなら参照キーは Actor 側に揃えて `env`、残すなら `env_key`。葉と subtree の同居は避ける)、`run_mode` キーと Eval1 / Eval2 の Env 側整理は着手時にグリル |
 
 P0 / P1 は単独で成立し、P2 で止めても P3 無しで一貫した状態になる。
 
@@ -232,7 +232,7 @@ P0 / P1 は単独で成立し、P2 で止めても P3 無しで一貫した状�
 |---|---|
 | `rl.hpp` | `ActorRequest`、`Agent::CreateActor(const ActorRequest&) const`、`Actor : public Module`、`Runner::GetActor()`、`EventField::ACTOR` |
 | `agent.hpp` / `agent.cpp` | `ActionContext(seed)`(RunMode 除去)、`AgentBase` から `GetRandomGenerator(RunMode)` / `run_mode_rngs_` / `action_context_seed_` を除去、`ValidateActorDevice` helper |
-| `trainer.hpp` / `trainer.cpp` | `run.train.actor_key`(既定 `train`)、`run.eval.[tag].actor_key`(既定 tag)、seed domain `actor/<name>`、`RunnerBase(env, agent, notifier, ActorRequest, name)`(run_mode / clone_model_override / device 引数は廃止。`run.eval.[tag].run_mode` は Env 用に読み続ける)、`EvalRunner::Sync(const StepCounts&)`、`RunSession(event_counts)` → `Sync(event_counts)`、`DoStepInternal` は `source_counts_` を MakeAction へ、`CreateEvalRunner(name, config_tag)`、`ValidateSharedActorDevice` 削除、dormant タグは actor_key を解決しない |
+| `trainer.hpp` / `trainer.cpp` | `run.train.actor`(既定 `train`)、`run.eval.[tag].actor`(既定 tag)、seed domain `actor/<name>`、`RunnerBase(env, agent, notifier, ActorRequest, name)`(run_mode / clone_model_override / device 引数は廃止。`run.eval.[tag].run_mode` は Env 用に読み続ける)、`EvalRunner::Sync(const StepCounts&)`、`RunSession(event_counts)` → `Sync(event_counts)`、`DoStepInternal` は `source_counts_` を MakeAction へ、`CreateEvalRunner(name, config_tag)`、`ValidateSharedActorDevice` 削除、dormant タグは `actor` を解決しない |
 | `observers.cpp` | `$actor` のパース(`:1287` 付近)と `event.runner->GetActor()` による解決 |
 | `apps/runner` | `EvalPanelModelSyncMode::Shared` と `UsesClonedModel()` を削除、`RunnerFrame` は `CreateEvalRunner("EvalPanel", eval_config_tag)`、Sync 時に train runner の counts を渡す |
 
@@ -307,7 +307,7 @@ Atari の期待値(`run.@v5_iqn_impala_x2 > … > run.@munch` 系。classic / na
 ### 7.6 テスト
 
 - 既存ダブル 5 箇所を新シグネチャへ
-- 新規: `actor_key` 既定(タグ名)と明示、未定義キーの fail-fast(一覧付き)、`network` 選択、Actor 別 seed で 2 スロットの RNG が独立、`$actor epsilon`、Rainbow eval が `[eval]` policy を使う、MuZero `[eval]` が温度 0 / noise 無し、EvalPanel が参照タグの actor_key を使う、`clone_model=false` の device 不一致 fail-fast、dormant スロットの未定義 actor_key が無視される、`UpdateSchedule` が MakeAction の step で進む
+- 新規: `actor` 既定(タグ名)と明示、未定義キーの fail-fast(一覧付き)、`network` 選択、Actor 別 seed で 2 スロットの RNG が独立、`$actor epsilon`、Rainbow eval が `[eval]` policy を使う、MuZero `[eval]` が温度 0 / noise 無し、EvalPanel が参照タグの `actor` を使う、`clone_model=false` の device 不一致 fail-fast、dormant スロットの未定義 `actor` が無視される、`UpdateSchedule` が MakeAction の step で進む
 - 新規(2026-09-08 追加): `[train]` 未定義の IQN 構築と `[eval]` Actor 生成が通る、K の異なる 2 Actor(shared / clone の両方)が同一 network で forward できる、Actor の K ≠ Learner の N / M(既存 `dqn_based_agent_test.cpp:2909` を維持)、`use_optimistic_target=true` で `[train]` 未定義 → fail-fast、Actor(EvalPanel 相当 / 別スロット)を追加しても既存 Actor の行動列が不変、カタログ項目が Module Config dump に既定補完後の値で載る、`use_optimistic_target=true` でコピー元 `policy_type` が EpsilonGreedy なら `LOG::warn` が出て UQE なら出ない、同じ config で組んだ 2 つの RunManager(EvalPanel 相当の Actor を含む)の各スロットの行動列が一致する(受入 9 の単体版)
 
 ## 8. 受入条件
@@ -336,7 +336,7 @@ Atari の期待値(`run.@v5_iqn_impala_x2 > … > run.@munch` 系。classic / na
 |---|---|---|---|
 | 1 | ActorRequest 構造体 | keep | 引数追加ごとに実装 4 + ダブル 5 の改修 |
 | 2 | Actor 設定カタログ `<Agent>.actor.[key]` | keep | 中核(実害 A〜H) |
-| 3 | `actor_key`(省略時タグ名) | keep | 参照記法。common.txt が Agent 非依存のまま |
+| 3 | `actor`(省略時タグ名) | keep | 参照記法。common.txt が Agent 非依存のまま |
 | 4 | RunMode を Agent IF から撤去 | keep(設計原則) | Agent 内の train / eval 固定分岐 |
 | 5 | `network = online\|target` | keep | 実害 D |
 | 6 | Actor 別 seed | keep | 4 の帰結。EvalPanel と eval1 の RNG stream 共有 |
@@ -373,6 +373,7 @@ Atari の期待値(`run.@v5_iqn_impala_x2 > … > run.@munch` 系。classic / na
 - **eval タグ名の維持(eval1 / eval2)**: 名前が意味を持たず、Actor キーと一致させられない。改名して metrics RHS だけ再指定した
 - **`use_optimistic_target` の廃止**(2026-09-08 検討): 実効値は明示指定で同じになるが、optimistic 化のたびに `target_policy.*` を丸ごと書き換える(戻しも含む)保守コストが戻る。コピー元を `actor.[train].policy` に変えて維持する
 - **IQN spec K の専用キー(`net.taus_shape` 等)/ カタログ全項目と Learner の最大 K**: Learner の N で足りる。設定項目やカタログ走査を増やさない
+- **設定キー `actor_key`**(2026-09-12 に `actor` へ改名): `dataset_key`(`ImageClsEnv.train.dataset_key`)の前例に合わせた綴りだったが、Runner 側の actor 関連要素はこの参照 1 つだけ(スロット内上書き層は §9-15 で cut)なので、裸の名詞 `run.train.actor` / `run.eval.[tag].actor` にする。値の意味(カタログのキー名、省略時タグ名)は不変。C++ の `ActorRequest::actor_key` と用語「Actor キー」は据え置き。P3 の env 側は `env.*` 上書き層の存廃と合わせて `env` / `env_key` を決める(§6)
 
 旧 D1〜D10(起票時の未決)との対応: D1(policy 軸 / network 軸)→ §5.3 / §5.4、D2(置き場と記法)→ §5.3、D3(既定と後方互換)→ クリーンブレーク(§5.3、§7.5)、D4(CreateActor の変更形)→ §5.2、D5(未定義名)→ §5.3 fail-fast、D6(metrics タグ名)→ LHS 不変・RHS 再指定、D7(スロット数)→ 任意、D8(wall-clock)→ 060 P3 の範囲、D9(060 との順)→ 060 完了済み、D10(OnLearn)→ §5.5。
 
