@@ -1,5 +1,7 @@
 # Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す
 
+2026-09-13追記: 本文の設定継承に関する決定履歴のうち、同じコピー先へ届く選択チェーンの差し替えは[ADR 0042](0042-config-inheritance-as-differential-base.md)で改訂した。各選択元の最終値を差分合成し、個別・部分指定をベースより優先する。Actorカタログの決定は維持する。新契約の具体例は[PRD 072](../memo/072_config_selection_final_value_10prd.md)を参照。改訂は文書レビュー段階であり、実装移行は未実施。
+
 configured eval tag は env・並列度・本数・clone をタグ単位で持てるのに、行動方策(ε 等)は `DefaultDQNAgent.eval_policy` 1 本で全タグ共通、評価対象 network(target / online)は `run_mode`(Eval1 か否か)への固定配線だった。Agent / Actor 内部で RunMode が意味を持つ箇所は 7 つあり(policy 選択、network 選択、clone 既定、定期 snapshot、Actor Q ヒント送出、MuZero の温度 / noise、RunMode 別共有 RNG)、いずれも「用途ラベルから Agent が Actor の中身を推測する」構造で、Runner 側の都合(train か eval か)を Agent 実装へ固定的に持ち込んでいた。
 
 **Actor 設定(`CreateActor` が消費する設定の総体)を Agent 所有スキーマの名前付きカタログ `<AgentPrefix>.actor.[key].*` として宣言し、Runner は `ActorRequest { batch_env_spec, env_spec, device, seed, actor_key }` で名前参照だけを渡す**ことを決定する。Agent インタフェースは RunMode / `clone_model_override` / device 引数を持たない。既知キー `train` / `eval` は Runner の既定値(train runner は `train`、eval スロットは省略時にタグ名)であって Agent 実装は名前を解釈しない。差分はカタログ側で `$` 継承と `@` プロファイルで書き、スロット内に Actor 設定の上書き層は置かない。policy は Actor が専有し、スケジュールは MakeAction に渡される学習側 counts(直近の Sync 時点の train runner の StepCounts)で進める。

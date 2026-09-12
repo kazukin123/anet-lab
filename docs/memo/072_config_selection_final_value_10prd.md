@@ -1,148 +1,124 @@
-# PRD 072: 設定選択の最終値参照と Run プロファイルの優先順位
+# PRD 072: 設定継承の差分適用と最終値参照
 
-- 起票日: 2026-09-07。改訂日: 2026-09-12(同日 Claude レビューと反対 2 件の裁定を反映: §1-(b)、§2、P1〜P7、§4.1、M04、M14、§5〜§9)。
-- 関連: [PRD 061](061_eval_slot_policy_override_10prd.md)、[ADR 0038](../adr/0038-actor-config-catalog-without-runmode.md)、[設定基盤の現行設計](../design/100_runtime_and_configuration.jp.md)、[用語集](../../CONTEXT.md)。
-- 本 PRD は `999_config_run_profile_override_precedence_10prd.md` を吸収する。同文書は本 PRD 成立をもって廃止する。
-- 本改訂は仕様とマニュアル草稿の確定まで。リゾルバの実装・検証は後続作業、Actor のコード・設定移行は PRD 061 とする。以下の新契約は実装済みを意味しない。
+- 起票日: 2026-09-07。改訂日: 2026-09-13。
+- 関連: [PRD 061](061_eval_slot_policy_override_10prd.md)、[ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)、[設定基盤の設計](../design/100_runtime_and_configuration.jp.md)、[用語集](../../CONTEXT.md)。
+- 本改訂はレビュー用の設計文書更新。以下は合意した実装対象の契約であり、コード・現用設定・テスト・goldenの移行は未実施である。
+- 2026-09-12版の実装とgolden比較の記録は[20impl](072_config_selection_final_value_20impl.md)と[ADR 0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md)に保持する。過去の検証結果を本改訂の合格証拠にしない。
+- 本PRDは`999_config_run_profile_override_precedence_10prd.md`を吸収する。ActorのAPI・設定カタログへの移行はPRD 061が扱う。
 
 ## 1. 背景とゴール
 
-設定解決には、上書きが黙って効かなくなる経路が 2 つある。どちらも fail-fast せず、警告も出ず、解決後の dump を人間が読むまで気づけない。
+PRD 072の当初の課題は、選択元への後段変更が継承先へ届かないことと、Runプロファイルの指定が通常選択に負けることだった。2026-09-12版では最終値参照とRunの優先を実装したが、選択元を「宣言を運ぶ入れ物」と「組み立て済みノード」に分け、ドット無しの名前を上書き層として判定している。
 
-**(a) 選択が古いスナップショットを写す。** `ResolveSelection` は宣言時点の配下キーをコピーする。`DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target` と書くと、後段の A2 / A3 が `[eval]` へ加えた変更は `[eval_target]` へ届かない。PRD 061 の `[eval]` / `[eval_target]` はこの形なので、差分を二重に書くことになる。
+この区別は、別々の選択元から来た選択宣言をコピー先で差し替え、以前の選択だけが生成した葉を消すためのものだった。しかし、利用者が求める継承は差分適用である。`A2 > A3`でA3にないキーはA2から残す。A2の葉が直書きか継承由来かで結果を変える必要はない。
 
-**(b) Run プロファイルの葉キーが選択チェーンに握り潰される。** `ExpandNamedTrunk` が展開した葉は直書きと同じ tier で `effective_map_` へ写り、その後の `ApplyTerm` が同じキーを書くと負ける(§2)。選択チェーンが同じキーを持つと Run プロファイルの指定が消える。2026-08-31 に `run.@head_relu` の 3 本中 1 本が無効化され、2026-09-12 に `run.@btrnet` で同じことが再発した。どちらも `net.@iqn` 所有の `[tau_embedding].structure` を踏んでいる。
+**ゴール: `$`でベースを組み立て、その場所の個別指定・部分指定で上書きできる。複数の選択元は各最終値を右側の差分で重ねる。** 名前のドット数、A1等の予約名、`[key]`の有無で継承の規則を変えない。
 
-**ゴールは、`X.$ = Y > Z` を「X は Y に Z の差分を重ねたもの」と読めるようにし、上書きの成否を書いた位置から予測できるようにすること。** 覚える規則を 1 文に減らし、`[key]` の有無で挙動が変わる特別扱いを作らない。
+上書き層の名称・段数は設定運用上の約束として残せるが、resolverが識別する種類にはしない。新しい構文・モード・互換スイッチ・キー削除演算子・葉の削除用の由来追跡は追加しない。
 
-追加しない: 新しい設定モード、互換スイッチ、policy 専用カタログ、Actor 移行、`+=` 相当の差分演算子。
+## 2. 実装済みの先行版から変わること
 
-## 2. 現行動作と非対称
+| 論点 | 2026-09-12版のコード・テスト | 本改訂の契約 |
+|---|---|---|
+| 同じ設定の個別葉と`$` | 継承元が個別葉に勝つ | 個別葉が継承したベースに勝つ |
+| 全体と部分の`$` | 宣言の行順で後勝ち | 同じ設定では部分指定が勝ち、行順に依存しない |
+| 別々の選択元 | 運ばれた選択宣言を差し替え、旧選択の葉を除外 | 各最終値の差分合成。右側にない葉は残す |
+| ドット無しの選択元 | 上書き層として特別扱い | Common等も通常prefixとして扱う |
+| `@b`の参照先 | コピー先を基準に決まる | 宣言の定義元を基準に決まる |
+| 選択の記録 | プロファイル内の宣言もコピー先のキーで記録 | 宣言の定義位置で記録 |
+| 弱い既定値の直書き | 選択で上書きされる | 強い個別指定になるため、必要箇所をベースへ移す |
 
-[config_impl.cpp](../../core/anet-core/src/config_impl.cpp) の実効適用順序。
-
-| # | 工程(実行順) | 書き込み先 | 実装 |
-|---|---|---|---|
-| 1 | CLI 第 1 相(全 CLI キーを解決入力へ注入) | `working_map_` | `:25-27` |
-| 2 | Run プロファイル展開(`run.$`) | `working_map_` | `:33`, `:186` |
-| 3 | デフォルト直書き / include のスナップショット(**Run プロファイルの葉を含む**) | `working_map_` → `effective_map_` | `:38-45` |
-| 4 | 選択チェーン展開(プロファイル + 上書き層) | `working_map_` と `effective_map_` | `:315`, `:322` |
-| 5 | CLI 第 2 相(`IsResolverInputKey` でない CLI キーの再適用) | `effective_map_` | `:60-64` |
-| 6 | 値参照 `${}` 展開 | `effective_map_` | `:67` |
-
-非対称は 2 点。
-
-- **工程 4 は工程 3 を上書きする。** Run プロファイルの葉は工程 2 で `working_map_` に入り、工程 3 で直書きと同じ tier として `effective_map_` へ写る。その後の選択(工程 4)が同じキーを書けば負ける。`ExpandNamedTrunk` が `effective_map_` に書かないこと自体が原因ではなく、Run プロファイルの葉が直書き tier に畳まれていることが原因である。[CONTEXT.md](../../CONTEXT.md) の「Run プロファイルは上のラダーや上書き層より強い」と逆になっている
-- **工程 4 のコピーは、その時点の値を写す。** 後段の項が参照先を変えても反映されない
-
-CLI だけが 2 相を持ち、葉については最優先になっている。解決入力キー(`.$`・`@`)は工程 1 の注入を工程 2 の trunk 展開が上書きするため、`@vars.*` や `backend.$` では Run プロファイルが CLI に勝つ(P4 で直す)。また CLI の葉が継承先へ届くのは、参照先がプロファイルや葉だけの prefix で、工程 1 で注入した値を誰も上書きしない場合に限る。組み立て済みの prefix(`[eval]` 等)では工程 4 のコピーが工程 1 の値を `working_map_` 上で上書きし、工程 5 は `effective_map_` だけを戻すので、継承先には届かない(M04 の 2 行目が要求する挙動は現行では成立しない)。
+最終値の伝播、Run・CLIの同一キーに対する優先、未選択プロファイルの休止、未定義・自己供給・循環・深さの検証、`${}`の1段参照は維持する。公開APIとresolution JSONのフィールド構成は変更しない。
 
 ## 3. 確定契約
 
-以下の原則番号をマニュアル例・受入条件から参照する。
+### P1: 選択は参照先の最終値を差分合成する
 
-### P1: 選択は参照先の最終値を読む
+`X.$ = Y > Z`は、YとZがそれぞれのベース、部分指定、個別指定、Run・CLIを反映した最終値とキー集合を読み、YへZの差分を重ねる。Zが持つキーだけを上書きし、ZにないキーはYから残す。値の由来による削除はしない。
 
-`X.$ = Y > Z` は「X は Y に Z の差分を重ねたもの」を意味する。**最終値とは、選択段・Run プロファイル第 2 相・CLI 第 2 相を全て適用した後の値とキー集合**である。Y / Z へ後段の選択・上書き層・Run プロファイル・CLI が加えた変更は X へ届く。第 2 相の葉はそのキーへの最優先の書き込みとして最終値に含まれ、参照する選択へ届く(M04 の 2 行目、M14)。書き込み位置は選択の宣言位置のまま(P2)なので、継承先の後段指定は元の順位を保つ。既存キーの値だけでなく、後から増えたキー、チェーン差し替えで消えたキーも反映する。
+選択元が`@`プロファイル、`[key]`カタログ、通常prefix、その一部分のいずれでも同じである。参照先への後段変更・追加キーは、その参照先の優先順位を解決した最終値として継承先へ届く。継承先の変更は参照先へ逆流しない。
 
-**参照先が `@` プロファイルでも `[key]` カタログでも通常の prefix でも同じ。** コピー先の種類でも区別しない。`[key]` は「名前で参照される項目」という identity の宣言であって、選択の読み方を変えない。
+参照先の`.$`は参照先の組み立てに用い、コピー先の選択命令として再実行しない。未選択プロファイルの定義は休止したまま保持し、選択で供給される内側プロファイルも、必要になった定義の最終値を読む(M13)。先にすべての在庫を実効化することは要求しない。
 
-値は `working_map_` の最終状態から読む(`@` 配下の葉を含む。M02 の `A2 : actor.@eval_base.policy.eps_start` はこれで届く)。参照先に含まれる `.$` を写すかどうかは、**参照先が宣言の袋か組み立て済みノードか**で決まる。宣言の袋は 2 種類で、プロファイル(`@` セグメントを持つ prefix)と上書き層(チェーンの term に置かれる root 直下の単一セグメント名。CONTEXT の A1〜A3 / E1 / M1 / M2 / P1)である。袋の配下の `.$` は宣言としてコピー先へ相対的に写し、コピー先で実体化する(M06 の `A3 : actor.[eval_target].$`、`DefaultDQNAgent.@iqn : net.$ = net.@iqn`)。上書き層の配下の `.$` は root 選択として在処では解決しない。在処で解決すると、組み立てた葉(`A2.actor.[eval].policy.eps_end`)が層の葉として別経路で写り、チェーンを差し替えても残る(M06 の上書き層差し替え分岐)。同じ単一セグメント名を term と root 選択の owner の両方に使う形(`A2.$ = …`、`DefaultDQNAgent` を term に置く)は fail-fast にする(P6)。袋のうち、参照先そのものの `.$`(suffix が `.$` だけ)を継承として実体化するのはプロファイルだけとし(`Env.@a.$ = @b`)、上書き層の root `.$`(`A2.$`)は fail-fast にする(P6。現用設定に無い)。それ以外の非 `@` の参照先(`DefaultDQNAgent.actor.[eval]`、`app.online`、`net.block.[Linear_120]` など複数セグメントの prefix)は組み立て済みノードで、その配下の `.$` は root で宣言したものでも写さない。値だけを最終値で写す(M07 と、その直接宣言の分岐)。`.$` の由来(宣言由来かコピー生成か)だけでは、未展開の定義と反映済みの命令を区別できない。写した `.$` は、コピー先が実効側なら nested 選択として解決して `working_map_` には残さず(現行 `:315` の変更)、コピー先が `@` を含む(プロファイルの中へ写す)なら宣言として保存し解決しない(現行 `:318` の dormant 扱い。M13 の内側プロファイルの分岐)。単一セグメントの owner そのもの(`DefaultDQNAgent` 等)を参照先に置くと上書き層として扱われる。現用設定にその形は無い。
+この契約は文字列設定の値とキー集合についてのもの。型付きConfigによる既定補完、使用していないキーの自動削除、`${}`の多段展開は含まない。
 
-これは選択の値とキー集合の契約であり、型付き Config による既定値補完を含まない。`${}` は最終段で解決し、ここで多段値参照へ拡張しない。
+### P2: 同じ設定では個別・部分指定を優先する
 
-### P2: 書き込みは宣言位置に置き、後から書いたものが勝つ
+1. その設定の`.$`で全体のベースを作る。
+2. その設定の配下に書いた部分の`.$`を重ねる。全体より具体的な部分の指定が強い。
+3. その設定に直接書いた葉を重ねる。同じ葉を供給するベース・部分選択より個別葉が強い。
 
-選択が生成した結果は、その選択を宣言した位置へ書く。読みが最終値でも、書き込み位置は動かさない。したがって後段の直書き・上書き層・CLI は、前段の選択結果へ上書きできる。
+異なるキーの宣言を並べ替えても、この優先関係は変わらない。プロファイル内外で同じ規則を使う。`Env.@a.$ = @b`と`Env.@a.value = own`では、@bにvalueがあってもownが勝つ。通常の`Env.value = own`も`Env.$`の結果に勝つ。
 
-- 実効側のデフォルト直書きは選択より弱い。各 term が持つ直書きも、その term が生成する選択より先に反映する
-- チェーンは左から右へ適用し、右が後勝ち。root 選択は宣言順、nested 選択はそれを生成した term の位置を保つ
-- 全体選択と部分選択が重なるときも適用順で決める。「深いパスだから強い」という例外は設けない
-- A1 / A2 / A3 は用途上の名前であり、数字自体に優先順位はない。チェーン内の位置が順位を決める
-- 依存先を先に計算しても、書き込み順位を計算順へ置き換えない
-- term のプロファイル自身の `.$`(継承。P3)も「その term が生成する選択」であり、term の葉の直後に書く。基底側が派生プロファイル自身の葉より後に書くことになる(§4.1)
+この具体性の比較は、各選択元を組み立てる範囲の規則である。**別々の選択元を`A2 > A3`で重ねるときは、A3の最終値がA2の同名キーに勝つ。** A2内に深い部分指定があっても、後段A3の値より強くしない(M19)。A1等の数字自体には優先順位がない。
 
-### P3: 同じコピー先への複数の `.$` は最後のチェーンへ差し替える
+直接書いた既定値も個別指定になる。弱い既定値が必要な箇所は、チェーン先頭のプロファイルに置く(§7)。外側の選択でA2から供給した値は、参照先に直接書いてある葉や部分指定を無条件には上書きしない(M02、M07)。
 
-term のコピーで現れた `.$` は 2 種類に分かれる。判定は現行の機構そのもの(`ApplyTerm` の `target_key`、[config_impl.cpp:313-319](../../core/anet-core/src/config_impl.cpp))である。
+### P3: 同じ入力キーの書き直しと差分合成を区別する
 
-- **プロファイル自身の継承**: 写した `.$` の `target_key` が解決中の選択キーと同じ(suffix が `.$` だけ。`Env.@a.$ = @b` を `Env.$ = @a` が写す形、[config_test.cpp:939](../../core/anet-core/src/config_test.cpp))。その term の一部として、term の葉の直後に適用する。差し替えの対象にしない。相対 term はコピー先 owner を基準に解決する(現行どおり)
-- **sub-prefix への宣言**: `target_key` が `owner.sub.$` の形(`@baseline` の `actor.[eval_target].$`、`@iqn` の `net.$`)。root 宣言と、外側の選択の各 term から届くものを合わせて、**最後に適用されるものだけを、その適用位置で採用する**。右辺がプロファイル、カタログ、その混合のどれでも同じ。以前のチェーンだけが供給していた値とキーは残さない
+同じ設定キーを複数回定義した場合は、include等を取り込む従来の後勝ちで最後の値を採用する。`Env.$ = A2`の後に`Env.$ = A3`と書けば、Envのベース指定はA3だけである。A2を一度実行してから消すことは要求しない。
 
-項目自身への独立した直書き・別の配下選択まで削除しない。それぞれ元の適用位置を保持し、採用チェーンと重なるキーは P2 の優先順位で決める。以前のチェーン内でだけ生成された nested 選択は、独立した指定には含めない。
+`Env.$ = A2 > A3`は別の指定である。A2とA3の両方の最終値を差分合成する。各選択元の中に同じ相対位置の`.$`があっても、それらをEnvの単一の選択宣言へまとめて差し替えない。A3にないA2由来の葉は、継承で得た葉も含めて残す(M06)。
 
-**組み立て済みノードの `.$` は継承先の選択命令として持ち込まない**(P1。M07 の `[eval_target]` と、`[eval]` に root で宣言した `policy.$` の分岐)。宣言の袋(プロファイル・上書き層)の `.$` は写して実体化する(M06 の A3、M09 の @baseline)。継承先自身に宣言した `.$` は別の指定であり、通常の適用順に従う。上書き層の宣言 `.$`(`A3.actor.[eval_target].$`)は在処では解決せず、コピー先で実体化した選択だけが存在する。層の中に組み立てた葉は生まれないので、差し替え後に旧チェーンの値が別経路で残らない。層に直接書いた葉(`A2 : actor.[eval].policy.eps_end = 0.05`)は独立した直書きとして写り、差し替えでは消えない(現用設定に上書き層内の `.$` は無い)。
+したがって、異なる入力キーの順序非依存(P2)と、同じ入力キーの再指定の後勝ちは両立する(M18)。空値は既存の文字列値であり、キー削除の指示として解釈しない。
 
-### P4: 優先順位は 4 段
+### P4: Run・CLIの同一キーに対する優先を維持する
 
-```
-デフォルト直書き・include  <  選択チェーン・上書き層  <  Run プロファイル  <  CLI
-```
+通常の設定値はP1〜P3で決め、そのキーへのRunプロファイルの明示指定が勝ち、CLIの明示指定がさらに勝つ。解決入力キー(`.$`・`@`を含む定義)でもCLIをRunプロファイルより強くする。
 
-Run プロファイルに CLI と同じ第 2 相を与える。工程 4(選択チェーン展開)の後、CLI 第 2 相の前に、Run プロファイルの葉キーを `effective_map_` へ再適用する。
+Runプロファイルは通常選択より前に展開し、葉についてはキーごとの最終指定を畳んで一度だけ適用する。Runの項は左から右の後勝ち。自身のリテラル葉を対象とし、別の`run.$`を供給するネストは禁止する。CLIの`run.$`指定はRun選択そのものを変更する。
 
-**解決入力キー(`.$`・`@` 素材)でも CLI が Run プロファイルに勝つ。** 現行は CLI 第 1 相(工程 1)の後に trunk 展開(工程 2)が同じキーを無条件に上書きするため、CLI の `@vars.max_exp_step=…` や `backend.$=…` が `run.@a5` / `run.@repro` の指定に負ける。trunk 展開の後に CLI の解決入力キー(`run.$` を除く)を再注入し、4 段の順位を全キーで成立させる(M15 の分岐)。`run.$` は trunk そのものなので現行どおり展開前に効く。
+Run・CLIによる参照先の最終値変更は継承先へ伝播する。ただし、親キーへのCLI指定が「親から継承した値」に付いたまま、子の個別指定まで無条件に上書きするわけではない。子の結果は子自身のP2でも決まり、子のキーを直接指定するCLIが最優先になる(M04)。
 
-- 第 1 相は残す。Run プロファイルが `X.$` を差し替えて選択を駆動する用法は第 1 相が支える
-- 第 2 相の対象は `IsResolverInputKey` が false のキーのみ（`.$` で終わらず `@` セグメントを含まない）。CLI 第 2 相と同一判定を共有する。`@vars.*` は除外され、値参照の入力として `working_map_` に残る
-- `run.$` の項を左→右で畳み、キーごとの最終値を確定してから 1 回だけ `effective_map_` へ適用する。途中の書き戻しは適用も記録もしない(Atari の `run.@a5 : A2.learner.replay_ratio = 1` → `run.@rr4 : … = 4` は 4 だけを見る)。`MapType` は `anet::OrderedMap` なので宣言順が保たれ決定的
-- 入れ子は辿らない。Run プロファイルが持つ自身のリテラル葉キーだけを再適用する
-- 再適用した葉は最終値の一部であり、P1 により参照する選択へ届く(M14)。伝播のためにコピー辺を辿る後処理や選択の再実行は要らず、評価器の入力に第 2 相の葉を最上位の書き込みとして含めるだけでよい。「入れ子は辿らない」は再適用する Run 側キーの範囲(自身のリテラル葉)の話で、伝播とは別
+第1相・第2相という先行版の実装表現を保つかは実装時に決める。契約は優先順位、伝播、適用対象、診断結果であり、選択の再実行を必須にしない。
 
-### P5: CLI・`run.$`・値参照
+### P5: 相対参照は定義元で解決する
 
-CLI の解決入力への注入と実効 leaf の最終上書きは維持し、解決入力キーは trunk 展開の後に再注入して Run プロファイルの同じキーに勝たせる(P4)。参照先を CLI で変更すると、第 1 相のキー(`@…` プロファイルや `A3.…` 上書き層)でも組み立て済み prefix への第 2 相のキー(M04 の 2 行目)でも P1 により継承先へ届き、継承先の実効キーへの CLI はその継承結果にも勝つ。CLI の `.$` 指定も、採用するチェーンを決める入力となる。
+単独の`@name`は、選択宣言の定義元の名前空間を基準に読む。通常の`Env.$ = @a`は`Env.@a`、プロファイル自身の継承`Env.@a.$ = @b`は同じ名前空間の`Env.@b`を指す。`Env.@a.@b`を暗黙に探す規則にはしない。
 
-`run.$` は通常選択より先に Run プロファイルを展開する現行契約を維持する。`${full.key}` は選択と CLI の後で値を 1 段参照する。未定義・連鎖・未解決の値参照は既存どおり fail-fast とする。
+`Other.$ = Env.@a`で使っても、@aの中の`@b`は`Env.@b`のままである。Other.@bが存在しても参照先を差し替えない。完全修飾したtermは記載どおりのprefixを指す(M16)。
 
-### P6: 必要な部分の依存関係を検証する
+`${full.key}`は解決済みの最終値を1段参照し、未定義・連鎖・未解決の値参照をfail-fastにする。これは選択の`@name`の名前解決とは別の契約である。
 
-循環は実際に参照する部分の依存関係で判定する。名前が相互に現れるだけでは循環ではない。同じ値の解決が自身へ戻る参照は経路付きで fail-fast にする。
+### P6: 必要な依存関係を検証する
 
-**自己供給の検出**: 選択の書き込み範囲(`owner + suffix`)が、同じ選択のどの term の source prefix とも交わってはならない。判定は P1 の最終キー集合で行い、交わったら経路付きで fail-fast にする。`X.part.$ = X`(全キーが自分の source 配下へ落ちる)と `X.$ = X`(現行の term 循環検出でも止まる)はこれで止まる。`X.$ = X.part` は `X.part.part.*` が無い限り交わらず正常で、実設定の 9 件(`app.$ = app.online` が 7 env。CartPole 以外は `> P1` 付き。GridMaze_muzero の `MuZeroAgent.$ = MuZeroAgent.baseline > A1` と `metrics.scalar.$ = metrics.scalar.muzero > M1`)はすべて書き戻し 0 件である。owner と source の包含関係そのものは禁止しない。
+名前のセグメント数や予約名で選択を禁止しない。`Common.$`を定義したCommonの継承、`A2.$`を持つA2の継承も、通常の依存関係として扱う(M17)。
 
-選択の深さ上限は 10 を維持する。深さは**依存グラフ上の最長経路長**で数える。起点の選択を 1 とし、nested 選択または最終値を求めて辿る選択ごとに 1 増える。循環が fail-fast なので依存グラフは DAG であり、ノードごとに「1 + 子の最大値」を memo する DP で順序非依存に求まる。visited を刈る DFS は最初に到達した深さを返すので使わない。兄弟 term の数、パスのセグメント数、反復周回数ではない。最終値をキャッシュしても長い依存経路の検証を省略しない。`run.$` の展開は選択より前の別工程であり、深さに数えない。
+自己供給・実際の循環は従来どおり経路付きでfail-fastにする。`X.$ = X`や`X.part.$ = X`を検出し、sourceとownerが包含関係にあるだけでは禁止しない。`app.$ = app.online > P1`など、参照元への書き戻しがない形は許容する。独立した部分の相互参照を、名前だけで循環と判定しない。
 
-採用された参照先を解決した結果が空の場合、プロファイル・カタログ項目（その部分参照を含む）は未定義参照として fail-fast にする。まだ定義を展開していないだけの途中状態で未定義と決めない。空の通常上書き層は許容する。未選択プロファイルの在庫は有効化・参照しない。上書き層(term に置かれる単一セグメント名)が自分自身のチェーン(`A2.$`)を持つ場合と、root 選択の owner(`DefaultDQNAgent`)が term に置かれた場合は fail-fast にする(上書き層は在処で解決しないため、その名前の root 選択は適用されない)。エラーには選択キー、指定 term、解決先、循環／深さの場合は経路と上限を含める。
+選択の深さ上限は10。起点を1とし、最終値を求めて辿る選択の依存グラフの最長経路で数える。兄弟termの数・パスのセグメント数・反復回数ではない。キャッシュや宣言順で判定を変えない。Runの先行展開は深さに数えない。
 
-### P7: 採用結果を記録する
+未定義のプロファイル・カタログ・その部分への参照はエラー。空の通常prefixは既存どおり許容する。この空許容はA1等の名前やドット無しに限定しない。未選択プロファイル内の不正な参照は有効化しない。エラーには選択キー、指定term、解決先、必要な経路・上限を含める。
 
-`config_resolution.json` の `selections` は、**P3 が適用したチェーンを、その適用順に載せる**。P3 で不採用になった宣言は載せない。プロファイル自身の継承(P3 の第 1 種)は適用されるので、root の記録と同じ `key` で続けて載る([config_test.cpp:939](../../core/anet-core/src/config_test.cpp) の 2 件。`key` はどちらもコピー先 `Env.$`)。実効側 prefix の `.$` は写さないので、継承元の選択を継承先で再実行したような記録は生じない。
+### P7: 解決記録は宣言の定義位置を示す
 
-Run プロファイル第 2 相で**第 2 相の最終値が第 2 相前の実効値と異なる**キーだけを `overrides` として記録する。項ごとの途中の書き戻し(4 → 1 → 4)は記録しない。
+JSONは`schema_version = 1`と、既存の`selections` / `references` / `overrides`の形を維持する。`selections[].key`は選択宣言がある定義位置、`chain[].term`は記載したterm、`resolved`は定義元で解決した参照先を示す。`Env.$ → Env.@a`と`Env.@a.$ → Env.@b`を記録し、後者を`Env.$ → Env.@b`へ置き換えない(M16)。
 
-```json
-"overrides": [
-  { "key": "...structure", "by": "run.@head_relu", "from": "... > SiLU", "to": "... > ReLU" }
-]
-```
+`run.$`のentryは先頭に維持する。その他は入力の宣言順とtermの左から右を基準に依存先を辿り、実際に使う定義を初めて参照した順で記録する。同じ定義の再参照でコピー先名のentryを増やさない。この記録順はP2の上書き優先順位を表すものではない。
 
-事後 dump から上書きの成否を機械的に確認できるようにする。`overrides` は任意フィールドとして足し、`schema_version` は 1 のまま据え置く(消費側 [inspect_run.py:42](../../viewers/metrics-tools/inspect_run.py) / `:1965`、[config_test.cpp:679](../../core/anet-core/src/config_test.cpp) / `:711`、`docs/design/100` の変更が不要になる。上げる場合はこの 3 箇所を同時に更新する)。不採用履歴や採用状態を示すフィールドはこれ以上追加しない。
+`references`は従来の1段値参照を記録する。`overrides`はRunの最終指定が同じキーのRun適用前の最終値を変えた場合だけ、`key` / `by` / `from` / `to`で記録する。途中の4→1→4は載せない。`to`はRunの値であり、同じキーをCLIが上書きした後の実効値とは異なりうる。最終値は`config_data.txt`で確認する。
+
+不採用履歴、削除した葉の由来、新しい採用状態フィールドは追加しない。旧記録との完全一致を要求せず、差分の理由と新仕様の期待値を検証する(§7)。
 
 ## 4. ユーザーマニュアル草稿
 
 ### 4.1 読む順序と記法
 
-覚える規則は 2 つだけ。
-
-> **読み**: `X.$ = Y > Z` は「X は Y に Z の差分を重ねたもの」。Y / Z が後で変われば(Run プロファイルや CLI の第 2 相で変えた場合も含めて)X も変わる。
-> **書き**: 後から書いたものが勝つ。強さは 直書き < 選択・上書き層 < Run プロファイル < CLI。
-
-プロファイル自身の `.$`(`X.@a.$ = @b`)は「a は b を土台にする」であり、term の葉の直後に適用されるので b の値が a 自身の葉に勝つ(P2・P3)。「a = b + 差分」を書きたいときは差分を別 term に置く(`X.$ = @b > @a_diff`)。実設定にこの形は無い。
-
-以下の Actor の例は **PRD 061 導入後の仕様**であり、リゾルバへ渡す設定の例である。現行 Runner でそのまま学習できる完全な設定ファイルを示すものではない。例内の値は resolver 出力を指し、型付き Config の既定補完前である。
+1. `$`はベース。個別指定・部分指定で上書きできる。
+2. `Y > Z`はそれぞれの最終値の差分合成。右側にないキーは残る。
+3. 短い`@name`は定義元を基準に読み、使う場所で参照先を変えない。
 
 | 記法・要素 | 役割 |
 |---|---|
-| `前提となる対象・プロファイル : key = value` | 左で対象やプロファイルを示し、右で具体的な Key-Value を書く。左辺の `:` は `.` と同義の見た目上の区切りであり、新しい scope や優先順位ではない |
-| `DefaultDQNAgent.actor.@eval_base` | 設定を共通化するプロファイル。実効側へ組み込む前の定義 |
-| `DefaultDQNAgent.actor.[eval]` | 実効側に残り、コードから名前で参照するカタログ項目。**選択の読み方は `@` と同じ** |
-| `.$ = source > difference` | 選択チェーン。右が後勝ち |
-| `@baseline` | 選択元を owner 相対で記述する形。`DefaultDQNAgent : $ = @baseline` なら `DefaultDQNAgent.@baseline` |
-| `A2` / `A3` | チェーン中で適用する通常上書き層。空でもよい |
-| `run.$` / include / CLI / `${full.key}` | Run の選択束の展開／宣言入力の取り込み／明示上書き／単一値の参照 |
+| `DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05` | 名前付きプロファイルの定義。`:`はプロファイルprefixと内部キーの区切りとして使う |
+| `DefaultDQNAgent.actor.[eval].$ = DefaultDQNAgent.actor.@eval_base` | カタログ項目のベース指定 |
+| `DefaultDQNAgent.actor.[eval].policy.eps_start = 0.01` | 継承したベースより強い個別指定 |
+| `DefaultDQNAgent.$ = @baseline > A2 > A3` | 定義元の@baselineと通常prefix A2・A3の最終値を順に合成 |
+| `run.$` / include / CLI / `${full.key}` | Run選択／入力の取り込み／明示上書き／1段値参照 |
 
-`:` は左辺に 1 個だけ置ける既存構文であり、先頭・末尾には置かない。**左辺の `@` は原則 1 個を推奨する。** 外側の選択で内側の定義も一緒に切り替える必要がある場合は入れ子を許容する。禁止・新しい WARN・構文制約にはしない。
+`:`のパーサ仕様は変更しないが、説明・新規記述では`@`プロファイルの区切り以外に使うことを推奨しない。通常キーは`Env.$ = @a`のように`.`で書く。左辺の`@`は原則1個を推奨し、外側の選択で内側の定義も切り替える必要がある場合だけ入れ子を使う。禁止・新しいWARNは追加しない。
+
+以下のActorカタログ例はPRD 061導入後の設定モデルを用いたresolver入力であり、現行Runnerでそのまま学習できる完全な設定ファイルではない。値は型付きConfigの既定補完前のものを示す。
 
 ### 4.2 設定例と期待結果
 
@@ -169,26 +145,33 @@ DefaultDQNAgent.$ = @baseline > A2 > A3
 
 根拠: P1・P2。`[eval]` を受け取った後、右の `@target` が network を上書きする。
 
-#### M02: 参照先への後段変更が届く
+#### M02: 参照先の個別指定と外側からの差分
 
-入力: `BASE` に追加。
+入力: `BASE`に追加。
 
 ```text
-A2 : actor.@eval_base.policy.eps_start = 0.01
-A2 : actor.@eval_base.policy.eps_end = 0.01
+A2.actor.@eval_base.policy.eps_start = 0.01
+A2.actor.@eval_base.policy.eps_end = 0.01
 ```
 
-期待結果: `@eval_base` の最終値、`[eval]`、`[eval_target]` の eps_start / eps_end はすべて 0.01。network はそれぞれ online / target のまま。
+期待結果: `@eval_base`、`[eval]`、`[eval_target]`のeps_start / eps_endは0.05。BASEで`DefaultDQNAgent.actor.@eval_base`自身に直接書いた0.05が、外側の選択でA2から供給される0.01より強い。**旧M02の「A2が直接定義を上書きして0.01になる」は改訂対象。**
 
-根拠: P1。選択は @baseline 適用途中の古い値ではなく、A2 を含む最終値を読む。
+0.01を指定する独立分岐では、A2の2行を使わず、次の同一キーの再指定をBASEの後に書く。
+
+```text
+DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.01
+DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.01
+```
+
+この分岐では3者とも0.01になり、networkはonline / targetのまま。参照元へ有効に加えた変更は最終値として伝播する。根拠: P1・P2・P3。
 
 #### M03: 後段で増えたキーも届く
 
 入力: `BASE` に追加。
 
 ```text
-A2 : actor.[eval].policy.eps_start = 0.01
-A2 : actor.[eval].policy.use_amp = true
+A2.actor.[eval].policy.eps_start = 0.01
+A2.actor.[eval].policy.use_amp = true
 ```
 
 期待結果: `[eval]` と `[eval_target]` の eps_start はともに 0.01、両方に `policy.use_amp = true` が存在する。`@eval_base` 自体の eps_start は 0.05 のままで、use_amp は追加されない。
@@ -200,12 +183,12 @@ A2 : actor.[eval].policy.use_amp = true
 入力: `BASE` に追加。
 
 ```text
-A3 : actor.[eval_target].policy.eps_start = 0.02
+A3.actor.[eval_target].policy.eps_start = 0.02
 ```
 
 期待結果: CLI なしでは `[eval].policy.eps_start = 0.05`、`[eval_target].policy.eps_start = 0.02`。以下の CLI 分岐はそれぞれ独立してこの入力へ適用する。
 
-根拠: P1・P2・P5。継承は土台を配り、後段の直接指定がその上に乗る。
+根拠: P1・P2・P4。継承は土台を配り、後段の直接指定がその上に乗る。
 
 | CLI override（各行は独立） | eval の eps_start | eval_target の eps_start |
 |---|---|---|
@@ -216,52 +199,59 @@ A3 : actor.[eval_target].policy.eps_start = 0.02
 
 親からの CLI 伝播そのものは、A3 の 1 行を除いた分岐でも検証する。その分岐で `DefaultDQNAgent.actor.[eval].policy.eps_start=0.04` を渡すと両方 0.04、さらに `DefaultDQNAgent.actor.[eval_target].policy.eps_start=0.09` を同時に渡すと親 0.04・子 0.09 となる。
 
-2 行目と 4 行目は第 2 相のキーであり、現行実装では継承先へ届かない(§2)。P1 で届くようにする。
+親からの最終値の伝播と子自身の優先を分けて検証する。2026-09-12版で実装したRun・CLIの伝播は本改訂でも維持する。
 
-#### M05: 同じ term 内では直書きより選択が勝つ
+#### M05: 同じ設定では個別指定がベースに勝つ
 
-入力: `BASE` に追加。
+入力: `BASE`に追加。
 
 ```text
 DefaultDQNAgent.@baseline : actor.[eval].policy.eps_start = 0.01
-DefaultDQNAgent : actor.[eval_target].policy.eps_start = 0.02
+DefaultDQNAgent.actor.[eval_target].policy.eps_start = 0.02
 ```
 
-期待結果: `[eval].policy.eps_start` と `[eval_target].policy.eps_start` はともに 0.05。@baseline 内の leaf を同プロファイル内の選択行より前へ移しても同じ。
+期待結果: `[eval].policy.eps_start = 0.01`、`[eval_target].policy.eps_start = 0.02`。両方の個別葉をそれぞれの選択行より前に置いても同じ。個別葉を消した箇所は継承したベースの値になる。
 
-根拠: P2。実効側の直書きと同じ term 内の直書きは選択より弱い。子だけ変えるには M04 のように後段の層へ書く。
+プロファイル自身の継承も独立入力で確認する。
 
-#### M06: 最後のチェーンへ差し替える
+```text
+Env.@a : value = own
+Env.@a : $ = @b
+Env.@b : value = base
+Env.$ = @a
+```
 
-入力: `BASE` に追加。
+期待結果は`Env.value = own`。通常の`Env.value = own`と`Env.$ = @b`の組でもownが勝つ。根拠: P2。
+
+#### M06: 別々の選択元は差分を重ね、前の葉を残す
+
+入力: `BASE`に追加。
 
 ```text
 DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy
 DefaultDQNAgent.actor.@sync : value = 400
-A2 : actor.[eval_target].clone_model = true
-A2 : actor.[eval_target].policy.eps_start = 0.02
-A2 : actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync
-A3 : actor.[eval_target].$ = DefaultDQNAgent.actor.@greedy > DefaultDQNAgent.actor.@target
+A2.actor.[eval_target].clone_model = true
+A2.actor.[eval_target].policy.eps_start = 0.02
+A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync
+A3.actor.[eval_target].$ = DefaultDQNAgent.actor.@greedy > DefaultDQNAgent.actor.@target
 ```
 
-期待結果: `[eval_target]` は policy.policy_type = Greedy、network = target、clone_model = true、policy.eps_start = 0.02、sync_interval.value = 400。旧チェーンだけが供給した policy.eps_end は**存在しない**（0 ではない）。親 eval の eps_start / eps_end は 0.05 のまま。記録には A3 の採用チェーンだけが載り、旧 eval 継承チェーンは載らない。子自身が A2 で指定した sync_interval の選択は独立して残る。
+期待結果: `[eval_target]`はpolicy_type = Greedy、network = target、clone_model = true、eps_start = 0.02、sync_interval.value = 400。**前の選択元から来たeps_end = 0.05も残る。** A3の結果にeps_endがないためである。A3の参照先を同じ値のカタログへ変えても同じ。
 
-右辺をカタログへ置き換えた独立分岐（`A3 : actor.[eval_target].$ = DefaultDQNAgent.actor.[greedy] > DefaultDQNAgent.actor.@target` と `DefaultDQNAgent.@baseline : actor.[greedy].policy.policy_type = Greedy`）でも結果は同じ。
-
-上書き層差し替え分岐(独立入力):
+独立入力として、由来を分けずに残すことを確認する。
 
 ```text
 DefaultDQNAgent.actor.@eps : policy.policy_type = EpsilonGreedy
 DefaultDQNAgent.actor.@eps : policy.eps_end = 0.05
 DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy
-A2 : actor.[eval].$ = DefaultDQNAgent.actor.@eps
-A3 : actor.[eval].$ = DefaultDQNAgent.actor.@greedy
-DefaultDQNAgent : $ = A2 > A3
+A2.actor.[eval].$ = DefaultDQNAgent.actor.@eps
+A3.actor.[eval].$ = DefaultDQNAgent.actor.@greedy
+DefaultDQNAgent.$ = A2 > A3
 ```
 
-期待結果: `[eval].policy.policy_type = Greedy`、`policy.eps_end` は存在しない。A2 の `.$` は在処では解決されないので、`A2.actor.[eval].policy.eps_end` という組み立て葉は生まれず、層経由で写ることもない。`A2 : actor.[eval].policy.eps_end = 0.05` と直接書いた分岐では、独立した直書きとして eps_end = 0.05 が残る。
+期待結果: `[eval].policy.policy_type = Greedy`、`[eval].policy.eps_end = 0.05`。A2も通常prefixとして解決され、`A2.actor.[eval].policy.eps_end = 0.05`が存在する。A2にeps_endを直接書く分岐でも、継承から得る分岐でも結果は同じ。
 
-根拠: P1・P2・P3・P7。参照先の種類によらず旧継承値は残らない。
+新しい`@greedy`に`clone_model = false`を追加した最初の例の分岐では、右側A3がそのキーを持つためfalseが勝つ。根拠: P1・P2・P3。
 
 #### M07: 多段継承
 
@@ -269,9 +259,9 @@ DefaultDQNAgent : $ = A2 > A3
 
 ```text
 DefaultDQNAgent.@baseline : actor.[eval_target_check].$ = DefaultDQNAgent.actor.[eval_target]
-A2 : actor.[eval].policy.eps_start = 0.01
-A2 : actor.[eval_target].policy.eps_start = 0.02
-A3 : actor.[eval_target_check].clone_model = true
+A2.actor.[eval].policy.eps_start = 0.01
+A2.actor.[eval_target].policy.eps_start = 0.02
+A3.actor.[eval_target_check].clone_model = true
 ```
 
 期待結果: `[eval].policy.eps_start = 0.01`、`[eval_target].policy.eps_start = 0.02`、`[eval_target_check].policy.eps_start = 0.02`。`[eval_target_check]` は network = target、clone_model = true。親の eval 継承命令を再実行して 0.01 に戻さない。記録上も `[eval_target_check]` のチェーンは 1 本だけ。
@@ -282,13 +272,13 @@ A3 : actor.[eval_target_check].clone_model = true
 
 ```text
 DefaultDQNAgent.actor.@eval_policy : eps_start = 0.05
-DefaultDQNAgent.actor.[eval] : policy.$ = DefaultDQNAgent.actor.@eval_policy
+DefaultDQNAgent.actor.[eval].policy.$ = DefaultDQNAgent.actor.@eval_policy
 DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]
-A2 : actor.[eval].policy.eps_start = 0.01
-DefaultDQNAgent : $ = @baseline > A2
+A2.actor.[eval].policy.eps_start = 0.01
+DefaultDQNAgent.$ = @baseline > A2
 ```
 
-期待結果: `[eval].policy.eps_start` と `[eval_target].policy.eps_start` はともに 0.01。`[eval]` に root で宣言した `policy.$` は `[eval]` の組み立てに使われるだけで、`[eval_target]` へは写らない(写せば 0.05 に戻る)。記録に `[eval_target].policy.$` は無い。
+期待結果: 両者とも0.05。`[eval].policy.$`という部分への直接指定が、外側のAgent選択でA2から届く0.01より強い。**旧M07のこの分岐は改訂対象。** A2の行を`DefaultDQNAgent.actor.[eval].policy.eps_start = 0.01`へ置き換えた独立分岐では、個別葉が勝ち、両者とも0.01となる。いずれも参照元の`policy.$`を継承先で再実行せず、記録に架空の`[eval_target].policy.$`を増やさない。
 
 #### M08: 部分継承とカタログ外へのコピー
 
@@ -302,7 +292,7 @@ DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base
 DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor.[eval].policy
 DefaultDQNAgent.@baseline : actor.[eval_target].network = target
 DefaultDQNAgent.@baseline : target_policy.$ = DefaultDQNAgent.actor.[eval].policy
-A2 : actor.[eval].policy.use_amp = true
+A2.actor.[eval].policy.use_amp = true
 DefaultDQNAgent.$ = @baseline > A2
 ```
 
@@ -310,7 +300,7 @@ DefaultDQNAgent.$ = @baseline > A2
 
 根拠: P1。**コピー先がカタログでもカタログ外でも同じ**。選択した policy 部分だけの最終値をコピーする。
 
-#### M09: 全体と部分の適用順
+#### M09: 同じ設定では部分の指定が全体のベースに勝つ
 
 入力:
 
@@ -325,9 +315,9 @@ DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor
 DefaultDQNAgent.$ = @baseline
 ```
 
-期待結果: `[eval_target]` は policy.policy_type = Greedy、network = target。eval_target の選択 2 行だけを逆順にした独立分岐では policy.policy_type = EpsilonGreedy、network = target。どちらも選択キーが異なるので両方が記録に残る。
+期待結果: `[eval_target]`はpolicy.policy_type = Greedy、network = target。eval_targetの選択2行を逆順にしても同じ。両方の定義位置を解決記録へ載せる。
 
-根拠: P2・P3・P7。部分選択を特別に強くしない。
+根拠: P2・P7。同じ設定の部分への指定が全体のベースに勝つ。別々の選択元の順位はM19で確認する。
 
 #### M10: 実際の循環
 
@@ -343,7 +333,7 @@ DefaultDQNAgent.$ = @baseline
 
 根拠: P6。
 
-#### M11: 未定義参照と空の上書き層
+#### M11: 未定義参照と空の通常prefix
 
 入力:
 
@@ -355,7 +345,7 @@ DefaultDQNAgent.$ = @baseline > A3
 
 期待結果: 空の A3 を許容し、`[eval].policy.policy_type = Greedy` で正常終了する。次の各分岐は eval の右辺だけを置き換える。
 
-根拠: P6。通常上書き層の空と、宣言済み部品を要求する参照の空を区別する。
+根拠: P6。通常prefixの空と、宣言済み部品を要求する参照の空を区別する。A3をCommonやLibrary.Commonへ名前変更した分岐でも同じ。
 
 | eval の右辺（各行は独立） | 期待結果 |
 |---|---|
@@ -370,22 +360,22 @@ DefaultDQNAgent.$ = @baseline > A3
 入力:
 
 ```text
-net.block.[DepthBase] : type = ReLU
-net.block.[Depth01] : $ = net.block.[DepthBase]
-net.block.[Depth02] : $ = net.block.[Depth01]
-net.block.[Depth03] : $ = net.block.[Depth02]
-net.block.[Depth04] : $ = net.block.[Depth03]
-net.block.[Depth05] : $ = net.block.[Depth04]
-net.block.[Depth06] : $ = net.block.[Depth05]
-net.block.[Depth07] : $ = net.block.[Depth06]
-net.block.[Depth08] : $ = net.block.[Depth07]
-net.block.[Depth09] : $ = net.block.[Depth08]
-net.block.[Depth10] : $ = net.block.[Depth09]
+net.block.[DepthBase].type = ReLU
+net.block.[Depth01].$ = net.block.[DepthBase]
+net.block.[Depth02].$ = net.block.[Depth01]
+net.block.[Depth03].$ = net.block.[Depth02]
+net.block.[Depth04].$ = net.block.[Depth03]
+net.block.[Depth05].$ = net.block.[Depth04]
+net.block.[Depth06].$ = net.block.[Depth05]
+net.block.[Depth07].$ = net.block.[Depth06]
+net.block.[Depth08].$ = net.block.[Depth07]
+net.block.[Depth09].$ = net.block.[Depth08]
+net.block.[Depth10].$ = net.block.[Depth09]
 ```
 
 期待結果: `[Depth01]` から `[Depth10]` まですべて type = ReLU で正常終了する。最長経路は Depth10 の選択（深さ 1）から Depth01 の選択（深さ 10）まで。DepthBase は直書きだけなので深さを増やさない。
 
-失敗分岐は上へ `net.block.[Depth11] : $ = net.block.[Depth10]` を追加したもの。11 段になるため上限 10 と経路を含むエラーで停止する。キャッシュや宣言の並べ順によって成功へ変わらない。外側の通常選択から生成した nested 選択を使うテストでは、外側の深さも数える。
+失敗分岐は上へ `net.block.[Depth11].$ = net.block.[Depth10]` を追加したもの。11 段になるため上限 10 と経路を含むエラーで停止する。キャッシュや宣言の並べ順によって成功へ変わらない。選択元プロファイル内に別の選択がある場合も、その定義を解決する依存経路として外側からの深さを数える。
 
 根拠: P6。
 
@@ -403,7 +393,7 @@ DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing
 DefaultDQNAgent.$ = @baseline > @cautious
 ```
 
-期待結果: `[eval]` と `[eval_target]` は EpsilonGreedy、eps_start = 0.01。@cautious をチェーンから除く独立分岐では両方 0.05。未選択の @unused は実効側へ出ず、その中の @missing 参照で停止しない。選択される `@baseline` の中に未選択の内側プロファイルがある分岐(`DefaultDQNAgent.@baseline : actor.@unused.policy.$ = DefaultDQNAgent.actor.@missing` を追加)でも停止しない。`@baseline` のコピーは `DefaultDQNAgent.actor.@unused.policy.$` を宣言として保存するだけで解決せず、後で `actor.@unused` を選択したときに実体化する(現行の dormant と同じ)。@eval_base がコピーにより生まれる前に未定義扱いしない。
+期待結果: `[eval]` と `[eval_target]` は EpsilonGreedy、eps_start = 0.01。@cautious をチェーンから除く独立分岐では両方 0.05。未選択の @unused は実効側へ出ず、その中の @missing 参照で停止しない。選択される `@baseline` の中に未選択の内側プロファイルがある分岐(`DefaultDQNAgent.@baseline : actor.@unused.policy.$ = DefaultDQNAgent.actor.@missing` を追加)でも停止しない。未選択の内側定義は休止した在庫として保持し、実際に選択したときだけその定義元を基準に解決する。定義の供給と参照の依存を扱い、@eval_baseの供給がまだ終わっていない途中状態を未定義扱いしない。旧実装の「コピー先で命令を再実行する」を維持条件にはしない。
 
 根拠: P1・P6 と §4.1。左辺に @ が 2 個ある許容例。
 
@@ -419,9 +409,9 @@ run.@arm : Agent.net.branch.[t].structure = ReLU
 run.$ = @arm
 ```
 
-期待結果: `Agent.net.branch.[t].structure = ReLU`、`Other.structure = ReLU`(第 2 相の葉が最終値に含まれ、参照する選択へ届く)。`config_resolution.json` の `overrides` に `by = run.@arm`、`from = SiLU`、`to = ReLU` が載る。
+期待結果: `Agent.net.branch.[t].structure = ReLU`、`Other.structure = ReLU`(Runの葉が最終値に含まれ、参照する選択へ届く)。`config_resolution.json`の`overrides`に`by = run.@arm`、`from = SiLU`、`to = ReLU`が載る。
 
-根拠: P1・P4・P7。**現行実装では両方 SiLU になる**（2026-08-31 / 2026-09-12 の事故）。
+根拠: P1・P4・P7。当初のSiLUへの握り潰しは先行版で修正済みであり、本改訂では非回帰として確認する。
 
 #### M15: Run プロファイルと上書き層・CLI の順位
 
@@ -429,7 +419,7 @@ run.$ = @arm
 
 ```text
 Agent.@baseline : learner.gamma = 0.9
-A2 : learner.gamma = 0.997
+A2.learner.gamma = 0.997
 Agent.$ = @baseline > A2
 run.@arm : Agent.learner.gamma = 0.99
 run.$ = @arm
@@ -437,147 +427,256 @@ run.$ = @arm
 
 期待結果: `Agent.learner.gamma = 0.99`。この入力へ CLI `Agent.learner.gamma=0.95` を与えた独立分岐では 0.95。
 
-`run.$ = @a > @b` で両者が同じ葉キーを持つ分岐では `@b` が勝つ。`run.@arm : @vars.n = 5` と `key = ${@vars.n}` を持つ分岐では、`@vars` は第 2 相の対象外として現行どおり解決する。Run プロファイルが `X.$` を差し替える既存の用法（file-tail overwrite）も非回帰とする。解決入力キーの競合分岐: `run.@arm : @vars.n = 5` に CLI `@vars.n=7` を渡すと `key = 7`(CLI が trunk 展開に勝つ)。Run プロファイルが葉ではなくチェーンだけを持つ入力(`Agent.@baseline : learner.gamma = 0.9`、`A2 : learner.gamma = 0.997`、`run.@arm : Agent.$ = @baseline > A2`、`run.$ = @arm`。`run.@arm` の葉指定は含めない)に CLI `Agent.$=@baseline` を渡すと A2 は適用されず gamma は 0.9(CLI のチェーンを採用)。上の入力のまま渡すと `run.@arm : Agent.learner.gamma = 0.99` の第 2 相が勝って 0.99 になる。CLI `run.$=@other` は現行どおり trunk そのものを差し替える。
+`run.$ = @a > @b`で両者が同じ葉キーを持つ分岐では@bが勝つ。`run.@arm : @vars.n = 5`と`key = ${@vars.n}`を持つ分岐では、@varsは実効葉の上書きとは別の解決入力として扱う。これにCLI `@vars.n=7`を渡すと`key = 7`になる。
 
-根拠: P4・P5。
+Runプロファイルが`X.$`を同一キーの入力として書き直す既存の用法も非回帰とする。チェーンだけを供給する独立入力(`Agent.@baseline : learner.gamma = 0.9`、`A2.learner.gamma = 0.997`、`run.@arm : Agent.$ = @baseline > A2`、`run.$ = @arm`)にCLI `Agent.$=@baseline`を渡すと、A2は適用されずgammaは0.9になる。冒頭の入力のように`run.@arm : Agent.learner.gamma = 0.99`もあれば、そのRunの葉指定が勝って0.99になる。CLI `run.$=@other`はRun選択そのものを差し替える。
 
-## 5. 実装ノート
+根拠: P4。
 
-実装の主対象は [config_impl.cpp](../../core/anet-core/src/config_impl.cpp) と [config_test.cpp](../../core/anet-core/src/config_test.cpp)。
+#### M16: 定義元の相対参照と解決記録
 
-**P1（最終値読み）**: 「通常の適用位置を持つ指定」と「参照先の最終値への依存」を区別する。プロファイルの展開で生成される宣言、owner 相対の term、CLI が変更した宣言を取り込んだ上で、同じコピー先へ届く `.$` の採用チェーンを確定する(プロファイル自身の継承は差し替えの対象ではなく、その term の一部として適用する。P3)。最終値は値とキー集合の両方を解決する。部分参照では要求した部分への依存を辿り、継承元の選択命令を子へ再配置しない。独立した指定の順位は残す。キャッシュ等で解決順を変えても、適用順位・循環経路・深さ・記録が変化してはならない。第 2 相の葉(Run プロファイル・CLI)は評価器の入力に最上位の書き込みとして含める。現行 `:60-64` の `effective_map_` パッチはこの評価器へ統合し、伝播のための後処理を別に持たない。深さは P6 の最長経路 DP で求める。`.$` を写すのは参照先が宣言の袋(プロファイル、または root 直下の単一セグメント名である上書き層)のときだけで、実効側へ写した `.$` は nested 選択として解決して `working_map_` には残さない(現行 `:315` の変更)。`@` を含むコピー先へ写した `.$` は保存して解決しない(現行 `:318` のまま)。組み立て済みノード(複数セグメントの非 `@` prefix)の配下の `.$` は写さない。上書き層配下の `.$` は root 選択の走査(`:38-46`)から除外し、term と root 選択 owner の兼用は fail-fast にする。
+```text
+Env.@a : $ = @b
+Env.@b : value = 10
+Other.@b : value = 20
+Env.$ = @a
+Other.$ = Env.@a
+```
 
-**P4（Run プロファイル第 2 相）**: `ExpandNamedTrunk` が採用した項と葉キーを保持し、項を畳んでキーごとの最終値を作ってから `Resolve()` の CLI 第 2 相の直前で 1 回だけ適用する。trunk 展開の後に CLI の解決入力キー(`run.$` 以外)を再注入する。`IsResolverInputKey` の判定を CLI と共有する。P4 単体の実装量は小さい(第 2 相の再適用と `overrides` の記録)。伝播は P1 の評価器が担う。
+期待結果: `Env.value = 10`、`Other.value = 10`。Other.@bは使わない。記録は`Env.$ → Env.@a`、`Env.@a.$ → Env.@b`、`Other.$ → Env.@a`であり、@a自身の継承をOther.$へ置き換えて再記録しない。根拠: P1・P5・P7。
 
-この説明は責務と制約であり、データ構造やアルゴリズムの指定ではない。設定全体の Jacobi 反復、last-writer graph、周回数の安全弁を必須方式にしない。実 config で生じない writer graph を注入するためだけの API やテストも要求しない。選んだ方式は M01〜M15 と既存テストで説明・検証できる最小構成にする。
+#### M17: 通常prefixのroot選択を継承できる
 
-通常選択の dormant 状態、`run.$` の先行展開、CLI 2 相、`${}` 1 段展開を維持する。**`[key]` かどうかで選択の読み方を分岐させない。**
+```text
+Common.@base : value = 10
+Common.$ = @base
+Other.$ = Common
+```
 
-## 6. 受入条件とマニュアルの対応
+期待結果: Common.valueとOther.valueは10。CommonをA2、Library.Common等へ名前変更し、参照も対応させた分岐で同じ規則になる。名前だけによる上書き層エラーを出さない。実際の自己供給・循環の別分岐はエラー。根拠: P1・P6。
 
-各 M 例の「入力・期待結果・根拠」を実装時の resolver テストへ対応付ける。表の条件を一部の happy path だけで代用しない。**A11・A12 は現行実装で RED であることを先に確認する。** M04 の 2 行目の A3 無し分岐と M14 の `Other` も現行では RED である(§2)。
+#### M18: 同じキーの再指定とチェーンを区別する
 
-| 受入 ID | 対応例・入力 | 確認する結果と原則 |
+```text
+Env.@a : left_only = 1
+Env.@b : right_only = 2
+Env.$ = @a
+Env.$ = @b
+```
+
+期待結果: Env.right_only = 2で、Env.left_onlyは存在しない。入力として採用するEnv.$は最後の@bだけ。最後の2行を`Env.$ = @a > @b`の1行へ変えた独立分岐では、両方のキーが存在する。根拠: P3。
+
+#### M19: 選択元をまたぐとチェーンの右側が勝つ
+
+```text
+DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy
+DefaultDQNAgent.actor.@greedy : policy_type = Greedy
+A2.actor.[eval].policy.$ = DefaultDQNAgent.actor.@greedy
+A3.actor.[eval].$ = DefaultDQNAgent.actor.@eval_base
+DefaultDQNAgent.$ = A2 > A3
+```
+
+期待結果: `[eval].policy.policy_type = EpsilonGreedy`。A2内では部分指定を解決してGreedyとなるが、A3の結果を後で重ねるためEpsilonGreedyが勝つ。`A3 > A2`へ変える分岐ではGreedy。根拠: P1・P2。
+
+## 5. 実装時の責務と今回の作業境界
+
+実装の主対象は[config_impl.cpp](../../core/anet-core/src/config_impl.cpp)と公開ConfigManager経由のテストである。選択元の最終値を、各設定の個別・部分指定より弱いベースとして合成する。依存の計算順と上書き順位を混同しない。
+
+宣言を運ぶ入れ物かどうかの判定、上書き層専用のroot選択除外・禁止、コピー先を基準にした再実行を除去する。旧チェーンの葉を消すための親子由来追跡は追加しない。定義元の相対参照、内側プロファイルの休止と供給、Run・CLIの最終値伝播を同じ契約に収める。
+
+これは責務の指定であり、評価用データ構造や反復方式を必須化するものではない。公開APIやテスト専用APIを増やさず、M01〜M19で説明できる最小の実装を選ぶ。解決記録の順序は決定的にし、キャッシュの有無で内容を変えない。
+
+**今回行うのは設計文書の更新のみ。コード・現用設定・テスト・比較器・goldenはレビュー後の実装で変更する。** 既存の未コミット変更、旧golden、Run artifactを保持する。staging・commit・pushは行わない。
+
+## 6. 受入条件と既存テストの改訂
+
+テストの正本は本改訂の原則・具体例・期待結果とする。先行版のテストが通ることだけを目的に、逆の優先順位を残さない。期待値の一括再採取だけで変更を承認しない。
+
+| 受入ID | 対応例 | 確認する結果 |
 |---|---|---|
-| A01 | M01〜M03 | 参照先への後段変更と追加キーが届く。変更は親へ逆流しない（P1） |
-| A02 | M04 の CLI なし／各 CLI 分岐 | 子だけの変更、親 CLI の伝播と子 CLI の最優先を区別する（P2・P5） |
-| A03 | M05、M09 と逆順分岐 | 直書きより選択が勝ち、全体・部分は適用順で勝敗が変わる（P2） |
-| A04 | M06 とカタログ分岐・上書き層差し替え分岐 | チェーン差し替えで旧継承値が消え、独立した指定は順位を保つ。上書き層が運ぶ `.$` 宣言がコピー先で差し替えとして働き、層の在処では解決されないので旧チェーンの葉が層経由で残らない（P1・P3） |
-| A05 | M07 と直接宣言の分岐・M08 | 多段・部分継承とカタログ外への参照は最終値を使い、親の命令を再実行しない。参照先に root で宣言した部分選択も継承先へ写さない（P1・P3） |
-| A06 | M10、自己供給の分岐 | 実際の循環は経路付きエラー。`X.part.$ = X` と `X.$ = X` は自己供給として経路付きエラー、`X.$ = X.part` で書き戻しの無い形(`app.$ = app.online > P1`)は正常（P6） |
-| A07 | M11 の各分岐 | 未定義プロファイル／カタログ／部分はエラー、空の通常層は成功。上書き層の自己チェーン(`A2.$`)と term / owner の兼用はエラー（P6） |
-| A08 | M12 の成功／失敗分岐 | 10 段成功・11 段失敗。nested 深さの既存テストも維持（P6） |
-| A09 | M13 と内側プロファイルの分岐、既存の相対 term・入れ子展開テスト | 後から生じるプロファイルを読める。未選択の在庫は実効化せず、素材へ写した `.$` は保存して解決しない（P1・P6） |
-| A10 | M08 の `target_policy`、既存の root 宣言順・nested 選択テスト | **カタログ外の通常選択も最終値を読む**（P1） |
-| A11 | M14 | Run プロファイルの葉キーが選択チェーンに勝つ（P4） |
-| A12 | M15 と各分岐 | Run プロファイルが上書き層に勝ち、CLI がさらに勝つ。解決入力キー(`@vars` / `X.$`)でも CLI が Run プロファイルに勝ち、`run.$` の CLI 差し替えは維持。項の順序、`@vars` 非回帰、`X.$` 差し替えの非回帰（P4・P5） |
-| A13 | M06・M07・M09・M14、既存の解決記録テスト | P3 が適用したチェーンだけを適用順に載せ(同一 owner の継承は [config_test.cpp:939](../../core/anet-core/src/config_test.cpp) の 2 件が両方 `key = Env.$` で載る。`key` も pin する)、`overrides` には第 2 相の最終値が実効値を変えたキーだけを記録し、項ごとの書き戻し(4 → 1 → 4)は載せない（P7） |
-| A14 | 既存の include・trunk・CLI・値参照テスト | 入力順、Run プロファイル、CLI、1 段値参照とその異常系を維持（P5） |
-| A15 | §7 の全対象 | 実効設定の差分ゼロ、`selections` / `references` の内容と順序の一致、`overrides` が空。差分があれば未完了 |
+| A01 | M01〜M03 | 最終値と追加キーが伝播し、親へ逆流しない。外側の差分より参照先の個別指定が強い |
+| A02 | M04 | 親CLIの伝播と子自身の個別指定・CLIの優先を区別する |
+| A03 | M05、M09 | 個別葉はベースに勝ち、同じ設定の部分指定は全体に勝つ。行順の逆転でも不変 |
+| A04 | M06、M18 | 別々の選択元は差分合成で葉を残す。同じ入力キーの再指定は最後だけを採用 |
+| A05 | M07、M08 | 多段・部分・カタログ外の継承で最終値を使い、命令を再実行しない |
+| A06 | M10、自己供給分岐 | 実際の循環・自己供給を経路付きで拒否し、独立部分の相互参照は許容 |
+| A07 | M11、M17 | 未定義部品は拒否、空の通常prefixとCommon/A2のroot継承は許容 |
+| A08 | M12 | 深さ10は成功、11は失敗。キャッシュ・宣言順で判定を変えない |
+| A09 | M13、M16 | 内側定義の供給と未選択の休止、定義元基準の相対参照 |
+| A10 | M08、M19 | カタログ外も同じ規則。選択元をまたぐと具体性より`>`の右側が勝つ |
+| A11 | M14 | Runの葉が通常設定に勝ち、参照先の最終値へ伝播 |
+| A12 | M15 | Runの項の後勝ち、CLIの最優先、解決入力キーとrun.$の指定 |
+| A13 | M16、M14 | 定義位置の記録、run.$先頭、Runの最終差分だけのoverrides、schema_version=1 |
+| A14 | 既存入力・値参照テスト | include・同一キー再指定・パーサ、`${}`1段と異常系を維持 |
+| A15 | §7の17入力 | 移行後の値一致を必須にし、解決記録・行順の差分を理由付きで確認 |
 
-チェーン差し替えの追加境界として、M06 の入力に `DefaultDQNAgent.actor.@greedy : clone_model = false` を追加する独立分岐では、A2 の true より後の新チェーンが勝ち `clone_model = false` となることを確認する。M11 では M08 の `target_policy` の右辺を存在しない `DefaultDQNAgent.actor.[eval].sync_interval` へ置き換える独立分岐も追加する。
+既存テストの変更点を実装時に個別に記録する。
 
-CLI のチェーン指定、同じ `.$` の include による後勝ち、owner 相対参照の生成先は既存の適用順を入力として検証する。テストのために優先順位を変更しない。
-
-## 7. 既存設定の差分ゼロを完了条件にする
-
-実装前後で、同じ設定入力・include・CLI・注入値を固定し、ConfigManager が公開する `config_data.txt` 相当の実効設定と `json/config_resolution.json` の payload を比較する。解決記録は内容だけでなく順序も対象。新フィールド `overrides` は空であることを条件とし、`selections` / `references` は内容と順序の一致を求める(空の `overrides` の有無だけを差分と数えない)。外側のログ時刻等を比較対象と混同しない。**baseline は config ツリーを commit hash で固定して採取する**（探索キャンペーン中は設定が日次で変わるため）。
-
-| Env 設定 | 必須の比較入力 |
+| 既存例・テスト | 必要な改訂 |
 |---|---|
-| Atari.txt | 下記の Run プロファイル 6 チェーン |
-| DropMerge.txt | 実装着手時の現行 IQN32 チェーンを CLI 込みで固定し、さらに `run.@iqn32_stratified` と `run.@qr51_control` |
-| LunarLander.txt | ファイル既定と `run.@repro` |
-| ImageCls.txt | ファイル既定、`run.@resnet18ish_hr`、`run.@convnext_atto_hr` |
-| GridMaze.txt | ファイル既定（現行の Agent / NN 選択を含む） |
-| GridMaze_muzero.txt | ファイル既定（MuZero の選択を含む） |
-| CartPole.txt | ファイル既定（NN block カタログの選択を含む） |
+| M02 | 外側A2より参照先自身の個別葉が強い。直接再指定・CLIによる伝播の分岐も保持 |
+| M05 / A13 same owner inheritance | 個別指定のownが継承元のbaseに勝つ |
+| M06 | eps_endが残る。通常prefixのA2自身の解決結果も存在する |
+| M07の直接宣言分岐 | 部分選択が外側のベースに勝つ。個別葉で上書きする分岐は0.01が伝播 |
+| M09逆順分岐 | 行順によらず部分指定のGreedyが勝つ |
+| A07 overlay root / root owner | 名前による拒否を削除し、通常の成功例と実際の循環例へ分ける |
+| 同一ownerの解決記録 | 2件目のkeyをEnv.@a.$へ変更。葉の競合があれば個別優先の期待値も改訂 |
+| 残りの記録比較 | コピー先の架空の宣言ではなく、使用した定義位置を期待値とする |
 
-Run プロファイルを宣言していない Env に比較用の新プロファイルは作らず、既定入力を使う。実装時に代表入力が変わっていたら、採取対象の名前・入力を先に記録し、比較範囲を無断で減らさない。
+## 7. 現用設定の移行と17件の比較
 
-Atari の `run.$` に渡す 6 チェーン:
+### 7.1 実効値を維持する最小の移行
 
-1. `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch`
-2. `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@capall`
-3. `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@rfit>run.@btrnet>run.@btrsn>run.@envs64`
-4. `run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@evalonly>run.@greedy_eval>run.@to_50`
-5. `run.@nature_dqn`
-6. `run.@classic_iqn_impala_x2`
+新規則は既定値の意味も変える。例示だけで移行範囲を決めず、§7.2の17入力について、固定configの個別葉と旧goldenを照合する。以下はRun・CLIによる同一キーの明示指定を考慮した静的棚卸しであり、新resolverを実行した検証結果ではない。対象24キーの個別葉は、2026-09-13の現用設定とmanifestの固定configで同一だった。
 
-3 は Run プロファイルが `DefaultDQNAgent.$` と `net.branch.[main_feature].$` の両方を差し替える形を含む。
+#### backend: 性能・再現性に関わる共有既定値
 
-**2026-09-12 の静的調査では、P1 の適用により実効設定が変わる箇所は 0 件だった**（§9）。したがって P1 の差分ゼロは構造上成立するはずで、差分が出た場合は調査か契約の理解が誤っている。差分は単に記録して許容せず、原因と契約を再確認し、解消するまで未完了とする。既存 Run artifact を書き換えて一致させない。事前 baseline を採れなかった場合はその不足を記録し、比較合格とは扱わない。反復周回数や長時間学習の成績は受入条件にしない。
+[common.txt](../../apps/runner/config/common.txt)の共有既定値と、Atari / DropMerge / ImageCls / LunarLanderの通常選択が衝突する。
 
-**P4 による差分は 0 件を想定する**(§9: 既知の衝突は設定側で回避済み、`qr.num_quantiles` は同値)。差分が出たら、それが本 PRD が見つけた既存の握り潰しである。
+```text
+backend.cudnn_benchmark = false
+backend.deterministic_algorithms = true
+backend.$ = backend.@non-deterministic
+```
 
-## 8. 検討経緯
+旧実効値はcudnn_benchmark = true、deterministic_algorithms = falseだが、移行せず新規則を適用すると直書きが勝ち、それぞれfalse / trueになる。高速化を選んだRunで決定化が有効になり、性能だけでなくSDPA等の数値挙動・再現性にも影響する。[Atari.txt](../../apps/runner/config/Atari.txt)には同seed再現の設定について「+11%コスト」と記録されている。この値は当時の測定条件に依存し、今回再測定した値ではない。
 
-| 旧案 | 判断と理由 |
-|---|---|
-| 最終値読みをカタログ（`[key]`）に限定する | **却下**。限定の理由は既存 config への影響回避であって原理ではなく、`[key]` の有無で挙動が変わる特別扱いを生む。§9 の調査で影響 0 件が確認できたため、全選択で揃える |
-| identity を持つ項目だけ最終値読みにする | 却下。identity は消費側（コードが名前で引く）の性質で、設定解決時点では誰も知らない。生成側の意味論を変える根拠にならない |
-| 組み立てをチェーン後段へ置く順序の約束 | 却下。読みは最終値・書きは宣言位置という要求が両立しない。組み立てを A2 / A3 の後ろへ置くと、上書き層が最後の言葉であるという前提が壊れる |
-| 継承専用の記号を新設する（`&` 等） | 却下。全選択で揃えれば見分ける必要がない |
-| 選択を依存順へ並べ替える | 却下。後段 overlay が負けるなど書き込み優先順位を変える |
-| 書きかけ map を同順で繰り返し読む | 必須方式から除外。前段が親を戻すと、その古い値を再びコピーしうる |
-| 全設定の Jacobi 反復、last-writer graph、周回数の安全弁 | 必須方式から除外。今回の契約に方式依存の仕組みを増やす |
-| 回数による収束・長い通常 prefix の伝播 | 受入から削除。契約の正しさを測らない |
-| policy カタログ + policy_key | 追加しない。共通プロファイルと Actor カタログで表せる |
-| `+=` 相当の差分演算子 | 追加しない。`=` は置き換えであり、差分は右辺の継承表現で足りる |
-| 握り潰しを WARN で可視化するだけ（順序は変えない） | 却下。検出に必要な準備は第 2 相の実装と同じなので、要求どおり直すほうがよい（旧 999 案 B） |
-| 第 2 相の葉(Run プロファイル・CLI)は終端上書きで、選択を通って伝播しない | 却下（2026-09-12 レビュー）。M04 の A3 無し分岐「両方 0.04」と 2026-09-08 の裁定「CLI 最終値まで継承」に反し、`run.@x : …actor.[eval].policy.eps_start = 0` で `[eval]` だけが変わる stale copy を Run 層に作り直す。P1 の評価器に第 2 相の葉を含めれば後処理も再実行も要らない |
-| owner と source が包含関係にある選択を fail-fast にする | 却下。`app.$ = app.online > P1` など実設定 9 件が落ちる。自己供給(書き込み範囲が source と交わる)だけを止める（P6） |
-| 2026-09-08 の滑り例(`X.$ = X.part` に `X.part.part.part.value = 1`)を正常 config として周回で収束させる | 撤回。書き込み範囲が source と交わる自己供給として fail-fast にする（P6） |
-| 非 `@` の参照先からは一律に `.$` を写さない | 却下（2026-09-12 Codex）。上書き層 A3 が運ぶ `.$` 宣言も写されず M06 の差し替えが起きない |
-| `.$` の由来(宣言由来だけ写す)で決める | 却下（2026-09-12 Codex）。`[eval]` に root で宣言した `policy.$` が `[eval_target]` へ写されて再実行され、後段 A2 の 0.01 が 0.05 に戻る。宣言の袋(プロファイル・上書き層)か組み立て済みノードかで決める（P1・P3） |
-| 上書き層の `.$` を在処でも root 選択として解決し、組み立て値を層の葉として写す | 却下（2026-09-12 Codex）。`A2 : actor.[eval].$ = @eps` を A3 で `@greedy` に差し替えても、A2 の在処で組み立てた `eps_end` が葉として写って残る。上書き層の `.$` は在処で解決しない（P1・P3） |
-| 第 2 相で Run プロファイルの項を逐次再適用し、変更ごとに記録する | 却下（2026-09-12 Codex）。`run.@a5 : A2.learner.replay_ratio = 1` → `run.@rr4 : … = 4` で 4 → 1 → 4 と揺れ、最終値不変でも `overrides` が増えて A15 に反する。キーごとの最終値を確定して 1 回だけ適用する（P4・P7） |
-| 解決入力キーは Run プロファイルが CLI に勝つ(現行のまま) | 却下（2026-09-12 レビュー、ユーザー裁定）。「CLI は最優先」が葉だけの規則になり 2 文に増える。trunk 展開後に CLI の解決入力キーを再注入して全キーで成立させる（P4） |
+[12_batch_run.bat](../../apps/12_batch_run.bat)の`BK`は`backend.$=backend.@non-deterministic`という**選択キー**のCLI指定である。P4で最優先になるのはbackend.$自体であり、その継承結果が別キーの個別葉より強くなるわけではない。したがって、**現行batのBK指定ではこの競合を回避できない**。葉そのものへのCLI指定は別だが、batへ対症的な葉指定を増やすことを移行方法にはしない。
 
-## 9. この文書改訂の検証範囲
+さらに`lunarlander-repro`では、`run.@repro`が選ぶbackend.@deterministicのcudnn_deterministic = trueが、common.txtの個別葉falseに負ける。17入力を保持するにはbackendの移行対象は次の3キーになる。
 
-### 静的調査（2026-09-12、実施済み）
+```text
+# common.txt: 3個の個別葉をこの通常プロファイルへ移し、未指定時のベースにする
+backend.@defaults : cudnn_benchmark = false
+backend.@defaults : deterministic_algorithms = true
+backend.@defaults : cudnn_deterministic = false
+backend.$ = backend.@defaults
+```
 
-`apps/runner/config/*.txt` を include 単位で結合し、**「選択 S が項 Ti の中で宣言され、S の参照先へ Tj（j>i）が書いている」箇所**を走査した。これが P1 で実効設定が変わる母集団である。`run.$` は選択より前に展開されるため対象外とした。P1 で結果が変わり得る形は他に 2 つあるが、いずれも 0 件である。(a) 後段の root 選択が参照先へ書く形: 素材でも上書き層でもない参照先は 9 種(`net.block.[Linear_120]` / `[Linear_84]` / `FC1` / `FC2` / `FC3`、`app.online`、`app.batchrun`(`run.@a5` / `run.@plasticity` の `app.$` が参照する。root の `app.$ = app.batchrun > P1` はコメントアウト)、`MuZeroAgent.baseline`、`metrics.scalar.muzero`)で、いずれもその prefix を owner とする選択を持たない。親 prefix を owner とする選択(`app.$` / `MuZeroAgent.$` / `metrics.scalar.$`)はあるが、その term(`P1` / `A1` / `M1` と参照先自身)に `online.*` / `batchrun.*` / `baseline.*` / `muzero.*` を書く葉は無い(P6 の自己供給検査と同じ条件)。(b) 第 2 相の葉が参照先へ書く形: 工程 2 が工程 4 より先に走ることは理由にならない。工程 4 の選択が同じキーを `working_map_` 上で潰せば、参照先の読みは潰れた値になる(M14 がその形で、現行では `Other` が SiLU を読む)。0 件の理由は、Run プロファイルの葉で選択の参照先 prefix の配下にあるものが上書き層 A2 / A3 へ書くものだけで(E1 / M1 / M2 / P1 / A1 へ書く Run プロファイルの葉は無い)、owner が A2 / A3 またはその祖先である選択が無いことにある。工程 2 で入れた値は工程 4 で潰されず、第 2 相の値は第 1 相の値と同じになる。これは「上書き層からの書き込み 534 行は一度も素材の中へ書いていない」の裏返しである。bat が渡す CLI も同じで、`run.$` / `backend.$` は第 1 相専用、`E1.game` / `app.run_name` / evalonly で手渡す `A3.auto_load_file` は第 1 相と第 2 相の両方に入るが、E1 / A3 へ書く選択は無く、`app.run_name` は参照先(`app.online` / `app.batchrun` / `P1`)の配下に無い。
+高速化を選ぶ設定のチェーンは、次の形で既定値より強くする。
 
-| env | チェーン | 該当 |
-|---|---|---|
-| Atari | 22 | **0** |
-| DropMerge | 14 | **0** |
-| LunarLander | 6 | **0** |
-| GridMaze / GridMaze_muzero | 3 / 3 | **0** |
-| CartPole | 2 | **0** |
-| ImageCls | 1 | **0** |
+```text
+backend.$ = backend.@defaults > backend.@non-deterministic
+```
 
-選択は全 98 本、参照先 61 種。**上書き層からの書き込み 534 行は、一度も素材の中へ書いていない。** 走査器は合成入力で陽性 1 例・陰性 2 例を固定してから実行した。
+決定論設定を選ぶチェーンも同じ関係にする。commonのベースを残すことで、backend.$を指定しないGridMaze / GridMaze_muzero / CartPoleも従来値を保つ。backend.@non-deterministicとbackend.@deterministicはこの3キーをすべて持つため、既存CLIがどちらかを単独選択する場合も値を保てることを確認する。Runプロファイルが供給するbackend.$も移行漏れの検索対象とする。
 
-**これは静的解析であり、resolver を実行した比較ではない。** §7 の差分ゼロ gate の代わりにはならない。
+#### Atari: ゲームとIQN出力先
 
-P4 で差分になり得た既知の衝突は次の 1 キー(2 回)で、いずれも設定側で回避済みのため現在の差分は 0 件である(`run.@head_relu` は Atari.txt に無く、`run.@btrnet` は `DefaultDQNAgent.$` の差し替えに書き換え済み)。
+現在のAtari設定の抜粋は次のとおり。
 
-| キー | Run プロファイル | 勝っている定義 | 現状 |
+```text
+AtariEnv.$ = AtariEnv.@v5_noop30 > E1
+E1.game = breakout
+AtariEnv.game = pong
+```
+
+先行版ではbreakout、新規則のままでは個別指定が勝ってpongになる。pongを弱い既定値として維持する移行例は次の形。
+
+```text
+AtariEnv.@defaults : game = pong
+AtariEnv.$ = @defaults > @v5_noop30 > E1
+E1.game = breakout
+```
+
+移行後もbreakoutを維持する。AtariのIQN出力先でも、直接書かれた`DefaultDQNAgent.net.body.output.[features] = main_feature`と、選択するiqn_fusionが衝突する。これらを含め、新仕様で実効値が変わる既定値だけをベース側へ移す。`@defaults`は既存のプロファイル記法による通常名であり、予約名にはしない。
+
+#### 17入力の移行対象一覧
+
+**A15の文字列値一致で数えると24種。** レビューで挙がった22種に、数値として同じでも表記が異なる`DropMergeEnv.no_drop_timeout_gameover_penalty`と、派生入力lunarlander-reproの`backend.cudnn_deterministic`を加える。DropMergeは挙動に関わる14種と表記差1種の計15キーであり、`no_drop_timeout_*`は下表の2キーへ分けて数える。
+
+「旧golden」は移行後も保持する値、「移行なし」は個別葉が勝った場合の値である。キーの種類数は入力をまたいで重複排除し、env別の件数は各envに属するmanifest入力の和集合とする。
+
+| キー | 旧golden | 移行なし | 影響する入力 |
 |---|---|---|---|
-| `DefaultDQNAgent.net.branch.[tau_embedding].structure` | `run.@head_relu`（Atari） | `net.@iqn` | 2026-08-31 に回避済み。2026-09-12 に `run.@btrnet` で再発し、`DefaultDQNAgent.$` のチェーン差し替えへ書き換えて回避 |
+| `backend.cudnn_benchmark` | `true` | `false` | Atari全6、DropMerge全3、ImageCls全3、lunarlander-default |
+| `backend.deterministic_algorithms` | `false` | `true` | 同上 |
+| `backend.cudnn_deterministic` | `true` | `false` | lunarlander-repro |
+| `AtariEnv.game` | `breakout` | `pong` | Atari全6 |
+| `DefaultDQNAgent.net.body.output.[features]` | `iqn_fusion` | `main_feature` | atari-1〜4、atari-6。atari-5はもともとmain_feature |
+| `DropMergeEnv.grid_cols` | `58` | `40` | DropMerge全3 |
+| `DropMergeEnv.grid_rows` | `46` | `64` | DropMerge全3 |
+| `DropMergeEnv.action_mode` | `direct_noop` | `move_fast` | DropMerge全3 |
+| `DropMergeEnv.damping` | `1.0` | `0.5` | DropMerge全3 |
+| `DropMergeEnv.friction` | `0.3` | `0.1` | DropMerge全3 |
+| `DropMergeEnv.fruit_scores` | 末尾`1000.0` | 末尾`820` | DropMerge全3。先頭11要素は同じ |
+| `DropMergeEnv.game_over_penalty` | `-10.0` | `0` | DropMerge全3 |
+| `DropMergeEnv.no_drop_timeout_steps` | `100` | `200` | DropMerge全3 |
+| `DropMergeEnv.no_drop_timeout_gameover_penalty` | `-10` | `-10.0` | DropMerge全3。数値は同じだが文字列表記が異なる |
+| `DropMergeEnv.restitution` | `0.1` | `0.05` | DropMerge全3 |
+| `DropMergeEnv.settle_velocity_threshold` | `0.5` | `0.1` | DropMerge全3 |
+| `DropMergeEnv.time_penalty` | `0.0` | `-0.0001` | DropMerge全3 |
+| `DropMergeEnv.use_fast_move` | `true` | `false` | DropMerge全3 |
+| `DropMergeEnv.use_instant_drop` | `true` | `false` | DropMerge全3 |
+| `DropMergeEnv.use_no_legal_adjudication` | `true` | `false` | DropMerge全3 |
+| `LunarLanderEnv.ground_y` | `0.0` | `0.5` | LunarLander全2 |
+| `LunarLanderEnv.landing_detection_mode` | `not_awake` | `contact` | LunarLander全2 |
+| `LunarLanderEnv.turbulence_power` | `0.5` | `1.5` | LunarLander全2 |
+| `LunarLanderEnv.wind_power` | `3.0` | `15.0` | LunarLander全2 |
 
-`DefaultDQNAgent.qr.num_quantiles`（DropMerge `run.@qr51_control` 対 `agent.txt @baseline`）は両方 51 で同値のため差分にならない。
+| Env設定 | 影響するキーの種類数 | 内訳 |
+|---|---|---|
+| Atari | 4 | backend 2、game 1、IQN出力先1。atari-5単体は3 |
+| DropMerge | 17 | backend 2、Envの値変化14、Envの表記差1 |
+| LunarLander | 7 | backend 3、Env 4。default単体は6、repro単体は5 |
+| ImageCls | 2 | backend 2 |
+| GridMaze / GridMaze_muzero / CartPole | 各0 | この入力群では移行前後で値が変わる個別葉なし |
 
-### メモリ内モデル（グリル中の限定確認）
+レビュー時の現用7envの棚卸しでは、「全体↔部分」の値が競合する箇所は0件だった。この報告は現用入力の移行量の見積もりであり、P2の部分指定優先を検証した結果ではない。M09・M19の専用例と17入力の実装後比較は引き続き必要とする。
 
-順序を持つ直書きと参照を使い、(1)プロファイル後段変更、(2)カタログ後段変更、(3)子の後段変更、(4)直書きより選択が勝つ、(5)差し替えによる旧キー消失、(6)カタログ外への部分参照、(7)独立した部分の相互参照、(8)全体の後に部分、(9)部分の後に全体、(10)実際の循環、の 10 例を確認した。**概念モデルの確認記録であり、M01〜M15 全体や production resolver が通ったという意味ではない。**
+#### DropMerge・LunarLanderの移行量と配置
 
-### 未実施
+[DropMerge.txt](../../apps/runner/config/DropMerge.txt)は、選択する@baseline / @G5846 / @heavy / E1の値と、素のDropMergeEnv.*が重複している。必要な変更は、上表の**15個の個別葉の定義位置をベースプロファイルへ移し、既存チェーンの先頭にそのプロファイルを加えること**。内訳は値変化14個と表記差1個である。元の既定値の文字列とコメントを保持し、既存プロファイルやE1が供給する実験値は書き換えない。
 
-| 検証 | 位置付け |
+```text
+DropMergeEnv.$ = @defaults > @baseline > @G5846 > @heavy > E1
+```
+
+LunarLanderも上表のEnvの4個の個別葉をベースへ移し、`@defaults > @trunk > E1`とする。キー削除で差分を隠す、`-10`を`-10.0`へgolden側で正規化する、同値で衝突しない別の個別葉まで一括移動する、といった変更は行わない。この15＋4個の移動は実効値を保つための移行そのものであり、「無関係な整形をしない」方針と両立する。
+
+全既定値の一括移動、無関係な並べ替え、後方互換モードによる旧順位の復活は行わない。既存のユーザー変更を保持して移行し、現用設定と比較用の固定入力には対応する同じ移行を適用する。
+
+### 7.2 比較条件
+
+比較入力の正本は[manifest.json](../../core/anet-core/testdata/prd072/manifest.json)。旧goldenは[testdata/prd072/baseline](../../core/anet-core/testdata/prd072/baseline/)に保持し、commit `107a62c8ae01cb758f3cd49d98e8424386160e5d`の固定config、CLI、注入値との対応を残す。
+
+| Env設定 | 比較入力数と内容 |
 |---|---|
-| 実パーサによる `:` 正規化、include、入れ子プロファイル展開・owner 相対参照との統合 | 実装時の A09・A14 で確認 |
-| C++ のビルド・resolver テスト、10 段境界、JSON 解決記録 | 実装時に確認 |
-| 各 Env / Run プロファイルの実効設定・解決記録の前後比較 | §7 の完了 gate |
+| Atari | 6。manifestのRunチェーンをそのまま使う |
+| DropMerge | 3。既定、iqn32_stratified、qr51_control |
+| LunarLander | 2。既定、repro |
+| ImageCls | 3。既定、resnet18ish_hr、convnext_atto_hr |
+| GridMaze / GridMaze_muzero / CartPole | 各1。既定入力 |
 
-今回は文書だけを変更し、コード・設定・Run artifact は変更しない。
+- **値**: 移行前goldenと、対応する移行後入力の全キー・値の一致を17件すべてで必須とする。診断用の非@prefixも含め、比較から都合の悪いキーを除外しない。
+- **移行の重点確認**: §7.1の24キーを入力別に照合する。backendの通常選択・既存batと同じCLI選択・Runのrepro選択、DropMergeの14個の値変化と1個の表記差を含める。24キーだけへの比較縮小は行わず、全キー一致と、変更0件だった3envの値保持も確認する。
+- **解決記録**: 定義位置と移行で増減する選択を新仕様の期待値と比較する。旧記録との違いは入力ごとに理由を示す。`references`・`overrides`にも差分があれば同様に確認し、既存の空overrides確認を黙って外さない。
+- **順序**: `Map().Order()`を前後比較して差分位置をレポートする。完全一致は必須にしないが、Runのdumpを人間が比較する用途で読みづらくなっていないか確認する。
+- **採取証拠**: 旧goldenのハッシュ・採取条件・元ファイルを保持する。差分を消すために一括再採取しない。既存goldenを人間が削除してから明示captureする運用と、比較器の上書き拒否・manifest整合性は維持する。
 
-## 10. スコープ外
+レビュー後の実装では、固定入力への移行内容と新しい記録の期待値を再実行可能な形で残し、比較器・AGENTS.mdの手順を同じ変更で更新する。現用設定の追加変更を旧goldenへ混ぜず、今回の移行差分を区別する。
 
-- **NN ブロックの未知キー fail-fast**。2026-08-30 の `res.init2.mode` 黙殺はブロック設定側の別機構で、PRD 065 のレビューでも「065 に畳まず別 PRD」と裁定済み。本 PRD は config resolver のみを扱う
-- **上書き層の名前・段数の再設計**。PRD 059 で確定済み
-- **`config_data.txt` の出力内容**。プロファイルを出力しない現行仕様は維持する
-- **Actor のコード・設定移行**。PRD 061 で行う
+VsDevCmd経由の通常Debugビルド、設定テスト全体、17入力の比較、capture拒否、旧判定の識別子検索、`git diff --check`、UTF-8 / LFを検証する。現在は文書レビュー段階であり、これらの実装検証は未実施である。
+
+## 8. 検討経緯と簡素化の判断
+
+2026-09-12版は、チェーン差し替えで旧選択の葉を消すために宣言の扱いを分けた。2026-09-13の再確認では「継承は差分適用」「$はベース、個別指定で上書き可能」を採用し、その区別の前提を改めた。既存テストの結果を優先して、意図と逆の仕様を残さない。
+
+| 検討対象 | 判断 | 理由 |
+|---|---|---|
+| 上書き層の予約名・ドット数判定・明示登録 | cut | 通常prefixの差分合成で扱える。名前だけで意味を変えない |
+| 旧選択の生成物を削除するための由来追跡 | cut | 別々の選択元に由来する葉は、右側にない限り残す |
+| 全設定の最終値参照 | keep | 後段変更を継承先へ届ける実在の要求 |
+| 定義元の相対参照と記録 | keep | 同じプロファイルが使用先によって別の設定を指す非対称をなくす |
+| 既定値の移行 | shrink | AtariのゲームとIQN配線等の衝突に限定し、無関係な整形をしない |
+| 互換モード・新しい構文・削除演算子 | cut | 合意した差分合成に不要 |
+| 固定入力・旧golden・差分レポート | keep | 17件の実験条件を変えないことと、診断変更を機械的に確認する |
+| 実装前の文書レビュー | keep | 本更新だけで仕様・期待値をレビュー可能にする。実装は別の開始指示後 |
+
+成功は「上書き層を識別するコードが不要」「個別・部分指定の行順で結果が変わらない」「移行後17件の値一致」で測る。過去の検証は20implへ参照を残し、本改訂の未実施検証と混同しない。
+
+## 9. 今回扱わないこと
+
+- Actor APIや設定カタログへの移行(PRD 061)、NNブロックの未知キー検証など消費側の契約。
+- 上書き層の運用上の命名・段数の再設計、未使用キーの自動削除。
+- 過去のRun artifactの書き換え、互換モード、staging・commit・push。
