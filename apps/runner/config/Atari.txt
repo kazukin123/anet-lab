@@ -515,7 +515,7 @@ run.@g99 : A2.learner.gamma = 0.99
 # RR1 では利得が無かった(2026-09-02、3.48% -> 4.18%、複製幅 0.72pt)が、BTR は
 # 同じ再利用 4 回で成立しているので、構造と再利用の交互作用が本題。@va_base の後ろへ置く。
 run.@btrnet : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2Pool6Flat
-run.@btrnet : DefaultDQNAgent.net.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
+run.@btrnet : DefaultDQNAgent.$ = @baseline > @iqn2304 > @munchausen > A1 > @bf16 > A2 > A3
 
 # 上へ重ねて spectral norm も BTR へ揃える。main_feature だけ差し替え、tau 側は @btrnet を継ぐ。
 run.@btrsn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool6Flat
@@ -555,6 +555,13 @@ run.@capall : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@brea
 # quantile_mode=none の配線は QR と同一(V/A を main_feature 直結)。fusion が要るのは IQN だけなので @none は作らない。
 DefaultDQNAgent.@nature : quantile_mode = none    # 分布 RL なし(単一 Q)
 DefaultDQNAgent.@nature : net.$ = net.@qr
+
+# IQN の 2304 融合版(共有トランクを外した main_feature と次元を合わせる)。
+# agent.txt の @iqn と同じ 2 キーで、指す配線だけが net.@iqn2304 になる。
+# net.$ や branch.[tau_embedding].structure を run.@ 側から書いても素材の適用で戻るので、
+# 差し替えは DefaultDQNAgent.$ のチェーンで @iqn ごと入れ替える(2026-09-12 の配線確認で確定)。
+DefaultDQNAgent.@iqn2304 : quantile_mode = iqn
+DefaultDQNAgent.@iqn2304 : net.$ = net.@iqn2304
 DefaultDQNAgent.@nature.use_dueling_net = false
 DefaultDQNAgent.@nature.learner.use_per = false
 DefaultDQNAgent.@nature.learner.use_double_dqn = false
@@ -1091,6 +1098,18 @@ net.@iqn : branch.[adv_stream].bind = iqn_fusion
 
 # IQNHead(dueling なし)は rank-3 (B,K,D) を要求するため、main_feature ではなく fusion 後を渡す。
 net.@iqn : body.output.[features] = iqn_fusion
+
+# IQN の 2304 融合版。共有トランクを外した main_feature(6x6 pool 後の Flatten = 2304)と
+# 次元を合わせる。活性も BTR に揃える(networks.py の torch.relu(cos_embedding(cos)))。
+# tau_embedding の structure は net.@iqn 素材が持つので、run.@ 側から個別キーを上書きしても
+# 素材の適用で戻る。差し替えは net.$ ごと行う(2026-09-12 の配線確認で確定)。
+net.@iqn2304 : branch.[tau_embedding].bind = taus
+net.@iqn2304 : branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj2304 > ReLU
+net.@iqn2304 : branch.[iqn_fusion].bind = main_feature * tau_embedding
+net.@iqn2304 : branch.[iqn_fusion].structure =
+net.@iqn2304 : branch.[value_stream].bind = iqn_fusion
+net.@iqn2304 : branch.[adv_stream].bind = iqn_fusion
+net.@iqn2304 : body.output.[features] = iqn_fusion
 
 
 # ==============================================================================

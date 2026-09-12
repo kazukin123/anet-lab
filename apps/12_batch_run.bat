@@ -21,12 +21,13 @@ SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "EV=run.@evalN10"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
 SET "RF=run.@rfit"
+SET "CHK=%EV%>run.@pl_check>run.@to_400k"
 
-echo === 1. RR4 + DropPath 0.1 50M (9h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@dp010>%EV%" "app.run_name=run_{t}_rr4_dp010_munch"
+echo === 1. RR4 + BTR structure + SN + envs64 50M (9h) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn>run.@envs64>%EV%" "app.run_name=run_{t}_rr4_btrfull_munch"
 
-echo === 2. RR4 + weight_decay 0.01 50M (9h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@wd001>%EV%" "app.run_name=run_{t}_rr4_wd001_munch"
+echo === 2. RR4 + BTR structure 50M (8h) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>%EV%" "app.run_name=run_{t}_rr4_btrnet_munch"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
