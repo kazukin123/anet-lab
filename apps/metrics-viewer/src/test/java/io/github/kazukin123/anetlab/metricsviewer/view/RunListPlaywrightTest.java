@@ -2,12 +2,16 @@ package io.github.kazukin123.anetlab.metricsviewer.view;
 
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.GENERATION;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_KEY;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.colorMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.colorRunIds;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.colorRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.metricsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.rawSeriesJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runsJson;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -29,6 +33,14 @@ import com.microsoft.playwright.options.WaitUntilState;
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
+
+	// RUN_COLORSのうち、Run色テストで期待値に使う色。コメントはpalette上のindex。
+	private static final String BLUE = "rgb(47, 125, 225)"; // #2F7DE1 [0]
+	private static final String PURPLE = "rgb(122, 92, 255)"; // #7A5CFF [2]
+	private static final String RED = "rgb(226, 59, 79)"; // #E23B4F [9]
+	private static final String LIME = "rgb(209, 216, 59)"; // #D1D83B [12]
+	private static final String MAGENTA = "rgb(184, 50, 128)"; // #B83280 [13]
+	private static final String GREEN = "rgb(0, 179, 107)"; // #00B36B [14]
 
 	@Test
 	void metricsRequestsKeepOneChannelAndIncreaseTheirSequence() throws Exception {
@@ -497,5 +509,165 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		assertEquals("Auto Reload: OFF", page.textContent("#btn-auto-reload"));
 		assertEquals("false", page.getAttribute("#btn-auto-reload", "aria-pressed"));
 		assertFalse(isAutoReloadButtonActive(page));
+	}
+
+	@Test
+	void recolorButtonGivesSelectedRunsTheMostDistinguishableColors() {
+		openColorFixture("recolorButtonTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		clickRunRow(page, "run_14");
+		page.click("#btn-recolor-runs");
+		waitForSelectedTraceCount(page, 4);
+
+		assertEquals(
+				List.of(BLUE, LIME, RED, GREEN),
+				readChipColors(page, List.of("run_01", "run_03", "run_10", "run_14")));
+		assertEquals(readChipColor(page, "run_01"), readTraceColor(page, "run_01"));
+		assertEquals(readChipColor(page, "run_14"), readTraceColor(page, "run_14"));
+	}
+
+	@Test
+	void recolorButtonIsIdempotentForTheSameSelection() {
+		openColorFixture("recolorIdempotentTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		page.click("#btn-recolor-runs");
+		final List<String> first = readChipColors(page, List.of("run_01", "run_03", "run_10"));
+
+		page.click("#btn-recolor-runs");
+
+		assertEquals(List.of(BLUE, LIME, RED), first);
+		assertEquals(first, readChipColors(page, List.of("run_01", "run_03", "run_10")));
+	}
+
+	@Test
+	void autoRecolorMovesTheAddedRunOffAConfusableBaseColor() {
+		// 既定ONのまま操作する。run_10=#E23B4F と run_14=#B83280 の分離距離は0.1204で、しきい値0.16を下回る。
+		openColorFixture("autoRecolorTest", 14);
+
+		assertTrue(page.isChecked("#chk-auto-recolor"));
+		clickRunRow(page, "run_14"); // 初期選択の最新Runを外し、空選択から選び直す
+		clickRunRow(page, "run_10");
+		clickRunRow(page, "run_14");
+		waitForSelectedTraceCount(page, 2);
+
+		assertEquals(RED, readChipColor(page, "run_10"));
+		assertEquals(LIME, readChipColor(page, "run_14"));
+		assertEquals(LIME, readTraceColor(page, "run_14"));
+	}
+
+	@Test
+	void autoRecolorKeepsEarlierRunsWhenTheSelectionGrowsOrShrinks() {
+		openColorFixture("autoRecolorStabilityTest", 14);
+
+		clickRunRow(page, "run_14");
+		clickRunRow(page, "run_10");
+		clickRunRow(page, "run_14");
+		// run_03 の基本色 #7A5CFF は先行2本から十分離れているので、足しても動かない。
+		clickRunRow(page, "run_03");
+		waitForSelectedTraceCount(page, 3);
+
+		assertEquals(
+				List.of(RED, LIME, PURPLE),
+				readChipColors(page, List.of("run_10", "run_14", "run_03")));
+
+		clickRunRow(page, "run_14");
+
+		assertEquals(List.of(RED, PURPLE), readChipColors(page, List.of("run_10", "run_03")));
+	}
+
+	@Test
+	void autoRecolorDefaultsToOnAndSurvivesReload() {
+		openColorFixture("autoRecolorStorageTest", 14);
+
+		assertTrue(page.isChecked("#chk-auto-recolor"));
+		assertNull(readAutoRecolorStorage(page));
+
+		setAutoRecolor(page, false);
+		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForRunRows(page, 14);
+
+		assertFalse(page.isChecked("#chk-auto-recolor"));
+		assertEquals("false", readAutoRecolorStorage(page));
+	}
+
+	@Test
+	void recolorLeavesUnselectedRunsOnTheirBaseColors() {
+		openColorFixture("unselectedRunColorTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		clickRunRow(page, "run_14");
+		page.click("#btn-recolor-runs");
+
+		// run_03 が #D1D83B を取っても、それを基本色に持つ未選択の run_13 は動かない。
+		assertEquals(LIME, readChipColor(page, "run_03"));
+		assertEquals(LIME, readChipColor(page, "run_13"));
+	}
+
+	@Test
+	void recolorRepeatsThePaletteAfterTwentySelectedRuns() {
+		openColorFixture("recolorRoundTest", 25);
+
+		setAutoRecolor(page, false);
+		page.click("#btn-select-all-runs");
+		page.click("#btn-recolor-runs");
+
+		final List<String> colors = readChipColors(page, colorRunIds(25));
+		assertEquals(20, colors.subList(0, 20).stream().distinct().count());
+		assertEquals(BLUE, colors.get(0));
+		assertEquals(BLUE, colors.get(20));
+	}
+
+	@Test
+	void autoRecolorKeepsTheColorsAssignedByTheRecolorButton() {
+		openColorFixture("recolorWithAutoOnTest", 14);
+
+		clickRunRow(page, "run_14");
+		clickRunRow(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		page.click("#btn-recolor-runs");
+		final List<String> afterButton = readChipColors(page, List.of("run_01", "run_03", "run_10"));
+
+		clickRunRow(page, "run_14"); // Autoが走る選択変更
+		waitForSelectedTraceCount(page, 4);
+
+		assertEquals(List.of(BLUE, LIME, RED), afterButton);
+		assertEquals(afterButton, readChipColors(page, List.of("run_01", "run_03", "run_10")));
+		assertEquals(GREEN, readChipColor(page, "run_14"));
+	}
+
+	@Test
+	void recolorButtonDoesNothingForASingleSelectedRun() {
+		openColorFixture("recolorSingleRunTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_10");
+
+		page.click("#btn-recolor-runs");
+
+		assertEquals(RED, readChipColor(page, "run_10"));
+		assertEquals(MAGENTA, readChipColor(page, "run_14"));
+	}
+
+	private void openColorFixture(String testName, int runCount) {
+		page.route("**/api/runs.json", route -> fulfillJson(route, colorRunsJson(runCount)));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, colorMetricsJson(runCount)));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?" + testName + "=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		waitForRunRows(page, runCount);
 	}
 }

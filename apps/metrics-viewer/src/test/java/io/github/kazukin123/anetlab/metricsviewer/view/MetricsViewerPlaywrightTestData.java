@@ -36,6 +36,42 @@ final class MetricsViewerPlaywrightTestData {
 		return sb.toString();
 	}
 
+	static List<String> colorRunIds(int count) {
+		// Run色の基本色はrunId昇順の先着順で決まるため、連番Run名でpaletteとの対応を固定する。
+		final List<String> runIds = new ArrayList<>();
+		for (int i = 1; i <= count; i++) runIds.add("run_" + String.format("%02d", i));
+		return runIds;
+	}
+
+	static String colorRunsJson(int count) {
+		final StringBuilder sb = new StringBuilder();
+		sb.append("{\"runs\":[");
+		final List<String> runIds = colorRunIds(count);
+		for (int i = 0; i < runIds.size(); i++) {
+			if (i > 0) sb.append(',');
+			sb.append(runJson(runIds.get(i), 2, TAG_KEY));
+		}
+		sb.append("]}");
+		return sb.toString();
+	}
+
+	static String colorMetricsJson(int count) {
+		final StringBuilder sb = new StringBuilder();
+		sb.append("{\"data\":[");
+		final List<String> runIds = colorRunIds(count);
+		for (int i = 0; i < runIds.size(); i++) {
+			if (i > 0) sb.append(',');
+			final float baseValue = i + 1;
+			sb.append(rawSeriesJson(
+					runIds.get(i),
+					TAG_KEY,
+					new double[] {0, 1, 2},
+					new float[] {baseValue, baseValue + 1, baseValue + 2}));
+		}
+		sb.append("]}");
+		return sb.toString();
+	}
+
 	static String manyTagRunsJson(int tagCount) {
 		final List<String> tags = new ArrayList<>();
 		for (int i = 0; i < tagCount; i++) tags.add("mobile/tag_" + String.format("%02d", i));

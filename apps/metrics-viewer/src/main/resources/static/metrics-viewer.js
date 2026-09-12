@@ -16,6 +16,8 @@ const STORAGE_KEY_P1_P99_TAGS = "anet.metricsviewer.p1P99Tags";
 const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
 const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
 const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
+const STORAGE_KEY_AUTO_RECOLOR = "anet.metricsviewer.autoRecolorEnabled";
+const RUN_COLOR_MIN_DISTANCE = 0.16;
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -130,6 +132,54 @@ function colorWithAlpha(hex, alpha) {
 	const g = Number.parseInt(value.slice(2, 4), 16);
 	const b = Number.parseInt(value.slice(4, 6), 16);
 	return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function hexToOklab(hex) {
+	// sRGB -> 線形RGB -> OKLab。見え方の近さをユークリッド距離で測れる空間へ移す。
+	const value = hex.replace("#", "");
+	const toLinear = channel => {
+		const scaled = Number.parseInt(channel, 16) / 255;
+		return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+	};
+	const r = toLinear(value.slice(0, 2));
+	const g = toLinear(value.slice(2, 4));
+	const b = toLinear(value.slice(4, 6));
+	const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+	const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+	const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+	return [
+		0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+		1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+		0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+	];
+}
+
+function oklabDistance(hexA, hexB) {
+	const a = hexToOklab(hexA);
+	const b = hexToOklab(hexB);
+	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function minColorDistance(color, fixedColors) {
+	// 確定済みの色が無い間は制約が無いので +∞ とする。
+	let minimum = Infinity;
+	for (const fixed of fixedColors) minimum = Math.min(minimum, oklabDistance(color, fixed));
+	return minimum;
+}
+
+function farthestColorFrom(fixedColors, usedColors) {
+	// 未使用色のうち確定済みの色から最も遠いものを選ぶ。同値はRUN_COLORSの並び順で先勝ち。
+	let bestColor = null;
+	let bestDistance = -1;
+	for (const color of getRunColors()) {
+		if (usedColors.has(color)) continue;
+		const distance = minColorDistance(color, fixedColors);
+		if (distance > bestDistance) {
+			bestDistance = distance;
+			bestColor = color;
+		}
+	}
+	return { color: bestColor, distance: bestDistance };
 }
 
 function isSupersededMetricsError(error) {
@@ -1084,12 +1134,8 @@ class UIController {
 	renderRunList(runs, selectedRunIds, runColorMap) {
 		const list = document.getElementById("run-list");
 		list.replaceChildren();
+		// Run色はMetricsViewerClientApp._applyRunColorsが解決済みで、ここでは引くだけ。
 		const runIds = Object.keys(runs).sort();
-		for (const runId of runIds) {
-			if (!runColorMap.has(runId)) {
-				runColorMap.set(runId, getRunColors()[runColorMap.size % getRunColors().length]);
-			}
-		}
 		for (const runId of runIds.reverse()) {
 			const run = runs[runId];
 			const row = document.createElement("div");
@@ -1274,6 +1320,9 @@ class UIController {
 			this.app.onWorkspaceChanged(event.target.value);
 		};
 		document.getElementById("btn-reload").onclick = () => this.app.onReload();
+		document.getElementById("btn-recolor-runs").onclick = () => this.app.onRecolorRuns();
+		const autoRecolor = document.getElementById("chk-auto-recolor");
+		autoRecolor.onchange = () => this.app.onToggleAutoRecolor(autoRecolor.checked);
 		document.getElementById("btn-auto-reload").onclick = () => this.app.onToggleAutoReload();
 		document.getElementById("btn-graph-scroll-lock").onclick =
 				() => this.app.onToggleGraphScrollLock();
@@ -1372,6 +1421,7 @@ class MetricsViewerClientApp {
 		this.manualYRanges = new Map();
 		this.runColorMap = new Map();
 		this.viewports = new Map();
+		this.autoRecolorEnabled = true;
 		this.graphScrollLockEnabled = false;
 		this.lodDisplayMode = LodDisplayMode.MIN_MAX;
 		this.isTagsLocked = false;
@@ -1395,6 +1445,7 @@ class MetricsViewerClientApp {
 		this._loadState();
 		this.ui.bindStaticControls();
 		this._syncGraphScrollLockUi();
+		this._syncAutoRecolorUi();
 		this.setMode(Mode.META_LOADING);
 		try {
 			await this._initializeWorkspace();
@@ -1592,10 +1643,69 @@ class MetricsViewerClientApp {
 	}
 
 	refreshLists() {
+		this._applyRunColors();
 		this.ui.renderRunList(this.cache.getRuns(), this.selectedRuns, this.runColorMap);
 		this.ui.bindRunListEvents();
 		this.ui.renderTagList([...this._visibleTagSet()]);
 		this.ui.bindTagListEvents();
+	}
+
+	_applyRunColors() {
+		// (a) まだ色を持たないRunへ基本色を配る。runId昇順の先着順で、既存の割り当ては動かさない。
+		for (const runId of this.cache.getRunIds().sort()) {
+			if (this.runColorMap.has(runId)) continue;
+			this.runColorMap.set(
+					runId,
+					getRunColors()[this.runColorMap.size % getRunColors().length]);
+		}
+		// (b) AutoがONなら、そこから選択中Runだけを分離する。冪等なので毎回の描画で走ってよい。
+		if (this.autoRecolorEnabled) this._recolorSelectedRuns({ keepExisting: true });
+	}
+
+	onRecolorRuns() {
+		// 現在の色を無視し、選択中Runへpaletteの最良の組を配り直す。
+		this._recolorSelectedRuns({ keepExisting: false });
+		this.refreshLists();
+		this._renderCurrent();
+	}
+
+	onToggleAutoRecolor(enabled) {
+		this.autoRecolorEnabled = enabled;
+		localStorage.setItem(STORAGE_KEY_AUTO_RECOLOR, enabled ? "true" : "false");
+		this._syncAutoRecolorUi();
+		this.refreshLists();
+		this._renderCurrent();
+	}
+
+	_syncAutoRecolorUi() {
+		const checkbox = document.getElementById("chk-auto-recolor");
+		if (checkbox) checkbox.checked = this.autoRecolorEnabled;
+	}
+
+	_recolorSelectedRuns({ keepExisting }) {
+		// 選択1本以下では分離すべき相手がいないので何もしない。
+		if (this.selectedRuns.length <= 1) return;
+		const fixed = [];
+		const used = new Set();
+		// 選択順に処理するため、先に選んだRunほど色を保持しやすく、追加したRunだけが動く。
+		for (const runId of this.selectedRuns) {
+			// paletteを使い切ったら次のラウンドを始める。ラウンド内は必ず相異なる色になる。
+			if (used.size === getRunColors().length) {
+				fixed.length = 0;
+				used.clear();
+			}
+			const best = farthestColorFrom(fixed, used);
+			const current = this.runColorMap.get(runId);
+			// しきい値を満たせない本数でも「今のpaletteで取れる最良」を維持条件にする。
+			const keepCurrent = keepExisting
+					&& current != null
+					&& minColorDistance(current, fixed)
+							>= Math.min(RUN_COLOR_MIN_DISTANCE, best.distance);
+			const chosen = keepCurrent ? current : best.color;
+			this.runColorMap.set(runId, chosen);
+			fixed.push(chosen);
+			used.add(chosen);
+		}
 	}
 
 	setSelectedRuns(runIds) {
@@ -2081,6 +2191,8 @@ class MetricsViewerClientApp {
 		}
 		this.graphScrollLockEnabled =
 				localStorage.getItem(STORAGE_KEY_GRAPH_SCROLL_LOCK) === "true";
+		// 既定ONなので、明示的に "false" が入っているときだけOFFとして読む。
+		this.autoRecolorEnabled = localStorage.getItem(STORAGE_KEY_AUTO_RECOLOR) !== "false";
 		const storedMode = localStorage.getItem(STORAGE_KEY_LOD_MODE);
 		if (Object.values(LodDisplayMode).includes(storedMode)) this.lodDisplayMode = storedMode;
 	}

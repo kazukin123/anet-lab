@@ -698,6 +698,56 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				""");
 	}
 
+	protected static String readChipColor(Page page, String runId) {
+		return (String) page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.dataset.runId === runId);
+					const chip = row?.querySelector('.run-color');
+					return chip ? getComputedStyle(chip).backgroundColor : '';
+				}
+				""", runId);
+	}
+
+	protected static List<String> readChipColors(Page page, List<String> runIds) {
+		return runIds.stream().map(runId -> readChipColor(page, runId)).toList();
+	}
+
+	protected static void clickRunRow(Page page, String runId) {
+		// 行はrefreshListsのたびに作り直されるため、click前に必ず引き直す。
+		page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.dataset.runId === runId);
+					if (!row) throw new Error('run not found: ' + runId);
+					row.click();
+				}
+				""", runId);
+	}
+
+	protected static void setAutoRecolor(Page page, boolean enabled) {
+		page.setChecked("#chk-auto-recolor", enabled);
+	}
+
+	protected static String readAutoRecolorStorage(Page page) {
+		return (String) page.evaluate("""
+				() => localStorage.getItem('anet.metricsviewer.autoRecolorEnabled')
+				""");
+	}
+
+	protected static void waitForRunRows(Page page, int count) {
+		page.waitForFunction("""
+				count => document.querySelectorAll('#run-list .run-row').length === count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	protected static void waitForSelectedTraceCount(Page page, int count) {
+		page.waitForFunction("""
+				count => (document.querySelector('.js-plotly-plot')?.data ?? [])
+					.filter(trace => trace?.meta?.runId).length >= count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
 	protected static void selectSingleRun(Page page, String runId) {
 		page.evaluate("""
 				runId => {

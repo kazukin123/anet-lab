@@ -70,6 +70,8 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | `Workspace` | serverが列挙したworkspaceへ切り替え、Run選択・色・viewport・凡例状態をリセットする |
 | `Runs` | 行クリックで即時toggleする。同じ行を350ms以内にもう一度押すとそのRunだけを選ぶ。空選択も可能 |
 | `Select All` / `Latest Only` | 全Run、または最新Runへ選択を切り替える |
+| `Recolor` | 選択中Runへ、互いに最も見分けやすい色を配り直す。選択順に固定の並びで配るので、本数が同じなら同じ色の組になる |
+| Runsの`Auto` | 選択を変えるたびに、見分けにくい色になったRunだけを自動で配り直す。既定ON |
 | `Tags` | 表示するmetric tagを選ぶ |
 | Tagsの`Filter` | 選択済みtagだけを一覧へ残す |
 | Run行の背景と`%` | 選択したMetricsマスタをSQLiteへ取り込んだRun単位の進捗を示す |
@@ -85,7 +87,7 @@ Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる
 
 初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
 Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
-選択workspace、選択tag、LOD mode、Scroll Lock、tag別のLogとp5–p95はbrowserの`localStorage`へ保持される。Logとp5–p95はworkspaceをまたいで同名tagへ適用される。
+選択workspace、選択tag、LOD mode、Scroll Lock、Runsの`Auto`、tag別のLogとp5–p95はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとp5–p95はworkspaceをまたいで同名tagへ適用される。
 
 p5–p95は、凡例で非表示にしたRunを除き、各Runについて現在のX範囲にあるLOD描画値から個別に計算する。p5未満とp95超の点は表示traceから除外されるため、その点のhoverも表示されない。残った点へPlotlyのautorangeを適用する。点数による下限はなく、tooltipには表示点数と入力点数を示す。Logとの併用時もpercentileはraw値で計算してからsigned-log座標へ変換する。手動Y zoomは維持され、`Reset View`またはPlotlyのaxis resetでフィルター後のautorangeへ戻る。グラフheaderの統計値とclient cacheのraw値は変更しない。
 

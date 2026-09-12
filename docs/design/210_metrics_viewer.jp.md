@@ -276,7 +276,7 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 
 | コンポーネント | 定義 |
 |---|---|
-| `MetricsViewerClientApp` | Run/tag選択、viewport、描画世代（revision）、poll timerを所有するclient app |
+| `MetricsViewerClientApp` | Run/tag選択、Run色、viewport、描画世代（revision）、poll timerを所有するclient app |
 | `DataFetcher` | REST呼出し、ページ単位のquery channelとsequence、AbortControllerによる旧request打ち切りを担当する |
 | `DataCache` | Run metadataと、`(runId, tagKey)`ごとのwindow 1件を保持する |
 | `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う |
@@ -567,8 +567,13 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `RUN_SOLO_INTERVAL_MS` | 350 | 同じRun行の連続clickをsolo選択とみなす閾値 |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にdrag scrollへ切り替える移動量 |
+| `RUN_COLOR_MIN_DISTANCE` | 0.16 | `Auto`が既存のRun色を維持する分離距離の下限 |
 
-`localStorage`へ保存するstateは次の8件だけである。viewport、凡例の表示状態、Run選択は保存しない。Logとpercentile範囲はworkspace名をkeyへ含めず、同名tagで共有する。
+Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配り、`Auto`がONならそこから選択中Runだけを分離する。
+`Recolor`は現在の色を無視し、選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。`Auto`は既存の色が`min(RUN_COLOR_MIN_DISTANCE, 今のpaletteで取れる最良)`を満たさないRunだけを配り直す。
+どちらも未選択Runの色を変えず、選択が20本を超えるとpaletteを1周してラウンドを改める。選択1本以下では何もしない。
+
+`localStorage`へ保存するstateは次の9件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentile範囲はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
@@ -576,6 +581,7 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `anet.metricsviewer.activeTags` | 現在選択中のtag集合 |
 | `anet.metricsviewer.knownTags` | 一度でも観測したtag集合。未知tagだけを自動でactiveにするために使う |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lockのon/off |
+| `anet.metricsviewer.autoRecolorEnabled` | Runsの`Auto`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
 | `anet.metricsviewer.logScaleTags` | signed-logを有効にしたtag集合。文字列JSON配列を辞書順で保存する |
 | `anet.metricsviewer.ignoreOutlierTags` | p5–p95を有効にしたtag集合。文字列JSON配列を辞書順で保存する |
