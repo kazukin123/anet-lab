@@ -18,22 +18,37 @@ SET "BK=backend.$=backend.@non-deterministic"
 SET "FIX2=E1.game=breakout"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
-SET "EV=run.@evalN10"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
 SET "RF=run.@rfit"
-SET "CHK=%EV%>run.@pl_check>run.@to_400k"
+SET "NET=run.@btrnet>run.@btrsn"
+SET "R=workspaces/atari-3rd/runs/run_20260912-074000_rr4_btrfull_munch"
+SET "NOSN=workspaces/atari-3rd/runs/run_20260913-025232_rr4_btrnosn_20m/agent_close.anet"
+SET "EV0=%A5%>run.@munch>%NET%>run.@evalonly>run.@eval2only>run.@greedy_eval>run.@to_50"
 
-echo === 0. wiring: btrnet structure 400k ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>%CHK%" "app.run_name=run_{t}_tmp_wiring_btrnet"
-
-echo === 0b. wiring: btrnet + btrsn + envs64 400k ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn>run.@envs64>%CHK%" "app.run_name=run_{t}_tmp_wiring_btrfull"
-
-echo === 1. RR4 + BTR structure 50M (8h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>%EV%" "app.run_name=run_{t}_rr4_btrnet_munch"
-
-echo === 2. RR4 + BTR structure + SN + envs64 50M (9h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn>run.@envs64>%EV%" "app.run_name=run_{t}_rr4_btrfull_munch"
+echo === 0a. wiring: btrtrunknosn 400k (7m) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrtrunknosn>run.@envs64>run.@to_400k>run.@btreval_r4" "app.run_name=run_{t}_tmp_wiring_btrtrunknosn"
+echo === 0b. wiring: btrnosn resume load 400k (7m) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@envs64>run.@to_400k>run.@btreval_r4" "A3.auto_load_file=%NOSN%" "app.run_name=run_{t}_tmp_wiring_resume"
+echo === 1. btrnosn resume +30M, cumulative 50M (5.6h) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@envs64>run.@to_30m>run.@btreval_r4" "A3.auto_load_file=%NOSN%" "app.run_name=run_{t}_rr4_btrnosn_resume30m"
+echo === 2-E1. btrfull 10m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_10311680.anet" "app.run_name=run_{t}_ev_btrfull_10m"
+echo === 2-E2. btrfull 20m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_19976000.anet" "app.run_name=run_{t}_ev_btrfull_20m"
+echo === 2-E3. btrfull 30m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_30033664.anet" "app.run_name=run_{t}_ev_btrfull_30m"
+echo === 2-E4. btrfull 37m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_37069888.anet" "app.run_name=run_{t}_ev_btrfull_37m"
+echo === 2-E5. btrfull 40m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_40349824.anet" "app.run_name=run_{t}_ev_btrfull_40m"
+echo === 2-E6. btrfull 43m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_43399808.anet" "app.run_name=run_{t}_ev_btrfull_43m"
+echo === 2-E7. btrfull 45m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_45030848.anet" "app.run_name=run_{t}_ev_btrfull_45m"
+echo === 2-E8. btrfull 47m eval2 greedy (18m) ===
+call :run_exe "run.$=%EV0%" "A3.auto_load_file=%R%/agent_47005376.anet" "app.run_name=run_{t}_ev_btrfull_47m"
+echo === 3. RR4 + Pool6 + trunk, no SN, 20M (3.7h) ===
+call :run_exe "run.$=%A5%>%RR4%>%RF%>run.@btrtrunknosn>run.@envs64>run.@a5_20m>run.@btreval_r4" "app.run_name=run_{t}_rr4_btrtrunknosn_20m"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -41,7 +56,7 @@ pause
 exit /b 1
 
 :all_succeeded
-echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, 0 FAILED ===
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
 pause
 exit /b 0
 

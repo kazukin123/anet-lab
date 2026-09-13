@@ -525,7 +525,11 @@ Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
   `config/config_data.txt` をそのままコピーしたものです。env ごとにフラットな 1 ディレクトリへ置きます。
 - **ファイル名は Run フォルダ名から `★` などの可変マーカーを除いたもの。** 記録側がタイムスタンプだけで
   Run を参照している場合があるため、**`run_YYYYMMDD-HHMMSS` を join キーとして扱います**。
-- **対象は実験記録の本文に Run 名が出るものだけ。** 配線確認や捨て Run（`tmp` 付き）は複製しません。
+- **対象は実験記録の本文に Run 名が出る学習 Run だけ。** 次のものは複製しません。
+  - 配線確認や捨て Run（`tmp` 付き）。
+  - **評価専用 Run（`run.@evalonly` 系。`ev_` / `nolearn_` など）。** `learner.enabled = false` で
+    学習設定を行使しないため、評価対象のスナップショットを出した学習 Run の config が複製されていれば足ります。
+    eval の条件（ε、`eval_batch_size`、`eval_episodes`）は記録の本文に書いてください。
 - **タイミングは実験記録を更新するコミットと同じ。** 記録を書く時点で一緒に複製すれば漏れません。
 - **複製した config は再実行できます。** `--config <保存した config>` は workspace 解決を省く完全自己記述モードです。
   実行時は `app.run_name` を書き換え、`app.runs_dir` が相対パスなので `apps/runner` を作業ディレクトリにしてください。

@@ -329,6 +329,10 @@ run.@a5_rr4  : app.run_name = run_{t}_a5_${E1.game}_rr4
 run.@a5_20m  : @vars.max_exp_step  = 20,000,000
 run.@a5_20m  : @vars.half_exp_step = 10,000,000
 
+# btrnosn の 20M 到達スナップショットから継続する Run 用。+30M で累計 50M になる。
+run.@to_30m  : @vars.max_exp_step  = 30,000,000
+run.@to_30m  : @vars.half_exp_step = 15,000,000
+
 run.@pl_10m        : @vars.max_exp_step = 10,000,000 # 保護の持続を見る。run_name は腕から継ぐ
 
 # 予算だけの合成用。任意の腕へ後付けできる(run_name は腕から継ぐ)。
@@ -363,6 +367,22 @@ run.@evalN10 : train.eval.[eval1].eval_batch_size = 10
 run.@evalN10 : train.eval.[eval1].eval_episodes = 10
 run.@evalN10 : train.eval.[eval2].eval_batch_size = 10
 run.@evalN10 : train.eval.[eval2].eval_episodes = 10
+
+# BTR 相当の eval。250,000 exp ごとに 100 エピソード、eval1(target net)は停止。
+# interval は learn_step 基準なので、1 更新あたり exp が変わる replay_ratio ごとに換算が要る
+# (250,000 / 1更新あたりexp)。RR1=256exp -> 977、RR2=128exp -> 1953、RR4=64exp -> 3906。
+run.@btreval_r1 : train.eval_schedule.[eval1].interval = 0
+run.@btreval_r1 : train.eval_schedule.[eval2].interval = 977
+run.@btreval_r1 : train.eval.[eval2].eval_batch_size = 10
+run.@btreval_r1 : train.eval.[eval2].eval_episodes = 100
+run.@btreval_r2 : train.eval_schedule.[eval1].interval = 0
+run.@btreval_r2 : train.eval_schedule.[eval2].interval = 1953
+run.@btreval_r2 : train.eval.[eval2].eval_batch_size = 10
+run.@btreval_r2 : train.eval.[eval2].eval_episodes = 100
+run.@btreval_r4 : train.eval_schedule.[eval1].interval = 0
+run.@btreval_r4 : train.eval_schedule.[eval2].interval = 3906
+run.@btreval_r4 : train.eval.[eval2].eval_batch_size = 10
+run.@btreval_r4 : train.eval.[eval2].eval_episodes = 100
 
 # 学習を完全に止めて eval だけ回す (評価専用 / デモ)。checkpoint は A3.auto_load_file で渡す。
 # learner.enabled=false では 1 train step = 1 learn step になるので、interval はそのまま
@@ -522,6 +542,17 @@ run.@btrsn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpa
 
 # num_envs を BTR の 64 へ。replay_ratio は 1 遷移あたりの定義なので
 # 1 更新 = 64 exp step は変わらず、target は hard500 のままで env 時間 32,000 を保つ。
+# btrfull から融合位置だけ戻す。tau 側は @iqn(512 + SiLU)。探索ブロック 24 のとおり
+# tau の ReLU は融合 2304 でのみ得になるので、512 では SiLU が正しい対になる。
+run.@btrtrunk : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool6Trunk
+run.@btrtrunk : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+
+# btrtrunk から SN だけ抜く腕。RR4 における Pool6 単独の効果と、トランク構造での SN の
+# 効果を同時に切り分ける(トランク有無 x SN 有無 の 2x2 を閉じる)。結線は RR1 の
+# 探索ブロック 13 段 1 と同一で、そこでは V/A 基準に対して明確なマイナスだった。
+run.@btrtrunknosn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNPool6
+run.@btrtrunknosn : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+
 run.@envs64 : train.num_envs = 64
 
 # 全層 spectral_cap。sigma>1 のときだけ割るので sigma<1 の層を拡大せず、全層 spectral の
@@ -1041,6 +1072,11 @@ net.block.[AtariIQNTauProj7744].init.mode = xavier
 # 共有トランクを持たないので AtariLinear512SN は使わない。
 net.branch.@AtariImpalaX2SNPool6Flat.bind = grid
 net.branch.@AtariImpalaX2SNPool6Flat.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
+
+# btrfull からトランクだけ戻す腕用(run.@btrtrunk)。SN と AtariPool6 は残し、2304 を
+# 512 へ落としてから tau 融合する。融合位置だけを btrfull と変える。
+net.branch.@AtariImpalaX2SNPool6Trunk.bind = grid
+net.branch.@AtariImpalaX2SNPool6Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 net.branch.@AtariImpalaX2Pool6Flat.bind = grid
 net.branch.@AtariImpalaX2Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
