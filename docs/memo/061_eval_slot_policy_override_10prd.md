@@ -1,7 +1,7 @@
 # PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 
 - 起票日: 2026-08-24(draft)、グリル: 2026-09-06〜07(`/grill-with-docs`。裁定は §5・§9、決定の記録は ADR 0038)、改訂: 2026-09-08(Codex DropMerge レビュー反映: §2.7-2.8、§5.3-5.4、§7.3-7.6、§8-10。同日 Codex Atari レビュー反映: §1-B/G/H、§2.1、§2.7、§3、§5.4、§5.7、§7.1、§7.3、§7.5、§7.6、§8-5/6/8/9、§9、§11)、2026-09-12(PRD 072 最終形への同期。設定キー `actor_key` → `actor`: §5.1、§5.3、§5.7、§6、§7.2、§7.6、§9、§10)
-- 2026-09-13改訂: PRD 072の差分継承・個別指定優先へ前提と例を同期。設計文書のみの更新であり、実装・設定・テストの移行は未実施。
+- 2026-09-13改訂: PRD 072の差分継承・個別指定優先へ前提と例を同期。弱い既定値は通常プロファイルへ置き、個別葉による意図的な上書きを認める。
 - 実装順: PRD 072(選択の最終値の差分継承、個別・部分指定とRun・CLIの優先順位)→ 本 PRD P1 → P2。P3 は着手時に別途グリル
 - 対象: `core/anet-core`(`rl.hpp` / `agent.hpp` の Agent・Actor IF、4 Agent 実装、`trainer.*` の RunManager / RunnerBase / EvalRunner、`observers.*` の metrics 参照先)、`apps/runner`(EvalPanel / RunnerFrame / RunnerApp)、`apps/runner/config` 全 env config と `agent.txt` / `common.txt` / `metrics_scalar.txt`、`viewers/metrics-tools/inspect_run.py`、`apps/runner/tools/dropmerge_optuna.py`
 - 関連: [PRD 072](072_config_selection_final_value_10prd.md)(前提。全選択の最終値の差分継承・個別指定の優先・RunとCLIの優先)、`done/060_eval_batch_episodes_10prd.md`(本数。§「本 PRD では解けない隣接論点」で本件を名指し)、`done/052_eval_schedule_separation_10prd.md` / ADR 0027(定義とスケジュールの分離)、`done/059_config_concept_tree_alignment_10prd.md`(カタログ / プロファイル / 上書き層の用語)、`912_background_eval_snapshot_ordering_10prd.md`(同じ eval 経路の別論点)、ADR 0038(本 PRD の決定と却下案)
@@ -161,8 +161,9 @@ run.eval.[eval] : actor = eval
 - **eval タグ名を改名する**: eval1 → `eval_target`、eval2 → `eval`。省略時の Actor キーがタグ名なので、`common.txt` は `run.eval.[eval_target]` / `run.eval.[eval]` を宣言するだけで各 Agent の `actor.[eval_target]` / `actor.[eval]` へつながる。target net の無い ImageCls / MuZero は env ファイルで `run.eval_schedule.[eval_target].interval = 0`(dormant)にする
 - **metrics の tag 名(LHS)は全て不変**。RHS の `$eval.[eval1]` → `$eval.[eval_target]`、`$eval.[eval2]` → `$eval.[eval]` だけを再指定し、`21_eval/01_target_reward` = target net、`02_policy_reward` = online net、`51_eval1/*` = target、`52_eval2/*` = online という過去 Run との意味の一致を保つ
 - カタログ項目の変更は`A2.actor.[eval].policy.eps_start = 0.01`のように、Agentのチェーン後段に置いたA2へ書ける。ただし、その項目に直接書いた葉・部分指定があればそちらが強い。共通プロファイル自身へ書いた値の変更は`DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.01`のように同一キーを再指定する。外側A2からの差分が参照先の個別指定を無条件に上書きするとは扱わない(PRD 072 M02・M07)。上のGreedy例でεを使う場合は、policy_typeもEpsilonGreedyとして設定する。
+- 後段A2から変更する弱い既定値は、現在の競合有無によらず通常`@defaults`等のベース側へ置く(PRD 072 §7)。意図した個別葉は継承値に勝ち、競合WARNを出さない。CLIは指定したそのキーについて最優先である。`DefaultDQNAgent.actor.[eval].policy.eps_start=0.01`は対象葉を直接上書きし、`A2.actor.[eval].policy.eps_start=0.01`はA2の葉だけを上書きする。Agentの選択キーへのCLIはチェーン全体を置き換えるため、必要なdefaultsを先頭に明示する。
 - PRD 072により、全ての選択が参照先のベース・部分指定・個別指定・Run・CLIを反映した最終値とキー集合を読む。`[key]`かどうかで読み方は変わらない。CLIやRunプロファイルで`DefaultDQNAgent.actor.[eval].policy.eps_start`を直接変えても継承先へ届き、継承先自身の個別指定や後段チェーンの優先を保つ。
-- 2026-09-13のPRD 072改訂契約では、`$`はベースで、個別・部分指定が優先する。別々の選択元は各最終値を差分合成し、右側にない葉を残す。同じ入力キー自体の再指定だけを後勝ちで採用し、参照先の選択命令を子で再実行しない。相対参照・記録は定義元を基準とする。現在は文書レビュー段階であり、実装移行は未実施。原則・具体例・記録・異常系の正本は[PRD 072](072_config_selection_final_value_10prd.md) §3〜§7。
+- 2026-09-13のPRD 072改訂契約では、`$`はベースで、個別・部分指定が優先する。別々の選択元は各最終値を差分合成し、右側にない葉を残す。同じ入力キー自体の再指定だけを後勝ちで採用し、参照先の選択命令を子で再実行しない。相対参照・記録は定義元を基準とする。原則・具体例・記録・異常系の正本は[PRD 072](072_config_selection_final_value_10prd.md) §3〜§7。
 - **fail-fast**: 参照先 `actor.[<key>]` が未定義 → `ANET_SYSTEM_ERROR`(参照元 Runner 名・キー・定義済みキー一覧・`run.*.actor` の指定方法を含める)。`network` の未知値、`clone_model=false` で actor device ≠ agent device、MuZero での `clone_model=true`(非対応)も fail-fast
 - **dormant スロット**(定義済みだが有効 schedule 無し)は Actor を作らないので `actor` を解決しない(定義側の宣言検証だけ行う)。EvalPanel が参照する definition-only タグは Actor を作るので解決する
 

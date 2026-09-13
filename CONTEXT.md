@@ -159,7 +159,7 @@ _Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
 構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
 _Avoid_: config, resolved config
 
-設定用語の改訂契約は[PRD 072](docs/memo/072_config_selection_final_value_10prd.md)と[ADR 0042](docs/adr/0042-config-inheritance-as-differential-base.md)を参照する。実装への反映状況はPRD側に記載する。
+設定用語の改訂契約は[PRD 072](docs/memo/072_config_selection_final_value_10prd.md)と[ADR 0042](docs/adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
 **プロファイル (設定プロファイル)**:
 `@` セグメントで命名する、選択や値参照の入力となる設定部品。実効側へ組み込む前の定義であり、カタログ項目の identity とは区別する。
@@ -294,6 +294,10 @@ _Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
 **episode return**（エピソードリターン）:
 一つのepisode groupが開始から完了までに得たrewardの総和。`PER_LANE`では当該laneの総和、`SHARED`では全lane・全stepの総和になる。評価session内の複数returnにはmean / max / min / stdを適用できる。
 _Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
+
+**エピソード長**（episode length）:
+一つのepisode groupが開始から完了までに要したEnvの`Step()`回数。`PER_LANE`では当該laneのstep数、`SHARED`ではbatch全体の`Step()`回数でlane数は掛けない——episode returnが全lane・全stepの総和なのとは意図的に非対称で、長さは量ではなく時間だから`num_envs`を変えても値の意味が変わらないようにする。全envで`$runner`から`mean./max./min./std.episode_steps`として取れる。単位はagent stepで、frameskip前の生フレーム数ではない。
+_Avoid_: episode_len（GridMazeの旧env固有キー）, game_len（Atari固有。episodic_life下ではepisode境界が別）, game_frames（生フレーム）, エピソードステップ数
 
 **評価セッション**（evaluation session）:
 eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@session_end` 1点として記録する。採用episodeの完了はそれぞれ`@episode_end`としても発火し、個体単位のtraceはそちらに乗る。lane数（`eval_batch_size`）は並列度であって本数ではない。

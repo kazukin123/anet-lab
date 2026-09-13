@@ -2,7 +2,6 @@
 
 - 起票日: 2026-09-07。改訂日: 2026-09-13。
 - 関連: [PRD 061](061_eval_slot_policy_override_10prd.md)、[ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)、[設定基盤の設計](../design/100_runtime_and_configuration.jp.md)、[用語集](../../CONTEXT.md)。
-- 本改訂はレビュー用の設計文書更新。以下は合意した実装対象の契約であり、コード・現用設定・テスト・goldenの移行は未実施である。
 - 2026-09-12版の実装とgolden比較の記録は[20impl](072_config_selection_final_value_20impl.md)と[ADR 0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md)に保持する。過去の検証結果を本改訂の合格証拠にしない。
 - 本PRDは`999_config_run_profile_override_precedence_10prd.md`を吸収する。ActorのAPI・設定カタログへの移行はPRD 061が扱う。
 
@@ -16,7 +15,7 @@ PRD 072の当初の課題は、選択元への後段変更が継承先へ届か�
 
 上書き層の名称・段数は設定運用上の約束として残せるが、resolverが識別する種類にはしない。新しい構文・モード・互換スイッチ・キー削除演算子・葉の削除用の由来追跡は追加しない。
 
-## 2. 実装済みの先行版から変わること
+## 2. 2026-09-12版から変わること
 
 | 論点 | 2026-09-12版のコード・テスト | 本改訂の契約 |
 |---|---|---|
@@ -26,7 +25,7 @@ PRD 072の当初の課題は、選択元への後段変更が継承先へ届か�
 | ドット無しの選択元 | 上書き層として特別扱い | Common等も通常prefixとして扱う |
 | `@b`の参照先 | コピー先を基準に決まる | 宣言の定義元を基準に決まる |
 | 選択の記録 | プロファイル内の宣言もコピー先のキーで記録 | 宣言の定義位置で記録 |
-| 弱い既定値の直書き | 選択で上書きされる | 強い個別指定になるため、必要箇所をベースへ移す |
+| 弱い既定値の直書き | 選択で上書きされる | 強い個別指定になるため、チェーン配下の弱い既定値全体をベースへ移す |
 
 最終値の伝播、Run・CLIの同一キーに対する優先、未選択プロファイルの休止、未定義・自己供給・循環・深さの検証、`${}`の1段参照は維持する。公開APIとresolution JSONのフィールド構成は変更しない。
 
@@ -52,7 +51,7 @@ PRD 072の当初の課題は、選択元への後段変更が継承先へ届か�
 
 この具体性の比較は、各選択元を組み立てる範囲の規則である。**別々の選択元を`A2 > A3`で重ねるときは、A3の最終値がA2の同名キーに勝つ。** A2内に深い部分指定があっても、後段A3の値より強くしない(M19)。A1等の数字自体には優先順位がない。
 
-直接書いた既定値も個別指定になる。弱い既定値が必要な箇所は、チェーン先頭のプロファイルに置く(§7)。外側の選択でA2から供給した値は、参照先に直接書いてある葉や部分指定を無条件には上書きしない(M02、M07)。
+直接書いた既定値も個別指定になる。チェーン配下の弱い既定値は、現在の競合有無によらずチェーン先頭の通常`@defaults`プロファイルに置く(§7)。意図した個別葉が継承値に勝つのは正当な指定であり、この競合を理由とするWARNは出さない。外側の選択でA2から供給した値は、参照先に直接書いてある葉や部分指定を無条件には上書きしない(M02、M07)。
 
 ### P3: 同じ入力キーの書き直しと差分合成を区別する
 
@@ -70,11 +69,23 @@ Runプロファイルは通常選択より前に展開し、葉については�
 
 Run・CLIによる参照先の最終値変更は継承先へ伝播する。ただし、親キーへのCLI指定が「親から継承した値」に付いたまま、子の個別指定まで無条件に上書きするわけではない。子の結果は子自身のP2でも決まり、子のキーを直接指定するCLIが最優先になる(M04)。
 
+**CLIは指定したそのキーについて最優先**であり、そのキーから継承される全ての葉へ優先権を付けるものではない。次の各CLIは独立した指定である。
+
+| CLI指定 | 最優先になる対象と結果 |
+|---|---|
+| `LunarLanderEnv.ground_y=0.2` | 実効葉そのもの。file・継承・Runの値に必ず勝つ |
+| `E1.ground_y=0.2` | E1の葉。`LunarLanderEnv.$ = @defaults > @trunk > E1`なら0.2が届くが、別キー`LunarLanderEnv.ground_y=0.5`を個別指定した独立分岐では0.5が勝つ |
+| `LunarLanderEnv.$=LunarLanderEnv.@defaults>LunarLanderEnv.@trunk>E1` | 選択キーだけ。file・Runの同じチェーンを丸ごと置き換える。実効葉の個別指定を消したり上書きしたりしない |
+
+選択キーのCLIで`@defaults`を省けば、既存チェーンにあった`@defaults`も外れる。resolverは暗黙に補わず、既定値を必要とする起動経路が明示する(§7.1)。
+
 第1相・第2相という先行版の実装表現を保つかは実装時に決める。契約は優先順位、伝播、適用対象、診断結果であり、選択の再実行を必須にしない。
 
 ### P5: 相対参照は定義元で解決する
 
 単独の`@name`は、選択宣言の定義元の名前空間を基準に読む。通常の`Env.$ = @a`は`Env.@a`、プロファイル自身の継承`Env.@a.$ = @b`は同じ名前空間の`Env.@b`を指す。`Env.@a.@b`を暗黙に探す規則にはしない。
+
+Runプロファイルから供給された宣言の定義元は展開先のroot位置とし、`run.@x : DefaultDQNAgent.$ = @baseline`の`@baseline`は`DefaultDQNAgent.@baseline`を指す。
 
 `Other.$ = Env.@a`で使っても、@aの中の`@b`は`Env.@b`のままである。Other.@bが存在しても参照先を差し替えない。完全修飾したtermは記載どおりのprefixを指す(M16)。
 
@@ -120,6 +131,8 @@ JSONは`schema_version = 1`と、既存の`selections` / `references` / `overrid
 
 以下のActorカタログ例はPRD 061導入後の設定モデルを用いたresolver入力であり、現行Runnerでそのまま学習できる完全な設定ファイルではない。値は型付きConfigの既定補完前のものを示す。
 
+実装変更時に[設定ガイド](../design/100_runtime_and_configuration.jp.md)へ、「チェーン配下の弱い既定値は`@defaults`へ置き、root直書きは継承値より強い意図的な個別指定に使う。選択チェーンを書き換える各経路でも必要な`@defaults`を先頭に明示する」という利用者向け規約を追記する。
+
 ### 4.2 設定例と期待結果
 
 各 M 番号は独立した入力であり、前の例の変更を持ち越さない。CLI の表は設定ファイルへの追記ではなく、別途 resolver に渡す override のキーと値を表す。
@@ -144,6 +157,22 @@ DefaultDQNAgent.$ = @baseline > A2 > A3
 期待結果: `[eval]` は EpsilonGreedy、eps_start / eps_end がともに 0.05、network が online。`[eval_target]` は同じ policy で network が target。`@eval_base` / `@target` の名前は実効設定に残らず、空の A2 / A3 は正常。
 
 根拠: P1・P2。`[eval]` を受け取った後、右の `@target` が network を上書きする。
+
+解決記録の抜粋（`selections`内の1 entry）:
+
+```json
+{
+  "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+  "chain": [
+    {
+      "term": "DefaultDQNAgent.actor.@eval_base",
+      "resolved": "DefaultDQNAgent.actor.@eval_base"
+    }
+  ]
+}
+```
+
+`key`はBASEの宣言の定義位置なので`@baseline`を含む。コピー先の`DefaultDQNAgent.actor.[eval].$`へ読み替えない。外側の`DefaultDQNAgent.$`や`[eval_target]`の宣言もP7に従って記録する。この抜粋はJSON形式を変更せず、Runを選ぶ入力では`run.$`を先頭に置く契約も維持する。`inspect_run`は先頭の`run.$`だけを特別扱いし、その他のkeyをそのまま扱う。
 
 #### M02: 参照先の個別指定と外側からの差分
 
@@ -478,15 +507,13 @@ DefaultDQNAgent.$ = A2 > A3
 
 期待結果: `[eval].policy.policy_type = EpsilonGreedy`。A2内では部分指定を解決してGreedyとなるが、A3の結果を後で重ねるためEpsilonGreedyが勝つ。`A3 > A2`へ変える分岐ではGreedy。根拠: P1・P2。
 
-## 5. 実装時の責務と今回の作業境界
+## 5. 実装時の責務
 
 実装の主対象は[config_impl.cpp](../../core/anet-core/src/config_impl.cpp)と公開ConfigManager経由のテストである。選択元の最終値を、各設定の個別・部分指定より弱いベースとして合成する。依存の計算順と上書き順位を混同しない。
 
 宣言を運ぶ入れ物かどうかの判定、上書き層専用のroot選択除外・禁止、コピー先を基準にした再実行を除去する。旧チェーンの葉を消すための親子由来追跡は追加しない。定義元の相対参照、内側プロファイルの休止と供給、Run・CLIの最終値伝播を同じ契約に収める。
 
 これは責務の指定であり、評価用データ構造や反復方式を必須化するものではない。公開APIやテスト専用APIを増やさず、M01〜M19で説明できる最小の実装を選ぶ。解決記録の順序は決定的にし、キャッシュの有無で内容を変えない。
-
-**今回行うのは設計文書の更新のみ。コード・現用設定・テスト・比較器・goldenはレビュー後の実装で変更する。** 既存の未コミット変更、旧golden、Run artifactを保持する。staging・commit・pushは行わない。
 
 ## 6. 受入条件と既存テストの改訂
 
@@ -506,9 +533,17 @@ DefaultDQNAgent.$ = A2 > A3
 | A10 | M08、M19 | カタログ外も同じ規則。選択元をまたぐと具体性より`>`の右側が勝つ |
 | A11 | M14 | Runの葉が通常設定に勝ち、参照先の最終値へ伝播 |
 | A12 | M15 | Runの項の後勝ち、CLIの最優先、解決入力キーとrun.$の指定 |
-| A13 | M16、M14 | 定義位置の記録、run.$先頭、Runの最終差分だけのoverrides、schema_version=1 |
+| A13 | M01、M16、M14 | 定義位置の記録、run.$先頭、Runの最終差分だけのoverrides、schema_version=1 |
 | A14 | 既存入力・値参照テスト | include・同一キー再指定・パーサ、`${}`1段と異常系を維持 |
-| A15 | §7の17入力 | 移行後の値一致を必須にし、解決記録・行順の差分を理由付きで確認 |
+| A15 | §7の17入力・全チェーン宣言の静的検査 | 移行後の値一致を必須にし、解決記録・行順の差分を理由付きで確認。17入力に含まれないRunも含め、defaultsを持つownerの全チェーンがそのdefaultsで始まることを確認 |
+
+既定値移行の受入分岐はA02・A03・A12・A15へ追加する。以下は後続実装の検証条件である。
+
+- `LunarLanderEnv.ground_y`等を`@defaults`へ移した入力で、E1から変更できること。Agent側もA2から移行した既定値を変更できること。同値だった5キーも後段から異なる値に変えて検証する。
+- 同じ実効葉を意図して個別指定した独立分岐では、その値が継承値に勝ち、競合WARNを出さない。個別葉と選択行を逆順にしても同じ結果になること。
+- P4の3種類のCLIを分けて検証する。対象の葉へのCLIは必ず勝ち、E1内の葉へのCLIはE1の最終値を変え、選択キーへのCLIはそのチェーンだけを置き換えること。
+- file、Run、CLIの各チェーン置換経路で、選択先が持たない既定キーが明示した`@defaults`から残ること。backendの`deterministic_warn_only`とappの`log_flush_interval_ms`を含め、プロファイルが全キーを持つという偶然に依存しないこと。`@defaults`を省いた独立分岐では暗黙補完しないこと。
+- 旧goldenを保持し、対応する移行後17入力の全キー・文字列値を一致させる。解決記録と行順は値のgateから分け、§7.2に従って確認する。
 
 既存テストの変更点を実装時に個別に記録する。
 
@@ -525,9 +560,9 @@ DefaultDQNAgent.$ = A2 > A3
 
 ## 7. 現用設定の移行と17件の比較
 
-### 7.1 実効値を維持する最小の移行
+### 7.1 チェーン配下の弱い既定値を全面移行する
 
-新規則は既定値の意味も変える。例示だけで移行範囲を決めず、§7.2の17入力について、固定configの個別葉と旧goldenを照合する。以下はRun・CLIによる同一キーの明示指定を考慮した静的棚卸しであり、新resolverを実行した検証結果ではない。対象24キーの個別葉は、2026-09-13の現用設定とmanifestの固定configで同一だった。
+新規則は既定値の意味も変える。**移行範囲は、チェーンが値を供給するコピー先prefix配下の弱い既定値全体**とする。現在値が異なる24キーだけに限定せず、同値の5キーと未競合として報告された149キーも棚卸し対象に含める。§7.2の17入力について、固定configの個別葉と旧goldenを照合する。以下はRun・CLIによる同一キーの明示指定を考慮した静的棚卸しであり、新resolverを実行した検証結果ではない。対象24キーの個別葉は、2026-09-13の現用設定とmanifestの固定configで同一だった。
 
 #### backend: 性能・再現性に関わる共有既定値
 
@@ -543,10 +578,10 @@ backend.$ = backend.@non-deterministic
 
 [12_batch_run.bat](../../apps/12_batch_run.bat)の`BK`は`backend.$=backend.@non-deterministic`という**選択キー**のCLI指定である。P4で最優先になるのはbackend.$自体であり、その継承結果が別キーの個別葉より強くなるわけではない。したがって、**現行batのBK指定ではこの競合を回避できない**。葉そのものへのCLI指定は別だが、batへ対症的な葉指定を増やすことを移行方法にはしない。
 
-さらに`lunarlander-repro`では、`run.@repro`が選ぶbackend.@deterministicのcudnn_deterministic = trueが、common.txtの個別葉falseに負ける。17入力を保持するにはbackendの移行対象は次の3キーになる。
+さらに`lunarlander-repro`では、`run.@repro`が選ぶbackend.@deterministicのcudnn_deterministic = trueが、common.txtの個別葉falseに負ける。次の3キーは既存17入力の値一致に直接影響する。全面移行ではこれらだけでなく、common.txtのbackend直書き8キーすべてを`backend.@defaults`へ移す。
 
 ```text
-# common.txt: 3個の個別葉をこの通常プロファイルへ移し、未指定時のベースにする
+# common.txt: 移す8キーのうち、値一致に直接影響する3キーの抜粋
 backend.@defaults : cudnn_benchmark = false
 backend.@defaults : deterministic_algorithms = true
 backend.@defaults : cudnn_deterministic = false
@@ -559,7 +594,7 @@ backend.$ = backend.@defaults
 backend.$ = backend.@defaults > backend.@non-deterministic
 ```
 
-決定論設定を選ぶチェーンも同じ関係にする。commonのベースを残すことで、backend.$を指定しないGridMaze / GridMaze_muzero / CartPoleも従来値を保つ。backend.@non-deterministicとbackend.@deterministicはこの3キーをすべて持つため、既存CLIがどちらかを単独選択する場合も値を保てることを確認する。Runプロファイルが供給するbackend.$も移行漏れの検索対象とする。
+決定論設定を選ぶチェーンも同じ関係にする。commonのベースを残すことで、backend.$を指定しないGridMaze / GridMaze_muzero / CartPoleも従来値を保つ。backend.@non-deterministic / backend.@deterministicが持たない既定値も残すため、RunプロファイルとbatのCLIを含む全置換経路で`backend.@defaults`を先頭に明示する。選択先が現在3キーを持つことを既定値保持の条件にはしない。
 
 #### Atari: ゲームとIQN出力先
 
@@ -579,11 +614,11 @@ AtariEnv.$ = @defaults > @v5_noop30 > E1
 E1.game = breakout
 ```
 
-移行後もbreakoutを維持する。AtariのIQN出力先でも、直接書かれた`DefaultDQNAgent.net.body.output.[features] = main_feature`と、選択するiqn_fusionが衝突する。これらを含め、新仕様で実効値が変わる既定値だけをベース側へ移す。`@defaults`は既存のプロファイル記法による通常名であり、予約名にはしない。
+移行後もbreakoutを維持する。AtariのIQN出力先でも、直接書かれた`DefaultDQNAgent.net.body.output.[features] = main_feature`と、選択するiqn_fusionが衝突する。これらを含め、現在同値または未競合でもコピー先に置いた弱い既定値はベース側へ移す。上のgameの例はAtariEnvの13定義を移すうちの1キーの抜粋である。`@defaults`は既存のプロファイル記法による通常名であり、予約名にはしない。
 
-#### 17入力の移行対象一覧
+#### 移行を省略すると17入力で値が変わる24キー
 
-**A15の文字列値一致で数えると24種。** レビューで挙がった22種に、数値として同じでも表記が異なる`DropMergeEnv.no_drop_timeout_gameover_penalty`と、派生入力lunarlander-reproの`backend.cudnn_deterministic`を加える。DropMergeは挙動に関わる14種と表記差1種の計15キーであり、`no_drop_timeout_*`は下表の2キーへ分けて数える。
+**A15の文字列値一致で数えると24種。これは値が変わる箇所の一覧であり、全面移行の総数ではない。** レビューで挙がった22種に、数値として同じでも表記が異なる`DropMergeEnv.no_drop_timeout_gameover_penalty`と、派生入力lunarlander-reproの`backend.cudnn_deterministic`を加える。DropMergeは挙動に関わる14種と表記差1種の計15キーであり、`no_drop_timeout_*`は下表の2キーへ分けて数える。
 
 「旧golden」は移行後も保持する値、「移行なし」は個別葉が勝った場合の値である。キーの種類数は入力をまたいで重複排除し、env別の件数は各envに属するmanifest入力の和集合とする。
 
@@ -624,17 +659,72 @@ E1.game = breakout
 
 レビュー時の現用7envの棚卸しでは、「全体↔部分」の値が競合する箇所は0件だった。この報告は現用入力の移行量の見積もりであり、P2の部分指定優先を検証した結果ではない。M09・M19の専用例と17入力の実装後比較は引き続き必要とする。
 
-#### DropMerge・LunarLanderの移行量と配置
+#### 全面移行の棚卸しと定義行数
 
-[DropMerge.txt](../../apps/runner/config/DropMerge.txt)は、選択する@baseline / @G5846 / @heavy / E1の値と、素のDropMergeEnv.*が重複している。必要な変更は、上表の**15個の個別葉の定義位置をベースプロファイルへ移し、既存チェーンの先頭にそのプロファイルを加えること**。内訳は値変化14個と表記差1個である。元の既定値の文字列とコメントを保持し、既存プロファイルやE1が供給する実験値は書き換えない。
+2026-09-13の現用configを、7envの有効なチェーンと共通includeに照らして静的に棚卸しする。`@`定義、E1／A2等の実験値、通常prefixでも選択元の在庫である`app.online` / `app.batchrun`等を、コピー先の弱い既定値と混同しない。同一キーの再指定は行順を保持して全定義を移す。
+
+| 定義ファイル | 移すキー種類数（ファイル内） | 移す有効定義行数 | 内訳 |
+|---|---:|---:|---|
+| common.txt | 19 | 19 | backend 8、app 11 |
+| Atari.txt | 19 | 19 | AtariEnv 13、DefaultDQNAgent 5、app 1 |
+| DropMerge.txt | 49 | 49 | DropMergeEnv 42、DefaultDQNAgent 6、app 1 |
+| LunarLander.txt | 23 | 24 | LunarLanderEnv 16、DefaultDQNAgent 6、app.run_nameの2定義 |
+| CartPole.txt | 8 | 8 | DefaultDQNAgent 8 |
+| GridMaze.txt | 15 | 15 | DefaultDQNAgent 3、metrics.scalar 11、app 1 |
+| GridMaze_muzero.txt | 1 | 1 | app.metrics_logger.video_codec |
+| ImageCls.txt | 2 | 3 | app.run_nameの2定義、app.metrics_logger.video_codec |
+| **全ファイルの和集合** | **112** | **138** | 共通キーは種類数では重複排除。共有includeを17入力ごとに再加算しない |
+
+この138行は葉の定義位置を移す行数であり、チェーンを書き換える行数、コメント、既存の部分選択の行数は含めない。Atari / DropMerge / LunarLanderの既定ブロックの全有効葉、DefaultDQNAgentの通常直書き葉、commonのapp / backendの通常直書き葉、GridMazeのmetrics.scalarの通常直書き葉が対象である。env別のapp.run_name等も移動前後の同一キー後勝ちを保つ。注入値・CLI・Run内の明示葉は既定値の移動に含めない。
+
+報告された数の扱いは次のとおり。競合分類は入力に依存するため、24・8・149を単純加算して移動行数にしない。
+
+| レビューでの分類 | 棚卸し上の扱い |
+|---|---|
+| 値が異なる24種 | 前表を保持。全文字列一致の重点確認箇所 |
+| 同値8種のうちbackend 3種 | 別入力では24種にも含まれる。commonの8定義の移行に含め、二重計上しない |
+| 同値の残り5種 | `DropMergeEnv.fruit_densities` / `no_legal_min_blocked_frames` / `use_settle_after_drop`の3定義と、`app.eval_panel.auto_start` / `app.train_auto_start`の2定義。上表の42行と11行に含む |
+| 未競合と報告された149種 | 棚卸しの対象母集団。個別の一覧は報告に付いていないため、149を確認済みの移動行数とはしない。現用定義をコピー先・選択元・チェーンなしに分けて上表へ計上する |
+
+特に`MuZeroAgent.baseline.*`の27定義と`metrics.scalar.muzero.*`の21定義は、既存チェーンが選ぶ通常prefixの在庫であり、MuZeroAgentやmetrics.scalarの同名実効葉を押さえ込む個別指定ではない。`app.online.*` / `app.batchrun.*`も同様に選択元の値なので、その定義位置・値を保持する。GridMazeEnv（2ファイル各15定義）、CartPoleEnv（1定義）、ImageClsEnv（11定義）は現用入力に有効なrootチェーンがなく、本方針だけを理由に新たな選択を追加しない。DropMerge_optuna.txtのseed指定は用途を持つ明示指定として保持する。これらを棚卸しから見落としたのではなく、移す弱い既定値と分けた結果が112種・138行である。
+
+既定値の文字列表記・コメントを保ち、コピー先prefixの通常`@defaults`へ移す。既存プロファイル、通常prefixの選択元、E1／A2等の実験値は変えない。共通configで定義したdefaultsはenv側で同じdefaultsキーへ後書きでき、P3の後勝ちを保つ。`@defaults`は予約名でも自動継承でもなく、必要な各チェーンの先頭へ明示する。
+
+DropMergeは42行（値変化14、表記差1、同値3、残り24）、LunarLanderは16行（値変化4、残り12）の既定葉を移す。これは弱い既定値を後段から変更できるようにする移行であり、値や無関係な配置を整える変更ではない。
 
 ```text
 DropMergeEnv.$ = @defaults > @baseline > @G5846 > @heavy > E1
+LunarLanderEnv.$ = @defaults > @trunk > E1
+DefaultDQNAgent.$ = @defaults > @baseline > A1 > A2 > A3
+metrics.scalar.$ = metrics.scalar.@defaults > metrics.scalar.@baseline > M1
 ```
 
-LunarLanderも上表のEnvの4個の個別葉をベースへ移し、`@defaults > @trunk > E1`とする。キー削除で差分を隠す、`-10`を`-10.0`へgolden側で正規化する、同値で衝突しない別の個別葉まで一括移動する、といった変更は行わない。この15＋4個の移動は実効値を保つための移行そのものであり、「無関係な整形をしない」方針と両立する。
+Agentとmetricsの例は形を示すもので、既存の@iqn / @bf16等のtermを省く指示ではない。選択元がその一部のキーを持たない場合も、先頭のdefaultsから残す。defaultsを定義する入力の各置換経路に追加する。defaultsを持たない入力へ未定義のプロファイル参照を機械的に追加しない。共通backendの8葉を移す場合は、env側でbackend.$を指定しない入力にもcommonの初期選択を明示して値を残す。
 
-全既定値の一括移動、無関係な並べ替え、後方互換モードによる旧順位の復活は行わない。既存のユーザー変更を保持して移行し、現用設定と比較用の固定入力には対応する同じ移行を適用する。
+#### チェーンを置き換える経路
+
+P3・P4では同じ選択キーの後書きはチェーン全体を置き換える。通常設定だけに`@defaults`を足しても、Run・CLIが書き直せば外れるため、次の現用経路を同じ移行で更新する。表は経路の例示であり、移行対象を限定するリストではない。対象行は以下の機械的な抽出で確定する。
+
+| 経路 | 対象と移行規則 |
+|---|---|
+| 共通設定・各env設定 | app、backend、Env、DefaultDQNAgent、metrics.scalarの対象チェーンにdefaultsを先頭追加。切替用のコメント例も同じ形へ揃える |
+| Runプロファイル | Atariの`run.@plasticity` / `run.@a5`のapp選択、AtariのEnv / Agent / metrics選択、DropMergeのbackend / Env / Agent選択、LunarLanderの`run.@repro`など。既存termの順序と値は保持する |
+| batのCLI | [11_batch_run.bat](../../apps/11_batch_run.bat)と[12_batch_run.bat](../../apps/12_batch_run.bat)のBKを`backend.$=backend.@defaults>backend.@non-deterministic`へ変更する |
+| 設定生成ツール | [dropmerge_optuna.py](../../apps/runner/tools/dropmerge_optuna.py)が生成するapp選択の先頭へ`app.@defaults`を追加する。既存後段termは保持し、無関係な改名をしない |
+| 現用設定を読む補助テスト | [batchrun_fatal_error_handling_test.ps1](../../apps/runner/tools/batchrun_fatal_error_handling_test.ps1)のCLIも`app.$=app.@defaults>app.batchrun`とする。共通設定を読まない独立resolver例へdefaultsを機械的に追加しない |
+| 比較用固定入力 | 固定configと、dropmerge-current-iqn32等のCLIに対応する同じ移行を適用する。元のmanifest・採取条件を保持し、移行対応を再実行可能に記録する |
+
+**A15の全チェーン宣言検査**: `rg`または`git grep`で、リポジトリ管理下の現用file、`run.@x :`の定義、batのCLI、設定生成ツールにある`<owner>.$`の宣言・再指定を全行抽出する。新規ファイルも含め、ownerとプロファイル名を手で列挙して検索範囲を狭めない。生成ツールの変数・文字列組み立てから作られる宣言も、生成内容まで追って一覧に加える。抽出結果にはファイル・行・owner・チェーンを残す。
+
+- 判定は**その入力で`<owner>.@defaults`を定義するowner自身の選択キー**を対象とする。Runプロファイルの外側の`run.@x`を除いた供給先キーと、通常の`:`正規化を考慮し、チェーン先頭のtermがそのownerの`@defaults`へ解決されることを確認する。完全修飾形と、その場所で同じ参照先になる短縮形を認める。親ownerにdefaultsがあるだけで、別ownerの部分選択まで対象にしない。
+- 17入力が選ぶチェーンだけでなく、未選択Runの宣言・同一キーの再指定・切替用コメント例も漏れなく照合する。現用設定を使う補助テストも含める。defaultsを持たない入力、暗黙補完しないことを検証する独立テスト、旧golden・過去の採取条件は現用移行対象と区別し、除外理由を記録する。
+- これは現用設定の移行漏れを検出する静的検査であり、resolverの新しい構文制約や実行時WARNではない。§6の値・CLI・defaults保持の検証と併用する。
+
+確認した具体例として、DropMergeの`run.@iqn32_stratified` / `run.@qr51_control` / `run.@iqn32_antithetic` / `run.@iqn32_actor_approx` / `run.@iqn32_repro`は、各々backend・DropMergeEnv・DefaultDQNAgentのチェーンを置き換える。Envの42葉とAgentの6葉のdefaultsも各経路で残す。17入力が選ぶのは前2本だけであり、残り3本も上記の静的検査対象とする。AtariにもDefaultDQNAgentの8宣言、AtariEnvの4宣言、metrics.scalarの6宣言、appの2宣言がある。これらの件数は2026-09-13の棚卸し結果であり、検査対象の固定リストにはしない。
+
+例えばappは`app.$ = app.@defaults > app.online > P1`、RunやCLIでbatchrunを選ぶ場合は`app.$ = app.@defaults > app.batchrun > P1`とする。元にP1がない経路へP1を新設する指示ではない。選択先が現在すべての既定キーを持つことには依存しない。
+
+キー削除やgoldenの文字列正規化で差分を隠さず、既存のユーザー変更を保持して現用設定と固定入力へ対応する移行を適用する。無関係な並べ替え、互換モード、resolverによる暗黙のdefaults補完は追加しない。
 
 ### 7.2 比較条件
 
@@ -649,14 +739,15 @@ LunarLanderも上表のEnvの4個の個別葉をベースへ移し、`@defaults 
 | GridMaze / GridMaze_muzero / CartPole | 各1。既定入力 |
 
 - **値**: 移行前goldenと、対応する移行後入力の全キー・値の一致を17件すべてで必須とする。診断用の非@prefixも含め、比較から都合の悪いキーを除外しない。
-- **移行の重点確認**: §7.1の24キーを入力別に照合する。backendの通常選択・既存batと同じCLI選択・Runのrepro選択、DropMergeの14個の値変化と1個の表記差を含める。24キーだけへの比較縮小は行わず、全キー一致と、変更0件だった3envの値保持も確認する。
+- **全チェーン宣言**: §7.1の機械的抽出と先頭termの静的検査をA15の必須条件とし、17入力に含まれないRun・起動経路の移行漏れも検出する。
+- **移行の重点確認**: §7.1の112種・138定義とチェーン置換経路の移行漏れを照合し、24キーを入力別に確認する。同値5キーを含む後段変更と、Run・CLI置換時のdefaults保持は§6の独立分岐でも検証する。backendの通常選択・既存batと同じCLI選択・Runのrepro選択、DropMergeの14個の値変化と1個の表記差を含める。24キーだけへの比較縮小は行わず、全キー一致と、変更0件だった3envの値保持も確認する。
 - **解決記録**: 定義位置と移行で増減する選択を新仕様の期待値と比較する。旧記録との違いは入力ごとに理由を示す。`references`・`overrides`にも差分があれば同様に確認し、既存の空overrides確認を黙って外さない。
 - **順序**: `Map().Order()`を前後比較して差分位置をレポートする。完全一致は必須にしないが、Runのdumpを人間が比較する用途で読みづらくなっていないか確認する。
 - **採取証拠**: 旧goldenのハッシュ・採取条件・元ファイルを保持する。差分を消すために一括再採取しない。既存goldenを人間が削除してから明示captureする運用と、比較器の上書き拒否・manifest整合性は維持する。
 
 レビュー後の実装では、固定入力への移行内容と新しい記録の期待値を再実行可能な形で残し、比較器・AGENTS.mdの手順を同じ変更で更新する。現用設定の追加変更を旧goldenへ混ぜず、今回の移行差分を区別する。
 
-VsDevCmd経由の通常Debugビルド、設定テスト全体、17入力の比較、capture拒否、旧判定の識別子検索、`git diff --check`、UTF-8 / LFを検証する。現在は文書レビュー段階であり、これらの実装検証は未実施である。
+VsDevCmd経由の通常Debugビルド、設定テスト全体、17入力の比較、capture拒否、旧判定の識別子検索、`git diff --check`、UTF-8 / LFを検証する。
 
 ## 8. 検討経緯と簡素化の判断
 
@@ -668,12 +759,13 @@ VsDevCmd経由の通常Debugビルド、設定テスト全体、17入力の比�
 | 旧選択の生成物を削除するための由来追跡 | cut | 別々の選択元に由来する葉は、右側にない限り残す |
 | 全設定の最終値参照 | keep | 後段変更を継承先へ届ける実在の要求 |
 | 定義元の相対参照と記録 | keep | 同じプロファイルが使用先によって別の設定を指す非対称をなくす |
-| 既定値の移行 | shrink | AtariのゲームとIQN配線等の衝突に限定し、無関係な整形をしない |
+| チェーン配下の弱い既定値の全面移行 | keep | 24キーだけでは、同値・未競合の直書きが将来E1／A2を押さえ込む。通常defaultsへ置き、全チェーン置換経路で明示する |
+| 個別葉と継承値の競合WARN | cut | P2が認める意図的な上書きにも警告するため。弱い既定値の配置を移行し、正当な個別指定に診断を追加しない |
 | 互換モード・新しい構文・削除演算子 | cut | 合意した差分合成に不要 |
 | 固定入力・旧golden・差分レポート | keep | 17件の実験条件を変えないことと、診断変更を機械的に確認する |
-| 実装前の文書レビュー | keep | 本更新だけで仕様・期待値をレビュー可能にする。実装は別の開始指示後 |
+| 契約と実装設計の同期境界 | keep | PRD／ADRで契約をレビューし、docs/designは対応するコード変更と同時に同期する |
 
-成功は「上書き層を識別するコードが不要」「個別・部分指定の行順で結果が変わらない」「移行後17件の値一致」で測る。過去の検証は20implへ参照を残し、本改訂の未実施検証と混同しない。
+成功は「上書き層を識別するコードが不要」「個別・部分指定の行順で結果が変わらない」「移行後17件の値一致」で測る。過去の検証は20implへ参照を残し、本改訂の受入条件の証拠とは区別する。
 
 ## 9. 今回扱わないこと
 
