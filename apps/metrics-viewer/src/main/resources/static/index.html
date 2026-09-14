@@ -37,10 +37,12 @@
 		</div>
 
 		<div class="section" id="run-section">
-			<div class="section-header"><label>Runs</label></div>
-			<div class="section-controls">
+			<div class="section-header"><label>Runs</label>
 				<button id="btn-select-all-runs">Select All</button>
 				<button id="btn-latest-only">Select Latest</button>
+				<button id="btn-selected-only-runs" aria-pressed="false"
+						title="Show only the selected runs">Selected Only</button></div>
+			<div class="section-controls">
 				<button id="btn-recolor-runs"
 						title="Give the selected runs the most distinguishable colors">Recolor</button>
 				<button id="btn-auto-recolor" aria-pressed="false"
@@ -51,13 +53,11 @@
 		</div>
 
 		<div class="section" id="tag-section">
-			<div class="section-header"><label>Tags</label></div>
-			<div class="section-controls">
+			<div class="section-header"><label>Tags</label>
 				<button id="btn-select-all">Select All</button>
 				<button id="btn-clear-all">Clear All</button>
 				<button id="btn-selected-only" aria-pressed="false"
-						title="Show only the selected tags">Selected Only</button>
-			</div>
+						title="Show only the selected tags">Selected Only</button></div>
 			<!-- Tagリスト（初期構成あり、JSで上書きまたは活用） -->
 			<ul id="tag-list">
 			</ul>

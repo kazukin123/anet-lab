@@ -1327,6 +1327,7 @@ class UIController {
 			row.className = `run-row ${run.ingest?.state ?? "pending"}`;
 			row.classList.toggle("active", selectedRunIds.includes(runId));
 			row.dataset.runId = runId;
+			if (this.app.showSelectedRunsOnly && !selectedRunIds.includes(runId)) row.hidden = true;
 			const percentage = this._ingestPercentage(run.ingest);
 			const quarantineCount = (run.tags ?? []).filter(tag => tag.status === "error").length;
 			const issueMessages = [];
@@ -1416,11 +1417,20 @@ class UIController {
 				this.app.setSelectedRuns([...selected]);
 			});
 		}
-		document.getElementById("btn-select-all-runs").onclick =
-				() => this.app.setSelectedRuns(this.app.cache.getRunIds());
+		document.getElementById("btn-select-all-runs").onclick = () => {
+			this.app.showSelectedRunsOnly = false;
+			this.app.setSelectedRuns(this.app.cache.getRunIds());
+		};
 		document.getElementById("btn-latest-only").onclick = () => {
+			this.app.showSelectedRunsOnly = false;
 			const latest = this.app.cache.getRunIds().sort().at(-1);
 			this.app.setSelectedRuns(latest ? [latest] : []);
+		};
+		const filter = document.getElementById("btn-selected-only-runs");
+		setToggleState(filter, this.app.showSelectedRunsOnly);
+		filter.onclick = () => {
+			this.app.showSelectedRunsOnly = !this.app.showSelectedRunsOnly;
+			this.app.refreshLists();
 		};
 	}
 
@@ -1431,7 +1441,7 @@ class UIController {
 			const item = document.createElement("li");
 			item.dataset.tagKey = tagKey;
 			item.classList.toggle("active", this.app.activeTags.has(tagKey));
-			if (this.app.isTagsLocked && !this.app.activeTags.has(tagKey)) item.hidden = true;
+			if (this.app.showSelectedTagsOnly && !this.app.activeTags.has(tagKey)) item.hidden = true;
 			const label = document.createElement("span");
 			label.className = "tag-label";
 			label.textContent = tagKey;
@@ -1477,25 +1487,25 @@ class UIController {
 			item.addEventListener("mouseleave", clearHover);
 		}
 		document.getElementById("btn-select-all").onclick = () => {
+			this.app.showSelectedTagsOnly = false;
 			for (const item of list.querySelectorAll("li")) {
 				this.app.activeTags.add(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
 		document.getElementById("btn-clear-all").onclick = () => {
+			this.app.showSelectedTagsOnly = false;
 			for (const item of list.querySelectorAll("li")) {
 				this.app.activeTags.delete(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
 		const filter = document.getElementById("btn-selected-only");
-		setToggleState(filter, this.app.isTagsLocked);
+		setToggleState(filter, this.app.showSelectedTagsOnly);
 		filter.onclick = () => {
-			this.app.isTagsLocked = !this.app.isTagsLocked;
+			this.app.showSelectedTagsOnly = !this.app.showSelectedTagsOnly;
 			this.app.refreshLists();
 		};
-		document.getElementById("btn-select-all").disabled = this.app.isTagsLocked;
-		document.getElementById("btn-clear-all").disabled = this.app.isTagsLocked;
 	}
 
 	bindStaticControls() {
@@ -1609,7 +1619,8 @@ class MetricsViewerClientApp {
 		this.autoRecolorEnabled = true;
 		this.graphScrollLockEnabled = false;
 		this.lodDisplayMode = LodDisplayMode.MIN_MAX;
-		this.isTagsLocked = false;
+		this.showSelectedTagsOnly = false;
+		this.showSelectedRunsOnly = false;
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
 		this.ingestPollTimer = null;

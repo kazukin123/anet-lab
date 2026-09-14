@@ -484,6 +484,8 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 						+ " && app.cache.getRun('run_poll').generation"
 						+ " === '00000000-0000-0000-0000-000000000002'"
 						+ " && app.cache.getTag('run_poll', 'palette/test').stats.count === 9");
+		// metadataの更新後にmetrics再取得が非同期で走るので、カウンタ側も待ってから見る。
+		page.waitForCondition(() -> metricsRequests.get() > initialMetricsRequests);
 		assertTrue(metricsRequests.get() > initialMetricsRequests);
 	}
 
@@ -660,19 +662,84 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	void sidePanelControlRowsFitOnOneLineWithoutShrinkingButtons() {
 		openColorFixture("controlRowLayoutTest", 14);
 
-		// 行ごとに「ボタンのtopが1種類か（＝折り返していないか）」と
-		// 「ラベルが押し潰されていないか（scrollWidth<=clientWidth）」を見る。
-		assertEquals("run-section:1:false|tag-section:1:false", page.evaluate("""
-				() => [...document.querySelectorAll('.section-controls')]
-					.map(row => {
-						const kids = [...row.children];
-						const lines = new Set(
-							kids.map(el => Math.round(el.getBoundingClientRect().top))).size;
-						const shrunk = kids.some(el => el.scrollWidth > el.clientWidth + 1);
-						return row.closest('.section').id + ':' + lines + ':' + shrunk;
-					})
-					.join('|')
-				"""));
+		// 行が横へ溢れていないか（overflow）と、中身が押し潰されていないか（shrunk）を見る。
+		// 見出し行はラベルとボタンで高さが違うので、topの一致では判定できない。
+		assertEquals(
+				"run-section/header:false:false|run-section/controls:false:false"
+						+ "|tag-section/header:false:false",
+				page.evaluate("""
+						() => [...document.querySelectorAll('.section-header, .section-controls')]
+							.map(row => {
+								const overflow = row.scrollWidth > row.clientWidth + 1;
+								const shrunk = [...row.children].some(
+									el => el.scrollWidth > el.clientWidth + 1);
+								const kind = row.classList.contains('section-header')
+									? 'header' : 'controls';
+								return row.closest('.section').id + '/' + kind
+									+ ':' + overflow + ':' + shrunk;
+							})
+							.join('|')
+						"""));
+	}
+
+	@Test
+	void selectedOnlyHidesUnselectedRowsInBothSections() {
+		openColorFixture("selectedOnlyTest", 14);
+		selectSingleRun(page, "run_10");
+
+		assertEquals("run:14/14|tag:1/1", readVisibleListCounts(page));
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		setToggle(page, "#btn-selected-only", true);
+		assertEquals("run:1/14|tag:1/1", readVisibleListCounts(page));
+
+		// タグを未選択にすると、選択中しか残さないTag listからも消える。
+		page.click("#tag-list li");
+		assertEquals("run:1/14|tag:0/1", readVisibleListCounts(page));
+
+		// OFFに戻せば、未選択のままのタグもまた見える。
+		setToggle(page, "#btn-selected-only-runs", false);
+		setToggle(page, "#btn-selected-only", false);
+		assertEquals("run:14/14|tag:1/1", readVisibleListCounts(page));
+	}
+
+	@Test
+	void bulkSelectionButtonsTurnOffSelectedOnly() {
+		openColorFixture("bulkTurnsOffSelectedOnlyTest", 14);
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		page.click("#btn-latest-only");
+		assertFalse(isToggleOn(page, "#btn-selected-only-runs"), "Select Latest");
+
+		setToggle(page, "#btn-selected-only", true);
+		page.click("#btn-clear-all");
+		assertFalse(isToggleOn(page, "#btn-selected-only"), "Clear All");
+
+		setToggle(page, "#btn-selected-only", true);
+		page.click("#btn-select-all");
+		assertFalse(isToggleOn(page, "#btn-selected-only"), "Tags Select All");
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		page.click("#btn-select-all-runs");
+		assertFalse(isToggleOn(page, "#btn-selected-only-runs"), "Runs Select All");
+	}
+
+	/**
+	 * 「可視行/全行」をsectionごとに連結して返す。
+	 * hidden属性の有無ではなく実際に描画されているかを見る（display持ちの要素ではhiddenが効かないことがある）。
+	 */
+	private static String readVisibleListCounts(Page page) {
+		return (String) page.evaluate("""
+				() => {
+					const count = selector => {
+						const all = [...document.querySelectorAll(selector)];
+						return all.filter(el => el.getClientRects().length > 0).length
+							+ '/' + all.length;
+					};
+					return 'run:' + count('#run-list .run-row')
+						+ '|tag:' + count('#tag-list li');
+				}
+				""");
 	}
 
 	private void openColorFixture(String testName, int runCount) {

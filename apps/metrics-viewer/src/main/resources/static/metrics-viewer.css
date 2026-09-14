@@ -12,6 +12,9 @@
 	--container-border: #888;
 }
 
+/* displayを持つ要素でもhidden属性を効かせる（.run-rowのflexがUA既定に勝つため） */
+[hidden] { display: none !important; }
+
 /* ============================================================
    Metrics Viewer CSS（モック準拠＋スクロール完全復元＋JS整合）
    ============================================================ */
@@ -165,16 +168,24 @@ html, body {
 	border-radius: 3px;
 	padding: 3px 5px;
 }
-.global-controls button {
+/* サイドパネルのボタンは置き場所によらず同じ見た目にする */
+.global-controls button,
+.section-header button,
+.section-controls button {
 	background: #252525;
 	color: #ccc;
 	border: 1px solid var(--control-border);
-	padding: 3px 6px;
+	padding: 4px 8px;
 	cursor: pointer;
 	border-radius: 3px;
 	font-size: 12.5px;
+	font-weight: normal;
+	letter-spacing: normal;
+	white-space: nowrap;
 }
-.global-controls button:hover {
+.global-controls button:hover,
+.section-header button:hover,
+.section-controls button:hover {
 	background: #333;
 	color: #eee;
 }
@@ -183,7 +194,7 @@ html, body {
 	background: #1a1a1a;
 	border: 1px solid var(--container-border);
 	border-radius: 4px;
-	padding: 0 6px 8px 6px;
+	padding: 8px 6px;
 	margin-top: 6px;
 	box-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
@@ -191,7 +202,7 @@ html, body {
 .section-header {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	gap: 3px;
 	color: #fff;
 	font-weight: 600;
 	margin-bottom: 4px;
@@ -204,27 +215,16 @@ html, body {
 	margin: 4px 0 8px 0;
 	padding: 0;
 }
-.section-controls button {
-	background: #252525;
-	color: #ccc;
-	border: 1px solid var(--control-border);
-	padding: 3px 6px;
-	cursor: pointer;
-	border-radius: 3px;
-	font-size: 12.5px;
-}
-.section-controls button:hover {
-	background: #333;
-	color: #eee;
-}
 /* トグルON：サイドパネルのトグルは押下色だけで状態を示す */
 .global-controls button.active,
+.section-header button.active,
 .section-controls button.active {
 	color: var(--active-text);
 	border-color: var(--active-accent);
 	background: var(--active-background);
 }
 .global-controls button.active:hover,
+.section-header button.active:hover,
 .section-controls button.active:hover {
 	color: var(--active-text);
 	border-color: var(--active-accent);
@@ -557,7 +557,6 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
 .graph-wide-outlier-toggle {
   height: 20px;
   min-width: 34px;
-  margin: 4px 0 2px 0;
   padding: 1px 7px;
   border: 1px solid var(--control-border);
   border-radius: 3px;
@@ -566,7 +565,12 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   cursor: pointer;
   font-size: 11px;
   line-height: 16px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
+.graph-log-toggle,
+.graph-outlier-toggle,
+.graph-wide-outlier-toggle { margin: 4px 0 2px 0; }
 .graph-log-toggle:hover,
 .graph-outlier-toggle:hover,
 .graph-wide-outlier-toggle:hover {

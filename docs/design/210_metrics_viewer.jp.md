@@ -283,6 +283,28 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
 | `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
 
+### 3.3 UIコントロールの規約
+
+browserのcontrolは、押した瞬間に効果が出るものと、on/offが持続するものの2種類しかない。
+どちらも`button`で作り、見分けはラベルの言葉づかいで付ける。
+
+| 種別 | ラベル | 状態 |
+|---|---|---|
+| 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View` | 持たない |
+| トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log`、`p5–p95`、`p1–p99` | `.active`と`aria-pressed`を対で更新する |
+
+sectionの見出し行には、ラベルに続けてそのリストへの操作を左詰めで並べる。
+入りきらない分だけを次の行へ送る（Runsの`Recolor` / `Auto Recolor`）。
+サイドパネルのbuttonは、見出し行・ボタン行・globalのどこにあっても同じ寸法にする。
+絞り込み中に一括操作（`Select All`など）を押したときは、ボタンを無効化せず、絞り込みを解除してから実行する。
+
+on/offはラベル文字へ書かず、押下色だけで示す。状態の反映は`setToggleState()`へ集約し、
+見た目の`.active`と意味の`aria-pressed`が食い違わないようにする。checkboxは使わない。
+
+controlの枠線は`--control-border`（hoverは`--control-border-hover`）の1段で、
+`.section`などのcontainer枠`--container-border`より弱くする。
+ON時の配色は`--active-background` / `--active-accent` / `--active-text`を使う。
+
 ## 4. コードマップ
 
 | 領域 | 主なファイル |
@@ -567,10 +589,10 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `RUN_SOLO_INTERVAL_MS` | 350 | 同じRun行の連続clickをsolo選択とみなす閾値 |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にdrag scrollへ切り替える移動量 |
-| `RUN_COLOR_MIN_DISTANCE` | 0.16 | `Auto`が既存のRun色を維持する分離距離の下限 |
+| `RUN_COLOR_MIN_DISTANCE` | 0.16 | `Auto Recolor`が既存のRun色を維持する分離距離の下限 |
 
-Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配り、`Auto`がONならそこから選択中Runだけを分離する。
-`Recolor`は現在の色を無視し、選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。`Auto`は既存の色が`min(RUN_COLOR_MIN_DISTANCE, 今のpaletteで取れる最良)`を満たさないRunだけを配り直す。
+Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配り、`Auto Recolor`がONならそこから選択中Runだけを分離する。
+`Recolor`は現在の色を無視し、選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。`Auto Recolor`は既存の色が`min(RUN_COLOR_MIN_DISTANCE, 今のpaletteで取れる最良)`を満たさないRunだけを配り直す。
 どちらも未選択Runの色を変えず、選択が20本を超えるとpaletteを1周してラウンドを改める。選択1本以下では何もしない。
 
 `localStorage`へ保存するstateは次の9件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentile範囲はworkspace名をkeyへ含めず、同名tagで共有する。
@@ -581,7 +603,7 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 | `anet.metricsviewer.activeTags` | 現在選択中のtag集合 |
 | `anet.metricsviewer.knownTags` | 一度でも観測したtag集合。未知tagだけを自動でactiveにするために使う |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lockのon/off |
-| `anet.metricsviewer.autoRecolorEnabled` | Runsの`Auto`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
+| `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
 | `anet.metricsviewer.logScaleTags` | signed-logを有効にしたtag集合。文字列JSON配列を辞書順で保存する |
 | `anet.metricsviewer.ignoreOutlierTags` | p5–p95を有効にしたtag集合。文字列JSON配列を辞書順で保存する |

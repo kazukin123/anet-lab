@@ -19,6 +19,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.WaitUntilState;
 
@@ -26,6 +27,26 @@ import com.microsoft.playwright.options.WaitUntilState;
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class OutlierRangePlaywrightTest extends MetricsViewerPlaywrightTestSupport {
+	@Test
+	void graphHeaderTogglesKeepLabelsOnOneLineWhenHeaderIsNarrow() {
+		// headerが狭いとボタンが押し潰され、p5–p95のdashでラベルが割れる。
+		reopenPage(new Browser.NewContextOptions().setViewportSize(620, 720));
+		page.route("**/api/runs.json", route -> fulfillJson(route, outlierRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, outlierMetricsJson()));
+
+		page.navigate(baseUrl + "/?narrowGraphHeaderTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		assertEquals("Log:ok|p5–p95:ok|p1–p99:ok", page.evaluate("""
+				() => [...document.querySelectorAll('.graph-header button')]
+					.map(el => el.textContent + ':'
+						+ (el.scrollHeight > el.clientHeight + 1
+							|| el.scrollWidth > el.clientWidth + 1 ? 'wrapped' : 'ok'))
+					.join('|')
+				"""));
+	}
+
 	@Test
 	void p5P95KeepsContinuousTraceAndClipsItAtYAxis() {
 		page.route("**/api/runs.json", route -> fulfillJson(route, outlierRunsJson()));
