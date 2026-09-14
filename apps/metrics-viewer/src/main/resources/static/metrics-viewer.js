@@ -196,6 +196,12 @@ function farthestColorFrom(fixedColors, usedColors) {
 	return { color: bestColor, distance: bestDistance };
 }
 
+function setToggleState(element, on) {
+	if (!element) return;
+	element.classList.toggle("active", on);
+	element.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
 function isSupersededMetricsError(error) {
 	return error?.status === 409 && error?.code === "superseded";
 }
@@ -779,8 +785,7 @@ class PlotlyController {
 	}
 
 	_setOutlierButtonState(button, enabled, filterResult = null, label = "p5–p95") {
-		button.classList.toggle("active", enabled);
-		button.setAttribute("aria-pressed", enabled ? "true" : "false");
+		setToggleState(button, enabled);
 		if (!enabled) {
 			button.title = `Limit the Y-axis to each Run's ${label} range`;
 		} else {
@@ -908,8 +913,7 @@ class PlotlyController {
 			logButton.textContent = "Log";
 			logButton.title = "Toggle signed log scale";
 			const signedLogScale = this.app.logScaleTags.has(tagKey);
-			logButton.classList.toggle("active", signedLogScale);
-			logButton.setAttribute("aria-pressed", signedLogScale ? "true" : "false");
+			setToggleState(logButton, signedLogScale);
 			const viewport = this.app.explicitViewport(tagKey);
 			const outlierButton = document.createElement("button");
 			outlierButton.type = "button";
@@ -1484,10 +1488,10 @@ class UIController {
 			}
 			this.app.onTagSelectionChanged();
 		};
-		const filter = document.getElementById("chk-lock-tags");
-		filter.checked = this.app.isTagsLocked;
-		filter.onchange = () => {
-			this.app.isTagsLocked = filter.checked;
+		const filter = document.getElementById("btn-selected-only");
+		setToggleState(filter, this.app.isTagsLocked);
+		filter.onclick = () => {
+			this.app.isTagsLocked = !this.app.isTagsLocked;
 			this.app.refreshLists();
 		};
 		document.getElementById("btn-select-all").disabled = this.app.isTagsLocked;
@@ -1502,8 +1506,8 @@ class UIController {
 		};
 		document.getElementById("btn-reload").onclick = () => this.app.onReload();
 		document.getElementById("btn-recolor-runs").onclick = () => this.app.onRecolorRuns();
-		const autoRecolor = document.getElementById("chk-auto-recolor");
-		autoRecolor.onchange = () => this.app.onToggleAutoRecolor(autoRecolor.checked);
+		document.getElementById("btn-auto-recolor").onclick =
+				() => this.app.onToggleAutoRecolor(!this.app.autoRecolorEnabled);
 		document.getElementById("btn-auto-reload").onclick = () => this.app.onToggleAutoReload();
 		document.getElementById("btn-graph-scroll-lock").onclick =
 				() => this.app.onToggleGraphScrollLock();
@@ -1859,8 +1863,7 @@ class MetricsViewerClientApp {
 	}
 
 	_syncAutoRecolorUi() {
-		const checkbox = document.getElementById("chk-auto-recolor");
-		if (checkbox) checkbox.checked = this.autoRecolorEnabled;
+		setToggleState(document.getElementById("btn-auto-recolor"), this.autoRecolorEnabled);
 	}
 
 	_recolorSelectedRuns({ keepExisting }) {
@@ -2291,23 +2294,15 @@ class MetricsViewerClientApp {
 
 	_syncGraphScrollLockUi() {
 		document.body.classList.toggle("graph-scroll-locked", this.graphScrollLockActive());
-		const button = document.getElementById("btn-graph-scroll-lock");
-		if (button) {
-			button.textContent = this.graphScrollLockEnabled
-					? "Scroll Lock: ON"
-					: "Scroll Lock: OFF";
-			button.classList.toggle("active", this.graphScrollLockEnabled);
-			button.setAttribute("aria-pressed", this.graphScrollLockEnabled ? "true" : "false");
-		}
+		setToggleState(
+				document.getElementById("btn-graph-scroll-lock"),
+				this.graphScrollLockEnabled);
 		this.plotly.applyGraphScrollLock(this.graphScrollLockActive());
 	}
 
 	onToggleAutoReload() {
 		this.autoReloadEnabled = !this.autoReloadEnabled;
-		const button = document.getElementById("btn-auto-reload");
-		button.textContent = this.autoReloadEnabled ? "Auto Reload: ON" : "Auto Reload: OFF";
-		button.classList.toggle("active", this.autoReloadEnabled);
-		button.setAttribute("aria-pressed", this.autoReloadEnabled ? "true" : "false");
+		setToggleState(document.getElementById("btn-auto-reload"), this.autoReloadEnabled);
 		if (this.autoReloadEnabled) {
 			this.autoReloadTimer = setInterval(async () => {
 				try {

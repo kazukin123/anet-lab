@@ -7,6 +7,9 @@
 	--active-text: #f3faff;
 	--progress-fill: rgba(190, 190, 190, 0.24);
 	--progress-text: #c4c4c4;
+	--control-border: #666;
+	--control-border-hover: #8a8a8a;
+	--container-border: #888;
 }
 
 /* ============================================================
@@ -36,36 +39,6 @@ html, body {
 	color: #fff;
 	font-size: 13px;
 	z-index: 1000;
-}
-
-/* チェックボックス */
-input[type="checkbox"] {
-	appearance: none;
-	width: 16px;
-	height: 16px;
-	margin: 0px 4px 0px 0px;
-	border: 1px solid #555;
-/*	border-radius: 3px;*/
-	background: #111;
-	cursor: pointer;
-	position: relative;
-	vertical-align: middle;
-}
-input[type="checkbox"]:hover { border-color: #777; }
-input[type="checkbox"]:checked {
-	background-color: var(--active-background);
-	border-color: var(--active-accent);
-}
-input[type="checkbox"]:checked::after {
-	content: "";
-	position: absolute;
-	left: 3px;
-	top: 0px;
-	width: 6px;
-	height: 10px;
-	border: solid var(--active-text);
-	border-width: 0 2px 2px 0;
-	transform: rotate(45deg);
 }
 
 /* スピナーアイコン */
@@ -157,13 +130,13 @@ input[type="checkbox"]:checked::after {
 	text-align: center;
 	background: transparent;
 	color: #aaa;
-	border: 1px solid #555;
-	border-radius: 4px;
+	border: 1px solid var(--control-border);
+	border-radius: 3px;
 	cursor: pointer;
 }
 #btn-screenshot:hover {
 	color: #fff;
-	border-color: #888;
+	border-color: var(--control-border-hover);
 	background: #222;
 }
 
@@ -188,38 +161,27 @@ input[type="checkbox"]:checked::after {
 	flex: 1;
 	background: #252525;
 	color: #ddd;
-	border: 1px solid #444;
-	border-radius: 2px;
+	border: 1px solid var(--control-border);
+	border-radius: 3px;
 	padding: 3px 5px;
 }
 .global-controls button {
 	background: #252525;
 	color: #ccc;
-	border: 1px solid #333;
-	padding: 4px 8px;
+	border: 1px solid var(--control-border);
+	padding: 3px 6px;
 	cursor: pointer;
-	border-radius: 2px;
+	border-radius: 3px;
 	font-size: 12.5px;
 }
 .global-controls button:hover {
 	background: #333;
 	color: #eee;
 }
-#btn-auto-reload.active {
-	color: var(--active-text);
-	border-color: var(--active-accent);
-	background: var(--active-background);
-}
-#btn-auto-reload.active:hover {
-	color: var(--active-text);
-	border-color: var(--active-accent);
-	background: var(--active-hover);
-}
-
 /* --- Section --- */
 .section {
 	background: #1a1a1a;
-	border: 1px solid #888;
+	border: 1px solid var(--container-border);
 	border-radius: 4px;
 	padding: 0 6px 8px 6px;
 	margin-top: 6px;
@@ -237,22 +199,36 @@ input[type="checkbox"]:checked::after {
 }
 .section-controls {
 	display: flex;
-	gap: 4px;
+	align-items: center;
+	gap: 3px;
 	margin: 4px 0 8px 0;
 	padding: 0;
 }
 .section-controls button {
 	background: #252525;
 	color: #ccc;
-	border: 1px solid #333;
-	padding: 4px 8px;
+	border: 1px solid var(--control-border);
+	padding: 3px 6px;
 	cursor: pointer;
-	border-radius: 2px;
+	border-radius: 3px;
 	font-size: 12.5px;
 }
 .section-controls button:hover {
 	background: #333;
 	color: #eee;
+}
+/* トグルON：サイドパネルのトグルは押下色だけで状態を示す */
+.global-controls button.active,
+.section-controls button.active {
+	color: var(--active-text);
+	border-color: var(--active-accent);
+	background: var(--active-background);
+}
+.global-controls button.active:hover,
+.section-controls button.active:hover {
+	color: var(--active-text);
+	border-color: var(--active-accent);
+	background: var(--active-hover);
 }
 
 /* --- Run --- */
@@ -361,7 +337,7 @@ input[type="checkbox"]:checked::after {
 	padding: 2px 8px;
 	margin-bottom: 3px;
 	background: #222;
-	border: 1px solid #333;
+	border: 1px solid var(--control-border);
 	cursor: move;
 	font-size: 14px;
 	color: #ccc;
@@ -398,8 +374,8 @@ input[type="checkbox"]:checked::after {
 #btn-graph-scroll-lock {
 	height: 24px;
 	padding: 2px 9px;
-	border: 1px solid #444;
-	border-radius: 2px;
+	border: 1px solid var(--control-border);
+	border-radius: 3px;
 	background: #1b1b1b;
 	color: #aaa;
 	cursor: pointer;
@@ -407,7 +383,7 @@ input[type="checkbox"]:checked::after {
 	line-height: 18px;
 }
 #btn-reset-view { min-width: 76px; }
-#btn-graph-scroll-lock { min-width: 112px; }
+#btn-graph-scroll-lock { min-width: 88px; }
 #lod-display-mode-control {
 	display: inline-flex;
 	align-items: center;
@@ -421,8 +397,8 @@ input[type="checkbox"]:checked::after {
 	height: 24px;
 	max-width: 74px;
 	padding: 1px 3px;
-	border: 1px solid #444;
-	border-radius: 2px;
+	border: 1px solid var(--control-border);
+	border-radius: 3px;
 	background: #1b1b1b;
 	color: #ccc;
 	font-size: 11px;
@@ -430,7 +406,7 @@ input[type="checkbox"]:checked::after {
 #btn-reset-view:hover,
 #btn-graph-scroll-lock:hover {
 	color: #fff;
-	border-color: #777;
+	border-color: var(--control-border-hover);
 	background: #252525;
 }
 #btn-graph-scroll-lock.active {
@@ -583,8 +559,8 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   min-width: 34px;
   margin: 4px 0 2px 0;
   padding: 1px 7px;
-  border: 1px solid #444;
-  border-radius: 2px;
+  border: 1px solid var(--control-border);
+  border-radius: 3px;
   background: #1b1b1b;
   color: #aaa;
   cursor: pointer;
@@ -595,7 +571,7 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
 .graph-outlier-toggle:hover,
 .graph-wide-outlier-toggle:hover {
   color: #fff;
-  border-color: #777;
+  border-color: var(--control-border-hover);
   background: #252525;
 }
 .graph-log-toggle.active,
@@ -700,7 +676,7 @@ body.screenshot-mode #screenshot-header { display: block !important; }
 	text-align: center;
 	background: rgba(40,40,40,0.6);
 	color: #ccc;
-	border: 1px solid #555;
+	border: 1px solid var(--control-border);
 	border-radius: 3px;
 	cursor: pointer;
 	opacity: 0.7;

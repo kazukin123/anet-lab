@@ -128,16 +128,33 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
-	protected static boolean isAutoReloadButtonActive(Page page) {
+	/**
+	 * トグルのON/OFFを返す。aria-pressedを正とし、見た目の.activeが食い違っていれば失敗させる。
+	 */
+	protected static boolean isToggleOn(Page page, String selector) {
 		return Boolean.TRUE.equals(page.evaluate("""
-				() => document.getElementById('btn-auto-reload').classList.contains('active')
-				"""));
+				selector => {
+					const el = document.querySelector(selector);
+					if (!el) throw new Error('toggle not found: ' + selector);
+					const pressed = el.getAttribute('aria-pressed') === 'true';
+					if (pressed !== el.classList.contains('active')) {
+						throw new Error('toggle state mismatch: ' + selector);
+					}
+					return pressed;
+				}
+				""", selector));
+	}
+
+	protected static void setToggle(Page page, String selector, boolean on) {
+		if (isToggleOn(page, selector) != on) page.click(selector);
+	}
+
+	protected static boolean isAutoReloadButtonActive(Page page) {
+		return isToggleOn(page, "#btn-auto-reload");
 	}
 
 	protected static boolean isGraphScrollLockButtonActive(Page page) {
-		return Boolean.TRUE.equals(page.evaluate("""
-				() => document.getElementById('btn-graph-scroll-lock').classList.contains('active')
-				"""));
+		return isToggleOn(page, "#btn-graph-scroll-lock");
 	}
 
 	protected static boolean isGraphScrollLockButtonVisible(Page page) {
@@ -728,7 +745,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	}
 
 	protected static void setAutoRecolor(Page page, boolean enabled) {
-		page.setChecked("#chk-auto-recolor", enabled);
+		setToggle(page, "#btn-auto-recolor", enabled);
 	}
 
 	protected static String readAutoRecolorStorage(Page page) {

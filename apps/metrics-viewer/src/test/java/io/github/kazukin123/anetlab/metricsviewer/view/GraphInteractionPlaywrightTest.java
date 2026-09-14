@@ -71,8 +71,7 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
 
-		assertEquals("Scroll Lock: OFF", page.textContent("#btn-graph-scroll-lock"));
-		assertEquals("false", page.getAttribute("#btn-graph-scroll-lock", "aria-pressed"));
+		assertEquals("Scroll Lock", page.textContent("#btn-graph-scroll-lock"));
 		assertFalse(isGraphScrollLockButtonActive(page));
 		assertTrue(isGraphScrollLockButtonVisible(page));
 		assertTrue(areFloatingControlsSideBySide(page));
@@ -83,8 +82,6 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 		setPlotlyPanMode(page);
 		waitForPlotlyDragMode(page, "pan");
 		page.click("#btn-graph-scroll-lock");
-		assertEquals("Scroll Lock: ON", page.textContent("#btn-graph-scroll-lock"));
-		assertEquals("true", page.getAttribute("#btn-graph-scroll-lock", "aria-pressed"));
 		assertTrue(isGraphScrollLockButtonActive(page));
 		waitForPlotlyDragModeFalse(page);
 		assertEquals("true", readGraphScrollLockStorage(page));
@@ -97,7 +94,7 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 		waitForPlotlyDragModeFalse(page);
 		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
-		assertEquals("Scroll Lock: ON", page.textContent("#btn-graph-scroll-lock"));
+		assertEquals("Scroll Lock", page.textContent("#btn-graph-scroll-lock"));
 		assertTrue(isGraphScrollLockButtonActive(page));
 		waitForPlotlyDragModeFalse(page);
 

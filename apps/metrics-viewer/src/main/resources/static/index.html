@@ -33,21 +33,18 @@
 				<select id="workspace-selector" aria-label="Workspace"></select>
 			</label>
 			<button id="btn-reload">Reload</button>
-			<button id="btn-auto-reload" aria-pressed="false">Auto Reload: OFF</button>
+			<button id="btn-auto-reload" aria-pressed="false">Auto Reload</button>
 		</div>
 
 		<div class="section" id="run-section">
 			<div class="section-header"><label>Runs</label></div>
 			<div class="section-controls">
 				<button id="btn-select-all-runs">Select All</button>
-				<button id="btn-latest-only">Latest Only</button>
+				<button id="btn-latest-only">Select Latest</button>
 				<button id="btn-recolor-runs"
 						title="Give the selected runs the most distinguishable colors">Recolor</button>
-				<label style="margin-left:8px; cursor:pointer; font-size:13px;"
-						title="Keep the selected runs distinguishable as the selection changes">
-					<input type="checkbox" id="chk-auto-recolor"
-							style="vertical-align:middle; margin-right:2px;">Auto
-				</label>
+				<button id="btn-auto-recolor" aria-pressed="false"
+						title="Keep the selected runs distinguishable as the selection changes">Auto Recolor</button>
 			</div>
 			<!-- Runリスト（JSで生成される） -->
 			<div id="run-list"></div>
@@ -58,9 +55,8 @@
 			<div class="section-controls">
 				<button id="btn-select-all">Select All</button>
 				<button id="btn-clear-all">Clear All</button>
-				<label style="margin-left:8px; cursor:pointer; font-size:13px;">
-					<input type="checkbox" id="chk-lock-tags" style="vertical-align:middle; margin-right:2px;">Filter
-				</label>
+				<button id="btn-selected-only" aria-pressed="false"
+						title="Show only the selected tags">Selected Only</button>
 			</div>
 			<!-- Tagリスト（初期構成あり、JSで上書きまたは活用） -->
 			<ul id="tag-list">
@@ -87,7 +83,7 @@
 		</select>
 	</span>
 	<button id="btn-reset-view" title="Show all series and reset all axes">Reset View</button>
-	<button id="btn-graph-scroll-lock" aria-pressed="false" title="Toggle graph scroll lock">Scroll Lock: OFF</button>
+	<button id="btn-graph-scroll-lock" aria-pressed="false" title="Toggle graph scroll lock">Scroll Lock</button>
 	<button id="btn-screenshot-toggle">⬅</button>
 </div>
 

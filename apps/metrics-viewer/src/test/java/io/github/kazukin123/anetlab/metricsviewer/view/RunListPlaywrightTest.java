@@ -445,17 +445,17 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 							const autoReload = document.getElementById('btn-auto-reload');
 							const scrollLock = document.getElementById('btn-graph-scroll-lock');
 							const log = document.querySelector('.graph-log-toggle');
-							const checkbox = document.getElementById('chk-lock-tags');
+							const selectedOnly = document.getElementById('btn-selected-only');
 							autoReload.classList.add('active');
 							scrollLock.classList.add('active');
 							log.classList.add('active');
-							checkbox.checked = true;
+							selectedOnly.classList.add('active');
 							return [
 								getComputedStyle(autoReload).backgroundColor,
 								getComputedStyle(scrollLock).backgroundColor,
 								getComputedStyle(log).backgroundColor,
-								getComputedStyle(checkbox).backgroundColor,
-								getComputedStyle(checkbox).borderColor,
+								getComputedStyle(selectedOnly).backgroundColor,
+								getComputedStyle(selectedOnly).borderColor,
 								getComputedStyle(autoReload).color
 							].join('|');
 						}
@@ -496,18 +496,14 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
 
-		assertEquals("Auto Reload: OFF", page.textContent("#btn-auto-reload"));
-		assertEquals("false", page.getAttribute("#btn-auto-reload", "aria-pressed"));
+		assertEquals("Auto Reload", page.textContent("#btn-auto-reload"));
 		assertFalse(isAutoReloadButtonActive(page));
 
 		page.click("#btn-auto-reload");
-		assertEquals("Auto Reload: ON", page.textContent("#btn-auto-reload"));
-		assertEquals("true", page.getAttribute("#btn-auto-reload", "aria-pressed"));
 		assertTrue(isAutoReloadButtonActive(page));
 
 		page.click("#btn-auto-reload");
-		assertEquals("Auto Reload: OFF", page.textContent("#btn-auto-reload"));
-		assertEquals("false", page.getAttribute("#btn-auto-reload", "aria-pressed"));
+		assertEquals("Auto Reload", page.textContent("#btn-auto-reload"));
 		assertFalse(isAutoReloadButtonActive(page));
 	}
 
@@ -552,7 +548,7 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		// 既定ONのまま操作する。run_10=#E23B4F と run_14=#B83280 の分離距離は0.1204で、しきい値0.16を下回る。
 		openColorFixture("autoRecolorTest", 14);
 
-		assertTrue(page.isChecked("#chk-auto-recolor"));
+		assertTrue(isToggleOn(page, "#btn-auto-recolor"));
 		clickRunRow(page, "run_14"); // 初期選択の最新Runを外し、空選択から選び直す
 		clickRunRow(page, "run_10");
 		clickRunRow(page, "run_14");
@@ -587,14 +583,14 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	void autoRecolorDefaultsToOnAndSurvivesReload() {
 		openColorFixture("autoRecolorStorageTest", 14);
 
-		assertTrue(page.isChecked("#chk-auto-recolor"));
+		assertTrue(isToggleOn(page, "#btn-auto-recolor"));
 		assertNull(readAutoRecolorStorage(page));
 
 		setAutoRecolor(page, false);
 		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForRunRows(page, 14);
 
-		assertFalse(page.isChecked("#chk-auto-recolor"));
+		assertFalse(isToggleOn(page, "#btn-auto-recolor"));
 		assertEquals("false", readAutoRecolorStorage(page));
 	}
 
@@ -658,6 +654,25 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		assertEquals(RED, readChipColor(page, "run_10"));
 		assertEquals(MAGENTA, readChipColor(page, "run_14"));
+	}
+
+	@Test
+	void sidePanelControlRowsFitOnOneLineWithoutShrinkingButtons() {
+		openColorFixture("controlRowLayoutTest", 14);
+
+		// 行ごとに「ボタンのtopが1種類か（＝折り返していないか）」と
+		// 「ラベルが押し潰されていないか（scrollWidth<=clientWidth）」を見る。
+		assertEquals("run-section:1:false|tag-section:1:false", page.evaluate("""
+				() => [...document.querySelectorAll('.section-controls')]
+					.map(row => {
+						const kids = [...row.children];
+						const lines = new Set(
+							kids.map(el => Math.round(el.getBoundingClientRect().top))).size;
+						const shrunk = kids.some(el => el.scrollWidth > el.clientWidth + 1);
+						return row.closest('.section').id + ':' + lines + ':' + shrunk;
+					})
+					.join('|')
+				"""));
 	}
 
 	private void openColorFixture(String testName, int runCount) {
