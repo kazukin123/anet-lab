@@ -226,8 +226,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 
 	protected static void waitForPlotlyHoverText(Page page) {
 		page.waitForFunction("""
-				() => Array.from(document.querySelectorAll('.hovertext'))
-					.some(el => (el.textContent || '').trim().length > 0)
+				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
+					.some(el => el.style.display !== 'none' && (el.textContent || '').trim().length > 0)
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 

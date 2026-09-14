@@ -470,6 +470,69 @@ input[type="checkbox"]:checked::after {
 	/* z-order をブロック内で完結させ、Plotly の modebar(z-index:1001) を外へ漏らさない */
 	isolation: isolate;
 }
+
+.graph-hover-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 25;
+	display: none;
+	pointer-events: none;
+}
+.graph-hover-overlay .hover-guide {
+	position: absolute;
+	width: 1px;
+	background: linear-gradient(to bottom,
+			rgba(255, 255, 255, 0) 0%,
+			rgba(255, 255, 255, 0.5) 8%,
+			rgba(255, 255, 255, 0.5) 92%,
+			rgba(255, 255, 255, 0) 100%);
+}
+.graph-hover-overlay .hover-dot {
+	position: absolute;
+	width: 7px;
+	height: 7px;
+	margin: -4px 0 0 -4px;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1.5px rgba(17, 17, 17, 0.85);
+}
+.graph-hover-overlay .hover-tip {
+	position: absolute;
+	max-width: 480px;
+	padding: 5px 8px;
+	border: 1px solid rgba(255, 255, 255, 0.25);
+	border-radius: 4px;
+	background: rgba(20, 20, 20, 0.7);
+	color: #eee;
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: nowrap;
+}
+.graph-hover-overlay .hover-tip-step {
+	color: #aaa;
+	margin-bottom: 2px;
+}
+.graph-hover-overlay .hover-tip-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.graph-hover-overlay .hover-tip-swatch {
+	flex: 0 0 auto;
+	width: 12px;
+	height: 3px;
+	border-radius: 2px;
+}
+.graph-hover-overlay .hover-tip-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.graph-hover-overlay .hover-tip-value {
+	margin-left: auto;
+	padding-left: 10px;
+	color: #fff;
+	font-variant-numeric: tabular-nums;
+}
+
 .graph-block > .js-plotly-plot {
 	/* z-index を持たせると stacking context ができ、modebar が .graph-header の下に閉じ込められる。
 	   外部への漏れは .graph-block の isolation: isolate が防ぐ。 */

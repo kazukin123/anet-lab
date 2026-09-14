@@ -126,6 +126,20 @@ function clampSafeStep(value) {
 	return Math.max(-MAX_SAFE_STEP, Math.min(MAX_SAFE_STEP, Math.trunc(value)));
 }
 
+function clamp(value, min, max) {
+	return Math.max(min, Math.min(value, max));
+}
+
+function formatMetricValue(value) {
+	if (!Number.isFinite(value)) return String(value);
+	if (value === 0) return "0";
+	const absolute = Math.abs(value);
+	if (absolute >= 10000 || absolute < 0.001) {
+		return value.toExponential(3).replace("e+", "e");
+	}
+	return String(Number(value.toPrecision(6)));
+}
+
 function colorWithAlpha(hex, alpha) {
 	const value = hex.replace("#", "");
 	const r = Number.parseInt(value.slice(0, 2), 16);
@@ -403,6 +417,184 @@ class DataCache {
 	}
 }
 
+// グラフのホバー表示。Plotly のラベルは位置も見た目も選べないので、
+// ガイド線・系列の点・値の吹き出しをまとめて自前で描く。
+class HoverOverlay {
+	static TIP_GAP_PX = 10;
+
+	static attach(block, plot, app) {
+		return new HoverOverlay(block, plot, app);
+	}
+
+	constructor(block, plot, app) {
+		this.plot = plot;
+		this.app = app;
+		this.root = document.createElement("div");
+		this.root.className = "graph-hover-overlay";
+		this.guide = document.createElement("div");
+		this.guide.className = "hover-guide";
+		this.dots = document.createElement("div");
+		this.tip = document.createElement("div");
+		this.tip.className = "hover-tip";
+		this.root.append(this.guide, this.dots, this.tip);
+		block.append(this.root);
+		plot.on("plotly_hover", event => this.show(event));
+		plot.on("plotly_unhover", () => this.hide());
+	}
+
+	hide() {
+		this.root.style.display = "none";
+	}
+
+	show(event) {
+		const rows = this._rows(event?.points);
+		if (!rows.length) {
+			this.hide();
+			return;
+		}
+		// 先に可視化する。display:none の要素は矩形がすべて 0 で返るため測れない。
+		this.root.style.display = "block";
+		const frame = this._frame(event);
+		if (!frame) {
+			this.hide();
+			return;
+		}
+		this._renderTip(rows, Number(event.points[0].x));
+		this._renderDots(rows, frame);
+		this._placeGuide(frame);
+		this._placeTip(frame);
+	}
+
+	_frame(event) {
+		// 配置に必要な座標をここで一度だけ測る。値はすべて overlay(=graph-block) 基準。
+		const size = this.plot._fullLayout?._size;
+		if (!size) return null;
+		const rootRect = this.root.getBoundingClientRect();
+		const plotRect = this.plot.getBoundingClientRect();
+		const pointer = event.event;
+		return {
+			width: rootRect.width,
+			height: rootRect.height,
+			areaLeft: plotRect.left - rootRect.left + size.l,
+			areaTop: plotRect.top - rootRect.top + size.t,
+			areaWidth: size.w,
+			areaHeight: size.h,
+			pointerX: (pointer?.clientX ?? rootRect.left) - rootRect.left,
+			pointerY: (pointer?.clientY ?? rootRect.top) - rootRect.top
+		};
+	}
+
+	_rows(points) {
+		// Band 表示では同じ Run の min/max/mean が別トレースで届くので 1 行にまとめる。
+		const byRun = new Map();
+		for (const point of points ?? []) {
+			const meta = point.data?.meta ?? {};
+			const runId = meta.runId ?? point.data?.name;
+			if (!runId) continue;
+			if (!byRun.has(runId)) {
+				byRun.set(runId, {
+					runId,
+					color: this.app.runColorMap.get(runId) ?? "#888",
+					order: Number.MAX_SAFE_INTEGER
+				});
+			}
+			const row = byRun.get(runId);
+			// points の並びは Plotly 任せで安定しないので、凡例と同じトレース順に固定する。
+			row.order = Math.min(row.order, Number(point.curveNumber ?? row.order));
+			const value = HoverOverlay.pointValue(point);
+			if (!Number.isFinite(value)) continue;
+			if (meta.role === "band-min") {
+				row.min = value;
+			} else if (meta.role === "band-max") {
+				row.max = value;
+			} else {
+				row.value = value;
+				row.px = Number(point.xaxis?.l2p?.(point.x));
+				row.py = Number(point.yaxis?.l2p?.(point.y));
+			}
+		}
+		const rows = [];
+		for (const row of byRun.values()) {
+			row.text = HoverOverlay.rowText(row);
+			if (row.text) rows.push(row);
+		}
+		return rows.sort((left, right) => left.order - right.order);
+	}
+
+	static pointValue(point) {
+		// signed log 表示では y が変換後なので、生値を持つ customdata を優先する。
+		const custom = point.customdata;
+		if (Array.isArray(custom)) return Number(custom[1]);
+		if (custom != null) return Number(custom);
+		return Number(point.y);
+	}
+
+	static rowText(row) {
+		const center = row.value != null ? formatMetricValue(row.value) : null;
+		const band = row.min != null && row.max != null
+				? `${formatMetricValue(row.min)} – ${formatMetricValue(row.max)}`
+				: null;
+		return center && band ? `${center} (${band})` : (center ?? band ?? "");
+	}
+
+	static tipRow(row) {
+		const line = document.createElement("div");
+		line.className = "hover-tip-row";
+		const swatch = document.createElement("span");
+		swatch.className = "hover-tip-swatch";
+		swatch.style.background = row.color;
+		const name = document.createElement("span");
+		name.className = "hover-tip-name";
+		name.textContent = row.runId;
+		const value = document.createElement("span");
+		value.className = "hover-tip-value";
+		value.textContent = row.text;
+		line.append(swatch, name, value);
+		return line;
+	}
+
+	_renderTip(rows, step) {
+		const header = document.createElement("div");
+		header.className = "hover-tip-step";
+		header.textContent = Number.isFinite(step) ? `step ${step.toLocaleString()}` : "step -";
+		this.tip.replaceChildren(header, ...rows.map(row => HoverOverlay.tipRow(row)));
+	}
+
+	_renderDots(rows, frame) {
+		// 線だけではどの値を読んでいるか分からないので、各系列の位置に点を打つ。
+		const marks = [];
+		for (const row of rows) {
+			if (!Number.isFinite(row.px) || !Number.isFinite(row.py)) continue;
+			if (row.py < 0 || row.py > frame.areaHeight) continue;
+			const dot = document.createElement("span");
+			dot.className = "hover-dot";
+			dot.style.background = row.color;
+			dot.style.left = `${Math.round(frame.areaLeft + row.px)}px`;
+			dot.style.top = `${Math.round(frame.areaTop + row.py)}px`;
+			marks.push(dot);
+		}
+		this.dots.replaceChildren(...marks);
+	}
+
+	_placeGuide(frame) {
+		const left = clamp(frame.pointerX, frame.areaLeft, frame.areaLeft + frame.areaWidth);
+		this.guide.style.left = `${Math.round(left)}px`;
+		this.guide.style.top = `${Math.round(frame.areaTop)}px`;
+		this.guide.style.height = `${Math.round(frame.areaHeight)}px`;
+	}
+
+	_placeTip(frame) {
+		// カーソルの右・縦中央が基準。右に入らなければ左へ回し、最後にブロック内へ収める。
+		const rect = this.tip.getBoundingClientRect();
+		const gap = HoverOverlay.TIP_GAP_PX;
+		const right = frame.pointerX + gap;
+		const left = right + rect.width > frame.width ? frame.pointerX - gap - rect.width : right;
+		this.tip.style.left = `${Math.round(clamp(left, 0, frame.width - rect.width))}px`;
+		this.tip.style.top = `${Math.round(
+				clamp(frame.pointerY - rect.height / 2, 0, frame.height - rect.height))}px`;
+	}
+}
+
 class PlotlyController {
 	constructor(app) {
 		this.app = app;
@@ -418,16 +610,6 @@ class PlotlyController {
 		return Math.sign(value) * (Math.pow(10, Math.abs(value)) - 1);
 	}
 
-	_formatValue(value) {
-		if (!Number.isFinite(value)) return String(value);
-		if (value === 0) return "0";
-		const absolute = Math.abs(value);
-		if (absolute >= 10000 || absolute < 0.001) {
-			return value.toExponential(3).replace("e+", "e");
-		}
-		return String(Number(value.toPrecision(6)));
-	}
-
 	_makeLineTrace(runId, tagKey, steps, values, suffix = "line") {
 		return {
 			type: "scatter",
@@ -437,10 +619,11 @@ class PlotlyController {
 			mode: "lines",
 			line: { width: 1.5, color: this.app.runColorMap.get(runId) },
 			uid: makePlotlyTraceUid(runId, tagKey, suffix),
-			meta: { tagKey, runId },
+			meta: { tagKey, runId, role: suffix },
 			legendgroup: makePlotlyTraceUid(runId, tagKey, "legend"),
 			visible: this.app.isLegendSeriesHidden(tagKey, runId) ? "legendonly" : true,
-			opacity: this.app.selectedRuns.length > 1 ? 0.8 : 1.0
+			opacity: this.app.selectedRuns.length > 1 ? 0.8 : 1.0,
+			hoverinfo: "none"
 		};
 	}
 
@@ -480,7 +663,6 @@ class PlotlyController {
 			name: `${runId} min`,
 			line: { width: 0, color },
 			showlegend: false,
-			hovertemplate: "run=%{fullData.name}<br>bucket=%{x}<br>min step=%{customdata[0]}<br>min=%{customdata[1]:.6g}<extra></extra>",
 			customdata: minCustomData
 		};
 		const upper = {
@@ -490,7 +672,6 @@ class PlotlyController {
 			fill: "tonexty",
 			fillcolor: colorWithAlpha(color, 0.28),
 			showlegend: false,
-			hovertemplate: "run=%{fullData.name}<br>bucket=%{x}<br>max step=%{customdata[0]}<br>max=%{customdata[1]:.6g}<extra></extra>",
 			customdata: maxCustomData
 		};
 		const mean = {
@@ -513,9 +694,7 @@ class PlotlyController {
 		return {
 			...trace,
 			y: transformed,
-			customdata: trace.customdata ?? trace.y,
-			hovertemplate: trace.hovertemplate
-					?? "run=%{fullData.name}<br>step=%{x}<br>value=%{customdata:.6g}<extra></extra>"
+			customdata: trace.customdata ?? trace.y
 		};
 	}
 
@@ -620,6 +799,7 @@ class PlotlyController {
 			paper_bgcolor: "#111",
 			font: { color: "#ccc" },
 			xaxis: { gridcolor: "#444" },
+			hovermode: "x",
 			yaxis: this._makeYAxis(signedLogScale, traces, ranges),
 			showlegend: showLegend,
 			legend: { groupclick: "togglegroup" }
@@ -643,7 +823,7 @@ class PlotlyController {
 			zerolinecolor: "#666",
 			tickmode: "array",
 			tickvals: ticks.map(PlotlyController.signedLogValue),
-			ticktext: ticks.map(value => this._formatValue(value))
+			ticktext: ticks.map(value => formatMetricValue(value))
 		};
 	}
 
@@ -767,8 +947,8 @@ class PlotlyController {
 				const statsElement = document.createElement("span");
 				statsElement.className = "graph-stats";
 				statsElement.textContent =
-						`Min ${this._formatValue(stats.min)} / Max ${this._formatValue(stats.max)}`
-						+ ` / Avg ${this._formatValue(stats.mean)} / Std ${this._formatValue(stats.stdDev)}`;
+						`Min ${formatMetricValue(stats.min)} / Max ${formatMetricValue(stats.max)}`
+						+ ` / Avg ${formatMetricValue(stats.mean)} / Std ${formatMetricValue(stats.stdDev)}`;
 				statsElement.title = `count=${stats.count}\nmin=${stats.min}\nmax=${stats.max}`
 						+ `\navg=${stats.mean}\nstd=${stats.stdDev}`;
 				header.append(statsElement);
@@ -803,6 +983,7 @@ class PlotlyController {
 						useResizeHandler: false
 					});
 			plot.__mvRawTraces = traces;
+			HoverOverlay.attach(block, plot, this.app);
 
 			logButton.addEventListener("click", event => {
 				event.stopPropagation();
