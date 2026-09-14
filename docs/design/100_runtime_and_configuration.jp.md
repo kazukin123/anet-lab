@@ -56,7 +56,7 @@ app.run_name = run_{t}_dm_iqn-k32-n32-m32
 
 対象の葉へのRun・CLI指定は`=`の個別葉にも勝つ。一方、選択キーへのCLIはチェーンだけを置き換える。ベース定義の`?=`も、選択元の最終値になって継承された後は通常の値であり、`>`の右側にある値が左側の値に勝つ。
 
-内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別葉を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[PRD072](../memo/072_config_selection_final_value_10prd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
+内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別葉を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[PRD072](../memo/done/072_config_selection_final_value_10prd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
 DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、PRD 059 Phase 1aではrootに維持する。
 

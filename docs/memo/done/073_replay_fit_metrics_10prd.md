@@ -1,6 +1,6 @@
 # PRD 073: replay 抽選履歴別の TD・損失メトリクス
 
-起点: 2026-09-09。仕様合意: 2026-09-10。最終グリル: 2026-09-10（決定 D1〜D7 を本文へ反映。理由と棄却案は [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)）。
+起点: 2026-09-09。仕様合意: 2026-09-10。最終グリル: 2026-09-10（決定 D1〜D7 を本文へ反映。理由と棄却案は [ADR 0039](../../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)）。
 本書は DefaultDQN 共通の任意診断である `replay_fit` の実装契約を定める。
 実装計画と検証記録は[実装メモ](073_replay_fit_metrics_20impl.md)を参照する。
 測定対象は厳密な held-out 集合ではなく、既存の抽選履歴で分けた群である。
@@ -9,7 +9,7 @@
 
 ### 1.1 実験上の不足
 
-[Breakout の replay ratio 実験記録](../experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md)では、
+[Breakout の replay ratio 実験記録](../../experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md)では、
 高 RR の腕で学習バッチの loss / TD が小さい一方、成績は RR2 より低かった。
 以下は同記録の 25–50M exp step 区間からの抜粋であり、本 PRD による新規実測ではない。
 
@@ -45,14 +45,14 @@ target の動き、生成方策やデータの新しさ、PER の選択、分布
 
 | 事実 | 根拠・設計への含意 |
 |---|---|
-| `sampled_once_` は通常 `Sample` の抽選時に立ち、slot の再利用時に戻る | [ReplayBuffer 実装](../../core/anet-core/src/replay_buffer_impl.cpp)の `MarkSampledOnce`、`Push`。optimizer 完了や観測の既知・未知を表さない |
+| `sampled_once_` は通常 `Sample` の抽選時に立ち、slot の再利用時に戻る | [ReplayBuffer 実装](../../../core/anet-core/src/replay_buffer_impl.cpp)の `MarkSampledOnce`、`Push`。optimizer 完了や観測の既知・未知を表さない |
 | `07_evicted_unsampled_ratio` は退去時の集計である | `RecordEvictionIfSampleable` は上書き対象の ready 判定を使う。現在の sampleable 集合内の未抽選率ではなく、RR4 の未抽選群が不足するという判断には使えない |
 | PER は各抽選で優先度総量に対する乱数を引く | `SampleIndices` の現行処理を層化抽出と説明しない |
-| 保存済み RR4 構成は `per_initial_priority_mode = max` | [実効設定の保存記録](../experiments/default-dqn/atari/config/run_20260908-073326_rr4_capall_munch.txt)。一様抽選を仮定した「直近1万件の約96%が未学習」という算術は保証にならない |
+| 保存済み RR4 構成は `per_initial_priority_mode = max` | [実効設定の保存記録](../../experiments/default-dqn/atari/config/run_20260908-073326_rr4_capall_munch.txt)。一様抽選を仮定した「直近1万件の約96%が未学習」という算術は保証にならない |
 | `SampleUniqueUniform` は caller-owned RNG を使い、通常抽選の履歴・優先度を変更しない | 既存の抽出・snapshot・prefetch の非干渉契約を新 API に引き継ぐ |
-| plasticity は特徴までの部分 forward、policy churn は専用バッチの FP32 評価である | [DQN 実装](../../core/anet-core/src/dqn_based_agent.cpp)の `CapturePlasticityProbe`、`ForwardPolicyChurnExpectedQ`。TD 計算済みの経路があるとはみなさない |
+| plasticity は特徴までの部分 forward、policy churn は専用バッチの FP32 評価である | [DQN 実装](../../../core/anet-core/src/dqn_based_agent.cpp)の `CapturePlasticityProbe`、`ForwardPolicyChurnExpectedQ`。TD 計算済みの経路があるとはみなさない |
 | QR / IQN の期待値 TD と分位点回帰損失は別の量である | `UpdateFromSamples` と方式別の loss helper。期待値 TD は PER 更新に使われ、分布回帰の目的関数ではない |
-| 群番号41は使用済みである | [現行 scalar 定義](../../apps/runner/config/metrics_scalar.txt)の `41_agent_on`。本機能は `46_agent_replay_fit` を使う |
+| 群番号41は使用済みである | [現行 scalar 定義](../../../apps/runner/config/metrics_scalar.txt)の `41_agent_on`。本機能は `46_agent_replay_fit` を使う |
 
 `replay_ratio` は環境遷移に対する学習サンプルの使用量を調整する設定である。
 `earned_credit = num_envs * replay_ratio / replay_batch_size` という更新制御から、
@@ -100,7 +100,7 @@ prefetch wrapper では既存の読取 probe と同様、呼び出し時点ま�
 - QR は network の固定分位点を使い、通常 TD には分位点を導入しない。
 - n-step return、実 n-step 数、terminal による bootstrap mask、gamma、Double DQN、TBO、Munchausen の式は現行の学習契約に従う。
 - 通常 TD の loss 用 `td_clip`、分位点回帰の Huber 閾値、PER priority clip を混同しない。絶対 TD 自体には loss / priority 用 clip を掛けない。
-- Munchausen は OFF と `target | online | online_reuse` を対象にする。bonus は先頭 return へ一度加え、終端でも残す。TBO の実空間化と完成 target の変換を含め、[ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)を維持する。
+- Munchausen は OFF と `target | online | online_reuse` を対象にする。bonus は先頭 return へ一度加え、終端でも残す。TBO の実空間化と完成 target の変換を含め、[ADR 0035](../../adr/0035-munchausen-target-learner-local-real-space.md)を維持する。
 - target 方策は Greedy と UQE に対応する。hard IQN UQE（tail_mean）では、診断が現在の risk 区間 `[uqe_tau, 1]` に固定 midpoint `K` 本を配置した risk taus を生成し、policy の `SelectAction` へ注入して選ばせる。注入時は policy の `tau_rule` による tau 生成を行わず、RNG を消費しない。スコア計算は policy 実装をそのまま使い、診断側に式を写さない。point UQE と QR の UQE は指定分位点をそのまま使い、注入は不要である。soft IQN UQE は現行どおり全範囲の分位点から経験分位の score を作る。この違いを統合しない。
 - 学習が有効な状態で本計器を購読し、解決済み target が ThompsonSampling の場合は購読設定時に fail-fast とする。Greedy への代替は行わない。
 - DropPath / Dropout は測定時には発火させない。BatchNorm、Spectral Normalization、正規化の学習統計、方策の schedule、学習 RNG を測定で更新しない。既存 capture・診断値も汚染しない。
@@ -235,7 +235,7 @@ profile の定義だけが残っていても、実際に attach されなけれ�
 ### 6.3 資源と通常経路への非干渉
 
 - 診断の抽出が要求される場合だけ、Agent 所有の専用 named RNG `replay_fit_probe` を用意する。母数だけ・実 PER バッチ平均だけなら抽選 RNG は不要。全 OFF では専用 RNG・作業領域・worker を作らない。
-- learner は update ごとの要求・一時入力・結果を所有する。資源の配置は [所有権ガイド](../ownership_guideline.md)に従う。
+- learner は update ごとの要求・一時入力・結果を所有する。資源の配置は [所有権ガイド](../../ownership_guideline.md)に従う。
 - plasticity / policy churn と実バッチ、乱数、cadence を共有しない。既存の RNG stream の seed や消費順を変えない。
 - 未要求の群のための候補保持・抽出を行わない。必要な群や母数を識別するための snapshot 内の走査は許す。
 - 母数を出すための常時更新カウンタや per-entry 抽選回数を追加しない。年齢も走査内で write cursor と logical index から求め、per-entry の書込時刻キャッシュを追加しない。既存の `sampled_once_` 更新は従来の処理として維持する。
@@ -278,7 +278,7 @@ U / S が共に要求された回では両群を同じ snapshot から抽出す�
 
 pure virtual として追加し、`DefaultReplayBuffer`、`PrefetchingReplayBuffer`、interface を実装する現用 test double
 （`dqn_based_agent_test.cpp` の `RecordingReplayBuffer`、`replay_buffer_test.cpp` の `BlockingReplayBuffer`、`trainer_test.cpp` の `HintRecordingReplayBuffer`）を同じ変更内で更新する。
-黙って throw する既定実装は置かない（[ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md) と同じ方針）。
+黙って throw する既定実装は置かない（[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md) と同じ方針）。
 既存 `SampleUniqueUniform` とその利用側の契約は維持し、汎用 predicate DSL や永続的な別 buffer は導入しない。
 
 ### 7.2 Learner の評価と出力
@@ -314,8 +314,8 @@ target 組立とサンプル別誤差の計算を、learner（TD / QR / IQN）�
 
 ### 7.3 ドキュメントの責任境界
 
-用語の意味は [CONTEXT.md](../../CONTEXT.md)、本機能の測定・購読契約は本 PRD を正本とする。
-[ReplayBuffer 設計](../design/150_replay_buffer.jp.md)と [DQN 設計](../design/200_dqn_agents.jp.md)は
+用語の意味は [CONTEXT.md](../../../CONTEXT.md)、本機能の測定・購読契約は本 PRD を正本とする。
+[ReplayBuffer 設計](../../design/150_replay_buffer.jp.md)と [DQN 設計](../../design/200_dqn_agents.jp.md)は
 後続のコード実装と同じ変更内で、新 API、所有権、実行順、購読依存、評価条件を現行仕様として更新する。
 文書化段階では未実装の API を現行実装として記述しない。
 
@@ -417,14 +417,14 @@ RR1 / RR2 / RR4 / RR4 + DropPath の長期比較と、件数・分位点数を�
 厳密 held-out は、この観測だけでは必要な因果の切り分けができないと判明した場合に別の実験設計として再検討する。
 Thompson target は利用が具体化した時点で確率的方策の評価方法を定義する。
 Rainbow・ImageCls・MuZero・NoisyNet の対応は、利用要求と各データ・評価契約が具体化するまで追加しない。
-今回の用語は `CONTEXT.md`、仕様は本書、決定の理由と棄却案は [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) へ記録する。
+今回の用語は `CONTEXT.md`、仕様は本書、決定の理由と棄却案は [ADR 0039](../../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) へ記録する。
 
 ## 10. 関連する既存契約
 
-- [PRD 050: ready / sampleable と履歴保護](done/050_replay_ring_stack_margin_10prd.md)
-- [PRD 062: plasticity の購読駆動計測](done/062_plasticity_metrics_10prd.md)
-- [PRD 066: 独立 RNG と固定条件の policy churn](done/066_policy_churn_metrics_10prd.md)
-- [ADR 0031: 学習経路から分離した測定](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)
-- [ADR 0033: policy churn の固定 probe](../adr/0033-policy-churn-fixed-probe-and-target-lag.md)
-- [ADR 0035: Munchausen target の責任境界](../adr/0035-munchausen-target-learner-local-real-space.md)
-- [ADR 0039: 抽選履歴群による当てはまり診断（held-out 分割の不採用）](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)
+- [PRD 050: ready / sampleable と履歴保護](050_replay_ring_stack_margin_10prd.md)
+- [PRD 062: plasticity の購読駆動計測](062_plasticity_metrics_10prd.md)
+- [PRD 066: 独立 RNG と固定条件の policy churn](066_policy_churn_metrics_10prd.md)
+- [ADR 0031: 学習経路から分離した測定](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)
+- [ADR 0033: policy churn の固定 probe](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)
+- [ADR 0035: Munchausen target の責任境界](../../adr/0035-munchausen-target-learner-local-real-space.md)
+- [ADR 0039: 抽選履歴群による当てはまり診断（held-out 分割の不採用）](../../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)

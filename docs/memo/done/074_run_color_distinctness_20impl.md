@@ -1,7 +1,7 @@
 # Run 色分離 実装メモ
 
 対象 PRD: [074_run_color_distinctness_10prd.md](074_run_color_distinctness_10prd.md)。
-決定の理由と棄却案は [ADR 0041](../adr/0041-run-color-is-comparison-role-not-run-identity.md)、用語は [CONTEXT.md](../../CONTEXT.md) の「Run色」「分離距離」。
+決定の理由と棄却案は [ADR 0041](../../adr/0041-run-color-is-comparison-role-not-run-identity.md)、用語は [CONTEXT.md](../../../CONTEXT.md) の「Run色」「分離距離」。
 
 ## 概要
 
@@ -15,7 +15,7 @@ server、Metrics キャッシュ、HTTP API は変更しない。
 
 ## 主な変更
 
-### 1. [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)
+### 1. [index.html](../../../apps/metrics-viewer/src/main/resources/static/index.html)
 
 `#run-section .section-controls` へ、`Select All` / `Latest Only` の右に 2 要素を足す。チェックボックスは Tags の `Filter` と同じ inline style 形式にする。
 
@@ -27,7 +27,7 @@ server、Metrics キャッシュ、HTTP API は変更しない。
 </label>
 ```
 
-### 2. [metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)
+### 2. [metrics-viewer.js](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)
 
 | 箇所 | 変更 |
 |---|---|
@@ -53,9 +53,9 @@ server、Metrics キャッシュ、HTTP API は変更しない。
 
 ### 3. ドキュメント
 
-- [030 §3 画面の基本操作](../design/030_user_guide_analysis.jp.md): `Recolor` と `Auto` の行を追加し、`localStorage` へ保持する項目の列挙へ 1 件足す。
-- [210 §3.2 browser](../design/210_metrics_viewer.jp.md): Run 色の所有が `MetricsViewerClientApp` 側であることを反映する。
-- [210 §7.4](../design/210_metrics_viewer.jp.md): 定数表へ `RUN_COLOR_MIN_DISTANCE`、`localStorage` 表へ `anet.metricsviewer.autoRecolorEnabled` を追加し、「8 件」を「9 件」へ直す。色の決定規則を同節へ短く書く。
+- [030 §3 画面の基本操作](../../design/030_user_guide_analysis.jp.md): `Recolor` と `Auto` の行を追加し、`localStorage` へ保持する項目の列挙へ 1 件足す。
+- [210 §3.2 browser](../../design/210_metrics_viewer.jp.md): Run 色の所有が `MetricsViewerClientApp` 側であることを反映する。
+- [210 §7.4](../../design/210_metrics_viewer.jp.md): 定数表へ `RUN_COLOR_MIN_DISTANCE`、`localStorage` 表へ `anet.metricsviewer.autoRecolorEnabled` を追加し、「8 件」を「9 件」へ直す。色の決定規則を同節へ短く書く。
 
 ## テスト
 
@@ -68,7 +68,7 @@ browser から観測できる面だけを検証し、内部関数を直接呼ば
 - Plotly の trace 色（既存の `readTraceColor`）。
 - `localStorage` の `anet.metricsviewer.autoRecolorEnabled`。
 
-追加先は [RunListPlaywrightTest](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java)。
+追加先は [RunListPlaywrightTest](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java)。
 
 ### fixture
 

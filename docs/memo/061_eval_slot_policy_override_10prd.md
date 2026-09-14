@@ -4,7 +4,7 @@
 - 2026-09-13改訂: PRD 072の差分継承・個別指定優先へ前提と例を同期。弱い既定値は通常プロファイルへ置き、個別葉による意図的な上書きを認める。
 - 実装順: PRD 072(選択の最終値の差分継承、個別・部分指定とRun・CLIの優先順位)→ 本 PRD P1 → P2。P3 は着手時に別途グリル
 - 対象: `core/anet-core`(`rl.hpp` / `agent.hpp` の Agent・Actor IF、4 Agent 実装、`trainer.*` の RunManager / RunnerBase / EvalRunner、`observers.*` の metrics 参照先)、`apps/runner`(EvalPanel / RunnerFrame / RunnerApp)、`apps/runner/config` 全 env config と `agent.txt` / `common.txt` / `metrics_scalar.txt`、`viewers/metrics-tools/inspect_run.py`、`apps/runner/tools/dropmerge_optuna.py`
-- 関連: [PRD 072](072_config_selection_final_value_10prd.md)(前提。全選択の最終値の差分継承・個別指定の優先・RunとCLIの優先)、`done/060_eval_batch_episodes_10prd.md`(本数。§「本 PRD では解けない隣接論点」で本件を名指し)、`done/052_eval_schedule_separation_10prd.md` / ADR 0027(定義とスケジュールの分離)、`done/059_config_concept_tree_alignment_10prd.md`(カタログ / プロファイル / 上書き層の用語)、`912_background_eval_snapshot_ordering_10prd.md`(同じ eval 経路の別論点)、ADR 0038(本 PRD の決定と却下案)
+- 関連: [PRD 072](done/072_config_selection_final_value_10prd.md)(前提。全選択の最終値の差分継承・個別指定の優先・RunとCLIの優先)、`done/060_eval_batch_episodes_10prd.md`(本数。§「本 PRD では解けない隣接論点」で本件を名指し)、`done/052_eval_schedule_separation_10prd.md` / ADR 0027(定義とスケジュールの分離)、`done/059_config_concept_tree_alignment_10prd.md`(カタログ / プロファイル / 上書き層の用語)、`912_background_eval_snapshot_ordering_10prd.md`(同じ eval 経路の別論点)、ADR 0038(本 PRD の決定と却下案)
 - 発見経緯: Atari Breakout の探索(`docs/experiments/default-dqn/atari/2026-08-17_baseline.md` 探索ブロック 14 / 16 / 17 / 18 / 19)で、eval の ε と評価対象 network が Run 単位でしか選べないために測れなかった項目が積み上がった。起票後、`Atari.txt` の `run.@greedy_eval`(2026-09-06 実測)と `run.@evalonly`(checkpoint 評価専用 Run)で実需が 2 件増えた
 
 ## 1. 背景と実害
@@ -163,7 +163,7 @@ run.eval.[eval] : actor = eval
 - カタログ項目の変更は`A2.actor.[eval].policy.eps_start = 0.01`のように、Agentのチェーン後段に置いたA2へ書ける。ただし、その項目に直接書いた葉・部分指定があればそちらが強い。共通プロファイル自身へ書いた値の変更は`DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.01`のように同一キーを再指定する。外側A2からの差分が参照先の個別指定を無条件に上書きするとは扱わない(PRD 072 M02・M07)。上のGreedy例でεを使う場合は、policy_typeもEpsilonGreedyとして設定する。
 - 後段A2から変更したい既定値は`?=`の既定葉で書く(PRD 072 P2・§7)。意図した個別葉は継承値に勝ち、競合WARNを出さない。CLIは指定したそのキーについて最優先である。`DefaultDQNAgent.actor.[eval].policy.eps_start=0.01`は対象葉を直接上書きし、`A2.actor.[eval].policy.eps_start=0.01`はA2の葉だけを上書きする。Agentの選択キーへのCLIはチェーン全体を置き換えるが、既定葉は残る。
 - PRD 072により、全ての選択が参照先のベース・部分指定・個別指定・Run・CLIを反映した最終値とキー集合を読む。`[key]`かどうかで読み方は変わらない。CLIやRunプロファイルで`DefaultDQNAgent.actor.[eval].policy.eps_start`を直接変えても継承先へ届き、継承先自身の個別指定や後段チェーンの優先を保つ。
-- 2026-09-13のPRD 072改訂契約では、`$`はベースで、個別・部分指定が優先する。別々の選択元は各最終値を差分合成し、右側にない葉を残す。同じ入力キー自体の再指定だけを後勝ちで採用し、参照先の選択命令を子で再実行しない。相対参照・記録は定義元を基準とする。原則・具体例・記録・異常系の正本は[PRD 072](072_config_selection_final_value_10prd.md) §3〜§7。
+- 2026-09-13のPRD 072改訂契約では、`$`はベースで、個別・部分指定が優先する。別々の選択元は各最終値を差分合成し、右側にない葉を残す。同じ入力キー自体の再指定だけを後勝ちで採用し、参照先の選択命令を子で再実行しない。相対参照・記録は定義元を基準とする。原則・具体例・記録・異常系の正本は[PRD 072](done/072_config_selection_final_value_10prd.md) §3〜§7。
 - **fail-fast**: 参照先 `actor.[<key>]` が未定義 → `ANET_SYSTEM_ERROR`(参照元 Runner 名・キー・定義済みキー一覧・`run.*.actor` の指定方法を含める)。`network` の未知値、`clone_model=false` で actor device ≠ agent device、MuZero での `clone_model=true`(非対応)も fail-fast
 - **dormant スロット**(定義済みだが有効 schedule 無し)は Actor を作らないので `actor` を解決しない(定義側の宣言検証だけ行う)。EvalPanel が参照する definition-only タグは Actor を作るので解決する
 
@@ -259,7 +259,7 @@ P0 / P1 は単独で成立し、P2 で止めても P3 無しで一貫した状�
 
 **手順(キー移動ではなく、env ごとの typed 実効値の移植)**
 
-1. P2 着手前に現行コードで、各 env config(Atari / DropMerge / LunarLander / GridMaze / GridMaze_muzero / CartPole / ImageCls)× 代表 Run プロファイル(Atari は[PRD 072](072_config_selection_final_value_10prd.md) §7の6入力。プロファイル族ごとに実効値が違うので env 単位では足りない)について Agent の Module Config dump(`config/DefaultDQNAgent.txt` 等)を採取する。これは `ANET_READ_CONFIG` が既定補完後の値を記録したものなので、コード導出(eval の τ = train 終端、uqe_eps 0、spatial false、`use_optimistic_target` のコピー)を含む**実効値**である
+1. P2 着手前に現行コードで、各 env config(Atari / DropMerge / LunarLander / GridMaze / GridMaze_muzero / CartPole / ImageCls)× 代表 Run プロファイル(Atari は[PRD 072](done/072_config_selection_final_value_10prd.md) §7の6入力。プロファイル族ごとに実効値が違うので env 単位では足りない)について Agent の Module Config dump(`config/DefaultDQNAgent.txt` 等)を採取する。これは `ANET_READ_CONFIG` が既定補完後の値を記録したものなので、コード導出(eval の τ = train 終端、uqe_eps 0、spatial false、`use_optimistic_target` のコピー)を含む**実効値**である
 2. 新カタログ(`actor.[train]` / `[eval]` / `[eval_target]` と `target_policy.*`)を、その実効値と一致するように書き出す。旧キー → 新キーの対応表(`train_policy.X` → `actor.[train].policy.X`、`eval_policy.X` → `actor.[eval].policy.X` と `actor.[eval_target].policy.X`、`train_actor.X` → `actor.[train].X`、スロット `clone_model` → `actor.[eval*].clone_model`)を PRD 実装ノートに残す
 3. 移行後の dump を対応表で照合し、**全フィールド一致**を確認する。UQE では不使用の `eps_*` など「効かないフィールド」も差があれば明示して一致させる(判定を policy 種別に依存させない)
 

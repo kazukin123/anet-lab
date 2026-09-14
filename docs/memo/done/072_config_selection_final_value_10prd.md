@@ -1,8 +1,8 @@
 # PRD 072: 設定継承の差分適用と最終値参照
 
 - 起票日: 2026-09-07。改訂日: 2026-09-13。
-- 関連: [PRD 061](061_eval_slot_policy_override_10prd.md)、[ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)、[設定基盤の設計](../design/100_runtime_and_configuration.jp.md)、[用語集](../../CONTEXT.md)。
-- 2026-09-12版の実装とgolden比較の記録は[20impl](072_config_selection_final_value_20impl.md)と[ADR 0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md)に保持する。過去の検証結果を本改訂の合格証拠にしない。
+- 関連: [PRD 061](../061_eval_slot_policy_override_10prd.md)、[ADR 0042](../../adr/0042-config-inheritance-as-differential-base.md)、[設定基盤の設計](../../design/100_runtime_and_configuration.jp.md)、[用語集](../../../CONTEXT.md)。
+- 2026-09-12版の実装とgolden比較の記録は[20impl](072_config_selection_final_value_20impl.md)と[ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)に保持する。過去の検証結果を本改訂の合格証拠にしない。
 - 本PRDは`999_config_run_profile_override_precedence_10prd.md`を吸収する。ActorのAPI・設定カタログへの移行はPRD 061が扱う。
 
 ## 1. 背景とゴール
@@ -136,7 +136,7 @@ JSONは`schema_version = 1`と、既存の`selections` / `references` / `overrid
 
 以下のActorカタログ例はPRD 061導入後の設定モデルを用いたresolver入力であり、現行Runnerでそのまま学習できる完全な設定ファイルではない。値は型付きConfigの既定補完前のものを示す。
 
-「選択に負ける既定値は`?=`の既定葉で書き、`=`の直書きは継承値より強い個別指定に使う。チェーンを置き換えても既定葉は残るので、既定値のためにチェーン先頭へプロファイルを明示しない。Runプロファイル・CLIでは`?=`を書けない」という利用者向けの説明は[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)の3章に置き、実装変更時は同じ変更で同期する。
+「選択に負ける既定値は`?=`の既定葉で書き、`=`の直書きは継承値より強い個別指定に使う。チェーンを置き換えても既定葉は残るので、既定値のためにチェーン先頭へプロファイルを明示しない。Runプロファイル・CLIでは`?=`を書けない」という利用者向けの説明は[Run実行ユーザーガイド](../../design/020_user_guide_run.jp.md)の3章に置き、実装変更時は同じ変更で同期する。
 
 ### 4.2 設定例と期待結果
 
@@ -514,7 +514,7 @@ DefaultDQNAgent.$ = A2 > A3
 
 ## 5. 実装時の責務
 
-実装の主対象は[config_impl.cpp](../../core/anet-core/src/config_impl.cpp)と公開ConfigManager経由のテストである。選択元の最終値を、各設定の個別・部分指定より弱いベースとして合成する。依存の計算順と上書き順位を混同しない。既定葉はパーサで`?=`を受け付け、解決前の入力にだけ強弱を持たせ、resolverでベースより弱い段として扱う。解決後の値・ダンプ・公開APIに強弱は残さない。
+実装の主対象は[config_impl.cpp](../../../core/anet-core/src/config_impl.cpp)と公開ConfigManager経由のテストである。選択元の最終値を、各設定の個別・部分指定より弱いベースとして合成する。依存の計算順と上書き順位を混同しない。既定葉はパーサで`?=`を受け付け、解決前の入力にだけ強弱を持たせ、resolverでベースより弱い段として扱う。解決後の値・ダンプ・公開APIに強弱は残さない。
 
 宣言を運ぶ入れ物かどうかの判定、上書き層専用のroot選択除外・禁止、コピー先を基準にした再実行を除去する。旧チェーンの葉を消すための親子由来追跡は追加しない。定義元の相対参照、内側プロファイルの休止と供給、Run・CLIの最終値伝播を同じ契約に収める。
 
@@ -573,7 +573,7 @@ DefaultDQNAgent.$ = A2 > A3
 
 #### backend: 性能・再現性に関わる共有既定値
 
-[common.txt](../../apps/runner/config/common.txt)の共有既定値と、Atari / DropMerge / ImageCls / LunarLanderの通常選択が衝突する。
+[common.txt](../../../apps/runner/config/common.txt)の共有既定値と、Atari / DropMerge / ImageCls / LunarLanderの通常選択が衝突する。
 
 ```text
 backend.cudnn_benchmark = false
@@ -581,9 +581,9 @@ backend.deterministic_algorithms = true
 backend.$ = backend.@non-deterministic
 ```
 
-旧実効値はcudnn_benchmark = true、deterministic_algorithms = falseだが、`=`のまま新規則を適用すると直書きが勝ち、それぞれfalse / trueになる。高速化を選んだRunで決定化が有効になり、性能だけでなくSDPA等の数値挙動・再現性にも影響する。[Atari.txt](../../apps/runner/config/Atari.txt)には同seed再現の設定について「+11%コスト」と記録されている。この値は当時の測定条件に依存し、今回再測定した値ではない。
+旧実効値はcudnn_benchmark = true、deterministic_algorithms = falseだが、`=`のまま新規則を適用すると直書きが勝ち、それぞれfalse / trueになる。高速化を選んだRunで決定化が有効になり、性能だけでなくSDPA等の数値挙動・再現性にも影響する。[Atari.txt](../../../apps/runner/config/Atari.txt)には同seed再現の設定について「+11%コスト」と記録されている。この値は当時の測定条件に依存し、今回再測定した値ではない。
 
-[12_batch_run.bat](../../apps/12_batch_run.bat)の`BK`は`backend.$=backend.@non-deterministic`という**選択キー**のCLI指定である。P4で最優先になるのはbackend.$自体であり、その継承結果が別キーの個別葉より強くなるわけではない。したがって、**現行batのBK指定ではこの競合を回避できない**。葉そのものへのCLI指定は別だが、batへ対症的な葉指定を増やすことを対処方法にはしない。
+[12_batch_run.bat](../../../apps/12_batch_run.bat)の`BK`は`backend.$=backend.@non-deterministic`という**選択キー**のCLI指定である。P4で最優先になるのはbackend.$自体であり、その継承結果が別キーの個別葉より強くなるわけではない。したがって、**現行batのBK指定ではこの競合を回避できない**。葉そのものへのCLI指定は別だが、batへ対症的な葉指定を増やすことを対処方法にはしない。
 
 さらに`lunarlander-repro`では、`run.@repro`が選ぶbackend.@deterministicのcudnn_deterministic = trueが、common.txtの個別葉falseに負ける。次の3キーは既存17入力の値一致に直接影響する。書き換えではこれらだけでなく、common.txtのbackend直書き8キーすべてを既定葉にする。
 
@@ -659,7 +659,7 @@ AtariEnv.game ?= pong
 
 #### 書き換えの棚卸しと定義行数
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は`AGENTS.md`「設定ファイルの代入演算子」、人向けの説明と例は[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)§3.6である。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は`AGENTS.md`「設定ファイルの代入演算子」、人向けの説明と例は[Run実行ユーザーガイド](../../design/020_user_guide_run.jp.md)§3.6である。
 
 以前の112種類・138行の移行と、その後ベース扱いを環境別の部品へ広げた変更は、[22impl](072_config_selection_final_value_22impl.md)に履歴として残す。環境別ファイルで`?=`を増やさないため、デフォルト設定以外は`=`へ戻す。
 
@@ -696,7 +696,7 @@ DropMergeの`?=`はEnvデフォルト42行だけとする。NN部品・配線・
 
 ### 7.2 比較条件
 
-比較入力の正本は[manifest.json](../../core/anet-core/testdata/prd072/manifest.json)。旧goldenは[testdata/prd072/baseline](../../core/anet-core/testdata/prd072/baseline/)に保持し、commit `107a62c8ae01cb758f3cd49d98e8424386160e5d`の固定config、CLI、注入値との対応を残す。
+比較入力の正本は[manifest.json](../../../core/anet-core/testdata/prd072/manifest.json)。旧goldenは[testdata/prd072/baseline](../../../core/anet-core/testdata/prd072/baseline)に保持し、commit `107a62c8ae01cb758f3cd49d98e8424386160e5d`の固定config、CLI、注入値との対応を残す。
 
 | Env設定 | 比較入力数と内容 |
 |---|---|

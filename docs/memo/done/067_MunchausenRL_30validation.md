@@ -41,7 +41,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 ## 学習検証
 
-初回のOFF比較とON 5本には、[Atari設定](../../apps/runner/config/Atari.txt)を読み込むworkspaceと、以下の共通条件を用いた。再実行時のworkspace・Run名は実行先に合わせて指定する。
+初回のOFF比較とON 5本には、[Atari設定](../../../apps/runner/config/Atari.txt)を読み込むworkspaceと、以下の共通条件を用いた。再実行時のworkspace・Run名は実行先に合わせて指定する。
 
 | 設定 | 値 |
 |---|---|
@@ -122,7 +122,7 @@ Nsight Systems 2026.3.1で`--trace=nvtx --sample=none --cpuctxsw=none`を使用�
 ### env 固有の注意: D15 Run は `train_policy.policy_type` の明示が要る
 
 初回は `A3.use_optimistic_target=true` だけを与えて `score_source=mean` になり、受入を落とした。
-Atari は [Atari.txt](../../apps/runner/config/Atari.txt) の `A1.train_policy.policy_type = EpsilonGreedy` が
+Atari は [Atari.txt](../../../apps/runner/config/Atari.txt) の `A1.train_policy.policy_type = EpsilonGreedy` が
 `@baseline` の `UQE` を潰しているため、`use_optimistic_target=true` は **EpsilonGreedy を target_policy へコピーする**。
 `GetRiskScoreSpec()` は EpsilonGreedy に対して `nullopt` を返すので risk 経路に入らない。
 
@@ -134,7 +134,7 @@ PRD 受入基準 3 が指定するとおり `train_policy.policy_type=UQE` を�
 ### ProfileRange の取得条件
 
 `ProfileRange` は NVTX / Tracy 専用で、Run artifact にもログにも残らない
-（[profile.hpp](../../core/anet-core/include/anet/profile.hpp)。Tracy は `ANET_ENABLE_TRACY` のコンパイル時スイッチ）。
+（[profile.hpp](../../../core/anet-core/include/anet/profile.hpp)。Tracy は `ANET_ENABLE_TRACY` のコンパイル時スイッチ）。
 上記§「250k〜400k区間の計測」の値は Nsight Systems をアタッチして取得したものであり、
 **通常の launcher 実行では再現できない**。区間別内訳が必要になった時点で外部プロファイラで別途取得する。
 

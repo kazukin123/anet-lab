@@ -1,6 +1,6 @@
 # Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す
 
-2026-09-13追記: 本文の設定継承に関する決定履歴のうち、同じコピー先へ届く選択チェーンの差し替えは[ADR 0042](0042-config-inheritance-as-differential-base.md)で改訂した。各選択元の最終値を差分合成し、個別・部分指定をベースより優先する。Actorカタログの決定は維持する。新契約の具体例は[PRD 072](../memo/072_config_selection_final_value_10prd.md)を参照。
+2026-09-13追記: 本文の設定継承に関する決定履歴のうち、同じコピー先へ届く選択チェーンの差し替えは[ADR 0042](0042-config-inheritance-as-differential-base.md)で改訂した。各選択元の最終値を差分合成し、個別・部分指定をベースより優先する。Actorカタログの決定は維持する。新契約の具体例は[PRD 072](../memo/done/072_config_selection_final_value_10prd.md)を参照。
 
 configured eval tag は env・並列度・本数・clone をタグ単位で持てるのに、行動方策(ε 等)は `DefaultDQNAgent.eval_policy` 1 本で全タグ共通、評価対象 network(target / online)は `run_mode`(Eval1 か否か)への固定配線だった。Agent / Actor 内部で RunMode が意味を持つ箇所は 7 つあり(policy 選択、network 選択、clone 既定、定期 snapshot、Actor Q ヒント送出、MuZero の温度 / noise、RunMode 別共有 RNG)、いずれも「用途ラベルから Agent が Actor の中身を推測する」構造で、Runner 側の都合(train か eval か)を Agent 実装へ固定的に持ち込んでいた。
 
@@ -11,7 +11,7 @@ configured eval tag は env・並列度・本数・clone をタグ単位で持�
 - **スロット内上書き層(`train.eval.[tag].agent.eval_policy.*`、ENV と対称)**: 実害は満たすが Agent / Actor の定義に遡らない場当たり。request に override prefix が要り、Agent 側に未消費キー検査が要る。却下
 - **2 ベース(`train_actor` / `eval_actor`)+ スロット上書き**: Agent 実装に train / eval の固定分岐が残る。却下
 - **RunMode を request に残す**: 用途ラベルで分岐する構造が温存される。却下
-- **policy カタログ + `policy_key`**: `[eval]` と `[eval_target]` の共有部分を宣言順コピーの制約下で書くための回避策。似た概念の二重化になるため却下し、選択が参照先の最終値を継承する([PRD 072](../memo/072_config_selection_final_value_10prd.md)、[ADR 0040](0040-config-selection-final-value-and-run-profile-tier.md))ことで解く
+- **policy カタログ + `policy_key`**: `[eval]` と `[eval_target]` の共有部分を宣言順コピーの制約下で書くための回避策。似た概念の二重化になるため却下し、選択が参照先の最終値を継承する([PRD 072](../memo/done/072_config_selection_final_value_10prd.md)、[ADR 0040](0040-config-selection-final-value-and-run-profile-tier.md))ことで解く
 - **env もカタログ参照へ(記法の完全対称化)**: env は「スロットが所有する上書き層」、actor は「スロットが参照するカタログ」という関係の違いがあり、`common.txt` のスロットが Agent 非依存のまま残る利点がある。P3 として方向だけ残す
 
 ## Consequences
@@ -23,5 +23,5 @@ configured eval tag は env・並列度・本数・clone をタグ単位で持�
 - metrics の参照先に `$actor` を追加し、`$agent epsilon` 等の Agent 経由の policy 値は削除する
 - `clone_model` は Actor 設定の事項になり、EvalPanel の `model_sync.mode = shared` は廃止する
 - `[eval_target].$ = …[eval] > …@target` が後段 overlay を取りこぼさないために、選択は参照先の最終値と最終キー集合を読む。これはカタログに限らず全ての選択の契約であり、[ADR 0040](0040-config-selection-final-value-and-run-profile-tier.md) と PRD 072 に切り出した
-- 同じコピー先への複数の `.$` は最後に適用されるものへ差し替え、組み立て済みの参照先の `.$` は子で再実行しない。詳細契約とマニュアル草稿は [PRD 072](../memo/072_config_selection_final_value_10prd.md)。PRD 072 はリゾルバ単独、Actor のコード・設定移行は PRD 061 として完了を分ける
+- 同じコピー先への複数の `.$` は最後に適用されるものへ差し替え、組み立て済みの参照先の `.$` は子で再実行しない。詳細契約とマニュアル草稿は [PRD 072](../memo/done/072_config_selection_final_value_10prd.md)。PRD 072 はリゾルバ単独、Actor のコード・設定移行は PRD 061 として完了を分ける
 - 詳細契約と受入条件は `docs/memo/061_eval_slot_policy_override_10prd.md`

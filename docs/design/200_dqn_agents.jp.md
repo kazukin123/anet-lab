@@ -446,7 +446,7 @@ target組立は`MakeTarget`、サンプル別誤差は`ComputeElementError`を�
 
 各群の件数は`learner.replay_fit.probe.batch_size=1024`、IQNの固定分位点数は`learner.replay_fit.iqn.num_taus=32`で、どちらも正整数。結果は更新ごとの`BatchUpdateResult`に保存し、未購読・非測定回・件数不足・ゼロ分母はNaN、未知keyだけnulloptを返す。uniform TDは母数加重平均、比は平均同士の比である。空群は加重和へ寄与せず、非空の不足群は全体平均をNaNにする。
 
-学習有効時に解決済みtarget PolicyがThompsonSamplingであれば、購読設定時にfail-fastする。学習無効時は測定しない。採用理由と完全な指標表は[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)と[PRD073](../memo/073_replay_fit_metrics_10prd.md)を参照する。
+学習有効時に解決済みtarget PolicyがThompsonSamplingであれば、購読設定時にfail-fastする。学習無効時は測定しない。採用理由と完全な指標表は[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)と[PRD073](../memo/done/073_replay_fit_metrics_10prd.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
 

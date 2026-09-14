@@ -4,9 +4,9 @@
 >
 > 一次根拠: [Munchausen Reinforcement Learning（NeurIPS 2020）](https://proceedings.neurips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Paper.pdf)、[Supplementary Material](https://papers.nips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Supplemental.pdf)
 >
-> 関連決定: [ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[done/059](done/059_config_concept_tree_alignment_10prd.md)（TARGET軸の配置と遅延ゲート）、[999_noisynet](999_noisynet_10prd.md)（BTR採用部品のうち別途扱う未実装機能）
+> 関連決定: [ADR 0035](../../adr/0035-munchausen-target-learner-local-real-space.md)、[ADR 0036](../../adr/0036-actor-q-hint-three-columns-munchausen.md)、[done/059](059_config_concept_tree_alignment_10prd.md)（TARGET軸の配置と遅延ゲート）、[999_noisynet](../999_noisynet_10prd.md)（BTR採用部品のうち別途扱う未実装機能）
 >
-> 履歴資料: [done/035](done/035_approx_actor_priority_per_10prd.md)は当時のK2契約を記録した資料として変更しない。
+> 履歴資料: [done/035](035_approx_actor_priority_per_10prd.md)は当時のK2契約を記録した資料として変更しない。
 >
 > 追補（2026-09-05）: 別枠検討（方策温度の定量解析、soft楽観ターゲット）をD15と数理契約の2小節として反映した。
 
@@ -14,7 +14,7 @@
 
 Munchausen RLは、Bellmanターゲットの報酬側へエージェント自身のscaled log-policyを加え、次状態のhard argmax bootstrapをsoft価値へ置き換える。NeurIPS論文はM-DQNを1-step、M-IQNを3-stepで評価しているため、本PRDでは論文の1-step式とanet-labのN-step target returnを一括して同一視しない。補遺の分位点ごとの方策混合を根拠にしつつ、bonusのN-step上の帰属はBTR互換の拡張として明示する。
 
-本PRDの起点は、`gamma=0.997` がaction gapを犠牲にして地平を延ばしているという[baseline探索ブロック19](../experiments/default-dqn/atari/2026-08-17_baseline.md)と、補償器であるMunchausenが未実装だと整理した[可塑性保護screening](../experiments/default-dqn/atari/2026-08-30_protection-screening.md)である。[BTR survey Table 2](../../reports/btr_hyperparams_survey_2026-08-26.md)にはMunchausen除去時のAction GapとPolicy Churnの差が記録されている。一方、[Atari実験README](../experiments/default-dqn/atari/README.md)は定常 `q_gap` を成績の予測子として採用しないと裁定しているため、本PRDもaction gapやscoreを合否ゲートにしない。
+本PRDの起点は、`gamma=0.997` がaction gapを犠牲にして地平を延ばしているという[baseline探索ブロック19](../../experiments/default-dqn/atari/2026-08-17_baseline.md)と、補償器であるMunchausenが未実装だと整理した[可塑性保護screening](../../experiments/default-dqn/atari/2026-08-30_protection-screening.md)である。[BTR survey Table 2](../../../reports/btr_hyperparams_survey_2026-08-26.md)にはMunchausen除去時のAction GapとPolicy Churnの差が記録されている。一方、[Atari実験README](../../experiments/default-dqn/atari/README.md)は定常 `q_gap` を成績の予測子として採用しないと裁定しているため、本PRDもaction gapやscoreを合否ゲートにしない。
 
 本PRDの目的は、Munchausen RLをDQNBasedの3 Learnerに共通する既定OFFの契約として実装可能な状態へ確定することである。対象は `TDLearner`、`QRLearner`、`IQNLearner` と、近似Actor初期優先度を成立させるActor Qヒントである。性能改善やスコア改善の証明ではなく、数理・設定・transport・診断・検証の契約を固定する。
 
@@ -347,7 +347,7 @@ metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] = munchausen_soft_g
 
 ### 8. 設定プロファイル
 
-`apps/runner/config/agent.txt` のbaselineへ5値を明示する。`@munchausen` は[done/059](done/059_config_concept_tree_alignment_10prd.md)が定義した、NN配線を持たずALGO軸と直交するTARGET軸であり、本PRDが同文書の遅延ゲートを発動する。
+`apps/runner/config/agent.txt` のbaselineへ5値を明示する。`@munchausen` は[done/059](059_config_concept_tree_alignment_10prd.md)が定義した、NN配線を持たずALGO軸と直交するTARGET軸であり、本PRDが同文書の遅延ゲートを発動する。
 
 ```text
 DefaultDQNAgent.@baseline.learner.munchausen.enabled = false

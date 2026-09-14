@@ -2,7 +2,7 @@
 
 > 起点: 2026-08-25、`42_env/10_game_score_mean` が「128 env の平均」ではなく「その step で完了した env の平均」であると判明したこと。2026-09-05、PRD 060 の評価セッションで eval 側の個体分布が復元不能になり顕在化。
 > グリル: 2026-09-05（grill-with-docs。決定 D1〜D16、再点検と6項目の最終簡素化パス済み）。旧題「record チャネル」から改名。
-> 関連: [060 評価セッション](done/060_eval_batch_episodes_10prd.md)、[054 inspect_run / `metrics.defs`](done/054_inspect_run_10prd.md)、[912 background eval snapshot 順序](912_background_eval_snapshot_ordering_10prd.md)、[932 episode forensics](932_episode_forensics_10prd.md)、[ADR 0015](../adr/0015-metrics-cache-disposable-derivative.md)、[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)、[ADR 0034](../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)。
+> 関連: [060 評価セッション](060_eval_batch_episodes_10prd.md)、[054 inspect_run / `metrics.defs`](054_inspect_run_10prd.md)、[912 background eval snapshot 順序](../912_background_eval_snapshot_ordering_10prd.md)、[932 episode forensics](../932_episode_forensics_10prd.md)、[ADR 0015](../../adr/0015-metrics-cache-disposable-derivative.md)、[ADR 0029](../../adr/0029-analysis-metadata-emitted-by-runner.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)。
 
 ## 1. 背景
 
@@ -16,9 +16,9 @@ train 側では `mean.game_score` の分母が「その step でゲームを終�
 
 ### F1. エピソード確定値は NaN ゲート、集約は NaN を除外する
 
-`AtariEnv::GetScalar` は `game_score` / `game_score.ge.[N]` / `game_len` / `game_frames` / `hns57` / `hns49` を `completion_available_` が立っている間だけ返し、それ以外は NaN（[AtariEnv.cpp:617-645](../../core/envs/atari1/src/AtariEnv.cpp:617)）。`completion_available_` は実 game over / truncation で立ち（[:576](../../core/envs/atari1/src/AtariEnv.cpp:576)、life-loss 継続 reset は [:501](../../core/envs/atari1/src/AtariEnv.cpp:501)）、**次の `Step()` 先頭で落ちる**（[:531](../../core/envs/atari1/src/AtariEnv.cpp:531)）。`lives` だけはゲート無しの現在値。
+`AtariEnv::GetScalar` は `game_score` / `game_score.ge.[N]` / `game_len` / `game_frames` / `hns57` / `hns49` を `completion_available_` が立っている間だけ返し、それ以外は NaN（[AtariEnv.cpp:617-645](../../../core/envs/atari1/src/AtariEnv.cpp:617)）。`completion_available_` は実 game over / truncation で立ち（[:576](../../../core/envs/atari1/src/AtariEnv.cpp:576)、life-loss 継続 reset は [:501](../../../core/envs/atari1/src/AtariEnv.cpp:501)）、**次の `Step()` 先頭で落ちる**（[:531](../../../core/envs/atari1/src/AtariEnv.cpp:531)）。`lives` だけはゲート無しの現在値。
 
-`DiscreteBatchEnvBase::GetScalar(key, index)` は `index >= 0` で個別 lane へ素通し（key は prefix 無しが契約）、`index < 0` は `mean.|max.|min.|std.` prefix 必須で lane 全体を Welford 集約する（[env.cpp:592-616](../../core/anet-core/src/env.cpp:592)。prefix 無指定は fail-fast）。集約器は `nullopt` を poison、NaN を除外（[util.cpp:10-82](../../core/anet-core/src/util.cpp:10)）。
+`DiscreteBatchEnvBase::GetScalar(key, index)` は `index >= 0` で個別 lane へ素通し（key は prefix 無しが契約）、`index < 0` は `mean.|max.|min.|std.` prefix 必須で lane 全体を Welford 集約する（[env.cpp:592-616](../../../core/anet-core/src/env.cpp:592)。prefix 無指定は fail-fast）。集約器は `nullopt` を poison、NaN を除外（[util.cpp:10-82](../../../core/anet-core/src/util.cpp:10)）。
 
 ### F2. 同時完了率は構成で変わる
 
@@ -37,45 +37,45 @@ Atari-5 はエピソード長がゲームごとに違うため、**同じタグ�
 
 ### F4. eval 側で個体値が存在する瞬間は 1 箇所だけ
 
-- `EvalSessionEnv::CaptureScalars(group)` が `inner_->GetScalar(base_key, lane)` を読み、その場で `ScalarSampleAccumulator` へ畳む（[env.cpp:316-325](../../core/anet-core/src/env.cpp:316)）。N 本の `game_score` 列はプロセス内のどこにも残らない（残るのは `EvalSessionResult::episode_returns` だけ、[env.hpp:132-134](../../core/anet-core/include/anet/env.hpp:132)）。
-- `EvalSessionEnv::GetScalar(key, index)` は `index < 0` かつ購読 key ならセッション集約、それ以外は inner へ透過（[env.cpp:367-377](../../core/anet-core/src/env.cpp:367)）。lane 指定は inner lane の**現在値**（auto-reset 後）を返す。
-- `EvalRunner::RunSession` はセッション中の lane 単位 `EpisodeEndEvent` を**意図的に抑止**し（`DoStepInternal(-1, event_counts, false)`）、完了時に `env_index=-1` の `EpisodeEndEvent` を 1 回だけ出す（[trainer.cpp:342-365](../../core/anet-core/src/trainer.cpp:342)）。counts は train runner の `event_counts`（ADR 0029 の step 座標系）。
-- 採用完了 group は `EvalSessionEnv::Step` の内部で分かる（[env.cpp:343-358](../../core/anet-core/src/env.cpp:343)）が、外へは出していない。
+- `EvalSessionEnv::CaptureScalars(group)` が `inner_->GetScalar(base_key, lane)` を読み、その場で `ScalarSampleAccumulator` へ畳む（[env.cpp:316-325](../../../core/anet-core/src/env.cpp:316)）。N 本の `game_score` 列はプロセス内のどこにも残らない（残るのは `EvalSessionResult::episode_returns` だけ、[env.hpp:132-134](../../../core/anet-core/include/anet/env.hpp:132)）。
+- `EvalSessionEnv::GetScalar(key, index)` は `index < 0` かつ購読 key ならセッション集約、それ以外は inner へ透過（[env.cpp:367-377](../../../core/anet-core/src/env.cpp:367)）。lane 指定は inner lane の**現在値**（auto-reset 後）を返す。
+- `EvalRunner::RunSession` はセッション中の lane 単位 `EpisodeEndEvent` を**意図的に抑止**し（`DoStepInternal(-1, event_counts, false)`）、完了時に `env_index=-1` の `EpisodeEndEvent` を 1 回だけ出す（[trainer.cpp:342-365](../../../core/anet-core/src/trainer.cpp:342)）。counts は train runner の `event_counts`（ADR 0029 の step 座標系）。
+- 採用完了 group は `EvalSessionEnv::Step` の内部で分かる（[env.cpp:343-358](../../../core/anet-core/src/env.cpp:343)）が、外へは出していない。
 
 ### F5. train 側は lane 単位のイベントが既に届いている
 
-`RunnerBase::AccumulateAndNotifyEpisodeEnd` は完了 group ごとに `EpisodeEndEvent{ runner, counts, agent, env, env_index }` を通知する（PER_LANE は lane、SHARED は −1。[trainer.cpp:117-141](../../core/anet-core/src/trainer.cpp:117)、[rl.hpp:923-929](../../core/anet-core/include/anet/rl.hpp:923)）。それを `MetricsLogEpisodeEndObserver::OnEpisodeEnd` が捨てて（[observers.hpp:390-393](../../core/anet-core/include/anet/observers.hpp:390)）、`GetMetricsData` が `target->GetScalar(key_)`（index 既定 −1）を呼ぶ（[observers.cpp:808](../../core/anet-core/src/observers.cpp:808)）。
+`RunnerBase::AccumulateAndNotifyEpisodeEnd` は完了 group ごとに `EpisodeEndEvent{ runner, counts, agent, env, env_index }` を通知する（PER_LANE は lane、SHARED は −1。[trainer.cpp:117-141](../../../core/anet-core/src/trainer.cpp:117)、[rl.hpp:923-929](../../../core/anet-core/include/anet/rl.hpp:923)）。それを `MetricsLogEpisodeEndObserver::OnEpisodeEnd` が捨てて（[observers.hpp:390-393](../../../core/anet-core/include/anet/observers.hpp:390)）、`GetMetricsData` が `target->GetScalar(key_)`（index 既定 −1）を呼ぶ（[observers.cpp:808](../../../core/anet-core/src/observers.cpp:808)）。
 
 ### F6. 書き口: scalar は backend 直書き、既存 json 書き口は流用不可
 
-- `LogScalar` は header inline で `{"type":"scalar","tag","step","value"}` を `backend_->WriteJsonl` へ直接書く。logger 側の mutex 無し、side file 無し（[metrics_logger.hpp:162-170](../../core/anet-core/include/anet/metrics_logger.hpp:162)）。`JsonlBackend::WriteJsonl` が `mtx_` で直列化する（[metrics_logger.cpp:196-210](../../core/anet-core/src/metrics_logger.cpp:196)）。キューは無く、呼び出しスレッドで同期書き込み。
-- `Log(tag, step, json)`（[metrics_logger.cpp:694-715](../../core/anet-core/src/metrics_logger.cpp:694)）は**呼び手ゼロ**で、JSONL 行に `step` を書かず、呼ぶたびに `json/<tag>_<step>.json` を作る。record 用には使えない。
-- `Log(tag, json)`（[:688-692](../../core/anet-core/src/metrics_logger.cpp:688)、`LogJsonInternal` [:629-647](../../core/anet-core/src/metrics_logger.cpp:629)）は `{"type":"json","tag","data","timestamp"}` + `json/<tag>.json` ミラー。`metrics.defs` はこれで 1 回だけ書かれる（[trainer.cpp:1015-1027](../../core/anet-core/src/trainer.cpp:1015)）。
+- `LogScalar` は header inline で `{"type":"scalar","tag","step","value"}` を `backend_->WriteJsonl` へ直接書く。logger 側の mutex 無し、side file 無し（[metrics_logger.hpp:162-170](../../../core/anet-core/include/anet/metrics_logger.hpp:162)）。`JsonlBackend::WriteJsonl` が `mtx_` で直列化する（[metrics_logger.cpp:196-210](../../../core/anet-core/src/metrics_logger.cpp:196)）。キューは無く、呼び出しスレッドで同期書き込み。
+- `Log(tag, step, json)`（[metrics_logger.cpp:694-715](../../../core/anet-core/src/metrics_logger.cpp:694)）は**呼び手ゼロ**で、JSONL 行に `step` を書かず、呼ぶたびに `json/<tag>_<step>.json` を作る。record 用には使えない。
+- `Log(tag, json)`（[:688-692](../../../core/anet-core/src/metrics_logger.cpp:688)、`LogJsonInternal` [:629-647](../../../core/anet-core/src/metrics_logger.cpp:629)）は `{"type":"json","tag","data","timestamp"}` + `json/<tag>.json` ミラー。`metrics.defs` はこれで 1 回だけ書かれる（[trainer.cpp:1015-1027](../../../core/anet-core/src/trainer.cpp:1015)）。
 
 ### F7. 設定 DSL と定義レコード
 
-- `ObserverFactory` は解決済み `ConfigData::Map()` から `metrics.scalar.[tag]` だけを拾い、値を空白分割してトークン分類する（[observers.cpp:1191-1331](../../core/anet-core/src/observers.cpp:1191)）。トークン: `@train` / `@learn` / `@episode_end`、`$train_step` 等 6 軸、`$agent` / `$env` / `$exp` / `$update_result` / `$runner` / `$action_info`、`$train` / `$eval.[name]`、`$ema`、属性 `key:` / `event:` / `step:` / `target:` / `interval:` / `ema_alpha:` / `clip:`。**それ以外の裸トークンは key（最後のものが勝つ、[:1328](../../core/anet-core/src/observers.cpp:1328)）**。lane / index を指す選択子は無い。
-- 検証（[:1348-1361](../../core/anet-core/src/observers.cpp:1348)）: `$eval.[x]` は `@episode_end` か `@train $action_info` のみ、`$action_info` は `@train` のみ、`@episode_end` は `$exp` / `$update_result` 不可。step 軸既定は `@train`→`train_step`、それ以外→`exp_step`（[:1364-1375](../../core/anet-core/src/observers.cpp:1364)）。
-- 解決済み定義 `ScalarMetricDef` を tag 単位で持ち（[observers.hpp:453-466](../../core/anet-core/include/anet/observers.hpp:453)）、`ScalarMetricDefsToJson` が `{tag: {step_axis, runner, event, target, source_key, ema_alpha, interval}}` を作る（[observers.cpp:1173-1189](../../core/anet-core/src/observers.cpp:1173)）。`runner` は「EVAL scope かつ `@train` のときだけ eval 名、それ以外は `train`」（[:1165-1170](../../core/anet-core/src/observers.cpp:1165)）。
-- RunManager は eval tag ごとに `scope==EVAL && event==EPISODE_END && target==ENV` の定義を `EvalSessionEnv` の購読 key として渡し、N>1 で prefix 必須を検証する（[trainer.cpp:923-941](../../core/anet-core/src/trainer.cpp:923)）。attach 後に `metrics.defs` を 1 行書き、同じ定義を購読ヒントとして Agent へ渡す（[:1015-1033](../../core/anet-core/src/trainer.cpp:1015)）。
+- `ObserverFactory` は解決済み `ConfigData::Map()` から `metrics.scalar.[tag]` だけを拾い、値を空白分割してトークン分類する（[observers.cpp:1191-1331](../../../core/anet-core/src/observers.cpp:1191)）。トークン: `@train` / `@learn` / `@episode_end`、`$train_step` 等 6 軸、`$agent` / `$env` / `$exp` / `$update_result` / `$runner` / `$action_info`、`$train` / `$eval.[name]`、`$ema`、属性 `key:` / `event:` / `step:` / `target:` / `interval:` / `ema_alpha:` / `clip:`。**それ以外の裸トークンは key（最後のものが勝つ、[:1328](../../../core/anet-core/src/observers.cpp:1328)）**。lane / index を指す選択子は無い。
+- 検証（[:1348-1361](../../../core/anet-core/src/observers.cpp:1348)）: `$eval.[x]` は `@episode_end` か `@train $action_info` のみ、`$action_info` は `@train` のみ、`@episode_end` は `$exp` / `$update_result` 不可。step 軸既定は `@train`→`train_step`、それ以外→`exp_step`（[:1364-1375](../../../core/anet-core/src/observers.cpp:1364)）。
+- 解決済み定義 `ScalarMetricDef` を tag 単位で持ち（[observers.hpp:453-466](../../../core/anet-core/include/anet/observers.hpp:453)）、`ScalarMetricDefsToJson` が `{tag: {step_axis, runner, event, target, source_key, ema_alpha, interval}}` を作る（[observers.cpp:1173-1189](../../../core/anet-core/src/observers.cpp:1173)）。`runner` は「EVAL scope かつ `@train` のときだけ eval 名、それ以外は `train`」（[:1165-1170](../../../core/anet-core/src/observers.cpp:1165)）。
+- RunManager は eval tag ごとに `scope==EVAL && event==EPISODE_END && target==ENV` の定義を `EvalSessionEnv` の購読 key として渡し、N>1 で prefix 必須を検証する（[trainer.cpp:923-941](../../../core/anet-core/src/trainer.cpp:923)）。attach 後に `metrics.defs` を 1 行書き、同じ定義を購読ヒントとして Agent へ渡す（[:1015-1033](../../../core/anet-core/src/trainer.cpp:1015)）。
 
 ### F8. 読み手は未知の `type` を捨てる（1 つだけ致命条件がある）
 
 | 読み手 | 未知 `type` の扱い |
 |---|---|
-| `inspect_run.py` | `type != "scalar"` は `tag == "metrics.defs"` 以外を黙って skip（[inspect_run.py:887-892](../../viewers/metrics-tools/inspect_run.py:887)）。`type` 欄が無い行だけ `SourceError` |
-| Metrics Viewer（Java `MetricsIngestor`） | 非 scalar は生行のまま `json_lines` へ素通し（[MetricsIngestor.java:315-331](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:315)、[:490-502](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:490)）。**`step` があれば整数（±2^53 内）でなければ Run 全体が `ERROR`**（[:355-375](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:355)）。`type` が文字列でない場合も同様。UI に json 行の表示は無い |
-| `mlflow_bridge.py` | `type` を見ず、top-level `tag` + 数値 `value` があれば metric として送る（[mlflow_bridge.py:198-217](../../viewers/metrics-tools/mlflow_bridge.py:198)） |
-| `tb_bridge.py` | 未知 type は `raw_event` text + stdout 1 行（[tb_bridge.py:115-118](../../viewers/metrics-tools/tb_bridge.py:115)）。害は無いが騒がしい |
-| `metrics_viewer.py`（旧 Dash） | `("scalar","json")` の allowlist で落とす（[metrics_viewer.py:60](../../viewers/metrics-tools/metrics_viewer.py:60)） |
-| optuna（`optuna_common.py`） | `type == "scalar"` だけ読む（[:937-947](../../apps/runner/tools/optuna_common.py:937)） |
+| `inspect_run.py` | `type != "scalar"` は `tag == "metrics.defs"` 以外を黙って skip（[inspect_run.py:887-892](../../../viewers/metrics-tools/inspect_run.py:887)）。`type` 欄が無い行だけ `SourceError` |
+| Metrics Viewer（Java `MetricsIngestor`） | 非 scalar は生行のまま `json_lines` へ素通し（[MetricsIngestor.java:315-331](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:315)、[:490-502](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:490)）。**`step` があれば整数（±2^53 内）でなければ Run 全体が `ERROR`**（[:355-375](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:355)）。`type` が文字列でない場合も同様。UI に json 行の表示は無い |
+| `mlflow_bridge.py` | `type` を見ず、top-level `tag` + 数値 `value` があれば metric として送る（[mlflow_bridge.py:198-217](../../../viewers/metrics-tools/mlflow_bridge.py:198)） |
+| `tb_bridge.py` | 未知 type は `raw_event` text + stdout 1 行（[tb_bridge.py:115-118](../../../viewers/metrics-tools/tb_bridge.py:115)）。害は無いが騒がしい |
+| `metrics_viewer.py`（旧 Dash） | `("scalar","json")` の allowlist で落とす（[metrics_viewer.py:60](../../../viewers/metrics-tools/metrics_viewer.py:60)） |
+| optuna（`optuna_common.py`） | `type == "scalar"` だけ読む（[:937-947](../../../apps/runner/tools/optuna_common.py:937)） |
 | `compress_workspace_metrics.py` | 内容を解釈しない |
 
-`json_lines(ordinal, type, tag, step, timestamp, json)` は `tag` / `step` / `timestamp` が NULL 可（[MetricsCacheDatabase.java:318-326](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java:318)）。
+`json_lines(ordinal, type, tag, step, timestamp, json)` は `tag` / `step` / `timestamp` が NULL 可（[MetricsCacheDatabase.java:318-326](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java:318)）。
 
 ### F9. 「トレース」は NN activation タップに既に使われている
 
-`using TraceCallback = std::function<void(std::string_view, const torch::Tensor&)>;`（[common.hpp:27](../../core/anet-core/include/anet/common.hpp:27)）。`MakeActionTraceCallback` は env 0 の層別 activation を viewer へ流す（[rl.cpp:20-25](../../core/anet-core/src/rl.cpp:20)）。本 PRD は名前を trace に決めたので、**用語側で区別する**（§4.1）。
+`using TraceCallback = std::function<void(std::string_view, const torch::Tensor&)>;`（[common.hpp:27](../../../core/anet-core/include/anet/common.hpp:27)）。`MakeActionTraceCallback` は env 0 の層別 activation を viewer へ流す（[rl.cpp:20-25](../../../core/anet-core/src/rl.cpp:20)）。本 PRD は名前を trace に決めたので、**用語側で区別する**（§4.1）。
 
 ### F10. 容量は制約にならない
 
@@ -223,7 +223,7 @@ metrics.trace.@atari.[52_eval2/episode] = $eval.[eval2] @episode_end $env game_s
 
 `EvalSessionEnv` は `index >= 0` を inner へ透過するので、PER_LANE の eval でも train でも同じ observer で lane の確定値が読める。SHARED は `index=-1` で読む。N>1 の scalar 購読は集約 prefix 必須、trace は prefix 禁止なので個体キーは inner へ透過し、N=1 で同名の無 prefix 購読がある場合も capture 済みの単一 episode 値と一致する。
 
-`$runner` / `$agent` も受理する。現行の `RunnerBase::GetScalar`（[trainer.cpp:199](../../core/anet-core/src/trainer.cpp:199)）は index を無視してカウンタや reward 等を返すため、lane 指定なら必ず `nullopt` になるわけではない。取得値が対象 episode 固有の量か、イベント時点の共有状態かを選ぶのは設定者の責任で、汎用層は意味的な妥当性を保証しない。未知キーだけが `nullopt` → fail-fast の対象である。per-episode return を event に載せる案と Agent の遅延計算キーへの購読ヒントは §8 のゲートとする。
+`$runner` / `$agent` も受理する。現行の `RunnerBase::GetScalar`（[trainer.cpp:199](../../../core/anet-core/src/trainer.cpp:199)）は index を無視してカウンタや reward 等を返すため、lane 指定なら必ず `nullopt` になるわけではない。取得値が対象 episode 固有の量か、イベント時点の共有状態かを選ぶのは設定者の責任で、汎用層は意味的な妥当性を保証しない。未知キーだけが `nullopt` → fail-fast の対象である。per-episode return を event に載せる案と Agent の遅延計算キーへの購読ヒントは §8 のゲートとする。
 
 ### 4.7 書き口と定義レコード
 
@@ -247,16 +247,16 @@ inline void LogTrace(const std::string& tag, int64_t step, int64_t lane, const j
 - `metrics.scalar.defs` に trace 定義を混ぜない理由: `inspect_run.py` の `metric_defs_from_record` は data 内の全 tag を scalar 定義として読むため、trace tag が「定義済み・未観測の scalar」に化ける。
 - **読み取り**: `inspect_run.py` の master / cache の両経路で、基本は `metrics.scalar.defs` を読み、なければ旧 `metrics.defs` を読む。writer は空でない定義を新名で1回だけ出力し、ミラーも新名を使う。
 - **互換例外**: 対象は旧 `metrics.defs` を持つ現用の過去 Run artifact。移行方法は新しい Run の実行、互換期間は現用 Run 作業セットが全て `metrics.scalar.defs` を持つまで、削除条件も同じとする。過去 artifact は書き換えない。新旧どちらを読んでも `def_source=metrics_defs` とし、旧名を読んだことだけを理由とする WARN は不要。定義不在時の既存設定導出も維持するが、これは新旧レコードの優先選択とは別経路である。
-- **`EVENT_NAMES` への追加理由**: `metric_defs_from_record` は `session_end` をそのまま保持できる一方、cache 未構築の新 Run でも [`metrics` の selector 展開](../../viewers/metrics-tools/inspect_run.py:1493)と [`tags --no-observed`](../../viewers/metrics-tools/inspect_run.py:1771)はマスタ走査を省いて設定導出を通る。したがって `metric_def_from_definition` の `EVENT_NAMES` に `session_end` を追加し、既定 `exp_step`・座標系所有者 `train` を導出できるようにする。この経路は過去 Run の互換需要がなくなっても到達可能なので、互換削除条件だけを理由に除去しない。
+- **`EVENT_NAMES` への追加理由**: `metric_defs_from_record` は `session_end` をそのまま保持できる一方、cache 未構築の新 Run でも [`metrics` の selector 展開](../../../viewers/metrics-tools/inspect_run.py:1493)と [`tags --no-observed`](../../../viewers/metrics-tools/inspect_run.py:1771)はマスタ走査を省いて設定導出を通る。したがって `metric_def_from_definition` の `EVENT_NAMES` に `session_end` を追加し、既定 `exp_step`・座標系所有者 `train` を導出できるようにする。この経路は過去 Run の互換需要がなくなっても到達可能なので、互換削除条件だけを理由に除去しない。
 - 購読ヒント（`ConfigureScalarMetricSubscriptions`）には trace を渡さない（§8 のゲート）。
 
 ### 4.8 設定（Atari）
 
-[Atari.txt:1386](../../apps/runner/config/Atari.txt:1386) の `metrics.scalar.$` 行の直後に §4.3 の 5 行（`metrics.trace.$` + eval1 / eval2 の宣言 + コメントアウトした train 宣言）を置く。
+[Atari.txt:1386](../../../apps/runner/config/Atari.txt:1386) の `metrics.scalar.$` 行の直後に §4.3 の 5 行（`metrics.trace.$` + eval1 / eval2 の宣言 + コメントアウトした train 宣言）を置く。
 
 - キーは `game_score` / `game_len` / `game_frames` / `hns57`。`hns49` は `game_score` から表引きで再導出できるので入れない。`game_score.ge.[N]` も同様。
 - **`lives` は入れない**: 確定ゲートが無く、episode end 時点では auto-reset 後の新エピソードの残機が読める（既存 `mean.lives` の `@episode_end` も同じ挙動）。
-- [metrics_scalar.txt:8-11](../../apps/runner/config/metrics_scalar.txt:8) の文法コメントに `@session_end`（eval 専用）と `metrics.trace.[tag] = $target @episode_end key1 key2 ...` を追記する。
+- [metrics_scalar.txt:8-11](../../../apps/runner/config/metrics_scalar.txt:8) の文法コメントに `@session_end`（eval 専用）と `metrics.trace.[tag] = $target @episode_end key1 key2 ...` を追記する。
 - DropMerge の eval trace は今回入れない（要るときに設定 1 行、§8）。
 
 ### 4.9 読み手側の制約（本 PRD が守る 3 点）
@@ -276,7 +276,7 @@ F8 から導かれる、行を書く側の制約:
 | `core/anet-core/include/anet/rl.hpp` / `src/rl.cpp` | `EventType::SESSION_END`、`SessionEndEvent`、`SessionEndObserver`、`RunnerScopedSessionEndObserver`、`Notifier` の Attach / Detach(×2) / Notify / AttachScoped 分岐 / `session_end_observers_` / Clear / LogObservers（`EpisodeEnd` 系のコピー） |
 | `core/anet-core/include/anet/env.hpp` / `src/env.cpp` | `EvalSessionEnv::LastAdoptedGroups()`（直前 `Step()` の採用完了 group、index 昇順）。`Step()` 先頭と既存 `Reset()` のセッション開始処理で clear、採用完了を処理した直後に push。SHARED の内部 group は 0、イベントの `env_index` は −1 |
 | `core/anet-core/src/trainer.cpp` | `EvalRunner::RunSession`: ループ内で `LastAdoptedGroups()` を走査して `EpisodeEndEvent` を通知、ループ後は `SessionEndEvent` を 1 回。RunManager: 購読抽出を `SESSION_END` へ、`GetSessionEndObservers()` を `RunnerScopedSessionEndObserver` で attach、trace observer を `RunnerScopedEpisodeEndObserver` で attach、`Log("metrics.defs", ...)` を `Log("metrics.scalar.defs", ...)` へ改名し、`Log("metrics.trace.defs", ...)` を追加 |
-| `core/anet-core/include/anet/observers.hpp` / `src/observers.cpp` | `@session_end` トークン / 属性、検証行列（§4.5）、`MetricsLogSessionEndObserver`、`ParsedSessionEndObserver` / `session_end_observers_`、`EventToken("session_end")`。`metrics.trace.[` の走査、トークン分類ループ（[observers.cpp:1221-1331](../../core/anet-core/src/observers.cpp:1221)）を名前付き namespace の static helper（`ParseMetricTokens`）へ切り出して scalar / trace で共用。トークンの種類・値・指定順・出現情報を渡し、チャネル別に意味解決・検証する。scalar は `key:` を含む既存の後勝ち・既定値・診断を維持し、trace は §4.3 の明示・重複・禁止指定を検証、`MetricsLogTraceObserver`、`TraceMetricDef` / `TraceMetricDefsToJson` / `GetTraceMetricDefs()` |
+| `core/anet-core/include/anet/observers.hpp` / `src/observers.cpp` | `@session_end` トークン / 属性、検証行列（§4.5）、`MetricsLogSessionEndObserver`、`ParsedSessionEndObserver` / `session_end_observers_`、`EventToken("session_end")`。`metrics.trace.[` の走査、トークン分類ループ（[observers.cpp:1221-1331](../../../core/anet-core/src/observers.cpp:1221)）を名前付き namespace の static helper（`ParseMetricTokens`）へ切り出して scalar / trace で共用。トークンの種類・値・指定順・出現情報を渡し、チャネル別に意味解決・検証する。scalar は `key:` を含む既存の後勝ち・既定値・診断を維持し、trace は §4.3 の明示・重複・禁止指定を検証、`MetricsLogTraceObserver`、`TraceMetricDef` / `TraceMetricDefsToJson` / `GetTraceMetricDefs()` |
 | `core/anet-core/include/anet/metrics_logger.hpp` | `LogTrace`（§4.7） |
 | `apps/runner/config/*.txt`、`apps/runner/workspaces/atari-live/config/atari_base.txt` | §4.5 の機械置換、§4.8 の追加 |
 | `viewers/metrics-tools/inspect_run.py` / `inspect_run_test.py` | 定義 tag を新旧2名で扱い、master / cache とも新名優先・新名不在時だけ旧名を採用。新出力 fixture と旧 Run fixture で読み取りを検証。`EVENT_NAMES` に `session_end` を追加し、定義レコードと cache 未構築時の設定導出を検証 |

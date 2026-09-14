@@ -1,9 +1,9 @@
 # PRD 074: 選択中 Run の色分離（Metrics Viewer）
 
 > 起点: 2026-09-12。workspace に Run が溜まった状態で昔の Run と現在の Run を比較すると、選択中 Run へ似た色が割り当たり、グラフ上で判別できないという報告。
-> 仕様合意: 2026-09-12（グリルで決定 D1〜D11 を確定。理由と棄却案は [ADR 0041](../adr/0041-run-color-is-comparison-role-not-run-identity.md)）。
+> 仕様合意: 2026-09-12（グリルで決定 D1〜D11 を確定。理由と棄却案は [ADR 0041](../../adr/0041-run-color-is-comparison-role-not-run-identity.md)）。
 > 対象: Metrics Viewer の browser 側のみ。server、Metrics キャッシュ、HTTP API は変更しない。
-> 関連: [Metrics Viewer 設計](../design/210_metrics_viewer.jp.md)、[Run 分析ユーザーガイド](../design/030_user_guide_analysis.jp.md)、[done/041 SQLite キャッシュ](done/041_metrics_sqlite_cache_10prd.md)、[done/042 Viewer refactor](done/042_metricsviewer_refactor_10prd.md)。
+> 関連: [Metrics Viewer 設計](../../design/210_metrics_viewer.jp.md)、[Run 分析ユーザーガイド](../../design/030_user_guide_analysis.jp.md)、[done/041 SQLite キャッシュ](041_metrics_sqlite_cache_10prd.md)、[done/042 Viewer refactor](042_metricsviewer_refactor_10prd.md)。
 
 ## 1. 背景
 
@@ -11,15 +11,15 @@
 
 | 事実 | 根拠 |
 |---|---|
-| Run 色は 20 色固定の `RUN_COLORS` から取る | [metrics-viewer.js:34](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
+| Run 色は 20 色固定の `RUN_COLORS` から取る | [metrics-viewer.js:34](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
 | 色は Run list 描画時に **workspace 内の全 Run** へ runId 昇順で先着順に配り、index は `runColorMap.size % 20` で決まる | 同 `UIController.renderRunList`（1084-1092 行） |
 | 選択されているかどうかは色の決定に影響しない | 同上 |
 | graph の line 色と band の塗りは `runColorMap` を引く。trace 名は runId で、凡例には runId が出る | 同 `PlotlyController`（388、420-449 行） |
 | 消えた Run の色は削除し、workspace 切替では全消去する | 同 `refreshMetadata`（1561-1563 行）、`_resetWorkspaceState` |
-| Run 色は `localStorage` へ保存しない（保存 state は 8 件） | [210 §7.4](../design/210_metrics_viewer.jp.md) |
+| Run 色は `localStorage` へ保存しない（保存 state は 8 件） | [210 §7.4](../../design/210_metrics_viewer.jp.md) |
 | `selectedRuns` は選択順の配列で、後から選んだ Run が末尾に付く。一度外して選び直すと末尾へ移動する | 同 `bindRunListEvents`（1182-1185 行）、`setSelectedRuns`（1601 行） |
-| `Select All` と初回選択は server 列挙順 = runId 昇順 | [RunScanner.java:45](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java) の `.sorted()` |
-| Run list の選択中の行は `.run-row.active` で行の背景自体が変わる | [metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| `Select All` と初回選択は server 列挙順 = runId 昇順 | [RunScanner.java:45](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java) の `.sorted()` |
+| Run list の選択中の行は `.run-row.active` で行の背景自体が変わる | [metrics-viewer.css](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 
 要点は **色が「workspace 内での位置」で決まり、「今の比較の構成」では決まらない**ことである。
 比較したい 2 本が palette 上で隣り合っていれば似た色になり、20 離れていれば完全に同じ色になる。
@@ -61,7 +61,7 @@ palette 自体の設計変更と拡張、色覚多様性（CVD）対応、Run �
 
 ## 2. 用語
 
-用語集へ追加する語は [CONTEXT.md](../../CONTEXT.md) の「Run色」「分離距離」を正とする。本 PRD 内だけで使う語は次の 3 つ。
+用語集へ追加する語は [CONTEXT.md](../../../CONTEXT.md) の「Run色」「分離距離」を正とする。本 PRD 内だけで使う語は次の 3 つ。
 
 | 用語 | 定義 |
 |---|---|
@@ -180,13 +180,13 @@ recolorKeepingExisting(selectedRuns, runColorMap):
 | 共通処理 | 2 つのパスは「候補から argmax を選ぶ」部分を共有する。維持判定の有無だけが違う |
 | 定数 | `RUN_COLOR_MIN_DISTANCE = 0.16` と `STORAGE_KEY_AUTO_RECOLOR` を先頭の定数群へ追加する |
 
-変更ファイルは [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、
-[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、
-必要なら [metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) の少量追加に閉じる。
+変更ファイルは [index.html](../../../apps/metrics-viewer/src/main/resources/static/index.html)、
+[metrics-viewer.js](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、
+必要なら [metrics-viewer.css](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) の少量追加に閉じる。
 
 ## 5. 受入条件
 
-[RunListPlaywrightTest](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) へ追加する。
+[RunListPlaywrightTest](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) へ追加する。
 Run metadata は既存テストと同じく route の stub JSON で作る。
 
 1. 基本色が衝突する 4 Run を選び `Recolor` を押すと、chip 色が選択順に `#2F7DE1` / `#D1D83B` / `#E23B4F` / `#00B36B` になる。
@@ -204,14 +204,14 @@ Run metadata は既存テストと同じく route の stub JSON で作る。
 
 作成済み（本 PRD と同じ変更に含む）:
 
-- [ADR 0041](../adr/0041-run-color-is-comparison-role-not-run-identity.md): 決定と棄却案。
-- [CONTEXT.md](../../CONTEXT.md): 「Run色」「分離距離」を Metrics基盤へ追加。
+- [ADR 0041](../../adr/0041-run-color-is-comparison-role-not-run-identity.md): 決定と棄却案。
+- [CONTEXT.md](../../../CONTEXT.md): 「Run色」「分離距離」を Metrics基盤へ追加。
 
 実装と同じ変更で更新する:
 
-- [030 §3 画面の基本操作](../design/030_user_guide_analysis.jp.md): `Recolor` と `Auto` の行を追加し、`localStorage` へ保持する項目の列挙へ 1 件足す。
-- [210 §3.2 browser](../design/210_metrics_viewer.jp.md): Run 色の所有が `MetricsViewerClientApp` 側であることを反映する。
-- [210 §7.4 browser 側の定数と永続 state](../design/210_metrics_viewer.jp.md): 定数表へ `RUN_COLOR_MIN_DISTANCE`、`localStorage` 表へ `anet.metricsviewer.autoRecolorEnabled` を追加し、「8 件」を「9 件」へ直す。色の決定規則も同節へ短く書く。
+- [030 §3 画面の基本操作](../../design/030_user_guide_analysis.jp.md): `Recolor` と `Auto` の行を追加し、`localStorage` へ保持する項目の列挙へ 1 件足す。
+- [210 §3.2 browser](../../design/210_metrics_viewer.jp.md): Run 色の所有が `MetricsViewerClientApp` 側であることを反映する。
+- [210 §7.4 browser 側の定数と永続 state](../../design/210_metrics_viewer.jp.md): 定数表へ `RUN_COLOR_MIN_DISTANCE`、`localStorage` 表へ `anet.metricsviewer.autoRecolorEnabled` を追加し、「8 件」を「9 件」へ直す。色の決定規則も同節へ短く書く。
 
 ## 7. 決定一覧
 

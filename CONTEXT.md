@@ -159,7 +159,7 @@ _Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
 構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
 _Avoid_: config, resolved config
 
-設定用語の改訂契約は[PRD 072](docs/memo/072_config_selection_final_value_10prd.md)と[ADR 0042](docs/adr/0042-config-inheritance-as-differential-base.md)を参照する。
+設定用語の改訂契約は[PRD 072](docs/memo/done/072_config_selection_final_value_10prd.md)と[ADR 0042](docs/adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
 **プロファイル (設定プロファイル)**:
 `@` セグメントで命名する、選択や値参照の入力となる設定部品。実効側へ組み込む前の定義であり、カタログ項目の identity とは区別する。

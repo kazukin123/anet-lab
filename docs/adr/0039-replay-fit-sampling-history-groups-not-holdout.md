@@ -20,4 +20,4 @@ Breakout の replay ratio 実験（2026-09-08）で、再利用回数の多い�
 - 学習経路の target 組立が共有関数へ書き換わるため、旧実装 / 新実装 OFF の同 seed 等価性を受入条件に含める。式の正本は 1 箇所になる
 - policy の `SelectAction` に risk taus の注入口が加わる。非注入の学習側呼び出しは不変で、注入時は RNG を消費しない
 - 診断の絶対値は学習ログ（train mode・BF16・random ×8）と一致しない。比較は診断内の群同士と、同じ評価条件の腕同士に限る
-- 詳細契約・13 指標・購読依存の実行表・受入条件は [PRD 073](../memo/073_replay_fit_metrics_10prd.md) を正本とする。用語は `CONTEXT.md`（replay 抽選履歴群 / 未抽選群 / 抽選済み群 / 遷移の年齢 / replay 当てはまり診断 / PER 選択比）
+- 詳細契約・13 指標・購読依存の実行表・受入条件は [PRD 073](../memo/done/073_replay_fit_metrics_10prd.md) を正本とする。用語は `CONTEXT.md`（replay 抽選履歴群 / 未抽選群 / 抽選済み群 / 遷移の年齢 / replay 当てはまり診断 / PER 選択比）

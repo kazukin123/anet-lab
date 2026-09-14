@@ -120,7 +120,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 残る104 tag・412,299行の `(step, value)` が厳密一致。許容差による scalar 差異の吸収はしていない。
 - trace は eval1 / eval2 各90行、合計180行。全18セッションで各10行、同一 step、lane 0〜9が各1回。
 - 全セッションの score 平均が同 step の既存 scalar と float 丸め範囲内で一致（比較基準 rel=1e-6 / abs=1e-5）。
-- p10 は線形補間、閾値率は `game_score >= 432`。score×len の全180組は [比較結果 JSON](../../out/test-tmp/prd069/comparison.json) の `trace_sessions[].score_len` に保存。
+- p10 は線形補間、閾値率は `game_score >= 432`。score×len の全180組は [比較結果 JSON](../../../out/test-tmp/prd069/comparison.json) の `trace_sessions[].score_len` に保存。
 
 | eval | exp step | score平均 | p10 | score ≥432率 |
 |---|---:|---:|---:|---:|
@@ -184,6 +184,6 @@ git diff --check
 ```
 
 - Debug 全体ビルド成功（Runner と各 Env の利用側を含む）。既存の `/Zi` → `/Z7` 上書き警告、初回ビルド時の `getenv` 非推奨警告が出たが、コンパイル・リンクエラーはない。
-- 関連 C++ は **40 test cases / 768 assertions 成功**。ログ: [metadata-cpp-test.log](../../out/test-tmp/prd069/metadata-cpp-test.log)。末尾の trace unknown key / background failure は意図した例外伝播テストの診断であり、失敗ケースではない。
+- 関連 C++ は **40 test cases / 768 assertions 成功**。ログ: [metadata-cpp-test.log](../../../out/test-tmp/prd069/metadata-cpp-test.log)。末尾の trace unknown key / background failure は意図した例外伝播テストの診断であり、失敗ケースではない。
 - Python は **60 tests 成功**。新規3テストで master / cache、JSON / Markdown、旧定義の欠落、config 導出を検証した。
 - 今回は定義メタデータの追加のみで、学習・評価の実行処理は変更していない。Release ビルド、C++ 全テスト、実学習 Run の前後比較、Viewer 再検証は追加対応の対象に含めず、再実行していない。上記の初回 PRD069 実装時の実 Run 検証とは区別する。

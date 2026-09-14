@@ -22,7 +22,7 @@ Run 解析ツールは、metric の step 軸や source key を知るために `c
 
 - Metrics マスタが「何を記録したか」に加えて「どう記録すると決めたか」を持つ。マスタ単体で解析が閉じる。
 - Metrics Viewer 側は無変更。レコードは `json_lines` テーブルへ入るため、解析ツールは Metrics キャッシュ経由でも読める。`json/metrics.defs.json` へのミラーも既存機構で自動的に出る。
-- 過去 Run には `metrics.defs` が無い。互換対象は本決定より前に生成された Run artifact、移行方法は新しい Run を実行すること、削除条件は現用の Run 作業セットが全て `metrics.defs` を持つようになった時点とする。互換期間中は各 metric に `def_source` を立て、Run ごとに 1 回 warning を出す。（ADR 0037 の改名後、この過去 Run 向け fallback の削除条件は「現用 Run 作業セットが全て `metrics.scalar.defs` を持つ時点」と読み替える。旧名の互換読み取りも同じ条件とする。ただし cache 未構築の新 Run で設定導出する経路は別用途であり、この条件だけを理由に削除しない。[PRD069 §4.7](../memo/069_metrics_trace_channel_10prd.md#47-書き口と定義レコード)を参照。）
+- 過去 Run には `metrics.defs` が無い。互換対象は本決定より前に生成された Run artifact、移行方法は新しい Run を実行すること、削除条件は現用の Run 作業セットが全て `metrics.defs` を持つようになった時点とする。互換期間中は各 metric に `def_source` を立て、Run ごとに 1 回 warning を出す。（ADR 0037 の改名後、この過去 Run 向け fallback の削除条件は「現用 Run 作業セットが全て `metrics.scalar.defs` を持つ時点」と読み替える。旧名の互換読み取りも同じ条件とする。ただし cache 未構築の新 Run で設定導出する経路は別用途であり、この条件だけを理由に削除しない。[PRD069 §4.7](../memo/done/069_metrics_trace_channel_10prd.md#47-書き口と定義レコード)を参照。）
 - 解析ツールは既存 Run artifact へ後から `metrics.defs` を書き込まない。artifact を変更しない契約を優先する。
 - 「step 座標系」を CONTEXT.md の用語として追加する。step 軸名だけを同一性の判定に使わない。
 - 実効設定の判定も同じ方針に従い、`config_data.txt` からの推測ではなく `config/<module>.txt` との突合で行う。突合できない領域は「実効でない」ではなく「不明」とする。
