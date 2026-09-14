@@ -453,19 +453,15 @@ class HoverOverlay {
 	}
 
 	show(event) {
-		const rows = this._rows(event?.points);
+		// 先に可視化する。display:none の要素は矩形がすべて 0 で返るため測れない。
+		this.root.style.display = "block";
+		const frame = this._frame(event);
+		const rows = frame ? this._rows(event?.points, this._cursorX(frame)) : [];
 		if (!rows.length) {
 			this.hide();
 			return;
 		}
-		// 先に可視化する。display:none の要素は矩形がすべて 0 で返るため測れない。
-		this.root.style.display = "block";
-		const frame = this._frame(event);
-		if (!frame) {
-			this.hide();
-			return;
-		}
-		this._renderTip(rows, Number(event.points[0].x));
+		this._renderTip(rows, rows[0].x);
 		this._renderDots(rows, frame);
 		this._placeGuide(frame);
 		this._placeTip(frame);
@@ -490,10 +486,24 @@ class HoverOverlay {
 		};
 	}
 
-	_rows(points) {
+	_cursorX(frame) {
+		// カーソルが指しているデータ座標。系列がそこまで伸びているかの判定に使う。
+		const axis = this.plot._fullLayout?.xaxis;
+		return Number(axis?.p2d?.(frame.pointerX - frame.areaLeft));
+	}
+
+	static coversX(point, cursorX) {
+		// 途中で終わっている系列にも Plotly は端の点を返す。別 step の値が混ざるので落とす。
+		const xs = point.data?.x;
+		if (!Number.isFinite(cursorX) || !xs?.length) return true;
+		return cursorX >= Number(xs[0]) && cursorX <= Number(xs[xs.length - 1]);
+	}
+
+	_rows(points, cursorX) {
 		// Band 表示では同じ Run の min/max/mean が別トレースで届くので 1 行にまとめる。
 		const byRun = new Map();
 		for (const point of points ?? []) {
+			if (!HoverOverlay.coversX(point, cursorX)) continue;
 			const meta = point.data?.meta ?? {};
 			const runId = meta.runId ?? point.data?.name;
 			if (!runId) continue;
@@ -515,6 +525,7 @@ class HoverOverlay {
 				row.max = value;
 			} else {
 				row.value = value;
+				row.x = Number(point.x);
 				row.px = Number(point.xaxis?.l2p?.(point.x));
 				row.py = Number(point.yaxis?.l2p?.(point.y));
 			}
