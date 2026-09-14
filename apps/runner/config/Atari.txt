@@ -543,6 +543,9 @@ run.@btrsn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpa
 # num_envs を BTR の 64 へ。replay_ratio は 1 遷移あたりの定義なので
 # 1 更新 = 64 exp step は変わらず、target は hard500 のままで env 時間 32,000 を保つ。
 # btrfull から融合位置だけ戻す。tau 側は @iqn(512 + SiLU)。探索ブロック 24 のとおり
+# @btrsn の代わりに重ねる。stem 3 本の SN を外して BTR と同じ 12/15 被覆にする。
+run.@btrsn12 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SN12Pool6Flat
+
 # tau の ReLU は融合 2304 でのみ得になるので、512 では SiLU が正しい対になる。
 run.@btrtrunk : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool6Trunk
 run.@btrtrunk : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
@@ -1116,6 +1119,12 @@ net.branch.@AtariImpalaX2SNPool4Trunk.structure = StackMerge > AtariImpalaConv32
 
 net.branch.@AtariImpalaX2SNPool3Trunk.bind = grid
 net.branch.@AtariImpalaX2SNPool3Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool3 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+# BTR の SN 被覆に厳密一致させる版。BTR は ImpalaCNNBlock.conv(stem 3 本)が素の
+# nn.Conv2d で、norm_func が掛かるのは ImpalaCNNResidual.conv_0/conv_1 だけ。
+# つまり BTR は 12/15、本構成の @AtariImpalaX2SNPool6Flat は 15/15 で SN している。
+net.branch.@AtariImpalaX2SN12Pool6Flat.bind = grid
+net.branch.@AtariImpalaX2SN12Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
 
 net.branch.@AtariImpalaX2Pool6Flat.bind = grid
 net.branch.@AtariImpalaX2Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
