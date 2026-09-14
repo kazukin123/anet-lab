@@ -53,6 +53,91 @@ void WriteConfig(const std::filesystem::path& path, std::initializer_list<std::s
     }
 }
 
+TEST_CASE("ConfigManager satisfies PRD072 manual examples", "[config][resolver][prd072]")
+{
+    // 設定例をデータとして保持し、実パーサから公開値まで同じ経路で検証する。
+    const auto root = std::filesystem::current_path();
+    std::ifstream examples_file(root / "core" / "anet-core" / "testdata" / "config_resolver_prd072.json");
+    REQUIRE(examples_file.good());
+    const auto examples = anet::json::parse(examples_file);
+    for (const auto& example : examples) {
+        DYNAMIC_SECTION(example["id"].get<std::string>()) {
+            const auto path = root / "out" / "test-tmp" / "config-prd072-manual" / "config.txt";
+            std::filesystem::create_directories(path.parent_path());
+            {
+                std::ofstream config_file(path);
+                for (const auto& line : example["config"]) {
+                    config_file << line.get<std::string>() << '\n';
+                }
+                REQUIRE(config_file.good());
+            }
+            const wxCmdLineEntryDesc description[] = {
+                { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+                    wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+                { wxCMD_LINE_NONE },
+            };
+            wxCmdLineParser command_line(description,
+                wxString::FromUTF8(example.value("cli", std::string{})));
+            REQUIRE(command_line.Parse(false) == 0);
+            if (example.contains("error")) {
+                std::string error;
+                try {
+                    const anet::ConfigManager manager(path, &command_line);
+                } catch (const std::exception& exception) {
+                    error = exception.what();
+                }
+                REQUIRE_FALSE(error.empty());
+                for (const auto& expected : example["error"]) {
+                    INFO(error);
+                    CHECK(error.find(expected.get<std::string>()) != std::string::npos);
+                }
+                continue;
+            }
+            const anet::ConfigManager manager(path, &command_line);
+            const auto config = manager.GetConfigData();
+            for (const auto& [key, expected] : example["values"].items()) {
+                INFO(key);
+                REQUIRE(config.Has(key));
+                CHECK(config.Get(key) == expected.get<std::string>());
+            }
+            for (const auto& key : example.value("absent", anet::json::array())) {
+                INFO(key);
+                CHECK_FALSE(config.Has(key.get<std::string>()));
+            }
+            CHECK(manager.GetResolutionJson()["schema_version"] == 1);
+            if (example.contains("overrides")) {
+                CHECK(manager.GetResolutionJson()["overrides"] == example["overrides"]);
+            }
+            if (example.contains("selections")) {
+                CHECK(manager.GetResolutionJson()["selections"] == example["selections"]);
+            }
+        }
+    }
+}
+
+
+TEST_CASE("ConfigManager preserves default strength across input files", "[config][resolver][default-leaf]")
+{
+    // includeと追加ファイルの境界を公開ConfigManagerで通す。
+    const auto root = std::filesystem::current_path() / "out/test-tmp/config-default-leaf";
+    WriteConfig(root / "included.txt", { "Env.strong ?= ignored", "Env.weak ?= included", "Env.from_include = strong" });
+    WriteConfig(root / "main.txt", { "Env.strong = main", "Env.weak ?= main", "$include <included.txt>",
+        "Env.from_include ?= ignored", "Env.[child].k ?= scoped", "Env.injected ?= default", "Env.$ = @base", "Env.@base.injected = base" });
+    WriteConfig(root / "extra.txt", { "Env.strong ?= ignored", "Env.weak ?= extra", "Env.injected ?= ignored" });
+    anet::ConfigData injected;
+    injected.Set("Env.injected", "injected");
+    const anet::ConfigManager manager(root / "main.txt", nullptr,
+        anet::ConfigManagerOptions{ .injected_config = injected, .overwrite_config_paths = { root / "extra.txt" } });
+    const auto data = manager.GetConfigData();
+    CHECK(data.Get("Env.strong") == "main");
+    CHECK(data.Get("Env.weak") == "extra");
+    CHECK(data.Get("Env.from_include") == "strong");
+    CHECK(data.Get("Env.injected") == "injected");
+    // 公開値と部分Configには演算子・強弱情報を持ち出さない。
+    CHECK_FALSE(data.Has("Env.weak?"));
+    CHECK(data.MakeSubConfigData("Env").at("child").Get("k") == "scoped");
+}
+
 
 class ProfiledValueOwnerConfig final : public anet::Config {
 public:
@@ -582,7 +667,8 @@ TEST_CASE("ConfigManager loads trial main config with include and override", "[c
     const auto config_data = manager.GetConfigData();
 
     CHECK(config_data.Get("app.run_name") == "optuna_trial_00001");
-    CHECK(config_data.Get("net.branch.[main_feature].structure") == "TrialBranch");
+    // 選択キーの再指定はベースだけを変更し、個別葉を上書きしない。
+    CHECK(config_data.Get("net.branch.[main_feature].structure") == "BaseStructure");
 
     std::filesystem::remove_all(root);
 }
@@ -930,7 +1016,7 @@ TEST_CASE("ConfigManager resolves nested selection copied from material", "[conf
     const auto selections = manager.GetResolutionJson()["selections"];
     REQUIRE(selections.size() == 2);
     CHECK(selections[0]["key"] == "DefaultDQNAgent.$");
-    CHECK(selections[1]["key"] == "DefaultDQNAgent.net.$");
+    CHECK(selections[1]["key"] == "DefaultDQNAgent.@iqn.net.$");
     CHECK(selections[1]["chain"][0]["resolved"] == "net.@iqn");
 
     std::filesystem::remove_all(root);
@@ -954,6 +1040,8 @@ TEST_CASE("ConfigManager resolves nested selection at the same owner", "[config]
 
     const auto selections = manager.GetResolutionJson()["selections"];
     REQUIRE(selections.size() == 2);
+    CHECK(selections[0]["key"] == "Env.$");
+    CHECK(selections[1]["key"] == "Env.@a.$");
     CHECK(selections[0]["chain"][0]["resolved"] == "Env.@a");
     CHECK(selections[1]["chain"][0]["resolved"] == "Env.@b");
 
@@ -1151,10 +1239,11 @@ TEST_CASE("ConfigManager expands value references after CLI leaf override", "[co
 
     const auto references = manager.GetResolutionJson()["references"];
     REQUIRE(references.size() == 2);
-    CHECK(references[0]["source"] == "app.online.exp_pause_step");
+    // 値参照の記録は参照元キー順で安定化する。
+    CHECK(references[0]["source"] == "app.batchrun.exp_exit_step");
     CHECK(references[0]["target"] == "@vars.max_exp_step");
     CHECK(references[0]["value"] == "75000000");
-    CHECK(references[1]["source"] == "app.batchrun.exp_exit_step");
+    CHECK(references[1]["source"] == "app.online.exp_pause_step");
 
     std::filesystem::remove_all(root);
 }

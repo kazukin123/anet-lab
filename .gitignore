@@ -70,9 +70,9 @@
 /core/anet-core/bin/Debug/out
 /core/anet-core/bin/Release/out
 /core/anet-core/bin/RelWithDebInfo/out
-/apps/runner/tools/__pycache__
 /docs/xml
 /apps/Servers
 /apps/.metadata
-/viewers/metrics-tools/__pycache__
 /tmp
+/.scratch/
+__pycache__/

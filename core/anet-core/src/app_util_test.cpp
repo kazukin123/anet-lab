@@ -373,7 +373,7 @@ TEST_CASE("Workspace config enforces derived runs directory after AutoMerge", "[
         Catch::Matchers::ContainsSubstring("Workspace config changed app.runs_dir"));
 }
 
-TEST_CASE("Workspace config rejects direct indirect and CLI runs overrides", "[workspace]")
+TEST_CASE("Workspace config preserves injected runs directory through selection", "[workspace]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
         "app-util-workspace-runs-invariant-test";
@@ -401,7 +401,9 @@ TEST_CASE("Workspace config rejects direct indirect and CLI runs overrides", "[w
     WriteWorkspaceTestFile(workspace_config,
         "app.$ = app.online\n"
         "app.online.runs_dir = indirect-override\n");
-    CHECK_THROWS(anet::CreateWorkspaceConfigManager(workspace, common_dir, nullptr));
+    // ベースからの値は注入済みの個別葉に勝たず、最終出力先を変えない。
+    const auto indirect = anet::CreateWorkspaceConfigManager(workspace, common_dir, nullptr);
+    CHECK(indirect->GetConfigData().Get("app.runs_dir") == workspace.runs_config_value);
 
     WriteWorkspaceTestFile(workspace_config, "workspace.value = valid\n");
     const wxCmdLineEntryDesc command_line_description[] = {

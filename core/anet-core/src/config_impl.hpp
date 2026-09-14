@@ -13,7 +13,8 @@ namespace anet::detail {
 
     class ConfigResolver {
     public:
-        static ConfigResolverResult Resolve(const ConfigData::MapType& source_map, const ConfigData::MapType& cli_overrides);
+        static ConfigResolverResult Resolve(const ConfigData::MapType& source_map, const ConfigData::MapType& cli_overrides,
+            const std::unordered_set<std::string>& default_keys);
     };
 
 } // namespace anet::detail

@@ -207,7 +207,7 @@ flowchart TB
 
 設定管理は、Properties 形式のファイル、`$include`、設定グループのマージ、コマンドラインの `key=value` を一つの `ConfigData` へ解決します。各コンポーネントの `Config` は、文字列値を型付き field として読み、型・値域・組み合わせの不正を構築時に検出します。解決後の全設定と、各 Config object が実際に解釈した値は Run 成果物へ記録します。
 
-解決順とエラー契約は[実行基盤と設定](100_runtime_and_configuration.jp.md)を参照してください。
+解決順とエラー契約は[実行基盤と設定](100_runtime_and_configuration.jp.md)を参照してください。設定ファイルの記法と書き方は[Run 実行ガイド](020_user_guide_run.jp.md)の 3 章を参照してください。
 
 ### 6.2 強化学習共通基盤
 

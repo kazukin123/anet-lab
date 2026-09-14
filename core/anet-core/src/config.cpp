@@ -521,6 +521,12 @@ namespace anet {
             return std::isspace(c) != 0;
         }), key.end());
 
+        // 演算子として取り除かれなかった '?' はキー名として受け付けない。
+        if (key.find('?') != std::string::npos) {
+            ANET_SYSTEM_ERROR("Properties: invalid assignment operator. key=" << key
+                << " path=" << filename.string() << " expected='=' or contiguous '?='");
+        }
+
         const auto colon = key.find(':');
         if (colon == std::string::npos) {
             return key;
@@ -651,7 +657,12 @@ namespace anet {
             if (pos == std::string::npos)
                 continue;
 
-            std::string key = NormalizePropertyKey(line.substr(0, pos), filename);
+            const bool is_default = pos > 0 && line[pos - 1] == '?';
+            std::string key = NormalizePropertyKey(line.substr(0, pos - (is_default ? 1 : 0)), filename);
+            if (is_default && (key.ends_with(".$") || key == "$" || key.starts_with("run.@"))) {
+                ANET_SYSTEM_ERROR("Properties: default assignment is only allowed for ordinary leaves. key="
+                    << key << " file=" << filename.string());
+            }
             std::string value = Trim(line.substr(pos + 1));
 
             // 末尾 ';' を除去
@@ -660,7 +671,12 @@ namespace anet {
             value = Trim(value);
 
             if (!key.empty()) {
-                configData.Set(key, value);
+                // 個別葉は後続の既定葉でも消さず、同じ強さだけ後勝ちにする。
+                if (!is_default || !configData.Has(key) || default_keys_.contains(key)) {
+                    configData.Set(key, value);
+                    if (is_default) default_keys_.insert(key);
+                    else default_keys_.erase(key);
+                }
             }
         }
     }
@@ -747,6 +763,9 @@ namespace anet {
         // 呼出側が確定した設定と追加ファイルを、ベース設定へ順番に重ねる。
         ConfigData config_data(map_);
         config_data.OverwriteFrom(options_.injected_config);
+        for (const auto& [key, value] : options_.injected_config.Map()) {
+            default_keys_.erase(key);
+        }
         map_ = config_data.Map();
         for (const auto& overwrite_config_path : options_.overwrite_config_paths) {
             OverwriteFromFile(overwrite_config_path);
@@ -756,8 +775,9 @@ namespace anet {
         const auto cli_overrides = cmdLine
             ? ReadCmdLineOverrides(*cmdLine)
             : ConfigData::MapType{};
-        auto resolved = detail::ConfigResolver::Resolve(map_, cli_overrides);
+        auto resolved = detail::ConfigResolver::Resolve(map_, cli_overrides, default_keys_);
         map_ = std::move(resolved.effective_map);
+        default_keys_.clear();
         resolution_json_ = std::move(resolved.resolution_json);
     }
 
@@ -766,15 +786,23 @@ namespace anet {
         const auto resolved_path = ResolveMainConfigPath(filePath, options_);
         Properties props(resolved_path, options_);
         map_ = props.ToConfigData().Map();
+        default_keys_ = props.DefaultKeys();
     }
 
     void ConfigManager::OverwriteFromFile(const std::filesystem::path& filePath)
     {
         const auto resolved_path = ResolveMainConfigPath(filePath, options_);
         const Properties props(resolved_path, options_);
-        ConfigData config_data(map_);
-        config_data.OverwriteFrom(props.ToConfigData());
-        map_ = config_data.Map();
+        // 別ファイル間でも通常入力の強弱を保ったまま合成する。
+        const auto config_data = props.ToConfigData();
+        for (const auto& [key, value] : config_data.Map()) {
+            const bool is_default = props.DefaultKeys().contains(key);
+            if (!is_default || !map_.Has(key) || default_keys_.contains(key)) {
+                map_.Set(key, value);
+                if (is_default) default_keys_.insert(key);
+                else default_keys_.erase(key);
+            }
+        }
     }
 
     ConfigData::MapType ConfigManager::ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const
@@ -789,6 +817,9 @@ namespace anet {
 
             const auto pos = p.find('=');
             if (pos == std::string::npos) continue;
+            if (pos > 0 && p[pos - 1] == '?') {
+                ANET_SYSTEM_ERROR("ConfigManager: default assignment is not allowed on command line. argument=" << p);
+            }
 
             const std::string key = NormalizePropertyKey(
                 p.substr(0, pos),

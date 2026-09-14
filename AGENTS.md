@@ -146,6 +146,12 @@ fail-fast の「fail」は「意図しない状態」にのみ適用する。
 - sentinel・magic 値による黙った再解釈を導入しない。例: `0` を「全件」と読み替える、範囲外を clamp する。「設定に書いたことがそのまま起きる」を保証し、意図の分岐が必要な場合はモード値として明示させる（例: `mode = full | rotating` ＋ `size`。不正な組み合わせは fail-fast）。
 - エラーメッセージには、問題のあるキー、指定値、期待される値または範囲を含める。
 
+### 設定ファイルの代入演算子
+
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。選択宣言`.$`・Runプロファイル・CLIは常に`=`。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。
+
+この運用は設定編集・監査の規約であり、resolverの名前・位置による特別扱いではない。人向けの説明、ファイル別の一覧、DropMerge・Atariの例は[Run実行ユーザーガイド](docs/design/020_user_guide_run.jp.md)の§3.6・§3.7を参照する。設定変更時は`check_default_leaves.py`と全キー・文字列値の比較で意図しない変化がないことを確認する。
+
 ## コーディング規約
 
 C++ コードは Google C++ スタイルガイドを前提とします。
@@ -317,6 +323,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\batchrun_f
 .\.venv\Scripts\python.exe apps\runner\tools\optuna_workspace_test.py
 .\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
 ```
+
+PRD072の固定17入力比較（通常のDebugビルド済み、リポジトリルートで実行）:
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/prepare.py prepare
+```
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/prepare.py compare
+```
+
+入力定義・旧golden・新しい記録期待値は`core/anet-core/testdata/prd072/`で管理する。manifestの固定commitを含むGit履歴が必要。生成物は`.scratch/prd072-differential/validation/`。固定設定の原本と`migrate.py`で既定葉の`?=`へ書き換えた設定を別々に保持する。全キー・文字列値を旧goldenと比較し、解決記録・Run差分を`resolution/`の期待値と比較する。空のRun差分も明示検査する。値はキーでソートして厳密比較し、行順の差分は比較しない(dumpに重複キーはない)。`expected.py`は入力宣言・旧goldenの参照値から期待値を検証し、実行結果から自動更新しない。
+
+共通ベースと環境別のデフォルト設定を`?=`、環境別のその他を`=`として検査する。未選択Run・bat・生成ツールの選択宣言からownerも求め、未分類の個別葉を検出する（ripgrepの`rg`がPATH上に必要）:
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
+```
+
+検査器の回帰テスト:
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves_test.py
+```
+
+一覧は`.scratch/prd072-default-leaf/default-leaf-audit.json`。過去Run、ローカルworkspace、独立resolver fixture、旧goldenは現用移行対象と区別する。
+
+goldenは契約を意図的に変えるときだけ更新する。変更前の最後のcommitで通常テスト実行体をビルドし、manifestのcommitもその値へ更新する。既存goldenは人間が削除した後、`prepare.py capture`で元の固定入力から明示採取する。スクリプト・テストの両方で既存goldenへの上書きを拒否し、自動再生成は行わない。goldenはUTF-8 / LF。manifestや移行処理を変えた場合、古い生成物は退避してからprepareする。
 
 新しいテスト実行体や専用スクリプトが追加された場合は、この節に標準の実行手順を追記してください。
 

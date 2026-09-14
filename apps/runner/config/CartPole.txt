@@ -73,8 +73,8 @@ metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.@per-prio > 
 # CartPoleEnv
 # ==============================================================================
 
-CartPoleEnv.limit_step = 200
-#CartPoleEnv.limit_step = 500
+CartPoleEnv.limit_step ?= 200
+#CartPoleEnv.limit_step ?= 500
 
 
 # ==============================================================================

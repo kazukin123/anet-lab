@@ -26,18 +26,37 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 設定は文字列key/valueを保持する`ConfigData`へ集約される。
 
-1. `Properties`が共通main configと`$include`先を読み込む。各行は最初の`=`より左をkeyとし、key内の空白を除去して単一の`:`を`.`へ正規化する。複数の`:`または空の区間はfail-fastする。旧parserで`:`をkey/value境界としていた`foo: bar`形式は廃止し、`=`のない行は読み飛ばす。
+1. `Properties`が共通main configと`$include`先を読み込む。各行は最初の`=`で分割し、その直前の`?`を既定葉演算子として取り除く。同じキーは`=`を`?=`より優先し、同じ強さだけ後勝ちとする。key内の空白を除去して単一の`:`を`.`へ正規化する。複数の`:`または空の区間はfail-fastする。旧parserで`:`をkey/value境界としていた`foo: bar`形式は廃止し、`=`のない行は読み飛ばす。
 2. workspaceモードではRunnerが`app.runs_dir=<workspace>/runs`を注入し、workspaceの`config/_main.txt`を後勝ちで重ねる。workspace内includeは共通config directoryへfallbackして解決する。
-3. `ConfigResolver`がbase、注入値、後勝ちoverlay、CLI第1相をsource mapへ統合する。CLI第1相は全CLI overrideを解決入力へ先出しするため、選択の源プレフィクス形もselectionの複製に反映される。実効leafはCLI第2相で再適用し、selectionとRunプロファイルの産物へ最終的に勝つ。
-4. `run.$`があれば、`ConfigResolver`は通常selectionのスナップショット前にRunプロファイルを展開する。単独の`@name`は`run.@name`、それ以外はroot絶対prefixとして解決し、Runプロファイルの子をprefix剥がしでrootへ後書きする。
-5. `ConfigResolver`が残りの`.$`を宣言順のDFSで解決する。単独の`@name`はselection所有者配下の相対プロファイル、それ以外はrootからの絶対prefixである。チェーンは左から右へ適用し、右側を後勝ちとする。プロファイルから生成されたnested `.$`も同じ規則で再帰解決する。
-6. CLI第2相として実効leafを上書きし、その後で`${full.key}`を参照先の最終値へ1段だけ展開する。未定義プロファイル、selection循環、深さ10超過、未定義・連鎖・未解決の値参照はfail-fastする。
-7. `.$`と`@` segmentを持つプロファイル定義を除いた`ConfigData`と、解決順を記録したresolution JSONを返す。workspaceモードでは最終`app.runs_dir`が注入値と文字列完全一致することを検証し、各`Config` classが型付きfieldを読む。
-8. Runnerは同じ初期化境界で、実効設定を`config/config_data.txt`へ保存し、selectionと値参照の構造化記録を既存`MetricsLogger::Log("config_resolution", json)`へ渡す。後者は`json/config_resolution.json`へ`type` / `tag` / `data` envelope付きで保存され、timestamp付きの同じrecordがMetrics masterにも記録される。
+3. `ConfigResolver`がCLIを解決入力へ反映し、`run.$`を通常selectionより先に展開する。Runの項は左から右へ後勝ちでrootへ供給し、同じキーのCLIをさらに優先する。Run内の`Env.$ = @base`は展開先rootを定義位置とする。
+4. 各設定を、`?=`の既定葉、全体の`.$`によるベース、配下の部分`.$`、直接書いた個別葉の順に組み立てる。異なるキーの行順でこの優先関係を変えない。各選択元の最終値を左から右へ差分合成し、右側にない葉は残す。継承由来か直書きかで葉を削除しない。
+5. 参照元への後段変更・追加キー・Run・CLIも、参照元自身の最終値として継承先へ届く。依存解決の順序と上書き順位は別である。親キーへのCLIは親の最終値を変更するが、子自身の個別指定を無条件には上書きしない。
+6. 必要なプロファイル定義を有効化し、定義位置の依存を検証する。未選択の内側プロファイルは休止した在庫として保持する。未定義のプロファイル・カタログ・その部分、自己供給、実際の循環、選択深さ10超過はfail-fastする。空の通常prefixは名前によらず許容する。
+7. 最終値へ`${full.key}`を1段だけ展開する。未定義・連鎖・未解決の値参照はfail-fastする。`.$`と`@` segmentを持つ定義を除いた`ConfigData`とresolution JSONを返し、各`Config`が型付きfieldを読む。workspaceの最終`app.runs_dir`は注入値との文字列完全一致を検証する。
+8. Runnerは実効設定を`config/config_data.txt`へ保存し、構造化した解決記録を`MetricsLogger::Log("config_resolution", json)`へ渡す。`json/config_resolution.json`には`type` / `tag` / `data` envelope付きで保存され、同じrecordがMetrics masterにも記録される。
 
-Runプロファイルの展開は「その中身を設定file末尾へ追記した」のと同じ優先順位を持つ。展開段自身は`effective_map`を更新せず、Runプロファイルがrootへ供給した`.$`は直後の通常selectionで1回だけ解決する。resolutionの`selections`では`run.$`が先頭entryになり、処理済み`run.$`と`run.@*`プロファイルは実効設定へ残らない。Runプロファイルが別の`run.$`を供給するRunプロファイルのネストはfail-fastし、`run.foo`のような通常keyは特別扱いしない。
+**`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないeps_endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
-同一の実効`.$` keyがチェーン内の複数プロファイルから生成される場合、`selections`には適用ごとに同じ`key`のentryが解決順で並ぶ。これは右勝ちに至る適用履歴を保持するためであり、重複を集約しない。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は`AGENTS.md`「設定ファイルの代入演算子」、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
+
+既定値は同じ位置に`?=`で書き、意図した個別指定は`=`で書く。既定値用プロファイルをチェーン先頭へ追加しない。Runプロファイル内・CLI・選択宣言`.$`には`?=`を書けない。設定を追加したら`check_default_leaves.py`で、共通ベース・デフォルト設定に残った`=`と環境別の個別指定に紛れた`?=`を確認する。用途を変える場合は検査器の分類理由も更新する。
+
+短い`@name`は宣言の定義元で解決する。`Env.$ = @a`はEnv.@a、`Env.@a : $ = @b`はEnv.@bを参照し、`Other.$ = Env.@a`でもOther.@bへ変わらない。完全修飾termはそのまま使う。`:`は説明・設定例では`@`プロファイルの境界に使い、通常キーは`Env.$`のように`.`で記述する。CommonやA2自身の`.$`も通常の依存であり、名前のドット数で上書き層を識別しない。参照先の選択命令をコピー先で再実行しない。
+
+resolution JSONの`schema_version`は1。`selections[].key`は宣言の定義位置で、`Env.@a.$`や`DefaultDQNAgent.@baseline.actor.[eval].$`もそのまま記録する。`run.$`を先頭に置き、入力宣言順・term順に必要な依存を辿り、同じ定義の再参照は重複させない。`references`は1段値参照を参照元キー順に記録する。`overrides`はRunの最終指定が同じキーのRun葉適用前の最終値を変更した場合だけ、`key` / `by` / `from` / `to`で記録する。Runが選択キーを変更した効果は、その前提値にも反映する。途中の4→1→4は記録しない。`to`はRun値であり、同じ葉へのCLI指定後の実効値とは異なりうる。最終値は`config_data.txt`で確認する。
+
+例えばDropMergeの次の3行は、いずれも環境別ファイルのデフォルト設定外なので`=`で書く。
+
+```ini
+DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC1024 > SiLU
+DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
+app.run_name = run_{t}_dm_iqn-k32-n32-m32
+```
+
+
+対象の葉へのRun・CLI指定は`=`の個別葉にも勝つ。一方、選択キーへのCLIはチェーンだけを置き換える。ベース定義の`?=`も、選択元の最終値になって継承された後は通常の値であり、`>`の右側にある値が左側の値に勝つ。
+
+内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別葉を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[PRD072](../memo/072_config_selection_final_value_10prd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
 DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、PRD 059 Phase 1aではrootに維持する。
 

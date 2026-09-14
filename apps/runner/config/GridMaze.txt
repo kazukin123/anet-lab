@@ -210,25 +210,25 @@ app.online.train_panel.fps = 30
 env.class_id = GridMazeEnv
 
 
-GridMazeEnv.width = 5
-GridMazeEnv.height = 5
-GridMazeEnv.seed = 6545537233705677626
-GridMazeEnv.randomize_seed = false
+GridMazeEnv.width ?= 5
+GridMazeEnv.height ?= 5
+GridMazeEnv.seed ?= 6545537233705677626
+GridMazeEnv.randomize_seed ?= false
 
-GridMazeEnv.wall_density = 0.2
-GridMazeEnv.hole_density = 0.1
+GridMazeEnv.wall_density ?= 0.2
+GridMazeEnv.hole_density ?= 0.1
 
-GridMazeEnv.init_pos_x = 0
-GridMazeEnv.init_pos_y = 0
-GridMazeEnv.goal_pos_x = 4
-GridMazeEnv.goal_pos_y = 4
+GridMazeEnv.init_pos_x ?= 0
+GridMazeEnv.init_pos_y ?= 0
+GridMazeEnv.goal_pos_x ?= 4
+GridMazeEnv.goal_pos_y ?= 4
 
-GridMazeEnv.reward_goal = 1.0
-GridMazeEnv.reward_hole = -1.0
-GridMazeEnv.reward_wall = -0.1
-GridMazeEnv.reward_step = -0.01
+GridMazeEnv.reward_goal ?= 1.0
+GridMazeEnv.reward_hole ?= -1.0
+GridMazeEnv.reward_wall ?= -0.1
+GridMazeEnv.reward_step ?= -0.01
 
-GridMazeEnv.max_steps = 100
+GridMazeEnv.max_steps ?= 100
 
 # --- Eval設定 ---
 

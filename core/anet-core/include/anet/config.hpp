@@ -151,7 +151,13 @@ namespace anet {
         ConfigData ToConfigData() const {
             return configData;
         }
+        /// 解決入力の既定葉を読み取り専用で参照する。返却参照の寿命はPropertiesと同じ。
+        const std::unordered_set<std::string>& DefaultKeys() const {
+            return default_keys_;
+        }
     private:
+        // 読み込み途中だけ保持し、公開ConfigDataへは渡さない。
+        std::unordered_set<std::string> default_keys_;
         ConfigData configData;
         ConfigManagerOptions options_;
 
@@ -263,6 +269,7 @@ namespace anet {
     private:
         ConfigManagerOptions options_;
         ConfigData::MapType map_;
+        std::unordered_set<std::string> default_keys_;
         anet::json resolution_json_;
     };
 

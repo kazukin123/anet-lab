@@ -638,18 +638,18 @@ ImageDataset.[food101_eval].cache.max_bytes = 4,294,967,296   # 最大4GB(3.8G�
 
 # --- ImageCls standard Train/Eval Sources
 
-ImageClsEnv.max_steps = 100
-ImageClsEnv.train.dataset_key = food101_train
-#ImageClsEnv.train.augment.enabled = false
-ImageClsEnv.train.augment.enabled = true
-ImageClsEnv.train.augment.hflip_p = 0.5
-ImageClsEnv.train.augment.rrc_scale_min = 0.5
-ImageClsEnv.train.augment.rrc_scale_max = 1.0
-ImageClsEnv.train.augment.rrc_ratio_min = 0.75
-ImageClsEnv.train.augment.rrc_ratio_max = 1.3333333
-ImageClsEnv.eval.dataset_key = food101_eval
-ImageClsEnv.eval.eval_window.mode = full
-ImageClsEnv.eval.eval_window.rotating_size = 1024
+ImageClsEnv.max_steps ?= 100
+ImageClsEnv.train.dataset_key ?= food101_train
+#ImageClsEnv.train.augment.enabled ?= false
+ImageClsEnv.train.augment.enabled ?= true
+ImageClsEnv.train.augment.hflip_p ?= 0.5
+ImageClsEnv.train.augment.rrc_scale_min ?= 0.5
+ImageClsEnv.train.augment.rrc_scale_max ?= 1.0
+ImageClsEnv.train.augment.rrc_ratio_min ?= 0.75
+ImageClsEnv.train.augment.rrc_ratio_max ?= 1.3333333
+ImageClsEnv.eval.dataset_key ?= food101_eval
+ImageClsEnv.eval.eval_window.mode ?= full
+ImageClsEnv.eval.eval_window.rotating_size ?= 1024
 
 
 # --- Eval設定 ---

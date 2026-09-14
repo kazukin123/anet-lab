@@ -212,7 +212,7 @@ SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生paramet
 - srankは方向の分布を、dormant / deadは脱落したユニット数を測るので、ほぼ直交する。ユニットの死が主体の損傷では、srankは`min(N, D)`の何割かで平坦なまま動かないことがある。srankが動かない＝健康、ではない。
 - δ違い（`x6`-`x9`）は同じ特異値ベクトルから求めるのでSVD回数を増やさない。上位方向へのエネルギー集中を見たい時だけ有効化する。
 - target系はonlineの`soft_update_tau`遅れの観測で、平時はほぼ冗長なので既定OFFである。崩壊機序を精査する時に有効化し、online→targetの伝播ラグから「まだ健康なtargetが引き戻す」構図か「両方巻き込まれた自走崩壊」かを識別する。
-- exp軸tagとの突き合わせは exp_step = learn_step × batch size / `replay_ratio` で換算する（batch 256でRR8=×32 / RR4=×64 / RR1=×256）。step軸選択の一般注意は4.2節と6.3節、指標定義と測定契約は[DQN系Agent](200_dqn_agents.jp.md)9.4章と[062_plasticity_metrics_10prd.md](../memo/done/062_plasticity_metrics_10prd.md)を参照する。
+- exp軸tagとの突き合わせは exp_step = learn_step × batch size / `replay_ratio` で換算する（batch 256でRR8=×32 / RR4=×64 / RR1=×256）。step軸選択の一般注意は4.2節と6.3節、指標定義と測定契約は[DQN系Agent](200_dqn_agents.jp.md)9.4章を参照する。
 
 
 ### 4.8 Munchausen診断を読む
@@ -378,7 +378,7 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config run_A run_B --diff
 ```
 
-`config`は`config/config_data.txt`を読む。ただしこのfileには実効値だけでなく、マージ元の定義namespace（`A.*`、`R.*`、`AS.*`、`M.*`、`metrics.scalar.baseline.*`など）と、選ばれなかったprofile（`metrics.scalar.full.*`など）が同居している。`.$`の選択行はAutoMergeで消えるため、**どのprofileが選ばれたかをこのfile単独から復元することはできない。**
+`config`は`config/config_data.txt`を読む。ただしこのfileには実効値だけでなく、上書き層（`A1`〜`A3`、`E1`、`M1`/`M2`、`P1`）や選択元の通常prefix（`app.online`、`app.batchrun`など）の定義も同居している。一方、`@`プロファイルと`.$`の選択行は含まれないため、**どのプロファイルが選ばれたかをこのfile単独から復元することはできない。**選択の記録は§6.7の`resolution`で確認する。記法と優先順位は[Run実行ユーザーガイド](020_user_guide_run.jp.md)の3章を参照する。
 
 そこで各keyには`effective`が付く。`config/<module>.txt`に同じkeyがあれば`true`、無ければ`null`（不明）である。module dumpを出していない領域（`net.*`など）があるため、確認できないものを`false`とは言わない。`--effective-only`は`true`のkeyだけへ絞る。
 
@@ -395,7 +395,7 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py resolution run_A run_B --format md
 ```
 
-`resolution`は、selectionの適用順と`${}`値参照をRunごとに表示する。先頭selectionが`run.$`ならnamed幹として先に要約し、その後に各selectionの`key` / `term` / `resolved`と、各referenceの`source` / `target` / `value`を表示する。幹を使っていないRunでは幹要約を出さない。
+`resolution`は、selectionの記録と`${}`値参照をRunごとに表示する。先頭selectionが`run.$`ならRunプロファイルの選択として先に要約し、その後に各selectionの`key` / `term` / `resolved`と、各referenceの`source` / `target` / `value`を表示する。Runプロファイルを使っていないRunではその要約を出さない。
 
 読み込みは`json/config_resolution.json`の`type=json` / `tag=config_resolution` envelopeを優先し、無ければ過渡期Runの`config/config_resolution.json`素payloadを読む。両方無いPH0以前のRunは`status: missing`として正常終了する。未知のresolution `schema_version`はwarning付きでbest-effort表示し、優先sourceが壊れている場合は下位sourceへ黙ってfallbackせず`status: source_error`と終了値1を返す。
 

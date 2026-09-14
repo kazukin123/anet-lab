@@ -553,6 +553,20 @@ run.@btrtrunk : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 
 run.@btrtrunknosn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2LNPool6
 run.@btrtrunknosn : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
 
+# btrtrunk から AtariPool6 だけ抜く腕。btrtrunk との差は net の 1 箇所だけなので、
+# SN 有り(実運用構成)での Pool6 単独の効果が 1 変数で出る。RR1 の探索ブロック 13 段 1 は
+# SN 無しで V/A 基準に対して -28 だった。
+run.@btrtrunknopool : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNTrunk
+run.@btrtrunknopool : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+
+# Pool6 の用量反応。btrtrunk(6x6) と btrtrunknopool(11x11) の間の軸を延ばす。
+# 11x11=7744 -> 6x6=2304 で +55.1(12-15M) だったので、さらに削って内点かを見る。
+run.@btrtrunkpool4 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool4Trunk
+run.@btrtrunkpool4 : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+
+run.@btrtrunkpool3 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2SNPool3Trunk
+run.@btrtrunkpool3 : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
+
 run.@envs64 : train.num_envs = 64
 
 # 全層 spectral_cap。sigma>1 のときだけ割るので sigma<1 の層を拡大せず、全層 spectral の
@@ -1078,6 +1092,31 @@ net.branch.@AtariImpalaX2SNPool6Flat.structure = StackMerge > AtariImpalaConv32S
 net.branch.@AtariImpalaX2SNPool6Trunk.bind = grid
 net.branch.@AtariImpalaX2SNPool6Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
+# btrtrunk から AtariPool6 だけ抜く腕用(run.@btrtrunknopool)。SN とトランクは残す。
+# Linear 入力が 2304 -> 7744 に戻り、パラメータは 2,128,800 -> 4,914,080。
+# btrtrunk との差は AtariPool6 の 1 箇所だけで、Pool6 単独の効果を SN 有りの文脈で測る。
+net.branch.@AtariImpalaX2SNTrunk.bind = grid
+net.branch.@AtariImpalaX2SNTrunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+# Pool6 の用量反応用。11x11 からの縮小率だけを変える。
+# Pool4: floor((11+2-3)/3)+1 = 4 -> 4x4x64 = 1024、Linear 1,024 x 512 = 524,288
+# Pool3: floor((11+0-3)/3)+1 = 3 -> 3x3x64 = 576、Linear 576 x 512 = 294,912
+net.block.[AtariPool4].type = MaxPool2d
+net.block.[AtariPool4].pool.kernel_size = 3
+net.block.[AtariPool4].pool.stride = 3
+net.block.[AtariPool4].pool.padding = 1
+
+net.block.[AtariPool3].type = MaxPool2d
+net.block.[AtariPool3].pool.kernel_size = 3
+net.block.[AtariPool3].pool.stride = 3
+net.block.[AtariPool3].pool.padding = 0
+
+net.branch.@AtariImpalaX2SNPool4Trunk.bind = grid
+net.branch.@AtariImpalaX2SNPool4Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool4 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
+net.branch.@AtariImpalaX2SNPool3Trunk.bind = grid
+net.branch.@AtariImpalaX2SNPool3Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool3 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+
 net.branch.@AtariImpalaX2Pool6Flat.bind = grid
 net.branch.@AtariImpalaX2Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
 
@@ -1111,11 +1150,12 @@ net.branch.@AtariImpalaViTLN.structure = StackMerge > AtariImpalaConv16 > AtariI
 # dueling は明示 V/A ストリーム方式(IQN 切替を DefaultDQNAgent.net.$ で成立させるため)
 DefaultDQNAgent.net.body.output.[value_feature] = value_stream
 DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
-DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512 > SiLU
-DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512 > SiLU
+
+DefaultDQNAgent.net.branch.[value_stream].structure ?= AtariHeadFC512 > SiLU # NatureDQNのReLU選択とIQNの出力先を維持するために?=
+DefaultDQNAgent.net.branch.[adv_stream].structure ?= AtariHeadFC512 > SiLU   # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 
 # use_dueling_net=false 時の Head は `features`(nn_heads.hpp の kKey_DefaultOutput)だけを読む。この 1 行が無いと起動時に落ちる。
-DefaultDQNAgent.net.body.output.[features] = main_feature
+DefaultDQNAgent.net.body.output.[features] ?= main_feature # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 
 
 # --- 切替用配線プロファイル(ALGO プロファイルの net.$ から参照される) ---
@@ -1185,19 +1225,19 @@ AtariEnv.@100k.fire_reset = false
 
 # --- デフォルト設定 ---
 
-AtariEnv.game = pong
-AtariEnv.rom_dir =                            # 空 = 環境変数 ATARI_ROM_DIR を参照
-AtariEnv.screen_size = 84
-AtariEnv.frame_skip = 4
-AtariEnv.max_pool = true
-AtariEnv.reward_clip = true
-AtariEnv.full_action_space = false
-AtariEnv.mode = -1                            # -1 = ALE 既定(flavor)
-AtariEnv.difficulty = -1
-AtariEnv.max_episode_frames = 108,000         # v5 既定(emulator frame 単位)
-AtariEnv.retain_rgb_frame = true              # AtariView 用 RGB 保持
-AtariEnv.display_screen = false
-AtariEnv.sound = false
+AtariEnv.game ?= pong
+AtariEnv.rom_dir ?=                            # 空 = 環境変数 ATARI_ROM_DIR を参照
+AtariEnv.screen_size ?= 84
+AtariEnv.frame_skip ?= 4
+AtariEnv.max_pool ?= true
+AtariEnv.reward_clip ?= true
+AtariEnv.full_action_space ?= false
+AtariEnv.mode ?= -1                            # -1 = ALE 既定(flavor)
+AtariEnv.difficulty ?= -1
+AtariEnv.max_episode_frames ?= 108,000         # v5 既定(emulator frame 単位)
+AtariEnv.retain_rgb_frame ?= true              # AtariView 用 RGB 保持
+AtariEnv.display_screen ?= false
+AtariEnv.sound ?= false
 
 
 # --- Eval設定 ---

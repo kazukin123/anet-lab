@@ -414,24 +414,24 @@ LunarLanderEnv.@normal.ground_y = 0.2
 LunarLanderEnv.@normal.terrain_point_count = 11 #21
 LunarLanderEnv.@normal.terrain_noise_height = 1.0
 
-LunarLanderEnv.limit_step = 1000
-LunarLanderEnv.contact_mode = ground           # ground pad
-LunarLanderEnv.landing_detection_mode = contact # contact not_awake
-LunarLanderEnv.wind_stop_mode = ground          # none ground pad
-LunarLanderEnv.world_half_width = 2.5 # 2.5 10
-#LunarLanderEnv.world_height = 2.0 #2.0
-LunarLanderEnv.world_height = 4.0 #2.0
-LunarLanderEnv.ground_y = 0.5
-LunarLanderEnv.gravity = -10.0
-#LunarLanderEnv.obs_include_action = true   # 風POMDP対策: 直前actionをobsに含める(032)
-LunarLanderEnv.wind_power = 15.0
-LunarLanderEnv.turbulence_power = 1.5
-LunarLanderEnv.init.x_range = 1.0
-LunarLanderEnv.init.y_range = 0.0
-LunarLanderEnv.init.x_velocity_range = 0.0
-LunarLanderEnv.init.y_velocity_range = 0.0
-LunarLanderEnv.init.angle_range = 0.1
-LunarLanderEnv.init.angular_velocity_range = 0.0
+LunarLanderEnv.limit_step ?= 1000
+LunarLanderEnv.contact_mode ?= ground           # ground pad
+LunarLanderEnv.landing_detection_mode ?= contact # contact not_awake
+LunarLanderEnv.wind_stop_mode ?= ground          # none ground pad
+LunarLanderEnv.world_half_width ?= 2.5 # 2.5 10
+#LunarLanderEnv.world_height ?= 2.0 #2.0
+LunarLanderEnv.world_height ?= 4.0 #2.0
+LunarLanderEnv.ground_y ?= 0.5
+LunarLanderEnv.gravity ?= -10.0
+#LunarLanderEnv.obs_include_action ?= true   # 風POMDP対策: 直前actionをobsに含める(032)
+LunarLanderEnv.wind_power ?= 15.0
+LunarLanderEnv.turbulence_power ?= 1.5
+LunarLanderEnv.init.x_range ?= 1.0
+LunarLanderEnv.init.y_range ?= 0.0
+LunarLanderEnv.init.x_velocity_range ?= 0.0
+LunarLanderEnv.init.y_velocity_range ?= 0.0
+LunarLanderEnv.init.angle_range ?= 0.1
+LunarLanderEnv.init.angular_velocity_range ?= 0.0
 
 
 
