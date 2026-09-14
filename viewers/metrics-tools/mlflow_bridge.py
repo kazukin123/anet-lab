@@ -83,6 +83,9 @@ def load_config_params(filepath):
             line = raw_line.rstrip("\r\n")
             if not line.strip():
                 continue
+            # 外部実装のRunを手書きで取り込む場合があるため、設定ファイルと同じ '#' コメント行を許容する
+            if line.lstrip().startswith("#"):
+                continue
 
             separator = line.find(" = ")
             if separator <= 0:
