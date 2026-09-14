@@ -1,12 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.manyGraphMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.manyGraphRunsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.metricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runsJson;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -139,8 +134,8 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 	@Test
 	void graphScrollLockAllowsVerticalTouchScrollingOnMobileGraph() {
 		reopenPage(new Browser.NewContextOptions()
-			.setViewportSize(1280, 720)
-			.setHasTouch(true));
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
 
 		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
@@ -164,8 +159,8 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 	@Test
 	void screenshotModeAllowsVerticalTouchScrollingOnGraph() {
 		reopenPage(new Browser.NewContextOptions()
-			.setViewportSize(1280, 720)
-			.setHasTouch(true));
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
 
 		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));

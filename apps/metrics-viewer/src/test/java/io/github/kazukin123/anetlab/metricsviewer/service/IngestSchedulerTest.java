@@ -182,11 +182,11 @@ class IngestSchedulerTest {
 		Files.writeString(runDir.resolve("metrics.jsonl"), "{}\n", StandardCharsets.UTF_8);
 		Files.write(runDir.resolve("metrics.jsonl.gz"), new byte[] {31, -117, 8, 0});
 		final RunScanner scanner = mock(RunScanner.class);
-		when(scanner.listRunId()).thenReturn(
-				List.of(runId),
-				List.of(runId),
-				List.of(),
-				List.of(runId));
+		when(scanner.listRunId())
+				.thenReturn(List.of(runId))
+				.thenReturn(List.of(runId))
+				.thenReturn(List.of())
+				.thenReturn(List.of(runId));
 		when(scanner.resolveRunDir(runId)).thenReturn(runDir);
 		final MetricsIngestor ingestor = mock(MetricsIngestor.class);
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))

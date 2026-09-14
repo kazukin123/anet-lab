@@ -1,8 +1,6 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,7 +36,7 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 				workspaceFetchGate.holdNextWorkspace = true;
 				workspaceFetchGate.holdNextRuns = true;
 			}
-			""");
+				""");
 
 		page.selectOption("#workspace-selector", "ws-b");
 		page.waitForFunction("workspaceFetchGate.workspacePending");
@@ -79,7 +77,7 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 		assertFalse(Boolean.TRUE.equals(page.evaluate("""
 			() => Array.from(document.querySelectorAll('[role=alert]')).some(element =>
 				element.textContent.includes('Workspace switched, but data refresh failed'))
-			""")));
+				""")));
 	}
 
 	@Test
@@ -97,7 +95,7 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 				app.hiddenLegendSeries.set('old-tag', new Set(['run-a']));
 				app.runColorMap.set('old-only-run', '#ffffff');
 			}
-			""");
+				""");
 
 		page.selectOption("#workspace-selector", "ws-b");
 		page.waitForFunction("document.querySelector('#run-list .run-row.active')?.dataset.runId === 'run-b'");
@@ -292,7 +290,7 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 			const originalSetInterval = window.setInterval.bind(window);
 			window.setInterval = (callback, delay, ...args) =>
 				originalSetInterval(callback, delay === 30000 ? 25 : delay, ...args);
-			""");
+				""");
 
 		page.navigate(baseUrl + "/?workspaceAutoReloadRefresh=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
@@ -437,6 +435,6 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 					return originalFetch(input, init);
 				};
 			})();
-			""");
+				""");
 	}
 }

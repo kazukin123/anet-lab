@@ -1,7 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.*;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -514,7 +514,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 
 					const y = Array.from(plot.data?.[0]?.y ?? []);
 					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
-					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const ticktext = Array.from(
+						plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
 					return y.length === 3
 						&& customdata.length === 3
 						&& customdata.every((raw, index) => {
@@ -540,7 +541,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					const expectedRaw = [-100, -9, 0, 9, 100];
 					const y = Array.from(plot.data?.[0]?.y ?? []);
 					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
-					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const ticktext = Array.from(
+						plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
 					const requiredTicks = ['-100', '-10', '-1', '0', '1', '10', '100'];
 					return y.length === expectedRaw.length
 						&& customdata.length === expectedRaw.length

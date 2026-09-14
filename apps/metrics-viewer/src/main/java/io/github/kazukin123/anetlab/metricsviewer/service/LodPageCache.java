@@ -226,8 +226,9 @@ public class LodPageCache {
 				query.checkpoint();
 				final int middle = (low + high) >>> 1;
 				if (buckets[middle] < bucket) low = middle + 1;
-				else if (buckets[middle] > bucket) high = middle - 1;
-				else {
+				else if (buckets[middle] > bucket) {
+					high = middle - 1;
+				} else {
 					final long ordinalFrom = Math.multiplyExact(bucket, width);
 					return new LodBucket(
 							ordinalFrom,

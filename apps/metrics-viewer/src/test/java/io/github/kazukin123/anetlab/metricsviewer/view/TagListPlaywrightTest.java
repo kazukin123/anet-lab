@@ -1,19 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.RELOAD_NEW_TAG;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.RELOAD_OLD_TAG;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_A;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_B;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_C;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.manyTagRunsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.reloadInitialMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.reloadNewTagMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.reloadTagRunsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.splitTagMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.splitTagRunsJson;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -104,9 +92,9 @@ class TagListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	@Test
 	void tagListAllowsVerticalTouchScrollingOnMobile() {
 		reopenPage(new Browser.NewContextOptions()
-			.setViewportSize(390, 640)
-			.setIsMobile(true)
-			.setHasTouch(true));
+				.setViewportSize(390, 640)
+				.setIsMobile(true)
+				.setHasTouch(true));
 
 		page.route("**/api/runs.json", route -> fulfillJson(route, manyTagRunsJson(60)));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, "{\"data\":[]}"));

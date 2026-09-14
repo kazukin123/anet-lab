@@ -15,6 +15,7 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CacheMetadata;
@@ -101,7 +102,7 @@ public class MetricsRepository {
 			final MetricsSeriesRequest request = requests.get(i);
 			if (!existingRuns.contains(request.getRunId())) {
 				inputs[i] = new MetricsQueryPlanner.SeriesInput(
-						i, request, false, null, null, null);
+								i, request, false, null, null, null);
 				continue;
 			}
 			indicesByRun.computeIfAbsent(request.getRunId(), ignored -> new ArrayList<>()).add(i);

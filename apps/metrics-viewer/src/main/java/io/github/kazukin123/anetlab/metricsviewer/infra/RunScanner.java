@@ -10,6 +10,7 @@ import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 public class RunScanner {
 
 	private static final Logger log = LoggerFactory.getLogger(RunScanner.class);
