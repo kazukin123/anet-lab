@@ -1,0 +1,4 @@
+{
+  "_doc": "anet-translate-docs の用語表。キーは CONTEXT.md の canonical term(日本語)、値は英訳。1 語 1 訳で、決めた訳は変えない。",
+  "terms": {}
+}
