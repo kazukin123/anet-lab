@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """DropMerge NN 構成探索用の Optuna harness。
 
 Optuna は C++ runner の外側に置き、このスクリプトが trial ごとの main config
@@ -372,7 +372,7 @@ class DropMergeDomain:
             cls.config_include_line(args.workspace_config),
             cls.config_include_line(args.extra_config),
             "",
-            "app.$ = app.batchrun > P",
+            "app.$ = app.batchrun > P1",
             f"app.run_name = {ctx.run_name}",
             f"app.runs_dir = {ctx.runs_dir}",
             f"app.batchrun.exp_exit_step = {args.exp_exit_step}",
