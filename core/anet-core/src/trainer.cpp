@@ -1,4 +1,5 @@
 #include <limits>
+#include <format>
 #include <unordered_set>
 #include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
@@ -100,8 +101,9 @@ void RunnerBase::InitializeMetrics()
     auto batch_env_spec = env_->GetBatchSpec();
 
     // メトリクス初期化
-    episode_return_accumulator_ = std::make_unique<EpisodeReturnAccumulator>(batch_env_spec);
+    episode_stats_accumulator_ = std::make_unique<EpisodeStatsAccumulator>(batch_env_spec);
     completed_episode_returns_.Reset();
+    completed_episode_steps_.Reset();
     last_step_had_episode_end_ = false;
 }
 
@@ -124,13 +126,15 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
 
     const auto batch_env_spec = env_->GetBatchSpec();
     ValidateEpisodeStructure(env_->GetName(), batch_env_spec, *result);
-    const auto completed = episode_return_accumulator_->Add(*result);
+    const auto completed = episode_stats_accumulator_->Add(*result);
     completed_episode_returns_.Reset();
+    completed_episode_steps_.Reset();
     last_step_had_episode_end_ = !completed.empty();
 
-    // 完了 group を昇順で通知し、直近 Step の return 群を保持する。
+    // 完了 group を昇順で通知し、直近 Step の return と steps を保持する。
     for (const auto& episode : completed) {
         completed_episode_returns_.Add(episode.episode_return);
+        completed_episode_steps_.Add(static_cast<float>(episode.episode_steps));
         const int env_index = batch_env_spec.episode_scope == EpisodeScope::PER_LANE
             ? static_cast<int>(episode.group_index) : -1;
         EpisodeEndEvent event{ self, event_counts, agent_, env_, env_index };
@@ -140,11 +144,19 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
     return last_step_had_episode_end_;
 }
 
-void RunnerBase::SetCompletedEpisodeReturns(const std::vector<float>& episode_returns)
+void RunnerBase::SetCompletedEpisodes(
+    const std::vector<float>& returns, const std::vector<int64_t>& steps)
 {
+    // 対応が崩れた結果は公開せず、両集約を同じ採用 episode 群で確定する。
+    ANET_CHECK_MSG(returns.size() == steps.size(),
+        "Completed episode size mismatch. runner='" << name_
+        << "' returns=" << returns.size() << " steps=" << steps.size()
+        << " expected=equal sizes.");
     completed_episode_returns_.Reset();
-    for (float episode_return : episode_returns) {
-        completed_episode_returns_.Add(episode_return);
+    completed_episode_steps_.Reset();
+    for (size_t i = 0; i < returns.size(); ++i) {
+        completed_episode_returns_.Add(returns[i]);
+        completed_episode_steps_.Add(static_cast<float>(steps[i]));
     }
 }
 
@@ -209,6 +221,9 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
     const auto aggregation_key = anet::ParseScalarAggregationKey(key);
     if (aggregation_key.has_value() && aggregation_key->base_key == "episode_return") {
         return completed_episode_returns_.Get(aggregation_key->aggregation);
+    }
+    if (aggregation_key.has_value() && aggregation_key->base_key == "episode_steps") {
+        return completed_episode_steps_.Get(aggregation_key->aggregation);
     }
 
 
@@ -345,6 +360,11 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
     ANET_CHECK_MSG(session_env_ != nullptr,
         "EvalRunner::RunSession is only available for configured Eval. runner='" << name_ << "'.");
 
+    // 同期・Reset・通知まで含むセッション全体を、train 側の開始座標に対応づける。
+    const auto session_start = std::chrono::high_resolution_clock::now();
+    LOG::info() << "eval.[" << name_ << "]: session start learn_step="
+        << event_counts.learn_step << " exp_step=" << event_counts.exp_step;
+
     Sync();
     const auto reset_result = session_env_->Reset();
     ValidateEpisodeStructure(env_->GetName(), env_->GetBatchSpec(), *reset_result);
@@ -363,10 +383,10 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
         }
     }
 
-    // Runner の return 集約は全採用 episode の完了後に確定し、セッションを一度だけ通知する。
+    // Runner の return と steps は全採用 episode の完了後に確定し、セッションを一度だけ通知する。
     const auto session_result = session_env_->GetSessionResult();
     ANET_CHECK(session_result.has_value());
-    SetCompletedEpisodeReturns(session_result->episode_returns);
+    SetCompletedEpisodes(session_result->episode_returns, session_result->episode_steps);
     last_step_had_episode_end_ = true;
     SessionEndEvent event{
     	.runner = shared_from_this(),
@@ -374,6 +394,16 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
         .agent = agent_,
         .env = env_ };
     notifier_->Notify(event);
+
+    // 正常な通知完了後に、metrics と同じ確定値で所要時間を記録する。
+    const double elapsed = std::chrono::duration<double>(
+        std::chrono::high_resolution_clock::now() - session_start).count();
+    LOG::info() << std::format(
+        "eval.[{}]: session end learn_step={} exp_step={} elapsed={:.2f}s"
+        " mean.episode_return={} max.episode_return={} mean.episode_steps={} max.episode_steps={}",
+        name_, event_counts.learn_step, event_counts.exp_step, elapsed,
+        GetScalar("mean.episode_return").value(), GetScalar("max.episode_return").value(),
+        GetScalar("mean.episode_steps").value(), GetScalar("max.episode_steps").value());
 }
 
 
@@ -914,7 +944,7 @@ RunManager::RunManager(const ConfigData& config_data)
         env_factory_->ValidateConfig(run_mode, config_prefix);
         const auto schedule_it = resolved_eval_schedules.find(tag);
         if (schedule_it == resolved_eval_schedules.end()) {
-            LOG::info() << "eval tag '" << tag << "': definition-only";
+            LOG::info() << "eval.[" << tag << "]: definition-only";
             dormant_eval_tags_.insert(tag);
             RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
             continue;
@@ -925,14 +955,15 @@ RunManager::RunManager(const ConfigData& config_data)
         const bool use_background = schedule_config.use_background;
 
         if (interval == 0) {
-            LOG::info() << "eval tag '" << tag << "': definition-only";
+            LOG::info() << "eval.[" << tag << "]: definition-only";
             dormant_eval_tags_.insert(tag);
             RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
             continue;
         }
 
-        LOG::info() << "eval tag '" << tag << "': scheduled (interval=" << interval
-            << ", background=" << (use_background ? "true" : "false") << ")";
+        LOG::info() << "eval.[" << tag << "]: scheduled (interval=" << interval
+            << ", background=" << (use_background ? "true" : "false")
+            << ", episodes=" << eval_episodes << ", batch_size=" << eval_batch_size << ")";
 
         // この active Eval の session-end ENV metrics だけを decorator の購読対象にする。
         std::vector<std::string> subscribed_env_keys;

@@ -100,24 +100,26 @@ namespace anet::rl {
 
     // ==============
 
-    struct CompletedEpisodeReturn {
+    struct CompletedEpisodeResult {
         int64_t group_index;
         float episode_return;
+        int64_t episode_steps;
 
-        bool operator==(const CompletedEpisodeReturn&) const = default;
+        bool operator==(const CompletedEpisodeResult&) const = default;
     };
 
-    /// episode group 単位で step reward を累積する。
-    class EpisodeReturnAccumulator {
+    /// episode group 単位で reward と Step 回数を累積する。
+    class EpisodeStatsAccumulator {
     public:
-        explicit EpisodeReturnAccumulator(BatchEnvSpec batch_spec);
+        explicit EpisodeStatsAccumulator(BatchEnvSpec batch_spec);
 
         void Reset();
-        std::vector<CompletedEpisodeReturn> Add(const BatchStepResult& result);
+        std::vector<CompletedEpisodeResult> Add(const BatchStepResult& result);
 
     private:
         BatchEnvSpec batch_spec_;
         std::vector<float> current_returns_;
+        std::vector<int64_t> current_steps_;
     };
 
     void ValidateEpisodeStructure(
@@ -131,6 +133,7 @@ namespace anet::rl {
 
     struct EvalSessionResult {
         std::vector<float> episode_returns;
+        std::vector<int64_t> episode_steps;
     };
 
     /// configured Eval の採用 episode と scalar snapshot を集約する decorator。
@@ -177,7 +180,7 @@ namespace anet::rl {
         BatchEnvSpec batch_spec_;
         int eval_episodes_;
         int64_t group_count_;
-        EpisodeReturnAccumulator return_accumulator_;
+        EpisodeStatsAccumulator episode_stats_accumulator_;
         std::vector<ScalarSubscription> subscriptions_;
         std::vector<bool> adopted_groups_;
         std::vector<int64_t> last_adopted_groups_;
@@ -185,6 +188,7 @@ namespace anet::rl {
         int completed_episodes_ = 0;
         bool session_started_ = false;
         std::vector<float> captured_episode_returns_;
+        std::vector<int64_t> captured_episode_steps_;
         std::shared_ptr<const BatchStepResult> cached_step_result_;
         std::optional<EvalSessionResult> session_result_;
     };

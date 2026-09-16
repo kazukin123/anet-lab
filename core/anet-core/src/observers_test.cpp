@@ -14,7 +14,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <tuple>
 #include <vector>
+#include <wx/cmdline.h>
 
 namespace {
 
@@ -1707,4 +1709,48 @@ TEST_CASE("Train trace reads keys in declaration order and preserves nonfinite f
     CHECK(row.at("data").at("m") == 42.0f);
     CHECK(row.at("step") == 123);
     CHECK(row.at("lane") == 1);
+}
+
+TEST_CASE("Episode steps presets resolve to Runner session metrics", "[observer_factory][episode_steps_config]")
+{
+    const std::string profile = GENERATE(std::string("baseline"), std::string("full"));
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser cli(description, wxString::FromUTF8("metrics.scalar.$=metrics.scalar.@" + profile));
+    REQUIRE(cli.Parse(false) == 0);
+
+    // 実際の共通設定を解決し、購読先・座標・加工の有無まで確認する。
+    const anet::ConfigManager manager(
+        std::filesystem::current_path() / "apps/runner/config/metrics_scalar.txt", &cli);
+    const rl::ObserverFactory factory(manager.GetConfigData());
+    const auto definitions = rl::ScalarMetricDefsToJson(factory.GetScalarMetricDefs());
+    for (const auto& [tag, key, eval] : std::vector<std::tuple<std::string, std::string, std::string>>{
+        { "05_target_ep_steps", "mean.episode_steps", "eval1" },
+        { "06_policy_ep_steps", "mean.episode_steps", "eval2" },
+        { "07_target_ep_steps_max", "max.episode_steps", "eval1" },
+        { "08_policy_ep_steps_max", "max.episode_steps", "eval2" } }) {
+        INFO(profile << " " << tag);
+        REQUIRE(definitions.contains("21_eval/" + tag));
+        const auto& definition = definitions.at("21_eval/" + tag);
+        CHECK(definition.at("source_key") == key);
+        CHECK(definition.at("target") == "runner");
+        CHECK(definition.at("event") == "session_end");
+        CHECK(definition.at("runner") == "train");
+        CHECK(definition.at("eval_name") == eval);
+        CHECK(definition.at("ema_alpha").is_null());
+        CHECK(definition.at("clip").is_null());
+    }
+    if (profile == "full") {
+        REQUIRE(definitions.contains("20_eps/12_train_ep_steps"));
+        const auto& definition = definitions.at("20_eps/12_train_ep_steps");
+        CHECK(definition.at("source_key") == "max.episode_steps");
+        CHECK(definition.at("target") == "runner");
+        CHECK(definition.at("event") == "train");
+        CHECK(definition.at("step_axis") == "episode_step");
+    } else {
+        CHECK_FALSE(definitions.contains("20_eps/12_train_ep_steps"));
+    }
 }

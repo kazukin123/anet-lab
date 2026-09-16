@@ -1,6 +1,7 @@
 # PRD 075: エピソード長の汎用メトリクス化と評価セッションの実行ログ
 
 > 確定。D1〜D9、complexity audit、受入基準を実装契約とする。
+> 実装・検証記録は [実装メモ](075_episode_steps_and_eval_session_log_20impl.md) を参照。
 > 起点: 2026-09-13。Atari の学習が進むとスコアがカンストし、eval のエピソードが長大化して train が目で見て分かる
 > レベルで停止するようになった。eval schedule の interval 調整で軽減したが、評価セッションがいつ走り、
 > どれだけかかったのかが実行ログに一切残らないため、停止区間との突き合わせができない。
@@ -24,8 +25,8 @@ Atari の既定は `eval_batch_size = 1` / `eval_episodes = 1`（`common.txt:12-
 
 | 種別 | 出力 | 位置 |
 |---|---|---|
-| 起動時 | `eval tag 'eval1': scheduled (interval=1000, background=true)` | `trainer.cpp:934` |
-| 起動時 | `eval tag 'eval1': definition-only` | `trainer.cpp:917`、`trainer.cpp:928` |
+| 起動時 | `eval.[eval1]: scheduled (interval=1000, background=true)` | `trainer.cpp:934` |
+| 起動時 | `eval.[eval1]: definition-only` | `trainer.cpp:917`、`trainer.cpp:928` |
 | セッション実行中 | **無し**（`EvalRunner::RunSession` には `ANET_LOG_DEBUG` すら無い） | `trainer.cpp:342-377` |
 
 ### エピソード長が framework の一級市民になっていない
@@ -78,7 +79,7 @@ episode 境界の判定を二重に書く必要がない。
 | 集計の置き場 | 別 accumulator を並べる | 既存へ触らない | 完了判定と reset が 2 系統に分かれ、片方だけ reset し忘れる種のバグを招く | 却下 |
 | ログの値名 | **metrics scalar キーと完全同名** | ログで見た値をそのまま Viewer / `inspect_run` で引ける。概念を二重に命名しない | `mean.episode_return=` とドットを含む | **採用** |
 | ログの値名 | `return_mean=` 等の短縮名 | 行がわずかに短い | 同じ値に metrics キーとログ名の 2 つの名前ができる | 却下 |
-| ログの書式 | 完全 key=value（前置き無し） | grep / パースが楽 | 同じ eval tag の他の行（`eval tag 'eval1': scheduled ...`）と書式が分裂 | 却下 |
+| ログの書式 | 完全 key=value（前置き無し） | grep / パースが楽 | 同じ eval tag の他の行（`eval.[eval1]: scheduled ...`）と書式が分裂 | 却下 |
 | ログレベル | **開始・終了とも info** | `app.log_level` の既定が info なので設定変更なしで見える。セッションが終わらないとき「開始行だけがある」状態がそのまま診断情報になる | 行数が eval schedule の interval に比例 | **採用** |
 | ログレベル | 開始 verbose / 終了 info | 行数が半分 | 既定設定では「今 eval が走っている」が見えず、train が止まっている最中にログを見ても無言 | 却下 |
 
@@ -90,11 +91,11 @@ episode 境界の判定を二重に書く必要がない。
 | D2 | `PER_LANE` の定義 | 当該 lane の episode が開始から完了までに要した `Step()` 回数。完了した `Step()` 自身を含む |
 | D3 | `SHARED` の定義 | batch 全体で 1 episode なので `Step()` 呼び出し回数。**lane 数を掛けない**。`episode_return`（全 lane・全 step の総和）とは意図的に非対称にする。根拠は ADR 0043 |
 | D4 | 単位 | Env の `Step()` 回数＝agent step。frameskip の前の生フレーム数ではない。framework は生フレームを知らない |
-| D5 | 集計の置き場 | `EpisodeReturnAccumulator` を `EpisodeStatsAccumulator` へ改名し、`CompletedEpisodeReturn` を `CompletedEpisode` へ拡張する。クリーンブレーク方針に従い旧名の alias は残さない |
+| D5 | 集計の置き場 | `EpisodeReturnAccumulator` を `EpisodeStatsAccumulator` へ改名し、`CompletedEpisodeReturn` を `CompletedEpisodeResult` へ拡張する。クリーンブレーク方針に従い旧名の alias は残さない |
 | D6 | eval 経路 | `EvalSessionResult` へ `episode_steps` を追加し、`SetCompletedEpisodeReturns` を `SetCompletedEpisodes(returns, steps)` へ置換する。旧シグネチャの overload は残さない |
 | D7 | 既定メトリクス定義 | eval 側（`21_eval/`）を `@baseline` へ、train 側（`20_eps/`）を `@full` へ。eval 側に `mean.` と `max.` の両方を入れるのは、N > 1 で「1 本だけカンストしてセッション全体を引っ張る」が mean だけでは見えないため |
 | D8 | env 固有実装の移行 | GridMazeEnv の `episode_len` は汎用版と同一物なので削除し、`GridMaze.txt:172-173` を `$runner mean.episode_steps` へ移行する。AtariEnv の `game_len` / `game_frames` は別概念なので存置する |
-| D9 | ログ | `EvalRunner::RunSession` の冒頭と末尾に `LOG::info()` で各 1 行。値名は metrics scalar キーと同名。前置きは既存の `eval tag '<tag>': ` を踏襲する |
+| D9 | ログ | `EvalRunner::RunSession` の冒頭と末尾に `LOG::info()` で各 1 行。値名は metrics scalar キーと同名。前置きは `eval.[<tag>]: ` に統一する |
 
 ### 導出で決めた点（グリル中に裁定不要と判断したもの）
 
@@ -111,7 +112,7 @@ PH1 単独で全 env に metrics が増えるので、ここで止めても悪�
 
 ### `core/anet-core/include/anet/env.hpp` / `src/env.cpp`
 
-1. `CompletedEpisodeReturn`（`env.hpp:103`）を `CompletedEpisode` へ改名し、`int64_t episode_steps` を追加する。
+1. `CompletedEpisodeReturn`（`env.hpp:103`）を `CompletedEpisodeResult` へ改名し、`int64_t episode_steps` を追加する。
    `operator==` の `= default` はそのまま。
 2. `EpisodeReturnAccumulator`（`env.hpp:111`）を `EpisodeStatsAccumulator` へ改名し、
    `current_returns_` と並べて `std::vector<int64_t> current_steps_` を持つ。コンストラクタで同じ長さへ 0 初期化する。
@@ -122,7 +123,7 @@ PH1 単独で全 env に metrics が増えるので、ここで止めても悪�
 5. `EvalSessionResult`（`env.hpp:132`）へ `std::vector<int64_t> episode_steps` を追加する。
 6. `EvalSessionEnv` へ `captured_episode_steps_` を `captured_episode_returns_`（`env.hpp:187`）と並べて持ち、
    `BeginSession()`（`env.cpp:278`）で clear、`Step()` の採用 episode 処理（`env.cpp:345-361`）で
-   `completed_returns[i].episode_steps` を push、セッション確定（`env.cpp:363-365`）で `EvalSessionResult` へ渡す。
+   `completed_episodes[i].episode_steps` を push、セッション確定（`env.cpp:363-365`）で `EvalSessionResult` へ渡す。
 
 ### `core/anet-core/include/anet/trainer.hpp` / `src/trainer.cpp`
 
@@ -166,24 +167,25 @@ PH1 の値を使うので **PH1 → PH2 の順序は必須**。
   `steady_clock` ではなく `high_resolution_clock` を使うのは `trainer.cpp` の既存の流儀に揃えるため
   （`trainer.cpp:409`、`431`、`482`、`620`）。
 - **終了行**: `notifier_->Notify(event)`（`trainer.cpp:376`）の**後**。
-  `elapsed` は RunSession 冒頭からの経過とし、**train が待たされていた全区間**を含める。
+  `elapsed` は RunSession 冒頭からの経過とし、**Sync・Reset・評価ループ・完了通知の全区間**を含める。background 時の train 実待機時間とは区別する。
   Notify は metrics 記録を伴うのでセッションのコストの一部である。
 
 ```
-eval tag 'eval1': session start learn_step=125000 exp_step=500000
-eval tag 'eval1': session end learn_step=125000 exp_step=500000 elapsed=12.35s mean.episode_return=402.0 max.episode_return=402.0 mean.episode_steps=3184 max.episode_steps=3184
+eval.[eval1]: session start learn_step=125000 exp_step=500000
+eval.[eval1]: session end learn_step=125000 exp_step=500000 elapsed=12.35s mean.episode_return=402 max.episode_return=402 mean.episode_steps=3184 max.episode_steps=3184
 ```
 
 - step 座標は引数 `event_counts`（train 側 counts）。`@session_end` メトリクスと同じ座標系なので、
   ログの行と Viewer の点が突き合わせられる（CONTEXT.md「step座標系」）。
 - `elapsed` は秒。小数 2 桁 + `s`。
+- return / steps の集約値は `std::format("{}")` の既定表記とする。整数相当の値に `.0` は付けず（例: `0`、`402`）、値に応じた指数表記（例: `1e+06`）も許容する。固定小数点表記は要求しない。
 - 値は `GetScalar("mean.episode_return")` 等ではなく、`SetCompletedEpisodes` へ渡した値から直接組み立ててよい。
   どちらでも同じ値になるが、ログの数値と metrics の数値が乖離しないことを優先する。
 
 ### 起動時 `scheduled` 行の拡張（`trainer.cpp:934`）
 
 ```
-eval tag 'eval1': scheduled (interval=1000, background=true, episodes=1, batch_size=1)
+eval.[eval1]: scheduled (interval=1000, background=true, episodes=1, batch_size=1)
 ```
 
 `eval_episodes` と `eval_batch_size` はこの行へ集約する。`definition-only` 行（`trainer.cpp:917`、`928`）は変更しない。
@@ -238,9 +240,9 @@ per-episode の構造体配列へは作り替えない。`SetCompletedEpisodes` 
 1. `core\anet-core\bin\Debug\anet-core-test.exe "[episode_end]"` と `"[env]"` が緑。全体テストも緑。
 2. `GridMazeEnv` から `episode_len` の実装が消え、`GridMaze.txt` が `$runner mean.episode_steps` で移行前と同じ値を出す
    （同 seed の Run で確認）。
-3. Atari Run の `51_eval1/` と `52_eval2/` に `mean.episode_steps` / `max.episode_steps` が出る。
+3. Atari Run の共通 `21_eval/` に eval1 / eval2 の `mean.episode_steps` / `max.episode_steps` が出る。Atari 固有グループへは重複追加しない。
 4. Atari Run の `RunName.log` に eval1 / eval2 それぞれ `session start` / `session end` が interval ごとに 1 対ずつ現れ、
-   `elapsed` が train の停止時間と一致する。
+   `elapsed` が Sync 前から SessionEnd 通知後までのセッション所要時間を表す。background 時の train 実待機時間との一致は要求しない。
 5. `use_background = true` / `false` の両方で 4 が成り立つ。
 6. 起動時の `scheduled` 行に `episodes` と `batch_size` が出る。
 7. リポジトリ管理下の現用コード・config・テストに `EpisodeReturnAccumulator` / `CompletedEpisodeReturn` /

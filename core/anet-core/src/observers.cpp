@@ -1,7 +1,8 @@
-﻿// observers.cpp
+// observers.cpp
 
 #include "anet/observers.hpp"
 #include <chrono>
+#include <format>
 #include <limits>
 #include <unordered_set>
 #include <wx/log.h>
@@ -539,12 +540,26 @@ void EpisodeEvalObserver::RethrowCompletedBackgroundEval()
     eval_future_.get();
 }
 
-void EpisodeEvalObserver::WaitBackgroundEval()
+void EpisodeEvalObserver::WaitBackgroundEval(const StepCounts& counts)
 {
+    ANET_PROFILE_FUNC();
+
     if (!eval_future_.valid()) return;
 
-    // 次の評価を投入する前に、前回評価の完了と失敗を必ず回収する
+    // 完了済みなら待機ログは出さず、結果と失敗だけを回収する。
+    if (eval_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        eval_future_.get();
+        return;
+    }
+
+    // 次の評価を投入する前の実待機時間を測り、正常に回収できた場合だけ記録する。
+    const auto start = std::chrono::high_resolution_clock::now();
     eval_future_.get();
+    const double elapsed = std::chrono::duration<double>(
+        std::chrono::high_resolution_clock::now() - start).count();
+    LOG::info() << std::format(
+        "eval.[{}]: waited for previous session elapsed={:.2f}s learn_step={} exp_step={}",
+        eval_runner_->GetName(), elapsed, counts.learn_step, counts.exp_step);
 }
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
@@ -561,7 +576,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
     if (eval_gate_ && eval_gate_->ShouldFire(step)) {
         if (use_background_) {
             // 前回の評価がまだ終わっていなければ、ここで完了までブロックして待つ
-            WaitBackgroundEval();
+            WaitBackgroundEval(event.counts);
 
             // スレッドに評価エピソード実行処理を投げる
             const StepCounts event_counts = event.counts;

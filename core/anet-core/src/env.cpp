@@ -175,22 +175,28 @@ std::vector<int64_t> anet::rl::ValidateEpisodeStructure(
     return completed_groups;
 }
 
-EpisodeReturnAccumulator::EpisodeReturnAccumulator(BatchEnvSpec batch_spec)
+EpisodeStatsAccumulator::EpisodeStatsAccumulator(BatchEnvSpec batch_spec)
     : batch_spec_(batch_spec)
     , current_returns_(static_cast<size_t>(
         batch_spec.episode_scope == EpisodeScope::PER_LANE ? batch_spec.num_envs : 1), 0.0f)
+    , current_steps_(current_returns_.size(), 0)
 {
     ANET_CHECK_MSG(batch_spec_.num_envs > 0,
-        "EpisodeReturnAccumulator num_envs must be positive. actual=" << batch_spec_.num_envs);
+        "EpisodeStatsAccumulator num_envs must be positive. actual=" << batch_spec_.num_envs);
 }
 
-void EpisodeReturnAccumulator::Reset()
+void EpisodeStatsAccumulator::Reset()
 {
+    // episode の報酬と長さを同じ開始境界へ戻す。
     std::fill(current_returns_.begin(), current_returns_.end(), 0.0f);
+    std::fill(current_steps_.begin(), current_steps_.end(), 0);
 }
 
-std::vector<CompletedEpisodeReturn> EpisodeReturnAccumulator::Add(const BatchStepResult& result)
+std::vector<CompletedEpisodeResult> EpisodeStatsAccumulator::Add(const BatchStepResult& result)
 {
+    ANET_PROFILE_FUNC();
+
+    // reward と終端情報を CPU 上で参照できる形へ揃える。
     auto rewards = result.reward.to(torch::kCPU).contiguous();
     ANET_ASSERT_SHAPE(rewards, { batch_spec_.num_envs });
     auto rewards_acc = rewards.accessor<float, 1>();
@@ -210,17 +216,21 @@ std::vector<CompletedEpisodeReturn> EpisodeReturnAccumulator::Add(const BatchSte
         }
     }
 
-    std::vector<CompletedEpisodeReturn> completed;
+    std::vector<CompletedEpisodeResult> completed;
     const int64_t group_count = batch_spec_.episode_scope == EpisodeScope::PER_LANE
         ? batch_spec_.num_envs : 1;
     for (int64_t group = 0; group < group_count; ++group) {
+        // SHARED も group ごとに一度だけ数え、完了 Step 自身を含める。
+        ++current_steps_[static_cast<size_t>(group)];
         const int64_t lane = batch_spec_.episode_scope == EpisodeScope::PER_LANE ? group : 0;
         if (!finished_acc[lane]) continue;
         completed.push_back({
             .group_index = group,
             .episode_return = current_returns_[static_cast<size_t>(group)],
+            .episode_steps = current_steps_[static_cast<size_t>(group)],
         });
         current_returns_[static_cast<size_t>(group)] = 0.0f;
+        current_steps_[static_cast<size_t>(group)] = 0;
     }
     return completed;
 }
@@ -239,7 +249,7 @@ EvalSessionEnv::EvalSessionEnv(
     , eval_episodes_(eval_episodes)
     , group_count_(batch_spec_.episode_scope == EpisodeScope::PER_LANE
         ? batch_spec_.num_envs : 1)
-    , return_accumulator_(batch_spec_)
+    , episode_stats_accumulator_(batch_spec_)
     , adopted_groups_(static_cast<size_t>(group_count_), false)
 {
     ANET_CHECK(inner_ != nullptr);
@@ -278,12 +288,13 @@ bool EvalSessionEnv::HasAllFreshGroups(const BatchState& state) const
 void EvalSessionEnv::BeginSession()
 {
     last_adopted_groups_.clear();
-    return_accumulator_.Reset();
+    episode_stats_accumulator_.Reset();
     for (auto& subscription : subscriptions_) subscription.accumulator.Reset();
     std::fill(adopted_groups_.begin(), adopted_groups_.end(), false);
     issued_episodes_ = 0;
     completed_episodes_ = 0;
     captured_episode_returns_.clear();
+    captured_episode_steps_.clear();
     session_result_.reset();
     session_started_ = true;
 
@@ -338,20 +349,21 @@ std::shared_ptr<const BatchStepResult> EvalSessionEnv::Step(
     auto result = inner_->Step(std::move(action_info));
     ANET_CHECK(result != nullptr);
     const auto completed_groups = ValidateEpisodeStructure(GetName(), batch_spec_, *result);
-    const auto completed_returns = return_accumulator_.Add(*result);
-    ANET_CHECK(completed_groups.size() == completed_returns.size());
+    const auto completed_episodes = episode_stats_accumulator_.Add(*result);
+    ANET_CHECK(completed_groups.size() == completed_episodes.size());
 
     // 完了 group を index 順に処理し、採用 episode だけを snapshot する。
     for (size_t i = 0; i < completed_groups.size(); ++i) {
         const int64_t group = completed_groups[i];
-        ANET_CHECK(completed_returns[i].group_index == group);
+        ANET_CHECK(completed_episodes[i].group_index == group);
         if (!adopted_groups_[static_cast<size_t>(group)]) continue;
 
         CaptureScalars(group);
         last_adopted_groups_.push_back(group);
         adopted_groups_[static_cast<size_t>(group)] = false;
         completed_episodes_++;
-        captured_episode_returns_.push_back(completed_returns[i].episode_return);
+        captured_episode_returns_.push_back(completed_episodes[i].episode_return);
+        captured_episode_steps_.push_back(completed_episodes[i].episode_steps);
 
         // auto-reset 後の同じ group へ、残りがある場合だけ次の採用権を渡す。
         if (issued_episodes_ < eval_episodes_) {
@@ -361,7 +373,9 @@ std::shared_ptr<const BatchStepResult> EvalSessionEnv::Step(
     }
 
     if (completed_episodes_ == eval_episodes_) {
-        session_result_ = EvalSessionResult{ .episode_returns = captured_episode_returns_ };
+        session_result_ = EvalSessionResult{
+            .episode_returns = captured_episode_returns_,
+            .episode_steps = captured_episode_steps_ };
     }
     cached_step_result_ = result;
     return result;

@@ -146,7 +146,7 @@ sequenceDiagram
 
 Observer callbackは`Notify()`を呼んだthread上で実行される。重いrender、device同期、I/Oを追加する場合はTrain/Learnのcritical pathへ入ることを前提にprofileする。`EpisodeEvalObserver`のbackground evalは専用poolを使う例外であり、完了時の例外は次の境界で呼び出し側へ再送出する。
 
-Runnerは直近Stepで完了したepisode return群を共通集約し、`mean.episode_return`、`max.episode_return`、`min.episode_return`、`std.episode_return`を公開する。trainの従来値は`max.episode_return`、configured Evalはsessionで採用したN本の集約である。`EvalSessionEnv`は解決済みmetric定義のうち対象Evalの`@session_end $env` source keyだけを購読し、episode完了Step直後に値をsnapshotする。`nullopt`が一つでもあれば集約も`nullopt`、NaNは除外する。有効値0件の集約と有効値1件のstdはNaN、2件以上のstdは母集団標準偏差とする。
+Runnerは直近Stepで完了したepisode returnとepisode_steps群を共通集約し、`mean.episode_return`、`max.episode_return`、`min.episode_return`、`std.episode_return`と同じprefixの`episode_steps`を公開する。episode_stepsは終端を含むEnvのStep回数で、SHAREDでもlane数を掛けない。trainの従来値は`max.episode_return`、configured Evalはsessionで採用したN本の集約である。`EvalSessionEnv`は解決済みmetric定義のうち対象Evalの`@session_end $env` source keyだけを購読し、episode完了Step直後に値をsnapshotする。`nullopt`が一つでもあれば集約も`nullopt`、NaNは除外する。有効値0件の集約と有効値1件のstdはNaN、2件以上のstdは母集団標準偏差とする。
 
 ### 5.2 Run終了時の出力確定
 
@@ -282,6 +282,17 @@ debug logは`ANET_LOG_DEBUG_PREFIXED(expr)`を使用する。このmacroは`ANET
 既知keyだが現在値が成立しない疎なscalarは`NaN`、未知keyは`nullopt`とする。Observerは非有限値をEMA更新前、および複数UpdateResultの平均へ加える前に除外する。後続の有限値は直前までの有限なEMA stateから正常に再開する。
 
 scalar定義のsource key、event、target、interval、runner scope、eval名は、実際にattachされた定義から型付き購読情報としてAgentへ渡される。metrics行の`interval`が重い計測のcadenceの正になる機能では、定義のコメントアウトが計算自体の停止まで到達する必要がある。
+
+### 7.2 評価セッションの実行ログ
+
+configured Eval は info レベルで `eval.[<tag>]: session start` / `session end` を各1行記録する。
+両行の learn_step / exp_step は train 側から渡されたセッション開始座標で、session_end scalar と対応する。
+終了行の elapsed は Sync 前から SessionEnd 通知後までの所要秒（小数2桁）であり、background 時の train 実待機時間ではない。
+background 時、前セッション完了を待ってブロックした場合だけ `waited for previous session` を info で1行出し、今回の発火の learn_step / exp_step を載せる。
+この行の elapsed は train thread の実待機秒（小数2桁）であり、foreground・終了処理の待機・待機中の例外では出さない。
+終了行には確定済み scalar と同じ mean.episode_return、max.episode_return、mean.episode_steps、max.episode_steps を出す。
+異常終了時は正常終了行を出さない。起動時の scheduled 行には interval、background、episodes、batch_size を出す。
+汎用の評価エピソード長は baseline / full の `21_eval/05_target_ep_steps`〜`08_policy_ep_steps_max` で参照できる。
 
 ## 8. Profilingと性能上の注意
 

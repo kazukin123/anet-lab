@@ -346,9 +346,9 @@ TEST_CASE("Episode structure validation distinguishes per-lane and shared groups
         Catch::Matchers::ContainsSubstring("n_episode_end"));
 }
 
-TEST_CASE("EpisodeReturnAccumulator aggregates by episode group", "[env][episode_return]")
+TEST_CASE("EpisodeStatsAccumulator aggregates by episode group", "[env][episode_return]")
 {
-    rl::EpisodeReturnAccumulator per_lane({ .num_envs = 2, .num_threads = 1 });
+    rl::EpisodeStatsAccumulator per_lane({ .num_envs = 2, .num_threads = 1 });
     auto first = MakeEpisodeStep({ 1.0f, 10.0f }, { false, false }, { false, false }, { false, false }, 0);
     CHECK(per_lane.Add(first).empty());
     auto second = MakeEpisodeStep({ 2.0f, 20.0f }, { true, false }, { false, false }, { true, false }, 1);
@@ -356,8 +356,19 @@ TEST_CASE("EpisodeReturnAccumulator aggregates by episode group", "[env][episode
     REQUIRE(completed.size() == 1);
     CHECK(completed[0].group_index == 0);
     CHECK(completed[0].episode_return == 3.0f);
+    CHECK(completed[0].episode_steps == 2);
 
-    rl::EpisodeReturnAccumulator shared({
+    // 完了した lane は再計数し、未完了 lane は truncated まで累積を続ける。
+    auto third = MakeEpisodeStep({ 4.0f, 30.0f }, { true, false }, { false, true }, { true, true }, 2);
+    const auto next = per_lane.Add(third);
+    REQUIRE(next.size() == 2);
+    CHECK(next[0] == rl::CompletedEpisodeResult{ .group_index = 0, .episode_return = 4.0f, .episode_steps = 1 });
+    CHECK(next[1] == rl::CompletedEpisodeResult{ .group_index = 1, .episode_return = 60.0f, .episode_steps = 3 });
+    CHECK(per_lane.Add(first).empty());
+    per_lane.Reset();
+    CHECK(per_lane.Add(second)[0].episode_steps == 1);
+
+    rl::EpisodeStatsAccumulator shared({
         .num_envs = 2,
         .num_threads = 1,
         .episode_scope = rl::EpisodeScope::SHARED
@@ -367,6 +378,12 @@ TEST_CASE("EpisodeReturnAccumulator aggregates by episode group", "[env][episode
     REQUIRE(shared_completed.size() == 1);
     CHECK(shared_completed[0].group_index == 0);
     CHECK(shared_completed[0].episode_return == 7.0f);
+    CHECK(shared_completed[0].episode_steps == 1);
+    CHECK(shared.Add(first).empty());
+    const auto shared_next = shared.Add(shared_step);
+    CHECK(shared_next[0].episode_steps == 2);
+    shared.Reset();
+    CHECK(shared.Add(shared_step)[0].episode_steps == 1);
 }
 
 TEST_CASE("EvalSessionEnv dynamically grants exactly N per-lane episodes", "[env][eval_session]")
@@ -393,6 +410,7 @@ TEST_CASE("EvalSessionEnv dynamically grants exactly N per-lane episodes", "[env
     const auto result = env.GetSessionResult();
     REQUIRE(result.has_value());
     CHECK(result->episode_returns == std::vector<float>{ 1.0f, 10.0f, 2.0f });
+    CHECK(result->episode_steps == std::vector<int64_t>{ 1, 1, 1 });
     CHECK(env.GetScalar("mean.score") == 4.0f);
     CHECK(env.GetScalar("raw", 1) == 43.0f);
 
@@ -423,6 +441,7 @@ TEST_CASE("EvalSessionEnv supports shared episodes and resets a partially fresh 
     CHECK(shared.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
     REQUIRE(shared.GetSessionResult().has_value());
     CHECK(shared.GetSessionResult()->episode_returns == std::vector<float>{ 3.0f, 7.0f });
+    CHECK(shared.GetSessionResult()->episode_steps == std::vector<int64_t>{ 1, 1 });
     CHECK(shared.GetScalar("mean.score") == 0.75f);
 
     auto partial_inner = std::make_shared<ScriptedSessionEnv>(
@@ -460,6 +479,18 @@ TEST_CASE("EvalSessionEnv waits for every adopted per-lane episode", "[env][eval
               { false, true, false, false },
               { false, false, false, false },
               { 3.0f, 30.0f, 300.0f, 3000.0f } },
+            { { 1.0f, 10.0f, 100.0f, 1000.0f },
+              { true, false, true, false },
+              { false, false, false, false },
+              { 1.0f, 10.0f, 100.0f, 1000.0f } },
+            { { 2.0f, 20.0f, 200.0f, 2000.0f },
+              { false, false, false, true },
+              { false, false, false, false },
+              { 2.0f, 20.0f, 200.0f, 2000.0f } },
+            { { 3.0f, 30.0f, 300.0f, 3000.0f },
+              { false, true, false, false },
+              { false, false, false, false },
+              { 3.0f, 30.0f, 300.0f, 3000.0f } },
         });
     rl::EvalSessionEnv env(inner, 2, {});
 
@@ -475,6 +506,16 @@ TEST_CASE("EvalSessionEnv waits for every adopted per-lane episode", "[env][eval
 
     REQUIRE(env.GetSessionResult().has_value());
     CHECK(env.GetSessionResult()->episode_returns == std::vector<float>{ 1.0f, 60.0f });
+    CHECK(env.GetSessionResult()->episode_steps == std::vector<int64_t>{ 1, 3 });
+
+    // 部分的に進んだ batch は Reset し、前セッションの steps を混ぜない。
+    env.Reset();
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(nullptr);
+    env.Step(nullptr);
+    env.Step(nullptr);
+    REQUIRE(env.GetSessionResult().has_value());
+    CHECK(env.GetSessionResult()->episode_steps == std::vector<int64_t>{ 1, 3 });
 }
 
 TEST_CASE("EvalSessionEnv keeps the N=1 single-lane trace and scalar identity", "[env][eval_session]")

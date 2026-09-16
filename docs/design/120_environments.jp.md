@@ -186,7 +186,7 @@ sequenceDiagram
     B-->>R: Reward・終端・次Stateを集約
 ```
 
-episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。`EpisodeReturnAccumulator`は`PER_LANE`ならlane別、`SHARED`なら全lane・全stepのreward合計をepisode returnとして確定する。configured Evalの`EvalSessionEnv`は動的グラントで正確にN本を採用し、全groupがfreshなときだけ直前の`continue_state`を次sessionのReset結果として再利用する。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
+episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。`EpisodeStatsAccumulator`はepisode returnとepisode_stepsを`CompletedEpisodeResult`として同時に確定する。returnは`PER_LANE`ならlane別、`SHARED`なら全lane・全stepのreward合計とする。episode_stepsは終端を含む`Step()`回数で、`SHARED`でもlane数を掛けない。configured Evalの`EvalSessionEnv`は動的グラントで正確にN本を採用し、全groupがfreshなときだけ直前の`continue_state`を次sessionのReset結果として再利用する。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
 
 ### 6.2 構築
 

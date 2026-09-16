@@ -4,8 +4,12 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
 #include "anet/trainer.hpp"
+#include "anet/test_util.hpp"
 
 #include <cmath>
+#include <chrono>
+#include <regex>
+#include <thread>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -424,6 +428,43 @@ TEST_CASE("RunnerBase emits per-env EpisodeEndEvent with caller counts", "[episo
     CHECK_FALSE(runner->LastStepHadEpisodeEnd());
 }
 
+TEST_CASE("RunnerBase counts completed episode steps across calls", "[episode_end][runner][episode_steps]")
+{
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>();
+    auto env = std::make_shared<TestBatchEnv>("episode-steps", 2);
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    auto observer = std::make_shared<CountingEpisodeEndObserver>();
+    notifier->Attach(observer);
+    const rl::StepCounts counts;
+
+    // 未完了 Step も数え、done と truncated が同時に確定した群を集約する。
+    auto pending = std::make_shared<TestStepResult>(
+        std::vector<float>{ 1.0f, 2.0f }, std::vector<bool>{ false, false },
+        std::vector<bool>{ false, false });
+    CHECK_FALSE(runner->FireEpisodeEnd(pending, counts));
+    auto completed = std::make_shared<TestStepResult>(
+        std::vector<float>{ 3.0f, 4.0f }, std::vector<bool>{ true, false },
+        std::vector<bool>{ false, true });
+    CHECK(runner->FireEpisodeEnd(completed, counts));
+    REQUIRE(observer->events.size() == 2);
+    CHECK(runner->GetScalar("mean.episode_return") == Catch::Approx(5.0f));
+    CHECK(runner->GetScalar("mean.episode_steps") == Catch::Approx(2.0f));
+    CHECK(runner->GetScalar("max.episode_steps") == Catch::Approx(2.0f));
+    CHECK(runner->GetScalar("min.episode_steps") == Catch::Approx(2.0f));
+    CHECK(runner->GetScalar("std.episode_steps") == Catch::Approx(0.0f));
+    CHECK_FALSE(runner->GetScalar("episode_steps").has_value());
+    CHECK_FALSE(runner->GetScalar("unknown.episode_steps").has_value());
+
+    // 完了後の次 episode はゼロから数え、未完了 Step に前回値を残さない。
+    CHECK_FALSE(runner->FireEpisodeEnd(pending, counts));
+    const auto unavailable = runner->GetScalar("mean.episode_steps");
+    REQUIRE(unavailable.has_value());
+    CHECK(std::isnan(*unavailable));
+    CHECK(runner->FireEpisodeEnd(completed, counts));
+    CHECK(runner->GetScalar("mean.episode_steps") == Catch::Approx(2.0f));
+}
+
 TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metrics][action_info][eval_runner]")
 {
     anet::MetricsLogger::Reset();
@@ -466,6 +507,7 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event", "[episode_end][eval_session][runner]")
 {
     const bool background = GENERATE(false, true);
+    anet::test::LogCaptureGuard logs(wxLOG_Message);
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
     auto inner = std::make_shared<SessionRunnerEnv>();
@@ -484,6 +526,8 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
         {
             episode_count_at_session = episodes->events.size();
             events.push_back(event);
+            // 完了通知の処理時間もセッション所要時間に含まれることを確認する。
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
         }
         std::string ToString() const override { return "SessionRecorder"; }
     };
@@ -499,22 +543,74 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
         rl::BatchExperience experience;
         event_counts.learn_step = 1;
         scheduler.OnLearn(rl::LearnEvent{ experience, nullptr, event_counts, agent, {} });
+        // 次の発火で前セッションの完了通知を待ち、今回の train 座標で記録する。
+        event_counts.learn_step = 2;
+        event_counts.exp_step = 789;
+        scheduler.OnLearn(rl::LearnEvent{ experience, nullptr, event_counts, agent, {} });
     }
 
-    REQUIRE(observer->events.size() == 3);
+    REQUIRE(observer->events.size() == 6);
     CHECK(observer->events[1].env_index == 1);
     CHECK(observer->events[2].env_index == 0);
-    REQUIRE(sessions->events.size() == 1);
-    CHECK(sessions->episode_count_at_session == 3);
+    REQUIRE(sessions->events.size() == 2);
+    CHECK(sessions->episode_count_at_session == 6);
     CHECK(sessions->events[0].env == env);
     CHECK(sessions->events[0].counts.exp_step == 456);
+    CHECK(sessions->events[0].counts.learn_step == 1);
+    CHECK(sessions->events[1].counts.exp_step == 789);
+    CHECK(sessions->events[1].counts.learn_step == 2);
+    CHECK(observer->events[3].counts.exp_step == 789);
     CHECK(observer->events[0].env == env);
     CHECK(observer->events[0].env_index == 0);
     CHECK(observer->events[0].counts.train_step == 123);
     CHECK(observer->events[0].counts.exp_step == 456);
-    CHECK(runner->GetScalar("mean.episode_return") == Catch::Approx(2.0f));
-    CHECK(runner->GetScalar("max.episode_return") == Catch::Approx(3.0f));
-    CHECK(env->GetScalar("mean.score") == Catch::Approx(20.0f));
+    CHECK(runner->GetScalar("mean.episode_return") == Catch::Approx(10.0f / 3.0f));
+    CHECK(runner->GetScalar("max.episode_return") == Catch::Approx(4.0f));
+    CHECK(runner->GetScalar("mean.episode_steps") == Catch::Approx(1.0f));
+    CHECK(env->GetScalar("mean.score") == Catch::Approx(100.0f / 3.0f));
+    CHECK(runner->GetScalar("max.episode_steps") == Catch::Approx(1.0f));
+    CHECK(runner->GetScalar("min.episode_steps") == Catch::Approx(1.0f));
+    CHECK(runner->GetScalar("std.episode_steps") == Catch::Approx(0.0f));
+
+    // worker 完了後に flush し、開始・終了の件数と train 側座標を突き合わせる。
+    logs.Flush();
+    int starts = 0;
+    int ends = 0;
+    int waits = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("eval.[eval1]: waited for previous session") != std::string::npos) {
+            ++waits;
+            CHECK(record.level == wxLOG_Message);
+            CHECK(record.message.find("learn_step=2 exp_step=789") != std::string::npos);
+            std::smatch match;
+            REQUIRE(std::regex_search(record.message, match, std::regex(R"(elapsed=([0-9]+\.[0-9]{2})s)")));
+            CHECK(std::stod(match[1].str()) >= 0.03);
+        }
+        if (record.message.find("eval.[eval1]: session start") != std::string::npos) {
+            ++starts;
+            CHECK(ends == starts - 1);
+            CHECK(record.level == wxLOG_Message);
+            CHECK(record.message.find(starts == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
+        }
+        if (record.message.find("eval.[eval1]: session end") != std::string::npos) {
+            ++ends;
+            CHECK(starts == ends);
+            CHECK(record.level == wxLOG_Message);
+            CHECK(record.message.find(starts == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
+            std::smatch mean;
+            REQUIRE(std::regex_search(record.message, mean, std::regex(R"(mean.episode_return=(\S+))")));
+            CHECK(std::stof(mean[1].str()) == Catch::Approx(ends == 1 ? 2.0f : 10.0f / 3.0f));
+            CHECK(record.message.find(ends == 1 ? "max.episode_return=3" : "max.episode_return=4") != std::string::npos);
+            CHECK(record.message.find("mean.episode_steps=1") != std::string::npos);
+            CHECK(record.message.find("max.episode_steps=1") != std::string::npos);
+            std::smatch match;
+            REQUIRE(std::regex_search(record.message, match, std::regex(R"(elapsed=([0-9]+\.[0-9]{2})s)")));
+            CHECK(std::stod(match[1].str()) >= 0.03);
+        }
+    }
+    CHECK(starts == 2);
+    CHECK(ends == 2);
+    CHECK(waits == (background ? 1 : 0));
 }
 
 TEST_CASE("Trace DSL records adopted episode values in JSONL before the next Step", "[trace][eval_session][metrics]")

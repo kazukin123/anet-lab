@@ -228,7 +228,7 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 |---|---|---|---|
 | GetScalar | `game_score` | 実 game over / truncation | 生スコアのゲーム 1 回分の合計（未確定 step は NaN） |
 | GetScalar | `game_score.ge.[N]` | 同上 | `game_score >= N` なら 1、未満なら 0（未確定 step は NaN）。`N` は float として解釈し負値も許す |
-| GetScalar | `game_len` | 同上 | agent step 数 |
+| GetScalar | `game_len` | 同上 | agent step 数。汎用 `episode_steps` とは `episodic_life` 下の episode 境界が異なる |
 | GetScalar | `game_frames` | 同上 | エミュレータフレーム数 |
 | GetScalar | `hns57` | 同上 | 人間正規化スコア %（57 ゲーム表。§4.8） |
 | GetScalar | `hns49` | 同上 | 人間正規化スコア %（49 ゲーム表。§4.8） |

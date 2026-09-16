@@ -169,8 +169,8 @@ metrics.scalar.[42_env/62_is_hole_mean_ema]         = $env mean.is_hole @train $
 metrics.scalar.[42_env/63_wall_collisions_mean_ema] = $env mean.wall_collisions @train $ema ema_alpha:0.001
 
 
-metrics.scalar.[42_env/00_ep_step_mean]  = $env mean.episode_len @train
-metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.episode_len @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/00_ep_step_mean]  = $runner mean.episode_steps @train
+metrics.scalar.[42_env/00_ep_step_mean_ema]  = $runner mean.episode_steps @train $ema ema_alpha:0.001
 
 
 # ==============================================================================

@@ -53,7 +53,8 @@ namespace anet::rl {
             std::shared_ptr<const Runner> self,
             std::shared_ptr<const BatchStepResult> result,
             const StepCounts& event_counts);
-        void SetCompletedEpisodeReturns(const std::vector<float>& episode_returns);
+        void SetCompletedEpisodes(
+            const std::vector<float>& returns, const std::vector<int64_t>& steps);
     protected:
         // 内部状態
         std::string name_;
@@ -74,8 +75,9 @@ namespace anet::rl {
         //std::chrono::high_resolution_clock::time_point last_time_;
         float last_reward_ = 0.0f;
         anet::EmaFilter<float> reward_ema_;
-        std::unique_ptr<EpisodeReturnAccumulator> episode_return_accumulator_;
+        std::unique_ptr<EpisodeStatsAccumulator> episode_stats_accumulator_;
         anet::ScalarSampleAccumulator completed_episode_returns_;
+        anet::ScalarSampleAccumulator completed_episode_steps_;
         bool last_step_had_episode_end_ = false;
     };
 

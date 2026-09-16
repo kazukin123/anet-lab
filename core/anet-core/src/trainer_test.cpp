@@ -798,7 +798,7 @@ TEST_CASE("RunManager keeps definition-only Eval tags dormant", "[trainer][eval_
     CHECK(factory_state->creation_count == 1);
     CHECK_THROWS_AS(manager->GetEvalRunner("sleep"), std::out_of_range);
     CHECK(anet::test::HasRecordContaining(
-        logs.Records(), wxLOG_Message, { "eval tag 'sleep': definition-only" }));
+        logs.Records(), wxLOG_Message, { "eval.[sleep]: definition-only" }));
     CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
         return record.level == wxLOG_Warning
             && ContainsText(record.message, "Skipping metrics for unscheduled eval tag. tag='sleep'.");
@@ -956,7 +956,7 @@ TEST_CASE("RunManager treats a zero interval Eval schedule as definition-only", 
     CHECK(factory_state->creation_count == 1);
     CHECK_THROWS_AS(manager->GetEvalRunner("sleep"), std::out_of_range);
     CHECK(anet::test::HasRecordContaining(
-        logs.Records(), wxLOG_Message, { "eval tag 'sleep': definition-only" }));
+        logs.Records(), wxLOG_Message, { "eval.[sleep]: definition-only" }));
 }
 
 TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer][eval_schedule]")
@@ -967,6 +967,8 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
     auto config = MakeRunManagerNameTestConfig();
     config.Set("train.eval.[scheduled].run_mode", "eval1");
     config.Set("train.eval_schedule.[scheduled].interval", "7");
+    config.Set("train.eval.[scheduled].eval_episodes", "5");
+    config.Set("train.eval.[scheduled].eval_batch_size", "2");
     config.Set("train.eval_schedule.[scheduled].use_background", "false");
 
     auto manager = std::make_shared<rl::RunManager>(config);
@@ -975,12 +977,12 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
     REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
     REQUIRE(manager->GetEvalRunner("scheduled") != nullptr);
     CHECK(manager->GetEvalRunner("scheduled")->GetBatchEnv()->GetName() == "scheduled");
-    CHECK(factory_state->creation_count == 2);
+    CHECK(factory_state->creation_count == 3);
     CHECK(std::ranges::find(
         factory_state->config_prefixes, "train.eval.[scheduled].env")
         != factory_state->config_prefixes.end());
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
-        "eval tag 'scheduled': scheduled (interval=7, background=false)"
+        "eval.[scheduled]: scheduled (interval=7, background=false, episodes=5, batch_size=2)"
     }));
 }
 
