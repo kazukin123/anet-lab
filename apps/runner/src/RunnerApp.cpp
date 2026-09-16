@@ -53,7 +53,7 @@ wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 
 struct RunnerApp::Config : public anet::Config {
-    std::string run_name = "run_{%t}";
+    std::string run_name = "run_{t}";
     std::string runs_dir = "runs";
     std::string log_level = "info";
     int log_flush_interval_ms = 500;
