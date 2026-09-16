@@ -353,6 +353,19 @@ run.@to_50 : @vars.max_exp_step  = 50
 run.@to_50 : @vars.half_exp_step = 25
 
 # 1M の step 予算。評価専用 Run (run.@evalonly) や長めの慣らしへ重ねる。
+run.@to_10m : @vars.max_exp_step  = 10,000,000
+run.@to_10m : @vars.half_exp_step =  5,000,000
+
+# 実時間計測専用。eval を完全に止めて env step 予算を train に全振りする。
+# eval 予算比が Run ごとに違うと wall-clock 同士が比較できないため、
+# スループット比較はこの preset を重ねた Run 同士で行う。
+run.@evaloff : train.eval_schedule.[eval2].interval = 0
+
+# BTR 互換の 100 本は分布統計(max / 閾値率)のためで、窓平均には効かない
+# (探索ブロック 11: 10ep と 100ep が 5 窓すべて 6.7 以内)。実時間優先プリセットは
+# 窓平均だけ使うので 10 本へ落とし、eval の env step 比を 1.76 -> 0.18 にする。
+run.@evallite : train.eval.[eval2].eval_episodes = 10
+
 run.@to_1m : @vars.max_exp_step  = 1,000,000
 run.@to_1m : @vars.half_exp_step =   500,000
 
@@ -504,6 +517,14 @@ run.@aainit : A2.learner.per_initial_priority_mode = actor_approx
 # ならない。0.6 は Schaul 2015 proportional の既定値で、同じ 100 倍差が 16 倍になる。
 # per_beta は 0.2 固定のままなので、選択性と補正不足が同時に強まる点に注意。
 run.@alpha06 : A2.learner.per_alpha = 0.6
+
+# lane あたりの履歴窓 = replay_capacity / num_envs。num_envs 128 は 8,192 step まで縮み、
+# 貪欲方策のエピソード長(7,750)を下回る。envs64 のまま容量を半減すると同じ 8,192 になるので、
+# num_envs ではなく lane 窓が効いているかを陽性対照で切り分ける。
+run.@cap512k : A2.learner.replay_capacity = 524,288
+
+# 陰性対照。num_envs 128 のまま容量を倍にすると lane 窓が 16,384 へ戻る。host RAM は ~14GB。
+run.@cap2m : A2.learner.replay_capacity = 2,097,152
 
 # 過学習側の対策。RR4 は 1 遷移を平均 4 回学習に入れるので、同じ入力の上塗りが起きる。
 # DropPath は残差枝をサンプル単位で落とす(nn_modules.cpp:1156)ので、同じ遷移が引かれる
