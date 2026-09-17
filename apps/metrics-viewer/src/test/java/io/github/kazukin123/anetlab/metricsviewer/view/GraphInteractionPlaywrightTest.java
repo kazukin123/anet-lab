@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.BoundingBox;
 import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
@@ -126,6 +127,64 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 		waitForPlotlyHoverText(page);
 		clickFirstLegendItem(page);
 		waitForLegendOnlyTrace(page);
+	}
+
+	@Test
+	void tappingTheGraphShowsTheHoverOverlayOnTouchDevice() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?touchTapHoverTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		tapFirstTraceMiddlePoint(page);
+		waitForPlotlyHoverText(page);
+	}
+
+	@Test
+	void tappingTheGraphShowsTheHoverOverlayWhileScrollLocked() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?touchTapHoverScrollLockTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		page.click("#btn-graph-scroll-lock");
+		waitForPlotlyDragModeFalse(page);
+
+		tapFirstTraceMiddlePoint(page);
+		waitForPlotlyHoverText(page);
+	}
+
+	@Test
+	void tappingOutsideTheGraphHidesTheHoverOverlay() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?touchTapDismissTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		tapFirstTraceMiddlePoint(page);
+		waitForPlotlyHoverText(page);
+
+		final BoundingBox outside = page.locator("#side-header").boundingBox();
+		dispatchTouchTap(page, outside.x + outside.width / 2, outside.y + outside.height / 2);
+		waitForHoverOverlayHidden(page);
 	}
 
 	@Test

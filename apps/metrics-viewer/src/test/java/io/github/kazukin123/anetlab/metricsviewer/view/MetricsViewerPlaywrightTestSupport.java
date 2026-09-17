@@ -241,10 +241,22 @@ abstract class MetricsViewerPlaywrightTestSupport {
 		page.mouse().move(position.get("x").doubleValue(), position.get("y").doubleValue());
 	}
 
+	protected static void tapFirstTraceMiddlePoint(Page page) {
+		final Map<String, Number> position = readFirstTraceMiddlePointScreenPosition(page);
+		dispatchTouchTap(page, position.get("x").doubleValue(), position.get("y").doubleValue());
+	}
+
 	protected static void waitForPlotlyHoverText(Page page) {
 		page.waitForFunction("""
 				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
 					.some(el => el.style.display !== 'none' && (el.textContent || '').trim().length > 0)
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	protected static void waitForHoverOverlayHidden(Page page) {
+		page.waitForFunction("""
+				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
+					.every(el => getComputedStyle(el).display === 'none')
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
@@ -375,6 +387,17 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					return rect.top + rect.height / 2;
 				}
 				""")).doubleValue();
+	}
+
+	protected static void dispatchTouchTap(Page page, double x, double y) {
+		final CDPSession cdp = page.context().newCDPSession(page);
+		try {
+			dispatchTouchEvent(cdp, "touchStart", x, y);
+			page.waitForTimeout(60);
+			dispatchTouchEvent(cdp, "touchEnd", x, y);
+		} finally {
+			cdp.detach();
+		}
 	}
 
 	protected static void dispatchTouchSwipe(Page page, double x, double startY, double endY) {

@@ -427,6 +427,8 @@ class DataCache {
 // ガイド線・系列の点・値の吹き出しをまとめて自前で描く。
 class HoverOverlay {
 	static TIP_GAP_PX = 10;
+	static TOUCH_TIP_LIFT_PX = 14;
+	static touchDismissInstalled = false;
 
 	static attach(block, plot, app) {
 		return new HoverOverlay(block, plot, app);
@@ -435,8 +437,10 @@ class HoverOverlay {
 	constructor(block, plot, app) {
 		this.plot = plot;
 		this.app = app;
+		this.shownByTouch = false;
 		this.root = document.createElement("div");
 		this.root.className = "graph-hover-overlay";
+		this.root.__mvOverlay = this;
 		this.guide = document.createElement("div");
 		this.guide.className = "hover-guide";
 		this.dots = document.createElement("div");
@@ -445,10 +449,43 @@ class HoverOverlay {
 		this.root.append(this.guide, this.dots, this.tip);
 		block.append(this.root);
 		plot.on("plotly_hover", event => this.show(event));
-		plot.on("plotly_unhover", () => this.hide());
+		plot.on("plotly_unhover", event => this._onUnhover(event));
+		// タップに plotly_hover は来ない。Plotly はタップを Fx.click として扱い hover を
+		// noHoverEvent 付きで呼ぶので、点の情報が届くのは plotly_click だけ。
+		// マウスは plotly_hover で足りるうえ、タップ直後には互換マウスイベント由来の
+		// plotly_click も続けて届くので、ここで拾うのはタッチ発の分だけにする。
+		plot.on("plotly_click", event => {
+			if (HoverOverlay.isTouchEvent(event?.event)) this.show(event);
+		});
+		HoverOverlay.ensureTouchDismiss();
+	}
+
+	// タップで出した表示には plotly_unhover が来ないので、グラフ外のタップで閉じる。
+	// ページに 1 つあれば足りるため、最初の attach でだけ登録する。
+	static ensureTouchDismiss() {
+		if (HoverOverlay.touchDismissInstalled) return;
+		HoverOverlay.touchDismissInstalled = true;
+		document.addEventListener("touchstart", event => {
+			for (const root of document.querySelectorAll(".graph-hover-overlay")) {
+				if (!root.parentElement?.contains(event.target)) root.__mvOverlay?.hide();
+			}
+		}, { capture: true, passive: true });
+	}
+
+	static isTouchEvent(raw) {
+		return Boolean(raw?.changedTouches ?? raw?.touches);
+	}
+
+	_onUnhover(event) {
+		// タップの直後、ブラウザは互換マウスイベントを送ってくる。その末尾の mouseout で
+		// 消すとタップ表示が一瞬で消えるので、タッチで出した表示はタッチ側の操作
+		// (グラフ外タップ・ドラッグ)とマウスの再ホバーでだけ閉じる。
+		if (this.shownByTouch && !HoverOverlay.isTouchEvent(event?.event)) return;
+		this.hide();
 	}
 
 	hide() {
+		this.shownByTouch = false;
 		this.root.style.display = "none";
 	}
 
@@ -456,6 +493,7 @@ class HoverOverlay {
 		// 先に可視化する。display:none の要素は矩形がすべて 0 で返るため測れない。
 		this.root.style.display = "block";
 		const frame = this._frame(event);
+		this.shownByTouch = Boolean(frame?.touch);
 		const rows = frame ? this._rows(event?.points, this._cursorX(frame)) : [];
 		if (!rows.length) {
 			this.hide();
@@ -481,8 +519,10 @@ class HoverOverlay {
 			areaTop: plotRect.top - rootRect.top + size.t,
 			areaWidth: size.w,
 			areaHeight: size.h,
+			// Plotly はタッチでも clientX/clientY をクライアント座標で埋めてくれる。
 			pointerX: (pointer?.clientX ?? rootRect.left) - rootRect.left,
-			pointerY: (pointer?.clientY ?? rootRect.top) - rootRect.top
+			pointerY: (pointer?.clientY ?? rootRect.top) - rootRect.top,
+			touch: HoverOverlay.isTouchEvent(pointer)
 		};
 	}
 
@@ -606,9 +646,12 @@ class HoverOverlay {
 		const gap = HoverOverlay.TIP_GAP_PX;
 		const right = frame.pointerX + gap;
 		const left = right + rect.width > frame.width ? frame.pointerX - gap - rect.width : right;
+		// 指は吹き出しを隠すので、タッチのときだけ上へ逃がす。
+		const top = frame.touch
+				? frame.pointerY - rect.height - HoverOverlay.TOUCH_TIP_LIFT_PX
+				: frame.pointerY - rect.height / 2;
 		this.tip.style.left = `${Math.round(clamp(left, 0, frame.width - rect.width))}px`;
-		this.tip.style.top = `${Math.round(
-				clamp(frame.pointerY - rect.height / 2, 0, frame.height - rect.height))}px`;
+		this.tip.style.top = `${Math.round(clamp(top, 0, frame.height - rect.height))}px`;
 	}
 }
 
