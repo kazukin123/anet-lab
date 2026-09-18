@@ -1,7 +1,3 @@
----
-status: proposed
----
-
 # Policy churn は fixed probe で optimizer 前後を測り、target は sync 後の不一致を測る
 
 表現の健全性だけでは Breakout の成績や壁突破を説明できないため、1 learner update が online DQN の greedy 方策をどれだけ変えたかと、更新後の online / target 方策がどれだけ食い違うかを観測する。BTR の実装を直写しせず、**churn 専用の一様非復元 probe、caller-owned の独立 RNG、IQN fixed midpoint taus、autocast 無効の FP32 forward、optimizer step 前後の online 比較、target update 後の online / target 比較**を採用する。これにより、測定差を乱数、異なる状態集合、BF16 の丸めではなく parameter update と target の遅れに帰属させ、測定の ON / OFF が学習系列へ干渉しない境界を作る。

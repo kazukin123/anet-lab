@@ -15,10 +15,10 @@ description: Integrated improvement audit for anet-lab. One lens (refactor, defe
 
 | 観点 | 見るもの | 基準 | 典型的な分類タグ |
 |---|---|---|---|
-| refactor | 可読性、1 関心 1 機構、重複の生成源、既存の重複と死にコード、肥大化、命名、規約違反、変更の波及、依存の複雑さ、テスト容易性 | `docs/リファクタリング観点.txt` を全文読む。無ければ本表の項目で代用 | 観点ファイルの見出し名 |
+| refactor | 可読性、1 関心 1 機構、重複の生成源、既存の重複と死にコード、肥大化、命名、規約違反、変更の波及、依存の複雑さ、テスト容易性 | `docs/リファクタリング観点.txt` を全文読む。無ければ本表の項目で代用。範囲の ADR を先に読む | 観点ファイルの見出し名 |
 | defect | 所有権・寿命・スレッド境界、未定義動作、例外安全、境界条件、TODO/FIXME のうち実害があるもの | 具体的な失敗シナリオが書けるものだけ | 所有権 / 寿命 / 並行 / 境界 / 例外 |
-| architecture | モジュールの深さと seam、レイヤ違反、循環依存、ボイラープレートやアダプタの生成源 | `improve-codebase-architecture` スキルの DEEPENING 語彙があれば使う。CONTEXT.md の用語で書く | seam / 依存 / 重複生成源 |
-| drift | 設計文書 1xx・2xx、CONTEXT.md、ADR とコードの不一致。設定キーの 3 集合差(コードが読むキー、設定ファイルのキー、文書のキー) | 文書 1 本を読み、対応コードと突き合わせる | 文書 stale / 未文書 / 死にキー / 用語ずれ |
+| architecture | モジュールの深さと seam、レイヤ違反、循環依存、ボイラープレートやアダプタの生成源 | `improve-codebase-architecture` スキルの DEEPENING 語彙があれば使う。CONTEXT.md の用語で書く。範囲の ADR を先に読む | seam / 依存 / 重複生成源 |
+| drift | 設計文書 1xx・2xx、CONTEXT.md とコードの不一致。範囲の ADR は (a) 決定と実装の不一致 (b) 後発 ADR で改訂済みなのに現役に見える (c) 設計文書から参照されていない(入口なし) の 3 点を見る。設定キーの 3 集合差(コードが読むキー、設定ファイルのキー、文書のキー) | 文書 1 本を読み、対応コードと突き合わせる | 文書 stale / 未文書 / 死にキー / 用語ずれ / ADR ずれ / ADR 入口なし |
 | test-gap | 未テストの prod ファイルに対する特性テストの提案 | `reports/stats/trend.md` の「テスト負債」を入力に、LOC × churn 順、年代 pre 優先 | test-gap |
 | backlog | `docs/memo` 直下の 9xx PRD、`frozen/`、`docs/*.txt` の散在メモの前提が今も成り立つか。実装済みなのに直下に残る PRD | 前提をコードで確認する | 前提崩れ / 実装済み / 重複 PRD |
 | process | 未コミット差分の規模と滞留、直下 0xx の WIP、docs 同時更新率、AGENTS.md 規約の遵守(抜き取り) | `reports/stats/summary.md` と `trend.md` | WIP / 滞留 / 規約 |
@@ -27,6 +27,7 @@ description: Integrated improvement audit for anet-lab. One lens (refactor, defe
 
 - 観点は排他ではなくタグ。複数に当たる候補は最も根本の観点で 1 件にし、他は付随として summary に書く。
 - 挙動が変わる修正はリファクタ候補にしない。defect として扱う。
+- ADR と矛盾する提案は出さない。ADR が意図と記録している形は候補にしない。当時の前提が今は崩れていると判断した場合だけ、ADR 再訪の候補として ADR 番号と前提が崩れた根拠を書く。
 - hot path(Sample、Push、Learn、per-step 経路)や RNG 呼び出し順に触る提案は、対処方針に perf-neutral 確認と同 seed 再現性チェックを含める。
 - ホットスポット補正: `reports/stats/stats.json` の `flow.churn90` で上位のファイルは優先度を 1 段上げ、今後触る予定の無い場所は 1 段下げる。
 
@@ -39,7 +40,7 @@ description: Integrated improvement audit for anet-lab. One lens (refactor, defe
 ## 手順
 
 1. lens と scope を確定し、`run_id = <YYYY-MM-DD>-<claude|codex>` を決める。
-2. 基準を読む(観点ファイル、設計文書、summary.md のうち該当するもの)。
+2. 基準を読む(観点ファイル、設計文書、summary.md のうち該当するもの)。refactor、architecture、drift では範囲に対応する ADR も読む(`docs/adr/` のファイル名一覧を領域の語で絞る)。
 3. 範囲のコードと文書を読む。読み取り専用のコマンド(rg、git log、git blame、`python reports/tools/registry.py list`)は使ってよい。ビルドとテスト実行はしない。
 4. 既存レコードを再検証する。
 
