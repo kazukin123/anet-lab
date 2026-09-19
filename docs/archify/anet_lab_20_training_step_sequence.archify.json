@@ -136,7 +136,7 @@
       "to": "notifier",
       "y": 328,
       "label": "EpisodeEndEvent",
-      "variant": "dashed"
+      "variant": "default"
     },
     {
       "id": "update-batch",
@@ -267,9 +267,9 @@
       "dot": "cyan",
       "title": "代表経路の前提",
       "items": [
-        "SerialTrainRunner の 1 step を代表として描いている",
-        "PipelineTrainRunner では Push と Sample が 1 step 遅れる",
-        "初回 step だけ env->Reset() を実行する"
+        "SerialTrainRunner + DefaultDQN の1 step。初回だけ Env を Reset",
+        "Actor は方策と固有 RNG を持ち、学習 counts で方策を更新",
+        "Pipeline は前回 Experience を LearnThread で学習"
       ]
     },
     {
@@ -278,7 +278,7 @@
       "items": [
         "Push は毎 step、学習は CanUpdate と update_credit により 0 回以上",
         "更新結果が空の step では LearnEvent を通知しない",
-        "根拠: core/anet-core/src/dqn_based_agent.cpp:2448-2547"
+        "根拠: core/anet-core/src/dqn_based_agent.cpp"
       ]
     },
     {
@@ -287,7 +287,7 @@
       "items": [
         "EpisodeEnd、Learn、Train の順に通知後 continue_state を state へ移す",
         "counter は通知後に進むため counts は step 開始時点の値",
-        "根拠: core/anet-core/src/trainer.cpp:447-556"
+        "根拠: core/anet-core/src/trainer.cpp"
       ]
     }
   ]

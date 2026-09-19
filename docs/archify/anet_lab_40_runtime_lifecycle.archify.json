@@ -174,25 +174,25 @@
       "items": [
         "RunnerStatus は NOT_INITIALIZED / RUNNING / COMPLETED の 3 値しか持たない",
         "保留は RunnerThread の paused_ フラグで、開始待ちと Pause 中は同じ状態になる",
-        "根拠: core/anet-core/include/anet/rl.hpp:1066-1070 / thread.hpp:26-31"
+        "根拠: core/anet-core/include/anet/rl.hpp / thread.hpp"
       ]
     },
     {
       "dot": "violet",
       "title": "評価はどの状態か",
       "items": [
-        "評価は独立状態ではなく、LearnEvent 通知の中で EpisodeEvalObserver が起動する",
-        "use_background=true では専用 worker で並行に走り、次の起動時に例外を回収する",
-        "根拠: core/anet-core/src/observers.cpp:552-587"
+        "評価は独立状態ではなく LearnEvent で起動するセッション。開始時に Sync(counts) と Reset を行う",
+        "背景評価の完了例外は OnLearn ごとに回収し、次セッション投入前は前回完了を待つ",
+        "根拠: core/anet-core/src/observers.cpp"
       ]
     },
     {
       "dot": "rose",
       "title": "失敗を終端として描く理由",
       "items": [
-        "worker の例外は保存して main thread へ再送出し、ErrorDialog を表示する",
-        "OnExceptionInMainLoop は false を返し、学習中へ戻す遷移は実装されていない",
-        "根拠: apps/runner/src/RunnerApp.cpp:623-649"
+        "RunnerThread の例外を main へ再送出し、設定に応じて dialog またはログへ報告する",
+        "OnExceptionInMainLoop は false、OnRun は fatal_error_seen_ を非0終了へ反映する",
+        "根拠: apps/runner/src/RunnerApp.cpp"
       ]
     }
   ]

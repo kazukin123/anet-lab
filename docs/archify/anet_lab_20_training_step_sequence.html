@@ -5118,10 +5118,10 @@
         </g>
 
         <g data-edge-from="runner" data-edge-to="notifier" data-edge-label="EpisodeEndEvent" data-edge-key="6" data-edge-id="episode-end">
-          <path data-composition-edge-from="runner" data-composition-edge-to="notifier" data-composition-edge-id="episode-end" data-composition-points="117,328;859,328" d="M 117 328 L 859 328" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+          <path data-composition-edge-from="runner" data-composition-edge-to="notifier" data-composition-edge-id="episode-end" data-composition-points="117,328;859,328" d="M 117 328 L 859 328" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
           <rect x="443" y="308" width="90" height="16" rx="3" class="c-mask"/>
-          <text x="488" y="318" class="t-messagebus" font-size="9" text-anchor="middle">EpisodeEndEvent</text>
+          <text x="488" y="318" class="t-backend" font-size="9" text-anchor="middle">EpisodeEndEvent</text>
         </g>
         </g>
 
@@ -5319,13 +5319,9 @@
             <path d="M 140 611 L 174 611" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
             <text x="183" y="614" class="t-muted" font-size="10" font-weight="500">return</text>
           </g>
-          <g data-legend-semantic-kind="dashed" data-legend-x="235" data-legend-baseline="614" data-legend-width="98">
-            <path d="M 235 611 L 269 611" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-            <text x="278" y="614" class="t-muted" font-size="10" font-weight="500">async trace</text>
-          </g>
-          <g data-legend-semantic-kind="default" data-legend-x="355" data-legend-baseline="614" data-legend-width="118">
-            <path d="M 355 611 L 389 611" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-            <text x="398" y="614" class="t-muted" font-size="10" font-weight="500">default message</text>
+          <g data-legend-semantic-kind="default" data-legend-x="235" data-legend-baseline="614" data-legend-width="118">
+            <path d="M 235 611 L 269 611" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+            <text x="278" y="614" class="t-muted" font-size="10" font-weight="500">default message</text>
           </g>
         </g>
       </svg>
@@ -5520,9 +5516,9 @@
           <h3>代表経路の前提</h3>
         </div>
         <ul>
-          <li>&bull; SerialTrainRunner の 1 step を代表として描いている</li>
-          <li>&bull; PipelineTrainRunner では Push と Sample が 1 step 遅れる</li>
-          <li>&bull; 初回 step だけ env-&gt;Reset() を実行する</li>
+          <li>&bull; SerialTrainRunner + DefaultDQN の1 step。初回だけ Env を Reset</li>
+          <li>&bull; Actor は方策と固有 RNG を持ち、学習 counts で方策を更新</li>
+          <li>&bull; Pipeline は前回 Experience を LearnThread で学習</li>
         </ul>
       </div>
 
@@ -5534,7 +5530,7 @@
         <ul>
           <li>&bull; Push は毎 step、学習は CanUpdate と update_credit により 0 回以上</li>
           <li>&bull; 更新結果が空の step では LearnEvent を通知しない</li>
-          <li>&bull; 根拠: core/anet-core/src/dqn_based_agent.cpp:2448-2547</li>
+          <li>&bull; 根拠: core/anet-core/src/dqn_based_agent.cpp</li>
         </ul>
       </div>
 
@@ -5546,7 +5542,7 @@
         <ul>
           <li>&bull; EpisodeEnd、Learn、Train の順に通知後 continue_state を state へ移す</li>
           <li>&bull; counter は通知後に進むため counts は step 開始時点の値</li>
-          <li>&bull; 根拠: core/anet-core/src/trainer.cpp:447-556</li>
+          <li>&bull; 根拠: core/anet-core/src/trainer.cpp</li>
         </ul>
       </div>
     </div>

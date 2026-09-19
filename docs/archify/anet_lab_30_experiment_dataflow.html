@@ -5103,8 +5103,8 @@
           <text data-detail="context" x="530" y="165" class="t-muted" font-size="7" text-anchor="middle">state / action / reward</text>
         </g>
 
-        <g id="node-events" data-node-id="events" data-node-label="Event" tabindex="0" role="button" aria-label="Focus Event, Train / Learn / EpisodeEnd, 03 / 経験と Event" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="Train / Learn / EpisodeEnd" data-node-context="03 / 経験と Event">
-          <title>Event · Train / Learn / EpisodeEnd · 03 / 経験と Event</title>
+        <g id="node-events" data-node-id="events" data-node-label="Event" tabindex="0" role="button" aria-label="Focus Event, Train / Learn / SessionEnd, 03 / 経験と Event" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="Train / Learn / SessionEnd" data-node-context="03 / 経験と Event">
+          <title>Event · Train / Learn / SessionEnd · 03 / 経験と Event</title>
           <rect x="466" y="356" width="128" height="58" rx="6" class="c-mask"/>
           <rect x="466" y="356" width="128" height="58" rx="6" class="c-messagebus" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(472 362) scale(0.6875)">
@@ -5114,7 +5114,7 @@
             <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="530" y="377" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">Event</text>
-          <text data-detail="context" x="530" y="393" class="t-muted" font-size="7" text-anchor="middle">Train / Learn / EpisodeEnd</text>
+          <text data-detail="context" x="530" y="393" class="t-muted" font-size="7" text-anchor="middle">Train / Learn / SessionEnd</text>
         </g>
 
         <g id="node-replay" data-node-id="replay" data-node-label="ReplayBuffer" tabindex="0" role="button" aria-label="Focus ReplayBuffer, lane ring / N-step / PER, 04 / 蓄積と記録" aria-pressed="false" data-node-kind="database" data-node-sublabel="lane ring / N-step / PER" data-node-tag="プロセス内のみ" data-node-context="04 / 蓄積と記録">
@@ -5452,8 +5452,8 @@
           <h3>device と process の境界</h3>
         </div>
         <ul>
-          <li>&bull; Observation と Experience は CPU 上に置き、minibatch だけ学習 device へ転送する</li>
-          <li>&bull; ReplayBuffer は学習プロセス内だけに存在し、Run 成果物へは書き出さない</li>
+          <li>&bull; Env の Observation と Experience は CPU。Actor 入力と学習 minibatch を各 device へ転送する</li>
+          <li>&bull; Actor は Event から $actor で参照可能。方策時計は学習側 counts、評価イベントも開始座標に対応する</li>
         </ul>
       </div>
 
@@ -5465,7 +5465,7 @@
         <ul>
           <li>&bull; 書き手は run_dir/metrics.jsonl を追記し、images と videos への参照を残す</li>
           <li>&bull; 読み手は metrics.jsonl か metrics.jsonl.gz を選び、無ければ Run として扱わない</li>
-          <li>&bull; 根拠: metrics_logger.cpp:190/748/770 / MetricsSource.java:20-29</li>
+          <li>&bull; 根拠: metrics_logger.cpp / MetricsSource.java（配置は索引を参照）</li>
         </ul>
       </div>
     </div>

@@ -18,38 +18,34 @@ NetworkModel、ReplayBuffer、Notifier、Observer、MetricsLogger、Run 成果�
 
 ## 生成根拠の Git revision
 
-`8755992cd26f751b79a35700ec38e600af29d581`（branch `main`）の作業ツリーを調査対象としています。
-未コミットの作業ツリー変更も現行 checkout の一部として扱っています。
+`c07622e58077ed6cc21bb7194aec4b1f9281b4b0` の作業ツリーを根拠としています。未コミットの Actor カタログ移行も含みます。
+ActorRequest による生成、学習側 counts、評価セッション、背景評価の例外回収を現行実装へ合わせました。
 
 ## Evidence gap
 
-- 学習ステップの順序図は `DefaultDQNAgent` 系の `SerialTrainRunner` を代表として描いています。`RainbowAgent`、
-  `MuZeroAgent`、`ImageClsAgent` の更新経路は同じ深さまで追跡しておらず、図に反映していません。
-- Atari/ALE モジュールは `ANET_ENABLE_ATARI` と外部 `ALE_ROOT` 参照によるオプショナルビルドです。この checkout では
-  `ALE_ROOT` が設定されておらず、`CMakeLists.txt` の宣言だけを根拠にしています。実ビルド構成は未確認です。
-- `viewers/metrics-tools/` の `tb_bridge.py`、`mlflow_bridge.py`、`inspect_run.py` は、入出力と冒頭の記述から
-  「Run ディレクトリだけを読む」ことを確認しています。実行して出力形式まで検証してはいません。
-- Optuna harness（`apps/runner/tools/dropmerge_optuna.py`）と metrics 圧縮ツールは、5 図の主経路に含めていません。
-- GUI パネル（`QValuePanel`、`HeatMapPanel`、`Conv2dPanel` など）の内部構成は、システム構成図の
-  `AnetRLRunner` と Observer 購読という粒度までしか調べていません。
-- C++ の build と test はこの Atlas 作成作業に含めておらず、実行していません。
+- 学習シーケンスは `SerialTrainRunner` と `DefaultDQNAgent` の代表経路です。Rainbow、MuZero、ImageCls の内部経路を同じ深さでは追跡していません。
+- Atari/ALE と外部依存は CMake 宣言を根拠にしています。C++ の build/test や実 Run は実行していません。
+- Optuna harness と metrics 圧縮の内部工程、GUI パネル個々の描画処理は図の範囲外です。
+- 背景評価の終了時 drain は正常な次セッション起動時とは別です。`EpisodeEvalObserver` destructor の wait と `RunnerApp::OnExit` のログ終了順序を、セッション完了保証としては描いていません。
+- bridge はファイル境界の消費者として示しています。今回の更新では外部サービスへの送信や bridge の実行検証は行っていません。
+
+## 主なコード根拠
+
+- 起動と終了: [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) の `OnInit`、`OnRun`、`OnExit`、`OnExceptionInMainLoop`。
+- Actor 生成と実行: [trainer.cpp](../../core/anet-core/src/trainer.cpp) の `RunManager`、`SerialTrainRunner::DoStep`、`EvalRunner::RunSession`。
+- Actor カタログ: [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の `CreateActor`、[rl.hpp](../../core/anet-core/include/anet/rl.hpp) の `ActorRequest`。
+- 行動と学習: [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `Actor::MakeAction`、`Learner::UpdateFromBatch`。
+- 評価と通知: [observers.cpp](../../core/anet-core/src/observers.cpp) の `EpisodeEvalObserver`、[util.hpp](../../core/anet-core/include/anet/util.hpp) の `IntervalGate`。
+- Metrics の書き手: [metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp)。読み手: [MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java)。cache の扱い: [ADR0015](../adr/0015-metrics-cache-disposable-derivative.md)。
 
 ## doc/code drift
 
-- 評価の起動条件: [`docs/design/010_framework_overview.jp.md`](../design/010_framework_overview.jp.md) 6.7.3 は
-  「学習更新数が interval に達したとき」と記述します。実装 `EpisodeEvalObserver::OnLearn`
-  （`core/anet-core/src/observers.cpp:552-587`）は `anet::IntervalGate::ShouldFire`
-  （`core/anet-core/include/anet/util.hpp:236-270`）を使い、**初回呼び出しは step 値によらず必ず発火**し、
-  以後は bucket を跨いだ最初の呼び出しだけで発火して catch-up しません（ADR 0028）。
-  図は実装側の挙動に合わせています。
-- Metrics Viewer の配置: 設計資料のコードマップは `apps/metrics-viewer/` だけを挙げており、実装もそこにあります。
-  一方で作業ツリーには空の `viewers/metrics-viewer/` が残っています。図は実装のある `apps/metrics-viewer/` を採用しました。
+[全体概要](../design/010_framework_overview.jp.md) §6.7.3 は評価を「学習更新数が interval に達したとき」と説明しています。
+実装の `EpisodeEvalObserver::OnLearn` が使う `IntervalGate::ShouldFire` は初回呼び出しで発火し、以後は bucket 境界で発火します。
+図ではこの実装に合わせ、原文は変更していません。
 
 ## 言語について
 
-authored content（タイトル、ノード名、関係ラベル、カード）は日本語です。型名、関数名、設定キー、
-ファイル名、プロトコル、製品名は原表記のまま残しています。
-
-日本語は Archify の Viewer UI がサポートする locale ではないため `meta.locale` を設定していません。
-その結果、各 HTML の**固定 Viewer UI（Light / Dark、Classic、Present、Export、Legend、PATH / MAP / LENS など）と
-`<html lang>` は英語**になります。
+説明文は日本語で、型名、関数名、設定キー、ファイル名は原表記です。
+日本語は Viewer UI の対応 locale ではないため `meta.locale` を省略しています。
+固定 Viewer UI と `<html lang>` は英語です。

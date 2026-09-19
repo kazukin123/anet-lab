@@ -6,7 +6,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "8755992cd26f751b79a35700ec38e600af29d581"
+      "revision": "c07622e58077ed6cc21bb7194aec4b1f9281b4b0"
     }
   },
   "components": [
@@ -27,12 +27,10 @@
       "sources": [
         {
           "path": "apps/runner/src/RunnerApp.cpp",
-          "line": 202,
           "label": "OnInit"
         },
         {
           "path": "apps/runner/src/RunnerApp.hpp",
-          "line": 30,
           "label": "wxApp 派生"
         }
       ]
@@ -54,17 +52,14 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/config.hpp",
-          "line": 250,
           "label": "ConfigManager"
         },
         {
           "path": "core/anet-core/include/anet/app_util.hpp",
-          "line": 40,
           "label": "WorkspaceService"
         },
         {
           "path": "apps/runner/config/_main.txt",
-          "line": 2,
           "label": "$include 連鎖"
         }
       ]
@@ -85,14 +80,8 @@
       ],
       "sources": [
         {
-          "path": "core/anet-core/include/anet/trainer.hpp",
-          "line": 210,
-          "label": "RunManager"
-        },
-        {
           "path": "core/anet-core/src/trainer.cpp",
-          "line": 997,
-          "label": "status_ = RUNNING"
+          "label": "RunManager / ActorRequest"
         }
       ]
     },
@@ -113,17 +102,14 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/trainer.hpp",
-          "line": 114,
           "label": "TrainRunner"
         },
         {
           "path": "core/anet-core/src/trainer.cpp",
-          "line": 447,
           "label": "SerialTrainRunner::DoStep"
         },
         {
           "path": "core/anet-core/src/trainer.cpp",
-          "line": 1100,
           "label": "RunnerThread::ProcessStep"
         }
       ]
@@ -132,7 +118,7 @@
       "id": "agent",
       "type": "backend",
       "label": "Agent",
-      "sublabel": "Actor / Learner を所有",
+      "sublabel": "Actor / Learner を生成",
       "tag": "DefaultDQNAgent",
       "pos": [
         1090,
@@ -145,13 +131,11 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/rl.hpp",
-          "line": 727,
-          "label": "Agent interface"
+          "label": "ActorRequest / Agent"
         },
         {
-          "path": "core/anet-core/src/dqn_based_agent.cpp",
-          "line": 2448,
-          "label": "Learner::UpdateFromBatch"
+          "path": "core/anet-core/src/default_dqn_agent.cpp",
+          "label": "CreateActor / CreateLearner"
         }
       ]
     },
@@ -172,12 +156,10 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/nn.hpp",
-          "line": 187,
           "label": "Network"
         },
         {
           "path": "CMakeLists.txt",
-          "line": 177,
           "label": "find_package(Torch)"
         }
       ]
@@ -199,17 +181,14 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/rl.hpp",
-          "line": 658,
           "label": "BatchEnv interface"
         },
         {
           "path": "core/anet-core/include/anet/env.hpp",
-          "line": 164,
           "label": "ThreadPoolDiscreteEnv"
         },
         {
           "path": "core/anet-core/include/anet/env.hpp",
-          "line": 188,
           "label": "EnvRepository"
         }
       ]
@@ -231,12 +210,10 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/rl.hpp",
-          "line": 829,
           "label": "ReplayBuffer interface"
         },
         {
           "path": "core/anet-core/include/anet/replay_buffer.hpp",
-          "line": 106,
           "label": "prefetch 実装"
         }
       ]
@@ -258,12 +235,10 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/rl.hpp",
-          "line": 990,
           "label": "Notifier"
         },
         {
           "path": "core/anet-core/include/anet/rl.hpp",
-          "line": 899,
           "label": "Event 定義"
         }
       ]
@@ -285,12 +260,10 @@
       "sources": [
         {
           "path": "core/anet-core/include/anet/metrics_logger.hpp",
-          "line": 38,
           "label": "JsonlBackend"
         },
         {
           "path": "core/anet-core/src/metrics_logger.cpp",
-          "line": 190,
           "label": "metrics.jsonl を開く"
         }
       ]
@@ -312,17 +285,14 @@
       "sources": [
         {
           "path": "core/anet-core/src/metrics_logger.cpp",
-          "line": 748,
           "label": "images 出力"
         },
         {
           "path": "core/anet-core/src/metrics_logger.cpp",
-          "line": 770,
           "label": "videos 出力"
         },
         {
           "path": "core/anet-core/include/anet/app_util.hpp",
-          "line": 21,
           "label": "WorkspacePaths"
         }
       ]
@@ -344,17 +314,14 @@
       "sources": [
         {
           "path": "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java",
-          "line": 20,
           "label": "metrics.jsonl 読み取り"
         },
         {
           "path": "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java",
-          "line": 28,
           "label": "metrics_cache.db"
         },
         {
           "path": "apps/metrics-viewer/pom.xml",
-          "line": 79,
           "label": "sqlite-jdbc"
         }
       ]
@@ -478,7 +445,7 @@
       "items": [
         "workspace の config を executable root の設定へ後勝ちで重ね、Run 出力先も同じ workspace へ導出する",
         "--config 指定時は workspace を使わない完全自己記述モードになる",
-        "RunManager の構築が成功したときだけ RunnerStatus::RUNNING を立てる"
+        "run.train.actor と run.eval.[tag].actor が Agent の Actor カタログを名前で参照する"
       ]
     },
     {
@@ -486,7 +453,7 @@
       "title": "スレッドと device の境界",
       "items": [
         "RunnerThread が DoUpdateFrame(1) を反復し、Env の Step は worker thread へ分配する",
-        "Observation と Experience は CPU、NN の forward と backward は学習 device で実行する",
+        "Actor は固有 RNG と方策を持つ。shared network は Agent と同じ device、clone は Actor 所有",
         "PipelineTrainRunner は前回 Experience の学習を専用 LearnThread へ重ねる"
       ]
     },
@@ -496,7 +463,7 @@
       "items": [
         "build 宣言の外部依存は libtorch、wxWidgets、Box2D、Catch2、Tracy、NVTX3、nlohmann/json",
         "Atari/ALE は ANET_ENABLE_ATARI と外部 ALE_ROOT 参照によるオプショナルビルド",
-        "Run 成果物はファイルとして確定し、Viewer と metrics-tools はそれだけを読む"
+        "Viewer は Run の metrics.jsonl(.gz) を読み、破棄可能な SQLite cache を構築する"
       ]
     }
   ]

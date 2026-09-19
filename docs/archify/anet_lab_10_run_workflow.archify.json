@@ -93,9 +93,9 @@
       "lane": "side",
       "col": 4,
       "type": "backend",
-      "label": "評価 Episode",
-      "sublabel": "終端まで実行",
-      "width": 80,
+      "label": "評価セッション",
+      "sublabel": "採用 N 本で完了",
+      "width": 104,
       "height": 64
     },
     {
@@ -145,7 +145,7 @@
       "id": "step-eval",
       "from": "train_step",
       "to": "eval_round",
-      "label": "interval 到達",
+      "label": "評価ゲート",
       "role": "branch"
     }
   ],
@@ -156,7 +156,7 @@
       "items": [
         "workspace 側の config/_main.txt を executable root の設定へ後勝ちで重ねる",
         "--config 指定時は workspace 解決を迂回し、RunManager が Env / Agent / Runner を構築する",
-        "根拠: apps/runner/src/RunnerApp.cpp:231-289 / core/anet-core/src/trainer.cpp:997"
+        "根拠: apps/runner/src/RunnerApp.cpp OnInit / core/anet-core/src/trainer.cpp RunManager"
       ]
     },
     {
@@ -172,9 +172,9 @@
       "dot": "violet",
       "title": "評価が起動する条件",
       "items": [
-        "train.eval.[tag] の定義と eval_schedule.[tag].interval>0 が揃ったときだけ生成する",
-        "評価メトリクスも同じ Run 成果物へ記録される",
-        "根拠: core/anet-core/src/trainer.cpp:864-935 / observers.cpp:527-587"
+        "run.eval.[tag] と run.eval_schedule.[tag].interval>0 が揃うと評価を生成する",
+        "初回 LearnEvent と以後の interval 境界で起動し、採用 N 本の完了を SessionEndEvent で通知",
+        "根拠: core/anet-core/src/observers.cpp OnLearn / trainer.cpp EvalRunner::RunSession"
       ]
     }
   ]

@@ -5055,7 +5055,7 @@
         <path data-edge-from="setup" data-edge-to="train_step" data-edge-key="1" data-edge-id="setup-step" data-composition-points="350,119;378,119" d="M 350 119 L 378 119" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="train_step" data-edge-to="complete" data-edge-label="終了条件" data-edge-key="2" data-edge-id="step-complete" data-composition-points="482,119;570,119" d="M 482 119 L 570 119" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="complete" data-edge-to="analyze" data-edge-label="読み取り" data-edge-key="3" data-edge-id="complete-analyze" data-composition-points="625,151;625,166;625,166;625,211" d="M 625 151 L 625 166 L 625 166 L 625 211" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="train_step" data-edge-to="eval_round" data-edge-label="interval 到達" data-edge-key="4" data-edge-id="step-eval" data-composition-points="430,151;430,243;460,243" d="M 430 151 L 430 243 L 460 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="train_step" data-edge-to="eval_round" data-edge-label="評価ゲート" data-edge-key="4" data-edge-id="step-eval" data-composition-points="430,151;430,243;448,243" d="M 430 151 L 430 243 L 448 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
 
         <!-- Nodes -->
         <g id="node-select_ws" data-node-id="select_ws" data-node-label="workspace 選択" tabindex="0" role="button" aria-label="Focus workspace 選択, 起動時に決定, Run の主経路 › 準備" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="起動時に決定" data-node-context="Run の主経路 › 準備">
@@ -5106,15 +5106,15 @@
           <text data-detail="context" x="625" y="125" class="t-muted" font-size="8" text-anchor="middle">成果物を確定</text>
         </g>
 
-        <g id="node-eval_round" data-node-id="eval_round" data-node-label="評価 Episode" tabindex="0" role="button" aria-label="Focus 評価 Episode, 終端まで実行, 評価と分析 › 完了と分析" aria-pressed="false" data-node-kind="backend" data-node-sublabel="終端まで実行" data-node-context="評価と分析 › 完了と分析">
-          <title>評価 Episode · 終端まで実行 · 評価と分析 › 完了と分析</title>
-          <rect x="460" y="211" width="80" height="64" rx="6" class="c-mask"/>
-          <rect x="460" y="211" width="80" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(466 217) scale(0.6875)">
+        <g id="node-eval_round" data-node-id="eval_round" data-node-label="評価セッション" tabindex="0" role="button" aria-label="Focus 評価セッション, 採用 N 本で完了, 評価と分析 › 完了と分析" aria-pressed="false" data-node-kind="backend" data-node-sublabel="採用 N 本で完了" data-node-context="評価と分析 › 完了と分析">
+          <title>評価セッション · 採用 N 本で完了 · 評価と分析 › 完了と分析</title>
+          <rect x="448" y="211" width="104" height="64" rx="6" class="c-mask"/>
+          <rect x="448" y="211" width="104" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(454 217) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="500" y="232" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">評価 Episode</text>
-          <text data-detail="context" x="500" y="249" class="t-muted" font-size="8" text-anchor="middle">終端まで実行</text>
+          <text data-node-label="" data-detail-anchor="" x="500" y="232" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">評価セッション</text>
+          <text data-detail="context" x="500" y="249" class="t-muted" font-size="8" text-anchor="middle">採用 N 本で完了</text>
         </g>
 
         <g id="node-analyze" data-node-id="analyze" data-node-label="Run 分析" tabindex="0" role="button" aria-label="Focus Run 分析, Viewer と bridge, 評価と分析 › 完了と分析" aria-pressed="false" data-node-kind="external" data-node-sublabel="Viewer と bridge" data-node-context="評価と分析 › 完了と分析">
@@ -5140,9 +5140,9 @@
           <rect x="600.8" y="181" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="625" y="191" class="t-backend" font-size="8" text-anchor="middle">読み取り</text>
         </g>
-        <g data-detail="context" data-edge-from="train_step" data-edge-to="eval_round" data-edge-label="interval 到達" data-edge-key="4" data-edge-id="step-eval">
-          <rect x="393.8" y="187" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="430" y="197" class="t-muted" font-size="8" text-anchor="middle">interval 到達</text>
+        <g data-detail="context" data-edge-from="train_step" data-edge-to="eval_round" data-edge-label="評価ゲート" data-edge-key="4" data-edge-id="step-eval">
+          <rect x="401" y="187" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="430" y="197" class="t-muted" font-size="8" text-anchor="middle">評価ゲート</text>
         </g>
 
         <!-- Legend -->
@@ -5359,7 +5359,7 @@
         <ul>
           <li>&bull; workspace 側の config/_main.txt を executable root の設定へ後勝ちで重ねる</li>
           <li>&bull; --config 指定時は workspace 解決を迂回し、RunManager が Env / Agent / Runner を構築する</li>
-          <li>&bull; 根拠: apps/runner/src/RunnerApp.cpp:231-289 / core/anet-core/src/trainer.cpp:997</li>
+          <li>&bull; 根拠: apps/runner/src/RunnerApp.cpp OnInit / core/anet-core/src/trainer.cpp RunManager</li>
         </ul>
       </div>
 
@@ -5381,9 +5381,9 @@
           <h3>評価が起動する条件</h3>
         </div>
         <ul>
-          <li>&bull; train.eval.[tag] の定義と eval_schedule.[tag].interval&gt;0 が揃ったときだけ生成する</li>
-          <li>&bull; 評価メトリクスも同じ Run 成果物へ記録される</li>
-          <li>&bull; 根拠: core/anet-core/src/trainer.cpp:864-935 / observers.cpp:527-587</li>
+          <li>&bull; run.eval.[tag] と run.eval_schedule.[tag].interval&gt;0 が揃うと評価を生成する</li>
+          <li>&bull; 初回 LearnEvent と以後の interval 境界で起動し、採用 N 本の完了を SessionEndEvent で通知</li>
+          <li>&bull; 根拠: core/anet-core/src/observers.cpp OnLearn / trainer.cpp EvalRunner::RunSession</li>
         </ul>
       </div>
     </div>
