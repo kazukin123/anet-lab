@@ -21,6 +21,11 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Config
     // ======================================================
+    struct ImageClsActorConfig {
+        bool clone_model = false;
+        bool bf16 = false;
+    };
+
     struct ImageClsAgentConfig : public anet::Config {
         anet::ProfiledValueConfig<double> learning_rate;
         double weight_decay = 1e-4;
@@ -44,11 +49,11 @@ namespace anet::rl::img_cls {
         struct Bf16Config {
             bool enabled = false;
             bool learner = true;
-            bool actor = false;
         };
 
         MixupConfig mixup;
         Bf16Config bf16;
+        std::map<std::string, ImageClsActorConfig> actor;
 
         anet::nn::NetworkGraphVizConfig nn_viz;
 
@@ -73,7 +78,16 @@ namespace anet::rl::img_cls {
 
             ANET_READ_CONFIG(config_data, bf16.enabled);
             ANET_READ_CONFIG(config_data, bf16.learner);
-            ANET_READ_CONFIG(config_data, bf16.actor);
+            auto items = config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"));
+            for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeOverrideConfigKey("actor"))) {
+                items.try_emplace(key, sub);
+            }
+            for (const auto& [key, sub] : items) {
+                auto& entry = actor[key];
+                const auto prefix = "actor.[" + key + "]";
+                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                ReadConfig(config_data, prefix + ".bf16", entry.bf16);
+            }
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
             ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
@@ -243,18 +257,16 @@ namespace anet::rl::img_cls {
     class ImageClsActor final : public anet::rl::Actor {
     public:
         ImageClsActor(
-            const ImageClsAgentConfig& config,
+            const ImageClsActorConfig& config,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
-            anet::rl::RunMode run_mode,
             torch::Device device,
             std::shared_ptr<anet::nn::Network> src_network = nullptr);
 
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
     private:
-        const ImageClsAgentConfig config_;
-        const anet::rl::RunMode run_mode_;
+        const ImageClsActorConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
@@ -323,12 +335,7 @@ namespace anet::rl::img_cls {
             const anet::rl::EnvSpec& env_spec, const anet::rl::BatchEnvSpec& batch_env_spec, torch::Device device,
             std::optional<seed_t> seed = std::nullopt);
 
-        std::shared_ptr<anet::rl::Actor> CreateActor(
-            const anet::rl::BatchEnvSpec& batch_env_spec,
-            const anet::rl::EnvSpec& env_spec,
-            anet::rl::RunMode run_mode,
-            std::optional<bool> clone_model_override = std::nullopt,
-            std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
 
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
         void ConfigureScalarMetricSubscriptions(

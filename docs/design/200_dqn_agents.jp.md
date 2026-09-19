@@ -30,7 +30,7 @@ Agent共通contractは[Agentと学習](110_agents_and_learning.jp.md)、ReplayBu
 
 ### 2.2 Online NetworkとTarget Network
 
-`dqn::NetworkModel`はonline Networkとtarget Networkを保持する。ActorはRunModeに応じてonlineまたはtargetをsourceとして行動を選び、Learnerはonlineで現在値を計算し、targetをbootstrap値の計算に使う。targetは`soft_update_tau`または`hard_update_interval`に従って学習後に更新する。
+`dqn::NetworkModel`はonline Networkとtarget Networkを保持する。Actorはカタログ項目の`network`設定に応じてonlineまたはtargetをsourceとして行動を選び、Learnerはonlineで現在値を計算し、targetをbootstrap値の計算に使う。targetは`soft_update_tau`または`hard_update_interval`に従って学習後に更新する。
 
 HeadとLearnerは次を組み合わせる。
 
@@ -254,7 +254,7 @@ ONではhard action選択を呼ばない。IQNはcurrent N本、target M本、�
 
 ### 6.4 DefaultDQN Train Actor snapshot
 
-`DefaultDQNAgent.train_actor.clone_model=true`のTrain Actorだけがprivate Networkの定期snapshotを持つ。同期周期profileは`exp_step`で更新し、現在のageは`train_step`で測る。判定とcopyは`MakeAction()`のforward直前に行うため、Serial/Pipeline Runnerのどちらでも同じaction境界になる。
+`DefaultDQNAgent.actor.[key].clone_model=true`かつ`sync_interval.*`を宣言したActorがprivate Networkの定期snapshotを持つ。同期周期profileは`exp_step`で更新し、現在のageは`train_step`で測る。判定とcopyは`MakeAction()`のforward直前に行うため、Serial/Pipeline Runnerのどちらでも同じaction境界になる。
 
 ```mermaid
 sequenceDiagram
@@ -282,7 +282,7 @@ sequenceDiagram
     end
 ```
 
-`Sync()`はstepを受け取らないため、強制同期後に最初に呼ばれたactionの`train_step`をage 0の基準にする。shared Train ActorとEval Actorは定期snapshotを持たない。
+`Sync()`はstepを受け取らないため、強制同期後に最初に呼ばれたactionの`train_step`をage 0の基準にする。shared Actorと`sync_interval.*`未宣言のActorは定期snapshotを持たない。
 
 ## 7. DefaultDQNとRainbowの構成・設定
 
@@ -290,12 +290,12 @@ sequenceDiagram
 
 | 観点 | `DefaultDQNAgent` | `RainbowAgent` |
 |---|---|---|
-| Policy | Train、Eval、targetを個別構成。epsilon-greedy、UQE、Thompson Sampling | Action用epsilon-greedyとtarget用greedy |
+| Policy | ActorカタログとLearner targetを個別構成。epsilon-greedy、UQE、Thompson Sampling | Actorごとのepsilon-greedyとLearner target用greedy |
 | 前処理 | RewardScaler、ObservationNormalizer、frame stack | 共通ActionContext。専用scaler/normalizer設定なし |
 | Head/Learner | TD/QR/IQN、Dueling有無を選択 | TD/QR、Dueling有無を選択 |
 | Replay拡張 | N-step、PER、prefetch、replay ratio、TBOなど | N-step、PER。現行Configはprefetch、TBO、fused optimizerを無効化 |
-| Actor clone | Train既定を`train_actor.clone_model`で指定し、定期snapshotを構成可能 | override省略時はshared。overrideによるcloneは可能だが定期snapshotなし |
-| spatial exploration | Train Policyだけで利用可能 | 専用設定なし |
+| Actor clone | カタログの`clone_model`と任意の`sync_interval.*`で指定 | カタログの`clone_model`で指定。定期snapshotなし |
+| spatial exploration | Actorごとに利用可能 | 専用設定なし |
 | 保存・読込 | 独自archive payloadと`auto_load_file`あり | 独自Save/Load overrideなし |
 
 ### 7.2 設定グループ
@@ -456,7 +456,7 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 
 1. 外側Agent、共通DQN component、ReplayBufferのどのlayerへ責務を置くかを明示する。
 2. outer Agentが`CreateLearner()`で自身を返す場合、mutex取得と前後処理をinner Learner呼出しの外側へ保つ。
-3. RunModeごとのPolicy、source Network、shared/clone、`Sync()`契約をtestする。
+3. Actorカタログ項目ごとのPolicy、source Network、shared/clone、`Sync()`契約をtestする。
 4. TD/QR/IQN、Dueling、Double DQN、N-step、PERの有効・無効組合せをConfigとshapeの両方で検証する。IQNはN≠M、N=1、入力Observation非汚染も確認する。
 5. PER更新にはsample時のgeneration-aware `item_keys`を使い、物理indexを代用しない。
 6. `actor_approx` schemaをDQN layerに閉じ、共通ReplayBufferへQ値の意味を持ち込まない。

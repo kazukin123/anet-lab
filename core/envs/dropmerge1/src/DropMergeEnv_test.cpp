@@ -334,8 +334,8 @@ TEST_CASE("DropMergeEnv previous action observations work through batch env pref
 
     const std::vector<std::string> prefixes = {
         "train.env",
-        "train.eval.[eval1].env",
-        "train.eval.[eval2].env",
+        "run.eval.[eval1].env",
+        "run.eval.[eval2].env",
     };
     const std::vector<anet::rl::RunMode> run_modes = {
         anet::rl::RunMode::Train,

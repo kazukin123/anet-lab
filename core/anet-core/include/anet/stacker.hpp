@@ -48,7 +48,7 @@ namespace anet::rl {
 
     class StackerActionContext final : public ActionContext {
     public:
-        explicit StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed = std::nullopt);
+        explicit StackerActionContext(std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed = std::nullopt);
 
         anet::TensorDict PushObservation(const BatchState& state) override;
         void Reset() override;

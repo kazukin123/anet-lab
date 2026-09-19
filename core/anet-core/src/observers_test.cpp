@@ -295,13 +295,9 @@ public:
     {
     }
 
-    std::shared_ptr<rl::Actor> CreateActor(
-        const rl::BatchEnvSpec& batch_env_spec,
-        const rl::EnvSpec&,
-        rl::RunMode,
-        std::optional<bool> = std::nullopt,
-        std::optional<torch::Device> = std::nullopt) const override
+    std::shared_ptr<rl::Actor> CreateActor(const rl::ActorRequest& request) const override
     {
+        const auto& batch_env_spec = request.batch_env_spec;
         return std::make_shared<TestActor>(
             batch_env_spec.num_envs,
             use_action_info_scalar_,
@@ -343,7 +339,7 @@ public:
         std::shared_ptr<rl::Agent> agent,
         std::shared_ptr<rl::Notifier> notifier,
         std::string name = "test")
-        : rl::RunnerBase(env, agent, notifier, rl::RunMode::Train, false, std::nullopt, std::move(name))
+        : rl::RunnerBase(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "train"}, std::move(name))
     {
     }
 
@@ -1553,14 +1549,7 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
     auto agent = std::make_shared<TestAgent>(0.0f, false, 0.0f, "forced eval failure");
     auto inner_env = std::make_shared<TestBatchEnv>("observer-scope", 1);
     auto env = std::make_shared<rl::EvalSessionEnv>(inner_env, 1, std::vector<std::string>{});
-    auto runner = std::make_shared<rl::EvalRunner>(
-        env,
-        agent,
-        notifier,
-        rl::RunMode::Eval,
-        false,
-        std::nullopt,
-        "eval1");
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     rl::EpisodeEvalObserver observer(runner, 1, true);
 
     rl::BatchExperience experience;
@@ -1621,7 +1610,7 @@ TEST_CASE("Scalar and trace enforce the scope event target matrix", "[trace][obs
 {
     for (const bool eval : { false, true }) {
         for (const auto& event : { "train", "learn", "episode_end", "session_end" }) {
-            for (const auto& target : { "", "$env", "$agent", "$runner", "$exp", "$update_result", "$action_info" }) {
+            for (const auto& target : { "", "$env", "$agent", "$actor", "$runner", "$exp", "$update_result", "$action_info" }) {
                 const std::string event_name(event), target_name(target);
                 const std::string definition = std::string(eval ? "$eval.[x] " : "$train ")
                     + "@" + event_name + " " + target_name + " score";
@@ -1638,7 +1627,7 @@ TEST_CASE("Scalar and trace enforce the scope event target matrix", "[trace][obs
                 anet::ConfigData trace;
                 trace.Set("metrics.trace.[test]", definition);
                 const bool trace_ok = event_name == "episode_end"
-                    && (target_name == "$env" || target_name == "$agent" || target_name == "$runner");
+                    && (target_name == "$env" || target_name == "$agent" || target_name == "$actor" || target_name == "$runner");
                 if (trace_ok) CHECK_NOTHROW(rl::ObserverFactory(trace));
                 else CHECK_THROWS(rl::ObserverFactory(trace));
             }
@@ -1728,10 +1717,10 @@ TEST_CASE("Episode steps presets resolve to Runner session metrics", "[observer_
     const rl::ObserverFactory factory(manager.GetConfigData());
     const auto definitions = rl::ScalarMetricDefsToJson(factory.GetScalarMetricDefs());
     for (const auto& [tag, key, eval] : std::vector<std::tuple<std::string, std::string, std::string>>{
-        { "05_target_ep_steps", "mean.episode_steps", "eval1" },
-        { "06_policy_ep_steps", "mean.episode_steps", "eval2" },
-        { "07_target_ep_steps_max", "max.episode_steps", "eval1" },
-        { "08_policy_ep_steps_max", "max.episode_steps", "eval2" } }) {
+        { "05_target_ep_steps", "mean.episode_steps", "eval_target" },
+        { "06_policy_ep_steps", "mean.episode_steps", "eval" },
+        { "07_target_ep_steps_max", "max.episode_steps", "eval_target" },
+        { "08_policy_ep_steps_max", "max.episode_steps", "eval" } }) {
         INFO(profile << " " << tag);
         REQUIRE(definitions.contains("21_eval/" + tag));
         const auto& definition = definitions.at("21_eval/" + tag);

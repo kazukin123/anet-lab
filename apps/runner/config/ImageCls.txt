@@ -6,13 +6,13 @@
 app.$ = app.online > P1
 #app.$ = app.batchrun > P1
 
-train.seed = 1
+run.seed = 1
 
-#train.num_envs = 256
-train.num_envs = 128
-#train.num_envs = 16
-#train.num_envs = 10
-#train.num_envs = 1
+#run.train.num_envs = 256
+run.train.num_envs = 128
+#run.train.num_envs = 16
+#run.train.num_envs = 10
+#run.train.num_envs = 1
 
 #ImageClsAgent.net.branch.[main_feature].$ = net.branch.@FoodResNet13      #   44%
 #ImageClsAgent.net.branch.[main_feature].$ = net.branch.@FoodResNet13_GAP  #   61% 1.3h
@@ -58,9 +58,8 @@ app.run_name = run_{t}_imgcls_ResNet18HR
 #backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 
-#train.eval_device_type = cpu
+#run.eval_device_type = cpu
 
-#train.eval.[eval1].clone_model = false  # なんか遅くなるので
 
 
 # ==============================================================================
@@ -101,7 +100,9 @@ app.batchrun.exp_exit_step  = 100,000,000     # 100M
 
 ImageClsAgent.bf16.enabled = true  # default=false
 ImageClsAgent.bf16.learner = true
-ImageClsAgent.bf16.actor = false
+ImageClsAgent.actor.[train].bf16 = false
+ImageClsAgent.actor.[eval].bf16 = false
+ImageClsAgent.actor.[eval_target].bf16 = false
 
 
 ImageClsAgent.learning_rate.type = phased
@@ -551,9 +552,9 @@ metrics.scalar.[42_env/04_accuracy]       = $env accuracy @train $exp_step
 metrics.scalar.[42_env/05_accuracy_ema]   = $env accuracy @train $exp_step $ema ema_alpha:0.001
 metrics.scalar.[42_env/06_epoch_count]    = $env epoch_count @train $exp_step
 
-metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval1] $env accuracy @session_end
-metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval1] $env accuracy @session_end $ema ema_alpha:0.01
-metrics.scalar.[51_eval1/05_epoch_count]       = $eval.[eval1] $env epoch_count @session_end
+metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval] $env accuracy @session_end
+metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval] $env accuracy @session_end $ema ema_alpha:0.01
+metrics.scalar.[51_eval1/05_epoch_count]       = $eval.[eval] $env epoch_count @session_end
 
 metrics.scalar.[90_perf/12_exp_step_per_sec]     = $runner exp_step_per_sec @train $exp_step interval:100
 metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = $runner exp_step_per_sec @train $exp_step interval:100 $ema ema_alpha:0.001
@@ -591,8 +592,8 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.flip_vertical = false
 
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
-app.online.eval_panel.eval_config_tag = eval1
-app.batchrun.eval_panel.eval_config_tag = eval1
+app.online.eval_panel.eval_config_tag = eval_panel
+app.batchrun.eval_panel.eval_config_tag = eval_panel
 
 app.online.train_panel.fps = 3
 app.online.eval_panel.fps = 3
@@ -654,20 +655,23 @@ ImageClsEnv.eval.eval_window.rotating_size ?= 1024
 
 # --- Eval設定 ---
 
-train.eval_schedule.[eval1].interval = 50
-train.eval.[eval1].run_mode = eval1
-train.eval.[eval1].eval_batch_size = 128
-train.eval.[eval1].env.eval.eval_window.mode = rotating
-#train.eval.[eval1].env.eval.eval_window.rotating_size = 1024 # 8step @ food101
-train.eval.[eval1].env.eval.eval_window.rotating_size = 256
-#train.eval.[eval1].env.eval.eval_window.rotating_size = 128
+# 表示用Envはonline評価の設定を継承し、Actorは共通のGreedy既定を使う。
+run.eval.[eval_panel].$ = run.eval.[eval]
 
-train.eval_schedule.[eval_full].interval = 0
-train.eval.[eval_full].run_mode = eval1
-train.eval.[eval_full].eval_batch_size = 128
-train.eval.[eval_full].env.eval.eval_window.mode = full
+run.eval_schedule.[eval_target].interval = 0
+run.eval.[eval].eval_batch_size = 128
+run.eval.[eval].env.eval.eval_window.mode = rotating
+#run.eval.[eval].env.eval.eval_window.rotating_size = 1024 # 8step @ food101
+run.eval.[eval].env.eval.eval_window.rotating_size = 256
+#run.eval.[eval].env.eval.eval_window.rotating_size = 128
 
-train.eval_schedule.[eval2].interval = 0
+run.eval_schedule.[eval_full].interval = 0
+run.eval.[eval_full].run_mode = eval
+run.eval.[eval_full].actor = eval
+run.eval.[eval_full].eval_batch_size = 128
+run.eval.[eval_full].env.eval.eval_window.mode = full
+
+run.eval_schedule.[eval].interval = 50
 
 
 # --- ImageCls augment 仕様 ---

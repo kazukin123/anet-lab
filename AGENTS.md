@@ -385,6 +385,15 @@ PRD072の固定17入力比較（通常のDebugビルド済み、リポジトリ�
 
 goldenは契約を意図的に変えるときだけ更新する。変更前の最後のcommitで通常テスト実行体をビルドし、manifestのcommitもその値へ更新する。既存goldenは人間が削除した後、`prepare.py capture`で元の固定入力から明示採取する。スクリプト・テストの両方で既存goldenへの上書きを拒否し、自動再生成は行わない。goldenはUTF-8 / LF。manifestや移行処理を変えた場合、古い生成物は退避してからprepareする。
 
+PRD061 の Actor カタログ契約テスト:
+
+```bash
+core\anet-core\bin\Debug\anet-core-test.exe "[prd061]"
+```
+
+設定改名前後・カタログ移行前後の比較手順と、固定入力推論の採取条件は
+`core/anet-core/testdata/prd061/README.md` を参照する。PRD072 の golden は更新しない。
+
 新しいテスト実行体や専用スクリプトが追加された場合は、この節に標準の実行手順を追記してください。
 
 ## Python 補助ツールの実行
@@ -621,6 +630,13 @@ Get-ChildItem apps\runner\workspaces\*\runs\*★ -Directory
   プロファイル合成やチェーンの挙動を検証したいときは `run.$` チェーンで引き直してください。
 - **`run.$` チェーンを記録へ書くことは複製の代わりになりません。** プロファイルは改名・削除・内容変更されるため、
   チェーンは当時の env 設定ファイルとセットでしか意味を持ちません。
+- **workspace 名は記録へ書きません。** `対象 workspace: …` のような行を置かず、Run 名だけで特定します。
+  workspace は運用の都合で普通に移動・改名されるため（2026-09-17 に `atari-1st/2nd/3rd` →
+  `atari-01/02/03`、`atari-5` → `atari5-01`）、記録へ焼き込むと必ず実体と食い違います。
+  workspace 名は測定結果ではなく置き場所のポインタです。`inspect_run.py` は
+  `workspaces/*/runs/<Run 名>` の glob で解決するので、参照側でも workspace 名は要りません。
+  **例外は複製した config ダンプ**で、こちらは実行時の逐語コピーなので `app.runs_dir` に
+  当時の workspace 名が残っていても書き換えません。
 - **複製時は公開できない値が混ざっていないか走査してください。** 絶対パス、ユーザー名、認証情報、メール、URL、IP。
 
 ## AI エージェントのRun結果分析ルール

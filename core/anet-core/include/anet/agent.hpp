@@ -18,21 +18,17 @@ namespace anet::rl {
 
     class ActionContext : public anet::RandomHolder {
     public:
-        ActionContext(RunMode mode, std::optional<seed_t> seed = std::nullopt)
+        explicit ActionContext(std::optional<seed_t> seed = std::nullopt)
             : RandomHolder(seed)
-            , run_mode_(mode)
         {
         }
 
-        RunMode GetRunMode() const { return run_mode_; }
 
         /// @return 加工されたObservation
         virtual anet::TensorDict PushObservation(const anet::rl::BatchState& state) = 0;
         virtual void Reset() = 0;
 
         virtual ~ActionContext() = default;
-    private:
-        RunMode run_mode_;
     };
 
 
@@ -43,8 +39,8 @@ namespace anet::rl {
     /// 加工を行わず、State内のobsをそのまま通過させるActionContext 
     class DefaultActionContext : public ActionContext {
     public:
-        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
-            : ActionContext(run_mode, seed)
+        DefaultActionContext(std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
+            : ActionContext(seed)
             , device_(device)
         {
         }
@@ -81,17 +77,28 @@ namespace anet::rl {
         torch::Device GetDevice() const override { return device_; }
         virtual ~AgentBase() = default;
     protected:
-        std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;
+        void ValidateActorDevice(bool clone_model, const torch::Device& actor_device) const;
+        template<typename T>
+        const T& FindActorConfig(const std::map<std::string, T>& catalog, const std::string& key) const
+        {
+            const auto it = catalog.find(key);
+            if (it == catalog.end()) {
+                std::string available;
+                for (const auto& [name, config] : catalog) {
+                    if (!available.empty()) available += ", ";
+                    available += name;
+                }
+                ANET_SYSTEM_ERROR("Undefined Actor key='" << key << "'. Defined keys=[" << available
+                    << "]. Select an existing catalog entry with run.train.actor or run.eval.[tag].actor.");
+            }
+            return it->second;
+        }
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
         const EnvSpec env_spec_;
         int n_actions_;
         int num_envs_;
-    private:
-        mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> run_mode_rngs_;
-        mutable std::mutex rng_mutex_;
-        seed_t action_context_seed_;
     };
 
 
@@ -176,13 +183,11 @@ namespace anet::rl {
             }
         };
 
-        struct TrainActorConfig {
+        struct DQNActorConfig {
+            ActionPolicyConfig policy;
+            std::string network = "online";
             bool clone_model = false;
-            anet::ProfiledValueConfig<step_t> sync_interval{
-                .type = "constant",
-                .value = 400,
-                .min_value = 1,
-            };
+            std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
         };
 
         struct StuckerConfig {

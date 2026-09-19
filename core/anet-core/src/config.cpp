@@ -242,11 +242,11 @@ namespace anet {
 
     } // namespace
 
-    // train.eval.[greedy].eval_batch_size = 1
-    // train.eval.[greedy].run_mode = eval1
-    // train.eval.[greedy].env.init.x_range = 0.0
-    //   prefix = "train.eval"
-    //   key_prefix = "train.eval.["
+    // run.eval.[greedy].eval_batch_size = 1
+    // run.eval.[greedy].run_mode = eval1
+    // run.eval.[greedy].env.init.x_range = 0.0
+    //   prefix = "run.eval"
+    //   key_prefix = "run.eval.["
     //   key_suffix = "]"
     //   tag = greedy
 	//   sub_key = eval_batch_size, run_mode, env.init.x_range

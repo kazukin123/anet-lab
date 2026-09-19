@@ -6,12 +6,12 @@
 app.$ = app.online > P1
 #app.$ = app.batchrun > P1
 
-train.seed = 1
+run.seed = 1
 
-train.num_envs = 256
-#train.num_envs = 128
-#train.num_envs = 10
-#train.num_envs = 1
+run.train.num_envs = 256
+#run.train.num_envs = 128
+#run.train.num_envs = 10
+#run.train.num_envs = 1
 
 #DefaultDQNAgent.$ = @baseline > @fast > A1 > @bf16 >  A2 > A3
 #DefaultDQNAgent.$ = @baseline > @random	 # Random Policy (env 天井の実測用)
@@ -30,8 +30,8 @@ DefaultDQNAgent.net.body.$ = net.body.@MLP2
 A2.learner.use_rb_prefetch = true
 
 #A2.quantile_mode = none  # qr
-#A2.train_policy.policy_type = EpsilonGreedy
-#A2.eval_policy.policy_type = EpsilonGreedy
+#A2.actor.[train].policy.policy_type = EpsilonGreedy
+#A2.actor.[eval].policy.policy_type = EpsilonGreedy
 
 
 # ==============================================================================
@@ -45,7 +45,7 @@ A2.learner.use_per = true
 
 #A2.learner.replay_batch_size = 2
 
-#train.main_runner_type = serial
+#run.train.runner_type = serial
 
 #A2.learner.n_step = 1
 
@@ -66,9 +66,9 @@ app.metrics_logger.video_codec = libx264  # h264_nvenc
 app.online.exp_pause_step  = ${@vars.max_exp_step}
 app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 
-A1.train_policy.eps_decay_steps     = 200,000 # 200K
-A1.train_policy.uqe_eps_decay_steps = 200,000 # 200K
-A1.train_policy.uqe_tau_decay_steps = 400,000 # 400K
+A1.actor.[train].policy.eps_decay_steps     = 200,000 # 200K
+A1.actor.[train].policy.uqe_eps_decay_steps = 200,000 # 200K
+A1.actor.[train].policy.uqe_tau_decay_steps = 400,000 # 400K
 A1.learner.per_beta_step = 100,000            # 100K
 
 
@@ -80,16 +80,16 @@ A1.learner.per_beta_step = 100,000            # 100K
 #A1.stucker.use_stacker = true
 A1.stucker.stack_count = 1
 
-A1.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
+A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
-A1.train_policy.policy_type = UQE
-A1.train_policy.uqe_eps_start = 0.60
-A1.train_policy.uqe_eps_end = 0.05
-A1.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-A1.train_policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
-A1.train_policy.uqe_use_tail_mean = true
+A1.actor.[train].policy.policy_type = UQE
+A1.actor.[train].policy.uqe_eps_start = 0.60
+A1.actor.[train].policy.uqe_eps_end = 0.05
+A1.actor.[train].policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+A1.actor.[train].policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
+A1.actor.[train].policy.uqe_use_tail_mean = true
 
-A1.eval_policy.policy_type = UQE
+A1.actor.[eval].policy.policy_type = UQE
 
 A1.target_policy.uqe_tau_start = 0.85
 #A1.target_policy.uqe_use_tail_mean = true
@@ -145,8 +145,8 @@ DefaultDQNAgent.net.body.output.[features] = main_feature
 
 metrics.scalar.$ = metrics.scalar.@baseline > M1
 
-#metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = mean.episode_return $runner @session_end $eval.[eval1] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
-#metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval2] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = mean.episode_return $runner @session_end $eval.[eval_target] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
 
 #metrics.scalar.@baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
 #metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
@@ -232,9 +232,14 @@ GridMazeEnv.max_steps ?= 100
 
 # --- Eval設定 ---
 
-#train.eval_schedule.[eval1].interval = 0
-#train.eval_schedule.[eval2].interval = 0
-#train.eval_schedule.[eval1].interval = 50
-#train.eval_schedule.[eval2].interval = 50
-train.eval_schedule.[eval1].interval = 10
-train.eval_schedule.[eval2].interval = 10
+#run.eval_schedule.[eval_target].interval = 0
+#run.eval_schedule.[eval].interval = 0
+#run.eval_schedule.[eval_target].interval = 50
+#run.eval_schedule.[eval].interval = 50
+run.eval_schedule.[eval_target].interval = 10
+run.eval_schedule.[eval].interval = 10
+
+# 評価 Actor の旧実効値（学習方策の終端からの暗黙導出を明示）。
+A1.actor.[eval].policy.uqe_tau_start = 0.85
+A1.actor.[eval].policy.uqe_tau_end = 0.85
+A1.actor.[eval].policy.uqe_use_tail_mean = true

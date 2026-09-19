@@ -1,31 +1,30 @@
 ﻿
 # --- trainer
 
-train.main_runner_type ?= pipeline
+run.train.runner_type ?= pipeline
 
-train.eval_schedule.[eval1].interval ?= 100
-train.eval.[eval1].run_mode ?= eval1
-#train.eval_schedule.[eval1].use_background ?= false
-train.eval_schedule.[eval1].use_background ?= true
+run.eval_schedule.[eval_target].interval ?= 100
+#run.eval_schedule.[eval_target].use_background ?= false
+run.eval_schedule.[eval_target].use_background ?= true
 # clone_model=false は学習中networkを共有し、clone/syncコストを避ける代わりにlearner更新とeval forwardがlock境界で直列化される
-train.eval.[eval1].clone_model ?= true
-train.eval.[eval1].eval_batch_size ?= 1
-train.eval.[eval1].eval_episodes ?= 1
+run.eval.[eval_target].eval_batch_size ?= 1
+run.eval.[eval_target].eval_episodes ?= 1
 
-train.eval_schedule.[eval2].interval ?= 100
-train.eval.[eval2].run_mode ?= eval2
-#train.eval_schedule.[eval2].use_background ?= false
-train.eval_schedule.[eval2].use_background ?= true
-train.eval.[eval2].clone_model ?= true
-train.eval.[eval2].eval_batch_size ?= 1
-train.eval.[eval2].eval_episodes ?= 1
+run.eval_schedule.[eval].interval ?= 100
+#run.eval_schedule.[eval].use_background ?= false
+run.eval_schedule.[eval].use_background ?= true
+run.eval.[eval].eval_batch_size ?= 1
+run.eval.[eval].eval_episodes ?= 1
 
-app.online.eval_panel.eval_config_tag ?= eval1
-app.batchrun.eval_panel.eval_config_tag ?= eval1
+# 表示用は専用ActorでGreedyにする。定期評価の方策とは独立に選択できる。
+run.eval.[eval_panel].$ = run.eval.[eval_target]
+run.eval.[eval_panel].actor ?= eval_panel
+app.online.eval_panel.eval_config_tag ?= eval_panel
+app.batchrun.eval_panel.eval_config_tag ?= eval_panel
 
-train.eval_device_type ?= cuda  # default: cpu
-#train.eval_device_type ?= cpu
-train.eval_device_index ?= 0
+run.eval_device_type ?= cuda  # default: cpu
+#run.eval_device_type ?= cpu
+run.eval_device_index ?= 0
 
 # --- agent
 
@@ -125,7 +124,6 @@ app.train_auto_start ?= true
 app.eval_panel.auto_start ?= false
 
 #app.eval_panel.model_sync.mode ?= frame
-#app.eval_panel.model_sync.mode ?= shared
 app.eval_panel.model_sync.mode ?= time
 #app.eval_panel.model_sync.mode ?= episode
 app.eval_panel.model_sync.frame_interval ?= 30       # 1

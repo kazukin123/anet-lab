@@ -1338,7 +1338,7 @@ anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(
     current_epsilon_ = config_.eps_start;
 }
 
-void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
+void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateSchedule(const StepCounts& counts)
 {
     if (IsSpatialExplorationEnabled()) return;
     UpdateEpsilon(counts.exp_step);
@@ -1423,7 +1423,7 @@ void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
     current_uqe_tau_ = config_.uqe_tau_start + t * (config_.uqe_tau_end - config_.uqe_tau_start);
 }
 
-void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
+void anet::rl::dqn::UQEActionPolicy::UpdateSchedule(const StepCounts& counts)
 {
     if (IsSpatialExplorationEnabled()) return;
     UpdateEpsilon(counts.exp_step, true);
@@ -1737,7 +1737,7 @@ anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(
     ;
 }
 
-void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& counts)
+void anet::rl::dqn::ThompsonSamplingActionPolicy::UpdateSchedule(const StepCounts& counts)
 {
     if (IsSpatialExplorationEnabled()) return;
     UpdateEpsilon(counts.exp_step, true);
@@ -1832,6 +1832,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard ng;
+
+    // 方策状態はActorの実行境界だけで更新する。
+    policy_->UpdateSchedule(step);
 
     // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
     UpdateSnapshot(step);

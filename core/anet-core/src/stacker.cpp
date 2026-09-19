@@ -122,8 +122,8 @@ void DictFrameStacker::Reset()
 // StackerActionContext
 // =============================================================
 
-StackerActionContext::StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed)
-    : ActionContext(run_mode, seed), stacker_(std::move(stacker))
+StackerActionContext::StackerActionContext(std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed)
+    : ActionContext(seed), stacker_(std::move(stacker))
 {
     /// @todo 推論と学習における FrameStacker の重複解消と ActionContext 不要論
     /// @todo ActionContext依存のStacking再考

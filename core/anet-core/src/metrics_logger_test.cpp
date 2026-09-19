@@ -262,7 +262,7 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
 
     anet::ConfigData config_data;
     config_data.Set("app.run_name", "run_{t}");
-    config_data.Set("train.num_envs", "8");
+    config_data.Set("run.train.num_envs", "8");
     config_data.Set("DefaultDQNAgent.batch_size", "128");
     anet::MetricsLogger::Instance()->Log("config_data", config_data);
 
@@ -270,7 +270,7 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
     REQUIRE(std::filesystem::exists(config_path));
     CHECK(ReadTextFile(config_path) ==
         "app.run_name = run_{t}\n"
-        "train.num_envs = 8\n"
+        "run.train.num_envs = 8\n"
         "DefaultDQNAgent.batch_size = 128\n");
 
     anet::MetricsLogger::Reset();

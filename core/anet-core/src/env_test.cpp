@@ -628,16 +628,16 @@ TEST_CASE("Batch wrapper exposes children-inclusive effective config", "[env][co
 {
     anet::ConfigData config_data;
     config_data.Set("NameTestSingleEnv.limit_step", 10);
-    config_data.Set("train.eval.[eval1].env.limit_step", 20);
+    config_data.Set("run.eval.[eval1].env.limit_step", 20);
 
     auto factory = std::make_shared<RecordingSingleEnvFactory>();
     rl::VectorizedDiscreteBatchEnv env(
         config_data, factory, "eval1", 2, torch::Device(torch::kCPU), 1,
-        rl::RunMode::Eval1, "train.eval.[eval1].env");
+        rl::RunMode::Eval1, "run.eval.[eval1].env");
 
     const auto actual = env.GetConfigData();
     REQUIRE(actual.has_value());
-    CHECK(actual->Get<int>("train.eval.[eval1].env.limit_step") == 20);
+    CHECK(actual->Get<int>("run.eval.[eval1].env.limit_step") == 20);
     CHECK_FALSE(actual->Has("NameTestSingleEnv.limit_step"));
 }
 

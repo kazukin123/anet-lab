@@ -628,8 +628,8 @@ class ConfigSubcommandTest(InspectRunTestBase):
                 {
                     "agent.class_id": "DefaultDQNAgent",
                     "agent.device_type": "1",
-                    "train.eval.[eval1].run_mode": "eval1",
-                    "train.eval.[eval2].run_mode": "eval2",
+                    "run.eval.[eval1].run_mode": "eval1",
+                    "run.eval.[eval2].run_mode": "eval2",
                 },
             )
 
@@ -638,8 +638,8 @@ class ConfigSubcommandTest(InspectRunTestBase):
                 ["config", "run_a",
                  "--config-key", "agent.class_id",
                  "--config-key", "agent.*",
-                 "--config-key", "train.eval.[eval1].run_mode",
-                 "--config-key", "train.eval.[*].run_mode",
+                 "--config-key", "run.eval.[eval1].run_mode",
+                 "--config-key", "run.eval.[*].run_mode",
                  "--config-key", "nope.*"],
             )
 
@@ -651,13 +651,13 @@ class ConfigSubcommandTest(InspectRunTestBase):
                 [
                     ("agent.class_id", "DefaultDQNAgent"),
                     ("agent.device_type", "1"),
-                    ("train.eval.[eval1].run_mode", "eval1"),
-                    ("train.eval.[eval2].run_mode", "eval2"),
+                    ("run.eval.[eval1].run_mode", "eval1"),
+                    ("run.eval.[eval2].run_mode", "eval2"),
                 ],
             )
             statuses = {item["selector"]: item["status"] for item in config["selectors"]}
-            self.assertEqual(statuses["train.eval.[eval1].run_mode"], "ok")
-            self.assertEqual(statuses["train.eval.[*].run_mode"], "ok")
+            self.assertEqual(statuses["run.eval.[eval1].run_mode"], "ok")
+            self.assertEqual(statuses["run.eval.[*].run_mode"], "ok")
             self.assertEqual(statuses["nope.*"], "missing")
 
     def test_effective_marking_uses_module_dumps(self):
@@ -1808,8 +1808,8 @@ class MetricDefinitionMetadataTest(CacheFixtureMixin):
                 "metrics.scalar.[a]": "$eval.[eval1] @session_end $env mean.score clip:2 clip:3",
                 "metrics.scalar.[b]": "$eval.[eval2] @train $action_info score",
                 "metrics.scalar.[c]": "$eval.[ignored] $train @train $env score clip:0",
-                "train.eval.[eval1].eval_episodes": "10",
-                "train.eval.[eval1].eval_batch_size": "5",
+                "run.eval.[eval1].eval_episodes": "10",
+                "run.eval.[eval1].eval_batch_size": "5",
             })
             self.write_raw_master(run, [("a", 10, 1.0)])
             for options in ([], ["--no-observed"]):

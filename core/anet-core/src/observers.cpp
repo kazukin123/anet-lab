@@ -794,6 +794,10 @@ void MetricsLogTraceObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
         target = event.env != nullptr ? event.env.get()
             : (event.runner != nullptr ? event.runner->GetBatchEnv().get() : nullptr);
         break;
+    case EventField::ACTOR:
+        target_name = "actor";
+        target = event.runner != nullptr ? event.runner->GetActor().get() : nullptr;
+        break;
     case EventField::AGENT: target_name = "agent"; target = event.agent.get(); break;
     case EventField::RUNNER: target_name = "runner"; target = event.runner.get(); break;
     default: break;
@@ -831,6 +835,9 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
     switch (event_field) {
     case anet::rl::EventField::EXPERIENCE:
         target = experience;
+        break;
+    case anet::rl::EventField::ACTOR:
+        target = runner != nullptr ? runner->GetActor().get() : nullptr;
         break;
     case anet::rl::EventField::AGENT:
         target = agent.get();
@@ -1209,6 +1216,7 @@ namespace metrics_def_names {
     {
         if (!field.has_value()) return "";
         switch (*field) {
+        case EventField::ACTOR:         return "actor";
         case EventField::AGENT:         return "agent";
         case EventField::ENV:           return "env";
         case EventField::EXPERIENCE:    return "exp";
@@ -1299,7 +1307,7 @@ namespace metric_tokens {
                 || raw == "$exp_step" || raw == "$update_step" || raw == "$sim_step") {
                 token.kind = Kind::STEP;
                 token.value = raw.substr(1);
-            } else if (raw == "$agent" || raw == "$env" || raw == "$runner"
+            } else if (raw == "$actor" || raw == "$agent" || raw == "$env" || raw == "$runner"
                 || raw == "$batch_experience" || raw == "$exp" || raw == "$batch_update_result"
                 || raw == "$update_result" || raw == "$result" || raw == "$action" || raw == "$action_info") {
                 token.kind = Kind::TARGET;
@@ -1334,7 +1342,8 @@ namespace metric_tokens {
                 else if (token.value == "update" || token.value == "update_step") token.step = StepAxis::UPDATE;
                 else if (token.value == "sim" || token.value == "sim_step") token.step = StepAxis::SIM;
             } else if (token.kind == Kind::TARGET) {
-                if (token.value == "agent") token.field = EventField::AGENT;
+                if (token.value == "actor") token.field = EventField::ACTOR;
+                else if (token.value == "agent") token.field = EventField::AGENT;
                 else if (token.value == "env") token.field = EventField::ENV;
                 else if (token.value == "runner") token.field = EventField::RUNNER;
                 else if (token.value == "exp" || token.value == "batch_experience") token.field = EventField::EXPERIENCE;
@@ -1558,8 +1567,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     break;
                 case Kind::TARGET:
                     unique(target_seen, token);
-                    if (token.field != EventField::ENV && token.field != EventField::RUNNER && token.field != EventField::AGENT) {
-                        invalid(token.raw, "$env, $runner or $agent");
+                    if (token.field != EventField::ENV && token.field != EventField::RUNNER && token.field != EventField::AGENT && token.field != EventField::ACTOR) {
+                        invalid(token.raw, "$env, $runner, $agent or $actor");
                     }
                     field = token.field;
                     break;
@@ -1596,7 +1605,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 }
             }
             if (!event_seen) invalid("<missing>", "an explicit @episode_end event");
-            if (!target_seen) invalid("<missing>", "an explicit $env, $runner or $agent target");
+            if (!target_seen) invalid("<missing>", "an explicit $env, $runner, $agent or $actor target");
             if (keys.empty()) invalid("<missing>", "at least one bare scalar key");
             trace_metric_defs_.push_back(TraceMetricDef{
                 .tag = trace_tag, .step_axis = metrics_def_names::StepAxisToken(axis),

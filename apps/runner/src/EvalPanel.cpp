@@ -31,18 +31,12 @@ using namespace eval_panel_detail;
 EvalPanelModelSyncMode EvalPanelModelSyncConfig::GetMode() const
 {
 	const auto normalized = anet::ToLower(anet::TrimCopy(mode));
-	if (normalized == "shared") return EvalPanelModelSyncMode::Shared;
 	if (normalized == "frame") return EvalPanelModelSyncMode::Frame;
 	if (normalized == "time") return EvalPanelModelSyncMode::Time;
 	if (normalized == "episode") return EvalPanelModelSyncMode::Episode;
 	ANET_SYSTEM_ERROR("Invalid app.eval_panel.model_sync.mode: " << mode
-		<< " (expected: shared, frame, time, episode)");
-	return EvalPanelModelSyncMode::Shared;
-}
-
-bool EvalPanelModelSyncConfig::UsesClonedModel() const
-{
-	return GetMode() != EvalPanelModelSyncMode::Shared;
+		<< " (expected: frame, time, episode)");
+	return EvalPanelModelSyncMode::Frame;
 }
 
 void EvalPanelModelSyncConfig::Validate() const
@@ -87,6 +81,11 @@ void EvalPanel::DoClose()
 		}
 		observer_ = nullptr;
 	}
+	if (source_counts_observer_) {
+		auto notifier = wxGetApp().GetRunManager().GetNotifier();
+		if (notifier) notifier->Detach(source_counts_observer_);
+		source_counts_observer_ = nullptr;
+	}
 }
 
 EvalPanel::~EvalPanel()
@@ -111,6 +110,15 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 
 	// Observer生成
 	auto notifier = run_manager->GetNotifier();
+	// 学習スレッドの可変countsをUIから直読せず、学習イベントで一貫したコピーを受け取る。
+	auto counts_observer = std::make_shared<anet::rl::FunctionTrainObserver>(
+		[this](const anet::rl::TrainEvent& event) {
+			std::lock_guard lock(source_counts_mutex_);
+			source_counts_ = event.counts;
+		}, "EvalPanelCounts");
+	source_counts_observer_ = std::make_shared<anet::rl::RunnerScopedTrainObserver>(
+		counts_observer, run_manager->GetTrainRunner());
+	notifier->Attach(source_counts_observer_);
 	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
 		runner,
 		[this](const anet::rl::TrainEvent& event)
@@ -161,7 +169,7 @@ void EvalPanel::DoStep(int64_t action)
 void EvalPanel::TogglePause()
 {
 	is_pause_ = !is_pause_;
-	if (!is_pause_ && UsesClonedModel()) {
+	if (!is_pause_) {
 		SyncModel();
 	}
 	auto log_str = std::string("Evaluation ") + (is_pause_ ? "paused" : "resumed");
@@ -170,18 +178,19 @@ void EvalPanel::TogglePause()
 	wxGetApp().FlushRunOutputs();
 }
 
-bool EvalPanel::UsesClonedModel() const
-{
-	return config_.model_sync.UsesClonedModel();
-}
-
 void EvalPanel::SyncModel()
 {
 	ANET_PROFILE_FUNC();
 
-	if (!UsesClonedModel() || runner_ == nullptr) return;
+	if (runner_ == nullptr) return;
 
-	runner_->Sync();
+	// network同期中に学習イベントを待たせないよう、countsのコピーだけを保護する。
+	anet::rl::StepCounts source_counts;
+	{
+		std::lock_guard lock(source_counts_mutex_);
+		source_counts = source_counts_;
+	}
+	runner_->Sync(source_counts);
 	frames_since_model_sync_ = 0;
 	episodes_since_model_sync_ = 0;
 	last_model_sync_time_ = std::chrono::steady_clock::now();
@@ -189,7 +198,6 @@ void EvalPanel::SyncModel()
 
 void EvalPanel::SyncBeforeFrame()
 {
-	if (!UsesClonedModel()) return;
 
 	const auto sync_mode = config_.model_sync.GetMode();
 	if (sync_mode == EvalPanelModelSyncMode::Frame) {
@@ -209,7 +217,6 @@ void EvalPanel::SyncBeforeFrame()
 
 void EvalPanel::SyncBeforeManualStep()
 {
-	if (!UsesClonedModel()) return;
 
 	const auto sync_mode = config_.model_sync.GetMode();
 	if (sync_mode == EvalPanelModelSyncMode::Frame || sync_mode == EvalPanelModelSyncMode::Time) {
@@ -221,8 +228,7 @@ anet::rl::ControlSignal EvalPanel::SyncAfterStep(const anet::rl::StepCounts&)
 {
 	ANET_PROFILE_FUNC();
 
-	if (UsesClonedModel()
-		&& config_.model_sync.GetMode() == EvalPanelModelSyncMode::Episode
+	if (config_.model_sync.GetMode() == EvalPanelModelSyncMode::Episode
 		&& runner_ != nullptr
 		&& runner_->LastStepHadEpisodeEnd()) {
 		++episodes_since_model_sync_;

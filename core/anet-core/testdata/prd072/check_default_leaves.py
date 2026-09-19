@@ -93,6 +93,8 @@ def main():
             reason = "independent test or explicit test override"
         elif entry["file"] == "apps/runner/tools/dropmerge_optuna.py" and key in ("app.run_name", "app.runs_dir"):
             reason = "explicit trial output location"
+        elif entry["file"] == "apps/runner/tools/dropmerge_optuna.py" and key == "run.seed":
+            reason = "explicit trial seed"
         elif entry["file"].endswith(".bat"):
             reason = "explicit CLI assignment"
         elif entry["file"] == "apps/runner/config/DropMerge_optuna.txt" and key in ("DropMergeEnv.seed_mode", "DropMergeEnv.global_seed"):

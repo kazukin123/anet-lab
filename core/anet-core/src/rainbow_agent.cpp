@@ -47,7 +47,6 @@ RainbowAgent::RainbowAgent(
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
-    this->vars_->epsilon = config_.action_policy.eps_start;
 
     // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
     bool is_distributional = config_.use_qr;
@@ -98,7 +97,6 @@ RainbowAgent::RainbowAgent(
         is_distributional, network_seed);
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<EpsilonGreedyActionPolicy>(config_.action_policy);
 
     // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
@@ -137,9 +135,6 @@ std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(cons
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == "epsilon" || key == "uqe_tau") {
-        return action_policy_->GetScalar(key, index);
-    }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
@@ -172,65 +167,26 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const st
     return std::nullopt;
 }
 
-std::shared_ptr<anet::rl::ActionContext> RainbowAgent::CreateActionContext(
-    const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& request) const
 {
-    // 専用のRNGから1つシードを払い出してコンテキストに渡す
-    auto rng = GetRandomGenerator(run_mode);
-    seed_t ctx_seed = rng->RandUint64();
-    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed, device_);
-}
-
-std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec,
-    const anet::rl::EnvSpec& env_spec,
-    anet::rl::RunMode run_mode,
-    std::optional<bool> clone_model_override,
-    std::optional<torch::Device> device) const
-{
-    env_spec_.CheckSameStateActionSpec(env_spec);
-    const bool clone_model = clone_model_override.value_or(false);
-    const auto actor_device = device.value_or(device_);
-    const bool same_shared_device = actor_device.type() == device_.type()
-        && (actor_device.type() != torch::kCUDA
-            || (actor_device.has_index() ? actor_device.index() : 0)
-                == (device_.has_index() ? device_.index() : 0));
-    ANET_CHECK_MSG(
-        clone_model || same_shared_device,
-        "RainbowAgent shared Actor device mismatch: actor_device=" << actor_device.str()
-        << " agent_device=" << device_.str()
-        << ". Use clone_model_override=true or the Agent device.");
-
-    // Contextを生成
-    auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device_);
-
-    // モードに応じて適切な Policy と Network を選択
-    std::shared_ptr<ActionPolicy> policy;
-    std::shared_ptr<anet::nn::Network> src_network;
-
-    // 元ネタのPolicyとNetoworkを決定
-    if (anet::rl::IsEval(run_mode)) {
-        src_network = (run_mode == anet::rl::RunMode::Eval1) ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
-    } else {
-        src_network = model_->GetOnlineNetwork();
-    }
-
-    // 必要に応じてCloneしてActor向けネットワークとする
-    auto network = (clone_model) ? src_network->Clone(device) : src_network;
-    if (clone_model) {
+    ANET_PROFILE_FUNC();
+    env_spec_.CheckSameStateActionSpec(request.env_spec);
+    const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    ValidateActorDevice(cfg.clone_model, request.device);
+    auto policy = std::make_shared<EpsilonGreedyActionPolicy>(cfg.policy, false,
+        request.batch_env_spec.num_envs, request.device);
+    auto context = std::make_shared<DefaultActionContext>(request.seed, request.device);
+    auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
+    auto network = source;
+    if (cfg.clone_model) {
+        std::shared_lock lock(*mutex_);
+        network = source->Clone(request.device);
         network->eval();
     }
-
-    // Actor を生成
-    const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
-        && config_.learner.use_per
+    const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
-    auto actor = std::make_shared<Actor>(
-        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint,
-        std::nullopt, false, ActorQHintConfig{ .munchausen = MunchausenConfig{ .enabled = false } });
-
-    // 生成したActorを返す
-    return actor;
+    return std::make_shared<Actor>(policy, nullptr, context, mutex_, network, source, emit_hint,
+        std::nullopt, false, ActorQHintConfig{.munchausen = MunchausenConfig{.enabled = false}});
 }
 
 std::shared_ptr<anet::rl::Learner> RainbowAgent::CreateLearner()
@@ -253,7 +209,7 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
         result_list = std::move(result);
 
         // Update後処理
-        action_policy_->OnLearn(counts);
+        target_policy_->UpdateSchedule(counts);
     }
 
     // BatchUpdateResultListを返す

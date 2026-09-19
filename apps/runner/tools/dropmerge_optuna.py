@@ -376,7 +376,7 @@ class DropMergeDomain:
             f"app.run_name = {ctx.run_name}",
             f"app.runs_dir = {ctx.runs_dir}",
             f"app.batchrun.exp_exit_step = {args.exp_exit_step}",
-            f"train.seed = {args.seed}",
+            f"run.seed = {args.seed}",
             "",
             "net.block.[OptConvInit].type = Conv2d",
             f"net.block.[OptConvInit].conv.out_channels = {params.cnn_channels}",
@@ -497,7 +497,7 @@ def add_common_args(parser: argparse.ArgumentParser, include_seed: bool = True) 
     parser.add_argument("--cost-k", type=float, default=4.0, help="cost_tf の N*M^2 項に掛ける係数。")
     parser.add_argument("--exp-exit-step", type=int, default=1_000_000, help="proxy trial の app.batchrun.exp_exit_step。%% window の基準 step。")
     if include_seed:
-        parser.add_argument("--seed", type=int, default=12345, help="train.seed に使う seed。")
+        parser.add_argument("--seed", type=int, default=12345, help="run.seed に使う seed。")
     parser.add_argument("--nhead", type=int, default=8, help="Transformer の attention head 数。")
 
 
@@ -669,7 +669,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_score_window_args(run_trial)
     add_optuna_storage_args(run_trial)
     add_optuna_artifact_args(run_trial)
-    run_trial.add_argument("--seeds", default="12345", help="同一 params を評価する train.seed の comma-separated list。")
+    run_trial.add_argument("--seeds", default="12345", help="同一 params を評価する run.seed の comma-separated list。")
     run_trial.add_argument(
         "--score-aggregate",
         choices=SCORE_AGGREGATES,
@@ -711,7 +711,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_study.add_argument("--n-jobs", type=int, default=1, help="Optuna の並列 worker 数。")
     run_study.add_argument("--study-note", help="Study User Attributes の note に保存する任意メモ。未指定時は既存 note を変更しない。")
-    run_study.add_argument("--seeds", default="12345", help="同一 params を評価する train.seed の comma-separated list。")
+    run_study.add_argument("--seeds", default="12345", help="同一 params を評価する run.seed の comma-separated list。")
     run_study.add_argument(
         "--score-aggregate",
         choices=SCORE_AGGREGATES,

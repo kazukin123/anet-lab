@@ -347,13 +347,13 @@ TEST_CASE("Config exposes resolved values under the injected scope", "[config][s
     anet::ConfigData config_data;
     config_data.Set("ScopedSnapshot.value", 10);
     config_data.Set("ScopedSnapshot.label", "base");
-    config_data.Set("train.eval.[eval1].env.value", 20);
+    config_data.Set("run.eval.[eval1].env.value", 20);
 
-    const ScopedSnapshotConfig config(config_data, "train.eval.[eval1].env");
+    const ScopedSnapshotConfig config(config_data, "run.eval.[eval1].env");
     const auto snapshot = config.GetScopedConfigData();
 
-    CHECK(snapshot.Get<int>("train.eval.[eval1].env.value") == 20);
-    CHECK(snapshot.Get("train.eval.[eval1].env.label") == "base");
+    CHECK(snapshot.Get<int>("run.eval.[eval1].env.value") == 20);
+    CHECK(snapshot.Get("run.eval.[eval1].env.label") == "base");
     CHECK_FALSE(snapshot.Has("ScopedSnapshot.value"));
 }
 

@@ -28,16 +28,18 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 - `Agent`はRunから利用する入口であり、ActorとLearnerを生成する。device取得、保存・読込、可視化用functionの公開境界でもある。
 - `Actor`は`StepCounts`と`BatchState`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
 - 同一Actor instanceの`MakeAction()`と`Sync()`は並行呼出ししない。必要な直列化はActorを利用するRunner側が守る。
-- `Agent::CreateActor()`の`clone_model_override`はoptionalであり、`std::nullopt`はmodel複製の既定を具象Agentへ委譲する。値が指定された場合の対応可否、同期source、同期時点も具象Agentの契約である。
-- `Agent::CreateActor()`は`BatchEnvSpec`の後に対象Envの`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
+- `Agent::CreateActor(const ActorRequest&)`は対象spec、device、seed、`actor_key`を受け取る。Agentは構築時に読んだtyped Actorカタログから名前を解決し、方策、network、cloneを選ぶ。未定義名や非対応clone、sharedのdevice不一致は生成前にfail-fastする。
+- `Agent::CreateActor()`はrequest内に対象Envの`BatchEnvSpec`と`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
 - `Learner`は`BatchExperience`を受け取り、0件以上の`BatchUpdateResult`を`BatchUpdateResultList`として返す。1回のExperience受入れが必ずparameter更新を発生させるとは限らない。
-- `AgentBase`はdevice、Envのspec、RunMode別RNG、共有mutexなど、複数Agentに共通する実行資源を保持する。
+- `AgentBase`はdevice、Envのspec、共有mutexなど、複数Agentに共通する実行資源を保持する。
 
 `Actor`と`Learner`は行動選択と学習更新の依存方向を分けるinterfaceである。ActorまたはPolicyからLearnerの内部状態を参照してはならない。
 
-### 2.2 RunModeとActor生成
+### 2.2 Actorカタログと生成
 
-`RunMode`には`Train`、`Eval`、`Eval1`、`Eval2`があり、Train Runner、設定済みEval、GUIのEvalPanelなどが用途ごとにActorを生成する。`Sync()`は強制同期の共通操作だけを定義し、定期同期や共有modelの挙動を共通層で仮定しない。
+`run.train.actor`は既定`train`、`run.eval.[tag].actor`は既定タグ名で、`<Agent>.actor.[key]`を参照する。EvalPanelは参照する評価タグの指定を使う。Actor用seedは`actor/<Runner名>`から派生し、各Actorが独立した乱数・方策状態を持つ。RunModeはEnvの用途選択だけに残る。
+
+ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsilon・温度などを参照できる。方策スケジュールは`MakeAction`の学習側countsで進む。EvalRunnerは`Sync(source_counts)`で学習側countsを保持し、評価イベント自体のcountsは別に数える。
 
 ### 2.3 StateとResource
 
@@ -70,7 +72,7 @@ Agent系の所有権は次の原則に従う。
 | `AgentFactory` | EnvSpec、BatchEnvSpec、device、ConfigData、seedから具象Agentを構築するinterface |
 | `DefaultAgentFactory` | `agent.class_id`と`agent.device_*`を解決し、登録済みfactoryへ構築を委譲する |
 | `Agent` | Actor/Learner生成、device、保存・読込を公開する共通interface |
-| `AgentBase` | device、Env情報、RunMode別RNG、共有mutexを提供する基底実装 |
+| `AgentBase` | device、Env情報、共有mutexを提供する基底実装 |
 | `Actor` | BatchStateからBatchActionInfoを生成し、必要に応じて推論Resourceを同期するinterface |
 | `ActionContext` | Observationのstack、device転送など、行動選択前の状態加工を担当する |
 | `Learner` | Experienceを受け取り、0件以上の更新結果を返すinterface |

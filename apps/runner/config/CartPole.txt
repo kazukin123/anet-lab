@@ -2,13 +2,13 @@
 app.$ = app.online
 #app.$ = app.batchrun
 
-#train.seed = 3077901837422269870
-#train.seed = 10471613835926818675
-train.seed = 14209897399466557630
+#run.seed = 3077901837422269870
+#run.seed = 10471613835926818675
+run.seed = 14209897399466557630
 
-train.num_envs = 256
-#train.num_envs = 10
-#train.num_envs = 1
+run.train.num_envs = 256
+#run.train.num_envs = 10
+#run.train.num_envs = 1
 
 
 DefaultDQNAgent.$ = @baseline > A1
@@ -55,7 +55,6 @@ A1.learner.gamma = 0.99
 A1.learner.update_warmup_steps = 51200
 A1.reward_scaler.reference_q_std = 10.0
 A1.learner.replay_batch_size = 128
-A1.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 
 
 # ==============================================================================

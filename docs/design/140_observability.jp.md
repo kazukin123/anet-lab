@@ -186,7 +186,7 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 |---|---|---|
 | `@event` | `@train`、`@learn`、`@episode_end`、`@session_end`（eval専用） | Observerを呼ぶevent。省略時は`@train` |
 | `$step_axis` | `$train_step`、`$learn_step`、`$episode_step`、`$exp_step`、`$update_step`、`$sim_step` | JSONLの`step`へ使うcounter |
-| `$target` | `$runner`、`$agent`、`$env`、`$exp`、`$update_result`、`$action_info` | 値を取得するsource |
+| `$target` | `$runner`、`$agent`、`$actor`、`$env`、`$exp`、`$update_result`、`$action_info` | 値を取得するsource |
 | `$runner_scope` | `$train`、`$eval.[name]` | eventを発生させたRunnerを限定する。stepがどのRunnerのcounterに載るかも変わる |
 | `$ema` | - | Observer内でEMAを計算する |
 | `ema_alpha:A` | 0より大きく1以下のfinite値を指定する | EMAが新しい値へ寄る係数を指定する |
@@ -224,7 +224,7 @@ EMA状態は`interval`と無関係に毎event更新する。`interval`を変え�
 
 不明なevent、step軸、targetにはWARN後に既定値を使う経路があり、対応しないEval scope/fieldの組み合わせはfail-fastする。scalarのEval scopeは`@session_end`、またはEvalの`@train $action_info`に限定される。eval scalarの`@episode_end`は置換先を示してfail-fastする。train scalarの`@session_end`も拒否する。
 
-`$agent`、`$action_info`、`$update_result`で取得できるkeyは、共通interfaceと具象Agentが公開するmetricの組合せで決まる。対応しないkeyを全Agentで同じ値に見せることはせず、Observer側は`std::optional`や`NaN`の意味をmetric定義ごとに扱う。DefaultDQNのTrain Actor snapshot診断など、Agent固有keyの意味は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+`$agent`、`$actor`、`$action_info`、`$update_result`で取得できるkeyは、共通interfaceと具象Agentが公開するmetricの組合せで決まる。対応しないkeyを全Agentで同じ値に見せることはせず、Observer側は`std::optional`や`NaN`の意味をmetric定義ごとに扱う。DefaultDQNのTrain Actor snapshot診断など、Agent固有keyの意味は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 `GetScalar()`の`std::nullopt`は「指定keyを知らない、または委譲先でも処理できない」ことを表す。指定keyが既知だが現在の状態、タイミング、設定、入力不足で値が成立しない場合は`NaN`を返す。Observer、wrapper、aggregatorは`std::nullopt`を未知key、`NaN`を値未成立として扱い、未初期化EMA、episode未確定、PER無効、batch不足などを0、前回値、既定値へ読み替えない。
 
@@ -240,7 +240,7 @@ QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarは
 metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env game_score game_len game_frames hns57
 ```
 
-trace は統計を集約せず、完了した採用 episode を1行で保存する。宣言がなければ observer も行も生成しない。event と target は明示必須で、event は `@episode_end` / `event:episode_end` のみ、target は `$env` / `$runner` / `$agent`（属性形も可）。scope の既定は `$train`、step 軸は `exp_step` とする。
+trace は統計を集約せず、完了した採用 episode を1行で保存する。宣言がなければ observer も行も生成しない。event と target は明示必須で、event は `@episode_end` / `event:episode_end` のみ、target は `$env` / `$runner` / `$agent` / `$actor`（属性形も可）。scope の既定は `$train`、step 軸は `exp_step` とする。
 
 裸トークンは1個以上のキーで、取得順と定義の `keys` 配列は宣言順。キー重複、集約 prefix、EMA、clip、interval、`key:`、未知・不正な制御指定を読み込み時に拒否する。event・target・scope・step軸の重複は同値・異値・別表記を問わず拒否し、後続指定による上書きで不正指定を隠せない。scalar の既存の後勝ち・既定値・WARN は変えない。
 

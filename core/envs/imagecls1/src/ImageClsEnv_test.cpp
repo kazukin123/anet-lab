@@ -311,7 +311,7 @@ TEST_CASE("ImageCls config validation ignores unknown keys without manifest I/O"
     SECTION("dormant-style schema validation remains I/O free") {
         auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
         config.Set("ImageDataset.classes_txt_path", "missing-classes.txt");
-        const std::string prefix = "train.eval.[dormant].env";
+        const std::string prefix = "run.eval.[dormant].env";
         config.Set(prefix + ".eval.dataset_key", dataset.GetDatasetKey());
         config.Set(prefix + ".eval.eval_window.mode", "full");
         CHECK_NOTHROW(factory.ValidateConfig(config, anet::rl::RunMode::Eval1, prefix));
@@ -319,7 +319,7 @@ TEST_CASE("ImageCls config validation ignores unknown keys without manifest I/O"
 
     SECTION("configured eval may inherit the standard eval source") {
         auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
-        const std::string prefix = "train.eval.[missing].env";
+        const std::string prefix = "run.eval.[missing].env";
         CHECK_NOTHROW(factory.ValidateConfig(config, anet::rl::RunMode::Eval1, prefix));
     }
 }
@@ -565,7 +565,7 @@ TEST_CASE("Food101 local config runs one native train and eval batch", "[.food10
     CHECK(train_reset->state.obs.Get(anet::rl::ObsKeys::kGrid).value().sizes()
         == torch::IntArrayRef({ 1, 3, 224, 224 }));
 
-    const std::string eval_prefix = "train.eval.[eval1].env";
+    const std::string eval_prefix = "run.eval.[eval1].env";
     auto eval = factory.CreateBatchEnv(
         config, torch::Device(torch::kCPU), "food101-eval-smoke",
         /*seed=*/2, /*num_envs=*/1, anet::rl::RunMode::Eval1, eval_prefix);

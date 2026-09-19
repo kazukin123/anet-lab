@@ -45,10 +45,8 @@ def assignment_role(filename, key):
         return "base profile definition"
     if key.startswith("net."):
         return "reusable network definition"
-    if filename == "common.txt":
+    if filename in ("common.txt", "agent.txt"):
         return "explicit choice profile" if "@" in key else "shared default definition"
-    if filename == "agent.txt":
-        return "explicit choice profile"
     return "explicit experiment assignment"
 
 

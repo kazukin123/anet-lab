@@ -82,7 +82,7 @@ DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId()
 | `PipelineTrainRunner` | 1つ前のExperienceのLearner更新と、現在のActor/Env処理を1-deepで重ねる |
 | `EvalRunner` | Learnerを呼ばず、ActorとEnvで評価または手動操作を進める |
 
-Train Runnerは`Agent::CreateActor()`へclone方針を指定せず`std::nullopt`を渡し、Agent固有のTrain既定へ解決を委ねる。Eval Runnerは従来どおりconfigured Evalの明示`bool`を渡す。明示的なshared指定とdevice不整合はRunner境界で早期検証し、Agentもeffective policyを解決した後に同じ不整合を検証する。
+Runnerは`ActorRequest`にActor名・spec・device・seedをまとめてAgentへ渡す。cloneとnetworkの選択、sharedのdevice検証はAgentが所有する。スケジュールが無効なdormant評価ではActorを生成せず、参照名も解決しない。EvalPanelは`CreateEvalRunner(name, config_tag)`で参照タグのActorを使う。
 
 ## 3. コンポーネント定義
 
@@ -185,7 +185,7 @@ sequenceDiagram
 
 構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名`train`、全configured Eval tag、予約名`EvalPanel`は最初のBatchEnv構築前に一括検証する。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
 
-`train.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`train.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。activeなconfigured Evalでは`RunManager`がEnvを`EvalSessionEnv`で包み、`eval_batch_size`を並列lane数、`eval_episodes`を採用episode本数として独立に扱う。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`train.eval.[tag].env.eval.*`のoverlayを使用する。
+`run.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`run.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。activeなconfigured Evalでは`RunManager`がEnvを`EvalSessionEnv`で包み、`eval_batch_size`を並列lane数、`eval_episodes`を採用episode本数として独立に扱う。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`run.eval.[tag].env.eval.*`のoverlayを使用する。
 
 ### 6.2 Serial Train step
 
@@ -300,12 +300,13 @@ sequenceDiagram
 
 | キー | 意味 |
 |---|---|
-| `train.seed` | Runのmaster seed。0の実seedは実行時に確定・記録される |
-| `train.num_envs` | 主Train BatchEnvのlane数 |
-| `train.main_runner_type` | `serial`または`pipeline` |
-| `train.eval_device_type/index` | configured Evalのdevice |
-| `train.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、model clone |
-| `train.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`と`use_background` |
+| `run.seed` | Runのmaster seed。0の実seedは実行時に確定・記録される |
+| `run.train.num_envs` | 主Train BatchEnvのlane数 |
+| `run.train.runner_type` | `serial`または`pipeline` |
+| `run.train.actor` | Actorカタログ名。既定`train` |
+| `run.eval_device_type/index` | configured Evalのdevice |
+| `run.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、Actor名参照 |
+| `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`と`use_background` |
 | `env.*` | Env class、worker、device |
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |

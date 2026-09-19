@@ -377,6 +377,9 @@ anet::ConfigData MakeImageClsMixTestConfigData()
     config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 1.0);
     config_data.Set("ImageClsAgent.mixup.prob", 1.0);
     config_data.Set("ImageClsAgent.mixup.switch_prob", 0.0);
+    config_data.Set("ImageClsAgent.actor.[train].clone_model", false);
+    config_data.Set("ImageClsAgent.actor.[eval].clone_model", false);
+    config_data.Set("ImageClsAgent.actor.[eval_clone].clone_model", true);
     return config_data;
 }
 
@@ -389,6 +392,9 @@ anet::ConfigData MakeImageClsSerializeTestConfigData()
     config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
     config_data.Set("ImageClsAgent.learn_log_interval", 0);
     config_data.Set("ImageClsAgent.mixup.enabled", false);
+    config_data.Set("ImageClsAgent.actor.[train].clone_model", false);
+    config_data.Set("ImageClsAgent.actor.[eval].clone_model", false);
+    config_data.Set("ImageClsAgent.actor.[eval_clone].clone_model", true);
     return config_data;
 }
 
@@ -501,12 +507,7 @@ torch::Tensor ForwardImageClsAgentProbs(
     anet::rl::img_cls::ImageClsAgent& agent,
     const torch::Tensor& grid)
 {
-    auto actor = agent.CreateActor(
-        anet::rl::BatchEnvSpec{ static_cast<int>(grid.size(0)), 1 },
-        MakeImageClsEnvSpec(),
-        anet::rl::RunMode::Eval,
-        false,
-        torch::Device(torch::kCPU));
+    auto actor = agent.CreateActor(anet::rl::ActorRequest{.batch_env_spec = anet::rl::BatchEnvSpec{ static_cast<int>(grid.size(0)), 1 }, .env_spec = MakeImageClsEnvSpec(), .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "eval"});
     return ForwardImageClsActorProbs(actor, grid);
 }
 
@@ -714,7 +715,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(defaults.use_fused_optimizer);
     CHECK_FALSE(defaults.bf16.enabled);
     CHECK(defaults.bf16.learner);
-    CHECK_FALSE(defaults.bf16.actor);
+    CHECK(defaults.actor.empty());
 
     auto config_data = MakeImageClsMixTestConfigData();
     config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 2.0);
@@ -725,7 +726,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     config_data.Set("ImageClsAgent.use_fused_optimizer", false);
     config_data.Set("ImageClsAgent.bf16.enabled", true);
     config_data.Set("ImageClsAgent.bf16.learner", false);
-    config_data.Set("ImageClsAgent.bf16.actor", true);
+    config_data.Set("ImageClsAgent.actor.[eval].bf16", true);
     auto config = MakeImageClsMixTestConfig(config_data);
     CHECK(config.mixup.enabled);
     CHECK(config.mixup.mixup_alpha == Catch::Approx(0.4));
@@ -737,7 +738,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK_FALSE(config.use_fused_optimizer);
     CHECK(config.bf16.enabled);
     CHECK_FALSE(config.bf16.learner);
-    CHECK(config.bf16.actor);
+    CHECK(config.actor.at("eval").bf16);
 
     const auto config_string = config.ToConfigString();
     CHECK(Contains(config_string, "ImageClsAgent.mixup.enabled = true"));
@@ -750,7 +751,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(Contains(config_string, "ImageClsAgent.use_fused_optimizer = false"));
     CHECK(Contains(config_string, "ImageClsAgent.bf16.enabled = true"));
     CHECK(Contains(config_string, "ImageClsAgent.bf16.learner = false"));
-    CHECK(Contains(config_string, "ImageClsAgent.bf16.actor = true"));
+    CHECK(Contains(config_string, "ImageClsAgent.actor.[eval].bf16 = true"));
 
     SECTION("prob must stay in [0, 1]")
     {
@@ -938,14 +939,13 @@ TEST_CASE("ImageCls actor and learner gate BF16 autocast around forward", "[imag
     {
         auto fixture = MakeImageClsAutocastProbeTestNetwork();
         auto mutex = std::make_shared<std::shared_mutex>();
-        auto config = anet::rl::img_cls::ImageClsAgentConfig{};
-        config.bf16.enabled = true;
-        config.bf16.actor = true;
+        auto config = anet::rl::img_cls::ImageClsActorConfig{};
+        config.bf16 = true;
         anet::rl::img_cls::ImageClsActor actor(
             config,
             mutex,
             fixture.network,
-            anet::rl::RunMode::Eval,
+
             torch::Device(torch::kCPU));
 
         auto action_info = actor.MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid));
@@ -960,13 +960,12 @@ TEST_CASE("ImageCls actor and learner gate BF16 autocast around forward", "[imag
     {
         auto fixture = MakeImageClsAutocastProbeTestNetwork();
         auto mutex = std::make_shared<std::shared_mutex>();
-        auto config = anet::rl::img_cls::ImageClsAgentConfig{};
-        config.bf16.enabled = true;
+        auto config = anet::rl::img_cls::ImageClsActorConfig{};
         anet::rl::img_cls::ImageClsActor actor(
             config,
             mutex,
             fixture.network,
-            anet::rl::RunMode::Eval,
+
             torch::Device(torch::kCPU));
 
         actor.MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid));
@@ -1389,18 +1388,8 @@ TEST_CASE("ImageClsAgent cloned actor stays isolated until Sync", "[image_cls][a
         123);
 
     const anet::rl::BatchEnvSpec batch_spec{ 2, 1 };
-    auto shared_actor = agent.CreateActor(
-        batch_spec,
-        env_spec,
-        anet::rl::RunMode::Eval,
-        std::nullopt,
-        torch::Device(torch::kCPU));
-    auto cloned_actor = agent.CreateActor(
-        batch_spec,
-        env_spec,
-        anet::rl::RunMode::Eval,
-        true,
-        torch::Device(torch::kCPU));
+    auto shared_actor = agent.CreateActor(anet::rl::ActorRequest{.batch_env_spec = batch_spec, .env_spec = env_spec, .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "eval"});
+    auto cloned_actor = agent.CreateActor(anet::rl::ActorRequest{.batch_env_spec = batch_spec, .env_spec = env_spec, .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "eval_clone"});
 
     const auto probe_grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);
     const auto initial_shared = ForwardImageClsActorProbs(shared_actor, probe_grid);
@@ -1433,10 +1422,10 @@ TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image
     auto network = MakeImageClsTraceTestNetwork();
     auto mutex = std::make_shared<std::shared_mutex>();
     anet::rl::img_cls::ImageClsActor actor(
-        anet::rl::img_cls::ImageClsAgentConfig{},
+        anet::rl::img_cls::ImageClsActorConfig{},
         mutex,
         network,
-        anet::rl::RunMode::Eval,
+
         torch::Device(torch::kCPU));
 
     auto grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 });

@@ -25,14 +25,12 @@ namespace LOG = anet::log;
 // ======================================================
 
 ImageClsActor::ImageClsActor(
-    const ImageClsAgentConfig& config,
+    const ImageClsActorConfig& config,
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
-    anet::rl::RunMode run_mode,
     torch::Device device,
     std::shared_ptr<anet::nn::Network> src_network)
     : config_(config)
-    , run_mode_(run_mode)
     , mutex_(mutex)
     , network_(network)
     , src_network_(src_network ? src_network : network)
@@ -63,7 +61,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     {
         anet::Autocast autocast_guard(
             device_,
-            config_.bf16.enabled && config_.bf16.actor,
+            config_.bf16,
             torch::kBFloat16);
         outputs = network_->Forward(obs, callback);
     }
@@ -713,36 +711,21 @@ void ImageClsAgent::LoadNetwork(const std::string& filename)
         << " learner_size=" << learner_size;
 }
 
-std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec,
-    const anet::rl::EnvSpec& env_spec,
-    anet::rl::RunMode run_mode,
-    std::optional<bool> clone_model_override,
-    std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(const ActorRequest& request) const
 {
-    env_spec_.CheckSameStateActionSpec(env_spec);
-    const bool clone_model = clone_model_override.value_or(false);
-
-    const auto actor_device = device.value_or(device_);
-    const bool same_shared_device = actor_device.type() == device_.type()
-        && (actor_device.type() != torch::kCUDA
-            || (actor_device.has_index() ? actor_device.index() : 0)
-                == (device_.has_index() ? device_.index() : 0));
-    ANET_CHECK_MSG(
-        clone_model || same_shared_device,
-        "ImageClsAgent shared Actor device mismatch: actor_device=" << actor_device.str()
-        << " agent_device=" << device_.str()
-        << ". Use clone_model_override=true or the Agent device.");
-    auto actor_network = network_;
-    if (clone_model) {
-        // Clone は source network の重みを読むため、Learner 更新と同じ mutex で保護する
+    ANET_PROFILE_FUNC();
+    env_spec_.CheckSameStateActionSpec(request.env_spec);
+    auto cfg = FindActorConfig(config_.actor, request.actor_key);
+    ValidateActorDevice(cfg.clone_model, request.device);
+    auto network = network_;
+    if (cfg.clone_model) {
         std::shared_lock lock(*mutex_);
-        actor_network = network_->Clone(actor_device);
-        actor_network->eval();
+        network = network_->Clone(request.device);
+        network->eval();
     }
-
-    // Actorの生成
-    return std::make_shared<ImageClsActor>(config_, mutex_, actor_network, run_mode, actor_device, network_);
+    // Agentのmaster switchとActor個別の精度指定を合成する。
+    cfg.bf16 = config_.bf16.enabled && cfg.bf16;
+    return std::make_shared<ImageClsActor>(cfg, mutex_, network, request.device, network_);
 }
 
 std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()

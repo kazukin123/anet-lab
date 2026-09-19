@@ -58,24 +58,18 @@ MuZeroAgent::MuZeroAgent(
         config_.buffer, batch_env_spec_.num_envs, env_spec_.action_spec.GetNumActions(), rb_seed);
 
     // メトリクス
-    latest_tau_ = std::make_shared<float>(config_.actor.temp_start);
+
 }
 
-std::shared_ptr<anet::rl::Actor> MuZeroAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec,
-    const anet::rl::EnvSpec& env_spec,
-    anet::rl::RunMode run_mode,
-    std::optional<bool> clone_model_override,
-    std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::Actor> MuZeroAgent::CreateActor(const ActorRequest& request) const
 {
-    env_spec_.CheckSameStateActionSpec(env_spec);
-    // RunMode毎の再現性のあるseedを取得
-    auto rnd = GetRandomGenerator(run_mode);
-    auto seed = rnd->RandUint64();
-
-    // Actorを生成
-    return std::make_shared<MuZeroActor>(
-        config_.actor, config_.mcts, mutex_, latest_tau_, model_, env_spec_.action_spec, run_mode, device_, seed);
+    ANET_PROFILE_FUNC();
+    env_spec_.CheckSameStateActionSpec(request.env_spec);
+    const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    if (cfg.clone_model) ANET_SYSTEM_ERROR("MuZeroActor clone_model=true is unsupported; expected false.");
+    ValidateActorDevice(false, request.device);
+    return std::make_shared<MuZeroActor>(cfg, config_.mcts, mutex_, model_,
+        request.env_spec.action_spec, request.device, request.seed);
 }
 
 std::shared_ptr<anet::rl::Learner> MuZeroAgent::CreateLearner()
@@ -86,9 +80,6 @@ std::shared_ptr<anet::rl::Learner> MuZeroAgent::CreateLearner()
 
 std::optional<float> MuZeroAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == "tau") {
-        return *latest_tau_;
-    }
 
     return std::nullopt;
 }

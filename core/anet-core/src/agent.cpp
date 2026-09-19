@@ -21,26 +21,21 @@ AgentBase::AgentBase(torch::Device device,
     , num_envs_(batch_env_spec.num_envs)
 {
     mutex_ = std::make_shared<std::shared_mutex>();
-
-    //  Actor(ActionContext)群のための専用ドメインシードを生成
-    anet::SeedMaker seed_maker(this->GetSeed());
-    action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
 }
 
-std::shared_ptr<anet::RandomGenerator> AgentBase::GetRandomGenerator(RunMode mode) const
+void AgentBase::ValidateActorDevice(bool clone_model, const torch::Device& actor_device) const
 {
-    std::lock_guard<std::mutex> lock(rng_mutex_);
-
-    auto it = run_mode_rngs_.find(mode);
-    if (it != run_mode_rngs_.end()) {
-        return it->second;
+    // 共有networkではdeviceを変換できないため、生成時に宣言違反を検出する。
+    const auto index = [](const torch::Device& device) {
+        return device.has_index() && device.index() >= 0 ? device.index() : 0;
+    };
+    const bool same = actor_device.type() == device_.type()
+        && (actor_device.type() != torch::kCUDA || index(actor_device) == index(device_));
+    if (!clone_model && !same) {
+        ANET_SYSTEM_ERROR("Shared Actor device mismatch: clone_model=false actor_device="
+            << actor_device.str() << " agent_device=" << device_.str()
+            << ". Expected the Agent device or clone_model=true in the Actor catalog.");
     }
-
-    // ActionContext専用シードからRandomGeneratorを作る
-    seed_t mode_base_seed = anet::splitmix64(action_context_seed_ ^ static_cast<uint64_t>(mode));
-    auto new_rng = std::make_shared<anet::RandomGenerator>(mode_base_seed);
-    run_mode_rngs_[mode] = new_rng;
-    return new_rng;
 }
 
 

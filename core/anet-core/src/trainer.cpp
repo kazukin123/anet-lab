@@ -14,45 +14,6 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
-static int16_t NormalizeSharedActorDeviceIndex(const torch::Device& device)
-{
-    if (device.type() != torch::kCUDA) {
-        return -1;
-    }
-    return (device.has_index() && device.index() >= 0) ? device.index() : 0;
-}
-
-static bool IsSameSharedActorDevice(const torch::Device& lhs, const torch::Device& rhs)
-{
-    if (lhs.type() != rhs.type()) {
-        return false;
-    }
-    if (lhs.type() == torch::kCUDA) {
-        return NormalizeSharedActorDeviceIndex(lhs) == NormalizeSharedActorDeviceIndex(rhs);
-    }
-    return true;
-}
-
-static void ValidateSharedActorDevice(
-    const std::string& runner_name,
-    std::optional<bool> clone_model_override,
-    const torch::Device& actor_device,
-    const torch::Device& agent_device)
-{
-    if (!clone_model_override.has_value() || *clone_model_override) {
-        return;
-    }
-
-    // shared actor は学習側 network を直接使うため、入力 device と network device を一致させる
-    ANET_CHECK_MSG(IsSameSharedActorDevice(actor_device, agent_device),
-        "RunnerBase actor device mismatch: runner_name=" << runner_name
-        << " clone_model=false"
-        << " actor_device=" << actor_device.str()
-        << " agent_device=" << agent_device.str()
-        << ". Set train.eval_device_type to the agent device, or set train.eval.["
-        << runner_name << "].clone_model=true.");
-}
-
 static std::string SanitizeEnvConfigFilename(std::string filename)
 {
     // MetricsLogger と同じ置換規則で、書き込み前に異なる Env 名の衝突を検出する。
@@ -75,23 +36,22 @@ static std::string SanitizeEnvConfigFilename(std::string filename)
 // ======================================================
 
 RunnerBase::RunnerBase(
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode run_mode, std::optional<bool> clone_model_override, std::optional<torch::Device> device, std::string name)
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request, std::string name)
     : name_(std::move(name))
     , env_(env)
     , agent_(agent)
     , notifier_(notifier)
-    , run_mode_(run_mode)
     , reward_ema_(0.001)
 {
     InitializeMetrics();
     status_ = anet::rl::RunnerStatus::RUNNING;
-    auto batch_env_spec = env_->GetBatchSpec();
-    auto env_spec = env_->GetSpec();
-    const auto agent_device = agent_->GetDevice();
-    const auto actor_device = device.value_or(agent_device);
-    ValidateSharedActorDevice(name_, clone_model_override, actor_device, agent_device);
-    actor_ = agent_->CreateActor(
-        batch_env_spec, env_spec, run_mode_, clone_model_override, actor_device);
+    // 参照元のRunner名を付け、カタログ診断を利用者の設定へ結び付ける。
+    try {
+        actor_ = agent_->CreateActor(request);
+    } catch (const std::exception& error) {
+        ANET_SYSTEM_ERROR("Actor creation failed for Runner '" << name_ << "', actor_key='"
+            << request.actor_key << "': " << error.what());
+    }
 }
 
 void RunnerBase::InitializeMetrics()
@@ -239,11 +199,9 @@ EvalRunner::EvalRunner(
     std::shared_ptr<anet::rl::BatchEnv> env,
     std::shared_ptr<anet::rl::Agent> agent,
     std::shared_ptr<anet::rl::Notifier> notifier,
-    RunMode run_mode,
-    bool clone_model,
-    std::optional<torch::Device> device,
+    const ActorRequest& request,
     std::string name)
-    : RunnerBase(env, agent, notifier, run_mode, clone_model, device, std::move(name))
+    : RunnerBase(env, agent, notifier, request, std::move(name))
 {
 }
 
@@ -251,18 +209,18 @@ EvalRunner::EvalRunner(
     std::shared_ptr<anet::rl::EvalSessionEnv> env,
     std::shared_ptr<anet::rl::Agent> agent,
     std::shared_ptr<anet::rl::Notifier> notifier,
-    RunMode run_mode,
-    bool clone_model,
-    std::optional<torch::Device> device,
+    const ActorRequest& request,
     std::string name)
-    : RunnerBase(env, agent, notifier, run_mode, clone_model, device, std::move(name))
+    : RunnerBase(env, agent, notifier, request, std::move(name))
     , session_env_(std::move(env))
 {
 }
 
-void EvalRunner::Sync()
+void EvalRunner::Sync(const StepCounts& source_counts)
 {
+    // 同期したnetworkと方策時計を同じセッションの学習座標に固定する。
     actor_->Sync();
+    source_counts_ = source_counts;
 }
 
 StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
@@ -290,7 +248,7 @@ StepCounts EvalRunner::DoStepInternal(
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
 
     // 行動選択
-    auto action_info_raw = actor_->MakeAction(step_counts_, state_);
+    auto action_info_raw = actor_->MakeAction(source_counts_, state_);
     ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw->ToString());
 
     // action_infoを生成
@@ -365,7 +323,7 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
     LOG::info() << "eval.[" << name_ << "]: session start learn_step="
         << event_counts.learn_step << " exp_step=" << event_counts.exp_step;
 
-    Sync();
+    Sync(event_counts);
     const auto reset_result = session_env_->Reset();
     ValidateEpisodeStructure(env_->GetName(), env_->GetBatchSpec(), *reset_result);
     state_ = reset_result->state;
@@ -413,8 +371,8 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
 
 TrainRunner::TrainRunner(
     //const ConfigData& config_data,
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
-    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train, std::nullopt, std::nullopt, "train")
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request)
+    : RunnerBase(env, agent, notifier, request, "train")
 {
     this->learner_ = agent_->CreateLearner();
 }
@@ -480,8 +438,8 @@ void TrainRunner::CalcPerformanceMetrics()
 // ------------------------------------------------------
 
 SerialTrainRunner::SerialTrainRunner(
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
-    : TrainRunner(env, agent, notifier)
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request)
+    : TrainRunner(env, agent, notifier, request)
 {
     ;
 }
@@ -608,8 +566,8 @@ StepCounts SerialTrainRunner::DoStep()
 // ------------------------------------------------------
 
 PipelineTrainRunner::PipelineTrainRunner(
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
-    : TrainRunner(env, agent, notifier)
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request)
+    : TrainRunner(env, agent, notifier, request)
 {
     // 専用の学習用バックグラウンドスレッドを1つだけ生成
     learn_pool_ = std::make_unique<anet::PinnedThreadPool>(1, "LearnThread");
@@ -739,12 +697,12 @@ StepCounts PipelineTrainRunner::DoStep()
 // ------------------------------------------------------
 std::shared_ptr<TrainRunner> RunnerFactory::CreateMainRunner(
     const std::string& type, std::shared_ptr<anet::rl::BatchEnv> env,
-    std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
+    std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request)
 {
     if (anet::ToLower(type) == "pipeline") {
-        return std::make_shared<PipelineTrainRunner>(env, agent, notifier);
+        return std::make_shared<PipelineTrainRunner>(env, agent, notifier, request);
     } else {
-        return std::make_shared<SerialTrainRunner>(env, agent, notifier);
+        return std::make_shared<SerialTrainRunner>(env, agent, notifier, request);
     }
 }
 
@@ -758,16 +716,18 @@ struct RunManager::Config : public anet::Config
     uint64_t seed = 0;
     int num_envs = 1;
     std::string main_runner_type = "serial";
+    std::string actor = "train";
 
     std::string eval_device_type = "cpu";
     int eval_device_index = 0;
 
-    Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train") /// @todo config_prefixをrunに変更
+    Config(const anet::ConfigData& config_data, const std::string& config_prefix = "run")
         : anet::Config(config_data, config_prefix)
     {
         ANET_READ_CONFIG(config_data, seed);
-        ANET_READ_CONFIG(config_data, num_envs);
-        ANET_READ_CONFIG(config_data, main_runner_type);
+        ReadConfig(config_data, "train.num_envs", num_envs);
+        ReadConfig(config_data, "train.runner_type", main_runner_type);
+        ReadConfig(config_data, "train.actor", actor);
         ANET_READ_CONFIG(config_data, eval_device_type);
         ANET_READ_CONFIG(config_data, eval_device_index);
     }
@@ -784,11 +744,11 @@ struct RunManager::Config : public anet::Config
 RunManager::RunManager(const ConfigData& config_data)
 {
     // Config
-    config_ = std::make_unique<Config>(config_data);    ///< @todo config_prefixをtrainからrunに変更？
+    config_ = std::make_unique<Config>(config_data);
 
     // BatchEnvを1つも構築する前に、設定から決まるnameを一括検証する。
-    auto eval_configs = config_data.MakeSubConfigData("train.eval");
-    auto eval_schedule_configs = config_data.MakeSubConfigData("train.eval_schedule");
+    auto eval_configs = config_data.MakeSubConfigData("run.eval");
+    auto eval_schedule_configs = config_data.MakeSubConfigData("run.eval_schedule");
     struct EvalScheduleConfig {
         int interval;
         bool use_background;
@@ -816,17 +776,17 @@ RunManager::RunManager(const ConfigData& config_data)
     }
     for (const auto& [tag, schedule_config] : eval_schedule_configs) {
         if (!eval_configs.contains(tag)) {
-            ANET_SYSTEM_ERROR("Unknown train.eval_schedule tag '" << tag
-                << "'. Define train.eval.[" << tag << "] before scheduling it.");
+            ANET_SYSTEM_ERROR("Unknown run.eval_schedule tag '" << tag
+                << "'. Define run.eval.[" << tag << "] before scheduling it.");
         }
         if (!schedule_config.Has("interval")) {
-            ANET_SYSTEM_ERROR("Missing required train.eval_schedule.[" << tag
+            ANET_SYSTEM_ERROR("Missing required run.eval_schedule.[" << tag
                 << "].interval. Expected a non-negative integer (0 disables the schedule).");
         }
         int interval = 0;
         schedule_config.Read("interval", interval, interval);
         if (interval < 0) {
-            ANET_SYSTEM_ERROR("Invalid train.eval_schedule.[" << tag << "].interval=" << interval
+            ANET_SYSTEM_ERROR("Invalid run.eval_schedule.[" << tag << "].interval=" << interval
                 << ". Expected a non-negative value.");
         }
         bool use_background = true;
@@ -898,7 +858,9 @@ RunManager::RunManager(const ConfigData& config_data)
     }
 
     // TrainRunner生成
-    train_runner_ = anet::rl::RunnerFactory::CreateMainRunner(config_->main_runner_type, env_, agent_, notifier_);
+    const ActorRequest train_request{.batch_env_spec = batch_env_spec, .env_spec = env_spec,
+        .device = agent_device, .seed = master_seed_->GetGroupSeed("actor/train"), .actor_key = config_->actor};
+    train_runner_ = anet::rl::RunnerFactory::CreateMainRunner(config_->main_runner_type, env_, agent_, notifier_, train_request);
     RegisterEnvName("train", "main Train");
 
     // 設定からObserverを生成して登録
@@ -911,34 +873,34 @@ RunManager::RunManager(const ConfigData& config_data)
         // Eval設定取得
         const auto& tag = kv.first;
         const auto& eval_config_data = kv.second;
-        std::string config_prefix = "train.eval.[" + tag + "].env";
+        std::string config_prefix = "run.eval.[" + tag + "].env";
 
         // Eval設定ログ
         anet::MetricsLogger::Instance()->Log(config_prefix, eval_config_data.ToJson());
 
         // RunMode取得
-        std::string run_mode_str = "eval1";
+        std::string run_mode_str = "eval";
         eval_config_data.Read("run_mode", run_mode_str, run_mode_str);
         anet::rl::RunMode run_mode = anet::rl::RunModeFromString(run_mode_str);
         configured_eval_run_modes_.emplace(tag, run_mode);
+        std::string actor_key = tag;
+        eval_config_data.Read("actor", actor_key, actor_key);
+        configured_actor_keys_.emplace(tag, actor_key);
 
         int eval_batch_size = 1;
         eval_config_data.Read("eval_batch_size", eval_batch_size, eval_batch_size);
         if (eval_batch_size <= 0) {
-            ANET_SYSTEM_ERROR("Invalid train.eval.[" << tag << "].eval_batch_size="
+            ANET_SYSTEM_ERROR("Invalid run.eval.[" << tag << "].eval_batch_size="
                 << eval_batch_size << ". Expected a positive value.");
         }
 
         int eval_episodes = 1;
         eval_config_data.Read("eval_episodes", eval_episodes, eval_episodes);
         if (eval_episodes <= 0) {
-            ANET_SYSTEM_ERROR("Invalid train.eval.[" << tag << "].eval_episodes="
+            ANET_SYSTEM_ERROR("Invalid run.eval.[" << tag << "].eval_episodes="
                 << eval_episodes << ". Expected a positive value.");
         }
 
-        // Eval actor の network clone 有無を選ぶ (デフォルト true)
-        bool clone_model = true;
-        eval_config_data.Read("clone_model", clone_model, clone_model);
 
         // definition-only tagも宣言時schemaだけは検証し、Env/manifest/actorは生成しない。
         env_factory_->ValidateConfig(run_mode, config_prefix);
@@ -1004,8 +966,9 @@ RunManager::RunManager(const ConfigData& config_data)
         auto session_env = std::make_shared<EvalSessionEnv>(
             eval_env, eval_episodes, std::move(subscribed_env_keys));
         LogEnvConfig(*session_env);
-        auto eval_runner = std::make_shared<EvalRunner>(
-            session_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
+        const ActorRequest request{.batch_env_spec = session_env->GetBatchSpec(), .env_spec = session_env->GetSpec(),
+            .device = actor_device, .seed = master_seed_->GetGroupSeed(("actor/" + tag).c_str()), .actor_key = actor_key};
+        auto eval_runner = std::make_shared<EvalRunner>(session_env, agent_, notifier_, request, tag);
         eval_runners.emplace(tag, eval_runner);
         eval_episode_counts.emplace(tag, eval_episodes);
         RegisterEnvName(tag, owner);
@@ -1026,8 +989,8 @@ RunManager::RunManager(const ConfigData& config_data)
             if (dormant_eval_tags_.contains(eval_name)) {
                 if (warned_dormant_metric_tags_.insert(eval_name).second) {
                     LOG::warn() << "Skipping metrics for unscheduled eval tag. tag='" << eval_name
-                        << "'. The tag is defined in train.eval but has no active "
-                        << "train.eval_schedule entry.";
+                        << "'. The tag is defined in run.eval but has no active "
+                        << "run.eval_schedule entry.";
                 }
                 return nullptr;
             }
@@ -1157,32 +1120,26 @@ void RunManager::LogEnvConfig(const BatchEnv& env)
 }
 
 std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(
-    const std::string& name, RunMode run_mode, bool clone_model,
-    std::optional<torch::Device> device, const std::string& config_tag)
+    const std::string& name, const std::string& config_tag)
 {
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
-
     const auto owner = "CreateEvalRunner '" + name + "'";
     EnsureEnvNameAvailable(name, owner);
     const auto selected_tag = config_tag.empty() ? name : config_tag;
-    if (!config_tag.empty()) {
-        const auto mode_it = configured_eval_run_modes_.find(config_tag);
-        if (mode_it == configured_eval_run_modes_.end()) {
-            ANET_SYSTEM_ERROR("Unknown Eval config tag='" << config_tag << "'.");
-        }
-        run_mode = mode_it->second;
+    const auto it = configured_eval_run_modes_.find(selected_tag);
+    if (it == configured_eval_run_modes_.end()) {
+        ANET_SYSTEM_ERROR("Unknown Eval config tag='" << selected_tag << "'. Expected a declared run.eval.[tag].");
     }
-    const auto eval_seed_domain = "eval_panel/" + selected_tag;
-    const auto eval_seed = master_seed_->GetGroupSeed(eval_seed_domain.c_str());
-    const auto config_prefix = config_tag.empty()
-        ? std::string() : "train.eval.[" + config_tag + "].env";
-    auto env = env_factory_->CreateBatchEnv(
-        name, eval_seed, 1, run_mode, config_prefix);
+    const auto seed = master_seed_->GetGroupSeed(("eval_panel/" + selected_tag).c_str());
+    auto env = env_factory_->CreateBatchEnv(name, seed, 1, it->second, "run.eval.[" + selected_tag + "].env");
     LogEnvConfig(*env);
-    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device, name);
-    this->eval_runners.emplace(name, eval_runner);
+    const ActorRequest request{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = config_->GetEvalDevice(), .seed = master_seed_->GetGroupSeed(("actor/" + name).c_str()),
+        .actor_key = configured_actor_keys_.at(selected_tag)};
+    auto runner = std::make_shared<EvalRunner>(env, agent_, notifier_, request, name);
+    eval_runners.emplace(name, runner);
     RegisterEnvName(name, owner);
-    return eval_runner;
+    return runner;
 }
 
 // ======================================================

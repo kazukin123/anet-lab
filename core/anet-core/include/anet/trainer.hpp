@@ -23,9 +23,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
-            RunMode run_mode,
-            std::optional<bool> clone_model_override,
-            std::optional<torch::Device> device,
+            const ActorRequest& request,
             std::string name);
 
         virtual StepCounts DoStep() = 0;
@@ -45,6 +43,7 @@ namespace anet::rl {
         const std::string& GetName() const override { return name_; }
         std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv() const override { return env_; }
         std::shared_ptr<anet::rl::Agent> GetAgent() const override { return agent_; }
+        std::shared_ptr<Actor> GetActor() const override { return actor_; }
         std::shared_ptr<anet::rl::Notifier> GetNotifier() const override { return notifier_; }
     protected:
         void InitializeMetrics();
@@ -68,7 +67,6 @@ namespace anet::rl {
         std::shared_ptr<anet::rl::Notifier> notifier_;
         anet::rl::BatchState state_;
         std::shared_ptr<Actor> actor_ = nullptr;
-        RunMode run_mode_;
 
         // メトリクス
         //std::chrono::high_resolution_clock::time_point start_time_;
@@ -92,20 +90,16 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
-            RunMode run_mode = RunMode::Eval,
-            bool clone_model = false,
-            std::optional<torch::Device> device = std::nullopt,
+            const ActorRequest& request,
             std::string name = "eval");
         EvalRunner(
             std::shared_ptr<anet::rl::EvalSessionEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
-            RunMode run_mode = RunMode::Eval,
-            bool clone_model = false,
-            std::optional<torch::Device> device = std::nullopt,
+            const ActorRequest& request,
             std::string name = "eval");
 
-        void Sync();
+        void Sync(const StepCounts& source_counts);
         void Shutdown() override { }
 
         //RunnerStatus Initialize(const ConfigData& config_data);
@@ -119,6 +113,7 @@ namespace anet::rl {
         StepCounts DoStepInternal(
             int64_t action, const StepCounts& event_counts, bool notify_episode_end);
         std::shared_ptr<EvalSessionEnv> session_env_;
+        StepCounts source_counts_;
     };
 
 
@@ -131,7 +126,7 @@ namespace anet::rl {
         TrainRunner(
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
-            std::shared_ptr<anet::rl::Notifier> notifier);
+            std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
 
         virtual StepCounts DoStep() override = 0;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -174,7 +169,7 @@ namespace anet::rl {
         SerialTrainRunner(
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
-            std::shared_ptr<anet::rl::Notifier> notifier);
+            std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
 
         StepCounts DoStep() override;
     };
@@ -188,7 +183,7 @@ namespace anet::rl {
         PipelineTrainRunner(
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
-            std::shared_ptr<anet::rl::Notifier> notifier);
+            std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
 
         StepCounts DoStep() override;
         void Shutdown() override;
@@ -214,7 +209,7 @@ namespace anet::rl {
             const std::string& type,
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
-            std::shared_ptr<anet::rl::Notifier> notifier);
+            std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
     };
 
 
@@ -230,9 +225,6 @@ namespace anet::rl {
 
         std::shared_ptr<EvalRunner> CreateEvalRunner(
             const std::string& name,
-            RunMode runmode = RunMode::Eval,
-            bool clone_model = false,
-            std::optional<torch::Device> device = std::nullopt,
             const std::string& config_tag = "");
 
         // アクセサ
@@ -263,6 +255,7 @@ namespace anet::rl {
         std::unordered_set<std::string> dormant_eval_tags_;
         std::unordered_set<std::string> warned_dormant_metric_tags_;
         std::unordered_map<std::string, RunMode> configured_eval_run_modes_;
+        std::unordered_map<std::string, std::string> configured_actor_keys_;
         std::unordered_set<std::string> warned_unsupported_env_config_names_;
         std::unordered_map<std::string, std::string> env_config_file_owners_;
 

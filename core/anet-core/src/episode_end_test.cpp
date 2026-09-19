@@ -296,13 +296,9 @@ public:
     {
     }
 
-    std::shared_ptr<rl::Actor> CreateActor(
-        const rl::BatchEnvSpec& batch_env_spec,
-        const rl::EnvSpec&,
-        rl::RunMode,
-        std::optional<bool> = std::nullopt,
-        std::optional<torch::Device> = std::nullopt) const override
+    std::shared_ptr<rl::Actor> CreateActor(const rl::ActorRequest& request) const override
     {
+        const auto& batch_env_spec = request.batch_env_spec;
         return std::make_shared<TestActor>(batch_env_spec.num_envs, use_action_info_scalar_, action_info_score_);
     }
 
@@ -334,7 +330,7 @@ public:
         std::shared_ptr<rl::Agent> agent,
         std::shared_ptr<rl::Notifier> notifier,
         std::string name = "test")
-        : rl::RunnerBase(env, agent, notifier, rl::RunMode::Train, false, std::nullopt, std::move(name))
+        : rl::RunnerBase(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "train"}, std::move(name))
     {
     }
 
@@ -477,14 +473,7 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, true, 12.5f);
     auto env = std::make_shared<TestBatchEnv>("episode-end-single", 1);
-    auto runner = std::make_shared<rl::EvalRunner>(
-        env,
-        agent,
-        notifier,
-        rl::RunMode::Eval,
-        false,
-        std::nullopt,
-        "eval1");
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     notifier->Attach(std::make_shared<rl::MetricsLogTrainObserver>(
         "action_info_score",
         "action_info_score",
@@ -512,8 +501,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
     auto agent = std::make_shared<TestAgent>();
     auto inner = std::make_shared<SessionRunnerEnv>();
     auto env = std::make_shared<rl::EvalSessionEnv>(inner, 3, std::vector<std::string>{ "mean.score" });
-    auto runner = std::make_shared<rl::EvalRunner>(
-        env, agent, notifier, rl::RunMode::Eval, false, std::nullopt, "eval1");
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     auto observer = std::make_shared<CountingEpisodeEndObserver>();
     notifier->Attach(observer);
 
@@ -637,8 +625,7 @@ TEST_CASE("Trace DSL records adopted episode values in JSONL before the next Ste
     auto agent = std::make_shared<TestAgent>();
     auto env = std::make_shared<rl::EvalSessionEnv>(
         std::make_shared<SessionRunnerEnv>(shared), 3, std::vector<std::string>{ "mean.score" });
-    auto runner = std::make_shared<rl::EvalRunner>(
-        env, agent, notifier, rl::RunMode::Eval, false, std::nullopt, "eval1");
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     notifier->AttachScoped(observers[0].obs, runner);
     notifier->AttachScoped(factory.GetSessionEndObservers()[0].obs, runner);
     rl::StepCounts counts;
@@ -684,8 +671,7 @@ TEST_CASE("Background trace observer failure reaches the next learn callback", "
     auto agent = std::make_shared<TestAgent>();
     auto env = std::make_shared<rl::EvalSessionEnv>(
         std::make_shared<SessionRunnerEnv>(), 1, std::vector<std::string>{});
-    auto runner = std::make_shared<rl::EvalRunner>(
-        env, agent, notifier, rl::RunMode::Eval, false, std::nullopt, "eval1");
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     anet::ConfigData config;
     config.Set("metrics.trace.[broken]", "$eval.[eval1] @episode_end $env unknown_score");
     rl::ObserverFactory factory(config);

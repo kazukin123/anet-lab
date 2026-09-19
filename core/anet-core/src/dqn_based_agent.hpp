@@ -159,7 +159,6 @@ namespace anet::rl::dqn {
 
     /// ランタイム変数
     struct anet::rl::dqn::RuntimeVars {
-        float epsilon = 1.0f;   // 互換性のために残す
         float uqe_tau = 0.9f;   // 互換性のために残す
         anet::rl::step_t learn_step = 0;
         float per_beta = 0.0f;  ///< PER用beta
@@ -755,7 +754,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceCallback& callback = {},
             const DiagnosticActionEvaluation* evaluation = nullptr) const = 0;
-        virtual void OnLearn(const StepCounts& counts) { }
+        virtual void UpdateSchedule(const StepCounts& counts) { }
         virtual std::optional<RiskScoreSpec> GetRiskScoreSpec() const { return std::nullopt; }
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -798,7 +797,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
-        void OnLearn(const StepCounts& counts) override;
+        void UpdateSchedule(const StepCounts& counts) override;
     };
 
     /**
@@ -820,7 +819,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
-        void OnLearn(const StepCounts& counts) override;
+        void UpdateSchedule(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
         std::optional<RiskScoreSpec> GetRiskScoreSpec() const override
@@ -849,7 +848,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
-        void OnLearn(const StepCounts& counts) override;
+        void UpdateSchedule(const StepCounts& counts) override;
     };
 
 
@@ -877,6 +876,8 @@ namespace anet::rl::dqn {
             ActorQHintConfig actor_q_hint_config = {});
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
+        { return policy_->GetScalar(key, index); }
     private:
         void CopySourceNetwork() const;
         void UpdateSnapshot(const StepCounts& step) const;

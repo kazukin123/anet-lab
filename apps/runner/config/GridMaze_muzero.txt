@@ -6,13 +6,13 @@
 app.$ = app.online > P1
 #app.$ = app.batchrun > P1
 
-train.seed = 1
+run.seed = 1
 
-#train.num_envs = 256
-#train.num_envs = 128
-#train.num_envs = 10
-train.num_envs = 4
-#train.num_envs = 1
+#run.train.num_envs = 256
+#run.train.num_envs = 128
+#run.train.num_envs = 10
+run.train.num_envs = 4
+#run.train.num_envs = 1
 
 #GridMazeEnv.$ = GridMazeEnv.baseline
 
@@ -50,7 +50,7 @@ A1.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
 app.online.exp_pause_step  = 40,000     # 40K
 app.batchrun.exp_exit_step = 40,000     # 40K
 
-A1.actor.temp_decay_steps   =  20,000    # 20K Exp Step
+A1.actor.[train].temp_decay_steps   =  20,000    # 20K Exp Step
 
 
 # ==============================================================================
@@ -151,10 +151,10 @@ metrics.graph.[01_mcts] = $action mcts_tree episode_interval:50
 
 metrics.scalar.muzero.[20_eps/10_train_reward]     = $runner $episode_step max.episode_return @train
 metrics.scalar.muzero.[20_eps/11_train_reward_ema] = $runner $episode_step max.episode_return @train $ema ema_alpha:0.05 # clip:1000
-metrics.scalar.muzero.[21_eval/02_policy_reward] = mean.episode_return $runner @session_end $eval.[eval2]
-metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval2] $ema ema_alpha:0.05 #clip:3000
+metrics.scalar.muzero.[21_eval/02_policy_reward] = mean.episode_return $runner @session_end $eval.[eval]
+metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval] $ema ema_alpha:0.05 #clip:3000
 
-metrics.scalar.muzero.[32_agent_base/06_tau] = $agent tau @train $exp_step
+metrics.scalar.muzero.[32_agent_base/06_tau] = $actor tau @train $exp_step
 
 metrics.scalar.muzero.[38_agent_loss/10_total] = loss.total @learn
 metrics.scalar.muzero.[38_agent_loss/11_value] = loss.value @learn
@@ -244,15 +244,17 @@ GridMazeEnv.max_steps ?= 100
 # Eval設定
 # ==============================================================================
 
-train.eval_schedule.[eval1].interval = 0
+# MuZero は clone 非対応で Agent が CPU のため eval も CPU にする。
+run.eval_device_type = cpu
+run.eval_schedule.[eval_target].interval = 0
 
-#train.eval_schedule.[eval2].interval = 0
-train.eval_schedule.[eval2].interval = 5
-#train.eval_schedule.[eval2].interval = 10
-#train.eval_schedule.[eval2].interval = 50
+#run.eval_schedule.[eval].interval = 0
+run.eval_schedule.[eval].interval = 5
+#run.eval_schedule.[eval].interval = 10
+#run.eval_schedule.[eval].interval = 50
 
 #GridMazeEnv.test1.max_step = 1000
-#train.eval_schedule.[test1].interval = 5000
-#train.eval.[test1].run_mode = eval1
-#train.eval.[test1].env.$ = > GridMazeEnv.test1 > E1
+#run.eval_schedule.[test1].interval = 5000
+#run.eval.[test1].run_mode = eval
+#run.eval.[test1].env.$ = > GridMazeEnv.test1 > E1
 

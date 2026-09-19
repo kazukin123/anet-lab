@@ -131,7 +131,7 @@ virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 
 ```
 
 - `run_mode` / `clone_model_override` / `device` の引数は廃止する。Agent 実装は RunMode を参照しない(`IsForTarget`、`IsEval` 分岐、`GetRandomGenerator(RunMode)`、`ActionContext(RunMode)` を削除)
-- `Actor` は `Module` を実装する(`GetScalar` / `GetTensor` / `GetTensorVector` / `GetConfigData`)。`Runner::GetActor()` を追加する
+- `Actor` は `Module` を実装する(`GetScalar` / `GetTensor` / `GetTensorVector`)。Actor の実効設定は Agent dump の `actor.[key].*` で確認する。`Runner::GetActor()` を追加する
 - RunMode の enum、`RunModeFromString`、Env 側の利用は本 PRD では変えない(Eval1 / Eval2 は Env 用途にだけ残り、P3 で再考する)
 
 ### 5.3 Actor 設定カタログと参照規則
@@ -246,7 +246,7 @@ P0 / P1 は単独で成立し、P2 で止めても P3 無しで一貫した状�
 - NN 入力 spec: `taus` の shape を `config_.learner.iqn.current_taus.num_taus` から作る(`default_dqn_agent.cpp:165-173` の置き換え)。`Network::Clone` は同じ spec で再 build するので Actor の K には依存しない。`net.structure` / `net.detail` に出る `taus` shape が N になる
 - `use_optimistic_target=true`: `target_policy` の既定を `actor.[train].policy` からコピーする(eps / uqe_eps の 0 強制、EpsilonGreedy → Greedy、`tau_rule = {fixed, 32}`・`full_distribution_query` 既定化、`target_policy.*` の明示上書き、の順序は現行どおり)。`[train]` 未定義なら `ANET_SYSTEM_ERROR`(`use_optimistic_target` と `actor.[train]` の両キーをメッセージに含める)。コピー元の `policy.policy_type` が UQE / ThompsonSampling 以外なら、コピー直後に `LOG::warn` で 1 回警告する(§5.4。英語。fail-fast にはしない)
 - `CreateActor(request)`: カタログ lookup(未定義は一覧付き fail-fast)→ `CreateActionPolicy(cfg.policy, cfg.policy.use_spatial_exploration, request.batch_env_spec.num_envs, request.device)`(const 化)→ `network` で online / target を選択 → `clone_model` なら Clone → `DefaultActionContext / StackerActionContext(request.seed, device)` → Actor 生成。Q ヒントは §5.6、定期 snapshot は `clone_model && sync_interval.has_value()`
-- `dqn::Actor`: `policy_` を専有し、`MakeAction` 冒頭で `policy_->UpdateSchedule(step)`。`GetScalar("epsilon" / "uqe_tau")` を policy へ委譲、`GetConfigData()` で実効 Actor 設定を返す
+- `dqn::Actor`: `policy_` を専有し、`MakeAction` 冒頭で `policy_->UpdateSchedule(step)`。`GetScalar("epsilon" / "uqe_tau")` を policy へ委譲、実効 Actor 設定は Agent dump の `actor.[key].*` に既定補完後の値として記録する
 - `IsForTarget`、`train_policy_` / `eval_policy_`、`GetScalar` の `train_policy.` / `eval_policy.` / bare `epsilon` / `uqe_tau` 経路を削除。`UpdateFromBatch` は `target_policy_->UpdateSchedule(counts)` だけ残す
 
 ### 7.4 P2: 他 Agent

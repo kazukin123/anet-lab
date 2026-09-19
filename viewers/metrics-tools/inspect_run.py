@@ -2706,7 +2706,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "examples:\n"
             "  inspect_run.py config run_a --config-key 'agent.*'\n"
-            "  inspect_run.py config run_a --config-key 'train.eval.[eval1].run_mode'\n"
+            "  inspect_run.py config run_a --config-key 'run.eval.[eval_target].run_mode'\n"
             "  inspect_run.py config run_a run_b --diff\n"
             "  inspect_run.py config run_a --config-key '*tau*' --effective-only"
         ),

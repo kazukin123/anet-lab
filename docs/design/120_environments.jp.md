@@ -55,7 +55,7 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 
 ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。trainは`PER_LANE`、evalは`SHARED`であり、eval window終端時は全laneの`done`と`continue_state.episode_start`を立てて`n_episode_end=1`を返す。
 
-ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`train.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
+ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`run.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
 
 ### 2.4 Env name
 
@@ -207,7 +207,7 @@ episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRu
 | `env.worker_threads` | thread-poolのworker数。負値は定義済みの自動解決方式 |
 | `env.device_type` | Envが使用するCPU/CUDA device種別 |
 | `env.device_index` | CUDA device index。負値はcurrent device |
-| `train.num_envs` | 主Train Envのbatch size |
+| `run.train.num_envs` | 主Train Envのbatch size |
 
 Env固有設定は各factoryが同じConfigDataから読み取る。未知のclass ID、不正なworker設定、矛盾したspecは暗黙に補正せず失敗させる。
 

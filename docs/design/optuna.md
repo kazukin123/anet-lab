@@ -27,7 +27,7 @@ DropMerge domain v1 は `Flatten` 固定、探索対象は NN 構成のみ。
 
 - study: Optuna が管理する探索単位。`study_name`、storage、trial 履歴を持つ。
 - trial: study 内の 1 params 候補。`run-study` では Optuna が params を suggest し、`run-trial` では CLI 固定 params を使う。どちらも multi-seed aggregate を trial value にする。
-- seed run: 1 seed 分の runner 実行出力。`train.seed` だけを seed ごとに変える。
+- seed run: 1 seed 分の runner 実行出力。`run.seed` だけを seed ごとに変える。
 - run: runner の 1 実行出力。multi-seed trial では 1 trial が複数 seed run を持つ。
 - multiseed summary: Optuna objective。seed run の score を集約した JSON/CSV。
 - trial artifact: harness が残す再現用ファイル。config、manifest、stdout/stderr、summary など。
@@ -176,7 +176,7 @@ runner は起動しない。
 - `--trial-number`: 明示した番号を `trial_number` に使う。未指定時は自動採番または `--trial-name tNNNNN` から復元する。
 - `--budget`: `small` / `medium` の `cost_budget` preset。
 - `--cost-budget`: preset を使わず直接 `cost_budget` を指定する。
-- `--seed`: `train.seed` に使う seed。
+- `--seed`: `run.seed` に使う seed。
 - `--cnn-channels`, `--res-blocks`, `--token-mode`, `--d-model`, `--transformer-layers`, `--ff-mult`, `--trunk-width`, `--head-width`: 固定 NN params。
 
 ### `run-trial`
@@ -194,7 +194,7 @@ CLI で固定指定した NN params を 1 Optuna trial として multi-seed 実�
 
 - `--runner-exe`: `AnetRLRunner.exe` の path。相対 path は repo root 基準。既定は `apps/runner/bin/Release/AnetRLRunner.exe`。
 - `--timeout-sec`: runner 1 trial の timeout 秒。`0` は timeout なし。
-- `--seeds`: 同一 params を評価する `train.seed` の comma-separated list。既定は `12345`。
+- `--seeds`: 同一 params を評価する `run.seed` の comma-separated list。既定は `12345`。
 - `--score-aggregate`: seed 別 score を trial value に集約する方法。
 - `--storage`, `--storage-timeout-sec`, `--optuna-artifact-dir`: DB 登録と Dashboard artifact 用の設定。
 - `--window-start`, `--window-end`: primary score を集計する `exp_step` window。絶対 step、負数相対 step、`80%` のような `exp_exit_step` 比率を指定できる。既定は `80%` から `100%`。
@@ -232,7 +232,7 @@ grid mode は同一 params の duplicate PRUNED を作らないが、`cost_tf > 
 - `--sampler-seed`: TPE sampler の乱数 seed。grid では combo 列挙順の shuffle seed。未指定時は TPE は Optuna 既定、grid は通常順。
 - `--n-startup-trials`: TPE に切り替える前に random sampling する完了 trial 数。既定は `10`。
 - `--constant-liar`: `TPESampler` の `constant_liar` を有効にする。RUNNING trial 近傍の再提案を避ける補助策であり、完了済み duplicate の完全禁止ではない。
-- `--seeds`: 同一 params を評価する `train.seed` の comma-separated list。既定は `12345`。
+- `--seeds`: 同一 params を評価する `run.seed` の comma-separated list。既定は `12345`。
 - `--score-aggregate`: seed 別 score を trial value に集約する方法。`mean` / `median` / `mean-minus-std` / `min`。既定は `mean`。
 - `--duplicate-params-policy`: 同一 NN params が再提案されたときの扱い。`allow` / `prune` / `reseed`。既定は `reseed`。
 - `--duplicate-params-max-runs`: 同一 NN params を実行する最大回数。既定は `3`。`0` は制限なし。
@@ -764,7 +764,7 @@ generated config は次の順で構成する。
 1. `$include <_main.txt>` または `--base-config`。
 2. 選択 workspace の `config/_main.txt`。
 3. `$include <DropMerge_optuna.txt>` または `--extra-config`。
-4. trial 固有 override。`app.run_name`、`app.runs_dir`、`app.batchrun.exp_exit_step`、`train.seed`、DropMerge NN block / branch 設定を書く。
+4. trial 固有 override。`app.run_name`、`app.runs_dir`、`app.batchrun.exp_exit_step`、`run.seed`、DropMerge NN block / branch 設定を書く。
 
 DropMerge domain v1 の generated branch は `net.branch.OptunaDropMerge` で、入力 bind は `grid, vector_feature`。
 `P=Flatten` は固定し、`token_mode` に応じて `ConvDown` / `ConvDown2` の有無だけを変える。

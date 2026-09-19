@@ -699,7 +699,15 @@ namespace anet::rl {
     // Policy APIs
     // =============================================================
 
-    class Actor {
+    struct ActorRequest {
+        BatchEnvSpec batch_env_spec;
+        EnvSpec env_spec;
+        torch::Device device;
+        seed_t seed;
+        std::string actor_key;
+    };
+
+    class Actor : public ModuleBase {
     public:
         /// @brief BatchStateから行動を生成する。
         /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
@@ -732,12 +740,7 @@ namespace anet::rl {
 
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
-        virtual std::shared_ptr<Actor> CreateActor(
-            const BatchEnvSpec& batch_env_spec,
-            const EnvSpec& env_spec,
-            RunMode run_mode,
-            std::optional<bool> clone_model_override = std::nullopt,
-            std::optional<torch::Device> device = std::nullopt) const = 0;
+        virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
         virtual torch::Device GetDevice() const = 0;
         virtual void ConfigureScalarMetricSubscriptions(
@@ -907,6 +910,7 @@ namespace anet::rl {
     enum class EventField {
         EXPERIENCE,
         AGENT,
+        ACTOR,
         ENV,
         UPDATE_RESULT,
         RUNNER,
@@ -1156,6 +1160,7 @@ namespace anet::rl {
         virtual const std::string& GetName() const = 0;
         virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;
         virtual std::shared_ptr<anet::rl::Agent> GetAgent() const = 0;
+        virtual std::shared_ptr<anet::rl::Actor> GetActor() const = 0;
         virtual std::shared_ptr<anet::rl::Notifier> GetNotifier() const = 0;
     public:
         virtual ~Runner() = default;

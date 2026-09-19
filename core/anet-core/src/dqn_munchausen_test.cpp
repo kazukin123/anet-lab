@@ -188,7 +188,7 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diag
     options.injected_config.Set("run.$", "run.@munchausen");
     options.injected_config.Set("A3.learner.munchausen.log_policy_mode", mode);
     options.injected_config.Set("A3.use_optimistic_target", risk);
-    options.injected_config.Set("A3.train_policy.policy_type", "UQE");
+    options.injected_config.Set("A3.actor.[train].policy.policy_type", "UQE");
     const ConfigManager manager((config_dir / "_main.txt").string(), nullptr, options);
     const auto data = manager.GetConfigData();
     const DefaultDQNAgentConfig config(data);
@@ -236,7 +236,7 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     // 共通configにmodeが含まれても、同じscoreとseedから作るActor hintは変わらない。
     for (const std::string mode : { "target", "online", "online_reuse" }) {
         CAPTURE(mode);
-        const auto context = std::make_shared<DefaultActionContext>(RunMode::Train, 67021);
+        const auto context = std::make_shared<DefaultActionContext>(67021);
         anet::rl::dqn::Actor actor(policy, nullptr, context, std::make_shared<std::shared_mutex>(), network, network,
             true, std::nullopt, false, ActorQHintConfig{
                 .munchausen = MunchausenConfig{ .enabled = enabled, .log_policy_mode = mode, .entropy_tau = 0.7f },
@@ -367,7 +367,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         std::shared_ptr<ActionPolicy> policy = risk_mode == 0
             ? std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config))
             : std::shared_ptr<ActionPolicy>(std::make_shared<UQEActionPolicy>(policy_config));
-        policy->OnLearn(StepCounts{ .exp_step = 50 });
+        policy->UpdateSchedule(StepCounts{ .exp_step = 50 });
         const auto spec = SoftEnvSpec();
         const auto update = [&]<typename ConcreteLearner>() {
             ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
@@ -529,7 +529,7 @@ TEST_CASE("Munchausen config validates dormant values and resolved conflicts", "
     for (const bool copied : { false, true }) {
         auto thompson = data;
         thompson.Set("DefaultDQNAgent.use_optimistic_target", copied);
-        thompson.Set(copied ? "DefaultDQNAgent.train_policy.policy_type" : "DefaultDQNAgent.target_policy.policy_type", "ThompsonSampling");
+        thompson.Set(copied ? "DefaultDQNAgent.actor.[train].policy.policy_type" : "DefaultDQNAgent.target_policy.policy_type", "ThompsonSampling");
         if (enabled) CHECK_THROWS_WITH(DefaultDQNAgentConfig(thompson), Catch::Matchers::ContainsSubstring("munchausen.enabled=true")
             && Catch::Matchers::ContainsSubstring("ThompsonSampling") && Catch::Matchers::ContainsSubstring("expected Greedy"));
         else CHECK_NOTHROW(DefaultDQNAgentConfig(thompson));
@@ -539,7 +539,7 @@ TEST_CASE("Munchausen config validates dormant values and resolved conflicts", "
         }
     }
     data.Set("DefaultDQNAgent.use_optimistic_target", true);
-    data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
     CHECK(DefaultDQNAgentConfig(data).target_policy.policy_type == "UQE");
     CHECK_FALSE(RainbowAgentConfig(ConfigData{}).learner.munchausen.enabled);
     anet::rl::dqn::BatchUpdateResult empty;

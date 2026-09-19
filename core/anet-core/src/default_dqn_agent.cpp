@@ -24,24 +24,6 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
-namespace {
-
-bool IsSameSharedNetworkDevice(const torch::Device& lhs, const torch::Device& rhs)
-{
-    if (lhs.type() != rhs.type()) {
-        return false;
-    }
-    if (lhs.type() != torch::kCUDA) {
-        return true;
-    }
-    const auto lhs_index = lhs.has_index() && lhs.index() >= 0 ? lhs.index() : 0;
-    const auto rhs_index = rhs.has_index() && rhs.index() >= 0 ? rhs.index() : 0;
-    return lhs_index == rhs_index;
-}
-
-} // namespace
-
-
 // ======================================================
 // DefaultDQNAgent
 // ======================================================
@@ -81,7 +63,6 @@ DefaultDQNAgent::DefaultDQNAgent(
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
     auto learner_seed = seed_maker.MakeNamedSeed("learner");
     auto network_seed = seed_maker.MakeNamedSeed("network");
-    this->action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
     this->plasticity_probe_random_ = std::make_shared<anet::RandomGenerator>(
         seed_maker.MakeNamedSeed("plasticity_probe"));
     this->policy_churn_probe_random_ = std::make_shared<anet::RandomGenerator>(
@@ -166,7 +147,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     if (config_.quantile_mode == "iqn") {
         anet::TensorSpec tau_spec;
         tau_spec.type = anet::SpaceType::Vector;
-        tau_spec.shape = { config_.train_policy.tau_rule.num_taus };
+        tau_spec.shape = { config_.learner.iqn.current_taus.num_taus };
         tau_spec.dtype = torch::kFloat32;
         tau_spec.num_classes = 0;
         network_obs_spec[anet::nn::kKey_Taus] = tau_spec;
@@ -196,8 +177,6 @@ DefaultDQNAgent::DefaultDQNAgent(
     }
 
     // ActionPolicy生成
-    this->train_policy_ = CreateActionPolicy(config_.train_policy, config_.train_policy.use_spatial_exploration, num_envs_, device_);
-    this->eval_policy_ = CreateActionPolicy(config_.eval_policy, false, num_envs_, device_);
     this->target_policy_ = CreateActionPolicy(config_.target_policy, false, num_envs_, device_);
 
     // 解決済みのbootstrap方策をログへ示し、平均と経験分位のsoft targetを区別する。
@@ -238,7 +217,7 @@ DefaultDQNAgent::DefaultDQNAgent(
 }
 
 std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
-    const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
+    const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device) const
 {
     if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
         // ε-Greedy
@@ -396,14 +375,8 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
     // プレフィックスで各 Policy インスタンスへ処理を委譲
-    if (anet::StartsWith(key, "train_policy.")) return train_policy_->GetScalar(anet::RemovePrefix(key, "train_policy."), index);
-    if (anet::StartsWith(key, "eval_policy.")) return eval_policy_->GetScalar(anet::RemovePrefix(key, "eval_policy."), index);
     if (anet::StartsWith(key, "target_policy.")) return target_policy_->GetScalar(anet::RemovePrefix(key, "target_policy."), index);
 
-    //（後方互換）単なる "epsilon" などの指定は train_policy の情報を返す
-    if (key == "epsilon" || key == "uqe_tau") {
-        return train_policy_->GetScalar(key, index);
-    }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
@@ -481,100 +454,42 @@ std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const
     return std::nullopt;
 }
 
-std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(
-    const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(const ActorRequest& request) const
 {
-    // Seed生成
-    auto rnd = GetRandomGenerator(run_mode);
-    auto ctx_seed = rnd->RandUint64();
-
-    // ActionContext向けのDeviceを取得
-    auto target_device = device.value_or(this->device_);
-
+    // StackerもActor専用seedと推論deviceを使う。
     if (config_.stucker.use_stacker) {
-        // Stackerを作成して包んで返す
-        std::optional<std::vector<std::string>> stack_keys;
-        if (!config_.stucker.stack_keys.empty()) stack_keys = config_.stucker.stack_keys;
-        auto stacker = std::make_shared<DictFrameStacker>(
-			config_.stucker.stack_count, batch_env_spec.num_envs, target_device, stack_keys);
-        return std::make_shared<StackerActionContext>(run_mode, stacker, ctx_seed);
+        std::optional<std::vector<std::string>> keys;
+        if (!config_.stucker.stack_keys.empty()) keys = config_.stucker.stack_keys;
+        auto stacker = std::make_shared<DictFrameStacker>(config_.stucker.stack_count,
+            request.batch_env_spec.num_envs, request.device, keys);
+        return std::make_shared<StackerActionContext>(stacker, request.seed);
     }
-
-    // Stacker無効ならデフォルト
-    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed, target_device);
+    return std::make_shared<DefaultActionContext>(request.seed, request.device);
 }
 
-static bool IsForTarget(anet::rl::RunMode run_mode)
+std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest& request) const
 {
-    // Train
-    if (!anet::rl::IsEval(run_mode)) {
-        return false;
-    }
-
-    // Eval
-    return run_mode == anet::rl::RunMode::Eval1;
-}
-
-std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec,
-    const anet::rl::EnvSpec& env_spec,
-    anet::rl::RunMode run_mode,
-    std::optional<bool> clone_model_override,
-    std::optional<torch::Device> device) const
-{
-    env_spec_.CheckSameStateActionSpec(env_spec);
-    const bool is_train_actor = !anet::rl::IsEval(run_mode);
-    const bool clone_model = clone_model_override.value_or(
-        is_train_actor ? config_.train_actor.clone_model : false);
-    const auto actor_device = device.value_or(device_);
-    ANET_CHECK_MSG(
-        clone_model || IsSameSharedNetworkDevice(actor_device, device_),
-        "DefaultDQNAgent shared Actor device mismatch: actor_device=" << actor_device.str()
-        << " agent_device=" << device_.str()
-        << ". Use clone_model_override=true or the Agent device.");
-
-    // Contextを生成
-    auto ctx = this->CreateActionContext(batch_env_spec, run_mode, actor_device);
-
-    // モードに応じて適切な Policy と Network を選択
-    std::shared_ptr<ActionPolicy> policy;
-    std::shared_ptr<anet::nn::Network> src_network;
-
-    // 元ネタのPolicyとNetoworkを決定
-    if (anet::rl::IsEval(run_mode)) {
-        policy = eval_policy_;
-        src_network = IsForTarget(run_mode) ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
-    } else {
-        policy = train_policy_;
-        src_network = model_->GetOnlineNetwork();
-    }
-
-    // 必要に応じてCloneしてActor向けネットワークとする
-    auto network = src_network;
-    if (clone_model) {
-        // Clone構築時のparameter・buffer copyもLearner更新と同じmutexで保護する。
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        network = src_network->Clone(actor_device);
+    ANET_PROFILE_FUNC();
+    env_spec_.CheckSameStateActionSpec(request.env_spec);
+    const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    ValidateActorDevice(cfg.clone_model, request.device);
+    auto policy = CreateActionPolicy(cfg.policy, cfg.policy.use_spatial_exploration,
+        request.batch_env_spec.num_envs, request.device);
+    auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
+    auto network = source;
+    if (cfg.clone_model) {
+        // sourceのparameterとbufferを学習更新から保護して複製する。
+        std::shared_lock lock(*mutex_);
+        network = source->Clone(request.device);
         network->eval();
     }
-
-    // Actor を生成
-    const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
-        && config_.learner.use_per
+    const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
-    const auto snapshot_sync_interval = is_train_actor && clone_model
-        ? std::optional<anet::ProfiledValueConfig<step_t>>(config_.train_actor.sync_interval)
-        : std::nullopt;
     const ActorQHintConfig hint_config{
-        .munchausen = config_.learner.munchausen,
-        .use_tbo = config_.learner.use_tbo,
-        .tbo_epsilon = config_.learner.tbo_epsilon,
-    };
-    auto actor = std::make_shared<Actor>(
-        policy, obs_norm_, ctx, this->mutex_, network, src_network, emit_actor_q_hint, snapshot_sync_interval, true, hint_config);
-
-    // 生成したActorを返す
-    return actor;
+        .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
+        .tbo_epsilon = config_.learner.tbo_epsilon};
+    return std::make_shared<Actor>(policy, obs_norm_, CreateActionContext(request), mutex_, network,
+        source, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()
@@ -614,9 +529,7 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         result_list = std::move(result);
 
         // Update後処理
-        train_policy_->OnLearn(counts);
-        eval_policy_->OnLearn(counts);
-        target_policy_->OnLearn(counts);
+        target_policy_->UpdateSchedule(counts);
     }
 
     // BatchUpdateResultを返す

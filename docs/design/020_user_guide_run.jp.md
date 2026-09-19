@@ -52,15 +52,39 @@ $include <DropMerge.txt>
 | `app.show_error_dialog` | error logに加えてモーダルダイアログを表示するか。未指定時は`true` |
 | `app.save_agent_on_close` | 終了時に`agent_close.anet`を自動保存するか。未指定時は`true`。`false`でも手動のSave Checkpointは使える |
 | `app.eval_panel.auto_start` | 手動EvalPanelを起動直後から動かすか |
-| `train.seed` | Runの基準seed |
-| `train.num_envs` | Train用BatchEnvのlane数 |
+| `run.seed` | Runの基準seed |
+| `run.train.num_envs` | Train用BatchEnvのlane数 |
+| `run.train.actor` | 学習Actorのカタログ名。省略時は`train` |
+| `run.eval.[tag].actor` | 評価Actorのカタログ名。省略時は評価タグ名 |
 | `agent.class_id` | 使用するAgent実装 |
 | `agent.device_type` / `agent.device_index` | AgentのCPU/CUDA device |
 | `env.worker_type` / `env.worker_threads` | Env batchの実行方式とworker数 |
-| `train.eval_device_type` / `train.eval_device_index` | configured evalのdevice |
+| `run.eval_device_type` / `run.eval_device_index` | configured evalのdevice |
 | `backend.deterministic_algorithms` | 決定論的algorithmを要求するか |
 
 `agent.device_type=1`はCUDA、`0`はCPUである。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
+
+### 2.4 評価スロットの方策を選ぶ
+
+評価スロットは`<Agent>.actor.[key]`を名前で参照する。方策の種類・epsilon・network・cloneはAgentのカタログに書く。例えばDefaultDQNでonline networkをepsilon 0.1で評価する場合:
+
+```properties
+DefaultDQNAgent.actor.[explore].$ = DefaultDQNAgent.actor.[eval]
+DefaultDQNAgent.actor.[explore].policy.policy_type = EpsilonGreedy
+DefaultDQNAgent.actor.[explore].policy.eps_start = 0.1
+DefaultDQNAgent.actor.[explore].policy.eps_end = 0.1
+DefaultDQNAgent.actor.[explore].policy.eps_decay_steps = 0
+DefaultDQNAgent.actor.[explore].network = online
+DefaultDQNAgent.actor.[explore].clone_model = true
+run.eval.[explore].actor = explore
+run.eval.[explore].eval_batch_size = 2
+run.eval.[explore].eval_episodes = 2
+run.eval_schedule.[explore].interval = 100
+run.eval_schedule.[explore].use_background = false
+metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
+```
+
+共通スロットは`eval_target`と`eval`で、それぞれtarget / onlineを参照する。metricsの既存出力タグは維持する。未定義のActor参照は起動時に失敗するが、スケジュールのない定義や`interval=0`のスロットはActorを生成しない。sharedのActorはAgentと同じdeviceを使う。MuZeroはcloneに対応せず、`clone_model=false`を指定する。
 
 ## 3. 設定ファイルの書き方
 
@@ -81,7 +105,7 @@ $include <DropMerge.txt>
 | プロファイル | `@`で始まるセグメントを持つ名前付きの設定部品。選ばれるまで値に出ない | `backend.@deterministic`、`DefaultDQNAgent.@baseline` |
 | 選択チェーン | `X.$ = A > B`の形で、各項の最終値を左から右へ差分合成してXのベースを作る指定 | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` |
 | 選択の最終値 | 選択元自身のベース・部分指定・個別指定・Run・CLIまで反映した値とキーの集合。チェーンの各項はこれを持ち込む | `@iqn`の最終値は、`@iqn`が持つ葉と`@iqn`自身の`.$`の結果 |
-| カタログ | `[key]`をidentityとして名前で参照される部品定義群 | `net.block.[Linear_120]`、`train.eval.[test1]`、`metrics.scalar.@baseline.[21_eval/01_target_reward]` |
+| カタログ | `[key]`をidentityとして名前で参照される部品定義群 | `net.block.[Linear_120]`、`run.eval.[test1]`、`metrics.scalar.@baseline.[21_eval/01_target_reward]` |
 | 上書き層 | 環境別ファイルでチェーンの末尾に置く差分用の通常prefix。A1/A2/A3はAgent、E1はEnv、M1/M2はMetrics、P1はappで、番号が大きいほど一時的 | `A2.learner.per_alpha = 0.2` |
 | Runプロファイル | 1つのRunを特徴づける選択と値の組を`run.@<name>`で命名したもの。`run.$`で選ぶ | `run.@repro` |
 | 個別指定(個別葉) | `=`でその設定の葉に直接与える値。ベースより強い | `E1.obs_include_action = true` |
@@ -98,9 +122,9 @@ $include <DropMerge.txt>
 | `@vars : key = v` | `@vars : max_exp_step  = 100,000,000` | 値スロット。`${@vars.max_exp_step}`で参照する |
 | `Owner.$ = A > B > C` | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` | 選択チェーン。短い`@name`は`Owner.@name`を指す |
 | 完全修飾の項 | `LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1` | 書いたとおりのprefixを指す。別のownerの定義も選べる |
-| `Owner.sub.$ = …` | `train.eval.[test1].env.$ = LunarLanderEnv.@test1` | 部分選択。配下の一部だけのベース |
+| `Owner.sub.$ = …` | `run.eval.[test1].env.$ = LunarLanderEnv.@test1` | 部分選択。配下の一部だけのベース |
 | `[key].leaf`、`[key].$` | `net.block.[Linear_120].type ?= Linear`、`net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1` | カタログ項目の定義と、その項目のベース |
-| metrics定義と選択 | `metrics.scalar.@baseline.[21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval1]`、`metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | tagが`[key]`のカタログ。選択はチェーン |
+| metrics定義と選択 | `metrics.scalar.@baseline.[21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`、`metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | tagが`[key]`のカタログ。選択はチェーン |
 | 上書き層 | `A2.learner.per_alpha = 0.2`、`app.$ = app.online > P1` | 環境別ファイルの差分。チェーンの末尾に置く |
 | `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Runプロファイルの葉 |
 | `run.@name : Owner.$ = …` | `run.@repro : backend.$ = backend.@deterministic` | Runプロファイルによるチェーンの置き換え |
@@ -169,13 +193,13 @@ DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 `Owner.sub.$ = …`は配下の一部だけのベースを指定する。配下の部分`.$`は全体の`.$`より強く、行順に依らない。プロファイル内に書いた部分`.$`はそのプロファイルの最終値の一部として外側へ届き、同じ場所にrootで書いた部分`.$`はそれより強い。
 
 ```properties
-train.eval.[test1].env.$ = LunarLanderEnv.@test1
+run.eval.[test1].env.$ = LunarLanderEnv.@test1
 DefaultDQNAgent.@qr : net.$ = net.@qr
 ```
 
 #### 3.4.5 カタログ`[key]`
 
-`[key]`はカタログ項目のidentityである。NNブロック(`net.block.[Linear_120]`)、metrics tag(`metrics.scalar.@baseline.[21_eval/01_target_reward]`)、eval tag(`train.eval.[test1]`)が現行の例である。定義は`[key].leaf = v`、項目のベースは`[key].$ = …`で書き、項目同士の継承もチェーンで表す。未定義の項目を参照するとエラーになる。
+`[key]`はカタログ項目のidentityである。NNブロック(`net.block.[Linear_120]`)、metrics tag(`metrics.scalar.@baseline.[21_eval/01_target_reward]`)、eval tag(`run.eval.[test1]`)が現行の例である。定義は`[key].leaf = v`、項目のベースは`[key].$ = …`で書き、項目同士の継承もチェーンで表す。未定義の項目を参照するとエラーになる。
 
 ```properties
 net.block.[Linear_120].type ?= Linear
@@ -201,7 +225,7 @@ DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 - `run.$`は通常の選択より先に展開される。項は左から右へ後勝ちで、同じキーを複数の項が書けば右の項の値になる。
 - Runプロファイルの葉は通常設定の`=`より強い別の段にあり、CLIにだけ負ける。Runで`Owner.$`を書けばチェーンの置き換えになる。
 - Runプロファイルの中に`?=`は書けない。別の`run.$`を供給する入れ子も禁止である。
-- ファイルでは`#run.$ = run.@repro`のようにコメントで切り替え、batやCLIでは`run.$=run.@a>run.@b`で選ぶ。seedはRunプロファイルに含めず`train.seed`で別に指定し、同じプロファイルの複数seedを比較できるようにする。
+- ファイルでは`#run.$ = run.@repro`のようにコメントで切り替え、batやCLIでは`run.$=run.@a>run.@b`で選ぶ。seedはRunプロファイルに含めず`run.seed`で別に指定し、同じプロファイルの複数seedを比較できるようにする。
 
 ```properties
 run.@repro : backend.$ = backend.@deterministic
@@ -315,8 +339,8 @@ DefaultDQNAgent.net.body.output.[features] ?= main_feature # NatureDQNのReLU選
 **この Run だけ値を変える**
 
 ```powershell
-apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-3rd E1.game=breakout
-apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-3rd AtariEnv.game=breakout
+apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 E1.game=breakout
+apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 AtariEnv.game=breakout
 ```
 
 `E1.game=breakout`は上書き層E1の葉を変え、`AtariEnv.$ = … > E1`のチェーンを通って届く。通常はこれで足りる。`AtariEnv.game=breakout`は実効葉そのものを指定するので、ファイルに`AtariEnv.game = pong`と個別指定があっても勝つ。繰り返し使う組み合わせはRunプロファイルにまとめて`run.$=run.@breakout`で選ぶ。
@@ -364,7 +388,7 @@ run.@breakout : app.run_name = run_{t}_breakout
 apps\runner\bin\Release\AnetRLRunner.exe `
   --config apps\runner\config\_main.txt `
   app.run_name=run_{t}_trial `
-  train.seed=12345
+  run.seed=12345
 ```
 
 `--config`はworkspace、履歴、`last_workspace.txt`を一切参照しない完全自己記述モードである。`--workspace`または`--select-workspace`との併用は起動エラーになる。
@@ -440,7 +464,9 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 
 Action数はEnvごとに異なる。範囲外Actionを前提にせず、QValue paneまたはEnvのActionSpecを確認する。
 
-`app.eval_panel.model_sync.mode`は手動EvalPanelがTrain modelを参照する方法を決める。`shared`はTrain modelを共有し、`frame`、`time`、`episode`は対応するintervalでclone modelを同期する。clone modelを使うmodeではEvalのresume時にも同期する。表示中のEvalが常にTrainの最新parameterと一致するとは限らないため、比較時はmodeとintervalを記録する。
+EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`run.eval.[eval_panel].actor = eval_panel`から専用Actorを参照する。DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコアのActionを選ぶ。定期評価のεやUQE設定はそのまま使える。表示用の方策を変える場合は`<Agent>.actor.[eval_panel].*`を上書きし、別の評価設定を表示したい場合は`app.eval_panel.eval_config_tag`を指定する。
+
+`app.eval_panel.model_sync.mode`は`frame`、`time`、`episode`の周期で同期する。modelを複製するかは参照先の`<Agent>.actor.[key].clone_model`で選ぶ。sharedでも同期時に学習側countsを更新し、resume時にも同期する。表示中のEvalが常にTrainの最新parameterと一致するとは限らないため、比較時はActor名、clone設定、modeとintervalを記録する。
 
 ### 6.3 表示FPSと進行状況
 
