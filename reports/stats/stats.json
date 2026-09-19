@@ -1,7 +1,7 @@
 {
  "meta": {
-  "generated": "2026-09-17",
-  "head": "83a2a81",
+  "generated": "2026-09-19",
+  "head": "c07622e",
   "repo": "C:\\dev\\anet-lab",
   "category_labels": {
    "322_env_individual": "322 ENV個別実装",
@@ -67,114 +67,53 @@
   "weeks_in_tables": 12
  },
  "period": {
-  "active_days": 23,
-  "commits": 134,
-  "code_add": 25591,
-  "code_del": 6470,
-  "docs_add": 17579,
-  "docs_del": 3207,
-  "test_add": 10398,
-  "test_del": 370,
-  "config_add": 5147,
-  "config_del": 4141,
+  "active_days": 2,
+  "commits": 2,
+  "code_add": 129,
+  "code_del": 4,
+  "docs_add": 33,
+  "docs_del": 4,
+  "test_add": 82,
+  "test_del": 0,
+  "config_add": 0,
+  "config_del": 0,
   "add_by_area": {
-   "docs": 2143,
-   "runner": 1497,
-   "core": 6114,
-   "memo": 15436,
-   "other": 3745,
-   "exp": 7171,
-   "config": 5147,
-   "build": 80,
-   "tests": 10398,
-   "viewer": 2311,
-   "reports": 5182,
-   "envs": 44
+   "viewer": 47,
+   "tests": 82,
+   "other": 11,
+   "docs": 33
   },
   "del_by_area": {
-   "docs": 497,
-   "runner": 258,
-   "core": 1369,
-   "memo": 2710,
-   "other": 800,
-   "exp": 216,
-   "config": 4141,
-   "build": 1,
-   "tests": 370,
-   "viewer": 315,
-   "reports": 0,
-   "envs": 16
+   "viewer": 4,
+   "tests": 0,
+   "other": 4,
+   "docs": 4
   },
-  "bulk": 321614,
-  "bulk_top": [
-   [
-    "docs/archify/anet_lab_20_training_step_sequence.html",
-    14959
-   ],
-   [
-    "docs/archify/anet_lab_00_system_architecture.html",
-    14925
-   ],
-   [
-    "docs/archify/anet_lab_30_experiment_dataflow.html",
-    14878
-   ],
-   [
-    "docs/archify/anet_lab_40_runtime_lifecycle.html",
-    14834
-   ],
-   [
-    "docs/archify/anet_lab_10_run_workflow.html",
-    14796
-   ]
-  ],
+  "bulk": 0,
+  "bulk_top": [],
   "type_lines": {
-   "feat": 36405,
-   "docs": 26988,
-   "chore": 3214,
-   "fix": 796,
-   "refactor": 646,
-   "ci": 89,
-   "test": 116,
-   "perf": 1306,
-   "other": 273,
-   "style": 128
+   "fix": 185
   },
   "topic_lines": {
-   "3": 34140,
-   "4": 3390,
-   "7": 9332,
-   "20": 21733,
-   "24": 622,
-   "22": 10738,
-   "11": 3210,
-   "18": 2528,
-   "5": 4115,
-   "13": 8554,
-   "12": 12781,
-   "6": 11,
-   "1": 646,
-   "14": 5389,
-   "2": 1306,
-   "16": 2858,
-   "19": 356,
-   "17": 501
+   "24": 133,
+   "5": 133,
+   "7": 52
   },
-  "top_type": "feat",
+  "top_type": "fix",
   "top_topic": [
-   3,
-   "030_機能追加"
+   24,
+   "040_不具合対応"
   ],
-  "code_commits": 70,
-  "code_with_docs": 31,
-  "median_lines_per_commit": 239,
-  "files_touched": 486,
-  "since": "2026-08-20",
-  "until": "2026-09-17",
-  "last_digest_to": null,
+  "code_commits": 1,
+  "code_with_docs": 0,
+  "median_lines_per_commit": 92,
+  "files_touched": 7,
+  "since": "2026-09-18",
+  "until": "2026-09-19",
+  "last_digest_to": "2026-09-17",
   "empty": false,
-  "runs": 177,
-  "prds_done": 66
+  "runs": 9,
+  "prds_done": 0
  },
  "flow": {
   "weeks": [
@@ -2806,33 +2745,33 @@
     "runs": 32
    },
    {
-    "active_days": 3,
-    "commits": 15,
-    "code_add": 3108,
-    "code_del": 1586,
-    "docs_add": 1325,
-    "docs_del": 286,
-    "test_add": 569,
+    "active_days": 5,
+    "commits": 18,
+    "code_add": 3237,
+    "code_del": 1590,
+    "docs_add": 1358,
+    "docs_del": 290,
+    "test_add": 651,
     "test_del": 104,
     "config_add": 1215,
     "config_del": 1136,
     "add_by_area": {
-     "viewer": 805,
-     "other": 880,
-     "docs": 458,
+     "viewer": 852,
+     "other": 891,
+     "docs": 491,
      "config": 1215,
      "core": 516,
-     "tests": 569,
+     "tests": 651,
      "memo": 867,
      "exp": 1373,
-     "reports": 3544,
+     "reports": 4185,
      "runner": 3,
      "envs": 0
     },
     "del_by_area": {
-     "viewer": 166,
-     "other": 89,
-     "docs": 58,
+     "viewer": 170,
+     "other": 93,
+     "docs": 62,
      "config": 1136,
      "core": 171,
      "tests": 104,
@@ -2842,8 +2781,12 @@
      "runner": 3,
      "envs": 6
     },
-    "bulk": 50193,
+    "bulk": 58399,
     "bulk_top": [
+     [
+      "reports/stats/stats.json",
+      8206
+     ],
      [
       "core/anet-core/testdata/prd072/baseline/dropmerge-stratified.json",
       2547
@@ -2859,27 +2802,23 @@
      [
       "core/anet-core/testdata/config_resolver_prd072.json",
       2190
-     ],
-     [
-      "core/anet-core/testdata/prd072/baseline/atari-3.json",
-      2118
      ]
     ],
     "type_lines": {
-     "fix": 280,
+     "fix": 465,
      "feat": 7037,
      "style": 128,
      "docs": 4148,
-     "chore": 695,
+     "chore": 1336,
      "other": 2
     },
     "topic_lines": {
      "3": 7037,
      "12": 3690,
-     "5": 922,
-     "24": 275,
+     "5": 1055,
+     "24": 408,
      "22": 3578,
-     "7": 2298,
+     "7": 2350,
      "20": 695,
      "4": 2,
      "13": 528,
@@ -2890,36 +2829,32 @@
      3,
      "030_機能追加"
     ],
-    "code_commits": 12,
+    "code_commits": 13,
     "code_with_docs": 3,
-    "median_lines_per_commit": 288,
-    "files_touched": 131,
+    "median_lines_per_commit": 267,
+    "files_touched": 138,
     "week": "2026-W38",
     "week_name": "2026-09-14週",
     "start": "2026-09-14",
     "partial": true,
-    "runs": 23
+    "runs": 37
    }
   ],
   "churn90": {
-   "apps/runner/tools/dropmerge_optuna.py": 8,
-   "apps/runner/tools/optuna_common.py": 6,
-   "docs/optuna.md": 4,
-   "core/anet-core/src/replay_buffer_impl.cpp": 18,
-   "core/anet-core/src/replay_buffer_impl.hpp": 13,
-   "core/anet-core/src/replay_buffer_test.cpp": 16,
-   "docs/memo/017_replay_push_alloc_10prd.md": 2,
-   "docs/memo/017_replay_push_alloc_20impl.md": 2,
-   "core/anet-core/src/dqn_based_agent.cpp": 29,
-   "AGENTS.md": 29,
+   "docs/optuna.md": 2,
+   "apps/runner/tools/dropmerge_optuna.py": 6,
+   "apps/runner/tools/optuna_common.py": 5,
    "core/anet-core/include/anet/replay_buffer.hpp": 9,
+   "core/anet-core/src/replay_buffer_impl.cpp": 16,
    "apps/runner/config/_main.txt": 5,
    "core/anet-core/include/anet/agent.hpp": 14,
    "core/anet-core/include/anet/rl.hpp": 16,
    "core/anet-core/include/anet/tensor_util.hpp": 1,
    "core/anet-core/include/anet/transfer.hpp": 1,
+   "core/anet-core/src/dqn_based_agent.cpp": 28,
    "core/anet-core/src/dqn_based_agent.hpp": 24,
    "core/anet-core/src/dqn_based_agent_test.cpp": 29,
+   "core/anet-core/src/replay_buffer_test.cpp": 14,
    "core/anet-core/src/rl.cpp": 9,
    "core/anet-core/src/trainer.cpp": 14,
    "docs/adr/0005-sample-prefetch-stale-per.md": 1,
@@ -2957,6 +2892,7 @@
    "apps/runner/config/nn.txt": 10,
    "docs/adr/0007-nn-dropout-config-semantics.md": 1,
    "apps/runner/config/metrics_scalar.txt": 16,
+   "core/anet-core/src/replay_buffer_impl.hpp": 11,
    "docs/memo/024_nn_dropout_droppath_10prd.md": 1,
    "docs/memo/024_nn_dropout_droppath_20impl.md": 1,
    "viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsFileReader.java": 3,
@@ -2990,7 +2926,7 @@
    ".agents/skills/grill-me/SKILL.md": 2,
    ".agents/skills/grill-with-docs/SKILL.md": 2,
    ".claude/skills/grill-me/SKILL.md": 2,
-   ".claude/skills/grill-with-docs/SKILL.md": 2,
+   ".claude/skills/grill-with-docs/SKILL.md": 3,
    "apps/runner/config/DropMerge.txt": 21,
    "core/anet-core/src/metrics_logger.cpp": 6,
    "apps/runner/src/RunnerApp.cpp": 11,
@@ -3028,6 +2964,7 @@
    "core/anet-core/include/anet/metrics_logger.hpp": 4,
    "core/anet-core/src/metrics_logger_test.cpp": 6,
    "docs/memo/025_videolog_codec_auto_ffmpeg_guard_20impl.md": 1,
+   "AGENTS.md": 29,
    "docs/memo/030_imagecls_mixup_cutmix_10prd.md": 1,
    "docs/memo/030_imagecls_mixup_cutmix_20impl.md": 1,
    "core/envs/lunarlander1/CMakeLists.txt": 1,
@@ -3443,7 +3380,7 @@
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java": 1,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java": 3,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java": 1,
-   "apps/metrics-viewer/src/main/resources/static/metrics-viewer.js": 9,
+   "apps/metrics-viewer/src/main/resources/static/metrics-viewer.js": 10,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCacheTest.java": 1,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsApiIntegrationTest.java": 2,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsCacheIntegrationTest.java": 2,
@@ -3496,7 +3433,7 @@
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestSchedulerTest.java": 3,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThreadTest.java": 1,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestorIntegrationTest.java": 3,
-   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/GraphInteractionPlaywrightTest.java": 4,
+   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/GraphInteractionPlaywrightTest.java": 5,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsPlotPlaywrightTest.java": 2,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/SignedLogPlaywrightTest.java": 2,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/TagListPlaywrightTest.java": 2,
@@ -3776,7 +3713,7 @@
    "docs/experiments/default-dqn/atari/2026-08-31_rr4-ceiling-ln512.md": 1,
    "docs/experiments/default-dqn/atari/2026-09-01_btr-feedback-arms.md": 9,
    "reports/btr_code_reading_2026-08-31.md": 1,
-   "docs/adr/0033-policy-churn-fixed-probe-and-target-lag.md": 2,
+   "docs/adr/0033-policy-churn-fixed-probe-and-target-lag.md": 3,
    "docs/memo/066_policy_churn_metrics_10prd.md": 1,
    "docs/memo/066_policy_churn_metrics_20impl.md": 1,
    "reports/target_network_update_rate_survey_2026-09-03.md": 1,
@@ -3964,7 +3901,7 @@
    "docs/memo/{911_metrics_record_channel_10prd.md => 069_metrics_record_channel_10prd.md}": 1,
    "core/anet-core/src/exception_test.cpp": 1,
    "core/anet-core/src/exception.cpp": 1,
-   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerPlaywrightTestSupport.java": 5,
+   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerPlaywrightTestSupport.java": 6,
    "docs/experiments/default-dqn/atari/config/run_20260905-172940_n2_rr1_va_hard125_breakout.txt": 1,
    "docs/experiments/default-dqn/atari/config/run_20260905-221731_mu1_hard125_munch_breakout.txt": 1,
    "docs/experiments/default-dqn/atari/config/run_20260906-010612_mu0_hard125_nodouble_breakout.txt": 1,
@@ -4083,6 +4020,12 @@
    "docs/memo/{ => done}/073_replay_fit_metrics_20impl.md": 1,
    "docs/memo/{ => done}/074_run_color_distinctness_10prd.md": 1,
    "docs/memo/{ => done}/074_run_color_distinctness_20impl.md": 1,
+   "reports/stats/digest.md": 1,
+   "reports/stats/runs_seen.jsonl": 1,
+   "reports/stats/stats.json": 1,
+   "reports/stats/summary.md": 1,
+   "reports/stats/trend.html": 1,
+   "reports/stats/trend.md": 1,
    ".agents/skills/README.md": 1,
    ".agents/skills/anet-audit/SKILL.md": 1,
    ".agents/skills/anet-audit/agents/openai.yaml": 1,
@@ -4095,7 +4038,7 @@
    ".agents/skills/anet-translate-docs/SKILL.md": 1,
    ".agents/skills/anet-translate-docs/agents/openai.yaml": 1,
    ".claude/skills/README.md": 1,
-   ".claude/skills/anet-audit/SKILL.md": 1,
+   ".claude/skills/anet-audit/SKILL.md": 2,
    ".claude/skills/anet-audit/agents/openai.yaml": 1,
    ".claude/skills/anet-housekeeping/SKILL.md": 1,
    ".claude/skills/anet-housekeeping/agents/openai.yaml": 1,
@@ -4131,18 +4074,18 @@
   "by_area": {
    "tests": {
     "files": 69,
-    "code": 35298,
-    "comment": 351
+    "code": 35864,
+    "comment": 363
    },
    "core": {
     "files": 95,
-    "code": 32889,
-    "comment": 4483
+    "code": 32744,
+    "comment": 4461
    },
    "runner": {
     "files": 26,
-    "code": 8035,
-    "comment": 703
+    "code": 8041,
+    "comment": 705
    },
    "viewer": {
     "files": 55,
@@ -4166,12 +4109,12 @@
    },
    "docs": {
     "files": 59,
-    "code": 5894,
+    "code": 5914,
     "comment": 0
    },
    "other": {
     "files": 6,
-    "code": 289,
+    "code": 290,
     "comment": 0
    },
    "build": {
@@ -4183,8 +4126,8 @@
   "by_language": {
    "C++": {
     "files": 108,
-    "code": 56890,
-    "comment": 4342
+    "code": 57251,
+    "comment": 4333
    },
    "Python": {
     "files": 17,
@@ -4193,36 +4136,36 @@
    },
    "Markdown": {
     "files": 272,
-    "code": 37288,
+    "code": 37309,
     "comment": 0
    },
    "C/C++ Header": {
     "files": 87,
-    "code": 11977,
-    "comment": 1907
+    "code": 11978,
+    "comment": 1908
    },
    "Java": {
     "files": 77,
-    "code": 12548,
+    "code": 12613,
     "comment": 121
    }
   },
   "config": {
-   "lines": 3102,
-   "keys": 3085
+   "lines": 3249,
+   "keys": 3232
   },
   "docs": {
    "design_jp_files": 15,
-   "design_jp_lines": 5894,
+   "design_jp_lines": 5923,
    "design_en_files": 0,
    "design_en_lines": 0,
    "adr_files": 43,
    "context_lines": 528
   },
   "test_counts": {
-   "cpp_test_cases": 659,
-   "java_test_methods": 178,
-   "python_test_functions": 127
+   "cpp_test_cases": 673,
+   "java_test_methods": 181,
+   "python_test_functions": 129
   },
   "per_file_code": {
    "docs/archify/anet_lab_20_training_step_sequence.html": 14490,
@@ -4230,9 +4173,9 @@
    "docs/archify/anet_lab_30_experiment_dataflow.html": 14425,
    "docs/archify/anet_lab_40_runtime_lifecycle.html": 14386,
    "docs/archify/anet_lab_10_run_workflow.html": 14343,
-   "core/anet-core/src/dqn_based_agent_test.cpp": 5588,
+   "core/anet-core/src/dqn_based_agent_test.cpp": 5807,
    "core/anet-core/src/nn_test.cpp": 3218,
-   "core/anet-core/src/dqn_based_agent.cpp": 3083,
+   "core/anet-core/src/dqn_based_agent.cpp": 3084,
    "apps/runner/tools/optuna_common.py": 2984,
    "core/anet-core/src/replay_buffer_test.cpp": 2968,
    "core/anet-core/testdata/prd072/baseline/dropmerge-stratified.json": 2547,
@@ -4240,7 +4183,7 @@
    "core/anet-core/testdata/prd072/baseline/dropmerge-current-iqn32.json": 2538,
    "viewers/metrics-tools/inspect_run.py": 2354,
    "core/anet-core/src/nn_modules.cpp": 2293,
-   "apps/metrics-viewer/src/main/resources/static/metrics-viewer.js": 2235,
+   "apps/metrics-viewer/src/main/resources/static/metrics-viewer.js": 2264,
    "core/anet-core/testdata/config_resolver_prd072.json": 2190,
    "core/anet-core/testdata/prd072/baseline/atari-3.json": 2118,
    "core/anet-core/testdata/prd072/baseline/atari-2.json": 2088,
@@ -4278,12 +4221,12 @@
    "docs/experiments/default-dqn/dropmerge/config/run_20260811-113930_dm_iqn32-b256-rr100.txt": 1649,
    "docs/experiments/default-dqn/dropmerge/config/run_20260809-033908_dm_iqn32-b128-rr125.txt": 1589,
    "docs/experiments/default-dqn/dropmerge/config/run_20260809-210009_iqn_qr.txt": 1586,
-   "core/anet-core/src/observers_test.cpp": 1555,
+   "core/anet-core/src/observers_test.cpp": 1544,
    "viewers/metrics-tools/inspect_run_test.py": 1542,
    "docs/experiments/default-dqn/atari/2026-08-17_baseline.md": 1541,
-   "core/anet-core/src/image_cls_agent_test.cpp": 1539,
    "core/anet-core/testdata/prd072/baseline/lunarlander-repro.json": 1539,
    "core/anet-core/testdata/prd072/baseline/lunarlander-default.json": 1530,
+   "core/anet-core/src/image_cls_agent_test.cpp": 1525,
    "docs/experiments/default-dqn/dropmerge/config/run_20260803-080518_apx-ll_cy05_b512-rr200-a5e5.txt": 1520,
    "docs/experiments/default-dqn/dropmerge/config/run_20260804-083500_apx-ll_cy06_b512-rr200-a7e5.txt": 1520,
    "docs/experiments/default-dqn/dropmerge/config/run_20260805-115101_apx-ll_cy07.txt": 1520,
@@ -4300,14 +4243,15 @@
    "docs/experiments/default-dqn/dropmerge/config/run_20260728-030241_apx-ll_cy02.txt": 1517,
    "docs/experiments/default-dqn/dropmerge/config/run_20260810-001224_dm_B512R200.txt": 1517,
    "docs/experiments/default-dqn/dropmerge/config/run_20260727-021415_apx-ll_cy01.txt": 1514,
-   "apps/runner/config/DropMerge.txt": 1332,
-   "core/anet-core/src/observers.cpp": 1284,
+   "apps/runner/config/DropMerge.txt": 1336,
+   "core/anet-core/src/observers.cpp": 1293,
    "core/anet-core/src/config_test.cpp": 1266,
+   "apps/runner/config/Atari.txt": 1253,
    "core/anet-core/testdata/prd072/baseline/gridmaze-default.json": 1209,
    "core/envs/dropmerge1/src/DropMergeEnv.cpp": 1188,
-   "apps/runner/config/Atari.txt": 1145,
    "docs/experiments/default-dqn/atari/config/run_20260822-131858_live_breakout_vit.txt": 1135,
    "docs/experiments/default-dqn/atari/config/run_20260823-014355_atari_breakout_iqn_x2_classic.txt": 1128,
+   "core/anet-core/src/trainer_test.cpp": 1127,
    "docs/experiments/default-dqn/atari/config/run_20260823-091313_atari_breakout_iqn_x2_classic.txt": 1127,
    "docs/experiments/default-dqn/atari/config/run_20260823-165711_atari_breakout_iqn_x2_v5.txt": 1126,
    "docs/experiments/default-dqn/atari/config/run_20260823-191548_atari_breakout_rr4.txt": 1126,
@@ -4347,10 +4291,9 @@
    "docs/experiments/default-dqn/lunarlander/config/run_20260808-234958_ll_iqn_gred.txt": 1040,
    "docs/experiments/default-dqn/lunarlander/config/run_20260809-001412_ll_qr_wr8192.txt": 1039,
    "docs/experiments/default-dqn/lunarlander/config/run_20260809-002041_ll_qr.txt": 1038,
-   "core/anet-core/src/trainer_test.cpp": 1026,
-   "core/anet-core/src/dqn_based_agent.hpp": 1006,
+   "core/anet-core/src/dqn_based_agent.hpp": 1007,
    "docs/experiments/default-dqn/lunarlander/config/run_20260808-134557_ll_rr800.txt": 997,
-   "apps/runner/src/RunnerFrame.cpp": 974,
+   "apps/runner/src/RunnerFrame.cpp": 973,
    "docs/experiments/default-dqn/atari/config/run_20260824-175201_atari_breakout_apex.txt": 973,
    "docs/experiments/default-dqn/atari/config/run_20260824-080452_atari_breakout_rr4_50m.txt": 972,
    "docs/experiments/default-dqn/atari/config/run_20260825-002524_atari_breakout_apex_e04.txt": 941,
@@ -4375,7 +4318,6 @@
    "docs/experiments/default-dqn/atari/config/run_20260911-034453_rr4_wd001_munch.txt": 924,
    "docs/experiments/default-dqn/atari/config/run_20260910-160429_rr4_dp020_munch.txt": 923,
    "docs/experiments/default-dqn/atari/config/run_20260910-192132_rr4_dp010_munch.txt": 923,
-   "core/anet-core/src/trainer.cpp": 919,
    "docs/experiments/default-dqn/atari/config/run_20260906-221328_nolearn_100m_greedy.txt": 919,
    "docs/experiments/default-dqn/atari/config/run_20260906-223133_nolearn_50m_greedy.txt": 919,
    "docs/experiments/default-dqn/atari/config/run_20260906-225010_nolearn_50m_eps001.txt": 917,
@@ -4408,9 +4350,10 @@
    "docs/experiments/default-dqn/atari/config/run_20260905-031748_z7_rr1_va_soft008_btr_breakout.txt": 883,
    "docs/experiments/default-dqn/atari/config/run_20260905-001913_z6_rr1_va_btr_default_breakout.txt": 882,
    "docs/experiments/default-dqn/atari/config/run_20260905-055802_z5_rr1_va_btr_taurelu_breakout.txt": 882,
+   "core/anet-core/src/trainer.cpp": 881,
    "docs/experiments/default-dqn/atari/config/run_20260904-185147_n4_rr1_va_soft020_breakout.txt": 880,
+   "core/anet-core/include/anet/rl.hpp": 878,
    "core/envs/dropmerge1/src/DropMergeEnv_test.cpp": 876,
-   "core/anet-core/include/anet/rl.hpp": 874,
    "docs/experiments/default-dqn/atari/config/run_20260904-082552_z5_rr1_va_btr_taurelu_breakout.txt": 873,
    "docs/experiments/default-dqn/atari/config/run_20260904-105231_h2_rr1_va_vit_breakout.txt": 873,
    "docs/experiments/default-dqn/atari/config/run_20260904-133438_e2_rr1_va_evalN10_breakout.txt": 873,
@@ -4454,14 +4397,14 @@
    "core/anet-core/src/app_util.cpp": 791,
    "docs/design/210_metrics_viewer.jp.md": 789,
    "core/envs/atari1/src/AtariEnv_test.cpp": 786,
-   "core/anet-core/src/muzero_based_agent.cpp": 763,
+   "core/anet-core/src/muzero_based_agent.cpp": 758,
+   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerPlaywrightTestSupport.java": 742,
    "docs/experiments/default-dqn/atari/config/run_20260830-075903_b_init_he.txt": 740,
    "docs/experiments/default-dqn/atari/config/run_20260830-100453_e_silu.txt": 740,
    "docs/experiments/default-dqn/atari/config/run_20260830-114547_f_ln512.txt": 740,
    "docs/experiments/default-dqn/atari/config/run_20260829-065026_a3_wd010.txt": 731,
    "docs/experiments/default-dqn/atari/config/run_20260829-074411_a3_gn_wd010_10m.txt": 731,
    "docs/experiments/default-dqn/atari/config/run_20260828-221841_a3_gn_wd0.txt": 730,
-   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerPlaywrightTestSupport.java": 722,
    "core/envs/imagecls1/src/ImageData.cpp": 720,
    "docs/experiments/default-dqn/atari/config/run_20260828-104700_ab_p0_none.txt": 720,
    "docs/experiments/default-dqn/atari/config/run_20260828-204855_a1_delta_wd0.txt": 714,
@@ -4493,16 +4436,16 @@
    "core/anet-core/src/heat_map.cpp": 644,
    "core/anet-core/src/dqn_based_heads.cpp": 638,
    "apps/runner/src/RunnerApp.cpp": 637,
-   "core/anet-core/src/episode_end_test.cpp": 619,
    "apps/runner/src/QValuePanel.cpp": 613,
-   "core/anet-core/src/image_cls_agent.cpp": 610,
    "docs/memo/done/065_nn_spectral_norm_10prd.md": 609,
+   "core/anet-core/src/episode_end_test.cpp": 605,
    "docs/experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md": 598,
+   "core/anet-core/src/image_cls_agent.cpp": 596,
    "core/anet-core/src/env_test.cpp": 595,
    "docs/experiments/default-dqn/dropmerge/2026-08-09_iqn.md": 583,
    "core/envs/atari1/src/AtariEnv.cpp": 572,
    "core/anet-core/src/dqn_based_test.cpp": 560,
-   "apps/runner/config/ImageCls.txt": 550,
+   "apps/runner/config/ImageCls.txt": 553,
    "docs/memo/done/039_dropmerge_nolegal_adjudication_10prd.md": 545,
    "docs/memo/done/062_plasticity_metrics_10prd.md": 544,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java": 542,
@@ -4511,7 +4454,6 @@
    "docs/memo/done/072_config_selection_final_value_10prd.md": 527,
    "core/envs/imagecls1/src/ImageClsEnv_test.cpp": 512,
    "docs/archify/anet_lab_00_system_architecture.archify.json": 503,
-   "core/anet-core/src/default_dqn_agent.cpp": 500,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryCoordinatorTest.java": 482,
    "apps/runner/src/HeatMapPanel.cpp": 472,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsApiIntegrationTest.java": 467,
@@ -4520,27 +4462,29 @@
    "docs/experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md": 453,
    "core/envs/dropmerge1/src/DropMergeView.cpp": 450,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsPlotPlaywrightTest.java": 443,
+   "core/anet-core/src/default_dqn_agent.cpp": 440,
    "docs/memo/done/059_config_concept_tree_alignment_10prd.md": 420,
-   "core/anet-core/include/anet/default_dqn_agent.hpp": 419,
    "core/anet-core/include/anet/observers.hpp": 417,
    "docs/memo/done/067_MunchausenRL_10prd.md": 409,
    "viewers/metrics-tools/mlflow_bridge.py": 407,
    "apps/runner/tools/optuna_workspace_test.py": 397,
    "docs/memo/done/028_cnblock_convnext_10prd.md": 397,
+   "core/anet-core/include/anet/default_dqn_agent.hpp": 396,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java": 395,
    "docs/memo/done/054_inspect_run_10prd.md": 392,
+   "docs/design/020_user_guide_run.jp.md": 391,
    "docs/experiments/default-dqn/atari/2026-09-15_replay-lane-window.md": 390,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceSelectorPlaywrightTest.java": 384,
    "core/anet-core/include/anet/profile.hpp": 379,
    "viewers/metrics-tools/metrics_viewer.py": 378,
    "core/anet-core/include/anet/schedule.hpp": 376,
    "core/anet-core/src/app_util_test.cpp": 373,
-   "docs/design/020_user_guide_run.jp.md": 370,
    "docs/design/200_dqn_agents.jp.md": 360,
    "docs/memo/done/003_eval_20impl.md": 357,
    "core/anet-core/src/replay_buffer_impl.hpp": 350,
    "core/anet-core/src/util_test.cpp": 349,
    "docs/memo/done/005_no_legal_drop_10prd.md": 345,
+   "apps/runner/config/agent.txt": 344,
    "core/anet-core/src/metrics_logger_test.cpp": 343,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java": 333,
    "core/envs/lunarlander1/src/LunarLanderView.cpp": 332,
@@ -4549,14 +4493,15 @@
    "core/anet-core/src/schedule_test.cpp": 325,
    "viewers/metrics-tools/mlflow_bridge_test.py": 325,
    "core/anet-core/testdata/prd072/resolution/atari-4.json": 323,
+   "apps/runner/config/LunarLander.txt": 322,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabaseIntegrationTest.java": 319,
    "core/anet-core/include/anet/env.hpp": 318,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java": 317,
-   "apps/runner/config/LunarLander.txt": 315,
+   "core/anet-core/include/anet/image_cls_agent.hpp": 313,
    "core/anet-core/testdata/prd072/resolution/atari-3.json": 313,
    "docs/design/030_user_guide_analysis.jp.md": 308,
-   "core/anet-core/include/anet/image_cls_agent.hpp": 307,
    "docs/memo/061_eval_slot_policy_override_10prd.md": 305,
+   "core/anet-core/src/config_baseline_test.cpp": 303,
    "apps/runner/tools/compress_workspace_metrics.py": 300,
    "docs/memo/done/069_metrics_trace_channel_10prd.md": 300,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/OutlierRangePlaywrightTest.java": 297,
@@ -4570,19 +4515,19 @@
    "docs/memo/done/001_iqn_10prd.md": 293,
    "core/envs/dropmerge1/src/DropMergeEnv.hpp": 292,
    "docs/design/160_applications_and_tools.jp.md": 292,
+   "docs/design/100_runtime_and_configuration.jp.md": 288,
    "core/anet-core/src/gui.cpp": 287,
-   "docs/design/100_runtime_and_configuration.jp.md": 287,
    "docs/design/040_development_environment.jp.md": 284,
    "docs/memo/done/048_quantile_tail_metrics_10prd.md": 284,
    "core/anet-core/include/anet/test_util.hpp": 283,
    "docs/design/150_replay_buffer.jp.md": 280,
    "core/anet-core/testdata/prd072/resolution/atari-1.json": 277,
-   "apps/runner/config/agent.txt": 276,
-   "core/anet-core/include/anet/agent.hpp": 270,
+   "core/anet-core/include/anet/agent.hpp": 275,
    "core/anet-core/include/anet/probe.hpp": 270,
    "core/envs/imagecls1/src/ImageClsView.cpp": 270,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestSchedulerTest.java": 268,
    "docs/memo/done/031_imagecls_cosine_lr_10prd.md": 268,
+   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/GraphInteractionPlaywrightTest.java": 258,
    "apps/runner/config/nn.txt": 258,
    "core/anet-core/src/probe_test.cpp": 257,
    "viewers/metrics-tools/btr_to_metrics.py": 257,
@@ -4612,6 +4557,7 @@
    "docs/experiments/default-dqn/lunarlander/2026-08-08_iqn.md": 225,
    "core/anet-core/src/muzero_rb.cpp": 224,
    "docs/memo/done/037_env_instance_name_10prd.md": 223,
+   "apps/runner/src/EvalPanel.cpp": 221,
    "core/anet-core/include/anet/gui.hpp": 220,
    "core/anet-core/testdata/prd072/resolution/lunarlander-repro.json": 219,
    "docs/design/220_atari_env.jp.md": 219,
@@ -4619,24 +4565,21 @@
    "docs/memo/done/053_interval_gate_perf_ema_10prd.md": 218,
    "docs/memo/done/055_runner_toolbar_10prd.md": 217,
    ".github/workflows/release.yml": 216,
-   "apps/runner/src/EvalPanel.cpp": 215,
    "core/anet-core/src/nn_util.cpp": 215,
    "docs/memo/done/036_train_actor_periodic_snapshot_10prd.md": 215,
    "apps/runner/src/WorkspaceDialog.cpp": 214,
-   "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/GraphInteractionPlaywrightTest.java": 213,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java": 212,
-   "core/anet-core/include/anet/trainer.hpp": 212,
    "core/anet-core/testdata/prd072/resolution/lunarlander-default.json": 210,
    "docs/experiments/default-dqn/atari/README.md": 210,
    "core/anet-core/include/anet/nn.hpp": 208,
    "docs/memo/frozen/999_adaptive_policy_synchronization_10prd.md": 208,
    "docs/memo/075_episode_steps_and_eval_session_log_10prd.md": 207,
+   "core/anet-core/include/anet/trainer.hpp": 205,
    "core/anet-core/include/anet/transfer.hpp": 202,
    "core/anet-core/src/graphviz.cpp": 200,
    "docs/archify/anet_lab_40_runtime_lifecycle.archify.json": 199,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java": 197,
    "core/anet-core/include/anet/image.hpp": 197,
-   "core/anet-core/src/rainbow_agent.cpp": 197,
    "core/anet-core/include/anet/serialize.hpp": 196,
    "core/envs/atari1/src/AtariView.cpp": 196,
    "docs/design/120_environments.jp.md": 194,
@@ -4644,8 +4587,8 @@
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsCacheIntegrationTest.java": 186,
    "docs/memo/done/003_eval_10prd.md": 185,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsLodIntegrationTest.java": 184,
+   "docs/design/110_agents_and_learning.jp.md": 182,
    "docs/archify/anet_lab_10_run_workflow.archify.json": 181,
-   "docs/design/110_agents_and_learning.jp.md": 181,
    "docs/memo/done/032_lunarlander_obs_include_action_10prd.md": 180,
    "core/anet-core/testdata/prd072/resolution/dropmerge-qr51.json": 179,
    "core/anet-core/testdata/prd072/resolution/dropmerge-stratified.json": 179,
@@ -4657,20 +4600,22 @@
    "docs/memo/930_serialize_10prd.md": 174,
    "docs/memo/done/012_sdpa_attention_10prd.md": 174,
    "docs/memo/done/041_metrics_sqlite_cache_20impl.md": 173,
-   "apps/runner/config/GridMaze_muzero.txt": 170,
+   "apps/runner/config/GridMaze_muzero.txt": 172,
    "apps/runner/config/nn_cnx.txt": 170,
    "core/anet-core/testdata/prd072/resolution/dropmerge-current-iqn32.json": 170,
    "docs/experiments/default-dqn/atari/2026-08-29_bundle-fix-rebaseline.md": 170,
+   "core/anet-core/src/rainbow_agent.cpp": 167,
    "docs/memo/912_background_eval_snapshot_ordering_10prd.md": 167,
    "docs/memo/done/047_iqn_search_p0_metrics_10prd.md": 167,
    "docs/memo/933_staged_batch_replay_schedule_10prd.md": 166,
    "docs/memo/done/059_config_concept_tree_alignment_25impl_ph1b_atari.md": 166,
+   "apps/runner/config/GridMaze.txt": 165,
    "apps/runner/tools/batchrun_fatal_error_handling_test.ps1": 164,
+   "core/anet-core/src/muzero_based_agent.hpp": 164,
    "docs/memo/done/024_nn_dropout_droppath_10prd.md": 164,
-   "core/anet-core/src/muzero_based_agent.hpp": 163,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceSnapshotIntegrationTest.java": 162,
+   "core/anet-core/include/anet/muzero_proto_agent.hpp": 162,
    "docs/memo/done/038_env_log_auto_prefix_10prd.md": 162,
-   "apps/runner/config/GridMaze.txt": 161,
    "core/anet-core/src/random.cpp": 161,
    "docs/memo/done/033_imagecls_bf16_head_10prd.md": 161,
    "core/anet-core/src/exception.cpp": 160,
@@ -4682,7 +4627,6 @@
    "core/envs/cartpole2/src/CartPoleEnv.cpp": 154,
    "docs/memo/done/066_policy_churn_metrics_10prd.md": 154,
    "apps/runner/tools/compress_workspace_metrics_test.py": 151,
-   "core/anet-core/include/anet/muzero_proto_agent.hpp": 151,
    "docs/experiments/default-dqn/atari/2026-08-27_atari5.md": 151,
    "docs/memo/941_iqn_first_priority_quantile_pair_10prd.md": 151,
    "docs/memo/done/020_device_transfer_common_part_10prd.md": 151,
@@ -4727,17 +4671,18 @@
    "docs/memo/done/067_MunchausenRL_30validation.md": 122,
    "core/anet-core/testdata/prd072/resolution/imagecls-resnet.json": 120,
    "docs/memo/done/074_run_color_distinctness_20impl.md": 120,
-   "apps/runner/config/common.txt": 118,
    "docs/memo/done/072_config_selection_final_value_20impl.md": 118,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlannerTest.java": 116,
+   "apps/runner/config/common.txt": 116,
    "docs/memo/done/015_deterministic_algorithms_10prd.md": 116,
    "docs/memo/done/064_metricsviewer_idle_ingest_io_20impl.md": 116,
    "docs/memo/frozen/026_metricslog_lifecycle_10prd.md": 116,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepositorySnapshotIntegrationTest.java": 113,
    "core/anet-core/src/tensor_util.cpp": 113,
+   "core/anet-core/testdata/prd072/check_default_leaves_test.py": 113,
    "core/anet-core/src/stacker_test.cpp": 112,
+   "core/anet-core/include/anet/rainbow_agent.hpp": 111,
    "core/anet-core/testdata/prd072/resolution/imagecls-default.json": 111,
-   "core/anet-core/include/anet/rainbow_agent.hpp": 109,
    "core/anet-core/src/log_test.cpp": 109,
    "core/anet-core/testdata/prd072/expected.py": 108,
    "docs/memo/done/010_image_metrics_v2_10prd.md": 108,
@@ -4750,13 +4695,13 @@
    "docs/runs/run_20251219-213111/json/env-env_spec.json": 103,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryConcurrencyTest.java": 102,
    "docs/memo/done/053_interval_gate_perf_ema_20impl.md": 102,
+   "core/anet-core/testdata/prd072/check_default_leaves.py": 101,
    "docs/memo/done/057_native_stack_dim_handling_10prd.md": 101,
    "docs/memo/done/013_sample_prefetch_10prd.md": 100,
    "docs/memo/done/054_inspect_run_21impl.md": 100,
+   "docs/ownership_guideline.md": 100,
    "core/anet-core/src/nn_heads.cpp": 99,
-   "core/anet-core/testdata/prd072/check_default_leaves.py": 99,
    "docs/memo/done/007_rb-grid-corruption_10prd.md": 99,
-   "docs/ownership_guideline.md": 99,
    ".github/workflows/windows-ci.yml": 98,
    "apps/runner/src/QValuePanel.hpp": 98,
    "docs/memo/done/008_Transformed Bellman Operator_10prd.md": 98,
@@ -4775,7 +4720,6 @@
    "core/envs/gridmaze1/src/GridMazeEnv.hpp": 90,
    "docs/memo/913_best_checkpoint_10prd.md": 90,
    "core/anet-core/include/anet/common.hpp": 89,
-   "core/anet-core/testdata/prd072/check_default_leaves_test.py": 89,
    "apps/runner/src/TrainPanel.cpp": 88,
    "core/envs/cartpole2/src/CartPoleView.cpp": 88,
    "core/anet-core/include/anet/thread.hpp": 87,
@@ -4789,7 +4733,6 @@
    "docs/memo/done/037_env_instance_name_20impl.md": 84,
    "docs/memo/done/068_batchrun_fatal_error_handling_10prd.md": 84,
    "core/anet-core/include/anet/scaler.hpp": 83,
-   "core/anet-core/src/config_baseline_test.cpp": 83,
    "core/anet-core/src/stacker.cpp": 83,
    "docs/memo/075_episode_steps_and_eval_session_log_20impl.md": 81,
    "core/anet-core/include/anet/replay_buffer.hpp": 80,
@@ -4815,20 +4758,21 @@
    "docs/memo/999_cicd_improvement_10prd.md": 72,
    "apps/23_optuna_dashboard.bat": 71,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java": 71,
-   "core/anet-core/src/muzero_proto_agent.cpp": 71,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java": 70,
    "core/anet-core/include/anet/str_util.hpp": 70,
    "core/anet-core/src/util.cpp": 70,
    "core/envs/dropmerge1/src/DropMergeView.hpp": 70,
    "apps/runner/src/RunnerApp.hpp": 69,
-   "core/anet-core/src/agent.cpp": 69,
    "core/anet-core/src/thread_test.cpp": 69,
+   "core/anet-core/src/agent.cpp": 68,
    "docs/memo/done/072_config_selection_final_value_21impl.md": 68,
    "apps/runner/src/LogPanel.cpp": 67,
    "docs/memo/done/009_dueling_dag_head_10prd.md": 67,
+   "apps/11_batch_run.bat": 66,
    "apps/metrics-viewer/checkstyle.xml": 66,
    "docs/memo/frozen/999_agent_update_result_view_10prd.md": 66,
-   "apps/runner/src/EvalPanel.hpp": 64,
+   "apps/runner/src/EvalPanel.hpp": 65,
+   "core/anet-core/src/muzero_proto_agent.cpp": 64,
    "core/envs/lunarlander1/CMakeLists.txt": 64,
    "docs/memo/done/043_release_packaging_10prd.md": 64,
    "docs/memo/done/034_imagecls_batch_input_20impl.md": 63,
@@ -4836,18 +4780,16 @@
    "apps/81_dot_to_png_latest.bat": 62,
    "core/envs/dropmerge1/CMakeLists.txt": 62,
    "docs/memo/done/059_config_concept_tree_alignment_22impl_ph2.md": 62,
-   "apps/12_batch_run.bat": 61,
    "apps/80_dot_to_png_all.bat": 61,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java": 61,
-   "apps/runner/config/CartPole.txt": 61,
    "core/envs/imagecls1/CMakeLists.txt": 61,
    "docs/memo/999_test_line_coverage_10prd.md": 61,
    "docs/memo/done/059_config_concept_tree_alignment_21impl_ph1a.md": 61,
+   "apps/12_batch_run.bat": 60,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java": 60,
+   "apps/runner/config/CartPole.txt": 60,
    "docs/agents/issue-tracker.md": 60,
    "docs/memo/done/051_atari_ale_env_20impl.md": 58,
-   "apps/11_batch_run.bat": 57,
-   "core/anet-core/testdata/prd072/migrate.py": 57,
    "docs/memo/920_nn_block_metrics_10prd.md": 57,
    "apps/runner/src/PlotPanel.cpp": 56,
    "docs/design/README.jp.md": 56,
@@ -4855,6 +4797,7 @@
    ".github/workflows/pages.yml": 55,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java": 55,
    "core/anet-core/src/str_util.cpp": 55,
+   "core/anet-core/testdata/prd072/migrate.py": 55,
    "docs/memo/done/042_metricsviewer_refactor_22impl.md": 55,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java": 54,
    "core/anet-core/include/anet/diag.hpp": 54,
@@ -5020,7 +4963,6 @@
    "docs/adr/0006-deterministic-algorithms.md": 16,
    "docs/adr/0025-ale-external-build-reference-and-license.md": 16,
    "docs/adr/0027-eval-definition-schedule-separation.md": 16,
-   "docs/adr/0033-policy-churn-fixed-probe-and-target-lag.md": 16,
    "apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/GetMetricsRequest.java": 15,
    "docs/adr/0021-run-classification-by-workspace-folder.md": 15,
    "docs/adr/0028-interval-fires-on-bucket-crossing.md": 15,
@@ -5034,6 +4976,7 @@
    "docs/adr/0003-fused-adamw-via-aten.md": 13,
    "docs/adr/0004-sdpa-attention-via-aten.md": 13,
    "docs/adr/0010-actor-priority-mean-q-approx.md": 13,
+   "docs/adr/0033-policy-churn-fixed-probe-and-target-lag.md": 13,
    "docs/runs/run_20251219-213111/json/train-seed.json": 13,
    "apps/21_metrics_viewer.bat": 12,
    "apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/SeriesAvailabilityTest.java": 12,
@@ -5139,7 +5082,7 @@
    "316_config": {
     "prod_files": 4,
     "prod_loc": 1727,
-    "test_loc": 1614,
+    "test_loc": 1852,
     "direct": 2,
     "any": 2,
     "pre_lines": 435,
@@ -5151,8 +5094,8 @@
    },
    "321_agent_core": {
     "prod_files": 8,
-    "prod_loc": 7757,
-    "test_loc": 7905,
+    "prod_loc": 7755,
+    "test_loc": 8128,
     "direct": 2,
     "any": 6,
     "pre_lines": 3806,
@@ -5177,8 +5120,8 @@
    },
    "318_rl_core": {
     "prod_files": 13,
-    "prod_loc": 9767,
-    "test_loc": 7199,
+    "prod_loc": 9731,
+    "test_loc": 7278,
     "direct": 5,
     "any": 11,
     "pre_lines": 6281,
@@ -5190,8 +5133,8 @@
    },
    "324_dqn": {
     "prod_files": 6,
-    "prod_loc": 2732,
-    "test_loc": 1762,
+    "prod_loc": 2572,
+    "test_loc": 1751,
     "direct": 2,
     "any": 6,
     "pre_lines": 1389,
@@ -5268,7 +5211,7 @@
    },
    "319_gui": {
     "prod_files": 36,
-    "prod_loc": 8767,
+    "prod_loc": 8773,
     "test_loc": 0,
     "direct": 0,
     "any": 6,
@@ -5281,7 +5224,7 @@
    },
    "325_muzero": {
     "prod_files": 2,
-    "prod_loc": 307,
+    "prod_loc": 309,
     "test_loc": 0,
     "direct": 0,
     "any": 2,
@@ -5308,8 +5251,8 @@
   },
   "total": {
    "prod_files": 120,
-   "prod_loc": 49704,
-   "test_loc": 28354,
+   "prod_loc": 49508,
+   "test_loc": 28883,
    "direct": 47,
    "any": 90,
    "pre_files": 75,
@@ -5323,7 +5266,7 @@
    {
     "path": "core/anet-core/src/muzero_based_agent.cpp",
     "category": "321_agent_core",
-    "loc": 1155,
+    "loc": 1148,
     "direct": false,
     "indirect": false,
     "era": "pre",
@@ -5368,7 +5311,7 @@
    {
     "path": "core/anet-core/src/muzero_based_agent.hpp",
     "category": "321_agent_core",
-    "loc": 257,
+    "loc": 258,
     "direct": false,
     "indirect": false,
     "era": "pre",
@@ -5631,7 +5574,7 @@
    {
     "path": "apps/runner/src/EvalPanel.cpp",
     "category": "319_gui",
-    "loc": 267,
+    "loc": 273,
     "direct": false,
     "indirect": true,
     "era": "post",
@@ -5640,7 +5583,7 @@
    {
     "path": "apps/runner/src/EvalPanel.hpp",
     "category": "319_gui",
-    "loc": 75,
+    "loc": 76,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -5739,7 +5682,7 @@
    {
     "path": "apps/runner/src/RunnerFrame.cpp",
     "category": "319_gui",
-    "loc": 1229,
+    "loc": 1228,
     "direct": false,
     "indirect": false,
     "era": "post",
@@ -5793,7 +5736,7 @@
    {
     "path": "core/anet-core/include/anet/agent.hpp",
     "category": "321_agent_core",
-    "loc": 369,
+    "loc": 374,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -5829,7 +5772,7 @@
    {
     "path": "core/anet-core/include/anet/default_dqn_agent.hpp",
     "category": "324_dqn",
-    "loc": 479,
+    "loc": 457,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -5901,7 +5844,7 @@
    {
     "path": "core/anet-core/include/anet/image_cls_agent.hpp",
     "category": "324_dqn",
-    "loc": 371,
+    "loc": 378,
     "direct": true,
     "indirect": true,
     "era": "post",
@@ -5946,7 +5889,7 @@
    {
     "path": "core/anet-core/include/anet/muzero_proto_agent.hpp",
     "category": "325_muzero",
-    "loc": 201,
+    "loc": 212,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6000,7 +5943,7 @@
    {
     "path": "core/anet-core/include/anet/rainbow_agent.hpp",
     "category": "324_dqn",
-    "loc": 128,
+    "loc": 131,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6027,7 +5970,7 @@
    {
     "path": "core/anet-core/include/anet/rl.hpp",
     "category": "318_rl_core",
-    "loc": 1199,
+    "loc": 1204,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6108,7 +6051,7 @@
    {
     "path": "core/anet-core/include/anet/trainer.hpp",
     "category": "318_rl_core",
-    "loc": 301,
+    "loc": 294,
     "direct": true,
     "indirect": true,
     "era": "pre",
@@ -6135,7 +6078,7 @@
    {
     "path": "core/anet-core/src/agent.cpp",
     "category": "321_agent_core",
-    "loc": 98,
+    "loc": 93,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6198,7 +6141,7 @@
    {
     "path": "core/anet-core/src/default_dqn_agent.cpp",
     "category": "324_dqn",
-    "loc": 687,
+    "loc": 600,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6216,16 +6159,16 @@
    {
     "path": "core/anet-core/src/dqn_based_agent.cpp",
     "category": "321_agent_core",
-    "loc": 3869,
+    "loc": 3872,
     "direct": true,
     "indirect": true,
     "era": "post",
-    "churn90": 29
+    "churn90": 28
    },
    {
     "path": "core/anet-core/src/dqn_based_agent.hpp",
     "category": "321_agent_core",
-    "loc": 1184,
+    "loc": 1185,
     "direct": true,
     "indirect": true,
     "era": "post",
@@ -6306,7 +6249,7 @@
    {
     "path": "core/anet-core/src/image_cls_agent.cpp",
     "category": "324_dqn",
-    "loc": 787,
+    "loc": 770,
     "direct": true,
     "indirect": true,
     "era": "post",
@@ -6360,7 +6303,7 @@
    {
     "path": "core/anet-core/src/muzero_based_agent.cpp",
     "category": "321_agent_core",
-    "loc": 1155,
+    "loc": 1148,
     "direct": false,
     "indirect": false,
     "era": "pre",
@@ -6369,7 +6312,7 @@
    {
     "path": "core/anet-core/src/muzero_based_agent.hpp",
     "category": "321_agent_core",
-    "loc": 257,
+    "loc": 258,
     "direct": false,
     "indirect": false,
     "era": "pre",
@@ -6378,7 +6321,7 @@
    {
     "path": "core/anet-core/src/muzero_proto_agent.cpp",
     "category": "325_muzero",
-    "loc": 106,
+    "loc": 97,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6459,7 +6402,7 @@
    {
     "path": "core/anet-core/src/observers.cpp",
     "category": "318_rl_core",
-    "loc": 1676,
+    "loc": 1685,
     "direct": true,
     "indirect": true,
     "era": "pre",
@@ -6486,7 +6429,7 @@
    {
     "path": "core/anet-core/src/rainbow_agent.cpp",
     "category": "324_dqn",
-    "loc": 280,
+    "loc": 236,
     "direct": false,
     "indirect": true,
     "era": "pre",
@@ -6508,7 +6451,7 @@
     "direct": false,
     "indirect": true,
     "era": "post",
-    "churn90": 18
+    "churn90": 16
    },
    {
     "path": "core/anet-core/src/replay_buffer_impl.hpp",
@@ -6517,7 +6460,7 @@
     "direct": false,
     "indirect": true,
     "era": "pre",
-    "churn90": 13
+    "churn90": 11
    },
    {
     "path": "core/anet-core/src/rl.cpp",
@@ -6612,7 +6555,7 @@
    {
     "path": "core/anet-core/src/trainer.cpp",
     "category": "318_rl_core",
-    "loc": 1228,
+    "loc": 1185,
     "direct": true,
     "indirect": true,
     "era": "pre",
@@ -7000,11 +6943,11 @@
   "other_languages": {
    "java": {
     "prod": 5410,
-    "test": 8876
+    "test": 8958
    },
    "python": {
     "prod": 10229,
-    "test": 3066
+    "test": 3092
    }
   }
  },
@@ -7013,7 +6956,7 @@
   "todo_4w_ago": 67,
   "large_files": [
    [
-    5588,
+    5807,
     "core/anet-core/src/dqn_based_agent_test.cpp"
    ],
    [
@@ -7021,7 +6964,7 @@
     "core/anet-core/src/nn_test.cpp"
    ],
    [
-    3083,
+    3084,
     "core/anet-core/src/dqn_based_agent.cpp"
    ],
    [
@@ -7049,7 +6992,7 @@
     "core/anet-core/src/nn_impl.cpp"
    ],
    [
-    1555,
+    1544,
     "core/anet-core/src/observers_test.cpp"
    ],
    [
@@ -7057,11 +7000,11 @@
     "viewers/metrics-tools/inspect_run_test.py"
    ],
    [
-    1539,
+    1525,
     "core/anet-core/src/image_cls_agent_test.cpp"
    ],
    [
-    1284,
+    1293,
     "core/anet-core/src/observers.cpp"
    ],
    [
@@ -7080,8 +7023,8 @@
    "by_lens": {},
    "by_status": {}
   },
-  "config_keys_4w_ago": 2504,
-  "rev_4w_ago": "49aa80b"
+  "config_keys_4w_ago": 2502,
+  "rev_4w_ago": "59dbe9b"
  },
  "process": {
   "prd_count": 91,
@@ -7133,9 +7076,9 @@
    "valid_after": "2026-08-21"
   },
   "uncommitted": {
-   "entries": 19,
-   "insertions": 0,
-   "deletions": 0
+   "entries": 91,
+   "insertions": 2370,
+   "deletions": 1735
   },
   "prds": [
    {
@@ -7688,8 +7631,8 @@
  },
  "activity": {
   "streak_weeks": 33,
-  "runs_total": 447,
-  "runs_new_in_ledger": 447,
+  "runs_total": 461,
+  "runs_new_in_ledger": 14,
   "runs_by_week": {
    "2026-W21": 9,
    "2026-W22": 16,
@@ -7718,7 +7661,7 @@
    "2026-W35": 35,
    "2026-W36": 58,
    "2026-W37": 32,
-   "2026-W38": 23
+   "2026-W38": 37
   },
   "runs_dates": [
    "2025-12-25",
@@ -8167,7 +8110,21 @@
    "2026-09-16",
    "2026-09-16",
    "2026-09-16",
-   "2026-09-17"
+   "2026-09-17",
+   "2026-09-17",
+   "2026-09-17",
+   "2026-09-17",
+   "2026-09-17",
+   "2026-09-17",
+   "2026-09-18",
+   "2026-09-18",
+   "2026-09-18",
+   "2026-09-18",
+   "2026-09-18",
+   "2026-09-18",
+   "2026-09-18",
+   "2026-09-19",
+   "2026-09-19"
   ],
   "ledger": "reports/stats/runs_seen.jsonl"
  },
@@ -8180,7 +8137,7 @@
   {
    "kind": "config_growth",
    "level": "watch",
-   "text": "設定キーが 4 週で +581(現在 3085)"
+   "text": "設定キーが 4 週で +730(現在 3232)"
   },
   {
    "kind": "todo_growth",
@@ -8195,12 +8152,7 @@
   {
    "kind": "untested_pre_era",
    "level": "info",
-   "text": "未テストで最大は core/anet-core/src/muzero_based_agent.cpp(1155 行、pre)"
-  },
-  {
-   "kind": "bulk",
-   "level": "info",
-   "text": "期間中の bulk 除外 321,614 行: docs/archify/anet_lab_20_training_step_sequence.html(14,959), docs/archify/anet_lab_00_system_architecture.html(14,925), docs/archify/anet_lab_30_experiment_dataflow.html(14,878)"
+   "text": "未テストで最大は core/anet-core/src/muzero_based_agent.cpp(1148 行、pre)"
   }
  ]
 }

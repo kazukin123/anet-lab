@@ -1,33 +1,143 @@
 {
   "_doc": "anet-audit の巡回状態。next_lens は次回の観点。scopes の last_seen は観点ごとの最終実施日。",
-  "next_lens": "refactor",
+  "next_lens": "defect",
   "scopes": [
-    {"key": "318_rl_core", "kind": "code", "last_seen": {}},
-    {"key": "321_agent_core", "kind": "code", "last_seen": {}},
-    {"key": "324_dqn", "kind": "code", "last_seen": {}},
-    {"key": "315_nn", "kind": "code", "last_seen": {}},
-    {"key": "314_tensor", "kind": "code", "last_seen": {}},
-    {"key": "316_config", "kind": "code", "last_seen": {}},
-    {"key": "317_metrics", "kind": "code", "last_seen": {}},
-    {"key": "320_env_core", "kind": "code", "last_seen": {}},
-    {"key": "322_env_individual", "kind": "code", "last_seen": {}},
-    {"key": "312_util", "kind": "code", "last_seen": {}},
-    {"key": "313_profiling", "kind": "code", "last_seen": {}},
-    {"key": "325_muzero", "kind": "code", "last_seen": {}},
-    {"key": "319_gui", "kind": "code", "last_seen": {}},
-    {"key": "110_runner_app", "kind": "code", "last_seen": {}},
-    {"key": "120_metrics_viewer", "kind": "code", "last_seen": {}},
-    {"key": "311_dev_tools", "kind": "code", "last_seen": {}},
-    {"key": "docs/design/100_runtime_and_configuration.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/110_agents_and_learning.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/120_environments.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/130_neural_networks.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/140_observability.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/150_replay_buffer.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/160_applications_and_tools.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/200_dqn_agents.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/210_metrics_viewer.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "docs/design/220_atari_env.jp.md", "kind": "doc", "last_seen": {}},
-    {"key": "CONTEXT.md", "kind": "doc", "last_seen": {}}
+    {
+      "key": "318_rl_core",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "321_agent_core",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "324_dqn",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "315_nn",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "314_tensor",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "316_config",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "317_metrics",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "320_env_core",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "322_env_individual",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "312_util",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "313_profiling",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "325_muzero",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "319_gui",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "110_runner_app",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "120_metrics_viewer",
+      "kind": "code",
+      "last_seen": {
+        "refactor": "2026-09-19"
+      }
+    },
+    {
+      "key": "311_dev_tools",
+      "kind": "code",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/100_runtime_and_configuration.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/110_agents_and_learning.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/120_environments.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/130_neural_networks.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/140_observability.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/150_replay_buffer.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/160_applications_and_tools.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/200_dqn_agents.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/210_metrics_viewer.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "docs/design/220_atari_env.jp.md",
+      "kind": "doc",
+      "last_seen": {}
+    },
+    {
+      "key": "CONTEXT.md",
+      "kind": "doc",
+      "last_seen": {}
+    }
   ]
 }

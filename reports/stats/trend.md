@@ -1,6 +1,6 @@
 # anet-lab trend
 
-生成 2026-09-17、HEAD `83a2a81`、境界日 2026-05-30、cloc 使用、年代 blame。
+生成 2026-09-19、HEAD `c07622e`、境界日 2026-05-30、cloc 使用、年代 blame。
 正本は git 履歴と Run フォルダ。この表は毎回再生成される。コミット数は参考列で、稼働日と行の流量と Run 起動数を主軸に読む。
 
 ## 活動と流量(週次)
@@ -20,27 +20,27 @@
 | 2026-08-24週 | 4 | 36 | 35 | 9,420 / 2,716 | 3,891 | 5,046 / 382 | 74,392 | feat | #3 030_機能追加 | 5/17 | 238 |
 | 2026-08-31週 | 5 | 32 | 58 | 7,609 / 1,476 | 3,401 | 3,205 / 936 | 171,339 | feat | #3 030_機能追加 | 12/17 | 318 |
 | 2026-09-07週 | 7 | 24 | 32 | 1,912 / 264 | 952 | 3,588 / 1,056 | 25,690 | docs | #13 317_可視化/メトリクス | 4/9 | 243 |
-| 2026-09-14週 (途中) | 3 | 15 | 23 | 3,108 / 1,586 | 569 | 1,325 / 286 | 50,193 | feat | #3 030_機能追加 | 3/12 | 288 |
+| 2026-09-14週 (途中) | 5 | 18 | 37 | 3,237 / 1,590 | 651 | 1,358 / 290 | 58,399 | feat | #3 030_機能追加 | 3/13 | 267 |
 
-連続稼働 33 週。Run 台帳 447 本(今回追加 447)。
+連続稼働 33 週。Run 台帳 461 本(今回追加 14)。
 
 ## 規模(現在)
 
 | 領域 | ファイル | code 行 | comment 行 | comment/code |
 |---|---|---|---|---|
-| tests | 69 | 35,298 | 351 | 0.01 |
-| core | 95 | 32,889 | 4,483 | 0.14 |
+| tests | 69 | 35,864 | 363 | 0.01 |
+| core | 95 | 32,744 | 4,461 | 0.14 |
 | memo | 187 | 24,255 | 0 | 0.00 |
 | viewer | 55 | 8,259 | 344 | 0.04 |
-| runner | 26 | 8,035 | 703 | 0.09 |
+| runner | 26 | 8,041 | 705 | 0.09 |
 | envs | 44 | 6,984 | 911 | 0.13 |
 | exp | 19 | 6,843 | 0 | 0.00 |
-| docs | 59 | 5,894 | 0 | 0.00 |
-| other | 6 | 289 | 0 | 0.00 |
+| docs | 59 | 5,914 | 0 | 0.00 |
+| other | 6 | 290 | 0 | 0.00 |
 | build | 1 | 77 | 39 | 0.51 |
 
-config: 3,102 行、キー 3,085。設計文書 jp 15 本 5,894 行、en 0 本 0 行。ADR 43。
-テスト数: C++ TEST_CASE 659、Java @Test 178、Python test_ 127。
+config: 3,249 行、キー 3,232。設計文書 jp 15 本 5,923 行、en 0 本 0 行。ADR 43。
+テスト数: C++ TEST_CASE 673、Java @Test 181、Python test_ 129。
 
 ## テスト充足(機能カテゴリ × 年代)
 
@@ -52,30 +52,30 @@ L0 = test 行 / prod 行。L1 直接 = 隣に `_test.cpp` がある。L1 間接 
 | 313 プロファイリング | 2 | 708 | 53 | 0.07 | 2/2 | 2/2 | 1/1 | 1/1 | 27% |
 | 314 テンソル処理 | 13 | 3,796 | 261 | 0.07 | 5/13 | 9/13 | 7/11 | 2/2 | 85% |
 | 315 ニューラルネットワーク | 8 | 6,309 | 3,716 | 0.59 | 1/8 | 8/8 | 2/2 | 6/6 | 49% |
-| 316 設定管理 | 4 | 1,727 | 1,614 | 0.93 | 2/4 | 2/4 | 1/1 | 1/3 | 25% |
+| 316 設定管理 | 4 | 1,727 | 1,852 | 1.07 | 2/4 | 2/4 | 1/1 | 1/3 | 25% |
 | 317 可視化/メトリクス | 9 | 4,330 | 708 | 0.16 | 4/9 | 9/9 | 7/7 | 2/2 | 84% |
-| 318 強化学習 共通基盤 | 13 | 9,767 | 7,199 | 0.74 | 5/13 | 11/13 | 9/11 | 2/2 | 64% |
-| 319 GUI 共通基盤 (対象外) | 36 | 8,767 | 0 | 0.00 | 0/36 | 6/36 | 3/26 | 3/10 | 62% |
+| 318 強化学習 共通基盤 | 13 | 9,731 | 7,278 | 0.75 | 5/13 | 11/13 | 9/11 | 2/2 | 64% |
+| 319 GUI 共通基盤 (対象外) | 36 | 8,773 | 0 | 0.00 | 0/36 | 6/36 | 3/26 | 3/10 | 62% |
 | 320 Env 共通基盤 | 2 | 1,451 | 680 | 0.47 | 2/2 | 2/2 | 1/1 | 1/1 | 48% |
-| 321 Agent 共通基盤 | 8 | 7,757 | 7,905 | 1.02 | 2/8 | 6/8 | 4/6 | 2/2 | 49% |
+| 321 Agent 共通基盤 | 8 | 7,755 | 8,128 | 1.05 | 2/8 | 6/8 | 4/6 | 2/2 | 49% |
 | 322 ENV個別実装 | 22 | 6,709 | 2,785 | 0.42 | 8/22 | 13/22 | 4/13 | 9/9 | 54% |
-| 324 AGENT個別実装 DQN系列 | 6 | 2,732 | 1,762 | 0.64 | 2/6 | 6/6 | 4/4 | 2/2 | 51% |
-| 325 AGENT個別実装 MuZero系列 | 2 | 307 | 0 | 0.00 | 0/2 | 2/2 | 2/2 | 0/0 | 93% |
+| 324 AGENT個別実装 DQN系列 | 6 | 2,572 | 1,751 | 0.68 | 2/6 | 6/6 | 4/4 | 2/2 | 51% |
+| 325 AGENT個別実装 MuZero系列 | 2 | 309 | 0 | 0.00 | 0/2 | 2/2 | 2/2 | 0/0 | 93% |
 | uncategorized | 6 | 52 | 0 | 0.00 | 0/6 | 1/6 | 0/5 | 1/1 | 87% |
-| 合計(対象外を除く) | 120 | 49,704 | 28,354 | 0.57 | 47/120 | 90/120 | 51/75 | 39/45 | - |
-| Java (Viewer) | - | 5,410 | 8,876 | 1.64 | - | - | - | - | - |
-| Python (tools) | - | 10,229 | 3,066 | 0.30 | - | - | - | - | - |
+| 合計(対象外を除く) | 120 | 49,508 | 28,883 | 0.58 | 47/120 | 90/120 | 51/75 | 39/45 | - |
+| Java (Viewer) | - | 5,410 | 8,958 | 1.66 | - | - | - | - | - |
+| Python (tools) | - | 10,229 | 3,092 | 0.30 | - | - | - | - | - |
 
 ### テスト負債(未テストの prod ファイル、LOC × churn 順)
 
 | LOC | churn 90日 | ファイル | カテゴリ | 年代 |
 |---|---|---|---|---|
-| 1155 | 2 | core/anet-core/src/muzero_based_agent.cpp | 321 Agent 共通基盤 | pre |
+| 1148 | 2 | core/anet-core/src/muzero_based_agent.cpp | 321 Agent 共通基盤 | pre |
 | 588 | 3 | core/anet-core/src/config_impl.cpp | 316 設定管理 | post |
 | 745 | 1 | core/anet-core/src/scaler_impl.cpp | 314 テンソル処理 | pre |
 | 288 | 3 | core/envs/gridmaze1/src/GridMazeEnv.cpp | 322 ENV個別実装 | pre |
 | 245 | 2 | core/envs/cartpole2/src/CartPoleEnv.cpp | 322 ENV個別実装 | pre |
-| 257 | 1 | core/anet-core/src/muzero_based_agent.hpp | 321 Agent 共通基盤 | pre |
+| 258 | 1 | core/anet-core/src/muzero_based_agent.hpp | 321 Agent 共通基盤 | pre |
 | 108 | 3 | core/envs/gridmaze1/src/GridMazeEnv.hpp | 322 ENV個別実装 | pre |
 | 334 | 0 | core/anet-core/src/muzero_rb.cpp | 318 強化学習 共通基盤 | pre |
 | 74 | 2 | core/anet-core/include/anet/diag.hpp | 312 ユーティリティ | post |
@@ -90,7 +90,7 @@ L0 = test 行 / prod 行。L1 直接 = 隣に `_test.cpp` がある。L1 間接 
 
 - TODO/FIXME 72(4 週前 67)。参考値。
 - 台帳 open 0。優先度別 {}、観点別 {}。
-- 800 行以上のファイル 15 本: core/anet-core/src/dqn_based_agent_test.cpp(5,588), core/anet-core/src/nn_test.cpp(3,218), core/anet-core/src/dqn_based_agent.cpp(3,083), apps/runner/tools/optuna_common.py(2,984), core/anet-core/src/replay_buffer_test.cpp(2,968), viewers/metrics-tools/inspect_run.py(2,354), core/anet-core/src/nn_modules.cpp(2,293), core/anet-core/src/replay_buffer_impl.cpp(1,827)
+- 800 行以上のファイル 15 本: core/anet-core/src/dqn_based_agent_test.cpp(5,807), core/anet-core/src/nn_test.cpp(3,218), core/anet-core/src/dqn_based_agent.cpp(3,084), apps/runner/tools/optuna_common.py(2,984), core/anet-core/src/replay_buffer_test.cpp(2,968), viewers/metrics-tools/inspect_run.py(2,354), core/anet-core/src/nn_modules.cpp(2,293), core/anet-core/src/replay_buffer_impl.cpp(1,827)
 
 ## プロセス
 
@@ -104,13 +104,12 @@ L0 = test 行 / prod 行。L1 直接 = 隣に `_test.cpp` がある。L1 間接 
 
 - 直下 0xx 3 本、9xx バックログ 15 本、PRD 総数 91。
 - リードタイム(done 規約 2026-08-21 より後に完了した 16 本): 中央値 5.0 日、p25 1.25、p75 12.75。規約導入日の一括移動 50 本は除外。
-- 未コミット 19 件、+0 / -0。
+- 未コミット 91 件、+2,370 / -1,735。
 
 ## insight flags
 
 - [good] 直近 4 週のテスト投資率 0.76 は厚い
-- [watch] 設定キーが 4 週で +581(現在 3085)
+- [watch] 設定キーが 4 週で +730(現在 3232)
 - [info] TODO/FIXME が 4 週で +5(参考値)
 - [good] 33 週連続で稼働
-- [info] 未テストで最大は core/anet-core/src/muzero_based_agent.cpp(1155 行、pre)
-- [info] 期間中の bulk 除外 321,614 行: docs/archify/anet_lab_20_training_step_sequence.html(14,959), docs/archify/anet_lab_00_system_architecture.html(14,925), docs/archify/anet_lab_30_experiment_dataflow.html(14,878)
+- [info] 未テストで最大は core/anet-core/src/muzero_based_agent.cpp(1148 行、pre)

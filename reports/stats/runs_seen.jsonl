@@ -445,3 +445,17 @@
 {"run": "run_prd062_observer_fix_smoke_20260827", "path": "apps/runner/workspaces/_default/runs/run_prd062_observer_fix_smoke_20260827", "started": "2026-08-27", "first_seen": "2026-09-17"}
 {"run": "run_prd062_smoke_ll_20260827", "path": "apps/runner/workspaces/_default/runs/run_prd062_smoke_ll_20260827", "started": "2026-08-27", "first_seen": "2026-09-17"}
 {"run": "run_prd062_smoke_ll_min_20260827", "path": "apps/runner/workspaces/_default/runs/run_prd062_smoke_ll_min_20260827", "started": "2026-08-27", "first_seen": "2026-09-17"}
+{"run": "run_20260917-203904_ev_btrfull_envs64_cap2m_50m", "path": "apps/runner/workspaces/atari-03/runs/run_20260917-203904_ev_btrfull_envs64_cap2m_50m", "started": "2026-09-17", "first_seen": "2026-09-19"}
+{"run": "run_20260917-205100_tmp_eval", "path": "apps/runner/workspaces/atari-04/runs/run_20260917-205100_tmp_eval", "started": "2026-09-17", "first_seen": "2026-09-19"}
+{"run": "run_20260917-210639_tp_rr1_va_evaloff_10m", "path": "apps/runner/workspaces/atari-04/runs/run_20260917-210639_tp_rr1_va_evaloff_10m", "started": "2026-09-17", "first_seen": "2026-09-19"}
+{"run": "run_20260917-213003_tp_rr4_sn12_evaloff_10m", "path": "apps/runner/workspaces/atari-04/runs/run_20260917-213003_tp_rr4_sn12_evaloff_10m", "started": "2026-09-17", "first_seen": "2026-09-19"}
+{"run": "run_20260917-225635_rr4_btrsn12_envs128_cap2m_50m", "path": "apps/runner/workspaces/atari-04/runs/run_20260917-225635_rr4_btrsn12_envs128_cap2m_50m", "started": "2026-09-17", "first_seen": "2026-09-19"}
+{"run": "run_20260918-062145_rr1_va_hard125_100m", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-062145_rr1_va_hard125_100m", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260918-121322_ev_sn12_envs128_cap2m_50m", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-121322_ev_sn12_envs128_cap2m_50m", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260918-122417_tmp_wiring", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-122417_tmp_wiring", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260918-122451_tmp_wiring", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-122451_tmp_wiring", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260918-122522_ev_sn12_envs128_cap2m_50m", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-122522_ev_sn12_envs128_cap2m_50m", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260918-123929_rr4_vitbtr_envs128_cap2m_50m", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-123929_rr4_vitbtr_envs128_cap2m_50m", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260918-213035_rr1_vitva_hard125_50m", "path": "apps/runner/workspaces/atari-04/runs/run_20260918-213035_rr1_vitva_hard125_50m", "started": "2026-09-18", "first_seen": "2026-09-19"}
+{"run": "run_20260919-014649_rr4_btrsn12_envs128_cap2m_50m_s2", "path": "apps/runner/workspaces/atari-04/runs/run_20260919-014649_rr4_btrsn12_envs128_cap2m_50m_s2", "started": "2026-09-19", "first_seen": "2026-09-19"}
+{"run": "run_20260919-093925_rr4_btrsn12_envs128_cap4m_50m", "path": "apps/runner/workspaces/atari-04/runs/run_20260919-093925_rr4_btrsn12_envs128_cap4m_50m", "started": "2026-09-19", "first_seen": "2026-09-19"}
