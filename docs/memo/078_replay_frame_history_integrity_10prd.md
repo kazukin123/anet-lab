@@ -14,7 +14,7 @@
 | D4 | 履歴開始フラグは`ReplayExperienceStorage`が所有し、実観測のPushで引数の値を、`PushTerminalDummy`でfalseを、観測と同じ書込みで書いて旧世代を置換する。検証用のlane状態（直前の実pushがENDだったか、初期値true）は`DefaultReplayBuffer::Push`が照合・更新する。形式はCPU常駐のslot当たり1 byte相当の配列とlane当たり1 boolで、Tensorである必要はない。extractorは履歴開始だけを新→旧に走査し、最初のtrueで止める。`next_obs`は`L = t + actual_n`から同じ規則で復元する。`stack_count == 1`は走査しない |
 | D5 | 全条件matrixは`[.][integrity_assay]`のhiddenテストにし、`[replay_buffer]`タグは付けない。Catch2は正のフィルタに一致すればhiddenも実行するため、通常タグを付けると`"[replay_buffer]"`指定で走る。最小再現3本と§7.3の追加テストは`[replay_buffer][frame_stack][history_start]`を共通タグにして可視のまま置く。CI/CDの既定スイートにmatrixは含めない |
 | D6 | matrixはstack `{1,2,4}` × n_step `{1,2,3,5}` × lane数 `{1,4,16,128}` × 実lane容量 `{17,31}` × Uniform/PER × direct/CPU Prefetchの384条件へ拡張する。全条件の全検査地点完走が受入条件。狙い撃ちの単体テストも追加する（§7.3） |
-| D7 | アッセイランナー`core/anet-core/testdata/prd078/run_integrity_assay.py`（`.venv`のPython、標準ライブラリのみ）を追加する。caseごとに`anet-core-test.exe "[integrity_assay]" -c "case N"`を別プロセスで順次実行し、失敗しても続行する。`.scratch/prd078/<timestamp>/`にcase別ログ、`results.csv`、`report.md`を書く。AGENTS.md検証節への手順追記は実装と同じ変更で行う |
+| D7 | アッセイランナー`core/anet-core/testdata/prd078/run_integrity_assay.py`（`.venv`のPython、標準ライブラリのみ）を追加する。caseごとに`anet-core-test.exe "[integrity_assay]" -c "case N" --rng-seed <seed>`を別プロセスで順次実行し、失敗しても続行する。seed（既定`20260919`）はmatrixのTEST_CASEが`Catch::getSeed()`で読んでReplayBufferの抽選とunique probeに使い、最小再現と単体テストは固定seedのまま。case当たりの時間上限（既定300秒）の超過は失敗として記録する。`.scratch/prd078/<timestamp>/`にcase別ログ、`results.csv`、`report.md`を書く。AGENTS.md検証節への手順追記は実装と同じ変更で行う |
 | D8 | `terminals_` / `actual_n_steps_`の初期値（true / 0）は現状維持。既存テスト「ReplayExperienceStorage initializes unwritten slots as episode boundaries」は名前と目的を「Storage metadataの初期値」に限定し、「未書込みslotの履歴開始は立っていない（境界は書込みでだけ付く）」を足す。`DefaultExperienceBuilder`の`sequence.back().is_dummy`分岐は到達不能で注記のみ（スコープ外）。`DumpToLog`に履歴開始を出力する |
 | D9 | [ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)を新設し、[ADR 0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)の「安全な開始indexならextractorは変更しない」判断を名指しで更新する（history margin自体は維持）。`CONTEXT.md`に用語「履歴開始」を追加する。設計書150と実装コメントの更新は実装と同じ変更で行う |
 
@@ -35,7 +35,7 @@ ReplayBufferから返るTensorのshape、replay item key、n-step長が正しく
 
 ### 2.1 整合性アッセイ
 
-Debugで、stack `{1,4}` × n_step `{1,3,5}` × lane数 `{1,4,16,128}` × 実lane容量 `{17,31}` × Uniform/PER × direct/CPU Prefetch の192条件を実行した。入力生成seedは`20260919`。
+Debugで、stack `{1,4}` × n_step `{1,3,5}` × lane数 `{1,4,16,128}` × 実lane容量 `{17,31}` × Uniform/PER × direct/CPU Prefetch の192条件を実行した。入力履歴は乱数を使わない固定の生成規則による。ReplayBufferの抽選とunique probeのseedは`20260919`。
 
 | stack | n_step | 成功条件 | 失敗条件 |
 |---|---|---:|---:|
@@ -201,9 +201,9 @@ Push検証の規則: laneごとに`expected = lane_expects_start`（初期値tru
 | 履歴開始 | 1 byte |
 | 参考: Atari 84×84 uint8観測 | 7,056 byte |
 
-Atari 1M slotで約1 MiB。全観測のstack複製、無制限の履歴保持、追加の画像Tensorコピーは導入しない。Pushは1 byteの書込みが増えるだけで、Sampleの走査は2つのaccessor読みから1 byte読みへ置き換わる。既存のProfileRangeを維持し、Push/Sampleの時間を実装時に確認する。
+Atari 1M slotで約1 MiB。全観測のstack複製、無制限の履歴保持、追加の画像Tensorコピーは導入しない。Pushにはslot当たり1 byteの履歴開始の書込みに加え、全laneの事前検証とlane状態の更新が増える。Sampleの走査は2つのaccessor読みから1 byte読みへ置き換わる。既存のProfileRangeを維持し、Push/Sampleの時間を同条件で変更前後に測定・比較して報告する。固定の性能劣化率を合否基準にはせず、明確な悪化が出た場合は原因を調査する。
 
-境界計算は内部の小さな責務として集約する。新しい公開サブシステムや汎用フレームワークは要求しない。公開ReplayBuffer API、設定キー、replay item keyの符号化、sampling分布、`Size()`の意味、PER初期優先度完成・eviction統計のready基準は変更しない。Pushが`state.episode_start`を必須入力として読む点だけが入力契約の追加である。
+境界計算は内部の小さな責務として集約する。新しい公開サブシステムや汎用フレームワークは要求しない。公開ReplayBuffer APIのシグネチャ、設定キー、replay item keyの符号化、sampling分布、`Size()`の意味、PER初期優先度完成・eviction統計のready基準は変更しない。Pushが`state.episode_start`を必須入力として読む点だけが入力契約の追加である。
 
 ### 6.3 既存設計との関係
 
@@ -236,7 +236,7 @@ Atari 1M slotで約1 MiB。全観測のstack複製、無制限の履歴保持、
 
 ### 7.2 全matrixの再検査
 
-384条件（D6）すべてが全検査地点まで完走すること。失敗した条件だけの再実行では完了としない。
+384条件（D6）すべてが全検査地点まで完走すること。受入実行では抽選・probeのseedに`20260919`を使用する。失敗した条件だけの再実行では完了としない。
 
 1. 元の入力履歴をring形式ではない正解として用い、本体のstack/n-step復元処理を流用しない。入力生成器は`episode_start`をepisode先頭の入力にだけ立て、done/truncatedと整合する契約どおりの参照実装として維持する。
 2. laneごとに長さ`{1,2,3,4,5,7}`のepisodeをずらして巡回し、done/truncationを交互に配置する。各lane容量の5倍まで入力し、初期充填、初回wrap前後、各周回後を検査する。
@@ -250,10 +250,11 @@ matrixのTEST_CASEは`[.][integrity_assay]`だけをタグに持つ（D5）。�
 ランナーの仕様:
 
 - 位置と実行系: `core/anet-core/testdata/prd078/run_integrity_assay.py`。`.venv`のPythonで実行し、標準ライブラリだけを使う。
-- 引数: テスト実行体のパス（既定`core/anet-core/bin/Debug/anet-core-test.exe`）、対象case（既定は全384。範囲または列挙で再開できる）、出力先（既定`.scratch/prd078/<timestamp>/`）、Catch2の`--rng-seed`（既定`20260919`）、case当たりの時間上限（超過は失敗扱い）。
+- 引数: テスト実行体のパス（既定`core/anet-core/bin/Debug/anet-core-test.exe`）、対象case（既定は全384。範囲または列挙で再開できる）、出力先（既定`.scratch/prd078/<timestamp>/`）、seed（既定`20260919`。Catch2の`--rng-seed`として渡し、matrixのTEST_CASEが`Catch::getSeed()`で読み取ってReplayBufferの抽選とunique probeへ適用する）、case当たりの時間上限（既定300秒、引数で変更可能。超過は失敗扱い）。
 - 動作: caseごとに`<exe> "[integrity_assay]" -c "case N" --rng-seed <seed>`を1プロセスで実行し、stdout/stderrを`case-NNN.log`へ、終了コードと秒を`results.csv`へ書く。失敗しても次のcaseへ続行する。
+- seedの適用と記録: `--rng-seed`をCatch2へ渡すだけで済ませず、matrixのTEST_CASEはCatch2の実行seedを`Catch::getSeed()`（uint32。`20260919`は収まる）で読み、ReplayBufferの抽選seedとunique probeのRNGに使う。切り替える対象はhiddenのmatrixだけで、最小再現3本と§7.3の単体テストは固定seedのままにする。Catch2は`--rng-seed`未指定だと乱数でseedを決めるため、ランナーを介さずmatrixを直接実行した場合の再現には出力先頭の`Randomness seeded to:`の値を使う。入力履歴の生成規則は固定のままとし、seedを変えても観測・報酬・episode境界の配置は変えない。実際に抽選・probeへ適用したseedをcase別ログと`report.md`に記録する。
 - 集計: Catch2出力の標記行（`Replay integrity passed: case=… snapshots=… covered_keys=… checked_samples=… seconds=…`、`Replay integrity snapshot complete: pushed=…`）から、成功/失敗数、失敗caseの最後に完了した検査地点と失敗した検査地点、合計時間、検査地点数、延べkey数、照合サンプル数を`report.md`に書く。失敗が1件でもあればランナーの終了コードを非0にする。
-- 未完走を成功扱いしない。時間上限超過、クラッシュ、標記行の欠落はすべて失敗として数える。
+- 未完走を成功扱いしない。時間上限超過、クラッシュ、標記行の欠落はすべて失敗として数える。時間上限を超えたcaseは打ち切り、失敗を記録して次のcaseへ進む。300秒はhangによる全体停止を防ぐための上限であり、性能の合格基準ではない。
 
 ### 7.3 原因に対応する境界追加検査
 
@@ -279,11 +280,13 @@ VsDevCmd経由のDebugビルド後、次の順に確認する。
 
 1. `anet-core-test.exe "[history_start]"`で最小再現3本と§7.3の追加テストが緑。
 2. D7のランナーで384条件を実行し、全条件が全検査地点まで完走。
-3. 引数なしの既定スイート全体（hidden除外、CI相当）で失敗0件、期待失敗0件。`"[replay_buffer]"`指定でmatrixが走らないことを所要時間で確認する。
+3. 引数なしの既定スイート全体（hidden除外、CI相当）で失敗0件、期待失敗0件。テスト一覧とタグを確認し、matrixが引数なしの既定スイートと`"[replay_buffer]"`指定の対象に含まれないことを確認する。所要時間からの推測では判定しない。
 
 新規・既存の予期しない失敗は0件とする。修正により後続地点で別の不整合が出た場合は、原因と対応範囲を追記し、matrix未完走のまま完了扱いにしない。
 
-実測時間、検査地点数、延べ被覆key数、照合サンプル数、メモリ（実行者の観測値）と追加metadata量を報告する。実行時間を数秒へ収めることは合格条件にしない。条件を順次実行し、大量の履歴や複数プロセスを同時保持しない。性能測定中のRunがある場合は、その終了確認後にビルド・実行する。
+履歴開始の保存、全laneの事前検証、stack復元、既存テストの移行は一体で完成させる。ランナー整備は独立して進められるが、片方だけを受入としない。サンプル候補を余分に減らしていないことは、matrixの各検査地点で`Size()`が契約から導いた期待集合の件数と一致すること、および§7.1の件数維持で確認する。学習スコアの改善は要求しない。
+
+実測時間、検査地点数、延べ被覆key数、照合サンプル数、メモリ（実行者の観測値）と追加metadata量を報告する。加えて、§6.2のPush/Sampleの変更前後比較を報告する。実行時間を数秒へ収めることは合格条件にしない。条件を順次実行し、大量の履歴や複数プロセスを同時保持しない。性能測定中のRunがある場合は、その終了確認後にビルド・実行する。
 
 実装と同じ変更で更新する文書:
 
@@ -319,6 +322,21 @@ shutdown修正直後の1回で`_CrtIsValidHeapPointer` / `is_block_type_valid`�
 ### 9.3 到達不能なBuilder分岐
 
 `DefaultExperienceBuilder::Build`の`sequence.back().is_dummy`分岐は到達しない。dummyは必ずtruncatedレコードの直後にあり、`NStepQueueController`はそのtruncatedを先に終端として系列を切るためである。本PRDでは変更せず注記に留める。
+
+### 9.4 再グリルでの簡素化判断（2026-09-20）
+
+目的の軸は、A/Bを一体で修復し、正当なサンプル候補を余分に減らさず、入力と一致する観測履歴を返すことである。D1〜D9の中核判断は維持し、次の項目を判定した。再グリルで前提を補正した箇所は、seedの用途（入力生成ではなく抽選・probe）とPushの追加コスト（書込みだけでなく検証・lane状態更新も含む）の2点で、境界管理の設計は変えていない。
+
+| 判定 | 対象 | 理由・再検討条件 |
+|---|---|---|
+| 維持 | slotごとの履歴開始 | 削ると、起動境界の消失とn-step未確定metadataへの依存が残り、A/Bを修復できない |
+| 維持 | laneごとの入力整合検証 | stackを切るepisode_startとn-stepを切るdone/truncatedの一致をPush境界で保証する |
+| 維持 | PRD078専用ランナー | 最初の失敗後に残り91条件を別途実行した作業を再現可能にし、全条件の完走を確認する |
+| 限定 | 可変seedとtimeout | seedは抽選・probeだけへ、hiddenのmatrixだけに適用する。入力履歴は固定し、timeoutは既定300秒の実行オプションに収める |
+| 保留 | ランダム入力履歴の生成 | 固定境界の384条件で捉えられない実際の不具合・検証不足が生じた時点で再検討する |
+| 保留 | 汎用テスト実行基盤 | 他の検査でも同じ実行・集計処理の重複が実際に負担になった時点で再検討する |
+| 保留 | 性能専用基盤 | 既存のProfileRangeと同条件比較では悪化の判定・原因調査ができない時点で再検討する |
+| 対象外を維持 | 学習スコア改善の立証、CUDA経路の全面検証、ReplayBuffer全体の再設計 | 今回の観測履歴修復の受入に必要な範囲を超える |
 
 ## 10. 根拠・参照
 

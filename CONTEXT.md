@@ -122,8 +122,12 @@ ready rangeへwrap後のhistory marginを適用した、sample候補の最終論
 _Avoid_: valid indices（実装上の列挙結果であって概念名ではない）, ready range（未来側条件のみの広い区間と混同する）
 
 **history margin**:
-ring折り返し後に、保持最古のlogical timeから`stack_count - 1`件をsample不可とする下限側の余白。過去stack frameが上書きで失われたtransitionを候補から除外するためのもので、wrap前は0。episode境界のpaddingとは別概念（上書き由来の履歴喪失はpaddingしない）。
+ring折り返し後に、保持最古のlogical timeから`stack_count - 1`件をsample不可とする下限側の余白。過去stack frameが上書きで失われたtransitionを候補から除外するためのもので、wrap前は0。履歴開始のpaddingとは別概念（上書き由来の履歴喪失はpaddingしない）。
 _Avoid_: stack margin（NN構成の語と紛れる）, padding幅（padding可否とは独立の除外幅）
+
+**履歴開始**:
+ReplayBufferのslotに保存された観測のうち、frame stackがそれより過去へ遡らない最初の観測。laneの最初の観測と、done/truncationの次の観測がこれに当たり、入力`BatchState::episode_start`と一致する。Push時にslotへ確定し、paddingはここから前を先頭frameで埋める。ring上書きで失われた履歴は履歴開始ではなくhistory marginで除外する。
+_Avoid_: episode boundary（前後どちらか曖昧）, terminal flag, unwritten slot, episode_startフラグ（入力フィールドとslotの保存値を混同する）
 
 **replay 抽選履歴群**:
 学習用に抽選可能なreplayの遷移集合を、学習用抽選を経験したかどうかで分けた群。未抽選群と抽選済み群からなり、観測自体の既知・未知や学習からの除外を表さない。
