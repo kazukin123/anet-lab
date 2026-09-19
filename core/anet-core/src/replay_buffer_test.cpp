@@ -8,10 +8,13 @@
 
 #include <atomic>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdint>
 #include <exception>
+#include <iostream>
 #include <mutex>
 #include <numeric>
 #include <set>
@@ -3553,4 +3556,399 @@ TEST_CASE("ReplayBuffer stack_keys leaves non-stacked observations at latest fra
     RequireShape(samples.next_state.next_obs.At(kMaskKey), { 1, 2 });
     RequireFlatApprox(samples.obs.At(kMaskKey)[0], { StateValue(0, 2), StateValue(0, 2) + 0.25f });
     RequireFlatApprox(samples.next_state.next_obs.At(kMaskKey)[0], { StateValue(0, 3), StateValue(0, 3) + 0.25f });
+}
+
+namespace replay_integrity_assay {
+
+constexpr int64_t kFrameBytes = 6;
+constexpr uint64_t kSeed = 20260919;
+constexpr float kGamma = 0.5f;
+
+struct Transition {
+    int64_t logical;
+    int first;
+    int last;
+    bool done_episode;
+};
+
+using History = std::vector<std::vector<Transition>>;
+
+std::array<uint8_t, kFrameBytes> Frame(int lane, int step, bool terminal_observation = false)
+{
+    // lane と時刻を別のバイトへ格納し、reset観測とtruncation観測を区別する。
+    const auto time = static_cast<uint32_t>(step);
+    return { static_cast<uint8_t>(lane), static_cast<uint8_t>(time),
+        static_cast<uint8_t>(time >> 8), static_cast<uint8_t>(time >> 16),
+        static_cast<uint8_t>(time >> 24), static_cast<uint8_t>(terminal_observation) };
+}
+
+float Reward(int lane, int step)
+{
+    return static_cast<float>((lane * 7 + step * 3) % 23 - 11) / 8.0f;
+}
+
+History MakeHistory(int lanes, int steps)
+{
+    // 正解は全入力履歴を保持する。ring、queue、productionの復元処理は使わない。
+    constexpr std::array<int, 6> lengths{ 1, 2, 3, 4, 5, 7 };
+    History history(lanes);
+    for (int lane = 0; lane < lanes; ++lane) {
+        int first = 0;
+        int episode = lane;
+        int64_t logical = 0;
+        while (first < steps) {
+            const int last = first + lengths[episode % lengths.size()] - 1;
+            const bool done = episode % 2 == 0;
+            for (int step = first; step <= last && step < steps; ++step) {
+                history[lane].push_back(Transition{
+                    .logical = logical++, .first = first, .last = last, .done_episode = done });
+                // truncationの終端観測は独立slotを占め、後続入力の位置だけを1つ進める。
+                if (step == last && !done) ++logical;
+            }
+            first = last + 1;
+            ++episode;
+        }
+    }
+    return history;
+}
+
+int64_t Cursor(const std::vector<Transition>& lane, int pushed)
+{
+    if (pushed == 0) return 0;
+    const auto& tail = lane[pushed - 1];
+    return tail.logical + 1 + (tail.last == pushed - 1 && !tail.done_episode ? 1 : 0);
+}
+
+int64_t Key(const Transition& row, int lane, int lanes, int capacity)
+{
+    // generationは初回書込みが1。時刻ではなくdummyを含む書込み位置を使う。
+    return (row.logical / capacity + 1) * (lanes * capacity)
+        + lane * capacity + row.logical % capacity;
+}
+
+std::set<int64_t> ExpectedKeys(const History& history, int pushed, int capacity, int stack, int n_step)
+{
+    // 公開契約の保持履歴と未来観測の条件を、入力レコード単位で判定する。
+    std::set<int64_t> keys;
+    const int lanes = static_cast<int>(history.size());
+    for (int lane = 0; lane < lanes; ++lane) {
+        const int64_t cursor = Cursor(history[lane], pushed);
+        for (int step = 0; step < pushed; ++step) {
+            const auto& row = history[lane][step];
+            const int actual_n = std::min(n_step, row.last - step + 1);
+            if (step + actual_n > pushed) continue;
+            if (row.logical + n_step >= cursor) continue;
+            if (cursor > capacity && row.logical - (stack - 1) < cursor - capacity) continue;
+            keys.insert(Key(row, lane, lanes, capacity));
+        }
+    }
+    return keys;
+}
+
+rl::BatchExperience Input(const History& history, int step)
+{
+    const int lanes = static_cast<int>(history.size());
+    // 各Pushが独立したTensor storageを所有し、write-behind中の入力寿命も検査する。
+    auto obs = torch::empty({ lanes, kFrameBytes }, torch::kUInt8);
+    auto next = torch::empty_like(obs);
+    std::vector<float> rewards;
+    std::vector<bool> done, truncated, starts;
+    for (int lane = 0; lane < lanes; ++lane) {
+        const auto& row = history[lane][step];
+        const bool end = step == row.last;
+        const auto frame = Frame(lane, step);
+        const auto next_frame = Frame(lane, step + 1, end);
+        std::copy(frame.begin(), frame.end(), obs.data_ptr<uint8_t>() + lane * kFrameBytes);
+        std::copy(next_frame.begin(), next_frame.end(), next.data_ptr<uint8_t>() + lane * kFrameBytes);
+        rewards.push_back(Reward(lane, step));
+        done.push_back(end && row.done_episode);
+        truncated.push_back(end && !row.done_episode);
+        starts.push_back(step == row.first);
+    }
+    return rl::BatchExperience(
+        rl::BatchState(anet::TensorDict(kVectorKey, obs), BoolTensor(BoolValues(lanes, false)),
+            BoolTensor(BoolValues(lanes, false)), BoolTensor(starts)),
+        std::make_shared<rl::BatchActionInfo>(torch::zeros({ lanes }, torch::kInt64)),
+        FloatVector(rewards),
+        rl::BatchState(anet::TensorDict(kVectorKey, next), BoolTensor(done), BoolTensor(truncated),
+            BoolTensor(BoolValues(lanes, false))));
+}
+
+void RequireFrame(const uint8_t* actual, int lane, int step, bool terminal_observation, int64_t key)
+{
+    // 通常はフレーム単位で比較し、不一致時だけバイトごとの期待値と実値を表示する。
+    const auto expected = Frame(lane, step, terminal_observation);
+    if (!std::equal(expected.begin(), expected.end(), actual)) {
+        CAPTURE(key, lane, step, terminal_observation);
+        for (int byte = 0; byte < kFrameBytes; ++byte) {
+            CAPTURE(byte);
+            REQUIRE(static_cast<int>(actual[byte]) == static_cast<int>(expected[byte]));
+        }
+    }
+}
+
+std::set<int64_t> Verify(const rl::ExperienceSamples& samples, const History& history,
+    const std::set<int64_t>& expected_keys, int pushed, int capacity, int stack, int n_step)
+{
+    // Tensorはバッチごとに一度だけ連続化し、以降はCPU配列として照合する。
+    const auto keys = samples.replay_item_keys.contiguous();
+    const int64_t count = keys.numel();
+    const auto obs = samples.obs.At(kVectorKey).contiguous();
+    const auto next = samples.next_state.next_obs.At(kVectorKey).contiguous();
+    const auto returns = samples.target_returns.contiguous();
+    const auto lengths = samples.n_steps.contiguous();
+    const auto terminals = samples.next_state.terminals.contiguous();
+    const auto actions = samples.actions.contiguous();
+    const std::vector<int64_t> shape = stack == 1
+        ? std::vector<int64_t>{ count, kFrameBytes }
+        : std::vector<int64_t>{ count, stack, kFrameBytes };
+    REQUIRE(obs.sizes().vec() == shape);
+    REQUIRE(next.sizes().vec() == shape);
+    REQUIRE(returns.numel() == count);
+    REQUIRE(lengths.numel() == count);
+    REQUIRE(terminals.numel() == count);
+    REQUIRE(actions.numel() == count);
+    const auto* frames = obs.data_ptr<uint8_t>();
+    const auto* next_frames = next.data_ptr<uint8_t>();
+    const int lanes = static_cast<int>(history.size());
+    std::set<int64_t> seen;
+    for (int64_t i = 0; i < count; ++i) {
+        const auto key = keys.data_ptr<int64_t>()[i];
+        if (!expected_keys.contains(key)) {
+            CAPTURE(pushed, i, key);
+            FAIL("Sampled key is outside the expected snapshot.");
+        }
+        const auto* latest = frames + (i * stack + stack - 1) * kFrameBytes;
+        const int lane = latest[0];
+        const uint32_t step = static_cast<uint32_t>(latest[1])
+            | (static_cast<uint32_t>(latest[2]) << 8)
+            | (static_cast<uint32_t>(latest[3]) << 16)
+            | (static_cast<uint32_t>(latest[4]) << 24);
+        if (lane >= lanes || step >= static_cast<uint32_t>(pushed)) {
+            CAPTURE(pushed, i, key, lane, step);
+            FAIL("Observation identity is outside the input history.");
+        }
+        const auto& row = history[lane][step];
+        const int first_step = static_cast<int>(step);
+        const int actual_n = std::min(n_step, row.last - first_step + 1);
+        const bool reaches_end = first_step + actual_n - 1 == row.last;
+        const bool terminal = reaches_end && row.done_episode;
+        if (key != Key(row, lane, lanes, capacity)
+            || lengths.data_ptr<int64_t>()[i] != actual_n
+            || terminals.data_ptr<bool>()[i] != terminal || actions.data_ptr<int64_t>()[i] != 0) {
+            CAPTURE(pushed, i, key, lane, step);
+            REQUIRE(key == Key(row, lane, lanes, capacity));
+            REQUIRE(lengths.data_ptr<int64_t>()[i] == actual_n);
+            REQUIRE(terminals.data_ptr<bool>()[i] == terminal);
+            REQUIRE(actions.data_ptr<int64_t>()[i] == 0);
+        }
+
+        // 報酬は元の入力列から前向きの割引和として求める。
+        double expected_return = 0.0;
+        double discount = 1.0;
+        for (int offset = 0; offset < actual_n; ++offset) {
+            expected_return += discount * Reward(lane, first_step + offset);
+            discount *= kGamma;
+        }
+        if (!(returns.data_ptr<float>()[i] == Catch::Approx(expected_return).margin(1.0e-6))) {
+            CAPTURE(pushed, i, key, lane, step);
+            REQUIRE(returns.data_ptr<float>()[i] == Catch::Approx(expected_return).margin(1.0e-6));
+        }
+        for (int frame = 0; frame < stack; ++frame) {
+            RequireFrame(frames + (i * stack + frame) * kFrameBytes, lane,
+                std::max(row.first, first_step - stack + 1 + frame), false, key);
+            // true terminalのnext_obsはbootstrapに使わないため値の保証対象外。
+            if (!terminal) {
+                const int next_step = std::max(row.first, first_step + actual_n - stack + 1 + frame);
+                RequireFrame(next_frames + (i * stack + frame) * kFrameBytes, lane, next_step,
+                    reaches_end && frame == stack - 1, key);
+            }
+        }
+        seen.insert(key);
+    }
+    return seen;
+}
+
+struct Counts {
+    int64_t snapshots = 0;
+    int64_t covered_keys = 0;
+    int64_t checked_samples = 0;
+};
+
+void Run(int stack, int n_step, int lanes, int capacity, bool per, bool prefetch, Counts& counts)
+{
+    CAPTURE(kSeed, stack, n_step, lanes, capacity, per, prefetch);
+    // 長時間の実行でも停止箇所を追えるよう、条件と処理境界をflushして残す。
+    std::cout << "Replay integrity case: stack=" << stack << " n_step=" << n_step
+        << " lanes=" << lanes << " lane_capacity=" << capacity
+        << " per=" << per << " prefetch=" << prefetch << std::endl;
+    const int steps = 5 * capacity;
+    const auto history = MakeHistory(lanes, steps);
+    auto spec = MakeEnvSpec();
+    spec.state_spec.obs_spec[kVectorKey].shape = { kFrameBytes };
+    spec.state_spec.obs_spec[kVectorKey].dtype = torch::kUInt8;
+    const auto config = MakeConfig(lanes * capacity, n_step, kGamma, stack,
+        per ? rl::ReplaySamplerType::PRIORITIZED : rl::ReplaySamplerType::UNIFORM);
+    auto buffer = rl::CreateReplayBuffer(config, spec, lanes, torch::kCPU, false, kSeed);
+    if (prefetch) buffer = std::make_shared<rl::PrefetchingReplayBuffer>(buffer, torch::kCPU);
+
+    // 初期充填、lane 0の実slot初回wrap前後、各周回後、最終入力を検査する。
+    std::set<int> checkpoints{ n_step + 1, steps };
+    for (int pushed = 1; pushed <= steps; ++pushed) {
+        const auto before = Cursor(history[0], pushed - 1);
+        const auto after = Cursor(history[0], pushed);
+        if (before / capacity != after / capacity) {
+            checkpoints.insert(pushed);
+            if (before < capacity) {
+                checkpoints.insert(pushed - 1);
+                checkpoints.insert(pushed + 1);
+            }
+        }
+    }
+    anet::RandomGenerator probe_random(kSeed);
+    int previous_snapshot = 0;
+    std::set<int64_t> previous_keys;
+    for (int pushed = 1; pushed <= steps; ++pushed) {
+        buffer->Push(Input(history, pushed - 1));
+        if (!checkpoints.contains(pushed)) continue;
+        CAPTURE(pushed);
+        const auto expected = ExpectedKeys(history, pushed, capacity, stack, n_step);
+        REQUIRE_FALSE(expected.empty());
+        const int64_t batch_size = std::min<int64_t>(256, static_cast<int64_t>(expected.size()));
+        std::cout << "Replay integrity snapshot: pushed=" << pushed
+            << " expected=" << expected.size() << std::endl;
+
+        // 全件probeがwrite-behindの同期境界になる。SizeだけではFIFO完了を保証しない。
+        rl::ExperienceSamples samples;
+        REQUIRE(buffer->SampleUniqueUniform(samples, static_cast<int64_t>(expected.size()), probe_random));
+        REQUIRE(buffer->Size() == static_cast<int64_t>(expected.size()));
+        const auto probed = Verify(samples, history, expected, pushed, capacity, stack, n_step);
+        REQUIRE(probed == expected);
+        counts.checked_samples += samples.replay_item_keys.numel();
+
+        // 先読み済み1バッチは古いsnapshotで検証し、現snapshotの被覆へ混ぜない。
+        if (prefetch && previous_snapshot != 0) {
+            buffer->Sample(samples, batch_size, 0.4f);
+            Verify(samples, history, previous_keys, previous_snapshot, capacity, stack, n_step);
+            counts.checked_samples += samples.replay_item_keys.numel();
+        }
+        auto missing = expected;
+        const int64_t max_batches = (32 * static_cast<int64_t>(expected.size()) + batch_size - 1) / batch_size;
+        for (int64_t batch = 0; batch < max_batches && !missing.empty(); ++batch) {
+            buffer->Sample(samples, batch_size, 0.4f);
+            const auto seen = Verify(samples, history, expected, pushed, capacity, stack, n_step);
+            for (const auto key : seen) missing.erase(key);
+            counts.checked_samples += samples.replay_item_keys.numel();
+        }
+        INFO("Uncovered keys: " << missing.size() << "; sample batch limit: " << max_batches);
+        INFO("First uncovered key: " << (missing.empty() ? -1 : *missing.begin()));
+        REQUIRE(missing.empty());
+        ++counts.snapshots;
+        counts.covered_keys += static_cast<int64_t>(expected.size());
+        previous_keys = expected;
+        previous_snapshot = pushed;
+        std::cout << "Replay integrity snapshot complete: pushed=" << pushed << std::endl;
+    }
+    std::cout << "Replay integrity teardown begin" << std::endl;
+    buffer.reset();
+    std::cout << "Replay integrity teardown complete" << std::endl;
+}
+
+} // namespace replay_integrity_assay
+
+TEST_CASE("ReplayBuffer pads initial frame history when the ring first becomes full",
+    "[replay_buffer][integrity_assay][initial_fill]")
+{
+    // 初回の満杯時点ではlogical 0はまだ有効だが、負の履歴に相当するslotも書込み済みになる。
+    // 起動時のpaddingが末尾の新しいframeへ化けないことを、公開probe経路で検査する。
+    auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
+        1, false, replay_integrity_assay::kSeed);
+    for (int step = 0; step < 8; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+    REQUIRE(buffer.rb->Size() == 7);
+    anet::RandomGenerator random(replay_integrity_assay::kSeed);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random));
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+    const auto first = std::find(keys.begin(), keys.end(), int64_t{ 8 });
+    REQUIRE(first != keys.end());
+    const auto row = static_cast<int64_t>(std::distance(keys.begin(), first));
+    INFO("Initial frame stack: " << samples.obs.At(kVectorKey)[row]);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 0.0f, 0.0f, 0.0f, 0.0f });
+}
+
+TEST_CASE("ReplayBuffer preserves bootstrap frame history while n-step metadata is pending",
+    "[replay_buffer][integrity_assay][pending_metadata]")
+{
+    for (const int n_step : { 3, 5 }) {
+        DYNAMIC_SECTION("n_step " << n_step) {
+            // wrapもepisode終端もない入力で、未確定slotを境界と誤認しないことを確認する。
+            auto buffer = MakeBuffer(MakeConfig(32, n_step, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
+                1, false, replay_integrity_assay::kSeed);
+            for (int step = 0; step <= n_step; ++step) {
+                PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+            }
+            REQUIRE(buffer.rb->Size() == 1);
+            anet::RandomGenerator random(replay_integrity_assay::kSeed);
+            rl::ExperienceSamples samples;
+            REQUIRE(buffer.rb->SampleUniqueUniform(samples, 1, random));
+            REQUIRE(samples.n_steps.item<int64_t>() == n_step);
+            REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
+            RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
+            INFO("Bootstrap frame stack: " << samples.next_state.next_obs.At(kVectorKey)[0]);
+            RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+                static_cast<float>(n_step - 3), static_cast<float>(n_step - 2),
+                static_cast<float>(n_step - 1), static_cast<float>(n_step) });
+        }
+    }
+}
+
+TEST_CASE("ReplayBuffer ignores previous-generation terminal metadata in bootstrap frame history",
+    "[replay_buffer][integrity_assay][pending_metadata][wrapped_metadata]")
+{
+    // 旧世代の終端slotを未確定の通常遷移で上書きし、定常的なwrap後にも検査する。
+    auto buffer = MakeBuffer(MakeConfig(8, 3, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
+        1, false, replay_integrity_assay::kSeed);
+    for (int step = 0; step < 12; ++step) {
+        PushTime(buffer, step, BoolValues(1, step == 2), {}, BoolValues(1, step == 0 || step == 3));
+    }
+    anet::RandomGenerator random(replay_integrity_assay::kSeed);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random));
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+    const auto target = std::find(keys.begin(), keys.end(), int64_t{ 16 });
+    REQUIRE(target != keys.end());
+    const auto row = static_cast<int64_t>(std::distance(keys.begin(), target));
+    REQUIRE(samples.n_steps[row].item<int64_t>() == 3);
+    REQUIRE_FALSE(samples.next_state.terminals[row].item<bool>());
+    RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 5.0f, 6.0f, 7.0f, 8.0f });
+    INFO("Bootstrap frame stack after wrap: " << samples.next_state.next_obs.At(kVectorKey)[row]);
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[row], { 8.0f, 9.0f, 10.0f, 11.0f });
+}
+
+TEST_CASE("ReplayBuffer integrity assay matches independent input histories across wraps",
+    "[replay_buffer][integrity_assay]")
+{
+    // 条件を独立sectionにし、1条件の失敗後も残りを検査する。case番号で再開・再現もできる。
+    int case_index = 0;
+    for (const int stack : { 1, 4 })
+        for (const int n_step : { 1, 3, 5 })
+            for (const int lanes : { 1, 4, 16, 128 })
+                for (const int capacity : { 17, 31 })
+                    for (const bool per : { false, true })
+                        for (const bool prefetch : { false, true }) {
+                            const int case_number = ++case_index;
+                            DYNAMIC_SECTION("case " << case_number) {
+                                const auto started = std::chrono::steady_clock::now();
+                                replay_integrity_assay::Counts counts;
+                                std::cout << "Replay integrity section: case=" << case_number << std::endl;
+                                replay_integrity_assay::Run(stack, n_step, lanes, capacity, per, prefetch, counts);
+                                const double seconds = std::chrono::duration<double>(
+                                    std::chrono::steady_clock::now() - started).count();
+                                std::cout << "Replay integrity passed: case=" << case_number
+                                    << " snapshots=" << counts.snapshots << " covered_keys=" << counts.covered_keys
+                                    << " checked_samples=" << counts.checked_samples << " seconds=" << seconds << std::endl;
+                            }
+                        }
 }

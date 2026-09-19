@@ -1,0 +1,234 @@
+# PRD 077: sampleable index 列の確保を持続バッファへ移す
+
+## Context
+
+`ValidIndexManager::GetValidIndices1D` は `Sample()` のたびに replay capacity と同じ長さの
+配列を 2 本確保している。`replay_buffer_impl.cpp:269`。
+
+```cpp
+torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
+{
+    std::vector<int64_t> valid_list;
+    valid_list.reserve(num_envs_ * capacity_per_env_);   // ← 1 本目
+    for (int64_t env = 0; env < num_envs_; ++env) {
+        ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t idx1d) {
+            valid_list.push_back(idx1d);
+        });
+    }
+    if (valid_list.empty()) return torch::empty({ 0 }, torch::kInt64);
+    return torch::tensor(valid_list, torch::kInt64);                 // ← 2 本目 + コピー
+}
+```
+
+`reserve` は `num_envs_ * capacity_per_env_` = replay capacity ちょうどを要求する。
+
+| replay_capacity | 1 本 | vector + tensor |
+|---|---|---|
+| 1,048,576 | 8.4 MB | 17 MB |
+| 1,572,864 | 12.6 MB | 25 MB |
+| 2,097,152 | 16.8 MB | 34 MB |
+| 4,194,304 | 33.6 MB | 67 MB |
+
+これが学習ステップごとに確保・解放される。RR4 の 50M Run なら数十万回で、
+アロケータへ流れる総量は TB 級になる。
+
+### 実害
+
+2026-09-19 の Run `run_20260919-190647_rr4_btrsn12_envs128_cap1536k_50m` が
+exp_step 27,092,992 / 経過 4.318h で `bad_alloc` により停止した。checkpoint は残らず、
+後続の評価専用 Run も checkpoint 不在で fail-fast した。
+
+`_set_new_handler` 診断が残したスタックを PDB で解決した結果、確保地点は本関数だった。
+
+```
+[ 3] operator new
+[ 4] std::_Allocate_manually_vector_aligned
+[ 5] std::vector<__int64>::reserve                   vector:1730
+[ 6] anet::rl::ValidIndexManager::GetValidIndices1D  replay_buffer_impl.cpp:276
+[ 7] anet::rl::DefaultReplayBuffer::Sample           replay_buffer_impl.cpp:1515
+[ 8] anet::rl::PrefetchingReplayBuffer::State::Fetch replay_buffer_impl.cpp:2033
+[11] anet::PinnedThreadPool::WorkerLoop              thread.cpp:203
+```
+
+要求サイズも一致する。
+
+```
+requested_bytes = 12,582,951
+12,582,951 - 39 = 12,582,912 = 1,572,864 x 8
+1,572,864 = num_envs_(128) x capacity_per_env_(12,288) = 当該 Run の replay_capacity
+39 = MSVC 大確保パスの上乗せ (_Big_allocation_alignment 32 + sizeof(void*) 8 - 1)
+```
+
+同種の停止は他にも起きている。全 workspace の走査で `bad_alloc` により落ちた Run は 9 本、
+うち Atari が 4 本 (`a5_phoenix_apex` 2026-08-27 / `z4_rr1_va_btrflat_breakout` 2026-09-03 /
+`k2_rr4_hard500_munch_breakout` 2026-09-06 / 上記 2026-09-19)。
+`requested_bytes` とスタックが残っているのは診断導入後の最新 1 本だけで、
+残り 8 本は確保地点が不明のまま閉じている。
+
+引き金は外部のメモリ圧 (同居プロセスなど) で構わない。**毎ステップの大確保が
+断片化と枯渇に対する常設の脆弱点になっている**ことが本 PRD の対象である。
+
+## ゴール
+
+- `GetValidIndices1D` の呼び出しあたりの確保回数を 0 にする。capacity サイズの確保は
+  `ValidIndexManager` の構築時 1 回だけにする。
+- capacity サイズのコピー (`torch::tensor(valid_list)`) をなくす。
+- 既存の列挙結果と完全に同一の内容・順序を返す。
+
+## 非ゴール
+
+- **NG1: O(capacity) 走査の除去。** 本関数は毎回 capacity 個の slot を走査している。
+  これも容量に比例するコストで、容量を上げたときの throughput 低下 (cap4M は cap2M 比
+  clean throughput -16.3%) の一因と考えられるが、除去には sampleable 集合を
+  「env ごとの物理連続 run + dummy 除外」として持ち直す設計変更が要る。段階 2 として分離する。
+  **RB 整合性アッセイが検出した不整合の整理が終わるまで着手しない。**
+  index 列挙の内部を同時に触ると、アッセイの陽性がどちらに由来するか切り分けられなくなる。
+- **NG2: dummy 機構の撤廃。** truncation 対策のダミー挿入 (`replay_buffer_impl.cpp:1356`) は
+  PRD 018 の対象であり、本 PRD は現行の dummy 除外をそのまま維持する。
+- **NG3: `GetSampleableCount` の変更。** 集計のみで Tensor を作らない現行の設計は正しい。
+- **NG4: `bad_alloc` 一般の対策。** 他 8 本の Run の確保地点は不明のままで、本 PRD は
+  それらを閉じない。診断 (`_set_new_handler`) が次の実例を捕らえるのを待つ。
+
+## 確定事項
+
+### D1: 持続バッファは `ValidIndexManager` が `torch::Tensor` で所有する
+
+構築時に `torch::empty({ num_envs * capacity_per_env }, torch::kInt64)` を 1 回確保し、
+以後は再確保しない。`std::vector<int64_t>` ではなく `torch::Tensor` にするのは、
+返り値を同じストレージのビューにして 2 本目の確保とコピーを同時に消すため。
+
+追加の常駐メモリは capacity x 8 バイト。replay storage 本体 (uint8 単フレームで
+capacity x 約 7KB) に対して 0.1% 程度で、実質無視できる。
+
+### D2: 返り値は `narrow` したビュー。内容の有効期間は次の呼び出しまで
+
+```cpp
+return valid_buf_.narrow(0, 0, count);
+```
+
+`torch::Tensor` のストレージは参照カウントで保たれるため、呼び出し側が保持しても
+**dangling は起こらない**。起こりうるのは内容の上書きだけである。契約は
+「返り値の内容は、同じ `ValidIndexManager` に対する次の `GetValidIndices1D` 呼び出しまで有効」
+とし、宣言のコメントへ明記する。
+
+`torch::from_blob` は採らない。dangling を呼び出し側の規律に依存させる形になるため。
+
+### D3: ロックを跨いで保持する 2 箇所は `clone()` する
+
+現行の呼び出し 4 箇所のうち、2 箇所は `metadata_mutex_` を解放したあとも `valid_1d` を使う。
+
+| 箇所 | ロック | 扱い |
+|---|---|---|
+| `DefaultReplayBuffer::Sample` `:1515` | 保持中に使い切る | ビューのまま |
+| `DefaultReplayBuffer::SampleUniqueUniform` `:1547` | 保持中に使い切る | ビューのまま |
+| `DefaultReplayBuffer::GetTensorVector` `:1888` | 解放後も使う | `clone()` |
+| `DefaultReplayBuffer::DumpToLog` `:1957` | 解放後も使う | `clone()` |
+
+後者 2 つは可視化のキャッシュミス時とデバッグダンプで、いずれもコールドパス。
+`clone()` の確保は現行と同じコストなので退行しない。
+
+### D4: `GetValidIndices1D` を非 const にする
+
+バッファを書き換えるため。`mutable` は使わない。
+`DefaultReplayBuffer` の const メンバ関数からは `std::unique_ptr` 越しの呼び出しになり、
+`operator->` は pointee の const を伝播しないので、宣言の変更だけで通る。
+
+### D5: 昇順契約を維持する
+
+PER の `SampleIndices` は `std::binary_search(valid_ptr, valid_ptr + valid_count, idx)` で
+所属判定しており、`ForEachSampleableIndex` のコメントどおり物理インデックス昇順が前提である
+(`replay_buffer_impl.hpp:176`)。書き込み先がバッファへ変わっても順序は変えない。
+
+### D6: 空集合の表現を変えない
+
+現行は `valid_list.empty()` のとき `torch::empty({ 0 }, torch::kInt64)` を返す。
+`narrow(0, 0, 0)` は `size(0) == 0` の Tensor になるので呼び出し側の分岐は変わらないが、
+`numel() == 0` / `size(0) < batch_size` の両方の判定が現行どおり成立することを確認する。
+
+## 実装契約
+
+### `core/anet-core/src/replay_buffer_impl.hpp`
+
+- `ValidIndexManager` へ `torch::Tensor valid_buf_;` を追加する。コンストラクタで確保する。
+- `GetValidIndices1D` の宣言から `const` を外し、D2 の有効期間をコメントで明記する。
+
+### `core/anet-core/src/replay_buffer_impl.cpp`
+
+- `ValidIndexManager::ValidIndexManager` で `valid_buf_` を確保する。
+- `GetValidIndices1D` を次の形にする。
+
+```cpp
+torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step)
+{
+    ANET_PROFILE_FUNC();
+
+    int64_t* out = valid_buf_.data_ptr<int64_t>();
+    int64_t count = 0;
+    for (int64_t env = 0; env < num_envs_; ++env) {
+        ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t idx1d) {
+            out[count++] = idx1d;
+        });
+    }
+    return valid_buf_.narrow(0, 0, count);
+}
+```
+
+- `GetTensorVector` (`:1888`) と `DumpToLog` (`:1957`) の代入へ `.clone()` を足す。
+
+`ANET_PROFILE_SCOPE(valid_indices)` (`:1514`, `:1884`) は既存のまま残す。段階 2 の判断材料になる。
+
+## テスト
+
+既存の `core/anet-core/src/replay_buffer_test.cpp` へ追加する。
+
+- **T1 再確保しない**: 同一状態で `GetValidIndices1D` を 2 回呼び、返り値の `data_ptr()` が
+  2 回とも同じ値であること。バッファが作り直されていないことの直接確認。
+- **T2 内容が現行と一致**: wrap 前・wrap 後・dummy あり・history margin ありの各状態で、
+  返り値が現行実装と同じ要素列 (値と順序) になること。
+- **T3 昇順**: 返り値が物理インデックス昇順であること。ring 折り返しを跨ぐ状態を含める。
+- **T4 上書き契約**: 1 回目の返り値を保持したまま状態を進めて 2 回目を呼ぶと、
+  1 回目のビューの内容が 2 回目のものへ変わること。`clone()` したものは変わらないこと。
+  D2 の契約を実行可能な形で固定する。
+- **T5 空集合**: sampleable が 0 本の状態で `size(0) == 0` かつ `numel() == 0` になること。
+- **T6 回帰**: `replay_buffer_test.cpp` の既存の wrap / stack / n-step / PER 系が全緑であること。
+  特に「ReplayBuffer PER samples only safe wrapped frame-stack indices」と
+  「ValidIndexManager sampleability consumers agree before and after wrap」。
+
+## 受入基準
+
+1. T1〜T6 が緑で、`anet-core-test` 全体が既知の失敗以外で緑であること。
+2. `GetValidIndices1D` の呼び出しあたりの capacity サイズの確保が 0 であること (T1)。
+3. 等価性: 同 seed の短尺 Run (10M / RR4 / cap2M) で metrics checksum が実装前と一致すること。
+   列挙内容を変えない改修なので、ここは厳密一致を要求する。
+   checkpoint の raw SHA は再実行で一致しないため受入ゲートにしない。
+4. clean throughput が退行しないこと。cap2M / RR4 で計測する。
+   capacity サイズのコピー 1 回ぶんは改善するはずだが、O(capacity) 走査は残るので
+   **改善幅は受入条件にしない**。
+
+## 影響・移行
+
+- 設定キーの追加・変更なし。メトリクスの追加・変更なし。シリアライズ形式の変更なし。
+- 公開ヘッダ (`core/anet-core/include/anet/replay_buffer.hpp`) は変更しない。
+  `ValidIndexManager` は `src/` 内の実装クラスである。
+- ADR は作らない。持続バッファは実装内の最適化で、領域の概念を変えないため。
+  D2 の有効期間契約は宣言のコメントで持つ。
+
+## 段階 2 への申し送り
+
+sampleable 集合は、env ごとに高々 2 本の物理連続区間から dummy を除いたものである
+(`ForEachSampleableIndex`, `replay_buffer_impl.hpp:153`)。消費側が必要としているのは
+次の 3 つだけで、いずれも配列の実体を要求しない。
+
+| 用途 | 現行 | 区間表現でのコスト |
+|---|---|---|
+| `valid_count` | `size(0)` | O(num_envs) |
+| k 番目の取得 (一様抽選) | `index_select` | O(log num_envs + log D) |
+| 所属判定 (PER 棄却) | `std::binary_search` O(log V) | **O(1)〜O(log D)** |
+
+D は ready 範囲内の dummy 本数で、truncation 1 回につき 1 つしか増えないため実測上は
+lane あたり数個である。区間表現にすれば確保も走査も capacity 非依存になり、
+PER の所属判定はむしろ速くなる。
+
+ただし dummy を正確に扱うために、env ごとの dummy 物理インデックスを
+ソート済みで保持し `MarkDummy` / `MarkWritten` で増減させる必要がある。
+設計と実装量は本 PRD の数倍になる。**アッセイの不整合が片付いてから別 PRD で起こす。**
