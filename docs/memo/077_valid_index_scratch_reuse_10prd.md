@@ -22,7 +22,7 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
 
 `reserve` は `num_envs_ * capacity_per_env_` = replay capacity ちょうどを要求する。
 
-| replay_capacity | 1 本 | vector + tensor |
+| replay_capacity | 1 本 | vector + tensor (同時生存の一時ピーク) |
 |---|---|---|
 | 1,048,576 | 8.4 MB | 17 MB |
 | 1,572,864 | 12.6 MB | 25 MB |
@@ -65,8 +65,21 @@ requested_bytes = 12,582,951
 `requested_bytes` とスタックが残っているのは診断導入後の最新 1 本だけで、
 残り 8 本は確保地点が不明のまま閉じている。
 
-引き金は外部のメモリ圧 (同居プロセスなど) で構わない。**毎ステップの大確保が
-断片化と枯渇に対する常設の脆弱点になっている**ことが本 PRD の対象である。
+### 位置づけ
+
+失敗した確保は 12.6 MB である。64bit プロセスではアドレス空間の断片化は事実上起きないので、
+この `bad_alloc` は「システムの commit 上限に達した瞬間に、最初に大きく要求した側が引いた」
+ものと読む。引き金は外部のメモリ圧 (同居プロセスなど) で構わない。修正後も同じ外圧なら、
+次に大きく要求する側 (torch の batch 確保など) が同様に失敗する。
+**本 PRD は `bad_alloc` の再発防止を約束しない** (NG4)。
+
+本 PRD が確実に消すものは次の 3 つで、位置づけは hardening と性能改善である。
+
+- 毎ステップの一時ピーク。vector と tensor が同時に生存する瞬間に上表の右列ぶんが積み増される
+  (cap1.5M で 25 MB、cap4M で 67 MB)。
+- 新規コミットページのゼロ埋めとページフォルト。毎ステップ同量が発生し、O(capacity) 走査
+  (bool 配列のタイトループ) より重い可能性が高い。cap4M の throughput 低下 (NG1) の一因として有力。
+- アロケータへ流れる総量 (TB 級) の churn。
 
 ## ゴール
 
@@ -81,7 +94,8 @@ requested_bytes = 12,582,951
   これも容量に比例するコストで、容量を上げたときの throughput 低下 (cap4M は cap2M 比
   clean throughput -16.3%) の一因と考えられるが、除去には sampleable 集合を
   「env ごとの物理連続 run + dummy 除外」として持ち直す設計変更が要る。段階 2 として分離する。
-  **RB 整合性アッセイが検出した不整合の整理が終わるまで着手しない。**
+  **RB 整合性アッセイが検出した不整合の修復 PRD である
+  [PRD 078](078_replay_frame_history_integrity_10prd.md) が `done/` へ移るまで着手しない。**
   index 列挙の内部を同時に触ると、アッセイの陽性がどちらに由来するか切り分けられなくなる。
 - **NG2: dummy 機構の撤廃。** truncation 対策のダミー挿入 (`replay_buffer_impl.cpp:1356`) は
   PRD 018 の対象であり、本 PRD は現行の dummy 除外をそのまま維持する。
@@ -96,9 +110,15 @@ requested_bytes = 12,582,951
 構築時に `torch::empty({ num_envs * capacity_per_env }, torch::kInt64)` を 1 回確保し、
 以後は再確保しない。`std::vector<int64_t>` ではなく `torch::Tensor` にするのは、
 返り値を同じストレージのビューにして 2 本目の確保とコピーを同時に消すため。
+本書ではこのメンバを「持続バッファ」と呼ぶ (ファイル名の `scratch` は同じものを指す)。
 
 追加の常駐メモリは capacity x 8 バイト。replay storage 本体 (uint8 単フレームで
 capacity x 約 7KB) に対して 0.1% 程度で、実質無視できる。
+
+`torch::Tensor` メンバの暗黙コピーはストレージを共有する (参照カウント) ため、
+`ValidIndexManager` をコピーすると 2 つの instance が同じ持続バッファを共用する。
+現用は `std::unique_ptr` 保持とテストでの直接構築だけでコピー箇所が無いため、
+コピー禁止などの対処は加えない。
 
 ### D2: 返り値は `narrow` したビュー。内容の有効期間は次の呼び出しまで
 
@@ -108,8 +128,9 @@ return valid_buf_.narrow(0, 0, count);
 
 `torch::Tensor` のストレージは参照カウントで保たれるため、呼び出し側が保持しても
 **dangling は起こらない**。起こりうるのは内容の上書きだけである。契約は
-「返り値の内容は、同じ `ValidIndexManager` に対する次の `GetValidIndices1D` 呼び出しまで有効」
-とし、宣言のコメントへ明記する。
+「返り値の内容は、同じ `ValidIndexManager` に対する次の `GetValidIndices1D` 呼び出しまで有効。
+それ以降の内容は未規定」とし、宣言のコメントへ明記する。
+「次回呼び出しで必ず上書きされる」ことは契約に含めない (ダブルバッファ化や段階 2 を縛らない)。
 
 `torch::from_blob` は採らない。dangling を呼び出し側の規律に依存させる形になるため。
 
@@ -124,14 +145,28 @@ return valid_buf_.narrow(0, 0, count);
 | `DefaultReplayBuffer::GetTensorVector` `:1888` | 解放後も使う | `clone()` |
 | `DefaultReplayBuffer::DumpToLog` `:1957` | 解放後も使う | `clone()` |
 
+`clone()` は **`metadata_mutex_` の lock スコープ内**で行う。解放後に clone すると、
+別スレッドの `Sample` が同じ持続バッファを書き換えている最中に読むことになる。
+現行コードでは `valid_1d` への代入が lock スコープ内にあるので、代入式へ `.clone()` を付けるだけで満たす。
+
 後者 2 つは可視化のキャッシュミス時とデバッグダンプで、いずれもコールドパス。
 `clone()` の確保は現行と同じコストなので退行しない。
 
-### D4: `GetValidIndices1D` を非 const にする
+### D4: `valid_buf_` は `mutable`、`GetValidIndices1D` は const を維持する
 
-バッファを書き換えるため。`mutable` は使わない。
-`DefaultReplayBuffer` の const メンバ関数からは `std::unique_ptr` 越しの呼び出しになり、
-`operator->` は pointee の const を伝播しないので、宣言の変更だけで通る。
+`DefaultReplayBuffer` は `sampled_once_` を `mutable` で持ち、const な `Sample()` から
+`metadata_mutex_` 保持下で `MarkSampledOnce` により更新している (`replay_buffer_impl.hpp:493`)。
+持続バッファも同じ「const な照会経路が owner の metadata 排他下で更新する scratch」であり、
+この流儀に揃える。`GetSampleableCount` が const であることとも対称になる。
+
+非 const にする案は採らない。const な呼び出し元 4 箇所が、`std::unique_ptr` の `operator->` が
+pointee の const を伝播しないことに依存して非 const を呼ぶ形になり、将来 `propagate_const` 等で
+塞がれると通らなくなる。
+
+宣言コメントへ次の 2 点を明記する。
+
+- owner (`DefaultReplayBuffer`) の `metadata_mutex_` 排他下でのみ呼ぶ。`ValidIndexManager` 自身は同期しない。
+- 返り値の内容は次回呼び出しまで有効 (D2)。
 
 ### D5: 昇順契約を維持する
 
@@ -149,8 +184,8 @@ PER の `SampleIndices` は `std::binary_search(valid_ptr, valid_ptr + valid_cou
 
 ### `core/anet-core/src/replay_buffer_impl.hpp`
 
-- `ValidIndexManager` へ `torch::Tensor valid_buf_;` を追加する。コンストラクタで確保する。
-- `GetValidIndices1D` の宣言から `const` を外し、D2 の有効期間をコメントで明記する。
+- `ValidIndexManager` へ `mutable torch::Tensor valid_buf_;` を追加する。コンストラクタで確保する。
+- `GetValidIndices1D` の宣言は const のまま。コメントを D2 の有効期間と D4 の排他前提へ書き換える。
 
 ### `core/anet-core/src/replay_buffer_impl.cpp`
 
@@ -158,11 +193,11 @@ PER の `SampleIndices` は `std::binary_search(valid_ptr, valid_ptr + valid_cou
 - `GetValidIndices1D` を次の形にする。
 
 ```cpp
-torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step)
+torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
 {
     ANET_PROFILE_FUNC();
 
-    int64_t* out = valid_buf_.data_ptr<int64_t>();
+    int64_t* out = valid_buf_.data_ptr<int64_t>();  // mutable なので const 関数内で書ける
     int64_t count = 0;
     for (int64_t env = 0; env < num_envs_; ++env) {
         ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t idx1d) {
@@ -173,7 +208,7 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
 }
 ```
 
-- `GetTensorVector` (`:1888`) と `DumpToLog` (`:1957`) の代入へ `.clone()` を足す。
+- `GetTensorVector` (`:1888`) と `DumpToLog` (`:1957`) の代入へ `.clone()` を足す (lock スコープ内、D3)。
 
 `ANET_PROFILE_SCOPE(valid_indices)` (`:1514`, `:1884`) は既存のまま残す。段階 2 の判断材料になる。
 
@@ -183,27 +218,33 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
 
 - **T1 再確保しない**: 同一状態で `GetValidIndices1D` を 2 回呼び、返り値の `data_ptr()` が
   2 回とも同じ値であること。バッファが作り直されていないことの直接確認。
-- **T2 内容が現行と一致**: wrap 前・wrap 後・dummy あり・history margin ありの各状態で、
-  返り値が現行実装と同じ要素列 (値と順序) になること。
-- **T3 昇順**: 返り値が物理インデックス昇順であること。ring 折り返しを跨ぐ状態を含める。
-- **T4 上書き契約**: 1 回目の返り値を保持したまま状態を進めて 2 回目を呼ぶと、
-  1 回目のビューの内容が 2 回目のものへ変わること。`clone()` したものは変わらないこと。
-  D2 の契約を実行可能な形で固定する。
+- **T4 有効期間契約**: (a) 1 回目の返り値を `clone()` して保持し、状態を進めて 2 回目を呼んでも
+  clone の内容が不変であること。(b) 同一状態で 2 回呼んだ返り値の内容が一致すること
+  (次回呼び出しまで有効)。古いビューの内容が書き換わることは検査しない。
+  次回呼び出し以降の内容は未規定であり、テストで仕様に昇格させない。
 - **T5 空集合**: sampleable が 0 本の状態で `size(0) == 0` かつ `numel() == 0` になること。
 - **T6 回帰**: `replay_buffer_test.cpp` の既存の wrap / stack / n-step / PER 系が全緑であること。
-  特に「ReplayBuffer PER samples only safe wrapped frame-stack indices」と
-  「ValidIndexManager sampleability consumers agree before and after wrap」。
+  列挙内容 (値と順序、ring 跨ぎの物理昇順、dummy 除外、history margin) の oracle は
+  次の値固定テストが既に担っており、本 PRD で列挙内容のテストは新設しない。
+  - 「ValidIndexManager sampleability consumers agree before and after wrap」
+  - 「ValidIndexManager keeps dummy filtering outside the shared logical range」
+  - 「ValidIndexManager applies frame stack history margin per env lane」
+  - 「ValidIndexManager filters dummy slots after applying frame stack history margin」
+    (期待列 `{ 0, 5 }` が ring 跨ぎの物理昇順を固定している)
+  - 「ReplayBuffer PER samples only safe wrapped frame-stack indices」
 
 ## 受入基準
 
-1. T1〜T6 が緑で、`anet-core-test` 全体が既知の失敗以外で緑であること。
+1. T1・T4・T5・T6 が緑で、`anet-core-test` 全体が既知の失敗以外で緑であること。
 2. `GetValidIndices1D` の呼び出しあたりの capacity サイズの確保が 0 であること (T1)。
 3. 等価性: 同 seed の短尺 Run (10M / RR4 / cap2M) で metrics checksum が実装前と一致すること。
    列挙内容を変えない改修なので、ここは厳密一致を要求する。
    checkpoint の raw SHA は再実行で一致しないため受入ゲートにしない。
 4. clean throughput が退行しないこと。cap2M / RR4 で計測する。
-   capacity サイズのコピー 1 回ぶんは改善するはずだが、O(capacity) 走査は残るので
-   **改善幅は受入条件にしない**。
+   計測はラウンドロビン配置 (実装前・実装後を交互) で行う。実験機は 1 時間で最大 8% の
+   throughput ドリフトがあり、ブロック配置は符号を誤らせる。
+   一時ピークとページフォルトの除去ぶんは改善するはずだが、O(capacity) 走査は残るので
+   **改善幅は受入条件にしない**。測定値は実装計画側に記録し、段階 2 の判断材料にする。
 
 ## 影響・移行
 
@@ -212,6 +253,8 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
   `ValidIndexManager` は `src/` 内の実装クラスである。
 - ADR は作らない。持続バッファは実装内の最適化で、領域の概念を変えないため。
   D2 の有効期間契約は宣言のコメントで持つ。
+- `CONTEXT.md` への用語追加もしない。本 PRD が扱う列は「sampleable range」の _Avoid_ が
+  述べるとおり実装上の列挙結果であって概念ではない。
 
 ## 段階 2 への申し送り
 
@@ -231,4 +274,9 @@ PER の所属判定はむしろ速くなる。
 
 ただし dummy を正確に扱うために、env ごとの dummy 物理インデックスを
 ソート済みで保持し `MarkDummy` / `MarkWritten` で増減させる必要がある。
-設計と実装量は本 PRD の数倍になる。**アッセイの不整合が片付いてから別 PRD で起こす。**
+設計と実装量は本 PRD の数倍になる。
+**[PRD 078](078_replay_frame_history_integrity_10prd.md) が `done/` へ移ってから別 PRD で起こす。**
+
+実装順は本 PRD (077) を PRD 078 より先にすることを推奨する。077 は小さく等価性 Run が安価で、
+078 の 384 条件 matrix の完走待ちで遅らせる理由がない。078 は `ValidIndexManager` を契約維持と
+しており、コード領域は重ならない。受入 3 の等価性 Run は、実装前・実装後を同じ base で揃える。
