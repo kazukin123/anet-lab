@@ -118,7 +118,9 @@ namespace anet::rl {
 		/// 書き込みカーソルを進める
         void AdvanceWriteCursor(int64_t env_idx);
 
-        /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックスのリストを返す
+        /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックス列のビューを返す。
+        /// owner (DefaultReplayBuffer) の metadata_mutex_ 排他下で呼ぶ。自身では同期しない。
+        /// 返り値の内容は同じinstanceへの次回呼び出しまで有効。それ以降の内容は未規定。
         torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const;
 
         int64_t GetSampleableCount(int stack_count, int unroll_steps, int n_step) const;
@@ -187,6 +189,7 @@ namespace anet::rl {
         std::vector<int64_t> valid_cursors_;
         std::vector<int64_t> write_cursors_;
         std::vector<bool> is_dummy_;
+        mutable torch::Tensor valid_buf_; ///< metadata排他下で再利用する列挙用バッファ
     };
 
 

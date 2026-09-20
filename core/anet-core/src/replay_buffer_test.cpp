@@ -1980,6 +1980,54 @@ TEST_CASE("Initial priority completer rejects a bootstrap logical time mismatch"
     CHECK(priority_store.initial_writes.empty());
 }
 
+TEST_CASE("ValidIndexManager reuses sampleable index storage", "[replay_buffer][valid_index][prd077]")
+{
+    rl::ValidIndexManager manager(1, 8);
+    // 非空の候補列を作り、最初のTensorを保持してallocatorの偶然の再利用を防ぐ。
+    for (int64_t index = 0; index < 3; ++index) {
+        manager.MarkWritten(0, index);
+        manager.AdvanceWriteCursor(0);
+        if (index > 0) manager.MarkValid(0);
+    }
+    const auto first = manager.GetValidIndices1D(1, 0, 1);
+    REQUIRE(first.numel() > 0);
+    const auto second = manager.GetValidIndices1D(1, 0, 1);
+    CHECK(first.data_ptr<int64_t>() == second.data_ptr<int64_t>());
+}
+
+TEST_CASE("ValidIndexManager cloned indices survive subsequent enumeration", "[replay_buffer][valid_index][prd077]")
+{
+    rl::ValidIndexManager manager(1, 8);
+    // 同一状態での列挙結果と、次回呼び出しを跨ぐ所有snapshotを確認する。
+    for (int64_t index = 0; index < 3; ++index) {
+        manager.MarkWritten(0, index);
+        manager.AdvanceWriteCursor(0);
+        if (index > 0) manager.MarkValid(0);
+    }
+    const auto snapshot = manager.GetValidIndices1D(1, 0, 1).clone();
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == TensorToInt64Vector(snapshot));
+
+    // 候補数を増やしてもclone済みの内容は変わらない。旧ビューの内容は検査しない。
+    manager.MarkWritten(0, 3);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkValid(0);
+    const auto next = manager.GetValidIndices1D(1, 0, 1);
+    REQUIRE(next.numel() > snapshot.numel());
+    CHECK(TensorToInt64Vector(snapshot) == std::vector<int64_t>{ 0, 1 });
+}
+
+TEST_CASE("ValidIndexManager returns an empty index tensor before any samples are ready", "[replay_buffer][valid_index][prd077]")
+{
+    // 未書き込み状態でも、呼び出し側の空集合判定に使える1D Tensorを返す。
+    const rl::ValidIndexManager manager(1, 8);
+    const auto indices = manager.GetValidIndices1D(1, 0, 1);
+    REQUIRE(indices.dim() == 1);
+    CHECK(indices.size(0) == 0);
+    CHECK(indices.numel() == 0);
+    CHECK(indices.scalar_type() == torch::kInt64);
+    CHECK(indices.device().is_cpu());
+}
+
 TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap", "[replay_buffer][sampleability][valid_index]")
 {
     rl::ValidIndexManager manager(1, 4);

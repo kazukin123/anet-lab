@@ -227,6 +227,9 @@ ValidIndexManager::ValidIndexManager(int64_t num_envs, int64_t capacity_per_env)
     valid_cursors_.assign(num_envs, 0);
     write_cursors_.assign(num_envs, 0);
     is_dummy_.assign(num_envs * capacity_per_env, false);
+    // 列挙用のCPUストレージを構築時に確保し、呼び出しごとの再確保とコピーを避ける。
+    valid_buf_ = torch::empty({ num_envs * capacity_per_env },
+        torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
 }
 
 void ValidIndexManager::MarkWritten(int64_t env_idx, int64_t time_idx)
@@ -270,17 +273,17 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
 {
     ANET_PROFILE_FUNC();
 
-    std::vector<int64_t> valid_list;
-    valid_list.reserve(num_envs_ * capacity_per_env_);
-
+    // 既存の物理昇順の列挙を保ち、ownerのmetadata排他下で持続バッファへ書き込む。
+    int64_t* out = valid_buf_.data_ptr<int64_t>();
+    int64_t count = 0;
     for (int64_t env = 0; env < num_envs_; ++env) {
         ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t idx1d) {
-            valid_list.push_back(idx1d);
+            out[count++] = idx1d;
         });
     }
 
-    if (valid_list.empty()) return torch::empty({ 0 }, torch::kInt64);
-    return torch::tensor(valid_list, torch::kInt64);
+    // 空集合も同じストレージの長さ0のビューとして返す。
+    return valid_buf_.narrow(0, 0, count);
 }
 
 int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps, int n_step) const
@@ -1885,7 +1888,8 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
     torch::Tensor valid_1d;
     {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+        // ロック解放後の利用中に、次の列挙で内容が上書きされないようsnapshotを所有する。
+        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step).clone();
     }
     if (valid_1d.numel() == 0) {
         std::vector<torch::Tensor> result;
@@ -1954,7 +1958,8 @@ void DefaultReplayBuffer::DumpToLog() const
     torch::Tensor valid_1d;
     {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+        // ロック解放後の利用中に、次の列挙で内容が上書きされないようsnapshotを所有する。
+        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step).clone();
     }
 
     // Valid Index を見やすく出力
