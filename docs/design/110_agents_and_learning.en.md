@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:86cfaea7a3d56e5e6e7b4f9cd073881e11742099 date:2026-09-19 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:c348c32de84e52b3aac7ed8a9f87bbddf9b3dde7 date:2026-09-20 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -213,7 +213,7 @@ When adding or changing checkpoint support, identify unsaved State and check the
 
 ## 8. Tests and Extension Checks
 
-Shared factory registration and Runner integration are checked in [init_test.cpp](../../core/anet-core/src/init_test.cpp) and [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests.
+Shared factory registration and Runner integration are checked in [init_test.cpp](../../core/anet-core/src/init_test.cpp) and [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests. The Actor catalog contract tests `[prd061]` and the comparison procedure for the configuration rename and catalog migration are described in [testdata/prd061/README.md](../../core/anet-core/testdata/prd061/README.md).
 
 When adding or modifying an Agent, check at least the following:
 

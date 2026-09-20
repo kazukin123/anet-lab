@@ -14,7 +14,7 @@
 | D4 | 履歴開始フラグは`ReplayExperienceStorage`が所有し、実観測のPushで引数の値を、`PushTerminalDummy`でfalseを、観測と同じ書込みで書いて旧世代を置換する。検証用のlane状態（直前の実pushがENDだったか、初期値true）は`DefaultReplayBuffer::Push`が照合・更新する。形式はCPU常駐のslot当たり1 byte相当の配列とlane当たり1 boolで、Tensorである必要はない。extractorは履歴開始だけを新→旧に走査し、最初のtrueで止める。`next_obs`は`L = t + actual_n`から同じ規則で復元する。`stack_count == 1`は走査しない |
 | D5 | 全条件matrixは`[.][integrity_assay]`のhiddenテストにし、`[replay_buffer]`タグは付けない。Catch2は正のフィルタに一致すればhiddenも実行するため、通常タグを付けると`"[replay_buffer]"`指定で走る。最小再現3本と§7.3の追加テストは`[replay_buffer][frame_stack][history_start]`を共通タグにして可視のまま置く。CI/CDの既定スイートにmatrixは含めない |
 | D6 | matrixはstack `{1,2,4}` × n_step `{1,2,3,5}` × lane数 `{1,4,16,128}` × 実lane容量 `{17,31}` × Uniform/PER × direct/CPU Prefetchの384条件へ拡張する。全条件の全検査地点完走が受入条件。狙い撃ちの単体テストも追加する（§7.3） |
-| D7 | アッセイランナー`core/anet-core/testdata/prd078/run_integrity_assay.py`（`.venv`のPython、標準ライブラリのみ）を追加する。caseごとに`anet-core-test.exe "[integrity_assay]" -c "case N" --rng-seed <seed>`を別プロセスで順次実行し、失敗しても続行する。seed（既定`20260919`）はmatrixのTEST_CASEが`Catch::getSeed()`で読んでReplayBufferの抽選とunique probeに使い、最小再現と単体テストは固定seedのまま。case当たりの時間上限（既定300秒）の超過は失敗として記録する。`.scratch/prd078/<timestamp>/`にcase別ログ、`results.csv`、`report.md`を書く。AGENTS.md検証節への手順追記は実装と同じ変更で行う |
+| D7 | アッセイランナー`core/anet-core/testdata/prd078/run_integrity_assay.py`（`.venv`のPython、標準ライブラリのみ）を追加する。caseごとに`anet-core-test.exe "[integrity_assay]" -c "case N" --rng-seed <seed>`を別プロセスで順次実行し、失敗しても続行する。seed（既定`20260919`）はmatrixのTEST_CASEが`Catch::getSeed()`で読んでReplayBufferの抽選とunique probeに使い、最小再現と単体テストは固定seedのまま。case当たりの時間上限（既定300秒）の超過は失敗として記録する。`.scratch/prd078/<timestamp>/`にcase別ログ、`results.csv`、`report.md`を書く。実行手順は`core/anet-core/testdata/prd078/README.md`に置き、設計書150 §8から参照する |
 | D8 | `terminals_` / `actual_n_steps_`の初期値（true / 0）は現状維持。既存テスト「ReplayExperienceStorage initializes unwritten slots as episode boundaries」は名前と目的を「Storage metadataの初期値」に限定し、「未書込みslotの履歴開始は立っていない（境界は書込みでだけ付く）」を足す。`DefaultExperienceBuilder`の`sequence.back().is_dummy`分岐は到達不能で注記のみ（スコープ外）。`DumpToLog`に履歴開始を出力する |
 | D9 | [ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)を新設し、[ADR 0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)の「安全な開始indexならextractorは変更しない」判断を名指しで更新する（history margin自体は維持）。`CONTEXT.md`に用語「履歴開始」を追加する。設計書150と実装コメントの更新は実装と同じ変更で行う |
 
@@ -292,7 +292,7 @@ VsDevCmd経由のDebugビルド後、次の順に確認する。
 
 - [ReplayBuffer設計書](../design/150_replay_buffer.jp.md): §2.2の`Push`行に`state.episode_start`の読取りと整合検証を追記。§2.3の「起動直後の未書込領域または保存済みterminalによる実episode境界をpadding」を「Push時に保存した履歴開始（`BatchState::episode_start`）より前を先頭frameでpadding」へ書き換え、「`DefaultReplayBuffer::Push`は`episode_start`を保存・参照しない」段落を削除して整合検証の契約に置き換える。§3のStorage行に履歴開始の所有を追記。§7.3のエラー一覧にPushの契約違反を追加。§8のテスト一覧に整合性アッセイ（hidden）とランナーを追加。
 - `core/anet-core/src/replay_buffer_impl.cpp`先頭の「[設計仕様]」コメント（エピソード開始時のpadding）とextractorの境界コメントを履歴開始へ書き換える。
-- `AGENTS.md`検証節にランナーの標準実行手順を追記する。
+- `core/anet-core/testdata/prd078/README.md`にランナーの実行手順を置き、150 §8から参照する。
 - `CONTEXT.md`の用語「履歴開始」と[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)は本書作成時に追加済み。
 
 ## 8. スコープ外（Out of Scope）

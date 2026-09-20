@@ -345,7 +345,7 @@ Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとpr
 
 変更時は公開`ReplayBuffer` contractを保ち、同じseedに対するsample列、PER metadata、CPU path、CUDAが利用可能な場合の非同期pathを確認する。capacityとlane数を変更するtestでは要求容量ではなく`actual_capacity`も確認する。background workerの例外伝播やshutdown順序を変更する場合は、既存test範囲に含まれると仮定せず専用回帰testを追加する。
 
-384条件のmatrixは`[.][integrity_assay]`で通常suiteと`[replay_buffer]`から除外する。全条件は`core/anet-core/testdata/prd078/run_integrity_assay.py`でcase別processとして実行し、固定seed、完了標記、timeout、終了コードを記録する。
+384条件のmatrixは`[.][integrity_assay]`で通常suiteと`[replay_buffer]`から除外する。全条件は`core/anet-core/testdata/prd078/run_integrity_assay.py`でcase別processとして実行し、固定seed、完了標記、timeout、終了コードを記録する。手順は[testdata/prd078/README.md](../../core/anet-core/testdata/prd078/README.md)を参照する。
 
 ## 9. 関連文書
 

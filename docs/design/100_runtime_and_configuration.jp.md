@@ -345,6 +345,7 @@ sequenceDiagram
 - [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制Action
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): 初期化とbackend設定
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable rootと出力path
+- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定葉`?=`検査の手順
 
 現行`trainer_test.cpp`はSerial/Pipeline全体、count、shutdownを広く覆うものではない。これらを変更する場合は、Serial/Pipelineのaction/snapshot境界が一致すること、B=1と複数laneのcount、Evalのscope、停止時のworker回収を対象とする回帰testを追加して確認する。
 

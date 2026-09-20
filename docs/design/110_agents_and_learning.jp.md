@@ -212,7 +212,7 @@ checkpoint対応を追加・変更するときは、保存しないStateを明�
 
 ## 8. テストと拡張時の確認事項
 
-共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。
+共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。Actorカタログの公開契約test `[prd061]` と、設定改名・カタログ移行の比較手順は[testdata/prd061/README.md](../../core/anet-core/testdata/prd061/README.md)を参照する。
 
 Agentを追加・変更する場合は、少なくとも次を確認する。
 

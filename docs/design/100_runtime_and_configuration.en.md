@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:e55f91f991cc3ff4977adbcf93255e593461087e date:2026-09-19 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:f8e196a880bd3565e4da65a35814efbe2541b5f3 date:2026-09-20 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -345,6 +345,7 @@ Use Config classes and each Run's `config/config_data.txt` as the basis for the 
 - [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runner episode-end notifications and forced Eval Actions
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): initialization and backend settings
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable root and output paths
+- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-leaf `?=` audit
 
 Current `trainer_test.cpp` does not broadly cover complete Serial/Pipeline behavior, counts, or shutdown. When changing these areas, add regression tests for matching Serial/Pipeline action/snapshot boundaries, counts for B=1 and multiple lanes, Eval scope, and worker collection on shutdown.
 

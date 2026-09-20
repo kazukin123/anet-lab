@@ -2,6 +2,10 @@
 
 Actor カタログの公開契約は通常テストの `[prd061]` で検証する。設定からの Actor 生成、scalar 購読、学習 counts、独立 RNG、IQN の異なる K、clone/shared、未定義参照、dormant、EvalPanel の参照タグ、Agent 固有の検証を含む。
 
+```bash
+core\anet-core\bin\Debug\anet-core-test.exe "[prd061]"
+```
+
 `[shipped_actors]` は現用7環境×online/batchrunの設定を解決し、train・評価タグ・休眠タグ・EvalPanelのActor参照を検証する。EvalPanelタグ・Actor・deviceをテスト用に補正しない。MuZeroのCPU deviceとActor由来のtau、共通full metricsのtauも対象とする。
 
 ## 移行比較
