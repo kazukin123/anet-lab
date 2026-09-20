@@ -80,8 +80,9 @@ DecodedReplayItemKey anet::rl::DecodeReplayItemKeyChecked(int64_t key, int64_t a
  * ------------------------------------------------------------------------------
  * 【エピソード開始時 (t=0 付近)】 -> 過去(Stack)の不足
  * - 症状: 過去のフレームが存在しないため、Stacking が物理的に不可能。
- * - 解決: Extractor サンプリング時に「一番古い利用可能なフレーム（t=0等）」を
- * 必要な回数だけ複製（コピーパディング）して補完する。
+ * - 解決: Push時のepisode_startをslotの「履歴開始」として保存する。Extractorは
+ * 最新slotから過去へ走査し、最初の履歴開始までを有効なstackとする。履歴開始より前の
+ * 不足分は、履歴開始のフレームを必要な回数だけ複製（コピーパディング）して補完する。
  *
  * 【エピソード終了時 (Done / Truncated)】 -> 未来(N-Step)の不足
  * - 症状: 未来のステップが存在しないため、N-Step分の報酬累積や未来状態の取得が不可能。
@@ -473,6 +474,7 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
     : num_envs_(num_envs), capacity_per_env_(capacity_per_env), device_(device)
 {
     write_cursors_.assign(num_envs, 0);
+    history_starts_.assign(static_cast<size_t>(num_envs_ * capacity_per_env_), 0);
 
     auto options = torch::TensorOptions().device(device_).pinned_memory(pin_memory && device_.is_cpu());
 
@@ -493,7 +495,12 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
     // obs_storage_ と info_storage_ は型の詳細が動的(Dict)なため、初回の Push 時に遅延アロケーションする
 }
 
-int64_t ReplayExperienceStorage::Push(int64_t env_idx, const anet::TensorDict& obs, const torch::Tensor& action, const anet::TensorDict& info)
+int64_t ReplayExperienceStorage::Push(
+    int64_t env_idx,
+    const anet::TensorDict& obs,
+    const torch::Tensor& action,
+    const anet::TensorDict& info,
+    bool history_start)
 {
     int64_t t = write_cursors_[env_idx] % capacity_per_env_;
 
@@ -523,9 +530,15 @@ int64_t ReplayExperienceStorage::Push(int64_t env_idx, const anet::TensorDict& o
         info_storage_.At(kv.first)[env_idx][t].copy_(kv.second);
     }
     actions_[env_idx][t].copy_(action);
+    history_starts_[static_cast<size_t>(env_idx * capacity_per_env_ + t)] = history_start ? 1 : 0;
 
     write_cursors_[env_idx]++;
     return t;
+}
+
+bool ReplayExperienceStorage::IsHistoryStart(int64_t env_idx, int64_t physical_idx) const
+{
+    return history_starts_[static_cast<size_t>(env_idx * capacity_per_env_ + physical_idx)] != 0;
 }
 
 void ReplayExperienceStorage::Update(int64_t env_idx, int64_t time_idx, const ReplayExperience& exp)
@@ -540,7 +553,7 @@ void ReplayExperienceStorage::PushTerminalDummy(int64_t env_idx, const anet::Ten
     // 終端状態用のダミーステップ。Actionや報酬は無効値を入れる
     torch::Tensor dummy_action = torch::zeros_like(actions_[env_idx][0]);
     anet::TensorDict dummy_info; // infoも空
-    int64_t t = Push(env_idx, terminal_obs, dummy_action, dummy_info);
+    int64_t t = Push(env_idx, terminal_obs, dummy_action, dummy_info, false);
 
     // ダミーの即時 Valid 化用メタデータ
     target_returns_[env_idx][t] = 0.0f;
@@ -572,6 +585,7 @@ void ReplayExperienceStorage::DumpToLog() const
             float ret = target_returns_[e][t].item<float>();
             bool term = terminals_[e][t].item<bool>();
             int64_t n = actual_n_steps_[e][t].item<int64_t>();
+            bool history_start = IsHistoryStart(e, t);
 
             std::string obs_str = "";
             for (const auto& kv : obs_storage_) {
@@ -588,7 +602,7 @@ void ReplayExperienceStorage::DumpToLog() const
                 act_str = anet::ToString(actions_[e][t]);
 
             LOG::info() << "  [idx=" << t << "] ret=" << ret
-                << " term=" << term << " n_steps=" << n
+                << " term=" << term << " n_steps=" << n << " history_start=" << history_start
                 << " obs={" << obs_str << "}"
                 << " act={" << act_str << "}";
         }
@@ -669,6 +683,26 @@ namespace {
             }
         }
         return res;
+    }
+
+    int64_t FindStackStart(
+        const ReplayExperienceStorage& storage,
+        int64_t env_idx,
+        int64_t latest_unwrapped_idx,
+        int stack_count,
+        int64_t capacity)
+    {
+        // ringに展開した連続位置を新しい観測から古い観測へ走査する。
+        if (stack_count == 1) return latest_unwrapped_idx;
+
+        const int64_t earliest_unwrapped_idx = latest_unwrapped_idx - stack_count + 1;
+        for (int64_t unwrapped_idx = latest_unwrapped_idx;
+             unwrapped_idx >= earliest_unwrapped_idx;
+             --unwrapped_idx) {
+            const int64_t physical_idx = (unwrapped_idx % capacity + capacity) % capacity;
+            if (storage.IsHistoryStart(env_idx, physical_idx)) return unwrapped_idx;
+        }
+        return earliest_unwrapped_idx;
     }
 
     torch::Tensor FlattenRows(torch::Tensor tensor)
@@ -1162,15 +1196,10 @@ public:
         std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_actual_n;
         std::vector<anet::TensorDict> batch_obs, batch_next_obs, batch_info;
 
-        // terminals_ は n-step return の終端到達も表すため、frame stack の境界には
-        // 実エピソード終端、dummy、未書き込み slot だけを使う。
+        // n-step出力はサンプルへそのまま返す。frame stackの境界には履歴開始だけを使う。
         auto terminals_tensor = storage.GetTerminals();
         auto actual_n_steps_tensor = storage.GetActualNSteps();
-        auto terminals_acc = terminals_tensor.accessor<bool, 2>();
         auto actual_n_steps_acc = actual_n_steps_tensor.accessor<int64_t, 2>();
-        auto is_episode_boundary = [&](int64_t env_idx, int64_t phys_idx) {
-            return terminals_acc[env_idx][phys_idx] && actual_n_steps_acc[env_idx][phys_idx] <= 1;
-        };
 
         /// @todo [Performance] 現在はバッチサイズ(B)回数分のループで C++ 側からスライスと torch::stack を行っている。
         /// GPU上でストレージを持つ場合、Pythonの `tensor[batch_indices, time_indices]` のように
@@ -1195,30 +1224,15 @@ public:
             }
 
             // 過去方向 (Frame Stacking) のスライス抽出と境界パディング
-            int64_t obs_start = time_idx - stack_count + 1;
-            int64_t obs_valid_start = obs_start;
-            for (int64_t k = time_idx - 1; k >= obs_start; --k) {
-                int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
-                if (is_episode_boundary(env_idx, phys_k)) {
-                    obs_valid_start = k + 1;
-                    break;
-                }
-            }
+            int64_t obs_valid_start = FindStackStart(storage, env_idx, time_idx, stack_count, cap);
             int64_t obs_valid_len = time_idx - obs_valid_start + 1;
             int64_t obs_pad_len = stack_count - obs_valid_len;
             batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_valid_start, obs_valid_len, obs_pad_len, cap, squeeze_stack, stack_keys_));
 
             // N-Step先 (NextState) のスライス抽出と境界パディング
             int64_t next_obs_end = time_idx + actual_n + 1;
-            int64_t next_obs_start = next_obs_end - stack_count;
-            int64_t next_obs_valid_start = next_obs_start;
-            for (int64_t k = next_obs_end - 2; k >= next_obs_start; --k) {
-                int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
-                if (is_episode_boundary(env_idx, phys_k)) {
-                    next_obs_valid_start = k + 1;
-                    break;
-                }
-            }
+            int64_t next_obs_valid_start = FindStackStart(
+                storage, env_idx, next_obs_end - 1, stack_count, cap);
             int64_t next_obs_valid_len = next_obs_end - next_obs_valid_start;
             int64_t next_obs_pad_len = stack_count - next_obs_valid_len;
             batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_valid_start, next_obs_valid_len, next_obs_pad_len, cap, squeeze_stack, stack_keys_));
@@ -1271,6 +1285,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     capacity_per_env_ = config_.capacity / num_envs_;
     actual_capacity_ = capacity_per_env_ * num_envs_;
     queues_.resize(num_envs_);
+    lane_expects_episode_start_.assign(static_cast<size_t>(num_envs_), true);
     generations_.assign(static_cast<size_t>(actual_capacity_), 0);
 
     // PERではpriority storeとcompletion Moduleを対で構築し、uniformではどちらも持たない。
@@ -1288,6 +1303,17 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
     ANET_PROFILE_FUNC();
 
     std::unique_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
+    // どのlaneも書き込む前に、入力のepisode継ぎ目をbatch全体で検証する。
+    for (int64_t b = 0; b < num_envs_; ++b) {
+        const bool actual = batch.state.episode_start[b].item<bool>();
+        const bool expected = lane_expects_episode_start_[static_cast<size_t>(b)];
+        if (actual != expected) {
+            ANET_SYSTEM_ERROR("ReplayBuffer::Push episode_start mismatch. lane=" << b
+                << " logical_index=" << index_manager_->GetWriteCursor(b)
+                << " expected=" << expected << " actual=" << actual);
+        }
+    }
 
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
@@ -1313,7 +1339,10 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         anet::TensorDict single_info = action_info.empty() ? anet::TensorDict() : action_info[b];
 
         const int64_t logical_time_idx = index_manager_->GetWriteCursor(b);
-        int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
+        // preflight通過後は期待値が入力episode_startと一致している。
+        const bool history_start = lane_expects_episode_start_[static_cast<size_t>(b)];
+        int64_t time_idx = storage_->Push(
+            b, single_obs, batch.action->GetAction()[b], single_info, history_start);
         const int64_t flat_slot_index = b * capacity_per_env_ + time_idx;
         {
             std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
@@ -1372,6 +1401,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         }
 
         ProcessQueue(b, rec.replay_initial_priority_hint, rec.logical_time_idx);
+        lane_expects_episode_start_[static_cast<size_t>(b)] = rec.done || rec.truncated;
     }
 
     StoreLastEvictionStats(evicted_sampleable_count, evicted_never_sampled_count);

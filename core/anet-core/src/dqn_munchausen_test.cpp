@@ -672,10 +672,11 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
         learner.ConfigureScalarMetricSubscriptions(subscriptions, &random);
         const auto flags = torch::zeros({ 2 }, torch::kBool);
         const TensorDict obs{ { ObsKeys::kVector, torch::tensor({ { 1.0f, 3.0f }, { 1.0f, 3.0f } }) } };
-        const BatchExperience experience(BatchState(obs, flags, flags, flags),
-            std::make_shared<BatchActionInfo>(torch::zeros({ 2 }, torch::kInt64)),
-            torch::full({ 2 }, 0.1f), BatchState(obs, flags, flags, flags));
         for (step_t step = 0; step <= 3; ++step) {
+            const auto episode_start = step == 0 ? torch::ones_like(flags) : flags;
+            const BatchExperience experience(BatchState(obs, flags, flags, episode_start),
+                std::make_shared<BatchActionInfo>(torch::zeros({ 2 }, torch::kInt64)),
+                torch::full({ 2 }, 0.1f), BatchState(obs, flags, flags, flags));
             const auto results = learner.UpdateFromBatch(StepCounts{ .exp_step = 2 * step }, experience);
             if (!results.empty()) measured = results.front();
         }
@@ -777,8 +778,9 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
             for (step_t step = 0; step < 9; ++step) {
                 online->clear();
                 target->clear();
+                const auto episode_start = step == 0 ? torch::ones_like(flags) : flags;
                 const auto results = learner.UpdateFromBatch(StepCounts{ .exp_step = 2 * step },
-                    BatchExperience(BatchState(samples.obs, flags, flags, flags),
+                    BatchExperience(BatchState(samples.obs, flags, flags, episode_start),
                         std::make_shared<BatchActionInfo>(samples.actions), samples.target_returns,
                         BatchState(samples.obs, flags, flags, flags)));
                 for (const auto& base : results) {
@@ -890,8 +892,9 @@ TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dq
         const auto initial = SoftSamples(device);
         const auto flags = torch::zeros({ 2 }, torch::kBool);
         for (step_t step = 0; step < 3; ++step) {
+            const auto episode_start = step == 0 ? torch::ones_like(flags) : flags;
             learner.UpdateFromBatch(StepCounts{ .exp_step = step }, BatchExperience(
-                BatchState(initial.obs, flags, flags, flags),
+                BatchState(initial.obs, flags, flags, episode_start),
                 std::make_shared<BatchActionInfo>(initial.actions), initial.target_returns,
                 BatchState(initial.next_state.next_obs, flags, flags, flags)));
         }

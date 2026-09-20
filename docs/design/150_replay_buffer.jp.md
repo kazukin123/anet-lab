@@ -38,7 +38,7 @@ RunnerはEnvが再利用するstorageからExperienceを切り離すため、Sta
 
 | 操作 | 現行contract |
 |---|---|
-| `Push(batch_exp)` | 構築時の`num_envs`と同じlane数を持つ1 step分のExperienceを受け取る。`DefaultReplayBuffer`はObservation、Action、infoを事前確保storageへ即時copyし、N-step確定用の軽量recordをlane別queueへ積む |
+| `Push(batch_exp)` | 構築時の`num_envs`と同じlane数を持つ1 step分のExperienceを受け取る。各laneの初回と直前入力が`done || truncated`だった次の入力だけ`BatchState::episode_start == true`とし、全laneを事前検証してから書き込む。`DefaultReplayBuffer`はObservation、Action、info、履歴開始を事前確保storageへ即時copyし、N-step確定用の軽量recordをlane別queueへ積む |
 | `Sample(out_samples, minibatch_size, beta)` | `Size() >= minibatch_size`を前提に、sample可能transitionからminibatchを作る。不足時はassertで停止し、暗黙に小さいbatchへ変更しない |
 | `Size()` | 保存済みraw slot数ではなく、ready rangeへstackのhistory marginを適用し、dummyを除外したsampleable rangeのtransition数を返す |
 | `UpdatePriorities(item_keys, priorities)` | PER有効時にgeneration-aware keyへraw priorityを適用し、applied/stale件数を返す。uniform samplerでは更新を行わない |
@@ -56,9 +56,10 @@ keyは物理indexではなく`generation * actual_capacity + flat_slot_index`で
 frame stackingには2つの利用箇所がある。
 
 - Actor側の`StackerActionContext`は、行動選択用にlaneごとの直近Observationをstackし、`episode_start`を受けたlaneを初期frameで埋め直す。
-- ReplayBufferのsample extractorは、学習用に保存済み時間列からstackを再構成し、起動直後の未書込領域または保存済みterminalによる実episode境界をpaddingする。ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。
+- ReplayBufferはPush時の`BatchState::episode_start`を実slotの履歴開始としてObservationと同時に保存する。truncation用dummy slotは履歴開始にしない。
+- sample extractorは`obs`では時刻`t`、`next_obs`では`t + actual_n_steps`を最新slotとして、stack幅内を新しいslotから古いslotへ走査する。最初に見つかった保存済み履歴開始より前を、その開始frameのcopyでpaddingする。履歴開始がなければstack幅全体を使い、`stack_count == 1`では走査しない。terminalやN-step metadataの確定状態はstack境界に使わない。
 
-現行`DefaultReplayBuffer::Push`は`BatchState::episode_start`自体を保存・参照しない。このため、直前に`done`/`truncated`を伴わない`episode_start`だけをReplayBufferのstack境界とする動作は、現行production経路の保証に含めない。
+ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。true terminalの`next_obs`値は学習contract上の保証対象外だが、同じ履歴開始規則から決定的に復元される。
 
 ### 2.4 PER
 
@@ -87,7 +88,7 @@ uniform samplerではPER固有metricを公開しない。
 | `ExperienceSamples` | ReplayBufferから抽出しLearnerへ渡すminibatch |
 | `ReplayBuffer` | Push、Sample、Size、priority更新と可視化accessorを公開する共通interface |
 | `DefaultReplayBuffer` | storage、valid index、sample、N-step/PERを束ねるfacade |
-| `ReplayExperienceStorage` | lane別ring storageへObservation、Action、infoを保持する |
+| `ReplayExperienceStorage` | lane別ring storageへObservation、Action、infoと実slotの履歴開始を保持する。未書込slotとdummy slotの履歴開始はfalse |
 | `ExperienceQueueController` | laneごとの遷移からN-step targetを確定する |
 | `ValidIndexManager` | 書込状態とN-step/unrollの未来側条件からready rangeを管理し、ring折り返し後のhistory marginとdummy除外を加えたsampleable rangeを全consumerへ提供する |
 | `ReplayExperienceSampler` | uniformまたはpriority付きindexを選ぶ |
@@ -258,7 +259,7 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 ### 7.2 storage lifetime
 
 - RunnerはEnvの再利用storageからExperienceをcloneして切り離す。
-- `DefaultReplayBuffer::Push()`はObservation、Action、infoを内部storageへcopyし、ring overwriteまで保持する。
+- `DefaultReplayBuffer::Push()`はObservation、Action、info、`episode_start`由来の履歴開始を同じ実slotへcopyし、ring overwriteまで保持する。
 - real/dummyの各書込みでslot generationを進め、sourceを`none`へ戻してleafを無効化する。SumTree容量とkey基数には丸め後の`actual_capacity`を共通使用する。
 - 非同期CUDA転送ではready event完了までpinned sourceを保持する。
 - consumer streamで使用するTensorは`record_stream`し、allocatorの早期再利用を防ぐ。
@@ -267,6 +268,7 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 ### 7.3 エラーと並行性
 
 - `Sample()`を呼ぶ側は`Size() >= minibatch_size`を満たすまで更新を開始しない。不足時はReplayBufferがfail-fastする。
+- `DefaultReplayBuffer::Push()`は書込み前に全laneの`episode_start`をpreflightする。各laneの期待値は初回がtrue、以後は直前入力の`done || truncated`であり、1 laneでも不一致ならどのlaneにも書き込まずfail-fastする。
 - shape、lane数、stack key、index範囲、priority値を境界で検証する。
 - background sample/transferの例外はfutureの`get()`または次の同期境界でcallerへ再送出する。
 - `DefaultReplayBuffer`はPushをstorageのunique lock、Sampleをshared storage lockとmetadata lock、Sizeとpriority更新をmetadata lockで保護する。並行最適化ではlock順序と決定性を維持する。
@@ -339,8 +341,11 @@ Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとpr
 - CPU/CUDA device transfer
 - caller-owned probe RNGの決定性・consumer間分離・件数不足/全件時の非消費
 - PrefetchingReplayBufferの決定性、FIFO順序、Push/priority更新との同期、write-behind payloadのlifetime
+- 履歴開始のfail-fast、容量到達前後、短episode、pending/wrapped metadata、およびstack・N-step・lane・capacity・Uniform/PER・CPU Prefetchを組み合わせた384条件の非既定integrity assay
 
 変更時は公開`ReplayBuffer` contractを保ち、同じseedに対するsample列、PER metadata、CPU path、CUDAが利用可能な場合の非同期pathを確認する。capacityとlane数を変更するtestでは要求容量ではなく`actual_capacity`も確認する。background workerの例外伝播やshutdown順序を変更する場合は、既存test範囲に含まれると仮定せず専用回帰testを追加する。
+
+384条件のmatrixは`[.][integrity_assay]`で通常suiteと`[replay_buffer]`から除外する。全条件は`core/anet-core/testdata/prd078/run_integrity_assay.py`でcase別processとして実行し、固定seed、完了標記、timeout、終了コードを記録する。
 
 ## 9. 関連文書
 

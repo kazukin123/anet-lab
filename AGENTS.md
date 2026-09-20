@@ -394,6 +394,14 @@ core\anet-core\bin\Debug\anet-core-test.exe "[prd061]"
 設定改名前後・カタログ移行前後の比較手順と、固定入力推論の採取条件は
 `core/anet-core/testdata/prd061/README.md` を参照する。PRD072 の golden は更新しない。
 
+PRD078 の ReplayBuffer 履歴整合性384条件matrix（通常のDebugビルド済み、リポジトリルートで実行）:
+
+```powershell
+.\.venv\Scripts\python.exe core\anet-core\testdata\prd078\run_integrity_assay.py
+```
+
+個別再現は`--cases 325-328`のように単独番号または包含範囲を指定する。case別ログ、`results.csv`、`report.md`は既定で時刻付き`.scratch/prd078/`へ出力する。
+
 新しいテスト実行体や専用スクリプトが追加された場合は、この節に標準の実行手順を追記してください。
 
 ## Python 補助ツールの実行

@@ -202,7 +202,12 @@ namespace anet::rl {
         ReplayExperienceStorage(int64_t num_envs, int64_t capacity_per_env, const EnvSpec& spec, const ReplayBufferConfig& config, torch::Device device, bool pin_memory);
 
         /// 重いデータ（Dict等）を即時追加し、書き込まれた time_idx を返す
-        int64_t Push(int64_t env_idx, const anet::TensorDict& obs, const torch::Tensor& action, const anet::TensorDict& info);
+        int64_t Push(
+            int64_t env_idx,
+            const anet::TensorDict& obs,
+            const torch::Tensor& action,
+            const anet::TensorDict& info,
+            bool history_start);
 
         /// Builderが構築したメタデータを、指定したインデックスに上書き(遅延反映)する
         void Update(int64_t env_idx, int64_t time_idx, const ReplayExperience& exp);
@@ -220,6 +225,8 @@ namespace anet::rl {
         const torch::Tensor& GetTargetReturns() const { return target_returns_; }
         const torch::Tensor& GetTerminals() const { return terminals_; }
         const torch::Tensor& GetActualNSteps() const { return actual_n_steps_; }
+        /// extractorへring layoutを露出せず、実slotの履歴開始だけを返す。
+        bool IsHistoryStart(int64_t env_idx, int64_t physical_idx) const;
     public:
         // 可視化用
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
@@ -238,6 +245,7 @@ namespace anet::rl {
         torch::Tensor target_returns_;
         torch::Tensor terminals_;
         torch::Tensor actual_n_steps_;
+        std::vector<uint8_t> history_starts_;
     };
     
 
@@ -486,6 +494,7 @@ namespace anet::rl {
         std::unique_ptr<InitialPriorityCompleter> initial_priority_completer_;
 
         std::vector<ExperienceQueue> queues_;
+        std::vector<bool> lane_expects_episode_start_;
         std::vector<int64_t> generations_;
         int64_t actual_capacity_ = 0;
         int64_t priority_update_stale_drop_count_ = 0;

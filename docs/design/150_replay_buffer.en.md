@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:c07bcc64ca94eb76ba6c17c74435ec3384fa95e5 date:2026-09-19 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:019a516ef7155862ad2ba673db5edc684545ce41 date:2026-09-20 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -39,7 +39,7 @@ Runner clones State, Reward, and next State at the required boundaries to detach
 
 | Operation | Current contract |
 |---|---|
-| `Push(batch_exp)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `DefaultReplayBuffer` immediately copies Observation, Action, and info into preallocated storage and queues lightweight per-lane records for N-step finalization |
+| `Push(batch_exp)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `BatchState::episode_start` must be true only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
 | `Sample(out_samples, minibatch_size, beta)` | Requires `Size() >= minibatch_size` and constructs a minibatch from sampleable transitions. Insufficient data stops with an assertion rather than silently reducing batch size |
 | `Size()` | Returns sampleable transitions after applying stack history margins to ready ranges and excluding dummy slots, rather than the raw stored-slot count |
 | `UpdatePriorities(item_keys, priorities)` | With PER, applies raw priorities to generation-aware keys and returns applied/stale counts. Uniform sampling performs no updates |
@@ -57,9 +57,10 @@ For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals n
 Frame stacking is used in two places:
 
 - Actor-side `StackerActionContext` stacks recent Observations per lane for action selection, refilling lanes receiving `episode_start` with their initial frame.
-- ReplayBuffer sample extraction reconstructs training stacks from stored time series, padding unwritten startup regions or true episode boundaries identified by stored terminals. History lost through ring overwrite is not an episode boundary and is not padded; `ValidIndexManager` excludes affected transitions from sampleable ranges.
+- ReplayBuffer stores Push-time `BatchState::episode_start` beside the Observation as the history start for each real slot. Truncation dummy slots are never history starts.
+- Sample extraction uses time `t` as the latest slot for `obs` and `t + actual_n_steps` for `next_obs`, scanning backward within the stack width. Frames before the first stored history start are padded by copying that start frame. If none is found, the entire stack width is used; `stack_count == 1` performs no scan. Terminals and N-step metadata readiness are not stack boundaries.
 
-Current `DefaultReplayBuffer::Push` neither stores nor reads `BatchState::episode_start` itself. Therefore an isolated `episode_start` without preceding `done`/`truncated` is not guaranteed to create a ReplayBuffer stack boundary in current production paths.
+History lost through ring overwrite is not an episode boundary and is not padded; `ValidIndexManager` excludes affected transitions from sampleable ranges. A true terminal's `next_obs` value remains outside the learning contract, but is reconstructed deterministically by the same history-start rule.
 
 ### 2.4 PER
 
@@ -88,7 +89,7 @@ Concrete Agents decide whether to use the shared interface. ReplayBuffer is not 
 | `ExperienceSamples` | Minibatch extracted from ReplayBuffer for Learner |
 | `ReplayBuffer` | Shared interface exposing Push, Sample, Size, priority updates, and visualization accessors |
 | `DefaultReplayBuffer` | Facade combining storage, valid indices, sampling, and N-step/PER |
-| `ReplayExperienceStorage` | Stores Observations, Actions, and info in per-lane rings |
+| `ReplayExperienceStorage` | Stores Observations, Actions, info, and real-slot history starts in per-lane rings. Unwritten and dummy slots have a false history start |
 | `ExperienceQueueController` | Finalizes N-step targets from per-lane transitions |
 | `ValidIndexManager` | Manages ready ranges from write state and future-side N-step/unroll conditions, supplying all consumers with sampleable ranges after post-wrap history margins and dummy exclusion |
 | `ReplayExperienceSampler` | Selects uniform or prioritized indices |
@@ -259,7 +260,7 @@ Concrete Agent Configs and Run configuration artifacts are authoritative for ext
 ### 7.2 Storage Lifetimes
 
 - Runner clones Experiences away from reused Env storage.
-- `DefaultReplayBuffer::Push()` copies Observations, Actions, and info into internal storage, retaining them until ring overwrite.
+- `DefaultReplayBuffer::Push()` copies Observations, Actions, info, and the `episode_start`-derived history start into the same internal slot, retaining them until ring overwrite.
 - Each real/dummy write advances the slot generation, resets its source to `none`, and invalidates its leaf. SumTree capacity and key radix both use rounded `actual_capacity`.
 - Asynchronous CUDA transfer retains pinned sources until the ready event completes.
 - Tensors used on consumer streams receive `record_stream` to prevent early allocator reuse.
@@ -268,6 +269,7 @@ Concrete Agent Configs and Run configuration artifacts are authoritative for ext
 ### 7.3 Errors and Concurrency
 
 - Callers do not start updates until `Size() >= minibatch_size`; ReplayBuffer fails fast on insufficient data.
+- Before writing, `DefaultReplayBuffer::Push()` preflights `episode_start` for every lane. Each lane expects true initially and then exactly when the preceding input had `done || truncated`; any mismatch fails fast without writing any lane.
 - Validate shapes, lane counts, stack keys, index ranges, and priorities at boundaries.
 - Background sampling/transfer exceptions are rethrown by future `get()` or at the next synchronization boundary.
 - `DefaultReplayBuffer` protects Push with a unique storage lock, Sample with shared storage and metadata locks, and Size/priority updates with the metadata lock. Preserve lock order and determinism when optimizing concurrency.
@@ -340,8 +342,11 @@ Current [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp
 - CPU/CUDA device transfer
 - Caller-owned probe RNG determinism, isolation between consumers, and no consumption for insufficient/all-item requests
 - PrefetchingReplayBuffer determinism, FIFO ordering, synchronization with Push/priority updates, and write-behind payload lifetimes
+- History-start fail-fast behavior, capacity boundaries, short episodes, pending/wrapped metadata, and a 384-case non-default integrity assay combining stack, N-step, lane count, capacity, Uniform/PER, and CPU prefetch
 
 Preserve the public `ReplayBuffer` contract when changing it. Check same-seed sample sequences, PER metadata, CPU paths, and asynchronous paths when CUDA is available. Tests changing capacity and lane count must check `actual_capacity`, not just requested capacity. Add dedicated regression tests when changing background exception propagation or shutdown order rather than assuming existing coverage.
+
+The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `core/anet-core/testdata/prd078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case.
 
 ## 9. Related Documents
 

@@ -1112,7 +1112,7 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
         num_envs);
 
     for (int64_t t = 0; t <= 5; ++t) {
-        PushTime(buffer, t);
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
     }
 
     REQUIRE(buffer.rb->Size() == 6);
@@ -1156,7 +1156,7 @@ TEST_CASE("ReplayBuffer reads a caller-random unique uniform probe batch without
         false,
         777);
     for (int64_t t = 0; t <= 6; ++t) {
-        PushTime(buffer, t);
+        PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
     }
     REQUIRE(buffer.rb->Size() == 6);
 
@@ -1173,7 +1173,7 @@ TEST_CASE("ReplayBuffer reads a caller-random unique uniform probe batch without
 TEST_CASE("ReplayBuffer sampling history returns requested disjoint groups from one snapshot", "[replay_buffer][replay_fit]")
 {
     auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 1, false, 73001);
-    for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t);
+    for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
     rl::ExperienceSamples normal;
     buffer.rb->Sample(normal, 1, 0.4f);
     const auto selected_key = normal.replay_item_keys.item<int64_t>();
@@ -1213,7 +1213,7 @@ TEST_CASE("ReplayBuffer history probes preserve ring generations and sample reco
     CHECK(empty.unsampled_count == 0);
     CHECK(empty.sampled_count == 0);
     CHECK(std::isnan(empty.unsampled_age_mean));
-    for (int64_t t = 0; t < 10; ++t) PushTime(buffer, t);
+    for (int64_t t = 0; t < 10; ++t) PushTime(buffer, t, {}, {}, BoolValues(2, t == 0));
     rl::ExperienceSamples ordinary;
     buffer.rb->Sample(ordinary, 2, 0.4f);
     // 全slotを上書きした後は旧世代の抽選履歴が残らない。
@@ -1287,7 +1287,7 @@ TEST_CASE("ReplayBuffer caller-owned probe RNG is deterministic and isolated", "
             1,
             false,
             1234);
-        for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t);
+        for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
         return buffer;
     };
     auto probed = make_populated();
@@ -1342,7 +1342,7 @@ TEST_CASE("ReplayBuffer samples one-step transitions for each env", "[replay_buf
     RequireOneStepSample(SampleOnlyIndex(buffer, IndexOf(buffer, 1, 0)), buffer, 1, 0);
 }
 
-TEST_CASE("ReplayExperienceStorage initializes unwritten slots as episode boundaries", "[replay_buffer][storage][frame_stack]")
+TEST_CASE("ReplayExperienceStorage initializes unwritten slot metadata", "[replay_buffer][storage][frame_stack]")
 {
     constexpr int64_t num_envs = 2;
     constexpr int64_t capacity_per_env = 5;
@@ -1363,6 +1363,11 @@ TEST_CASE("ReplayExperienceStorage initializes unwritten slots as episode bounda
     REQUIRE(storage.GetTargetReturns().eq(0.0f).all().item<bool>());
     REQUIRE(storage.GetTerminals().all().item<bool>());
     REQUIRE(storage.GetActualNSteps().eq(0).all().item<bool>());
+    for (int64_t env_idx = 0; env_idx < num_envs; ++env_idx) {
+        for (int64_t physical_idx = 0; physical_idx < capacity_per_env; ++physical_idx) {
+            CHECK_FALSE(storage.IsHistoryStart(env_idx, physical_idx));
+        }
+    }
 }
 
 TEST_CASE("ReplayBuffer visualization accessors expose V1-compatible storage keys", "[replay_buffer][visualization]")
@@ -2717,7 +2722,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     auto buffer = MakeBuffer(MakeConfig(32, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 2);
 
     for (int64_t t = 0; t < 10; ++t) {
-        PushTime(buffer, t);
+        PushTime(buffer, t, {}, {}, BoolValues(2, t == 0));
     }
 
     std::exception_ptr worker_error;
@@ -3115,31 +3120,25 @@ TEST_CASE("ReplayBuffer flushes n-step returns at done terminals", "[replay_buff
     }
 }
 
-// 仕様が未裁定。設計書(150_replay_buffer.jp.md)は production 保証外とし、
-// このテストは保証を要求している。どちらが正か未決。
-// 経緯: 050_replay_ring_stack_margin_10prd.md の D15 / 非目標節
-TEST_CASE("ReplayBuffer n-step returns stop at episode_start without done", "[replay_buffer][n_step][episode_start][!shouldfail]")
+TEST_CASE("ReplayBuffer rejects a first push without episode_start before writing",
+    "[replay_buffer][frame_stack][history_start][contract]")
 {
     constexpr int64_t num_envs = 1;
-    constexpr int n_step = 3;
-    constexpr float gamma = 0.5f;
+    auto buffer = MakeBuffer(MakeConfig(8), num_envs);
 
-    auto buffer = MakeBuffer(MakeConfig(40, n_step, gamma), num_envs);
+    // 契約違反はstorageへ触る前に検出し、同じlogical indexへ正しい入力を再試行できる。
+    CHECK_THROWS_WITH(
+        PushTime(buffer, 0),
+        Catch::Matchers::ContainsSubstring("ReplayBuffer::Push episode_start mismatch")
+            && Catch::Matchers::ContainsSubstring("lane=0")
+            && Catch::Matchers::ContainsSubstring("logical_index=0")
+            && Catch::Matchers::ContainsSubstring("expected=1")
+            && Catch::Matchers::ContainsSubstring("actual=0"));
+    CHECK(buffer.rb->Size() == 0);
 
     PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
     PushTime(buffer, 1);
-    PushTime(buffer, 2);
-    PushTime(buffer, 3, {}, {}, BoolValues(num_envs, true));
-    PushTime(buffer, 4);
-    PushTime(buffer, 5);
-
-    auto before_reset = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 1));
-    RequireSampleMeta(
-        before_reset,
-        IndexOf(buffer, 0, 1),
-        RewardValue(0, 1) + gamma * RewardValue(0, 2),
-        true,
-        2);
+    CHECK(buffer.rb->Size() == 1);
 }
 
 TEST_CASE("ReplayBuffer frame stacking keeps pre-terminal frames with n-step done flush", "[replay_buffer][frame_stack][n_step][done]")
@@ -3233,7 +3232,8 @@ TEST_CASE("ReplayBuffer frame stacking keeps truncated n-step boundary aligned",
     });
 }
 
-TEST_CASE("ReplayBuffer frame stacking and n-step next_obs survive ring wrap", "[replay_buffer][frame_stack][n_step][wrap]")
+TEST_CASE("ReplayBuffer frame stacking and n-step next_obs survive ring wrap",
+    "[replay_buffer][frame_stack][history_start][n_step][wrap]")
 {
     constexpr int64_t num_envs = 1;
     constexpr int64_t capacity = 8;
@@ -3459,7 +3459,8 @@ TEST_CASE("ReplayBuffer treats truncated transitions as bootstrapable n-step bou
     }
 }
 
-TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation frame", "[replay_buffer][frame_stack][truncated]")
+TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation frame",
+    "[replay_buffer][frame_stack][history_start][truncated]")
 {
     constexpr int64_t num_envs = 1;
     constexpr int stack_count = 4;
@@ -3494,36 +3495,51 @@ TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation fr
     });
 }
 
-// 仕様が未裁定。設計書(150_replay_buffer.jp.md)は production 保証外とし、
-// このテストは保証を要求している。どちらが正か未決。
-// 経緯: 050_replay_ring_stack_margin_10prd.md の D15 / 非目標節
-TEST_CASE("ReplayBuffer frame stacking starts a new stack at episode_start without done", "[replay_buffer][frame_stack][episode_start][!shouldfail]")
+TEST_CASE("ReplayBuffer rejects episode_start transitions that disagree with the previous end",
+    "[replay_buffer][frame_stack][history_start][contract]")
 {
-    constexpr int64_t num_envs = 1;
-    constexpr int stack_count = 3;
+    SECTION("missing start after an ended episode is rejected before any lane is written") {
+        constexpr int64_t num_envs = 2;
+        auto buffer = MakeBuffer(MakeConfig(16), num_envs);
 
-    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, stack_count), num_envs);
+        PushTime(buffer, 0, BoolValues(num_envs, false), {}, BoolValues(num_envs, true));
+        // lane 1だけを終端にし、次のbatchではlane 0を通過後にlane 1で違反させる。
+        auto next_done = BoolValues(num_envs, false);
+        next_done[1] = true;
+        auto ended = MakeBatch(
+            StateValues(num_envs, 1), StateValues(num_envs, 2), RewardValues(num_envs, 1),
+            next_done, BoolValues(num_envs, false), BoolValues(num_envs, false));
+        buffer.rb->Push(ended);
+        const int64_t size_before = buffer.rb->Size();
 
-    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
-    PushTime(buffer, 1);
-    PushTime(buffer, 2);
-    PushTime(buffer, 3, {}, {}, BoolValues(num_envs, true));
-    PushTime(buffer, 4);
+        CHECK_THROWS_WITH(
+            PushTime(buffer, 2),
+            Catch::Matchers::ContainsSubstring("lane=1")
+                && Catch::Matchers::ContainsSubstring("logical_index=2")
+                && Catch::Matchers::ContainsSubstring("expected=1")
+                && Catch::Matchers::ContainsSubstring("actual=0"));
+        CHECK(buffer.rb->Size() == size_before);
 
-    REQUIRE(buffer.rb->Size() == 4);
+        auto starts = BoolValues(num_envs, false);
+        starts[1] = true;
+        PushTime(buffer, 2, {}, {}, starts);
+        CHECK(buffer.rb->Size() == size_before + 2);
+    }
 
-    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 3));
-    RequireSampleMeta(samples, IndexOf(buffer, 0, 3), RewardValue(0, 3), false, 1);
-    RequireFlatApprox(samples.obs.At(kVectorKey)[0], {
-        StateValue(0, 3),
-        StateValue(0, 3),
-        StateValue(0, 3)
-    });
-    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
-        StateValue(0, 3),
-        StateValue(0, 3),
-        StateValue(0, 4)
-    });
+    SECTION("start without a preceding end is rejected") {
+        auto buffer = MakeBuffer(MakeConfig(8), 1);
+        PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+        PushTime(buffer, 1);
+        const int64_t size_before = buffer.rb->Size();
+
+        CHECK_THROWS_WITH(
+            PushTime(buffer, 2, {}, {}, BoolValues(1, true)),
+            Catch::Matchers::ContainsSubstring("lane=0")
+                && Catch::Matchers::ContainsSubstring("logical_index=2")
+                && Catch::Matchers::ContainsSubstring("expected=0")
+                && Catch::Matchers::ContainsSubstring("actual=1"));
+        CHECK(buffer.rb->Size() == size_before);
+    }
 }
 
 TEST_CASE("ReplayBuffer frame stacking pads the beginning of an episode", "[replay_buffer][frame_stack][episode_boundary]")
@@ -3606,10 +3622,169 @@ TEST_CASE("ReplayBuffer stack_keys leaves non-stacked observations at latest fra
     RequireFlatApprox(samples.next_state.next_obs.At(kMaskKey)[0], { StateValue(0, 3), StateValue(0, 3) + 0.25f });
 }
 
+TEST_CASE("ReplayBuffer preserves history at the first capacity boundary",
+    "[replay_buffer][frame_stack][history_start][capacity_boundary]")
+{
+    const int pushed = GENERATE(7, 8, 9);
+    CAPTURE(pushed);
+    auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM), 1, false, 78001);
+    for (int step = 0; step < pushed; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+
+    const int64_t expected_size = pushed < 9 ? pushed - 1 : 4;
+    REQUIRE(buffer.rb->Size() == expected_size);
+    anet::RandomGenerator random(78002);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, expected_size, random));
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+
+    if (pushed < 9) {
+        const auto first = std::find(keys.begin(), keys.end(), int64_t{ 8 });
+        REQUIRE(first != keys.end());
+        const auto row = static_cast<int64_t>(std::distance(keys.begin(), first));
+        RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 0.0f, 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[row], { 0.0f, 0.0f, 0.0f, 1.0f });
+    } else {
+        CHECK(std::ranges::find(keys, int64_t{ 8 }) == keys.end());
+        const auto oldest = std::find(keys.begin(), keys.end(), int64_t{ 12 });
+        REQUIRE(oldest != keys.end());
+        const auto row = static_cast<int64_t>(std::distance(keys.begin(), oldest));
+        RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 1.0f, 2.0f, 3.0f, 4.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[row], { 2.0f, 3.0f, 4.0f, 5.0f });
+    }
+}
+
+TEST_CASE("ReplayBuffer preserves history around first capacity when a dummy shifts writes",
+    "[replay_buffer][frame_stack][history_start][capacity_boundary][dummy]")
+{
+    const int pushed = GENERATE(6, 7, 8);
+    CAPTURE(pushed);
+    auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM), 1, false, 78003);
+
+    // step 1のtruncationがslot 2へdummyを書くため、7回の入力で容量8に到達する。
+    for (int step = 0; step < pushed; ++step) {
+        if (step == 1) {
+            PushTime(buffer, step, {}, BoolValues(1, true), BoolValues(1, false),
+                TerminalStateValues(1, step));
+        } else {
+            PushTime(buffer, step, {}, {}, BoolValues(1, step == 0 || step == 2));
+        }
+    }
+
+    // dummyの次の実観測はslot 3にあり、容量到達前後でも履歴開始を維持する。
+    // wrap直後は既存history marginがslot 3を除外するため、次のsampleable slotで同じ履歴を見る。
+    const int64_t physical_idx = pushed < 8 ? 3 : 4;
+    const int64_t input_step = pushed < 8 ? 2 : 3;
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, physical_idx));
+    RequireSampleMeta(
+        samples, IndexOf(buffer, 0, physical_idx), RewardValue(0, input_step), false, 1);
+    if (pushed < 8) {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 2.0f, 2.0f, 2.0f, 2.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 2.0f, 2.0f, 2.0f, 3.0f });
+    } else {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 2.0f, 2.0f, 2.0f, 3.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 2.0f, 2.0f, 3.0f, 4.0f });
+    }
+}
+
+TEST_CASE("ReplayBuffer n-step two bootstrap history does not depend on pending metadata",
+    "[replay_buffer][frame_stack][history_start][pending_metadata]")
+{
+    const int stack_count = GENERATE(2, 3);
+    CAPTURE(stack_count);
+    auto buffer = MakeBuffer(MakeConfig(16, 2, 0.5f, stack_count), 1);
+    for (int step = 0; step <= 2; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+    REQUIRE(samples.n_steps.item<int64_t>() == 2);
+    REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
+    if (stack_count == 2) {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 1.0f, 2.0f });
+    } else {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 0.0f, 1.0f, 2.0f });
+    }
+}
+
+TEST_CASE("ReplayBuffer ignores previous-generation normal and dummy metadata in bootstrap history",
+    "[replay_buffer][frame_stack][history_start][wrapped_metadata]")
+{
+    const bool old_slot_is_dummy = GENERATE(false, true);
+    CAPTURE(old_slot_is_dummy);
+    auto buffer = MakeBuffer(MakeConfig(8, 3, 0.5f, 4), 1);
+    for (int step = 0; step < 12; ++step) {
+        if (old_slot_is_dummy && step == 2) {
+            PushTime(buffer, step, BoolValues(1, false), BoolValues(1, true), BoolValues(1, false),
+                TerminalStateValues(1, step));
+        } else {
+            PushTime(buffer, step, {}, {}, BoolValues(1, step == 0 || (old_slot_is_dummy && step == 3)));
+        }
+    }
+
+    const int64_t physical_idx = old_slot_is_dummy ? 1 : 0;
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, physical_idx));
+    REQUIRE(samples.n_steps.item<int64_t>() == 3);
+    REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 5.0f, 6.0f, 7.0f, 8.0f });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 8.0f, 9.0f, 10.0f, 11.0f });
+}
+
+TEST_CASE("ReplayBuffer accepts one-step done and truncated episodes with independent history starts",
+    "[replay_buffer][frame_stack][history_start][single_step_episode]")
+{
+    SECTION("done") {
+        auto buffer = MakeBuffer(MakeConfig(12, 1, 0.5f, 4), 1);
+        PushTime(buffer, 0, BoolValues(1, true), {}, BoolValues(1, true));
+        PushTime(buffer, 1, {}, {}, BoolValues(1, true));
+        PushTime(buffer, 2);
+
+        auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+        RequireSampleMeta(samples, IndexOf(buffer, 0, 0), RewardValue(0, 0), true, 1);
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    SECTION("truncated") {
+        auto buffer = MakeBuffer(MakeConfig(12, 1, 0.5f, 4), 1);
+        PushTime(buffer, 0, {}, BoolValues(1, true), BoolValues(1, true), TerminalStateValues(1, 0));
+        PushTime(buffer, 1, {}, {}, BoolValues(1, true));
+        PushTime(buffer, 2);
+
+        auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+        RequireSampleMeta(samples, IndexOf(buffer, 0, 0), RewardValue(0, 0), false, 1);
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+            0.0f, 0.0f, 0.0f, TerminalStateValue(0, 0)
+        });
+    }
+}
+
+TEST_CASE("ReplayBuffer frame history is stable when later n-step metadata becomes ready",
+    "[replay_buffer][frame_stack][history_start][pending_metadata]")
+{
+    auto buffer = MakeBuffer(MakeConfig(32, 3, 0.5f, 4), 1);
+    for (int step = 0; step <= 3; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+    const auto before = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    PushTime(buffer, 4);
+    PushTime(buffer, 5);
+    const auto after = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    CHECK(torch::equal(before.replay_item_keys, after.replay_item_keys));
+    CHECK(torch::equal(before.obs.At(kVectorKey), after.obs.At(kVectorKey)));
+    CHECK(torch::equal(before.next_state.next_obs.At(kVectorKey), after.next_state.next_obs.At(kVectorKey)));
+}
+
 namespace replay_integrity_assay {
 
 constexpr int64_t kFrameBytes = 6;
-constexpr uint64_t kSeed = 20260919;
+constexpr uint64_t kFixedSeed = 20260919;
 constexpr float kGamma = 0.5f;
 
 struct Transition {
@@ -3823,13 +3998,21 @@ struct Counts {
     int64_t checked_samples = 0;
 };
 
-void Run(int stack, int n_step, int lanes, int capacity, bool per, bool prefetch, Counts& counts)
+void Run(
+    int stack,
+    int n_step,
+    int lanes,
+    int capacity,
+    bool per,
+    bool prefetch,
+    uint64_t seed,
+    Counts& counts)
 {
-    CAPTURE(kSeed, stack, n_step, lanes, capacity, per, prefetch);
+    CAPTURE(seed, stack, n_step, lanes, capacity, per, prefetch);
     // 長時間の実行でも停止箇所を追えるよう、条件と処理境界をflushして残す。
     std::cout << "Replay integrity case: stack=" << stack << " n_step=" << n_step
         << " lanes=" << lanes << " lane_capacity=" << capacity
-        << " per=" << per << " prefetch=" << prefetch << std::endl;
+        << " per=" << per << " prefetch=" << prefetch << " seed=" << seed << std::endl;
     const int steps = 5 * capacity;
     const auto history = MakeHistory(lanes, steps);
     auto spec = MakeEnvSpec();
@@ -3837,7 +4020,7 @@ void Run(int stack, int n_step, int lanes, int capacity, bool per, bool prefetch
     spec.state_spec.obs_spec[kVectorKey].dtype = torch::kUInt8;
     const auto config = MakeConfig(lanes * capacity, n_step, kGamma, stack,
         per ? rl::ReplaySamplerType::PRIORITIZED : rl::ReplaySamplerType::UNIFORM);
-    auto buffer = rl::CreateReplayBuffer(config, spec, lanes, torch::kCPU, false, kSeed);
+    auto buffer = rl::CreateReplayBuffer(config, spec, lanes, torch::kCPU, false, seed);
     if (prefetch) buffer = std::make_shared<rl::PrefetchingReplayBuffer>(buffer, torch::kCPU);
 
     // 初期充填、lane 0の実slot初回wrap前後、各周回後、最終入力を検査する。
@@ -3853,7 +4036,7 @@ void Run(int stack, int n_step, int lanes, int capacity, bool per, bool prefetch
             }
         }
     }
-    anet::RandomGenerator probe_random(kSeed);
+    anet::RandomGenerator probe_random(seed);
     int previous_snapshot = 0;
     std::set<int64_t> previous_keys;
     for (int pushed = 1; pushed <= steps; ++pushed) {
@@ -3905,17 +4088,17 @@ void Run(int stack, int n_step, int lanes, int capacity, bool per, bool prefetch
 } // namespace replay_integrity_assay
 
 TEST_CASE("ReplayBuffer pads initial frame history when the ring first becomes full",
-    "[replay_buffer][integrity_assay][initial_fill]")
+    "[replay_buffer][frame_stack][history_start][initial_fill]")
 {
     // 初回の満杯時点ではlogical 0はまだ有効だが、負の履歴に相当するslotも書込み済みになる。
     // 起動時のpaddingが末尾の新しいframeへ化けないことを、公開probe経路で検査する。
     auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
-        1, false, replay_integrity_assay::kSeed);
+        1, false, replay_integrity_assay::kFixedSeed);
     for (int step = 0; step < 8; ++step) {
         PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
     }
     REQUIRE(buffer.rb->Size() == 7);
-    anet::RandomGenerator random(replay_integrity_assay::kSeed);
+    anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
     rl::ExperienceSamples samples;
     REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random));
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
@@ -3927,18 +4110,18 @@ TEST_CASE("ReplayBuffer pads initial frame history when the ring first becomes f
 }
 
 TEST_CASE("ReplayBuffer preserves bootstrap frame history while n-step metadata is pending",
-    "[replay_buffer][integrity_assay][pending_metadata]")
+    "[replay_buffer][frame_stack][history_start][pending_metadata]")
 {
     for (const int n_step : { 3, 5 }) {
         DYNAMIC_SECTION("n_step " << n_step) {
             // wrapもepisode終端もない入力で、未確定slotを境界と誤認しないことを確認する。
             auto buffer = MakeBuffer(MakeConfig(32, n_step, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
-                1, false, replay_integrity_assay::kSeed);
+                1, false, replay_integrity_assay::kFixedSeed);
             for (int step = 0; step <= n_step; ++step) {
                 PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
             }
             REQUIRE(buffer.rb->Size() == 1);
-            anet::RandomGenerator random(replay_integrity_assay::kSeed);
+            anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
             rl::ExperienceSamples samples;
             REQUIRE(buffer.rb->SampleUniqueUniform(samples, 1, random));
             REQUIRE(samples.n_steps.item<int64_t>() == n_step);
@@ -3953,15 +4136,15 @@ TEST_CASE("ReplayBuffer preserves bootstrap frame history while n-step metadata 
 }
 
 TEST_CASE("ReplayBuffer ignores previous-generation terminal metadata in bootstrap frame history",
-    "[replay_buffer][integrity_assay][pending_metadata][wrapped_metadata]")
+    "[replay_buffer][frame_stack][history_start][pending_metadata][wrapped_metadata]")
 {
     // 旧世代の終端slotを未確定の通常遷移で上書きし、定常的なwrap後にも検査する。
     auto buffer = MakeBuffer(MakeConfig(8, 3, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
-        1, false, replay_integrity_assay::kSeed);
+        1, false, replay_integrity_assay::kFixedSeed);
     for (int step = 0; step < 12; ++step) {
         PushTime(buffer, step, BoolValues(1, step == 2), {}, BoolValues(1, step == 0 || step == 3));
     }
-    anet::RandomGenerator random(replay_integrity_assay::kSeed);
+    anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
     rl::ExperienceSamples samples;
     REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random));
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
@@ -3976,12 +4159,12 @@ TEST_CASE("ReplayBuffer ignores previous-generation terminal metadata in bootstr
 }
 
 TEST_CASE("ReplayBuffer integrity assay matches independent input histories across wraps",
-    "[replay_buffer][integrity_assay]")
+    "[.][integrity_assay]")
 {
     // 条件を独立sectionにし、1条件の失敗後も残りを検査する。case番号で再開・再現もできる。
     int case_index = 0;
-    for (const int stack : { 1, 4 })
-        for (const int n_step : { 1, 3, 5 })
+    for (const int stack : { 1, 2, 4 })
+        for (const int n_step : { 1, 2, 3, 5 })
             for (const int lanes : { 1, 4, 16, 128 })
                 for (const int capacity : { 17, 31 })
                     for (const bool per : { false, true })
@@ -3989,12 +4172,16 @@ TEST_CASE("ReplayBuffer integrity assay matches independent input histories acro
                             const int case_number = ++case_index;
                             DYNAMIC_SECTION("case " << case_number) {
                                 const auto started = std::chrono::steady_clock::now();
+                                const uint64_t seed = Catch::getSeed();
                                 replay_integrity_assay::Counts counts;
-                                std::cout << "Replay integrity section: case=" << case_number << std::endl;
-                                replay_integrity_assay::Run(stack, n_step, lanes, capacity, per, prefetch, counts);
+                                std::cout << "Replay integrity section: case=" << case_number
+                                    << " seed=" << seed << std::endl;
+                                replay_integrity_assay::Run(
+                                    stack, n_step, lanes, capacity, per, prefetch, seed, counts);
                                 const double seconds = std::chrono::duration<double>(
                                     std::chrono::steady_clock::now() - started).count();
                                 std::cout << "Replay integrity passed: case=" << case_number
+                                    << " seed=" << seed
                                     << " snapshots=" << counts.snapshots << " covered_keys=" << counts.covered_keys
                                     << " checked_samples=" << counts.checked_samples << " seconds=" << seconds << std::endl;
                             }
