@@ -16,12 +16,13 @@
 | anet-translate-docs | `docs/design/*.jp.md` を 1 本ずつ英訳して `.en.md` を隣に置く。訳元の blob hash を 1 行目に持つ | `/anet-translate-docs 010_framework_overview.jp.md` | `docs/design/*.en.md`、`reports/translate/glossary.json` |
 | anet-survey-queue | `reports/INDEX.md` のキューで状態 `ready` のサーベイを 1 件回し、済みへ移す。`survey` か `paper-details` スキルが必要 | `/anet-survey-queue` | `reports/*.md`、`reports/INDEX.md` |
 | anet-archify-atlas | Archify スキルで 5 図の architecture atlas を生成する。明示起動のみ | `$anet-archify-atlas` | `docs/archify/` |
+| anet-harness-map | AI ハーネス(指示・規約・設計文書・skill・memory・CI)の動線マップを再生成する。公開版は `docs/agents/`(README + Archify 2 図)、個人版は `.scratch/harness-map/`。Archify スキルが必要。明示起動と anet-housekeeping の変更検知から | `$anet-harness-map` | `docs/agents/`、`.scratch/harness-map/` |
 | prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理する。stage も commit もしない | `/prepare-commit` | 報告のみ |
 | implement-prd-with-docs | `docs/memo` の PRD から実装計画(`*_2ximpl.md`)を起こす。docs を踏まえたグリル付き | `/implement-prd-with-docs 013_sample_prefetch_10prd.md` | `docs/memo/*_2ximpl.md` |
 
-anet-housekeeping が呼ぶ候補と対応: stats → anet-stats、commit-plan → prepare-commit、audit → anet-audit、translate → anet-translate-docs、survey → anet-survey-queue、atlas → anet-archify-atlas。
+anet-housekeeping が呼ぶ候補と対応: stats → anet-stats、commit-plan → prepare-commit、audit → anet-audit、translate → anet-translate-docs、survey → anet-survey-queue、harness-map → anet-harness-map、atlas → anet-archify-atlas。
 
-anet- スキル共通の約束: git の書き込み操作をしない(人が行う)、質問して止まらない、出力先は各スキルが定める固定パスだけ、1 単位ごとに保存して途中終了しても成果が残る。出力は `reports/` 配下に置く(`docs/` は GitHub Pages に配信されるため。英訳だけは公開が目的なので `docs/design`)。
+anet- スキル共通の約束: git の書き込み操作をしない(人が行う)、質問して止まらない、出力先は各スキルが定める固定パスだけ、1 単位ごとに保存して途中終了しても成果が残る。出力は `reports/` 配下に置く(`docs/` は GitHub Pages に配信されるため)。公開が目的のもの(英訳 → `docs/design`、atlas → `docs/archify`、動線マップ → `docs/agents`)だけは `docs/` 配下に置く。
 
 ## 汎用(導入済み)
 

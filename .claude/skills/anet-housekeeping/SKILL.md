@@ -1,6 +1,6 @@
 ---
 name: anet-housekeeping
-description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit, design-doc translation, survey queue, commit planning, atlas refresh) autonomously within a token and time budget, choosing which tasks to run and in what order. Use when the user invokes $anet-housekeeping or /anet-housekeeping, optionally with a budget such as auto, S, M, L or 40%, and optional until=, only=, skip=, dry-run.
+description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit, design-doc translation, survey queue, commit planning, harness map refresh, atlas refresh) autonomously within a token and time budget, choosing which tasks to run and in what order. Use when the user invokes $anet-housekeeping or /anet-housekeeping, optionally with a budget such as auto, S, M, L or 40%, and optional until=, only=, skip=, dry-run.
 ---
 
 # ANET Housekeeping
@@ -34,9 +34,10 @@ description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit,
 | audit | anet-audit | 常に可 | 観点 1 × 範囲 1 | 10% / 15 |
 | translate | anet-translate-docs | 未訳、続き、または訳元更新のある `docs/design/*.jp.md` がある(判定は anet-translate-docs の「対象の決め方」) | ファイル 1 本 | 8% / 10 |
 | survey | anet-survey-queue | `reports/INDEX.md` のキューに状態 `ready` の行がある | テーマ 1 つ | 30% / 40 |
+| harness-map | anet-harness-map | `archify` スキルが存在し、`docs/agents/README.md` が無い、または記録された revision から `git diff --stat <rev> HEAD -- AGENTS.md CLAUDE.md .agents/skills .claude/skills docs/agents docs/design core/anet-core/testdata .github/workflows` が空でない | 1 回 | 15% / 20 |
 | atlas | anet-archify-atlas | `archify` スキルが存在し、`docs/archify/README.md` に記録された revision から `git diff --stat <rev> HEAD -- core apps` の変更行が 3,000 を超える | 1 回 | 20% / 30 |
 
-既定の優先順は stats, commit-plan, audit, translate, survey, atlas。
+既定の優先順は stats, commit-plan, audit, translate, survey, harness-map, atlas。
 
 ## 見積もりの較正
 
@@ -64,6 +65,8 @@ description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit,
 ```
 
 `outcome` は `done` / `partial` / `skipped` / `failed`。使用率が取れないときは `pct_before` `pct_after` `pct` を null にする。
+
+`harness-map` の `note` には anet-harness-map の完了報告の件数(死んだ動線 / 実体コピーのドリフト / shadow / 移設候補の節数と行数合計)を書く。
 
 ## 禁止
 
