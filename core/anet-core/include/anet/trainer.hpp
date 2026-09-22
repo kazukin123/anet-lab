@@ -5,6 +5,7 @@
 #include <vector>
 #include <chrono>
 #include <limits>
+#include <stop_token>
 #include "anet/util.hpp"
 #include "anet/thread.hpp"
 #include "anet/env.hpp"
@@ -107,7 +108,7 @@ namespace anet::rl {
         StepCounts DoStep(int64_t action, const StepCounts& event_counts);
         StepCounts DoStep(const StepCounts& event_counts);
         StepCounts DoStep() override;
-        void RunSession(const StepCounts& event_counts);
+        void RunSession(const StepCounts& event_counts, std::stop_token stop = {});
 
     private:
         StepCounts DoStepInternal(

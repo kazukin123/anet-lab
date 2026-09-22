@@ -10,6 +10,8 @@
 #include "anet/image.hpp"
 #include "anet/nn.hpp"
 
+#include <stop_token>
+
 
 namespace anet::rl {
 
@@ -220,23 +222,28 @@ namespace anet::rl {
         EpisodeEvalObserver(
             std::shared_ptr<EvalRunner> eval_runner,
             int eval_interval,
-            bool use_background);
+            bool use_background,
+            bool wait_on_exit);
 
         void OnLearn(const LearnEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
 
         ~EpisodeEvalObserver() override;
     private:
-        void RunEvaluationSession(const StepCounts& event_counts);      ///< EvalRunnerを評価session完了まで駆動
+        void RunEvaluationSession(const StepCounts& event_counts, std::stop_token stop); ///< EvalRunnerを評価session完了まで駆動
         void RethrowCompletedBackgroundEval();                          ///< 完了済みのバックグラウンド評価失敗を呼び出し元へ伝播
         void WaitBackgroundEval(const StepCounts& counts);              ///< 前回のバックグラウンド評価を待ち、失敗していれば呼び出し元へ伝播
     private:
         std::shared_ptr<EvalRunner> eval_runner_;
         const bool use_background_;
+        const bool wait_on_exit_;
         std::optional<anet::IntervalGate> eval_gate_;   ///< eval_interval <= 0 で無効
 
         std::unique_ptr<anet::PinnedThreadPool> eval_pool_;
         std::future<void> eval_future_;
+        std::stop_source stop_source_;
     };
 
 

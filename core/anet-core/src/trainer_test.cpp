@@ -986,9 +986,10 @@ TEST_CASE("Runner selects an Actor catalog entry and exposes its epsilon", "[tra
     CHECK(observers.GetScalarMetricDefs().front().subscription.target == rl::EventField::ACTOR);
 }
 
-TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][run_root]")
+TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][run_root][prd076]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
     RegisterRunManagerNameTestFactories();
     auto config = MakeRunManagerNameTestConfig();
     config.Set("run.seed", "123");
@@ -1001,12 +1002,16 @@ TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][ru
     config.Set("run.eval_schedule.[probe].use_background", "false");
 
     auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
     CHECK(manager->GetTrainRunner()->GetBatchEnv()->GetBatchSpec().num_envs == 3);
     REQUIRE_NOTHROW(manager->GetEvalRunner("probe"));
     CHECK(manager->GetEvalRunner("probe")->GetBatchEnv()->GetBatchSpec().num_envs == 2);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
+        "eval.[probe]: scheduled (interval=7, background=false, wait_on_exit=true, episodes=4, batch_size=2)"
+    }));
 }
 
-TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer][eval_schedule]")
+TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer][eval_schedule][prd076]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -1017,6 +1022,7 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
     config.Set("run.eval.[scheduled].eval_episodes", "5");
     config.Set("run.eval.[scheduled].eval_batch_size", "2");
     config.Set("run.eval_schedule.[scheduled].use_background", "false");
+    config.Set("run.eval_schedule.[scheduled].wait_on_exit", "false");
 
     auto manager = std::make_shared<rl::RunManager>(config);
     logs.Flush();
@@ -1029,7 +1035,7 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
         factory_state->config_prefixes, "run.eval.[scheduled].env")
         != factory_state->config_prefixes.end());
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
-        "eval.[scheduled]: scheduled (interval=7, background=false, episodes=5, batch_size=2)"
+        "eval.[scheduled]: scheduled (interval=7, background=false, wait_on_exit=false, episodes=5, batch_size=2)"
     }));
 }
 

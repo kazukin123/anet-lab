@@ -831,6 +831,16 @@ void RunnerScopedTrainObserver::OnTrain(const TrainEvent& event)
     }
 }
 
+void RunnerScopedTrainObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedTrainObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
+}
+
 std::string RunnerScopedTrainObserver::ToString() const
 {
     return "RunnerScopedTrainObserver(" + real_observer_->ToString() + ")";
@@ -850,6 +860,16 @@ void RunnerScopedLearnObserver::OnLearn(const LearnEvent& event)
     if (event.runner == target_runner_) {
         real_observer_->OnLearn(event);
     }
+}
+
+void RunnerScopedLearnObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedLearnObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
 }
 
 std::string RunnerScopedLearnObserver::ToString() const
@@ -874,6 +894,16 @@ void RunnerScopedEpisodeEndObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
     }
 }
 
+void RunnerScopedEpisodeEndObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedEpisodeEndObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
+}
+
 std::string RunnerScopedEpisodeEndObserver::ToString() const
 {
     return "RunnerScopedEpisodeEndObserver(" + real_observer_->ToString() + ")";
@@ -891,6 +921,16 @@ void RunnerScopedSessionEndObserver::OnSessionEnd(const SessionEndEvent& event)
     if (event.runner == target_runner_) {
         real_observer_->OnSessionEnd(event);
     }
+}
+
+void RunnerScopedSessionEndObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedSessionEndObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
 }
 
 std::string RunnerScopedSessionEndObserver::ToString() const
@@ -1042,6 +1082,29 @@ void Notifier::Clear()
     learn_observers_.clear();
     episode_end_observers_.clear();
     session_end_observers_.clear();
+}
+
+void Notifier::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    // observer の登録列を順に排水する。例外は呼び出し元へそのまま伝える。
+    for (const auto& observer : train_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : learn_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : episode_end_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : session_end_observers_) observer->Shutdown(deadline, mode);
+}
+
+bool Notifier::WillBlockOnShutdown() const
+{
+    // どれか一つでも WAIT を伴うなら、終了UIへ通知する。
+    for (const auto& observer : train_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    for (const auto& observer : learn_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    for (const auto& observer : episode_end_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    for (const auto& observer : session_end_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    return false;
 }
 
 void Notifier::Notify(const TrainEvent& event)

@@ -326,7 +326,7 @@ sequenceDiagram
     end
 ```
 
-`use_background` が有効な評価は専用 worker で実行します。GUI の Eval View は同じ `EvalRunner` を利用しますが、評価セッション用 decorator には載せず、従来どおり step-driven に操作します。
+`use_background` が有効な評価は専用 worker で実行します。Run 終了時は `run.eval_schedule.[tag].wait_on_exit`（既定 `true`）に従って、進行中セッションを完走または協調キャンセルしてから記録先を閉じます。キャンセルしたセッションは `SessionEndEvent` と scalar を出さず、完了済み episode の trace と cancellation record だけを残します。GUI の Eval View は同じ `EvalRunner` を利用しますが、評価セッション用 decorator には載せず、従来どおり step-driven に操作します。
 
 実行方式、設定、thread、終了処理は[実行基盤と設定](100_runtime_and_configuration.jp.md)を参照してください。
 

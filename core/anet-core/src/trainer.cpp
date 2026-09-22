@@ -312,16 +312,15 @@ StepCounts EvalRunner::DoStep()
     return DoStep(-1);
 }
 
-void EvalRunner::RunSession(const StepCounts& event_counts)
+void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop)
 {
     ANET_PROFILE_FUNC();
     ANET_CHECK_MSG(session_env_ != nullptr,
         "EvalRunner::RunSession is only available for configured Eval. runner='" << name_ << "'.");
 
     // 同期・Reset・通知まで含むセッション全体を、train 側の開始座標に対応づける。
+    // 開始行は発火時点で scheduler 側が出すため、ここでは所要時間の起点だけを取る。
     const auto session_start = std::chrono::high_resolution_clock::now();
-    LOG::info() << "eval.[" << name_ << "]: session start learn_step="
-        << event_counts.learn_step << " exp_step=" << event_counts.exp_step;
 
     Sync(event_counts);
     const auto reset_result = session_env_->Reset();
@@ -330,7 +329,8 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
     env_initialized_ = true;
 
     // 通常の完了通知を抑制し、採用 episode の確定値が有効な Step 直後にだけ通知する。
-    while (!session_env_->GetSessionResult().has_value()) {
+    size_t completed = 0;
+    while (!stop.stop_requested() && !session_env_->GetSessionResult().has_value()) {
         DoStepInternal(-1, event_counts, false);
         for (const int64_t group : session_env_->LastAdoptedGroups()) {
             const int env_index = session_env_->GetBatchSpec().episode_scope == EpisodeScope::PER_LANE
@@ -338,7 +338,26 @@ void EvalRunner::RunSession(const StepCounts& event_counts)
             notifier_->Notify(EpisodeEndEvent{
                 .runner = shared_from_this(), .counts = event_counts,
                 .agent = agent_, .env = session_env_, .env_index = env_index });
+            ++completed;
         }
+    }
+
+    // 協調停止では部分 episode trace だけを残し、session 確定通知と scalar は出さない。
+    if (!session_env_->GetSessionResult().has_value()) {
+        const double elapsed = std::chrono::duration<double>(
+            std::chrono::high_resolution_clock::now() - session_start).count();
+        LOG::info() << std::format(
+            "eval.[{}]: session cancelled learn_step={} exp_step={} elapsed={:.2f}s completed={}",
+            name_, event_counts.learn_step, event_counts.exp_step, elapsed, completed);
+        if (const auto logger = anet::MetricsLogger::Instance()) {
+            logger->Log("eval.[" + name_ + "].session_cancelled", anet::json{
+                {"learn_step", event_counts.learn_step},
+                {"exp_step", event_counts.exp_step},
+                {"elapsed_sec", elapsed},
+                {"completed", completed},
+            });
+        }
+        return;
     }
 
     // Runner の return と steps は全採用 episode の完了後に確定し、セッションを一度だけ通知する。
@@ -752,6 +771,7 @@ RunManager::RunManager(const ConfigData& config_data)
     struct EvalScheduleConfig {
         int interval;
         bool use_background;
+        bool wait_on_exit;
     };
     std::unordered_map<std::string, EvalScheduleConfig> resolved_eval_schedules;
     std::unordered_map<std::string, std::string> planned_name_owners;
@@ -791,9 +811,12 @@ RunManager::RunManager(const ConfigData& config_data)
         }
         bool use_background = true;
         schedule_config.Read("use_background", use_background, use_background);
+        bool wait_on_exit = true;
+        schedule_config.Read("wait_on_exit", wait_on_exit, wait_on_exit);
         resolved_eval_schedules.emplace(tag, EvalScheduleConfig{
             .interval = interval,
             .use_background = use_background,
+            .wait_on_exit = wait_on_exit,
         });
     }
 
@@ -915,6 +938,7 @@ RunManager::RunManager(const ConfigData& config_data)
         const auto& schedule_config = schedule_it->second;
         const int interval = schedule_config.interval;
         const bool use_background = schedule_config.use_background;
+        const bool wait_on_exit = schedule_config.wait_on_exit;
 
         if (interval == 0) {
             LOG::info() << "eval.[" << tag << "]: definition-only";
@@ -925,6 +949,7 @@ RunManager::RunManager(const ConfigData& config_data)
 
         LOG::info() << "eval.[" << tag << "]: scheduled (interval=" << interval
             << ", background=" << (use_background ? "true" : "false")
+            << ", wait_on_exit=" << (wait_on_exit ? "true" : "false")
             << ", episodes=" << eval_episodes << ", batch_size=" << eval_batch_size << ")";
 
         // この active Eval の session-end ENV metrics だけを decorator の購読対象にする。
@@ -978,7 +1003,8 @@ RunManager::RunManager(const ConfigData& config_data)
             train_runner_,
             eval_runner,
             interval,
-            use_background
+            use_background,
+            wait_on_exit
         );
     };
 

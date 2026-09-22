@@ -1086,7 +1086,7 @@ void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))
 
 void RunnerFrame::OnExit(wxCommandEvent& WXUNUSED(event))
 {
-    Close(true);
+    Close();
 }
 
 void RunnerFrame::OnToggleTraining(wxCommandEvent& WXUNUSED(event))
@@ -1213,11 +1213,37 @@ void RunnerFrame::OnClose(wxCloseEvent& event)
 {
     LOG::info() << "RunnerFrame::OnClose() called.";
 
+    // train 側から新しい評価を投入できない状態にしてから、進行中評価を照会する。
+    const bool was_paused = wxGetApp().IsTrainingPaused();
     wxGetApp().StopTraining();
+    auto mode = anet::rl::ShutdownMode::WAIT;
+    if (event.CanVeto() && wxGetApp().WillBlockOnDrain()) {
+        wxMessageDialog dialog(
+            this,
+            "A background evaluation session is still running.\n"
+            "Wait for it to finish (up to the drain timeout), cancel it and close now, or keep running?",
+            "Close Run",
+            wxYES_NO | wxCANCEL | wxICON_QUESTION);
+        dialog.SetYesNoCancelLabels("Wait and close", "Cancel and close", "Keep running");
+        switch (dialog.ShowModal()) {
+        case wxID_YES:
+            mode = anet::rl::ShutdownMode::WAIT;
+            break;
+        case wxID_NO:
+            mode = anet::rl::ShutdownMode::CANCEL;
+            break;
+        default:
+            wxGetApp().RestartTrainingAfterCloseVeto(was_paused);
+            event.Veto();
+            return;
+        }
+    }
+
     DetachTrainStatusObserver();
     if (wxGetApp().ShouldSaveAgentOnClose()) {
         TrySaveAgent(wxGetApp().GetRunDir() / "agent_close.anet");
     }
+    wxGetApp().DrainBackgroundObservers(mode);
     wxGetApp().ShutdownRunLogging();
 
     if (eval_panel_) {

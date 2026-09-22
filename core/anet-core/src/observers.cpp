@@ -497,9 +497,11 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
 EpisodeEvalObserver::EpisodeEvalObserver(
     std::shared_ptr<EvalRunner> eval_runner,
     int eval_interval,
-    bool use_background)
+    bool use_background,
+    bool wait_on_exit)
     : eval_runner_(std::move(eval_runner))
     , use_background_(use_background)
+    , wait_on_exit_(wait_on_exit)
 {
     ANET_CHECK(eval_runner_ != nullptr);
 
@@ -515,20 +517,59 @@ EpisodeEvalObserver::EpisodeEvalObserver(
 
 EpisodeEvalObserver::~EpisodeEvalObserver()
 {
-    // スレッドが動いていたら待つ
-    if (eval_future_.valid()) {
-        eval_future_.wait();
-    }
-
-    // スレッド終わり
-    if (eval_pool_) {
-        eval_pool_->Stop();
+    // 通常経路で未排水だった場合の安全網。デストラクタから例外は出さない。
+    try {
+        Shutdown(std::chrono::steady_clock::now(), ShutdownMode::CANCEL);
+    } catch (const std::exception& e) {
+        LOG::fatal() << ToString() << " shutdown failed in destructor: " << e.what();
+    } catch (...) {
+        LOG::fatal() << ToString() << " shutdown failed in destructor: unknown exception";
     }
 }
 
-void EpisodeEvalObserver::RunEvaluationSession(const StepCounts& event_counts)
+void EpisodeEvalObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
 {
-    eval_runner_->RunSession(event_counts);
+    ANET_PROFILE_FUNC();
+
+    if (eval_future_.valid()) {
+        const bool in_flight = eval_future_.wait_for(std::chrono::seconds(0))
+            != std::future_status::ready;
+        if (in_flight) {
+            if (mode == ShutdownMode::CANCEL || !wait_on_exit_) {
+                LOG::info() << std::format(
+                    "eval.[{}]: cancelling in-flight session on exit reason={}",
+                    eval_runner_->GetName(), mode == ShutdownMode::CANCEL ? "close" : "config");
+                stop_source_.request_stop();
+            } else {
+                LOG::info() << std::format(
+                    "eval.[{}]: draining in-flight session on exit", eval_runner_->GetName());
+                if (eval_future_.wait_until(deadline) == std::future_status::timeout) {
+                    LOG::info() << std::format(
+                        "eval.[{}]: cancelling in-flight session on exit reason=timeout",
+                        eval_runner_->GetName());
+                    stop_source_.request_stop();
+                }
+            }
+        }
+
+        // worker 側の例外は明示 Shutdown の呼び出し元へ再送出する。
+        eval_future_.get();
+    }
+    if (eval_pool_) {
+        eval_pool_->Stop();
+        eval_pool_.reset();
+    }
+}
+
+bool EpisodeEvalObserver::WillBlockOnShutdown() const
+{
+    return wait_on_exit_ && eval_future_.valid()
+        && eval_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
+}
+
+void EpisodeEvalObserver::RunEvaluationSession(const StepCounts& event_counts, std::stop_token stop)
+{
+    eval_runner_->RunSession(event_counts, stop);
 }
 
 void EpisodeEvalObserver::RethrowCompletedBackgroundEval()
@@ -552,6 +593,11 @@ void EpisodeEvalObserver::WaitBackgroundEval(const StepCounts& counts)
         return;
     }
 
+    // ここから実際にブロックするので、train が無応答に見えないよう待ち始めを先に残す。
+    LOG::info() << std::format(
+        "eval.[{}]: waiting for previous session learn_step={} exp_step={}",
+        eval_runner_->GetName(), counts.learn_step, counts.exp_step);
+
     // 次の評価を投入する前の実待機時間を測り、正常に回収できた場合だけ記録する。
     const auto start = std::chrono::high_resolution_clock::now();
     eval_future_.get();
@@ -574,15 +620,22 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 
     // 評価エピソードを終端まで回す
     if (eval_gate_ && eval_gate_->ShouldFire(step)) {
+        // 実行ではなく発火を示す行なので、前セッションの完了待ちより前に出す。
+        LOG::info() << std::format(
+            "eval.[{}]: session start learn_step={} exp_step={}",
+            eval_runner_->GetName(), event.counts.learn_step, event.counts.exp_step);
+
         if (use_background_) {
             // 前回の評価がまだ終わっていなければ、ここで完了までブロックして待つ
             WaitBackgroundEval(event.counts);
 
             // スレッドに評価エピソード実行処理を投げる
             const StepCounts event_counts = event.counts;
-            eval_future_ = eval_pool_->EnqueueFuture(0, [this, event_counts]() {
+            stop_source_ = std::stop_source{};
+            const auto stop = stop_source_.get_token();
+            eval_future_ = eval_pool_->EnqueueFuture(0, [this, event_counts, stop]() {
                 try {
-                    this->RunEvaluationSession(event_counts);
+                    this->RunEvaluationSession(event_counts, stop);
                 } catch (const std::exception& e) {
                     LOG::fatal() << this->ToString() << " RunEvaluationSession failed: " << e.what();
                     throw;
@@ -593,7 +646,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
                 });
         } else {
             // フォアグラウンド実行
-            RunEvaluationSession(event.counts);
+            RunEvaluationSession(event.counts, {});
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿// RunnerApp.cpp
 #include "RunnerApp.hpp"
 #include <array>
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -57,6 +58,7 @@ struct RunnerApp::Config : public anet::Config {
     std::string runs_dir = "runs";
     std::string log_level = "info";
     int log_flush_interval_ms = 500;
+    int drain_timeout_sec = 3600;
     bool show_error_dialog = true;
     bool save_agent_on_close = true;
     bool train_auto_start = true;
@@ -76,6 +78,7 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, runs_dir);
         ANET_READ_CONFIG(config_data, log_level);
         ANET_READ_CONFIG(config_data, log_flush_interval_ms);
+        ANET_READ_CONFIG(config_data, drain_timeout_sec);
         ANET_READ_CONFIG(config_data, show_error_dialog);
         ANET_READ_CONFIG(config_data, save_agent_on_close);
 
@@ -88,6 +91,7 @@ struct RunnerApp::Config : public anet::Config {
         WarnDeprecatedRunsDirConfig(config_data);
         ValidateRunsDir();
         ValidateLogFlushInterval();
+        ValidateDrainTimeout();
         metrics_logger.runs_dir = runs_dir;
         metrics_logger.run_name_tmpl = run_name;
         ANET_READ_CONFIG(config_data, metrics_logger.video_codec);
@@ -138,6 +142,15 @@ private:
             ANET_SYSTEM_ERROR(
                 "Invalid config key app.log_flush_interval_ms: value=" << log_flush_interval_ms
                 << " (expected: >= 0; 0 disables periodic flushing).");
+        }
+    }
+
+    void ValidateDrainTimeout() const
+    {
+        if (drain_timeout_sec <= 0) {
+            ANET_SYSTEM_ERROR(
+                "Invalid config key app.drain_timeout_sec: value=" << drain_timeout_sec
+                << " (expected: positive integer > 0).");
         }
     }
 };
@@ -660,7 +673,42 @@ void RunnerApp::SetTrainingPaused(bool paused)
 
 void RunnerApp::StopTraining()
 {
-    trainer_thread_->Stop();
+    if (trainer_thread_ != nullptr) trainer_thread_->Stop();
+}
+
+void RunnerApp::RestartTrainingAfterCloseVeto(bool paused)
+{
+    if (trainer_thread_ == nullptr || trainer_thread_->IsRunning()) return;
+
+    // close 判定前の pause 状態を復元してから、同じ thread object を再始動する。
+    if (paused) {
+        trainer_thread_->Pause();
+    } else {
+        trainer_thread_->Resume();
+    }
+    trainer_thread_->Start();
+    const std::string status = paused ? "Training remains paused" : "Training resumed";
+    LOG::info() << status;
+    GetMainFrame()->SetStatusText(status);
+}
+
+bool RunnerApp::WillBlockOnDrain() const
+{
+    return run_manager_ != nullptr && run_manager_->GetNotifier()->WillBlockOnShutdown();
+}
+
+void RunnerApp::DrainBackgroundObservers(anet::rl::ShutdownMode mode)
+{
+    if (drain_completed_ || run_manager_ == nullptr) return;
+
+    // 全 observer が同じ絶対 deadline を共有し、排水全体の時間を有界にする。
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(config_->drain_timeout_sec);
+    LOG::info() << "Draining background observers: mode="
+        << (mode == anet::rl::ShutdownMode::WAIT ? "wait" : "cancel")
+        << " timeout=" << config_->drain_timeout_sec << "s";
+    run_manager_->GetNotifier()->Shutdown(deadline, mode);
+    drain_completed_ = true;
 }
 
 int RunnerApp::OnRun()
@@ -677,6 +725,7 @@ int RunnerApp::OnExit()
     if (trainer_thread_ != nullptr) {
         trainer_thread_->Stop();
     }
+    DrainBackgroundObservers(anet::rl::ShutdownMode::WAIT);
     ShutdownRunLogging();
     anet::MetricsLogger::Reset();
     standard_stream_logger_.Flush();

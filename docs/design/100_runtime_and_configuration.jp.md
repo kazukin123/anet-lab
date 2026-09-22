@@ -306,7 +306,8 @@ sequenceDiagram
 | `run.train.actor` | Actorカタログ名。既定`train` |
 | `run.eval_device_type/index` | configured Evalのdevice |
 | `run.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、Actor名参照 |
-| `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`と`use_background` |
+| `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`、`use_background`、終了時の完走待ちを選ぶ`wait_on_exit`（既定`true`） |
+| `app.drain_timeout_sec` | background Observer排水全体のdeadline秒。既定3600、正整数必須 |
 | `env.*` | Env class、worker、device |
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |
@@ -315,7 +316,9 @@ sequenceDiagram
 
 ### 7.2 lifetimeと終了
 
-- applicationの正常終了経路は、`RunnerThread`を停止・joinし、`TrainRunner::Shutdown()`でPipeline workerとEnvを停止してから`RunManager`を解放する。
+- applicationの正常終了経路は、`RunnerThread`を停止・joinし、checkpoint保存後に`Notifier::Shutdown()`でbackground Observerを完走または協調キャンセルし、`ShutdownRunLogging()`と`MetricsLogger::Reset()`より前に排水を完了する。その後`TrainRunner::Shutdown()`でPipeline workerとEnvを停止してから`RunManager`を解放する。
+- `Notifier::Shutdown(deadline, mode)`は全Observer列を巡回し、各`RunnerScoped*Observer`は実体へ転送する。途中のworker例外は捕捉せずapplication境界へ再送出し、デストラクタ安全網だけがFATALを記録して例外を外へ出さない。
+- 手動closeは新しい評価投入との競合を避けるため、Train threadをStop/joinしてから`WillBlockOnShutdown()`を照会する。Keep runningでは同じthreadを従前のpause状態で再開する。予算到達はveto不可のため質問しない。
 - `RunManager`のdestructor単体をworker停止の入口とはせず、application側のshutdown順序を維持する。
 - `RunnerThread`はRunnerをshared ownershipし、停止・join後に解放する。
 - Pipelineの前回Experienceは次の非同期更新が完了するまでstorageを保持する。

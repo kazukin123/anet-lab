@@ -1,6 +1,6 @@
 # MetricsLogger シングルトン・ライフサイクル堅牢化 — null-safe 静的ログ API と Reset 順序 PRD
 
-> 凍結中(再開条件: 終了時クラッシュまたは optuna run 切替の失敗が実害になったら)
+> R2（Reset前のbackground Observer排水）はPRD 076で実装済み。R1（null-safe静的ログAPI）は凍結中（再開条件: 排水外の経路でReset後ログが実害になったら）。
 
 > 関連: `core/anet-core/src/observers.cpp`(observer ログ), `core/anet-core/include/anet/metrics_logger.hpp`(Instance/Reset), `core/anet-core/include/anet/rl.hpp`(Notifier/Observer), `apps/runner/src/RunnerApp.cpp`(OnExit)。
 > クラッシュ診断(2026-07-01)の成果物。PRD `025`(VideoLogger/ffmpeg)とは別テーマ＝MetricsLogger シングルトンのライフサイクル。実装は別途(Codex 想定)、本書は self-contained に記述する。
@@ -76,6 +76,8 @@ private:
 - （任意）`Flush()` も同様に static null-safe 化してよい（`MetricsLogger::Flush()`。main スレッド呼び出しで低リスクだが一貫性のため）。
 
 ### R2: Reset 前の背景 observer 排水（G3）
+
+> **PRD 076で実装済み。** 以下は当初案の記録であり、現行契約は[PRD 076](../076_eval_session_drain_on_exit_10prd.md)を正本とする。現行は4種のObserver基底と`RunnerScoped*Observer`へ`Shutdown(deadline, mode)` / `WillBlockOnShutdown()`を持たせ、`Notifier`が一括排水する。`EpisodeEvalObserver`は既定で完走待ちし、設定・手動選択・共有deadline超過では`std::stop_token`で協調キャンセルする。明示Shutdownはworker例外を再送出し、デストラクタ安全網だけがFATALを記録して例外を捕捉する。
 
 - observer 基底 3 種（`TrainObserver` / `LearnObserver` / `EpisodeEndObserver`、[rl.hpp:825/832/839](../../../core/anet-core/include/anet/rl.hpp)。共通基底なし）に `virtual void Shutdown() {}`（default no-op）を追加。
   - ※ `Runner::Shutdown()`([rl.hpp:988](../../../core/anet-core/include/anet/rl.hpp)) / `BatchEnv::Shutdown()`([rl.hpp:639](../../../core/anet-core/include/anet/rl.hpp)) とは**別クラスの別物**（同名だが無関係）。

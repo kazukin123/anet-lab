@@ -29,14 +29,17 @@ function Write-ShiftJisBatch([string]$Path, [string]$Content) {
     [IO.File]::WriteAllBytes($Path, $shiftJis.GetBytes($normalized))
 }
 
-function Invoke-RunnerFatalSmoke {
+function Invoke-RunnerFatalSmoke(
+    [string]$Override,
+    [string]$ExpectedError,
+    [string]$Scenario) {
     if (-not (Test-Path -LiteralPath $runnerExe)) {
         throw "Debug Runner is missing. Build it first: $runnerExe"
     }
 
-    $stdoutPath = Join-Path $testRoot 'runner.stdout.log'
-    $stderrPath = Join-Path $testRoot 'runner.stderr.log'
-    $arguments = "--config `"$configPath`" `"app.$=app.batchrun`" `"app.log_flush_interval_ms=-1`""
+    $stdoutPath = Join-Path $testRoot "runner-$Scenario.stdout.log"
+    $stderrPath = Join-Path $testRoot "runner-$Scenario.stderr.log"
+    $arguments = "--config `"$configPath`" `"app.$=app.batchrun`" `"$Override`""
     $process = Start-Process -FilePath $runnerExe `
         -ArgumentList $arguments `
         -WorkingDirectory $runnerRoot `
@@ -56,7 +59,7 @@ function Invoke-RunnerFatalSmoke {
     }
 
     $stderrText = [IO.File]::ReadAllText($stderrPath)
-    if (-not $stderrText.Contains('Invalid config key app.log_flush_interval_ms')) {
+    if (-not $stderrText.Contains($ExpectedError)) {
         throw "Runner stderr does not contain the configuration error: $stderrText"
     }
 }
@@ -174,7 +177,22 @@ try {
     Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $testRoot | Out-Null
 
-    Invoke-RunnerFatalSmoke
+    Invoke-RunnerFatalSmoke `
+        'app.log_flush_interval_ms=-1' `
+        'Invalid config key app.log_flush_interval_ms' `
+        'log-flush-negative'
+    Invoke-RunnerFatalSmoke `
+        'app.drain_timeout_sec=0' `
+        'Invalid config key app.drain_timeout_sec: value=0 (expected: positive integer > 0)' `
+        'drain-timeout-zero'
+    Invoke-RunnerFatalSmoke `
+        'app.drain_timeout_sec=-1' `
+        'Invalid config key app.drain_timeout_sec: value=-1 (expected: positive integer > 0)' `
+        'drain-timeout-negative'
+    Invoke-RunnerFatalSmoke `
+        'app.drain_timeout_sec=1.5' `
+        'ConfigData::Read failed. key=app.drain_timeout_sec value="1.5" expected=int' `
+        'drain-timeout-non-integer'
     foreach ($launcherName in $launcherNames) {
         Assert-LauncherAggregation $launcherName
     }

@@ -144,7 +144,7 @@ sequenceDiagram
     end
 ```
 
-Observer callbackは`Notify()`を呼んだthread上で実行される。重いrender、device同期、I/Oを追加する場合はTrain/Learnのcritical pathへ入ることを前提にprofileする。`EpisodeEvalObserver`のbackground evalは専用poolを使う例外であり、完了時の例外は次の境界で呼び出し側へ再送出する。
+Observer callbackは`Notify()`を呼んだthread上で実行される。重いrender、device同期、I/Oを追加する場合はTrain/Learnのcritical pathへ入ることを前提にprofileする。`EpisodeEvalObserver`のbackground evalは専用poolを使う例外であり、worker例外は次のLearn境界または明示`Shutdown()`で呼び出し側へ再送出する。デストラクタ安全網だけは例外を捕捉してFATALを記録する。
 
 Runnerは直近Stepで完了したepisode returnとepisode_steps群を共通集約し、`mean.episode_return`、`max.episode_return`、`min.episode_return`、`std.episode_return`と同じprefixの`episode_steps`を公開する。episode_stepsは終端を含むEnvのStep回数で、SHAREDでもlane数を掛けない。trainの従来値は`max.episode_return`、configured Evalはsessionで採用したN本の集約である。`EvalSessionEnv`は解決済みmetric定義のうち対象Evalの`@session_end $env` source keyだけを購読し、episode完了Step直後に値をsnapshotする。`nullopt`が一つでもあれば集約も`nullopt`、NaNは除外する。有効値0件の集約と有効値1件のstdはNaN、2件以上のstdは母集団標準偏差とする。
 
@@ -155,6 +155,7 @@ sequenceDiagram
     participant UI as RunnerFrame
     participant A as RunnerApp
     participant T as RunnerThread
+    participant N as Notifier
     participant G as Agent
     participant M as MetricsLogger
     participant L as wxLog/FileLogger
@@ -165,6 +166,9 @@ sequenceDiagram
         UI->>A: SaveAgent(agent_close.anet)
         A->>G: Save(archive)
     end
+    UI->>A: DrainBackgroundObservers(mode)
+    A->>N: Shutdown(shared deadline, mode)
+    N-->>A: background Observer停止
     UI->>A: ShutdownRunLogging()
     A->>A: periodic text-log timerを停止
     A->>M: Flush()
@@ -265,6 +269,7 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 | `metrics.jsonl` | `JsonlBackend` | scalar/metadataごとに追記し、明示flushで確定 |
 | `config/*.txt` | `MetricsLogger` | ConfigをLogした時点でtag別に書出し。Envは`env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | JSON metadataをLogした時点で上書きまたはstep別生成 |
+| `json/eval.[<tag>].session_cancelled.json` | `MetricsLogger` | 評価セッションの協調キャンセル時に座標、経過時間、完了episode数を記録。Metrics masterにも`type=json`で追記 |
 | `videos/<tag>.mkv` | `VideoLogger` | 最初のframeでloggerを作り、Run終了時にclose |
 | `images/<tag>/*.png` | `MetricsLogger` | `use_png_dump=true`時にframeごとに生成 |
 | `dot/**/*.dot` | `MetricsLogger` | GraphViz eventごとに生成 |
@@ -286,12 +291,15 @@ scalar定義のsource key、event、target、interval、runner scope、eval名�
 ### 7.2 評価セッションの実行ログ
 
 configured Eval は info レベルで `eval.[<tag>]: session start` / `session end` を各1行記録する。
+開始行は評価の発火時点、つまり background の前セッション完了待ちより前に train thread から出し、終了行は実行した thread から出す。
 両行の learn_step / exp_step は train 側から渡されたセッション開始座標で、session_end scalar と対応する。
-終了行の elapsed は Sync 前から SessionEnd 通知後までの所要秒（小数2桁）であり、background 時の train 実待機時間ではない。
-background 時、前セッション完了を待ってブロックした場合だけ `waited for previous session` を info で1行出し、今回の発火の learn_step / exp_step を載せる。
-この行の elapsed は train thread の実待機秒（小数2桁）であり、foreground・終了処理の待機・待機中の例外では出さない。
+終了行の elapsed は Sync 前から SessionEnd 通知後までの所要秒（小数2桁）であり、background 時の train 実待機時間ではない。開始行の時刻からの経過とも一致しない。
+background 時、前セッション完了を待ってブロックした場合だけ、待ち始めに `waiting for previous session`、回収後に `waited for previous session` を info で1行ずつ出し、どちらにも今回の発火の learn_step / exp_step を載せる。
+完了行の elapsed は train thread の実待機秒（小数2桁）である。foreground と終了処理の待機では2行とも出さず、待機中の例外では待ち始めの行だけが残る。
+待った場合は `session start`、`waiting for previous session`、前セッションの `session end`、`waited for previous session` の順に並ぶ。
 終了行には確定済み scalar と同じ mean.episode_return、max.episode_return、mean.episode_steps、max.episode_steps を出す。
-異常終了時は正常終了行を出さない。起動時の scheduled 行には interval、background、episodes、batch_size を出す。
+終了排水で待つ場合は`draining in-flight session on exit`、協調キャンセルへ切り替える場合は`cancelling in-flight session on exit reason=close|config|timeout`を出す。キャンセル完了時は正常`session end`を出さず、`session cancelled learn_step=... exp_step=... elapsed=... completed=...`を出す。対応するsession scalarは出さず、完了済みepisodeのtraceは維持する。
+異常終了時は正常終了行を出さない。起動時の scheduled 行には interval、background、wait_on_exit、episodes、batch_size を出す。
 汎用の評価エピソード長は baseline / full の `21_eval/05_target_ep_steps`〜`08_policy_ep_steps_max` で参照できる。
 
 ## 8. Profilingと性能上の注意

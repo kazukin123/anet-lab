@@ -39,8 +39,11 @@ public:
     void ToggleTraining();
     void PauseTraining();
     void StopTraining();
+    void RestartTrainingAfterCloseVeto(bool paused);
     bool IsTrainingPaused() const;
     bool IsTrainingRunning() const;
+    bool WillBlockOnDrain() const;
+    void DrainBackgroundObservers(anet::rl::ShutdownMode mode);
     anet::ConfigData GetConfigData() const { return config_mgr_->GetConfigData(); }
     anet::rl::RunManager& GetRunManager() { return *run_manager_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
@@ -80,6 +83,7 @@ private:
     bool save_agent_on_close_ = true;
     bool fatal_error_seen_ = false;
     bool auto_pause_done_ = false;
+    bool drain_completed_ = false;
     RunnerFrame* frame_ = nullptr;
 };
 

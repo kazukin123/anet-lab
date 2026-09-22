@@ -51,6 +51,7 @@ $include <DropMerge.txt>
 | `app.train_auto_start` | `true`ならGUI初期化後に学習を開始する |
 | `app.show_error_dialog` | error logに加えてモーダルダイアログを表示するか。未指定時は`true` |
 | `app.save_agent_on_close` | 終了時に`agent_close.anet`を自動保存するか。未指定時は`true`。`false`でも手動のSave Checkpointは使える |
+| `app.drain_timeout_sec` | 終了時にbackground Observerの完走を待つ全体上限秒。未指定時は3600。正整数だけを受け付ける |
 | `app.eval_panel.auto_start` | 手動EvalPanelを起動直後から動かすか |
 | `run.seed` | Runの基準seed |
 | `run.train.num_envs` | Train用BatchEnvのlane数 |
@@ -81,6 +82,7 @@ run.eval.[explore].eval_batch_size = 2
 run.eval.[explore].eval_episodes = 2
 run.eval_schedule.[explore].interval = 100
 run.eval_schedule.[explore].use_background = false
+run.eval_schedule.[explore].wait_on_exit = true
 metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ```
 
@@ -476,7 +478,11 @@ Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text�
 
 ### 6.4 停止、保存、checkpointからの再開
 
-WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止、`agent_close.anet`保存、Run出力のflush、GUI破棄の順に進む。`app.save_agent_on_close=false`のRunではこの保存だけを省き、他の順序は変わらない。保存中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止・join、`agent_close.anet`保存、background Observerの排水、Run出力のflush、GUI破棄の順に進む。`app.save_agent_on_close=false`のRunではこの保存だけを省き、他の順序は変わらない。保存中または排水中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+
+`run.eval_schedule.[tag].wait_on_exit`は、終了時に進行中のbackground評価を完走待ちするかを指定する。既定は`true`で、全スロットが`app.drain_timeout_sec`の単一deadlineを共有する。`false`、手動終了のCancel選択、またはdeadline超過では次のEnv Step境界で協調キャンセルする。キャンセルしたセッションはsession scalarを出さず、完了済みepisodeのtraceと`eval.[<tag>].session_cancelled` JSONを残す。
+
+手動のCloseと`File > Exit`では、Train停止・join後に待ちが必要なbackground評価が残っていれば、`Wait and close`、`Cancel and close`、`Keep running`の3択を表示する。`Keep running`は同じTrain threadを閉じる前のpause状態で再開する。`app.train_exit_step`または`app.exp_exit_step`による予算到達では質問せず、設定とdeadlineに従う。
 
 `Save Checkpoint`は押下時にTrainが走行中なら先にpauseする。これはdialog操作中にstepが進み、既定ファイル名と保存内容がずれるのを防ぐためで、保存やcancelの後もTrainは自動再開しない。再開はRun制御ツールバーの`Train`か`Shift`で行う。保存処理自体はTrain走行中でも安全である。`DefaultDQNAgent`はserialization全体をAgentのshared lockで保護し、Learner更新と排他する。保存先の権限、空き容量、file lockなどで失敗した場合は対象pathと理由をerror logへ記録し、online構成ではダイアログも表示する。これはnon-fatalで、Runとprocess終了コードには影響しない。失敗したfileは不完全な可能性があるが自動削除されないため、内容を確認してから処理する。有効なpathを選べば再度Saveできる。
 

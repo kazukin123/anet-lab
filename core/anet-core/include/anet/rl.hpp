@@ -12,6 +12,7 @@
 #include <optional>
 #include <cstdint>
 #include <cctype>
+#include <chrono>
 #include <torch/torch.h>
 #include "anet/common.hpp"
 #include "anet/tensor_check.hpp"
@@ -73,6 +74,11 @@ namespace anet::rl {
 
     ========================
     */
+
+    enum class ShutdownMode {
+        WAIT,
+        CANCEL,
+    };
 
     // =============================================================
     // Step / StepAxis
@@ -961,6 +967,8 @@ namespace anet::rl {
     class TrainObserver {
     public:
         virtual void OnTrain(const TrainEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~TrainObserver() = default;
     };
@@ -968,6 +976,8 @@ namespace anet::rl {
     class LearnObserver {
     public:
         virtual void OnLearn(const LearnEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~LearnObserver() = default;
     };
@@ -975,6 +985,8 @@ namespace anet::rl {
     class EpisodeEndObserver {
     public:
         virtual void OnEpisodeEnd(const EpisodeEndEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~EpisodeEndObserver() = default;
     };
@@ -982,6 +994,8 @@ namespace anet::rl {
     class SessionEndObserver {
     public:
         virtual void OnSessionEnd(const SessionEndEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~SessionEndObserver() = default;
     };
@@ -994,6 +1008,8 @@ namespace anet::rl {
         RunnerScopedTrainObserver(std::shared_ptr<TrainObserver> real_observer, std::shared_ptr<const Runner> target_runner);
 
         void OnTrain(const TrainEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<TrainObserver> real_observer_;
@@ -1007,6 +1023,8 @@ namespace anet::rl {
     public:
         RunnerScopedLearnObserver(std::shared_ptr<LearnObserver> real_observer, std::shared_ptr<const Runner> target_runner);
         void OnLearn(const LearnEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<LearnObserver> real_observer_;
@@ -1020,6 +1038,8 @@ namespace anet::rl {
     public:
         RunnerScopedEpisodeEndObserver(std::shared_ptr<EpisodeEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
         void OnEpisodeEnd(const EpisodeEndEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<EpisodeEndObserver> real_observer_;
@@ -1030,6 +1050,8 @@ namespace anet::rl {
     public:
         RunnerScopedSessionEndObserver(std::shared_ptr<SessionEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
         void OnSessionEnd(const SessionEndEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<SessionEndObserver> real_observer_;
@@ -1065,6 +1087,9 @@ namespace anet::rl {
         void Notify(const SessionEndEvent& event);
 
         void Clear();
+
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode);
+        bool WillBlockOnShutdown() const;
 
         void LogObservers() const;
     public:

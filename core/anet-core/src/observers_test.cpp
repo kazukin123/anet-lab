@@ -3,14 +3,18 @@
 #include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
+#include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -1550,7 +1554,7 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
     auto inner_env = std::make_shared<TestBatchEnv>("observer-scope", 1);
     auto env = std::make_shared<rl::EvalSessionEnv>(inner_env, 1, std::vector<std::string>{});
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
-    rl::EpisodeEvalObserver observer(runner, 1, true);
+    rl::EpisodeEvalObserver observer(runner, 1, true, true);
 
     rl::BatchExperience experience;
     rl::StepCounts first_counts;
@@ -1570,6 +1574,60 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
         CHECK(ContainsText(e.what(), "forced eval failure"));
     }
     CHECK(rethrown);
+}
+
+TEST_CASE("EpisodeEvalObserver shutdown rethrows a background failure", "[prd076][observers][eval_runner]")
+{
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>(0.0f, false, 0.0f, "forced shutdown failure");
+    auto inner_env = std::make_shared<TestBatchEnv>("observer-shutdown", 1);
+    auto env = std::make_shared<rl::EvalSessionEnv>(inner_env, 1, std::vector<std::string>{});
+    auto runner = std::make_shared<rl::EvalRunner>(
+        env, agent, notifier,
+        rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+            .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"},
+        "eval1");
+    rl::EpisodeEvalObserver observer(runner, 1, true, true);
+
+    rl::BatchExperience experience;
+    rl::StepCounts counts;
+    counts.learn_step = 1;
+    observer.OnLearn(rl::LearnEvent{experience, nullptr, counts, agent, {}});
+
+    CHECK_THROWS_WITH(
+        observer.Shutdown(
+            std::chrono::steady_clock::now() + std::chrono::seconds(2),
+            rl::ShutdownMode::WAIT),
+        Catch::Matchers::ContainsSubstring("forced shutdown failure"));
+}
+
+TEST_CASE("EpisodeEvalObserver destructor catches a background failure", "[prd076][observers][eval_runner]")
+{
+    anet::test::LogCaptureGuard logs;
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>(0.0f, false, 0.0f, "forced destructor failure");
+    auto inner_env = std::make_shared<TestBatchEnv>("observer-destructor", 1);
+    auto env = std::make_shared<rl::EvalSessionEnv>(inner_env, 1, std::vector<std::string>{});
+    auto runner = std::make_shared<rl::EvalRunner>(
+        env, agent, notifier,
+        rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+            .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"},
+        "eval1");
+    {
+        rl::EpisodeEvalObserver observer(runner, 1, true, true);
+        rl::BatchExperience experience;
+        rl::StepCounts counts;
+        counts.learn_step = 1;
+        observer.OnLearn(rl::LearnEvent{experience, nullptr, counts, agent, {}});
+        // worker が失敗を future へ格納してからデストラクタ安全網を通す。
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    logs.Flush();
+    CHECK(std::ranges::any_of(logs.Records(), [](const auto& record) {
+        return ContainsText(record.message,
+            "EpisodeEvalObserver[eval1] shutdown failed in destructor: forced destructor failure");
+    }));
 }
 
 TEST_CASE("Trace DSL rejects missing duplicate unknown and forbidden declarations", "[trace][observer_factory]")
