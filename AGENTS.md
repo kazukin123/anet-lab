@@ -641,6 +641,23 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 - **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
 - 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
 
+Atari-5（battle_zone / double_dunk / name_this_game / phoenix / qbert の5本）を1つのベンチマーク結果として読む場合は `atari5.py` を使ってください。`inspect_run.py` と同じRun解決・cache経路のread-only toolで、5本を個別に集計して手で合成しないでください。
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py score RUN RUN RUN RUN RUN
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py curve RUN... --bins 10
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py compare RUN... --ref btr --stat max
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py refs
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py export RUN... --name atari5_rr1_50m --ref btr
+```
+
+- `score` はゲーム別スコアと集約、`curve` は予算・実時間に対する推移、`compare` は公表エージェントとの突き合わせ、`refs` は参照テーブルと出典。`--format json` で機械可読になる（既定は `md`）。
+- `export` だけが書き込みを行い、MetricsViewer で開ける疑似Runを workspace 直下へ作ります。既存タグ（`52_eval2/12_hns57_mean` 等）へ Atari-5 集約を載せるので、5本の実Runと同じグラフに重なります。`60_atari5/*` は集約専用で、3チャネル並置・median/mean・ゲーム横並び・参照エージェントの水平線。**疑似Runの削除はユーザーが行います。**
+- **疑似Runは step ごとに集約してから並べ、`score` は窓平均してから1回集約します。** log 空間の重み付き和なので両者はずれます。どちらも正しく、意味が違います。
+- **Atari-5 は5本の単純中央値ではない。** Aitchison et al. 2023 の log 空間の重み付き回帰で、`median` とは値が違う。公表値と比べるときは回帰側を使う。
+- ゲームの対応付けは Run 名ではなく実効 `AtariEnv.game` で行う。5本揃わない場合と、random を大きく下回るゲームがある場合は集約を出さずに警告する。
+- 公表値の集計方法は出典ごとに違う。BTR は学習中の最良評価なので `--stat max` で揃える。sticky の有無などプロトコル差は `compare` の `protocol` 行に出る。
+
 - Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。Run artifactが失われている場合は、`docs/experiments/<agent>/<env>/config/<Run名>.txt`に複製がある（前節）。
 - 分析開始時に到達step、停止理由、artifactの更新時刻を確認し、実行途中の分析は暫定結果と明記する。完了後は終盤値を再取得して結論を更新する。
 - Run成立性、主目的score、変更機構の健全性、Env挙動、throughput・実所要時間・資源消費を分けて評価し、機構が正常なことと成績改善を混同しない。
