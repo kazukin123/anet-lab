@@ -175,36 +175,15 @@ list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 # 外部ライブラリ
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
-find_package(wxWidgets REQUIRED COMPONENTS core base gl aui)
+find_package(wxWidgets CONFIG REQUIRED COMPONENTS core base gl aui)
 
 
 # ---------------------------------------------------------------------
-# wxWidgets 互換性レイヤー
+# wxWidgets
 # ---------------------------------------------------------------------
+# wx への依存は anet-wx 経由に集約する
 add_library(anet-wx INTERFACE)
-if(TARGET wx::core)
-    # --- 【CI環境 / Configモード】 ---
-    # wx::core などのターゲットが見つかった場合
-    message(STATUS "wxWidgets: Config mode detected (Targets available)")
-    target_link_libraries(anet-wx INTERFACE wx::core wx::base wx::gl wx::aui)
-else()
-    # --- 【ローカル環境 / Moduleモード】 ---
-    # ターゲットがなく、変数(wxWidgets_LIBRARIES)のみの場合
-    message(STATUS "wxWidgets: Module mode detected (Variables available)")
-    
-    # Moduleモードではこのファイルをincludeして定義やパスを一括設定するのが定石
-    if(wxWidgets_USE_FILE)
-        include(${wxWidgets_USE_FILE})
-    endif()
-
-    # 変数を仲介ターゲットに紐付ける
-    target_link_libraries(anet-wx INTERFACE ${wxWidgets_LIBRARIES})
-    
-    # includeパスも明示的に継承させる (USE_FILEで足りない場合用)
-    if(wxWidgets_INCLUDE_DIRS)
-        target_include_directories(anet-wx INTERFACE ${wxWidgets_INCLUDE_DIRS})
-    endif()
-endif()
+target_link_libraries(anet-wx INTERFACE wx::core wx::base wx::gl wx::aui)
 
 
 # ---------------------------------------------------------------------

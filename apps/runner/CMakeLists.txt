@@ -105,8 +105,8 @@ if (MSVC)
     message(WARNING "No DLLs found in ${TORCH_DLL_DIR}")
   endif()
 
-  # --- wxWidgets DLLコピー（Configモード＝wxソースビルド時のみ） ---
-  # Moduleモード（ローカルのvcpkg toolchain）ではapplocal配備がDLLコピーを担うため対象外
+  # --- wxWidgets DLLコピー ---
+  # 共有ライブラリ構成のときだけ配備する（静的構成ではDLLが無いため対象外）
   if(TARGET wx::core)
     get_target_property(ANET_WX_CORE_TYPE wx::core TYPE)
     if(ANET_WX_CORE_TYPE STREQUAL "SHARED_LIBRARY")
