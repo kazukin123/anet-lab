@@ -440,7 +440,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Right().Layer(kTrainEvalLayer).Row(0).Position(0)
         .BestSize(main_pane_width, 400)
         .MinSize(200, 200)
-        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(false)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(false)
         .Hide();
     eval_info.dock_size = main_pane_width;
     aui_mgr_.AddPane(eval_panel_, eval_info);
