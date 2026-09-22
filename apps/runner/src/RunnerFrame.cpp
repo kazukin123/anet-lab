@@ -419,7 +419,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .BestSize(400, kDefaultLogDockHeight) // ドッキング時の推奨サイズ
         .FloatingSize(800, 400)     // 切り離したときのウィンドウサイズ
         .MinSize(200, 200)          // これ以上小さくならないようにする
-        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(true);
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(true);
     log_info.dock_size = kDefaultLogDockHeight;
     aui_mgr_.AddPane(log_panel_, log_info);
 
@@ -430,7 +430,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Centre()
         .BestSize(main_pane_width, 400)
         .MinSize(200, 200)
-        .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
+        .CloseButton(false).MaximizeButton(true).MinimizeButton(false).PinButton(false)
     );
 
     // EvalExperienceView
@@ -454,7 +454,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Right().Layer(kQValueLayer).Row(0).Position(0)
         .BestSize(q_value_width, 800)
         .MinSize(300, 150)
-        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(false)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(false)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
         .Hide();
     q_value_info.dock_size = q_value_width;

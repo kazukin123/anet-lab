@@ -20,7 +20,7 @@ jobs:
     env:
       BUILD_TYPE: Release
       LIBTORCH_VER: "2.12.0-cu130"
-      WX_VER: "3.3.1"
+      WX_VER: "3.3.3"
 
     steps:
     - uses: actions/checkout@v6
@@ -131,9 +131,9 @@ jobs:
         $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
         $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
 
+        # wx は Config モードで解決する (Config は lib/cmake/wxWidgets-<major>.<minor>/ に入る)。
+        # パスを直接指さず install prefix を CMAKE_PREFIX_PATH で渡して CMake に探索させる。
         $wxInst = "${{ github.workspace }}/third_party/wxwidgets/install"
-        $env:wxWidgets_DIR = "$wxInst/lib/cmake/wxWidgets"
-        $env:wxWidgets_ROOT = ""
 
         cmake -B build `
           -DCMAKE_BUILD_TYPE=Release `
@@ -141,8 +141,7 @@ jobs:
           -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
           -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
           -DANET_ENABLE_ATARI=OFF `
-          -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON `
-          -DwxWidgets_DIR="$wxInst/lib/cmake/wxWidgets"
+          -DCMAKE_PREFIX_PATH="$wxInst"
 
     - name: Build
       run: cmake --build build --config Release --parallel
