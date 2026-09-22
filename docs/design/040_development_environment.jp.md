@@ -75,7 +75,8 @@ Java 版 Metrics Viewer のコーディング、Maven build、testには Eclipse
 | Git for Windows | リポジトリと vcpkg の取得。PowerShell から `git` を実行できる場合は追加不要 |
 | Visual Studio Community 2022 または適切な edition | C++ 本体、Env、Agent、Runner |
 | CUDA 対応版 libtorch の Debug 版と Release 版 | C++ 本体、Runner |
-| vcpkg と wxWidgets | Runner GUI |
+| wxWidgets（sourceからbuild） | Runner GUI |
+| vcpkg | ZLIB など package の取得（Atari env） |
 | NVIDIA driver と CUDA Toolkit | CUDA 対応版 libtorch を使う C++ 開発 |
 | Eclipse、JDK 17 | Metrics Viewer |
 | Python | Optuna、Python viewer、TensorBoard・MLflow bridgeなどの補助ツール |
@@ -118,15 +119,13 @@ C:\dev\libtorch-win-shared-with-deps-debug-2.12.0+cu130\libtorch
 
 ### 3.4 vcpkg と wxWidgets の準備
 
-Runner GUI は wxWidgets の `core`、`base`、`gl`、`aui` componentを使用します。標準のローカル開発では vcpkg の `x64-windows` tripletを使用します。
-
-PowerShell で次を実行します。
+vcpkg は Atari envが使用する ZLIB などの package取得に使用します。PowerShell で次を実行します。
 
 ```powershell
 New-Item -ItemType Directory -Force C:\dev
 git clone https://github.com/microsoft/vcpkg C:\dev\vcpkg
 C:\dev\vcpkg\bootstrap-vcpkg.bat
-C:\dev\vcpkg\vcpkg.exe install wxwidgets:x64-windows
+C:\dev\vcpkg\vcpkg.exe install zlib:x64-windows
 ```
 
 導入後、次のファイルが存在することを確認します。
@@ -135,7 +134,31 @@ C:\dev\vcpkg\vcpkg.exe install wxwidgets:x64-windows
 C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake
 ```
 
-このリポジトリには `vcpkg.json` がないため、package の導入と vcpkg の配置は開発環境側で管理します。wxWidgets を手動でビルド・インストールする構成も使用できますが、最初の環境構築では vcpkg を推奨します。
+このリポジトリには `vcpkg.json` がないため、package の導入と vcpkg の配置は開発環境側で管理します。
+
+wxWidgets は vcpkg を使わず、sourceからbuild・installします。Runner GUI は `core`、`base`、`gl`、`aui` componentを使用し、`find_package` は Config modeで解決するため、CMake の package configを含む install treeが必要です。公式の pre-built binaryは package configを含まないため使用できません。
+
+[wxWidgets の release page](https://github.com/wxWidgets/wxWidgets/releases)から source archiveを取得して `C:\dev\wxWidgets-3.3.3` へ展開し、次を実行します。
+
+```powershell
+$src = "C:\dev\wxWidgets-3.3.3"
+cmake -S $src -B "$src\build" -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_INSTALL_PREFIX="$src\install" -DwxBUILD_SHARED=ON -DwxBUILD_PRECOMP=ON
+cmake --build "$src\build" --config Debug --parallel
+cmake --install "$src\build" --config Debug
+cmake --build "$src\build" --config Release --parallel
+cmake --install "$src\build" --config Release
+```
+
+generatorには anet-lab 本体と同じ toolsetを指定します。異なる toolsetでbuildすると ABI が一致しません。Debug と Release を同じ prefixへinstallすると、library名で区別されるため共存します。build treeは install 後に削除できます。
+
+install 後、環境変数 `wxWidgets_DIR` に package configの位置を設定します。directory名は versionを含みます。
+
+```text
+C:\dev\wxWidgets-3.3.3\install\lib\cmake\wxWidgets-3.3
+```
+
+vcpkg に `wxwidgets` を installしないでください。vcpkg の toolchainは installed treeを `CMAKE_PREFIX_PATH` へ追加し、これは環境変数 `wxWidgets_DIR` より優先されます。また installed の include directoryは ZLIB など他の package経由でも compile時のsearch pathへ入るため、headerだけが vcpkg 側のversionに解決される事故が起きます。
 
 ### 3.5 NVIDIA driver と CUDA Toolkit の準備
 
@@ -436,9 +459,16 @@ CLIのMSVC環境が不完全です。通常のPowerShellから直接 `cmake --bu
 
 ### 8.5 CMake が wxWidgets を見つけない
 
-`CMAKE_TOOLCHAIN_FILE` が `C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake` を指し、`wxwidgets:x64-windows` が導入済みであることを確認します。別の配置を使う場合は実際のvcpkg pathへ読み替えます。
+環境変数 `wxWidgets_DIR` が install treeの `lib/cmake/wxWidgets-<major>.<minor>` を指しているか確認します。directory名は versionを含むため、wxWidgets を更新したときは設定も変更します。
 
-手動installしたwxWidgetsを使う場合は、Config modeなら `wxWidgets_DIR`、Module modeなら `wxWidgets_ROOT_DIR` を指定し、`core`、`base`、`gl`、`aui` componentを含むx64 buildであることを確認します。
+`find_package` は Config modeで解決するため、指定先に `wxWidgetsConfig.cmake` が存在する必要があります。`core`、`base`、`gl`、`aui` componentを含む x64 buildであることも確認します。
+
+環境変数を変更しても解決先が変わらない場合は、次の2つを疑います。
+
+- CMake cacheの `wxWidgets_DIR` が優先される。cache変数は環境変数より優先されるため、Visual Studio の CMake cacheを削除して再構成するか、`-DwxWidgets_DIR=...` で上書きします
+- vcpkg に `wxwidgets` が installされている。vcpkg の toolchainは installed treeを `CMAKE_PREFIX_PATH` へ追加し、これも環境変数より優先されます。`vcpkg remove wxwidgets:x64-windows` で削除します
+
+`wx/wx.h` が見つからないというerrorは、libraryの解決先とheaderの解決先が食い違うときに出ます。vcpkg の installed に wxWidgets の headerが残っていると、ZLIB など他の package経由で include search pathへ入り、headerだけが vcpkg 側へ解決されます。
 
 ### 8.6 CUDA または DLL の読み込みに失敗する
 
