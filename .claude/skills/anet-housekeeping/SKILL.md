@@ -1,6 +1,6 @@
 ---
 name: anet-housekeeping
-description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit, design-doc translation, survey queue, commit planning, harness map refresh, atlas refresh) autonomously within a token and time budget, choosing which tasks to run and in what order. Use when the user invokes $anet-housekeeping or /anet-housekeeping, optionally with a budget such as auto, S, M, L or 40%, and optional until=, only=, skip=, dry-run.
+description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit, design-doc translation, survey queue, harness map refresh, atlas refresh) autonomously within a token and time budget, choosing which tasks to run and in what order. Use when the user invokes $anet-housekeeping or /anet-housekeeping, optionally with a budget such as auto, S, M, L or 40%, and optional until=, only=, skip=, dry-run.
 ---
 
 # ANET Housekeeping
@@ -30,14 +30,13 @@ description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit,
 | 名前 | スキル | 前提条件 | 単位 | 初期見積(消費率 / 分) |
 |---|---|---|---|---|
 | stats | anet-stats | `reports/stats/stats.json` が無い、または `meta.generated` が 7 日以上前 | 1 回 | 3% / 5 |
-| commit-plan | prepare-commit | `git status --porcelain` が空でない | 1 回 | 4% / 5 |
 | audit | anet-audit | 常に可 | 観点 1 × 範囲 1 | 10% / 15 |
 | translate | anet-translate-docs | 未訳、続き、または訳元更新のある `docs/design/*.jp.md` がある(判定は anet-translate-docs の「対象の決め方」) | ファイル 1 本 | 8% / 10 |
 | survey | anet-survey-queue | `reports/INDEX.md` のキューに状態 `ready` の行がある | テーマ 1 つ | 30% / 40 |
 | harness-map | anet-harness-map | `archify` スキルが存在し、`docs/agents/README.md` が無い、または記録された revision から `git diff --stat <rev> HEAD -- AGENTS.md CLAUDE.md .agents/skills .claude/skills docs/agents docs/design core/anet-core/testdata .github/workflows` が空でない | 1 回 | 15% / 20 |
 | atlas | anet-archify-atlas | `archify` スキルが存在し、`docs/archify/README.md` に記録された revision から `git diff --stat <rev> HEAD -- core apps` の変更行が 3,000 を超える | 1 回 | 20% / 30 |
 
-既定の優先順は stats, commit-plan, audit, translate, survey, harness-map, atlas。
+既定の優先順は stats, audit, translate, survey, harness-map, atlas。
 
 ## 見積もりの較正
 

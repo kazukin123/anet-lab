@@ -1,6 +1,6 @@
 {
   "_doc": "anet-audit の巡回状態。next_lens は次回の観点。scopes の last_seen は観点ごとの最終実施日。",
-  "next_lens": "defect",
+  "next_lens": "architecture",
   "scopes": [
     {
       "key": "318_rl_core",
@@ -76,7 +76,8 @@
       "key": "120_metrics_viewer",
       "kind": "code",
       "last_seen": {
-        "refactor": "2026-09-19"
+        "refactor": "2026-09-19",
+        "defect": "2026-09-23"
       }
     },
     {

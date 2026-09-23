@@ -1,4 +1,4 @@
-<!-- translated-from: 010_framework_overview.jp.md blob:06b8181281c828eec1ba3edf6e2174d0a07271e6 date:2026-09-19 progress:done -->
+<!-- translated-from: 010_framework_overview.jp.md blob:fb9a2169fcab789aa4e91c0cdd183cc296fffcb9 date:2026-09-23 progress:done -->
 # ANET Framework Overview
 
 > Primary perspective: overall structure (organized mainly by function, with major workflows included)
@@ -327,7 +327,7 @@ sequenceDiagram
     end
 ```
 
-Evaluations with `use_background` enabled run on a dedicated worker. The GUI Eval View uses the same `EvalRunner`, but does not use the evaluation-session decorator and remains step-driven.
+Evaluations with `use_background` enabled run on a dedicated worker. At Run exit, following `run.eval_schedule.[tag].wait_on_exit` (default `true`), in-progress sessions are run to completion or cooperatively cancelled before the recording destinations are closed. A cancelled session emits neither a `SessionEndEvent` nor scalars; it leaves only the traces of completed episodes and a cancellation record. The GUI Eval View uses the same `EvalRunner`, but does not use the evaluation-session decorator and remains step-driven.
 
 See [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.md) for execution modes, configuration, threads, and shutdown.
 
