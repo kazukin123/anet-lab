@@ -185,6 +185,23 @@ find_package(wxWidgets CONFIG REQUIRED COMPONENTS core base gl aui)
 add_library(anet-wx INTERFACE)
 target_link_libraries(anet-wx INTERFACE wx::core wx::base wx::gl wx::aui)
 
+# wx の実行時 DLL を target の出力ディレクトリへ配備する（runner とテスト exe で共用）
+# 共有ライブラリ構成のときだけ配備する（静的構成ではDLLが無いため対象外）
+function(anet_copy_wx_dlls target)
+    get_target_property(ANET_WX_CORE_TYPE wx::core TYPE)
+    if(ANET_WX_CORE_TYPE STREQUAL "SHARED_LIBRARY")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:wx::base>
+                    $<TARGET_FILE:wx::core>
+                    $<TARGET_FILE:wx::gl>
+                    $<TARGET_FILE:wx::aui>
+                    $<TARGET_FILE_DIR:${target}>
+            COMMENT "Copying wxWidgets DLLs"
+        )
+    endif()
+endfunction()
+
 
 # ---------------------------------------------------------------------
 # third_party

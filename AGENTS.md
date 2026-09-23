@@ -713,7 +713,7 @@ core\anet-core\bin\Debug\anet-core-test.exe
 ```
 
 テスト実行ファイルは意図的に `core/anet-core/bin/<Config>` 配下へ出力します。
-CMake の post-build 処理で libtorch の DLL を実行ファイルの隣へコピーし、
+CMake の post-build 処理で libtorch と wxWidgets の DLL を実行ファイルの隣へコピーし、
 runner アプリと同じ実行時配置に揃えています。
 
 ## Agent skills

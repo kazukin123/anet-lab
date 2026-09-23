@@ -85,6 +85,7 @@ if(MSVC)
                 ${TORCH_DLLS} $<TARGET_FILE_DIR:AtariEnv-test>
             COMMENT "Copying libtorch DLLs")
     endif()
+    anet_copy_wx_dlls(AtariEnv-test)
 endif()
 
 # ---------------------------------------------------------------------

@@ -106,21 +106,7 @@ if (MSVC)
   endif()
 
   # --- wxWidgets DLLコピー ---
-  # 共有ライブラリ構成のときだけ配備する（静的構成ではDLLが無いため対象外）
-  if(TARGET wx::core)
-    get_target_property(ANET_WX_CORE_TYPE wx::core TYPE)
-    if(ANET_WX_CORE_TYPE STREQUAL "SHARED_LIBRARY")
-      add_custom_command(TARGET AnetRLRunner POST_BUILD
-          COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                  $<TARGET_FILE:wx::base>
-                  $<TARGET_FILE:wx::core>
-                  $<TARGET_FILE:wx::gl>
-                  $<TARGET_FILE:wx::aui>
-                  $<TARGET_FILE_DIR:AnetRLRunner>
-          COMMENT "Copying wxWidgets DLLs"
-      )
-    endif()
-  endif()
+  anet_copy_wx_dlls(AnetRLRunner)
 
   # --- 汎用 runtime DLLコピー（third_party/runtime_dlls に置いた DLL を配備） ---
   # 実行時ロードされる DLL（SDL2.dll 等）の置き場。詳細は third_party/runtime_dlls/README.md。
