@@ -305,6 +305,18 @@ controlの枠線は`--control-border`（hoverは`--control-border-hover`）の1�
 `.section`などのcontainer枠`--container-border`より弱くする。
 ON時の配色は`--active-background` / `--active-accent` / `--active-text`を使う。
 
+### 3.4 スクリーンショットモード
+
+スクリーンショットモードは貼り付け用の絵を作るために表示だけを畳むモードであり、データの更新は止めない。
+side panelとfloating controlのうちgraph操作用のものを隠し、`#main-area`のoverflowをvisibleにしてスクロールをdocument側へ移し、Run名を載せたheaderを出す。
+Auto Reloadも手動Reloadも通常と同じに効き、side panelが隠れてReloadボタンを押せない間はgraphのdouble clickがReloadの入口になる。
+進捗を出すRun listが隠れている間は、取り込み進捗のpollだけを止める。
+
+スクロール主体が`#main-area`とdocumentで入れ替わるため、位置はpixelのままでは引き継げない。
+`scrollElement()`が現在のスクロール主体を返し、再描画とモード切替は前後で
+「先頭に見えているgraph blockのtagKeyと、そのblockが表示領域の上端からはみ出している量」を覚えて復元する。
+覚えたtagのgraphが消えていたときだけ、同じスクローラの続きとしてpixelで戻す。
+
 ## 4. コードマップ
 
 | 領域 | 主なファイル |
@@ -529,7 +541,7 @@ sequenceDiagram
 ```
 
 各rangeは前回応答へ依存しない完結した結果であり、clientは差分mergeを行わずwindowごと置換する。
-取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中の系列だけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
+取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。この進捗pollだけはスクリーンショットモード中は止まり、Auto Reloadと手動Reloadはモードに関わらず動く。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中の系列だけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
 
 ## 7. 設定一覧
 

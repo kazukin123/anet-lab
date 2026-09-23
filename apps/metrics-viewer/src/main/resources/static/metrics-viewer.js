@@ -956,6 +956,7 @@ class PlotlyController {
 
 			const block = document.createElement("div");
 			block.className = "graph-block";
+			block.dataset.tagKey = tagKey;
 			const header = document.createElement("div");
 			header.className = "graph-header";
 			const title = document.createElement("div");
@@ -1607,11 +1608,6 @@ class UIController {
 		const isGraphTarget = target => target instanceof Element
 				&& Boolean(target.closest(".js-plotly-plot"))
 				&& !target.closest(".modebar");
-		// スクリーンショットモードでは #main-area の overflow が visible になり、
-		// スクロールはドキュメント側で起きる。
-		const scrollTarget = () => this.app.mode === Mode.SCREENSHOT
-				? (document.scrollingElement ?? document.documentElement)
-				: mainArea;
 		const begin = (target, clientY, touchId = null) => {
 			if (!this.app.graphScrollLockActive() || !isGraphTarget(target)) return;
 			state.active = true;
@@ -1626,7 +1622,7 @@ class UIController {
 			state.scrolling = true;
 			const delta = state.lastY - clientY;
 			state.lastY = clientY;
-			scrollTarget().scrollTop += delta;
+			this.app.scrollElement().scrollTop += delta;
 			if (event.cancelable) event.preventDefault();
 			event.stopPropagation();
 		};
@@ -2293,15 +2289,57 @@ class MetricsViewerClientApp {
 		await this.requestVisibleData();
 	}
 
+	// スクリーンショットモードでは #main-area の overflow が visible になり、
+	// スクロールはドキュメント側で起きる。
+	scrollElement() {
+		return this.mode === Mode.SCREENSHOT
+				? (document.scrollingElement ?? document.documentElement)
+				: document.getElementById("main-area");
+	}
+
+	_scrollViewportTop() {
+		const scroller = this.scrollElement();
+		return scroller === document.documentElement || scroller === document.body
+				? 0
+				: scroller.getBoundingClientRect().top;
+	}
+
+	// スクロール主体が入れ替わっても、graphの並びは同じでpixel座標だけがずれる。
+	// 先頭に見えているgraph blockとそのはみ出し量で覚え、blockを基準に戻す。
+	_captureScrollAnchor() {
+		const anchor = { tagKey: null, offset: 0, scrollTop: this.scrollElement().scrollTop };
+		const viewportTop = this._scrollViewportTop();
+		for (const block of document.querySelectorAll("#main-area .graph-block")) {
+			const rectangle = block.getBoundingClientRect();
+			if (rectangle.bottom <= viewportTop) continue;
+			anchor.tagKey = block.dataset.tagKey;
+			anchor.offset = rectangle.top - viewportTop;
+			break;
+		}
+		return anchor;
+	}
+
+	_restoreScrollAnchor(anchor) {
+		const scroller = this.scrollElement();
+		const block = [...document.querySelectorAll("#main-area .graph-block")]
+				.find(candidate => candidate.dataset.tagKey === anchor.tagKey);
+		// 基準にしたtagが消えたときだけ、同じスクローラの続きとしてpixelで戻す。
+		if (!block) {
+			scroller.scrollTop = anchor.scrollTop;
+			return;
+		}
+		const viewportTop = this._scrollViewportTop();
+		scroller.scrollTop += block.getBoundingClientRect().top - viewportTop - anchor.offset;
+	}
+
 	_renderCurrent() {
-		const main = document.getElementById("main-area");
-		const scrollTop = main.scrollTop;
+		const anchor = this._captureScrollAnchor();
 		this.plotly.renderBySelection(
 				"#main-area",
 				this.selectedRuns.slice(),
 				this._visibleSelectedTags(),
 				this.cache);
-		main.scrollTop = scrollTop;
+		this._restoreScrollAnchor(anchor);
 		this._syncGraphScrollLockUi();
 	}
 
@@ -2387,7 +2425,6 @@ class MetricsViewerClientApp {
 	}
 
 	async onReload() {
-		if (this.mode === Mode.SCREENSHOT) return;
 		const recoveringFromInitialError = this.mode === Mode.ERROR;
 		try {
 			await Promise.all([
@@ -2407,6 +2444,7 @@ class MetricsViewerClientApp {
 
 	onToggleScreenshot() {
 		if (this.mode === Mode.ERROR) return;
+		const anchor = this._captureScrollAnchor();
 		const enabled = document.body.classList.toggle("screenshot-mode");
 		document.documentElement.classList.toggle("screenshot-mode", enabled);
 		this.setMode(enabled ? Mode.SCREENSHOT : Mode.NORMAL);
@@ -2417,6 +2455,7 @@ class MetricsViewerClientApp {
 				? `Metrics Viewer — ${this.selectedRuns[0]}`
 				: "Metrics Viewer";
 		header.style.display = enabled ? "block" : "none";
+		this._restoreScrollAnchor(anchor);
 		setTimeout(() => this.plotly.resizeAll(), 300);
 	}
 
