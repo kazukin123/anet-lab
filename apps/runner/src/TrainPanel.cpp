@@ -36,7 +36,6 @@ TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
 {
 	config_.Validate();
 	SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BACKGROUND));
-	SetDoubleBuffered(true);
 	Bind(wxEVT_SIZE, &TrainPanel::OnSize, this);
 }
 
