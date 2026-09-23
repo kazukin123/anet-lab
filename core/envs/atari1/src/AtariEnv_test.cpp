@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
-#include <fstream>
+#include <wx/cmdline.h>
 
 #include "anet/catch_test.hpp"
 #include "anet/env/Atari.hpp"
@@ -105,20 +105,19 @@ TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge
 {
     const auto source_root = std::filesystem::path(ANET_SOURCE_DIR);
     const auto config_dir = source_root / "apps" / "runner" / "config";
-    const auto temp_dir = source_root / "tmp" / "atari-config-preset-test";
-    std::filesystem::create_directories(temp_dir);
 
     const auto load_preset = [&](const std::string& preset) {
-        const auto overlay_path = temp_dir / (preset + ".txt");
-        {
-            std::ofstream overlay(overlay_path);
-            overlay << "$include <Atari.txt>\n";
-            overlay << "AtariEnv.$ = AtariEnv.@" << preset << "\n";
-        }
+        // Atari.txt の既定 run.$ は Run 層で AtariEnv.$ を選ぶので、プリセットはそれより強い CLI 層で選ぶ。
+        const wxCmdLineEntryDesc description[] = {
+            { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+                wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
+        };
+        wxCmdLineParser cli(description, wxString::FromUTF8("AtariEnv.$=AtariEnv.@" + preset));
+        REQUIRE(cli.Parse(false) == 0);
         anet::ConfigManagerOptions options;
         options.config_search_dirs = { config_dir };
-        options.overwrite_config_paths = { overlay_path };
-        return anet::ConfigManager(config_dir / "_main.txt", nullptr, options).GetConfigData();
+        options.overwrite_config_paths = { config_dir / "Atari.txt" };
+        return anet::ConfigManager(config_dir / "_main.txt", &cli, options).GetConfigData();
     };
 
     const auto v5 = load_preset("v5_noop30");
@@ -132,8 +131,6 @@ TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge
     CHECK(classic.Get<int>("AtariEnv.noop_max") == 30);
     CHECK(classic.Get<bool>("AtariEnv.episodic_life"));
     CHECK(classic.Get<bool>("AtariEnv.fire_reset"));
-
-    std::filesystem::remove_all(temp_dir);
 }
 
 TEST_CASE("AtariEnv fails fast on invalid current config values", "[atari][config]")
@@ -593,6 +590,73 @@ TEST_CASE("AtariEnv reports an ALE-frame limit as truncation with completion met
     CHECK(std::isnan(*env->GetScalar("game_score")));
 }
 
+TEST_CASE("AtariEnv logs one verbose line per completed game with the completion values", "[atari][rom][terminal][log]")
+{
+    const auto rom = FindRom("pong");
+    if (!rom.has_value()) {
+        SKIP("pong.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+
+    anet::ConfigData truncated_config;
+    truncated_config.Set("AtariEnv.game", "pong");
+    truncated_config.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    truncated_config.Set("AtariEnv.frame_skip", 1);
+    truncated_config.Set("AtariEnv.max_episode_frames", 2);
+    // 十分大きい skip 窓なら 1 Step で real game over まで進む。
+    anet::ConfigData game_over_config;
+    game_over_config.Set("AtariEnv.game", "pong");
+    game_over_config.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    game_over_config.Set("AtariEnv.frame_skip", 100000);
+    game_over_config.Set("AtariEnv.repeat_action_probability", 0.0);
+    game_over_config.Set("AtariEnv.max_episode_frames", 0);
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    anet::rl::env::AtariEnvFactory factory;
+    const auto truncated = factory.CreateSingleEnv(
+        truncated_config, torch::Device(torch::kCPU), "atari-log-truncated", 123,
+        anet::rl::RunMode::Train);
+    const auto game_over = factory.CreateSingleEnv(
+        game_over_config, torch::Device(torch::kCPU), "atari-log-game-over", 1357,
+        anet::rl::RunMode::Train);
+
+    const auto game_lines = [&logs](const std::string& name) {
+        logs.Flush();
+        std::vector<std::string> lines;
+        for (const auto& record : logs.Records()) {
+            if (!record.message.starts_with(name + ": Game ")) continue;
+            CHECK(record.level == wxLOG_Info);
+            lines.push_back(record.message);
+        }
+        return lines;
+    };
+    // ログの値は trace / metrics が読む完了値と一致しなければならない。
+    const auto completion_line = [](const std::string& name, const std::string& head, const auto& env) {
+        return name + ": " + head
+            + " game_score=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_score")))
+            + " game_len=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_len")))
+            + " game_frames=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_frames")));
+    };
+
+    truncated->Reset();
+    truncated->Step(0);
+    CHECK(game_lines("atari-log-truncated").empty());
+    REQUIRE(truncated->Step(0)->next_state.truncated);
+    const std::vector<std::string> expected_truncated{
+        completion_line("atari-log-truncated", "Game truncated by max_episode_frames.", truncated) };
+    CHECK(game_lines("atari-log-truncated") == expected_truncated);
+    // 次のゲームの途中では増えない。
+    truncated->Reset();
+    truncated->Step(0);
+    CHECK(game_lines("atari-log-truncated") == expected_truncated);
+
+    game_over->Reset();
+    const auto game_over_step = game_over->Step(0);
+    REQUIRE(game_over_step->next_state.done);
+    REQUIRE_FALSE(game_over_step->next_state.truncated);
+    CHECK(game_lines("atari-log-game-over") == std::vector<std::string>{
+        completion_line("atari-log-game-over", "Game over.", game_over) });
+}
+
 TEST_CASE("AtariEnv exposes game_score threshold indicators", "[atari][rom][terminal]")
 {
     const auto rom = FindRom("pong");
@@ -923,6 +987,8 @@ int main(int argc, char* argv[])
         return anet::test::ReportTestArgsError(e);
     }
     anet::test::SetupTestFailureDialog(test_args.failure_dialog_enabled);
+
+    anet::test::StderrLogGuard log_target_guard;
 
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;

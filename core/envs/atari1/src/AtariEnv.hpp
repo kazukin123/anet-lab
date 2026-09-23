@@ -95,6 +95,7 @@ namespace anet::rl::env {
         void CaptureRgbFrame();
         AuxData MakeAuxData() const;
         SingleState MakeState(torch::Tensor grid, bool done, bool truncated, bool episode_start) const;
+        void RecordGameCompletion(bool truncated);  ///< 実ゲーム完了値を確定し、同じ値を verbose ログへ 1 行出す
 
         AtariEnvConfig config_;
         torch::Device device_;

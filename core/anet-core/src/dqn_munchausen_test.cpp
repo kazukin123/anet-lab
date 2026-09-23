@@ -16,6 +16,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <vector>
+#include <wx/cmdline.h>
 
 using namespace anet;
 using namespace anet::rl;
@@ -185,12 +186,20 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diag
     ConfigManagerOptions options;
     options.config_search_dirs = std::vector<std::filesystem::path>{ config_dir };
     options.overwrite_config_paths = { config_dir / "Atari.txt" };
-    options.injected_config.Set("run.$", "run.@munchausen");
     options.injected_config.Set("A3.learner.munchausen.log_policy_mode", mode);
     options.injected_config.Set("A3.use_optimistic_target", risk);
     options.injected_config.Set("A3.actor.[train].policy.policy_type", "UQE");
-    const ConfigManager manager((config_dir / "_main.txt").string(), nullptr, options);
-    const auto data = manager.GetConfigData();
+    // Atari.txt は injected_config の後に重なり、自身の既定 run.$ を持つ。幹はそれより強い CLI 層で選ぶ。
+    const auto load = [&](const std::string& trunk) {
+        const wxCmdLineEntryDesc description[] = {
+            { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+                wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
+        };
+        wxCmdLineParser cli(description, wxString::FromUTF8("run.$=" + trunk));
+        REQUIRE(cli.Parse(false) == 0);
+        return ConfigManager((config_dir / "_main.txt").string(), &cli, options).GetConfigData();
+    };
+    const auto data = load("run.@v5_iqn_impala_x2>run.@munch");
     const DefaultDQNAgentConfig config(data);
     CHECK(config.quantile_mode == "iqn");
     CHECK(config.learner.munchausen.enabled);
@@ -207,9 +216,7 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diag
     }
     CHECK(data.Get("metrics.scalar.[36_agent_munchausen/07_soft_gap]").empty());
     // 解決後ConfigDataは材料キーを公開しないため、従来Runの実効設定からOFFを検証する。
-    options.injected_config.Set("run.$", "run.@v5_iqn_impala_x2");
-    const ConfigManager baseline_manager((config_dir / "_main.txt").string(), nullptr, options);
-    const DefaultDQNAgentConfig baseline(baseline_manager.GetConfigData());
+    const DefaultDQNAgentConfig baseline(load("run.@v5_iqn_impala_x2"));
     CHECK_FALSE(baseline.learner.munchausen.enabled);
     CHECK(baseline.learner.use_double_dqn);
 }

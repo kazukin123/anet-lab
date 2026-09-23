@@ -489,6 +489,21 @@ AuxData AtariEnv::MakeAuxData() const
     };
 }
 
+void AtariEnv::RecordGameCompletion(bool truncated)
+{
+    completion_available_ = true;
+    completed_game_score_ = game_score_;
+    completed_game_len_ = game_len_;
+    completed_game_frames_ = ale_->getEpisodeFrameNumber();
+
+    // metrics / trace を持たない実行（EvalPanel 等）のゲームも、時刻付きで Run ログから追えるようにする。
+    // スコアは ALE の整数報酬の累積なので整数で出す（float の既定書式は 7 桁以上を指数表記にする）。
+    log.verbose() << (truncated ? "Game truncated by max_episode_frames." : "Game over.")
+        << " game_score=" << static_cast<int64_t>(completed_game_score_)
+        << " game_len=" << completed_game_len_
+        << " game_frames=" << completed_game_frames_;
+}
+
 std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
 {
     ANET_PROFILE_FUNC();
@@ -498,10 +513,7 @@ std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
         life_loss_pending_ = false;
         game_score_ += static_cast<float>(ale_->act(ale::PLAYER_A_NOOP));
         if (ale_->game_over(false)) {
-            completion_available_ = true;
-            completed_game_score_ = game_score_;
-            completed_game_len_ = game_len_;
-            completed_game_frames_ = ale_->getEpisodeFrameNumber();
+            RecordGameCompletion(false);
             ale_->reset_game();
             game_score_ = 0.0f;
             game_len_ = 0;
@@ -573,10 +585,7 @@ std::shared_ptr<const SingleStepResult> AtariEnv::Step(int64_t action)
     life_loss_pending_ = life_done;
 
     if (real_done || truncated) {
-        completion_available_ = true;
-        completed_game_score_ = game_score_;
-        completed_game_len_ = game_len_;
-        completed_game_frames_ = ale_->getEpisodeFrameNumber();
+        RecordGameCompletion(truncated);
     }
 
     CaptureRgbFrame();
