@@ -20,21 +20,21 @@ SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
 
-SET "FIX2=E1.game=breakout"
-
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
-SET "RR4=run.@hard500>run.@rr4>run.@munch"
-SET "RF=run.@rfit"
-SET "NET12=run.@btrnet>run.@btrsn12"
-SET "NETP4=run.@btrnet>run.@btrpool4"
+SET "RR1=run.@hard125>run.@munch"
+SET "RF=run.@rfit>run.@a5_metrics"
+SET "EV=run.@eval2ch_r1>run.@eval2ch_r1_50m"
+SET "TP=%A5%>%RR1%>%RF%>run.@cap4m>%EV%>run.@batch"
 
-SET "WS=--workspace atari-04"
-echo === 1. wiring: fixed binary sn12 cap512k 100k (2m) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>%NET12%>run.@cap512k>run.@pl_check"
-echo === 2. post-fix: RR4 sn12 envs128 cap512k lane 4096 50M (7h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>%NET12%>run.@cap512k>run.@eval2ch" "app.run_name=run_{t}_rr4_btrsn12_envs128_cap512k_50m_fix"
-echo === 3. pool: RR4 btrpool4 envs128 cap2M 50M (8h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>%NETP4%>run.@cap2m>run.@eval2ch" "app.run_name=run_{t}_rr4_btrpool4_envs128_cap2m_50m"
+SET "WS=--workspace atari5-01"
+echo === 1. wiring: a5 rr1 qbert cap4m 400k (RAM check) ===
+call :run_exe "run.$=%TP%>run.@to_400k" E1.game=qbert "app.run_name=run_{t}_tmp_wiring"
+echo === 2. a5 name_this_game rr1 cap4m 50M ===
+call :run_exe "run.$=%TP%" E1.game=name_this_game "app.run_name=run_{t}_a5_name_this_game_rr1_cap4m_50m"
+echo === 3. a5 phoenix rr1 cap4m 50M ===
+call :run_exe "run.$=%TP%" E1.game=phoenix "app.run_name=run_{t}_a5_phoenix_rr1_cap4m_50m"
+echo === 4. a5 qbert rr1 cap4m 50M ===
+call :run_exe "run.$=%TP%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_cap4m_50m"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -49,7 +49,7 @@ exit /b 0
 
 :run_exe
 echo %DATE% %TIME% START %WS% %*
-%RUNNER% %WS% %* %FIX2%
+%RUNNER% %WS% %*
 SET "RUN_EXIT_CODE=%ERRORLEVEL%"
 if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
 echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*

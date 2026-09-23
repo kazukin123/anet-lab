@@ -20,36 +20,24 @@ SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
 
-SET "FIX2=E1.game=breakout"
-
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
-SET "RR4=run.@hard500>run.@rr4>run.@munch"
 SET "RR1=run.@hard125>run.@munch"
-SET "RF=run.@rfit"
-SET "NET12=run.@btrnet>run.@btrsn12"
-SET "NETVIT=run.@btrnet>run.@vitbtr"
-SET "NETP4=run.@btrnet>run.@btrpool4"
-SET "EV=run.@evalonly>run.@eval2only>run.@greedy_eval>run.@to_50"
+SET "RF=run.@rfit>run.@a5_metrics"
+SET "EV=run.@eval2ch_r1>run.@eval2ch_r1_50m"
+SET "TP=%A5%>%RR1%>%RF%>run.@cap2m>%EV%>run.@a5_20m>run.@batch"
+SET "P4=%TP%>run.@pool4"
 
-SET "S_VIT=workspaces/atari-04/runs/run_20260918-123929_rr4_vitbtr_envs128_cap2m_50m/agent_close.anet"
-SET "S_CAP4M=workspaces/atari-04/runs/run_20260919-093925_rr4_btrsn12_envs128_cap4m_50m/agent_close.anet"
-SET "S_CAP15=workspaces/atari-04/runs/run_20260919-190647_rr4_btrsn12_envs128_cap1536k_50m/agent_close.anet"
-
-SET "WS=--workspace atari-04"
-echo === 1. ev: vitbtr envs128 cap2M 50M eps=0 (25m) ===
-call :run_exe "run.$=%A5%>run.@munch>%NETVIT%>%EV%" "A3.auto_load_file=%S_VIT%" "app.run_name=run_{t}_ev_vitbtr_envs128_cap2m_50m"
-echo === 2. ev: sn12 envs128 cap4M lane 32768 50M eps=0 (25m) ===
-call :run_exe "run.$=%A5%>run.@munch>%NET12%>%EV%" "A3.auto_load_file=%S_CAP4M%" "app.run_name=run_{t}_ev_sn12_envs128_cap4m_50m"
-echo === 3. ev: sn12 envs128 cap1536k lane 12288 50M eps=0 (25m) ===
-call :run_exe "run.$=%A5%>run.@munch>%NET12%>%EV%" "A3.auto_load_file=%S_CAP15%" "app.run_name=run_{t}_ev_sn12_envs128_cap1536k_50m"
-echo === 4. wiring: btrpool4 iqn1024 100k (2m) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>%NETP4%>run.@cap2m>run.@pl_check"
-echo === 5. walltime lane: RR1 kyu-net cap2M 100M (6h) ===
-call :run_exe "run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@to_100m>run.@eval2ch_r1" "app.run_name=run_{t}_rr1_va_hard125_cap2m_100m"
-echo === 6. pool: RR4 btrpool4 envs128 cap2M 50M (8h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>%NETP4%>run.@cap2m>run.@eval2ch" "app.run_name=run_{t}_rr4_btrpool4_envs128_cap2m_50m"
-echo === 7. lane floor: RR4 sn12 envs128 cap512k lane 4096 50M (8h) ===
-call :run_exe "run.$=%A5%>%RR4%>%RF%>%NET12%>run.@cap512k>run.@eval2ch" "app.run_name=run_{t}_rr4_btrsn12_envs128_cap512k_50m"
+SET "WS=--workspace atari5-01"
+echo === 1. wiring: pool4 qbert 400k ===
+call :run_exe "run.$=%P4%>run.@to_400k" E1.game=qbert "app.run_name=run_{t}_tmp_wiring"
+echo === 2. base r1: qbert rr1 20M ===
+call :run_exe "run.$=%TP%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_base_r1"
+echo === 3. pool4 r1: qbert rr1 20M ===
+call :run_exe "run.$=%P4%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_pool4_r1"
+echo === 4. base r2: qbert rr1 20M ===
+call :run_exe "run.$=%TP%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_base_r2"
+echo === 5. pool4 r2: qbert rr1 20M ===
+call :run_exe "run.$=%P4%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_pool4_r2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -64,7 +52,7 @@ exit /b 0
 
 :run_exe
 echo %DATE% %TIME% START %WS% %*
-%RUNNER% %WS% %* %FIX2%
+%RUNNER% %WS% %*
 SET "RUN_EXIT_CODE=%ERRORLEVEL%"
 if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
 echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
