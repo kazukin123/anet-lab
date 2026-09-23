@@ -1,4 +1,4 @@
-#include "AtariView.hpp"
+﻿#include "AtariView.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -41,7 +41,7 @@ AtariPanel::AtariPanel(wxWindow* parent)
 
     overlay_ = new wxStaticText(
         canvas_, wxID_ANY, "Atari: waiting for data", wxPoint(8, 8),
-        wxDefaultSize, wxBORDER_SIMPLE | wxST_NO_AUTORESIZE);
+        wxDefaultSize, wxBORDER_SIMPLE);
     overlay_->SetForegroundColour(*wxWHITE);
     overlay_->SetBackgroundColour(*wxBLACK);
     overlay_->SetSize(overlay_->GetBestSize());
