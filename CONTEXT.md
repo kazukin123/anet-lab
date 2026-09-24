@@ -265,6 +265,18 @@ _Avoid_: 正規化スコア（何基準か不明）, CHNS（クリップ版は�
 sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.@v5_noop0` / `AtariEnv.@v5_noop30` / `AtariEnv.@classic` / `AtariEnv.@100k`）。設定プロファイルの一種で、env スロットの選択チェーンから選ぶ。スコアはプロファイル間で直接比較不可であり、比較先の事例がどの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこの命名の由来だが、anet-labでは条件セット名として扱う。**「v5」は env id の世代であって NoOp reset の有無を決めない**（raw ALE v5 に noop start は無く、Gymnasium `AtariPreprocessing` wrapper の既定は `noop_max=30`）。このため v5 系は `@v5_noop0` / `@v5_noop30` の 2 本に分けてあり、`@v5` という単独のプロファイルは置かない。
 _Avoid_: プロトコルプリセット(旧称), envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
 
+**RAM メトリクス**（RAM metric）:
+AtariEnv 固有の、ALE RAM 1 バイトの毎フレーム列をゲーム 1 回（hard reset から実 game over / truncation まで。soft reset をまたぐ）に畳んだ確定値。番号付きの汎用キー `ram_metric.[n]` で参照し、中身はゲーム別の RAM 定義を `AtariEnv.ram_metric.[game].metrics` の行で番号へ結んで決める。今のゲームに番号が無ければ NaN、どのゲームも番号付けていなければ未知キー。番号は metrics 側の固定の接点であり、ゲームを変えても metrics 定義を変えない。番号には全ゲーム共通の大まかな意味がある（1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数）。
+_Avoid_: slot（ReplayBuffer / eval の語）, channel（metrics チャネル）, index, ram_watch（原案の語）, RAM 番地キー（`ram_min.[0xCC]` 型）
+
+**RAM 定義**（RAM definition）:
+ゲーム別に名前を付けた「バス番地 + 畳み方」（`AtariEnv.ram_metric.[game].[label] = 0xCC dec_count`）。番地は `0x80`〜`0xFF` で書き、その意味は利用側が持つ。番号付けされて初めて評価され、番号の無い定義は RAM 知識の置き場として残せる。ラベルはオーバーレイとログに出る名前で、metrics 側の参照には使わない。
+_Avoid_: RAM ウォッチ, プローブ（plasticity の probe チャネルと混同）, イベント定義（回数だけでなく到達値も含む）
+
+**畳み方**（reducer）:
+RAM 定義が毎フレーム列を 1 値に畳む規則。`max_seen` / `min_seen` は v0 を含む到達値、`inc_count` / `dec_count` / `reach_count:N` は遷移の回数（`reach_count` はレベルではなく N に入った回数）。時間方向（ゲーム内のフレーム列）の畳み込みであり、lane 方向の集約 prefix（`mean.` / `max.` / `min.` / `std.`）やキー側の演算（`.ge.[N]`）とは層が違う。
+_Avoid_: 集約（lane 方向と混同）, min / max（集約 prefix の語）, 統計（回数を含まない印象）
+
 ### 実行系統
 
 **RunMode**:
