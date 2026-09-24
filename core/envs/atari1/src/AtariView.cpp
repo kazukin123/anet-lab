@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string_view>
 
 #include <wx/dcclient.h>
 
@@ -66,14 +67,21 @@ AtariPanel::~AtariPanel()
 void AtariPanel::ApplyData(const AtariViewData& data)
 {
     data_ = data;
-    overlay_->SetLabel(wxString::Format(
+    wxString overlay = wxString::Format(
         "Score(raw): %.0f   Lives: %lld   Game step: %lld   Frame: %lld   Action: %s   Reward: %.1f",
         data_.game_score,
         static_cast<long long>(data_.lives),
         static_cast<long long>(data_.game_len),
         static_cast<long long>(data_.game_frames),
         data_.action_name.c_str(),
-        data_.reward));
+        data_.reward);
+    if (!data_.ram_metrics.empty()) {
+        overlay += "   RAM:";
+        for (const auto& [label, value] : data_.ram_metrics) {
+            overlay += wxString::Format(" %s=%lld", label.c_str(), static_cast<long long>(value));
+        }
+    }
+    overlay_->SetLabel(overlay);
     overlay_->SetSize(overlay_->GetBestSize());
     overlay_->Raise();
     canvas_->Refresh(false);
@@ -201,6 +209,13 @@ AtariViewData AtariView::CreateViewData(const anet::rl::TrainEvent& event) const
             data.lives = GetAuxInt64(aux_list[0], "lives", 0);
             data.game_len = GetAuxInt64(aux_list[0], "game_len", 0);
             data.game_frames = GetAuxInt64(aux_list[0], "game_frames", 0);
+            // Env が公開した番号付き RAM 定義だけを拾い、表示順はラベルのキー順に揃える。
+            for (const auto& [key, value] : aux_list[0]) {
+                constexpr std::string_view prefix = "ram_metric.";
+                if (key.starts_with(prefix)) {
+                    data.ram_metrics.emplace(key.substr(prefix.size()), value.item<int64_t>());
+                }
+            }
         }
     }
 

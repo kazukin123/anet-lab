@@ -23,18 +23,18 @@ SET /A FAILED_RUNS=0
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "RR1=run.@hard125>run.@munch"
 SET "RF=run.@rfit>run.@a5_metrics"
-SET "EV=run.@eval2ch_r1>run.@eval2ch_r1_50m"
-SET "TP=%A5%>%RR1%>%RF%>run.@cap4m>%EV%>run.@batch"
+SET "BASE=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1"
+SET "ONCE=run.eval_schedule.[eval_target].interval=30 run.eval_schedule.[eval].interval=31 run.eval_schedule.[greedy_dist].interval=32 run.eval.[eval_target].eval_episodes=16"
+SET "KFM=A3.auto_load_file=workspaces/AtariTube-01/runs/run_20260923-095708_atari_kung_fu_master/agent_close.anet"
+SET "QB=A3.auto_load_file=workspaces/atari5-01/runs/run_20260923-163113_a5_qbert_rr1_100m_seed2/agent_close.anet"
 
 SET "WS=--workspace atari5-01"
-echo === 1. wiring: a5 rr1 qbert cap4m 400k (RAM check) ===
-call :run_exe "run.$=%TP%>run.@to_400k" E1.game=qbert "app.run_name=run_{t}_tmp_wiring"
-echo === 2. a5 name_this_game rr1 cap4m 50M ===
-call :run_exe "run.$=%TP%" E1.game=name_this_game "app.run_name=run_{t}_a5_name_this_game_rr1_cap4m_50m"
-echo === 3. a5 phoenix rr1 cap4m 50M ===
-call :run_exe "run.$=%TP%" E1.game=phoenix "app.run_name=run_{t}_a5_phoenix_rr1_cap4m_50m"
-echo === 4. a5 qbert rr1 cap4m 50M ===
-call :run_exe "run.$=%TP%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_cap4m_50m"
+echo === 1. tmp ram: kung_fu_master seed2 eval ===
+call :run_exe "%BASE%>run.@evalonly>run.@to_50>run.@batch" %ONCE% E1.game=kung_fu_master "%KFM%" "app.run_name=run_{t}_tmp_ram_kfm_eval"
+echo === 2. tmp ram: qbert seed2 eval ===
+call :run_exe "%BASE%>run.@evalonly>run.@to_50>run.@batch" %ONCE% E1.game=qbert "%QB%" "app.run_name=run_{t}_tmp_ram_qbert_eval"
+echo === 3. tmp ram: qbert seed2 train 400k ===
+call :run_exe "%BASE%>run.@to_400k>run.@batch" E1.game=qbert "%QB%" "app.run_name=run_{t}_tmp_ram_qbert_train"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

@@ -141,6 +141,7 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 | `retain_rgb_frame` | bool | true | Step 毎に RGB 画面を保持し `GetTensor("rgb_frame")` で公開（AtariView 用。§5） |
 | `display_screen` | bool | false | SDL 観戦ウィンドウ（ALE 透過） |
 | `sound` | bool | false | SDL 音声（ALE 透過。display と独立） |
+| `ram_metric.[game].[label]` / `ram_metric.[game].metrics` | string | 定義なし | ゲーム別の RAM 定義と番号付け（§4.9） |
 
 プロトコルプリセット（`Atari.txt` に定義、`AtariEnv.$` の選択チェーンで指定。既定 = `v5_noop0`）:
 
@@ -233,11 +234,12 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 | GetScalar | `hns57` | 同上 | 人間正規化スコア %（57 ゲーム表。§4.8） |
 | GetScalar | `hns49` | 同上 | 人間正規化スコア %（49 ゲーム表。§4.8） |
 | GetScalar | `lives` | 常時 | 現在ライフ |
+| GetScalar | `ram_metric.[n]` | 実 game over / truncation | ゲーム別 RAM 定義の確定値。現在ゲームに番号がないか未完了なら NaN、全ゲームに番号がなければ未知キー（§4.9） |
 | GetTensor | `rgb_frame` | 常時（`retain_rgb_frame=true` 時） | 直近 Step の RGB 画面 uint8 `[3, 210, 160]`（CHW） |
 
 バッチ集約（`mean.` 等の prefix）と NaN 慣行は wrapper の共通規約に従う。`GetConfigData()` は実効 config を返す（Run の `config/env.*.txt` ダンプ対象）。
 
-**ゲーム完了の verbose ログ。** 上表の確定と同じ時点・同じ値で 1 行出す（`Game over.` または `Game truncated by max_episode_frames.` に `game_score` / `game_len` / `game_frames` が続く）。prefix は lane 名（`train[0]:` / `EvalPanel[0]:` など）。Run のログファイルには常に残り、`app.log_level` は LogPanel の表示だけを絞る。metrics / trace を持たない EvalPanel のゲームも、ここからミリ秒の時刻付きで追える。
+**ゲーム完了の verbose ログ。** 上表の確定と同じ時点・同じ値で 1 行出す（`Game over.` または `Game truncated by max_episode_frames.` に `game_score` / `game_len` / `game_frames` が続く）。番号付き RAM 定義がある場合は末尾へ ` ram_metric: floor_clear=0 boss_kill=0` を番号順で足す。prefix は lane 名（`train[0]:` / `EvalPanel[0]:` など）。Run のログファイルには常に残り、`app.log_level` は LogPanel の表示だけを絞る。metrics / trace を持たない EvalPanel のゲームも、ここからミリ秒の時刻付きで追える。
 
 **集約の分母に注意。** 上表で「確定タイミング＝実 game over / truncation」のキーは未確定 step で NaN を返し、バッチ集約は NaN を分母から除外する（`core/anet-core/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
 
@@ -269,6 +271,26 @@ hns = 100 * (game_score - random) / (human - random)
 
 CHNS（capped HNS、Agent57）と human gap（IQN Table 1、`gap = min(max(1 - HNS, 0), 1)`）は env からは出さない。両者は `gap = 1 - CHNS` の恒等関係にあり、単一ゲームの時系列では値が飽和して動かない（Breakout は常に 100% / 0）。キャップの意義は複数ゲーム集計での外れ値抑制にあるため、HNS からの導出として後処理側で扱う。
 
+### 4.9 RAM メトリクス
+
+`AtariEnv.ram_metric.[game].[label] = <0x80..0xFF> <畳み方>` で RAM バス番地と意味名を宣言し、同じゲームの `.metrics = 1:label 2:label ...` で汎用番号に結ぶ。全ゲームの宣言を ROM 読み込み前に検証する。番号のない定義は RAM 知識として保持するが評価しない。eval env の `run.eval.[tag].env.ram_metric.*` 上書きは受け付けず、設定読み込み時に fail-fast する。
+
+ゲーム名は小文字 snake_case に限定し、空の `.metrics` 行は fail-fast する。受理した定義と `.metrics` 行は、番号のない定義も含めて Module Config の実効設定へ記録する。
+eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[tag].env.ram_metric.*` の形で出る。これは実効値の記録であり、同じ形を入力に書くと fail-fast する。
+
+畳み方は `max_seen` / `min_seen`（`reset_game()` 直後の値を含む最大・最小）、`inc_count` / `dec_count`（前フレームからの増加・減少回数）、`reach_count:N`（0～255 の N へ入った回数）の 5 種。比較するのは生の 1 バイトで、毎 `act()` 後に観測する。集計は実ゲーム 1 回を単位とし、episodic-life の soft reset をまたいで継続、`reset_game()` ごとに仕切り直す。
+
+`ram_metric.[n]` はゲーム完了時のスナップショットを返す。どこかのゲームが n を使えば既知キーなので、現在ゲームに n がない場合も NaN を返す。番号は全ゲーム共通の大まかな意味を保つ: 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数。当てはまらないゲームには番号を付けない。trace は `@episode_end`、scalar の `mean.` は完了 lane だけから値を取る。番号を持たないゲームでは trace は `null`、scalar は行が出ない。番号の具体的なラベルは Run の `config/config_data.txt` で引く。
+
+| ゲーム | 番号付き定義 | 番号なしの参考定義 |
+|---|---|---|
+| kung_fu_master | `1:floor_clear` = `0x9F inc_count`、`2:boss_kill` = `0xCC reach_count:0`、`3:boss_hit` = `0xCC dec_count` | `floor_max` = `0x9F max_seen`、`boss_hp_min` = `0xCC min_seen` |
+| qbert | `1:round_clear` = `0xE3 inc_count` | `side_color` = `0x82 min_seen` |
+| phoenix | `1:wave_clear` = `0xCA inc_count`、`2:boss_kill` = `0xFC inc_count` | なし |
+| breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
+
+番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。ゲーム完了時だけ成立する GetScalar と異なり、こちらは AtariView の観戦表示用であり、毎 step の scalar キーにはしない。詳細な調査根拠と既知の限界は [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
+
 ## 5. AtariView
 
 `ViewBase<AtariData, AtariPanel>` 構成（ImageClsView と同型）。`GetTargetClassId() == "AtariEnv"`。
@@ -278,7 +300,7 @@ CHNS（capped HNS、Agent57）と human gap（IQN Table 1、`gap = min(max(1 - H
 - **主表示: 生 RGB 画面**（210×160、`env->GetTensor("rgb_frame", 0)`）。人間の観戦とデバッグの主対象。
 - **副表示: 前処理後 obs**（S×S グレー、TrainEvent の step_result から lane 0 の grid を取得）。「エージェントが見ているもの」の確認用で、resize / max-pool の不具合を生画面との見比べで検出できる。
 - 両者を並置し、整数倍拡大（ドット絵の視認性優先）で描画する。
-- **オーバーレイ（テキスト行）**: game_score（生・累積中の暫定値）/ lives / ゲーム内 step・frame / 直前 action 名（value_label）/ 直前 reward（clip 後）。
+- **オーバーレイ（テキスト行）**: game_score（生・累積中の暫定値）/ lives / ゲーム内 step・frame / 直前 action 名（value_label）/ 直前 reward（clip 後）。RAM 定義があるゲームでは末尾へ `RAM: boss_hit=0 boss_kill=0 floor_clear=0` のようにラベル順で進行中の値を加える。
 
 ### 5.2 データ経路と制約
 
@@ -294,6 +316,10 @@ CHNS（capped HNS、Agent57）と human gap（IQN Table 1、`gap = min(max(1 - H
 - 有効時のみ: `add_subdirectory(core/envs/atari1)`、runner へ `AtariEnv` リンク + `ANET_HAS_ATARI` 定義、`RunnerApp.cpp` の `#ifdef ANET_HAS_ATARI` で `InitAtari()`。
 - ale.lib は `$<IF:$<CONFIG:Debug>,Debug,Release>` で選択（RelWithDebInfo は Release 側。IDL/CRT 整合）。
 - テストは module と同時ビルド。ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。前処理 golden テストは常時実行。
+
+### 6.1 テストと拡張時の確認事項
+
+RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../core/anet-core/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。
 
 ## 7. 関連文書
 

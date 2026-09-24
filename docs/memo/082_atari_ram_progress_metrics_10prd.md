@@ -96,15 +96,17 @@ AtariEnv.ram_metric.[<game>].metrics   = <n>:<label> [<n>:<label> ...]
 
 | 要素 | 書式 | 意味 |
 |---|---|---|
-| `<game>` | `AtariEnv.game` と同じ ROM 名 | このブロックが効くゲーム。他のゲームでは評価しない |
+| `<game>` | `AtariEnv.game` と同じ ROM 名。小文字 snake_case（`[a-z0-9]+(_[a-z0-9]+)*`）だけを受け付ける | このブロックが効くゲーム。他のゲームでは評価しない。ROM 名になりえない綴りは fail-fast |
 | `<label>` | `[A-Za-z0-9_]+` | 人が読む名前。オーバーレイとログに出る。metrics 側の参照には使わない |
 | `<番地>` | `0x80`〜`0xFF` の 16 進（バス番地。ALE のゲームコードと同じ。内部で `& 0x7F`） | 読む RAM バイト |
 | `<畳み方>` | §2 の 5 語のいずれか | 毎フレーム列を 1 値に畳む規則 |
-| `metrics` 行 | 1 以上の整数 `n` とラベルを `:` で結んだトークンの空白区切り | 評価する定義と、metrics 側が参照する番号。番号付けされた定義だけを評価する |
+| `metrics` 行 | 1 以上の整数 `n` とラベルを `:` で結んだトークンの空白区切り。1 つ以上 | 評価する定義と、metrics 側が参照する番号。番号付けされた定義だけを評価する。行が無いブロックは許すが、空の行は fail-fast |
 
 - 番号の無い定義は RAM 知識の置き場として許し、評価しない。
 - ブロックは今のゲーム以外も同じファイルに並べてよい。env は `AtariEnv.game` に一致するブロックだけを使い、他のブロックは検証だけする。
 - 定義は既定 prefix `AtariEnv.` からだけ読む。`run.eval.[tag].env.ram_metric.*` の上書きは受け付けない（§7）。
+- 受理した定義と `metrics` 行は、他のキーと同じく Module Config（`GetConfigData()`）に載せる。Run の `config/env.*.txt` と eval env ごとの設定ダンプで、番号の意味をそのまま引けるようにするためである。
+- eval env のダンプ（`config/env.eval.txt` など）では、他のキーと同じく `run.eval.[tag].env.ram_metric.*` の形で出る。これは実効値の記録で、同じ形を入力に書くと §7 の 6 で fail-fast になる。
 
 ### 2. 畳み方
 
@@ -153,11 +155,11 @@ kung_fu_master での対応は次のとおり。
 ### 5. AuxData とオーバーレイ
 
 - 今のゲームで番号付けされた定義ごとに、AuxData へ `ram_metric.<label>`（int64、進行中の値）を載せる。
-- AtariView は prefix `ram_metric.` を拾い、キー順に既存 1 行の末尾へ `RAM: boss_hit=3 boss_kill=0 floor_max=1` を足す。無ければ何も足さない。
+- AtariView は prefix `ram_metric.` を拾い、キー順に既存 1 行の末尾へ `RAM: boss_hit=3 boss_kill=0 floor_clear=1` を足す。無ければ何も足さない。番号のない `floor_max` は評価も表示もしない。
 
 ### 6. ゲーム完了ログ
 
-既存の行（`Game over.` / `Game truncated by max_episode_frames.`）の末尾に、番号順で ` ram_metric: boss_hit=3 boss_kill=0 floor_max=1` を足す。番号付けが無いときは足さない。220 §4.7 の趣旨（metrics / trace を持たない EvalPanel のゲームもログから追える）を保つ。
+既存の行（`Game over.` / `Game truncated by max_episode_frames.`）の末尾に、番号順で ` ram_metric: floor_clear=0 boss_kill=0 boss_hit=3` を足す。番号付けが無いときは足さない。220 §4.7 の趣旨（metrics / trace を持たない EvalPanel のゲームもログから追える）を保つ。
 
 ### 7. 検証（fail-fast）
 
@@ -166,8 +168,8 @@ kung_fu_master での対応は次のとおり。
 | 1 | 全ゲームブロックを検証する。今のゲーム以外も対象 | `AtariEnvConfig` の読み込み時（ROM 不要） |
 | 2 | 番地は `0x80`〜`0xFF` の 16 進だけ。10 進、`0x00`〜`0x7F`、範囲外は fail-fast | 同上 |
 | 3 | 畳み方は 5 語の閉じた列挙。`reach_count:N` の N は 0〜255。未知語・範囲外・書式不正は fail-fast | 同上 |
-| 4 | `metrics` 行: n が 1 未満・整数でない・重複、同じブロックに無いラベルは fail-fast。`metrics` 行の無いブロックと番号の無い定義は黙って許す | 同上 |
-| 5 | ブロック内の未知サブキー（`[label]` / `metrics` 以外）は fail-fast | 同上 |
+| 4 | `metrics` 行: n が 1 未満・整数でない・重複、同じブロックに無いラベル、トークンが 1 つも無い空の行は fail-fast。`metrics` 行の無いブロックと番号の無い定義は黙って許す | 同上 |
+| 5 | ブロック内の未知サブキー（`[label]` / `metrics` 以外）、ラベルの字種違い（`[A-Za-z0-9_]+` 以外）、ゲーム名の字種違い（小文字 snake_case 以外）は fail-fast | 同上 |
 | 6 | `run.eval.[tag].env.ram_metric.` で始まるキーがあれば fail-fast。ROM の事実は Runner 別に変えない | 同上 |
 | 7 | 参照キー `ram_metric.[n]` の規則は §4 のとおり | `GetScalar` 呼び出し時 |
 
@@ -214,9 +216,43 @@ metrics.trace.@atari.[52_eval2/episode] = $eval.[eval] @episode_end $env game_sc
 metrics.trace.@atari.[53_evalg/episode] = $eval.[greedy_dist] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 metrics.trace.@atari.[42_env/episode]  = $train @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 
-M1.[42_env/50_stage_clear_mean] = $env mean.ram_metric.[1] @train $exp_step
-M1.[42_env/51_boss_kill_mean]   = $env mean.ram_metric.[2] @train $exp_step
-M1.[42_env/52_boss_hit_mean]    = $env mean.ram_metric.[3] @train $exp_step
+# RAM メトリクス。番号 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数(220 §4.9)
+M1.[42_env/50_ram_metric_1_mean]     = $env mean.ram_metric.[1] @train $exp_step
+M1.[42_env/51_ram_metric_1_mean_ema] = $env mean.ram_metric.[1] @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/52_ram_metric_2_mean]     = $env mean.ram_metric.[2] @train $exp_step
+M1.[42_env/53_ram_metric_2_mean_ema] = $env mean.ram_metric.[2] @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/54_ram_metric_3_mean]     = $env mean.ram_metric.[3] @train $exp_step
+M1.[42_env/55_ram_metric_3_mean_ema] = $env mean.ram_metric.[3] @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/56_ram_metric_1_max]      = $env max.ram_metric.[1] @train $exp_step
+M1.[42_env/57_ram_metric_2_max]      = $env max.ram_metric.[2] @train $exp_step
+M1.[42_env/58_ram_metric_3_max]      = $env max.ram_metric.[3] @train $exp_step
+
+M1.[51_eval1/50_ram_metric_1_mean]     = $eval.[eval_target] @session_end $env mean.ram_metric.[1]
+M1.[51_eval1/51_ram_metric_1_mean_ema] = $eval.[eval_target] @session_end $env mean.ram_metric.[1] $ema ema_alpha:0.1
+M1.[51_eval1/52_ram_metric_2_mean]     = $eval.[eval_target] @session_end $env mean.ram_metric.[2]
+M1.[51_eval1/53_ram_metric_2_mean_ema] = $eval.[eval_target] @session_end $env mean.ram_metric.[2] $ema ema_alpha:0.1
+M1.[51_eval1/54_ram_metric_3_mean]     = $eval.[eval_target] @session_end $env mean.ram_metric.[3]
+M1.[51_eval1/55_ram_metric_3_mean_ema] = $eval.[eval_target] @session_end $env mean.ram_metric.[3] $ema ema_alpha:0.1
+M1.[51_eval1/56_ram_metric_1_max]      = $eval.[eval_target] @session_end $env max.ram_metric.[1]
+M1.[51_eval1/57_ram_metric_2_max]      = $eval.[eval_target] @session_end $env max.ram_metric.[2]
+M1.[51_eval1/58_ram_metric_3_max]      = $eval.[eval_target] @session_end $env max.ram_metric.[3]
+
+M1.[52_eval2/50_ram_metric_1_mean]     = $eval.[eval] @session_end $env mean.ram_metric.[1]
+M1.[52_eval2/51_ram_metric_1_mean_ema] = $eval.[eval] @session_end $env mean.ram_metric.[1] $ema ema_alpha:0.1
+M1.[52_eval2/52_ram_metric_2_mean]     = $eval.[eval] @session_end $env mean.ram_metric.[2]
+M1.[52_eval2/53_ram_metric_2_mean_ema] = $eval.[eval] @session_end $env mean.ram_metric.[2] $ema ema_alpha:0.1
+M1.[52_eval2/54_ram_metric_3_mean]     = $eval.[eval] @session_end $env mean.ram_metric.[3]
+M1.[52_eval2/55_ram_metric_3_mean_ema] = $eval.[eval] @session_end $env mean.ram_metric.[3] $ema ema_alpha:0.1
+M1.[52_eval2/56_ram_metric_1_max]      = $eval.[eval] @session_end $env max.ram_metric.[1]
+M1.[52_eval2/57_ram_metric_2_max]      = $eval.[eval] @session_end $env max.ram_metric.[2]
+M1.[52_eval2/58_ram_metric_3_max]      = $eval.[eval] @session_end $env max.ram_metric.[3]
+
+M1.[53_evalg/50_ram_metric_1_mean] = $eval.[greedy_dist] @session_end $env mean.ram_metric.[1]
+M1.[53_evalg/52_ram_metric_2_mean] = $eval.[greedy_dist] @session_end $env mean.ram_metric.[2]
+M1.[53_evalg/54_ram_metric_3_mean] = $eval.[greedy_dist] @session_end $env mean.ram_metric.[3]
+M1.[53_evalg/56_ram_metric_1_max]  = $eval.[greedy_dist] @session_end $env max.ram_metric.[1]
+M1.[53_evalg/57_ram_metric_2_max]  = $eval.[greedy_dist] @session_end $env max.ram_metric.[2]
+M1.[53_evalg/58_ram_metric_3_max]  = $eval.[greedy_dist] @session_end $env max.ram_metric.[3]
 ```
 
 - kung_fu_master では `ram_metric.[1]` が 1 以上なら面 1 を抜けている、`ram_metric.[2]` が 1 以上なら少なくとも 1 回ボスを倒している、`ram_metric.[3]` が 1 以上ならボスに当てている。
@@ -224,7 +260,10 @@ M1.[42_env/52_boss_hit_mean]    = $env mean.ram_metric.[3] @train $exp_step
 - breakout の `ram_metric.[1]` は 0 か 1 で、`game_score.ge.[432]`（1 枚目の壁を消した）と一致する。`@breakout` の ge432 系は `mean.ram_metric.[1]` で置き換えられる。ge600 もスコアの百の位 0xCC の `reach_count:6` で同じ値になる（`score_ge600`）。残すかは決めていないので番号を付けていない。付けるなら慣例の 1〜3 に当たらないので 4 以降になる。
 - 番号の意味は Run の `config/config_data.txt` の `AtariEnv.ram_metric.*` で引く。`metrics.trace.defs` はラベルを持たない（NG6）。
 - 番号付けの無いゲーム（例: name_this_game）や、番号の一部だけを持つゲーム（例: qbert は 1 だけ）では、無い列が trace で `null`、scalar は行が出ない。metrics 定義はそのままで batch 起動できる。
-- scalar の tag 番号は 40 番台を `@breakout` の `game_score.ge` 系が使っているので 50 番台にする。
+- scalar の tag は番号から作る（`ram_metric.[1]` → `ram_metric_1`）。`@breakout` の `game_score_ge432` と同じく、tag は何を測ったか（キー）を表し、意味は §8 の慣例とコメント行が持つ。慣例は大まかな意味なので、`stage_clear` のような名前を tag に入れると、phoenix の [1]（母艦ウェーブを数えない）や breakout の [1]（0 か 1）のようにずれるゲームで、実際より正確に見えてしまう。
+- scalar は train・eval1・eval2・evalg の 4 群に置き、番号ごとに mean と EMA を組にする（train は `ema_alpha:0.001`、eval1・eval2 は `0.1`、evalg は既存の行と同じく mean だけ）。加えて 4 群とも番号ごとに `max.` を置き、EMA は付けない（既存の `game_score_max` と同じ）。EMA を付けるのは、各 step の `mean.` が事実上ゲーム 1 回ぶんの値の列になるためである（220 §4.7）。ボス撃破のように稀な出来事は大半が 0 になり、EMA にすると発生率として読める。eval にも置くのは、train には ε の探索が混ざり、ボス戦の振る舞いを確かめる場（EvalPanel）も eval だからである。
+- `max.` を置くのは、1 回だけ面を抜けた・1 回だけボスを倒したという最高到達を見るためである。eval の `mean.` は 1 セッション（例えば eval は 10 本、greedy_dist は 100 本）の平均なので、1 本だけの成功が 0.1 や 0.01 に薄まる。`max.` ならそのまま 1 と出る。train の `mean.` は事実上ゲーム 1 回ぶんの値なので差は小さいが、`game_score_max` と同じく 4 群にそろえる。MetricsViewer は間引き表示でも区間の最小・最大を残すので（210 §2.6）、1 点だけの突出もズームアウトしたまま見える。
+- tag 番号は 50 番台を使い、mean と EMA の並べ方は既存の 20/21・22/23 と同じにする。max は 56〜58 で、既存の 16・24 と同じく組の後ろに置く。40 番台は `@breakout` の `game_score.ge` 系が使っている。
 
 ## 実装指針
 
@@ -234,6 +273,9 @@ M1.[42_env/52_boss_hit_mean]    = $env mean.ram_metric.[3] @train $exp_step
   - `ale_->act()` の 5 箇所（`ApplyFireReset` の 2 回、`ApplyResetActions` の NOOP、soft reset の NOOP、`Step` のループ）を 1 つの補助関数へ集約し、フレームごとに観測する。`reset_game()` の直後（`ApplyFireReset` 内 2 箇所、`ApplyResetActions` 内 1 箇所、`Reset` の hard / soft 経路）で仕切り直す。
   - `RecordGameCompletion` で番号ごとの確定値をスナップショットし、ログ行に番号順のラベル付きで足す。`GetScalar` に `ram_metric.[n]` の分岐を足す（パースは `ParseGameScoreThreshold` と同じ fail-fast 流儀）。`MakeAuxData` に `ram_metric.<label>` を足す。
   - `ANET_PROFILE_SCOPE` は既存の `Step` の範囲で足りる。フレームごとの比較は細粒度なので別スコープにしない。
+  - RAM 定義は `ReadConfig` を通らない読み方になるので、受理したキーと値を `my_config_data_` / `my_config_json_` へ明示的に記録し、Module Config（§1）に載せる。
+  - 定義 1 行のパースと `metrics` 行のパースは、`ParseGameScoreThreshold` と同じく純粋計算の static ヘルパに分け、コンストラクタに DSL を抱え込ませない。
+  - 禁止キー（上書き prefix、ブロック内の不正キー）の検出で全設定キーを走査するときは、`starts_with` で候補を絞ってから regex を当てる。env は lane ごとに構築されるので、走査は lane 数だけ繰り返される。
 - `core/envs/atari1/src/AtariView.cpp`: AuxData から prefix `ram_metric.` を拾い、キー順に整形して既存 1 行の末尾へ付ける。
 - `docs/design/220_atari_env.jp.md`: §4.2 に `ram_metric` ブロック、§4.7 に `ram_metric.[n]` の行と AuxData / ログ行、新しい §4.9「RAM メトリクス」（契約、§8 の番号の慣例、4 ゲームの RAM 表）、§5 にオーバーレイ。
 - `apps/runner/config/Atari.txt`: 設定例の 4 ゲームのブロックと trace / scalar の追加行。
@@ -242,12 +284,15 @@ M1.[42_env/52_boss_hit_mean]    = $env mean.ram_metric.[3] @train $exp_step
 
 - **ROM 不要**
   - 畳み方の意味。v0 を含む `max_seen` / `min_seen`、39 → 0 → 39 の列で `dec_count` が戻りを数えないこと、`reach_count:0` がレベルではなく遷移を数えること。
-  - §7 の fail-fast。番地の範囲と書式、未知語、N の範囲、番号の重複、未知ラベル、未知サブキー、上書き prefix。`AtariEnvConfig` を `ConfigData` から作るだけで再現できる。
+  - §7 の fail-fast。番地の範囲と書式、未知語、N の範囲、番号の重複、未知ラベル、空の `metrics` 行、未知サブキー、ラベルとゲーム名の字種、上書き prefix。`AtariEnvConfig` を `ConfigData` から作るだけで再現できる。
+  - Module Config。`AtariEnvConfig::GetConfigData()` に受理した `ram_metric.[game].[label]` と `ram_metric.[game].metrics` が入り、番号の無い定義も含む。
 - **ROM あり**（無ければ SKIP。先行例は `AtariEnv_test.cpp` の Pong spec テスト）
   - pong: `0x8D inc_count` / `0x8D max_seen` を番号付けし、NOOP で truncation まで回す（sticky 無し・`noop_max = 0`）。完了 step で `inc_count` が 1 以上、未完了 step は NaN、番号の無い n は `nullopt`、kung_fu_master のブロックを同時に書いても pong では NaN。
   - kung_fu_master: 短い truncation で `floor_clear` = 0、`floor_max` = 1、`boss_hp_min` = 39、`boss_hit` = `boss_kill` = 0。`episodic_life = true` で `0x9D dec_count` が soft reset をまたいで数え続け、hard reset で戻る。
   - AuxData に `ram_metric.<label>` があり進行中の値を持つ。完了ログの行に `ram_metric:` が出る（先行例はゲーム完了ログのテスト）。
 - **既存の trace / scalar が変わらないこと**: `ram_metric` キーを使わない構成で行が変わらない。ADR 0037 の受入方式（編集前 baseline との同 seed 比較）に従う。
+- **既定の scalar 定義**: `Atari.txt` のプリセットテストで、4 群 33 本（mean 12・EMA 9・max 12）の tag・`source_key`・EMA の有無と係数を確かめ、残りの項目（event・eval 名など）が同じ群の `game_score` の定義と一致することを見る。
+- **設定の検査**: `Atari.txt` を変えたら `check_default_leaves.py` と全キー・文字列値の比較で、RAM 追加分以外に意図しない変化が無いことを確認する（手順は `core/anet-core/testdata/prd072/README.md`）。
 - 実行: `cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target AtariEnv-test'` の後、`core\envs\atari1\bin\Debug` 配下の `AtariEnv-test.exe "[atari]"`。`ATARI_ROM_DIR` を設定して ROM テストも走らせる。
 
 ## 決定の記録
@@ -267,10 +312,13 @@ M1.[42_env/52_boss_hit_mean]    = $env mean.ram_metric.[3] @train $exp_step
 | D10 | §7 の検証契約 |
 | D11 | AuxData のキーは `ram_metric.<label>`。オーバーレイはキー順、無ければ出さない |
 | D12 | 文書は PRD + ADR 0046 + CONTEXT.md の 3 語。220 と Atari.txt は実装と同じ変更で更新 |
-| D13 | 既定: trace 4 行へ `ram_metric.[1..3]`、scalar `42_env` へ `mean.` 3 本、ゲーム完了ログにもラベル付きで出す |
+| D13 | 既定: trace 4 行へ `ram_metric.[1..3]`、scalar は D19、ゲーム完了ログにもラベル付きで出す |
 | D14 | 担当: PRD / ADR / CONTEXT.md は Claude、実装・テスト・220・Atari.txt は Codex |
 | D15 | 番号に全ゲーム共通の大まかな意味を持たせる（§8。1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数）。当てはまらないゲームは番号を付けない |
 | D16 | 既定設定に kung_fu_master・qbert・phoenix・breakout の定義を置く（2026-09-24 のエミュレータ調査） |
+| D17 | 受理した RAM 定義と `metrics` 行は Module Config（`GetConfigData()`）に載せる。`config/env.*.txt` と eval env の設定ダンプから番号の意味を引けるようにする（2026-09-24 の実装レビュー） |
+| D18 | 空の `metrics` 行は fail-fast、ゲーム名は小文字 snake_case、ラベルは `[A-Za-z0-9_]+` に限る。ROM 名になりえない綴りと空の紐づけは書き間違いとして扱う（同レビューで実装の挙動を契約に取り込んだ） |
+| D19 | scalar は train・eval1・eval2・evalg の 4 群へ、番号ごとに mean と EMA の組で置く（evalg は mean だけ）。最高到達を見るため、4 群とも `max.` も置く（EMA なし）。tag は番号から作り（`50_ram_metric_1_mean`）、慣例の名前は入れない。当初の D13 は train の mean 3 本で、tag に慣例の名前を入れていた（2026-09-24 の再レビュー） |
 
 却下した案の要点:
 

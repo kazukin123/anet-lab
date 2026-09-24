@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -41,6 +44,25 @@ namespace anet::rl::env {
     std::optional<float> HumanNormalizedScore(
         const std::string& game, float raw_score, HnsBaseline baseline);
 
+    enum class RamMetricReducer { MaxSeen, MinSeen, IncCount, DecCount, ReachCount };
+
+    struct RamMetricDefinition {
+        std::string label;
+        uint8_t address = 0;
+        RamMetricReducer reducer = RamMetricReducer::MaxSeen;
+        uint8_t target = 0;
+    };
+
+    struct RamMetricState {
+        RamMetricDefinition definition;
+        uint8_t previous = 0;
+        int64_t value = 0;
+
+        void Begin(uint8_t initial);
+        void Observe(uint8_t current);
+        int64_t Value() const { return value; }
+    };
+
     struct AtariEnvConfig : public anet::Config {
         std::string game;
         std::string rom_dir;
@@ -59,6 +81,8 @@ namespace anet::rl::env {
         bool retain_rgb_frame = true;
         bool display_screen = false;
         bool sound = false;
+        std::map<std::string, std::map<int64_t, RamMetricDefinition>> ram_metrics;
+        std::set<int64_t> known_ram_metric_numbers;
 
         explicit AtariEnvConfig(
             const anet::ConfigData& config_data = anet::EmptyConfigData,
@@ -96,6 +120,10 @@ namespace anet::rl::env {
         AuxData MakeAuxData() const;
         SingleState MakeState(torch::Tensor grid, bool done, bool truncated, bool episode_start) const;
         void RecordGameCompletion(bool truncated);  ///< 実ゲーム完了値を確定し、同じ値を verbose ログへ 1 行出す
+        void BeginRamMetrics();
+        void ObserveRamMetrics();
+        float ActAndObserve(int action);
+        void ResetAleGame();
 
         AtariEnvConfig config_;
         torch::Device device_;
@@ -112,6 +140,8 @@ namespace anet::rl::env {
         float completed_game_score_ = 0.0f;
         int64_t completed_game_len_ = 0;
         int64_t completed_game_frames_ = 0;
+        std::map<int64_t, RamMetricState> ram_metrics_;
+        std::map<int64_t, int64_t> completed_ram_metrics_;
 
         std::vector<uint8_t> pooled_frame_;
         torch::Tensor rgb_frame_;

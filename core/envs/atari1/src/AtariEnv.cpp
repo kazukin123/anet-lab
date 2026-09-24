@@ -1,6 +1,7 @@
 #include "AtariEnv.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -12,6 +13,7 @@
 #include <unordered_map>
 
 #include <ale/ale_interface.hpp>
+#include <ale/environment/ale_ram.hpp>
 
 #include "AtariPreprocess.hpp"
 #include "anet/diag.hpp"
@@ -206,6 +208,27 @@ std::optional<float> anet::rl::env::HumanNormalizedScore(
     return 100.0f * (raw_score - it->second.random) / (it->second.human - it->second.random);
 }
 
+void RamMetricState::Begin(uint8_t initial)
+{
+    // 到達値は v0 を含め、回数系は最初のフレーム遷移まで 0 とする。
+    previous = initial;
+    value = (definition.reducer == RamMetricReducer::MaxSeen
+        || definition.reducer == RamMetricReducer::MinSeen) ? initial : 0;
+}
+
+void RamMetricState::Observe(uint8_t current)
+{
+    // 毎フレームの生バイトを前回値と比較し、遷移回数または到達値を更新する。
+    switch (definition.reducer) {
+    case RamMetricReducer::MaxSeen: value = std::max<int64_t>(value, current); break;
+    case RamMetricReducer::MinSeen: value = std::min<int64_t>(value, current); break;
+    case RamMetricReducer::IncCount: value += current > previous; break;
+    case RamMetricReducer::DecCount: value += current < previous; break;
+    case RamMetricReducer::ReachCount: value += current == definition.target && previous != definition.target; break;
+    }
+    previous = current;
+}
+
 // WASAPI は ALE SoundSDL の AUDIO_U8 前提を満たさず無音になるため
 // (docs/design/220_atari_env.jp.md §3.1)、未設定時のみ DirectSound を既定にする。
 // 明示設定された環境変数は尊重する。
@@ -219,6 +242,106 @@ static void EnsureSdlAudioDriverDefault()
         }
 #endif
     });
+}
+
+static RamMetricDefinition ParseRamMetricDefinition(
+    const std::string& key, const std::string& label, const std::string& raw_value)
+{
+    // 定義 1 行の番地と畳み方を、ROM に依存せず確定する。
+    std::istringstream value_stream(raw_value);
+    std::string address_text;
+    std::string reducer_text;
+    std::string extra;
+    static const std::regex address_pattern(R"(0x[0-9A-Fa-f]{2})");
+    if (!(value_stream >> address_text >> reducer_text) || (value_stream >> extra)
+        || !std::regex_match(address_text, address_pattern)) {
+        ANET_SYSTEM_ERROR(key << " must be '<0x80..0xFF> <reducer>', but was '"
+            << raw_value << "'.");
+    }
+    size_t parsed = 0;
+    unsigned long address = 0;
+    try {
+        address = std::stoul(address_text, &parsed, 16);
+    } catch (const std::exception&) {
+        ANET_SYSTEM_ERROR(key << " has invalid address '" << address_text
+            << "' in '" << raw_value << "'; expected 0x80..0xFF.");
+    }
+    if (parsed != address_text.size() || address < 0x80 || address > 0xFF) {
+        ANET_SYSTEM_ERROR(key << " has invalid address '" << address_text
+            << "' in '" << raw_value << "'; expected 0x80..0xFF.");
+    }
+    RamMetricReducer reducer;
+    uint8_t target = 0;
+    if (reducer_text == "max_seen") reducer = RamMetricReducer::MaxSeen;
+    else if (reducer_text == "min_seen") reducer = RamMetricReducer::MinSeen;
+    else if (reducer_text == "inc_count") reducer = RamMetricReducer::IncCount;
+    else if (reducer_text == "dec_count") reducer = RamMetricReducer::DecCount;
+    else if (reducer_text.starts_with("reach_count:")) {
+        reducer = RamMetricReducer::ReachCount;
+        const auto target_text = reducer_text.substr(std::string_view("reach_count:").size());
+        unsigned target_value = 0;
+        const auto [end, error] = std::from_chars(
+            target_text.data(), target_text.data() + target_text.size(), target_value);
+        if (error != std::errc{} || end != target_text.data() + target_text.size()
+            || target_text.empty() || target_value > 255) {
+            ANET_SYSTEM_ERROR(key << " has invalid reducer '" << reducer_text
+                << "' in '" << raw_value << "'; expected reach_count:N with N in 0..255.");
+        }
+        target = static_cast<uint8_t>(target_value);
+    } else {
+        ANET_SYSTEM_ERROR(key << " has invalid reducer '" << reducer_text
+            << "' in '" << raw_value
+            << "'; expected max_seen, min_seen, inc_count, dec_count, or reach_count:N.");
+    }
+    return RamMetricDefinition{
+        .label = label,
+        .address = static_cast<uint8_t>(address),
+        .reducer = reducer,
+        .target = target,
+    };
+}
+
+static std::map<int64_t, RamMetricDefinition> ParseRamMetricBindings(
+    const std::string& key, const std::string& raw_value,
+    const std::map<std::string, RamMetricDefinition>& definitions)
+{
+    // 番号と宣言済みラベルの対応を検証し、番号順の実行定義に変換する。
+    std::map<int64_t, RamMetricDefinition> bindings;
+    std::istringstream metrics_stream(raw_value);
+    std::string token;
+    bool any_binding = false;
+    while (metrics_stream >> token) {
+        any_binding = true;
+        const auto colon = token.find(':');
+        if (colon == std::string::npos || colon == 0 || token.find(':', colon + 1) != std::string::npos) {
+            ANET_SYSTEM_ERROR(key << " has invalid binding '" << token
+                << "' in '" << raw_value << "'; expected n:label.");
+        }
+        const auto number_text = token.substr(0, colon);
+        int64_t number = 0;
+        const auto [end, error] = std::from_chars(
+            number_text.data(), number_text.data() + number_text.size(), number);
+        if (error != std::errc{} || end != number_text.data() + number_text.size()
+            || number < 1) {
+            ANET_SYSTEM_ERROR(key << " has invalid number '" << number_text
+                << "' in '" << raw_value << "'; expected integer >= 1.");
+        }
+        const auto label = token.substr(colon + 1);
+        const auto definition = definitions.find(label);
+        if (definition == definitions.end()) {
+            ANET_SYSTEM_ERROR(key << " references unknown label '" << label
+                << "' in '" << raw_value << "'; expected a declared label in the same game block.");
+        }
+        if (bindings.contains(number)) {
+            ANET_SYSTEM_ERROR(key << " repeats number " << number
+                << " in '" << raw_value << "'; expected unique numbers per game.");
+        }
+        bindings.emplace(number, definition->second);
+    }
+    if (!any_binding) {
+        ANET_SYSTEM_ERROR("Atari RAM metric bindings must not be empty: " << key << ".");
+    }
+    return bindings;
 }
 
 AtariEnvConfig::AtariEnvConfig(
@@ -242,6 +365,48 @@ AtariEnvConfig::AtariEnvConfig(
     ANET_READ_CONFIG(config_data, retain_rgb_frame);
     ANET_READ_CONFIG(config_data, display_screen);
     ANET_READ_CONFIG(config_data, sound);
+
+    // RAM 定義はゲーム別に検証し、番号付きの定義だけを実行対象として保持する。
+    const std::string ram_prefix = MakeDefaultConfigKey("ram_metric") + ".";
+    const std::regex default_key_pattern(
+        "^" + MakeDefaultConfigKey("ram_metric")
+        + R"(\.\[([a-z0-9]+(?:_[a-z0-9]+)*)\]\.(metrics|\[[A-Za-z0-9_]+\])$)");
+    const std::regex eval_override_pattern(R"(^run\.eval\.\[[^\]]+\]\.env\.ram_metric\..+$)");
+    for (const auto& [key, value] : config_data.Map()) {
+        if (key.starts_with("run.eval.") && key.find(".env.ram_metric.") != std::string::npos
+            && std::regex_match(key, eval_override_pattern)) {
+            ANET_SYSTEM_ERROR("Atari RAM metric override is unsupported: " << key << "='" << value << "'.");
+        }
+        if (key.starts_with(ram_prefix) && !std::regex_match(key, default_key_pattern)) {
+            ANET_SYSTEM_ERROR("Invalid Atari RAM metric key: " << key << "='" << value << "'.");
+        }
+    }
+    for (const auto& [game_name, block] : config_data.MakeSubConfigData(MakeDefaultConfigKey("ram_metric"))) {
+        std::map<std::string, RamMetricDefinition> definitions;
+        for (const auto& [sub_key, raw_value] : block.Map()) {
+            if (sub_key == "metrics") continue;
+            if (sub_key.size() < 3 || sub_key.front() != '[' || sub_key.back() != ']') {
+                ANET_SYSTEM_ERROR("AtariEnv.ram_metric.[" << game_name << "]." << sub_key
+                    << " is not a RAM definition label.");
+            }
+            const std::string label = sub_key.substr(1, sub_key.size() - 2);
+            const std::string definition_key = ram_prefix + "[" + game_name + "].[" + label + "]";
+            definitions.emplace(label, ParseRamMetricDefinition(definition_key, label, raw_value));
+        }
+        // 検証済みの宣言を Module Config にも収め、Run の実効設定へ反映する。
+        for (const auto& [sub_key, raw_value] : block.Map()) {
+            const std::string relative_key = "ram_metric.[" + game_name + "]." + sub_key;
+            my_config_data_.Set(relative_key, raw_value);
+            my_config_json_[relative_key] = raw_value;
+        }
+        if (!block.Has("metrics")) continue;
+        const std::string metrics_key = ram_prefix + "[" + game_name + "].metrics";
+        auto bindings = ParseRamMetricBindings(metrics_key, block.Get("metrics"), definitions);
+        for (const auto& [number, definition] : bindings) {
+            known_ram_metric_numbers.insert(number);
+        }
+        ram_metrics.emplace(game_name, std::move(bindings));
+    }
 }
 
 AtariEnv::AtariEnv(
@@ -255,6 +420,12 @@ AtariEnv::AtariEnv(
     , config_(config)
     , device_(device)
 {
+    if (const auto game_metrics = config_.ram_metrics.find(config_.game);
+        game_metrics != config_.ram_metrics.end()) {
+        for (const auto& [number, definition] : game_metrics->second) {
+            ram_metrics_.emplace(number, RamMetricState{.definition = definition});
+        }
+    }
     // 設定とROMを先に確定し、不完全なEnvを公開しない。
     ValidateConfig();
     if (config_.sound) {
@@ -270,6 +441,35 @@ AtariEnv::AtariEnv(
     }
 
     Reset();
+}
+
+void AtariEnv::BeginRamMetrics()
+{
+    if (ram_metrics_.empty()) return;
+    // reset_game() の直後だけ v0 を採り、soft reset ではこの初期化を呼ばない。
+    const auto& ram = ale_->getRAM();
+    for (auto& [number, state] : ram_metrics_) state.Begin(ram.get(state.definition.address & 0x7F));
+}
+
+void AtariEnv::ObserveRamMetrics()
+{
+    if (ram_metrics_.empty()) return;
+    // ALE の RAM キャッシュは act() 後に更新済みなので、現在フレームの値を読む。
+    const auto& ram = ale_->getRAM();
+    for (auto& [number, state] : ram_metrics_) state.Observe(ram.get(state.definition.address & 0x7F));
+}
+
+float AtariEnv::ActAndObserve(int action)
+{
+    const float reward = static_cast<float>(ale_->act(static_cast<ale::Action>(action)));
+    ObserveRamMetrics();
+    return reward;
+}
+
+void AtariEnv::ResetAleGame()
+{
+    ale_->reset_game();
+    BeginRamMetrics();
 }
 
 AtariEnv::~AtariEnv() = default;
@@ -419,13 +619,13 @@ float AtariEnv::ApplyFireReset()
     if (action_set_.size() < 3) return 0.0f;
     if (action_set_[1] != ale::PLAYER_A_FIRE) return 0.0f;
 
-    float reward = static_cast<float>(ale_->act(ale::PLAYER_A_FIRE));
+    float reward = ActAndObserve(ale::PLAYER_A_FIRE);
     if (ale_->game_over(false)) {
-        ale_->reset_game();
+        ResetAleGame();
     }
-    reward += static_cast<float>(ale_->act(static_cast<ale::Action>(action_set_[2])));
+    reward += ActAndObserve(action_set_[2]);
     if (ale_->game_over(false)) {
-        ale_->reset_game();
+        ResetAleGame();
     }
     return reward;
 }
@@ -436,9 +636,9 @@ void AtariEnv::ApplyResetActions()
     if (config_.noop_max > 0) {
         const int noops = rnd_->RandInt(1, config_.noop_max);
         for (int i = 0; i < noops; ++i) {
-            ale_->act(ale::PLAYER_A_NOOP);
+            ActAndObserve(ale::PLAYER_A_NOOP);
             if (ale_->game_over(false)) {
-                ale_->reset_game();
+                ResetAleGame();
             }
         }
     }
@@ -481,12 +681,16 @@ SingleState AtariEnv::MakeState(
 
 AuxData AtariEnv::MakeAuxData() const
 {
-    return AuxData{
+    AuxData aux{
         { "game_score", torch::tensor(game_score_, torch::kFloat32) },
         { "game_len", torch::tensor(game_len_, torch::kInt64) },
         { "game_frames", torch::tensor(static_cast<int64_t>(ale_->getEpisodeFrameNumber()), torch::kInt64) },
         { "lives", torch::tensor(static_cast<int64_t>(current_lives_), torch::kInt64) },
     };
+    for (const auto& [number, state] : ram_metrics_) {
+        aux.emplace("ram_metric." + state.definition.label, torch::tensor(state.Value(), torch::kInt64));
+    }
+    return aux;
 }
 
 void AtariEnv::RecordGameCompletion(bool truncated)
@@ -495,13 +699,22 @@ void AtariEnv::RecordGameCompletion(bool truncated)
     completed_game_score_ = game_score_;
     completed_game_len_ = game_len_;
     completed_game_frames_ = ale_->getEpisodeFrameNumber();
+    completed_ram_metrics_.clear();
+    for (const auto& [number, state] : ram_metrics_) completed_ram_metrics_.emplace(number, state.Value());
 
     // metrics / trace を持たない実行（EvalPanel 等）のゲームも、時刻付きで Run ログから追えるようにする。
     // スコアは ALE の整数報酬の累積なので整数で出す（float の既定書式は 7 桁以上を指数表記にする）。
+    std::ostringstream ram_suffix;
+    if (!completed_ram_metrics_.empty()) {
+        ram_suffix << " ram_metric:";
+        for (const auto& [number, value] : completed_ram_metrics_) {
+            ram_suffix << ' ' << ram_metrics_.at(number).definition.label << '=' << value;
+        }
+    }
     log.verbose() << (truncated ? "Game truncated by max_episode_frames." : "Game over.")
         << " game_score=" << static_cast<int64_t>(completed_game_score_)
         << " game_len=" << completed_game_len_
-        << " game_frames=" << completed_game_frames_;
+        << " game_frames=" << completed_game_frames_ << ram_suffix.str();
 }
 
 std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
@@ -511,10 +724,10 @@ std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
     // life-loss doneではALEを維持し、実ゲーム境界だけhard resetする。
     if (life_loss_pending_ && !ale_->game_over(false)) {
         life_loss_pending_ = false;
-        game_score_ += static_cast<float>(ale_->act(ale::PLAYER_A_NOOP));
+        game_score_ += ActAndObserve(ale::PLAYER_A_NOOP);
         if (ale_->game_over(false)) {
             RecordGameCompletion(false);
-            ale_->reset_game();
+            ResetAleGame();
             game_score_ = 0.0f;
             game_len_ = 0;
             ApplyResetActions();
@@ -524,7 +737,7 @@ std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
             game_score_ += ApplyFireReset();
         }
     } else {
-        ale_->reset_game();
+        ResetAleGame();
         game_score_ = 0.0f;
         game_len_ = 0;
         life_loss_pending_ = false;
@@ -551,7 +764,7 @@ std::shared_ptr<const SingleStepResult> AtariEnv::Step(int64_t action)
     float reward_raw = 0.0f;
     RollingMaxPool rolling_max_pool;
     for (int i = 0; i < config_.frame_skip; ++i) {
-        reward_raw += static_cast<float>(ale_->act(ale_action));
+        reward_raw += ActAndObserve(ale_action);
         if (config_.max_pool) {
             std::vector<uint8_t> frame;
             ale_->getScreenGrayscale(frame);
@@ -625,6 +838,30 @@ static std::optional<float> ParseGameScoreThreshold(const std::string& key)
 
 std::optional<float> AtariEnv::GetScalar(const std::string& key, int64_t index) const
 {
+    if (key.starts_with("ram_metric.")) {
+        constexpr std::string_view prefix = "ram_metric.[";
+        if (!key.starts_with(prefix) || !key.ends_with(']') || key.size() <= prefix.size() + 1) {
+            ANET_SYSTEM_ERROR("Invalid AtariEnv scalar key: " << key
+                << ". Expected ram_metric.[n] with n >= 1.");
+        }
+        const std::string_view number_text(key.data() + prefix.size(), key.size() - prefix.size() - 1);
+        if (!std::all_of(number_text.begin(), number_text.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+            ANET_SYSTEM_ERROR("Invalid AtariEnv scalar key: " << key
+                << ". Expected ram_metric.[n] with n >= 1.");
+        }
+        int64_t number = 0;
+        const auto [end, error] = std::from_chars(
+            number_text.data(), number_text.data() + number_text.size(), number);
+        if (error != std::errc{} || end != number_text.data() + number_text.size() || number < 1) {
+            ANET_SYSTEM_ERROR("Invalid AtariEnv scalar key: " << key
+                << ". Expected ram_metric.[n] with n in int64 range.");
+        }
+        if (!config_.known_ram_metric_numbers.contains(number)) return std::nullopt;
+        if (!completion_available_ || !completed_ram_metrics_.contains(number)) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        return static_cast<float>(completed_ram_metrics_.at(number));
+    }
     if (key == "lives") return static_cast<float>(current_lives_);
     if (key == "game_score") {
         return completion_available_ ? completed_game_score_ : std::numeric_limits<float>::quiet_NaN();

@@ -1143,6 +1143,26 @@ AtariEnv.retain_rgb_frame ?= true              # AtariView 用 RGB 保持
 AtariEnv.display_screen ?= false
 AtariEnv.sound ?= false
 
+# --- ゲーム別 RAM 定義。番号 1=面クリア、2=ボス撃破、3=ボス命中（docs/design/220 §4.9） ---
+AtariEnv.ram_metric.[kung_fu_master].[floor_clear] ?= 0x9F inc_count
+AtariEnv.ram_metric.[kung_fu_master].[boss_kill] ?= 0xCC reach_count:0
+AtariEnv.ram_metric.[kung_fu_master].[boss_hit] ?= 0xCC dec_count
+AtariEnv.ram_metric.[kung_fu_master].[floor_max] ?= 0x9F max_seen  # 番号なし。評価しない
+AtariEnv.ram_metric.[kung_fu_master].[boss_hp_min] ?= 0xCC min_seen  # 番号なし。評価しない
+AtariEnv.ram_metric.[kung_fu_master].metrics ?= 1:floor_clear 2:boss_kill 3:boss_hit
+
+AtariEnv.ram_metric.[qbert].[round_clear] ?= 0xE3 inc_count
+AtariEnv.ram_metric.[qbert].[side_color] ?= 0x82 min_seen  # 番号なし。評価しない
+AtariEnv.ram_metric.[qbert].metrics ?= 1:round_clear
+
+AtariEnv.ram_metric.[phoenix].[wave_clear] ?= 0xCA inc_count
+AtariEnv.ram_metric.[phoenix].[boss_kill] ?= 0xFC inc_count
+AtariEnv.ram_metric.[phoenix].metrics ?= 1:wave_clear 2:boss_kill
+
+AtariEnv.ram_metric.[breakout].[wall_clear] ?= 0x9E inc_count
+AtariEnv.ram_metric.[breakout].[score_ge600] ?= 0xCC reach_count:6  # 番号なし。評価しない
+AtariEnv.ram_metric.[breakout].metrics ?= 1:wall_clear
+
 
 # --- Eval設定 ---
 
@@ -1193,10 +1213,10 @@ metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
 
 # metrics.trace.[tag] = $target @episode_end key1 [key2 ...] [$step] [$train | $eval.[name]]
 metrics.trace.$ = metrics.trace.@atari
-metrics.trace.@atari.[51_eval1/episode] = $eval.[eval_target] @episode_end $env game_score game_len game_frames hns57
-metrics.trace.@atari.[52_eval2/episode] = $eval.[eval] @episode_end $env game_score game_len game_frames hns57
-metrics.trace.@atari.[53_evalg/episode] = $eval.[greedy_dist] @episode_end $env game_score game_len game_frames hns57
-metrics.trace.@atari.[42_env/episode]  = $train @episode_end $env game_score game_len game_frames hns57
+metrics.trace.@atari.[51_eval1/episode] = $eval.[eval_target] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari.[52_eval2/episode] = $eval.[eval] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari.[53_evalg/episode] = $eval.[greedy_dist] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari.[42_env/episode]  = $train @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 
 M1.[42_env/10_game_score_mean]      = $env mean.game_score  @train $exp_step
 M1.[42_env/11_game_score_mean_ema]  = $env mean.game_score  @train $exp_step $ema ema_alpha:0.001
@@ -1211,8 +1231,19 @@ M1.[42_env/23_game_frames_mean_ema] = $env mean.game_frames @train $exp_step $em
 M1.[42_env/30_lives_mean]           = $env mean.lives       @train $exp_step
 M1.[42_env/31_lives_mean_ema]       = $env mean.lives       @train $exp_step $ema ema_alpha:0.001
 
+# RAM メトリクス。番号 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数(220 §4.9)
+M1.[42_env/50_ram_metric_1_mean]     = $env mean.ram_metric.[1] @train $exp_step
+M1.[42_env/51_ram_metric_1_mean_ema] = $env mean.ram_metric.[1] @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/52_ram_metric_2_mean]     = $env mean.ram_metric.[2] @train $exp_step
+M1.[42_env/53_ram_metric_2_mean_ema] = $env mean.ram_metric.[2] @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/54_ram_metric_3_mean]     = $env mean.ram_metric.[3] @train $exp_step
+M1.[42_env/55_ram_metric_3_mean_ema] = $env mean.ram_metric.[3] @train $exp_step $ema ema_alpha:0.001
+
 M1.[42_env/16_game_score_max]       = $env max.game_score   @train $exp_step   # mean の分母は完了 env 数なのでゲーム長が短いほどピークを潰す(§4.7)
 M1.[42_env/24_game_len_max]         = $env max.game_len     @train $exp_step
+M1.[42_env/56_ram_metric_1_max]     = $env max.ram_metric.[1] @train $exp_step
+M1.[42_env/57_ram_metric_2_max]     = $env max.ram_metric.[2] @train $exp_step
+M1.[42_env/58_ram_metric_3_max]     = $env max.ram_metric.[3] @train $exp_step
 
 M1.[51_eval1/10_game_score_mean]      = $eval.[eval_target] @session_end $env mean.game_score
 M1.[51_eval1/11_game_score_mean_ema]  = $eval.[eval_target] @session_end $env mean.game_score  $ema ema_alpha:0.1
@@ -1226,9 +1257,18 @@ M1.[51_eval1/22_game_frames_mean]     = $eval.[eval_target] @session_end $env me
 M1.[51_eval1/23_game_frames_mean_ema] = $eval.[eval_target] @session_end $env mean.game_frames $ema ema_alpha:0.1
 M1.[51_eval1/30_lives_mean]           = $eval.[eval_target] @session_end $env mean.lives
 M1.[51_eval1/31_lives_mean_ema]       = $eval.[eval_target] @session_end $env mean.lives       $ema ema_alpha:0.1
+M1.[51_eval1/50_ram_metric_1_mean]     = $eval.[eval_target] @session_end $env mean.ram_metric.[1]
+M1.[51_eval1/51_ram_metric_1_mean_ema] = $eval.[eval_target] @session_end $env mean.ram_metric.[1] $ema ema_alpha:0.1
+M1.[51_eval1/52_ram_metric_2_mean]     = $eval.[eval_target] @session_end $env mean.ram_metric.[2]
+M1.[51_eval1/53_ram_metric_2_mean_ema] = $eval.[eval_target] @session_end $env mean.ram_metric.[2] $ema ema_alpha:0.1
+M1.[51_eval1/54_ram_metric_3_mean]     = $eval.[eval_target] @session_end $env mean.ram_metric.[3]
+M1.[51_eval1/55_ram_metric_3_mean_ema] = $eval.[eval_target] @session_end $env mean.ram_metric.[3] $ema ema_alpha:0.1
 
 M1.[51_eval1/16_game_score_max]       = $eval.[eval_target] @session_end $env max.game_score
 M1.[51_eval1/24_game_len_max]         = $eval.[eval_target] @session_end $env max.game_len
+M1.[51_eval1/56_ram_metric_1_max]     = $eval.[eval_target] @session_end $env max.ram_metric.[1]
+M1.[51_eval1/57_ram_metric_2_max]     = $eval.[eval_target] @session_end $env max.ram_metric.[2]
+M1.[51_eval1/58_ram_metric_3_max]     = $eval.[eval_target] @session_end $env max.ram_metric.[3]
 
 M1.[52_eval2/10_game_score_mean]      = $eval.[eval] @session_end $env mean.game_score
 M1.[52_eval2/11_game_score_mean_ema]  = $eval.[eval] @session_end $env mean.game_score  $ema ema_alpha:0.1
@@ -1242,9 +1282,18 @@ M1.[52_eval2/22_game_frames_mean]     = $eval.[eval] @session_end $env mean.game
 M1.[52_eval2/23_game_frames_mean_ema] = $eval.[eval] @session_end $env mean.game_frames $ema ema_alpha:0.1
 M1.[52_eval2/30_lives_mean]           = $eval.[eval] @session_end $env mean.lives
 M1.[52_eval2/31_lives_mean_ema]       = $eval.[eval] @session_end $env mean.lives       $ema ema_alpha:0.1
+M1.[52_eval2/50_ram_metric_1_mean]     = $eval.[eval] @session_end $env mean.ram_metric.[1]
+M1.[52_eval2/51_ram_metric_1_mean_ema] = $eval.[eval] @session_end $env mean.ram_metric.[1] $ema ema_alpha:0.1
+M1.[52_eval2/52_ram_metric_2_mean]     = $eval.[eval] @session_end $env mean.ram_metric.[2]
+M1.[52_eval2/53_ram_metric_2_mean_ema] = $eval.[eval] @session_end $env mean.ram_metric.[2] $ema ema_alpha:0.1
+M1.[52_eval2/54_ram_metric_3_mean]     = $eval.[eval] @session_end $env mean.ram_metric.[3]
+M1.[52_eval2/55_ram_metric_3_mean_ema] = $eval.[eval] @session_end $env mean.ram_metric.[3] $ema ema_alpha:0.1
 
 M1.[52_eval2/16_game_score_max]       = $eval.[eval] @session_end $env max.game_score
 M1.[52_eval2/24_game_len_max]         = $eval.[eval] @session_end $env max.game_len
+M1.[52_eval2/56_ram_metric_1_max]     = $eval.[eval] @session_end $env max.ram_metric.[1]
+M1.[52_eval2/57_ram_metric_2_max]     = $eval.[eval] @session_end $env max.ram_metric.[2]
+M1.[52_eval2/58_ram_metric_3_max]     = $eval.[eval] @session_end $env max.ram_metric.[3]
 
 M1.[53_evalg/10_game_score_mean]      = $eval.[greedy_dist] @session_end $env mean.game_score
 M1.[53_evalg/12_hns57_mean]           = $eval.[greedy_dist] @session_end $env mean.hns57
@@ -1254,6 +1303,12 @@ M1.[53_evalg/20_game_len_mean]        = $eval.[greedy_dist] @session_end $env me
 M1.[53_evalg/22_game_frames_mean]     = $eval.[greedy_dist] @session_end $env mean.game_frames
 M1.[53_evalg/24_game_len_max]         = $eval.[greedy_dist] @session_end $env max.game_len
 M1.[53_evalg/30_lives_mean]           = $eval.[greedy_dist] @session_end $env mean.lives
+M1.[53_evalg/50_ram_metric_1_mean]    = $eval.[greedy_dist] @session_end $env mean.ram_metric.[1]
+M1.[53_evalg/52_ram_metric_2_mean]    = $eval.[greedy_dist] @session_end $env mean.ram_metric.[2]
+M1.[53_evalg/54_ram_metric_3_mean]    = $eval.[greedy_dist] @session_end $env mean.ram_metric.[3]
+M1.[53_evalg/56_ram_metric_1_max]     = $eval.[greedy_dist] @session_end $env max.ram_metric.[1]
+M1.[53_evalg/57_ram_metric_2_max]     = $eval.[greedy_dist] @session_end $env max.ram_metric.[2]
+M1.[53_evalg/58_ram_metric_3_max]     = $eval.[greedy_dist] @session_end $env max.ram_metric.[3]
 
 # --- Breakout 固有(1 画面 = 18 ×(1+1+4+4+7+7) = 432、2 画面 = 864) ---
 

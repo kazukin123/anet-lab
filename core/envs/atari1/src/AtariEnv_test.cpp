@@ -1,6 +1,7 @@
 #include "AtariEnv.hpp"
 #include "AtariPreprocess.hpp"
 
+#include <algorithm>
 #include <clocale>
 #include <cmath>
 #include <cstdlib>
@@ -10,6 +11,7 @@
 
 #include "anet/catch_test.hpp"
 #include "anet/env/Atari.hpp"
+#include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 #include "anet/thread.hpp"
 
@@ -131,6 +133,86 @@ TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge
     CHECK(classic.Get<int>("AtariEnv.noop_max") == 30);
     CHECK(classic.Get<bool>("AtariEnv.episodic_life"));
     CHECK(classic.Get<bool>("AtariEnv.fire_reset"));
+
+    CHECK(v5.Get("AtariEnv.ram_metric.[kung_fu_master].metrics") == "1:floor_clear 2:boss_kill 3:boss_hit");
+    CHECK(v5.Get("AtariEnv.ram_metric.[qbert].metrics") == "1:round_clear");
+    CHECK(v5.Get("AtariEnv.ram_metric.[phoenix].metrics") == "1:wave_clear 2:boss_kill");
+    CHECK(v5.Get("AtariEnv.ram_metric.[breakout].metrics") == "1:wall_clear");
+    const anet::rl::env::AtariEnvConfig ram_config(v5);
+    CHECK(ram_config.known_ram_metric_numbers == std::set<int64_t>{1, 2, 3});
+    CHECK(v5.Get("metrics.trace.[51_eval1/episode]").find("ram_metric.[1] ram_metric.[2] ram_metric.[3]") != std::string::npos);
+    CHECK(v5.Get("metrics.trace.[42_env/episode]").find("ram_metric.[1] ram_metric.[2] ram_metric.[3]") != std::string::npos);
+    CHECK(v5.Get("metrics.scalar.[42_env/50_ram_metric_1_mean]").find("mean.ram_metric.[1]") != std::string::npos);
+    const anet::rl::ObserverFactory metric_factory(v5);
+    const auto& trace_defs = metric_factory.GetTraceMetricDefs();
+    const auto trace = std::find_if(trace_defs.begin(), trace_defs.end(), [](const auto& def) {
+        return def.tag == "42_env/episode";
+    });
+    REQUIRE(trace != trace_defs.end());
+    CHECK(trace->keys == std::vector<std::string>{
+        "game_score", "game_len", "game_frames", "hns57",
+        "ram_metric.[1]", "ram_metric.[2]", "ram_metric.[3]"});
+    const auto& scalar_defs = metric_factory.GetScalarMetricDefs();
+    const auto find_scalar = [&](const std::string& tag) {
+        return std::find_if(scalar_defs.begin(), scalar_defs.end(), [&](const auto& def) {
+            return def.tag == tag;
+        });
+    };
+    const auto check_ram_scalar = [&](const std::string& tag, const std::string& source_key,
+        bool has_ema, float ema_alpha, const std::string& reference_tag) {
+        INFO(tag);
+        const auto scalar = find_scalar(tag);
+        const auto reference = find_scalar(reference_tag);
+        REQUIRE(scalar != scalar_defs.end());
+        REQUIRE(reference != scalar_defs.end());
+        CHECK(scalar->source_key == source_key);
+        CHECK(scalar->has_ema == has_ema);
+        if (has_ema) CHECK(scalar->ema_alpha == Catch::Approx(ema_alpha));
+        CHECK(scalar->step_axis == reference->step_axis);
+        CHECK(scalar->runner == reference->runner);
+        CHECK(scalar->event == reference->event);
+        CHECK(scalar->target == reference->target);
+        CHECK(scalar->scope == reference->scope);
+        CHECK(scalar->eval_name == reference->eval_name);
+        CHECK(scalar->interval == reference->interval);
+    };
+    struct RamScalarGroup {
+        std::string name;
+        bool has_ema;
+        float ema_alpha;
+    };
+    const std::vector<RamScalarGroup> groups{
+        {"42_env", true, 0.001f},
+        {"51_eval1", true, 0.1f},
+        {"52_eval2", true, 0.1f},
+        {"53_evalg", false, 0.0f},
+    };
+    for (const auto& group : groups) {
+        for (int number = 1; number <= 3; ++number) {
+            const std::string stem = group.name + "/";
+            const std::string key = "ram_metric.[" + std::to_string(number) + "]";
+            const std::string suffix = "ram_metric_" + std::to_string(number);
+            const std::string mean_tag = stem + std::to_string(48 + 2 * number) + "_" + suffix + "_mean";
+            const std::string max_tag = stem + std::to_string(55 + number) + "_" + suffix + "_max";
+            check_ram_scalar(mean_tag, "mean." + key, false, 0.0f, stem + "10_game_score_mean");
+            check_ram_scalar(max_tag, "max." + key, false, 0.0f, stem + "16_game_score_max");
+            if (group.has_ema) {
+                const std::string ema_tag = stem + std::to_string(49 + 2 * number) + "_" + suffix + "_mean_ema";
+                check_ram_scalar(ema_tag, "mean." + key, true, group.ema_alpha,
+                    stem + "11_game_score_mean_ema");
+            }
+        }
+    }
+    CHECK(std::count_if(scalar_defs.begin(), scalar_defs.end(), [](const auto& def) {
+        return def.tag.find("_ram_metric_") != std::string::npos;
+    }) == 33);
+    for (const std::string old_tag : {
+        "42_env/50_stage_clear_mean", "42_env/51_boss_kill_mean", "42_env/52_boss_hit_mean",
+        "53_evalg/51_ram_metric_1_mean_ema", "53_evalg/53_ram_metric_2_mean_ema",
+        "53_evalg/55_ram_metric_3_mean_ema"}) {
+        CHECK(find_scalar(old_tag) == scalar_defs.end());
+        CHECK_FALSE(v5.Has("metrics.scalar.[" + old_tag + "]"));
+    }
 }
 
 TEST_CASE("AtariEnv fails fast on invalid current config values", "[atari][config]")
@@ -383,6 +465,306 @@ TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public E
     CHECK(aux.at("game_frames").dtype() == torch::kInt64);
     CHECK(aux.at("lives").dtype() == torch::kInt64);
     CHECK(env->GetScalar("lives").has_value());
+}
+
+TEST_CASE("AtariEnv reports a configured RAM metric at game completion", "[atari][rom][ram_metric]")
+{
+    const auto rom = FindRom("pong");
+    if (!rom.has_value()) {
+        SKIP("pong.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+
+    anet::ConfigData config_data;
+    config_data.Set("AtariEnv.game", "pong");
+    config_data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    config_data.Set("AtariEnv.frame_skip", 1);
+    config_data.Set("AtariEnv.max_episode_frames", 2);
+    config_data.Set("AtariEnv.repeat_action_probability", 0.0f);
+    config_data.Set("AtariEnv.ram_metric.[pong].[score_high]", "0x8D max_seen");
+    config_data.Set("AtariEnv.ram_metric.[pong].metrics", "1:score_high");
+
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(
+        config_data, torch::Device(torch::kCPU), "atari-ram-pong", 123,
+        anet::rl::RunMode::Train);
+    const auto effective = env->GetConfigData();
+    REQUIRE(effective.has_value());
+    CHECK(effective->Get("AtariEnv.ram_metric.[pong].[score_high]") == "0x8D max_seen");
+    CHECK(effective->Get("AtariEnv.ram_metric.[pong].metrics") == "1:score_high");
+
+    const auto reset = env->Reset();
+    REQUIRE(reset->GetAuxData().contains("ram_metric.score_high"));
+    CHECK(reset->GetAuxData().at("ram_metric.score_high").dtype() == torch::kInt64);
+    REQUIRE(env->GetScalar("ram_metric.[1]"));
+    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+
+    const auto pending = env->Step(0);
+    CHECK_FALSE(pending->next_state.truncated);
+    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+
+    const auto completed = env->Step(0);
+    REQUIRE(completed->next_state.truncated);
+    REQUIRE(completed->GetAuxData().contains("ram_metric.score_high"));
+    CHECK(*env->GetScalar("ram_metric.[1]") ==
+        static_cast<float>(completed->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
+}
+
+TEST_CASE("RAM metric reducers distinguish the initial value from transitions", "[atari][ram_metric]")
+{
+    using anet::rl::env::RamMetricDefinition;
+    using anet::rl::env::RamMetricReducer;
+    using anet::rl::env::RamMetricState;
+
+    RamMetricState max_seen{.definition = RamMetricDefinition{.reducer = RamMetricReducer::MaxSeen}};
+    max_seen.Begin(39);
+    max_seen.Observe(35);
+    max_seen.Observe(40);
+    CHECK(max_seen.Value() == 40);
+
+    RamMetricState min_seen{.definition = RamMetricDefinition{.reducer = RamMetricReducer::MinSeen}};
+    min_seen.Begin(39);
+    min_seen.Observe(35);
+    min_seen.Observe(40);
+    CHECK(min_seen.Value() == 35);
+
+    RamMetricState inc_count{.definition = RamMetricDefinition{.reducer = RamMetricReducer::IncCount}};
+    inc_count.Begin(39);
+    inc_count.Observe(39);
+    inc_count.Observe(40);
+    inc_count.Observe(39);
+    CHECK(inc_count.Value() == 1);
+
+    RamMetricState dec_count{.definition = RamMetricDefinition{.reducer = RamMetricReducer::DecCount}};
+    dec_count.Begin(39);
+    dec_count.Observe(35);
+    dec_count.Observe(0);
+    dec_count.Observe(39);
+    CHECK(dec_count.Value() == 2);
+
+    RamMetricState reach_count{.definition = RamMetricDefinition{
+        .reducer = RamMetricReducer::ReachCount, .target = 0}};
+    reach_count.Begin(0);
+    reach_count.Observe(0);
+    reach_count.Observe(1);
+    reach_count.Observe(0);
+    reach_count.Observe(0);
+    CHECK(reach_count.Value() == 1);
+}
+
+TEST_CASE("AtariEnvConfig reads all RAM reducers and shared metric numbers", "[atari][ram_metric][config]")
+{
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.ram_metric.[pong].[top]", "0x8D max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].[bottom]", "0x8E min_seen");
+    data.Set("AtariEnv.ram_metric.[pong].[rise]", "0x8D inc_count");
+    data.Set("AtariEnv.ram_metric.[pong].[fall]", "0x8E dec_count");
+    data.Set("AtariEnv.ram_metric.[pong].[zero]", "0x8D reach_count:0");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:top 2:bottom 3:rise 4:fall 5:zero");
+    data.Set("AtariEnv.ram_metric.[qbert].[round]", "0xE3 inc_count");
+    data.Set("AtariEnv.ram_metric.[qbert].metrics", "1:round");
+    data.Set("AtariEnv.ram_metric.[breakout].[knowledge_only]", "0xFF min_seen");
+
+    const anet::rl::env::AtariEnvConfig config(data);
+    CHECK(config.known_ram_metric_numbers.size() == 5);
+    CHECK(config.ram_metrics.at("pong").size() == 5);
+    CHECK(config.ram_metrics.at("qbert").size() == 1);
+    CHECK_FALSE(config.ram_metrics.contains("breakout"));
+    CHECK(config.ram_metrics.at("pong").at(5).reducer == anet::rl::env::RamMetricReducer::ReachCount);
+    CHECK(config.ram_metrics.at("pong").at(5).target == 0);
+}
+
+TEST_CASE("AtariEnvConfig reports accepted RAM declarations in its effective config", "[atari][ram_metric][config]")
+{
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.ram_metric.[pong].[score]", "0x8D max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:score");
+    data.Set("AtariEnv.ram_metric.[qbert].[knowledge_only]", "0xE3 min_seen");
+
+    const anet::rl::env::AtariEnvConfig config(data, "run.eval.[eval_target].env");
+    const auto effective = config.GetScopedConfigData();
+    CHECK(effective.Get("run.eval.[eval_target].env.ram_metric.[pong].[score]") == "0x8D max_seen");
+    CHECK(effective.Get("run.eval.[eval_target].env.ram_metric.[pong].metrics") == "1:score");
+    CHECK(effective.Get("run.eval.[eval_target].env.ram_metric.[qbert].[knowledge_only]") == "0xE3 min_seen");
+    CHECK(config.ToJson().at("ram_metric.[pong].[score]") == "0x8D max_seen");
+    CHECK(config.ToJson().at("ram_metric.[pong].metrics") == "1:score");
+}
+
+TEST_CASE("AtariEnvConfig rejects malformed RAM definitions before ROM loading", "[atari][ram_metric][config]")
+{
+    anet::ConfigData base;
+    base.Set("AtariEnv.game", "pong");
+    base.Set("AtariEnv.ram_metric.[pong].[top]", "0x8D max_seen");
+    base.Set("AtariEnv.ram_metric.[pong].metrics", "1:top");
+    const std::vector<std::pair<std::string, std::string>> invalid_values{
+        {"AtariEnv.ram_metric.[pong].[top]", "128 max_seen"},
+        {"AtariEnv.ram_metric.[pong].[top]", "0x00 max_seen"},
+        {"AtariEnv.ram_metric.[pong].[top]", "0xGG max_seen"},
+        {"AtariEnv.ram_metric.[pong].[top]", "0x8D unknown"},
+        {"AtariEnv.ram_metric.[pong].[top]", "0x8D reach_count:256"},
+        {"AtariEnv.ram_metric.[pong].[top]", "0x8D reach_count:-1"},
+        {"AtariEnv.ram_metric.[qbert].[bad]", "0x00 max_seen"},
+        {"AtariEnv.ram_metric.[pong].metrics", "0:top"},
+        {"AtariEnv.ram_metric.[pong].metrics", "1x:top"},
+        {"AtariEnv.ram_metric.[pong].metrics", "1:top 1:top"},
+        {"AtariEnv.ram_metric.[pong].metrics", "1:missing"},
+        {"AtariEnv.ram_metric.[pong].metrics", ""},
+        {"AtariEnv.ram_metric.[pong].typo", "value"},
+        {"AtariEnv.ram_metric.[pong].[bad-label]", "0x8D max_seen"},
+        {"AtariEnv.ram_metric.[BadGame].[top]", "0x8D max_seen"},
+        {"AtariEnv.ram_metric.[pong].broken.[top]", "0x8D max_seen"},
+        {"run.eval.[eval_target].env.ram_metric.[pong].[top]", "0x8D max_seen"},
+    };
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    for (const auto& [key, value] : invalid_values) {
+        auto data = base;
+        data.Set(key, value);
+        INFO(key << " = " << value);
+        CHECK_THROWS(anet::rl::env::AtariEnvConfig(data));
+    }
+}
+
+TEST_CASE("AtariEnv distinguishes absent RAM numbers from malformed scalar keys", "[atari][rom][ram_metric]")
+{
+    const auto rom = FindRom("pong");
+    if (!rom.has_value()) {
+        SKIP("pong.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_episode_frames", 1);
+    data.Set("AtariEnv.ram_metric.[qbert].[round]", "0xE3 inc_count");
+    data.Set("AtariEnv.ram_metric.[qbert].metrics", "2:round");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-absent", 123);
+    REQUIRE(env->Step(0)->next_state.truncated);
+    CHECK(std::isnan(*env->GetScalar("ram_metric.[2]")));
+    CHECK(std::isnan(*env->GetScalar("ram_metric.[02]")));
+    CHECK_FALSE(env->GetScalar("ram_metric.[3]").has_value());
+    for (const std::string key : {"ram_metric.[]", "ram_metric.[0]", "ram_metric.[-1]",
+            "ram_metric.[1x]", "ram_metric.[+1]", "ram_metric.[999999999999999999999]"}) {
+        INFO(key);
+        CHECK_THROWS_WITH(env->GetScalar(key), Catch::Matchers::ContainsSubstring("ram_metric"));
+    }
+}
+
+TEST_CASE("AtariEnv appends numbered RAM values to the game completion log", "[atari][rom][ram_metric][log]")
+{
+    const auto rom = FindRom("pong");
+    if (!rom.has_value()) {
+        SKIP("pong.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_episode_frames", 1);
+    data.Set("AtariEnv.ram_metric.[pong].[later]", "0x8E max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].[first]", "0x8D max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "3:later 1:first");
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-log", 123);
+    REQUIRE(env->Step(0)->next_state.truncated);
+    logs.Flush();
+    const auto suffix = " ram_metric: first="
+        + std::to_string(static_cast<int64_t>(*env->GetScalar("ram_metric.[1]")))
+        + " later=" + std::to_string(static_cast<int64_t>(*env->GetScalar("ram_metric.[3]")));
+    bool found = false;
+    for (const auto& record : logs.Records()) {
+        if (record.message.starts_with("ram-log: Game truncated by max_episode_frames.")) {
+            found = record.message.ends_with(suffix);
+        }
+    }
+    CHECK(found);
+}
+
+TEST_CASE("AtariEnv reports Kung Fu Master progress from the configured RAM bytes", "[atari][rom][ram_metric]")
+{
+    const auto rom = FindRom("kung_fu_master");
+    if (!rom.has_value()) {
+        SKIP("kung_fu_master.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "kung_fu_master");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_episode_frames", 2);
+    data.Set("AtariEnv.repeat_action_probability", 0.0f);
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].[floor_clear]", "0x9F inc_count");
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].[boss_kill]", "0xCC reach_count:0");
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].[boss_hit]", "0xCC dec_count");
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].[floor_max]", "0x9F max_seen");
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].[boss_hp_min]", "0xCC min_seen");
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].metrics",
+        "1:floor_clear 2:boss_kill 3:boss_hit 4:floor_max 5:boss_hp_min");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-kfm", 123);
+    REQUIRE(env->Step(0)->next_state.done == false);
+    REQUIRE(env->Step(0)->next_state.truncated);
+    CHECK(*env->GetScalar("ram_metric.[1]") == 0.0f);
+    CHECK(*env->GetScalar("ram_metric.[2]") == 0.0f);
+    CHECK(*env->GetScalar("ram_metric.[3]") == 0.0f);
+    CHECK(*env->GetScalar("ram_metric.[4]") == 1.0f);
+    CHECK(*env->GetScalar("ram_metric.[5]") == 39.0f);
+}
+
+TEST_CASE("AtariEnv counts RAM transitions inside one frame skip window", "[atari][rom][ram_metric]")
+{
+    const auto rom = FindRom("pong");
+    if (!rom.has_value()) {
+        SKIP("pong.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 100000);
+    data.Set("AtariEnv.max_episode_frames", 0);
+    data.Set("AtariEnv.repeat_action_probability", 0.0f);
+    data.Set("AtariEnv.ram_metric.[pong].[cpu_points]", "0x8D inc_count");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:cpu_points");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-pong-count", 1357);
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.done);
+    CHECK(*env->GetScalar("ram_metric.[1]") == 21.0f);
+    CHECK(step->GetAuxData().at("ram_metric.cpu_points").item<int64_t>() == 21);
+}
+
+TEST_CASE("AtariEnv keeps RAM counts through life-loss reset and clears them on hard reset", "[atari][rom][ram_metric]")
+{
+    const auto rom = FindRom("kung_fu_master");
+    if (!rom.has_value()) {
+        SKIP("kung_fu_master.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "kung_fu_master");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 800);
+    data.Set("AtariEnv.max_pool", false);
+    data.Set("AtariEnv.retain_rgb_frame", false);
+    data.Set("AtariEnv.screen_size", 1);
+    data.Set("AtariEnv.max_episode_frames", 0);
+    data.Set("AtariEnv.episodic_life", true);
+    data.Set("AtariEnv.repeat_action_probability", 0.0f);
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].[life_loss]", "0x9D dec_count");
+    data.Set("AtariEnv.ram_metric.[kung_fu_master].metrics", "1:life_loss");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-soft-reset", 123);
+
+    const auto life_done = env->Step(0);
+    REQUIRE(life_done->next_state.done);
+    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    const int64_t before = life_done->GetAuxData().at("ram_metric.life_loss").item<int64_t>();
+    CHECK(before >= 1);
+
+    const auto soft_reset = env->Reset();
+    CHECK(soft_reset->GetAuxData().at("ram_metric.life_loss").item<int64_t>() == before);
+    const auto hard_reset = env->Reset();
+    CHECK(hard_reset->GetAuxData().at("ram_metric.life_loss").item<int64_t>() == 0);
 }
 
 TEST_CASE("AtariEnv full action space exposes all 18 player-A actions", "[atari][rom][actions]")

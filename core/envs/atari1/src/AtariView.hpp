@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <string>
 
 #include <torch/torch.h>
@@ -22,6 +23,7 @@ namespace anet::rl::env {
         int64_t game_frames = 0;
         std::string action_name = "-";
         float reward = 0.0f;
+        std::map<std::string, int64_t> ram_metrics;
     };
 
     class AtariPanel final : public anet::rl::gui::Panel {
