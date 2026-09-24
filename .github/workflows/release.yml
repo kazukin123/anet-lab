@@ -207,6 +207,8 @@ jobs:
         New-Item -ItemType Directory -Force -Path "$stage/apps/runner/bin/Release" | Out-Null
         Copy-Item apps/runner/bin/Release/* "$stage/apps/runner/bin/Release/" -Exclude *.ilk,*.pdb
         Copy-Item apps/runner/config "$stage/apps/runner/config" -Recurse
+        # workspaces: ENV 別 workspace の枠 (追跡対象の config/_main.txt だけ。runs/ は実行時に Runner が生成)
+        Copy-Item apps/runner/workspaces "$stage/apps/runner/workspaces" -Recurse
         Copy-Item apps/runner/tools "$stage/apps/runner/tools" -Recurse
 
         # wx DLL はビルド時の POST_BUILD コピー(apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast

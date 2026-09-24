@@ -8,7 +8,7 @@ anet-lab の実行アプリケーションと起動 launcher(bat)を置くディ
 |---|---|
 | `runner/` | AnetRLRunner(強化学習 Runner 本体)。実行バイナリは `runner/bin/Release/` |
 | `runner/config/` | Runner の設定ファイル群 |
-| `runner/workspaces/<workspace>/` | workspace固有の`config/`と`runs/`。実行時生成・Git管理外 |
+| `runner/workspaces/<workspace>/` | workspace固有の`config/`と`runs/`。ENV別の枠(`CartPole-01`、`LunarLander-01`など)を`config/_main.txt`だけ同梱し、`runs/`は実行時にRunnerが生成する |
 | `runner/tools/` | Runner関連の内部helper、テスト、Optuna study、ログ監視など |
 | `metrics-viewer/` | Java/Spring 製 Metrics Viewer。jar は `metrics-viewer/target/metrics-viewer.jar` |
 | `*.bat` | ユーザーが直接操作する起動 launcher 群(下表) |
