@@ -236,15 +236,19 @@ MuZeroNetworkSuite::MuZeroNetworkSuite(
 // ======================================================
 
 MuZeroNetworkModel::MuZeroNetworkModel(
-    const ModelConfig& config, const ConfigData& config_data, const anet::rl::StateSpec& state_spec, const anet::rl::ActionSpec& action_spec)
+    const ModelConfig& config, const ConfigData& config_data,
+    const anet::rl::StateSpec& state_spec, const anet::rl::ActionSpec& action_spec,
+    anet::seed_t agent_seed)
     : config_(config)
     , num_actions_(action_spec.GetNumActions())
 {
+    const anet::SeedMaker seed_maker(agent_seed);
     // Representation Network を構築
     anet::nn::NetworkConfig rep_config{ config_data, "net.rep" };
     anet::MetricsLogger::Instance()->Log("net.rep", rep_config.ToJson());
     auto rep_head_factory = std::make_shared<MuZeroRepresentationHeadFactory>(config_.hidden_state_dim);
-    auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(rep_config, state_spec.obs_spec, rep_head_factory);
+    auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(
+        rep_config, state_spec.obs_spec, rep_head_factory, seed_maker.MakeNamedSeed("network.rep"));
 
     // Dynamics Network を構築
     /// @todo MuZero試作制約：隠れ状態を1次元固定ではなく多次元表現に対応する。アクション用のプレーン(チャンネル)を考慮する必要がある
@@ -257,7 +261,8 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     dyn_input_specs["hidden_state"].shape = { config_.hidden_state_dim };
     dyn_input_specs["action_one_hot"].shape = { action_dim };
     auto dyn_head_factory = std::make_shared<MuZeroDynamicsHeadFactory>(config_.head_init_weight.reward);
-    auto dyn_net = anet::nn::NetworkBuilder::BuildNetwork(dyn_config, dyn_input_specs, dyn_head_factory);
+    auto dyn_net = anet::nn::NetworkBuilder::BuildNetwork(
+        dyn_config, dyn_input_specs, dyn_head_factory, seed_maker.MakeNamedSeed("network.dyn"));
 
     //  Prediction Network を構築
     /// @todo MuZero試作制約：価値(Value)と報酬(Reward)をスカラー値ではなく、Two - Hotエンコーディング等を用いたカテゴリカル分布で予測・学習する
@@ -268,7 +273,8 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     pred_input_specs["hidden_state"].shape = { config_.hidden_state_dim };
     auto pred_head_factory = std::make_shared<MuZeroPredictionHeadFactory>(
         num_actions_, config_.head_init_weight.value, config_.head_init_weight.policy);
-    auto pred_net = anet::nn::NetworkBuilder::BuildNetwork(pred_config, pred_input_specs, pred_head_factory);
+    auto pred_net = anet::nn::NetworkBuilder::BuildNetwork(
+        pred_config, pred_input_specs, pred_head_factory, seed_maker.MakeNamedSeed("network.pred"));
 
     // 自身が所有するSuiteを生成
     suite_ = std::make_shared<MuZeroNetworkSuite>(rep_net, dyn_net, pred_net);
@@ -778,11 +784,11 @@ private:
 
 MuZeroActor::MuZeroActor(
     const ActorConfig& actor_config, const MCTSConfig& mcts_config,
-    std::shared_ptr<std::shared_mutex> mutex, std::shared_ptr<float> latest_tau,
-    std::shared_ptr<MuZeroNetworkModel> model, const anet::rl::ActionSpec& action_spec, anet::rl::RunMode run_mode, torch::Device device, std::optional<seed_t> seed)
+    std::shared_ptr<std::shared_mutex> mutex,
+    std::shared_ptr<MuZeroNetworkModel> model, const anet::rl::ActionSpec& action_spec, torch::Device device, std::optional<seed_t> seed)
     : anet::RandomHolder(seed)
-    , mutex_(mutex), latest_tau_(latest_tau)
-    , actor_config_(actor_config), model_(model), num_actions_(action_spec.GetNumActions()), run_mode_(run_mode), device_(device)
+    , mutex_(mutex)
+    , actor_config_(actor_config), model_(model), num_actions_(action_spec.GetNumActions()), device_(device)
 {
     ANET_ASSERT(model_ != nullptr);
     ANET_ASSERT(rnd_ != nullptr);
@@ -812,21 +818,14 @@ std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::r
     auto out_target_policies = torch::empty({ batch_size, num_actions_ }, torch::TensorOptions().dtype(torch::kFloat32));
     auto out_root_values = torch::empty({ batch_size, 1 }, torch::TensorOptions().dtype(torch::kFloat32));
 
-    // τ（温度係数）をアニーリングで決定 （train_step を使用 ）
-    float temperature = 0.0f; // 評価モード(Eval)の場合はデフォルト0
-    if (!anet::rl::IsEval(run_mode_)) {
-        //float progress = static_cast<float>(step.train_step) / std::max<int64_t>(1, actor_config_.temp_decay_steps);
-        float progress = static_cast<float>(step.exp_step) / static_cast<float>(std::max<int64_t>(1, actor_config_.temp_decay_steps));
-        progress = std::clamp(progress, 0.0f, 1.0f);
-        temperature = actor_config_.temp_start - progress * (actor_config_.temp_start - actor_config_.temp_end);
-        if (latest_tau_) {
-            *latest_tau_ = temperature;
-        }
-    }
+    // 学習側countsでActor自身の温度を更新し、他Actorとは共有しない。
+    const float progress = std::clamp(static_cast<float>(step.exp_step)
+        / static_cast<float>(std::max<int64_t>(1, actor_config_.temp_decay_steps)), 0.0f, 1.0f);
+    const float temperature = actor_config_.temp_start
+        - progress * (actor_config_.temp_start - actor_config_.temp_end);
+    latest_tau_ = temperature;
 
-    // @todo MuZero試作制約：現在はMCTSがバッチ化されていないため、各環境(バッチ)ごとにループしてMCTSを回す
-
-    bool is_eval = anet::rl::IsEval(run_mode_);
+    /// @todo MuZero試作制約：MCTSは各環境で逐次実行しているため、探索のバッチ化が必要。
 
     // 読込排他開始
     std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -847,7 +846,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::r
         }
 
         // MCTSの実行
-        auto tree = mcts_engine_->Search(hidden_state, policy_logits, value, !is_eval);
+        auto tree = mcts_engine_->Search(hidden_state, policy_logits, value, actor_config_.add_exploration_noise);
         auto root = tree->GetRoot();
 
         // 可視化用にTreeを保存

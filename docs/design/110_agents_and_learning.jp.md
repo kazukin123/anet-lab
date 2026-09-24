@@ -28,22 +28,24 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 - `Agent`はRunから利用する入口であり、ActorとLearnerを生成する。device取得、保存・読込、可視化用functionの公開境界でもある。
 - `Actor`は`StepCounts`と`BatchState`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
 - 同一Actor instanceの`MakeAction()`と`Sync()`は並行呼出ししない。必要な直列化はActorを利用するRunner側が守る。
-- `Agent::CreateActor()`の`clone_model_override`はoptionalであり、`std::nullopt`はmodel複製の既定を具象Agentへ委譲する。値が指定された場合の対応可否、同期source、同期時点も具象Agentの契約である。
-- `Agent::CreateActor()`は`BatchEnvSpec`の後に対象Envの`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
+- `Agent::CreateActor(const ActorRequest&)`は対象spec、device、seed、`actor_key`を受け取る。Agentは構築時に読んだtyped Actorカタログから名前を解決し、方策、network、cloneを選ぶ。未定義名や非対応clone、sharedのdevice不一致は生成前にfail-fastする。
+- `Agent::CreateActor()`はrequest内に対象Envの`BatchEnvSpec`と`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
 - `Learner`は`BatchExperience`を受け取り、0件以上の`BatchUpdateResult`を`BatchUpdateResultList`として返す。1回のExperience受入れが必ずparameter更新を発生させるとは限らない。
-- `AgentBase`はdevice、Envのspec、RunMode別RNG、共有mutexなど、複数Agentに共通する実行資源を保持する。
+- `AgentBase`はdevice、Envのspec、共有mutexなど、複数Agentに共通する実行資源を保持する。
 
 `Actor`と`Learner`は行動選択と学習更新の依存方向を分けるinterfaceである。ActorまたはPolicyからLearnerの内部状態を参照してはならない。
 
-### 2.2 RunModeとActor生成
+### 2.2 Actorカタログと生成
 
-`RunMode`には`Train`、`Eval`、`Eval1`、`Eval2`があり、Train Runner、設定済みEval、GUIのEvalPanelなどが用途ごとにActorを生成する。`Sync()`は強制同期の共通操作だけを定義し、定期同期や共有modelの挙動を共通層で仮定しない。
+`run.train.actor`は既定`train`、`run.eval.[tag].actor`は既定タグ名で、`<Agent>.actor.[key]`を参照する。EvalPanelは参照する評価タグの指定を使う。Actor用seedは`actor/<Runner名>`から派生し、各Actorが独立した乱数・方策状態を持つ。RunModeはEnvの用途選択だけに残る。
+
+ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsilon・温度などを参照できる。方策スケジュールは`MakeAction`の学習側countsで進む。EvalRunnerは`Sync(source_counts)`で学習側countsを保持し、評価イベント自体のcountsは別に数える。
 
 ### 2.3 StateとResource
 
 Agent系の所有権は次の原則に従う。
 
-- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。
+- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。probe等の機能専用RNGもAgentがnamed seedから所有し、利用moduleは非所有参照だけを持つ。
 - 「Agent所有」はAgent classの直接fieldだけを意味しない。Agentが所有するLearnerやActorの配下へ配置しても、Agentのlifetime内に閉じていればよい。
 - epsilon、EMA、warmup counterなどの可変Stateは、それを更新するコンポーネントが所有する。
 - 特定Actorだけが使用するsnapshot NetworkはActor所有のprivate Resource、複数ActorとLearnerが参照するNetworkはAgent所有のshared Resourceとして区別する。
@@ -68,9 +70,9 @@ Agent系の所有権は次の原則に従う。
 |---|---|
 | `AgentRepository` | process内のAgentFactory registry。class IDをfactoryへ対応付ける |
 | `AgentFactory` | EnvSpec、BatchEnvSpec、device、ConfigData、seedから具象Agentを構築するinterface |
-| `DefaultAgentFactory` | `agent.class_id`と`agent.device_*`を解決し、登録済みfactoryへ構築を委譲する |
+| `DefaultAgentFactory` | `agent.class_id`と`agent.device`を解決し、登録済みfactoryへ構築を委譲する |
 | `Agent` | Actor/Learner生成、device、保存・読込を公開する共通interface |
-| `AgentBase` | device、Env情報、RunMode別RNG、共有mutexを提供する基底実装 |
+| `AgentBase` | device、Env情報、共有mutexを提供する基底実装 |
 | `Actor` | BatchStateからBatchActionInfoを生成し、必要に応じて推論Resourceを同期するinterface |
 | `ActionContext` | Observationのstack、device転送など、行動選択前の状態加工を担当する |
 | `Learner` | Experienceを受け取り、0件以上の更新結果を返すinterface |
@@ -179,7 +181,7 @@ sequenceDiagram
 ### 7.1 構築設定
 
 - `agent.class_id`が具象AgentFactoryを選ぶ。
-- `agent.device_type`はCPU/CUDA、`agent.device_index`は対象deviceを指定する。
+- `agent.device`は`auto`、`cpu`、`cuda`、`cuda:N`で対象deviceを指定する。既定は`auto`で、採用値は`json/agent.json`に記録する。
 - EnvSpec、BatchEnvSpec、device、seed、ConfigDataはfactoryから具象Agentへ渡す。
 - アルゴリズム固有設定は具象AgentのConfigが読み取る。存在する値の型変換失敗は共通`ConfigData`がfail-fastし、既定値はキー欠落時だけ使う。enum、範囲、組み合わせは各具象Configまたは再利用設定型の構築時validatorが検証する。
 - ActorのRunModeとmodel複製有無は、Runnerのoverrideと具象Agentの既定をAgent生成境界で解決する。
@@ -204,9 +206,13 @@ checkpoint対応を追加・変更するときは、保存しないStateを明�
 - Actor推論とLearner更新は高頻度境界であり、Network forward、optimizer、ReplayBuffer、device転送などの具象処理へ計測範囲を置く。
 - model cloneと同期は一貫したsnapshotを得られる一方、copy時間と追加memoryを伴う。共有か複製かをRunModeごとに実測する。
 
+### 7.5 scalar metric購読
+
+`RunManager`は実際にattachしたscalar metrics定義を`ScalarMetricSubscription`へ変換し、学習開始前に`Agent::ConfigureScalarMetricSubscriptions()`へ1回渡す。購読はsource key、event、optional target、interval、runner scope、eval名を保持する。基底Agentはno-opであり、具象Agentは自身が所有するtrain-scope `LEARN` keyだけをfilterして、重いcaptureやprobeのON/OFFとcadenceを決める。購読が無いmetric処理は完全に不活性でなければならない。
+
 ## 8. テストと拡張時の確認事項
 
-共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。
+共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。Actorカタログの公開契約test `[prd061]` と、設定改名・カタログ移行の比較手順は[testdata/prd061/README.md](../../core/anet-core/testdata/prd061/README.md)を参照する。
 
 Agentを追加・変更する場合は、少なくとも次を確認する。
 

@@ -334,8 +334,8 @@ TEST_CASE("DropMergeEnv previous action observations work through batch env pref
 
     const std::vector<std::string> prefixes = {
         "train.env",
-        "train.eval.[eval1].env",
-        "train.eval.[eval2].env",
+        "run.eval.[eval1].env",
+        "run.eval.[eval2].env",
     };
     const std::vector<anet::rl::RunMode> run_modes = {
         anet::rl::RunMode::Train,
@@ -404,6 +404,67 @@ TEST_CASE("DropMergeEnv reports the successive DROP column ratio", "[dropmerge][
     REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
     CHECK(*env->GetScalar("ep_same_drop_col_ratio") ==
         Catch::Approx(3.0f / 4.0f));
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports Double Suika outcome only at episode end", "[dropmerge][metrics][double_suika]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.use_instant_drop = true;
+    config.max_step = 1;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-double-suika[0]", 123);
+    env->Reset();
+
+    // エピソード中は成果イベントとして扱わず、NaNを返す。
+    REQUIRE(env->GetScalar("ep_double_suika_created").has_value());
+    CHECK(std::isnan(*env->GetScalar("ep_double_suika_created")));
+    REQUIRE(env->GetScalar("ep_double_suika_achieved").has_value());
+    CHECK(std::isnan(*env->GetScalar("ep_double_suika_achieved")));
+
+    // Double Suika未生成で終了したエピソードは、件数0・未達成0を返す。
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto terminal = env->Step(anet::rl::env::drop_merge::kActionNoop);
+    REQUIRE(terminal->next_state.truncated);
+    CHECK(*env->GetScalar("ep_double_suika_created") == 0.0f);
+    CHECK(*env->GetScalar("ep_double_suika_achieved") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports a completed Double Suika merge", "[dropmerge][metrics][double_suika]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 1;
+    config.box_width = 1.0f;
+    config.box_height = 2.0f;
+    config.fruit_radii.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.1f);
+    config.drop_probs.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.0f);
+    config.drop_probs.back() = 1.0f;
+    config.drop_noise = 0.0f;
+    config.spin_noise = 0.0f;
+    config.restitution = 0.0f;
+    config.damping = 0.0f;
+    config.use_instant_drop = true;
+    config.reload_min_steps = 0;
+    config.reload_max_steps = 120;
+    config.game_over_grace_step = 1000;
+    config.max_step = 2;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-double-suika-positive[0]", 123);
+    env->Reset();
+
+    // 同じ列へスイカを2個落とし、公開Step経路でDouble Suikaを成立させる。
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    REQUIRE_FALSE(env->Step(1)->next_state.done);
+    const auto terminal = env->Step(1);
+    REQUIRE(terminal->next_state.truncated);
+    CHECK(*env->GetScalar("ep_double_suika_created") == 1.0f);
+    CHECK(*env->GetScalar("ep_double_suika_achieved") == 1.0f);
     logs.Flush();
 }
 

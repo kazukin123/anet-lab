@@ -7,9 +7,6 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.stereotype.Component;
-
-@Component
 public class LodIngestWriter {
 
 	State restore(Connection connection, long tagId, long pointCount) throws SQLException {

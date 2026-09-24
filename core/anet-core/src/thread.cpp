@@ -214,9 +214,12 @@ void PinnedThreadPool::Stop()
     if (!stop_flag_.compare_exchange_strong(expected, true, std::memory_order_release))
         return; // 同時操作で既にstop_flagが立ってたら抜ける
 
-    // 全てのworkerスレッドを起こす
-    for (int i = 0; i < worker_count_; ++i)
+    // predicate確認とwaitへの移行に通知が割り込まないよう、同じmutexで同期する。
+    // flagは先に公開済みなので、workerは停止を読むか、wait開始後にこの通知を受ける。
+    for (int i = 0; i < worker_count_; ++i) {
+        std::lock_guard<std::mutex> lock(mutexes_[i]);
         cvs_[i].notify_all();
+    }
 
     // 全てのworkerスレッドを終了待ち
     for (int i = 0; i < worker_count_; ++i)

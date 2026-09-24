@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Stats"
+  short_description: "git履歴とRunフォルダからanet-labの定点統計を再生成し、digestを追記する"
+  default_prompt: "$anet-stats を使って、anet-labの定点統計を再生成し digest を追記してください。"
+
+policy:
+  allow_implicit_invocation: false

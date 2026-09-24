@@ -20,7 +20,7 @@ jobs:
     env:
       BUILD_TYPE: Release
       LIBTORCH_VER: "2.12.0-cu130"
-      WX_VER: "3.3.1"
+      WX_VER: "3.3.3"
 
     steps:
     - uses: actions/checkout@v6
@@ -131,17 +131,17 @@ jobs:
         $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
         $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
 
+        # wx は Config モードで解決する (Config は lib/cmake/wxWidgets-<major>.<minor>/ に入る)。
+        # パスを直接指さず install prefix を CMAKE_PREFIX_PATH で渡して CMake に探索させる。
         $wxInst = "${{ github.workspace }}/third_party/wxwidgets/install"
-        $env:wxWidgets_DIR = "$wxInst/lib/cmake/wxWidgets"
-        $env:wxWidgets_ROOT = ""
 
         cmake -B build `
           -DCMAKE_BUILD_TYPE=Release `
           -DCMAKE_CONFIGURATION_TYPES="Release" `
           -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
           -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
-          -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON `
-          -DwxWidgets_DIR="$wxInst/lib/cmake/wxWidgets"
+          -DANET_ENABLE_ATARI=OFF `
+          -DCMAKE_PREFIX_PATH="$wxInst"
 
     - name: Build
       run: cmake --build build --config Release --parallel
@@ -198,14 +198,17 @@ jobs:
         Copy-Item NOTICE "$docsStage/NOTICE"
 
         # apps: launcher bat + README
+        # Atari は ANET_ENABLE_ATARI=OFF でビルドするため Atari 用 launcher は同梱しない (ADR 0025)
         New-Item -ItemType Directory -Force -Path "$stage/apps" | Out-Null
-        Copy-Item apps/*.bat "$stage/apps/"
+        Copy-Item apps/*.bat "$stage/apps/" -Exclude *atari*
         Copy-Item apps/README.md "$stage/apps/"
 
         # apps/runner: 実行バイナリ(.ilk/.pdb 除外) + config + tools
         New-Item -ItemType Directory -Force -Path "$stage/apps/runner/bin/Release" | Out-Null
         Copy-Item apps/runner/bin/Release/* "$stage/apps/runner/bin/Release/" -Exclude *.ilk,*.pdb
         Copy-Item apps/runner/config "$stage/apps/runner/config" -Recurse
+        # workspaces: ENV 別 workspace の枠 (追跡対象の config/_main.txt だけ。runs/ は実行時に Runner が生成)
+        Copy-Item apps/runner/workspaces "$stage/apps/runner/workspaces" -Recurse
         Copy-Item apps/runner/tools "$stage/apps/runner/tools" -Recurse
 
         # wx DLL はビルド時の POST_BUILD コピー(apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast
@@ -247,6 +250,11 @@ jobs:
         $mainEntries = @(tar.exe -tf $mainZip)
         foreach ($entry in @("LICENSE", "NOTICE", "apps/", "docs/", "licenses/")) {
           if ($mainEntries -notcontains $entry) { throw "Main zip entry missing: $entry" }
+        }
+        # Atari 用 launcher が紛れ込んでいないことを確認する (ADR 0025)
+        $atariBats = @($mainEntries | Where-Object { $_ -like 'apps/*atari*.bat' })
+        if ($atariBats.Count -gt 0) {
+          throw "Atari launcher leaked into release zip: $($atariBats -join ', ')"
         }
         $docsEntries = @(tar.exe -tf $docsZip)
         foreach ($entry in @("LICENSE", "NOTICE", "html/")) {

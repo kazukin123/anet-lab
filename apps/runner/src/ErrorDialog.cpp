@@ -8,9 +8,14 @@
 
 namespace LOG = anet::log;
 
-void ShowErrorDialog(const wxString& message, const wxString& detail)
+void ReportError(const wxString& message, const wxString& detail, bool show_dialog)
 {
     LOG::error() << "System error: " << message << "\n" << detail;
+    wxLog::FlushActive();
+
+    if (!show_dialog) {
+        return;
+    }
 
     // ダイアログ作成 (リサイズ可能にする)
     wxDialog dlg(NULL, wxID_ANY, wxT("System Error"),
@@ -80,4 +85,3 @@ void ShowErrorDialog(const wxString& message, const wxString& detail)
     dlg.Centre(); // 画面中央に表示
     dlg.ShowModal();
 }
-

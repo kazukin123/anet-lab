@@ -1,13 +1,22 @@
 ﻿// app_util.cpp
+
 #include "anet/app_util.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <array>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -18,12 +27,34 @@
 #else
 #include <unistd.h>
 #endif
-
+#include "app_util_impl.hpp"
+#include "anet/diag.hpp"
 #include "anet/log.hpp"
 
 namespace LOG = anet::log;
 
 namespace {
+
+std::optional<std::filesystem::path> GetEnvironmentPath(const char* name)
+{
+#ifdef _WIN32
+    char* value = nullptr;
+    size_t size = 0;
+    if (_dupenv_s(&value, &size, name) != 0 || value == nullptr || value[0] == '\0') {
+        std::free(value);
+        return std::nullopt;
+    }
+    const std::filesystem::path path(value);
+    std::free(value);
+    return path;
+#else
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return std::nullopt;
+    }
+    return std::filesystem::path(value);
+#endif
+}
 
 #ifdef _WIN32
 
@@ -43,6 +74,88 @@ bool RedirectStandardStreamFallback(FILE* stream, const std::filesystem::path& p
 }
 
 } // namespace
+
+constexpr size_t kMaxHistoryEntries = 10;
+
+static std::string Trim(const std::string& value)
+{
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        return {};
+    }
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+static std::filesystem::path PathFromUtf8(const std::string& value)
+{
+    const std::u8string text(
+        reinterpret_cast<const char8_t*>(value.data()), value.size());
+    return std::filesystem::path(text);
+}
+
+static std::string PathToUtf8(const std::filesystem::path& path)
+{
+    const auto text = path.u8string();
+    return { reinterpret_cast<const char*>(text.data()), text.size() };
+}
+
+static bool HasUncRoot(const std::string& input)
+{
+    // UNC 分類専用に区切りを揃え、混在区切りも同じ root として扱う。
+    auto normalized_separators = input;
+    std::replace(normalized_separators.begin(), normalized_separators.end(), '/', '\\');
+    const auto normalized_path = PathFromUtf8(normalized_separators).lexically_normal();
+#ifdef _WIN32
+    const auto root_name = normalized_path.root_name().native();
+    return root_name.starts_with(LR"(\\)");
+#else
+    const auto normalized_text = PathToUtf8(normalized_path);
+    return normalized_text.starts_with(R"(\\)");
+#endif
+}
+
+static std::optional<std::string> GetWorkspacePathError(const std::string& raw_input)
+{
+    const auto input = Trim(raw_input);
+    if (input.empty()) {
+        return "value must not be empty";
+    }
+    if (input.find('#') != std::string::npos) {
+        return "value must not contain '#'";
+    }
+    if (input.find("//") != std::string::npos) {
+        return "value must not contain '//'";
+    }
+    if (input.ends_with(';')) {
+        return "value must not end with ';'";
+    }
+    if (HasUncRoot(input)) {
+        return "UNC roots are not supported";
+    }
+    return std::nullopt;
+}
+
+static bool IsSingleRelativeName(const std::filesystem::path& path)
+{
+    if (path.empty() || path.is_absolute() || path.has_root_name()) {
+        return false;
+    }
+    auto it = path.begin();
+    if (it == path.end()) {
+        return false;
+    }
+    const auto component = *it;
+    ++it;
+    return it == path.end() && component != "." && component != "..";
+}
+
+static bool HasWindowsDrivePrefix(const std::string& input)
+{
+    return input.size() >= 2
+        && std::isalpha(static_cast<unsigned char>(input.front())) != 0
+        && input[1] == ':';
+}
 
 namespace anet {
 
@@ -94,6 +207,349 @@ std::filesystem::path GetExecutableRootDir()
 std::filesystem::path GetExecutableConfigDir()
 {
     return GetExecutableRootDir() / "config";
+}
+
+namespace internal {
+
+std::filesystem::path ResolveAppDataDir(
+    const std::filesystem::path& executable_root,
+    const std::optional<std::filesystem::path>& user_config_root)
+{
+    // 配布物の隣に appdata が用意されている場合だけ portable mode とする。
+    const auto portable_dir = executable_root / "appdata";
+    if (std::filesystem::is_directory(portable_dir)) {
+        return portable_dir;
+    }
+
+    if (!user_config_root.has_value() || user_config_root->empty()) {
+        ANET_SYSTEM_ERROR("GetAppDataDir: user configuration directory is unavailable.");
+    }
+
+    // user mode の保存先は利用前に確実に作成する。
+    const auto app_data_dir = *user_config_root / "anet-lab" / "runner";
+    std::filesystem::create_directories(app_data_dir);
+    return app_data_dir;
+}
+
+} // namespace internal
+
+std::filesystem::path GetAppDataDir()
+{
+#ifdef _WIN32
+    const auto user_config_root = GetEnvironmentPath("APPDATA");
+#else
+    auto user_config_root = GetEnvironmentPath("XDG_CONFIG_HOME");
+    if (!user_config_root.has_value()) {
+        const auto home = GetEnvironmentPath("HOME");
+        if (home.has_value()) {
+            user_config_root = *home / ".config";
+        }
+    }
+#endif
+    return internal::ResolveAppDataDir(GetExecutableRootDir(), user_config_root);
+}
+
+AppConfigMode DetermineAppConfigMode(
+    bool has_config,
+    bool has_workspace,
+    bool force_workspace_selection)
+{
+    // 指定された入力源を列挙し、競合時に利用者が直せる診断を組み立てる。
+    std::vector<std::string> specified_options;
+    if (has_config) {
+        specified_options.push_back("--config");
+    }
+    if (has_workspace) {
+        specified_options.push_back("--workspace");
+    }
+    if (force_workspace_selection) {
+        specified_options.push_back("--select-workspace");
+    }
+    if (specified_options.size() > 1) {
+        std::ostringstream oss;
+        for (size_t i = 0; i < specified_options.size(); ++i) {
+            if (i > 0) {
+                oss << ", ";
+            }
+            oss << specified_options[i];
+        }
+        ANET_SYSTEM_ERROR(
+            "Conflicting application config sources. specified=" << oss.str()
+            << " expected=exactly one of --config, --workspace, or --select-workspace");
+    }
+
+    // direct config を先に返し、呼出側が workspace 状態を構築しない分岐を固定する。
+    if (has_config) {
+        return AppConfigMode::DirectConfig;
+    }
+    if (has_workspace) {
+        return AppConfigMode::ExplicitWorkspace;
+    }
+    return AppConfigMode::WorkspaceFlow;
+}
+
+WorkspaceService::WorkspaceService(
+    std::filesystem::path runner_root,
+    std::filesystem::path app_data_dir)
+    : runner_root_(std::move(runner_root))
+    , app_data_dir_(std::move(app_data_dir))
+{
+}
+
+std::optional<std::string> WorkspaceService::GetNewWorkspaceNameError(
+    const std::string& raw_input) const
+{
+    // workspace 共通の禁止形式を先に判定し、UI と Resolve で同じ理由を返す。
+    const auto input = Trim(raw_input);
+    if (const auto error = GetWorkspacePathError(input)) {
+        return error;
+    }
+
+    // 新規作成欄は OS によらず単一名に限定し、path 指定は履歴または参照へ分離する。
+    if (input.find('/') != std::string::npos || input.find('\\') != std::string::npos) {
+        return "value must not contain path separators ('/' or '\\')";
+    }
+    const auto input_path = PathFromUtf8(input);
+    if (HasWindowsDrivePrefix(input) || !IsSingleRelativeName(input_path)) {
+        return "value must be a single relative workspace name other than '.' or '..'";
+    }
+    return std::nullopt;
+}
+
+std::string WorkspaceService::ValidateAndTrim(const std::string& raw_input) const
+{
+    // 永続化・解決に使う値を先に正規化し、禁止形式は filesystem 操作前に拒否する。
+    const auto input = Trim(raw_input);
+    if (const auto error = GetWorkspacePathError(input)) {
+        ANET_SYSTEM_ERROR(
+            "Invalid workspace path. value=\"" << raw_input << "\" reason=" << *error
+            << " expected=non-empty local path without '#', '//', trailing ';', or UNC root");
+    }
+    return input;
+}
+
+WorkspacePaths WorkspaceService::Resolve(const std::string& raw_input, bool allow_create) const
+{
+    // UTF-8 入力を native path へ変換し、相対指定だけを application root の workspaces 基準へ展開する。
+    const auto input = ValidateAndTrim(raw_input);
+    const auto input_path = PathFromUtf8(input);
+    const bool relative = input_path.is_relative() && !input_path.has_root_name();
+    auto root = relative ? runner_root_ / "workspaces" / input_path : input_path;
+    root = root.lexically_normal();
+
+    // 新規作成は相対1語だけに限定し、絶対・多階層の誤指定を自動生成しない。
+    if (!std::filesystem::exists(root)) {
+        if (!allow_create) {
+            ANET_SYSTEM_ERROR(
+                "Workspace directory does not exist. input=\"" << input
+                << "\" resolved_path=" << PathToUtf8(root));
+        }
+        if (const auto error = GetNewWorkspaceNameError(input)) {
+            ANET_SYSTEM_ERROR(
+                "Invalid new workspace name. value=\"" << input << "\" reason=" << *error
+                << " expected=single relative workspace name");
+        }
+        CreateWorkspace(root);
+    }
+    if (!std::filesystem::is_directory(root)) {
+        ANET_SYSTEM_ERROR("Workspace path is not a directory. path=" << PathToUtf8(root));
+    }
+
+    // 既存ディレクトリも、明示選択された場合だけ不足する workspace config を補完する。
+    const auto config_file = root / "config" / "_main.txt";
+    if (std::filesystem::exists(config_file) && !std::filesystem::is_regular_file(config_file)) {
+        ANET_SYSTEM_ERROR(
+            "Workspace config path is not a regular file. path=" << PathToUtf8(config_file));
+    }
+    if (!std::filesystem::exists(config_file)) {
+        if (allow_create) {
+            CreateWorkspace(root);
+        } else {
+            ANET_SYSTEM_ERROR(
+                "Workspace config file does not exist. workspace=" << PathToUtf8(root)
+                << " expected=" << PathToUtf8(config_file));
+        }
+    }
+    if (!std::filesystem::is_regular_file(config_file)) {
+        ANET_SYSTEM_ERROR(
+            "Workspace config file does not exist. workspace=" << PathToUtf8(root)
+            << " expected=" << PathToUtf8(config_file));
+    }
+    const auto runs_dir = root / "runs";
+    std::filesystem::create_directories(runs_dir);
+
+    // config 内へ注入する path は UTF-8 とし、相対指定の可搬性を維持する。
+    const auto runs_config_value = relative
+        ? PathToUtf8(std::filesystem::relative(runs_dir, runner_root_))
+        : PathToUtf8(std::filesystem::absolute(runs_dir).lexically_normal());
+    return WorkspacePaths{
+        .input = input,
+        .root = std::filesystem::absolute(root).lexically_normal(),
+        .config_file = std::filesystem::absolute(config_file).lexically_normal(),
+        .runs_dir = std::filesystem::absolute(runs_dir).lexically_normal(),
+        .runs_config_value = runs_config_value,
+    };
+}
+
+bool WorkspaceService::IsResolvable(const std::string& raw_input) const
+{
+    // UI や CLI の可用性確認では生成せず、完成済みまたはテンプレートで補完可能かだけを確認する。
+    const auto input = Trim(raw_input);
+    if (GetWorkspacePathError(input)) {
+        return false;
+    }
+    const auto input_path = PathFromUtf8(input);
+    const bool relative = input_path.is_relative() && !input_path.has_root_name();
+    const auto root = (relative ? runner_root_ / "workspaces" / input_path : input_path).lexically_normal();
+    if (!std::filesystem::is_directory(root)) {
+        return false;
+    }
+    const auto config_dir = root / "config";
+    const auto config_file = config_dir / "_main.txt";
+    if (std::filesystem::is_regular_file(config_file)) {
+        return true;
+    }
+    if (std::filesystem::exists(config_file)
+        || (std::filesystem::exists(config_dir) && !std::filesystem::is_directory(config_dir))) {
+        return false;
+    }
+    const auto runs_dir = root / "runs";
+    if (std::filesystem::exists(runs_dir) && !std::filesystem::is_directory(runs_dir)) {
+        return false;
+    }
+    return std::filesystem::is_regular_file(runner_root_ / "config" / "_workspace_template.txt");
+}
+
+std::vector<std::string> WorkspaceService::ScanLocalWorkspaces() const
+{
+    // 過去 Run だけを移した未初期化フォルダも含め、直下の全ディレクトリを列挙する。
+    std::vector<std::string> result;
+    const auto workspaces_dir = runner_root_ / "workspaces";
+    if (!std::filesystem::is_directory(workspaces_dir)) {
+        return result;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(workspaces_dir)) {
+        if (entry.is_directory()) {
+            result.push_back(PathToUtf8(entry.path().filename()));
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+std::vector<std::string> WorkspaceService::LoadHistory() const
+{
+    // application data が無い初回起動は空履歴として扱う。
+    std::vector<std::string> history;
+    const auto path = app_data_dir_ / "history.txt";
+    if (!std::filesystem::is_regular_file(path)) {
+        return history;
+    }
+
+    ConfigData data;
+    try {
+        data = Properties(path).ToConfigData();
+    } catch (const std::exception& e) {
+        LOG::warn() << "Workspace history could not be read. path=" << PathToUtf8(path)
+            << " error=" << e.what() << ". Falling back to an empty history.";
+        return history;
+    }
+
+    // 手編集で壊れた entry だけを WARN して除外し、他の有効な履歴は利用する。
+    for (size_t i = 0; i < kMaxHistoryEntries; ++i) {
+        const auto key = "workspace.history." + std::to_string(i);
+        if (!data.Has(key)) {
+            continue;
+        }
+        const auto raw_input = data.Get(key);
+        const auto input = Trim(raw_input);
+        if (const auto error = GetWorkspacePathError(input)) {
+            LOG::warn() << "Workspace history entry ignored. path=" << PathToUtf8(path)
+                << " key=" << key << " value=\"" << raw_input << "\" reason=" << *error;
+            continue;
+        }
+        history.push_back(input);
+    }
+    return history;
+}
+
+void WorkspaceService::RecordHistory(const std::string& adopted_input) const
+{
+    // 採用値をMRU先頭へ移動し、完全一致の重複と上限超過を除去する。
+    const auto input = ValidateAndTrim(adopted_input);
+    auto history = LoadHistory();
+    history.erase(std::remove(history.begin(), history.end(), input), history.end());
+    history.insert(history.begin(), input);
+    if (history.size() > kMaxHistoryEntries) {
+        history.resize(kMaxHistoryEntries);
+    }
+
+    // Properties の原子的置換で履歴責務だけを保存する。
+    ConfigData data;
+    for (size_t i = 0; i < history.size(); ++i) {
+        data.Set("workspace.history." + std::to_string(i), history[i]);
+    }
+    data.SaveProperties(app_data_dir_ / "history.txt");
+}
+
+void WorkspaceService::SaveLastWorkspace(const WorkspacePaths& workspace) const
+{
+    // 補助 launcher との受け渡しは、解決済み絶対 path の UTF-8 bytes に固定する。
+    const auto path = app_data_dir_ / "last_workspace.txt";
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+    ANET_CHECK_MSG(ofs, "Failed to open last workspace file. path=" << PathToUtf8(path));
+    ofs << PathToUtf8(workspace.root);
+    ofs.flush();
+    ANET_CHECK_MSG(ofs, "Failed to write last workspace file. path=" << PathToUtf8(path));
+}
+
+void WorkspaceService::CreateWorkspace(const std::filesystem::path& root) const
+{
+    // 追跡対象テンプレートの存在を確認してから箱を作る。
+    const auto template_path = runner_root_ / "config" / "_workspace_template.txt";
+    if (!std::filesystem::is_regular_file(template_path)) {
+        ANET_SYSTEM_ERROR("Workspace template does not exist. path=" << PathToUtf8(template_path));
+    }
+
+    // 既存内容を保持したまま不足するテンプレートを配置し、最後に runs を用意する。
+    std::filesystem::create_directories(root / "config");
+    std::filesystem::copy_file(
+        template_path,
+        root / "config" / "_main.txt",
+        std::filesystem::copy_options::none);
+    std::filesystem::create_directories(root / "runs");
+}
+
+std::unique_ptr<ConfigManager> CreateWorkspaceConfigManager(
+    const WorkspacePaths& workspace,
+    const std::filesystem::path& common_config_dir,
+    const wxCmdLineParser* cmd_line)
+{
+    // 共通設定へ runs 導出値と workspace config を順番に重ねる。
+    ConfigManagerOptions options;
+    options.config_search_dirs = { common_config_dir };
+    options.injected_config.Set("app.runs_dir", workspace.runs_config_value);
+    options.overwrite_config_paths = { workspace.config_file };
+    auto manager = std::make_unique<ConfigManager>(
+        common_config_dir / "_main.txt", cmd_line, options);
+
+    // AutoMerge と CLI 完了後に、自己完結 workspace の不変条件を検証する。
+    ValidateWorkspaceRunsDir(manager->GetConfigData(), workspace);
+    return manager;
+}
+
+void ValidateWorkspaceRunsDir(
+    const ConfigData& config_data,
+    const WorkspacePaths& workspace)
+{
+    // 表記を正規化せず、注入した UTF-8 文字列との完全一致を要求する。
+    const auto actual = config_data.Get("app.runs_dir");
+    if (actual != workspace.runs_config_value) {
+        ANET_SYSTEM_ERROR(
+            "Workspace config changed app.runs_dir. actual=\"" << actual
+            << "\" expected=\"" << workspace.runs_config_value << "\"");
+    }
 }
 
 struct StandardStreamLogger::Impl {

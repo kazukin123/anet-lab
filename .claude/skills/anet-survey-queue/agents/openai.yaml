@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Survey Queue"
+  short_description: "reports/INDEX.md のキューから ready なサーベイを1件回し、済みへ移す"
+  default_prompt: "$anet-survey-queue を使って、キューの次のサーベイを1件実行してください。"
+
+policy:
+  allow_implicit_invocation: false

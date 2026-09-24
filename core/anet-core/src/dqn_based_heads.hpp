@@ -48,4 +48,16 @@ namespace anet::rl::dqn {
         int64_t num_quantiles_;
     };
 
+    class IQNHeadFactory final : public HeadFactoryBase {
+    public:
+        IQNHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config);
+        std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    };
+
+    class IQNDuelingHeadFactory final : public HeadFactoryBase {
+    public:
+        IQNDuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config);
+        std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    };
+
 } // namespace anet::rl::dqn

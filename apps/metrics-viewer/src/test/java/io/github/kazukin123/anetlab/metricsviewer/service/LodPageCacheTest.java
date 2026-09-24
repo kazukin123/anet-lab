@@ -51,7 +51,7 @@ class LodPageCacheTest {
 			projectBoundary(projector, handle.connection(), fixture, 6);
 			assertEquals(1, cache.pageCount());
 		}
-		assertEquals(16L, cache.find(
+		assertEquals(16L, find(cache,
 				closedConnection,
 				fixture.generation(),
 				"run-cache",
@@ -61,7 +61,7 @@ class LodPageCacheTest {
 
 		appendPoints(fixture, 16);
 		try (ConnectionHandle handle = fixture.database().openRead(fixture.runDir())) {
-			final LodBucket appended = cache.find(
+			final LodBucket appended = find(cache,
 					handle.connection(),
 					fixture.generation(),
 					"run-cache",
@@ -110,7 +110,7 @@ class LodPageCacheTest {
 		when(result.getDouble("vmean")).thenReturn(1.5);
 		when(result.getDouble("vlast")).thenReturn(1.75);
 
-		final LodBucket loaded = cache.find(
+		final LodBucket loaded = find(cache,
 				connection, "generation", "run-cache", 1L, 1, bucket);
 
 		assertNotNull(loaded);
@@ -196,14 +196,46 @@ class LodPageCacheTest {
 			int pointBudget) throws Exception {
 		final long ordinalFrom = (LodPageCache.LOD_PAGE_BUCKETS - 1L) * 16L;
 		final long ordinalTo = (LodPageCache.LOD_PAGE_BUCKETS + 1L) * 16L;
-		projector.project(
-				connection,
-				fixture.generation(),
-				"run-cache",
-				fixture.tagId(),
-				ordinalFrom,
-				ordinalTo,
-				pointBudget);
+		new MetricsQueryCoordinator(1).run(
+				new QueryChannel(java.util.UUID.randomUUID().toString()),
+				0L,
+				execution -> {
+					try {
+						projector.project(
+								connection,
+								fixture.generation(),
+								"run-cache",
+								fixture.tagId(),
+								ordinalFrom,
+								ordinalTo,
+								pointBudget,
+								execution);
+						return null;
+					} catch (Exception e) {
+						throw new IllegalStateException(e);
+					}
+				});
+	}
+
+	private static LodBucket find(
+			LodPageCache cache,
+			Connection connection,
+			String generation,
+			String runId,
+			long tagId,
+			int level,
+			long bucket) {
+		return new MetricsQueryCoordinator(1).run(
+				new QueryChannel(java.util.UUID.randomUUID().toString()),
+				0L,
+				execution -> {
+					try {
+						return cache.find(
+								connection, generation, runId, tagId, level, bucket, execution);
+					} catch (Exception e) {
+						throw new IllegalStateException(e);
+					}
+				});
 	}
 
 	private static long queryLong(Statement statement, String sql) throws Exception {

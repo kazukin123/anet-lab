@@ -24,7 +24,13 @@ ImageClsEnv::ImageClsEnv(
     anet::rl::RunMode run_mode)
     : BatchEnvBase(name, num_envs, run_mode, std::move(config_data))
     , config_(config)
-    , batch_spec_({ num_envs, 1 })
+    , batch_spec_({
+        .num_envs = num_envs,
+        .num_threads = 1,
+        .episode_scope = anet::rl::IsEval(run_mode)
+            ? anet::rl::EpisodeScope::SHARED
+            : anet::rl::EpisodeScope::PER_LANE,
+    })
     , source_(std::move(source))
 {
     batch_spec_.num_threads = source_->GetWorkerCount();
@@ -156,21 +162,15 @@ std::shared_ptr<const anet::rl::BatchStepResult> ImageClsEnv::Step(
     ANET_PROFILE_SCOPE_NEXT(next_batch);
     auto next_batch = source_->NextBatch();
 
-    // evalはlane 0だけを代表episodeとし、trainは全laneを同時終端させる。
+    // eval window は全 lane を一つの episode group として同時終端させる。
     ANET_PROFILE_SCOPE_NEXT(build_result);
     const auto bool_options = torch::TensorOptions().dtype(torch::kBool).device(torch::kCPU);
     auto done = torch::zeros({ batch_spec_.num_envs }, bool_options);
-    if (episode_end) {
-        if (anet::rl::IsEval(GetRunMode())) done[0].fill_(true);
-        else done.fill_(true);
-    }
+    if (episode_end) done.fill_(true);
     auto truncated = torch::zeros({ batch_spec_.num_envs }, bool_options);
     auto next_episode_start = torch::zeros({ batch_spec_.num_envs }, bool_options);
     auto continue_episode_start = torch::zeros({ batch_spec_.num_envs }, bool_options);
-    if (episode_end) {
-        if (anet::rl::IsEval(GetRunMode())) continue_episode_start[0].fill_(true);
-        else continue_episode_start.fill_(true);
-    }
+    if (episode_end) continue_episode_start.fill_(true);
     auto next_state = MakeState(next_batch, done, truncated, next_episode_start);
     auto continue_state = MakeState(
         next_batch,

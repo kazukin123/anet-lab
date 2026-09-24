@@ -10,6 +10,8 @@
 
 struct TrainPanelConfig {
 	float fps = 10.0f;
+
+	void Validate() const;
 };
 
 class TrainPanel : public anet::rl::gui::Panel {
@@ -17,6 +19,7 @@ public:
 	TrainPanel(wxWindow* parent, const TrainPanelConfig& config);
 
 	void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager);
+	void SetFps(float fps);
 protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);

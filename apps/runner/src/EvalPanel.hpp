@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <wx/wx.h>
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
@@ -11,7 +12,6 @@
 #include "anet/trainer.hpp"
 
 enum class EvalPanelModelSyncMode {
-	Shared,
 	Frame,
 	Time,
 	Episode,
@@ -24,7 +24,6 @@ struct EvalPanelModelSyncConfig {
 	int episode_interval = 1;
 
 	EvalPanelModelSyncMode GetMode() const;
-	bool UsesClonedModel() const;
 	void Validate() const;
 };
 
@@ -34,6 +33,8 @@ struct EvalPanelConfig {
 	bool auto_start = true;
 	std::string eval_config_tag;
 	EvalPanelModelSyncConfig model_sync;
+
+	void Validate() const;
 };
 
 class EvalPanel final : public wxPanel {
@@ -45,6 +46,8 @@ public:
 	void DoClose();
 
 	const EvalPanelConfig& GetConfig() const { return config_; }
+	bool IsPaused() const { return is_pause_; }
+	void SetFps(float fps);
 	void TogglePause();
 	void DoStep();
 	void DoStep(int64_t action);
@@ -52,7 +55,6 @@ protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
 private:
-	bool UsesClonedModel() const;
 	void SyncModel();
 	void SyncBeforeFrame();
 	void SyncBeforeManualStep();
@@ -60,6 +62,9 @@ private:
 private:
 	const EvalPanelConfig config_;
 	std::shared_ptr<anet::rl::EvalRunner> runner_ = nullptr;
+	std::mutex source_counts_mutex_;
+	anet::rl::StepCounts source_counts_;
+	std::shared_ptr<anet::rl::TrainObserver> source_counts_observer_;
 	std::shared_ptr<anet::rl::gui::View> view_ = nullptr;
 	std::shared_ptr<anet::rl::TrainObserver> observer_ = nullptr;
 	wxWindow* view_window_ = nullptr;

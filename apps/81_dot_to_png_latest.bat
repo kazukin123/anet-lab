@@ -1,8 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
 
+call "%~dp0runner\tools\resolve_workspace.bat" "%~1"
+if errorlevel 1 exit /b 1
 pushd "%~dp0runner" >nul || exit /b 1
-set "RUNS_DIR=%CD%\runs"
 
 if not exist "%RUNS_DIR%" (
     echo [ERROR] No runs directory found: "%RUNS_DIR%"
@@ -10,7 +11,7 @@ if not exist "%RUNS_DIR%" (
     exit /b 1
 )
 
-:: æœ€æ–°ã®runãƒ•ã‚©ãƒ«ãƒ€ã‚’å–å¾—
+:: ÅV‚ÌrunƒtƒHƒ‹ƒ_‚ðŽæ“¾
 set "run="
 for /f "delims=" %%A in ('dir "%RUNS_DIR%" /b /o:n /ad 2^>nul') do (
     set "run=%%A"
@@ -33,7 +34,7 @@ if errorlevel 1 (
 
 echo DONE.
 
-:: å¤‰æ›ãŒçµ‚ã‚ã£ãŸã‚‰æœ€æ–°ã®dot_pngãƒ•ã‚©ãƒ«ãƒ€ã‚’è‡ªå‹•ã§é–‹ã
+:: •ÏŠ·‚ªI‚í‚Á‚½‚çÅV‚Ìdot_pngƒtƒHƒ‹ƒ_‚ðŽ©“®‚ÅŠJ‚­
 explorer "%run_dir%\dot_png"
 
 popd >nul
@@ -41,7 +42,7 @@ exit /b
 
 
 :: ==========================================
-:: runé…ä¸‹ã®dotã‚’éšŽå±¤ã«ä¾å­˜ã›ãšPNGã¸å¤‰æ›
+:: run”z‰º‚Ìdot‚ðŠK‘w‚ÉˆË‘¶‚¹‚¸PNG‚Ö•ÏŠ·
 :: ==========================================
 :convert_run
 set "run_dir=%~1"
@@ -66,12 +67,12 @@ exit /b 0
 
 
 :: ==========================================
-:: DOTã‹ã‚‰PNGã¸ã®å¤‰æ›å‡¦ç†
+:: DOT‚©‚çPNG‚Ö‚Ì•ÏŠ·ˆ—
 :: ==========================================
 :to_png
-:: %~1 = å…¥åŠ›dotãƒ•ã‚¡ã‚¤ãƒ«
-:: %~2 = dotãƒ«ãƒ¼ãƒˆãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒª
-:: %~3 = pngãƒ«ãƒ¼ãƒˆãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒª
+:: %~1 = “ü—Ídotƒtƒ@ƒCƒ‹
+:: %~2 = dotƒ‹[ƒgƒfƒBƒŒƒNƒgƒŠ
+:: %~3 = pngƒ‹[ƒgƒfƒBƒŒƒNƒgƒŠ
 
 set "in_file=%~1"
 set "dot_root=%~2"

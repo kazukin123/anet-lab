@@ -109,7 +109,7 @@ namespace anet::rl {
         /// 指定位置にデータが書き込まれたことを通知 (この時点ではまだサンプリング封印状態)
         void MarkWritten(int64_t env_idx, int64_t time_idx);
 
-        /// N-Step等を経て「未来」が担保され、完全にサンプリング可能になったことを通知 (封印解除)
+        /// N-Step等を経て「未来」が担保され、readyになったことを通知 (封印解除)
         void MarkValid(int64_t env_idx);
 
         /// ダミーデータが書き込まれた事を通知
@@ -118,19 +118,19 @@ namespace anet::rl {
 		/// 書き込みカーソルを進める
         void AdvanceWriteCursor(int64_t env_idx);
 
-        /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックスのリストを返す
+        /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックス列のビューを返す。
+        /// owner (DefaultReplayBuffer) の metadata_mutex_ 排他下で呼ぶ。自身では同期しない。
+        /// 返り値の内容は同じinstanceへの次回呼び出しまで有効。それ以降の内容は未規定。
         torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const;
-
-        int64_t GetValidCount() const;
 
         int64_t GetSampleableCount(int stack_count, int unroll_steps, int n_step) const;
 
-        bool IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const;
+        bool IsOverwritingReady(int64_t env_idx, int64_t time_idx, int unroll_steps, int n_step) const;
         int64_t GetWriteCursor(int64_t env_idx) const { return write_cursors_[env_idx]; }
         /// 指定logical indexが上書き境界、未来観測、unroll終端の全条件を満たすか判定する。
-        bool IsLogicalSampleable(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
+        bool IsLogicalReady(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
     private:
-        struct LogicalSampleableRange {
+        struct LogicalReadyRange {
             int64_t start = 0; ///< 未上書きで保持されている最古のlogical index
             int64_t end = -1;  ///< 未来観測とunroll終端が確定済みの最新logical index
 
@@ -146,18 +146,24 @@ namespace anet::rl {
          * dummyは論理的な時系列幅へ含まれるため、このrangeでは除外しない。
          * 列挙と上書き判定の各処理が物理slotのdummy状態を別途判断する。
          */
-        std::optional<LogicalSampleableRange> GetLogicalSampleableRange(
+        std::optional<LogicalReadyRange> GetLogicalReadyRange(
             int64_t env_idx, int unroll_steps, int n_step) const;
 
+    public:
+        // snapshotを所有する利用側へsampleable slotを列挙し、集計だけならTensorを作らない。
         template <class Fn>
         void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
         {
-            (void)stack_count;
-
-            const auto range = GetLogicalSampleableRange(env, unroll_steps, n_step);
+            const auto range = GetLogicalReadyRange(env, unroll_steps, n_step);
             if (!range.has_value()) return;
 
-            int64_t start_phys = range->start % capacity_per_env_;
+            // ring折り返し後は、上書き済みの過去frameを必要とする先頭側を候補から除外する。
+            const int64_t retained_start = range->start;
+            const int64_t history_margin = retained_start > 0 ? stack_count - 1 : 0;
+            const int64_t sample_start = retained_start + history_margin;
+            if (sample_start > range->end) return;
+
+            int64_t start_phys = sample_start % capacity_per_env_;
             int64_t end_phys = range->end % capacity_per_env_;
 
             auto visit_range = [&](int64_t p_start, int64_t p_end) {
@@ -177,11 +183,13 @@ namespace anet::rl {
             }
         }
 
+    private:
         int64_t num_envs_;
         int64_t capacity_per_env_;
         std::vector<int64_t> valid_cursors_;
         std::vector<int64_t> write_cursors_;
         std::vector<bool> is_dummy_;
+        mutable torch::Tensor valid_buf_; ///< metadata排他下で再利用する列挙用バッファ
     };
 
 
@@ -194,7 +202,12 @@ namespace anet::rl {
         ReplayExperienceStorage(int64_t num_envs, int64_t capacity_per_env, const EnvSpec& spec, const ReplayBufferConfig& config, torch::Device device, bool pin_memory);
 
         /// 重いデータ（Dict等）を即時追加し、書き込まれた time_idx を返す
-        int64_t Push(int64_t env_idx, const anet::TensorDict& obs, const torch::Tensor& action, const anet::TensorDict& info);
+        int64_t Push(
+            int64_t env_idx,
+            const anet::TensorDict& obs,
+            const torch::Tensor& action,
+            const anet::TensorDict& info,
+            bool history_start);
 
         /// Builderが構築したメタデータを、指定したインデックスに上書き(遅延反映)する
         void Update(int64_t env_idx, int64_t time_idx, const ReplayExperience& exp);
@@ -212,6 +225,8 @@ namespace anet::rl {
         const torch::Tensor& GetTargetReturns() const { return target_returns_; }
         const torch::Tensor& GetTerminals() const { return terminals_; }
         const torch::Tensor& GetActualNSteps() const { return actual_n_steps_; }
+        /// extractorへring layoutを露出せず、実slotの履歴開始だけを返す。
+        bool IsHistoryStart(int64_t env_idx, int64_t physical_idx) const;
     public:
         // 可視化用
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
@@ -230,6 +245,7 @@ namespace anet::rl {
         torch::Tensor target_returns_;
         torch::Tensor terminals_;
         torch::Tensor actual_n_steps_;
+        std::vector<uint8_t> history_starts_;
     };
     
 
@@ -423,6 +439,9 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
+        SamplingHistoryProbeResult ProbeSamplingHistory(
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
@@ -475,6 +494,7 @@ namespace anet::rl {
         std::unique_ptr<InitialPriorityCompleter> initial_priority_completer_;
 
         std::vector<ExperienceQueue> queues_;
+        std::vector<bool> lane_expects_episode_start_;
         std::vector<int64_t> generations_;
         int64_t actual_capacity_ = 0;
         int64_t priority_update_stale_drop_count_ = 0;

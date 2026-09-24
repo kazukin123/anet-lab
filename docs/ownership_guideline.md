@@ -42,6 +42,7 @@
 - RNG
 - Config（読み取り専用）
 - Actorだけがforwardと同期に使うprivate network snapshot
+- `ActorRequest.seed`から生成し、そのActorだけが消費するprivate RNG
 
 ---
 

@@ -1,7 +1,10 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -10,11 +13,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,7 +32,6 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.GzipCorruptException;
 import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.ReadResult;
 
-@Component
 public class MetricsIngestor {
 
 	public static final int MAX_BLOCK_LINES = 1_000_000;
@@ -45,8 +46,13 @@ public class MetricsIngestor {
 	private final LodIngestWriter lodWriter;
 	private final RunWarningRegistry warningRegistry;
 	private final int maxBlockLines;
+	private final BooleanSupplier yieldRequested;
+	private final Map<Path, ValidatedRunObservation> validatedObservations = new HashMap<>();
 
-	public record IngestOutcome(boolean didWork, IngestState state) {
+	public record IngestOutcome(
+			boolean didWork,
+			IngestState state,
+			boolean immediateRetry) {
 	}
 
 	public MetricsIngestor(MetricsCacheDatabase database) {
@@ -55,16 +61,16 @@ public class MetricsIngestor {
 				new GzipInputSessions(),
 				new LodIngestWriter(),
 				new RunWarningRegistry(),
-				MAX_BLOCK_LINES);
+				MAX_BLOCK_LINES,
+				() -> false);
 	}
 
-	@Autowired
 	public MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
 			LodIngestWriter lodWriter,
 			RunWarningRegistry warningRegistry) {
-		this(database, gzipSessions, lodWriter, warningRegistry, MAX_BLOCK_LINES);
+		this(database, gzipSessions, lodWriter, warningRegistry, MAX_BLOCK_LINES, () -> false);
 	}
 
 	MetricsIngestor(
@@ -76,107 +82,213 @@ public class MetricsIngestor {
 				gzipSessions,
 				new LodIngestWriter(),
 				new RunWarningRegistry(),
-				maxBlockLines);
+				maxBlockLines,
+				() -> false);
 	}
 
-	private MetricsIngestor(
+	MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
 			LodIngestWriter lodWriter,
 			RunWarningRegistry warningRegistry,
-			int maxBlockLines) {
+			int maxBlockLines,
+			BooleanSupplier yieldRequested) {
 		this.database = database;
 		this.gzipSessions = gzipSessions;
 		this.lodWriter = lodWriter;
 		this.warningRegistry = warningRegistry;
 		this.maxBlockLines = maxBlockLines;
+		this.yieldRequested = yieldRequested;
+	}
+
+	void retainRuns(Set<Path> runDirs) {
+		final Set<Path> retained = new HashSet<>();
+		for (Path runDir : runDirs) retained.add(normalize(runDir));
+		validatedObservations.keySet().retainAll(retained);
+	}
+
+	void forgetRun(Path runDir) {
+		validatedObservations.remove(normalize(runDir));
 	}
 
 	public IngestOutcome ingestBlock(String runId, Path runDir, MetricsSource source) throws Exception {
+		final Path runKey = normalize(runDir);
+		final MetricsSource sourceSnapshot = normalize(source);
+		final IngestOutcome fastPath = fastPath(runKey, sourceSnapshot);
+		if (fastPath != null) return fastPath;
+
 		final SourceReader reader = SourceReader.forSource(runDir, source, gzipSessions);
+		final IngestAttempt attempt;
 		try (reader) {
-			final SourceReader.Preparation sourcePreparation;
-			try {
-				// ソース同一性を検証し、必要なら破棄可能cacheを先頭から作り直す。
-				sourcePreparation = reader.prepare(database);
-			} catch (GzipCorruptException e) {
-				markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-				reader.fail();
-				return new IngestOutcome(true, IngestState.ERROR);
-			}
-			final CachePreparation preparation = sourcePreparation.cache();
-			if (!sourcePreparation.readRequired()) {
-				return new IngestOutcome(false, preparation.state());
-			}
-
-			final long startOffset = preparation.committedOffset();
-
-			try (ConnectionHandle handle = database.openWrite(runDir)) {
-				final Connection connection = handle.connection();
-				connection.setAutoCommit(false);
-
-				try {
-					final ReadResult readResult;
-					final BlockWriteSession writeSession = new BlockWriteSession(connection, runId);
-					try (writeSession) {
-						// 1行ずつparseし、巨大な中間Listを作らず同じtransactionへ反映する。
-						readResult = reader.readCompleteLines(maxBlockLines, writeSession::writeLine);
-					}
-
-					// block内のL0、LOD、TagStats、source位置を同じcommit境界で確定する。
-					writeSession.flushTagStats();
-					reader.validate(readResult);
-					final IngestState state = readResult.logicalEof()
-							? IngestState.READY
-							: IngestState.CONVERTING;
-					updateSourceMeta(
-							connection,
-							source,
-							readResult.committedSourceOffset(),
-							state);
-					connection.commit();
-
-					writeSession.emitWarnings();
-					reader.finish(state);
-					return new IngestOutcome(
-							readResult.committedSourceOffset() != startOffset
-									|| state != preparation.state(),
-							state);
-				} catch (FatalRecordException e) {
-					connection.rollback();
-					markRunError(runDir, source, e.code(), e.getMessage());
-					reader.fail();
-					return new IngestOutcome(true, IngestState.ERROR);
-				} catch (GzipCorruptException e) {
-					connection.rollback();
-					markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-					reader.fail();
-					return new IngestOutcome(true, IngestState.ERROR);
-				} catch (IOException e) {
-					connection.rollback();
-					if (reader.treatsBlockIOExceptionAsCorrupt()) {
-						markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-						reader.fail();
-						return new IngestOutcome(true, IngestState.ERROR);
-					}
-					throw e;
-				} catch (Exception e) {
-					connection.rollback();
-					throw e;
-				}
-			} catch (IOException e) {
-				// Metricsマスタの読取失敗だけをsource errorとして記録する。
-				if (reader.marksSourceReadFailureAsError()) {
-					markRunError(runDir, source, "source_read_error", e.getMessage());
-				}
-				throw e;
-			} catch (SQLException e) {
-				// 開始済みcache transactionはrollbackされる。読取位置だけが先行しないようsessionを破棄し、
-				// pending/convertingを維持したまま次cycleの再試行へ委ねる。
-				reader.fail();
-				throw e;
-			}
+			attempt = ingestWithReader(runId, runDir, source, reader);
 		}
+		if (attempt.publishObservation()) {
+			publishValidatedObservation(runKey, sourceSnapshot, attempt.outcome().state());
+		}
+		return attempt.outcome();
+	}
+
+	private IngestAttempt ingestWithReader(
+			String runId,
+			Path runDir,
+			MetricsSource source,
+			SourceReader reader) throws Exception {
+		final SourceReader.Preparation sourcePreparation;
+		try {
+			// ソース同一性を検証し、必要なら破棄可能cacheを先頭から作り直す。
+			sourcePreparation = reader.prepare(database);
+		} catch (GzipCorruptException e) {
+			final boolean persisted =
+					markRunError(runDir, source, "gzip_corrupt", e.getMessage());
+			reader.fail();
+			return new IngestAttempt(
+					new IngestOutcome(true, IngestState.ERROR, false), persisted);
+		}
+		final CachePreparation preparation = sourcePreparation.cache();
+		if (!sourcePreparation.readRequired()) {
+			final IngestOutcome outcome = new IngestOutcome(
+					false,
+					preparation.state(),
+					preparation.state() == IngestState.CONVERTING);
+			return new IngestAttempt(outcome, isTerminal(outcome.state()));
+		}
+
+		final long startOffset = preparation.committedOffset();
+
+		try (ConnectionHandle handle = database.openWrite(runDir)) {
+			final Connection connection = handle.connection();
+			connection.setAutoCommit(false);
+
+			try {
+				final ReadResult readResult;
+				final BlockWriteSession writeSession = new BlockWriteSession(connection, runId);
+				try (writeSession) {
+					// 1行ずつparseし、巨大な中間Listを作らず同じtransactionへ反映する。
+					readResult = reader.readCompleteLines(
+							maxBlockLines,
+							yieldRequested,
+							writeSession::writeLine);
+				}
+
+				// block内のL0、LOD、TagStats、source位置を同じcommit境界で確定する。
+				writeSession.flushTagStats();
+				reader.validate(readResult);
+				final IngestState state = readResult.logicalEof()
+						? IngestState.READY
+						: IngestState.CONVERTING;
+				updateSourceMeta(
+						connection,
+						source,
+						readResult.committedSourceOffset(),
+						state);
+				connection.commit();
+
+				writeSession.emitWarnings();
+				reader.finish(state);
+				return new IngestAttempt(
+						new IngestOutcome(
+								readResult.committedSourceOffset() != startOffset
+										|| state != preparation.state(),
+								state,
+								state == IngestState.CONVERTING),
+						state == IngestState.READY);
+			} catch (FatalRecordException e) {
+				connection.rollback();
+				final boolean persisted =
+						markRunError(runDir, source, e.code(), e.getMessage());
+				reader.fail();
+				return new IngestAttempt(
+						new IngestOutcome(true, IngestState.ERROR, false), persisted);
+			} catch (GzipCorruptException e) {
+				connection.rollback();
+				final boolean persisted =
+						markRunError(runDir, source, "gzip_corrupt", e.getMessage());
+				reader.fail();
+				return new IngestAttempt(
+						new IngestOutcome(true, IngestState.ERROR, false), persisted);
+			} catch (IOException e) {
+				connection.rollback();
+				if (reader.treatsBlockIOExceptionAsCorrupt()) {
+					final boolean persisted =
+							markRunError(runDir, source, "gzip_corrupt", e.getMessage());
+					reader.fail();
+					return new IngestAttempt(
+							new IngestOutcome(true, IngestState.ERROR, false), persisted);
+				}
+				throw e;
+			} catch (Exception e) {
+				connection.rollback();
+				throw e;
+			}
+		} catch (IOException e) {
+			// Metricsマスタの読取失敗だけをsource errorとして記録する。
+			if (reader.marksSourceReadFailureAsError()) {
+				markRunError(runDir, source, "source_read_error", e.getMessage());
+			}
+			throw e;
+		} catch (SQLException e) {
+			// 開始済みcache transactionはrollbackされる。読取位置だけが先行しないようsessionを破棄し、
+			// pending/convertingを維持したまま次cycleの再試行へ委ねる。
+			reader.fail();
+			throw e;
+		}
+	}
+
+	private static boolean isTerminal(IngestState state) {
+		return state == IngestState.READY || state == IngestState.ERROR;
+	}
+
+	private IngestOutcome fastPath(Path runKey, MetricsSource source) {
+		final ValidatedRunObservation observed = validatedObservations.get(runKey);
+		if (observed == null) return null;
+		try {
+			final CacheFileObservation cache = CacheFileObservation.capture(runKey);
+			if (observed.matches(source, cache)) {
+				return new IngestOutcome(false, observed.state(), false);
+			}
+		} catch (IOException ignored) {
+			// attributeを安定して読めない場合は観測を信用せず、既存の完全検証へ戻る。
+		}
+		validatedObservations.remove(runKey, observed);
+		return null;
+	}
+
+	private void publishValidatedObservation(
+			Path runKey,
+			MetricsSource sourceSnapshot,
+			IngestState state) {
+		try {
+			// resource close後にsource/cacheを再観測し、block中の差替えをfast pathへ持ち越さない。
+			final MetricsSource currentSource = MetricsSource.select(runKey)
+					.map(MetricsIngestor::normalize)
+					.orElse(null);
+			if (!sourceSnapshot.equals(currentSource)) {
+				validatedObservations.remove(runKey);
+				return;
+			}
+			final CacheFileObservation cache = CacheFileObservation.capture(runKey);
+			if (!cache.exists()) {
+				validatedObservations.remove(runKey);
+				return;
+			}
+			validatedObservations.put(
+					runKey,
+					new ValidatedRunObservation(sourceSnapshot, cache, state));
+		} catch (IOException ignored) {
+			validatedObservations.remove(runKey);
+		}
+	}
+
+	private static Path normalize(Path path) {
+		return path.toAbsolutePath().normalize();
+	}
+
+	private static MetricsSource normalize(MetricsSource source) {
+		return new MetricsSource(
+				normalize(source.path()),
+				source.kind(),
+				source.size(),
+				source.modifiedTime());
 	}
 
 	private static ParsedRecord parseRecord(String rawLine, long sourceOffset)
@@ -427,7 +539,7 @@ public class MetricsIngestor {
 		SourceMeta.updateProgress(connection, source, committedOffset, state);
 	}
 
-	private void markRunError(
+	private boolean markRunError(
 			Path runDir,
 			MetricsSource source,
 			String code,
@@ -439,9 +551,11 @@ public class MetricsIngestor {
 			connection.commit();
 			log.warn("Run ingest entered error state: run={} code={} message={}",
 					runDir.getFileName(), code, message == null ? code : message);
+			return true;
 		} catch (Exception error) {
 			log.error("Failed to persist Run error: run={} code={} message={}",
 					runDir.getFileName(), code, error.getMessage());
+			return false;
 		}
 	}
 
@@ -534,6 +648,34 @@ public class MetricsIngestor {
 				failure.addSuppressed(closeError);
 			}
 			return failure;
+		}
+	}
+
+	private record IngestAttempt(IngestOutcome outcome, boolean publishObservation) {
+	}
+
+	private record ValidatedRunObservation(
+			MetricsSource source,
+			CacheFileObservation cache,
+			IngestState state) {
+		private boolean matches(MetricsSource currentSource, CacheFileObservation currentCache) {
+			return source.equals(currentSource) && cache.equals(currentCache);
+		}
+	}
+
+	private record CacheFileObservation(boolean exists, long size, long modifiedTime) {
+		private static CacheFileObservation capture(Path runDir) throws IOException {
+			final Path cache = runDir.resolve("metrics_cache.db");
+			try {
+				final BasicFileAttributes attributes =
+						Files.readAttributes(cache, BasicFileAttributes.class);
+				return new CacheFileObservation(
+						true,
+						attributes.size(),
+						attributes.lastModifiedTime().toMillis());
+			} catch (NoSuchFileException e) {
+				return new CacheFileObservation(false, 0L, 0L);
+			}
 		}
 	}
 

@@ -1,28 +1,28 @@
 @echo off
 REM ============================================================
-REM Metrics Viewer èµ·å‹•ã‚¹ã‚¯ãƒªãƒ—ãƒˆ
+REM Metrics Viewer ‹N“®ƒXƒNƒŠƒvƒg
 REM ============================================================
 
 setlocal
 
-REM ---- è¨­å®š ----
+REM ---- İ’è ----
 set RUNS_PATH=logs
 REM set PORT=8050
 set VENV_PATH=..\..\viewers\metrics-tools\.venv
 
-REM ---- ä½œæ¥­ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªã‚’ãƒ—ãƒ­ã‚¸ã‚§ã‚¯ãƒˆãƒ«ãƒ¼ãƒˆã¸ç§»å‹• ----
+REM ---- ì‹ÆƒfƒBƒŒƒNƒgƒŠ‚ğƒvƒƒWƒFƒNƒgƒ‹[ƒg‚ÖˆÚ“® ----
 cd /d "%~dp0runner"
 
-REM ---- ä»®æƒ³ç’°å¢ƒãŒå­˜åœ¨ã™ã‚Œã°æœ‰åŠ¹åŒ– ----
+REM ---- ‰¼‘zŠÂ‹«‚ª‘¶İ‚·‚ê‚Î—LŒø‰» ----
 if exist "%VENV_PATH%\Scripts\activate.bat" (
     call "%VENV_PATH%\Scripts\activate.bat"
 )
 
-REM ---- ãƒ“ãƒ¥ãƒ¼ãƒ¯ãƒ¼èµ·å‹• ----
+REM ---- ƒrƒ…[ƒ[‹N“® ----
 pwd
 python ..\..\viewers\metrics-tools\metrics_viewer.py
 
-REM ---- è‡ªå‹•ãƒ–ãƒ©ã‚¦ã‚¶ã‚ªãƒ¼ãƒ—ãƒ³ ----
+REM ---- ©“®ƒuƒ‰ƒEƒUƒI[ƒvƒ“ ----
 REM start http://127.0.0.1:%PORT%
 
 pause

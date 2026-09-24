@@ -119,6 +119,9 @@ if (MSVC)
   else()
     message(WARNING "No DLLs found in ${TORCH_DLL_DIR}")
   endif()
+
+  # --- wxWidgets DLLコピー ---
+  anet_copy_wx_dlls(anet-core-test)
 endif()
 
 

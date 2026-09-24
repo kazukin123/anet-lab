@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "selections": [
+    {
+      "key": "run.$",
+      "chain": [
+        {
+          "term": "run.@repro",
+          "resolved": "run.@repro"
+        }
+      ]
+    },
+    {
+      "key": "DefaultDQNAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "DefaultDQNAgent.@baseline"
+        },
+        {
+          "term": "@iqn",
+          "resolved": "DefaultDQNAgent.@iqn"
+        },
+        {
+          "term": "@heavy",
+          "resolved": "DefaultDQNAgent.@heavy"
+        },
+        {
+          "term": "A1",
+          "resolved": "A1"
+        },
+        {
+          "term": "@bf16",
+          "resolved": "DefaultDQNAgent.@bf16"
+        },
+        {
+          "term": "A2",
+          "resolved": "A2"
+        }
+      ]
+    },
+    {
+      "key": "DefaultDQNAgent.@iqn.net.$",
+      "chain": [
+        {
+          "term": "net.@iqn",
+          "resolved": "net.@iqn"
+        }
+      ]
+    },
+    {
+      "key": "RainbowAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "RainbowAgent.@baseline"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC1].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_120]",
+          "resolved": "net.block.[Linear_120]"
+        },
+        {
+          "term": "net.block.FC1",
+          "resolved": "net.block.FC1"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC2].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC2",
+          "resolved": "net.block.FC2"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC3].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC3",
+          "resolved": "net.block.FC3"
+        }
+      ]
+    },
+    {
+      "key": "app.$",
+      "chain": [
+        {
+          "term": "app.online",
+          "resolved": "app.online"
+        },
+        {
+          "term": "P1",
+          "resolved": "P1"
+        }
+      ]
+    },
+    {
+      "key": "backend.$",
+      "chain": [
+        {
+          "term": "backend.@deterministic",
+          "resolved": "backend.@deterministic"
+        }
+      ]
+    },
+    {
+      "key": "train.eval.[test1].env.$",
+      "chain": [
+        {
+          "term": "LunarLanderEnv.@test1",
+          "resolved": "LunarLanderEnv.@test1"
+        }
+      ]
+    },
+    {
+      "key": "train.eval.[test2].env.$",
+      "chain": [
+        {
+          "term": "LunarLanderEnv.@test2",
+          "resolved": "LunarLanderEnv.@test2"
+        }
+      ]
+    },
+    {
+      "key": "metrics.image.[43_agent_img/52_per_hm_prio_01].$",
+      "chain": [
+        {
+          "term": "image.phm.@per-prio",
+          "resolved": "image.phm.@per-prio"
+        },
+        {
+          "term": "image.phm.@s01",
+          "resolved": "image.phm.@s01"
+        }
+      ]
+    },
+    {
+      "key": "metrics.image.[45_agent_img/05_shm_01_qma01].$",
+      "chain": [
+        {
+          "term": "image.shm.@qmax",
+          "resolved": "image.shm.@qmax"
+        },
+        {
+          "term": "image.shm.@s01",
+          "resolved": "image.shm.@s01"
+        }
+      ]
+    },
+    {
+      "key": "metrics.scalar.$",
+      "chain": [
+        {
+          "term": "metrics.scalar.@baseline",
+          "resolved": "metrics.scalar.@baseline"
+        },
+        {
+          "term": "metrics.scalar.@iqn_search_p0",
+          "resolved": "metrics.scalar.@iqn_search_p0"
+        },
+        {
+          "term": "M1",
+          "resolved": "M1"
+        }
+      ]
+    },
+    {
+      "key": "LunarLanderEnv.$",
+      "chain": [
+        {
+          "term": "LunarLanderEnv.@trunk",
+          "resolved": "LunarLanderEnv.@trunk"
+        },
+        {
+          "term": "E1",
+          "resolved": "E1"
+        }
+      ]
+    }
+  ],
+  "overrides": [],
+  "references": [
+    {
+      "source": "app.batchrun.exp_exit_step",
+      "target": "@vars.max_exp_step",
+      "value": "2,000,000"
+    },
+    {
+      "source": "app.exp_pause_step",
+      "target": "@vars.max_exp_step",
+      "value": "2,000,000"
+    },
+    {
+      "source": "app.online.exp_pause_step",
+      "target": "@vars.max_exp_step",
+      "value": "2,000,000"
+    },
+    {
+      "source": "net.block.[TauProj].linear.out_features",
+      "target": "net.block.[Linear128].linear.out_features",
+      "value": "128"
+    }
+  ]
+}

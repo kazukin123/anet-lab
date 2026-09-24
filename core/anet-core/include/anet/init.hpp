@@ -53,6 +53,5 @@ namespace anet::rl {
         }
 	};
 
-	void InitRL(const BackendConfig& backend_config);
+	void InitRL(const BackendConfig& backend_config, const ConfigData& config_data);
 }
-

@@ -322,8 +322,15 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
 
     torch::Tensor q_values_plain = q_values_itr->second;
     auto q_quantiles_itr = aux_data.find("q_quantiles");
+    auto full_q_quantiles_itr = aux_data.find("full_q_quantiles");
     torch::Tensor q_values = q_values_plain;
-    if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) q_values = q_quantiles_itr->second;
+    
+    // 観測用full分布があれば優先し、未生成時は従来のrisk分布・scalar Qへ順にfallbackする。
+    if (full_q_quantiles_itr != aux_data.end() && full_q_quantiles_itr->second.defined()) {
+        q_values = full_q_quantiles_itr->second;
+    } else if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) {
+        q_values = q_quantiles_itr->second;
+    }
 
     auto raw_actions_itr = aux_data.find("raw_actions");
     torch::Tensor raw_actions;

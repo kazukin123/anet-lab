@@ -3,12 +3,9 @@ package io.github.kazukin123.anetlab.metricsviewer.service;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.springframework.stereotype.Component;
-
 /**
  * 同名Runが作業セットへ連続して存在する間、世代を跨いで同じWARNを抑止する。
  */
-@Component
 public class RunWarningRegistry {
 
 	private static final String DUPLICATE_SOURCE = "duplicate_source";

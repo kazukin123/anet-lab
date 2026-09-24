@@ -12,13 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
-import jakarta.annotation.PreDestroy;
-
-import org.springframework.stereotype.Component;
-
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
-@Component
 public class GzipInputSessions {
 
 	private final Map<Path, Session> sessions = new HashMap<>();
@@ -77,7 +72,6 @@ public class GzipInputSessions {
 		}
 	}
 
-	@PreDestroy
 	synchronized void closeAll() {
 		for (Session session : sessions.values()) {
 			try {

@@ -2,8 +2,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <optional>
 #include <vector>
 #include <functional>
@@ -13,9 +16,65 @@
 #include "anet/config.hpp"
 #include "anet/common.hpp"
 #include "anet/graphviz.hpp"
+#include "anet/random.hpp"
 
 
 namespace anet::nn {
+
+
+    enum class PlasticityMetric {
+        SRANK_DELTA_001,
+        SRANK_DELTA_005,
+        SRANK_DELTA_020,
+        SRANK_RATIO_DELTA_001,
+        SRANK_RATIO_DELTA_005,
+        SRANK_RATIO_DELTA_020,
+        DORMANT_RATIO,
+        DEAD_RATIO,
+        FEATURE_NORM,
+        COUNT,
+    };
+
+    struct PlasticityMetricRequest {
+        std::array<bool, static_cast<size_t>(PlasticityMetric::COUNT)> requested{};
+
+        void Add(PlasticityMetric metric) {
+            requested[static_cast<size_t>(metric)] = true;
+        }
+
+        bool Contains(PlasticityMetric metric) const {
+            return requested[static_cast<size_t>(metric)];
+        }
+
+        bool Any() const {
+            return std::ranges::any_of(requested, [](bool value) { return value; });
+        }
+
+        static PlasticityMetricRequest All() {
+            PlasticityMetricRequest result;
+            result.requested.fill(true);
+            return result;
+        }
+    };
+
+    struct PlasticityMetrics {
+        std::array<std::optional<float>, 3> srank;
+        std::array<std::optional<float>, 3> srank_ratio;
+        std::optional<float> dormant_ratio;
+        std::optional<float> dead_ratio;
+        std::optional<float> feature_norm;
+
+        std::optional<float> Get(PlasticityMetric metric) const;
+    };
+
+    // 無印の plasticity_srank / plasticity_srank_ratio は index 0、δ=0.01 を表す。
+    inline constexpr std::array<float, 3> kPlasticitySrankDeltas{ 0.01f, 0.05f, 0.20f };
+    inline constexpr float kPlasticityDormantTau = 0.025f;
+
+    std::optional<PlasticityMetric> ParsePlasticityMetricSuffix(std::string_view suffix);
+    PlasticityMetrics ComputePlasticityMetrics(
+        const torch::Tensor& features,
+        const PlasticityMetricRequest& request);
 
 
     // ===========================================================================
@@ -38,8 +97,9 @@ namespace anet::nn {
 
     struct NetworkBranchConfig {
         std::string name;                      ///< ブランチ名（＝出力キー）
-        std::vector<std::string> bind_keys;    ///< 入力として要求するキーのリスト
-        std::vector<std::string> raw_keys;     ///< bind_keys のうち、"(raw)" が指定されたキーのリスト
+        std::vector<std::vector<std::string>> bind_terms; ///< 入力項のリスト（各項は積 factor のリスト）
+        int64_t bind_concat_dim = 1;            ///< 複数項を結合する次元
+        std::vector<std::string> raw_keys;      ///< bind factor のうち、"(raw)" が指定されたキーのリスト
         bool auto_format = true;               ///< ブランチ全体での自動フォーマット有効/無効
         std::string structure_str;             ///< ブランチ内部の直列パイプライン構造
         std::map<std::string, ConfigProfileConfig> config_profiles; ///< branch単位のconfig_profile上書き
@@ -65,6 +125,30 @@ namespace anet::nn {
         double trunc_a = -2.0;              ///< for TruncNormal
         double trunc_b = 2.0;               ///< for TruncNormal
     };
+
+    struct WeightNormConfig {
+        std::string mode = "none";      ///< "none", "spectral", "spectral_cap"
+    };
+
+    enum class WeightNormMode {
+        kNone,
+        kSpectral,
+        kSpectralCap,
+    };
+
+    // Configのfloat値0.1fをdoubleへ拡幅した境界まで同値として受け入れる。
+    inline constexpr double kSpectralNormMaxSoftUpdateTau = static_cast<double>(0.1f);
+
+    struct SpectralNormEntry {
+        std::string name;
+        WeightNormMode mode = WeightNormMode::kNone;
+        torch::Tensor weight;
+        torch::Tensor u;
+        torch::Tensor v;
+    };
+
+    torch::Tensor ComputeSpectralSigma(
+        const torch::Tensor& weight_mat, const torch::Tensor& u, const torch::Tensor& v);
 
     struct NetworkGraphVizConfig {
         bool show_param_shapes = false;
@@ -115,21 +199,45 @@ namespace anet::nn {
 
     class NetworkBody;
 
+    struct NetworkBranchCapture {
+        std::string branch_key;
+        torch::Tensor output;
+    };
+
+    struct NetworkParameterNormSplit {
+        torch::Tensor feature;
+        torch::Tensor readout;
+        torch::Tensor feature_effective;
+        torch::Tensor readout_effective;
+        torch::Tensor sigma_feature_max;
+        torch::Tensor sigma_readout_max;
+        torch::Tensor invalid_count;
+    };
+
     class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider {
-    public:
+    public: // コンストラクタ
         Network(
             const NetworkConfig& config,
             const anet::TensorSpecMap& input_specs,
             std::shared_ptr<NetworkHeadFactory> head_factory,
             std::shared_ptr<NetworkBody> body,
-            std::shared_ptr<NetworkHead> head);
-
-        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceSink& sink = {});
-
+            std::shared_ptr<NetworkHead> head,
+            anet::seed_t construction_seed = 0);
+    public: // Forward
+        anet::TensorDict Forward(
+            const anet::TensorDict& input,
+            const anet::TraceCallback& callback = {},
+            NetworkBranchCapture* capture = nullptr);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
+	public: // 情報取得
+        std::vector<std::string> GetBranchNames() const;
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
         void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)
-
+	public: // パラメータ正規化関連
+        NetworkParameterNormSplit ComputeParameterNormSplit(const std::string& feature_key) const;
+        torch::Tensor ComputeSpectralNormValidity() const;
+        std::vector<SpectralNormEntry> GetSpectralNormEntries() const;
     public: //可視化関連
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
@@ -142,6 +250,8 @@ namespace anet::nn {
         NetworkConfig config_;
         anet::TensorSpecMap input_specs_;
         std::shared_ptr<NetworkHeadFactory> head_factory_;
+        anet::seed_t construction_seed_;
+        bool has_spectral_norm_ = false;
     };
 
 
@@ -155,6 +265,7 @@ namespace anet::nn {
             const NetworkConfig& network_config,
             const anet::TensorSpecMap& input_specs,
             std::shared_ptr<NetworkHeadFactory> head_factory,
+            anet::seed_t seed,
             std::optional<torch::Device> device = std::nullopt);
     };
 

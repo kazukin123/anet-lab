@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +39,10 @@ class MetricsLodIntegrationTest {
 
 	@DynamicPropertySource
 	static void configureRunsDir(DynamicPropertyRegistry registry) {
-		registry.add("metricsviewer.runs-dir", () -> RUNS_DIR.toString());
+		registry.add("metricsviewer.workspaces-dir",
+				() -> RUNS_DIR.getParent().getParent().toString());
+		registry.add("metricsviewer.initial-workspace",
+				() -> RUNS_DIR.getParent().getFileName().toString());
 		registry.add("metricsviewer.cache-memory-mb", () -> "0");
 	}
 
@@ -57,6 +61,8 @@ class MetricsLodIntegrationTest {
 
 		final String body = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", "metrics-lod-test-full-range")
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andReturn()
 				.getResponse()
@@ -126,6 +132,8 @@ class MetricsLodIntegrationTest {
 				""".formatted(fromStep, toStep, maxPoints);
 		final String body = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andReturn()
 				.getResponse()
@@ -152,7 +160,8 @@ class MetricsLodIntegrationTest {
 
 	private static Path createFixture() {
 		try {
-			final Path runsDir = Path.of("target", "metrics-lod-integration-" + System.nanoTime())
+			final Path runsDir = Path.of(
+					"target", "metrics-lod-integration-" + System.nanoTime(), "_test", "runs")
 					.toAbsolutePath()
 					.normalize();
 			final Path runDir = runsDir.resolve("run-lod");

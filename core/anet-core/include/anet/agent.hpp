@@ -18,21 +18,17 @@ namespace anet::rl {
 
     class ActionContext : public anet::RandomHolder {
     public:
-        ActionContext(RunMode mode, std::optional<seed_t> seed = std::nullopt)
+        explicit ActionContext(std::optional<seed_t> seed = std::nullopt)
             : RandomHolder(seed)
-            , run_mode_(mode)
         {
         }
 
-        RunMode GetRunMode() const { return run_mode_; }
 
         /// @return 加工されたObservation
         virtual anet::TensorDict PushObservation(const anet::rl::BatchState& state) = 0;
         virtual void Reset() = 0;
 
         virtual ~ActionContext() = default;
-    private:
-        RunMode run_mode_;
     };
 
 
@@ -43,8 +39,8 @@ namespace anet::rl {
     /// 加工を行わず、State内のobsをそのまま通過させるActionContext 
     class DefaultActionContext : public ActionContext {
     public:
-        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
-            : ActionContext(run_mode, seed)
+        DefaultActionContext(std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
+            : ActionContext(seed)
             , device_(device)
         {
         }
@@ -81,17 +77,28 @@ namespace anet::rl {
         torch::Device GetDevice() const override { return device_; }
         virtual ~AgentBase() = default;
     protected:
-        std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;
+        void ValidateActorDevice(bool clone_model, const torch::Device& actor_device) const;
+        template<typename T>
+        const T& FindActorConfig(const std::map<std::string, T>& catalog, const std::string& key) const
+        {
+            const auto it = catalog.find(key);
+            if (it == catalog.end()) {
+                std::string available;
+                for (const auto& [name, config] : catalog) {
+                    if (!available.empty()) available += ", ";
+                    available += name;
+                }
+                ANET_SYSTEM_ERROR("Undefined Actor key='" << key << "'. Defined keys=[" << available
+                    << "]. Select an existing catalog entry with run.train.actor or run.eval.[tag].actor.");
+            }
+            return it->second;
+        }
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
         const EnvSpec env_spec_;
         int n_actions_;
         int num_envs_;
-    private:
-        mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> run_mode_rngs_;
-        mutable std::mutex rng_mutex_;
-        seed_t action_context_seed_;
     };
 
 
@@ -121,6 +128,19 @@ namespace anet::rl {
         static constexpr const char* kActionPolicyTypeStr_EpsilonGreedy = "EpsilonGreedy";
         static constexpr const char* kActionPolicyTypeStr_UQE = "UQE";
         static constexpr const char* kActionPolicyTypeStr_ThompsonSampling = "ThompsonSampling";
+
+        struct TauRuleConfig {
+            std::string sample_mode = "random";
+            int num_taus = 32;
+        };
+
+        struct FullDistributionQueryConfig {
+            bool enabled = false;
+            TauRuleConfig tau_rule{
+                .sample_mode = "fixed",
+                .num_taus = 32,
+            };
+        };
 
         struct ActionPolicyConfig {
             // Poilcy選択
@@ -152,15 +172,22 @@ namespace anet::rl {
             // ==========================================
             bool use_amp = false;
             bool use_amp_bf16 = false;
+
+            TauRuleConfig tau_rule;
+            FullDistributionQueryConfig full_distribution_query;
+            std::string quantile_mode = "none";
+
+            bool IsThompsonSampling() const
+            {
+                return policy_type == "ThompsonSampling" || policy_type == "2";
+            }
         };
 
-        struct TrainActorConfig {
+        struct DQNActorConfig {
+            ActionPolicyConfig policy;
+            std::string network = "online";
             bool clone_model = false;
-            anet::ProfiledValueConfig<step_t> sync_interval{
-                .type = "constant",
-                .value = 400,
-                .min_value = 1,
-            };
+            std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
         };
 
         struct StuckerConfig {
@@ -169,7 +196,17 @@ namespace anet::rl {
 			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
         };
 
+        struct MunchausenConfig {
+            bool enabled = false;
+            std::string log_policy_mode = "target"; ///< Learner専用。Actorのヒント生成では参照しない。
+            float alpha = 0.9f;
+            float entropy_tau = 0.03f;
+            float clip_value_min = -1.0f;
+        };
+
         struct LearnerConfig {
+            bool enabled = true;         ///< falseで学習を完全停止する(評価専用Run)。ReplayBuffer構築も勾配更新も行わない
+            std::string quantile_mode = "none"; ///< Agent config から解決して渡す内部mode
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
             float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
@@ -186,7 +223,7 @@ namespace anet::rl {
             int replay_batch_size = 128;
             int update_warmup_steps = 1000;
             int update_interval = 2;         ///< 何ステップに1回Updateするか。replay_ratioが正なら使われない。
-            float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。num_envsに依存しない。負数ではuppdate_intervalのみ使う
+            float replay_ratio = -1;         ///< 環境遷移1件あたり平均何サンプルを学習に使うか(更新回数ではない。1更新=replay_batch_size件)。num_envsに依存しない。負数ではupdate_intervalのみ使う
             bool use_rb_prefetch = false;    ///< ReplayBuffer Sample + H2Dを1バッチ先読みし、armed後のPushを遅延投入するか
 
             int n_step = 3;
@@ -202,6 +239,7 @@ namespace anet::rl {
             float per_prio_clip_value = 50.0f; ///< 優先度の上限値
 
             bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
+            MunchausenConfig munchausen;
             bool use_n_step = true;       ///< N-STEPを使用するか
             bool use_per = true;          ///< PERを使用するか
 
@@ -210,6 +248,42 @@ namespace anet::rl {
 
             int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
             float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
+
+            struct IqnConfig {
+                TauRuleConfig current_taus{
+                    .sample_mode = "random",
+                    .num_taus = 64,
+                };
+                TauRuleConfig target_taus{
+                    .sample_mode = "random",
+                    .num_taus = 64,
+                };
+            } iqn;
+
+            struct PlasticityConfig {
+                std::string feature_key;
+                struct ProbeConfig {
+                    int batch_size = 512;
+                } probe;
+            } plasticity;
+
+            struct PolicyChurnConfig {
+                struct ProbeConfig {
+                    int batch_size = 1024;
+                } probe;
+                struct IqnConfig {
+                    int num_taus = 32;
+                } iqn;
+            } policy_churn;
+
+            struct ReplayFitConfig {
+                struct ProbeConfig {
+                    int batch_size = 1024;
+                } probe;
+                struct IqnConfig {
+                    int num_taus = 32;
+                } iqn;
+            } replay_fit;
 
             bool use_amp = false;
             bool use_amp_bf16 = false;
@@ -254,16 +328,16 @@ namespace anet::rl {
     struct DefaultAgentFactoryConfig : public anet::Config
     {
         std::string class_id;
-        int device_type = 1;   ///< 0=cpu 1=cuda
-        int device_index = -1; ///< GPU index -1=current device
+        std::string device = "auto";
 
         DefaultAgentFactoryConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "agent")
         {
             ANET_READ_CONFIG(config_data, class_id);
-            ANET_READ_CONFIG(config_data, device_type);
-            ANET_READ_CONFIG(config_data, device_index);
+            ANET_READ_CONFIG(config_data, device);
         }
+
+        void RecordEffectiveDevice(const torch::Device& value) { my_config_json_["effective_device"] = value.str(); }
     };
 
     class DefaultAgentFactory {

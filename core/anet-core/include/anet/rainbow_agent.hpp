@@ -15,7 +15,7 @@ namespace anet::rl::dqn {
 
         anet::nn::WeightInitConfig head_init;
         NetworkModelConfig model;
-        ActionPolicyConfig action_policy;
+        std::map<std::string, DQNActorConfig> actor;
         LearnerConfig learner;
 
         int num_quantiles = 51;
@@ -34,9 +34,20 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
 
-            ANET_READ_CONFIG(config_data, action_policy.eps_start);
-            ANET_READ_CONFIG(config_data, action_policy.eps_end);
-            ANET_READ_CONFIG(config_data, action_policy.eps_decay_steps);
+            // 方策とnetworkの選択は全Actorで同じカタログ契約を使う。
+            for (const auto& [key, sub] : config_data.MakeSubConfigData("RainbowAgent.actor")) {
+                auto& entry = actor[key];
+                const auto prefix = "actor.[" + key + "]";
+                ReadConfig(config_data, prefix + ".policy.eps_start", entry.policy.eps_start);
+                ReadConfig(config_data, prefix + ".policy.eps_end", entry.policy.eps_end);
+                ReadConfig(config_data, prefix + ".policy.eps_decay_steps", entry.policy.eps_decay_steps);
+                ReadConfig(config_data, prefix + ".network", entry.network);
+                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                if (entry.network != "online" && entry.network != "target") {
+                    ANET_SYSTEM_ERROR("Invalid RainbowAgent." << prefix << ".network='" << entry.network
+                        << "'; expected online or target.");
+                }
+            }
 
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.gamma);
@@ -84,12 +95,7 @@ namespace anet::rl::dqn {
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience);
     public:
-        std::shared_ptr<anet::rl::Actor> CreateActor(
-            const anet::rl::BatchEnvSpec& batch_env_spec,
-            const anet::rl::EnvSpec& env_spec,
-            anet::rl::RunMode run_mode,
-            std::optional<bool> clone_model_override = std::nullopt,
-            std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
@@ -98,13 +104,10 @@ namespace anet::rl::dqn {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
-        std::shared_ptr<anet::rl::ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const;
     private:
         RainbowAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };
