@@ -42,6 +42,15 @@ run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
 #run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
 
+run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > @heavy > A1 > @bf16 > A2
+run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > M1
+
+run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1
+
+run.$ = run.@munch
+#run.$ = run.@rfit
+#run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
+
 
 # ==============================================================================
 # 実験
@@ -204,10 +213,12 @@ net.block.[TauProj].linear.out_features = ${net.block.[Linear128].linear.out_fea
 net.block.[TauProj].init.mode = xavier
 
 #DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC128 > SiLU
-DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC128 > LN128 > SiLU
+DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC128 > LN128 > ReLU
+#DefaultDQNAgent.net.branch.[value_stream].structure = HeadFC128 > LN128 > SiLU
 
 #DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > SiLU
-DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > LN128 > SiLU
+DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > LN128 > ReLU
+#DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > LN128 > SiLU
 
 DefaultDQNAgent.net.body.output.[value_feature] = value_stream
 DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
@@ -222,9 +233,11 @@ net.@qr  : branch.[value_stream].bind = main_feature
 net.@qr  : branch.[adv_stream].bind = main_feature
 
 net.@iqn : branch.[tau_embedding].bind = taus
-net.@iqn : branch.[tau_embedding].structure = CosEmb > TauProj > SiLU            # (B,K,128)
+#net.@iqn : branch.[tau_embedding].structure = CosEmb > TauProj > SiLU            # (B,K,128)
+net.@iqn : branch.[tau_embedding].structure = CosEmb > TauProj > ReLU            # (B,K,128)
 net.@iqn : branch.[fusion].bind = main_feature * tau_embedding                   # (B,1,128)×(B,K,128)→(B,K,128)
-net.@iqn : branch.[fusion].structure = Linear128 > LN128 > SiLU
+#net.@iqn : branch.[fusion].structure = Linear128 > LN128 > SiLU
+net.@iqn : branch.[fusion].structure = Linear128 > LN128 > ReLU
 net.@iqn : branch.[value_stream].bind = fusion
 net.@iqn : branch.[adv_stream].bind = fusion
 
@@ -367,6 +380,9 @@ M1.[36_agent_iqn/08_sample_initial_count_ema] = per_sample_initial_count @learn 
 env.class_id = LunarLanderEnv
 
 #app.metrics_logger.video_codec = h264_nvenc  # libx264
+
+run.eval_schedule.[eval_target].interval ?= 200
+run.eval_schedule.[eval].interval ?= 200
 
 
 # ==============================================================================
