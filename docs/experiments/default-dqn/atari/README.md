@@ -320,8 +320,7 @@ Dopamine 系のどれと比べるかでプロトコルプロファイルを選�
 - ε ラダーが下振れを潰す効果が被覆由来なら env 非依存のはずだが、1 ゲームでは検証できない
 
 このため 57 ゲームの median を推定するサブセット **Atari-5**（battle_zone / double_dunk /
-name_this_game / phoenix / qbert）を横断確認に使う。設定は `run.@a5*`（`apps/runner/config/Atari.txt`）と
-`apps/12_batch_run_atari5.bat` にある。
+name_this_game / phoenix / qbert）を横断確認に使う。設定は `run.@a5*`（`apps/runner/config/Atari.txt`）にある。
 
 初回スイープ（20M）の実測で、この懸念は裏付けられた。5 ゲームの hns57 は **−77.3%（double_dunk）〜
 174.1%（name_this_game）** に散らばり、正規化バンド幅も 2.2 〜 34,828 と 4 桁違う。

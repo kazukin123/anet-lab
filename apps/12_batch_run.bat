@@ -2,7 +2,7 @@
 
 cd /d "%~dp0runner"
 
-SET "BUILD=RelWithDebInfo"
+SET "BUILD=Release"
 
 :waitprev
 tasklist /FI "IMAGENAME eq AnetRLRunner_ab.exe" 2>nul | find /I "AnetRLRunner_ab.exe" >nul
@@ -23,21 +23,11 @@ SET /A FAILED_RUNS=0
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "RR1=run.@hard125>run.@munch"
 SET "RF=run.@rfit>run.@a5_metrics"
-SET "EV=run.@eval2ch_r1>run.@eval2ch_r1_50m"
-SET "TP=%A5%>%RR1%>%RF%>run.@cap2m>%EV%>run.@a5_20m>run.@batch"
-SET "P4=%TP%>run.@pool4"
+SET "ARM=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@batch"
 
 SET "WS=--workspace atari5-01"
-echo === 1. wiring: pool4 qbert 400k ===
-call :run_exe "run.$=%P4%>run.@to_400k" E1.game=qbert "app.run_name=run_{t}_tmp_wiring"
-echo === 2. base r1: qbert rr1 20M ===
-call :run_exe "run.$=%TP%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_base_r1"
-echo === 3. pool4 r1: qbert rr1 20M ===
-call :run_exe "run.$=%P4%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_pool4_r1"
-echo === 4. base r2: qbert rr1 20M ===
-call :run_exe "run.$=%TP%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_base_r2"
-echo === 5. pool4 r2: qbert rr1 20M ===
-call :run_exe "run.$=%P4%" E1.game=qbert "app.run_name=run_{t}_a5_qbert_rr1_20m_pool4_r2"
+echo === 1. a5 phoenix rr1 100M seed2 ===
+call :run_exe "%ARM%" E1.game=phoenix run.seed=2 "app.run_name=run_{t}_a5_phoenix_rr1_100m_seed2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

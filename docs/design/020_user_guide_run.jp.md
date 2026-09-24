@@ -412,7 +412,7 @@ apps\runner\bin\Release\AnetRLRunner.exe `
 `app.train_exit_step`、`app.exp_exit_step`は上限到達時にRunを終了する。`app.train_pause_step`、`app.exp_pause_step`は一度だけ自動pauseする。
 batch実験では、`app.$=app.batchrun`で低FPS表示、`exp_exit_step`、`app.show_error_dialog=false`をまとめて選ぶbatchrun構成が用意されている。人が操作するonline構成は`app.$=app.online`で`app.show_error_dialog=true`を選ぶ。これらはTrain / Evalの`RunMode`とは別概念である。
 
-`apps/11_batch_run.bat`、`apps/12_batch_run.bat`、`apps/18_batch_run_atari5.bat`は各Runの終了コードを記録する。失敗したRunでは`[ERROR] RUN FAILED exit_code=<code> args=<args>`を表示して後続Runを続け、全Run終了後の`pause`を経て1を返す。全Run成功時は0を返す。
+`apps/11_batch_run.bat`と`apps/12_batch_run.bat`は各Runの終了コードを記録する。失敗したRunでは`[ERROR] RUN FAILED exit_code=<code> args=<args>`を表示して後続Runを続け、全Run終了後の`pause`を経て1を返す。全Run成功時は0を返す。
 
 ## 5. AP画面
 

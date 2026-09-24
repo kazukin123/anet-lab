@@ -34,7 +34,7 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 #DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViT     # IMPALA+ViT ハイブリッド
 
 #run.$ = run.@v5_iqn_impala_x2
-#run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex  # 基本は 18_batch_run_atari5.bat から起動
+#run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex  # 基本は 11_batch_run.bat / 12_batch_run.bat から起動
 # 既定は実時間優先プロファイルの 100M を online で回す構成。exe を素で起動して UI を整えれば
 # そのまま録画できる状態であり、リリース時の既定でもある。bat は run.$ を CLI で上書きし、
 # 終端へ run.@batch を足してヘッドレス側へ倒す。
@@ -205,6 +205,8 @@ A1.learner.update_warmup_steps = 200,000       # BTR Minimum Replay Size(exp_ste
 
 app.run_name = run_{t}_atari_${E1.game}
 
+#A3.learner.enabled = false
+#A3.auto_load_file = ../../workspaces/atari5-01/runs/run_20260923-163113_a5_qbert_rr1_100m_seed2/agent_close.anet
 #app.train_auto_start = false
 
 

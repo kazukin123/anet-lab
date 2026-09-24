@@ -10,7 +10,7 @@ $appsRoot = Split-Path -Parent $runnerRoot
 $repoRoot = Split-Path -Parent $appsRoot
 $runnerExe = Join-Path $runnerRoot 'bin\Debug\AnetRLRunner.exe'
 $configPath = Join-Path $runnerRoot 'config\_main.txt'
-$launcherNames = @('11_batch_run.bat', '12_batch_run.bat', '18_batch_run_atari5.bat')
+$launcherNames = @('11_batch_run.bat', '12_batch_run.bat')
 $shiftJis = [Text.Encoding]::GetEncoding(
     932,
     [Text.EncoderExceptionFallback]::new(),

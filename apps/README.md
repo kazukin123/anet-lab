@@ -25,8 +25,7 @@ anet-lab の実行アプリケーションと起動 launcher(bat)を置くディ
 | bat | 用途 | 必要環境 |
 |---|---|---|
 | `10_run.bat` | Runner を GUI 起動。引数はRunnerへ渡し、runは選択workspaceの`runs/`に作成される | 同梱物のみ |
-| `11_batch_run.bat` | Runner をバッチ実行(設定 override を列挙して連続 run) | 同梱物のみ |
-| `12_batch_run_atari5.bat` | Atari-5(5 ゲーム)の A/B バッチ実行。workspace `atari-5` の config が無ければ自動生成する。**リリース zip には含まれない**(Atari は `ANET_ENABLE_ATARI` によるオプショナルビルドのため。ADR 0025) | ALE 有効ビルド + ROM |
+| `11_batch_run.bat` / `12_batch_run.bat` | Runner をバッチ実行(設定 override を列挙して連続 run) | 同梱物のみ |
 | `21_metrics_viewer.bat` | Python 版 Metrics Viewer(開発用) | `viewers/metrics-tools` + venv |
 | `22_metrics_viewer_java.bat` | Metrics Viewer(Java)起動 → http://localhost:8082 | Java 17+ |
 | `23_optuna_dashboard.bat` | Optuna Dashboard → http://127.0.0.1:8088 | optuna-dashboard |

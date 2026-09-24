@@ -411,7 +411,7 @@ If startup fails, inspect the error log. Online configurations display an error 
 `app.train_exit_step` and `app.exp_exit_step` terminate the Run when their limits are reached. `app.train_pause_step` and `app.exp_pause_step` pause automatically once.
 For batch experiments, `app.$=app.batchrun` selects a batchrun configuration combining low-FPS display, `exp_exit_step`, and `app.show_error_dialog=false`. For human-operated online runs, `app.$=app.online` selects `app.show_error_dialog=true`. These are separate concepts from Train/Eval `RunMode`.
 
-`apps/11_batch_run.bat`, `apps/12_batch_run.bat`, and `apps/18_batch_run_atari5.bat` record each Run's exit code. A failed Run displays `[ERROR] RUN FAILED exit_code=<code> args=<args>`, then execution continues with subsequent Runs. After all Runs and the final `pause`, the script returns 1 if any failed, or 0 if all succeeded.
+`apps/11_batch_run.bat` and `apps/12_batch_run.bat` record each Run's exit code. A failed Run displays `[ERROR] RUN FAILED exit_code=<code> args=<args>`, then execution continues with subsequent Runs. After all Runs and the final `pause`, the script returns 1 if any failed, or 0 if all succeeded.
 
 ## 5. Application Screen
 
