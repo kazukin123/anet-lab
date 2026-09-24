@@ -15,6 +15,7 @@
 | 2026-09-03 | [target_network_update_rate_survey_2026-09-03.md](target_network_update_rate_survey_2026-09-03.md) | target network 更新速度(hard C / soft τ) | Atari campaign |
 | 2026-09-09 | [atari_walltime_frontier_survey_2026-09-09.md](atari_walltime_frontier_survey_2026-09-09.md) | Atari の実時間効率フロンティア | Atari campaign |
 | 2026-09-23 | [reward_scale_discount_survey_2026-09-23.md](reward_scale_discount_survey_2026-09-23.md) | 報酬のスケール処理と割引率(クリップの代替となる価値の再スケーリング h(x)・Pop-Art、γ の設定と annealing) | Atari campaign(2026-09-23 kung_fu_master) |
+| 2026-09-24 | [simple_model_based_atari_survey_2026-09-24.md](simple_model_based_atari_survey_2026-09-24.md) | SimPLe(Model-Based RL for Atari、ICLR 2020)の受容・批判・後続研究(Atari 100k の起点、world model 系の比較表での扱い、企業の world model での参照) | |
 | 不明 | [tau_sampling_modes_survey.md](tau_sampling_modes_survey.md) | 分布強化学習の τ サンプリング/配置(統合版) | PRD 044 |
 | 不明 | [_survey_tau_core_papers.md](_survey_tau_core_papers.md) | τ の選び方・配置方式(主要論文) | PRD 044 |
 | 不明 | [_survey_tau_implementations.md](_survey_tau_implementations.md) | IQN / FQF / QR-DQN の τ 生成実装 | PRD 044 |
@@ -29,3 +30,4 @@
 | 3 | 候補 | survey | NoisyNet の現代的な扱い(Rainbow 以降で残っているか、ε-greedy との使い分け、実装の落とし穴) | docs/memo/999_noisynet_10prd.md | 採用判断に必要な根拠 |
 | 4 | 候補 | survey | Q 値統計によるハイパーパラメータ誤設定の検出(q_max の伸び率、過大評価指標) | docs/memo/999_q_statistics_config_screening_10prd.md | スクリーニング指標の先行例 |
 | 5 | 候補 | survey | 可塑性喪失の指標と対策の最新動向(dormant units、weight norm、reset) | docs/memo/done/062, 063 | 062 の指標群に欠けがないか |
+| 6 | ready | survey | LLM の事前知識で RL の探索と報酬を補助する手法(説明書やゲーム知識からの補助報酬、LLM の好みを使った内的報酬、LLM による目標の提案) | Atari campaign(2026-09-23 kung_fu_master のボス、2026-09-24 qbert の 8 面) | Wu et al. 2023「Read and Reap the Rewards」、Klissarov et al. 2024「Motif」、Du et al. 2023「ELLM」を起点に。ALE の Atari で試した例と効果の大きさ。LLM を呼ぶ頻度とコスト(step ごとには呼ばない設計、答えのキャッシュ)。出来事の検出(RAM・物体検出)をどう作っているか。外部知識を入れた結果をベンチマークとどう分けて報告しているか。VLM を報酬に使う系(CLIP など)との違い |
