@@ -949,12 +949,14 @@ BatchEnvBuilder::BatchEnvBuilder(
 	: config_data_(config_data)
     , config_(config)
     , num_envs_(num_envs)
-    , device_(device.value_or(anet::MakeDevice(config_.device_type, config_.device_index)))
+    , device_(device.has_value() ? *device : anet::ParseDevice(config_.device))
 {
     /// @todo deviceの指定方法が設定ファイル、config、device、三箇所あるのを整理
     ANET_ASSERT(num_envs_ > 0);
 
     // ログ：パラメータ記録
+    config_.RecordEffectiveDevice(device_);
+    LOG::info() << "BatchEnvBuilder effective_device=" << device_;
     LOG::info() << "BatchEnvBuilder config=" << config_.ToString();
     anet::MetricsLogger::Instance()->Log(config_);
 }

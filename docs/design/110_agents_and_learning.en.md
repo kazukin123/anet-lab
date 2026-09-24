@@ -71,7 +71,7 @@ Registration occurs in `InitRL()`, and `AgentRepository` resolves class IDs to `
 |---|---|
 | `AgentRepository` | Process-wide AgentFactory registry mapping class IDs to factories |
 | `AgentFactory` | Interface constructing concrete Agents from EnvSpec, BatchEnvSpec, device, ConfigData, and seed |
-| `DefaultAgentFactory` | Resolves `agent.class_id` and `agent.device_*`, then delegates construction to a registered factory |
+| `DefaultAgentFactory` | Resolves `agent.class_id` and `agent.device`, then delegates construction to a registered factory |
 | `Agent` | Shared interface exposing Actor/Learner creation, device, and save/load |
 | `AgentBase` | Base implementation providing device, Env information, and a shared mutex |
 | `Actor` | Interface producing BatchActionInfo from BatchState and synchronizing inference Resources as needed |
@@ -182,7 +182,7 @@ Runner, not Learner, creates `LearnEvent` after receiving update results. Concre
 ### 7.1 Construction Settings
 
 - `agent.class_id` selects the concrete AgentFactory.
-- `agent.device_type` selects CPU/CUDA, and `agent.device_index` selects the device.
+- `agent.device` accepts `auto`, `cpu`, `cuda`, or `cuda:N`. It defaults to `auto`; the adopted value is recorded in `json/agent.json`.
 - Factories pass EnvSpec, BatchEnvSpec, device, seed, and ConfigData to concrete Agents.
 - Concrete Agent Configs read algorithm-specific settings. Shared `ConfigData` fails fast on conversion failure for present values; defaults apply only to missing keys. Enums, ranges, and combinations are validated during construction by each concrete Config or reusable configuration type.
 - Actor RunMode and model cloning are resolved at the Agent creation boundary from Runner overrides and concrete Agent defaults.

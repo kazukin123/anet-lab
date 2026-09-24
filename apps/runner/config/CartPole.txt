@@ -82,7 +82,5 @@ CartPoleEnv.limit_step ?= 200
 
 env.class_id = CartPoleEnv
 
-agent.device_type = 1    # 0=cpu 1=cuda
-agent.device_index = -1  # GPU index -1=current device
-
+#agent.device = auto
 

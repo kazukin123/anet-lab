@@ -205,8 +205,7 @@ episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRu
 | `env.class_id` | 具象Env factoryのclass ID |
 | `env.worker_type` | `AUTO`、single-thread、thread-poolの選択 |
 | `env.worker_threads` | thread-poolのworker数。負値は定義済みの自動解決方式 |
-| `env.device_type` | Envが使用するCPU/CUDA device種別 |
-| `env.device_index` | CUDA device index。負値はcurrent device |
+| `env.device` | Envが使用するdevice。`auto`、`cpu`、`cuda`、`cuda:N`を受け付け、既定は`cpu`。採用値は`json/env.json`に記録する |
 | `run.train.num_envs` | 主Train Envのbatch size |
 
 Env固有設定は各factoryが同じConfigDataから読み取る。未知のclass ID、不正なworker設定、矛盾したspecは暗黙に補正せず失敗させる。

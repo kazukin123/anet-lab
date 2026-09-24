@@ -70,7 +70,7 @@ Agent系の所有権は次の原則に従う。
 |---|---|
 | `AgentRepository` | process内のAgentFactory registry。class IDをfactoryへ対応付ける |
 | `AgentFactory` | EnvSpec、BatchEnvSpec、device、ConfigData、seedから具象Agentを構築するinterface |
-| `DefaultAgentFactory` | `agent.class_id`と`agent.device_*`を解決し、登録済みfactoryへ構築を委譲する |
+| `DefaultAgentFactory` | `agent.class_id`と`agent.device`を解決し、登録済みfactoryへ構築を委譲する |
 | `Agent` | Actor/Learner生成、device、保存・読込を公開する共通interface |
 | `AgentBase` | device、Env情報、共有mutexを提供する基底実装 |
 | `Actor` | BatchStateからBatchActionInfoを生成し、必要に応じて推論Resourceを同期するinterface |
@@ -181,7 +181,7 @@ sequenceDiagram
 ### 7.1 構築設定
 
 - `agent.class_id`が具象AgentFactoryを選ぶ。
-- `agent.device_type`はCPU/CUDA、`agent.device_index`は対象deviceを指定する。
+- `agent.device`は`auto`、`cpu`、`cuda`、`cuda:N`で対象deviceを指定する。既定は`auto`で、採用値は`json/agent.json`に記録する。
 - EnvSpec、BatchEnvSpec、device、seed、ConfigDataはfactoryから具象Agentへ渡す。
 - アルゴリズム固有設定は具象AgentのConfigが読み取る。存在する値の型変換失敗は共通`ConfigData`がfail-fastし、既定値はキー欠落時だけ使う。enum、範囲、組み合わせは各具象Configまたは再利用設定型の構築時validatorが検証する。
 - ActorのRunModeとmodel複製有無は、Runnerのoverrideと具象Agentの既定をAgent生成境界で解決する。

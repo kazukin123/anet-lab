@@ -2,6 +2,7 @@
 
 #include "anet/init.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/tensor_util.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -124,6 +125,44 @@ TEST_CASE("BackendConfig rejects invalid cuda_launch_blocking values", "[backend
     }
 }
 
+TEST_CASE("PRD070 parses device specifications and preserves current CUDA index", "[device][prd070]")
+{
+    // 値の文法とautoの選択を公開パーサ経由で確認する。
+    CHECK(anet::ParseDevice(" CPU ").str() == "cpu");
+    CHECK(anet::ParseDevice("CuDa").is_cuda());
+    CHECK(anet::ParseDevice("CuDa").index() == -1);
+    CHECK(anet::ParseDevice(" CUDA:1 ").index() == 1);
+    CHECK(anet::ParseDevice("auto").is_cuda() == torch::cuda::is_available());
+
+    for (const auto* invalid : {"", "cpu:0", "cuda:", "cuda:-1", "cuda:+1", "cuda:x", "mps"}) {
+        INFO(invalid);
+        CHECK_THROWS(anet::ParseDevice(invalid));
+    }
+}
+
+TEST_CASE("PRD070 reports every explicit CUDA key before NN initialization", "[device][prd070]")
+{
+    if (torch::cuda::is_available()) SKIP("CUDA is available");
+
+    CapturingBackend* backend_raw = nullptr;
+    InitCapturingLogger(backend_raw, "explicit_cuda_unavailable_test");
+    anet::ConfigData config_data;
+    config_data.Set("agent.device", "cuda");
+    config_data.Set("env.device", "cuda:1");
+    config_data.Set("run.eval_device", "cpu");
+    try {
+        anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+        FAIL("Explicit CUDA must fail before NN initialization");
+    } catch (const std::exception& e) {
+        const std::string message = e.what();
+        CHECK(ContainsText(message, "agent.device"));
+        CHECK(ContainsText(message, "env.device"));
+        CHECK(ContainsText(message, "auto"));
+    }
+    CHECK(config_data.Get("agent.device") == "cuda");
+    anet::MetricsLogger::Reset();
+}
+
 TEST_CASE("InitRL applies cuda_launch_blocking off and records the effective environment", "[backend][env]")
 {
     EnvVarGuard guard(kCudaLaunchBlockingEnv);
@@ -134,7 +173,7 @@ TEST_CASE("InitRL applies cuda_launch_blocking off and records the effective env
 
     anet::ConfigData config_data;
     config_data.Set("backend.cuda_launch_blocking", "off");
-    anet::rl::InitRL(anet::rl::BackendConfig(config_data));
+    anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
 
     REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
     CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "0");
@@ -150,7 +189,7 @@ TEST_CASE("InitRL leaves CUDA_LAUNCH_BLOCKING unchanged for inherit", "[backend]
     CapturingBackend* backend_raw = nullptr;
     InitCapturingLogger(backend_raw, "cuda_launch_blocking_inherit_test");
 
-    anet::rl::InitRL(anet::rl::BackendConfig());
+    anet::rl::InitRL(anet::rl::BackendConfig(), anet::EmptyConfigData);
 
     REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
     CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "1");

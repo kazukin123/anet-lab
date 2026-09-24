@@ -3,6 +3,7 @@
 #include "anet/agent.hpp"
 #include "anet/default_dqn_agent.hpp"
 #include "anet/env.hpp"
+#include "anet/init.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
 #include "anet/test_util.hpp"
@@ -486,18 +487,20 @@ public:
     }
 };
 
-anet::ConfigData MakeRunManagerNameTestConfig()
+anet::ConfigData MakeRunManagerNameTestConfig(bool include_device_settings = true)
 {
     anet::ConfigData config;
     config.Set("env.class_id", "RunManagerNameTestEnv");
-    config.Set("env.device_type", "0");
     config.Set("env.worker_type", "1");
     config.Set("agent.class_id", "RunManagerNameTestAgent");
-    config.Set("agent.device_type", "0");
+    if (include_device_settings) {
+        config.Set("env.device", "cpu");
+        config.Set("agent.device", "cpu");
+        config.Set("run.eval_device", "cpu");
+    }
     config.Set("run.seed", "123");
     config.Set("run.train.num_envs", "1");
     config.Set("run.train.runner_type", "serial");
-    config.Set("run.eval_device_type", "cpu");
     config.Set("run.eval.[panel].run_mode", "eval");
     return config;
 }
@@ -518,6 +521,46 @@ std::shared_ptr<RunManagerEnvFactoryState> RegisterRunManagerNameTestFactories()
 }
 
 } // namespace
+
+TEST_CASE("PRD070 records adopted devices in owner JSON without changing configuration", "[device][prd070]")
+{
+    // 指定値と採用値の記録をRunManagerの公開生成経路から確認する。
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd070-device";
+    anet::MetricsLogger::Reset();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "device_test";
+    anet::MetricsLogger::Init(std::make_unique<RunManagerNoopMetricsBackend>(), logger_config, root);
+    struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
+
+    RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig(false);
+    config.Set("run.eval_device", "auto");
+    anet::rl::InitRL(anet::rl::BackendConfig(config), config);
+    anet::MetricsLogger::Instance()->Log("config_data", config.ToJson());
+    anet::MetricsLogger::Instance()->Log("config_data", config);
+    auto manager = std::make_shared<rl::RunManager>(config);
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+
+    const auto run_dir = root / "runs" / "device_test";
+    const auto read_json = [&](const char* name) {
+        std::ifstream input(run_dir / "json" / name);
+        REQUIRE(input.good());
+        return anet::json::parse(input).at("data");
+    };
+    const auto config_dump = read_json("config_data.json");
+    CHECK(config_dump.at("run.eval_device") == "auto");
+    CHECK_FALSE(config_dump.contains("agent.device"));
+    CHECK_FALSE(config_dump.contains("env.device"));
+    CHECK(ContainsText(ReadTextFile(run_dir / "config" / "config_data.txt"), "run.eval_device = auto"));
+    CHECK(ContainsText(ReadTextFile(run_dir / "config" / "run.txt"), "run.eval_device = auto"));
+    const auto run = read_json("run.json");
+    CHECK(run.at("eval_device") == "auto");
+    CHECK(run.at("effective_eval_device") == (torch::cuda::is_available() ? "cuda" : "cpu"));
+    CHECK(read_json("env.json").at("device") == "cpu");
+    CHECK(read_json("env.json").at("effective_device") == "cpu");
+    CHECK(read_json("agent.json").at("device") == "auto");
+    CHECK(read_json("agent.json").at("effective_device") == (torch::cuda::is_available() ? "cuda" : "cpu"));
+}
 
 TEST_CASE("TrainRunner delegates clone policy to Agent", "[trainer][actor]")
 {

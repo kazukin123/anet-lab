@@ -58,12 +58,13 @@ Enable only the intended Env configuration for a Run. See [3. Writing Configurat
 | `run.train.actor` | Catalog name of the training Actor. Defaults to `train` |
 | `run.eval.[tag].actor` | Catalog name of the evaluation Actor. Defaults to the evaluation tag name |
 | `agent.class_id` | Agent implementation to use |
-| `agent.device_type` / `agent.device_index` | Agent CPU/CUDA device |
+| `agent.device` | Agent device, default `auto` |
 | `env.worker_type` / `env.worker_threads` | Env batch execution mode and worker count |
-| `run.eval_device_type` / `run.eval_device_index` | Device for configured eval |
+| `env.device` | Env device, default `cpu` |
+| `run.eval_device` | Device for configured eval, default `auto` |
 | `backend.deterministic_algorithms` | Whether to require deterministic algorithms |
 
-`agent.device_type=1` means CUDA; `0` means CPU. When Env runs on the CPU and Agent and Eval on CUDA, include device transfer costs when assessing performance.
+Device values are `auto`, `cpu`, `cuda`, and `cuda:N`. `auto` selects the current CUDA device when CUDA is available and CPU otherwise. The requested values remain in `config/config_data.txt`; adopted values appear in `json/agent.json`, `json/env.json`, and `json/run.json` as `effective_device` or `effective_eval_device`. When Env runs on the CPU and Agent and Eval on CUDA, include device transfer costs when assessing performance.
 
 ### 2.4 Choosing an Evaluation Slot's Policy
 
@@ -492,8 +493,9 @@ With workspace `dm_long` and `app.run_name=run_{t}`, artifacts are saved under `
 | Artifact | Contents |
 |---|---|
 | `metrics.jsonl` | Primary metrics file, appending scalars, JSON metadata, and video metadata |
-| `config/config_data.txt` | Resolved effective configuration, excluding `@` profiles and `.$` ([3.8](#38-verification-and-common-errors)) |
+| `config/config_data.txt` | Resolved effective configuration, retaining requested device values such as `auto` and excluding `@` profiles and `.$` ([3.8](#38-verification-and-common-errors)) |
 | `config/*.txt`, `json/*.json` | Per-component injected configuration and metadata dumps. Env uses `config/env.<Env name>.txt` |
+| `json/run.json`, `json/env.json`, `json/agent.json` | Adopted evaluation, Env, and Agent devices in `effective_eval_device` or `effective_device` |
 | `<run_name>.log` | Runner text log with timestamps and levels |
 | `stdout.log` / `stderr.log` | Process standard output and standard error |
 | `agent_close.anet` | Agent checkpoint saved on normal window close. Not created with `app.save_agent_on_close=false` |
@@ -512,7 +514,7 @@ For comparison or reproduction, treat `config/config_data.txt` in the Run direct
 - Save fails: check the target path and failure stage in the error log (also shown in a dialog in online configurations). Resolve permissions, disk space, or file locks, or choose another path and retry. The Run continues, but the failed output file may be incomplete.
 - Save produces zero bytes: check the WARN with the target path in `<run_name>.log`. The Agent may not implement Save.
 - Run folder does not open: check the target path and OS folder association in the error log (also shown in a dialog in online configurations). The Run continues after the failure.
-- CUDA initialization fails: check the libtorch/CUDA/driver combination, `agent.device_type`, and eval device.
+- CUDA initialization fails: check the libtorch/CUDA/driver combination, `agent.device`, and `run.eval_device`.
 - The Env differs from the intended one: check enabled Env includes in the selected workspace's `config/_main.txt` and the Run's `config/config_data.txt`.
 - To choose a workspace again: launch with `--select-workspace`. Delete `GetAppDataDir()/history.txt` to reset history or `prefs.txt` to reset dialog preferences independently.
 - View is empty: check the Env class ID, View factory, and initialization errors in the Log pane; also try `Reset Layout`.

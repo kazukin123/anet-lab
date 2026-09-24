@@ -328,16 +328,16 @@ namespace anet::rl {
     struct DefaultAgentFactoryConfig : public anet::Config
     {
         std::string class_id;
-        int device_type = 1;   ///< 0=cpu 1=cuda
-        int device_index = -1; ///< GPU index -1=current device
+        std::string device = "auto";
 
         DefaultAgentFactoryConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "agent")
         {
             ANET_READ_CONFIG(config_data, class_id);
-            ANET_READ_CONFIG(config_data, device_type);
-            ANET_READ_CONFIG(config_data, device_index);
+            ANET_READ_CONFIG(config_data, device);
         }
+
+        void RecordEffectiveDevice(const torch::Device& value) { my_config_json_["effective_device"] = value.str(); }
     };
 
     class DefaultAgentFactory {

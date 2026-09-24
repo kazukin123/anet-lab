@@ -58,7 +58,7 @@ app.run_name = run_{t}_imgcls_ResNet18HR
 #backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 
-#run.eval_device_type = cpu
+#run.eval_device = cpu
 
 
 

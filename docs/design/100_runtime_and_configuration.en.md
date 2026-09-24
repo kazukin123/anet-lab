@@ -304,14 +304,14 @@ The first step resets Env and submits no Learner update because no Experience is
 | `run.train.num_envs` | Main Train BatchEnv lane count |
 | `run.train.runner_type` | `serial` or `pipeline` |
 | `run.train.actor` | Actor catalog name, default `train` |
-| `run.eval_device_type/index` | Configured Eval device |
+| `run.eval_device` | Configured Eval device setting, default `auto`; adopted value in `json/run.json` as `effective_eval_device` |
 | `run.eval.[tag].*` | Configured Eval RunMode, parallel lane count `eval_batch_size`, adopted count `eval_episodes` (default 1), Env overrides, and Actor name reference |
 | `run.eval_schedule.[tag].*` | Required `interval` and `use_background` for periodic configured Eval |
 | `env.*` | Env class, workers, device |
 | `agent.*` | Agent class, device |
 | `backend.*` | libtorch backend settings such as TF32, cuDNN, and determinism |
 
-Use Config classes and each Run's `config/config_data.txt` as the basis for the complete effective-key list. Selected profiles and `${}` resolution paths are recorded in `data` within `json/config_resolution.json` or the Metrics master's `config_resolution` record. Resolution is analysis/diagnostic metadata, not input for reloading configuration.
+Use Config classes and each Run's `config/config_data.txt` as the basis for the complete effective-key list. Device settings retain requested values such as `auto`; adopted devices appear in the individual fields of `json/run.json`, `json/env.json`, and `json/agent.json`. Selected profiles and `${}` resolution paths are recorded in `data` within `json/config_resolution.json` or the Metrics master's `config_resolution` record. Resolution is analysis/diagnostic metadata, not input for reloading configuration.
 
 ### 7.2 Lifetimes and Shutdown
 

@@ -737,8 +737,8 @@ struct RunManager::Config : public anet::Config
     std::string main_runner_type = "serial";
     std::string actor = "train";
 
-    std::string eval_device_type = "cpu";
-    int eval_device_index = 0;
+    std::string eval_device = "auto";
+    torch::Device effective_eval_device = torch::kCPU;
 
     Config(const anet::ConfigData& config_data, const std::string& config_prefix = "run")
         : anet::Config(config_data, config_prefix)
@@ -747,16 +747,14 @@ struct RunManager::Config : public anet::Config
         ReadConfig(config_data, "train.num_envs", num_envs);
         ReadConfig(config_data, "train.runner_type", main_runner_type);
         ReadConfig(config_data, "train.actor", actor);
-        ANET_READ_CONFIG(config_data, eval_device_type);
-        ANET_READ_CONFIG(config_data, eval_device_index);
+        ANET_READ_CONFIG(config_data, eval_device);
+        effective_eval_device = anet::ParseDevice(eval_device);
+        my_config_json_["effective_eval_device"] = effective_eval_device.str();
     }
 
     torch::Device GetEvalDevice() const
     {
-        if (anet::ToLower(eval_device_type) == "cuda") {
-            return torch::Device(torch::kCUDA, eval_device_index);
-        }
-        return torch::Device(torch::kCPU);
+        return effective_eval_device;
     }
 };
 
@@ -764,6 +762,7 @@ RunManager::RunManager(const ConfigData& config_data)
 {
     // Config
     config_ = std::make_unique<Config>(config_data);
+    LOG::info() << "RunManager effective_eval_device=" << config_->GetEvalDevice();
 
     // BatchEnvを1つも構築する前に、設定から決まるnameを一括検証する。
     auto eval_configs = config_data.MakeSubConfigData("run.eval");

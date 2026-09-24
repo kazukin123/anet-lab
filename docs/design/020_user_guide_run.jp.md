@@ -58,12 +58,13 @@ $include <DropMerge.txt>
 | `run.train.actor` | 学習Actorのカタログ名。省略時は`train` |
 | `run.eval.[tag].actor` | 評価Actorのカタログ名。省略時は評価タグ名 |
 | `agent.class_id` | 使用するAgent実装 |
-| `agent.device_type` / `agent.device_index` | AgentのCPU/CUDA device |
+| `agent.device` | Agentのdevice。既定`auto` |
 | `env.worker_type` / `env.worker_threads` | Env batchの実行方式とworker数 |
-| `run.eval_device_type` / `run.eval_device_index` | configured evalのdevice |
+| `env.device` | Envのdevice。既定`cpu` |
+| `run.eval_device` | configured evalのdevice。既定`auto` |
 | `backend.deterministic_algorithms` | 決定論的algorithmを要求するか |
 
-`agent.device_type=1`はCUDA、`0`はCPUである。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
+device指定は`auto`、`cpu`、`cuda`、`cuda:N`を受け付ける。`auto`はCUDAが利用可能ならcurrent CUDA device、そうでなければCPUを選ぶ。指定値は`config/config_data.txt`、採用値は`json/agent.json`、`json/env.json`、`json/run.json`の`effective_device`/`effective_eval_device`に記録する。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
 
 ### 2.4 評価スロットの方策を選ぶ
 
@@ -497,8 +498,9 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 | 成果物 | 内容 |
 |---|---|
 | `metrics.jsonl` | scalar、JSON metadata、動画metadataを追記する主メトリクス |
-| `config/config_data.txt` | 解決後の実効設定。`@`プロファイルと`.$`は含まない([3.8](#38-確認方法とよくあるエラー)) |
+| `config/config_data.txt` | 解決後の実効設定。deviceの`auto`など利用者の指定値を保持し、`@`プロファイルと`.$`は含まない([3.8](#38-確認方法とよくあるエラー)) |
 | `config/*.txt`、`json/*.json` | コンポーネント別の注入済み設定・metadata dump。Envは`config/env.<Env name>.txt` |
+| `json/run.json`、`json/env.json`、`json/agent.json` | 評価・Env・Agentが採用したdeviceを`effective_eval_device` / `effective_device`に記録 |
 | `<run_name>.log` | timestampとlevelを含むrunner text log |
 | `stdout.log` / `stderr.log` | process標準出力・標準エラー |
 | `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint。`app.save_agent_on_close=false`では作られない |
@@ -517,7 +519,7 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 - Saveに失敗する: error log（online構成ではダイアログも表示）の対象pathと失敗段階を確認する。権限、空き容量、file lockを解消するか別pathを選んで再実行する。Runは継続しているが、失敗した出力fileは不完全な可能性がある。
 - Save結果が0 byteになる: `<run_name>.log`の対象path付きWARNを確認する。利用中AgentがSaveを実装していない可能性がある。
 - Run folderが開かない: error log（online構成ではダイアログも表示）の対象pathとOS側のfolder関連付けを確認する。失敗後もRunは継続する。
-- CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device_type`、eval deviceを確認する。
+- CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device`、`run.eval_device`を確認する。
 - 期待したEnvでない: 選択workspaceの`config/_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
 - workspaceを選び直したい: `--select-workspace`で起動する。履歴は`GetAppDataDir()/history.txt`、ダイアログ選好は`prefs.txt`を削除すると個別にリセットできる。
 - Viewが空: Log paneのEnv class ID、View factory、初期化errorを確認し、`Reset Layout`も試す。

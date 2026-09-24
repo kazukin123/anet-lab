@@ -342,8 +342,7 @@ namespace anet::rl {
     {
         std::string class_id;
         int worker_threads = WorkerThreadAuto::AUTO; ///< 負値は自動設定
-        int device_type = 0;   ///< 0=cpu 1=cuda
-        int device_index = -1; ///< GPU index -1=current device
+        std::string device = "cpu";
         int worker_type = WorkerType::AUTO;
 
         BatchEnvBuilderConfig(const ConfigData& config_data = EmptyConfigData)
@@ -351,10 +350,11 @@ namespace anet::rl {
         {
             ANET_READ_CONFIG(config_data, class_id);
             ANET_READ_CONFIG(config_data, worker_threads);
-            ANET_READ_CONFIG(config_data, device_type);
-            ANET_READ_CONFIG(config_data, device_index);
+            ANET_READ_CONFIG(config_data, device);
             ANET_READ_CONFIG(config_data, worker_type);
         }
+
+        void RecordEffectiveDevice(const torch::Device& value) { my_config_json_["effective_device"] = value.str(); }
     };
 
     class BatchEnvBuilder {

@@ -22,18 +22,14 @@ run.eval.[eval_panel].actor ?= eval_panel
 app.online.eval_panel.eval_config_tag ?= eval_panel
 app.batchrun.eval_panel.eval_config_tag ?= eval_panel
 
-run.eval_device_type ?= cuda  # default: cpu
-#run.eval_device_type ?= cpu
-run.eval_device_index ?= 0
+run.eval_device ?= auto
 
 # --- agent
 
 #agent.class_id ?= RainbowAgent
 agent.class_id ?= DefaultDQNAgent
 
-#agent.device_type ?= 0    # 0=cpu 1=cuda
-agent.device_type ?= 1    # 0=cpu 1=cuda
-agent.device_index ?= -1  # GPU index -1=current device
+agent.device ?= auto
 
 
 # replay_batch_size ：小さいと実時間はかかるけどステップあたりの学習精度は高い。大きいと早いけど学習精度が落ちる
@@ -56,8 +52,7 @@ DefaultDQNAgent.@heavy.learner.replay_ratio = 4
 
 env.worker_threads ?= -1	# -1=auto
 #env.worker_threads ?= 1	# -1=auto
-env.device_type ?= 0     # 0=cpu 1=cuda
-env.device_index ?= -1   # GPU index -1=current device
+env.device ?= cpu
 env.worker_type ?= 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
 
 

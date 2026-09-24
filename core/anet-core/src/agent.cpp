@@ -3,8 +3,11 @@
 #include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/profile.hpp"
+#include "anet/log.hpp"
+#include "anet/metrics_logger.hpp"
 
 using namespace anet::rl;
+namespace LOG = anet::log;
 
 
 // =============================================================
@@ -74,9 +77,12 @@ DefaultAgentFactory::DefaultAgentFactory(
     , batch_env_spec_(batch_env_spec)
     , config_data_(config_data)
     , seed_(seed)
-    , device_(anet::MakeDevice(config_.device_type, config_.device_index))
+    , device_(anet::ParseDevice(config_.device))
 {
-    ;
+    // Agentの構築に採用するdeviceを、指定値とは別の個別JSONフィールドに記録する。
+    config_.RecordEffectiveDevice(device_);
+    LOG::info() << "DefaultAgentFactory effective_device=" << device_;
+    anet::MetricsLogger::Instance()->Log(config_);
 }
 
 std::shared_ptr<Agent> DefaultAgentFactory::CreateAgent(

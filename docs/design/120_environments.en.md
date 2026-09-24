@@ -206,8 +206,7 @@ Batch-wrapper and Runner contracts determine when completed episode groups are r
 | `env.class_id` | Concrete Env factory class ID |
 | `env.worker_type` | Selects `AUTO`, single-thread, or thread-pool |
 | `env.worker_threads` | Thread-pool worker count. Negative values select predefined automatic resolution modes |
-| `env.device_type` | CPU/CUDA device type used by Env |
-| `env.device_index` | CUDA device index; negative means current device |
+| `env.device` | Env device: `auto`, `cpu`, `cuda`, or `cuda:N`; defaults to `cpu`, with the adopted value in `json/env.json` |
 | `run.train.num_envs` | Main Train Env batch size |
 
 Each factory reads Env-specific settings from the same ConfigData. Unknown class IDs, invalid worker settings, and inconsistent specs fail rather than being silently corrected.

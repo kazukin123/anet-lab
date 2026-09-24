@@ -81,7 +81,7 @@ class DefaultLeafAuditTest(unittest.TestCase):
 
     def test_convention_checks_bases_without_selection_owners(self):
         code, report = self.audit([
-            ("apps/runner/config/common.txt", "train.eval_device_type = cuda"),
+            ("apps/runner/config/common.txt", "run.eval_device = auto"),
             ("apps/runner/config/agent.txt", "DefaultDQNAgent.@baseline : k = base"),
             ("apps/runner/config/nn.txt", "net.block.[Linear].type = Linear")])
         self.assertEqual(code, 1)

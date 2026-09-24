@@ -304,7 +304,7 @@ sequenceDiagram
 | `run.train.num_envs` | 主Train BatchEnvのlane数 |
 | `run.train.runner_type` | `serial`または`pipeline` |
 | `run.train.actor` | Actorカタログ名。既定`train` |
-| `run.eval_device_type/index` | configured Evalのdevice |
+| `run.eval_device` | configured Evalのdevice指定。既定`auto`。採用値は`json/run.json`の`effective_eval_device` |
 | `run.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、Actor名参照 |
 | `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`、`use_background`、終了時の完走待ちを選ぶ`wait_on_exit`（既定`true`） |
 | `app.drain_timeout_sec` | background Observer排水全体のdeadline秒。既定3600、正整数必須 |
@@ -312,7 +312,7 @@ sequenceDiagram
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |
 
-完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。選択したプロファイルと`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
+完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。deviceの`auto`も指定値のまま保持し、採用値は`json/run.json`、`json/env.json`、`json/agent.json`の個別フィールドで確認する。選択したプロファイルと`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
 
 ### 7.2 lifetimeと終了
 

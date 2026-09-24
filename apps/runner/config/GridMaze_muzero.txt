@@ -63,8 +63,7 @@ A1.actor.[train].temp_decay_steps   =  20,000    # 20K Exp Step
 # MuZeroAgent
 # ==============================================================================
 
-agent.device_type = 0    # 0=cpu 1=cuda
-agent.device_index = -1  # GPU index -1=current device
+agent.device = cpu
 
 
 
@@ -245,7 +244,7 @@ GridMazeEnv.max_steps ?= 100
 # ==============================================================================
 
 # MuZero は clone 非対応で Agent が CPU のため eval も CPU にする。
-run.eval_device_type = cpu
+run.eval_device = cpu
 run.eval_schedule.[eval_target].interval = 0
 
 #run.eval_schedule.[eval].interval = 0
@@ -257,4 +256,3 @@ run.eval_schedule.[eval].interval = 5
 #run.eval_schedule.[test1].interval = 5000
 #run.eval.[test1].run_mode = eval
 #run.eval.[test1].env.$ = > GridMazeEnv.test1 > E1
-

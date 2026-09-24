@@ -197,8 +197,8 @@ TEST_CASE("PRD061 shipped configurations resolve every Actor reference without p
                 CHECK_FALSE(typed.value("actor.[eval_panel].add_exploration_noise", true));
             }
             if (agent_class == "MuZeroAgent") {
-                CHECK(config.Get("agent.device_type") == "0");
-                CHECK(config.Get("run.eval_device_type") == "cpu");
+                CHECK(config.Get("agent.device") == "cpu");
+                CHECK(config.Get("run.eval_device") == "cpu");
                 CHECK(config.Get("metrics.scalar.[32_agent_base/06_tau]").find("$actor tau") != std::string::npos);
             }
         }

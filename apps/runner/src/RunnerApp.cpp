@@ -365,7 +365,7 @@ bool RunnerApp::OnInit()
 
     // ライブラリ初期化
 	anet::rl::BackendConfig backend_config(config_data);
-    anet::rl::InitRL(backend_config);
+	anet::rl::InitRL(backend_config, config_data);
 
 	// ENV初期化
     anet::rl::env::InitLunarLander();
