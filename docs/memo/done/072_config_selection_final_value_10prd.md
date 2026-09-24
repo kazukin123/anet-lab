@@ -1,7 +1,7 @@
 # PRD 072: 設定継承の差分適用と最終値参照
 
 - 起票日: 2026-09-07。改訂日: 2026-09-13。
-- 関連: [PRD 061](../061_eval_slot_policy_override_10prd.md)、[ADR 0042](../../adr/0042-config-inheritance-as-differential-base.md)、[設定基盤の設計](../../design/100_runtime_and_configuration.jp.md)、[用語集](../../../CONTEXT.md)。
+- 関連: [PRD 061](061_eval_slot_policy_override_10prd.md)、[ADR 0042](../../adr/0042-config-inheritance-as-differential-base.md)、[設定基盤の設計](../../design/100_runtime_and_configuration.jp.md)、[用語集](../../../CONTEXT.md)。
 - 2026-09-12版の実装とgolden比較の記録は[20impl](072_config_selection_final_value_20impl.md)と[ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)に保持する。過去の検証結果を本改訂の合格証拠にしない。
 - 本PRDは`999_config_run_profile_override_precedence_10prd.md`を吸収する。ActorのAPI・設定カタログへの移行はPRD 061が扱う。
 

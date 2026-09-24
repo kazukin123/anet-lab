@@ -43,4 +43,4 @@ env の性質ではなく実行構成を測る値になる。また `PER_LANE` �
   境界が一致しないため別概念として存置する。
 - GridMazeEnv の `episode_len` は汎用版と同一物なので、クリーンブレーク方針に従って削除し config を移行する。
 - metrics 契約なので、後から定義を変えると既存 Run と比較できなくなる。変更するときは新しい ADR で行う。
-- 詳細設計は `docs/memo/075_episode_steps_and_eval_session_log_10prd.md`。
+- 詳細設計は `docs/memo/done/075_episode_steps_and_eval_session_log_10prd.md`。

@@ -77,7 +77,7 @@ private:
 
 ### R2: Reset 前の背景 observer 排水（G3）
 
-> **PRD 076で実装済み。** 以下は当初案の記録であり、現行契約は[PRD 076](../076_eval_session_drain_on_exit_10prd.md)を正本とする。現行は4種のObserver基底と`RunnerScoped*Observer`へ`Shutdown(deadline, mode)` / `WillBlockOnShutdown()`を持たせ、`Notifier`が一括排水する。`EpisodeEvalObserver`は既定で完走待ちし、設定・手動選択・共有deadline超過では`std::stop_token`で協調キャンセルする。明示Shutdownはworker例外を再送出し、デストラクタ安全網だけがFATALを記録して例外を捕捉する。
+> **PRD 076で実装済み。** 以下は当初案の記録であり、現行契約は[PRD 076](../done/076_eval_session_drain_on_exit_10prd.md)を正本とする。現行は4種のObserver基底と`RunnerScoped*Observer`へ`Shutdown(deadline, mode)` / `WillBlockOnShutdown()`を持たせ、`Notifier`が一括排水する。`EpisodeEvalObserver`は既定で完走待ちし、設定・手動選択・共有deadline超過では`std::stop_token`で協調キャンセルする。明示Shutdownはworker例外を再送出し、デストラクタ安全網だけがFATALを記録して例外を捕捉する。
 
 - observer 基底 3 種（`TrainObserver` / `LearnObserver` / `EpisodeEndObserver`、[rl.hpp:825/832/839](../../../core/anet-core/include/anet/rl.hpp)。共通基底なし）に `virtual void Shutdown() {}`（default no-op）を追加。
   - ※ `Runner::Shutdown()`([rl.hpp:988](../../../core/anet-core/include/anet/rl.hpp)) / `BatchEnv::Shutdown()`([rl.hpp:639](../../../core/anet-core/include/anet/rl.hpp)) とは**別クラスの別物**（同名だが無関係）。

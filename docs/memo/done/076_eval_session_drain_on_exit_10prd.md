@@ -3,9 +3,9 @@
 > 起点: 2026-09-18。`run_20260917-225635_rr4_btrsn12_envs128_cap2m_50m` で、予算末尾に発火した
 > ε=0 断面セッション（400 エピソード）が 70 エピソードまで進んだところでプロセス終了に巻き込まれ、
 > 集計もログも出ずに消えた。判定に使う断面そのものを失い、復旧に評価専用 Run を 1 本要した。
-> 関連: [PRD 026](frozen/026_metricslog_lifecycle_10prd.md)（`MetricsLogger` ライフサイクル。本 PRD は同 R2 を切り出して拡張する）、
-> PRD 052 / [ADR 0027](../adr/0027-eval-definition-schedule-separation.md)（eval の定義とスケジュールの分離）、PRD 060（評価セッション）、
-> [ADR 0045](../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)（本 PRD の判断理由）、用語「排水」は [CONTEXT.md](../../CONTEXT.md)、
+> 関連: [PRD 026](../frozen/026_metricslog_lifecycle_10prd.md)（`MetricsLogger` ライフサイクル。本 PRD は同 R2 を切り出して拡張する）、
+> PRD 052 / [ADR 0027](../../adr/0027-eval-definition-schedule-separation.md)（eval の定義とスケジュールの分離）、PRD 060（評価セッション）、
+> [ADR 0045](../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)（本 PRD の判断理由）、用語「排水」は [CONTEXT.md](../../../CONTEXT.md)、
 > `core/anet-core/include/anet/rl.hpp`、`core/anet-core/include/anet/thread.hpp`、`core/anet-core/src/observers.cpp`、
 > `core/anet-core/src/trainer.cpp`、`apps/runner/src/RunnerFrame.cpp`、`apps/runner/src/RunnerApp.cpp`
 >
@@ -112,7 +112,7 @@ pool を直しても解決しない（NG4）。
 ### 排水が生む新しい実害
 
 排水を入れると、今度は **exe が数分から数十分落ちない**事態が起こり得る。起点 Run の断面は 22 分級、
-[999_eval_schedule_first_fire](999_eval_schedule_first_fire_10prd.md) が実測した t=0 の貪欲方策の張り付きは 1 時間級である。
+[999_eval_schedule_first_fire](../999_eval_schedule_first_fire_10prd.md) が実測した t=0 の貪欲方策の張り付きは 1 時間級である。
 設定を間違えた Run を即座に落としたい場面や、online 構成で Eval 中と意識せずに × を押す場面で、待つしかない設計は
 人を強制終了へ追い込む。強制終了は最後の flush 以降の metrics と exit code 0 を失うので、回避策として劣る。
 したがって「抜ける手段」を本 PRD の要件に含める（G4 / D8）。
@@ -146,7 +146,7 @@ R1 は systemic なガードで別の関心なので、本 PRD は R2 系の**�
   `eval_episodes` が Run 内で不揃いになって比較不能な点を新しく作るためである。キャンセルは何も集計しない。
 - **NG2**: 発火の開始下限・終了マージン。初期重みの貪欲方策が上限まで張り付く問題
   （RR1 実測 2,940 秒 / スコア 0）は別の関心なので、`run.eval_schedule.[tag]` の別キーとして切り分ける
-  （[999_eval_schedule_first_fire](999_eval_schedule_first_fire_10prd.md)）。ただし移行上の依存はある。
+  （[999_eval_schedule_first_fire](../999_eval_schedule_first_fire_10prd.md)）。ただし移行上の依存はある。
   999 が入るまでは、短い Run で t=0 に発火した `greedy_dist` セッションが終了時に in-flight になり、本 PRD の既定では
   上限時間まで待つ。配線 arm 側の手当ては「影響・移行」に書く。
 - **NG3**: PRD 026 R1（null-safe static ログ API）。
@@ -521,8 +521,8 @@ wxGetApp().ShutdownRunLogging();
   3. `docs/design/020_user_guide_run.jp.md` の `app.*` 表に `app.drain_timeout_sec` を追加し、× を押したときの 3 択と
      eval_schedule の `wait_on_exit` を利用者向けに記述。`docs/design/010_framework_overview.jp.md` の eval_schedule の記述に
      終了時に background セッションを完走またはキャンセルすることを 1 文で追記。
-  4. [frozen/026](frozen/026_metricslog_lifecycle_10prd.md) の先頭に「R2 相当は 076 が先行実装。残りは R1」を 1 行。
-  5. 用語「排水」は [CONTEXT.md](../../CONTEXT.md)、判断理由は [ADR 0045](../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)。
+  4. [frozen/026](../frozen/026_metricslog_lifecycle_10prd.md) の先頭に「R2 相当は 076 が先行実装。残りは R1」を 1 行。
+  5. 用語「排水」は [CONTEXT.md](../../../CONTEXT.md)、判断理由は [ADR 0045](../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)。
   `.en.md` は translate-docs スキルの管轄なので含めない。
 
 ### 成果の確認

@@ -8,7 +8,7 @@
 
 | ID | 決定 |
 |---|---|
-| D1 | 境界の源は入力`BatchState::episode_start`とする。done/truncationを伴わない`episode_start`は正規入力ではなく契約違反として扱う。Env継ぎ目の契約（Resetは全laneの`state.episode_start == true`、Stepは`continue_state.episode_start == (done \|\| truncated)`。[ADR 0034](../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[Env設計書 §2](../design/120_environments.jp.md)、`ValidateEpisodeStructure`）をReplayBufferも前提にする。[PRD050](done/050_replay_ring_stack_margin_10prd.md) D15以来未裁定だった「doneを伴わないepisode_start」の期待失敗2件は、契約外入力として決着する |
+| D1 | 境界の源は入力`BatchState::episode_start`とする。done/truncationを伴わない`episode_start`は正規入力ではなく契約違反として扱う。Env継ぎ目の契約（Resetは全laneの`state.episode_start == true`、Stepは`continue_state.episode_start == (done \|\| truncated)`。[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[Env設計書 §2](../../design/120_environments.jp.md)、`ValidateEpisodeStructure`）をReplayBufferも前提にする。[PRD050](050_replay_ring_stack_margin_10prd.md) D15以来未裁定だった「doneを伴わないepisode_start」の期待失敗2件は、契約外入力として決着する |
 | D2 | frame stackの境界の基準はSTART（履歴開始）とする。過去方向の走査には過去側の信号を使う。slot単位に持つ境界情報は履歴開始1件だけで、END（done/truncated）はn-step queueの一時値のままslot単位には保持しない。`terminals_` / `actual_n_steps_`はn-step出力としてだけ残し、境界判定に使わない。lane状態からSTARTを導出する方式は採らない |
 | D3 | `DefaultReplayBuffer::Push`は整合検証を行う。規則は「laneの初回の実pushは`episode_start == true`、以降は次の実pushの`episode_start`が直前の実pushの`done \|\| truncated`と一致、dummyは対象外」。全laneをstorageへ書く前にpreflightで検証し（`UpdatePriorities`と同じ流儀）、違反は`ANET_SYSTEM_ERROR`（lane、logical index、期待値、実値を含む）。同一slotのSTARTとENDは独立な2事実で、長さ1のepisodeは正常入力。Prefetch経由のwrite-behind Pushで起きた違反は既存契約どおり次の同期境界で再送出される |
 | D4 | 履歴開始フラグは`ReplayExperienceStorage`が所有し、実観測のPushで引数の値を、`PushTerminalDummy`でfalseを、観測と同じ書込みで書いて旧世代を置換する。検証用のlane状態（直前の実pushがENDだったか、初期値true）は`DefaultReplayBuffer::Push`が照合・更新する。形式はCPU常駐のslot当たり1 byte相当の配列とlane当たり1 boolで、Tensorである必要はない。extractorは履歴開始だけを新→旧に走査し、最初のtrueで止める。`next_obs`は`L = t + actual_n`から同じ規則で復元する。`stack_count == 1`は走査しない |
@@ -16,7 +16,7 @@
 | D6 | matrixはstack `{1,2,4}` × n_step `{1,2,3,5}` × lane数 `{1,4,16,128}` × 実lane容量 `{17,31}` × Uniform/PER × direct/CPU Prefetchの384条件へ拡張する。全条件の全検査地点完走が受入条件。狙い撃ちの単体テストも追加する（§7.3） |
 | D7 | アッセイランナー`core/anet-core/testdata/prd078/run_integrity_assay.py`（`.venv`のPython、標準ライブラリのみ）を追加する。caseごとに`anet-core-test.exe "[integrity_assay]" -c "case N" --rng-seed <seed>`を別プロセスで順次実行し、失敗しても続行する。seed（既定`20260919`）はmatrixのTEST_CASEが`Catch::getSeed()`で読んでReplayBufferの抽選とunique probeに使い、最小再現と単体テストは固定seedのまま。case当たりの時間上限（既定300秒）の超過は失敗として記録する。`.scratch/prd078/<timestamp>/`にcase別ログ、`results.csv`、`report.md`を書く。実行手順は`core/anet-core/testdata/prd078/README.md`に置き、設計書150 §8から参照する |
 | D8 | `terminals_` / `actual_n_steps_`の初期値（true / 0）は現状維持。既存テスト「ReplayExperienceStorage initializes unwritten slots as episode boundaries」は名前と目的を「Storage metadataの初期値」に限定し、「未書込みslotの履歴開始は立っていない（境界は書込みでだけ付く）」を足す。`DefaultExperienceBuilder`の`sequence.back().is_dummy`分岐は到達不能で注記のみ（スコープ外）。`DumpToLog`に履歴開始を出力する |
-| D9 | [ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)を新設し、[ADR 0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)の「安全な開始indexならextractorは変更しない」判断を名指しで更新する（history margin自体は維持）。`CONTEXT.md`に用語「履歴開始」を追加する。設計書150と実装コメントの更新は実装と同じ変更で行う |
+| D9 | [ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)を新設し、[ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)の「安全な開始indexならextractorは変更しない」判断を名指しで更新する（history margin自体は維持）。`CONTEXT.md`に用語「履歴開始」を追加する。設計書150と実装コメントの更新は実装と同じ変更で行う |
 
 ## 1. 問題と目的（Problem Statement / Solution）
 
@@ -207,11 +207,11 @@ Atari 1M slotで約1 MiB。全観測のstack複製、無制限の履歴保持、
 
 ### 6.3 既存設計との関係
 
-[ADR 0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)の「上書き履歴は除外し、episode由来の不足だけpaddingする」判断は維持する。同ADRの「安全な開始indexならextractorは正しく動くためextractorは変更しない」という判断は、AとBの再現により成立しない。**本件ではextractor側の境界復元も修復対象へ含める。** これはhistory marginの撤回ではなく、当時の検証範囲を超えた不具合への対応であり、[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)に記録した。
+[ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)の「上書き履歴は除外し、episode由来の不足だけpaddingする」判断は維持する。同ADRの「安全な開始indexならextractorは正しく動くためextractorは変更しない」という判断は、AとBの再現により成立しない。**本件ではextractor側の境界復元も修復対象へ含める。** これはhistory marginの撤回ではなく、当時の検証範囲を超えた不具合への対応であり、[ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)に記録した。
 
-[ADR 0034](../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)が定めるEnv継ぎ目の構造契約（Resetの`episode_start`、`continue_state.episode_start == (done || truncated)`）をReplayBufferの入力前提とし、D3の検証はその契約をPush側で確認するものである。契約自体は変更しない。
+[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)が定めるEnv継ぎ目の構造契約（Resetの`episode_start`、`continue_state.episode_start == (done || truncated)`）をReplayBufferの入力前提とし、D3の検証はその契約をPush側で確認するものである。契約自体は変更しない。
 
-[ADR 0011](../adr/0011-generation-aware-replay-item-key.md)のkey世代・slot identity、[ADR 0005](../adr/0005-sample-prefetch-stale-per.md)のstale samplingとwrite-behind順序は維持する。先読み済みの古いbatchが生成時点の履歴に正しく対応することは正常であり、今回のフレーム汚染と混同しない。
+[ADR 0011](../../adr/0011-generation-aware-replay-item-key.md)のkey世代・slot identity、[ADR 0005](../../adr/0005-sample-prefetch-stale-per.md)のstale samplingとwrite-behind順序は維持する。先読み済みの古いbatchが生成時点の履歴に正しく対応することは正常であり、今回のフレーム汚染と混同しない。
 
 一般実装との比較（2026-09-20時点のソースで確認）:
 
@@ -290,10 +290,10 @@ VsDevCmd経由のDebugビルド後、次の順に確認する。
 
 実装と同じ変更で更新する文書:
 
-- [ReplayBuffer設計書](../design/150_replay_buffer.jp.md): §2.2の`Push`行に`state.episode_start`の読取りと整合検証を追記。§2.3の「起動直後の未書込領域または保存済みterminalによる実episode境界をpadding」を「Push時に保存した履歴開始（`BatchState::episode_start`）より前を先頭frameでpadding」へ書き換え、「`DefaultReplayBuffer::Push`は`episode_start`を保存・参照しない」段落を削除して整合検証の契約に置き換える。§3のStorage行に履歴開始の所有を追記。§7.3のエラー一覧にPushの契約違反を追加。§8のテスト一覧に整合性アッセイ（hidden）とランナーを追加。
+- [ReplayBuffer設計書](../../design/150_replay_buffer.jp.md): §2.2の`Push`行に`state.episode_start`の読取りと整合検証を追記。§2.3の「起動直後の未書込領域または保存済みterminalによる実episode境界をpadding」を「Push時に保存した履歴開始（`BatchState::episode_start`）より前を先頭frameでpadding」へ書き換え、「`DefaultReplayBuffer::Push`は`episode_start`を保存・参照しない」段落を削除して整合検証の契約に置き換える。§3のStorage行に履歴開始の所有を追記。§7.3のエラー一覧にPushの契約違反を追加。§8のテスト一覧に整合性アッセイ（hidden）とランナーを追加。
 - `core/anet-core/src/replay_buffer_impl.cpp`先頭の「[設計仕様]」コメント（エピソード開始時のpadding）とextractorの境界コメントを履歴開始へ書き換える。
 - `core/anet-core/testdata/prd078/README.md`にランナーの実行手順を置き、150 §8から参照する。
-- `CONTEXT.md`の用語「履歴開始」と[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)は本書作成時に追加済み。
+- `CONTEXT.md`の用語「履歴開始」と[ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)は本書作成時に追加済み。
 
 ## 8. スコープ外（Out of Scope）
 
@@ -342,15 +342,15 @@ shutdown修正直後の1回で`_CrtIsValidHeapPointer` / `is_block_type_valid`�
 
 本書の最小再現・結果表は、ローカルログが失われても現象を追えるよう本文に記録した。`.scratch`内のログは補助証跡であり、PRDの成立をその永続保持へ依存させない。
 
-- [ReplayBuffer設計書](../design/150_replay_buffer.jp.md): 現行の公開サンプル、sampleable range、frame stacking、Prefetchの契約。
-- [Env設計書](../design/120_environments.jp.md) §2: Reset/Stepの`episode_start`構造契約。
-- [PRD050](done/050_replay_ring_stack_margin_10prd.md): 上書き履歴の除外と起動・実境界paddingの区別。
-- [ADR 0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、[ADR 0034](../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)。
-- [ドメイン用語](../../CONTEXT.md): ready range、sampleable range、history margin、履歴開始、slot index、replay item key、target return。
-- [ReplayBuffer実装](../../core/anet-core/src/replay_buffer_impl.cpp): `ReplayExperienceStorage::Push` / `Update` / `PushTerminalDummy`、`ExperienceSampleExtractor`の実装。2026-09-20時点の初期値487〜488行付近、書込み・確定495〜545行付近、境界判定1168行付近、stack復元1195〜1222行付近、`DefaultReplayBuffer::Push` 1283〜1376行付近。
-- [ReplayBuffer内部宣言](../../core/anet-core/src/replay_buffer_impl.hpp): `ForEachSampleableIndex`のhistory margin適用。
-- [Env構造契約の検証](../../core/anet-core/src/env.cpp): `ValidateEpisodeStructure`（112〜175行付近）。Runner側の呼び出しは`trainer.cpp`の各step・reset経路。
-- [Catch2のhidden判定](../../third_party/catch2/src/catch.cpp): `TestSpec::Filter::matches`（1901行付近）。正のフィルタに一致するhiddenテストは実行される。
-- [公開API回帰テスト](../../core/anet-core/src/replay_buffer_test.cpp): `[integrity_assay]`、`[initial_fill]`、`[pending_metadata]`、`[wrapped_metadata]`。本書作成時点ではA/Bの再現は失敗する。
-- [継続結果レポート](../../.scratch/rb-integrity-assay/remaining-20260920-041125/report.md)、[条件別終了コード・時間](../../.scratch/rb-integrity-assay/remaining-20260920-041125/results.csv)、[Bの最小再現ログ](../../.scratch/rb-integrity-assay/remaining-20260920-041125/pending-metadata-repro-final.log)。
-- [調査全体の検証記録](../../.scratch/rb-integrity-assay/verification.md): 初回実行、Aの最小再現、shutdown修正、既存テスト結果、heap assertionの記録。
+- [ReplayBuffer設計書](../../design/150_replay_buffer.jp.md): 現行の公開サンプル、sampleable range、frame stacking、Prefetchの契約。
+- [Env設計書](../../design/120_environments.jp.md) §2: Reset/Stepの`episode_start`構造契約。
+- [PRD050](050_replay_ring_stack_margin_10prd.md): 上書き履歴の除外と起動・実境界paddingの区別。
+- [ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)。
+- [ドメイン用語](../../../CONTEXT.md): ready range、sampleable range、history margin、履歴開始、slot index、replay item key、target return。
+- [ReplayBuffer実装](../../../core/anet-core/src/replay_buffer_impl.cpp): `ReplayExperienceStorage::Push` / `Update` / `PushTerminalDummy`、`ExperienceSampleExtractor`の実装。2026-09-20時点の初期値487〜488行付近、書込み・確定495〜545行付近、境界判定1168行付近、stack復元1195〜1222行付近、`DefaultReplayBuffer::Push` 1283〜1376行付近。
+- [ReplayBuffer内部宣言](../../../core/anet-core/src/replay_buffer_impl.hpp): `ForEachSampleableIndex`のhistory margin適用。
+- [Env構造契約の検証](../../../core/anet-core/src/env.cpp): `ValidateEpisodeStructure`（112〜175行付近）。Runner側の呼び出しは`trainer.cpp`の各step・reset経路。
+- [Catch2のhidden判定](../../../third_party/catch2/src/catch.cpp): `TestSpec::Filter::matches`（1901行付近）。正のフィルタに一致するhiddenテストは実行される。
+- [公開API回帰テスト](../../../core/anet-core/src/replay_buffer_test.cpp): `[integrity_assay]`、`[initial_fill]`、`[pending_metadata]`、`[wrapped_metadata]`。本書作成時点ではA/Bの再現は失敗する。
+- [継続結果レポート](../../../.scratch/rb-integrity-assay/remaining-20260920-041125/report.md)、[条件別終了コード・時間](../../../.scratch/rb-integrity-assay/remaining-20260920-041125/results.csv)、[Bの最小再現ログ](../../../.scratch/rb-integrity-assay/remaining-20260920-041125/pending-metadata-repro-final.log)。
+- [調査全体の検証記録](../../../.scratch/rb-integrity-assay/verification.md): 初回実行、Aの最小再現、shutdown修正、既存テスト結果、heap assertionの記録。

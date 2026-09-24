@@ -53,4 +53,4 @@ anetはn-step導入で`terminal`が派生値になった時点でこの前提が
   契約外入力として決着し、fail-fastテストへ置き換える。初回pushの`episode_start`を省略していたテストを移行する。
 - Prefetchのwrite-behind Pushで起きた契約違反は、既存契約どおり次の同期境界で再送出される。
 - 設計書150の「未書込領域または保存済みterminalによる境界」の記述を履歴開始へ書き換え、`CONTEXT.md`に用語「履歴開始」を追加する。
-- 詳細設計は`docs/memo/078_replay_frame_history_integrity_10prd.md`。
+- 詳細設計は`docs/memo/done/078_replay_frame_history_integrity_10prd.md`。

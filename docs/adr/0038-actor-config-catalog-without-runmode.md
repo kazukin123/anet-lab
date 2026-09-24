@@ -24,4 +24,4 @@ configured eval tag は env・並列度・本数・clone をタグ単位で持�
 - `clone_model` は Actor 設定の事項になり、EvalPanel の `model_sync.mode = shared` は廃止する
 - `[eval_target].$ = …[eval] > …@target` が後段 overlay を取りこぼさないために、選択は参照先の最終値と最終キー集合を読む。これはカタログに限らず全ての選択の契約であり、[ADR 0040](0040-config-selection-final-value-and-run-profile-tier.md) と PRD 072 に切り出した
 - 同じコピー先への複数の `.$` は最後に適用されるものへ差し替え、組み立て済みの参照先の `.$` は子で再実行しない。詳細契約とマニュアル草稿は [PRD 072](../memo/done/072_config_selection_final_value_10prd.md)。PRD 072 はリゾルバ単独、Actor のコード・設定移行は PRD 061 として完了を分ける
-- 詳細契約と受入条件は `docs/memo/061_eval_slot_policy_override_10prd.md`
+- 詳細契約と受入条件は `docs/memo/done/061_eval_slot_policy_override_10prd.md`

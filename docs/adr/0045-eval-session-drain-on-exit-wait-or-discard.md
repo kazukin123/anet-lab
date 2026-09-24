@@ -22,4 +22,4 @@
 - キャンセルしたセッションは scalar を出さず、完了済み採用エピソードの trace 行だけが残る。「trace 行あり・scalar 無し」は起点のクラッシュと同型になるため、クラッシュとの区別は実行ログ（`cancelling ... reason=close|config|timeout` と `session cancelled ... completed=n`）と、Metrics マスタへ既存 json チャネルで出す `eval.[<tag>].session_cancelled` レコードで行う。scalar / trace の契約は触らない。
 - `stop_source` はセッション投入のたびに作り直し、`Shutdown()` は終了時専用とする。999（初回発火の抑止）が入るまでは、短い配線 Run で t=0 のセッションが終了時に in-flight になるため、配線 arm 側で `greedy_dist` を切るか `wait_on_exit=false` にする移行依存がある。
 - 排水中の例外は `Shutdown()` が再送出し、`OnClose()` から `OnExceptionInMainLoop()`（exit code 1）へ抜ける。残りのスロットは冪等な `OnExit()` の 2 回目呼び出しが排水する。
-- 詳細契約と Complexity audit は [PRD 076](../memo/076_eval_session_drain_on_exit_10prd.md) に置く。PRD 026 の R2 はこの決定で先行実装され、026 は R1 だけを残して凍結のまま。用語「排水」は [CONTEXT.md](../../CONTEXT.md) を参照する。
+- 詳細契約と Complexity audit は [PRD 076](../memo/done/076_eval_session_drain_on_exit_10prd.md) に置く。PRD 026 の R2 はこの決定で先行実装され、026 は R1 だけを残して凍結のまま。用語「排水」は [CONTEXT.md](../../CONTEXT.md) を参照する。
