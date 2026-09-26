@@ -239,7 +239,7 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 
 バッチ集約（`mean.` 等の prefix）と NaN 慣行は wrapper の共通規約に従う。`GetConfigData()` は実効 config を返す（Run の `config/env.*.txt` ダンプ対象）。
 
-**ゲーム完了の verbose ログ。** 上表の確定と同じ時点・同じ値で 1 行出す（`Game over.` または `Game truncated by max_episode_frames.` に `game_score` / `game_len` / `game_frames` が続く）。番号付き RAM 定義がある場合は末尾へ ` ram_metric: floor_clear=0 boss_kill=0` を番号順で足す。prefix は lane 名（`train[0]:` / `EvalPanel[0]:` など）。Run のログファイルには常に残り、`app.log_level` は LogPanel の表示だけを絞る。metrics / trace を持たない EvalPanel のゲームも、ここからミリ秒の時刻付きで追える。
+**ゲーム完了の verbose ログ。** 上表の確定と同じ時点・同じ値で 1 行出す（`Game over.` または `Game truncated by max_episode_frames.` に `game_score` / `game_len` / `game_frames` が続く）。番号付き RAM 定義がある場合は末尾へ ` ram_metric: floor_clear=0 boss_kill=0` を番号順で足す。prefix は lane 名（`env.[train].[0]:` / `env.[EvalPanel].[0]:` など）。Run のログファイルには常に残り、`app.log_level` は LogPanel の表示だけを絞る。metrics / trace を持たない EvalPanel のゲームも、ここからミリ秒の時刻付きで追える。
 
 **集約の分母に注意。** 上表で「確定タイミング＝実 game over / truncation」のキーは未確定 step で NaN を返し、バッチ集約は NaN を分母から除外する（`core/anet-core/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
 

@@ -23,6 +23,12 @@ namespace LOG = anet::log;
 // Env base classes
 //----------------------------------------------
 
+// Envログの出力元表記。評価セッション行の`eval.[<tag>]`と同じ設定記法で、BatchEnv nameを`env.[...]`へ包む。
+static std::string MakeEnvDisplayName(const std::string& batch_name)
+{
+    return "env.[" + batch_name + "]";
+}
+
 SingleDiscreteEnvBase::SingleDiscreteEnvBase(
     std::string name, RunMode run_mode, std::optional<ConfigData> config_data)
     : name_(std::move(name))
@@ -38,16 +44,18 @@ BatchEnvBase::BatchEnvBase(
     : name_(std::move(name))
     , run_mode_(run_mode)
     , config_data_(std::move(config_data))
-    , log(name_ + ": ")
+    , log(MakeEnvDisplayName(name_) + ": ")
 {
     ANET_CHECK_MSG(!name_.empty(), "Env name must not be empty.");
     ANET_CHECK_MSG(num_envs > 0,
         "BatchEnv num_envs must be positive. name='" << name_ << "' num_envs=" << num_envs);
 
     // lane名は構築時に一度だけ確定し、実行中には再構築しない。
+    // single Envはlane名をそのままlog prefixにするので、BatchEnvの表記へ`.[lane index]`を続けた形にする。
+    const auto display_name = MakeEnvDisplayName(name_);
     lane_names_.reserve(static_cast<size_t>(num_envs));
     for (int lane_index = 0; lane_index < num_envs; ++lane_index) {
-        lane_names_.push_back(name_ + "[" + std::to_string(lane_index) + "]");
+        lane_names_.push_back(display_name + ".[" + std::to_string(lane_index) + "]");
     }
 }
 

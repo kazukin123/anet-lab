@@ -127,7 +127,7 @@ TEST_CASE("DropMergeEnv appends the selected previous action trio", "[dropmerge]
     CHECK_FALSE(config.obs_prev_drop_marker);
 
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-prev-action[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-action].[0]", 123);
     const auto spec = env->GetSpec();
     const auto& vector_spec = spec.state_spec.obs_spec.at(kVectorKey);
     CHECK(vector_spec.shape == std::vector<int64_t>{ 7 });
@@ -163,7 +163,7 @@ TEST_CASE("DropMergeEnv appends the previous action trio after the timeout ratio
     config.use_no_drop_timeout_gameover = true;
     config.obs_include_prev_action = true;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-prev-timeout[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-timeout].[0]", 123);
 
     const auto spec = env->GetSpec();
     const auto& vector_spec = spec.state_spec.obs_spec.at(kVectorKey);
@@ -196,7 +196,7 @@ TEST_CASE("DropMergeEnv previous action observations require a direct action mod
     direct_config.drop_divisions = 4;
     direct_config.obs_include_prev_action = true;
     auto direct_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        direct_config, torch::Device(torch::kCPU), "dropmerge-prev-direct[0]", 123);
+        direct_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-direct].[0]", 123);
     direct_env->Reset();
     const auto direct_drop = direct_env->Step(3);
     RequireFlatApprox(
@@ -213,7 +213,7 @@ TEST_CASE("DropMergeEnv previous action observations require a direct action mod
             anet::test::LogCaptureGuard logs(wxLOG_Info);
             CHECK_THROWS_WITH(
                 std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-                    invalid_config, torch::Device(torch::kCPU), "dropmerge-prev-invalid[0]", 123),
+                    invalid_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-invalid].[0]", 123),
                 Catch::Matchers::ContainsSubstring(
                     "obs_include_prev_action / obs_prev_drop_marker require "
                     "action_mode=direct or direct_noop")
@@ -233,7 +233,7 @@ TEST_CASE("DropMergeEnv draws the selected DROP column marker", "[dropmerge][pre
     config.use_instant_drop = true;
     config.obs_prev_drop_marker = true;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-prev-marker[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-marker].[0]", 123);
 
     const auto spec = env->GetSpec();
     const auto& grid_spec = spec.state_spec.obs_spec.at(kGridKey);
@@ -276,9 +276,9 @@ TEST_CASE("DropMergeEnv previous action observations preserve the default state 
     enabled_config.obs_prev_drop_marker = true;
 
     auto default_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        default_config, torch::Device(torch::kCPU), "dropmerge-prev-default[0]", 123);
+        default_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-default].[0]", 123);
     auto enabled_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        enabled_config, torch::Device(torch::kCPU), "dropmerge-prev-enabled[0]", 123);
+        enabled_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-enabled].[0]", 123);
 
     const auto default_spec = default_env->GetSpec();
     const auto enabled_spec = enabled_env->GetSpec();
@@ -388,7 +388,7 @@ TEST_CASE("DropMergeEnv reports the successive DROP column ratio", "[dropmerge][
     config.use_instant_drop = true;
     config.max_step = 5;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-prev-ratio[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-ratio].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -415,7 +415,7 @@ TEST_CASE("DropMergeEnv reports Double Suika outcome only at episode end", "[dro
     config.use_instant_drop = true;
     config.max_step = 1;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-double-suika[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-double-suika].[0]", 123);
     env->Reset();
 
     // エピソード中は成果イベントとして扱わず、NaNを返す。
@@ -455,7 +455,7 @@ TEST_CASE("DropMergeEnv reports a completed Double Suika merge", "[dropmerge][me
     config.game_over_grace_step = 1000;
     config.max_step = 2;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-double-suika-positive[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-double-suika-positive].[0]", 123);
     env->Reset();
 
     // 同じ列へスイカを2個落とし、公開Step経路でDouble Suikaを成立させる。
@@ -480,7 +480,7 @@ TEST_CASE("DropMergeEnv handles sparse DROP commands in the column ratio", "[dro
         config.use_instant_drop = true;
         config.max_step = 1;
         auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-            config, torch::Device(torch::kCPU), "dropmerge-prev-ratio-short[0]", 123);
+            config, torch::Device(torch::kCPU), "env.[dropmerge-prev-ratio-short].[0]", 123);
         env->Reset();
 
         anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -499,7 +499,7 @@ TEST_CASE("DropMergeEnv handles sparse DROP commands in the column ratio", "[dro
         config.use_instant_drop = true;
         config.max_step = 3;
         auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-            config, torch::Device(torch::kCPU), "dropmerge-prev-ratio-noop[0]", 123);
+            config, torch::Device(torch::kCPU), "env.[dropmerge-prev-ratio-noop].[0]", 123);
         env->Reset();
 
         anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -522,7 +522,7 @@ TEST_CASE("DropMergeEnv column ratio is NaN for move action modes", "[dropmerge]
         config.max_step = 1;
         auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
             config, torch::Device(torch::kCPU),
-            "dropmerge-prev-ratio-" + action_mode + "[0]", 123);
+            "env.[dropmerge-prev-ratio-" + action_mode + "].[0]", 123);
         env->Reset();
 
         anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -548,7 +548,7 @@ TEST_CASE("DropMergeEnv observes DROP commands rejected while busy", "[dropmerge
     config.obs_include_prev_action = true;
     config.obs_prev_drop_marker = true;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-prev-busy[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-busy].[0]", 123);
     const auto spec = env->GetSpec();
     env->Reset();
 
@@ -586,7 +586,7 @@ TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmer
     anet::rl::env::drop_merge::DropMergeEnvConfig config;
     config.max_step = 1;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-log[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-log].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -600,8 +600,8 @@ TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmer
         }
         ++matching_records;
         CHECK(record.level == wxLOG_Info);
-        CHECK(record.message.find("dropmerge-log[0]: Episode truncated. Maximum step count exceeded.") == 0);
-        CHECK(CountOccurrences(record.message, "dropmerge-log[0]: ") == 1);
+        CHECK(record.message.find("env.[dropmerge-log].[0]: Episode truncated. Maximum step count exceeded.") == 0);
+        CHECK(CountOccurrences(record.message, "env.[dropmerge-log].[0]: ") == 1);
     }
     CHECK(matching_records == 1);
 }
@@ -611,7 +611,7 @@ TEST_CASE("DropMergeEnv reports DROP selected on a NoLegal candidate", "[dropmer
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeBlockedBoardConfig();
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-candidate[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-candidate].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -645,7 +645,7 @@ TEST_CASE("DropMergeEnv handles a fruit wider than its placement range", "[dropm
     config.settle_velocity_threshold = 100.0f;
     config.settle_angular_threshold = 100.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-no-placement-range[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-no-placement-range].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -679,7 +679,7 @@ TEST_CASE("DropMergeEnv keeps settled NoLegal NOOP termination unchanged", "[dro
     config.settle_velocity_threshold = 100.0f;
     config.settle_angular_threshold = 100.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-settled[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-settled].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -701,7 +701,7 @@ TEST_CASE("DropMergeEnv reports terminal blocked persistence for settled NoLegal
     config.settle_velocity_threshold = 100.0f;
     config.settle_angular_threshold = 100.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-terminal-blocked[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-terminal-blocked].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -748,7 +748,7 @@ TEST_CASE("DropMergeEnv rejects a non-positive NoLegal adjudication horizon", "[
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     CHECK_THROWS_WITH(
         std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-            config, torch::Device(torch::kCPU), "dropmerge-invalid-horizon[0]", 123),
+            config, torch::Device(torch::kCPU), "env.[dropmerge-invalid-horizon].[0]", 123),
         Catch::Matchers::ContainsSubstring("key=no_legal_min_blocked_frames")
         && Catch::Matchers::ContainsSubstring("value=0")
         && Catch::Matchers::ContainsSubstring("expected integer >= 1"));
@@ -766,7 +766,7 @@ TEST_CASE("DropMergeEnv rejects a NoLegal horizon that cannot beat the timeout",
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     CHECK_THROWS_WITH(
         std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-            config, torch::Device(torch::kCPU), "dropmerge-conflicting-horizon[0]", 123),
+            config, torch::Device(torch::kCPU), "env.[dropmerge-conflicting-horizon].[0]", 123),
         Catch::Matchers::ContainsSubstring("key=no_legal_min_blocked_frames")
         && Catch::Matchers::ContainsSubstring("value=60")
         && Catch::Matchers::ContainsSubstring("expected < no_drop_timeout_steps=60"));
@@ -784,7 +784,7 @@ TEST_CASE("DropMergeEnv reports timeout with a legal DROP available", "[dropmerg
     config.no_drop_timeout_steps = 1;
     config.max_step = 10;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-legal-timeout[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-legal-timeout].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -813,7 +813,7 @@ TEST_CASE("DropMergeEnv reports timeout while an unsettled board remains blocked
     config.settle_velocity_threshold = 0.0f;
     config.settle_angular_threshold = 0.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-unsettled[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-unsettled].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -857,7 +857,7 @@ TEST_CASE("DropMergeEnv adjudicates persistent blocked frames without a penalty"
     config.game_over_penalty = -10.0f;
     config.no_drop_timeout_gameover_penalty = -10.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-adjudicated[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-adjudicated].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -896,7 +896,7 @@ TEST_CASE("DropMergeEnv prefers the settled NoLegal fast path", "[dropmerge][pha
     config.settle_velocity_threshold = 100.0f;
     config.settle_angular_threshold = 100.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-fast-path[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-fast-path].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -948,7 +948,7 @@ TEST_CASE("DropMergeEnv reports the length of a resolved blocked run", "[dropmer
     config.settle_velocity_threshold = 0.0f;
     config.settle_angular_threshold = 0.0f;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
-        config, torch::Device(torch::kCPU), "dropmerge-resolved-run[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[dropmerge-resolved-run].[0]", 123);
     env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);

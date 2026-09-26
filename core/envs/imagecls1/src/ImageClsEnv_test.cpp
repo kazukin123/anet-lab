@@ -171,8 +171,8 @@ TEST_CASE("ImageClsEnv factory runs a native eval batch from the dataset catalog
 
     REQUIRE(env != nullptr);
     CHECK(env->GetName() == "imagecls-native-test");
-    CHECK(env->GetEnvName(0) == "imagecls-native-test[0]");
-    CHECK(env->GetEnvName(1) == "imagecls-native-test[1]");
+    CHECK(env->GetEnvName(0) == "env.[imagecls-native-test].[0]");
+    CHECK(env->GetEnvName(1) == "env.[imagecls-native-test].[1]");
     CHECK(env->GetRunMode() == anet::rl::RunMode::Eval1);
     CHECK(env->GetBatchSpec().episode_scope == anet::rl::EpisodeScope::SHARED);
     CHECK_FALSE(env->GetSpec().info.contains("image_dataset_key"));

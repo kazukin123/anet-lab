@@ -188,9 +188,9 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
 {
     const auto config = MakeConfig(/*obs_include_action=*/false, /*limit_step=*/1000);
     auto first = std::make_shared<anet::rl::env::LunarLanderEnv>(
-        config, torch::Device(torch::kCPU), "first-name[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[first-name].[0]", 123);
     auto second = std::make_shared<anet::rl::env::LunarLanderEnv>(
-        config, torch::Device(torch::kCPU), "second-name[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[second-name].[0]", 123);
 
     const auto first_reset = first->Reset();
     const auto second_reset = second->Reset();

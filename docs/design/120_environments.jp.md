@@ -59,11 +59,11 @@ ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageC
 
 ### 2.4 Env name
 
-`SingleDiscreteEnv`と`BatchEnv`はconstructorや状態を持たないinterfaceであり、name accessorをpure virtualで公開する。`SingleDiscreteEnvBase`と`BatchEnvBase`が人間向けのimmutableな`name`を保持し、accessorを`final override`する。`BatchEnvBase::GetName()`はbatch名を返し、`GetEnvName(lane_index)`は構築時に一度だけ生成した`<name>[0..N-1]`を返す。具象Envは対応するBaseを継承し、name accessorを独自実装しない。
+`SingleDiscreteEnv`と`BatchEnv`はconstructorや状態を持たないinterfaceであり、name accessorをpure virtualで公開する。`SingleDiscreteEnvBase`と`BatchEnvBase`が人間向けのimmutableな`name`を保持し、accessorを`final override`する。`BatchEnvBase::GetName()`はbatch名を返し、`GetEnvName(lane_index)`は構築時に一度だけ生成した`env.[<name>].[0..N-1]`を返す。具象Envは対応するBaseを継承し、name accessorを独自実装しない。
 
 nameは不透明な表示文字列であり、Env class ID、RunMode、config prefix、seed、RNG、DatasetKey、metrics tagの代替ではない。Envはnameを解析せず、nameの違いでReset、Step、Reward、終端を分岐しない。空name、非正のlane数、範囲外lane indexは`ANET_CHECK_MSG`で常時fail-fastする。
 
-両Baseはprotectedな`anet::log::Logger log`も保持し、name確定時にprefixを`<name>: `として一度だけ構築する。具象Envのactiveなtext logは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使用し、`GetName()`を各行で連結しない。debug logは`ANET_LOG_DEBUG_PREFIXED`を使用し、通常の`ANET_LOG_DEBUG`と同じguard・ビルド消去特性を維持する。
+両Baseはprotectedな`anet::log::Logger log`も保持し、name確定時にprefixを一度だけ構築する。single Envはlane nameをそのまま使って`<name>: `（例: `env.[train].[37]: `）、BatchEnvは`env.[<name>]: `とする。具象Envのactiveなtext logは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使用し、`GetName()`を各行で連結しない。debug logは`ANET_LOG_DEBUG_PREFIXED`を使用し、通常の`ANET_LOG_DEBUG`と同じguard・ビルド消去特性を維持する。
 
 ## 3. コンポーネント定義
 
@@ -192,7 +192,7 @@ episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRu
 
 1. `env.class_id`から`EnvRepository`がsingle/batchいずれかの具象factoryを解決する。
 2. 呼出側がBatchEnv name、RunMode、config prefixを渡し、`BatchEnvBuilder`がnum_envs、device、seed、worker設定を確定する。
-3. batch factoryならnative `BatchEnv`を直接生成する。single factoryならwrapperが`<name>[lane_index]`を完成させ、laneごとにsingle Envを生成する。
+3. batch factoryならnative `BatchEnv`を直接生成する。single factoryならwrapperが`env.[<name>].[lane_index]`を完成させ、laneごとにsingle Envを生成する。
 4. single経路はworker方式に応じてvectorizedまたはthread-pool wrapperへ格納する。native ImageClsでは同じworker設定をSource内sample処理へ適用し、decode/cache lookupからaugmentationまでを同一workで実行する。
 5. Runner構築時にEnvSpecとBatchEnvSpecをAgentへ渡す。
 

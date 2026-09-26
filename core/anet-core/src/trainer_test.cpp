@@ -1128,10 +1128,10 @@ TEST_CASE("RunManager reserves Env names only after successful construction", "[
     auto first_manager = std::make_shared<rl::RunManager>(config);
     REQUIRE(first_manager->GetStatus() == rl::RunnerStatus::RUNNING);
 
-    factory_state->failing_name = "retry[0]";
+    factory_state->failing_name = "env.[retry].[0]";
     CHECK_THROWS_WITH(
         first_manager->CreateEvalRunner("retry", "panel"),
-        Catch::Matchers::ContainsSubstring("Requested RunManager test Env failure: retry[0]"));
+        Catch::Matchers::ContainsSubstring("Requested RunManager test Env failure: env.[retry].[0]"));
     factory_state->failing_name.reset();
     CHECK(first_manager->CreateEvalRunner("retry", "panel")->GetBatchEnv()->GetName() == "retry");
 

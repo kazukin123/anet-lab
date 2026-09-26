@@ -200,7 +200,7 @@ _Avoid_: 弱い葉(上書き層A1〜A3の強弱と混同), 下書き(口語), @d
 ### Env・実行
 
 **Env name**:
-同一Run内でBatchEnvと各laneの出力元を人間が識別するための、不透明でimmutableな表示名。BatchEnv nameはRun内で一意とし、lane nameは`<BatchEnv name>[lane index]`で表す。Envはnameの意味を解析せず、挙動、RunMode、設定、seed、RNG、metrics identityの決定には使用しない。
+同一Run内でBatchEnvと各laneの出力元を人間が識別するための、不透明でimmutableな表示名。BatchEnv nameはRun内で一意とし、lane nameは`env.[<BatchEnv name>].[<lane index>]`で表す（ログの出力元表記を評価セッションの`eval.[<tag>]`と同じ設定記法に揃えたもの。BatchEnv単位のログは`env.[<BatchEnv name>]`）。Envはnameの意味を解析せず、挙動、RunMode、設定、seed、RNG、metrics identityの決定には使用しない。
 _Avoid_: Env ID, Env key, role, context
 
 **Actor Env contract**:
@@ -292,7 +292,7 @@ _Avoid_: online RunMode, interactive RunMode
 _Avoid_: batch mode, batch RunMode
 
 **configured eval tag**（評価タグ）:
-`run.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になり、省略時の Actor キーにもなる。`actor` で別のカタログ項目を指せる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay / actor）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。標準タグは `eval`（online net）と `eval_target`（target net。target net の無い Agent では dormant にする）。
+`run.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になり、省略時の Actor キーにもなる。`actor` で別のカタログ項目を指せる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。タグの内容（run_mode / env overlay / actor）を参照する鏡写しインスタンス（EvalPanel）は別インスタンスであり、第二のタグインスタンスにはならない。標準タグは `eval`（online net）と `eval_target`（target net。target net の無い Agent では dormant にする）。
 _Avoid_: eval profile, eval preset, RunMode（別概念）
 
 **eval schedule**（定期駆動）:
@@ -300,8 +300,12 @@ _Avoid_: eval profile, eval preset, RunMode（別概念）
 _Avoid_: eval interval 設定（キー名でなく機構名で呼ぶ）, スケジューラ（消費者コンポーネントと混同）
 
 **dormant**（寝タグの状態）:
-定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない（Actor を作らないので Actor キーの参照先も解決しない）。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
+定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない（Actor を作らないので Actor キーの参照先も解決しない）。意図された状態なので fail-fast の対象外——dormant タグを参照する scalar はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。trace は鏡写しインスタンスがあればそこへ結び付き、無ければ同じく WARN で skip される。
 _Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ, interval=0 タグ（旧契約の宣言方法）
+
+**鏡写しインスタンス**（mirror eval instance）:
+configured eval tag の内容（run_mode / env overlay / actor）を参照して、アプリケーションが名前を付けて RunManager 構築時に宣言する 1 lane の EvalRunner インスタンス。タグ自身のインスタンス（configured eval）とは別で、eval schedule に駆動されず評価セッションを持たない。人が開始・停止・手動操作するので scalar の購読先にはならず、タグが dormant のときだけ宣言順で最初の鏡写しが trace の購読先になる。EvalPanel が唯一の利用者。
+_Avoid_: 動的 Eval（生成時期の含意が消えた）, EvalPanel runner（アプリ側の名前）, ad-hoc eval / on-demand eval
 
 **episode scope**（エピソードスコープ）:
 BatchEnvのlaneを論理episodeへまとめる範囲。`PER_LANE`は各laneが独立したepisodeを持ち、`SHARED`は全laneが一つのepisode lifecycleを共有する。並列度であるlane数と、評価で数えるepisode数を分離するための語彙。
@@ -346,7 +350,7 @@ Runner が Agent へ渡す「どの env に、どの device と seed で、ど�
 _Avoid_: ActorSpec（Spec は出来上がったものの仕様を指す）, CreateActor 引数, actor context（Observation 加工の部品）
 
 **学習側 counts**（source counts）:
-Actor のスケジュール更新と snapshot 判定に使う、直近の Sync 時点の train runner の StepCounts。train runner 自身は live、configured eval はセッション開始時の値、EvalPanel はパネルが Sync した時点の値を Actor の MakeAction に渡す。eval runner 自身の counts（eval 座標系の metrics 用）とは別。
+Actor のスケジュール更新と snapshot 判定に使う、直近の Sync 時点の train runner の StepCounts。train runner 自身は live、configured eval はセッション開始時の値、鏡写しインスタンス（EvalPanel）はパネルが Sync した時点の値を Actor の MakeAction に渡す。EvalRunner の `@episode_end` / `@session_end` イベントは常にこの値に載る（configured eval はセッション開始時、鏡写しは直近の Sync 時点）。eval runner 自身の counts（eval 座標系の metrics 用。`@train` 系はこちら）とは別。
 _Avoid_: event_counts（実装名）, eval step（eval 座標系と混同）
 
 ### Runner GUI

@@ -548,9 +548,9 @@ TEST_CASE("BatchEnv exposes immutable human-readable lane names", "[env_name]")
     NameTestBatchEnv env("train", 3);
 
     CHECK(env.GetName() == "train");
-    CHECK(env.GetEnvName(0) == "train[0]");
-    CHECK(env.GetEnvName(1) == "train[1]");
-    CHECK(env.GetEnvName(2) == "train[2]");
+    CHECK(env.GetEnvName(0) == "env.[train].[0]");
+    CHECK(env.GetEnvName(1) == "env.[train].[1]");
+    CHECK(env.GetEnvName(2) == "env.[train].[2]");
 
     CHECK_THROWS_WITH(env.GetEnvName(-1), Catch::Matchers::ContainsSubstring("lane_index=-1"));
     CHECK_THROWS_WITH(env.GetEnvName(3), Catch::Matchers::ContainsSubstring("lane_index=3"));
@@ -564,7 +564,7 @@ TEST_CASE("Env name and BatchEnv size fail fast when invalid", "[env_name]")
 
 TEST_CASE("Batch wrappers pass stable lane names to every single Env", "[env_name]")
 {
-    const std::vector<std::string> expected_names = { "batch[0]", "batch[1]", "batch[2]" };
+    const std::vector<std::string> expected_names = { "env.[batch].[0]", "env.[batch].[1]", "env.[batch].[2]" };
 
     auto vectorized_factory = std::make_shared<RecordingSingleEnvFactory>();
     rl::VectorizedDiscreteBatchEnv vectorized(
@@ -597,7 +597,7 @@ TEST_CASE("Batch wrappers pass stable lane names to every single Env", "[env_nam
 
 TEST_CASE("Env bases bind immutable names to protected loggers", "[env_name][logger]")
 {
-    NameTestSingleEnv single("train[2]");
+    NameTestSingleEnv single("env.[train].[2]");
     const NameTestSingleEnv& const_single = single;
     NameTestBatchEnv batch("eval", 2);
     anet::test::LogCaptureGuard logs;
@@ -608,16 +608,16 @@ TEST_CASE("Env bases bind immutable names to protected loggers", "[env_name][log
     logs.Flush();
 
     REQUIRE(logs.Records().size() == 3);
-    CHECK(logs.Records()[0].message == "train[2]: single-body");
-    CHECK(logs.Records()[1].message == "train[2]: const-body");
-    CHECK(logs.Records()[2].message == "eval: batch-body");
+    CHECK(logs.Records()[0].message == "env.[train].[2]: single-body");
+    CHECK(logs.Records()[1].message == "env.[train].[2]: const-body");
+    CHECK(logs.Records()[2].message == "env.[eval]: batch-body");
 }
 
 TEST_CASE("Env exposes its immutable injected config snapshot", "[env][config]")
 {
     anet::ConfigData injected_config;
     injected_config.Set("NameTestSingleEnv.limit_step", 123);
-    NameTestSingleEnv env("train[0]", rl::RunMode::Train, injected_config);
+    NameTestSingleEnv env("env.[train].[0]", rl::RunMode::Train, injected_config);
 
     const auto actual = env.GetConfigData();
     REQUIRE(actual.has_value());
