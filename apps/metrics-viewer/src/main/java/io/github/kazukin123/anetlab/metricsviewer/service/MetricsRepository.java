@@ -214,8 +214,10 @@ public class MetricsRepository {
 		final String errorMessage;
 		final long count;
 		final boolean empty;
+		final long minStep;
+		final long maxStep;
 		try (PreparedStatement statement = connection.prepareStatement("""
-				SELECT t.id, t.status, t.error_code, t.error_message, s.count
+				SELECT t.id, t.status, t.error_code, t.error_message, s.count, s.min_step, s.max_step
 				FROM tags t
 				LEFT JOIN tag_stats s ON s.tag_id=t.id
 				WHERE t.key=?
@@ -232,16 +234,19 @@ public class MetricsRepository {
 				errorMessage = "error".equals(status) ? result.getString(4) : null;
 				count = result.getLong(5);
 				empty = result.wasNull() || count == 0L;
+				minStep = result.getLong(6);
+				maxStep = result.getLong(7);
 			}
 		}
 		if (empty) {
 			return new MetricsQueryPlanner.TagInput(
 					tagId, null, 0L, 0L, "error".equals(status), errorCode, errorMessage);
 		}
+		final StepRange stepRange = new StepRange(count, minStep, maxStep);
 		final long ordinalFrom = lowerBound(
-				connection, tagId, count, request.getFromStep(), false, query);
+				connection, tagId, stepRange, request.getFromStep(), false, query);
 		final long ordinalTo = lowerBound(
-				connection, tagId, count, request.getToStep(), true, query);
+				connection, tagId, stepRange, request.getToStep(), true, query);
 		return new MetricsQueryPlanner.TagInput(
 				tagId,
 				count,
@@ -271,6 +276,7 @@ public class MetricsRepository {
 					plan.generationValue(),
 					plan.request().getRunId(),
 					plan.tagId(),
+					plan.totalCount(),
 					plan.ordinalFrom(),
 					plan.ordinalTo(),
 					plan.pointBudget(),
@@ -309,12 +315,20 @@ public class MetricsRepository {
 	private static long lowerBound(
 			Connection connection,
 			long tagId,
-			long count,
+			StepRange stepRange,
 			long target,
 			boolean upperBound,
 			QueryExecution query) throws Exception {
+		// stepはtag内で非減少なので、min_stepは序数0、max_stepは序数count-1のstepである。
+		// targetがstep範囲の外側なら境界の序数は件数だけで決まり、二分探索のSQLを省ける。
+		// autorangeのwindowは左右へ1画面広げるため、全域表示では両端ともこの経路になる。
+		if (upperBound ? target < stepRange.minStep() : target <= stepRange.minStep()) return 0L;
+		if (upperBound ? target >= stepRange.maxStep() : target > stepRange.maxStep()) {
+			return stepRange.count();
+		}
+
 		long low = 0L;
-		long high = count;
+		long high = stepRange.count();
 		try (PreparedStatement statement = connection.prepareStatement(
 				"SELECT step FROM scalars WHERE tag_id=? AND ordinal=?");
 				StatementRegistration ignored = query.registerStatement(statement)) {
@@ -397,6 +411,10 @@ public class MetricsRepository {
 				.ingest(new IngestInfo(IngestState.PENDING.externalName(), 0, null))
 				.tags(List.of())
 				.build();
+	}
+
+	/** 同じsnapshotで読んだtagの全点数と、その先頭・末尾のstep。 */
+	private record StepRange(long count, long minStep, long maxStep) {
 	}
 
 	private static final class RunQueryContext implements AutoCloseable {

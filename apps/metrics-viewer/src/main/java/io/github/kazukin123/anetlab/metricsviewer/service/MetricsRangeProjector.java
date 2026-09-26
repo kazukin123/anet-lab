@@ -21,11 +21,15 @@ public class MetricsRangeProjector {
 		this.pageCache = pageCache;
 	}
 
+	/**
+	 * tagCountはconnectionと同じsnapshotで読んだtagの全点数で、各levelの完成bucket数を決める。
+	 */
 	public Projection project(
 			Connection connection,
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			long ordinalFrom,
 			long ordinalTo,
 			int pointBudget,
@@ -42,6 +46,7 @@ public class MetricsRangeProjector {
 				generation,
 				runId,
 				tagId,
+				tagCount,
 				ordinalFrom,
 				ordinalTo,
 				selection,
@@ -154,6 +159,7 @@ public class MetricsRangeProjector {
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			long ordinalFrom,
 			long ordinalTo,
 			LevelSelection selection,
@@ -168,7 +174,7 @@ public class MetricsRangeProjector {
 			final long exactFrom = Math.max(ordinalFrom, logicalFrom);
 			final long exactTo = Math.min(ordinalTo, logicalTo);
 			final LodBucket persisted = pageCache.find(
-					connection, generation, runId, tagId, selection.level(), bucket, query);
+					connection, generation, runId, tagId, tagCount, selection.level(), bucket, query);
 			if (persisted != null && exactFrom == logicalFrom && exactTo == logicalTo) {
 				buckets.add(persisted);
 			} else {
@@ -177,6 +183,7 @@ public class MetricsRangeProjector {
 						generation,
 						runId,
 						tagId,
+						tagCount,
 						exactFrom,
 						exactTo,
 						selection.level() - 1,
@@ -191,6 +198,7 @@ public class MetricsRangeProjector {
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			long ordinalFrom,
 			long ordinalTo,
 			int level,
@@ -209,7 +217,7 @@ public class MetricsRangeProjector {
 			final long exactFrom = Math.max(ordinalFrom, logicalFrom);
 			final long exactTo = Math.min(ordinalTo, logicalTo);
 			final LodBucket persisted = pageCache.find(
-					connection, generation, runId, tagId, level, bucket, query);
+					connection, generation, runId, tagId, tagCount, level, bucket, query);
 			if (persisted != null && exactFrom == logicalFrom && exactTo == logicalTo) {
 				aggregate.add(persisted);
 			} else {
@@ -218,6 +226,7 @@ public class MetricsRangeProjector {
 						generation,
 						runId,
 						tagId,
+						tagCount,
 						exactFrom,
 						exactTo,
 						level - 1,

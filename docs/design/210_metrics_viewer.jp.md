@@ -218,6 +218,9 @@ clientはviewportそのものではなく、左右へ1画面ずつ広げた**3�
 windowは系列ごとに1件だけ保持し、新しい応答が来たら差分mergeせず丸ごと置き換える。
 各range応答はそれ単体で完結しており、前回の応答へ依存しないため、この単純な置換で足りる。
 
+1つのgraphに載る系列（同じtagの選択中Run）は同じrequestで取る。点予算はrequest内の系列へ配分されるので、別々に取るとgraph内で解像度がそろわなくなるためである。
+どれか1系列でも取り直しが要れば、そのgraphの系列をまとめて取り直す。
+
 ### 2.9 Metricsキャッシュ世代
 
 同じ名前のRunフォルダでも、中身のマスタが差し替われば別物である。これを識別するのが**Metricsキャッシュ世代**である。
@@ -264,7 +267,7 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `MetricsRepository` | Runごとに1本のread snapshotを開き、Run metadataとseries queryを解決する |
 | `MetricsQueryPlanner` | 系列ごとのavailability判定と、request全体の点予算配分を決める |
 | `MetricsRangeProjector` | raw射影とLOD射影を組み立て、部分bucketだけ下位levelから再集約する |
-| `LodPageCache` | 完成済みbucketだけを1024件単位のpageとしてheapへ持つLRU cache |
+| `LodPageCache` | 完成済みbucketだけを1024件単位のpageとしてheapへ持つLRU cache。末尾pageは、snapshotのtag点数から求めた完成bucket数に足りなくなったときだけ読み直す |
 | `MetricsService` | LoadingThreadのlifecycle、metrics body/header検証、coordinator実行、snapshot lease取得、HTTP error変換を担う |
 | `MetricsViewerController` | Run、metrics、priorityのREST APIを公開する |
 | `WorkspaceController` | workspace一覧・切替APIを公開し、同Controllerの不正JSONだけを400 `invalid_request`へ変換する |
@@ -278,8 +281,8 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 |---|---|
 | `MetricsViewerClientApp` | Run/tag選択、Run色、viewport、描画世代（revision）、poll timerを所有するclient app |
 | `DataFetcher` | REST呼出し、ページ単位のquery channelとsequence、AbortControllerによる旧request打ち切りを担当する |
-| `DataCache` | Run metadataと、`(runId, tagKey)`ごとのwindow 1件を保持する |
-| `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う |
+| `DataCache` | Run metadataと、`(runId, tagKey)`ごとのwindow 1件を保持する。windowには取得時のtag点数・最終step・statusを添え、Reload時の鮮度判定に使う |
+| `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う。graph blockをtagKeyで使い回し、描画keyが変わったgraphだけを作り直す |
 | `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
 | `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
 
@@ -490,7 +493,7 @@ sequenceDiagram
         R->>D: openRead + setAutoCommit(false)
         R->>D: source_meta読み取り
         R->>D: tagとtag_stats読み取り
-        R->>D: stepの二分探索でordinal範囲へ写像
+        R->>D: stepの二分探索でordinal範囲へ写像（tagのstep範囲外の端は点数で決まる）
     end
     R->>P: plan(inputs)
     P-->>R: availability、点予算
@@ -538,10 +541,34 @@ sequenceDiagram
     P->>A: onViewportChanged(tagKey, range)
     A->>A: revisionを進めて進行中requestをabort、150ms debounce
     A->>F: 新しい3画面windowを要求
+
+    U->>A: Reload
+    A->>F: GET /api/runs.json
+    F-->>A: Run/tag metadata
+    A->>K: isOutdated判定（取得時のtag点数・最終step・statusと比べる）
+    A->>F: 古くなったgraphの系列だけPOST /api/metrics.json（無ければ送らない）
+    A->>P: 描画keyが変わったgraphだけ作り直す
 ```
 
 各rangeは前回応答へ依存しない完結した結果であり、clientは差分mergeを行わずwindowごと置換する。
-取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。この進捗pollだけはスクリーンショットモード中は止まり、Auto Reloadと手動Reloadはモードに関わらず動く。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中の系列だけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
+
+手動ReloadとAuto Reloadは、metadataを取り直したあと、取得後に中身が古くなったwindowを含むgraphだけを取り直す。何も変わっていなければ`metrics.json`は送らない。
+windowには取得を決めた時点のtag点数・最終step・statusを添えておき、次のどれかに当たれば古いとみなす。
+
+| 条件 | 理由 |
+|---|---|
+| windowが無い、世代が違う、要求windowを覆っていない、拡大で解像度が足りない | zoom/panや選択変更と同じ判定 |
+| availabilityが`ok` / `empty`以外 | 取り込み中や照会失敗で値が確定していない |
+| tagのstatusが変わった | 隔離などでissueが変わった |
+| tagの点数が変わり、windowの右端が取得時の最終step以上 | 追記点がwindowへ入りうる |
+
+tag内のstepは非減少なので、追記点のstepは取得時の最終step以上になる。過去の区間を拡大していてwindowの右端がそこへ届かないgraphは、点数が増えても取り直さない。
+
+描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、描画key（LOD表示モード、Log、percentile範囲、複数Runか、Runごとのwindowと色）が前回と同じblockはPlotlyを呼ばずに使い回し、metadata由来のheader（統計と警告）だけを書き換える。
+凡例の表示、軸範囲、drag modeはPlotly上で直接変わり、描画の前に`capturePlotState`で読み戻すので描画keyに含めない。
+Plotlyの再描画はgraph 1枚あたり数十msかかり（実測で137 graph×5 Runの全再描画が約5秒）、作り直すgraphを絞ることがReloadの応答時間を決める。
+
+取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。この進捗pollだけはスクリーンショットモード中は止まり、Auto Reloadと手動Reloadはモードに関わらず動く。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中のgraphのうち古くなったものだけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
 
 ## 7. 設定一覧
 
@@ -557,7 +584,7 @@ sequenceDiagram
 | `metricsviewer.initial-workspace` | `_default` | 直下directory名 | 起動時のcurrent workspace。妥当だが不在ならWARNと空のRun一覧で起動する |
 | `metricsviewer.target-points-per-series` | `8000` | 3 〜 `max-points-per-request` | requestが`maxPoints`を省略したときの1系列あたり既定vertex予算 |
 | `metricsviewer.max-points-per-request` | `500000` | 3 〜 1,000,000 | 1 requestで配分できるvertex総数 |
-| `metricsviewer.cache-memory-mb` | `256` | 0以上、かつ最大heapの50%以下 | 完成済みLOD pageのheap上限。`0`でpage cacheを使わずbucket単位で読む |
+| `metricsviewer.cache-memory-mb` | `256` | 0以上、かつ最大heapの50%以下 | LOD page（完成bucketの塊）のheap上限。`0`でpage cacheを使わずbucket単位で読む |
 | `metricsviewer.max-concurrent-queries` | `2` | 1 〜 4 | `/api/metrics.json`のprocess-globalな同時実行数。coordinatorのfair permitを最大5秒待つ |
 
 `cache-memory-mb`の上限判定は`Runtime.maxMemory()`に依存する。起動scriptの`-Xmx`を下げるとこの設定だけで起動に失敗しうる。
@@ -898,7 +925,7 @@ lod : { "kind":"lod",
 - `LoadingThread`はdaemon threadで、`converting` backlogまたはworkspace切替による即時再試行が不要なとき10秒sleepする。小さなappendを`ready`までcommitしたcycleもsleepし、cycle境界のRuntimeExceptionは記録して10秒後に回復を試みる。
 - `WorkspaceManager.shutdown()`はterminalである。開始後の新規leaseとworkspace切替は`IllegalStateException`で即時終了し、進行中cycleは現在blockの安全な終了後に停止する。取得済みleaseは利用を継続でき、最後のreleaseがretire済みresourceを1回だけ閉じる。
 - gzip変換中のRunは展開済みstreamを`GzipInputSessions`がblock間で保持する。この間はそのRun folderの移動をサポートしない。`ready`到達、失敗、作業セットからの消失で解放する。
-- `LodPageCache`は完成pageだけを保持し、Run消失と世代変更で破棄する。容量超過時はアクセス順のLRUで追い出す。
+- `LodPageCache`は完成bucketから成るpageを末尾pageも含めて保持し、Run消失と世代変更で破棄する。容量超過時はアクセス順のLRUで追い出す。
 
 ### 10.2 並行制御
 
@@ -926,7 +953,13 @@ lod : { "kind":"lod",
 - 取り込みは1 block最大1,000,000行のstreaming parseで、中間Listを作らない。上限は定常時に維持し、workspace切替要求時だけ完全行境界で短いblockとして確定する。L0、LOD、`TagStats`、source位置はどちらも同一commit境界で確定する。
 - 完全検証済みの`ready` / `error` Runはprocess memoryにsource/cache属性を保持し、属性不変のpollではfingerprint、Metricsマスタ本文、SQLite connectionへ入らない。観測はRun消失、workspace snapshot破棄、process restartで失われる。
 - range queryのコストはstep二分探索、bucket読み出し、部分bucketの再集約に分かれる。再集約が必要なのは、viewport端がbucket境界と揃わないbucketと、まだ子16件がそろっていない末尾bucketだけである。
-- LOD pageは1024 bucket単位で読み、完成pageだけheapに残す。1 pageは`1024 × 96` byte（long 8列 + double 4列）である。
+- step境界がtagのstep範囲（`min_step`〜`max_step`）の外側にある端は、序数が0または点数に決まるので二分探索を省く。autorangeのwindowは左右へ1画面広げるため、全域表示では両端ともこの経路になる。
+- LOD pageは1024 bucket単位で読み、末尾pageも含めてheapに残す。levelごとの完成bucket数は、同じsnapshotのtag点数から`点数 / 16^level`（切り捨て）で決まる。子16件がそろった瞬間に親を書くためである。
+  これより後ろのbucketはDBを引かずに下位levelから再集約し、保持中の末尾pageが完成bucket数に足りないときだけ読み直す。
+  完成bucketは書き換わらないので、新しいsnapshotで読んだpageを古いsnapshotのqueryが使っても結果は変わらない。
+  読んだpageが完成bucket数に足りなければcacheの不変条件違反として、その系列を`query_error`にする。
+- 末尾pageも保持するのは、取り込みを終えたRunの末尾pageは満杯にならず、保持しないとbucketを1個引くたびにpage全体を読み直すためである。100M stepのRunを5本並べた616系列のrequestでは、これがquery時間の8割を占めていた。
+- 1 pageは最大`1024 × 96` byte（long 8列 + double 4列）である。
 - 応答はBase64 binaryのため、HTTP圧縮は既定で無効にしてCPUを使わない。
 
 ## 11. ビルドと依存ライブラリ
@@ -990,10 +1023,10 @@ frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそ�
 | 取り込み（block、gzip、error、隔離） | `MetricsIngestorIntegrationTest` |
 | LODの構築と射影 | `MetricsLodIntegrationTest`、`LodPageCacheTest` |
 | scheduling / workspace lifetime | `IngestSchedulerTest`、`LoadingThreadTest`、`WorkspaceManagerTest`、`WorkspaceSnapshotIntegrationTest` |
-| query計画とsnapshot | `MetricsQueryPlannerTest`、`MetricsRepositorySnapshotIntegrationTest`、`MetricsQueryConcurrencyTest` |
+| query計画とsnapshot | `MetricsQueryPlannerTest`、`MetricsRepositorySnapshotIntegrationTest`、`MetricsRepositoryStepRangeIntegrationTest`、`MetricsQueryConcurrencyTest` |
 | HTTP API | `MetricsApiIntegrationTest`、`WorkspaceApiIntegrationTest`、`SeriesAvailabilityTest`、`HttpAccessLogFilterTest` |
 | 走査・設定 | `RunScannerTest`、`MetricsViewerSettingsTest` |
-| browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`、`OutlierRangePlaywrightTest`、`WorkspaceSelectorPlaywrightTest` |
+| browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`ReloadPlaywrightTest`、`SignedLogPlaywrightTest`、`OutlierRangePlaywrightTest`、`WorkspaceSelectorPlaywrightTest` |
 
 Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環境では`Assumptions`によりskipされ、失敗にはならない。
 テストごとにcontextを開き直し、route、`localStorage`、Plotly stateを共有しない。
@@ -1003,10 +1036,12 @@ Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環�
 1. cache schemaを変えるときは`SCHEMA_VERSION`を上げる。migrationは書かず、旧cacheが警告つきで破棄・再構築されることをtestする。
 2. `IngestState`と`SeriesAvailability`のexternalNameは永続値かつHTTP公開値である。値の追加は可、既存値の改名・削除は非互換とみなす。
 3. 取り込みの新しい処理は同一transactionへ入れる。L0、LOD、`TagStats`、`source_meta`が別commitへ分かれるとcrash時に整合が壊れる。
-4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。
+4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。`LodPageCache`は完成bucket数をtag点数から導くので、親を書く契機を変えるときはこの導出も合わせて変える。
 5. 統計をLODから導出しない。範囲非依存の統計はcommit済みL0全点から作る。
 6. 点予算の配分を変えたら、系列数が多いrequestで422と503の境界がどう動くかをtestする。
 7. clientへ新しい状態を足すときは、Reload時にPlotly DOMを再構築しても保たれるようclient app側に持たせる。
+   graphの見た目を決める入力なら、描画key（`PlotlyController._graphRenderKey`）へ加えるか、Plotly上で直接反映して`capturePlotState`で読み戻す。どちらでもない入力は、変わってもgraphが作り直されない。
+   windowの中身を左右する条件なら、Reloadの鮮度判定（`DataCache.isOutdated`）にも反映する。
 8. 長時間実行のRunに対しては、追記中（`converting`）と完了後（`ready`）の両方で同じrangeが同じ結果を返すことを確認する。
 9. Runフォルダの出し入れ・リネームが即座に反映されること、取り込み中のRunでもfile handleが残らないことを確認する。
 

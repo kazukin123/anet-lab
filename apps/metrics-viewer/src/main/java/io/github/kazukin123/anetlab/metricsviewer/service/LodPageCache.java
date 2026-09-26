@@ -27,32 +27,71 @@ public class LodPageCache {
 		this.capacityBytes = settings.getCacheMemoryBytes();
 	}
 
+	/**
+	 * snapshotで完成済みのbucketを返す。未完成のbucketならnullを返し、呼び出し側が下位levelから再集約する。
+	 * tagCountはconnectionと同じsnapshotで読んだtagの全点数とする。
+	 */
 	LodBucket find(
 			Connection connection,
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			int level,
 			long bucket,
 			QueryExecution query) throws SQLException {
 		query.checkpoint();
+		// 子16件がそろった瞬間に親を書くので、完成bucketは各levelの先頭から「全点数/幅」個だけある。
+		// それより後ろは未完成なので、DBを引かずに再集約へ回す。
 		final long width = LodBucket.widthForLevel(level);
-		final long pageIndex = Math.floorDiv(bucket, LOD_PAGE_BUCKETS);
+		final long completeBuckets = tagCount / width;
+		if (bucket >= completeBuckets) return null;
+
+		final LodBucket found;
+		if (capacityBytes == 0L) {
+			found = loadBucket(connection, tagId, level, bucket, query);
+		} else {
+			final long pageIndex = Math.floorDiv(bucket, LOD_PAGE_BUCKETS);
+			found = pageFor(
+					connection, generation, runId, tagId, level, pageIndex, completeBuckets, query)
+					.find(bucket, width, query);
+		}
+		if (found == null) {
+			throw new IllegalStateException("Complete LOD bucket is missing: run=" + runId
+					+ " tagId=" + tagId + " level=" + level + " bucket=" + bucket
+					+ " completeBuckets=" + completeBuckets);
+		}
+		return found;
+	}
+
+	private Page pageFor(
+			Connection connection,
+			String generation,
+			String runId,
+			long tagId,
+			int level,
+			long pageIndex,
+			long completeBuckets,
+			QueryExecution query) throws SQLException {
+		// このsnapshotでpageに入っているべきbucket数。末尾pageだけが1024未満になる。
+		final long firstBucket = Math.multiplyExact(pageIndex, LOD_PAGE_BUCKETS);
+		final int expectedBuckets = (int) Math.min(LOD_PAGE_BUCKETS, completeBuckets - firstBucket);
 		final PageKey key = new PageKey(generation, runId, tagId, level, pageIndex);
 		Page page;
 		synchronized (this) {
 			page = pages.get(key);
 		}
-		if (page == null) {
-			if (capacityBytes == 0L) {
-				return loadBucket(connection, tagId, level, bucket, query);
-			}
-			final Page loaded = loadPage(connection, tagId, level, pageIndex, query);
-			page = !loaded.isComplete(pageIndex, width)
-					? loaded
-					: retain(key, loaded);
+		// 完成bucketは書き換わらず末尾へ増えるだけなので、保持中のpageが足りていればそのまま使える。
+		// 足りないのは、保持後に末尾pageで新しいbucketが完成した場合だけである。
+		if (page != null && page.size() >= expectedBuckets) return page;
+
+		final Page loaded = loadPage(connection, tagId, level, pageIndex, query);
+		if (loaded.size() < expectedBuckets) {
+			throw new IllegalStateException("LOD page is missing complete buckets: run=" + runId
+					+ " tagId=" + tagId + " level=" + level + " page=" + pageIndex
+					+ " expected=" + expectedBuckets + " actual=" + loaded.size());
 		}
-		return page.find(bucket, width, query);
+		return retain(key, loaded);
 	}
 
 	public synchronized void retainRuns(Set<String> runIds) {
@@ -112,8 +151,14 @@ public class LodPageCache {
 
 	private Page retain(PageKey key, Page loaded) {
 		synchronized (this) {
+			// 同じpageはbucketが末尾へ増えるだけなので、bucket数の多い方が新しい内容を含む。
+			// 古いsnapshotで読んだpageが、並行queryの保持した新しいpageを縮めないようにする。
 			final Page existing = pages.get(key);
-			if (existing != null) return existing;
+			if (existing != null && existing.size() >= loaded.size()) return existing;
+			if (existing != null) {
+				pages.remove(key);
+				usedBytes -= existing.byteSize();
+			}
 			if (loaded.byteSize() == 0L) return loaded;
 			if (loaded.byteSize() > capacityBytes) return loaded;
 
@@ -249,13 +294,8 @@ public class LodPageCache {
 			return null;
 		}
 
-		private boolean isComplete(long pageIndex, long width) {
-			if (buckets.length != LOD_PAGE_BUCKETS) return false;
-			final long firstBucket = Math.multiplyExact(pageIndex, LOD_PAGE_BUCKETS);
-			for (int i = 0; i < buckets.length; i++) {
-				if (buckets[i] != firstBucket + i || counts[i] != width) return false;
-			}
-			return true;
+		private int size() {
+			return buckets.length;
 		}
 
 		private long byteSize() {

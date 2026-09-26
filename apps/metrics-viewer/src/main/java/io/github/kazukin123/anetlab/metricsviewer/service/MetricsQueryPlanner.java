@@ -80,6 +80,7 @@ final class MetricsQueryPlanner {
 					: SeriesAvailability.EMPTY;
 			return plan;
 		}
+		plan.totalCount = tag.totalCount();
 		plan.ordinalFrom = tag.ordinalFrom();
 		plan.ordinalTo = tag.ordinalTo();
 		plan.availableVertices = Math.max(0L, plan.ordinalTo - plan.ordinalFrom);
@@ -161,8 +162,9 @@ final class MetricsQueryPlanner {
 	 * availabilityがokでない系列のpointBudgetは0となる。
 	 * generationValueはmetadataを読めた場合の生値、generationはそのUUID変換に成功した場合に有効となる。
 	 * tagIdはtagを読めた場合に有効となる。
-	 * ordinal範囲とavailableVerticesは正のtag統計を読めた場合に有効となり、
+	 * totalCount、ordinal範囲、availableVerticesは正のtag統計を読めた場合に有効となり、
 	 * capとpointBudgetはavailabilityがokの系列だけで配分値として有効となる。
+	 * totalCountは計画と同じsnapshotのtag全点数で、完成済みLOD bucket数の算出に使う。
 	 */
 	static final class SeriesPlan {
 		private final int index;
@@ -171,6 +173,7 @@ final class MetricsQueryPlanner {
 		private final UUID generation;
 		private final String generationValue;
 		private long tagId;
+		private long totalCount;
 		private long ordinalFrom;
 		private long ordinalTo;
 		private long availableVertices;
@@ -211,6 +214,10 @@ final class MetricsQueryPlanner {
 
 		long tagId() {
 			return tagId;
+		}
+
+		long totalCount() {
+			return totalCount;
 		}
 
 		long ordinalFrom() {
