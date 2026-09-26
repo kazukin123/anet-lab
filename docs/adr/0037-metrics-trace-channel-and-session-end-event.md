@@ -26,6 +26,7 @@ scalar 行 `{step, tag, value}` には主体欄が無く、`mean.` 等の集約�
 - 互換対象は旧名の定義を持つ現用の過去 Run artifact。移行方法は新しい Run の実行で、現用 Run 作業セットが全て `metrics.scalar.defs` を持つまで旧名を読み、その時点を削除条件とする。過去 artifact は書き換えず、旧名を二重出力しない。ADR 0029 の過去 Run 向け設定導出 fallback も削除条件を新名へ読み替える。
 - 定義不在時の既存設定導出は維持し、`EVENT_NAMES` に `session_end` を追加する。cache 未構築の新 Run でも `metrics` の selector 展開と `tags --no-observed` がこの経路を通るためであり、過去 Run 向け互換の削除条件だけを理由に除去しない。詳細な到達経路は [PRD069 §4.7](../memo/done/069_metrics_trace_channel_10prd.md#47-書き口と定義レコード)に記す。
 - trace 行を書く側は読み手の 3 制約を守る: `type` は文字列、`step` は整数（Metrics Viewer の ingest が Run 全体を ERROR にする）、top-level に数値 `value` を置かない（MLflow bridge が metric として送る）。既存の読み手は trace 行を捨てるだけで壊れない。
+- （[ADR 0047](0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) による改訂）trace 行は固定属性に `timestamp`（`type:"json"` レコードと同じ書式）を持つ。上の 3 制約は変わらない。dormant タグを参照する trace は捨てずに保持し、後から `CreateEvalRunner` で作る鏡写しインスタンスへ結び付け、その定義は起動時の `metrics.trace.defs` に載せる。
 - trace のトリガは `@episode_end` のみ。`@train` / `@learn` / `@session_end` は fail-fast で閉じ、932（forensic）や 912（network version）が要るときに開ける。`episode_id` / `model_version` の欄も同じゲートで足す。
 - `$runner` は index を無視してカウンタ等を返せるため、lane 指定なら必ず `nullopt` になるとは保証しない。未知キーの `nullopt` は fail-fast、既知値の NaN / ±Inf はキーを残して `null` とし、値の意味の選択は設定者が担う。
 - 実装の受入では編集前 baseline と決定的 backend・foreground eval の同 seed Run を比較する。時間依存値を除く scalar の件数・step・値、eval1 / eval2 各3セッション以上、N=G=10 の各10行と scalar 平均の整合、分布の復元を要求する。N>G・N<G・SHARED・非採用完了・通知時の値取得・DSL 拒否条件・background の配送と例外伝播・既存 reader は別途検証する。未検証を合格扱いしない。

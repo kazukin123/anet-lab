@@ -304,8 +304,8 @@ _Avoid_: eval interval 設定（キー名でなく機構名で呼ぶ）, スケ�
 _Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ, interval=0 タグ（旧契約の宣言方法）
 
 **鏡写しインスタンス**（mirror eval instance）:
-configured eval tag の内容（run_mode / env overlay / actor）を参照して、アプリケーションが名前を付けて RunManager 構築時に宣言する 1 lane の EvalRunner インスタンス。タグ自身のインスタンス（configured eval）とは別で、eval schedule に駆動されず評価セッションを持たない。人が開始・停止・手動操作するので scalar の購読先にはならず、タグが dormant のときだけ宣言順で最初の鏡写しが trace の購読先になる。EvalPanel が唯一の利用者。
-_Avoid_: 動的 Eval（生成時期の含意が消えた）, EvalPanel runner（アプリ側の名前）, ad-hoc eval / on-demand eval
+configured eval tag の内容（run_mode / env overlay / actor）を参照して、アプリケーションが名前を付けて `CreateEvalRunner(name, tag)` で作る 1 lane の EvalRunner インスタンス。タグ自身のインスタンス（configured eval）とは別で、eval schedule に駆動されず評価セッションを持たない。人が開始・停止・手動操作するので scalar の購読先にはならず、タグが dormant のときだけ最初に作られた鏡写しが trace の購読先になる。EvalPanel が唯一の利用者。
+_Avoid_: 動的 Eval, EvalPanel runner（アプリ側の名前）, ad-hoc eval / on-demand eval
 
 **episode scope**（エピソードスコープ）:
 BatchEnvのlaneを論理episodeへまとめる範囲。`PER_LANE`は各laneが独立したepisodeを持ち、`SHARED`は全laneが一つのepisode lifecycleを共有する。並列度であるlane数と、評価で数えるepisode数を分離するための語彙。
