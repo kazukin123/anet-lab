@@ -1777,7 +1777,9 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
 
 Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm,
-    std::shared_ptr<ActionContext> context,
+    std::unique_ptr<FrameStacker> stacker,
+    torch::Device device,
+    std::optional<seed_t> seed,
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
     std::shared_ptr<anet::nn::Network> src_network,
@@ -1785,7 +1787,8 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval,
     bool emit_snapshot_metrics,
     ActorQHintConfig actor_q_hint_config)
-    : policy_(std::move(policy)), obs_norm_(std::move(obs_norm)), context_(std::move(context)), mutex_(std::move(mutex))
+    : RandomHolder(seed), policy_(std::move(policy)), obs_norm_(std::move(obs_norm))
+    , stacker_(std::move(stacker)), device_(device), mutex_(std::move(mutex))
     , network_(std::move(network)), src_network_(std::move(src_network)), emit_actor_q_hint_(emit_actor_q_hint)
     , actor_q_hint_config_(actor_q_hint_config)
     , emit_snapshot_metrics_(emit_snapshot_metrics)
@@ -1839,11 +1842,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
     UpdateSnapshot(step);
 
-    // FrameStacking
-    auto obs = state.obs;
-    if (context_ != nullptr) {
-        obs = context_->PushObservation(state);
-    }
+    // frame stackとdevice転送（stacker無しならdevice転送のみ）を正規化前に行う。
+    auto obs = stacker_ ? stacker_->Stack(state.obs, state.episode_start) : state.obs.To(device_);
     ANET_LOG_DEBUG("obs=" << obs.ToDefString());
     //ANET_LOG_DEBUG("obs=" << obs.ToString());
 
@@ -1857,17 +1857,16 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     //ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToString());
 
     // 行動選択
-    auto rnd = context_->GetRandomGenerator();
     anet::TensorDict trace;
     anet::TraceCallback callback = anet::rl::MakeActionTraceCallback(trace);
     std::shared_ptr<DQNActionInfo> act_info;
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, callback);
+        act_info = policy_->SelectAction(norm_obs, false, network_, rnd_, callback);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, callback);
+        act_info = policy_->SelectAction(norm_obs, false, network_, rnd_, callback);
     }
 
     // 学習Actorだけが、既存forwardの平均Qから初期優先度用ヒントをpackする。

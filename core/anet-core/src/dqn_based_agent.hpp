@@ -17,6 +17,7 @@
 #include "anet/transfer.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/random.hpp"
+#include "anet/stacker.hpp"
 #include "anet/schedule.hpp"
 
 
@@ -862,11 +863,13 @@ namespace anet::rl::dqn {
         float tbo_epsilon = 0.01f;
     };
 
-    class Actor : public anet::rl::Actor {
+    class Actor : public anet::rl::Actor, public anet::RandomHolder {
     public:
         Actor(std::shared_ptr<ActionPolicy> policy,
             std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm,
-            std::shared_ptr<ActionContext> context,
+            std::unique_ptr<FrameStacker> stacker,
+            torch::Device device,
+            std::optional<seed_t> seed,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             std::shared_ptr<anet::nn::Network> src_network,
@@ -884,7 +887,8 @@ namespace anet::rl::dqn {
     private:
         std::shared_ptr<ActionPolicy> policy_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
-        std::shared_ptr<ActionContext> context_;
+        std::unique_ptr<FrameStacker> stacker_;
+        torch::Device device_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;

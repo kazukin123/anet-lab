@@ -74,7 +74,6 @@ Agent系の所有権は次の原則に従う。
 | `Agent` | Actor/Learner生成、device、保存・読込を公開する共通interface |
 | `AgentBase` | device、Env情報、共有mutexを提供する基底実装 |
 | `Actor` | BatchStateからBatchActionInfoを生成し、必要に応じて推論Resourceを同期するinterface |
-| `ActionContext` | Observationのstack、device転送など、行動選択前の状態加工を担当する |
 | `Learner` | Experienceを受け取り、0件以上の更新結果を返すinterface |
 | Agent Resource | Network、Optimizer、ReplayBufferなど、具象Agentが必要に応じて構成するResource |
 
@@ -140,7 +139,7 @@ sequenceDiagram
     participant G as Agent
     participant A as Actor
 
-    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
+    R->>G: CreateActor(actor_request)
     G-->>R: Actor
     loop Runner step
         R->>A: MakeAction(step_counts, batch_state)
@@ -184,7 +183,7 @@ sequenceDiagram
 - `agent.device`は`auto`、`cpu`、`cuda`、`cuda:N`で対象deviceを指定する。既定は`auto`で、採用値は`json/agent.json`に記録する。
 - EnvSpec、BatchEnvSpec、device、seed、ConfigDataはfactoryから具象Agentへ渡す。
 - アルゴリズム固有設定は具象AgentのConfigが読み取る。存在する値の型変換失敗は共通`ConfigData`がfail-fastし、既定値はキー欠落時だけ使う。enum、範囲、組み合わせは各具象Configまたは再利用設定型の構築時validatorが検証する。
-- ActorのRunModeとmodel複製有無は、Runnerのoverrideと具象Agentの既定をAgent生成境界で解決する。
+- Actorの方策・network選択・model複製有無は、`ActorRequest::actor_key`で参照するActorカタログ（`<Agent>.actor.[key]`）から具象Agentが解決する。RunModeは受け取らない。
 
 設定一覧の正本は実際のConfig classと[apps/runner/config](../../apps/runner/config)であり、本書では全キーを複製しない。
 

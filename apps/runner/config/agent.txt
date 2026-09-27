@@ -247,13 +247,13 @@ DefaultDQNAgent.@baseline.qr.num_quantiles ?= 51         # QR-DQNの分位数 N
 #     - 役割: 未知の領域を効率よく開拓するための「行動方策 (Behavior Policy)」。
 #     - 推奨: UQE (不確実性による探索) または EpsilonGreedy。
 #     - 備考: uqe_tau_start(楽観度) や eps_start(ランダム度) を高く設定し、学習進行で減衰させる。
-#     - 備考: RunMode=TrainでのCreateActionContext/MakeAction呼出で適用される。
+#     - 備考: RunMode=TrainでのCreateActor/MakeAction呼出で適用される。
 #
 # [2] actor.[eval].policy (評価・本番推論向け)
 #     - 役割: 学習の真の実力を測るための「評価方策 (Eval Policy)」。
 #     - 推奨: Greedy (完全な平均Q値の最大化)。
 #     - 備考: 無駄な探索ノイズを排除するため、Greedy固定が鉄則。
-#     - 備考: RunMode=Eval/Eval1/Eval2でのCreateActionContext/MakeAction呼出で適用される。
+#     - 備考: RunMode=Eval/Eval1/Eval2でのCreateActor/MakeAction呼出で適用される。
 #
 # [3] target_policy と use_optimistic_target (TDターゲット計算・学習用) ★最重要
 #     - 役割: 「もし次状態で最善を尽くしたら価値はいくらか」を計算する基準。学習でTD誤差を算出する為に使用。

@@ -6,7 +6,6 @@
 #include <torch/torch.h>
 #include "anet/tensor_util.hpp"
 #include "anet/rl.hpp"
-#include "anet/agent.hpp"
 
 
 namespace anet::rl {
@@ -40,21 +39,5 @@ namespace anet::rl {
         std::unordered_map<std::string, torch::Tensor> buffers_;    // Keyごとに履歴バッファを保持
         int head_ = 0;    ///< リングバッファの最古スロット位置=次回上書き位置 (全キーは同時にStackされるため共通)
     };
-
-
-    // ----------------------------------------------------------------------
-    // StackerActionContext
-    // ----------------------------------------------------------------------
-
-    class StackerActionContext final : public ActionContext {
-    public:
-        explicit StackerActionContext(std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed = std::nullopt);
-
-        anet::TensorDict PushObservation(const BatchState& state) override;
-        void Reset() override;
-    private:
-        std::shared_ptr<FrameStacker> stacker_;
-    };
-
 
 }

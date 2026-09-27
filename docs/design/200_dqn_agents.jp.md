@@ -51,7 +51,7 @@ DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed|str
 
 IQN+UQEは任意の`full_distribution_query`を持つ。既定はdisabledで、enabled時はrisk tausとfull `[0,1]` tausを連結して1回だけforwardする。`q_values`/`uqe_values`/`q_quantiles`はrisk側、`full_q_values`/`full_q_quantiles`はfull側であり、Headが連結全体から返す平均`q`は使わない。point UQEのrisk側は同値なα 1本に縮約する。非IQN modeではenabled設定を休眠状態のまま保持して無視するため、quantile modeの切替時に同時変更する必要はない。IQNでenabledにしたままUQE以外のPolicyを選ぶ構成は設定エラーになる。
 
-Actorは、構成に応じてActionContextによるframe stackとdevice転送を行い、Observation正規化、Policy呼出し、補助情報の付与へ進む。PolicyはLearnerへ依存せず、NetworkとRNGだけでActionを決定する。
+Actorは、構成に応じて`DictFrameStacker`によるframe stackとdevice転送（stacker無しではdevice転送のみ）を行い、Observation正規化、Policy呼出し、補助情報の付与へ進む。PolicyはLearnerへ依存せず、NetworkとRNGだけでActionを決定する。
 
 `DefaultDQNAgent`のframe stackでは、`use_stacker=true`かつ`stack_count=S>1`のとき、stack対象ObservationのNetwork入力specをEnvSpecの特徴次元へ乗算せず、`[S, *original_shape]`として構築する。これによりdummy forward、Actor、Replay sampleの入力軸が一致する。`stack_keys`対象外のspecは変更せず、`stack_count==1`では追加のstack軸をNetwork specへ導入しない。このspec変換はDefaultDQN固有であり、EnvSpec、ObservationNormalizer、ReplayBuffer、`NetworkBuilder`、`RainbowAgent`のcontractは変更しない。moduleごとのshape変換と離散Gridのone-hot境界は[ニューラルネットワーク](130_neural_networks.jp.md#22-frame-stack入力の軸contract)を参照する。
 
@@ -81,7 +81,7 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 | `NetworkModel` | online/target Network、target更新、保存・読込をまとめるResource |
 | `DQNActionInfo` | Action、Q補助情報、Replay初期priority hint、snapshot診断を運ぶActionInfo |
 | `ActionPolicy` | Network出力からActionを選択する基底component |
-| `dqn::Actor` | ActionContext、正規化、Policy、Network、同期StateをまとめるActor実装 |
+| `dqn::Actor` | frame stacker、正規化、Policy、Network、RNG、同期StateをまとめるActor実装 |
 | `dqn::Learner` | ReplayBuffer、optimizer、更新credit、target同期、PER更新をまとめる内部Learner |
 | `TDLearner` | scalar TD targetとTD lossを計算するLearner |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | target quantileと方式別のquantile Huber lossを計算するLearner |
@@ -157,11 +157,11 @@ sequenceDiagram
     participant R as Runner
     participant G as DQN Agent
     participant A as DQN Actor
-    participant C as ActionContext
+    participant S as DictFrameStacker
     participant P as ActionPolicy
     participant N as Actor Network
 
-    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
+    R->>G: CreateActor(actor_request)
     G->>G: Policyとsource Networkを選択
     opt modelを複製
         G->>N: sourceからcloneを作成
@@ -169,8 +169,11 @@ sequenceDiagram
     G-->>R: DQN Actor
     R->>A: MakeAction(step_counts, batch_state)
     A->>A: DefaultDQN Train snapshotを判定
-    A->>C: PushObservation(batch_state)
-    C-->>A: 加工済みObservation
+    opt use_stacker
+        A->>S: Stack(obs, episode_start)
+        S-->>A: stack済みObservation
+    end
+    A->>A: device転送（stacker無し）と正規化
     A->>P: SelectAction(observation, Network, RNG)
     opt DefaultDQN IQN
         P->>P: tausを生成して入力copyへ注入
@@ -291,7 +294,7 @@ sequenceDiagram
 | 観点 | `DefaultDQNAgent` | `RainbowAgent` |
 |---|---|---|
 | Policy | ActorカタログとLearner targetを個別構成。epsilon-greedy、UQE、Thompson Sampling | Actorごとのepsilon-greedyとLearner target用greedy |
-| 前処理 | RewardScaler、ObservationNormalizer、frame stack | 共通ActionContext。専用scaler/normalizer設定なし |
+| 前処理 | RewardScaler、ObservationNormalizer、frame stack | frame stackなし（device転送のみ）。専用scaler/normalizer設定なし |
 | Head/Learner | TD/QR/IQN、Dueling有無を選択 | TD/QR、Dueling有無を選択 |
 | Replay拡張 | N-step、PER、prefetch、replay ratio、TBOなど | N-step、PER。現行Configはprefetch、TBO、fused optimizerを無効化 |
 | Actor clone | カタログの`clone_model`と任意の`sync_interval.*`で指定 | カタログの`clone_model`で指定。定期snapshotなし |
@@ -407,6 +410,8 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
 - DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
 - online/targetのどちらかにSNがあり、soft update構成（`model.hard_update_interval<=0`）の場合、`model.soft_update_tau`は有限かつ`[0, 0.1]`または`1`でなければ起動時にfail-fastする。hard update構成では未使用tauを検証しない。
+
+既知事項: ActorのObservation正規化はAgent mutexの外で行われ、normalizer統計更新は`DefaultDQNAgent::UpdateFromBatch`のunique lock内で行われる。dynamic scaling時の潜在競合は未対処である。現用のRunner設定はいずれも`obs_norm.pass_through=true`のため、この競合は顕在化しない。
 
 ### 9.4 可塑性メトリクス
 

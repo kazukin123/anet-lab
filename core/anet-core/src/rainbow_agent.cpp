@@ -175,7 +175,6 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     ValidateActorDevice(cfg.clone_model, request.device);
     auto policy = std::make_shared<EpsilonGreedyActionPolicy>(cfg.policy, false,
         request.batch_env_spec.num_envs, request.device);
-    auto context = std::make_shared<DefaultActionContext>(request.seed, request.device);
     auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     auto network = source;
     if (cfg.clone_model) {
@@ -185,7 +184,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     }
     const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
-    return std::make_shared<Actor>(policy, nullptr, context, mutex_, network, source, emit_hint,
+    return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, emit_hint,
         std::nullopt, false, ActorQHintConfig{.munchausen = MunchausenConfig{.enabled = false}});
 }
 

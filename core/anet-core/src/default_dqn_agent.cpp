@@ -454,17 +454,16 @@ std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const
     return std::nullopt;
 }
 
-std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(const ActorRequest& request) const
+std::unique_ptr<anet::rl::FrameStacker> DefaultDQNAgent::CreateFrameStacker(const ActorRequest& request) const
 {
-    // StackerもActor専用seedと推論deviceを使う。
+    // laneごとの履歴をActorが専有し、推論device上でstackする。
     if (config_.stucker.use_stacker) {
         std::optional<std::vector<std::string>> keys;
         if (!config_.stucker.stack_keys.empty()) keys = config_.stucker.stack_keys;
-        auto stacker = std::make_shared<DictFrameStacker>(config_.stucker.stack_count,
+        return std::make_unique<DictFrameStacker>(config_.stucker.stack_count,
             request.batch_env_spec.num_envs, request.device, keys);
-        return std::make_shared<StackerActionContext>(stacker, request.seed);
     }
-    return std::make_shared<DefaultActionContext>(request.seed, request.device);
+    return nullptr;
 }
 
 std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest& request) const
@@ -488,8 +487,8 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
     const ActorQHintConfig hint_config{
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
         .tbo_epsilon = config_.learner.tbo_epsilon};
-    return std::make_shared<Actor>(policy, obs_norm_, CreateActionContext(request), mutex_, network,
-        source, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
+    return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
+        mutex_, network, source, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()

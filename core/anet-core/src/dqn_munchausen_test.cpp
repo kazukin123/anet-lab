@@ -243,8 +243,7 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     // 共通configにmodeが含まれても、同じscoreとseedから作るActor hintは変わらない。
     for (const std::string mode : { "target", "online", "online_reuse" }) {
         CAPTURE(mode);
-        const auto context = std::make_shared<DefaultActionContext>(67021);
-        anet::rl::dqn::Actor actor(policy, nullptr, context, std::make_shared<std::shared_mutex>(), network, network,
+        anet::rl::dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 67021, std::make_shared<std::shared_mutex>(), network, network,
             true, std::nullopt, false, ActorQHintConfig{
                 .munchausen = MunchausenConfig{ .enabled = enabled, .log_policy_mode = mode, .entropy_tau = 0.7f },
                 .use_tbo = tbo, .tbo_epsilon = 0.001f });

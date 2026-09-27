@@ -55,7 +55,7 @@ keyは物理indexではなく`generation * actual_capacity + flat_slot_index`で
 
 frame stackingには2つの利用箇所がある。
 
-- Actor側の`StackerActionContext`は、行動選択用にlaneごとの直近Observationをstackし、`episode_start`を受けたlaneを初期frameで埋め直す。
+- Actor側の`DictFrameStacker`は、行動選択用にlaneごとの直近Observationをstackし、`episode_start`を受けたlaneを初期frameで埋め直す。
 - ReplayBufferはPush時の`BatchState::episode_start`を実slotの履歴開始としてObservationと同時に保存する。truncation用dummy slotは履歴開始にしない。
 - sample extractorは`obs`では時刻`t`、`next_obs`では`t + actual_n_steps`を最新slotとして、stack幅内を新しいslotから古いslotへ走査する。最初に見つかった保存済み履歴開始より前を、その開始frameのcopyでpaddingする。履歴開始がなければstack幅全体を使い、`stack_count == 1`では走査しない。terminalやN-step metadataの確定状態はstack境界に使わない。
 

@@ -13,56 +13,6 @@ namespace anet::rl {
 
 
     // ----------------------------------------------------------------------
-    // ActionContext
-    // ----------------------------------------------------------------------
-
-    class ActionContext : public anet::RandomHolder {
-    public:
-        explicit ActionContext(std::optional<seed_t> seed = std::nullopt)
-            : RandomHolder(seed)
-        {
-        }
-
-
-        /// @return 加工されたObservation
-        virtual anet::TensorDict PushObservation(const anet::rl::BatchState& state) = 0;
-        virtual void Reset() = 0;
-
-        virtual ~ActionContext() = default;
-    };
-
-
-    // ----------------------------------------------------------------------
-    // DefaultActionContext
-    // ----------------------------------------------------------------------
-
-    /// 加工を行わず、State内のobsをそのまま通過させるActionContext 
-    class DefaultActionContext : public ActionContext {
-    public:
-        DefaultActionContext(std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
-            : ActionContext(seed)
-            , device_(device)
-        {
-        }
-
-        anet::TensorDict PushObservation(const BatchState& state) override
-        {
-            ///< そのまま obs を返す
-            if (device_.has_value()){
-                return state.obs.To(device_.value());
-            } else {
-                return state.obs;
-            }
-        }
-        void Reset() override { }
-
-		virtual ~DefaultActionContext() = default;
-    private:
-        std::optional<torch::Device> device_;
-    };
-
-
-    // ----------------------------------------------------------------------
     // AgentBase
     // ----------------------------------------------------------------------
 

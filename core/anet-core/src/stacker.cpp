@@ -116,30 +116,3 @@ void DictFrameStacker::Reset()
     buffers_.clear();
     head_ = 0;
 }
-
-
-// =============================================================
-// StackerActionContext
-// =============================================================
-
-StackerActionContext::StackerActionContext(std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed)
-    : ActionContext(seed), stacker_(std::move(stacker))
-{
-    /// @todo 推論と学習における FrameStacker の重複解消と ActionContext 不要論
-    /// @todo ActionContext依存のStacking再考
-
-}
-
-anet::TensorDict StackerActionContext::PushObservation(const BatchState& state)
-{
-    if (stacker_) {
-        // BatchState から obs と episode_start を抽出して委譲
-        return stacker_->Stack(state.obs, state.episode_start);
-    }
-    return state.obs;
-}
-
-void StackerActionContext::Reset()
-{
-    if (stacker_) stacker_->Reset();
-}

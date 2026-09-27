@@ -2606,6 +2606,16 @@ TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d",
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+
+    // auxにはstack済み観測を保持し、pass-through正規化でも両キーを公開する。
+    const auto expected_obs = torch::arange(16, torch::kFloat32).reshape({ 2, 1, 8 }).expand({ 2, 4, 8 });
+    const auto& aux = action_info->GetAuxData();
+    REQUIRE(aux.contains("raw_obs"));
+    REQUIRE(aux.contains("norm_obs"));
+    CHECK(ShapeOf(aux.at("raw_obs")) == std::vector<int64_t>{ 2, 4, 8 });
+    CHECK(ShapeOf(aux.at("norm_obs")) == std::vector<int64_t>{ 2, 4, 8 });
+    CHECK(torch::equal(aux.at("raw_obs"), expected_obs));
+    CHECK(torch::equal(aux.at("norm_obs"), expected_obs));
 }
 
 TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dqn][native_stack]")
@@ -3416,6 +3426,12 @@ TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][sn
         actor->MakeAction(rl::StepCounts{}, state));
 
     REQUIRE(action_info != nullptr);
+    // normalizerのないRainbowでもdevice転送後のraw_obsを公開する。
+    const auto& aux = action_info->GetAuxData();
+    REQUIRE(aux.contains("raw_obs"));
+    CHECK_FALSE(aux.contains("norm_obs"));
+    CHECK(ShapeOf(aux.at("raw_obs")) == std::vector<int64_t>{ 1, 2 });
+    CHECK(torch::equal(aux.at("raw_obs"), state.obs.At(kVectorKey)));
     CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_interval").has_value());
     CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_age").has_value());
     CHECK_THROWS(agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = env_spec, .device = torch::Device(torch::kCUDA, 0), .seed = 123, .actor_key = "train"}));
@@ -3460,7 +3476,7 @@ TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
     auto src_network = MakeLinearNetwork();
     auto clone_network = MakeLinearNetwork();
     auto mutex = std::make_shared<std::shared_mutex>();
-    dqn::Actor actor(nullptr, nullptr, nullptr, mutex, clone_network, src_network);
+    dqn::Actor actor(nullptr, nullptr, nullptr, torch::kCPU, std::nullopt, mutex, clone_network, src_network);
 
     src_network->eval();
     clone_network->train();
@@ -3484,12 +3500,11 @@ TEST_CASE("DQN Actor keeps a Train network snapshot until the sync interval", "[
         snapshot_network->parameters()[0].fill_(1.0f);
     }
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
-    auto context = std::make_shared<rl::DefaultActionContext>(123);
     auto mutex = std::make_shared<std::shared_mutex>();
     anet::ProfiledValueConfig<rl::step_t> sync_interval;
     sync_interval.value = 2;
     dqn::Actor actor(
-        policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+        policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, false, sync_interval, true);
 
     {
         torch::NoGradGuard no_grad;
@@ -3545,12 +3560,11 @@ TEST_CASE("DQN Actor forced Sync resets snapshot age without a duplicate copy", 
         snapshot_network->parameters()[0].fill_(1.0f);
     }
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
-    auto context = std::make_shared<rl::DefaultActionContext>(123);
     auto mutex = std::make_shared<std::shared_mutex>();
     anet::ProfiledValueConfig<rl::step_t> sync_interval;
     sync_interval.value = 5;
     dqn::Actor actor(
-        policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+        policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, false, sync_interval, true);
 
     {
         torch::NoGradGuard no_grad;
@@ -3590,10 +3604,9 @@ TEST_CASE("DQN Actor applies snapshot interval shortening and extension at actio
             snapshot_network->parameters()[0].fill_(1.0f);
         }
         auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
-        auto context = std::make_shared<rl::DefaultActionContext>(123);
         auto mutex = std::make_shared<std::shared_mutex>();
         dqn::Actor actor(
-            policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+            policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, false, sync_interval, true);
         {
             torch::NoGradGuard no_grad;
             src_network->parameters()[0].fill_(2.0f);
@@ -3648,9 +3661,8 @@ TEST_CASE("DQN Actor exposes NaN snapshot metrics when periodic sync is disabled
 {
     auto network = MakeLinearNetwork();
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
-    auto context = std::make_shared<rl::DefaultActionContext>(123);
     auto mutex = std::make_shared<std::shared_mutex>();
-    dqn::Actor actor(policy, nullptr, context, mutex, network, network, false, std::nullopt, true);
+    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 123, mutex, network, network, false, std::nullopt, true);
     auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(
         anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
@@ -4196,9 +4208,8 @@ TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dq
         auto probe_state = std::make_shared<AutocastProbeState>();
         auto network = MakeAutocastProbeNetwork(probe_state, torch::kCPU);
         auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
-        auto context = std::make_shared<rl::DefaultActionContext>(123);
         auto mutex = std::make_shared<std::shared_mutex>();
-        dqn::Actor actor(policy, nullptr, context, mutex, network, network, emit_hint);
+        dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 123, mutex, network, network, emit_hint);
 
         auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
         auto episode_start = torch::tensor({ true, false }, torch::TensorOptions().dtype(torch::kBool));
@@ -4232,12 +4243,11 @@ TEST_CASE("DQN Actor snapshot synchronization performs one forward per action", 
     auto source_network = MakeAutocastProbeNetwork(source_probe, torch::kCPU);
     auto snapshot_network = MakeAutocastProbeNetwork(snapshot_probe, torch::kCPU);
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
-    auto context = std::make_shared<rl::DefaultActionContext>(123);
     auto mutex = std::make_shared<std::shared_mutex>();
     anet::ProfiledValueConfig<rl::step_t> sync_interval;
     sync_interval.value = 1;
     dqn::Actor actor(
-        policy, nullptr, context, mutex, snapshot_network, source_network, false, sync_interval, true);
+        policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, source_network, false, sync_interval, true);
 
     auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, flags);

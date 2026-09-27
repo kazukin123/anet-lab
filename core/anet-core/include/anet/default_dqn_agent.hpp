@@ -13,6 +13,10 @@
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
 
+namespace anet::rl {
+    class FrameStacker;
+}
+
 namespace anet::rl::dqn {
 
     // ======================================================
@@ -413,7 +417,7 @@ namespace anet::rl::dqn {
     public:
         int64_t Save(anet::OutputArchive& archive) const override;
     private:
-        std::shared_ptr<ActionContext> CreateActionContext(const ActorRequest& request) const;
+        std::unique_ptr<FrameStacker> CreateFrameStacker(const ActorRequest& request) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(

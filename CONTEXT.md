@@ -347,7 +347,7 @@ _Avoid_: actor name（instance 名と混同）, run_mode（用途ラベル）, a
 
 **Actor 生成要求**（ActorRequest）:
 Runner が Agent へ渡す「どの env に、どの device と seed で、どの Actor キーの Actor を作るか」の宣言。Actor 設定の中身は含まず、用途ラベル（RunMode）も含まない。seed は Runner が master seed から `actor/<Runner 名>` で派生する。
-_Avoid_: ActorSpec（Spec は出来上がったものの仕様を指す）, CreateActor 引数, actor context（Observation 加工の部品）
+_Avoid_: ActorSpec（Spec は出来上がったものの仕様を指す）, CreateActor 引数, actor context（旧 ActionContext の連想。廃止済み）
 
 **学習側 counts**（source counts）:
 Actor のスケジュール更新と snapshot 判定に使う、直近の Sync 時点の train runner の StepCounts。train runner 自身は live、configured eval はセッション開始時の値、鏡写しインスタンス（EvalPanel）はパネルが Sync した時点の値を Actor の MakeAction に渡す。EvalRunner の `@episode_end` / `@session_end` イベントは常にこの値に載る（configured eval はセッション開始時、鏡写しは直近の Sync 時点）。eval runner 自身の counts（eval 座標系の metrics 用。`@train` 系はこちら）とは別。
