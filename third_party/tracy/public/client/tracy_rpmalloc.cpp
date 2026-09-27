@@ -13,7 +13,8 @@
 
 #include "tracy_rpmalloc.hpp"
 
-#define BUILD_DYNAMIC_LINK 1
+// anet-labはTracyをSTATICで組み込む。WindowsのFLS回収を有効にし、終了threadのheapを再利用する。
+#define BUILD_DYNAMIC_LINK 0
 
 ////////////
 ///
