@@ -11,9 +11,11 @@ if not errorlevel 1 (
   goto :waitprev
 )
 
-if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
-copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
-if errorlevel 1 goto :no_exe
+REM 2026-09-27: keep AnetRLRunner_ab.exe (09/24 build, same as the SE sweep). Do not copy the newer build.
+REM if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
+REM copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
+REM if errorlevel 1 goto :no_exe
+if not exist "bin\%BUILD%\AnetRLRunner_ab.exe" goto :no_exe
 
 SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 
@@ -22,12 +24,17 @@ SET /A FAILED_RUNS=0
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "RR1=run.@hard125>run.@munch"
+SET "RR4=run.@hard500>run.@rr4>run.@munch"
 SET "RF=run.@rfit>run.@a5_metrics"
-SET "ARM=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@batch"
+SET "RT=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@batch"
+SET "SE=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@batch"
 
 SET "WS=--workspace atari5-01"
-echo === 1. a5 phoenix rr1 100M seed2 ===
-call :run_exe "%ARM%" E1.game=phoenix run.seed=2 "app.run_name=run_{t}_a5_phoenix_rr1_100m_seed2"
+SET "EPS005=A2.actor.[train].policy.eps_start=0.05 A2.actor.[train].policy.eps_end=0"
+echo === 1. a5 qbert btr 50M eps ladder 0.05-0 ===
+call :run_exe "%SE%" E1.game=qbert run.seed=1 %EPS005% "app.run_name=run_{t}_a5_qbert_btr50m_eps005_end0"
+echo === 2. a5 double_dunk btr 50M rerun ===
+call :run_exe "%SE%" E1.game=double_dunk run.seed=1 "app.run_name=run_{t}_a5_double_dunk_btr50m"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
