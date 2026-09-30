@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 #include <wx/artprov.h>
+#include <wx/display.h>
 #include <wx/filedlg.h>
 #include <wx/settings.h>
 #include <wx/utils.h>
@@ -191,6 +192,12 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
 
     // 既定の30%制約だと右側の複数列表示が狭くなるため、補助列を含めて広げられるようにする。
     aui_mgr_.SetDockSizeConstraint(0.85, 0.3);
+
+    // 初期サイズを作業領域 (タスクバーを除く) に収める。1920x1080 + タスクバーでは高さ 1024 がはみ出すため。
+    // SetupPanes が client size から pane 幅を決めるので、それより前に確定させる。
+    wxSize initial_size = GetSize();
+    initial_size.DecTo(wxDisplay(this).GetClientArea().GetSize());
+    SetSize(initial_size);
 
     // 画面レイアウトを作る (SetupPanes は client size を読むため、メニュー/ステータスバーより後)
     SetupMenuBar();
