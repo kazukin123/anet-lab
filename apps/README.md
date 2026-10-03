@@ -16,7 +16,8 @@ anet-lab の実行アプリケーションと起動 launcher(bat)を置くディ
 ## 実行要件
 
 - Windows x64
-- NVIDIA GPU + CUDA 13 世代対応ドライバ(R580 以降)。CUDA Toolkit のインストールは不要(必要な DLL は同梱)
+- NVIDIA GPU + CUDA 13 世代対応ドライバ(R580 以降)を推奨。CUDA Toolkit のインストールは不要(必要な DLL は同梱)
+- GPU が無い PC では CPU で動く。初回起動で作られる workspace `_default` は、CPU でも軽い LunarLander の構成(`runner/config/LunarLander_cpu.txt`)
 - Metrics Viewer を使う場合: Java 17 以降
 - 一部の補助 bat は追加ツールが必要(下表の「必要環境」参照)
 
