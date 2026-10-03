@@ -79,7 +79,7 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | `Auto Reload` | 30秒ごとにmetadataを更新し、最新を表示中のgraphだけを更新する |
 | `LOD: MinMax / Mean / Band` | 右上のScroll Lock直前にある全graph共通のLOD表示mode。変更時に再取得しない |
 | グラフの`Log` | 正負と0を扱えるsigned-log表示を切り替える |
-| グラフの`p5–p95` | 各Runについて、現在表示している有限値のp5–p95内だけを表示する |
+| グラフの`p0–` / `–p100` | Y軸の下限と上限を、各Runの現在表示している有限値のpercentileで絞る。下限は押すたびに`p0–`→`p1–`→`p5–`→`p0–`、上限は`–p100`→`–p99`→`–p95`→`–p100`と巡り、上下を別々に選べる（`p5–`と`–p100`で下だけ切るなど）。`p0–`と`–p100`は制限なし |
 | `Scroll Lock` | グラフ操作を抑え、drag/swipeを縦scrollへ使う |
 | Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える。この間はScroll Lock相当となり、graph上のdrag/swipeを縦scrollへ使う |
 
@@ -87,9 +87,9 @@ Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる
 
 初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
 Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
-選択workspace、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、tag別のLogとp5–p95はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとp5–p95はworkspaceをまたいで同名tagへ適用される。
+選択workspace、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、tag別のLogとpercentileの下限・上限はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとpercentileの下限・上限はworkspaceをまたいで同名tagへ適用される。
 
-p5–p95は、凡例で非表示にしたRunを除き、各Runについて現在のX範囲にあるLOD描画値から個別に計算する。p5未満とp95超の点は表示traceから除外されるため、その点のhoverも表示されない。残った点へPlotlyのautorangeを適用する。点数による下限はなく、tooltipには表示点数と入力点数を示す。Logとの併用時もpercentileはraw値で計算してからsigned-log座標へ変換する。手動Y zoomは維持され、`Reset View`またはPlotlyのaxis resetでフィルター後のautorangeへ戻る。グラフheaderの統計値とclient cacheのraw値は変更しない。
+percentileは、凡例で非表示にしたRunを除き、各Runについて現在のX範囲にあるLOD描画値から個別に計算する。Y軸は、各Runの下限percentileのうち最小のものから、上限percentileのうち最大のものまでになる。p0とp100はそれぞれ最小値と最大値である。線は変えずにY軸の表示範囲だけを絞るので、範囲外の点はY軸の外へはみ出して切れる。点数による下限はなく、tooltipには範囲内の点数と入力点数を示す。Logとの併用時もpercentileはraw値で計算してからsigned-log座標へ変換する。手動Y zoomは維持され、`Reset View`またはPlotlyのaxis resetでpercentileの範囲へ戻る。グラフheaderの統計値とclient cacheのraw値は変更しない。
 
 LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結ぶ。
 `Mean`はbucket平均、`Band`はmin/max帯へ平均線を重ねる。点数が少なくL0を表示できる場合は、

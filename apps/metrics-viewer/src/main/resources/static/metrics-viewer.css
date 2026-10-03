@@ -553,8 +553,8 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   line-height: 1.5;
 }
 .graph-log-toggle,
-.graph-outlier-toggle,
-.graph-wide-outlier-toggle {
+.graph-lower-percentile,
+.graph-upper-percentile {
   height: 20px;
   min-width: 34px;
   padding: 1px 7px;
@@ -569,25 +569,36 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   flex-shrink: 0;
 }
 .graph-log-toggle,
-.graph-outlier-toggle,
-.graph-wide-outlier-toggle { margin: 4px 0 2px 0; }
+.graph-lower-percentile,
+.graph-upper-percentile { margin: 4px 0 2px 0; }
+/* 押すたびにラベルの文字数が変わる（–p100↔–p99）ので、最長ラベルに合わせて幅を固定し、
+   後ろの要素も押す位置も動かないようにする。 */
+.graph-lower-percentile,
+.graph-upper-percentile {
+  box-sizing: border-box;
+  width: 46px;
+  min-width: 0;
+  padding: 1px 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .graph-log-toggle:hover,
-.graph-outlier-toggle:hover,
-.graph-wide-outlier-toggle:hover {
+.graph-lower-percentile:hover,
+.graph-upper-percentile:hover {
   color: #fff;
   border-color: var(--control-border-hover);
   background: #252525;
 }
 .graph-log-toggle.active,
-.graph-outlier-toggle.active,
-.graph-wide-outlier-toggle.active {
+.graph-lower-percentile.active,
+.graph-upper-percentile.active {
   color: var(--active-text);
   border-color: var(--active-accent);
   background: var(--active-background);
 }
 .graph-log-toggle.active:hover,
-.graph-outlier-toggle.active:hover,
-.graph-wide-outlier-toggle.active:hover { background: var(--active-hover); }
+.graph-lower-percentile.active:hover,
+.graph-upper-percentile.active:hover { background: var(--active-hover); }
 
 /* Hover時：軽い明度アップでインタラクティブ感 */
 .graph-title:hover {

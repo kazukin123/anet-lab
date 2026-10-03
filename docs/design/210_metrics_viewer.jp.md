@@ -288,13 +288,14 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 
 ### 3.3 UIコントロールの規約
 
-browserのcontrolは、押した瞬間に効果が出るものと、on/offが持続するものの2種類しかない。
-どちらも`button`で作り、見分けはラベルの言葉づかいで付ける。
+browserのcontrolは、押した瞬間に効果が出るもの、on/offが持続するもの、決まった段を順に巡るものの3種類しかない。
+どれも`button`で作り、見分けはラベルの言葉づかいで付ける。
 
 | 種別 | ラベル | 状態 |
 |---|---|---|
 | 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View` | 持たない |
-| トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log`、`p5–p95`、`p1–p99` | `.active`と`aria-pressed`を対で更新する |
+| トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log` | `.active`と`aria-pressed`を対で更新する |
+| 巡回 | 現在の段をそのまま書く。graphの下限`p0–` / `p1–` / `p5–`と上限`–p100` / `–p99` / `–p95` | 押すたびに固定順で次の段へ進み、最後の段の次は先頭へ戻る。先頭の段以外で`.active`と`aria-pressed`をONにする |
 
 sectionの見出し行には、ラベルに続けてそのリストへの操作を左詰めで並べる。
 入りきらない分だけを次の行へ送る（Runsの`Recolor` / `Auto Recolor`）。
@@ -303,6 +304,8 @@ sectionの見出し行には、ラベルに続けてそのリストへの操作�
 
 on/offはラベル文字へ書かず、押下色だけで示す。状態の反映は`setToggleState()`へ集約し、
 見た目の`.active`と意味の`aria-pressed`が食い違わないようにする。checkboxは使わない。
+巡回は段が3つ以上あって押下色だけでは区別できないので、ラベルに現在の段を書き、押下色は先頭の段から外れていることだけを示す。
+段によってラベルの文字数が変わっても寸法と後続要素の位置が動かないよう、最長のラベルに合わせた固定幅にする。
 
 controlの枠線は`--control-border`（hoverは`--control-border-hover`）の1段で、
 `.section`などのcontainer枠`--container-border`より弱くする。
@@ -564,7 +567,7 @@ windowには取得を決めた時点のtag点数・最終step・statusを添え�
 
 tag内のstepは非減少なので、追記点のstepは取得時の最終step以上になる。過去の区間を拡大していてwindowの右端がそこへ届かないgraphは、点数が増えても取り直さない。
 
-描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、描画key（LOD表示モード、Log、percentile範囲、複数Runか、Runごとのwindowと色）が前回と同じblockはPlotlyを呼ばずに使い回し、metadata由来のheader（統計と警告）だけを書き換える。
+描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、描画key（LOD表示モード、Log、percentileの下限と上限、複数Runか、Runごとのwindowと色）が前回と同じblockはPlotlyを呼ばずに使い回し、metadata由来のheader（統計と警告）だけを書き換える。
 凡例の表示、軸範囲、drag modeはPlotly上で直接変わり、描画の前に`capturePlotState`で読み戻すので描画keyに含めない。
 Plotlyの再描画はgraph 1枚あたり数十msかかり（実測で137 graph×5 Runの全再描画が約5秒）、作り直すgraphを絞ることがReloadの応答時間を決める。
 
@@ -634,7 +637,7 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 `Recolor`は現在の色を無視し、選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。`Auto Recolor`は既存の色が`min(RUN_COLOR_MIN_DISTANCE, 今のpaletteで取れる最良)`を満たさないRunだけを配り直す。
 どちらも未選択Runの色を変えず、選択が20本を超えるとpaletteを1周してラウンドを改める。選択1本以下では何もしない。
 
-`localStorage`へ保存するstateは次の9件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentile範囲はworkspace名をkeyへ含めず、同名tagで共有する。
+`localStorage`へ保存するstateは次の8件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
@@ -645,10 +648,10 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 | `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
 | `anet.metricsviewer.logScaleTags` | signed-logを有効にしたtag集合。文字列JSON配列を辞書順で保存する |
-| `anet.metricsviewer.ignoreOutlierTags` | p5–p95を有効にしたtag集合。文字列JSON配列を辞書順で保存する |
-| `anet.metricsviewer.p1P99Tags` | p1–p99を有効にしたtag集合。文字列JSON配列を辞書順で保存する |
+| `anet.metricsviewer.percentileBounds` | percentileの下限か上限を制限したtagごとの段。`{"<tagKey>": [下限, 上限]}`のJSON objectをtagKeyの辞書順で保存する。下限は0 / 1 / 5、上限は100 / 99 / 95で、両方とも制限なし（0と100）のtagは含めない |
 
-Logとpercentile範囲の集合は独立して復元する。p5–p95とp1–p99は同一tagで排他とし、両方が保存されていた場合は警告してp1–p99を優先する。値が文字列JSON配列でなければ警告して空集合へフォールバックする。
+Logの集合とpercentileの下限・上限は独立して復元する。Logの値が文字列JSON配列でないとき、percentileの値がJSON objectでないか段に無い値を1つでも含むときは、警告してそれぞれ空へフォールバックする。
+下限・上限を2つのボタンへ分ける前の`anet.metricsviewer.ignoreOutlierTags`（p5–p95）と`anet.metricsviewer.p1P99Tags`（p1–p99）は読まずに削除する。
 
 ## 8. Metricsキャッシュのデータベース定義
 

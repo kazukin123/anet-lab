@@ -11,13 +11,20 @@ const MAX_SAFE_STEP = Number.MAX_SAFE_INTEGER;
 const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
 const STORAGE_KEY_KNOWN_TAGS = "anet.metricsviewer.knownTags";
 const STORAGE_KEY_LOG_SCALE_TAGS = "anet.metricsviewer.logScaleTags";
-const STORAGE_KEY_IGNORE_OUTLIER_TAGS = "anet.metricsviewer.ignoreOutlierTags";
-const STORAGE_KEY_P1_P99_TAGS = "anet.metricsviewer.p1P99Tags";
+const STORAGE_KEY_PERCENTILE_BOUNDS = "anet.metricsviewer.percentileBounds";
+// p5–p95 / p1–p99の択一トグルだった頃の保存key。読まずに消す。
+const DISCARDED_STORAGE_KEYS = Object.freeze([
+	"anet.metricsviewer.ignoreOutlierTags",
+	"anet.metricsviewer.p1P99Tags"
+]);
 const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
 const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
 const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
 const STORAGE_KEY_AUTO_RECOLOR = "anet.metricsviewer.autoRecolorEnabled";
 const RUN_COLOR_MIN_DISTANCE = 0.16;
+// graph headerの下限・上限ボタンが押すたびに進む段(percent)。先頭が制限なし。
+const LOWER_PERCENTILE_STEPS = Object.freeze([0, 1, 5]);
+const UPPER_PERCENTILE_STEPS = Object.freeze([100, 99, 95]);
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -216,6 +223,14 @@ function setToggleState(element, on) {
 	if (!element) return;
 	element.classList.toggle("active", on);
 	element.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
+function isUnboundedPercentile(bounds) {
+	return bounds.lower === LOWER_PERCENTILE_STEPS[0] && bounds.upper === UPPER_PERCENTILE_STEPS[0];
+}
+
+function nextPercentileStep(steps, current) {
+	return steps[(steps.indexOf(current) + 1) % steps.length];
 }
 
 function isSupersededMetricsError(error) {
@@ -793,7 +808,7 @@ class PlotlyController {
 		return traces.map(trace => this._toDisplayTrace(trace, signedLogScale));
 	}
 
-	_calculateOutlierRange(traces, xRange = null, lowerPercentile = 0.05) {
+	_calculateOutlierRange(traces, xRange, lowerPercentile, upperPercentile) {
 		// 各Runのraw値でpercentile範囲を求め、線は変えずにY軸の表示範囲だけを制限する。
 		const valuesByRun = new Map();
 		const xMin = Array.isArray(xRange) ? Math.min(Number(xRange[0]), Number(xRange[1])) : null;
@@ -821,7 +836,7 @@ class PlotlyController {
 				const weight = index - lower;
 				return values[lower] * (1 - weight) + values[upper] * weight;
 			};
-			boundsByRun.set(runId, [percentile(lowerPercentile), percentile(1 - lowerPercentile)]);
+			boundsByRun.set(runId, [percentile(lowerPercentile), percentile(upperPercentile)]);
 		}
 
 		let inputCount = 0;
@@ -869,14 +884,30 @@ class PlotlyController {
 		return range;
 	}
 
-	_setOutlierButtonState(button, enabled, filterResult = null, label = "p5–p95") {
-		setToggleState(button, enabled);
-		if (!enabled) {
-			button.title = `Limit the Y-axis to each Run's ${label} range`;
-		} else {
-			button.title = `Display each Run's ${label} points`
-					+ ` (${filterResult?.displayedCount ?? 0}/${filterResult?.inputCount ?? 0} visible points)`;
-		}
+	// tagの下限・上限が両方とも制限なしならnullを返し、Y軸はPlotlyのautorangeに任せる。
+	_percentileRange(tagKey, traces, xRange) {
+		const bounds = this.app.percentileBounds(tagKey);
+		if (isUnboundedPercentile(bounds)) return null;
+		return this._calculateOutlierRange(traces, xRange, bounds.lower / 100, bounds.upper / 100);
+	}
+
+	_setPercentileButtonStates(lowerButton, upperButton, bounds, filterResult) {
+		const limitedTitle = `Display each Run's p${bounds.lower}–p${bounds.upper} points`
+				+ ` (${filterResult?.displayedCount ?? 0}/${filterResult?.inputCount ?? 0} visible points)`;
+		this._setPercentileButtonState(
+				lowerButton, `p${bounds.lower}–`, bounds.lower, LOWER_PERCENTILE_STEPS, "lower", limitedTitle);
+		this._setPercentileButtonState(
+				upperButton, `–p${bounds.upper}`, bounds.upper, UPPER_PERCENTILE_STEPS, "upper", limitedTitle);
+	}
+
+	_setPercentileButtonState(button, label, step, steps, side, limitedTitle) {
+		const limited = step !== steps[0];
+		if (button.textContent !== label) button.textContent = label;
+		setToggleState(button, limited);
+		button.title = limited
+				? limitedTitle
+				: `Limit the Y-axis ${side} bound to each Run's percentile`
+						+ ` (${steps.map(value => `p${value}`).join(" → ")})`;
 	}
 
 	_makeLayout(width, showLegend, signedLogScale, traces, ranges = {}) {
@@ -1018,10 +1049,12 @@ class PlotlyController {
 	// graphの描画結果を決める入力を並べる。凡例の表示・軸範囲・drag modeはPlotly上で直接変わり、
 	// capturePlotStateで描画中のgraphから読み戻すので、使い回すgraphと常に一致しており含めない。
 	_graphRenderKey(tagKey, sortedRuns, windows, multiRun) {
+		const percentileBounds = this.app.percentileBounds(tagKey);
 		const key = [
 			this.app.lodDisplayMode,
 			this.app.logScaleTags.has(tagKey),
-			this.app.outlierPercentile(tagKey),
+			percentileBounds.lower,
+			percentileBounds.upper,
 			multiRun
 		];
 		sortedRuns.forEach((runId, index) => {
@@ -1100,28 +1133,19 @@ class PlotlyController {
 		const signedLogScale = this.app.logScaleTags.has(tagKey);
 		setToggleState(logButton, signedLogScale);
 		const viewport = this.app.explicitViewport(tagKey);
-		const outlierButton = document.createElement("button");
-		outlierButton.type = "button";
-		outlierButton.className = "graph-outlier-toggle";
-		outlierButton.textContent = "p5–p95";
-		const wideOutlierButton = document.createElement("button");
-		wideOutlierButton.type = "button";
-		wideOutlierButton.className = "graph-wide-outlier-toggle";
-		wideOutlierButton.textContent = "p1–p99";
-		const outlierPercentile = this.app.outlierPercentile(tagKey);
-		const outlierRange = outlierPercentile != null
-				? this._calculateOutlierRange(
-						traces,
-						viewport?.range ?? null,
-						outlierPercentile)
-				: null;
-		this._setOutlierButtonState(outlierButton, outlierPercentile === 0.05, outlierRange);
-		this._setOutlierButtonState(
-				wideOutlierButton,
-				outlierPercentile === 0.01,
-				outlierRange,
-				"p1–p99");
-		header.append(title, logButton, outlierButton, wideOutlierButton);
+		const lowerPercentileButton = document.createElement("button");
+		lowerPercentileButton.type = "button";
+		lowerPercentileButton.className = "graph-lower-percentile";
+		const upperPercentileButton = document.createElement("button");
+		upperPercentileButton.type = "button";
+		upperPercentileButton.className = "graph-upper-percentile";
+		const outlierRange = this._percentileRange(tagKey, traces, viewport?.range ?? null);
+		this._setPercentileButtonStates(
+				lowerPercentileButton,
+				upperPercentileButton,
+				this.app.percentileBounds(tagKey),
+				outlierRange);
+		header.append(title, logButton, lowerPercentileButton, upperPercentileButton);
 
 		this._renderGraphHeaderInfo(header, tagKey);
 
@@ -1160,13 +1184,13 @@ class PlotlyController {
 			event.stopPropagation();
 			this.app.onToggleLog(tagKey);
 		});
-		outlierButton.addEventListener("click", event => {
+		lowerPercentileButton.addEventListener("click", event => {
 			event.stopPropagation();
-			this.app.onToggleIgnoreOutliers(tagKey);
+			this.app.onCycleLowerPercentile(tagKey);
 		});
-		wideOutlierButton.addEventListener("click", event => {
+		upperPercentileButton.addEventListener("click", event => {
 			event.stopPropagation();
-			this.app.onToggleP1P99(tagKey);
+			this.app.onCycleUpperPercentile(tagKey);
 		});
 		plot.on("plotly_relayout", event => {
 			if (plot.__mvUpdatingPlot) return;
@@ -1189,22 +1213,12 @@ class PlotlyController {
 			}
 			const currentSignedLogScale = this.app.logScaleTags.has(tagKey);
 			const currentTraces = this._applyLegendVisibility(traces);
-			const currentOutlierPercentile = this.app.outlierPercentile(tagKey);
-			const currentOutlierRange = currentOutlierPercentile != null
-					? this._calculateOutlierRange(
-							currentTraces,
-							xRange,
-							currentOutlierPercentile)
-					: null;
-			this._setOutlierButtonState(
-					outlierButton,
-					currentOutlierPercentile === 0.05,
+			const currentOutlierRange = this._percentileRange(tagKey, currentTraces, xRange);
+			this._setPercentileButtonStates(
+					lowerPercentileButton,
+					upperPercentileButton,
+					this.app.percentileBounds(tagKey),
 					currentOutlierRange);
-			this._setOutlierButtonState(
-					wideOutlierButton,
-					currentOutlierPercentile === 0.01,
-					currentOutlierRange,
-					"p1–p99");
 			const nextLayout = this._makeLayout(
 					this._plotWidth(block),
 					runIds.length > 1,
@@ -1239,22 +1253,12 @@ class PlotlyController {
 			const currentXRange = Array.isArray(plot.layout?.xaxis?.range)
 					? plot.layout.xaxis.range
 					: null;
-			const currentOutlierPercentile = this.app.outlierPercentile(tagKey);
-			const currentOutlierRange = currentOutlierPercentile != null
-					? this._calculateOutlierRange(
-							currentTraces,
-							currentXRange,
-							currentOutlierPercentile)
-					: null;
-			this._setOutlierButtonState(
-					outlierButton,
-					currentOutlierPercentile === 0.05,
+			const currentOutlierRange = this._percentileRange(tagKey, currentTraces, currentXRange);
+			this._setPercentileButtonStates(
+					lowerPercentileButton,
+					upperPercentileButton,
+					this.app.percentileBounds(tagKey),
 					currentOutlierRange);
-			this._setOutlierButtonState(
-					wideOutlierButton,
-					currentOutlierPercentile === 0.01,
-					currentOutlierRange,
-					"p1–p99");
 			const nextLayout = this._makeLayout(
 					this._plotWidth(block),
 					runIds.length > 1,
@@ -1386,10 +1390,7 @@ class PlotlyController {
 			const tagKey = rawTraces
 					.find(trace => typeof trace.meta?.tagKey === "string")?.meta.tagKey;
 			const signedLogScale = this.app.logScaleTags.has(tagKey);
-			const outlierPercentile = this.app.outlierPercentile(tagKey);
-			const outlierRange = outlierPercentile != null
-					? this._calculateOutlierRange(rawTraces, null, outlierPercentile)
-					: null;
+			const outlierRange = this._percentileRange(tagKey, rawTraces, null);
 			const block = plot.closest(".graph-block");
 			const runCount = new Set(rawTraces
 					.map(trace => trace.meta?.runId)
@@ -1415,18 +1416,14 @@ class PlotlyController {
 				plot.__mvUpdatingPlot = false;
 				plot.__mvResettingView = false;
 			}
-			const blockElement = plot.closest(".graph-block");
-			const button = blockElement?.querySelector(".graph-outlier-toggle");
-			if (button) {
-				this._setOutlierButtonState(button, outlierPercentile === 0.05, outlierRange);
-			}
-			const wideButton = blockElement?.querySelector(".graph-wide-outlier-toggle");
-			if (wideButton) {
-				this._setOutlierButtonState(
-						wideButton,
-						outlierPercentile === 0.01,
-						outlierRange,
-						"p1–p99");
+			const lowerButton = block?.querySelector(".graph-lower-percentile");
+			const upperButton = block?.querySelector(".graph-upper-percentile");
+			if (lowerButton && upperButton) {
+				this._setPercentileButtonStates(
+						lowerButton,
+						upperButton,
+						this.app.percentileBounds(tagKey),
+						outlierRange);
 			}
 		}));
 	}
@@ -1773,8 +1770,8 @@ class MetricsViewerClientApp {
 		this.activeTags = new Set();
 		this.knownTags = new Set();
 		this.logScaleTags = new Set();
-		this.ignoreOutlierTags = new Set();
-		this.p1P99Tags = new Set();
+		// tagKey -> { lower, upper }(percent)。下限・上限とも制限なしのtagは入れない。
+		this.percentileBoundsByTag = new Map();
 		this.hiddenLegendSeries = new Map();
 		this.plotDragModes = new Map();
 		this.manualYRanges = new Map();
@@ -2108,32 +2105,32 @@ class MetricsViewerClientApp {
 		this._renderCurrent();
 	}
 
-	onToggleIgnoreOutliers(tagKey) {
-		if (this.ignoreOutlierTags.has(tagKey)) {
-			this.ignoreOutlierTags.delete(tagKey);
-		} else {
-			this.ignoreOutlierTags.add(tagKey);
-			this.p1P99Tags.delete(tagKey);
-		}
+	onCycleLowerPercentile(tagKey) {
+		const bounds = this.percentileBounds(tagKey);
+		this._setPercentileBounds(tagKey, {
+			lower: nextPercentileStep(LOWER_PERCENTILE_STEPS, bounds.lower),
+			upper: bounds.upper
+		});
+	}
+
+	onCycleUpperPercentile(tagKey) {
+		const bounds = this.percentileBounds(tagKey);
+		this._setPercentileBounds(tagKey, {
+			lower: bounds.lower,
+			upper: nextPercentileStep(UPPER_PERCENTILE_STEPS, bounds.upper)
+		});
+	}
+
+	_setPercentileBounds(tagKey, bounds) {
+		if (isUnboundedPercentile(bounds)) this.percentileBoundsByTag.delete(tagKey);
+		else this.percentileBoundsByTag.set(tagKey, bounds);
 		this._saveGraphDisplaySets();
 		this._renderCurrent();
 	}
 
-	onToggleP1P99(tagKey) {
-		if (this.p1P99Tags.has(tagKey)) {
-			this.p1P99Tags.delete(tagKey);
-		} else {
-			this.p1P99Tags.add(tagKey);
-			this.ignoreOutlierTags.delete(tagKey);
-		}
-		this._saveGraphDisplaySets();
-		this._renderCurrent();
-	}
-
-	outlierPercentile(tagKey) {
-		if (this.p1P99Tags.has(tagKey)) return 0.01;
-		if (this.ignoreOutlierTags.has(tagKey)) return 0.05;
-		return null;
+	percentileBounds(tagKey) {
+		return this.percentileBoundsByTag.get(tagKey)
+				?? { lower: LOWER_PERCENTILE_STEPS[0], upper: UPPER_PERCENTILE_STEPS[0] };
 	}
 
 	onLodDisplayModeChanged(mode) {
@@ -2590,12 +2587,8 @@ class MetricsViewerClientApp {
 		this.activeTags = this._loadSet(STORAGE_KEY_TAGS);
 		this.knownTags = this._loadSet(STORAGE_KEY_KNOWN_TAGS);
 		this.logScaleTags = this._loadSet(STORAGE_KEY_LOG_SCALE_TAGS);
-		this.ignoreOutlierTags = this._loadSet(STORAGE_KEY_IGNORE_OUTLIER_TAGS);
-		this.p1P99Tags = this._loadSet(STORAGE_KEY_P1_P99_TAGS);
-		for (const tagKey of this.p1P99Tags) {
-			if (!this.ignoreOutlierTags.delete(tagKey)) continue;
-			console.warn(`Both p5–p95 and p1–p99 were stored for tag ${tagKey}; using p1–p99`);
-		}
+		this.percentileBoundsByTag = this._loadPercentileBounds();
+		for (const key of DISCARDED_STORAGE_KEYS) localStorage.removeItem(key);
 		this.graphScrollLockEnabled =
 				localStorage.getItem(STORAGE_KEY_GRAPH_SCROLL_LOCK) === "true";
 		// 既定ONなので、明示的に "false" が入っているときだけOFFとして読む。
@@ -2619,6 +2612,32 @@ class MetricsViewerClientApp {
 		}
 	}
 
+	// 保存形式は {"<tagKey>": [lower, upper], ...}。段に無い値が1つでもあれば全体を捨てる。
+	_loadPercentileBounds() {
+		const key = STORAGE_KEY_PERCENTILE_BOUNDS;
+		try {
+			const stored = localStorage.getItem(key);
+			if (!stored) return new Map();
+			const entries = JSON.parse(stored);
+			if (entries === null || typeof entries !== "object" || Array.isArray(entries)) {
+				throw new Error("expected a JSON object");
+			}
+			const boundsByTag = new Map();
+			for (const [tagKey, value] of Object.entries(entries)) {
+				const [lower, upper] = Array.isArray(value) && value.length === 2 ? value : [];
+				if (!LOWER_PERCENTILE_STEPS.includes(lower) || !UPPER_PERCENTILE_STEPS.includes(upper)) {
+					throw new Error(`unexpected percentile bounds for tag ${tagKey}`);
+				}
+				const bounds = { lower, upper };
+				if (!isUnboundedPercentile(bounds)) boundsByTag.set(tagKey, bounds);
+			}
+			return boundsByTag;
+		} catch (error) {
+			console.warn(`Failed to load ${key}`, error);
+			return new Map();
+		}
+	}
+
 	_saveSets() {
 		localStorage.setItem(STORAGE_KEY_TAGS, JSON.stringify([...this.activeTags]));
 		localStorage.setItem(STORAGE_KEY_KNOWN_TAGS, JSON.stringify([...this.knownTags]));
@@ -2628,12 +2647,13 @@ class MetricsViewerClientApp {
 		localStorage.setItem(
 				STORAGE_KEY_LOG_SCALE_TAGS,
 				JSON.stringify([...this.logScaleTags].sort()));
+		const percentileTagKeys = [...this.percentileBoundsByTag.keys()].sort();
 		localStorage.setItem(
-				STORAGE_KEY_IGNORE_OUTLIER_TAGS,
-				JSON.stringify([...this.ignoreOutlierTags].sort()));
-		localStorage.setItem(
-				STORAGE_KEY_P1_P99_TAGS,
-				JSON.stringify([...this.p1P99Tags].sort()));
+				STORAGE_KEY_PERCENTILE_BOUNDS,
+				JSON.stringify(Object.fromEntries(percentileTagKeys.map(tagKey => {
+					const bounds = this.percentileBoundsByTag.get(tagKey);
+					return [tagKey, [bounds.lower, bounds.upper]];
+				}))));
 	}
 
 	_setUpdateFailure(kind, error) {
