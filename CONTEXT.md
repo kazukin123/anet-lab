@@ -75,6 +75,36 @@ _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 
+### NoisyNet・探索
+
+**NoisyNet**:
+学習可能なスケールを持つパラメータ摂動を、行動選択に用いる探索方式。摂動の大きさを学習することは、較正された不確実性を推定することと同じではない。
+_Avoid_: 不確実性推定器, 行動への加算ノイズ
+
+**ノイズスケール（σ）**:
+NoisyNet のパラメータ摂動の大きさを調整する学習可能な係数。重みのスペクトル正規化に使う特異値の σ や、価値分布の分位幅とは別の量である。
+_Avoid_: 不確実性, 分位幅, spectral sigma
+
+**ノイズサンプル（ε）**:
+NoisyNet のパラメータ摂動の一回の実現を決める乱数。ε を保持しても、学習可能な μ・σ や方策全体が固定されるわけではない。
+_Avoid_: ε-greedy の確率, policy snapshot, 方策固定
+
+**μ-only**:
+NoisyNet のノイズサンプル ε を 0 とし、学習された μ を用いる計算。非線形ネットワークの出力をノイズについて平均した期待値とは区別する。
+_Avoid_: ノイズ平均, mean Q（ノイズ平均との混同）, expected Q（ノイズ期待値の意味での使用）
+
+**保持方式**:
+NN 実行設定で、ノイズサンプル ε をいつ引き直すかの区分（`call`: 呼び出しごと、`count`: N 回ごと、`episode`: lane の episode 開始ごと）。Learner が受け付けるのは `call` だけ。
+_Avoid_: 更新頻度（Learner の update と紛れる）, reset 周期（Env の reset と紛れる）
+
+**共有範囲**:
+NN 実行設定で、1 回の forward の中で ε をどの単位で共有するかの区分（`batch`: 全サンプルで共有、`sample`: dim 0 のサンプルごとに独立。Actor では env、Learner では遷移に当たる）。
+_Avoid_: 独立ノイズ（区分の片側だけを指す）, per-env / per-transition（呼び出し側の語で区分名にしない）
+
+**ノイズ probe**:
+ReplayBuffer から一様に抜いた同じ状態集合に対して、μ-only と sample の出力を比べる診断。Q 差・行動不一致率・反復エントロピーを出す。policy churn（1 update の前後）や target policy disagreement（online と target）とは比較の相手が違う。
+_Avoid_: 探索指標（探索の良さは示さない）, 不確実性（較正された量ではない）
+
 ### Replay・PER
 
 **Replay初期優先度ヒント**:
@@ -176,6 +206,14 @@ _Avoid_: include(入力を取り込む処理), マージ(適用規則が曖昧)
 **カタログ**:
 `[key]` を identity として持ち、コードや structure 記述などから名前で参照される部品定義群（NN block、Actor 設定、configured eval tag、metrics 定義など）。各項目は実効側に読み口を持つ定義であり、共通記述のためのプロファイルとは区別する。
 _Avoid_: 部品集(曖昧), library
+
+**NN 実行設定**:
+NN の構造や学習パラメータとは独立に、呼び出し時の駆動方法（ノイズ方式など）を指定する、カタログ `nn_runtime` の項目。Actor・Learner の現在値・target 構築の各用途がキーで参照する。設定を共用しても、各呼び出し側のノイズ・乱数・保持状態を共用することは意味しない。
+_Avoid_: NN 構造設定（構造と実行方法を混同）, 実行プロファイル（設定プロファイルと混同）, tag（metrics と評価タグの語）
+
+**NN 実行状態**:
+NN 実行設定に従って forward するために、呼び出し側（Actor、Learner の役割）ごとに 1 つ持つ private Resource。中身（層ごとのノイズサンプルと抽選時の時計、乱数）は NN の計算部品が forward 中に更新し、呼び出し側は読み書きしない。network の同期・保存の対象ではない。
+_Avoid_: ノイズ状態（ノイズ以外も入り得る）, module の状態（module は持たない）, snapshot（network の複製と混同）
 
 **選択の最終値**:
 選択元のベース・部分指定・個別指定と、そのキーへのRunプロファイル・CLIの指定を反映した値とキー集合。プロファイル・カタログ・通常prefixの種類によらず継承で読む結果であり、型付きConfigによる既定補完とは別である。

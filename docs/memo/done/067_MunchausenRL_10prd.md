@@ -4,7 +4,7 @@
 >
 > 一次根拠: [Munchausen Reinforcement Learning（NeurIPS 2020）](https://proceedings.neurips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Paper.pdf)、[Supplementary Material](https://papers.nips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Supplemental.pdf)
 >
-> 関連決定: [ADR 0035](../../adr/0035-munchausen-target-learner-local-real-space.md)、[ADR 0036](../../adr/0036-actor-q-hint-three-columns-munchausen.md)、[done/059](059_config_concept_tree_alignment_10prd.md)（TARGET軸の配置と遅延ゲート）、[999_noisynet](../999_noisynet_10prd.md)（BTR採用部品のうち別途扱う未実装機能）
+> 関連決定: [ADR 0035](../../adr/0035-munchausen-target-learner-local-real-space.md)、[ADR 0036](../../adr/0036-actor-q-hint-three-columns-munchausen.md)、[done/059](059_config_concept_tree_alignment_10prd.md)（TARGET軸の配置と遅延ゲート）、[084_noisynet](../084_noisynet_10prd.md)（BTR採用部品のうち別途扱う未実装機能）
 >
 > 履歴資料: [done/035](035_approx_actor_priority_per_10prd.md)は当時のK2契約を記録した資料として変更しない。
 >
