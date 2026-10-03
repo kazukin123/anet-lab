@@ -6,7 +6,9 @@
 >
 > 2026-10-03 レビュー指摘 A.2: Noisy・AMP を名前付きの NN 実行設定へ集約する。用途別の tag、標準値、休眠、計算部品による局所検証と `online_reuse` の条件を確定した。Learner の現在値にも μ-only を許し、設定・AMP 移行を実装の第 1 段階とする。
 >
-> 2026-10-03 追加グリル: AMP の集約と移行を 084 から外し、[全 Agent を対象にした別 PRD](999_nn_runtime_amp_consolidation_10prd.md)へ移した。NN 実行設定の項目はノイズだけとし、カタログの名前を `nn_runtime`、参照の語を「キー」、用途を Actor・Learner の現在値・target 構築の 3 つに確定した。実行状態の所有（§9）、ε の共有規則（§7.1）、μ-only の現在値での σ の凍結、`Linear.force_fp32`（§8.2）、群ごとの σ 統計（§10.1）、受け入れ条件の判定方法（§12）を追加し、[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-runtime-key.md) を起票した。
+> 2026-10-03 追加グリル: AMP の集約と移行を 084 から外し、[全 Agent を対象にした別 PRD](999_nn_forward_amp_consolidation_10prd.md)へ移した。NN 実行設定の項目はノイズだけとし、カタログの名前を `nn_runtime`、参照の語を「キー」、用途を Actor・Learner の現在値・target 構築の 3 つに確定した。実行状態の所有（§9）、ε の共有規則（§7.1）、μ-only の現在値での σ の凍結、`Linear.force_fp32`（§8.2）、群ごとの σ 統計（§10.1）、受け入れ条件の判定方法（§12）を追加し、[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) を起票した。
+>
+> 2026-10-03 改名: カタログの名前を `nn_runtime` から `nn_forward` に変えた。CONTEXT.md が runtime config を Avoid に挙げ、DQN の `RuntimeVars` が可変の内部変数の語だからである。参照キーは `<thing>_key` の前例に合わせて `nn_forward_key` とし、Learner の 2 用途は役割の階層 `learner.current` / `learner.target` の下に置いた。
 
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
 
@@ -25,7 +27,7 @@ Atari を主軸に、学習可能なパラメータ摂動による探索を、�
 - 現行 Network は Head の実行全体を FP32 で保護する。Body の SN と Head の精度契約は [NN 設計](../design/130_neural_networks.jp.md)、DQN の target・診断・保存契約は [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md) を参照する。
 - 原論文は、学習可能な μ・σ と抽選する ε によるパラメータ摂動、および factorised Gaussian を定義している。本書はこの演算を採用する。σ を較正された不確実性として扱う契約は導入しない。[NoisyNet (2017/06), §3](https://arxiv.org/pdf/1706.10295)
 - BTR の `FactorizedNoisyLinear` は μ の fan-in に基づく一様初期化と、weight・bias とも fan-in を分母に使う σ 初期化を持つ。IQN の全結合経路に利用される。この参照は、本書の Actor・Learner のノイズ管理全体が BTR と同じであることを意味しない。[BTR (2026/09 参照), networks.py](https://github.com/VIPTankz/BTR/blob/main/networks.py)
-- BTR は ε を module の buffer に持ち、`choose_action` ごとに online net を、`learn_call` ごとに target net を引き直す。online net は学習時に引き直さない。hard update の `load_state_dict` は ε の buffer も複製するため、置換 step では target の ε が online の ε になる（2026-10-03 に `C:\dev\BTR` の `Agent.py` / `networks.py` で確認）。本書が ε を module に持たせない理由の一つである（§9、[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-runtime-key.md)）。
+- BTR は ε を module の buffer に持ち、`choose_action` ごとに online net を、`learn_call` ごとに target net を引き直す。online net は学習時に引き直さない。hard update の `load_state_dict` は ε の buffer も複製するため、置換 step では target の ε が online の ε になる（2026-10-03 に `C:\dev\BTR` の `Agent.py` / `networks.py` で確認）。本書が ε を module に持たせない理由の一つである（§9、[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)）。
 
 ## 3. User Stories
 
@@ -54,21 +56,21 @@ Atari を主軸に、学習可能なパラメータ摂動による探索を、�
 
 ### 4.2 NN 実行設定と責任境界
 
-名前付きの NN 実行設定カタログ `nn_runtime.[name]` に、NN の駆動方法を集約する。構造設定が「どの計算部品を持つか」を定めるのに対し、NN 実行設定は「その NN を今回どの条件で使うか」を定める。084 で持つ項目はノイズ方式・保持方式・共有範囲・N だけである。μ・σ の初期化、精度（§8.2）、optimizer の設定は、それぞれ既存の構築・学習側の責任に残す。AMP の集約は[別 PRD](999_nn_runtime_amp_consolidation_10prd.md)で扱い、084 では動かさない。
+名前付きの NN 実行設定カタログ `nn_forward.[name]` に、NN の駆動方法を集約する。構造設定が「どの計算部品を持つか」を定めるのに対し、NN 実行設定は「その NN を今回どの条件で使うか」を定める。084 で持つ項目はノイズ方式・保持方式・共有範囲・N だけである。μ・σ の初期化、精度（§8.2）、optimizer の設定は、それぞれ既存の構築・学習側の責任に残す。AMP の集約は[別 PRD](999_nn_forward_amp_consolidation_10prd.md)で扱い、084 では動かさない。
 
-用途は 3 つで、それぞれが NN 実行設定をキーで参照する。
+用途は 3 つで、それぞれが NN 実行設定を参照キー `nn_forward_key` で参照する。参照キーの名前は `<thing>_key` の前例（`dataset_key`、`network_key`、`feature_key`）に揃え、Learner の 2 用途は役割の階層 `learner.current` / `learner.target` の下に置く。
 
 | 用途 | 参照の置き場 |
 |---|---|
-| Actor（カタログ項目ごと） | `actor.[key].nn_runtime`。`policy` の外に置く。`use_optimistic_target=true` が `actor.[train].policy` を `target_policy` へ複製するため、`policy` の中には置かない |
-| Learner の現在値 | `learner.nn_runtime.current` |
-| target 構築（target 行動選択、target 価値評価、Munchausen の追加 forward） | `learner.nn_runtime.target`。target 構築全体で 1 つ |
+| Actor（カタログ項目ごと） | `actor.[key].nn_forward_key`。`policy` の外に置く。`use_optimistic_target=true` が `actor.[train].policy` を `target_policy` へ複製するため、`policy` の中には置かない |
+| Learner の現在値 | `learner.current.nn_forward_key` |
+| target 構築（target 行動選択、target 価値評価、Munchausen の追加 forward） | `learner.target.nn_forward_key`。target 構築全体で 1 つ |
 
-どの NN を使うか（`actor.[key].network`）という選択とは分ける。キーは不透明な参照名であり、コードは名前から train / eval 等の用途を推測しない。参照の必須性は Noisy の有無に依存させず、標準の選択は共通設定で与える（§11.1）。
+どの NN を使うか（`actor.[key].network`）という選択とは分ける。`target_policy`（Agent 直下にある target 行動選択の ActionPolicy 設定）は別の設定で、084 では置き場を動かさない。target 行動選択の forward も `learner.target.nn_forward_key` に従う。キーは不透明な参照名であり、コードは名前から train / eval 等の用途を推測しない。参照の必須性は Noisy の有無に依存させず、標準の選択は共通設定で与える（§11.1）。
 
 Network は解決済みの実行設定と、呼び出し側の実行状態・呼び出しごとの入力を、各計算部品へ明示的に渡す（§9）。各 `NetworkModule` は自分が必要な項目だけを利用し、固有の解釈・計算・必須項目・制約の検証を担う。Head の Noisy 演算部品にも同じ実行情報を届ける。Head・SN 等が持つ局所的な精度保護は §8.2 に従う。
 
-実行情報は全経路で明示する。μ-only は正当な明示値である。構築時の dummy forward、状態スイープ（`TensorDictFunction`）、policy_churn・replay_fit・plasticity の probe チャネル、および NN 実行設定を持たない Agent（ImageCls・MuZero・Rainbow）の呼び出しは、コード固定の μ-only（実行状態なし）を渡す。NoisyNet の probe だけは診断用 RNG で sample を渡す（§10.2）。sample を要求できるのは `nn_runtime` を参照する 3 用途だけであり、対象外 Agent の構造設定に Noisy な `Linear` があっても μ-only で動き、エラーにしない。μ-only の実行は満たされない要求ではないからである（§4.1）。
+実行情報は全経路で明示する。μ-only は正当な明示値である。構築時の dummy forward、状態スイープ（`TensorDictFunction`）、policy_churn・replay_fit・plasticity の probe チャネル、および NN 実行設定を持たない Agent（ImageCls・MuZero・Rainbow）の呼び出しは、コード固定の μ-only（実行状態なし）を渡す。NoisyNet の probe だけは診断用 RNG で sample を渡す（§10.2）。sample を要求できるのは `nn_forward` を参照する 3 用途だけであり、対象外 Agent の構造設定に Noisy な `Linear` があっても μ-only で動き、エラーにしない。μ-only の実行は満たされない要求ではないからである（§4.1）。
 
 Actor・Learner・共通実行処理が Noisy の型や有無を調べて、forward の挙動や設定の検証を切り替える構造にしない。Noisy の有無フラグ、機能一覧の登録、適用された実行条件を収集して汎用的に比較する仕組み、独立した実行基盤は追加しない。例外は Network が返す σ エントリの列挙（§8.3、§10）で、使ってよいのは optimizer の parameter 分類と診断だけである。既存 NN の構築・forward・検証の境界を拡張し、固有知識を計算部品へ閉じる。
 
@@ -127,7 +129,7 @@ y_b=\operatorname{Linear}(x_b,\mu^w,\mu^b)
 
 ## 6. Actor のノイズ契約
 
-Actor は NN 実行設定のキー（`actor.[key].nn_runtime`）を選び、その Actor 専用の実行状態と、呼び出しごとの入力（行動選択の時計の値、`episode_start` の lane マスク）を渡す。ノイズ方式・保持方式・共有範囲は参照先の設定が持ち、固有の解釈は計算部品へ閉じる。`train()` / `eval()` だけで sample / μ-only を切り替えず、forward に実行情報を明示して渡す。標準の学習用 Actor は sample・`call`・`batch` とし、共通設定の既定値で与える（§11.1）。
+Actor は NN 実行設定のキー（`actor.[key].nn_forward_key`）を選び、その Actor 専用の実行状態と、呼び出しごとの入力（行動選択の時計の値、`episode_start` の lane マスク）を渡す。ノイズ方式・保持方式・共有範囲は参照先の設定が持ち、固有の解釈は計算部品へ閉じる。`train()` / `eval()` だけで sample / μ-only を切り替えず、forward に実行情報を明示して渡す。標準の学習用 Actor は sample・`call`・`batch` とし、共通設定の既定値で与える（§11.1）。
 
 | 保持方式 | 抽選境界 | 共有範囲 |
 |---|---|---|
@@ -149,7 +151,7 @@ Actor は NN 実行設定のキー（`actor.[key].nn_runtime`）を選び、そ�
 
 ### 7.1 更新内の共有と分離
 
-Learner の現在値計算は `learner.nn_runtime.current` で sample / μ-only を選択でき、標準は sample とする。sample 選択時は更新ごと（`call`）にノイズを抽選し、`batch` / `sample`（遷移ごとに独立）を選択できる。既定は `batch` とする。μ-only では σ を計算グラフへ入れない。σ の勾配は未定義のままで、optimizer は σ を更新せず weight decay も掛けないので、σ は凍結される（`torch::optim::AdamW` と `FusedAdamW` は grad 未定義の parameter を飛ばす）。現在値の方式は target の方式とは独立に選べるが、`online_reuse` は §7.2 の条件に従う。
+Learner の現在値計算は `learner.current.nn_forward_key` で sample / μ-only を選択でき、標準は sample とする。sample 選択時は更新ごと（`call`）にノイズを抽選し、`batch` / `sample`（遷移ごとに独立）を選択できる。既定は `batch` とする。μ-only では σ を計算グラフへ入れない。σ の勾配は未定義のままで、optimizer は σ を更新せず weight decay も掛けないので、σ は凍結される（`torch::optim::AdamW` と `FusedAdamW` は grad 未定義の parameter を飛ばす）。現在値の方式は target の方式とは独立に選べるが、`online_reuse` は §7.2 の条件に従う。
 
 Learner には `count` や `episode` を追加しない。実際にノイズを使う計算部品が、Learner の時計（`learn_step`）に対しては `call` だけを受け付けることを初期化時に検証する。ノイズ設定を使わない部品での休眠は §11.2 に従う。
 
@@ -175,7 +177,7 @@ Munchausen の current / next を \([2B,\ldots]\) にまとめる場合も、元
 
 ### 7.2 target と online_reuse
 
-target 構築は `learner.nn_runtime.target` で sample / μ-only（`mu_only`）を選択でき、標準は sample とする。μ-only は target network だけの指定ではなく、次状態の価値評価、Double-DQN の選択、Munchausen bonus を含む target 構築全体に適用する。学習する現在値の forward は自身の実行設定に従い、この指定では変更しない。
+target 構築は `learner.target.nn_forward_key` で sample / μ-only（`mu_only`）を選択でき、標準は sample とする。μ-only は target network だけの指定ではなく、次状態の価値評価、Double-DQN の選択、Munchausen bonus を含む target 構築全体に適用する。学習する現在値の forward は自身の実行設定に従い、この指定では変更しない。
 
 Munchausen 有効時に `online_reuse` を選ぶ場合は、現在値の出力を bonus が要求するノイズ方式で再利用できるかを、各計算部品が検証する。Body の Noisy Linear と Head の Noisy 最終射影のどちらも対象にする。
 
@@ -216,7 +218,7 @@ SN を併用した μ-only は \(\mathcal{S}(\mu^w)\) を使う。同一の μ�
 
 ### 8.2 演算精度
 
-AMP の有無と FP16 / BF16 の選択は、既存の Actor（ActionPolicy 設定）・Learner・target policy の設定に残す。現行では target 行動選択が target policy 側の設定、target 価値評価と Munchausen の追加 forward が Learner 側の設定に従い、`@bf16` では前者が FP32、後者が BF16 になる。084 はこの配置も実効精度も動かさない。NN 実行設定へ集約する案は[別 PRD](999_nn_runtime_amp_consolidation_10prd.md)で扱う。
+AMP の有無と FP16 / BF16 の選択は、既存の Actor（ActionPolicy 設定）・Learner・target policy の設定に残す。現行では target 行動選択が target policy 側の設定、target 価値評価と Munchausen の追加 forward が Learner 側の設定に従い、`@bf16` では前者が FP32、後者が BF16 になる。084 はこの配置も実効精度も動かさない。NN 実行設定へ集約する案は[別 PRD](999_nn_forward_amp_consolidation_10prd.md)で扱う。
 
 `Linear` block に `force_fp32` を構造設定として追加する。BN / LN の `force_fp32` と同じ棚で、既定は `false`（周囲の AMP を継承）とする。Noisy の有無とは独立であり、層への NoisyNet 適用を理由に精度を黙って変えない。参照 profile では両腕（NoisyNet 適用の有無）の該当層に `force_fp32 = true` を明示し、ON / OFF の比較に精度を混ぜない。
 
@@ -240,7 +242,7 @@ AMP を継承する Noisy Linear は、§5.1 の等価式（μ の Linear と σ
 
 | 対象 | 性質 | 所有と永続化 |
 |---|---|---|
-| NN 実行設定（`nn_runtime.[name]`） | 不変の設定 | キーで参照する。解決後も Agent の設定内に保持するが、実行時に名前を引く機構は持たない（§13 のゲート）。設定の共用に ε・RNG・保持状態の共用を含めない |
+| NN 実行設定（`nn_forward.[name]`） | 不変の設定 | キーで参照する。解決後も Agent の設定内に保持するが、実行時に名前を引く機構は持たない（§13 のゲート）。設定の共用に ε・RNG・保持状態の共用を含めない |
 | μ・σ | 学習 parameter | network が所有する。optimizer、hard / soft copy、snapshot、保存・読込の対象 |
 | 入力 Tensor（batch size・device）、`episode_start` の lane マスク、時計の今の値 | 呼び出しごとの入力 | 呼び出し側が forward のたびに作って渡す。保持しない |
 | 実行状態の箱 | 保持する状態 | 呼び出し側（Actor は 1 つ、Learner は現在値用と target 用に 1 つずつ）が所有する private Resource。`Network` が作り、呼び出し側は中身を読み書きしない。network の同期・保存対象に含めない |
@@ -314,15 +316,15 @@ probe の反復で変えるのは NoisyNet の ε だけとする。ε-greedy、
 共通設定のベース定義で、標準のキー選択と値を `?=` により与える。設定プロファイルの選択宣言 `.$`、実験の明示選択、Run・CLI の指定は既存の `=` の運用に従う。標準の Actor の用途は設定上の組み合わせで表し、Actor 名・キー名からコードが意味を推測しない。綴りは例で、最終的な綴りは実装計画で既存の Reader に合わせる。
 
 ```properties
-DefaultDQNAgent.nn_runtime.[act_sample] : noisy.mode  = sample
-DefaultDQNAgent.nn_runtime.[act_sample] : noisy.hold  = call
-DefaultDQNAgent.nn_runtime.[act_sample] : noisy.share = batch
-DefaultDQNAgent.nn_runtime.[mu_only]    : noisy.mode  = mu_only
-DefaultDQNAgent.@baseline : actor.[train].nn_runtime ?= act_sample
-DefaultDQNAgent.actor.@eval_base : nn_runtime ?= mu_only
-DefaultDQNAgent.@baseline : learner.nn_runtime.current ?= act_sample
-DefaultDQNAgent.@baseline : learner.nn_runtime.target  ?= act_sample
-run.@nz_episode : A2.actor.[train].nn_runtime = act_episode   # 項目 act_episode を別に定義しておく
+DefaultDQNAgent.nn_forward.[act_sample] : noisy.mode  = sample
+DefaultDQNAgent.nn_forward.[act_sample] : noisy.hold  = call
+DefaultDQNAgent.nn_forward.[act_sample] : noisy.share = batch
+DefaultDQNAgent.nn_forward.[mu_only]    : noisy.mode  = mu_only
+DefaultDQNAgent.@baseline : actor.[train].nn_forward_key   ?= act_sample
+DefaultDQNAgent.actor.@eval_base : nn_forward_key           ?= mu_only
+DefaultDQNAgent.@baseline : learner.current.nn_forward_key ?= act_sample
+DefaultDQNAgent.@baseline : learner.target.nn_forward_key  ?= act_sample
+run.@nz_episode : A2.actor.[train].nn_forward_key = act_episode   # 項目 act_episode を別に定義しておく
 ```
 
 | 用途 | 標準のノイズ方式 | sample 時の抽選・共有 |
@@ -373,7 +375,7 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 判定は次の機械的な指標で行う。
 
-- 駆動の切替は設定 1 行（`actor.[x].nn_runtime = 名前`）で、C++ の変更がゼロである。
+- 駆動の切替は設定 1 行（`actor.[x].nn_forward_key = 名前`）で、C++ の変更がゼロである。
 - `dqn_based_agent.cpp` と `default_dqn_agent.cpp` に出る `noisy` / `sigma` の語が、optimizer の parameter 分類と診断の関数の中だけにある。Actor・Policy・forward 経路・設定検証には 0 件である。
 - 無効時の回帰は同 seed の metrics checksum の一致で判定する。
 - smoke Run で §10 の全キーが値を出し、Noisy を適用しない Run では同じキーが NaN になる。
@@ -385,7 +387,7 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 実装計画は次の順で作る。段階を分けても、本書に残した比較軸と診断は 084 全体の完了条件に含める。ノイズ込み重みの SN は独立した暫定 PRD の対象であり、その裁定・実装を 084 の完了条件にしない。
 
-1. 基本 NoisyNet: 実行情報の経路（forward 引数・箱・時計）、`nn_runtime` と 3 用途の参照、既存 Linear / Head への μ・σ と共用演算、保持・共有・target・評価、局所検証と `online_reuse`、μ 正規化 SN、`Linear.force_fp32`、σ decay、同期・保存、無効時回帰。TDD の順序として、経路と箱を先に通し、Noisy を付けない状態で checksum 一致を確認してから μ・σ を足す。
+1. 基本 NoisyNet: 実行情報の経路（forward 引数・箱・時計）、`nn_forward` と 3 用途の参照、既存 Linear / Head への μ・σ と共用演算、保持・共有・target・評価、局所検証と `online_reuse`、μ 正規化 SN、`Linear.force_fp32`、σ decay、同期・保存、無効時回帰。TDD の順序として、経路と箱を先に通し、Noisy を付けない状態で checksum 一致を確認してから μ・σ を足す。
 2. 診断: 群ごとの σ 統計、固定 probe、Q 差・行動不一致率・反復エントロピー、既存診断の μ-only 化、非干渉検証。
 3. 結合・性能: Atari 結合 Run、ラウンドロビンの性能測定、AMP 継承（等価式の形）の数値比較。
 
@@ -396,11 +398,11 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 | 維持 | Actor の保持・共有、Learner の方式・共有、target、評価、μ 正規化 SN の併用、`force_fp32`、σ decay。目的がアルゴリズム探求であり、BTR 再現に必要な最小構成へ縮小しない |
 | 維持 | 既存 `episode_start` と Atari の episode 定義。独自の境界概念を増やさない |
 | 維持 | 反復エントロピーを初回の診断へ含め、初期値を 32 抽選とする。Q 差・行動不一致率と推論を共用する |
-| 維持（方針） | `nn_runtime` カタログとキー参照。実害ではなく「実行時に名前の一覧を残す」拡張方針で持つ。`@` プロファイルと `.$` でも同じ設定共用は書ける（[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-runtime-key.md)） |
+| 維持（方針） | `nn_forward` カタログとキー参照。実害ではなく「実行時に名前の一覧を残す」拡張方針で持つ。`@` プロファイルと `.$` でも同じ設定共用は書ける（[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)） |
 | 縮小 | 再現性は固定構成に限定し、環境数等を変えたときの lane ごとの乱数列一致まで要求しない |
 | 縮小 | σ 統計は feature / readout 群の集約だけ。層ごとの内訳は 920 の記録経路が決まってから |
 | 削除 | 小さい fan-in の自動 clamp、BN・他探索方式との一律排他、層への NoisyNet 適用だけでの既存探索設定・精度の変更、target 内の設定を揃える規則（target の設定は 1 つ） |
-| 別 PRD | AMP の集約と移行は[全 Agent を対象にした別 PRD](999_nn_runtime_amp_consolidation_10prd.md)。NoisyNet の目的に必要でなく、Noisy と束ねると target の設定が 2 つになり、ImageCls・MuZero・Rainbow と plasticity の probe チャネルの精度へ波及するため |
+| 別 PRD | AMP の集約と移行は[全 Agent を対象にした別 PRD](999_nn_forward_amp_consolidation_10prd.md)。NoisyNet の目的に必要でなく、Noisy と束ねると target の設定が 2 つになり、ImageCls・MuZero・Rainbow と plasticity の probe チャネルの精度へ波及するため |
 | 別途検討 | Head 分離は[独立した暫定 PRD](999_nn_head_projection_separation_10prd.md)で比較・裁定する |
 | 別途検討 | ノイズ込み重みの SN は[独立した暫定 PRD](999_noisynet_effective_weight_spectral_norm_10prd.md)へ切り出す。ε ごとの推定、永続 u/v、参照計算と μ-only の契約が未裁定のため、084 の完了条件から除く |
 | ゲート | 実行時に名前で NN 実行設定を引く機構（GUI からの切替など）は、その切替が要件になった時点で作る。それまでカタログは設定解決時にだけ使う |
@@ -411,10 +413,10 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 | 観点 | 裁定と理由 |
 |---|---|
-| 全体量 | **維持**: 実行情報の経路、呼び出し側所有の箱、局所検証、σ エントリの列挙、`force_fp32`、Learner の μ-only、集約 σ 統計と probe、既存診断の μ-only 化、μ 正規化 SN、σ decay。いずれも削ると実害（module 保持の競合、σ の decay 巻き込み、精度の混入、効果の帰属不能）が戻る。**維持（方針）**: `nn_runtime` カタログ。削っても戻る実害は無く、拡張方針で持つ |
+| 全体量 | **維持**: 実行情報の経路、呼び出し側所有の箱、局所検証、σ エントリの列挙、`force_fp32`、Learner の μ-only、集約 σ 統計と probe、既存診断の μ-only 化、μ 正規化 SN、σ decay。いずれも削ると実害（module 保持の競合、σ の decay 巻き込み、精度の混入、効果の帰属不能）が戻る。**維持（方針）**: `nn_forward` カタログ。削っても戻る実害は無く、拡張方針で持つ |
 | 要求の必要性 | **実害 pin**: `force_fp32`（`@bf16` で Noisy 適用層だけ精度が変わる）、σ の凍結（AdamW が grad 未定義を飛ばす仕様で、決めないと実装で結果が割れる）、キー参照の必須化（学習用 Actor の sample の書き忘れに気づけない）。**将来需要**: カタログの実行時の名前解決はゲートの後ろ。**保留**: train / eval、勾配制御、τ、AMP の集約は、それらを実行設定として選ぶ具体的な用途が生じてから |
 | 前提変更の残り | **置換**: AMP の除外に伴い、target の 2 つの参照と「揃える」規則、AMP の移行表・段階・受け入れ行を削除。所有は不変の設定 / 呼び出しごとの入力 / 保持する状態の 3 分類で §9 を書き換え。ε の共有は箱 × 層 × 時計の単一規則へ。旧「NoisyNet 有効」条件は §7.2 の部品ごとの再利用条件のまま |
-| 最小構成との差 | 差分は `nn_runtime` カタログだけ。方針により維持し、ゲートを明記する。それ以外は最小解に含まれる |
+| 最小構成との差 | 差分は `nn_forward` カタログだけ。方針により維持し、ゲートを明記する。それ以外は最小解に含まれる |
 | 段階の独立性 | **段階化**: 基本 NoisyNet、診断、結合・性能の 3 段階。各段階単独で価値があり、どこで止めても無効時は実装前と一致する。経路先行は段階 1 内の TDD 順序 |
 | 成功の測定 | §12 の判定方法: 設定 1 行での駆動切替、grep による Noisy 語の位置、checksum 一致、NaN 契約、拡張時の Agent 側差分 0 行 |
 
@@ -432,7 +434,7 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 Conv1d / Conv2d 版、τ 埋め込みへの適用、σ を較正された不確実性として使う拡張、完全な Run 再開、ε-greedy / UQE の機構削除、Rainbow・ImageCls・MuZero 全体への展開、Head の構造分離、ノイズ込み重みの SN は対象外とする。
 
-NN 実行設定への集約は Noisy だけとする。AMP の集約は[別 PRD](999_nn_runtime_amp_consolidation_10prd.md)で扱う。train / eval、勾配制御、IQN の τ の集約、Learner の `count` / `episode`、実行時に名前で実行設定を引く機構、独立した実行基盤や機能登録・実行条件の汎用比較は今回導入しない。
+NN 実行設定への集約は Noisy だけとする。AMP の集約は[別 PRD](999_nn_forward_amp_consolidation_10prd.md)で扱う。train / eval、勾配制御、IQN の τ の集約、Learner の `count` / `episode`、実行時に名前で実行設定を引く機構、独立した実行基盤や機能登録・実行条件の汎用比較は今回導入しない。
 
 ## 15. 参照
 
@@ -440,5 +442,5 @@ NN 実行設定への集約は Noisy だけとする。AMP の集約は[別 PRD]
 - [BTR, 2026/09 参照] VIPTankz. “BTR.” GitHub. [repository](https://github.com/VIPTankz/BTR)、[networks.py](https://github.com/VIPTankz/BTR/blob/main/networks.py)。参照した実装の事実と、本書で独自に定めた共有・保持・診断契約は区別する。
 - [PyTorch Linear, 2.11] PyTorch Contributors. “Linear.” PyTorch documentation. [初期化仕様](https://docs.pytorch.org/docs/2.11/generated/torch.nn.Linear.html)
 - 現行仕様: [NN 設計](../design/130_neural_networks.jp.md)、[DQN 系 Agent 設計](../design/200_dqn_agents.jp.md)、[Atari Env 設計](../design/220_atari_env.jp.md)。
-- 判断の背景: [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-runtime-key.md)（ε の所有とカタログの採用理由）、[ADR 0038](../adr/0038-actor-config-catalog-without-runmode.md)（Actor カタログと、policy カタログを却下した経緯）、[ADR 0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md)（NoisyNet の churn 対応のゲート）、[ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)、[ADR 0018](../adr/0018-iqn-via-bind-product-dag.md)、[Train Actor snapshot](done/036_train_actor_periodic_snapshot_10prd.md)、[SN](done/065_nn_spectral_norm_10prd.md)、[Head FP32 保護](done/033_imagecls_bf16_head_10prd.md)、[Agent 実装の所有権ガイドライン](../ownership_guideline.md)。
-- 別途検討: [NN Head の最終射影と出力変換の責務分離](999_nn_head_projection_separation_10prd.md)、[NoisyNet のノイズ込み重みに対する SN](999_noisynet_effective_weight_spectral_norm_10prd.md)、[NN 実行設定への AMP の集約](999_nn_runtime_amp_consolidation_10prd.md)、[NN ブロック別メトリクス](920_nn_block_metrics_10prd.md)。
+- 判断の背景: [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)（ε の所有とカタログの採用理由）、[ADR 0038](../adr/0038-actor-config-catalog-without-runmode.md)（Actor カタログと、policy カタログを却下した経緯）、[ADR 0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md)（NoisyNet の churn 対応のゲート）、[ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)、[ADR 0018](../adr/0018-iqn-via-bind-product-dag.md)、[Train Actor snapshot](done/036_train_actor_periodic_snapshot_10prd.md)、[SN](done/065_nn_spectral_norm_10prd.md)、[Head FP32 保護](done/033_imagecls_bf16_head_10prd.md)、[Agent 実装の所有権ガイドライン](../ownership_guideline.md)。
+- 別途検討: [NN Head の最終射影と出力変換の責務分離](999_nn_head_projection_separation_10prd.md)、[NoisyNet のノイズ込み重みに対する SN](999_noisynet_effective_weight_spectral_norm_10prd.md)、[NN 実行設定への AMP の集約](999_nn_forward_amp_consolidation_10prd.md)、[NN ブロック別メトリクス](920_nn_block_metrics_10prd.md)。
