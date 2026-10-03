@@ -59,7 +59,8 @@ public:
         root->Add(browse_button, 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
         root->Add(new wxStaticText(this, wxID_ANY, "New workspace name"), 0, wxLEFT | wxRIGHT, 12);
-        const auto initial_name = history_.empty() && local_workspaces_.empty() ? "_default" : "";
+        // 同梱の ENV 別 workspace があっても、履歴が空なら初回起動として _default を入れておく。
+        const auto initial_name = history_.empty() ? "_default" : "";
         new_name_ = new wxTextCtrl(this, wxID_ANY, initial_name);
         root->Add(new_name_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 12);
         new_name_error_ = new wxStaticText(this, wxID_ANY, " ");

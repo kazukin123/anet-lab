@@ -20,7 +20,7 @@
 新しいEnv、Agent、Observerの実装方法は対象外とし、各設計文書を参照する。
 
 > [!NOTE]
-> 本書の実行経路はWindows x64とNVIDIA CUDAを使う構成で検証済みである。CPU-only、Linux、macOS、他GPU backendは未検証であり、同じ操作結果を保証しない。
+> 本書の実行経路はWindows x64とNVIDIA CUDAを使う構成で検証済みである。CPU-onlyはLunarLanderの`LunarLander_cpu.txt`構成(初回の`_default`)だけ動作を確認している。それ以外のCPU-only構成、Linux、macOS、他GPU backendは未検証であり、同じ操作結果を保証しない。
 
 ## 2. 実行前の準備
 
@@ -32,7 +32,7 @@
 
 ### 2.2 設定ファイルの選択
 
-引数を省略したrunnerはworkspace選択ダイアログを表示し、選択したworkspaceの`config/_main.txt`からEnvを選ぶ。共通の`apps/runner/config/_main.txt`はAgent、Network、metric等だけを読み、Env選択はworkspace側へ分離される。新規workspace、および既存ディレクトリの初回選択時に不足しているworkspace configは、`apps/runner/config/_workspace_template.txt`を`config/_main.txt`へコピーして作成される。
+引数を省略したrunnerはworkspace選択ダイアログを表示し、選択したworkspaceの`config/_main.txt`からEnvを選ぶ。共通の`apps/runner/config/_main.txt`はAgent、Network、metric等だけを読み、Env選択はworkspace側へ分離される。新規workspace、および既存ディレクトリの初回選択時に不足しているworkspace configは、`apps/runner/config/_workspace_template.txt`を`config/_main.txt`へコピーして作成される。テンプレートの既定Envは`LunarLander_cpu.txt`で、`LunarLander.txt`を読み込んだうえでCPUでも軽い`run.@cpu`(QR、BF16なし)を選ぶ。GPU向けの構成は`LunarLander.txt`を直接選ぶ。
 
 ```text
 # apps/runner/workspaces/<workspace>/config/_main.txt
@@ -383,7 +383,7 @@ run.@breakout : app.run_name = run_{t}_breakout
 10_run.bat
 ```
 
-初回は`_default`が新規名として入力済みの選択ダイアログが開く。履歴、`workspaces/`直下の全ディレクトリ一覧、任意パス参照、新規名から選択できる。過去Runだけを移動したフォルダなど`config/_main.txt`が無い既存ディレクトリも一覧に出て、選択時に不足configだけが補完される。新規名は入力中に検証され、不正理由が入力欄の下へ表示されている間はOKを選択できない。`--workspace dm_long`で相対workspaceを直接指定し、`--select-workspace`でスキップ設定に関係なくダイアログを表示できる。相対パスは`apps/runner/workspaces/`基準、絶対パスも使用できる。入力の外側空白は除去され、`#`、`//`、末尾`;`、UNC pathは拒否される。
+履歴が空の初回起動では、同梱のENV別workspaceがあっても`_default`が新規名として入力済みの選択ダイアログが開く。履歴、`workspaces/`直下の全ディレクトリ一覧、任意パス参照、新規名から選択できる。過去Runだけを移動したフォルダなど`config/_main.txt`が無い既存ディレクトリも一覧に出て、選択時に不足configだけが補完される。新規名は入力中に検証され、不正理由が入力欄の下へ表示されている間はOKを選択できない。`--workspace dm_long`で相対workspaceを直接指定し、`--select-workspace`でスキップ設定に関係なくダイアログを表示できる。相対パスは`apps/runner/workspaces/`基準、絶対パスも使用できる。入力の外側空白は除去され、`#`、`//`、末尾`;`、UNC pathは拒否される。
 
 または、リポジトリルートから実行ファイルとmain configを明示する。
 

@@ -47,16 +47,20 @@ run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_s
 
 run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1
 
+run.@cpu : DefaultDQNAgent.$ = @baseline > @qr > @munchausen > @heavy > A1 > A2
+run.@cpu : backend.torch_num_threads = 4   # i5-10500 で 4 / 10 / -1 を比べて 4 が最速
+
 run.$ = run.@munch
 #run.$ = run.@rfit
 #run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
+#run.$ = run.@cpu
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_ll_iqn
+app.run_name = run_{t}_ll
 
 A2.learner.iqn.current_taus.num_taus = 32
 A2.learner.iqn.target_taus.num_taus = 32
@@ -381,8 +385,8 @@ env.class_id = LunarLanderEnv
 
 #app.metrics_logger.video_codec = h264_nvenc  # libx264
 
-run.eval_schedule.[eval_target].interval ?= 200
-run.eval_schedule.[eval].interval ?= 200
+run.eval_schedule.[eval_target].interval = 200
+run.eval_schedule.[eval].interval = 200
 
 
 # ==============================================================================
