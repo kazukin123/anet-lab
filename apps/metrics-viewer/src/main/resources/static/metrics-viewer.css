@@ -651,6 +651,16 @@ body.screenshot-mode #btn-graph-scroll-lock {
 body.screenshot-mode #lod-display-mode-control {
 	display: none !important;
 }
+/* 通常モードは左パネルのスピナーで足りるので、右上はスクリーンショットモードだけ */
+#floating-loading-spinner {
+	display: none;
+	top: 0;
+	margin-right: 0;
+	pointer-events: none;
+}
+body.screenshot-mode #floating-loading-spinner {
+	display: inline-block;
+}
 html.screenshot-mode,
 body.screenshot-mode {
   overflow-y: visible !important;

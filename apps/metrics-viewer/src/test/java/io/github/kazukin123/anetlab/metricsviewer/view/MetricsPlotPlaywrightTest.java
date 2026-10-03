@@ -300,16 +300,25 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				() => {
 					const controls = document.getElementById('floating-controls');
 					const bounds = controls.getBoundingClientRect();
-					const tops = Array.from(controls.children).map(child => child.getBoundingClientRect().top);
+					const tops = Array.from(controls.children)
+						.filter(child => child.getClientRects().length > 0)
+						.map(child => child.getBoundingClientRect().top);
 					return bounds.left >= 0
 						&& bounds.right <= window.innerWidth
 						&& Math.max(...tops) - Math.min(...tops) < 1;
 				}
 				"""));
+		assertEquals(false, page.evaluate("""
+				() => document.getElementById('floating-loading-spinner').getClientRects().length > 0
+				"""));
 
 		page.click("#btn-screenshot-toggle");
 		assertEquals("none", page.evaluate("""
 				() => getComputedStyle(document.getElementById('btn-reset-view')).display
+				"""));
+		// 左パネルが消えるので、Reload中の表示は右上のスピナーが受け持つ。
+		assertEquals(true, page.evaluate("""
+				() => document.getElementById('floating-loading-spinner').getClientRects().length > 0
 				"""));
 	}
 

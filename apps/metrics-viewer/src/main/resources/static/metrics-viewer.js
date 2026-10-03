@@ -1439,7 +1439,9 @@ class UIController {
 	}
 
 	setLoadingSpinner(active) {
-		document.getElementById("loading-spinner")?.classList.toggle("active", active);
+		for (const spinner of document.querySelectorAll(".loading-spinner")) {
+			spinner.classList.toggle("active", active);
+		}
 	}
 
 	renderUpdateStatus(failures) {
