@@ -400,6 +400,8 @@ BTR の平均は 30M で 29,000 点を超える。ε 腕の突破の開始（41.
 
 ## pending
 
+qbert と battle_zone の続き（ε 腕の seed 2・3、BTR 型の ε の経過、env 数と replay 容量、battle_zone の ε ラダー腕）の結果は [2026-09-27](2026-09-27_btr-gap-qbert-bz.md) にある。
+
 - qbert の ε 腕は、train の突破が 49-50M で 13.3% に上がったところで 50M が終わった。突破が定着するかは判定できていない。
   ε=0 断面は 45.7M で 23,900 に下がっている。1 seed。
 - qbert の `round_clear` が第 8 面の入口で 8 を返す機序は未確認。
