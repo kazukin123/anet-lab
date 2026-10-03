@@ -1,0 +1,457 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI ハーネス動線マップ(構成)",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1360,
+      660
+    ],
+    "repository": {
+      "url": "https://github.com/kazukin123/anet-lab",
+      "revision": "9b928dda407785ec8cb39b12641d8a8f836dcead"
+    }
+  },
+  "components": [
+    {
+      "id": "user_env",
+      "type": "external",
+      "label": "ユーザー環境",
+      "sublabel": "リポジトリ外",
+      "tag": "機構のみ",
+      "pos": [
+        40,
+        210
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": ".agents/skills/README.md",
+          "label": "実体コピーと同期の記述"
+        },
+        {
+          "path": "CLAUDE.md",
+          "label": "global 指示からの委譲"
+        }
+      ]
+    },
+    {
+      "id": "claude_md",
+      "type": "frontend",
+      "label": "CLAUDE.md",
+      "sublabel": "Claude の入口・3 行",
+      "tag": "Claude 専用",
+      "pos": [
+        40,
+        360
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "CLAUDE.md",
+          "label": "AGENTS.md を読む指示"
+        }
+      ]
+    },
+    {
+      "id": "skills",
+      "type": "messagebus",
+      "label": "skills(2 系統)",
+      "sublabel": "実体コピー 各 17 本",
+      "tag": "同期は手作業",
+      "pos": [
+        380,
+        60
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": ".agents/skills/README.md",
+          "label": "diff -rq で差が無いことを確認"
+        },
+        {
+          "path": ".claude/skills/README.md",
+          "label": "Claude 側の実体"
+        }
+      ]
+    },
+    {
+      "id": "context_md",
+      "type": "database",
+      "label": "CONTEXT.md",
+      "sublabel": "RL ドメイン用語集",
+      "tag": "命名時",
+      "pos": [
+        380,
+        210
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "CONTEXT.md",
+          "label": "用語と _Avoid_ の一覧"
+        }
+      ]
+    },
+    {
+      "id": "agents_md",
+      "type": "frontend",
+      "label": "AGENTS.md",
+      "sublabel": "作業規約 720 行・37 節",
+      "tag": "両者の入口",
+      "pos": [
+        380,
+        360
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "AGENTS.md",
+          "label": "ADR を読む条件・用語を引く条件"
+        },
+        {
+          "path": "AGENTS.md",
+          "label": "検証節から testdata README への一般則"
+        }
+      ]
+    },
+    {
+      "id": "guide_0xx",
+      "type": "frontend",
+      "label": "ユーザーガイド 0xx",
+      "sublabel": "実行・分析・開発環境",
+      "tag": "人間向け",
+      "pos": [
+        380,
+        510
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "docs/design/020_user_guide_run.jp.md",
+          "label": "§3.6 設定の代入演算子"
+        },
+        {
+          "path": "docs/design/030_user_guide_analysis.jp.md",
+          "label": "§6 inspect_run.py"
+        },
+        {
+          "path": "docs/design/040_development_environment.jp.md",
+          "label": "§6 CLI ビルド"
+        }
+      ]
+    },
+    {
+      "id": "docs_agents",
+      "type": "backend",
+      "label": "docs/agents",
+      "sublabel": "skill 規約と本マップ",
+      "tag": "本成果物",
+      "pos": [
+        720,
+        210
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "docs/agents/issue-tracker.md",
+          "label": "実装 issue の置き場規約"
+        },
+        {
+          "path": "docs/agents/domain.md",
+          "label": "用語集の読み方"
+        },
+        {
+          "path": "docs/agents/triage-labels.md",
+          "label": "triage role の対応表"
+        }
+      ]
+    },
+    {
+      "id": "design_1xx2xx",
+      "type": "backend",
+      "label": "設計文書 1xx・2xx",
+      "sublabel": "領域別の現行仕様 10 本",
+      "tag": "編集前",
+      "pos": [
+        720,
+        360
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "docs/design/README.jp.md",
+          "label": "§3 ドキュメント一覧"
+        },
+        {
+          "path": "docs/design/100_runtime_and_configuration.jp.md",
+          "label": "§8 テストと拡張時の確認事項"
+        },
+        {
+          "path": "docs/design/220_atari_env.jp.md",
+          "label": "テスト章が欠けている"
+        }
+      ]
+    },
+    {
+      "id": "ci",
+      "type": "cloud",
+      "label": ".github/workflows",
+      "sublabel": "windows-ci 他 4 本",
+      "tag": "自動起動",
+      "pos": [
+        720,
+        510
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/windows-ci.yml",
+          "label": "設計文書から参照される唯一の workflow"
+        },
+        {
+          "path": ".github/workflows/pages.yml",
+          "label": "docs/ 全体を Pages へ配信"
+        }
+      ]
+    },
+    {
+      "id": "prd",
+      "type": "database",
+      "label": "docs/memo(PRD)",
+      "sublabel": "要件と実装計画 203 件",
+      "tag": "状態=フォルダ",
+      "pos": [
+        1060,
+        210
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "docs/memo/README.md",
+          "label": "状態はフォルダで表す"
+        }
+      ]
+    },
+    {
+      "id": "testdata_readme",
+      "type": "backend",
+      "label": "testdata/prdNNN",
+      "sublabel": "PRD 固有の検証手順 3 本",
+      "tag": "主経路の末端",
+      "pos": [
+        1060,
+        360
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/testdata/prd072/README.md",
+          "label": "設定の等価性検査"
+        },
+        {
+          "path": "core/anet-core/testdata/prd078/README.md",
+          "label": "RB 履歴整合性の条件走査"
+        },
+        {
+          "path": "core/anet-core/testdata/prd061/README.md",
+          "label": "Actor カタログの手順"
+        }
+      ]
+    },
+    {
+      "id": "adr",
+      "type": "database",
+      "label": "docs/adr",
+      "sublabel": "設計判断の記録 44 件",
+      "tag": "契約変更時",
+      "pos": [
+        1060,
+        510
+      ],
+      "size": [
+        240,
+        80
+      ],
+      "sources": [
+        {
+          "path": "docs/adr/0021-run-classification-by-workspace-folder.md",
+          "label": "ファイル名が決定文になっている"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Claude だけが辿る",
+      "wraps": [
+        "user_env",
+        "claude_md"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "リポジトリ(Claude と Codex が共通に読む)",
+      "wraps": [
+        "skills",
+        "context_md",
+        "agents_md",
+        "guide_0xx",
+        "docs_agents",
+        "design_1xx2xx",
+        "ci",
+        "prd",
+        "testdata_readme",
+        "adr"
+      ],
+      "pad": 28
+    }
+  ],
+  "connections": [
+    {
+      "id": "env-to-claude",
+      "from": "user_env",
+      "to": "claude_md",
+      "label": "global 指示",
+      "variant": "security",
+      "labelDy": 24
+    },
+    {
+      "id": "env-to-skills",
+      "from": "user_env",
+      "to": "skills",
+      "label": "shadow 8 本",
+      "variant": "security"
+    },
+    {
+      "id": "claude-to-agents",
+      "from": "claude_md",
+      "to": "agents_md",
+      "label": "毎回全文",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agents-to-design",
+      "from": "agents_md",
+      "to": "design_1xx2xx",
+      "label": "直リンク無し",
+      "variant": "emphasis",
+      "labelDy": 22
+    },
+    {
+      "id": "design-to-testdata",
+      "from": "design_1xx2xx",
+      "to": "testdata_readme",
+      "label": "テスト章から",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agents-to-context",
+      "from": "agents_md",
+      "to": "context_md",
+      "label": "命名時"
+    },
+    {
+      "id": "agents-to-docsagents",
+      "from": "agents_md",
+      "to": "docs_agents",
+      "label": "skills 節"
+    },
+    {
+      "id": "docsagents-to-prd",
+      "from": "docs_agents",
+      "to": "prd",
+      "label": "issue/PRD"
+    },
+    {
+      "id": "agents-to-guide",
+      "from": "agents_md",
+      "to": "guide_0xx",
+      "label": "020・030 のみ",
+      "labelDy": 24
+    },
+    {
+      "id": "design-to-adr",
+      "from": "design_1xx2xx",
+      "to": "adr",
+      "label": "該当章優先"
+    },
+    {
+      "id": "guide-to-ci",
+      "from": "guide_0xx",
+      "to": "ci",
+      "label": "040 のみ",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "入口(常時読み)",
+      "items": [
+        "CLAUDE.md は 3 行で、AGENTS.md 全文(720 行・31 節)を毎セッション読ませる",
+        "user-level の入口と skill 層は両エージェントにあり、中身は環境ごとに違う"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "条件読みの分岐",
+      "items": [
+        "ADR は契約・構造を変えるときだけで、設計文書の該当章からの参照を優先する",
+        "検証は領域の設計文書のテスト章から testdata/prdNNN/README.md へ降りる"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "欠落(修正は次フェーズ)",
+      "items": [
+        "AGENTS.md から 1xx・2xx へのリンクが 1 本も無く、名指しは 020 §3 と 030 だけ",
+        "skills README 2 本と CI workflow 3 本に参照元が無く、220 にはテスト章が無い"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "機械化点(本 PRD では実装しない)",
+      "items": [
+        "実体コピー 2 系統の同期は diff -rq の手作業で、3 本が双方向にドリフトしている",
+        "user-level の同名 skill 8 本(中身違い Claude 6 / Codex 5)が project 版を shadow する"
+      ]
+    }
+  ]
+}

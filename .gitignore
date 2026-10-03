@@ -63,12 +63,19 @@
 /dist
 /docs/*.lock
 /apps/runner/runname.txt
+/apps/runner/workspaces
+/apps/runner/appdata
 /.claude/worktrees
 /.claude/settings.local.json
 /core/anet-core/bin/Debug/out
 /core/anet-core/bin/Release/out
 /core/anet-core/bin/RelWithDebInfo/out
-/apps/runner/tools/__pycache__
 /docs/xml
 /apps/Servers
 /apps/.metadata
+/tmp
+/.scratch/
+__pycache__/
+
+# anet-stats の再生成可能キャッシュ(blame/cloc)
+/reports/stats/cache/

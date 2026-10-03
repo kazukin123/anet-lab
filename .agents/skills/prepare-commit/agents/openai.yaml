@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Commit"
+  short_description: "会話とGit差分からコミット案と対象ファイルを整理する"
+  default_prompt: "$prepare-commit を使って、現在の会話と差分からコミット案を作成してください。"

@@ -1,0 +1,62 @@
+{
+  "_doc": "anet-stats / anet-audit が共有する分類定義。categories はファイルパスを機能カテゴリ(GitHub Topic issue 31x〜32x)へ写像する。先勝ちで評価する。areas は流量・規模の粗い領域分け。excluded は生成物で統計から外す。",
+  "boundary": "2026-05-30",
+  "boundary_note": "AI-Native 化の境界日 = AGENTS.md 作成日。テスト群の年代分割にだけ使う。判定は git blame の行日付。",
+  "bulk_lines_per_file": 2000,
+  "large_file_lines": 800,
+  "done_convention_date": "2026-08-21",
+  "excluded": [
+    "(^|/)testdata/",
+    "^docs/archify/.*\\.html$",
+    "^docs/experiments/.*/config/",
+    "^docs/html/",
+    "^docs/xml/",
+    "\\.(png|jpg|jpeg|gif|pdf|asta|bak|ico|zip|csv)$"
+  ],
+  "areas": [
+    ["tests", "(_test\\.(cpp|hpp)$)|(^core/anet-core/src/(main_test|catch_test)\\.cpp$)|(^core/anet-core/include/anet/(catch_test|test_util)\\.hpp$)|(/src/test/)|(_test\\.py$)|(/test_[^/]+\\.py$)"],
+    ["core", "^core/anet-core/"],
+    ["envs", "^core/envs/"],
+    ["config", "^apps/runner/config/"],
+    ["runner", "^apps/runner/"],
+    ["viewer", "^(viewers/|apps/metrics-viewer/)"],
+    ["docs", "^(docs/design/|docs/adr/|CONTEXT\\.md$|AGENTS\\.md$|README\\.md$)"],
+    ["memo", "^docs/memo/"],
+    ["exp", "^docs/experiments/"],
+    ["reports", "^reports/"],
+    ["build", "^(CMakeLists\\.txt$|CMakePresets\\.json$|.*/CMakeLists\\.txt$|\\.github/)"],
+    ["other", ".*"]
+  ],
+  "categories": [
+    {"key": "322_env_individual", "label": "322 ENV個別実装", "topic": 18, "match": ["^core/envs/[^/]+/src/(?!.*View)"]},
+    {"key": "319_gui", "label": "319 GUI 共通基盤", "topic": 15, "test_target": false, "match": ["View\\.(cpp|hpp)$", "/gui\\.(cpp|hpp)$", "^apps/runner/src/"]},
+    {"key": "315_nn", "label": "315 ニューラルネットワーク", "topic": 11, "match": ["/(nn|nn_impl|nn_modules|nn_heads|nn_util)\\.(cpp|hpp)$"]},
+    {"key": "314_tensor", "label": "314 テンソル処理", "topic": 10, "match": ["/(tensor_util|tensor_check|transfer|stacker|scaler|scaler_impl|image)\\.(cpp|hpp)$"]},
+    {"key": "316_config", "label": "316 設定管理", "topic": 12, "match": ["/(config|config_impl|config_baseline)\\.(cpp|hpp)$"]},
+    {"key": "317_metrics", "label": "317 可視化/メトリクス", "topic": 13, "match": ["/(metrics_logger|metrics_logger_impl|heat_map|graphviz|probe)\\.(cpp|hpp)$"]},
+    {"key": "318_rl_core", "label": "318 強化学習 共通基盤", "topic": 14, "match": ["/(rl|trainer|replay_buffer|replay_buffer_impl|muzero_rb|serialize|observers|episode_end)\\.(cpp|hpp)$"]},
+    {"key": "320_env_core", "label": "320 Env 共通基盤", "topic": 16, "match": ["/env\\.(cpp|hpp)$"]},
+    {"key": "321_agent_core", "label": "321 Agent 共通基盤", "topic": 17, "match": ["/(agent|dqn_based_agent|dqn_based_heads|dqn_based|dqn_munchausen|muzero_based_agent)\\.(cpp|hpp)$"]},
+    {"key": "324_dqn", "label": "324 AGENT個別実装 DQN系列", "topic": 20, "match": ["/(default_dqn_agent|rainbow_agent|image_cls_agent)\\.(cpp|hpp)$"]},
+    {"key": "325_muzero", "label": "325 AGENT個別実装 MuZero系列", "topic": 21, "match": ["/(muzero_proto_agent)\\.(cpp|hpp)$"]},
+    {"key": "313_profiling", "label": "313 プロファイリング", "topic": 9, "match": ["/profile\\.(cpp|hpp)$"]},
+    {"key": "312_util", "label": "312 ユーティリティ", "topic": 8, "match": ["/(util|str_util|json_util|app_util|app_util_impl|exception|log|thread|random|schedule|init|common|diag)\\.(cpp|hpp)$"]},
+    {"key": "110_runner_app", "label": "110 RunnerApp", "topic": 4, "match": ["^apps/runner/src/"]},
+    {"key": "120_metrics_viewer", "label": "120 MetricsViewer", "topic": 5, "match": ["^apps/metrics-viewer/", "^viewers/metrics-viewer/"]},
+    {"key": "311_dev_tools", "label": "311 開発プロセス/開発ツール/テスト基盤", "topic": 7, "match": ["^apps/runner/tools/", "^viewers/metrics-tools/", "^reports/tools/", "^\\.github/"]}
+  ],
+  "test_infra": ["main_test.cpp", "catch_test.cpp", "catch_test.hpp", "test_util.hpp", "test_util_test.cpp"],
+  "topics": {
+    "1": "010_リファクタリング", "2": "020_性能改善", "3": "030_機能追加", "4": "110_RunnerApp", "5": "120_MetricsViewer",
+    "6": "310_ソース構成/ビルド", "7": "311_開発プロセス/開発ツール/テスト基盤", "8": "312_ユーティリティ", "9": "313_プロファイリング",
+    "10": "314_テンソル処理", "11": "315_ニューラルネットワーク", "12": "316_設定管理", "13": "317_可視化/メトリクス",
+    "14": "318_強化学習 共通基盤", "15": "319_GUI 共通基盤", "16": "320_Env 共通基盤", "17": "321_Agent 共通基盤",
+    "18": "322_ENV個別実装", "19": "323_AGENT個別実装", "20": "324_AGENT個別実装 > DQN系列", "21": "325_AGENT個別実装 > MuZero系列",
+    "22": "330_ハイパラ探索", "24": "040_不具合対応"
+  },
+  "run_folder_globs": [
+    "apps/runner/runs_*/run_*",
+    "apps/runner/workspaces/*/runs/run_*",
+    "apps/runner/workspaces/*/run_*"
+  ]
+}

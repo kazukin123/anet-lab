@@ -10,8 +10,21 @@ const HOVER_SCROLL_DELAY_MS = 300;
 const MAX_SAFE_STEP = Number.MAX_SAFE_INTEGER;
 const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
 const STORAGE_KEY_KNOWN_TAGS = "anet.metricsviewer.knownTags";
+const STORAGE_KEY_LOG_SCALE_TAGS = "anet.metricsviewer.logScaleTags";
+const STORAGE_KEY_PERCENTILE_BOUNDS = "anet.metricsviewer.percentileBounds";
+// p5–p95 / p1–p99の択一トグルだった頃の保存key。読まずに消す。
+const DISCARDED_STORAGE_KEYS = Object.freeze([
+	"anet.metricsviewer.ignoreOutlierTags",
+	"anet.metricsviewer.p1P99Tags"
+]);
 const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
 const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
+const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
+const STORAGE_KEY_AUTO_RECOLOR = "anet.metricsviewer.autoRecolorEnabled";
+const RUN_COLOR_MIN_DISTANCE = 0.16;
+// graph headerの下限・上限ボタンが押すたびに進む段(percent)。先頭が制限なし。
+const LOWER_PERCENTILE_STEPS = Object.freeze([0, 1, 5]);
+const UPPER_PERCENTILE_STEPS = Object.freeze([100, 99, 95]);
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -120,6 +133,36 @@ function clampSafeStep(value) {
 	return Math.max(-MAX_SAFE_STEP, Math.min(MAX_SAFE_STEP, Math.trunc(value)));
 }
 
+// windowを取得した時点のtag metadata。Reloadで取り直しが要るかを、今のmetadataと比べて決める。
+function tagVersion(tag) {
+	return {
+		tagCount: Number(tag?.stats?.count ?? 0),
+		tagMaxStep: tag?.stats ? Number(tag.stats.maxStep) : -Infinity,
+		tagStatus: tag?.status ?? null
+	};
+}
+
+function sameRenderKey(left, right) {
+	return Array.isArray(left)
+			&& Array.isArray(right)
+			&& left.length === right.length
+			&& left.every((value, index) => value === right[index]);
+}
+
+function clamp(value, min, max) {
+	return Math.max(min, Math.min(value, max));
+}
+
+function formatMetricValue(value) {
+	if (!Number.isFinite(value)) return String(value);
+	if (value === 0) return "0";
+	const absolute = Math.abs(value);
+	if (absolute >= 10000 || absolute < 0.001) {
+		return value.toExponential(3).replace("e+", "e");
+	}
+	return String(Number(value.toPrecision(6)));
+}
+
 function colorWithAlpha(hex, alpha) {
 	const value = hex.replace("#", "");
 	const r = Number.parseInt(value.slice(0, 2), 16);
@@ -128,22 +171,91 @@ function colorWithAlpha(hex, alpha) {
 	return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function hexToOklab(hex) {
+	// sRGB -> 線形RGB -> OKLab。見え方の近さをユークリッド距離で測れる空間へ移す。
+	const value = hex.replace("#", "");
+	const toLinear = channel => {
+		const scaled = Number.parseInt(channel, 16) / 255;
+		return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+	};
+	const r = toLinear(value.slice(0, 2));
+	const g = toLinear(value.slice(2, 4));
+	const b = toLinear(value.slice(4, 6));
+	const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+	const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+	const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+	return [
+		0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+		1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+		0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+	];
+}
+
+function oklabDistance(hexA, hexB) {
+	const a = hexToOklab(hexA);
+	const b = hexToOklab(hexB);
+	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function minColorDistance(color, fixedColors) {
+	// 確定済みの色が無い間は制約が無いので +∞ とする。
+	let minimum = Infinity;
+	for (const fixed of fixedColors) minimum = Math.min(minimum, oklabDistance(color, fixed));
+	return minimum;
+}
+
+function farthestColorFrom(fixedColors, usedColors) {
+	// 未使用色のうち確定済みの色から最も遠いものを選ぶ。同値はRUN_COLORSの並び順で先勝ち。
+	let bestColor = null;
+	let bestDistance = -1;
+	for (const color of getRunColors()) {
+		if (usedColors.has(color)) continue;
+		const distance = minColorDistance(color, fixedColors);
+		if (distance > bestDistance) {
+			bestDistance = distance;
+			bestColor = color;
+		}
+	}
+	return { color: bestColor, distance: bestDistance };
+}
+
+function setToggleState(element, on) {
+	if (!element) return;
+	element.classList.toggle("active", on);
+	element.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
+function isUnboundedPercentile(bounds) {
+	return bounds.lower === LOWER_PERCENTILE_STEPS[0] && bounds.upper === UPPER_PERCENTILE_STEPS[0];
+}
+
+function nextPercentileStep(steps, current) {
+	return steps[(steps.indexOf(current) + 1) % steps.length];
+}
+
+function isSupersededMetricsError(error) {
+	return error?.status === 409 && error?.code === "superseded";
+}
+
+function createQueryChannel() {
+	if (typeof globalThis.crypto?.randomUUID === "function") {
+		return globalThis.crypto.randomUUID();
+	}
+	return [
+		"tab",
+		Date.now().toString(36),
+		Math.random().toString(36).slice(2),
+		Math.random().toString(36).slice(2),
+		Math.random().toString(36).slice(2)
+	].join("-");
+}
+
 class Toast {
 	static show(message, durationMs = 2500) {
 		const element = document.createElement("div");
+		element.className = "toast";
+		element.setAttribute("role", "alert");
 		element.textContent = message;
-		Object.assign(element.style, {
-			position: "fixed",
-			top: "10px",
-			left: "50%",
-			transform: "translateX(-50%)",
-			background: "rgba(255,64,64,0.92)",
-			color: "#fff",
-			padding: "8px 16px",
-			borderRadius: "6px",
-			fontSize: "13px",
-			zIndex: 1000
-		});
 		document.body.appendChild(element);
 		setTimeout(() => element.remove(), durationMs);
 	}
@@ -154,6 +266,8 @@ class DataFetcher {
 		this.metadataController = null;
 		this.metricsController = null;
 		this.priorityTail = Promise.resolve();
+		this.queryChannel = createQueryChannel();
+		this.querySequence = 0;
 	}
 
 	async fetchRuns() {
@@ -164,6 +278,27 @@ class DataFetcher {
 		});
 		if (!response.ok) throw new Error(`Failed runs.json: ${response.status}`);
 		return response.json();
+	}
+
+	async fetchWorkspaces() {
+		const response = await fetch(`${API_BASE_URL}/workspaces.json`);
+		if (!response.ok) throw new Error(`Failed workspaces.json: ${response.status}`);
+		return response.json();
+	}
+
+	async switchWorkspace(name) {
+		const response = await fetch(`${API_BASE_URL}/workspace`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name })
+		});
+		if (!response.ok) {
+			const payload = await response.json().catch(() => null);
+			const error = new Error(payload?.message ?? `Failed workspace switch: ${response.status}`);
+			error.status = response.status;
+			error.code = payload?.code ?? null;
+			throw error;
+		}
 	}
 
 	async fetchIngestProgress() {
@@ -177,13 +312,26 @@ class DataFetcher {
 		this.metricsController = new AbortController();
 		const response = await fetch(`${API_BASE_URL}/metrics.json`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: {
+				"Content-Type": "application/json",
+				"X-Query-Channel": this.queryChannel,
+				"X-Query-Sequence": String(this.querySequence++)
+			},
 			body: JSON.stringify({ series }),
 			signal: this.metricsController.signal
 		});
 		if (!response.ok) {
 			const body = await response.text();
-			throw new Error(`Failed metrics.json: ${response.status} ${body}`);
+			let payload = null;
+			try {
+				payload = JSON.parse(body);
+			} catch (_error) {
+				// Non-JSON error bodies retain the existing message-only behavior.
+			}
+			const error = new Error(`Failed metrics.json: ${response.status} ${body}`);
+			error.status = response.status;
+			error.code = payload?.code ?? null;
+			throw error;
 		}
 		return response.json();
 	}
@@ -269,7 +417,7 @@ class DataCache {
 		return this.windows.get(this._key(runId, tagKey)) ?? null;
 	}
 
-	replaceWindow(result, requestedViewportWidth) {
+	replaceWindow(result, request) {
 		const window = Object.freeze({
 			runId: result.runId,
 			tagKey: result.tagKey,
@@ -282,13 +430,16 @@ class DataCache {
 			bucketWidth: result.bucketWidth,
 			issues: Object.freeze([...(result.issues ?? [])]),
 			projection: decodeProjection(result.projection),
-			requestedViewportWidth
+			requestedViewportWidth: request.viewportWidth,
+			tagCount: request.tagCount,
+			tagMaxStep: request.tagMaxStep,
+			tagStatus: request.tagStatus
 		});
 		this.windows.set(this._key(result.runId, result.tagKey), window);
 		return window;
 	}
 
-	needsFetch(runId, tagKey, target, viewport, force) {
+	needsFetch(runId, tagKey, target, viewport, { force = false, refresh = false } = {}) {
 		if (force) return true;
 		const current = this.getWindow(runId, tagKey);
 		if (!current || current.generation !== this.getRun(runId)?.generation) return true;
@@ -298,11 +449,255 @@ class DataCache {
 				&& viewport.width < current.requestedViewportWidth * 0.75) {
 			return true;
 		}
-		return false;
+		return refresh && this.isOutdated(current, this.getTag(runId, tagKey));
+	}
+
+	// Reload(手動・Auto)で、取得後にtagが変わってwindowの内容が古くなったかを判定する。
+	isOutdated(window, tag) {
+		// 取り込み中や照会失敗で値が確定していないwindowは、件数が変わらなくても取り直す。
+		if (window.availability !== "ok" && window.availability !== "empty") return true;
+		const current = tagVersion(tag);
+		if (current.tagStatus !== window.tagStatus) return true;
+		if (current.tagCount === window.tagCount) return false;
+		// stepはtag内で非減少なので、追記された点のstepは取得時の最終step以上になる。
+		// windowの右端がそこへ届いていなければ、追記点はwindowの外にあり内容は変わらない。
+		return window.toStep >= window.tagMaxStep;
 	}
 
 	_key(runId, tagKey) {
 		return `${runId}\u0000${tagKey}`;
+	}
+}
+
+// グラフのホバー表示。Plotly のラベルは位置も見た目も選べないので、
+// ガイド線・系列の点・値の吹き出しをまとめて自前で描く。
+class HoverOverlay {
+	static TIP_GAP_PX = 10;
+	static TOUCH_TIP_LIFT_PX = 14;
+	static touchDismissInstalled = false;
+
+	static attach(block, plot, app) {
+		return new HoverOverlay(block, plot, app);
+	}
+
+	constructor(block, plot, app) {
+		this.plot = plot;
+		this.app = app;
+		this.shownByTouch = false;
+		this.root = document.createElement("div");
+		this.root.className = "graph-hover-overlay";
+		this.root.__mvOverlay = this;
+		this.guide = document.createElement("div");
+		this.guide.className = "hover-guide";
+		this.dots = document.createElement("div");
+		this.tip = document.createElement("div");
+		this.tip.className = "hover-tip";
+		this.root.append(this.guide, this.dots, this.tip);
+		block.append(this.root);
+		plot.on("plotly_hover", event => this.show(event));
+		plot.on("plotly_unhover", event => this._onUnhover(event));
+		// タップに plotly_hover は来ない。Plotly はタップを Fx.click として扱い hover を
+		// noHoverEvent 付きで呼ぶので、点の情報が届くのは plotly_click だけ。
+		// マウスは plotly_hover で足りるうえ、タップ直後には互換マウスイベント由来の
+		// plotly_click も続けて届くので、ここで拾うのはタッチ発の分だけにする。
+		plot.on("plotly_click", event => {
+			if (HoverOverlay.isTouchEvent(event?.event)) this.show(event);
+		});
+		HoverOverlay.ensureTouchDismiss();
+	}
+
+	// タップで出した表示には plotly_unhover が来ないので、グラフ外のタップで閉じる。
+	// ページに 1 つあれば足りるため、最初の attach でだけ登録する。
+	static ensureTouchDismiss() {
+		if (HoverOverlay.touchDismissInstalled) return;
+		HoverOverlay.touchDismissInstalled = true;
+		document.addEventListener("touchstart", event => {
+			for (const root of document.querySelectorAll(".graph-hover-overlay")) {
+				if (!root.parentElement?.contains(event.target)) root.__mvOverlay?.hide();
+			}
+		}, { capture: true, passive: true });
+	}
+
+	static isTouchEvent(raw) {
+		return Boolean(raw?.changedTouches ?? raw?.touches);
+	}
+
+	_onUnhover(event) {
+		// タップの直後、ブラウザは互換マウスイベントを送ってくる。その末尾の mouseout で
+		// 消すとタップ表示が一瞬で消えるので、タッチで出した表示はタッチ側の操作
+		// (グラフ外タップ・ドラッグ)とマウスの再ホバーでだけ閉じる。
+		if (this.shownByTouch && !HoverOverlay.isTouchEvent(event?.event)) return;
+		this.hide();
+	}
+
+	hide() {
+		this.shownByTouch = false;
+		this.root.style.display = "none";
+	}
+
+	show(event) {
+		// 先に可視化する。display:none の要素は矩形がすべて 0 で返るため測れない。
+		this.root.style.display = "block";
+		const frame = this._frame(event);
+		this.shownByTouch = Boolean(frame?.touch);
+		const rows = frame ? this._rows(event?.points, this._cursorX(frame)) : [];
+		if (!rows.length) {
+			this.hide();
+			return;
+		}
+		this._renderTip(rows, rows[0].x);
+		this._renderDots(rows, frame);
+		this._placeGuide(frame);
+		this._placeTip(frame);
+	}
+
+	_frame(event) {
+		// 配置に必要な座標をここで一度だけ測る。値はすべて overlay(=graph-block) 基準。
+		const size = this.plot._fullLayout?._size;
+		if (!size) return null;
+		const rootRect = this.root.getBoundingClientRect();
+		const plotRect = this.plot.getBoundingClientRect();
+		const pointer = event.event;
+		return {
+			width: rootRect.width,
+			height: rootRect.height,
+			areaLeft: plotRect.left - rootRect.left + size.l,
+			areaTop: plotRect.top - rootRect.top + size.t,
+			areaWidth: size.w,
+			areaHeight: size.h,
+			// Plotly はタッチでも clientX/clientY をクライアント座標で埋めてくれる。
+			pointerX: (pointer?.clientX ?? rootRect.left) - rootRect.left,
+			pointerY: (pointer?.clientY ?? rootRect.top) - rootRect.top,
+			touch: HoverOverlay.isTouchEvent(pointer)
+		};
+	}
+
+	_cursorX(frame) {
+		// カーソルが指しているデータ座標。系列がそこまで伸びているかの判定に使う。
+		const axis = this.plot._fullLayout?.xaxis;
+		return Number(axis?.p2d?.(frame.pointerX - frame.areaLeft));
+	}
+
+	static coversX(point, cursorX) {
+		// 途中で終わっている系列にも Plotly は端の点を返す。別 step の値が混ざるので落とす。
+		const xs = point.data?.x;
+		if (!Number.isFinite(cursorX) || !xs?.length) return true;
+		return cursorX >= Number(xs[0]) && cursorX <= Number(xs[xs.length - 1]);
+	}
+
+	_rows(points, cursorX) {
+		// Band 表示では同じ Run の min/max/mean が別トレースで届くので 1 行にまとめる。
+		const byRun = new Map();
+		for (const point of points ?? []) {
+			if (!HoverOverlay.coversX(point, cursorX)) continue;
+			const meta = point.data?.meta ?? {};
+			const runId = meta.runId ?? point.data?.name;
+			if (!runId) continue;
+			if (!byRun.has(runId)) {
+				byRun.set(runId, {
+					runId,
+					color: this.app.runColorMap.get(runId) ?? "#888",
+					order: Number.MAX_SAFE_INTEGER
+				});
+			}
+			const row = byRun.get(runId);
+			// points の並びは Plotly 任せで安定しないので、凡例と同じトレース順に固定する。
+			row.order = Math.min(row.order, Number(point.curveNumber ?? row.order));
+			const value = HoverOverlay.pointValue(point);
+			if (!Number.isFinite(value)) continue;
+			if (meta.role === "band-min") {
+				row.min = value;
+			} else if (meta.role === "band-max") {
+				row.max = value;
+			} else {
+				row.value = value;
+				row.x = Number(point.x);
+				row.px = Number(point.xaxis?.l2p?.(point.x));
+				row.py = Number(point.yaxis?.l2p?.(point.y));
+			}
+		}
+		const rows = [];
+		for (const row of byRun.values()) {
+			row.text = HoverOverlay.rowText(row);
+			if (row.text) rows.push(row);
+		}
+		return rows.sort((left, right) => left.order - right.order);
+	}
+
+	static pointValue(point) {
+		// signed log 表示では y が変換後なので、生値を持つ customdata を優先する。
+		const custom = point.customdata;
+		if (Array.isArray(custom)) return Number(custom[1]);
+		if (custom != null) return Number(custom);
+		return Number(point.y);
+	}
+
+	static rowText(row) {
+		const center = row.value != null ? formatMetricValue(row.value) : null;
+		const band = row.min != null && row.max != null
+				? `${formatMetricValue(row.min)} – ${formatMetricValue(row.max)}`
+				: null;
+		return center && band ? `${center} (${band})` : (center ?? band ?? "");
+	}
+
+	static tipRow(row) {
+		const line = document.createElement("div");
+		line.className = "hover-tip-row";
+		const swatch = document.createElement("span");
+		swatch.className = "hover-tip-swatch";
+		swatch.style.background = row.color;
+		const name = document.createElement("span");
+		name.className = "hover-tip-name";
+		name.textContent = row.runId;
+		const value = document.createElement("span");
+		value.className = "hover-tip-value";
+		value.textContent = row.text;
+		line.append(swatch, name, value);
+		return line;
+	}
+
+	_renderTip(rows, step) {
+		const header = document.createElement("div");
+		header.className = "hover-tip-step";
+		header.textContent = Number.isFinite(step) ? `step ${step.toLocaleString()}` : "step -";
+		this.tip.replaceChildren(header, ...rows.map(row => HoverOverlay.tipRow(row)));
+	}
+
+	_renderDots(rows, frame) {
+		// 線だけではどの値を読んでいるか分からないので、各系列の位置に点を打つ。
+		const marks = [];
+		for (const row of rows) {
+			if (!Number.isFinite(row.px) || !Number.isFinite(row.py)) continue;
+			if (row.py < 0 || row.py > frame.areaHeight) continue;
+			const dot = document.createElement("span");
+			dot.className = "hover-dot";
+			dot.style.background = row.color;
+			dot.style.left = `${Math.round(frame.areaLeft + row.px)}px`;
+			dot.style.top = `${Math.round(frame.areaTop + row.py)}px`;
+			marks.push(dot);
+		}
+		this.dots.replaceChildren(...marks);
+	}
+
+	_placeGuide(frame) {
+		const left = clamp(frame.pointerX, frame.areaLeft, frame.areaLeft + frame.areaWidth);
+		this.guide.style.left = `${Math.round(left)}px`;
+		this.guide.style.top = `${Math.round(frame.areaTop)}px`;
+		this.guide.style.height = `${Math.round(frame.areaHeight)}px`;
+	}
+
+	_placeTip(frame) {
+		// カーソルの右・縦中央が基準。右に入らなければ左へ回し、最後にブロック内へ収める。
+		const rect = this.tip.getBoundingClientRect();
+		const gap = HoverOverlay.TIP_GAP_PX;
+		const right = frame.pointerX + gap;
+		const left = right + rect.width > frame.width ? frame.pointerX - gap - rect.width : right;
+		// 指は吹き出しを隠すので、タッチのときだけ上へ逃がす。
+		const top = frame.touch
+				? frame.pointerY - rect.height - HoverOverlay.TOUCH_TIP_LIFT_PX
+				: frame.pointerY - rect.height / 2;
+		this.tip.style.left = `${Math.round(clamp(left, 0, frame.width - rect.width))}px`;
+		this.tip.style.top = `${Math.round(clamp(top, 0, frame.height - rect.height))}px`;
 	}
 }
 
@@ -321,16 +716,6 @@ class PlotlyController {
 		return Math.sign(value) * (Math.pow(10, Math.abs(value)) - 1);
 	}
 
-	_formatValue(value) {
-		if (!Number.isFinite(value)) return String(value);
-		if (value === 0) return "0";
-		const absolute = Math.abs(value);
-		if (absolute >= 10000 || absolute < 0.001) {
-			return value.toExponential(3).replace("e+", "e");
-		}
-		return String(Number(value.toPrecision(6)));
-	}
-
 	_makeLineTrace(runId, tagKey, steps, values, suffix = "line") {
 		return {
 			type: "scatter",
@@ -340,10 +725,11 @@ class PlotlyController {
 			mode: "lines",
 			line: { width: 1.5, color: this.app.runColorMap.get(runId) },
 			uid: makePlotlyTraceUid(runId, tagKey, suffix),
-			meta: { tagKey, runId },
+			meta: { tagKey, runId, role: suffix },
 			legendgroup: makePlotlyTraceUid(runId, tagKey, "legend"),
 			visible: this.app.isLegendSeriesHidden(tagKey, runId) ? "legendonly" : true,
-			opacity: this.app.selectedRuns.length > 1 ? 0.8 : 1.0
+			opacity: this.app.selectedRuns.length > 1 ? 0.8 : 1.0,
+			hoverinfo: "none"
 		};
 	}
 
@@ -383,7 +769,6 @@ class PlotlyController {
 			name: `${runId} min`,
 			line: { width: 0, color },
 			showlegend: false,
-			hovertemplate: "run=%{fullData.name}<br>bucket=%{x}<br>min step=%{customdata[0]}<br>min=%{customdata[1]:.6g}<extra></extra>",
 			customdata: minCustomData
 		};
 		const upper = {
@@ -393,7 +778,6 @@ class PlotlyController {
 			fill: "tonexty",
 			fillcolor: colorWithAlpha(color, 0.28),
 			showlegend: false,
-			hovertemplate: "run=%{fullData.name}<br>bucket=%{x}<br>max step=%{customdata[0]}<br>max=%{customdata[1]:.6g}<extra></extra>",
 			customdata: maxCustomData
 		};
 		const mean = {
@@ -408,19 +792,122 @@ class PlotlyController {
 		if (!signedLogScale) return { ...trace };
 		const transformed = new Float32Array(trace.y.length);
 		for (let i = 0; i < trace.y.length; i++) {
-			transformed[i] = PlotlyController.signedLogValue(Number(trace.y[i]));
+			const value = Number(trace.y[i]);
+			transformed[i] = Number.isFinite(value)
+					? PlotlyController.signedLogValue(value)
+					: Number.NaN;
 		}
 		return {
 			...trace,
 			y: transformed,
-			customdata: trace.customdata ?? trace.y,
-			hovertemplate: trace.hovertemplate
-					?? "run=%{fullData.name}<br>step=%{x}<br>value=%{customdata:.6g}<extra></extra>"
+			customdata: trace.customdata ?? trace.y
 		};
 	}
 
 	_toDisplayTraces(traces, signedLogScale) {
 		return traces.map(trace => this._toDisplayTrace(trace, signedLogScale));
+	}
+
+	_calculateOutlierRange(traces, xRange, lowerPercentile, upperPercentile) {
+		// 各Runのraw値でpercentile範囲を求め、線は変えずにY軸の表示範囲だけを制限する。
+		const valuesByRun = new Map();
+		const xMin = Array.isArray(xRange) ? Math.min(Number(xRange[0]), Number(xRange[1])) : null;
+		const xMax = Array.isArray(xRange) ? Math.max(Number(xRange[0]), Number(xRange[1])) : null;
+		for (const trace of traces) {
+			if (trace.visible === "legendonly" || trace.visible === false) continue;
+			const runId = trace.meta?.runId ?? trace.uid;
+			if (!valuesByRun.has(runId)) valuesByRun.set(runId, []);
+			const values = valuesByRun.get(runId);
+			for (let i = 0; i < trace.y.length; i++) {
+				const step = Number(trace.x[i]);
+				if (xMin != null && (!Number.isFinite(step) || step < xMin || step > xMax)) continue;
+				const value = Number(trace.y[i]);
+				if (Number.isFinite(value)) values.push(value);
+			}
+		}
+		const boundsByRun = new Map();
+		for (const [runId, values] of valuesByRun) {
+			if (!values.length) continue;
+			values.sort((a, b) => a - b);
+			const percentile = p => {
+				const index = (values.length - 1) * p;
+				const lower = Math.floor(index);
+				const upper = Math.ceil(index);
+				const weight = index - lower;
+				return values[lower] * (1 - weight) + values[upper] * weight;
+			};
+			boundsByRun.set(runId, [percentile(lowerPercentile), percentile(upperPercentile)]);
+		}
+
+		let inputCount = 0;
+		let displayedCount = 0;
+		let yMin = Infinity;
+		let yMax = -Infinity;
+		for (const bounds of boundsByRun.values()) {
+			yMin = Math.min(yMin, bounds[0]);
+			yMax = Math.max(yMax, bounds[1]);
+		}
+		for (const trace of traces) {
+			const runId = trace.meta?.runId ?? trace.uid;
+			const bounds = boundsByRun.get(runId);
+			const visible = trace.visible !== "legendonly" && trace.visible !== false;
+			for (let index = 0; index < trace.y.length; index++) {
+				const step = Number(trace.x[index]);
+				const value = Number(trace.y[index]);
+				const insideX = xMin == null
+						|| (Number.isFinite(step) && step >= xMin && step <= xMax);
+				if (visible && insideX && Number.isFinite(value)) inputCount++;
+				const displayed = insideX
+						&& Number.isFinite(value)
+						&& bounds
+						&& value >= bounds[0]
+						&& value <= bounds[1];
+				if (visible && displayed) displayedCount++;
+			}
+		}
+		return {
+			yRange: Number.isFinite(yMin) && Number.isFinite(yMax) ? [yMin, yMax] : null,
+			inputCount,
+			displayedCount
+		};
+	}
+
+	_outlierDisplayRange(outlierRange, signedLogScale) {
+		if (!Array.isArray(outlierRange?.yRange)) return null;
+		const range = outlierRange.yRange.map(value => signedLogScale
+				? PlotlyController.signedLogValue(value)
+				: value);
+		if (range[0] === range[1]) {
+			const padding = Math.max(Math.abs(range[0]) * 0.05, 1e-6);
+			return [range[0] - padding, range[1] + padding];
+		}
+		return range;
+	}
+
+	// tagの下限・上限が両方とも制限なしならnullを返し、Y軸はPlotlyのautorangeに任せる。
+	_percentileRange(tagKey, traces, xRange) {
+		const bounds = this.app.percentileBounds(tagKey);
+		if (isUnboundedPercentile(bounds)) return null;
+		return this._calculateOutlierRange(traces, xRange, bounds.lower / 100, bounds.upper / 100);
+	}
+
+	_setPercentileButtonStates(lowerButton, upperButton, bounds, filterResult) {
+		const limitedTitle = `Display each Run's p${bounds.lower}–p${bounds.upper} points`
+				+ ` (${filterResult?.displayedCount ?? 0}/${filterResult?.inputCount ?? 0} visible points)`;
+		this._setPercentileButtonState(
+				lowerButton, `p${bounds.lower}–`, bounds.lower, LOWER_PERCENTILE_STEPS, "lower", limitedTitle);
+		this._setPercentileButtonState(
+				upperButton, `–p${bounds.upper}`, bounds.upper, UPPER_PERCENTILE_STEPS, "upper", limitedTitle);
+	}
+
+	_setPercentileButtonState(button, label, step, steps, side, limitedTitle) {
+		const limited = step !== steps[0];
+		if (button.textContent !== label) button.textContent = label;
+		setToggleState(button, limited);
+		button.title = limited
+				? limitedTitle
+				: `Limit the Y-axis ${side} bound to each Run's percentile`
+						+ ` (${steps.map(value => `p${value}`).join(" → ")})`;
 	}
 
 	_makeLayout(width, showLegend, signedLogScale, traces, ranges = {}) {
@@ -433,6 +920,7 @@ class PlotlyController {
 			paper_bgcolor: "#111",
 			font: { color: "#ccc" },
 			xaxis: { gridcolor: "#444" },
+			hovermode: "x",
 			yaxis: this._makeYAxis(signedLogScale, traces, ranges),
 			showlegend: showLegend,
 			legend: { groupclick: "togglegroup" }
@@ -447,6 +935,7 @@ class PlotlyController {
 	_makeYAxis(signedLogScale, traces, ranges) {
 		const axis = { gridcolor: "#444", type: "linear" };
 		if (Array.isArray(ranges.yRange)) axis.range = ranges.yRange.slice();
+		else axis.autorange = true;
 		if (!signedLogScale) return axis;
 		const ticks = this._makeSignedLogTicks(traces, ranges);
 		return {
@@ -455,16 +944,17 @@ class PlotlyController {
 			zerolinecolor: "#666",
 			tickmode: "array",
 			tickvals: ticks.map(PlotlyController.signedLogValue),
-			ticktext: ticks.map(value => this._formatValue(value))
+			ticktext: ticks.map(value => formatMetricValue(value))
 		};
 	}
 
 	_makeSignedLogTicks(traces, ranges) {
 		let min = Infinity;
 		let max = -Infinity;
-		if (Array.isArray(ranges.yRange)) {
-			const raw0 = PlotlyController.signedLogRawValue(Number(ranges.yRange[0]));
-			const raw1 = PlotlyController.signedLogRawValue(Number(ranges.yRange[1]));
+		const displayRange = ranges.yRange;
+		if (Array.isArray(displayRange)) {
+			const raw0 = PlotlyController.signedLogRawValue(Number(displayRange[0]));
+			const raw1 = PlotlyController.signedLogRawValue(Number(displayRange[1]));
 			min = Math.min(raw0, raw1);
 			max = Math.max(raw0, raw1);
 		} else {
@@ -502,138 +992,292 @@ class PlotlyController {
 		this.capturePlotState(area);
 		this.app.pruneLegendVisibility(runIds, tagKeys);
 		this.app.prunePlotDragModes(tagKeys);
-		for (const plot of area.querySelectorAll(".js-plotly-plot")) Plotly.purge(plot);
-		area.replaceChildren();
-		if (!runIds.length) {
-			this._empty(area, "No selection.");
-			return false;
-		}
-		if (!tagKeys.length) {
-			this._empty(area, "No metrics data.");
-			return false;
-		}
+		this.app.pruneManualYRanges(tagKeys);
 
-		let drawn = false;
+		// 表示中のgraph blockをtagKeyで引き、描画keyが同じものはPlotlyを呼ばずにそのまま使う。
+		// Reloadで一部のtagだけ取り直したときに、変わっていないgraphまで作り直さないため。
+		const previousBlocks = new Map();
+		for (const block of area.querySelectorAll(":scope > .graph-block")) {
+			previousBlocks.set(block.dataset.tagKey, block);
+		}
+		const entries = [];
 		const sortedRuns = runIds.slice().sort((a, b) => a.localeCompare(b));
-		for (const tagKey of tagKeys) {
-			const traces = [];
-			for (const runId of sortedRuns) {
-				const window = cache.getWindow(runId, tagKey);
-				if (window?.availability !== "ok") continue;
-				traces.push(...this._makeSeriesTraces(runId, tagKey, window));
+		// Runが未選択ならgraphは1枚も描かず、末尾で案内文だけを出す。
+		for (const tagKey of runIds.length ? tagKeys : []) {
+			const windows = sortedRuns.map(runId => cache.getWindow(runId, tagKey));
+			const renderKey = this._graphRenderKey(tagKey, sortedRuns, windows, runIds.length > 1);
+			const previous = previousBlocks.get(tagKey);
+			if (previous && sameRenderKey(previous.__mvRenderKey, renderKey)) {
+				previousBlocks.delete(tagKey);
+				entries.push({ tagKey, block: previous });
+				continue;
 			}
-			if (!traces.length) continue;
-			drawn = true;
+			const traces = [];
+			sortedRuns.forEach((runId, index) => {
+				if (windows[index]?.availability !== "ok") return;
+				traces.push(...this._makeSeriesTraces(runId, tagKey, windows[index]));
+			});
+			if (traces.length) entries.push({ tagKey, traces, renderKey });
+		}
 
-			const block = document.createElement("div");
-			block.className = "graph-block";
-			const header = document.createElement("div");
-			header.className = "graph-header";
-			const title = document.createElement("div");
-			title.className = "graph-title";
-			title.textContent = tagKey;
-			const logButton = document.createElement("button");
-			logButton.type = "button";
-			logButton.className = "graph-log-toggle";
-			logButton.textContent = "Log";
-			logButton.title = "Toggle signed log scale";
-			const signedLogScale = this.app.logScaleTags.has(tagKey);
-			logButton.classList.toggle("active", signedLogScale);
-			logButton.setAttribute("aria-pressed", signedLogScale ? "true" : "false");
-			header.append(title, logButton);
+		// 選択から外れたtagと作り直すtagの旧block、空表示の案内文と空白textを片付ける。
+		for (const block of previousBlocks.values()) this._disposeGraphBlock(block);
+		for (const node of [...area.childNodes]) {
+			if (!(node instanceof Element && node.classList.contains("graph-block"))) node.remove();
+		}
 
-			const issue = this.app.issueForTag(tagKey);
-			if (issue) {
-				const warning = document.createElement("span");
+		// tagの並び順どおりに置く。使い回すblockは移動するだけで、新しいblockはここで描く。
+		let cursor = area.firstElementChild;
+		const reusedBlocks = [];
+		for (const entry of entries) {
+			if (entry.block) {
+				if (entry.block === cursor) cursor = cursor.nextElementSibling;
+				else area.insertBefore(entry.block, cursor);
+				this._renderGraphHeaderInfo(entry.block.querySelector(".graph-header"), entry.tagKey);
+				reusedBlocks.push(entry.block);
+				continue;
+			}
+			const block = this._createGraphBlock(area, cursor, entry.tagKey, runIds, entry.traces);
+			block.__mvRenderKey = entry.renderKey;
+		}
+		// 使い回したgraphも、scrollbarの出入りで変わったblock幅にだけは合わせる。
+		this._syncPlotWidths(reusedBlocks);
+		if (!entries.length) this._empty(area, runIds.length ? "No metrics data." : "No selection.");
+		return entries.length > 0;
+	}
+
+	// graphの描画結果を決める入力を並べる。凡例の表示・軸範囲・drag modeはPlotly上で直接変わり、
+	// capturePlotStateで描画中のgraphから読み戻すので、使い回すgraphと常に一致しており含めない。
+	_graphRenderKey(tagKey, sortedRuns, windows, multiRun) {
+		const percentileBounds = this.app.percentileBounds(tagKey);
+		const key = [
+			this.app.lodDisplayMode,
+			this.app.logScaleTags.has(tagKey),
+			percentileBounds.lower,
+			percentileBounds.upper,
+			multiRun
+		];
+		sortedRuns.forEach((runId, index) => {
+			key.push(runId, windows[index], this.app.runColorMap.get(runId));
+		});
+		return key;
+	}
+
+	_disposeGraphBlock(block) {
+		const plot = block.querySelector(".js-plotly-plot");
+		if (plot) Plotly.purge(plot);
+		block.remove();
+	}
+
+	_syncPlotWidths(blocks) {
+		// 先に全blockの幅を読んでから更新し、layout計算を1回で済ませる。
+		const updates = blocks
+				.map(block => ({
+					plot: block.querySelector(".js-plotly-plot"),
+					width: this._plotWidth(block)
+				}))
+				.filter(({ plot, width }) => plot && plot._fullLayout?.width !== width);
+		for (const { plot, width } of updates) Plotly.relayout(plot, { width });
+	}
+
+	// metadataから決まる警告と統計。graphを使い回すときもmetadataを取り直すたびに更新する。
+	_renderGraphHeaderInfo(header, tagKey) {
+		const issue = this.app.issueForTag(tagKey);
+		let warning = header.querySelector(":scope > .graph-warning");
+		let statsElement = header.querySelector(":scope > .graph-stats");
+		if (issue) {
+			if (!warning) {
+				warning = document.createElement("span");
 				warning.className = "graph-warning";
 				warning.textContent = "⚠";
-				warning.title = issue;
-				header.append(warning);
+				header.insertBefore(warning, statsElement);
 			}
-			const stats = this.app.combinedStats(tagKey);
-			if (stats) {
-				const statsElement = document.createElement("span");
-				statsElement.className = "graph-stats";
-				statsElement.textContent =
-						`Min ${this._formatValue(stats.min)} / Max ${this._formatValue(stats.max)}`
-						+ ` / Avg ${this._formatValue(stats.mean)} / Std ${this._formatValue(stats.stdDev)}`;
-				statsElement.title = `count=${stats.count}\nmin=${stats.min}\nmax=${stats.max}`
-						+ `\navg=${stats.mean}\nstd=${stats.stdDev}`;
-				header.append(statsElement);
+			if (warning.title !== issue) warning.title = issue;
+		} else {
+			warning?.remove();
+		}
+
+		const stats = this.app.combinedStats(tagKey);
+		if (!stats) {
+			statsElement?.remove();
+			return;
+		}
+		if (!statsElement) {
+			statsElement = document.createElement("span");
+			statsElement.className = "graph-stats";
+			header.append(statsElement);
+		}
+		const text = `Min ${formatMetricValue(stats.min)} / Max ${formatMetricValue(stats.max)}`
+				+ ` / Avg ${formatMetricValue(stats.mean)} / Std ${formatMetricValue(stats.stdDev)}`;
+		const title = `count=${stats.count}\nmin=${stats.min}\nmax=${stats.max}`
+				+ `\navg=${stats.mean}\nstd=${stats.stdDev}`;
+		if (statsElement.textContent !== text) statsElement.textContent = text;
+		if (statsElement.title !== title) statsElement.title = title;
+	}
+
+	// 1 tag分のgraph blockを作り、beforeの前へ入れてから描く。幅を測るためDOMへ先に入れる。
+	_createGraphBlock(area, before, tagKey, runIds, traces) {
+		const block = document.createElement("div");
+		block.className = "graph-block";
+		block.dataset.tagKey = tagKey;
+		const header = document.createElement("div");
+		header.className = "graph-header";
+		const title = document.createElement("div");
+		title.className = "graph-title";
+		title.textContent = tagKey;
+		const logButton = document.createElement("button");
+		logButton.type = "button";
+		logButton.className = "graph-log-toggle";
+		logButton.textContent = "Log";
+		logButton.title = "Toggle signed log scale";
+		const signedLogScale = this.app.logScaleTags.has(tagKey);
+		setToggleState(logButton, signedLogScale);
+		const viewport = this.app.explicitViewport(tagKey);
+		const lowerPercentileButton = document.createElement("button");
+		lowerPercentileButton.type = "button";
+		lowerPercentileButton.className = "graph-lower-percentile";
+		const upperPercentileButton = document.createElement("button");
+		upperPercentileButton.type = "button";
+		upperPercentileButton.className = "graph-upper-percentile";
+		const outlierRange = this._percentileRange(tagKey, traces, viewport?.range ?? null);
+		this._setPercentileButtonStates(
+				lowerPercentileButton,
+				upperPercentileButton,
+				this.app.percentileBounds(tagKey),
+				outlierRange);
+		header.append(title, logButton, lowerPercentileButton, upperPercentileButton);
+
+		this._renderGraphHeaderInfo(header, tagKey);
+
+		const plot = document.createElement("div");
+		plot.id = graphId(tagKey);
+		block.append(header, plot);
+		area.insertBefore(block, before);
+
+		const layout = this._makeLayout(
+				this._plotWidth(block),
+				runIds.length > 1,
+				signedLogScale,
+				traces,
+				{
+					xRange: viewport?.range ?? null,
+					yRange: this.app.manualYRange(tagKey)
+							?? this._outlierDisplayRange(outlierRange, signedLogScale),
+					dragMode: this.app.graphScrollLockActive()
+							? false
+							: this.app.plotDragMode(tagKey)
+				});
+		if (layout.dragmode === undefined) delete layout.dragmode;
+		Plotly.newPlot(
+				plot,
+				this._toDisplayTraces(traces, signedLogScale),
+				layout,
+				{
+					displayModeBar: "hover",
+					responsive: false,
+					useResizeHandler: false
+				});
+		plot.__mvRawTraces = traces;
+		HoverOverlay.attach(block, plot, this.app);
+
+		logButton.addEventListener("click", event => {
+			event.stopPropagation();
+			this.app.onToggleLog(tagKey);
+		});
+		lowerPercentileButton.addEventListener("click", event => {
+			event.stopPropagation();
+			this.app.onCycleLowerPercentile(tagKey);
+		});
+		upperPercentileButton.addEventListener("click", event => {
+			event.stopPropagation();
+			this.app.onCycleUpperPercentile(tagKey);
+		});
+		plot.on("plotly_relayout", event => {
+			if (plot.__mvUpdatingPlot) return;
+			if (this.app.graphScrollLockActive()
+					&& Object.prototype.hasOwnProperty.call(event ?? {}, "dragmode")
+					&& event.dragmode !== false) {
+				Plotly.relayout(plot, { dragmode: false });
+				return;
 			}
-
-			const plot = document.createElement("div");
-			plot.id = graphId(tagKey);
-			block.append(header, plot);
-			area.append(block);
-
-			const viewport = this.app.explicitViewport(tagKey);
-			const layout = this._makeLayout(
+			const xRange = this._readRange(plot.layout?.xaxis, "xaxis", event);
+			const yRange = this._readRange(plot.layout?.yaxis, "yaxis", event);
+			const xChanged = this._hasRangeEvent(event, "xaxis");
+			const yChanged = this._hasRangeEvent(event, "yaxis");
+			if (!xChanged && !yChanged) return;
+			this.capturePlotState(plot);
+			if (yChanged && !plot.__mvResettingView) {
+				this.app.setManualYRange(
+						tagKey,
+						event?.["yaxis.autorange"] ? null : yRange);
+			}
+			const currentSignedLogScale = this.app.logScaleTags.has(tagKey);
+			const currentTraces = this._applyLegendVisibility(traces);
+			const currentOutlierRange = this._percentileRange(tagKey, currentTraces, xRange);
+			this._setPercentileButtonStates(
+					lowerPercentileButton,
+					upperPercentileButton,
+					this.app.percentileBounds(tagKey),
+					currentOutlierRange);
+			const nextLayout = this._makeLayout(
 					this._plotWidth(block),
 					runIds.length > 1,
-					signedLogScale,
-					traces,
+					currentSignedLogScale,
+					currentTraces,
 					{
-						xRange: viewport?.range ?? null,
-						dragMode: this.app.graphScrollLockEnabled
-								? false
-								: this.app.plotDragMode(tagKey)
+						xRange,
+						yRange: this.app.manualYRange(tagKey)
+								?? this._outlierDisplayRange(
+										currentOutlierRange,
+										currentSignedLogScale),
+						dragMode: plot.layout?.dragmode ?? plot._fullLayout?.dragmode
 					});
-			if (layout.dragmode === undefined) delete layout.dragmode;
-			Plotly.newPlot(
+			this._reactPlot(
 					plot,
-					this._toDisplayTraces(traces, signedLogScale),
-					layout,
+					this._toDisplayTraces(
+							currentTraces,
+							currentSignedLogScale),
+					nextLayout);
+			if (xChanged) {
+				this.app.onViewportChanged(
+						tagKey,
+						xRange,
+						Boolean(event?.["xaxis.autorange"]));
+			}
+		});
+		plot.on("plotly_restyle", () => {
+			if (plot.__mvUpdatingPlot) return;
+			this.capturePlotState(plot);
+			const currentTraces = this._applyLegendVisibility(traces);
+			const currentSignedLogScale = this.app.logScaleTags.has(tagKey);
+			const currentXRange = Array.isArray(plot.layout?.xaxis?.range)
+					? plot.layout.xaxis.range
+					: null;
+			const currentOutlierRange = this._percentileRange(tagKey, currentTraces, currentXRange);
+			this._setPercentileButtonStates(
+					lowerPercentileButton,
+					upperPercentileButton,
+					this.app.percentileBounds(tagKey),
+					currentOutlierRange);
+			const nextLayout = this._makeLayout(
+					this._plotWidth(block),
+					runIds.length > 1,
+					currentSignedLogScale,
+					currentTraces,
 					{
-						displayModeBar: "hover",
-						responsive: false,
-						useResizeHandler: false
+						xRange: currentXRange,
+						yRange: this.app.manualYRange(tagKey)
+								?? this._outlierDisplayRange(
+										currentOutlierRange,
+										currentSignedLogScale),
+						dragMode: plot.layout?.dragmode ?? plot._fullLayout?.dragmode
 					});
-
-			logButton.addEventListener("click", event => {
-				event.stopPropagation();
-				this.app.onToggleLog(tagKey);
-			});
-			plot.on("plotly_relayout", event => {
-				if (plot.__mvUpdatingPlot) return;
-				if (this.app.graphScrollLockEnabled
-						&& Object.prototype.hasOwnProperty.call(event ?? {}, "dragmode")
-						&& event.dragmode !== false) {
-					Plotly.relayout(plot, { dragmode: false });
-					return;
-				}
-				const xRange = this._readRange(plot.layout?.xaxis, "xaxis", event);
-				const yRange = this._readRange(plot.layout?.yaxis, "yaxis", event);
-				const xChanged = this._hasRangeEvent(event, "xaxis");
-				const yChanged = this._hasRangeEvent(event, "yaxis");
-				if (!xChanged && !yChanged) return;
-				this.capturePlotState(plot);
-				const nextLayout = this._makeLayout(
-						this._plotWidth(block),
-						runIds.length > 1,
-						this.app.logScaleTags.has(tagKey),
-						traces,
-						{
-							xRange,
-							yRange,
-							dragMode: plot.layout?.dragmode ?? plot._fullLayout?.dragmode
-						});
-				this._reactPlot(
-						plot,
-						this._toDisplayTraces(
-								this._applyLegendVisibility(traces),
-								this.app.logScaleTags.has(tagKey)),
-						nextLayout);
-				if (xChanged) {
-					this.app.onViewportChanged(
-							tagKey,
-							xRange,
-							Boolean(event?.["xaxis.autorange"]));
-				}
-			});
-		}
-		if (!drawn) this._empty(area, "No metrics data.");
-		return drawn;
+			this._reactPlot(
+					plot,
+					this._toDisplayTraces(currentTraces, currentSignedLogScale),
+					nextLayout);
+		});
+		return block;
 	}
 
 	capturePlotState(root) {
@@ -713,6 +1357,8 @@ class PlotlyController {
 							?? plot._fullLayout?.dragmode
 							?? "zoom";
 				}
+				// 描画のたびに呼ばれるので、使い回したgraphなど既にdrag無効のものへは掛け直さない。
+				if (plot._fullLayout?.dragmode === false) continue;
 				Plotly.relayout(plot, { dragmode: false });
 			} else {
 				if (!Object.prototype.hasOwnProperty.call(
@@ -740,12 +1386,45 @@ class PlotlyController {
 	async resetView() {
 		const plots = Array.from(document.querySelectorAll(".graph-block .js-plotly-plot"));
 		await Promise.all(plots.map(async plot => {
-			// 凡例で隠した系列を戻してから、表示対象全体に対して軸を再計算する。
-			await Plotly.restyle(plot, { visible: true });
-			await Plotly.relayout(plot, {
-				"xaxis.autorange": true,
-				"yaxis.autorange": true
-			});
+			const rawTraces = this._applyLegendVisibility(plot.__mvRawTraces ?? []);
+			const tagKey = rawTraces
+					.find(trace => typeof trace.meta?.tagKey === "string")?.meta.tagKey;
+			const signedLogScale = this.app.logScaleTags.has(tagKey);
+			const outlierRange = this._percentileRange(tagKey, rawTraces, null);
+			const block = plot.closest(".graph-block");
+			const runCount = new Set(rawTraces
+					.map(trace => trace.meta?.runId)
+					.filter(runId => typeof runId === "string")).size;
+			const layout = this._makeLayout(
+					this._plotWidth(block),
+					runCount > 1,
+					signedLogScale,
+					rawTraces,
+					{
+						yRange: this._outlierDisplayRange(outlierRange, signedLogScale),
+						dragMode: plot.layout?.dragmode ?? plot._fullLayout?.dragmode
+					});
+			if (layout.dragmode === undefined) delete layout.dragmode;
+			plot.__mvResettingView = true;
+			plot.__mvUpdatingPlot = true;
+			try {
+				await Plotly.react(
+						plot,
+						this._toDisplayTraces(rawTraces, signedLogScale),
+						layout);
+			} finally {
+				plot.__mvUpdatingPlot = false;
+				plot.__mvResettingView = false;
+			}
+			const lowerButton = block?.querySelector(".graph-lower-percentile");
+			const upperButton = block?.querySelector(".graph-upper-percentile");
+			if (lowerButton && upperButton) {
+				this._setPercentileButtonStates(
+						lowerButton,
+						upperButton,
+						this.app.percentileBounds(tagKey),
+						outlierRange);
+			}
 		}));
 	}
 }
@@ -757,7 +1436,9 @@ class UIController {
 	}
 
 	setLoadingSpinner(active) {
-		document.getElementById("loading-spinner")?.classList.toggle("active", active);
+		for (const spinner of document.querySelectorAll(".loading-spinner")) {
+			spinner.classList.toggle("active", active);
+		}
 	}
 
 	renderUpdateStatus(failures) {
@@ -770,6 +1451,30 @@ class UIController {
 		status.title = details.join("\n");
 	}
 
+	renderWorkspaceSelector(workspaces, current) {
+		const selector = document.getElementById("workspace-selector");
+		const names = [...new Set(workspaces ?? [])].sort();
+		const options = names.map(name => {
+			const option = document.createElement("option");
+			option.value = name;
+			option.textContent = name;
+			return option;
+		});
+		if (current && !names.includes(current)) {
+			const missing = document.createElement("option");
+			missing.value = current;
+			missing.textContent = `(missing) ${current}`;
+			missing.disabled = true;
+			options.unshift(missing);
+		}
+		selector.replaceChildren(...options);
+		selector.value = current ?? "";
+	}
+
+	setWorkspaceBusy(busy) {
+		document.getElementById("workspace-selector").disabled = busy;
+	}
+
 	applyMode(mode) {
 		document.body.classList.remove("uninitialized", "metaLoading", "error");
 		if (mode === Mode.UNINITIALIZED) document.body.classList.add("uninitialized");
@@ -780,18 +1485,15 @@ class UIController {
 	renderRunList(runs, selectedRunIds, runColorMap) {
 		const list = document.getElementById("run-list");
 		list.replaceChildren();
+		// Run色はMetricsViewerClientApp._applyRunColorsが解決済みで、ここでは引くだけ。
 		const runIds = Object.keys(runs).sort();
-		for (const runId of runIds) {
-			if (!runColorMap.has(runId)) {
-				runColorMap.set(runId, getRunColors()[runColorMap.size % getRunColors().length]);
-			}
-		}
 		for (const runId of runIds.reverse()) {
 			const run = runs[runId];
 			const row = document.createElement("div");
 			row.className = `run-row ${run.ingest?.state ?? "pending"}`;
 			row.classList.toggle("active", selectedRunIds.includes(runId));
 			row.dataset.runId = runId;
+			if (this.app.showSelectedRunsOnly && !selectedRunIds.includes(runId)) row.hidden = true;
 			const percentage = this._ingestPercentage(run.ingest);
 			const quarantineCount = (run.tags ?? []).filter(tag => tag.status === "error").length;
 			const issueMessages = [];
@@ -881,11 +1583,20 @@ class UIController {
 				this.app.setSelectedRuns([...selected]);
 			});
 		}
-		document.getElementById("btn-select-all-runs").onclick =
-				() => this.app.setSelectedRuns(this.app.cache.getRunIds());
+		document.getElementById("btn-select-all-runs").onclick = () => {
+			this.app.showSelectedRunsOnly = false;
+			this.app.setSelectedRuns(this.app.cache.getRunIds());
+		};
 		document.getElementById("btn-latest-only").onclick = () => {
+			this.app.showSelectedRunsOnly = false;
 			const latest = this.app.cache.getRunIds().sort().at(-1);
 			this.app.setSelectedRuns(latest ? [latest] : []);
+		};
+		const filter = document.getElementById("btn-selected-only-runs");
+		setToggleState(filter, this.app.showSelectedRunsOnly);
+		filter.onclick = () => {
+			this.app.showSelectedRunsOnly = !this.app.showSelectedRunsOnly;
+			this.app.refreshLists();
 		};
 	}
 
@@ -896,7 +1607,7 @@ class UIController {
 			const item = document.createElement("li");
 			item.dataset.tagKey = tagKey;
 			item.classList.toggle("active", this.app.activeTags.has(tagKey));
-			if (this.app.isTagsLocked && !this.app.activeTags.has(tagKey)) item.hidden = true;
+			if (this.app.showSelectedTagsOnly && !this.app.activeTags.has(tagKey)) item.hidden = true;
 			const label = document.createElement("span");
 			label.className = "tag-label";
 			label.textContent = tagKey;
@@ -942,29 +1653,37 @@ class UIController {
 			item.addEventListener("mouseleave", clearHover);
 		}
 		document.getElementById("btn-select-all").onclick = () => {
+			this.app.showSelectedTagsOnly = false;
 			for (const item of list.querySelectorAll("li")) {
 				this.app.activeTags.add(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
 		document.getElementById("btn-clear-all").onclick = () => {
+			this.app.showSelectedTagsOnly = false;
 			for (const item of list.querySelectorAll("li")) {
 				this.app.activeTags.delete(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
-		const filter = document.getElementById("chk-lock-tags");
-		filter.checked = this.app.isTagsLocked;
-		filter.onchange = () => {
-			this.app.isTagsLocked = filter.checked;
+		const filter = document.getElementById("btn-selected-only");
+		setToggleState(filter, this.app.showSelectedTagsOnly);
+		filter.onclick = () => {
+			this.app.showSelectedTagsOnly = !this.app.showSelectedTagsOnly;
 			this.app.refreshLists();
 		};
-		document.getElementById("btn-select-all").disabled = this.app.isTagsLocked;
-		document.getElementById("btn-clear-all").disabled = this.app.isTagsLocked;
 	}
 
 	bindStaticControls() {
+		const workspaceSelector = document.getElementById("workspace-selector");
+		workspaceSelector.onfocus = () => this.app.onWorkspaceSelectorFocused();
+		workspaceSelector.onchange = event => {
+			this.app.onWorkspaceChanged(event.target.value);
+		};
 		document.getElementById("btn-reload").onclick = () => this.app.onReload();
+		document.getElementById("btn-recolor-runs").onclick = () => this.app.onRecolorRuns();
+		document.getElementById("btn-auto-recolor").onclick =
+				() => this.app.onToggleAutoRecolor(!this.app.autoRecolorEnabled);
 		document.getElementById("btn-auto-reload").onclick = () => this.app.onToggleAutoReload();
 		document.getElementById("btn-graph-scroll-lock").onclick =
 				() => this.app.onToggleGraphScrollLock();
@@ -1001,20 +1720,20 @@ class UIController {
 				&& Boolean(target.closest(".js-plotly-plot"))
 				&& !target.closest(".modebar");
 		const begin = (target, clientY, touchId = null) => {
-			if (!this.app.graphScrollLockEnabled || !isGraphTarget(target)) return;
+			if (!this.app.graphScrollLockActive() || !isGraphTarget(target)) return;
 			state.active = true;
 			state.startY = clientY;
 			state.lastY = clientY;
 			state.touchId = touchId;
 		};
 		const move = (event, clientY) => {
-			if (!state.active || !this.app.graphScrollLockEnabled) return;
+			if (!state.active || !this.app.graphScrollLockActive()) return;
 			const total = clientY - state.startY;
 			if (!state.scrolling && Math.abs(total) < GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX) return;
 			state.scrolling = true;
 			const delta = state.lastY - clientY;
 			state.lastY = clientY;
-			mainArea.scrollTop += delta;
+			this.app.scrollElement().scrollTop += delta;
 			if (event.cancelable) event.preventDefault();
 			event.stopPropagation();
 		};
@@ -1051,13 +1770,18 @@ class MetricsViewerClientApp {
 		this.activeTags = new Set();
 		this.knownTags = new Set();
 		this.logScaleTags = new Set();
+		// tagKey -> { lower, upper }(percent)。下限・上限とも制限なしのtagは入れない。
+		this.percentileBoundsByTag = new Map();
 		this.hiddenLegendSeries = new Map();
 		this.plotDragModes = new Map();
+		this.manualYRanges = new Map();
 		this.runColorMap = new Map();
 		this.viewports = new Map();
+		this.autoRecolorEnabled = true;
 		this.graphScrollLockEnabled = false;
 		this.lodDisplayMode = LodDisplayMode.MIN_MAX;
-		this.isTagsLocked = false;
+		this.showSelectedTagsOnly = false;
+		this.showSelectedRunsOnly = false;
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
 		this.ingestPollTimer = null;
@@ -1067,24 +1791,159 @@ class MetricsViewerClientApp {
 		this.metadataRevision = 0;
 		this.viewportDebounceTimer = null;
 		this.updateFailures = { metadata: null, metrics: null };
+		this.currentWorkspace = null;
+		this.workspaces = [];
+		this.workspaceListRevision = 0;
+		this.workspaceSwitchRevision = 0;
+		this.missingWorkspaceNotified = null;
 	}
 
 	async init() {
 		this._loadState();
 		this.ui.bindStaticControls();
 		this._syncGraphScrollLockUi();
+		this._syncAutoRecolorUi();
 		this.setMode(Mode.META_LOADING);
 		try {
+			await this._initializeWorkspace();
 			await this.refreshMetadata({ initial: true, requestData: false });
 			this.setMode(Mode.NORMAL);
 			await this.requestVisibleData({ force: true });
 		} catch (error) {
-			if (error.name !== "AbortError") {
+			if (error.name !== "AbortError" && !isSupersededMetricsError(error)) {
 				console.error(error);
 				this.setMode(Mode.ERROR);
 				Toast.show(`System error: ${error.message}`);
 			}
 		}
+	}
+
+	async _initializeWorkspace() {
+		const payload = await this.fetcher.fetchWorkspaces();
+		const workspaces = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
+		const serverCurrent = typeof payload?.current === "string" ? payload.current : null;
+		const saved = localStorage.getItem(STORAGE_KEY_WORKSPACE);
+		const restored = saved && workspaces.includes(saved) ? saved : serverCurrent;
+		if (restored && restored !== serverCurrent) await this.fetcher.switchWorkspace(restored);
+		this._applyWorkspaceList(workspaces, restored);
+	}
+
+	_applyWorkspaceList(workspaces, current) {
+		this.workspaces = [...new Set(workspaces ?? [])].sort();
+		this.currentWorkspace = current;
+		if (current) localStorage.setItem(STORAGE_KEY_WORKSPACE, current);
+		else localStorage.removeItem(STORAGE_KEY_WORKSPACE);
+		this.ui.renderWorkspaceSelector(this.workspaces, current);
+
+		// 現在値だけが外部リネームで消えた場合は、勝手に別 workspace へ切り替えず通知する。
+		const currentIsMissing = !!current && !this.workspaces.includes(current);
+		if (currentIsMissing && this.missingWorkspaceNotified !== current) {
+			this.missingWorkspaceNotified = current;
+			Toast.show(`Current workspace "${current}" no longer exists.`);
+		} else if (!currentIsMissing) {
+			this.missingWorkspaceNotified = null;
+		}
+	}
+
+	async _refreshWorkspaceList() {
+		const revision = ++this.workspaceListRevision;
+		const payload = await this.fetcher.fetchWorkspaces();
+		if (revision !== this.workspaceListRevision) return false;
+		const workspaces = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
+		const current = typeof payload?.current === "string" ? payload.current : null;
+		this._applyWorkspaceList(workspaces, current);
+		return true;
+	}
+
+	async onWorkspaceChanged(name) {
+		if (!name || name === this.currentWorkspace) return;
+		const switchRevision = ++this.workspaceSwitchRevision;
+		const previous = this.currentWorkspace;
+		this.ui.setWorkspaceBusy(true);
+		this.fetcher.abortAll();
+		this.workspaceListRevision++;
+		this.metadataRevision++;
+		this._bumpQueryRevision();
+		let switchError = null;
+
+		// workspace POSTが確定するまでは直列化し、応答後の同期状態反映までを1世代として扱う。
+		try {
+			try {
+				await this.fetcher.switchWorkspace(name);
+			} catch (error) {
+				switchError = error;
+			}
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+
+			if (!switchError) {
+				this._resetWorkspaceState();
+				this._applyWorkspaceList(this.workspaces, name);
+			} else if (switchError.code === "unknown_workspace") {
+				this.workspaces = this.workspaces.filter(workspace => workspace !== name);
+				this._applyWorkspaceList(this.workspaces, previous);
+			} else {
+				this.ui.renderWorkspaceSelector(this.workspaces, previous);
+			}
+		} finally {
+			if (switchRevision === this.workspaceSwitchRevision) {
+				this.ui.setWorkspaceBusy(false);
+			}
+		}
+
+		if (switchRevision !== this.workspaceSwitchRevision) return;
+		if (switchError?.code === "unknown_workspace") {
+			try {
+				await this._refreshWorkspaceList();
+			} catch (refreshError) {
+				if (switchRevision !== this.workspaceSwitchRevision) return;
+				this._handleQueryError(refreshError);
+			}
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			Toast.show(`Workspace "${name}" no longer exists. Workspace list was refreshed.`);
+			return;
+		}
+		if (switchError) {
+			this._handleQueryError(switchError);
+			Toast.show("Workspace switch failed.");
+			return;
+		}
+
+		// refresh中の再切替を許可し、古い世代は描画・失敗表示・通知を更新しない。
+		try {
+			await this._refreshWorkspaceList();
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			await this.refreshMetadata({ initial: true, requestData: false });
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			await this.requestVisibleData({ force: true });
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+		} catch (error) {
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			this.ui.renderWorkspaceSelector(this.workspaces, name);
+			this._handleQueryError(error);
+			Toast.show("Workspace switched, but data refresh failed.");
+		}
+	}
+
+	async onWorkspaceSelectorFocused() {
+		try {
+			await this._refreshWorkspaceList();
+		} catch (error) {
+			this._handleQueryError(error);
+			Toast.show("Workspace list refresh failed.");
+		}
+	}
+
+	_resetWorkspaceState() {
+		this.cache.clear();
+		this.selectedRuns = [];
+		this.runColorMap.clear();
+		this.viewports.clear();
+		this.hiddenLegendSeries.clear();
+		this.manualYRanges.clear();
+		this.initialSelectionApplied = false;
+		if (this.ingestPollTimer) clearInterval(this.ingestPollTimer);
+		this.ingestPollTimer = null;
+		this.polling = false;
 	}
 
 	setMode(mode) {
@@ -1141,10 +2000,68 @@ class MetricsViewerClientApp {
 	}
 
 	refreshLists() {
+		this._applyRunColors();
 		this.ui.renderRunList(this.cache.getRuns(), this.selectedRuns, this.runColorMap);
 		this.ui.bindRunListEvents();
 		this.ui.renderTagList([...this._visibleTagSet()]);
 		this.ui.bindTagListEvents();
+	}
+
+	_applyRunColors() {
+		// (a) まだ色を持たないRunへ基本色を配る。runId昇順の先着順で、既存の割り当ては動かさない。
+		for (const runId of this.cache.getRunIds().sort()) {
+			if (this.runColorMap.has(runId)) continue;
+			this.runColorMap.set(
+					runId,
+					getRunColors()[this.runColorMap.size % getRunColors().length]);
+		}
+		// (b) AutoがONなら、そこから選択中Runだけを分離する。冪等なので毎回の描画で走ってよい。
+		if (this.autoRecolorEnabled) this._recolorSelectedRuns({ keepExisting: true });
+	}
+
+	onRecolorRuns() {
+		// 現在の色を無視し、選択中Runへpaletteの最良の組を配り直す。
+		this._recolorSelectedRuns({ keepExisting: false });
+		this.refreshLists();
+		this._renderCurrent();
+	}
+
+	onToggleAutoRecolor(enabled) {
+		this.autoRecolorEnabled = enabled;
+		localStorage.setItem(STORAGE_KEY_AUTO_RECOLOR, enabled ? "true" : "false");
+		this._syncAutoRecolorUi();
+		this.refreshLists();
+		this._renderCurrent();
+	}
+
+	_syncAutoRecolorUi() {
+		setToggleState(document.getElementById("btn-auto-recolor"), this.autoRecolorEnabled);
+	}
+
+	_recolorSelectedRuns({ keepExisting }) {
+		// 選択1本以下では分離すべき相手がいないので何もしない。
+		if (this.selectedRuns.length <= 1) return;
+		const fixed = [];
+		const used = new Set();
+		// 選択順に処理するため、先に選んだRunほど色を保持しやすく、追加したRunだけが動く。
+		for (const runId of this.selectedRuns) {
+			// paletteを使い切ったら次のラウンドを始める。ラウンド内は必ず相異なる色になる。
+			if (used.size === getRunColors().length) {
+				fixed.length = 0;
+				used.clear();
+			}
+			const best = farthestColorFrom(fixed, used);
+			const current = this.runColorMap.get(runId);
+			// しきい値を満たせない本数でも「今のpaletteで取れる最良」を維持条件にする。
+			const keepCurrent = keepExisting
+					&& current != null
+					&& minColorDistance(current, fixed)
+							>= Math.min(RUN_COLOR_MIN_DISTANCE, best.distance);
+			const chosen = keepCurrent ? current : best.color;
+			this.runColorMap.set(runId, chosen);
+			fixed.push(chosen);
+			used.add(chosen);
+		}
 	}
 
 	setSelectedRuns(runIds) {
@@ -1183,7 +2100,37 @@ class MetricsViewerClientApp {
 	onToggleLog(tagKey) {
 		if (this.logScaleTags.has(tagKey)) this.logScaleTags.delete(tagKey);
 		else this.logScaleTags.add(tagKey);
+		this.manualYRanges.delete(tagKey);
+		this._saveGraphDisplaySets();
 		this._renderCurrent();
+	}
+
+	onCycleLowerPercentile(tagKey) {
+		const bounds = this.percentileBounds(tagKey);
+		this._setPercentileBounds(tagKey, {
+			lower: nextPercentileStep(LOWER_PERCENTILE_STEPS, bounds.lower),
+			upper: bounds.upper
+		});
+	}
+
+	onCycleUpperPercentile(tagKey) {
+		const bounds = this.percentileBounds(tagKey);
+		this._setPercentileBounds(tagKey, {
+			lower: bounds.lower,
+			upper: nextPercentileStep(UPPER_PERCENTILE_STEPS, bounds.upper)
+		});
+	}
+
+	_setPercentileBounds(tagKey, bounds) {
+		if (isUnboundedPercentile(bounds)) this.percentileBoundsByTag.delete(tagKey);
+		else this.percentileBoundsByTag.set(tagKey, bounds);
+		this._saveGraphDisplaySets();
+		this._renderCurrent();
+	}
+
+	percentileBounds(tagKey) {
+		return this.percentileBoundsByTag.get(tagKey)
+				?? { lower: LOWER_PERCENTILE_STEPS[0], upper: UPPER_PERCENTILE_STEPS[0] };
 	}
 
 	onLodDisplayModeChanged(mode) {
@@ -1193,20 +2140,31 @@ class MetricsViewerClientApp {
 		this._renderCurrent();
 	}
 
-	async requestVisibleData({ force = false, eligibleRunIds = null, followOnly = false } = {}) {
+	// refresh=trueはReload(手動・Auto)用で、取得後にtagが変わったwindowも取り直す。
+	async requestVisibleData({
+		force = false,
+		eligibleRunIds = null,
+		followOnly = false,
+		refresh = false
+	} = {}) {
 		const revision = this.queryRevision;
 		const series = [];
 		const requestContext = [];
 		for (const tagKey of this._visibleSelectedTags()) {
 			const viewport = this._viewportFor(tagKey);
 			if (!viewport) continue;
+			if (followOnly && !this._isFollowing(tagKey, viewport)) continue;
 			const target = this._windowFor(viewport);
-			for (const runId of this.selectedRuns) {
-				const run = this.cache.getRun(runId);
-				if (!run || !this.cache.getTag(runId, tagKey)) continue;
-				if (eligibleRunIds && !eligibleRunIds.has(runId)) continue;
-				if (followOnly && !this._isFollowing(tagKey, viewport)) continue;
-				if (!this.cache.needsFetch(runId, tagKey, target, viewport, force)) continue;
+			const runIds = this.selectedRuns.filter(runId =>
+				this.cache.getRun(runId)
+					&& this.cache.getTag(runId, tagKey)
+					&& (!eligibleRunIds || eligibleRunIds.has(runId)));
+			// 1つのgraphに載る系列は同じrequestで取り、点予算の配分をgraph内でそろえる。
+			// どれか1系列でも取り直しが要れば、そのgraphの系列をまとめて取り直す。
+			const stale = runIds.some(runId =>
+				this.cache.needsFetch(runId, tagKey, target, viewport, { force, refresh }));
+			if (!stale) continue;
+			for (const runId of runIds) {
 				series.push({
 					runId,
 					tagKey,
@@ -1216,8 +2174,9 @@ class MetricsViewerClientApp {
 				requestContext.push({
 					runId,
 					tagKey,
-					generation: run.generation,
-					viewportWidth: viewport.width
+					generation: this.cache.getRun(runId).generation,
+					viewportWidth: viewport.width,
+					...tagVersion(this.cache.getTag(runId, tagKey))
 				});
 			}
 		}
@@ -1243,7 +2202,7 @@ class MetricsViewerClientApp {
 						|| result.generation !== expected.generation) {
 					continue;
 				}
-				this.cache.replaceWindow(result, expected.viewportWidth);
+				this.cache.replaceWindow(result, expected);
 			}
 			this._renderCurrent();
 		} catch (error) {
@@ -1421,20 +2380,89 @@ class MetricsViewerClientApp {
 		}
 	}
 
+	manualYRange(tagKey) {
+		const range = this.manualYRanges.get(tagKey);
+		return Array.isArray(range) ? range.slice() : null;
+	}
+
+	setManualYRange(tagKey, range) {
+		if (!Array.isArray(range)) {
+			this.manualYRanges.delete(tagKey);
+			return;
+		}
+		this.manualYRanges.set(tagKey, range.slice());
+	}
+
+	pruneManualYRanges(tagKeys) {
+		const selectedTags = new Set(tagKeys);
+		for (const tagKey of this.manualYRanges.keys()) {
+			if (!selectedTags.has(tagKey)) this.manualYRanges.delete(tagKey);
+		}
+	}
+
 	async onResetView() {
 		this.hiddenLegendSeries.clear();
+		this.manualYRanges.clear();
+		for (const tagKey of this._visibleSelectedTags()) {
+			this.viewports.set(tagKey, { autorange: true });
+		}
+		this._bumpQueryRevision();
+		clearTimeout(this.viewportDebounceTimer);
 		await this.plotly.resetView();
+		await this.requestVisibleData();
+	}
+
+	// スクリーンショットモードでは #main-area の overflow が visible になり、
+	// スクロールはドキュメント側で起きる。
+	scrollElement() {
+		return this.mode === Mode.SCREENSHOT
+				? (document.scrollingElement ?? document.documentElement)
+				: document.getElementById("main-area");
+	}
+
+	_scrollViewportTop() {
+		const scroller = this.scrollElement();
+		return scroller === document.documentElement || scroller === document.body
+				? 0
+				: scroller.getBoundingClientRect().top;
+	}
+
+	// スクロール主体が入れ替わっても、graphの並びは同じでpixel座標だけがずれる。
+	// 先頭に見えているgraph blockとそのはみ出し量で覚え、blockを基準に戻す。
+	_captureScrollAnchor() {
+		const anchor = { tagKey: null, offset: 0, scrollTop: this.scrollElement().scrollTop };
+		const viewportTop = this._scrollViewportTop();
+		for (const block of document.querySelectorAll("#main-area .graph-block")) {
+			const rectangle = block.getBoundingClientRect();
+			if (rectangle.bottom <= viewportTop) continue;
+			anchor.tagKey = block.dataset.tagKey;
+			anchor.offset = rectangle.top - viewportTop;
+			break;
+		}
+		return anchor;
+	}
+
+	_restoreScrollAnchor(anchor) {
+		const scroller = this.scrollElement();
+		const block = [...document.querySelectorAll("#main-area .graph-block")]
+				.find(candidate => candidate.dataset.tagKey === anchor.tagKey);
+		// 基準にしたtagが消えたときだけ、同じスクローラの続きとしてpixelで戻す。
+		if (!block) {
+			scroller.scrollTop = anchor.scrollTop;
+			return;
+		}
+		const viewportTop = this._scrollViewportTop();
+		scroller.scrollTop += block.getBoundingClientRect().top - viewportTop - anchor.offset;
 	}
 
 	_renderCurrent() {
-		const main = document.getElementById("main-area");
-		const scrollTop = main.scrollTop;
+		const anchor = this._captureScrollAnchor();
 		this.plotly.renderBySelection(
 				"#main-area",
 				this.selectedRuns.slice(),
 				this._visibleSelectedTags(),
 				this.cache);
-		main.scrollTop = scrollTop;
+		this._restoreScrollAnchor(anchor);
 		this._syncGraphScrollLockUi();
 	}
 
@@ -1486,30 +2514,29 @@ class MetricsViewerClientApp {
 		this._syncGraphScrollLockUi();
 	}
 
+	graphScrollLockActive() {
+		return this.graphScrollLockEnabled || this.mode === Mode.SCREENSHOT;
+	}
+
 	_syncGraphScrollLockUi() {
-		document.body.classList.toggle("graph-scroll-locked", this.graphScrollLockEnabled);
-		const button = document.getElementById("btn-graph-scroll-lock");
-		if (button) {
-			button.textContent = this.graphScrollLockEnabled
-					? "Scroll Lock: ON"
-					: "Scroll Lock: OFF";
-			button.classList.toggle("active", this.graphScrollLockEnabled);
-			button.setAttribute("aria-pressed", this.graphScrollLockEnabled ? "true" : "false");
-		}
-		this.plotly.applyGraphScrollLock(this.graphScrollLockEnabled);
+		document.body.classList.toggle("graph-scroll-locked", this.graphScrollLockActive());
+		setToggleState(
+				document.getElementById("btn-graph-scroll-lock"),
+				this.graphScrollLockEnabled);
+		this.plotly.applyGraphScrollLock(this.graphScrollLockActive());
 	}
 
 	onToggleAutoReload() {
 		this.autoReloadEnabled = !this.autoReloadEnabled;
-		const button = document.getElementById("btn-auto-reload");
-		button.textContent = this.autoReloadEnabled ? "Auto Reload: ON" : "Auto Reload: OFF";
-		button.classList.toggle("active", this.autoReloadEnabled);
-		button.setAttribute("aria-pressed", this.autoReloadEnabled ? "true" : "false");
+		setToggleState(document.getElementById("btn-auto-reload"), this.autoReloadEnabled);
 		if (this.autoReloadEnabled) {
 			this.autoReloadTimer = setInterval(async () => {
 				try {
-					await this.refreshMetadata({ requestData: false });
-					await this.requestVisibleData({ force: true, followOnly: true });
+					await Promise.all([
+						this._refreshWorkspaceList(),
+						this.refreshMetadata({ requestData: false })
+					]);
+					await this.requestVisibleData({ refresh: true, followOnly: true });
 				} catch (error) {
 					this._handleQueryError(error);
 				}
@@ -1521,14 +2548,17 @@ class MetricsViewerClientApp {
 	}
 
 	async onReload() {
-		if (this.mode === Mode.SCREENSHOT) return;
 		const recoveringFromInitialError = this.mode === Mode.ERROR;
 		try {
-			await this.refreshMetadata({
-				initial: recoveringFromInitialError,
-				requestData: false
-			});
-			await this.requestVisibleData({ force: true });
+			await Promise.all([
+				this._refreshWorkspaceList(),
+				this.refreshMetadata({
+					initial: recoveringFromInitialError,
+					requestData: false
+				})
+			]);
+			// 取得後にtagが変わったgraphだけを取り直す。変化が無ければmetrics.jsonは送らない。
+			await this.requestVisibleData({ refresh: true });
 			if (recoveringFromInitialError) this.setMode(Mode.NORMAL);
 		} catch (error) {
 			this._handleQueryError(error);
@@ -1538,23 +2568,31 @@ class MetricsViewerClientApp {
 
 	onToggleScreenshot() {
 		if (this.mode === Mode.ERROR) return;
+		const anchor = this._captureScrollAnchor();
 		const enabled = document.body.classList.toggle("screenshot-mode");
 		document.documentElement.classList.toggle("screenshot-mode", enabled);
 		this.setMode(enabled ? Mode.SCREENSHOT : Mode.NORMAL);
+		this._syncGraphScrollLockUi();
 		document.getElementById("btn-screenshot-toggle").textContent = enabled ? "➡" : "⬅";
 		const header = document.getElementById("screenshot-header");
 		header.textContent = this.selectedRuns.length === 1
 				? `Metrics Viewer — ${this.selectedRuns[0]}`
 				: "Metrics Viewer";
 		header.style.display = enabled ? "block" : "none";
+		this._restoreScrollAnchor(anchor);
 		setTimeout(() => this.plotly.resizeAll(), 300);
 	}
 
 	_loadState() {
 		this.activeTags = this._loadSet(STORAGE_KEY_TAGS);
 		this.knownTags = this._loadSet(STORAGE_KEY_KNOWN_TAGS);
+		this.logScaleTags = this._loadSet(STORAGE_KEY_LOG_SCALE_TAGS);
+		this.percentileBoundsByTag = this._loadPercentileBounds();
+		for (const key of DISCARDED_STORAGE_KEYS) localStorage.removeItem(key);
 		this.graphScrollLockEnabled =
 				localStorage.getItem(STORAGE_KEY_GRAPH_SCROLL_LOCK) === "true";
+		// 既定ONなので、明示的に "false" が入っているときだけOFFとして読む。
+		this.autoRecolorEnabled = localStorage.getItem(STORAGE_KEY_AUTO_RECOLOR) !== "false";
 		const storedMode = localStorage.getItem(STORAGE_KEY_LOD_MODE);
 		if (Object.values(LodDisplayMode).includes(storedMode)) this.lodDisplayMode = storedMode;
 	}
@@ -1562,10 +2600,41 @@ class MetricsViewerClientApp {
 	_loadSet(key) {
 		try {
 			const stored = localStorage.getItem(key);
-			return stored ? new Set(JSON.parse(stored)) : new Set();
+			if (!stored) return new Set();
+			const values = JSON.parse(stored);
+			if (!Array.isArray(values) || values.some(value => typeof value !== "string")) {
+				throw new Error("expected a JSON string array");
+			}
+			return new Set(values);
 		} catch (error) {
 			console.warn(`Failed to load ${key}`, error);
 			return new Set();
+		}
+	}
+
+	// 保存形式は {"<tagKey>": [lower, upper], ...}。段に無い値が1つでもあれば全体を捨てる。
+	_loadPercentileBounds() {
+		const key = STORAGE_KEY_PERCENTILE_BOUNDS;
+		try {
+			const stored = localStorage.getItem(key);
+			if (!stored) return new Map();
+			const entries = JSON.parse(stored);
+			if (entries === null || typeof entries !== "object" || Array.isArray(entries)) {
+				throw new Error("expected a JSON object");
+			}
+			const boundsByTag = new Map();
+			for (const [tagKey, value] of Object.entries(entries)) {
+				const [lower, upper] = Array.isArray(value) && value.length === 2 ? value : [];
+				if (!LOWER_PERCENTILE_STEPS.includes(lower) || !UPPER_PERCENTILE_STEPS.includes(upper)) {
+					throw new Error(`unexpected percentile bounds for tag ${tagKey}`);
+				}
+				const bounds = { lower, upper };
+				if (!isUnboundedPercentile(bounds)) boundsByTag.set(tagKey, bounds);
+			}
+			return boundsByTag;
+		} catch (error) {
+			console.warn(`Failed to load ${key}`, error);
+			return new Map();
 		}
 	}
 
@@ -1574,14 +2643,27 @@ class MetricsViewerClientApp {
 		localStorage.setItem(STORAGE_KEY_KNOWN_TAGS, JSON.stringify([...this.knownTags]));
 	}
 
+	_saveGraphDisplaySets() {
+		localStorage.setItem(
+				STORAGE_KEY_LOG_SCALE_TAGS,
+				JSON.stringify([...this.logScaleTags].sort()));
+		const percentileTagKeys = [...this.percentileBoundsByTag.keys()].sort();
+		localStorage.setItem(
+				STORAGE_KEY_PERCENTILE_BOUNDS,
+				JSON.stringify(Object.fromEntries(percentileTagKeys.map(tagKey => {
+					const bounds = this.percentileBoundsByTag.get(tagKey);
+					return [tagKey, [bounds.lower, bounds.upper]];
+				}))));
+	}
+
 	_setUpdateFailure(kind, error) {
-		if (error?.name === "AbortError") return;
+		if (error?.name === "AbortError" || isSupersededMetricsError(error)) return;
 		this.updateFailures[kind] = error ? (error.message ?? String(error)) : null;
 		this.ui.renderUpdateStatus(this.updateFailures);
 	}
 
 	_handleQueryError(error) {
-		if (error?.name === "AbortError") return;
+		if (error?.name === "AbortError" || isSupersededMetricsError(error)) return;
 		console.error(error);
 	}
 }

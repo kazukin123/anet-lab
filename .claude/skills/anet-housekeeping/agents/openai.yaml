@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Housekeeping"
+  short_description: "予算内でanet-labの定常整備(統計/監査/英訳/サーベイ/コミット案)を自動選定して回す"
+  default_prompt: "$anet-housekeeping S を使って、予算 S でanet-labの定常整備を回してください。"
+
+policy:
+  allow_implicit_invocation: false

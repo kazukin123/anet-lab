@@ -99,6 +99,9 @@ if (MSVC)
         COMMENT "Copying libtorch DLLs"
     )
   endif()
+
+  # --- wxWidgets DLLコピー ---
+  anet_copy_wx_dlls(LunarLanderEnv-test)
 endif()
 
 

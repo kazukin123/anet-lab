@@ -34,10 +34,18 @@ namespace anet {
         std::unordered_map<std::string, ConfigData> MakeSubConfigData(const std::string& prefix) const;
 		std::unordered_set<std::string> GetSubConfigTags(const std::string& prefix) const;
         void MergeFromChecked(const ConfigData& other);
+        void OverwriteFrom(const ConfigData& other);
+        std::string ToPropertiesString() const;
+        void SaveProperties(const std::filesystem::path& path) const;
     public:
         void Set(const std::string& key, const std::string& value)
         {
             map_.Set(key, value);
+        }
+
+        void Set(const std::string& key, bool value)
+        {
+            map_.Set(key, value ? "true" : "false");
         }
 
         template<typename T>
@@ -128,12 +136,14 @@ namespace anet {
 
     struct ConfigManagerOptions {
         std::optional<std::vector<std::filesystem::path>> config_search_dirs;
+        ConfigData injected_config;
+        std::vector<std::filesystem::path> overwrite_config_paths;
     };
 
     /// Properties類似形式の設定ファイル操作クラス
     class Properties {
     public:
-        explicit Properties(const std::string& filename, ConfigManagerOptions options = {})
+        explicit Properties(const std::filesystem::path& filename, ConfigManagerOptions options = {})
             : options_(options)
         {
             Load(filename);
@@ -141,7 +151,13 @@ namespace anet {
         ConfigData ToConfigData() const {
             return configData;
         }
+        /// 解決入力の既定葉を読み取り専用で参照する。返却参照の寿命はPropertiesと同じ。
+        const std::unordered_set<std::string>& DefaultKeys() const {
+            return default_keys_;
+        }
     private:
+        // 読み込み途中だけ保持し、公開ConfigDataへは渡さない。
+        std::unordered_set<std::string> default_keys_;
         ConfigData configData;
         ConfigManagerOptions options_;
 
@@ -240,18 +256,21 @@ namespace anet {
     class ConfigManager {
     public:
         ConfigManager(
-            const std::string& filePath,
+            const std::filesystem::path& filePath,
             const wxCmdLineParser* cmdLine = nullptr,
             ConfigManagerOptions options = {});
 
         ConfigData GetConfigData() const { return { map_ }; }
+        anet::json GetResolutionJson() const { return resolution_json_; }
     private:
-        void LoadFromFile(const std::string& filePath);
-        void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
-        void AutoMerge();
+        void LoadFromFile(const std::filesystem::path& filePath);
+        void OverwriteFromFile(const std::filesystem::path& filePath);
+        ConfigData::MapType ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const;
     private:
         ConfigManagerOptions options_;
         ConfigData::MapType map_;
+        std::unordered_set<std::string> default_keys_;
+        anet::json resolution_json_;
     };
 
 }

@@ -42,6 +42,8 @@
 - RNG
 - Config（読み取り専用）
 - Actorだけがforwardと同期に使うprivate network snapshot
+- `ActorRequest.seed`から生成し、そのActorだけが消費するprivate RNG
+- 呼び出し側（Actor、Learnerの役割）ごとに1つ持つNN実行状態の箱（NoisyNetのノイズサンプル、抽選時の時計、乱数）。箱は呼び出し側が所有し、中身はNNの計算部品がforward中に更新する。境界の時計（`learn_step`、行動選択回数）は呼び出し側のStateで、今の値を呼び出しごとの入力として渡す
 
 ---
 

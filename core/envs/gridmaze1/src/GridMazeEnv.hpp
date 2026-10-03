@@ -87,7 +87,6 @@ namespace anet::rl::env {
         bool episode_just_ended_ = false;
 
         // メトリクス提供用の直近エピソード結果保持
-        float last_episode_len_ = 0.0f;
         float last_reward_sum_ = 0.0f;
         float last_is_success_ = 0.0f;
         float last_is_hole_ = 0.0f;

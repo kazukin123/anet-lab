@@ -6,7 +6,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 
-import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
+import io.github.kazukin123.anetlab.metricsviewer.service.WorkspaceManager;
 
 /**
  * Metrics Viewer application entry point.
@@ -19,8 +19,10 @@ public class MetricsViewerApplication {
 	public static void main(String[] args) {
 		log.info("Starting Metrics Viewer...");
 		final ConfigurableApplicationContext context = SpringApplication.run(MetricsViewerApplication.class, args);
-		final RunScanner runScanner = context.getBean(RunScanner.class);
-		log.info("Runs directory: {}", runScanner.getRunsDir().toAbsolutePath().normalize());
+		final WorkspaceManager workspaceManager = context.getBean(WorkspaceManager.class);
+		log.info("Workspaces directory: {}", workspaceManager.getWorkspacesDir());
+		log.info("Current workspace: {} (runs: {})",
+				workspaceManager.currentName(), workspaceManager.currentRunsDir());
 		log.info("Metrics Viewer started successfully (port: 8080 by default)");
 	}
 }

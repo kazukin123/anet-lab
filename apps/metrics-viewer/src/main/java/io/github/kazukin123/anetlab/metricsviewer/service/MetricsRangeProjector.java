@@ -7,15 +7,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-import org.springframework.stereotype.Component;
-
 import io.github.kazukin123.anetlab.metricsviewer.util.MetricTraceEncoder;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.LodProjection;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.LodSummary;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MinMaxProjection;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RawProjection;
 
-@Component
 public class MetricsRangeProjector {
 
 	private final LodPageCache pageCache;
@@ -24,36 +21,45 @@ public class MetricsRangeProjector {
 		this.pageCache = pageCache;
 	}
 
+	/**
+	 * tagCountはconnectionと同じsnapshotで読んだtagの全点数で、各levelの完成bucket数を決める。
+	 */
 	public Projection project(
 			Connection connection,
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			long ordinalFrom,
 			long ordinalTo,
-			int pointBudget) throws Exception {
+			int pointBudget,
+			QueryExecution query) throws Exception {
+		query.checkpoint();
 		final long rawCount = ordinalTo - ordinalFrom;
 		if (rawCount <= pointBudget) {
-			return raw(connection, tagId, ordinalFrom, ordinalTo);
+			return raw(connection, tagId, ordinalFrom, ordinalTo, query);
 		}
 
-		final LevelSelection selection = selectLevel(ordinalFrom, ordinalTo, pointBudget);
+		final LevelSelection selection = selectLevel(ordinalFrom, ordinalTo, pointBudget, query);
 		final List<LodBucket> buckets = loadBuckets(
 				connection,
 				generation,
 				runId,
 				tagId,
+				tagCount,
 				ordinalFrom,
 				ordinalTo,
-				selection);
-		return lod(selection, buckets);
+				selection,
+				query);
+		return lod(selection, buckets, query);
 	}
 
 	private static Projection raw(
 			Connection connection,
 			long tagId,
 			long ordinalFrom,
-			long ordinalTo) throws Exception {
+			long ordinalTo,
+			QueryExecution query) throws Exception {
 		final int size = Math.toIntExact(ordinalTo - ordinalFrom);
 		final double[] steps = new double[size];
 		final float[] values = new float[size];
@@ -62,13 +68,15 @@ public class MetricsRangeProjector {
 				FROM scalars
 				WHERE tag_id=? AND ordinal>=? AND ordinal<?
 				ORDER BY ordinal
-				""")) {
+				""");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			statement.setLong(1, tagId);
 			statement.setLong(2, ordinalFrom);
 			statement.setLong(3, ordinalTo);
 			try (ResultSet result = statement.executeQuery()) {
 				int i = 0;
 				while (result.next()) {
+					query.checkpoint();
 					steps[i] = result.getLong(1);
 					values[i] = (float) result.getDouble(2);
 					i++;
@@ -83,7 +91,10 @@ public class MetricsRangeProjector {
 						MetricTraceEncoder.encodeFloatArray(values)));
 	}
 
-	private static Projection lod(LevelSelection selection, List<LodBucket> buckets) {
+	private static Projection lod(
+			LevelSelection selection,
+			List<LodBucket> buckets,
+			QueryExecution query) {
 		final List<Candidate> minMaxCandidates = new ArrayList<>();
 		final double[] summarySteps = new double[buckets.size()];
 		final float[] mins = new float[buckets.size()];
@@ -93,6 +104,7 @@ public class MetricsRangeProjector {
 		final double[] maxSteps = new double[buckets.size()];
 
 		for (int i = 0; i < buckets.size(); i++) {
+			query.checkpoint();
 			final LodBucket bucket = buckets.get(i);
 			final List<Candidate> candidates = new ArrayList<>(List.of(
 					new Candidate(bucket.minOrdinal(), bucket.minStep(), bucket.minValue()),
@@ -121,6 +133,7 @@ public class MetricsRangeProjector {
 		final double[] minMaxSteps = new double[minMaxCandidates.size()];
 		final float[] minMaxValues = new float[minMaxCandidates.size()];
 		for (int i = 0; i < minMaxCandidates.size(); i++) {
+			query.checkpoint();
 			minMaxSteps[i] = minMaxCandidates.get(i).step();
 			minMaxValues[i] = (float) minMaxCandidates.get(i).value();
 		}
@@ -146,19 +159,22 @@ public class MetricsRangeProjector {
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			long ordinalFrom,
 			long ordinalTo,
-			LevelSelection selection) throws Exception {
+			LevelSelection selection,
+			QueryExecution query) throws Exception {
 		final long firstBucket = ordinalFrom / selection.width();
 		final long lastBucket = (ordinalTo - 1L) / selection.width();
 		final List<LodBucket> buckets = new ArrayList<>();
 		for (long bucket = firstBucket; bucket <= lastBucket; bucket++) {
+			query.checkpoint();
 			final long logicalFrom = Math.multiplyExact(bucket, selection.width());
 			final long logicalTo = Math.addExact(logicalFrom, selection.width());
 			final long exactFrom = Math.max(ordinalFrom, logicalFrom);
 			final long exactTo = Math.min(ordinalTo, logicalTo);
 			final LodBucket persisted = pageCache.find(
-					connection, generation, runId, tagId, selection.level(), bucket);
+					connection, generation, runId, tagId, tagCount, selection.level(), bucket, query);
 			if (persisted != null && exactFrom == logicalFrom && exactTo == logicalTo) {
 				buckets.add(persisted);
 			} else {
@@ -167,9 +183,11 @@ public class MetricsRangeProjector {
 						generation,
 						runId,
 						tagId,
+						tagCount,
 						exactFrom,
 						exactTo,
-						selection.level() - 1));
+						selection.level() - 1,
+						query));
 			}
 		}
 		return buckets;
@@ -180,22 +198,26 @@ public class MetricsRangeProjector {
 			String generation,
 			String runId,
 			long tagId,
+			long tagCount,
 			long ordinalFrom,
 			long ordinalTo,
-			int level) throws Exception {
-		if (level <= 0) return aggregateL0(connection, tagId, ordinalFrom, ordinalTo);
+			int level,
+			QueryExecution query) throws Exception {
+		query.checkpoint();
+		if (level <= 0) return aggregateL0(connection, tagId, ordinalFrom, ordinalTo, query);
 
 		final long width = LodBucket.widthForLevel(level);
 		final long firstBucket = ordinalFrom / width;
 		final long lastBucket = (ordinalTo - 1L) / width;
 		final AggregateBuilder aggregate = new AggregateBuilder();
 		for (long bucket = firstBucket; bucket <= lastBucket; bucket++) {
+			query.checkpoint();
 			final long logicalFrom = Math.multiplyExact(bucket, width);
 			final long logicalTo = Math.addExact(logicalFrom, width);
 			final long exactFrom = Math.max(ordinalFrom, logicalFrom);
 			final long exactTo = Math.min(ordinalTo, logicalTo);
 			final LodBucket persisted = pageCache.find(
-					connection, generation, runId, tagId, level, bucket);
+					connection, generation, runId, tagId, tagCount, level, bucket, query);
 			if (persisted != null && exactFrom == logicalFrom && exactTo == logicalTo) {
 				aggregate.add(persisted);
 			} else {
@@ -204,9 +226,11 @@ public class MetricsRangeProjector {
 						generation,
 						runId,
 						tagId,
+						tagCount,
 						exactFrom,
 						exactTo,
-						level - 1));
+						level - 1,
+						query));
 			}
 		}
 		return aggregate.finish(ordinalFrom, ordinalTo);
@@ -216,19 +240,22 @@ public class MetricsRangeProjector {
 			Connection connection,
 			long tagId,
 			long ordinalFrom,
-			long ordinalTo) throws Exception {
+			long ordinalTo,
+			QueryExecution query) throws Exception {
 		final AggregateBuilder aggregate = new AggregateBuilder();
 		try (PreparedStatement statement = connection.prepareStatement("""
 				SELECT ordinal, step, value
 				FROM scalars
 				WHERE tag_id=? AND ordinal>=? AND ordinal<?
 				ORDER BY ordinal
-				""")) {
+				""");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			statement.setLong(1, tagId);
 			statement.setLong(2, ordinalFrom);
 			statement.setLong(3, ordinalTo);
 			try (ResultSet result = statement.executeQuery()) {
 				while (result.next()) {
+					query.checkpoint();
 					aggregate.add(LodBucket.point(
 							result.getLong(1),
 							result.getLong(2),
@@ -239,11 +266,16 @@ public class MetricsRangeProjector {
 		return aggregate.finish(ordinalFrom, ordinalTo);
 	}
 
-	private static LevelSelection selectLevel(long ordinalFrom, long ordinalTo, int pointBudget) {
+	private static LevelSelection selectLevel(
+			long ordinalFrom,
+			long ordinalTo,
+			int pointBudget,
+			QueryExecution query) {
 		int level = 1;
 		long width = LodBucket.widthForLevel(level);
 		while (bucketCount(ordinalFrom, ordinalTo, width)
 				* LodBucket.POINTS_PER_LOD_BUCKET > pointBudget) {
+			query.checkpoint();
 			level++;
 			width = LodBucket.widthForLevel(level);
 		}

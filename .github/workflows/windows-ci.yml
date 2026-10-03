@@ -18,7 +18,7 @@ jobs:
       # マトリックス変数を使用
       BUILD_TYPE: ${{ matrix.build_type }}
       LIBTORCH_VER: "2.12.0-cu130"
-      WX_VER: "3.3.1"
+      WX_VER: "3.3.3"
 
     steps:
     - uses: actions/checkout@v6
@@ -136,12 +136,9 @@ jobs:
             Write-Error "wxWidgets lib folder not found!"
         }
 
-        # ROOTではなくDIRを使い、Configモードを強制する
-        # wxWidgetsConfig.cmake があるディレクトリを指定
-        $env:wxWidgets_DIR = "$wxInst/lib/cmake/wxWidgets"
-        
-        # 念のため ROOT は空にしておく
-        $env:wxWidgets_ROOT = ""
+        # wx は Config モードで解決する (CMakeLists の find_package が CONFIG 指定)。
+        # Config は lib/cmake/wxWidgets-<major>.<minor>/ に入るためパスを直接指さず、
+        # install prefix を CMAKE_PREFIX_PATH で渡して CMake に探索させる。
 
         # CUDAパス表示
         Write-Host "CUDA_PATH is: $env:CUDA_PATH"
@@ -152,8 +149,7 @@ jobs:
           -DCMAKE_CONFIGURATION_TYPES="${{ matrix.build_type }}" `
           -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
           -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
-          -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON `
-          -DwxWidgets_DIR="$wxInst/lib/cmake/wxWidgets"
+          -DCMAKE_PREFIX_PATH="$wxInst"
 
     - name: Build
       run: cmake --build build --config ${{ matrix.build_type }} --parallel

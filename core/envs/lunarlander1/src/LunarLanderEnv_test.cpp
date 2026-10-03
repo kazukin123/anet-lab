@@ -188,9 +188,9 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
 {
     const auto config = MakeConfig(/*obs_include_action=*/false, /*limit_step=*/1000);
     auto first = std::make_shared<anet::rl::env::LunarLanderEnv>(
-        config, torch::Device(torch::kCPU), "first-name[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[first-name].[0]", 123);
     auto second = std::make_shared<anet::rl::env::LunarLanderEnv>(
-        config, torch::Device(torch::kCPU), "second-name[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[second-name].[0]", 123);
 
     const auto first_reset = first->Reset();
     const auto second_reset = second->Reset();
@@ -216,7 +216,7 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
 TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", "[lunarlander][obs_include_action]")
 {
     auto config_data = MakeConfigData(/*obs_include_action=*/true, /*limit_step=*/1000);
-    config_data.Set("train.eval.[test1].env.limit_step", "1");
+    config_data.Set("run.eval.[test1].env.limit_step", "1");
 
     auto factory = std::make_shared<anet::rl::env::LunarLanderEnvFactory>();
     anet::rl::VectorizedDiscreteBatchEnv env(
@@ -227,7 +227,7 @@ TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", 
         torch::Device(torch::kCPU),
         /*seed=*/1,
         anet::rl::RunMode::Train,
-        /*config_prefix=*/"train.eval.[test1].env");
+        /*config_prefix=*/"run.eval.[test1].env");
 
     const auto spec = env.GetSpec();
     const std::vector<int64_t> expected_single_shape{ 12 };

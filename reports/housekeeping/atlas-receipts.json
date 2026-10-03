@@ -1,0 +1,102 @@
+[
+  {
+    "type": "architecture",
+    "specification": {
+      "sha256": "6f5b1d245d78f08ecaaac0bff2c52ad0f1fb840097bcd9765263250b594d7581",
+      "bytes": 10960
+    },
+    "artifact": {
+      "sha256": "f81f76ba4db446448e924d079b2bb968f0e1927d5a4f9fe6a41e18d5e1ca9754",
+      "bytes": 745779
+    },
+    "validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    },
+    "visual_review": "passed"
+  },
+  {
+    "type": "workflow",
+    "specification": {
+      "sha256": "0cd5eb3571f856a99d39aa7e5972e0bece371903995cfdcb3ed4e2bf0bc45955",
+      "bytes": 4170
+    },
+    "artifact": {
+      "sha256": "9eb065f94e7ae2c7e8ddf96b5b840ff37c43e12a08e8b01bc5caa6894f47595a",
+      "bytes": 723008
+    },
+    "validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    },
+    "visual_review": "passed"
+  },
+  {
+    "type": "sequence",
+    "specification": {
+      "sha256": "ba6d7e805f96b202e9f7e2c0fe720d45df1131e7bb209d5a40b5c105db034041",
+      "bytes": 5979
+    },
+    "artifact": {
+      "sha256": "dcda7a58bd156f5b06735ea5726c1f62624e4173338b5877670fa96c0f730141",
+      "bytes": 734338
+    },
+    "validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    },
+    "visual_review": "passed"
+  },
+  {
+    "type": "dataflow",
+    "specification": {
+      "sha256": "f56b1736e0fb2fe65b0fc97061457094f45751f3b3bf03e70027216ae085766a",
+      "bytes": 5498
+    },
+    "artifact": {
+      "sha256": "0e72686959604a7ce8929e547ebac95db4456fe9d37cacc625027a2b5d20cc12",
+      "bytes": 732768
+    },
+    "validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    },
+    "visual_review": "passed"
+  },
+  {
+    "type": "lifecycle",
+    "specification": {
+      "sha256": "d27db9489c9428883d7908e636412d8e92f66ee1e049b064f535640748c27523",
+      "bytes": 4620
+    },
+    "artifact": {
+      "sha256": "287d20a2ad53f2f242f3b1fd6a6e8d0c2289f237870bca3af903d59b51529b5b",
+      "bytes": 727359
+    },
+    "validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    },
+    "visual_review": "passed"
+  }
+]

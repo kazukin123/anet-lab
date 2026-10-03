@@ -15,11 +15,11 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class SignedLogPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
-	void logScaleTogglePersistsAcrossReloadsButNotPageRefresh() {
+	void logScaleTogglePersistsAcrossReloadsAndPageRefresh() {
 		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
 
@@ -33,6 +33,8 @@ class SignedLogPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		page.click(".graph-log-toggle");
 		waitForSignedLogTrace(page);
 		assertEquals("linear", readYAxisType(page));
+		assertEquals("[\"palette/test\"]", page.evaluate(
+				"() => localStorage.getItem('anet.metricsviewer.logScaleTags')"));
 
 		page.click("#btn-reload");
 		waitForGraph(page);
@@ -47,8 +49,9 @@ class SignedLogPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
+		waitForSignedLogTrace(page);
 		assertEquals("linear", readYAxisType(page));
-		assertEquals("false", page.getAttribute(".graph-log-toggle", "aria-pressed"));
+		assertEquals("true", page.getAttribute(".graph-log-toggle", "aria-pressed"));
 	}
 
 	@Test

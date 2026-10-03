@@ -1,7 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.*;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -128,16 +128,33 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
-	protected static boolean isAutoReloadButtonActive(Page page) {
+	/**
+	 * トグルのON/OFFを返す。aria-pressedを正とし、見た目の.activeが食い違っていれば失敗させる。
+	 */
+	protected static boolean isToggleOn(Page page, String selector) {
 		return Boolean.TRUE.equals(page.evaluate("""
-				() => document.getElementById('btn-auto-reload').classList.contains('active')
-				"""));
+				selector => {
+					const el = document.querySelector(selector);
+					if (!el) throw new Error('toggle not found: ' + selector);
+					const pressed = el.getAttribute('aria-pressed') === 'true';
+					if (pressed !== el.classList.contains('active')) {
+						throw new Error('toggle state mismatch: ' + selector);
+					}
+					return pressed;
+				}
+				""", selector));
+	}
+
+	protected static void setToggle(Page page, String selector, boolean on) {
+		if (isToggleOn(page, selector) != on) page.click(selector);
+	}
+
+	protected static boolean isAutoReloadButtonActive(Page page) {
+		return isToggleOn(page, "#btn-auto-reload");
 	}
 
 	protected static boolean isGraphScrollLockButtonActive(Page page) {
-		return Boolean.TRUE.equals(page.evaluate("""
-				() => document.getElementById('btn-graph-scroll-lock').classList.contains('active')
-				"""));
+		return isToggleOn(page, "#btn-graph-scroll-lock");
 	}
 
 	protected static boolean isGraphScrollLockButtonVisible(Page page) {
@@ -224,10 +241,22 @@ abstract class MetricsViewerPlaywrightTestSupport {
 		page.mouse().move(position.get("x").doubleValue(), position.get("y").doubleValue());
 	}
 
+	protected static void tapFirstTraceMiddlePoint(Page page) {
+		final Map<String, Number> position = readFirstTraceMiddlePointScreenPosition(page);
+		dispatchTouchTap(page, position.get("x").doubleValue(), position.get("y").doubleValue());
+	}
+
 	protected static void waitForPlotlyHoverText(Page page) {
 		page.waitForFunction("""
-				() => Array.from(document.querySelectorAll('.hovertext'))
-					.some(el => (el.textContent || '').trim().length > 0)
+				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
+					.some(el => el.style.display !== 'none' && (el.textContent || '').trim().length > 0)
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	protected static void waitForHoverOverlayHidden(Page page) {
+		page.waitForFunction("""
+				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
+					.every(el => getComputedStyle(el).display === 'none')
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
@@ -310,6 +339,30 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
+	protected static boolean isDocumentScrollable(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.scrollingElement ?? document.documentElement;
+					return el.scrollHeight > el.clientHeight;
+				}
+				"""));
+	}
+
+	protected static void setDocumentScrollTop(Page page, int scrollTop) {
+		page.evaluate("""
+				scrollTop => {
+					const el = document.scrollingElement ?? document.documentElement;
+					el.scrollTop = scrollTop;
+				}
+				""", scrollTop);
+	}
+
+	protected static void waitForDocumentScrolled(Page page) {
+		page.waitForFunction("""
+				() => (document.scrollingElement ?? document.documentElement).scrollTop > 0
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
 	protected static void waitForPlotlyDragCoverRemoved(Page page) {
 		page.waitForFunction("""
 				() => !document.querySelector('.dragcover')
@@ -334,6 +387,17 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					return rect.top + rect.height / 2;
 				}
 				""")).doubleValue();
+	}
+
+	protected static void dispatchTouchTap(Page page, double x, double y) {
+		final CDPSession cdp = page.context().newCDPSession(page);
+		try {
+			dispatchTouchEvent(cdp, "touchStart", x, y);
+			page.waitForTimeout(60);
+			dispatchTouchEvent(cdp, "touchEnd", x, y);
+		} finally {
+			cdp.detach();
+		}
 	}
 
 	protected static void dispatchTouchSwipe(Page page, double x, double startY, double endY) {
@@ -490,7 +554,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 
 					const y = Array.from(plot.data?.[0]?.y ?? []);
 					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
-					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const ticktext = Array.from(
+						plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
 					return y.length === 3
 						&& customdata.length === 3
 						&& customdata.every((raw, index) => {
@@ -516,7 +581,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					const expectedRaw = [-100, -9, 0, 9, 100];
 					const y = Array.from(plot.data?.[0]?.y ?? []);
 					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
-					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const ticktext = Array.from(
+						plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
 					const requiredTicks = ['-100', '-10', '-1', '0', '1', '10', '100'];
 					return y.length === expectedRaw.length
 						&& customdata.length === expectedRaw.length
@@ -672,6 +738,56 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					return el ? getComputedStyle(el).touchAction : '';
 				}
 				""");
+	}
+
+	protected static String readChipColor(Page page, String runId) {
+		return (String) page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.dataset.runId === runId);
+					const chip = row?.querySelector('.run-color');
+					return chip ? getComputedStyle(chip).backgroundColor : '';
+				}
+				""", runId);
+	}
+
+	protected static List<String> readChipColors(Page page, List<String> runIds) {
+		return runIds.stream().map(runId -> readChipColor(page, runId)).toList();
+	}
+
+	protected static void clickRunRow(Page page, String runId) {
+		// 行はrefreshListsのたびに作り直されるため、click前に必ず引き直す。
+		page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.dataset.runId === runId);
+					if (!row) throw new Error('run not found: ' + runId);
+					row.click();
+				}
+				""", runId);
+	}
+
+	protected static void setAutoRecolor(Page page, boolean enabled) {
+		setToggle(page, "#btn-auto-recolor", enabled);
+	}
+
+	protected static String readAutoRecolorStorage(Page page) {
+		return (String) page.evaluate("""
+				() => localStorage.getItem('anet.metricsviewer.autoRecolorEnabled')
+				""");
+	}
+
+	protected static void waitForRunRows(Page page, int count) {
+		page.waitForFunction("""
+				count => document.querySelectorAll('#run-list .run-row').length === count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	protected static void waitForSelectedTraceCount(Page page, int count) {
+		page.waitForFunction("""
+				count => (document.querySelector('.js-plotly-plot')?.data ?? [])
+					.filter(trace => trace?.meta?.runId).length >= count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
 	protected static void selectSingleRun(Page page, String runId) {

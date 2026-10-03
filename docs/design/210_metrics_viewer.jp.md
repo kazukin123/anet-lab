@@ -119,7 +119,7 @@ Metrics Viewerはconnectionを読み＝request単位、書き＝取り込みbloc
 
 ### 2.4 マスタとキャッシュの従属関係
 
-`metrics.jsonl`（Runnerが圧縮した後は`metrics.jsonl.gz`）が**Metricsマスタ**である。
+`metrics.jsonl`（workspace metrics圧縮ツールで移行した後は`metrics.jsonl.gz`）が**Metricsマスタ**である。
 `metrics_cache.db`はマスタから従属構築される破棄可能な**Metricsキャッシュ**であり、第2のマスタにはしない。
 
 この区別が効いてくるのは、schemaを変えたときとfileが壊れたときである。
@@ -218,6 +218,9 @@ clientはviewportそのものではなく、左右へ1画面ずつ広げた**3�
 windowは系列ごとに1件だけ保持し、新しい応答が来たら差分mergeせず丸ごと置き換える。
 各range応答はそれ単体で完結しており、前回の応答へ依存しないため、この単純な置換で足りる。
 
+1つのgraphに載る系列（同じtagの選択中Run）は同じrequestで取る。点予算はrequest内の系列へ配分されるので、別々に取るとgraph内で解像度がそろわなくなるためである。
+どれか1系列でも取り直しが要れば、そのgraphの系列をまとめて取り直す。
+
 ### 2.9 Metricsキャッシュ世代
 
 同じ名前のRunフォルダでも、中身のマスタが差し替われば別物である。これを識別するのが**Metricsキャッシュ世代**である。
@@ -240,6 +243,7 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 
 ここでいう**block**は、1回のtransactionで取り込む行のまとまりである。
 巨大なマスタを1回のtransactionで読み切ると、その間ずっとRunが表示できないため、最大1,000,000行ずつに区切って途中経過をcommitする。
+1,000,000行は定常時の読み込み効率を保つ上限であり、workspace切替要求が待機中なら次の完全行を反映した時点でblockを早期commitする。
 `converting`はこの「途中まで見えている」状態を表し、browserは進捗率つきで表示する。
 
 ## 3. コンポーネント定義
@@ -249,21 +253,24 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | コンポーネント | 定義 |
 |---|---|
 | `MetricsViewerApplication` | Spring Boot application entry |
-| `RunScanner` | `runs`直下からMetricsマスタを持つRunフォルダを列挙し、Run idをRun directoryへ解決する |
+| `WorkspaceManager` | current workspaceをepoch付きsnapshotとしてatomicに保持し、API/ingest lease、切替gate、旧resourceのclose-on-zero、terminalなshutdownを管理する |
+| `RunScanner` | snapshotの`<workspace>/runs`直下からMetricsマスタを持つRunフォルダを列挙し、Run idをRun directoryへ解決する |
 | `MetricsSource` | 選択したマスタfileのkind、size、mtime、先頭・commit直前のSHA-256 fingerprintを表すvalue |
 | `MetricsCacheDatabase` | cache fileの検証、破棄・再構築、`source_meta`、read/write connectionのlifecycleを管理する |
 | `SourceReader` | 改行終端済みの完全行だけをblock単位で読み出す抽象。`RawFileReader`と`GzipSessionReader`を持つ |
 | `GzipInputSessions` | convert中のgzip展開streamをblock間で保持し、Run単位で解放する |
 | `MetricsIngestor` | 1 blockのJSONL parse、L0書込み、LOD追記、`TagStats`、source位置を同一transactionで確定する |
 | `LodIngestWriter` / `LodBucket` | 子16件がそろうたびに親bucketを合成して`scalars_lod`へ書く追記専用writerとbucket値 |
-| `IngestScheduler` | Run作業セットを走査し、priority 3 : background 1で1 blockずつ配分する |
-| `LoadingThread` | schedulerを回す単一writer thread。全Runが停止状態のときだけidle sleepする |
+| `IngestScheduler` | Run作業セットを走査し、actionableなRunへpriority 3 : background 1で1 blockずつ配分する。terminal/no-op Runは同一cycleで再検査しない |
+| `LoadingThread` | `WorkspaceManager.runIngestCycle()`を回す単一writer thread。即時処理可能なbacklogもworkspace切替も残らないときだけidle sleepする |
+| `MetricsQueryCoordinator` | process-globalなfair permit、query channelごとの最新sequence、live ticket、workspace epoch、terminal shutdownを一体管理し、supersede時にcheckpointと実行中SQLを停止する |
 | `MetricsRepository` | Runごとに1本のread snapshotを開き、Run metadataとseries queryを解決する |
 | `MetricsQueryPlanner` | 系列ごとのavailability判定と、request全体の点予算配分を決める |
 | `MetricsRangeProjector` | raw射影とLOD射影を組み立て、部分bucketだけ下位levelから再集約する |
-| `LodPageCache` | 完成済みbucketだけを1024件単位のpageとしてheapへ持つLRU cache |
-| `MetricsService` | LoadingThreadのlifecycle、request検証、query同時実行のsemaphore、優先Run集合を担う |
-| `MetricsViewerController` | `/api/runs.json`、`/api/metrics.json`、`/api/runs/prioritize`を公開する |
+| `LodPageCache` | 完成済みbucketだけを1024件単位のpageとしてheapへ持つLRU cache。末尾pageは、snapshotのtag点数から求めた完成bucket数に足りなくなったときだけ読み直す |
+| `MetricsService` | LoadingThreadのlifecycle、metrics body/header検証、coordinator実行、snapshot lease取得、HTTP error変換を担う |
+| `MetricsViewerController` | Run、metrics、priorityのREST APIを公開する |
+| `WorkspaceController` | workspace一覧・切替APIを公開し、同Controllerの不正JSONだけを400 `invalid_request`へ変換する |
 | `MetricTraceEncoder` | double/float配列をlittle-endian Base64 chunk列へ符号化する |
 | `RunWarningRegistry` | Run作業セットに存在する間、世代をまたいで同じWARNを抑止する |
 | `HttpAccessLogFilter` | 全requestの開始・終了・所要時間をINFOで記録する |
@@ -272,12 +279,49 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 
 | コンポーネント | 定義 |
 |---|---|
-| `MetricsViewerClientApp` | Run/tag選択、viewport、描画世代（revision）、poll timerを所有するclient app |
-| `DataFetcher` | REST呼出しとAbortControllerによる旧request打ち切りを担当する |
-| `DataCache` | Run metadataと、`(runId, tagKey)`ごとのwindow 1件を保持する |
-| `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う |
+| `MetricsViewerClientApp` | Run/tag選択、Run色、viewport、描画世代（revision）、poll timerを所有するclient app |
+| `DataFetcher` | REST呼出し、ページ単位のquery channelとsequence、AbortControllerによる旧request打ち切りを担当する |
+| `DataCache` | Run metadataと、`(runId, tagKey)`ごとのwindow 1件を保持する。windowには取得時のtag点数・最終step・statusを添え、Reload時の鮮度判定に使う |
+| `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う。graph blockをtagKeyで使い回し、描画keyが変わったgraphだけを作り直す |
 | `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
-| `Toast` | 一時的なerror通知を表示する |
+| `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
+
+### 3.3 UIコントロールの規約
+
+browserのcontrolは、押した瞬間に効果が出るもの、on/offが持続するもの、決まった段を順に巡るものの3種類しかない。
+どれも`button`で作り、見分けはラベルの言葉づかいで付ける。
+
+| 種別 | ラベル | 状態 |
+|---|---|---|
+| 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View` | 持たない |
+| トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log` | `.active`と`aria-pressed`を対で更新する |
+| 巡回 | 現在の段をそのまま書く。graphの下限`p0–` / `p1–` / `p5–`と上限`–p100` / `–p99` / `–p95` | 押すたびに固定順で次の段へ進み、最後の段の次は先頭へ戻る。先頭の段以外で`.active`と`aria-pressed`をONにする |
+
+sectionの見出し行には、ラベルに続けてそのリストへの操作を左詰めで並べる。
+入りきらない分だけを次の行へ送る（Runsの`Recolor` / `Auto Recolor`）。
+サイドパネルのbuttonは、見出し行・ボタン行・globalのどこにあっても同じ寸法にする。
+絞り込み中に一括操作（`Select All`など）を押したときは、ボタンを無効化せず、絞り込みを解除してから実行する。
+
+on/offはラベル文字へ書かず、押下色だけで示す。状態の反映は`setToggleState()`へ集約し、
+見た目の`.active`と意味の`aria-pressed`が食い違わないようにする。checkboxは使わない。
+巡回は段が3つ以上あって押下色だけでは区別できないので、ラベルに現在の段を書き、押下色は先頭の段から外れていることだけを示す。
+段によってラベルの文字数が変わっても寸法と後続要素の位置が動かないよう、最長のラベルに合わせた固定幅にする。
+
+controlの枠線は`--control-border`（hoverは`--control-border-hover`）の1段で、
+`.section`などのcontainer枠`--container-border`より弱くする。
+ON時の配色は`--active-background` / `--active-accent` / `--active-text`を使う。
+
+### 3.4 スクリーンショットモード
+
+スクリーンショットモードは貼り付け用の絵を作るために表示だけを畳むモードであり、データの更新は止めない。
+side panelとfloating controlのうちgraph操作用のものを隠し、`#main-area`のoverflowをvisibleにしてスクロールをdocument側へ移し、Run名を載せたheaderを出す。
+Auto Reloadも手動Reloadも通常と同じに効き、side panelが隠れてReloadボタンを押せない間はgraphのdouble clickがReloadの入口になる。
+進捗を出すRun listが隠れている間は、取り込み進捗のpollだけを止める。
+
+スクロール主体が`#main-area`とdocumentで入れ替わるため、位置はpixelのままでは引き継げない。
+`scrollElement()`が現在のスクロール主体を返し、再描画とモード切替は前後で
+「先頭に見えているgraph blockのtagKeyと、そのblockが表示領域の上端からはみ出している量」を覚えて復元する。
+覚えたtagのgraphが消えていたときだけ、同じスクローラの続きとしてpixelで戻す。
 
 ## 4. コードマップ
 
@@ -288,9 +332,9 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | cache DB | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
 | source読み出し | [SourceReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)、[RawFileReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java)、[GzipSessionReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java)、[GzipInputSessions.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
 | 取り込み | [MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java)、[LodBucket.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
-| scheduling | [IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
-| query | [MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsQueryPlanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java)、[MetricsRangeProjector.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java)、[LodPageCache.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
-| API | [MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)、[MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)、[view/model](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model)、[MetricTraceEncoder.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
+| workspace / scheduling | [WorkspaceManager.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java)、[IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
+| query | [MetricsQueryCoordinator.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryCoordinator.java)、[QueryCancelledException.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java)、[MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsQueryPlanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java)、[MetricsRangeProjector.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java)、[LodPageCache.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
+| API | [MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)、[MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)、[WorkspaceController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java)、[view/model](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model)、[MetricTraceEncoder.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
 | browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 | test | [src/test/java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
 | build | [pom.xml](../../apps/metrics-viewer/pom.xml)、[checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml) |
@@ -302,6 +346,7 @@ classDiagram
 direction LR
 
 class LoadingThread
+class WorkspaceManager
 class IngestScheduler
 class MetricsIngestor
 class SourceReader
@@ -312,14 +357,21 @@ class LodIngestWriter
 class MetricsCacheDatabase
 class RunScanner
 class MetricsService
+class MetricsQueryCoordinator
 class MetricsRepository
 class MetricsQueryPlanner
 class MetricsRangeProjector
 class LodPageCache
 class MetricsViewerController
+class WorkspaceController
 class MetricsViewerSettings
 
-LoadingThread --> IngestScheduler
+LoadingThread --> WorkspaceManager
+WorkspaceManager *-- IngestScheduler
+WorkspaceManager *-- RunScanner
+WorkspaceManager *-- MetricsRepository
+WorkspaceManager *-- LodPageCache
+WorkspaceManager *-- GzipInputSessions
 IngestScheduler --> MetricsIngestor
 IngestScheduler --> RunScanner
 IngestScheduler --> GzipInputSessions
@@ -331,14 +383,16 @@ SourceReader <|.. GzipSessionReader
 GzipSessionReader --> GzipInputSessions
 
 MetricsViewerController --> MetricsService
-MetricsService --> MetricsRepository
-MetricsService --> IngestScheduler
+WorkspaceController --> MetricsService
+MetricsService --> WorkspaceManager
 MetricsService --> LoadingThread
-MetricsService --> LodPageCache
+MetricsService --> MetricsQueryCoordinator
+WorkspaceManager --> MetricsQueryCoordinator
 MetricsRepository --> MetricsCacheDatabase
 MetricsRepository --> RunScanner
 MetricsRepository *-- MetricsQueryPlanner
 MetricsRepository --> MetricsRangeProjector
+MetricsRepository ..> MetricsQueryCoordinator : execution token
 MetricsRangeProjector --> LodPageCache
 MetricsService --> MetricsViewerSettings
 MetricsQueryPlanner --> MetricsViewerSettings
@@ -355,41 +409,54 @@ LodPageCache --> MetricsViewerSettings
 ```mermaid
 sequenceDiagram
     participant L as LoadingThread
+    participant W as WorkspaceManager
     participant S as IngestScheduler
     participant I as MetricsIngestor
     participant R as SourceReader
     participant D as metrics_cache.db
 
-    L->>S: runCycle()
-    S->>S: Run列挙、priority/backgroundへ分割
+    L->>W: runIngestCycle()
+    W->>W: snapshot lease取得
     loop 4 slot（priority 3 : background 1）
-        S->>I: ingestBlock(runId, runDir, source)
-        I->>R: prepare(database)
-        R->>D: source fingerprint照合
-        alt 不一致
-            D->>D: cache全破棄と新generationで再作成
-        end
-        alt readRequired = false
-            I-->>S: didWork = false
+        W->>W: 切替gate取得、epoch/shutdown確認
+        W->>S: runNextBlock()
+        S->>S: slot 0ならRun列挙、priority/backgroundへ分割
+        S->>I: ingestBlock(runId, runDir, source属性)
+        I->>I: source/cache属性を検証済み観測と照合
+        alt 属性一致かつ前回stateがready/error
+            I-->>S: didWork=false, immediateRetry=false
         else
-            I->>D: BEGIN
-            loop 最大1,000,000行
-                I->>R: 完全行を1行読む
-                I->>I: JSON parse
-                alt type = scalar
-                    I->>D: scalars INSERT
-                    I->>D: 子16件がそろえばscalars_lod INSERT
-                else 非scalar
-                    I->>D: json_lines INSERT
-                end
+            I->>R: prepare(database)
+            R->>D: source fingerprint照合
+            alt 不一致
+                D->>D: cache全破棄と新generationで再作成
             end
-            I->>D: tag_stats UPSERT
-            I->>D: source_meta（offset・fingerprint・state）更新
-            I->>D: COMMIT
-            I-->>S: didWork、次state
+            alt readRequired = false
+                I-->>S: didWork=false, immediateRetry=false
+            else
+                I->>D: BEGIN
+                loop 最大1,000,000行
+                    I->>R: 完全行を1行読む
+                    I->>I: JSON parse
+                    alt type = scalar
+                        I->>D: scalars INSERT
+                        I->>D: 子16件がそろえばscalars_lod INSERT
+                    else 非scalar
+                        I->>D: json_lines INSERT
+                    end
+                end
+                I->>D: tag_stats UPSERT
+                I->>D: source_meta（offset・fingerprint・state）更新
+                I->>D: COMMIT
+                I-->>S: didWork、次state、immediateRetry
+            end
         end
+        S->>S: terminal/no-op Runをcycle内でexhausted化
+        S-->>W: immediateRetry
+        W->>W: 切替gate解放
     end
-    alt どのRunも進まなかった
+    W->>W: snapshot lease解放
+    alt immediateRetry = false
         L->>L: 10秒sleep
     end
 ```
@@ -407,21 +474,29 @@ sequenceDiagram
     participant B as Browser
     participant C as MetricsViewerController
     participant S as MetricsService
+    participant Q as MetricsQueryCoordinator
+    participant W as WorkspaceManager
     participant R as MetricsRepository
     participant P as MetricsQueryPlanner
     participant J as MetricsRangeProjector
     participant D as metrics_cache.db
 
-    B->>C: POST /api/metrics.json（series配列）
-    C->>S: getMetrics(request)
-    S->>S: 形式検証（未知field、safe integer、maxPoints範囲）
-    S->>S: query semaphoreを最大5秒待つ
-    S->>R: query(series)
+    B->>C: POST /api/metrics.json（series配列 + channel/sequence header）
+    C->>S: getMetrics(request, channel, sequence)
+    S->>S: body/header検証
+    S->>Q: run(channel, sequence, work)
+    Q->>Q: 同一channelの旧ticketをcancelし、fair permitを最大5秒待つ
+    Q->>S: work(execution token)を呼び出す
+    S->>W: workspace lease取得
+    W-->>S: lease(epoch)
+    S->>Q: ticketをworkspace epochへ束縛
+    Q-->>S: epoch束縛完了
+    S->>R: query(series, execution token)
     loop Runごと
         R->>D: openRead + setAutoCommit(false)
         R->>D: source_meta読み取り
         R->>D: tagとtag_stats読み取り
-        R->>D: stepの二分探索でordinal範囲へ写像
+        R->>D: stepの二分探索でordinal範囲へ写像（tagのstep範囲外の端は点数で決まる）
     end
     R->>P: plan(inputs)
     P-->>R: availability、点予算
@@ -436,6 +511,8 @@ sequenceDiagram
         J-->>R: raw または lod 射影
     end
     R-->>S: 系列結果
+    S-->>Q: lease解放後に系列結果
+    Q-->>S: permit返却後に系列結果
     S-->>C: GetMetricsResponse
     C-->>B: Base64 chunk列を含むJSON
 ```
@@ -467,24 +544,51 @@ sequenceDiagram
     P->>A: onViewportChanged(tagKey, range)
     A->>A: revisionを進めて進行中requestをabort、150ms debounce
     A->>F: 新しい3画面windowを要求
+
+    U->>A: Reload
+    A->>F: GET /api/runs.json
+    F-->>A: Run/tag metadata
+    A->>K: isOutdated判定（取得時のtag点数・最終step・statusと比べる）
+    A->>F: 古くなったgraphの系列だけPOST /api/metrics.json（無ければ送らない）
+    A->>P: 描画keyが変わったgraphだけ作り直す
 ```
 
 各rangeは前回応答へ依存しない完結した結果であり、clientは差分mergeを行わずwindowごと置換する。
-取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。Auto Reloadは30秒間隔でmetadataを取り直し、最新stepへ追従中の系列だけrangeを更新する。
+
+手動ReloadとAuto Reloadは、metadataを取り直したあと、取得後に中身が古くなったwindowを含むgraphだけを取り直す。何も変わっていなければ`metrics.json`は送らない。
+windowには取得を決めた時点のtag点数・最終step・statusを添えておき、次のどれかに当たれば古いとみなす。
+
+| 条件 | 理由 |
+|---|---|
+| windowが無い、世代が違う、要求windowを覆っていない、拡大で解像度が足りない | zoom/panや選択変更と同じ判定 |
+| availabilityが`ok` / `empty`以外 | 取り込み中や照会失敗で値が確定していない |
+| tagのstatusが変わった | 隔離などでissueが変わった |
+| tagの点数が変わり、windowの右端が取得時の最終step以上 | 追記点がwindowへ入りうる |
+
+tag内のstepは非減少なので、追記点のstepは取得時の最終step以上になる。過去の区間を拡大していてwindowの右端がそこへ届かないgraphは、点数が増えても取り直さない。
+
+描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、描画key（LOD表示モード、Log、percentileの下限と上限、複数Runか、Runごとのwindowと色）が前回と同じblockはPlotlyを呼ばずに使い回し、metadata由来のheader（統計と警告）だけを書き換える。
+凡例の表示、軸範囲、drag modeはPlotly上で直接変わり、描画の前に`capturePlotState`で読み戻すので描画keyに含めない。
+Plotlyの再描画はgraph 1枚あたり数十msかかり（実測で137 graph×5 Runの全再描画が約5秒）、作り直すgraphを絞ることがReloadの応答時間を決める。
+
+取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。この進捗pollだけはスクリーンショットモード中は止まり、Auto Reloadと手動Reloadはモードに関わらず動く。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中のgraphのうち古くなったものだけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
 
 ## 7. 設定一覧
 
 ### 7.1 Metrics Viewer固有設定
 
-すべて`application.properties`または起動引数（`--key=value`）で与える。値の検証は`MetricsViewerSettings`のconstructorで行い、範囲外はapplication起動を中止する。
+すべて`application.properties`または起動引数（`--key=value`）で与える。数値設定は
+`MetricsViewerSettings`、workspace path/nameは`WorkspaceManager`のconstructorで検証し、
+契約違反はapplication起動を中止する。
 
 | key | 既定 | 有効範囲 | 意味 |
 |---|---:|---|---|
-| `metricsviewer.runs-dir` | `runs` | - | Run作業セットとして走査するディレクトリ。直下の1階層だけを見る |
+| `metricsviewer.workspaces-dir` | `workspaces` | local path | workspace群の親directory。UNC rootは起動時に拒否する |
+| `metricsviewer.initial-workspace` | `_default` | 直下directory名 | 起動時のcurrent workspace。妥当だが不在ならWARNと空のRun一覧で起動する |
 | `metricsviewer.target-points-per-series` | `8000` | 3 〜 `max-points-per-request` | requestが`maxPoints`を省略したときの1系列あたり既定vertex予算 |
 | `metricsviewer.max-points-per-request` | `500000` | 3 〜 1,000,000 | 1 requestで配分できるvertex総数 |
-| `metricsviewer.cache-memory-mb` | `256` | 0以上、かつ最大heapの50%以下 | 完成済みLOD pageのheap上限。`0`でpage cacheを使わずbucket単位で読む |
-| `metricsviewer.max-concurrent-queries` | `2` | 1 〜 4 | `/api/metrics.json`の同時実行数。超過分はsemaphoreで最大5秒待つ |
+| `metricsviewer.cache-memory-mb` | `256` | 0以上、かつ最大heapの50%以下 | LOD page（完成bucketの塊）のheap上限。`0`でpage cacheを使わずbucket単位で読む |
+| `metricsviewer.max-concurrent-queries` | `2` | 1 〜 4 | `/api/metrics.json`のprocess-globalな同時実行数。coordinatorのfair permitを最大5秒待つ |
 
 `cache-memory-mb`の上限判定は`Runtime.maxMemory()`に依存する。起動scriptの`-Xmx`を下げるとこの設定だけで起動に失敗しうる。
 
@@ -492,7 +596,7 @@ sequenceDiagram
 
 | key | 設定値 | 意図 |
 |---|---|---|
-| `server.port` | `8082` | 通常Run用の既定port。Optuna用launcherは`8083`を渡す |
+| `server.port` | `8082` | Metrics Viewerの既定port |
 | `server.compression.enabled` | `false` | 応答本体は既にBase64 binaryのため、圧縮を既定で無効にする |
 | `server.compression.mime-types` / `min-response-size` | JSON系 / `512` | 圧縮を有効化した場合の対象 |
 | `server.tomcat.connection-timeout` | `600000` | 大きなrange応答の生成待ちで切断させない |
@@ -510,10 +614,10 @@ request bodyは上記に加えて、`@JsonAnySetter`で未知fieldを捕捉し�
 
 | 用途 | 例 |
 |---|---|
-| 通常Runの可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082` |
-| Optuna seed runの可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8083 --metricsviewer.runs-dir=<repo>\apps\runner\runs_optuna` |
+| 既定workspace群の可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082` |
+| 別のworkspace群の可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
 
-既定pathとportは[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)と[22_metrics_viewer_java_optuna.bat](../../apps/22_metrics_viewer_java_optuna.bat)が固定する。
+既定pathとportは[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)が固定する。Optuna用の別Viewer launcherは持たず、同じworkspace selectorを使う。
 
 ### 7.4 browser側の定数と永続state
 
@@ -521,21 +625,33 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 
 | 定数 | 値 | 意味 |
 |---|---:|---|
-| `AUTO_RELOAD_INTERVAL_MS` | 30,000 | Auto Reload ONのときのmetadata再取得間隔 |
+| `AUTO_RELOAD_INTERVAL_MS` | 30,000 | Auto Reload ONのときのworkspace一覧・metadata再取得間隔 |
 | `INGEST_POLL_INTERVAL_MS` | 4,000 | 取り込み中Runがある間の進捗poll間隔 |
 | `VIEWPORT_DEBOUNCE_MS` | 150 | zoom/pan後にrange requestを出すまでのdebounce |
 | `RUN_SOLO_INTERVAL_MS` | 350 | 同じRun行の連続clickをsolo選択とみなす閾値 |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にdrag scrollへ切り替える移動量 |
+| `RUN_COLOR_MIN_DISTANCE` | 0.16 | `Auto Recolor`が既存のRun色を維持する分離距離の下限 |
 
-`localStorage`へ保存するstateは次の4件だけである。viewport、signed-log ON/OFF、凡例の表示状態、Run選択は保存しない。
+Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配り、`Auto Recolor`がONならそこから選択中Runだけを分離する。
+`Recolor`は現在の色を無視し、選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。`Auto Recolor`は既存の色が`min(RUN_COLOR_MIN_DISTANCE, 今のpaletteで取れる最良)`を満たさないRunだけを配り直す。
+どちらも未選択Runの色を変えず、選択が20本を超えるとpaletteを1周してラウンドを改める。選択1本以下では何もしない。
+
+`localStorage`へ保存するstateは次の8件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
+| `anet.metricsviewer.workspace` | 最後に選択したworkspace。列挙に無ければserver currentで上書きする |
 | `anet.metricsviewer.activeTags` | 現在選択中のtag集合 |
 | `anet.metricsviewer.knownTags` | 一度でも観測したtag集合。未知tagだけを自動でactiveにするために使う |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lockのon/off |
+| `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
+| `anet.metricsviewer.logScaleTags` | signed-logを有効にしたtag集合。文字列JSON配列を辞書順で保存する |
+| `anet.metricsviewer.percentileBounds` | percentileの下限か上限を制限したtagごとの段。`{"<tagKey>": [下限, 上限]}`のJSON objectをtagKeyの辞書順で保存する。下限は0 / 1 / 5、上限は100 / 99 / 95で、両方とも制限なし（0と100）のtagは含めない |
+
+Logの集合とpercentileの下限・上限は独立して復元する。Logの値が文字列JSON配列でないとき、percentileの値がJSON objectでないか段に無い値を1つでも含むときは、警告してそれぞれ空へフォールバックする。
+下限・上限を2つのボタンへ分ける前の`anet.metricsviewer.ignoreOutlierTags`（p5–p95）と`anet.metricsviewer.p1P99Tags`（p1–p99）は読まずに削除する。
 
 ## 8. Metricsキャッシュのデータベース定義
 
@@ -663,7 +779,41 @@ fingerprint計算のI/O失敗はcache不一致へ丸めず、`IOException`とし
 
 すべて`/api`配下で、`static/index.html`をrootとして配信する。
 
-### 9.1 `GET /api/runs.json`
+### 9.1 workspace API
+
+`GET /api/workspaces.json`はcurrent workspaceと選択肢を返す。選択肢は
+`metricsviewer.workspaces-dir`直下で`runs/`または`config/`を持つdirectoryの名前昇順である。
+currentが不在でもcurrent名は返し、選択肢には含めない。
+
+```json
+{"current":"dm_long","workspaces":["_default","dm_long","dm_opt"]}
+```
+
+`POST /api/workspace`は`{"name":"dm_long"}`だけを受け付ける閉じたschemaで、成功時は
+204 No Contentを返す。同じcurrent名は存在確認より先に204 no-opとし、epochを増やさない。
+未知workspaceは404 `unknown_workspace`、bodyの型・必須field・未知field違反は400
+`invalid_request`とする。不正JSONの応答変換は`WorkspaceController`内に限定し、
+metrics・prioritize APIのparse失敗形式へ影響させない。
+
+clientがselector表示後に外部でrename・削除されたworkspaceへ切り替え、`unknown_workspace`を受けた場合は、
+その選択肢を除去して切替前のworkspaceへ戻し、workspace一覧を再取得してToastで通知する。
+404以外の切替失敗では選択肢を除去せず、切替前のworkspaceへ戻す。
+POST成功後のworkspace一覧・metadata・data再取得に失敗した場合は切替済みworkspaceを維持し、
+`Workspace switched, but data refresh failed.`をToastで通知する。
+一方、server current自体が一覧から消えている場合は自動的に別workspaceへ切り替えず、
+`(missing) <name>`のdisabled optionとして現在値を表示し、同じmissing状態につき1回だけToastで通知する。
+
+clientは`POST /api/workspace`の応答を待つ間だけworkspace selectorをdisabledにする。応答後に
+workspace状態とselectorを同期した時点で再び操作可能にし、workspace一覧・metadata・dataのrefresh中でも
+次の切替を許可する。切替ごとにworkspace switch revisionを進め、新しい切替は古いmetadata/metrics requestを
+abortして各描画revisionを無効化する。古い切替世代は遅着した一覧・refresh結果、失敗表示、Toastを反映せず、
+最新の切替世代だけが後処理を所有する。
+
+切替はingest cycleと共通のgate内で、新snapshotを作ってcurrentへatomic swapしてから旧snapshotを
+retireする。API queryは開始時に取得したsnapshot leaseを処理終了まで使うため、切替中も異なる
+workspaceの同名Runやcacheが混ざらない。旧snapshotのgzip streamは最終lease解放時に1回だけ閉じる。
+
+### 9.2 `GET /api/runs.json`
 
 Run作業セット全体のmetadataを返す。呼び出しのたびにruns directoryを走査するため、フォルダ操作が即座に反映される。
 
@@ -686,7 +836,7 @@ Run作業セット全体のmetadataを返す。呼び出しのたびにruns dire
 - `ingest.error`、`tags[].stats`、`tags[].error`はnullなら省略する。`generation`はnullのまま返す。
 - この呼び出しはLOD page cacheの世代整理も行う。作業セットから消えたRunのpageと、世代が変わったRunの旧pageを破棄する。
 
-### 9.2 `POST /api/metrics.json`
+### 9.3 `POST /api/metrics.json`
 
 request:
 
@@ -694,6 +844,15 @@ request:
 { "series": [ { "runId": "...", "tagKey": "...",
                 "fromStep": 0, "toStep": 2000000, "maxPoints": 8000 } ] }
 ```
+
+必須header:
+
+| header | 契約 |
+|---|---|
+| `X-Query-Channel` | 1つのブラウザタブに対応する1〜128文字の非blank文字列。値はtrimしない |
+| `X-Query-Sequence` | channel内でPOSTごとに増える0以上のJavaScript safe integer |
+
+browserはページ生成時に`crypto.randomUUID()`が利用可能ならその値をchannelに使う。非secureなリモートHTTPなどで同APIが未定義の場合は、時刻と複数の乱数片から128文字以内のtab固有channelを生成するため、`http://<host>:8082`での閲覧も維持する。
 
 `fromStep` / `toStep`は必須の閉区間で、JavaScriptのsafe integer範囲（±9,007,199,254,740,991）に収める。`maxPoints`は省略可で、既定は`target-points-per-series`である。
 
@@ -730,16 +889,17 @@ error応答:
 
 | status | body | 契機 |
 |---|---|---|
-| 400 | `{"code":"invalid_request","message":...}` | 未知field、必須欠落、safe integer違反、`fromStep > toStep`、`maxPoints`範囲外 |
+| 400 | `{"code":"invalid_request","message":...}` | body違反、query headerの欠落・空・長さ超過・形式/範囲違反 |
+| 409 | `{"code":"superseded","message":...}` | 同一channelの新query、workspace切替、shutdown、遅着sequenceにより停止された |
 | 422 | `{"seriesCount":N,"requiredMinimumPoints":M,"maxPointsPerRequest":K}` | 系列数が多すぎて最低予算すら配れない |
-| 503 | `{"code":"query_busy","message":...}` + `Retry-After: 2` | 5秒待ってもquery semaphoreを取得できない |
+| 503 | `{"code":"query_busy","message":...}` + `Retry-After: 2` | 別channelが枠を占有して5秒以内にpermitを取得できない、またはshutdown中にleaseを取得できない |
 
-### 9.3 `POST /api/runs/prioritize`
+### 9.4 `POST /api/runs/prioritize`
 
 `{"runIds": ["...", "..."]}`を受け取り、取り込み優先Run集合を丸ごと置換する。成功時は204 No Contentである。
 存在しないRun id、空文字、未知fieldは400にする。clientはRun選択が変わるたびに送り、前回の送信完了を待って直列化する。
 
-### 9.4 binary projectionの符号化
+### 9.5 binary projectionの符号化
 
 数値列はJSON配列ではなく、little-endianのbinaryをBase64化した文字列の配列として返す。1 chunkは250,000要素で、float換算1 MBである。
 
@@ -763,10 +923,12 @@ lod : { "kind":"lod",
 
 ### 10.1 lifetime
 
-- `MetricsService`の`@PostConstruct`で`LoadingThread`を開始し、`@PreDestroy`で最大30秒待って停止する。
-- `LoadingThread`はdaemon threadで、1 cycleで1 blockも進まなかったときだけ10秒sleepする。cycle境界のRuntimeExceptionは記録して次cycleで回復を試み、HTTPは生かしたままにする。
+- `MetricsService`の`@PostConstruct`で`LoadingThread`を開始する。`@PreDestroy`は`MetricsQueryCoordinator.cancelAll()`、`LoadingThread`の最大30秒停止待ち、`WorkspaceManager.shutdown()`の順で実行する。
+- metrics queryはcoordinatorのpermit取得後にworkspace leaseを取得する。終了時はSQL/connection、lease、permitの順に解放し、切替でretireされた旧resourceをpermit返却前に閉じる。
+- `LoadingThread`はdaemon threadで、`converting` backlogまたはworkspace切替による即時再試行が不要なとき10秒sleepする。小さなappendを`ready`までcommitしたcycleもsleepし、cycle境界のRuntimeExceptionは記録して10秒後に回復を試みる。
+- `WorkspaceManager.shutdown()`はterminalである。開始後の新規leaseとworkspace切替は`IllegalStateException`で即時終了し、進行中cycleは現在blockの安全な終了後に停止する。取得済みleaseは利用を継続でき、最後のreleaseがretire済みresourceを1回だけ閉じる。
 - gzip変換中のRunは展開済みstreamを`GzipInputSessions`がblock間で保持する。この間はそのRun folderの移動をサポートしない。`ready`到達、失敗、作業セットからの消失で解放する。
-- `LodPageCache`は完成pageだけを保持し、Run消失と世代変更で破棄する。容量超過時はアクセス順のLRUで追い出す。
+- `LodPageCache`は完成bucketから成るpageを末尾pageも含めて保持し、Run消失と世代変更で破棄する。容量超過時はアクセス順のLRUで追い出す。
 
 ### 10.2 並行制御
 
@@ -775,8 +937,10 @@ lod : { "kind":"lod",
 | cacheの全破棄・再構築 | Run directory単位のlifecycle write lock |
 | 通常のread/write transaction | 同lockのread lock + WAL |
 | query 1本のsnapshot固定 | Runごとに1本のread connectionを`autoCommit=false`で保持 |
-| query同時実行数 | `max-concurrent-queries`のfair semaphore（取得待ち最大5秒） |
+| query同時実行・supersede | `MetricsQueryCoordinator`のfair permit（取得待ち最大5秒）、channel別最新sequence、identity付きlive ticket。枠待ちは待機threadだけを起こし、実行中SQLは`Statement.cancel()`とcheckpointで止める |
+| workspace切替とquery | `SWITCHED`の旧epochだけを切替gate解放後にcancelする。`NO_OP`と`UNKNOWN`はcancelしない |
 | 取り込みwriter | `LoadingThread` 1本のみ。writerの多重化を前提にしない |
+| workspace切替と取り込み | fairな切替gateを取り込みblockごとに解放する。待機中の切替要求は現在blockを完全行境界で早期commitさせ、POST成功後は旧workspaceへ残りblockを割り当てない |
 | priority集合の更新 | `AtomicReference`。scan開始後に追加されたpriorityを古いscan結果で削除しない |
 
 ### 10.3 エラーとWARNの方針
@@ -789,9 +953,16 @@ lod : { "kind":"lod",
 
 ### 10.4 性能特性
 
-- 取り込みは1 block最大1,000,000行のstreaming parseで、中間Listを作らない。L0、LOD、`TagStats`、source位置を同一commit境界で確定する。
+- 取り込みは1 block最大1,000,000行のstreaming parseで、中間Listを作らない。上限は定常時に維持し、workspace切替要求時だけ完全行境界で短いblockとして確定する。L0、LOD、`TagStats`、source位置はどちらも同一commit境界で確定する。
+- 完全検証済みの`ready` / `error` Runはprocess memoryにsource/cache属性を保持し、属性不変のpollではfingerprint、Metricsマスタ本文、SQLite connectionへ入らない。観測はRun消失、workspace snapshot破棄、process restartで失われる。
 - range queryのコストはstep二分探索、bucket読み出し、部分bucketの再集約に分かれる。再集約が必要なのは、viewport端がbucket境界と揃わないbucketと、まだ子16件がそろっていない末尾bucketだけである。
-- LOD pageは1024 bucket単位で読み、完成pageだけheapに残す。1 pageは`1024 × 96` byte（long 8列 + double 4列）である。
+- step境界がtagのstep範囲（`min_step`〜`max_step`）の外側にある端は、序数が0または点数に決まるので二分探索を省く。autorangeのwindowは左右へ1画面広げるため、全域表示では両端ともこの経路になる。
+- LOD pageは1024 bucket単位で読み、末尾pageも含めてheapに残す。levelごとの完成bucket数は、同じsnapshotのtag点数から`点数 / 16^level`（切り捨て）で決まる。子16件がそろった瞬間に親を書くためである。
+  これより後ろのbucketはDBを引かずに下位levelから再集約し、保持中の末尾pageが完成bucket数に足りないときだけ読み直す。
+  完成bucketは書き換わらないので、新しいsnapshotで読んだpageを古いsnapshotのqueryが使っても結果は変わらない。
+  読んだpageが完成bucket数に足りなければcacheの不変条件違反として、その系列を`query_error`にする。
+- 末尾pageも保持するのは、取り込みを終えたRunの末尾pageは満杯にならず、保持しないとbucketを1個引くたびにpage全体を読み直すためである。100M stepのRunを5本並べた616系列のrequestでは、これがquery時間の8割を占めていた。
+- 1 pageは最大`1024 × 96` byte（long 8列 + double 4列）である。
 - 応答はBase64 binaryのため、HTTP圧縮は既定で無効にしてCPUを使わない。
 
 ## 11. ビルドと依存ライブラリ
@@ -854,11 +1025,11 @@ frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそ�
 | cache DBの様式・破棄再構築 | `MetricsCacheDatabaseIntegrationTest`、`MetricsCacheIntegrationTest` |
 | 取り込み（block、gzip、error、隔離） | `MetricsIngestorIntegrationTest` |
 | LODの構築と射影 | `MetricsLodIntegrationTest`、`LodPageCacheTest` |
-| scheduling | `IngestSchedulerTest`、`LoadingThreadTest` |
-| query計画とsnapshot | `MetricsQueryPlannerTest`、`MetricsRepositorySnapshotIntegrationTest`、`MetricsQueryConcurrencyTest` |
-| HTTP API | `MetricsApiIntegrationTest`、`SeriesAvailabilityTest`、`HttpAccessLogFilterTest` |
+| scheduling / workspace lifetime | `IngestSchedulerTest`、`LoadingThreadTest`、`WorkspaceManagerTest`、`WorkspaceSnapshotIntegrationTest` |
+| query計画とsnapshot | `MetricsQueryPlannerTest`、`MetricsRepositorySnapshotIntegrationTest`、`MetricsRepositoryStepRangeIntegrationTest`、`MetricsQueryConcurrencyTest` |
+| HTTP API | `MetricsApiIntegrationTest`、`WorkspaceApiIntegrationTest`、`SeriesAvailabilityTest`、`HttpAccessLogFilterTest` |
 | 走査・設定 | `RunScannerTest`、`MetricsViewerSettingsTest` |
-| browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest` |
+| browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`ReloadPlaywrightTest`、`SignedLogPlaywrightTest`、`OutlierRangePlaywrightTest`、`WorkspaceSelectorPlaywrightTest` |
 
 Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環境では`Assumptions`によりskipされ、失敗にはならない。
 テストごとにcontextを開き直し、route、`localStorage`、Plotly stateを共有しない。
@@ -868,10 +1039,12 @@ Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環�
 1. cache schemaを変えるときは`SCHEMA_VERSION`を上げる。migrationは書かず、旧cacheが警告つきで破棄・再構築されることをtestする。
 2. `IngestState`と`SeriesAvailability`のexternalNameは永続値かつHTTP公開値である。値の追加は可、既存値の改名・削除は非互換とみなす。
 3. 取り込みの新しい処理は同一transactionへ入れる。L0、LOD、`TagStats`、`source_meta`が別commitへ分かれるとcrash時に整合が壊れる。
-4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。
+4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。`LodPageCache`は完成bucket数をtag点数から導くので、親を書く契機を変えるときはこの導出も合わせて変える。
 5. 統計をLODから導出しない。範囲非依存の統計はcommit済みL0全点から作る。
 6. 点予算の配分を変えたら、系列数が多いrequestで422と503の境界がどう動くかをtestする。
 7. clientへ新しい状態を足すときは、Reload時にPlotly DOMを再構築しても保たれるようclient app側に持たせる。
+   graphの見た目を決める入力なら、描画key（`PlotlyController._graphRenderKey`）へ加えるか、Plotly上で直接反映して`capturePlotState`で読み戻す。どちらでもない入力は、変わってもgraphが作り直されない。
+   windowの中身を左右する条件なら、Reloadの鮮度判定（`DataCache.isOutdated`）にも反映する。
 8. 長時間実行のRunに対しては、追記中（`converting`）と完了後（`ready`）の両方で同じrangeが同じ結果を返すことを確認する。
 9. Runフォルダの出し入れ・リネームが即座に反映されること、取り込み中のRunでもfile handleが残らないことを確認する。
 

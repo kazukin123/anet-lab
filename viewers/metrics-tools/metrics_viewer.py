@@ -25,6 +25,8 @@ import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output, State
 import dash
 
+from metrics_source import open_metrics_text, resolve_metrics_path, resolve_run_metrics
+
 RUN_CACHE = {}
 RUN_COLORS = {}
 VERSION = "v17.18"
@@ -39,17 +41,19 @@ def get_run_color(run_name: str) -> str:
 
 
 def read_incremental_jsonl(jsonl_path: str) -> pd.DataFrame:
-    if not os.path.exists(jsonl_path):
+    try:
+        metrics_path = resolve_metrics_path(jsonl_path)
+    except FileNotFoundError:
         return pd.DataFrame()
-    run_dir = os.path.dirname(jsonl_path)
+    run_dir = str(metrics_path.parent)
     run_name = os.path.basename(run_dir)
-    mtime = os.path.getmtime(jsonl_path)
+    fingerprint = (str(metrics_path), metrics_path.stat().st_size, metrics_path.stat().st_mtime_ns)
     cached = RUN_CACHE.get(run_name)
-    if cached and cached["mtime"] == mtime:
+    if cached and cached["fingerprint"] == fingerprint:
         return cached["df"]
 
     rows = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
+    with open_metrics_text(metrics_path) as f:
         for line in f:
             try:
                 obj = json.loads(line)
@@ -66,14 +70,16 @@ def read_incremental_jsonl(jsonl_path: str) -> pd.DataFrame:
     if mask.any():
         df.loc[mask, "episode"] = df.loc[mask, "step"]
     pq.write_table(pa.Table.from_pandas(df), os.path.join(run_dir, "metrics_cache.parquet"))
-    RUN_CACHE[run_name] = {"mtime": mtime, "df": df}
+    RUN_CACHE[run_name] = {"fingerprint": fingerprint, "df": df}
     return df
 
 
 def load_selected_runs(root: str, selected_runs: list[str]) -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     for r in selected_runs:
-        path = os.path.join(root, r, "metrics.jsonl")
+        path = resolve_run_metrics(os.path.join(root, r))
+        if path is None:
+            continue
         df = read_incremental_jsonl(path)
         if not df.empty:
             out[r] = df
@@ -321,8 +327,11 @@ def create_app(log_root: str) -> Dash:
         start_t = time.time()
         print("[INFO] Updating start...")
         try:
-            runs = sorted([d for d in os.listdir(log_root)
-                           if os.path.isdir(os.path.join(log_root, d))], reverse=True)
+            runs = sorted([
+                d for d in os.listdir(log_root)
+                if os.path.isdir(os.path.join(log_root, d))
+                and resolve_run_metrics(os.path.join(log_root, d)) is not None
+            ], reverse=True)
             if not runs:
                 print("[WARN] No runs found.")
                 return [html.Div("No runs.", style={"color": "gray"})], [], [], []

@@ -1,0 +1,174 @@
+{
+  "checked_at": "2026-09-19T17:17:26.260169+09:00",
+  "files": [
+    {
+      "file": "docs/design/010_framework_overview.en.md",
+      "source_blob": "06b8181281c828eec1ba3edf6e2174d0a07271e6",
+      "sha256": "41db937d797f57b85a2aed81e0af916bbf4922e4db015a08c2fbd12b808688eb",
+      "bytes": 26559,
+      "lines": 405,
+      "mtime": "2026-09-19T17:16:13.932754+09:00",
+      "headings": 39,
+      "tables": 9,
+      "code_blocks": 3
+    },
+    {
+      "file": "docs/design/020_user_guide_run.en.md",
+      "source_blob": "1ffc0d1074a50e095a8d59bf7135f1c6216a6c73",
+      "sha256": "616afa9f732f292dee1874a3659bede2397e73d0f54c48b543c0c3f31a9d1c8b",
+      "bytes": 42728,
+      "lines": 533,
+      "mtime": "2026-09-19T17:16:13.936252+09:00",
+      "headings": 41,
+      "tables": 8,
+      "code_blocks": 18
+    },
+    {
+      "file": "docs/design/030_user_guide_analysis.en.md",
+      "source_blob": "1b117ec47d6db6188550e08a78e6af821a5b49c1",
+      "sha256": "6f21d222830e03f5978dfea5a9473c5cc79428852d32cfac90d1448d149be51e",
+      "bytes": 40752,
+      "lines": 446,
+      "mtime": "2026-09-19T17:16:13.938272+09:00",
+      "headings": 33,
+      "tables": 8,
+      "code_blocks": 14
+    },
+    {
+      "file": "docs/design/040_development_environment.en.md",
+      "source_blob": "480cdffefde00cd7ee990d73015c16fa1137846c",
+      "sha256": "f859b1a8ab67bedcf6c907e927531cc9bf9ea7469e337b2da66b8361316f238e",
+      "bytes": 22707,
+      "lines": 443,
+      "mtime": "2026-09-19T16:51:32.681149+09:00",
+      "headings": 44,
+      "tables": 7,
+      "code_blocks": 20
+    },
+    {
+      "file": "docs/design/100_runtime_and_configuration.en.md",
+      "source_blob": "e55f91f991cc3ff4977adbcf93255e593461087e",
+      "sha256": "24d0684c9548061e600879e3b1a869e887601e2e4189165e87bb89095cb98ff9",
+      "bytes": 26714,
+      "lines": 360,
+      "mtime": "2026-09-19T17:16:13.940364+09:00",
+      "headings": 24,
+      "tables": 4,
+      "code_blocks": 5
+    },
+    {
+      "file": "docs/design/110_agents_and_learning.en.md",
+      "source_blob": "86cfaea7a3d56e5e6e7b4f9cd073881e11742099",
+      "sha256": "2372c483aa826df34d8a1e053d141c2fffe4b49dc57361a14bcb021e954b2c4e",
+      "bytes": 14159,
+      "lines": 241,
+      "mtime": "2026-09-19T17:16:13.942376+09:00",
+      "headings": 24,
+      "tables": 3,
+      "code_blocks": 3
+    },
+    {
+      "file": "docs/design/120_environments.en.md",
+      "source_blob": "5a3b3596c5b599ce7ed5460781ce36438c8c9c7e",
+      "sha256": "1261b2b0c6d2de12d2b744e933b2b126702b6d3e2e54f90cef3f05a23cf79e0f",
+      "bytes": 14771,
+      "lines": 258,
+      "mtime": "2026-09-19T17:16:13.943638+09:00",
+      "headings": 24,
+      "tables": 4,
+      "code_blocks": 2
+    },
+    {
+      "file": "docs/design/130_neural_networks.en.md",
+      "source_blob": "eaee7b1aefe9c9e0b9a93ef8d1fa6e8f006d32e1",
+      "sha256": "85cb6d57cf3e9fff2b6ae39c4dd42380cc73e070dc67847290e37516d674ae11",
+      "bytes": 19016,
+      "lines": 303,
+      "mtime": "2026-09-19T17:16:13.944618+09:00",
+      "headings": 26,
+      "tables": 4,
+      "code_blocks": 4
+    },
+    {
+      "file": "docs/design/140_observability.en.md",
+      "source_blob": "d4f6e2fdab091ea300ec322a27b996bdad7ac943",
+      "sha256": "8672b082aa78f8edcd63b11445332f5ed985af040fc525f089680cfdb4baeb80",
+      "bytes": 27200,
+      "lines": 330,
+      "mtime": "2026-09-19T17:16:13.946917+09:00",
+      "headings": 20,
+      "tables": 4,
+      "code_blocks": 7
+    },
+    {
+      "file": "docs/design/150_replay_buffer.en.md",
+      "source_blob": "c07bcc64ca94eb76ba6c17c74435ec3384fa95e5",
+      "sha256": "5fe0450c7da7a0de3135e5ee43a96509fd1c39c68ac15e04c255795e119ff6e6",
+      "bytes": 24080,
+      "lines": 362,
+      "mtime": "2026-09-19T17:16:13.949167+09:00",
+      "headings": 28,
+      "tables": 6,
+      "code_blocks": 3
+    },
+    {
+      "file": "docs/design/160_applications_and_tools.en.md",
+      "source_blob": "96bf3a422cd1f8baa7c2ab2390af4a732288379f",
+      "sha256": "164b4bc472282f3ef6ec7b3339803d11bbf1f8f760c1ca5af54ecbaa58d2c804",
+      "bytes": 24049,
+      "lines": 356,
+      "mtime": "2026-09-19T17:16:13.950674+09:00",
+      "headings": 25,
+      "tables": 7,
+      "code_blocks": 4
+    },
+    {
+      "file": "docs/design/200_dqn_agents.en.md",
+      "source_blob": "27742800eafe9e1213858153de2b95161332b94c",
+      "sha256": "859d82a180a91d3616f10387db1fcc97a8ba0da4b0e91ebcfc728bf3fb42058c",
+      "bytes": 42492,
+      "lines": 483,
+      "mtime": "2026-09-19T17:06:22.021846+09:00",
+      "headings": 33,
+      "tables": 7,
+      "code_blocks": 7
+    },
+    {
+      "file": "docs/design/210_metrics_viewer.en.md",
+      "source_blob": "25fd6a013da3405bcd32c3a0164d777c7c5e3799",
+      "sha256": "41affa3a44bcd88f738558bec4bdf844259975b210edd0d36ec153f6b3e3e248",
+      "bytes": 63852,
+      "lines": 1010,
+      "mtime": "2026-09-19T17:12:28.851974+09:00",
+      "headings": 67,
+      "tables": 33,
+      "code_blocks": 11
+    },
+    {
+      "file": "docs/design/220_atari_env.en.md",
+      "source_blob": "6dd78b83dcc6d1cf98e96364e2ffc15128a62037",
+      "sha256": "4960c4a6a15bf2403f252592566ba8ce8f8e54bc8f9fc9b21e174d03e517a4a1",
+      "bytes": 31271,
+      "lines": 303,
+      "mtime": "2026-09-19T17:15:05.817825+09:00",
+      "headings": 26,
+      "tables": 6,
+      "code_blocks": 4
+    },
+    {
+      "file": "docs/design/README.en.md",
+      "source_blob": "80d32423befc341b6fe6042218539fa246d5aca6",
+      "sha256": "8f67d56229d0bec531936eaf7288ad79df33117bdec798d4eda7418c999241f1",
+      "bytes": 5369,
+      "lines": 85,
+      "mtime": "2026-09-19T17:16:13.957530+09:00",
+      "headings": 13,
+      "tables": 5,
+      "code_blocks": 0
+    }
+  ],
+  "completed": 15,
+  "pending": 0,
+  "source_updated": 0,
+  "checks": "headings, per-table rows, exact fenced blocks, no Japanese outside fences, source blob, local link existence, UTF-8/LF; anchor check separately passed"
+}

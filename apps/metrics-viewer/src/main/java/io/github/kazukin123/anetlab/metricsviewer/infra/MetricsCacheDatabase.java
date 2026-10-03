@@ -444,12 +444,6 @@ public class MetricsCacheDatabase {
 		Files.deleteIfExists(database);
 	}
 
-	private static boolean cacheFilesExist(Path database) {
-		return Files.exists(database)
-				|| Files.exists(database.resolveSibling(database.getFileName() + "-wal"))
-				|| Files.exists(database.resolveSibling(database.getFileName() + "-shm"));
-	}
-
 	public static final class SourceMeta {
 		private static final String GENERATION = "generation";
 		private static final String SOURCE_KIND = "source_kind";

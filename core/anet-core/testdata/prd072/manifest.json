@@ -1,0 +1,91 @@
+{
+  "commit": "107a62c8ae01cb758f3cd49d98e8424386160e5d",
+  "injected": {},
+  "inputs": [
+    {
+      "id": "atari-1",
+      "env": "Atari",
+      "cli": "\"run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch\""
+    },
+    {
+      "id": "atari-2",
+      "env": "Atari",
+      "cli": "\"run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@capall\""
+    },
+    {
+      "id": "atari-3",
+      "env": "Atari",
+      "cli": "\"run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@rfit>run.@btrnet>run.@btrsn>run.@envs64\""
+    },
+    {
+      "id": "atari-4",
+      "env": "Atari",
+      "cli": "\"run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@evalonly>run.@greedy_eval>run.@to_50\""
+    },
+    {
+      "id": "atari-5",
+      "env": "Atari",
+      "cli": "\"run.$=run.@nature_dqn\""
+    },
+    {
+      "id": "atari-6",
+      "env": "Atari",
+      "cli": "\"run.$=run.@classic_iqn_impala_x2\""
+    },
+    {
+      "id": "dropmerge-current-iqn32",
+      "env": "DropMerge",
+      "cli": "\"backend.$=backend.@non-deterministic\""
+    },
+    {
+      "id": "dropmerge-stratified",
+      "env": "DropMerge",
+      "cli": "\"run.$=run.@iqn32_stratified\""
+    },
+    {
+      "id": "dropmerge-qr51",
+      "env": "DropMerge",
+      "cli": "\"run.$=run.@qr51_control\""
+    },
+    {
+      "id": "lunarlander-default",
+      "env": "LunarLander",
+      "cli": ""
+    },
+    {
+      "id": "lunarlander-repro",
+      "env": "LunarLander",
+      "cli": "\"run.$=run.@repro\""
+    },
+    {
+      "id": "imagecls-default",
+      "env": "ImageCls",
+      "cli": ""
+    },
+    {
+      "id": "imagecls-resnet",
+      "env": "ImageCls",
+      "cli": "\"run.$=run.@resnet18ish_hr\""
+    },
+    {
+      "id": "imagecls-convnext",
+      "env": "ImageCls",
+      "cli": "\"run.$=run.@convnext_atto_hr\""
+    },
+    {
+      "id": "gridmaze-default",
+      "env": "GridMaze",
+      "cli": ""
+    },
+    {
+      "id": "gridmaze_muzero-default",
+      "env": "GridMaze_muzero",
+      "cli": ""
+    },
+    {
+      "id": "cartpole-default",
+      "env": "CartPole",
+      "cli": ""
+    }
+  ]
+}

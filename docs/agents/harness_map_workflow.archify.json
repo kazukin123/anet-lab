@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "AI ハーネス動線マップ(PRD ライフサイクル)",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "docs",
+      "label": "共通文書"
+    },
+    {
+      "id": "author",
+      "label": "起票側"
+    },
+    {
+      "id": "reviewer",
+      "label": "精査側"
+    },
+    {
+      "id": "impl",
+      "label": "実装側"
+    },
+    {
+      "id": "human",
+      "label": "人間"
+    },
+    {
+      "id": "ci",
+      "label": "CI・定常"
+    }
+  ],
+  "phases": [
+    {
+      "id": "entry",
+      "label": "入口",
+      "fromCol": 0,
+      "toCol": 0
+    },
+    {
+      "id": "design",
+      "label": "設計",
+      "fromCol": 1,
+      "toCol": 2,
+      "variant": "emphasis"
+    },
+    {
+      "id": "build",
+      "label": "実装",
+      "fromCol": 3,
+      "toCol": 4
+    },
+    {
+      "id": "handoff",
+      "label": "検証と引き渡し",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "emphasis"
+    }
+  ],
+  "mainPath": [
+    "entry_read",
+    "grill_prd",
+    "regrill",
+    "adjust",
+    "impl_work",
+    "review",
+    "commit"
+  ],
+  "nodes": [
+    {
+      "id": "entry_read",
+      "lane": "docs",
+      "col": 0,
+      "type": "frontend",
+      "label": "入口読み",
+      "sublabel": "AGENTS.md 720 行"
+    },
+    {
+      "id": "grill_prd",
+      "lane": "author",
+      "col": 1,
+      "type": "database",
+      "label": "グリル/起票",
+      "sublabel": "docs/memo へ"
+    },
+    {
+      "id": "review",
+      "lane": "author",
+      "col": 5,
+      "type": "security",
+      "label": "レビュー",
+      "sublabel": "起票側が実施"
+    },
+    {
+      "id": "regrill",
+      "lane": "reviewer",
+      "col": 2,
+      "type": "backend",
+      "label": "再グリル",
+      "sublabel": "別の枠で精査"
+    },
+    {
+      "id": "impl_work",
+      "lane": "impl",
+      "col": 4,
+      "type": "backend",
+      "label": "実装",
+      "sublabel": "計画・編集・設定・検証"
+    },
+    {
+      "id": "user_env_read",
+      "lane": "human",
+      "col": 0,
+      "type": "external",
+      "label": "ユーザー環境",
+      "sublabel": "global・memory"
+    },
+    {
+      "id": "adjust",
+      "lane": "human",
+      "col": 3,
+      "type": "messagebus",
+      "label": "調整",
+      "sublabel": "人間が仲介"
+    },
+    {
+      "id": "commit",
+      "lane": "human",
+      "col": 5,
+      "type": "frontend",
+      "label": "人間レビュー",
+      "sublabel": "確認後コミット"
+    },
+    {
+      "id": "housekeeping",
+      "lane": "ci",
+      "col": 1,
+      "type": "messagebus",
+      "label": "定常整備",
+      "sublabel": "housekeeping"
+    },
+    {
+      "id": "build_ci",
+      "lane": "ci",
+      "col": 4,
+      "type": "cloud",
+      "label": "ビルド/CI",
+      "sublabel": "VsDevCmd・win-ci"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-entry-grill",
+      "from": "entry_read",
+      "to": "grill_prd",
+      "label": "規約を踏まえる",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "e-grill-regrill",
+      "from": "grill_prd",
+      "to": "regrill",
+      "label": "別の枠へ渡す",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "e-regrill-adjust",
+      "from": "regrill",
+      "to": "adjust",
+      "label": "調整事項",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "e-adjust-impl",
+      "from": "adjust",
+      "to": "impl_work",
+      "label": "合意後",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "e-impl-review",
+      "from": "impl_work",
+      "to": "review",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "e-review-commit",
+      "from": "review",
+      "to": "commit",
+      "label": "指摘の反映後",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "e-entry-userenv",
+      "from": "entry_read",
+      "to": "user_env_read",
+      "label": "枠ごとに違う",
+      "variant": "security",
+      "role": "branch",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDx": 52
+    },
+    {
+      "id": "e-entry-housekeeping",
+      "from": "entry_read",
+      "to": "housekeeping",
+      "label": "定常整備",
+      "variant": "dashed",
+      "role": "branch",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "e-impl-build",
+      "from": "impl_work",
+      "to": "build_ci",
+      "label": "通らないとき",
+      "variant": "dashed",
+      "role": "branch",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDx": 46
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "主経路は PRD ライフサイクル",
+      "items": [
+        "正本は docs/memo/README.md の §工程と担当。起票・精査・実装を別の枠に置き、調整は人間が仲介する",
+        "「実装」は計画 → 編集 → 設定ファイルと 020 §3 の同時更新 → 検証(テスト章 → testdata README)を畳んだもの"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "担当は固定しない",
+      "items": [
+        "レーンは役割名。どの枠が起票側・精査側・実装側になるかはトークン予算で入れ替わる",
+        "固定なのは工程の非対称だけ: 起票と精査は別の枠、実装計画は実装する枠、コミット前に人間がレビューする"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "図に入らなかった側枝",
+      "items": [
+        "Run 分析(030 と inspect_run.py)と実験記録(docs/experiments)は表 2 が条件を持つ",
+        "git の add / commit / push、Run の削除、tag push は人間の操作"
+      ]
+    }
+  ]
+}
