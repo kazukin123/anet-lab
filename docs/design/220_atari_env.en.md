@@ -276,7 +276,9 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 
 - **Primary display: raw RGB screen**, 210×160, from `env->GetTensor("rgb_frame", 0)`. Main view for human spectating and debugging.
 - **Secondary display: preprocessed observation**, S×S grayscale, using lane 0 grid from TrainEvent's step_result. Shows what the agent sees and helps detect resize/max-pooling errors by comparison with the raw screen.
-- Display both side by side with integer scaling, prioritizing pixel-art clarity.
+- **The default is the raw RGB screen (color) only**. Middle-click cycles through raw image only → agent image (preprocessed observation) only → both → raw image only. Clicking the canvas, text overlay, or Panel advances exactly one mode and immediately redraws, including while paused.
+- A single image is centered using the full canvas. When both are shown, RGB occupies the left two-thirds and the preprocessed observation the right one-third. Preserve the existing margins and integer scaling with GL_NEAREST for pixel-art clarity. Areas without image data retain the background color.
+- Each Panel retains its own display mode across data updates and episode changes. Recreating the Panel restores the default.
 - **Overlay text**: game_score (raw provisional accumulated value) / lives / in-game step and frame / previous action name (value_label) / previous clipped reward.
 
 ### 5.2 Data Path and Constraints

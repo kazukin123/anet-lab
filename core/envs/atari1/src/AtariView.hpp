@@ -37,6 +37,7 @@ namespace anet::rl::env {
         void OnPaint(wxPaintEvent& event);
         void OnSize(wxSizeEvent& event);
         void OnChildMouse(wxMouseEvent& event);
+        void OnMiddleClick(wxMouseEvent& event);
         void Render();
         void DrawTensor(const torch::Tensor& image, int x, int y, int width, int height);
 
@@ -44,6 +45,10 @@ namespace anet::rl::env {
         wxGLCanvas* canvas_ = nullptr;
         wxGLContext* context_ = nullptr;
         AtariViewData data_;
+
+        // 表示モードはPanelごとに保持し、データ更新では初期化しない。
+        enum class ImageDrawMode { kRgbOnly, kGridOnly, kBoth };
+        ImageDrawMode image_draw_mode_ = ImageDrawMode::kRgbOnly;
     };
 
     class AtariView final : public anet::rl::gui::ViewBase<AtariViewData, AtariPanel> {

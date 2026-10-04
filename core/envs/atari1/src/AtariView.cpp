@@ -50,6 +50,11 @@ AtariPanel::AtariPanel(wxWindow* parent)
     canvas_->Bind(wxEVT_PAINT, &AtariPanel::OnPaint, this);
     canvas_->Bind(wxEVT_SIZE, &AtariPanel::OnSize, this);
 
+    // 中クリックは各windowで消費し、1クリックで表示を1段階だけ切り替える。
+    Bind(wxEVT_MIDDLE_DOWN, &AtariPanel::OnMiddleClick, this);
+    canvas_->Bind(wxEVT_MIDDLE_DOWN, &AtariPanel::OnMiddleClick, this);
+    overlay_->Bind(wxEVT_MIDDLE_DOWN, &AtariPanel::OnMiddleClick, this);
+
     // 全面を覆う子windowから、Panel共通のRunner操作イベントへmouse入力を戻す。
     canvas_->Bind(wxEVT_LEFT_DOWN, &AtariPanel::OnChildMouse, this);
     canvas_->Bind(wxEVT_RIGHT_DOWN, &AtariPanel::OnChildMouse, this);
@@ -104,6 +109,23 @@ void AtariPanel::OnChildMouse(wxMouseEvent& event)
     OnMouse(event);
 }
 
+void AtariPanel::OnMiddleClick(wxMouseEvent& event)
+{
+    // 保存済みの画像を使って切り替え、停止中も次のデータ更新を待たずに再描画する。
+    switch (image_draw_mode_) {
+    case ImageDrawMode::kRgbOnly:
+        image_draw_mode_ = ImageDrawMode::kGridOnly;
+        break;
+    case ImageDrawMode::kGridOnly:
+        image_draw_mode_ = ImageDrawMode::kBoth;
+        break;
+    case ImageDrawMode::kBoth:
+        image_draw_mode_ = ImageDrawMode::kRgbOnly;
+        break;
+    }
+    canvas_->Refresh(false);
+}
+
 void AtariPanel::DrawTensor(
     const torch::Tensor& image, int x, int y, int width, int height)
 {
@@ -142,6 +164,7 @@ void AtariPanel::DrawTensor(
 
 void AtariPanel::Render()
 {
+    ANET_PROFILE_FUNC();
     if (context_ == nullptr || canvas_ == nullptr) return;
     canvas_->SetCurrent(*context_);
 
@@ -155,11 +178,14 @@ void AtariPanel::Render()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    // 各領域に収まる最大整数倍率で、RGBを主、前処理gridを副として並べる。
+    // 単独表示は全幅、両方表示は既存の左右比率で、最大整数倍率に拡大する。
     const int margin = 10;
-    const int main_area_width = std::max(1, size.x * 2 / 3 - margin * 2);
-    const int side_area_width = std::max(1, size.x - size.x * 2 / 3 - margin * 2);
-    if (data_.rgb_hwc.defined()) {
+    const bool show_both = image_draw_mode_ == ImageDrawMode::kBoth;
+    const int main_area_width = std::max(1,
+        (show_both ? size.x * 2 / 3 : size.x) - margin * 2);
+    const int side_area_width = std::max(1,
+        (show_both ? size.x - size.x * 2 / 3 : size.x) - margin * 2);
+    if (image_draw_mode_ != ImageDrawMode::kGridOnly && data_.rgb_hwc.defined()) {
         const int scale = std::max(1, std::min(
             main_area_width / static_cast<int>(data_.rgb_hwc.size(1)),
             (size.y - margin * 2) / static_cast<int>(data_.rgb_hwc.size(0))));
@@ -168,13 +194,13 @@ void AtariPanel::Render()
         DrawTensor(data_.rgb_hwc, margin + (main_area_width - width) / 2,
             (size.y - height) / 2, width, height);
     }
-    if (data_.grid_hwc.defined()) {
+    if (image_draw_mode_ != ImageDrawMode::kRgbOnly && data_.grid_hwc.defined()) {
         const int scale = std::max(1, std::min(
             side_area_width / static_cast<int>(data_.grid_hwc.size(1)),
             (size.y - margin * 2) / static_cast<int>(data_.grid_hwc.size(0))));
         const int width = static_cast<int>(data_.grid_hwc.size(1)) * scale;
         const int height = static_cast<int>(data_.grid_hwc.size(0)) * scale;
-        const int area_x = size.x * 2 / 3 + margin;
+        const int area_x = (show_both ? size.x * 2 / 3 : 0) + margin;
         DrawTensor(data_.grid_hwc, area_x + (side_area_width - width) / 2,
             (size.y - height) / 2, width, height);
     }
