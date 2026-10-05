@@ -19,7 +19,7 @@
 | anet-harness-map | AI ハーネス(指示・規約・設計文書・skill・memory・CI)の動線マップを再生成する。公開版は `docs/agents/`(README + Archify 2 図)、個人版は `.scratch/harness-map/`。Archify スキルが必要。明示起動と anet-housekeeping の変更検知から | `$anet-harness-map` | `docs/agents/`、`.scratch/harness-map/` |
 | prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理する。stage も commit もしない | `/prepare-commit` | 報告のみ |
 | implement-prd-with-docs | `docs/memo` の PRD から実装計画(`*_2ximpl.md`)を起こす。docs を踏まえたグリル付き | `/implement-prd-with-docs 013_sample_prefetch_10prd.md` | `docs/memo/*_2ximpl.md` |
-| anet-review | 成果物(PRD、実装計画、PRD の無い変更を含む実装)をレビューエージェント `an-review` に出し、応答をそのまま示す。直さない。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 087_review_agent_quality_viewpoints_10prd.md` | 報告のみ(頼まれたときだけ `.scratch/` に保存) |
+| anet-review | 成果物(PRD、実装計画、PRD の無い変更を含む実装)をレビューエージェント `an-review` に出し、応答を平易に言い直して示す。直さない。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 087_review_agent_quality_viewpoints_10prd.md` | 報告のみ(応答の原文は毎回 `.scratch/` に保存する。実装のレビューでは差分も `.scratch/` に書き出す) |
 
 anet-housekeeping が呼ぶ候補と対応: stats → anet-stats、audit → anet-audit、translate → anet-translate-docs、survey → anet-survey-queue、harness-map → anet-harness-map、atlas → anet-archify-atlas。
 

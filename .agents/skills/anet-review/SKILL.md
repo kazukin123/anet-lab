@@ -1,18 +1,18 @@
 ---
 name: anet-review
-description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent an-review with a request built per docs/process/protocol.md section 2, then show its response verbatim and stop. Continues the same review agent when the same target is resubmitted in the conversation. Never edits the reviewed files. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
+description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent an-review with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Never edits the reviewed files. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
 ---
 
 # ANET Review
 
 成果物を、レビューエージェント（`an-review`）のレビューに出す。対象を決め、依頼を組み立て、呼び、応答を示して止まる。
-観点は `docs/quality/`、依頼と応答の形は `docs/process/protocol.md` の 2 節と 3.1 節、成果物ごとの観点と入力元は `docs/process/registry.md` が持つ。本書は、それらを書き写さない。
+観点は `docs/quality/`、依頼と応答の形は `docs/process/protocol.md` の 2 節と 3.1 節、ユーザーへ示す文言の書き方は同じ文書の 3.3 節、成果物ごとの観点と入力元は `docs/process/registry.md` が持つ。本書は、それらを書き写さない。
 
 ## 禁止事項
 
 - 成果物を直さない。指摘への対応は、応答を見たユーザーの指示を受けてから、通常の作業として行う。
-- git の書き込み操作をしない。
-- `docs/process/protocol.md` は 2 節だけを読む。全体は読まない。大きいためである。
+- git の書き込み操作をしない。`git diff --output`（2 の「差分を書き出す」）は、指定したファイルへ差分を書くだけで、成果物も Git の索引も変えないので、これに当たらない。
+- `docs/process/protocol.md` は 2 節と 3.3 節だけを読む。全体は読まない。大きいためである。
 - レビューエージェントを呼ぶときに、モデルを指定しない。
 
 ## 1. 対象を決める
@@ -70,7 +70,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 | 成果物キー、レビュー対象パス | 1 で決めたもの |
 | テンプレートパス、品質確認観点パス | レジストリの行から引く |
 | 入力元パス | `prd` は、レジストリの「入力資料」の定めで決める。PRD が本文で名指しした `reports/` と `docs/experiments/` のファイルで、無ければ「なし」と書く。`impl-plan` は、対の PRD（同じディレクトリで、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えたもの）。`impl` は、対象の実装計画と、その対の PRD。実装計画が無ければ、その会話の作業が従った PRD。どれも無ければ「なし」と書く |
-| 変更箇所 | `prd` は、Git が追跡していないか、基準コミットから変わっていなければ「全体」。変わっていれば、`git diff <基準コミット> -- <PRD>` を見て、変えた節を挙げる。`impl-plan` と `impl` は、`docs/quality/impl.md` の位置づけの「変更箇所の渡し方」による |
+| 変更箇所 | `prd` は、Git が追跡していないか、基準コミットから変わっていなければ「全体」。変わっていれば、`git diff <基準コミット> -- <PRD>` を見て、変えた節を挙げる。`impl-plan` と `impl` は、`docs/quality/impl.md` の位置づけの「変更箇所の渡し方」による。差分は、先にファイルへ書き出す（下の「差分を書き出す」） |
 | 既知の事項 | 同じ会話の前の往復で、レビューエージェントが報告したもの。ほかは、ユーザーが挙げたものだけを書く。無ければ「なし」 |
 | 起草時の論点 | その会話で、判断に迷った箇所。無ければ「なし」 |
 
@@ -82,6 +82,24 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 - 会話から分からないものは「記述なし」と書く。推測で埋めない。
 
 依頼文は「レビューを依頼します。依頼の形式は `docs/process/protocol.md` 2 節によります。」で始め、項目を箇条書きで並べる。まとめて依頼するときは、品質確認観点パスを 1 回だけ書き、ほかの項目を成果物ごとのブロックに分ける。
+
+依頼の末尾に、次の段落をそのまま添える。レビューエージェントが読み込みや検索を 1 件ずつ出すと、その回数だけ、文脈の全体が処理し直されるためである。
+
+```text
+進め方: 読み込みと検索は、互いの結果に依らないものを、1 回の応答にまとめて出してください。観点の走査に入る前に、判定に要る箇所を洗い出して、まとめて読んでください。呼び出しのたびに、それまでの文脈の全体が処理し直されるためです。読む範囲と判定の基準は、変えないでください。
+```
+
+### 差分を書き出す
+
+`impl-plan` か `impl` を出すときは、依頼を書く前に、差分をファイルへ書き出す。レビューエージェントは、それを読む。`prd` を出すときは、書き出さない。
+
+1. 置き場を作る。応答を保存する置き場（4 の定めによる。`.scratch/prdNNN/` か `.scratch/review/`）の下の、`diff-<YYYYMMDD-HHMM>/` にする。起動のたびに新しく作り、前の置き場を使い回さない。
+2. Git が追跡している変更ファイルごとに、`git diff --output=<置き場>/<名前>.diff <基準コミット> -- <変更ファイル>` を実行する。`<名前>` は、変更ファイルのパスの `/` を `__` に置き換えたものである（例: `docs/quality/impl.md` の差分は、`docs__quality__impl.md.diff` に書く）。
+3. 依頼の変更箇所に、置き場のパスと、名前の決め方を書く。
+
+- Git が追跡していない新しいファイルは、書き出さない。レビューエージェントが全体を読む。
+- 続けて依頼するときは、変更箇所に書くファイルの分だけを、新しい置き場に書き出す。
+- 書き出せないとき（Codex で、親のスレッドが読み取り専用のときなど）は、書き出さずに依頼し、その旨を示す。レビューエージェントは、`docs/quality/impl.md` の項番 6 のコマンドで差分を得る。
 
 ## 3. 呼ぶ
 
@@ -96,10 +114,41 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
   - 既知の事項には、前の往復の報告を加える。
   - 前の往復のあとで変えたファイルが無ければ、呼ばずに、その旨を示す。
 - 続けて依頼できないときは、新しく呼び、その旨を示す。
+- 出し直しは、前の往復の指摘への対応をまとめて済ませてから、1 回で行う。続けて依頼するたびに、レビューエージェントは、それまでの文脈の全体を処理し直す。1 件直すたびに出し直すと、その回数だけ消費が増える。
+- 前の往復の不足点に、まだ対応していないものがあると会話から分かるときは、呼ぶ前の表示に、その旨を足す。確認は取らずに進める。
 
 ## 4. 応答を示す
 
-- レビューエージェントの応答を、全文でそのまま示す。要約や言い換えをしない。依頼を分けたときは、応答ごとに全文を示す。
-- 応答を示したら止まる。指摘への対応は始めない。
-- 保存を頼まれたときだけ、応答をそのまま保存する。置き場は、PRD に沿った作業なら `.scratch/prdNNN/`（`NNN` は、対象か入力元の PRD の番号）、PRD の無い変更なら `.scratch/review/` にする。名前は、ユーザーが示さなければ `review-<YYYYMMDD-HHMM>.md` にする。
-- Codex で、親のスレッドが読み取り専用のときは、保存できない。その旨を示す。
+レビューエージェントの応答（原文）は、エージェントが読むための形である。画面には原文を出さず、平易に言い直した説明を示す。原文は保存する。
+
+### 原文を保存する
+
+- 応答を受け取ったら、毎回、原文をそのまま保存する。置き場は、PRD に沿った作業なら `.scratch/prdNNN/`（`NNN` は、対象か入力元の PRD の番号）、PRD の無い変更なら `.scratch/review/` にする。
+- 名前は `review-<YYYYMMDD-HHMM>.md` にする。依頼を分けたときは、成果物キーを足す（`review-<YYYYMMDD-HHMM>-prd.md` など）。ユーザーが名前を示したときは、それを使う。
+- Codex で、親のスレッドが読み取り専用のときは、保存できない。そのときは、説明のあとに原文を全文で示し、保存できなかった旨を示す。
+
+### 説明を書く
+
+先に `docs/process/protocol.md` の 3.3 節（見出し `### 3.3 開発者へ提示する文言` から、次の `## 4.` の見出しの前まで）を読み、それに従って書く。日本語で書く。
+
+次の見出しで書く。中身が無い見出しは省く。依頼を分けたときは、成果物ごとに書く。
+
+| 見出し | 書くこと | 原文の対応 |
+| --- | --- | --- |
+| 1 行目 | 「レビューの結果: 直す必要はありません」か「レビューの結果: 直す必要があります（N 件）」 | `総合判定:`、`判定:` |
+| 直す必要があること | 1 件ずつ、どこ（ファイルと節）の、何が足りないか、どう直すか。読み方が複数あると原文が示した指摘は、それぞれの読み方と、どれを選ぶと何が変わるかを書く | `不足点`、`修正要求` |
+| 確かめてほしいこと | レビューが判断できず、ユーザーに確かめてほしいこと | `開発者への確認事項` |
+| 今回の変更とは別に見つかったこと | 1 件ずつ短く書き、今回の結果には影響しないと添える | `範囲外の検出` |
+| レビューが迷った点 | 判定に迷った点と、次に重点を置く箇所 | `再確認ポイント` |
+| 次にできること | 直す必要があれば、直してからもう一度起動すると、同じレビューの続きとして出せること。読み方を選ぶ指摘があれば、先に選ぶこと | — |
+| 原文 | 保存したファイルのパス | — |
+
+- 原文の指摘を、1 件ずつ説明に対応させる。足さない、落とさない、判定を変えない。原文に無い直し方や判断を足さない。
+- 観点の項番と番号（「項番 16」「固定観点 3」など）を書かない。指摘の中身で言う。
+- 適用した観点・適用しなかった観点の件数や一覧は書かない。原文に残る。
+- 原文の「認識した内容」は書かない。呼ぶ前に示した内容と食い違うときだけ、その点を書く。
+- パスは、リポジトリからの相対パスで書く。行番号は、場所を示すのに要るときだけ書く。
+
+### 止まる
+
+説明を示したら止まる。指摘への対応は始めない。
