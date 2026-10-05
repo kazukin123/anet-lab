@@ -11,7 +11,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 ## 禁止事項
 
 - 成果物を直さない。指摘への対応は、応答を見たユーザーの指示を受けてから、通常の作業として行う。
-- git の書き込み操作をしない。`git diff --output`（2 の「差分を書き出す」）は、指定したファイルへ差分を書くだけで、成果物も Git の索引も変えないので、これに当たらない。
+- git の書き込み操作をしない。`git diff --output`（2 の「差分を書き出す」）は、指定したファイルへ差分を書くだけで、成果物も Git index も変えないので、これに当たらない。
 - `docs/process/protocol.md` は 2 節と 3.3 節だけを読む。全体は読まない。大きいためである。
 - レビューエージェントを呼ぶときに、モデルを指定しない。
 
@@ -94,7 +94,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 `impl-plan` か `impl` を出すときは、依頼を書く前に、差分をファイルへ書き出す。レビューエージェントは、それを読む。`prd` を出すときは、書き出さない。
 
 1. 置き場を作る。応答を保存する置き場（4 の定めによる。`.scratch/prdNNN/` か `.scratch/review/`）の下の、`diff-<YYYYMMDD-HHMM>/` にする。起動のたびに新しく作り、前の置き場を使い回さない。
-2. Git が追跡している変更ファイルごとに、`git diff --output=<置き場>/<名前>.diff <基準コミット> -- <変更ファイル>` を実行する。`<名前>` は、変更ファイルのパスの `/` を `__` に置き換えたものである（例: `docs/quality/impl.md` の差分は、`docs__quality__impl.md.diff` に書く）。
+2. Git が追跡している変更ファイルごとに、`git diff --output=<置き場>/<名前>.diff <基準コミット> -- <変更ファイル>` を実行する。`<名前>` は、変更ファイルのパスの `/` を `__` に置き換え、先頭に `__` を付けたものである（例: `docs/quality/impl.md` の差分は、`__docs__quality__impl.md.diff` に書く）。先頭に `__` を付けるのは、`.agents/` などの配下のファイルで、名前が `.` で始まらないようにするためである。`.` で始まる名前は、`ls` や `rg --files` の一覧に出ない。
 3. 依頼の変更箇所に、置き場のパスと、名前の決め方を書く。
 
 - Git が追跡していない新しいファイルは、書き出さない。レビューエージェントが全体を読む。
