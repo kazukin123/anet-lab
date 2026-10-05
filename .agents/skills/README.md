@@ -6,7 +6,7 @@
 
 ## プロジェクト固有
 
-このリポジトリのために書いたもの。定常整備系は `anet-` 接頭辞で、Codex 向けの表示名は各 `agents/openai.yaml` にある。
+このリポジトリのために書いたもの。`anet-` 接頭辞は、定常整備系に限らない(`anet-review` など)。Codex 向けの表示名は各 `agents/openai.yaml` にある。
 
 | スキル | 用途 | 起動例 | 主な出力先 |
 |---|---|---|---|
@@ -19,10 +19,11 @@
 | anet-harness-map | AI ハーネス(指示・規約・設計文書・skill・memory・CI)の動線マップを再生成する。公開版は `docs/agents/`(README + Archify 2 図)、個人版は `.scratch/harness-map/`。Archify スキルが必要。明示起動と anet-housekeeping の変更検知から | `$anet-harness-map` | `docs/agents/`、`.scratch/harness-map/` |
 | prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理する。stage も commit もしない | `/prepare-commit` | 報告のみ |
 | implement-prd-with-docs | `docs/memo` の PRD から実装計画(`*_2ximpl.md`)を起こす。docs を踏まえたグリル付き | `/implement-prd-with-docs 013_sample_prefetch_10prd.md` | `docs/memo/*_2ximpl.md` |
+| anet-review | 成果物(PRD、実装計画、PRD の無い変更を含む実装)をレビューエージェント `an-review` に出し、応答をそのまま示す。直さない。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 087_review_agent_quality_viewpoints_10prd.md` | 報告のみ(頼まれたときだけ `.scratch/` に保存) |
 
 anet-housekeeping が呼ぶ候補と対応: stats → anet-stats、audit → anet-audit、translate → anet-translate-docs、survey → anet-survey-queue、harness-map → anet-harness-map、atlas → anet-archify-atlas。
 
-anet- スキル共通の約束: git の書き込み操作をしない(人が行う)、質問して止まらない、出力先は各スキルが定める固定パスだけ、1 単位ごとに保存して途中終了しても成果が残る。出力は `reports/` 配下に置く(`docs/` は GitHub Pages に配信されるため)。公開が目的のもの(英訳 → `docs/design`、atlas → `docs/archify`、動線マップ → `docs/agents`)だけは `docs/` 配下に置く。
+anet- スキル共通の約束(対象は定常整備系。anet-housekeeping と、それが呼ぶ上の候補): git の書き込み操作をしない(人が行う)、質問して止まらない、出力先は各スキルが定める固定パスだけ、1 単位ごとに保存して途中終了しても成果が残る。出力は `reports/` 配下に置く(`docs/` は GitHub Pages に配信されるため)。公開が目的のもの(英訳 → `docs/design`、atlas → `docs/archify`、動線マップ → `docs/agents`)だけは `docs/` 配下に置く。
 
 ## 汎用(導入済み)
 
