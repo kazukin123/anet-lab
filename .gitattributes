@@ -3,6 +3,11 @@
 
 /*.md text eol=lf
 
+.agents/**/*.md text eol=lf
+.agents/**/*.yaml text eol=lf
+.claude/**/*.md text eol=lf
+.claude/**/*.yaml text eol=lf
+.codex/**/*.toml text eol=lf
 apps/**/*.hpp text eol=lf
 apps/**/*.cpp text eol=lf
 apps/**/*.bat text eol=crlf
