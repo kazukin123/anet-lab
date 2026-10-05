@@ -185,6 +185,13 @@ fail-fast の「fail」は「意図しない状態」にのみ適用する。
 
 この運用は設定編集・監査の規約であり、resolverの名前・位置による特別扱いではない。人向けの説明、ファイル別の一覧、DropMerge・Atariの例は[Run実行ユーザーガイド](docs/design/020_user_guide_run.jp.md)の§3.6・§3.7を参照する。設定変更時は`check_default_leaves.py`と全キー・文字列値の比較で意図しない変化がないことを確認する（手順は`core/anet-core/testdata/prd072/README.md`）。
 
+### 設定ファイルのプロファイル境界
+
+設定ファイルで左辺にプロファイル（`@name`）を含む行は、**プロファイルの境界を`:`で区切り、`.`で続けない**。`:`は`.`と同じ意味で、どこまでがプロファイルかを読み取りやすくするために使う。
+
+- NG: `DefaultDQNAgent.@baseline.head_projection.noisy.enabled ?= false`
+- OK: `DefaultDQNAgent.@baseline : head_projection.noisy.enabled ?= false`
+
 ## コーディング規約
 
 C++ コードは Google C++ スタイルガイドを前提とします。
