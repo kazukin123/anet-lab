@@ -22,9 +22,9 @@ C++ 本体と Runner は Visual Studio、Metrics Viewer は Eclipse を使う GU
 |---|---|
 | 3章 | Visual Studio、libtorch、wxWidgets、CUDA など、ビルドに必要な初期環境が揃っている |
 | 4章 | Visual Studio 上で C++ 本体と Runner を Debug ビルドできる |
-| 5章 | Eclipse 上で Metrics Viewer をビルドできる |
+| 5章 | Metrics Viewer をビルドして起動できる。変更する場合は Eclipse 上でビルドできる |
 
-C++ 本体と Runner だけを変更する場合は4章までで初期構築は完了です。Metrics Viewer も変更する場合は5章まで進めてください。ビルド済み Runner の設定と操作は [Run 実行ガイド](020_user_guide_run.jp.md)、Run の分析は [Run 分析ガイド](030_user_guide_analysis.jp.md)で扱います。
+C++ 本体と Runner だけを扱う場合は4章までで初期構築は完了です。Metrics Viewer を使う場合は5.1節まで、Metrics Viewer を変更する場合は5章の最後まで進めてください。ビルド済み Runner の設定と操作は [Run 実行ガイド](020_user_guide_run.jp.md)、Run の分析は [Run 分析ガイド](030_user_guide_analysis.jp.md)で扱います。
 
 ## 2. 検証済み環境と推奨 IDE
 
@@ -54,7 +54,7 @@ Visual Studio はリポジトリルートの `CMakeLists.txt` と `CMakePresets.
 
 ### 2.3 Metrics Viewer の推奨 IDE
 
-Java 版 Metrics Viewer のコーディング、Maven build、testには Eclipse を推奨します。JDK 17 と Maven integration for Eclipse（m2e）を使用します。
+Java 版 Metrics Viewer のコーディング、Maven build、testには Eclipse を推奨します。JDK 17 以上と Maven integration for Eclipse（m2e）を使用します。
 
 ### 2.4 CLI の位置付け
 
@@ -72,16 +72,17 @@ Java 版 Metrics Viewer のコーディング、Maven build、testには Eclipse
 
 | 導入単位 | 必要になる開発 |
 |---|---|
-| Git for Windows | リポジトリと vcpkg の取得。PowerShell から `git` を実行できる場合は追加不要 |
+| Git for Windows | リポジトリと ALE の取得。PowerShell から `git` を実行できる場合は追加不要 |
 | Visual Studio Community 2022 または適切な edition | C++ 本体、Env、Agent、Runner |
 | CUDA 対応版 libtorch の Debug 版と Release 版 | C++ 本体、Runner |
 | wxWidgets（sourceからbuild） | Runner GUI |
-| vcpkg | ZLIB など package の取得（Atari env） |
+| ALE v0.12.0（sourceからbuild） | Atari env（使う場合だけ） |
 | NVIDIA driver と CUDA Toolkit | CUDA 対応版 libtorch を使う C++ 開発 |
-| Eclipse、JDK 17 | Metrics Viewer |
+| JDK 17 以上 | Metrics Viewer |
+| Eclipse | Metrics Viewer の変更（必要な場合だけ） |
 | Python | Optuna、Python viewer、TensorBoard・MLflow bridgeなどの補助ツール |
 
-CMake と Ninja は Visual Studio Installer の「C++ CMake tools for Windows」に含まれます。Visual Studio による標準開発では、CMake と Ninja を個別にインストールする必要はありません。Visual Studio 外の通常の terminal から6章のコマンドを実行する場合だけ、利用する terminal の `PATH` から CMake と Ninja が見えることを確認します。
+CMake と Ninja は Visual Studio Installer の「C++ CMake tools for Windows」に含まれます。Visual Studio による標準開発では、CMake と Ninja を個別にインストールする必要はありません。
 
 Box2D、Catch2、nlohmann/json、Tracy、NVTX header は `third_party/` に含まれています。Doxygen、Graphviz、ffmpeg、Tracy server、NVIDIA Nsight は、それぞれ文書生成、図・動画生成、性能分析を行う場合に追加します。最初のビルドには不要です。
 
@@ -96,6 +97,7 @@ Box2D、Catch2、nlohmann/json、Tracy、NVTX header は `third_party/` に含�
 | MSVC v143 - VS 2022 C++ x64/x86 build tools | C++ compiler と linker |
 | Windows 11 SDK | Windows header と library |
 | C++ CMake tools for Windows | Visual Studio の CMake integration、CMake、Ninja |
+| vcpkg package manager | ALE が使う package（zlib、SDL2）の取得。Atari env を使う場合だけ |
 
 既に Visual Studio を導入済みの場合は、Visual Studio Installer の「変更」から component を追加できます。Visual Studio の CMake integration は [CMake projects in Visual Studio](https://learn.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio)も参照してください。
 
@@ -108,7 +110,7 @@ MSVC の Debug/Release runtime と合わせるため、libtorch は Debug 版と
 - Release: [`libtorch-win-shared-with-deps-2.12.0+cu130.zip`](https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.12.0%2Bcu130.zip)
 - Debug: [`libtorch-win-shared-with-deps-debug-2.12.0+cu130.zip`](https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.12.0%2Bcu130.zip)
 
-この文書では、展開先を次のようにします。別の場所へ展開しても構いませんが、3.6節の環境変数には実際のパスを指定してください。
+この文書では、展開先を次のようにします。別の場所へ展開しても構いませんが、3.8節の環境変数には実際のパスを指定してください。
 
 ```text
 C:\dev\libtorch-win-shared-with-deps-2.12.0+cu130\libtorch
@@ -117,28 +119,11 @@ C:\dev\libtorch-win-shared-with-deps-debug-2.12.0+cu130\libtorch
 
 それぞれのディレクトリに `share/cmake/Torch/TorchConfig.cmake` が存在することを確認します。
 
-### 3.4 vcpkg と wxWidgets の準備
-
-vcpkg は Atari envが使用する ZLIB などの package取得に使用します。PowerShell で次を実行します。
-
-```powershell
-New-Item -ItemType Directory -Force C:\dev
-git clone https://github.com/microsoft/vcpkg C:\dev\vcpkg
-C:\dev\vcpkg\bootstrap-vcpkg.bat
-C:\dev\vcpkg\vcpkg.exe install zlib:x64-windows
-```
-
-導入後、次のファイルが存在することを確認します。
-
-```text
-C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake
-```
-
-このリポジトリには `vcpkg.json` がないため、package の導入と vcpkg の配置は開発環境側で管理します。
+### 3.4 wxWidgets の準備
 
 wxWidgets は vcpkg を使わず、sourceからbuild・installします。Runner GUI は `core`、`base`、`gl`、`aui` componentを使用し、`find_package` は Config modeで解決するため、CMake の package configを含む install treeが必要です。公式の pre-built binaryは package configを含まないため使用できません。
 
-[wxWidgets の release page](https://github.com/wxWidgets/wxWidgets/releases)から source archiveを取得して `C:\dev\wxWidgets-3.3.3` へ展開し、次を実行します。
+[wxWidgets の release page](https://github.com/wxWidgets/wxWidgets/releases)から source archiveを取得して `C:\dev\wxWidgets-3.3.3` へ展開します。Windowsのスタートmenuから `Developer PowerShell for VS 2022` を起動し、次を実行します。
 
 ```powershell
 $src = "C:\dev\wxWidgets-3.3.3"
@@ -152,19 +137,13 @@ cmake --install "$src\build" --config Release
 
 generatorには anet-lab 本体と同じ toolsetを指定します。異なる toolsetでbuildすると ABI が一致しません。Debug と Release を同じ prefixへinstallすると、library名で区別されるため共存します。build treeは install 後に削除できます。
 
-install 後、環境変数 `wxWidgets_DIR` に package configの位置を設定します。directory名は versionを含みます。
-
-```text
-C:\dev\wxWidgets-3.3.3\install\lib\cmake\wxWidgets-3.3
-```
-
-vcpkg に `wxwidgets` を installしないでください。vcpkg の toolchainは installed treeを `CMAKE_PREFIX_PATH` へ追加し、これは環境変数 `wxWidgets_DIR` より優先されます。また installed の include directoryは ZLIB など他の package経由でも compile時のsearch pathへ入るため、headerだけが vcpkg 側のversionに解決される事故が起きます。
+install した package configの位置は、3.8節で環境変数 `wxWidgets_DIR` に設定します。
 
 ### 3.5 NVIDIA driver と CUDA Toolkit の準備
 
 CUDA 対応版 libtorchを使用するため、NVIDIA driver と libtorch の CUDA 世代に対応する [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit-archive)を導入します。`cu130` の libtorchを使う場合は CUDA Toolkit 13.0 を基準とします。
 
-CUDA Toolkit Installer が設定する既定の `CUDA_PATH` を使用します。導入後、PowerShell で次を確認します。
+CUDA Toolkit Installer が設定する既定の `CUDA_PATH` を使用します。導入後、新しく開いた通常の PowerShell で次を確認します。`Developer PowerShell for VS 2022` では `nvidia-smi` が見つかりません。
 
 ```powershell
 nvidia-smi
@@ -174,7 +153,60 @@ $env:CUDA_PATH
 
 少なくとも、NVIDIA GPU と driver が `nvidia-smi` に表示され、`nvcc --version` が選択した CUDA Toolkit を示すことを確認します。
 
-### 3.6 環境変数の設定
+> [!NOTE]
+> `Developer PowerShell for VS 2022` は32bit版の PowerShell を起動します。32bit の processからは `C:\Windows\System32` が別の folderに読み替えられるため、そこにある `nvidia-smi` が見つかりません。また、CUDA Toolkit の導入前から開いていた terminalには、Installer が設定した `PATH` と `CUDA_PATH` が反映されません。
+
+### 3.6 Atari env 用の ALE の準備
+
+Atari env を使わない場合、この節は飛ばしてください。
+
+Windowsのスタートmenuから `Developer PowerShell for VS 2022` を起動し、次を実行します。
+
+```powershell
+$ale = "C:\dev\ALE"
+git clone --depth 1 --branch v0.12.0 https://github.com/Farama-Foundation/Arcade-Learning-Environment.git $ale
+cmake -S $ale -B "$ale\build" -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+  -DBUILD_PYTHON_LIB=OFF -DSDL_SUPPORT=ON -DSDL_DYNLOAD=ON
+cmake --build "$ale\build" --config Debug --parallel
+cmake --build "$ale\build" --config Release --parallel
+```
+
+build後、次のファイルが存在することを確認します。build treeは削除しないでください。
+
+```text
+C:\dev\ALE\build\src\ale\Debug\ale.lib
+C:\dev\ALE\build\src\ale\Release\ale.lib
+```
+
+ROM（`.bin`）を用意して1つの folderにまとめます。ファイル名は `pong.bin` のような小文字の snake_caseです。ale-py 0.12.0 を pip で導入すると、`site-packages\ale_py\roms` にこの形で入ります。
+
+Atari env の `display_screen` か `sound` を使う場合は、`SDL2.dll` を4.1節で cloneした repositoryの `third_party\runtime_dlls\` に置き、configureし直します。`SDL2.dll` は ale-py の `ale_py\SDL2.dll` を使えます。
+
+4.2節の configureで、CMake 出力に `Atari/ALE env enabled` が表示されることを確認します。
+
+> [!NOTE]
+> - Atari env は ALE（Arcade Learning Environment）v0.12.0 を C++ から直接使います。ALE は GPL-2.0 のため repositoryに含めず、リリースパッケージも Atari env を含めずにビルドします。構成の詳細は [Atari Env](220_atari_env.jp.md)の3章にあります。
+> - ALE は Visual Studio 同梱の vcpkg を manifest modeで使い、zlib と SDL2 を build treeの中へ取得します。Developer PowerShell は環境変数 `VCPKG_ROOT` に同梱の vcpkg の位置を設定します。anet-lab の Atari env も、この build treeの中の zlib を使います。
+> - ALE は installせず、anet-lab が build treeを直接参照します。build treeを削除できないのはこのためです。
+> - anet-lab の configureは、`ALE_ROOT` の下に `src\ale\ale_interface.hpp` があれば Atari env を自動で有効にします（CMake 変数 `ANET_ENABLE_ATARI` の既定値 `AUTO`）。ALE がなくても、Atari env を除く C++ 本体と Runner はビルドできます。
+> - ROM がなくてもビルドはでき、ROM を使うテストは skipされます。
+> - `third_party\runtime_dlls\` に置いた DLL は、ビルド時に Runner の出力先へコピーされます。
+
+### 3.7 Metrics Viewer 用の JDK
+
+Metrics Viewer を使わない場合、この節は飛ばしてください。
+
+JDK を導入します。推奨は Amazon Corretto 25 です。[Corretto 25 のダウンロードページ](https://docs.aws.amazon.com/corretto/latest/corretto-25-ug/downloads-list.html)から Windows x64 用の `.msi` を取得して実行します。既定の導入先は `C:\Program Files\Amazon Corretto\` の下です。
+
+導入した JDK の位置は、3.8節で環境変数 `JAVA_HOME` と `Path` に設定します。
+
+> [!NOTE]
+> - Metrics Viewer は Java 17 を targetにしているため（`pom.xml` の `maven.compiler.release`）、JDK 17 以上ならどの版でもビルドできます。Corretto 25 を推奨するのは、現行の LTS の中で支援期間が最も長い（2032年10月まで）ためです。Metrics Viewer が使う Spring Boot 3.5 は Java 25 まで対応しています。
+> - `JAVA_HOME` は5.1節の `build.bat` が、`Path` から見つかる `java` は Metrics Viewer の起動 bat が使います。
+
+### 3.8 環境変数の設定
 
 Windows の「システム環境変数の編集」から「環境変数」を開き、次をユーザー環境変数として設定します。
 
@@ -182,23 +214,20 @@ Windows の「システム環境変数の編集」から「環境変数」を開
 |---|---|
 | `Torch_DIR_DEBUG` | `C:\dev\libtorch-win-shared-with-deps-debug-2.12.0+cu130\libtorch\share\cmake\Torch` |
 | `Torch_DIR_RELEASE` | `C:\dev\libtorch-win-shared-with-deps-2.12.0+cu130\libtorch\share\cmake\Torch` |
-| `VCPKG_ROOT` | `C:\dev\vcpkg` |
-| `CMAKE_TOOLCHAIN_FILE` | `C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake` |
+| `wxWidgets_DIR` | `C:\dev\wxWidgets-3.3.3\install\lib\cmake\wxWidgets-3.3` |
+| `ALE_ROOT` | `C:\dev\ALE` |
+| `ATARI_ROM_DIR` | `C:\dev\atari-roms` |
+| `JAVA_HOME` | `C:\Program Files\Amazon Corretto\jdk25.0.4_10` |
+
+`wxWidgets_DIR` は3.4節で install した package configの位置です。directory名は versionを含みます。
+
+`ALE_ROOT` と `ATARI_ROM_DIR` は Atari env を使う場合だけ設定します。`ALE_ROOT` は3.6節で cloneした ALE の folder、`ATARI_ROM_DIR` は ROM を置いた folderです。
+
+`JAVA_HOME` は Metrics Viewer を使う場合だけ設定します。3.7節で導入した JDK の folderで、folder名は versionを含みます。あわせて、ユーザー環境変数 `Path` に `%JAVA_HOME%\bin` を追加します。
 
 `CUDA_PATH` は通常 CUDA Toolkit Installer が設定します。独自の配置を使用する場合だけ手動で設定してください。
 
 環境変数を追加・変更した後は、起動中の Visual Studio をすべて終了してから起動し直します。Visual Studio は起動時の環境変数を使って CMake を configure します。
-
-### 3.7 Metrics Viewer 用の Eclipse と JDK
-
-Metrics Viewer を変更しない場合、この節は飛ばして4章へ進んでください。
-
-1. JDK 17 以上を導入します。
-2. [Eclipse IDE](https://eclipseide.org/)を導入します。
-3. Maven integration for Eclipse（m2e）が使用できることを確認します。
-4. Eclipse の `Window > Preferences > Java > Installed JREs` で JDK 17 を選択します。
-
-CLI の Maven は6章のコマンドを実行する場合に必要です。Eclipse 上の標準開発では m2e から Maven build を実行します。
 
 ## 4. Visual Studio による C++ 開発
 
@@ -255,6 +284,7 @@ Visual Studio 上部の configure presetで `x64-Debug` を選択します。現
 | LunarLander test | `core/envs/lunarlander1/bin/Debug/LunarLanderEnv-test.exe` |
 | ImageCls test | `core/envs/imagecls1/bin/Debug/ImageClsEnv-test.exe` |
 | DropMerge test | `core/envs/dropmerge1/bin/Debug/DropMergeEnv-test.exe` |
+| Atari test（3.6節で ALE を用意した場合） | `core/envs/atari1/bin/Debug/AtariEnv-test.exe` |
 
 post-build処理により、libtorchとwxWidgetsの実行時DLLも実行ファイルの隣へコピーされます。
 
@@ -270,11 +300,34 @@ Visual Studio 上部の startup itemから Debug の `AnetRLRunner.exe` を選�
 
 Runner windowが表示されれば、Visual StudioによるC++開発環境の初期構築は完了です。Runnerの設定と操作は [Run 実行ガイド](020_user_guide_run.jp.md)へ進んでください。
 
-## 5. Eclipse による Metrics Viewer 開発
+## 5. Metrics Viewer のビルドと開発
 
-Metrics Viewerを変更しない場合、この章は飛ばして構いません。
+Metrics Viewer を使わない場合、この章は飛ばして構いません。
 
-### 5.1 Maven projectをimportする
+### 5.1 bat でビルドして起動する
+
+`apps\metrics-viewer\build.bat` を実行します。起動中の Metrics Viewer がある場合は、先に止めてから実行します。成功すると、次の JAR が生成されます。
+
+```text
+apps/metrics-viewer/target/metrics-viewer.jar
+```
+
+`apps\22_metrics_viewer_java.bat` を実行すると Metrics Viewer が起動し、ブラウザで `http://localhost:8082` が開きます。起動引数と Run directory の指定は [Run 分析ガイド](030_user_guide_analysis.jp.md)を参照してください。
+
+Metrics Viewer を変更しない場合は、ここで完了です。
+
+> [!NOTE]
+> `build.bat` は同じ folderの Maven Wrapper（`mvnw.cmd`）でビルドするため、Maven の導入は不要です。初回は Maven を `%USERPROFILE%\.m2\wrapper` へ取得するため時間がかかります。テストは実行しません。
+
+### 5.2 Eclipse を導入する
+
+Metrics Viewer を変更する場合だけ、5.2節以降を行います。
+
+1. [Eclipse IDE](https://eclipseide.org/)を導入します。
+2. Maven integration for Eclipse（m2e）が使用できることを確認します。
+3. Eclipse の `Window > Preferences > Java > Installed JREs` で、3.7節で導入した JDK を選択します。一覧にない場合は `Add...` から導入先の folderを追加します。
+
+### 5.3 Maven projectをimportする
 
 1. Eclipseを起動します。
 2. `File > Import`を開きます。
@@ -282,15 +335,15 @@ Metrics Viewerを変更しない場合、この章は飛ばして構いません
 4. Root Directoryに `apps/metrics-viewer` を指定します。
 5. 検出された `pom.xml` を選択してimportします。
 
-`pom.xml` は Java 17 をtargetとします。projectのJREが異なる場合は、project propertiesまたはEclipseのInstalled JREsでJDK 17へ変更します。
+`pom.xml` は Java 17 をtargetとします。projectのJREが JDK 17 より古い場合は、project propertiesまたはEclipseのInstalled JREsで3.7節の JDK へ変更します。
 
-### 5.2 Eclipse上でtestする
+### 5.4 Eclipse上でtestする
 
 Projectを右クリックし、`Run As > Maven test`を実行します。JavaScript表示testは、ローカルにMicrosoft Edgeがない場合はskipされます。
 
 testが失敗した場合は、Consoleの最初のerrorと、その直前に実行されたtestを確認します。
 
-### 5.3 Eclipse上でpackageする
+### 5.5 Eclipse上でpackageする
 
 Projectを右クリックし、`Run As > Maven build...`を開き、Goalsに次を指定して実行します。
 
@@ -304,7 +357,7 @@ clean package
 apps/metrics-viewer/target/metrics-viewer.jar
 ```
 
-JARが生成されればMetrics Viewerの初期構築は完了です。起動引数とRun directoryの指定は [Run 分析ガイド](030_user_guide_analysis.jp.md)を参照してください。
+JARが生成されれば完了です。起動は5.1節と同じく `apps\22_metrics_viewer_java.bat` で行います。
 
 ## 6. CLI によるビルド・テスト（AI・CI・診断用）
 
@@ -362,14 +415,14 @@ cmake --build --preset x64-Debug --target anet-core-test
 core\anet-core\bin\Debug\anet-core-test.exe
 ```
 
-同様に `LunarLanderEnv-test`、`ImageClsEnv-test`、`DropMergeEnv-test` を個別実行できます。AIエージェントはdialog抑止、MSVC初期化、対象を絞ったtest実行について [開発・作業規約](../../AGENTS.md)にも従います。
+同様に `LunarLanderEnv-test`、`ImageClsEnv-test`、`DropMergeEnv-test` を個別実行できます。ALE を用意した場合は `AtariEnv-test` も同様です。AIエージェントはdialog抑止、MSVC初期化、対象を絞ったtest実行について [開発・作業規約](../../AGENTS.md)にも従います。
 
 ### 6.3 Metrics Viewer
 
 ```powershell
 cd apps\metrics-viewer
-mvn -B test
-mvn -B package
+.\mvnw.cmd -B test
+.\mvnw.cmd -B package
 ```
 
 起動確認の例:
@@ -447,7 +500,7 @@ Visual Studio Installerで「C++ CMake tools for Windows」が導入されてい
 
 ### 8.2 環境変数を変更してもconfigure結果が変わらない
 
-Visual Studioをすべて終了して起動し直し、`プロジェクト > キャッシュを削除して再構成`を実行します。CMake出力の `Final Torch_DIR` と、vcpkg toolchainのpathが3.6節の設定を指していることを確認します。
+Visual Studioをすべて終了して起動し直し、`プロジェクト > キャッシュを削除して再構成`を実行します。CMake出力の `Final Torch_DIR` が3.8節の設定を指していることを確認します。
 
 ### 8.3 `type_traits` などの標準headerが見つからない
 
@@ -476,4 +529,4 @@ libtorchのCUDA世代、NVIDIA driver、CUDA Toolkitの互換性を確認しま�
 
 ### 8.7 Maven が Java release 17 を扱えない
 
-EclipseのInstalled JREs、projectのJRE System Library、Maven runtimeがJDK 17以上を参照しているか確認します。CLIでは `java -version` と `mvn -version` が同じJDKを参照しているか確認し、必要に応じて `JAVA_HOME` と `PATH` を修正します。
+EclipseのInstalled JREs、projectのJRE System Library、Maven runtimeがJDK 17以上を参照しているか確認します。CLIでは `java -version` と `apps\metrics-viewer\mvnw.cmd -version` が同じJDKを参照しているか確認し、必要に応じて `JAVA_HOME` と `PATH` を修正します。

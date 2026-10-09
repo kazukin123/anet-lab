@@ -1,4 +1,4 @@
-<!-- translated-from: 040_development_environment.jp.md blob:480cdffefde00cd7ee990d73015c16fa1137846c date:2026-09-19 progress:done -->
+<!-- translated-from: 040_development_environment.jp.md blob:9985ac57cd924bede906140f8faa16f094fef04a date:2026-10-07 progress:done -->
 # ANET Development Environment Setup Guide
 
 > Primary perspective: from initial setup to a completed IDE build
@@ -23,9 +23,9 @@ GUI development with Visual Studio for the C++ core and Runner, and Eclipse for 
 |---|---|
 | Chapter 3 | Initial build prerequisites are installed, including Visual Studio, libtorch, wxWidgets, and CUDA |
 | Chapter 4 | The C++ core and Runner can be built in Debug in Visual Studio |
-| Chapter 5 | Metrics Viewer can be built in Eclipse |
+| Chapter 5 | Metrics Viewer can be built and started. When modifying it, it can be built in Eclipse |
 
-If modifying only the C++ core and Runner, initial setup ends at Chapter 4. Continue through Chapter 5 to modify Metrics Viewer too. See the [Run Execution Guide](020_user_guide_run.en.md) for configuring and operating a built Runner, and the [Run Analysis Guide](030_user_guide_analysis.en.md) for analyzing Runs.
+If working only with the C++ core and Runner, initial setup ends at Chapter 4. To use Metrics Viewer, continue through Section 5.1; to modify Metrics Viewer, continue to the end of Chapter 5. See the [Run Execution Guide](020_user_guide_run.en.md) for configuring and operating a built Runner, and the [Run Analysis Guide](030_user_guide_analysis.en.md) for analyzing Runs.
 
 ## 2. Verified Environment and Recommended IDEs
 
@@ -55,7 +55,7 @@ Visual Studio reads `CMakeLists.txt` and `CMakePresets.json` directly from the r
 
 ### 2.3 Recommended IDE for Metrics Viewer
 
-Eclipse is recommended for coding, Maven builds, and tests for the Java Metrics Viewer, using JDK 17 and Maven integration for Eclipse (m2e).
+Eclipse is recommended for coding, Maven builds, and tests for the Java Metrics Viewer, using JDK 17 or later and Maven integration for Eclipse (m2e).
 
 ### 2.4 Role of the CLI
 
@@ -73,15 +73,17 @@ The installation units users need to consider are listed below.
 
 | Installation unit | Required for |
 |---|---|
-| Git for Windows | Cloning the repository and vcpkg. Unnecessary if `git` already runs from PowerShell |
+| Git for Windows | Cloning the repository and ALE. Unnecessary if `git` already runs from PowerShell |
 | Visual Studio Community 2022 or an appropriate edition | C++ core, Envs, Agents, Runner |
 | Debug and Release distributions of CUDA-enabled libtorch | C++ core, Runner |
-| vcpkg and wxWidgets | Runner GUI |
+| wxWidgets (built from source) | Runner GUI |
+| ALE v0.12.0 (built from source) | Atari env (only when used) |
 | NVIDIA driver and CUDA Toolkit | C++ development using CUDA-enabled libtorch |
-| Eclipse, JDK 17 | Metrics Viewer |
+| JDK 17 or later | Metrics Viewer |
+| Eclipse | Modifying Metrics Viewer (only when needed) |
 | Python | Supporting tools such as Optuna, Python viewer, and TensorBoard/MLflow bridges |
 
-CMake and Ninja are included in Visual Studio Installer's C++ CMake tools for Windows. Standard Visual Studio development does not require separate installations. Only when running Chapter 6 commands from an ordinary terminal outside Visual Studio must CMake and Ninja be accessible through that terminal's `PATH`.
+CMake and Ninja are included in Visual Studio Installer's C++ CMake tools for Windows. Standard Visual Studio development does not require separate installations.
 
 Box2D, Catch2, nlohmann/json, Tracy, and NVTX headers are included in `third_party/`. Add Doxygen, Graphviz, ffmpeg, Tracy server, or NVIDIA Nsight when generating documentation, diagrams/videos, or analyzing performance. They are unnecessary for the first build.
 
@@ -96,6 +98,7 @@ Box2D, Catch2, nlohmann/json, Tracy, and NVTX headers are included in `third_par
 | MSVC v143 - VS 2022 C++ x64/x86 build tools | C++ compiler and linker |
 | Windows 11 SDK | Windows headers and libraries |
 | C++ CMake tools for Windows | Visual Studio CMake integration, CMake, Ninja |
+| vcpkg package manager | Fetching packages used by ALE (zlib, SDL2). Only when using the Atari env |
 
 If Visual Studio is already installed, add components through Modify in Visual Studio Installer. See also [CMake projects in Visual Studio](https://learn.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio) for CMake integration.
 
@@ -108,7 +111,7 @@ Current Windows CI uses libtorch `2.12.0+cu130`. Obtain both distributions:
 - Release: [`libtorch-win-shared-with-deps-2.12.0+cu130.zip`](https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.12.0%2Bcu130.zip)
 - Debug: [`libtorch-win-shared-with-deps-debug-2.12.0+cu130.zip`](https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.12.0%2Bcu130.zip)
 
-This document uses these extraction locations. Other locations are acceptable; use their actual paths in Section 3.6's environment variables.
+This document uses these extraction locations. Other locations are acceptable; use their actual paths in Section 3.8's environment variables.
 
 ```text
 C:\dev\libtorch-win-shared-with-deps-2.12.0+cu130\libtorch
@@ -117,32 +120,31 @@ C:\dev\libtorch-win-shared-with-deps-debug-2.12.0+cu130\libtorch
 
 Verify that each directory contains `share/cmake/Torch/TorchConfig.cmake`.
 
-### 3.4 Preparing vcpkg and wxWidgets
+### 3.4 Preparing wxWidgets
 
-Runner GUI uses wxWidgets `core`, `base`, `gl`, and `aui` components. Standard local development uses the vcpkg `x64-windows` triplet.
+wxWidgets is built and installed from source without vcpkg. Runner GUI uses the wxWidgets `core`, `base`, `gl`, and `aui` components, and `find_package` resolves them in Config mode, so an install tree containing the CMake package config is required. The official pre-built binaries do not include the package config and cannot be used.
 
-Run the following in PowerShell.
+Download the source archive from the [wxWidgets release page](https://github.com/wxWidgets/wxWidgets/releases), and extract it to `C:\dev\wxWidgets-3.3.3`. Launch `Developer PowerShell for VS 2022` from the Windows Start menu and run the following.
 
 ```powershell
-New-Item -ItemType Directory -Force C:\dev
-git clone https://github.com/microsoft/vcpkg C:\dev\vcpkg
-C:\dev\vcpkg\bootstrap-vcpkg.bat
-C:\dev\vcpkg\vcpkg.exe install wxwidgets:x64-windows
+$src = "C:\dev\wxWidgets-3.3.3"
+cmake -S $src -B "$src\build" -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_INSTALL_PREFIX="$src\install" -DwxBUILD_SHARED=ON -DwxBUILD_PRECOMP=ON
+cmake --build "$src\build" --config Debug --parallel
+cmake --install "$src\build" --config Debug
+cmake --build "$src\build" --config Release --parallel
+cmake --install "$src\build" --config Release
 ```
 
-After installation, confirm that this file exists.
+Specify the same toolset as the anet-lab main build for the generator. Building with a different toolset results in a mismatched ABI. Debug and Release installed to the same prefix coexist because their library names differ. The build tree can be deleted after installation.
 
-```text
-C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake
-```
-
-This repository has no `vcpkg.json`, so package installation and vcpkg placement are managed by the development environment. Manually built and installed wxWidgets is also supported, but vcpkg is recommended for initial setup.
+The location of the installed package config is set in the environment variable `wxWidgets_DIR` in Section 3.8.
 
 ### 3.5 Preparing the NVIDIA Driver and CUDA Toolkit
 
 To use CUDA-enabled libtorch, install an NVIDIA driver and a [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit-archive) compatible with libtorch's CUDA generation. CUDA Toolkit 13.0 is the baseline for `cu130` libtorch.
 
-Use the default `CUDA_PATH` set by CUDA Toolkit Installer. After installation, check the following in PowerShell.
+Use the default `CUDA_PATH` set by CUDA Toolkit Installer. After installation, check the following in a newly opened ordinary PowerShell. `nvidia-smi` is not found in `Developer PowerShell for VS 2022`.
 
 ```powershell
 nvidia-smi
@@ -152,7 +154,60 @@ $env:CUDA_PATH
 
 At minimum, confirm that `nvidia-smi` lists the NVIDIA GPU and driver and that `nvcc --version` reports the selected CUDA Toolkit.
 
-### 3.6 Setting Environment Variables
+> [!NOTE]
+> `Developer PowerShell for VS 2022` launches the 32-bit PowerShell. A 32-bit process sees `C:\Windows\System32` redirected to another folder, so `nvidia-smi` located there is not found. Also, terminals opened before installing CUDA Toolkit do not reflect the `PATH` and `CUDA_PATH` set by the installer.
+
+### 3.6 Preparing ALE for the Atari Env
+
+Skip this section if you will not use the Atari env.
+
+Launch `Developer PowerShell for VS 2022` from the Windows Start menu and run the following.
+
+```powershell
+$ale = "C:\dev\ALE"
+git clone --depth 1 --branch v0.12.0 https://github.com/Farama-Foundation/Arcade-Learning-Environment.git $ale
+cmake -S $ale -B "$ale\build" -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+  -DBUILD_PYTHON_LIB=OFF -DSDL_SUPPORT=ON -DSDL_DYNLOAD=ON
+cmake --build "$ale\build" --config Debug --parallel
+cmake --build "$ale\build" --config Release --parallel
+```
+
+After the build, confirm that the following files exist. Do not delete the build tree.
+
+```text
+C:\dev\ALE\build\src\ale\Debug\ale.lib
+C:\dev\ALE\build\src\ale\Release\ale.lib
+```
+
+Prepare ROMs (`.bin`) and place them in one folder. File names are lowercase snake_case, such as `pong.bin`. Installing ale-py 0.12.0 with pip places them in this form in `site-packages\ale_py\roms`.
+
+When using the Atari env's `display_screen` or `sound`, place `SDL2.dll` in `third_party\runtime_dlls\` of the repository cloned in Section 4.1 and reconfigure. `ale_py\SDL2.dll` from ale-py can be used as `SDL2.dll`.
+
+During the configure in Section 4.2, confirm that CMake output shows `Atari/ALE env enabled`.
+
+> [!NOTE]
+> - The Atari env uses ALE (Arcade Learning Environment) v0.12.0 directly from C++. Because ALE is GPL-2.0, it is not included in the repository, and release packages are built without the Atari env. See Chapter 3 of [Atari Env](220_atari_env.en.md) for configuration details.
+> - ALE uses the vcpkg bundled with Visual Studio in manifest mode to fetch zlib and SDL2 into its build tree. Developer PowerShell sets the environment variable `VCPKG_ROOT` to the location of the bundled vcpkg. The anet-lab Atari env also uses the zlib in this build tree.
+> - ALE is not installed; anet-lab references its build tree directly. This is why the build tree cannot be deleted.
+> - anet-lab's configure enables the Atari env automatically when `src\ale\ale_interface.hpp` exists under `ALE_ROOT` (the default value `AUTO` of the CMake variable `ANET_ENABLE_ATARI`). Without ALE, the C++ core and Runner still build, excluding the Atari env.
+> - The build works without ROMs, and tests that use ROMs are skipped.
+> - DLLs placed in `third_party\runtime_dlls\` are copied to the Runner output directory during the build.
+
+### 3.7 JDK for Metrics Viewer
+
+Skip this section if you will not use Metrics Viewer.
+
+Install a JDK. Amazon Corretto 25 is recommended. Download the Windows x64 `.msi` from the [Corretto 25 downloads page](https://docs.aws.amazon.com/corretto/latest/corretto-25-ug/downloads-list.html) and run it. The default installation location is under `C:\Program Files\Amazon Corretto\`.
+
+The location of the installed JDK is set in the environment variables `JAVA_HOME` and `Path` in Section 3.8.
+
+> [!NOTE]
+> - Metrics Viewer targets Java 17 (`maven.compiler.release` in `pom.xml`), so any JDK 17 or later can build it. Corretto 25 is recommended because it has the longest support period among the current LTS releases (until October 2032). Spring Boot 3.5, used by Metrics Viewer, supports up to Java 25.
+> - `JAVA_HOME` is used by `build.bat` in Section 5.1, and the `java` found through `Path` is used by the Metrics Viewer launcher bat.
+
+### 3.8 Setting Environment Variables
 
 Open Environment Variables from Edit the system environment variables in Windows, and set these user variables.
 
@@ -160,23 +215,20 @@ Open Environment Variables from Edit the system environment variables in Windows
 |---|---|
 | `Torch_DIR_DEBUG` | `C:\dev\libtorch-win-shared-with-deps-debug-2.12.0+cu130\libtorch\share\cmake\Torch` |
 | `Torch_DIR_RELEASE` | `C:\dev\libtorch-win-shared-with-deps-2.12.0+cu130\libtorch\share\cmake\Torch` |
-| `VCPKG_ROOT` | `C:\dev\vcpkg` |
-| `CMAKE_TOOLCHAIN_FILE` | `C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake` |
+| `wxWidgets_DIR` | `C:\dev\wxWidgets-3.3.3\install\lib\cmake\wxWidgets-3.3` |
+| `ALE_ROOT` | `C:\dev\ALE` |
+| `ATARI_ROM_DIR` | `C:\dev\atari-roms` |
+| `JAVA_HOME` | `C:\Program Files\Amazon Corretto\jdk25.0.4_10` |
+
+`wxWidgets_DIR` is the location of the package config installed in Section 3.4. The directory name includes the version.
+
+Set `ALE_ROOT` and `ATARI_ROM_DIR` only when using the Atari env. `ALE_ROOT` is the ALE folder cloned in Section 3.6, and `ATARI_ROM_DIR` is the folder containing the ROMs.
+
+Set `JAVA_HOME` only when using Metrics Viewer. It is the folder of the JDK installed in Section 3.7, and the folder name includes the version. Also add `%JAVA_HOME%\bin` to the user environment variable `Path`.
 
 CUDA Toolkit Installer normally sets `CUDA_PATH`. Set it manually only for a custom installation location.
 
 After adding or changing environment variables, close all running Visual Studio instances and restart them. Visual Studio uses the environment inherited at startup when configuring CMake.
-
-### 3.7 Eclipse and JDK for Metrics Viewer
-
-Skip this section and continue to Chapter 4 if you will not modify Metrics Viewer.
-
-1. Install JDK 17 or later.
-2. Install [Eclipse IDE](https://eclipseide.org/).
-3. Confirm that Maven integration for Eclipse (m2e) is available.
-4. Select JDK 17 under `Window > Preferences > Java > Installed JREs` in Eclipse.
-
-CLI Maven is required for Chapter 6 commands. Standard Eclipse development runs Maven builds through m2e.
 
 ## 4. C++ Development with Visual Studio
 
@@ -233,6 +285,7 @@ The first build may take time because it includes libtorch. The main Debug outpu
 | LunarLander test | `core/envs/lunarlander1/bin/Debug/LunarLanderEnv-test.exe` |
 | ImageCls test | `core/envs/imagecls1/bin/Debug/ImageClsEnv-test.exe` |
 | DropMerge test | `core/envs/dropmerge1/bin/Debug/DropMergeEnv-test.exe` |
+| Atari test (when ALE is prepared in Section 3.6) | `core/envs/atari1/bin/Debug/AtariEnv-test.exe` |
 
 Post-build processing also copies libtorch and wxWidgets runtime DLLs beside the executables.
 
@@ -248,11 +301,34 @@ Select the Debug `AnetRLRunner.exe` from the startup item selector at the top of
 
 When the Runner window appears, initial setup for C++ development in Visual Studio is complete. Continue to the [Run Execution Guide](020_user_guide_run.en.md) for Runner configuration and operation.
 
-## 5. Metrics Viewer Development with Eclipse
+## 5. Building and Developing Metrics Viewer
 
-Skip this chapter if you will not modify Metrics Viewer.
+Skip this chapter if you will not use Metrics Viewer.
 
-### 5.1 Import the Maven Project
+### 5.1 Build and Start with bat Files
+
+Run `apps\metrics-viewer\build.bat`. If Metrics Viewer is running, stop it first. On success, this JAR is generated.
+
+```text
+apps/metrics-viewer/target/metrics-viewer.jar
+```
+
+Running `apps\22_metrics_viewer_java.bat` starts Metrics Viewer and opens `http://localhost:8082` in the browser. See the [Run Analysis Guide](030_user_guide_analysis.en.md) for startup arguments and Run directory selection.
+
+If you will not modify Metrics Viewer, setup is complete here.
+
+> [!NOTE]
+> `build.bat` builds with the Maven Wrapper (`mvnw.cmd`) in the same folder, so installing Maven is unnecessary. The first run takes longer because it downloads Maven to `%USERPROFILE%\.m2\wrapper`. Tests are not run.
+
+### 5.2 Install Eclipse
+
+Perform Section 5.2 and later only when modifying Metrics Viewer.
+
+1. Install [Eclipse IDE](https://eclipseide.org/).
+2. Confirm that Maven integration for Eclipse (m2e) is available.
+3. Under `Window > Preferences > Java > Installed JREs` in Eclipse, select the JDK installed in Section 3.7. If it is not listed, add its installation folder with `Add...`.
+
+### 5.3 Import the Maven Project
 
 1. Start Eclipse.
 2. Open `File > Import`.
@@ -260,15 +336,15 @@ Skip this chapter if you will not modify Metrics Viewer.
 4. Set Root Directory to `apps/metrics-viewer`.
 5. Select the detected `pom.xml` and import it.
 
-`pom.xml` targets Java 17. If the project uses another JRE, change it to JDK 17 in project properties or Eclipse's Installed JREs.
+`pom.xml` targets Java 17. If the project uses a JRE older than JDK 17, change it to the JDK from Section 3.7 in project properties or Eclipse's Installed JREs.
 
-### 5.2 Test in Eclipse
+### 5.4 Test in Eclipse
 
 Right-click the project and select `Run As > Maven test`. JavaScript display tests are skipped if Microsoft Edge is not installed locally.
 
 If tests fail, inspect the first error in Console and the test executed immediately before it.
 
-### 5.3 Package in Eclipse
+### 5.5 Package in Eclipse
 
 Right-click the project, open `Run As > Maven build...`, and run with these Goals.
 
@@ -282,7 +358,7 @@ On success, this JAR is generated.
 apps/metrics-viewer/target/metrics-viewer.jar
 ```
 
-JAR generation completes initial Metrics Viewer setup. See the [Run Analysis Guide](030_user_guide_analysis.en.md) for startup arguments and Run directory selection.
+Setup is complete once the JAR is generated. Start it with `apps\22_metrics_viewer_java.bat`, as in Section 5.1.
 
 ## 6. CLI Builds and Tests (AI, CI, and Diagnostics)
 
@@ -340,14 +416,14 @@ cmake --build --preset x64-Debug --target anet-core-test
 core\anet-core\bin\Debug\anet-core-test.exe
 ```
 
-Likewise, `LunarLanderEnv-test`, `ImageClsEnv-test`, and `DropMergeEnv-test` can run individually. AI agents must also follow [Development and Work Rules](../../AGENTS.md) for dialog suppression, MSVC initialization, and focused test execution.
+Likewise, `LunarLanderEnv-test`, `ImageClsEnv-test`, and `DropMergeEnv-test` can run individually. When ALE is prepared, `AtariEnv-test` can run the same way. AI agents must also follow [Development and Work Rules](../../AGENTS.md) for dialog suppression, MSVC initialization, and focused test execution.
 
 ### 6.3 Metrics Viewer
 
 ```powershell
 cd apps\metrics-viewer
-mvn -B test
-mvn -B package
+.\mvnw.cmd -B test
+.\mvnw.cmd -B package
 ```
 
 Example startup check:
@@ -418,7 +494,7 @@ Confirm that C++ CMake tools for Windows is installed through Visual Studio Inst
 
 ### 8.2 Environment Variable Changes Do Not Affect Configuration
 
-Close all Visual Studio instances, restart, and select `Project > Delete Cache and Reconfigure`. Check that `Final Torch_DIR` and the vcpkg toolchain path in CMake output match Section 3.6.
+Close all Visual Studio instances, restart, and select `Project > Delete Cache and Reconfigure`. Check that `Final Torch_DIR` in CMake output matches Section 3.8.
 
 ### 8.3 Standard Headers Such as `type_traits` Are Missing
 
@@ -430,9 +506,16 @@ Check that `Torch_DIR_DEBUG` / `Torch_DIR_RELEASE` point to `share/cmake/Torch` 
 
 ### 8.5 CMake Cannot Find wxWidgets
 
-Confirm that `CMAKE_TOOLCHAIN_FILE` points to `C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake` and that `wxwidgets:x64-windows` is installed. Substitute the actual vcpkg path for other layouts.
+Check that the environment variable `wxWidgets_DIR` points to `lib/cmake/wxWidgets-<major>.<minor>` in the install tree. The directory name includes the version, so change the setting when you update wxWidgets.
 
-For manually installed wxWidgets, set `wxWidgets_DIR` in Config mode or `wxWidgets_ROOT_DIR` in Module mode, and verify an x64 build containing `core`, `base`, `gl`, and `aui` components.
+Because `find_package` resolves in Config mode, `wxWidgetsConfig.cmake` must exist at the specified location. Also verify that it is an x64 build containing the `core`, `base`, `gl`, and `aui` components.
+
+If the resolved location does not change after you change the environment variable, suspect the following two causes.
+
+- The CMake cache's `wxWidgets_DIR` takes precedence. Cache variables take precedence over environment variables, so delete Visual Studio's CMake cache and reconfigure, or override it with `-DwxWidgets_DIR=...`
+- `wxwidgets` is installed in vcpkg. The vcpkg toolchain adds the installed tree to `CMAKE_PREFIX_PATH`, and this also takes precedence over the environment variable. Remove it with `vcpkg remove wxwidgets:x64-windows`
+
+An error saying that `wx/wx.h` cannot be found occurs when the library and the headers resolve to different locations. If wxWidgets headers remain in vcpkg's installed tree, they enter the include search path through other packages such as ZLIB, and only the headers resolve to the vcpkg side.
 
 ### 8.6 CUDA or DLL Loading Fails
 
@@ -440,4 +523,4 @@ Check compatibility between libtorch's CUDA generation, the NVIDIA driver, and C
 
 ### 8.7 Maven Cannot Handle Java Release 17
 
-Check that Eclipse's Installed JREs, the project's JRE System Library, and Maven runtime point to JDK 17 or later. On the CLI, verify that `java -version` and `mvn -version` use the same JDK; update `JAVA_HOME` and `PATH` as needed.
+Check that Eclipse's Installed JREs, the project's JRE System Library, and Maven runtime point to JDK 17 or later. On the CLI, verify that `java -version` and `apps\metrics-viewer\mvnw.cmd -version` use the same JDK; update `JAVA_HOME` and `PATH` as needed.

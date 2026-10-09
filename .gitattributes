@@ -11,6 +11,8 @@
 apps/**/*.hpp text eol=lf
 apps/**/*.cpp text eol=lf
 apps/**/*.bat text eol=crlf
+apps/**/*.cmd text eol=crlf
+apps/metrics-viewer/mvnw text eol=lf
 core/**/*.hpp text eol=lf
 core/**/*.cpp text eol=lf
 core/**/*.json text eol=lf
