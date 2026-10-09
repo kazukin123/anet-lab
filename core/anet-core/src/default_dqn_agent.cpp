@@ -94,32 +94,37 @@ DefaultDQNAgent::DefaultDQNAgent(
     // 分布表現とDuelingの直積でHeadを選択する。
     if (config_.quantile_mode == "iqn") {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config);
+            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: IQN Dueling";
         } else {
-            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config);
+            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: IQN Plain";
         }
     } else if (config_.quantile_mode == "qr") {
         if (config_.use_dueling_net) {
             head_factory = std::make_shared<QuantileDuelingHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config);
+                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Quantile Dueling (N=" << config_.qr.num_quantiles << ")";
         } else {
             head_factory = std::make_shared<QuantileHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config);
+                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Quantile Plain (N=" << config_.qr.num_quantiles << ")";
         }
     } else {
         if (config_.use_dueling_net) {
             head_factory = std::make_shared<DuelingHeadFactory>(
-                n_actions_, head_init_config);
+                n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Dueling";
         } else {
             head_factory = std::make_shared<LinearHeadFactory>(
-                n_actions_, head_init_config);
+                n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Plain Linear";
         }
+    }
+
+    // Head 独自の認識値も、選択された factory に宣言検証を委譲する。
+    for (const auto& [key, forward_config] : config_.nn_forward) {
+        head_factory->ValidateForwardConfigDeclaration(*forward_config);
     }
 
     // オリジナルのStateSpecをコピー
@@ -381,7 +386,7 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
     }
-    if (key.starts_with("plasticity_probe_") || key.find(ReplayBuffer::kKeyPrefix) == 0) {
+    if (key.starts_with("plasticity_probe_") || key.starts_with("noisy_") || key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetScalar(key);
     }
@@ -423,7 +428,31 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
         anet::SeedMaker seed_maker(GetSeed());
         replay_fit_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("replay_fit_probe"));
     }
-    learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr);
+    // Noisy 診断の用途を固定の sample/call/batch として選び、他 Module の設定は opaque に保持する。
+    const bool needs_noisy_probe = config_.learner.enabled && std::ranges::any_of(subscriptions, [](const auto& entry) {
+        const auto metric = dqn::ParseNoisyMetric(entry.source_key);
+        return entry.scope == RunnerScope::TRAIN && entry.event == EventType::LEARN && metric && *metric >= 8;
+    }) && !model_->GetOnlineNetwork()->GetNoisyParameterEntries().empty();
+    if (needs_noisy_probe && !noisy_probe_random_) {
+        anet::SeedMaker seed_maker(GetSeed());
+        noisy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("noisy_probe.sample"));
+        anet::ConfigData data;
+        const std::string prefix = "nn_forward.[noisy_probe]";
+        for (const auto& [key, value] : config_.learner.current.nn_forward->GetConfigData().Map()) {
+            data.Set(prefix + "." + key, value);
+        }
+        data.Set(prefix + ".noisy.mode", "sample");
+        data.Set(prefix + ".noisy.hold", "call");
+        data.Set(prefix + ".noisy.share", "batch");
+        noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(data, prefix);
+        // 比較では Noisy の mode だけを変え、他の計算部品が読む設定を両側へ同じように渡す。
+        data.Set(prefix + ".noisy.mode", "mu_only");
+        noisy_probe_mean_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(data, prefix);
+    }
+    learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr,
+        needs_noisy_probe ? noisy_probe_random_.get() : nullptr,
+        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr,
+        needs_noisy_probe ? noisy_probe_mean_forward_config_.get() : nullptr);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const
@@ -471,6 +500,9 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
     const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    if (!cfg.nn_forward) {
+        ANET_SYSTEM_ERROR("Missing resolved actor.[" << request.actor_key << "].nn_forward_key; expected a declared forward configuration.");
+    }
     ValidateActorDevice(cfg.clone_model, request.device);
     auto policy = CreateActionPolicy(cfg.policy, cfg.policy.use_spatial_exploration,
         request.batch_env_spec.num_envs, request.device);
@@ -488,7 +520,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
         .tbo_epsilon = config_.learner.tbo_epsilon};
     return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
-        mutex_, network, source, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
+        mutex_, network, source, *cfg.nn_forward, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()

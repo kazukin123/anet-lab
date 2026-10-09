@@ -9,6 +9,10 @@
 #include "anet/scaler.hpp"
 #include "anet/schedule.hpp"
 
+namespace anet::nn {
+    class NetworkForwardConfig;
+}
+
 namespace anet::rl {
 
 
@@ -138,6 +142,8 @@ namespace anet::rl {
             std::string network = "online";
             bool clone_model = false;
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
+            std::string nn_forward_key;
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> nn_forward;
         };
 
         struct StuckerConfig {
@@ -155,10 +161,17 @@ namespace anet::rl {
         };
 
         struct LearnerConfig {
+            struct ForwardSelection {
+                std::string nn_forward_key;
+                std::shared_ptr<const anet::nn::NetworkForwardConfig> nn_forward;
+            };
+            ForwardSelection current;
+            ForwardSelection target;
             bool enabled = true;         ///< falseで学習を完全停止する(評価専用Run)。ReplayBuffer構築も勾配更新も行わない
             std::string quantile_mode = "none"; ///< Agent config から解決して渡す内部mode
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
             float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
+            float noisy_weight_decay = 0.0f; ///< 勾配が成立した Noisy sigma の専用 decay
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
             bool use_fused_optimizer = true; ///< ATen fused AdamWを使うか。falseで従来AdamWへ戻す。
 
@@ -209,6 +222,12 @@ namespace anet::rl {
                     .num_taus = 64,
                 };
             } iqn;
+
+            struct NoisyProbeConfig {
+                struct ProbeConfig { int batch_size = 128; } probe;
+                int num_draws = 32;
+                struct IqnConfig { int num_taus = 32; } iqn;
+            } noisy_probe;
 
             struct PlasticityConfig {
                 std::string feature_key;

@@ -1009,6 +1009,11 @@ TEST_CASE("Runner selects an Actor catalog entry and exposes its epsilon", "[tra
     config.Set("DefaultDQNAgent.actor.[probe].policy.policy_type", "EpsilonGreedy");
     config.Set("DefaultDQNAgent.actor.[probe].policy.eps_start", 0.3f);
     config.Set("DefaultDQNAgent.actor.[probe].policy.eps_end", 0.3f);
+    // Actor カタログの実行目的を明示し、Noisy OFF の既定動作を選ぶ。
+    config.Set("DefaultDQNAgent.nn_forward.[test_default].noisy.mode", "mu_only");
+    config.Set("DefaultDQNAgent.actor.[probe].nn_forward_key", "test_default");
+    config.Set("DefaultDQNAgent.learner.current.nn_forward_key", "test_default");
+    config.Set("DefaultDQNAgent.learner.target.nn_forward_key", "test_default");
     config.Set("DefaultDQNAgent.net.branch.[features].bind", "vector");
     config.Set("DefaultDQNAgent.net.branch.[features].structure", "Flatten");
     config.Set("net.block.[Flatten].type", "Flatten");

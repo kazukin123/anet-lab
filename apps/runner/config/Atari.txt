@@ -441,6 +441,46 @@ run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breako
 run.@a5_metrics : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2
 
 
+# --- NoisyNet: 指定の効率優先チェーン末尾へ重ねる比較用 profile ---
+# 4 射影は value/adv の Body FC と Head 最終射影。feature 本体と tau 射影は OFF。
+# nz_learning は既存の初期化・AMP を継承し、Actor / Learner は call/batch。
+run.@nz_learning : net.block.[AtariHeadFC512].noisy.enabled = true
+run.@nz_learning : net.block.[AtariHeadFC512].noisy.sigma0 = 0.5
+run.@nz_learning : A2.head_projection.noisy.enabled = true
+run.@nz_learning : A2.head_projection.noisy.sigma0 = 0.5
+run.@nz_learning : A2.actor.[train].nn_forward_key = act_sample
+run.@nz_learning : A2.learner.current.nn_forward_key = act_sample
+run.@nz_learning : A2.learner.target.nn_forward_key = act_sample
+run.@nz_learning : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@noisy
+
+# nz_reference: default 初期化・AMP 継承・Body FC は FP32・標準 call/batch。ON/OFF は enabled だけ異なる。
+run.@nz_reference : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512Def > ReLU
+run.@nz_reference : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512Def > ReLU
+run.@nz_reference : A2.head_init.mode = default
+run.@nz_reference : net.block.[AtariHeadFC512Def].force_fp32 = true
+run.@nz_reference : net.block.[AtariHeadFC512Def].noisy.enabled = true
+run.@nz_reference : net.block.[AtariHeadFC512Def].noisy.sigma0 = 0.5
+run.@nz_reference : A2.head_projection.noisy.enabled = true
+run.@nz_reference : A2.head_projection.noisy.sigma0 = 0.5
+run.@nz_reference : A2.actor.[train].nn_forward_key = act_sample
+run.@nz_reference : A2.learner.current.nn_forward_key = act_sample
+run.@nz_reference : A2.learner.target.nn_forward_key = act_sample
+run.@nz_reference : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@noisy
+
+# nz_reference_off: default 初期化・AMP 継承・Body FC は FP32・標準 call/batch。ON/OFF は enabled だけ異なる。
+run.@nz_reference_off : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512Def > ReLU
+run.@nz_reference_off : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512Def > ReLU
+run.@nz_reference_off : A2.head_init.mode = default
+run.@nz_reference_off : net.block.[AtariHeadFC512Def].force_fp32 = true
+run.@nz_reference_off : net.block.[AtariHeadFC512Def].noisy.enabled = false
+run.@nz_reference_off : net.block.[AtariHeadFC512Def].noisy.sigma0 = 0.5
+run.@nz_reference_off : A2.head_projection.noisy.enabled = false
+run.@nz_reference_off : A2.head_projection.noisy.sigma0 = 0.5
+run.@nz_reference_off : A2.actor.[train].nn_forward_key = act_sample
+run.@nz_reference_off : A2.learner.current.nn_forward_key = act_sample
+run.@nz_reference_off : A2.learner.target.nn_forward_key = act_sample
+run.@nz_reference_off : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@noisy
+
 # --- 再訪予定の腕 ---
 
 run.@aainit : A2.learner.per_initial_priority_mode = actor_approx

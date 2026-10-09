@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:eaee7b1aefe9c9e0b9a93ef8d1fa6e8f006d32e1 date:2026-09-19 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:466d36bd47f907a141a1191b63849b42b1744982 date:2026-10-07 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -55,9 +55,20 @@ Discrete Grids retain `[S,1,H,W]` in the raw Network spec, but `NetworkBoundaryP
 
 - Network Body executes the configured branch DAG and produces a feature TensorDict.
 - Network Head converts features into Agent-specific outputs, such as DQN Q values, quantiles, or ImageCls class logits.
-- `Network` combines Body and Head and exposes one `Forward(TensorDict)`.
+- `Network` combines Body and Head and exposes one `Forward(TensorDict, NetworkForwardContext)`.
 
 This separation allows multiple Agent-specific Heads to use a shared Backbone.
+
+NetworkForwardContext is a class constructed explicitly from Params and stores all fields in private const Params. Changes to the clock, episode_start, or row mapping require a new Context. Configuration is borrowed by const reference; the state pointer cannot be rebound, while computation components may update the state box. The episode_start Tensor shares storage, which callers must keep unchanged during the call. WithRowMapping() copies all Params fields and replaces only the row mapping, preserving future fields without manual copying. Module-specific requirements, retention rules, and input shape/device checks remain at their existing consumption boundaries.
+
+`Network::Forward` uses `NetworkForwardContext::GetDefault()` when context is omitted. `ForwardUpTo` and internal forwards require context and pass the same execution information through Body, branches, blocks, Modules, and Head. `NetworkForwardConfig` copies the selected configuration subtree, stores it immutably, and exposes read-only data through `GetConfigData()`. Concrete configuration types, interpretation, and validation belong inside the consuming concrete `NetworkModule` class; the same rule applies to Head computation components. Adding a Module that consumes execution settings must not require changes to the shared configuration type, forwarding paths, callers, or existing Modules.
+
+Construction dummy forwards, returned `TensorDictFunction` operations, existing additional diagnostics, and Agents without execution-setting selections explicitly use `NetworkForwardContext::GetDefault()`. The `TensorDictFunction` signature remains unchanged. Shared types do not enumerate concrete setting fields, and shared forwarding code does not interpret Module-specific values.
+
+`GetDefault()` explicitly requests each component's default behavior without concrete setting fields. Noisy components interpret that request as mean-only; missing fields in named settings remain distinct.
+
+
+`Network::ValidateForwardConfig(config, clock_kind)` delegates required fields and clock constraints to each Module and Head after construction. `ValidateForwardReuse(source, requested)` likewise delegates compatibility rules without interpreting setting values or differences in shared code. `NetworkModuleRepository::ValidateForwardConfigDeclaration()` delegates declaration validation through registered factories to concrete Modules. Validation of written types, enum values, and ranges is separate from requirements and clocks for an active computation. Besides `kNone` for no clock, the two clock kinds are `kContinuingRows` for rows continuing across calls and `kTransientRows` for rows replaced on each call; count and episode retention require continuing rows.
 
 ### 2.4 Configuration Syntax
 
@@ -137,7 +148,7 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +Forward(input, callback)
+  +Forward(input, context, callback)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -205,13 +216,13 @@ sequenceDiagram
     participant B as NetworkBody
     participant H as NetworkHead
 
-    C->>N: Forward(input TensorDict)
+    C->>N: Forward(input TensorDict, context)
     N->>P: Format(raw input)
     P-->>N: 検証・整形済みTensorDict
-    N->>B: Forward
+    N->>B: Forward(context)
     B->>B: branchを依存順にExecute
     B-->>N: feature TensorDict
-    N->>H: Forward(features)
+    N->>H: Forward(features, context)
     H-->>N: Agent固有TensorDict
     N-->>C: output
 ```
@@ -267,11 +278,27 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 
 `Network::Forward` accepts optional `NetworkBranchCapture`, returning detached internal tensors after the ordinary branch loop but before `output_keys` conversion. Existing forwards without capture, TraceCallback, and Actor paths are unchanged.
 
-`ForwardUpTo(input, branch_key)` uses formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
+`ForwardUpTo(input, context, branch_key)` uses formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
 
 Plasticity statistics accept rank-2 `(N,D)` features and a requested metric set, compute only requested statistics from detached FP32 CPU features, and are cached by the caller. Steps without srank requests perform no SVD. Simultaneous requests for δ=0.01 / 0.05 / 0.20 share one `svdvals` and cumsum. Each result is optional, preventing uncomputed fields from being read as valid values. Unqualified srank means δ=0.01.
 
 `ComputeParameterNormSplit(feature_key)` uses the same dependency closure, grouping trainable parameters in closure branches as feature and parameters in other branches and Head as readout. It returns each group's raw L2, effective L2, and maximum sigma as FP32 device scalars. It uses neither forward nor RNG and excludes parameters with `requires_grad=false` from norms.
+
+### 7.7 Noisy Linear and Execution State
+
+Body `Linear` defaults to `noisy.enabled=false`, `noisy.sigma0=0.5`, and `force_fp32=false`. Existing weight/bias remain μ with their names, initialization, and RNG order preserved. Enabling Noisy registers signed trainable `sigma_weight` / `sigma_bias`, both initialized to `sigma0 / sqrt(fan_in)`.
+
+The concrete LinearProjectionModule composed by Body Linear and Heads privately reads `noisy.mode=sample|mu_only`, `noisy.hold=call|count|episode`, `noisy.share=batch|sample`, and `noisy.count`. Written types, enums, ranges, and episode/batch incompatibility are checked at configuration resolution. Active sample requirements, clock compatibility, and reuse constraints are checked at initialization. OFF and μ-only suspend holding requirements without ignoring invalid written values.
+
+Caller-owned opaque `NetworkForwardState` stores ε per module instance and a dedicated RNG. Call redraws when the clock changes; count redraws every N Actor calls; episode redraws only Actor lanes marked by `episode_start`. Repeating a forward at the same clock preserves ε and does not apply an episode boundary twice. Episode boundaries do not reset count. Held shape/device mismatches and backward clocks fail fast. The immutable NetworkForwardRowMapping validates CPU int64 indices and the source-row count once, then transfers indices to the execution device once. Projections use SelectRows without exposing internal indices and check only row/device metadata at execution. GetIndices returns an independent inspection copy.
+
+Parsed settings are cached within the projection module by their content, independently of keys, addresses, and declaration order. Resolution occurs at initialization or the first direct forward. Concurrent shared-network users are synchronized, and locks are released before tensor operations. NetworkForwardConfig contains no concrete types, parsing, or holding semantics.
+
+Sample uses separate `Linear(x, μ)` and `Linear(x*ε_in, σ)*ε_out` operations without materializing `[B,out,in]` weights. ε broadcasts over non-batch dimensions, including IQN τ. μ-only and `GetDefault()` exclude σ from the graph and consume no ε/RNG. Existing FP32 spectral normalization applies only to μ. Independent `force_fp32` preserves ordinary AMP inheritance and Head FP32 boundaries.
+
+Cloning, hard/soft copying, and serialization include μ/σ parameters and existing buffers, but exclude ε, clocks, and RNG from caller boxes. Copying or snapshot synchronization does not trigger redraws. `GetNoisyParameterEntries()` exposes paired μ/σ, weight/bias, and branch metadata only for optimizer classification and diagnostics, never for execution-setting interpretation.
+
+`ComputeNoisyParameterStatistics(feature_key)` classifies the feature dependency closure versus readout and returns weight/bias σ mean-abs and L2 ratios. Only paired μ contributes to denominators, using effective μ for SN. Empty populations are NaN; a zero denominator invalidates only its ratio. Existing weight norms exclude σ.
 
 ## 8. Tests and Extension Checks
 
@@ -285,6 +312,8 @@ When changing Networks, check the following:
 6. Register new module types in `InitNN()` and match their names to configuration examples.
 7. Preserve GraphViz/Trace and expose visualization support where needed.
 8. When extending bind, validate parsing, dependency order, cycles, runtime shapes, ToJson, GraphViz, and unused-input warnings under the same term/factor contract.
+
+See the [PRD 084 validation instructions](../../core/anet-core/testdata/prd084/README.md) for execution-setting ownership and independent Module / Head extension tests.
 
 Main unit tests are in [nn_test.cpp](../../core/anet-core/src/nn_test.cpp); DQN/ImageCls tests also validate Agent integration.
 

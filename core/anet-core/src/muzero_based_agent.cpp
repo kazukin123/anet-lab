@@ -26,7 +26,7 @@ public:
         anet::nn::WeightInitializer::Initialize(reward_layer_, reward_init_config);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         ANET_PROFILE_FUNC();
 
@@ -110,7 +110,7 @@ public:
         anet::nn::WeightInitializer::Initialize(policy_layer_, policy_init_config);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         ANET_PROFILE_FUNC();
 
@@ -313,7 +313,7 @@ anet::TensorDict MuZeroNetworkModel::InitialInference(const anet::TensorDict& ob
     ANET_LOG_DEBUG("obs=" << obs.ToDefString());
 
     //  Representation: 観測 -> 隠れ状態
-    auto rep_out = suite_->GetRepresentationNet()->Forward(obs);
+    auto rep_out = suite_->GetRepresentationNet()->Forward(obs, anet::nn::NetworkForwardContext::GetDefault());
     auto hidden_state = rep_out.At("hidden_state");
     ANET_LOG_DEBUG("hidden_state=" << anet::ToDefString(hidden_state));
     ANET_ASSERT_SHAPE(hidden_state, { ANET_SHAPE_ANY, config_.hidden_state_dim });
@@ -323,7 +323,7 @@ anet::TensorDict MuZeroNetworkModel::InitialInference(const anet::TensorDict& ob
 	anet::TensorDict pred_input({ { "hidden_state", hidden_state } });
 
     //  Prediction: 隠れ状態 -> 価値, 方策
-    auto pred_out = suite_->GetPredictionNet()->Forward(pred_input);
+    auto pred_out = suite_->GetPredictionNet()->Forward(pred_input, anet::nn::NetworkForwardContext::GetDefault());
     torch::Tensor value = pred_out.At("value");
     torch::Tensor policy_logits = pred_out.At("policy_logits");
     ANET_LOG_DEBUG("value=" << anet::ToDefString(value));
@@ -366,7 +366,7 @@ anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hid
         });
 
     // Dynamics: 隠れ状態 + アクション -> 次の隠れ状態, 報酬
-    auto dyn_out = suite_->GetDynamicsNet()->Forward(dyn_input);
+    auto dyn_out = suite_->GetDynamicsNet()->Forward(dyn_input, anet::nn::NetworkForwardContext::GetDefault());
     auto next_hidden_state = dyn_out.At("hidden_state");
     auto reward = dyn_out.At("reward");
     ANET_ASSERT_SHAPE(next_hidden_state, { ANET_SHAPE_ANY, config_.hidden_state_dim });
@@ -377,7 +377,7 @@ anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hid
 
     // Prediction: 次の隠れ状態 -> 価値, 方策
     anet::TensorDict pred_input({ "hidden_state", next_hidden_state });
-    auto pred_out = suite_->GetPredictionNet()->Forward(pred_input);
+    auto pred_out = suite_->GetPredictionNet()->Forward(pred_input, anet::nn::NetworkForwardContext::GetDefault());
     torch::Tensor value = pred_out.At("value");
     torch::Tensor policy_logits = pred_out.At("policy_logits");
 

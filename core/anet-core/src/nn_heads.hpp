@@ -17,7 +17,7 @@ namespace anet::nn {
     class PassThroughHead : public NetworkHead {
     public:
         explicit PassThroughHead(const std::string& output_key);
-        anet::TensorDict Forward(const anet::TensorDict& feature_dict) override;
+        anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override;
         std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         HeadGraphVizInfo GetGraphVizInfo() const override;
     private:
@@ -37,7 +37,7 @@ namespace anet::nn {
             std::string output_key,
             const WeightInitConfig& init_config);
 
-        anet::TensorDict Forward(const anet::TensorDict& feature_dict) override;
+        anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override;
         std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         HeadGraphVizInfo GetGraphVizInfo() const override;
     private:

@@ -24,6 +24,33 @@ using namespace anet::rl::dqn;
 
 namespace {
 
+anet::rl::dqn::LearnerConfig WithDefaultLearnerForwardConfig()
+{
+    // 名前付きカタログを使わない既存の直接構築 fixture は、既定動作を明示する。
+    anet::rl::dqn::LearnerConfig config;
+    config.current.nn_forward = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault());
+    config.target.nn_forward = config.current.nn_forward;
+    return config;
+}
+
+
+anet::ConfigData WithDefaultForwardConfig(anet::ConfigData data = {})
+{
+    anet::nn::InitNN();
+    // 既存テストの実行目的を明示し、新しい必須参照を fixture 側で選択する。
+    data.Set("DefaultDQNAgent.nn_forward.[test_default].noisy.mode", "mu_only");
+    if (!data.Has("DefaultDQNAgent.learner.current.nn_forward_key"))
+        data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "test_default");
+    if (!data.Has("DefaultDQNAgent.learner.target.nn_forward_key"))
+        data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "test_default");
+    for (const auto& [key, entry] : data.MakeSubConfigData("DefaultDQNAgent.actor")) {
+        const auto reference = "DefaultDQNAgent.actor.[" + key + "].nn_forward_key";
+        if (!data.Has(reference)) data.Set(reference, "test_default");
+    }
+    return data;
+}
+
+
 struct SoftForward {
     bool training;
     bool grad_enabled;
@@ -41,7 +68,7 @@ public:
         bias_ = register_parameter("bias", torch::zeros({ 1 }));
     }
 
-    TensorDict Forward(const TensorDict& features) override
+    TensorDict Forward(const TensorDict& features, const anet::nn::NetworkForwardContext& context) override
     {
         const auto input = features.At("feature");
         auto q = scale_ * input + bias_;
@@ -80,7 +107,7 @@ public:
     explicit SoftIdentity(bool stateful = false) {
         if (stateful) norm_ = register_module("norm", torch::nn::BatchNorm1d(2));
     }
-    torch::Tensor Forward(torch::Tensor input) override {
+    torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override {
         if (norm_) return nn::DropPath(norm_->forward(input), 0.25, is_training());
         // NetworkがheadのAMPを切る前のbody境界で、CUDA BF16が実際に有効なことを確認する。
         if (input.is_cuda()) {
@@ -200,7 +227,7 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diag
         return ConfigManager((config_dir / "_main.txt").string(), &cli, options).GetConfigData();
     };
     const auto data = load("run.@v5_iqn_impala_x2>run.@munch");
-    const DefaultDQNAgentConfig config(data);
+    const DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
     CHECK(config.quantile_mode == "iqn");
     CHECK(config.learner.munchausen.enabled);
     CHECK(config.learner.munchausen.log_policy_mode == mode);
@@ -216,7 +243,7 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diag
     }
     CHECK(data.Get("metrics.scalar.[36_agent_munchausen/07_soft_gap]").empty());
     // 解決後ConfigDataは材料キーを公開しないため、従来Runの実効設定からOFFを検証する。
-    const DefaultDQNAgentConfig baseline(load("run.@v5_iqn_impala_x2"));
+    const DefaultDQNAgentConfig baseline(WithDefaultForwardConfig(load("run.@v5_iqn_impala_x2")));
     CHECK_FALSE(baseline.learner.munchausen.enabled);
     CHECK(baseline.learner.use_double_dqn);
 }
@@ -243,7 +270,7 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     // 共通configにmodeが含まれても、同じscoreとseedから作るActor hintは変わらない。
     for (const std::string mode : { "target", "online", "online_reuse" }) {
         CAPTURE(mode);
-        anet::rl::dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 67021, std::make_shared<std::shared_mutex>(), network, network,
+        anet::rl::dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 67021, std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
             true, std::nullopt, false, ActorQHintConfig{
                 .munchausen = MunchausenConfig{ .enabled = enabled, .log_policy_mode = mode, .entropy_tau = 0.7f },
                 .use_tbo = tbo, .tbo_epsilon = 0.001f });
@@ -277,7 +304,7 @@ TEST_CASE("K3 Actor hints carry the selected start bonus into initial priorities
     CHECK_THROWS(missing.WithAction(torch::tensor({ 0 }, torch::kInt64)));
 
     for (const bool tbo : { false, true }) {
-        LearnerConfig config;
+        LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.use_tbo = tbo;
         config.tbo_epsilon = 0.001f;
         config.per_eps = 0.01f;
@@ -326,7 +353,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
     torch::Tensor previous_td;
     double previous_loss = 0.0;
     for (int repeat = 0; repeat < 2; ++repeat) {
-        LearnerConfig config;
+        LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.quantile_mode = kind;
         config.num_quantiles = 3;
         config.iqn.current_taus.num_taus = 4;
@@ -524,29 +551,29 @@ TEST_CASE("Munchausen config validates dormant values and resolved conflicts", "
         auto invalid = data;
         const auto full_key = "DefaultDQNAgent.learner.munchausen." + key;
         invalid.Set(full_key, value);
-        CHECK_THROWS_WITH(DefaultDQNAgentConfig(invalid), Catch::Matchers::ContainsSubstring("munchausen." + key));
+        CHECK_THROWS_WITH(DefaultDQNAgentConfig(WithDefaultForwardConfig(invalid)), Catch::Matchers::ContainsSubstring("munchausen." + key));
     }
     auto double_data = data;
     double_data.Set("DefaultDQNAgent.learner.use_double_dqn", true);
     if (enabled) {
-        CHECK_THROWS_WITH(DefaultDQNAgentConfig(double_data), Catch::Matchers::ContainsSubstring("munchausen.enabled=true")
+        CHECK_THROWS_WITH(DefaultDQNAgentConfig(WithDefaultForwardConfig(double_data)), Catch::Matchers::ContainsSubstring("munchausen.enabled=true")
             && Catch::Matchers::ContainsSubstring("use_double_dqn=true") && Catch::Matchers::ContainsSubstring("use_double_dqn=false"));
-    } else CHECK_NOTHROW(DefaultDQNAgentConfig(double_data));
+    } else CHECK_NOTHROW(DefaultDQNAgentConfig(WithDefaultForwardConfig(double_data)));
     for (const bool copied : { false, true }) {
         auto thompson = data;
         thompson.Set("DefaultDQNAgent.use_optimistic_target", copied);
         thompson.Set(copied ? "DefaultDQNAgent.actor.[train].policy.policy_type" : "DefaultDQNAgent.target_policy.policy_type", "ThompsonSampling");
-        if (enabled) CHECK_THROWS_WITH(DefaultDQNAgentConfig(thompson), Catch::Matchers::ContainsSubstring("munchausen.enabled=true")
+        if (enabled) CHECK_THROWS_WITH(DefaultDQNAgentConfig(WithDefaultForwardConfig(thompson)), Catch::Matchers::ContainsSubstring("munchausen.enabled=true")
             && Catch::Matchers::ContainsSubstring("ThompsonSampling") && Catch::Matchers::ContainsSubstring("expected Greedy"));
-        else CHECK_NOTHROW(DefaultDQNAgentConfig(thompson));
+        else CHECK_NOTHROW(DefaultDQNAgentConfig(WithDefaultForwardConfig(thompson)));
         if (copied) {
             thompson.Set("DefaultDQNAgent.target_policy.policy_type", "Greedy");
-            CHECK_NOTHROW(DefaultDQNAgentConfig(thompson));
+            CHECK_NOTHROW(DefaultDQNAgentConfig(WithDefaultForwardConfig(thompson)));
         }
     }
     data.Set("DefaultDQNAgent.use_optimistic_target", true);
     data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
-    CHECK(DefaultDQNAgentConfig(data).target_policy.policy_type == "UQE");
+    CHECK(DefaultDQNAgentConfig(WithDefaultForwardConfig(data)).target_policy.policy_type == "UQE");
     CHECK_FALSE(RainbowAgentConfig(ConfigData{}).learner.munchausen.enabled);
     anet::rl::dqn::BatchUpdateResult empty;
     for (const auto* key : kMunchausenMetricKeys) {
@@ -566,7 +593,7 @@ TEST_CASE("Munchausen target capture exposes only next state rows", "[dqn][munch
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, false, device, online, target);
-    LearnerConfig config;
+    LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.quantile_mode = kind;
     config.num_quantiles = 3;
     config.iqn.current_taus.num_taus = 4;
@@ -645,7 +672,7 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, false, torch::kCPU, online, target);
     RuntimeVars vars;
-    LearnerConfig config;
+    LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.quantile_mode = kind;
     config.num_quantiles = 3;
     config.iqn.current_taus.num_taus = 4;
@@ -740,7 +767,7 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         auto target = std::make_shared<std::vector<SoftForward>>();
         SoftOracleModel model(kind, tbo, torch::kCPU, online, target, true);
         RuntimeVars vars;
-        LearnerConfig config;
+        LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.quantile_mode = kind;
         config.num_quantiles = 3;
         config.iqn.current_taus.num_taus = 4;
@@ -858,7 +885,7 @@ TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dq
 
     // 方式・target・PER・TBOごとに独立seedから同じ更新系列を作る。
     const torch::Device device(torch::kCPU);
-    LearnerConfig config;
+    LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.quantile_mode = kind;
     config.num_quantiles = 3;
     config.iqn.current_taus.num_taus = 4;

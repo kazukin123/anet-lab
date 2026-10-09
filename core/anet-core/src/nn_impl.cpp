@@ -15,6 +15,7 @@
 #include <optional>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <ATen/ops/_foreach_lerp.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
@@ -26,6 +27,195 @@
 using namespace anet::nn;
 namespace LOG = anet::log;
 
+
+
+static anet::ConfigData CopyForwardConfigData(const anet::ConfigData& data, const std::string& prefix)
+{
+    // 参照された項目配下だけをコピーし、項目名や値の意味は解釈しない。
+    anet::ConfigData result;
+    const auto key_prefix = prefix + ".";
+    for (const auto& [name, value] : data.Map()) {
+        if (name.starts_with(key_prefix)) result.Set(name.substr(key_prefix.size()), value);
+    }
+    return result;
+}
+
+NetworkForwardConfig::NetworkForwardConfig(const anet::ConfigData& data, const std::string& prefix)
+    : key(prefix), config_data_(CopyForwardConfigData(data, prefix)), is_default_(false)
+{
+}
+
+NetworkForwardConfig::NetworkForwardConfig()
+    : key("default"), config_data_(), is_default_(true)
+{
+}
+
+const NetworkForwardConfig& NetworkForwardConfig::GetDefault()
+{
+    // 各計算部品の既定動作を明示的に要求し、具体的な設定値は共通層に置かない。
+    static const NetworkForwardConfig config;
+    return config;
+}
+
+struct NetworkForwardState::Impl {
+    explicit Impl(anet::seed_t seed) : random(seed) { }
+    anet::RandomGenerator random;
+    std::map<std::pair<const void*, std::type_index>, std::shared_ptr<void>> slots;
+};
+
+NetworkForwardState::NetworkForwardState(anet::seed_t seed)
+    : impl_(std::make_unique<Impl>(seed))
+{
+}
+
+NetworkForwardState::~NetworkForwardState() = default;
+
+std::shared_ptr<void>& NetworkForwardStateAccess::GetSlot(
+    NetworkForwardState& state, const void* owner, std::type_index type)
+{
+    return state.impl_->slots[{ owner, type }];
+}
+
+anet::RandomGenerator& NetworkForwardStateAccess::GetRandom(NetworkForwardState& state)
+{
+    return state.impl_->random;
+}
+
+static torch::Tensor MakeForwardRowMappingIndices(
+    const torch::Tensor& cpu_indices, int64_t source_rows, torch::Device device)
+{
+    ANET_PROFILE_SCOPE_FULL(mapping_profile, "NetworkForwardRowMapping::NetworkForwardRowMapping");
+    // CPU の宣言を先に検証し、不正な要求で device 転送を始めない。
+    if (!cpu_indices.defined() || !cpu_indices.device().is_cpu()
+        || cpu_indices.scalar_type() != torch::kInt64 || cpu_indices.dim() != 1
+        || cpu_indices.numel() == 0 || source_rows <= 0) {
+        ANET_SYSTEM_ERROR("NetworkForwardRowMapping requires a nonempty CPU int64 vector and source_rows > 0; source_rows="
+            << source_rows << ".");
+    }
+    const auto contiguous = cpu_indices.contiguous();
+    const auto values = contiguous.accessor<int64_t, 1>();
+    for (int64_t row = 0; row < contiguous.numel(); ++row) {
+        if (values[row] < 0 || values[row] >= source_rows) {
+            ANET_SYSTEM_ERROR("NetworkForwardRowMapping index[" << row << "]=" << values[row]
+                << " expected [0," << source_rows << ").");
+        }
+    }
+    // 呼び出し元の変更から切り離し、使用 device への転送はこの一回だけにする。
+    return contiguous.clone().to(device);
+}
+
+NetworkForwardRowMapping::NetworkForwardRowMapping(
+    const torch::Tensor& cpu_indices, int64_t source_rows, torch::Device device)
+    : source_rows_(source_rows), indices_(MakeForwardRowMappingIndices(cpu_indices, source_rows, device))
+{
+}
+
+torch::Tensor NetworkForwardRowMapping::GetIndices() const
+{
+    ANET_PROFILE_FUNC();
+    // Tensor の const API でも in-place 操作できるため、内部への別名を公開しない。
+    return indices_.clone();
+}
+
+torch::Tensor NetworkForwardRowMapping::SelectRows(const torch::Tensor& source) const
+{
+    ANET_PROFILE_FUNC();
+    // 値域は構築時に検証済み。実行時は source のメタデータだけ確認する。
+    if (!source.defined() || source.dim() < 1 || source.size(0) != source_rows_
+        || source.device() != indices_.device()) {
+        ANET_SYSTEM_ERROR("NetworkForwardRowMapping source requires rows=" << source_rows_
+            << " device=" << indices_.device() << ".");
+    }
+    return source.index_select(0, indices_);
+}
+
+NetworkForwardContext::NetworkForwardContext(Params params)
+    : params_(std::move(params))
+{
+}
+
+NetworkForwardContext NetworkForwardContext::WithRowMapping(
+    std::optional<NetworkForwardRowMapping> row_mapping) const
+{
+    // 全項目を一括で複製し、Params の追加項目も呼び出し側の手写しなしで保持する。
+    auto params = params_;
+    params.row_mapping.reset();
+    if (row_mapping) params.row_mapping.emplace(std::move(*row_mapping));
+    return NetworkForwardContext(std::move(params));
+}
+
+NetworkForwardContext NetworkForwardContext::GetDefault()
+{
+    return NetworkForwardContext({ .config = NetworkForwardConfig::GetDefault() });
+}
+
+std::unique_ptr<NetworkForwardState> Network::MakeForwardState(anet::seed_t seed) const
+{
+    return std::unique_ptr<NetworkForwardState>(new NetworkForwardState(seed));
+}
+
+void Network::ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const
+{
+    ANET_PROFILE_FUNC();
+    // 共通経路は設定の意味を解釈せず、利用する全計算部品へ検証を委譲する。
+    for (const auto& branch : body_->GetBranches()) {
+        const auto network_struct = branch->GetNetworkStruct();
+        if (!network_struct) continue;
+        for (const auto& block : network_struct->GetBlocks()) {
+            const auto module = block->GetModule();
+            if (module) module->ValidateForwardConfig(config, clock_kind);
+        }
+    }
+    if (head_) head_->ValidateForwardConfig(config, clock_kind);
+}
+
+void Network::ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const
+{
+    ANET_PROFILE_FUNC();
+    // 再利用の両立条件も各計算部品が所有し、共通層は設定の差を解釈しない。
+    for (const auto& branch : body_->GetBranches()) {
+        const auto network_struct = branch->GetNetworkStruct();
+        if (!network_struct) continue;
+        for (const auto& block : network_struct->GetBlocks()) {
+            const auto module = block->GetModule();
+            if (module) module->ValidateForwardReuse(source, requested);
+        }
+    }
+    if (head_) head_->ValidateForwardReuse(source, requested);
+}
+
+std::pair<torch::Tensor, torch::Tensor> anet::nn::InitializeLinearSigma(torch::nn::Linear& layer, double sigma0)
+{
+    ANET_PROFILE_FUNC();
+    const auto fan_in = layer->options.in_features();
+    ANET_CHECK_MSG(fan_in > 0, "Linear sigma initialization requires positive fan-in; actual=" << fan_in);
+    // 既存 μ の parameter 名と初期化を変更せず、同じ層に σ を追加する。
+    const double sigma = sigma0 / std::sqrt(static_cast<double>(fan_in));
+    const auto weight = layer->register_parameter("sigma_weight", torch::full_like(layer->weight, sigma));
+    const auto bias = layer->bias.defined()
+        ? layer->register_parameter("sigma_bias", torch::full_like(layer->bias, sigma)) : torch::Tensor{};
+    return { weight, bias };
+}
+
+torch::Tensor anet::nn::AddFactorizedLinearNoise(
+    const torch::Tensor& input, const torch::Tensor& mean,
+    const torch::Tensor& sigma_weight, const torch::Tensor& sigma_bias,
+    const torch::Tensor& input_factor, const torch::Tensor& output_factor)
+{
+    ANET_PROFILE_FUNC();
+    // dim 0 の行対応を維持し、τ などの中間軸へ factor ベクトルだけを broadcast する。
+    const auto broadcast = [&input](const torch::Tensor& factor) {
+        if (factor.dim() == 1) return factor;
+        std::vector<int64_t> shape(static_cast<size_t>(input.dim()), 1);
+        shape.front() = factor.size(0);
+        shape.back() = factor.size(-1);
+        return factor.reshape(shape);
+    };
+    // AMP の入力・出力精度を維持し、sample ごとの重み行列は実体化しない。
+    const auto perturbation = torch::nn::functional::linear(
+        input * broadcast(input_factor.to(input.scalar_type())), sigma_weight, sigma_bias);
+    return mean + perturbation * broadcast(output_factor.to(perturbation.scalar_type()));
+}
 
 static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
@@ -949,9 +1139,9 @@ NetworkBlock::NetworkBlock(std::string name, std::shared_ptr<NetworkModule> modu
     register_module("inner", module_);
 }
 
-torch::Tensor NetworkBlock::Forward(torch::Tensor input)
+torch::Tensor NetworkBlock::Forward(torch::Tensor input, const NetworkForwardContext& context)
 {
-    return module_->Forward(input);
+    return module_->Forward(input, context);
 }
 
 
@@ -967,7 +1157,7 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
     }
 }
 
-torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceCallback& callback)
+torch::Tensor NetworkStruct::Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback)
 {
     ANET_PROFILE_FUNC();
 
@@ -976,7 +1166,7 @@ torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceCallb
     torch::Tensor x = input;
     int index = 1;
     for (const auto& block : blocks_) {
-        x = block->Forward(x);
+        x = block->Forward(x, context);
         if (callback && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
             callback(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
         }
@@ -1089,7 +1279,7 @@ NetworkBranch::NetworkBranch(
     register_module("network_struct", network_struct_);
 }
 
-void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceCallback& callback)
+void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback)
 {
     torch::Tensor block_input;
 
@@ -1197,7 +1387,7 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceCa
         };
     }
 
-    torch::Tensor output = network_struct_->Forward(block_input, branch_callback);
+    torch::Tensor output = network_struct_->Forward(block_input, context, branch_callback);
     current_state.Set(name_, output);
 }
 
@@ -1222,6 +1412,7 @@ NetworkBody::NetworkBody(
 
 anet::TensorDict NetworkBody::Forward(
     const anet::TensorDict& input,
+    const NetworkForwardContext& context,
     const anet::TraceCallback& callback,
     NetworkBranchCapture* capture)
 {
@@ -1232,7 +1423,7 @@ anet::TensorDict NetworkBody::Forward(
 
     // 入力順ソートされた順序でブランチ群を実行
     for (const auto& branch : branches_) {
-        branch->Execute(state, callback);
+        branch->Execute(state, context, callback);
     }
 
     // 要求された場合だけ、実 forward が生成した branch 出力を参照として切り離す
@@ -1263,7 +1454,7 @@ anet::TensorDict NetworkBody::Forward(
     return out;
 }
 
-anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
+anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key)
 {
     ANET_PROFILE_FUNC();
 
@@ -1273,7 +1464,7 @@ anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const s
     auto state = preprocessor_.Format(input);
     for (const auto& branch : branches_) {
         if (required_branches.contains(branch->GetName())) {
-            branch->Execute(state);
+            branch->Execute(state, context);
         }
     }
     return state;
@@ -1643,13 +1834,14 @@ Network::Network(
 
 anet::TensorDict Network::Forward(
     const anet::TensorDict& input,
+    const NetworkForwardContext& context,
     const anet::TraceCallback& callback,
     NetworkBranchCapture* capture)
 {
     ANET_PROFILE_FUNC();
 
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
-    auto features = body_->Forward(input, callback, capture);
+    auto features = body_->Forward(input, context, callback, capture);
 
     // Head部を実行
     if (head_) {
@@ -1657,16 +1849,91 @@ anet::TensorDict Network::Forward(
         anet::Autocast disable_amp(features.device(), false, torch::kFloat32);
 
         // Bodyから出てきたTensorはBF16になっているかもしれないのでキャストしてHeadに流し込む
-        return head_->Forward(features.To(torch::kFloat32));
+        return head_->Forward(features.To(torch::kFloat32), context);
     } else {
 		// Headが無い場合はBodyの出力をそのまま返す
         return features;
     }
 }
 
-anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
+anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key)
 {
-    return body_->ForwardUpTo(input, branch_key);
+    return body_->ForwardUpTo(input, context, branch_key);
+}
+
+std::vector<NetworkNoisyParameterEntry> Network::GetNoisyParameterEntries() const
+{
+    ANET_PROFILE_FUNC();
+    std::vector<NetworkNoisyParameterEntry> result;
+    // Body の所有単位を辿り、計算部品が列挙した対応へ所属 branch だけを付ける。
+    for (const auto& branch : body_->GetBranches()) {
+        const auto structure = branch->GetNetworkStruct();
+        if (!structure) continue;
+        for (const auto& block : structure->GetBlocks()) {
+            const auto module = block->GetModule();
+            if (!module) continue;
+            for (auto entry : module->GetNoisyParameterEntries()) {
+                entry.branch = branch->GetName();
+                result.push_back(std::move(entry));
+            }
+        }
+    }
+    // Head の射影も同じ対応として返し、利用先で readout 群へ分類できるようにする。
+    if (head_) {
+        for (auto entry : head_->GetNoisyParameterEntries()) result.push_back(std::move(entry));
+    }
+    return result;
+}
+
+torch::Tensor Network::ComputeNoisyParameterStatistics(const std::string& feature_key) const
+{
+    ANET_PROFILE_FUNC();
+    torch::NoGradGuard no_grad;
+    const auto feature_branches = body_->ComputeDependencyClosure(feature_key);
+    const auto entries = GetNoisyParameterEntries();
+    const auto device = entries.empty() ? torch::Device(torch::kCPU) : entries.front().sigma.device();
+    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    const auto nan = torch::full({}, std::numeric_limits<float>::quiet_NaN(), options);
+    std::array<int64_t, 4> counts{};
+    std::array<torch::Tensor, 4> absolute;
+    std::array<torch::Tensor, 4> sigma_squared;
+    std::array<torch::Tensor, 4> mean_squared;
+    for (size_t group = 0; group < 4; ++group) {
+        absolute[group] = torch::zeros({}, options);
+        sigma_squared[group] = torch::zeros({}, options);
+        mean_squared[group] = torch::zeros({}, options);
+    }
+    std::unordered_map<const c10::TensorImpl*, SpectralNormEntry> spectral;
+    for (const auto& entry : GetSpectralNormEntries()) spectral.emplace(entry.weight.unsafeGetTensorImpl(), entry);
+    // sigma を持つ射影の対応する mu だけを集計し、非 Noisy 層の大きさを分母へ混ぜない。
+    for (const auto& entry : entries) {
+        const size_t group = (feature_branches.contains(entry.branch) ? 0 : 2) + (entry.is_bias ? 1 : 0);
+        const auto sigma = entry.sigma.detach().to(torch::kFloat32);
+        const auto mean = entry.mean.detach().to(torch::kFloat32);
+        counts[group] += sigma.numel();
+        absolute[group].add_(sigma.abs().sum());
+        sigma_squared[group].add_(sigma.square().sum());
+        auto squared = mean.square().sum();
+        // SN の永続 buffer を更新せず、既存 parameter norm と同じ実効 mu に換算する。
+        if (const auto found = spectral.find(entry.mean.unsafeGetTensorImpl()); found != spectral.end()) {
+            const auto& sn = found->second;
+            const auto raw = ComputeSpectralSigma(sn.weight.reshape({sn.weight.size(0), -1}), sn.u, sn.v);
+            const auto denominator = sn.mode == WeightNormMode::kSpectralCap ? raw.abs().clamp_min(1.0) : raw;
+            squared = squared / denominator.square();
+        }
+        mean_squared[group].add_(squared);
+    }
+    std::vector<torch::Tensor> values;
+    for (size_t group = 0; group < 4; ++group) {
+        values.push_back(counts[group] > 0 ? absolute[group] / counts[group] : nan);
+    }
+    // 分母ゼロは ratio だけを未成立にし、成立している mean-abs を失わせない。
+    for (size_t group = 0; group < 4; ++group) {
+        values.push_back(counts[group] > 0
+            ? torch::where(mean_squared[group].gt(0), (sigma_squared[group] / mean_squared[group]).sqrt(), nan)
+            : nan);
+    }
+    return torch::stack(values);
 }
 
 NetworkParameterNormSplit Network::ComputeParameterNormSplit(const std::string& feature_key) const
@@ -1692,9 +1959,13 @@ NetworkParameterNormSplit Network::ComputeParameterNormSplit(const std::string& 
     torch::Tensor sigma_feature_max;
     torch::Tensor sigma_readout_max;
 
-    const auto accumulate = [](const torch::nn::Module& module, torch::Tensor& squared_norm) {
+    // sigma は別の診断で扱い、既存の parameter norm の母集団へ入れない。
+    std::unordered_set<const c10::TensorImpl*> noisy_sigma_ids;
+    for (const auto& entry : GetNoisyParameterEntries()) noisy_sigma_ids.insert(entry.sigma.unsafeGetTensorImpl());
+
+    const auto accumulate = [&noisy_sigma_ids](const torch::nn::Module& module, torch::Tensor& squared_norm) {
         for (const auto& parameter : module.parameters()) {
-            if (!parameter.requires_grad()) continue;
+            if (!parameter.requires_grad() || noisy_sigma_ids.contains(parameter.unsafeGetTensorImpl())) continue;
             squared_norm.add_(parameter.detach().to(torch::kFloat32).square().sum());
         }
     };
@@ -1830,7 +2101,7 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
             torch::NoGradGuard grad_guard;
 
             // Bodyのみ実行し、Network::Forward の Headなし経路と同じ出力を返す
-            return this->body_->Forward(state_input);
+            return this->body_->Forward(state_input, anet::nn::NetworkForwardContext::GetDefault());
         };
     }
 
@@ -1845,7 +2116,7 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
         torch::NoGradGuard grad_guard;
 
         // Bodyを実行 (ここはAMPが有効ならFP16で高速処理される)
-        anet::TensorDict features = this->body_->Forward(state_input);
+        anet::TensorDict features = this->body_->Forward(state_input, anet::nn::NetworkForwardContext::GetDefault());
 
         // 関数実行時もHead扱いの処理なので、特徴量側の device で確実にAMPを切る
         anet::Autocast disable_amp(features.device(), false, torch::kFloat32);
@@ -2127,6 +2398,25 @@ std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const 
 }
 
 
+void NetworkModuleRepository::ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const
+{
+    ANET_PROFILE_FUNC();
+    // 登録一覧だけを lock 下で取得し、利用側の検証 callback は lock 外で呼ぶ。
+    std::vector<std::shared_ptr<NetworkModuleFactory>> factories;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        for (const auto& [name, factory] : registry_) factories.push_back(factory);
+    }
+    // 共通層は記述された項目の意味を知らず、認識する factory へ委譲する。
+    for (const auto& factory : factories) factory->ValidateForwardConfigDeclaration(config);
+}
+
+void anet::nn::ValidateNetworkForwardConfigDeclaration(const NetworkForwardConfig& config)
+{
+    // 公開の設定解決境界から、内部の factory registry へ検証だけを委譲する。
+    NetworkModuleRepository::Instance().ValidateForwardConfigDeclaration(config);
+}
+
 // ===========================================================================
 // NetworkBuilder
 // ===========================================================================
@@ -2168,7 +2458,7 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     {
         torch::NoGradGuard grad_guard;
 
-        dummy_feature = body->Forward(dummy_input);
+        dummy_feature = body->Forward(dummy_input, anet::nn::NetworkForwardContext::GetDefault());
     }   // あえて例外キャッチしない
 
     // Headを構築 (Bodyの出力TensorDictをそのまま渡す)

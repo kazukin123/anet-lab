@@ -5,6 +5,7 @@
 #include <cmath>
 #include <map>
 #include <mutex>
+#include <typeindex>
 
 #include "anet/nn.hpp" 
 
@@ -114,6 +115,28 @@ namespace anet::nn {
     // Network Internal Utils
     // ===========================================================================
 
+    /// 箱の内容は計算部品だけが扱う。共通アクセスは設定や状態の意味を解釈しない。
+    class NetworkForwardStateAccess {
+    public:
+        template<typename T>
+        static T& Get(NetworkForwardState& state, const void* owner)
+        {
+            auto& slot = GetSlot(state, owner, std::type_index(typeid(T)));
+            if (!slot) slot = std::make_shared<T>();
+            return *std::static_pointer_cast<T>(slot);
+        }
+        static anet::RandomGenerator& GetRandom(NetworkForwardState& state);
+    private:
+        static std::shared_ptr<void>& GetSlot(NetworkForwardState& state, const void* owner, std::type_index type);
+    };
+
+    // 射影の共用は数値演算だけとし、設定の解釈や保持境界は呼び出す具象クラスが所有する。
+    std::pair<torch::Tensor, torch::Tensor> InitializeLinearSigma(torch::nn::Linear& layer, double sigma0);
+    torch::Tensor AddFactorizedLinearNoise(
+        const torch::Tensor& input, const torch::Tensor& mean,
+        const torch::Tensor& sigma_weight, const torch::Tensor& sigma_bias,
+        const torch::Tensor& input_factor, const torch::Tensor& output_factor);
+
     inline constexpr int kSpectralNormWarmStartIters = 15;
 
     struct SpectralNormState {
@@ -166,19 +189,42 @@ namespace anet::nn {
     public:
         /// Forward実行.
         /// torch::nn::Module::forwardはテンプレートメソッドのため、多態性を持たせるために純粋仮想関数として再定義
-        virtual torch::Tensor Forward(torch::Tensor input) = 0;
+        virtual torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) = 0;
         virtual bool IsConv2dVisualizable() const { return false; }
         virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
+        virtual void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const {}
+        virtual void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const {}
         virtual std::vector<SpectralNormEntry> GetSpectralNormEntries() const { return {}; }
+        virtual std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const { return {}; }
         virtual ~NetworkModule() = default;
     };
+
+    /// Body と Head が合成して使う具象の射影。設定型・状態型は Impl の内部に閉じる。
+    class LinearProjectionModule final : public NetworkModule {
+    public:
+        explicit LinearProjectionModule(const anet::ConfigData& data);
+        ~LinearProjectionModule() override;
+        void Bind(torch::nn::Linear layer);
+        static void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config);
+        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) override;
+        torch::Tensor ForwardWithMean(const torch::Tensor& input, const torch::Tensor& mean,
+            const NetworkForwardContext& context);
+        void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock) const override;
+        void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const override;
+        std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override;
+        anet::ConfigData GetCurrentConfigData() const override;
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
 
     /// 単一のモジュールをラップし、入出力タグ情報を保持するブロック
     class NetworkBlock : public torch::nn::Module {
     public:
         NetworkBlock(std::string name, std::shared_ptr<NetworkModule> module);
 
-        torch::Tensor Forward(torch::Tensor input);
+        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context);
 
         const std::string& GetName() const { return name_; }
         std::shared_ptr<NetworkModule> GetModule() const { return module_; }
@@ -193,7 +239,7 @@ namespace anet::nn {
     public:
         explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks = {});
 
-        torch::Tensor Forward(torch::Tensor input, const anet::TraceCallback& callback = {});
+        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback = {});
         const std::vector<std::shared_ptr<NetworkBlock>>& GetBlocks() const { return blocks_; }
     private:
         std::vector<std::shared_ptr<NetworkBlock>> blocks_;
@@ -210,7 +256,7 @@ namespace anet::nn {
             std::shared_ptr<NetworkStruct> network_struct);
 
         /// 現在のTensorDictから必要な入力(bind)を拾って結合し、処理を実行して結果をDictに書き戻す
-        void Execute(anet::TensorDict& current_state, const anet::TraceCallback& callback = {});
+        void Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback = {});
 
         const std::string& GetName() const { return name_; }
         const std::vector<std::vector<std::string>>& GetBindTerms() const { return bind_terms_; }
@@ -267,9 +313,10 @@ namespace anet::nn {
         // DAG全体のForward実行
         anet::TensorDict Forward(
             const anet::TensorDict& input,
+            const NetworkForwardContext& context,
             const anet::TraceCallback& callback = {},
             NetworkBranchCapture* capture = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
         std::set<std::string> ComputeDependencyClosure(const std::string& branch_key) const;
         std::vector<std::string> GetBranchNames() const;
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
@@ -305,6 +352,7 @@ namespace anet::nn {
         /// @brief Context (タグ情報等) を受け取り、適切なモジュールを生成する
         virtual std::shared_ptr<NetworkModule> CreateModule(
             const ConfigData& config_data, const ModuleContext& context) const = 0;
+        virtual void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const {}
         virtual ~NetworkModuleFactory() = default;
     };
 
@@ -314,6 +362,7 @@ namespace anet::nn {
     public:
         void Register(const std::string& type_name, std::shared_ptr<NetworkModuleFactory> factory);
         std::shared_ptr<NetworkModuleFactory> GetFactory(const std::string& type_name) const;
+        void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const;
     private:
         NetworkModuleRepository() = default;
     private:

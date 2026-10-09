@@ -184,7 +184,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     }
     const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
-    return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, emit_hint,
+    return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, anet::nn::NetworkForwardConfig::GetDefault(), emit_hint,
         std::nullopt, false, ActorQHintConfig{.munchausen = MunchausenConfig{.enabled = false}});
 }
 

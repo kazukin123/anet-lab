@@ -16,7 +16,14 @@
 >
 > 2026-10-03 Atari 担当レビュー 3 回目: 低精度の目安を weight の比と群に限定し（§8.2）、bias を 0 で初期化する `init.mode` の範囲を直し（§5.2）、参照 profile の構成を §12 に定義した。
 
+>
+> 2026-10-05 改訂: 実行設定の具象 Module 内への責任分離、GetDefault() と Forward の context 省略契約、同一時計の episode 保持、初期 σ/μ 比と診断の成立条件を明確化した。参照 profile は AMP 継承・Body の選択的 FP32・標準 call/batch とし、NN の時計を継続する行と呼び出しごとに異なる行の2種類へ整理した。
+
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
+
+`NetworkForwardContext::GetDefault()` は Module 固有の設定値を持たず、各計算部品の既定動作を明示的に要求する。Noisy の計算部品はこれを μ-only と解釈する。名前付き設定の項目不足とは区別し、暗黙の fallback は行わない。
+
+`Network::Forward()` は context 引数に `NetworkForwardContext::GetDefault()` を既定値として持ち、省略時にも同じ伝達経路で各 Module の既定動作を使う。別 overload は追加しない。`ForwardUpTo()` と内部 Module / Head の context 引数は必須のままとする。
 
 ## 1. 目的と問題
 
@@ -76,6 +83,8 @@ Atari を主軸に、学習可能なパラメータ摂動による探索を、�
 
 Network は解決済みの実行設定と、呼び出し側の実行状態・呼び出しごとの入力を、各計算部品へ明示的に渡す（§9）。各 `NetworkModule` は自分が必要な項目だけを利用し、固有の解釈・計算・必須項目・制約の検証を担う。Head の Noisy 演算部品にも同じ実行情報を届ける。Head・SN 等が持つ局所的な精度保護は §8.2 に従う。
 
+`NetworkForwardConfig` は解決済み設定データの不変な受け渡しだけを担い、Module 実装に依存する具体的なフィールド・設定型・解釈を持たない。具体的な設定型・解釈・検証は、それを利用する `NetworkModule` の具象クラス内部に閉じる。Head の計算部品にも同じ原則を適用する。実行設定を利用する Module が増えても、その影響は追加・変更する利用側の Module に閉じ、既存の共通型、伝達経路、Actor・Learner、他の Module の変更を要求しない。共通の射影ヘルパーは演算の共用に限定し、具象設定を共通層へ移す手段にしない。検証時期と休眠の契約は §11.2 のままとする。
+
 実行情報は全経路で明示する。μ-only は正当な明示値である。構築時の dummy forward、状態スイープ（`TensorDictFunction`）、policy_churn・replay_fit・plasticity の probe チャネル、および NN 実行設定を持たない Agent（ImageCls・MuZero・Rainbow）の呼び出しは、コード固定の μ-only（実行状態なし）を渡す。NoisyNet の probe だけは診断用 RNG で sample を渡す（§10.2）。sample を要求できるのは `nn_forward` を参照する 3 用途だけであり、対象外 Agent の構造設定に Noisy な `Linear` があっても μ-only で動き、エラーにしない。μ-only の実行は満たされない要求ではないからである（§4.1）。
 
 Actor・Learner・共通実行処理が Noisy の型や有無を調べて、forward の挙動や設定の検証を切り替える構造にしない。Noisy の有無フラグ、機能一覧の登録、適用された実行条件を収集して汎用的に比較する仕組み、独立した実行基盤は追加しない。例外は Network が返す σ エントリの列挙（§8.3、§10）で、使ってよいのは optimizer の parameter 分類と診断だけである。既存 NN の構築・forward・検証の境界を拡張し、固有知識を計算部品へ閉じる。
@@ -129,7 +138,7 @@ y_b=\operatorname{Linear}(x_b,\mu^w,\mu^b)
 
 参照 profile は §12 の受け入れ（数値・性能）に使う固定構成であり、μ の一様初期化を明示する。現行の `init.mode=default` / `head_init.mode=default` が保持する torch Linear 初期化を使い、weight・bias を \(U[-1/\sqrt{p},1/\sqrt{p}]\) とする。この参照 profile では、比較する NoisyNet 無効側にも同じ μ 初期化を指定する。学習比較では、無効側は既存の Run（各 Env の既存チェーン）を使い、NoisyNet を付けただけでは μ の初期化を変えない。Noisy の腕で μ の初期化や σ₀ を変えるか、変えたときに同じ初期化の無効側を取り直すかは実験側が決める。σ₀ は Noisy を適用する `Linear` block と Head の構造設定の項目で、block / Head の定義ごとに指定する（§4.1）。[PyTorch Linear (2.11), Parameters](https://docs.pytorch.org/docs/2.11/generated/torch.nn.Linear.html)（リポジトリの libtorch は 2.12.0。初期化式は版に依らない）
 
-この初期化と σ₀=0.5 では、初期の \(\|\sigma^w\|_F/\|\mu^w\|_F=\sigma_0\sqrt{3}\approx0.87\) となり、p・q に依らない。テストの期待値に使える。
+この初期化と σ₀=0.5 では、SN なしで十分な要素数を持つ weight の初期比は \(\|\sigma^w\|_F/\|\mu^w\|_F\approx\sigma_0\sqrt{3}\approx0.87\) が目安となる。有限個の μ の実現値では厳密な等式ではなく、SN 併用時は実効 μ によって変わる。厳密なテストの期待値は、実際の μ・σ と、必要な SN の実効重みから計算する。
 
 σ の初期値は fan-in だけで決まるので、μ の初期化を変えると初期の σ/μ 比が変わる。gain 1 の xavier（`xavier_uniform_`）では \(\sigma_0\sqrt{(p+q)/(2p)}\) となり、2304→512 の層で 0.39、512→1 と 512→6 の層で 0.35〜0.36 と、default の半分以下になる。Noisy を付ける層の既存初期化が xavier の構成では、ノイズの相対的な強さが参照 profile より弱いことを前提に結果を読む。xavier のまま参照 profile と同じ比にするなら σ₀ を上げる（2304→512 の層で約 1.1、512→1 と 512→6 の層で約 1.2）。default と constant 以外の `init.mode` は bias を 0 で初期化するため、bias の群では分母が 0 で初期は `NaN`（§10.1）になり、その後しばらく大きく出る。
 
@@ -147,7 +156,7 @@ Actor は NN 実行設定のキー（`actor.[key].nn_forward_key`）を選び、
 
 `sample` は dim 0 のサンプルごとに独立な ε で、Actor では env（lane）ごとに当たる。N は `count` で明示必須の正の整数で、Actor の行動選択呼び出し回数を数える。並列環境数を掛けた経験数や Learner update 数ではない。`count` の周期は episode 境界でリセットしない。N=1 は `call` と同じ抽選境界になる。
 
-`episode` は、既存の `episode_start` に従って対象 lane だけを更新する。Atari の `episodic_life=true` では life loss による境界を含み、false では既存の game over / truncation の境界に従う。NoisyNet 専用の game 終了通知は追加しない。[Atari Env 設計](../design/220_atari_env.jp.md)
+`episode` は、既存の `episode_start` に従って対象 lane だけを更新する。同じ時計の `episode_start` は各 slot で一度だけ反映し、同じ時計で再 forward しても再抽選しない。Atari の `episodic_life=true` では life loss による境界を含み、false では既存の game over / truncation の境界に従う。NoisyNet 専用の game 終了通知は追加しない。[Atari Env 設計](../design/220_atari_env.jp.md)
 
 保持するのは ε であり、μ・σ や方策全体ではない。学習や Train Actor network snapshot の更新で μ・σ が変わっても、保持方式に定めた境界まで ε と抽選時の時計の値を維持する。
 
@@ -258,7 +267,7 @@ AMP を継承する Noisy Linear は、§5.1 の等価式（μ の Linear と σ
 | 時計 | 保持する状態 | 呼び出し側の State。Learner は `learn_step`、Actor は自分の行動選択回数。境界ごとに 1 進める |
 | 用途別 RNG | 保持する状態 | acting、Learner の各役割、診断の状態抽出・ノイズ、IQN τ の用途を分離する |
 
-再抽選の判定は計算部品が「保持方式 × 時計の値 × 自分の slot」の純粋な関数として行う。`call` は時計が `drawn_at` と異なれば全行、`count` は時計と `drawn_at` の差が N 以上なら全行、`episode` は slot が無ければ全行、あれば `episode_start` が真の行だけを引き直す。`episode_start` は箱に残らず、引き直した結果のベクトルだけが残る。複数の Noisy 層は同じ呼び出しごとの入力を見るので足並みが揃う。この所有の形は [ownership_guideline.md](../ownership_guideline.md) に private Resource の例として記す。
+再抽選の判定は計算部品が「保持方式 × 時計の値 × 自分の slot」の純粋な関数として行う。`call` は時計が `drawn_at` と異なれば全行、`count` は時計と `drawn_at` の差が N 以上なら全行、`episode` は slot が無ければ全行、あれば未処理の時計で `episode_start` が真の行だけを引き直す。episode mask の処理済み時計を slot に保持し、同じ時計での再 forward では引き直さない。`episode_start` は箱に残らず、引き直した結果のベクトルだけが残る。複数の Noisy 層は同じ呼び出しごとの入力を見るので足並みが揃う。この所有の形は [ownership_guideline.md](../ownership_guideline.md) に private Resource の例として記す。
 
 module 内の暗黙の「現在の ε」やグローバル切替で呼び出し間の状態を共有しない。Actor snapshot へ ε を紛れ込ませず、同期を再抽選の境界にしない。shared network を複数の Actor が `shared_lock` で同時に forward する構成では、module に ε を持たせると読み手どうしで競合する。
 
@@ -272,7 +281,7 @@ NoisyNet の設定・parameter 名・保存形式を具体化する際はクリ�
 
 ### 10.1 群ごとの σ 統計
 
-weight norm 61〜64 と同じ `feature_key` の依存閉包で feature / readout の 2 群に分け、群ごとに weight と bias を分けて \(\operatorname{mean}(|\sigma|)\) と \(\|\sigma\|_2/\|\mu\|_2\) を出す。ノルムは群内の全要素を並べた L2 ノルム（Frobenius ノルム）とする。分母の μ は、同じ群のうち σ を持つ層の μ だけを並べ、Noisy でない層の μ を含めない。群に Noisy でない層（τ 埋め込みの射影など）が混じると初期値が構成で変わるが、σ を持つ層だけなら default 初期化の初期値が §5.2 の σ₀√3≈0.87 に一致し、Run の間で読める。SN 併用層の μ は 63/64 と同じく実効重みへ換算する（`spectral` では生の μ のスケールが結果に影響しないため）。層ごとの内訳は [920](920_nn_block_metrics_10prd.md) の記録経路が決まってから扱い、084 では持たない。
+weight norm 61〜64 と同じ `feature_key` の依存閉包で feature / readout の 2 群に分け、群ごとに weight と bias を分けて \(\operatorname{mean}(|\sigma|)\) と \(\|\sigma\|_2/\|\mu\|_2\) を出す。ノルムは群内の全要素を並べた L2 ノルム（Frobenius ノルム）とする。分母の μ は、同じ群のうち σ を持つ層の μ だけを並べ、Noisy でない層の μ を含めない。群に Noisy でない層（τ 埋め込みの射影など）が混じると初期値が構成で変わるが、σ を持つ層だけを使うことで、SN なし・default 初期化の weight は §5.2 の σ₀√3≈0.87 を目安として Run の間で読める。SN 併用層の μ は 63/64 と同じく実効重みへ換算する（`spectral` では生の μ のスケールが結果に影響しないため）。層ごとの内訳は [920](920_nn_block_metrics_10prd.md) の記録経路が決まってから扱い、084 では持たない。
 
 既存の weight norm 61〜64 には σ を含めない。`ComputeParameterNormSplit` は σ エントリを除いて集計し、σ の大きさは本項の指標で見る。σ エントリが無い network、分母が 0 等、認識済み指標の値が成立しない場合は `NaN` とする。絶対値やノルムを使うため、学習後の σ の符号を消す処理を parameter 自体へ加える必要はない。
 
@@ -287,7 +296,9 @@ ReplayBuffer から、専用 RNG を使って一様・非復元に状態を抽�
 | IQN の固定分位点数 K | 32 |
 | 実行間隔 | 503 Learner updates |
 
-1 回の probe では同じ状態集合を使い、μ-only を 1 回、sample を状態ごとに独立な ε 標本 R 個で評価する。sample は R 回の forward（1 回に B 状態、`batch` 共有）に分けて評価する。R·B 行を 1 回の forward で `sample` にしても期待値は同じだが、B=128・R=32 では 4,096 状態が FP32 で畳み込みを通り、Atari の IMPALA では最初の畳み込みの出力だけで約 3.7GB になるため採らない。分けた場合の追加コストは、実行間隔ごとに B 状態の forward R 回で、Learner の 1% 前後の概算である。IQN は \(\tau_k=(k+1/2)/K\)、\(k=0,\ldots,K-1\) の midpoint を固定し、すべての forward で共有する。同じ状態の分位点間では ε も共有する。FP32・eval・NoGrad で測り、通常の学習・Actor forward と独立した診断用 RNG だけを消費する。σ エントリが無い network では三指標とも `NaN` とし、0 を出さない。
+1 回の probe では同じ状態集合を使い、μ-only を 1 回、sample を独立な ε 標本 R 個で評価する。各反復内では B 状態間で ε を共有し、反復間で独立に抽選する。sample は R 回の forward（1 回に B 状態、`batch` 共有）に分けて評価する。R·B 行を 1 回の forward で `sample` にしても期待値は同じだが、B=128・R=32 では 4,096 状態が FP32 で畳み込みを通り、Atari の IMPALA では最初の畳み込みの出力だけで約 3.7GB になるため採らない。分けた場合の追加コストは、実行間隔ごとに B 状態の forward R 回で、Learner の 1% 前後の概算である。IQN は \(\tau_k=(k+1/2)/K\)、\(k=0,\ldots,K-1\) の midpoint を固定し、すべての forward で共有する。同じ状態の分位点間では ε も共有する。FP32・eval・NoGrad で測り、通常の学習・Actor forward と独立した診断用 RNG だけを消費する。σ エントリが無い network では三指標とも `NaN` とし、0 を出さない。
+
+probe の μ-only / sample 比較は、Noisy mode 以外の Module / Head 固有の opaque 実行設定を揃える。Agent が両用途の不変 Resource を所有し、Learner は解釈せず渡す。
 
 probe の反復で変えるのは NoisyNet の ε だけとする。ε-greedy、UQE の risk distortion、τ の再抽選等を混ぜない。その他の確率的処理も eval 条件に従って固定する。Q はネットワークの分位平均後の出力を使い、TBO 有効時も逆変換せず同じ Q 空間で比較する。
 
@@ -369,14 +380,14 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 以下は実装時の完了条件であり、今回の文書改訂で実行した検証結果ではない。
 
-参照 profile は次の構成とし、Run プロファイルとして 1 か所に定義する（名前は実装計画で決める）。Atari のサンプル効率優先チェーンを基に、`value_stream` と `adv_stream` の FC、Head の V / A の射影の計 4 層へ NoisyNet を適用する。その 4 層は default 初期化（§5.2）、σ₀=0.5 とし、`value_stream` と `adv_stream` の FC には `force_fp32 = true` を指定する（§8.2。Head の射影は既存の FP32 契約で保護されている）。NN 実行設定は §11.1 の標準とする。比較する無効側は同じ 4 層を同じ初期化・精度にして NoisyNet だけを外す。
+参照 profile は次の構成とし、Run プロファイルとして 1 か所に定義する（名前は実装計画で決める）。Atari のサンプル効率優先チェーンを基に、`value_stream` と `adv_stream` の FC、Head の V / A の射影の計 4 層へ NoisyNet を適用する。その 4 層は default 初期化（§5.2）、σ₀=0.5 とし、`value_stream` と `adv_stream` の FC には `force_fp32 = true` を指定する（§8.2。Head の射影は既存の FP32 契約で保護されている）。外側の精度設定は既存チェーンの AMP 配置を継承し、Learner の AMP 内で Body の指定層だけを FP32 にする。NN 実行設定は §11.1 の標準 call/batch とする。比較する無効側は同じ 4 層を同じ初期化・精度にして NoisyNet だけを外す。
 
 | 領域 | 受け入れ条件 |
 |---|---|
 | 基本演算 | 明示的に合成した重みでの参照計算と、出力・入力勾配・μ/σ 勾配が精度に応じた許容誤差内で一致する。shared / independent、bias 有無、σ₀=0、rank 2 / IQN rank 3 を含む |
 | 初期化 | μ が既存初期化設定に従い、σ weight・bias が同じ fan-in 規則で初期化される。層への NoisyNet 適用による μ 初期化の暗黙変更がない |
 | NN 実行設定・休眠 | Noisy なし・Body のみ・Head のみ・両方で、キー参照、必要項目の不足、休眠、不正値、再利用条件を検証する。μ-only での保持項目省略、sample 時の保持制約、`episode` と `batch` の拒否、共通設定の標準値を含む |
-| 責任境界 | forward の挙動と設定の検証に Noisy の有無による分岐が無いことをレビューする。σ エントリの列挙を使う箇所が optimizer の parameter 分類と診断だけであることも同じレビューで見る。Body / Head の計算部品が固有の解釈・必須項目・制約の検証を担い、通常・部分・診断の forward へ実行情報が届くことを確認する |
+| 責任境界 | forward の挙動と設定の検証に Noisy の有無による分岐が無いことをレビューする。σ エントリの列挙を使う箇所が optimizer の parameter 分類と診断だけであることも同じレビューで見る。Body / Head の計算部品が固有の解釈・必須項目・制約の検証を担い、通常・部分・診断の forward へ実行情報が届くことを確認する。具体的な設定型が具象クラス内部に閉じていることをレビューし、独自設定を読むテスト用 Module / Head が共通型・呼び出し側・既存 Module を変更せず利用できることを確認する |
 | Actor | 初回抽選、`count` の境界、episode をまたぐ周期、対象 lane だけの episode 更新、`batch` / `sample`、snapshot 時の ε 維持を検証する |
 | Learner / target | TD・QR・IQN、Dueling、Double-DQN、Munchausen の各経路で §7.1 の規則どおりの共有と独立を検証する。同一遷移の current / next と IQN の τ 間共有、現在値と target の sample / μ-only、μ-only の現在値で σ が更新も decay もされないことを含む |
 | online_reuse | §7.2 の全組み合わせ、σ=0 でも方式の不一致を許容しないこと、ノイズ設定を使わない部品ではその差が休眠することを検証する。追加 forward・抽選がなく、現在値の出力・精度・τ・ε を引き継ぎ、既存の train / eval・精度差を一律に拒否しないことを確認する |
@@ -385,16 +396,16 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 | 診断 | 固定状態・固定 τ での Q 差・行動不一致率・既知の行動頻度によるエントロピー、群ごとの σ 統計を検証する。十分な母集団、一様・非復元抽選、購読 gating、σ エントリが無い network での NaN、未知 nullopt、weight norm 61〜64 から σ が除かれることを含む |
 | 非干渉・再現性 | 固定構成で、診断の ON / OFF によって行動・学習の RNG 系列、更新結果、ε 保持、永続 buffer が変わらない。同じキー / NN を使う Actor 同士や役割間でも状態を分離し、一方の抽選・保持更新が他方へ干渉しない。ε の共有は §7.1 の規則に限る |
 | 無効時の回帰 | NoisyNet を適用しない構成で、実装前後の同 seed Run の metrics checksum が一致する（ADR 0035 の OFF 保証と同じ水準）。対象は Atari の既定 Run プロファイル（`@bf16`）、`run.@btrsn12`（SN 付き ResBlock）を含む Atari のサンプル効率優先チェーン、CPU 実行の LunarLander。checksum を取る Run は `backend.@deterministic` を明示する（Atari.txt の既定は non-deterministic）。実装前に基準の実行体・依存 DLL・出力を `.scratch/prd084/old/` へ保存し、実装後の `new/` と比べる（[PRD 077](done/077_valid_index_scratch_reuse_20impl.md) の前例。[PRD 060](done/060_eval_batch_episodes_20impl.md) は基準を取り損ねた）。回帰の Run でも `run.eval_schedule.[greedy_dist].interval = 0` で greedy_dist を切り、前後で同じ設定にする（どちらのチェーンも learn_step 0 で発火し、終了時の drain 待ちで長引くため）。Noisy を適用しない `Linear` / Head の parameter 名と checkpoint の中身は変えず、実装前の checkpoint を `auto_load_file` で読めることを確認する |
-| Atari 結合 | 再現可能な設定・seed・実行条件を保存し、1 ゲーム・1 seed・短い予算（例: `exp_exit_step` 500k）で学習、Actor 評価、target、診断を結合した Run を 2 本完走させ、§10 の全キーが値を出す。1 本は学習比較の構成（既存チェーンに Noisy を足し、AMP 継承、標準の `call`・`batch`）、もう 1 本は参照 profile（`force_fp32 = true`）で `episode`・`sample` とし、両方の精度経路を通す。結合 Run では `run.eval_schedule.[greedy_dist].interval = 0` で greedy_dist を切る（初期重みの貪欲方策が step 上限に張り付き、終了時の drain 待ちで長引くため）。予算は `[eval]` と §10.2 の probe が複数回発火する長さにする（500k なら eval 2 回、probe 9〜10 回）。成績は見ない。episode 保持は `episodic_life` の既存境界と整合する |
-| 性能 | 参照 profile から 1 軸ずつ変え、ラウンドロビンで測る（実時間のドリフトがあるため総当たりはしない）。軸は無効時との差、`batch` / `sample`、保持方式、SN なし / μ の `spectral` / μ の `spectral_cap`、`force_fp32` / AMP 継承、診断の有無。SN の軸は、Noisy を付ける `Linear` に SN を付けた測定専用の Atari 構成で測る（現行チェーンは SN が conv・ResBlock だけで、Noisy 層には無い）。学習比較の構成での ON / OFF の 1 対も測り、長い Run の実時間の見積もりに使う。条件と数値を残し、未測定の高速化や全体 2 倍等を約束しない |
+| Atari 結合 | 再現可能な設定・seed・実行条件を保存し、1 ゲーム・1 seed・短い予算（例: `exp_exit_step` 500k）で学習、Actor 評価、target、診断を結合した Run を 2 本完走させ、readout の4統計と probe の3指標に成立値が出る。指定の Atari 構成で feature の4統計は正常な `NaN` とし、feature の成立値は別の契約テストで確認する。1 本は学習比較の構成（既存チェーンに Noisy を足し、AMP 継承、標準の `call`・`batch`）、もう 1 本は AMP を継承した参照 profile（Body の `force_fp32 = true`）を使い、Actor だけを結合 Run の指定で `episode`・`sample` にする。Learner は `call`・`batch` のまま、選択的 FP32 の精度経路を通す。結合 Run では `run.eval_schedule.[greedy_dist].interval = 0` で greedy_dist を切る（初期重みの貪欲方策が step 上限に張り付き、終了時の drain 待ちで長引くため）。予算は `[eval]` と §10.2 の probe が複数回発火する長さにする（500k なら eval 2 回、probe 9〜10 回）。成績は見ない。episode 保持は `episodic_life` の既存境界と整合する |
+| 性能 | 参照 profile から 1 軸ずつ変え、ラウンドロビンで測る（実時間のドリフトがあるため総当たりはしない）。軸は無効時との差、`batch` / `sample`、保持方式、SN なし / μ の `spectral` / μ の `spectral_cap`、`force_fp32` / AMP 継承、診断の有無。SN の軸は、Noisy を付ける `Linear` に SN を付けた測定専用の Atari 構成で測る（現行チェーンは SN が conv・ResBlock だけで、Noisy 層には無い）。Actor と Learner current/target の `batch` / `sample` を別々に測り、保持方式の比較では両側を `sample` に揃える。学習比較の構成でも SN なし / `spectral` / `spectral_cap` の各条件で ON / OFF を測る。計12比較を2反復の A/B/A/B、各224k経験・warmup200kで計48 Run 実行し、長い Run の実時間の見積もりに使う。条件と数値を残し、未測定の高速化や全体 2 倍等を約束しない |
 
 判定は次の機械的な指標で行う。
 
 - 駆動の切替は設定 1 行（`actor.[x].nn_forward_key = 名前`）で、C++ の変更がゼロである。
 - `dqn_based_agent.cpp` と `default_dqn_agent.cpp` に出る `noisy` / `sigma` の語が、optimizer の parameter 分類と診断の関数の中だけにある。Actor・Policy・forward 経路・設定検証には 0 件である。
 - 無効時の回帰は同 seed の metrics checksum の一致で判定する（`backend.@deterministic` を明示し、実装前に保存した実行体の出力と比べる）。
-- smoke Run で §10 の全キーが値を出し、Noisy を適用しない Run では同じキーが NaN になる。
-- 実行設定の項目追加が「NN 側の型の field 追加と計算部品の解釈」だけで済み、Agent 側の差分が 0 行である。
+- 指定の Atari 構成の smoke Run で readout の4統計と probe の3指標が成立値を出し、Noisy 層を持たない feature の4統計は正常な NaN になる。feature 統計の成立は Noisy 層を feature の依存閉包に持つ別の契約テストで確認する。Noisy を適用しない Run では全11キーが NaN になる。
+- 実行設定を使う Module の追加・項目追加は、その具象クラス内部の設定型・解釈・検証だけで済む。既存の `NetworkForwardConfig`、伝達経路、Actor・Learner、他の Module の差分が 0 行である。
 
 スコア改善、σ の一方向の減少、特定ゲームでの優位性は受け入れ条件に含めない。期待した改善が出なかったことも研究結果として残す。
 
@@ -463,3 +474,10 @@ NN 実行設定への集約は Noisy だけとする。AMP の集約は[別 PRD]
 - 現行仕様: [NN 設計](../design/130_neural_networks.jp.md)、[DQN 系 Agent 設計](../design/200_dqn_agents.jp.md)、[Atari Env 設計](../design/220_atari_env.jp.md)。
 - 判断の背景: [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)（ε の所有とカタログの採用理由）、[ADR 0038](../adr/0038-actor-config-catalog-without-runmode.md)（Actor カタログと、policy カタログを却下した経緯）、[ADR 0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md)（NoisyNet の churn 対応のゲート）、[ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)、[ADR 0018](../adr/0018-iqn-via-bind-product-dag.md)、[Train Actor snapshot](done/036_train_actor_periodic_snapshot_10prd.md)、[SN](done/065_nn_spectral_norm_10prd.md)、[Head FP32 保護](done/033_imagecls_bf16_head_10prd.md)、[Agent 実装の所有権ガイドライン](../ownership_guideline.md)。
 - 別途検討: [NN Head の最終射影と出力変換の責務分離](999_nn_head_projection_separation_10prd.md)、[NoisyNet のノイズ込み重みに対する SN](999_noisynet_effective_weight_spectral_norm_10prd.md)、[NN 実行設定への AMP の集約](999_nn_forward_amp_consolidation_10prd.md)、[NN ブロック別メトリクス](920_nn_block_metrics_10prd.md)。
+
+## レビュー後の明確化
+
+- Body Linear と Head の射影は、実行設定を所有する具象 LinearProjectionModule を共用する。具体型・解釈・検証を共通の設定搬送層へ移さない。
+- 結合行対応は CPU 側で一度検証・確定し、射影ごとの GPU→CPU 転送を行わない。
+- 参照 profile は AMP と標準 call/batch を継承し、Body FC だけ force_fp32=true とする。episode/sample は結合 Run の Actor 上書き条件である。
+- NN 層の時計の種類は、同じ行が次の呼び出しへ続くか（`kContinuingRows`）、呼び出しごとに別物か（`kTransientRows`）の 2 値とする。Actor は前者、Learner と probe は後者を宣言し、`count` と `episode` の保持は前者だけで受け付ける。`episode` と `episode_start` は一般語として NN 層でもそのまま使う。

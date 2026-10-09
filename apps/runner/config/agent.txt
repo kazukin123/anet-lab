@@ -111,6 +111,8 @@ DefaultDQNAgent.@random.learner.alpha = 0
 
 DefaultDQNAgent.@baseline.head_init.manual_gain ?= 0.0
 DefaultDQNAgent.@baseline.head_init.mode ?= xavier
+DefaultDQNAgent.@baseline : head_projection.noisy.enabled ?= false
+DefaultDQNAgent.@baseline : head_projection.noisy.sigma0 ?= 0.5
 DefaultDQNAgent.@baseline.model.soft_update_tau ?= 0.001      # 1.0 0.004  0.01 0.005
 
 DefaultDQNAgent.@baseline.nn_viz.show_param_shapes ?= true
@@ -124,6 +126,17 @@ DefaultDQNAgent.@baseline.nn_viz.float_precision ?= 3
 DefaultDQNAgent.@baseline.stucker.use_stacker ?= true
 DefaultDQNAgent.@baseline.stucker.stack_count ?= 4
 DefaultDQNAgent.@baseline.stucker.stack_keys ?=
+
+# --- NN 実行設定 (値の意味は利用する計算部品が所有する) ---
+DefaultDQNAgent.@baseline : nn_forward.[act_sample].noisy.mode ?= sample
+DefaultDQNAgent.@baseline : nn_forward.[act_sample].noisy.hold ?= call
+DefaultDQNAgent.@baseline : nn_forward.[act_sample].noisy.share ?= batch
+DefaultDQNAgent.@baseline : nn_forward.[mu_only].noisy.mode ?= mu_only
+DefaultDQNAgent.@baseline : actor.[train].nn_forward_key ?= act_sample
+DefaultDQNAgent.@baseline : actor.[eval].nn_forward_key ?= mu_only
+DefaultDQNAgent.@baseline : actor.[eval_target].nn_forward_key ?= mu_only
+DefaultDQNAgent.@baseline : learner.current.nn_forward_key ?= act_sample
+DefaultDQNAgent.@baseline : learner.target.nn_forward_key ?= act_sample
 
 DefaultDQNAgent.@baseline.use_optimistic_target ?= false           # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
@@ -172,6 +185,10 @@ DefaultDQNAgent.@baseline.learner.gamma ?= 0.99                 # ★ 0.99 0.995
 DefaultDQNAgent.@baseline.learner.adam_eps ?= 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
 DefaultDQNAgent.@baseline.learner.use_fused_optimizer ?= true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
 DefaultDQNAgent.@baseline.learner.weight_decay ?= 1e-2          # AdamWの重み減衰
+DefaultDQNAgent.@baseline : learner.noisy_weight_decay ?= 0
+DefaultDQNAgent.@baseline : learner.noisy_probe.probe.batch_size ?= 128
+DefaultDQNAgent.@baseline : learner.noisy_probe.num_draws ?= 32
+DefaultDQNAgent.@baseline : learner.noisy_probe.iqn.num_taus ?= 32
 DefaultDQNAgent.@baseline.learner.use_grad_clip ?= true         # ★
 DefaultDQNAgent.@baseline.learner.grad_clip_tau ?= 5            # ★10 25 40 1 5 10
 DefaultDQNAgent.@baseline.learner.use_td_clip ?= false          #

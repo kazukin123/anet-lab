@@ -63,7 +63,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
             device_,
             config_.bf16,
             torch::kBFloat16);
-        outputs = network_->Forward(obs, callback);
+        outputs = network_->Forward(obs, anet::nn::NetworkForwardContext::GetDefault(), callback);
     }
 
     // 推論後処理
@@ -379,7 +379,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
                 device_,
                 config_.bf16.enabled && config_.bf16.learner,
                 torch::kBFloat16);
-            outputs = network_->Forward(obs, {}, measure_plasticity ? &plasticity_capture : nullptr);
+            outputs = network_->Forward(obs, anet::nn::NetworkForwardContext::GetDefault(), {}, measure_plasticity ? &plasticity_capture : nullptr);
         }
 
         // 出力ロジットの取得

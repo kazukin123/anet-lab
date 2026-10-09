@@ -81,6 +81,87 @@ namespace anet::nn {
     // Config Structures
     // ===========================================================================
 
+    /// 解決済みの設定データを不変に渡す。固有の型・解釈・検証は利用する具象クラスが所有する。
+    class NetworkForwardConfig {
+    public:
+        NetworkForwardConfig(const anet::ConfigData& data, const std::string& prefix);
+        static const NetworkForwardConfig& GetDefault();
+        const anet::ConfigData& GetConfigData() const { return config_data_; }
+        bool IsDefault() const { return is_default_; }
+        const std::string key;
+    private:
+        NetworkForwardConfig();
+        const anet::ConfigData config_data_;
+        const bool is_default_;
+    };
+
+    /// 宣言の検証を登録済み Module factory へ委譲する。固有の項目は解釈しない。
+    void ValidateNetworkForwardConfigDeclaration(const NetworkForwardConfig& config);
+
+    /// 時計の種類。NN から見て、同じ行が次の呼び出しへ続くかどうかだけを表す。
+    enum class NetworkForwardClock {
+        kNone,            ///< 時計なし。各計算部品の既定動作だけ
+        kTransientRows,   ///< 行は呼び出しごとに別物。保持は呼び出し単位だけ
+        kContinuingRows,  ///< 同じ行が次の呼び出しへ続く。回数・episode での保持を使える
+    };
+
+    /// 呼び出し側が所有する箱。保持する値と乱数は NN の計算部品だけが操作する。
+    class NetworkForwardState {
+    public:
+        ~NetworkForwardState();
+        NetworkForwardState(const NetworkForwardState&) = delete;
+        NetworkForwardState& operator=(const NetworkForwardState&) = delete;
+    private:
+        friend class Network;
+        friend class NetworkForwardStateAccess;
+        explicit NetworkForwardState(anet::seed_t seed);
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
+    /// 元の行と結合入力の対応。一度確定した index は呼び出し中に変更しない。
+    class NetworkForwardRowMapping {
+    public:
+        NetworkForwardRowMapping(const torch::Tensor& cpu_indices, int64_t source_rows, torch::Device device);
+        int64_t GetSourceRows() const { return source_rows_; }
+        int64_t GetRows() const { return indices_.size(0); }
+        torch::Device GetDevice() const { return indices_.device(); }
+        torch::Tensor GetIndices() const; ///< 検査用の独立した複製を返す。
+        torch::Tensor SelectRows(const torch::Tensor& source) const;
+    private:
+        const int64_t source_rows_;
+        const torch::Tensor indices_;
+    };
+
+    /// 呼び出しごとの不変な実行情報。設定と状態の所有権は呼び出し側にある。
+    class NetworkForwardContext {
+    public:
+        /// 生成時の入力。生成後に変更しても Context のメンバは変更されない。
+        struct Params {
+            const NetworkForwardConfig& config;
+            NetworkForwardState* state = nullptr;
+            NetworkForwardClock clock_kind = NetworkForwardClock::kNone;
+            uint64_t clock = 0;
+            torch::Tensor episode_start;
+            std::optional<NetworkForwardRowMapping> row_mapping;
+        };
+
+        explicit NetworkForwardContext(Params params);
+        static NetworkForwardContext GetDefault();
+        /// 全実行情報を保持し、行対応だけを差し替えた複製を返す。
+        NetworkForwardContext WithRowMapping(std::optional<NetworkForwardRowMapping> row_mapping) const;
+
+        const NetworkForwardConfig& GetConfig() const { return params_.config; }
+        NetworkForwardState* GetState() const { return params_.state; }
+        NetworkForwardClock GetClockKind() const { return params_.clock_kind; }
+        uint64_t GetClock() const { return params_.clock; }
+        const torch::Tensor& GetEpisodeStart() const { return params_.episode_start; }
+        const std::optional<NetworkForwardRowMapping>& GetRowMapping() const { return params_.row_mapping; }
+
+    private:
+        const Params params_; ///< Tensor のストレージは共有する。呼び出し中の変更は禁止。
+    };
+
     struct NetworkBlockConfig {
         std::string type;             ///< "Conv2d", "Linear", "ResBlock" etc.
         anet::ConfigData config_data; ///< Specific config data for the block. "kernel_size"=3 etc.
@@ -150,6 +231,14 @@ namespace anet::nn {
     torch::Tensor ComputeSpectralSigma(
         const torch::Tensor& weight_mat, const torch::Tensor& u, const torch::Tensor& v);
 
+    /// optimizer 分類と診断だけに使う、登録済みの mean/sigma の対応。
+    struct NetworkNoisyParameterEntry {
+        torch::Tensor mean;
+        torch::Tensor sigma;
+        bool is_bias = false;
+        std::string branch; ///< Head は空文字。Body の所属 branch は Network が付ける。
+    };
+
     struct NetworkGraphVizConfig {
         bool show_param_shapes = false;
         bool show_param_count = false;
@@ -181,14 +270,18 @@ namespace anet::nn {
 
     class NetworkHead : public torch::nn::Module, public anet::TensorDictFunctionProvider {
     public:
-        virtual anet::TensorDict Forward(const anet::TensorDict& feature_dict) = 0;
+        virtual anet::TensorDict Forward(const anet::TensorDict& feature_dict, const NetworkForwardContext& context) = 0;
         virtual HeadGraphVizInfo GetGraphVizInfo() const { return {}; }
+        virtual std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const { return {}; }
+        virtual void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const {}
+        virtual void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const {}
         virtual ~NetworkHead() = default;
     };
 
     class NetworkHeadFactory {
     public:
         virtual std::shared_ptr<NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const = 0;
+        virtual void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const {}
         virtual ~NetworkHeadFactory() = default;
     };
 
@@ -226,15 +319,22 @@ namespace anet::nn {
     public: // Forward
         anet::TensorDict Forward(
             const anet::TensorDict& input,
+            const NetworkForwardContext& context = NetworkForwardContext::GetDefault(),
             const anet::TraceCallback& callback = {},
             NetworkBranchCapture* capture = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
+        std::unique_ptr<NetworkForwardState> MakeForwardState(anet::seed_t seed) const;
+        void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const;
+        void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const;
 	public: // 情報取得
         std::vector<std::string> GetBranchNames() const;
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
         void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)
 	public: // パラメータ正規化関連
+        std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const;
+        /// [feature weight,bias,readout weight,bias] の mean-abs、続いて同順の L2 ratio を FP32 [8] で返す。
+        torch::Tensor ComputeNoisyParameterStatistics(const std::string& feature_key) const;
         NetworkParameterNormSplit ComputeParameterNormSplit(const std::string& feature_key) const;
         torch::Tensor ComputeSpectralNormValidity() const;
         std::vector<SpectralNormEntry> GetSpectralNormEntries() const;

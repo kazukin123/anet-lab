@@ -54,9 +54,20 @@ Network構成では、stack軸を暗黙に復元せず、目的に応じて次�
 
 - Network Bodyは設定で定義されたbranch DAGを実行し、特徴量TensorDictを生成する。
 - Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logitsなどが該当する。
-- `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict)`を公開する。
+- `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict, NetworkForwardContext)`を公開する。
 
 この分離により、共通Backboneを複数のAgent固有Headから利用できる。
+
+NetworkForwardContext は Params を受け取る明示的コンストラクタで生成する class とし、private な const Params に全項目を保持する。時計・episode_start・行対応の変更は新しい Context の生成で表す。設定は const 参照、状態は再設定不能なポインタとして借用し、箱の内部状態だけは計算部品が更新できる。episode_start の Tensor ストレージは共有するため、呼び出し中は入力側も変更しない。WithRowMapping() は Params 全体をコピーして行対応だけを差し替えた Context を返し、項目追加時のコピー漏れを防ぐ。Module 固有の必要項目・保持条件と入力の shape/device は従来の利用境界で検証する。
+
+`Network::Forward` は context 省略時に `NetworkForwardContext::GetDefault()` を使う。`ForwardUpTo` と内部 forward の context は必須とし、Body・branch・block・Module・Head まで同じ実行情報を渡す。`NetworkForwardConfig` は指定された設定項目配下のデータをコピーして不変に保持し、`GetConfigData()` で読み取り専用に公開する。具体的な設定型・解釈・検証は利用する `NetworkModule` の具象クラス内部に閉じ、Head の計算部品にも同じ原則を適用する。新たな Module が実行設定を利用しても、共通設定型、伝達経路、呼び出し側、既存 Module の変更を要求しない。
+
+構築時の dummy forward、`TensorDictFunction` の返す処理、既存の追加診断、NN 実行設定を持たない Agent は `NetworkForwardContext::GetDefault()` を明示する。`TensorDictFunction` 自体の関数型は変更しない。設定の具体的な項目を共通型へ列挙したり、共通処理で Module 固有の値を解釈したりしない。
+
+`GetDefault()` は具体的な設定値を持たず、各計算部品の既定動作を明示的に要求する。Noisy の計算部品は μ-only と解釈する。名前付き設定の項目不足とは区別する。
+
+
+`Network::ValidateForwardConfig(config, clock_kind)` は構成確定後の必要項目・時計の検証を各 Module と Head へ委譲する。`ValidateForwardReuse(source, requested)` も両立条件を各計算部品へ委譲し、共通層で設定値や差の意味を解釈しない。設定宣言の検証は `NetworkModuleRepository::ValidateForwardConfigDeclaration()` から登録済み factory を経由して具象 Module に委譲する。宣言だけで判定できる記述済みの型・列挙・値域と、実際に使う構成での必要項目・時計の検証を分ける。 時計なしの `kNone` に加えて、時計の種類は同じ行が次の呼び出しへ続く `kContinuingRows` と呼び出しごとに行が変わる `kTransientRows` の2種類とし、回数・episode の保持は前者だけで受け付ける。
 
 ### 2.4 設定記法
 
@@ -136,7 +147,7 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +Forward(input, callback)
+  +Forward(input, context, callback)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -204,13 +215,13 @@ sequenceDiagram
     participant B as NetworkBody
     participant H as NetworkHead
 
-    C->>N: Forward(input TensorDict)
+    C->>N: Forward(input TensorDict, context)
     N->>P: Format(raw input)
     P-->>N: 検証・整形済みTensorDict
-    N->>B: Forward
+    N->>B: Forward(context)
     B->>B: branchを依存順にExecute
     B-->>N: feature TensorDict
-    N->>H: Forward(features)
+    N->>H: Forward(features, context)
     H-->>N: Agent固有TensorDict
     N-->>C: output
 ```
@@ -266,11 +277,27 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 
 `Network::Forward`はoptionalな`NetworkBranchCapture`を受け取り、通常のbranch loop後・`output_keys`変換前の内部tensorをdetachして返す。captureを渡さない既存forward、TraceCallback、Actor経路は不変である。
 
-`ForwardUpTo(input, branch_key)`はFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
+`ForwardUpTo(input, context, branch_key)`はFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
 
 可塑性統計はrank-2 `(N,D)` の特徴と指標要求集合を受け、detachしたFP32 CPU特徴から要求された統計だけを計算して呼出側でcacheする。srank系を要求しないstepではSVDを実行せず、δ=0.01 / 0.05 / 0.20を同時要求した場合も1回の`svdvals`とcumsumを共有する。結果の各値はoptionalであり、未計算フィールドを成立値として読めない。無印のsrankはδ=0.01を表す。
 
 `ComputeParameterNormSplit(feature_key)`は同じ依存閉包を使い、閉包内branchの学習parameterをfeature、閉包外branchとheadをreadoutとして、各群の生L2、実効L2、最大sigmaをFP32 device scalarで返す。forwardとRNGを使わず、`requires_grad`がfalseのparameterはnorm対象外とする。
+
+### 7.7 Noisy Linear と実行状態
+
+Body の `Linear` は `noisy.enabled=false`、`noisy.sigma0=0.5`、`force_fp32=false` を既定とする。Noisy は既存の weight/bias を μ として保ち、有効時だけ `sigma_weight` / `sigma_bias` を登録する。σ は符号付きの学習 parameter であり、初期値は weight/bias とも `sigma0 / sqrt(fan_in)`。初期 μ の名前・初期化・乱数順を維持する。
+
+Body Linear と Head が合成する具象の LinearProjectionModule が、その内部の private な型で `noisy.mode=sample|mu_only`、`noisy.hold=call|count|episode`、`noisy.share=batch|sample` と `noisy.count` を読む。宣言された型・列挙・値域と episode/batch の不整合は設定解決時、sample に必要な葉・時計との不整合・再利用条件は構築時に検証する。Noisy OFF と μ-only では保持用の要求を休眠させるが、宣言された不正値は無視しない。
+
+呼び出し側の `NetworkForwardState` は module 実体毎の ε と専用 RNG を持つ不透明な箱。call は時計が変わると再抽選、count は Actor の N 回毎、episode は Actor の `episode_start` が立った lane のみ再抽選する。同じ時計の再 forward は同じ ε を使い、同じ episode 境界を二度反映しない。count は episode 境界でリセットしない。保持中の shape/device 不一致と時計の逆行は fail-fast する。row_mapping は不変な NetworkForwardRowMapping とし、CPU の int64 index と元行数を構築時に検証して使用 device へ一度だけ転送する。射影は内部 index を公開しない SelectRows を使い、実行時は行数・device だけを確認する。GetIndices は検査用の独立した複製を返す。
+
+解釈済み設定は射影 Module 内部で設定内容によりキャッシュする。設定のキー名・アドレス・定義順に依存せず、初期化時または直接 forward の初回に解釈する。共有 Network の同時利用を同期で保護し、Tensor 演算前にロックを解放する。具体型・読み取り・保持の意味は共通の NetworkForwardConfig に置かない。
+
+sample は `Linear(x, μ)` と factorized ε を使う `Linear(x*ε_in, σ)*ε_out` を分けて計算し、batch 毎の重み `[B,out,in]` を実体化しない。ε は batch 以外の軸へ broadcast され、IQN の全 τ に同じ ε が届く。μ-only と `GetDefault()` は σ を計算 graph に入れず、ε/RNG を消費しない。SN は μ だけを既存の FP32 境界で正規化する。`force_fp32` は Noisy の ON/OFF と独立であり、通常の AMP 継承と Head の FP32 境界を維持する。
+
+clone・hard/soft copy・保存読込は μ/σ を含む parameter と既存 buffer を扱い、箱の ε・時計・RNG を含めない。コピーや snapshot 同期は再抽選の境界にならない。`GetNoisyParameterEntries()` の μ/σ 対応・weight/bias・branch metadata は optimizer と診断だけに使用し、実行設定の解釈へ流用しない。
+
+`ComputeNoisyParameterStatistics(feature_key)` は feature の依存閉包と readout に分類し、weight/bias 別の σ mean-abs と L2 ratio を返す。ratio の μ 分母は σ を持つ射影だけを集計し、SN は実効 μ を使う。対象なしは NaN、分母ゼロは ratio だけ NaN。既存 weight norm は σ を除外する。
 
 ## 8. テストと拡張時の確認事項
 
@@ -284,6 +311,8 @@ Networkを変更する場合は次を確認する。
 6. 新しいmodule typeを`InitNN()`へ登録し、設定例と名称を一致させる。
 7. GraphViz/Traceを壊さず、必要なら可視化可能性を公開する。
 8. bindを拡張する場合はparse、依存順、循環、実行shape、ToJson、GraphViz、未使用入力WARNを同じterm/factor契約で確認する。
+
+実行設定の責任境界・独自 Module / Head の拡張テストは [PRD 084 検証手順](../../core/anet-core/testdata/prd084/README.md)を参照する。
 
 主なunit testは[nn_test.cpp](../../core/anet-core/src/nn_test.cpp)にあり、Agentとの結合はDQN/ImageClsのtestでも検証する。
 

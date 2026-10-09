@@ -90,18 +90,30 @@ net.block.[LeakyReLU].negative_slope ?= 0.01   # negative_slope: 負の領域の
 # --- MLP Components ---
 
 net.block.[Linear_84].type ?= Linear
+net.block.[Linear_84].noisy.enabled ?= false
+net.block.[Linear_84].noisy.sigma0 ?= 0.5
+net.block.[Linear_84].force_fp32 ?= false
 net.block.[Linear_84].linear.out_features ?= 84
 net.block.[Linear_84].init.mode ?= xavier
 
 net.block.[Linear_120].type ?= Linear
+net.block.[Linear_120].noisy.enabled ?= false
+net.block.[Linear_120].noisy.sigma0 ?= 0.5
+net.block.[Linear_120].force_fp32 ?= false
 net.block.[Linear_120].linear.out_features ?= 120
 net.block.[Linear_120].init.mode ?= xavier
 
 net.block.[Linear_256].type ?= Linear
+net.block.[Linear_256].noisy.enabled ?= false
+net.block.[Linear_256].noisy.sigma0 ?= 0.5
+net.block.[Linear_256].force_fp32 ?= false
 net.block.[Linear_256].linear.out_features ?= 256
 net.block.[Linear_256].init.mode ?= xavier
 
 net.block.[Linear_512].type ?= Linear
+net.block.[Linear_512].noisy.enabled ?= false
+net.block.[Linear_512].noisy.sigma0 ?= 0.5
+net.block.[Linear_512].force_fp32 ?= false
 net.block.[Linear_512].linear.out_features ?= 512
 net.block.[Linear_512].init.mode ?= xavier
 
@@ -265,15 +277,24 @@ net.body.@MLP3.structure ?= Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 
 # ------------------------------------------------------------------------------
 
 net.block.[Linear_Proj].type ?= Linear
+net.block.[Linear_Proj].noisy.enabled ?= false
+net.block.[Linear_Proj].noisy.sigma0 ?= 0.5
+net.block.[Linear_Proj].force_fp32 ?= false
 net.block.[Linear_Proj].linear.out_features ?= 64
 net.block.[Linear_Proj].init.mode ?= xavier
 
 # ※ Residual Addをするため、入出力次元が揃っている必要あり
 net.block.[Linear_Hid].type ?= Linear
+net.block.[Linear_Hid].noisy.enabled ?= false
+net.block.[Linear_Hid].noisy.sigma0 ?= 0.5
+net.block.[Linear_Hid].force_fp32 ?= false
 net.block.[Linear_Hid].linear.out_features ?= 64
 net.block.[Linear_Hid].init.mode ?= xavier
 
 net.block.[Linear_Out].type ?= Linear
+net.block.[Linear_Out].noisy.enabled ?= false
+net.block.[Linear_Out].noisy.sigma0 ?= 0.5
+net.block.[Linear_Out].force_fp32 ?= false
 net.block.[Linear_Out].linear.out_features ?= 128
 net.block.[Linear_Out].init.mode ?= xavier
 
@@ -302,6 +323,9 @@ net.block.[Conv1D_Conv1d].init.mode ?= xavier
 net.block.[Conv1D_Conv1d].init.nonlinearity ?= relu
 
 net.block.[Conv1D_Linear].type ?= Linear
+net.block.[Conv1D_Linear].noisy.enabled ?= false
+net.block.[Conv1D_Linear].noisy.sigma0 ?= 0.5
+net.block.[Conv1D_Linear].force_fp32 ?= false
 net.block.[Conv1D_Linear].linear.out_features ?= 128
 net.block.[Conv1D_Linear].init.mode ?= xavier
 net.block.[Conv1D_Linear].init.nonlinearity ?= relu
