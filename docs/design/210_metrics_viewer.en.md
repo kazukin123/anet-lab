@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:25fd6a013da3405bcd32c3a0164d777c7c5e3799 date:2026-09-19 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:06df2d34a6e05ae85735079c4bd4a30feeacd8c5 date:2026-10-07 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -219,6 +219,9 @@ Small pans then avoid another fetch, reducing time spent with blank graphs.
 Only one window is retained per series. A new response replaces it entirely, without incremental merging.
 Each range response is self-contained and independent of the previous response, so this simple replacement is sufficient.
 
+Series that share one graph (the selected Runs of the same tag) are fetched in the same request. The point budget is allocated among the series in a request, so fetching them separately would leave resolution uneven within the graph.
+If any one series needs refetching, all series of that graph are refetched together.
+
 ### 2.9 Metrics Cache Generation
 
 A Run folder with the same name represents different data if its master is replaced. The **Metrics cache generation** identifies this distinction.
@@ -265,7 +268,7 @@ This limit preserves steady-state reading efficiency; if a workspace switch is w
 | `MetricsRepository` | Opens one read snapshot per Run and resolves Run metadata and series queries |
 | `MetricsQueryPlanner` | Determines per-series availability and request-wide point budget allocation |
 | `MetricsRangeProjector` | Builds raw and LOD projections, reaggregating only partial buckets from lower levels |
-| `LodPageCache` | Heap LRU cache holding only completed buckets in pages of 1024 |
+| `LodPageCache` | Heap LRU cache holding only completed buckets in pages of 1024. The tail page is reread only when it falls short of the completed-bucket count derived from the snapshot's tag point count |
 | `MetricsService` | Handles LoadingThread lifecycle, metrics body/header validation, coordinator execution, snapshot lease acquisition, and HTTP error conversion |
 | `MetricsViewerController` | Exposes Run, metrics, and priority REST APIs |
 | `WorkspaceController` | Exposes workspace listing/switching APIs and converts malformed JSON to 400 `invalid_request` only within this controller |
@@ -279,20 +282,21 @@ This limit preserves steady-state reading efficiency; if a workspace switch is w
 |---|---|
 | `MetricsViewerClientApp` | Client app owning Run/tag selection, Run colors, viewports, rendering generations (revisions), and poll timers |
 | `DataFetcher` | Handles REST calls, page-level query channels/sequences, and cancellation of old requests with AbortController |
-| `DataCache` | Holds Run metadata and one window per `(runId, tagKey)` |
-| `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state |
+| `DataCache` | Holds Run metadata and one window per `(runId, tagKey)`. Each window carries the tag point count, last step, and status at fetch time, used for freshness checks on Reload |
+| `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Reuses graph blocks by tagKey and rebuilds only graphs whose render key changed |
 | `UIController` | Handles Run/Tag lists, progress display, and static control binding |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
 ### 3.3 UI Control Conventions
 
-Browser controls have only two types: immediate actions and persistent on/off toggles.
-Both use `button` elements, distinguished by their label wording.
+Browser controls have only three types: immediate actions, persistent on/off toggles, and cycles through fixed steps in order.
+All use `button` elements, distinguished by their label wording.
 
 | Type | Label | State |
 |---|---|---|
 | Immediate action | Starts with a verb: `Reload`, `Select All`, `Select Latest`, `Recolor`, `Clear All`, `Reset View` | None |
-| Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log`, `p5–p95`, `p1–p99` | Update `.active` and `aria-pressed` together |
+| Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log` | Update `.active` and `aria-pressed` together |
+| Cycle | States the current step as is: the graph lower limits `p0–` / `p1–` / `p5–` and upper limits `–p100` / `–p99` / `–p95` | Each press advances to the next step in a fixed order, returning to the first step after the last. Set `.active` and `aria-pressed` ON for every step except the first |
 
 In each section heading row, place list operations left-aligned after the label.
 Only overflowing controls move to the next row (Runs' `Recolor` / `Auto Recolor`).
@@ -301,10 +305,24 @@ When a bulk action such as `Select All` is pressed while filtering, clear the fi
 
 Indicate on/off only through pressed colors, not label text. Centralize state updates in `setToggleState()`
 to keep visual `.active` and semantic `aria-pressed` consistent. Do not use checkboxes.
+A cycle has three or more steps that pressed colors alone cannot distinguish, so its label states the current step, and the pressed color shows only that it has left the first step.
+It uses a fixed width matching the longest label so that its dimensions and the positions of following elements do not move when the label length changes with the step.
 
 Control borders use one level, `--control-border` (`--control-border-hover` on hover),
 weaker than container borders such as `.section` using `--container-border`.
 ON colors use `--active-background` / `--active-accent` / `--active-text`.
+
+### 3.4 Screenshot Mode
+
+Screenshot mode collapses only the display to produce images for pasting; it does not stop data updates.
+It hides the side panel and the floating controls used for graph operations, sets `#main-area` overflow to visible to move scrolling to the document, and shows a header with Run names.
+Auto Reload and manual Reload work as usual; while the side panel is hidden and the Reload button cannot be pressed, double-clicking a graph serves as the Reload entry point.
+While the Run list that shows progress is hidden, only the ingestion-progress poll stops.
+
+Because the scrolling element switches between `#main-area` and the document, positions cannot carry over as pixels.
+`scrollElement()` returns the current scrolling element, and across redraws and mode switches the viewer
+remembers and restores the tagKey of the first visible graph block and the amount by which that block extends above the top of the visible area.
+Only when the graph of the remembered tag has disappeared is the position restored in pixels, as a continuation of the same scroller.
 
 ## 4. Code Map
 
@@ -480,7 +498,7 @@ sequenceDiagram
         R->>D: openRead + setAutoCommit(false)
         R->>D: source_meta読み取り
         R->>D: tagとtag_stats読み取り
-        R->>D: stepの二分探索でordinal範囲へ写像
+        R->>D: stepの二分探索でordinal範囲へ写像（tagのstep範囲外の端は点数で決まる）
     end
     R->>P: plan(inputs)
     P-->>R: availability、点予算
@@ -528,10 +546,34 @@ sequenceDiagram
     P->>A: onViewportChanged(tagKey, range)
     A->>A: revisionを進めて進行中requestをabort、150ms debounce
     A->>F: 新しい3画面windowを要求
+
+    U->>A: Reload
+    A->>F: GET /api/runs.json
+    F-->>A: Run/tag metadata
+    A->>K: isOutdated判定（取得時のtag点数・最終step・statusと比べる）
+    A->>F: 古くなったgraphの系列だけPOST /api/metrics.json（無ければ送らない）
+    A->>P: 描画keyが変わったgraphだけ作り直す
 ```
 
 Each range is a complete result independent of previous responses; the client replaces whole windows without incremental merging.
-While any Run is being ingested, poll Run metadata every four seconds and update only progress display. Auto Reload refreshes the workspace list and metadata every 30 seconds, updating ranges only for series following the latest step. There is no dedicated workspace-list timer: initial display, workspace selector focus, switch results, manual Reload, and Auto Reload are refresh boundaries.
+
+Manual Reload and Auto Reload refetch metadata and then refetch only graphs containing windows whose contents have become stale since they were fetched. If nothing has changed, `metrics.json` is not sent.
+Each window carries the tag point count, last step, and status at the time the fetch was decided, and is considered stale if any of the following applies.
+
+| Condition | Reason |
+|---|---|
+| No window, a different generation, the requested window not covered, or insufficient resolution after zooming in | Same check as for zoom/pan and selection changes |
+| availability other than `ok` / `empty` | Values are not final during ingestion or after a lookup failure |
+| The tag's status changed | The issue changed, for example through quarantine |
+| The tag's point count changed and the window's right edge is at or beyond the last step at fetch time | Appended points can fall into the window |
+
+Steps within a tag are nondecreasing, so appended points have steps at or beyond the last step at fetch time. Graphs zoomed into a past interval, whose window's right edge does not reach that step, are not refetched even when the point count grows.
+
+Rendering is reconciled per graph. `PlotlyController` looks up graph blocks by tagKey; a block whose render key (LOD display mode, Log, percentile lower and upper limits, whether multiple Runs are shown, and each Run's window and color) matches the previous one is reused without calling Plotly, and only the metadata-derived header (statistics and warnings) is rewritten.
+Legend visibility, axis ranges, and drag mode change directly in Plotly and are read back with `capturePlotState` before rendering, so they are not part of the render key.
+A Plotly redraw takes tens of milliseconds per graph (a full redraw of 137 graphs × 5 Runs measured about 5 seconds), so narrowing the graphs to rebuild determines Reload response time.
+
+While any Run is being ingested, poll Run metadata every four seconds and update only progress display. Only this progress poll stops during screenshot mode; Auto Reload and manual Reload run regardless of the mode. Auto Reload refreshes the workspace list and metadata every 30 seconds, updating ranges only for stale graphs among those following the latest step. There is no dedicated workspace-list timer: initial display, workspace selector focus, switch results, manual Reload, and Auto Reload are refresh boundaries.
 
 ## 7. Configuration Reference
 
@@ -547,7 +589,7 @@ Contract violations abort application startup.
 | `metricsviewer.initial-workspace` | `_default` | Direct child directory name | Initial current workspace; a valid but missing name starts with a warning and an empty Run list |
 | `metricsviewer.target-points-per-series` | `8000` | 3 to `max-points-per-request` | Default vertex budget per series when `maxPoints` is omitted |
 | `metricsviewer.max-points-per-request` | `500000` | 3 to 1,000,000 | Total vertices allocatable per request |
-| `metricsviewer.cache-memory-mb` | `256` | Nonnegative and at most 50% of maximum heap | Heap limit for completed LOD pages; `0` bypasses page caching and reads individual buckets |
+| `metricsviewer.cache-memory-mb` | `256` | Nonnegative and at most 50% of maximum heap | Heap limit for LOD pages (chunks of completed buckets); `0` bypasses page caching and reads individual buckets |
 | `metricsviewer.max-concurrent-queries` | `2` | 1 to 4 | Process-global concurrency for `/api/metrics.json`; waits up to five seconds for a coordinator fair permit |
 
 The upper bound for `cache-memory-mb` depends on `Runtime.maxMemory()`. Lowering the startup script's `-Xmx` can cause startup failure solely because of this setting.
@@ -597,7 +639,7 @@ Client constants not supplied by the server are defined at the beginning of [met
 `Recolor` ignores current colors and assigns farthest-point colors in selection order, starting from palette color `#2F7DE1`. `Auto Recolor` reassigns only Runs whose existing colors fail `min(RUN_COLOR_MIN_DISTANCE, best achievable with the current palette)`.
 Neither changes unselected Run colors. With more than 20 selected Runs, the palette cycles into another round. Both do nothing with at most one selected Run.
 
-Only the following nine state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and percentile ranges omit the workspace name from their keys and are shared across identically named tags.
+Only the following eight state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
 
 | Key | Contents |
 |---|---|
@@ -608,10 +650,10 @@ Only the following nine state items are saved to `localStorage`. Viewports, lege
 | `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor` on/off; defaults to ON, reading only `"false"` as OFF |
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
 | `anet.metricsviewer.logScaleTags` | Tags with signed-log enabled; stored as a lexicographically sorted JSON string array |
-| `anet.metricsviewer.ignoreOutlierTags` | Tags with p5–p95 enabled; stored as a lexicographically sorted JSON string array |
-| `anet.metricsviewer.p1P99Tags` | Tags with p1–p99 enabled; stored as a lexicographically sorted JSON string array |
+| `anet.metricsviewer.percentileBounds` | Per-tag steps for tags whose percentile lower or upper limit is restricted. Stored as a `{"<tagKey>": [lower, upper]}` JSON object in lexicographic tagKey order. The lower limit is 0 / 1 / 5 and the upper limit is 100 / 99 / 95; tags with both unrestricted (0 and 100) are omitted |
 
-Log and percentile-range sets are restored independently. p5–p95 and p1–p99 are mutually exclusive for a tag; if both were saved, warn and prefer p1–p99. If a value is not a JSON string array, warn and fall back to an empty set.
+The Log set and the percentile lower and upper limits are restored independently. If a Log value is not a JSON string array, or a percentile value is not a JSON object or contains even one value that is not a defined step, warn and fall back to empty for each.
+`anet.metricsviewer.ignoreOutlierTags` (p5–p95) and `anet.metricsviewer.p1P99Tags` (p1–p99), from before the lower and upper limits were split into two buttons, are deleted without being read.
 
 ## 8. Metrics Cache Database Definition
 
@@ -888,7 +930,7 @@ lod : { "kind":"lod",
 - `LoadingThread` is a daemon thread. It sleeps for 10 seconds when no immediate retry is required by a `converting` backlog or workspace switch. Cycles committing small appends through `ready` also sleep. RuntimeExceptions at cycle boundaries are logged, with recovery attempted after 10 seconds.
 - `WorkspaceManager.shutdown()` is terminal. Once it begins, new leases and workspace switches immediately fail with `IllegalStateException`; an active cycle stops after safely finishing its current block. Existing leases remain usable, and the last release closes retired resources exactly once.
 - For Runs undergoing gzip conversion, `GzipInputSessions` retains decompressed streams between blocks. Moving such a Run folder is unsupported during conversion. Streams are released upon reaching `ready`, failure, or disappearance from the working set.
-- `LodPageCache` retains only complete pages and discards them when a Run disappears or its generation changes. Capacity overflow evicts entries by access-order LRU.
+- `LodPageCache` retains pages made of completed buckets, including the tail page, and discards them when a Run disappears or its generation changes. Capacity overflow evicts entries by access-order LRU.
 
 ### 10.2 Concurrency
 
@@ -916,7 +958,13 @@ lod : { "kind":"lod",
 - Ingestion parses streams in blocks of at most 1,000,000 lines, without intermediate Lists. This limit is retained in steady state; only pending workspace switches cause shorter blocks committed at complete-line boundaries. In either case, L0, LOD, `TagStats`, and source position share the same commit boundary.
 - Fully validated `ready` / `error` Runs retain source/cache attributes in process memory. Polling unchanged attributes avoids fingerprints, Metrics master contents, and SQLite connections. These observations disappear when a Run leaves, the workspace snapshot is discarded, or the process restarts.
 - Range query cost consists of step binary search, bucket reads, and partial-bucket reaggregation. Reaggregation is needed only for buckets whose boundaries do not align with viewport edges and tail buckets lacking all 16 children.
-- LOD pages are read in units of 1024 buckets; only complete pages remain on the heap. One page occupies `1024 × 96` bytes (eight long columns plus four double columns).
+- Edges whose step boundary lies outside the tag's step range (`min_step`–`max_step`) skip the binary search because the ordinal is fixed at 0 or the point count. Autorange windows extend one screen to the left and right, so in full-range display both edges take this path.
+- LOD pages are read in units of 1024 buckets and remain on the heap, including the tail page. The number of completed buckets per level is determined from the same snapshot's tag point count as `point count / 16^level` (rounded down), because a parent is written the moment its 16 children are complete.
+  Buckets beyond this are reaggregated from lower levels without querying the DB, and a held tail page is reread only when it falls short of the completed-bucket count.
+  Completed buckets are never rewritten, so a query on an old snapshot gets the same result even when it uses a page read under a newer snapshot.
+  If a read page falls short of the completed-bucket count, this is a cache invariant violation, and that series becomes `query_error`.
+- The tail page is also retained because the tail page of a Run that has finished ingestion never fills up; without retention, every single-bucket lookup would reread the whole page. In a request for 616 series from five 100M-step Runs side by side, this accounted for 80% of query time.
+- One page occupies at most `1024 × 96` bytes (eight long columns plus four double columns).
 - Responses use Base64 binary, so HTTP compression is disabled by default to avoid CPU cost.
 
 ## 11. Build and Dependencies
@@ -980,10 +1028,10 @@ A separate asset retrieval arrangement is needed for fully offline environments.
 | Ingestion (blocks, gzip, errors, quarantine) | `MetricsIngestorIntegrationTest` |
 | LOD construction and projection | `MetricsLodIntegrationTest`, `LodPageCacheTest` |
 | Scheduling / workspace lifetime | `IngestSchedulerTest`, `LoadingThreadTest`, `WorkspaceManagerTest`, `WorkspaceSnapshotIntegrationTest` |
-| Query planning and snapshots | `MetricsQueryPlannerTest`, `MetricsRepositorySnapshotIntegrationTest`, `MetricsQueryConcurrencyTest` |
+| Query planning and snapshots | `MetricsQueryPlannerTest`, `MetricsRepositorySnapshotIntegrationTest`, `MetricsRepositoryStepRangeIntegrationTest`, `MetricsQueryConcurrencyTest` |
 | HTTP API | `MetricsApiIntegrationTest`, `WorkspaceApiIntegrationTest`, `SeriesAvailabilityTest`, `HttpAccessLogFilterTest` |
 | Scanning and configuration | `RunScannerTest`, `MetricsViewerSettingsTest` |
-| Browser UI | `RunListPlaywrightTest`, `TagListPlaywrightTest`, `MetricsPlotPlaywrightTest`, `GraphInteractionPlaywrightTest`, `SignedLogPlaywrightTest`, `OutlierRangePlaywrightTest`, `WorkspaceSelectorPlaywrightTest` |
+| Browser UI | `RunListPlaywrightTest`, `TagListPlaywrightTest`, `MetricsPlotPlaywrightTest`, `GraphInteractionPlaywrightTest`, `ReloadPlaywrightTest`, `SignedLogPlaywrightTest`, `OutlierRangePlaywrightTest`, `WorkspaceSelectorPlaywrightTest` |
 
 Playwright tests launch Microsoft Edge by default. Without Edge, `Assumptions` skips them rather than failing.
 Each test opens a fresh context; routes, `localStorage`, and Plotly state are not shared.
@@ -993,10 +1041,12 @@ Each test opens a fresh context; routes, `localStorage`, and Plotly state are no
 1. Increment `SCHEMA_VERSION` when changing the cache schema. Do not write migrations; test that old caches are discarded and rebuilt with warnings.
 2. The externalName values of `IngestState` and `SeriesAvailability` are persistent and exposed over HTTP. Adding values is allowed; renaming or removing existing values is incompatible.
 3. Add new ingestion work to the same transaction. Splitting L0, LOD, `TagStats`, and `source_meta` across commits breaks consistency on crashes.
-4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels.
+4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels. `LodPageCache` derives the completed-bucket count from the tag point count, so when changing when parents are written, change this derivation as well.
 5. Do not derive statistics from LOD. Build range-independent statistics from all committed L0 points.
 6. After changing point-budget allocation, test how the 422 and 503 boundaries change for requests with many series.
 7. Keep new client state in the client app so it survives Plotly DOM reconstruction during Reload.
+   If the input determines a graph's appearance, add it to the render key (`PlotlyController._graphRenderKey`), or apply it directly in Plotly and read it back with `capturePlotState`. An input that does neither does not cause the graph to be rebuilt when it changes.
+   If the condition affects a window's contents, also reflect it in the Reload freshness check (`DataCache.isOutdated`).
 8. For long-running Runs, verify that the same range returns identical results during ingestion (`converting`) and after completion (`ready`).
 9. Verify that moving Run folders in/out and renaming them is reflected immediately, and that no file handles remain even for Runs being ingested.
 

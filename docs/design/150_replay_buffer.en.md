@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:4289e07ea390bd94bcb5aadab01264d131914492 date:2026-09-20 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:fe947bb60a770c584a6351bf4285c1f5be6554bb date:2026-10-07 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -56,7 +56,7 @@ For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals n
 
 Frame stacking is used in two places:
 
-- Actor-side `StackerActionContext` stacks recent Observations per lane for action selection, refilling lanes receiving `episode_start` with their initial frame.
+- Actor-side `DictFrameStacker` stacks recent Observations per lane for action selection, refilling lanes receiving `episode_start` with their initial frame.
 - ReplayBuffer stores Push-time `BatchState::episode_start` beside the Observation as the history start for each real slot. Truncation dummy slots are never history starts.
 - Sample extraction uses time `t` as the latest slot for `obs` and `t + actual_n_steps` for `next_obs`, scanning backward within the stack width. Frames before the first stored history start are padded by copying that start frame. If none is found, the entire stack width is used; `stack_count == 1` performs no scan. Terminals and N-step metadata readiness are not stack boundaries.
 

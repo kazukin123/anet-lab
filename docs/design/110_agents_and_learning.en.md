@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:c348c32de84e52b3aac7ed8a9f87bbddf9b3dde7 date:2026-09-20 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:1a02d7fe5ce52542f7fcb8a77d023b3ab3b19166 date:2026-10-07 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -75,7 +75,6 @@ Registration occurs in `InitRL()`, and `AgentRepository` resolves class IDs to `
 | `Agent` | Shared interface exposing Actor/Learner creation, device, and save/load |
 | `AgentBase` | Base implementation providing device, Env information, and a shared mutex |
 | `Actor` | Interface producing BatchActionInfo from BatchState and synchronizing inference Resources as needed |
-| `ActionContext` | Prepares state before action selection, including Observation stacking and device transfer |
 | `Learner` | Interface accepting Experiences and returning zero or more update results |
 | Agent Resource | Resources composed as needed by concrete Agents, such as Networks, Optimizers, and ReplayBuffers |
 
@@ -141,7 +140,7 @@ sequenceDiagram
     participant G as Agent
     participant A as Actor
 
-    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
+    R->>G: CreateActor(actor_request)
     G-->>R: Actor
     loop Runner step
         R->>A: MakeAction(step_counts, batch_state)
@@ -185,7 +184,7 @@ Runner, not Learner, creates `LearnEvent` after receiving update results. Concre
 - `agent.device` accepts `auto`, `cpu`, `cuda`, or `cuda:N`. It defaults to `auto`; the adopted value is recorded in `json/agent.json`.
 - Factories pass EnvSpec, BatchEnvSpec, device, seed, and ConfigData to concrete Agents.
 - Concrete Agent Configs read algorithm-specific settings. Shared `ConfigData` fails fast on conversion failure for present values; defaults apply only to missing keys. Enums, ranges, and combinations are validated during construction by each concrete Config or reusable configuration type.
-- Actor RunMode and model cloning are resolved at the Agent creation boundary from Runner overrides and concrete Agent defaults.
+- The concrete Agent resolves the Actor's policy, network selection, and model cloning from the Actor catalog (`<Agent>.actor.[key]`) referenced by `ActorRequest::actor_key`. It does not receive a RunMode.
 
 The actual Config classes and [apps/runner/config](../../apps/runner/config) are authoritative for settings; this document does not duplicate every key.
 

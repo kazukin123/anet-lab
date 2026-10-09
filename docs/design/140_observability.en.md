@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:d4f6e2fdab091ea300ec322a27b996bdad7ac943 date:2026-09-19 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:92ab383a82c6e82ef2fda114c66e58a5df258d17 date:2026-10-07 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -145,7 +145,7 @@ sequenceDiagram
     end
 ```
 
-Observer callbacks execute on the thread calling `Notify()`. Profile expensive rendering, device synchronization, or I/O assuming it enters the Train/Learn critical path. Background evaluation in `EpisodeEvalObserver` is an exception using a dedicated pool; completion exceptions are rethrown to the caller at the next boundary.
+Observer callbacks execute on the thread calling `Notify()`. Profile expensive rendering, device synchronization, or I/O assuming it enters the Train/Learn critical path. Background evaluation in `EpisodeEvalObserver` is an exception using a dedicated pool; worker exceptions are rethrown to the caller at the next Learn boundary or on an explicit `Shutdown()`. Only the destructor safety net catches exceptions and records FATAL.
 
 Runner aggregates episode returns and episode_steps completed in the latest Step, exposing `mean.episode_return`, `max.episode_return`, `min.episode_return`, `std.episode_return`, and `episode_steps` with the same prefixes. episode_steps counts Env Steps including the terminal one, without multiplying by lane count even for SHARED. The existing train value is `max.episode_return`; configured Eval aggregates the N adopted session episodes. `EvalSessionEnv` subscribes only to the target Eval's `@session_end $env` source keys from resolved metric definitions and snapshots values immediately after episode-completion Steps. Any `nullopt` makes the aggregate `nullopt`; NaNs are excluded. Aggregates with no valid values, and std with one valid value, are NaN. With at least two values, std is population standard deviation.
 
@@ -156,6 +156,7 @@ sequenceDiagram
     participant UI as RunnerFrame
     participant A as RunnerApp
     participant T as RunnerThread
+    participant N as Notifier
     participant G as Agent
     participant M as MetricsLogger
     participant L as wxLog/FileLogger
@@ -166,6 +167,9 @@ sequenceDiagram
         UI->>A: SaveAgent(agent_close.anet)
         A->>G: Save(archive)
     end
+    UI->>A: DrainBackgroundObservers(mode)
+    A->>N: Shutdown(shared deadline, mode)
+    N-->>A: background Observer停止
     UI->>A: ShutdownRunLogging()
     A->>A: periodic text-log timerを停止
     A->>M: Flush()
@@ -266,6 +270,7 @@ Metrics Viewer stores traces in existing `json_lines`, separately from scalars. 
 | `metrics.jsonl` | `JsonlBackend` | Appended per scalar/metadata record; finalized by explicit flush |
 | `config/*.txt` | `MetricsLogger` | Written per tag when Config is logged; Env uses `env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | Overwritten or created per step when JSON metadata is logged |
+| `json/eval.[<tag>].session_cancelled.json` | `MetricsLogger` | Records the coordinates, elapsed time, and number of completed episodes when an evaluation session is cooperatively cancelled. Also appended to the Metrics master with `type=json` |
 | `videos/<tag>.mkv` | `VideoLogger` | Logger created at the first frame and closed at Run end |
 | `images/<tag>/*.png` | `MetricsLogger` | Created per frame when `use_png_dump=true` |
 | `dot/**/*.dot` | `MetricsLogger` | Created per GraphViz event |
@@ -274,7 +279,7 @@ Metrics Viewer stores traces in existing `json_lines`, separately from scalars. 
 
 `MetricsLogger` is a process singleton owning the Run directory under the assumption of one active Run per process. `Reset()` releases it at Run end. Preserve application shutdown order so video loggers and wxLog chains are not destroyed while files are in use.
 
-Concrete Env text logs begin with `<Env name>: `, allowing people to distinguish Train, configured Eval, EvalPanel, and batch lanes. `SingleDiscreteEnvBase` and `BatchEnvBase` hold protected `anet::log::Logger log`; concrete Envs use `log.info()`, `log.verbose()`, `log.warn()`, and `log.error()`. Do not use `LOG::` directly inside Envs or scatter prefix formatting/`GetName()` concatenation across log lines. Factories, free functions, Runners, Agents, and Views outside Env continue using `LOG::`.
+Concrete Env text logs begin with `env.[<Env name>]`, or for a single Env with the lane name that further appends `.[<lane index>]` (for example, `env.[train].[37]: `, `env.[eval_target].[0]: `, `env.[EvalPanel].[0]: `), allowing people to distinguish Train, configured Eval, EvalPanel, and batch lanes. This is the same configuration notation as `eval.[<tag>]: ` on evaluation-session lines, and for configured Eval the string inside `[ ]` matches the tag. `SingleDiscreteEnvBase` and `BatchEnvBase` hold protected `anet::log::Logger log`; concrete Envs use `log.info()`, `log.verbose()`, `log.warn()`, and `log.error()`. Do not use `LOG::` directly inside Envs or scatter prefix formatting/`GetName()` concatenation across log lines. Factories, free functions, Runners, Agents, and Views outside Env continue using `LOG::`.
 
 Debug logs use `ANET_LOG_DEBUG_PREFIXED(expr)`, delegating to `ANET_LOG_DEBUG(log.prefix() << expr)` and preserving debugger/level guards, source information, and non-evaluation with `ANET_ENABLE_DEBUG_LOG=0`. Env names are opaque display strings and neither replace nor change MetricsLogger tags, JSONL fields, artifact paths, or runner scopes. Views may display them through common Env accessors but must not use them to branch Env behavior or metric identity.
 
@@ -287,12 +292,15 @@ Source key, event, target, interval, runner scope, and eval name are passed to A
 ### 7.2 Evaluation Session Logs
 
 Configured Eval writes one info-level `eval.[<tag>]: session start` and one `session end` line.
+The start line is written from the train thread when the evaluation fires, that is, before any wait for the previous background session to complete; the end line is written from the thread that ran the session.
 Both lines' learn_step/exp_step are session-start coordinates supplied by Train and correspond to session_end scalars.
-The end line's elapsed time runs from before Sync through after SessionEnd notification, in seconds with two decimals; it is not Train's actual background wait time.
-In background mode, only when blocked waiting for the previous session, one info-level `waited for previous session` line includes the current trigger's learn_step/exp_step.
-That line's elapsed is actual Train-thread wait time in seconds with two decimals. It is absent for foreground execution, shutdown waits, and exceptions during waits.
+The end line's elapsed time runs from before Sync through after SessionEnd notification, in seconds with two decimals; it is not Train's actual background wait time. Nor does it match the time elapsed since the start line.
+In background mode, only when blocked waiting for the previous session, one info-level `waiting for previous session` line is written when the wait begins and one `waited for previous session` line after collection; both include the current trigger's learn_step/exp_step.
+The completion line's elapsed is actual Train-thread wait time in seconds with two decimals. Neither line appears for foreground execution or shutdown waits; for an exception during the wait, only the wait-start line remains.
+When a wait occurs, the lines appear in the order `session start`, `waiting for previous session`, the previous session's `session end`, and `waited for previous session`.
 The end line includes mean.episode_return, max.episode_return, mean.episode_steps, and max.episode_steps matching finalized scalars.
-Abnormal termination does not emit a normal end line. Startup scheduled lines include interval, background, episodes, and batch_size.
+When the exit drain waits, `draining in-flight session on exit` is written; when it switches to cooperative cancellation, `cancelling in-flight session on exit reason=close|config|timeout` is written. When a cancellation completes, the normal `session end` is not written; `session cancelled learn_step=... exp_step=... elapsed=... completed=...` is written instead. The corresponding session scalars are not emitted, and traces of completed episodes are retained.
+Abnormal termination does not emit a normal end line. Startup scheduled lines include interval, background, wait_on_exit, episodes, and batch_size.
 Generic evaluation episode lengths are available in baseline/full through `21_eval/05_target_ep_steps`–`08_policy_ep_steps_max`.
 
 ## 8. Profiling and Performance Considerations

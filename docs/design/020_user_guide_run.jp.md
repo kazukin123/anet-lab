@@ -120,14 +120,13 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 |---|---|---|
 | `key = value` | `E1.obs_include_action = true` | 個別葉。ベースと既定葉より強い |
 | `key ?= value` | `AtariEnv.game ?= pong` | 既定葉。その設定の`.$`が同じキーを供給しなければ残る |
-| `Owner.@name.key = v` | `LunarLanderEnv.@trunk.wind_power = 3.0` | プロファイルの定義(ドット形) |
-| `Owner.@name : key = v` | `DefaultDQNAgent.@qr  : quantile_mode = qr` | 同上(コロン形)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う |
+| `Owner.@name : key = v` | `LunarLanderEnv.@trunk : wind_power = 3.0`、`DefaultDQNAgent.@qr  : quantile_mode = qr` | プロファイルの定義。境界は`:`で区切り、`.`で続けない。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う |
 | `@vars : key = v` | `@vars : max_exp_step  = 100,000,000` | 値スロット。`${@vars.max_exp_step}`で参照する |
 | `Owner.$ = A > B > C` | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` | 選択チェーン。短い`@name`は`Owner.@name`を指す |
 | 完全修飾の項 | `LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1` | 書いたとおりのprefixを指す。別のownerの定義も選べる |
 | `Owner.sub.$ = …` | `run.eval.[test1].env.$ = LunarLanderEnv.@test1` | 部分選択。配下の一部だけのベース |
 | `[key].leaf`、`[key].$` | `net.block.[Linear_120].type ?= Linear`、`net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1` | カタログ項目の定義と、その項目のベース |
-| metrics定義と選択 | `metrics.scalar.@baseline.[21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`、`metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | tagが`[key]`のカタログ。選択はチェーン |
+| metrics定義と選択 | `metrics.scalar.@baseline : [21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`、`metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | tagが`[key]`のカタログ。選択はチェーン |
 | 上書き層 | `A2.learner.per_alpha = 0.2`、`app.$ = app.online > P1` | 環境別ファイルの差分。チェーンの末尾に置く |
 | `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Runプロファイルの葉 |
 | `run.@name : Owner.$ = …` | `run.@repro : backend.$ = backend.@deterministic` | Runプロファイルによるチェーンの置き換え |
@@ -153,14 +152,14 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ```properties
 backend.cudnn_benchmark ?= false                   # 既定葉
 backend.torch_num_threads ?= 1                     # 既定葉
-backend.@non-deterministic.cudnn_benchmark = true
+backend.@non-deterministic : cudnn_benchmark = true
 backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmark を供給する → true
                                                    # torch_num_threads はベースに無い → 1 のまま
 ```
 
 #### 3.4.2 プロファイル`@name`
 
-`Owner.@name.key = v`と`Owner.@name : key = v`は同じ意味で、`:`はプロファイルの境界にだけ使う。
+プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[AGENTS.md](../../AGENTS.md)「設定ファイルのプロファイル境界」)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
 
 - 定義しただけでは値に出ない。チェーンや部分選択で選ばれた分だけ最終値に入る。
 - 短い`@name`は、書いた場所(定義元)の名前空間で解決する。`Env.$ = @a`は`Env.@a`、`Env.@a : $ = @b`は`Env.@b`を指す。`Other.$ = Env.@a`のように別の場所から使っても、`@a`の中の`@b`は`Env.@b`のままである。
@@ -303,9 +302,9 @@ backend.cudnn_benchmark ?= false
 backend.cudnn_deterministic ?= false
 backend.deterministic_algorithms ?= true
 backend.deterministic_warn_only ?= false
-backend.@non-deterministic.cudnn_benchmark = true
-backend.@non-deterministic.cudnn_deterministic = false
-backend.@non-deterministic.deterministic_algorithms = false
+backend.@non-deterministic : cudnn_benchmark = true
+backend.@non-deterministic : cudnn_deterministic = false
+backend.@non-deterministic : deterministic_algorithms = false
 
 # LunarLander.txt
 backend.$ = backend.@non-deterministic
