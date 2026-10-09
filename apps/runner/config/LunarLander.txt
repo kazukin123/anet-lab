@@ -50,10 +50,18 @@ run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_se
 run.@cpu : DefaultDQNAgent.$ = @baseline > @qr > @munchausen > @heavy > A1 > A2
 run.@cpu : backend.torch_num_threads = 4   # i5-10500 で 4 / 10 / -1 を比べて 4 が最速
 
+# NoisyNet は V/A ストリームの FC と Head の V/A 射影に掛ける。Linear128 は main_feature と IQN fusion で共用なので掛けない
+run.@noisy : net.block.[HeadFC128].noisy.enabled = true
+run.@noisy : net.block.[HeadFC128].noisy.sigma0 = 0.5
+run.@noisy : A2.head_projection.noisy.enabled = true
+run.@noisy : A2.head_projection.noisy.sigma0 = 0.5
+run.@noisy : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > metrics.scalar.@noisy > M1
+
 run.$ = run.@munch
 #run.$ = run.@rfit
 #run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
 #run.$ = run.@cpu
+#run.$ = run.@cpu > run.@noisy      # @noisy は metrics を上書きするので後ろに置く
 
 
 # ==============================================================================
