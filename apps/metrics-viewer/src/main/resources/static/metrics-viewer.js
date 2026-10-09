@@ -21,7 +21,6 @@ const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled
 const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
 const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
 const STORAGE_KEY_AUTO_RECOLOR = "anet.metricsviewer.autoRecolorEnabled";
-const RUN_COLOR_MIN_DISTANCE = 0.16;
 // graph headerの下限・上限ボタンが押すたびに進む段(percent)。先頭が制限なし。
 const LOWER_PERCENTILE_STEPS = Object.freeze([0, 1, 5]);
 const UPPER_PERCENTILE_STEPS = Object.freeze([100, 99, 95]);
@@ -1574,7 +1573,7 @@ class UIController {
 						&& now - this.lastRunClick.at <= RUN_SOLO_INTERVAL_MS;
 				this.lastRunClick = { runId, at: now };
 				if (solo) {
-					this.app.setSelectedRuns([runId]);
+					this.app.soloRun(runId);
 					return;
 				}
 				const selected = new Set(this.app.selectedRuns);
@@ -1776,6 +1775,8 @@ class MetricsViewerClientApp {
 		this.plotDragModes = new Map();
 		this.manualYRanges = new Map();
 		this.runColorMap = new Map();
+		// 直前にRun色を解決したときの選択中Run。Autoはここに無い選択中Runを新しく選んだRunとして色を配る。
+		this.lastColoredSelection = new Set();
 		this.viewports = new Map();
 		this.autoRecolorEnabled = true;
 		this.graphScrollLockEnabled = false;
@@ -1937,6 +1938,7 @@ class MetricsViewerClientApp {
 		this.cache.clear();
 		this.selectedRuns = [];
 		this.runColorMap.clear();
+		this.lastColoredSelection.clear();
 		this.viewports.clear();
 		this.hiddenLegendSeries.clear();
 		this.manualYRanges.clear();
@@ -2015,13 +2017,20 @@ class MetricsViewerClientApp {
 					runId,
 					getRunColors()[this.runColorMap.size % getRunColors().length]);
 		}
-		// (b) AutoがONなら、そこから選択中Runだけを分離する。冪等なので毎回の描画で走ってよい。
-		if (this.autoRecolorEnabled) this._recolorSelectedRuns({ keepExisting: true });
+		// (b) AutoがONなら、新しく選んだRun(前回の解決時に選択されていなかったRun)へ最良の色を配る。
+		//     選択中だったRunの色は変えない。基本色はRun listの並び順でたまたま付いた色なので見ない。
+		if (this.autoRecolorEnabled) {
+			this._assignBestColors(
+					this.selectedRuns.filter(runId => !this.lastColoredSelection.has(runId)));
+		}
+		// 解決のたびに記録し直す。続けて呼ぶと新しく選んだRunが無く色は変わらないので、
+		// 毎回の描画で走ってよい。
+		this.lastColoredSelection = new Set(this.selectedRuns);
 	}
 
 	onRecolorRuns() {
-		// 現在の色を無視し、選択中Runへpaletteの最良の組を配り直す。
-		this._recolorSelectedRuns({ keepExisting: false });
+		// 現在の色を無視し、選択中Runをすべて新しく選んだものとしてpaletteの最良の組を配り直す。
+		this._assignBestColors(this.selectedRuns);
 		this.refreshLists();
 		this._renderCurrent();
 	}
@@ -2038,30 +2047,42 @@ class MetricsViewerClientApp {
 		setToggleState(document.getElementById("btn-auto-recolor"), this.autoRecolorEnabled);
 	}
 
-	_recolorSelectedRuns({ keepExisting }) {
-		// 選択1本以下では分離すべき相手がいないので何もしない。
-		if (this.selectedRuns.length <= 1) return;
+	// targetRunsへ選択順に、ほかの選択中Runの色から最も離れた色を配る。targetRuns以外の色は変えない。
+	_assignBestColors(targetRuns) {
+		const targets = new Set(targetRuns);
 		const fixed = [];
 		const used = new Set();
-		// 選択順に処理するため、先に選んだRunほど色を保持しやすく、追加したRunだけが動く。
+		// 変えない色を先にすべて確定させる。Select Allは選択をrunId順へ並べ直すので、
+		// 選択順の後ろにある選択中Runの色とも重ならないよう、対象より前に置く。
 		for (const runId of this.selectedRuns) {
-			// paletteを使い切ったら次のラウンドを始める。ラウンド内は必ず相異なる色になる。
+			if (targets.has(runId)) continue;
+			const color = this.runColorMap.get(runId);
+			fixed.push(color);
+			used.add(color);
+		}
+		for (const runId of this.selectedRuns) {
+			if (!targets.has(runId)) continue;
+			// paletteを使い切ったら次のラウンドを始める。ラウンド内では配る色が必ず相異なる。
 			if (used.size === getRunColors().length) {
 				fixed.length = 0;
 				used.clear();
 			}
-			const best = farthestColorFrom(fixed, used);
-			const current = this.runColorMap.get(runId);
-			// しきい値を満たせない本数でも「今のpaletteで取れる最良」を維持条件にする。
-			const keepCurrent = keepExisting
-					&& current != null
-					&& minColorDistance(current, fixed)
-							>= Math.min(RUN_COLOR_MIN_DISTANCE, best.distance);
-			const chosen = keepCurrent ? current : best.color;
+			const chosen = farthestColorFrom(fixed, used).color;
 			this.runColorMap.set(runId, chosen);
 			fixed.push(chosen);
 			used.add(chosen);
 		}
+	}
+
+	soloRun(runId) {
+		// solo選択は同じ行の2回目のclickで成立し、今の選択は1回目のclickでこのRunだけ反転している。
+		// 2回のclickを1つの操作として色を決めるため、このRunの前回の選択を1回目の前の状態へ戻す。
+		// 元から選択中だったRunは色を保ち、選択していなかったRunは新しく選んだRunとして色を取る。
+		// 空選択からのsoloや3回目以降のclickで、すでにこのRunだけを選んでいるなら何もしない。
+		if (this.selectedRuns.length === 1 && this.selectedRuns[0] === runId) return;
+		if (this.selectedRuns.includes(runId)) this.lastColoredSelection.delete(runId);
+		else this.lastColoredSelection.add(runId);
+		this.setSelectedRuns([runId]);
 	}
 
 	setSelectedRuns(runIds) {

@@ -52,10 +52,16 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		final List<Map<String, String>> chips = readRunChips(page);
 		assertEquals(RUN_IDS.size(), chips.size());
-		assertEquals(RUN_IDS.size(), chips.stream().map(chip -> chip.get("color")).distinct().count());
 		assertTrue(chips.stream().allMatch(chip -> chip.get("color").startsWith("rgb(")));
 
 		final String selectedRunId = readActiveRunIds(page).get(0);
+		// 未選択Runは基本色を先着順に持つので互いに異なる。選択中Runは新しく選んだRunとして
+		// palette先頭の色を取り直すため、未選択Runと同じ色になってよい。
+		assertEquals(RUN_IDS.size() - 1, chips.stream()
+				.filter(chip -> !selectedRunId.equals(chip.get("runId")))
+				.map(chip -> chip.get("color"))
+				.distinct()
+				.count());
 		final String selectedChipColor = chips.stream()
 				.filter(chip -> selectedRunId.equals(chip.get("runId")))
 				.findFirst()
@@ -163,6 +169,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.navigate(baseUrl + "/?legendStateTest=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
 		page.click("#btn-select-all-runs");
 		waitForGraphCount(page, 2);
 		waitForSeriesTrace(page, TAG_A, "run_a", true);
@@ -271,6 +279,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.navigate(baseUrl + "/?bandLegendStateTest=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
 		page.click("#btn-select-all-runs");
 		page.selectOption("#lod-display-mode", "Band");
 		page.waitForFunction("""
@@ -330,6 +340,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.navigate(baseUrl + "/?statsWarningTest=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
 		page.click("#btn-select-all-runs");
 		waitForMultiRunGraph(page);
 		page.waitForFunction("document.querySelector('.graph-warning') !== null");

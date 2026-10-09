@@ -1,5 +1,7 @@
 # Run 色は比較ごとの役割とし、分離は選択中 Run の集合に対してだけ保証する
 
+> **後発決定（2026-10-09）**: `Auto` は [ADR 0050](0050-auto-recolor-colors-only-newly-selected-runs.md) で、選択中だった Run の色を条件なしに変えず、新しく選んだ Run（初回表示の最新 Run を含む）へ基本色を見ずに最良の色を配る規則へ改訂した。しきい値 0.16 は廃止し、`Recolor` は選択 1 本でも palette 先頭を配る。色を保存しないこと、分離を選択中 Run の集合だけに保証すること、未選択 Run を触らないこと、新しい Run へ選択順に配ること、`Recolor` の最適配色は不変である。
+
 Metrics Viewer の Run 色は、Run list 描画時に workspace 内の全 Run へ runId 昇順で先着順に配り、index を `runColorMap.size % 20` で決めている。
 色が決まるのは「workspace 内での位置」であって「今の比較の構成」ではないため、比較したい 2 本が palette 上で隣り合えば似た色になり、20 離れれば同じ色になる。
 Run が溜まった workspace で昔の Run と現在の Run を比べると、これが頻繁に起きる。
