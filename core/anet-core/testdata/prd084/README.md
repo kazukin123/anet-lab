@@ -2,14 +2,7 @@
 
 ## 実行設定の責任境界
 
-対象は `NetworkForwardConfig` と `Network::Forward` / `ForwardUpTo`。`nn_test.cpp` の `[nn][noisynet][context]` が次を確認する。
-
-- 設定から構築した通常の Network に明示的な context を渡しても、出力・parameter が変わらない。
-- 独自の項目と private な設定型を持つテスト Module / Head を追加しても、共通型・伝達経路・呼び出し側・既存 Module の変更を要求しない。
-- 通常 forward・部分 forward・Head へ設定が届き、選択した設定項目だけが利用される。
-- 元の設定データを変更しても解決済み設定と結果は変わらない。
-- `GetDefault()` が具体的な設定値を持たず、Module / Head が自分の既定値を決める。名前付き空設定は明示的な既定要求へ読み替えない。
-- `Network::Forward(input)` の context 省略は、明示的な `GetDefault()` の出力と一致する。既定引数を使い、別 overload は追加しない。
+対象は PrepareForward と NetworkForwardExecution::Forward／ForwardUpTo。既存 Noisy テストと [nn][noisynet][prepared] で、準備時だけの設定解釈、具象 Module／Head の責任境界、設定の寿命・変更・同名設定、Network の寿命、独立 State と target／probe 共有、同時 forward、出力・勾配・保持・精度・診断非干渉を確認する。通常の部品は本体を直接呼び、設定検索・再解釈・設定用ロックを使わない。既定 Network::Forward(input) は μ-only、TensorDictFunction の型は維持する。保存用設定の全キー・文字列値は変更しない。
 
 リポジトリルートの PowerShell から Debug 全体をビルドする。
 
@@ -35,7 +28,7 @@ core/anet-core/bin/Debug/anet-core-test.exe
 
 レビューでは、具体的な設定型が具象クラス内部に閉じていること、共通層に Module 固有のフィールド・読み取り処理・型や有無の判定が無いことを確認する。`GetDefault()` は各計算部品の既定動作を明示的に要求する。具体的な設定値は持たず、Noisy の計算部品はこれを μ-only と解釈する。名前付き設定の項目不足とは区別し、暗黙の fallback にはしない。
 
-Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。受け入れの正本は `docs/memo/084_noisynet_21impl.md` とする。
+Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の事前準備リファクタリングの受け入れは `docs/memo/084_noisynet_23impl.md` を正本とする。21impl・22impl の検証は当時の契約の記録として保持する。
 
 ## OFF 回帰の数値比較
 
@@ -126,7 +119,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File core/anet-core/testdata/prd0
 
 - 具象 LinearProjectionModule が Body と6 Head の設定・検証・保持・抽選を一元化する。parameter 登録とμ初期化順、SN buffer、εのslot識別は既存のまま。
 - 不変な行対応はCPUの宣言で範囲を確認し、一度だけGPUへ渡す。検査用Tensorは複製を返し、射影はSelectRowsを使う。
-- 内容別キャッシュは同名・異内容、設定寿命、同時Actor、独自Module/Headの拡張を検証する。
+- 準備済み処理は同名・異内容、設定寿命、同時Actor、独自Module/Headの拡張を検証する。
 - CUDA autocast内のBody force_fp32、Head/SN保護と、行対応の転送・scalar抽出が各射影に無いことをTorch profilerで確認する。
 - NNのRL語は今回の修正では変更せず、後続の整理事項として保持する。
 - run_review_validation.ps1 はOFF3本、Atari結合2本、旧checkpoint読込を専用の新しい出力先へ保存する。終了後、compare_metrics.py、compare_resolved_settings.py、verify_integration.pyで照合する。
@@ -180,3 +173,29 @@ Noisy47件/10497 assertions、全core664passed/1skipped/34680 assertions、Debug
 | hold_episode | b | 59.266 | 3524.1 | 23168.38 | 5635.00 |
 | off | a | 73.279 | 3617.7 | 23218.39 | 5726.00 |
 | off | b | 63.672 | 2544.2 | 23157.06 | 5578.00 |
+
+## Forward 事前準備の受け入れ
+
+計画: docs/memo/084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy_dist 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
+
+## 事前準備リファクタリングの検証資材
+
+`run_forward_refactor.ps1` の `-Stage off` は最終 Release の OFF3構成と旧 checkpoint 読込、`-Stage on` は保存した変更前／後の実行体による代表 ON の3反復 A/B交互を実行する。既定出力先は `.scratch/prd084/forward-refactor/after/` で、`-OutputRoot` で今回専用の出力先を指定できる。既存記録を上書きせず、`-Resume` は正常終了・同じ実行体・同じ予算の記録だけ再利用する。測定の前後で他の Runner を確認し、検出時は既存プロセスを停止せず測定を保留する。
+
+ON の数値正規化は `compare_metrics.py normalize` の `--include-noisy` を指定する。OFF の既定除外条件は維持する。最終集計は正常終了・OFF checksum・旧 checkpoint の読込、ON の設定・11診断の購読と成立値／NaN・複数 eval／probe、3反復の順序・同一 GPU・全6 Runの数値一致を検証する。warmup200k到達後にメモリを5秒間隔で採取し、区間時間・throughput と各中央値を保存する。
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd084/summarize_forward_refactor.py .scratch/prd084/forward-refactor/after
+```
+
+## Forward 事前準備の最終検証（2026-10-10）
+
+[事前準備リファクタリングの検証記録](forward_refactor_verification.md) に、最終ビルド・テスト・OFF3構成の checksum、代表 ON 6 Run の値・中央値・成立条件と変更ファイルを保存した。過去の受け入れ・測定は当時の契約の記録として保持する。
+
+## 事前準備の再レビュー検証（2026-10-10）
+
+Learner の forward_resources は必須で、有効時は current／target の参照キーとの対応を準備前に検証する。空キーでは既定 Resource を明示する。準備済み Head の子管理は NN 共通部品で行い、独自設定の解釈は子の具象 Module 内部に残す。全子が既定動作なら Head 本体を直接呼ぶ。
+
+今回の選択は OFF3本＋ON1本（各500k経験）と旧 OFF checkpoint 読込。`-Stage on-after` は変更後 ON 単発を保存済み代表構成の109941点と照合する。出力先は `.scratch/prd084/forward-refactor/review-followup-20261010/after/`。集計は `summarize_forward_refactor.py` に `--followup` を付け、数値・診断・設定・同一GPUを検証する。以前の性能6 Runは当時の実行体による証拠として区別し、3反復・48 Runは再測定しない。今回の結果は[検証記録](forward_refactor_verification.md)の再レビュー節へ追記する。
+
+2026-10-10追記: ユーザーによる既存Run一時停止後、最終Release別出力実行体でOFF3本＋ON1本・旧checkpoint確認を実行した。全正常終了・点数／checksum一致。全解決値、診断の成立とNaN、複数eval／probeも確認済み。専用出力のafter/acceptance-summary.jsonと検証記録の再レビュー節を参照する。停止中の既存Runがメモリに常駐した状態のため、単発の性能値は前後性能比較の証拠にはしない。

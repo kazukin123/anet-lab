@@ -1,5 +1,8 @@
 # NoisyNet の ε は module に持たせず、呼び出し側所有の NN 実行状態と NN 実行設定キーで駆動する
 
+> 2026-10-10 後発決定: [ADR0051](0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)で、設定・Stateを毎回Contextへ渡す形を、事前準備と用途別実行オブジェクトへ改訂した。
+> εをmoduleへ置かない判断、箱×層×時計の共有規則、重み・RNG・保存の契約は維持する。以下は当時の判断記録として保持する。
+
 NoisyNet（PRD 084）のノイズサンプル ε と保持状態を、参照実装（BTR、Kaixhin 系）のように `Linear` module の buffer として持たせず、呼び出し側（Actor、Learner の現在値、target 構築）がそれぞれ 1 つ所有する **NN 実行状態** に置き、forward の引数として設定・状態・呼び出しごとの入力を明示的に渡すことにした。理由は 3 つある。(1) anet-lab では shared network を Train Actor・eval Actor・Learner が `shared_lock` で同時に forward するため、module 内の「現在の ε」は読み手どうしで競合する。(2) Train Actor network snapshot の `CopyTo` と hard update は named buffer を複製するため、module に ε を置くと同期のたびにノイズが混ざる（BTR では hard update の `load_state_dict` が実際に ε を複製し、置換 step で target の ε が online の ε になる）。(3) DQN 側のコードが Noisy の有無を調べずに済む。駆動方法（sample / μ-only、保持、共有）は名前付きカタログ **`nn_forward.[name]`** の項目として NN 層が所有し、各用途が参照キー `nn_forward_key` で参照する。ε の共有は「実行状態の箱 × network の層 × 時計の値」が一致するときだけ、という単一規則で定める。
 
 ## Considered Options

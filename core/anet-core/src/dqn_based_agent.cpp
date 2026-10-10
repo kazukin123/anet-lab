@@ -509,28 +509,28 @@ void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
     }
 }
 
-anet::TensorDict NetworkModel::ForwardOnline(const anet::TensorDict& obs, const anet::nn::NetworkForwardContext& context) const
+anet::TensorDict NetworkModel::ForwardOnline(const anet::TensorDict& obs) const
 {
-    return online_net_->Forward(obs, context);
+    return online_net_->Forward(obs);
 }
 
-anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs, const anet::nn::NetworkForwardContext& context) const
+anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecution& forward, const anet::nn::NetworkForwardCallInfo& info) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
-    return online_net_->Forward(obs, context, {}, online_capture_);
+    return forward.Forward(obs, info, {}, online_capture_);
 }
 
-anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs, const anet::nn::NetworkForwardContext& context) const
+anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs, anet::nn::NetworkForwardExecution& forward, const anet::nn::NetworkForwardCallInfo& info) const
 {
-    return target_net_->Forward(obs, context, {}, target_capture_);
+    return forward.Forward(obs, info, {}, target_capture_);
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineUpTo(
-    const anet::TensorDict& obs, const anet::nn::NetworkForwardContext& context, const std::string& branch_key) const
+    const anet::TensorDict& obs, const std::string& branch_key) const
 {
     torch::NoGradGuard no_grad;
     anet::TrainingModeGuard guard(*online_net_, false);
-    return online_net_->ForwardUpTo(obs, context, branch_key);
+    return online_net_->ForwardUpTo(obs, branch_key);
 }
 
 void NetworkModel::SetBranchCaptureRequests(
@@ -1175,19 +1175,19 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::nn::NetworkForwardContext& context, const anet::TraceCallback& callback) const
+    const anet::TensorDict& obs, std::shared_ptr<anet::nn::NetworkForwardExecution> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
 {
-    return network->Forward(obs, context, callback);
+    return forward->Forward(obs, info, callback);
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     const anet::TensorDict& obs, const torch::Tensor& taus,
-    std::shared_ptr<anet::nn::Network> network, const anet::nn::NetworkForwardContext& context, const anet::TraceCallback& callback) const
+    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
 {
     // 呼び出し元やReplayBufferが所有する辞書を変更せず、forward専用入力へtausを足す。
     anet::TensorDict network_input = obs;
     network_input.Set(anet::nn::kKey_Taus, taus);
-    return ForwardForAction(network_input, std::move(network), context, callback);
+    return ForwardForAction(network_input, std::move(forward), info, callback);
 }
 
 torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialTensor(
@@ -1386,7 +1386,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateSchedule(const StepCounts& 
 }
 
 std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardContext& context, const anet::TraceCallback& callback,
+    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     const DiagnosticActionEvaluation* evaluation) const
 {
     ANET_PROFILE_FUNC();
@@ -1403,9 +1403,9 @@ std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const ane
                 .unsqueeze(0).expand({ obs.Size(0), evaluation->num_taus })
             : GenerateTaus(obs.Size(0), config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
                 0.0f, 1.0f, obs.device(), *rnd);
-        out = ForwardForActionWithTaus(obs, taus, network, context, callback);
+        out = ForwardForActionWithTaus(obs, taus, forward, info, callback);
     } else {
-        out = ForwardForAction(obs, network, context, callback);
+        out = ForwardForAction(obs, forward, info, callback);
     }
     auto q_values = out.At("q");
     torch::Tensor q_quantiles;
@@ -1577,7 +1577,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardContext& context, const anet::TraceCallback& callback,
+    bool greedy_only, std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     bool iqn_use_full_range, const DiagnosticActionEvaluation* evaluation) const
 {
     ANET_PROFILE_FUNC();
@@ -1654,10 +1654,10 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         }
 
         ANET_PROFILE_SCOPE_NEXT(forward);
-        out = ForwardForActionWithTaus(obs, iqn_taus, network, context, callback);
+        out = ForwardForActionWithTaus(obs, iqn_taus, forward, info, callback);
     } else {
         ANET_PROFILE_SCOPE_NEXT(forward);
-        out = ForwardForAction(obs, network, context, callback);
+        out = ForwardForAction(obs, forward, info, callback);
     }
     // Headのqは連結した全tausの平均になるため、full query有効時は使わず各領域から平均を再計算する。
     ANET_PROFILE_SCOPE_NEXT(split_outputs);
@@ -1755,15 +1755,15 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardContext& context, const anet::TraceCallback& callback,
+    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     const DiagnosticActionEvaluation* evaluation) const
 {
     if (IsSpatialExplorationEnabled()) {
         const int64_t N = obs.Size(0);
         auto tau_tensor = GetSpatialTauTensor(N, obs.device()).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, context, callback, false, evaluation);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback, false, evaluation);
     }
-    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd, context, callback, false, evaluation);
+    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, forward, rnd, info, callback, false, evaluation);
 }
 
 
@@ -1786,7 +1786,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::UpdateSchedule(const StepCount
 }
 
 std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardContext& context, const anet::TraceCallback& callback,
+    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     const DiagnosticActionEvaluation* evaluation) const
 {
     if (evaluation) ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; ThompsonSampling is unsupported.");
@@ -1795,12 +1795,12 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
     auto device = obs.device();
     if (IsSpatialExplorationEnabled()) {
         auto tau_tensor = GetSpatialTauTensor(N, device).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, context, callback);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback);
     }
 
     if (config_.quantile_mode == "iqn") {
         return MakeUQEActionInfo(
-            0.0f, torch::Tensor(), obs, greedy_only, network, rnd, context, callback,
+            0.0f, torch::Tensor(), obs, greedy_only, forward, rnd, info, callback,
             /*iqn_use_full_range=*/true);
     }
 
@@ -1808,7 +1808,7 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
     auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
 
     // tau_tensor(ランダム)でUQE適用
-    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, context, callback);
+    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback);
 }
 
 
@@ -1831,14 +1831,14 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     ActorQHintConfig actor_q_hint_config)
     : RandomHolder(seed), policy_(std::move(policy)), obs_norm_(std::move(obs_norm))
     , stacker_(std::move(stacker)), device_(device), mutex_(std::move(mutex))
-    , network_(std::move(network)), src_network_(std::move(src_network)), forward_config_(forward_config)
+    , network_(std::move(network)), src_network_(std::move(src_network))
     , emit_actor_q_hint_(emit_actor_q_hint)
     , actor_q_hint_config_(actor_q_hint_config)
     , emit_snapshot_metrics_(emit_snapshot_metrics)
 {
     // 設定の実行可否は計算部品へ委譲し、既存のacting/τ RNGとは独立した箱を作る。
-    network_->ValidateForwardConfig(forward_config_, anet::nn::NetworkForwardClock::kContinuingRows);
-    forward_state_ = network_->MakeForwardState(anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward"));
+    actor_forward_ = network_->PrepareForward(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
+        anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward"));
     if (snapshot_sync_interval.has_value()) {
         snapshot_sync_interval_.emplace(std::move(*snapshot_sync_interval));
     }
@@ -1903,10 +1903,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     //ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToString());
 
     // 行動選択の時計を進め、同じ選択内の全forwardへ不透明な実行情報を渡す。
-    const anet::nn::NetworkForwardContext forward_context({
-        .config = forward_config_, .state = forward_state_.get(),
-        .clock_kind = anet::nn::NetworkForwardClock::kContinuingRows, .clock = ++forward_clock_,
-        .episode_start = state.episode_start});
+    const anet::nn::NetworkForwardCallInfo forward_info({
+        .clock = ++forward_clock_, .episode_start = state.episode_start});
 
     // 行動選択
     anet::TensorDict trace;
@@ -1914,11 +1912,11 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     std::shared_ptr<DQNActionInfo> act_info;
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd_, forward_context, callback);
+        act_info = policy_->SelectAction(norm_obs, false, actor_forward_, rnd_, forward_info, callback);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd_, forward_context, callback);
+        act_info = policy_->SelectAction(norm_obs, false, actor_forward_, rnd_, forward_info, callback);
     }
 
     // 学習Actorだけが、既存forwardの平均Qから初期優先度用ヒントをpackする。
@@ -1996,7 +1994,8 @@ void Actor::Sync()
 
 Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
+    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
     anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), model_(model), vars_(vars), obs_norm_(std::move(obs_norm))
     , num_envs_(batch_env_spec.num_envs)
@@ -2006,22 +2005,39 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     , plasticity_probe_random_(plasticity_probe_random)
     , policy_churn_probe_random_(policy_churn_probe_random)
 {
-    // 参照の存在だけを確認し、実行可否や再利用可否の判定は各計算部品へ委譲する。
-    if (!config_.current.nn_forward || !config_.target.nn_forward) {
-        ANET_SYSTEM_ERROR("Missing resolved learner.current/target.nn_forward_key; expected declared forward configurations.");
-    }
-    if (config_.enabled) {
-        model_.GetOnlineNetwork()->ValidateForwardConfig(*config_.current.nn_forward, anet::nn::NetworkForwardClock::kTransientRows);
-        model_.GetOnlineNetwork()->ValidateForwardConfig(*config_.target.nn_forward, anet::nn::NetworkForwardClock::kTransientRows);
-        model_.GetTargetNetwork()->ValidateForwardConfig(*config_.target.nn_forward, anet::nn::NetworkForwardClock::kTransientRows);
-        if (config_.munchausen.enabled && config_.munchausen.log_policy_mode == "online_reuse") {
-            model_.GetOnlineNetwork()->ValidateForwardReuse(*config_.current.nn_forward, *config_.target.nn_forward);
+    // 名前付き参照と受け取ったResourceの対応を、NNの準備や資源確保より前に確認する。
+    const auto validate_resource = [](const std::string& purpose, const std::string& key,
+        const anet::nn::NetworkForwardConfig& resource) {
+        const bool matches = key.empty() ? resource.IsDefault()
+            : !resource.IsDefault() && resource.key.ends_with("[" + key + "]");
+        if (!matches) {
+            ANET_SYSTEM_ERROR("Mismatched learner." << purpose << ".nn_forward_key=" << key
+                << "; supplied resource=" << resource.key
+                << "; expected " << (key.empty() ? "an explicit default resource" : "a named resource ending in [" + key + "]") << ".");
         }
+    };
+    if (config_.enabled) {
+        validate_resource("current", config_.current.nn_forward_key, forward_resources.current);
+        validate_resource("target", config_.target.nn_forward_key, forward_resources.target);
     }
-    // 現在値とtargetに独立した箱を作り、既存の学習/τ RNGを消費しない。
+
+    // 用途ごとに設定を準備し、既存の学習/τ RNGとは独立した State を所有する。
     const anet::SeedMaker forward_seeds(GetSeed());
-    current_forward_state_ = model_.GetOnlineNetwork()->MakeForwardState(forward_seeds.MakeNamedSeed("network_forward.current"));
-    target_forward_state_ = model_.GetTargetNetwork()->MakeForwardState(forward_seeds.MakeNamedSeed("network_forward.target"));
+    const auto& current = config_.enabled ? forward_resources.current : anet::nn::NetworkForwardConfig::GetDefault();
+    const auto& target = config_.enabled ? forward_resources.target : anet::nn::NetworkForwardConfig::GetDefault();
+    current_forward_ = model_.GetOnlineNetwork()->PrepareForward(current, anet::nn::NetworkForwardClock::kTransientRows,
+        forward_seeds.MakeNamedSeed("network_forward.current"));
+    target_forward_ = model_.GetTargetNetwork()->PrepareForward(target, anet::nn::NetworkForwardClock::kTransientRows,
+        forward_seeds.MakeNamedSeed("network_forward.target"));
+    // 同じ target 用途の online/target は箱と時計種別を共有し、重みだけ別 Network に結び付ける。
+    target_online_forward_ = target_forward_->BindNetwork(model_.GetOnlineNetwork(), target);
+    diagnostic_online_forward_ = model_.GetOnlineNetwork()->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kNone, 0);
+    diagnostic_target_forward_ = diagnostic_online_forward_->BindNetwork(model_.GetTargetNetwork(),
+        anet::nn::NetworkForwardConfig::GetDefault());
+    if (config_.enabled && config_.munchausen.enabled && config_.munchausen.log_policy_mode == "online_reuse") {
+        model_.GetOnlineNetwork()->ValidateForwardReuse(current, target);
+    }
 
     // Credit計算
     if (config_.replay_ratio > 0) {
@@ -2138,13 +2154,11 @@ void Learner::ConfigureScalarMetricSubscriptions(
         if (!noisy_probe_random || !noisy_probe_config || !noisy_probe_mean_config) {
             ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a dedicated RNG and resolved sample/mean forward configs.");
         }
-        model_.GetOnlineNetwork()->ValidateForwardConfig(*noisy_probe_config, anet::nn::NetworkForwardClock::kTransientRows);
         noisy_.random = noisy_probe_random;
-        noisy_.config = noisy_probe_config;
-        model_.GetOnlineNetwork()->ValidateForwardConfig(*noisy_probe_mean_config, anet::nn::NetworkForwardClock::kTransientRows);
-        noisy_.mean_config = noisy_probe_mean_config;
-        noisy_.forward_state = model_.GetOnlineNetwork()->MakeForwardState(
+        noisy_.sample_forward = model_.GetOnlineNetwork()->PrepareForward(*noisy_probe_config,
+            anet::nn::NetworkForwardClock::kTransientRows,
             anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward.noisy_probe"));
+        noisy_.mean_forward = noisy_.sample_forward->BindNetwork(model_.GetOnlineNetwork(), *noisy_probe_mean_config);
     }
 
     // hard update と同一位相だけを観測する interval を、設定単位で一度だけ診断する。
@@ -2279,7 +2293,7 @@ std::pair<float, float> Learner::EvaluateReplayFit(const ExperienceSamples& inpu
         current_input.Set(anet::nn::kKey_Taus, taus);
     }
     ANET_PROFILE_SCOPE_NEXT(forward);
-    const auto current = model_.GetOnlineNetwork()->Forward(current_input, anet::nn::NetworkForwardContext::GetDefault());
+    const auto current = model_.GetOnlineNetwork()->Forward(current_input);
     const bool distributional = config_.quantile_mode != "none";
     const auto all = current.At(distributional ? "q_dist" : "q");
     const auto selected = distributional
@@ -2319,7 +2333,7 @@ void Learner::CaptureNoisyDiagnostics()
     const auto network = model_.GetOnlineNetwork();
     if (network->GetNoisyParameterEntries().empty()) return;
     ANET_PROFILE_SCOPE(probe);
-    if (!noisy_.random || !noisy_.config || !noisy_.mean_config || !noisy_.forward_state) {
+    if (!noisy_.random || !noisy_.sample_forward || !noisy_.mean_forward) {
         ANET_SYSTEM_ERROR("Noisy probe Resource is unavailable for subscribed metrics.");
     }
     ExperienceSamples cpu_samples;
@@ -2338,15 +2352,11 @@ void Learner::CaptureNoisyDiagnostics()
     torch::NoGradGuard no_grad;
     anet::Autocast autocast_guard(device_, false, torch::kFloat32);
     anet::TrainingModeGuard training_guard(*network, false);
-    const anet::nn::NetworkForwardContext mean_context({
-        .config = *noisy_.mean_config, .state = noisy_.forward_state.get(),
-        .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = ++noisy_.forward_clock});
-    const auto mean_q = network->Forward(input, mean_context).At("q");
+    const anet::nn::NetworkForwardCallInfo mean_info({.clock = ++noisy_.forward_clock});
+    const auto mean_q = noisy_.mean_forward->Forward(input, mean_info).At("q");
     const auto metrics = MeasureNoisyQProbe(mean_q, config_.noisy_probe.num_draws, [&](int) {
-        const anet::nn::NetworkForwardContext context({
-            .config = *noisy_.config, .state = noisy_.forward_state.get(),
-            .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = ++noisy_.forward_clock});
-        return network->Forward(input, context).At("q");
+        const anet::nn::NetworkForwardCallInfo info({.clock = ++noisy_.forward_clock});
+        return noisy_.sample_forward->Forward(input, info).At("q");
     });
     for (size_t metric = 8; metric < kNoisyMetricKeys.size(); ++metric) {
         if (request[metric]) noisy_.values[metric] = metrics[metric - 8];
@@ -2369,7 +2379,7 @@ void Learner::CapturePlasticityProbe()
     const auto norm_samples = NormalizeSampleObservations(samples);
     const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
-    const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, anet::nn::NetworkForwardContext::GetDefault(), config_.plasticity.feature_key);
+    const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, config_.plasticity.feature_key);
     plasticity_.probe_features = state.At(config_.plasticity.feature_key).detach();
     if (plasticity_.probe_features.dim() != 2) {
         ANET_SYSTEM_ERROR("Plasticity probe feature must be rank-2 (N, D). feature_key='"
@@ -2430,7 +2440,7 @@ torch::Tensor Learner::ForwardPolicyChurnExpectedQ(bool target) const
     if (config_.quantile_mode == "iqn") {
         input.Set(anet::nn::kKey_Taus, policy_churn_.fixed_taus);
     }
-    const auto q = network->Forward(input, anet::nn::NetworkForwardContext::GetDefault()).At("q");
+    const auto q = network->Forward(input).At("q");
     if (q.scalar_type() != torch::kFloat32) {
         ANET_SYSTEM_ERROR("Policy churn forward must produce float32 Q values. dtype="
             << c10::toString(q.scalar_type()) << ".");
@@ -3205,10 +3215,11 @@ int64_t Learner::Load(InputArchive& archive)
 
 QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
+    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
     anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
 }
 
@@ -3232,9 +3243,9 @@ torch::Tensor QuantileLearnerBase::SelectTargetActions(const anet::TensorDict& n
     const TargetEvaluation& evaluation)
 {
     // Double DQN有効時はPolicyNetで行動選択し、価値評価は呼び出し側でTargetNetを使う
-    auto network = (config_.use_double_dqn) ? model_.GetOnlineNetwork() : model_.GetTargetNetwork();
+    auto forward = config_.use_double_dqn ? evaluation.online_forward : evaluation.target_forward;
     const DiagnosticActionEvaluation action_evaluation{ config_.replay_fit.iqn.num_taus };
-    auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, network, this->GetRandomGenerator(), evaluation.context,
+    auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, forward, this->GetRandomGenerator(), evaluation.info,
         {}, evaluation.diagnostic ? &action_evaluation : nullptr);
     return target_action_info->GetAction(device_);
 }
@@ -3280,14 +3291,14 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeMunchausenTarge
         target_input.Set(anet::nn::kKey_Taus, evaluation.target_taus(target_mode ? 2 * B : B));
     }
     // 結合した current/next の行を元の B 遷移へ対応付け、同じ箱・時計で共有する。
-    auto row_mapping = evaluation.context.GetRowMapping();
+    auto row_mapping = evaluation.info.GetRowMapping();
     if (target_mode) {
         row_mapping.emplace(
             torch::arange(B, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU)).repeat({2}),
             B, target_input.device());
     }
-    const auto target_context = evaluation.context.WithRowMapping(std::move(row_mapping));
-    const auto target_values = (evaluation.diagnostic ? model_.GetTargetNetwork()->Forward(target_input, target_context) : model_.ForwardTarget(target_input, target_context)).At("q_dist");
+    const auto target_info = evaluation.info.WithRowMapping(std::move(row_mapping));
+    const auto target_values = (evaluation.diagnostic ? evaluation.target_forward->Forward(target_input, target_info) : model_.ForwardTarget(target_input, *evaluation.target_forward, target_info)).At("q_dist");
     torch::Tensor current_values = target_mode ? target_values.narrow(0, 0, B) : current_dist_all.detach();
     const auto next_values = target_mode ? target_values.narrow(0, B, B) : target_values;
     if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.output.defined()) {
@@ -3307,7 +3318,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeMunchausenTarge
             current_input.Set(anet::nn::kKey_Taus, evaluation.current_taus(B));
         }
         anet::TrainingModeGuard eval_guard(*model_.GetOnlineNetwork(), false);
-        current_values = model_.ForwardOnline(current_input, evaluation.context).At("q_dist");
+        current_values = evaluation.online_forward->Forward(current_input, evaluation.info).At("q_dist");
     }
 
     // 分位点を個別に実空間へ戻し、方策と全分布混合をFP32で計算する。
@@ -3475,20 +3486,20 @@ IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
 
 TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
+    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
     anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, device, replay_seed,
-        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
 }
 
-anet::nn::NetworkForwardContext Learner::MakeCurrentForwardContext() const
+anet::nn::NetworkForwardCallInfo Learner::MakeCurrentForwardInfo() const
 {
-    // 実更新の learn_step をそのまま使い、再forwardでも箱と時計を変えない。
-    return anet::nn::NetworkForwardContext({ .config = *config_.current.nn_forward, .state = current_forward_state_.get(),
-        .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = vars_.learn_step });
+    // 実更新の learn_step をそのまま使い、再 forward でも用途と時計を変えない。
+    return anet::nn::NetworkForwardCallInfo({.clock = vars_.learn_step});
 }
 
 TargetEvaluation Learner::MakeTargetEvaluation(bool diagnostic)
@@ -3505,9 +3516,9 @@ TargetEvaluation Learner::MakeTargetEvaluation(bool diagnostic)
     };
     return TargetEvaluation{
         .diagnostic = diagnostic,
-        .context = diagnostic ? anet::nn::NetworkForwardContext::GetDefault()
-            : anet::nn::NetworkForwardContext({.config = *config_.target.nn_forward, .state = target_forward_state_.get(),
-                .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = vars_.learn_step}),
+        .info = anet::nn::NetworkForwardCallInfo({.clock = diagnostic ? 0 : vars_.learn_step}),
+        .online_forward = diagnostic ? diagnostic_online_forward_ : target_online_forward_,
+        .target_forward = diagnostic ? diagnostic_target_forward_ : target_forward_,
         .current_taus = [make](int64_t batch) { return make(batch, true); },
         .target_taus = [make](int64_t batch) { return make(batch, false); },
     };
@@ -3541,7 +3552,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeTarget(
     ANET_PROFILE_SCOPE_NEXT(forward_target);
     auto input = next_obs;
     if (config_.quantile_mode == "iqn") input.Set(anet::nn::kKey_Taus, evaluation.target_taus(samples.actions.size(0)));
-    const auto output = evaluation.diagnostic ? model_.GetTargetNetwork()->Forward(input, evaluation.context) : model_.ForwardTarget(input, evaluation.context);
+    const auto output = evaluation.diagnostic ? evaluation.target_forward->Forward(input, evaluation.info) : model_.ForwardTarget(input, *evaluation.target_forward, evaluation.info);
     return { CalcTargetQuantiles(samples, GatherActionQuantiles(output.At("q_dist"), actions)), {} };
 }
 
@@ -3587,14 +3598,14 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
             for (const auto& [key, value] : obs) target_input.Set(key, torch::cat({ value, next_obs.At(key) }, 0));
         }
         // 結合した current/next の行を元の B 遷移へ対応付け、同じ箱・時計で共有する。
-        auto row_mapping = evaluation.context.GetRowMapping();
+        auto row_mapping = evaluation.info.GetRowMapping();
         if (target_mode) {
             row_mapping.emplace(
                 torch::arange(B, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU)).repeat({2}),
                 B, target_input.device());
         }
-        const auto target_context = evaluation.context.WithRowMapping(std::move(row_mapping));
-        const auto target_q = (evaluation.diagnostic ? model_.GetTargetNetwork()->Forward(target_input, target_context) : model_.ForwardTarget(target_input, target_context)).At("q");
+        const auto target_info = evaluation.info.WithRowMapping(std::move(row_mapping));
+        const auto target_q = (evaluation.diagnostic ? evaluation.target_forward->Forward(target_input, target_info) : model_.ForwardTarget(target_input, *evaluation.target_forward, target_info)).At("q");
         torch::Tensor current_policy_q = target_mode ? target_q.narrow(0, 0, B) : q_all.detach();
         const auto next_policy_q = target_mode ? target_q.narrow(0, B, B) : target_q;
         if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.output.defined()) {
@@ -3608,7 +3619,7 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
         if (config_.munchausen.log_policy_mode == "online") {
             ANET_PROFILE_SCOPE(forward_munchausen_online);
             anet::TrainingModeGuard eval_guard(*model_.GetOnlineNetwork(), false);
-            current_policy_q = model_.ForwardOnline(obs, evaluation.context).At("q");
+            current_policy_q = evaluation.online_forward->Forward(obs, evaluation.info).At("q");
         }
 
         ANET_PROFILE_SCOPE(munchausen_target);
@@ -3628,15 +3639,15 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
 
         // 行動 a' を決定
         // DDQN有効の場合は PolicyNetで行動選択、DDQN無効の場合はTargetNetで行動選択
-        auto network = (config_.use_double_dqn) ? model_.GetOnlineNetwork() : model_.GetTargetNetwork();
+        auto forward = config_.use_double_dqn ? evaluation.online_forward : evaluation.target_forward;
 
         // target_policy_ に行動を選ばせる
         // greedy_only=trueはepsilonだけを無効化し、UQEのrisk選択は維持する。
-        auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, network, this->GetRandomGenerator(), evaluation.context, {}, evaluation.diagnostic ? &action_evaluation : nullptr);
+        auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, forward, this->GetRandomGenerator(), evaluation.info, {}, evaluation.diagnostic ? &action_evaluation : nullptr);
         torch::Tensor next_actions = target_action_info->GetAction(device_);
 
         // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
-        auto next_q_out = (evaluation.diagnostic ? model_.GetTargetNetwork()->Forward(next_obs, evaluation.context) : model_.ForwardTarget(next_obs, evaluation.context));
+        auto next_q_out = (evaluation.diagnostic ? evaluation.target_forward->Forward(next_obs, evaluation.info) : model_.ForwardTarget(next_obs, *evaluation.target_forward, evaluation.info));
         auto next_q_target = next_q_out.At("q"); // (B, A)
         ANET_ASSERT_SHAPE(next_q_target, { B, A });
 
@@ -3693,7 +3704,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         // Q(s, a)
         // ------------------------------------------------------------
-        auto q_out = model_.ForwardOnlineWithTrain(obs, MakeCurrentForwardContext());
+        const auto forward_info = MakeCurrentForwardInfo();
+        auto q_out = model_.ForwardOnlineWithTrain(obs, *current_forward_, forward_info);
         auto q_all = q_out.At("q"); // (B,A)
         ANET_ASSERT_SHAPE(q_all, { B, A });
 
@@ -3767,10 +3779,11 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
+    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
     anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -3832,7 +3845,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_PROFILE_SCOPE_NEXT(forward_current);
 
         // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-        auto current_out = model_.ForwardOnlineWithTrain(obs, MakeCurrentForwardContext());
+        const auto forward_info = MakeCurrentForwardInfo();
+        auto current_out = model_.ForwardOnlineWithTrain(obs, *current_forward_, forward_info);
         auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);
@@ -3900,10 +3914,11 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
+    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
     anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
     : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -3953,7 +3968,8 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         current_input.Set(anet::nn::kKey_Taus, current_taus);
 
         ANET_PROFILE_SCOPE_NEXT(forward_current);
-        auto current_out = model_.ForwardOnlineWithTrain(current_input, MakeCurrentForwardContext());
+        const auto forward_info = MakeCurrentForwardInfo();
+        auto current_out = model_.ForwardOnlineWithTrain(current_input, *current_forward_, forward_info);
         auto current_dist_all = current_out.At("q_dist");
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);

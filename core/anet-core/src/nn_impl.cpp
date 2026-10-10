@@ -29,19 +29,8 @@ namespace LOG = anet::log;
 
 
 
-static anet::ConfigData CopyForwardConfigData(const anet::ConfigData& data, const std::string& prefix)
-{
-    // 参照された項目配下だけをコピーし、項目名や値の意味は解釈しない。
-    anet::ConfigData result;
-    const auto key_prefix = prefix + ".";
-    for (const auto& [name, value] : data.Map()) {
-        if (name.starts_with(key_prefix)) result.Set(name.substr(key_prefix.size()), value);
-    }
-    return result;
-}
-
-NetworkForwardConfig::NetworkForwardConfig(const anet::ConfigData& data, const std::string& prefix)
-    : key(prefix), config_data_(CopyForwardConfigData(data, prefix)), is_default_(false)
+NetworkForwardConfig::NetworkForwardConfig(std::string selected_key, const anet::ConfigData& data)
+    : key(std::move(selected_key)), config_data_(data), is_default_(false)
 {
 }
 
@@ -134,39 +123,9 @@ NetworkForwardContext::NetworkForwardContext(Params params)
 {
 }
 
-NetworkForwardContext NetworkForwardContext::WithRowMapping(
-    std::optional<NetworkForwardRowMapping> row_mapping) const
-{
-    // 全項目を一括で複製し、Params の追加項目も呼び出し側の手写しなしで保持する。
-    auto params = params_;
-    params.row_mapping.reset();
-    if (row_mapping) params.row_mapping.emplace(std::move(*row_mapping));
-    return NetworkForwardContext(std::move(params));
-}
-
 NetworkForwardContext NetworkForwardContext::GetDefault()
 {
-    return NetworkForwardContext({ .config = NetworkForwardConfig::GetDefault() });
-}
-
-std::unique_ptr<NetworkForwardState> Network::MakeForwardState(anet::seed_t seed) const
-{
-    return std::unique_ptr<NetworkForwardState>(new NetworkForwardState(seed));
-}
-
-void Network::ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const
-{
-    ANET_PROFILE_FUNC();
-    // 共通経路は設定の意味を解釈せず、利用する全計算部品へ検証を委譲する。
-    for (const auto& branch : body_->GetBranches()) {
-        const auto network_struct = branch->GetNetworkStruct();
-        if (!network_struct) continue;
-        for (const auto& block : network_struct->GetBlocks()) {
-            const auto module = block->GetModule();
-            if (module) module->ValidateForwardConfig(config, clock_kind);
-        }
-    }
-    if (head_) head_->ValidateForwardConfig(config, clock_kind);
+    return NetworkForwardContext({});
 }
 
 void Network::ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const
@@ -1154,10 +1113,12 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
 {
     for (const auto& block : blocks_) {
         register_module(block->GetName(), block);
+        default_calls_.push_back(block->GetModule().get());
     }
 }
 
-torch::Tensor NetworkStruct::Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback)
+torch::Tensor NetworkStruct::Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback,
+    const std::vector<NetworkModuleExecution*>* calls)
 {
     ANET_PROFILE_FUNC();
 
@@ -1165,8 +1126,10 @@ torch::Tensor NetworkStruct::Forward(torch::Tensor input, const NetworkForwardCo
 
     torch::Tensor x = input;
     int index = 1;
-    for (const auto& block : blocks_) {
-        x = block->Forward(x, context);
+    const auto& execution = calls ? *calls : default_calls_;
+    for (size_t block_index = 0; block_index < blocks_.size(); ++block_index) {
+        const auto& block = blocks_[block_index];
+        x = execution[block_index]->Forward(x, context);
         if (callback && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
             callback(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
         }
@@ -1279,7 +1242,8 @@ NetworkBranch::NetworkBranch(
     register_module("network_struct", network_struct_);
 }
 
-void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback)
+void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback,
+    const std::vector<NetworkModuleExecution*>* calls)
 {
     torch::Tensor block_input;
 
@@ -1387,7 +1351,7 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwar
         };
     }
 
-    torch::Tensor output = network_struct_->Forward(block_input, context, branch_callback);
+    torch::Tensor output = network_struct_->Forward(block_input, context, branch_callback, calls);
     current_state.Set(name_, output);
 }
 
@@ -1414,7 +1378,8 @@ anet::TensorDict NetworkBody::Forward(
     const anet::TensorDict& input,
     const NetworkForwardContext& context,
     const anet::TraceCallback& callback,
-    NetworkBranchCapture* capture)
+    NetworkBranchCapture* capture,
+    const std::vector<std::vector<NetworkModuleExecution*>>* calls)
 {
     ANET_PROFILE_FUNC();
 
@@ -1422,8 +1387,8 @@ anet::TensorDict NetworkBody::Forward(
     auto state = preprocessor_.Format(input);
 
     // 入力順ソートされた順序でブランチ群を実行
-    for (const auto& branch : branches_) {
-        branch->Execute(state, context, callback);
+    for (size_t index = 0; index < branches_.size(); ++index) {
+        branches_[index]->Execute(state, context, callback, calls ? &(*calls)[index] : nullptr);
     }
 
     // 要求された場合だけ、実 forward が生成した branch 出力を参照として切り離す
@@ -1454,7 +1419,8 @@ anet::TensorDict NetworkBody::Forward(
     return out;
 }
 
-anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key)
+anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key,
+    const std::vector<std::vector<NetworkModuleExecution*>>* calls)
 {
     ANET_PROFILE_FUNC();
 
@@ -1462,9 +1428,10 @@ anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const N
 
     // Format 済み入力へ、閉包内 branch だけを既存のトポロジカル順で実行
     auto state = preprocessor_.Format(input);
-    for (const auto& branch : branches_) {
+    for (size_t index = 0; index < branches_.size(); ++index) {
+        const auto& branch = branches_[index];
         if (required_branches.contains(branch->GetName())) {
-            branch->Execute(state, context);
+            branch->Execute(state, context, {}, calls ? &(*calls)[index] : nullptr);
         }
     }
     return state;
@@ -1834,31 +1801,143 @@ Network::Network(
 
 anet::TensorDict Network::Forward(
     const anet::TensorDict& input,
-    const NetworkForwardContext& context,
     const anet::TraceCallback& callback,
     NetworkBranchCapture* capture)
 {
     ANET_PROFILE_FUNC();
 
+    return RunForward(input, NetworkForwardContext::GetDefault(), callback, capture, nullptr, head_.get());
+}
+
+anet::TensorDict Network::RunForward(
+    const anet::TensorDict& input, const NetworkForwardContext& context,
+    const anet::TraceCallback& callback, NetworkBranchCapture* capture,
+    const std::vector<std::vector<NetworkModuleExecution*>>* body_calls, NetworkHeadExecution* head_call)
+{
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
-    auto features = body_->Forward(input, context, callback, capture);
+    auto features = body_->Forward(input, context, callback, capture, body_calls);
 
     // Head部を実行
-    if (head_) {
+    if (head_call) {
         // Head部では特徴量が置かれた device の AMP を強制OFF（外側の設定を無効化）にする。
         anet::Autocast disable_amp(features.device(), false, torch::kFloat32);
 
         // Bodyから出てきたTensorはBF16になっているかもしれないのでキャストしてHeadに流し込む
-        return head_->Forward(features.To(torch::kFloat32), context);
+        return head_call->Forward(features.To(torch::kFloat32), context);
     } else {
 		// Headが無い場合はBodyの出力をそのまま返す
         return features;
     }
 }
 
-anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key)
+anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
 {
-    return body_->ForwardUpTo(input, context, branch_key);
+    return body_->ForwardUpTo(input, NetworkForwardContext::GetDefault(), branch_key);
+}
+
+NetworkForwardCallInfo NetworkForwardCallInfo::WithRowMapping(
+    std::optional<NetworkForwardRowMapping> row_mapping) const
+{
+    auto params = params_;
+    params.row_mapping.reset();
+    if (row_mapping) params.row_mapping.emplace(std::move(*row_mapping));
+    return NetworkForwardCallInfo(std::move(params));
+}
+
+struct NetworkForwardExecution::Impl {
+    Impl(std::shared_ptr<Network> owner, const NetworkForwardConfig& config,
+        NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state)
+        : network(std::move(owner)), state(std::move(state)), clock_kind(clock_kind)
+    {
+        ANET_PROFILE_SCOPE_FULL(prepare, "NetworkForwardExecution::Prepare");
+        // 各具象部品が解釈結果を所有し、共通層は具体型や設定の意味を扱わない。
+        for (const auto& branch : network->body_->GetBranches()) {
+            auto& calls = body_calls.emplace_back();
+            // 空のbranchにも対応する配列枠を残し、他の走査と同じnullスキップを行う。
+            if (!branch || !branch->GetNetworkStruct()) continue;
+            for (const auto& block : branch->GetNetworkStruct()->GetBlocks()) {
+                auto module = block->GetModule();
+                auto prepared = module->PrepareForward(config, clock_kind);
+                calls.push_back(prepared ? prepared.get() : module.get());
+                if (prepared) owned_modules.push_back(std::move(prepared));
+            }
+        }
+        if (network->head_) {
+            owned_head = network->head_->PrepareForward(config, clock_kind);
+            head_call = owned_head ? owned_head.get() : network->head_.get();
+        }
+    }
+    const std::shared_ptr<Network> network;
+    const std::shared_ptr<NetworkForwardState> state;
+    const NetworkForwardClock clock_kind;
+    std::vector<std::unique_ptr<NetworkModuleExecution>> owned_modules;
+    std::vector<std::vector<NetworkModuleExecution*>> body_calls;
+    std::unique_ptr<NetworkHeadExecution> owned_head;
+    NetworkHeadExecution* head_call = nullptr;
+};
+
+std::shared_ptr<NetworkForwardExecution> Network::PrepareForward(
+    const NetworkForwardConfig& config, NetworkForwardClock clock_kind, anet::seed_t seed)
+{
+    ANET_PROFILE_FUNC();
+    // 実行オブジェクトに Network の寿命と、この用途だけの箱を保証する。
+    auto owner = std::static_pointer_cast<Network>(shared_from_this());
+    auto state = std::shared_ptr<NetworkForwardState>(new NetworkForwardState(seed));
+    return std::shared_ptr<NetworkForwardExecution>(
+        new NetworkForwardExecution(std::move(owner), config, clock_kind, std::move(state)));
+}
+
+NetworkForwardExecution::NetworkForwardExecution(
+    std::shared_ptr<Network> network, const NetworkForwardConfig& config,
+    NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state)
+    : impl_(std::make_unique<Impl>(std::move(network), config, clock_kind, std::move(state)))
+{
+}
+
+NetworkForwardExecution::~NetworkForwardExecution() = default;
+
+const std::shared_ptr<Network>& NetworkForwardExecution::GetNetwork() const
+{
+    return impl_->network;
+}
+
+std::shared_ptr<NetworkForwardExecution> NetworkForwardExecution::BindNetwork(
+    std::shared_ptr<Network> network, const NetworkForwardConfig& config) const
+{
+    ANET_PROFILE_FUNC();
+    ANET_CHECK_MSG(network, "BindNetwork requires a valid Network.");
+    // 初期化で用途を別の重みへ結び付ける。箱と時計種別を共有し、既存の実行設定は変更しない。
+    return std::shared_ptr<NetworkForwardExecution>(
+        new NetworkForwardExecution(std::move(network), config, impl_->clock_kind, impl_->state));
+}
+
+NetworkForwardContext NetworkForwardExecution::MakeContext(const NetworkForwardCallInfo& info) const
+{
+    // 文脈の組み立てだけを行い、抽選・箱の更新・Tensor 計算は計算部品に残す。
+    return NetworkForwardContext({
+        .state = impl_->state.get(),
+        .clock_kind = impl_->clock_kind,
+        .clock = info.GetClock(),
+        .episode_start = info.GetEpisodeStart(),
+        .row_mapping = info.GetRowMapping(),
+    });
+}
+
+anet::TensorDict NetworkForwardExecution::Forward(
+    const anet::TensorDict& input, const NetworkForwardCallInfo& info,
+    const anet::TraceCallback& callback, NetworkBranchCapture* capture)
+{
+    ANET_PROFILE_FUNC();
+    const auto context = MakeContext(info);
+    return impl_->network->RunForward(input, context, callback, capture, &impl_->body_calls, impl_->head_call);
+}
+
+anet::TensorDict NetworkForwardExecution::ForwardUpTo(
+    const anet::TensorDict& input, const NetworkForwardCallInfo& info, const std::string& branch_key)
+{
+    ANET_PROFILE_FUNC();
+    const auto context = MakeContext(info);
+    return impl_->network->body_->ForwardUpTo(input, context, branch_key, &impl_->body_calls);
 }
 
 std::vector<NetworkNoisyParameterEntry> Network::GetNoisyParameterEntries() const

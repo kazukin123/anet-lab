@@ -4,6 +4,7 @@
 #include "anet/profile.hpp"
 #include "nn_heads.hpp"
 
+#include <array>
 #include <cmath>
 #include <string>
 #include <utility>
@@ -62,17 +63,24 @@ public:
         projection_->ValidateForwardReuse(source, requested);
     }
 
-    void ValidateForwardConfig(const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) const override
+
+    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        projection_->ValidateForwardConfig(config, clock);
+        return anet::nn::MakePreparedHeadExecution<LinearHead, &LinearHead::ForwardProjected>(
+            *this, std::array<anet::nn::NetworkModule*, 1>{projection_.get()}, config, clock);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
+    { return ForwardProjected(feature_dict, context, *projection_); }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0)
     {
         ANET_PROFILE_FUNC();
         const auto x = feature_dict.At(anet::nn::kKey_DefaultOutput);
         anet::TensorDict out;
-        out.Set("q", projection_->Forward(x, context));
+        out.Set("q", projection0.Forward(x, context));
         return out;
     }
 
@@ -156,21 +164,27 @@ public:
         adv_projection_->ValidateForwardReuse(source, requested);
     }
 
-    void ValidateForwardConfig(const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) const override
+
+    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        value_projection_->ValidateForwardConfig(config, clock);
-        adv_projection_->ValidateForwardConfig(config, clock);
+        return anet::nn::MakePreparedHeadExecution<DuelingHead, &DuelingHead::ForwardProjected>(
+            *this, std::array<anet::nn::NetworkModule*, 2>{value_projection_.get(), adv_projection_.get()}, config, clock);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
+    { return ForwardProjected(feature_dict, context, *value_projection_, *adv_projection_); }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0, anet::nn::NetworkModuleExecution& projection1)
     {
         ANET_PROFILE_FUNC();
 
         torch::Tensor value_x = feature_dict.At(value_key_);
         torch::Tensor adv_x = feature_dict.At(adv_key_);
 
-        auto v = value_projection_->Forward(value_x, context); // (B, 1)
-        auto a = adv_projection_->Forward(adv_x, context);     // (B, A)
+        auto v = projection0.Forward(value_x, context); // (B, 1)
+        auto a = projection1.Forward(adv_x, context);     // (B, A)
         auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
         auto q = v + (a - a_mean);
 
@@ -278,17 +292,24 @@ public:
         projection_->ValidateForwardReuse(source, requested);
     }
 
-    void ValidateForwardConfig(const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) const override
+
+    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        projection_->ValidateForwardConfig(config, clock);
+        return anet::nn::MakePreparedHeadExecution<QuantileHead, &QuantileHead::ForwardProjected>(
+            *this, std::array<anet::nn::NetworkModule*, 1>{projection_.get()}, config, clock);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
+    { return ForwardProjected(feature_dict, context, *projection_); }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0)
     {
         ANET_PROFILE_FUNC();
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
-        auto flat = projection_->Forward(x, context); // (B, A*N)
+        auto flat = projection0.Forward(x, context); // (B, A*N)
         auto batch_size = flat.size(0);
         auto q_dist = flat.view({ batch_size, action_dim_, num_quantiles_ });
         auto q = q_dist.mean(2);
@@ -393,13 +414,19 @@ public:
         adv_projection_->ValidateForwardReuse(source, requested);
     }
 
-    void ValidateForwardConfig(const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) const override
+
+    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        value_projection_->ValidateForwardConfig(config, clock);
-        adv_projection_->ValidateForwardConfig(config, clock);
+        return anet::nn::MakePreparedHeadExecution<QuantileDuelingHead, &QuantileDuelingHead::ForwardProjected>(
+            *this, std::array<anet::nn::NetworkModule*, 2>{value_projection_.get(), adv_projection_.get()}, config, clock);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
+    { return ForwardProjected(feature_dict, context, *value_projection_, *adv_projection_); }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0, anet::nn::NetworkModuleExecution& projection1)
     {
         ANET_PROFILE_FUNC();
         torch::Tensor value_x = feature_dict.At(value_key_);
@@ -408,10 +435,10 @@ public:
         auto batch_size = value_x.size(0);
 
         // V: (B, N) -> (B, 1, N)
-        auto v = value_projection_->Forward(value_x, context).view({ batch_size, 1, num_quantiles_ });
+        auto v = projection0.Forward(value_x, context).view({ batch_size, 1, num_quantiles_ });
 
         // A: (B, A*N) -> (B, A, N)
-        auto a = adv_projection_->Forward(adv_x, context).view({ adv_x.size(0), action_dim_, num_quantiles_ });
+        auto a = projection1.Forward(adv_x, context).view({ adv_x.size(0), action_dim_, num_quantiles_ });
 
         // Mean A over actions: (B, 1, N)
         auto a_mean = a.mean(1, true);
@@ -540,19 +567,26 @@ public:
         projection_->ValidateForwardReuse(source, requested);
     }
 
-    void ValidateForwardConfig(const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) const override
+
+    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        projection_->ValidateForwardConfig(config, clock);
+        return anet::nn::MakePreparedHeadExecution<IQNHead, &IQNHead::ForwardProjected>(
+            *this, std::array<anet::nn::NetworkModule*, 1>{projection_.get()}, config, clock);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
+    { return ForwardProjected(feature_dict, context, *projection_); }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0)
     {
         ANET_PROFILE_FUNC();
 
         // IQN Head の局所入力契約を確認してから、tau 次元を末尾へ移す。
         const auto x = GetFeature(feature_dict, anet::nn::kKey_DefaultOutput);
         ValidateInput(x);
-        const auto q_dist = projection_->Forward(x, context).permute({ 0, 2, 1 }).contiguous();
+        const auto q_dist = projection0.Forward(x, context).permute({ 0, 2, 1 }).contiguous();
 
         anet::TensorDict out;
         out.Set("q_dist", q_dist);
@@ -660,18 +694,24 @@ public:
         adv_projection_->ValidateForwardReuse(source, requested);
     }
 
-    void ValidateForwardConfig(const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) const override
+
+    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        value_projection_->ValidateForwardConfig(config, clock);
-        adv_projection_->ValidateForwardConfig(config, clock);
+        return anet::nn::MakePreparedHeadExecution<IQNDuelingHead, &IQNDuelingHead::ForwardProjected>(
+            *this, std::array<anet::nn::NetworkModule*, 2>{value_projection_.get(), adv_projection_.get()}, config, clock);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
+    { return ForwardProjected(feature_dict, context, *value_projection_, *adv_projection_); }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0, anet::nn::NetworkModuleExecution& projection1)
     {
         ANET_PROFILE_FUNC();
 
         // value/adv を同じ (B,K) 標本上で合成し、公開 shape へ並べ替える。
-        const auto distributions = ForwardDistributions(feature_dict, context);
+        const auto distributions = ForwardDistributions(feature_dict, context, projection0, projection1);
         anet::TensorDict out;
         out.Set("q_dist", distributions.q_dist);
         out.Set("q", distributions.q_dist.mean(2));
@@ -685,7 +725,7 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                const auto distributions = ForwardDistributions(features, anet::nn::NetworkForwardContext::GetDefault());
+                const auto distributions = ForwardDistributions(features, anet::nn::NetworkForwardContext::GetDefault(), *value_projection_, *adv_projection_);
                 anet::TensorDict out;
                 out.Set("q", distributions.q_dist.mean(2));
                 return out;
@@ -695,7 +735,7 @@ public:
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
                 anet::TensorDict out;
-                out.Set("q_dist", ForwardDistributions(features, anet::nn::NetworkForwardContext::GetDefault()).q_dist);
+                out.Set("q_dist", ForwardDistributions(features, anet::nn::NetworkForwardContext::GetDefault(), *value_projection_, *adv_projection_).q_dist);
                 return out;
                 };
         }
@@ -765,14 +805,15 @@ private:
         }
     }
 
-    Distributions ForwardDistributions(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context)
+    Distributions ForwardDistributions(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context,
+        anet::nn::NetworkModuleExecution& value_call, anet::nn::NetworkModuleExecution& adv_call)
     {
         const auto value_x = GetFeature(features, value_key_);
         const auto adv_x = GetFeature(features, adv_key_);
         ValidateInputs(value_x, adv_x);
 
-        const auto value_k = value_projection_->Forward(value_x, context);
-        const auto adv_k = adv_projection_->Forward(adv_x, context);
+        const auto value_k = value_call.Forward(value_x, context);
+        const auto adv_k = adv_call.Forward(adv_x, context);
         const auto q_k = value_k + (adv_k - adv_k.mean(2, true));
         return {
             .q_dist = q_k.permute({ 0, 2, 1 }).contiguous(),

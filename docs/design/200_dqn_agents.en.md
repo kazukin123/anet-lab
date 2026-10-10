@@ -324,9 +324,13 @@ The IQN-specific loss sums over current-side N, averages over target-side M, and
 
 ### 7.3 DefaultDQN Noisy Execution Settings
 
-`nn_forward.[key]` is an immutable opaque catalog. `actor.[key].nn_forward_key` and `learner.current.nn_forward_key` / `learner.target.nn_forward_key` resolve references, rejecting missing and unknown keys during configuration loading. Shared `act_sample` selects sample/call/batch and `mu_only` selects evaluation. Concrete types, interpretation, and validation remain inside each consuming Body Linear or Head; Actor/Learner only forward contexts.
+`nn_forward.[key]` is an immutable opaque catalog. `actor.[key].nn_forward_key` and `learner.current.nn_forward_key` / `learner.target.nn_forward_key` resolve references, rejecting missing and unknown keys during configuration loading. Shared `act_sample` selects sample/call/batch and `mu_only` selects evaluation. Concrete types, interpretation, and validation remain inside each consuming Body Linear or Head; Actor/Learner pass opaque settings during initialization and call information during execution without interpretation.
 
 TD, QR, IQN, and Dueling final projections use `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` by default. Actor owns one dedicated box and advances its action-selection clock. Learner owns current/target boxes and uses actual-update learn_step. Named seeds remain independent of existing acting, learning, and τ RNGs. Every target forward preserves its configuration, box, and clock. Munchausen `[2B]` input uses NetworkForwardRowMapping with `[0..B-1,0..B-1]` validated on CPU and transferred once so current/next rows of a transition share ε. Each computation component validates online_reuse sample/sample or μ-only/μ-only compatibility.
+
+Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecution objects. Actor has a dedicated execution; Learner has current/target executions. Target online/target and probe sample/mean connections each share State. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement.
+
+Learner forward_resources is a required initialization argument. Before preparation, an enabled Learner validates each current/target Resource against its selection key. Direct construction with an empty selection requires an explicit default Resource; disabled Learners preserve dormant settings.
 
 Ordinary and Fused AdamW use a separate σ group when enabled, defaulting to `learner.noisy_weight_decay=0`. OFF retains the previous single group and ordering. μ-only current evaluation creates no σ gradient and performs no σ update/decay. Defined sample σ gradients join the existing global norm/clip. Checkpoints and snapshots include σ parameters but exclude ε, clocks, and RNGs.
 

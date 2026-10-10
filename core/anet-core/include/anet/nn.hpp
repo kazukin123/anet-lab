@@ -84,7 +84,7 @@ namespace anet::nn {
     /// 解決済みの設定データを不変に渡す。固有の型・解釈・検証は利用する具象クラスが所有する。
     class NetworkForwardConfig {
     public:
-        NetworkForwardConfig(const anet::ConfigData& data, const std::string& prefix);
+        NetworkForwardConfig(std::string key, const anet::ConfigData& data);
         static const NetworkForwardConfig& GetDefault();
         const anet::ConfigData& GetConfigData() const { return config_data_; }
         bool IsDefault() const { return is_default_; }
@@ -133,12 +133,28 @@ namespace anet::nn {
         const torch::Tensor indices_;
     };
 
+    /// 呼び出し側が決める今回の情報。設定・箱・時計種別を含めない。
+    class NetworkForwardCallInfo {
+    public:
+        struct Params {
+            uint64_t clock = 0;
+            torch::Tensor episode_start;
+            std::optional<NetworkForwardRowMapping> row_mapping;
+        };
+        explicit NetworkForwardCallInfo(Params params) : params_(std::move(params)) {}
+        uint64_t GetClock() const { return params_.clock; }
+        const torch::Tensor& GetEpisodeStart() const { return params_.episode_start; }
+        const std::optional<NetworkForwardRowMapping>& GetRowMapping() const { return params_.row_mapping; }
+        NetworkForwardCallInfo WithRowMapping(std::optional<NetworkForwardRowMapping> row_mapping) const;
+    private:
+        const Params params_;
+    };
+
     /// 呼び出しごとの不変な実行情報。設定と状態の所有権は呼び出し側にある。
     class NetworkForwardContext {
     public:
         /// 生成時の入力。生成後に変更しても Context のメンバは変更されない。
         struct Params {
-            const NetworkForwardConfig& config;
             NetworkForwardState* state = nullptr;
             NetworkForwardClock clock_kind = NetworkForwardClock::kNone;
             uint64_t clock = 0;
@@ -148,10 +164,7 @@ namespace anet::nn {
 
         explicit NetworkForwardContext(Params params);
         static NetworkForwardContext GetDefault();
-        /// 全実行情報を保持し、行対応だけを差し替えた複製を返す。
-        NetworkForwardContext WithRowMapping(std::optional<NetworkForwardRowMapping> row_mapping) const;
 
-        const NetworkForwardConfig& GetConfig() const { return params_.config; }
         NetworkForwardState* GetState() const { return params_.state; }
         NetworkForwardClock GetClockKind() const { return params_.clock_kind; }
         uint64_t GetClock() const { return params_.clock; }
@@ -268,12 +281,21 @@ namespace anet::nn {
         std::vector<std::pair<std::string, std::string>> details;
     };
 
-    class NetworkHead : public torch::nn::Module, public anet::TensorDictFunctionProvider {
+    class NetworkHeadExecution {
+    public:
+        virtual anet::TensorDict Forward(const anet::TensorDict& features, const NetworkForwardContext& context) = 0;
+        virtual ~NetworkHeadExecution() = default;
+    };
+
+    class NetworkHead : public torch::nn::Module, public anet::TensorDictFunctionProvider, public NetworkHeadExecution {
     public:
         virtual anet::TensorDict Forward(const anet::TensorDict& feature_dict, const NetworkForwardContext& context) = 0;
+        virtual std::unique_ptr<NetworkHeadExecution> PrepareForward(const NetworkForwardConfig& config, NetworkForwardClock clock_kind)
+        {
+            return nullptr;
+        }
         virtual HeadGraphVizInfo GetGraphVizInfo() const { return {}; }
         virtual std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const { return {}; }
-        virtual void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const {}
         virtual void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const {}
         virtual ~NetworkHead() = default;
     };
@@ -307,6 +329,8 @@ namespace anet::nn {
         torch::Tensor invalid_count;
     };
 
+    class NetworkForwardExecution;
+
     class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider {
     public: // コンストラクタ
         Network(
@@ -319,13 +343,14 @@ namespace anet::nn {
     public: // Forward
         anet::TensorDict Forward(
             const anet::TensorDict& input,
-            const NetworkForwardContext& context = NetworkForwardContext::GetDefault(),
             const anet::TraceCallback& callback = {},
             NetworkBranchCapture* capture = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
-        std::unique_ptr<NetworkForwardState> MakeForwardState(anet::seed_t seed) const;
-        void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const;
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
         void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const;
+    public:
+        /// shared_ptrで所有されたNetworkを準備し、実行オブジェクトにその寿命を保持させる。
+        std::shared_ptr<NetworkForwardExecution> PrepareForward(
+            const NetworkForwardConfig& config, NetworkForwardClock clock_kind, anet::seed_t seed);
 	public: // 情報取得
         std::vector<std::string> GetBranchNames() const;
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
@@ -342,6 +367,12 @@ namespace anet::nn {
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
     private:
+        friend class NetworkForwardExecution;
+        anet::TensorDict RunForward(
+            const anet::TensorDict& input, const NetworkForwardContext& context,
+            const anet::TraceCallback& callback, NetworkBranchCapture* capture,
+            const std::vector<std::vector<class NetworkModuleExecution*>>* body_calls,
+            NetworkHeadExecution* head_call);
         // 実行用の実体
         std::shared_ptr<NetworkBody> body_;
         std::shared_ptr<NetworkHead> head_;
@@ -354,6 +385,29 @@ namespace anet::nn {
         bool has_spectral_norm_ = false;
     };
 
+
+    /// 特定 Network と用途に結び付いた実行 Resource。同期・保存の対象にはしない。
+    class NetworkForwardExecution {
+    public:
+        ~NetworkForwardExecution();
+        NetworkForwardExecution(const NetworkForwardExecution&) = delete;
+        NetworkForwardExecution& operator=(const NetworkForwardExecution&) = delete;
+        anet::TensorDict Forward(
+            const anet::TensorDict& input, const NetworkForwardCallInfo& info,
+            const anet::TraceCallback& callback = {}, NetworkBranchCapture* capture = nullptr);
+        anet::TensorDict ForwardUpTo(
+            const anet::TensorDict& input, const NetworkForwardCallInfo& info, const std::string& branch_key);
+        std::shared_ptr<NetworkForwardExecution> BindNetwork(
+            std::shared_ptr<Network> network, const NetworkForwardConfig& config) const;
+        const std::shared_ptr<Network>& GetNetwork() const;
+    private:
+        friend class Network;
+        NetworkForwardExecution(std::shared_ptr<Network> network, const NetworkForwardConfig& config,
+            NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state);
+        NetworkForwardContext MakeContext(const NetworkForwardCallInfo& info) const;
+        struct Impl;
+        const std::unique_ptr<Impl> impl_;
+    };
 
     // ===========================================================================
     // NetworkBuilder

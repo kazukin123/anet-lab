@@ -2,6 +2,9 @@
 
 2026-09-30 のグリルと、以下のレビューで合意した仕様と受け入れ条件を記録する。PRD 番号は 084 とし、本書の改訂は実装完了を意味しない。
 
+> 2026-10-10 改訂: 設定解釈を事前準備へ移し、用途別NN実行オブジェクトと不変なNN呼び出し情報で駆動する契約へ整理した。Learnerの参照とResourceの対応を初期化時に検証し、Module/Headの準備結果管理をNN内部共通部品で共用する（§4.2、§9、§13、ADR0051）。
+>
+
 > 2026-10-02 レビュー指摘 A.1: ノイズ込み重みの SN を[独立した暫定 PRD](999_noisynet_effective_weight_spectral_norm_10prd.md)へ切り出した。084 の SN 併用は μ 正規化に限定し、切り出した機能を完了条件から除く。
 >
 > 2026-10-03 レビュー指摘 A.2: Noisy・AMP を名前付きの NN 実行設定へ集約する。用途別の tag、標準値、休眠、計算部品による局所検証と `online_reuse` の条件を確定した。Learner の現在値にも μ-only を許し、設定・AMP 移行を実装の第 1 段階とする。
@@ -21,9 +24,9 @@
 
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
 
-`NetworkForwardContext::GetDefault()` は Module 固有の設定値を持たず、各計算部品の既定動作を明示的に要求する。Noisy の計算部品はこれを μ-only と解釈する。名前付き設定の項目不足とは区別し、暗黙の fallback は行わない。
+設定の解釈・利用時制約の検証は実行前の準備で完了する。通常 forward は設定を検索・再解釈せず、設定用ロックを使わない。時計の値・episode_start・行対応は別の値オブジェクトとして生成してから用途別実行オブジェクトへ渡す。対象 Network の寿命を保証し、同じ target 用途の online／target 接続は State と時計種別を共有する。clone 先は別に準備し、重み・RNG・保持・同期・保存の契約を維持する。
 
-`Network::Forward()` は context 引数に `NetworkForwardContext::GetDefault()` を既定値として持ち、省略時にも同じ伝達経路で各 Module の既定動作を使う。別 overload は追加しない。`ForwardUpTo()` と内部 Module / Head の context 引数は必須のままとする。
+既定の Network::Forward(input) と部分 forward は各部品の既定動作を使う。Noisy は μ-only。名前付き設定の項目不足と区別し、暗黙の fallback を行わない。TensorDictFunction の型は維持する。
 
 ## 1. 目的と問題
 
@@ -81,15 +84,15 @@ Atari を主軸に、学習可能なパラメータ摂動による探索を、�
 
 どの NN を使うか（`actor.[key].network`）という選択とは分ける。`target_policy`（Agent 直下にある target 行動選択の ActionPolicy 設定）は別の設定で、084 では置き場を動かさない。target 行動選択の forward も `learner.target.nn_forward_key` に従う。キーは不透明な参照名であり、コードは名前から train / eval 等の用途を推測しない。参照の必須性は Noisy の有無に依存させず、標準の選択は共通設定で与える（§11.1）。
 
-Network は解決済みの実行設定と、呼び出し側の実行状態・呼び出しごとの入力を、各計算部品へ明示的に渡す（§9）。各 `NetworkModule` は自分が必要な項目だけを利用し、固有の解釈・計算・必須項目・制約の検証を担う。Head の Noisy 演算部品にも同じ実行情報を届ける。Head・SN 等が持つ局所的な精度保護は §8.2 に従う。
+Network は構築後の事前準備で、選択済み実行設定を各計算部品へ不透明に渡す（§9）。各具象 NetworkModule/Head は自分が必要な項目だけを解釈・検証し、準備済み処理を返す。通常 forward では用途別実行オブジェクトが、実行状態・時計・呼び出しごとの入力をその処理へ渡す。Head・SN 等の局所的な精度保護は §8.2 に従う。
 
 `NetworkForwardConfig` は解決済み設定データの不変な受け渡しだけを担い、Module 実装に依存する具体的なフィールド・設定型・解釈を持たない。具体的な設定型・解釈・検証は、それを利用する `NetworkModule` の具象クラス内部に閉じる。Head の計算部品にも同じ原則を適用する。実行設定を利用する Module が増えても、その影響は追加・変更する利用側の Module に閉じ、既存の共通型、伝達経路、Actor・Learner、他の Module の変更を要求しない。共通の射影ヘルパーは演算の共用に限定し、具象設定を共通層へ移す手段にしない。検証時期と休眠の契約は §11.2 のままとする。
 
-実行情報は全経路で明示する。μ-only は正当な明示値である。構築時の dummy forward、状態スイープ（`TensorDictFunction`）、policy_churn・replay_fit・plasticity の probe チャネル、および NN 実行設定を持たない Agent（ImageCls・MuZero・Rainbow）の呼び出しは、コード固定の μ-only（実行状態なし）を渡す。NoisyNet の probe だけは診断用 RNG で sample を渡す（§10.2）。sample を要求できるのは `nn_forward` を参照する 3 用途だけであり、対象外 Agent の構造設定に Noisy な `Linear` があっても μ-only で動き、エラーにしない。μ-only の実行は満たされない要求ではないからである（§4.1）。
+名前付き設定を使う3用途は事前準備した経路で実行する。既定の Network::Forward(input) と部分 forward は内部で既定 Context を各計算部品へ伝達する。構築時の dummy forward、状態スイープ（TensorDictFunction）、policy_churn・replay_fit・plasticity の probe、および NN 実行設定を持たない Agent（ImageCls・MuZero・Rainbow）は既定経路を使い、Noisy は μ-only で動く。NoisyNet の probe は専用 RNG と準備済み sample 経路を使う（§10.2）。名前付き μ-only も正当な明示設定であり、対象外 Agent の構造設定に Noisy な Linear があっても既定動作をエラーにしない。
 
 Actor・Learner・共通実行処理が Noisy の型や有無を調べて、forward の挙動や設定の検証を切り替える構造にしない。Noisy の有無フラグ、機能一覧の登録、適用された実行条件を収集して汎用的に比較する仕組み、独立した実行基盤は追加しない。例外は Network が返す σ エントリの列挙（§8.3、§10）で、使ってよいのは optimizer の parameter 分類と診断だけである。既存 NN の構築・forward・検証の境界を拡張し、固有知識を計算部品へ閉じる。
 
-ε・RNG・保持状態は呼び出し側の実行単位ごとに分離する。同じキーや同じ NN の利用だけでは状態を共有しない。ε の共有は §7.1 の規則に従う。通常・部分・診断の forward にも実行情報を届け、module 内の暗黙の現在値や共有の可変設定で呼び出し間の状態を伝えない。
+ε・RNG・保持状態は呼び出し側の実行単位ごとに分離する。同じキーや同じ NN の利用だけでは状態を共有しない。ε の共有は §7.1 の規則に従う。通常・部分・診断の各経路は、準備済みまたは既定の実行情報を内部の計算部品へ届け、module 内の暗黙の現在値や共有の可変設定で呼び出し間の状態を伝えない。
 
 `train()` / `eval()`、勾配制御、IQN の τ、AMP は今回のカタログへの集約対象に含めない。これらは現在の呼び出し側・アルゴリズムの責任に残し、Noisy の sample / μ-only とは独立に扱う。
 
@@ -259,10 +262,10 @@ AMP を継承する Noisy Linear は、§5.1 の等価式（μ の Linear と σ
 
 | 対象 | 性質 | 所有と永続化 |
 |---|---|---|
-| NN 実行設定（`nn_forward.[name]`） | 不変の設定 | キーで参照する。解決後も Agent の設定内に保持するが、実行時に名前を引く機構は持たない（§13 のゲート）。設定の共用に ε・RNG・保持状態の共用を含めない |
+| NN 実行設定（`nn_forward.[name]`） | 不変の設定 | キーで参照する。Config DTO のカタログは生の設定値を保持する。選択済み搬送型と実行オブジェクトは Agent の Resource に分離し、実行時に名前を引く機構は持たない（§13 のゲート）。設定の共用に ε・RNG・保持状態の共用を含めない |
 | μ・σ | 学習 parameter | network が所有する。optimizer、hard / soft copy、snapshot、保存・読込の対象 |
 | 入力 Tensor（batch size・device）、`episode_start` の lane マスク、時計の今の値 | 呼び出しごとの入力 | 呼び出し側が forward のたびに作って渡す。保持しない |
-| 実行状態の箱 | 保持する状態 | 呼び出し側（Actor は 1 つ、Learner は現在値用と target 用に 1 つずつ）が所有する private Resource。`Network` が作り、呼び出し側は中身を読み書きしない。network の同期・保存対象に含めない |
+| 実行状態の箱 | 保持する状態 | 呼び出し側（Actor は 1 つ、Learner は現在値用と target 用に 1 つずつ）が所有する private Resource。実行準備で作り、用途別実行オブジェクトが保持する。呼び出し側は中身を読み書きしない。network の同期・保存対象に含めない |
 | 箱の中身: 層ごとの slot（保持中の入力側・出力側ベクトルと、抽選したときの時計の値 `drawn_at`）とノイズ用 RNG | 保持する状態 | 計算部品が forward 中に更新する State。slot は `batch` なら \([p]\)・\([q]\)、`sample` なら \([B,p]\)・\([B,q]\)。RNG は呼び出し側の seed から派生し、抽選のたびに進む |
 | 時計 | 保持する状態 | 呼び出し側の State。Learner は `learn_step`、Actor は自分の行動選択回数。境界ごとに 1 進める |
 | 用途別 RNG | 保持する状態 | acting、Learner の各役割、診断の状態抽出・ノイズ、IQN τ の用途を分離する |
@@ -421,6 +424,7 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 | 裁定 | 内容と理由 |
 |---|---|
+| 維持・共用 | 用途別NN実行オブジェクト、NN呼び出し情報、Module/HeadのExecution interfaceと準備結果管理。具体設定を具象部品へ閉じ、通常の部品は直接呼ぶ。裁定は[ADR0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)と[23impl](084_noisynet_23impl.md)を参照する |
 | 維持 | Actor の保持・共有、Learner の方式・共有、target、評価、μ 正規化 SN の併用、`force_fp32`、σ decay。目的がアルゴリズム探求であり、BTR 再現に必要な最小構成へ縮小しない |
 | 維持 | 既存 `episode_start` と Atari の episode 定義。独自の境界概念を増やさない |
 | 維持 | 反復エントロピーを初回の診断へ含め、初期値を 32 抽選とする。Q 差・行動不一致率と推論を共用する |

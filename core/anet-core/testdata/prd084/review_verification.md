@@ -241,3 +241,7 @@ optimizerの3テストは、実際のTDLearnerの公開UpdateFromBatchを使う�
 - core/anet-core/testdata/prd084/summarize_review_validation_test.py（新規）
 - core/anet-core/testdata/prd084/README.md
 - core/anet-core/testdata/prd084/review_verification.md
+
+## Forward 事前準備の最終検証（2026-10-10）
+
+[事前準備リファクタリングの検証記録](forward_refactor_verification.md) に、最終ビルド・テスト・OFF3構成の checksum、代表 ON 6 Run の値・中央値・成立条件と変更ファイルを保存した。過去の受け入れ・測定は当時の契約の記録として保持する。

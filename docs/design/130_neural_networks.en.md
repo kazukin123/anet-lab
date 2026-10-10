@@ -55,20 +55,19 @@ Discrete Grids retain `[S,1,H,W]` in the raw Network spec, but `NetworkBoundaryP
 
 - Network Body executes the configured branch DAG and produces a feature TensorDict.
 - Network Head converts features into Agent-specific outputs, such as DQN Q values, quantiles, or ImageCls class logits.
-- `Network` combines Body and Head and exposes one `Forward(TensorDict, NetworkForwardContext)`.
+- `Network` combines Body and Head and exposes one `Forward(TensorDict)`.
 
 This separation allows multiple Agent-specific Heads to use a shared Backbone.
 
-NetworkForwardContext is a class constructed explicitly from Params and stores all fields in private const Params. Changes to the clock, episode_start, or row mapping require a new Context. Configuration is borrowed by const reference; the state pointer cannot be rebound, while computation components may update the state box. The episode_start Tensor shares storage, which callers must keep unchanged during the call. WithRowMapping() copies all Params fields and replaces only the row mapping, preserving future fields without manual copying. Module-specific requirements, retention rules, and input shape/device checks remain at their existing consumption boundaries.
+NetworkForwardConfig is an immutable carrier of a key and copied selected ConfigData, without concrete types, parsing, or validation. Network::PrepareForward delegates preparation to constructed Modules and Head. Ordinary components remain direct call targets; only consuming concrete components return prepared calls with private enums and numbers. Child Modules propagate preparation while reusing bind, dependencies, trace, capture, and FP32 computation. New settings remain local to consuming components.
 
-`Network::Forward` uses `NetworkForwardContext::GetDefault()` when context is omitted. `ForwardUpTo` and internal forwards require context and pass the same execution information through Body, branches, blocks, Modules, and Head. `NetworkForwardConfig` copies the selected configuration subtree, stores it immutably, and exposes read-only data through `GetConfigData()`. Concrete configuration types, interpretation, and validation belong inside the consuming concrete `NetworkModule` class; the same rule applies to Head computation components. Adding a Module that consumes execution settings must not require changes to the shared configuration type, forwarding paths, callers, or existing Modules.
+NetworkForwardExecution owns Network lifetime, prepared calls, a purpose-specific State, and clock kind. Initialization-only BindNetwork creates another connection sharing State and clock kind. Calls refer to existing weights; clones require new preparation. Runtime setting switching and deduplication are deferred.
 
-Construction dummy forwards, returned `TensorDictFunction` operations, existing additional diagnostics, and Agents without execution-setting selections explicitly use `NetworkForwardContext::GetDefault()`. The `TensorDictFunction` signature remains unchanged. Shared types do not enumerate concrete setting fields, and shared forwarding code does not interpret Module-specific values.
+Immutable NetworkForwardCallInfo contains only clock value, episode_start, and row mapping. Callers construct it in a separate statement before Forward or ForwardUpTo. Private MakeContext adds State and clock kind without drawing noise, updating State, or computing Tensors. NetworkForwardContext stores private const Params without configuration. Tensor storage remains shared and unchanged during calls. CallInfo::WithRowMapping copies all Params before replacing row mapping.
 
-`GetDefault()` explicitly requests each component's default behavior without concrete setting fields. Noisy components interpret that request as mean-only; missing fields in named settings remain distinct.
+The internal NN helpers PreparedModuleChildren<N> and PreparedHeadExecution<Head, ForwardMethod, N> own prepared child calls and bind the Head computation at compile time. They do not interpret DQN, Noisy, or concrete settings. A Head with only default child calls runs its original body directly. PrepareForward requires a Network owned by shared_ptr.
 
-
-`Network::ValidateForwardConfig(config, clock_kind)` delegates required fields and clock constraints to each Module and Head after construction. `ValidateForwardReuse(source, requested)` likewise delegates compatibility rules without interpreting setting values or differences in shared code. `NetworkModuleRepository::ValidateForwardConfigDeclaration()` delegates declaration validation through registered factories to concrete Modules. Validation of written types, enum values, and ranges is separate from requirements and clocks for an active computation. Besides `kNone` for no clock, the two clock kinds are `kContinuingRows` for rows continuing across calls and `kTransientRows` for rows replaced on each call; count and episode retention require continuing rows.
+Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkForwardContext::GetDefault internally; Noisy defaults to μ-only. Dummy calls, extra diagnostics, other Agents, and unchanged TensorDictFunction operations use this route. Named settings are no longer passed in Context. Setting access uses no RTTI, dynamic_cast, or type tokens; internal State type management remains separate. Factories validate declarations, concrete preparation validates usage, and computations validate runtime shape/device and clocks. ValidateForwardReuse delegates reuse constraints.
 
 ### 2.4 Configuration Syntax
 
@@ -148,7 +147,8 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +Forward(input, context, callback)
+  +PrepareForward(config, clock_kind, seed)
+  +Forward(input, callback)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -161,7 +161,24 @@ class NetworkModule
 class NetworkModuleRepository
 class NetworkHead
 class NetworkHeadFactory
+class NetworkForwardExecution {
+  +Forward(input, info, callback)
+  +ForwardUpTo(input, info, branch_key)
+  +BindNetwork(network, config)
+}
+class NetworkForwardState
+class NetworkForwardCallInfo
+class NetworkModuleExecution
+class NetworkHeadExecution
 
+NetworkForwardExecution --> Network : lifetime
+NetworkForwardExecution o-- NetworkForwardState : purpose
+NetworkForwardExecution ..> NetworkForwardCallInfo
+NetworkForwardExecution --> NetworkModuleExecution : fixed calls
+NetworkForwardExecution --> NetworkHeadExecution : fixed call
+NetworkModule --|> NetworkModuleExecution
+NetworkHead --|> NetworkHeadExecution
+Network ..> NetworkForwardExecution : prepares
 NetworkBuilder ..> NetworkConfig
 NetworkBuilder ..> NetworkModuleRepository
 NetworkBuilder ..> NetworkHeadFactory
@@ -206,25 +223,44 @@ Dummy forward determines optional input/output dimensions from actual Tensor sha
 
 The `seed` is retained as Network construction information and reused by `Clone()`. Module-specific randomness is created lazily by purpose name from one `ModuleRandomSource` per Network. Spectral normalization uses only the `"spectral_norm"` stream and does not consume the global torch RNG used for parameter initialization. DefaultDQN, Rainbow, and ImageCls derive `"network"` from the Agent seed; MuZero derives `"network.rep"`, `"network.dyn"`, and `"network.pred"`.
 
-### 6.2 Forward
+### 6.2 Forward Preparation
+
+```mermaid
+sequenceDiagram
+    participant C as Actor/Learner initialization
+    participant N as Network
+    participant M as Concrete Module/Head
+    participant E as NetworkForwardExecution
+    C->>N: PrepareForward(config, clock_kind, seed)
+    N->>M: PrepareForward(config, clock_kind)
+    M-->>N: private prepared execution or direct body
+    N->>E: fix calls, own State and Network
+    E-->>C: execution
+```
+
+### 6.3 Forward
 
 ```mermaid
 sequenceDiagram
     participant C as Actor/Learner
+    participant E as NetworkForwardExecution
     participant N as Network
     participant P as BoundaryPreprocessor
     participant B as NetworkBody
-    participant H as NetworkHead
-
-    C->>N: Forward(input TensorDict, context)
+    participant H as prepared Head/body
+    C->>C: construct immutable CallInfo
+    C->>E: Forward(input TensorDict, info)
+    E->>E: MakeContext(info)
+    E->>N: RunForward(input, context, fixed calls)
     N->>P: Format(raw input)
-    P-->>N: 検証・整形済みTensorDict
-    N->>B: Forward(context)
-    B->>B: branchを依存順にExecute
+    P-->>N: formatted TensorDict
+    N->>B: Forward(context, fixed calls)
+    B->>B: execute branches in dependency order
     B-->>N: feature TensorDict
     N->>H: Forward(features, context)
-    H-->>N: Agent固有TensorDict
-    N-->>C: output
+    H-->>N: Agent TensorDict
+    N-->>E: output
+    E-->>C: output
 ```
 
 Passing a `TraceCallback` enables collection of intermediate module/branch Tensors for visualization and diagnostics.
@@ -278,7 +314,7 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 
 `Network::Forward` accepts optional `NetworkBranchCapture`, returning detached internal tensors after the ordinary branch loop but before `output_keys` conversion. Existing forwards without capture, TraceCallback, and Actor paths are unchanged.
 
-`ForwardUpTo(input, context, branch_key)` uses formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
+`NetworkForwardExecution::ForwardUpTo(input, info, branch_key)` uses formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. Default `Network::ForwardUpTo(input, branch_key)` supplies the default Context internally. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
 
 Plasticity statistics accept rank-2 `(N,D)` features and a requested metric set, compute only requested statistics from detached FP32 CPU features, and are cached by the caller. Steps without srank requests perform no SVD. Simultaneous requests for δ=0.01 / 0.05 / 0.20 share one `svdvals` and cumsum. Each result is optional, preventing uncomputed fields from being read as valid values. Unqualified srank means δ=0.01.
 
@@ -292,7 +328,7 @@ The concrete LinearProjectionModule composed by Body Linear and Heads privately 
 
 Caller-owned opaque `NetworkForwardState` stores ε per module instance and a dedicated RNG. Call redraws when the clock changes; count redraws every N Actor calls; episode redraws only Actor lanes marked by `episode_start`. Repeating a forward at the same clock preserves ε and does not apply an episode boundary twice. Episode boundaries do not reset count. Held shape/device mismatches and backward clocks fail fast. The immutable NetworkForwardRowMapping validates CPU int64 indices and the source-row count once, then transfers indices to the execution device once. Projections use SelectRows without exposing internal indices and check only row/device metadata at execution. GetIndices returns an independent inspection copy.
 
-Parsed settings are cached within the projection module by their content, independently of keys, addresses, and declaration order. Resolution occurs at initialization or the first direct forward. Concurrent shared-network users are synchronized, and locks are released before tensor operations. NetworkForwardConfig contains no concrete types, parsing, or holding semantics.
+Concrete prepared calls own parsed values. Normal forward has no setting lookup, parsing, or configuration locks, independently of source lifetime, mutation, and key reuse.
 
 Sample uses separate `Linear(x, μ)` and `Linear(x*ε_in, σ)*ε_out` operations without materializing `[B,out,in]` weights. ε broadcasts over non-batch dimensions, including IQN τ. μ-only and `GetDefault()` exclude σ from the graph and consume no ε/RNG. Existing FP32 spectral normalization applies only to μ. Independent `force_fp32` preserves ordinary AMP inheritance and Head FP32 boundaries.
 
@@ -330,3 +366,4 @@ Main unit tests are in [nn_test.cpp](../../core/anet-core/src/nn_test.cpp); DQN/
 - [Dropout Configuration ADR](../adr/0007-nn-dropout-config-semantics.md)
 - [WeightInit ADR](../adr/0008-weight-init-mode-string.md)
 - [IQN Bind-Product DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
+- [Prepared NN Forward ADR](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)

@@ -107,10 +107,12 @@ RainbowAgent::RainbowAgent(
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, LearnerForwardResources{});
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, LearnerForwardResources{});
         LOG::info() << "Initialized TDLearner";
     }
 }

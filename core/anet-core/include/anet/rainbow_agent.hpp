@@ -23,10 +23,6 @@ namespace anet::rl::dqn {
         bool use_qr = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
-            // 対象外Agentは各計算部品の既定動作を明示し、名前付き実行設定を選択しない。
-            learner.current.nn_forward = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault());
-            learner.target.nn_forward = learner.current.nn_forward;
-
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
             ANET_READ_CONFIG(config_data, head_init.constant_val);

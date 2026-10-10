@@ -143,7 +143,6 @@ namespace anet::rl {
             bool clone_model = false;
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
             std::string nn_forward_key;
-            std::shared_ptr<const anet::nn::NetworkForwardConfig> nn_forward;
         };
 
         struct StuckerConfig {
@@ -163,7 +162,6 @@ namespace anet::rl {
         struct LearnerConfig {
             struct ForwardSelection {
                 std::string nn_forward_key;
-                std::shared_ptr<const anet::nn::NetworkForwardConfig> nn_forward;
             };
             ForwardSelection current;
             ForwardSelection target;

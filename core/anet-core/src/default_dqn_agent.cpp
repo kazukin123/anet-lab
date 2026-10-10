@@ -122,8 +122,13 @@ DefaultDQNAgent::DefaultDQNAgent(
         }
     }
 
+    // DTO にある設定データから、用途が参照する不変 Resource を構築する。
+    for (const auto& [key, data] : config_.nn_forward) {
+        forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
+            "DefaultDQNAgent.nn_forward.[" + key + "]", data));
+    }
     // Head 独自の認識値も、選択された factory に宣言検証を委譲する。
-    for (const auto& [key, forward_config] : config_.nn_forward) {
+    for (const auto& [key, forward_config] : forward_configs_) {
         head_factory->ValidateForwardConfigDeclaration(*forward_config);
     }
 
@@ -196,20 +201,29 @@ DefaultDQNAgent::DefaultDQNAgent(
     if (config_.quantile_mode == "iqn") {
         this->learner_ = std::make_unique<IQNLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, config_.stucker, learner_seed,
+            target_policy_,
+            LearnerForwardResources{
+                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
             << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")" << munchausen_info.str();
     } else if (config_.quantile_mode == "qr") {
         this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, config_.stucker, learner_seed,
+            target_policy_,
+            LearnerForwardResources{
+                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")" << munchausen_info.str();
     } else {
         this->learner_ = std::make_unique<TDLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, config_.stucker, learner_seed,
+            target_policy_,
+            LearnerForwardResources{
+                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized TDLearner" << munchausen_info.str();
     }
@@ -438,16 +452,16 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
         noisy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("noisy_probe.sample"));
         anet::ConfigData data;
         const std::string prefix = "nn_forward.[noisy_probe]";
-        for (const auto& [key, value] : config_.learner.current.nn_forward->GetConfigData().Map()) {
-            data.Set(prefix + "." + key, value);
+        for (const auto& [key, value] : forward_configs_.at(config_.learner.current.nn_forward_key)->GetConfigData().Map()) {
+            data.Set(key, value);
         }
-        data.Set(prefix + ".noisy.mode", "sample");
-        data.Set(prefix + ".noisy.hold", "call");
-        data.Set(prefix + ".noisy.share", "batch");
-        noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(data, prefix);
+        data.Set("noisy.mode", "sample");
+        data.Set("noisy.hold", "call");
+        data.Set("noisy.share", "batch");
+        noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
         // 比較では Noisy の mode だけを変え、他の計算部品が読む設定を両側へ同じように渡す。
-        data.Set(prefix + ".noisy.mode", "mu_only");
-        noisy_probe_mean_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(data, prefix);
+        data.Set("noisy.mode", "mu_only");
+        noisy_probe_mean_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
     }
     learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr,
         needs_noisy_probe ? noisy_probe_random_.get() : nullptr,
@@ -500,7 +514,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
     const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
-    if (!cfg.nn_forward) {
+    if (!forward_configs_.contains(cfg.nn_forward_key)) {
         ANET_SYSTEM_ERROR("Missing resolved actor.[" << request.actor_key << "].nn_forward_key; expected a declared forward configuration.");
     }
     ValidateActorDevice(cfg.clone_model, request.device);
@@ -520,7 +534,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
         .tbo_epsilon = config_.learner.tbo_epsilon};
     return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
-        mutex_, network, source, *cfg.nn_forward, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
+        mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()

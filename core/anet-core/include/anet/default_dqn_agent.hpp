@@ -75,7 +75,7 @@ namespace anet::rl::dqn {
 
     struct DefaultDQNAgentConfig : public anet::Config {
 
-        std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> nn_forward;
+        std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
         StuckerConfig stucker;
         std::map<std::string, DQNActorConfig> actor;
@@ -139,9 +139,9 @@ namespace anet::rl::dqn {
             // 宣言の内容は不変な箱へコピーし、認識する計算部品の factory が検証する。
             for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("nn_forward"))) {
                 const auto prefix = MakeDefaultConfigKey("nn_forward.[" + key + "]");
-                auto entry = std::make_shared<const anet::nn::NetworkForwardConfig>(config_data, prefix);
-                anet::nn::ValidateNetworkForwardConfigDeclaration(*entry);
-                nn_forward.emplace(key, std::move(entry));
+                const anet::nn::NetworkForwardConfig entry(prefix, sub);
+                anet::nn::ValidateNetworkForwardConfigDeclaration(entry);
+                nn_forward.emplace(key, sub);
                 // 記録も opaque な値のまま保存し、型付きの解釈はここで追加しない。
                 for (const auto& [leaf, value] : sub.Map()) {
                     const auto name = "nn_forward.[" + key + "]." + leaf;
@@ -157,7 +157,7 @@ namespace anet::rl::dqn {
                 ReadActionPolicyConfig(config_data, prefix + ".policy", entry.policy);
                 ReadConfig(config_data, prefix + ".network", entry.network);
                 ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
-                entry.nn_forward = ResolveForwardConfig(config_data, prefix + ".nn_forward_key", entry.nn_forward_key);
+                ValidateForwardReference(config_data, prefix + ".nn_forward_key", entry.nn_forward_key);
                 if (entry.network != "online" && entry.network != "target") {
                     ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(prefix + ".network")
                         << "='" << entry.network << "'; expected online or target.");
@@ -217,9 +217,9 @@ namespace anet::rl::dqn {
             target_policy.use_spatial_exploration = false;
 
             // 学習停止中も宣言された参照を解決する。保持や時計の適否は実際の利用時に委譲する。
-            learner.current.nn_forward = ResolveForwardConfig(
+            ValidateForwardReference(
                 config_data, "learner.current.nn_forward_key", learner.current.nn_forward_key);
-            learner.target.nn_forward = ResolveForwardConfig(
+            ValidateForwardReference(
                 config_data, "learner.target.nn_forward_key", learner.target.nn_forward_key);
 
             ANET_READ_CONFIG(config_data, learner.enabled);
@@ -418,7 +418,7 @@ namespace anet::rl::dqn {
             }
         }
     private:
-        std::shared_ptr<const anet::nn::NetworkForwardConfig> ResolveForwardConfig(
+        void ValidateForwardReference(
             const ConfigData& data, const std::string& reference, std::string& key)
         {
             // 参照の存在と接続先だけを確認し、Module 固有の実行設定には触れない。
@@ -431,7 +431,6 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(reference) << "='" << key
                     << "'; expected a declared nn_forward key.");
             }
-            return it->second;
         }
 
         void ReadActionPolicyConfig(const ConfigData& data, const std::string& prefix, ActionPolicyConfig& policy)
@@ -494,6 +493,7 @@ namespace anet::rl::dqn {
         void LoadNetwork(const std::string& filename);
     private:
         DefaultDQNAgentConfig config_;
+        std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> forward_configs_; ///< Agent 所有の実行設定 Resource
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;

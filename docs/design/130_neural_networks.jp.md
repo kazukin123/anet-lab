@@ -54,20 +54,19 @@ Network構成では、stack軸を暗黙に復元せず、目的に応じて次�
 
 - Network Bodyは設定で定義されたbranch DAGを実行し、特徴量TensorDictを生成する。
 - Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logitsなどが該当する。
-- `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict, NetworkForwardContext)`を公開する。
+- `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict)`を公開する。
 
 この分離により、共通Backboneを複数のAgent固有Headから利用できる。
 
-NetworkForwardContext は Params を受け取る明示的コンストラクタで生成する class とし、private な const Params に全項目を保持する。時計・episode_start・行対応の変更は新しい Context の生成で表す。設定は const 参照、状態は再設定不能なポインタとして借用し、箱の内部状態だけは計算部品が更新できる。episode_start の Tensor ストレージは共有するため、呼び出し中は入力側も変更しない。WithRowMapping() は Params 全体をコピーして行対応だけを差し替えた Context を返し、項目追加時のコピー漏れを防ぐ。Module 固有の必要項目・保持条件と入力の shape/device は従来の利用境界で検証する。
+NetworkForwardConfig はキーと選択済み ConfigData をコピーして保持する不変の搬送型で、具象設定型・解釈・検証を持たない。Network::PrepareForward(config, clock_kind, seed) は構築後の Module／Head に準備を委譲する。通常の部品は本体を直接呼び、設定を使う具象部品だけが私有の解釈済み enum・数値を持つ処理を返す。子 Module へも準備を伝達し、bind・依存閉包・trace・capture・FP32 保護は既存の計算本体を共用する。新しい設定の追加は利用する具象部品だけに閉じる。
 
-`Network::Forward` は context 省略時に `NetworkForwardContext::GetDefault()` を使う。`ForwardUpTo` と内部 forward の context は必須とし、Body・branch・block・Module・Head まで同じ実行情報を渡す。`NetworkForwardConfig` は指定された設定項目配下のデータをコピーして不変に保持し、`GetConfigData()` で読み取り専用に公開する。具体的な設定型・解釈・検証は利用する `NetworkModule` の具象クラス内部に閉じ、Head の計算部品にも同じ原則を適用する。新たな Module が実行設定を利用しても、共通設定型、伝達経路、呼び出し側、既存 Module の変更を要求しない。
+PrepareForward は shared_ptr で所有された Network に対して呼ぶ。
 
-構築時の dummy forward、`TensorDictFunction` の返す処理、既存の追加診断、NN 実行設定を持たない Agent は `NetworkForwardContext::GetDefault()` を明示する。`TensorDictFunction` 自体の関数型は変更しない。設定の具体的な項目を共通型へ列挙したり、共通処理で Module 固有の値を解釈したりしない。
+NetworkForwardExecution は対象 Network の寿命・準備済み処理・用途専用の NetworkForwardState・時計種別を保持する。初期化時の BindNetwork(network, config) は同じ State と時計種別を共有する別接続を作る。重みは既存 Module のものを参照し、clone 先は新しく準備する。実行中の設定切替と準備結果の重複排除は行わない。
 
-`GetDefault()` は具体的な設定値を持たず、各計算部品の既定動作を明示的に要求する。Noisy の計算部品は μ-only と解釈する。名前付き設定の項目不足とは区別する。
+NetworkForwardCallInfo は時計の値・episode_start・行対応だけを持つ不変の値で、別の文で生成してから Forward(input, info)／ForwardUpTo(input, info, branch_key) に渡す。private MakeContext(info) は State と時計種別を加えるだけで、抽選・State 更新・Tensor 演算を行わない。NetworkForwardContext は private な const Params に設定を含まない。Tensor ストレージは共有するため呼び出し中は変更しない。CallInfo::WithRowMapping() は全 Params をコピーして行対応だけを置換する。
 
-
-`Network::ValidateForwardConfig(config, clock_kind)` は構成確定後の必要項目・時計の検証を各 Module と Head へ委譲する。`ValidateForwardReuse(source, requested)` も両立条件を各計算部品へ委譲し、共通層で設定値や差の意味を解釈しない。設定宣言の検証は `NetworkModuleRepository::ValidateForwardConfigDeclaration()` から登録済み factory を経由して具象 Module に委譲する。宣言だけで判定できる記述済みの型・列挙・値域と、実際に使う構成での必要項目・時計の検証を分ける。 時計なしの `kNone` に加えて、時計の種類は同じ行が次の呼び出しへ続く `kContinuingRows` と呼び出しごとに行が変わる `kTransientRows` の2種類とし、回数・episode の保持は前者だけで受け付ける。
+既定の Network::Forward(input)／ForwardUpTo(input, branch_key) は内部へ NetworkForwardContext::GetDefault() を伝え、Noisy は μ-only で動く。dummy 実行、追加診断、対象外 Agent、既存の TensorDictFunction も既定経路を使う。名前付き設定を Context で渡す経路は削除する。設定取得に RTTI・dynamic_cast・型トークンを使わず、State 内部の既存の型管理は維持する。宣言検証は factory、利用時制約は具象の準備処理、実データの shape/device・時計値は演算時に検証する。ValidateForwardReuse は各部品へ再利用検証を委譲する。
 
 ### 2.4 設定記法
 
@@ -147,7 +146,8 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +Forward(input, context, callback)
+  +PrepareForward(config, clock_kind, seed)
+  +Forward(input, callback)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -160,7 +160,24 @@ class NetworkModule
 class NetworkModuleRepository
 class NetworkHead
 class NetworkHeadFactory
+class NetworkForwardExecution {
+  +Forward(input, info, callback)
+  +ForwardUpTo(input, info, branch_key)
+  +BindNetwork(network, config)
+}
+class NetworkForwardState
+class NetworkForwardCallInfo
+class NetworkModuleExecution
+class NetworkHeadExecution
 
+NetworkForwardExecution --> Network : lifetime
+NetworkForwardExecution o-- NetworkForwardState : purpose
+NetworkForwardExecution ..> NetworkForwardCallInfo
+NetworkForwardExecution --> NetworkModuleExecution : fixed calls
+NetworkForwardExecution --> NetworkHeadExecution : fixed call
+NetworkModule --|> NetworkModuleExecution
+NetworkHead --|> NetworkHeadExecution
+Network ..> NetworkForwardExecution : prepares
 NetworkBuilder ..> NetworkConfig
 NetworkBuilder ..> NetworkModuleRepository
 NetworkBuilder ..> NetworkHeadFactory
@@ -205,25 +222,44 @@ dummy forwardにより、設定で省略可能な入出力次元を実Tensor sha
 
 `seed`はNetworkの構築情報として保持され、`Clone()`時にも再利用される。module固有乱数は1 Network 1個の`ModuleRandomSource`からpurpose名ごとに遅延生成される。spectral normalizationは`"spectral_norm"` streamだけを使うため、parameter初期化が使うglobal torch RNGを消費しない。DefaultDQN / Rainbow / ImageClsはAgent seedから`"network"`、MuZeroは`"network.rep"` / `"network.dyn"` / `"network.pred"`を導出する。
 
-### 6.2 Forward
+### 6.2 Forward の事前準備
+
+```mermaid
+sequenceDiagram
+    participant C as Actor/Learner initialization
+    participant N as Network
+    participant M as Concrete Module/Head
+    participant E as NetworkForwardExecution
+    C->>N: PrepareForward(config, clock_kind, seed)
+    N->>M: PrepareForward(config, clock_kind)
+    M-->>N: private prepared execution or direct body
+    N->>E: fix calls, own State and Network
+    E-->>C: execution
+```
+
+### 6.3 Forward
 
 ```mermaid
 sequenceDiagram
     participant C as Actor/Learner
+    participant E as NetworkForwardExecution
     participant N as Network
     participant P as BoundaryPreprocessor
     participant B as NetworkBody
-    participant H as NetworkHead
-
-    C->>N: Forward(input TensorDict, context)
+    participant H as prepared Head/body
+    C->>C: construct immutable CallInfo
+    C->>E: Forward(input TensorDict, info)
+    E->>E: MakeContext(info)
+    E->>N: RunForward(input, context, fixed calls)
     N->>P: Format(raw input)
-    P-->>N: 検証・整形済みTensorDict
-    N->>B: Forward(context)
-    B->>B: branchを依存順にExecute
+    P-->>N: formatted TensorDict
+    N->>B: Forward(context, fixed calls)
+    B->>B: execute branches in dependency order
     B-->>N: feature TensorDict
     N->>H: Forward(features, context)
-    H-->>N: Agent固有TensorDict
-    N-->>C: output
+    H-->>N: Agent TensorDict
+    N-->>E: output
+    E-->>C: output
 ```
 
 `TraceCallback`を渡した場合は、module/branchの中間Tensorを可視化・診断用に収集できる。
@@ -277,7 +313,7 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 
 `Network::Forward`はoptionalな`NetworkBranchCapture`を受け取り、通常のbranch loop後・`output_keys`変換前の内部tensorをdetachして返す。captureを渡さない既存forward、TraceCallback、Actor経路は不変である。
 
-`ForwardUpTo(input, context, branch_key)`はFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
+`NetworkForwardExecution::ForwardUpTo(input, info, branch_key)`はFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。既定の `Network::ForwardUpTo(input, branch_key)` は内部で既定Contextを伝達する。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
 
 可塑性統計はrank-2 `(N,D)` の特徴と指標要求集合を受け、detachしたFP32 CPU特徴から要求された統計だけを計算して呼出側でcacheする。srank系を要求しないstepではSVDを実行せず、δ=0.01 / 0.05 / 0.20を同時要求した場合も1回の`svdvals`とcumsumを共有する。結果の各値はoptionalであり、未計算フィールドを成立値として読めない。無印のsrankはδ=0.01を表す。
 
@@ -291,7 +327,7 @@ Body Linear と Head が合成する具象の LinearProjectionModule が、そ�
 
 呼び出し側の `NetworkForwardState` は module 実体毎の ε と専用 RNG を持つ不透明な箱。call は時計が変わると再抽選、count は Actor の N 回毎、episode は Actor の `episode_start` が立った lane のみ再抽選する。同じ時計の再 forward は同じ ε を使い、同じ episode 境界を二度反映しない。count は episode 境界でリセットしない。保持中の shape/device 不一致と時計の逆行は fail-fast する。row_mapping は不変な NetworkForwardRowMapping とし、CPU の int64 index と元行数を構築時に検証して使用 device へ一度だけ転送する。射影は内部 index を公開しない SelectRows を使い、実行時は行数・device だけを確認する。GetIndices は検査用の独立した複製を返す。
 
-解釈済み設定は射影 Module 内部で設定内容によりキャッシュする。設定のキー名・アドレス・定義順に依存せず、初期化時または直接 forward の初回に解釈する。共有 Network の同時利用を同期で保護し、Tensor 演算前にロックを解放する。具体型・読み取り・保持の意味は共通の NetworkForwardConfig に置かない。
+解釈済み値は具象の準備済み処理が所有する。NN内部の PreparedModuleChildren<N> は子の準備結果と本体への固定した呼び先を管理し、PreparedHeadExecution<Head, ForwardMethod, N> は指定した計算関数をコンパイル時に結び付ける。共通部品はDQN/Noisy/具体設定を解釈せず、全子が既定動作ならHead本体を直接呼ぶ。通常 forward に設定検索・解釈・設定用ロックはなく、設定元の寿命・変更・同名キーから独立する。
 
 sample は `Linear(x, μ)` と factorized ε を使う `Linear(x*ε_in, σ)*ε_out` を分けて計算し、batch 毎の重み `[B,out,in]` を実体化しない。ε は batch 以外の軸へ broadcast され、IQN の全 τ に同じ ε が届く。μ-only と `GetDefault()` は σ を計算 graph に入れず、ε/RNG を消費しない。SN は μ だけを既存の FP32 境界で正規化する。`force_fp32` は Noisy の ON/OFF と独立であり、通常の AMP 継承と Head の FP32 境界を維持する。
 
@@ -329,3 +365,4 @@ Networkを変更する場合は次を確認する。
 - [dropout設定ADR](../adr/0007-nn-dropout-config-semantics.md)
 - [WeightInit ADR](../adr/0008-weight-init-mode-string.md)
 - [IQN bind積DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
+- [NN Forward 事前準備 ADR](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)

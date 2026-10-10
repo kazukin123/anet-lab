@@ -8,13 +8,14 @@ from pathlib import Path
 
 EXCLUDED_PREFIXES = ('90_perf/', '91_resource/', '92_resource/', '47_agent_noisy/')
 
-def normalize(run_text, output_text):
+def normalize(run_text, output_text, include_noisy=False):
     run = Path(run_text)
     source = run / 'metrics.jsonl'
     opener = open
     if not source.is_file():
         source = run / 'metrics.jsonl.gz'
         opener = gzip.open
+    prefixes = EXCLUDED_PREFIXES[:-1] if include_noisy else EXCLUDED_PREFIXES
     records = []
     excluded = Counter()
     with opener(source, 'rt', encoding='utf-8-sig') as stream:
@@ -23,7 +24,7 @@ def normalize(run_text, output_text):
             if obj.get('type') != 'scalar':
                 continue
             tag = obj['tag']
-            if tag.startswith(EXCLUDED_PREFIXES):
+            if tag.startswith(prefixes):
                 excluded[tag] += 1
                 continue
             value = obj['value']
@@ -60,10 +61,12 @@ def compare(old_text, new_text):
     raise SystemExit(0 if old == new else 1)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4:
-        raise SystemExit('Usage: compare_metrics.py normalize RUN OUTPUT | compare OLD NEW')
+    if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[1] != 'normalize'):
+        raise SystemExit('Usage: compare_metrics.py normalize RUN OUTPUT [--include-noisy] | compare OLD NEW')
     if sys.argv[1] == 'normalize':
-        normalize(*sys.argv[2:])
+        if len(sys.argv) == 5 and sys.argv[4] != '--include-noisy':
+            raise SystemExit('Expected --include-noisy')
+        normalize(*sys.argv[2:4], include_noisy=len(sys.argv) == 5)
     elif sys.argv[1] == 'compare':
         compare(*sys.argv[2:])
     else:

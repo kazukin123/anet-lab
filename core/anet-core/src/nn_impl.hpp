@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <mutex>
@@ -184,19 +186,50 @@ namespace anet::nn {
         std::map<std::string, std::shared_ptr<anet::RandomGenerator>> generators_;
     };
 
+    class NetworkModuleExecution {
+    public:
+        virtual torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) = 0;
+        virtual ~NetworkModuleExecution() = default;
+    };
+
     /// anet管理下のニューラルネットモジュール基底クラス
-    class NetworkModule : public torch::nn::Module {
+    class NetworkModule : public torch::nn::Module, public NetworkModuleExecution {
     public:
         /// Forward実行.
         /// torch::nn::Module::forwardはテンプレートメソッドのため、多態性を持たせるために純粋仮想関数として再定義
         virtual torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) = 0;
+        virtual std::unique_ptr<NetworkModuleExecution> PrepareForward(
+            const NetworkForwardConfig& config, NetworkForwardClock clock_kind)
+        {
+            return nullptr;
+        }
         virtual bool IsConv2dVisualizable() const { return false; }
         virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
-        virtual void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock_kind) const {}
         virtual void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const {}
         virtual std::vector<SpectralNormEntry> GetSpectralNormEntries() const { return {}; }
         virtual std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const { return {}; }
         virtual ~NetworkModule() = default;
+    };
+
+    // 子 Module の準備結果と固定した呼び先だけを持ち、通常の子は本体を直接呼ぶ。
+    template <size_t N>
+    class PreparedModuleChildren {
+    public:
+        PreparedModuleChildren(const std::array<NetworkModule*, N>& modules,
+            const NetworkForwardConfig& config, NetworkForwardClock clock)
+        {
+            for (size_t i = 0; i < N; ++i) {
+                if (!modules[i]) continue;
+                owned_[i] = modules[i]->PrepareForward(config, clock);
+                calls_[i] = owned_[i] ? owned_[i].get() : modules[i];
+            }
+        }
+        bool HasPrepared() const
+        { return std::ranges::any_of(owned_, [](const auto& value) { return bool(value); }); }
+        NetworkModuleExecution* Get(size_t index) const { return calls_[index]; }
+    private:
+        std::array<std::unique_ptr<NetworkModuleExecution>, N> owned_;
+        std::array<NetworkModuleExecution*, N> calls_{};
     };
 
     /// Body と Head が合成して使う具象の射影。設定型・状態型は Impl の内部に閉じる。
@@ -205,11 +238,18 @@ namespace anet::nn {
         explicit LinearProjectionModule(const anet::ConfigData& data);
         ~LinearProjectionModule() override;
         void Bind(torch::nn::Linear layer);
+        class Execution : public NetworkModuleExecution {
+        public:
+            virtual torch::Tensor ForwardWithMean(
+                const torch::Tensor& input, const torch::Tensor& mean, const NetworkForwardContext& context) = 0;
+        };
+        std::unique_ptr<Execution> PrepareProjection(const NetworkForwardConfig& config, NetworkForwardClock clock);
+        std::unique_ptr<NetworkModuleExecution> PrepareForward(
+            const NetworkForwardConfig& config, NetworkForwardClock clock) override;
         static void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config);
         torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) override;
         torch::Tensor ForwardWithMean(const torch::Tensor& input, const torch::Tensor& mean,
             const NetworkForwardContext& context);
-        void ValidateForwardConfig(const NetworkForwardConfig& config, NetworkForwardClock clock) const override;
         void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const override;
         std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override;
         anet::ConfigData GetCurrentConfigData() const override;
@@ -239,10 +279,12 @@ namespace anet::nn {
     public:
         explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks = {});
 
-        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback = {});
+        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback = {},
+            const std::vector<NetworkModuleExecution*>* calls = nullptr);
         const std::vector<std::shared_ptr<NetworkBlock>>& GetBlocks() const { return blocks_; }
     private:
         std::vector<std::shared_ptr<NetworkBlock>> blocks_;
+        std::vector<NetworkModuleExecution*> default_calls_;
     };
 
     /// DAGを構成する一本のノード.
@@ -256,7 +298,8 @@ namespace anet::nn {
             std::shared_ptr<NetworkStruct> network_struct);
 
         /// 現在のTensorDictから必要な入力(bind)を拾って結合し、処理を実行して結果をDictに書き戻す
-        void Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback = {});
+        void Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback = {},
+            const std::vector<NetworkModuleExecution*>* calls = nullptr);
 
         const std::string& GetName() const { return name_; }
         const std::vector<std::vector<std::string>>& GetBindTerms() const { return bind_terms_; }
@@ -315,8 +358,10 @@ namespace anet::nn {
             const anet::TensorDict& input,
             const NetworkForwardContext& context,
             const anet::TraceCallback& callback = {},
-            NetworkBranchCapture* capture = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
+            NetworkBranchCapture* capture = nullptr,
+            const std::vector<std::vector<NetworkModuleExecution*>>* calls = nullptr);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key,
+            const std::vector<std::vector<NetworkModuleExecution*>>* calls = nullptr);
         std::set<std::string> ComputeDependencyClosure(const std::string& branch_key) const;
         std::vector<std::string> GetBranchNames() const;
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
