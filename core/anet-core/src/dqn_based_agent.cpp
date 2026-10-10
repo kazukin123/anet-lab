@@ -514,13 +514,13 @@ anet::TensorDict NetworkModel::ForwardOnline(const anet::TensorDict& obs) const
     return online_net_->Forward(obs);
 }
 
-anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecution& forward, const anet::nn::NetworkForwardCallInfo& info) const
+anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
     return forward.Forward(obs, info, {}, online_capture_);
 }
 
-anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs, anet::nn::NetworkForwardExecution& forward, const anet::nn::NetworkForwardCallInfo& info) const
+anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const
 {
     return forward.Forward(obs, info, {}, target_capture_);
 }
@@ -1175,14 +1175,14 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs, std::shared_ptr<anet::nn::NetworkForwardExecution> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
+    const anet::TensorDict& obs, std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
 {
     return forward->Forward(obs, info, callback);
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     const anet::TensorDict& obs, const torch::Tensor& taus,
-    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
+    std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
 {
     // 呼び出し元やReplayBufferが所有する辞書を変更せず、forward専用入力へtausを足す。
     anet::TensorDict network_input = obs;
@@ -1386,7 +1386,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateSchedule(const StepCounts& 
 }
 
 std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     const DiagnosticActionEvaluation* evaluation) const
 {
     ANET_PROFILE_FUNC();
@@ -1577,7 +1577,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    bool greedy_only, std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     bool iqn_use_full_range, const DiagnosticActionEvaluation* evaluation) const
 {
     ANET_PROFILE_FUNC();
@@ -1755,7 +1755,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     const DiagnosticActionEvaluation* evaluation) const
 {
     if (IsSpatialExplorationEnabled()) {
@@ -1786,7 +1786,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::UpdateSchedule(const StepCount
 }
 
 std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    std::shared_ptr<anet::nn::NetworkForwardExecution> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
     const DiagnosticActionEvaluation* evaluation) const
 {
     if (evaluation) ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; ThompsonSampling is unsupported.");
@@ -1837,8 +1837,8 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     , emit_snapshot_metrics_(emit_snapshot_metrics)
 {
     // 設定の実行可否は計算部品へ委譲し、既存のacting/τ RNGとは独立した箱を作る。
-    actor_forward_ = forward_config.IsDefault() ? network_->PrepareDefaultForward()
-        : network_->PrepareForward(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
+    actor_forward_ = forward_config.IsDefault() ? network_->CreateDefaultForwardExecutor()
+        : network_->CreateForwardExecutor(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
             anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward"));
     if (snapshot_sync_interval.has_value()) {
         snapshot_sync_interval_.emplace(std::move(*snapshot_sync_interval));
@@ -2028,14 +2028,14 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     const auto& target = config_.enabled ? forward_resources.target : anet::nn::NetworkForwardConfig::GetDefault();
     const auto prepare = [](const std::shared_ptr<anet::nn::Network>& network,
         const anet::nn::NetworkForwardConfig& config, anet::seed_t seed) {
-        return config.IsDefault() ? network->PrepareDefaultForward()
-            : network->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows, seed);
+        return config.IsDefault() ? network->CreateDefaultForwardExecutor()
+            : network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kTransientRows, seed);
     };
     current_forward_ = prepare(model_.GetOnlineNetwork(), current, forward_seeds.MakeNamedSeed("network_forward.current"));
     target_forward_ = prepare(model_.GetTargetNetwork(), target, forward_seeds.MakeNamedSeed("network_forward.target"));
     // 同じtarget用途は設定・箱・時計種別を共有し、重みだけ別Networkへ結び付ける。
     target_online_forward_ = target_forward_->BindNetwork(model_.GetOnlineNetwork());
-    diagnostic_online_forward_ = model_.GetOnlineNetwork()->PrepareDefaultForward();
+    diagnostic_online_forward_ = model_.GetOnlineNetwork()->CreateDefaultForwardExecutor();
     diagnostic_target_forward_ = diagnostic_online_forward_->BindNetwork(model_.GetTargetNetwork());
     if (config_.enabled && config_.munchausen.enabled && config_.munchausen.log_policy_mode == "online_reuse") {
         model_.GetOnlineNetwork()->ValidateForwardReuse(current, target);
@@ -2156,7 +2156,7 @@ void Learner::ConfigureScalarMetricSubscriptions(
             ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a dedicated RNG and a resolved sample forward config.");
         }
         noisy_.random = noisy_probe_random;
-        noisy_.sample_forward = model_.GetOnlineNetwork()->PrepareForward(*noisy_probe_config,
+        noisy_.sample_forward = model_.GetOnlineNetwork()->CreateForwardExecutor(*noisy_probe_config,
             anet::nn::NetworkForwardClock::kTransientRows,
             anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward.noisy_probe"));
     }

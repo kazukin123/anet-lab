@@ -212,7 +212,7 @@ NN の構造や学習パラメータとは独立に、呼び出し時の駆動�
 _Avoid_: NN 構造設定（構造と実行方法を混同）, 実行プロファイル（設定プロファイルと混同）, tag（metrics と評価タグの語）, nn_runtime（旧称。runtime は実行中の状態・操作の語）
 
 **NN 実行オブジェクト**:
-対象Networkの寿命を保持するNetworkForwardExecution。名前付き用途では、設定・準備済み処理・内部の専用State・時計種別を持ち、同じ用途の別Network接続は設定・State・時計種別を共有する。既定用途では部品を準備せず、Stateと時計種別を持たない。
+対象Networkの寿命を保持するNetworkForwardExecutor。名前付き用途では、設定・準備済み処理・内部の専用State・時計種別を持ち、同じ用途の別Network接続は設定・State・時計種別を共有する。既定用途では部品を準備せず、Stateと時計種別を持たない。
 
 **NN 呼び出し情報**:
 時計の今の値・episode_start・行対応だけを持つ不変の NetworkForwardCallInfo。設定・State・時計種別は実行オブジェクトが持ち、内部 Context を生成する。

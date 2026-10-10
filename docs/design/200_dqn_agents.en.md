@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:5bc1d57ea5dc512fe1a12c7a01e13c5d16314f75 date:2026-10-07 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:e4af6e8d0ccbab5d4818341fb4d700b8284aeb08 date:2026-10-11 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -328,7 +328,7 @@ The IQN-specific loss sums over current-side N, averages over target-side M, and
 
 TD, QR, IQN, and Dueling final projections use `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` by default. Actor owns one dedicated box and advances its action-selection clock. Learner owns current/target boxes and uses actual-update learn_step. Named seeds remain independent of existing acting, learning, and τ RNGs. Every target forward preserves its configuration, box, and clock. Munchausen `[2B]` input uses NetworkForwardRowMapping with `[0..B-1,0..B-1]` validated on CPU and transferred once so current/next rows of a transition share ε. Each computation component validates online_reuse sample/sample or μ-only/μ-only compatibility.
 
-Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecution objects. Actor has a dedicated execution; Learner has current/target executions. Target online/target connections share settings, State, and clock kind. The probe mean uses default Forward; only sample owns a dedicated execution. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement.
+Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecutor objects. Actor has a dedicated execution; Learner has current/target executions. Target online/target connections share settings, State, and clock kind. The probe mean uses default Forward; only sample owns a dedicated execution. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement.
 
 Learner forward_resources is a required initialization argument. Before preparation, an enabled Learner validates each current/target Resource against its selection key. Direct construction with an empty selection requires an explicit default Resource; disabled Learners preserve dormant settings.
 

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "anet/nn.hpp"
+#include "nn_impl.hpp"
 
 namespace anet::rl::dqn {
 

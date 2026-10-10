@@ -22,6 +22,8 @@
 > 2026-10-10 改訂: 設定解釈を事前準備へ移し、用途別NN実行オブジェクトと不変なNN呼び出し情報で駆動する契約へ整理した。Learnerの参照とResourceの対応を初期化時に検証し、Module/Headの準備結果管理をNN内部共通部品で共用する（§4.2、§9、§13、ADR0051）。
 >
 > 2026-10-10 改訂（公開面の整理）: State/Contextを内部へ閉じ、既定実行は準備を行わない。Bindは同じ設定を継承する。probeのμ-only側は既定経路とし、実行設定の内容は使用する具象部品の準備時に検証する。CallInfoの不変性は維持する（24impl）。
+>
+> 2026-10-11 改訂: NN利用側の契約を公開ヘッダ、Module／Head実装側の契約を内部ヘッダへ整理した。実行器はExecutor、生成APIはCreateに統一し、公開型の概要・shape・単位・未成立条件を明記する。数値・設定・RNG・所有権の契約は維持する（25impl）。
 
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
 

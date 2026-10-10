@@ -62,10 +62,10 @@ public:
     }
 
 
-    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
         const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        return anet::nn::MakePreparedHeadExecution<LinearHead, &LinearHead::ForwardProjected>(
+        return anet::nn::MakePreparedHeadExecutor<LinearHead, &LinearHead::ForwardProjected>(
             *this, std::array<anet::nn::NetworkModule*, 1>{projection_.get()}, config, clock);
     }
 
@@ -73,7 +73,7 @@ public:
     { return ForwardProjected(feature_dict, context, *projection_); }
 
     anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
-        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0)
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0)
     {
         ANET_PROFILE_FUNC();
         const auto x = feature_dict.At(anet::nn::kKey_DefaultOutput);
@@ -161,10 +161,10 @@ public:
     }
 
 
-    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
         const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        return anet::nn::MakePreparedHeadExecution<DuelingHead, &DuelingHead::ForwardProjected>(
+        return anet::nn::MakePreparedHeadExecutor<DuelingHead, &DuelingHead::ForwardProjected>(
             *this, std::array<anet::nn::NetworkModule*, 2>{value_projection_.get(), adv_projection_.get()}, config, clock);
     }
 
@@ -172,7 +172,7 @@ public:
     { return ForwardProjected(feature_dict, context, *value_projection_, *adv_projection_); }
 
     anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
-        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0, anet::nn::NetworkModuleExecution& projection1)
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0, anet::nn::NetworkModuleExecutor& projection1)
     {
         ANET_PROFILE_FUNC();
 
@@ -287,10 +287,10 @@ public:
     }
 
 
-    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
         const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        return anet::nn::MakePreparedHeadExecution<QuantileHead, &QuantileHead::ForwardProjected>(
+        return anet::nn::MakePreparedHeadExecutor<QuantileHead, &QuantileHead::ForwardProjected>(
             *this, std::array<anet::nn::NetworkModule*, 1>{projection_.get()}, config, clock);
     }
 
@@ -298,7 +298,7 @@ public:
     { return ForwardProjected(feature_dict, context, *projection_); }
 
     anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
-        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0)
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0)
     {
         ANET_PROFILE_FUNC();
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
@@ -407,10 +407,10 @@ public:
     }
 
 
-    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
         const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        return anet::nn::MakePreparedHeadExecution<QuantileDuelingHead, &QuantileDuelingHead::ForwardProjected>(
+        return anet::nn::MakePreparedHeadExecutor<QuantileDuelingHead, &QuantileDuelingHead::ForwardProjected>(
             *this, std::array<anet::nn::NetworkModule*, 2>{value_projection_.get(), adv_projection_.get()}, config, clock);
     }
 
@@ -418,7 +418,7 @@ public:
     { return ForwardProjected(feature_dict, context, *value_projection_, *adv_projection_); }
 
     anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
-        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0, anet::nn::NetworkModuleExecution& projection1)
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0, anet::nn::NetworkModuleExecutor& projection1)
     {
         ANET_PROFILE_FUNC();
         torch::Tensor value_x = feature_dict.At(value_key_);
@@ -558,10 +558,10 @@ public:
     }
 
 
-    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
         const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        return anet::nn::MakePreparedHeadExecution<IQNHead, &IQNHead::ForwardProjected>(
+        return anet::nn::MakePreparedHeadExecutor<IQNHead, &IQNHead::ForwardProjected>(
             *this, std::array<anet::nn::NetworkModule*, 1>{projection_.get()}, config, clock);
     }
 
@@ -569,7 +569,7 @@ public:
     { return ForwardProjected(feature_dict, context, *projection_); }
 
     anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
-        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0)
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0)
     {
         ANET_PROFILE_FUNC();
 
@@ -683,10 +683,10 @@ public:
     }
 
 
-    std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
         const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
     {
-        return anet::nn::MakePreparedHeadExecution<IQNDuelingHead, &IQNDuelingHead::ForwardProjected>(
+        return anet::nn::MakePreparedHeadExecutor<IQNDuelingHead, &IQNDuelingHead::ForwardProjected>(
             *this, std::array<anet::nn::NetworkModule*, 2>{value_projection_.get(), adv_projection_.get()}, config, clock);
     }
 
@@ -694,7 +694,7 @@ public:
     { return ForwardProjected(feature_dict, context, *value_projection_, *adv_projection_); }
 
     anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
-        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecution& projection0, anet::nn::NetworkModuleExecution& projection1)
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0, anet::nn::NetworkModuleExecutor& projection1)
     {
         ANET_PROFILE_FUNC();
 
@@ -794,7 +794,7 @@ private:
     }
 
     Distributions ForwardDistributions(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context,
-        anet::nn::NetworkModuleExecution& value_call, anet::nn::NetworkModuleExecution& adv_call)
+        anet::nn::NetworkModuleExecutor& value_call, anet::nn::NetworkModuleExecutor& adv_call)
     {
         const auto value_x = GetFeature(features, value_key_);
         const auto adv_x = GetFeature(features, adv_key_);

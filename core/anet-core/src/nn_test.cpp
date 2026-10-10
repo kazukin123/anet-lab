@@ -3777,7 +3777,7 @@ TEST_CASE("Explicit forward contexts preserve a configured ordinary network", "[
 
     // 不透明な箱を持つ sample と、箱を持たない μ-only を同じ公開経路へ渡す。
     const anet::nn::NetworkForwardConfig config("nn_forward.[test]", SelectForwardConfigData(data, "nn_forward.[test]"));
-    auto forward = network->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 123);
+    auto forward = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 123);
     const anet::nn::NetworkForwardCallInfo info({.clock = 0});
     anet::TensorDict input;
     input.Set("obs", torch::ones({ 2, 2 }));
@@ -3799,11 +3799,11 @@ TEST_CASE("Concrete modules consume independent forward settings through existin
     public:
         torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext&) override
         { return input; }
-        std::unique_ptr<anet::nn::NetworkModuleExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkModuleExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig& request, anet::nn::NetworkForwardClock) override
         { return std::make_unique<Execution>(request); }
     private:
-        class Execution final : public anet::nn::NetworkModuleExecution {
+        class Execution final : public anet::nn::NetworkModuleExecutor {
         public:
             explicit Execution(const anet::nn::NetworkForwardConfig& request)
                 : scale_(request.IsDefault() ? 1.0f : request.GetConfigData().Get<float>("test_affine.scale")),
@@ -3819,11 +3819,11 @@ TEST_CASE("Concrete modules consume independent forward settings through existin
     public:
         anet::TensorDict Forward(const anet::TensorDict& features, const anet::nn::NetworkForwardContext&) override
         { return anet::TensorDict{{"logits", features.At("features")}}; }
-        std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig& request, anet::nn::NetworkForwardClock) override
         { return std::make_unique<Execution>(request); }
     private:
-        class Execution final : public anet::nn::NetworkHeadExecution {
+        class Execution final : public anet::nn::NetworkHeadExecutor {
         public:
             explicit Execution(const anet::nn::NetworkForwardConfig& request)
                 : offset_(request.IsDefault() ? 0.0f : request.GetConfigData().Get<float>("test_head.offset")) {}
@@ -3859,7 +3859,7 @@ TEST_CASE("Concrete modules consume independent forward settings through existin
     data.Set("nn_forward.[other].test_affine.scale", 99.0f);
     const anet::nn::NetworkForwardConfig config("nn_forward.[custom]", SelectForwardConfigData(data, "nn_forward.[custom]"));
     data.Set("nn_forward.[custom].test_affine.scale", 100.0f);
-    auto forward = network->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 0);
+    auto forward = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 0);
     const anet::nn::NetworkForwardCallInfo info({.clock = 0});
     anet::TensorDict input;
     input.Set("obs", torch::ones({ 2, 2 }));
@@ -3872,16 +3872,16 @@ TEST_CASE("Concrete modules consume independent forward settings through existin
     CHECK(torch::equal(network->Forward(input).At("logits"), torch::full({ 2, 2 }, 2.0f)));
 
     // 新しい設定の検証を追加しても、共通 carrier と既存 Module の変更を要求しない。
-    CHECK_NOTHROW(network->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 0));
+    CHECK_NOTHROW(network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 0));
     auto invalid_data = data;
     invalid_data.Set("nn_forward.[custom].test_affine.scale", "oops");
     const anet::nn::NetworkForwardConfig invalid_module("nn_forward.[custom]", SelectForwardConfigData(invalid_data, "nn_forward.[custom]"));
-    CHECK_THROWS_WITH(network->PrepareForward(invalid_module, anet::nn::NetworkForwardClock::kContinuingRows, 0),
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(invalid_module, anet::nn::NetworkForwardClock::kContinuingRows, 0),
         Catch::Matchers::ContainsSubstring("test_affine.scale"));
     invalid_data = data;
     invalid_data.Set("nn_forward.[custom].test_head.offset", "oops");
     const anet::nn::NetworkForwardConfig invalid_head("nn_forward.[custom]", SelectForwardConfigData(invalid_data, "nn_forward.[custom]"));
-    CHECK_THROWS_WITH(network->PrepareForward(invalid_head, anet::nn::NetworkForwardClock::kContinuingRows, 0),
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(invalid_head, anet::nn::NetworkForwardClock::kContinuingRows, 0),
         Catch::Matchers::ContainsSubstring("test_head.offset"));
 
 }
@@ -3982,7 +3982,7 @@ TEST_CASE("Noisy Linear factorized computation matches an explicit weight and it
         .clock = 0,
     });
     const anet::nn::NetworkForwardContext context(state.get(), context_info);
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     const auto actual = module_forward->Forward(input, context);
     CHECK(torch::allclose(actual, expected, 1e-5, 1e-6));
@@ -4042,7 +4042,7 @@ TEST_CASE("Noisy Linear sample factors stay shared across rank-three quantiles",
         .clock = 0,
     });
     const anet::nn::NetworkForwardContext context(state.get(), context_info);
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     const auto actual = module_forward->Forward(input, context);
     CHECK(torch::allclose(actual, expected, 1e-5, 1e-6));
@@ -4077,7 +4077,7 @@ TEST_CASE("Noisy Linear count holding ignores episode boundaries and redraws at 
     anet::nn::NetworkForwardCallInfo::Params context_params{
         .clock = 0,
     };
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     const auto input = torch::ones({ 2, 4 });
     const auto initial = module_forward->Forward(input, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).detach().clone();
@@ -4119,7 +4119,7 @@ TEST_CASE("Noisy Linear episode masks update each lane once per clock", "[nn][no
         .clock = 0,
         .episode_start = torch::ones({ 2 }, torch::kBool),
     };
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     const auto input = torch::ones({ 2, 4 });
     const auto initial = module_forward->Forward(input, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).detach().clone();
@@ -4169,7 +4169,7 @@ TEST_CASE("Noisy Linear row mapping reuses transition factors in a joint batch",
     anet::nn::NetworkForwardCallInfo::Params single_params{
         .clock = 0,
     };
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     const auto input = torch::ones({ 2, 4 });
     const auto separate = module_forward->Forward(input, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(single_params))).detach().clone();
@@ -4216,7 +4216,7 @@ TEST_CASE("Linear force_fp32 protects both default and sampled projections indep
         .clock = 0,
     });
     const anet::nn::NetworkForwardContext context(state.get(), context_info);
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     const auto input = torch::ones({ 2, 4 }, torch::TensorOptions().device(device));
     module->Forward(input, anet::nn::NetworkForwardContext::GetDefault());
@@ -4290,7 +4290,7 @@ TEST_CASE("Noisy spectral Linear normalizes only the mean and preserves spectral
     anet::nn::NetworkForwardCallInfo::Params context_params{
         .clock = 0,
     };
-    auto owned_module_forward = module->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
+    auto owned_module_forward = module->CreateExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* module_forward = owned_module_forward ? owned_module_forward.get() : module.get();
     CAPTURE(mode, independent);
     const auto output = module_forward->Forward(input, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params)));
@@ -4321,27 +4321,27 @@ TEST_CASE("Network validates local forward requirements before a configured comp
     const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 };
     auto network = anet::nn::NetworkBuilder::BuildNetwork(
         anet::nn::NetworkConfig(data), anet::TensorSpecMap{ { "obs", spec } }, nullptr, 1093);
-    CHECK_NOTHROW(network->PrepareDefaultForward());
+    CHECK_NOTHROW(network->CreateDefaultForwardExecutor());
     data.Set("nn_forward.[missing].noisy.mode", "sample");
     const anet::nn::NetworkForwardConfig missing("nn_forward.[missing]", SelectForwardConfigData(data, "nn_forward.[missing]"));
-    CHECK_THROWS_WITH(network->PrepareForward(missing, anet::nn::NetworkForwardClock::kContinuingRows, 0),
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(missing, anet::nn::NetworkForwardClock::kContinuingRows, 0),
         Catch::Matchers::ContainsSubstring("nn_forward.[missing]") && Catch::Matchers::ContainsSubstring("noisy.hold"));
     data.Set("nn_forward.[valid].noisy.mode", "sample");
     data.Set("nn_forward.[valid].noisy.hold", "call");
     data.Set("nn_forward.[valid].noisy.share", "batch");
     const anet::nn::NetworkForwardConfig valid("nn_forward.[valid]", SelectForwardConfigData(data, "nn_forward.[valid]"));
-    CHECK_NOTHROW(network->PrepareForward(valid, anet::nn::NetworkForwardClock::kTransientRows, 0));
+    CHECK_NOTHROW(network->CreateForwardExecutor(valid, anet::nn::NetworkForwardClock::kTransientRows, 0));
     data.Set("nn_forward.[actor].noisy.mode", "sample");
     data.Set("nn_forward.[actor].noisy.hold", "count");
     data.Set("nn_forward.[actor].noisy.count", 3);
     data.Set("nn_forward.[actor].noisy.share", "sample");
     const anet::nn::NetworkForwardConfig actor("nn_forward.[actor]", SelectForwardConfigData(data, "nn_forward.[actor]"));
-    CHECK_NOTHROW(network->PrepareForward(actor, anet::nn::NetworkForwardClock::kContinuingRows, 0));
-    CHECK_THROWS_WITH(network->PrepareForward(actor, anet::nn::NetworkForwardClock::kTransientRows, 0),
+    CHECK_NOTHROW(network->CreateForwardExecutor(actor, anet::nn::NetworkForwardClock::kContinuingRows, 0));
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(actor, anet::nn::NetworkForwardClock::kTransientRows, 0),
         Catch::Matchers::ContainsSubstring("nn_forward.[actor]") && Catch::Matchers::ContainsSubstring("continuing rows"));
     data.Set("nn_forward.[mean].noisy.mode", "mu_only");
     const anet::nn::NetworkForwardConfig mean("nn_forward.[mean]", SelectForwardConfigData(data, "nn_forward.[mean]"));
-    CHECK_NOTHROW(network->PrepareForward(mean, anet::nn::NetworkForwardClock::kTransientRows, 0));
+    CHECK_NOTHROW(network->CreateForwardExecutor(mean, anet::nn::NetworkForwardClock::kTransientRows, 0));
 }
 
 TEST_CASE("Used forward values are validated by the concrete preparation", "[nn][noisynet][config]")
@@ -4355,7 +4355,7 @@ TEST_CASE("Used forward values are validated by the concrete preparation", "[nn]
     module->Forward(torch::ones({2, 4}), anet::nn::NetworkForwardContext::GetDefault());
     const auto validate = [&](const anet::ConfigData& data) {
         const anet::nn::NetworkForwardConfig config("nn_forward.[used]", data);
-        module->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
+        module->CreateExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows);
     };
     anet::ConfigData data;
     data.Set("noisy.mode", "mu_only");
@@ -4383,7 +4383,7 @@ TEST_CASE("Used forward values are validated by the concrete preparation", "[nn]
         structural, anet::nn::ModuleContext{.random_source=MakeTestModuleRandomSource()});
     anet::ConfigData unused;
     unused.Set("noisy.mode", "invalid");
-    CHECK_FALSE(ordinary->PrepareForward(anet::nn::NetworkForwardConfig("unused", unused),
+    CHECK_FALSE(ordinary->CreateExecutor(anet::nn::NetworkForwardConfig("unused", unused),
         anet::nn::NetworkForwardClock::kTransientRows));
 }
 
@@ -4567,9 +4567,9 @@ TEST_CASE("Noisy parameters clone synchronize and serialize without resetting he
     for (const auto& entry : source->GetNoisyParameterEntries()) entry.sigma.fill_(-0.75f);
     const anet::nn::NetworkForwardConfig config("hold", SelectForwardConfigData(data, "hold"));
     const anet::TensorDict input{{"obs", torch::ones(iqn ? std::vector<int64_t>{2, 3, 2} : std::vector<int64_t>{2, 2})}};
-    auto source_forward = source->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 901);
+    auto source_forward = source->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 901);
     const anet::nn::NetworkForwardCallInfo source_info({.clock = 1});
-    auto target_forward = target->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 901);
+    auto target_forward = target->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 901);
     const anet::nn::NetworkForwardCallInfo target_info({.clock = 1});
     const auto expected = source_forward->Forward(input, source_info).At("q").clone();
     target_forward->Forward(input, target_info);
@@ -4595,7 +4595,7 @@ TEST_CASE("Noisy parameters clone synchronize and serialize without resetting he
     torch::load(restored_base, archive);
     check_parameters(restored);
     restored->eval();
-    auto restored_forward = restored->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 901);
+    auto restored_forward = restored->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 901);
     const anet::nn::NetworkForwardCallInfo restored_info({.clock = 1});
     CHECK(torch::equal(restored_forward->Forward(input, restored_info).At("q"), expected));
     // soft copy も sigma を含む学習 parameter 全体を同じ係数でブレンドする。
@@ -4642,14 +4642,14 @@ TEST_CASE("Prepared projection owns same-named settings independently", "[nn][no
     auto state = std::make_shared<anet::nn::NetworkForwardState>(701);
     const auto input = torch::ones({2, 4});
     const auto mean = projection.Forward(input, anet::nn::NetworkForwardContext::GetDefault());
-    std::unique_ptr<anet::nn::LinearProjectionModule::Execution> sample;
+    std::unique_ptr<anet::nn::LinearProjectionModule::Executor> sample;
     {
         anet::ConfigData data;
         data.Set("noisy.mode", "sample");
         data.Set("noisy.hold", "call");
         data.Set("noisy.share", "batch");
         const anet::nn::NetworkForwardConfig config("same", data);
-        sample = projection.PrepareProjection(config, anet::nn::NetworkForwardClock::kTransientRows);
+        sample = projection.CreateProjectionExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
         data.Set("noisy.mode", "mu_only");
     }
     // 設定元の寿命と変更から独立した値を、別々の準備結果が保持する。
@@ -4659,7 +4659,7 @@ TEST_CASE("Prepared projection owns same-named settings independently", "[nn][no
     anet::ConfigData data;
     data.Set("noisy.mode", "mu_only");
     const anet::nn::NetworkForwardConfig same_key("same", data);
-    CHECK_FALSE(projection.PrepareProjection(same_key, anet::nn::NetworkForwardClock::kTransientRows));
+    CHECK_FALSE(projection.CreateProjectionExecutor(same_key, anet::nn::NetworkForwardClock::kTransientRows));
     CHECK(torch::equal(mean, projection.Forward(input, anet::nn::NetworkForwardContext::GetDefault())));
     CHECK_FALSE(torch::equal(mean, noisy));
     CHECK(torch::equal(noisy, sample->Forward(input, context)));
@@ -4697,7 +4697,7 @@ TEST_CASE("Prepared projection permits concurrent callers with private states", 
                 data.Set("local.noisy.hold", "call");
                 data.Set("local.noisy.share", "batch");
                 const anet::nn::NetworkForwardConfig config("local", SelectForwardConfigData(data, "local"));
-                auto prepared = projection.PrepareProjection(config, anet::nn::NetworkForwardClock::kContinuingRows);
+                auto prepared = projection.CreateProjectionExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows);
                 const anet::nn::NetworkForwardCallInfo context_info({.clock=0});
                 const anet::nn::NetworkForwardContext context(state.get(), context_info);
                 const auto first = prepared->Forward(input, context);
@@ -4736,7 +4736,7 @@ TEST_CASE("Validated row mapping reuses device indices without transfer or scala
     data.Set("sample.noisy.hold", "call");
     data.Set("sample.noisy.share", "sample");
     const anet::nn::NetworkForwardConfig config("sample", SelectForwardConfigData(data, "sample"));
-    auto prepared = projection.PrepareProjection(config, anet::nn::NetworkForwardClock::kTransientRows);
+    auto prepared = projection.CreateProjectionExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
     const auto input = torch::arange(rank3 ? 24 : 8,
         torch::TensorOptions().dtype(torch::kFloat32).device(device))
         .reshape(rank3 ? std::vector<int64_t>{2, 3, 4} : std::vector<int64_t>{2, 4});
@@ -4788,7 +4788,7 @@ TEST_CASE("CUDA autocast preserves Body overrides and FP32 Head and spectral cal
     network->eval();
     torch::NoGradGuard guard;
     const anet::nn::NetworkForwardConfig config("sample", SelectForwardConfigData(data, "sample"));
-    auto forward = network->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows, 703);
+    auto forward = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 703);
     const anet::nn::NetworkForwardCallInfo info({.clock = 0});
     const anet::TensorDict input{{"obs", torch::ones({2, 2}, torch::TensorOptions().device(device))}};
     anet::nn::NetworkBranchCapture capture{.branch_key="feature"};
@@ -4871,7 +4871,7 @@ TEST_CASE("Prepared forward interprets concrete settings once and owns network l
         explicit ScalingModule(std::shared_ptr<int> preparations) : preparations_(std::move(preparations)) {}
         torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext&) override
         { return input; }
-        std::unique_ptr<anet::nn::NetworkModuleExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkModuleExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock) override
         {
             ++*preparations_;
@@ -4880,7 +4880,7 @@ TEST_CASE("Prepared forward interprets concrete settings once and owns network l
                 : config.GetConfigData().Get<float>("independent.scale"));
         }
     private:
-        class Execution final : public anet::nn::NetworkModuleExecution {
+        class Execution final : public anet::nn::NetworkModuleExecutor {
         public:
             explicit Execution(float scale) : scale_(scale) {}
             torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext&) override
@@ -4908,7 +4908,7 @@ TEST_CASE("Prepared forward interprets concrete settings once and owns network l
     anet::ConfigData data;
     data.Set("independent.scale", 3.0f);
     auto config = std::make_unique<const anet::nn::NetworkForwardConfig>("custom", data);
-    auto execution = network->PrepareForward(*config, anet::nn::NetworkForwardClock::kTransientRows, 991);
+    auto execution = network->CreateForwardExecutor(*config, anet::nn::NetworkForwardClock::kTransientRows, 991);
     CHECK(*preparations == 1);
     config.reset();
     data.Set("independent.scale", 99.0f);
@@ -4943,7 +4943,7 @@ TEST_CASE("Prepared Noisy forward samples once at the supplied clock", "[nn][noi
     selected.Set("noisy.hold", "call");
     selected.Set("noisy.share", "batch");
     const anet::nn::NetworkForwardConfig config("selected", selected);
-    auto execution = network->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows, 811);
+    auto execution = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kTransientRows, 811);
     const anet::TensorDict input{{"obs", torch::ones({2, 4})}};
     const anet::nn::NetworkForwardCallInfo info({.clock=0});
     const auto first = execution->Forward(input, info).At("features");
@@ -4962,7 +4962,7 @@ TEST_CASE("NN prepared Head composes configured and ordinary children",
             : weight(register_parameter("weight", torch::tensor(initial))) {}
         torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext&) override
         { return input * weight; }
-        std::unique_ptr<anet::nn::NetworkModuleExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkModuleExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock) override
         {
             if (config.IsDefault()) return nullptr;
@@ -4972,7 +4972,7 @@ TEST_CASE("NN prepared Head composes configured and ordinary children",
         torch::Tensor weight;
         int interpretations = 0;
     private:
-        class Execution final : public anet::nn::NetworkModuleExecution {
+        class Execution final : public anet::nn::NetworkModuleExecutor {
         public:
             Execution(ScalingModule& owner, float scale) : owner_(owner), scale_(scale) {}
             torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
@@ -4996,7 +4996,7 @@ TEST_CASE("NN prepared Head composes configured and ordinary children",
               ordinary(register_module("ordinary", std::make_shared<OrdinaryModule>())) {}
         anet::TensorDict Combine(const anet::TensorDict& input,
             const anet::nn::NetworkForwardContext& context,
-            anet::nn::NetworkModuleExecution& first, anet::nn::NetworkModuleExecution& second)
+            anet::nn::NetworkModuleExecutor& first, anet::nn::NetworkModuleExecutor& second)
         {
             // 子の準備済み処理と本体を同じ計算経路へ渡し、Head固有の合成だけを行う。
             return {{"output", first.Forward(input.At("input"), context)
@@ -5005,10 +5005,10 @@ TEST_CASE("NN prepared Head composes configured and ordinary children",
         anet::TensorDict Forward(const anet::TensorDict& input,
             const anet::nn::NetworkForwardContext& context) override
         { return Combine(input, context, *configured, *ordinary); }
-        std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
         {
-            return anet::nn::MakePreparedHeadExecution<SumHead, &SumHead::Combine>(*this,
+            return anet::nn::MakePreparedHeadExecutor<SumHead, &SumHead::Combine>(*this,
                 std::array<anet::nn::NetworkModule*, 2>{configured.get(), ordinary.get()}, config, clock);
         }
         const std::shared_ptr<ScalingModule> configured;
@@ -5018,7 +5018,7 @@ TEST_CASE("NN prepared Head composes configured and ordinary children",
     anet::ConfigData data;
     data.Set("independent.scale", 5.0f);
     const anet::nn::NetworkForwardConfig config("custom", data);
-    auto prepared = head.PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
+    auto prepared = head.CreateExecutor(config, anet::nn::NetworkForwardClock::kTransientRows);
     REQUIRE(prepared);
     const auto context = anet::nn::NetworkForwardContext::GetDefault();
     const auto input = torch::tensor({1.0f, 2.0f}, torch::requires_grad());
@@ -5034,7 +5034,7 @@ TEST_CASE("NN prepared Head composes configured and ordinary children",
     CHECK(head.configured->weight.grad().item<float>() == 15.0f);
     CHECK(head.ordinary->weight.grad().item<float>() == 3.0f);
     // 全子が既定なら準備済みHeadを作らず、本体への直接経路を残す。
-    CHECK_FALSE(head.PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(),
+    CHECK_FALSE(head.CreateExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
         anet::nn::NetworkForwardClock::kTransientRows));
     CHECK(torch::equal(head.Forward({{"input", input}}, context).At("output"), input * 5.0f));
     CHECK(head.configured->interpretations == 1);
@@ -5046,7 +5046,7 @@ TEST_CASE("Default execution bypasses concrete preparation", "[nn][noisynet][sim
     public:
         int preparations = 0;
         torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext&) override { return input * 2; }
-        std::unique_ptr<anet::nn::NetworkModuleExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkModuleExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig&, anet::nn::NetworkForwardClock) override
         { ++preparations; return nullptr; }
     };
@@ -5055,7 +5055,7 @@ TEST_CASE("Default execution bypasses concrete preparation", "[nn][noisynet][sim
         int preparations = 0;
         anet::TensorDict Forward(const anet::TensorDict& input, const anet::nn::NetworkForwardContext&) override
         { return {{"result", input.At("features") * 3}}; }
-        std::unique_ptr<anet::nn::NetworkHeadExecution> PrepareForward(
+        std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
             const anet::nn::NetworkForwardConfig&, anet::nn::NetworkForwardClock) override
         { ++preparations; return nullptr; }
     };
@@ -5070,14 +5070,14 @@ TEST_CASE("Default execution bypasses concrete preparation", "[nn][noisynet][sim
     auto body = std::make_shared<anet::nn::NetworkBody>(std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{branch}, specs,
         std::vector<std::string>{}, config.output_keys);
     auto network = std::make_shared<anet::nn::Network>(config, specs, nullptr, body, head);
-    auto execution = network->PrepareDefaultForward();
+    auto execution = network->CreateDefaultForwardExecutor();
     CHECK(module->preparations == 0);
     CHECK(head->preparations == 0);
     auto rebound = execution->BindNetwork(network);
     CHECK(module->preparations == 0);
     CHECK(head->preparations == 0);
-    CHECK_THROWS_WITH(network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(),
-        anet::nn::NetworkForwardClock::kTransientRows, 0), Catch::Matchers::ContainsSubstring("PrepareDefaultForward"));
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kTransientRows, 0), Catch::Matchers::ContainsSubstring("CreateDefaultForwardExecutor"));
     const auto input = torch::ones({2, 2}, torch::requires_grad());
     const anet::TensorDict observations{{"obs", input}};
     const anet::nn::NetworkForwardCallInfo info({.clock=7});

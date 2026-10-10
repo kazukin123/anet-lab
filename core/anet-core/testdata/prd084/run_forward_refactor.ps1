@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('off','on','on-after')][string]$Stage = 'off',
     [switch]$Resume,
     [ValidateSet('atari_default','atari_efficiency','lunarlander_cpu')][string[]]$Cases = @('atari_default','atari_efficiency','lunarlander_cpu'),

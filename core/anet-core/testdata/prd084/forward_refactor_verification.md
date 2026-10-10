@@ -303,3 +303,116 @@ Run資材に`-Cases`を追加し、既定のOFF3構成を維持した。CPU構�
 - `docs/memo/084_noisynet_24impl.md`
 - `docs/ownership_guideline.md`
 - `core/anet-core/testdata/prd084/forward_refactor_verification.md`
+
+## 公開面と命名 2026-10-11
+
+計画は [25impl](../../../../docs/memo/084_noisynet_25impl.md)。基準HEADは `ed9311c5b845cae1b41e569de602eae20c08855c`。資材とログは `.scratch/prd084/forward-refactor/api-20261011/` に分離した。編集前の差分・index・Release実行体とDLL計51本・設定・seed=1・旧OFF checkpointをbefore/へ保存した。
+
+### 変更と責任境界
+
+公開nn.hppは構造設定、実行設定/CallInfo、Network、NetworkForwardExecutor、診断/可塑性、Builderの順とした。Head/HeadExecutor/HeadFactory/HeadGraphVizInfo/WeightNormConfigの定義は内部nn_impl.hppへ移し、署名に必要な前方宣言だけを残した。DQN Head factoryの内部ヘッダへ基底定義の直接includeを追加し、observers.hppのnn.hpp includeを除いた。
+
+指定されたExecutionからExecutor、PrepareからCreateのAPI・エラー文言・計測ラベルだけを移行した。公開型の日本語概要と公開メンバ/列挙子のshape・単位・未成立条件を整えた。SN対象なしのsigma_maxはNaNのFP32 scalarと明記した。CreateExecutorのnullptrは本体への直接呼び出しを意味する。計算本体、設定キー/値、parameter登録、初期化/RNG、保持、所有権、保存形式は変更していない。
+
+### ビルド・テスト・監査
+
+| 項目 | 結果 |
+|---|---|
+| 編集前Debug全体/Noisy CPU | exit 0、53成功/3スキップ、10,628 assertions |
+| tracer bullet | 新生成API2件のC2039でコンパイルRED、Network側の最小改名でGREEN |
+| 内部Executor改名後Noisy CPU | 53成功/3スキップ、10,628 assertions |
+| 最終Debug全体 | MSVC初期化経由、parallel 1、appsを含めexit 0 |
+| 最終Noisy CPU | 53成功/3スキップ、10,628 assertions成功 |
+| 最終全core CPU | 668成功/6スキップ、33,405 assertions成功 |
+| 最終Noisy CUDA | 56成功、10,684 assertions成功 |
+| 最終全core CUDA | 673成功/1スキップ、34,867 assertions成功 |
+| 設定6構成 | 全解決文字列値/型付き値、44 assertions成功 |
+| 設定既定葉 | 3,420項目、エラー0件 |
+| 公開コメント | 型概要欠落0、公開メンバ62件/列挙子15件の行末コメント欠落0 |
+| 旧API/Executer/公開移動対象定義 | 現用C++の残存0/0、公開ヘッダの定義0 |
+| NN指定6ファイルのRL語 | Actor/Learner/Probe/laneの一致0 |
+| 計算本体 | 編集前コピーと改名/コメント/定義配置/includeを除いて同一 |
+| BOM/LF/index | HEADのBOMを維持、CRLF0、対象diff check成功、着手時index SHA不変 |
+
+ヘッダ移動時にDQN Head factoryの基底型が未定義となるC2504を検出し、内部ヘッダ自身のincludeで解消した。失敗ログはheader-first-red-build.logに保持した。最終Releaseは全コンパイル・core/環境テストのリンクを通過し、通常Runnerだけ使用中exeのLNK1104で停止した。現在のNinjaコマンドからexe/lib/PDBの出力先だけを替え、同じ最終オブジェクト・リンク条件でRunnerを別出力へリンクしてexit 0を確認した。既存プロセスは停止していない。
+
+ログ: logs/before-debug-build.log、before-noisy-cpu.log、tracer-red-build.log、network-green-*.log、internal-green-*.log、final-debug-build.log、final-release-build.log、final-isolated-link.log、final-noisy-{cpu,cuda}.log、final-core-{cpu,cuda}.log、config-equivalence.log、default-leaves.log、api-audit.log、public-comment-audit.log、final-code-equivalence.log、preservation-audit.log、diff-check.log。audit.json、public-comment-audit.json、code-equivalence.json、preservation-audit.json、link-equivalence.json、test-results.jsonも保存した。
+
+### 最終ReleaseのCPU実動試験
+
+最終実行体は `release-link/AnetRLRunner.exe`。SHA-256は `4477E7F668E825FC0FEEF88B8797734AF49C929870AF54425F13C8A47AB0C65B`。同じ実行体をafter/binへ保存し、CPU OFFと旧checkpoint確認の両方で使用した。
+
+| 構成 | 予算 | 結果 | 終了code | 秒 |
+|---|---:|---|---:|---:|
+| CPU LunarLander OFF | 500,000経験 | 88,184点、欠損/点数差/値差0、全点完全一致 | 0 | 878.101 |
+| 旧OFF checkpoint読込 | 256経験 | model_size=1,276,270 / learner_size=1,192,239、正常終了 | 0 | 2.261 |
+
+checksumは `b76541e3b8319f9b72e2987f4a6f4dc2afeb26104fc57dabbaee18c67cb5ebd5`。出力先/Run名を除く前回最終OFFとの全解決設定818キーの差分は0件。記録はacceptance-summary.json、after/*.execution.json、after/*.metrics.summary.json、logs/final-cpu-regression.log。
+
+Run資材は変更していない。Windows PowerShell 5での初回起動はUTF-8資材の構文エラーでRun開始前に止まったため、PowerShell 7で `run_forward_refactor.ps1 -Stage off -Cases lunarlander_cpu` に今回のOutputRootとExecutableを指定して実行した。失敗ログはlaunch-powershell5-error.logに保持し、成功結果で代用/上書きしていない。CPU回帰はGPUプロセス検査/計測へ依存させていない。
+
+### 対象外と保存したもの
+
+保留はない。ON Runと性能再測定は今回の計画対象外であり実施していない。BindNetwork削除、既定生成API統合、実行の木/Head基底/Learner用途ペア整理、再利用規則の変更、互換API、新用語/ADR、episode_start/episodeの改名は実施していない。既存ADR・過去計画・過去検証節・Run artifactと無関係なdirtyファイルを保持した。add/commit/pushは実行せず、現在のブランチとindexを維持した。
+
+### 今回の変更ファイル
+
+- `CONTEXT.md`
+- `core/anet-core/include/anet/nn.hpp`
+- `core/anet-core/include/anet/observers.hpp`
+- `core/anet-core/src/dqn_based_agent.cpp`
+- `core/anet-core/src/dqn_based_agent.hpp`
+- `core/anet-core/src/dqn_based_agent_test.cpp`
+- `core/anet-core/src/dqn_based_heads.cpp`
+- `core/anet-core/src/dqn_based_heads.hpp`
+- `core/anet-core/src/dqn_based_test.cpp`
+- `core/anet-core/src/nn_heads.hpp`
+- `core/anet-core/src/nn_impl.cpp`
+- `core/anet-core/src/nn_impl.hpp`
+- `core/anet-core/src/nn_modules.cpp`
+- `core/anet-core/src/nn_test.cpp`
+- `core/anet-core/testdata/prd084/README.md`
+- `core/anet-core/testdata/prd084/forward_refactor_verification.md`
+- `docs/design/130_neural_networks.en.md`
+- `docs/design/130_neural_networks.jp.md`
+- `docs/design/200_dqn_agents.en.md`
+- `docs/design/200_dqn_agents.jp.md`
+- `docs/memo/084_noisynet_10prd.md`
+- `docs/memo/084_noisynet_25impl.md`
+- `docs/memo/999_outside_core_extension_layout_10prd.md`
+- `docs/ownership_guideline.md`
+
+### レビュー指摘の追補 2026-10-11
+
+公開コメントから失われた8統計の添字順と名前付き実行器の前提（既定設定の拒否、shared_ptr所有）を復元した。GetTensorDictFunctionは既定BodyとHead提供関数の合成、Headなしのforwardキーを説明し、Network概要の保存入口を外した。Clone/CopyTo/SoftCopyToの行末コメントはDoxygenの`///<`へ修正した。
+
+内部ヘッダではHeadとModuleのinterfaceを隣接させた。配置PRDは§1/§5を含めHeadの内部契約と到達本数を同期した。includeの再走査で公開40本＝直接22本＋推移のみ7本＋未到達11本（到達29本）を確認した。PRD084の10-11改訂前の空行を除き、引用を連続させた。設計130/200英訳のtranslated-fromは現在の日本語作業ツリーblobに更新し、見出し・表行・コードフェンス数の対応も確認した。
+
+`run_forward_refactor.ps1`はUTF-8 BOMだけを追加し、内容・LFは変更していない。Windows PowerShell **5.1.26100.9444**のParser.ParseFileで構文エラー**0件**。前節のPowerShell 7による実動試験とPowerShell 5の失敗記録は当時の証拠として保持する。今回、PowerShell 5で学習Runを新規実行したわけではない。
+
+| 検証 | 結果 |
+|---|---|
+| MSVC初期化経由Debug全体ビルド | appsを含めexit 0 |
+| Noisy CPU | 53成功/3スキップ、10,628 assertions成功、exit 0 |
+| 全core CPU | 668成功/6スキップ、33,405 assertions成功、exit 0 |
+| Noisy CUDA | 56成功/0スキップ、10,684 assertions成功、exit 0 |
+| 全core CUDA | 673成功/1スキップ、34,867 assertions成功、exit 0 |
+| C++差分 | 公開ヘッダはコメントのみ、内部ヘッダは同一宣言ブロックの移動のみ |
+| 翻訳マーカー/BOM/LF/空白 | blob一致、PS1のみBOM追加、その他BOM保持、CRLF0、対象diff check成功 |
+| NN指定6ファイルのRL語/index | Actor/Learner/Probe/lane 0件、着手時index SHA不変 |
+
+Debugテスト実行体のSHA-256は `f31aca4e08e914d57cd3e2014097a5b3ee577284628575c78856a1a95b3958ec`。前回のRelease実動試験の実行体と数値は前節の記録であり、今回の結果へ読み替えない。今回の差分はコメント・文書・宣言配置・BOMだけで計算/RNG/設定の変更がないため、Release再ビルド・学習Run・性能再測定は行っていない。保留はない。add/commit/pushは実行していない。
+
+追補資材は `.scratch/prd084/forward-refactor/api-20261011/review-comments/`。before/、baseline.json、debug-build.log、noisy-{cpu,cuda}.log、core-{cpu,cuda}.log、test-results.json、audit.py/json/log、translation-structure.json、powershell5-parse.logに記録した。
+
+今回の変更ファイル（9本）:
+
+- `core/anet-core/include/anet/nn.hpp`
+- `core/anet-core/src/nn_impl.hpp`
+- `docs/memo/999_outside_core_extension_layout_10prd.md`
+- `docs/memo/084_noisynet_10prd.md`
+- `docs/design/130_neural_networks.en.md`
+- `docs/design/200_dqn_agents.en.md`
+- `core/anet-core/testdata/prd084/run_forward_refactor.ps1`
+- `docs/memo/084_noisynet_25impl.md`
+- `core/anet-core/testdata/prd084/forward_refactor_verification.md`

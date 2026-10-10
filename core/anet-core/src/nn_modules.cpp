@@ -355,7 +355,7 @@ struct LinearProjectionModule::Impl {
         const auto output_factor = row_mapping ? row_mapping->SelectRows(state.output) : state.output;
         return AddFactorizedLinearNoise(input, mean, sigma_weight_, sigma_bias_, input_factor, output_factor);
     }
-    class Prepared final : public LinearProjectionModule::Execution {
+    class Prepared final : public LinearProjectionModule::Executor {
     public:
         Prepared(Impl& owner, const NetworkForwardConfig& request, NetworkForwardClock clock)
             : owner_(owner), config_(request)
@@ -406,21 +406,21 @@ void LinearProjectionModule::Bind(torch::nn::Linear layer)
     }
 }
 
-std::unique_ptr<LinearProjectionModule::Execution> LinearProjectionModule::PrepareProjection(
+std::unique_ptr<LinearProjectionModule::Executor> LinearProjectionModule::CreateProjectionExecutor(
     const NetworkForwardConfig& config, NetworkForwardClock clock)
 {
     ANET_PROFILE_FUNC();
-    ANET_CHECK_MSG(!config.IsDefault(), "Default forward settings must not be passed to LinearProjectionModule::PrepareProjection.");
+    ANET_CHECK_MSG(!config.IsDefault(), "Default forward settings must not be passed to LinearProjectionModule::CreateProjectionExecutor.");
     if (!impl_->noisy_config_.enabled) return nullptr;
     auto prepared = std::make_unique<Impl::Prepared>(*impl_, config, clock);
     if (prepared->IsMeanOnly()) return nullptr;
     return prepared;
 }
 
-std::unique_ptr<NetworkModuleExecution> LinearProjectionModule::PrepareForward(
+std::unique_ptr<NetworkModuleExecutor> LinearProjectionModule::CreateExecutor(
     const NetworkForwardConfig& config, NetworkForwardClock clock)
 {
-    return PrepareProjection(config, clock);
+    return CreateProjectionExecutor(config, clock);
 }
 
 
@@ -523,10 +523,10 @@ public:
     std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     { return projection_->GetNoisyParameterEntries(); }
 
-    std::unique_ptr<NetworkModuleExecution> PrepareForward(
+    std::unique_ptr<NetworkModuleExecutor> CreateExecutor(
         const NetworkForwardConfig& config, NetworkForwardClock clock) override
     {
-        auto projection = projection_->PrepareProjection(config, clock);
+        auto projection = projection_->CreateProjectionExecutor(config, clock);
         if (!projection) return nullptr;
         return std::make_unique<Prepared>(*this, std::move(projection));
     }
@@ -536,7 +536,7 @@ public:
     { return RunForward(std::move(input), context, nullptr); }
 
     torch::Tensor RunForward(torch::Tensor input, const NetworkForwardContext& context,
-        LinearProjectionModule::Execution* projection)
+        LinearProjectionModule::Executor* projection)
     {
         ANET_PROFILE_FUNC();
         // Noisy の有無に依存せず、この Linear の射影全体の精度を保護する。
@@ -570,15 +570,15 @@ public:
         return { MakeSpectralNormEntry("linear", linear->weight, spectral_norm_state_) };
     }
 private:
-    class Prepared final : public NetworkModuleExecution {
+    class Prepared final : public NetworkModuleExecutor {
     public:
-        Prepared(LinearModule& owner, std::unique_ptr<LinearProjectionModule::Execution> projection)
+        Prepared(LinearModule& owner, std::unique_ptr<LinearProjectionModule::Executor> projection)
             : owner_(owner), projection_(std::move(projection)) {}
         torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) override
         { return owner_.RunForward(std::move(input), context, projection_.get()); }
     private:
         LinearModule& owner_;
-        const std::unique_ptr<LinearProjectionModule::Execution> projection_;
+        const std::unique_ptr<LinearProjectionModule::Executor> projection_;
     };
 
     WeightInitConfig init_config_;
@@ -1348,7 +1348,7 @@ public:
 
     bool IsConv2dVisualizable() const override { return true; }
 
-    std::unique_ptr<NetworkModuleExecution> PrepareForward(
+    std::unique_ptr<NetworkModuleExecutor> CreateExecutor(
         const NetworkForwardConfig& config, NetworkForwardClock clock) override
     {
         auto prepared = std::make_unique<Prepared>(*this, config, clock);
@@ -1357,7 +1357,7 @@ public:
     torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) override
     { return RunForward(std::move(input), context, nullptr); }
 private:
-    class Prepared final : public NetworkModuleExecution {
+    class Prepared final : public NetworkModuleExecutor {
     public:
         Prepared(ResBlockModule& owner, const NetworkForwardConfig& config, NetworkForwardClock clock)
             : owner_(owner), children_({owner.norm1_.get(), owner.norm2_.get(), owner.norm_ds_.get()}, config, clock) {}
@@ -1696,7 +1696,7 @@ public:
 
     bool IsConv2dVisualizable() const override { return true; }
 
-    std::unique_ptr<NetworkModuleExecution> PrepareForward(
+    std::unique_ptr<NetworkModuleExecutor> CreateExecutor(
         const NetworkForwardConfig& config, NetworkForwardClock clock) override
     {
         auto prepared = std::make_unique<Prepared>(*this, config, clock);
@@ -1705,7 +1705,7 @@ public:
     torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) override
     { return RunForward(std::move(input), context, nullptr); }
 private:
-    class Prepared final : public NetworkModuleExecution {
+    class Prepared final : public NetworkModuleExecutor {
     public:
         Prepared(CNBlockModule& owner, const NetworkForwardConfig& config, NetworkForwardClock clock)
             : owner_(owner), children_({owner.norm_.get()}, config, clock) {}

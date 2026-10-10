@@ -58,11 +58,13 @@ Network構成では、stack軸を暗黙に復元せず、目的に応じて次�
 
 この分離により、共通Backboneを複数のAgent固有Headから利用できる。
 
-NetworkForwardConfig はキーと選択済み ConfigData をコピーして保持する不変の搬送型で、具象設定型・解釈・検証を持たない。Network::PrepareForward(config, clock_kind, seed) は構築後の Module／Head に準備を委譲する。通常の部品は本体を直接呼び、設定を使う具象部品だけが私有の解釈済み enum・数値を持つ処理を返す。子 Module へも準備を伝達し、bind・依存閉包・trace・capture・FP32 保護は既存の計算本体を共用する。新しい設定の追加は利用する具象部品だけに閉じる。
+NetworkForwardConfig はキーと選択済み ConfigData をコピーして保持する不変の搬送型で、具象設定型・解釈・検証を持たない。Network::CreateForwardExecutor(config, clock_kind, seed) は構築後の Module／Head に準備を委譲する。通常の部品は本体を直接呼び、設定を使う具象部品だけが私有の解釈済み enum・数値を持つ処理を返す。子 Module へも準備を伝達し、bind・依存閉包・trace・capture・FP32 保護は既存の計算本体を共用する。新しい設定の追加は利用する具象部品だけに閉じる。
 
-PrepareForward は shared_ptr で所有された Network に対して呼ぶ。
+CreateForwardExecutor は shared_ptr で所有された Network に対して呼ぶ。
 
-NetworkForwardExecution は対象Networkの寿命を保持する。名前付きPrepareForwardは不変設定・準備済み処理・内部State・時計種別を保持し、初期化時のBindNetwork(network)は設定・State・時計種別を共有する別接続を作る。PrepareDefaultForwardは部品を準備せず、State・時計種別を持たない。重みは既存Moduleを参照し、clone先は別に準備する。実行中の設定切替は行わない。
+公開のnn.hppはNNを使う側の契約を置く。NetworkHead／NetworkHeadExecutor／NetworkHeadFactory、HeadGraphVizInfo、WeightNormConfigの定義は内部のnn_impl.hppへ置く。Module／HeadのCreateExecutorは、専用の実行器が不要ならnullptrを返し、通常の本体を直接呼ぶ。公開ヘッダには署名に必要な前方宣言だけを残す。
+
+NetworkForwardExecutor は対象Networkの寿命を保持する。名前付きCreateForwardExecutorは不変設定・準備済み処理・内部State・時計種別を保持し、初期化時のBindNetwork(network)は設定・State・時計種別を共有する別接続を作る。CreateDefaultForwardExecutorは部品を準備せず、State・時計種別を持たない。重みは既存Moduleを参照し、clone先は別に準備する。実行中の設定切替は行わない。
 
 NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不変クラスで、別文で生成してForward(input, info)へ渡す。WithRowMappingは全Paramsをコピーして行対応だけを置換する。内部ContextはStateポインタとCallInfoのconst参照を持ち、時計種別を含まない。private MakeContextはTensorコピー・抽選・State更新・演算をせず、参照のlifetimeは同期Forward内に限定する。Tensorストレージは呼び出し中に変更しない。
 
@@ -105,13 +107,15 @@ net.branch.[merged].bind_concat_dim = -1
 | `NetworkHeadFactory` | dummy featureからAgent固有Headを構築する |
 | `NetworkHead` | Body featureをAgent固有出力へ変換する |
 | `Network` | BodyとHeadを所有し、forward、clone、hard/soft copy、GraphVizを公開する |
+| `NetworkForwardExecutor` | 対象Networkの寿命と用途別の準備済み処理を保持する公開実行器 |
+| `NetworkModuleExecutor`／`NetworkHeadExecutor` | 内部のModule／Head作者が満たす実行interface。CreateExecutorで生成し、不要なら本体を直接呼ぶ |
 
 ## 4. コードマップ
 
 | 領域 | 主なファイル |
 |---|---|
-| 公開Config・Network・Builder | [nn.hpp](../../core/anet-core/include/anet/nn.hpp) |
-| Body/Branch/Block/Repository | [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp)、[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) |
+| 利用側の公開Config・CallInfo・Network・Executor・診断・Builder | [nn.hpp](../../core/anet-core/include/anet/nn.hpp) |
+| Module／Head実装側のinterface・Body/Branch/Block/Repository | [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp)、[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) |
 | module実装と登録 | [nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) |
 | Agent向けHead | [nn_heads.hpp](../../core/anet-core/src/nn_heads.hpp)、[nn_heads.cpp](../../core/anet-core/src/nn_heads.cpp) |
 | DQN系Head | [dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp) |
@@ -146,8 +150,8 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +PrepareDefaultForward()
-  +PrepareForward(config, clock_kind, seed)
+  +CreateDefaultForwardExecutor()
+  +CreateForwardExecutor(config, clock_kind, seed)
   +Forward(input, callback)
   +Clone(device)
   +CopyTo(target)
@@ -161,7 +165,7 @@ class NetworkModule
 class NetworkModuleRepository
 class NetworkHead
 class NetworkHeadFactory
-class NetworkForwardExecution {
+class NetworkForwardExecutor {
   +Forward(input, info, callback)
   +BindNetwork(network)
 }
@@ -172,17 +176,17 @@ class NetworkForwardContext {
   <<internal>>
 }
 class NetworkForwardCallInfo
-class NetworkModuleExecution
-class NetworkHeadExecution
+class NetworkModuleExecutor
+class NetworkHeadExecutor
 
-NetworkForwardExecution --> Network : lifetime
-NetworkForwardExecution o-- NetworkForwardState : purpose
-NetworkForwardExecution ..> NetworkForwardCallInfo
-NetworkForwardExecution --> NetworkModuleExecution : fixed calls
-NetworkForwardExecution --> NetworkHeadExecution : fixed call
-NetworkModule --|> NetworkModuleExecution
-NetworkHead --|> NetworkHeadExecution
-Network ..> NetworkForwardExecution : prepares named/default
+NetworkForwardExecutor --> Network : lifetime
+NetworkForwardExecutor o-- NetworkForwardState : purpose
+NetworkForwardExecutor ..> NetworkForwardCallInfo
+NetworkForwardExecutor --> NetworkModuleExecutor : fixed calls
+NetworkForwardExecutor --> NetworkHeadExecutor : fixed call
+NetworkModule --|> NetworkModuleExecutor
+NetworkHead --|> NetworkHeadExecutor
+Network ..> NetworkForwardExecutor : prepares named/default
 NetworkBuilder ..> NetworkConfig
 NetworkBuilder ..> NetworkModuleRepository
 NetworkBuilder ..> NetworkHeadFactory
@@ -234,9 +238,9 @@ sequenceDiagram
     participant C as Actor/Learner initialization
     participant N as Network
     participant M as Concrete Module/Head
-    participant E as NetworkForwardExecution
-    C->>N: PrepareForward(config, clock_kind, seed)
-    N->>M: PrepareForward(config, clock_kind)
+    participant E as NetworkForwardExecutor
+    C->>N: CreateForwardExecutor(config, clock_kind, seed)
+    N->>M: CreateExecutor(config, clock_kind)
     M-->>N: private prepared execution or direct body
     N->>E: fix calls, own State and Network
     E-->>C: execution
@@ -247,7 +251,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant C as Actor/Learner
-    participant E as NetworkForwardExecution
+    participant E as NetworkForwardExecutor
     participant N as Network
     participant P as BoundaryPreprocessor
     participant B as NetworkBody
@@ -332,7 +336,7 @@ Body LinearとHeadが合成する具象LinearProjectionModuleは、そのprivate
 
 名前付き実行オブジェクト内部の `NetworkForwardState` は module 実体毎の ε と専用 RNG を持つ不透明な箱。call は時計が変わると再抽選、count は Actor の N 回毎、episode は Actor の `episode_start` が立った lane のみ再抽選する。同じ時計の再 forward は同じ ε を使い、同じ episode 境界を二度反映しない。count は episode 境界でリセットしない。保持中の shape/device 不一致と時計の逆行は fail-fast する。row_mapping は不変な NetworkForwardRowMapping とし、CPU の int64 index と元行数を構築時に検証して使用 device へ一度だけ転送する。射影は内部 index を公開しない SelectRows を使い、実行時は行数・device だけを確認する。GetIndices は検査用の独立した複製を返す。
 
-解釈済み値は具象の準備済み処理が所有する。NN内部の PreparedModuleChildren<N> は子の準備結果と本体への固定した呼び先を管理し、PreparedHeadExecution<Head, ForwardMethod, N> は指定した計算関数をコンパイル時に結び付ける。共通部品はDQN/Noisy/具体設定を解釈せず、全子が既定動作ならHead本体を直接呼ぶ。通常 forward に設定検索・解釈・設定用ロックはなく、設定元の寿命・変更・同名キーから独立する。
+解釈済み値は具象の準備済み処理が所有する。NN内部の PreparedModuleChildren<N> は子の準備結果と本体への固定した呼び先を管理し、PreparedHeadExecutor<Head, ForwardMethod, N> は指定した計算関数をコンパイル時に結び付ける。共通部品はDQN/Noisy/具体設定を解釈せず、全子が既定動作ならHead本体を直接呼ぶ。通常 forward に設定検索・解釈・設定用ロックはなく、設定元の寿命・変更・同名キーから独立する。
 
 sample は `Linear(x, μ)` と factorized ε を使う `Linear(x*ε_in, σ)*ε_out` を分けて計算し、batch 毎の重み `[B,out,in]` を実体化しない。ε は batch 以外の軸へ broadcast され、IQN の全 τ に同じ ε が届く。μ-only と `GetDefault()` は σ を計算 graph に入れず、ε/RNG を消費しない。SN は μ だけを既存の FP32 境界で正規化する。`force_fp32` は Noisy の ON/OFF と独立であり、通常の AMP 継承と Head の FP32 境界を維持する。
 

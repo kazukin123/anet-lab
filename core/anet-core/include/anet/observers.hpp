@@ -8,7 +8,6 @@
 #include "anet/probe.hpp"
 #include "anet/rl.hpp" 
 #include "anet/image.hpp"
-#include "anet/nn.hpp"
 
 #include <stop_token>
 

@@ -2,7 +2,7 @@
 
 ## 実行設定の責任境界
 
-対象は PrepareForward と NetworkForwardExecution::Forward。既存 Noisy テストと [nn][noisynet][prepared] で、準備時だけの設定解釈、具象 Module／Head の責任境界、設定の寿命・変更・同名設定、Network の寿命、独立Stateとtarget共有、probeの専用sample実行、同時 forward、出力・勾配・保持・精度・診断非干渉を確認する。通常の部品は本体を直接呼び、設定検索・再解釈・設定用ロックを使わない。既定 Network::Forward(input) は μ-only、TensorDictFunction の型は維持する。保存用設定の全キー・文字列値は変更しない。
+対象は CreateForwardExecutor と NetworkForwardExecutor::Forward。既存 Noisy テストと [nn][noisynet][prepared] で、準備時だけの設定解釈、具象 Module／Head の責任境界、設定の寿命・変更・同名設定、Network の寿命、独立Stateとtarget共有、probeの専用sample実行、同時 forward、出力・勾配・保持・精度・診断非干渉を確認する。通常の部品は本体を直接呼び、設定検索・再解釈・設定用ロックを使わない。既定 Network::Forward(input) は μ-only、TensorDictFunction の型は維持する。保存用設定の全キー・文字列値は変更しない。
 
 リポジトリルートの PowerShell から Debug 全体をビルドする。
 
@@ -202,8 +202,14 @@ Learner の forward_resources は必須で、有効時は current／target の�
 
 ## 公開面と既定経路の整理（2026-10-10）
 
-State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持する。PrepareDefaultForwardはModule/Headを準備せず、名前付きPrepareForwardは既定設定を拒否する。BindNetworkは同じ設定・State・時計種別を継承する。Executionの部分Forwardは削除し、Networkの既定部分Forwardは維持する。カタログの参照存在は読込時、使用する内容は具象準備時に検証する。Noisy probeの平均側は既定Forwardを使う。
+State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持する。CreateDefaultForwardExecutorはModule/Headを準備せず、名前付きCreateForwardExecutorは既定設定を拒否する。BindNetworkは同じ設定・State・時計種別を継承する。Executorの部分Forwardは削除し、Networkの既定部分Forwardは維持する。カタログの参照存在は読込時、使用する内容は具象準備時に検証する。Noisy probeの平均側は既定Forwardを使う。
 
 [simplify_default]・[simplify_catalog]・[forward_context]・[prepared]と既存[noisynet]を確認する。全coreはCPU/CUDA、設定6構成は公開ConfigManagerの全解決値比較、既定葉はprd072資材で監査する。削除したAPIの残存とNN6ファイルのRL語を検索し、NetworkForwardClock以外のkNoneは対象にしない。
 
 今回の出力は.scratch/prd084/forward-refactor/simplify-20261010に分離する。最終ReleaseはCPU LunarLander OFF500k（88184点）と代表ON500k（Noisy込み109941点）を旧基準と比較する。-Cases lunarlander_cpuでOFFを絞り、指定しない場合は従来3構成を維持する。CPU OFFはGPU検査・計測に依存させない。同GPUの別学習RunがあればONのみ保留する。旧OFF checkpoint読込も確認する。性能再測定はしない。結果は[検証記録](forward_refactor_verification.md)の今回の節を参照する。
+
+## 公開面と命名 2026-10-11
+
+公開のnn.hppは利用側のConfig・CallInfo・Network・NetworkForwardExecutor・診断・Builderを定義する。Module／Head作者のinterface、HeadFactory、HeadGraphVizInfo、WeightNormConfigは内部のnn_impl.hppへ置く。Module／HeadのCreateExecutorがnullptrを返す場合は本体を直接呼ぶ。
+
+現用APIはCreateForwardExecutor／CreateDefaultForwardExecutor、NetworkModuleExecutor／NetworkHeadExecutor、PreparedHeadExecutor。既存タグ・数値と準備済み処理の契約は維持する。API残存、公開型／メンバ／列挙子コメント、BOM／LFの監査ログは.scratch/prd084/forward-refactor/api-20261011/logs/へ保存する。最終ReleaseのCPU OFF500kと旧checkpoint読込を同じ実行体で確認し、結果は[検証記録](forward_refactor_verification.md)の今回節へ記録する。ON Runと性能の再測定は行わない。

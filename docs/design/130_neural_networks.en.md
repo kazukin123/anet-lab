@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:466d36bd47f907a141a1191b63849b42b1744982 date:2026-10-07 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:d51ca039532992cf515adf0a3ccf90a5ff6a1b67 date:2026-10-11 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -59,13 +59,15 @@ Discrete Grids retain `[S,1,H,W]` in the raw Network spec, but `NetworkBoundaryP
 
 This separation allows multiple Agent-specific Heads to use a shared Backbone.
 
-NetworkForwardConfig is an immutable carrier of a key and copied selected ConfigData, without concrete types, parsing, or validation. Network::PrepareForward delegates preparation to constructed Modules and Head. Ordinary components remain direct call targets; only consuming concrete components return prepared calls with private enums and numbers. Child Modules propagate preparation while reusing bind, dependencies, trace, capture, and FP32 computation. New settings remain local to consuming components.
+NetworkForwardConfig is an immutable carrier of a key and copied selected ConfigData, without concrete types, parsing, or validation. Network::CreateForwardExecutor delegates preparation to constructed Modules and Head. Ordinary components remain direct call targets; only consuming concrete components return prepared calls with private enums and numbers. Child Modules propagate preparation while reusing bind, dependencies, trace, capture, and FP32 computation. New settings remain local to consuming components.
 
-NetworkForwardExecution owns Network lifetime. Named PrepareForward owns immutable settings, prepared calls, internal State, and clock kind. Initialization-only BindNetwork(network) inherits settings, State, and clock kind. PrepareDefaultForward performs no component preparation and owns no State or clock kind. Calls refer to existing weights; clones need separate preparation. Runtime switching remains deferred.
+NetworkForwardExecutor owns Network lifetime. Named CreateForwardExecutor owns immutable settings, prepared calls, internal State, and clock kind. Initialization-only BindNetwork(network) inherits settings, State, and clock kind. CreateDefaultForwardExecutor performs no component preparation and owns no State or clock kind. Calls refer to existing weights; clones need separate preparation. Runtime switching remains deferred.
 
 Immutable NetworkForwardCallInfo contains clock value, episode_start, and row mapping. Construct it in a separate statement before Forward(input, info). WithRowMapping copies all Params and replaces only the mapping. Internal Context holds a State pointer and a const CallInfo reference, without clock kind. MakeContext performs no Tensor copies, draws, State updates, or computation. The reference lives only during synchronous Forward; Tensor storage must not change during the call.
 
-The internal NN helpers PreparedModuleChildren<N> and PreparedHeadExecution<Head, ForwardMethod, N> own prepared child calls and bind the Head computation at compile time. They do not interpret DQN, Noisy, or concrete settings. A Head with only default child calls runs its original body directly. PrepareForward requires a Network owned by shared_ptr.
+The internal NN helpers PreparedModuleChildren<N> and PreparedHeadExecutor<Head, ForwardMethod, N> own prepared child calls and bind the Head computation at compile time. They do not interpret DQN, Noisy, or concrete settings. A Head with only default child calls runs its original body directly. CreateForwardExecutor requires a Network owned by shared_ptr.
+
+Public nn.hpp contains NN consumer contracts. NetworkHead, NetworkHeadExecutor, NetworkHeadFactory, HeadGraphVizInfo, and WeightNormConfig definitions live in internal nn_impl.hpp. Module/Head CreateExecutor returns nullptr when no dedicated executor is needed, keeping the ordinary body as the direct call target. Public declarations retain only forward declarations required by signatures.
 
 Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkForwardContext::GetDefault internally; Noisy defaults to μ-only. Dummy calls, extra diagnostics, other Agents, and unchanged TensorDictFunction operations use this route. Named settings are no longer passed in Context. Setting access uses no RTTI, dynamic_cast, or type tokens; internal State type management remains separate. Configuration loading validates references; consuming concrete preparation validates contents and usage, and computations validate runtime shape/device and clocks. ValidateForwardReuse delegates reuse constraints.
 
@@ -106,13 +108,15 @@ net.branch.[merged].bind_concat_dim = -1
 | `NetworkHeadFactory` | Constructs an Agent-specific Head from dummy features |
 | `NetworkHead` | Converts Body features into Agent-specific outputs |
 | `Network` | Owns Body and Head and exposes forward, clone, hard/soft copy, and GraphViz |
+| `NetworkForwardExecutor` | Public executor retaining the Network lifetime and purpose-specific prepared calls |
+| `NetworkModuleExecutor` / `NetworkHeadExecutor` | Internal execution interfaces for Module/Head authors; CreateExecutor returns a dedicated executor or leaves the body as the direct target |
 
 ## 4. Code Map
 
 | Area | Main files |
 |---|---|
-| Public Config, Network, Builder | [nn.hpp](../../core/anet-core/include/anet/nn.hpp) |
-| Body/Branch/Block/Repository | [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp), [nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) |
+| Public consumer Config, CallInfo, Network, Executor, diagnostics, Builder | [nn.hpp](../../core/anet-core/include/anet/nn.hpp) |
+| Module/Head author interfaces, Body/Branch/Block/Repository | [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp), [nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) |
 | Module implementations and registration | [nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) |
 | Agent Heads | [nn_heads.hpp](../../core/anet-core/src/nn_heads.hpp), [nn_heads.cpp](../../core/anet-core/src/nn_heads.cpp) |
 | DQN Heads | [dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp) |
@@ -147,8 +151,8 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +PrepareDefaultForward()
-  +PrepareForward(config, clock_kind, seed)
+  +CreateDefaultForwardExecutor()
+  +CreateForwardExecutor(config, clock_kind, seed)
   +Forward(input, callback)
   +Clone(device)
   +CopyTo(target)
@@ -162,7 +166,7 @@ class NetworkModule
 class NetworkModuleRepository
 class NetworkHead
 class NetworkHeadFactory
-class NetworkForwardExecution {
+class NetworkForwardExecutor {
   +Forward(input, info, callback)
   +BindNetwork(network)
 }
@@ -173,17 +177,17 @@ class NetworkForwardContext {
   <<internal>>
 }
 class NetworkForwardCallInfo
-class NetworkModuleExecution
-class NetworkHeadExecution
+class NetworkModuleExecutor
+class NetworkHeadExecutor
 
-NetworkForwardExecution --> Network : lifetime
-NetworkForwardExecution o-- NetworkForwardState : purpose
-NetworkForwardExecution ..> NetworkForwardCallInfo
-NetworkForwardExecution --> NetworkModuleExecution : fixed calls
-NetworkForwardExecution --> NetworkHeadExecution : fixed call
-NetworkModule --|> NetworkModuleExecution
-NetworkHead --|> NetworkHeadExecution
-Network ..> NetworkForwardExecution : prepares named/default
+NetworkForwardExecutor --> Network : lifetime
+NetworkForwardExecutor o-- NetworkForwardState : purpose
+NetworkForwardExecutor ..> NetworkForwardCallInfo
+NetworkForwardExecutor --> NetworkModuleExecutor : fixed calls
+NetworkForwardExecutor --> NetworkHeadExecutor : fixed call
+NetworkModule --|> NetworkModuleExecutor
+NetworkHead --|> NetworkHeadExecutor
+Network ..> NetworkForwardExecutor : prepares named/default
 NetworkBuilder ..> NetworkConfig
 NetworkBuilder ..> NetworkModuleRepository
 NetworkBuilder ..> NetworkHeadFactory
@@ -235,9 +239,9 @@ sequenceDiagram
     participant C as Actor/Learner initialization
     participant N as Network
     participant M as Concrete Module/Head
-    participant E as NetworkForwardExecution
-    C->>N: PrepareForward(config, clock_kind, seed)
-    N->>M: PrepareForward(config, clock_kind)
+    participant E as NetworkForwardExecutor
+    C->>N: CreateForwardExecutor(config, clock_kind, seed)
+    N->>M: CreateExecutor(config, clock_kind)
     M-->>N: private prepared execution or direct body
     N->>E: fix calls, own State and Network
     E-->>C: execution
@@ -248,7 +252,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant C as Actor/Learner
-    participant E as NetworkForwardExecution
+    participant E as NetworkForwardExecutor
     participant N as Network
     participant P as BoundaryPreprocessor
     participant B as NetworkBody
