@@ -2,7 +2,7 @@
 
 ## 実行設定の責任境界
 
-対象は PrepareForward と NetworkForwardExecution::Forward／ForwardUpTo。既存 Noisy テストと [nn][noisynet][prepared] で、準備時だけの設定解釈、具象 Module／Head の責任境界、設定の寿命・変更・同名設定、Network の寿命、独立 State と target／probe 共有、同時 forward、出力・勾配・保持・精度・診断非干渉を確認する。通常の部品は本体を直接呼び、設定検索・再解釈・設定用ロックを使わない。既定 Network::Forward(input) は μ-only、TensorDictFunction の型は維持する。保存用設定の全キー・文字列値は変更しない。
+対象は PrepareForward と NetworkForwardExecution::Forward。既存 Noisy テストと [nn][noisynet][prepared] で、準備時だけの設定解釈、具象 Module／Head の責任境界、設定の寿命・変更・同名設定、Network の寿命、独立Stateとtarget共有、probeの専用sample実行、同時 forward、出力・勾配・保持・精度・診断非干渉を確認する。通常の部品は本体を直接呼び、設定検索・再解釈・設定用ロックを使わない。既定 Network::Forward(input) は μ-only、TensorDictFunction の型は維持する。保存用設定の全キー・文字列値は変更しない。
 
 リポジトリルートの PowerShell から Debug 全体をビルドする。
 
@@ -28,7 +28,7 @@ core/anet-core/bin/Debug/anet-core-test.exe
 
 レビューでは、具体的な設定型が具象クラス内部に閉じていること、共通層に Module 固有のフィールド・読み取り処理・型や有無の判定が無いことを確認する。`GetDefault()` は各計算部品の既定動作を明示的に要求する。具体的な設定値は持たず、Noisy の計算部品はこれを μ-only と解釈する。名前付き設定の項目不足とは区別し、暗黙の fallback にはしない。
 
-Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の事前準備リファクタリングの受け入れは `docs/memo/084_noisynet_23impl.md` を正本とする。21impl・22impl の検証は当時の契約の記録として保持する。
+Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の公開面整理の受け入れは `docs/memo/084_noisynet_24impl.md` を正本とする。23implは当時の記録として保持する。21impl・22impl の検証は当時の契約の記録として保持する。
 
 ## OFF 回帰の数値比較
 
@@ -199,3 +199,11 @@ Learner の forward_resources は必須で、有効時は current／target の�
 今回の選択は OFF3本＋ON1本（各500k経験）と旧 OFF checkpoint 読込。`-Stage on-after` は変更後 ON 単発を保存済み代表構成の109941点と照合する。出力先は `.scratch/prd084/forward-refactor/review-followup-20261010/after/`。集計は `summarize_forward_refactor.py` に `--followup` を付け、数値・診断・設定・同一GPUを検証する。以前の性能6 Runは当時の実行体による証拠として区別し、3反復・48 Runは再測定しない。今回の結果は[検証記録](forward_refactor_verification.md)の再レビュー節へ追記する。
 
 2026-10-10追記: ユーザーによる既存Run一時停止後、最終Release別出力実行体でOFF3本＋ON1本・旧checkpoint確認を実行した。全正常終了・点数／checksum一致。全解決値、診断の成立とNaN、複数eval／probeも確認済み。専用出力のafter/acceptance-summary.jsonと検証記録の再レビュー節を参照する。停止中の既存Runがメモリに常駐した状態のため、単発の性能値は前後性能比較の証拠にはしない。
+
+## 公開面と既定経路の整理（2026-10-10）
+
+State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持する。PrepareDefaultForwardはModule/Headを準備せず、名前付きPrepareForwardは既定設定を拒否する。BindNetworkは同じ設定・State・時計種別を継承する。Executionの部分Forwardは削除し、Networkの既定部分Forwardは維持する。カタログの参照存在は読込時、使用する内容は具象準備時に検証する。Noisy probeの平均側は既定Forwardを使う。
+
+[simplify_default]・[simplify_catalog]・[forward_context]・[prepared]と既存[noisynet]を確認する。全coreはCPU/CUDA、設定6構成は公開ConfigManagerの全解決値比較、既定葉はprd072資材で監査する。削除したAPIの残存とNN6ファイルのRL語を検索し、NetworkForwardClock以外のkNoneは対象にしない。
+
+今回の出力は.scratch/prd084/forward-refactor/simplify-20261010に分離する。最終ReleaseはCPU LunarLander OFF500k（88184点）と代表ON500k（Noisy込み109941点）を旧基準と比較する。-Cases lunarlander_cpuでOFFを絞り、指定しない場合は従来3構成を維持する。CPU OFFはGPU検査・計測に依存させない。同GPUの別学習RunがあればONのみ保留する。旧OFF checkpoint読込も確認する。性能再測定はしない。結果は[検証記録](forward_refactor_verification.md)の今回の節を参照する。

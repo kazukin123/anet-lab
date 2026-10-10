@@ -20,10 +20,12 @@
 > 2026-10-05 改訂: 実行設定の具象 Module 内への責任分離、GetDefault() と Forward の context 省略契約、同一時計の episode 保持、初期 σ/μ 比と診断の成立条件を明確化した。参照 profile は AMP 継承・Body の選択的 FP32・標準 call/batch とし、NN の時計を継続する行と呼び出しごとに異なる行の2種類へ整理した。
 >
 > 2026-10-10 改訂: 設定解釈を事前準備へ移し、用途別NN実行オブジェクトと不変なNN呼び出し情報で駆動する契約へ整理した。Learnerの参照とResourceの対応を初期化時に検証し、Module/Headの準備結果管理をNN内部共通部品で共用する（§4.2、§9、§13、ADR0051）。
+>
+> 2026-10-10 改訂（公開面の整理）: State/Contextを内部へ閉じ、既定実行は準備を行わない。Bindは同じ設定を継承する。probeのμ-only側は既定経路とし、実行設定の内容は使用する具象部品の準備時に検証する。CallInfoの不変性は維持する（24impl）。
 
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
 
-設定の解釈・利用時制約の検証は実行前の準備で完了する。通常 forward は設定を検索・再解釈せず、設定用ロックを使わない。時計の値・episode_start・行対応は別の値オブジェクトとして生成してから用途別実行オブジェクトへ渡す。対象 Network の寿命を保証し、同じ target 用途の online／target 接続は State と時計種別を共有する。clone 先は別に準備し、重み・RNG・保持・同期・保存の契約を維持する。
+設定の解釈・利用時制約の検証は実行前の準備で完了する。通常 forward は設定を検索・再解釈せず、設定用ロックを使わない。時計の値・episode_start・行対応は別の値オブジェクトとして生成してから用途別実行オブジェクトへ渡す。対象 Network の寿命を保証し、同じ target 用途の online／target 接続は設定・State・時計種別を共有する。clone 先は別に準備し、重み・RNG・保持・同期・保存の契約を維持する。
 
 既定の Network::Forward(input) と部分 forward は各部品の既定動作を使う。Noisy は μ-only。名前付き設定の項目不足と区別し、暗黙の fallback を行わない。TensorDictFunction の型は維持する。
 
@@ -264,7 +266,7 @@ AMP を継承する Noisy Linear は、§5.1 の等価式（μ の Linear と σ
 | NN 実行設定（`nn_forward.[name]`） | 不変の設定 | キーで参照する。Config DTO のカタログは生の設定値を保持する。選択済み搬送型と実行オブジェクトは Agent の Resource に分離し、実行時に名前を引く機構は持たない（§13 のゲート）。設定の共用に ε・RNG・保持状態の共用を含めない |
 | μ・σ | 学習 parameter | network が所有する。optimizer、hard / soft copy、snapshot、保存・読込の対象 |
 | 入力 Tensor（batch size・device）、`episode_start` の lane マスク、時計の今の値 | 呼び出しごとの入力 | 呼び出し側が forward のたびに作って渡す。保持しない |
-| 実行状態の箱 | 保持する状態 | 呼び出し側（Actor は 1 つ、Learner は現在値用と target 用に 1 つずつ）が所有する private Resource。実行準備で作り、用途別実行オブジェクトが保持する。呼び出し側は中身を読み書きしない。network の同期・保存対象に含めない |
+| 実行状態の箱 | 保持する状態 | 名前付き用途別実行オブジェクトが内部に持つ private Resource（Actor は1つ、Learner は現在値用とtarget用に1つずつ）。呼び出し側は箱を取得・操作しない。既定実行は箱を持たない。network の同期・保存対象に含めない |
 | 箱の中身: 層ごとの slot（保持中の入力側・出力側ベクトルと、抽選したときの時計の値 `drawn_at`）とノイズ用 RNG | 保持する状態 | 計算部品が forward 中に更新する State。slot は `batch` なら \([p]\)・\([q]\)、`sample` なら \([B,p]\)・\([B,q]\)。RNG は呼び出し側の seed から派生し、抽選のたびに進む |
 | 時計 | 保持する状態 | 呼び出し側の State。Learner は `learn_step`、Actor は自分の行動選択回数。境界ごとに 1 進める |
 | 用途別 RNG | 保持する状態 | acting、Learner の各役割、診断の状態抽出・ノイズ、IQN τ の用途を分離する |
@@ -300,7 +302,7 @@ ReplayBuffer から、専用 RNG を使って一様・非復元に状態を抽�
 
 1 回の probe では同じ状態集合を使い、μ-only を 1 回、sample を独立な ε 標本 R 個で評価する。各反復内では B 状態間で ε を共有し、反復間で独立に抽選する。sample は R 回の forward（1 回に B 状態、`batch` 共有）に分けて評価する。R·B 行を 1 回の forward で `sample` にしても期待値は同じだが、B=128・R=32 では 4,096 状態が FP32 で畳み込みを通り、Atari の IMPALA では最初の畳み込みの出力だけで約 3.7GB になるため採らない。分けた場合の追加コストは、実行間隔ごとに B 状態の forward R 回で、Learner の 1% 前後の概算である。IQN は \(\tau_k=(k+1/2)/K\)、\(k=0,\ldots,K-1\) の midpoint を固定し、すべての forward で共有する。同じ状態の分位点間では ε も共有する。FP32・eval・NoGrad で測り、通常の学習・Actor forward と独立した診断用 RNG だけを消費する。σ エントリが無い network では三指標とも `NaN` とし、0 を出さない。
 
-probe の μ-only / sample 比較は、Noisy mode 以外の Module / Head 固有の opaque 実行設定を揃える。Agent が両用途の不変 Resource を所有し、Learner は解釈せず渡す。
+Noisy probeのμ-only側は既定のNetwork::Forwardを使う。Agentはsample側の設定Resourceだけを持ち、専用StateとRNGでsample/call/batchの反復を行う。
 
 probe の反復で変えるのは NoisyNet の ε だけとする。ε-greedy、UQE の risk distortion、τ の再抽選等を混ぜない。その他の確率的処理も eval 条件に従って固定する。Q はネットワークの分位平均後の出力を使い、TBO 有効時も逆変換せず同じ Q 空間で比較する。
 
@@ -370,9 +372,9 @@ sample を使用する部品には、必要な方式・保持・共有の実効�
 
 ノイズ設定を使わない計算部品では、その設定群は休眠し、そのための ε 抽選・保持処理を要求しない。NN 実行設定全体を無効扱いにはしない。μ-only の保持・共有等の未使用項目も、その利用を前提とする検証の対象にはしない。
 
-記述された認識済み設定の型・列挙値・値域は、使用・休眠にかかわらず検証する。σ₀、weight decay、N、probe の件数・間隔などに不正値を潜伏させない。正の件数を要求する項目に 0 や負値を渡した際に、全件扱い・自動 clamp・別方式への fallback を加えない。意図的な診断無効化は既存の購読・有効化契約で表す。
+NN実行設定の項目内容は、それを使用する具象部品が準備時に型・列挙値・値域を検証する。未参照項目と、部品が利用しない設定群は休眠し、内容を検証しない。構造設定のσ₀、weight decay、probeの件数・間隔などは既存の設定検証を維持する。正の件数を要求する項目に0や負値を渡した際に、全件扱い・自動clamp・別方式へのfallbackを加えない。
 
-宣言だけで判定できる型・値域・参照の違反は設定読込・解決時に検出する。`episode` と `batch` の同時指定は、互換性のない組み合わせとしてここで fail-fast にする。固有項目の不足、実際に利用する保持方式と呼び出し側の時計の種類の不整合、`online_reuse` の両立条件は、それらを使う計算部品が初期化時に検証する。shape や ε と batch / device の不整合は、情報が揃う初期化・forward 境界で fail-fast にする。エラーには対象のキー・NN 実行設定の名前・計算部品・指定値と期待条件を含める。
+参照の欠落・未知キーは設定読込時に検出する。使用する実行設定の型・値域・必要項目、episodeとbatchの不整合、保持方式と時計種別の不整合は具象部品の準備時に検証する。online_reuseの両立条件も利用する部品が初期化時に検証する。shape・device・時計値の不整合は情報が揃うforward境界でfail-fastにする。エラーには対象キー・実行設定名・計算部品・指定値と期待条件を含める。
 
 Actor・Learner・共通実行処理へ Noisy の型判定・有無判定を追加して、固有項目の検証を代行しない。再利用の条件は §7.2 に従い、全実行条件やキー名の同一性の検証へ広げない。
 
@@ -423,6 +425,7 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 | 裁定 | 内容と理由 |
 |---|---|
+| 削除 | State/Contextの公開、既定実行の部品準備、Executionの部分Forward/Network取得、probe平均側の名前付き設定、カタログ内容の宣言検証。CallInfoの不変クラスとWithRowMappingは維持する。裁定は[24impl](084_noisynet_24impl.md)を参照する |
 | 維持・共用 | 用途別NN実行オブジェクト、NN呼び出し情報、Module/HeadのExecution interfaceと準備結果管理。具体設定を具象部品へ閉じ、通常の部品は直接呼ぶ。裁定は[ADR0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)と[23impl](084_noisynet_23impl.md)を参照する |
 | 維持 | Actor の保持・共有、Learner の方式・共有、target、評価、μ 正規化 SN の併用、`force_fp32`、σ decay。目的がアルゴリズム探求であり、BTR 再現に必要な最小構成へ縮小しない |
 | 維持 | 既存 `episode_start` と Atari の episode 定義。独自の境界概念を増やさない |

@@ -50,8 +50,6 @@ public:
         projection_->Bind(linear_);
     }
 
-    static void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config)
-    { anet::nn::LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     {
@@ -147,8 +145,6 @@ public:
         adv_projection_->Bind(adv_);
     }
 
-    static void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config)
-    { anet::nn::LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     {
@@ -279,8 +275,6 @@ public:
         projection_->Bind(linear_);
     }
 
-    static void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config)
-    { anet::nn::LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     {
@@ -397,8 +391,6 @@ public:
         adv_projection_->Bind(adv_);
     }
 
-    static void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config)
-    { anet::nn::LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     {
@@ -554,8 +546,6 @@ public:
         projection_->Bind(linear_);
     }
 
-    static void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config)
-    { anet::nn::LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     {
@@ -677,8 +667,6 @@ public:
         adv_projection_->Bind(adv_);
     }
 
-    static void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config)
-    { anet::nn::LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
     {
@@ -845,10 +833,6 @@ LinearHeadFactory::LinearHeadFactory(int64_t action_dim, const anet::nn::WeightI
 {
 }
 
-void LinearHeadFactory::ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const
-{
-    LinearHead::ValidateForwardConfigDeclaration(config);
-}
 
 std::shared_ptr<anet::nn::NetworkHead> LinearHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -863,10 +847,6 @@ DuelingHeadFactory::DuelingHeadFactory(int64_t action_dim, const anet::nn::Weigh
 {
 }
 
-void DuelingHeadFactory::ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const
-{
-    DuelingHead::ValidateForwardConfigDeclaration(config);
-}
 
 std::shared_ptr<anet::nn::NetworkHead> DuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -894,10 +874,6 @@ QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantil
 {
 }
 
-void QuantileHeadFactory::ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const
-{
-    QuantileHead::ValidateForwardConfigDeclaration(config);
-}
 
 std::shared_ptr<anet::nn::NetworkHead> QuantileHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -913,10 +889,6 @@ QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64
 {
 }
 
-void QuantileDuelingHeadFactory::ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const
-{
-    QuantileDuelingHead::ValidateForwardConfigDeclaration(config);
-}
 
 std::shared_ptr<anet::nn::NetworkHead> QuantileDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -945,10 +917,6 @@ IQNHeadFactory::IQNHeadFactory(int64_t action_dim, const anet::nn::WeightInitCon
 {
 }
 
-void IQNHeadFactory::ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const
-{
-    IQNHead::ValidateForwardConfigDeclaration(config);
-}
 
 std::shared_ptr<anet::nn::NetworkHead> IQNHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -966,10 +934,6 @@ IQNDuelingHeadFactory::IQNDuelingHeadFactory(int64_t action_dim, const anet::nn:
 {
 }
 
-void IQNDuelingHeadFactory::ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const
-{
-    IQNDuelingHead::ValidateForwardConfigDeclaration(config);
-}
 
 std::shared_ptr<anet::nn::NetworkHead> IQNDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {

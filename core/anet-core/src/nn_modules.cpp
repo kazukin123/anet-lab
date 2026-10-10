@@ -202,30 +202,7 @@ struct LinearProjectionModule::Impl {
         return hold == Hold::kEpisode ? "episode" : (hold == Hold::kCount ? "count" : "call");
     }
     struct ForwardConfig {
-        static void ValidateDeclaration(const NetworkForwardConfig& request)
-        {
-            const auto& data = request.GetConfigData();
-            const auto mode = data.Get<std::string>("noisy.mode");
-            const auto hold = data.Get<std::string>("noisy.hold");
-            const auto share = data.Get<std::string>("noisy.share");
-            // 休眠中は必要項目を要求せず、明示された値の型・列挙・値域だけを検証する。
-            if (data.Has("noisy.mode") && mode != "sample" && mode != "mu_only") {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='" << mode << "' expected sample or mu_only.");
-            }
-            if (data.Has("noisy.hold") && hold != "call" && hold != "count" && hold != "episode") {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.hold='" << hold << "' expected call, count, or episode.");
-            }
-            if (data.Has("noisy.share") && share != "batch" && share != "sample") {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.share='" << share << "' expected batch or sample.");
-            }
-            if (data.Has("noisy.count") && data.Get<uint64_t>("noisy.count") == 0) {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.count=0 expected a positive integer.");
-            }
-            if (mode == "sample" && hold == "episode" && share == "batch") {
-                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=episode requires noisy.share=sample; actual=batch.");
-            }
-        }
-        explicit ForwardConfig(const NetworkForwardConfig& request)
+        explicit ForwardConfig(const NetworkForwardConfig& request) try
             : key(request.key)
             , mode(request.GetConfigData().Get<std::string>("noisy.mode") == "sample" ? Mode::kSample : Mode::kMuOnly)
             , hold(request.GetConfigData().Get<std::string>("noisy.hold") == "episode" ? Hold::kEpisode
@@ -234,8 +211,27 @@ struct LinearProjectionModule::Impl {
             , count(request.GetConfigData().Has("noisy.count")
                 ? std::optional<uint64_t>(request.GetConfigData().Get<uint64_t>("noisy.count")) : std::nullopt)
         {
-            ValidateDeclaration(request);
+
             const auto& data = request.GetConfigData();
+            const auto raw_mode = data.Get<std::string>("noisy.mode");
+            const auto raw_hold = data.Get<std::string>("noisy.hold");
+            const auto raw_share = data.Get<std::string>("noisy.share");
+            // 利用する具象部品の準備で、明示値と必要項目をまとめて検証する。
+            if (data.Has("noisy.mode") && raw_mode != "sample" && raw_mode != "mu_only") {
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='" << raw_mode << "' expected sample or mu_only.");
+            }
+            if (data.Has("noisy.hold") && raw_hold != "call" && raw_hold != "count" && raw_hold != "episode") {
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.hold='" << raw_hold << "' expected call, count, or episode.");
+            }
+            if (data.Has("noisy.share") && raw_share != "batch" && raw_share != "sample") {
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.share='" << raw_share << "' expected batch or sample.");
+            }
+            if (data.Has("noisy.count") && data.Get<uint64_t>("noisy.count") == 0) {
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.count=0 expected a positive integer.");
+            }
+            if (raw_mode == "sample" && raw_hold == "episode" && raw_share == "batch") {
+                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=episode requires noisy.share=sample; actual=batch.");
+            }
             if (!data.Has("noisy.mode")) {
                 ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << key << "' noisy.mode='' expected sample or mu_only.");
             }
@@ -246,6 +242,9 @@ struct LinearProjectionModule::Impl {
             if (mode == Mode::kSample && hold == Hold::kCount && !count) {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << key << "' noisy.hold=count requires noisy.count.");
             }
+        }
+        catch (const std::exception& error) {
+            ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "': " << error.what());
         }
         const std::string key;
         const Mode mode;
@@ -276,17 +275,11 @@ struct LinearProjectionModule::Impl {
     {
         ANET_PROFILE_FUNC();
         if (config.mode == Mode::kMuOnly) return mean;
-        if (!context.GetState() || context.GetClockKind() == NetworkForwardClock::kNone) {
-            ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << config.key << "' requires a state and clock for noisy.mode=sample.");
-        }
-
-        if ((config.hold == Hold::kCount || config.hold == Hold::kEpisode) && context.GetClockKind() != NetworkForwardClock::kContinuingRows) {
-            ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << config.key << "' noisy.hold=" << HoldName(config.hold) << " requires continuing rows.");
-        }
+        ANET_CHECK_MSG(context.GetState(), "Prepared Noisy computation requires its execution state.");
 
         // 箱と層の実体ごとに専用の factor を持ち、同じ時計では再利用する。
         ANET_PROFILE_SCOPE(noise);
-        auto& state = NetworkForwardStateAccess::Get<NoiseState>(*context.GetState(), linear.get());
+        auto& state = context.GetState()->Get<NoiseState>(linear.get());
         if (input.dim() < 2) {
             ANET_SYSTEM_ERROR("LinearProjectionModule noisy.mode=sample requires a batch axis; input rank=" << input.dim() << ".");
         }
@@ -329,7 +322,7 @@ struct LinearProjectionModule::Impl {
         const bool initialized = state.input.defined();
         const uint64_t period = config.hold == Hold::kCount ? *config.count : 1;
         if (!initialized || (config.hold != Hold::kEpisode && context.GetClock() - state.drawn_at >= period)) {
-            auto& random = NetworkForwardStateAccess::GetRandom(*context.GetState());
+            auto& random = context.GetState()->GetRandom();
             const auto generator = random.GetTorchGenerator(input.device());
             const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(input.device());
             const auto raw_input = torch::randn(input_shape, generator, options);
@@ -343,7 +336,7 @@ struct LinearProjectionModule::Impl {
             if (initialized) {
                 const auto rows = context.GetEpisodeStart().nonzero().flatten().to(input.device(), torch::kLong);
                 if (rows.numel() > 0) {
-                    auto& random = NetworkForwardStateAccess::GetRandom(*context.GetState());
+                    auto& random = context.GetState()->GetRandom();
                     const auto generator = random.GetTorchGenerator(input.device());
                     const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(input.device());
                     const auto raw_input = torch::randn({ rows.numel(), input.size(-1) }, generator, options);
@@ -368,9 +361,6 @@ struct LinearProjectionModule::Impl {
             : owner_(owner), config_(request)
         {
             if (config_.mode != Mode::kSample) return;
-            if (clock == NetworkForwardClock::kNone) {
-                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << config_.key << "' noisy.mode=sample requires a clock.");
-            }
             if (config_.hold != Hold::kCall && clock != NetworkForwardClock::kContinuingRows) {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << config_.key
                     << "' noisy.hold=" << HoldName(config_.hold) << " requires continuing rows.");
@@ -420,7 +410,8 @@ std::unique_ptr<LinearProjectionModule::Execution> LinearProjectionModule::Prepa
     const NetworkForwardConfig& config, NetworkForwardClock clock)
 {
     ANET_PROFILE_FUNC();
-    if (!impl_->noisy_config_.enabled || config.IsDefault()) return nullptr;
+    ANET_CHECK_MSG(!config.IsDefault(), "Default forward settings must not be passed to LinearProjectionModule::PrepareProjection.");
+    if (!impl_->noisy_config_.enabled) return nullptr;
     auto prepared = std::make_unique<Impl::Prepared>(*impl_, config, clock);
     if (prepared->IsMeanOnly()) return nullptr;
     return prepared;
@@ -432,10 +423,6 @@ std::unique_ptr<NetworkModuleExecution> LinearProjectionModule::PrepareForward(
     return PrepareProjection(config, clock);
 }
 
-void LinearProjectionModule::ValidateForwardConfigDeclaration(const NetworkForwardConfig& config)
-{
-    Impl::ForwardConfig::ValidateDeclaration(config);
-}
 
 void LinearProjectionModule::ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const
 {
@@ -528,8 +515,6 @@ public:
         return ForwardSpectralLinear(*this, linear, x, spectral_norm_state_);
     }
 
-    static void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config)
-    { LinearProjectionModule::ValidateForwardConfigDeclaration(config); }
 
     void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const override
     { projection_->ValidateForwardReuse(source, requested); }
@@ -2975,10 +2960,6 @@ private:
         }
     };
 public:
-    void ValidateForwardConfigDeclaration(const NetworkForwardConfig& request) const override
-    {
-        LinearModule::ValidateForwardConfigDeclaration(request);
-    }
 
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {

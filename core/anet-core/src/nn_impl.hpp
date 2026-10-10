@@ -117,19 +117,41 @@ namespace anet::nn {
     // Network Internal Utils
     // ===========================================================================
 
-    /// 箱の内容は計算部品だけが扱う。共通アクセスは設定や状態の意味を解釈しない。
-    class NetworkForwardStateAccess {
+    /// 実行オブジェクトが内部に持つ箱。計算部品だけが保持値と専用乱数を操作する。
+    class NetworkForwardState {
     public:
+        explicit NetworkForwardState(anet::seed_t seed);
+        ~NetworkForwardState();
+        NetworkForwardState(const NetworkForwardState&) = delete;
+        NetworkForwardState& operator=(const NetworkForwardState&) = delete;
         template<typename T>
-        static T& Get(NetworkForwardState& state, const void* owner)
+        T& Get(const void* owner)
         {
-            auto& slot = GetSlot(state, owner, std::type_index(typeid(T)));
+            auto& slot = GetSlot(owner, std::type_index(typeid(T)));
             if (!slot) slot = std::make_shared<T>();
             return *std::static_pointer_cast<T>(slot);
         }
-        static anet::RandomGenerator& GetRandom(NetworkForwardState& state);
+        anet::RandomGenerator& GetRandom();
     private:
-        static std::shared_ptr<void>& GetSlot(NetworkForwardState& state, const void* owner, std::type_index type);
+        std::shared_ptr<void>& GetSlot(const void* owner, std::type_index type);
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
+    /// 同期Forwardの期間だけ、箱と不変の呼び出し情報を参照する。
+    /// 名前付きContextには一時オブジェクトのCallInfoを渡さない。
+    class NetworkForwardContext {
+    public:
+        NetworkForwardContext(NetworkForwardState* state, const NetworkForwardCallInfo& info)
+            : state_(state), info_(info) {}
+        static NetworkForwardContext GetDefault();
+        NetworkForwardState* GetState() const { return state_; }
+        uint64_t GetClock() const { return info_.GetClock(); }
+        const torch::Tensor& GetEpisodeStart() const { return info_.GetEpisodeStart(); }
+        const std::optional<NetworkForwardRowMapping>& GetRowMapping() const { return info_.GetRowMapping(); }
+    private:
+        NetworkForwardState* const state_;
+        const NetworkForwardCallInfo& info_;
     };
 
     // 射影の共用は数値演算だけとし、設定の解釈や保持境界は呼び出す具象クラスが所有する。
@@ -246,7 +268,6 @@ namespace anet::nn {
         std::unique_ptr<Execution> PrepareProjection(const NetworkForwardConfig& config, NetworkForwardClock clock);
         std::unique_ptr<NetworkModuleExecution> PrepareForward(
             const NetworkForwardConfig& config, NetworkForwardClock clock) override;
-        static void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config);
         torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context) override;
         torch::Tensor ForwardWithMean(const torch::Tensor& input, const torch::Tensor& mean,
             const NetworkForwardContext& context);
@@ -360,8 +381,7 @@ namespace anet::nn {
             const anet::TraceCallback& callback = {},
             NetworkBranchCapture* capture = nullptr,
             const std::vector<std::vector<NetworkModuleExecution*>>* calls = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key,
-            const std::vector<std::vector<NetworkModuleExecution*>>* calls = nullptr);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
         std::set<std::string> ComputeDependencyClosure(const std::string& branch_key) const;
         std::vector<std::string> GetBranchNames() const;
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
@@ -397,7 +417,6 @@ namespace anet::nn {
         /// @brief Context (タグ情報等) を受け取り、適切なモジュールを生成する
         virtual std::shared_ptr<NetworkModule> CreateModule(
             const ConfigData& config_data, const ModuleContext& context) const = 0;
-        virtual void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const {}
         virtual ~NetworkModuleFactory() = default;
     };
 
@@ -407,7 +426,6 @@ namespace anet::nn {
     public:
         void Register(const std::string& type_name, std::shared_ptr<NetworkModuleFactory> factory);
         std::shared_ptr<NetworkModuleFactory> GetFactory(const std::string& type_name) const;
-        void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const;
     private:
         NetworkModuleRepository() = default;
     private:

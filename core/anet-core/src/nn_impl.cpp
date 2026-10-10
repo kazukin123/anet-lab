@@ -59,15 +59,14 @@ NetworkForwardState::NetworkForwardState(anet::seed_t seed)
 
 NetworkForwardState::~NetworkForwardState() = default;
 
-std::shared_ptr<void>& NetworkForwardStateAccess::GetSlot(
-    NetworkForwardState& state, const void* owner, std::type_index type)
+std::shared_ptr<void>& NetworkForwardState::GetSlot(const void* owner, std::type_index type)
 {
-    return state.impl_->slots[{ owner, type }];
+    return impl_->slots[{ owner, type }];
 }
 
-anet::RandomGenerator& NetworkForwardStateAccess::GetRandom(NetworkForwardState& state)
+anet::RandomGenerator& NetworkForwardState::GetRandom()
 {
-    return state.impl_->random;
+    return impl_->random;
 }
 
 static torch::Tensor MakeForwardRowMappingIndices(
@@ -118,14 +117,11 @@ torch::Tensor NetworkForwardRowMapping::SelectRows(const torch::Tensor& source) 
     return source.index_select(0, indices_);
 }
 
-NetworkForwardContext::NetworkForwardContext(Params params)
-    : params_(std::move(params))
-{
-}
-
 NetworkForwardContext NetworkForwardContext::GetDefault()
 {
-    return NetworkForwardContext({});
+    // 既定経路では箱を持たず、参照する呼び出し情報に静的なlifetimeを保証する。
+    static const NetworkForwardCallInfo info({});
+    return NetworkForwardContext(nullptr, info);
 }
 
 void Network::ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const
@@ -1419,8 +1415,7 @@ anet::TensorDict NetworkBody::Forward(
     return out;
 }
 
-anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key,
-    const std::vector<std::vector<NetworkModuleExecution*>>* calls)
+anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key)
 {
     ANET_PROFILE_FUNC();
 
@@ -1431,7 +1426,7 @@ anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const N
     for (size_t index = 0; index < branches_.size(); ++index) {
         const auto& branch = branches_[index];
         if (required_branches.contains(branch->GetName())) {
-            branch->Execute(state, context, {}, calls ? &(*calls)[index] : nullptr);
+            branch->Execute(state, context, {});
         }
     }
     return state;
@@ -1845,9 +1840,11 @@ NetworkForwardCallInfo NetworkForwardCallInfo::WithRowMapping(
 }
 
 struct NetworkForwardExecution::Impl {
+    explicit Impl(std::shared_ptr<Network> owner)
+        : network(std::move(owner)), config(NetworkForwardConfig::GetDefault()), head_call(network->head_.get()) {}
     Impl(std::shared_ptr<Network> owner, const NetworkForwardConfig& config,
         NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state)
-        : network(std::move(owner)), state(std::move(state)), clock_kind(clock_kind)
+        : network(std::move(owner)), config(config), state(std::move(state)), clock_kind(clock_kind)
     {
         ANET_PROFILE_SCOPE_FULL(prepare, "NetworkForwardExecution::Prepare");
         // 各具象部品が解釈結果を所有し、共通層は具体型や設定の意味を扱わない。
@@ -1868,24 +1865,39 @@ struct NetworkForwardExecution::Impl {
         }
     }
     const std::shared_ptr<Network> network;
+    const NetworkForwardConfig config;
     const std::shared_ptr<NetworkForwardState> state;
-    const NetworkForwardClock clock_kind;
+    const std::optional<NetworkForwardClock> clock_kind;
     std::vector<std::unique_ptr<NetworkModuleExecution>> owned_modules;
     std::vector<std::vector<NetworkModuleExecution*>> body_calls;
     std::unique_ptr<NetworkHeadExecution> owned_head;
     NetworkHeadExecution* head_call = nullptr;
 };
 
+std::shared_ptr<NetworkForwardExecution> Network::PrepareDefaultForward()
+{
+    ANET_PROFILE_FUNC();
+    // 既定経路は計算部品を準備せず、Networkの寿命だけを保証する。
+    return std::shared_ptr<NetworkForwardExecution>(
+        new NetworkForwardExecution(std::static_pointer_cast<Network>(shared_from_this())));
+}
+
 std::shared_ptr<NetworkForwardExecution> Network::PrepareForward(
     const NetworkForwardConfig& config, NetworkForwardClock clock_kind, anet::seed_t seed)
 {
     ANET_PROFILE_FUNC();
+    if (config.IsDefault()) {
+        ANET_SYSTEM_ERROR("PrepareForward requires a named execution setting; supplied=" << config.key << "; use PrepareDefaultForward for the default request.");
+    }
     // 実行オブジェクトに Network の寿命と、この用途だけの箱を保証する。
     auto owner = std::static_pointer_cast<Network>(shared_from_this());
     auto state = std::shared_ptr<NetworkForwardState>(new NetworkForwardState(seed));
     return std::shared_ptr<NetworkForwardExecution>(
         new NetworkForwardExecution(std::move(owner), config, clock_kind, std::move(state)));
 }
+
+NetworkForwardExecution::NetworkForwardExecution(std::shared_ptr<Network> network)
+    : impl_(std::make_unique<Impl>(std::move(network))) {}
 
 NetworkForwardExecution::NetworkForwardExecution(
     std::shared_ptr<Network> network, const NetworkForwardConfig& config,
@@ -1896,31 +1908,21 @@ NetworkForwardExecution::NetworkForwardExecution(
 
 NetworkForwardExecution::~NetworkForwardExecution() = default;
 
-const std::shared_ptr<Network>& NetworkForwardExecution::GetNetwork() const
-{
-    return impl_->network;
-}
-
 std::shared_ptr<NetworkForwardExecution> NetworkForwardExecution::BindNetwork(
-    std::shared_ptr<Network> network, const NetworkForwardConfig& config) const
+    std::shared_ptr<Network> network) const
 {
     ANET_PROFILE_FUNC();
     ANET_CHECK_MSG(network, "BindNetwork requires a valid Network.");
-    // 初期化で用途を別の重みへ結び付ける。箱と時計種別を共有し、既存の実行設定は変更しない。
+    if (impl_->config.IsDefault()) return network->PrepareDefaultForward();
+    // 初期化で同じ用途を別の重みへ結び付け、設定・箱・時計種別を共有する。
     return std::shared_ptr<NetworkForwardExecution>(
-        new NetworkForwardExecution(std::move(network), config, impl_->clock_kind, impl_->state));
+        new NetworkForwardExecution(std::move(network), impl_->config, *impl_->clock_kind, impl_->state));
 }
 
 NetworkForwardContext NetworkForwardExecution::MakeContext(const NetworkForwardCallInfo& info) const
 {
     // 文脈の組み立てだけを行い、抽選・箱の更新・Tensor 計算は計算部品に残す。
-    return NetworkForwardContext({
-        .state = impl_->state.get(),
-        .clock_kind = impl_->clock_kind,
-        .clock = info.GetClock(),
-        .episode_start = info.GetEpisodeStart(),
-        .row_mapping = info.GetRowMapping(),
-    });
+    return NetworkForwardContext(impl_->state.get(), info);
 }
 
 anet::TensorDict NetworkForwardExecution::Forward(
@@ -1928,16 +1930,9 @@ anet::TensorDict NetworkForwardExecution::Forward(
     const anet::TraceCallback& callback, NetworkBranchCapture* capture)
 {
     ANET_PROFILE_FUNC();
+    if (impl_->config.IsDefault()) return impl_->network->Forward(input, callback, capture);
     const auto context = MakeContext(info);
     return impl_->network->RunForward(input, context, callback, capture, &impl_->body_calls, impl_->head_call);
-}
-
-anet::TensorDict NetworkForwardExecution::ForwardUpTo(
-    const anet::TensorDict& input, const NetworkForwardCallInfo& info, const std::string& branch_key)
-{
-    ANET_PROFILE_FUNC();
-    const auto context = MakeContext(info);
-    return impl_->network->body_->ForwardUpTo(input, context, branch_key, &impl_->body_calls);
 }
 
 std::vector<NetworkNoisyParameterEntry> Network::GetNoisyParameterEntries() const
@@ -2477,24 +2472,7 @@ std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const 
 }
 
 
-void NetworkModuleRepository::ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const
-{
-    ANET_PROFILE_FUNC();
-    // 登録一覧だけを lock 下で取得し、利用側の検証 callback は lock 外で呼ぶ。
-    std::vector<std::shared_ptr<NetworkModuleFactory>> factories;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        for (const auto& [name, factory] : registry_) factories.push_back(factory);
-    }
-    // 共通層は記述された項目の意味を知らず、認識する factory へ委譲する。
-    for (const auto& factory : factories) factory->ValidateForwardConfigDeclaration(config);
-}
 
-void anet::nn::ValidateNetworkForwardConfigDeclaration(const NetworkForwardConfig& config)
-{
-    // 公開の設定解決境界から、内部の factory registry へ検証だけを委譲する。
-    NetworkModuleRepository::Instance().ValidateForwardConfigDeclaration(config);
-}
 
 // ===========================================================================
 // NetworkBuilder

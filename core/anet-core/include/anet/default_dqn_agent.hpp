@@ -136,11 +136,8 @@ namespace anet::rl::dqn {
 
             ANET_READ_CONFIG(config_data, use_optimistic_target);
 
-            // 宣言の内容は不変な箱へコピーし、認識する計算部品の factory が検証する。
+            // カタログの値はDTOへ保存し、使用する具象部品が実行準備で検証する。
             for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("nn_forward"))) {
-                const auto prefix = MakeDefaultConfigKey("nn_forward.[" + key + "]");
-                const anet::nn::NetworkForwardConfig entry(prefix, sub);
-                anet::nn::ValidateNetworkForwardConfigDeclaration(entry);
                 nn_forward.emplace(key, sub);
                 // 記録も opaque な値のまま保存し、型付きの解釈はここで追加しない。
                 for (const auto& [leaf, value] : sub.Map()) {
@@ -503,7 +500,6 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
         std::shared_ptr<anet::RandomGenerator> noisy_probe_random_; ///< Noisy probe の一様抽選専用 Resource
         std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_forward_config_; ///< 固定の probe 用途を選ぶ不変 Resource
-        std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_mean_forward_config_; ///< 同じ opaque 設定を保つ平均値比較用 Resource
         std::shared_ptr<anet::RandomGenerator> replay_fit_probe_random_; ///< 群抽出メトリクス購読時だけ作るResource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };

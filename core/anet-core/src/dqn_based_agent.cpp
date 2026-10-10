@@ -1837,8 +1837,9 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     , emit_snapshot_metrics_(emit_snapshot_metrics)
 {
     // 設定の実行可否は計算部品へ委譲し、既存のacting/τ RNGとは独立した箱を作る。
-    actor_forward_ = network_->PrepareForward(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
-        anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward"));
+    actor_forward_ = forward_config.IsDefault() ? network_->PrepareDefaultForward()
+        : network_->PrepareForward(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
+            anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward"));
     if (snapshot_sync_interval.has_value()) {
         snapshot_sync_interval_.emplace(std::move(*snapshot_sync_interval));
     }
@@ -2025,16 +2026,17 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     const anet::SeedMaker forward_seeds(GetSeed());
     const auto& current = config_.enabled ? forward_resources.current : anet::nn::NetworkForwardConfig::GetDefault();
     const auto& target = config_.enabled ? forward_resources.target : anet::nn::NetworkForwardConfig::GetDefault();
-    current_forward_ = model_.GetOnlineNetwork()->PrepareForward(current, anet::nn::NetworkForwardClock::kTransientRows,
-        forward_seeds.MakeNamedSeed("network_forward.current"));
-    target_forward_ = model_.GetTargetNetwork()->PrepareForward(target, anet::nn::NetworkForwardClock::kTransientRows,
-        forward_seeds.MakeNamedSeed("network_forward.target"));
-    // 同じ target 用途の online/target は箱と時計種別を共有し、重みだけ別 Network に結び付ける。
-    target_online_forward_ = target_forward_->BindNetwork(model_.GetOnlineNetwork(), target);
-    diagnostic_online_forward_ = model_.GetOnlineNetwork()->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(),
-        anet::nn::NetworkForwardClock::kNone, 0);
-    diagnostic_target_forward_ = diagnostic_online_forward_->BindNetwork(model_.GetTargetNetwork(),
-        anet::nn::NetworkForwardConfig::GetDefault());
+    const auto prepare = [](const std::shared_ptr<anet::nn::Network>& network,
+        const anet::nn::NetworkForwardConfig& config, anet::seed_t seed) {
+        return config.IsDefault() ? network->PrepareDefaultForward()
+            : network->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows, seed);
+    };
+    current_forward_ = prepare(model_.GetOnlineNetwork(), current, forward_seeds.MakeNamedSeed("network_forward.current"));
+    target_forward_ = prepare(model_.GetTargetNetwork(), target, forward_seeds.MakeNamedSeed("network_forward.target"));
+    // 同じtarget用途は設定・箱・時計種別を共有し、重みだけ別Networkへ結び付ける。
+    target_online_forward_ = target_forward_->BindNetwork(model_.GetOnlineNetwork());
+    diagnostic_online_forward_ = model_.GetOnlineNetwork()->PrepareDefaultForward();
+    diagnostic_target_forward_ = diagnostic_online_forward_->BindNetwork(model_.GetTargetNetwork());
     if (config_.enabled && config_.munchausen.enabled && config_.munchausen.log_policy_mode == "online_reuse") {
         model_.GetOnlineNetwork()->ValidateForwardReuse(current, target);
     }
@@ -2093,8 +2095,7 @@ std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) c
 
 void Learner::ConfigureScalarMetricSubscriptions(
     const std::vector<ScalarMetricSubscription>& subscriptions, anet::RandomGenerator* replay_fit_probe_random,
-    anet::RandomGenerator* noisy_probe_random, const anet::nn::NetworkForwardConfig* noisy_probe_config,
-    const anet::nn::NetworkForwardConfig* noisy_probe_mean_config)
+    anet::RandomGenerator* noisy_probe_random, const anet::nn::NetworkForwardConfig* noisy_probe_config)
 {
     plasticity_ = PlasticityState{};
     noisy_ = NoisyDiagnosticState{};
@@ -2151,14 +2152,13 @@ void Learner::ConfigureScalarMetricSubscriptions(
     // probe の用途は Agent が選択する。Learner は設定の中身を解釈せず NN に検証を委譲する。
     if (config_.enabled && std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric >= 8; })
         && !model_.GetOnlineNetwork()->GetNoisyParameterEntries().empty()) {
-        if (!noisy_probe_random || !noisy_probe_config || !noisy_probe_mean_config) {
-            ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a dedicated RNG and resolved sample/mean forward configs.");
+        if (!noisy_probe_random || !noisy_probe_config) {
+            ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a dedicated RNG and a resolved sample forward config.");
         }
         noisy_.random = noisy_probe_random;
         noisy_.sample_forward = model_.GetOnlineNetwork()->PrepareForward(*noisy_probe_config,
             anet::nn::NetworkForwardClock::kTransientRows,
             anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward.noisy_probe"));
-        noisy_.mean_forward = noisy_.sample_forward->BindNetwork(model_.GetOnlineNetwork(), *noisy_probe_mean_config);
     }
 
     // hard update と同一位相だけを観測する interval を、設定単位で一度だけ診断する。
@@ -2333,7 +2333,7 @@ void Learner::CaptureNoisyDiagnostics()
     const auto network = model_.GetOnlineNetwork();
     if (network->GetNoisyParameterEntries().empty()) return;
     ANET_PROFILE_SCOPE(probe);
-    if (!noisy_.random || !noisy_.sample_forward || !noisy_.mean_forward) {
+    if (!noisy_.random || !noisy_.sample_forward) {
         ANET_SYSTEM_ERROR("Noisy probe Resource is unavailable for subscribed metrics.");
     }
     ExperienceSamples cpu_samples;
@@ -2352,8 +2352,7 @@ void Learner::CaptureNoisyDiagnostics()
     torch::NoGradGuard no_grad;
     anet::Autocast autocast_guard(device_, false, torch::kFloat32);
     anet::TrainingModeGuard training_guard(*network, false);
-    const anet::nn::NetworkForwardCallInfo mean_info({.clock = ++noisy_.forward_clock});
-    const auto mean_q = noisy_.mean_forward->Forward(input, mean_info).At("q");
+    const auto mean_q = network->Forward(input).At("q");
     const auto metrics = MeasureNoisyQProbe(mean_q, config_.noisy_probe.num_draws, [&](int) {
         const anet::nn::NetworkForwardCallInfo info({.clock = ++noisy_.forward_clock});
         return noisy_.sample_forward->Forward(input, info).At("q");

@@ -220,3 +220,86 @@ BOM／LF、NN指定6ファイルのRL語0件、対象差分check、6計算本体
 - `docs/design/200_dqn_agents.jp.md`
 - `docs/memo/084_noisynet_10prd.md`
 - `docs/memo/084_noisynet_23impl.md`
+
+## 2026-10-10：24impl・公開面と準備経路の整理
+
+承認済み計画は `docs/memo/084_noisynet_24impl.md`。A1〜A4・B1〜B4・C1を実装した。B5は不採用とし、不変CallInfo・Params・getter・WithRowMappingを維持する。C2の再利用規則は変更しない。
+
+### 今回の契約と基準
+
+State/ContextをNN内部へ移し、StateAccessをStateのメンバへ統合した。ContextはStateポインタとCallInfoのconst参照だけを持ち、Tensorをコピーしない。時計種別は準備済み実行が保持し、公開列挙はTransientRows/ContinuingRowsの2値にした。既定実行は箱・時計を持たず、Module/Headを準備しない。名前付き準備は既定設定を拒否し、Bindは設定・箱・時計を継承する。ExecutionのNetwork取得と部分Forwardを削除し、Networkの既定部分Forwardを維持した。
+
+probe平均側は既存NoGrad/eval/FP32保護内の既定Forwardに変更した。sample側のRNG・抽選順・購読gatingは維持する。カタログ内容のfactory宣言検証を削除し、参照存在を読込時、使用する内容を具象部品の準備時に検証する。未参照項目・使用しない設定群は休眠する。構造設定・σ decay・probe設定・再利用検証は維持した。
+
+編集前HEADは `0dbb5cc6f5f62a2f4a1a9a8f652aefb5ff471624`。元の差分とDebug全core GREEN（666成功・6スキップ、33,444 assertions）を保存した。基準Release SHA-256は `677B8012A00B73E525F4D3FA8BFAEC0EB1E3F1D568BEE08A83E9C49389370902`。既存Runが通常EXEを使用するため、基準・最終とも既存の別出力リンク手順を使用した。objectとリンク条件を同じにし、out/pdb/implibの出力先だけを変更した。
+
+最終Release SHA-256は `86f8ed6573c4bdbef644b59bfcc22c5e5c8dd48fb8293dbfdb4d5f244165e839`。基準の実行体・依存DLL・設定・seed・旧checkpointは `.scratch/prd084/forward-refactor/simplify-20261010/before/`、今回のRun出力は同ルートの `after/` に保存した。最終実行体は `release-link/` と `after/bin/` のSHA一致を確認した。
+
+### テスト・監査
+
+| 対象 | 結果 |
+|---|---|
+| Debug全体ビルド（MSVC初期化・並列数1） | 成功 |
+| Debug NoisyNet・CPU | 53成功・3スキップ、10,628 assertions成功 |
+| Debug全core・CPU | 668成功・6スキップ、33,405 assertions成功 |
+| Debug NoisyNet・CUDA | 56成功、10,684 assertions成功 |
+| Debug全core・CUDA | 673成功・1スキップ、34,867 assertions成功 |
+| Release全体 | 全コンパイル・Core/環境テストのリンク成功。通常Runnerリンクは使用中EXEのLNK1104。別出力の最終Runnerリンク成功 |
+| Release NoisyNet（CUDAを含む） | 56成功、10,684 assertions成功 |
+| 設定6構成・全解決値/型付き値 | 44 assertions成功 |
+| 既定葉 | 3,421項目、エラー0件 |
+| BOM/LF・対象diff check | HEADのBOMを維持、CRLF0件、diff check成功 |
+| 削除API・NN指定6ファイルのRL語 | 残存0件・一致0件 |
+| State/Context公開面 | 定義0件・前方宣言2件 |
+| ADR0048/0051 | 差分なし |
+
+既定準備省略は2 assertionsのRED、未参照設定の休眠は2 assertionsのREDを確認してGREENにした。直接構築する既定Actorの移行漏れも既存snapshotテストでREDを確認して修正した。全子fallbackの共通Prepared契約、独自Module/Head、行対応・保持・同一時計・同時Forward・target・保存・AMP・診断非干渉の既存テストを維持した。
+
+移行中に残った旧Head factory APIの参照はC2039で検出・修正した。テストCLIに未対応の`--device`を渡した試行は受け入れ証拠に含めず、CPUはプロセス内のCUDA_VISIBLE_DEVICES=-1、CUDAは通常環境で再実行した。失敗ログも保存し、成功ログで消していない。
+
+ログは `logs/final-debug-build.log`、`final-noisy-cpu.log`、`final-core-cpu.log`、`final-noisy-cuda.log`、`final-core-cuda.log`、`config-equivalence.log`、`default-leaves.log`、`final-release-build.log`、`final-isolated-link.log`、`final-noisy-release.log`。監査は `audit.json`、設定は `config-final/`。通常Forwardに設定解釈・検索・設定用ロックがなく、共通部品に具体設定型を追加していないことをコード差分でも確認した。
+
+### 最終Releaseの実動試験
+
+| 構成 | 予算 | 点数/checksum | 終了code | 秒 |
+|---|---:|---|---:|---:|
+| CPU LunarLander OFF | 500,000経験 | 88,184点・旧基準と完全一致 | 0 | 1093.280 |
+| 旧OFF checkpoint読込 | 256経験 | model_size=1,276,270 / learner_size=1,192,239 | 0 | 2.586 |
+
+CPU OFF checksumは `b76541e3b8319f9b72e2987f4a6f4dc2afeb26104fc57dabbaee18c67cb5ebd5`。欠損・点数差・値差は0件。出力名/出力先を除く全解決設定も前回Runと完全一致した。記録は `acceptance-summary.json`、`logs/final-cpu-regression.log` と各 `after/*.execution.json` / `*.metrics.jsonl`。
+
+Run資材に`-Cases`を追加し、既定のOFF3構成を維持した。CPU構成はGPUプロセス検査・GPU計測を実行しない。明示した`-Executable`で最終別出力実行体を保存し、回帰とcheckpoint確認の両方に使った。
+
+### 保留・対象外
+
+代表ON 500kは保留。最終確認 `2026-10-10T15:39:21.3717668+09:00` で、同じRTX 5090（GPU-0c44f747-7f1b-2d07-cd6d-a9246d000f89）に既存学習Run PID 57684 を確認した（`on-final-gpu-check.json`）。既存Runは停止・再開・終了していない。今回の最終実行体による109,941点・Noisy指標込みchecksumの受け入れは未実施であり、以前の実行体の結果で代用しない。
+
+性能再測定、Atari OFF2本、B5、C2、新ADR、episode_start/episodeの変更は今回の計画対象外。以前のON一致・性能6 Run・48 Runは当時の実行体による記録として保持する。現在のブランチと無関係な変更を保持し、add/commit/pushは実行していない。
+
+### 今回の変更ファイル
+
+- `CONTEXT.md`
+- `core/anet-core/include/anet/default_dqn_agent.hpp`
+- `core/anet-core/include/anet/nn.hpp`
+- `core/anet-core/src/default_dqn_agent.cpp`
+- `core/anet-core/src/dqn_based_agent.cpp`
+- `core/anet-core/src/dqn_based_agent.hpp`
+- `core/anet-core/src/dqn_based_agent_test.cpp`
+- `core/anet-core/src/dqn_based_heads.cpp`
+- `core/anet-core/src/dqn_based_heads.hpp`
+- `core/anet-core/src/dqn_based_test.cpp`
+- `core/anet-core/src/nn_impl.cpp`
+- `core/anet-core/src/nn_impl.hpp`
+- `core/anet-core/src/nn_modules.cpp`
+- `core/anet-core/src/nn_test.cpp`
+- `core/anet-core/src/nn_test.hpp`（削除）
+- `core/anet-core/testdata/prd084/README.md`
+- `core/anet-core/testdata/prd084/run_forward_refactor.ps1`
+- `docs/design/130_neural_networks.en.md`
+- `docs/design/130_neural_networks.jp.md`
+- `docs/design/200_dqn_agents.en.md`
+- `docs/design/200_dqn_agents.jp.md`
+- `docs/memo/084_noisynet_10prd.md`
+- `docs/memo/084_noisynet_24impl.md`
+- `docs/ownership_guideline.md`
+- `core/anet-core/testdata/prd084/forward_refactor_verification.md`

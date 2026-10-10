@@ -95,29 +95,14 @@ namespace anet::nn {
         const bool is_default_;
     };
 
-    /// 宣言の検証を登録済み Module factory へ委譲する。固有の項目は解釈しない。
-    void ValidateNetworkForwardConfigDeclaration(const NetworkForwardConfig& config);
 
     /// 時計の種類。NN から見て、同じ行が次の呼び出しへ続くかどうかだけを表す。
     enum class NetworkForwardClock {
-        kNone,            ///< 時計なし。各計算部品の既定動作だけ
         kTransientRows,   ///< 行は呼び出しごとに別物。保持は呼び出し単位だけ
         kContinuingRows,  ///< 同じ行が次の呼び出しへ続く。回数・episode での保持を使える
     };
 
-    /// 呼び出し側が所有する箱。保持する値と乱数は NN の計算部品だけが操作する。
-    class NetworkForwardState {
-    public:
-        ~NetworkForwardState();
-        NetworkForwardState(const NetworkForwardState&) = delete;
-        NetworkForwardState& operator=(const NetworkForwardState&) = delete;
-    private:
-        friend class Network;
-        friend class NetworkForwardStateAccess;
-        explicit NetworkForwardState(anet::seed_t seed);
-        struct Impl;
-        std::unique_ptr<Impl> impl_;
-    };
+    class NetworkForwardState;
 
     /// 元の行と結合入力の対応。一度確定した index は呼び出し中に変更しない。
     class NetworkForwardRowMapping {
@@ -150,30 +135,7 @@ namespace anet::nn {
         const Params params_;
     };
 
-    /// 呼び出しごとの不変な実行情報。設定と状態の所有権は呼び出し側にある。
-    class NetworkForwardContext {
-    public:
-        /// 生成時の入力。生成後に変更しても Context のメンバは変更されない。
-        struct Params {
-            NetworkForwardState* state = nullptr;
-            NetworkForwardClock clock_kind = NetworkForwardClock::kNone;
-            uint64_t clock = 0;
-            torch::Tensor episode_start;
-            std::optional<NetworkForwardRowMapping> row_mapping;
-        };
-
-        explicit NetworkForwardContext(Params params);
-        static NetworkForwardContext GetDefault();
-
-        NetworkForwardState* GetState() const { return params_.state; }
-        NetworkForwardClock GetClockKind() const { return params_.clock_kind; }
-        uint64_t GetClock() const { return params_.clock; }
-        const torch::Tensor& GetEpisodeStart() const { return params_.episode_start; }
-        const std::optional<NetworkForwardRowMapping>& GetRowMapping() const { return params_.row_mapping; }
-
-    private:
-        const Params params_; ///< Tensor のストレージは共有する。呼び出し中の変更は禁止。
-    };
+    class NetworkForwardContext;
 
     struct NetworkBlockConfig {
         std::string type;             ///< "Conv2d", "Linear", "ResBlock" etc.
@@ -303,7 +265,6 @@ namespace anet::nn {
     class NetworkHeadFactory {
     public:
         virtual std::shared_ptr<NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const = 0;
-        virtual void ValidateForwardConfigDeclaration(const NetworkForwardConfig& config) const {}
         virtual ~NetworkHeadFactory() = default;
     };
 
@@ -349,6 +310,8 @@ namespace anet::nn {
         void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const;
     public:
         /// shared_ptrで所有されたNetworkを準備し、実行オブジェクトにその寿命を保持させる。
+        std::shared_ptr<NetworkForwardExecution> PrepareDefaultForward();
+        /// 名前付き設定だけを準備する。既定設定はPrepareDefaultForwardを使う。
         std::shared_ptr<NetworkForwardExecution> PrepareForward(
             const NetworkForwardConfig& config, NetworkForwardClock clock_kind, anet::seed_t seed);
 	public: // 情報取得
@@ -395,13 +358,11 @@ namespace anet::nn {
         anet::TensorDict Forward(
             const anet::TensorDict& input, const NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback = {}, NetworkBranchCapture* capture = nullptr);
-        anet::TensorDict ForwardUpTo(
-            const anet::TensorDict& input, const NetworkForwardCallInfo& info, const std::string& branch_key);
         std::shared_ptr<NetworkForwardExecution> BindNetwork(
-            std::shared_ptr<Network> network, const NetworkForwardConfig& config) const;
-        const std::shared_ptr<Network>& GetNetwork() const;
+            std::shared_ptr<Network> network) const;
     private:
         friend class Network;
+        explicit NetworkForwardExecution(std::shared_ptr<Network> network);
         NetworkForwardExecution(std::shared_ptr<Network> network, const NetworkForwardConfig& config,
             NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state);
         NetworkForwardContext MakeContext(const NetworkForwardCallInfo& info) const;

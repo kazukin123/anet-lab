@@ -1,6 +1,8 @@
 param(
     [ValidateSet('off','on','on-after')][string]$Stage = 'off',
     [switch]$Resume,
+    [ValidateSet('atari_default','atari_efficiency','lunarlander_cpu')][string[]]$Cases = @('atari_default','atari_efficiency','lunarlander_cpu'),
+    [string]$Executable = (Join-Path $PSScriptRoot '../../../../apps/runner/bin/Release/AnetRLRunner.exe'),
     [ValidateNotNullOrEmpty()][string]$OutputRoot = '.scratch/prd084/forward-refactor/after'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,7 +16,7 @@ $before084 = Join-Path $repo084 '.scratch/prd084/forward-refactor/before'
 $bin084 = Join-Path $root084 'bin'
 New-Item -ItemType Directory -Force -Path $bin084,(Join-Path $root084 'config'),(Join-Path $root084 'runs') | Out-Null
 $exe084 = Join-Path $bin084 'AnetRLRunner.exe'
-$current084 = Join-Path $repo084 'apps/runner/bin/Release/AnetRLRunner.exe'
+$current084 = [IO.Path]::GetFullPath($Executable)
 if (Test-Path -LiteralPath $exe084) {
     if ((Get-FileHash -LiteralPath $exe084).Hash -ne (Get-FileHash -LiteralPath $current084).Hash) { throw 'Saved executable differs from current Release' }
 } else {
@@ -38,8 +40,9 @@ function Test-WarmupReached084([string[]]$Lines) {
     return $false
 }
 function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,[int]$Budget,[switch]$Noisy) {
-    # 測定の開始前に他の学習 Run を確認し、既存プロセスを停止しない。
-    $others084 = @(Get-CimInstance Win32_Process -Filter "Name='AnetRLRunner.exe'")
+    # CPU回帰はGPUの検査・計測へ依存させず、GPU Runだけ競合を検査する。
+    $cpu084 = $Name -in @('lunarlander_cpu','old_checkpoint')
+    $others084 = @(if (-not $cpu084) { Get-CimInstance Win32_Process -Filter "Name='AnetRLRunner.exe'" })
     if ($others084.Count -gt 0) { throw ('Measurement deferred: existing Runner PID '+($others084.ProcessId -join ',')) }
     $recordPath084 = Join-Path $root084 ($Name+'.execution.json')
     if (Test-Path -LiteralPath $recordPath084) {
@@ -57,9 +60,13 @@ function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,
     }
     if ($Name -eq 'old_checkpoint') { $args084 += ('DefaultDQNAgent.auto_load_file='+$before084.Replace('\','/')+'/old-off-checkpoint.anet') }
     $record084 = [ordered]@{case=$Name;executable=$Executable;sha256=(Get-FileHash -LiteralPath $Executable).Hash;arguments=$args084;seed=1;experience_budget=$Budget;start=[DateTimeOffset]::Now.ToString('o')}
-    $record084.gpu_identity = @(& nvidia-smi --query-gpu=index,uuid,name --format=csv)
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot record GPU identity' }
-    $record084.gpu_before_mib = Get-GpuUsed084
+    if (-not $cpu084) {
+        $record084.gpu_identity = @(& nvidia-smi --query-gpu=index,uuid,name --format=csv)
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot record GPU identity' }
+        $record084.gpu_before_mib = Get-GpuUsed084
+    } else {
+        $record084.gpu_before_mib = $null
+    }
     $peakGpu084 = $record084.gpu_before_mib
     $peakPrivate084 = 0L
     $peakWorking084 = 0L
@@ -70,6 +77,8 @@ function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,
     $gpuNext084 = 0.0
     $timer084 = [Diagnostics.Stopwatch]::StartNew()
     $process084 = Start-Process -FilePath $Executable -ArgumentList $args084 -WorkingDirectory (Join-Path $repo084 'apps/runner') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $root084 ($Name+'.stdout.log')) -RedirectStandardError (Join-Path $root084 ($Name+'.stderr.log'))
+    # 短いcheckpoint確認でも終了コードを取得できるよう、開始直後にhandleを保持する。
+    $null = $process084.Handle
     $record084.pid=$process084.Id
     $record084 | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath $recordPath084
     Write-Output ('Started '+$Name+' pid='+$process084.Id)
@@ -79,7 +88,7 @@ function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,
             $peakPrivate084 = [Math]::Max($peakPrivate084, $process084.PrivateMemorySize64)
             $peakWorking084 = [Math]::Max($peakWorking084, $process084.PeakWorkingSet64)
         }
-        if ($timer084.Elapsed.TotalSeconds -ge $gpuNext084) {
+        if (-not $cpu084 -and $timer084.Elapsed.TotalSeconds -ge $gpuNext084) {
             $used084 = Get-GpuUsed084
             $peakGpu084 = [Math]::Max($peakGpu084, $used084)
             if ($null -eq $warmObserved084) {
@@ -112,9 +121,11 @@ function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,
     $record084.peak_working_set_bytes = $peakWorking084
     $record084.peak_device_used_mib = $peakGpu084
     $record084.device_extra_mib = $peakGpu084 - $record084.gpu_before_mib
-    $record084.gpu_processes_after = @(& nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv)
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot record final GPU processes' }
-    $others084 = @(Get-CimInstance Win32_Process -Filter "Name='AnetRLRunner.exe'")
+    if (-not $cpu084) {
+        $record084.gpu_processes_after = @(& nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv)
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot record final GPU processes' }
+    }
+    $others084 = @(if (-not $cpu084) { Get-CimInstance Win32_Process -Filter "Name='AnetRLRunner.exe'" })
     if ($others084.Count -gt 0) { throw ('Concurrent Run invalidates measurement: '+($others084.ProcessId -join ',')) }
     $runs084 = @(Get-ChildItem -LiteralPath (Join-Path $root084 'runs') -Directory | Where-Object { $_.Name.EndsWith('prd084_forward_'+$Name) })
     if ($runs084.Count -eq 1) { $record084.run=$runs084[0].FullName }
@@ -132,7 +143,7 @@ function Compare-ForwardRun084([string]$Old,[string]$New) {
     if ($LASTEXITCODE -ne 0) { throw ('Numeric regression differs: '+$New) }
 }
 if ($Stage -eq 'off') {
-    foreach ($case084 in @('atari_default','atari_efficiency','lunarlander_cpu')) {
+    foreach ($case084 in $Cases) {
         $text084 = [IO.File]::ReadAllText((Join-Path $before084 ('old-config/'+$case084+'.txt')))
         $text084 = $text084.Replace(($repo084.Replace('\','/')+'/.scratch/prd084/old/source-config'),($root084.Replace('\','/')+'/source-config'))
         $text084 = $text084.Replace(($repo084.Replace('\','/')+'/.scratch/prd084/old/runs'),($root084.Replace('\','/')+'/runs'))
@@ -141,7 +152,9 @@ if ($Stage -eq 'off') {
         Invoke-ForwardRun084 $case084 $exe084 $config084 500000
         Compare-ForwardRun084 (Join-Path $repo084 ('.scratch/prd084/old/'+$case084+'.metrics.jsonl')) (Join-Path $root084 ($case084+'.metrics.jsonl'))
     }
-    Invoke-ForwardRun084 'old_checkpoint' $exe084 (Join-Path $root084 'config/lunarlander_cpu.txt') 256
+    if ($Cases -contains 'lunarlander_cpu') {
+        Invoke-ForwardRun084 'old_checkpoint' $exe084 (Join-Path $root084 'config/lunarlander_cpu.txt') 256
+    }
 } else {
     $source084=$root084.Replace('\','/')+'/source-config'
     $text084=@(

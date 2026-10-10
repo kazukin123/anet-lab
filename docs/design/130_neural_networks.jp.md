@@ -62,11 +62,11 @@ NetworkForwardConfig はキーと選択済み ConfigData をコピーして保�
 
 PrepareForward は shared_ptr で所有された Network に対して呼ぶ。
 
-NetworkForwardExecution は対象 Network の寿命・準備済み処理・用途専用の NetworkForwardState・時計種別を保持する。初期化時の BindNetwork(network, config) は同じ State と時計種別を共有する別接続を作る。重みは既存 Module のものを参照し、clone 先は新しく準備する。実行中の設定切替と準備結果の重複排除は行わない。
+NetworkForwardExecution は対象Networkの寿命を保持する。名前付きPrepareForwardは不変設定・準備済み処理・内部State・時計種別を保持し、初期化時のBindNetwork(network)は設定・State・時計種別を共有する別接続を作る。PrepareDefaultForwardは部品を準備せず、State・時計種別を持たない。重みは既存Moduleを参照し、clone先は別に準備する。実行中の設定切替は行わない。
 
-NetworkForwardCallInfo は時計の値・episode_start・行対応だけを持つ不変の値で、別の文で生成してから Forward(input, info)／ForwardUpTo(input, info, branch_key) に渡す。private MakeContext(info) は State と時計種別を加えるだけで、抽選・State 更新・Tensor 演算を行わない。NetworkForwardContext は private な const Params に設定を含まない。Tensor ストレージは共有するため呼び出し中は変更しない。CallInfo::WithRowMapping() は全 Params をコピーして行対応だけを置換する。
+NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不変クラスで、別文で生成してForward(input, info)へ渡す。WithRowMappingは全Paramsをコピーして行対応だけを置換する。内部ContextはStateポインタとCallInfoのconst参照を持ち、時計種別を含まない。private MakeContextはTensorコピー・抽選・State更新・演算をせず、参照のlifetimeは同期Forward内に限定する。Tensorストレージは呼び出し中に変更しない。
 
-既定の Network::Forward(input)／ForwardUpTo(input, branch_key) は内部へ NetworkForwardContext::GetDefault() を伝え、Noisy は μ-only で動く。dummy 実行、追加診断、対象外 Agent、既存の TensorDictFunction も既定経路を使う。名前付き設定を Context で渡す経路は削除する。設定取得に RTTI・dynamic_cast・型トークンを使わず、State 内部の既存の型管理は維持する。宣言検証は factory、利用時制約は具象の準備処理、実データの shape/device・時計値は演算時に検証する。ValidateForwardReuse は各部品へ再利用検証を委譲する。
+既定の Network::Forward(input)／ForwardUpTo(input, branch_key) は内部へ NetworkForwardContext::GetDefault() を伝え、Noisy は μ-only で動く。dummy 実行、追加診断、対象外 Agent、既存の TensorDictFunction も既定経路を使う。名前付き設定を Context で渡す経路は削除する。設定取得に RTTI・dynamic_cast・型トークンを使わず、State 内部の既存の型管理は維持する。参照存在は設定読込時、使用する項目内容と利用時制約は具象の準備処理、実データの shape/device・時計値は演算時に検証する。ValidateForwardReuse は各部品へ再利用検証を委譲する。
 
 ### 2.4 設定記法
 
@@ -146,6 +146,7 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
+  +PrepareDefaultForward()
   +PrepareForward(config, clock_kind, seed)
   +Forward(input, callback)
   +Clone(device)
@@ -162,10 +163,14 @@ class NetworkHead
 class NetworkHeadFactory
 class NetworkForwardExecution {
   +Forward(input, info, callback)
-  +ForwardUpTo(input, info, branch_key)
-  +BindNetwork(network, config)
+  +BindNetwork(network)
 }
-class NetworkForwardState
+class NetworkForwardState {
+  <<internal>>
+}
+class NetworkForwardContext {
+  <<internal>>
+}
 class NetworkForwardCallInfo
 class NetworkModuleExecution
 class NetworkHeadExecution
@@ -177,7 +182,7 @@ NetworkForwardExecution --> NetworkModuleExecution : fixed calls
 NetworkForwardExecution --> NetworkHeadExecution : fixed call
 NetworkModule --|> NetworkModuleExecution
 NetworkHead --|> NetworkHeadExecution
-Network ..> NetworkForwardExecution : prepares
+Network ..> NetworkForwardExecution : prepares named/default
 NetworkBuilder ..> NetworkConfig
 NetworkBuilder ..> NetworkModuleRepository
 NetworkBuilder ..> NetworkHeadFactory
@@ -313,7 +318,7 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 
 `Network::Forward`はoptionalな`NetworkBranchCapture`を受け取り、通常のbranch loop後・`output_keys`変換前の内部tensorをdetachして返す。captureを渡さない既存forward、TraceCallback、Actor経路は不変である。
 
-`NetworkForwardExecution::ForwardUpTo(input, info, branch_key)`はFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。既定の `Network::ForwardUpTo(input, branch_key)` は内部で既定Contextを伝達する。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
+`Network::ForwardUpTo(input, branch_key)`は既定ContextでFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
 
 可塑性統計はrank-2 `(N,D)` の特徴と指標要求集合を受け、detachしたFP32 CPU特徴から要求された統計だけを計算して呼出側でcacheする。srank系を要求しないstepではSVDを実行せず、δ=0.01 / 0.05 / 0.20を同時要求した場合も1回の`svdvals`とcumsumを共有する。結果の各値はoptionalであり、未計算フィールドを成立値として読めない。無印のsrankはδ=0.01を表す。
 
@@ -323,9 +328,9 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 
 Body の `Linear` は `noisy.enabled=false`、`noisy.sigma0=0.5`、`force_fp32=false` を既定とする。Noisy は既存の weight/bias を μ として保ち、有効時だけ `sigma_weight` / `sigma_bias` を登録する。σ は符号付きの学習 parameter であり、初期値は weight/bias とも `sigma0 / sqrt(fan_in)`。初期 μ の名前・初期化・乱数順を維持する。
 
-Body Linear と Head が合成する具象の LinearProjectionModule が、その内部の private な型で `noisy.mode=sample|mu_only`、`noisy.hold=call|count|episode`、`noisy.share=batch|sample` と `noisy.count` を読む。宣言された型・列挙・値域と episode/batch の不整合は設定解決時、sample に必要な葉・時計との不整合・再利用条件は構築時に検証する。Noisy OFF と μ-only では保持用の要求を休眠させるが、宣言された不正値は無視しない。
+Body LinearとHeadが合成する具象LinearProjectionModuleは、そのprivateな設定型でnoisy.mode/hold/share/countを準備時に解釈する。利用する設定の型・列挙・値域・必要項目・episode/batch・時計種別の制約を準備時に検証する。未参照項目とNoisy OFFの設定群は休眠する。μ-onlyの未使用保持項目は必須にしないが、利用部品が認識する明示値は検証する。
 
-呼び出し側の `NetworkForwardState` は module 実体毎の ε と専用 RNG を持つ不透明な箱。call は時計が変わると再抽選、count は Actor の N 回毎、episode は Actor の `episode_start` が立った lane のみ再抽選する。同じ時計の再 forward は同じ ε を使い、同じ episode 境界を二度反映しない。count は episode 境界でリセットしない。保持中の shape/device 不一致と時計の逆行は fail-fast する。row_mapping は不変な NetworkForwardRowMapping とし、CPU の int64 index と元行数を構築時に検証して使用 device へ一度だけ転送する。射影は内部 index を公開しない SelectRows を使い、実行時は行数・device だけを確認する。GetIndices は検査用の独立した複製を返す。
+名前付き実行オブジェクト内部の `NetworkForwardState` は module 実体毎の ε と専用 RNG を持つ不透明な箱。call は時計が変わると再抽選、count は Actor の N 回毎、episode は Actor の `episode_start` が立った lane のみ再抽選する。同じ時計の再 forward は同じ ε を使い、同じ episode 境界を二度反映しない。count は episode 境界でリセットしない。保持中の shape/device 不一致と時計の逆行は fail-fast する。row_mapping は不変な NetworkForwardRowMapping とし、CPU の int64 index と元行数を構築時に検証して使用 device へ一度だけ転送する。射影は内部 index を公開しない SelectRows を使い、実行時は行数・device だけを確認する。GetIndices は検査用の独立した複製を返す。
 
 解釈済み値は具象の準備済み処理が所有する。NN内部の PreparedModuleChildren<N> は子の準備結果と本体への固定した呼び先を管理し、PreparedHeadExecution<Head, ForwardMethod, N> は指定した計算関数をコンパイル時に結び付ける。共通部品はDQN/Noisy/具体設定を解釈せず、全子が既定動作ならHead本体を直接呼ぶ。通常 forward に設定検索・解釈・設定用ロックはなく、設定元の寿命・変更・同名キーから独立する。
 

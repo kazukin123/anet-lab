@@ -2598,9 +2598,8 @@ TEST_CASE("DQN learner BF16 autocast follows learner device", "[dqn][learner][am
 TEST_CASE("NetworkModel mode-specific forwards preserve training modes", "[dqn][network_model]")
 {
     TestNetworkModel model;
-    const auto online_forward = model.GetOnlineNetwork()->PrepareForward(
-        anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0);
-    const auto target_forward = online_forward->BindNetwork(model.GetTargetNetwork(), anet::nn::NetworkForwardConfig::GetDefault());
+    const auto online_forward = model.GetOnlineNetwork()->PrepareDefaultForward();
+    const auto target_forward = online_forward->BindNetwork(model.GetTargetNetwork());
     const anet::nn::NetworkForwardCallInfo info({});
     auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
 
@@ -3761,7 +3760,7 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
         INFO(name);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         const anet::nn::NetworkForwardCallInfo call_info_0({});
-        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_0);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->PrepareDefaultForward(), rnd, call_info_0);
 
         auto action = action_info->GetAction();
         REQUIRE(ShapeOf(action) == std::vector<int64_t>{ 2 });
@@ -3825,7 +3824,7 @@ TEST_CASE("QR policy exposes quantile tail diagnostics through action info", "[d
     dqn::EpsilonGreedyActionPolicy policy(config);
     auto rnd = std::make_shared<anet::RandomGenerator>(123);
     const anet::nn::NetworkForwardCallInfo call_info_1({});
-    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_1, {});
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->PrepareDefaultForward(), rnd, call_info_1, {});
 
     const float selected_tail_mean = std::sqrt(1.25f) / 2.0f;
     const auto crossing_depth_p90 =
@@ -3871,7 +3870,7 @@ TEST_CASE("QR policy exposes selected action crossing depth p90", "[dqn][qr][act
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_2({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0),
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->PrepareDefaultForward(),
         std::make_shared<anet::RandomGenerator>(123), call_info_2, {});
 
     const auto crossing_depth_p90 =
@@ -3896,7 +3895,7 @@ TEST_CASE("QR policy reports zero crossing depth without positive crossings", "[
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_3({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0),
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->PrepareDefaultForward(),
         std::make_shared<anet::RandomGenerator>(123), call_info_3, {});
 
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
@@ -3917,7 +3916,7 @@ TEST_CASE("QR selected crossing depth aggregates BF16 quantiles in float32", "[d
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_4({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0),
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->PrepareDefaultForward(),
         std::make_shared<anet::RandomGenerator>(123), call_info_4, {});
 
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
@@ -3946,7 +3945,7 @@ TEST_CASE("QR selected crossing depth follows the final action per lane", "[dqn]
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_5({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(2, 5)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0),
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(2, 5)->PrepareDefaultForward(),
         std::make_shared<anet::RandomGenerator>(123), call_info_5, {});
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
         == Catch::Approx(0.25f));
@@ -3972,7 +3971,7 @@ TEST_CASE("QR policy tail diagnostics exclude the odd median and reject K below 
     };
     const anet::nn::NetworkForwardCallInfo call_info_6({});
     auto odd_info = policy.SelectAction(
-        odd_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 3)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_6, {});
+        odd_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 3)->PrepareDefaultForward(), rnd, call_info_6, {});
     CHECK(*odd_info->GetScalar("policy_upper_truncated_std") == Catch::Approx(4.0f));
     CHECK(*odd_info->GetScalar("policy_lower_truncated_std") == Catch::Approx(1.0f));
 
@@ -3983,7 +3982,7 @@ TEST_CASE("QR policy tail diagnostics exclude the odd median and reject K below 
     };
     const anet::nn::NetworkForwardCallInfo call_info_7({});
     auto one_info = policy.SelectAction(
-        one_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 1)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_7, {});
+        one_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 1)->PrepareDefaultForward(), rnd, call_info_7, {});
     CHECK(std::isnan(*one_info->GetScalar("policy_upper_truncated_std")));
     CHECK(std::isnan(*one_info->GetScalar("policy_lower_truncated_std")));
     CHECK(std::isnan(*one_info->GetScalar("lower_risk_full_q_argmax_disagreement")));
@@ -4003,7 +4002,7 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
 
         REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
         const anet::nn::NetworkForwardCallInfo call_info_8({});
-        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_8);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->PrepareDefaultForward(), rnd, call_info_8);
 
         REQUIRE(state->forward_count == 1);
         REQUIRE(state->last_taus.defined());
@@ -4133,7 +4132,7 @@ TEST_CASE("IQN UQE point query exports a full distribution from the same forward
 
     REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
     const anet::nn::NetworkForwardCallInfo call_info_9({});
-    auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_9, {});
+    auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->PrepareDefaultForward(), rnd, call_info_9, {});
 
     const auto expected_taus = torch::tensor({ 0.4f, 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
     REQUIRE(state->forward_count == 1);
@@ -4181,7 +4180,7 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     dqn::UQEActionPolicy policy(config);
 
     const anet::nn::NetworkForwardCallInfo call_info_10({});
-    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_10, {});
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->PrepareDefaultForward(), rnd, call_info_10, {});
 
     const auto expected_taus = torch::tensor({ 0.625f, 0.875f, 0.25f, 0.75f }).repeat({ 2, 1 });
     REQUIRE(state->forward_count == 1);
@@ -4220,7 +4219,7 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     auto risk_only_state = std::make_shared<TauEchoState>();
     const anet::nn::NetworkForwardCallInfo call_info_11({});
     auto risk_only = dqn::UQEActionPolicy(config).SelectAction(
-        obs, /*greedy_only=*/true, MakeTauEchoNetwork(2, risk_only_state)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_11, {});
+        obs, /*greedy_only=*/true, MakeTauEchoNetwork(2, risk_only_state)->PrepareDefaultForward(), rnd, call_info_11, {});
     CHECK_FALSE(std::isnan(*risk_only->GetScalar("iqn_policy_margin_mc_ratio")));
     CHECK(std::isnan(*risk_only->GetScalar("iqn_uqe_full_q_argmax_disagreement")));
     CHECK(std::isnan(*risk_only->GetScalar("action_full_q_margin.[0]")));
@@ -4237,7 +4236,7 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     auto random_full_state = std::make_shared<TauEchoState>();
     const anet::nn::NetworkForwardCallInfo call_info_12({});
     auto random_full = dqn::UQEActionPolicy(config).SelectAction(
-        obs, /*greedy_only=*/true, MakeTauEchoNetwork(4, random_full_state)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_12, {});
+        obs, /*greedy_only=*/true, MakeTauEchoNetwork(4, random_full_state)->PrepareDefaultForward(), rnd, call_info_12, {});
     CHECK(std::isnan(*random_full->GetScalar("policy_upper_truncated_std")));
     CHECK(std::isnan(*random_full->GetScalar("policy_lower_truncated_std")));
     CHECK(std::isnan(*random_full->GetScalar("lower_risk_full_q_argmax_disagreement")));
@@ -4269,7 +4268,7 @@ TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][a
         const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         const anet::nn::NetworkForwardCallInfo call_info_13({});
-        auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_13, {});
+        auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->PrepareDefaultForward(), rnd, call_info_13, {});
 
         REQUIRE(action_info->GetAction().device().type() == device_type);
         REQUIRE(probe_state->forward_count > 0);
@@ -5265,7 +5264,7 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
         INFO(name);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         const anet::nn::NetworkForwardCallInfo call_info_14({});
-        auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), rnd, call_info_14);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network->PrepareDefaultForward(), rnd, call_info_14);
         CHECK(torch::equal(action_info->GetAction().cpu(), expected_actions));
     }
 }
@@ -5476,7 +5475,7 @@ TEST_CASE("Replay fit policy evaluation suppresses inner AMP and stochastic auxi
         {
             anet::Autocast outer(device, true, torch::kBFloat16);
             const anet::nn::NetworkForwardCallInfo call_info_15({});
-            greedy.SelectAction(MakeAutocastProbePolicyInput(device), true, network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), random, call_info_15, {}, &evaluation);
+            greedy.SelectAction(MakeAutocastProbePolicyInput(device), true, network->PrepareDefaultForward(), random, call_info_15, {}, &evaluation);
         }
         CHECK(probe->forward_count == 1);
         CHECK(probe->enabled_count == 0);
@@ -5494,7 +5493,7 @@ TEST_CASE("Replay fit policy evaluation suppresses inner AMP and stochastic auxi
             dqn::UQEActionPolicy policy(config);
             const auto rng_before = random->GetTorchGenerator(device).get_state();
             const anet::nn::NetworkForwardCallInfo call_info_16({});
-            const auto result = policy.SelectAction(MakeTauEchoObservation().To(device), true, iqn_network->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0), random, call_info_16, {}, &evaluation);
+            const auto result = policy.SelectAction(MakeTauEchoObservation().To(device), true, iqn_network->PrepareDefaultForward(), random, call_info_16, {}, &evaluation);
             CHECK(echo->forward_count == 1);
             CHECK(echo->last_taus.size(1) == (tail ? 4 : 1));
             const auto expected = tail ? torch::tensor({ 0.5625f, 0.6875f, 0.8125f, 0.9375f }) : torch::tensor({ 0.5f });
@@ -6350,7 +6349,7 @@ TEST_CASE("QR UQE preserves sorted point and tail scores", "[dqn][qr][uqe][munch
         config.uqe_use_tail_mean = tail_mean;
         dqn::UQEActionPolicy policy(config);
         const anet::nn::NetworkForwardCallInfo call_info_17({});
-        const auto result = policy.SelectAction(obs, true, MakePassthroughNetwork(2, 4)->PrepareForward(anet::nn::NetworkForwardConfig::GetDefault(), anet::nn::NetworkForwardClock::kNone, 0),
+        const auto result = policy.SelectAction(obs, true, MakePassthroughNetwork(2, 4)->PrepareDefaultForward(),
             std::make_shared<anet::RandomGenerator>(67001), call_info_17, {});
         const auto expected = tail_mean ? torch::tensor({ { 5.0f, 32.0f / 3.0f } })
                                         : torch::tensor({ { 3.0f, 2.0f } });
@@ -6702,7 +6701,6 @@ namespace {
 
 struct ForwardContextRecord {
     std::string key;
-    anet::nn::NetworkForwardClock clock_kind;
     uint64_t clock;
     const anet::nn::NetworkForwardState* state;
     bool training;
@@ -6745,7 +6743,7 @@ private:
         const std::string& key, float scale, anet::nn::NetworkHeadExecution& inner)
     {
         // 設定は準備側に閉じ、公開の Head 境界で用途・箱・時計だけを観測する。
-        records_->push_back({key, context.GetClockKind(), context.GetClock(), context.GetState(), is_training(),
+        records_->push_back({key, context.GetClock(), context.GetState(), is_training(),
             context.GetRowMapping() ? context.GetRowMapping()->GetIndices() : torch::Tensor(),
             input.At(anet::nn::kKey_DefaultOutput).detach().clone()});
         auto output = inner.Forward(input, context);
@@ -6842,7 +6840,6 @@ TEST_CASE("DQN Learner uses selected contexts and separate boxes for current and
     for (const auto& record : *records) {
         const auto selected = record.training ? config.current.nn_forward_key : config.target.nn_forward_key;
         CHECK(record.key == "DefaultDQNAgent.nn_forward.[" + selected + "]");
-        CHECK(record.clock_kind == anet::nn::NetworkForwardClock::kTransientRows);
         CHECK(record.state != nullptr);
         CHECK(record.clock < updates);
         if (munchausen && !record.training) {
@@ -7118,15 +7115,13 @@ TEST_CASE("Noisy probe uses dedicated contexts with batch sharing and subscripti
     probe_data.Set("nn_forward.[probe].noisy.hold", "call");
     probe_data.Set("nn_forward.[probe].noisy.share", "batch");
     const anet::nn::NetworkForwardConfig probe_config("nn_forward.[probe]", SelectForwardConfigData(probe_data, "nn_forward.[probe]"));
-    probe_data.Set("nn_forward.[probe].noisy.mode", "mu_only");
-    const anet::nn::NetworkForwardConfig mean_config("nn_forward.[probe]", SelectForwardConfigData(probe_data, "nn_forward.[probe]"));
     anet::RandomGenerator probe_random(432);
     std::vector<rl::ScalarMetricSubscription> subscriptions;
     for (const auto key : {"noisy_q_abs_diff", "noisy_action_disagreement_ratio", "noisy_action_entropy"}) {
         subscriptions.push_back({.source_key=key, .event=rl::EventType::LEARN,
             .target=rl::EventField::UPDATE_RESULT, .interval=2, .scope=rl::RunnerScope::TRAIN});
     }
-    learner.ConfigureScalarMetricSubscriptions(subscriptions, nullptr, &probe_random, &probe_config, &mean_config);
+    learner.ConfigureScalarMetricSubscriptions(subscriptions, nullptr, &probe_random,&probe_config);
     for (int step = 0; step < 3; ++step) {
         records->clear();
         const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
@@ -7140,15 +7135,13 @@ TEST_CASE("Noisy probe uses dedicated contexts with batch sharing and subscripti
             CHECK(*result->GetScalar("noisy_q_abs_diff") > 0.0f);
             CHECK(*result->GetScalar("noisy_action_disagreement_ratio") == 0.0f);
             CHECK(*result->GetScalar("noisy_action_entropy") == 0.0f);
-            CHECK(records->front().state == (*records)[1].state);
-            CHECK(records->front().key == mean_config.key);
-            CHECK(records->front().clock_kind == anet::nn::NetworkForwardClock::kTransientRows);
+            CHECK(records->front().state == nullptr);
+            CHECK(records->front().key == "default");
             const auto box = (*records)[1].state;
             REQUIRE(box != nullptr);
             for (size_t draw = 1; draw <= 4; ++draw) {
                 const auto& record = (*records)[draw];
                 CHECK(record.key == probe_config.key);
-                CHECK(record.clock_kind == anet::nn::NetworkForwardClock::kTransientRows);
                 CHECK(record.state == box);
                 CHECK_FALSE(record.training);
                 CHECK(record.features.scalar_type() == torch::kFloat32);
@@ -7261,15 +7254,13 @@ TEST_CASE("Noisy diagnostics preserve TD QR IQN updates and spectral buffers acr
     probe_data.Set("probe.noisy.hold", "call");
     probe_data.Set("probe.noisy.share", "batch");
     const anet::nn::NetworkForwardConfig probe_config("probe", SelectForwardConfigData(probe_data, "probe"));
-    probe_data.Set("probe.noisy.mode", "mu_only");
-    const anet::nn::NetworkForwardConfig mean_config("probe", SelectForwardConfigData(probe_data, "probe"));
     anet::RandomGenerator probe_random(444);
     std::vector<rl::ScalarMetricSubscription> subscriptions;
     for (const auto key : dqn::kNoisyMetricKeys) {
         subscriptions.push_back({.source_key=key, .event=rl::EventType::LEARN,
             .target=rl::EventField::UPDATE_RESULT, .interval=1, .scope=rl::RunnerScope::TRAIN});
     }
-    measured->ConfigureScalarMetricSubscriptions(subscriptions, nullptr, &probe_random, &probe_config, &mean_config);
+    measured->ConfigureScalarMetricSubscriptions(subscriptions, nullptr, &probe_random,&probe_config);
     ordinary->ConfigureScalarMetricSubscriptions({});
     auto compare_networks = [](const auto& lhs, const auto& rhs) {
         const auto other_parameters = rhs->named_parameters();
@@ -7408,7 +7399,7 @@ TEST_CASE("Noisy probe sizes and sigma decay validate written values even when d
 }
 
 
-TEST_CASE("Noisy probe changes only noise while preserving another Head execution setting", "[dqn][noisynet][probe][context]")
+TEST_CASE("Noisy probe compares a prepared sample against the default Head execution", "[dqn][noisynet][probe][context]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::nn::InitNN();
@@ -7444,16 +7435,17 @@ TEST_CASE("Noisy probe changes only noise while preserving another Head executio
     probe_data.Set("probe.noisy.share", "batch");
     probe_data.Set("probe.probe_test.scale", 7.0f);
     const anet::nn::NetworkForwardConfig probe_config("probe", SelectForwardConfigData(probe_data, "probe"));
-    probe_data.Set("probe.noisy.mode", "mu_only");
-    const anet::nn::NetworkForwardConfig mean_config("probe", SelectForwardConfigData(probe_data, "probe"));
     anet::RandomGenerator probe_random(462);
     learner.ConfigureScalarMetricSubscriptions({{.source_key="noisy_q_abs_diff", .event=rl::EventType::LEARN,
         .target=rl::EventField::UPDATE_RESULT, .interval=1, .scope=rl::RunnerScope::TRAIN}},
-        nullptr, &probe_random, &probe_config, &mean_config);
+        nullptr, &probe_random,&probe_config);
     const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
     REQUIRE(result->GetScalar("noisy_q_abs_diff").has_value());
-    // sigma0=0 なら、Head 固有の設定が両方へ同じように届いた場合だけ Q 差がゼロになる。
-    CHECK(*result->GetScalar("noisy_q_abs_diff") == 0.0f);
+    // 平均側は既定のHeadを使い、sample側だけが選択された独自設定を読む。
+    CHECK(*result->GetScalar("noisy_q_abs_diff") > 0.0f);
+    CHECK(records->front().key == "default");
+    CHECK(records->front().state == nullptr);
+    CHECK((*records)[1].key == probe_config.key);
 }
 
 TEST_CASE("Noisy optimizer serialization restores mean and sigma groups and moments", "[dqn][noisynet][optimizer][serialize]")

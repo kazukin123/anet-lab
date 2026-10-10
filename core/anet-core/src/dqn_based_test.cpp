@@ -3,7 +3,6 @@
 #include "dqn_based_heads.hpp"
 #include "dqn_based_agent.hpp"
 #include "nn_heads.hpp"
-#include "nn_test.hpp"
 
 #include <cmath>
 #include <memory>
@@ -726,10 +725,10 @@ TEST_CASE("DQN Linear Head sample matches factorized reference and sigma gradien
         std::vector<std::string>{}, std::map<std::string, std::string>{});
     anet::nn::Network owner(anet::nn::NetworkConfig{}, anet::TensorSpecMap{}, nullptr, body, head);
     const anet::seed_t seed = 769;
-    auto state = anet::test::MakeTestForwardState(seed);
+    auto state = std::make_shared<anet::nn::NetworkForwardState>(seed);
     const anet::nn::NetworkForwardConfig config("nn_forward.[sample]", SelectForwardConfigData(data, "nn_forward.[sample]"));
-    anet::nn::NetworkForwardContext::Params context_params{
-        .state = state.get(), .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = 0,
+    anet::nn::NetworkForwardCallInfo::Params context_params{
+        .clock = 0,
     };
     auto owned_head_forward = head->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* head_forward = owned_head_forward ? owned_head_forward.get() : head.get();
@@ -753,7 +752,7 @@ TEST_CASE("DQN Linear Head sample matches factorized reference and sigma gradien
     const auto reference = torch::linear(ref_input,
         ref_weight + ref_sigma_weight * epsilon_output.unsqueeze(1) * epsilon_input.unsqueeze(0),
         ref_bias + ref_sigma_bias * epsilon_output);
-    const auto output = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q");
+    const auto output = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q");
     CHECK(torch::allclose(output, reference, 1e-5, 1e-6));
     output.square().sum().backward();
     reference.square().sum().backward();
@@ -764,9 +763,9 @@ TEST_CASE("DQN Linear Head sample matches factorized reference and sigma gradien
     CHECK(torch::allclose(parameters["linear.bias"].grad(), ref_bias.grad(), 1e-5, 1e-6));
     CHECK(torch::allclose(parameters["linear.sigma_weight"].grad(), ref_sigma_weight.grad(), 1e-5, 1e-6));
     CHECK(torch::allclose(parameters["linear.sigma_bias"].grad(), ref_sigma_bias.grad(), 1e-5, 1e-6));
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), output));
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), output));
     context_params.clock = 1;
-    CHECK_FALSE(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), output));
+    CHECK_FALSE(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), output));
 }
 
 TEST_CASE("All DQN projection heads register sigma with their existing mean parameter names", "[dqn][head][noisynet][initialization]")
@@ -824,10 +823,10 @@ TEST_CASE("All DQN projection heads sample the configured noise before distribut
         std::vector<std::string>{}, std::map<std::string, std::string>{});
     anet::nn::Network owner(anet::nn::NetworkConfig{}, anet::TensorSpecMap{}, nullptr, body, head);
     const anet::seed_t seed = 811;
-    auto state = anet::test::MakeTestForwardState(seed);
+    auto state = std::make_shared<anet::nn::NetworkForwardState>(seed);
     const anet::nn::NetworkForwardConfig config("nn_forward.[sample]", SelectForwardConfigData(data, "nn_forward.[sample]"));
-    anet::nn::NetworkForwardContext::Params context_params{
-        .state = state.get(), .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = 0,
+    anet::nn::NetworkForwardCallInfo::Params context_params{
+        .clock = 0,
     };
     auto owned_head_forward = head->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* head_forward = owned_head_forward ? owned_head_forward.get() : head.get();
@@ -858,7 +857,7 @@ TEST_CASE("All DQN projection heads sample the configured noise before distribut
         if (kind == 1) reference = reference.view({ 2, 3, 5 });
     }
     if (kind >= 3) reference = reference.permute({ 0, 2, 1 }).contiguous();
-    const auto output = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params));
+    const auto output = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params)));
     const auto q = reference.dim() == 3 ? reference.mean(2) : reference;
     CAPTURE(kind);
     CHECK(torch::allclose(output.At("q"), q, 1e-5, 1e-6));
@@ -867,9 +866,9 @@ TEST_CASE("All DQN projection heads sample the configured noise before distribut
     for (const auto& parameter : parameters) {
         if (parameter.key().find("sigma_") != std::string::npos) REQUIRE(parameter.value().grad().defined());
     }
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), output.At("q")));
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), output.At("q")));
     context_params.clock = 1;
-    CHECK_FALSE(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), output.At("q")));
+    CHECK_FALSE(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), output.At("q")));
 }
 
 TEST_CASE("DQN Head episode noise updates each lane once per Actor clock", "[dqn][head][noisynet][episode]")
@@ -890,32 +889,32 @@ TEST_CASE("DQN Head episode noise updates each lane once per Actor clock", "[dqn
         std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{}, anet::TensorSpecMap{},
         std::vector<std::string>{}, std::map<std::string, std::string>{});
     anet::nn::Network owner(anet::nn::NetworkConfig{}, anet::TensorSpecMap{}, nullptr, body, head);
-    auto state = anet::test::MakeTestForwardState(853);
+    auto state = std::make_shared<anet::nn::NetworkForwardState>(853);
     const anet::nn::NetworkForwardConfig config("nn_forward.[episode]", SelectForwardConfigData(data, "nn_forward.[episode]"));
-    anet::nn::NetworkForwardContext::Params context_params{
-        .state = state.get(), .clock_kind = anet::nn::NetworkForwardClock::kContinuingRows, .clock = 0,
+    anet::nn::NetworkForwardCallInfo::Params context_params{
+        .clock = 0,
         .episode_start = torch::ones({ 2 }, torch::kBool),
     };
     auto owned_head_forward = head->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
     auto* head_forward = owned_head_forward ? owned_head_forward.get() : head.get();
-    const auto initial = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q").detach().clone();
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), initial));
+    const auto initial = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q").detach().clone();
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), initial));
     context_params.clock = 1;
     context_params.episode_start = torch::tensor({ false, true }, torch::kBool);
-    const auto next = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q").detach().clone();
+    const auto next = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q").detach().clone();
     CAPTURE(kind);
     CHECK(torch::equal(next.select(0, 0), initial.select(0, 0)));
     CHECK_FALSE(torch::equal(next.select(0, 1), initial.select(0, 1)));
 
     // 同じ時計の mask の再評価を抑え、IQN の tau 次元にも同じ ε を使う。
     context_params.episode_start = torch::tensor({ true, false }, torch::kBool);
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), next));
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), next));
     context_params.clock = 2;
     context_params.episode_start = torch::zeros({ 2 }, torch::kBool);
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), next));
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), next));
     context_params.clock = 3;
     context_params.episode_start = torch::tensor({ true, false }, torch::kBool);
-    const auto third = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q");
+    const auto third = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q");
     CHECK_FALSE(torch::equal(third.select(0, 0), next.select(0, 0)));
     CHECK(torch::equal(third.select(0, 1), next.select(0, 1)));
 }
@@ -932,7 +931,7 @@ TEST_CASE("Noisy consumers accept a named mu-only setting without holding fields
     data.Set("nn_forward.[mean].noisy.mode", "mu_only");
     const anet::nn::WeightInitConfig init{ .mode = "constant", .constant_val = 0.125 };
     const anet::nn::NetworkForwardConfig config("nn_forward.[mean]", SelectForwardConfigData(data, "nn_forward.[mean]"));
-    const anet::nn::NetworkForwardContext context({});
+    const auto context = anet::nn::NetworkForwardContext::GetDefault();
     anet::TensorDict features;
     const auto input = kind == 3 || kind == 4 ? torch::ones({ 2, 7, 4 }) : torch::ones({ 2, 4 });
     features.Set(anet::nn::kKey_DefaultOutput, input);
@@ -942,13 +941,13 @@ TEST_CASE("Noisy consumers accept a named mu-only setting without holding fields
         auto linear = anet::nn::NetworkModuleRepository::Instance().GetFactory("Linear")->CreateModule(data, anet::nn::ModuleContext{});
         module = linear;
         linear->Forward(input, context);
-        auto prepared = linear->PrepareForward(config, anet::nn::NetworkForwardClock::kNone);
+        auto prepared = linear->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
         CHECK_FALSE(prepared);
         output = linear->Forward(input, context);
     } else {
         auto head = CreateConfiguredProjectionHeadFactory(kind, init, data)->CreateHead(features);
         module = head;
-        auto prepared = head->PrepareForward(config, anet::nn::NetworkForwardClock::kNone);
+        auto prepared = head->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
         CHECK_FALSE(prepared);
         output = head->Forward(features, context).At("q");
     }
@@ -979,28 +978,28 @@ TEST_CASE("DQN Head count holding follows Actor actions across episode boundarie
         std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{}, anet::TensorSpecMap{},
         std::vector<std::string>{}, std::map<std::string, std::string>{});
     anet::nn::Network owner(anet::nn::NetworkConfig{}, anet::TensorSpecMap{}, nullptr, body, head);
-    auto state = anet::test::MakeTestForwardState(907);
+    auto state = std::make_shared<anet::nn::NetworkForwardState>(907);
     const anet::nn::NetworkForwardConfig config("nn_forward.[count]", SelectForwardConfigData(data, "nn_forward.[count]"));
-    anet::nn::NetworkForwardContext::Params context_params{
-        .state = state.get(), .clock_kind = anet::nn::NetworkForwardClock::kContinuingRows, .clock = 0,
+    anet::nn::NetworkForwardCallInfo::Params context_params{
+        .clock = 0,
         .episode_start = torch::ones({ 2 }, torch::kBool),
     };
     auto owned_head_forward = head->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
     auto* head_forward = owned_head_forward ? owned_head_forward.get() : head.get();
-    const auto initial = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q").detach().clone();
+    const auto initial = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q").detach().clone();
     for (const auto clock : { 0, 1, 2 }) {
         context_params.clock = clock;
-        CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), initial));
+        CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), initial));
     }
     // episode mask を周期に混ぜず、再抽選後の同一時計でも ε を維持する。
     context_params.clock = 3;
-    const auto next = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q").detach().clone();
+    const auto next = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q").detach().clone();
     CHECK_FALSE(torch::equal(next, initial));
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), next));
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), next));
     context_params.clock = 4;
-    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), next));
+    CHECK(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), next));
     context_params.clock = 6;
-    CHECK_FALSE(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q"), next));
+    CHECK_FALSE(torch::equal(head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), next));
 }
 
 TEST_CASE("DQN Head joint batch preserves the noise of each original transition", "[dqn][head][noisynet][row_mapping]")
@@ -1021,27 +1020,27 @@ TEST_CASE("DQN Head joint batch preserves the noise of each original transition"
         std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{}, anet::TensorSpecMap{},
         std::vector<std::string>{}, std::map<std::string, std::string>{});
     anet::nn::Network owner(anet::nn::NetworkConfig{}, anet::TensorSpecMap{}, nullptr, body, head);
-    auto state = anet::test::MakeTestForwardState(953);
+    auto state = std::make_shared<anet::nn::NetworkForwardState>(953);
     const anet::nn::NetworkForwardConfig config("nn_forward.[sample]", SelectForwardConfigData(data, "nn_forward.[sample]"));
-    anet::nn::NetworkForwardContext::Params context_params{
-        .state = state.get(), .clock_kind = anet::nn::NetworkForwardClock::kTransientRows, .clock = 0,
+    anet::nn::NetworkForwardCallInfo::Params context_params{
+        .clock = 0,
     };
     auto owned_head_forward = head->PrepareForward(config, anet::nn::NetworkForwardClock::kTransientRows);
     auto* head_forward = owned_head_forward ? owned_head_forward.get() : head.get();
-    const auto initial = head_forward->Forward(features, anet::nn::NetworkForwardContext(context_params)).At("q").detach().clone();
+    const auto initial = head_forward->Forward(features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q").detach().clone();
     anet::TensorDict joint_features;
     joint_features.Set(anet::nn::kKey_DefaultOutput, torch::cat({ input, input }, 0));
     context_params.row_mapping.emplace(torch::tensor({ 0, 1, 0, 1 }, torch::kLong), 2, torch::Device(torch::kCPU));
     CAPTURE(kind);
-    CHECK(torch::equal(head_forward->Forward(joint_features, anet::nn::NetworkForwardContext(context_params)).At("q"), torch::cat({ initial, initial }, 0)));
+    CHECK(torch::equal(head_forward->Forward(joint_features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q"), torch::cat({ initial, initial }, 0)));
 
     // current/next の結合行を元遷移へ戻し、tau 次元では ε を共有する。
     context_params.clock = 1;
-    const auto next = head_forward->Forward(joint_features, anet::nn::NetworkForwardContext(context_params)).At("q").detach().clone();
+    const auto next = head_forward->Forward(joint_features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q").detach().clone();
     CHECK_FALSE(torch::equal(next, torch::cat({ initial, initial }, 0)));
     CHECK(torch::equal(next.slice(0, 0, 2), next.slice(0, 2, 4)));
     context_params.row_mapping.emplace(torch::tensor({ 1, 0, 1, 0 }, torch::kLong), 2, torch::Device(torch::kCPU));
-    const auto reordered = head_forward->Forward(joint_features, anet::nn::NetworkForwardContext(context_params)).At("q");
+    const auto reordered = head_forward->Forward(joint_features, anet::nn::NetworkForwardContext(state.get(), anet::nn::NetworkForwardCallInfo(context_params))).At("q");
     CHECK(torch::equal(reordered.select(0, 0), next.select(0, 1)));
     CHECK(torch::equal(reordered.select(0, 1), next.select(0, 0)));
 }
@@ -1086,7 +1085,7 @@ TEST_CASE("DQN Head validates forward requirements locally while disabled heads 
     }
     data.Set("nn_forward.[mean].noisy.mode", "mu_only");
     const anet::nn::NetworkForwardConfig mean("nn_forward.[mean]", SelectForwardConfigData(data, "nn_forward.[mean]"));
-    CHECK_NOTHROW(head->PrepareForward(mean, anet::nn::NetworkForwardClock::kNone));
+    CHECK_NOTHROW(head->PrepareForward(mean, anet::nn::NetworkForwardClock::kTransientRows));
 }
 
 TEST_CASE("Network output reuse checks noise modes only in consuming components", "[nn][dqn][noisynet][online_reuse]")
@@ -1144,33 +1143,38 @@ TEST_CASE("Network output reuse checks noise modes only in consuming components"
     }
 }
 
-TEST_CASE("DQN Head factories delegate declaration validation to their concrete heads", "[dqn][head][noisynet][config]")
+TEST_CASE("DQN Heads validate used settings during preparation", "[dqn][head][noisynet][config]")
 {
     const auto kind = GENERATE(0, 1, 2, 3, 4, 5);
     const anet::nn::WeightInitConfig init{ .mode = "constant", .constant_val = 0.125 };
-    const auto factory = CreateConfiguredProjectionHeadFactory(kind, init, anet::EmptyConfigData);
-    const auto validate = [&factory](const anet::ConfigData& data) {
-        const anet::nn::NetworkForwardConfig config("nn_forward.[head_declaration]", SelectForwardConfigData(data, "nn_forward.[head_declaration]"));
-        factory->ValidateForwardConfigDeclaration(config);
+    anet::ConfigData structure;
+    structure.Set("noisy.enabled", true);
+    anet::TensorDict features;
+    features.Set(anet::nn::kKey_DefaultOutput,
+        kind == 3 || kind == 4 ? torch::ones({ 2, 7, 4 }) : torch::ones({ 2, 4 }));
+    const auto head = CreateConfiguredProjectionHeadFactory(kind, init, structure)->CreateHead(features);
+    const auto validate = [&head](const anet::ConfigData& data) {
+        const anet::nn::NetworkForwardConfig config("nn_forward.[head_prepared]", SelectForwardConfigData(data, "nn_forward.[head_prepared]"));
+        head->PrepareForward(config, anet::nn::NetworkForwardClock::kContinuingRows);
     };
     anet::ConfigData data;
-    data.Set("nn_forward.[head_declaration].noisy.mode", "mu_only");
+    data.Set("nn_forward.[head_prepared].noisy.mode", "mu_only");
     CHECK_NOTHROW(validate(data));
     for (const auto& [leaf, value] : std::vector<std::pair<std::string, std::string>>{
         { "mode", "other" }, { "hold", "other" }, { "share", "other" }, { "count", "0" },
         { "count", "-1" }, { "count", "1.5" },
     }) {
         auto invalid = data;
-        invalid.Set("nn_forward.[head_declaration].noisy." + leaf, value);
+        invalid.Set("nn_forward.[head_prepared].noisy." + leaf, value);
         CAPTURE(kind, leaf, value);
         CHECK_THROWS_WITH(validate(invalid), Catch::Matchers::ContainsSubstring("noisy." + leaf));
     }
-    data.Set("nn_forward.[head_declaration].noisy.mode", "sample");
-    data.Set("nn_forward.[head_declaration].noisy.hold", "episode");
-    data.Set("nn_forward.[head_declaration].noisy.share", "batch");
+    data.Set("nn_forward.[head_prepared].noisy.mode", "sample");
+    data.Set("nn_forward.[head_prepared].noisy.hold", "episode");
+    data.Set("nn_forward.[head_prepared].noisy.share", "batch");
     CHECK_THROWS_WITH(validate(data), Catch::Matchers::ContainsSubstring("episode") && Catch::Matchers::ContainsSubstring("sample"));
-    data.Set("nn_forward.[head_declaration].noisy.share", "sample");
+    data.Set("nn_forward.[head_prepared].noisy.share", "sample");
     CHECK_NOTHROW(validate(data));
-    data.Set("nn_forward.[head_declaration].noisy.hold", "count");
-    CHECK_NOTHROW(validate(data));
+    data.Set("nn_forward.[head_prepared].noisy.hold", "count");
+    CHECK_THROWS_WITH(validate(data), Catch::Matchers::ContainsSubstring("noisy.count"));
 }

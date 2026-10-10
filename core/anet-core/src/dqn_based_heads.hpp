@@ -27,7 +27,6 @@ namespace anet::rl::dqn {
         LinearHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
-        void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const override;
     };
 
     class DuelingHeadFactory final : public HeadFactoryBase {
@@ -35,7 +34,6 @@ namespace anet::rl::dqn {
         DuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
-        void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const override;
     };
 
     class QuantileHeadFactory final : public HeadFactoryBase {
@@ -43,7 +41,6 @@ namespace anet::rl::dqn {
         QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
-        void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const override;
     private:
         int64_t num_quantiles_;
     };
@@ -53,7 +50,6 @@ namespace anet::rl::dqn {
         QuantileDuelingHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
-        void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const override;
     private:
         int64_t num_quantiles_;
     };
@@ -63,7 +59,6 @@ namespace anet::rl::dqn {
         IQNHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
-        void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const override;
     };
 
     class IQNDuelingHeadFactory final : public HeadFactoryBase {
@@ -71,7 +66,6 @@ namespace anet::rl::dqn {
         IQNDuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
-        void ValidateForwardConfigDeclaration(const anet::nn::NetworkForwardConfig& config) const override;
     };
 
 } // namespace anet::rl::dqn

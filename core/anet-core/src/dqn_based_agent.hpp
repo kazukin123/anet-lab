@@ -956,8 +956,7 @@ namespace anet::rl::dqn {
             const std::vector<ScalarMetricSubscription>& subscriptions,
             anet::RandomGenerator* replay_fit_probe_random = nullptr,
             anet::RandomGenerator* noisy_probe_random = nullptr,
-            const anet::nn::NetworkForwardConfig* noisy_probe_config = nullptr,
-            const anet::nn::NetworkForwardConfig* noisy_probe_mean_config = nullptr);
+            const anet::nn::NetworkForwardConfig* noisy_probe_config = nullptr);
 
         virtual ~Learner() = default;
     public:
@@ -1054,7 +1053,6 @@ namespace anet::rl::dqn {
             std::vector<DemandEntry> demand;
             anet::RandomGenerator* random = nullptr;
             std::shared_ptr<anet::nn::NetworkForwardExecution> sample_forward;
-            std::shared_ptr<anet::nn::NetworkForwardExecution> mean_forward;
             uint64_t forward_clock = 0;
             NoisyMetrics values;
             NoisyDiagnosticState() { values.fill(std::numeric_limits<float>::quiet_NaN()); }

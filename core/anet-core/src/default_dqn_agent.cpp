@@ -127,11 +127,6 @@ DefaultDQNAgent::DefaultDQNAgent(
         forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
             "DefaultDQNAgent.nn_forward.[" + key + "]", data));
     }
-    // Head 独自の認識値も、選択された factory に宣言検証を委譲する。
-    for (const auto& [key, forward_config] : forward_configs_) {
-        head_factory->ValidateForwardConfigDeclaration(*forward_config);
-    }
-
     // オリジナルのStateSpecをコピー
     auto network_obs_spec = env_spec.state_spec.obs_spec;
 
@@ -459,14 +454,10 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
         data.Set("noisy.hold", "call");
         data.Set("noisy.share", "batch");
         noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
-        // 比較では Noisy の mode だけを変え、他の計算部品が読む設定を両側へ同じように渡す。
-        data.Set("noisy.mode", "mu_only");
-        noisy_probe_mean_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
     }
     learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr,
         needs_noisy_probe ? noisy_probe_random_.get() : nullptr,
-        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr,
-        needs_noisy_probe ? noisy_probe_mean_forward_config_.get() : nullptr);
+        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const

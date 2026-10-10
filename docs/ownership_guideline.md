@@ -43,7 +43,7 @@
 - Config（読み取り専用）
 - Actorだけがforwardと同期に使うprivate network snapshot
 - `ActorRequest.seed`から生成し、そのActorだけが消費するprivate RNG
-- 用途別 NetworkForwardExecution は Network の寿命・準備済み処理・専用 State・時計種別を持つ private Resource。Actor は行動選択用、Learner は現在値／target 用を持つ。同じ target 用途の online／target 接続は State を共有する。箱の内部は NN の計算部品が更新し、同期・保存に含めない。時計を進める判断は Actor／Learner に残し、今の値だけを CallInfo で渡す。
+- 用途別 NetworkForwardExecution は Network の寿命・準備済み処理・専用 State・時計種別を持つ private Resource。Actor は行動選択用、Learner は現在値／target 用を持つ。同じtarget用途のonline／target接続は設定・State・時計種別を共有する。State/ContextはNN内部型で呼び出し側へ公開しない。既定ExecutionはState/時計種別を持たず部品を準備しない。箱の内部は NN の計算部品が更新し、同期・保存に含めない。時計を進める判断は Actor／Learner に残し、今の値だけを CallInfo で渡す。
 - Config DTO は設定値と参照キーだけを持つ。選択済み NetworkForwardConfig は Agent の Resource であり、通常 forward から設定を検索・解釈しない。
 
 ---

@@ -61,13 +61,13 @@ This separation allows multiple Agent-specific Heads to use a shared Backbone.
 
 NetworkForwardConfig is an immutable carrier of a key and copied selected ConfigData, without concrete types, parsing, or validation. Network::PrepareForward delegates preparation to constructed Modules and Head. Ordinary components remain direct call targets; only consuming concrete components return prepared calls with private enums and numbers. Child Modules propagate preparation while reusing bind, dependencies, trace, capture, and FP32 computation. New settings remain local to consuming components.
 
-NetworkForwardExecution owns Network lifetime, prepared calls, a purpose-specific State, and clock kind. Initialization-only BindNetwork creates another connection sharing State and clock kind. Calls refer to existing weights; clones require new preparation. Runtime setting switching and deduplication are deferred.
+NetworkForwardExecution owns Network lifetime. Named PrepareForward owns immutable settings, prepared calls, internal State, and clock kind. Initialization-only BindNetwork(network) inherits settings, State, and clock kind. PrepareDefaultForward performs no component preparation and owns no State or clock kind. Calls refer to existing weights; clones need separate preparation. Runtime switching remains deferred.
 
-Immutable NetworkForwardCallInfo contains only clock value, episode_start, and row mapping. Callers construct it in a separate statement before Forward or ForwardUpTo. Private MakeContext adds State and clock kind without drawing noise, updating State, or computing Tensors. NetworkForwardContext stores private const Params without configuration. Tensor storage remains shared and unchanged during calls. CallInfo::WithRowMapping copies all Params before replacing row mapping.
+Immutable NetworkForwardCallInfo contains clock value, episode_start, and row mapping. Construct it in a separate statement before Forward(input, info). WithRowMapping copies all Params and replaces only the mapping. Internal Context holds a State pointer and a const CallInfo reference, without clock kind. MakeContext performs no Tensor copies, draws, State updates, or computation. The reference lives only during synchronous Forward; Tensor storage must not change during the call.
 
 The internal NN helpers PreparedModuleChildren<N> and PreparedHeadExecution<Head, ForwardMethod, N> own prepared child calls and bind the Head computation at compile time. They do not interpret DQN, Noisy, or concrete settings. A Head with only default child calls runs its original body directly. PrepareForward requires a Network owned by shared_ptr.
 
-Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkForwardContext::GetDefault internally; Noisy defaults to μ-only. Dummy calls, extra diagnostics, other Agents, and unchanged TensorDictFunction operations use this route. Named settings are no longer passed in Context. Setting access uses no RTTI, dynamic_cast, or type tokens; internal State type management remains separate. Factories validate declarations, concrete preparation validates usage, and computations validate runtime shape/device and clocks. ValidateForwardReuse delegates reuse constraints.
+Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkForwardContext::GetDefault internally; Noisy defaults to μ-only. Dummy calls, extra diagnostics, other Agents, and unchanged TensorDictFunction operations use this route. Named settings are no longer passed in Context. Setting access uses no RTTI, dynamic_cast, or type tokens; internal State type management remains separate. Configuration loading validates references; consuming concrete preparation validates contents and usage, and computations validate runtime shape/device and clocks. ValidateForwardReuse delegates reuse constraints.
 
 ### 2.4 Configuration Syntax
 
@@ -147,6 +147,7 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
+  +PrepareDefaultForward()
   +PrepareForward(config, clock_kind, seed)
   +Forward(input, callback)
   +Clone(device)
@@ -163,10 +164,14 @@ class NetworkHead
 class NetworkHeadFactory
 class NetworkForwardExecution {
   +Forward(input, info, callback)
-  +ForwardUpTo(input, info, branch_key)
-  +BindNetwork(network, config)
+  +BindNetwork(network)
 }
-class NetworkForwardState
+class NetworkForwardState {
+  <<internal>>
+}
+class NetworkForwardContext {
+  <<internal>>
+}
 class NetworkForwardCallInfo
 class NetworkModuleExecution
 class NetworkHeadExecution
@@ -178,7 +183,7 @@ NetworkForwardExecution --> NetworkModuleExecution : fixed calls
 NetworkForwardExecution --> NetworkHeadExecution : fixed call
 NetworkModule --|> NetworkModuleExecution
 NetworkHead --|> NetworkHeadExecution
-Network ..> NetworkForwardExecution : prepares
+Network ..> NetworkForwardExecution : prepares named/default
 NetworkBuilder ..> NetworkConfig
 NetworkBuilder ..> NetworkModuleRepository
 NetworkBuilder ..> NetworkHeadFactory
@@ -314,7 +319,7 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 
 `Network::Forward` accepts optional `NetworkBranchCapture`, returning detached internal tensors after the ordinary branch loop but before `output_keys` conversion. Existing forwards without capture, TraceCallback, and Actor paths are unchanged.
 
-`NetworkForwardExecution::ForwardUpTo(input, info, branch_key)` uses formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. Default `Network::ForwardUpTo(input, branch_key)` supplies the default Context internally. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
+`Network::ForwardUpTo(input, branch_key)` uses the default Context and formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. Default `Network::ForwardUpTo(input, branch_key)` supplies the default Context internally. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
 
 Plasticity statistics accept rank-2 `(N,D)` features and a requested metric set, compute only requested statistics from detached FP32 CPU features, and are cached by the caller. Steps without srank requests perform no SVD. Simultaneous requests for δ=0.01 / 0.05 / 0.20 share one `svdvals` and cumsum. Each result is optional, preventing uncomputed fields from being read as valid values. Unqualified srank means δ=0.01.
 
@@ -324,9 +329,9 @@ Plasticity statistics accept rank-2 `(N,D)` features and a requested metric set,
 
 Body `Linear` defaults to `noisy.enabled=false`, `noisy.sigma0=0.5`, and `force_fp32=false`. Existing weight/bias remain μ with their names, initialization, and RNG order preserved. Enabling Noisy registers signed trainable `sigma_weight` / `sigma_bias`, both initialized to `sigma0 / sqrt(fan_in)`.
 
-The concrete LinearProjectionModule composed by Body Linear and Heads privately reads `noisy.mode=sample|mu_only`, `noisy.hold=call|count|episode`, `noisy.share=batch|sample`, and `noisy.count`. Written types, enums, ranges, and episode/batch incompatibility are checked at configuration resolution. Active sample requirements, clock compatibility, and reuse constraints are checked at initialization. OFF and μ-only suspend holding requirements without ignoring invalid written values.
+The concrete LinearProjectionModule composed by Body Linear and Heads privately interprets noisy.mode/hold/share/count during preparation. Consuming preparation validates written types, enums, ranges, required fields, episode/batch compatibility, and clock constraints. Unreferenced entries and OFF components leave execution contents dormant. Mu-only does not require unused holding fields, while explicit recognized values are validated by the consuming component.
 
-Caller-owned opaque `NetworkForwardState` stores ε per module instance and a dedicated RNG. Call redraws when the clock changes; count redraws every N Actor calls; episode redraws only Actor lanes marked by `episode_start`. Repeating a forward at the same clock preserves ε and does not apply an episode boundary twice. Episode boundaries do not reset count. Held shape/device mismatches and backward clocks fail fast. The immutable NetworkForwardRowMapping validates CPU int64 indices and the source-row count once, then transfers indices to the execution device once. Projections use SelectRows without exposing internal indices and check only row/device metadata at execution. GetIndices returns an independent inspection copy.
+Internal opaque `NetworkForwardState` owned by named execution stores ε per module instance and a dedicated RNG. Call redraws when the clock changes; count redraws every N Actor calls; episode redraws only Actor lanes marked by `episode_start`. Repeating a forward at the same clock preserves ε and does not apply an episode boundary twice. Episode boundaries do not reset count. Held shape/device mismatches and backward clocks fail fast. The immutable NetworkForwardRowMapping validates CPU int64 indices and the source-row count once, then transfers indices to the execution device once. Projections use SelectRows without exposing internal indices and check only row/device metadata at execution. GetIndices returns an independent inspection copy.
 
 Concrete prepared calls own parsed values. Normal forward has no setting lookup, parsing, or configuration locks, independently of source lifetime, mutation, and key reuse.
 
