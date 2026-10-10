@@ -212,4 +212,12 @@ State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持
 
 公開のnn.hppは利用側のConfig・CallInfo・Network・NetworkForwardExecutor・診断・Builderを定義する。Module／Head作者のinterface、HeadFactory、HeadGraphVizInfo、WeightNormConfigは内部のnn_impl.hppへ置く。Module／HeadのCreateExecutorがnullptrを返す場合は本体を直接呼ぶ。
 
-現用APIはCreateForwardExecutor／CreateDefaultForwardExecutor、NetworkModuleExecutor／NetworkHeadExecutor、PreparedHeadExecutor。既存タグ・数値と準備済み処理の契約は維持する。API残存、公開型／メンバ／列挙子コメント、BOM／LFの監査ログは.scratch/prd084/forward-refactor/api-20261011/logs/へ保存する。最終ReleaseのCPU OFF500kと旧checkpoint読込を同じ実行体で確認し、結果は[検証記録](forward_refactor_verification.md)の今回節へ記録する。ON Runと性能の再測定は行わない。
+25impl時点のAPIはCreateForwardExecutor／CreateDefaultForwardExecutor、NetworkModuleExecutor／NetworkHeadExecutor、PreparedHeadExecutor。既存タグ・数値と準備済み処理の契約は維持する。API残存、公開型／メンバ／列挙子コメント、BOM／LFの監査ログは.scratch/prd084/forward-refactor/api-20261011/logs/へ保存する。最終ReleaseのCPU OFF500kと旧checkpoint読込を同じ実行体で確認し、結果は[検証記録](forward_refactor_verification.md)の今回節へ記録する。ON Runと性能の再測定は行わない。
+
+## まとめ整理 2026-10-11
+
+現用の生成APIはCreateForwardExecutorだけとし、既定設定ではState・時計種別・部品準備を持たない。BindNetworkを削除し、target用途のonline／targetはNetwork別のStateとnetwork_forward.target_online／network_forward.targetのnamed seedを持つ。Learnerの用途ペアとDQN射影Headの定型処理を集約する。計画は[26impl](../../../../docs/memo/084_noisynet_26impl.md)、結果は[検証記録](forward_refactor_verification.md)の同名節を参照する。
+
+Debug全体ビルド、[noisynet]と全coreのCPU／CUDA、Release全体ビルド、設定6構成・既定葉・公開面と削除APIの機械検査を行う。最終ReleaseのOFF3本と代表ON単発を各500k経験で旧checksumと完全一致比較し、旧OFF checkpointも読み込む。出力は.scratch/prd084/forward-refactor/bundle-20261011/afterへ分離する。別の学習Runが同じGPUにある場合GPU Runは保留し、CPU OFFは実行する。性能は再測定しない。
+
+Double DQNまたはMunchausen onlineでNoisy sampleを使う構成は、独立箱への変更によって乱数割り当てが変わり以前のRunと数値は一致しないが、抽選分布は維持する。代表ONはMunchausen target方式であり、この変更を通らない。以前の節とADR本文は当時の記録として保持する。

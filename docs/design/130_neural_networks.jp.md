@@ -62,11 +62,11 @@ NetworkForwardConfig はキーと選択済み ConfigData をコピーして保�
 
 CreateForwardExecutor は shared_ptr で所有された Network に対して呼ぶ。
 
-公開のnn.hppはNNを使う側の契約を置く。NetworkHead／NetworkHeadExecutor／NetworkHeadFactory、HeadGraphVizInfo、WeightNormConfigの定義は内部のnn_impl.hppへ置く。Module／HeadのCreateExecutorは、専用の実行器が不要ならnullptrを返し、通常の本体を直接呼ぶ。公開ヘッダには署名に必要な前方宣言だけを残す。
+公開のnn.hppはNNを使う側の契約を置く。NetworkHead／NetworkHeadExecutor／NetworkHeadFactory、HeadGraphVizInfo、WeightNormConfigの定義は内部のnn_impl.hppへ置く。Module／HeadのCreateExecutorは、専用の実行器が不要ならnullptrを返し、通常の本体を直接呼ぶ。公開ヘッダには署名に必要な前方宣言だけを残す。State／Context・部品の実行interface・RunForwardは公開署名へ出さず、RunForwardはcpp内で既定／準備済みのBody・Head計算を共用する。
 
-NetworkForwardExecutor は対象Networkの寿命を保持する。名前付きCreateForwardExecutorは不変設定・準備済み処理・内部State・時計種別を保持し、初期化時のBindNetwork(network)は設定・State・時計種別を共有する別接続を作る。CreateDefaultForwardExecutorは部品を準備せず、State・時計種別を持たない。重みは既存Moduleを参照し、clone先は別に準備する。実行中の設定切替は行わない。
+NetworkForwardExecutor は対象Networkの寿命を保持する。CreateForwardExecutorは名前付き設定と時計種別を部品の準備時に使い、実行器は準備済み処理とNetwork別の内部Stateを保持する。既定設定では部品を準備せず、State・時計種別を持たず、clock_kindとseedを使用しない。重みは既存Moduleを参照し、clone先は別に準備する。実行中の設定切替は行わない。
 
-NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不変クラスで、別文で生成してForward(input, info)へ渡す。WithRowMappingは全Paramsをコピーして行対応だけを置換する。内部ContextはStateポインタとCallInfoのconst参照を持ち、時計種別を含まない。private MakeContextはTensorコピー・抽選・State更新・演算をせず、参照のlifetimeは同期Forward内に限定する。Tensorストレージは呼び出し中に変更しない。
+NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不変クラスで、別文で生成してForward(input, info)へ渡す。WithRowMappingは全Paramsをコピーして行対応だけを置換する。内部ContextはStateポインタとCallInfoのconst参照を持ち、時計種別を含まない。Impl内のMakeContextはTensorコピー・抽選・State更新・演算をせず、参照のlifetimeは同期Forward内に限定する。Tensorストレージは呼び出し中に変更しない。
 
 既定の Network::Forward(input)／ForwardUpTo(input, branch_key) は内部へ NetworkForwardContext::GetDefault() を伝え、Noisy は μ-only で動く。dummy 実行、追加診断、対象外 Agent、既存の TensorDictFunction も既定経路を使う。名前付き設定を Context で渡す経路は削除する。設定取得に RTTI・dynamic_cast・型トークンを使わず、State 内部の既存の型管理は維持する。参照存在は設定読込時、使用する項目内容と利用時制約は具象の準備処理、実データの shape/device・時計値は演算時に検証する。ValidateForwardReuse は各部品へ再利用検証を委譲する。
 
@@ -150,7 +150,6 @@ direction LR
 class NetworkBuilder
 class NetworkConfig
 class Network {
-  +CreateDefaultForwardExecutor()
   +CreateForwardExecutor(config, clock_kind, seed)
   +Forward(input, callback)
   +Clone(device)
@@ -167,7 +166,6 @@ class NetworkHead
 class NetworkHeadFactory
 class NetworkForwardExecutor {
   +Forward(input, info, callback)
-  +BindNetwork(network)
 }
 class NetworkForwardState {
   <<internal>>
@@ -180,7 +178,7 @@ class NetworkModuleExecutor
 class NetworkHeadExecutor
 
 NetworkForwardExecutor --> Network : lifetime
-NetworkForwardExecutor o-- NetworkForwardState : purpose
+NetworkForwardExecutor o-- NetworkForwardState : named Network/purpose
 NetworkForwardExecutor ..> NetworkForwardCallInfo
 NetworkForwardExecutor --> NetworkModuleExecutor : fixed calls
 NetworkForwardExecutor --> NetworkHeadExecutor : fixed call
@@ -240,9 +238,13 @@ sequenceDiagram
     participant M as Concrete Module/Head
     participant E as NetworkForwardExecutor
     C->>N: CreateForwardExecutor(config, clock_kind, seed)
-    N->>M: CreateExecutor(config, clock_kind)
-    M-->>N: private prepared execution or direct body
-    N->>E: fix calls, own State and Network
+    alt default setting
+        N->>E: direct calls, own Network (no State)
+    else named setting
+        N->>M: CreateExecutor(config, clock_kind)
+        M-->>N: private prepared execution or direct body
+        N->>E: fix calls, own State and Network
+    end
     E-->>C: execution
 ```
 
@@ -252,22 +254,22 @@ sequenceDiagram
 sequenceDiagram
     participant C as Actor/Learner
     participant E as NetworkForwardExecutor
-    participant N as Network
+    participant R as internal RunForward
     participant P as BoundaryPreprocessor
     participant B as NetworkBody
     participant H as prepared Head/body
     C->>C: construct immutable CallInfo
     C->>E: Forward(input TensorDict, info)
     E->>E: MakeContext(info)
-    E->>N: RunForward(input, context, fixed calls)
-    N->>P: Format(raw input)
-    P-->>N: formatted TensorDict
-    N->>B: Forward(context, fixed calls)
+    E->>R: RunForward(body, input, context, fixed calls)
+    R->>B: Forward(input, context, fixed calls)
+    B->>P: Format(raw input)
+    P-->>B: formatted TensorDict
     B->>B: execute branches in dependency order
-    B-->>N: feature TensorDict
-    N->>H: Forward(features, context)
-    H-->>N: Agent TensorDict
-    N-->>E: output
+    B-->>R: feature TensorDict
+    R->>H: Forward(features, context)
+    H-->>R: Agent TensorDict
+    R-->>E: output
     E-->>C: output
 ```
 

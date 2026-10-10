@@ -74,7 +74,6 @@ namespace anet::rl::dqn {
     }
 
     struct DefaultDQNAgentConfig : public anet::Config {
-
         std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
         StuckerConfig stucker;
@@ -96,6 +95,12 @@ namespace anet::rl::dqn {
         bool use_optimistic_target = false;
 
     public:
+        /// Agentの接頭辞を含む、選択されたNN実行設定の完全なキーを返す。
+        std::string MakeForwardConfigKey(const std::string& key) const
+        {
+            return MakeDefaultConfigKey(MakeNetworkForwardConfigKey(key));
+        }
+
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
         {
@@ -141,7 +146,7 @@ namespace anet::rl::dqn {
                 nn_forward.emplace(key, sub);
                 // 記録も opaque な値のまま保存し、型付きの解釈はここで追加しない。
                 for (const auto& [leaf, value] : sub.Map()) {
-                    const auto name = "nn_forward.[" + key + "]." + leaf;
+                    const auto name = MakeNetworkForwardConfigKey(key) + "." + leaf;
                     my_config_data_.Set(name, value);
                     my_config_json_[name] = value;
                 }

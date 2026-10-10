@@ -157,10 +157,6 @@ namespace anet::nn {
     class NetworkBody;
     class NetworkHead;
     class NetworkHeadFactory;
-    class NetworkModuleExecutor;
-    class NetworkHeadExecutor;
-    class NetworkForwardState;
-    class NetworkForwardContext;
     class NetworkForwardExecutor;
     struct NetworkNoisyParameterEntry;
     struct SpectralNormEntry;
@@ -191,10 +187,8 @@ namespace anet::nn {
         /// sourceとrequestedの再利用条件を、それらを使う具象部品に検証させる。
         void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const;
     public:
-        /// shared_ptr所有のNetworkに対し、部品を準備しない既定実行器を作る。
-        std::shared_ptr<NetworkForwardExecutor> CreateDefaultForwardExecutor();
-        /// shared_ptr所有のNetworkに対し、名前付き設定を準備する。clock_kindは保持制約、seedは用途専用の乱数に使う。
-        /// 既定設定を渡すと例外になるため、既定動作にはCreateDefaultForwardExecutorを使う。
+        /// shared_ptr所有のNetworkに対し、設定を準備する。clock_kindは保持制約、seedは用途専用の乱数に使う。
+        /// 既定設定では部品を準備せずStateも作らないため、clock_kindとseedは使用しない。
         std::shared_ptr<NetworkForwardExecutor> CreateForwardExecutor(
             const NetworkForwardConfig& config, NetworkForwardClock clock_kind, anet::seed_t seed);
     public: // 情報取得
@@ -222,11 +216,6 @@ namespace anet::nn {
         std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
     private:
         friend class NetworkForwardExecutor;
-        anet::TensorDict RunForward(
-            const anet::TensorDict& input, const NetworkForwardContext& context,
-            const anet::TraceCallback& callback, NetworkBranchCapture* capture,
-            const std::vector<std::vector<class NetworkModuleExecutor*>>* body_calls,
-            NetworkHeadExecutor* head_call);
         // 実行用の実体
         std::shared_ptr<NetworkBody> body_;
         std::shared_ptr<NetworkHead> head_;
@@ -250,16 +239,10 @@ namespace anet::nn {
         anet::TensorDict Forward(
             const anet::TensorDict& input, const NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback = {}, NetworkBranchCapture* capture = nullptr);
-        /// 初期化時に別Networkへ接続する。名前付き用途は設定・State・時計種別を共有し、既定用途は接続先の既定実行器を作る。
-        std::shared_ptr<NetworkForwardExecutor> BindNetwork(
-            std::shared_ptr<Network> network) const;
     private:
         friend class Network;
-        explicit NetworkForwardExecutor(std::shared_ptr<Network> network);
-        NetworkForwardExecutor(std::shared_ptr<Network> network, const NetworkForwardConfig& config,
-            NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state);
-        NetworkForwardContext MakeContext(const NetworkForwardCallInfo& info) const;
         struct Impl;
+        explicit NetworkForwardExecutor(std::unique_ptr<Impl> impl);
         const std::unique_ptr<Impl> impl_;
     };
 

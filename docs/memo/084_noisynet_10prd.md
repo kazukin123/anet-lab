@@ -24,10 +24,12 @@
 > 2026-10-10 改訂（公開面の整理）: State/Contextを内部へ閉じ、既定実行は準備を行わない。Bindは同じ設定を継承する。probeのμ-only側は既定経路とし、実行設定の内容は使用する具象部品の準備時に検証する。CallInfoの不変性は維持する（24impl）。
 >
 > 2026-10-11 改訂: NN利用側の契約を公開ヘッダ、Module／Head実装側の契約を内部ヘッダへ整理した。実行器はExecutor、生成APIはCreateに統一し、公開型の概要・shape・単位・未成立条件を明記する。数値・設定・RNG・所有権の契約は維持する（25impl）。
+>
+> 2026-10-11 まとめ整理: 実行器生成を統合し公開面から内部署名を除いた。BindNetworkを削除し、target用途はonline／targetのNetwork別に独立した箱とnamed seedを持つ。Learnerの用途ペアと6射影Headの定型処理を集約する。Double DQNとMunchausen onlineでsampleを使う場合は乱数列の割り当てが変わるが分布は維持する（§9・§13）。
 
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
 
-設定の解釈・利用時制約の検証は実行前の準備で完了する。通常 forward は設定を検索・再解釈せず、設定用ロックを使わない。時計の値・episode_start・行対応は別の値オブジェクトとして生成してから用途別実行オブジェクトへ渡す。対象 Network の寿命を保証し、同じ target 用途の online／target 接続は設定・State・時計種別を共有する。clone 先は別に準備し、重み・RNG・保持・同期・保存の契約を維持する。
+設定の解釈・利用時制約の検証は実行前の準備で完了する。通常 forward は設定を検索・再解釈せず、設定用ロックを使わない。時計の値・episode_start・行対応は別の値オブジェクトとして生成してから用途別実行オブジェクトへ渡す。対象 Network の寿命を保証し、target用途のonline／targetは同じ設定・時計種別を使い、Network別の箱と専用named seedで抽選する。clone 先は別に準備し、重み・RNG・保持・同期・保存の契約を維持する。
 
 既定の Network::Forward(input) と部分 forward は各部品の既定動作を使う。Noisy は μ-only。名前付き設定の項目不足と区別し、暗黙の fallback を行わない。TensorDictFunction の型は維持する。
 
@@ -268,7 +270,7 @@ AMP を継承する Noisy Linear は、§5.1 の等価式（μ の Linear と σ
 | NN 実行設定（`nn_forward.[name]`） | 不変の設定 | キーで参照する。Config DTO のカタログは生の設定値を保持する。選択済み搬送型と実行オブジェクトは Agent の Resource に分離し、実行時に名前を引く機構は持たない（§13 のゲート）。設定の共用に ε・RNG・保持状態の共用を含めない |
 | μ・σ | 学習 parameter | network が所有する。optimizer、hard / soft copy、snapshot、保存・読込の対象 |
 | 入力 Tensor（batch size・device）、`episode_start` の lane マスク、時計の今の値 | 呼び出しごとの入力 | 呼び出し側が forward のたびに作って渡す。保持しない |
-| 実行状態の箱 | 保持する状態 | 名前付き用途別実行オブジェクトが内部に持つ private Resource（Actor は1つ、Learner は現在値用とtarget用に1つずつ）。呼び出し側は箱を取得・操作しない。既定実行は箱を持たない。network の同期・保存対象に含めない |
+| 実行状態の箱 | 保持する状態 | 名前付き用途別実行オブジェクトが内部に持つ private Resource（Actor は1つ、Learner は現在値用1つ・target用途のonline用1つ・target用1つ）。呼び出し側は箱を取得・操作しない。既定実行は箱を持たない。network の同期・保存対象に含めない |
 | 箱の中身: 層ごとの slot（保持中の入力側・出力側ベクトルと、抽選したときの時計の値 `drawn_at`）とノイズ用 RNG | 保持する状態 | 計算部品が forward 中に更新する State。slot は `batch` なら \([p]\)・\([q]\)、`sample` なら \([B,p]\)・\([B,q]\)。RNG は呼び出し側の seed から派生し、抽選のたびに進む |
 | 時計 | 保持する状態 | 呼び出し側の State。Learner は `learn_step`、Actor は自分の行動選択回数。境界ごとに 1 進める |
 | 用途別 RNG | 保持する状態 | acting、Learner の各役割、診断の状態抽出・ノイズ、IQN τ の用途を分離する |
@@ -427,6 +429,9 @@ BN の前後、ε-greedy、UQE、他の探索方式との併用を一律に禁�
 
 | 裁定 | 内容と理由 |
 |---|---|
+| 統合・削除 | 実行器生成はCreateForwardExecutorへ統合し、既定設定では準備・箱・RNGを作らない。CreateDefaultForwardExecutor、BindNetwork、NetworkModelのForwardTarget／ForwardOnlineと公開ヘッダの内部署名を削除する。裁定と検証は[26impl](084_noisynet_26impl.md)を参照する |
+| 集約 | Learnerのtarget／診断用途はonline・targetのペアにまとめ、captureを含む同じ呼び出しへ揃える。6射影Headの準備・再利用検証・parameter列挙・通常Forwardは共通基底へ移し、固有の計算と登録順を維持する |
+| 延期のゲート | Body／Branch／Structの専用実行器は、その単位の設定準備を必要とする部品が出た時に作る。現状はPreparedを3段増やしても行数が減らず、公開面から内部署名を隠す以上の利点がないため導入しない |
 | 削除 | State/Contextの公開、既定実行の部品準備、Executionの部分Forward/Network取得、probe平均側の名前付き設定、カタログ内容の宣言検証。CallInfoの不変クラスとWithRowMappingは維持する。裁定は[24impl](084_noisynet_24impl.md)を参照する |
 | 維持・共用 | 用途別NN実行オブジェクト、NN呼び出し情報、Module/HeadのExecution interfaceと準備結果管理。具体設定を具象部品へ閉じ、通常の部品は直接呼ぶ。裁定は[ADR0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)と[23impl](084_noisynet_23impl.md)を参照する |
 | 維持 | Actor の保持・共有、Learner の方式・共有、target、評価、μ 正規化 SN の併用、`force_fp32`、σ decay。目的がアルゴリズム探求であり、BTR 再現に必要な最小構成へ縮小しない |

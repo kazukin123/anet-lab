@@ -125,7 +125,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     // DTO にある設定データから、用途が参照する不変 Resource を構築する。
     for (const auto& [key, data] : config_.nn_forward) {
         forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
-            "DefaultDQNAgent.nn_forward.[" + key + "]", data));
+            config_.MakeForwardConfigKey(key), data));
     }
     // オリジナルのStateSpecをコピー
     auto network_obs_spec = env_spec.state_spec.obs_spec;
@@ -446,7 +446,7 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
         anet::SeedMaker seed_maker(GetSeed());
         noisy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("noisy_probe.sample"));
         anet::ConfigData data;
-        const std::string prefix = "nn_forward.[noisy_probe]";
+        const std::string prefix = MakeNetworkForwardConfigKey("noisy_probe");
         for (const auto& [key, value] : forward_configs_.at(config_.learner.current.nn_forward_key)->GetConfigData().Map()) {
             data.Set(key, value);
         }

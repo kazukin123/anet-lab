@@ -667,16 +667,15 @@ namespace anet::rl::dqn {
             bool distributional);
     public:
 
-        /// 行動選択・学習用：期待値Q (B, A) を返す
-        /// QR-DQNの場合は分布の平均を計算して返す
-        anet::TensorDict ForwardOnline(const anet::TensorDict& obs) const;
+        /// 訓練モードを一時的に有効にし、復元して返す。
         anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const;
-        anet::TensorDict ForwardTarget(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const;
         anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key) const;
         void SetBranchCaptureRequests(
             anet::nn::NetworkBranchCapture* online_capture,
             anet::nn::NetworkBranchCapture* target_capture);
         void ClearBranchCaptureRequests();
+        /// 更新中に設定されたtargetの取得要求。診断のtarget計算には使用しない。
+        anet::nn::NetworkBranchCapture* GetTargetBranchCapture() const { return target_capture_; }
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
@@ -745,11 +744,17 @@ namespace anet::rl::dqn {
         int64_t num_taus;
     };
 
+    /// target計算で使うonline用とtarget用の実行器。
+    struct TargetForwards {
+        std::shared_ptr<anet::nn::NetworkForwardExecutor> online; ///< Double DQNの行動選択とMunchausenのonline方式
+        std::shared_ptr<anet::nn::NetworkForwardExecutor> target; ///< 価値の評価とMunchausenのtarget方式
+    };
+
     struct TargetEvaluation {
         bool diagnostic = false;
         anet::nn::NetworkForwardCallInfo info{{}};
-        std::shared_ptr<anet::nn::NetworkForwardExecutor> online_forward;
-        std::shared_ptr<anet::nn::NetworkForwardExecutor> target_forward;
+        const TargetForwards* forwards = nullptr; ///< 選択された用途ペア。同期target計算中だけ参照する。
+        anet::nn::NetworkBranchCapture* target_capture = nullptr; ///< 通常更新のtarget取得要求。診断ではnullptr。
         std::function<torch::Tensor(int64_t)> current_taus;
         std::function<torch::Tensor(int64_t)> target_taus;
     };
@@ -779,7 +784,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback = {},
             const DiagnosticActionEvaluation* evaluation = nullptr) const = 0;
         virtual void UpdateSchedule(const StepCounts& counts) { }
@@ -789,10 +794,10 @@ namespace anet::rl::dqn {
 
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
         anet::TensorDict ForwardForActionWithTaus(
             const anet::TensorDict& obs, const torch::Tensor& taus,
-            std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
+            anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
@@ -822,7 +827,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -844,7 +849,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -856,7 +861,7 @@ namespace anet::rl::dqn {
         }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
             bool iqn_use_full_range = false, const DiagnosticActionEvaluation* evaluation = nullptr) const;
         void UpdateTau(step_t step);
     private:
@@ -873,7 +878,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::NetworkForwardExecutor> forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -1028,10 +1033,8 @@ namespace anet::rl::dqn {
         float earned_credit_;
         LearnerConfig config_;
         std::shared_ptr<anet::nn::NetworkForwardExecutor> current_forward_;
-        std::shared_ptr<anet::nn::NetworkForwardExecutor> target_forward_;
-        std::shared_ptr<anet::nn::NetworkForwardExecutor> target_online_forward_;
-        std::shared_ptr<anet::nn::NetworkForwardExecutor> diagnostic_online_forward_;
-        std::shared_ptr<anet::nn::NetworkForwardExecutor> diagnostic_target_forward_;
+        TargetForwards target_forwards_;
+        TargetForwards diagnostic_forwards_;
         std::optional<StuckerConfig> stucker_config_;
         std::shared_ptr<ActionPolicy> target_policy_;
         NetworkModel& model_;

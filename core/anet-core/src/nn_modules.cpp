@@ -202,20 +202,21 @@ struct LinearProjectionModule::Impl {
         return hold == Hold::kEpisode ? "episode" : (hold == Hold::kCount ? "count" : "call");
     }
     struct ForwardConfig {
-        explicit ForwardConfig(const NetworkForwardConfig& request) try
-            : key(request.key)
-            , mode(request.GetConfigData().Get<std::string>("noisy.mode") == "sample" ? Mode::kSample : Mode::kMuOnly)
-            , hold(request.GetConfigData().Get<std::string>("noisy.hold") == "episode" ? Hold::kEpisode
-                : (request.GetConfigData().Get<std::string>("noisy.hold") == "count" ? Hold::kCount : Hold::kCall))
-            , share(request.GetConfigData().Get<std::string>("noisy.share") == "sample" ? Share::kSample : Share::kBatch)
-            , count(request.GetConfigData().Has("noisy.count")
-                ? std::optional<uint64_t>(request.GetConfigData().Get<uint64_t>("noisy.count")) : std::nullopt)
+        struct Values {
+            std::string mode;
+            std::string hold;
+            std::string share;
+            std::optional<uint64_t> count;
+        };
+        static Values Read(const NetworkForwardConfig& request)
         {
-
             const auto& data = request.GetConfigData();
+            // 準備時に各葉を一度だけ取得し、その同じ値を検証とenum化へ使う。
             const auto raw_mode = data.Get<std::string>("noisy.mode");
             const auto raw_hold = data.Get<std::string>("noisy.hold");
             const auto raw_share = data.Get<std::string>("noisy.share");
+            const auto count = data.Has("noisy.count")
+                ? std::optional<uint64_t>(data.Get<uint64_t>("noisy.count")) : std::nullopt;
             // 利用する具象部品の準備で、明示値と必要項目をまとめて検証する。
             if (data.Has("noisy.mode") && raw_mode != "sample" && raw_mode != "mu_only") {
                 ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='" << raw_mode << "' expected sample or mu_only.");
@@ -226,26 +227,35 @@ struct LinearProjectionModule::Impl {
             if (data.Has("noisy.share") && raw_share != "batch" && raw_share != "sample") {
                 ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.share='" << raw_share << "' expected batch or sample.");
             }
-            if (data.Has("noisy.count") && data.Get<uint64_t>("noisy.count") == 0) {
+            if (count && *count == 0) {
                 ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.count=0 expected a positive integer.");
             }
             if (raw_mode == "sample" && raw_hold == "episode" && raw_share == "batch") {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=episode requires noisy.share=sample; actual=batch.");
             }
             if (!data.Has("noisy.mode")) {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << key << "' noisy.mode='' expected sample or mu_only.");
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='' expected sample or mu_only.");
             }
-            if (mode == Mode::kSample && (!data.Has("noisy.hold") || !data.Has("noisy.share"))) {
-                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << key
+            if (raw_mode == "sample" && (!data.Has("noisy.hold") || !data.Has("noisy.share"))) {
+                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key
                     << "' requires noisy.hold=call, count, or episode and noisy.share=batch or sample.");
             }
-            if (mode == Mode::kSample && hold == Hold::kCount && !count) {
-                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << key << "' noisy.hold=count requires noisy.count.");
+            if (raw_mode == "sample" && raw_hold == "count" && !count) {
+                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=count requires noisy.count.");
             }
+            return {.mode = raw_mode, .hold = raw_hold, .share = raw_share, .count = count};
         }
+        explicit ForwardConfig(const NetworkForwardConfig& request) try
+            : ForwardConfig(request, Read(request)) {}
         catch (const std::exception& error) {
             ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "': " << error.what());
         }
+        ForwardConfig(const NetworkForwardConfig& request, const Values& values)
+            : key(request.key)
+            , mode(values.mode == "sample" ? Mode::kSample : Mode::kMuOnly)
+            , hold(values.hold == "episode" ? Hold::kEpisode : (values.hold == "count" ? Hold::kCount : Hold::kCall))
+            , share(values.share == "sample" ? Share::kSample : Share::kBatch)
+            , count(values.count) {}
         const std::string key;
         const Mode mode;
         const Hold hold;

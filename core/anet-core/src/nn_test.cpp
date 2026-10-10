@@ -30,6 +30,14 @@
 #include <vector>
 
 namespace {
+// テストの既定経路も、製品と同じ統合factoryで生成する。
+std::shared_ptr<anet::nn::NetworkForwardExecutor> MakeDefaultExecutor(
+    const std::shared_ptr<anet::nn::Network>& network)
+{
+    return network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kTransientRows, 0);
+}
+
 // テスト用の生データから選択項目だけを取り出し、公開 constructor へ渡す。
 anet::ConfigData SelectForwardConfigData(const anet::ConfigData& data, const std::string& prefix)
 {
@@ -4321,7 +4329,7 @@ TEST_CASE("Network validates local forward requirements before a configured comp
     const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 };
     auto network = anet::nn::NetworkBuilder::BuildNetwork(
         anet::nn::NetworkConfig(data), anet::TensorSpecMap{ { "obs", spec } }, nullptr, 1093);
-    CHECK_NOTHROW(network->CreateDefaultForwardExecutor());
+    CHECK_NOTHROW(MakeDefaultExecutor(network));
     data.Set("nn_forward.[missing].noisy.mode", "sample");
     const anet::nn::NetworkForwardConfig missing("nn_forward.[missing]", SelectForwardConfigData(data, "nn_forward.[missing]"));
     CHECK_THROWS_WITH(network->CreateForwardExecutor(missing, anet::nn::NetworkForwardClock::kContinuingRows, 0),
@@ -4910,15 +4918,15 @@ TEST_CASE("Prepared forward interprets concrete settings once and owns network l
     auto config = std::make_unique<const anet::nn::NetworkForwardConfig>("custom", data);
     auto execution = network->CreateForwardExecutor(*config, anet::nn::NetworkForwardClock::kTransientRows, 991);
     CHECK(*preparations == 1);
+    auto independent = network->CreateForwardExecutor(*config, anet::nn::NetworkForwardClock::kTransientRows, 992);
     config.reset();
     data.Set("independent.scale", 99.0f);
-    auto rebound = execution->BindNetwork(network);
     network.reset();
     const anet::TensorDict input{{"obs", torch::ones({2, 2})}};
     for (uint64_t clock = 0; clock < 3; ++clock) {
         const anet::nn::NetworkForwardCallInfo info({.clock=clock});
         CHECK(torch::equal(execution->Forward(input, info).At("features"), torch::full({2, 2}, 3.0f)));
-        CHECK(torch::equal(rebound->Forward(input, info).At("features"), torch::full({2, 2}, 3.0f)));
+        CHECK(torch::equal(independent->Forward(input, info).At("features"), torch::full({2, 2}, 3.0f)));
         CHECK(torch::equal(execution->Forward(input, info).At("features"), torch::full({2, 2}, 3.0f)));
     }
     CHECK(*preparations == 2);
@@ -5070,20 +5078,19 @@ TEST_CASE("Default execution bypasses concrete preparation", "[nn][noisynet][sim
     auto body = std::make_shared<anet::nn::NetworkBody>(std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{branch}, specs,
         std::vector<std::string>{}, config.output_keys);
     auto network = std::make_shared<anet::nn::Network>(config, specs, nullptr, body, head);
-    auto execution = network->CreateDefaultForwardExecutor();
+    auto execution = network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kTransientRows, 0);
     CHECK(module->preparations == 0);
     CHECK(head->preparations == 0);
-    auto rebound = execution->BindNetwork(network);
+    auto independent = MakeDefaultExecutor(network);
     CHECK(module->preparations == 0);
     CHECK(head->preparations == 0);
-    CHECK_THROWS_WITH(network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
-        anet::nn::NetworkForwardClock::kTransientRows, 0), Catch::Matchers::ContainsSubstring("CreateDefaultForwardExecutor"));
     const auto input = torch::ones({2, 2}, torch::requires_grad());
     const anet::TensorDict observations{{"obs", input}};
     const anet::nn::NetworkForwardCallInfo info({.clock=7});
     const auto actual = execution->Forward(observations, info).At("result");
     CHECK(torch::equal(actual, network->Forward(observations).At("result")));
-    CHECK(torch::equal(actual, rebound->Forward(observations, info).At("result")));
+    CHECK(torch::equal(actual, independent->Forward(observations, info).At("result")));
     actual.sum().backward();
     CHECK(torch::equal(input.grad(), torch::full({2, 2}, 6.0f)));
 }
@@ -5096,4 +5103,62 @@ TEST_CASE("Unreferenced forward contents remain dormant", "[nn][noisynet][simpli
     CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
     data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "missing");
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("missing"));
+}
+
+TEST_CASE("Network-specific Noisy executors isolate synchronized draws for all Q Heads",
+    "[nn][noisynet][prepared][target]")
+{
+    EnsureNNInitialized();
+    const auto mode = GENERATE(std::string("td"), std::string("qr"), std::string("iqn"));
+    const bool dueling = GENERATE(false, true);
+    CAPTURE(mode, dueling);
+    anet::ConfigData projection;
+    projection.Set("noisy.enabled", true);
+    std::shared_ptr<anet::nn::NetworkHeadFactory> factory;
+    const anet::nn::WeightInitConfig init{};
+    if (mode == "td") {
+        if (dueling) factory = std::make_shared<dqn::DuelingHeadFactory>(2, init, projection);
+        else factory = std::make_shared<dqn::LinearHeadFactory>(2, init, projection);
+    } else if (mode == "qr") {
+        if (dueling) factory = std::make_shared<dqn::QuantileDuelingHeadFactory>(2, 3, init, projection);
+        else factory = std::make_shared<dqn::QuantileHeadFactory>(2, 3, init, projection);
+    } else {
+        if (dueling) factory = std::make_shared<dqn::IQNDuelingHeadFactory>(2, init, projection);
+        else factory = std::make_shared<dqn::IQNHeadFactory>(2, init, projection);
+    }
+    anet::ConfigData data;
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.body.output.[features]", "feature");
+    const std::vector<int64_t> shape = mode == "iqn" ? std::vector<int64_t>{3, 4} : std::vector<int64_t>{4};
+    const anet::TensorSpecMap specs{{"obs", {.type=anet::SpaceType::Vector, .shape=shape, .dtype=torch::kFloat32}}};
+    auto online = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data), specs, factory, 981);
+    auto target = online->Clone();
+    anet::ConfigData selected;
+    selected.Set("noisy.mode", "sample");
+    selected.Set("noisy.hold", "call");
+    selected.Set("noisy.share", "sample");
+    const anet::nn::NetworkForwardConfig config("nn_forward.[target]", selected);
+    const anet::SeedMaker seeds(982);
+    auto online_forward = online->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kTransientRows,
+        seeds.MakeNamedSeed("network_forward.target_online"));
+    auto target_forward = target->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kTransientRows,
+        seeds.MakeNamedSeed("network_forward.target"));
+    auto target_reference = target->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kTransientRows,
+        seeds.MakeNamedSeed("network_forward.target"));
+    const auto tensor = mode == "iqn" ? torch::ones({2, 3, 4}) : torch::ones({2, 4});
+    const anet::TensorDict input{{"obs", tensor}};
+    const anet::nn::NetworkForwardCallInfo first({.clock=0});
+    const anet::nn::NetworkForwardCallInfo next({.clock=1});
+    const auto online_q = online_forward->Forward(input, first).At("q");
+    const auto target_q = target_forward->Forward(input, first).At("q");
+    CHECK_FALSE(torch::equal(online_q, target_q));
+    CHECK(torch::equal(target_q, target_reference->Forward(input, first).At("q")));
+    // onlineだけ進めても、targetの保持と次の抽選を変えない。
+    online_forward->Forward(input, next);
+    online->CopyTo(*target);
+    CHECK(torch::equal(target_q, target_forward->Forward(input, first).At("q")));
+    CHECK(torch::equal(target_forward->Forward(input, next).At("q"), target_reference->Forward(input, next).At("q")));
+    online.reset();
+    target.reset();
+    CHECK(torch::equal(target_forward->Forward(input, next).At("q"), target_reference->Forward(input, next).At("q")));
 }

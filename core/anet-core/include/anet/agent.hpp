@@ -159,6 +159,12 @@ namespace anet::rl {
             float clip_value_min = -1.0f;
         };
 
+        /// Agent prefixを含めず、選択項目を識別するNN実行設定キーを作る。
+        inline std::string MakeNetworkForwardConfigKey(const std::string& key)
+        {
+            return "nn_forward.[" + key + "]";
+        }
+
         struct LearnerConfig {
             struct ForwardSelection {
                 std::string nn_forward_key;

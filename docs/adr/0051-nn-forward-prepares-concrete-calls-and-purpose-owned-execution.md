@@ -1,5 +1,7 @@
 # NN Forward の設定解釈を事前準備へ移し、用途別実行オブジェクトが State と Network の寿命を持つ
 
+> 2026-10-11 後発決定: [PRD084 §13](../memo/084_noisynet_10prd.md#13-実装順と複雑度監査)・[26impl](../memo/084_noisynet_26impl.md)で、BindNetworkによる共有をNetwork別の実行器・独立Stateへ変更し、既定生成も同じfactoryへ統合する。事前準備・用途別所有・CallInfoの判断は維持する。以下の本文は当時の記録として保持する。
+
 設定 DTO のカタログは ConfigData、選択は nn_forward_key とする。Agent が選択済み搬送型を Resource として持ち、初期化時に PrepareForward を呼ぶ。具象 Module／Head は必要な設定を解釈し、私有の準備済み処理を返す。通常の部品は本体を直接呼ぶ。
 
 ## Considered Options

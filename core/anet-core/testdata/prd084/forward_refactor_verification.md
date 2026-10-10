@@ -416,3 +416,151 @@ Debugテスト実行体のSHA-256は `f31aca4e08e914d57cd3e2014097a5b3ee57728462
 - `core/anet-core/testdata/prd084/run_forward_refactor.ps1`
 - `docs/memo/084_noisynet_25impl.md`
 - `core/anet-core/testdata/prd084/forward_refactor_verification.md`
+
+## まとめ整理 2026-10-11
+
+基準はHEAD `d3fffc25acb06276322764e093a813803d616931`。26implをコード編集前に保存し、引き継ぎのA1/A2/B/C1〜C4/D1/D2を実装した。着手時のHEAD・全差分・index SHA・無関係な変更のhash、Debug GREEN、Release実行体・DLL・設定・seed・旧OFF checkpointを `.scratch/prd084/forward-refactor/bundle-20261011/before/` に保存した。以下は今回の最終実装の証拠であり、前節以前の実動・性能記録は当時の実行体の記録として保持する。
+
+### 実装と挙動の境界
+
+実行器生成をCreateForwardExecutorへ統合した。既定設定ではStateと部品準備なしで、通常Forwardと同じ内部RunForwardを通る。公開nn.hppから内部4型とRunForward/MakeContextの署名、旧既定生成APIを削除した。BindNetworkを削除し、Learnerのtarget用途はNetworkごとの独立Stateへ変更した。target側は既存 `network_forward.target`、online側は新しい `network_forward.target_online` seedを使う。
+
+Learnerのtarget／診断用途をTargetForwardsの組にし、captureをTargetEvaluation作成時に決める。不要なNetworkModel::ForwardTarget/ForwardOnlineを削除し、ActionPolicyは実行器の参照を借りる。設定キーの組み立てを共通helperへ集約し、prefixはConfigの既存MakeDefaultConfigKeyを使用する。同関数のprotectedアクセスはDefaultDQNAgentConfigのusing宣言で公開した。6 Headの定型処理をDQN内部のProjectionHeadへ集約し、登録名・初期化・列挙・value→adv順を保持した。射影の設定葉は準備時に各1回だけ読み、通常Forwardに設定解釈・検索・設定用ロックを追加していない。
+
+Double DQNのtarget行動選択、Munchausenのonline方式でNoisy sampleを使う場合は、online/target独立Stateへの変更により以前のRunと乱数列の割り当てが異なる。独立抽選の分布は同じで、これらのRunとの数値一致は要求しない。OFF3構成と代表ON（Munchausen target）はこの変更経路を使わないため、旧基準との完全一致を要求する。
+
+### TDD・ビルド・テスト
+
+既定設定を統合APIへ渡すテストは例外でRED、最小変更後は部品準備0回・通常Forwardとの出力/勾配一致でGREEN。Double DQNのtarget用途State数は1→2のRED→GREEN、同一NetworkModelの拒否もRED→GREENを記録した。TD/QR/IQN×Duelingの独立抽選・同一時計・片側更新による非干渉・同期・Network寿命を新しいテストで確認した。その後のC/D各段階も関連テストを通し、既存の演算・保持・保存・AMP・診断非干渉・独自Module/Head・Prepared契約を維持した。
+
+| 検証 | 結果 |
+|---|---|
+| MSVC初期化経由Debug全体 | appsを含め成功、exit 0 |
+| Noisy CPU | 55成功/3スキップ、10,662 assertions成功 |
+| 全core CPU | 670成功/6スキップ、33,435 assertions成功 |
+| Noisy CUDA | 58成功/0スキップ、10,718 assertions成功 |
+| 全core CUDA | 675成功/1スキップ、34,897 assertions成功 |
+| 設定6構成 | 全解決済み文字列・型付き値が一致、44 assertions成功 |
+| 既定葉監査 | 3,420葉、エラー0件 |
+
+Debugテスト実行体SHA-256は `c8c52f857031ac1a2a32f7bf8122fea80ae4b999ea7a7af9766a9d94b8cc6120`。総代入抽出数は25,099→25,129だが、監査対象の既定葉は3,420のまま。差分30件は今回のC++代入行（dqn_based_agent.hpp +2、dqn_based_agent.cpp +1、dqn_based_heads.cpp -4、nn_impl.cpp +3、nn_modules.cpp +6、nn_test.cpp +22）で説明できる。設定ファイルは変更していない。
+
+Release全体ではMunchausenテストobjectのLNK1163を検出し、不正objectを資材へ保存してその1本だけ同じソース・コンパイル条件で再生成した。以後のテスト・環境実行体はリンクできた。Runnerの通常出力は既存PID 51332が使用中でLNK1104となったため、既存プロセスを操作せず、最新Ninjaの同じobject・リンク条件からEXE/LIB/PDBの3出力先だけを変更して `bundle-20261011/release-link/` へリンクした。残る通常出力Runner以外のターゲットは全体ビルドで未処理がないことを確認した。
+
+最終Release Runner SHA-256: `c7e1e4c6197d474311349b826d758f91798a1713735f304e02130a3096da6500`。link-command.txt、link-equivalence.json、link-final.bat/log、release-build*.logに記録した。ビルド全体コマンド自体は使用中Runnerのリンクでexit 1なので、通常出力の全体ビルド成功とは扱わない。
+
+### 最終Release実動
+
+CPU LunarLander OFF（500k経験）と旧OFF checkpoint読込を、上記の最終実行体・明示出力先 `bundle-20261011/after/` で実行した。
+
+| 検証 | 最終結果 |
+|---|---|
+| CPU LunarLander OFF | exit 0、500k経験、88,184点、旧基準と完全一致 |
+| 正規化checksum | `b76541e3b8319f9b72e2987f4a6f4dc2afeb26104fc57dabbaee18c67cb5ebd5` |
+| 点数・系列比較 | 欠損/点数差0、exact_match=true、first_differences=[] |
+| 実測所要時間 | 832.6536417秒（約13分53秒） |
+| Run実効設定 | 出力先/Run名以外の全キー・値差分0 |
+| 旧OFF checkpoint | exit 0、256経験、model_size=1,276,270、learner_size=1,192,239 |
+
+CPU Runは `run_20261011-034919_prd084_forward_lunarlander_cpu`。実行体SHAは前節の最終SHAと一致し、旧checkpointも同じ実行体を使用した。after/lunarlander_cpu.execution.json、lunarlander_cpu.metrics.summary.json、cpu-off-run.log、acceptance-summary.jsonに実測と比較結果を保存した。
+
+GPUのAtari OFF2構成と代表ON1構成は保留。検証開始時、同じGPU上に既存Runner PID 51332（GPU UUID `GPU-0c44f747-7f1b-2d07-cd6d-a9246d000f89`）を検出し、Run資材の競合チェックに該当した。inspect_run.pyのread-only確認で、既存Runのmetrics.jsonlは03:53:35の761,582,238 bytesから03:54:38の763,918,908 bytesへ増え、同時刻の学習ログもexp_step=21,408,256まで進行した。同じGPUで学習中と確認した（existing-run-sample1/2.json）。既存プロセスは停止・操作せず、CPU OFFをGPUチェックから独立して実行する。CPU完了後もPID 51332の存在を再確認した（runner-processes-final.json）。GPU3本を最終実行体で未検証のため、今回のRun受け入れ全体は完了とは判定しない。
+
+性能再測定は今回の対象外。任意のDouble DQN＋Noisy CPU smokeは実施していない。target独立抽選はTD/QR/IQN×DuelingとLearner target構築の契約テストで確認し、必須のCPU回帰を優先した。部品ごとの実行器、CallInfo struct化、再利用規則変更、公開Networkコンストラクタ閉鎖は裁定どおり実装していない。
+
+### 機械検査と変更ファイル
+
+core/appsで旧既定生成API・BindNetwork・ForwardTarget(・ForwardOnline(は0件。nn.hppの内部4型・RunForward・MakeContextは0件、公開型概要の欠落と宣言後の誤った///は0件。DQN HeadのCreateExecutor/ValidateForwardReuse/GetNoisyParameterEntriesは基底の各1定義。NN指定6ファイルのActor/Learner/Probe/laneは0件。BOMはHEADと一致、CRLF0、対象git diff --check成功。設計130/200英訳マーカーは現在の日本語blobと一致し、ADR0048/0051本文は保持した。着手時indexと無関係なdirtyファイルのhashは不変。add/commit/pushは実施していない。
+
+資材: `bundle-20261011/` のbefore/、a1/bのRED/GREENログ、各段階build/testログ、test-results.json、config-final/、config-equivalence.log、default-leaf-audit.json、default-leaf-count-explanation.json、mechanical-audit.json、changed-files.json、after/。
+
+今回の変更ファイル（23本）:
+
+- `CONTEXT.md`
+- `core/anet-core/include/anet/agent.hpp`
+- `core/anet-core/include/anet/default_dqn_agent.hpp`
+- `core/anet-core/include/anet/nn.hpp`
+- `core/anet-core/src/default_dqn_agent.cpp`
+- `core/anet-core/src/dqn_based_agent.hpp`
+- `core/anet-core/src/dqn_based_agent.cpp`
+- `core/anet-core/src/dqn_based_heads.cpp`
+- `core/anet-core/src/nn_impl.cpp`
+- `core/anet-core/src/nn_modules.cpp`
+- `core/anet-core/src/nn_test.cpp`
+- `core/anet-core/src/dqn_based_agent_test.cpp`
+- `docs/memo/084_noisynet_10prd.md`
+- `docs/memo/084_noisynet_26impl.md`
+- `docs/design/130_neural_networks.jp.md`
+- `docs/design/130_neural_networks.en.md`
+- `docs/design/200_dqn_agents.jp.md`
+- `docs/design/200_dqn_agents.en.md`
+- `docs/ownership_guideline.md`
+- `core/anet-core/testdata/prd084/README.md`
+- `core/anet-core/testdata/prd084/forward_refactor_verification.md`
+- `docs/adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md`
+- `docs/adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md`
+
+### 軽微レビュー指摘の追補 2026-10-11
+
+Implの未使用config/clock_kindメンバとその初期化を削除した。設定と時計種別はコンストラクタ引数として具象部品の準備にだけ使い、実行器は準備済み処理・State・Networkを保持する。設計130日英・用語集・所有権ガイドの保持対象も同期した。
+
+DefaultDQNAgentConfigはMakeDefaultConfigKeyのpublic using宣言を削除し、実行設定の完全なキーだけを返すMakeForwardConfigKeyを公開する。従来と同じConfigのprefix規則・共通キーhelperを使用し、設定値・Resource対応検査は変えない。26implのC4も同じ公開面へ同期した。ProjectionHeadのprivateなindex_sequence版はForwardWithProjectionsへ改名し、派生のForwardProjectedとの名前の隠蔽をなくした。
+
+READMEの25impl節は「25impl時点のAPI」に直し、現行APIと区別した。設計200日本語の余分な空白とNetworkModelの削除跡の二重空行を除いた。130/200英訳のtranslated-fromマーカーは現在の日本語blobへ更新した。
+
+| 検証 | 結果 |
+|---|---|
+| MSVC初期化経由Debug全体 | appsを含めexit 0 |
+| Noisy CPU | 55成功/3スキップ、10,662 assertions成功 |
+| Noisy CUDA | 58成功/0スキップ、10,718 assertions成功 |
+| 設定6構成 | 全解決文字列・型付き値が一致、44 assertions成功 |
+| 旧API・公開コメント・NN指定6ファイルのRL語 | 残存/欠落0件 |
+| BOM/LF/翻訳マーカー/対象diff check | HEADとのBOM一致、CRLF0、blob一致、exit 0 |
+| index・無関係なdirty変更 | 着手時から不変 |
+
+修正後のDebugテスト実行体SHA-256: `033e3c329d1b8f913dc792103b8562f64e6c6f9921a9a240bcad4959429a7812`。今回の追補では計算・RNG・設定値を変更しておらず、関連テストと設定同値比較を実施した。全core CPU/CUDA、Releaseビルド、学習回帰・性能Runは追補後には再実行していない。前節の全core成功・最終Release CPU OFFの完全一致は、追補前の実行体による証拠として保持する。既存GPU学習によるAtari OFF2本・代表ON1本の保留も継続する。add/commit/pushは実施していない。
+
+追補資材は `.scratch/prd084/forward-refactor/bundle-20261011/review-minor/` のbefore/、before.json、review-minor.diff、debug-build.log、test-results.json、noisy-{cpu,cuda}.log、config-final/、config-equivalence.log、mechanical-audit.json/log。今回の変更ファイル（14本）:
+
+- `core/anet-core/src/nn_impl.cpp`
+- `core/anet-core/include/anet/default_dqn_agent.hpp`
+- `core/anet-core/src/default_dqn_agent.cpp`
+- `core/anet-core/src/dqn_based_heads.cpp`
+- `core/anet-core/src/dqn_based_agent.cpp`
+- `core/anet-core/testdata/prd084/README.md`
+- `docs/design/200_dqn_agents.jp.md`
+- `docs/design/200_dqn_agents.en.md`
+- `docs/memo/084_noisynet_26impl.md`
+- `core/anet-core/testdata/prd084/forward_refactor_verification.md`
+- `CONTEXT.md`
+- `docs/ownership_guideline.md`
+- `docs/design/130_neural_networks.jp.md`
+- `docs/design/130_neural_networks.en.md`
+
+### 保留GPU Runの実行 2026-10-11
+
+ユーザーの「保留したので実行」を受け、前節で保留したAtari OFF2本と代表ON1本を各500k経験で実行した。軽微修正後のソースをMSVC初期化経由でRelease全体ビルドし、Runner以外は成功した。通常出力のRunnerは休止中PID 51332が保持しているためLNK1104となったが、同じ最終object・リンク条件でEXE/LIB/PDBの3出力先だけを変え、今回専用のrelease-linkへリンクした。今回のReleaseビルドでは前段のMunchausen object不正は再発していない。
+
+最終Release実行体SHA-256は `4447aec3afc60ee11cbb108b43d30fa81cb7e010c0ad4446bc9fa6ba83ef794c`。資材・ログ・実行体・設定・出力は `.scratch/prd084/forward-refactor/bundle-20261011/review-minor/gpu-resume/` に分離した。設定6構成・Noisy CPU/CUDA・Debug全体ビルドの証拠は前節の軽微修正後の結果を保持し、今回学習Runと混同しない。
+
+| Run | 予算 | 正規化点数 | 旧基準比較 | 実測時間 |
+|---|---:|---:|---|---:|
+| Atari OFF・既定 | 500k経験 | 78,986 | 完全一致 | 123.4661759秒（2分3秒） |
+| Atari OFF・効率優先 | 500k経験 | 122,332 | 完全一致 | 224.211706秒（3分44秒） |
+| 代表ON | 500k経験 | 109,941 | Noisy指標込み完全一致 | 234.0464404秒（3分54秒） |
+
+3本ともexit 0、欠損・点数差0、exact_match=true、first_differences=[]。Runの合計は581.7243223秒（約9分42秒）で、ビルド・リンク・検査の時間は含まない。正規化checksumは次のとおり。
+
+- Atari OFF・既定: `9adcb0b9e1e5d6cb95b1666ca6716284f30a684b1ba294066b71c6008e93fb29`
+- Atari OFF・効率優先: `5696fb4de42f8e308ec0740887697971d98f356dfd4f3c9147b42879132be57e`
+- 代表ON: `5c3acbb6eba510e89210025a81249b42cde1019362f42257aa70947be31b7bd6`
+
+3構成の実効設定を前回の対応Runと全キー・値で比較し、出力先/Run名以外の差分0を確認した。OFF各1,235キー、ON1,261キー。代表ONはBreakout・seed=1・128 env・AMP継承・Body FP32、Actor episode/sample、Learner current/target call/sample、Munchausen target方式、greedy_dist無効を維持する。probeのB=128/R=32/K=32もconfig dumpで確認した。
+
+標準read-onlyのinspect_run.pyで代表ONの11診断とevalをまとめて確認した。readout4統計・probe3指標は各10点が有限値、評価は2点成立。feature4統計は宣言があり、対象なしの正常なNaNをscalar点として保存しない仕様どおり成立値0点（inspectorの表示はmissing/empty）。前段の契約テストと構成別受け入れ条件を合わせて確認した。
+
+既存Runnerは終了ではなく休止したままなので、管理下run_forward_refactor.ps1の「Runner存在で拒否」判定には該当する。今回はユーザーが休止を明示したPID 51332だけを除外するscratch限定のコピーを使用した。既存Runのmetrics.jsonlと学習ログのサイズ/更新時刻を開始前に記録し、GPU採取ごとに再開を監視した。実行後も両ファイルのサイズ・時刻が完全に不変で、別学習が再開していないことを確認した。別PIDの競合判定は維持し、既存プロセスは操作・再開していない。管理下のRun資材も変更していない。休止プロセスのGPUメモリは保持されるため、今回の所要時間・資源記録を過去の性能比較の追測とは扱わない。
+
+今回依頼の保留GPU3本はすべて解消した。CPU LunarLander OFFと旧checkpoint読込は前段の実行結果を保持し、今回再実行していない。CPUの実行体SHAは `c7e1e4c6197d474311349b826d758f91798a1713735f304e02130a3096da6500`（軽微修正前）であり、今回のGPU3本と同じ最終実行体で4本を実行したとは記録しない。性能反復、任意のDouble DQN smoke、全coreテストの再実行も今回の対象外。計算/RNG変更経路についての前節の条件は維持する。
+
+証拠はreview-minor/release-build.log、gpu-resume/link-command.txt・link-equivalence.json・link-final.bat/log、paused-runner-before.json、guarded-script.diff・guarded-script-source.json、gpu-three.log、after/、on-diagnostics-inspect.json、acceptance-summary.json。今回は検証記録だけを更新し、C++・設定・管理下Run資材は編集していない。index・無関係な変更を保持し、add/commit/pushは実施していない。

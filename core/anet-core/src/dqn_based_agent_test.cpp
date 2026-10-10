@@ -41,6 +41,14 @@
 #include <wx/utils.h>
 
 namespace {
+// テストの既定経路も、製品と同じ統合factoryで生成する。
+std::shared_ptr<anet::nn::NetworkForwardExecutor> MakeDefaultExecutor(
+    const std::shared_ptr<anet::nn::Network>& network)
+{
+    return network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kTransientRows, 0);
+}
+
 // テスト用の生データから選択項目だけを取り出し、公開 constructor へ渡す。
 anet::ConfigData SelectForwardConfigData(const anet::ConfigData& data, const std::string& prefix)
 {
@@ -154,7 +162,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     using dqn::ActionPolicy::CreateSpatialTensor;
     using dqn::ActionPolicy::CreateSpatialLaneTensor;
 
-    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::NetworkForwardExecutor>,
+    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, anet::nn::NetworkForwardExecutor&,
         std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&, const dqn::DiagnosticActionEvaluation*) const override
     {
         return std::make_shared<dqn::DQNActionInfo>();
@@ -419,7 +427,7 @@ public:
         }
         if (run_plasticity_forward_) {
             model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info);
-            if (run_plasticity_target_forward_) model_.ForwardTarget(samples.next_state.next_obs, *target_forward_, forward_info);
+            if (run_plasticity_target_forward_) target_forwards_.target->Forward(samples.next_state.next_obs, forward_info, {}, model_.GetTargetBranchCapture());
             if (parameter_mutation_delta_.has_value()) {
                 torch::NoGradGuard no_grad;
                 for (auto& parameter : model_.GetOnlineParameters()) {
@@ -2598,21 +2606,12 @@ TEST_CASE("DQN learner BF16 autocast follows learner device", "[dqn][learner][am
 TEST_CASE("NetworkModel mode-specific forwards preserve training modes", "[dqn][network_model]")
 {
     TestNetworkModel model;
-    const auto online_forward = model.GetOnlineNetwork()->CreateDefaultForwardExecutor();
-    const auto target_forward = online_forward->BindNetwork(model.GetTargetNetwork());
+    const auto online_forward = MakeDefaultExecutor(model.GetOnlineNetwork());
     const anet::nn::NetworkForwardCallInfo info({});
     auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
 
     REQUIRE_FALSE(model.GetOnlineNetwork()->is_training());
     REQUIRE_FALSE(model.GetTargetNetwork()->is_training());
-
-    model.ForwardOnline(obs);
-    CHECK_FALSE(model.GetOnlineNetwork()->is_training());
-    CHECK_FALSE(model.GetTargetNetwork()->is_training());
-
-    model.ForwardTarget(obs, *target_forward, info);
-    CHECK_FALSE(model.GetOnlineNetwork()->is_training());
-    CHECK_FALSE(model.GetTargetNetwork()->is_training());
 
     model.ForwardOnlineWithTrain(obs, *online_forward, info);
     CHECK_FALSE(model.GetOnlineNetwork()->is_training());
@@ -3760,7 +3759,7 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
         INFO(name);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         const anet::nn::NetworkForwardCallInfo call_info_0({});
-        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->CreateDefaultForwardExecutor(), rnd, call_info_0);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, *MakeDefaultExecutor(network), rnd, call_info_0);
 
         auto action = action_info->GetAction();
         REQUIRE(ShapeOf(action) == std::vector<int64_t>{ 2 });
@@ -3824,7 +3823,7 @@ TEST_CASE("QR policy exposes quantile tail diagnostics through action info", "[d
     dqn::EpsilonGreedyActionPolicy policy(config);
     auto rnd = std::make_shared<anet::RandomGenerator>(123);
     const anet::nn::NetworkForwardCallInfo call_info_1({});
-    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->CreateDefaultForwardExecutor(), rnd, call_info_1, {});
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, *MakeDefaultExecutor(network), rnd, call_info_1, {});
 
     const float selected_tail_mean = std::sqrt(1.25f) / 2.0f;
     const auto crossing_depth_p90 =
@@ -3870,7 +3869,7 @@ TEST_CASE("QR policy exposes selected action crossing depth p90", "[dqn][qr][act
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_2({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->CreateDefaultForwardExecutor(),
+        obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakePassthroughNetwork(1, 5)),
         std::make_shared<anet::RandomGenerator>(123), call_info_2, {});
 
     const auto crossing_depth_p90 =
@@ -3895,7 +3894,7 @@ TEST_CASE("QR policy reports zero crossing depth without positive crossings", "[
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_3({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->CreateDefaultForwardExecutor(),
+        obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakePassthroughNetwork(1, 5)),
         std::make_shared<anet::RandomGenerator>(123), call_info_3, {});
 
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
@@ -3916,7 +3915,7 @@ TEST_CASE("QR selected crossing depth aggregates BF16 quantiles in float32", "[d
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_4({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5)->CreateDefaultForwardExecutor(),
+        obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakePassthroughNetwork(1, 5)),
         std::make_shared<anet::RandomGenerator>(123), call_info_4, {});
 
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
@@ -3945,7 +3944,7 @@ TEST_CASE("QR selected crossing depth follows the final action per lane", "[dqn]
     dqn::EpsilonGreedyActionPolicy policy(config);
     const anet::nn::NetworkForwardCallInfo call_info_5({});
     auto action_info = policy.SelectAction(
-        obs, /*greedy_only=*/true, MakePassthroughNetwork(2, 5)->CreateDefaultForwardExecutor(),
+        obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakePassthroughNetwork(2, 5)),
         std::make_shared<anet::RandomGenerator>(123), call_info_5, {});
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
         == Catch::Approx(0.25f));
@@ -3971,7 +3970,7 @@ TEST_CASE("QR policy tail diagnostics exclude the odd median and reject K below 
     };
     const anet::nn::NetworkForwardCallInfo call_info_6({});
     auto odd_info = policy.SelectAction(
-        odd_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 3)->CreateDefaultForwardExecutor(), rnd, call_info_6, {});
+        odd_obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakePassthroughNetwork(1, 3)), rnd, call_info_6, {});
     CHECK(*odd_info->GetScalar("policy_upper_truncated_std") == Catch::Approx(4.0f));
     CHECK(*odd_info->GetScalar("policy_lower_truncated_std") == Catch::Approx(1.0f));
 
@@ -3982,7 +3981,7 @@ TEST_CASE("QR policy tail diagnostics exclude the odd median and reject K below 
     };
     const anet::nn::NetworkForwardCallInfo call_info_7({});
     auto one_info = policy.SelectAction(
-        one_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 1)->CreateDefaultForwardExecutor(), rnd, call_info_7, {});
+        one_obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakePassthroughNetwork(1, 1)), rnd, call_info_7, {});
     CHECK(std::isnan(*one_info->GetScalar("policy_upper_truncated_std")));
     CHECK(std::isnan(*one_info->GetScalar("policy_lower_truncated_std")));
     CHECK(std::isnan(*one_info->GetScalar("lower_risk_full_q_argmax_disagreement")));
@@ -4002,7 +4001,7 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
 
         REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
         const anet::nn::NetworkForwardCallInfo call_info_8({});
-        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->CreateDefaultForwardExecutor(), rnd, call_info_8);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, *MakeDefaultExecutor(network), rnd, call_info_8);
 
         REQUIRE(state->forward_count == 1);
         REQUIRE(state->last_taus.defined());
@@ -4132,7 +4131,7 @@ TEST_CASE("IQN UQE point query exports a full distribution from the same forward
 
     REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
     const anet::nn::NetworkForwardCallInfo call_info_9({});
-    auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network->CreateDefaultForwardExecutor(), rnd, call_info_9, {});
+    auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, *MakeDefaultExecutor(network), rnd, call_info_9, {});
 
     const auto expected_taus = torch::tensor({ 0.4f, 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
     REQUIRE(state->forward_count == 1);
@@ -4180,7 +4179,7 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     dqn::UQEActionPolicy policy(config);
 
     const anet::nn::NetworkForwardCallInfo call_info_10({});
-    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->CreateDefaultForwardExecutor(), rnd, call_info_10, {});
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, *MakeDefaultExecutor(network), rnd, call_info_10, {});
 
     const auto expected_taus = torch::tensor({ 0.625f, 0.875f, 0.25f, 0.75f }).repeat({ 2, 1 });
     REQUIRE(state->forward_count == 1);
@@ -4219,7 +4218,7 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     auto risk_only_state = std::make_shared<TauEchoState>();
     const anet::nn::NetworkForwardCallInfo call_info_11({});
     auto risk_only = dqn::UQEActionPolicy(config).SelectAction(
-        obs, /*greedy_only=*/true, MakeTauEchoNetwork(2, risk_only_state)->CreateDefaultForwardExecutor(), rnd, call_info_11, {});
+        obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakeTauEchoNetwork(2, risk_only_state)), rnd, call_info_11, {});
     CHECK_FALSE(std::isnan(*risk_only->GetScalar("iqn_policy_margin_mc_ratio")));
     CHECK(std::isnan(*risk_only->GetScalar("iqn_uqe_full_q_argmax_disagreement")));
     CHECK(std::isnan(*risk_only->GetScalar("action_full_q_margin.[0]")));
@@ -4236,7 +4235,7 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     auto random_full_state = std::make_shared<TauEchoState>();
     const anet::nn::NetworkForwardCallInfo call_info_12({});
     auto random_full = dqn::UQEActionPolicy(config).SelectAction(
-        obs, /*greedy_only=*/true, MakeTauEchoNetwork(4, random_full_state)->CreateDefaultForwardExecutor(), rnd, call_info_12, {});
+        obs, /*greedy_only=*/true, *MakeDefaultExecutor(MakeTauEchoNetwork(4, random_full_state)), rnd, call_info_12, {});
     CHECK(std::isnan(*random_full->GetScalar("policy_upper_truncated_std")));
     CHECK(std::isnan(*random_full->GetScalar("policy_lower_truncated_std")));
     CHECK(std::isnan(*random_full->GetScalar("lower_risk_full_q_argmax_disagreement")));
@@ -4268,7 +4267,7 @@ TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][a
         const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         const anet::nn::NetworkForwardCallInfo call_info_13({});
-        auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network->CreateDefaultForwardExecutor(), rnd, call_info_13, {});
+        auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, *MakeDefaultExecutor(network), rnd, call_info_13, {});
 
         REQUIRE(action_info->GetAction().device().type() == device_type);
         REQUIRE(probe_state->forward_count > 0);
@@ -5264,7 +5263,7 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
         INFO(name);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         const anet::nn::NetworkForwardCallInfo call_info_14({});
-        auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network->CreateDefaultForwardExecutor(), rnd, call_info_14);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, *MakeDefaultExecutor(network), rnd, call_info_14);
         CHECK(torch::equal(action_info->GetAction().cpu(), expected_actions));
     }
 }
@@ -5475,7 +5474,7 @@ TEST_CASE("Replay fit policy evaluation suppresses inner AMP and stochastic auxi
         {
             anet::Autocast outer(device, true, torch::kBFloat16);
             const anet::nn::NetworkForwardCallInfo call_info_15({});
-            greedy.SelectAction(MakeAutocastProbePolicyInput(device), true, network->CreateDefaultForwardExecutor(), random, call_info_15, {}, &evaluation);
+            greedy.SelectAction(MakeAutocastProbePolicyInput(device), true, *MakeDefaultExecutor(network), random, call_info_15, {}, &evaluation);
         }
         CHECK(probe->forward_count == 1);
         CHECK(probe->enabled_count == 0);
@@ -5493,7 +5492,7 @@ TEST_CASE("Replay fit policy evaluation suppresses inner AMP and stochastic auxi
             dqn::UQEActionPolicy policy(config);
             const auto rng_before = random->GetTorchGenerator(device).get_state();
             const anet::nn::NetworkForwardCallInfo call_info_16({});
-            const auto result = policy.SelectAction(MakeTauEchoObservation().To(device), true, iqn_network->CreateDefaultForwardExecutor(), random, call_info_16, {}, &evaluation);
+            const auto result = policy.SelectAction(MakeTauEchoObservation().To(device), true, *MakeDefaultExecutor(iqn_network), random, call_info_16, {}, &evaluation);
             CHECK(echo->forward_count == 1);
             CHECK(echo->last_taus.size(1) == (tail ? 4 : 1));
             const auto expected = tail ? torch::tensor({ 0.5625f, 0.6875f, 0.8125f, 0.9375f }) : torch::tensor({ 0.5f });
@@ -6349,7 +6348,7 @@ TEST_CASE("QR UQE preserves sorted point and tail scores", "[dqn][qr][uqe][munch
         config.uqe_use_tail_mean = tail_mean;
         dqn::UQEActionPolicy policy(config);
         const anet::nn::NetworkForwardCallInfo call_info_17({});
-        const auto result = policy.SelectAction(obs, true, MakePassthroughNetwork(2, 4)->CreateDefaultForwardExecutor(),
+        const auto result = policy.SelectAction(obs, true, *MakeDefaultExecutor(MakePassthroughNetwork(2, 4)),
             std::make_shared<anet::RandomGenerator>(67001), call_info_17, {});
         const auto expected = tail_mean ? torch::tensor({ { 5.0f, 32.0f / 3.0f } })
                                         : torch::tensor({ { 3.0f, 2.0f } });
@@ -6852,8 +6851,8 @@ TEST_CASE("DQN Learner uses selected contexts and separate boxes for current and
         (record.training ? current_clocks : target_clocks).insert(record.clock);
     }
     REQUIRE(current_states.size() == 1);
-    REQUIRE(target_states.size() == 1);
-    CHECK(*current_states.begin() != *target_states.begin());
+    REQUIRE(target_states.size() == (munchausen ? 1 : 2));
+    for (const auto* state : target_states) CHECK(*current_states.begin() != state);
     CHECK(current_clocks.size() == updates);
     CHECK(target_clocks.size() == updates);
 
@@ -7642,7 +7641,7 @@ TEST_CASE("Learner forward resources match selections before preparation",
     // 設定内容には触れず、選択キーとResourceの同一用途への対応だけを検証する。
     const auto resource = [](const std::string& key) {
         return key.empty() ? anet::nn::NetworkForwardConfig::GetDefault()
-            : anet::nn::NetworkForwardConfig("catalog.[" + key + "]", anet::ConfigData{});
+            : anet::nn::NetworkForwardConfig("catalog." + dqn::MakeNetworkForwardConfigKey(key), anet::ConfigData{});
     };
     const dqn::LearnerForwardResources resources{
         .current = resource(current_key), .target = resource(target_key)};
@@ -7661,4 +7660,15 @@ TEST_CASE("Learner forward resources match selections before preparation",
             Catch::Matchers::ContainsSubstring("learner." + mismatch + ".nn_forward_key=" + selection.nn_forward_key)
             && Catch::Matchers::ContainsSubstring("supplied resource=" + supplied.key));
     }
+}
+
+TEST_CASE("NetworkModel requires distinct online and target Networks", "[dqn][noisynet][network_model]")
+{
+    class ExplicitNetworks final : public dqn::NetworkModel {
+    public:
+        explicit ExplicitNetworks(const std::shared_ptr<anet::nn::Network>& network)
+            : NetworkModel(dqn::NetworkModelConfig{}, network, network, 1, false) {}
+    };
+    const auto network = MakeLinearNetwork(1);
+    CHECK_THROWS_WITH(ExplicitNetworks(network), Catch::Matchers::ContainsSubstring("distinct online and target Networks"));
 }

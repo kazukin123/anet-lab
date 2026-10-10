@@ -324,9 +324,9 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 `nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。項目内容は利用する具象部品の準備時に検証し、未参照項目と部品が使わない設定群は検証しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
 
-TD・QR・IQN と Dueling の最終射影は `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner は current/target の箱2個と実更新の learn_step を使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持し、Munchausen の `[2B]` 入力には CPU 側で `[0..B-1,0..B-1]` を検証・確定した NetworkForwardRowMapping を一度転送して渡し、同一遷移の current/next が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
+TD・QR・IQN と Dueling の最終射影は `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner はcurrent用1個・target用途のonline用1個・target用1個の箱と実更新のlearn_stepを使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持し、Munchausen の `[2B]` 入力には CPU 側で `[0..B-1,0..B-1]` を検証・確定した NetworkForwardRowMapping を一度転送して渡し、同一遷移の current/next が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
 
-Config DTO は設定値と nn_forward_key のみを持ち、カタログは ConfigData を保持する。Agent が選択済み搬送型を Resource として持ち、初期化時に用途別 NetworkForwardExecutor を準備する。Actor は専用実行オブジェクト、Learner は現在値／target 用を持つ。target用途のonline／target接続は設定・State・時計種別を共有する。probeのμ-only側は既定Forwardで、sample側だけが専用実行を持つ。CallInfo は別の文で生成し、時計を進める判断は Actor／Learner に残す。
+Config DTO は設定値と nn_forward_key のみを持ち、カタログは ConfigData を保持する。Agent が選択済み搬送型を Resource として持ち、初期化時に用途別 NetworkForwardExecutor を準備する。Actor は専用実行オブジェクト、Learner は現在値／target 用を持つ。target用途のonline／targetは同じ設定・時計種別で独立したStateを持ち、network_forward.target_online／network_forward.targetのnamed seedを使う。probeのμ-only側は既定Forwardで、sample側だけが専用実行を持つ。CallInfo は別の文で生成し、時計を進める判断は Actor／Learner に残す。Learnerはcurrent実行器とtarget／診断の用途ペアを持ち、target captureは通常更新だけに渡す。ActionPolicyは実行器を参照で借用する。DQNの6射影Headは共通基底で準備・再利用検証・parameter列挙を行い、value→adv順と固有の計算を維持する。Double DQNとMunchausen onlineのsampleは箱の分離で乱数の割り当てが変わるが分布は同じである。
 
 Learner の forward_resources は必須の初期化入力である。有効時は current/target の参照キーと対応する Resource を準備前に検証する。空キーを使う直接構築では既定 Resource を明示し、無効時は休眠契約を維持する。
 

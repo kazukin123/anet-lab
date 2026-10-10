@@ -1794,23 +1794,14 @@ Network::Network(
     has_spectral_norm_ = !GetSpectralNormEntries().empty();
 }
 
-anet::TensorDict Network::Forward(
-    const anet::TensorDict& input,
-    const anet::TraceCallback& callback,
-    NetworkBranchCapture* capture)
-{
-    ANET_PROFILE_FUNC();
-
-    return RunForward(input, NetworkForwardContext::GetDefault(), callback, capture, nullptr, head_.get());
-}
-
-anet::TensorDict Network::RunForward(
-    const anet::TensorDict& input, const NetworkForwardContext& context,
+// 既定経路と準備済み経路で、Body・Head・精度保護の計算を共用する。
+static anet::TensorDict RunForward(
+    NetworkBody& body, const anet::TensorDict& input, const NetworkForwardContext& context,
     const anet::TraceCallback& callback, NetworkBranchCapture* capture,
     const std::vector<std::vector<NetworkModuleExecutor*>>* body_calls, NetworkHeadExecutor* head_call)
 {
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
-    auto features = body_->Forward(input, context, callback, capture, body_calls);
+    auto features = body.Forward(input, context, callback, capture, body_calls);
 
     // Head部を実行
     if (head_call) {
@@ -1823,6 +1814,15 @@ anet::TensorDict Network::RunForward(
 		// Headが無い場合はBodyの出力をそのまま返す
         return features;
     }
+}
+
+anet::TensorDict Network::Forward(
+    const anet::TensorDict& input,
+    const anet::TraceCallback& callback,
+    NetworkBranchCapture* capture)
+{
+    ANET_PROFILE_FUNC();
+    return RunForward(*body_, input, NetworkForwardContext::GetDefault(), callback, capture, nullptr, head_.get());
 }
 
 anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
@@ -1841,10 +1841,10 @@ NetworkForwardCallInfo NetworkForwardCallInfo::WithRowMapping(
 
 struct NetworkForwardExecutor::Impl {
     explicit Impl(std::shared_ptr<Network> owner)
-        : network(std::move(owner)), config(NetworkForwardConfig::GetDefault()), head_call(network->head_.get()) {}
+        : network(std::move(owner)), head_call(network->head_.get()) {}
     Impl(std::shared_ptr<Network> owner, const NetworkForwardConfig& config,
         NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state)
-        : network(std::move(owner)), config(config), state(std::move(state)), clock_kind(clock_kind)
+        : network(std::move(owner)), state(std::move(state))
     {
         ANET_PROFILE_SCOPE_FULL(prepare, "NetworkForwardExecutor::Create");
         // 各具象部品が解釈結果を所有し、共通層は具体型や設定の意味を扱わない。
@@ -1859,80 +1859,54 @@ struct NetworkForwardExecutor::Impl {
                 if (prepared) owned_modules.push_back(std::move(prepared));
             }
         }
+        call_table = &body_calls;
         if (network->head_) {
             owned_head = network->head_->CreateExecutor(config, clock_kind);
             head_call = owned_head ? owned_head.get() : network->head_.get();
         }
     }
+    NetworkForwardContext MakeContext(const NetworkForwardCallInfo& info) const
+    {
+        // 参照の組み立てだけを行い、抽選・箱の更新・Tensor計算は計算部品へ残す。
+        return NetworkForwardContext(state.get(), info);
+    }
     const std::shared_ptr<Network> network;
-    const NetworkForwardConfig config;
     const std::shared_ptr<NetworkForwardState> state;
-    const std::optional<NetworkForwardClock> clock_kind;
     std::vector<std::unique_ptr<NetworkModuleExecutor>> owned_modules;
     std::vector<std::vector<NetworkModuleExecutor*>> body_calls;
+    const std::vector<std::vector<NetworkModuleExecutor*>>* call_table = nullptr;
     std::unique_ptr<NetworkHeadExecutor> owned_head;
     NetworkHeadExecutor* head_call = nullptr;
 };
-
-std::shared_ptr<NetworkForwardExecutor> Network::CreateDefaultForwardExecutor()
-{
-    ANET_PROFILE_FUNC();
-    // 既定経路は計算部品を準備せず、Networkの寿命だけを保証する。
-    return std::shared_ptr<NetworkForwardExecutor>(
-        new NetworkForwardExecutor(std::static_pointer_cast<Network>(shared_from_this())));
-}
 
 std::shared_ptr<NetworkForwardExecutor> Network::CreateForwardExecutor(
     const NetworkForwardConfig& config, NetworkForwardClock clock_kind, anet::seed_t seed)
 {
     ANET_PROFILE_FUNC();
-    if (config.IsDefault()) {
-        ANET_SYSTEM_ERROR("CreateForwardExecutor requires a named execution setting; supplied=" << config.key << "; use CreateDefaultForwardExecutor for the default request.");
-    }
-    // 実行オブジェクトに Network の寿命と、この用途だけの箱を保証する。
     auto owner = std::static_pointer_cast<Network>(shared_from_this());
-    auto state = std::shared_ptr<NetworkForwardState>(new NetworkForwardState(seed));
-    return std::shared_ptr<NetworkForwardExecutor>(
-        new NetworkForwardExecutor(std::move(owner), config, clock_kind, std::move(state)));
+    std::unique_ptr<NetworkForwardExecutor::Impl> impl;
+    // 既定要求は部品の準備・箱・RNGを作らず、同じ計算経路へ直接接続する。
+    if (config.IsDefault()) {
+        impl = std::make_unique<NetworkForwardExecutor::Impl>(std::move(owner));
+    } else {
+        auto state = std::make_shared<NetworkForwardState>(seed);
+        impl = std::make_unique<NetworkForwardExecutor::Impl>(std::move(owner), config, clock_kind, std::move(state));
+    }
+    return std::shared_ptr<NetworkForwardExecutor>(new NetworkForwardExecutor(std::move(impl)));
 }
 
-NetworkForwardExecutor::NetworkForwardExecutor(std::shared_ptr<Network> network)
-    : impl_(std::make_unique<Impl>(std::move(network))) {}
-
-NetworkForwardExecutor::NetworkForwardExecutor(
-    std::shared_ptr<Network> network, const NetworkForwardConfig& config,
-    NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state)
-    : impl_(std::make_unique<Impl>(std::move(network), config, clock_kind, std::move(state)))
-{
-}
+NetworkForwardExecutor::NetworkForwardExecutor(std::unique_ptr<Impl> impl)
+    : impl_(std::move(impl)) {}
 
 NetworkForwardExecutor::~NetworkForwardExecutor() = default;
-
-std::shared_ptr<NetworkForwardExecutor> NetworkForwardExecutor::BindNetwork(
-    std::shared_ptr<Network> network) const
-{
-    ANET_PROFILE_FUNC();
-    ANET_CHECK_MSG(network, "BindNetwork requires a valid Network.");
-    if (impl_->config.IsDefault()) return network->CreateDefaultForwardExecutor();
-    // 初期化で同じ用途を別の重みへ結び付け、設定・箱・時計種別を共有する。
-    return std::shared_ptr<NetworkForwardExecutor>(
-        new NetworkForwardExecutor(std::move(network), impl_->config, *impl_->clock_kind, impl_->state));
-}
-
-NetworkForwardContext NetworkForwardExecutor::MakeContext(const NetworkForwardCallInfo& info) const
-{
-    // 文脈の組み立てだけを行い、抽選・箱の更新・Tensor 計算は計算部品に残す。
-    return NetworkForwardContext(impl_->state.get(), info);
-}
 
 anet::TensorDict NetworkForwardExecutor::Forward(
     const anet::TensorDict& input, const NetworkForwardCallInfo& info,
     const anet::TraceCallback& callback, NetworkBranchCapture* capture)
 {
     ANET_PROFILE_FUNC();
-    if (impl_->config.IsDefault()) return impl_->network->Forward(input, callback, capture);
-    const auto context = MakeContext(info);
-    return impl_->network->RunForward(input, context, callback, capture, &impl_->body_calls, impl_->head_call);
+    const auto context = impl_->MakeContext(info);
+    return RunForward(*impl_->network->body_, input, context, callback, capture, impl_->call_table, impl_->head_call);
 }
 
 std::vector<NetworkNoisyParameterEntry> Network::GetNoisyParameterEntries() const
