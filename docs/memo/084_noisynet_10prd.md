@@ -2,9 +2,6 @@
 
 2026-09-30 のグリルと、以下のレビューで合意した仕様と受け入れ条件を記録する。PRD 番号は 084 とし、本書の改訂は実装完了を意味しない。
 
-> 2026-10-10 改訂: 設定解釈を事前準備へ移し、用途別NN実行オブジェクトと不変なNN呼び出し情報で駆動する契約へ整理した。Learnerの参照とResourceの対応を初期化時に検証し、Module/Headの準備結果管理をNN内部共通部品で共用する（§4.2、§9、§13、ADR0051）。
->
-
 > 2026-10-02 レビュー指摘 A.1: ノイズ込み重みの SN を[独立した暫定 PRD](999_noisynet_effective_weight_spectral_norm_10prd.md)へ切り出した。084 の SN 併用は μ 正規化に限定し、切り出した機能を完了条件から除く。
 >
 > 2026-10-03 レビュー指摘 A.2: Noisy・AMP を名前付きの NN 実行設定へ集約する。用途別の tag、標準値、休眠、計算部品による局所検証と `online_reuse` の条件を確定した。Learner の現在値にも μ-only を許し、設定・AMP 移行を実装の第 1 段階とする。
@@ -21,6 +18,8 @@
 
 >
 > 2026-10-05 改訂: 実行設定の具象 Module 内への責任分離、GetDefault() と Forward の context 省略契約、同一時計の episode 保持、初期 σ/μ 比と診断の成立条件を明確化した。参照 profile は AMP 継承・Body の選択的 FP32・標準 call/batch とし、NN の時計を継続する行と呼び出しごとに異なる行の2種類へ整理した。
+>
+> 2026-10-10 改訂: 設定解釈を事前準備へ移し、用途別NN実行オブジェクトと不変なNN呼び出し情報で駆動する契約へ整理した。Learnerの参照とResourceの対応を初期化時に検証し、Module/Headの準備結果管理をNN内部共通部品で共用する（§4.2、§9、§13、ADR0051）。
 
 関連: [IQN](done/001_iqn_10prd.md)、[τ サンプリング](done/044_iqn_tau_stratified_sampling_10prd.md)、[Munchausen RL](done/067_MunchausenRL_10prd.md)、[Head 分離の暫定 PRD](999_nn_head_projection_separation_10prd.md)。
 

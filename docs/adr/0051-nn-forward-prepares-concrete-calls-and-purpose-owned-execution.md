@@ -1,4 +1,4 @@
-﻿# NN Forward の設定解釈を事前準備へ移し、用途別実行オブジェクトが State と Network の寿命を持つ
+# NN Forward の設定解釈を事前準備へ移し、用途別実行オブジェクトが State と Network の寿命を持つ
 
 設定 DTO のカタログは ConfigData、選択は nn_forward_key とする。Agent が選択済み搬送型を Resource として持ち、初期化時に PrepareForward を呼ぶ。具象 Module／Head は必要な設定を解釈し、私有の準備済み処理を返す。通常の部品は本体を直接呼ぶ。
 
