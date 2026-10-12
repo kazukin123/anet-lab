@@ -71,7 +71,7 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | `Runs` | 行クリックで即時toggleする。同じ行を350ms以内にもう一度押すとそのRunだけを選ぶ。空選択も可能 |
 | `Select All` / `Select Latest` | 全Run、または最新Runへ選択を切り替える |
 | `Recolor` | 選択中Runへ、互いに最も見分けやすい色を配り直す。選択順に固定の並びで配るので、本数が同じなら同じ色の組になる |
-| `Auto Recolor` | 選択を変えるたびに、見分けにくい色になったRunだけを自動で配り直す。既定ON |
+| `Auto Recolor` | 新しく選んだRun（初回表示で選ばれるRunを含む）へ、選択中のほかのRunから最も見分けやすい色を自動で配る。選択中だったRunの色は変えない。既定ON |
 | `Tags` | 表示するmetric tagを選ぶ |
 | `Selected Only`（Runs / Tags） | 見出し行のトグル。選択済みRun・tagだけを一覧へ残す。`Select All`などの一括操作を押すと自動でOFFへ戻る |
 | Run行の背景と`%` | 選択したMetricsマスタをSQLiteへ取り込んだRun単位の進捗を示す |

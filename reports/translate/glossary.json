@@ -24,6 +24,10 @@
     "LODバケット": "LOD bucket",
     "生スコア": "raw score",
     "人間正規化スコア": "human-normalized score",
-    "プロトコルプロファイル": "protocol profile"
+    "プロトコルプロファイル": "protocol profile",
+    "排水": "drain",
+    "RAM メトリクス": "RAM metric",
+    "RAM 定義": "RAM definition",
+    "畳み方": "reducer"
   }
 }

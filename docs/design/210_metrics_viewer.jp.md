@@ -631,11 +631,12 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `RUN_SOLO_INTERVAL_MS` | 350 | 同じRun行の連続clickをsolo選択とみなす閾値 |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にdrag scrollへ切り替える移動量 |
-| `RUN_COLOR_MIN_DISTANCE` | 0.16 | `Auto Recolor`が既存のRun色を維持する分離距離の下限 |
 
-Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配り、`Auto Recolor`がONならそこから選択中Runだけを分離する。
-`Recolor`は現在の色を無視し、選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。`Auto Recolor`は既存の色が`min(RUN_COLOR_MIN_DISTANCE, 今のpaletteで取れる最良)`を満たさないRunだけを配り直す。
-どちらも未選択Runの色を変えず、選択が20本を超えるとpaletteを1周してラウンドを改める。選択1本以下では何もしない。
+Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配る（基本色）。
+`Auto Recolor`がONなら、前回の解決時に選択されていなかったRun（初回表示で自動選択する最新Runを含む）を新しく選んだRunとし、選択順に、ほかの選択中Runの色から最も離れた色を配る。選択中だったRunの色は変えず、新しく選んだRunの基本色は見ない。OFFからONへ切り替えた時点では色を変えない。
+`Recolor`は選択中Runをすべて新しく選んだRunとして扱い、現在の色を無視して選択順にpalette先頭`#2F7DE1`を起点としたfarthest-pointで配る。選択1本なら`#2F7DE1`になる。
+solo選択（同じRun行の連続click）は2回のclickを1つの操作として扱う。元から選択中だったRunは色を保ち、選択していなかったRunは新しく選んだ1本として`#2F7DE1`を取る。
+どちらも未選択Runの色を変えず、配る色がpaletteの20色を使い切るとラウンドを改める。
 
 `localStorage`へ保存するstateは次の8件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 

@@ -8,7 +8,7 @@ DefaultDQNAgent 系の探索記録です。ReplayBuffer、PER、batch、replay r
 |---|---|---|
 | Atari | [Atari 探索記録](atari/README.md) | ALE 直結。ベースライン定義（Breakout / Pong）、Atari-5 横断、可塑性メトリクスの較正と保護機構、BTR 実装との差分移植、replay の lane 窓と eval コスト |
 | DropMerge | [DropMerge 探索記録](dropmerge/README.md) | 長期 Run における batch size と replay ratio を中心とした探索 |
-| LunarLander | [LunarLander 探索記録](lunarlander/README.md) | IQN 導入、QR/IQN 比較、ReplayBuffer capacity、warmup、UQE、quantile sample 数の探索 |
+| LunarLander | [LunarLander 探索記録](lunarlander/README.md) | IQN 導入、QR/IQN 比較、ReplayBuffer capacity、warmup、UQE、quantile sample 数の探索、NoisyNet の導入確認 |
 
 ## DQN 系列共通の知見
 

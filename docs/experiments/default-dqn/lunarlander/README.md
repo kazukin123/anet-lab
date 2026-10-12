@@ -7,10 +7,11 @@ LunarLander の DefaultDQNAgent 系 Run に関する探索索引です。
 | 期間 | 文書 | 主題 | 状態 |
 |---|---|---|---|
 | 2026-08-08〜 | [IQN導入とQR比較](2026-08-08_iqn.md) | IQN動作確認、ReplayBuffer capacity、warmup、UQE、quantile sample数、QR/IQN複数seed比較 | active |
+| 2026-10-06〜2026-10-07 | [NoisyNet の導入確認（QR）](2026-10-06_noisynet.md) | NoisyNet の学習成立と診断メトリクス、spatial UQE への上乗せと ε の置き換えの matched 3-seed | completed |
 
 ## 現時点の判断
 
-最終更新: 2026-08-09
+最終更新: 2026-10-07
 
 | 設定・探索 | 現在の扱い | 根拠の概要 |
 |---|---|---|
@@ -21,6 +22,7 @@ LunarLander の DefaultDQNAgent 系 Run に関する探索索引です。
 | IQN learner `N=32, M=64` | 安定性寄りの参考 | `N=64, M=64`よりraw loss/gradを抑え、単一Runでは良好。ただしtarget計算量が多い |
 | IQN learner `N=32, M=8` | 採用保留 | 単一Runで終盤が不安定。論文上の一般傾向だけでLunarLanderへ採用しない |
 | UQE個別調整 | 明確な改善なし | tau end、tail mean、epsilon floor、optimistic targetの単発probeでは一貫した改善を確認できなかった |
+| NoisyNet（V/A ストリームの FC と Head の射影） | 学習成立を確認、明確な改善なし | QR の matched 3-seed で、spatial UQE への上乗せも ε の置き換えも、1.5M〜2.0M の policy reward 平均（134.0 / 127.3）が OFF（145.1）の seed の幅（96.6〜199.4）に収まった。σ と probe の指標は学習とともに縮んだ |
 
 上記のQR/IQN比較は、現在のLunarLander構成に限定した3 seedの傾向である。
 「IQNは発見を早める」とは扱わず、発見後の成長・定着に優位性がある可能性として後続実験で更新する。

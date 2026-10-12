@@ -326,3 +326,16 @@ metrics.scalar.@replay_fit.[46_agent_replay_fit/24_sampled_age_mean] ?= replay_f
 metrics.scalar.@replay_fit.[46_agent_replay_fit/31_uniform_td_mean] ?= replay_fit_uniform_td_mean @learn $learn_step $update_result interval:503
 metrics.scalar.@replay_fit.[46_agent_replay_fit/32_per_td_mean] ?= replay_fit_per_td_mean @learn $learn_step $update_result interval:503
 metrics.scalar.@replay_fit.[46_agent_replay_fit/33_per_selectivity] ?= replay_fit_per_selectivity @learn $learn_step $update_result interval:503
+
+# Noisy の統計と固定 probe。購読した更新だけ測定し、対象のない feature 統計は NaN。
+metrics.scalar.@noisy : [47_agent_noisy/01_sigma_mean_abs_feature_weight] ?= noisy_sigma_mean_abs_feature_weight @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/02_sigma_mean_abs_feature_bias] ?= noisy_sigma_mean_abs_feature_bias @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/03_sigma_mean_abs_readout_weight] ?= noisy_sigma_mean_abs_readout_weight @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/04_sigma_mean_abs_readout_bias] ?= noisy_sigma_mean_abs_readout_bias @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/05_sigma_l2_ratio_feature_weight] ?= noisy_sigma_l2_ratio_feature_weight @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/06_sigma_l2_ratio_feature_bias] ?= noisy_sigma_l2_ratio_feature_bias @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/07_sigma_l2_ratio_readout_weight] ?= noisy_sigma_l2_ratio_readout_weight @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/08_sigma_l2_ratio_readout_bias] ?= noisy_sigma_l2_ratio_readout_bias @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/09_q_abs_diff] ?= noisy_q_abs_diff @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/10_action_disagreement_ratio] ?= noisy_action_disagreement_ratio @learn $learn_step $update_result interval:503
+metrics.scalar.@noisy : [47_agent_noisy/11_action_entropy] ?= noisy_action_entropy @learn $learn_step $update_result interval:503

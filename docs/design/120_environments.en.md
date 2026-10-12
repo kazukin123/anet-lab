@@ -1,4 +1,4 @@
-<!-- translated-from: 120_environments.jp.md blob:5a3b3596c5b599ce7ed5460781ce36438c8c9c7e date:2026-09-19 progress:done -->
+<!-- translated-from: 120_environments.jp.md blob:001af9d7eba0bd63040d8d69347aa5f83a4e98e3 date:2026-10-07 progress:done -->
 # Environments
 
 > Primary perspective: function (Env, with internal processing stages in chronological order)
@@ -60,11 +60,11 @@ ImageCls configuration requires standard Train/Eval Sources as a pair. Train use
 
 ### 2.4 Env Names
 
-`SingleDiscreteEnv` and `BatchEnv` are interfaces without constructors or state, exposing pure virtual name accessors. `SingleDiscreteEnvBase` and `BatchEnvBase` hold immutable, human-facing `name` values and implement the accessors as `final override`. `BatchEnvBase::GetName()` returns the batch name; `GetEnvName(lane_index)` returns `<name>[0..N-1]` strings generated once at construction. Concrete Envs inherit the corresponding Base rather than implementing name accessors themselves.
+`SingleDiscreteEnv` and `BatchEnv` are interfaces without constructors or state, exposing pure virtual name accessors. `SingleDiscreteEnvBase` and `BatchEnvBase` hold immutable, human-facing `name` values and implement the accessors as `final override`. `BatchEnvBase::GetName()` returns the batch name; `GetEnvName(lane_index)` returns `env.[<name>].[0..N-1]` strings generated once at construction. Concrete Envs inherit the corresponding Base rather than implementing name accessors themselves.
 
 A name is an opaque display string, not a substitute for Env class ID, RunMode, config prefix, seed, RNG, DatasetKey, or metrics tag. Env does not parse names or change Reset, Step, Reward, or termination behavior based on them. Empty names, nonpositive lane counts, and out-of-range lane indices always fail fast through `ANET_CHECK_MSG`.
 
-Both Bases also hold protected `anet::log::Logger log`, constructing the prefix `<name>: ` once when the name is established. Active text logging in concrete Envs uses `log.info()`, `log.verbose()`, `log.warn()`, and `log.error()` instead of concatenating `GetName()` on every line. Debug logging uses `ANET_LOG_DEBUG_PREFIXED`, preserving the guards and build-time elimination behavior of ordinary `ANET_LOG_DEBUG`.
+Both Bases also hold protected `anet::log::Logger log`, constructing the prefix once when the name is established. A single Env uses the lane name as is, giving `<name>: ` (for example, `env.[train].[37]: `), and a BatchEnv uses `env.[<name>]: `. Active text logging in concrete Envs uses `log.info()`, `log.verbose()`, `log.warn()`, and `log.error()` instead of concatenating `GetName()` on every line. Debug logging uses `ANET_LOG_DEBUG_PREFIXED`, preserving the guards and build-time elimination behavior of ordinary `ANET_LOG_DEBUG`.
 
 ## 3. Component Definitions
 
@@ -193,7 +193,7 @@ Batch-wrapper and Runner contracts determine when completed episode groups are r
 
 1. `EnvRepository` resolves a concrete single or batch factory from `env.class_id`.
 2. The caller supplies BatchEnv name, RunMode, and config prefix; `BatchEnvBuilder` establishes num_envs, device, seed, and worker settings.
-3. A batch factory directly creates a native `BatchEnv`. For a single factory, the wrapper forms `<name>[lane_index]` and creates one single Env per lane.
+3. A batch factory directly creates a native `BatchEnv`. For a single factory, the wrapper forms `env.[<name>].[lane_index]` and creates one single Env per lane.
 4. The single path stores Envs in a vectorized or thread-pool wrapper according to worker mode. Native ImageCls applies the same worker settings to Source sample processing, performing decode/cache lookup through augmentation in one work item.
 5. Runner construction passes EnvSpec and BatchEnvSpec to Agent.
 

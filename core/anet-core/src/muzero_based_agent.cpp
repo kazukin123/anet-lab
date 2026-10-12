@@ -26,7 +26,7 @@ public:
         anet::nn::WeightInitializer::Initialize(reward_layer_, reward_init_config);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         ANET_PROFILE_FUNC();
 
@@ -110,7 +110,7 @@ public:
         anet::nn::WeightInitializer::Initialize(policy_layer_, policy_init_config);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         ANET_PROFILE_FUNC();
 

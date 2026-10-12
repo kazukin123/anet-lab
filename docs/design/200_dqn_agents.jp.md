@@ -320,6 +320,20 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 `per_initial_priority_mode`は`fixed`、`max`、`actor_approx`を受け付ける。`max`と`actor_approx`はPER有効を要求し、priority、epsilon、clip値、profile構造などはConfig構築時に検証する。不正な組合せを暗黙に既定値へ戻さない。
 
+### 7.3 DefaultDQN の Noisy 実行設定
+
+`nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。項目内容は利用する具象部品の準備時に検証し、未参照項目と部品が使わない設定群は検証しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
+
+TD・QR・IQN と Dueling の最終射影は `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner はcurrent用1個・target用途のonline用1個・target用1個の箱と実更新のlearn_stepを使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持し、Munchausen の `[2B]` 入力には CPU 側で `[0..B-1,0..B-1]` を検証・確定した NetworkForwardRowMapping を一度転送して渡し、同一遷移の current/next が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
+
+Config DTO は設定値と nn_forward_key のみを持ち、カタログは ConfigData を保持する。Agent が選択済み搬送型を Resource として持ち、初期化時に用途別 NetworkForwardExecutor を準備する。Actor は専用実行オブジェクト、Learner は現在値／target 用を持つ。target用途のonline／targetは同じ設定・時計種別で独立したStateを持ち、network_forward.target_online／network_forward.targetのnamed seedを使う。probeのμ-only側は既定Forwardで、sample側だけが専用実行を持つ。CallInfo は別の文で生成し、時計を進める判断は Actor／Learner に残す。Learnerはcurrent実行器とtarget／診断の用途ペアを持ち、target captureは通常更新だけに渡す。ActionPolicyは実行器を参照で借用する。DQNの6射影Headは共通基底で準備・再利用検証・parameter列挙を行い、value→adv順と固有の計算を維持する。Double DQNとMunchausen onlineのsampleは箱の分離で乱数の割り当てが変わるが分布は同じである。
+
+Learner の forward_resources は必須の初期化入力である。有効時は current/target の参照キーと対応する Resource を準備前に検証する。空キーを使う直接構築では既定 Resource を明示し、無効時は休眠契約を維持する。
+
+通常/Fused AdamW は Noisy ON のとき σ 専用 group を使い、`learner.noisy_weight_decay=0` が既定。OFF は従来の単一 group と順序を維持する。μ-only の current は σ の gradient を作らず、σ を更新・decay しない。sample で成立した σ gradient は既存の全体 norm/clip に含まれる。checkpoint と snapshot の parameter に σ を含め、ε・時計・RNG は保存しない。
+
+Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_reference` と `nz_reference_off` は4射影の default 初期化・σ0=0.5、Body2FCの force_fp32=true、既存チェーンのAMPと標準call/batchを揃え、Noisy enabled だけを変える。episode/sample は結合 Run の Actor 上書き条件として指定する。指定チェーン末尾へ profile を追加する実行例と受け入れ手順は [専用検証手順](../../core/anet-core/testdata/prd084/README.md)を参照する。
+
 ## 8. lifetime・同期・保存読込
 
 ### 8.1 ResourceとState
@@ -423,7 +437,7 @@ parameter側は、online networkを`feature_key`の依存閉包でfeature/readou
 
 ### 9.5 Policy churnメトリクス
 
-DefaultDQNは、ReplayBufferの一様・非復元probe上で1 learner updateによるonline expected Qとgreedy actionの変化を測り、target update後のonline/target差と合わせて`35_agent_churn`へ7 scalarを公開する。測定本体は共通`dqn::Learner`に置くが、config、購読、baseline公開はDefaultDQNだけであり、Rainbow、ImageCls、NoisyNetは現行対象外である。
+DefaultDQNは、ReplayBufferの一様・非復元probe上で1 learner updateによるonline expected Qとgreedy actionの変化を測り、target update後のonline/target差と合わせて`35_agent_churn`へ7 scalarを公開する。測定本体は共通`dqn::Learner`に置くが、config、購読、baseline公開はDefaultDQNだけであり、Rainbow、ImageClsは現行対象外である。NoisyNetを持つDefaultDQNでも、before / after / target を既定の μ-only として同じ条件で比較する。
 
 測定順は次に固定する。
 
@@ -452,6 +466,14 @@ target組立は`MakeTarget`、サンプル別誤差は`ComputeElementError`を�
 各群の件数は`learner.replay_fit.probe.batch_size=1024`、IQNの固定分位点数は`learner.replay_fit.iqn.num_taus=32`で、どちらも正整数。結果は更新ごとの`BatchUpdateResult`に保存し、未購読・非測定回・件数不足・ゼロ分母はNaN、未知keyだけnulloptを返す。uniform TDは母数加重平均、比は平均同士の比である。空群は加重和へ寄与せず、非空の不足群は全体平均をNaNにする。
 
 学習有効時に解決済みtarget PolicyがThompsonSamplingであれば、購読設定時にfail-fastする。学習無効時は測定しない。採用理由と完全な指標表は[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)と[PRD073](../memo/done/073_replay_fit_metrics_10prd.md)を参照する。
+
+### 9.7 Noisy 診断
+
+`metrics.scalar.@noisy` の `47_agent_noisy` は feature/readout×weight/bias の σ mean-abs / L2 ratio 8統計と、`noisy_q_abs_diff`、`noisy_action_disagreement_ratio`、`noisy_action_entropy` の3 probe 指標を更新前に測る。既定の購読間隔は503更新。対象のない feature 統計は正常な NaN であり、ratio の分母は対応する μ のみを使う。既知キーの未測定・不足・対象なしは NaN、未知キーだけ nullopt。
+
+probe は `learner.noisy_probe.probe.batch_size=128`、`num_draws=32`、`iqn.num_taus=32` が既定。専用 RNG で一様非復元抽選した B 状態を FP32・eval・NoGrad、IQN は固定 midpoint τ で評価する。平均側は既定Forwardでμ-onlyを1回、sample側は専用の準備済み実行でsample/call/batchをR回評価する。反復内は全状態で ε 共有、反復間は独立。3指標の推論を共用し、Q差の絶対値平均、argmax 不一致率、状態毎の行動頻度 entropy の平均（nats）を逐次集計する。
+
+統計だけの購読では probe を実行しない。probe は専用箱・時計・RNG と mode/精度 guard を使い、通常更新の ε・RNG・SN 等の永続 buffer を変えない。既存 probe は既定の μ-only、actual 指標は通常 forward の実際の出力を使う。追加の μ-only Q 統計は公開しない。
 
 ## 10. テストと拡張時の確認事項
 

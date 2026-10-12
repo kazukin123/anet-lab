@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:f8e196a880bd3565e4da65a35814efbe2541b5f3 date:2026-09-20 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:1a98578bb3a421a7d7f0756dbb9561e1ec125323 date:2026-10-07 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -306,7 +306,8 @@ The first step resets Env and submits no Learner update because no Experience is
 | `run.train.actor` | Actor catalog name, default `train` |
 | `run.eval_device` | Configured Eval device setting, default `auto`; adopted value in `json/run.json` as `effective_eval_device` |
 | `run.eval.[tag].*` | Configured Eval RunMode, parallel lane count `eval_batch_size`, adopted count `eval_episodes` (default 1), Env overrides, and Actor name reference |
-| `run.eval_schedule.[tag].*` | Required `interval` and `use_background` for periodic configured Eval |
+| `run.eval_schedule.[tag].*` | Required `interval`, `use_background`, and `wait_on_exit` (default `true`), which selects whether to wait for completion at shutdown, for periodic configured Eval |
+| `app.drain_timeout_sec` | Deadline in seconds for the entire background Observer drain. Default 3600; must be a positive integer |
 | `env.*` | Env class, workers, device |
 | `agent.*` | Agent class, device |
 | `backend.*` | libtorch backend settings such as TF32, cuDNN, and determinism |
@@ -315,7 +316,9 @@ Use Config classes and each Run's `config/config_data.txt` as the basis for the 
 
 ### 7.2 Lifetimes and Shutdown
 
-- Normal application shutdown stops and joins `RunnerThread`, stops Pipeline workers and Env through `TrainRunner::Shutdown()`, then releases `RunManager`.
+- Normal application shutdown stops and joins `RunnerThread`; after the checkpoint is saved, `Notifier::Shutdown()` runs background Observers to completion or cooperatively cancels them, completing the drain before `ShutdownRunLogging()` and `MetricsLogger::Reset()`. It then stops Pipeline workers and Env through `TrainRunner::Shutdown()` and releases `RunManager`.
+- `Notifier::Shutdown(deadline, mode)` iterates over every Observer list, and each `RunnerScoped*Observer` forwards to its underlying instance. Worker exceptions raised along the way are not caught but rethrown to the application boundary; only the destructor safety net records FATAL without letting the exception escape.
+- To avoid racing with new evaluation submissions, a manual close stops and joins the Train thread before querying `WillBlockOnShutdown()`. With Keep running, the same thread resumes in its previous paused state. Reaching the budget cannot be vetoed, so no question is asked.
 - Do not use the `RunManager` destructor alone as the worker-stop entry point; preserve application shutdown order.
 - `RunnerThread` shares ownership of Runner and releases it after stop/join.
 - Pipeline retains the previous Experience's storage until its next asynchronous update completes.

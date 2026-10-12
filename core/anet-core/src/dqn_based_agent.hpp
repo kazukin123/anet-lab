@@ -52,6 +52,26 @@ namespace anet::rl::dqn {
         "policy_churn_target_sync_age",
     };
 
+    inline constexpr std::array<const char*, 11> kNoisyMetricKeys = {
+        "noisy_sigma_mean_abs_feature_weight", "noisy_sigma_mean_abs_feature_bias",
+        "noisy_sigma_mean_abs_readout_weight", "noisy_sigma_mean_abs_readout_bias",
+        "noisy_sigma_l2_ratio_feature_weight", "noisy_sigma_l2_ratio_feature_bias",
+        "noisy_sigma_l2_ratio_readout_weight", "noisy_sigma_l2_ratio_readout_bias",
+        "noisy_q_abs_diff", "noisy_action_disagreement_ratio", "noisy_action_entropy",
+    };
+    using NoisyMetrics = std::array<float, kNoisyMetricKeys.size()>;
+    std::array<float, 3> MeasureNoisyQProbe(const torch::Tensor& mean_q, int num_draws,
+        const std::function<torch::Tensor(int)>& draw);
+
+
+    inline std::optional<size_t> ParseNoisyMetric(const std::string& key)
+    {
+        for (size_t i = 0; i < kNoisyMetricKeys.size(); ++i) {
+            if (key == kNoisyMetricKeys[i]) return i;
+        }
+        return std::nullopt;
+    }
+
     inline constexpr std::array<const char*, 13> kReplayFitMetricKeys = {
         "replay_fit_unsampled_td_mean", "replay_fit_sampled_td_mean", "replay_fit_unsampled_td_ratio",
         "replay_fit_unsampled_loss_mean", "replay_fit_sampled_loss_mean", "replay_fit_unsampled_loss_ratio",
@@ -226,6 +246,7 @@ namespace anet::rl::dqn {
 
         // policy churn の 7 scalar を key 順に保持する CPU float32 pack。
         torch::Tensor policy_churn_metrics;
+        std::optional<NoisyMetrics> noisy_metrics; ///< 購読した更新だけに属する診断値。
         std::optional<ReplayFitMetrics> replay_fit_metrics; ///< 測定回だけ生成するCPU結果。
 
     public:
@@ -233,6 +254,9 @@ namespace anet::rl::dqn {
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
+            if (const auto metric = ParseNoisyMetric(key)) {
+                return noisy_metrics ? (*noisy_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
+            }
             if (const auto metric = ParseReplayFitMetric(key)) {
                 return replay_fit_metrics ? (*replay_fit_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
             }
@@ -643,16 +667,15 @@ namespace anet::rl::dqn {
             bool distributional);
     public:
 
-        /// 行動選択・学習用：期待値Q (B, A) を返す
-        /// QR-DQNの場合は分布の平均を計算して返す
-        anet::TensorDict ForwardOnline(const anet::TensorDict& obs) const;
-        anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs) const;
-        anet::TensorDict ForwardTarget(const anet::TensorDict& obs) const;
+        /// 訓練モードを一時的に有効にし、復元して返す。
+        anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const;
         anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key) const;
         void SetBranchCaptureRequests(
             anet::nn::NetworkBranchCapture* online_capture,
             anet::nn::NetworkBranchCapture* target_capture);
         void ClearBranchCaptureRequests();
+        /// 更新中に設定されたtargetの取得要求。診断のtarget計算には使用しない。
+        anet::nn::NetworkBranchCapture* GetTargetBranchCapture() const { return target_capture_; }
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
@@ -721,8 +744,17 @@ namespace anet::rl::dqn {
         int64_t num_taus;
     };
 
+    /// target計算で使うonline用とtarget用の実行器。
+    struct TargetForwards {
+        std::shared_ptr<anet::nn::NetworkForwardExecutor> online; ///< Double DQNの行動選択とMunchausenのonline方式
+        std::shared_ptr<anet::nn::NetworkForwardExecutor> target; ///< 価値の評価とMunchausenのtarget方式
+    };
+
     struct TargetEvaluation {
         bool diagnostic = false;
+        anet::nn::NetworkForwardCallInfo info{{}};
+        const TargetForwards* forwards = nullptr; ///< 選択された用途ペア。同期target計算中だけ参照する。
+        anet::nn::NetworkBranchCapture* target_capture = nullptr; ///< 通常更新のtarget取得要求。診断ではnullptr。
         std::function<torch::Tensor(int64_t)> current_taus;
         std::function<torch::Tensor(int64_t)> target_taus;
     };
@@ -752,7 +784,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback = {},
             const DiagnosticActionEvaluation* evaluation = nullptr) const = 0;
         virtual void UpdateSchedule(const StepCounts& counts) { }
@@ -762,10 +794,10 @@ namespace anet::rl::dqn {
 
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceCallback& callback) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
         anet::TensorDict ForwardForActionWithTaus(
             const anet::TensorDict& obs, const torch::Tensor& taus,
-            std::shared_ptr<anet::nn::Network> network, const anet::TraceCallback& callback) const;
+            anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
@@ -795,7 +827,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -817,7 +849,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -829,7 +861,7 @@ namespace anet::rl::dqn {
         }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceCallback& callback,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
             bool iqn_use_full_range = false, const DiagnosticActionEvaluation* evaluation = nullptr) const;
         void UpdateTau(step_t step);
     private:
@@ -846,7 +878,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -873,6 +905,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             std::shared_ptr<anet::nn::Network> src_network,
+            const anet::nn::NetworkForwardConfig& forward_config,
             bool emit_actor_q_hint = false,
             std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval = std::nullopt,
             bool emit_snapshot_metrics = false,
@@ -892,6 +925,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
+        std::shared_ptr<anet::nn::NetworkForwardExecutor> actor_forward_;
+        mutable uint64_t forward_clock_ = 0; ///< 行動選択ごとの時計。episodeやsnapshot同期でリセットしない。
         bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
         const ActorQHintConfig actor_q_hint_config_;
         mutable std::optional<anet::ProfiledValue<step_t>> snapshot_sync_interval_;
@@ -904,12 +939,18 @@ namespace anet::rl::dqn {
     // Learner
     // ======================================================
 
+    struct LearnerForwardResources {
+        const anet::nn::NetworkForwardConfig current = anet::nn::NetworkForwardConfig::GetDefault();
+        const anet::nn::NetworkForwardConfig target = anet::nn::NetworkForwardConfig::GetDefault();
+    };
+
     class Learner : public anet::rl::Learner, public anet::Module, public anet::Serializable, public anet::RandomHolder {
     public:
         Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
+            const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             anet::RandomGenerator* plasticity_probe_random = nullptr,
@@ -918,7 +959,9 @@ namespace anet::rl::dqn {
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
         void ConfigureScalarMetricSubscriptions(
             const std::vector<ScalarMetricSubscription>& subscriptions,
-            anet::RandomGenerator* replay_fit_probe_random = nullptr);
+            anet::RandomGenerator* replay_fit_probe_random = nullptr,
+            anet::RandomGenerator* noisy_probe_random = nullptr,
+            const anet::nn::NetworkForwardConfig* noisy_probe_config = nullptr);
 
         virtual ~Learner() = default;
     public:
@@ -936,6 +979,7 @@ namespace anet::rl::dqn {
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
         TargetEvaluation MakeTargetEvaluation(bool diagnostic);
+        anet::nn::NetworkForwardCallInfo MakeCurrentForwardInfo() const;
         virtual std::pair<torch::Tensor, torch::Tensor> MakeTarget(
             const ExperienceSamples& samples, const anet::TensorDict& obs,
             const anet::TensorDict& next_obs, const torch::Tensor& current_all,
@@ -972,6 +1016,7 @@ namespace anet::rl::dqn {
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
+        void CaptureNoisyDiagnostics();
         void CapturePlasticityProbe();
         void PreparePolicyChurnRequest();
         void CapturePolicyChurnProbe();
@@ -987,6 +1032,9 @@ namespace anet::rl::dqn {
         int n_actions_;
         float earned_credit_;
         LearnerConfig config_;
+        std::shared_ptr<anet::nn::NetworkForwardExecutor> current_forward_;
+        TargetForwards target_forwards_;
+        TargetForwards diagnostic_forwards_;
         std::optional<StuckerConfig> stucker_config_;
         std::shared_ptr<ActionPolicy> target_policy_;
         NetworkModel& model_;
@@ -999,6 +1047,19 @@ namespace anet::rl::dqn {
         anet::RandomGenerator* policy_churn_probe_random_ = nullptr;
         std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
+        struct NoisyDiagnosticState {
+            struct DemandEntry {
+                size_t metric;
+                anet::IntervalGate gate;
+                DemandEntry(size_t metric, int interval) : metric(metric), gate(static_cast<uint64_t>(interval)) {}
+            };
+            std::vector<DemandEntry> demand;
+            anet::RandomGenerator* random = nullptr;
+            std::shared_ptr<anet::nn::NetworkForwardExecutor> sample_forward;
+            uint64_t forward_clock = 0;
+            NoisyMetrics values;
+            NoisyDiagnosticState() { values.fill(std::numeric_limits<float>::quiet_NaN()); }
+        } noisy_;
         struct PlasticityState {
             struct DemandEntry {
                 anet::nn::PlasticityMetric metric;
@@ -1104,6 +1165,7 @@ namespace anet::rl::dqn {
         	const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
+            const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             anet::RandomGenerator* plasticity_probe_random = nullptr,
@@ -1143,6 +1205,7 @@ namespace anet::rl::dqn {
         explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
+            const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             anet::RandomGenerator* plasticity_probe_random = nullptr,
@@ -1157,6 +1220,7 @@ namespace anet::rl::dqn {
         explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
+            const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             anet::RandomGenerator* plasticity_probe_random = nullptr,
@@ -1176,6 +1240,7 @@ namespace anet::rl::dqn {
         explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
+            const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             anet::RandomGenerator* plasticity_probe_random = nullptr,

@@ -107,10 +107,12 @@ RainbowAgent::RainbowAgent(
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, LearnerForwardResources{});
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed,
+            target_policy_, LearnerForwardResources{});
         LOG::info() << "Initialized TDLearner";
     }
 }
@@ -184,7 +186,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     }
     const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
-    return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, emit_hint,
+    return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, anet::nn::NetworkForwardConfig::GetDefault(), emit_hint,
         std::nullopt, false, ActorQHintConfig{.munchausen = MunchausenConfig{.enabled = false}});
 }
 

@@ -24,7 +24,7 @@ namespace {
 
 class VisualTraceTestModule final : public anet::nn::NetworkModule {
 public:
-    torch::Tensor Forward(torch::Tensor input) override
+    torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         return input + 1.0f;
     }
@@ -34,7 +34,7 @@ public:
 
 class ImageClsTraceTestHead final : public anet::nn::NetworkHead {
 public:
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         auto feature = feature_dict.At("main_feature").flatten(1);
         auto logits = torch::stack({ feature.select(1, 0), feature.select(1, 1) }, 1);
@@ -49,7 +49,7 @@ public:
         linear_ = register_module("linear", torch::nn::Linear(4, 2));
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         auto feature = feature_dict.At("main_feature").flatten(1);
         return anet::TensorDict{ { "logits", linear_->forward(feature) } };
@@ -61,7 +61,7 @@ private:
 
 class ImageClsRecordingTestModule final : public anet::nn::NetworkModule {
 public:
-    torch::Tensor Forward(torch::Tensor input) override
+    torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         last_input = input.detach().to(torch::kCPU).clone();
         return input.flatten(1);
@@ -72,7 +72,7 @@ public:
 
 class ImageClsAutocastProbeTestModule final : public anet::nn::NetworkModule {
 public:
-    torch::Tensor Forward(torch::Tensor input) override
+    torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         last_autocast_enabled = at::autocast::is_autocast_enabled(input.device().type());
         return input;
@@ -93,7 +93,7 @@ public:
         linear_->weight.index_put_({ 1, 1 }, 1.0f);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override
     {
         auto feature = feature_dict.At("main_feature").flatten(1);
         return anet::TensorDict{ { "logits", linear_->forward(feature) } };

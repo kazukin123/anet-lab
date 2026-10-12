@@ -94,34 +94,39 @@ DefaultDQNAgent::DefaultDQNAgent(
     // 分布表現とDuelingの直積でHeadを選択する。
     if (config_.quantile_mode == "iqn") {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config);
+            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: IQN Dueling";
         } else {
-            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config);
+            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: IQN Plain";
         }
     } else if (config_.quantile_mode == "qr") {
         if (config_.use_dueling_net) {
             head_factory = std::make_shared<QuantileDuelingHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config);
+                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Quantile Dueling (N=" << config_.qr.num_quantiles << ")";
         } else {
             head_factory = std::make_shared<QuantileHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config);
+                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Quantile Plain (N=" << config_.qr.num_quantiles << ")";
         }
     } else {
         if (config_.use_dueling_net) {
             head_factory = std::make_shared<DuelingHeadFactory>(
-                n_actions_, head_init_config);
+                n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Dueling";
         } else {
             head_factory = std::make_shared<LinearHeadFactory>(
-                n_actions_, head_init_config);
+                n_actions_, head_init_config, config_.head_projection);
             LOG::info() << "Network Head: Plain Linear";
         }
     }
 
+    // DTO にある設定データから、用途が参照する不変 Resource を構築する。
+    for (const auto& [key, data] : config_.nn_forward) {
+        forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
+            config_.MakeForwardConfigKey(key), data));
+    }
     // オリジナルのStateSpecをコピー
     auto network_obs_spec = env_spec.state_spec.obs_spec;
 
@@ -191,20 +196,29 @@ DefaultDQNAgent::DefaultDQNAgent(
     if (config_.quantile_mode == "iqn") {
         this->learner_ = std::make_unique<IQNLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, config_.stucker, learner_seed,
+            target_policy_,
+            LearnerForwardResources{
+                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
             << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")" << munchausen_info.str();
     } else if (config_.quantile_mode == "qr") {
         this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, config_.stucker, learner_seed,
+            target_policy_,
+            LearnerForwardResources{
+                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")" << munchausen_info.str();
     } else {
         this->learner_ = std::make_unique<TDLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, config_.stucker, learner_seed,
+            target_policy_,
+            LearnerForwardResources{
+                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized TDLearner" << munchausen_info.str();
     }
@@ -381,7 +395,7 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
     }
-    if (key.starts_with("plasticity_probe_") || key.find(ReplayBuffer::kKeyPrefix) == 0) {
+    if (key.starts_with("plasticity_probe_") || key.starts_with("noisy_") || key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetScalar(key);
     }
@@ -423,7 +437,27 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
         anet::SeedMaker seed_maker(GetSeed());
         replay_fit_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("replay_fit_probe"));
     }
-    learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr);
+    // Noisy 診断の用途を固定の sample/call/batch として選び、他 Module の設定は opaque に保持する。
+    const bool needs_noisy_probe = config_.learner.enabled && std::ranges::any_of(subscriptions, [](const auto& entry) {
+        const auto metric = dqn::ParseNoisyMetric(entry.source_key);
+        return entry.scope == RunnerScope::TRAIN && entry.event == EventType::LEARN && metric && *metric >= 8;
+    }) && !model_->GetOnlineNetwork()->GetNoisyParameterEntries().empty();
+    if (needs_noisy_probe && !noisy_probe_random_) {
+        anet::SeedMaker seed_maker(GetSeed());
+        noisy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("noisy_probe.sample"));
+        anet::ConfigData data;
+        const std::string prefix = MakeNetworkForwardConfigKey("noisy_probe");
+        for (const auto& [key, value] : forward_configs_.at(config_.learner.current.nn_forward_key)->GetConfigData().Map()) {
+            data.Set(key, value);
+        }
+        data.Set("noisy.mode", "sample");
+        data.Set("noisy.hold", "call");
+        data.Set("noisy.share", "batch");
+        noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
+    }
+    learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr,
+        needs_noisy_probe ? noisy_probe_random_.get() : nullptr,
+        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const
@@ -471,6 +505,9 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
     const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    if (!forward_configs_.contains(cfg.nn_forward_key)) {
+        ANET_SYSTEM_ERROR("Missing resolved actor.[" << request.actor_key << "].nn_forward_key; expected a declared forward configuration.");
+    }
     ValidateActorDevice(cfg.clone_model, request.device);
     auto policy = CreateActionPolicy(cfg.policy, cfg.policy.use_spatial_exploration,
         request.batch_env_spec.num_envs, request.device);
@@ -488,7 +525,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
         .tbo_epsilon = config_.learner.tbo_epsilon};
     return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
-        mutex_, network, source, emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
+        mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()

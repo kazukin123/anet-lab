@@ -4,8 +4,44 @@
 
 #include "nn_impl.hpp"
 
+#include <utility>
+
 namespace anet::nn {
 
+
+    // 子の実行interfaceをHead固有の計算へ渡し、準備結果の寿命だけを共通管理する。
+    template <typename Head, auto ForwardMethod, size_t N>
+    class PreparedHeadExecutor final : public NetworkHeadExecutor {
+    public:
+        PreparedHeadExecutor(Head& owner, PreparedModuleChildren<N> children)
+            : owner_(owner), children_(std::move(children)) {}
+        anet::TensorDict Forward(const anet::TensorDict& input,
+            const NetworkForwardContext& context) override
+        {
+            return ForwardImpl(input, context, std::make_index_sequence<N>{});
+        }
+    private:
+        template <size_t... Indices>
+        anet::TensorDict ForwardImpl(const anet::TensorDict& input,
+            const NetworkForwardContext& context, std::index_sequence<Indices...>)
+        {
+            return (owner_.*ForwardMethod)(input, context, *children_.Get(Indices)...);
+        }
+        Head& owner_;
+        const PreparedModuleChildren<N> children_;
+    };
+
+    template <typename Head, auto ForwardMethod, size_t N>
+    std::unique_ptr<NetworkHeadExecutor> MakePreparedHeadExecutor(
+        Head& owner, const std::array<NetworkModule*, N>& modules,
+        const NetworkForwardConfig& config, NetworkForwardClock clock)
+    {
+        // 子を指定順に準備し、通常動作だけならHead本体への直接呼び出しを維持する。
+        PreparedModuleChildren<N> children(modules, config, clock);
+        if (!children.HasPrepared()) return nullptr;
+        return std::make_unique<PreparedHeadExecutor<Head, ForwardMethod, N>>(
+            owner, std::move(children));
+    }
 
     static constexpr const char* kKey_DefaultOutput = "features";
     static constexpr const char* kKey_Taus = "taus";
@@ -17,7 +53,7 @@ namespace anet::nn {
     class PassThroughHead : public NetworkHead {
     public:
         explicit PassThroughHead(const std::string& output_key);
-        anet::TensorDict Forward(const anet::TensorDict& feature_dict) override;
+        anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override;
         std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         HeadGraphVizInfo GetGraphVizInfo() const override;
     private:
@@ -37,7 +73,7 @@ namespace anet::nn {
             std::string output_key,
             const WeightInitConfig& init_config);
 
-        anet::TensorDict Forward(const anet::TensorDict& feature_dict) override;
+        anet::TensorDict Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context) override;
         std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         HeadGraphVizInfo GetGraphVizInfo() const override;
     private:

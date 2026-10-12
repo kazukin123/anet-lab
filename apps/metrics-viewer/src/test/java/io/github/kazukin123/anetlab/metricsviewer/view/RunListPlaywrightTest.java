@@ -36,10 +36,9 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	// RUN_COLORSのうち、Run色テストで期待値に使う色。コメントはpalette上のindex。
 	private static final String BLUE = "rgb(47, 125, 225)"; // #2F7DE1 [0]
-	private static final String PURPLE = "rgb(122, 92, 255)"; // #7A5CFF [2]
+	private static final String TEAL = "rgb(0, 169, 157)"; // #00A99D [7]
 	private static final String RED = "rgb(226, 59, 79)"; // #E23B4F [9]
 	private static final String LIME = "rgb(209, 216, 59)"; // #D1D83B [12]
-	private static final String MAGENTA = "rgb(184, 50, 128)"; // #B83280 [13]
 	private static final String GREEN = "rgb(0, 179, 107)"; // #00B36B [14]
 
 	@Test
@@ -546,39 +545,67 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	}
 
 	@Test
-	void autoRecolorMovesTheAddedRunOffAConfusableBaseColor() {
-		// 既定ONのまま操作する。run_10=#E23B4F と run_14=#B83280 の分離距離は0.1204で、しきい値0.16を下回る。
-		openColorFixture("autoRecolorTest", 14);
+	void autoRecolorGivesTheInitiallySelectedRunTheFirstPaletteColor() {
+		// 初回表示で自動選択する最新Runも新しく選んだRunとして扱い、基本色 #B83280 を残さない。
+		openColorFixture("autoRecolorInitialRunTest", 14);
 
 		assertTrue(isToggleOn(page, "#btn-auto-recolor"));
-		clickRunRow(page, "run_14"); // 初期選択の最新Runを外し、空選択から選び直す
-		clickRunRow(page, "run_10");
-		clickRunRow(page, "run_14");
-		waitForSelectedTraceCount(page, 2);
-
-		assertEquals(RED, readChipColor(page, "run_10"));
-		assertEquals(LIME, readChipColor(page, "run_14"));
-		assertEquals(LIME, readTraceColor(page, "run_14"));
+		assertEquals(BLUE, readChipColor(page, "run_14"));
+		assertEquals(BLUE, readTraceColor(page, "run_14"));
 	}
 
 	@Test
-	void autoRecolorKeepsEarlierRunsWhenTheSelectionGrowsOrShrinks() {
-		openColorFixture("autoRecolorStabilityTest", 14);
+	void autoRecolorGivesAddedRunsTheBestColorsRegardlessOfTheirBaseColors() {
+		// 基本色は run_01=#2F7DE1(run_14と同色)、run_13=#D1D83B、run_10=#E23B4F だが見ない。
+		// 選んだ順に、選択中Runの色から最も離れた色を取るので、Recolorと同じ並びになる。
+		openColorFixture("autoRecolorAddedRunTest", 14);
 
-		clickRunRow(page, "run_14");
+		clickRunRow(page, "run_01");
+		clickRunRow(page, "run_13");
 		clickRunRow(page, "run_10");
-		clickRunRow(page, "run_14");
-		// run_03 の基本色 #7A5CFF は先行2本から十分離れているので、足しても動かない。
-		clickRunRow(page, "run_03");
-		waitForSelectedTraceCount(page, 3);
+		waitForSelectedTraceCount(page, 4);
 
 		assertEquals(
-				List.of(RED, LIME, PURPLE),
-				readChipColors(page, List.of("run_10", "run_14", "run_03")));
+				List.of(BLUE, LIME, RED, GREEN),
+				readChipColors(page, List.of("run_14", "run_01", "run_13", "run_10")));
+		assertEquals(GREEN, readTraceColor(page, "run_10"));
+	}
 
-		clickRunRow(page, "run_14");
+	@Test
+	void autoRecolorKeepsTheColorsOfRunsThatStaySelected() {
+		// 14本を選んでから途中のRunを外したり戻したりしても、選択中だったRunの色は変わらない。
+		openColorFixture("autoRecolorStabilityTest", 14);
 
-		assertEquals(List.of(RED, PURPLE), readChipColors(page, List.of("run_10", "run_03")));
+		page.click("#btn-select-all-runs");
+		final List<String> runIds = colorRunIds(14);
+		final List<String> staying = runIds.stream()
+				.filter(runId -> !List.of("run_05", "run_09").contains(runId))
+				.toList();
+		final List<String> before = readChipColors(page, staying);
+		assertEquals(14, readChipColors(page, runIds).stream().distinct().count());
+
+		clickRunRow(page, "run_05");
+		clickRunRow(page, "run_09");
+		assertEquals(before, readChipColors(page, staying));
+
+		clickRunRow(page, "run_05");
+		assertEquals(before, readChipColors(page, staying));
+	}
+
+	@Test
+	void autoRecolorKeepsTheColorsAlreadyOnTheGraphWhenTurnedOn() {
+		// Auto OFFで描いた基本色は、ONにしても変えない。Autoが配るのはその後に選んだRunだけで、
+		// graphに描かれている色まで組み直すのはRecolorボタンの役割である。
+		openColorFixture("autoRecolorTurnedOnTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_08");
+		waitForSelectedTraceCount(page, 2);
+		setAutoRecolor(page, true);
+
+		assertEquals(List.of(BLUE, TEAL), readChipColors(page, List.of("run_01", "run_08")));
+		assertEquals(TEAL, readTraceColor(page, "run_08"));
 	}
 
 	@Test
@@ -646,16 +673,45 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	}
 
 	@Test
-	void recolorButtonDoesNothingForASingleSelectedRun() {
+	void recolorButtonGivesASingleSelectedRunTheFirstPaletteColor() {
 		openColorFixture("recolorSingleRunTest", 14);
 
 		setAutoRecolor(page, false);
 		selectSingleRun(page, "run_10");
+		assertEquals(RED, readChipColor(page, "run_10"));
+		final String unselectedColor = readChipColor(page, "run_14");
 
 		page.click("#btn-recolor-runs");
 
-		assertEquals(RED, readChipColor(page, "run_10"));
-		assertEquals(MAGENTA, readChipColor(page, "run_14"));
+		assertEquals(BLUE, readChipColor(page, "run_10"));
+		assertEquals(unselectedColor, readChipColor(page, "run_14"));
+	}
+
+	@Test
+	void soloSelectionKeepsTheColorOfARunThatWasSelected() {
+		// solo選択の1回目のclickはこのRunを選択から外すが、2回のclickを1つの操作として扱い色を保つ。
+		openColorFixture("soloSelectedRunColorTest", 14);
+
+		clickRunRow(page, "run_01");
+		clickRunRow(page, "run_13");
+		assertEquals(LIME, readChipColor(page, "run_01"));
+
+		selectSingleRun(page, "run_01");
+
+		assertEquals(List.of("run_01"), readActiveRunIds(page));
+		assertEquals(LIME, readChipColor(page, "run_01"));
+	}
+
+	@Test
+	void soloSelectionGivesAnUnselectedRunTheFirstPaletteColor() {
+		// 選択していなかったRunのsolo選択は、新しく選んだ1本としてpalette先頭の色を取る。
+		openColorFixture("soloUnselectedRunColorTest", 14);
+
+		clickRunRow(page, "run_01");
+		selectSingleRun(page, "run_10");
+
+		assertEquals(List.of("run_10"), readActiveRunIds(page));
+		assertEquals(BLUE, readChipColor(page, "run_10"));
 	}
 
 	@Test

@@ -74,7 +74,7 @@ namespace anet::rl::dqn {
     }
 
     struct DefaultDQNAgentConfig : public anet::Config {
-
+        std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
         StuckerConfig stucker;
         std::map<std::string, DQNActorConfig> actor;
@@ -83,6 +83,7 @@ namespace anet::rl::dqn {
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
         anet::nn::WeightInitConfig head_init;
+        anet::ConfigData head_projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
         anet::nn::NetworkGraphVizConfig nn_viz;
         std::string auto_load_file;
 
@@ -94,9 +95,25 @@ namespace anet::rl::dqn {
         bool use_optimistic_target = false;
 
     public:
+        /// Agentの接頭辞を含む、選択されたNN実行設定の完全なキーを返す。
+        std::string MakeForwardConfigKey(const std::string& key) const
+        {
+            return MakeDefaultConfigKey(MakeNetworkForwardConfigKey(key));
+        }
+
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
         {
+            // Head 射影の構築設定は opaque にコピーし、固有の項目を Agent で読み取らない。
+            const auto projection_prefix = MakeDefaultConfigKey("head_projection") + ".";
+            for (const auto& [key, value] : config_data.Map()) {
+                if (!key.starts_with(projection_prefix)) continue;
+                head_projection.Set(key.substr(projection_prefix.size()), value);
+                const auto relative = key.substr(GetConfigPrefix().size() + 1);
+                my_config_data_.Set(relative, value);
+                my_config_json_[relative] = value;
+            }
+
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
             ANET_READ_CONFIG(config_data, head_init.constant_val);
@@ -124,6 +141,17 @@ namespace anet::rl::dqn {
 
             ANET_READ_CONFIG(config_data, use_optimistic_target);
 
+            // カタログの値はDTOへ保存し、使用する具象部品が実行準備で検証する。
+            for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("nn_forward"))) {
+                nn_forward.emplace(key, sub);
+                // 記録も opaque な値のまま保存し、型付きの解釈はここで追加しない。
+                for (const auto& [leaf, value] : sub.Map()) {
+                    const auto name = MakeNetworkForwardConfigKey(key) + "." + leaf;
+                    my_config_data_.Set(name, value);
+                    my_config_json_[name] = value;
+                }
+            }
+
             // 全カタログ項目を構築時に型付き設定へ変換する。
             for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"))) {
                 auto& entry = actor[key];
@@ -131,6 +159,7 @@ namespace anet::rl::dqn {
                 ReadActionPolicyConfig(config_data, prefix + ".policy", entry.policy);
                 ReadConfig(config_data, prefix + ".network", entry.network);
                 ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                ValidateForwardReference(config_data, prefix + ".nn_forward_key", entry.nn_forward_key);
                 if (entry.network != "online" && entry.network != "target") {
                     ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(prefix + ".network")
                         << "='" << entry.network << "'; expected online or target.");
@@ -189,9 +218,20 @@ namespace anet::rl::dqn {
             ReadActionPolicyConfig(config_data, "target_policy", target_policy);
             target_policy.use_spatial_exploration = false;
 
+            // 学習停止中も宣言された参照を解決する。保持や時計の適否は実際の利用時に委譲する。
+            ValidateForwardReference(
+                config_data, "learner.current.nn_forward_key", learner.current.nn_forward_key);
+            ValidateForwardReference(
+                config_data, "learner.target.nn_forward_key", learner.target.nn_forward_key);
+
             ANET_READ_CONFIG(config_data, learner.enabled);
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.weight_decay);
+            ANET_READ_CONFIG(config_data, learner.noisy_weight_decay);
+            if (!std::isfinite(learner.noisy_weight_decay) || learner.noisy_weight_decay < 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_weight_decay: value="
+                    << learner.noisy_weight_decay << " expected finite value >= 0");
+            }
             ANET_READ_CONFIG(config_data, learner.adam_eps);
             ANET_READ_CONFIG(config_data, learner.use_fused_optimizer);
             ANET_READ_CONFIG(config_data, learner.gamma);
@@ -249,6 +289,21 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
             ANET_READ_CONFIG(config_data, learner.iqn.target_taus.sample_mode);
             ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.noisy_probe.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.noisy_probe.num_draws);
+            ANET_READ_CONFIG(config_data, learner.noisy_probe.iqn.num_taus);
+            if (learner.noisy_probe.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.probe.batch_size: value="
+                    << learner.noisy_probe.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.noisy_probe.num_draws < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.num_draws: value="
+                    << learner.noisy_probe.num_draws << " expected integer >= 1");
+            }
+            if (learner.noisy_probe.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.iqn.num_taus: value="
+                    << learner.noisy_probe.iqn.num_taus << " expected integer >= 1");
+            }
             ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
             ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
             ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);
@@ -365,6 +420,21 @@ namespace anet::rl::dqn {
             }
         }
     private:
+        void ValidateForwardReference(
+            const ConfigData& data, const std::string& reference, std::string& key)
+        {
+            // 参照の存在と接続先だけを確認し、Module 固有の実行設定には触れない。
+            if (!HasConfigValue(data, reference)) {
+                ANET_SYSTEM_ERROR("Missing " << MakeDefaultConfigKey(reference) << "; expected a declared nn_forward key.");
+            }
+            ReadConfig(data, reference, key);
+            const auto it = nn_forward.find(key);
+            if (it == nn_forward.end()) {
+                ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(reference) << "='" << key
+                    << "'; expected a declared nn_forward key.");
+            }
+        }
+
         void ReadActionPolicyConfig(const ConfigData& data, const std::string& prefix, ActionPolicyConfig& policy)
         {
             // ReadConfig経由で既定補完値もModule Configと保存用の記録へ残す。
@@ -425,6 +495,7 @@ namespace anet::rl::dqn {
         void LoadNetwork(const std::string& filename);
     private:
         DefaultDQNAgentConfig config_;
+        std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> forward_configs_; ///< Agent 所有の実行設定 Resource
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;
@@ -432,6 +503,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource
         std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
+        std::shared_ptr<anet::RandomGenerator> noisy_probe_random_; ///< Noisy probe の一様抽選専用 Resource
+        std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_forward_config_; ///< 固定の probe 用途を選ぶ不変 Resource
         std::shared_ptr<anet::RandomGenerator> replay_fit_probe_random_; ///< 群抽出メトリクス購読時だけ作るResource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };

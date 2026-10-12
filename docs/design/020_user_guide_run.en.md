@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:1ffc0d1074a50e095a8d59bf7135f1c6216a6c73 date:2026-09-19 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:ca5baaadbf5385211f919bff4ad46c45a8072bca date:2026-10-07 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -21,7 +21,7 @@ This guide covers the current `AnetRLRunner`, `apps/runner/config` and its confi
 Implementing new Envs, Agents, or Observers is outside its scope; see the respective design documents.
 
 > [!NOTE]
-> The execution paths in this guide have been verified with Windows x64 and NVIDIA CUDA. CPU-only, Linux, macOS, and other GPU backends are unverified and are not guaranteed to produce the same results.
+> The execution paths in this guide have been verified with Windows x64 and NVIDIA CUDA. For CPU-only, operation has been confirmed only for the LunarLander `LunarLander_cpu.txt` configuration (the initial `_default`). Other CPU-only configurations, Linux, macOS, and other GPU backends are unverified and are not guaranteed to produce the same results.
 
 ## 2. Preparation
 
@@ -33,7 +33,7 @@ See [Development Environment](040_development_environment.en.md) for development
 
 ### 2.2 Choosing Configuration Files
 
-When started without arguments, the runner displays a workspace selection dialog and selects the Env from the chosen workspace's `config/_main.txt`. The shared `apps/runner/config/_main.txt` loads only Agent, Network, metrics, and similar settings; Env selection is kept in the workspace. For a new workspace, or missing workspace configuration when first selecting an existing directory, `apps/runner/config/_workspace_template.txt` is copied to `config/_main.txt`.
+When started without arguments, the runner displays a workspace selection dialog and selects the Env from the chosen workspace's `config/_main.txt`. The shared `apps/runner/config/_main.txt` loads only Agent, Network, metrics, and similar settings; Env selection is kept in the workspace. For a new workspace, or missing workspace configuration when first selecting an existing directory, `apps/runner/config/_workspace_template.txt` is copied to `config/_main.txt`. The template's default Env is `LunarLander_cpu.txt`, which loads `LunarLander.txt` and then selects `run.@cpu` (QR, no BF16), which is light enough for the CPU. For GPU configurations, select `LunarLander.txt` directly.
 
 ```text
 # apps/runner/workspaces/<workspace>/config/_main.txt
@@ -52,6 +52,7 @@ Enable only the intended Env configuration for a Run. See [3. Writing Configurat
 | `app.train_auto_start` | Starts training after GUI initialization when `true` |
 | `app.show_error_dialog` | Whether to display a modal dialog in addition to an error log. Defaults to `true` |
 | `app.save_agent_on_close` | Whether to save `agent_close.anet` automatically on shutdown. Defaults to `true`. Manual Save Checkpoint remains available when `false` |
+| `app.drain_timeout_sec` | Overall upper limit, in seconds, for waiting for background Observers to finish on shutdown. Defaults to 3600. Accepts only positive integers |
 | `app.eval_panel.auto_start` | Whether to run the manual EvalPanel immediately after startup |
 | `run.seed` | Base seed for the Run |
 | `run.train.num_envs` | Number of lanes in the training BatchEnv |
@@ -83,7 +84,8 @@ run.eval.[explore].eval_batch_size = 2
 run.eval.[explore].eval_episodes = 2
 run.eval_schedule.[explore].interval = 100
 run.eval_schedule.[explore].use_background = false
-metrics.scalar.[explore/epsilon] = epsilon $actor @session_end $eval.[explore]
+run.eval_schedule.[explore].wait_on_exit = true
+metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ```
 
 The shared slots are `eval_target` and `eval`, referring to target and online respectively. Existing metrics output tags are retained. Undefined Actor references fail at startup, but definitions without schedules and slots with `interval=0` do not create Actors. Shared Actors use the same device as the Agent. MuZero does not support cloning; specify `clone_model=false`.
@@ -119,14 +121,13 @@ This chapter explains only the syntax and precedence needed to read and write fi
 |---|---|---|
 | `key = value` | `E1.obs_include_action = true` | Explicit leaf. Overrides the base and default leaf |
 | `key ?= value` | `AtariEnv.game ?= pong` | Default leaf. Remains unless the configuration's `.$` supplies the same key |
-| `Owner.@name.key = v` | `LunarLanderEnv.@trunk.wind_power = 3.0` | Profile definition (dot form) |
-| `Owner.@name : key = v` | `DefaultDQNAgent.@qr  : quantile_mode = qr` | Same as above (colon form). `:` means the same as `.` and is used only at a profile boundary |
+| `Owner.@name : key = v` | `LunarLanderEnv.@trunk : wind_power = 3.0`, `DefaultDQNAgent.@qr  : quantile_mode = qr` | Profile definition. Separate the boundary with `:` and do not continue it with `.`. `:` means the same as `.` and is used only at a profile boundary |
 | `@vars : key = v` | `@vars : max_exp_step  = 100,000,000` | Value slot, referenced with `${@vars.max_exp_step}` |
 | `Owner.$ = A > B > C` | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` | Selection chain. Short `@name` refers to `Owner.@name` |
 | Fully qualified term | `LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1` | Refers to the prefix exactly as written. Definitions owned by another owner can also be selected |
 | `Owner.sub.$ = …` | `run.eval.[test1].env.$ = LunarLanderEnv.@test1` | Partial selection: a base for only part of the subtree |
 | `[key].leaf`, `[key].$` | `net.block.[Linear_120].type ?= Linear`, `net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1` | Definition of a catalog item and its base |
-| Metrics definition and selection | `metrics.scalar.@baseline.[21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`, `metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | Catalog whose `[key]` is a tag; selection uses a chain |
+| Metrics definition and selection | `metrics.scalar.@baseline : [21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`, `metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | Catalog whose `[key]` is a tag; selection uses a chain |
 | Override layer | `A2.learner.per_alpha = 0.2`, `app.$ = app.online > P1` | Differences in an Env-specific file, placed at the end of the chain |
 | `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Run profile leaf |
 | `run.@name : Owner.$ = …` | `run.@repro : backend.$ = backend.@deterministic` | Chain replacement by a Run profile |
@@ -152,14 +153,14 @@ This chapter explains only the syntax and precedence needed to read and write fi
 ```properties
 backend.cudnn_benchmark ?= false                   # 既定葉
 backend.torch_num_threads ?= 1                     # 既定葉
-backend.@non-deterministic.cudnn_benchmark = true
+backend.@non-deterministic : cudnn_benchmark = true
 backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmark を供給する → true
                                                    # torch_num_threads はベースに無い → 1 のまま
 ```
 
 #### 3.4.2 Profiles `@name`
 
-`Owner.@name.key = v` and `Owner.@name : key = v` mean the same thing; `:` is used only at a profile boundary.
+Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in [AGENTS.md](../../AGENTS.md)). `:` means the same as `.` and is used only at a profile boundary.
 
 - A definition alone does not contribute values. Only the portion selected by a chain or partial selection enters the final values.
 - Short `@name` resolves in the namespace where it is written (the definition site). `Env.$ = @a` refers to `Env.@a`, and `Env.@a : $ = @b` refers to `Env.@b`. Even when used elsewhere as `Other.$ = Env.@a`, the `@b` inside `@a` still refers to `Env.@b`.
@@ -302,9 +303,9 @@ backend.cudnn_benchmark ?= false
 backend.cudnn_deterministic ?= false
 backend.deterministic_algorithms ?= true
 backend.deterministic_warn_only ?= false
-backend.@non-deterministic.cudnn_benchmark = true
-backend.@non-deterministic.cudnn_deterministic = false
-backend.@non-deterministic.deterministic_algorithms = false
+backend.@non-deterministic : cudnn_benchmark = true
+backend.@non-deterministic : cudnn_deterministic = false
+backend.@non-deterministic : deterministic_algorithms = false
 
 # LunarLander.txt
 backend.$ = backend.@non-deterministic
@@ -382,7 +383,7 @@ Run the following from `apps/runner`.
 10_run.bat
 ```
 
-On first launch, the selection dialog opens with `_default` prefilled as a new name. Choose from history, all directories directly under `workspaces/`, an arbitrary path, or a new name. Existing directories without `config/_main.txt`, such as folders containing only relocated past Runs, are also listed; selecting one fills in only the missing configuration. New names are validated as entered, and OK remains disabled while a reason for invalidity appears below the input. Use `--workspace dm_long` to specify a relative workspace directly, or `--select-workspace` to show the dialog regardless of the skip preference. Relative paths are based on `apps/runner/workspaces/`; absolute paths are also supported. Leading and trailing whitespace is trimmed, and `#`, `//`, trailing `;`, and UNC paths are rejected.
+On first launch with an empty history, the selection dialog opens with `_default` prefilled as a new name, even when bundled per-ENV workspaces exist. Choose from history, all directories directly under `workspaces/`, an arbitrary path, or a new name. Existing directories without `config/_main.txt`, such as folders containing only relocated past Runs, are also listed; selecting one fills in only the missing configuration. New names are validated as entered, and OK remains disabled while a reason for invalidity appears below the input. Use `--workspace dm_long` to specify a relative workspace directly, or `--select-workspace` to show the dialog regardless of the skip preference. Relative paths are based on `apps/runner/workspaces/`; absolute paths are also supported. Leading and trailing whitespace is trimmed, and `#`, `//`, trailing `;`, and UNC paths are rejected.
 
 Alternatively, specify the executable and main config from the repository root.
 
@@ -478,7 +479,11 @@ The Steps toolbar displays `exp` and `train` counts in separate read-only text f
 
 ### 6.4 Stopping, Saving, and Resuming from a Checkpoint
 
-Close the window or select `File > Exit` to stop the Run. Shutdown stops Train, saves `agent_close.anet`, flushes Run output, and destroys the GUI in that order. With `app.save_agent_on_close=false`, only the save is skipped; the rest of the sequence remains unchanged. Forcing the process to terminate during saving may leave the checkpoint, metrics, or video tails incomplete, so wait for the window to close.
+Close the window or select `File > Exit` to stop the Run. Shutdown stops and joins Train, saves `agent_close.anet`, drains background Observers, flushes Run output, and destroys the GUI in that order. With `app.save_agent_on_close=false`, only the save is skipped; the rest of the sequence remains unchanged. Forcing the process to terminate during saving or draining may leave the checkpoint, metrics, or video tails incomplete, so wait for the window to close.
+
+`run.eval_schedule.[tag].wait_on_exit` specifies whether to wait at shutdown for in-progress background evaluation to run to completion. The default is `true`, and all slots share a single deadline of `app.drain_timeout_sec`. With `false`, when Cancel is chosen at a manual shutdown, or when the deadline is exceeded, the session is cooperatively cancelled at the next Env Step boundary. A cancelled session emits no session scalars; it leaves the traces of completed episodes and the `eval.[<tag>].session_cancelled` JSON.
+
+On a manual Close or `File > Exit`, if background evaluation that must be waited for remains after Train is stopped and joined, a three-way choice appears: `Wait and close`, `Cancel and close`, and `Keep running`. `Keep running` resumes in the paused state from before the same Train thread is closed. When the budget is reached through `app.train_exit_step` or `app.exp_exit_step`, no question is asked; the configuration and deadline apply.
 
 `Save Checkpoint` first pauses Train if it is running. This prevents steps from advancing during the dialog and causing the default filename to diverge from the saved contents. Train does not resume automatically after either saving or canceling; use `Train` on the Run Control toolbar or `Shift`. Saving itself is safe even while Train runs. `DefaultDQNAgent` protects the entire serialization with the Agent's shared lock, excluding Learner updates. Failures caused by permissions, disk space, file locks, or similar issues log the target path and reason and display a dialog in online configurations. This is non-fatal and does not affect the Run or process exit status. The failed file may be incomplete and is not deleted automatically; inspect its contents before handling it. Saving can be retried with a valid path.
 

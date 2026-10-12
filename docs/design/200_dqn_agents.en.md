@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:27742800eafe9e1213858153de2b95161332b94c date:2026-09-19 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:f2ea2f19e0360fc64fc4f5fb2a059c320cba597d date:2026-10-11 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -52,7 +52,7 @@ For DefaultDQN IQN, each Policy generates taus according to `tau_rule` (`num_tau
 
 IQN+UQE supports optional `full_distribution_query`, disabled by default. When enabled, risk taus and full `[0,1]` taus are concatenated for one forward. `q_values`/`uqe_values`/`q_quantiles` represent risk outputs; `full_q_values`/`full_q_quantiles` represent full outputs. The Head's mean `q` over the combined set is not used. Point-UQE risk queries collapse to one equivalent α. Non-IQN modes retain the enabled setting dormant and ignore it, so changing quantile mode requires no simultaneous change. With IQN enabled, choosing a non-UQE Policy while full queries remain enabled is a configuration error.
 
-Depending on configuration, Actor uses ActionContext for frame stacking and device transfer, then normalizes Observations, invokes Policy, and adds auxiliary information. Policy depends only on Network and RNG for Action selection, never on Learner.
+Depending on configuration, Actor uses `DictFrameStacker` for frame stacking and device transfer (device transfer only without a stacker), then normalizes Observations, invokes Policy, and adds auxiliary information. Policy depends only on Network and RNG for Action selection, never on Learner.
 
 For `DefaultDQNAgent` frame stacks with `use_stacker=true` and `stack_count=S>1`, stacked Observation input specs are constructed as `[S, *original_shape]` rather than multiplying EnvSpec feature dimensions. This aligns dummy-forward, Actor, and Replay-sample axes. Specs outside `stack_keys` remain unchanged; `stack_count==1` adds no Network-spec stack axis. This transformation is DefaultDQN-specific and does not change EnvSpec, ObservationNormalizer, ReplayBuffer, `NetworkBuilder`, or `RainbowAgent` contracts. See [Neural Networks](130_neural_networks.en.md#22-frame-stack-input-axis-contract) for module shape transformations and discrete-Grid one-hot boundaries.
 
@@ -82,7 +82,7 @@ Ordinary Q/QR hints use existing mean Q. IQN+UQE hints use the same risk-biased 
 | `NetworkModel` | Resource combining online/target Networks, target updates, and save/load |
 | `DQNActionInfo` | ActionInfo carrying Actions, Q auxiliaries, Replay initial-priority hints, and snapshot diagnostics |
 | `ActionPolicy` | Base component selecting Actions from Network outputs |
-| `dqn::Actor` | Actor implementation combining ActionContext, normalization, Policy, Network, and synchronization State |
+| `dqn::Actor` | Actor implementation combining the frame stacker, normalization, Policy, Network, RNG, and synchronization State |
 | `dqn::Learner` | Internal Learner combining ReplayBuffer, optimizer, update credit, target synchronization, and PER updates |
 | `TDLearner` | Computes scalar TD targets and losses |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | Compute target quantiles and method-specific quantile Huber losses |
@@ -159,11 +159,11 @@ sequenceDiagram
     participant R as Runner
     participant G as DQN Agent
     participant A as DQN Actor
-    participant C as ActionContext
+    participant S as DictFrameStacker
     participant P as ActionPolicy
     participant N as Actor Network
 
-    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
+    R->>G: CreateActor(actor_request)
     G->>G: Policyとsource Networkを選択
     opt modelを複製
         G->>N: sourceからcloneを作成
@@ -171,8 +171,11 @@ sequenceDiagram
     G-->>R: DQN Actor
     R->>A: MakeAction(step_counts, batch_state)
     A->>A: DefaultDQN Train snapshotを判定
-    A->>C: PushObservation(batch_state)
-    C-->>A: 加工済みObservation
+    opt use_stacker
+        A->>S: Stack(obs, episode_start)
+        S-->>A: stack済みObservation
+    end
+    A->>A: device転送（stacker無し）と正規化
     A->>P: SelectAction(observation, Network, RNG)
     opt DefaultDQN IQN
         P->>P: tausを生成して入力copyへ注入
@@ -293,7 +296,7 @@ Since `Sync()` takes no step, the first action's `train_step` after forced synch
 | Aspect | `DefaultDQNAgent` | `RainbowAgent` |
 |---|---|---|
 | Policy | Actor catalog and Learner target configured separately; epsilon-greedy, UQE, Thompson Sampling | Per-Actor epsilon-greedy and greedy for the Learner target |
-| Preprocessing | RewardScaler, ObservationNormalizer, frame stack | Common ActionContext; no dedicated scaler/normalizer configuration |
+| Preprocessing | RewardScaler, ObservationNormalizer, frame stack | No frame stack (device transfer only); no dedicated scaler/normalizer configuration |
 | Head/Learner | TD/QR/IQN with optional Dueling | TD/QR with optional Dueling |
 | Replay extensions | N-step, PER, prefetch, replay ratio, TBO, etc. | N-step and PER; current Config disables prefetch, TBO, and fused optimizer |
 | Actor clone | Catalog `clone_model` and optional `sync_interval.*` | Catalog `clone_model`; no periodic snapshot |
@@ -318,6 +321,20 @@ DefaultDQN defaults to `quantile_mode=qr` and `qr.num_quantiles=51`. The IQN lea
 The IQN-specific loss sums over current-side N, averages over target-side M, and divides the Huber term by `kappa`. For `N = 1`, it does not use an unbiased variance estimate and explicitly sets `q_std` to 0. With `quantile_mode=none`, there are no quantiles, so `q_std` is unavailable and returns `NaN`, without disguising it as 0.
 
 `per_initial_priority_mode` accepts `fixed`, `max`, and `actor_approx`. `max` and `actor_approx` require PER. Priority, epsilon, clip values, and profile structure are validated during Config construction. Invalid combinations do not silently revert to defaults.
+
+### 7.3 DefaultDQN Noisy Execution Settings
+
+`nn_forward.[key]` is an immutable opaque catalog. `actor.[key].nn_forward_key` and `learner.current.nn_forward_key` / `learner.target.nn_forward_key` resolve references, rejecting missing and unknown keys during configuration loading. Consuming preparation validates contents; unreferenced entries and settings unused by a component remain dormant. Shared `act_sample` selects sample/call/batch and `mu_only` selects evaluation. Concrete types, interpretation, and validation remain inside each consuming Body Linear or Head; Actor/Learner pass opaque settings during initialization and call information during execution without interpretation.
+
+TD, QR, IQN, and Dueling final projections use `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` by default. Actor owns one dedicated box and advances its action-selection clock. Learner owns one current box, one target-purpose online box, and one target-purpose target box, using actual-update learn_step. Named seeds remain independent of existing acting, learning, and τ RNGs. Every target forward preserves its configuration, box, and clock. Munchausen `[2B]` input uses NetworkForwardRowMapping with `[0..B-1,0..B-1]` validated on CPU and transferred once so current/next rows of a transition share ε. Each computation component validates online_reuse sample/sample or μ-only/μ-only compatibility.
+
+Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecutor objects. Actor has a dedicated execution; Learner has current/target executions. Target-purpose online and target calls use the same settings and clock kind but independent State, with network_forward.target_online and network_forward.target named seeds. The probe mean uses default Forward; only sample owns a dedicated execution. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement. Learner owns the current executor and target/diagnostic executor pairs; target capture applies only to ordinary updates. ActionPolicy borrows its executor by reference. A common base handles preparation, reuse validation, and parameter enumeration for the six projection Heads while preserving value-before-adv order and Head-specific computation. Independent boxes change draw assignment for Double DQN and Munchausen online sample paths, preserving the distribution.
+
+Learner forward_resources is a required initialization argument. Before preparation, an enabled Learner validates each current/target Resource against its selection key. Direct construction with an empty selection requires an explicit default Resource; disabled Learners preserve dormant settings.
+
+Ordinary and Fused AdamW use a separate σ group when enabled, defaulting to `learner.noisy_weight_decay=0`. OFF retains the previous single group and ordering. μ-only current evaluation creates no σ gradient and performs no σ update/decay. Defined sample σ gradients join the existing global norm/clip. Checkpoints and snapshots include σ parameters but exclude ε, clocks, and RNGs.
+
+Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` / `nz_reference_off` use four default-initialized projections with σ0=0.5, force_fp32=true for both Body FCs, inherited AMP, and standard call/batch; only Noisy enabled differs. Episode/sample is an Actor override for the integration run. Append these profiles to the specified chain; see the [validation guide](../../core/anet-core/testdata/prd084/README.md).
 
 ## 8. Lifetime, Synchronization, and Save/Load
 
@@ -410,6 +427,8 @@ Current snapshot metrics are registered in `metrics.scalar.full` in [metrics_sca
 - DefaultDQN fails fast during construction for unknown `quantile_mode`, invalid QR quantile counts, invalid IQN tau counts/placement modes/Huber κ, and nonfinite or out-of-range tau lower bounds used by IQN+UQE/spatial Thompson.
 - If either online or target has SN and soft updates are configured (`model.hard_update_interval<=0`), startup fails fast unless `model.soft_update_tau` is finite and in `[0, 0.1]` or equals `1`. Hard-update configurations do not validate the unused tau.
 
+Known issue: Actor Observation normalization runs outside the Agent mutex, while normalizer statistics are updated inside the unique lock of `DefaultDQNAgent::UpdateFromBatch`. The potential race under dynamic scaling is not addressed. All current Runner configurations use `obs_norm.pass_through=true`, so this race does not surface.
+
 ### 9.4 Plasticity Metrics
 
 DQN has two channels. Actual captures a specified branch such as `main_feature` from the train-mode/autocast forwards used for online/target TD calculation, placing features from before target updates in the same `BatchUpdateResult`. Probe takes a uniform sample without replacement from ReplayBuffer, applies existing observation normalization, executes `ForwardOnlineUpTo` in NoGrad/eval mode with the same autocast as the learner, and exposes the Agent's latest values.
@@ -420,7 +439,7 @@ For parameters, the online network is partitioned into feature/readout groups by
 
 ### 9.5 Policy Churn Metrics
 
-DefaultDQN measures changes in online expected Q and greedy actions caused by one learner update on a uniform ReplayBuffer probe without replacement. Together with online/target differences after the target update, it exposes seven scalars under `35_agent_churn`. Measurement resides in the common `dqn::Learner`, but configuration, subscriptions, and baseline publication are DefaultDQN-only; Rainbow, ImageCls, and NoisyNet are currently outside scope.
+DefaultDQN measures changes in online expected Q and greedy actions caused by one learner update on a uniform ReplayBuffer probe without replacement. Together with online/target differences after the target update, it exposes seven scalars under `35_agent_churn`. Measurement resides in the common `dqn::Learner`, but configuration, subscriptions, and baseline publication are DefaultDQN-only; Rainbow and ImageCls remain outside scope. DefaultDQN with NoisyNet compares before / after / target under the same default μ-only condition.
 
 The measurement order is fixed:
 
@@ -449,6 +468,14 @@ Target construction shares `MakeTarget` and per-sample errors share `ComputeElem
 Each group's count is configured by `learner.replay_fit.probe.batch_size=1024`, and IQN fixed quantile count by `learner.replay_fit.iqn.num_taus=32`; both must be positive integers. Results are stored in each update's `BatchUpdateResult`. Unsubscribed, non-measurement, insufficient-count, and zero-denominator cases return NaN; only unknown keys return nullopt. Uniform TD is population-weighted, and ratios are ratios of means. Empty groups contribute nothing to the weighted sum; a nonempty group with insufficient samples makes the overall mean NaN.
 
 If learning is enabled and the resolved target Policy is ThompsonSampling, subscription configuration fails fast. With learning disabled, no measurement occurs. See [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) and [PRD073](../memo/done/073_replay_fit_metrics_10prd.md) for the rationale and complete metric table.
+
+### 9.7 Noisy Diagnostics
+
+`metrics.scalar.@noisy`, group `47_agent_noisy`, measures eight feature/readout × weight/bias σ mean-abs / L2-ratio statistics and three probe metrics: `noisy_q_abs_diff`, `noisy_action_disagreement_ratio`, and `noisy_action_entropy`, before updates. The subscription interval defaults to 503 updates. Empty feature populations legitimately produce NaN. Ratios use only paired μ. Known unmeasured, insufficient, or inapplicable keys return NaN; only unknown keys return nullopt.
+
+Probe defaults are `learner.noisy_probe.probe.batch_size=128`, `num_draws=32`, and `iqn.num_taus=32`. Dedicated RNG uniformly samples B states without replacement. Evaluation uses FP32, eval, NoGrad, and fixed midpoint IQN τ. One default μ-only Forward is compared with R prepared sample/call/batch evaluations; only the sample side holds selected opaque execution fields. Each draw shares ε across states; draws are independent. Shared inference incrementally aggregates mean absolute Q differences, argmax disagreement, and mean per-state action-frequency entropy in nats.
+
+Statistics-only subscriptions do not execute probes. Dedicated boxes, clocks, RNGs, and mode/precision guards leave ordinary ε, RNGs, and persistent SN buffers unchanged. Existing probes use default μ-only, while actual metrics use ordinary forward outputs. No additional μ-only Q statistics are published.
 
 ## 10. Tests and Extension Checklist
 

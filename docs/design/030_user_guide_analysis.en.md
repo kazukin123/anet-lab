@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:1b117ec47d6db6188550e08a78e6af821a5b49c1 date:2026-09-19 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:79d3b8f36150ca31410eaaad56abc9e0ce3073e6 date:2026-10-10 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -63,7 +63,7 @@ When launched without a workspace argument, the launcher pauses after displaying
 | `Runs` | Clicking a row toggles it immediately. Clicking the same row again within 350 ms selects only that Run. Empty selection is allowed |
 | `Select All` / `Select Latest` | Selects all Runs or the latest Run |
 | `Recolor` | Redistributes maximally distinguishable colors among selected Runs. Colors follow a fixed sequence in selection order, so the same Run count produces the same color set |
-| `Auto Recolor` | Automatically recolors only Runs whose colors become hard to distinguish after selection changes. ON by default |
+| `Auto Recolor` | Automatically assigns each newly selected Run (including the Run selected on initial display) the color most distinguishable from the other selected Runs. Colors of Runs that were already selected are left unchanged. ON by default |
 | `Tags` | Selects metric tags to display |
 | `Selected Only` (Runs / Tags) | Header toggle that keeps only selected Runs or tags in the list. Bulk operations such as `Select All` automatically turn it OFF |
 | Run row background and `%` | Per-Run progress importing the selected Metrics master into SQLite |
@@ -71,7 +71,7 @@ When launched without a workspace argument, the launcher pauses after displaying
 | `Auto Reload` | Refreshes metadata every 30 seconds and updates only graphs currently displaying the latest data |
 | `LOD: MinMax / Mean / Band` | Global LOD display mode immediately before Scroll Lock at the upper right. Changing it does not refetch data |
 | Graph `Log` | Toggles signed-log display supporting positive, negative, and zero values |
-| Graph `p5–p95` | Displays only finite values within each Run's p5–p95 range among currently displayed values |
+| Graph `p0–` / `–p100` | Narrows the Y-axis lower and upper limits to percentiles of the finite values currently displayed for each Run. Each press cycles the lower limit through `p0–` → `p1–` → `p5–` → `p0–` and the upper limit through `–p100` → `–p99` → `–p95` → `–p100`, and the two are chosen separately (for example, `p5–` with `–p100` trims only the bottom). `p0–` and `–p100` mean no limit |
 | `Scroll Lock` | Suppresses graph interaction and uses drag/swipe for vertical scrolling |
 | Screenshot button | Hides side panels for comparison screenshots. While active, drag/swipe over graphs scrolls vertically as with Scroll Lock |
 
@@ -79,9 +79,9 @@ The Plotly modebar provides zoom, pan, image saving, and `Reset axes`. The redun
 
 Only the initial display automatically selects the latest Run. Thereafter, manual empty selections and selections emptied by disappearing Runs are preserved.
 Reload preserves known OFF tags and automatically enables only newly discovered visible tags.
-The selected workspace, tags, LOD mode, Scroll Lock, `Auto Recolor`, and per-tag Log and p5–p95 settings persist in browser `localStorage`. Run colors themselves do not persist; they are reassigned on reload and workspace changes. Log and p5–p95 apply to same-named tags across workspaces.
+The selected workspace, tags, LOD mode, Scroll Lock, `Auto Recolor`, and per-tag Log and percentile lower and upper limits persist in browser `localStorage`. Run colors themselves do not persist; they are reassigned on reload and workspace changes. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
 
-p5–p95 is computed independently for each Run from LOD rendering values in the current X range, excluding Runs hidden in the legend. Points below p5 or above p95 are removed from display traces and therefore have no hover information. Plotly autorange applies to the remaining points. There is no minimum point count; the tooltip shows displayed and input counts. When combined with Log, percentiles are computed from raw values before transformation to signed-log coordinates. Manual Y zoom is preserved; `Reset View` or Plotly's axis reset restores autorange after filtering. Graph-header statistics and raw client-cache values remain unchanged.
+Percentiles are computed independently for each Run from LOD rendering values in the current X range, excluding Runs hidden in the legend. The Y axis spans from the smallest of the Runs' lower-limit percentiles to the largest of their upper-limit percentiles. p0 and p100 are the minimum and maximum, respectively. Only the Y-axis display range is narrowed and the lines are unchanged, so points outside the range extend beyond the Y axis and are clipped. There is no minimum point count; the tooltip shows in-range and input counts. When combined with Log, percentiles are computed from raw values before transformation to signed-log coordinates. Manual Y zoom is preserved; `Reset View` or Plotly's axis reset returns to the percentile range. Graph-header statistics and raw client-cache values remain unchanged.
 
 LOD `MinMax` connects each bucket's min, max, and last in their original step order. `Mean` displays bucket averages; `Band` overlays a mean line on a min/max band. When there are few enough points for L0, every mode displays the raw line. The graph header's `Min / Max / Avg / Std` combines `TagStats` over all committed raw points from selected Runs, rather than the viewport.
 

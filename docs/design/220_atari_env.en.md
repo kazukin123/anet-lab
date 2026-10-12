@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:6dd78b83dcc6d1cf98e96364e2ffc15128a62037 date:2026-09-19 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:7d74400d25f54aacf945e6355e1c77f5afcfd30d date:2026-10-07 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -142,6 +142,7 @@ The class_id is `AtariEnv`. `AtariEnv : public SingleDiscreteEnvBase, public ane
 | `retain_rgb_frame` | bool | true | Retain the RGB screen each Step and expose it through `GetTensor("rgb_frame")` for AtariView (§5) |
 | `display_screen` | bool | false | SDL spectator window, passed through to ALE |
 | `sound` | bool | false | SDL audio, passed through to ALE independently of display |
+| `ram_metric.[game].[label]` / `ram_metric.[game].metrics` | string | No definitions | Per-game RAM definitions and numbering (§4.9) |
 
 Protocol presets (defined in `Atari.txt`, selected through the `AtariEnv.$` selection chain; default = `v5_noop0`):
 
@@ -234,9 +235,12 @@ The sequence is called from hard-reset (at the end of `ApplyResetActions()`, aft
 | GetScalar | `hns57` | Same | Human-normalized score percentage, using the 57-game table (§4.8) |
 | GetScalar | `hns49` | Same | Human-normalized score percentage, using the 49-game table (§4.8) |
 | GetScalar | `lives` | Always | Current lives |
+| GetScalar | `ram_metric.[n]` | Real game over / truncation | Finalized value of the per-game RAM definition. NaN when the current game has no such number or has not finished; an unknown key when no game has that number (§4.9) |
 | GetTensor | `rgb_frame` | Always when `retain_rgb_frame=true` | Latest Step RGB screen, uint8 `[3, 210, 160]` (CHW) |
 
 Batch aggregation (prefixes such as `mean.`) and NaN handling follow common wrapper conventions. `GetConfigData()` returns effective configuration, dumped to the Run's `config/env.*.txt`.
+
+**Verbose log at game completion.** One line is written at the same time and with the same values as the finalization in the table above (`Game over.` or `Game truncated by max_episode_frames.`, followed by `game_score` / `game_len` / `game_frames`). When numbered RAM definitions exist, ` ram_metric: floor_clear=0 boss_kill=0` is appended at the end in number order. The prefix is the lane name (`env.[train].[0]:`, `env.[EvalPanel].[0]:`, and so on). The line always remains in the Run's log file; `app.log_level` narrows only the LogPanel display. Games in EvalPanel, which has no metrics or trace, can also be followed here with millisecond timestamps.
 
 **Watch the aggregation denominator.** Keys finalized at real game over / truncation return NaN on unfinalized steps; batch aggregation excludes NaNs from its denominator (`core/anet-core/src/util.cpp`; if all envs are NaN, the result is NaN). Thus, the denominator of `mean.game_score` is **the number of envs that actually finished a game at that step**, not num_envs. It averages multiple games only when multiple envs finish simultaneously. The simultaneous-completion rate is λ = num_envs / mean game length. In Breakout (128 envs / about 1,900 steps, λ ≈ 0.07), measurements showed 97% single completions, so the `mean.` series is effectively a sequence of individual game scores. Shorter games experience more averaging and flattened peaks; compare games with `max.` alongside it. Only `lives` is always finalized, so its denominator is num_envs and it is a true batch mean.
 
@@ -268,6 +272,26 @@ Contract:
 
 The env does not expose CHNS (capped HNS, Agent57) or human gap (IQN Table 1, `gap = min(max(1 - HNS, 0), 1)`). They satisfy `gap = 1 - CHNS` and saturate in single-game time series, becoming uninformative (Breakout stays at 100% / 0). Capping is useful for suppressing outliers when aggregating games, so these are derived from HNS in postprocessing.
 
+### 4.9 RAM Metrics
+
+`AtariEnv.ram_metric.[game].[label] = <0x80..0xFF> <reducer>` declares a RAM bus address and a meaningful name, and `.metrics = 1:label 2:label ...` for the same game binds them to generic numbers. Declarations for all games are validated before the ROM is loaded. Definitions without a number are retained as RAM knowledge but are not evaluated. Overrides of eval envs through `run.eval.[tag].env.ram_metric.*` are not accepted and fail fast at configuration loading.
+
+Game names are limited to lowercase snake_case, and an empty `.metrics` line fails fast. Accepted definitions and `.metrics` lines, including definitions without numbers, are recorded in the Module Config's effective configuration.
+In an eval env's configuration dump (such as `config/env.eval.txt`), they appear in the form `run.eval.[tag].env.ram_metric.*`. This is a record of effective values; writing the same form as input fails fast.
+
+There are five reducers: `max_seen` / `min_seen` (maximum and minimum, including the value right after `reset_game()`), `inc_count` / `dec_count` (number of increases and decreases from the previous frame), and `reach_count:N` (number of times the value entered N, from 0 to 255). Comparisons use the raw single byte, observed after every `act()`. Aggregation uses one real game as its unit, continues across episodic-life soft resets, and restarts at each `reset_game()`.
+
+`ram_metric.[n]` returns the snapshot at game completion. If any game uses n, it is a known key, so NaN is returned even when the current game has no n. Numbers keep a broad meaning shared across all games: 1 = stage clears, 2 = boss kills, 3 = boss hits. Games to which a meaning does not apply get no number. The trace uses `@episode_end`, and the scalar's `mean.` takes values only from completed lanes. For games without numbers, the trace is `null` and no scalar row is emitted. Look up the concrete label of each number in the Run's `config/config_data.txt`.
+
+| Game | Numbered definitions | Unnumbered reference definitions |
+|---|---|---|
+| kung_fu_master | `1:floor_clear` = `0x9F inc_count`, `2:boss_kill` = `0xCC reach_count:0`, `3:boss_hit` = `0xCC dec_count` | `floor_max` = `0x9F max_seen`, `boss_hp_min` = `0xCC min_seen` |
+| qbert | `1:round_clear` = `0xE3 inc_count` | `side_color` = `0x82 min_seen` |
+| phoenix | `1:wave_clear` = `0xCA inc_count`, `2:boss_kill` = `0xFC inc_count` | None |
+| breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
+
+In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. Unlike GetScalar, which holds only at game completion, these serve AtariView spectating and are not made per-step scalar keys. See [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
+
 ## 5. AtariView
 
 Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `GetTargetClassId() == "AtariEnv"`.
@@ -279,7 +303,7 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 - **The default is the raw RGB screen (color) only**. Middle-click cycles through raw image only → agent image (preprocessed observation) only → both → raw image only. Clicking the canvas, text overlay, or Panel advances exactly one mode and immediately redraws, including while paused.
 - A single image is centered using the full canvas. When both are shown, RGB occupies the left two-thirds and the preprocessed observation the right one-third. Preserve the existing margins and integer scaling with GL_NEAREST for pixel-art clarity. Areas without image data retain the background color.
 - Each Panel retains its own display mode across data updates and episode changes. Recreating the Panel restores the default.
-- **Overlay text**: game_score (raw provisional accumulated value) / lives / in-game step and frame / previous action name (value_label) / previous clipped reward.
+- **Overlay text**: game_score (raw provisional accumulated value) / lives / in-game step and frame / previous action name (value_label) / previous clipped reward. For games with RAM definitions, in-progress values are appended at the end in label order, such as `RAM: boss_hit=0 boss_kill=0 floor_clear=0`.
 
 ### 5.2 Data Path and Constraints
 
@@ -295,6 +319,10 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 - Only when enabled: `add_subdirectory(core/envs/atari1)`, link `AtariEnv` to runner and define `ANET_HAS_ATARI`, then call `InitAtari()` under `#ifdef ANET_HAS_ATARI` in `RunnerApp.cpp`.
 - Select ale.lib using `$<IF:$<CONFIG:Debug>,Debug,Release>`; RelWithDebInfo uses Release, matching IDL/CRT.
 - Tests build with the module. ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Preprocessing golden tests always run.
+
+### 6.1 Tests and Extension Checks
+
+When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`.
 
 ## 7. Related Documents
 
