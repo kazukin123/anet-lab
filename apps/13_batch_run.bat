@@ -33,24 +33,20 @@ SET "RT50=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>r
 SET "SE=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@batch"
 
 SET "RT50NZ=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@nz_learning>run.@batch"
-SET "NZ0=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train].policy.eps_start=0 A2.actor.[train].policy.eps_end=0 net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head_projection.noisy.sigma0=1.2"
+SET "EPS0=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train].policy.eps_start=0 A2.actor.[train].policy.eps_end=0"
+SET "NZSIG=net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head_projection.noisy.sigma0=1.2"
 SET "BOMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy"
+SET "BOMET0=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2"
 
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. breakout rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=breakout run.seed=1 %NZ0% "%BOMET%" "app.run_name=run_{t}_breakout_rr1_50m_nz_eps0"
-echo === 2. qbert rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=qbert run.seed=1 %NZ0% "app.run_name=run_{t}_a5_qbert_rr1_50m_nz_eps0"
-echo === 3. phoenix rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=phoenix run.seed=1 %NZ0% "app.run_name=run_{t}_a5_phoenix_rr1_50m_nz_eps0"
-echo === 4. battle_zone rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=battle_zone run.seed=1 %NZ0% "app.run_name=run_{t}_a5_battle_zone_rr1_50m_nz_eps0"
-echo === 5. double_dunk rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=double_dunk run.seed=1 %NZ0% "app.run_name=run_{t}_a5_double_dunk_rr1_50m_nz_eps0"
-echo === 6. name_this_game rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=name_this_game run.seed=1 %NZ0% "app.run_name=run_{t}_a5_name_this_game_rr1_50m_nz_eps0"
-echo === 7. kung_fu_master rt 50m seed 1: noisynet only, eps 0, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=kung_fu_master run.seed=1 %NZ0% "app.run_name=run_{t}_kung_fu_master_rr1_50m_nz_eps0"
+echo === 1. breakout rt 50m seed 1: noisynet on top of the eps ladder, sigma0 btr strength ===
+call :run_exe "%RT50NZ%" E1.game=breakout run.seed=1 %NZSIG% "%BOMET%" "app.run_name=run_{t}_breakout_rr1_50m_nz_ladder"
+echo === 2. breakout rt 50m seed 1: eps 0 without noisynet ===
+call :run_exe "%RT50%" E1.game=breakout run.seed=1 %EPS0% "%BOMET0%" "app.run_name=run_{t}_breakout_rr1_50m_eps0"
+echo === 3. battle_zone rt 50m seed 1: noisynet on top of the eps ladder, sigma0 btr strength ===
+call :run_exe "%RT50NZ%" E1.game=battle_zone run.seed=1 %NZSIG% "app.run_name=run_{t}_a5_battle_zone_rr1_50m_nz_ladder"
+echo === 4. double_dunk rt 50m seed 1: noisynet on top of the eps ladder, sigma0 btr strength ===
+call :run_exe "%RT50NZ%" E1.game=double_dunk run.seed=1 %NZSIG% "app.run_name=run_{t}_a5_double_dunk_rr1_50m_nz_ladder"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
