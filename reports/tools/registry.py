@@ -18,7 +18,7 @@
   id            F-0001 形式。add が採番する
   fingerprint   sha1(lens|file|symbol) の先頭 12 桁。行番号は含めない(行はずれる)
   lens          refactor | defect | architecture | drift | test-gap | backlog | process
-  category      観点内の分類タグ(docs/リファクタリング観点.txt の項目名など)
+  category      観点内の分類タグ(docs/quality/refactor.md の観点名など)
   title         1 行
   file          リポジトリ相対パス(コード・文書どちらも可)
   symbol        クラス/関数/節など。無ければ空文字
