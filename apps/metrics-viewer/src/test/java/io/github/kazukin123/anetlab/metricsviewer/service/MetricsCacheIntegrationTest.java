@@ -94,7 +94,7 @@ class MetricsCacheIntegrationTest {
 				  "series": [{
 				    "runId": "run-a",
 				    "tagKey": "loss",
-				    "fromStep": 1,
+				    "stepBucketWidth":1,"fromStep": 1,
 				    "toStep": 2,
 				    "maxPoints": 3
 				  }]
@@ -118,8 +118,7 @@ class MetricsCacheIntegrationTest {
 		assertEquals(2, result.path("toStep").asLong());
 		assertEquals("ok", result.path("availability").asText());
 		assertEquals(2, result.path("pointBudget").asInt());
-		assertEquals(0, result.path("level").asInt());
-		assertEquals(1, result.path("bucketWidth").asLong());
+				assertEquals(1, result.path("stepBucketWidth").asLong());
 		assertEquals("raw", result.path("projection").path("kind").asText());
 		assertEquals(List.of(1.0, 2.0),
 				decodeDoubles(result.path("projection").path("steps").get(0).asText()));
@@ -148,7 +147,8 @@ class MetricsCacheIntegrationTest {
 
 	private Set<String> priorityRunIds() {
 		try (WorkspaceManager.Lease lease = workspaceManager.acquireLease()) {
-			return lease.ingestScheduler().priorityRunIds();
+			return workspaceManager.priorityRunPaths().stream().map(p -> p.getFileName().toString())
+					.collect(java.util.stream.Collectors.toSet());
 		}
 	}
 

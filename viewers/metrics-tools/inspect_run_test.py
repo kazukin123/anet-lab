@@ -293,7 +293,7 @@ class CacheFixtureMixin(InspectRunTestBase):
                 connection.executemany(
                     "INSERT INTO source_meta(k, v) VALUES(?,?)", sorted(meta.items())
                 )
-            connection.execute("PRAGMA user_version = %d" % overrides.get("user_version", 1))
+            connection.execute("PRAGMA user_version = %d" % overrides.get("user_version", 2))
             connection.commit()
         finally:
             connection.close()

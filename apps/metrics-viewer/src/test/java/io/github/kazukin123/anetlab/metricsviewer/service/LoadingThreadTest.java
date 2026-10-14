@@ -17,31 +17,43 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 class LoadingThreadTest {
 
 	@Test
+	void selectedRunIsProbedWithinOneSecondEvenWhenAllWorkWasReady() throws Exception {
+		final WorkspaceManager manager = mock(WorkspaceManager.class);
+		final CountDownLatch cycles = new CountDownLatch(2);
+		when(manager.priorityRunPaths()).thenReturn(java.util.Set.of(java.nio.file.Path.of("selected")));
+		when(manager.runIngestCycle()).thenAnswer(call -> {
+			cycles.countDown();
+			return false;
+		});
+		final LoadingThread thread = new LoadingThread(manager, 5000);
+		thread.start();
+		try {
+			assertTrue(cycles.await(2500, TimeUnit.MILLISECONDS));
+		}
+		finally {
+			thread.terminateAndWait(2000);
+		}
+	}
+
+	@Test
 	@ExtendWith(OutputCaptureExtension.class)
-	void runtimeFailureIsLoggedAndNextCycleRuns(CapturedOutput output) throws Exception {
-		final CountDownLatch secondCycleStarted = new CountDownLatch(1);
+	void unexpectedRuntimeFailureStopsWriterWithoutRetry(CapturedOutput output) throws Exception {
 		final AtomicInteger cycleCount = new AtomicInteger();
 		final WorkspaceManager workspaceManager = mock(WorkspaceManager.class);
 		when(workspaceManager.runIngestCycle()).thenAnswer(invocation -> {
-			if (cycleCount.incrementAndGet() == 1) {
-				throw new IllegalStateException("Injected cycle failure");
-			}
-			secondCycleStarted.countDown();
-			return false;
+			cycleCount.incrementAndGet();
+			throw new IllegalStateException("Injected cycle failure");
 		});
 		final LoadingThread thread = new LoadingThread(workspaceManager, 1);
-
 		thread.start();
 		try {
-			assertTrue(secondCycleStarted.await(2, TimeUnit.SECONDS));
-		} finally {
+			thread.join(2_000);
+			assertFalse(thread.isAlive());
+			org.junit.jupiter.api.Assertions.assertEquals(1, cycleCount.get());
+		}
+		finally {
 			thread.terminateAndWait(2_000);
 		}
-
-		assertFalse(thread.isAlive());
-		assertTrue(output.getAll().contains(
-				"LoadingThread cycle failed; retrying in 1ms."));
-		assertTrue(output.getAll().contains(
-				"java.lang.IllegalStateException: Injected cycle failure"));
+		assertTrue(output.getAll().contains("LoadingThread failed; writer stopped."));
 	}
 }

@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:06df2d34a6e05ae85735079c4bd4a30feeacd8c5 date:2026-10-07 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:b8d082f3a936f255dc1d422b8c6c25743305ac00 date:2026-10-12 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -55,7 +55,7 @@ flowchart TD
   B["② Metricsキャッシュ<br/>metrics_cache.db（Runフォルダ内のSQLite）<br/>全点 + 集約バケット + tag統計"]
   C["③ LOD page cache<br/>server processのheap<br/>集約バケットの塊"]
   D["④ range応答<br/>HTTP JSON、数値はBase64 binary<br/>1系列あたり数千点"]
-  E["⑤ browser DataCache<br/>tabのmemory<br/>系列ごとにwindow 1件"]
+  E["⑤ browser DataCache<br/>tabのmemory<br/>系列ごとに詳細windowと概観"]
   F["⑥ Plotly描画"]
 
   A -->|LoadingThreadが1 blockずつ取り込む| B
@@ -74,7 +74,7 @@ Stages 1–5 retain data as follows; stage 6 performs rendering and has no indep
 | 2. Metrics cache | File in the Run folder | Ordinal within a tag | Viewer ingestion thread | Fully discarded on inconsistency; rebuildable from stage 1 |
 | 3. LOD page cache | Server process heap | Page of 1024 buckets | Range query | Capacity overflow, Run disappearance, generation change |
 | 4. Range response | Transport | Three viewport widths | Range query | Consumed per response |
-| 5. Browser DataCache | Tab memory | One window per series | Client app | Redraw, generation change, tab reload |
+| 5. Browser DataCache | Tab memory | Detail window and compact overview per series | Client app | Capacity eviction, deselection, generation change, tab reload |
 
 Stages 2–5 can all be regenerated from stage 1. Deleting any of them loses speed, not information.
 This one-way relationship is the overall design principle; no path writes upstream from downstream.
@@ -91,7 +91,7 @@ The detailed chapters for each stage are:
 | 5–6 client | 6.3 (flow), 7.4 (constants and persistent state) |
 
 Metrics Viewer does not connect directly to the Runner process. Its only inputs are Run folders in the `runs` directory.
-Moving folders in or out and renaming them are the only ways to register, unregister, or rename visualization targets (the **Run working set**). The Viewer does not track Runs outside that working set.
+Moving folders in or out and renaming them are the only ways to register, unregister, or rename visualization targets (the **Run working set**). Display remains limited to this working set; cache maintenance covers every workspace in the configured directory. Runs outside that directory are not tracked.
 
 The process has only two thread groups, coupled solely through SQLite files:
 
@@ -111,7 +111,7 @@ As shown above, three different entities are called caches. Their lifetimes and 
 |---|---|---|---|---|
 | Metrics cache | Run-local SQLite file | Master reparsing and full scans for range searches | Same as the Run folder; survives processes | None (proportional to the master) |
 | LOD page cache | LRU on the server heap | Reading buckets from SQLite | Within the process | `cache-memory-mb` |
-| Browser DataCache | Client JavaScript Map | HTTP round trips | Until the tab closes | One window per series |
+| Browser DataCache | Client JavaScript Map | HTTP round trips | While selected and within capacity | 64 MiB detail LRU plus about 64 overview bins per series |
 
 SQLite also has a fourth cache, its per-connection page cache, but **the application does not depend on it**.
 Metrics Viewer keeps connections short-lived: reads per request and writes per ingestion block, discarding connection-local caches each time.
@@ -154,7 +154,7 @@ Here it means drawing a preaggregated coarse series when viewing a wide range.
 A simple approach keeps one point in every 16. It loses any spike among the other 15 points.
 For training metrics, isolated outliers—a momentary loss spike or reward drop—are precisely the information of interest, so this approach is unsuitable.
 
-Instead of discarding points, **aggregate each interval**. Group 16 consecutive points and retain their minimum, maximum, last value, count, and mean.
+Instead of discarding points, **aggregate each interval**. Group 4 consecutive points and retain their minimum, maximum, last value, count, and mean.
 Keeping minimum and maximum ensures that every spike within the interval appears in the graph. Keeping the last value preserves continuity with the next group.
 
 This aggregation unit is an **LOD bucket**.
@@ -168,46 +168,41 @@ Ordinal-based buckets always contain a fixed number of points for every tag.
 #### Building a Hierarchy
 
 Required coarseness changes with zoom, so buckets form a hierarchy.
-Groups of 16 points are **level 1**, groups of 16 level-1 buckets are **level 2**, and so on, giving width `16^level`.
+Groups of 4 points are **level 1**, groups of 4 level-1 buckets are **level 2**, and so on, giving width `4^level`.
 The raw, unaggregated points are **level 0**, abbreviated **L0**. Hereafter, both the raw-point layer and its storage table are called L0.
 
 | Level | Points covered by one bucket |
 |---:|---:|
 | 0 (L0) | 1 (raw point) |
-| 1 | 16 |
-| 2 | 256 |
-| 3 | 4,096 |
-| 4 | 65,536 |
-| 5 | 1,048,576 |
+| 1 | 4 |
+| 2 | 16 |
+| 3 | 64 |
+| 4 | 256 |
+| 5 | 1,024 |
 
-Selecting one level at rendering time handles any zoom ratio.
+Reuse stored levels to build common Step bins; display resolution is independent of storage levels.
 
-The hierarchy is append-only. As soon as 16 children are available, write one parent and pass it upward as a child of the next level.
+The hierarchy is append-only. As soon as 4 children are available, write one parent and pass it upward as a child of the next level.
 Incomplete buckets therefore do not exist in the DB, and buckets need not be rebuilt whenever points arrive.
 
 #### Three Rendering Points per Bucket
 
-Each bucket yields three rendering candidates: `min`, `max`, and `last`. Thus, the rendered point count at a level is the bucket count times 3.
-If the raw point count in the range fits the budget, return raw points directly without LOD. This implements Section 2.1's second goal: eventually reaching the raw points themselves.
+Each bucket yields three rendering candidates: `min`, `max`, and `last`. Display bins yield at most three vertices each; duplicate ordinal candidates are emitted once.
+If Step width is 1 and the raw point count fits the cap, return raw points directly. This implements Section 2.1's second goal: eventually reaching the raw points themselves.
 
 #### Statistics Are Not Derived from LOD
 
 Exact per-tag statistics, including mean, variance, minimum, and maximum, are stored separately as **TagStats**.
 These are range-independent statistics over all valid committed points, not derived from LOD.
-LOD approximates display resolution; reconstructing statistics from it would make results depend on the displayed level and the presence of incomplete buckets.
+LOD approximates display resolution; reconstructing statistics from it would make results depend on the display Step width and the presence of empty bins.
 
-### 2.7 Point Budgets and Level Selection
+### 2.7 Common Step Bins and Point Limits
 
-The **point budget** is the maximum number of rendering points (vertices) returned by one request.
-The server allocates a budget per series and selects the finest level that fits it.
+Stored LOD buckets cover ordinals; display bins cover common Step intervals. All Runs of a graph use `[k*w,(k+1)*w)` anchored at Step 0. Width is `max(1,ceil(viewport span / target bins))`, where target bins is the graph width in pixels limited to 256–2000. Run count and selected tag count do not affect it.
 
-```
-生点数 ≦ 点予算            → 生の点をそのまま返す（raw）
-それ以外                   → バケット数 × 3 ≦ 点予算 を満たす最小のlevelを選ぶ
-```
+Reuse a complete stored bucket if all its points fit in one display bin. Descend through lower LOD levels only for crossing buckets, finally reading L0. Combine means weighted by point count; preserve extrema at their actual Steps, duplicate Steps, and last points. Omit empty bins. Return raw only for Step width 1 when all points fit the cap; otherwise return bin min/max/last and summary arrays.
 
-Budgets are allocated from request `maxPoints` (defaulting to `target-points-per-series`) and the request-wide `max-points-per-request`.
-Because one request can contain many series, the server first reserves a minimum for every series and then shares the remainder equally. Section 9.2 describes the allocation procedure.
+`maxPoints` and `max-points-per-request` are caps, not fair-share budgets. For raw width 1 that fits the explicit cap, the upper bound is the raw point count, preserving duplicate Steps. Otherwise it is `min(raw points in range, Step bins*3)`. Reject overflow with 422. The client fetches one graph with all its Runs per request, sequentially across graphs.
 
 ### 2.8 Viewport and Window
 
@@ -219,8 +214,12 @@ Small pans then avoid another fetch, reducing time spent with blank graphs.
 Only one window is retained per series. A new response replaces it entirely, without incremental merging.
 Each range response is self-contained and independent of the previous response, so this simple replacement is sufficient.
 
-Series that share one graph (the selected Runs of the same tag) are fetched in the same request. The point budget is allocated among the series in a request, so fetching them separately would leave resolution uneven within the graph.
-If any one series needs refetching, all series of that graph are refetched together.
+Series that share one graph are fetched in one request. Select the Step width from the visible viewport before extending it for prefetch. Align window boundaries to the common bins so panning does not shift the grid. Normal mode renders Plotly only within one scroll viewport before and after the visible area. Retain selected detail windows in a 64 MiB LRU and prefetch nearest graphs while capacity remains; scrolling alone does not discard windows. Fetch compact overviews for all selected tags first, using about 64 common Step bins over each tag's full range and batches of eight graphs. Lightweight SVG exported from the same Plotly figure as details keeps overview lines visible offscreen and while details load. Replace the whole graph when all Runs have matching detail resolution; never mix overview and detail series in one graph. Keep blocks 300px tall and retain headers and scroll position; replace only the inner content after rendering completes. Screenshot mode fetches all selected graphs sequentially.
+If any one series needs refetching, all series of that graph are refetched together. Overview responses also update all Runs atomically. The 64 MiB cap accounts for decoded detail arrays and per-series management overhead; it is not a process-wide limit including SVG, Plotly, or server heap.
+
+Overview SVGs use Plotly 2.27 with the same traces/layout as details; there is no handwritten coordinate, axis, or Band renderer. Shared header controls and legend visibility state apply to both. Overviews remain static images; hover, zoom/pan, and legend clicks are handled by detailed plots. Generate nearest graphs first, one at a time, yielding between jobs. Network queries and detailed rendering do not await SVG generation. Retain one current image per tag and regenerate on data, selection, width, or display-setting changes. Workspace changes invalidate older image jobs.
+
+Keep the previous content until new SVG decoding or detailed rendering completes. Reject late results whose Run selection, cache generation, display settings, or width no longer match. Scroll rendering updates use requestAnimationFrame separately from network debounce.
 
 ### 2.9 Metrics Cache Generation
 
@@ -244,7 +243,7 @@ Do not confuse this with `PRAGMA user_version`. `user_version` identifies the sc
 
 A **block** is the group of lines ingested in one transaction.
 Reading a huge master in one transaction would make the Run unavailable throughout, so ingestion commits progress in blocks of at most 1,000,000 lines.
-This limit preserves steady-state reading efficiency; if a workspace switch is waiting, the block commits early after applying the next complete line.
+A one-second soft budget or a pending priority change, workspace switch, or shutdown ends the block after the next complete line. Listing, initialization, commit, and a single long record can exceed the budget; phase timings record their costs.
 `converting` represents this partially visible state, shown in the browser with a progress percentage.
 
 ## 3. Component Definitions
@@ -254,26 +253,26 @@ This limit preserves steady-state reading efficiency; if a workspace switch is w
 | Component | Definition |
 |---|---|
 | `MetricsViewerApplication` | Spring Boot application entry |
-| `WorkspaceManager` | Atomically holds the current workspace as an epoch-bearing snapshot; manages API/ingest leases, the switch gate, close-on-zero of old resources, and terminal shutdown |
+| `WorkspaceManager` | Atomically holds the current workspace as an epoch-bearing snapshot; manages query leases, the switch gate, display close-on-zero, and process scheduler shutdown |
 | `RunScanner` | Enumerates Run folders containing a Metrics master directly under the snapshot's `<workspace>/runs` and resolves Run IDs to Run directories |
 | `MetricsSource` | Value describing the selected master file's kind, size, mtime, and SHA-256 fingerprints at its head and immediately before the committed position |
 | `MetricsCacheDatabase` | Manages cache validation, discard/rebuild, `source_meta`, and read/write connection lifecycles |
 | `SourceReader` | Abstraction reading only complete newline-terminated lines in blocks; implementations are `RawFileReader` and `GzipSessionReader` |
-| `GzipInputSessions` | Retains decompressing gzip streams between conversion blocks and releases them per Run |
+| `GzipInputSessions` | Retains process-global gzip streams and unread 64KiB decoded buffers until completion, failure, removal, or shutdown |
 | `MetricsIngestor` | Finalizes one block's JSONL parsing, L0 writes, LOD appends, `TagStats`, and source position in one transaction |
-| `LodIngestWriter` / `LodBucket` | Append-only writer combining each 16 children into a parent in `scalars_lod`, and its bucket value |
-| `IngestScheduler` | Scans the Run working set and allocates one block at a time to actionable Runs at priority 3 : background 1; does not recheck terminal/no-op Runs within the same cycle |
+| `LodIngestWriter` / `LodBucket` | Append-only writer combining each 4 children into a parent in `scalars_lod`, and its bucket value |
+| `IngestScheduler` | Inspects every workspace and allocates actionable blocks at priority 3 : background 1; rotates background work across workspaces and Runs, and holds failed Runs until attributes change |
 | `LoadingThread` | Single writer thread running `WorkspaceManager.runIngestCycle()`; sleeps only when neither immediately actionable backlog nor a workspace switch remains |
 | `MetricsQueryCoordinator` | Integrates process-global fair permits, the latest sequence per query channel, live tickets, workspace epochs, and terminal shutdown; stops checkpoints and running SQL when superseded |
 | `MetricsRepository` | Opens one read snapshot per Run and resolves Run metadata and series queries |
-| `MetricsQueryPlanner` | Determines per-series availability and request-wide point budget allocation |
+| `MetricsQueryPlanner` | Determines availability and validates fixed-resolution vertex caps |
 | `MetricsRangeProjector` | Builds raw and LOD projections, reaggregating only partial buckets from lower levels |
 | `LodPageCache` | Heap LRU cache holding only completed buckets in pages of 1024. The tail page is reread only when it falls short of the completed-bucket count derived from the snapshot's tag point count |
 | `MetricsService` | Handles LoadingThread lifecycle, metrics body/header validation, coordinator execution, snapshot lease acquisition, and HTTP error conversion |
 | `MetricsViewerController` | Exposes Run, metrics, and priority REST APIs |
 | `WorkspaceController` | Exposes workspace listing/switching APIs and converts malformed JSON to 400 `invalid_request` only within this controller |
 | `MetricTraceEncoder` | Encodes double/float arrays into little-endian Base64 chunks |
-| `RunWarningRegistry` | Suppresses repeated warnings across generations while a Run remains in the working set |
+| `RunWarningRegistry` | Suppresses warnings by normalized absolute Run path while the Run remains in registered workspaces |
 | `HttpAccessLogFilter` | Logs every request's start, end, and elapsed time at INFO |
 
 ### 3.2 Browser
@@ -282,8 +281,9 @@ This limit preserves steady-state reading efficiency; if a workspace switch is w
 |---|---|
 | `MetricsViewerClientApp` | Client app owning Run/tag selection, Run colors, viewports, rendering generations (revisions), and poll timers |
 | `DataFetcher` | Handles REST calls, page-level query channels/sequences, and cancellation of old requests with AbortController |
-| `DataCache` | Holds Run metadata and one window per `(runId, tagKey)`. Each window carries the tag point count, last step, and status at fetch time, used for freshness checks on Reload |
-| `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Reuses graph blocks by tagKey and rebuilds only graphs whose render key changed |
+| `DataCache` | Holds Run metadata, one detail window and one overview per `(runId, tagKey)`. Each window carries the tag point count, last step, and status at fetch time, used for freshness checks on Reload |
+| `OverviewSvgRenderer` | Serially exports shared figures using one workbench Plotly, retains the latest SVG per tag, and publishes only results matching the current model and generation |
+| `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Manages per-graph data selection, shared display models and frames; replaces changed graph contents after drawing completes |
 | `UIController` | Handles Run/Tag lists, progress display, and static control binding |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
@@ -373,9 +373,9 @@ WorkspaceManager *-- IngestScheduler
 WorkspaceManager *-- RunScanner
 WorkspaceManager *-- MetricsRepository
 WorkspaceManager *-- LodPageCache
-WorkspaceManager *-- GzipInputSessions
+IngestScheduler *-- GzipInputSessions
 IngestScheduler --> MetricsIngestor
-IngestScheduler --> RunScanner
+IngestScheduler --> MetricsSource
 IngestScheduler --> GzipInputSessions
 MetricsIngestor --> SourceReader
 MetricsIngestor --> LodIngestWriter
@@ -418,48 +418,48 @@ sequenceDiagram
     participant D as metrics_cache.db
 
     L->>W: runIngestCycle()
-    W->>W: snapshot lease取得
-    loop 4 slot（priority 3 : background 1）
-        W->>W: 切替gate取得、epoch/shutdown確認
+    W->>W: acquire query snapshot lease
+    loop 4 slots (priority 3 : background 1)
+        W->>W: acquire switch gate, check epoch/shutdown
         W->>S: runNextBlock()
-        S->>S: slot 0ならRun列挙、priority/backgroundへ分割
-        S->>I: ingestBlock(runId, runDir, source属性)
-        I->>I: source/cache属性を検証済み観測と照合
-        alt 属性一致かつ前回stateがready/error
+        S->>S: inspect all workspaces in segments, choose actionable Run
+        S->>I: ingestBlock(runId, runDir, source attributes)
+        I->>I: compare source/cache attributes with validated observation
+        alt unchanged attributes and previous state ready/error
             I-->>S: didWork=false, immediateRetry=false
         else
             I->>R: prepare(database)
-            R->>D: source fingerprint照合
-            alt 不一致
-                D->>D: cache全破棄と新generationで再作成
+            R->>D: compare source fingerprint
+            alt mismatch
+                D->>D: discard cache and recreate with new generation
             end
             alt readRequired = false
                 I-->>S: didWork=false, immediateRetry=false
             else
                 I->>D: BEGIN
-                loop 最大1,000,000行
-                    I->>R: 完全行を1行読む
+                loop up to 1,000,000 lines / one second / yield request
+                    I->>R: extract complete line from 64KiB buffer
                     I->>I: JSON parse
                     alt type = scalar
-                        I->>D: scalars INSERT
-                        I->>D: 子16件がそろえばscalars_lod INSERT
-                    else 非scalar
-                        I->>D: json_lines INSERT
+                        I->>D: scalars batch (up to 4096)
+                        I->>D: factor4 scalars_lod batch (up to 4096)
+                    else non-scalar
+                        I->>D: json_lines batch (4096 rows / 1MiB)
                     end
                 end
-                I->>D: tag_stats UPSERT
-                I->>D: source_meta（offset・fingerprint・state）更新
+                I->>D: flush remaining batches, UPSERT tag_stats
+                I->>D: update source_meta (offset, fingerprint, state)
                 I->>D: COMMIT
-                I-->>S: didWork、次state、immediateRetry
+                I-->>S: didWork, next state, immediateRetry
             end
         end
-        S->>S: terminal/no-op Runをcycle内でexhausted化
+        S->>S: mark terminal/no-op Run exhausted for this cycle
         S-->>W: immediateRetry
-        W->>W: 切替gate解放
+        W->>W: release switch gate
     end
-    W->>W: snapshot lease解放
+    W->>W: release snapshot lease
     alt immediateRetry = false
-        L->>L: 10秒sleep
+        L->>L: wait up to 10s (1s with priority; wake on priority/switch/shutdown)
     end
 ```
 
@@ -501,14 +501,14 @@ sequenceDiagram
         R->>D: stepの二分探索でordinal範囲へ写像（tagのstep範囲外の端は点数で決まる）
     end
     R->>P: plan(inputs)
-    P-->>R: availability、点予算
+    P-->>R: availability、固定Step幅の必要頂点数上界
     loop ok系列ごと
-        R->>J: project(ordinal範囲, 点予算)
-        alt 生点数 ≦ 点予算
+        R->>J: project(ordinal範囲, Step区間幅, 点数上限)
+        alt Step幅=1、raw全点が指定上限内
             J->>D: scalarsをordinal順に読む
         else
-            J->>J: level選択（バケット数 × 3 ≦ 点予算）
-            J->>D: 完成bucketはscalars_lod、端の部分bucketは下位levelから再集約
+            J->>J: Step=0起点の共通Step区間へ射影
+            J->>D: 区間内の完成bucketを再利用、跨ぐ部分だけ下位LOD/L0を読む
         end
         J-->>R: raw または lod 射影
     end
@@ -552,7 +552,7 @@ sequenceDiagram
     F-->>A: Run/tag metadata
     A->>K: isOutdated判定（取得時のtag点数・最終step・statusと比べる）
     A->>F: 古くなったgraphの系列だけPOST /api/metrics.json（無ければ送らない）
-    A->>P: 描画keyが変わったgraphだけ作り直す
+    A->>P: Replace changed graph contents after drawing completes
 ```
 
 Each range is a complete result independent of previous responses; the client replaces whole windows without incremental merging.
@@ -562,16 +562,16 @@ Each window carries the tag point count, last step, and status at the time the f
 
 | Condition | Reason |
 |---|---|
-| No window, a different generation, the requested window not covered, or insufficient resolution after zooming in | Same check as for zoom/pan and selection changes |
+| No window, a different generation, the visible viewport not covered, or a different requested Step width | Same check as for zoom/pan and selection changes |
 | availability other than `ok` / `empty` | Values are not final during ingestion or after a lookup failure |
 | The tag's status changed | The issue changed, for example through quarantine |
 | The tag's point count changed and the window's right edge is at or beyond the last step at fetch time | Appended points can fall into the window |
 
 Steps within a tag are nondecreasing, so appended points have steps at or beyond the last step at fetch time. Graphs zoomed into a past interval, whose window's right edge does not reach that step, are not refetched even when the point count grows.
 
-Rendering is reconciled per graph. `PlotlyController` looks up graph blocks by tagKey; a block whose render key (LOD display mode, Log, percentile lower and upper limits, whether multiple Runs are shown, and each Run's window and color) matches the previous one is reused without calling Plotly, and only the metadata-derived header (statistics and warnings) is rewritten.
-Legend visibility, axis ranges, and drag mode change directly in Plotly and are read back with `capturePlotState` before rendering, so they are not part of the render key.
-A Plotly redraw takes tens of milliseconds per graph (a full redraw of 137 graphs × 5 Runs measured about 5 seconds), so narrowing the graphs to rebuild determines Reload response time.
+Rendering is reconciled per graph. `PlotlyController` looks up blocks by tagKey and retains the outer frame and shared header. The display model's render key includes data windows, overview/detail tier, selected Runs, width, LOD display mode, Log, percentiles, axis ranges, Scroll Lock, and legend visibility/colors. An unchanged key skips drawing and updates metadata-derived statistics and warnings.
+Legend visibility, axis ranges, and drag mode are read back with `capturePlotState` before drawing. A changed key replaces only the content after SVG decoding or detailed Plotly drawing finishes, retaining the previous display until then. Late results are applied only when the current selection, generation, and display settings still match.
+A Plotly redraw takes tens of milliseconds per graph (an earlier full redraw of 137 graphs × 5 Runs measured about five seconds), so limiting the affected graphs determines Reload response time.
 
 While any Run is being ingested, poll Run metadata every four seconds and update only progress display. Only this progress poll stops during screenshot mode; Auto Reload and manual Reload run regardless of the mode. Auto Reload refreshes the workspace list and metadata every 30 seconds, updating ranges only for stale graphs among those following the latest step. There is no dedicated workspace-list timer: initial display, workspace selector focus, switch results, manual Reload, and Auto Reload are refresh boundaries.
 
@@ -588,7 +588,7 @@ Contract violations abort application startup.
 | `metricsviewer.workspaces-dir` | `workspaces` | Local path | Parent directory of workspaces; UNC roots are rejected at startup |
 | `metricsviewer.initial-workspace` | `_default` | Direct child directory name | Initial current workspace; a valid but missing name starts with a warning and an empty Run list |
 | `metricsviewer.target-points-per-series` | `8000` | 3 to `max-points-per-request` | Default vertex budget per series when `maxPoints` is omitted |
-| `metricsviewer.max-points-per-request` | `500000` | 3 to 1,000,000 | Total vertices allocatable per request |
+| `metricsviewer.max-points-per-request` | `500000` | 3 to 1,000,000 | Total vertices allowed per request |
 | `metricsviewer.cache-memory-mb` | `256` | Nonnegative and at most 50% of maximum heap | Heap limit for LOD pages (chunks of completed buckets); `0` bypasses page caching and reads individual buckets |
 | `metricsviewer.max-concurrent-queries` | `2` | 1 to 4 | Process-global concurrency for `/api/metrics.json`; waits up to five seconds for a coordinator fair permit |
 
@@ -663,7 +663,7 @@ The Log set and the percentile lower and upper limits are restored independently
 |---|---|
 | Filename | `metrics_cache.db` directly under the Run directory (with `-wal` and `-shm` when using WAL) |
 | `PRAGMA application_id` | `0x414E4554` (`ANET`) |
-| `PRAGMA user_version` | `1` (`SCHEMA_VERSION`) |
+| `PRAGMA user_version` | `2` (`SCHEMA_VERSION`) |
 | Write connection | `busy_timeout=5000`, `journal_mode=WAL`, `synchronous=NORMAL` |
 | Read connection | `busy_timeout=5000`, `query_only=ON` |
 | Connection lifetime | Short-lived: reads per request, writes per ingestion block |
@@ -703,9 +703,9 @@ PRIMARY KEY `(tag_id, ordinal)`, `WITHOUT ROWID`.
 | Column | Type | Meaning |
 |---|---|---|
 | `tag_id` | INTEGER | `tags.id` |
-| `level` | INTEGER | At least 1; bucket width is `16^level` |
-| `bucket` | INTEGER | `ordinalFrom / 16^level` |
-| `cnt` | INTEGER | Point count in the bucket (always `16^level` for complete buckets) |
+| `level` | INTEGER | At least 1; bucket width is `4^level` |
+| `bucket` | INTEGER | `ordinalFrom / 4^level` |
+| `cnt` | INTEGER | Point count in the bucket (always `4^level` for complete buckets) |
 | `step_first` / `step_last` | INTEGER | First/last step in the bucket |
 | `min_ordinal` / `min_step` / `vmin` | INTEGER / INTEGER / REAL | Point attaining the minimum |
 | `max_ordinal` / `max_step` / `vmax` | INTEGER / INTEGER / REAL | Point attaining the maximum |
@@ -713,7 +713,7 @@ PRIMARY KEY `(tag_id, ordinal)`, `WITHOUT ROWID`.
 | `vlast` | REAL | Last value in the bucket |
 
 PRIMARY KEY `(tag_id, level, bucket)`, `WITHOUT ROWID`.
-Parents are written only when all 16 children exist, so incomplete tail buckets have no rows. Ties are represented by the point with the smaller ordinal.
+Parents are written only when all 4 children exist, so incomplete tail buckets have no rows. Ties are represented by the point with the smaller ordinal.
 
 #### `tag_stats`
 
@@ -759,11 +759,11 @@ A `WITHOUT ROWID` key-value table with `k TEXT PRIMARY KEY` / `v TEXT NOT NULL`.
 
 ### 8.3 Discard/Rebuild Decisions
 
-Check the following before and after opening the cache file. If any applies, delete the cache together with WAL/SHM and recreate it with a new generation. Log the reason as a warning.
+Check the following before and after opening the cache file. If any applies, delete the cache together with WAL/SHM and recreate it with a new generation. Log the reason as INFO. Resource and DB-connection failures stop that Run instead of deleting its cache as corrupt.
 
 | Category | Reason codes |
 |---|---|
-| Format | `application_id_mismatch`, `schema_version_mismatch`, `required_table_missing`, `required_column_missing`, `database_open_failed` |
+| Format | `application_id_mismatch`, `schema_version_mismatch`, `required_table_missing`, `required_column_missing`, `database_corrupt` |
 | Metadata values | `generation_invalid`, `state_invalid`, `source_metadata_invalid` |
 | Source identity | `source_kind_changed`, `source_head_changed`, `committed_source_tail_changed`, `source_truncated_below_committed_offset`, `source_truncated_below_previous_size` |
 | Gzip-specific | `gzip_conversion_session_missing`, `gzip_source_size_changed`, `gzip_source_mtime_changed` |
@@ -813,7 +813,7 @@ late list/refresh results, failure displays, or Toasts; only the latest switch g
 
 Within the gate shared with ingestion cycles, switching creates a new snapshot, atomically swaps current, then retires
 the old snapshot. API queries retain their initial snapshot lease until completion, preventing identically named Runs
-or caches in different workspaces from mixing during a switch. Old snapshot gzip streams close exactly once when the last lease is released.
+or caches in different workspaces from mixing during a switch. Old display resources close after the last query lease. The process scheduler retains ingestion state and gzip streams, continuing old-workspace conversion in the background. Priority updates carry the epoch and normalized absolute Run paths; late updates from old epochs are ignored.
 
 ### 9.2 `GET /api/runs.json`
 
@@ -844,7 +844,7 @@ Request:
 
 ```
 { "series": [ { "runId": "...", "tagKey": "...",
-                "fromStep": 0, "toStep": 2000000, "maxPoints": 8000 } ] }
+                "fromStep": 0, "toStep": 2000000, "stepBucketWidth": 1000, "maxPoints": 8000 } ] }
 ```
 
 Required headers:
@@ -856,7 +856,7 @@ Required headers:
 
 When the page is created, the browser uses `crypto.randomUUID()` for its channel if available. Where the API is undefined, such as insecure remote HTTP, it generates a tab-specific channel of at most 128 characters from the time and multiple random fragments, preserving access via `http://<host>:8082`.
 
-`fromStep` / `toStep` are required endpoints of a closed interval and must fit JavaScript's safe-integer range (±9,007,199,254,740,991). `maxPoints` is optional and defaults to `target-points-per-series`.
+`fromStep` / `toStep` are required endpoints of a closed interval and must fit JavaScript's safe-integer range (±9,007,199,254,740,991). `stepBucketWidth` is a required positive safe integer. `maxPoints` is optional and defaults to `target-points-per-series`.
 
 Response, per series:
 
@@ -865,8 +865,8 @@ Response, per series:
 | `runId` / `tagKey` / `fromStep` / `toStep` | Echoed request values |
 | `generation` | Cache generation used for the response; the client discards results not matching the metadata generation |
 | `availability` | `ok` / `pending` / `not_found` / `empty` |
-| `pointBudget` | Vertices allocated to this series; 0 unless `ok` |
-| `level` / `bucketWidth` | `0` / `1` for raw; level and `16^level` for LOD |
+| `pointBudget` | Vertex upper bound at the fixed Step width; 0 unless `ok` |
+| `stepBucketWidth` | Common display Step width; null unless `ok`. Storage levels are not exposed |
 | `issues` | Array of `{scope, code, message}`; omitted when empty |
 | `projection` | `kind = "raw"` or `"lod"` |
 
@@ -881,11 +881,7 @@ Response, per series:
 | No points in range | `pending` | `empty` |
 | Points in range | `ok` | `ok` |
 
-`MetricsQueryPlanner` allocates point budgets:
-
-1. Assign each `ok` series `cap = min(requested maxPoints, raw points in range)`.
-2. First reserve `min(50, cap)` for every series. If the total exceeds `max-points-per-request`, return 422 immediately.
-3. Distribute the remainder equally, round-robin, up to each `cap`.
+`MetricsQueryPlanner` calculates each available series' vertex upper bound. Exceeding an individual `maxPoints` or the total `max-points-per-request` returns 422 without changing Step width.
 
 Error responses:
 
@@ -893,7 +889,7 @@ Error responses:
 |---|---|---|
 | 400 | `{"code":"invalid_request","message":...}` | Invalid body; missing, empty, overlong, malformed, or out-of-range query headers |
 | 409 | `{"code":"superseded","message":...}` | Stopped by a newer query in the same channel, workspace switch, shutdown, or late sequence |
-| 422 | `{"seriesCount":N,"requiredMinimumPoints":M,"maxPointsPerRequest":K}` | Too many series to allocate even minimum budgets |
+| 422 | `{"seriesCount":N,"requiredPoints":M,"maxPointsPerRequest":K}` or `{"seriesIndex":I,"requiredPoints":M,"maxPoints":K}` | Fixed-resolution request or series exceeds its cap |
 | 503 | `{"code":"query_busy","message":...}` + `Retry-After: 2` | Other channels hold all slots and no permit becomes available within five seconds, or a lease cannot be acquired during shutdown |
 
 ### 9.4 `POST /api/runs/prioritize`
@@ -919,7 +915,7 @@ lod : { "kind":"lod",
 ```
 
 `minMax` contains each bucket's `min` / `max` / `last` points in ordinal order for a polyline; repeated ordinals collapse to one point.
-`summary.steps` contains the first step of each bucket and is used for band rendering and bucket-level hover display.
+`summary.steps` contains the left edge of each common Step bin and is used for band rendering and bucket-level hover display.
 
 ## 10. Lifetime, Concurrency, and Error Boundaries
 
@@ -927,9 +923,9 @@ lod : { "kind":"lod",
 
 - `MetricsService` starts `LoadingThread` in `@PostConstruct`. `@PreDestroy` calls `MetricsQueryCoordinator.cancelAll()`, waits up to 30 seconds for `LoadingThread` to stop, then calls `WorkspaceManager.shutdown()`.
 - Metrics queries acquire a workspace lease after obtaining a coordinator permit. On completion, they release SQL/connections, the lease, and the permit in that order, closing old resources retired by switching before returning the permit.
-- `LoadingThread` is a daemon thread. It sleeps for 10 seconds when no immediate retry is required by a `converting` backlog or workspace switch. Cycles committing small appends through `ready` also sleep. RuntimeExceptions at cycle boundaries are logged, with recovery attempted after 10 seconds.
-- `WorkspaceManager.shutdown()` is terminal. Once it begins, new leases and workspace switches immediately fail with `IllegalStateException`; an active cycle stops after safely finishing its current block. Existing leases remain usable, and the last release closes retired resources exactly once.
-- For Runs undergoing gzip conversion, `GzipInputSessions` retains decompressed streams between blocks. Moving such a Run folder is unsupported during conversion. Streams are released upon reaching `ready`, failure, or disappearance from the working set.
+- `LoadingThread` is a daemon thread. It sleeps for 10 seconds when no immediate retry is required by a `converting` backlog or workspace switch. Cycles committing small appends through `ready` also sleep. Priority changes, switches, and shutdown wake the writer. Unexpected RuntimeExceptions are logged as ERROR and stop the writer.
+- `WorkspaceManager.shutdown()` is terminal. Once it begins, new leases and workspace switches immediately fail with `IllegalStateException`; an active cycle stops after safely finishing its current block. Existing leases remain usable, and the last release closes retired display resources exactly once. Writer termination or shutdown closes process ingestion resources independently of query leases.
+- For Runs undergoing gzip conversion, `GzipInputSessions` retains decompressed streams between blocks. Moving such a Run folder is unsupported during conversion, including background conversion in unopened workspaces. Streams are released on `ready`, failure, removal from registered workspaces, or shutdown.
 - `LodPageCache` retains pages made of completed buckets, including the tail page, and discards them when a Run disappears or its generation changes. Capacity overflow evicts entries by access-order LRU.
 
 ### 10.2 Concurrency
@@ -942,8 +938,8 @@ lod : { "kind":"lod",
 | Query concurrency/superseding | `MetricsQueryCoordinator` fair permits (up to five seconds waiting), latest sequence per channel, and identity-bearing live tickets; slot cancellation wakes only waiting threads, while running SQL stops through `Statement.cancel()` and checkpoints |
 | Workspace switching and queries | Cancel only the old epoch of `SWITCHED`, after releasing the switch gate; do not cancel `NO_OP` or `UNKNOWN` |
 | Ingestion writer | Only one `LoadingThread`; multiple writers are not assumed |
-| Workspace switching and ingestion | Release the fair switch gate after every ingestion block; a waiting switch request causes early commit at a complete-line boundary, and no remaining blocks are assigned to the old workspace after POST success |
-| Priority-set updates | `AtomicReference`; older scan results do not remove priorities added after scanning began |
+| Workspace switching and ingestion | Release the fair switch gate after every ingestion block; a waiting switch request causes early commit at a complete-line boundary, and subsequent cycles use the new epoch while old-workspace work continues as background |
+| Priority-set updates | Validate epochs inside the switch gate and ignore old requests; pending updates request early commit and wake. Older scan results do not remove newly added priorities |
 
 ### 10.3 Error and Warning Policy
 
@@ -951,21 +947,35 @@ lod : { "kind":"lod",
 - Single-point anomalies (`null`, nonnumeric, nonfinite, outside float32 range) skip that point and warn once per `(run, tag, reason)`.
 - Step regression quarantines only the affected tag, without hiding other tags' committed data.
 - Per-Run read failures in `runs.json` become `pending` rather than exceptions, preventing one corrupt Run from removing the whole list.
-- `RunWarningRegistry` owns warning suppression and clears it only when the Run leaves the working set. Reintroducing a Run with the same name permits warnings again.
+- `RunWarningRegistry` owns warning suppression and keys it by normalized absolute Run paths, clearing it when a Run leaves registered workspaces. Identical names across workspaces are independent; reintroduction permits warnings again.
+
+- Read/DB-write failures roll back, release the stream, and retain the post-close source/cache observation and reason in memory. Only that Run stops. Attribute changes, removal/reintroduction, or process restart permit retry; other Runs and queries continue. Normal version changes are INFO; read/write failures are ERROR.
 
 ### 10.4 Performance Characteristics
 
-- Ingestion parses streams in blocks of at most 1,000,000 lines, without intermediate Lists. This limit is retained in steady state; only pending workspace switches cause shorter blocks committed at complete-line boundaries. In either case, L0, LOD, `TagStats`, and source position share the same commit boundary.
-- Fully validated `ready` / `error` Runs retain source/cache attributes in process memory. Polling unchanged attributes avoids fingerprints, Metrics master contents, and SQLite connections. These observations disappear when a Run leaves, the workspace snapshot is discarded, or the process restarts.
-- Range query cost consists of step binary search, bucket reads, and partial-bucket reaggregation. Reaggregation is needed only for buckets whose boundaries do not align with viewport edges and tail buckets lacking all 16 children.
+- Ingestion parses streams in blocks of at most 1,000,000 lines, without intermediate Lists. A one-second budget or pending priority/switch/shutdown request ends a block at a complete-line boundary. Atomic listing, initialization, commit, and one long record may exceed the soft budget; phase timings record their costs. In either case, L0, LOD, `TagStats`, and source position share the same commit boundary.
+- Fully validated `ready` / `error` Runs retain source/cache attributes in process memory. Polling unchanged attributes avoids fingerprints, Metrics master contents, and SQLite connections. These observations disappear on Run removal or process restart; switching display snapshots preserves them.
+- Range query cost consists of step binary search, bucket reads, and partial-bucket reaggregation. Lower-level reads are needed for stored buckets crossing display Step bins and partial range edges or tails.
 - Edges whose step boundary lies outside the tag's step range (`min_step`–`max_step`) skip the binary search because the ordinal is fixed at 0 or the point count. Autorange windows extend one screen to the left and right, so in full-range display both edges take this path.
-- LOD pages are read in units of 1024 buckets and remain on the heap, including the tail page. The number of completed buckets per level is determined from the same snapshot's tag point count as `point count / 16^level` (rounded down), because a parent is written the moment its 16 children are complete.
+- LOD pages are read in units of 1024 buckets and remain on the heap, including the tail page. The number of completed buckets per level is determined from the same snapshot's tag point count as `point count / 4^level` (rounded down), because a parent is written the moment its 4 children are complete.
   Buckets beyond this are reaggregated from lower levels without querying the DB, and a held tail page is reread only when it falls short of the completed-bucket count.
   Completed buckets are never rewritten, so a query on an old snapshot gets the same result even when it uses a page read under a newer snapshot.
   If a read page falls short of the completed-bucket count, this is a cache invariant violation, and that series becomes `query_error`.
 - The tail page is also retained because the tail page of a Run that has finished ingestion never fills up; without retention, every single-bucket lookup would reread the whole page. In a request for 616 series from five 100M-step Runs side by side, this accounted for 80% of query time.
 - One page occupies at most `1024 × 96` bytes (eight long columns plus four double columns).
 - Responses use Base64 binary, so HTTP compression is disabled by default to avoid CPU cost.
+
+### 10.5 All-Workspace Maintenance and Resource Budgets
+
+Inspect every workspace at startup and ten seconds after completing the previous full scan. Each segment handles at most 128 Runs or 50ms and resumes its remaining iterator next time. Directory listing is atomic and timed separately. Unchanged attributes avoid SQLite, fingerprints, and master contents. Initial or changed source/cache/WAL attributes trigger a short header read; old schemas are queued without interpreting old tables. Deletion and full validation happen only when work actually starts. Selected Run attributes are also probed at every block boundary. When a priority set exists, idle wait is at most one second, keeping admitted selected Runs responsive without shortening the ten-second global scan period.
+
+Input uses 64KiB buffers; L0, LOD, and non-scalar INSERT batches are limited to 4096 rows. Non-scalar pending strings also flush at 1MiB (UTF-16 character count times two); a single longer record is handled alone. Successful completion flushes batches, statistics, and source metadata in one transaction. Exceptional close never flushes pending batches.
+
+At most sixteen gzip streams are open process-wide. A new background gzip starts only when fewer than four started non-priority streams exist. Selected Runs can start up to the total limit; already-started streams continue when deselected. When the source changes from gzip to raw, release the old gzip stream before ingestion. Slot waits never evict streams, log their reason only on transitions, and report `waitMs` on resumption.
+
+Workspace inspection summaries are INFO on initial inspection and changed results only. Rebuild start/progress/completion logs identify workspace, Run, and generation. Counts use `scope=since_start` and include committed values only. Progress follows a commit at least thirty seconds apart. Gzip percentages are approximate and remain below 100% until EOF validation and final commit. `elapsedMs` includes waiting; `processingMs` measures work. Phase timings separate preparation, reader, parsing, L0, LOD, non-scalar writes, flush/statistics, metadata, commit, and resources. Rates use actual processing time. Ordinary appends are not logged as rebuilds.
+
+Write connections use `PRAGMA cache_size=-16384`, a 16MiB page-cache target, to retain tag-specific L0/LOD pages and reduce spill, addressing the measured commit overhead of short blocks. This connection-local internal value changes neither storage schema nor read connections. SQLite native memory is excluded from JVM heap peaks. See [SQLite cache_size](https://www.sqlite.org/pragma.html#pragma_cache_size).
 
 ## 11. Build and Dependencies
 
@@ -1038,17 +1048,19 @@ Each test opens a fresh context; routes, `localStorage`, and Plotly state are no
 
 ### 12.2 Change Checklist
 
-1. Increment `SCHEMA_VERSION` when changing the cache schema. Do not write migrations; test that old caches are discarded and rebuilt with warnings.
+See the [PRD090 validation README](../../core/anet-core/testdata/prd090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
+
+1. Increment `SCHEMA_VERSION` when changing the cache schema. Do not write migrations; test that old caches are silently discarded and rebuilt.
 2. The externalName values of `IngestState` and `SeriesAvailability` are persistent and exposed over HTTP. Adding values is allowed; renaming or removing existing values is incompatible.
 3. Add new ingestion work to the same transaction. Splitting L0, LOD, `TagStats`, and `source_meta` across commits breaks consistency on crashes.
 4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels. `LodPageCache` derives the completed-bucket count from the tag point count, so when changing when parents are written, change this derivation as well.
 5. Do not derive statistics from LOD. Build range-independent statistics from all committed L0 points.
-6. After changing point-budget allocation, test how the 422 and 503 boundaries change for requests with many series.
+6. After changing Step resolution or point caps, test 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries.
 7. Keep new client state in the client app so it survives Plotly DOM reconstruction during Reload.
-   If the input determines a graph's appearance, add it to the render key (`PlotlyController._graphRenderKey`), or apply it directly in Plotly and read it back with `capturePlotState`. An input that does neither does not cause the graph to be rebuilt when it changes.
+   If the input determines a graph's appearance, add it to the shared display model render key (`PlotlyController._graphModel` / `_graphDisplayKey`). State changed directly in Plotly must also be read back with `capturePlotState` and reflected in the model. An input omitted from the model cannot invalidate drawing or reject late results when it changes.
    If the condition affects a window's contents, also reflect it in the Reload freshness check (`DataCache.isOutdated`).
 8. For long-running Runs, verify that the same range returns identical results during ingestion (`converting`) and after completion (`ready`).
-9. Verify that moving Run folders in/out and renaming them is reflected immediately, and that no file handles remain even for Runs being ingested.
+9. Verify that folder changes are reflected by the next inspection and that raw input handles close after each block. Gzip conversions retain input handles, including background conversions in unopened workspaces; stop Viewer before moving those Run folders.
 
 ## 13. Related Documents
 
@@ -1058,3 +1070,5 @@ Each test opens a fresh context; routes, `localStorage`, and Plotly state are no
 - [Applications and Tools](160_applications_and_tools.en.md)
 - [ADR: Metrics Cache as a Disposable Derivative](../adr/0015-metrics-cache-disposable-derivative.md)
 - [Domain Glossary](../../CONTEXT.md)
+
+PRD089 comparison-resolution regression procedure: [README](../../core/anet-core/testdata/prd089/README.md).

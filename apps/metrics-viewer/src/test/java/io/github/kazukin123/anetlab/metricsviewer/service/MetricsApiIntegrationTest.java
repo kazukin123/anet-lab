@@ -68,12 +68,12 @@ class MetricsApiIntegrationTest {
 		awaitStates();
 		final String request = """
 				{"series":[
-				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":2,"maxPoints":3},
-				  {"runId":"run-pending","tagKey":"loss","fromStep":0,"toStep":1,"maxPoints":3},
-				  {"runId":"run-ready","tagKey":"a","fromStep":100,"toStep":101,"maxPoints":3},
-				  {"runId":"run-ready","tagKey":"missing","fromStep":0,"toStep":1,"maxPoints":3},
-				  {"runId":"run-absent","tagKey":"a","fromStep":0,"toStep":1,"maxPoints":3},
-				  {"runId":"run-error","tagKey":"loss","fromStep":0,"toStep":0,"maxPoints":3}
+				  {"runId":"run-ready","tagKey":"a","stepBucketWidth":1,"fromStep":0,"toStep":2,"maxPoints":3},
+				  {"runId":"run-pending","tagKey":"loss","stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3},
+				  {"runId":"run-ready","tagKey":"a","stepBucketWidth":1,"fromStep":100,"toStep":101,"maxPoints":3},
+				  {"runId":"run-ready","tagKey":"missing","stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3},
+				  {"runId":"run-absent","tagKey":"a","stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3},
+				  {"runId":"run-error","tagKey":"loss","stepBucketWidth":1,"fromStep":0,"toStep":0,"maxPoints":3}
 				]}
 				""";
 
@@ -81,8 +81,7 @@ class MetricsApiIntegrationTest {
 		assertEquals(6, data.size());
 		assertEquals(List.of("ok", "pending", "empty", "not_found", "not_found", "ok"),
 				statuses(data));
-		assertTrue(data.get(2).has("level") && data.get(2).path("level").isNull());
-		assertTrue(data.get(2).has("bucketWidth") && data.get(2).path("bucketWidth").isNull());
+		assertTrue(data.get(2).has("stepBucketWidth") && data.get(2).path("stepBucketWidth").isNull());
 		assertTrue(data.get(2).has("projection") && data.get(2).path("projection").isNull());
 		assertTrue(data.get(4).has("generation") && data.get(4).path("generation").isNull());
 		assertEquals("run-error", data.get(5).path("runId").asText());
@@ -97,7 +96,7 @@ class MetricsApiIntegrationTest {
 				{"series":[{
 				  "runId":"run-ready",
 				  "tagKey":"dup",
-				  "fromStep":1,
+				  "stepBucketWidth":1,"fromStep":1,
 				  "toStep":1,
 				  "maxPoints":3
 				}]}
@@ -155,7 +154,7 @@ class MetricsApiIntegrationTest {
 			final JsonNode result = postMetrics("""
 					{"series":[{
 					  "runId":"run-ready","tagKey":"a",
-					  "fromStep":0,"toStep":1,"maxPoints":3
+					  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3
 					}]}
 					""", 200).path("data").get(0);
 			assertEquals("pending", result.path("availability").asText());
@@ -192,33 +191,32 @@ class MetricsApiIntegrationTest {
 	}
 
 	@Test
-	void minimumQuotaOverflowReturnsTheThreeContractFields() throws Exception {
+	void fullResolutionOverflowReturnsRequiredPoints() throws Exception {
 		awaitStates();
 		final JsonNode body = postMetrics("""
 				{"series":[
-				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63,"maxPoints":60},
-				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63,"maxPoints":60},
-				  {"runId":"run-ready","tagKey":"c","fromStep":0,"toStep":63,"maxPoints":60}
+				  {"runId":"run-ready","tagKey":"a","stepBucketWidth":1,"fromStep":0,"toStep":63,"maxPoints":80},
+				  {"runId":"run-ready","tagKey":"b","stepBucketWidth":1,"fromStep":0,"toStep":63,"maxPoints":80},
+				  {"runId":"run-ready","tagKey":"c","stepBucketWidth":1,"fromStep":0,"toStep":63,"maxPoints":80}
 				]}
 				""", 422);
 
 		assertEquals(3, body.path("seriesCount").asInt());
-		assertEquals(150, body.path("requiredMinimumPoints").asInt());
+		assertEquals(192, body.path("requiredPoints").asInt());
 		assertEquals(100, body.path("maxPointsPerRequest").asInt());
 	}
 
 	@Test
-	void waterFillingKeepsEqualSeriesBudgetsFair() throws Exception {
+	void requestOverflowIsRejectedInsteadOfReducingComparisonResolution() throws Exception {
 		awaitStates();
-		final JsonNode data = postMetrics("""
+		final JsonNode body = postMetrics("""
 				{"series":[
-				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63,"maxPoints":80},
-				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63,"maxPoints":80}
+				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63,"maxPoints":80,"stepBucketWidth":1},
+				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63,"maxPoints":80,"stepBucketWidth":1}
 				]}
-				""", 200).path("data");
-
-		assertEquals(50, data.get(0).path("pointBudget").asInt());
-		assertEquals(50, data.get(1).path("pointBudget").asInt());
+				""", 422);
+		assertEquals(128, body.path("requiredPoints").asInt());
+		assertEquals(100, body.path("maxPointsPerRequest").asInt());
 	}
 
 	@Test
@@ -231,7 +229,7 @@ class MetricsApiIntegrationTest {
 						.content("""
 								{"series":[{
 								  "runId":"run-ready","tagKey":"a",
-								  "fromStep":0,"toStep":1,"fromOrdinal":0
+								  "stepBucketWidth":1,"fromStep":0,"toStep":1,"fromOrdinal":0
 								}]}
 								"""))
 				.andExpect(status().isBadRequest());
@@ -242,7 +240,7 @@ class MetricsApiIntegrationTest {
 						.content("""
 								{"series":[{
 								  "runId":"run-ready","tagKey":"a",
-								  "fromStep":9007199254740992,"toStep":9007199254740992
+								  "stepBucketWidth":1,"fromStep":9007199254740992,"toStep":9007199254740992
 								}]}
 								"""))
 				.andExpect(status().isBadRequest());
@@ -255,25 +253,25 @@ class MetricsApiIntegrationTest {
 				"""
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":"0","toStep":1
+				  "stepBucketWidth":1,"fromStep":"0","toStep":1
 				}]}
 				""",
 				"""
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":0.5,"toStep":1
+				  "stepBucketWidth":1,"fromStep":0.5,"toStep":1
 				}]}
 				""",
 				"""
 				{"series":[{
 				  "runId":123,"tagKey":"a",
-				  "fromStep":0,"toStep":1
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1
 				}]}
 				""",
 				"""
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":0,"toStep":1,"maxPoints":3.5
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3.5
 				}]}
 				""")) {
 			mockMvc.perform(post("/api/metrics.json")
@@ -291,7 +289,7 @@ class MetricsApiIntegrationTest {
 		final String request = """
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":0,"toStep":1,"maxPoints":3
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3
 				}]}
 				""";
 
@@ -310,7 +308,7 @@ class MetricsApiIntegrationTest {
 		final String request = """
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":0,"toStep":1,"maxPoints":3
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3
 				}]}
 				""";
 		final String channel = "late-sequence-" + UUID.randomUUID();
@@ -332,6 +330,14 @@ class MetricsApiIntegrationTest {
 		assertNull(response.getHeader("Retry-After"));
 		assertEquals("superseded", OBJECT_MAPPER.readTree(
 				response.getContentAsString(StandardCharsets.UTF_8)).path("code").asText());
+	}
+
+	@Test
+	void invalidOrMissingStepBucketWidthIsRejected() throws Exception {
+		for (String width:List.of("null","0","-1","9007199254740992","1.5","\"2\"")) {
+			postMetrics("{\"series\":[{\"runId\":\"run-ready\",\"tagKey\":\"a\",\"fromStep\":0,\"toStep\":1,\"stepBucketWidth\":"+width+"}]}",400);
+		}
+		postMetrics("{\"series\":[{\"runId\":\"run-ready\",\"tagKey\":\"a\",\"fromStep\":0,\"toStep\":1}]}",400);
 	}
 
 	private JsonNode postMetrics(String request, int expectedStatus) throws Exception {

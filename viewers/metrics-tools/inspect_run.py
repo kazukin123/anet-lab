@@ -593,7 +593,7 @@ def inspect_artifacts(run_dir: Path, master_path: Path | None) -> dict:
 
 
 CACHE_APPLICATION_ID = 0x414E4554
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 FINGERPRINT_BYTES = 64 * 1024
 
 CACHE_REQUIRED_COLUMNS = {

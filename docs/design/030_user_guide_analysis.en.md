@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:79d3b8f36150ca31410eaaad56abc9e0ce3073e6 date:2026-10-10 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:ce6df5b9b7ef633bbee3ff59d09520034babbbc1 date:2026-10-12 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -38,6 +38,14 @@ The browser saves the last selection and restores it on the next startup if that
 If the saved workspace is missing, it falls back to the server's current workspace.
 
 To read a custom collection of workspaces, pass `--metricsviewer.workspaces-dir=<path>` to the jar and optionally specify the startup workspace with `--metricsviewer.initial-workspace=<name>`. The Viewer recognizes only directories directly under the selected workspace's `runs/` containing `metrics.jsonl` or `metrics.jsonl.gz` as Runs. If both exist, it uses `metrics.jsonl`.
+
+Viewer inspects unopened workspaces at startup and approximately every ten seconds, preparing missing or outdated caches in the background. Selected Runs receive priority while background work continues. Switching workspaces preserves committed gzip conversion progress.
+
+English `Metrics cache detected / started / progress / completed` logs identify the `workspace`, `run`, and `generation`. Line and point counts use `scope=since_start`, meaning committed counts since this operation began. Progress is logged after a commit, at least thirty seconds apart. Gzip percentages are approximate; completion is never reported before EOF validation and the final commit. `elapsedMs` includes waiting, while `processingMs` measures actual work.
+
+When gzip stream slots are full, `Metrics cache waiting` states the reason. Read or DB-write failures stop that Run and produce ERROR logs; other Runs and browsing continue. Process-held I/O and DB-write failures permit another attempt after source/cache attributes change, removal and reintroduction, or Viewer restart. Persisted invalid-input errors require a source change or cache rebuild. If an unexpected internal exception stops the writer, inspect the logs and restart Viewer.
+
+**Do not move a Run folder during gzip conversion.** This also applies to background conversion in unopened workspaces. Stop Viewer before moving folders to release handles. Raw ingestion connections close after each block.
 
 ### 2.1 Compressing Metrics from Completed Runs
 
@@ -86,6 +94,10 @@ Percentiles are computed independently for each Run from LOD rendering values in
 LOD `MinMax` connects each bucket's min, max, and last in their original step order. `Mean` displays bucket averages; `Band` overlays a mean line on a min/max band. When there are few enough points for L0, every mode displays the raw line. The graph header's `Min / Max / Avg / Std` combines `TagStats` over all committed raw points from selected Runs, rather than the viewport.
 
 Run lists and committed graphs remain interactive during ingestion. Run-level errors and tags quarantined for backward steps display `⚠` with a tooltip; their committed portions remain visible.
+
+Runs in the same graph use common Step intervals for the visible range. At the same range and screen width, selecting up to four Runs does not reduce resolution. Zooming or resizing updates all Runs to the same resolution; panning keeps the grid anchored. Missing observations are not filled in.
+
+Compact overviews appear first for all selected graphs. Detail data is prefetched nearest-first within the cache capacity and retained across scrolling. If detail loading has not caught up, overview lines remain visible until details are ready. Overviews show the same axes, legends, and control header as details; transitions retain the graph frame and scroll position. Overviews are static, while hover and zoom/pan are available on detailed plots. Screenshot mode loads all selected graphs sequentially; wait for loading to finish before capturing. After a cache format change, the first load automatically rebuilds caches; wait for Run ingestion to complete.
 
 ## 4. Comparing Runs
 
@@ -392,7 +404,7 @@ This subcommand reads only mirrors and never opens `metrics.jsonl`, `metrics.jso
 
 `metrics_cache.db` is used read-only only when fully current; otherwise the tool automatically falls back to the Metrics master. The decision and reason (`current` / `absent` / `invalid` / `partial` / `stale` / `error`) appear in `runs` and `metrics` results. The tool never creates, updates, repairs, or deletes caches.
 
-After compressing `metrics.jsonl`, a Run's cache may remain `stale: source_kind_changed` or `partial` until its workspace is opened in Metrics Viewer. Results remain correct, but require scanning every Metrics master row. Opening it once in Viewer enables the fast path.
+Metrics Viewer prepares caches across every workspace in its configured directory at startup and during periodic inspection. Opening that workspace in the browser is unnecessary after compression. While a cache is `stale: source_kind_changed` or `partial`, the tool scans the Metrics master; after conversion completes, it uses the read-only fast path.
 
 Running Runs are readable too. Raw files are read only up to their size at the start of the command, excluding an unterminated final line. If the master changes while reading, `provisional` and `source_changed_during_read` are set.
 

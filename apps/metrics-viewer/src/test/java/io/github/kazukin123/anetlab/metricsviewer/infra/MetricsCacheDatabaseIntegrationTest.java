@@ -60,6 +60,31 @@ class MetricsCacheDatabaseIntegrationTest {
 	}
 
 	@Test
+	void schemaOneCacheIsDiscardedAndRebuiltFromUnchangedMaster() throws Exception {
+		final Path runDir=tempDir.resolve("run-factor-change");
+		Files.createDirectories(runDir);
+		final StringBuilder master=new StringBuilder();
+		for(int i=0;i<64;i++) master.append("{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":")
+			.append(i).append(",\"value\":").append(i).append("}\n");
+		final Path source=runDir.resolve("metrics.jsonl");
+		Files.writeString(source,master,StandardCharsets.UTF_8);
+		final MetricsCacheDatabase database=new MetricsCacheDatabase();
+		new MetricsIngestor(database).ingestBlock("run-factor-change",runDir,MetricsSource.select(runDir).orElseThrow());
+		final String oldGeneration=generation(database,runDir);
+		try(var handle=database.openWrite(runDir); var statement=handle.connection().createStatement()) {
+			statement.execute("PRAGMA user_version=1");
+		}
+		new MetricsIngestor(database).ingestBlock("run-factor-change",runDir,MetricsSource.select(runDir).orElseThrow());
+		try(var handle=database.openRead(runDir); var statement=handle.connection().createStatement()) {
+			assertEquals(2,queryInt(statement,"PRAGMA user_version"));
+			assertNotEquals(oldGeneration,generation(database,runDir));
+			assertEquals(64,queryInt(statement,"SELECT COUNT(*) FROM scalars"));
+			assertEquals(16,queryInt(statement,"SELECT COUNT(*) FROM scalars_lod WHERE level=1 AND cnt=4"));
+		}
+		assertEquals(master.toString(),Files.readString(source,StandardCharsets.UTF_8));
+	}
+
+	@Test
 	void schemaWithMissingColumnsIsRebuiltAndOnlyLegacyKryoIsRemoved() throws Exception {
 		final Path runDir = tempDir.resolve("run-old-schema");
 		Files.createDirectories(runDir);
@@ -179,7 +204,7 @@ class MetricsCacheDatabaseIntegrationTest {
 		final String firstGeneration = database.prepare(runDir, source, false).generation();
 		assertNotNull(firstGeneration);
 		assertTrue(output.getAll().contains(
-				"Rebuilding Metrics cache: run=run-corrupt-cache reason=database_open_failed"));
+				"Rebuilding Metrics cache: run=run-corrupt-cache reason=database_corrupt"));
 
 		try (MetricsCacheDatabase.ConnectionHandle handle = database.openWrite(runDir);
 				Statement statement = handle.connection().createStatement()) {

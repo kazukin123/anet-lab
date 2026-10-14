@@ -234,14 +234,14 @@ class ReloadPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				+ "\"fromStep\":" + fromStep + ",\"toStep\":" + toStep + ",";
 		if (pendingOnce.remove(seriesKey(runId, tagKey))) {
 			return head + "\"availability\":\"pending\",\"pointBudget\":0,"
-					+ "\"level\":null,\"bucketWidth\":null,\"projection\":null}";
+					+ "\"stepBucketWidth\":null,\"projection\":null}";
 		}
 		final long first = Math.max(0L, fromStep);
 		final long last = Math.min(pointCounts.get(seriesKey(runId, tagKey)) - 1L, toStep);
 		final int size = (int) Math.max(0L, last - first + 1L);
 		if (size == 0) {
 			return head + "\"availability\":\"empty\",\"pointBudget\":0,"
-					+ "\"level\":null,\"bucketWidth\":null,\"projection\":null}";
+					+ "\"stepBucketWidth\":null,\"projection\":null}";
 		}
 		final double[] steps = new double[size];
 		final float[] values = new float[size];
@@ -250,7 +250,7 @@ class ReloadPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 			values[i] = (float) Math.sin((first + i) / 7.0) + ("run_a".equals(runId) ? 0f : 2f);
 		}
 		return head + "\"availability\":\"ok\",\"pointBudget\":" + size + ","
-				+ "\"level\":0,\"bucketWidth\":1,\"issues\":[],"
+				+ "\"stepBucketWidth\":1,\"issues\":[],"
 				+ "\"projection\":{\"kind\":\"raw\","
 				+ "\"steps\":\"" + encodeFloat64(steps) + "\","
 				+ "\"values\":\"" + encodeFloat32(values) + "\"}}";

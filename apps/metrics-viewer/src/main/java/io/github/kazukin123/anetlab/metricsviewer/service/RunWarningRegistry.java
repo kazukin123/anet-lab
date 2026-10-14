@@ -4,7 +4,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 同名Runが作業セットへ連続して存在する間、世代を跨いで同じWARNを抑止する。
+ * 正規化した絶対Runパスが作業セットへ連続して存在する間、世代を跨いで同じWARNを抑止する。
  */
 public class RunWarningRegistry {
 

@@ -1,11 +1,15 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
+import java.util.stream.Collectors;
+import java.util.Objects;
 import java.io.BufferedInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -16,6 +20,40 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
 public class GzipInputSessions {
 
+	static final int MAX_STREAMS = 16;
+	static final int MAX_BACKGROUND_STREAMS = 4;
+	private Set<Path> priorityRuns = Set.of();
+
+	synchronized void replacePriority(Set<Path> runs) {
+		priorityRuns = Set.copyOf(runs);
+	}
+
+	synchronized String admissionReason(Path run) {
+		if (sessions.containsKey(run))
+			return null;
+		if (sessions.size() >= MAX_STREAMS)
+			return "gzip_stream_limit";
+		if (!priorityRuns.contains(run)
+				&& sessions.keySet().stream().filter(p -> !priorityRuns.contains(p)).count() >= MAX_BACKGROUND_STREAMS)
+			return "background_gzip_limit";
+		return null;
+	}
+
+	static final class ResourceUnavailableException extends IOException {
+		private final String reason;
+		ResourceUnavailableException(String reason) {
+			super(reason);
+			this.reason = reason;
+		}
+		String reason() {
+			return reason;
+		}
+	}
+
+	synchronized Set<Path> activeRuns() {
+		return Set.copyOf(sessions.keySet());
+	}
+
 	private final Map<Path, Session> sessions = new HashMap<>();
 
 	synchronized boolean hasSession(Path runDir, MetricsSource source) {
@@ -23,19 +61,31 @@ public class GzipInputSessions {
 		return current != null && current.matchesSource(source);
 	}
 
+	synchronized boolean matchesGeneration(Path runDir, MetricsSource source, String generation) {
+		final Session current = sessions.get(runDir.toAbsolutePath().normalize());
+		return current != null && current.matches(source, generation);
+	}
+
 	synchronized Session acquire(Path runDir, MetricsSource source, String generation)
 			throws IOException {
 		final Path key = runDir.toAbsolutePath().normalize();
 		final Session current = sessions.get(key);
 		if (current != null && current.matches(source, generation)) return current;
-		if (current != null) current.close();
+		if (current != null) {
+			sessions.remove(key);
+			current.close();
+		}
+		final String reason = admissionReason(key);
+		if (reason != null)
+			throw new ResourceUnavailableException(reason);
 
+		final BasicFileAttributes attributes = Files.readAttributes(source.path(), BasicFileAttributes.class);
 		final CountingInputStream counter = new CountingInputStream(Files.newInputStream(source.path()));
 		try {
 			final GZIPInputStream gzip = new GZIPInputStream(
 					new BufferedInputStream(counter, 64 * 1024),
 					64 * 1024);
-			final Session created = new Session(source, generation, counter, gzip);
+			final Session created = new Session(source, generation, counter, gzip, attributes);
 			sessions.put(key, created);
 			return created;
 		} catch (IOException e) {
@@ -58,7 +108,7 @@ public class GzipInputSessions {
 	synchronized void retainRuns(Set<Path> runDirs) {
 		final Set<Path> normalized = runDirs.stream()
 				.map(path -> path.toAbsolutePath().normalize())
-				.collect(java.util.stream.Collectors.toUnmodifiableSet());
+				.collect(Collectors.toUnmodifiableSet());
 		final Iterator<Map.Entry<Path, Session>> iterator = sessions.entrySet().iterator();
 		while (iterator.hasNext()) {
 			final Map.Entry<Path, Session> entry = iterator.next();
@@ -88,16 +138,23 @@ public class GzipInputSessions {
 		private final String generation;
 		private final CountingInputStream counter;
 		private final GZIPInputStream input;
+		private final Object fileKey;
+		private final FileTime fileModified;
+		private final FileTime fileCreated;
+		final SourceReader.InputBuffer buffer = new SourceReader.InputBuffer();
 
 		private Session(
 				MetricsSource source,
 				String generation,
 				CountingInputStream counter,
-				GZIPInputStream input) {
+				GZIPInputStream input, BasicFileAttributes attributes) {
 			this.source = source;
 			this.generation = generation;
 			this.counter = counter;
 			this.input = input;
+			fileKey = attributes.fileKey();
+			fileModified = attributes.lastModifiedTime();
+			fileCreated = attributes.creationTime();
 		}
 
 		InputStream input() {
@@ -116,7 +173,20 @@ public class GzipInputSessions {
 			return source.path().toAbsolutePath().normalize()
 							.equals(candidate.path().toAbsolutePath().normalize())
 					&& source.size() == candidate.size()
-					&& source.modifiedTime() == candidate.modifiedTime();
+					&& source.modifiedTime() == candidate.modifiedTime() && matchesFileIdentity(candidate.path());
+		}
+
+		private boolean matchesFileIdentity(Path file) {
+			// 同じサイズ・mtimeでもファイル置換は旧handleと異なる入力として扱う。
+			try {
+				final BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
+				return Objects.equals(fileKey, attributes.fileKey())
+						&& fileModified.equals(attributes.lastModifiedTime())
+						&& fileCreated.equals(attributes.creationTime());
+			}
+			catch (IOException e) {
+				return false;
+			}
 		}
 
 		@Override

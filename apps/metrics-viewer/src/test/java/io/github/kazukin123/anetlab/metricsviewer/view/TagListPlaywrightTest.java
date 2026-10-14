@@ -84,8 +84,9 @@ class TagListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		assertTrue(readTagList(page).contains(RELOAD_NEW_TAG));
 		assertTrue(isGraphTitleVisible(page, RELOAD_OLD_TAG));
 		assertTrue(isGraphTitleVisible(page, RELOAD_NEW_TAG));
+		page.waitForFunction("tag => document.getElementById(graphId(tag))?.data?.length > 0",RELOAD_NEW_TAG);
 		assertTrue(metricsRequests.size() >= 2);
-		assertTrue(metricsRequests.get(1).contains(RELOAD_OLD_TAG));
+		assertFalse(metricsRequests.get(1).contains(RELOAD_OLD_TAG));
 		assertTrue(metricsRequests.get(1).contains(RELOAD_NEW_TAG));
 	}
 

@@ -1,5 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
+import java.util.Locale;
+import java.util.function.LongSupplier;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -34,6 +36,7 @@ import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.ReadResul
 
 public class MetricsIngestor {
 
+	static final int SQL_BATCH_SIZE = 4096;
 	public static final int MAX_BLOCK_LINES = 1_000_000;
 	private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
 	private static final Logger log = LoggerFactory.getLogger(MetricsIngestor.class);
@@ -47,6 +50,10 @@ public class MetricsIngestor {
 	private final RunWarningRegistry warningRegistry;
 	private final int maxBlockLines;
 	private final BooleanSupplier yieldRequested;
+	private final LongSupplier nanoTime;
+	private final long maxBlockNanos;
+	private final Map<Path, Progress> progress = new HashMap<>();
+	private final Map<Path, String> seenGenerations = new HashMap<>();
 	private final Map<Path, ValidatedRunObservation> validatedObservations = new HashMap<>();
 
 	public record IngestOutcome(
@@ -93,6 +100,17 @@ public class MetricsIngestor {
 			RunWarningRegistry warningRegistry,
 			int maxBlockLines,
 			BooleanSupplier yieldRequested) {
+		this(database, gzipSessions, lodWriter, warningRegistry, maxBlockLines, yieldRequested, System::nanoTime,
+				1_000_000_000L);
+	}
+
+	MetricsIngestor(MetricsCacheDatabase database, GzipInputSessions gzipSessions, LodIngestWriter lodWriter,
+			RunWarningRegistry warningRegistry, int maxBlockLines, BooleanSupplier yieldRequested,
+			LongSupplier nanoTime, long maxBlockNanos) {
+		if (maxBlockLines <= 0 || maxBlockNanos <= 0)
+			throw new IllegalArgumentException("Block limits must be positive");
+		this.nanoTime = nanoTime;
+		this.maxBlockNanos = maxBlockNanos;
 		this.database = database;
 		this.gzipSessions = gzipSessions;
 		this.lodWriter = lodWriter;
@@ -101,17 +119,33 @@ public class MetricsIngestor {
 		this.yieldRequested = yieldRequested;
 	}
 
+	MetricsCacheDatabase.CacheInspection inspectCache(Path runDir, MetricsSource source)
+			throws IOException, SQLException {
+		return database.inspect(runDir, source);
+	}
+
 	void retainRuns(Set<Path> runDirs) {
 		final Set<Path> retained = new HashSet<>();
 		for (Path runDir : runDirs) retained.add(normalize(runDir));
 		validatedObservations.keySet().retainAll(retained);
+		for (Path run : Set.copyOf(progress.keySet()))
+			if (!retained.contains(run))
+				cancelProgress(run, "target_removed");
+		seenGenerations.keySet().retainAll(retained);
+	}
+
+	void invalidateObservation(Path runDir) {
+		validatedObservations.remove(normalize(runDir));
 	}
 
 	void forgetRun(Path runDir) {
 		validatedObservations.remove(normalize(runDir));
+		progress.remove(normalize(runDir));
+		seenGenerations.remove(normalize(runDir));
 	}
 
 	public IngestOutcome ingestBlock(String runId, Path runDir, MetricsSource source) throws Exception {
+		final long blockStart = nanoTime.getAsLong();
 		final Path runKey = normalize(runDir);
 		final MetricsSource sourceSnapshot = normalize(source);
 		final IngestOutcome fastPath = fastPath(runKey, sourceSnapshot);
@@ -120,8 +154,12 @@ public class MetricsIngestor {
 		final SourceReader reader = SourceReader.forSource(runDir, source, gzipSessions);
 		final IngestAttempt attempt;
 		try (reader) {
-			attempt = ingestWithReader(runId, runDir, source, reader);
+			attempt = ingestWithReader(runId, runDir, source, reader, blockStart);
 		}
+		if (attempt.commit() != null)
+			committedProgress(runKey, source, attempt, blockStart);
+		if (attempt.outcome().state() == IngestState.ERROR)
+			progress.remove(runKey);
 		if (attempt.publishObservation()) {
 			publishValidatedObservation(runKey, sourceSnapshot, attempt.outcome().state());
 		}
@@ -132,7 +170,7 @@ public class MetricsIngestor {
 			String runId,
 			Path runDir,
 			MetricsSource source,
-			SourceReader reader) throws Exception {
+			SourceReader reader, long blockStart) throws Exception {
 		final SourceReader.Preparation sourcePreparation;
 		try {
 			// ソース同一性を検証し、必要なら破棄可能cacheを先頭から作り直す。
@@ -145,6 +183,8 @@ public class MetricsIngestor {
 					new IngestOutcome(true, IngestState.ERROR, false), persisted);
 		}
 		final CachePreparation preparation = sourcePreparation.cache();
+		beginProgress(normalize(runDir), source, preparation, blockStart);
+		final long preparedAt = nanoTime.getAsLong();
 		if (!sourcePreparation.readRequired()) {
 			final IngestOutcome outcome = new IngestOutcome(
 					false,
@@ -161,17 +201,23 @@ public class MetricsIngestor {
 
 			try {
 				final ReadResult readResult;
-				final BlockWriteSession writeSession = new BlockWriteSession(connection, runId);
+				final long readStart = nanoTime.getAsLong();
+				final long readEnd;
+				final BlockWriteSession writeSession = new BlockWriteSession(connection, runId,
+						normalize(runDir).toString());
 				try (writeSession) {
 					// 1行ずつparseし、巨大な中間Listを作らず同じtransactionへ反映する。
 					readResult = reader.readCompleteLines(
 							maxBlockLines,
-							yieldRequested,
+							() -> yieldRequested.getAsBoolean() || nanoTime.getAsLong() - blockStart >= maxBlockNanos,
 							writeSession::writeLine);
+					readEnd = nanoTime.getAsLong();
+					writeSession.flushBatches();
 				}
 
 				// block内のL0、LOD、TagStats、source位置を同じcommit境界で確定する。
 				writeSession.flushTagStats();
+				final long flushedAt = nanoTime.getAsLong();
 				reader.validate(readResult);
 				final IngestState state = readResult.logicalEof()
 						? IngestState.READY
@@ -181,7 +227,9 @@ public class MetricsIngestor {
 						source,
 						readResult.committedSourceOffset(),
 						state);
+				final long metaAt = nanoTime.getAsLong();
 				connection.commit();
+				final long commitAt = nanoTime.getAsLong();
 
 				writeSession.emitWarnings();
 				reader.finish(state);
@@ -191,7 +239,11 @@ public class MetricsIngestor {
 										|| state != preparation.state(),
 								state,
 								state == IngestState.CONVERTING),
-						state == IngestState.READY);
+						state == IngestState.READY,
+						new CommitProgress(readResult.committedSourceOffset(), readResult.completedLines(),
+								writeSession.validPoints, preparedAt - blockStart, readEnd - readStart,
+								flushedAt - readEnd, metaAt - flushedAt, commitAt - metaAt, writeSession.parseNs,
+								writeSession.l0Ns, writeSession.lodNs, writeSession.jsonNs));
 			} catch (FatalRecordException e) {
 				connection.rollback();
 				final boolean persisted =
@@ -228,7 +280,7 @@ public class MetricsIngestor {
 			throw e;
 		} catch (SQLException e) {
 			// 開始済みcache transactionはrollbackされる。読取位置だけが先行しないようsessionを破棄し、
-			// pending/convertingを維持したまま次cycleの再試行へ委ねる。
+			// pending/convertingを維持し、再試行可否はschedulerのRun単位停止へ委ねる。
 			reader.fail();
 			throw e;
 		}
@@ -424,13 +476,18 @@ public class MetricsIngestor {
 		session.insertScalar.setLong(2, ordinal);
 		session.insertScalar.setLong(3, record.step());
 		session.insertScalar.setDouble(4, value);
-		session.insertScalar.executeUpdate();
+		session.insertScalar.addBatch();
+		if (++session.pendingScalars >= SQL_BATCH_SIZE)
+			session.flushScalars();
+		session.validPoints++;
 		state.record(record.step(), value);
+		final long lodStart = nanoTime.getAsLong();
 		lodWriter.append(
 				session.lodInsert,
 				state.tagId,
 				state.lodState,
 				LodBucket.point(ordinal, record.step(), value));
+		session.lodNs += nanoTime.getAsLong() - lodStart;
 	}
 
 	private TagWriteState loadTagState(Connection connection, String tag) throws SQLException {
@@ -498,7 +555,7 @@ public class MetricsIngestor {
 		else statement.setLong(3, record.step());
 		statement.setString(4, record.timestamp());
 		statement.setString(5, rawLine);
-		statement.executeUpdate();
+		statement.addBatch();
 	}
 
 	private static void flushTagStats(
@@ -549,8 +606,8 @@ public class MetricsIngestor {
 			connection.setAutoCommit(false);
 			SourceMeta.markError(connection, source, code, message);
 			connection.commit();
-			log.warn("Run ingest entered error state: run={} code={} message={}",
-					runDir.getFileName(), code, message == null ? code : message);
+			log.error("Run ingest entered error state: run={} code={} message={} workspace={} {}", runDir.getFileName(),
+					code, message == null ? code : message, workspaceName(runDir), progressDiagnostics(runDir));
 			return true;
 		} catch (Exception error) {
 			log.error("Failed to persist Run error: run={} code={} message={}",
@@ -562,16 +619,26 @@ public class MetricsIngestor {
 	private final class BlockWriteSession implements AutoCloseable {
 		private final Connection connection;
 		private final String runId;
+		private final String runKey;
 		private final Map<String, TagWriteState> tagStates = new HashMap<>();
 		private final Set<WarningKey> warnings = new HashSet<>();
 		private final Set<TagQuarantineWarning> quarantineWarnings = new HashSet<>();
+		private int pendingScalars;
+		private int pendingJson;
+		private long pendingJsonBytes;
+		private long validPoints;
+		private long parseNs;
+		private long l0Ns;
+		private long lodNs;
+		private long jsonNs;
 		private PreparedStatement insertScalar;
 		private PreparedStatement insertJson;
 		private LodIngestWriter.InsertSession lodInsert;
 
-		private BlockWriteSession(Connection connection, String runId) throws SQLException {
+		private BlockWriteSession(Connection connection, String runId, String runKey) throws SQLException {
 			this.connection = connection;
 			this.runId = runId;
+			this.runKey = runKey;
 			try {
 				insertScalar = connection.prepareStatement(
 						"INSERT INTO scalars(tag_id, ordinal, step, value) VALUES(?, ?, ?, ?)");
@@ -591,12 +658,49 @@ public class MetricsIngestor {
 		}
 
 		private void writeLine(String line, long sourceOffset) throws Exception {
+			final long parseStart = nanoTime.getAsLong();
 			final ParsedRecord record = parseRecord(line, sourceOffset);
+			final long parsedAt = nanoTime.getAsLong();
+			parseNs += parsedAt - parseStart;
 			if (record.scalar()) {
+				final long previousLodNs = lodNs;
 				writeScalar(this, record, sourceOffset);
+				l0Ns += nanoTime.getAsLong() - parsedAt - (lodNs - previousLodNs);
 			} else {
+				final long lineBytes = (long) line.length() * Character.BYTES;
+				if (pendingJsonBytes + lineBytes > 1024 * 1024)
+					flushJson();
 				writeJsonLine(insertJson, record, line);
+				pendingJson++;
+				pendingJsonBytes += lineBytes;
+				if (pendingJson >= SQL_BATCH_SIZE || pendingJsonBytes >= 1024 * 1024)
+					flushJson();
+				jsonNs += nanoTime.getAsLong() - parsedAt;
 			}
+		}
+
+		private void flushScalars() throws SQLException {
+			if (pendingScalars == 0)
+				return;
+			insertScalar.executeBatch();
+			insertScalar.clearBatch();
+			pendingScalars = 0;
+		}
+
+		private void flushJson() throws SQLException {
+			if (pendingJson == 0)
+				return;
+			insertJson.executeBatch();
+			insertJson.clearBatch();
+			pendingJson = 0;
+			pendingJsonBytes = 0;
+		}
+
+		private void flushBatches() throws SQLException {
+			// 正常終了経路だけでflushし、closeは例外時の未確定batchを実行しない。
+			flushScalars();
+			lodInsert.flush();
+			flushJson();
 		}
 
 		private void flushTagStats() throws SQLException {
@@ -606,24 +710,24 @@ public class MetricsIngestor {
 		private void emitWarnings() {
 			for (WarningKey warning : warnings) {
 				if (warningRegistry.firstScalarSkip(
-						warning.runId(), warning.tag(), warning.reason())) {
+						runKey, warning.tag(), warning.reason())) {
 					log.warn(
-							"Skipping invalid scalar value: run={} tag={} reason={}",
+							"Skipping invalid scalar value: run={} tag={} reason={} workspace={} path={}",
 							warning.runId(),
 							warning.tag(),
-							warning.reason());
+							warning.reason(), workspaceName(Path.of(runKey)), runKey);
 				}
 			}
 			for (TagQuarantineWarning warning : quarantineWarnings) {
 				log.warn(
 						"Scalar tag quarantined: run={} tag={}"
 								+ " reason=tag_step_regression previousStep={} step={}"
-								+ " sourceOffset={}",
+								+ " sourceOffset={} workspace={} path={}",
 						warning.runId(),
 						warning.tag(),
 						warning.previousStep(),
 						warning.step(),
-						warning.sourceOffset());
+						warning.sourceOffset(), workspaceName(Path.of(runKey)), runKey);
 			}
 		}
 
@@ -651,7 +755,123 @@ public class MetricsIngestor {
 		}
 	}
 
-	private record IngestAttempt(IngestOutcome outcome, boolean publishObservation) {
+	private static String workspaceName(Path run) {
+		final Path parent = run.toAbsolutePath().normalize().getParent();
+		return parent == null || parent.getParent() == null ? "unknown" : parent.getParent().getFileName().toString();
+	}
+
+	private void beginProgress(Path run, MetricsSource source, CachePreparation preparation, long blockStart) {
+		final String previous = seenGenerations.put(run, preparation.generation());
+		Progress current = progress.get(run);
+		if (current != null && !current.generation.equals(preparation.generation())) {
+			cancelProgress(run, "generation_changed");
+			current = null;
+		}
+		if (current != null || !preparation.state().isStillIngesting()
+				|| (preparation.state() == IngestState.CONVERTING && preparation.generation().equals(previous)))
+			return;
+		progress.put(run, new Progress(preparation.generation(), blockStart));
+		log.info(
+				"Metrics cache started: workspace={} run={} generation={} sourceKind={} sourceBytes={} committedOffset={} scope=since_start",
+				workspaceName(run), run.getFileName(), preparation.generation(), source.kind(), source.size(),
+				preparation.committedOffset());
+	}
+
+	private void committedProgress(Path run, MetricsSource source, IngestAttempt attempt, long blockStart) {
+		final Progress p = progress.get(run);
+		if (p == null)
+			return; // ready cacheへの通常追記は再構築ログへ混ぜない。
+		final CommitProgress c = attempt.commit();
+		final long now = nanoTime.getAsLong();
+		p.lines += c.lines();
+		p.points += c.points();
+		p.actualNs += now - blockStart;
+		p.prepareNs += c.prepareNs();
+		p.readNs += c.readNs();
+		p.flushNs += c.flushNs();
+		p.metaNs += c.metaNs();
+		p.commitNs += c.commitNs();
+		p.offset = c.offset();
+		p.parseNs += c.parseNs();
+		p.l0Ns += c.l0Ns();
+		p.lodNs += c.lodNs();
+		p.jsonNs += c.jsonNs();
+		final boolean completed = attempt.outcome().state() == IngestState.READY;
+		if (!completed && now - p.lastLog < 30_000_000_000L)
+			return;
+		// connection・readerを閉じ、commitした値だけを公開する。gzipの圧縮位置はEOFの根拠にしない。
+		final double percentage = source.size() == 0 ? 100.0 : 100.0 * p.offset / source.size();
+		log.info("Metrics cache {}: workspace={} run={} generation={} lines={} validPoints={} scope=since_start"
+				+ " committedOffset={} sourceBytes={} percentage={} percentageApproximate={}"
+				+ " elapsedMs={} processingMs={} prepareMs={} readParseWriteMs={} flushStatsMs={} metadataMs={} commitMs={} resourcesMs={} readerMs={} parseMs={} l0Ms={} lodMs={} jsonMs={} linesPerSecond={} pointsPerSecond={}",
+				completed ? "completed" : "progress", workspaceName(run), run.getFileName(), p.generation, p.lines,
+				p.points, p.offset, source.size(),
+				String.format(Locale.ROOT, "%.1f", completed ? percentage : Math.min(99.9, percentage)),
+				"jsonl.gz".equals(source.kind()), (now - p.started) / 1_000_000, p.actualNs / 1_000_000,
+				p.prepareNs / 1_000_000, p.readNs / 1_000_000, p.flushNs / 1_000_000, p.metaNs / 1_000_000,
+				p.commitNs / 1_000_000,
+				Math.max(0, p.actualNs - p.prepareNs - p.readNs - p.flushNs - p.metaNs - p.commitNs) / 1_000_000,
+				Math.max(0, p.readNs - p.parseNs - p.l0Ns - p.lodNs - p.jsonNs) / 1_000_000, p.parseNs / 1_000_000,
+				p.l0Ns / 1_000_000, p.lodNs / 1_000_000, p.jsonNs / 1_000_000, rate(p.lines, p.actualNs),
+				rate(p.points, p.actualNs));
+		p.lastLog = now;
+		if (completed)
+			progress.remove(run);
+	}
+
+	private static String rate(long count, long nanos) {
+		return nanos <= 0 ? "unavailable" : String.format(Locale.ROOT, "%.1f", count * 1_000_000_000.0 / nanos);
+	}
+
+	String progressDiagnostics(Path run) {
+		final Progress p = progress.get(normalize(run));
+		return p == null
+				? "generation=unknown scope=since_start"
+				: "generation=" + p.generation + " lines=" + p.lines + " validPoints=" + p.points + " scope=since_start"
+						+ " committedOffset=" + p.offset + " processingMs=" + p.actualNs / 1_000_000 + " elapsedMs="
+						+ (nanoTime.getAsLong() - p.started) / 1_000_000;
+	}
+
+	private void cancelProgress(Path run, String reason) {
+		if (!progress.containsKey(run))
+			return;
+		log.info("Metrics cache cancelled: workspace={} run={} reason={} {}", workspaceName(run), run.getFileName(),
+				reason, progressDiagnostics(run));
+		progress.remove(run);
+	}
+
+	void releaseRun(Path run) {
+		cancelProgress(normalize(run), "target_removed");
+		forgetRun(run);
+	}
+
+	void close() {
+		for (Path run : Set.copyOf(progress.keySet()))
+			cancelProgress(run, "shutdown");
+		validatedObservations.clear();
+		seenGenerations.clear();
+	}
+
+	private static final class Progress {
+		final String generation;
+		final long started;
+		long lastLog, lines, points, offset, actualNs, prepareNs, readNs, flushNs, metaNs, commitNs, parseNs, l0Ns,
+				lodNs, jsonNs;
+		Progress(String generation, long start) {
+			this.generation = generation;
+			started = start;
+			lastLog = start;
+		}
+	}
+
+	private record CommitProgress(long offset, long lines, long points, long prepareNs, long readNs, long flushNs,
+			long metaNs, long commitNs, long parseNs, long l0Ns, long lodNs, long jsonNs) {
+	}
+
+	private record IngestAttempt(IngestOutcome outcome, boolean publishObservation, CommitProgress commit) {
+		private IngestAttempt(IngestOutcome outcome, boolean publishObservation) {
+			this(outcome, publishObservation, null);
+		}
 	}
 
 	private record ValidatedRunObservation(

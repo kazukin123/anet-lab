@@ -4,6 +4,8 @@ const API_BASE_URL = "/api";
 const AUTO_RELOAD_INTERVAL_MS = 30000;
 const INGEST_POLL_INTERVAL_MS = 4000;
 const VIEWPORT_DEBOUNCE_MS = 150;
+const DETAIL_CACHE_BYTES = 64 * 1024 * 1024;
+const PREVIEW_BINS = 64;
 const RUN_SOLO_INTERVAL_MS = 350;
 const GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX = 1;
 const HOVER_SCROLL_DELAY_MS = 300;
@@ -368,6 +370,7 @@ class DataCache {
 	constructor() {
 		this.runs = new Map();
 		this.windows = new Map();
+		this.previews = new Map();
 	}
 
 	updateRuns(runArray) {
@@ -382,14 +385,15 @@ class DataCache {
 
 	removeRun(runId) {
 		this.runs.delete(runId);
-		for (const key of this.windows.keys()) {
-			if (key.startsWith(`${runId}\u0000`)) this.windows.delete(key);
+		for (const map of [this.windows, this.previews]) {
+			for (const key of map.keys()) if (key.startsWith(`${runId}\u0000`)) map.delete(key);
 		}
 	}
 
 	clear() {
 		this.runs.clear();
 		this.windows.clear();
+		this.previews.clear();
 	}
 
 	getRuns() {
@@ -416,8 +420,8 @@ class DataCache {
 		return this.windows.get(this._key(runId, tagKey)) ?? null;
 	}
 
-	replaceWindow(result, request) {
-		const window = Object.freeze({
+	decodeWindow(result, request) {
+		return Object.freeze({
 			runId: result.runId,
 			tagKey: result.tagKey,
 			generation: result.generation,
@@ -425,29 +429,57 @@ class DataCache {
 			toStep: result.toStep,
 			availability: result.availability,
 			pointBudget: result.pointBudget,
-			level: result.level,
-			bucketWidth: result.bucketWidth,
+			stepBucketWidth: result.stepBucketWidth,
 			issues: Object.freeze([...(result.issues ?? [])]),
 			projection: decodeProjection(result.projection),
-			requestedViewportWidth: request.viewportWidth,
 			tagCount: request.tagCount,
 			tagMaxStep: request.tagMaxStep,
 			tagStatus: request.tagStatus
 		});
-		this.windows.set(this._key(result.runId, result.tagKey), window);
-		return window;
+	}
+
+	// 1 graph分のdecodeがすべて成功した後で一括公開する。
+	replaceGraph(results, requests, preview = false) {
+		const windows = results.map((result, index) => this.decodeWindow(result, requests[index]));
+		const map = preview ? this.previews : this.windows;
+		for (const window of windows) map.set(this._key(window.runId, window.tagKey), window);
+	}
+
+	windowBytes(window) {
+		const bytes = value => ArrayBuffer.isView(value) ? value.byteLength
+				: value && typeof value === "object" ? Object.values(value).reduce((sum, item) => sum + bytes(item), 0) : 0;
+		return 1024 + bytes(window.projection);
+	}
+
+	detailBytes() {
+		return [...this.windows.values()].reduce((sum, window) => sum + this.windowBytes(window), 0);
+	}
+
+	retainWindows(runIds, tagKeys, nearbyTags) {
+		// 選択対象は容量内で保持する。近傍をLRUの末尾へ動かし、遠い古いwindowから解放する。
+		for (const map of [this.windows, this.previews]) {
+			for (const [key, window] of map) {
+				if (!runIds.has(window.runId) || !tagKeys.has(window.tagKey)) map.delete(key);
+			}
+		}
+		for (const [key, window] of [...this.windows]) {
+			if (nearbyTags.has(window.tagKey)) { this.windows.delete(key); this.windows.set(key, window); }
+		}
+		let size = this.detailBytes();
+		for (const [key, window] of this.windows) {
+			if (size <= DETAIL_CACHE_BYTES) break;
+			if (nearbyTags.has(window.tagKey)) continue;
+			size -= this.windowBytes(window);
+			this.windows.delete(key);
+		}
 	}
 
 	needsFetch(runId, tagKey, target, viewport, { force = false, refresh = false } = {}) {
 		if (force) return true;
 		const current = this.getWindow(runId, tagKey);
 		if (!current || current.generation !== this.getRun(runId)?.generation) return true;
-		if (current.fromStep > target.fromStep || current.toStep < target.toStep) return true;
-		if (current.level > 0
-				&& Number.isFinite(current.requestedViewportWidth)
-				&& viewport.width < current.requestedViewportWidth * 0.75) {
-			return true;
-		}
+		if (current.fromStep > viewport.from || current.toStep < viewport.to) return true;
+		if (current.availability === "ok" && current.stepBucketWidth !== target.stepBucketWidth) return true;
 		return refresh && this.isOutdated(current, this.getTag(runId, tagKey));
 	}
 
@@ -700,9 +732,93 @@ class HoverOverlay {
 	}
 }
 
+// 概観は同じPlotly描画から作り、画像生成だけを背景で直列実行する。
+class OverviewSvgRenderer {
+	constructor(priority, onFailure) {
+		this.priority = priority;
+		this.onFailure = onFailure;
+		this.snapshots = new Map();
+		this.pending = new Map();
+		this.failures = new Map();
+		this.epoch = 0;
+		this.running = false;
+		this.workbench = null;
+	}
+
+	request(tagKey, key, figure, isCurrent, publish) {
+		const previous = this.snapshots.get(tagKey);
+		if (previous && sameRenderKey(previous.key, key)) { Promise.resolve(publish(previous.url)).catch(this.onFailure); return; }
+		if (sameRenderKey(this.failures.get(tagKey)?.key, key)) return;
+		this.pending.set(tagKey, {tagKey, key, figure, isCurrent, publish, epoch:this.epoch});
+		this._drain();
+	}
+
+	retain(tagKeys) {
+		for (const map of [this.snapshots, this.pending, this.failures]) {
+			for (const key of map.keys()) if (!tagKeys.has(key)) map.delete(key);
+		}
+	}
+
+	clear() {
+		this.epoch++;
+		this.pending.clear(); this.snapshots.clear(); this.failures.clear();
+		if (!this.running && this.workbench) { this.workbench.remove(); this.workbench=null; }
+	}
+
+	async _drain() {
+		if (this.running) return;
+		this.running = true;
+		// 呼び出し元がblockと描画keyを公開してから、最初の仕事を開始する。
+		await Promise.resolve();
+		try {
+			while (this.pending.size) {
+				let job=null, distance=Infinity;
+				for (const candidate of this.pending.values()) {
+					const nextDistance=this.priority(candidate.tagKey);
+					if (!job || nextDistance<distance) { job=candidate; distance=nextDistance; }
+				}
+				this.pending.delete(job.tagKey);
+				if (job.epoch !== this.epoch || !job.isCurrent()) continue;
+				if (!this.workbench) {
+					this.workbench=document.createElement("div");
+					this.workbench.className="overview-workbench";
+					this.workbench.setAttribute("aria-hidden","true");
+					this.workbench.style.cssText="position:absolute;left:-100000px;top:0;pointer-events:none";
+					document.body.append(this.workbench);
+				}
+				try {
+					// 軸、凡例、Log、Bandを別実装せず、詳細と共通のfigureを描いてexportする。
+					await Plotly.newPlot(this.workbench,job.figure.data,job.figure.layout,{staticPlot:true,displayModeBar:false});
+					const url=await Plotly.toImage(this.workbench,{format:"svg",width:job.figure.layout.width,height:job.figure.layout.height});
+					if (job.epoch === this.epoch && job.isCurrent()) {
+						this.failures.delete(job.tagKey);
+						this.snapshots.set(job.tagKey,{key:job.key,url});
+						await job.publish(url);
+					}
+				} catch (error) {
+					if (job.epoch === this.epoch && job.isCurrent()) {
+						const failure=new Error(`Overview render failed: tag=${job.tagKey}; ${error.message}`);
+						this.failures.set(job.tagKey,{key:job.key,error:failure});
+						this.onFailure(failure);
+					}
+				} finally { Plotly.purge(this.workbench); }
+				// 1件ずつ制御を返し、scroll/選択変更/詳細応答を画像生成待ちにしない。
+				await new Promise(resolve=>setTimeout(resolve,0));
+			}
+		} finally { this.running=false; }
+	}
+}
+
 class PlotlyController {
 	constructor(app) {
 		this.app = app;
+		this.blocks = new Map();
+		this.overviews = new OverviewSvgRenderer(tagKey => {
+			const block=this.blocks.get(tagKey);
+			const area=document.getElementById("main-area").getBoundingClientRect();
+			const rect=block?.getBoundingClientRect();
+			return rect ? Math.max(area.top-rect.bottom,rect.top-area.bottom,0) : Infinity;
+		}, error => { this.app._setUpdateFailure("metrics",error); this.app._handleQueryError(error); this.app._renderCurrent(); });
 	}
 
 	static signedLogValue(value) {
@@ -986,64 +1102,193 @@ class PlotlyController {
 		return [...ticks].sort((a, b) => a - b);
 	}
 
-	renderBySelection(containerSelector, runIds, tagKeys, cache) {
-		const area = document.querySelector(containerSelector);
+	// データ選択は描画器へ依存させず、同じgraphの全Runがそろった層だけを返す。
+	_selectGraphData(tagKey, runIds, cache, nearbyTags) {
+		const viewport=this.app._viewportFor(tagKey);
+		const width=viewport ? this.app._stepBucketWidth(tagKey,viewport) : null;
+		const details=runIds.map(id=>cache.getWindow(id,tagKey));
+		const detailReady=nearbyTags.has(tagKey) && runIds.every((id,index)=>
+			!cache.getTag(id,tagKey) || (details[index] && details[index].generation===cache.getRun(id)?.generation
+				&& (details[index].availability!=="ok" || details[index].stepBucketWidth===width)));
+		const previews=runIds.map(id=>cache.previews.get(cache._key(id,tagKey)));
+		const target=this.app._previewTarget(tagKey);
+		const previewReady=target && runIds.every((id,index)=>
+			!cache.getTag(id,tagKey) || (previews[index] && previews[index].generation===cache.getRun(id)?.generation
+				&& (previews[index].availability!=="ok" || previews[index].stepBucketWidth===target.stepBucketWidth)));
+		const windows=detailReady ? details : previewReady ? previews : [];
+		const traces=windows.flatMap((window,index)=>window?.availability==="ok"
+			? this._makeSeriesTraces(runIds[index],tagKey,window) : []);
+		return traces.length ? {tagKey,runIds,windows,traces,preview:!detailReady} : null;
+	}
+
+	_graphDisplayKey(tagKey, runIds, width) {
+		const viewport=this.app.explicitViewport(tagKey)?.range;
+		const yRange=this.app.manualYRange(tagKey);
+		const bounds=this.app.percentileBounds(tagKey);
+		return [width,this.app.lodDisplayMode,this.app.logScaleTags.has(tagKey),bounds.lower,bounds.upper,
+			viewport?.[0],viewport?.[1],yRange?.[0],yRange?.[1],this.app.graphScrollLockActive(),
+			...runIds.flatMap(id=>[id,this.app.isLegendSeriesHidden(tagKey,id),this.app.runColorMap.get(id)])];
+	}
+
+	_graphModel(data, block) {
+		const width=this._plotWidth(block);
+		const displayKey=this._graphDisplayKey(data.tagKey,data.runIds,width);
+		return {...data,displayKey,
+			key:[data.preview,...displayKey,...this._graphRenderKey(data.tagKey,data.runIds,data.windows,data.runIds.length>1)],
+			figure:this._graphPresentation(data.tagKey,data.runIds,data.traces,width)};
+	}
+
+	renderBySelection(containerSelector, runIds, tagKeys, cache, nearbyTags) {
+		const area=document.querySelector(containerSelector);
 		this.capturePlotState(area);
-		this.app.pruneLegendVisibility(runIds, tagKeys);
+		this.app.pruneLegendVisibility(runIds,tagKeys);
 		this.app.prunePlotDragModes(tagKeys);
 		this.app.pruneManualYRanges(tagKeys);
-
-		// 表示中のgraph blockをtagKeyで引き、描画keyが同じものはPlotlyを呼ばずにそのまま使う。
-		// Reloadで一部のtagだけ取り直したときに、変わっていないgraphまで作り直さないため。
-		const previousBlocks = new Map();
-		for (const block of area.querySelectorAll(":scope > .graph-block")) {
-			previousBlocks.set(block.dataset.tagKey, block);
-		}
-		const entries = [];
-		const sortedRuns = runIds.slice().sort((a, b) => a.localeCompare(b));
-		// Runが未選択ならgraphは1枚も描かず、末尾で案内文だけを出す。
+		this.overviews.retain(new Set(tagKeys));
+		const previous=new Map([...area.querySelectorAll(":scope > .graph-block")].map(b=>[b.dataset.tagKey,b]));
+		const sortedRuns=runIds.slice().sort((a,b)=>a.localeCompare(b));
+		let cursor=area.firstElementChild;
+		// 外枠とheaderを保ち、描画の完成時にだけ内側を差し替える。
 		for (const tagKey of runIds.length ? tagKeys : []) {
-			const windows = sortedRuns.map(runId => cache.getWindow(runId, tagKey));
-			const renderKey = this._graphRenderKey(tagKey, sortedRuns, windows, runIds.length > 1);
-			const previous = previousBlocks.get(tagKey);
-			if (previous && sameRenderKey(previous.__mvRenderKey, renderKey)) {
-				previousBlocks.delete(tagKey);
-				entries.push({ tagKey, block: previous });
-				continue;
+			let block=previous.get(tagKey);
+			if (block) {
+				previous.delete(tagKey);
+				if (block===cursor) cursor=cursor.nextElementSibling;
+				else area.insertBefore(block,cursor);
+			} else block=this._createPlaceholder(area,cursor,tagKey);
+			this.blocks.set(tagKey,block);
+			const data=this._selectGraphData(tagKey,sortedRuns,cache,nearbyTags);
+			if (!data) { block.__mvRequestedModel=null; this._renderGraphHeaderInfo(block.querySelector('.graph-header'),tagKey); continue; }
+			const model=this._graphModel(data,block);
+			if (!block.querySelector('.graph-log-toggle')) {
+				block.querySelector('.graph-header').replaceWith(this._createGraphHeader(tagKey,model.figure));
 			}
-			const traces = [];
-			sortedRuns.forEach((runId, index) => {
-				if (windows[index]?.availability !== "ok") return;
-				traces.push(...this._makeSeriesTraces(runId, tagKey, windows[index]));
-			});
-			if (traces.length) entries.push({ tagKey, traces, renderKey });
+			this._updateGraphHeader(block,model);
+			if (sameRenderKey(block.__mvRequestedModel?.key,model.key)) continue;
+			block.__mvRequestedModel=model;
+			if (model.preview) this._renderOverview(block,model);
+			else this._renderDetail(block,model);
 		}
-
-		// 選択から外れたtagと作り直すtagの旧block、空表示の案内文と空白textを片付ける。
-		for (const block of previousBlocks.values()) this._disposeGraphBlock(block);
+		for (const block of previous.values()) this._disposeGraphBlock(block);
 		for (const node of [...area.childNodes]) {
-			if (!(node instanceof Element && node.classList.contains("graph-block"))) node.remove();
+			if (!(node instanceof Element && node.classList.contains('graph-block'))) node.remove();
 		}
-
-		// tagの並び順どおりに置く。使い回すblockは移動するだけで、新しいblockはここで描く。
-		let cursor = area.firstElementChild;
-		const reusedBlocks = [];
-		for (const entry of entries) {
-			if (entry.block) {
-				if (entry.block === cursor) cursor = cursor.nextElementSibling;
-				else area.insertBefore(entry.block, cursor);
-				this._renderGraphHeaderInfo(entry.block.querySelector(".graph-header"), entry.tagKey);
-				reusedBlocks.push(entry.block);
-				continue;
-			}
-			const block = this._createGraphBlock(area, cursor, entry.tagKey, runIds, entry.traces);
-			block.__mvRenderKey = entry.renderKey;
-		}
-		// 使い回したgraphも、scrollbarの出入りで変わったblock幅にだけは合わせる。
-		this._syncPlotWidths(reusedBlocks);
-		if (!entries.length) this._empty(area, runIds.length ? "No metrics data." : "No selection.");
-		return entries.length > 0;
+		this._syncPlotWidths([...area.querySelectorAll(':scope > .graph-block')]);
+		if (!runIds.length || !tagKeys.length) this._empty(area,runIds.length ? 'No metrics data.' : 'No selection.');
+		return runIds.length>0 && tagKeys.length>0;
 	}
+
+	_isCurrentModel(block, model) {
+		return block.isConnected && sameRenderKey(block.__mvRequestedModel?.key,model.key)
+			&& sameRenderKey(model.runIds,this.app.selectedRuns.slice().sort((a,b)=>a.localeCompare(b)))
+			&& sameRenderKey(model.displayKey,this._graphDisplayKey(model.tagKey,model.runIds,this._plotWidth(block)))
+			&& model.runIds.every((id,index)=>!model.windows[index]
+				|| model.windows[index].generation===this.app.cache.getRun(id)?.generation);
+	}
+
+	_updateGraphHeader(block, model) {
+		const header=block.querySelector('.graph-header');
+		setToggleState(header.querySelector('.graph-log-toggle'),this.app.logScaleTags.has(model.tagKey));
+		this._setPercentileButtonStates(header.querySelector('.graph-lower-percentile'),
+			header.querySelector('.graph-upper-percentile'),this.app.percentileBounds(model.tagKey),model.figure.outlierRange);
+		this._renderGraphHeaderInfo(header,model.tagKey);
+	}
+
+	_commitGraphContent(block, model, node) {
+		if (!this._isCurrentModel(block,model)) return false;
+		for (const previous of block.querySelectorAll(':scope > .js-plotly-plot, :scope > .graph-preview')) {
+			if (previous===node || previous.__mvStage) continue;
+			if (previous.classList.contains('js-plotly-plot')) Plotly.purge(previous);
+			previous.remove();
+		}
+		block.querySelector('.graph-hover-overlay')?.remove();
+		node.__mvStage=false; delete node.dataset.renderStage;
+		node.style.position=''; node.style.top=''; node.style.left=''; node.style.visibility='';
+		if (!node.isConnected) block.append(node);
+		block.__mvDisplayedModel=model;
+		this._updateGraphHeader(block,model);
+		return true;
+	}
+
+	_renderOverview(block, model) {
+		this.overviews.request(model.tagKey,model.key,model.figure,()=>this._isCurrentModel(block,model),async url=>{
+			const image=document.createElement('img'); image.className='graph-preview';
+			image.alt=`${model.tagKey}: ${model.runIds.join(', ')}`;
+			image.style.cssText=`display:block;width:${model.figure.layout.width}px;height:${model.figure.layout.height}px`;
+			image.src=url;
+			// SVGのdecode完了まで古い表示を残し、画像の読み替えでも空白を作らない。
+			await image.decode();
+			this._commitGraphContent(block,model,image);
+		});
+	}
+
+	_renderDetail(block, model) {
+		const plot=document.createElement('div');
+		plot.__mvStage=true; plot.dataset.renderStage='true';
+		plot.style.cssText=`position:absolute;top:${block.querySelector('.graph-header').offsetHeight}px;left:0;visibility:hidden`;
+		block.append(plot);
+		// 完成前のPlotlyは表示状態の読み戻し対象にせず、完成時に1 graph分を公開する。
+		Promise.resolve().then(()=>Plotly.newPlot(plot,model.figure.data,model.figure.layout,
+			{displayModeBar:'hover',responsive:false,useResizeHandler:false})).then(()=>{
+			if (!this._commitGraphContent(block,model,plot)) { Plotly.purge(plot); plot.remove(); return; }
+			plot.id=graphId(model.tagKey);
+			plot.__mvRawTraces=model.traces;
+			HoverOverlay.attach(block,plot,this.app);
+			this._installPlotEvents(plot,block,model.tagKey,model.runIds,model.traces);
+		}).catch(error=>{
+			Plotly.purge(plot); plot.remove();
+			if (this._isCurrentModel(block,model)) {
+				this.app._setUpdateFailure('metrics',error); this.app._handleQueryError(error);
+			}
+		});
+	}
+
+	_createPlaceholder(area, before, tagKey) {
+		const block = document.createElement("div");
+		block.className = "graph-block";
+		block.dataset.tagKey = tagKey;
+		const header = document.createElement("div");
+		header.className = "graph-header";
+		const title = document.createElement("div");
+		title.className = "graph-title";
+		title.textContent = tagKey;
+		header.append(title);
+		this._renderGraphHeaderInfo(header, tagKey);
+		block.append(header);
+		area.insertBefore(block, before);
+		return block;
+	}
+
+	_graphPresentation(tagKey, runIds, traces, width) {
+		const signedLogScale=this.app.logScaleTags.has(tagKey);
+		const viewport=this.app.explicitViewport(tagKey);
+		const outlierRange=this._percentileRange(tagKey,traces,viewport?.range ?? null);
+		const layout=this._makeLayout(width,runIds.length>1,signedLogScale,traces,{
+			xRange:viewport?.range ?? null,
+			yRange:this.app.manualYRange(tagKey) ?? this._outlierDisplayRange(outlierRange,signedLogScale),
+			dragMode:this.app.graphScrollLockActive() ? false : this.app.plotDragMode(tagKey)
+		});
+		if (layout.dragmode===undefined) delete layout.dragmode;
+		return {outlierRange,layout,data:this._toDisplayTraces(traces,signedLogScale)};
+	}
+
+	_createGraphHeader(tagKey, presentation) {
+		const header=document.createElement("div"); header.className="graph-header";
+		const title=document.createElement("div"); title.className="graph-title"; title.textContent=tagKey;
+		const log=document.createElement("button"); log.type="button"; log.className="graph-log-toggle";
+		log.textContent="Log"; log.title="Toggle signed log scale";
+		setToggleState(log,this.app.logScaleTags.has(tagKey));
+		const lower=document.createElement("button"); lower.type="button"; lower.className="graph-lower-percentile";
+		const upper=document.createElement("button"); upper.type="button"; upper.className="graph-upper-percentile";
+		this._setPercentileButtonStates(lower,upper,this.app.percentileBounds(tagKey),presentation.outlierRange);
+		header.append(title,log,lower,upper);
+		this._renderGraphHeaderInfo(header,tagKey);
+		log.addEventListener("click",event=>{event.stopPropagation();this.app.onToggleLog(tagKey);});
+		lower.addEventListener("click",event=>{event.stopPropagation();this.app.onCycleLowerPercentile(tagKey);});
+		upper.addEventListener("click",event=>{event.stopPropagation();this.app.onCycleUpperPercentile(tagKey);});
+		return header;
+	}
+
 
 	// graphの描画結果を決める入力を並べる。凡例の表示・軸範囲・drag modeはPlotly上で直接変わり、
 	// capturePlotStateで描画中のgraphから読み戻すので、使い回すgraphと常に一致しており含めない。
@@ -1063,8 +1308,8 @@ class PlotlyController {
 	}
 
 	_disposeGraphBlock(block) {
-		const plot = block.querySelector(".js-plotly-plot");
-		if (plot) Plotly.purge(plot);
+		for (const plot of block.querySelectorAll(".js-plotly-plot")) Plotly.purge(plot);
+		this.blocks.delete(block.dataset.tagKey);
 		block.remove();
 	}
 
@@ -1075,13 +1320,13 @@ class PlotlyController {
 					plot: block.querySelector(".js-plotly-plot"),
 					width: this._plotWidth(block)
 				}))
-				.filter(({ plot, width }) => plot && plot._fullLayout?.width !== width);
+				.filter(({ plot, width }) => plot && !plot.__mvStage && plot._fullLayout?.width !== width);
 		for (const { plot, width } of updates) Plotly.relayout(plot, { width });
 	}
 
 	// metadataから決まる警告と統計。graphを使い回すときもmetadataを取り直すたびに更新する。
 	_renderGraphHeaderInfo(header, tagKey) {
-		const issue = this.app.issueForTag(tagKey);
+		const issue = [this.app.issueForTag(tagKey),this.overviews.failures.get(tagKey)?.error.message].filter(Boolean).join("\n");
 		let warning = header.querySelector(":scope > .graph-warning");
 		let statsElement = header.querySelector(":scope > .graph-stats");
 		if (issue) {
@@ -1115,82 +1360,10 @@ class PlotlyController {
 	}
 
 	// 1 tag分のgraph blockを作り、beforeの前へ入れてから描く。幅を測るためDOMへ先に入れる。
-	_createGraphBlock(area, before, tagKey, runIds, traces) {
-		const block = document.createElement("div");
-		block.className = "graph-block";
-		block.dataset.tagKey = tagKey;
-		const header = document.createElement("div");
-		header.className = "graph-header";
-		const title = document.createElement("div");
-		title.className = "graph-title";
-		title.textContent = tagKey;
-		const logButton = document.createElement("button");
-		logButton.type = "button";
-		logButton.className = "graph-log-toggle";
-		logButton.textContent = "Log";
-		logButton.title = "Toggle signed log scale";
-		const signedLogScale = this.app.logScaleTags.has(tagKey);
-		setToggleState(logButton, signedLogScale);
-		const viewport = this.app.explicitViewport(tagKey);
-		const lowerPercentileButton = document.createElement("button");
-		lowerPercentileButton.type = "button";
-		lowerPercentileButton.className = "graph-lower-percentile";
-		const upperPercentileButton = document.createElement("button");
-		upperPercentileButton.type = "button";
-		upperPercentileButton.className = "graph-upper-percentile";
-		const outlierRange = this._percentileRange(tagKey, traces, viewport?.range ?? null);
-		this._setPercentileButtonStates(
-				lowerPercentileButton,
-				upperPercentileButton,
-				this.app.percentileBounds(tagKey),
-				outlierRange);
-		header.append(title, logButton, lowerPercentileButton, upperPercentileButton);
-
-		this._renderGraphHeaderInfo(header, tagKey);
-
-		const plot = document.createElement("div");
-		plot.id = graphId(tagKey);
-		block.append(header, plot);
-		area.insertBefore(block, before);
-
-		const layout = this._makeLayout(
-				this._plotWidth(block),
-				runIds.length > 1,
-				signedLogScale,
-				traces,
-				{
-					xRange: viewport?.range ?? null,
-					yRange: this.app.manualYRange(tagKey)
-							?? this._outlierDisplayRange(outlierRange, signedLogScale),
-					dragMode: this.app.graphScrollLockActive()
-							? false
-							: this.app.plotDragMode(tagKey)
-				});
-		if (layout.dragmode === undefined) delete layout.dragmode;
-		Plotly.newPlot(
-				plot,
-				this._toDisplayTraces(traces, signedLogScale),
-				layout,
-				{
-					displayModeBar: "hover",
-					responsive: false,
-					useResizeHandler: false
-				});
-		plot.__mvRawTraces = traces;
-		HoverOverlay.attach(block, plot, this.app);
-
-		logButton.addEventListener("click", event => {
-			event.stopPropagation();
-			this.app.onToggleLog(tagKey);
-		});
-		lowerPercentileButton.addEventListener("click", event => {
-			event.stopPropagation();
-			this.app.onCycleLowerPercentile(tagKey);
-		});
-		upperPercentileButton.addEventListener("click", event => {
-			event.stopPropagation();
-			this.app.onCycleUpperPercentile(tagKey);
-		});
+	_installPlotEvents(plot, block, tagKey, runIds, traces) {
+		const header=block.querySelector('.graph-header');
+		const lowerPercentileButton=header.querySelector('.graph-lower-percentile');
+		const upperPercentileButton=header.querySelector('.graph-upper-percentile');
 		plot.on("plotly_relayout", event => {
 			if (plot.__mvUpdatingPlot) return;
 			if (this.app.graphScrollLockActive()
@@ -1276,7 +1449,6 @@ class PlotlyController {
 					this._toDisplayTraces(currentTraces, currentSignedLogScale),
 					nextLayout);
 		});
-		return block;
 	}
 
 	capturePlotState(root) {
@@ -1284,6 +1456,7 @@ class PlotlyController {
 				? [root]
 				: Array.from(root?.querySelectorAll?.(".js-plotly-plot") ?? []);
 		for (const plot of plots) {
+			if (plot.__mvStage) continue;
 			const tagKey = Array.from(plot.data ?? [])
 					.find(trace => typeof trace.meta?.tagKey === "string")?.meta.tagKey;
 			const dragMode = plot._fullLayout?.dragmode ?? plot.layout?.dragmode;
@@ -1383,7 +1556,7 @@ class PlotlyController {
 	}
 
 	async resetView() {
-		const plots = Array.from(document.querySelectorAll(".graph-block .js-plotly-plot"));
+		const plots = Array.from(document.querySelectorAll(".graph-block .js-plotly-plot")).filter(plot=>!plot.__mvStage);
 		await Promise.all(plots.map(async plot => {
 			const rawTraces = this._applyLegendVisibility(plot.__mvRawTraces ?? []);
 			const tagKey = rawTraces
@@ -1694,7 +1867,13 @@ class UIController {
 		const lodMode = document.getElementById("lod-display-mode");
 		lodMode.value = this.app.lodDisplayMode;
 		lodMode.onchange = () => this.app.onLodDisplayModeChanged(lodMode.value);
-		window.addEventListener("resize", () => this.app.plotly.resizeAll());
+		window.addEventListener("resize", () => {
+			this.app.plotly.resizeAll();
+			this.app.onGraphVisibilityChanged();
+		});
+		document.getElementById("main-area").addEventListener("scroll",
+				() => this.app.onGraphVisibilityChanged(), { passive: true });
+		window.addEventListener("scroll", () => this.app.onGraphVisibilityChanged(), { passive: true });
 
 		const mainArea = document.getElementById("main-area");
 		const graphDblClickReloadHandler = event => {
@@ -1789,6 +1968,9 @@ class MetricsViewerClientApp {
 		this.polling = false;
 		this.initialSelectionApplied = false;
 		this.queryRevision = 0;
+		this.metricsRequestRevision = 0;
+		this.graphVisibilityTimer = null;
+		this.graphRenderFrame = null;
 		this.metadataRevision = 0;
 		this.viewportDebounceTimer = null;
 		this.updateFailures = { metadata: null, metrics: null };
@@ -1935,6 +2117,7 @@ class MetricsViewerClientApp {
 	}
 
 	_resetWorkspaceState() {
+		this.plotly.overviews.clear();
 		this.cache.clear();
 		this.selectedRuns = [];
 		this.runColorMap.clear();
@@ -2163,75 +2346,140 @@ class MetricsViewerClientApp {
 
 	// refresh=trueはReload(手動・Auto)用で、取得後にtagが変わったwindowも取り直す。
 	async requestVisibleData({
-		force = false,
-		eligibleRunIds = null,
-		followOnly = false,
-		refresh = false
+		force = false, eligibleRunIds = null, followOnly = false, refresh = false
 	} = {}) {
 		const revision = this.queryRevision;
-		const series = [];
-		const requestContext = [];
-		for (const tagKey of this._visibleSelectedTags()) {
-			const viewport = this._viewportFor(tagKey);
-			if (!viewport) continue;
-			if (followOnly && !this._isFollowing(tagKey, viewport)) continue;
-			const target = this._windowFor(viewport);
-			const runIds = this.selectedRuns.filter(runId =>
-				this.cache.getRun(runId)
-					&& this.cache.getTag(runId, tagKey)
-					&& (!eligibleRunIds || eligibleRunIds.has(runId)));
-			// 1つのgraphに載る系列は同じrequestで取り、点予算の配分をgraph内でそろえる。
-			// どれか1系列でも取り直しが要れば、そのgraphの系列をまとめて取り直す。
-			const stale = runIds.some(runId =>
-				this.cache.needsFetch(runId, tagKey, target, viewport, { force, refresh }));
-			if (!stale) continue;
-			for (const runId of runIds) {
-				series.push({
-					runId,
-					tagKey,
-					fromStep: target.fromStep,
-					toStep: target.toStep
-				});
-				requestContext.push({
-					runId,
-					tagKey,
-					generation: this.cache.getRun(runId).generation,
-					viewportWidth: viewport.width,
-					...tagVersion(this.cache.getTag(runId, tagKey))
-				});
+		const requestRevision = ++this.metricsRequestRevision;
+		this.fetcher.abortMetrics();
+		const current = () => revision === this.queryRevision && requestRevision === this.metricsRequestRevision;
+		const groups = [];
+		const nearby = this._nearbyTags();
+		const tags = this._visibleSelectedTags();
+		const rank = tag => {
+			const blocks = [...document.querySelectorAll("#main-area > .graph-block")];
+			const block = blocks.find(b => b.dataset.tagKey === tag);
+			const area = document.getElementById("main-area").getBoundingClientRect();
+			const rect = block?.getBoundingClientRect();
+			return rect ? Math.max(area.top - rect.bottom, rect.top - area.bottom, 0) : tags.indexOf(tag) * 300;
+		};
+		const ordered = tags.slice().sort((a, b) => rank(a) - rank(b));
+		if (this.mode !== Mode.SCREENSHOT && tags.some(tag => !nearby.has(tag))) {
+			const previews = [];
+			for (const tagKey of ordered) {
+				const target = this._previewTarget(tagKey);
+				if (!target) continue;
+				const runIds = this.selectedRuns.filter(runId => this.cache.getTag(runId, tagKey));
+				if (!runIds.some(runId => {
+					const window = this.cache.previews.get(this.cache._key(runId, tagKey));
+					return !window || window.stepBucketWidth !== target.stepBucketWidth
+						|| window.fromStep > target.fromStep || window.toStep < target.toStep
+						|| (refresh && this.cache.isOutdated(window, this.cache.getTag(runId, tagKey)));
+				})) continue;
+				previews.push({ preview: true,
+					series: runIds.map(runId => ({runId, tagKey, ...target, maxPoints:3*(PREVIEW_BINS+2)})),
+					contexts: runIds.map(runId => ({runId, tagKey, generation:this.cache.getRun(runId).generation,
+						...tagVersion(this.cache.getTag(runId, tagKey))})) });
 			}
+			// 概観は小さいbatchで先に届け、遠いタグも詳細取得前から線を表示する。
+			for (let i=0; i<previews.length; i+=8) groups.push({preview:true,
+				series:previews.slice(i,i+8).flatMap(g => g.series), contexts:previews.slice(i,i+8).flatMap(g => g.contexts)});
 		}
-		if (!series.length) return;
+		for (const tagKey of ordered) {
+			const viewport = this._viewportFor(tagKey);
+			if (!viewport || (followOnly && !this._isFollowing(tagKey, viewport))) continue;
+			const target = this._windowFor(viewport, this._stepBucketWidth(tagKey, viewport));
+			const runIds = this.selectedRuns.filter(runId => this.cache.getTag(runId, tagKey));
+			if (eligibleRunIds && !runIds.some(runId => eligibleRunIds.has(runId))) continue;
+			if (!runIds.some(runId => this.cache.needsFetch(runId, tagKey, target, viewport, {force, refresh}))) continue;
+			const maxPoints = 3 * (Math.floor(target.toStep / target.stepBucketWidth)
+					- Math.floor(target.fromStep / target.stepBucketWidth) + 1);
+			groups.push({
+				background: !nearby.has(tagKey),
+				series: runIds.map(runId => ({runId, tagKey, ...target, maxPoints})),
+				contexts: runIds.map(runId => ({runId, tagKey,
+					generation: this.cache.getRun(runId).generation,
+					...tagVersion(this.cache.getTag(runId, tagKey))}))
+			});
+		}
+		if (!groups.length) {
+			this.ui.setLoadingSpinner(false);
+			return;
+		}
 
 		this.ui.setLoadingSpinner(true);
 		try {
-			const payload = await this.fetcher.fetchMetrics(series);
-			if (revision !== this.queryRevision) return;
-			this._setUpdateFailure("metrics", null);
-			const contextBySeries = new Map(requestContext.map(expected => [
-				`${expected.runId}\u0000${expected.tagKey}`,
-				expected
-			]));
-			for (const result of payload.data ?? []) {
-				const expected = contextBySeries.get(`${result.runId}\u0000${result.tagKey}`);
-				if (!expected) continue;
-				const run = this.cache.getRun(result.runId);
-				if (!run
-						|| !this.selectedRuns.includes(result.runId)
-						|| !this.activeTags.has(result.tagKey)
-						|| run.generation !== expected.generation
-						|| result.generation !== expected.generation) {
-					continue;
+			// 全tagを共有予算へ詰め込まず、graphごとに順次照会する。
+			for (const group of groups) {
+				if (!current()) return;
+				// 先読みは残容量内だけ。画面内の要求は優先し、容量超過時は遠いLRUを解放する。
+				if (group.background && this.mode !== Mode.SCREENSHOT) {
+					const needed = group.series.reduce((sum, series) => sum + series.maxPoints*28 + 1024, 0);
+					if (this.cache.detailBytes() + needed > DETAIL_CACHE_BYTES) break;
 				}
-				this.cache.replaceWindow(result, expected);
+				const payload = await this.fetcher.fetchMetrics(group.series);
+				if (!current()) return;
+				const bySeries = new Map((payload.data ?? []).map(result => [`${result.runId}\u0000${result.tagKey}`, result]));
+				const results = group.series.map(series => bySeries.get(`${series.runId}\u0000${series.tagKey}`));
+				const valid = group.contexts.every((expected, index) => {
+					const result = results[index], series = group.series[index];
+					return result && result.tagKey === expected.tagKey
+						&& this.selectedRuns.includes(expected.runId) && this.activeTags.has(expected.tagKey)
+						&& this.cache.getRun(expected.runId)?.generation === expected.generation
+						&& result.generation === expected.generation
+						&& (result.availability !== "ok" || result.stepBucketWidth === series.stepBucketWidth);
+				});
+				if (!valid) continue;
+				this.cache.replaceGraph(results, group.contexts, group.preview);
+				this._renderCurrent();
 			}
-			this._renderCurrent();
+			if (current()) this._setUpdateFailure("metrics", null);
 		} catch (error) {
-			if (revision === this.queryRevision) this._setUpdateFailure("metrics", error);
+			if (current()) this._setUpdateFailure("metrics", error);
 			throw error;
 		} finally {
-			if (revision === this.queryRevision) this.ui.setLoadingSpinner(false);
+			if (current()) this.ui.setLoadingSpinner(false);
 		}
+	}
+
+	_previewTarget(tagKey) {
+		const stats = this.selectedRuns.map(id => this.cache.getTag(id, tagKey)?.stats).filter(Boolean);
+		if (!stats.length) return null;
+		const from = Math.min(...stats.map(s => Number(s.minStep)));
+		const to = Math.max(...stats.map(s => Number(s.maxStep)));
+		const stepBucketWidth = Math.max(1, Math.ceil((to - from + 1) / PREVIEW_BINS));
+		return {fromStep:clampSafeStep(Math.floor(from / stepBucketWidth) * stepBucketWidth),
+			toStep:clampSafeStep((Math.floor(to / stepBucketWidth)+1)*stepBucketWidth-1), stepBucketWidth};
+	}
+
+	_stepBucketWidth(tagKey, viewport) {
+		const block = [...document.querySelectorAll("#main-area > .graph-block")]
+				.find(block => block.dataset.tagKey === tagKey);
+		const pixels = block?.getBoundingClientRect().width ?? document.getElementById("main-area").clientWidth;
+		const targetBins = Math.max(256, Math.min(2000, Math.floor(pixels)));
+		return Math.max(1, Math.ceil(viewport.width / targetBins));
+	}
+
+	_nearbyTags() {
+		const tags = this._visibleSelectedTags();
+		if (this.mode === Mode.SCREENSHOT) return new Set(tags);
+		const area = document.getElementById("main-area");
+		const bounds = area.getBoundingClientRect();
+		const blocks = [...area.querySelectorAll(":scope > .graph-block")];
+		if (!blocks.length) return new Set(tags.slice(0, Math.ceil(bounds.height * 2 / 310)));
+		return new Set(blocks.filter(block => {
+			const rect = block.getBoundingClientRect();
+			return rect.bottom >= bounds.top - bounds.height && rect.top <= bounds.bottom + bounds.height;
+		}).map(block => block.dataset.tagKey));
+	}
+
+	onGraphVisibilityChanged() {
+		if (this.graphRenderFrame===null) this.graphRenderFrame=requestAnimationFrame(()=>{
+			this.graphRenderFrame=null; this._renderCurrent();
+		});
+		clearTimeout(this.graphVisibilityTimer);
+		this.graphVisibilityTimer = setTimeout(() => {
+			this.requestVisibleData().catch(error => this._handleQueryError(error));
+		}, VIEWPORT_DEBOUNCE_MS);
 	}
 
 	_viewportFor(tagKey) {
@@ -2256,10 +2504,12 @@ class MetricsViewerClientApp {
 		return { from: min, to: max, width: Math.max(1, max - min), autorange: true };
 	}
 
-	_windowFor(viewport) {
+	_windowFor(viewport, stepBucketWidth) {
+		// prefetchを含めても表示粒度は変えない。両端を区間境界へそろえてpan時の再集約差を防ぐ。
 		return {
-			fromStep: clampSafeStep(Math.floor(viewport.from - viewport.width)),
-			toStep: clampSafeStep(Math.ceil(viewport.to + viewport.width))
+			fromStep: clampSafeStep(Math.floor((viewport.from - viewport.width) / stepBucketWidth) * stepBucketWidth),
+			toStep: clampSafeStep((Math.floor((viewport.to + viewport.width) / stepBucketWidth) + 1) * stepBucketWidth - 1),
+			stepBucketWidth
 		};
 	}
 
@@ -2478,11 +2728,13 @@ class MetricsViewerClientApp {
 
 	_renderCurrent() {
 		const anchor = this._captureScrollAnchor();
+		const nearby = this._nearbyTags();
+		this.cache.retainWindows(new Set(this.selectedRuns), new Set(this._visibleSelectedTags()), nearby);
 		this.plotly.renderBySelection(
 				"#main-area",
 				this.selectedRuns.slice(),
 				this._visibleSelectedTags(),
-				this.cache);
+				this.cache, nearby);
 		this._restoreScrollAnchor(anchor);
 		this._syncGraphScrollLockUi();
 	}
@@ -2601,6 +2853,8 @@ class MetricsViewerClientApp {
 				: "Metrics Viewer";
 		header.style.display = enabled ? "block" : "none";
 		this._restoreScrollAnchor(anchor);
+		this._renderCurrent();
+		this.requestVisibleData().catch(error => this._handleQueryError(error));
 		setTimeout(() => this.plotly.resizeAll(), 300);
 	}
 

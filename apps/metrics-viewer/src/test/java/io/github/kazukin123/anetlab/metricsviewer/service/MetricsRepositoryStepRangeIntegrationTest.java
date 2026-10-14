@@ -90,6 +90,7 @@ class MetricsRepositoryStepRangeIntegrationTest {
 		request.setRunId(RUN_ID);
 		request.setTagKey("loss");
 		request.setFromStep(fromStep);
+		request.setStepBucketWidth(1L);
 		request.setToStep(toStep);
 		return new MetricsQueryCoordinator(1).run(
 				new QueryChannel(java.util.UUID.randomUUID().toString()),

@@ -1,7 +1,6 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -14,8 +13,6 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.Issue;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricsSeriesRequest;
 
 final class MetricsQueryPlanner {
-	private static final int MIN_POINTS_PER_SERIES = 50;
-
 	private final MetricsViewerSettings settings;
 
 	MetricsQueryPlanner(MetricsViewerSettings settings) {
@@ -26,7 +23,7 @@ final class MetricsQueryPlanner {
 		final SeriesPlan[] plans = inputs.stream()
 				.map(this::inspect)
 				.toArray(SeriesPlan[]::new);
-		allocatePointBudgets(plans);
+		validatePointLimits(plans);
 		return plans;
 	}
 
@@ -90,43 +87,30 @@ final class MetricsQueryPlanner {
 		return plan;
 	}
 
-	private void allocatePointBudgets(SeriesPlan[] plans) {
-		long requiredMinimum = 0L;
+	private void validatePointLimits(SeriesPlan[] plans) {
+		// 明示されたStep粒度を固定する。容量不足を他系列の点予算の削減で隠さない。
+		long requiredPoints = 0L;
 		for (SeriesPlan plan : plans) {
 			if (plan.availability != SeriesAvailability.OK) continue;
 			final int requested = plan.request.getMaxPoints() == null
-					? settings.getTargetPointsPerSeries()
-					: plan.request.getMaxPoints();
-			plan.cap = (int) Math.min((long) requested, plan.availableVertices);
-			plan.pointBudget = Math.min(MIN_POINTS_PER_SERIES, plan.cap);
-			requiredMinimum += plan.pointBudget;
-		}
-		if (requiredMinimum > settings.getMaxPointsPerRequest()) {
-			final Map<String, Object> body = new LinkedHashMap<>();
-			body.put("seriesCount", plans.length);
-			body.put("requiredMinimumPoints", requiredMinimum);
-			body.put("maxPointsPerRequest", settings.getMaxPointsPerRequest());
-			throw new MetricsApiException(HttpStatus.UNPROCESSABLE_ENTITY, body);
-		}
-
-		int remaining = settings.getMaxPointsPerRequest() - (int) requiredMinimum;
-		while (remaining > 0) {
-			final List<SeriesPlan> active = java.util.Arrays.stream(plans)
-					.filter(plan -> plan.pointBudget < plan.cap)
-					.toList();
-			if (active.isEmpty()) break;
-			final int fairShare = Math.max(1, remaining / active.size());
-			boolean allocated = false;
-			for (SeriesPlan plan : active) {
-				final int addition =
-						Math.min(plan.cap - plan.pointBudget, Math.min(fairShare, remaining));
-				if (addition <= 0) continue;
-				plan.pointBudget += addition;
-				remaining -= addition;
-				allocated = true;
-				if (remaining == 0) break;
+					? settings.getTargetPointsPerSeries() : plan.request.getMaxPoints();
+			final long width = plan.request.getStepBucketWidth();
+			final long binCount = Math.floorDiv(plan.request.getToStep(), width)
+					- Math.floorDiv(plan.request.getFromStep(), width) + 1L;
+			final long needed = width == 1L && plan.availableVertices <= requested
+					? plan.availableVertices
+					: Math.min(plan.availableVertices, binCount * LodBucket.POINTS_PER_LOD_BUCKET);
+			if (needed > requested) {
+				throw new MetricsApiException(HttpStatus.UNPROCESSABLE_ENTITY, Map.of(
+						"seriesIndex", plan.index, "requiredPoints", needed, "maxPoints", requested));
 			}
-			if (!allocated) break;
+			plan.pointBudget = Math.toIntExact(needed);
+			requiredPoints += needed;
+		}
+		if (requiredPoints > settings.getMaxPointsPerRequest()) {
+			throw new MetricsApiException(HttpStatus.UNPROCESSABLE_ENTITY, Map.of(
+					"seriesCount", plans.length, "requiredPoints", requiredPoints,
+					"maxPointsPerRequest", settings.getMaxPointsPerRequest()));
 		}
 	}
 
@@ -163,7 +147,7 @@ final class MetricsQueryPlanner {
 	 * generationValueはmetadataを読めた場合の生値、generationはそのUUID変換に成功した場合に有効となる。
 	 * tagIdはtagを読めた場合に有効となる。
 	 * totalCount、ordinal範囲、availableVerticesは正のtag統計を読めた場合に有効となり、
-	 * capとpointBudgetはavailabilityがokの系列だけで配分値として有効となる。
+	 * pointBudgetはavailabilityがokの系列だけで応答の最大頂点数として有効となる。
 	 * totalCountは計画と同じsnapshotのtag全点数で、完成済みLOD bucket数の算出に使う。
 	 */
 	static final class SeriesPlan {
@@ -178,7 +162,6 @@ final class MetricsQueryPlanner {
 		private long ordinalTo;
 		private long availableVertices;
 		private SeriesAvailability availability;
-		private int cap;
 		private int pointBudget;
 
 		private SeriesPlan(

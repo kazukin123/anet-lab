@@ -134,6 +134,7 @@ class WorkspaceSnapshotIntegrationTest {
 		series.setRunId("same-run");
 		series.setTagKey("loss");
 		series.setFromStep(0L);
+		series.setStepBucketWidth(1L);
 		series.setToStep(0L);
 		series.setMaxPoints(3);
 		final GetMetricsRequest request = new GetMetricsRequest();

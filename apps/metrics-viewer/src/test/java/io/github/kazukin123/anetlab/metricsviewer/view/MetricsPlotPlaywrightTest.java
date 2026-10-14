@@ -181,17 +181,18 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		final int requestsBeforeRangeResponse = metricsRequests.get();
 		page.evaluate("""
-				() => Plotly.relayout(
-					document.getElementById(graphId('tag/a')),
-					{'xaxis.range': [0.5, 1.5]})
+				async () => {
+					await Plotly.relayout(document.getElementById(graphId('tag/a')), {'xaxis.range':[0.5,1.5]});
+					await app.requestVisibleData({force:true});
+				}
 				""");
 		waitForSeriesTrace(page, TAG_A, "run_a", false);
 		page.waitForCondition(() -> metricsRequests.get() > requestsBeforeRangeResponse);
 		waitForSeriesTrace(page, TAG_A, "run_a", false);
 
 		final int requestsBeforeReload = metricsRequests.get();
-		page.click("#btn-reload");
-		page.waitForCondition(() -> metricsRequests.get() > requestsBeforeReload);
+		page.evaluate("async () => { await app.onReload(); }");
+		assertEquals(requestsBeforeReload,metricsRequests.get());
 		waitForSeriesTrace(page, TAG_A, "run_a", false);
 
 		page.evaluate("""
@@ -224,8 +225,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 					})
 				])
 				""");
-		page.waitForCondition(() -> metricsRequests.get() > requestsBeforeAxes);
-		final int requestsBeforeReset = metricsRequests.get();
+		page.evaluate("async () => { await app.requestVisibleData(); }");
+		assertEquals(requestsBeforeAxes,metricsRequests.get());
 		page.evaluate("""
 				() => {
 					const main = document.getElementById('main-area');
@@ -236,8 +237,6 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				""");
 		page.click("#btn-reset-view");
 		waitForSeriesTrace(page, TAG_A, "run_a", true);
-		page.waitForCondition(() -> metricsRequests.get() >= requestsBeforeReset + 1);
-		assertEquals(requestsBeforeReset + 1, metricsRequests.get());
 		assertEquals(true, page.evaluate("""
 				() => ['tag/a', 'tag/b'].every(tagKey => {
 					const plot = document.getElementById(graphId(tagKey));
@@ -363,7 +362,7 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		final List<String> requests = Collections.synchronizedList(new ArrayList<>());
 		page.route("**/api/runs.json", route -> fulfillJson(
 				route,
-				"{\"runs\":[" + runJson("run_lod_ui", 31, TAG_KEY) + "]}"));
+				"{\"runs\":[" + runJson("run_lod_ui", 31000, TAG_KEY) + "]}"));
 		page.route("**/api/metrics.json", route -> {
 			requests.add(route.request().postData());
 			fulfillJson(route, lodMetricsJson());
@@ -376,7 +375,7 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		page.evaluate("""
 				() => Plotly.relayout(
 					document.querySelector('.js-plotly-plot'),
-					{'xaxis.range': [8, 12]})
+					{'xaxis.range': [8000, 12000]})
 				""");
 		page.waitForCondition(() -> requests.size() >= 2);
 
@@ -385,8 +384,10 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				.readTree(requests.get(1))
 				.path("series")
 				.get(0);
-		assertEquals(4, second.path("fromStep").asLong());
-		assertEquals(16, second.path("toStep").asLong());
+		final long width=second.path("stepBucketWidth").asLong();
+		assertTrue(width>0 && width<new com.fasterxml.jackson.databind.ObjectMapper().readTree(requests.get(0)).path("series").get(0).path("stepBucketWidth").asLong());
+		assertTrue(second.path("fromStep").asLong()<=4000 && second.path("fromStep").asLong()>4000-width);
+		assertTrue(second.path("toStep").asLong()>=16000 && second.path("toStep").asLong()<16000+width);
 	}
 
 	@Test

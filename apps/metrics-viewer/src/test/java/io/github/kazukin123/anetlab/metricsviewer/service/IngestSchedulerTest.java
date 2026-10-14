@@ -54,7 +54,8 @@ class IngestSchedulerTest {
 				.thenReturn(new MetricsIngestor.IngestOutcome(
 						false, IngestState.READY, false));
 		final IngestScheduler scheduler = new IngestScheduler(
-				scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
+				() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(), ingestor,
+				new GzipInputSessions(), new RunWarningRegistry(), System::nanoTime, 0L);
 
 		runBlocks(scheduler, 4);
 
@@ -100,8 +101,9 @@ class IngestSchedulerTest {
 				});
 		final IngestScheduler scheduler =
 				new IngestScheduler(
-						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
-		scheduler.replacePriority(Set.of("p1", "p2"));
+						() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(), ingestor,
+						new GzipInputSessions(), new RunWarningRegistry(), System::nanoTime, 0L);
+		scheduler.replacePriorityPaths(Set.of(tempDir.resolve("p1"), tempDir.resolve("p2")));
 
 		for (int block = 0; block < 8; block++) scheduler.runNextBlock();
 
@@ -133,7 +135,8 @@ class IngestSchedulerTest {
 				});
 		final IngestScheduler scheduler =
 				new IngestScheduler(
-						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
+						() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(), ingestor,
+						new GzipInputSessions(), new RunWarningRegistry(), System::nanoTime, 0L);
 
 		for (int block = 0; block < 4; block++) scheduler.runNextBlock();
 
@@ -151,16 +154,17 @@ class IngestSchedulerTest {
 			return List.of();
 		});
 		final IngestScheduler scheduler = new IngestScheduler(
-				scanner,
+				() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(),
 				mock(MetricsIngestor.class),
 				new GzipInputSessions(),
-				new RunWarningRegistry());
+				new RunWarningRegistry(), System::nanoTime, 0L);
 		final ExecutorService executor = Executors.newSingleThreadExecutor();
 
 		try {
 			final Future<Boolean> cycle = executor.submit(scheduler::runNextBlock);
 			assertTrue(scanStarted.await(2, TimeUnit.SECONDS));
-			scheduler.replacePriority(Set.of("new-run"));
+			when(scanner.resolveRunDir("new-run")).thenReturn(tempDir.resolve("new-run"));
+			scheduler.replacePriorityPaths(Set.of(tempDir.resolve("new-run")));
 			finishScan.countDown();
 			cycle.get(2, TimeUnit.SECONDS);
 		} finally {
@@ -168,7 +172,7 @@ class IngestSchedulerTest {
 			executor.shutdownNow();
 		}
 
-		assertEquals(Set.of("new-run"), scheduler.priorityRunIds());
+		assertEquals(Set.of(tempDir.resolve("new-run")), scheduler.priorityRunPaths());
 	}
 
 	@Test
@@ -193,7 +197,8 @@ class IngestSchedulerTest {
 				.thenReturn(new MetricsIngestor.IngestOutcome(false, IngestState.READY, false));
 		final IngestScheduler scheduler =
 				new IngestScheduler(
-						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
+						() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(), ingestor,
+						new GzipInputSessions(), new RunWarningRegistry(), System::nanoTime, 0L);
 
 		runBlocks(scheduler, 4);
 		runBlocks(scheduler, 4);
@@ -225,11 +230,12 @@ class IngestSchedulerTest {
 				gzipSessions,
 				new LodIngestWriter(),
 				warningRegistry);
+		final RunScanner scanner = new RunScanner(tempDir.toString());
 		final IngestScheduler scheduler = new IngestScheduler(
-				new RunScanner(tempDir.toString()),
+				() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(),
 				ingestor,
 				gzipSessions,
-				warningRegistry);
+				warningRegistry, System::nanoTime, 0L);
 
 		runBlocks(scheduler, 4);
 		runBlocks(scheduler, 4);
@@ -283,8 +289,10 @@ class IngestSchedulerTest {
 							true, IngestState.CONVERTING, true);
 				});
 		final IngestScheduler scheduler = new IngestScheduler(
-				scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
-		scheduler.replacePriority(priorityRuns);
+				() -> scanner.listRunId().stream().map(scanner::resolveRunDir).toList(), ingestor,
+				new GzipInputSessions(), new RunWarningRegistry(), System::nanoTime, 0L);
+		scheduler.replacePriorityPaths(
+				priorityRuns.stream().map(tempDir::resolve).collect(java.util.stream.Collectors.toSet()));
 
 		runBlocks(scheduler, 4);
 		return processed;

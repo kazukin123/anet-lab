@@ -94,7 +94,8 @@ public class MetricsService {
 				}
 				requested.add(runId);
 			}
-			lease.ingestScheduler().replacePriority(requested);
+			workspaceManager.replacePriority(lease.epoch(), requested.stream().map(lease.runScanner()::resolveRunDir)
+					.collect(java.util.stream.Collectors.toUnmodifiableSet()));
 		}
 	}
 
@@ -168,6 +169,10 @@ public class MetricsService {
 			}
 			if (series.getFromStep() > series.getToStep()) {
 				throw invalidRequest("fromStep must not exceed toStep at index " + i);
+			}
+			if (series.getStepBucketWidth() == null || series.getStepBucketWidth() <= 0L
+					|| !isSafeInteger(series.getStepBucketWidth())) {
+				throw invalidRequest("stepBucketWidth must be a positive JavaScript safe integer at index " + i);
 			}
 			final int maxPoints = series.getMaxPoints() == null
 					? settings.getTargetPointsPerSeries()

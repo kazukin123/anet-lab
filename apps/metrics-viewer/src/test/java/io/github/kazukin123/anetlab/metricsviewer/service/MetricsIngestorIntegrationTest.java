@@ -37,6 +37,153 @@ class MetricsIngestorIntegrationTest {
 	private Path tempDir;
 
 	@Test
+	void chunkBoundariesPreserveUtf8CrLfLongRecordsAndGzipEquivalence() throws Exception {
+		final String prefix = "{\"type\":\"json\",\"tag\":\"long\",\"data\":\"";
+		// 最初の64KiB境界にUTF-8の複数byte文字を置き、CRLFを跨ぐ長い行も保持する。
+		final String longLine = prefix + "x".repeat(65535 - prefix.length()) + "日本語" + "x".repeat(600000) + "\"}\r\n";
+		final String content = longLine + scalarLines(0, 4097).replace("\n", "\r\n");
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		for (boolean compressed : new boolean[] { false, true }) {
+			final Path run = tempDir.resolve(compressed ? "boundary-gzip" : "boundary-raw");
+			Files.createDirectories(run);
+			if (compressed)
+				writeGzip(run.resolve("metrics.jsonl.gz"), content);
+			else
+				Files.writeString(run.resolve("metrics.jsonl"), content);
+			final GzipInputSessions sessions = new GzipInputSessions();
+			try {
+				ingestUntilStopped(new MetricsIngestor(database, sessions, 2048), run);
+			}
+			finally {
+				sessions.closeAll();
+			}
+			try (var handle = database.openRead(run)) {
+				assertEquals(4097, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+				assertEquals(4097, queryLong(handle.connection(), "SELECT count FROM tag_stats"));
+				assertEquals(longLine.substring(0, longLine.length() - 2),
+						queryString(handle.connection(), "SELECT json FROM json_lines"));
+				assertEquals("ready", queryString(handle.connection(), "SELECT v FROM source_meta WHERE k='state'"));
+			}
+		}
+	}
+
+	@Test
+	void sqlFailureAfterAFullBatchRollsBackScalarsLodStatsAndSourcePosition() throws Exception {
+		final Path run = tempDir.resolve("batch-rollback");
+		Files.createDirectories(run);
+		final Path raw = run.resolve("metrics.jsonl");
+		Files.writeString(raw, scalarLines(0, 1));
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		final MetricsSource source = MetricsSource.select(run).orElseThrow();
+		ingestor.ingestBlock("batch-rollback", run, source);
+		final long committed = Files.size(raw);
+		try (var handle = database.openWrite(run); var statement = handle.connection().createStatement()) {
+			statement.execute(
+					"CREATE TRIGGER injected_failure BEFORE INSERT ON scalars WHEN NEW.ordinal=4500 BEGIN SELECT RAISE(ABORT,'Injected batch failure'); END");
+		}
+		Files.writeString(raw, scalarLines(1, 8193), java.nio.file.StandardOpenOption.APPEND);
+		assertThrows(SQLException.class,
+				() -> ingestor.ingestBlock("batch-rollback", run, MetricsSource.select(run).orElseThrow()));
+		try (var handle = database.openRead(run)) {
+			assertEquals(1, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+			assertEquals(0, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars_lod"));
+			assertEquals(1, queryLong(handle.connection(), "SELECT count FROM tag_stats"));
+			assertEquals(committed, queryLong(handle.connection(),
+					"SELECT CAST(v AS INTEGER) FROM source_meta WHERE k='committed_offset'"));
+		}
+	}
+
+	@Test
+	void replacingCacheGenerationCannotReuseTheOldGzipCursor() throws Exception {
+		final Path run = tempDir.resolve("gzip-cache-replaced");
+		Files.createDirectories(run);
+		writeGzip(run.resolve("metrics.jsonl.gz"), scalarLines(0, 5));
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final GzipInputSessions sessions = new GzipInputSessions();
+		final MetricsIngestor ingestor = new MetricsIngestor(database, sessions, 2);
+		try {
+			final MetricsSource source = MetricsSource.select(run).orElseThrow();
+			ingestor.ingestBlock("gzip-cache-replaced", run, source);
+			final String replacement = java.util.UUID.randomUUID().toString();
+			try (var h = database.openWrite(run); var st = h.connection().createStatement()) {
+				st.executeUpdate("UPDATE source_meta SET v='" + replacement + "' WHERE k='generation'");
+			}
+			ingestor.ingestBlock("gzip-cache-replaced", run, source);
+			try (var h = database.openRead(run)) {
+				assertNotEquals(replacement,
+						queryString(h.connection(), "SELECT v FROM source_meta WHERE k='generation'"));
+				assertEquals("ok", queryString(h.connection(), "SELECT status FROM tags"));
+				assertEquals(2, queryLong(h.connection(), "SELECT COUNT(*) FROM scalars"));
+			}
+			ingestUntilStopped(ingestor, run);
+			try (var h = database.openRead(run)) {
+				assertEquals(5, queryLong(h.connection(), "SELECT COUNT(*) FROM scalars"));
+			}
+		}
+		finally {
+			sessions.closeAll();
+		}
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void rebuildProgressIsThrottledAndReportsOnlyCommittedCounts(CapturedOutput output) throws Exception {
+		final Path run = tempDir.resolve("log-progress");
+		Files.createDirectories(run);
+		writeGzip(run.resolve("metrics.jsonl.gz"), scalarLines(0, 4));
+		final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
+		final GzipInputSessions sessions = new GzipInputSessions();
+		final MetricsIngestor ingestor = new MetricsIngestor(new MetricsCacheDatabase(), sessions,
+				new LodIngestWriter(), new RunWarningRegistry(), 1, () -> false, clock::get, 1_000_000_000L);
+		try {
+			var source = MetricsSource.select(run).orElseThrow();
+			ingestor.ingestBlock("log-progress", run, source);
+			assertTrue(output.getAll().contains("Metrics cache started:"));
+			assertFalse(output.getAll().contains("Metrics cache progress:"));
+			clock.set(29_000_000_000L);
+			ingestor.ingestBlock("log-progress", run, source);
+			assertFalse(output.getAll().contains("Metrics cache progress:"));
+			clock.set(31_000_000_000L);
+			ingestor.ingestBlock("log-progress", run, source);
+			assertEquals(1, output.getAll().split("Metrics cache progress:", -1).length - 1);
+			assertTrue(output.getAll().contains("lines=3 validPoints=3 scope=since_start"));
+			assertFalse(output.getAll().contains("percentage=100.0"));
+			clock.set(32_000_000_000L);
+			ingestUntilStopped(ingestor, run);
+			assertEquals(1, output.getAll().split("Metrics cache completed:", -1).length - 1);
+			ingestor.ingestBlock("log-progress", run, source);
+			assertEquals(1, output.getAll().split("Metrics cache completed:", -1).length - 1);
+		}
+		finally {
+			sessions.closeAll();
+		}
+	}
+
+	@Test
+	void timeBudgetCommitsOnlyCompleteLinesAndResumesWithoutLoss() throws Exception {
+		final Path run = tempDir.resolve("time-budget");
+		Files.createDirectories(run);
+		Files.writeString(run.resolve("metrics.jsonl"), scalarLines(0, 5));
+		final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database, new GzipInputSessions(), new LodIngestWriter(),
+				new RunWarningRegistry(), 100, () -> {
+					clock.addAndGet(600_000_000L);
+					return false;
+				}, clock::get, 1_000_000_000L);
+		final var first = ingestor.ingestBlock("time-budget", run, MetricsSource.select(run).orElseThrow());
+		assertEquals(IngestState.CONVERTING, first.state());
+		try (var h = database.openRead(run)) {
+			assertEquals(2, queryLong(h.connection(), "SELECT COUNT(*) FROM scalars"));
+		}
+		ingestUntilStopped(ingestor, run);
+		try (var h = database.openRead(run)) {
+			assertEquals(5, queryLong(h.connection(), "SELECT COUNT(*) FROM scalars"));
+		}
+	}
+
+	@Test
 	void traceAndScalarWithSameTagRemainSeparateAndReady() throws Exception {
 		final Path runDir = tempDir.resolve("run-trace-same-tag");
 		Files.createDirectories(runDir);
@@ -654,7 +801,7 @@ class MetricsIngestorIntegrationTest {
 		final Path runDir = tempDir.resolve("run-lod-resume");
 		Files.createDirectories(runDir);
 		final Path jsonl = runDir.resolve("metrics.jsonl");
-		Files.writeString(jsonl, scalarLines(0, 15), StandardCharsets.UTF_8);
+		Files.writeString(jsonl, scalarLines(0, 3), StandardCharsets.UTF_8);
 
 		final MetricsCacheDatabase database = new MetricsCacheDatabase();
 		new MetricsIngestor(database).ingestBlock(
@@ -669,7 +816,7 @@ class MetricsIngestorIntegrationTest {
 
 		Files.writeString(
 				jsonl,
-				scalarLines(15, 16),
+				scalarLines(3, 4),
 				StandardCharsets.UTF_8,
 				java.nio.file.StandardOpenOption.APPEND);
 		new MetricsIngestor(database).ingestBlock(
@@ -681,15 +828,15 @@ class MetricsIngestorIntegrationTest {
 					"SELECT v FROM source_meta WHERE k='generation'"));
 			assertEquals(1L, queryLong(handle.connection(), """
 					SELECT COUNT(*) FROM scalars_lod
-					WHERE level=1 AND bucket=0 AND cnt=16
+					WHERE level=1 AND bucket=0 AND cnt=4
 					"""));
-			assertEquals(16L, queryLong(handle.connection(), "SELECT count FROM tag_stats"));
+			assertEquals(4L, queryLong(handle.connection(), "SELECT count FROM tag_stats"));
 			assertNotEquals(0.0, queryDouble(handle.connection(), "SELECT m2 FROM tag_stats"));
 		}
 	}
 
 	@Test
-	void everyCompleteFactorSixteenLevelIsPersisted() throws Exception {
+	void everyCompleteFactorFourLevelIsPersisted() throws Exception {
 		final Path runDir = tempDir.resolve("run-all-lod-levels");
 		Files.createDirectories(runDir);
 		Files.writeString(
@@ -704,13 +851,13 @@ class MetricsIngestorIntegrationTest {
 				MetricsSource.select(runDir).orElseThrow());
 
 		try (ConnectionHandle handle = database.openRead(runDir)) {
-			assertEquals(256L, queryLong(handle.connection(),
+			assertEquals(1024L, queryLong(handle.connection(),
 					"SELECT COUNT(*) FROM scalars_lod WHERE level=1"));
-			assertEquals(16L, queryLong(handle.connection(),
+			assertEquals(256L, queryLong(handle.connection(),
 					"SELECT COUNT(*) FROM scalars_lod WHERE level=2"));
-			assertEquals(1L, queryLong(handle.connection(),
+			assertEquals(64L, queryLong(handle.connection(),
 					"SELECT COUNT(*) FROM scalars_lod WHERE level=3"));
-			assertEquals(0L, queryLong(handle.connection(),
+			assertEquals(16L, queryLong(handle.connection(),
 					"SELECT COUNT(*) FROM scalars_lod WHERE level=4"));
 		}
 	}

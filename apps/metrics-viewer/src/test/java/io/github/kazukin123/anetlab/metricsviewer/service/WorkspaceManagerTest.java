@@ -40,6 +40,138 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 class WorkspaceManagerTest {
 
 	@Test
+	void latePriorityUpdateFromTheOldEpochCannotChangeTheNewWorkspace() throws Exception {
+		final Path root = Files.createTempDirectory("priority-epoch-");
+		createRawRun(root, "a", "same");
+		createRawRun(root, "b", "same");
+		final WorkspaceManager manager = workspaceManager(root.toString(), "a", new MetricsCacheDatabase(), settings());
+		try {
+			final long oldEpoch = manager.currentEpoch();
+			manager.replacePriority(oldEpoch, java.util.Set.of(root.resolve("a/runs/same")));
+			manager.switchWorkspace("b");
+			final Path selected = root.resolve("b/runs/same").toAbsolutePath().normalize();
+			manager.replacePriority(manager.currentEpoch(), java.util.Set.of(selected));
+			manager.replacePriority(oldEpoch, java.util.Set.of(root.resolve("a/runs/same")));
+			assertEquals(java.util.Set.of(selected), manager.priorityRunPaths());
+		}
+		finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
+	void unopenedWorkspaceRebuildsOldCacheAndIsVisibleThroughExistingApi() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-background-rebuild-");
+		Files.createDirectories(root.resolve("ws-a/runs"));
+		createRawRun(root, "ws-b", "old-run");
+		final Path run = root.resolve("ws-b/runs/old-run");
+		try (java.sql.Connection c = java.sql.DriverManager
+				.getConnection("jdbc:sqlite:" + run.resolve("metrics_cache.db"));
+				java.sql.Statement s = c.createStatement()) {
+			s.execute("PRAGMA user_version=1");
+		}
+		final MetricsViewerSettings settings = settings();
+		final WorkspaceManager manager = workspaceManager(root.toString(), "ws-a", new MetricsCacheDatabase(),
+				settings);
+		try {
+			manager.runIngestCycle();
+			assertTrue(Files.size(run.resolve("metrics_cache.db")) > 4096);
+			manager.switchWorkspace("ws-b");
+			final MetricsService service = new MetricsService(manager, mock(LoadingThread.class), settings,
+					new MetricsQueryCoordinator(1));
+			final var runs = service.getRuns().getRuns();
+			assertEquals(1, runs.size());
+			assertEquals("ready", runs.get(0).getIngest().state());
+			assertNotNull(runs.get(0).getGeneration());
+			assertEquals(1L, runs.get(0).getTags().get(0).getStats().getCount());
+			assertEquals(1.0, runs.get(0).getTags().get(0).getStats().getLastValue());
+		}
+		finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
+	void malformedCurrentSourceMetaIsRebuiltRatherThanHeldAsAWriteFailure() throws Exception {
+		final Path root = Files.createTempDirectory("malformed-source-meta-");
+		createRawRun(root, "a", "cached");
+		final Path run = root.resolve("a/runs/cached");
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		new MetricsIngestor(database).ingestBlock("cached", run, MetricsSource.select(run).orElseThrow());
+		try (final var handle = database.openWrite(run); final var statement = handle.connection().createStatement()) {
+			statement.execute("ALTER TABLE source_meta RENAME COLUMN k TO broken");
+		}
+		final WorkspaceManager manager = workspaceManager(root.toString(), "a", database, settings());
+		try {
+			manager.runIngestCycle();
+			try (final var handle = database.openRead(run);
+					final var statement = handle.connection().createStatement();
+					final var rows = statement.executeQuery("SELECT v FROM source_meta WHERE k='state'")) {
+				assertTrue(rows.next());
+				assertEquals("ready", rows.getString(1));
+			}
+		}
+		finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
+	void finishingFourSmallRunsDoesNotIdleWhileAnotherBackgroundRunIsQueued() throws Exception {
+		final Path root = Files.createTempDirectory("queued-background-");
+		Files.createDirectories(root.resolve("display/runs"));
+		for (int index = 0; index < 5; index++)
+			createRawRun(root, "background" + index, "small");
+		final WorkspaceManager manager = workspaceManager(root.toString(), "display", new MetricsCacheDatabase(),
+				settings());
+		try {
+			assertTrue(manager.runIngestCycle());
+			assertFalse(manager.runIngestCycle());
+			for (int index = 0; index < 5; index++)
+				assertTrue(Files.isRegularFile(root.resolve("background" + index + "/runs/small/metrics_cache.db")));
+		}
+		finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
+	void identicalPriorityPathsDoNotRequestAnotherScanOrWake() throws Exception {
+		final Path root = Files.createTempDirectory("priority-unchanged-");
+		createRawRun(root, "a", "selected");
+		final WorkspaceManager manager = workspaceManager(root.toString(), "a", new MetricsCacheDatabase(), settings());
+		final AtomicInteger wakes = new AtomicInteger();
+		manager.setIngestWakeup(wakes::incrementAndGet);
+		try {
+			final Path selected = root.resolve("a/runs/selected");
+			manager.replacePriority(manager.currentEpoch(), java.util.Set.of(selected));
+			final int first = wakes.get();
+			manager.replacePriority(manager.currentEpoch(), java.util.Set.of(selected.resolve(".")));
+			assertEquals(first, wakes.get());
+		}
+		finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
+	void unreadableWorkspaceListingDoesNotPreventInspectingOtherWorkspaces() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-listing-failure-");
+		Files.createDirectories(root.resolve("bad/config"));
+		Files.writeString(root.resolve("bad/runs"), "not a directory");
+		createRawRun(root, "good", "healthy");
+		final WorkspaceManager manager = workspaceManager(root.toString(), "good", new MetricsCacheDatabase(),
+				settings());
+		try {
+			manager.runIngestCycle();
+			assertTrue(Files.isRegularFile(root.resolve("good/runs/healthy/metrics_cache.db")));
+		}
+		finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
 	void readyCommitDoesNotRequestAnImmediateFollowUpCycle() throws Exception {
 		final Path root = Files.createTempDirectory("workspace-manager-ready-cycle-");
 		createRawRun(root, "ws-a", "ready-run");
@@ -231,7 +363,7 @@ class WorkspaceManagerTest {
 	}
 
 	@Test
-	void shutdownIsTerminalAndClosesResourcesAfterTheLastLease() throws Exception {
+	void shutdownClosesIngestResourcesIndependentlyOfQueryLeases() throws Exception {
 		final Path root = Files.createTempDirectory("workspace-manager-terminal-shutdown-");
 		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
 		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
@@ -241,7 +373,7 @@ class WorkspaceManagerTest {
 		final WorkspaceManager.Lease lease = manager.acquireLease();
 		try {
 			manager.shutdown();
-			assertEquals(0, sessions.closeCount);
+			assertEquals(1, sessions.closeCount);
 			assertTimeoutPreemptively(Duration.ofSeconds(1),
 					() -> assertThrows(IllegalStateException.class, manager::acquireLease));
 			assertThrows(IllegalStateException.class, () -> manager.switchWorkspace("ws-b"));
@@ -337,41 +469,56 @@ class WorkspaceManagerTest {
 	}
 
 	@Test
-	void switchingClosesOldGzipStreamSoWorkspaceCanBeMoved() throws Exception {
-		final Path root = Files.createTempDirectory("workspace-manager-gzip-release-");
-		final Path runA = root.resolve("ws-a").resolve("runs").resolve("same-run");
-		Files.createDirectories(runA);
-		final Path gzipFile = runA.resolve("metrics.jsonl.gz");
-		try (GZIPOutputStream output = new GZIPOutputStream(Files.newOutputStream(gzipFile))) {
-			output.write("{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":0,\"value\":1}\n"
-					.getBytes(StandardCharsets.UTF_8));
+	void workspaceRoundTripPreservesGenerationAndBufferedGzipProgress() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-manager-gzip-continue-");
+		final Path run = root.resolve("ws-a/runs/same-run");
+		Files.createDirectories(run);
+		StringBuilder lines = new StringBuilder();
+		for (int i = 0; i < 10; i++)
+			lines.append("{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":").append(i).append(",\"value\":1}\n");
+		try (var gzip = new GZIPOutputStream(Files.newOutputStream(run.resolve("metrics.jsonl.gz")))) {
+			gzip.write(lines.toString().getBytes(StandardCharsets.UTF_8));
 		}
-		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
-		final GzipInputSessions oldSessions = new GzipInputSessions();
-		final GzipInputSessions newSessions = new GzipInputSessions();
-		final java.util.ArrayDeque<GzipInputSessions> sessions =
-				new java.util.ArrayDeque<>(List.of(oldSessions, newSessions));
-		final WorkspaceManager manager = workspaceManager(
-				root.toString(), "ws-a", database(), settings(), sessions::removeFirst);
-		final MetricsSource source = MetricsSource.select(runA).orElseThrow();
-		oldSessions.acquire(runA, source, UUID.randomUUID().toString());
-		assertTrue(oldSessions.hasSession(runA, source));
+		Files.createDirectories(root.resolve("ws-b/runs"));
+		final GzipInputSessions sessions = new GzipInputSessions();
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final WorkspaceManager manager = new WorkspaceManager(root.toString(), "ws-a", database, settings(),
+				new MetricsQueryCoordinator(1), () -> sessions, 1);
 		try {
-			assertEquals(WorkspaceManager.SwitchResult.SWITCHED,
-					manager.switchWorkspace("ws-b"));
-			assertFalse(oldSessions.hasSession(runA, source));
-
-			final Path moved = root.resolve("ws-a-moved");
-			Files.move(root.resolve("ws-a"), moved);
-			assertTrue(Files.isRegularFile(
-					moved.resolve("runs").resolve("same-run").resolve("metrics.jsonl.gz")));
-		} finally {
+			manager.runIngestCycle();
+			String generation;
+			try (var h = database.openRead(run)) {
+				generation = MetricsCacheDatabase.SourceMeta.read(h.connection(), -1).generation();
+			}
+			assertTrue(sessions.hasSession(run, MetricsSource.select(run).orElseThrow()));
+			manager.switchWorkspace("ws-b");
+			assertTrue(sessions.hasSession(run, MetricsSource.select(run).orElseThrow()));
+			manager.runIngestCycle();
+			try (var h = database.openRead(run);
+					var st = h.connection().createStatement();
+					var rs = st.executeQuery("SELECT COUNT(*) FROM scalars")) {
+				rs.next();
+				assertEquals(8, rs.getLong(1));
+				assertEquals(generation, MetricsCacheDatabase.SourceMeta.read(h.connection(), -1).generation());
+			}
+			manager.switchWorkspace("ws-a");
+			manager.runIngestCycle();
+			try (var h = database.openRead(run);
+					var st = h.connection().createStatement();
+					var rs = st.executeQuery("SELECT COUNT(*) FROM scalars")) {
+				rs.next();
+				assertEquals(10, rs.getLong(1));
+				assertEquals(generation, MetricsCacheDatabase.SourceMeta.read(h.connection(), -1).generation());
+			}
+			assertFalse(sessions.hasSession(run, MetricsSource.select(run).orElseThrow()));
+		}
+		finally {
 			manager.shutdown();
 		}
 	}
 
 	@Test
-	void switchWaitsForCurrentIngestCycleAndNextCycleUsesNewWorkspace() throws Exception {
+	void switchWaitsForCurrentBlockAndNewPriorityCanReactivateChangedSource() throws Exception {
 		final Path root = Files.createTempDirectory("workspace-manager-gate-");
 		createRawRun(root, "ws-a", "same-run");
 		createRawRun(root, "ws-b", "same-run");
@@ -405,6 +552,8 @@ class WorkspaceManagerTest {
 					switching.get(2, TimeUnit.SECONDS));
 
 			preparedRuns.clear();
+			Files.writeString(root.resolve("ws-b/runs/same-run/metrics.jsonl"), "{}\n{}\n");
+			manager.replacePriority(manager.currentEpoch(), java.util.Set.of(root.resolve("ws-b/runs/same-run")));
 			manager.runIngestCycle();
 			assertFalse(preparedRuns.isEmpty());
 			assertTrue(preparedRuns.stream().allMatch(path -> path.startsWith(root.resolve("ws-b"))));
@@ -548,35 +697,27 @@ class WorkspaceManagerTest {
 	}
 
 	@Test
-	void retiredSnapshotClosesGzipSessionsOnceAfterItsLastLease() throws Exception {
-		final Path root = Files.createTempDirectory("workspace-manager-lease-");
-		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
-		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
-		final CountingGzipInputSessions oldSessions = new CountingGzipInputSessions();
-		final CountingGzipInputSessions newSessions = new CountingGzipInputSessions();
-		final java.util.ArrayDeque<GzipInputSessions> sessions =
-				new java.util.ArrayDeque<>(List.of(oldSessions, newSessions));
-		final WorkspaceManager manager = workspaceManager(
-				root.toString(), "ws-a", database(), settings(), sessions::removeFirst);
-		final WorkspaceManager.Lease oldLease = manager.acquireLease();
+	void retiringQuerySnapshotsDoesNotCloseProcessIngestSessions() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-manager-process-resource-");
+		Files.createDirectories(root.resolve("ws-a/runs"));
+		Files.createDirectories(root.resolve("ws-b/runs"));
+		final CountingGzipInputSessions sessions = new CountingGzipInputSessions();
+		final WorkspaceManager manager = workspaceManager(root.toString(), "ws-a", database(), settings(),
+				() -> sessions);
+		final WorkspaceManager.Lease old = manager.acquireLease();
 		try {
-			assertEquals(WorkspaceManager.SwitchResult.SWITCHED,
-					manager.switchWorkspace("ws-b"));
-			assertTrue(oldLease.runScanner().getRunsDir().startsWith(root.resolve("ws-a")));
-			try (WorkspaceManager.Lease newLease = manager.acquireLease()) {
-				assertTrue(newLease.runScanner().getRunsDir().startsWith(root.resolve("ws-b")));
-			}
-			assertEquals(0, oldSessions.closeCount);
-
-			oldLease.close();
-			assertEquals(1, oldSessions.closeCount);
-			oldLease.close();
-			assertEquals(1, oldSessions.closeCount);
-		} finally {
-			oldLease.close();
+			manager.switchWorkspace("ws-b");
+			assertTrue(old.runScanner().getRunsDir().startsWith(root.resolve("ws-a")));
+			assertEquals(0, sessions.closeCount);
+			old.close();
+			old.close();
+			assertEquals(0, sessions.closeCount);
+		}
+		finally {
+			old.close();
 			manager.shutdown();
 		}
-		assertEquals(1, newSessions.closeCount);
+		assertEquals(1, sessions.closeCount);
 	}
 
 	private static MetricsCacheDatabase database() {

@@ -236,6 +236,7 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		assertEquals(1, page.locator("#update-status").count());
 		assertFalse(page.locator("#update-status").isVisible());
 
+		page.evaluate("() => app.cache.windows.clear()");
 		page.click("#btn-reload");
 		page.waitForFunction("""
 				() => document.getElementById('update-status')?.title

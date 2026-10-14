@@ -264,8 +264,7 @@ public class MetricsRepository {
 		query.checkpoint();
 		if (plan.availability() != SeriesAvailability.OK) {
 			return baseResult(plan)
-					.level(null)
-					.bucketWidth(null)
+					.stepBucketWidth(null)
 					.projection(null)
 					.build();
 		}
@@ -280,10 +279,10 @@ public class MetricsRepository {
 					plan.ordinalFrom(),
 					plan.ordinalTo(),
 					plan.pointBudget(),
+					plan.request().getStepBucketWidth(),
 					query);
 			return baseResult(plan)
-					.level(projection.level())
-					.bucketWidth(projection.bucketWidth())
+					.stepBucketWidth(projection.stepBucketWidth())
 					.projection(projection.body())
 					.build();
 		} catch (QueryCancelledException e) {
@@ -292,8 +291,7 @@ public class MetricsRepository {
 			plan.issues().add(new Issue("run", "query_error", e.getMessage()));
 			return baseResult(plan)
 					.availability(SeriesAvailability.PENDING.externalName())
-					.level(null)
-					.bucketWidth(null)
+					.stepBucketWidth(null)
 					.projection(null)
 					.build();
 		}

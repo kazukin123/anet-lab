@@ -235,7 +235,7 @@ final class MetricsViewerPlaywrightTestData {
 				+ "\"runId\":\"run_outlier_lod\",\"tagKey\":\"" + OUTLIER_TAG + "\","
 				+ "\"generation\":\"" + GENERATION + "\","
 				+ "\"fromStep\":0,\"toStep\":1600,\"availability\":\"ok\","
-				+ "\"pointBudget\":101,\"level\":1,\"bucketWidth\":16,\"issues\":[],"
+				+ "\"pointBudget\":101,\"stepBucketWidth\":16,\"issues\":[],"
 				+ "\"projection\":{\"kind\":\"lod\","
 				+ "\"minMax\":{\"steps\":\"" + encodeFloat64(minMaxSteps) + "\","
 				+ "\"values\":\"" + encodeFloat32(minMaxValues) + "\"},"
@@ -402,7 +402,7 @@ final class MetricsViewerPlaywrightTestData {
 				+ "\"generation\":\"" + generation + "\","
 				+ "\"fromStep\":" + fromStep + ",\"toStep\":" + toStep + ","
 				+ "\"availability\":\"ok\",\"pointBudget\":" + steps.length + ","
-				+ "\"level\":0,\"bucketWidth\":1,\"issues\":[],"
+				+ "\"stepBucketWidth\":1,\"issues\":[],"
 				+ "\"projection\":{\"kind\":\"raw\","
 				+ "\"steps\":\"" + encodeFloat64(steps) + "\","
 				+ "\"values\":\"" + encodeFloat32(values) + "\"}}";
@@ -417,7 +417,7 @@ final class MetricsViewerPlaywrightTestData {
 				+ "\"runId\":\"" + runId + "\",\"tagKey\":\"" + tagKey + "\","
 				+ "\"generation\":\"" + GENERATION + "\","
 				+ "\"fromStep\":-31,\"toStep\":62,\"availability\":\"ok\","
-				+ "\"pointBudget\":6,\"level\":1,\"bucketWidth\":16,\"issues\":[],"
+				+ "\"pointBudget\":6,\"stepBucketWidth\":16,\"issues\":[],"
 				+ "\"projection\":{\"kind\":\"lod\","
 				+ "\"minMax\":{\"steps\":\""
 				+ encodeFloat64(new double[] {2, 8, 15, 18, 25, 31})

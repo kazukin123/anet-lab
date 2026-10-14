@@ -105,6 +105,7 @@ class MetricsQueryConcurrencyTest {
 		series.setRunId("run");
 		series.setTagKey("loss");
 		series.setFromStep(0L);
+		series.setStepBucketWidth(1L);
 		series.setToStep(1L);
 		series.setMaxPoints(3);
 		final GetMetricsRequest request = new GetMetricsRequest();

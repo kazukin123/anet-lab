@@ -1,5 +1,11 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
+import java.io.UncheckedIOException;
+import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,10 +39,16 @@ public class WorkspaceManager {
 	private final MetricsCacheDatabase database;
 	private final MetricsViewerSettings settings;
 	private final MetricsQueryCoordinator queryCoordinator;
-	private final Supplier<GzipInputSessions> gzipSessionsFactory;
+	private final IngestScheduler scheduler;
+	private final Map<String, List<Path>> listedWorkspaceRuns = new HashMap<>();
+	private final Map<String, String> workspaceListingFailures = new HashMap<>();
 	private final AtomicReference<WorkspaceSnapshot> current;
 	private final ReentrantLock ingestGate = new ReentrantLock(true);
 	private final AtomicInteger pendingSwitchRequests = new AtomicInteger();
+	private final AtomicInteger pendingPriorityRequests = new AtomicInteger();
+	private volatile boolean ingestStopRequested;
+	private volatile Runnable ingestWakeup = () -> {
+	};
 	private volatile boolean shutdown;
 
 	@Autowired
@@ -57,12 +69,24 @@ public class WorkspaceManager {
 			MetricsViewerSettings settings,
 			MetricsQueryCoordinator queryCoordinator,
 			Supplier<GzipInputSessions> gzipSessionsFactory) {
+		this(workspacesDirPath, initialWorkspace, database, settings, queryCoordinator, gzipSessionsFactory,
+				MetricsIngestor.MAX_BLOCK_LINES);
+	}
+
+	WorkspaceManager(String workspacesDirPath, String initialWorkspace, MetricsCacheDatabase database,
+			MetricsViewerSettings settings, MetricsQueryCoordinator queryCoordinator,
+			Supplier<GzipInputSessions> gzipSessionsFactory, int maxBlockLines) {
 		this.workspacesDir = normalizeWorkspacesDir(workspacesDirPath);
 		validateInitialWorkspace(initialWorkspace, this.workspacesDir);
 		this.database = database;
 		this.settings = settings;
 		this.queryCoordinator = queryCoordinator;
-		this.gzipSessionsFactory = gzipSessionsFactory;
+		final GzipInputSessions gzipSessions = gzipSessionsFactory.get();
+		final RunWarningRegistry warnings = new RunWarningRegistry();
+		final MetricsIngestor ingestor = new MetricsIngestor(database, gzipSessions, new LodIngestWriter(), warnings,
+				maxBlockLines,
+				() -> pendingSwitchRequests.get() > 0 || pendingPriorityRequests.get() > 0 || ingestStopRequested);
+		this.scheduler = new IngestScheduler(this::discoverRuns, ingestor, gzipSessions, warnings);
 		this.current = new AtomicReference<>(createSnapshot(0L, initialWorkspace));
 		if (!Files.isDirectory(this.workspacesDir.resolve(initialWorkspace))) {
 			log.warn("Initial workspace directory not found: workspace={} path={}",
@@ -115,6 +139,7 @@ public class WorkspaceManager {
 		final SwitchResult result;
 		long cancelledEpoch = Long.MIN_VALUE;
 		pendingSwitchRequests.incrementAndGet();
+		ingestWakeup.run();
 		ingestGate.lock();
 		try {
 			ensureRunning();
@@ -127,6 +152,7 @@ public class WorkspaceManager {
 				// cycle と同じゲート内で current を再確認してから一度だけ交換する。
 				final WorkspaceSnapshot next = createSnapshot(previous.epoch() + 1L, name);
 				current.set(next);
+				scheduler.replacePriorityPaths(Set.of());
 				previous.retire();
 				cancelledEpoch = previous.epoch();
 				result = SwitchResult.SWITCHED;
@@ -135,21 +161,27 @@ public class WorkspaceManager {
 			pendingSwitchRequests.decrementAndGet();
 			ingestGate.unlock();
 		}
-		if (result == SwitchResult.SWITCHED) queryCoordinator.cancelWorkspace(cancelledEpoch);
+		if (result == SwitchResult.SWITCHED) {
+			queryCoordinator.cancelWorkspace(cancelledEpoch);
+			ingestWakeup.run();
+		}
 		return result;
 	}
 
 	public boolean runIngestCycle() {
+		if (ingestStopRequested)
+			return false;
 		try (Lease lease = acquireLease()) {
 			boolean immediateRetry = false;
 			for (int slot = 0; slot < 4; slot++) {
 				ingestGate.lock();
 				try {
 					// shutdown開始後は現在blockより先へ進まず、取得済みleaseの解放へ移る。
-					if (shutdown) return immediateRetry;
+					if (shutdown || ingestStopRequested)
+						return immediateRetry;
 					// 切替済みなら旧snapshotへ残りblockを割り当てず、次cycleを即時実行させる。
 					if (current.get().epoch() != lease.epoch()) return true;
-					immediateRetry |= lease.ingestScheduler().runNextBlock();
+					immediateRetry = scheduler.runNextBlock();
 				} finally {
 					ingestGate.unlock();
 				}
@@ -160,11 +192,15 @@ public class WorkspaceManager {
 
 	@PreDestroy
 	public void shutdown() {
+		requestIngestStop();
 		ingestGate.lock();
 		try {
 			if (shutdown) return;
 			// terminal状態を先に公開し、新規leaseと切替を止めてからcurrentをretireする。
 			shutdown = true;
+			scheduler.close();
+			listedWorkspaceRuns.clear();
+			workspaceListingFailures.clear();
 			current.get().retire();
 		} finally {
 			ingestGate.unlock();
@@ -179,23 +215,97 @@ public class WorkspaceManager {
 		final Path root = workspacesDir.resolve(name).normalize();
 		final RunScanner runScanner = new RunScanner(root.resolve("runs").toString());
 		final LodPageCache pageCache = new LodPageCache(settings);
-		final RunWarningRegistry warningRegistry = new RunWarningRegistry();
-		final GzipInputSessions gzipSessions = gzipSessionsFactory.get();
-		final LodIngestWriter lodWriter = new LodIngestWriter();
-		final MetricsIngestor ingestor = new MetricsIngestor(
-				database,
-				gzipSessions,
-				lodWriter,
-				warningRegistry,
-				MetricsIngestor.MAX_BLOCK_LINES,
-				() -> pendingSwitchRequests.get() > 0);
-		final IngestScheduler scheduler = new IngestScheduler(
-				runScanner, ingestor, gzipSessions, warningRegistry);
 		final MetricsRangeProjector projector = new MetricsRangeProjector(pageCache);
 		final MetricsRepository repository = new MetricsRepository(
 				runScanner, database, settings, projector);
 		return new WorkspaceSnapshot(
-				epoch, name, root, runScanner, pageCache, gzipSessions, scheduler, repository);
+				epoch, name, root, runScanner, pageCache, repository);
+	}
+
+	Set<Path> priorityRunPaths() {
+		return scheduler.priorityRunPaths();
+	}
+
+	private List<Path> discoverRuns() {
+		final ArrayList<Path> runs = new ArrayList<>();
+		final List<String> names;
+		try {
+			names = listWorkspaceNames();
+		}
+		catch (IllegalStateException e) {
+			if (e.getCause() instanceof IOException io)
+				throw new UncheckedIOException(io);
+			throw e;
+		}
+		listedWorkspaceRuns.keySet().retainAll(names);
+		workspaceListingFailures.keySet().retainAll(names);
+		for (String name : names) {
+			final Path dir = workspacesDir.resolve(name).resolve("runs");
+			try {
+				final List<Path> listed;
+				if (!Files.exists(dir))
+					listed = List.of();
+				else
+					try (Stream<Path> children = Files.list(dir)) {
+						listed = children.filter(Files::isDirectory)
+								.filter(p -> Files.isRegularFile(p.resolve("metrics.jsonl"))
+										|| Files.isRegularFile(p.resolve("metrics.jsonl.gz")))
+								.sorted().toList();
+					}
+				listedWorkspaceRuns.put(name, listed);
+				workspaceListingFailures.remove(name);
+				runs.addAll(listed);
+			}
+			catch (IOException e) {
+				// 一部workspaceの列挙失敗を空集合と誤認せず、他workspaceの検査を継続する。
+				final String message = e.getClass().getName() + ": " + e.getMessage();
+				if (!message.equals(workspaceListingFailures.put(name, message)))
+					log.error("Metrics workspace listing failed: workspace={} path={} message={}", name, dir, message);
+				runs.addAll(listedWorkspaceRuns.getOrDefault(name, List.of()));
+			}
+		}
+		return runs;
+	}
+
+	public void replacePriority(long epoch, Set<Path> paths) {
+		final Set<Path> normalized = paths.stream().map(p -> p.toAbsolutePath().normalize())
+				.collect(Collectors.toUnmodifiableSet());
+		// 通常の同一選択の再要求は、稼働blockを中断せず検査周期も早めない。
+		if (!shutdown && current.get().epoch() == epoch && scheduler.priorityRunPaths().equals(normalized))
+			return;
+		pendingPriorityRequests.incrementAndGet();
+		ingestWakeup.run();
+		ingestGate.lock();
+		try {
+			if (!shutdown && current.get().epoch() == epoch)
+				scheduler.replacePriorityPaths(normalized);
+		}
+		finally {
+			pendingPriorityRequests.decrementAndGet();
+			ingestGate.unlock();
+		}
+		ingestWakeup.run();
+	}
+
+	void setIngestWakeup(Runnable wakeup) {
+		ingestWakeup = wakeup;
+	}
+
+	void requestIngestStop() {
+		ingestStopRequested = true;
+		ingestWakeup.run();
+	}
+
+	void closeIngestResources() {
+		ingestGate.lock();
+		try {
+			scheduler.close();
+			listedWorkspaceRuns.clear();
+			workspaceListingFailures.clear();
+		}
+		finally {
+			ingestGate.unlock();
+		}
 	}
 
 	private boolean isWorkspace(Path path) {
@@ -267,10 +377,6 @@ public class WorkspaceManager {
 			return snapshot.pageCache();
 		}
 
-		public IngestScheduler ingestScheduler() {
-			return snapshot.ingestScheduler();
-		}
-
 		public MetricsRepository repository() {
 			return snapshot.repository();
 		}
@@ -290,8 +396,6 @@ public class WorkspaceManager {
 		private final Path root;
 		private final RunScanner runScanner;
 		private final LodPageCache pageCache;
-		private final GzipInputSessions gzipSessions;
-		private final IngestScheduler ingestScheduler;
 		private final MetricsRepository repository;
 		private int leaseCount;
 		private boolean retired;
@@ -302,17 +406,12 @@ public class WorkspaceManager {
 				String name,
 				Path root,
 				RunScanner runScanner,
-				LodPageCache pageCache,
-				GzipInputSessions gzipSessions,
-				IngestScheduler ingestScheduler,
-				MetricsRepository repository) {
+				LodPageCache pageCache, MetricsRepository repository) {
 			this.epoch = epoch;
 			this.name = name;
 			this.root = root;
 			this.runScanner = runScanner;
 			this.pageCache = pageCache;
-			this.gzipSessions = gzipSessions;
-			this.ingestScheduler = ingestScheduler;
 			this.repository = repository;
 		}
 
@@ -338,10 +437,10 @@ public class WorkspaceManager {
 		}
 
 		private void closeIfUnused() {
-			// switch/shutdownとreleaseのどちらが最後でもcloseAllは一度だけ実行する。
+			// query leaseの寿命だけに従い、取り込みstreamの寿命には触れない。
 			if (!retired || leaseCount != 0 || closed) return;
 			closed = true;
-			gzipSessions.closeAll();
+			pageCache.retainRuns(Set.of());
 		}
 
 		private long epoch() {
@@ -362,10 +461,6 @@ public class WorkspaceManager {
 
 		private LodPageCache pageCache() {
 			return pageCache;
-		}
-
-		private IngestScheduler ingestScheduler() {
-			return ingestScheduler;
 		}
 
 		private MetricsRepository repository() {

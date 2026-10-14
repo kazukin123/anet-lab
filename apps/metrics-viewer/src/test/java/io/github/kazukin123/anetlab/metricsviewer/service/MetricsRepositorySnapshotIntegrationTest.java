@@ -109,6 +109,7 @@ class MetricsRepositorySnapshotIntegrationTest {
 			setRunId("run-live");
 			setTagKey("loss");
 			setFromStep(0L);
+			setStepBucketWidth(1L);
 			setToStep(10L);
 			setMaxPoints(3);
 		}

@@ -1,4 +1,4 @@
-﻿# Run分析ユーザーガイド
+# Run分析ユーザーガイド
 
 > 主たる観点: 行程単位（成果物確認、可視化、比較、解釈）
 
@@ -40,6 +40,14 @@
 `--metricsviewer.initial-workspace=<name>`で起動時workspaceを指定する。Viewerは選択workspaceの
 `runs/`直下で、`metrics.jsonl`または`metrics.jsonl.gz`を持つdirectoryだけをRunとして認識する。
 両方がある場合は`metrics.jsonl`を使う。
+
+Viewerは、画面で開いていないworkspaceも起動直後と約10秒ごとに検査し、古い版・未作成のキャッシュを背景で準備する。選択Runを優先しながら背景処理も進め、workspaceを切り替えてもgzip変換の確定済み進捗を保持する。
+
+変換状況は英語ログの`Metrics cache detected / started / progress / completed`で確認する。`workspace`、`run`、`generation`が対象を示し、行数と点数は`scope=since_start`（今回の作業開始以降の確定値）。進捗は30秒以上空けてcommit後に出る。gzipの率は概算で、EOF検証と最終commit前に完了を出さない。`elapsedMs`は待機込み、`processingMs`は実処理時間である。
+
+gzip stream枠が埋まると`Metrics cache waiting`に理由が出る。DB書き込みや読み取りの失敗は対象Runの処理を停止してERRORへ残し、他Runと閲覧は継続する。process内で保持するI/O・DB書込失敗は、source/cacheの属性変更、対象の再投入、Viewer再起動で再検査する。DBに保存した不正入力のerror状態は、source変更またはcache再構築まで保持する。予期しない内部例外でwriterが停止した場合はログを確認してViewerを再起動する。
+
+**gzip変換中はRunフォルダを移動しない。** 未選択workspaceの背景変換にもこの制約が及ぶ。フォルダを移動する場合はViewerを停止してhandleを解放する。rawの取り込みconnectionはblockごとに閉じる。
 
 ### 2.1 完了Runのmetricsを圧縮する
 
@@ -95,6 +103,10 @@ LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結�
 `Mean`はbucket平均、`Band`はmin/max帯へ平均線を重ねる。点数が少なくL0を表示できる場合は、
 どのmodeでもraw折れ線になる。グラフheaderの`Min / Max / Avg / Std`はviewportではなく、
 選択Runのcommit済みraw全点に対する`TagStats`を合成した値である。
+
+同じgraphのRunは、表示しているStep範囲に対して同じ幅の区間で集約される。同じ表示範囲・画面幅なら、少なくとも4Runまで選択数によって粒度を下げない。zoomや画面幅変更では全Runが同じ粒度へ更新され、panでは区間の起点を維持する。記録が無い区間の値は補わない。
+
+全選択graphの粗い概観を先に表示し、詳細データも容量内で画面に近い順に先読みする。取得済みの詳細はスクロールだけでは捨てず、先読みが間に合わない場合も概観を残してから詳細へ更新する。概観にも詳細と同じ軸・凡例・操作headerを表示し、切替時にグラフ枠やスクロール位置を動かさない。概観は静止表示で、hoverやzoom/panは詳細表示で利用できる。Screenshotモードでは選択した全graphを順次読み込むので、読み込み完了後に撮影する。形式変更後の初回はキャッシュを自動再構築するため、Runの取り込み表示が完了するまで待つ。
 
 取り込み中でもRun一覧とcommit済みgraphは操作できる。Run-level errorまたはstep逆行で
 隔離されたtagは`⚠`とtooltipで示し、commit済み部分は引き続き表示する。
@@ -405,7 +417,7 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 
 `metrics_cache.db`は完全にcurrentなときだけread-onlyで使い、それ以外はMetricsマスタへ自動fallbackする。判定結果と理由（`current` / `absent` / `invalid` / `partial` / `stale` / `error`）は`runs`と`metrics`の結果に載る。toolはキャッシュの作成・更新・修復・削除を一切行わない。
 
-`metrics.jsonl`をgzip化した後にMetrics Viewerでそのworkspaceを開いていないRunでは、キャッシュが`stale: source_kind_changed`または`partial`のままになる。動作は正しいがMetricsマスタの全行走査が走るため、Viewerで一度開いておくと高速経路に乗る。
+Metrics Viewerは起動直後と定期検査で、設定済みdirectory内の全workspaceのキャッシュを背景で準備する。gzip化後も、そのworkspaceを画面で開く必要はない。キャッシュがまだ`stale: source_kind_changed`や`partial`の間はtoolがMetricsマスタを全行走査し、Viewerの変換完了後はread-onlyの高速経路を使う。
 
 Runner実行中のRunも読める。rawは実行開始時のサイズまでを読み、未終端の末尾行を取り込まず、読み取り中にマスタが変化した場合は`provisional`と`source_changed_during_read`を立てる。
 

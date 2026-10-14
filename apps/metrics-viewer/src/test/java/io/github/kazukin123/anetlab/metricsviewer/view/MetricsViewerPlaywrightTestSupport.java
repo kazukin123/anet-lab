@@ -19,6 +19,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
@@ -97,6 +98,23 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	}
 
 	protected static void fulfillJson(Route route, String body) {
+		if (route.request().url().endsWith("/api/metrics.json")) {
+			final var payload=JsonParser.parseString(body).getAsJsonObject();
+			if (payload.has("data")) {
+				final var requests=JsonParser.parseString(route.request().postData()).getAsJsonObject().getAsJsonArray("series");
+				for (var data:payload.getAsJsonArray("data")) {
+					final var result=data.getAsJsonObject();
+					for(var element:requests) {
+						final var request=element.getAsJsonObject();
+						if (!request.get("runId").equals(result.get("runId")) || !request.get("tagKey").equals(result.get("tagKey"))) continue;
+						result.add("fromStep",request.get("fromStep"));
+						result.add("toStep",request.get("toStep"));
+						result.add("stepBucketWidth",request.get("stepBucketWidth"));
+					}
+				}
+				body=payload.toString();
+			}
+		}
 		route.fulfill(new Route.FulfillOptions()
 				.setStatus(200)
 				.setContentType("application/json")
@@ -108,14 +126,14 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	}
 
 	protected static void waitForGraph(Page page) {
-		page.waitForFunction("document.querySelectorAll('.js-plotly-plot path.js-line').length > 0",
+		page.waitForFunction("document.querySelectorAll('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage]) path.js-line').length > 0",
 				null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
 	protected static void waitForMultiRunGraph(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?.data?.length ?? 0) > 1;
 				}
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -123,8 +141,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 
 	protected static void waitForGraphCount(Page page, int count) {
 		page.waitForFunction("""
-				count => document.querySelectorAll('.js-plotly-plot').length === count
-					&& document.querySelectorAll('.js-plotly-plot path.js-line').length >= count
+				count => document.querySelectorAll('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])').length === count
+					&& document.querySelectorAll('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage]) path.js-line').length >= count
 				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
@@ -202,7 +220,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static boolean isPlotlyDragModeFalse(Page page) {
 		return Boolean.TRUE.equals(page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === false;
 				}
 				"""));
@@ -211,7 +229,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForPlotlyDragModeFalse(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === false;
 				}
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -221,7 +239,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static Map<String, Number> readFirstTraceMiddlePointScreenPosition(Page page) {
 		return (Map<String, Number>) page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const full = plot?._fullLayout;
 					const trace = plot?.data?.[0];
 					if (!plot || !full || !trace || trace.x.length < 2 || trace.y.length < 2) {
@@ -267,7 +285,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForLegendOnlyTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return Array.from(plot?.data ?? []).some(trace => trace.visible === 'legendonly');
 				}
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -489,7 +507,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readTraceColor(Page page, String runId) {
 		return (String) page.evaluate("""
 				runId => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const trace = Array.from(plot?.data ?? [])
 						.find(candidate => candidate?.meta?.runId === runId);
 					const color = trace?.line?.color ?? trace?.marker?.color ?? '';
@@ -507,7 +525,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readFirstTraceUid(Page page) {
 		return (String) page.evaluate("""
 				(() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return plot?.data?.[0]?.uid ?? '';
 				})()
 				""");
@@ -516,7 +534,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String renderFirstPlotPngPrefix(Page page) {
 		return (String) page.evaluate("""
 				async () => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const imageUrl = await Plotly.toImage(plot, {
 						format: 'png',
 						width: plot._fullLayout.width,
@@ -538,7 +556,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readYAxisType(Page page) {
 		return (String) page.evaluate("""
 				(() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return plot ? (plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type || 'linear') : '';
 				})()
 				""");
@@ -547,7 +565,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const button = document.querySelector('.graph-log-toggle');
 					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
 					if ((plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type) !== 'linear') return false;
@@ -573,7 +591,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogMixedSignTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const button = document.querySelector('.graph-log-toggle');
 					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
 					if ((plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type) !== 'linear') return false;
@@ -600,7 +618,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogZoomSourceTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const button = document.querySelector('.graph-log-toggle');
 					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
 
@@ -615,7 +633,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void zoomToSignedLogRange(Page page, int minStep, int maxStep, double minValue, double maxValue) {
 		page.evaluate("""
 				({ minStep, maxStep, minValue, maxValue }) => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const signedLog = value => Math.sign(value) * Math.log10(1 + Math.abs(value));
 					return Plotly.relayout(plot, {
 						'xaxis.range[0]': minStep,
@@ -634,7 +652,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogZoomTicks(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const yaxis = plot?._fullLayout?.yaxis ?? plot?.layout?.yaxis;
 					const tickvals = Array.from(yaxis?.tickvals ?? []);
 					const ticktext = Array.from(yaxis?.ticktext ?? []);
@@ -655,7 +673,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void setPlotlyPanMode(Page page) {
 		page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return Plotly.relayout(plot, { dragmode: 'pan' });
 				}
 				""");
@@ -681,7 +699,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readPlotlyDragMode(Page page) {
 		return (String) page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode ?? '';
 				}
 				""");
@@ -690,7 +708,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForPlotlyDragMode(Page page, String dragMode) {
 		page.waitForFunction("""
 				dragMode => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === dragMode;
 				}
 				""", dragMode, new Page.WaitForFunctionOptions().setTimeout(30000));
