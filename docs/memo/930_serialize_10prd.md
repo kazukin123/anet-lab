@@ -2,6 +2,7 @@
 
 > 状態: 暫定メモ。Run 全体の Save / Load を再設計するため、現行 checkpoint の事実、Adam/AdamW で判明した問題、将来 contract の要求を記録する。
 > 起点: `auto_load_file` で長期 Run をサイクル継続した際、Run 側で変更した `learner.alpha` が optimizer load によって実効値へ反映されていなかった件。
+> 切り出し: Optimizer group の retune だけを [091_checkpoint_load_optimizer_options_10prd.md](091_checkpoint_load_optimizer_options_10prd.md) で先行する。
 > 本 PRD は設計候補の記録であり、設定名、archive 形式、実装順の確定や実装着手を意味しない。
 
 ## Problem Statement
