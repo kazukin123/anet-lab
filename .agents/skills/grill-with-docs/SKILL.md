@@ -1,13 +1,26 @@
 ---
 name: grill-with-docs
-description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when user wants to stress-test a plan against their project's language and documented decisions.
+description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. When the plan already exists as a document (a PRD, design memo), it opens with a digest of that document so the grill starts from a shared reading of it. Use when user wants to stress-test a plan against their project's language and documented decisions.
 ---
 
 <what-to-do>
 
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
-Open the session with a **goal anchor**: state, in a few lines, the problem being solved, the goal of the plan, and any explicit non-goals, and get my agreement before the first question. Long grill sessions drift; this anchor is the reference that every later judgement — including the simplification passes below — is measured against. If mid-session answers start pulling away from the anchor, say so and ask whether the goal itself has changed.
+If the plan already exists as a document — a PRD, a design memo, an issue, or any file the user names or that the conversation clearly points at — start with an **existing-document digest** before anything else. Most grills in a repo start this way, and a grill run on a half-read document only re-asks what the document already settled. Read the document in full, then follow its references far enough to understand it: the documents it links, the `CONTEXT.md` terms it uses, the ADRs it cites, and the code paths it names. Then present the digest to the user and wait for their response before the goal anchor. The digest is for the user as much as for you: it shows what you took from the document, so they can correct your reading before it steers the questions. Keep it to roughly 15–25 lines, in the language the session is being held in, and cover:
+
+- **What the document is** — path, kind (PRD, memo, …), and its own status line and revision notes if it carries them (e.g. "暫定メモ, 案 A〜D 未確定").
+- **Problem, goal, non-goals** as the document states them — these become the draft goal anchor below.
+- **What it already decided** — the choices it has fixed, each with the section heading it lives under. These are not re-asked unless they conflict with code, `CONTEXT.md`, or a later decision.
+- **What it leaves open** — the options it enumerates without choosing, the decision points marked undecided, the questions it defers "to the grill". These are the first grill rounds.
+- **Facts it asserts about the current code**, with a one-line verdict each from a quick check against the codebase: holds / has drifted (say how) / could not verify.
+- **Related documents and code** it depends on or supersedes, so later questions can cite them.
+
+Close the digest by asking whether the reading is right and whether anything has changed since the document was written. Do not start questioning until the user confirms or corrects it. If the user corrects the digest, restate the corrected part before moving on.
+
+When the plan exists only in the user's head or in the conversation, skip the digest and begin with the goal anchor.
+
+Next, set a **goal anchor** (it opens the session when there was no document to digest): state, in a few lines, the problem being solved, the goal of the plan, and any explicit non-goals, and get my agreement before the first question. When a digest was presented, derive the anchor from the digest's problem / goal / non-goals and say so; the user is confirming that the document's stated goal is still the goal. Long grill sessions drift; this anchor is the reference that every later judgement — including the simplification passes below — is measured against. If mid-session answers start pulling away from the anchor, say so and ask whether the goal itself has changed.
 
 If the plan introduces new mechanisms or concepts, follow with a **scope screen** before descending into detail: enumerate them, and for each confirm what real pain (an incident, a measured cost, an existing workaround) pins it with respect to the agreed goal. Anything pinned only to an imagined future need is — right there — demoted to a deferred gate ("build when X first hurts") or dropped, and its detail questions are skipped entirely. Do not spend grill rounds specifying something that should not be built.
 
@@ -96,6 +109,8 @@ When a term is resolved, update `CONTEXT.md` right there. Don't batch these up �
 
 `CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
 
+Keep each definition to one or two sentences. If a term needs a paragraph to pin down, it is a spec and not a term — put the detail in the design doc and leave the glossary entry short enough to remember.
+
 ### Offer ADRs sparingly
 
 Only offer to create an ADR when all three are true:
@@ -105,5 +120,9 @@ Only offer to create an ADR when all three are true:
 3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
 
 If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
+
+**Keep it short.** An ADR is a title plus 1-3 sentences. `Status`, `Considered Options` and `Consequences` are optional — most ADRs do not need them. Do not mirror the PRD: the PRD says what to build, the ADR says why this shape was chosen and what was rejected. An ADR long enough to be skimmed instead of read has failed at its only job.
+
+**Never rewrite an existing ADR.** An ADR records the judgement made at that time; rewriting it destroys the reason the decision looked right then. When a later decision changes one, append a short note at the top of the old ADR — which ADR revised it, what was replaced, what still stands — and then write the new one. Partial revision is the normal case, so always say which parts survive.
 
 </supporting-info>
