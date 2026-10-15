@@ -425,6 +425,14 @@ _Avoid_: プロジェクト, プロファイル（`@` 側の語。ワークス�
 `workspaces/<ws>/config/_main.txt`。共通`_main.txt`（common/metrics/agent/nn）の後に後勝ちで重ねる、env選択（`$include <DropMerge.txt>`等）を含むworkspace固有の設定差分。runnerの`--config`明示起動（完全自己記述モード）ではworkspace解決を行わず、configを生成する側が`$include`の並びで合成順に責任を持つ。
 _Avoid_: workspace設定ファイル（あいまい）, プロファイルconfig
 
+**Agent checkpoint**:
+Agent が `Save` で書く archive（Run 終了時の `agent_close.anet` など）。DefaultDQN では header、保存時の Config 文字列、online/target Network、optimizer を含み、Run 全体（Replay、step、RNG）は含まない。
+_Avoid_: snapshot（Train Actor network snapshot と紛れる）, セーブデータ, モデルファイル
+
+**checkpoint 引き継ぎ**:
+新しい Run の Agent 構築中に Agent checkpoint の Network と optimizer を読み込む操作（`auto_load_file`）。旧 Run の再開ではなく、Replay・step・RNG は新しい Run のもの。
+_Avoid_: 再開, 継続（Run 全体を同じ進行位置から続ける操作と紛れる）
+
 ### Metrics基盤
 
 **Run作業セット**:

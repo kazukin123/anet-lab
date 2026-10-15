@@ -1012,6 +1012,7 @@ namespace anet::rl::dqn {
             const torch::Tensor& q_gap = torch::Tensor(),
             const torch::Tensor& q_gap_rel = torch::Tensor()) const;
     private:
+        std::vector<torch::optim::AdamWOptions> BuildOptimizerOptions() const;
         bool CanUpdate(step_t exp_step);
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);

@@ -377,6 +377,10 @@ public:
     using dqn::Learner::TransformH;
     using dqn::Learner::TransformHInv;
 
+    // 実際の構築・読み込み経路を使い、テスト内だけで optimizer の状態を観測する。
+    void SetupAdamW() { SetupOptimizer(); }
+    torch::optim::Optimizer& Optimizer() { return *optimizer_; }
+
     void UseSgd(float lr)
     {
         optimizer_ = std::make_unique<torch::optim::SGD>(
@@ -3367,12 +3371,13 @@ TEST_CASE("DefaultDQNAgent decides whether an Eval EnvSpec is acceptable", "[dqn
     CHECK_THROWS(agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = incompatible_eval_spec, .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "eval"}));
 }
 
-TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize]")
+TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize][prd091]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const auto env_spec = MakeLearnerEnvSpec();
     const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
     auto source_config = MakeDeviceForwardDefaultDqnConfig();
+    source_config.learner.alpha = 1e-4f;
     auto source_agent = std::make_shared<dqn::DefaultDQNAgent>(
         source_config,
         MakeAgentForwardNetworkConfig(),
@@ -3395,16 +3400,36 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
         source_agent->Save(archive);
     }
 
+    const bool change_alpha = GENERATE(false, true);
     auto loaded_config = MakeDeviceForwardDefaultDqnConfig();
+    loaded_config.learner.alpha = change_alpha ? 5e-5f : source_config.learner.alpha;
     loaded_config.auto_load_file = checkpoint.string();
     loaded_config.actor["train"].clone_model = true;
-    auto loaded_agent = std::make_shared<dqn::DefaultDQNAgent>(
-        loaded_config,
-        MakeAgentForwardNetworkConfig(),
-        batch_env_spec,
-        env_spec,
-        torch::Device(torch::kCPU),
-        456);
+    std::shared_ptr<dqn::DefaultDQNAgent> loaded_agent;
+    {
+        // auto_load_file から Learner::Load へ到達し、snapshot 構築前に設定が適用される。
+        anet::test::LogCaptureGuard logs;
+        loaded_agent = std::make_shared<dqn::DefaultDQNAgent>(
+            loaded_config,
+            MakeAgentForwardNetworkConfig(),
+            batch_env_spec,
+            env_spec,
+            torch::Device(torch::kCPU),
+            456);
+        logs.Flush();
+        const auto differences = std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+            return record.level == wxLOG_Warning
+                && record.message.find("Learner::Load: optimizer option differs") != std::string::npos;
+        });
+        CHECK(differences == (change_alpha ? 1 : 0));
+        if (change_alpha) {
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+                {"group=0", "option=lr", "key=learner.alpha", "checkpoint=0.0001", "config=5e-05"}));
+        }
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+            {"Learner::Load: optimizer options applied from config.", "group=0",
+                change_alpha ? "lr=5e-05" : "lr=0.0001"}));
+    }
     auto actor = loaded_agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = env_spec, .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "train"});
     auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(obs, flags, flags, flags);
@@ -6914,6 +6939,131 @@ rl::BatchExperience MakeNoisyOptimizerExperience(rl::step_t step, float reward)
 
 }
 
+TEST_CASE("Learner checkpoint applies current optimizer options and preserves state", "[dqn][learner][serialize][prd091]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const bool noisy = GENERATE(false, true);
+    const bool source_fused = GENERATE(false, true);
+    const bool destination_fused = GENERATE(false, true);
+    const bool disabled = GENERATE(false, true);
+    auto data = MakeNoisyOptimizerTestData();
+    data.Set("net.block.[Linear].noisy.enabled", noisy);
+    const auto env_spec = MakeLearnerEnvSpec();
+    const auto factory = std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{});
+    dqn::NetworkModel source({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec,
+        1, factory, false, 491);
+    dqn::NetworkModel restored({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec,
+        1, factory, false, 492);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.alpha = 1e-4f;
+    config.weight_decay = 0.01f;
+    config.adam_eps = 1e-5f;
+    config.use_fused_optimizer = source_fused;
+    const bool same_options = GENERATE(false, true);
+    const bool change_defaults = GENERATE(false, true);
+    auto current = config;
+    current.alpha = 5e-5f;
+    current.weight_decay = 0.02f;
+    current.adam_eps = 1e-4f;
+    current.noisy_weight_decay = 0.03f;
+    if (same_options) current = config;
+    current.use_fused_optimizer = destination_fused;
+    current.enabled = !disabled;
+    dqn::RuntimeVars source_vars, restored_vars;
+    TestLearner first(config, source, source_vars, rl::BatchEnvSpec{1, 1}, env_spec, SelectLearnerForwardResources(data));
+    TestLearner second(current, restored, restored_vars, rl::BatchEnvSpec{1, 1}, env_spec, SelectLearnerForwardResources(data));
+    first.SetupAdamW();
+    second.SetupAdamW();
+
+    // 全 parameter に非ゼロ勾配を与え、checkpoint が引き継ぐ moment と step を作る。
+    for (auto& group : first.Optimizer().param_groups()) {
+        for (auto& parameter : group.params()) parameter.mutable_grad() = torch::ones_like(parameter);
+    }
+    if (change_defaults) {
+        auto& options = static_cast<torch::optim::AdamWOptions&>(first.Optimizer().param_groups()[0].options());
+        options.betas(std::make_tuple(0.8, 0.99));
+        options.amsgrad(true);
+    }
+    first.Optimizer().step();
+    std::stringstream bytes(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(bytes);
+    REQUIRE(first.Save(output) > 0);
+    bytes.seekg(0);
+    anet::InputArchive input(bytes);
+    anet::test::LogCaptureGuard logs;
+    CHECK(second.Load(input) > 0);
+    logs.Flush();
+
+    // 差のある項目だけを通知し、適用後の値を必ず1行で示す。
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning)
+        == (same_options ? 0 : (noisy ? 6 : 3)) + (change_defaults ? 2 : 0));
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Message) == (noisy ? 2 : 1));
+    if (!same_options) {
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            {"Learner::Load:", "group=0", "option=lr", "key=learner.alpha", "checkpoint=0.0001", "config=5e-05"}));
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            {"group=0", "option=weight_decay", "key=learner.weight_decay", "checkpoint=0.01", "config=0.02"}));
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            {"group=0", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
+    }
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {"Learner::Load: optimizer options applied from config.", "group=0",
+            same_options ? "lr=0.0001" : "lr=5e-05",
+            same_options ? "weight_decay=0.01" : "weight_decay=0.02",
+            same_options ? "eps=1e-05" : "eps=0.0001"}));
+    if (noisy) {
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+            {"optimizer options applied from config.", "group=1", same_options ? "weight_decay=0" : "weight_decay=0.03"}));
+        if (!same_options) {
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+                {"group=1", "option=lr", "key=learner.alpha", "checkpoint=0.0001", "config=5e-05"}));
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+                {"group=1", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+                {"group=1", "option=weight_decay", "key=learner.noisy_weight_decay", "checkpoint=0", "config=0.03"}));
+        }
+    }
+    if (change_defaults) {
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            {"group=0", "option=betas", "checkpoint=(0.8,0.99)", "config=(0.9,0.999)"}));
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            {"group=0", "option=amsgrad", "checkpoint=1", "config=0"}));
+        for (const auto& record : logs.Records()) {
+            if (record.message.find("option=betas") != std::string::npos
+                || record.message.find("option=amsgrad") != std::string::npos) {
+                CHECK(record.message.find("key=") == std::string::npos);
+            }
+        }
+    }
+    CHECK(bytes.tellg() == static_cast<std::streamoff>(bytes.str().size()));
+
+    // options は現在の設定、state は保存時の値であり、別 parameter へ正しく対応付けられる。
+    const auto& saved_groups = first.Optimizer().param_groups();
+    const auto& loaded_groups = second.Optimizer().param_groups();
+    REQUIRE(loaded_groups.size() == (noisy ? 2 : 1));
+    for (size_t group_index = 0; group_index < loaded_groups.size(); ++group_index) {
+        const auto& options = static_cast<const torch::optim::AdamWOptions&>(loaded_groups[group_index].options());
+        CHECK(options.lr() == static_cast<double>(current.alpha));
+        CHECK(options.weight_decay() == static_cast<double>(group_index == 0 ? current.weight_decay : current.noisy_weight_decay));
+        CHECK(options.eps() == static_cast<double>(current.adam_eps));
+        CHECK(options.betas() == torch::optim::AdamWOptions{}.betas());
+        CHECK_FALSE(options.amsgrad());
+        REQUIRE(loaded_groups[group_index].params().size() == saved_groups[group_index].params().size());
+        for (size_t i = 0; i < loaded_groups[group_index].params().size(); ++i) {
+            const auto& saved = static_cast<const torch::optim::AdamWParamState&>(
+                *first.Optimizer().state().at(saved_groups[group_index].params()[i].unsafeGetTensorImpl()));
+            const auto& loaded = static_cast<const torch::optim::AdamWParamState&>(
+                *second.Optimizer().state().at(loaded_groups[group_index].params()[i].unsafeGetTensorImpl()));
+            CHECK(saved.step() == 1);
+            CHECK(loaded.step() == saved.step());
+            CHECK(saved.exp_avg().abs().sum().item<float>() > 0.0f);
+            CHECK(torch::equal(loaded.exp_avg(), saved.exp_avg()));
+            CHECK(torch::equal(loaded.exp_avg_sq(), saved.exp_avg_sq()));
+            if (change_defaults && group_index == 0) CHECK(torch::equal(loaded.max_exp_avg_sq(), saved.max_exp_avg_sq()));
+        }
+    }
+}
+
 TEST_CASE("Noisy sigma has independent AdamW decay and freezes without a gradient", "[dqn][noisynet][optimizer]")
 {
     ScopedNoopMetricsLogger metrics_logger;
@@ -7447,7 +7597,7 @@ TEST_CASE("Noisy probe compares a prepared sample against the default Head execu
     CHECK((*records)[1].key == probe_config.key);
 }
 
-TEST_CASE("Noisy optimizer serialization restores mean and sigma groups and moments", "[dqn][noisynet][optimizer][serialize]")
+TEST_CASE("Noisy optimizer serialization preserves the next update with identical settings", "[dqn][noisynet][optimizer][serialize]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::nn::InitNN();
@@ -7470,10 +7620,7 @@ TEST_CASE("Noisy optimizer serialization restores mean and sigma groups and mome
     dqn::TDLearner first(config, source, source_vars, nullptr, rl::BatchEnvSpec{1, 1}, env_spec,
         torch::kCPU, 473, std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), SelectLearnerForwardResources(data),
         std::nullopt, 474, nullptr, nullptr);
-    auto alternate = config;
-    alternate.alpha = 0.9f;
-    alternate.noisy_weight_decay = 0.1f;
-    dqn::TDLearner second(alternate, restored, restored_vars, nullptr, rl::BatchEnvSpec{1, 1}, env_spec,
+    dqn::TDLearner second(config, restored, restored_vars, nullptr, rl::BatchEnvSpec{1, 1}, env_spec,
         torch::kCPU, 473, std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), SelectLearnerForwardResources(data),
         std::nullopt, 474, nullptr, nullptr);
     // 両方を同じ公開更新回数と抽選列へ進め、両groupの非ゼロmomentを作る。
@@ -7501,7 +7648,7 @@ TEST_CASE("Noisy optimizer serialization restores mean and sigma groups and mome
     CHECK(restored.Load(input) > 0);
     CHECK(second.Load(input) > 0);
     CHECK(bytes.tellg() == static_cast<std::streamoff>(bytes.str().size()));
-    // 完全なRun再開は検証しない。同じ次の遷移で、復元したdecay・step・momentの効果を観測する。
+    // 完全なRun再開は検証しない。同一設定の次の遷移で、引き継いだstep・momentの効果を観測する。
     const auto experience = MakeNoisyOptimizerExperience(3, 100.0f);
     REQUIRE(first.UpdateFromBatch(rl::StepCounts{.exp_step=3}, experience).size() == 1);
     REQUIRE(second.UpdateFromBatch(rl::StepCounts{.exp_step=3}, experience).size() == 1);

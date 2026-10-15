@@ -2509,9 +2509,24 @@ std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::st
     return std::nullopt;
 }
 
+std::vector<torch::optim::AdamWOptions> Learner::BuildOptimizerOptions() const
+{
+    // 構築と引き継ぎで同じ設定を使い、通常・sigma の group 順を保つ。
+    std::vector<torch::optim::AdamWOptions> options{
+        torch::optim::AdamWOptions(config_.alpha).weight_decay(config_.weight_decay).eps(config_.adam_eps)
+    };
+    if (!model_.GetOnlineNetwork()->GetNoisyParameterEntries().empty()) {
+        auto sigma_options = options.front();
+        sigma_options.weight_decay(config_.noisy_weight_decay);
+        options.push_back(sigma_options);
+    }
+    return options;
+}
+
 void Learner::SetupOptimizer()
 {
-    const auto opts = torch::optim::AdamWOptions(config_.alpha).weight_decay(config_.weight_decay).eps(config_.adam_eps);
+    const auto options = BuildOptimizerOptions();
+    const auto& opts = options.front();
     LOG::verbose() << "Learner: lr=" << opts.lr() << " weight_decay=" << opts.weight_decay()
         << " eps=" << opts.eps() << " fused=" << config_.use_fused_optimizer;
     const auto entries = model_.GetOnlineNetwork()->GetNoisyParameterEntries();
@@ -2532,11 +2547,9 @@ void Learner::SetupOptimizer()
     for (const auto& parameter : model_.GetOnlineParameters()) {
         (sigma_ids.contains(parameter.unsafeGetTensorImpl()) ? sigma_parameters : ordinary_parameters).push_back(parameter);
     }
-    auto sigma_opts = opts;
-    sigma_opts.weight_decay(config_.noisy_weight_decay);
     std::vector<torch::optim::OptimizerParamGroup> groups;
     groups.emplace_back(ordinary_parameters, std::make_unique<torch::optim::AdamWOptions>(opts));
-    groups.emplace_back(sigma_parameters, std::make_unique<torch::optim::AdamWOptions>(sigma_opts));
+    groups.emplace_back(sigma_parameters, std::make_unique<torch::optim::AdamWOptions>(options[1]));
     // 両 optimizer は未定義勾配の parameter を skip し、mu-only では decay も適用しない。
     if (config_.use_fused_optimizer) {
         optimizer_ = std::make_unique<anet::FusedAdamW>(groups, opts);
@@ -3194,8 +3207,46 @@ int64_t Learner::Save(OutputArchive& archive) const
 
 int64_t Learner::Load(InputArchive& archive)
 {
+    ANET_PROFILE_FUNC();
     int64_t size = 0;
     size += archive.ReadTorchObject(*optimizer_);
+    // moment と step の復元後、保存時との差を通知して group の options だけを置き換える。
+    const auto options = BuildOptimizerOptions();
+    for (size_t i = 0; i < options.size(); ++i) {
+        auto& loaded = static_cast<torch::optim::AdamWOptions&>(optimizer_->param_groups()[i].options());
+        const auto& current = options[i];
+        const auto warn_difference = [i](const char* option, const char* key, const auto& saved_value, const auto& config_value) {
+            auto warning = LOG::warn();
+            warning << "Learner::Load: optimizer option differs from checkpoint; config applied. group=" << i
+                << " option=" << option;
+            if (key != nullptr) warning << " key=" << key;
+            warning << " checkpoint=" << saved_value << " config=" << config_value;
+        };
+        if (loaded.lr() != current.lr()) {
+            warn_difference("lr", "learner.alpha", loaded.lr(), current.lr());
+        }
+        if (loaded.weight_decay() != current.weight_decay()) {
+            warn_difference("weight_decay", i == 0 ? "learner.weight_decay" : "learner.noisy_weight_decay",
+                loaded.weight_decay(), current.weight_decay());
+        }
+        if (loaded.eps() != current.eps()) {
+            warn_difference("eps", "learner.adam_eps", loaded.eps(), current.eps());
+        }
+        if (loaded.betas() != current.betas()) {
+            // 比較は丸める前の値で行い、ログでは2値を1つの option として示す。
+            std::ostringstream saved_betas, config_betas;
+            saved_betas << "(" << std::get<0>(loaded.betas()) << "," << std::get<1>(loaded.betas()) << ")";
+            config_betas << "(" << std::get<0>(current.betas()) << "," << std::get<1>(current.betas()) << ")";
+            warn_difference("betas", nullptr, saved_betas.str(), config_betas.str());
+        }
+        if (loaded.amsgrad() != current.amsgrad()) {
+            warn_difference("amsgrad", nullptr, loaded.amsgrad(), current.amsgrad());
+        }
+        // state はそのままに全 options を代入し、実際に適用された値を記録する。
+        loaded = current;
+        LOG::info() << "Learner::Load: optimizer options applied from config. group=" << i
+            << " lr=" << loaded.lr() << " weight_decay=" << loaded.weight_decay() << " eps=" << loaded.eps();
+    }
     return size;
 }
 

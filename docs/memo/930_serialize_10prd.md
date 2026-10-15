@@ -135,6 +135,22 @@ checkpoint または Run serialization bundle は、データ本体とは別に 
 - 明示した group を保存できない場合、黙って省略しない。`auto` profile だけが WARN 付き fallback を定義できる。
 - Run close、手動 snapshot、AutoPause、異常終了 recovery で、どこまで同じ fidelity を保証するかを別途定義する。
 
+## 保存時と異なる device への Load
+
+### 現行の観測
+
+2026-10-15、GPU が学習中の Run で埋まっていたため、DropMerge の継続設定の smoke を `agent.device=cpu` で回したところ、次が判明した。
+
+- cuda:0（RTX 5090）の Run が保存した `agent_close.anet` を、Agent と Env の `effective_device` が `cpu` の Run が `auto_load_file` で読むと、`LoadNetwork` は `model_size` と `learner_size` を出して完了する。
+- その後、TrainThread の最初の計算で `Expected all tensors to be on the same device, but got mat2 is on cuda:0, different from other tensors on cpu (when checking argument in method wrapper_CUDA_mm)` が出て、Run は exit code 1 で終わる。評価セッションは 1 回も終わっていない。
+- B256 の Run 2 つと B512 の Run 1 つが保存した checkpoint の 3 つとも同じ結果だった。同じ checkpoint を GPU の Run で読む継続は正常に動く。
+- 復元した tensor の少なくとも一部が、現在の Agent の device ではなく保存時の device（cuda:0）に置かれたままと読める。model の parameter か、optimizer の state か、ほかの復元物かは特定していない。
+
+### 要求
+
+- Load は、復元した全 tensor（online/target Network、optimizer の moment と step など）を現在の Agent の device へ置く。device をまたぐ Load を対象外とするなら、保存時と現在の device を示して Load の時点で fail-fast する。学習開始後の計算で初めて落ちる現状は、§Save / Load の安全性の「全対象へ事前検証してから」に反する。
+- manifest に保存時の device を記録し、Load 時の device と並べて残す。
+
 ## 決定性と等価性検証
 
 Run serialization は、checkpoint を **等価性アッセイの対象として使える**ことを要求に含める。改修前後で挙動が変わっていないことを証明する手段として、checkpoint が使えるかどうかという観点である。
@@ -208,6 +224,7 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 - 異なる checkpoint generation や source Run の group 混在を、明示 opt-in なしで拒否すること。
 - 途中で中断した Save、欠損 group、破損 manifest、未知 schema を完成済み checkpoint として load しないこと。
 - load の途中失敗後に、一部だけ復元された Run を開始しないこと。
+- CUDA で保存した checkpoint を CPU の Agent で Load したとき、全 tensor が CPU に置かれて学習が進むか、Load の時点で device の不一致を示して fail-fast すること。
 
 ### 決定性 regression
 
@@ -225,6 +242,14 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 - 非決定論 Run の bit-exact 再現を、保存対象と検証なしに保証すること。
 - metrics の全履歴を一つの旧 Run directoryへ追記し続けること。segment/lineage の見せ方は別途設計する。
 
+## 091 からの見送り事項（2026-10-15）
+
+[091](091_checkpoint_load_optimizer_options_10prd.md) の再グリルで、本 PRD の範囲として見送ったもの。
+
+- `continue` / `require_match` を選ぶ設定キー。091 は設定キーを足さず、Optimizer group の `retune` を唯一の挙動にした（[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)）。policy の導入は本 PRD が扱い、そのとき ADR 0053 の先頭へ注記を足す。
+- 実効 learning rate の GetScalar メトリクス。学習率 schedule が無い間は一定値で、ログと `config_data.txt` で足りる。schedule を入れるときに起票する。§Manifest と実効値の要求の「起動直後から確認可能にする」とは別口。
+- ImageCls の optimizer options。`ImageClsLearner::Load` も同じ経路で `weight_decay` が checkpoint の値に戻る（learning rate は毎 update 設定し直すので影響なし、eps は設定キーが無い）。ImageCls で optimizer 設定を変えて引き継ぐ実験が出たら 091 と同じ形で直す。
+
 ## 未決事項
 
 - exact continuation、retune、weights-only などの高水準 profile を何種類にするか。
@@ -237,6 +262,7 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 - 現行 archive の非決定の実体（model archive 内 offset `0x025A7EE4` 付近）が、保存時刻、build identifier、未初期化 padding のどれか。
 - payload digest を group 単位だけで持つか、bundle 全体の合成 digest も持つか。
 - 現行 `.anet` checkpoint と `auto_load_file` の互換移行期間をどう設けるか。
+- device をまたぐ Load（CUDA で保存して CPU で読む、別の GPU 番号で読むなど）を、現在の device へ移して受け入れるか、fail-fast に留めるか。
 - `config_data.txt` と serialization manifest の requested/effective Config をどう重複なく提示するか。
 
 ## Further Notes
