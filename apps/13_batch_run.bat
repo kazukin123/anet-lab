@@ -37,16 +37,18 @@ SET "EPS0=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train]
 SET "NZSIG=net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head_projection.noisy.sigma0=1.2"
 SET "BOMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy"
 SET "BOMET0=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2"
+SET "NOCLIP=E1.reward_clip=false A3.reward_scaler.constant_scale=0.005"
+SET "ELIFE=E1.episodic_life=true"
 
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. breakout rt 50m seed 1: noisynet on top of the eps ladder, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=breakout run.seed=1 %NZSIG% "%BOMET%" "app.run_name=run_{t}_breakout_rr1_50m_nz_ladder"
-echo === 2. breakout rt 50m seed 1: eps 0 without noisynet ===
-call :run_exe "%RT50%" E1.game=breakout run.seed=1 %EPS0% "%BOMET0%" "app.run_name=run_{t}_breakout_rr1_50m_eps0"
-echo === 3. battle_zone rt 50m seed 1: noisynet on top of the eps ladder, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=battle_zone run.seed=1 %NZSIG% "app.run_name=run_{t}_a5_battle_zone_rr1_50m_nz_ladder"
-echo === 4. double_dunk rt 50m seed 1: noisynet on top of the eps ladder, sigma0 btr strength ===
-call :run_exe "%RT50NZ%" E1.game=double_dunk run.seed=1 %NZSIG% "app.run_name=run_{t}_a5_double_dunk_rr1_50m_nz_ladder"
+echo === 1. kung_fu_master rt 50m seed 1: raw reward scaled by 1/200 instead of sign clip ===
+call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=1 %NOCLIP% "app.run_name=run_{t}_kung_fu_master_rr1_50m_noclip200_seed1"
+echo === 2. kung_fu_master rt 50m seed 2: raw reward scaled by 1/200 instead of sign clip ===
+call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=2 %NOCLIP% "app.run_name=run_{t}_kung_fu_master_rr1_50m_noclip200_seed2"
+echo === 3. kung_fu_master rt 50m seed 1: life loss ends the training episode ===
+call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=1 %ELIFE% "app.run_name=run_{t}_kung_fu_master_rr1_50m_elife_seed1"
+echo === 4. kung_fu_master rt 50m seed 1: raw reward scaled by 1/200 and life loss ends the training episode ===
+call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=1 %NOCLIP% %ELIFE% "app.run_name=run_{t}_kung_fu_master_rr1_50m_noclip200_elife_seed1"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
