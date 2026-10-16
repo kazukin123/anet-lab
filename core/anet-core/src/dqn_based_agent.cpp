@@ -7,6 +7,7 @@
 #include <numeric>
 #include <optional>
 #include <sstream>
+#include <set>
 #include <utility>
 #include <unordered_set>
 #include "anet/log.hpp"
@@ -2089,6 +2090,7 @@ void Learner::ConfigureScalarMetricSubscriptions(
     const std::vector<ScalarMetricSubscription>& subscriptions, anet::RandomGenerator* replay_fit_probe_random,
     anet::RandomGenerator* noisy_probe_random, const anet::nn::NetworkForwardConfig* noisy_probe_config)
 {
+    grad_noise_ = GradientNoiseState{};
     plasticity_ = PlasticityState{};
     noisy_ = NoisyDiagnosticState{};
     policy_churn_.demand.clear();
@@ -2100,6 +2102,17 @@ void Learner::ConfigureScalarMetricSubscriptions(
     for (const auto& subscription : subscriptions) {
         if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
         const auto& key = subscription.source_key;
+        if (subscription.target == EventField::UPDATE_RESULT) {
+            if (const auto metric = ParseGradientNoiseMetric(key)) {
+                grad_noise_.demand.emplace_back(*metric, subscription.interval);
+                const auto i = *metric;
+                if (i == 4 || i == 9 || i == 10) grad_noise_.subscribed.raw = true;
+                else if (i == 1 || i == 11 || i == 12) grad_noise_.subscribed.adam[1] = true;
+                else if (i == 2 || i == 13 || i == 14) grad_noise_.subscribed.adam[2] = true;
+                else grad_noise_.subscribed.adam[0] = true;
+                continue;
+            }
+        }
         if (const auto metric = ParseNoisyMetric(key)) {
             noisy_.demand.emplace_back(*metric, subscription.interval);
             continue;
@@ -2141,6 +2154,42 @@ void Learner::ConfigureScalarMetricSubscriptions(
         }
     }
 
+    // 購読のある構成だけで値域・精度と測定用parameterを確定する。
+    const bool grad_noise_split = grad_noise_.subscribed.adam[1] || grad_noise_.subscribed.adam[2];
+    if (!grad_noise_.demand.empty()) {
+        const auto& setting = config_.grad_noise;
+        const int batch = config_.replay_batch_size;
+        if (setting.num_micro_batches < 2 || batch <= 0 || batch % setting.num_micro_batches != 0) {
+            ANET_SYSTEM_ERROR("Invalid learner.grad_noise.num_micro_batches="
+                              << setting.num_micro_batches << "; expected integer >=2 dividing replay_batch_size=" << batch);
+        }
+        if (!std::isfinite(setting.ema_alpha) || setting.ema_alpha <= 0 || setting.ema_alpha > 1) {
+            ANET_SYSTEM_ERROR("Invalid learner.grad_noise.ema_alpha=" << setting.ema_alpha << "; expected finite (0,1]");
+        }
+        if (config_.use_amp && !config_.use_amp_bf16) {
+            ANET_SYSTEM_ERROR("Invalid learner.use_amp=true learner.use_amp_bf16=false for grad_noise metrics; expected FP32 or BF16");
+        }
+        for (auto& estimator : grad_noise_.estimators)
+            estimator = anet::GradientNoiseEstimator(setting.ema_alpha);
+        std::set<int> intervals;
+        for (const auto& entry : grad_noise_.demand)
+            intervals.insert(entry.interval);
+        if (intervals.size() > 1 && !grad_noise_intervals_warned_) {
+            std::ostringstream list;
+            for (const auto interval : intervals) {
+                if (list.tellp() > 0) list << ",";
+                list << interval;
+            }
+            LOG::warn() << "Gradient noise subscription intervals differ: intervals=[" << list.str()
+                        << "]; shared EMA updates at the union of measurement points.";
+            grad_noise_intervals_warned_ = true;
+        }
+        if (!grad_noise_split) {
+            // 群別未購読時はfeatureフラグが結果に影響しないため、既定のfalseで全parameterを渡す。
+            for (const auto& parameter : model_.GetOnlineParameters())
+                grad_noise_.parameters.push_back({ .parameter = parameter });
+        }
+    }
     // probe の用途は Agent が選択する。Learner は設定の中身を解釈せず NN に検証を委譲する。
     if (config_.enabled && std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric >= 8; })
         && !model_.GetOnlineNetwork()->GetNoisyParameterEntries().empty()) {
@@ -2169,19 +2218,26 @@ void Learner::ConfigureScalarMetricSubscriptions(
 
     if (!plasticity_.online.enabled && !plasticity_.target.enabled
         && !plasticity_.probe.enabled && !plasticity_.weight_norm_enabled
-        && !std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric < 8; })) return;
-    if (config_.plasticity.feature_key.empty()) {
-        ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.plasticity.feature_key is required when plasticity metrics are subscribed.");
-    }
+        && !std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric < 8; })
+        && !grad_noise_split) return;
     const auto branch_names = model_.GetOnlineNetwork()->GetBranchNames();
+    std::ostringstream available;
+    for (size_t i = 0; i < branch_names.size(); ++i) {
+        if (i > 0) available << ", ";
+        available << branch_names[i];
+    }
+    if (config_.plasticity.feature_key.empty()) {
+        ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.plasticity.feature_key='' is required when plasticity or gradient-noise split metrics are subscribed; available_branches=["
+            << available.str() << "]");
+    }
     if (std::ranges::find(branch_names, config_.plasticity.feature_key) == branch_names.end()) {
-        std::ostringstream available;
-        for (size_t i = 0; i < branch_names.size(); ++i) {
-            if (i > 0) available << ", ";
-            available << branch_names[i];
-        }
         ANET_SYSTEM_ERROR("Unknown DefaultDQNAgent.learner.plasticity.feature_key='"
             << config_.plasticity.feature_key << "'. available_branches=[" << available.str() << "]");
+    }
+    if (grad_noise_split) {
+        const auto split = model_.GetOnlineNetwork()->GetParameterSplit(config_.plasticity.feature_key);
+        for (const auto& parameter : split.feature) grad_noise_.parameters.push_back({ .parameter = parameter, .feature = true });
+        for (const auto& parameter : split.readout) grad_noise_.parameters.push_back({ .parameter = parameter, .feature = false });
     }
     plasticity_.online_capture.branch_key = config_.plasticity.feature_key;
     plasticity_.target_capture.branch_key = config_.plasticity.feature_key;
@@ -2618,13 +2674,45 @@ NormalizedSampleObservations Learner::NormalizeSampleObservations(const anet::rl
     return { obs, next_obs };
 }
 
-OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
+std::optional<GradientNoiseMetrics> Learner::CaptureGradientNoise(const torch::Tensor& weighted_element_loss)
+{
+    // 未購読・未発火ではTensor、勾配、payloadを作らない。
+    if (grad_noise_.demand.empty() || !std::ranges::any_of(grad_noise_.request, [](bool requested) { return requested; }))
+        return std::nullopt;
+    ANET_PROFILE_FUNC();
+    // SetupOptimizerはAdamWまたはその派生のFusedAdamWだけを生成するため、このcastが成立する。
+    const auto measurement =
+        anet::MeasureGradientNoise(weighted_element_loss, grad_noise_.parameters, static_cast<const torch::optim::AdamW&>(*optimizer_),
+            config_.grad_noise.num_micro_batches, config_.adam_eps, grad_noise_.subscribed);
+    const auto raw_ema = grad_noise_.estimators[0].Update(measurement.raw);
+    std::array<anet::GradientNoiseEstimate, 3> adam_ema;
+    for (size_t group = 0; group < 3; ++group)
+        adam_ema[group] = grad_noise_.estimators[group + 1].Update(measurement.adam[group]);
+    const auto scale = [](const anet::GradientNoiseEstimate& estimate) {
+        return estimate.signal > 0 ? estimate.variance / estimate.signal : std::numeric_limits<double>::quiet_NaN();
+    };
+    const std::array<double, 15> values{ scale(adam_ema[0]), scale(adam_ema[1]), scale(adam_ema[2]),
+        scale(adam_ema[0]) / weighted_element_loss.size(0), scale(raw_ema), adam_ema[0].signal, adam_ema[0].variance,
+        measurement.adam[0].signal, measurement.adam[0].variance, measurement.raw.signal, measurement.raw.variance,
+        measurement.adam[1].signal, measurement.adam[1].variance, measurement.adam[2].signal, measurement.adam[2].variance };
+    GradientNoiseMetrics result;
+    result.fill(std::numeric_limits<float>::quiet_NaN());
+    // EMA更新と公開を分離し、当該key自身が発火した値だけを確定する。
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (grad_noise_.request[i] && std::isfinite(values[i]) && std::abs(values[i]) <= std::numeric_limits<float>::max()) {
+            result[i] = static_cast<float>(values[i]);
+        }
+    }
+    return result;
+}
+OptimizerStepResult Learner::Optimize(const torch::Tensor& loss, const torch::Tensor& weighted_element_loss)
 {
 	ANET_PROFILE_FUNC();
 	
     auto parameters = model_.GetOnlineParameters();
 
     OptimizerStepResult result;
+    result.grad_noise = CaptureGradientNoise(weighted_element_loss);
     result.grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
 
     ANET_PROFILE_SCOPE(zero_grad);
@@ -2959,6 +3047,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     const torch::Tensor& q_gap_rel) const
 {
     auto result = std::make_shared<BatchUpdateResult>();
+    result->grad_noise = opt_result.grad_noise;
     result->loss = loss.detach();
     result->td_error = td_error.detach();
     result->grad_norm = opt_result.grad_norm;
@@ -3128,6 +3217,12 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         ValidateDeviceSamples(dev_samples, B);
 
         // 現在の learn_step に対応する actual/probe 測定要求を準備
+        if (!grad_noise_.demand.empty()) {
+            grad_noise_.request.fill(false);
+            for (auto& entry : grad_noise_.demand) {
+                if (entry.gate.ShouldFire(vars_.learn_step)) grad_noise_.request[entry.metric] = true;
+            }
+        }
         PreparePolicyChurnRequest();
         CapturePolicyChurnProbe();
         plasticity_.online_request = plasticity_.online.MakeRequest(vars_.learn_step);
@@ -3210,6 +3305,10 @@ int64_t Learner::Load(InputArchive& archive)
     ANET_PROFILE_FUNC();
     int64_t size = 0;
     size += archive.ReadTorchObject(*optimizer_);
+    // 診断EMAはcheckpointの一部ではなく、引き継ぎ時は未初期化へ戻す。
+    if (!grad_noise_.demand.empty()) {
+        for (auto& estimator : grad_noise_.estimators) estimator = anet::GradientNoiseEstimator(config_.grad_noise.ema_alpha);
+    }
     // moment と step の復元後、保存時との差を通知して group の options だけを置き換える。
     const auto options = BuildOptimizerOptions();
     for (size_t i = 0; i < options.size(); ++i) {
@@ -3729,6 +3828,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // 結果変数（スコープ外で宣言）
     torch::Tensor loss;
+    torch::Tensor weighted_element_loss;
     torch::Tensor td_error;
     torch::Tensor max_q;
     torch::Tensor q_sa;
@@ -3795,9 +3895,11 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         if (config_.use_per) {
             auto weights = samples.is_weights.to(error.loss.device());
-            loss = (error.loss * weights).mean();
+            weighted_element_loss = error.loss * weights;
+            loss = weighted_element_loss.mean();
         } else {
-            loss = error.loss.mean();
+            weighted_element_loss = error.loss;
+            loss = weighted_element_loss.mean();
         }
     } // End of Autocast Scope
 
@@ -3805,7 +3907,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     auto per_pending = PreparePerPriorityUpdate(samples, td_error, {}, {}, munchausen_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
-    auto opt_result = Optimize(loss);
+    auto opt_result = Optimize(loss, weighted_element_loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
@@ -3868,6 +3970,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     ANET_ASSERT_NAN(next_obs);
 
     torch::Tensor loss;
+    torch::Tensor weighted_element_loss;
     torch::Tensor td_error_tensor;
     torch::Tensor upper_tail_std;
     torch::Tensor munchausen_diagnostics;
@@ -3927,7 +4030,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
         ANET_LOG_DEBUG("weights=" << anet::ToString(weights));
         ANET_ASSERT_NAN(weights);
-        loss = (element_loss * weights).mean();
+        weighted_element_loss = element_loss * weights;
+        loss = weighted_element_loss.mean();
         ANET_ASSERT_SHAPE(loss, {});
         ANET_ASSERT_NAN(loss);
 
@@ -3937,7 +4041,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, torch::Tensor(), upper_tail_std, munchausen_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
-    auto opt_result = Optimize(loss);
+    auto opt_result = Optimize(loss, weighted_element_loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
@@ -3990,6 +4094,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     ANET_ASSERT_NAN(next_obs);
 
     torch::Tensor loss;
+    torch::Tensor weighted_element_loss;
     torch::Tensor td_error_tensor;
     torch::Tensor iqn_diagnostics;
     torch::Tensor upper_tail_std;
@@ -4105,7 +4210,8 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         auto weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
         ANET_ASSERT_SHAPE(weights, { B });
         ANET_ASSERT_NAN(weights);
-        loss = (element_loss * weights).mean();
+        weighted_element_loss = element_loss * weights;
+        loss = weighted_element_loss.mean();
         ANET_ASSERT_SHAPE(loss, {});
         ANET_ASSERT_NAN(loss);
     }
@@ -4115,7 +4221,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, iqn_diagnostics, upper_tail_std, munchausen_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
-    auto opt_result = Optimize(loss);
+    auto opt_result = Optimize(loss, weighted_element_loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));

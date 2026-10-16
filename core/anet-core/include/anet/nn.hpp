@@ -161,6 +161,7 @@ namespace anet::nn {
     struct NetworkNoisyParameterEntry;
     struct SpectralNormEntry;
     struct NetworkParameterNormSplit;
+    struct NetworkParameterSplit;
 
     // ===========================================================================
     // Networkと用途別実行器
@@ -204,6 +205,8 @@ namespace anet::nn {
         torch::Tensor ComputeNoisyParameterStatistics(const std::string& feature_key) const;
         /// feature_keyの依存閉包でfeature/readoutを分けたnormとSN診断を返す。
         NetworkParameterNormSplit ComputeParameterNormSplit(const std::string& feature_key) const;
+        /// feature依存閉包とreadoutに分類した全学習parameter。Noisy sigmaも含む。
+        NetworkParameterSplit GetParameterSplit(const std::string& feature_key) const;
         /// 不正なSN spectral sigmaの数をFP32のdevice scalarで返す。
         torch::Tensor ComputeSpectralNormValidity() const;
         /// BodyのSN対象weightとbufferを診断用に列挙する。
@@ -274,7 +277,13 @@ namespace anet::nn {
         std::string branch; ///< Bodyの所属branch名。Headは空文字。
     };
 
-    /// feature依存閉包の内外で分けたparameter normとSN診断。値はFP32のdevice scalar。
+    /// feature依存閉包の内外で分けた全学習parameter。Noisy sigmaも含む。
+    struct NetworkParameterSplit {
+        std::vector<torch::Tensor> feature;
+        std::vector<torch::Tensor> readout;
+    };
+
+    /// 群別parameter normとSN診断。値はFP32のdevice scalar。
     struct NetworkParameterNormSplit {
         torch::Tensor feature; ///< feature依存閉包内の学習parameterのL2 norm。Noisy sigmaを除く。
         torch::Tensor readout; ///< 閉包外とHeadの同じ定義のL2 norm。

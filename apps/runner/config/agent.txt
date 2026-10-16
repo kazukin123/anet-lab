@@ -406,3 +406,7 @@ MuZeroAgent.baseline.actor.[eval_panel].temp_end ?= 0
 MuZeroAgent.baseline.actor.[eval_panel].temp_decay_steps ?= 0
 MuZeroAgent.baseline.actor.[eval_panel].add_exploration_noise ?= false
 MuZeroAgent.baseline.actor.[eval_panel].clone_model ?= false
+
+# 勾配ノイズスケールの共通デフォルト。値域・整除は購読時に検証する。
+DefaultDQNAgent.@baseline : learner.grad_noise.num_micro_batches ?= 8
+DefaultDQNAgent.@baseline : learner.grad_noise.ema_alpha ?= 0.05

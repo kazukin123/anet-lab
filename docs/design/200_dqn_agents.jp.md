@@ -475,6 +475,16 @@ probe は `learner.noisy_probe.probe.batch_size=128`、`num_draws=32`、`iqn.num
 
 統計だけの購読では probe を実行しない。probe は専用箱・時計・RNG と mode/精度 guard を使い、通常更新の ε・RNG・SN 等の永続 buffer を変えない。既存 probe は既定の μ-only、actual 指標は通常 forward の実際の出力を使う。追加の μ-only Q 統計は公開しない。
 
+### 9.8 勾配ノイズスケール
+
+TD / QR / IQN は autocast 内で計算した長さ B の重み付き要素損失と、その平均である既存の loss を `Optimize(loss, weighted_element_loss)` へ渡す。測定は zero_grad 前に、同じグラフから k 個の小バッチの勾配を autograd::grad（retain_graph、allow_unused、create_graph=false）で取得する。forward・乱数抽選は増やさず、学習の .grad・optimizer state を変更しない。共通計算部は nn_util、購読と EMA State は Learner が所有する。単一損失・AdamW の用途に限定する。
+
+小バッチ勾配の二乗平均 s と平均勾配の二乗 b から、信号 `(k*b-s)/(k-1)`、分散 `(s-b)*B/(k-1)` を推定する。Adam 版は更新前の exp_avg_sq と step、所属 group の beta2、learner.adam_eps による固定前処理 `1/(sqrt(v_hat)+eps)` で測る。今回得た勾配だけで使用判定し、全小バッチ未使用は除外、一部未使用は0寄与とする。使用parameterのstate不足はその群とallだけを未成立にする。feature依存閉包・readoutの分類はweight normと共通だが、使用されたNoisy sigmaも計測対象に含む。
+
+train scope の @learn / $update_result 購読をkey別IntervalGateで判定し、加算前learn_stepの発火点の和集合で1回測る。購読された版・群は測定点を共有し、成立した信号・分散のEMA対を1回更新する。有限の負の信号も取り込み、EMA信号が非正ならscale・ratioをNaNとする。未成立回はEMAを更新せず公開値を前回値で埋めない。空群はraw・scaleともNaNで、allへの寄与は0。各keyは自身の発火時だけ公開し、既知の未購読・未発火・未成立はNaN、未知だけnulloptとする。EMAはcheckpointに保存しない。
+
+公開は49_agent_gradnoiseの15指標で、metrics.scalar.@gradnoise（全行interval 503）で明示購読する。num_micro_batchesの既定8はBを割り切る2以上、ema_alphaの既定0.05は有限の(0,1]。購読時だけ検証し、FP16は学習前にfail-fastする。FP32 / BF16は対象で、BF16の丸めを測定に含める。群別購読時だけfeature_keyを検証する。異なるintervalは許容し起動時1回WARNする。共有Noisy epsilonに条件付けた値であり、BatchNorm等のサンプル間結合では独立抽出の解釈を保証しない。
+
 ## 10. テストと拡張時の確認事項
 
 主なDQN testは[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)と[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)に置く。
@@ -490,6 +500,7 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 7. 保存対象と非保存Stateを列挙し、互換checkpointと非互換checkpointの結果をtestする。
 8. 追加metricのsource、step軸、未対応Agentでの`nullopt`または`NaN`条件を定義する。
 9. policy churnを変更する場合は、zero update、online差分、hard/soft target、FP32 autocast境界、IQN fixed taus、購読ゲート、caller-owned probe RNGの非干渉を確認する。
+10. 勾配ノイズ計測を変更する場合は、`Optimize`の第2引数の平均とlossの一致、推定式、群別の成立条件、購読の和集合と共有EMA、決定論環境のON/OFF非干渉を確認する。本線BF16 smoke・実時間/追加メモリ・値の未成立率を含む手順は [PRD092検証資材](../../core/anet-core/testdata/prd092/README.md) を参照する。
 
 ## 11. 関連文書
 

@@ -304,6 +304,9 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.iqn.num_taus: value="
                     << learner.noisy_probe.iqn.num_taus << " expected integer >= 1");
             }
+            // 値域・組み合わせの検証は、購読が決まる学習開始前の境界で行う。
+            ANET_READ_CONFIG(config_data, learner.grad_noise.num_micro_batches);
+            ANET_READ_CONFIG(config_data, learner.grad_noise.ema_alpha);
             ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
             ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
             ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);

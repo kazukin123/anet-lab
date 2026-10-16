@@ -339,3 +339,20 @@ metrics.scalar.@noisy : [47_agent_noisy/08_sigma_l2_ratio_readout_bias] ?= noisy
 metrics.scalar.@noisy : [47_agent_noisy/09_q_abs_diff] ?= noisy_q_abs_diff @learn $learn_step $update_result interval:503
 metrics.scalar.@noisy : [47_agent_noisy/10_action_disagreement_ratio] ?= noisy_action_disagreement_ratio @learn $learn_step $update_result interval:503
 metrics.scalar.@noisy : [47_agent_noisy/11_action_entropy] ?= noisy_action_entropy @learn $learn_step $update_result interval:503
+
+# 勾配ノイズスケール（購読時だけ更新自身の損失を測定する）
+metrics.scalar.@gradnoise : [49_agent_gradnoise/01_scale_adam] ?= grad_noise_scale_adam @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/02_scale_adam_feature] ?= grad_noise_scale_adam_feature @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/03_scale_adam_readout] ?= grad_noise_scale_adam_readout @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/05_ratio_adam] ?= grad_noise_ratio_adam @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/11_scale] ?= grad_noise_scale @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/21_signal_adam] ?= grad_noise_signal_adam @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/22_variance_adam] ?= grad_noise_variance_adam @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/31_signal_adam_raw] ?= grad_noise_signal_adam_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/32_variance_adam_raw] ?= grad_noise_variance_adam_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/33_signal_raw] ?= grad_noise_signal_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/34_variance_raw] ?= grad_noise_variance_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/35_signal_adam_feature_raw] ?= grad_noise_signal_adam_feature_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/36_variance_adam_feature_raw] ?= grad_noise_variance_adam_feature_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/37_signal_adam_readout_raw] ?= grad_noise_signal_adam_readout_raw @learn $learn_step $update_result interval:503
+metrics.scalar.@gradnoise : [49_agent_gradnoise/38_variance_adam_readout_raw] ?= grad_noise_variance_adam_readout_raw @learn $learn_step $update_result interval:503

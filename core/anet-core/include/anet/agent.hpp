@@ -227,6 +227,11 @@ namespace anet::rl {
                 };
             } iqn;
 
+            struct GradNoiseConfig {
+                int num_micro_batches = 8;
+                double ema_alpha = 0.05;
+            } grad_noise;
+
             struct NoisyProbeConfig {
                 struct ProbeConfig { int batch_size = 128; } probe;
                 int num_draws = 32;

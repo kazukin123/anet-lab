@@ -247,6 +247,40 @@ SNを有効にしたRunでは、`61` / `62`はoptimizerが保持する生paramet
 
 mode間の負荷は`forward_target`、`forward_munchausen_online`、`munchausen_target`と、同じexp step区間のelapsed time差で比較する。診断や1 seedの成績だけで改善を断定しない。
 
+### 4.9 勾配ノイズスケールを読む
+
+1. `metrics.scalar.@gradnoise` を選択する。DropMergeでは `run.@gradnoise` をチェーンの末尾に追加する。既定は小バッチ数8、EMA係数0.05、全15行interval 503、記録軸はlearn_step。FP32またはBF16を使う。
+2. 次の表から指標を選び、`01_scale_adam` を主に読む。
+
+| tag | 用途 |
+|---|---|
+| 01_scale_adam | Adamの座標系での全体の勾配ノイズスケール。主読み |
+| 02_scale_adam_feature / 03_scale_adam_readout | feature依存閉包 / readoutの同じ量 |
+| 05_ratio_adam | 01をBで割った値。Run内で閾値1と比べる |
+| 11_scale | Adam前処理に依存しない全体の参照 |
+| 21_signal_adam / 22_variance_adam | 全体の平滑化済み信号 / 分散 |
+| 31_signal_adam_raw / 32_variance_adam_raw | 全体のAdam信号 / 分散の1回の推定 |
+| 33_signal_raw / 34_variance_raw | 素の信号 / 分散の1回の推定 |
+| 35_signal_adam_feature_raw / 36_variance_adam_feature_raw | featureのAdam信号 / 分散の1回の推定 |
+| 37_signal_adam_readout_raw / 38_variance_adam_readout_raw | readoutのAdam信号 / 分散の1回の推定 |
+
+3. 未成立値、再集計、Run間の比較は次の表に従う。
+
+| 確認すること | 手順・読み方 |
+|---|---|
+| scale・ratioが未成立 | 21が有限で0以下なら信号非正、21も未成立ならstate不足や非有限値等の可能性を確認する。欠損を0へ置き換えない |
+| scaleが未成立になりがち | rawの信号・分散を長い窓で平滑し直す |
+| 05が1を超えた | Run内の診断として読み、B変更の成績改善を保証するものとは扱わない |
+| 内部EMAの再現 | そのEMAが取り込んだ全測定点のrawを使う。異なる購読間隔のrawを追加したRunは、測定点も確認する |
+| B・RRの違うRunの比較 | 経験数をそろえた区間のraw信号の平均とraw分散の平均の比を求め、窓内の測定点数を併記する。窓末の01・05だけを直接比較しない |
+| 値の未成立率 | 正常完了Runについて、各key自身の予定発火点のうち有限値が記録されなかった割合を求める。通常の未測定stepは除く。空群は予定点0、率は未定義。対象区間・購読間隔・予定点数・有限値数・ログの完全性を併記する |
+
+> [!NOTE]
+> - 信号と分散を別々にEMAで平滑化してから割る。有限の負の信号推定も残すため、平滑化後の信号が正でない間はscale・ratioが未成立となる。記録経路は非有限値を保存しないので、すべてのtagがファイルに現れるとは限らず、欠損理由が一意に復元できるとも限らない。
+> - Adam版を主読みとするのはoptimizerの座標系に合わせるためで、momentum・clip・weight decayを含む実更新のSNRではない。NoisyNetのepsilonは更新と同じ1抽選に固定された条件付きの値である。BatchNorm等でサンプルが結合する構成では独立サンプルのノイズとして解釈しない。
+> - 購読の発火点の和集合でEMAを更新するため、異なる間隔のrawを追加するとscaleの追従速度も変わる。既定の15行はすべて同じ間隔なので測定点がそろう。
+> - 信号の推定はノイズ優勢な領域ほど粗くなる。kを増やす効果は主に分散側で、信号側の精度にはほとんど効かない。
+
 ## 5. Optuna結果を分析する
 
 ### 5.1 Metrics ViewerとDashboardの役割

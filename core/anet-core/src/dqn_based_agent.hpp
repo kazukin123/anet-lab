@@ -52,6 +52,21 @@ namespace anet::rl::dqn {
         "policy_churn_target_sync_age",
     };
 
+    inline constexpr std::array<const char*, 15> kGradientNoiseMetricKeys = {
+        "grad_noise_scale_adam", "grad_noise_scale_adam_feature", "grad_noise_scale_adam_readout",
+        "grad_noise_ratio_adam", "grad_noise_scale", "grad_noise_signal_adam", "grad_noise_variance_adam",
+        "grad_noise_signal_adam_raw", "grad_noise_variance_adam_raw", "grad_noise_signal_raw", "grad_noise_variance_raw",
+        "grad_noise_signal_adam_feature_raw", "grad_noise_variance_adam_feature_raw",
+        "grad_noise_signal_adam_readout_raw", "grad_noise_variance_adam_readout_raw",
+    };
+    
+    using GradientNoiseMetrics = std::array<float, kGradientNoiseMetricKeys.size()>;
+    inline std::optional<size_t> ParseGradientNoiseMetric(const std::string& key)
+    {
+        for (size_t i = 0; i < kGradientNoiseMetricKeys.size(); ++i) if (key == kGradientNoiseMetricKeys[i]) return i;
+        return std::nullopt;
+    }
+
     inline constexpr std::array<const char*, 11> kNoisyMetricKeys = {
         "noisy_sigma_mean_abs_feature_weight", "noisy_sigma_mean_abs_feature_bias",
         "noisy_sigma_mean_abs_readout_weight", "noisy_sigma_mean_abs_readout_bias",
@@ -193,6 +208,7 @@ namespace anet::rl::dqn {
     class BatchUpdateResult : public anet::rl::BatchUpdateResult {
     public:
         // grad/loss/td
+        std::optional<GradientNoiseMetrics> grad_noise;
         torch::Tensor grad_norm_tensor;
         std::optional<float> grad_norm;
         float grad_clip_ratio = 0.0f;
@@ -254,6 +270,9 @@ namespace anet::rl::dqn {
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
+            if (const auto metric = ParseGradientNoiseMetric(key)) {
+                return grad_noise ? (*grad_noise)[*metric] : std::numeric_limits<float>::quiet_NaN();
+            }
             if (const auto metric = ParseNoisyMetric(key)) {
                 return noisy_metrics ? (*noisy_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
             }
@@ -591,6 +610,7 @@ namespace anet::rl::dqn {
     };
 
     struct OptimizerStepResult {
+        std::optional<GradientNoiseMetrics> grad_noise;
         torch::Tensor grad_norm_tensor;
         std::optional<float> grad_norm;
         float grad_clip_ratio = 0.0f;
@@ -988,7 +1008,7 @@ namespace anet::rl::dqn {
             const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
             const torch::Tensor& current_mean = {}) const;
         NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
-        OptimizerStepResult Optimize(const torch::Tensor& loss);
+        OptimizerStepResult Optimize(const torch::Tensor& loss, const torch::Tensor& weighted_element_loss);
     protected:
         PerPriorityUpdatePending PreparePerPriorityUpdate(
             const anet::rl::ExperienceSamples& samples,
@@ -1018,6 +1038,7 @@ namespace anet::rl::dqn {
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
         void CaptureNoisyDiagnostics();
+        std::optional<GradientNoiseMetrics> CaptureGradientNoise(const torch::Tensor& weighted_element_loss);
         void CapturePlasticityProbe();
         void PreparePolicyChurnRequest();
         void CapturePolicyChurnProbe();
@@ -1048,6 +1069,20 @@ namespace anet::rl::dqn {
         anet::RandomGenerator* policy_churn_probe_random_ = nullptr;
         std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
+        struct GradientNoiseState {
+            struct DemandEntry {
+                size_t metric;
+                int interval;
+                anet::IntervalGate gate;
+                DemandEntry(size_t metric, int interval) : metric(metric), interval(interval), gate(interval) {}
+            };
+            std::vector<DemandEntry> demand;
+            std::array<bool, kGradientNoiseMetricKeys.size()> request{};
+            anet::GradientNoiseRequest subscribed;
+            std::array<anet::GradientNoiseEstimator, 4> estimators;
+            std::vector<anet::GradientNoiseParameter> parameters;
+        } grad_noise_;
+        bool grad_noise_intervals_warned_ = false;
         struct NoisyDiagnosticState {
             struct DemandEntry {
                 size_t metric;

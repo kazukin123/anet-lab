@@ -1984,8 +1984,25 @@ torch::Tensor Network::ComputeNoisyParameterStatistics(const std::string& featur
     return torch::stack(values);
 }
 
+NetworkParameterSplit Network::GetParameterSplit(const std::string& feature_key) const
+{
+    ANET_PROFILE_FUNC();
+    const auto closure = body_->ComputeDependencyClosure(feature_key);
+    NetworkParameterSplit result;
+    // Headは常にreadoutとし、学習対象だけを元のparameter identityで返す。
+    const auto append = [](const torch::nn::Module& module, std::vector<torch::Tensor>& output) {
+        for (const auto& parameter : module.parameters()) if (parameter.requires_grad()) output.push_back(parameter);
+    };
+    for (const auto& branch : body_->GetBranches()) {
+        append(*branch, closure.contains(branch->GetName()) ? result.feature : result.readout);
+    }
+    if (head_) append(*head_, result.readout);
+    return result;
+}
+
 NetworkParameterNormSplit Network::ComputeParameterNormSplit(const std::string& feature_key) const
 {
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
     const auto feature_branches = body_->ComputeDependencyClosure(feature_key);
 

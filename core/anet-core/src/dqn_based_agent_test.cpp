@@ -409,6 +409,11 @@ public:
         run_policy_churn_optimizer_update_ = true;
     }
 
+    void SetOptimizerElementLossScale(torch::Tensor scale)
+    {
+        optimizer_element_loss_scale_ = std::move(scale);
+    }
+
     std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
@@ -417,8 +422,11 @@ public:
             // action 1 の Q を上げる決定論的な 1 update を作り、公開結果から churn を観測する。
             auto q_values = model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info).At("q");
             const int64_t optimized_action = n_actions_ > 1 ? 1 : 0;
-            auto loss = -q_values.select(1, optimized_action).mean();
-            auto opt_result = Optimize(loss);
+            auto element_loss = -q_values.select(1, optimized_action);
+            // 行ごとの係数で小batch勾配を制御し、未指定の既存テストは元の損失を使う。
+            if (optimizer_element_loss_scale_.defined()) element_loss = element_loss * optimizer_element_loss_scale_;
+            auto loss = element_loss.mean();
+            auto opt_result = Optimize(loss, element_loss);
             dqn::PerPriorityUpdateInfo per_info;
             const auto batch_size = samples.actions.size(0);
             return MakeBatchUpdateResult(
@@ -456,6 +464,7 @@ private:
     bool run_plasticity_forward_ = false;
     bool run_plasticity_target_forward_ = false;
     bool run_policy_churn_optimizer_update_ = false;
+    torch::Tensor optimizer_element_loss_scale_;
     std::optional<float> parameter_mutation_delta_;
 };
 
@@ -2534,7 +2543,7 @@ TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn]
     auto weight_before = model.GetOnlineParameters()[0].detach().clone().cpu();
     auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 3.0f, 4.0f } }) } };
     auto loss = model.GetOnlineNetwork()->Forward(obs).At("q").sum();
-    auto result = learner.Optimize(loss);
+    auto result = learner.Optimize(loss, loss.reshape({1}));
 
     CHECK_FALSE(result.grad_norm.has_value());
     REQUIRE(result.grad_norm_tensor.defined());
@@ -7818,4 +7827,493 @@ TEST_CASE("NetworkModel requires distinct online and target Networks", "[dqn][no
     };
     const auto network = MakeLinearNetwork(1);
     CHECK_THROWS_WITH(ExplicitNetworks(network), Catch::Matchers::ContainsSubstring("distinct online and target Networks"));
+}
+
+
+TEST_CASE("Gradient noise raw values belong only to subscribed update results", "[dqn][gradnoise]")
+{
+    REQUIRE(dqn::BatchUpdateResult{}.GetScalar("grad_noise_signal_raw").has_value());
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto data = MakeNoisyOptimizerTestData();
+    const auto env_spec = MakeLearnerEnvSpec();
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec, 1,
+        std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{}), false, 920);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.replay_batch_size = 8;
+    config.replay_ratio = 8;
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, SelectLearnerForwardResources(data));
+    learner.SetupAdamW();
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 8 });
+    learner.UseReplayBuffer(replay);
+    learner.ConfigureScalarMetricSubscriptions({ { .source_key = "grad_noise_signal_raw",
+        .event = rl::EventType::LEARN,
+        .target = rl::EventField::UPDATE_RESULT,
+        .interval = 2,
+        .scope = rl::RunnerScope::TRAIN } });
+    for (int step = 0; step < 3; ++step) {
+        const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+        REQUIRE(results.size() == 1);
+        const auto value = results.front()->GetScalar("grad_noise_signal_raw");
+        REQUIRE(value.has_value());
+        if (step % 2)
+            CHECK(std::isnan(*value));
+        else
+            CHECK(std::isfinite(*value));
+        CHECK_FALSE(results.front()->GetScalar("grad_noise_unknown").has_value());
+    }
+}
+
+TEST_CASE("Gradient noise shares measurement points and publishes all fifteen keys at their own cadence", "[dqn][gradnoise]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto data = MakeNoisyOptimizerTestData();
+    const auto env_spec = MakeLearnerEnvSpec();
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec, 1,
+        std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{}), false, 921);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.replay_batch_size = 8;
+    config.replay_ratio = 8;
+    config.plasticity.feature_key = "feature";
+    config.grad_noise.num_micro_batches = 2;
+    config.grad_noise.ema_alpha = 1;
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, SelectLearnerForwardResources(data));
+    learner.SetupAdamW();
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 8 });
+    learner.UseReplayBuffer(replay);
+    const std::vector<std::string> keys{ "grad_noise_scale_adam", "grad_noise_scale_adam_feature", "grad_noise_scale_adam_readout",
+        "grad_noise_ratio_adam", "grad_noise_scale", "grad_noise_signal_adam", "grad_noise_variance_adam", "grad_noise_signal_adam_raw",
+        "grad_noise_variance_adam_raw", "grad_noise_signal_raw", "grad_noise_variance_raw", "grad_noise_signal_adam_feature_raw",
+        "grad_noise_variance_adam_feature_raw", "grad_noise_signal_adam_readout_raw", "grad_noise_variance_adam_readout_raw" };
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto& key : keys)
+        subscriptions.push_back({ .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = key == "grad_noise_signal_raw" ? 2 : 1,
+            .scope = rl::RunnerScope::TRAIN });
+    learner.ConfigureScalarMetricSubscriptions(subscriptions);
+    for (int step = 0; step < 4; ++step) {
+        const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+        REQUIRE(results.size() == 1);
+        for (size_t i = 0; i < keys.size(); ++i) {
+            CAPTURE(step, keys[i]);
+            const auto value = results.front()->GetScalar(keys[i]);
+            REQUIRE(value.has_value());
+            if ((step == 0 && i != 4 && i != 9 && i != 10) || (step % 2 && i == 9))
+                CHECK(std::isnan(*value));
+            else
+                CHECK(std::isfinite(*value));
+        }
+        if (step > 0) {
+            const auto value = [&](const char* key) { return *results.front()->GetScalar(key); };
+            CHECK(value("grad_noise_signal_adam_raw") ==
+                  Catch::Approx(value("grad_noise_signal_adam_feature_raw") + value("grad_noise_signal_adam_readout_raw")).margin(1e-4));
+            CHECK(value("grad_noise_ratio_adam") == Catch::Approx(value("grad_noise_scale_adam") / 8));
+        }
+    }
+}
+
+TEST_CASE("Gradient noise is noninterfering through TD QR IQN FP32 and CUDA BF16 updates", "[dqn][gradnoise][noninterference]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto mode = GENERATE(std::string("none"), std::string("qr"), std::string("iqn"));
+    const bool dueling = true;
+    const bool fused = GENERATE(false, true);
+    const bool bf16 = GENERATE(false, true);
+    if (bf16 && !torch::cuda::is_available()) SKIP("CUDA BF16 unavailable");
+    const torch::Device device = bf16 ? torch::Device(torch::kCUDA) : torch::Device(torch::kCPU);
+    const auto munch = GENERATE(std::string("disabled"), std::string("online_reuse"));
+    CAPTURE(mode, dueling, munch, bf16, fused);
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.quantile_mode", mode);
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.mode", "sample");
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.hold", "call");
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.share", "batch");
+    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "sample");
+    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "sample");
+    data.Set("net.block.[Feature].type", "Linear");
+    data.Set("net.block.[Feature].linear.out_features", 4);
+    data.Set("net.block.[Feature].weight_norm.mode", "spectral");
+    data.Set("net.block.[Feature].noisy.enabled", true);
+    data.Set("net.branch.[feature].bind", kVectorKey);
+    data.Set("net.branch.[feature].structure", "Feature");
+    data.Set("net.body.output.[features]", "feature");
+    auto specs = MakeLearnerEnvSpec().state_spec.obs_spec;
+    if (mode == "iqn") {
+        data.Set("net.block.[Cos].type", "CosineEmbedding");
+        data.Set("net.block.[Cos].cos.num_basis", 4);
+        data.Set("net.block.[Tau].type", "Linear");
+        data.Set("net.block.[Tau].linear.out_features", 4);
+        data.Set("net.branch.[tau].bind", anet::nn::kKey_Taus);
+        data.Set("net.branch.[tau].structure", "Cos > Tau");
+        data.Set("net.branch.[fusion].bind", "feature * tau");
+        data.Set("net.body.output.[features]", "fusion");
+        specs[anet::nn::kKey_Taus] = anet::TensorSpec{ .type = anet::SpaceType::Vector, .shape = { 4 }, .dtype = torch::kFloat32 };
+    }
+    anet::ConfigData projection;
+    projection.Set("noisy.enabled", true);
+    std::shared_ptr<anet::nn::NetworkHeadFactory> factory;
+    const anet::nn::WeightInitConfig init{};
+    if (mode == "none") {
+        if (dueling)
+            factory = std::make_shared<dqn::DuelingHeadFactory>(2, init, projection);
+        else
+            factory = std::make_shared<dqn::LinearHeadFactory>(2, init, projection);
+    } else if (mode == "qr") {
+        if (dueling)
+            factory = std::make_shared<dqn::QuantileDuelingHeadFactory>(2, 5, init, projection);
+        else
+            factory = std::make_shared<dqn::QuantileHeadFactory>(2, 5, init, projection);
+    } else {
+        if (dueling)
+            factory = std::make_shared<dqn::IQNDuelingHeadFactory>(2, init, projection);
+        else
+            factory = std::make_shared<dqn::IQNHeadFactory>(2, init, projection);
+    }
+    dqn::NetworkModelConfig model_config{};
+    model_config.hard_update_interval = 2;
+    torch::manual_seed(441);
+    dqn::NetworkModel first(model_config, device, anet::nn::NetworkConfig(data), specs, 2, factory, mode != "none", 441);
+    torch::manual_seed(441);
+    dqn::NetworkModel second(model_config, device, anet::nn::NetworkConfig(data), specs, 2, factory, mode != "none", 441);
+    auto config = dqn::DefaultDQNAgentConfig(data).learner;
+    config.quantile_mode = mode;
+    config.num_quantiles = 5;
+    config.iqn.current_taus.num_taus = 4;
+    config.iqn.target_taus.num_taus = 4;
+    config.plasticity.feature_key = "feature";
+    config.noisy_probe.probe.batch_size = 2;
+    config.noisy_probe.num_draws = 3;
+    config.noisy_probe.iqn.num_taus = 4;
+    config.replay_batch_size = 2;
+    config.replay_capacity = 32;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.use_per = true;
+    config.use_fused_optimizer = fused;
+    config.use_amp = bf16;
+    config.use_amp_bf16 = bf16;
+    config.grad_noise.num_micro_batches = 2;
+    config.use_n_step = false;
+    config.use_rb_prefetch = false;
+    config.use_grad_clip = true;
+    config.grad_clip_tau = 0.7f;
+    config.noisy_weight_decay = 0.1f;
+    config.munchausen.enabled = munch != "disabled";
+    config.munchausen.log_policy_mode = munch == "disabled" ? "target" : munch;
+    config.use_double_dqn = !config.munchausen.enabled;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    dqn::RuntimeVars first_vars, second_vars;
+    auto make_learner = [&](dqn::NetworkModel& model, dqn::RuntimeVars& vars) -> std::unique_ptr<dqn::Learner> {
+        dqn::ActionPolicyConfig policy_config;
+        policy_config.quantile_mode = mode;
+        policy_config.tau_rule.num_taus = 4;
+        auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
+        if (mode == "none")
+            return std::make_unique<dqn::TDLearner>(config, model, vars, nullptr, rl::BatchEnvSpec{ 2, 1 }, env_spec, device, 442, policy,
+                SelectLearnerForwardResources(data), std::nullopt, 443, nullptr, nullptr);
+        if (mode == "qr")
+            return std::make_unique<dqn::QRLearner>(config, model, vars, nullptr, rl::BatchEnvSpec{ 2, 1 }, env_spec, device, 442, policy,
+                SelectLearnerForwardResources(data), std::nullopt, 443, nullptr, nullptr);
+        return std::make_unique<dqn::IQNLearner>(config, model, vars, nullptr, rl::BatchEnvSpec{ 2, 1 }, env_spec, device, 442, policy,
+            SelectLearnerForwardResources(data), std::nullopt, 443, nullptr, nullptr);
+    };
+    auto measured = make_learner(first, first_vars);
+    auto ordinary = make_learner(second, second_vars);
+    anet::ConfigData probe_data;
+    probe_data.Set("probe.noisy.mode", "sample");
+    probe_data.Set("probe.noisy.hold", "call");
+    probe_data.Set("probe.noisy.share", "batch");
+    const anet::nn::NetworkForwardConfig probe_config("probe", SelectForwardConfigData(probe_data, "probe"));
+    anet::RandomGenerator probe_random(444);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto key : dqn::kGradientNoiseMetricKeys) {
+        subscriptions.push_back({ .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN });
+    }
+    measured->ConfigureScalarMetricSubscriptions(subscriptions, nullptr, &probe_random, &probe_config);
+    ordinary->ConfigureScalarMetricSubscriptions({});
+    auto compare_networks = [](const auto& lhs, const auto& rhs) {
+        const auto other_parameters = rhs->named_parameters();
+        for (const auto& entry : lhs->named_parameters()) {
+            CAPTURE(entry.key());
+            CHECK(torch::equal(entry.value(), other_parameters[entry.key()]));
+            if (entry.value().grad().defined()) CHECK(torch::equal(entry.value().grad(), other_parameters[entry.key()].grad()));
+        }
+        const auto other_buffers = rhs->named_buffers();
+        for (const auto& entry : lhs->named_buffers())
+            CHECK(torch::equal(entry.value(), other_buffers[entry.key()]));
+    };
+    const auto snapshot_optimizer = [](dqn::Learner& learner, dqn::NetworkModel& model) {
+        std::unordered_set<const c10::TensorImpl*> sigma;
+        for (const auto& entry : model.GetOnlineNetwork()->GetNoisyParameterEntries())
+            sigma.insert(entry.sigma.unsafeGetTensorImpl());
+        std::vector<torch::Tensor> ordinary, noisy;
+        for (const auto& parameter : model.GetOnlineParameters())
+            (sigma.contains(parameter.unsafeGetTensorImpl()) ? noisy : ordinary).push_back(parameter);
+        std::vector<torch::optim::OptimizerParamGroup> groups;
+        groups.emplace_back(ordinary);
+        groups.emplace_back(noisy);
+        auto optimizer = std::make_unique<torch::optim::AdamW>(groups, torch::optim::AdamWOptions(0.001));
+        std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
+        anet::OutputArchive output(stream);
+        learner.Save(output);
+        stream.seekg(0);
+        anet::InputArchive input(stream);
+        input.ReadTorchObject(*optimizer);
+        return optimizer;
+    };
+    compare_networks(first.GetOnlineNetwork(), second.GetOnlineNetwork());
+    compare_networks(first.GetTargetNetwork(), second.GetTargetNetwork());
+    size_t probes = 0;
+    for (rl::step_t step = 0; step < 7; ++step) {
+        const auto experience = MakeDeterminismExperience(step, 2);
+        const auto left = measured->UpdateFromBatch(rl::StepCounts{ .exp_step = step }, experience);
+        const auto right = ordinary->UpdateFromBatch(rl::StepCounts{ .exp_step = step }, experience);
+        REQUIRE(left.size() == right.size());
+        for (size_t update = 0; update < left.size(); ++update) {
+            for (const auto key : { "loss", "grad_norm", "q_sa_mean", "td_mean" }) {
+                const auto a = left[update]->GetScalar(key);
+                const auto b = right[update]->GetScalar(key);
+                REQUIRE(a.has_value() == b.has_value());
+                if (a && b) CHECK((*a == *b || (std::isnan(*a) && std::isnan(*b))));
+            }
+            const auto value = left[update]->GetScalar("grad_noise_signal_raw");
+            REQUIRE(value.has_value());
+            if (std::isfinite(*value)) ++probes;
+            CHECK(std::isnan(*right[update]->GetScalar("grad_noise_signal_raw")));
+        }
+        CHECK(torch::equal(measured->GetRandomGenerator()->GetTorchGenerator(device).get_state(),
+            ordinary->GetRandomGenerator()->GetTorchGenerator(device).get_state()));
+        CHECK(measured->GetRandomGenerator()->RandUint64() == ordinary->GetRandomGenerator()->RandUint64());
+        const auto left_optimizer = snapshot_optimizer(*measured, first);
+        const auto right_optimizer = snapshot_optimizer(*ordinary, second);
+        REQUIRE(left_optimizer->state().size() == right_optimizer->state().size());
+        for (size_t group = 0; group < left_optimizer->param_groups().size(); ++group) {
+            const auto& left_parameters = left_optimizer->param_groups()[group].params();
+            const auto& right_parameters = right_optimizer->param_groups()[group].params();
+            for (size_t i = 0; i < left_parameters.size(); ++i) {
+                const auto left_state = left_optimizer->state().find(left_parameters[i].unsafeGetTensorImpl());
+                const auto right_state = right_optimizer->state().find(right_parameters[i].unsafeGetTensorImpl());
+                REQUIRE((left_state == left_optimizer->state().end()) == (right_state == right_optimizer->state().end()));
+                if (left_state == left_optimizer->state().end()) continue;
+                const auto& a = static_cast<const torch::optim::AdamWParamState&>(*left_state->second);
+                const auto& b = static_cast<const torch::optim::AdamWParamState&>(*right_state->second);
+                CHECK(a.step() == b.step());
+                CHECK(torch::equal(a.exp_avg(), b.exp_avg()));
+                CHECK(torch::equal(a.exp_avg_sq(), b.exp_avg_sq()));
+            }
+        }
+        CHECK(first_vars.learn_step == second_vars.learn_step);
+        compare_networks(first.GetOnlineNetwork(), second.GetOnlineNetwork());
+        compare_networks(first.GetTargetNetwork(), second.GetTargetNetwork());
+    }
+    CHECK(probes >= 2);
+}
+
+TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed intervals", "[dqn][gradnoise][config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto subscription = [](const char* key, int interval = 503) {
+        return rl::ScalarMetricSubscription{ .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = interval,
+            .scope = rl::RunnerScope::TRAIN };
+    };
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.learner.grad_noise.num_micro_batches", 4);
+    data.Set("DefaultDQNAgent.learner.grad_noise.ema_alpha", 0.25);
+    const auto parsed = dqn::DefaultDQNAgentConfig(data).learner;
+    CHECK(parsed.grad_noise.num_micro_batches == 4);
+    CHECK(parsed.grad_noise.ema_alpha == Catch::Approx(0.25));
+    const auto expect_invalid = [&](dqn::LearnerConfig config, const char* key) {
+        TestNetworkModel model;
+        dqn::RuntimeVars vars;
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
+        CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({}));
+        CHECK_THROWS_WITH(
+            learner.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_signal_raw") }), Catch::Matchers::ContainsSubstring(key));
+    };
+    auto config = WithDefaultLearnerForwardConfig();
+    config.grad_noise.num_micro_batches = 1;
+    expect_invalid(config, "num_micro_batches=1");
+    config.grad_noise.num_micro_batches = 0;
+    expect_invalid(config, "num_micro_batches=0");
+    config.grad_noise.num_micro_batches = 3;
+    expect_invalid(config, "replay_batch_size=128");
+    config.grad_noise.num_micro_batches = 8;
+    for (const auto alpha : { 0.0, -1.0, 1.1, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity() }) {
+        config.grad_noise.ema_alpha = alpha;
+        expect_invalid(config, "learner.grad_noise.ema_alpha");
+    }
+    config.grad_noise.ema_alpha = 0.05;
+    config.use_amp = true;
+    config.use_amp_bf16 = false;
+    expect_invalid(config, "use_amp_bf16=false");
+    config.use_amp = false;
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
+    CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_signal_raw") }));
+    CHECK_THROWS_WITH(learner.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_signal_adam_feature_raw") }),
+        Catch::Matchers::ContainsSubstring("feature_key"));
+    config.plasticity.feature_key = "missing";
+    TestLearner unknown(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
+    CHECK_THROWS_WITH(unknown.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_scale_adam_feature") }),
+        Catch::Matchers::ContainsSubstring("available_branches"));
+    anet::test::LogCaptureGuard logs;
+    learner.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_signal_raw", 503) });
+    logs.Flush();
+    CHECK(std::ranges::none_of(logs.Records(),
+        [](const auto& record) { return record.message.find("Gradient noise subscription intervals differ") != std::string::npos; }));
+    for (int i = 0; i < 2; ++i)
+        learner.ConfigureScalarMetricSubscriptions(
+            { subscription("grad_noise_signal_raw", 503), subscription("grad_noise_variance_raw", 100) });
+    logs.Flush();
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.message.find("Gradient noise subscription intervals differ: intervals=[100,503]") != std::string::npos;
+    }) == 1);
+}
+
+TEST_CASE("Gradient noise EMA follows the union once including simultaneous firing", "[dqn][gradnoise][cadence]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto data = MakeNoisyOptimizerTestData();
+    const auto env_spec = MakeLearnerEnvSpec();
+    const auto factory = std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{});
+    dqn::NetworkModel measured_model({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec, 1, factory, false, 930);
+    dqn::NetworkModel reference_model({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec, 1, factory, false, 930);
+    measured_model.GetOnlineNetwork()->CopyTo(*reference_model.GetOnlineNetwork());
+    measured_model.GetTargetNetwork()->CopyTo(*reference_model.GetTargetNetwork());
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.replay_batch_size = 8;
+    config.replay_ratio = 8;
+    config.grad_noise.num_micro_batches = 2;
+    config.grad_noise.ema_alpha = 0.5;
+    dqn::RuntimeVars measured_vars, reference_vars;
+    TestLearner measured(config, measured_model, measured_vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, SelectLearnerForwardResources(data));
+    TestLearner reference(config, reference_model, reference_vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, SelectLearnerForwardResources(data));
+    auto measured_replay = std::make_shared<RecordingReplayBuffer>();
+    auto reference_replay = std::make_shared<RecordingReplayBuffer>();
+    for (const auto& replay : { measured_replay, reference_replay })
+        replay->SetSizeValues({ 8 });
+    measured.UseReplayBuffer(measured_replay);
+    reference.UseReplayBuffer(reference_replay);
+    measured.SetupAdamW();
+    reference.SetupAdamW();
+    measured.EnablePolicyChurnOptimizerUpdate();
+    reference.EnablePolicyChurnOptimizerUpdate();
+    const auto subscription = [](const char* key, int interval) {
+        return rl::ScalarMetricSubscription{ .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = interval,
+            .scope = rl::RunnerScope::TRAIN };
+    };
+    measured.ConfigureScalarMetricSubscriptions(
+        { subscription("grad_noise_signal_adam", 3), subscription("grad_noise_signal_adam_raw", 2) });
+    reference.ConfigureScalarMetricSubscriptions(
+        { subscription("grad_noise_signal_adam_raw", 1), subscription("grad_noise_variance_adam_raw", 1) });
+    anet::EmaFilter<double> expected(0.5);
+    for (int step = 0; step < 8; ++step) {
+        measured_replay->vector_value = reference_replay->vector_value = static_cast<float>(step + 1);
+        const auto actual = measured.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        const auto dense = reference.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        const auto raw = *dense->GetScalar("grad_noise_signal_adam_raw");
+        if ((step % 2 == 0 || step % 3 == 0) && std::isfinite(raw)) expected.Update(raw);
+        const auto smooth = *actual->GetScalar("grad_noise_signal_adam");
+        if (step % 3 == 0 && expected.IsInitialized())
+            CHECK(smooth == Catch::Approx(expected.Value()).epsilon(1e-5));
+        else
+            CHECK(std::isnan(smooth));
+        CHECK(std::isnan(*actual->GetScalar("grad_noise_signal_adam_raw")) == (step == 0 || step % 2 != 0));
+    }
+}
+
+TEST_CASE("Gradient noise publishes NaN scales for a nonpositive smoothed signal", "[dqn][gradnoise]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const bool cancel_micro_batches = GENERATE(true, false);
+    CAPTURE(cancel_micro_batches);
+    const auto data = MakeNoisyOptimizerTestData();
+    const auto env_spec = MakeLearnerEnvSpec();
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec, 1,
+        std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{}), false, 931);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.replay_batch_size = 8;
+    config.replay_ratio = 8;
+    config.grad_noise.num_micro_batches = 2;
+    config.grad_noise.ema_alpha = 1;
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, SelectLearnerForwardResources(data));
+    learner.SetupAdamW();
+    learner.EnablePolicyChurnOptimizerUpdate();
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 8 });
+    learner.UseReplayBuffer(replay);
+    // 同一観測の勾配を小batch間で相殺し、全行同符号の対照と区別する。
+    auto scale = torch::ones({ 8 });
+    if (cancel_micro_batches) scale.narrow(0, 4, 4).fill_(-1);
+    learner.SetOptimizerElementLossScale(scale);
+    std::vector<rl::ScalarMetricSubscription> subscriptions;
+    for (const auto* key : { "grad_noise_scale", "grad_noise_signal_raw", "grad_noise_variance_raw", "grad_noise_scale_adam",
+             "grad_noise_ratio_adam", "grad_noise_signal_adam", "grad_noise_variance_adam" }) {
+        subscriptions.push_back({ .source_key = key,
+            .event = rl::EventType::LEARN,
+            .target = rl::EventField::UPDATE_RESULT,
+            .interval = 1,
+            .scope = rl::RunnerScope::TRAIN });
+    }
+    learner.ConfigureScalarMetricSubscriptions(subscriptions);
+    // 初回更新でAdam stateを形成し、以後は公開されたraw・EMA・scaleを一緒に確認する。
+    for (int step = 0; step < 3; ++step) {
+        const auto results = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{});
+        REQUIRE(results.size() == 1);
+        const auto value = [&](const char* key) {
+            const auto scalar = results.front()->GetScalar(key);
+            REQUIRE(scalar.has_value());
+            return *scalar;
+        };
+        const auto signal = value("grad_noise_signal_raw");
+        const auto variance = value("grad_noise_variance_raw");
+        REQUIRE(std::isfinite(signal));
+        REQUIRE(std::isfinite(variance));
+        if (cancel_micro_batches) {
+            CHECK(signal < 0);
+            CHECK(variance > 0);
+            CHECK(variance == Catch::Approx(-8 * signal));
+            CHECK(std::isnan(value("grad_noise_scale")));
+        } else {
+            CHECK(signal > 0);
+            CHECK(std::isfinite(value("grad_noise_scale")));
+        }
+        if (step == 0) continue;
+        REQUIRE(std::isfinite(value("grad_noise_signal_adam")));
+        REQUIRE(std::isfinite(value("grad_noise_variance_adam")));
+        if (cancel_micro_batches) {
+            CHECK(value("grad_noise_signal_adam") <= 0);
+            CHECK(std::isnan(value("grad_noise_scale_adam")));
+            CHECK(std::isnan(value("grad_noise_ratio_adam")));
+        } else {
+            CHECK(value("grad_noise_signal_adam") > 0);
+            CHECK(std::isfinite(value("grad_noise_scale_adam")));
+            CHECK(std::isfinite(value("grad_noise_ratio_adam")));
+        }
+    }
 }

@@ -572,6 +572,9 @@ run.@iqn32_repro : A3.actor.[train].policy.tau_rule.sample_mode = stratified
 run.@iqn32_repro : A3.learner.iqn.current_taus.sample_mode = stratified
 run.@iqn32_repro : A3.learner.iqn.target_taus.sample_mode = stratified
 
+# 勾配ノイズスケールはbaseline外で明示的に購読する。
+run.@gradnoise : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@gradnoise > M1 > M2
+
 
 # ==============================================================================
 # デバッグ用

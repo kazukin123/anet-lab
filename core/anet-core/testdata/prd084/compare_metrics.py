@@ -1,4 +1,5 @@
 """Normalize numeric baseline metrics and compare every retained point."""
+import argparse
 import gzip
 import hashlib
 import json
@@ -8,14 +9,14 @@ from pathlib import Path
 
 EXCLUDED_PREFIXES = ('90_perf/', '91_resource/', '92_resource/', '47_agent_noisy/')
 
-def normalize(run_text, output_text, include_noisy=False):
+def normalize(run_text, output_text, include_noisy=False, exclude_prefixes=()):
     run = Path(run_text)
     source = run / 'metrics.jsonl'
     opener = open
     if not source.is_file():
         source = run / 'metrics.jsonl.gz'
         opener = gzip.open
-    prefixes = EXCLUDED_PREFIXES[:-1] if include_noisy else EXCLUDED_PREFIXES
+    prefixes = (EXCLUDED_PREFIXES[:-1] if include_noisy else EXCLUDED_PREFIXES) + tuple(exclude_prefixes)
     records = []
     excluded = Counter()
     with opener(source, 'rt', encoding='utf-8-sig') as stream:
@@ -61,13 +62,18 @@ def compare(old_text, new_text):
     raise SystemExit(0 if old == new else 1)
 
 if __name__ == '__main__':
-    if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[1] != 'normalize'):
-        raise SystemExit('Usage: compare_metrics.py normalize RUN OUTPUT [--include-noisy] | compare OLD NEW')
-    if sys.argv[1] == 'normalize':
-        if len(sys.argv) == 5 and sys.argv[4] != '--include-noisy':
-            raise SystemExit('Expected --include-noisy')
-        normalize(*sys.argv[2:4], include_noisy=len(sys.argv) == 5)
-    elif sys.argv[1] == 'compare':
-        compare(*sys.argv[2:])
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command', required=True)
+    normalizer = commands.add_parser('normalize')
+    normalizer.add_argument('run')
+    normalizer.add_argument('output')
+    normalizer.add_argument('--include-noisy', action='store_true')
+    normalizer.add_argument('--exclude-prefix', action='append', default=[])
+    comparator = commands.add_parser('compare')
+    comparator.add_argument('old')
+    comparator.add_argument('new')
+    args = parser.parse_args()
+    if args.command == 'normalize':
+        normalize(args.run, args.output, args.include_noisy, args.exclude_prefix)
     else:
-        raise SystemExit('Expected normalize or compare')
+        compare(args.old, args.new)
