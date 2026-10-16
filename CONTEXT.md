@@ -609,6 +609,10 @@ _Avoid_: normalized weight（手法名の Weight Normalization と紛れる）, 
 TransformerEncoder の層で、各 head の各クエリの attention 分布のエントロピーを ln n（n は系列長）で割り、head・クエリ・sample で平均した値。1 が一様、0 が 1 トークンへの集中。
 _Avoid_: 反復エントロピー（ノイズ probe の行動頻度の指標）, attention collapse（現象の名前であって指標ではない）, 注意エントロピー（表記ゆれ）
 
+**層平均**:
+1 つの層の中の要素をまとめた平均。attention エントロピーでは head・クエリ・sample、dormant unit ではユニットについて取り、層をまたいだ平均ではない。
+_Avoid_: 層内平均（表記ゆれ）
+
 ### 方策更新統計
 
 **policy churn**:
