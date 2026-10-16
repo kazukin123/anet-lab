@@ -192,6 +192,10 @@ fail-fast の「fail」は「意図しない状態」にのみ適用する。
 - NG: `DefaultDQNAgent.@baseline.head_projection.noisy.enabled ?= false`
 - OK: `DefaultDQNAgent.@baseline : head_projection.noisy.enabled ?= false`
 
+### metrics の tag の文字数
+
+`metrics.scalar.[tag]` の tag は、**群名と `/` を含めて 40 文字以内**にする。Metrics Viewer の Tags 一覧で見切れるため。超えそうなら群名ではなく名前側を縮める。
+
 ## コーディング規約
 
 C++ コードは Google C++ スタイルガイドを前提とします。
@@ -568,6 +572,7 @@ Run はフォルダがそのまま管理単位なので、**「消してよい�
   この線引きを `tmp` の有無で表現します。
 - **`tmp` はタイムスタンプの後に置く。** Run フォルダ名の先頭は `run_` のままにしてください
   （`viewers/metrics-tools/mlflow_bridge.py` が `run_*` で glob しており、prefix を変えると発見できなくなります）。
+- **Run フォルダ名は全体で 40 文字以内を目安にする。** Metrics Viewer の Run 一覧は末尾を省略して表示するため、長いと見分けられなくなります。
 - 一括削除は次で行えます。実行はユーザーが行い、AI エージェントは削除しません。削除する場合はユーザの指示もしくは同意が必須。
 
 ```powershell
