@@ -221,6 +221,10 @@ _Avoid_: NN 構造設定（構造と実行方法を混同）, 実行プロファ
 名前付きNN実行オブジェクトが内部に1つ持つprivate Resource。層ごとのノイズサンプル・抽選時の時計・専用乱数をNNの計算部品が更新する。呼び出し側から取得・操作できず、networkの同期・保存の対象ではない。
 _Avoid_: ノイズ状態（ノイズ以外も入り得る）, module の状態（module は持たない）, snapshot（network の複製と混同）
 
+**capture**:
+forward の出力のほかに持ち帰るものを、呼び出し側が鍵の集合で要求し、forward の中で body（branch 出力）か module（診断値）が書き込む器。渡さない forward は不変で、要求した鍵が書かれなければ error になる。
+_Avoid_: trace（可視化タップの TraceCallback、metrics の trace チャネルの両方と混同）, hook（登録して残る形ではない）
+
 **選択の最終値**:
 選択元のベース・部分指定・個別指定と、そのキーへのRunプロファイル・CLIの指定を反映した値とキー集合。プロファイル・カタログ・通常prefixの種類によらず継承で読む結果であり、型付きConfigによる既定補完とは別である。
 _Avoid_: 完成結果(旧称。カタログ限定の含み), スナップショット(旧挙動)
@@ -589,13 +593,21 @@ _Avoid_: dead neuron（τ=0 の dead と τ=0.025 の dormant を区別しない
 NetworkBody のトポロジカルソート済み branch 列から、対象 branch の依存閉包だけを実行して打ち切り、実行済み state を返す測定専用 forward（ForwardUpTo）。NoGrad + eval mode 固定で、学習経路の数値系列に影響しない。
 _Avoid_: partial forward（表記ゆれ）, probe forward, feature forward
 
+**final feature branch**:
+観測から計算された特徴が 1 本に集約される、feature 側の最後の branch。τ や行動などの条件が合流する前にあり、依存閉包の学習パラメータが feature、外が readout になる。慣習名は main_feature。
+_Avoid_: main_feature（既定値の名前であって概念名ではない）, penultimate（IQN では head 直前でない）, feature key（旧称）
+
 **weight norm 分割（feature/readout）**:
-feature key の依存閉包に属する学習パラメータを feature、閉包外 branch と head の学習パラメータを readout とする二群分割。各群の一括 L2 を、activation の feature norm と区別して扱う。
+final feature branch の依存閉包に属する学習パラメータを feature、閉包外 branch と head の学習パラメータを readout とする二群分割。各群の一括 L2 を、activation の feature norm と区別して扱う。
 _Avoid_: feature norm（activation側との混同）, body/head 分割
 
 **実効重み**:
 Spectral Normalization 適用層で forward が実際に使う正規化後の重み。optimizer が更新する生パラメータとは区別し、SN 下では生ノルムが制約されず実効側だけが正規化で抑えられる。SN 非適用層では生パラメータと一致する。
 _Avoid_: normalized weight（手法名の Weight Normalization と紛れる）, W_eff（記号は文書内の式でのみ使う）
+
+**attention エントロピー**:
+TransformerEncoder の層で、各 head の各クエリの attention 分布のエントロピーを ln n（n は系列長）で割り、head・クエリ・sample で平均した値。1 が一様、0 が 1 トークンへの集中。
+_Avoid_: 反復エントロピー（ノイズ probe の行動頻度の指標）, attention collapse（現象の名前であって指標ではない）, 注意エントロピー（表記ゆれ）
 
 ### 方策更新統計
 
@@ -606,3 +618,9 @@ _Avoid_: plasticity churn（可塑性指標と混同）, action churn（探索�
 **target policy disagreement**:
 同じ状態集合に対して、online network と target network の expected Q の greedy 行動が食い違う割合。target の遅れを方策空間で表し、target network 自身の update 前後 churn とは区別する。
 _Avoid_: target churn（target update 前後の変化と混同）, policy churn target（online update 前後の指標と混同）, target lag（値・Q差・時間のどれを指すか曖昧）
+
+### 勾配統計
+
+**勾配ノイズスケール**:
+1 回の更新の勾配について、サンプルごとのばらつきの合計 trΣ を平均の向きの大きさ ‖G‖² で割った値で、信号とノイズが同じ大きさになるバッチの大きさを表す。更新自身の batch を小バッチに分けて推定し、NoisyNet の ε は更新と同じ 1 抽選に固定した条件付きの値（Adam 版は 1/(√v̂+ε) で前処理した勾配で測る）。
+_Avoid_: ノイズスケール（NoisyNet の ε・ノイズ probe と紛れる）, 臨界バッチ（曲率を含む別の量）, 勾配ノイズ（ばらつきそのもの trΣ と紛れる）
