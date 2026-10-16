@@ -39,16 +39,28 @@ SET "BOMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>me
 SET "BOMET0=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2"
 SET "NOCLIP=E1.reward_clip=false A3.reward_scaler.constant_scale=0.005"
 SET "ELIFE=E1.episodic_life=true"
+SET "STICKY0=E1.repeat_action_probability=0"
+SET "UQE=A2.actor.[train].policy.policy_type=UQE"
+SET "RT30=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_30m>run.@batch"
+SET "LOWEPS=A2.actor.[train].policy.eps_start=0.05 A2.actor.[train].policy.eps_end=0.0001 A2.actor.[train].policy.uqe_eps_end=0.0001"
+SET "PERHI=A2.learner.per_alpha=0.6 A2.learner.per_beta_start=0.4 A2.learner.per_beta_end=1.0"
+SET "BOSS=%STICKY0% %LOWEPS% %NOCLIP% %PERHI%"
+SET "N10=A2.learner.n_step=10"
+SET "G999=A2.learner.gamma=0.999"
 
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. kung_fu_master rt 50m seed 1: raw reward scaled by 1/200 instead of sign clip ===
-call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=1 %NOCLIP% "app.run_name=run_{t}_kung_fu_master_rr1_50m_noclip200_seed1"
-echo === 2. kung_fu_master rt 50m seed 2: raw reward scaled by 1/200 instead of sign clip ===
-call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=2 %NOCLIP% "app.run_name=run_{t}_kung_fu_master_rr1_50m_noclip200_seed2"
-echo === 3. kung_fu_master rt 50m seed 1: life loss ends the training episode ===
-call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=1 %ELIFE% "app.run_name=run_{t}_kung_fu_master_rr1_50m_elife_seed1"
-echo === 4. kung_fu_master rt 50m seed 1: raw reward scaled by 1/200 and life loss ends the training episode ===
-call :run_exe "%RT50%" E1.game=kung_fu_master run.seed=1 %NOCLIP% %ELIFE% "app.run_name=run_{t}_kung_fu_master_rr1_50m_noclip200_elife_seed1"
+echo === 1. kung_fu_master rt 30m seed 1: no sticky actions only ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %STICKY0% "app.run_name=run_{t}_kung_fu_master_rr1_30m_sticky0_seed1"
+echo === 2. kung_fu_master rt 30m seed 1: boss set = no sticky, low eps ladder, raw reward 1/200, per alpha 0.6 ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_seed1"
+echo === 3. kung_fu_master rt 30m seed 2: boss set ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=2 %BOSS% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_seed2"
+echo === 4. kung_fu_master rt 30m seed 1: boss set + n-step 10 ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% %N10% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_n10_seed1"
+echo === 5. kung_fu_master rt 30m seed 1: boss set + uqe train policy ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% %UQE% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_uqe_seed1"
+echo === 6. kung_fu_master rt 30m seed 1: boss set + n-step 10 + gamma 0.999 ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% %N10% %G999% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_n10_g999_seed1"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
