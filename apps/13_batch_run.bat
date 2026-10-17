@@ -52,20 +52,41 @@ SET "UQHI=A2.actor.[train].policy.uqe_eps_start=0.4 A2.actor.[train].policy.uqe_
 SET "UQLO=A2.actor.[train].policy.uqe_eps_start=0.05 A2.actor.[train].policy.uqe_eps_end=0.0001"
 SET "UQ99=A2.actor.[train].policy.uqe_tau_start=0.99 A2.actor.[train].policy.uqe_tau_end=0.9"
 SET "OPT=A3.use_optimistic_target=true"
+SET "RT10=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@batch"
 
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. kung_fu_master rt 30m seed 1: uqe with the rt eps ladder, no sticky, raw reward 1/200, per alpha 0.6 ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% "app.run_name=run_{t}_kfm_uq_s1"
-echo === 2. kung_fu_master rt 30m seed 1: uqe tau 0.99 to 0.9 ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% %UQ99% "app.run_name=run_{t}_kfm_uq99_s1"
-echo === 3. kung_fu_master rt 30m seed 1: uqe tau 0.99 to 0.9 with the low eps ladder ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQ99% %UQLO% "app.run_name=run_{t}_kfm_uq99lo_s1"
-echo === 4. kung_fu_master rt 30m seed 1: uqe with optimistic target ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% %OPT% "app.run_name=run_{t}_kfm_uqopt_s1"
-echo === 5. kung_fu_master rt 30m seed 1: uqe tau 0.99 to 0.9 with optimistic target ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% %UQ99% %OPT% "app.run_name=run_{t}_kfm_uq99opt_s1"
-echo === 6. kung_fu_master rt 30m seed 2: uqe tau 0.99 to 0.9 with optimistic target ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=2 %UQB% %UQHI% %UQ99% %OPT% "app.run_name=run_{t}_kfm_uq99opt_s2"
+echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=4 "app.run_name=run_{t}_kfm_10m_s04"
+echo === 2. kung_fu_master rt 10m seed 5: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=5 "app.run_name=run_{t}_kfm_10m_s05"
+echo === 3. kung_fu_master rt 10m seed 6: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=6 "app.run_name=run_{t}_kfm_10m_s06"
+echo === 4. kung_fu_master rt 10m seed 7: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=7 "app.run_name=run_{t}_kfm_10m_s07"
+echo === 5. kung_fu_master rt 10m seed 8: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=8 "app.run_name=run_{t}_kfm_10m_s08"
+echo === 6. kung_fu_master rt 10m seed 9: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=9 "app.run_name=run_{t}_kfm_10m_s09"
+echo === 7. kung_fu_master rt 10m seed 10: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=10 "app.run_name=run_{t}_kfm_10m_s10"
+echo === 8. kung_fu_master rt 10m seed 11: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=11 "app.run_name=run_{t}_kfm_10m_s11"
+echo === 9. kung_fu_master rt 10m seed 12: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=12 "app.run_name=run_{t}_kfm_10m_s12"
+echo === 10. kung_fu_master rt 10m seed 13: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=13 "app.run_name=run_{t}_kfm_10m_s13"
+echo === 11. kung_fu_master rt 10m seed 14: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=14 "app.run_name=run_{t}_kfm_10m_s14"
+echo === 12. kung_fu_master rt 10m seed 15: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=15 "app.run_name=run_{t}_kfm_10m_s15"
+echo === 13. kung_fu_master rt 10m seed 16: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=16 "app.run_name=run_{t}_kfm_10m_s16"
+echo === 14. kung_fu_master rt 10m seed 17: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=17 "app.run_name=run_{t}_kfm_10m_s17"
+echo === 15. kung_fu_master rt 10m seed 18: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=18 "app.run_name=run_{t}_kfm_10m_s18"
+echo === 16. kung_fu_master rt 10m seed 19: default settings, does the boss route ignite early ===
+call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=19 "app.run_name=run_{t}_kfm_10m_s19"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
