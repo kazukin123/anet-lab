@@ -47,20 +47,25 @@ SET "PERHI=A2.learner.per_alpha=0.6 A2.learner.per_beta_start=0.4 A2.learner.per
 SET "BOSS=%STICKY0% %LOWEPS% %NOCLIP% %PERHI%"
 SET "N10=A2.learner.n_step=10"
 SET "G999=A2.learner.gamma=0.999"
+SET "UQB=%STICKY0% %NOCLIP% %PERHI% %UQE%"
+SET "UQHI=A2.actor.[train].policy.uqe_eps_start=0.4 A2.actor.[train].policy.uqe_eps_end=0.01"
+SET "UQLO=A2.actor.[train].policy.uqe_eps_start=0.05 A2.actor.[train].policy.uqe_eps_end=0.0001"
+SET "UQ99=A2.actor.[train].policy.uqe_tau_start=0.99 A2.actor.[train].policy.uqe_tau_end=0.9"
+SET "OPT=A3.use_optimistic_target=true"
 
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. kung_fu_master rt 30m seed 1: no sticky actions only ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %STICKY0% "app.run_name=run_{t}_kung_fu_master_rr1_30m_sticky0_seed1"
-echo === 2. kung_fu_master rt 30m seed 1: boss set = no sticky, low eps ladder, raw reward 1/200, per alpha 0.6 ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_seed1"
-echo === 3. kung_fu_master rt 30m seed 2: boss set ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=2 %BOSS% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_seed2"
-echo === 4. kung_fu_master rt 30m seed 1: boss set + n-step 10 ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% %N10% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_n10_seed1"
-echo === 5. kung_fu_master rt 30m seed 1: boss set + uqe train policy ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% %UQE% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_uqe_seed1"
-echo === 6. kung_fu_master rt 30m seed 1: boss set + n-step 10 + gamma 0.999 ===
-call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %BOSS% %N10% %G999% "app.run_name=run_{t}_kung_fu_master_rr1_30m_boss_n10_g999_seed1"
+echo === 1. kung_fu_master rt 30m seed 1: uqe with the rt eps ladder, no sticky, raw reward 1/200, per alpha 0.6 ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% "app.run_name=run_{t}_kfm_uq_s1"
+echo === 2. kung_fu_master rt 30m seed 1: uqe tau 0.99 to 0.9 ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% %UQ99% "app.run_name=run_{t}_kfm_uq99_s1"
+echo === 3. kung_fu_master rt 30m seed 1: uqe tau 0.99 to 0.9 with the low eps ladder ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQ99% %UQLO% "app.run_name=run_{t}_kfm_uq99lo_s1"
+echo === 4. kung_fu_master rt 30m seed 1: uqe with optimistic target ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% %OPT% "app.run_name=run_{t}_kfm_uqopt_s1"
+echo === 5. kung_fu_master rt 30m seed 1: uqe tau 0.99 to 0.9 with optimistic target ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=1 %UQB% %UQHI% %UQ99% %OPT% "app.run_name=run_{t}_kfm_uq99opt_s1"
+echo === 6. kung_fu_master rt 30m seed 2: uqe tau 0.99 to 0.9 with optimistic target ===
+call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=2 %UQB% %UQHI% %UQ99% %OPT% "app.run_name=run_{t}_kfm_uq99opt_s2"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
