@@ -12,6 +12,7 @@ PRD のレビューと、起草した側の自己点検で走査する観点。
 
 - 各項目は規約の所在を指し、PRD がそれを満たすかを問う。規約の本文は、所在の文書だけが持つ。
 - 項番は本書の中で一意である。指摘は項番で引用する。項目を消しても、番号は詰めない。
+- 項番 10・11・12・27 は廃止した番号であり、再び使わない。
 - 判定の範囲と応答の形は、[プロセス契約](../process/protocol.md) の 2 節と 3.1 節による。
 - 節の適用範囲に当たらない項目は、対象外として扱う。
 
@@ -47,20 +48,17 @@ PRD のレビューと、起草した側の自己点検で走査する観点。
 | 5 | 改訂の記録 | 改訂した PRD は、冒頭の引用行に、改訂の日付と内容がある。新しく起票した PRD は対象外 | [docs/memo/README.md](../memo/README.md) §工程と担当（再グリルの行） |
 | 6 | 本文だけで読める | 確定した決定と実装の契約が、PRD 本文に書かれている。会話や別の枠の文脈を知らないと意味が決まらない記述（本文に実体の無い「先の案」「上の議論」など）が無い | [docs/memo/README.md](../memo/README.md) §工程と担当（枠をまたぐとき） |
 | 7 | 担当の書き場所 | 担当を書いている場合、確定事項に「担当」として書かれている。担当を書いていない PRD は対象外 | [docs/memo/README.md](../memo/README.md) §工程と担当（枠をまとめる判断） |
+| 29 | 決定の理由と前提 | 確定事項の各決定に理由が書かれていて、理由がほかの決定や事実に依存するときは、それを名指している | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（決定の理由と前提） |
 
 ### ゴールと範囲
 
-適用: 項番 8 は常時。項番 9 は、新しい機構・概念を導入する PRD。項番 10〜13 と 27 は、最終簡素化パスを経た PRD（その裁定を記録した節を持つもの）。経ていない PRD では対象外とし、経ていないことを `再確認ポイント` に書く。
+適用: 項番 8 は常時。項番 9 と 13 は、新しい機構・概念を導入する PRD。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
 | 8 | ゴールと非ゴール | 解く問題、ゴール、非ゴールが、それぞれ本文に明示されている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（goal anchor） |
-| 9 | 機構ごとの根拠 | 導入する機構・概念のそれぞれに、それを要する実際の痛み（起きた事故、測った費用、既にある回避策）が書かれている。根拠が将来の想像上の要求だけのものは、作る対象に入れず、何が起きたら作るかを添えた先送りか、不採用として記録されている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（scope screen） |
-| 10 | 裁定の記録 | 機構・概念ごとの裁定（keep / shrink / defer / cut）が、PRD に記録されている。作らないと決めたものが、理由とともに残っている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 1 と、裁定を記録する定め） |
-| 27 | 要件の実在性 | 要件のそれぞれについて、実際に起きた痛みに基づくものか、将来の想像上の要求かが書かれている。想像上の要求は、作る対象に入っていない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 2） |
-| 11 | 最小解との差分 | 確定した要求だけを満たす最小の設計と、それを超える部分の理由が書かれている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 4） |
-| 12 | 段階の独立性 | 段階に分けている場合、各段階が単独で価値を持つことと、どの段階で止めても前より悪くならないことが書かれている。段階に分けていない PRD は対象外 | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 5） |
-| 13 | 成功の測り方 | 効果が出たことを確かめる指標が書かれている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 6） |
+| 9 | 機構ごとのゴールへの寄与 | 導入する機構・概念のそれぞれに、ゴールへの寄与が書かれている。仮説を確かめる PRD では、仮説・比べ方・終わり方が書かれている。先送りしたものには、先送りの理由（実験の結果が要る、または別の関心）と、何が揃ったら作るかが書かれている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（scope screen） |
+| 13 | 成功の測り方 | 効果が出たことを確かめる指標が書かれている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（起草） |
 
 ### 受入
 

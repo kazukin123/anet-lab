@@ -1,48 +1,141 @@
 ---
 name: anet-create-prd
-description: Create or revise an anet-lab PRD through a grilling session that challenges the plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when the user invokes /anet-create-prd or $anet-create-prd with a topic or an existing PRD filename (passing an existing PRD revises it, including a re-grill from a separate session), or wants to grill or stress-test a plan against the project's language and documented decisions.
+description: Create or revise an anet-lab PRD through a docs-aware grilling session with questions, drafting, self-check, and review, then stop without implementation. Use /anet-create-prd or $anet-create-prd with a topic or an existing PRD filename (including a re-grill from a separate session), or when the user wants to grill or stress-test a plan against the project's documented decisions.
 ---
 
-<what-to-do>
+# PRD の作成・改訂
 
-Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+[プロセス契約](../../../docs/process/protocol.md) の Step 1〜6 に従う入口。anet での対応は [レジストリ](../../../docs/process/registry.md)、自己点検は [PRD 品質確認観点](../../../docs/quality/prd.md) による。プロセス契約とレジストリを先に読み、工程固有の手順だけを本書で補う。PRD のテンプレートは作らない。
 
-When the plan already exists in writing — I name a PRD, or the topic matches an existing PRD or design memo (in this repo, `docs/memo/NNN_*_10prd.md`, including provisional `999_*` ones) — read it in full, together with the ADRs it cites, before anything else, and open with an **existing-content briefing**. I cannot challenge a design I do not currently remember, so the grill must start from shared knowledge of what is already written, not from your private reading of it. Keep the briefing to one screen, in plain language and your own words — no section-by-section transcription, no quoting the document back:
+引数は題材か既存 PRD のファイル名。既存 PRD は改訂として扱う。成果物は PRD、必要な用語集・ADR の更新であり、実装へは進まない。
 
-1. **What and why** — the problem, the goal and the non-goals as the document states them, in two or three lines.
-2. **Shape of the design** — the few decisions that shape everything else, one line each, naming the ADR that backs each one if any. Leave out details a later question will reach anyway.
-3. **Still open** — the open-items table, provisional defaults and "to confirm" items, as a short list.
-4. **History and drift** — whether it has been grilled before and when (the revision lines at the top), and anything you noticed while reading that the current code, `CONTEXT.md`, later ADRs or later PRDs now contradict or have overtaken. Check only what the key decisions depend on; this is not an audit. Say "none found" when there is nothing.
-5. **Where the grill will likely bite** — the two or three areas you expect to question first, so I know what to refresh.
+## 1. 対象を決める
 
-Put the goal anchor below in the same message, drawn from item 1, and invite questions about the existing content. Answer those questions before the first grill question; answering them is explaining, not grilling — do not challenge or ask for decisions yet.
+新規か改訂かを決める。既存 PRD は `docs/memo/` のサブフォルダも含めて完全一致で探し、本文と引用する ADR を読む。複数一致または未発見なら対象を尋ねる。
 
-Open the session with a **goal anchor**: state, in a few lines, the problem being solved, the goal of the plan, and any explicit non-goals, and get my agreement before the first question. Long grill sessions drift; this anchor is the reference that every later judgement — including the simplification passes below — is measured against. If mid-session answers start pulling away from the anchor, say so and ask whether the goal itself has changed.
+### 既存 PRD の要点提示
 
-If the plan introduces new mechanisms or concepts, follow with a **scope screen** before descending into detail: enumerate them, and for each confirm what real pain (an incident, a measured cost, an existing workaround) pins it with respect to the agreed goal. Anything pinned only to an imagined future need is — right there — demoted to a deferred gate ("build when X first hurts") or dropped, and its detail questions are skipped entirely. Do not spend grill rounds specifying something that should not be built.
+既存 PRD や題材に対応する設計メモがある場合、最初に1画面程度で次を平易に示す。章ごとの転記ではなく、共有する前提の説明にする。
 
-Ask the questions one at a time, waiting for feedback on each question before continuing.
+- 問題、ゴール、非ゴール。
+- 設計の形を決める主要な決定と、その根拠の ADR。触る既存部品の働きも1行ずつ示す。
+- 未決、暫定値、要確認事項。
+- 過去のグリルと改訂時期。主要な決定の前提だけを現行コード・用語集・後続の判断と照合し、ずれが無ければそう示す。
+- 今回検討する論点の見込み。
 
-If a question can be answered by exploring the codebase, explore the codebase instead.
+同じ応答に goal anchor を示し、既存内容への質問に答えてから質疑へ入る。説明と決め直しを混ぜない。
 
-Before the closing question, run a **final simplification pass**, measured against the goal anchor agreed at the start. Grilling is a monotonic process — every question adds specification — so finish by interrogating the accumulated design in the opposite direction. Announce the switch, then ask these one at a time like any other grill question, each with your recommended verdict:
+### 再グリルで開き直す条件
 
-1. **Aggregate excess** — re-enumerate every mechanism/concept the plan now introduces, including anything added during this session; for each, ask "if we cut this entirely, which *real* pain returns?" A part can survive every detail question and still not deserve to exist.
-2. **Requirement reality** — for requirements added or reshaped during the session: pinned to a pain that actually happened, or to an imagined future need? Demote imagined needs to a deferred gate instead of building now.
-3. **Decision residue** — re-check earlier conclusions whose premises were changed by later decisions in this same session (e.g. a mechanism justified by a concern that a later split already resolved).
-4. **Minimal-solution diff** — re-derive the smallest design that satisfies only the pinned requirements and the agreed goal, and present its diff against the current plan; every item in the diff must re-justify itself or be shrunk, deferred, or cut.
-5. **Phase independence** — does each phase deliver net value on its own, and can the effort stop after any phase without leaving things worse?
-6. **Success measurability** — how will we know the claimed benefit materialised? Prefer mechanically checkable indicators (lines to edit for a routine task, recurrence of a named incident, workaround code deleted).
+確定事項を再び問うのは、前提が変わった、コードや新しい証拠と矛盾した、あとの決定で不要になった、ユーザーが求めた、別モデルが結論に反対した、のいずれかだけである。理由や前提を問うだけの論点は開き直さず、本文を補って示す。
 
-Record the verdicts (keep / shrink / defer-behind-gate / cut) in the session's output artifact — e.g. a "complexity audit" section in the PRD — so future readers can see why something was deliberately not built.
+## 2. 質疑
 
-At the end of the grilling session, do not automatically request plan approval or start implementation.
+共通理解に達するまで、設計の決定木を枝ごとにたどり、決定どうしの依存を1つずつ解く。ほかの決定が依存する決定から先に扱う。たどった論点は下の「論点の仕分け」で分け、①②④⑤⑥はその区分に従って調査・確かめ方の整理・実装計画や未決表への記録を行う。ユーザーに問う論点は③だけにする。
 
-If the current collaboration mode is Plan Mode, ask one final YES/NO question asking whether to request approval for the agreed plan. Only if the user selects or answers YES, present the plan for approval in a `<proposed_plan>` block. If the user selects or answers NO, gives an ambiguous answer, or does not answer, do not request plan approval.
+### goal anchor
 
-If the current collaboration mode is not Plan Mode, ask one final YES/NO question asking whether to execute the agreed plan. Only if the user selects or answers YES, start implementation. If the user selects or answers NO, gives an ambiguous answer, or does not answer, do not edit files or run implementation commands.
+解く問題、ゴール、明示された非ゴールを短く示し、合意を得る。以後の判断はこのゴールに照らす。途中で方向がずれた場合は、ゴール自体が変わったかを確認する。
 
-</what-to-do>
+### scope screen
+
+新しい機構・概念ごとに、ゴールへの寄与を確認する。仮説を確かめる PRD では、仮説・比べ方・終わり方を確認する。「今は要らない」を理由に削らない。実装の負荷は AI が持つため、後で要るものは同時に作る。器や抽象は、確定した要求から導ける最小の形で提案する。
+
+先送りできるのは、実験結果が無いと決められない場合と、別の関心なので別 PRD にする場合だけ。先送りの理由と、何が揃ったら作るかを PRD 本文に記録する。
+
+後で要るので同時に作るものは、次の境界で詰める。
+
+| 区分 | 対象 | 決め方 |
+|---|---|---|
+| 契約 | 外から見える振る舞い・設定キー・公開 API・メトリクス名、既存部品との受け渡し・持ち主・失敗時の挙動など、PRD が設計として決めるもの全部 | 1問ずつ |
+| 細部 | 契約の枠の中の値や方式で、推奨の既定が契約や他の決定から出るもの。既定値、閾値、表示・ログ書式など | 契約を詰めたあと、推奨の既定と理由の一覧の扱いを1問で聞く |
+| 実装の詳細（⑤） | PRD の契約に効かない関数分割やファイル配置など | 実装計画へ送る |
+
+細部の一覧は `<番号>. <事項>: <推奨の既定>（理由: 1 行）` とする。プロセス契約1.2節の切り上げと同じ形で「推奨で埋める／後で決める／1件ずつ聞く」を問う。切り上げ以外にもこの形を使う読み替えはレジストリにある。答えは PRD に書き、「後で決める」は未決表へ残す。追加の会話なしで実装へ入れる状態にするため、細部を実装計画へ送らない。細部の一覧の1問は「一覧の扱い」という1つの論点を問うもので、別々の判断を並べて各々への回答を要求しない。
+
+クラス構成と名前は細部にも⑤にも入れず、起草のクラス一覧に書く。
+
+### 論点の仕分け
+
+| 区分 | 扱い |
+|---|---|
+| ① コードや文書で分かる事実 | 調べ、根拠のリンクを添えて示す。聞かない |
+| ② 規約・ADR・CONTEXT.md・現行コードから一意に導ける事項 | 聞かずに一覧で示す。導いた根拠の所在を少なくとも1つ示せるものに限る |
+| ③ ゴール・優先度・許容する不利益の選択 | 推奨案を添えて1問ずつ聞き、回答を待つ |
+| ④ 実験・試作でしか分からない事項 | 確かめ方と、結果ごとの分かれ方を決める |
+| ⑤ PRD の契約に効かない実装の詳細 | 実装計画へ送る。クラス構成と名前は除く |
+| ⑥ 範囲外 | 999 の暫定 PRD か未決表へ送る。起票はプロセス契約7節に従い、ユーザーが選んだものだけ行う |
+
+①と②の根拠は、人がすぐ開けるリンクで示す。文書は該当節の行、ADR はファイル、コードは行番号付きにする。
+
+②の一覧は、scope screen 後の最初の個別の問いと同じ応答で示す。goal anchor の合意と scope screen の確認はこの問いに数えない。当たる事項が無ければ一覧は出さない。各行は `<番号>. <事項>: <導いた内容>（根拠: <リンク>）` とし、ユーザーが番号を挙げれば③へ戻す。根拠の所在を示せないものは③として聞く。推奨案があることは、一意に導けることではない。実質の選択を「既定値」の名目で②へ入れない。
+
+### 選択肢の示し方
+
+各案を正常・境界・失敗時の具体的な挙動で比較する。該当する API の呼び出し例や設定例（コロン記法）を添え、性能と保守性のどちらで有利かを書く。未共有の概念を名前だけで出さない。用語、具体例、コードとの照合は後述の Domain awareness と During the session に従う。
+
+質問は1問ずつとし、明示的な回答を待つ。無回答や時間の経過を同意と扱わない。コードや文書で解ける疑問は探索して解く。
+
+### 暫定・999 と Plan Mode
+
+「暫定」「999」と指示された起票では質疑を省き、決めきれない点を未決表へ書く。
+
+Plan Mode は前提にしない。Plan Mode で起動された場合は、質疑が終わった時点で決まったことを計画として示し、承認を受けて Plan Mode を抜けてから起草へ進む。モード中は PRD・用語集・ADR を編集しない。どちらのモードで始めても、最後に実装へ進まない。
+
+## 3. 起草
+
+PRD 本文、必要な `CONTEXT.md` と ADR を書く。PRD は [memo README](../../../docs/memo/README.md) の工程・採番・リンク規約に従い、会話を知らなくても読めるものにする。作業記録は PRD 本文の確定事項、未決表、冒頭の改訂行が兼ねる。未決の扱いはプロセス契約1節・7節による。
+
+### 決定の理由と前提
+
+確定事項の各決定に理由を書く。その理由が他の決定や事実に依存するときは、何に依存しているかを名指す。再グリルでの前提の変化と、自己点検での決定の残滓を本文から判定できるようにする。
+
+### 成功の測り方
+
+効果が出たことを確かめる指標を書く。scope screen で先送りしたものには、理由と作る条件を書く。
+
+### クラス一覧
+
+足す・変える・消すクラスがあれば、実装契約の節に、名前・区分（新規／変更／削除）・責務（1行）の一覧を AI が書く。消すだけの PRD でも書く。グリルでは問わない。ユーザーは起草後の問いや実装前に修正でき、実装レビューでも指摘できる。
+
+一覧の直前に必ず次の1行を添える。
+
+> 従えない事情があれば、実装する側が理由を実装計画に書いて変えてよい（質問しない）。
+
+実装は一覧に従うが、上の許可も PRD 自身の契約である。この扱いを実装スキルや読み替え表へ追加しない。
+
+## 4. 別モデルの検討（任意、Claude Code だけ）
+
+Codex ではこの段を行わない。Claude Code では起草後、自己点検前に、実施するかを1問で聞く。新しい機構・概念か ADR を含む PRD なら「入れる」、含まなければ「入れない」を推奨する。問いには費用の目安を添える。実測までは、レビューエージェントを新しく呼ぶ1往復（PRD087 段階1の Claude Code での実測で約24〜27万トークン・19〜22分）と同程度の暫定目安とする。別モデル指定の費用は未測定であり、受入で測った消費と時間に置き換える。
+
+- セッションが Opus なら Fable、Fable なら Opus を、呼び出し時に指定する。
+- どちらでもなければ「Fable で入れる」「Opus で入れる」「入れない」から選んでもらう。実施を勧めるときは Fable を先頭にする。
+- 入れると答えた場合だけ `anet-other-model` を起動する。依頼は [OTHER-MODEL.md](OTHER-MODEL.md) の雛形で組み、会話の中身は渡さない。定義は [.claude/agents/anet-other-model.md](../../../.claude/agents/anet-other-model.md)。
+- 返った論点は6区分で仕分け、③だけを質疑の続きとしてその場で1問ずつ聞く。会話で決めた論点でも、結論への反対なら両方の意見を示して聞く。理由や前提の確認だけなら本文を補い、①として示す。
+- 答えを草案へ反映して自己点検へ進む。設計の妥当性を見るこの検討は、観点の充足を見るレビューとも、ユーザーが選ぶ別枠の再グリルとも別であり、置き換えない。
+
+## 5. 自己点検
+
+PRD 品質確認観点の全項目を、各項目の適用範囲に従って通す。加えて次を確認する。
+
+- **目的のずれ**：goal anchor 後に足した機構・要求がゴールに寄与しない、またはゴール自体が動いた場合は、「ゴールを変える／ずれた部分を戻す」を別の1問で聞く。未決をまとめた問いの前に聞き、主要な流れを止める事項の選択肢へ読み替えない。
+- **決定の残滓**：後の決定で前提が変わった決定を直し、何を直したかを示す。
+
+それぞれの見立てを、該当が無い場合も示す。総量の過剰、要件の実在、最小解との差分、段階の独立性を問う段は持たない。成功の測り方は観点13で確認する。
+
+そのあと、残る未決をプロセス契約1節に従って推奨案とともにまとめて1問で聞き、回答を反映して関連観点を再点検する。未決が無ければその旨を示してレビューへ進む。
+
+## 6. レビューと差し戻し対応
+
+レビューは必ず独立したコンテキストの `an-review` で受ける。依頼の組み立てと起動・続けての依頼は [anet-review](../anet-review/SKILL.md) の「2. 依頼を組み立てる」「3. 呼ぶ」を参照する。同じ手順を書き写さない。応答原文の保存は同スキルの「原文を保存する」に従う。
+
+レビュー専用入口の「成果物を直さず停止する」は、この工程の差し戻し対応へ適用しない。プロセス契約 Step 4・5、1.3節に従い、指摘を仕分け、自分で直せるものをまとめて直してから同じレビューエージェントへ出し直す。往復のたびにユーザーへ返さない。判断待ち・停止、レビュー後に残る未決への質問はプロセス契約による。
+
+## 7. 未決を示して停止する
+
+完了条件は、対象の PRD と関連文書の起草・自己点検が済み、レビューが OK になり、残る未決とその扱いが記録されていること。
+
+プロセス契約 Step 6・6節・7節に従い、未決の起票候補を示して停止し、ユーザーが選んだものだけ記録する。候補が無ければ「なし」と示して完了報告へ進む。完了報告は同3.2節・3.3節に従い平易に書く。次の入口はレジストリから示すが、実装は始めない。
 
 <supporting-info>
 
