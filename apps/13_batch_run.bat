@@ -53,40 +53,81 @@ SET "UQLO=A2.actor.[train].policy.uqe_eps_start=0.05 A2.actor.[train].policy.uqe
 SET "UQ99=A2.actor.[train].policy.uqe_tau_start=0.99 A2.actor.[train].policy.uqe_tau_end=0.9"
 SET "OPT=A3.use_optimistic_target=true"
 SET "RT10=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@batch"
+SET "B1K=A2.learner.replay_batch_size=1024"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=4 "app.run_name=run_{t}_kfm_10m_s04"
+call :find_done kfm_10m_s04
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=4 "app.run_name=run_{t}_kfm_10m_s04"
 echo === 2. kung_fu_master rt 10m seed 5: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=5 "app.run_name=run_{t}_kfm_10m_s05"
+call :find_done kfm_10m_s05
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=5 "app.run_name=run_{t}_kfm_10m_s05"
 echo === 3. kung_fu_master rt 10m seed 6: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=6 "app.run_name=run_{t}_kfm_10m_s06"
+call :find_done kfm_10m_s06
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=6 "app.run_name=run_{t}_kfm_10m_s06"
 echo === 4. kung_fu_master rt 10m seed 7: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=7 "app.run_name=run_{t}_kfm_10m_s07"
+call :find_done kfm_10m_s07
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=7 "app.run_name=run_{t}_kfm_10m_s07"
 echo === 5. kung_fu_master rt 10m seed 8: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=8 "app.run_name=run_{t}_kfm_10m_s08"
+call :find_done kfm_10m_s08
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=8 "app.run_name=run_{t}_kfm_10m_s08"
 echo === 6. kung_fu_master rt 10m seed 9: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=9 "app.run_name=run_{t}_kfm_10m_s09"
+call :find_done kfm_10m_s09
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=9 "app.run_name=run_{t}_kfm_10m_s09"
 echo === 7. kung_fu_master rt 10m seed 10: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=10 "app.run_name=run_{t}_kfm_10m_s10"
+call :find_done kfm_10m_s10
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=10 "app.run_name=run_{t}_kfm_10m_s10"
 echo === 8. kung_fu_master rt 10m seed 11: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=11 "app.run_name=run_{t}_kfm_10m_s11"
+call :find_done kfm_10m_s11
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=11 "app.run_name=run_{t}_kfm_10m_s11"
 echo === 9. kung_fu_master rt 10m seed 12: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=12 "app.run_name=run_{t}_kfm_10m_s12"
+call :find_done kfm_10m_s12
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=12 "app.run_name=run_{t}_kfm_10m_s12"
 echo === 10. kung_fu_master rt 10m seed 13: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=13 "app.run_name=run_{t}_kfm_10m_s13"
+call :find_done kfm_10m_s13
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=13 "app.run_name=run_{t}_kfm_10m_s13"
 echo === 11. kung_fu_master rt 10m seed 14: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=14 "app.run_name=run_{t}_kfm_10m_s14"
+call :find_done kfm_10m_s14
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=14 "app.run_name=run_{t}_kfm_10m_s14"
 echo === 12. kung_fu_master rt 10m seed 15: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=15 "app.run_name=run_{t}_kfm_10m_s15"
+call :find_done kfm_10m_s15
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=15 "app.run_name=run_{t}_kfm_10m_s15"
 echo === 13. kung_fu_master rt 10m seed 16: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=16 "app.run_name=run_{t}_kfm_10m_s16"
+call :find_done kfm_10m_s16
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=16 "app.run_name=run_{t}_kfm_10m_s16"
 echo === 14. kung_fu_master rt 10m seed 17: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=17 "app.run_name=run_{t}_kfm_10m_s17"
+call :find_done kfm_10m_s17
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=17 "app.run_name=run_{t}_kfm_10m_s17"
 echo === 15. kung_fu_master rt 10m seed 18: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=18 "app.run_name=run_{t}_kfm_10m_s18"
+call :find_done kfm_10m_s18
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=18 "app.run_name=run_{t}_kfm_10m_s18"
 echo === 16. kung_fu_master rt 10m seed 19: default settings, does the boss route ignite early ===
-call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=19 "app.run_name=run_{t}_kfm_10m_s19"
+call :find_done kfm_10m_s19
+if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=19 "app.run_name=run_{t}_kfm_10m_s19"
+echo === 17. kung_fu_master rt 30m seed 4: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s04
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=4 %B1K% "app.run_name=run_{t}_kfm_b1k_s04"
+echo === 18. kung_fu_master rt 30m seed 5: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s05
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=5 %B1K% "app.run_name=run_{t}_kfm_b1k_s05"
+echo === 19. kung_fu_master rt 30m seed 6: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s06
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=6 %B1K% "app.run_name=run_{t}_kfm_b1k_s06"
+echo === 20. kung_fu_master rt 30m seed 7: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s07
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=7 %B1K% "app.run_name=run_{t}_kfm_b1k_s07"
+echo === 21. kung_fu_master rt 30m seed 8: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s08
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=8 %B1K% "app.run_name=run_{t}_kfm_b1k_s08"
+echo === 22. kung_fu_master rt 30m seed 9: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s09
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=9 %B1K% "app.run_name=run_{t}_kfm_b1k_s09"
+echo === 23. kung_fu_master rt 30m seed 10: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s10
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=10 %B1K% "app.run_name=run_{t}_kfm_b1k_s10"
+echo === 24. kung_fu_master rt 30m seed 11: batch 1024, four times the experience per update ===
+call :find_done kfm_b1k_s11
+if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=11 %B1K% "app.run_name=run_{t}_kfm_b1k_s11"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
@@ -106,6 +147,14 @@ SET "RUNS=workspaces\%~1\runs"
 if exist "workspaces\%~1\config\_main.txt" exit /b 0
 mkdir "workspaces\%~1\config" 2>nul
 >"workspaces\%~1\config\_main.txt" echo $include ^<%~2^>
+exit /b 0
+
+:find_done
+SET "DONE_DIR="
+for /f "delims=" %%d in ('dir /b /ad "%RUNS%\run_*_%~1" 2^>nul') do (
+  findstr /m /c:"Stop training requested" "%RUNS%\%%d\*.log" >nul 2>&1 && SET "DONE_DIR=%%d"
+)
+if defined DONE_DIR echo %DATE% %TIME% SKIP %~1 already finished in %DONE_DIR%
 exit /b 0
 
 :run_exe
