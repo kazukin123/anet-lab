@@ -1,18 +1,20 @@
 ﻿#include "anet/nn_util.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <map>
+#include <memory>
+#include <string>
 #include <ATen/autocast_mode.h>
+#include <torch/csrc/autograd/autograd.h>
 #include <ATen/ops/_amp_foreach_non_finite_check_and_unscale.h>
 #include <ATen/ops/_foreach_add.h>
 #include <ATen/ops/_foreach_mul.h>
 #include <ATen/ops/_foreach_norm.h>
 #include <ATen/ops/_fused_adamw.h>
-
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
 
-#include <map>
-#include <memory>
-#include <string>
 
 using namespace anet;
 
@@ -21,6 +23,112 @@ using namespace anet;
 // Gradient Utilities
 // ======================================================
 
+GradientNoiseEstimate anet::GradientNoiseEstimator::Update(const GradientNoiseEstimate& estimate)
+{
+    // 対の片方だけを更新せず、同じ測定点の履歴を保つ。
+    if (!std::isfinite(estimate.signal) || !std::isfinite(estimate.variance)) return {};
+    signal_.Update(estimate.signal);
+    variance_.Update(estimate.variance);
+    return { .signal = signal_.Value(), .variance = variance_.Value() };
+}
+
+GradientNoiseMeasurement anet::MeasureGradientNoise(const torch::Tensor& weighted_element_loss,
+    const std::vector<GradientNoiseParameter>& parameters, const torch::optim::AdamW& optimizer, int num_micro_batches, double epsilon,
+    const GradientNoiseRequest& request)
+{
+    ANET_PROFILE_FUNC();
+    if (!weighted_element_loss.defined() || weighted_element_loss.dim() != 1 || weighted_element_loss.size(0) <= 0 ||
+        num_micro_batches < 2 || weighted_element_loss.size(0) % num_micro_batches != 0) {
+        ANET_SYSTEM_ERROR("Gradient noise requires weighted_element_loss [B], B>0, k>=2 dividing B; k=" << num_micro_batches);
+    }
+    const int64_t batch_size = weighted_element_loss.size(0);
+    // 前回の.gradではなく今回のautograd結果を使い、未使用parameterを除く。
+    std::vector<torch::Tensor> inputs;
+    std::vector<bool> feature;
+    for (const auto& entry : parameters) {
+        if (!entry.parameter.requires_grad()) continue;
+        inputs.push_back(entry.parameter);
+        feature.push_back(entry.feature);
+    }
+    if (inputs.empty() || !weighted_element_loss.requires_grad()) return {};
+    const bool adam_requested = std::ranges::any_of(request.adam, [](bool value) { return value; });
+    std::unordered_map<void*, double> beta2;
+    if (adam_requested) {
+        for (const auto& group : optimizer.param_groups()) {
+            const auto& options = static_cast<const torch::optim::AdamWOptions&>(group.options());
+            for (const auto& parameter : group.params())
+                beta2.emplace(parameter.unsafeGetTensorImpl(), std::get<1>(options.betas()));
+        }
+    }
+    std::vector<torch::Tensor> sums(inputs.size()), preconditioners(inputs.size());
+    std::vector<bool> used(inputs.size(), false);
+    std::array<bool, 3> group_used{}, group_valid{ true, true, true };
+    auto small = torch::zeros({ 4 }, inputs.front().options().requires_grad(false).dtype(torch::kFloat64));
+    auto big = torch::zeros_like(small);
+    for (int j = 0; j < num_micro_batches; ++j) {
+        const auto loss = weighted_element_loss.narrow(0, j * (batch_size / num_micro_batches), batch_size / num_micro_batches).mean();
+        const auto gradients = torch::autograd::grad({ loss }, inputs, {}, true, false, true);
+        torch::NoGradGuard no_grad;
+        for (size_t i = 0; i < gradients.size(); ++i) {
+            if (!gradients[i].defined()) continue;
+            const auto gradient = gradients[i].detach().to(torch::kFloat32);
+            const size_t group = feature[i] ? 1 : 2;
+            group_used[0] = group_used[group] = true;
+            // 固定前処理Pを最初の使用時だけ作る。stateの作成や変更は行わない。
+            if (!used[i] && adam_requested && (request.adam[0] || request.adam[group])) {
+                const auto id = inputs[i].unsafeGetTensorImpl();
+                const auto found = optimizer.state().find(id);
+                if (found != optimizer.state().end() && beta2.contains(id)) {
+                    const auto& state = static_cast<const torch::optim::AdamWParamState&>(*found->second);
+                    const double correction = 1.0 - std::pow(beta2.at(id), state.step());
+                    if (state.step() > 0 && correction > 0 && state.exp_avg_sq().defined()) {
+                        preconditioners[i] = (state.exp_avg_sq().detach() / correction).sqrt().add(epsilon).reciprocal();
+                    }
+                }
+                if (!preconditioners[i].defined()) group_valid[0] = group_valid[group] = false;
+            }
+            used[i] = true;
+            if (!sums[i].defined())
+                sums[i] = gradient.clone();
+            else
+                sums[i].add_(gradient);
+            if (request.raw) small[0].add_(gradient.square().sum(torch::kFloat64));
+            if (preconditioners[i].defined()) {
+                const auto squared = (gradient * preconditioners[i]).square().sum(torch::kFloat64);
+                if (request.adam[0]) small[1].add_(squared);
+                if (request.adam[group]) small[group + 1].add_(squared);
+            }
+        }
+    }
+    // 大batch勾配は加算バッファから作り、取得済み勾配の全組を保持しない。
+    torch::NoGradGuard no_grad;
+    for (size_t i = 0; i < sums.size(); ++i) {
+        if (!used[i]) continue;
+        if (request.raw) big[0].add_(sums[i].square().sum(torch::kFloat64));
+        const size_t group = feature[i] ? 1 : 2;
+        if (preconditioners[i].defined()) {
+            const auto squared = (sums[i] * preconditioners[i]).square().sum(torch::kFloat64);
+            if (request.adam[0]) big[1].add_(squared);
+            if (request.adam[group]) big[group + 1].add_(squared);
+        }
+    }
+    const auto norms = torch::stack({ small / num_micro_batches, big / (static_cast<double>(num_micro_batches) * num_micro_batches) })
+                           .to(torch::kCPU)
+                           .contiguous();
+    const auto values = norms.accessor<double, 2>();
+    const auto estimate = [&](int index) -> GradientNoiseEstimate {
+        const double s = values[0][index], b = values[1][index];
+        if (!std::isfinite(s) || !std::isfinite(b)) return {};
+        return { .signal = (num_micro_batches * b - s) / (num_micro_batches - 1),
+            .variance = (s - b) * batch_size / (num_micro_batches - 1) };
+    };
+    GradientNoiseMeasurement result;
+    if (request.raw && group_used[0]) result.raw = estimate(0);
+    for (size_t group = 0; group < 3; ++group) {
+        if (request.adam[group] && group_used[group] && group_valid[group]) result.adam[group] = estimate(static_cast<int>(group + 1));
+    }
+    return result;
+}
 std::vector<torch::Tensor> anet::CollectDefinedGrads(const std::vector<torch::Tensor>& parameters)
 {
     // set_to_none後は未定義gradが混ざるため、foreach対象だけを毎回集める。

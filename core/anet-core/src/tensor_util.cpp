@@ -3,16 +3,32 @@
 #include "anet/tensor_util.hpp"
 #include <functional>
 #include <iostream>
+#include <charconv>
+#include <limits>
 #include "anet/common.hpp"
 
 namespace anet {
 
-    torch::Device MakeDevice(int type, int index)
+    torch::Device ParseDevice(const std::string& spec)
     {
-        if (type == 0) return torch::Device(torch::kCPU);
-        if (type == 1) return torch::Device(torch::kCUDA, index);
-        ANET_ASSERT_MSG(false, "Invalid device type");
-        return torch::Device(torch::kCPU);
+        const auto value = ToLower(TrimCopy(spec));
+        if (value == "cpu") return torch::Device(torch::kCPU);
+        if (value == "cuda") return torch::Device(torch::kCUDA);
+        if (value == "auto") {
+            return torch::cuda::is_available() ? torch::Device(torch::kCUDA) : torch::Device(torch::kCPU);
+        }
+        if (value.starts_with("cuda:")) {
+            const auto digits = std::string_view(value).substr(5);
+            int index = 0;
+            const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), index);
+            if (!digits.empty() && error == std::errc{} && end == digits.data() + digits.size()
+                && index >= 0 && index <= std::numeric_limits<c10::DeviceIndex>::max()) {
+                return torch::Device(torch::kCUDA, static_cast<c10::DeviceIndex>(index));
+            }
+        }
+        ANET_SYSTEM_ERROR("Invalid device specification '" << spec
+            << "'. Expected auto, cpu, cuda, or cuda:<non-negative integer>.");
+        return torch::Device(torch::kCPU); // ANET_SYSTEM_ERROR は必ず例外を送出する。
     }
 
     std::string ToDefString(const torch::Tensor& t)

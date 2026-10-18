@@ -4,5 +4,4 @@
 
 #include <wx/wx.h>
 
-void ShowErrorDialog(const wxString& message, const wxString& detail = wxEmptyString);
-
+void ReportError(const wxString& message, const wxString& detail, bool show_dialog);

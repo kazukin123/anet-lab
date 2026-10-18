@@ -53,6 +53,8 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         float temp_start = 1.0f;
         float temp_end = 0.05f;
         int64_t temp_decay_steps = 100000;
+        bool add_exploration_noise = true;
+        bool clone_model = false;
     };
 
     struct ReplayBufferConfig {
@@ -80,7 +82,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
     struct MuZeroAgentConfig : public anet::Config {
         ModelConfig model;
         MCTSConfig mcts;
-        ActorConfig actor;
+        std::map<std::string, ActorConfig> actor;
         ReplayBufferConfig buffer;
         LearnerConfig learner;
         anet::nn::NetworkGraphVizConfig nn_viz;
@@ -116,9 +118,24 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             ANET_READ_CONFIG(config_data, mcts.root_exploration_fraction);
 
             // --- Actor ---
-            ANET_READ_CONFIG(config_data, actor.temp_start);
-            ANET_READ_CONFIG(config_data, actor.temp_end);
-            ANET_READ_CONFIG(config_data, actor.temp_decay_steps);
+            for (const auto& [key, sub] : config_data.MakeSubConfigData("MuZeroAgent.actor")) {
+                auto& entry = actor[key];
+                const auto prefix = "actor.[" + key + "]";
+                ReadConfig(config_data, prefix + ".temp_start", entry.temp_start);
+                ReadConfig(config_data, prefix + ".temp_end", entry.temp_end);
+                ReadConfig(config_data, prefix + ".temp_decay_steps", entry.temp_decay_steps);
+                ReadConfig(config_data, prefix + ".add_exploration_noise", entry.add_exploration_noise);
+                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                if (entry.clone_model) {
+                    ANET_SYSTEM_ERROR("MuZeroAgent." << prefix << ".clone_model=true is unsupported; expected false.");
+                }
+                if (!std::isfinite(entry.temp_start) || entry.temp_start < 0
+                    || !std::isfinite(entry.temp_end) || entry.temp_end < 0 || entry.temp_decay_steps < 0) {
+                    ANET_SYSTEM_ERROR("Invalid MuZeroAgent." << prefix << " temperature schedule: start="
+                        << entry.temp_start << " end=" << entry.temp_end << " decay=" << entry.temp_decay_steps
+                        << "; expected finite nonnegative values.");
+                }
+            }
 
             // --- Replay ---
             ANET_READ_CONFIG(config_data, buffer.capacity);
@@ -153,12 +170,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             const anet::rl::BatchEnvSpec& batch_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device device,
             std::optional<anet::seed_t> seed = std::nullopt);
 
-        std::shared_ptr<anet::rl::Actor> CreateActor(
-            const anet::rl::BatchEnvSpec& batch_env_spec,
-            const anet::rl::EnvSpec& env_spec,
-            anet::rl::RunMode run_mode,
-            std::optional<bool> clone_model_override = std::nullopt,
-            std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
 
     public: // anet::Module
@@ -179,7 +191,6 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         //seed_t actor_seed_;
         std::shared_ptr<MuZeroNetworkModel> model_;
         std::shared_ptr<MuZeroReplayBuffer> replay_buffer_;
-        std::shared_ptr<float> latest_tau_;
     };
 
 

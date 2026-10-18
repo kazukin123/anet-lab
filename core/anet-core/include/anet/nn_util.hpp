@@ -1,10 +1,12 @@
 ﻿#pragma once
 
-#include <torch/torch.h>
-
+#include <array>
 #include <optional>
+#include <limits>
 #include <unordered_map>
 #include <vector>
+#include <torch/torch.h>
+#include "anet/util.hpp"
 
 namespace anet {
 
@@ -48,6 +50,46 @@ namespace anet {
 
     void ForeachClipGradNorm_(const std::vector<torch::Tensor>& grads, const torch::Tensor& total_norm, float tau);
 
+
+    // ======================================================
+    // Gradient Noise
+    // ======================================================
+
+    /// 1回の測定の信号・分散推定。未成立はNaNで表す。
+    struct GradientNoiseEstimate {
+        double signal = std::numeric_limits<double>::quiet_NaN();
+        double variance = std::numeric_limits<double>::quiet_NaN();
+    };
+
+    /// 有限な信号・分散の対だけを取り込み、未成立回は過去値で埋めない。
+    class GradientNoiseEstimator {
+    public:
+        GradientNoiseEstimator() : GradientNoiseEstimator(0.05) {}
+        explicit GradientNoiseEstimator(double alpha) : signal_(alpha), variance_(alpha) {}
+        GradientNoiseEstimate Update(const GradientNoiseEstimate& estimate);
+    private:
+        EmaFilter<double> signal_;
+        EmaFilter<double> variance_;
+    };
+
+    /// 単一損失の勾配計測に用いる学習parameterと群。
+    struct GradientNoiseParameter {
+        torch::Tensor parameter;
+        bool feature = false;
+    };
+    struct GradientNoiseRequest {
+        bool raw = false;
+        std::array<bool, 3> adam{}; ///< all、feature、readout。
+    };
+    struct GradientNoiseMeasurement {
+        GradientNoiseEstimate raw;
+        std::array<GradientNoiseEstimate, 3> adam;
+    };
+
+    /// 勾配取得は全要求で共有し、AdamWの更新前stateを読み取るだけにする。
+    GradientNoiseMeasurement MeasureGradientNoise(const torch::Tensor& weighted_element_loss,
+        const std::vector<GradientNoiseParameter>& parameters, const torch::optim::AdamW& optimizer,
+        int num_micro_batches, double epsilon, const GradientNoiseRequest& request);
 
     // ======================================================
     // Autocast

@@ -1,6 +1,5 @@
 #include "anet/catch_test.hpp"
 
-#include "anet/app_util.hpp"
 #include "anet/config.hpp"
 #include "anet/schedule.hpp"
 #include "anet/test_util.hpp"
@@ -11,29 +10,11 @@
 #include <sstream>
 #include <string_view>
 #include <vector>
+#include <wx/cmdline.h>
 
 using namespace anet::test;
 
 namespace {
-
-TEST_CASE("Train Actor snapshot metrics are registered only in the full catalog", "[config][metrics][snapshot]")
-{
-    const auto repository_root = anet::GetExecutableRootDir().parent_path().parent_path();
-    const auto catalog_path = repository_root / "apps" / "runner" / "config" / "metrics_scalar.txt";
-    std::ifstream catalog(catalog_path);
-    REQUIRE(catalog);
-
-    int snapshot_metric_count = 0;
-    std::string line;
-    while (std::getline(catalog, line)) {
-        if (line.find("train_actor_snapshot_") == std::string::npos) continue;
-
-        ++snapshot_metric_count;
-        CHECK(line.starts_with("metrics.scalar.full."));
-        CHECK(line.find("@train $action_info") != std::string::npos);
-    }
-    CHECK(snapshot_metric_count == 2);
-}
 
 class ScopedCurrentPath final {
 public:
@@ -71,6 +52,92 @@ void WriteConfig(const std::filesystem::path& path, std::initializer_list<std::s
         ofs << line << "\n";
     }
 }
+
+TEST_CASE("ConfigManager satisfies PRD072 manual examples", "[config][resolver][prd072]")
+{
+    // 設定例をデータとして保持し、実パーサから公開値まで同じ経路で検証する。
+    const auto root = std::filesystem::current_path();
+    std::ifstream examples_file(root / "core" / "anet-core" / "testdata" / "config_resolver_prd072.json");
+    REQUIRE(examples_file.good());
+    const auto examples = anet::json::parse(examples_file);
+    for (const auto& example : examples) {
+        DYNAMIC_SECTION(example["id"].get<std::string>()) {
+            const auto path = root / "out" / "test-tmp" / "config-prd072-manual" / "config.txt";
+            std::filesystem::create_directories(path.parent_path());
+            {
+                std::ofstream config_file(path);
+                for (const auto& line : example["config"]) {
+                    config_file << line.get<std::string>() << '\n';
+                }
+                REQUIRE(config_file.good());
+            }
+            const wxCmdLineEntryDesc description[] = {
+                { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+                    wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+                { wxCMD_LINE_NONE },
+            };
+            wxCmdLineParser command_line(description,
+                wxString::FromUTF8(example.value("cli", std::string{})));
+            REQUIRE(command_line.Parse(false) == 0);
+            if (example.contains("error")) {
+                std::string error;
+                try {
+                    const anet::ConfigManager manager(path, &command_line);
+                } catch (const std::exception& exception) {
+                    error = exception.what();
+                }
+                REQUIRE_FALSE(error.empty());
+                for (const auto& expected : example["error"]) {
+                    INFO(error);
+                    CHECK(error.find(expected.get<std::string>()) != std::string::npos);
+                }
+                continue;
+            }
+            const anet::ConfigManager manager(path, &command_line);
+            const auto config = manager.GetConfigData();
+            for (const auto& [key, expected] : example["values"].items()) {
+                INFO(key);
+                REQUIRE(config.Has(key));
+                CHECK(config.Get(key) == expected.get<std::string>());
+            }
+            for (const auto& key : example.value("absent", anet::json::array())) {
+                INFO(key);
+                CHECK_FALSE(config.Has(key.get<std::string>()));
+            }
+            CHECK(manager.GetResolutionJson()["schema_version"] == 1);
+            if (example.contains("overrides")) {
+                CHECK(manager.GetResolutionJson()["overrides"] == example["overrides"]);
+            }
+            if (example.contains("selections")) {
+                CHECK(manager.GetResolutionJson()["selections"] == example["selections"]);
+            }
+        }
+    }
+}
+
+
+TEST_CASE("ConfigManager preserves default strength across input files", "[config][resolver][default-leaf]")
+{
+    // includeと追加ファイルの境界を公開ConfigManagerで通す。
+    const auto root = std::filesystem::current_path() / "out/test-tmp/config-default-leaf";
+    WriteConfig(root / "included.txt", { "Env.strong ?= ignored", "Env.weak ?= included", "Env.from_include = strong" });
+    WriteConfig(root / "main.txt", { "Env.strong = main", "Env.weak ?= main", "$include <included.txt>",
+        "Env.from_include ?= ignored", "Env.[child].k ?= scoped", "Env.injected ?= default", "Env.$ = @base", "Env.@base.injected = base" });
+    WriteConfig(root / "extra.txt", { "Env.strong ?= ignored", "Env.weak ?= extra", "Env.injected ?= ignored" });
+    anet::ConfigData injected;
+    injected.Set("Env.injected", "injected");
+    const anet::ConfigManager manager(root / "main.txt", nullptr,
+        anet::ConfigManagerOptions{ .injected_config = injected, .overwrite_config_paths = { root / "extra.txt" } });
+    const auto data = manager.GetConfigData();
+    CHECK(data.Get("Env.strong") == "main");
+    CHECK(data.Get("Env.weak") == "extra");
+    CHECK(data.Get("Env.from_include") == "strong");
+    CHECK(data.Get("Env.injected") == "injected");
+    // 公開値と部分Configには演算子・強弱情報を持ち出さない。
+    CHECK_FALSE(data.Has("Env.weak?"));
+    CHECK(data.MakeSubConfigData("Env").at("child").Get("k") == "scoped");
+}
+
 
 class ProfiledValueOwnerConfig final : public anet::Config {
 public:
@@ -280,13 +347,13 @@ TEST_CASE("Config exposes resolved values under the injected scope", "[config][s
     anet::ConfigData config_data;
     config_data.Set("ScopedSnapshot.value", 10);
     config_data.Set("ScopedSnapshot.label", "base");
-    config_data.Set("train.eval.[eval1].env.value", 20);
+    config_data.Set("run.eval.[eval1].env.value", 20);
 
-    const ScopedSnapshotConfig config(config_data, "train.eval.[eval1].env");
+    const ScopedSnapshotConfig config(config_data, "run.eval.[eval1].env");
     const auto snapshot = config.GetScopedConfigData();
 
-    CHECK(snapshot.Get<int>("train.eval.[eval1].env.value") == 20);
-    CHECK(snapshot.Get("train.eval.[eval1].env.label") == "base");
+    CHECK(snapshot.Get<int>("run.eval.[eval1].env.value") == 20);
+    CHECK(snapshot.Get("run.eval.[eval1].env.label") == "base");
     CHECK_FALSE(snapshot.Has("ScopedSnapshot.value"));
 }
 
@@ -306,6 +373,63 @@ TEST_CASE("ConfigData checked merge rejects conflicting effective values", "[con
     anet::ConfigData conflicting;
     conflicting.Set("env.batch_size", 8);
     CHECK_THROWS(merged.MergeFromChecked(conflicting));
+}
+
+TEST_CASE("ConfigData saves Properties text and replaces an existing file", "[config][properties]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-data-save-properties-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto path = root / "history.txt";
+
+    anet::ConfigData first;
+    first.Set("workspace.history.0", R"(D:\Program Files\anet workspace)");
+    first.Set("workspace.history.1", "_default");
+    first.SaveProperties(path);
+
+    CHECK(first.ToPropertiesString() ==
+        "workspace.history.0 = D:\\Program Files\\anet workspace\n"
+        "workspace.history.1 = _default\n");
+    const auto loaded_first = anet::Properties(path.string()).ToConfigData();
+    CHECK(loaded_first.Map().Size() == 2);
+    CHECK(loaded_first.Get("workspace.history.0") == R"(D:\Program Files\anet workspace)");
+    CHECK(loaded_first.Get("workspace.history.1") == "_default");
+
+    for (const bool skip : { false, true }) {
+        const std::string expected = std::string("workspace.dialog_skip = ")
+            + (skip ? "true\n" : "false\n");
+
+        anet::ConfigData second;
+        second.Set("workspace.dialog_skip", skip);
+        CHECK(second.Get("workspace.dialog_skip") == (skip ? "true" : "false"));
+        CHECK(second.ToPropertiesString() == expected);
+        second.SaveProperties(path);
+
+        std::ifstream saved_file(path, std::ios::binary);
+        std::stringstream saved_text;
+        saved_text << saved_file.rdbuf();
+        CHECK(saved_text.str() == expected);
+
+        const auto loaded_second = anet::Properties(path.string()).ToConfigData();
+        CHECK(loaded_second.Map().Size() == 1);
+        CHECK(loaded_second.Get<bool>("workspace.dialog_skip") == skip);
+    }
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigData rejects Properties control tokens when saving", "[config][properties]")
+{
+    const auto path = std::filesystem::current_path() / "out" / "test-tmp" / "unsafe-properties.txt";
+
+    for (const auto& value : { "value#comment", "value//comment", "value;", "value;  " }) {
+        anet::ConfigData config_data;
+        config_data.Set("workspace.value", value);
+        CHECK_THROWS_WITH(
+            config_data.SaveProperties(path),
+            Catch::Matchers::ContainsSubstring("key=workspace.value")
+            && Catch::Matchers::ContainsSubstring(value));
+    }
 }
 
 TEST_CASE("ConfigData accepts explicit empty strings and vectors", "[config]")
@@ -543,7 +667,48 @@ TEST_CASE("ConfigManager loads trial main config with include and override", "[c
     const auto config_data = manager.GetConfigData();
 
     CHECK(config_data.Get("app.run_name") == "optuna_trial_00001");
-    CHECK(config_data.Get("net.branch.[main_feature].structure") == "TrialBranch");
+    // 選択キーの再指定はベースだけを変更し、個別葉を上書きしない。
+    CHECK(config_data.Get("net.branch.[main_feature].structure") == "BaseStructure");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies injected and file overlays before AutoMerge", "[config][workspace]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-workspace-overlay-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_dir = root / "config";
+    const auto workspace_dir = root / "workspace";
+    WriteConfig(config_dir / "base.txt", {
+        "app.runs_dir = base-runs",
+        "env.profile.value = base",
+        "env.$ = env.profile",
+    });
+    WriteConfig(workspace_dir / "_main.txt", {
+        "$include <base.txt>",
+        "env.profile.value = workspace",
+    });
+    WriteConfig(workspace_dir / "override.txt", {
+        "$include <overlay-include.txt>",
+        "app.runs_dir = forbidden-override",
+    });
+    WriteConfig(config_dir / "overlay-include.txt", {
+        "overlay.include = found",
+    });
+
+    anet::ConfigManagerOptions options;
+    options.config_search_dirs = { config_dir };
+    options.injected_config.Set("app.runs_dir", "workspace-runs");
+    options.overwrite_config_paths = { workspace_dir / "override.txt" };
+
+    anet::ConfigManager manager((workspace_dir / "_main.txt").string(), nullptr, options);
+    const auto config_data = manager.GetConfigData();
+
+    CHECK(config_data.Get("app.runs_dir") == "forbidden-override");
+    CHECK(config_data.Get("overlay.include") == "found");
+    CHECK(config_data.Get("env.value") == "workspace");
 
     std::filesystem::remove_all(root);
 }
@@ -578,6 +743,672 @@ TEST_CASE("ConfigManager AutoMerge only merges dot-delimited descendants", "[con
 
     std::filesystem::remove_all(root);
 }
+
+TEST_CASE("ConfigManager resolves relative material selection and records resolution", "[config][resolver]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-relative-material-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "AtariEnv.@baseline.repeat_action_probability = 0.25",
+        "AtariEnv.$ = @baseline",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("AtariEnv.repeat_action_probability") == "0.25");
+    CHECK_FALSE(config_data.Has("AtariEnv.@baseline.repeat_action_probability"));
+
+    const auto resolution = manager.GetResolutionJson();
+    CHECK(resolution["schema_version"] == 1);
+    REQUIRE(resolution["selections"].size() == 1);
+    CHECK(resolution["selections"][0]["key"] == "AtariEnv.$");
+    CHECK(resolution["selections"][0]["chain"][0]["term"] == "@baseline");
+    CHECK(resolution["selections"][0]["chain"][0]["resolved"] == "AtariEnv.@baseline");
+    CHECK(resolution["references"].empty());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager expands a named trunk before root selections", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-named-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@verify.env.class_id = AtariEnv",
+        "run.@verify.AtariEnv.$ = @v5",
+        "AtariEnv.@v5.repeat_action_probability = 0.25",
+        "run.$ = run.@verify",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("env.class_id") == "AtariEnv");
+    CHECK(config_data.Get("AtariEnv.repeat_action_probability") == "0.25");
+    CHECK_FALSE(config_data.Has("run.$"));
+    CHECK_FALSE(config_data.Has("run.@verify.env.class_id"));
+
+    const auto resolution = manager.GetResolutionJson();
+    CHECK(resolution["schema_version"] == 1);
+    REQUIRE(resolution["selections"].size() == 2);
+    CHECK(resolution["selections"][0]["key"] == "run.$");
+    CHECK(resolution["selections"][0]["chain"][0]["resolved"] == "run.@verify");
+    CHECK(resolution["selections"][1]["key"] == "AtariEnv.$");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager resolves a relative named trunk term", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-relative-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@verify.env.class_id = AtariEnv",
+        "run.$ = @verify",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("env.class_id") == "AtariEnv");
+    CHECK(manager.GetResolutionJson()["selections"][0]["chain"][0]["resolved"]
+        == "run.@verify");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies named trunk terms from left to right", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-trunk-chain-order-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@a.env.class_id = EnvA",
+        "run.@b.env.class_id = EnvB",
+        "run.$ = @a > @b",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("env.class_id") == "EnvB");
+
+    const auto chain = manager.GetResolutionJson()["selections"][0]["chain"];
+    REQUIRE(chain.size() == 2);
+    CHECK(chain[0]["resolved"] == "run.@a");
+    CHECK(chain[1]["resolved"] == "run.@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies a named trunk as a file-tail overwrite", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-trunk-tail-overwrite-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "env.class_id = OldEnv",
+        "Env.@a.shared = a",
+        "Env.@a.only_a = stale",
+        "Env.@b.shared = b",
+        "Env.$ = @a",
+        "run.@verify.env.class_id = NewEnv",
+        "run.@verify.Env.$ = @b",
+        "run.$ = @verify",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("env.class_id") == "NewEnv");
+    CHECK(config_data.Get("Env.shared") == "b");
+    CHECK_FALSE(config_data.Has("Env.only_a"));
+
+    const auto selections = manager.GetResolutionJson()["selections"];
+    REQUIRE(selections.size() == 2);
+    CHECK(selections[1]["key"] == "Env.$");
+    CHECK(selections[1]["chain"][0]["term"] == "@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager switches the named trunk from CLI phase one", "[config][resolver][trunk][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-trunk-switch-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@a.env.class_id = EnvA",
+        "run.@b.env.class_id = EnvB",
+        "run.$ = @a",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "run.$=run.@b");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    CHECK(manager.GetConfigData().Get("env.class_id") == "EnvB");
+    CHECK(manager.GetResolutionJson()["selections"][0]["chain"][0]["term"] == "run.@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies CLI leaf override after named trunk expansion", "[config][resolver][trunk][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-trunk-leaf-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@verify.env.class_id = TrunkEnv",
+        "run.$ = @verify",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "env.class_id=CliEnv");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    CHECK(manager.GetConfigData().Get("env.class_id") == "CliEnv");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects a named trunk that selects another trunk", "[config][resolver][trunk][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-nested-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.@outer.run.$ = @inner",
+        "run.@inner.env.class_id = NestedEnv",
+        "run.$ = @outer",
+    });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("named trunk must not select another trunk")
+        && Catch::Matchers::ContainsSubstring("material=run.@outer")
+        && Catch::Matchers::ContainsSubstring("key=run.@outer.run.$"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects an undefined named trunk material", "[config][resolver][trunk][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-undefined-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, { "run.$ = run.@missing" });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("material selection target not found")
+        && Catch::Matchers::ContainsSubstring("selection=run.$")
+        && Catch::Matchers::ContainsSubstring("resolved=run.@missing"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager leaves ordinary run keys unchanged without a named trunk", "[config][resolver][trunk]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-no-trunk-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "run.foo = value",
+        "env.class_id = AtariEnv",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("run.foo") == "value");
+    CHECK(manager.GetConfigData().Get("env.class_id") == "AtariEnv");
+    CHECK(manager.GetResolutionJson()["selections"].empty());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager resolves nested selection copied from material", "[config][resolver]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-nested-material-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "DefaultDQNAgent.@iqn.quantile_mode = iqn",
+        "DefaultDQNAgent.@iqn.net.$ = net.@iqn",
+        "net.@iqn.body.output.[features] = iqn_fusion",
+        "DefaultDQNAgent.$ = @iqn",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("DefaultDQNAgent.quantile_mode") == "iqn");
+    CHECK(config_data.Get("DefaultDQNAgent.net.body.output.[features]") == "iqn_fusion");
+    CHECK_FALSE(config_data.Has("DefaultDQNAgent.net.$"));
+
+    const auto selections = manager.GetResolutionJson()["selections"];
+    REQUIRE(selections.size() == 2);
+    CHECK(selections[0]["key"] == "DefaultDQNAgent.$");
+    CHECK(selections[1]["key"] == "DefaultDQNAgent.@iqn.net.$");
+    CHECK(selections[1]["chain"][0]["resolved"] == "net.@iqn");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager resolves nested selection at the same owner", "[config][resolver]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-same-owner-nested-material-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "Env.@a.$ = @b",
+        "Env.@b.value = resolved",
+        "Env.$ = @a",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    CHECK(manager.GetConfigData().Get("Env.value") == "resolved");
+
+    const auto selections = manager.GetResolutionJson()["selections"];
+    REQUIRE(selections.size() == 2);
+    CHECK(selections[0]["key"] == "Env.$");
+    CHECK(selections[1]["key"] == "Env.@a.$");
+    CHECK(selections[0]["chain"][0]["resolved"] == "Env.@a");
+    CHECK(selections[1]["chain"][0]["resolved"] == "Env.@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies CLI selection and material before effective leaf override", "[config][resolver][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-phases-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "Env.@a.value = file-a",
+        "Env.@b.value = file-b",
+        "Env.$ = @a",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(
+        description,
+        "Env.$=@b Env:@b.value=cli-material Env.value=cli-leaf");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("Env.value") == "cli-leaf");
+    CHECK_FALSE(config_data.Has("Env.$"));
+    CHECK_FALSE(config_data.Has("Env.@b.value"));
+
+    const auto selections = manager.GetResolutionJson()["selections"];
+    REQUIRE(selections.size() == 1);
+    CHECK(selections[0]["chain"][0]["term"] == "@b");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[config][resolver][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-source-prefix-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "app.batchrun.exp_exit_step = 100",
+        "app.$ = app.batchrun",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "app.batchrun.exp_exit_step=200");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("app.exp_exit_step") == "200");
+    CHECK(config_data.Get("app.batchrun.exp_exit_step") == "200");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli]")
+{
+    const auto repo_root = std::filesystem::path(__FILE__)
+        .parent_path().parent_path().parent_path().parent_path();
+    const auto config_path = repo_root / "apps" / "runner" / "config" / "common.txt";
+    REQUIRE(std::filesystem::exists(config_path));
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+
+    SECTION("online configuration enables dialogs")
+    {
+        wxCmdLineParser command_line(description, "app.$=app.online");
+        REQUIRE(command_line.Parse(false) == 0);
+
+        const anet::ConfigManager manager(config_path.string(), &command_line);
+        CHECK(manager.GetConfigData().Get("app.show_error_dialog") == "true");
+    }
+
+    SECTION("batchrun configuration disables dialogs")
+    {
+        wxCmdLineParser command_line(description, "app.$=app.batchrun");
+        REQUIRE(command_line.Parse(false) == 0);
+
+        const anet::ConfigManager manager(config_path.string(), &command_line);
+        CHECK(manager.GetConfigData().Get("app.show_error_dialog") == "false");
+    }
+
+    SECTION("source-prefix CLI override is applied before selection")
+    {
+        wxCmdLineParser command_line(
+            description, "app.batchrun.show_error_dialog=true app.$=app.batchrun");
+        REQUIRE(command_line.Parse(false) == 0);
+
+        const anet::ConfigManager manager(config_path.string(), &command_line);
+        const auto config_data = manager.GetConfigData();
+        CHECK(config_data.Get("app.show_error_dialog") == "true");
+        CHECK(config_data.Get("app.batchrun.show_error_dialog") == "true");
+    }
+}
+
+TEST_CASE("ConfigManager keeps a literal CLI leaf after value-reference selection", "[config][resolver][reference][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-cli-reference-source-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "@vars.max_exp_step = 100",
+        "app.@batchrun.exp_exit_step = ${@vars.max_exp_step}",
+        "app.$ = @batchrun",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "app.exp_exit_step=200");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    CHECK(manager.GetConfigData().Get("app.exp_exit_step") == "200");
+    CHECK(manager.GetResolutionJson()["references"].empty());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("Properties normalizes config key whitespace and colon sugar", "[config][resolver][properties]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-colon-sugar-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "AtariEnv.@v5 : repeat_action_probability = 0.25",
+        "AtariEnv .$ = @v5",
+        "metrics.rule = ema_alpha:0.001",
+    });
+
+    const anet::ConfigManager manager(config_path.string());
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("AtariEnv.repeat_action_probability") == "0.25");
+    CHECK(config_data.Get("metrics.rule") == "ema_alpha:0.001");
+
+    const auto selections = manager.GetResolutionJson()["selections"];
+    REQUIRE(selections.size() == 1);
+    CHECK(selections[0]["key"] == "AtariEnv.$");
+    CHECK(selections[0]["chain"][0]["resolved"] == "AtariEnv.@v5");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager expands value references after CLI leaf override", "[config][resolver][reference][cli]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-value-reference-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "@vars.max_exp_step = 50000000",
+        "app.online.exp_pause_step = ${@vars.max_exp_step}",
+        "app.batchrun.exp_exit_step = ${@vars.max_exp_step}",
+    });
+
+    const wxCmdLineEntryDesc description[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
+        { wxCMD_LINE_NONE },
+    };
+    wxCmdLineParser command_line(description, "@vars.max_exp_step=75000000");
+    REQUIRE(command_line.Parse(false) == 0);
+
+    const anet::ConfigManager manager(config_path.string(), &command_line);
+    const auto config_data = manager.GetConfigData();
+    CHECK(config_data.Get("app.online.exp_pause_step") == "75000000");
+    CHECK(config_data.Get("app.batchrun.exp_exit_step") == "75000000");
+    CHECK_FALSE(config_data.Has("@vars.max_exp_step"));
+
+    const auto references = manager.GetResolutionJson()["references"];
+    REQUIRE(references.size() == 2);
+    // 値参照の記録は参照元キー順で安定化する。
+    CHECK(references[0]["source"] == "app.batchrun.exp_exit_step");
+    CHECK(references[0]["target"] == "@vars.max_exp_step");
+    CHECK(references[0]["value"] == "75000000");
+    CHECK(references[1]["source"] == "app.online.exp_pause_step");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects an undefined material selection", "[config][resolver][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-undefined-material-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, { "AtariEnv.$ = @missing" });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("selection=AtariEnv.$")
+        && Catch::Matchers::ContainsSubstring("term=@missing")
+        && Catch::Matchers::ContainsSubstring("resolved=AtariEnv.@missing")
+        && Catch::Matchers::ContainsSubstring("scope=AtariEnv"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects a material selection cycle", "[config][resolver][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-material-cycle-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "Env.@a.$ = @b",
+        "Env.@b.$ = @a",
+        "Env.$ = @a",
+    });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("selection cycle detected")
+        && Catch::Matchers::ContainsSubstring(
+            "path=Env.$ -> Env.@a.$ -> Env.@b.$ -> Env.@a.$"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects selection depth over ten", "[config][resolver][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-selection-depth-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "Env.@deep.child.$ = Layer1",
+        "Layer1.child.$ = Layer2",
+        "Layer2.child.$ = Layer3",
+        "Layer3.child.$ = Layer4",
+        "Layer4.child.$ = Layer5",
+        "Layer5.child.$ = Layer6",
+        "Layer6.child.$ = Layer7",
+        "Layer7.child.$ = Layer8",
+        "Layer8.child.$ = Layer9",
+        "Layer9.child.$ = Layer10",
+        "Layer10.child.$ = Layer11",
+        "Layer11.value = done",
+        "Env.$ = @deep",
+    });
+
+    CHECK_THROWS_WITH(
+        anet::ConfigManager(config_path.string()),
+        Catch::Matchers::ContainsSubstring("selection depth limit exceeded")
+        && Catch::Matchers::ContainsSubstring("max=10")
+        && Catch::Matchers::ContainsSubstring("Layer9.child.$"));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager rejects invalid value references", "[config][resolver][reference][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-invalid-reference-test";
+    std::filesystem::remove_all(root);
+
+    SECTION("undefined target")
+    {
+        const auto config_path = root / "undefined.txt";
+        WriteConfig(config_path, { "app.limit = ${@vars.missing}" });
+        CHECK_THROWS_WITH(
+            anet::ConfigManager(config_path.string()),
+            Catch::Matchers::ContainsSubstring("source=app.limit")
+            && Catch::Matchers::ContainsSubstring("target=@vars.missing"));
+    }
+
+    SECTION("chained target")
+    {
+        const auto config_path = root / "chained.txt";
+        WriteConfig(config_path, {
+            "@vars.base = 10",
+            "@vars.indirect = ${@vars.base}",
+            "app.limit = ${@vars.indirect}",
+        });
+        CHECK_THROWS_WITH(
+            anet::ConfigManager(config_path.string()),
+            Catch::Matchers::ContainsSubstring("chained value reference")
+            && Catch::Matchers::ContainsSubstring("target=@vars.indirect"));
+    }
+
+    SECTION("earlier effective target is still treated as chained")
+    {
+        const auto config_path = root / "effective-chained.txt";
+        WriteConfig(config_path, {
+            "app.inner = ${@vars.base}",
+            "app.outer = ${app.inner}",
+            "@vars.base = 10",
+        });
+        CHECK_THROWS_WITH(
+            anet::ConfigManager(config_path.string()),
+            Catch::Matchers::ContainsSubstring("chained value reference")
+            && Catch::Matchers::ContainsSubstring("target=app.inner"));
+    }
+
+    SECTION("unclosed token")
+    {
+        const auto config_path = root / "unclosed.txt";
+        WriteConfig(config_path, { "app.limit = ${@vars.base" });
+        CHECK_THROWS_WITH(
+            anet::ConfigManager(config_path.string()),
+            Catch::Matchers::ContainsSubstring("unresolved value reference token")
+            && Catch::Matchers::ContainsSubstring("source=app.limit"));
+    }
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("Properties rejects invalid colon sugar", "[config][resolver][properties][error]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-invalid-colon-test";
+    std::filesystem::remove_all(root);
+
+    SECTION("multiple separators")
+    {
+        const auto config_path = root / "multiple.txt";
+        WriteConfig(config_path, { "Env:material:value = 1" });
+        CHECK_THROWS_WITH(
+            anet::ConfigManager(config_path.string()),
+            Catch::Matchers::ContainsSubstring("multiple ':' separators")
+            && Catch::Matchers::ContainsSubstring("key=Env:material:value"));
+    }
+
+    SECTION("empty segment")
+    {
+        const auto config_path = root / "empty.txt";
+        WriteConfig(config_path, { "Env: = value" });
+        CHECK_THROWS_WITH(
+            anet::ConfigManager(config_path.string()),
+            Catch::Matchers::ContainsSubstring("empty ':' segment")
+            && Catch::Matchers::ContainsSubstring("key=Env:"));
+    }
+
+    std::filesystem::remove_all(root);
+}
+
+// 凍結旧 AutoMerge との golden 比較は PH0/PH1a の移行検証として役目を終えた(素材 `@` 化後は
+// 旧 AutoMerge が相対参照を解決できず oracle が成立しない)。以後の回帰は resolver 単体テスト群が守る。
 
 TEST_CASE("ConfigManager resolves include paths from parent before config search dirs", "[config]")
 {

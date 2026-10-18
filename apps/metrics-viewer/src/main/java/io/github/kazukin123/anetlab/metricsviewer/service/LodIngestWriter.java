@@ -7,9 +7,6 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.stereotype.Component;
-
-@Component
 public class LodIngestWriter {
 
 	State restore(Connection connection, long tagId, long pointCount) throws SQLException {
@@ -18,7 +15,7 @@ public class LodIngestWriter {
 		int childLevel = 0;
 		state.ensureLevel(0);
 
-		// 親bucketになっていない末尾最大15子だけを各levelから復元する。
+		// 親bucketになっていない末尾最大3子だけを各levelから復元する。
 		while (childCount > 0L) {
 			final int remainder = (int) (childCount % LodBucket.LOD_FACTOR);
 			state.ensureLevel(childLevel);
@@ -174,6 +171,7 @@ public class LodIngestWriter {
 
 	static final class InsertSession implements AutoCloseable {
 		private final PreparedStatement statement;
+		private int pending;
 
 		private InsertSession(Connection connection) throws SQLException {
 			statement = connection.prepareStatement("""
@@ -201,7 +199,17 @@ public class LodIngestWriter {
 			statement.setDouble(12, value.maxValue());
 			statement.setDouble(13, value.mean());
 			statement.setDouble(14, value.lastValue());
-			statement.executeUpdate();
+			statement.addBatch();
+			if (++pending >= MetricsIngestor.SQL_BATCH_SIZE)
+				flush();
+		}
+
+		void flush() throws SQLException {
+			if (pending == 0)
+				return;
+			statement.executeBatch();
+			statement.clearBatch();
+			pending = 0;
 		}
 
 		@Override

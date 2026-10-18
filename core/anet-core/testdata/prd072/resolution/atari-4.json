@@ -1,0 +1,323 @@
+{
+  "schema_version": 1,
+  "selections": [
+    {
+      "key": "run.$",
+      "chain": [
+        {
+          "term": "run.@v5_iqn_impala_x2",
+          "resolved": "run.@v5_iqn_impala_x2"
+        },
+        {
+          "term": "run.@a5",
+          "resolved": "run.@a5"
+        },
+        {
+          "term": "run.@a5_apex",
+          "resolved": "run.@a5_apex"
+        },
+        {
+          "term": "run.@va_base",
+          "resolved": "run.@va_base"
+        },
+        {
+          "term": "run.@evalonly",
+          "resolved": "run.@evalonly"
+        },
+        {
+          "term": "run.@greedy_eval",
+          "resolved": "run.@greedy_eval"
+        },
+        {
+          "term": "run.@to_50",
+          "resolved": "run.@to_50"
+        }
+      ]
+    },
+    {
+      "key": "DefaultDQNAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "DefaultDQNAgent.@baseline"
+        },
+        {
+          "term": "@iqn",
+          "resolved": "DefaultDQNAgent.@iqn"
+        },
+        {
+          "term": "A1",
+          "resolved": "A1"
+        },
+        {
+          "term": "@bf16",
+          "resolved": "DefaultDQNAgent.@bf16"
+        },
+        {
+          "term": "A2",
+          "resolved": "A2"
+        },
+        {
+          "term": "A3",
+          "resolved": "A3"
+        }
+      ]
+    },
+    {
+      "key": "DefaultDQNAgent.@iqn.net.$",
+      "chain": [
+        {
+          "term": "net.@iqn",
+          "resolved": "net.@iqn"
+        }
+      ]
+    },
+    {
+      "key": "RainbowAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "RainbowAgent.@baseline"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC1].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_120]",
+          "resolved": "net.block.[Linear_120]"
+        },
+        {
+          "term": "net.block.FC1",
+          "resolved": "net.block.FC1"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC2].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC2",
+          "resolved": "net.block.FC2"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC3].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC3",
+          "resolved": "net.block.FC3"
+        }
+      ]
+    },
+    {
+      "key": "app.$",
+      "chain": [
+        {
+          "term": "app.batchrun",
+          "resolved": "app.batchrun"
+        },
+        {
+          "term": "P1",
+          "resolved": "P1"
+        }
+      ]
+    },
+    {
+      "key": "AtariEnv.$",
+      "chain": [
+        {
+          "term": "AtariEnv.@v5_noop30",
+          "resolved": "AtariEnv.@v5_noop30"
+        },
+        {
+          "term": "E1",
+          "resolved": "E1"
+        }
+      ]
+    },
+    {
+      "key": "DefaultDQNAgent.net.branch.[main_feature].$",
+      "chain": [
+        {
+          "term": "net.branch.@AtariImpalaX2LN",
+          "resolved": "net.branch.@AtariImpalaX2LN"
+        }
+      ]
+    },
+    {
+      "key": "backend.$",
+      "chain": [
+        {
+          "term": "backend.@non-deterministic",
+          "resolved": "backend.@non-deterministic"
+        }
+      ]
+    },
+    {
+      "key": "metrics.scalar.$",
+      "chain": [
+        {
+          "term": "metrics.scalar.@baseline",
+          "resolved": "metrics.scalar.@baseline"
+        },
+        {
+          "term": "M1",
+          "resolved": "M1"
+        },
+        {
+          "term": "M2",
+          "resolved": "M2"
+        }
+      ]
+    },
+    {
+      "key": "metrics.trace.$",
+      "chain": [
+        {
+          "term": "metrics.trace.@atari",
+          "resolved": "metrics.trace.@atari"
+        }
+      ]
+    }
+  ],
+  "overrides": [
+    {
+      "key": "app.batchrun.exp_exit_step",
+      "by": "run.@a5",
+      "from": "2,500,000",
+      "to": "${@vars.max_exp_step}"
+    },
+    {
+      "key": "app.run_name",
+      "by": "run.@a5_apex",
+      "from": "run_{t}_atari_${E1.game}",
+      "to": "run_{t}_a5_${E1.game}_apex"
+    },
+    {
+      "key": "DefaultDQNAgent.net.branch.[value_stream].structure",
+      "by": "run.@va_base",
+      "from": "AtariHeadFC512 > SiLU",
+      "to": "AtariHeadFC512 > ReLU"
+    },
+    {
+      "key": "DefaultDQNAgent.net.branch.[adv_stream].structure",
+      "by": "run.@va_base",
+      "from": "AtariHeadFC512 > SiLU",
+      "to": "AtariHeadFC512 > ReLU"
+    },
+    {
+      "key": "A3.learner.enabled",
+      "by": "run.@evalonly",
+      "from": "",
+      "to": "false"
+    },
+    {
+      "key": "app.save_agent_on_close",
+      "by": "run.@evalonly",
+      "from": "",
+      "to": "false"
+    },
+    {
+      "key": "train.num_envs",
+      "by": "run.@evalonly",
+      "from": "128",
+      "to": "1"
+    },
+    {
+      "key": "train.eval.[eval1].eval_batch_size",
+      "by": "run.@evalonly",
+      "from": "1",
+      "to": "16"
+    },
+    {
+      "key": "train.eval.[eval1].eval_episodes",
+      "by": "run.@evalonly",
+      "from": "1",
+      "to": "100"
+    },
+    {
+      "key": "train.eval.[eval2].eval_batch_size",
+      "by": "run.@evalonly",
+      "from": "1",
+      "to": "16"
+    },
+    {
+      "key": "train.eval.[eval2].eval_episodes",
+      "by": "run.@evalonly",
+      "from": "1",
+      "to": "100"
+    },
+    {
+      "key": "train.eval_schedule.[eval1].interval",
+      "by": "run.@evalonly",
+      "from": "1000",
+      "to": "10"
+    },
+    {
+      "key": "train.eval_schedule.[eval2].interval",
+      "by": "run.@evalonly",
+      "from": "1009",
+      "to": "11"
+    },
+    {
+      "key": "A3.eval_policy.eps_start",
+      "by": "run.@greedy_eval",
+      "from": "",
+      "to": "0"
+    },
+    {
+      "key": "A3.eval_policy.eps_end",
+      "by": "run.@greedy_eval",
+      "from": "",
+      "to": "0"
+    }
+  ],
+  "references": [
+    {
+      "source": "A1.learner.per_beta_step",
+      "target": "@vars.half_exp_step",
+      "value": "25"
+    },
+    {
+      "source": "DefaultDQNAgent.learner.per_beta_step",
+      "target": "@vars.half_exp_step",
+      "value": "25"
+    },
+    {
+      "source": "app.batchrun.exp_exit_step",
+      "target": "@vars.max_exp_step",
+      "value": "50"
+    },
+    {
+      "source": "app.exp_exit_step",
+      "target": "@vars.max_exp_step",
+      "value": "50"
+    },
+    {
+      "source": "app.online.exp_pause_step",
+      "target": "@vars.max_exp_step",
+      "value": "50"
+    },
+    {
+      "source": "app.run_name",
+      "target": "E1.game",
+      "value": "breakout"
+    },
+    {
+      "source": "net.block.[AtariIQNTauProj512].linear.out_features",
+      "target": "net.block.[AtariLinear512].linear.out_features",
+      "value": "512"
+    }
+  ]
+}

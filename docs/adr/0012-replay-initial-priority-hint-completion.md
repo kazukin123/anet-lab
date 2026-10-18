@@ -1,5 +1,7 @@
 # Replay初期優先度ヒントを単一packed carrierとし、completionを専用coordinatorへ分離する
 
+> **後発決定（2026-09-04）**: DQN payloadの列数`K = 2`は [ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) で`K = 3`（Munchausen項を追加）へ改訂した。単一carrier、completer、推定器の責務分離は不変である。
+
 PRD 035（`docs/memo/035_approx_actor_priority_per_10prd.md`）の初期実装では、汎用RLヘッダの`ActorQHint`がDQN固有の`Q(s,a)`、状態価値、CPU validity maskを直接表現し、`DefaultReplayBuffer`が完成待ちFIFO、推定器、フォールバック、source、counterを一括して保持した。この形では、アルゴリズム固有payloadの意味が共通transportへ漏れ、初期優先度completionのstateとFacade所有resourceの境界も不明確になる。
 
 ADR 0010で採用したDQN近似の数式、追加forwardを行わない方針、`WithAction`で`actor_q_sa`を再gatherする契約は維持する。本ADRは、そのDQN payloadを運ぶ共通carrierと、ReplayBuffer内で初期優先度を完成させる責務だけを後発判断として置き換える。

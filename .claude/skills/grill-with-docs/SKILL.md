@@ -7,9 +7,24 @@ description: Grilling session that challenges your plan against the existing dom
 
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
+Open the session with a **goal anchor**: state, in a few lines, the problem being solved, the goal of the plan, and any explicit non-goals, and get my agreement before the first question. Long grill sessions drift; this anchor is the reference that every later judgement — including the simplification passes below — is measured against. If mid-session answers start pulling away from the anchor, say so and ask whether the goal itself has changed.
+
+If the plan introduces new mechanisms or concepts, follow with a **scope screen** before descending into detail: enumerate them, and for each confirm what real pain (an incident, a measured cost, an existing workaround) pins it with respect to the agreed goal. Anything pinned only to an imagined future need is — right there — demoted to a deferred gate ("build when X first hurts") or dropped, and its detail questions are skipped entirely. Do not spend grill rounds specifying something that should not be built.
+
 Ask the questions one at a time, waiting for feedback on each question before continuing.
 
 If a question can be answered by exploring the codebase, explore the codebase instead.
+
+Before the closing question, run a **final simplification pass**, measured against the goal anchor agreed at the start. Grilling is a monotonic process — every question adds specification — so finish by interrogating the accumulated design in the opposite direction. Announce the switch, then ask these one at a time like any other grill question, each with your recommended verdict:
+
+1. **Aggregate excess** — re-enumerate every mechanism/concept the plan now introduces, including anything added during this session; for each, ask "if we cut this entirely, which *real* pain returns?" A part can survive every detail question and still not deserve to exist.
+2. **Requirement reality** — for requirements added or reshaped during the session: pinned to a pain that actually happened, or to an imagined future need? Demote imagined needs to a deferred gate instead of building now.
+3. **Decision residue** — re-check earlier conclusions whose premises were changed by later decisions in this same session (e.g. a mechanism justified by a concern that a later split already resolved).
+4. **Minimal-solution diff** — re-derive the smallest design that satisfies only the pinned requirements and the agreed goal, and present its diff against the current plan; every item in the diff must re-justify itself or be shrunk, deferred, or cut.
+5. **Phase independence** — does each phase deliver net value on its own, and can the effort stop after any phase without leaving things worse?
+6. **Success measurability** — how will we know the claimed benefit materialised? Prefer mechanically checkable indicators (lines to edit for a routine task, recurrence of a named incident, workaround code deleted).
+
+Record the verdicts (keep / shrink / defer-behind-gate / cut) in the session's output artifact — e.g. a "complexity audit" section in the PRD — so future readers can see why something was deliberately not built.
 
 At the end of the grilling session, do not automatically request plan approval or start implementation.
 
@@ -81,6 +96,8 @@ When a term is resolved, update `CONTEXT.md` right there. Don't batch these up �
 
 `CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
 
+Keep each definition to one or two sentences. If a term needs a paragraph to pin down, it is a spec and not a term — put the detail in the design doc and leave the glossary entry short enough to remember.
+
 ### Offer ADRs sparingly
 
 Only offer to create an ADR when all three are true:
@@ -90,5 +107,9 @@ Only offer to create an ADR when all three are true:
 3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
 
 If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
+
+**Keep it short.** An ADR is a title plus 1-3 sentences. `Status`, `Considered Options` and `Consequences` are optional — most ADRs do not need them. Do not mirror the PRD: the PRD says what to build, the ADR says why this shape was chosen and what was rejected. An ADR long enough to be skimmed instead of read has failed at its only job.
+
+**Never rewrite an existing ADR.** An ADR records the judgement made at that time; rewriting it destroys the reason the decision looked right then. When a later decision changes one, append a short note at the top of the old ADR — which ADR revised it, what was replaced, what still stands — and then write the new one. Partial revision is the normal case, so always say which parts survive.
 
 </supporting-info>

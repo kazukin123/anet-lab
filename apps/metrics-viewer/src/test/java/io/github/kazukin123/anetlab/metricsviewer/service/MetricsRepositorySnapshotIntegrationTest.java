@@ -56,9 +56,13 @@ class MetricsRepositorySnapshotIntegrationTest {
 		final BlockingPlanningRequest request =
 				new BlockingPlanningRequest(planningCompleted, allowProjection);
 		final ExecutorService executor = Executors.newFixedThreadPool(2);
+		final MetricsQueryCoordinator coordinator = new MetricsQueryCoordinator(1);
 		try {
 			final Future<List<MetricsSeriesResult>> query =
-					executor.submit(() -> repository.query(List.of(request)));
+					executor.submit(() -> coordinator.run(
+						new QueryChannel("snapshot-test"),
+						0L,
+						execution -> repository.query(List.of(request), execution)));
 			assertTrue(planningCompleted.await(2, TimeUnit.SECONDS));
 
 			Files.writeString(
@@ -105,6 +109,7 @@ class MetricsRepositorySnapshotIntegrationTest {
 			setRunId("run-live");
 			setTagKey("loss");
 			setFromStep(0L);
+			setStepBucketWidth(1L);
 			setToStep(10L);
 			setMaxPoints(3);
 		}

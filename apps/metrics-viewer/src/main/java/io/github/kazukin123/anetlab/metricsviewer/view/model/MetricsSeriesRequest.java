@@ -17,6 +17,7 @@ public class MetricsSeriesRequest {
 	private Long fromStep;
 	private Long toStep;
 	private Integer maxPoints;
+	private Long stepBucketWidth;
 	private final Map<String, Object> unknownFields = new LinkedHashMap<>();
 
 	@JsonAnySetter

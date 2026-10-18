@@ -233,7 +233,6 @@ std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t acti
     if (done_ || truncated_) {
         episode_just_ended_ = true;
 
-        last_episode_len_ = static_cast<float>(step_count_);
         last_reward_sum_ = ep_reward_sum_;
         last_is_success_ = (reward == config_.reward_goal) ? 1.0f : 0.0f;
         last_is_hole_ = (reward == config_.reward_hole) ? 1.0f : 0.0f;
@@ -254,10 +253,6 @@ std::optional<float> GridMazeEnv::GetScalar(const std::string& key, int64_t inde
 {
     const float nan = std::numeric_limits<float>::quiet_NaN();
 
-    if (key == "episode_len") {
-        if (!episode_just_ended_) return nan;
-        return last_episode_len_;
-    }
     if (key == "reward_sum") {
         if (!episode_just_ended_) return nan;
         return last_reward_sum_;

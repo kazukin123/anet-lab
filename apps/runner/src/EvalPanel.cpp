@@ -1,6 +1,8 @@
 ﻿// EvalPanel.cpp
 
 #include "EvalPanel.hpp"
+#include <algorithm>
+#include <cmath>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/config.hpp"
@@ -11,22 +13,30 @@
 
 namespace LOG = anet::log;
 
+namespace eval_panel_detail {
+
+void ValidateEvalFps(float fps, const char* key)
+{
+	if (!std::isfinite(fps) || fps < 0.0f || fps > 1000.0f) {
+		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << fps
+			<< " (expected: finite number in [0, 1000])");
+	}
+}
+
+}  // namespace eval_panel_detail
+
+using namespace eval_panel_detail;
+
 
 EvalPanelModelSyncMode EvalPanelModelSyncConfig::GetMode() const
 {
 	const auto normalized = anet::ToLower(anet::TrimCopy(mode));
-	if (normalized == "shared") return EvalPanelModelSyncMode::Shared;
 	if (normalized == "frame") return EvalPanelModelSyncMode::Frame;
 	if (normalized == "time") return EvalPanelModelSyncMode::Time;
 	if (normalized == "episode") return EvalPanelModelSyncMode::Episode;
 	ANET_SYSTEM_ERROR("Invalid app.eval_panel.model_sync.mode: " << mode
-		<< " (expected: shared, frame, time, episode)");
-	return EvalPanelModelSyncMode::Shared;
-}
-
-bool EvalPanelModelSyncConfig::UsesClonedModel() const
-{
-	return GetMode() != EvalPanelModelSyncMode::Shared;
+		<< " (expected: frame, time, episode)");
+	return EvalPanelModelSyncMode::Frame;
 }
 
 void EvalPanelModelSyncConfig::Validate() const
@@ -46,10 +56,16 @@ void EvalPanelModelSyncConfig::Validate() const
 	}
 }
 
+void EvalPanelConfig::Validate() const
+{
+	ValidateEvalFps(fps, "app.eval_panel.fps");
+	model_sync.Validate();
+}
+
 EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
 	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY)
 {
-	config_.model_sync.Validate();
+	config_.Validate();
 	is_pause_ = config_.auto_start ? false : true;
 }
 
@@ -64,6 +80,11 @@ void EvalPanel::DoClose()
 			notifier->Detach(this->observer_);
 		}
 		observer_ = nullptr;
+	}
+	if (source_counts_observer_) {
+		auto notifier = wxGetApp().GetRunManager().GetNotifier();
+		if (notifier) notifier->Detach(source_counts_observer_);
+		source_counts_observer_ = nullptr;
 	}
 }
 
@@ -89,6 +110,15 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 
 	// Observer生成
 	auto notifier = run_manager->GetNotifier();
+	// 学習スレッドの可変countsをUIから直読せず、学習イベントで一貫したコピーを受け取る。
+	auto counts_observer = std::make_shared<anet::rl::FunctionTrainObserver>(
+		[this](const anet::rl::TrainEvent& event) {
+			std::lock_guard lock(source_counts_mutex_);
+			source_counts_ = event.counts;
+		}, "EvalPanelCounts");
+	source_counts_observer_ = std::make_shared<anet::rl::RunnerScopedTrainObserver>(
+		counts_observer, run_manager->GetTrainRunner());
+	notifier->Attach(source_counts_observer_);
 	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
 		runner,
 		[this](const anet::rl::TrainEvent& event)
@@ -98,11 +128,24 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 		},
 		"EvalPanel");
 
-	// Timer開始
+	// Timer開始。Eval FPS は表示だけでなく Eval step の実行周期を表す。
 	Bind(wxEVT_TIMER, &EvalPanel::OnTimer, this, update_timer_.GetId());
-	int interval = 1000 / config_.fps;
+	SetFps(config_.fps);
+}
+
+void EvalPanel::SetFps(float fps)
+{
+	ValidateEvalFps(fps, "EvalPanel::SetFps fps");
+
+	// 実行時変更では既存 timer を止めてから、新しい周期を確定する。
+	update_timer_.Stop();
+	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
 	ANET_LOG_DEBUG("interval=" << interval);
-	update_timer_.Start(interval); 
+	if (interval <= 0) {
+		update_timer_.Stop();
+	} else {
+		update_timer_.Start(interval);
+	}
 }
 
 void EvalPanel::DoStep()
@@ -126,27 +169,28 @@ void EvalPanel::DoStep(int64_t action)
 void EvalPanel::TogglePause()
 {
 	is_pause_ = !is_pause_;
-	if (!is_pause_ && UsesClonedModel()) {
+	if (!is_pause_) {
 		SyncModel();
 	}
-	auto log_str = std::string("Eval ") + (is_pause_ ? "paused." : "resumed.");
+	auto log_str = std::string("Evaluation ") + (is_pause_ ? "paused" : "resumed");
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
 	wxGetApp().FlushRunOutputs();
-}
-
-bool EvalPanel::UsesClonedModel() const
-{
-	return config_.model_sync.UsesClonedModel();
 }
 
 void EvalPanel::SyncModel()
 {
 	ANET_PROFILE_FUNC();
 
-	if (!UsesClonedModel() || runner_ == nullptr) return;
+	if (runner_ == nullptr) return;
 
-	runner_->Sync();
+	// network同期中に学習イベントを待たせないよう、countsのコピーだけを保護する。
+	anet::rl::StepCounts source_counts;
+	{
+		std::lock_guard lock(source_counts_mutex_);
+		source_counts = source_counts_;
+	}
+	runner_->Sync(source_counts);
 	frames_since_model_sync_ = 0;
 	episodes_since_model_sync_ = 0;
 	last_model_sync_time_ = std::chrono::steady_clock::now();
@@ -154,7 +198,6 @@ void EvalPanel::SyncModel()
 
 void EvalPanel::SyncBeforeFrame()
 {
-	if (!UsesClonedModel()) return;
 
 	const auto sync_mode = config_.model_sync.GetMode();
 	if (sync_mode == EvalPanelModelSyncMode::Frame) {
@@ -174,7 +217,6 @@ void EvalPanel::SyncBeforeFrame()
 
 void EvalPanel::SyncBeforeManualStep()
 {
-	if (!UsesClonedModel()) return;
 
 	const auto sync_mode = config_.model_sync.GetMode();
 	if (sync_mode == EvalPanelModelSyncMode::Frame || sync_mode == EvalPanelModelSyncMode::Time) {
@@ -186,8 +228,7 @@ anet::rl::ControlSignal EvalPanel::SyncAfterStep(const anet::rl::StepCounts&)
 {
 	ANET_PROFILE_FUNC();
 
-	if (UsesClonedModel()
-		&& config_.model_sync.GetMode() == EvalPanelModelSyncMode::Episode
+	if (config_.model_sync.GetMode() == EvalPanelModelSyncMode::Episode
 		&& runner_ != nullptr
 		&& runner_->LastStepHadEpisodeEnd()) {
 		++episodes_since_model_sync_;

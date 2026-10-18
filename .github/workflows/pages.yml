@@ -1,0 +1,73 @@
+name: Deploy docs to GitHub Pages
+
+# docs/ 配下のコミット済みファイルだけを GitHub Pages へ配信する。
+# 配信物は _site/docs/ 以下へ置くため、公開 URL はリポジトリ上の配置と一致する。
+#   docs/archify/anet_lab_00_system_architecture.html
+#     -> https://kazukin123.github.io/anet-lab/docs/archify/anet_lab_00_system_architecture.html
+#
+# 利用前に Settings -> Pages -> Source を "GitHub Actions" に設定する。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 進行中のデプロイを中断せず、後続を待たせる。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage docs so published URLs mirror the repository layout
+        run: |
+          set -euo pipefail
+          mkdir -p _site/docs
+          cp -R docs/. _site/docs/
+
+      # サイトルート直下に入口を置き、Pages ルートが 404 にならないようにする。
+      # 一覧は docs/archify/ の実ファイルから生成するため、図の増減で編集不要。
+      - name: Generate site index
+        run: |
+          set -euo pipefail
+          {
+            echo '<!doctype html>'
+            echo '<html lang="ja"><head><meta charset="utf-8">'
+            echo '<title>anet-lab docs</title>'
+            echo '</head><body>'
+            echo '<h1>anet-lab Archify Atlas</h1>'
+            echo '<ul>'
+            for f in docs/archify/*.html; do
+              name=$(basename "$f")
+              echo "<li><a href=\"docs/archify/${name}\">${name}</a></li>"
+            done
+            echo '</ul>'
+            echo '<p><a href="https://github.com/kazukin123/anet-lab">repository</a></p>'
+            echo '</body></html>'
+          } > _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

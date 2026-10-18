@@ -1,8 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
 
+call "%~dp0runner\tools\resolve_workspace.bat" "%~1"
+if errorlevel 1 exit /b 1
 pushd "%~dp0runner" >nul || exit /b 1
-set "RUNS_DIR=%CD%\runs"
 
 echo ========================================
 echo Processing ALL runs for DOT to PNG conversion
@@ -34,7 +35,7 @@ exit /b
 
 
 :: ==========================================
-:: run驟堺ｸ九�ｮdot繧帝嚴螻､縺ｫ萓晏ｭ倥○縺啀NG縺ｸ螟画鋤
+:: run配下のdotを階層に依存せずPNGへ変換
 :: ==========================================
 :convert_run
 set "run_dir=%~1"
@@ -59,12 +60,12 @@ exit /b 0
 
 
 :: ==========================================
-:: DOT縺九ｉPNG縺ｸ縺ｮ螟画鋤蜃ｦ逅�
+:: DOTからPNGへの変換処理
 :: ==========================================
 :to_png
-:: %~1 = 蜈･蜉嫖ot繝輔ぃ繧､繝ｫ
-:: %~2 = dot繝ｫ繝ｼ繝医ョ繧｣繝ｬ繧ｯ繝医Μ
-:: %~3 = png繝ｫ繝ｼ繝医ョ繧｣繝ｬ繧ｯ繝医Μ
+:: %~1 = 入力dotファイル
+:: %~2 = dotルートディレクトリ
+:: %~3 = pngルートディレクトリ
 
 set "in_file=%~1"
 set "dot_root=%~2"

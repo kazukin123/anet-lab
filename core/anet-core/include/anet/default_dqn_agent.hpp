@@ -13,36 +13,107 @@
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
 
+namespace anet::rl {
+    class FrameStacker;
+}
+
 namespace anet::rl::dqn {
 
     // ======================================================
     // DefaultDQNAgentConfig
     // ======================================================
 
-    struct DefaultDQNAgentConfig : public anet::Config {
+    inline void ValidateTauRule(const TauRuleConfig& rule, const std::string& key)
+    {
+        if (rule.num_taus <= 0) {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".num_taus: value=" << rule.num_taus << " expected > 0");
+        }
+        if (rule.sample_mode != "random" && rule.sample_mode != "fixed"
+            && rule.sample_mode != "stratified" && rule.sample_mode != "systematic"
+            && rule.sample_mode != "antithetic") {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".sample_mode: value='" << rule.sample_mode
+                << "' expected one of: random, fixed, stratified, systematic, antithetic");
+        }
+    }
 
+    inline void ValidateActionPolicy(const ActionPolicyConfig& policy, const std::string& key)
+    {
+        const auto& quantile_mode = policy.quantile_mode;
+        const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
+        const auto& type = policy.policy_type;
+        if (type != "Greedy" && type != "EpsilonGreedy" && type != "0" && !is_uqe(type) && !policy.IsThompsonSampling()) {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type='" << type
+                << "'; expected Greedy, EpsilonGreedy, UQE, or ThompsonSampling.");
+        }
+        if (policy.spatial_scale_type != "log" && policy.spatial_scale_type != "linear") {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".spatial_scale_type='" << policy.spatial_scale_type
+                << "'; expected log or linear.");
+        }
+        ValidateTauRule(policy.tau_rule, key + ".tau_rule");
+        ValidateTauRule(policy.full_distribution_query.tau_rule, key + ".full_distribution_query.tau_rule");
+
+        if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == "none") {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
+                << "' expected quantile_mode=qr or iqn");
+        }
+        // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
+        if (policy.full_distribution_query.enabled
+            && quantile_mode == "iqn" && !is_uqe(policy.policy_type)) {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".full_distribution_query.enabled: value=true"
+                << " expected policy_type=UQE when quantile_mode=iqn, actual quantile_mode='"
+                << quantile_mode << "' policy_type='" << policy.policy_type << "'");
+        }
+        const bool uses_iqn_tau_range = quantile_mode == "iqn"
+            && (is_uqe(policy.policy_type) || (policy.IsThompsonSampling() && policy.use_spatial_exploration));
+        if (uses_iqn_tau_range
+            && (!std::isfinite(policy.uqe_tau_start) || policy.uqe_tau_start < 0.0f || policy.uqe_tau_start > 1.0f
+                || !std::isfinite(policy.uqe_tau_end) || policy.uqe_tau_end < 0.0f || policy.uqe_tau_end > 1.0f)) {
+            ANET_SYSTEM_ERROR("Invalid " << key << ".uqe_tau_start/end: values="
+                << policy.uqe_tau_start << "," << policy.uqe_tau_end << " expected finite values in [0,1]");
+        }
+    }
+
+    struct DefaultDQNAgentConfig : public anet::Config {
+        std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
         StuckerConfig stucker;
-        ActionPolicyConfig train_policy;
-        ActionPolicyConfig eval_policy;
+        std::map<std::string, DQNActorConfig> actor;
         ActionPolicyConfig target_policy;
-        TrainActorConfig train_actor;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
         anet::nn::WeightInitConfig head_init;
+        anet::ConfigData head_projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
         anet::nn::NetworkGraphVizConfig nn_viz;
         std::string auto_load_file;
 
-        int num_quantiles = 51;
+        struct QrConfig {
+            int num_quantiles = 51;
+        } qr;
+        std::string quantile_mode = "qr";
         bool use_dueling_net = true;
-        bool use_qr = true;
         bool use_optimistic_target = false;
 
     public:
+        /// Agentの接頭辞を含む、選択されたNN実行設定の完全なキーを返す。
+        std::string MakeForwardConfigKey(const std::string& key) const
+        {
+            return MakeDefaultConfigKey(MakeNetworkForwardConfigKey(key));
+        }
+
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
         {
+            // Head 射影の構築設定は opaque にコピーし、固有の項目を Agent で読み取らない。
+            const auto projection_prefix = MakeDefaultConfigKey("head_projection") + ".";
+            for (const auto& [key, value] : config_data.Map()) {
+                if (!key.starts_with(projection_prefix)) continue;
+                head_projection.Set(key.substr(projection_prefix.size()), value);
+                const auto relative = key.substr(GetConfigPrefix().size() + 1);
+                my_config_data_.Set(relative, value);
+                my_config_json_[relative] = value;
+            }
+
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
             ANET_READ_CONFIG(config_data, head_init.constant_val);
@@ -70,64 +141,51 @@ namespace anet::rl::dqn {
 
             ANET_READ_CONFIG(config_data, use_optimistic_target);
 
-            ANET_READ_CONFIG(config_data, train_actor.clone_model);
-            ANET_READ_CONFIG(config_data, train_actor.sync_interval);
-
-            ANET_READ_CONFIG(config_data, train_policy.policy_type);
-            ANET_READ_CONFIG(config_data, train_policy.eps_start);
-            ANET_READ_CONFIG(config_data, train_policy.eps_end);
-            ANET_READ_CONFIG(config_data, train_policy.eps_decay_steps);
-            ANET_READ_CONFIG(config_data, train_policy.use_spatial_exploration);
-            ANET_READ_CONFIG(config_data, train_policy.spatial_scale_type);
-            if (train_policy.spatial_scale_type != "log" && train_policy.spatial_scale_type != "linear") {
-                ANET_SYSTEM_ERROR("Invalid train_policy.spatial_scale_type: " << train_policy.spatial_scale_type);
+            // カタログの値はDTOへ保存し、使用する具象部品が実行準備で検証する。
+            for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("nn_forward"))) {
+                nn_forward.emplace(key, sub);
+                // 記録も opaque な値のまま保存し、型付きの解釈はここで追加しない。
+                for (const auto& [leaf, value] : sub.Map()) {
+                    const auto name = MakeNetworkForwardConfigKey(key) + "." + leaf;
+                    my_config_data_.Set(name, value);
+                    my_config_json_[name] = value;
+                }
             }
-            ANET_READ_CONFIG(config_data, train_policy.uqe_tau_start);
-            ANET_READ_CONFIG(config_data, train_policy.uqe_tau_end);
-            ANET_READ_CONFIG(config_data, train_policy.uqe_tau_decay_steps);
-            ANET_READ_CONFIG(config_data, train_policy.uqe_use_tail_mean);
-            ANET_READ_CONFIG(config_data, train_policy.uqe_eps_start);
-            ANET_READ_CONFIG(config_data, train_policy.uqe_eps_end);
-            ANET_READ_CONFIG(config_data, train_policy.uqe_eps_decay_steps);
-            ANET_READ_CONFIG(config_data, train_policy.use_amp);
-            ANET_READ_CONFIG(config_data, train_policy.use_amp_bf16);
 
-            eval_policy.policy_type = "Greedy";     // デフォルトでGreedy
-            eval_policy.eps_start = 0.0f;           // デフォルトでGreedy
-            eval_policy.eps_end = 0.0f;
-            eval_policy.eps_decay_steps = 0;       // Evalはデフォルトでアニーリングしないべき
-            eval_policy.uqe_tau_decay_steps = 0;
-            eval_policy.uqe_eps_decay_steps = 0;
-            eval_policy.uqe_tau_start = train_policy.uqe_tau_end;   // デフォルト値としてTrainの「最終到達点」をコピーしておく
-            eval_policy.uqe_tau_end = train_policy.uqe_tau_end;
-            eval_policy.eps_start = train_policy.eps_end;
-            eval_policy.eps_end = train_policy.eps_end;
-            eval_policy.uqe_eps_start = 0.0f; // デフォルトでGreedy
-            eval_policy.uqe_eps_end = 0.0f;   // デフォルトでGreedy
-            //eval_policy.uqe_eps_start = train_policy.uqe_eps_end;
-            //eval_policy.uqe_eps_end = train_policy.uqe_eps_end;
-            ANET_READ_CONFIG(config_data, eval_policy.policy_type);
-            ANET_READ_CONFIG(config_data, eval_policy.eps_start);
-            ANET_READ_CONFIG(config_data, eval_policy.eps_end);
-            ANET_READ_CONFIG(config_data, eval_policy.eps_decay_steps);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_tau_start);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_tau_end);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_tau_decay_steps);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_use_tail_mean);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_start);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_end);
-            ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
-            ANET_READ_CONFIG(config_data, eval_policy.use_amp);
-            ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
-            eval_policy.use_spatial_exploration = false;
-
+            // 全カタログ項目を構築時に型付き設定へ変換する。
+            for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"))) {
+                auto& entry = actor[key];
+                const auto prefix = "actor.[" + key + "]";
+                ReadActionPolicyConfig(config_data, prefix + ".policy", entry.policy);
+                ReadConfig(config_data, prefix + ".network", entry.network);
+                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                ValidateForwardReference(config_data, prefix + ".nn_forward_key", entry.nn_forward_key);
+                if (entry.network != "online" && entry.network != "target") {
+                    ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(prefix + ".network")
+                        << "='" << entry.network << "'; expected online or target.");
+                }
+                for (const auto& [leaf, value] : sub.Map()) {
+                    if (leaf == "sync_interval" || leaf.starts_with("sync_interval.")) {
+                        entry.sync_interval.emplace(anet::ProfiledValueConfig<step_t>{
+                            .type = "constant", .value = 400, .min_value = 1});
+                        ReadConfig(config_data, prefix + ".sync_interval", *entry.sync_interval);
+                        break;
+                    }
+                }
+            }
 
             target_policy.policy_type = "Greedy";     // デフォルトは安全なGreedy
             target_policy.eps_start = 0.0f;
             target_policy.eps_end = 0.0f;
 
-            if (use_optimistic_target) {        // 「use_optimistic_target = true」だった場合、target_policyのデフォルトはtrain_policyをベースとする
-                target_policy = train_policy;   // Trainの設定を丸ごとコピー
+            if (use_optimistic_target) {        // 「use_optimistic_target = true」だった場合、target_policyのデフォルトはactor.[train].policyをベースとする
+                const auto train = actor.find("train");
+                if (train == actor.end()) {
+                    ANET_SYSTEM_ERROR("DefaultDQNAgent.use_optimistic_target=true requires actor.[train].policy.");
+                }
+                target_policy = train->second.policy;   // 明示されたコピー元から既定を作る
+                const bool optimistic_source = target_policy.policy_type == "UQE" || target_policy.policy_type == "1"
+                    || target_policy.IsThompsonSampling();
                 target_policy.eps_start = 0.0f; // ただしランダムノイズ(ε)はターゲット計算には絶対不要なので強制遮断
                 target_policy.eps_end = 0.0f;
 				target_policy.eps_decay_steps = 0;
@@ -139,28 +197,41 @@ namespace anet::rl::dqn {
                 if (target_policy.policy_type == "EpsilonGreedy" || target_policy.policy_type == "0") {
                     target_policy.policy_type = "Greedy";
                 }
+                if (!optimistic_source) {
+                    anet::log::warn() << "use_optimistic_target=true copies actor.[train].policy.policy_type='"
+                        << train->second.policy.policy_type << "' to target_policy.policy_type='"
+                        << target_policy.policy_type
+                        << "' without optimism. Select UQE/ThompsonSampling or use_optimistic_target=false.";
+                }
             } else {
                 target_policy.policy_type = "Greedy";   // デフォルトは安全なGreedy
             }
 
+            // 楽観policyのコピー対象にせず、target推定品質の既定を決定的な32点へ戻す。
+            target_policy.tau_rule = TauRuleConfig{
+                .sample_mode = "fixed",
+                .num_taus = 32,
+            };
+            target_policy.full_distribution_query = FullDistributionQueryConfig{};
+
             // target_policy.*の設定があれば、継承したかもしれないデフォルト値から上書き反映
-            ANET_READ_CONFIG(config_data, target_policy.policy_type);
-            ANET_READ_CONFIG(config_data, target_policy.eps_start);
-            ANET_READ_CONFIG(config_data, target_policy.eps_end);
-            ANET_READ_CONFIG(config_data, target_policy.eps_decay_steps);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_tau_start);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_tau_end);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_tau_decay_steps);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_use_tail_mean);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_eps_start);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_eps_end);
-            ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
-            ANET_READ_CONFIG(config_data, target_policy.use_amp);
-            ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
+            ReadActionPolicyConfig(config_data, "target_policy", target_policy);
             target_policy.use_spatial_exploration = false;
 
+            // 学習停止中も宣言された参照を解決する。保持や時計の適否は実際の利用時に委譲する。
+            ValidateForwardReference(
+                config_data, "learner.current.nn_forward_key", learner.current.nn_forward_key);
+            ValidateForwardReference(
+                config_data, "learner.target.nn_forward_key", learner.target.nn_forward_key);
+
+            ANET_READ_CONFIG(config_data, learner.enabled);
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.weight_decay);
+            ANET_READ_CONFIG(config_data, learner.noisy_weight_decay);
+            if (!std::isfinite(learner.noisy_weight_decay) || learner.noisy_weight_decay < 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_weight_decay: value="
+                    << learner.noisy_weight_decay << " expected finite value >= 0");
+            }
             ANET_READ_CONFIG(config_data, learner.adam_eps);
             ANET_READ_CONFIG(config_data, learner.use_fused_optimizer);
             ANET_READ_CONFIG(config_data, learner.gamma);
@@ -186,12 +257,82 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.per_prio_clip_value);
             ANET_READ_CONFIG(config_data, learner.quantile_huber_kappa);
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
+            ANET_READ_CONFIG(config_data, learner.munchausen.enabled);
+            ANET_READ_CONFIG(config_data, learner.munchausen.log_policy_mode);
+            ANET_READ_CONFIG(config_data, learner.munchausen.alpha);
+            ANET_READ_CONFIG(config_data, learner.munchausen.entropy_tau);
+            ANET_READ_CONFIG(config_data, learner.munchausen.clip_value_min);
+
+            // 休眠中も認識済みの設定値を検証し、ON/OFF切替で不正値を潜伏させない。
+            const auto& munchausen = learner.munchausen;
+            if (munchausen.log_policy_mode != "target" && munchausen.log_policy_mode != "online"
+                && munchausen.log_policy_mode != "online_reuse") {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.log_policy_mode='" << munchausen.log_policy_mode
+                    << "'; expected target, online, or online_reuse.");
+            }
+            if (!std::isfinite(munchausen.alpha) || munchausen.alpha < 0.0f || munchausen.alpha > 1.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.alpha=" << munchausen.alpha << "; expected finite [0,1].");
+            }
+            if (!std::isfinite(munchausen.entropy_tau) || munchausen.entropy_tau <= 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.entropy_tau=" << munchausen.entropy_tau << "; expected finite > 0.");
+            }
+            if (!std::isfinite(munchausen.clip_value_min) || munchausen.clip_value_min > 0.0f) {
+                ANET_SYSTEM_ERROR("Invalid learner.munchausen.clip_value_min=" << munchausen.clip_value_min << "; expected finite <= 0.");
+            }
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
             ANET_READ_CONFIG(config_data, learner.use_tbo);
             ANET_READ_CONFIG(config_data, learner.tbo_epsilon);
             ANET_READ_CONFIG(config_data, learner.use_amp);
             ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.sample_mode);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.sample_mode);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.noisy_probe.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.noisy_probe.num_draws);
+            ANET_READ_CONFIG(config_data, learner.noisy_probe.iqn.num_taus);
+            if (learner.noisy_probe.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.probe.batch_size: value="
+                    << learner.noisy_probe.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.noisy_probe.num_draws < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.num_draws: value="
+                    << learner.noisy_probe.num_draws << " expected integer >= 1");
+            }
+            if (learner.noisy_probe.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.iqn.num_taus: value="
+                    << learner.noisy_probe.iqn.num_taus << " expected integer >= 1");
+            }
+            // 値域・組み合わせの検証は、購読が決まる学習開始前の境界で行う。
+            ANET_READ_CONFIG(config_data, learner.grad_noise.num_micro_batches);
+            ANET_READ_CONFIG(config_data, learner.grad_noise.ema_alpha);
+            ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
+            ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.policy_churn.iqn.num_taus);
+            ANET_READ_CONFIG(config_data, learner.replay_fit.probe.batch_size);
+            ANET_READ_CONFIG(config_data, learner.replay_fit.iqn.num_taus);
+            if (learner.replay_fit.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.replay_fit.probe.batch_size: value="
+                    << learner.replay_fit.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.replay_fit.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.replay_fit.iqn.num_taus: value="
+                    << learner.replay_fit.iqn.num_taus << " expected integer >= 1");
+            }
+            if (learner.plasticity.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.plasticity.probe.batch_size: value="
+                    << learner.plasticity.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.policy_churn.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.policy_churn.probe.batch_size: value="
+                    << learner.policy_churn.probe.batch_size << " expected integer >= 1");
+            }
+            if (learner.policy_churn.iqn.num_taus < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.policy_churn.iqn.num_taus: value="
+                    << learner.policy_churn.iqn.num_taus << " expected integer >= 1");
+            }
             if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
                 ANET_SYSTEM_ERROR(
                     "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon
@@ -227,12 +368,101 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
 
             ANET_READ_CONFIG(config_data, auto_load_file);
-            ANET_READ_CONFIG(config_data, num_quantiles);
+            ANET_READ_CONFIG(config_data, quantile_mode);
+            ANET_READ_CONFIG(config_data, qr.num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
-            ANET_READ_CONFIG(config_data, use_qr);
 
-            learner.num_quantiles = num_quantiles;
+            // 学習も読み込みもしないRunは初期重みの評価になる。意図的な構成もあり得るので止めず、書き忘れ検出用に1度だけWARNする。
+            if (!learner.enabled && auto_load_file.empty()) {
+                anet::log::warn()
+                    << "learner.enabled=false without DefaultDQNAgent.auto_load_file; "
+                    << "the run evaluates freshly initialized weights.";
+            }
+
+            // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
+            for (auto& [key, entry] : actor) entry.policy.quantile_mode = quantile_mode;
+            target_policy.quantile_mode = quantile_mode;
+            learner.quantile_mode = quantile_mode;
+            learner.num_quantiles = qr.num_quantiles;
+
+            // 現行の分布表現契約と全tau ruleを、利用前の設定境界で検証する。
+            if (quantile_mode != "none" && quantile_mode != "qr" && quantile_mode != "iqn") {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.quantile_mode: value='" << quantile_mode
+                    << "' expected one of: none, qr, iqn");
+            }
+            if (quantile_mode == "qr" && qr.num_quantiles <= 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.qr.num_quantiles: value=" << qr.num_quantiles
+                    << " expected > 1 when quantile_mode=qr");
+            }
+
+            ValidateTauRule(target_policy.tau_rule, "DefaultDQNAgent.target_policy.tau_rule");
+            ValidateTauRule(target_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.target_policy.full_distribution_query.tau_rule");
+            ValidateTauRule(learner.iqn.current_taus, "DefaultDQNAgent.learner.iqn.current_taus");
+            ValidateTauRule(learner.iqn.target_taus, "DefaultDQNAgent.learner.iqn.target_taus");
+
+            // コピーと明示overlayを解決した最終target policyに対して競合を検証する。
+            if (learner.munchausen.enabled && learner.use_double_dqn) {
+                ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with learner.use_double_dqn=true; expected learner.use_double_dqn=false.");
+            }
+            // MunchausenとThompsonは共存付加
+            if (learner.munchausen.enabled && target_policy.IsThompsonSampling()) {
+                ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with target_policy.policy_type='"
+                    << target_policy.policy_type << "'; expected Greedy, EpsilonGreedy, or UQE. use_optimistic_target="
+                    << (use_optimistic_target ? "true (actor.[train].policy copy before target overrides)" : "false"));
+            }
+            ValidateActionPolicy(target_policy, "DefaultDQNAgent.target_policy");
+            for (auto& [key, entry] : actor) {
+                ValidateActionPolicy(entry.policy, "DefaultDQNAgent.actor.[" + key + "].policy");
+            }
+
+            if (quantile_mode == "iqn"
+                && (!std::isfinite(learner.quantile_huber_kappa) || learner.quantile_huber_kappa <= 0.0f)) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.quantile_huber_kappa: value="
+                    << learner.quantile_huber_kappa << " expected finite value > 0 when quantile_mode=iqn");
+            }
         }
+    private:
+        void ValidateForwardReference(
+            const ConfigData& data, const std::string& reference, std::string& key)
+        {
+            // 参照の存在と接続先だけを確認し、Module 固有の実行設定には触れない。
+            if (!HasConfigValue(data, reference)) {
+                ANET_SYSTEM_ERROR("Missing " << MakeDefaultConfigKey(reference) << "; expected a declared nn_forward key.");
+            }
+            ReadConfig(data, reference, key);
+            const auto it = nn_forward.find(key);
+            if (it == nn_forward.end()) {
+                ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(reference) << "='" << key
+                    << "'; expected a declared nn_forward key.");
+            }
+        }
+
+        void ReadActionPolicyConfig(const ConfigData& data, const std::string& prefix, ActionPolicyConfig& policy)
+        {
+            // ReadConfig経由で既定補完値もModule Configと保存用の記録へ残す。
+            ReadConfig(data, prefix + ".policy_type", policy.policy_type);
+            ReadConfig(data, prefix + ".eps_start", policy.eps_start);
+            ReadConfig(data, prefix + ".eps_end", policy.eps_end);
+            ReadConfig(data, prefix + ".eps_decay_steps", policy.eps_decay_steps);
+            ReadConfig(data, prefix + ".use_spatial_exploration", policy.use_spatial_exploration);
+            ReadConfig(data, prefix + ".spatial_scale_type", policy.spatial_scale_type);
+            ReadConfig(data, prefix + ".uqe_tau_start", policy.uqe_tau_start);
+            ReadConfig(data, prefix + ".uqe_tau_end", policy.uqe_tau_end);
+            ReadConfig(data, prefix + ".uqe_tau_decay_steps", policy.uqe_tau_decay_steps);
+            ReadConfig(data, prefix + ".uqe_use_tail_mean", policy.uqe_use_tail_mean);
+            ReadConfig(data, prefix + ".uqe_eps_start", policy.uqe_eps_start);
+            ReadConfig(data, prefix + ".uqe_eps_end", policy.uqe_eps_end);
+            ReadConfig(data, prefix + ".uqe_eps_decay_steps", policy.uqe_eps_decay_steps);
+            ReadConfig(data, prefix + ".use_amp", policy.use_amp);
+            ReadConfig(data, prefix + ".use_amp_bf16", policy.use_amp_bf16);
+            ReadConfig(data, prefix + ".tau_rule.sample_mode", policy.tau_rule.sample_mode);
+            ReadConfig(data, prefix + ".tau_rule.num_taus", policy.tau_rule.num_taus);
+            ReadConfig(data, prefix + ".full_distribution_query.enabled", policy.full_distribution_query.enabled);
+            ReadConfig(data, prefix + ".full_distribution_query.tau_rule.sample_mode", policy.full_distribution_query.tau_rule.sample_mode);
+            ReadConfig(data, prefix + ".full_distribution_query.tau_rule.num_taus", policy.full_distribution_query.tau_rule.num_taus);
+        }
+
     };
 
 
@@ -248,13 +478,10 @@ namespace anet::rl::dqn {
             const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device device,
             std::optional<seed_t> seed = std::nullopt);
 
-        std::shared_ptr<anet::rl::Actor> CreateActor(
-            const BatchEnvSpec& batch_env_spec,
-            const EnvSpec& env_spec,
-            RunMode mode,
-            std::optional<bool> clone_model_override = std::nullopt,
-            std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
+        void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions) override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -263,25 +490,26 @@ namespace anet::rl::dqn {
     public:
         int64_t Save(anet::OutputArchive& archive) const override;
     private:
-        std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const;
+        std::unique_ptr<FrameStacker> CreateFrameStacker(const ActorRequest& request) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(
-            const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device);
+            const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device) const;
         void LoadNetwork(const std::string& filename);
     private:
         DefaultDQNAgentConfig config_;
+        std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> forward_configs_; ///< Agent 所有の実行設定 Resource
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
+        std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource
+        std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
+        std::shared_ptr<anet::RandomGenerator> noisy_probe_random_; ///< Noisy probe の一様抽選専用 Resource
+        std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_forward_config_; ///< 固定の probe 用途を選ぶ不変 Resource
+        std::shared_ptr<anet::RandomGenerator> replay_fit_probe_random_; ///< 群抽出メトリクス購読時だけ作るResource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
-    private:
-        seed_t action_context_seed_;
     };
 
     class DefaultDQNAgentFactory : public anet::rl::AgentFactory {
@@ -298,6 +526,12 @@ namespace anet::rl::dqn {
         ) const override;
 
         std::string GetTargetAgentClassId() const override { return "DefaultDQNAgent"; }
+
+    private:
+        static void ValidateQuantileNetworkContract(
+            const DefaultDQNAgentConfig& config,
+            const anet::nn::NetworkConfig& net_config,
+            const std::string& net_config_prefix);
     };
 
 }// namespace anet::rl
