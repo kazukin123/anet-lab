@@ -34,9 +34,7 @@ namespace anet::rl::img_cls {
         double grad_clip_max_norm = 1.0;
         int64_t learn_log_interval = 0;
         std::string auto_load_file;
-        struct PlasticityConfig {
-            std::string feature_key;
-        } plasticity;
+        std::string final_feature_branch_key;
 
         struct MixupConfig {
             bool enabled = false;
@@ -68,7 +66,7 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, grad_clip_max_norm);
             ANET_READ_CONFIG(config_data, learn_log_interval);
             ANET_READ_CONFIG(config_data, auto_load_file);
-            ANET_READ_CONFIG(config_data, plasticity.feature_key);
+            ANET_READ_CONFIG(config_data, final_feature_branch_key);
 
             ANET_READ_CONFIG(config_data, mixup.enabled);
             ANET_READ_CONFIG(config_data, mixup.mixup_alpha);

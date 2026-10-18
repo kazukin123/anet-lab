@@ -307,7 +307,12 @@ namespace anet::rl::dqn {
             // 値域・組み合わせの検証は、購読が決まる学習開始前の境界で行う。
             ANET_READ_CONFIG(config_data, learner.grad_noise.num_micro_batches);
             ANET_READ_CONFIG(config_data, learner.grad_noise.ema_alpha);
-            ANET_READ_CONFIG(config_data, learner.plasticity.feature_key);
+            ANET_READ_CONFIG(config_data, learner.final_feature_branch_key);
+            ANET_READ_CONFIG(config_data, learner.attention_entropy.probe.batch_size);
+            if (learner.attention_entropy.probe.batch_size < 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.attention_entropy.probe.batch_size: value="
+                    << learner.attention_entropy.probe.batch_size << " expected integer >= 1");
+            }
             ANET_READ_CONFIG(config_data, learner.plasticity.probe.batch_size);
             ANET_READ_CONFIG(config_data, learner.policy_churn.probe.batch_size);
             ANET_READ_CONFIG(config_data, learner.policy_churn.iqn.num_taus);
@@ -508,6 +513,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource
         std::shared_ptr<anet::RandomGenerator> noisy_probe_random_; ///< Noisy probe の一様抽選専用 Resource
         std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_forward_config_; ///< 固定の probe 用途を選ぶ不変 Resource
+        std::shared_ptr<anet::RandomGenerator> attention_entropy_probe_random_; ///< attention probeの一様抽選専用Resource
         std::shared_ptr<anet::RandomGenerator> replay_fit_probe_random_; ///< 群抽出メトリクス購読時だけ作るResource
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };

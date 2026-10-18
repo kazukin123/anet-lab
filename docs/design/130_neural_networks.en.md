@@ -323,7 +323,7 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 
 ### 7.6 Branch Capture and Partial Forward
 
-`Network::Forward` accepts optional `NetworkBranchCapture`, returning detached internal tensors after the ordinary branch loop but before `output_keys` conversion. Existing forwards without capture, TraceCallback, and Actor paths are unchanged.
+`Network::Forward`, prepared executor forwards, and `ForwardUpTo` accept optional `NetworkForwardCapture`. Exact keys or trailing-`/` prefixes request detached branch outputs or module diagnostics in execution order. Results reset at entry; unrequested or duplicate writes and unfulfilled requests fail fast. Module diagnostic keys append `<branch>/<block instance>` to their base key. Existing forwards without capture, TraceCallback, and Actor paths are unchanged.
 
 `Network::ForwardUpTo(input, branch_key)` uses the default Context and formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. Default `Network::ForwardUpTo(input, branch_key)` supplies the default Context internally. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and `GetBranchNames()` list.
 

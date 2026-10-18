@@ -575,6 +575,9 @@ run.@iqn32_repro : A3.learner.iqn.target_taus.sample_mode = stratified
 # 勾配ノイズスケールはbaseline外で明示的に購読する。
 run.@gradnoise : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@gradnoise > M1 > M2
 
+# attention診断を追加する。Runチェーン内で、metrics.scalar.$を上書きする他のプロファイルより後ろに選ぶ。
+run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@attention > M1 > M2
+
 
 # ==============================================================================
 # デバッグ用

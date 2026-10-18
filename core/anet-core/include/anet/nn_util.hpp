@@ -10,6 +10,10 @@
 
 namespace anet {
 
+    /// 入力[B,n,E]とQ/K結合重み[2E,E]から、層平均の正規化エントロピーをFP32 scalarで返す。
+    torch::Tensor ComputeAttentionEntropy(const torch::Tensor& input, const torch::Tensor& qk_weight,
+        const torch::Tensor& qk_bias, int64_t num_heads);
+
     template <typename HolderType>
     void ApplyHeNormal(HolderType& holder, double alpha = 0.0) {
         auto module = holder.ptr();

@@ -608,7 +608,7 @@ TEST_CASE("Munchausen target capture exposes only next state rows", "[dqn][munch
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = -1;
-    config.plasticity.feature_key = "feature";
+    config.final_feature_branch_key = "feature";
     RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;

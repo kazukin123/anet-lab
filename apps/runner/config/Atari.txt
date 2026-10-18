@@ -440,6 +440,9 @@ run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breako
 # Breakout 固有の閾値率(ge432 / ge600)を落とす。@rfit より後ろへ置く。
 run.@a5_metrics : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2
 
+# attention診断を追加する。Runチェーン内で、metrics.scalar.$を上書きする他のプロファイルより後ろに選ぶ。
+run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > metrics.scalar.@attention > M1 > M2
+
 
 # --- NoisyNet: 指定の効率優先チェーン末尾へ重ねる比較用 profile ---
 # 4 射影は value/adv の Body FC と Head 最終射影。feature 本体と tau 射影は OFF。

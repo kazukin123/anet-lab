@@ -1023,7 +1023,7 @@ TEST_CASE("ImageClsLearner applies deterministic Mixup before network forward", 
 {
     constexpr anet::seed_t seed = 42;
     auto config = MakeImageClsMixTestConfig(MakeImageClsMixTestConfigData());
-    config.plasticity.feature_key = "main_feature";
+    config.final_feature_branch_key = "main_feature";
     auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
     auto grid = torch::tensor(
         { 255, 0, 0, 0,
@@ -1586,7 +1586,7 @@ TEST_CASE("ImageCls spectral normalization sentinel reports the invalid layer", 
 TEST_CASE("ImageCls learner reports subscribed parameter norm without activating feature metrics", "[image_cls][plasticity][weight_norm]")
 {
     auto config = MakeImageClsLearningRateTestConfig();
-    config.plasticity.feature_key = "main_feature";
+    config.final_feature_branch_key = "main_feature";
     auto network = MakeImageClsTrainableTestNetwork();
     anet::rl::img_cls::ImageClsLearner learner(
         config,
@@ -1655,7 +1655,7 @@ TEST_CASE("ImageCls learner reports subscribed parameter norm without activating
 TEST_CASE("ImageCls parameter norm records the value before the optimizer update", "[image_cls][plasticity][weight_norm]")
 {
     auto config = MakeImageClsLearningRateTestConfig();
-    config.plasticity.feature_key = "main_feature";
+    config.final_feature_branch_key = "main_feature";
     auto network = MakeImageClsTrainableTestNetwork();
     const float expected_readout = network->ComputeParameterNormSplit("main_feature")
         .readout.item<float>();
@@ -1689,7 +1689,7 @@ TEST_CASE("ImageCls plasticity captures the subscribed training forward on caden
     ScopedNoopMetricsLogger metrics_logger;
 
     auto config = MakeImageClsLearningRateTestConfig();
-    config.plasticity.feature_key = "main_feature";
+    config.final_feature_branch_key = "main_feature";
     anet::rl::img_cls::ImageClsAgent agent(
         config,
         MakeImageClsAgentNetworkConfig(),
@@ -1730,7 +1730,7 @@ TEST_CASE("ImageCls plasticity captures the subscribed training forward on caden
 TEST_CASE("ImageCls plasticity feature key is NoCare without subscriptions", "[image_cls][plasticity][config]")
 {
     auto config = MakeImageClsLearningRateTestConfig();
-    config.plasticity.feature_key.clear();
+    config.final_feature_branch_key.clear();
     auto network = MakeImageClsTrainableTestNetwork();
     auto learner = anet::rl::img_cls::ImageClsLearner(
         config,

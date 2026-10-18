@@ -225,7 +225,8 @@ DefaultDQNAgent.@baseline.learner.use_tbo ?= false            # Transformed Bell
 DefaultDQNAgent.@baseline.learner.tbo_epsilon ?= 0.01         # TBO変換関数hの正則化項
 DefaultDQNAgent.@baseline.learner.use_amp ?= false
 DefaultDQNAgent.@baseline.learner.use_amp_bf16 ?= false
-DefaultDQNAgent.@baseline.learner.plasticity.feature_key ?= main_feature
+DefaultDQNAgent.@baseline : learner.final_feature_branch_key ?= main_feature
+DefaultDQNAgent.@baseline : learner.attention_entropy.probe.batch_size ?= 256
 DefaultDQNAgent.@baseline.learner.plasticity.probe.batch_size ?= 4096  # N>>D。512(=D)だと dead_ratio が標本ノイズで過大に出る
 DefaultDQNAgent.@baseline.learner.policy_churn.probe.batch_size ?= 1024
 DefaultDQNAgent.@baseline.learner.policy_churn.iqn.num_taus ?= 32

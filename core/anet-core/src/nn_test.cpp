@@ -3189,7 +3189,7 @@ TEST_CASE("Network branch capture returns the actual forward feature without cha
         expected_trace.emplace_back(name, value.detach().clone());
     });
 
-    anet::nn::NetworkBranchCapture capture{ .branch_key = "feature" };
+    anet::nn::NetworkForwardCapture capture({ "feature" });
     std::vector<std::pair<std::string, torch::Tensor>> actual_trace;
     const auto actual = network->Forward(input, [&](std::string_view name, const torch::Tensor& value) {
         actual_trace.emplace_back(name, value.detach().clone());
@@ -3201,9 +3201,9 @@ TEST_CASE("Network branch capture returns the actual forward feature without cha
         CHECK(actual_trace[i].first == expected_trace[i].first);
         CHECK(torch::equal(actual_trace[i].second, expected_trace[i].second));
     }
-    REQUIRE(capture.output.defined());
-    CHECK(torch::equal(capture.output, expected.At("features")));
-    CHECK_FALSE(capture.output.requires_grad());
+    REQUIRE(capture.Get("feature").defined());
+    CHECK(torch::equal(capture.Get("feature"), expected.At("features")));
+    CHECK_FALSE(capture.Get("feature").requires_grad());
 }
 
 TEST_CASE("Plasticity metrics describe a full-rank feature matrix", "[nn][plasticity_metrics]")
@@ -4799,12 +4799,12 @@ TEST_CASE("CUDA autocast preserves Body overrides and FP32 Head and spectral cal
     auto forward = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 703);
     const anet::nn::NetworkForwardCallInfo info({.clock = 0});
     const anet::TensorDict input{{"obs", torch::ones({2, 2}, torch::TensorOptions().device(device))}};
-    anet::nn::NetworkBranchCapture capture{.branch_key="feature"};
+    anet::nn::NetworkForwardCapture capture({ "feature" });
     {
         anet::Autocast autocast(device, true, torch::kBFloat16);
         const auto output = forward->Forward(input, info, {}, &capture);
         CHECK(output.At("q").scalar_type() == torch::kFloat32);
-        CHECK(capture.output.scalar_type() == (force ? torch::kFloat32 : torch::kBFloat16));
+        CHECK(capture.Get("feature").scalar_type() == (force ? torch::kFloat32 : torch::kBFloat16));
         for (const auto& entry : network->GetSpectralNormEntries()) {
             CHECK(entry.u.scalar_type() == torch::kFloat32);
             CHECK(entry.v.scalar_type() == torch::kFloat32);
@@ -5161,4 +5161,187 @@ TEST_CASE("Network-specific Noisy executors isolate synchronized draws for all Q
     online.reset();
     target.reset();
     CHECK(torch::equal(target_forward->Forward(input, next).At("q"), target_reference->Forward(input, next).At("q")));
+}
+
+TEST_CASE("Forward capture enforces requested unique keys and preserves write order", "[nn][capture][prd093]")
+{
+    anet::nn::NetworkForwardCapture capture({ "X/", "branch" });
+    const auto value = torch::ones({ 2 });
+    CHECK(capture.Wants("X/z"));
+    CHECK_FALSE(capture.Wants("X"));
+    CHECK_FALSE(capture.Wants("XY/z"));
+    CHECK_THROWS_WITH(capture.Add("X", value), Catch::Matchers::ContainsSubstring("unrequested"));
+    capture.Add("X/z", value);
+    capture.Add("X/a", value + 1);
+    CHECK_THROWS_WITH(capture.Add("X/z", value), Catch::Matchers::ContainsSubstring("duplicate"));
+    REQUIRE(capture.Unfulfilled() == std::vector<std::string>{ "branch" });
+    capture.Add("branch", value);
+    CHECK(capture.Unfulfilled().empty());
+    const auto all = capture.GetAll("X/");
+    REQUIRE(all.size() == 2);
+    CHECK(all[0].first == "X/z");
+    CHECK(all[1].first == "X/a");
+    CHECK(torch::equal(capture.Get("X/a"), value + 1));
+    CHECK_FALSE(capture.Get("missing").defined());
+    capture.Reset();
+    CHECK_FALSE(capture.Get("branch").defined());
+    CHECK(capture.GetAll("").empty());
+    CHECK(capture.Wants("branch"));
+    CHECK(capture.Unfulfilled().size() == 2);
+}
+
+TEST_CASE("Network partial and prepared forwards reset capture and reject unmet requests", "[nn][capture][prd093]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "");
+    data.Set("net.body.output.[features]", "feature");
+    const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU);
+    anet::TensorDict input{ { "obs", torch::ones({ 2, 2 }, torch::TensorOptions().requires_grad(true)) } };
+    anet::nn::NetworkForwardCapture capture({ "feature" });
+    network->ForwardUpTo(input, "feature", &capture);
+    CHECK_FALSE(capture.Get("feature").requires_grad());
+    input.Set("obs", torch::zeros({ 2, 2 }));
+    auto executor = network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kTransientRows, 0);
+    const anet::nn::NetworkForwardCallInfo info(anet::nn::NetworkForwardCallInfo::Params{});
+    executor->Forward(input, info, {}, &capture);
+    CHECK(torch::equal(capture.Get("feature"), input.At("obs")));
+    for (const auto& request : { "missing", "TransformerEncoder/attention_entropy/" }) {
+        anet::nn::NetworkForwardCapture missing({ request });
+        CHECK_THROWS_WITH(network->Forward(input, {}, &missing), Catch::Matchers::ContainsSubstring(request));
+        CHECK_THROWS_WITH(network->Forward(input, {}, &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
+        CHECK_THROWS_WITH(network->ForwardUpTo(input, "feature", &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
+    }
+    data.Set("net.branch.[bad/name].bind", "obs");
+    data.Set("net.branch.[bad/name].structure", "");
+    CHECK_THROWS_WITH(anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU), Catch::Matchers::ContainsSubstring("must not contain '/'") );
+}
+
+TEST_CASE("Attention entropy normalizes uniform concentration and singleton sequences", "[nn][attention][prd093]")
+{
+    const auto input = torch::eye(4).unsqueeze(0).requires_grad_(true);
+    const auto zero = torch::zeros({ 8, 4 });
+    const auto uniform = anet::ComputeAttentionEntropy(input, zero, {}, 1);
+    CHECK(uniform.item<float>() == Catch::Approx(1.0f).margin(1e-6));
+    CHECK(uniform.scalar_type() == torch::kFloat32);
+    CHECK_FALSE(uniform.requires_grad());
+    const auto identity = torch::cat({ torch::eye(4), torch::eye(4) }, 0) * 20;
+    CHECK(anet::ComputeAttentionEntropy(input, identity, {}, 1).item<float>() < 1e-5f);
+    CHECK(std::isnan(anet::ComputeAttentionEntropy(input.narrow(1, 0, 1), identity, {}, 1).item<float>()));
+}
+
+TEST_CASE("Transformer entropy matches independent per-head MHA probabilities", "[nn][attention][prd093][reference]")
+{
+    EnsureNNInitialized();
+    const bool norm_first = GENERATE(false, true);
+    const bool cuda = GENERATE(false, true);
+    const bool use_sdpa = GENERATE(false, true);
+    const auto norm_mode = GENERATE(std::string("none"), std::string("spectral"), std::string("spectral_cap"));
+    if (!use_sdpa && norm_mode != "none") return;
+    if (cuda && !torch::cuda::is_available()) SKIP("CUDA unavailable; attention BF16 acceptance remains unverified");
+    const torch::Device device(cuda ? torch::kCUDA : torch::kCPU);
+    anet::ConfigData data;
+    data.Set("tf.d_model", 16); data.Set("tf.nhead", 4); data.Set("tf.num_layers", 1);
+    data.Set("tf.dim_feedforward", 32); data.Set("tf.norm_first", norm_first);
+    data.Set("tf.use_sdpa", use_sdpa); data.Set("weight_norm.mode", norm_mode);
+    anet::nn::ModuleContext construction{ .random_source = std::make_shared<anet::nn::ModuleRandomSource>(9301) };
+    auto module = anet::nn::NetworkModuleRepository::Instance().GetFactory("TransformerEncoder")->CreateModule(data, construction);
+    module->to(device); module->eval();
+    torch::NoGradGuard no_grad;
+    auto input = torch::randn({ 2, 5, 16 }, torch::TensorOptions().device(device));
+    // 非ゼロbiasも参照へ写し、Q/K biasの欠落を検出する。
+    GetNamedParameter(*module, "layer_0.self_attn.in_proj_bias").copy_(torch::linspace(-0.3, 0.3, 48, input.options()));
+    std::map<std::string, torch::Tensor> buffers;
+    for (const auto& item : module->named_buffers()) buffers.emplace(item.key(), item.value().clone());
+    const auto key = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey);
+    anet::nn::NetworkForwardCapture capture({ key });
+    const auto context = anet::nn::NetworkForwardContext::GetDefault().WithCapture(&capture);
+    torch::Tensor actual_output, ordinary_output;
+    {
+        anet::Autocast amp(device, cuda, torch::kBFloat16);
+        ordinary_output = module->Forward(input, anet::nn::NetworkForwardContext::GetDefault());
+        actual_output = module->Forward(input, context);
+    }
+    CHECK(torch::equal(ordinary_output, actual_output));
+    REQUIRE(capture.Get(key).sizes() == torch::IntArrayRef({ 1 }));
+    CHECK(capture.Get(key).scalar_type() == torch::kFloat32);
+    CHECK(capture.Get(key).device() == input.device());
+    CHECK_FALSE(capture.Get(key).requires_grad());
+
+    // 本体のQ/K射影コードは使わず、libtorch MHAのhead別確率を独立参照にする。
+    anet::Autocast disable_amp(device, false, torch::kFloat32);
+    auto weight = GetNamedParameter(*module, "layer_0.self_attn.in_proj_weight").clone();
+    if (norm_mode != "none") {
+        for (const auto& entry : module->GetSpectralNormEntries()) {
+            const int64_t offset = entry.name == "layer_0.q" ? 0 : entry.name == "layer_0.k" ? 16 : -1;
+            if (offset < 0) continue;
+            const auto raw = anet::nn::ComputeSpectralSigma(entry.weight, entry.u, entry.v);
+            const auto denominator = norm_mode == "spectral_cap" ? raw.abs().clamp_min(1.0) : raw;
+            weight.narrow(0, offset, 16).copy_(entry.weight / denominator);
+        }
+    }
+    torch::nn::MultiheadAttention mha(torch::nn::MultiheadAttentionOptions(16, 4).dropout(0));
+    mha->to(device); mha->eval();
+    mha->in_proj_weight.copy_(weight);
+    mha->in_proj_bias.copy_(GetNamedParameter(*module, "layer_0.self_attn.in_proj_bias"));
+    auto attention_input = input;
+    if (norm_first) {
+        attention_input = torch::nn::functional::layer_norm(input,
+            torch::nn::functional::LayerNormFuncOptions({ 16 })
+                .weight(GetNamedParameter(*module, "layer_0.norm1.weight"))
+                .bias(GetNamedParameter(*module, "layer_0.norm1.bias")));
+    }
+    const auto sequence = attention_input.transpose(0, 1);
+    const auto probability = std::get<1>(mha->forward(sequence, sequence, sequence, {}, true, {}, false));
+    REQUIRE(probability.sizes() == torch::IntArrayRef({ 2, 4, 5, 5 }));
+    const auto terms = torch::where(probability.gt(0), probability * probability.log(), torch::zeros_like(probability));
+    const auto expected = -terms.sum(-1).mean() / std::log(5.0);
+    CHECK(capture.Get(key)[0].item<float>() == Catch::Approx(expected.item<float>()).margin(2e-6));
+    for (const auto& item : module->named_buffers()) CHECK(torch::equal(item.value(), buffers.at(item.key())));
+}
+
+TEST_CASE("Repeated Transformer captures have stable positions and execution-order layers", "[nn][attention][capture][prd093]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.block.[TF].type", "TransformerEncoder");
+    data.Set("net.block.[TF].tf.d_model", 4); data.Set("net.block.[TF].tf.nhead", 2);
+    data.Set("net.block.[TF].tf.num_layers", 2); data.Set("net.block.[TF].tf.dim_feedforward", 8);
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "TF(*2) > Flatten");
+    data.Set("net.block.[Flatten].type", "Flatten");
+    data.Set("net.body.output.[features]", "feature");
+    const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 3, 4 }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 93, torch::kCPU);
+    network->eval();
+    anet::TensorDict input{ { "obs", torch::randn({ 2, 3, 4 }).requires_grad_(true) } };
+    const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
+    anet::nn::NetworkForwardCapture capture({ prefix, "feature" });
+    const auto ordinary = network->Forward(input);
+    const auto partial = network->ForwardUpTo(input, "feature", &capture);
+    const auto entries = capture.GetAll(prefix);
+    REQUIRE(entries.size() == 2);
+    CHECK(entries[0].first == prefix + "feature/TF_0");
+    CHECK(entries[1].first == prefix + "feature/TF_1");
+    CHECK(torch::equal(partial.At("feature"), ordinary.At("features")));
+    CHECK(torch::equal(capture.Get("feature"), partial.At("feature")));
+    for (const auto& [key, value] : entries) {
+        CHECK(value.sizes() == torch::IntArrayRef({ 2 }));
+        CHECK_FALSE(value.requires_grad());
+    }
+    const auto layers = torch::cat({ entries[0].second, entries[1].second });
+    REQUIRE(layers.numel() == 4);
+    const auto info = anet::nn::NetworkForwardCallInfo(anet::nn::NetworkForwardCallInfo::Params{});
+    auto executor = network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::nn::NetworkForwardClock::kTransientRows, 0);
+    executor->Forward(input, info, {}, &capture);
+    const auto prepared = capture.GetAll(prefix);
+    REQUIRE(prepared.size() == entries.size());
+    CHECK(torch::equal(torch::cat({ prepared[0].second, prepared[1].second }), layers));
 }

@@ -1,5 +1,6 @@
 ﻿#include "dqn_based_agent.hpp"
 #include <algorithm>
+#include <charconv>
 #include <tuple>
 #include <cmath>
 #include <limits>
@@ -520,16 +521,16 @@ anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& ob
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineUpTo(
-    const anet::TensorDict& obs, const std::string& branch_key) const
+    const anet::TensorDict& obs, const std::string& branch_key, anet::nn::NetworkForwardCapture* capture) const
 {
     torch::NoGradGuard no_grad;
     anet::TrainingModeGuard guard(*online_net_, false);
-    return online_net_->ForwardUpTo(obs, branch_key);
+    return online_net_->ForwardUpTo(obs, branch_key, capture);
 }
 
 void NetworkModel::SetBranchCaptureRequests(
-    anet::nn::NetworkBranchCapture* online_capture,
-    anet::nn::NetworkBranchCapture* target_capture)
+    anet::nn::NetworkForwardCapture* online_capture,
+    anet::nn::NetworkForwardCapture* target_capture)
 {
     online_capture_ = online_capture;
     target_capture_ = target_capture;
@@ -2088,8 +2089,11 @@ std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) c
 
 void Learner::ConfigureScalarMetricSubscriptions(
     const std::vector<ScalarMetricSubscription>& subscriptions, anet::RandomGenerator* replay_fit_probe_random,
-    anet::RandomGenerator* noisy_probe_random, const anet::nn::NetworkForwardConfig* noisy_probe_config)
+    anet::RandomGenerator* noisy_probe_random, const anet::nn::NetworkForwardConfig* noisy_probe_config,
+    anet::RandomGenerator* attention_entropy_probe_random)
 {
+    attention_ = AttentionEntropyState{};
+    attention_.random = attention_entropy_probe_random;
     grad_noise_ = GradientNoiseState{};
     plasticity_ = PlasticityState{};
     noisy_ = NoisyDiagnosticState{};
@@ -2103,6 +2107,13 @@ void Learner::ConfigureScalarMetricSubscriptions(
         if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN) continue;
         const auto& key = subscription.source_key;
         if (subscription.target == EventField::UPDATE_RESULT) {
+            if (const auto layer = ParseAttentionEntropyMetric(key)) {
+                if (subscription.interval < 1) {
+                    ANET_SYSTEM_ERROR("Invalid attention metric interval=" << subscription.interval << " key='" << key << "' expected >=1.");
+                }
+                if (config_.enabled) attention_.demand.emplace_back(*layer, subscription.interval);
+                continue;
+            }
             if (const auto metric = ParseGradientNoiseMetric(key)) {
                 grad_noise_.demand.emplace_back(*metric, subscription.interval);
                 const auto i = *metric;
@@ -2219,28 +2230,28 @@ void Learner::ConfigureScalarMetricSubscriptions(
     if (!plasticity_.online.enabled && !plasticity_.target.enabled
         && !plasticity_.probe.enabled && !plasticity_.weight_norm_enabled
         && !std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric < 8; })
-        && !grad_noise_split) return;
+        && !grad_noise_split && attention_.demand.empty()) return;
     const auto branch_names = model_.GetOnlineNetwork()->GetBranchNames();
     std::ostringstream available;
     for (size_t i = 0; i < branch_names.size(); ++i) {
         if (i > 0) available << ", ";
         available << branch_names[i];
     }
-    if (config_.plasticity.feature_key.empty()) {
-        ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.plasticity.feature_key='' is required when plasticity or gradient-noise split metrics are subscribed; available_branches=["
+    if (config_.final_feature_branch_key.empty()) {
+        ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.final_feature_branch_key='' is required when feature-boundary diagnostics are subscribed; available_branches=["
             << available.str() << "]");
     }
-    if (std::ranges::find(branch_names, config_.plasticity.feature_key) == branch_names.end()) {
-        ANET_SYSTEM_ERROR("Unknown DefaultDQNAgent.learner.plasticity.feature_key='"
-            << config_.plasticity.feature_key << "'. available_branches=[" << available.str() << "]");
+    if (std::ranges::find(branch_names, config_.final_feature_branch_key) == branch_names.end()) {
+        ANET_SYSTEM_ERROR("Unknown DefaultDQNAgent.learner.final_feature_branch_key='"
+            << config_.final_feature_branch_key << "'. available_branches=[" << available.str() << "]");
     }
     if (grad_noise_split) {
-        const auto split = model_.GetOnlineNetwork()->GetParameterSplit(config_.plasticity.feature_key);
+        const auto split = model_.GetOnlineNetwork()->GetParameterSplit(config_.final_feature_branch_key);
         for (const auto& parameter : split.feature) grad_noise_.parameters.push_back({ .parameter = parameter, .feature = true });
         for (const auto& parameter : split.readout) grad_noise_.parameters.push_back({ .parameter = parameter, .feature = false });
     }
-    plasticity_.online_capture.branch_key = config_.plasticity.feature_key;
-    plasticity_.target_capture.branch_key = config_.plasticity.feature_key;
+    plasticity_.online_capture = anet::nn::NetworkForwardCapture({ config_.final_feature_branch_key });
+    plasticity_.target_capture = anet::nn::NetworkForwardCapture({ config_.final_feature_branch_key });
 }
 
 ReplayFitRequirements anet::rl::dqn::ResolveReplayFitRequirements(
@@ -2371,7 +2382,7 @@ void Learner::CaptureNoisyDiagnostics()
     }
     if (std::ranges::any_of(std::span(request).first(8), [](bool value) { return value; })) {
         ANET_PROFILE_SCOPE(statistics);
-        const auto stats = model_.GetOnlineNetwork()->ComputeNoisyParameterStatistics(config_.plasticity.feature_key).cpu();
+        const auto stats = model_.GetOnlineNetwork()->ComputeNoisyParameterStatistics(config_.final_feature_branch_key).cpu();
         const auto values = stats.accessor<float, 1>();
         for (size_t metric = 0; metric < 8; ++metric) {
             if (request[metric]) noisy_.values[metric] = values[metric];
@@ -2411,6 +2422,48 @@ void Learner::CaptureNoisyDiagnostics()
 
 }
 
+torch::Tensor Learner::CaptureAttentionEntropy()
+{
+    bool due = false;
+    for (auto& entry : attention_.demand) if (entry.gate.ShouldFire(vars_.learn_step)) due = true;
+    if (!due) return {};
+    ANET_PROFILE_FUNC();
+
+    // 専用の非復元抽選と既存の正規化適用だけを使い、学習側の状態へ触れない。
+    if (!attention_.random) ANET_SYSTEM_ERROR("Attention entropy probe requires a dedicated RNG.");
+    torch::NoGradGuard no_grad;
+    ExperienceSamples cpu_samples;
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, *attention_.random)) return {};
+    const auto samples = cpu_samples.To(device_);
+    ValidateDeviceSamples(samples, config_.attention_entropy.probe.batch_size);
+    const auto normalized = NormalizeSampleObservations(samples);
+    const auto dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
+    anet::Autocast amp(device_, config_.use_amp, dtype);
+    const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
+    anet::nn::NetworkForwardCapture capture({ prefix });
+    model_.ForwardOnlineUpTo(normalized.obs, config_.final_feature_branch_key, &capture);
+
+    // サイズは同期せず調べ、全moduleの層を実行順に連結して一度だけCPUへ転送する。
+    std::vector<torch::Tensor> values;
+    int64_t layer_count = 0;
+    std::ostringstream written;
+    for (const auto& [key, value] : capture.GetAll(prefix)) {
+        if (value.dim() != 1 || value.scalar_type() != torch::kFloat32) {
+            ANET_SYSTEM_ERROR("Attention capture key='" << key << "' shape=" << value.sizes() << " expected FP32 [layers].");
+        }
+        written << key << ":" << value.numel() << ", ";
+        layer_count += value.numel();
+        values.push_back(value);
+    }
+    for (const auto& entry : attention_.demand) {
+        if (entry.layer >= layer_count) {
+            ANET_SYSTEM_ERROR("Invalid scalar key='attention_entropy.[" << entry.layer << "]' layer_count=" << layer_count
+                << " expected n in [0," << layer_count - 1 << "] written_keys_and_layers=[" << written.str() << "].");
+        }
+    }
+    return torch::cat(values).to(torch::kCPU);
+}
+
 void Learner::CapturePlasticityProbe()
 {
     ANET_PROFILE_SCOPE(plasticity_probe);
@@ -2426,11 +2479,11 @@ void Learner::CapturePlasticityProbe()
     const auto norm_samples = NormalizeSampleObservations(samples);
     const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
-    const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, config_.plasticity.feature_key);
-    plasticity_.probe_features = state.At(config_.plasticity.feature_key).detach();
+    const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, config_.final_feature_branch_key);
+    plasticity_.probe_features = state.At(config_.final_feature_branch_key).detach();
     if (plasticity_.probe_features.dim() != 2) {
         ANET_SYSTEM_ERROR("Plasticity probe feature must be rank-2 (N, D). feature_key='"
-            << config_.plasticity.feature_key << "' shape=" << plasticity_.probe_features.sizes());
+            << config_.final_feature_branch_key << "' shape=" << plasticity_.probe_features.sizes());
     }
     plasticity_.probe_metrics_cache.reset();
 }
@@ -3066,20 +3119,23 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->iqn_diagnostics = per_info.iqn_diagnostics;
     result->munchausen_diagnostics = per_info.munchausen_diagnostics;
     result->upper_tail_priority_spearman = per_info.upper_tail_priority_spearman;
-    if (plasticity_.online_capture.output.defined()) {
-        if (plasticity_.online_capture.output.dim() != 2) {
-            ANET_SYSTEM_ERROR("Plasticity feature must be rank-2 (N, D). feature_key='"
-                << plasticity_.online_capture.branch_key << "' shape=" << plasticity_.online_capture.output.sizes());
+    if (const auto features = plasticity_.online_capture.Get(config_.final_feature_branch_key); features.defined()) {
+        if (features.dim() != 2) {
+            ANET_SYSTEM_ERROR("Plasticity feature must be rank-2 (N, D). final_feature_branch_key='"
+                << config_.final_feature_branch_key << "' shape=" << features.sizes());
         }
-        result->plasticity_features = plasticity_.online_capture.output;
+        result->plasticity_features = features;
     }
     result->plasticity_request = plasticity_.online_request;
-    if (plasticity_.target_capture.output.defined()) {
-        if (plasticity_.target_capture.output.dim() != 2) {
-            ANET_SYSTEM_ERROR("Target plasticity feature must be rank-2 (N, D). feature_key='"
-                << plasticity_.target_capture.branch_key << "' shape=" << plasticity_.target_capture.output.sizes());
+    if (const auto features = plasticity_.target_capture.Get(config_.final_feature_branch_key); features.defined()) {
+        if (features.dim() != 2) {
+            ANET_SYSTEM_ERROR("Target plasticity feature must be rank-2 (N, D). final_feature_branch_key='"
+                << config_.final_feature_branch_key << "' shape=" << features.sizes());
         }
-        result->plasticity_target_features = plasticity_.target_capture.output;
+        // captureの鍵は一度だけ書き、joint targetの切出しは利用側の結果で行う。
+        result->plasticity_target_features = plasticity_.target_capture_batch_size
+            ? features.narrow(0, *plasticity_.target_capture_batch_size, *plasticity_.target_capture_batch_size)
+            : features;
     }
     result->plasticity_target_request = plasticity_.target_request;
     if (plasticity_.weight_norms.defined()) {
@@ -3230,8 +3286,9 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         const auto probe_request = plasticity_.probe.MakeRequest(vars_.learn_step);
         const bool measure_online = plasticity_.online_request.Any();
         const bool measure_target = plasticity_.target_request.Any();
-        plasticity_.online_capture.output = torch::Tensor();
-        plasticity_.target_capture.output = torch::Tensor();
+        plasticity_.online_capture.Reset();
+        plasticity_.target_capture.Reset();
+        plasticity_.target_capture_batch_size.reset();
         plasticity_.weight_norms = torch::Tensor();
         if (measure_online || measure_target) {
             model_.SetBranchCaptureRequests(
@@ -3250,7 +3307,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
             && vars_.learn_step % plasticity_.weight_norm_interval == 0) {
             ANET_PROFILE_SCOPE(plasticity_weight_norm);
             const auto norms = model_.GetOnlineNetwork()->ComputeParameterNormSplit(
-                config_.plasticity.feature_key);
+                config_.final_feature_branch_key);
             const auto target_invalid = model_.GetTargetNetwork()->ComputeSpectralNormValidity();
             plasticity_.weight_norms = torch::stack({
                 norms.feature,
@@ -3270,7 +3327,9 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         try {
             CaptureNoisyDiagnostics();
             const auto replay_fit = CaptureReplayFit(dev_samples);
+            const auto attention_entropy = CaptureAttentionEntropy();
             result = UpdateFromSamples(dev_samples);
+            if (attention_entropy.defined()) result->attention_entropy = attention_entropy;
             if (replay_fit) result->replay_fit_metrics = replay_fit;
             if (!noisy_.demand.empty()) result->noisy_metrics = noisy_.values;
         } catch (...) {
@@ -3442,12 +3501,12 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeMunchausenTarge
     const auto target_values = (evaluation.forwards->target->Forward(target_input, target_info, {}, evaluation.target_capture)).At("q_dist");
     torch::Tensor current_values = target_mode ? target_values.narrow(0, 0, B) : current_dist_all.detach();
     const auto next_values = target_mode ? target_values.narrow(0, B, B) : target_values;
-    if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.output.defined()) {
-        const auto& capture = plasticity_.target_capture.output;
+    if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.Get(config_.final_feature_branch_key).defined()) {
+        const auto capture = plasticity_.target_capture.Get(config_.final_feature_branch_key);
         if (capture.dim() != 2 || capture.size(0) != 2 * B) {
             ANET_SYSTEM_ERROR("Munchausen target capture expected [2B,F], actual=" << capture.sizes());
         }
-        plasticity_.target_capture.output = capture.narrow(0, B, B);
+        plasticity_.target_capture_batch_size = B;
     }
     ANET_PROFILE_SCOPE_END(forward_target);
 
@@ -3749,12 +3808,12 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
         const auto target_q = (evaluation.forwards->target->Forward(target_input, target_info, {}, evaluation.target_capture)).At("q");
         torch::Tensor current_policy_q = target_mode ? target_q.narrow(0, 0, B) : q_all.detach();
         const auto next_policy_q = target_mode ? target_q.narrow(0, B, B) : target_q;
-        if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.output.defined()) {
-            const auto& capture = plasticity_.target_capture.output;
+        if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.Get(config_.final_feature_branch_key).defined()) {
+            const auto capture = plasticity_.target_capture.Get(config_.final_feature_branch_key);
             if (capture.dim() != 2 || capture.size(0) != 2 * B) {
                 ANET_SYSTEM_ERROR("Munchausen target capture expected [2B,F], actual=" << capture.sizes());
             }
-            plasticity_.target_capture.output = capture.narrow(0, B, B);
+            plasticity_.target_capture_batch_size = B;
         }
         ANET_PROFILE_SCOPE_END(forward_target);
         if (config_.munchausen.log_policy_mode == "online") {
@@ -4231,4 +4290,20 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         loss, td_error_tensor, opt_result,
         metrics.max_q, metrics.q_sa, per_result,
         metrics.q_std, metrics.q_gap, metrics.q_gap_rel);
+}
+
+std::optional<int64_t> anet::rl::dqn::ParseAttentionEntropyMetric(std::string_view key)
+{
+    constexpr std::string_view prefix = "attention_entropy.";
+    if (!key.starts_with(prefix)) return std::nullopt;
+    const auto suffix = key.substr(prefix.size());
+    int64_t layer = -1;
+    bool valid = suffix.size() > 2 && suffix.front() == '[' && suffix.back() == ']';
+    if (valid) {
+        const auto text = suffix.substr(1, suffix.size() - 2);
+        const auto result = std::from_chars(text.data(), text.data() + text.size(), layer);
+        valid = result.ec == std::errc{} && result.ptr == text.data() + text.size() && layer >= 0;
+    }
+    if (!valid) ANET_SYSTEM_ERROR("Invalid scalar key='" << key << "'; expected attention_entropy.[n] with integer n>=0.");
+    return layer;
 }

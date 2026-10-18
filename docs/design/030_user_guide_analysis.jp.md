@@ -200,7 +200,7 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 | `4x` | probe（ReplayBuffer全域から一様・非復元でsampleし、NoGrad・eval modeで部分forward） | ON |
 | `6x` | weight norm / spectral sigma（パラメータ側。データに依存しないのでチャネルを持たない） | 61/62のみON |
 
-下1桁は3チャネル共通で、`x1` dormant / `x2` dead / `x3` feature_norm / `x4` srank / `x5` srank_ratio / `x6`-`x9` はδ違いのsrank（既定OFF）。`02` / `22` / `42`のように並べれば同じ統計をチャネル間で比べられる。チャネルは購読行の有無で独立に有効化されるので、まず解決済み`config/config_data.txt`で`learner.plasticity.feature_key`と購読行を確認する。全行`$learn_step`軸である。
+下1桁は3チャネル共通で、`x1` dormant / `x2` dead / `x3` feature_norm / `x4` srank / `x5` srank_ratio / `x6`-`x9` はδ違いのsrank（既定OFF）。`02` / `22` / `42`のように並べれば同じ統計をチャネル間で比べられる。チャネルは購読行の有無で独立に有効化されるので、まず解決済み`config/config_data.txt`で`learner.final_feature_branch_key`と購読行を確認する。全行`$learn_step`軸である。
 
 **probe系を基準に読む。** 一様サンプルなのでPERの偏りが入らず、`probe.batch_size`が特徴次元より大きければsrankの天井にも当たらない。Run間・`replay_ratio`間の比較はprobe系で行う。actual系との差はPERが見せている分布の偏りそのもので、actual系のdormantがprobe系より高ければ、PERが「表現が苦しんでいる状態」へ学習を集中させている兆候になる。
 
@@ -280,6 +280,17 @@ mode間の負荷は`forward_target`、`forward_munchausen_online`、`munchausen_
 > - Adam版を主読みとするのはoptimizerの座標系に合わせるためで、momentum・clip・weight decayを含む実更新のSNRではない。NoisyNetのepsilonは更新と同じ1抽選に固定された条件付きの値である。BatchNorm等でサンプルが結合する構成では独立サンプルのノイズとして解釈しない。
 > - 購読の発火点の和集合でEMAを更新するため、異なる間隔のrawを追加するとscaleの追従速度も変わる。既定の15行はすべて同じ間隔なので測定点がそろう。
 > - 信号の推定はノイズ優勢な領域ほど粗くなる。kを増やす効果は主に分散側で、信号側の精度にはほとんど効かない。
+
+### 4.10 Attention エントロピーを読む
+
+`48_agent_attention/01_entropy_layer0`〜`04_entropy_layer3`は、各層のattention分布のエントロピーをhead・query・sampleで平均し、0〜1へ正規化した値である。1は一様、0は1トークンへの集中を表す。層をまたいだ平均ではない。
+
+DropMerge・Atariで`run.@attention`をRunチェーンの末尾へ加えると、4層分を`learn_step`軸・interval503で記録する。測るのはその更新前のonline networkへ専用sampleをeval modeで通した値であり、学習forwardそのものの値ではない。未測定・sample不足・系列長2未満では値が成立しない。既定の到達先は`learner.final_feature_branch_key`である。
+
+各層の値が下がり続ける時期と成績の頭打ち・下降の時期を突き合わせる。固定閾値で正常・異常を判定しない。層平均なので一部headの集中を見逃し得るため、高い値でも全headの健全性を保証しない。時期が重なっても因果関係は確定しない。
+
+> [!NOTE]
+> TQLの目標0.8とは集約方法が違うので比べない。
 
 ## 5. Optuna結果を分析する
 

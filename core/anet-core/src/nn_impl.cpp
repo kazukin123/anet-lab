@@ -25,6 +25,119 @@
 
 
 using namespace anet::nn;
+
+// 完全一致と末尾スラッシュの接頭辞は、同じ要求判定を共有する。
+static bool MatchesCaptureRequest(std::string_view request, std::string_view key)
+{
+    return request.ends_with('/') ? key.starts_with(request) : key == request;
+}
+
+NetworkForwardCapture::NetworkForwardCapture(std::vector<std::string> requests)
+    : requests_(std::move(requests)) {}
+
+bool NetworkForwardCapture::Wants(std::string_view key) const
+{
+    return std::ranges::any_of(requests_, [key](const auto& request) { return MatchesCaptureRequest(request, key); });
+}
+
+void NetworkForwardCapture::Add(std::string_view key, torch::Tensor value)
+{
+    // 要求外と二重書込みを発生点で検出し、上書きで不整合を隠さない。
+    if (!Wants(key)) ANET_SYSTEM_ERROR("NetworkForwardCapture: unrequested key='" << key << "'.");
+    if (std::ranges::any_of(entries_, [key](const auto& entry) { return entry.first == key; })) {
+        ANET_SYSTEM_ERROR("NetworkForwardCapture: duplicate key='" << key << "'; expected one Tensor per key.");
+    }
+    entries_.emplace_back(std::string(key), std::move(value));
+}
+
+torch::Tensor NetworkForwardCapture::Get(std::string_view key) const
+{
+    for (const auto& [name, value] : entries_) if (name == key) return value;
+    return {};
+}
+
+std::vector<NetworkForwardCapture::Entry> NetworkForwardCapture::GetAll(std::string_view prefix) const
+{
+    // 順序は実行順のままとし、mapの辞書順へ並べ替えない。
+    std::vector<Entry> result;
+    for (const auto& entry : entries_) if (entry.first.starts_with(prefix)) result.push_back(entry);
+    return result;
+}
+
+std::vector<std::string> NetworkForwardCapture::Unfulfilled() const
+{
+    std::vector<std::string> result;
+    for (const auto& request : requests_) {
+        if (!std::ranges::any_of(entries_, [&](const auto& entry) { return MatchesCaptureRequest(request, entry.first); })) {
+            result.push_back(request);
+        }
+    }
+    return result;
+}
+
+void NetworkForwardCapture::Reset()
+{
+    entries_.clear();
+}
+
+NetworkForwardContext NetworkForwardContext::WithCapture(NetworkForwardCapture* capture) const
+{
+    auto context = *this;
+    context.capture_ = capture;
+    return context;
+}
+
+NetworkForwardContext NetworkForwardContext::WithCaptureBranch(std::string_view branch) const
+{
+    auto context = *this;
+    context.capture_branch_ = branch;
+    context.capture_block_ = {};
+    return context;
+}
+
+NetworkForwardContext NetworkForwardContext::WithCaptureBlock(std::string_view block) const
+{
+    auto context = *this;
+    context.capture_block_ = block;
+    return context;
+}
+
+std::string NetworkForwardContext::MakeCaptureKey(std::string_view key) const
+{
+    // moduleは素鍵だけを扱い、実行器が与えた位置をここで付与する。
+    std::string result(key);
+    if (!capture_branch_.empty() && !capture_block_.empty()) {
+        result += '/'; result += capture_branch_; result += '/'; result += capture_block_;
+    }
+    return result;
+}
+
+bool NetworkForwardContext::WantsCapture(std::string_view key) const
+{
+    return capture_ && capture_->Wants(MakeCaptureKey(key));
+}
+
+void NetworkForwardContext::AddCapture(std::string_view key, torch::Tensor value) const
+{
+    if (!capture_) ANET_SYSTEM_ERROR("NetworkForwardContext: capture unavailable for key='" << key << "'.");
+    capture_->Add(MakeCaptureKey(key), std::move(value));
+}
+
+static void ValidateForwardCapture(const NetworkForwardCapture& capture,
+    const std::vector<std::string>& branches, std::string_view reached)
+{
+    const auto missing = capture.Unfulfilled();
+    if (missing.empty()) return;
+    std::ostringstream message;
+    message << "Network forward capture unfulfilled requests=[";
+    for (const auto& request : missing) message << request << ", ";
+    message << "] reached_branch='" << reached << "' written_keys=[";
+    for (const auto& [key, value] : capture.GetAll("")) message << key << ", ";
+    message << "] available_branches=[";
+    for (const auto& branch : branches) message << branch << ", ";
+    message << "].";
+    ANET_SYSTEM_ERROR(message.str());
+}
 namespace LOG = anet::log;
 
 
@@ -1125,7 +1238,9 @@ torch::Tensor NetworkStruct::Forward(torch::Tensor input, const NetworkForwardCo
     const auto& execution = calls ? *calls : default_calls_;
     for (size_t block_index = 0; block_index < blocks_.size(); ++block_index) {
         const auto& block = blocks_[block_index];
-        x = execution[block_index]->Forward(x, context);
+        // captureを渡した呼び出しだけにcheckpointと同じblock位置を付ける。
+        const auto block_context = context.HasCapture() ? context.WithCaptureBlock(block->GetName()) : context;
+        x = execution[block_index]->Forward(x, block_context);
         if (callback && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
             callback(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
         }
@@ -1235,6 +1350,9 @@ NetworkBranch::NetworkBranch(
     , bind_concat_dim_(bind_concat_dim)
     , network_struct_(std::move(network_struct))
 {
+    if (name_.find('/') != std::string::npos) {
+        ANET_SYSTEM_ERROR("Network branch name='" << name_ << "' must not contain '/'.");
+    }
     register_module("network_struct", network_struct_);
 }
 
@@ -1347,7 +1465,8 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwar
         };
     }
 
-    torch::Tensor output = network_struct_->Forward(block_input, context, branch_callback, calls);
+    const auto branch_context = context.HasCapture() ? context.WithCaptureBranch(name_) : context;
+    torch::Tensor output = network_struct_->Forward(block_input, branch_context, branch_callback, calls);
     current_state.Set(name_, output);
 }
 
@@ -1374,33 +1493,25 @@ anet::TensorDict NetworkBody::Forward(
     const anet::TensorDict& input,
     const NetworkForwardContext& context,
     const anet::TraceCallback& callback,
-    NetworkBranchCapture* capture,
+    NetworkForwardCapture* capture,
     const std::vector<std::vector<NetworkModuleExecutor*>>* calls)
 {
     ANET_PROFILE_FUNC();
 
-    // 境界プレプロセッサで生データをフォーマット
+    // 前回値を破棄してから、要求を同じContext経路で各moduleへ届ける。
+    if (capture) capture->Reset();
+    const auto capture_context = context.WithCapture(capture);
     auto state = preprocessor_.Format(input);
-
-    // 入力順ソートされた順序でブランチ群を実行
     for (size_t index = 0; index < branches_.size(); ++index) {
-        branches_[index]->Execute(state, context, callback, calls ? &(*calls)[index] : nullptr);
-    }
-
-    // 要求された場合だけ、実 forward が生成した branch 出力を参照として切り離す
-    if (capture != nullptr) {
-        if (auto output = state.Get(capture->branch_key)) {
-            capture->output = output->detach();
-        } else {
-            std::ostringstream available;
-            const auto branch_names = GetBranchNames();
-            for (size_t i = 0; i < branch_names.size(); ++i) {
-                if (i > 0) available << ", ";
-                available << branch_names[i];
-            }
-            ANET_SYSTEM_ERROR("Network::Forward: unknown capture branch_key='" << capture->branch_key
-                << "'. available_branches=[" << available.str() << "]");
+        const auto& branch = branches_[index];
+        branch->Execute(state, capture_context, callback, calls ? &(*calls)[index] : nullptr);
+        if (capture && capture->Wants(branch->GetName())) {
+            capture->Add(branch->GetName(), state.At(branch->GetName()).detach());
         }
+    }
+    if (capture) {
+        const std::string_view reached = branches_.empty() ? std::string_view("<none>") : branches_.back()->GetName();
+        ValidateForwardCapture(*capture, GetBranchNames(), reached);
     }
 
     // 指定されたマッピングに従って Head用の TensorDict を構築
@@ -1415,20 +1526,24 @@ anet::TensorDict NetworkBody::Forward(
     return out;
 }
 
-anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key)
+anet::TensorDict NetworkBody::ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context,
+    const std::string& branch_key, NetworkForwardCapture* capture)
 {
     ANET_PROFILE_FUNC();
 
+    // 依存閉包だけを計算し、要求の充足はこの部分forwardの出口で検証する。
+    if (capture) capture->Reset();
+    const auto capture_context = context.WithCapture(capture);
     const auto required_branches = ComputeDependencyClosure(branch_key);
-
-    // Format 済み入力へ、閉包内 branch だけを既存のトポロジカル順で実行
     auto state = preprocessor_.Format(input);
-    for (size_t index = 0; index < branches_.size(); ++index) {
-        const auto& branch = branches_[index];
-        if (required_branches.contains(branch->GetName())) {
-            branch->Execute(state, context, {});
+    for (const auto& branch : branches_) {
+        if (!required_branches.contains(branch->GetName())) continue;
+        branch->Execute(state, capture_context, {});
+        if (capture && capture->Wants(branch->GetName())) {
+            capture->Add(branch->GetName(), state.At(branch->GetName()).detach());
         }
     }
+    if (capture) ValidateForwardCapture(*capture, GetBranchNames(), branch_key);
     return state;
 }
 
@@ -1797,7 +1912,7 @@ Network::Network(
 // 既定経路と準備済み経路で、Body・Head・精度保護の計算を共用する。
 static anet::TensorDict RunForward(
     NetworkBody& body, const anet::TensorDict& input, const NetworkForwardContext& context,
-    const anet::TraceCallback& callback, NetworkBranchCapture* capture,
+    const anet::TraceCallback& callback, NetworkForwardCapture* capture,
     const std::vector<std::vector<NetworkModuleExecutor*>>* body_calls, NetworkHeadExecutor* head_call)
 {
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
@@ -1819,15 +1934,15 @@ static anet::TensorDict RunForward(
 anet::TensorDict Network::Forward(
     const anet::TensorDict& input,
     const anet::TraceCallback& callback,
-    NetworkBranchCapture* capture)
+    NetworkForwardCapture* capture)
 {
     ANET_PROFILE_FUNC();
     return RunForward(*body_, input, NetworkForwardContext::GetDefault(), callback, capture, nullptr, head_.get());
 }
 
-anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key)
+anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key, NetworkForwardCapture* capture)
 {
-    return body_->ForwardUpTo(input, NetworkForwardContext::GetDefault(), branch_key);
+    return body_->ForwardUpTo(input, NetworkForwardContext::GetDefault(), branch_key, capture);
 }
 
 NetworkForwardCallInfo NetworkForwardCallInfo::WithRowMapping(
@@ -1902,7 +2017,7 @@ NetworkForwardExecutor::~NetworkForwardExecutor() = default;
 
 anet::TensorDict NetworkForwardExecutor::Forward(
     const anet::TensorDict& input, const NetworkForwardCallInfo& info,
-    const anet::TraceCallback& callback, NetworkBranchCapture* capture)
+    const anet::TraceCallback& callback, NetworkForwardCapture* capture)
 {
     ANET_PROFILE_FUNC();
     const auto context = impl_->MakeContext(info);

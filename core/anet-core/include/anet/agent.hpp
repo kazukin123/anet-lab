@@ -238,8 +238,13 @@ namespace anet::rl {
                 struct IqnConfig { int num_taus = 32; } iqn;
             } noisy_probe;
 
+            std::string final_feature_branch_key;
+            struct AttentionEntropyConfig {
+                struct ProbeConfig { int batch_size = 256; } probe;
+            } attention_entropy;
+
+
             struct PlasticityConfig {
-                std::string feature_key;
                 struct ProbeConfig {
                     int batch_size = 512;
                 } probe;

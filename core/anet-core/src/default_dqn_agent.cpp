@@ -455,9 +455,19 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
         data.Set("noisy.share", "batch");
         noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
     }
+    // attentionも購読された場合だけ専用抽選器を作り、他診断の乱数列と分離する。
+    const bool needs_attention = config_.learner.enabled && std::ranges::any_of(subscriptions, [](const auto& entry) {
+        return entry.scope == RunnerScope::TRAIN && entry.event == EventType::LEARN
+            && entry.target == EventField::UPDATE_RESULT && dqn::ParseAttentionEntropyMetric(entry.source_key).has_value();
+    });
+    if (needs_attention && !attention_entropy_probe_random_) {
+        anet::SeedMaker seed_maker(GetSeed());
+        attention_entropy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("attention_entropy_probe"));
+    }
     learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr,
         needs_noisy_probe ? noisy_probe_random_.get() : nullptr,
-        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr);
+        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr,
+        needs_attention ? attention_entropy_probe_random_.get() : nullptr);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const

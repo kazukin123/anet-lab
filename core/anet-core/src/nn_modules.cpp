@@ -2387,7 +2387,7 @@ public:
         norm2_ = register_module("norm2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
     }
 
-    torch::Tensor forward(torch::Tensor src)
+    torch::Tensor forward(torch::Tensor src, torch::Tensor* attention_entropy = nullptr)
     {
         ANET_PROFILE_FUNC();
 
@@ -2403,6 +2403,7 @@ public:
             ANET_PROFILE_SCOPE(attn_norm);
             torch::Tensor x_norm = norm1_->forward(x);
 
+            if (attention_entropy) *attention_entropy = MeasureAttentionEntropy(x_norm);
             ANET_PROFILE_SCOPE_NEXT(self_attn);
             torch::Tensor attn_out;
             if (use_sdpa_) {
@@ -2437,6 +2438,7 @@ public:
             // Post-LN：オリジナルTransformer相当（最終的な性能は高いが不安定）
             // ==========================================
 
+            if (attention_entropy) *attention_entropy = MeasureAttentionEntropy(x);
             ANET_PROFILE_SCOPE(self_attn);
             torch::Tensor attn_out;
             if (use_sdpa_) {
@@ -2480,6 +2482,24 @@ public:
     }
 
 private:
+    torch::Tensor MeasureAttentionEntropy(const torch::Tensor& input)
+    {
+        ANET_PROFILE_FUNC();
+
+        // SNの反復と学習用bufferを更新せず、実効Q/Kだけを診断へ渡す。
+        torch::NoGradGuard no_grad;
+        anet::Autocast disable_amp(input.device(), false, torch::kFloat32);
+        const int64_t embed = mha_->options.embed_dim();
+        auto weight = mha_->in_proj_weight.narrow(0, 0, 2 * embed);
+        if (HasSpectralNorm()) {
+            const auto qkv = mha_->in_proj_weight.chunk(3, 0);
+            weight = torch::cat({ MakeEffectiveWeight(*this, qkv[0], spectral_norm_q_),
+                MakeEffectiveWeight(*this, qkv[1], spectral_norm_k_) }, 0);
+        }
+        const auto bias = mha_->in_proj_bias.defined() ? mha_->in_proj_bias.narrow(0, 0, 2 * embed) : torch::Tensor();
+        return anet::ComputeAttentionEntropy(input, weight, bias, mha_->options.num_heads());
+    }
+
     torch::Tensor ForwardAttention(const torch::Tensor& input)
     {
         if (!HasSpectralNorm()) return anet::nn::SdpaSelfAttention(mha_, input);
@@ -2587,6 +2607,9 @@ public:
         }
 
         torch::Tensor out = input;
+        const bool capture_entropy = context.WantsCapture(kTransformerEncoderAttentionEntropyCaptureKey);
+        std::vector<torch::Tensor> entropy;
+        if (capture_entropy) entropy.reserve(layers_.size());
 
         {
             ANET_PROFILE_SCOPE(layers);
@@ -2594,13 +2617,17 @@ public:
             if (!HasSpectralNorm()) {
                 // OFF時は既存のlayer forwardだけを通し、SN計測rangeを作らない。
                 for (auto& layer : layers_) {
-                    out = layer->forward(out);
+                    torch::Tensor value;
+                    out = layer->forward(out, capture_entropy ? &value : nullptr);
+                    if (capture_entropy) entropy.push_back(std::move(value));
                 }
             } else {
                 // 全layerのSN経路を、encoderとして意味のある単一範囲で測定する。
                 ANET_PROFILE_SCOPE(spectral_norm);
                 for (auto& layer : layers_) {
-                    out = layer->forward(out);
+                    torch::Tensor value;
+                    out = layer->forward(out, capture_entropy ? &value : nullptr);
+                    if (capture_entropy) entropy.push_back(std::move(value));
                 }
             }
         }
@@ -2611,6 +2638,8 @@ public:
             out = norm_->forward(out);
         }
 
+        // 層数長のFP32 Tensorだけを持ち帰り、確率行列は各層で解放する。
+        if (capture_entropy) context.AddCapture(kTransformerEncoderAttentionEntropyCaptureKey, torch::stack(entropy));
         return out;
     }
 

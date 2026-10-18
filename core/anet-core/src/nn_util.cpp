@@ -19,6 +19,38 @@
 using namespace anet;
 
 
+torch::Tensor anet::ComputeAttentionEntropy(const torch::Tensor& input, const torch::Tensor& qk_weight,
+    const torch::Tensor& qk_bias, int64_t num_heads)
+{
+    ANET_PROFILE_FUNC();
+
+    // 射影から集約まで学習グラフ・外側autocastから切り離し、deviceは維持する。
+    torch::NoGradGuard no_grad;
+    Autocast disable_amp(input.device(), false, torch::kFloat32);
+    if (input.dim() != 3 || input.size(2) < 1 || num_heads < 1 || input.size(2) % num_heads != 0) {
+        ANET_SYSTEM_ERROR("Attention entropy expects [B,n,E], E>0 and E divisible by heads; shape="
+            << input.sizes() << " num_heads=" << num_heads);
+    }
+    const int64_t batch = input.size(0), tokens = input.size(1), embed = input.size(2);
+    if (qk_weight.dim() != 2 || qk_weight.size(0) != 2 * embed || qk_weight.size(1) != embed
+        || (qk_bias.defined() && (qk_bias.dim() != 1 || qk_bias.numel() != 2 * embed))) {
+        ANET_SYSTEM_ERROR("Attention entropy expects qk_weight=[2E,E] and optional qk_bias=[2E]; E="
+            << embed << " weight_shape=" << qk_weight.sizes());
+    }
+    if (tokens < 2) return torch::full({}, std::numeric_limits<float>::quiet_NaN(), input.options().dtype(torch::kFloat32).requires_grad(false));
+    const auto projection = torch::nn::functional::linear(input.to(torch::kFloat32), qk_weight.to(torch::kFloat32),
+        qk_bias.defined() ? qk_bias.to(torch::kFloat32) : torch::Tensor());
+    const auto qk = projection.chunk(2, -1);
+    const int64_t head_dim = embed / num_heads;
+    const auto query = qk[0].reshape({ batch, tokens, num_heads, head_dim }).transpose(1, 2);
+    const auto key = qk[1].reshape({ batch, tokens, num_heads, head_dim }).transpose(1, 2);
+
+    // log_softmaxから確率と対数を作り、ゼロ確率のlogでNaNを作らない。
+    const auto log_probability = torch::log_softmax(torch::matmul(query, key.transpose(-2, -1)) / std::sqrt(double(head_dim)), -1);
+    return -(log_probability.exp() * log_probability).sum(-1).mean() / std::log(double(tokens));
+}
+
+
 // ======================================================
 // Gradient Utilities
 // ======================================================

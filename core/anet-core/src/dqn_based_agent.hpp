@@ -7,6 +7,7 @@
 #include <optional>
 #include <limits>
 #include <span>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include "anet/agent.hpp"
@@ -22,6 +23,9 @@
 
 
 namespace anet::rl::dqn {
+
+    /// 未知keyはnullopt、認識したindexed keyの不正番号はfail-fastにする。
+    std::optional<int64_t> ParseAttentionEntropyMetric(std::string_view key);
 
     inline constexpr std::array<const char*, 5> kMunchausenMetricKeys = {
         "munchausen_scaled_log_policy_mean", "munchausen_clip_ratio", "munchausen_bonus_mean",
@@ -260,6 +264,7 @@ namespace anet::rl::dqn {
         mutable std::optional<anet::nn::PlasticityMetrics> plasticity_metrics_cache;
         mutable std::optional<anet::nn::PlasticityMetrics> plasticity_target_metrics_cache;
 
+        torch::Tensor attention_entropy; ///< 測定した更新だけに属する全層のCPU FP32値。
         // policy churn の 7 scalar を key 順に保持する CPU float32 pack。
         torch::Tensor policy_churn_metrics;
         std::optional<NoisyMetrics> noisy_metrics; ///< 購読した更新だけに属する診断値。
@@ -270,6 +275,12 @@ namespace anet::rl::dqn {
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
+            if (const auto layer = ParseAttentionEntropyMetric(key)) {
+                if (!attention_entropy.defined() || *layer >= attention_entropy.numel()) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                return attention_entropy.data_ptr<float>()[*layer];
+            }
             if (const auto metric = ParseGradientNoiseMetric(key)) {
                 return grad_noise ? (*grad_noise)[*metric] : std::numeric_limits<float>::quiet_NaN();
             }
@@ -689,13 +700,14 @@ namespace anet::rl::dqn {
 
         /// 訓練モードを一時的に有効にし、復元して返す。
         anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const;
-        anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key) const;
+        anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key,
+            anet::nn::NetworkForwardCapture* capture = nullptr) const;
         void SetBranchCaptureRequests(
-            anet::nn::NetworkBranchCapture* online_capture,
-            anet::nn::NetworkBranchCapture* target_capture);
+            anet::nn::NetworkForwardCapture* online_capture,
+            anet::nn::NetworkForwardCapture* target_capture);
         void ClearBranchCaptureRequests();
         /// 更新中に設定されたtargetの取得要求。診断のtarget計算には使用しない。
-        anet::nn::NetworkBranchCapture* GetTargetBranchCapture() const { return target_capture_; }
+        anet::nn::NetworkForwardCapture* GetTargetBranchCapture() const { return target_capture_; }
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
@@ -729,8 +741,8 @@ namespace anet::rl::dqn {
 
         int64_t n_actions_;
         bool distributional_;
-        anet::nn::NetworkBranchCapture* online_capture_ = nullptr;
-        anet::nn::NetworkBranchCapture* target_capture_ = nullptr;
+        anet::nn::NetworkForwardCapture* online_capture_ = nullptr;
+        anet::nn::NetworkForwardCapture* target_capture_ = nullptr;
     };
 
 
@@ -774,7 +786,7 @@ namespace anet::rl::dqn {
         bool diagnostic = false;
         anet::nn::NetworkForwardCallInfo info{{}};
         const TargetForwards* forwards = nullptr; ///< 選択された用途ペア。同期target計算中だけ参照する。
-        anet::nn::NetworkBranchCapture* target_capture = nullptr; ///< 通常更新のtarget取得要求。診断ではnullptr。
+        anet::nn::NetworkForwardCapture* target_capture = nullptr; ///< 通常更新のtarget取得要求。診断ではnullptr。
         std::function<torch::Tensor(int64_t)> current_taus;
         std::function<torch::Tensor(int64_t)> target_taus;
     };
@@ -981,7 +993,8 @@ namespace anet::rl::dqn {
             const std::vector<ScalarMetricSubscription>& subscriptions,
             anet::RandomGenerator* replay_fit_probe_random = nullptr,
             anet::RandomGenerator* noisy_probe_random = nullptr,
-            const anet::nn::NetworkForwardConfig* noisy_probe_config = nullptr);
+            const anet::nn::NetworkForwardConfig* noisy_probe_config = nullptr,
+            anet::RandomGenerator* attention_entropy_probe_random = nullptr);
 
         virtual ~Learner() = default;
     public:
@@ -1037,6 +1050,7 @@ namespace anet::rl::dqn {
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
+        torch::Tensor CaptureAttentionEntropy();
         void CaptureNoisyDiagnostics();
         std::optional<GradientNoiseMetrics> CaptureGradientNoise(const torch::Tensor& weighted_element_loss);
         void CapturePlasticityProbe();
@@ -1096,6 +1110,15 @@ namespace anet::rl::dqn {
             NoisyMetrics values;
             NoisyDiagnosticState() { values.fill(std::numeric_limits<float>::quiet_NaN()); }
         } noisy_;
+        struct AttentionEntropyState {
+            struct DemandEntry {
+                int64_t layer;
+                anet::IntervalGate gate;
+                DemandEntry(int64_t layer, int interval) : layer(layer), gate(static_cast<uint64_t>(interval)) {}
+            };
+            std::vector<DemandEntry> demand;
+            anet::RandomGenerator* random = nullptr; ///< Agent所有の専用Resourceを借用する。
+        } attention_;
         struct PlasticityState {
             struct DemandEntry {
                 anet::nn::PlasticityMetric metric;
@@ -1131,8 +1154,9 @@ namespace anet::rl::dqn {
             ChannelDemand probe;
             bool weight_norm_enabled = false;
             int weight_norm_interval = 1;
-            anet::nn::NetworkBranchCapture online_capture;
-            anet::nn::NetworkBranchCapture target_capture;
+            anet::nn::NetworkForwardCapture online_capture;
+            anet::nn::NetworkForwardCapture target_capture;
+            std::optional<int64_t> target_capture_batch_size; ///< joint targetの後半だけを結果へ載せる。
             anet::nn::PlasticityMetricRequest online_request;
             anet::nn::PlasticityMetricRequest target_request;
             anet::nn::PlasticityMetricRequest probe_request;

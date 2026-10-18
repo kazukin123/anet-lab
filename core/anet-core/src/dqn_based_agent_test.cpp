@@ -5072,10 +5072,10 @@ TEST_CASE("DefaultDQNAgentConfig reads fused optimizer setting", "[dqn][config][
 TEST_CASE("DefaultDQNAgentConfig reads and validates plasticity probe settings", "[dqn][config][plasticity]")
 {
     anet::ConfigData config_data;
-    config_data.Set("DefaultDQNAgent.learner.plasticity.feature_key", "main_feature");
+    config_data.Set("DefaultDQNAgent.learner.final_feature_branch_key", "main_feature");
     config_data.Set("DefaultDQNAgent.learner.plasticity.probe.batch_size", 512);
     const dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(config_data));
-    CHECK(config.learner.plasticity.feature_key == "main_feature");
+    CHECK(config.learner.final_feature_branch_key == "main_feature");
     CHECK(config.learner.plasticity.probe.batch_size == 512);
 
     config_data.Set("DefaultDQNAgent.learner.plasticity.probe.batch_size", 0);
@@ -6062,7 +6062,7 @@ TEST_CASE("DQN learner reports subscribed parameter norm without activating feat
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = 2.0f;
-    config.plasticity.feature_key = kFeatureKey;
+    config.final_feature_branch_key = kFeatureKey;
     auto env_spec = MakeLearnerEnvSpec();
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.EnablePlasticityForward(false);
@@ -6133,7 +6133,7 @@ TEST_CASE("DQN parameter norm records the value before the learner update", "[dq
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = 2.0f;
-    config.plasticity.feature_key = kFeatureKey;
+    config.final_feature_branch_key = kFeatureKey;
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
     learner.EnablePlasticityForward(false);
     learner.MutateOnlineParametersDuringUpdate(1.0f);
@@ -6167,7 +6167,7 @@ TEST_CASE("DQN plasticity subscriptions gate actual target and probe work indepe
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = 2.0f;
-    config.plasticity.feature_key = kFeatureKey;
+    config.final_feature_branch_key = kFeatureKey;
     config.plasticity.probe.batch_size = 2;
     auto env_spec = MakeLearnerEnvSpec();
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
@@ -6248,7 +6248,7 @@ TEST_CASE("DQN plasticity probe survives later updates in the same LearnEvent",
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = 8.0f;
-    config.plasticity.feature_key = kFeatureKey;
+    config.final_feature_branch_key = kFeatureKey;
     config.plasticity.probe.batch_size = 2;
     TestLearner learner(
         config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
@@ -6294,7 +6294,7 @@ TEST_CASE("DQN plasticity srank interval reduces SVD executions independently of
         config.update_warmup_steps = 0;
         config.update_interval = 1;
         config.replay_ratio = 2.0f;
-        config.plasticity.feature_key = kFeatureKey;
+        config.final_feature_branch_key = kFeatureKey;
         TestLearner learner(
             config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
         learner.EnablePlasticityForward(true);
@@ -6344,7 +6344,7 @@ TEST_CASE("DQN plasticity feature key is validated only when subscribed", "[dqn]
     dqn::RuntimeVars vars;
     auto env_spec = MakeLearnerEnvSpec();
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
-    config.plasticity.feature_key.clear();
+    config.final_feature_branch_key.clear();
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({}));
     CHECK_THROWS(learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
@@ -6357,7 +6357,7 @@ TEST_CASE("DQN plasticity feature key is validated only when subscribed", "[dqn]
     } }));
 
     dqn::LearnerConfig unknown_config = WithDefaultLearnerForwardConfig();
-    unknown_config.plasticity.feature_key = "missing";
+    unknown_config.final_feature_branch_key = "missing";
     TestLearner unknown_learner(unknown_config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     CHECK_THROWS_WITH(unknown_learner.ConfigureScalarMetricSubscriptions({ rl::ScalarMetricSubscription{
         .source_key = "plasticity_srank",
@@ -7171,7 +7171,7 @@ TEST_CASE("Noisy statistics subscriptions capture pre-update values without runn
     config.replay_batch_size = 2;
     config.update_warmup_steps = 0;
     config.replay_ratio = 2;
-    config.plasticity.feature_key = "feature";
+    config.final_feature_branch_key = "feature";
     dqn::RuntimeVars vars;
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{1, 1}, env_spec, SelectLearnerForwardResources(data));
     learner.EnablePlasticityForward(false);
@@ -7371,7 +7371,7 @@ TEST_CASE("Noisy diagnostics preserve TD QR IQN updates and spectral buffers acr
     config.num_quantiles = 5;
     config.iqn.current_taus.num_taus = 4;
     config.iqn.target_taus.num_taus = 4;
-    config.plasticity.feature_key = "feature";
+    config.final_feature_branch_key = "feature";
     config.noisy_probe.probe.batch_size = 2;
     config.noisy_probe.num_draws = 3;
     config.noisy_probe.iqn.num_taus = 4;
@@ -7878,7 +7878,7 @@ TEST_CASE("Gradient noise shares measurement points and publishes all fifteen ke
     auto config = MakeNoisyOptimizerLearnerConfig(data);
     config.replay_batch_size = 8;
     config.replay_ratio = 8;
-    config.plasticity.feature_key = "feature";
+    config.final_feature_branch_key = "feature";
     config.grad_noise.num_micro_batches = 2;
     config.grad_noise.ema_alpha = 1;
     dqn::RuntimeVars vars;
@@ -7990,7 +7990,7 @@ TEST_CASE("Gradient noise is noninterfering through TD QR IQN FP32 and CUDA BF16
     config.num_quantiles = 5;
     config.iqn.current_taus.num_taus = 4;
     config.iqn.target_taus.num_taus = 4;
-    config.plasticity.feature_key = "feature";
+    config.final_feature_branch_key = "feature";
     config.noisy_probe.probe.batch_size = 2;
     config.noisy_probe.num_draws = 3;
     config.noisy_probe.iqn.num_taus = 4;
@@ -8170,8 +8170,8 @@ TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
     CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_signal_raw") }));
     CHECK_THROWS_WITH(learner.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_signal_adam_feature_raw") }),
-        Catch::Matchers::ContainsSubstring("feature_key"));
-    config.plasticity.feature_key = "missing";
+        Catch::Matchers::ContainsSubstring("final_feature_branch_key"));
+    config.final_feature_branch_key = "missing";
     TestLearner unknown(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
     CHECK_THROWS_WITH(unknown.ConfigureScalarMetricSubscriptions({ subscription("grad_noise_scale_adam_feature") }),
         Catch::Matchers::ContainsSubstring("available_branches"));
@@ -8316,4 +8316,300 @@ TEST_CASE("Gradient noise publishes NaN scales for a nonpositive smoothed signal
             CHECK(std::isfinite(value("grad_noise_ratio_adam")));
         }
     }
+}
+
+TEST_CASE("Attention update results expose indexed sparse values", "[dqn][attention][prd093]")
+{
+    dqn::BatchUpdateResult result;
+    REQUIRE(result.GetScalar("attention_entropy.[0]").has_value());
+    CHECK(std::isnan(*result.GetScalar("attention_entropy.[0]")));
+    result.attention_entropy = torch::tensor({ 0.25f, 0.75f });
+    CHECK(*result.GetScalar("attention_entropy.[0]") == 0.25f);
+    CHECK(*result.GetScalar("attention_entropy.[1]") == 0.75f);
+    CHECK_FALSE(result.GetScalar("unknown_attention").has_value());
+    for (const auto& key : { "attention_entropy.[-1]", "attention_entropy.[x]", "attention_entropy.[1.5]", "attention_entropy.[]", "attention_entropy.[9223372036854775808]" }) {
+        CHECK_THROWS_WITH(result.GetScalar(key), Catch::Matchers::ContainsSubstring(key));
+    }
+}
+
+namespace {
+std::shared_ptr<anet::nn::Network> MakeAttentionProbeTestNetwork(bool transformer = true)
+{
+    // productionのbuilderを使い、vector観測から二つのTransformerへ接続する。
+    anet::nn::InitNN();
+    anet::ConfigData data;
+    data.Set("net.block.[Expand].type", "Linear");
+    data.Set("net.block.[Expand].linear.out_features", 4);
+    data.Set("net.block.[Tokens].type", "Reshape");
+    data.Set("net.block.[Tokens].reshape.dims", "2 2");
+    data.Set("net.block.[TF].type", "TransformerEncoder");
+    data.Set("net.block.[TF].tf.d_model", 2); data.Set("net.block.[TF].tf.nhead", 1);
+    data.Set("net.block.[TF].tf.num_layers", 2); data.Set("net.block.[TF].tf.dim_feedforward", 4);
+    data.Set("net.block.[TF].tf.norm_first", false);
+    data.Set("net.block.[Flatten].type", "Flatten");
+    data.Set("net.branch.[feature].bind", kVectorKey);
+    data.Set("net.branch.[feature].structure", transformer ? "Expand > Tokens > TF(*2) > Flatten" : "Expand > Flatten");
+    data.Set("net.body.output.[features]", "feature");
+    const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 };
+    return anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{ { kVectorKey, spec } },
+        std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{}), 9302, torch::kCPU);
+}
+
+class AttentionProbeTestNetworkModel final : public dqn::NetworkModel {
+public:
+    AttentionProbeTestNetworkModel(std::shared_ptr<anet::nn::Network> online, std::shared_ptr<anet::nn::Network> target)
+        : dqn::NetworkModel(dqn::NetworkModelConfig{}, std::move(online), std::move(target), 1, false) {}
+};
+
+rl::ScalarMetricSubscription AttentionSubscription(int64_t layer, int interval = 1)
+{
+    return { .source_key = "attention_entropy.[" + std::to_string(layer) + "]", .event = rl::EventType::LEARN,
+        .target = rl::EventField::UPDATE_RESULT, .interval = interval, .scope = rl::RunnerScope::TRAIN };
+}
+}
+
+TEST_CASE("Attention probe uses the union of subscription intervals and returns pre-update values", "[dqn][attention][prd093]")
+{
+    auto online = MakeAttentionProbeTestNetwork(), target = MakeAttentionProbeTestNetwork();
+    online->CopyTo(*target);
+    AttentionProbeTestNetworkModel model(online, target);
+    dqn::RuntimeVars vars;
+    auto config = WithDefaultLearnerForwardConfig();
+    config.final_feature_branch_key = "feature"; config.attention_entropy.probe.batch_size = 2;
+    config.replay_batch_size = 2; config.update_warmup_steps = 0; config.update_interval = 1; config.replay_ratio = 2;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
+    learner.EnablePlasticityForward(false);
+    learner.MutateOnlineParametersDuringUpdate(0.1f);
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 2 }); replay->unique_sample_enabled = true; replay->vector_value = 1;
+    learner.UseReplayBuffer(replay);
+    anet::RandomGenerator probe_random(9303);
+    learner.ConfigureScalarMetricSubscriptions({ AttentionSubscription(0, 3), AttentionSubscription(3, 2) },
+        nullptr, nullptr, nullptr, &probe_random);
+    int due_count = 0;
+    std::shared_ptr<const rl::BatchUpdateResult> first;
+    float first_value = 0;
+    for (int step = 0; step < 6; ++step) {
+        // 同じ観測と更新前の重みで独立にprobeの期待値を採る。
+        torch::Tensor expected;
+        {
+            torch::NoGradGuard no_grad;
+            anet::TrainingModeGuard guard(*online, false);
+            const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
+            anet::nn::NetworkForwardCapture capture({ prefix });
+            online->ForwardUpTo(anet::TensorDict{ { kVectorKey, torch::ones({ 2, 2 }) } }, "feature", &capture);
+            const auto entries = capture.GetAll(prefix);
+            expected = torch::cat({ entries[0].second, entries[1].second });
+        }
+        const auto result = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+        const bool due = step % 3 == 0 || step % 2 == 0;
+        if (due) {
+            ++due_count;
+            CHECK(*result->GetScalar("attention_entropy.[0]") == Catch::Approx(expected[0].item<float>()).margin(1e-6));
+            CHECK(*result->GetScalar("attention_entropy.[3]") == Catch::Approx(expected[3].item<float>()).margin(1e-6));
+        } else CHECK(std::isnan(*result->GetScalar("attention_entropy.[0]")));
+        CHECK(replay->unique_sample_count == due_count);
+        if (step == 0) { first = result; first_value = *result->GetScalar("attention_entropy.[0]"); }
+    }
+    CHECK(*first->GetScalar("attention_entropy.[0]") == first_value);
+    replay->unique_sample_enabled = false;
+    const auto missing = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(std::isnan(*missing->GetScalar("attention_entropy.[0]")));
+    const auto samples = replay->unique_sample_count;
+    learner.ConfigureScalarMetricSubscriptions({});
+    const auto inactive = learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}).front();
+    CHECK(std::isnan(*inactive->GetScalar("attention_entropy.[0]")));
+    CHECK(replay->unique_sample_count == samples);
+}
+
+TEST_CASE("Attention subscriptions reject malformed indices and unavailable layers at the intended boundary", "[dqn][attention][prd093][validation]")
+{
+    const bool transformer = GENERATE(false, true);
+    auto online = MakeAttentionProbeTestNetwork(transformer), target = MakeAttentionProbeTestNetwork(transformer);
+    AttentionProbeTestNetworkModel model(online, target);
+    dqn::RuntimeVars vars;
+    auto config = WithDefaultLearnerForwardConfig();
+    config.final_feature_branch_key = "feature"; config.attention_entropy.probe.batch_size = 2;
+    config.replay_batch_size = 2; config.update_warmup_steps = 0; config.update_interval = 1; config.replay_ratio = 2;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
+    learner.EnablePlasticityForward(false);
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({ 2 }); replay->unique_sample_enabled = true;
+    learner.UseReplayBuffer(replay);
+    auto invalid = AttentionSubscription(0); invalid.source_key = "attention_entropy.[-1]";
+    CHECK_THROWS_WITH(learner.ConfigureScalarMetricSubscriptions({ invalid }), Catch::Matchers::ContainsSubstring(invalid.source_key));
+    anet::RandomGenerator probe_random(9304);
+    CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({ AttentionSubscription(4) }, nullptr, nullptr, nullptr, &probe_random));
+    CHECK(replay->unique_sample_count == 0);
+    const bool training_before = online->is_training();
+    std::map<std::string, torch::Tensor> buffers_before;
+    for (const auto& entry : online->named_buffers()) buffers_before.emplace(entry.key(), entry.value().clone());
+    CHECK_THROWS_WITH(learner.UpdateFromBatch(rl::StepCounts{}, rl::BatchExperience{}),
+        Catch::Matchers::ContainsSubstring(transformer ? "layer_count=4" : "unfulfilled"));
+    CHECK(online->is_training() == training_before);
+    for (const auto& entry : online->named_buffers()) CHECK(torch::equal(entry.value(), buffers_before.at(entry.key())));
+}
+
+
+TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers", "[dqn][attention][prd093][determinism]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto mode = GENERATE(std::string("none"), std::string("qr"), std::string("iqn"));
+    const bool dueling = true;
+    const bool cuda = GENERATE(false, true);
+    if (cuda && !torch::cuda::is_available()) SKIP("CUDA unavailable; attention BF16 acceptance remains unverified");
+    const torch::Device device(cuda ? torch::kCUDA : torch::kCPU);
+    const auto munch = GENERATE(std::string("disabled"), std::string("target"), std::string("online"), std::string("online_reuse"));
+    CAPTURE(mode, dueling, munch);
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.quantile_mode", mode);
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.mode", "sample");
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.hold", "call");
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.share", "sample");
+    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "sample");
+    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "sample");
+    data.Set("net.block.[Feature].type", "Linear");
+    data.Set("net.block.[Feature].linear.out_features", 4);
+    data.Set("net.block.[Feature].weight_norm.mode", "spectral");
+    data.Set("net.block.[Feature].noisy.enabled", true);
+    data.Set("net.branch.[feature].bind", kVectorKey);
+    data.Set("net.branch.[feature].structure", "Feature > Tokens > TF > Flatten");
+    data.Set("net.block.[Tokens].type", "Reshape"); data.Set("net.block.[Tokens].reshape.dims", "2 2");
+    data.Set("net.block.[TF].type", "TransformerEncoder");
+    data.Set("net.block.[TF].tf.d_model", 2); data.Set("net.block.[TF].tf.nhead", 1);
+    data.Set("net.block.[TF].tf.num_layers", 2); data.Set("net.block.[TF].tf.dim_feedforward", 4);
+    data.Set("net.block.[TF].tf.hidden_dropout_rate", 0.1);
+    data.Set("net.block.[TF].weight_norm.mode", "spectral");
+    data.Set("net.block.[Flatten].type", "Flatten");
+    data.Set("net.body.output.[features]", "feature");
+    auto specs = MakeLearnerEnvSpec().state_spec.obs_spec;
+    if (mode == "iqn") {
+        data.Set("net.block.[Cos].type", "CosineEmbedding");
+        data.Set("net.block.[Cos].cos.num_basis", 4);
+        data.Set("net.block.[Tau].type", "Linear");
+        data.Set("net.block.[Tau].linear.out_features", 4);
+        data.Set("net.branch.[tau].bind", anet::nn::kKey_Taus);
+        data.Set("net.branch.[tau].structure", "Cos > Tau");
+        data.Set("net.branch.[fusion].bind", "feature * tau");
+        data.Set("net.body.output.[features]", "fusion");
+        specs[anet::nn::kKey_Taus] = anet::TensorSpec{.type=anet::SpaceType::Vector, .shape={4}, .dtype=torch::kFloat32};
+    }
+    anet::ConfigData projection;
+    projection.Set("noisy.enabled", true);
+    std::shared_ptr<anet::nn::NetworkHeadFactory> factory;
+    const anet::nn::WeightInitConfig init{};
+    if (mode == "none") {
+        if (dueling) factory = std::make_shared<dqn::DuelingHeadFactory>(2, init, projection);
+        else factory = std::make_shared<dqn::LinearHeadFactory>(2, init, projection);
+    } else if (mode == "qr") {
+        if (dueling) factory = std::make_shared<dqn::QuantileDuelingHeadFactory>(2, 5, init, projection);
+        else factory = std::make_shared<dqn::QuantileHeadFactory>(2, 5, init, projection);
+    } else {
+        if (dueling) factory = std::make_shared<dqn::IQNDuelingHeadFactory>(2, init, projection);
+        else factory = std::make_shared<dqn::IQNHeadFactory>(2, init, projection);
+    }
+    dqn::NetworkModelConfig model_config{};
+    model_config.hard_update_interval = 2;
+    torch::manual_seed(441);
+    dqn::NetworkModel first(model_config, device, anet::nn::NetworkConfig(data), specs, 2, factory, mode != "none", 441);
+    torch::manual_seed(441);
+    dqn::NetworkModel second(model_config, device, anet::nn::NetworkConfig(data), specs, 2, factory, mode != "none", 441);
+    auto config = dqn::DefaultDQNAgentConfig(data).learner;
+    config.quantile_mode = mode;
+    config.num_quantiles = 5;
+    config.iqn.current_taus.num_taus = 4;
+    config.iqn.target_taus.num_taus = 4;
+    config.final_feature_branch_key = "feature";
+    config.attention_entropy.probe.batch_size = 2;
+    config.replay_batch_size = 2;
+    config.replay_capacity = 32;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.use_per = true;
+    config.use_n_step = false;
+    config.use_rb_prefetch = false;
+    config.use_fused_optimizer = false;
+    config.use_amp = cuda;
+    config.use_amp_bf16 = true;
+    config.use_grad_clip = true;
+    config.grad_clip_tau = 0.7f;
+    config.noisy_weight_decay = 0.1f;
+    config.munchausen.enabled = munch != "disabled";
+    config.munchausen.log_policy_mode = munch == "disabled" ? "target" : munch;
+    config.use_double_dqn = !config.munchausen.enabled;
+    auto env_spec = MakeLearnerEnvSpec();
+    env_spec.action_spec.value_labels = {"a0", "a1"};
+    rl::ObservationNormalizerConfig normalization_config;
+    normalization_config.use_robust_update = false;
+    auto normalizer = rl::ObservationNormalizerFactory(normalization_config).CreateObservationNormalizer(env_spec.state_spec);
+    normalizer->NormalizeAndUpdateStats(anet::TensorDict{ { kVectorKey, torch::ones({ 2, 2 }, torch::TensorOptions().device(device)) } });
+    const auto count_before = normalizer->GetScalar(rl::ObservationNormalizer::kKeyCount);
+    REQUIRE(count_before.has_value());
+    dqn::RuntimeVars first_vars, second_vars;
+    auto make_learner = [&](dqn::NetworkModel& model, dqn::RuntimeVars& vars) -> std::unique_ptr<dqn::Learner> {
+        dqn::ActionPolicyConfig policy_config;
+        policy_config.quantile_mode = mode;
+        policy_config.tau_rule.num_taus = 4;
+        auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
+        if (mode == "none") return std::make_unique<dqn::TDLearner>(config, model, vars, normalizer,
+            rl::BatchEnvSpec{2, 1}, env_spec, device, 442, policy, SelectLearnerForwardResources(data), std::nullopt, 443, nullptr, nullptr);
+        if (mode == "qr") return std::make_unique<dqn::QRLearner>(config, model, vars, normalizer,
+            rl::BatchEnvSpec{2, 1}, env_spec, device, 442, policy, SelectLearnerForwardResources(data), std::nullopt, 443, nullptr, nullptr);
+        return std::make_unique<dqn::IQNLearner>(config, model, vars, normalizer,
+            rl::BatchEnvSpec{2, 1}, env_spec, device, 442, policy, SelectLearnerForwardResources(data), std::nullopt, 443, nullptr, nullptr);
+    };
+    auto measured = make_learner(first, first_vars);
+    auto ordinary = make_learner(second, second_vars);
+    anet::RandomGenerator probe_random(9305);
+    measured->ConfigureScalarMetricSubscriptions({ AttentionSubscription(0), AttentionSubscription(1) },
+        nullptr, nullptr, nullptr, &probe_random);
+    ordinary->ConfigureScalarMetricSubscriptions({});
+    auto compare_networks = [](const auto& lhs, const auto& rhs) {
+        const auto other_parameters = rhs->named_parameters();
+        for (const auto& entry : lhs->named_parameters()) {
+            CAPTURE(entry.key());
+            CHECK(torch::equal(entry.value(), other_parameters[entry.key()]));
+            if (entry.value().grad().defined()) CHECK(torch::equal(entry.value().grad(), other_parameters[entry.key()].grad()));
+        }
+        const auto other_buffers = rhs->named_buffers();
+        for (const auto& entry : lhs->named_buffers()) CHECK(torch::equal(entry.value(), other_buffers[entry.key()]));
+    };
+    compare_networks(first.GetOnlineNetwork(), second.GetOnlineNetwork());
+    compare_networks(first.GetTargetNetwork(), second.GetTargetNetwork());
+    size_t probes = 0;
+    for (rl::step_t step = 0; step < 20; ++step) {
+        const auto experience = MakeDeterminismExperience(step, 2);
+        torch::manual_seed(930500 + step);
+        const auto left = measured->UpdateFromBatch(rl::StepCounts{.exp_step=step}, experience);
+        torch::manual_seed(930500 + step);
+        const auto right = ordinary->UpdateFromBatch(rl::StepCounts{.exp_step=step}, experience);
+        REQUIRE(left.size() == right.size());
+        for (size_t update = 0; update < left.size(); ++update) {
+            for (const auto key : {"loss", "grad_norm", "q_sa_mean", "td_mean"}) {
+                const auto a = left[update]->GetScalar(key);
+                const auto b = right[update]->GetScalar(key);
+                REQUIRE(a.has_value() == b.has_value());
+                if (a && b) CHECK((*a == *b || (std::isnan(*a) && std::isnan(*b))));
+            }
+            const auto value = left[update]->GetScalar("attention_entropy.[0]");
+            REQUIRE(value.has_value());
+            if (std::isfinite(*value)) ++probes;
+            CHECK(std::isnan(*right[update]->GetScalar("attention_entropy.[0]")));
+        }
+        CHECK(first_vars.learn_step == second_vars.learn_step);
+        CHECK(normalizer->GetScalar(rl::ObservationNormalizer::kKeyCount) == count_before);
+        CHECK(torch::equal(measured->GetRandomGenerator()->GetTorchGenerator(device).get_state(),
+            ordinary->GetRandomGenerator()->GetTorchGenerator(device).get_state()));
+        CHECK(measured->GetRandomGenerator()->RandUint64() == ordinary->GetRandomGenerator()->RandUint64());
+        CHECK(first.GetOnlineNetwork()->is_training() == second.GetOnlineNetwork()->is_training());
+        const auto left_eviction = measured->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+        const auto right_eviction = ordinary->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+        REQUIRE(left_eviction.has_value() == right_eviction.has_value());
+        if (left_eviction) CHECK((*left_eviction == *right_eviction || (std::isnan(*left_eviction) && std::isnan(*right_eviction))));
+        compare_networks(first.GetOnlineNetwork(), second.GetOnlineNetwork());
+        compare_networks(first.GetTargetNetwork(), second.GetTargetNetwork());
+    }
+    CHECK(probes >= 2);
 }

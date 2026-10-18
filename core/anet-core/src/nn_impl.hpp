@@ -146,8 +146,16 @@ namespace anet::nn {
     public:
         static NetworkForwardContext GetDefault();
     public:
-        NetworkForwardContext(NetworkForwardState* state, const NetworkForwardCallInfo& info)
-            : state_(state), info_(info) {}
+        NetworkForwardContext(NetworkForwardState* state, const NetworkForwardCallInfo& info,
+            NetworkForwardCapture* capture = nullptr)
+            : state_(state), info_(info), capture_(capture) {}
+
+        bool HasCapture() const { return capture_ != nullptr; }
+        NetworkForwardContext WithCapture(NetworkForwardCapture* capture) const;
+        NetworkForwardContext WithCaptureBranch(std::string_view branch) const;
+        NetworkForwardContext WithCaptureBlock(std::string_view block) const;
+        bool WantsCapture(std::string_view key) const;
+        void AddCapture(std::string_view key, torch::Tensor value) const;
 
         NetworkForwardState* GetState() const { return state_; }
         uint64_t GetClock() const { return info_.GetClock(); }
@@ -156,6 +164,10 @@ namespace anet::nn {
     private:
         NetworkForwardState* const state_;
         const NetworkForwardCallInfo& info_;
+        NetworkForwardCapture* capture_ = nullptr; ///< 呼び出し側所有。同期Forward中だけ借用する。
+        std::string_view capture_branch_;
+        std::string_view capture_block_;
+        std::string MakeCaptureKey(std::string_view key) const;
     };
 
     // 射影の共用は数値演算だけとし、設定の解釈や保持境界は呼び出す具象クラスが所有する。
@@ -426,9 +438,10 @@ namespace anet::nn {
             const anet::TensorDict& input,
             const NetworkForwardContext& context,
             const anet::TraceCallback& callback = {},
-            NetworkBranchCapture* capture = nullptr,
+            NetworkForwardCapture* capture = nullptr,
             const std::vector<std::vector<NetworkModuleExecutor*>>* calls = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key,
+            NetworkForwardCapture* capture = nullptr);
         std::set<std::string> ComputeDependencyClosure(const std::string& branch_key) const;
         std::vector<std::string> GetBranchNames() const;
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }

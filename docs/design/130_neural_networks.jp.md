@@ -320,15 +320,21 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 - forward、attention、主要blockはprofile対象であり、module追加時はshape/batch sizeに応じたcostを実測する。
 - moduleを細分化しすぎたprofile rangeは測定noiseになるため、意味のある処理境界を選ぶ。
 
-### 7.6 branch captureと部分forward
+### 7.6 forward captureと部分forward
 
-`Network::Forward`はoptionalな`NetworkBranchCapture`を受け取り、通常のbranch loop後・`output_keys`変換前の内部tensorをdetachして返す。captureを渡さない既存forward、TraceCallback、Actor経路は不変である。
+`Network::Forward`、`NetworkForwardExecutor::Forward`、`Network::ForwardUpTo`はoptionalな`NetworkForwardCapture`を受け取る。呼出側が完全一致の鍵、または末尾`/`の接頭辞を要求し、`Wants`・`Add`・`Get`・`GetAll`・`Unfulfilled`・`Reset`で扱う。鍵1つにTensor1つを保持し、未要求鍵や同じ鍵への2回目の`Add`はfail-fastする。`Get`は完全一致の値（未記入はundefined Tensor）、`GetAll`は接頭辞に一致した鍵とTensorを記入順に返す。接頭辞`X/`は`X`自体に一致しない。
 
-`Network::ForwardUpTo(input, branch_key)`は既定ContextでFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
+書き手は二つある。Bodyは各branch実行後に要求されたbranch名の出力をdetachして書く。moduleは`NetworkForwardContext`経由で素鍵の要求を確認し、診断値を書く。NetworkStructが与えた`<branch>/<block インスタンス名>`をmoduleの素鍵の後ろへ付けるため、`(*2)`の繰返しでも鍵は衝突しない。インスタンス名はcheckpointと同じ`<定義名>_<連番>`であり、traceの描画番号は使わない。moduleの直接呼出しでは位置が付かない。branch名の`/`は構築時に禁止する。
+
+captureはforward入口で結果だけをResetし、要求を保持する。出口では完全一致要求が書かれていない場合、または接頭辞要求に1件も一致しない場合に、要求・到達branch・記入済み鍵・利用可能branch一覧を添えてfail-fastする。captureを渡さないforwardは位置文字列を生成せず、TraceCallbackとActorの数値経路も維持する。
+
+`Network::ForwardUpTo(input, branch_key, capture)`は既定ContextでFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
+
+TransformerEncoderは公開定数`kTransformerEncoderAttentionEntropyCaptureKey`（`TransformerEncoder/attention_entropy`）を使い、要求時だけ各層のattention入力と実効Q/K重みを`nn_util`の純関数`ComputeAttentionEntropy`へ渡す。関数内はautocast無効・NoGrad・FP32で射影、softmax、エントロピー、head・query・sample平均、`ln n`による正規化まで完結する。系列長2未満はNaN。Encoderは層数長のFP32 Tensorを1回書き、確率行列は搬送しない。SDPAの学習forwardは変更しない。
 
 可塑性統計はrank-2 `(N,D)` の特徴と指標要求集合を受け、detachしたFP32 CPU特徴から要求された統計だけを計算して呼出側でcacheする。srank系を要求しないstepではSVDを実行せず、δ=0.01 / 0.05 / 0.20を同時要求した場合も1回の`svdvals`とcumsumを共有する。結果の各値はoptionalであり、未計算フィールドを成立値として読めない。無印のsrankはδ=0.01を表す。
 
-`ComputeParameterNormSplit(feature_key)`は同じ依存閉包を使い、閉包内branchの学習parameterをfeature、閉包外branchとheadをreadoutとして、各群の生L2、実効L2、最大sigmaをFP32 device scalarで返す。forwardとRNGを使わず、`requires_grad`がfalseのparameterはnorm対象外とする。
+`ComputeParameterNormSplit(final_feature_branch_key)`は同じ依存閉包を使い、閉包内branchの学習parameterをfeature、閉包外branchとheadをreadoutとして、各群の生L2、実効L2、最大sigmaをFP32 device scalarで返す。forwardとRNGを使わず、`requires_grad`がfalseのparameterはnorm対象外とする。
 
 ### 7.7 Noisy Linear と実行状態
 

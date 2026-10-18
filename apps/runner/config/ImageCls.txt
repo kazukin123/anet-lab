@@ -125,7 +125,7 @@ ImageClsAgent.weight_decay = 0.05
 ImageClsAgent.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
 ImageClsAgent.label_smoothing = 0.1
 ImageClsAgent.grad_clip_max_norm = 1.0
-ImageClsAgent.plasticity.feature_key = main_feature
+ImageClsAgent.final_feature_branch_key = main_feature
 
 ImageClsAgent.mixup.enabled      = true   # Mixup/CutMix 有効化
 ImageClsAgent.mixup.mixup_alpha  = 0.2    # Mixup の混合率。小さいほど弱め、大きいほど 50:50 寄り

@@ -188,7 +188,7 @@ The tens digit identifies the channel; the units digit identifies the statistic.
 | `4x` | probe (uniform sampling without replacement from the entire ReplayBuffer, followed by a partial forward in NoGrad and eval mode) | ON |
 | `6x` | weight norm / spectral sigma (parameter-side, independent of data and therefore without a channel) | Only 61/62 ON |
 
-The units digit is shared across the three channels: `x1` dormant, `x2` dead, `x3` feature_norm, `x4` srank, `x5` srank_ratio, and `x6`–`x9` srank with different δ values (OFF by default). Comparing `02` / `22` / `42`, for example, compares the same statistic across channels. Channels are enabled independently by the presence of subscription rows, so first check `learner.plasticity.feature_key` and those rows in resolved `config/config_data.txt`. All rows use the `$learn_step` axis.
+The units digit is shared across the three channels: `x1` dormant, `x2` dead, `x3` feature_norm, `x4` srank, `x5` srank_ratio, and `x6`–`x9` srank with different δ values (OFF by default). Comparing `02` / `22` / `42`, for example, compares the same statistic across channels. Channels are enabled independently by the presence of subscription rows, so first check `learner.final_feature_branch_key` and those rows in resolved `config/config_data.txt`. All rows use the `$learn_step` axis.
 
 **Use probe as the reference.** Uniform sampling avoids PER bias, and srank avoids its ceiling when `probe.batch_size` exceeds the feature dimension. Use probe for comparisons between Runs or `replay_ratio` settings. Its difference from actual directly reflects the distribution bias presented by PER: actual dormant values above probe suggest PER is concentrating learning on states where the representation is struggling.
 

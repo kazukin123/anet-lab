@@ -325,3 +325,123 @@ TEST_CASE("Actor catalog validates networks and MuZero temperature and clone con
     data.Set("MuZeroAgent.actor.[eval].clone_model", true);
     CHECK_THROWS_WITH(anet::rl::muzero_proto::MuZeroAgentConfig(data), Catch::Matchers::ContainsSubstring("clone_model=true is unsupported"));
 }
+
+TEST_CASE("PRD093 snapshots current configuration inputs", "[.][prd093-config-snapshot]")
+{
+    // 現用設定を全キー・文字列値で採取し、過去の固定入力には触れない。
+    wxString directory;
+    REQUIRE(wxGetEnv("ANET_PRD093_OUTPUT", &directory));
+    const auto output = std::filesystem::path(directory.ToStdWstring());
+    std::filesystem::create_directories(output);
+    wxString config_root;
+    const auto config = wxGetEnv("ANET_PRD093_CONFIG_ROOT", &config_root)
+        ? std::filesystem::path(config_root.ToStdWstring()).generic_string()
+        : (std::filesystem::current_path() / "apps/runner/config").generic_string();
+    for (const auto& env : {"Atari", "DropMerge", "LunarLander", "ImageCls", "GridMaze", "GridMaze_muzero", "CartPole"}) {
+        const auto path = output / (std::string(env) + ".txt");
+        { std::ofstream file(path); file << "$include <" << config << "/_main.txt>\n$include <" << config << "/" << env << ".txt>\n"; }
+        const anet::ConfigManager manager(path);
+        const auto destination = output / (std::string(env) + ".json");
+        REQUIRE_FALSE(std::filesystem::exists(destination));
+        std::ofstream file(destination);
+        file << manager.GetConfigData().ToJson().dump(2) << '\n';
+        REQUIRE(file.good());
+    }
+}
+
+TEST_CASE("Final feature branch is a shared learner configuration", "[config][prd093][rename]")
+{
+    // 特定診断に依存しない公開設定名で境界を指定する。
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.nn_forward.[mean].noisy.mode", "mu_only");
+    data.Set("DefaultDQNAgent.actor.[train].nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "mean");
+    // baseline未適用のDTOは未指定を保持し、購読時の必須検証へ渡す。
+    CHECK(anet::rl::dqn::DefaultDQNAgentConfig(data).learner.final_feature_branch_key.empty());
+    CHECK(anet::rl::img_cls::ImageClsAgentConfig(data).final_feature_branch_key.empty());
+    data.Set("DefaultDQNAgent.learner.final_feature_branch_key", "boundary");
+    const anet::rl::dqn::DefaultDQNAgentConfig config(data);
+    CHECK(config.learner.final_feature_branch_key == "boundary");
+}
+
+TEST_CASE("Attention probe batch size validates even without a subscription", "[config][attention][prd093]")
+{
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.nn_forward.[mean].noisy.mode", "mu_only");
+    data.Set("DefaultDQNAgent.actor.[train].nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "mean");
+    for (const int size : { 0, -1 }) {
+        data.Set("DefaultDQNAgent.learner.attention_entropy.probe.batch_size", size);
+        CHECK_THROWS_WITH(anet::rl::dqn::DefaultDQNAgentConfig(data),
+            Catch::Matchers::ContainsSubstring("learner.attention_entropy.probe.batch_size"));
+    }
+    data.Set("DefaultDQNAgent.learner.attention_entropy.probe.batch_size", 256);
+    CHECK(anet::rl::dqn::DefaultDQNAgentConfig(data).learner.attention_entropy.probe.batch_size == 256);
+    data.Set("ImageClsAgent.final_feature_branch_key", "boundary");
+    CHECK(anet::rl::img_cls::ImageClsAgentConfig(data).final_feature_branch_key == "boundary");
+}
+
+TEST_CASE("Attention Run profiles preserve existing metric definitions", "[config][attention][prd093][profiles]")
+{
+    // 現用の既定Runチェーンへ末尾追加し、GPU資源を作らず最終metrics定義を検証する。
+    const auto root = std::filesystem::current_path();
+    const auto directory = root / "out/test-tmp/prd093-profiles";
+    std::filesystem::create_directories(directory);
+    for (const auto& env : { "DropMerge", "Atari" }) {
+        const auto input = directory / (std::string(env) + ".txt");
+        const auto config = (root / "apps/runner/config").generic_string();
+        const auto write = [&](const std::string& chain) {
+            std::ofstream file(input);
+            file << "$include <" << config << "/_main.txt>\n$include <" << config << "/" << env << ".txt>\n";
+            if (!chain.empty()) file << "run.$ = " << chain << '\n';
+        };
+        write("");
+        const anet::ConfigManager before_manager(input);
+        const auto before = before_manager.GetConfigData();
+        std::ifstream source(root / "apps/runner/config" / (std::string(env) + ".txt"));
+        std::string line, chain;
+        const std::regex selection(R"(^\s*run\.\$\s*=\s*([^#]*))");
+        while (std::getline(source, line)) {
+            std::smatch match;
+            if (std::regex_search(line, match, selection)) chain = match[1].str();
+        }
+        chain += (chain.empty() ? "" : " > ") + std::string("run.@attention");
+        write(chain);
+        const anet::ConfigManager after_manager(input);
+        const auto after = after_manager.GetConfigData();
+        for (const auto& [key, value] : before.Map()) {
+            if (!key.starts_with("metrics.scalar.[")) continue;
+            CAPTURE(env, key);
+            CHECK(after.Get(key) == value);
+        }
+        int attention_rows = 0;
+        for (const auto& [key, value] : after.Map()) {
+            if (!key.starts_with("metrics.scalar.[48_agent_attention/")) continue;
+            ++attention_rows;
+            CHECK(value.find("@learn $learn_step $update_result interval:503") != std::string::npos);
+        }
+        CHECK(attention_rows == 4);
+        CHECK(anet::rl::dqn::DefaultDQNAgentConfig(after).learner.attention_entropy.probe.batch_size == 256);
+        CHECK(anet::rl::dqn::DefaultDQNAgentConfig(after).learner.final_feature_branch_key == "main_feature");
+    }
+}
+
+TEST_CASE("PRD093 validation conditions survive the Atari Run chain", "[.][prd093-validation-config]")
+{
+    // 実際のPython採取器が生成した入力をConfigManagerの公開経路で解決する。
+    wxString input;
+    REQUIRE(wxGetEnv("ANET_PRD093_VALIDATION_CONFIG", &input));
+    const anet::ConfigManager manager(std::filesystem::path(input.ToStdWstring()));
+    const auto data = manager.GetConfigData();
+    CHECK(data.Get("app.run_name") == "run_{t}_prd093_contract_atari");
+    CHECK(data.Get("app.batchrun.exp_exit_step") == "478528");
+    CHECK(data.Get("app.exp_exit_step") == "478528");
+    for (const auto& [key, value] : data.Map()) {
+        if (key.starts_with("run.eval_schedule.[") && key.ends_with(".interval")) {
+            CAPTURE(key);
+            CHECK(value == "0");
+        }
+    }
+}

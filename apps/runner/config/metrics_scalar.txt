@@ -356,3 +356,11 @@ metrics.scalar.@gradnoise : [49_agent_gradnoise/35_signal_adam_feature_raw] ?= g
 metrics.scalar.@gradnoise : [49_agent_gradnoise/36_variance_adam_feature_raw] ?= grad_noise_variance_adam_feature_raw @learn $learn_step $update_result interval:503
 metrics.scalar.@gradnoise : [49_agent_gradnoise/37_signal_adam_readout_raw] ?= grad_noise_signal_adam_readout_raw @learn $learn_step $update_result interval:503
 metrics.scalar.@gradnoise : [49_agent_gradnoise/38_variance_adam_readout_raw] ?= grad_noise_variance_adam_readout_raw @learn $learn_step $update_result interval:503
+
+# ------------------------------------------------------------------------------
+# Attention エントロピー（層平均の集中度。baseline外、run.@attentionで購読）
+# ------------------------------------------------------------------------------
+metrics.scalar.@attention : [48_agent_attention/01_entropy_layer0] ?= attention_entropy.[0] @learn $learn_step $update_result interval:503
+metrics.scalar.@attention : [48_agent_attention/02_entropy_layer1] ?= attention_entropy.[1] @learn $learn_step $update_result interval:503
+metrics.scalar.@attention : [48_agent_attention/03_entropy_layer2] ?= attention_entropy.[2] @learn $learn_step $update_result interval:503
+metrics.scalar.@attention : [48_agent_attention/04_entropy_layer3] ?= attention_entropy.[3] @learn $learn_step $update_result interval:503

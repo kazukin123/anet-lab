@@ -148,11 +148,25 @@ namespace anet::nn {
         const Params params_; ///< 生成時に確定した呼び出し情報。Tensorのストレージは共有する。
     };
 
-    /// 通常Forwardで指定branchの出力を取得する、呼び出し側所有の入出力。
-    struct NetworkBranchCapture {
-        std::string branch_key; ///< 取得するbranch名。
-        torch::Tensor output; ///< Forwardがdetachしたbranch出力を書き込む。
+    /// 鍵で要求したbranch出力とmodule診断を、同期Forwardから持ち帰る器。
+    class NetworkForwardCapture {
+    public:
+        using Entry = std::pair<std::string, torch::Tensor>;
+        NetworkForwardCapture() = default;
+        explicit NetworkForwardCapture(std::vector<std::string> requests);
+        bool Wants(std::string_view key) const;
+        void Add(std::string_view key, torch::Tensor value);
+        torch::Tensor Get(std::string_view key) const;
+        std::vector<Entry> GetAll(std::string_view prefix) const;
+        std::vector<std::string> Unfulfilled() const;
+        void Reset();
+    private:
+        std::vector<std::string> requests_;
+        std::vector<Entry> entries_;
     };
+
+    inline constexpr std::string_view kTransformerEncoderAttentionEntropyCaptureKey =
+        "TransformerEncoder/attention_entropy";
 
     class NetworkBody;
     class NetworkHead;
@@ -178,13 +192,14 @@ namespace anet::nn {
             std::shared_ptr<NetworkHead> head,
             anet::seed_t construction_seed = 0);
     public: // Forward
-        /// 入力を既定動作で計算する。capture指定時はbranch出力も取得する。
+        /// 入力を既定動作で計算する。capture指定時は要求されたbranch出力・module診断も取得する。
         anet::TensorDict Forward(
             const anet::TensorDict& input,
             const anet::TraceCallback& callback = {},
-            NetworkBranchCapture* capture = nullptr);
+            NetworkForwardCapture* capture = nullptr);
         /// branch_keyまでを既定動作で計算し、Headを実行しない。
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key,
+            NetworkForwardCapture* capture = nullptr);
         /// sourceとrequestedの再利用条件を、それらを使う具象部品に検証させる。
         void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const;
     public:
@@ -241,7 +256,7 @@ namespace anet::nn {
         /// 同期呼び出し中だけinfoを参照し、固定した処理を実行する。
         anet::TensorDict Forward(
             const anet::TensorDict& input, const NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback = {}, NetworkBranchCapture* capture = nullptr);
+            const anet::TraceCallback& callback = {}, NetworkForwardCapture* capture = nullptr);
     private:
         friend class Network;
         struct Impl;
