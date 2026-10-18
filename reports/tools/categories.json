@@ -29,7 +29,7 @@
   ],
   "categories": [
     {"key": "322_env_individual", "label": "322 ENV個別実装", "topic": 18, "match": ["^core/envs/[^/]+/src/(?!.*View)"]},
-    {"key": "319_gui", "label": "319 GUI 共通基盤", "topic": 15, "test_target": false, "match": ["View\\.(cpp|hpp)$", "/gui\\.(cpp|hpp)$", "^apps/runner/src/"]},
+    {"key": "319_gui", "label": "319 GUI 共通基盤", "topic": 15, "test_target": false, "match": ["View\\.(cpp|hpp)$", "/gui\\.(cpp|hpp)$"]},
     {"key": "315_nn", "label": "315 ニューラルネットワーク", "topic": 11, "match": ["/(nn|nn_impl|nn_modules|nn_heads|nn_util)\\.(cpp|hpp)$"]},
     {"key": "314_tensor", "label": "314 テンソル処理", "topic": 10, "match": ["/(tensor_util|tensor_check|transfer|stacker|scaler|scaler_impl|image)\\.(cpp|hpp)$"]},
     {"key": "316_config", "label": "316 設定管理", "topic": 12, "match": ["/(config|config_impl|config_baseline)\\.(cpp|hpp)$"]},
@@ -41,7 +41,7 @@
     {"key": "325_muzero", "label": "325 AGENT個別実装 MuZero系列", "topic": 21, "match": ["/(muzero_proto_agent)\\.(cpp|hpp)$"]},
     {"key": "313_profiling", "label": "313 プロファイリング", "topic": 9, "match": ["/profile\\.(cpp|hpp)$"]},
     {"key": "312_util", "label": "312 ユーティリティ", "topic": 8, "match": ["/(util|str_util|json_util|app_util|app_util_impl|exception|log|thread|random|schedule|init|common|diag)\\.(cpp|hpp)$"]},
-    {"key": "110_runner_app", "label": "110 RunnerApp", "topic": 4, "match": ["^apps/runner/src/"]},
+    {"key": "110_runner_app", "label": "110 RunnerApp", "topic": 4, "test_target": false, "match": ["^apps/runner/src/"]},
     {"key": "120_metrics_viewer", "label": "120 MetricsViewer", "topic": 5, "match": ["^apps/metrics-viewer/", "^viewers/metrics-viewer/"]},
     {"key": "311_dev_tools", "label": "311 開発プロセス/開発ツール/テスト基盤", "topic": 7, "match": ["^apps/runner/tools/", "^viewers/metrics-tools/", "^reports/tools/", "^\\.github/"]}
   ],
