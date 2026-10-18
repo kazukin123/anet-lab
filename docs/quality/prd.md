@@ -34,7 +34,7 @@ PRD のレビューと、起草した側の自己点検で走査する観点。
 
 | 項番 | 確認観点 | 実行するもの | 期待値 | 規約の所在 |
 | --- | --- | --- | --- | --- |
-| 28 | コミット済みの ADR の保持 | `git diff HEAD --no-renames --name-status -- docs/adr`。`M` の行があれば、そのファイルに `git diff HEAD -- <そのファイル>`。項番 21〜23 の適用範囲に当たるときだけ | コミット済みの ADR の変更（`M`）と削除（`D`）が無い。`M` がある場合は、差分が先頭への注記の追加だけである。ステージ済みの変更も、ステージしていない変更も、同じに扱う。新しい ADR（`A` と、出力に現れない未追跡のファイル）は問わない | [grill-with-docs（`.claude/skills` 側）](../../.claude/skills/grill-with-docs/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
+| 28 | コミット済みの ADR の保持 | `git diff HEAD --no-renames --name-status -- docs/adr`。`M` の行があれば、そのファイルに `git diff HEAD -- <そのファイル>`。項番 21〜23 の適用範囲に当たるときだけ | コミット済みの ADR の変更（`M`）と削除（`D`）が無い。`M` がある場合は、差分が先頭への注記の追加だけである。ステージ済みの変更も、ステージしていない変更も、同じに扱う。新しい ADR（`A` と、出力に現れない未追跡のファイル）は問わない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
 
 ## 読解観点
 
@@ -54,13 +54,13 @@ PRD のレビューと、起草した側の自己点検で走査する観点。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
-| 8 | ゴールと非ゴール | 解く問題、ゴール、非ゴールが、それぞれ本文に明示されている | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（goal anchor） |
-| 9 | 機構ごとの根拠 | 導入する機構・概念のそれぞれに、それを要する実際の痛み（起きた事故、測った費用、既にある回避策）が書かれている。根拠が将来の想像上の要求だけのものは、作る対象に入れず、何が起きたら作るかを添えた先送りか、不採用として記録されている | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（scope screen） |
-| 10 | 裁定の記録 | 機構・概念ごとの裁定（keep / shrink / defer / cut）が、PRD に記録されている。作らないと決めたものが、理由とともに残っている | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（final simplification pass の 1 と、裁定を記録する定め） |
-| 27 | 要件の実在性 | 要件のそれぞれについて、実際に起きた痛みに基づくものか、将来の想像上の要求かが書かれている。想像上の要求は、作る対象に入っていない | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（final simplification pass の 2） |
-| 11 | 最小解との差分 | 確定した要求だけを満たす最小の設計と、それを超える部分の理由が書かれている | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（final simplification pass の 4） |
-| 12 | 段階の独立性 | 段階に分けている場合、各段階が単独で価値を持つことと、どの段階で止めても前より悪くならないことが書かれている。段階に分けていない PRD は対象外 | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（final simplification pass の 5） |
-| 13 | 成功の測り方 | 効果が出たことを確かめる指標が書かれている | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（final simplification pass の 6） |
+| 8 | ゴールと非ゴール | 解く問題、ゴール、非ゴールが、それぞれ本文に明示されている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（goal anchor） |
+| 9 | 機構ごとの根拠 | 導入する機構・概念のそれぞれに、それを要する実際の痛み（起きた事故、測った費用、既にある回避策）が書かれている。根拠が将来の想像上の要求だけのものは、作る対象に入れず、何が起きたら作るかを添えた先送りか、不採用として記録されている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（scope screen） |
+| 10 | 裁定の記録 | 機構・概念ごとの裁定（keep / shrink / defer / cut）が、PRD に記録されている。作らないと決めたものが、理由とともに残っている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 1 と、裁定を記録する定め） |
+| 27 | 要件の実在性 | 要件のそれぞれについて、実際に起きた痛みに基づくものか、将来の想像上の要求かが書かれている。想像上の要求は、作る対象に入っていない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 2） |
+| 11 | 最小解との差分 | 確定した要求だけを満たす最小の設計と、それを超える部分の理由が書かれている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 4） |
+| 12 | 段階の独立性 | 段階に分けている場合、各段階が単独で価値を持つことと、どの段階で止めても前より悪くならないことが書かれている。段階に分けていない PRD は対象外 | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 5） |
+| 13 | 成功の測り方 | 効果が出たことを確かめる指標が書かれている | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（final simplification pass の 6） |
 
 ### 受入
 
@@ -96,9 +96,9 @@ PRD のレビューと、起草した側の自己点検で走査する観点。
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
 | 20 | 既存 ADR との矛盾 | どの ADR のどの判断と矛盾するかが、PRD に書かれている | [AGENTS.md](../../AGENTS.md) §設計判断の記録(ADR)を読む条件 |
-| 21 | ADR を起こす条件 | 起こした ADR が、所在の 3 条件をすべて満たす | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（Offer ADRs sparingly）、[ADR-FORMAT.md](../../.agents/skills/grill-with-docs/ADR-FORMAT.md) |
-| 22 | ADR の形 | 起こした ADR が、題と 1〜3 文で、判断と理由を述べている。PRD の内容を写していない | [grill-with-docs（`.claude/skills` 側）](../../.claude/skills/grill-with-docs/SKILL.md)（Offer ADRs sparingly の Keep it short） |
-| 23 | 既存 ADR の保持 | コミット済みの ADR の本文を書き換えていない。判断を変えるときは、古い ADR の先頭に注記を足し、新しい ADR を起こしている。未コミットの ADR の書き直しは対象外である。コミット済みかどうかは、項番 28 の出力で見る | [grill-with-docs（`.claude/skills` 側）](../../.claude/skills/grill-with-docs/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
+| 21 | ADR を起こす条件 | 起こした ADR が、所在の 3 条件をすべて満たす | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly）、[ADR-FORMAT.md](../../.agents/skills/anet-create-prd/ADR-FORMAT.md) |
+| 22 | ADR の形 | 起こした ADR が、題と 1〜3 文で、判断と理由を述べている。PRD の内容を写していない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Keep it short） |
+| 23 | 既存 ADR の保持 | コミット済みの ADR の本文を書き換えていない。判断を変えるときは、古い ADR の先頭に注記を足し、新しい ADR を起こしている。未コミットの ADR の書き直しは対象外である。コミット済みかどうかは、項番 28 の出力で見る | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
 | 24 | 新しい名前 | PRD が付ける新しい名前（設定キー、メトリクス名、TensorDict キー、公開クラス名）が、[CONTEXT.md](../../CONTEXT.md) の語と合っている。`_Avoid_` に挙がった語を使っていない | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件 |
 | 25 | 用語の欠落 | 用語集に無い概念に名前を付ける場合、既存の語で言い換えられないことと、決めた用語が書かれている | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件 |
-| 26 | 用語集の項目 | `CONTEXT.md` に足した項目が、実装の詳細を含まず、定義が 1〜2 文である | [grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)（Update CONTEXT.md inline）、[CONTEXT-FORMAT.md](../../.agents/skills/grill-with-docs/CONTEXT-FORMAT.md)（Rules） |
+| 26 | 用語集の項目 | `CONTEXT.md` に足した項目が、実装の詳細を含まず、定義が 1〜2 文である | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Update CONTEXT.md inline）、[CONTEXT-FORMAT.md](../../.agents/skills/anet-create-prd/CONTEXT-FORMAT.md)（Rules） |

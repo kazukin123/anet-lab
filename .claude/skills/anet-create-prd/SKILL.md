@@ -1,11 +1,21 @@
 ---
-name: grill-with-docs
-description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when user wants to stress-test a plan against their project's language and documented decisions.
+name: anet-create-prd
+description: Create or revise an anet-lab PRD through a grilling session that challenges the plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when the user invokes /anet-create-prd or $anet-create-prd with a topic or an existing PRD filename (passing an existing PRD revises it, including a re-grill from a separate session), or wants to grill or stress-test a plan against the project's language and documented decisions.
 ---
 
 <what-to-do>
 
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+
+When the plan already exists in writing — I name a PRD, or the topic matches an existing PRD or design memo (in this repo, `docs/memo/NNN_*_10prd.md`, including provisional `999_*` ones) — read it in full, together with the ADRs it cites, before anything else, and open with an **existing-content briefing**. I cannot challenge a design I do not currently remember, so the grill must start from shared knowledge of what is already written, not from your private reading of it. Keep the briefing to one screen, in plain language and your own words — no section-by-section transcription, no quoting the document back:
+
+1. **What and why** — the problem, the goal and the non-goals as the document states them, in two or three lines.
+2. **Shape of the design** — the few decisions that shape everything else, one line each, naming the ADR that backs each one if any. Leave out details a later question will reach anyway.
+3. **Still open** — the open-items table, provisional defaults and "to confirm" items, as a short list.
+4. **History and drift** — whether it has been grilled before and when (the revision lines at the top), and anything you noticed while reading that the current code, `CONTEXT.md`, later ADRs or later PRDs now contradict or have overtaken. Check only what the key decisions depend on; this is not an audit. Say "none found" when there is nothing.
+5. **Where the grill will likely bite** — the two or three areas you expect to question first, so I know what to refresh.
+
+Put the goal anchor below in the same message, drawn from item 1, and invite questions about the existing content. Answer those questions before the first grill question; answering them is explaining, not grilling — do not challenge or ask for decisions yet.
 
 Open the session with a **goal anchor**: state, in a few lines, the problem being solved, the goal of the plan, and any explicit non-goals, and get my agreement before the first question. Long grill sessions drift; this anchor is the reference that every later judgement — including the simplification passes below — is measured against. If mid-session answers start pulling away from the anchor, say so and ask whether the goal itself has changed.
 
@@ -96,6 +106,8 @@ When a term is resolved, update `CONTEXT.md` right there. Don't batch these up �
 
 `CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
 
+Keep each definition to one or two sentences. If a term needs a paragraph to pin down, it is a spec and not a term — put the detail in the design doc and leave the glossary entry short enough to remember.
+
 ### Offer ADRs sparingly
 
 Only offer to create an ADR when all three are true:
@@ -105,5 +117,9 @@ Only offer to create an ADR when all three are true:
 3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
 
 If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
+
+**Keep it short.** An ADR is a title plus 1-3 sentences. `Status`, `Considered Options` and `Consequences` are optional — most ADRs do not need them. Do not mirror the PRD: the PRD says what to build, the ADR says why this shape was chosen and what was rejected. An ADR long enough to be skimmed instead of read has failed at its only job.
+
+**Never rewrite an existing ADR.** An ADR records the judgement made at that time; rewriting it destroys the reason the decision looked right then. When a later decision changes one, append a short note at the top of the old ADR — which ADR revised it, what was replaced, what still stands — and then write the new one. Partial revision is the normal case, so always say which parts survive.
 
 </supporting-info>

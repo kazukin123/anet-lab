@@ -1,11 +1,21 @@
 ---
-name: grill-with-docs
-description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when user wants to stress-test a plan against their project's language and documented decisions.
+name: anet-create-prd
+description: Create or revise an anet-lab PRD through a grilling session that challenges the plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when the user invokes /anet-create-prd or $anet-create-prd with a topic or an existing PRD filename (passing an existing PRD revises it, including a re-grill from a separate session), or wants to grill or stress-test a plan against the project's language and documented decisions.
 ---
 
 <what-to-do>
 
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+
+When the plan already exists in writing — I name a PRD, or the topic matches an existing PRD or design memo (in this repo, `docs/memo/NNN_*_10prd.md`, including provisional `999_*` ones) — read it in full, together with the ADRs it cites, before anything else, and open with an **existing-content briefing**. I cannot challenge a design I do not currently remember, so the grill must start from shared knowledge of what is already written, not from your private reading of it. Keep the briefing to one screen, in plain language and your own words — no section-by-section transcription, no quoting the document back:
+
+1. **What and why** — the problem, the goal and the non-goals as the document states them, in two or three lines.
+2. **Shape of the design** — the few decisions that shape everything else, one line each, naming the ADR that backs each one if any. Leave out details a later question will reach anyway.
+3. **Still open** — the open-items table, provisional defaults and "to confirm" items, as a short list.
+4. **History and drift** — whether it has been grilled before and when (the revision lines at the top), and anything you noticed while reading that the current code, `CONTEXT.md`, later ADRs or later PRDs now contradict or have overtaken. Check only what the key decisions depend on; this is not an audit. Say "none found" when there is nothing.
+5. **Where the grill will likely bite** — the two or three areas you expect to question first, so I know what to refresh.
+
+Put the goal anchor below in the same message, drawn from item 1, and invite questions about the existing content. Answer those questions before the first grill question; answering them is explaining, not grilling — do not challenge or ask for decisions yet.
 
 Open the session with a **goal anchor**: state, in a few lines, the problem being solved, the goal of the plan, and any explicit non-goals, and get my agreement before the first question. Long grill sessions drift; this anchor is the reference that every later judgement — including the simplification passes below — is measured against. If mid-session answers start pulling away from the anchor, say so and ask whether the goal itself has changed.
 

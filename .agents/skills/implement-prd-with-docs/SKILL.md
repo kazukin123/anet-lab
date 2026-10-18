@@ -26,11 +26,11 @@ PRD ファイル名だけが渡された場合は、次の意図として解釈�
 作業前に次を読む:
 
 - [PRD-IMPLEMENTATION.md](./PRD-IMPLEMENTATION.md)
-- [grill-with-docs](../grill-with-docs/SKILL.md)
-- [CONTEXT-FORMAT.md](../grill-with-docs/CONTEXT-FORMAT.md)
-- [ADR-FORMAT.md](../grill-with-docs/ADR-FORMAT.md)
+- [anet-create-prd](../anet-create-prd/SKILL.md)
+- [CONTEXT-FORMAT.md](../anet-create-prd/CONTEXT-FORMAT.md)
+- [ADR-FORMAT.md](../anet-create-prd/ADR-FORMAT.md)
 
-このスキルでは、`grill-with-docs` のドメイン用語、コード照合、`CONTEXT.md`、ADR のルールを適用する。`../grill-with-docs/` は編集しない。
+このスキルでは、`anet-create-prd` のドメイン用語、コード照合、`CONTEXT.md`、ADR のルールを適用する。`../anet-create-prd/` は編集しない。
 コード変更を伴う実装では、利用可能なら `tdd` skill も読み、`PRD-IMPLEMENTATION.md` の TDD 実装フェーズを適用する。
 
 ## ワークフロー

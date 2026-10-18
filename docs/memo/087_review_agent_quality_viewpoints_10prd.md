@@ -10,6 +10,7 @@
 > 2026-10-04 改訂: 段階 1 の受入で、レビューエージェントが本 PRD に挙げた指摘 4 件を反映した。§6.2 に、`grill-with-docs` から移す規律の移し元と範囲を定め、付け替え対象に `docs/quality/prd.md` を足した。§7 と受入基準 6・8・11・16 を、合否が 1 つに決まる形に直した。ADR 0049 の本文を短くした。
 > 2026-10-05 改訂: 段階 1.5 を足した（§1.5、§2.4、§3、§5、§6.5、§7、§8、§9、§10）。レビューだけを頼む入口の skill `anet-review` を作り、PRD の無い変更もレビューに出せるようにする。レビューエージェントを通す範囲（§5）を改めた。skills README の「anet- スキル共通の約束」の直しを、段階 2 から段階 1.5 へ移した（§6.2、受入基準 14）。`.gitattributes` に、`.agents/` `.claude/` `.codex/` の改行のルールを足した。
 > 2026-10-05 改訂: 段階 1.5 の受入で、レビューエージェントの応答をそのまま示すと、人には読み解きにくいと分かった。`anet-review` は、応答の原文を毎回保存し、画面には平易な説明を示す形に改めた（§5、§6.5、§7、§8）。
+> 2026-10-15 改訂: スラッシュ起動で project 版 `grill-with-docs` が読まれない実害（§1.3）が続いていた。既存 PRD の要点を最初に示す手順を足したところ、それも読まれないので、段階 2 のうち改名と参照の付け替えを、着手の条件を待たずに先に行うことにした（§5、§6.2）。`anet-create-prd` は project 版の改名で作る。質疑の規律に、既存 PRD の要点提示を足した。
 > 関連: [docs/memo/README.md](README.md) §工程と担当、[動線マップ](../agents/README.md)、[080](080_harness_map_10prd.md)、
 > [skills README](../../.agents/skills/README.md)、[grill-with-docs](../../.agents/skills/grill-with-docs/SKILL.md)、
 > [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/SKILL.md) と
@@ -146,7 +147,7 @@ anet で書く文書では「エージェント」と書き、共有コアの表
 | 未決の受け皿 | 新設しない。`999` の暫定 PRD、PRD の未決表、`/// @todo` を使う |
 | 観点の初期項目 | リポジトリの文書に書かれた規約から起こす（NG6） |
 | 段階 | 段階 1（レビューと観点）→ 段階 1.5（レビューだけの入口）→ 段階 2（入口 skill）。段階 1 だけで止めても、G1 と G2 は満たせる。段階 1.5 で止めても、G5 まで満たせる |
-| 段階 2 の着手 | 段階 1.5 のあと、PRD 2 本と実装 1 件のレビューで使い、観点を 1 回見直してから着手する。PRD は分けない |
+| 段階 2 の着手 | 段階 1.5 のあと、PRD 2 本と実装 1 件のレビューで使い、観点を 1 回見直してから着手する。PRD は分けない。ただし、改名と参照の付け替え（§6.2 の `anet-create-prd` の置き場、「そのほか」の付け替えと skills README の行）は、この条件を待たずに先に行う。shadow で手順が読まれない実害を止めるためである（2026-10-15 裁定） |
 | 成果物キーと観点ファイルの名前 | `prd` / `impl` と、`docs/quality/prd.md` / `impl.md`。anet の語彙に合わせ、共有コアの例に出るキー名には合わせない |
 | project 版 `grill-with-docs` | 規律を `anet-create-prd` へ移し、project 版を消す。同じ規律を 2 か所に持たない。残して参照する案は、shadow される名前が project に残るので採らない |
 | `AGENTS.md` | 変えない。入口 skill を使わない会話でレビューエージェントが選ばれない実害が出たら、§Agent skills に 1〜2 行足す |
@@ -245,12 +246,12 @@ anet で書く文書では「エージェント」と書き、共有コアの表
 
 #### skill `anet-create-prd`
 
-- 新規。`.agents/skills` と `.claude/skills` の実体コピーに、`SKILL.md` と `agents/openai.yaml` を置く。
+- project 版 `grill-with-docs` を改名して作る（改名と参照の付け替えは、§5 のとおり先に行う）。`.agents/skills` と `.claude/skills` の実体コピーに、`SKILL.md` と `agents/openai.yaml` を置く。
 - 起動は `/anet-create-prd` と `$anet-create-prd`。引数は任意で、題材か、既存 PRD のファイル名を渡す。既存 PRD を渡すと改訂になる。別枠の再グリルも、同じ入口を使う。
 - プロセス契約の Step 1〜6 に従う。工程に固有なのは次の点である。
-  - 質疑（Step 2）の規律は、現行の project 版 grill-with-docs から、最後の YES/NO を除いてすべて移す。goal anchor、scope screen、1 問ずつと推奨案、コードで分かることは聞かない、用語集との食い違いの指摘、曖昧な語の正規化、具体的なシナリオでの確認、発言とコードの照合、最終簡素化パス、`CONTEXT.md` と ADR のその場での更新。`CONTEXT-FORMAT.md` と `ADR-FORMAT.md` も一緒に移す。
+  - 質疑（Step 2）の規律は、現行の project 版 grill-with-docs から、最後の YES/NO を除いてすべて移す。既存 PRD を渡されたときの要点提示、goal anchor、scope screen、1 問ずつと推奨案、コードで分かることは聞かない、用語集との食い違いの指摘、曖昧な語の正規化、具体的なシナリオでの確認、発言とコードの照合、最終簡素化パス、`CONTEXT.md` と ADR のその場での更新。`CONTEXT-FORMAT.md` と `ADR-FORMAT.md` も一緒に移す。
   - 移し元は、`.claude/skills` 側のコピーにする。`.agents/skills` 側には、用語集の定義の長さと、ADR の書き方の 2 つ（短く書く、既存の ADR を書き換えない）の 3 段落が無い。
-  - 最後の YES/NO（計画の承認を求めるか、実装を始めるかを尋ねる段）は移さない。この skill は実装へ進まず、止まり方はプロセス契約の Step 6 が定めるためである。
+  - 最後の YES/NO（計画の承認を求めるか、実装を始めるかを尋ねる段）は持たない。改名で作るので、この段は残りの段階 2 で外す。この skill は実装へ進まず、止まり方はプロセス契約の Step 6 が定めるためである。
   - 起草のあと `docs/quality/prd.md` で自己点検し、レビューエージェントを呼び、差し戻しを仕分けて直し、未決を示して停止する。実装へは進まない。
   - 「暫定」「999」と指示された起票では質疑を省き、決めきれない点を未決表へ書く（現行の運用）。
 
