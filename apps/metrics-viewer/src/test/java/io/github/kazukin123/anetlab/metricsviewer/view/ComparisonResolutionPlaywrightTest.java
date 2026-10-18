@@ -280,6 +280,74 @@ class ComparisonResolutionPlaywrightTest extends MetricsViewerPlaywrightTestSupp
 		for(var route:paused) route.resume();
 	}
 
+	@Test
+	void hoveringOverviewScrollsBeforeDetailsArrive() {
+		// 詳細の応答を保留し、画面外の概観だけでもホバーで移動できることを確認する。
+		final var paused = new java.util.ArrayList<com.microsoft.playwright.Route>();
+		final var pauseDetail = new java.util.concurrent.atomic.AtomicBoolean(true);
+		page.route("**/api/metrics.json", route -> {
+			final var series = com.google.gson.JsonParser.parseString(route.request().postData())
+					.getAsJsonObject().getAsJsonArray("series");
+			boolean detail = false;
+			for (var item : series) if (item.getAsJsonObject().get("maxPoints").getAsInt() > 198) detail = true;
+			if (detail && pauseDetail.get()) paused.add(route); else route.resume();
+		});
+		page.navigate(baseUrl);
+		page.waitForFunction("typeof app !== 'undefined' && app.mode === 'normal'");
+		waitForOverview("49/metric", 1);
+		assertNull(page.evaluate("document.getElementById(graphId('49/metric'))"));
+		assertEquals(0, ((Number) page.evaluate("document.getElementById('main-area').scrollTop")).intValue());
+
+		page.locator("#tag-list li[data-tag-key='49/metric']").hover();
+		waitForTagAtTop("49/metric");
+		assertNull(page.evaluate("document.getElementById(graphId('49/metric'))"));
+		waitForOverview("49/metric", 1);
+
+		// 移動先の外枠を保ったまま、取得再開後に詳細へ切り替わる。
+		page.evaluate("window.hoverTargetBlock = document.querySelector(\"#main-area > .graph-block[data-tag-key='49/metric']\")");
+		pauseDetail.set(false);
+		for (var route : paused) route.resume();
+		page.waitForFunction("document.getElementById(graphId('49/metric'))?.data?.length === 1");
+		assertEquals(true, page.evaluate("window.hoverTargetBlock === document.getElementById(graphId('49/metric')).closest('.graph-block')"));
+		waitForTagAtTop("49/metric");
+	}
+
+	@Test
+	void tagHoverKeepsDelayCancellationAndSelectionRulesForDetailedGraphs() {
+		page.navigate(baseUrl);
+		page.waitForFunction("document.getElementById(graphId('03/metric'))?.data?.length === 1");
+		final var tag = page.locator("#tag-list li[data-tag-key='03/metric']");
+
+		// 待機中に離れた場合は移動せず、ホバーを続けた場合だけ詳細の外枠へ移動する。
+		tag.hover();
+		page.mouse().move(1000, 10);
+		page.waitForTimeout(450);
+		assertEquals(0, ((Number) page.evaluate("document.getElementById('main-area').scrollTop")).intValue());
+		tag.hover();
+		waitForTagAtTop("03/metric");
+
+		// 選択解除したタグでは、待機時間を過ぎても移動しない。
+		tag.click();
+		page.waitForFunction("!app.activeTags.has('03/metric') && !document.querySelector(\"#main-area > .graph-block[data-tag-key='03/metric']\")");
+		page.mouse().move(1000, 10);
+		page.evaluate("document.getElementById('main-area').scrollTop = 0");
+		tag.hover();
+		page.waitForTimeout(450);
+		assertEquals(0, ((Number) page.evaluate("document.getElementById('main-area').scrollTop")).intValue());
+	}
+
+	private void waitForTagAtTop(String tagKey) {
+		page.waitForFunction("""
+				tagKey => {
+					const area = document.getElementById('main-area');
+					const block = [...area.querySelectorAll(':scope > .graph-block')]
+							.find(block => block.dataset.tagKey === tagKey);
+					return area.scrollTop > 0 && block
+							&& Math.abs(block.getBoundingClientRect().top - area.getBoundingClientRect().top) < 2;
+				}
+				""", tagKey, new com.microsoft.playwright.Page.WaitForFunctionOptions().setTimeout(10000));
+	}
+
 	private void waitForOverview(String tagKey, int legends) {
 		page.waitForFunction("""
 				arg => {

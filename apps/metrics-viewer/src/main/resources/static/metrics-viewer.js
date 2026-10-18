@@ -1807,9 +1807,10 @@ class UIController {
 			clearHover();
 			if (HOVER_SCROLL_DELAY_MS <= 0 || !item.classList.contains("active")) return;
 			hoverTimer = setTimeout(() => {
-				document.getElementById(graphId(item.dataset.tagKey))
-						?.closest(".graph-block")
-						?.scrollIntoView({ behavior: "smooth", block: "start" });
+				// 概観や読み込み待ちでも移動できるよう、詳細描画に依存しない外枠を探す。
+				[...document.querySelectorAll("#main-area > .graph-block")]
+						.find(block => block.dataset.tagKey === item.dataset.tagKey)
+						?.scrollIntoView({ behavior: "instant", block: "start" });
 			}, HOVER_SCROLL_DELAY_MS);
 		};
 		for (const item of list.querySelectorAll("li")) {
@@ -2723,7 +2724,9 @@ class MetricsViewerClientApp {
 			return;
 		}
 		const viewportTop = this._scrollViewportTop();
-		scroller.scrollTop += block.getBoundingClientRect().top - viewportTop - anchor.offset;
+		// 位置が変わっていない場合は代入せず、進行中のスムーズスクロールを妨げない。
+		const delta = block.getBoundingClientRect().top - viewportTop - anchor.offset;
+		if (delta !== 0) scroller.scrollTop += delta;
 	}
 
 	_renderCurrent() {
