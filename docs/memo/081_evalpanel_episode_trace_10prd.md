@@ -4,6 +4,7 @@
 > 改訂: 2026-09-24 グリル（`/grill-with-docs`、9 問）で §1.4 の前提修正（EvalPanel の trace `step` は学習 `exp_step` にならない）と裁定。2026-09-26 再グリル: 起動時宣言（旧 D2。`CreateEvalRunner` 撤去）と定義レコードの `env_name` 欄（旧 D5）を取り下げ、`CreateEvalRunner` を残す原案 A1 の形へ戻した。突き合わせは序数の手順から trace 行の `timestamp` へ変更（ADR 0037 の行契約を改訂）。ログ prefix は `env.[<Env name>].[<lane>]:` 記法に追従。決定の記録は ADR 0047。
 > 関連: [ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（本 PRD で新設）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)（trace チャネル。`episode_id` / `model_version` 欄は需要が出た時点で同じゲートで足す）、[069](done/069_metrics_trace_channel_10prd.md)、[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)（解析メタデータは Runner が出す）、[932](932_episode_forensics_10prd.md)（Run-scoped `EpisodeId`）、[912](912_background_eval_snapshot_ordering_10prd.md)、[220 §4.7](../design/220_atari_env.jp.md)（AtariEnv のゲーム完了ログ）、[140](../design/140_observability.jp.md)、[160](../design/160_applications_and_tools.jp.md)。
 > 担当: 実装（コード・テスト・設計文書・Atari.txt の同期）は実装枠（Codex）。コミットは人間。
+> 2026-10-19 追記: [PRD 094](094_evalpanel_step_history_10prd.md) のグリルで、EvalPanel の step trace を trace チャネルへ出す段を本 PRD へ移すと決めた。本 PRD は 094 の後に改訂して取り込む（決めることは 094 の §7 の 2）。実装ノート（§4）の trainer.cpp の名指しは、094 が分けるメトリクス配線のクラスを指すよう、その改訂で直す。
 
 ## 1. Context / Problem Statement
 

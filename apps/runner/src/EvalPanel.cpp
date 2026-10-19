@@ -139,13 +139,14 @@ void EvalPanel::SetFps(float fps)
 
 	// 実行時変更では既存 timer を止めてから、新しい周期を確定する。
 	update_timer_.Stop();
+	if (fps == 0.0f) {
+		ANET_LOG_DEBUG("EvalPanel steps disabled");
+		return;
+	}
+
 	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
 	ANET_LOG_DEBUG("interval=" << interval);
-	if (interval <= 0) {
-		update_timer_.Stop();
-	} else {
-		update_timer_.Start(interval);
-	}
+	update_timer_.Start(interval);
 }
 
 void EvalPanel::DoStep()

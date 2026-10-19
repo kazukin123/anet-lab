@@ -419,6 +419,18 @@ _Avoid_: コマンドバー, ribbon, ツールバーウィンドウ
 pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実行中に GUI から行う一時的な操作の区分。実効設定（config dump）には記録されないため、Run の比較・再現の根拠にしない。設定変更（config）とは区別する。
 _Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
 
+**step trace**:
+Runner の遷移 1 つを 1 件とし、判断の時点の値（行動・Q）、遷移のあとの値（報酬・終端・env の info）、遷移全体の値（近似Actor初期優先度）を持つ記録の単位。Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする。
+_Avoid_: step 行, 履歴行, step log, ステップ履歴
+
+**追従 pane**:
+鏡写しインスタンス（EvalPanel）の step から描き、Live モード／Trace モードを持つ pane（EvalPanel・QValuePanel・Conv2d）。学習側の更新で描く HeatMap は含まない。
+_Avoid_: 連動パネル, 同期パネル
+
+**Live モード／Trace モード**:
+追従 pane の表示の状態。Live モードは鏡写しインスタンスの最新の step を追い、Trace モードは Evaluation Trace で選んだ step trace の時点の表示を出し続ける。
+_Avoid_: 履歴表示, 再生表示, Eval 表示モード
+
 ### Run管理
 
 **ワークスペース (Workspace)**:
