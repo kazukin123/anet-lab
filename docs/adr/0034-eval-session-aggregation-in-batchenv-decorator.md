@@ -1,5 +1,7 @@
 # 評価セッションの N 本集約は BatchEnv デコレータと開始時動的グラントで行う
 
+> 2026-10-19 後発決定: [ADR 0059](0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md) で、BatchEnv の `Step` の中の auto-reset をやめ、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶ形へ改めた。本 ADR の「Step / auto-reset」は「Step と、その通知のあとの終わったエピソードのリセット」へ、「保存済みの最終 `continue_state`」は「直前の `ResetEndedEpisodes()` の結果」へ置き換わる。capture は中の Step のあと・リセットの前に行う。採用 episode の動的グラント、セッション開始の使い回しの条件（全 group が fresh なら再利用、そうでなければ全 lane Reset）、使い回すときの空の AuxData、構造契約を枠組みが持つことは維持する。
+
 `eval_batch_size > 1` は eval 用 BatchEnv の lane 数として配線されているが、評価ループが最初の lane 終端で止まるため、最短 episode 1 本へ偏る。停止条件だけを延ばしても、同じ step の `@episode_end` は metrics gate で最初の 1 点しか記録されず、AtariEnv の `game_score` 等も完了 Step の直後に保存しなければ次の Step で失われる。ImageCls は batch-level の eval window を lane 0 だけの終端として報告する妥協も持つ。したがって、lane 数 L と評価本数 N を分離し、同じ network snapshot に対する論理 episode N 本を一つの評価セッションとして収集する必要がある。
 
 **評価セッションの N 本集約は、eval 用 BatchEnv を包む `EvalSessionEnv` が担当する**ことを決定する。`EvalSessionEnv` は通常の spec / state / action / `Step()` を inner へ委譲する decorator であり、EvalRunner の actor 経路からは通常の BatchEnv と等価に見える。セッション操作には既存の`Reset()`と追加する`GetSessionResult()`だけを使い、domain 固有の終端判定、metrics記録、scheduleは所有しない。

@@ -2,7 +2,8 @@
 
 > 2026-10-19 起票（暫定。グリル前）。質問はせず、暫定の既定を置いて §5 に決めることを残した。
 > 起点: [PRD 094](094_evalpanel_step_history_10prd.md)（Evaluation Trace）のグリルで、EvalPanel・QValuePanel が待っている間に出している時点を整理したとき、QValuePanel の Q は 1 つ前の状態のもので、クリックした行動は次の状態に当たると分かったこと（094 の §3.1）。
-> 関連: [999_input_target_train_forced_action_10prd.md](999_input_target_train_forced_action_10prd.md)（入力先 train の強制行動）、[CONTEXT.md](../../CONTEXT.md) の「鏡写しインスタンス」「実行時 UI 操作」。
+> 2026-10-19 PRD [097](097_env_auto_reset_after_notification_10prd.md) のグリルで、エピソードの境目の画面をこの PRD で決めることになったので、§2 の末尾と §5 の 5・6 を書き足した。
+> 関連: [097_env_auto_reset_after_notification_10prd.md](097_env_auto_reset_after_notification_10prd.md)（終わったエピソードのリセットを通知のあとへ）、[999_input_target_train_forced_action_10prd.md](999_input_target_train_forced_action_10prd.md)（入力先 train の強制行動）、[CONTEXT.md](../../CONTEXT.md) の「鏡写しインスタンス」「実行時 UI 操作」。
 
 ## 1. 目的と問題
 
@@ -23,6 +24,7 @@ QValuePanel で行動をクリックして EvalPanel を手動で進めるとき
 - QValuePanel は、この通知の `action_info` の aux から Q(s_t, ·) と a_t を出す（[QValuePanel.cpp:281-308](../../apps/runner/src/QValuePanel.cpp)、同 315-397）。EvalPanel の画面は、同じ通知の時点の env の画面 s_{t+1} を出す（[AtariView.cpp:218-257](../../core/envs/atari1/src/AtariView.cpp)）。待っている間、画面は s_{t+1}、Q は s_t のものである。
 - QValuePanel で行動をクリックすると `EvalPanel::DoStep(action)` が呼ばれ（[RunnerFrame.cpp:484-487](../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:161-168](../../apps/runner/src/EvalPanel.cpp)）、`MakeAction(s_{t+1})` のあとに、その行動が s_{t+1} に強制される。クリックしたときに見ていた Q は、s_{t+1} の Q ではない。
 - 行動の決定と env の step は同じ呼び出しの中で続けて起きるので、「s_{t+1} の Q を出して、行動を待つ」状態は今は無い。
+- PRD 097 の実装のあとは、`Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼んで、次の状態を受け取る（097 の D1）。終端の step の通知では、画面は終端の画面 s_T になる。次のクリックが当たるリセット後の s_0 は、画面に出ない（097 の D4。今は終端の step でだけ、リセット後の s_0 が偶然出ている）。手動で進めると、エピソードの境目では s_0 を見ずに最初の行動を選ぶことになる。
 
 ## 3. 提案の骨子（暫定）
 
@@ -46,6 +48,8 @@ QValuePanel で行動をクリックして EvalPanel を手動で進めるとき
 | 2 | 案 A のとき、先読みした行動を、モデルの同期（Sync）をまたいで使ってよいか | 同期をまたいだら先読みをやり直す |
 | 3 | キー（EvalPanel から転送される矢印キーなど）での手動の行動も同じ扱いにするか | 同じ扱いにする |
 | 4 | PRD 094 の Trace モードとの関係 | Trace モードの間は手動の行動の前に Live へ戻る（094 の D11）ので、Live の表示だけを対象にする |
+| 5 | エピソードの境目で、次のクリックが当たる s_0 の画面を出すか（PRD 097 の D4 で先送りした件。097 は Observer にエピソードの開始の通知を足していない） | 出す。出し方（エピソードの開始の通知を足すか、手動の step のあとに段の戻り値から画面を作るか）はグリルで決める |
+| 6 | 案 A のとき、先読みを置く位置 | PRD 097 の段（`ResetEndedEpisodes()`）のあと。次の状態は段の戻り値だから（097 の §8） |
 
 ## 6. 成功の測り方の目安
 

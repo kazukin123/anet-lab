@@ -255,6 +255,10 @@ _Avoid_: Env ID, Env key, role, context
 AgentがActor生成時に、対象EnvのEnvSpecを入力・出力として受理できるか判断する契約。Train EnvとEval EnvのEnvSpecが同一であること自体は全Agent共通の要件ではなく、汎用的な同一I/O判定はAgentが選べる補助手段として扱う。
 _Avoid_: Env間互換性, RunManager compatibility, canonical EnvSpec
 
+**終わったエピソードのリセット**（ended-episode reset）:
+Runner が Step の通知を済ませたあと、次の判断の前に毎回呼ぶ BatchEnv の段（`ResetEndedEpisodes()`）で、直前の Step で終わった episode group だけを新しいエピソードの開始状態にし、全 lane の次の判断の状態を返す。Step 自身はリセットしないので、通知の間の env は遷移のあと・リセット前にある。
+_Avoid_: 自動リセット, auto-reset（Step の中でリセットする旧来の形）, continue_state
+
 ### DropMerge終局診断
 
 **NoLegal candidate**:
