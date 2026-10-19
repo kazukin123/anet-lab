@@ -86,6 +86,24 @@ namespace anet {
 
     namespace detail {
 
+        class VideoLoggerProcess : public wxProcess {
+        public:
+            void OnTerminate(int pid, int status) override;
+            bool CopyTerminationState(long expected_pid, int* exit_code, bool* has_exit_code,
+                std::string* captured_stderr) const;
+            bool ReleaseOwnership();
+        private:
+            void DrainStderrLocked();
+
+            mutable std::mutex mutex_;
+            bool released_ = false;
+            bool terminated_ = false;
+            long pid_ = 0;
+            int exit_code_ = 0;
+            bool has_exit_code_ = false;
+            std::string captured_stderr_;
+        };
+
         inline constexpr int kNvencMinWidth = 160;
         inline constexpr int kNvencMinHeight = 64;
 
@@ -110,8 +128,6 @@ namespace anet {
 
         void WriteFrame(const wxImage& img);
     private:
-        class Process;
-
         void LaunchFfmpeg(const std::string& codec);
         bool DiedAtStartup();
         void UpdateFfmpegDeathFromPidLocked();
@@ -122,8 +138,7 @@ namespace anet {
         void CloseProcessLocked();
         void Close();
     private:
-        Process* process_ = nullptr;
-        wxOutputStream* stream_ = nullptr;
+        std::unique_ptr<detail::VideoLoggerProcess> process_;
         std::mutex write_mutex_;
         std::atomic<bool> ffmpeg_dead_{ false };
         int exit_code_ = 0;

@@ -15,6 +15,15 @@
 
 namespace {
 
+class ProbeVideoLoggerProcess final : public anet::detail::VideoLoggerProcess {
+public:
+    explicit ProbeVideoLoggerProcess(int& destruction_count)
+        : destruction_count_(destruction_count) {}
+    ~ProbeVideoLoggerProcess() override { ++destruction_count_; }
+private:
+    int& destruction_count_; ///< このテスト呼び出しが所有する破棄回数を借用する。
+};
+
 class NullBackend final : public anet::IBackend {
 public:
     void Open(const std::filesystem::path&, const std::string&) override {}
@@ -161,6 +170,58 @@ TEST_CASE("Jsonl writer logs the first stream I/O failure only", "[metrics][io]"
                 "Further errors for this file are suppressed",
             }));
     }
+}
+
+TEST_CASE("VideoLogger keeps a notified process alive until its owner deletes it", "[metrics][video][process]")
+{
+    int destruction_count = 0;
+    auto process = std::make_unique<ProbeVideoLoggerProcess>(destruction_count);
+    int exit_code = -1;
+    bool has_exit_code = false;
+    std::string stderr_text;
+
+    // 終了通知が先でも、所有者が手放すまでは状態を読み出せる。
+    process->OnTerminate(123, 7);
+    CHECK(destruction_count == 0);
+    REQUIRE(process->CopyTerminationState(123, &exit_code, &has_exit_code, &stderr_text));
+    CHECK(has_exit_code);
+    CHECK(exit_code == 7);
+    REQUIRE(process->ReleaseOwnership());
+    CHECK(destruction_count == 0);
+    process.reset();
+    CHECK(destruction_count == 1);
+}
+
+TEST_CASE("VideoLogger process deletes itself when notification follows ownership release", "[metrics][video][process]")
+{
+    int destruction_count = 0;
+    auto owner = std::make_unique<ProbeVideoLoggerProcess>(destruction_count);
+
+    // 通知前に所有者が手放した場合、通知を受けた側だけが破棄する。
+    REQUIRE_FALSE(owner->ReleaseOwnership());
+    CHECK(destruction_count == 0);
+    auto* process = owner.release();
+    process->OnTerminate(123, 0);
+    CHECK(destruction_count == 1);
+}
+
+TEST_CASE("VideoLogger process rejects termination state for a different pid", "[metrics][video][process]")
+{
+    int destruction_count = 0;
+    auto process = std::make_unique<ProbeVideoLoggerProcess>(destruction_count);
+    int exit_code = -1;
+    bool has_exit_code = false;
+    std::string stderr_text;
+
+    // 他のプロセスの通知として結果を誤認しない。
+    CHECK_FALSE(process->CopyTerminationState(123, &exit_code, &has_exit_code, &stderr_text));
+    process->OnTerminate(123, 7);
+    CHECK_FALSE(process->CopyTerminationState(999, &exit_code, &has_exit_code, &stderr_text));
+    CHECK(exit_code == -1);
+    CHECK_FALSE(has_exit_code);
+    REQUIRE(process->ReleaseOwnership());
+    process.reset();
+    CHECK(destruction_count == 1);
 }
 
 TEST_CASE("VideoLogger checks NVENC eligible video size", "[metrics][video]")

@@ -270,7 +270,7 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 | `config/*.txt` | `MetricsLogger` | ConfigをLogした時点でtag別に書出し。Envは`env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | JSON metadataをLogした時点で上書きまたはstep別生成 |
 | `json/eval.[<tag>].session_cancelled.json` | `MetricsLogger` | 評価セッションの協調キャンセル時に座標、経過時間、完了episode数を記録。Metrics masterにも`type=json`で追記 |
-| `videos/<tag>.mkv` | `VideoLogger` | 最初のframeでloggerを作り、Run終了時にclose |
+| `videos/<tag>.mkv` | `VideoLogger` | 最初のframeでloggerを作り、Run終了時にclose。ffmpegの終了通知を受けた側がwxProcessをdeleteする（所有者が先に手放せば通知時に自己削除） |
 | `images/<tag>/*.png` | `MetricsLogger` | `use_png_dump=true`時にframeごとに生成 |
 | `dot/**/*.dot` | `MetricsLogger` | GraphViz eventごとに生成 |
 | `<run_name>.log` | `FileLogger` | periodic timer、warning以上、明示flush |
