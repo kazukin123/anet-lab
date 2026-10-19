@@ -1,0 +1,7 @@
+name = "an-review"
+description = "成果物をレビューしたいときに使う。品質確認観点に照らして検証し、OK か差し戻しかを判定する。成果物の修正はしない。"
+sandbox_mode = "read-only"
+developer_instructions = """
+最初に .claude/agents/an-review.md を読み、その定義に従ってください。
+ほかのエージェントを起動しないでください。
+"""

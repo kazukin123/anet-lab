@@ -1,0 +1,2190 @@
+[
+  {
+    "id": "A11 Run leaves override selections",
+    "config": [
+      "net.@p : branch.[t].structure = SiLU",
+      "Agent.net.$ = net.@p",
+      "run.@arm : Agent.net.branch.[t].structure = ReLU",
+      "run.$ = @arm"
+    ],
+    "values": {
+      "Agent.net.branch.[t].structure": "ReLU"
+    }
+  },
+  {
+    "id": "A12 Run leaves override layers",
+    "config": [
+      "Agent.@baseline : learner.gamma = 0.9",
+      "A2.learner.gamma = 0.997",
+      "Agent.$ = @baseline > A2",
+      "run.@arm : Agent.learner.gamma = 0.99",
+      "run.$ = @arm"
+    ],
+    "values": {
+      "Agent.learner.gamma": "0.99"
+    }
+  },
+  {
+    "id": "A12 CLI resolver inputs override Run inputs",
+    "config": [
+      "Agent.@baseline : learner.gamma = 0.9",
+      "A2.learner.gamma = 0.997",
+      "run.@arm : Agent.$ = @baseline > A2",
+      "run.@arm : @vars.n = 5",
+      "key = ${@vars.n}",
+      "run.$ = @arm"
+    ],
+    "cli": "Agent.$=@baseline @vars.n=7",
+    "values": {
+      "Agent.learner.gamma": "0.9",
+      "key": "7"
+    }
+  },
+  {
+    "id": "M14 selections read final Run values",
+    "config": [
+      "net.@p : branch.[t].structure = SiLU",
+      "Agent.net.$ = net.@p",
+      "Other.$ = Agent.net.branch.[t]",
+      "run.@arm : Agent.net.branch.[t].structure = ReLU",
+      "run.$ = @arm"
+    ],
+    "values": {
+      "Agent.net.branch.[t].structure": "ReLU",
+      "Other.structure": "ReLU"
+    },
+    "overrides": [
+      {
+        "key": "Agent.net.branch.[t].structure",
+        "by": "run.@arm",
+        "from": "SiLU",
+        "to": "ReLU"
+      }
+    ],
+    "selections": [
+      {
+        "key": "run.$",
+        "chain": [
+          {
+            "term": "@arm",
+            "resolved": "run.@arm"
+          }
+        ]
+      },
+      {
+        "key": "Agent.net.$",
+        "chain": [
+          {
+            "term": "net.@p",
+            "resolved": "net.@p"
+          }
+        ]
+      },
+      {
+        "key": "Other.$",
+        "chain": [
+          {
+            "term": "Agent.net.branch.[t]",
+            "resolved": "Agent.net.branch.[t]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M01 parent policy with target network difference",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    }
+  },
+  {
+    "id": "M02 explicit profile leaves outrank outer differences",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A2 : actor.@eval_base.policy.eps_start = 0.01",
+      "A2 : actor.@eval_base.policy.eps_end = 0.01"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    }
+  },
+  {
+    "id": "M03 later parent changes and new keys propagate",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A2.actor.[eval].policy.eps_start = 0.01",
+      "A2.actor.[eval].policy.use_amp = true"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target",
+      "DefaultDQNAgent.actor.[eval].policy.use_amp": "true",
+      "DefaultDQNAgent.actor.[eval_target].policy.use_amp": "true"
+    }
+  },
+  {
+    "id": "M04 child layer",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A3.actor.[eval_target].policy.eps_start = 0.02"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": ""
+  },
+  {
+    "id": "M04 CLI material",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A3.actor.[eval_target].policy.eps_start = 0.02"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.03",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": "DefaultDQNAgent.actor.@eval_base.policy.eps_start=0.03"
+  },
+  {
+    "id": "M04 CLI parent with child layer",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A3.actor.[eval_target].policy.eps_start = 0.02"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": "DefaultDQNAgent.actor.[eval].policy.eps_start=0.04"
+  },
+  {
+    "id": "M04 CLI child layer",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A3.actor.[eval_target].policy.eps_start = 0.02"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.06",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": "A3.actor.[eval_target].policy.eps_start=0.06"
+  },
+  {
+    "id": "M04 CLI child",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "A3.actor.[eval_target].policy.eps_start = 0.02"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.09",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": "DefaultDQNAgent.actor.[eval_target].policy.eps_start=0.09"
+  },
+  {
+    "id": "M04 CLI parent propagation",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.04",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": "DefaultDQNAgent.actor.[eval].policy.eps_start=0.04"
+  },
+  {
+    "id": "M04 CLI parent and child",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.09",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "cli": "DefaultDQNAgent.actor.[eval].policy.eps_start=0.04 DefaultDQNAgent.actor.[eval_target].policy.eps_start=0.09"
+  },
+  {
+    "id": "M05 direct leaves before selections variant 0",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start = 0.02",
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.eps_start = 0.01"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    }
+  },
+  {
+    "id": "M05 direct leaves before selections variant 1",
+    "config": [
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.eps_start = 0.01",
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start = 0.02"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    }
+  },
+  {
+    "id": "M06 differential inheritance retains earlier leaves",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
+      "DefaultDQNAgent.actor.@sync : value = 400",
+      "A2.actor.[eval_target].clone_model = true",
+      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync",
+      "A3.actor.[eval_target].$ = DefaultDQNAgent.actor.@greedy > DefaultDQNAgent.actor.@target"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].network": "target",
+      "DefaultDQNAgent.actor.[eval_target].clone_model": "true",
+      "DefaultDQNAgent.actor.[eval_target].sync_interval.value": "400",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "A2.actor.[eval_target].sync_interval.value": "400"
+    },
+    "absent": [],
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          },
+          {
+            "term": "A2",
+            "resolved": "A2"
+          },
+          {
+            "term": "A3",
+            "resolved": "A3"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_base",
+            "resolved": "DefaultDQNAgent.actor.@eval_base"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      },
+      {
+        "key": "A2.actor.[eval_target].sync_interval.$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@sync",
+            "resolved": "DefaultDQNAgent.actor.@sync"
+          }
+        ]
+      },
+      {
+        "key": "A3.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@greedy",
+            "resolved": "DefaultDQNAgent.actor.@greedy"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M06 differential inheritance from a catalog",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
+      "DefaultDQNAgent.actor.@sync : value = 400",
+      "A2.actor.[eval_target].clone_model = true",
+      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync",
+      "A3.actor.[eval_target].$ = DefaultDQNAgent.actor.[greedy] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.@baseline : actor.[greedy].policy.policy_type = Greedy"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].network": "target",
+      "DefaultDQNAgent.actor.[eval_target].clone_model": "true",
+      "DefaultDQNAgent.actor.[eval_target].sync_interval.value": "400",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "A2.actor.[eval_target].sync_interval.value": "400"
+    },
+    "absent": [],
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          },
+          {
+            "term": "A2",
+            "resolved": "A2"
+          },
+          {
+            "term": "A3",
+            "resolved": "A3"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_base",
+            "resolved": "DefaultDQNAgent.actor.@eval_base"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      },
+      {
+        "key": "A2.actor.[eval_target].sync_interval.$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@sync",
+            "resolved": "DefaultDQNAgent.actor.@sync"
+          }
+        ]
+      },
+      {
+        "key": "A3.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[greedy]",
+            "resolved": "DefaultDQNAgent.actor.[greedy]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M06 right source overrides an earlier explicit clone",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
+      "DefaultDQNAgent.actor.@sync : value = 400",
+      "A2.actor.[eval_target].clone_model = true",
+      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync",
+      "A3.actor.[eval_target].$ = DefaultDQNAgent.actor.@greedy > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.actor.@greedy : clone_model = false"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].network": "target",
+      "DefaultDQNAgent.actor.[eval_target].clone_model": "false",
+      "DefaultDQNAgent.actor.[eval_target].sync_interval.value": "400",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "A2.actor.[eval_target].sync_interval.value": "400"
+    },
+    "absent": [],
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          },
+          {
+            "term": "A2",
+            "resolved": "A2"
+          },
+          {
+            "term": "A3",
+            "resolved": "A3"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_base",
+            "resolved": "DefaultDQNAgent.actor.@eval_base"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      },
+      {
+        "key": "A2.actor.[eval_target].sync_interval.$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@sync",
+            "resolved": "DefaultDQNAgent.actor.@sync"
+          }
+        ]
+      },
+      {
+        "key": "A3.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@greedy",
+            "resolved": "DefaultDQNAgent.actor.@greedy"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M06 source declarations resolve at their own definitions",
+    "config": [
+      "DefaultDQNAgent.actor.@eps : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eps : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
+      "A2.actor.[eval].$ = DefaultDQNAgent.actor.@eps",
+      "A3.actor.[eval].$ = DefaultDQNAgent.actor.@greedy",
+      "DefaultDQNAgent.$ = A2 > A3"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "A2.actor.[eval].policy.eps_end": "0.05"
+    },
+    "absent": []
+  },
+  {
+    "id": "M06 explicit source leaf survives differential composition",
+    "config": [
+      "DefaultDQNAgent.actor.@eps : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eps : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
+      "A2.actor.[eval].$ = DefaultDQNAgent.actor.@eps",
+      "A3.actor.[eval].$ = DefaultDQNAgent.actor.@greedy",
+      "DefaultDQNAgent.$ = A2 > A3",
+      "A2.actor.[eval].policy.eps_end = 0.05"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05"
+    },
+    "absent": []
+  },
+  {
+    "id": "M07 multilevel inheritance uses completed parent",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline > A2 > A3",
+      "DefaultDQNAgent.@baseline : actor.[eval_target_check].$ = DefaultDQNAgent.actor.[eval_target]",
+      "A2.actor.[eval].policy.eps_start = 0.01",
+      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A3.actor.[eval_target_check].clone_model = true"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].network": "online",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].network": "target",
+      "DefaultDQNAgent.actor.[eval_target_check].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target_check].network": "target",
+      "DefaultDQNAgent.actor.[eval_target_check].clone_model": "true"
+    },
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          },
+          {
+            "term": "A2",
+            "resolved": "A2"
+          },
+          {
+            "term": "A3",
+            "resolved": "A3"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_base",
+            "resolved": "DefaultDQNAgent.actor.@eval_base"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target_check].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval_target]",
+            "resolved": "DefaultDQNAgent.actor.[eval_target]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M07 directly declared parent instruction is not copied",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_policy : eps_start = 0.05",
+      "DefaultDQNAgent.actor.[eval].policy.$ = DefaultDQNAgent.actor.@eval_policy",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
+      "A2.actor.[eval].policy.eps_start = 0.01",
+      "DefaultDQNAgent.$ = @baseline > A2"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05"
+    },
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.actor.[eval].policy.$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_policy",
+            "resolved": "DefaultDQNAgent.actor.@eval_policy"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          },
+          {
+            "term": "A2",
+            "resolved": "A2"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M08 partial inheritance inside and outside catalog",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.use_amp = false",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor.[eval].policy",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].network = target",
+      "DefaultDQNAgent.@baseline : target_policy.$ = DefaultDQNAgent.actor.[eval].policy",
+      "A2.actor.[eval].policy.use_amp = true",
+      "DefaultDQNAgent.$ = @baseline > A2"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval].policy.use_amp": "true",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.use_amp": "true",
+      "DefaultDQNAgent.actor.[eval_target].network": "target",
+      "DefaultDQNAgent.target_policy.policy_type": "Greedy",
+      "DefaultDQNAgent.target_policy.use_amp": "true"
+    },
+    "absent": [
+      "DefaultDQNAgent.target_policy.network"
+    ]
+  },
+  {
+    "id": "M09 whole then partial",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@greedy : policy_type = Greedy",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor.@greedy",
+      "DefaultDQNAgent.$ = @baseline"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_base",
+            "resolved": "DefaultDQNAgent.actor.@eval_base"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].policy.$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@greedy",
+            "resolved": "DefaultDQNAgent.actor.@greedy"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M09 partial then whole",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.actor.@greedy : policy_type = Greedy",
+      "DefaultDQNAgent.actor.@target : network = target",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor.@greedy",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
+      "DefaultDQNAgent.$ = @baseline"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
+      "DefaultDQNAgent.actor.[eval_target].network": "target"
+    },
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {
+            "term": "@baseline",
+            "resolved": "DefaultDQNAgent.@baseline"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@eval_base",
+            "resolved": "DefaultDQNAgent.actor.@eval_base"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].policy.$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.@greedy",
+            "resolved": "DefaultDQNAgent.actor.@greedy"
+          }
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.@baseline.actor.[eval_target].$",
+        "chain": [
+          {
+            "term": "DefaultDQNAgent.actor.[eval]",
+            "resolved": "DefaultDQNAgent.actor.[eval]"
+          },
+          {
+            "term": "DefaultDQNAgent.actor.@target",
+            "resolved": "DefaultDQNAgent.actor.@target"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M13 generated profiles and dormant inventory variant 0",
+    "config": [
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.eps_start = 0.05",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing",
+      "DefaultDQNAgent.$ = @baseline > @cautious"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01"
+    },
+    "absent": [
+      "DefaultDQNAgent.actor.@eval_base.policy.eps_start",
+      "DefaultDQNAgent.actor.[unused].$"
+    ]
+  },
+  {
+    "id": "M13 generated profiles and dormant inventory variant 1",
+    "config": [
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.eps_start = 0.05",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing",
+      "DefaultDQNAgent.$ = @baseline"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05"
+    },
+    "absent": [
+      "DefaultDQNAgent.actor.@eval_base.policy.eps_start",
+      "DefaultDQNAgent.actor.[unused].$"
+    ]
+  },
+  {
+    "id": "M13 generated profiles and dormant inventory variant 2",
+    "config": [
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.eps_start = 0.05",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing",
+      "DefaultDQNAgent.$ = @baseline > @cautious",
+      "DefaultDQNAgent.@baseline : actor.@unused.policy.$ = DefaultDQNAgent.actor.@missing"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01"
+    },
+    "absent": [
+      "DefaultDQNAgent.actor.@eval_base.policy.eps_start",
+      "DefaultDQNAgent.actor.[unused].$"
+    ]
+  },
+  {
+    "id": "M10 cyclic empty catalog selections fail with a path",
+    "config": [
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.$ = DefaultDQNAgent.actor.[eval_target].policy",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor.[eval].policy",
+      "DefaultDQNAgent.$ = @baseline"
+    ],
+    "error": [
+      "selection cycle",
+      "path=",
+      "DefaultDQNAgent.actor.[eval].policy",
+      "DefaultDQNAgent.actor.[eval_target].policy"
+    ]
+  },
+  {
+    "id": "M11 empty ordinary layer is allowed",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.$ = @baseline > A3"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "Greedy"
+    }
+  },
+  {
+    "id": "M11 missing material",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@missing",
+      "DefaultDQNAgent.$ = @baseline > A3"
+    ],
+    "error": [
+      "selection target not found",
+      "selection=DefaultDQNAgent.@baseline.actor.[eval].$",
+      "term=DefaultDQNAgent.actor.@missing",
+      "resolved=DefaultDQNAgent.actor.@missing"
+    ]
+  },
+  {
+    "id": "M11 missing catalog",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.[missing]",
+      "DefaultDQNAgent.$ = @baseline > A3"
+    ],
+    "error": [
+      "selection target not found",
+      "selection=DefaultDQNAgent.@baseline.actor.[eval].$",
+      "term=DefaultDQNAgent.actor.[missing]",
+      "resolved=DefaultDQNAgent.actor.[missing]"
+    ]
+  },
+  {
+    "id": "M11 missing material subsection",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base.sync_interval",
+      "DefaultDQNAgent.$ = @baseline > A3"
+    ],
+    "error": [
+      "selection target not found",
+      "selection=DefaultDQNAgent.@baseline.actor.[eval].$",
+      "term=DefaultDQNAgent.actor.@eval_base.sync_interval",
+      "resolved=DefaultDQNAgent.actor.@eval_base.sync_interval"
+    ]
+  },
+  {
+    "id": "M11 missing catalog subsection outside catalog",
+    "config": [
+      "DefaultDQNAgent.actor.@eval_base : policy.policy_type = Greedy",
+      "DefaultDQNAgent.actor.@eval_base : policy.use_amp = false",
+      "DefaultDQNAgent.actor.@eval_base : network = online",
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].policy.$ = DefaultDQNAgent.actor.[eval].policy",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].network = target",
+      "DefaultDQNAgent.@baseline : target_policy.$ = DefaultDQNAgent.actor.[eval].sync_interval",
+      "A2.actor.[eval].policy.use_amp = true",
+      "DefaultDQNAgent.$ = @baseline > A2"
+    ],
+    "error": [
+      "selection target not found",
+      "selection=DefaultDQNAgent.@baseline.target_policy.$",
+      "term=DefaultDQNAgent.actor.[eval].sync_interval",
+      "resolved=DefaultDQNAgent.actor.[eval].sync_interval"
+    ]
+  },
+  {
+    "id": "M13 profile leaves created by a later term",
+    "config": [
+      "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
+      "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.policy_type = EpsilonGreedy",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.$ = @baseline > @cautious"
+    ],
+    "values": {
+      "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
+      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01"
+    }
+  },
+  {
+    "id": "M12 dependency depth 10",
+    "config": [
+      "net.block.[DepthBase].type = ReLU",
+      "net.block.[Depth01].$ = net.block.[DepthBase]",
+      "net.block.[Depth02].$ = net.block.[Depth01]",
+      "net.block.[Depth03].$ = net.block.[Depth02]",
+      "net.block.[Depth04].$ = net.block.[Depth03]",
+      "net.block.[Depth05].$ = net.block.[Depth04]",
+      "net.block.[Depth06].$ = net.block.[Depth05]",
+      "net.block.[Depth07].$ = net.block.[Depth06]",
+      "net.block.[Depth08].$ = net.block.[Depth07]",
+      "net.block.[Depth09].$ = net.block.[Depth08]",
+      "net.block.[Depth10].$ = net.block.[Depth09]"
+    ],
+    "values": {
+      "net.block.[Depth01].type": "ReLU",
+      "net.block.[Depth02].type": "ReLU",
+      "net.block.[Depth03].type": "ReLU",
+      "net.block.[Depth04].type": "ReLU",
+      "net.block.[Depth05].type": "ReLU",
+      "net.block.[Depth06].type": "ReLU",
+      "net.block.[Depth07].type": "ReLU",
+      "net.block.[Depth08].type": "ReLU",
+      "net.block.[Depth09].type": "ReLU",
+      "net.block.[Depth10].type": "ReLU"
+    }
+  },
+  {
+    "id": "M12 dependency depth 11",
+    "config": [
+      "net.block.[DepthBase].type = ReLU",
+      "net.block.[Depth01].$ = net.block.[DepthBase]",
+      "net.block.[Depth02].$ = net.block.[Depth01]",
+      "net.block.[Depth03].$ = net.block.[Depth02]",
+      "net.block.[Depth04].$ = net.block.[Depth03]",
+      "net.block.[Depth05].$ = net.block.[Depth04]",
+      "net.block.[Depth06].$ = net.block.[Depth05]",
+      "net.block.[Depth07].$ = net.block.[Depth06]",
+      "net.block.[Depth08].$ = net.block.[Depth07]",
+      "net.block.[Depth09].$ = net.block.[Depth08]",
+      "net.block.[Depth10].$ = net.block.[Depth09]",
+      "net.block.[Depth11].$ = net.block.[Depth10]"
+    ],
+    "error": [
+      "selection depth limit exceeded",
+      "max=10",
+      "path=",
+      "Depth11"
+    ]
+  },
+  {
+    "id": "M12 dependency depth 10 reverse declaration order",
+    "config": [
+      "net.block.[DepthBase].type = ReLU",
+      "net.block.[Depth10].$ = net.block.[Depth09]",
+      "net.block.[Depth09].$ = net.block.[Depth08]",
+      "net.block.[Depth08].$ = net.block.[Depth07]",
+      "net.block.[Depth07].$ = net.block.[Depth06]",
+      "net.block.[Depth06].$ = net.block.[Depth05]",
+      "net.block.[Depth05].$ = net.block.[Depth04]",
+      "net.block.[Depth04].$ = net.block.[Depth03]",
+      "net.block.[Depth03].$ = net.block.[Depth02]",
+      "net.block.[Depth02].$ = net.block.[Depth01]",
+      "net.block.[Depth01].$ = net.block.[DepthBase]"
+    ],
+    "values": {
+      "net.block.[Depth01].type": "ReLU",
+      "net.block.[Depth02].type": "ReLU",
+      "net.block.[Depth03].type": "ReLU",
+      "net.block.[Depth04].type": "ReLU",
+      "net.block.[Depth05].type": "ReLU",
+      "net.block.[Depth06].type": "ReLU",
+      "net.block.[Depth07].type": "ReLU",
+      "net.block.[Depth08].type": "ReLU",
+      "net.block.[Depth09].type": "ReLU",
+      "net.block.[Depth10].type": "ReLU"
+    }
+  },
+  {
+    "id": "M12 dependency depth 11 reverse declaration order",
+    "config": [
+      "net.block.[DepthBase].type = ReLU",
+      "net.block.[Depth11].$ = net.block.[Depth10]",
+      "net.block.[Depth10].$ = net.block.[Depth09]",
+      "net.block.[Depth09].$ = net.block.[Depth08]",
+      "net.block.[Depth08].$ = net.block.[Depth07]",
+      "net.block.[Depth07].$ = net.block.[Depth06]",
+      "net.block.[Depth06].$ = net.block.[Depth05]",
+      "net.block.[Depth05].$ = net.block.[Depth04]",
+      "net.block.[Depth04].$ = net.block.[Depth03]",
+      "net.block.[Depth03].$ = net.block.[Depth02]",
+      "net.block.[Depth02].$ = net.block.[Depth01]",
+      "net.block.[Depth01].$ = net.block.[DepthBase]"
+    ],
+    "error": [
+      "selection depth limit exceeded",
+      "max=10",
+      "path=",
+      "Depth11"
+    ]
+  },
+  {
+    "id": "M12 nested plus source depth 10",
+    "config": [
+      "net.block.[DepthBase].type = ReLU",
+      "net.block.[Depth01].$ = net.block.[DepthBase]",
+      "net.block.[Depth02].$ = net.block.[Depth01]",
+      "net.block.[Depth03].$ = net.block.[Depth02]",
+      "net.block.[Depth04].$ = net.block.[Depth03]",
+      "net.block.[Depth05].$ = net.block.[Depth04]",
+      "net.block.[Depth06].$ = net.block.[Depth05]",
+      "net.block.[Depth07].$ = net.block.[Depth06]",
+      "net.block.[Depth08].$ = net.block.[Depth07]",
+      "Owner.@template : inner.$ = net.block.[Depth08]",
+      "Owner.$ = @template"
+    ],
+    "values": {
+      "Owner.inner.type": "ReLU"
+    }
+  },
+  {
+    "id": "M12 nested plus source depth 11",
+    "config": [
+      "net.block.[DepthBase].type = ReLU",
+      "net.block.[Depth01].$ = net.block.[DepthBase]",
+      "net.block.[Depth02].$ = net.block.[Depth01]",
+      "net.block.[Depth03].$ = net.block.[Depth02]",
+      "net.block.[Depth04].$ = net.block.[Depth03]",
+      "net.block.[Depth05].$ = net.block.[Depth04]",
+      "net.block.[Depth06].$ = net.block.[Depth05]",
+      "net.block.[Depth07].$ = net.block.[Depth06]",
+      "net.block.[Depth08].$ = net.block.[Depth07]",
+      "net.block.[Depth09].$ = net.block.[Depth08]",
+      "Owner.@template : inner.$ = net.block.[Depth09]",
+      "Owner.$ = @template"
+    ],
+    "error": [
+      "selection depth limit exceeded",
+      "max=10",
+      "Owner.@template.inner.$",
+      "path="
+    ]
+  },
+  {
+    "id": "M12 sibling terms do not consume depth",
+    "config": [
+      "Env.@p0 : value0 = 0",
+      "Env.@p1 : value1 = 1",
+      "Env.@p2 : value2 = 2",
+      "Env.@p3 : value3 = 3",
+      "Env.@p4 : value4 = 4",
+      "Env.@p5 : value5 = 5",
+      "Env.@p6 : value6 = 6",
+      "Env.@p7 : value7 = 7",
+      "Env.@p8 : value8 = 8",
+      "Env.@p9 : value9 = 9",
+      "Env.@p10 : value10 = 10",
+      "Env.@p11 : value11 = 11",
+      "Env.@p12 : value12 = 12",
+      "Env.@p13 : value13 = 13",
+      "Env.@p14 : value14 = 14",
+      "Env.@p15 : value15 = 15",
+      "Env.@p16 : value16 = 16",
+      "Env.@p17 : value17 = 17",
+      "Env.@p18 : value18 = 18",
+      "Env.@p19 : value19 = 19",
+      "Env.$ = @p0 > @p1 > @p2 > @p3 > @p4 > @p5 > @p6 > @p7 > @p8 > @p9 > @p10 > @p11 > @p12 > @p13 > @p14 > @p15 > @p16 > @p17 > @p18 > @p19"
+    ],
+    "values": {
+      "Env.value0": "0",
+      "Env.value1": "1",
+      "Env.value2": "2",
+      "Env.value3": "3",
+      "Env.value4": "4",
+      "Env.value5": "5",
+      "Env.value6": "6",
+      "Env.value7": "7",
+      "Env.value8": "8",
+      "Env.value9": "9",
+      "Env.value10": "10",
+      "Env.value11": "11",
+      "Env.value12": "12",
+      "Env.value13": "13",
+      "Env.value14": "14",
+      "Env.value15": "15",
+      "Env.value16": "16",
+      "Env.value17": "17",
+      "Env.value18": "18",
+      "Env.value19": "19"
+    }
+  },
+  {
+    "id": "A06 direct self supply is rejected",
+    "config": [
+      "X.value = 1",
+      "X.$ = X"
+    ],
+    "error": [
+      "selection=X.$",
+      "term=X",
+      "resolved=X",
+      "path="
+    ]
+  },
+  {
+    "id": "A06 descendant self supply is rejected",
+    "config": [
+      "X.value = 1",
+      "X.part.$ = X"
+    ],
+    "error": [
+      "self-supply",
+      "selection=X.part.$",
+      "term=X",
+      "resolved=X",
+      "path="
+    ]
+  },
+  {
+    "id": "A06 ancestor copy without writeback is allowed",
+    "config": [
+      "X.part.value = 1",
+      "X.$ = X.part"
+    ],
+    "values": {
+      "X.value": "1",
+      "X.part.value": "1"
+    },
+    "absent": [
+      "X.part.part.value"
+    ]
+  },
+  {
+    "id": "A06 actual writeback to source is rejected",
+    "config": [
+      "X.part.part.part.value = 1",
+      "X.$ = X.part"
+    ],
+    "error": [
+      "self-supply",
+      "selection=X.$",
+      "term=X.part",
+      "resolved=X.part",
+      "path="
+    ]
+  },
+  {
+    "id": "A06 independent partial cross references are allowed",
+    "config": [
+      "A.left.value = 1",
+      "B.right.value = 2",
+      "A.right.$ = B.right",
+      "B.left.$ = A.left"
+    ],
+    "values": {
+      "A.right.value": "2",
+      "B.left.value": "1"
+    }
+  },
+  {
+    "id": "A06 value dependency cycle is rejected",
+    "config": [
+      "A.[a].value = 1",
+      "A.[b].value = 2",
+      "A.[a].$ = A.[b]",
+      "A.[b].$ = A.[a]"
+    ],
+    "error": [
+      "selection cycle",
+      "path=",
+      "A.[a]",
+      "A.[b]"
+    ]
+  },
+  {
+    "id": "A07 ordinary source can own a root selection",
+    "config": [
+      "Source.@base : value = 1",
+      "A2.$ = Source.@base",
+      "Agent.$ = A2"
+    ],
+    "values": {
+      "A2.value": "1",
+      "Agent.value": "1"
+    }
+  },
+  {
+    "id": "A09 supplied inner definition is resolved at its origin",
+    "config": [
+      "Agent.@base : item.$ = Agent.@shared",
+      "Agent.@later : @shared.policy.$ = Agent.@policy",
+      "Agent.@policy : value = 7",
+      "Agent.$ = @base > @later"
+    ],
+    "values": {
+      "Agent.item.policy.value": "7"
+    }
+  },
+  {
+    "id": "A13 folded Run leaves do not record intermediate changes",
+    "config": [
+      "A2.learner.replay_ratio = 4",
+      "Agent.$ = A2",
+      "run.@a : A2.learner.replay_ratio = 1",
+      "run.@b : A2.learner.replay_ratio = 4",
+      "run.$ = @a > @b"
+    ],
+    "values": {
+      "Agent.learner.replay_ratio": "4",
+      "A2.learner.replay_ratio": "4"
+    },
+    "overrides": []
+  },
+  {
+    "id": "A13 explicit profile leaves outrank same owner base",
+    "config": [
+      "Env.@a.value = own",
+      "Env.@a.$ = @b",
+      "Env.@b.value = base",
+      "Env.$ = @a"
+    ],
+    "values": {
+      "Env.value": "own"
+    },
+    "selections": [
+      {
+        "key": "Env.$",
+        "chain": [
+          {
+            "term": "@a",
+            "resolved": "Env.@a"
+          }
+        ]
+      },
+      {
+        "key": "Env.@a.$",
+        "chain": [
+          {
+            "term": "@b",
+            "resolved": "Env.@b"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M15 Run and CLI priority variant 0",
+    "config": [
+      "Agent.@baseline : learner.gamma = 0.9",
+      "A2.learner.gamma = 0.997",
+      "Agent.$ = @baseline > A2",
+      "run.@arm : Agent.learner.gamma = 0.99",
+      "run.$ = @arm"
+    ],
+    "values": {
+      "Agent.learner.gamma": "0.95"
+    },
+    "cli": "Agent.learner.gamma=0.95"
+  },
+  {
+    "id": "M15 Run and CLI priority variant 1",
+    "config": [
+      "Agent.@baseline : learner.gamma = 0.9",
+      "A2.learner.gamma = 0.997",
+      "Agent.$ = @baseline > A2",
+      "run.@arm : Agent.learner.gamma = 0.99",
+      "run.$ = @arm"
+    ],
+    "values": {
+      "Agent.learner.gamma": "0.99"
+    },
+    "cli": "Agent.$=@baseline"
+  },
+  {
+    "id": "M15 Run variables remain resolver inputs",
+    "config": [
+      "run.@arm : @vars.n = 5",
+      "key = ${@vars.n}",
+      "run.$ = @arm"
+    ],
+    "values": {
+      "key": "5"
+    },
+    "overrides": []
+  },
+  {
+    "id": "A07 root selection owner can be a source",
+    "config": [
+      "DefaultDQNAgent.@base.value = 1",
+      "DefaultDQNAgent.$ = @base",
+      "Other.$ = DefaultDQNAgent"
+    ],
+    "values": {
+      "DefaultDQNAgent.value": "1",
+      "Other.value": "1"
+    }
+  },
+  {
+    "id": "A09 explicit material selection outranks supplied definition",
+    "config": [
+      "Agent.@shared.policy.$ = Agent.@old",
+      "Agent.@old.old_only = 1",
+      "Agent.@base : item.$ = Agent.@shared",
+      "Agent.@later : @shared.policy.$ = Agent.@policy",
+      "Agent.@policy : value = 7",
+      "Agent.$ = @base > @later"
+    ],
+    "values": {
+      "Agent.item.policy.old_only": "1"
+    },
+    "absent": [
+      "Agent.item.policy.value"
+    ]
+  },
+  {
+    "id": "A06 another term cannot write into a source of the same selection",
+    "config": [
+      "X.part.value = 1",
+      "Other.part.value = 2",
+      "X.$ = X.part > Other"
+    ],
+    "error": [
+      "self-supply",
+      "selection=X.$",
+      "term=Other",
+      "resolved=Other"
+    ]
+  },
+  {
+    "id": "A12 CLI material leaves remain strongest when a layer writes the material",
+    "config": [
+      "Agent.@base : item.$ = Agent.@shared",
+      "Agent.@shared.value = 1",
+      "A2 : @shared.value = 2",
+      "Agent.$ = @base > A2"
+    ],
+    "cli": "Agent.@shared.value=3",
+    "values": {
+      "Agent.item.value": "3"
+    }
+  },
+  {
+    "id": "A12 CLI material declarations remain strongest when copied by a layer",
+    "config": [
+      "Agent.@base : item.$ = Agent.@shared",
+      "Agent.@shared.policy.$ = Agent.@old",
+      "Agent.@old.value = 1",
+      "A2 : @shared.policy.$ = Agent.@later",
+      "Agent.@later.value = 2",
+      "Agent.@cli.value = 3",
+      "Agent.$ = @base > A2"
+    ],
+    "cli": "Agent.@shared.policy.$=Agent.@cli",
+    "values": {
+      "Agent.item.policy.value": "3"
+    }
+  },
+  {
+    "id": "P2 explicit leaf overrides base",
+    "config": [
+      "Env.@base.value = base",
+      "Env.value = own",
+      "Env.$ = @base"
+    ],
+    "values": {
+      "Env.value": "own"
+    }
+  },
+  {
+    "id": "P1 source inheritance retains missing right leaves",
+    "config": [
+      "Policy.@eps.type = EpsilonGreedy",
+      "Policy.@eps.eps_end = 0.05",
+      "Policy.@greedy.type = Greedy",
+      "A2.policy.$ = Policy.@eps",
+      "A3.policy.$ = Policy.@greedy",
+      "Env.$ = A2 > A3"
+    ],
+    "values": {
+      "Env.policy.type": "Greedy",
+      "Env.policy.eps_end": "0.05",
+      "A2.policy.eps_end": "0.05"
+    }
+  },
+  {
+    "id": "M16 relative references retain definition origin across consumers",
+    "config": [
+      "Env.@a.$ = @b",
+      "Env.@b.value = 10",
+      "Other.@b.value = 20",
+      "Env.$ = @a",
+      "Other.$ = Env.@a"
+    ],
+    "values": {
+      "Env.value": "10",
+      "Other.value": "10"
+    },
+    "selections": [
+      {
+        "key": "Env.$",
+        "chain": [
+          {
+            "term": "@a",
+            "resolved": "Env.@a"
+          }
+        ]
+      },
+      {
+        "key": "Env.@a.$",
+        "chain": [
+          {
+            "term": "@b",
+            "resolved": "Env.@b"
+          }
+        ]
+      },
+      {
+        "key": "Other.$",
+        "chain": [
+          {
+            "term": "Env.@a",
+            "resolved": "Env.@a"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "M17 ordinary source root Common",
+    "config": [
+      "Common.@base.value = 10",
+      "Common.$ = @base",
+      "Other.$ = Common"
+    ],
+    "values": {
+      "Common.value": "10",
+      "Other.value": "10"
+    }
+  },
+  {
+    "id": "M17 ordinary source root A2",
+    "config": [
+      "A2.@base.value = 10",
+      "A2.$ = @base",
+      "Other.$ = A2"
+    ],
+    "values": {
+      "A2.value": "10",
+      "Other.value": "10"
+    }
+  },
+  {
+    "id": "M17 ordinary source root Library.Common",
+    "config": [
+      "Library.Common.@base.value = 10",
+      "Library.Common.$ = @base",
+      "Other.$ = Library.Common"
+    ],
+    "values": {
+      "Library.Common.value": "10",
+      "Other.value": "10"
+    }
+  },
+  {
+    "id": "M18 chain versus repeated key False",
+    "config": [
+      "Env.@a.left_only = 1",
+      "Env.@b.right_only = 2",
+      "Env.$ = @a",
+      "Env.$ = @b"
+    ],
+    "values": {
+      "Env.right_only": "2"
+    },
+    "absent": [
+      "Env.left_only"
+    ]
+  },
+  {
+    "id": "M18 chain versus repeated key True",
+    "config": [
+      "Env.@a.left_only = 1",
+      "Env.@b.right_only = 2",
+      "Env.$ = @a > @b"
+    ],
+    "values": {
+      "Env.right_only": "2",
+      "Env.left_only": "1"
+    },
+    "absent": []
+  },
+  {
+    "id": "M19 independent source precedence False",
+    "config": [
+      "Policy.@eps.type = EpsilonGreedy",
+      "Policy.@greedy.type = Greedy",
+      "A2.actor.[eval].policy.$ = Policy.@greedy",
+      "A3.actor.[eval].$ = A3.@base",
+      "A3.@base.policy.$ = Policy.@eps",
+      "Agent.$ = A2 > A3"
+    ],
+    "values": {
+      "Agent.actor.[eval].policy.type": "EpsilonGreedy"
+    }
+  },
+  {
+    "id": "M19 independent source precedence True",
+    "config": [
+      "Policy.@eps.type = EpsilonGreedy",
+      "Policy.@greedy.type = Greedy",
+      "A2.actor.[eval].policy.$ = Policy.@greedy",
+      "A3.actor.[eval].$ = A3.@base",
+      "A3.@base.policy.$ = Policy.@eps",
+      "Agent.$ = A3 > A2"
+    ],
+    "values": {
+      "Agent.actor.[eval].policy.type": "Greedy"
+    }
+  },
+  {
+    "id": "P5 Run declaration uses expanded root namespace",
+    "config": [
+      "Agent.@baseline.value = 10",
+      "run.@x.Agent.@baseline.value = 20",
+      "run.@x : Agent.$ = @baseline",
+      "run.$ = @x"
+    ],
+    "values": {
+      "Agent.value": "20"
+    }
+  },
+  {
+    "id": "P5 Run relative selection finds existing root profile",
+    "config": [
+      "Agent.@baseline.value = 10",
+      "run.@x : Agent.$ = @baseline",
+      "run.$ = @x"
+    ],
+    "values": {
+      "Agent.value": "10"
+    }
+  },
+  {
+    "id": "Default leaves CLI exact key file",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3"
+    ],
+    "cli": "",
+    "values": {
+      "Env.only_default": "keep",
+      "Env.value": "3"
+    }
+  },
+  {
+    "id": "Default leaves CLI exact key Env.value=4",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3"
+    ],
+    "cli": "Env.value=4",
+    "values": {
+      "Env.only_default": "keep",
+      "Env.value": "4"
+    }
+  },
+  {
+    "id": "Default leaves CLI exact key E1.value=5",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3"
+    ],
+    "cli": "E1.value=5",
+    "values": {
+      "Env.only_default": "keep",
+      "Env.value": "5"
+    }
+  },
+  {
+    "id": "Default leaves CLI exact key Env.$=Env.@other",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3"
+    ],
+    "cli": "Env.$=Env.@other",
+    "values": {
+      "Env.only_default": "keep",
+      "Env.value": "2"
+    }
+  },
+  {
+    "id": "Default leaves Run replacement retains absent selected keys",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3",
+      "run.@x : Env.$ = @other",
+      "run.$ = @x"
+    ],
+    "values": {
+      "Env.only_default": "keep",
+      "Env.value": "2"
+    }
+  },
+  {
+    "id": "Default leaves survive CLI selection replacement",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3"
+    ],
+    "cli": "Env.$=Env.@other",
+    "values": {
+      "Env.value": "2",
+      "Env.only_default": "keep"
+    }
+  },
+  {
+    "id": "Default leaves intentional explicit leaf False",
+    "config": [
+      "Env.only_default ?= keep",
+      "Env.value ?= 1",
+      "Env.@other.value = 2",
+      "Env.$ = @other > E1",
+      "E1.value = 3",
+      "Env.value = own"
+    ],
+    "values": {
+      "Env.value": "own"
+    }
+  },
+  {
+    "id": "Default leaves intentional explicit leaf True",
+    "config": [
+      "Env.value = own",
+      "E1.value = 3",
+      "Env.$ = @other > E1",
+      "Env.@other.value = 2",
+      "Env.value ?= 1",
+      "Env.only_default ?= keep"
+    ],
+    "values": {
+      "Env.value": "own"
+    }
+  },
+  {
+    "id": "Default leaves formerly equal leaves stay overridable DropMergeEnv",
+    "config": [
+      "DropMergeEnv.fruit_densities ?= old",
+      "DropMergeEnv.no_legal_min_blocked_frames ?= old",
+      "DropMergeEnv.use_settle_after_drop ?= old",
+      "E1.fruit_densities = new",
+      "E1.no_legal_min_blocked_frames = new",
+      "E1.use_settle_after_drop = new",
+      "DropMergeEnv.$ = E1"
+    ],
+    "values": {
+      "DropMergeEnv.fruit_densities": "new",
+      "DropMergeEnv.no_legal_min_blocked_frames": "new",
+      "DropMergeEnv.use_settle_after_drop": "new"
+    }
+  },
+  {
+    "id": "Default leaves formerly equal leaves stay overridable app",
+    "config": [
+      "app.eval_panel.auto_start ?= old",
+      "app.train_auto_start ?= old",
+      "E1.eval_panel.auto_start = new",
+      "E1.train_auto_start = new",
+      "app.$ = E1"
+    ],
+    "values": {
+      "app.eval_panel.auto_start": "new",
+      "app.train_auto_start": "new"
+    }
+  },
+  {
+    "id": "Default leaves Agent A2 overrides weak values",
+    "config": [
+      "Agent.batch ?= 64",
+      "A2.batch = 128",
+      "Agent.$ = A2"
+    ],
+    "values": {
+      "Agent.batch": "128"
+    }
+  },
+  {
+    "id": "Dormant rejected duplicate selection does not activate references",
+    "config": [
+      "Env.$ = @missing",
+      "Env.$ = @base",
+      "Env.@base.value = 1"
+    ],
+    "values": {
+      "Env.value": "1"
+    }
+  },
+  {
+    "id": "Partial root selection beats profile supplied selection forward",
+    "config": [
+      "Policy.@base.kind = inherited",
+      "Policy.@root.kind = direct",
+      "Agent.@base : actor.[eval].policy.$ = Policy.@base",
+      "Agent.$ = @base",
+      "Agent.actor.[eval].policy.$ = Policy.@root"
+    ],
+    "values": {
+      "Agent.actor.[eval].policy.kind": "direct"
+    }
+  },
+  {
+    "id": "Partial root selection beats profile supplied selection reverse",
+    "config": [
+      "Agent.actor.[eval].policy.$ = Policy.@root",
+      "Agent.$ = @base",
+      "Agent.@base : actor.[eval].policy.$ = Policy.@base",
+      "Policy.@root.kind = direct",
+      "Policy.@base.kind = inherited"
+    ],
+    "values": {
+      "Agent.actor.[eval].policy.kind": "direct"
+    }
+  },
+  {
+    "id": "Default leaf remains when base omits key",
+    "config": [
+      "Env.value ?= fallback",
+      "Env.$ = @base",
+      "Env.@base.other = selected"
+    ],
+    "values": {
+      "Env.value": "fallback",
+      "Env.other": "selected"
+    }
+  },
+  {
+    "id": "Default leaf loses to base",
+    "config": [
+      "Env.k ?= weak",
+      "Env.$ = @p",
+      "Env.@p.k = base"
+    ],
+    "values": {
+      "Env.k": "base"
+    }
+  },
+  {
+    "id": "Default mixed strength False",
+    "config": [
+      "Env.k = strong",
+      "Env.k ?= weak"
+    ],
+    "values": {
+      "Env.k": "strong"
+    }
+  },
+  {
+    "id": "Default mixed strength True",
+    "config": [
+      "Env.k ?= weak",
+      "Env.k = strong"
+    ],
+    "values": {
+      "Env.k": "strong"
+    }
+  },
+  {
+    "id": "Default same strength last wins",
+    "config": [
+      "Env.k ?= first",
+      "Env.k ?= last"
+    ],
+    "values": {
+      "Env.k": "last"
+    }
+  },
+  {
+    "id": "Default profile resolves before outer composition",
+    "config": [
+      "Env.@p : k ?= weak",
+      "Env.@p : $ = @q",
+      "Env.@q.k = base",
+      "Env.$ = @p",
+      "Other.k ?= outer",
+      "Other.$ = Env.@p"
+    ],
+    "values": {
+      "Env.k": "base",
+      "Other.k": "base"
+    }
+  },
+  {
+    "id": "Default right source remains a final value",
+    "config": [
+      "A.k = left",
+      "B.k ?= right",
+      "Env.$ = A > B"
+    ],
+    "values": {
+      "Env.k": "right"
+    }
+  },
+  {
+    "id": "Default assignment rejected run",
+    "config": [
+      "run.@p : Env.k ?= bad"
+    ],
+    "cli": "",
+    "error": [
+      "default assignment"
+    ]
+  },
+  {
+    "id": "Default assignment rejected cli",
+    "config": [
+      "Env.k = ok"
+    ],
+    "cli": "Env.k?=bad",
+    "error": [
+      "default assignment"
+    ]
+  },
+  {
+    "id": "Default assignment rejected selection",
+    "config": [
+      "Env.$ ?= @p"
+    ],
+    "cli": "",
+    "error": [
+      "default assignment"
+    ]
+  },
+  {
+    "id": "Default backend retained file",
+    "config": [
+      "backend.deterministic_warn_only ?= true",
+      "backend.log_flush_interval_ms ?= 123",
+      "backend.mode ?= initial",
+      "backend.$ = @first",
+      "backend.@first.mode = first",
+      "backend.@other.mode = other",
+      "backend.$ = @other"
+    ],
+    "values": {
+      "backend.deterministic_warn_only": "true",
+      "backend.log_flush_interval_ms": "123",
+      "backend.mode": "other"
+    },
+    "cli": ""
+  },
+  {
+    "id": "Default backend retained run",
+    "config": [
+      "backend.deterministic_warn_only ?= true",
+      "backend.log_flush_interval_ms ?= 123",
+      "backend.mode ?= initial",
+      "backend.$ = @first",
+      "backend.@first.mode = first",
+      "backend.@other.mode = other",
+      "run.@r : backend.$ = @other",
+      "run.$ = @r"
+    ],
+    "values": {
+      "backend.deterministic_warn_only": "true",
+      "backend.log_flush_interval_ms": "123",
+      "backend.mode": "other"
+    },
+    "cli": ""
+  },
+  {
+    "id": "Default backend retained cli",
+    "config": [
+      "backend.deterministic_warn_only ?= true",
+      "backend.log_flush_interval_ms ?= 123",
+      "backend.mode ?= initial",
+      "backend.$ = @first",
+      "backend.@first.mode = first",
+      "backend.@other.mode = other"
+    ],
+    "values": {
+      "backend.deterministic_warn_only": "true",
+      "backend.log_flush_interval_ms": "123",
+      "backend.mode": "other"
+    },
+    "cli": "backend.$=backend.@other"
+  },
+  {
+    "id": "Reject separated default operator file",
+    "config": [
+      "Env.k ? = v"
+    ],
+    "cli": "",
+    "error": [
+      "invalid assignment operator"
+    ]
+  },
+  {
+    "id": "Reject separated default operator profile",
+    "config": [
+      "Env.@p : k ? = v"
+    ],
+    "cli": "",
+    "error": [
+      "invalid assignment operator"
+    ]
+  },
+  {
+    "id": "Reject separated default operator cli",
+    "config": [
+      "Env.k = ok"
+    ],
+    "cli": "\"Env.k ? = v\"",
+    "error": [
+      "invalid assignment operator"
+    ]
+  }
+]

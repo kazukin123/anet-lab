@@ -5,9 +5,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-
-import org.springframework.stereotype.Component;
+import java.util.Map;
 
 import io.github.kazukin123.anetlab.metricsviewer.util.MetricTraceEncoder;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.LodProjection;
@@ -15,7 +15,6 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.LodSummary;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MinMaxProjection;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RawProjection;
 
-@Component
 public class MetricsRangeProjector {
 
 	private final LodPageCache pageCache;
@@ -24,36 +23,100 @@ public class MetricsRangeProjector {
 		this.pageCache = pageCache;
 	}
 
+	/** 同一snapshotの完成保存bucketを使い、共通Step区間へ正確に射影する。 */
 	public Projection project(
-			Connection connection,
-			String generation,
-			String runId,
-			long tagId,
-			long ordinalFrom,
-			long ordinalTo,
-			int pointBudget) throws Exception {
-		final long rawCount = ordinalTo - ordinalFrom;
-		if (rawCount <= pointBudget) {
-			return raw(connection, tagId, ordinalFrom, ordinalTo);
+			Connection connection, String generation, String runId, long tagId,
+			long tagCount, long ordinalFrom, long ordinalTo, int pointBudget,
+			long stepBucketWidth, QueryExecution query) throws Exception {
+		query.checkpoint();
+		if (stepBucketWidth == 1L && ordinalTo - ordinalFrom <= pointBudget) {
+			return raw(connection, tagId, ordinalFrom, ordinalTo, query);
 		}
 
-		final LevelSelection selection = selectLevel(ordinalFrom, ordinalTo, pointBudget);
-		final List<LodBucket> buckets = loadBuckets(
-				connection,
-				generation,
-				runId,
-				tagId,
-				ordinalFrom,
-				ordinalTo,
-				selection);
-		return lod(selection, buckets);
+		// 序数範囲を、収まる最大の完成bucketへ分解する。表示区間幅で保存levelを選ばない。
+		final Map<Long, AggregateBuilder> bins = new LinkedHashMap<>();
+		try (PreparedStatement l0 = connection.prepareStatement("""
+				SELECT ordinal, step, value FROM scalars
+				WHERE tag_id=? AND ordinal>=? AND ordinal<? ORDER BY ordinal
+				"""); StatementRegistration ignored = query.registerStatement(l0)) {
+			l0.setLong(1, tagId);
+			long position = ordinalFrom;
+			while (position < ordinalTo) {
+				query.checkpoint();
+				int level = 0;
+				long width = 1L;
+				while (width <= (ordinalTo - position) / LodBucket.LOD_FACTOR
+						&& position % (width * LodBucket.LOD_FACTOR) == 0L) {
+					width *= LodBucket.LOD_FACTOR;
+					level++;
+				}
+				if (level == 0) {
+					// 次のL1境界まで、または未完成末尾をまとめて読む。
+					final long end = Math.min(ordinalTo,
+							position + LodBucket.LOD_FACTOR - position % LodBucket.LOD_FACTOR);
+					readPoints(l0, position, end, stepBucketWidth, bins, query);
+					position = end;
+				} else {
+					projectBucket(connection, generation, runId, tagId, tagCount,
+							level, position / width, stepBucketWidth, bins, l0, query);
+					position += width;
+				}
+			}
+		}
+		final List<LodBucket> buckets = bins.values().stream()
+				.map(bin -> bin.finish(bin.ordinalFrom, bin.ordinalTo)).toList();
+		return lod(stepBucketWidth, buckets, query);
+	}
+
+	private void projectBucket(
+			Connection connection, String generation, String runId, long tagId, long tagCount,
+			int level, long bucketIndex, long stepBucketWidth, Map<Long, AggregateBuilder> bins,
+			PreparedStatement l0, QueryExecution query) throws Exception {
+		query.checkpoint();
+		final LodBucket bucket = pageCache.find(
+				connection, generation, runId, tagId, tagCount, level, bucketIndex, query);
+		if (bucket == null) throw new IllegalStateException(
+				"Missing completed LOD bucket: tag=" + tagId + " level=" + level + " bucket=" + bucketIndex);
+		final long bin = Math.floorDiv(bucket.stepFirst(), stepBucketWidth);
+		if (bin == Math.floorDiv(bucket.stepLast(), stepBucketWidth)) {
+			// 全点が同一区間にある完成bucketだけを再利用する。平均は点数で加重する。
+			bins.computeIfAbsent(bin, ignored -> new AggregateBuilder()).add(bucket);
+		} else if (level == 1) {
+			readPoints(l0, bucket.ordinalFrom(), bucket.ordinalTo(), stepBucketWidth, bins, query);
+		} else {
+			// 境界を跨ぐbucketだけ下位へ降り、極値を別区間へ混ぜない。
+			for (int child = 0; child < LodBucket.LOD_FACTOR; child++) {
+				projectBucket(connection, generation, runId, tagId, tagCount, level - 1,
+						bucketIndex * LodBucket.LOD_FACTOR + child, stepBucketWidth, bins, l0, query);
+			}
+		}
+	}
+
+	private static void readPoints(
+			PreparedStatement l0, long from, long to, long width,
+			Map<Long, AggregateBuilder> bins, QueryExecution query) throws Exception {
+		l0.setLong(2, from);
+		l0.setLong(3, to);
+		try (ResultSet result = l0.executeQuery()) {
+			long expected = from;
+			while (result.next()) {
+				query.checkpoint();
+				final long ordinal = result.getLong(1);
+				final long step = result.getLong(2);
+				if (ordinal != expected++) throw new IllegalStateException("Missing L0 ordinal " + (expected - 1));
+				bins.computeIfAbsent(Math.floorDiv(step, width), ignored -> new AggregateBuilder())
+						.add(LodBucket.point(ordinal, step, result.getDouble(3)));
+			}
+			if (expected != to) throw new IllegalStateException("Missing L0 ordinal " + expected);
+		}
 	}
 
 	private static Projection raw(
 			Connection connection,
 			long tagId,
 			long ordinalFrom,
-			long ordinalTo) throws Exception {
+			long ordinalTo,
+			QueryExecution query) throws Exception {
 		final int size = Math.toIntExact(ordinalTo - ordinalFrom);
 		final double[] steps = new double[size];
 		final float[] values = new float[size];
@@ -62,28 +125,34 @@ public class MetricsRangeProjector {
 				FROM scalars
 				WHERE tag_id=? AND ordinal>=? AND ordinal<?
 				ORDER BY ordinal
-				""")) {
+				""");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			statement.setLong(1, tagId);
 			statement.setLong(2, ordinalFrom);
 			statement.setLong(3, ordinalTo);
 			try (ResultSet result = statement.executeQuery()) {
 				int i = 0;
 				while (result.next()) {
+					query.checkpoint();
+					if (i >= size) throw new IllegalStateException("Unexpected L0 rows: tag=" + tagId);
 					steps[i] = result.getLong(1);
 					values[i] = (float) result.getDouble(2);
 					i++;
 				}
+				if (i != size) throw new IllegalStateException("Missing L0 rows: tag=" + tagId);
 			}
 		}
 		return new Projection(
-				0,
 				1L,
 				new RawProjection(
 						MetricTraceEncoder.encodeDoubleArray(steps),
 						MetricTraceEncoder.encodeFloatArray(values)));
 	}
 
-	private static Projection lod(LevelSelection selection, List<LodBucket> buckets) {
+	private static Projection lod(
+			long stepBucketWidth,
+			List<LodBucket> buckets,
+			QueryExecution query) {
 		final List<Candidate> minMaxCandidates = new ArrayList<>();
 		final double[] summarySteps = new double[buckets.size()];
 		final float[] mins = new float[buckets.size()];
@@ -93,6 +162,7 @@ public class MetricsRangeProjector {
 		final double[] maxSteps = new double[buckets.size()];
 
 		for (int i = 0; i < buckets.size(); i++) {
+			query.checkpoint();
 			final LodBucket bucket = buckets.get(i);
 			final List<Candidate> candidates = new ArrayList<>(List.of(
 					new Candidate(bucket.minOrdinal(), bucket.minStep(), bucket.minValue()),
@@ -110,7 +180,7 @@ public class MetricsRangeProjector {
 				previousOrdinal = candidate.ordinal();
 			}
 
-			summarySteps[i] = bucket.stepFirst();
+			summarySteps[i] = Math.floorDiv(bucket.stepFirst(), stepBucketWidth) * stepBucketWidth;
 			mins[i] = (float) bucket.minValue();
 			maxs[i] = (float) bucket.maxValue();
 			means[i] = (float) bucket.mean();
@@ -121,13 +191,13 @@ public class MetricsRangeProjector {
 		final double[] minMaxSteps = new double[minMaxCandidates.size()];
 		final float[] minMaxValues = new float[minMaxCandidates.size()];
 		for (int i = 0; i < minMaxCandidates.size(); i++) {
+			query.checkpoint();
 			minMaxSteps[i] = minMaxCandidates.get(i).step();
 			minMaxValues[i] = (float) minMaxCandidates.get(i).value();
 		}
 
 		return new Projection(
-				selection.level(),
-				selection.width(),
+				stepBucketWidth,
 				new LodProjection(
 						new MinMaxProjection(
 								MetricTraceEncoder.encodeDoubleArray(minMaxSteps),
@@ -141,123 +211,7 @@ public class MetricsRangeProjector {
 								MetricTraceEncoder.encodeDoubleArray(maxSteps))));
 	}
 
-	private List<LodBucket> loadBuckets(
-			Connection connection,
-			String generation,
-			String runId,
-			long tagId,
-			long ordinalFrom,
-			long ordinalTo,
-			LevelSelection selection) throws Exception {
-		final long firstBucket = ordinalFrom / selection.width();
-		final long lastBucket = (ordinalTo - 1L) / selection.width();
-		final List<LodBucket> buckets = new ArrayList<>();
-		for (long bucket = firstBucket; bucket <= lastBucket; bucket++) {
-			final long logicalFrom = Math.multiplyExact(bucket, selection.width());
-			final long logicalTo = Math.addExact(logicalFrom, selection.width());
-			final long exactFrom = Math.max(ordinalFrom, logicalFrom);
-			final long exactTo = Math.min(ordinalTo, logicalTo);
-			final LodBucket persisted = pageCache.find(
-					connection, generation, runId, tagId, selection.level(), bucket);
-			if (persisted != null && exactFrom == logicalFrom && exactTo == logicalTo) {
-				buckets.add(persisted);
-			} else {
-				buckets.add(aggregateRange(
-						connection,
-						generation,
-						runId,
-						tagId,
-						exactFrom,
-						exactTo,
-						selection.level() - 1));
-			}
-		}
-		return buckets;
-	}
-
-	private LodBucket aggregateRange(
-			Connection connection,
-			String generation,
-			String runId,
-			long tagId,
-			long ordinalFrom,
-			long ordinalTo,
-			int level) throws Exception {
-		if (level <= 0) return aggregateL0(connection, tagId, ordinalFrom, ordinalTo);
-
-		final long width = LodBucket.widthForLevel(level);
-		final long firstBucket = ordinalFrom / width;
-		final long lastBucket = (ordinalTo - 1L) / width;
-		final AggregateBuilder aggregate = new AggregateBuilder();
-		for (long bucket = firstBucket; bucket <= lastBucket; bucket++) {
-			final long logicalFrom = Math.multiplyExact(bucket, width);
-			final long logicalTo = Math.addExact(logicalFrom, width);
-			final long exactFrom = Math.max(ordinalFrom, logicalFrom);
-			final long exactTo = Math.min(ordinalTo, logicalTo);
-			final LodBucket persisted = pageCache.find(
-					connection, generation, runId, tagId, level, bucket);
-			if (persisted != null && exactFrom == logicalFrom && exactTo == logicalTo) {
-				aggregate.add(persisted);
-			} else {
-				aggregate.add(aggregateRange(
-						connection,
-						generation,
-						runId,
-						tagId,
-						exactFrom,
-						exactTo,
-						level - 1));
-			}
-		}
-		return aggregate.finish(ordinalFrom, ordinalTo);
-	}
-
-	private static LodBucket aggregateL0(
-			Connection connection,
-			long tagId,
-			long ordinalFrom,
-			long ordinalTo) throws Exception {
-		final AggregateBuilder aggregate = new AggregateBuilder();
-		try (PreparedStatement statement = connection.prepareStatement("""
-				SELECT ordinal, step, value
-				FROM scalars
-				WHERE tag_id=? AND ordinal>=? AND ordinal<?
-				ORDER BY ordinal
-				""")) {
-			statement.setLong(1, tagId);
-			statement.setLong(2, ordinalFrom);
-			statement.setLong(3, ordinalTo);
-			try (ResultSet result = statement.executeQuery()) {
-				while (result.next()) {
-					aggregate.add(LodBucket.point(
-							result.getLong(1),
-							result.getLong(2),
-							result.getDouble(3)));
-				}
-			}
-		}
-		return aggregate.finish(ordinalFrom, ordinalTo);
-	}
-
-	private static LevelSelection selectLevel(long ordinalFrom, long ordinalTo, int pointBudget) {
-		int level = 1;
-		long width = LodBucket.widthForLevel(level);
-		while (bucketCount(ordinalFrom, ordinalTo, width)
-				* LodBucket.POINTS_PER_LOD_BUCKET > pointBudget) {
-			level++;
-			width = LodBucket.widthForLevel(level);
-		}
-		return new LevelSelection(level, width);
-	}
-
-	private static long bucketCount(long ordinalFrom, long ordinalTo, long width) {
-		return (ordinalTo - 1L) / width - ordinalFrom / width + 1L;
-	}
-
-	public record Projection(int level, long bucketWidth, Object body) {
-	}
-
-	private record LevelSelection(int level, long width) {
+	public record Projection(long stepBucketWidth, Object body) {
 	}
 
 	private record Candidate(long ordinal, long step, double value) {

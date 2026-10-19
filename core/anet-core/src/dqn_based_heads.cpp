@@ -4,6 +4,8 @@
 #include "anet/profile.hpp"
 #include "nn_heads.hpp"
 
+#include <array>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -27,29 +29,84 @@ static torch::Tensor GetFeature(const anet::TensorDict& feature_dict, const std:
 }
 
 
+// 射影Headの定型処理を集約し、登録順と固有の計算は具象Headへ残す。
+template <typename Derived, size_t N>
+class ProjectionHead : public anet::nn::NetworkHead {
+public:
+    std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
+        const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
+    {
+        std::array<anet::nn::NetworkModule*, N> modules;
+        for (size_t i = 0; i < N; ++i) modules[i] = projections_[i].get();
+        return anet::nn::MakePreparedHeadExecutor<Derived, &Derived::ForwardProjected>(
+            static_cast<Derived&>(*this), modules, config, clock);
+    }
+
+    void ValidateForwardReuse(const anet::nn::NetworkForwardConfig& source,
+        const anet::nn::NetworkForwardConfig& requested) const override
+    {
+        for (const auto& projection : projections_) projection->ValidateForwardReuse(source, requested);
+    }
+
+    std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
+    {
+        std::vector<anet::nn::NetworkNoisyParameterEntry> result;
+        // 通常Headは1射影、Duelingはvalue→advでoptimizer・診断の列挙順を固定する。
+        for (const auto& projection : projections_) {
+            const auto entries = projection->GetNoisyParameterEntries();
+            result.insert(result.end(), entries.begin(), entries.end());
+        }
+        return result;
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& features,
+        const anet::nn::NetworkForwardContext& context) override
+    {
+        return ForwardWithProjections(features, context, std::make_index_sequence<N>{});
+    }
+protected:
+    explicit ProjectionHead(std::array<std::shared_ptr<anet::nn::LinearProjectionModule>, N> projections)
+        : projections_(std::move(projections)) {}
+    const std::array<std::shared_ptr<anet::nn::LinearProjectionModule>, N> projections_;
+private:
+    template <size_t... I>
+    anet::TensorDict ForwardWithProjections(const anet::TensorDict& features,
+        const anet::nn::NetworkForwardContext& context, std::index_sequence<I...>)
+    {
+        return static_cast<Derived&>(*this).ForwardProjected(features, context, *projections_[I]...);
+    }
+};
+
+
 // ===========================================================================
 // LinearHead (Standard Q-Network Head)
 // ===========================================================================
 
-class LinearHead : public anet::nn::NetworkHead {
+class LinearHead : public ProjectionHead<LinearHead, 1> {
 public:
-    LinearHead(int64_t in_features, int64_t out_features, const anet::nn::WeightInitConfig& init_config)
-        : out_features_(out_features)
+    LinearHead(int64_t in_features, int64_t out_features, const anet::nn::WeightInitConfig& init_config,
+        const anet::ConfigData& projection_config)
+        : ProjectionHead<LinearHead, 1>({std::make_shared<anet::nn::LinearProjectionModule>(projection_config)})
+        , out_features_(out_features)
     {
         torch::nn::LinearOptions opts(in_features, out_features);
         opts.bias(true);
 
         linear_ = register_module("linear", torch::nn::Linear(opts));
         anet::nn::WeightInitializer::Initialize(linear_, init_config);
+
+        // 既存の μ 初期化を維持して、最終射影に必要な σ だけを登録する。
+        projections_[0]->Bind(linear_);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0)
     {
         ANET_PROFILE_FUNC();
-
-        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
+        const auto x = feature_dict.At(anet::nn::kKey_DefaultOutput);
         anet::TensorDict out;
-        out.Set("q", linear_->forward(x));
+        out.Set("q", projection0.Forward(x, context));
         return out;
     }
 
@@ -58,11 +115,8 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
-                anet::TensorDict out;
-                out.Set("q", linear_->forward(x));
-                return out;
-                };
+                return Forward(features, anet::nn::NetworkForwardContext::GetDefault());
+            };
         }
         return std::nullopt;
     }
@@ -86,7 +140,7 @@ private:
 // DuelingHead (V + A)
 // ===========================================================================
 
-class DuelingHead : public anet::nn::NetworkHead {
+class DuelingHead : public ProjectionHead<DuelingHead, 2> {
 public:
     DuelingHead(
         int64_t value_in_features,
@@ -94,8 +148,11 @@ public:
         int64_t action_dim,
         std::string value_key,
         std::string adv_key,
-        const anet::nn::WeightInitConfig& init_config)
-        : action_dim_(action_dim)
+        const anet::nn::WeightInitConfig& init_config,
+        const anet::ConfigData& projection_config)
+        : ProjectionHead<DuelingHead, 2>({std::make_shared<anet::nn::LinearProjectionModule>(projection_config),
+            std::make_shared<anet::nn::LinearProjectionModule>(projection_config)})
+        , action_dim_(action_dim)
         , value_key_(std::move(value_key))
         , adv_key_(std::move(adv_key))
     {
@@ -109,17 +166,23 @@ public:
 
         anet::nn::WeightInitializer::Initialize(value_, init_config);
         anet::nn::WeightInitializer::Initialize(adv_, init_config);
+
+        // 全 μ の既存初期化が終わってから、最終射影の σ を登録する。
+        projections_[0]->Bind(value_);
+        projections_[1]->Bind(adv_);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0, anet::nn::NetworkModuleExecutor& projection1)
     {
         ANET_PROFILE_FUNC();
 
         torch::Tensor value_x = feature_dict.At(value_key_);
         torch::Tensor adv_x = feature_dict.At(adv_key_);
 
-        auto v = value_->forward(value_x); // (B, 1)
-        auto a = adv_->forward(adv_x);     // (B, A)
+        auto v = projection0.Forward(value_x, context); // (B, 1)
+        auto a = projection1.Forward(adv_x, context);     // (B, A)
         auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
         auto q = v + (a - a_mean);
 
@@ -137,8 +200,8 @@ public:
                 torch::NoGradGuard no_grad;
                 torch::Tensor value_x = GetFeature(features, value_key_);
                 torch::Tensor adv_x = GetFeature(features, adv_key_);
-                auto v = value_->forward(value_x);
-                auto a = adv_->forward(adv_x);
+                auto v = projections_[0]->Forward(value_x, anet::nn::NetworkForwardContext::GetDefault());
+                auto a = projections_[1]->Forward(adv_x, anet::nn::NetworkForwardContext::GetDefault());
                 anet::TensorDict out;
                 out.Set("q", v + (a - a.mean(1, true)));
                 return out;
@@ -149,7 +212,7 @@ public:
                 torch::NoGradGuard no_grad;
                 torch::Tensor x = GetFeature(features, value_key_);
                 anet::TensorDict out;
-                out.Set("v", value_->forward(x));
+                out.Set("v", projections_[0]->Forward(x, anet::nn::NetworkForwardContext::GetDefault()));
                 return out;
                 };
         }
@@ -158,7 +221,7 @@ public:
                 torch::NoGradGuard no_grad;
                 torch::Tensor x = GetFeature(features, adv_key_);
                 anet::TensorDict out;
-                out.Set("a", adv_->forward(x));
+                out.Set("a", projections_[1]->Forward(x, anet::nn::NetworkForwardContext::GetDefault()));
                 return out;
                 };
         }
@@ -193,10 +256,12 @@ private:
 // QuantileHead (QR-DQN Plain)
 // ===========================================================================
 
-class QuantileHead : public anet::nn::NetworkHead {
+class QuantileHead : public ProjectionHead<QuantileHead, 1> {
 public:
-    QuantileHead(int64_t in_features, int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config)
-        : action_dim_(action_dim), num_quantiles_(num_quantiles)
+    QuantileHead(int64_t in_features, int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
+        const anet::ConfigData& projection_config)
+        : ProjectionHead<QuantileHead, 1>({std::make_shared<anet::nn::LinearProjectionModule>(projection_config)})
+        , action_dim_(action_dim), num_quantiles_(num_quantiles)
     {
         int64_t out_features = action_dim * num_quantiles;
 
@@ -205,14 +270,19 @@ public:
         linear_ = register_module("linear", torch::nn::Linear(opts));
 
         anet::nn::WeightInitializer::Initialize(linear_, init_config);
+
+        // 全 μ の既存初期化が終わってから、最終射影の σ を登録する。
+        projections_[0]->Bind(linear_);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0)
     {
         ANET_PROFILE_FUNC();
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
-        auto flat = linear_->forward(x); // (B, A*N)
+        auto flat = projection0.Forward(x, context); // (B, A*N)
         auto batch_size = flat.size(0);
         auto q_dist = flat.view({ batch_size, action_dim_, num_quantiles_ });
         auto q = q_dist.mean(2);
@@ -229,7 +299,7 @@ public:
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
                 torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
-                auto flat = linear_->forward(x);
+                auto flat = projections_[0]->Forward(x, anet::nn::NetworkForwardContext::GetDefault());
                 anet::TensorDict out;
                 out.Set("q", flat.view({ flat.size(0), action_dim_, num_quantiles_ }).mean(2));
                 return out;
@@ -239,7 +309,7 @@ public:
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
                 torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
-                auto flat = linear_->forward(x);
+                auto flat = projections_[0]->Forward(x, anet::nn::NetworkForwardContext::GetDefault());
                 anet::TensorDict out;
                 out.Set("q_dist", flat.view({ flat.size(0), action_dim_, num_quantiles_ }));
                 return out;
@@ -270,7 +340,7 @@ private:
 // QuantileDuelingHead (QR-DQN + Dueling)
 // ===========================================================================
 
-class QuantileDuelingHead : public anet::nn::NetworkHead {
+class QuantileDuelingHead : public ProjectionHead<QuantileDuelingHead, 2> {
 public:
     QuantileDuelingHead(
         int64_t value_in_features,
@@ -279,8 +349,11 @@ public:
         int64_t num_quantiles,
         std::string value_key,
         std::string adv_key,
-        const anet::nn::WeightInitConfig& init_config)
-        : action_dim_(action_dim)
+        const anet::nn::WeightInitConfig& init_config,
+        const anet::ConfigData& projection_config)
+        : ProjectionHead<QuantileDuelingHead, 2>({std::make_shared<anet::nn::LinearProjectionModule>(projection_config),
+            std::make_shared<anet::nn::LinearProjectionModule>(projection_config)})
+        , action_dim_(action_dim)
         , num_quantiles_(num_quantiles)
         , value_key_(std::move(value_key))
         , adv_key_(std::move(adv_key))
@@ -290,9 +363,15 @@ public:
 
         anet::nn::WeightInitializer::Initialize(value_, init_config);
         anet::nn::WeightInitializer::Initialize(adv_, init_config);
+
+        // 全 μ の既存初期化が終わってから、最終射影の σ を登録する。
+        projections_[0]->Bind(value_);
+        projections_[1]->Bind(adv_);
     }
 
-    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0, anet::nn::NetworkModuleExecutor& projection1)
     {
         ANET_PROFILE_FUNC();
         torch::Tensor value_x = feature_dict.At(value_key_);
@@ -301,10 +380,10 @@ public:
         auto batch_size = value_x.size(0);
 
         // V: (B, N) -> (B, 1, N)
-        auto v = value_->forward(value_x).view({ batch_size, 1, num_quantiles_ });
+        auto v = projection0.Forward(value_x, context).view({ batch_size, 1, num_quantiles_ });
 
         // A: (B, A*N) -> (B, A, N)
-        auto a = adv_->forward(adv_x).view({ adv_x.size(0), action_dim_, num_quantiles_ });
+        auto a = projection1.Forward(adv_x, context).view({ adv_x.size(0), action_dim_, num_quantiles_ });
 
         // Mean A over actions: (B, 1, N)
         auto a_mean = a.mean(1, true);
@@ -331,8 +410,8 @@ public:
                 torch::NoGradGuard no_grad;
                 torch::Tensor value_x = GetFeature(features, value_key_);
                 torch::Tensor adv_x = GetFeature(features, adv_key_);
-                auto v = value_->forward(value_x).view({ value_x.size(0), 1, num_quantiles_ });
-                auto a = adv_->forward(adv_x).view({ adv_x.size(0), action_dim_, num_quantiles_ });
+                auto v = projections_[0]->Forward(value_x, anet::nn::NetworkForwardContext::GetDefault()).view({ value_x.size(0), 1, num_quantiles_ });
+                auto a = projections_[1]->Forward(adv_x, anet::nn::NetworkForwardContext::GetDefault()).view({ adv_x.size(0), action_dim_, num_quantiles_ });
                 auto q_dist = v + (a - a.mean(1, true));
                 anet::TensorDict out;
                 out.Set("q", q_dist.mean(2));
@@ -344,8 +423,8 @@ public:
                 torch::NoGradGuard no_grad;
                 torch::Tensor value_x = GetFeature(features, value_key_);
                 torch::Tensor adv_x = GetFeature(features, adv_key_);
-                auto v = value_->forward(value_x).view({ value_x.size(0), 1, num_quantiles_ });
-                auto a = adv_->forward(adv_x).view({ adv_x.size(0), action_dim_, num_quantiles_ });
+                auto v = projections_[0]->Forward(value_x, anet::nn::NetworkForwardContext::GetDefault()).view({ value_x.size(0), 1, num_quantiles_ });
+                auto a = projections_[1]->Forward(adv_x, anet::nn::NetworkForwardContext::GetDefault()).view({ adv_x.size(0), action_dim_, num_quantiles_ });
                 anet::TensorDict out;
                 out.Set("q_dist", v + (a - a.mean(1, true)));
                 return out;
@@ -355,7 +434,7 @@ public:
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
                 torch::Tensor x = GetFeature(features, value_key_);
-                auto v = value_->forward(x);
+                auto v = projections_[0]->Forward(x, anet::nn::NetworkForwardContext::GetDefault());
                 anet::TensorDict out;
                 out.Set("v_dist", v.view({ v.size(0), 1, num_quantiles_ }));
                 return out;
@@ -365,7 +444,7 @@ public:
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
                 torch::Tensor x = GetFeature(features, adv_key_);
-                auto a = adv_->forward(x);
+                auto a = projections_[1]->Forward(x, anet::nn::NetworkForwardContext::GetDefault());
                 anet::TensorDict out;
                 out.Set("a_dist", a.view({ a.size(0), action_dim_, num_quantiles_ }));
                 return out;
@@ -401,30 +480,275 @@ private:
 };
 
 // ===========================================================================
+// IQNHead
+// ===========================================================================
+
+class IQNHead : public ProjectionHead<IQNHead, 1> {
+public:
+    IQNHead(int64_t in_features, int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+        const anet::ConfigData& projection_config)
+        : ProjectionHead<IQNHead, 1>({std::make_shared<anet::nn::LinearProjectionModule>(projection_config)})
+        , action_dim_(action_dim)
+    {
+        linear_ = register_module("linear", torch::nn::Linear(in_features, action_dim));
+        anet::nn::WeightInitializer::Initialize(linear_, init_config);
+
+        // 全 μ の既存初期化が終わってから、最終射影の σ を登録する。
+        projections_[0]->Bind(linear_);
+    }
+
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0)
+    {
+        ANET_PROFILE_FUNC();
+
+        // IQN Head の局所入力契約を確認してから、tau 次元を末尾へ移す。
+        const auto x = GetFeature(feature_dict, anet::nn::kKey_DefaultOutput);
+        ValidateInput(x);
+        const auto q_dist = projection0.Forward(x, context).permute({ 0, 2, 1 }).contiguous();
+
+        anet::TensorDict out;
+        out.Set("q_dist", q_dist);
+        out.Set("q", q_dist.mean(2));
+        return out;
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+    {
+        if (key == "forward" || key == "forward.q" || key == "q_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto q_dist = ForwardDistribution(features, anet::nn::NetworkForwardContext::GetDefault());
+                anet::TensorDict out;
+                out.Set("q", q_dist.mean(2));
+                return out;
+                };
+        }
+        if (key == "forward.dist" || key == "distributions") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                anet::TensorDict out;
+                out.Set("q_dist", ForwardDistribution(features, anet::nn::NetworkForwardContext::GetDefault()));
+                return out;
+                };
+        }
+        return std::nullopt;
+    }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "IQNHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "q_dist", { action_dim_, -1 } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        return info;
+    }
+
+private:
+    void ValidateInput(const torch::Tensor& x) const
+    {
+        if (x.dim() != 3) {
+            ANET_SYSTEM_ERROR("IQNHead expected rank-3 'features' input (B,K,D), but got shape=" << x.sizes()
+                << ". The features output may not pass through the IQN fusion branch.");
+        }
+    }
+
+    torch::Tensor ForwardDistribution(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context)
+    {
+        const auto x = GetFeature(features, anet::nn::kKey_DefaultOutput);
+        ValidateInput(x);
+        return projections_[0]->Forward(x, context).permute({ 0, 2, 1 }).contiguous();
+    }
+
+    torch::nn::Linear linear_{ nullptr };
+    int64_t action_dim_;
+};
+
+// ===========================================================================
+// IQNDuelingHead
+// ===========================================================================
+
+class IQNDuelingHead : public ProjectionHead<IQNDuelingHead, 2> {
+public:
+    IQNDuelingHead(
+        int64_t value_in_features,
+        int64_t adv_in_features,
+        int64_t action_dim,
+        std::string value_key,
+        std::string adv_key,
+        const anet::nn::WeightInitConfig& init_config,
+        const anet::ConfigData& projection_config)
+        : ProjectionHead<IQNDuelingHead, 2>({std::make_shared<anet::nn::LinearProjectionModule>(projection_config),
+            std::make_shared<anet::nn::LinearProjectionModule>(projection_config)})
+        , action_dim_(action_dim)
+        , value_key_(std::move(value_key))
+        , adv_key_(std::move(adv_key))
+    {
+        value_ = register_module("value", torch::nn::Linear(value_in_features, 1));
+        adv_ = register_module("adv", torch::nn::Linear(adv_in_features, action_dim));
+        anet::nn::WeightInitializer::Initialize(value_, init_config);
+        anet::nn::WeightInitializer::Initialize(adv_, init_config);
+
+        // 全 μ の既存初期化が終わってから、最終射影の σ を登録する。
+        projections_[0]->Bind(value_);
+        projections_[1]->Bind(adv_);
+    }
+
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& feature_dict,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection0, anet::nn::NetworkModuleExecutor& projection1)
+    {
+        ANET_PROFILE_FUNC();
+
+        // value/adv を同じ (B,K) 標本上で合成し、公開 shape へ並べ替える。
+        const auto distributions = ForwardDistributions(feature_dict, context, projection0, projection1);
+        anet::TensorDict out;
+        out.Set("q_dist", distributions.q_dist);
+        out.Set("q", distributions.q_dist.mean(2));
+        out.Set("v_dist", distributions.v_dist);
+        out.Set("a_dist", distributions.a_dist);
+        return out;
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+    {
+        if (key == "forward" || key == "forward.q" || key == "q_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto distributions = ForwardDistributions(features, anet::nn::NetworkForwardContext::GetDefault(), *projections_[0], *projections_[1]);
+                anet::TensorDict out;
+                out.Set("q", distributions.q_dist.mean(2));
+                return out;
+                };
+        }
+        if (key == "forward.dist" || key == "distributions") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                anet::TensorDict out;
+                out.Set("q_dist", ForwardDistributions(features, anet::nn::NetworkForwardContext::GetDefault(), *projections_[0], *projections_[1]).q_dist);
+                return out;
+                };
+        }
+        if (key == "forward.v" || key == "v_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto x = GetFeature(features, value_key_);
+                ValidateInput(x, value_key_);
+                anet::TensorDict out;
+                out.Set("v_dist", projections_[0]->Forward(x, anet::nn::NetworkForwardContext::GetDefault()).permute({ 0, 2, 1 }).contiguous());
+                return out;
+                };
+        }
+        if (key == "forward.a" || key == "a_values") {
+            return [this](const anet::TensorDict& features) -> anet::TensorDict {
+                torch::NoGradGuard no_grad;
+                const auto x = GetFeature(features, adv_key_);
+                ValidateInput(x, adv_key_);
+                anet::TensorDict out;
+                out.Set("a_dist", projections_[1]->Forward(x, anet::nn::NetworkForwardContext::GetDefault()).permute({ 0, 2, 1 }).contiguous());
+                return out;
+                };
+        }
+        return std::nullopt;
+    }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "IQNDuelingHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "q_dist", { action_dim_, -1 } });
+        info.outputs.push_back({ "v_dist", { 1, -1 } });
+        info.outputs.push_back({ "a_dist", { action_dim_, -1 } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        info.details.push_back({ "streams", "value, adv" });
+        info.details.push_back({ "mode", value_key_ == adv_key_ ? "shared" : "branched" });
+        info.details.push_back({ "value_input_key", value_key_ });
+        info.details.push_back({ "adv_input_key", adv_key_ });
+        return info;
+    }
+
+private:
+    struct Distributions {
+        torch::Tensor q_dist;
+        torch::Tensor v_dist;
+        torch::Tensor a_dist;
+    };
+
+    void ValidateInput(const torch::Tensor& x, const std::string& key) const
+    {
+        if (x.dim() != 3) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead expected rank-3 '" << key << "' input (B,K,D), but got shape=" << x.sizes()
+                << ". The output may not pass through the IQN fusion branch.");
+        }
+    }
+
+    void ValidateInputs(const torch::Tensor& value_x, const torch::Tensor& adv_x) const
+    {
+        ValidateInput(value_x, value_key_);
+        ValidateInput(adv_x, adv_key_);
+        if (value_x.size(0) != adv_x.size(0) || value_x.size(1) != adv_x.size(1)) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead requires matching B and K dimensions for value and advantage inputs, but value_shape="
+                << value_x.sizes() << " and advantage_shape=" << adv_x.sizes() << ".");
+        }
+    }
+
+    Distributions ForwardDistributions(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context,
+        anet::nn::NetworkModuleExecutor& value_call, anet::nn::NetworkModuleExecutor& adv_call)
+    {
+        const auto value_x = GetFeature(features, value_key_);
+        const auto adv_x = GetFeature(features, adv_key_);
+        ValidateInputs(value_x, adv_x);
+
+        const auto value_k = value_call.Forward(value_x, context);
+        const auto adv_k = adv_call.Forward(adv_x, context);
+        const auto q_k = value_k + (adv_k - adv_k.mean(2, true));
+        return {
+            .q_dist = q_k.permute({ 0, 2, 1 }).contiguous(),
+            .v_dist = value_k.permute({ 0, 2, 1 }).contiguous(),
+            .a_dist = adv_k.permute({ 0, 2, 1 }).contiguous(),
+        };
+    }
+
+    torch::nn::Linear value_{ nullptr };
+    torch::nn::Linear adv_{ nullptr };
+    int64_t action_dim_;
+    std::string value_key_;
+    std::string adv_key_;
+};
+
+// ===========================================================================
 // Factories
 // ===========================================================================
 
-HeadFactoryBase::HeadFactoryBase(int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
-    : action_dim_(action_dim), init_config_(init_config)
+HeadFactoryBase::HeadFactoryBase(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : action_dim_(action_dim), init_config_(init_config), projection_config_(projection_config)
 {
 }
 
-LinearHeadFactory::LinearHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
-    : HeadFactoryBase(action_dim, init_config)
+LinearHeadFactory::LinearHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
 {
 }
+
 
 std::shared_ptr<anet::nn::NetworkHead> LinearHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
     torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1); // Flattenされている前提で最終次元を取得
-    return std::make_shared<LinearHead>(input_dim, action_dim_, init_config_);
+    return std::make_shared<LinearHead>(input_dim, action_dim_, init_config_, projection_config_);
 }
 
-DuelingHeadFactory::DuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
-    : HeadFactoryBase(action_dim, init_config)
+DuelingHeadFactory::DuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
 {
 }
+
 
 std::shared_ptr<anet::nn::NetworkHead> DuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -432,7 +756,7 @@ std::shared_ptr<anet::nn::NetworkHead> DuelingHeadFactory::CreateHead(const anet
     auto adv_feature = dummy_features.Get(kKey_AdvFeature);
     if (value_feature && adv_feature) {
         return std::make_shared<DuelingHead>(
-            value_feature->size(-1), adv_feature->size(-1), action_dim_, kKey_ValueFeature, kKey_AdvFeature, init_config_);
+            value_feature->size(-1), adv_feature->size(-1), action_dim_, kKey_ValueFeature, kKey_AdvFeature, init_config_, projection_config_);
     }
     if (value_feature || adv_feature) {
         ANET_SYSTEM_ERROR("DuelingHead requires both 'value_feature' and 'adv_feature', or neither. "
@@ -442,27 +766,31 @@ std::shared_ptr<anet::nn::NetworkHead> DuelingHeadFactory::CreateHead(const anet
     torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
     return std::make_shared<DuelingHead>(
-        input_dim, input_dim, action_dim_, anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_);
+        input_dim, input_dim, action_dim_, anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_, projection_config_);
 }
 
-QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config)
-    : HeadFactoryBase(action_dim, init_config)
+QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
     , num_quantiles_(num_quantiles)
 {
 }
+
 
 std::shared_ptr<anet::nn::NetworkHead> QuantileHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
     torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
-    return std::make_shared<QuantileHead>(input_dim, action_dim_, num_quantiles_, init_config_);
+    return std::make_shared<QuantileHead>(input_dim, action_dim_, num_quantiles_, init_config_, projection_config_);
 }
 
-QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config)
-    : HeadFactoryBase(action_dim, init_config)
+QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
     , num_quantiles_(num_quantiles)
 {
 }
+
 
 std::shared_ptr<anet::nn::NetworkHead> QuantileDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
@@ -471,7 +799,7 @@ std::shared_ptr<anet::nn::NetworkHead> QuantileDuelingHeadFactory::CreateHead(co
     if (value_feature && adv_feature) {
         return std::make_shared<QuantileDuelingHead>(
             value_feature->size(-1), adv_feature->size(-1),
-            action_dim_, num_quantiles_, kKey_ValueFeature, kKey_AdvFeature, init_config_);
+            action_dim_, num_quantiles_, kKey_ValueFeature, kKey_AdvFeature, init_config_, projection_config_);
     }
     if (value_feature || adv_feature) {
         ANET_SYSTEM_ERROR("QuantileDuelingHead requires both 'value_feature' and 'adv_feature', or neither. "
@@ -482,5 +810,62 @@ std::shared_ptr<anet::nn::NetworkHead> QuantileDuelingHeadFactory::CreateHead(co
     int64_t input_dim = t.size(-1);
     return std::make_shared<QuantileDuelingHead>(
         input_dim, input_dim, action_dim_, num_quantiles_,
-        anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_);
+        anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_, projection_config_);
+}
+
+IQNHeadFactory::IQNHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
+{
+}
+
+
+std::shared_ptr<anet::nn::NetworkHead> IQNHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
+{
+    const auto t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
+    if (t.dim() != 3) {
+        ANET_SYSTEM_ERROR("IQNHead expected rank-3 'features' input (B,K,D), but got shape=" << t.sizes()
+            << ". The features output may not pass through the IQN fusion branch.");
+    }
+    return std::make_shared<IQNHead>(t.size(-1), action_dim_, init_config_, projection_config_);
+}
+
+IQNDuelingHeadFactory::IQNDuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
+{
+}
+
+
+std::shared_ptr<anet::nn::NetworkHead> IQNDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
+{
+    auto value_feature = dummy_features.Get(kKey_ValueFeature);
+    auto adv_feature = dummy_features.Get(kKey_AdvFeature);
+    if (value_feature && adv_feature) {
+        if (value_feature->dim() != 3 || adv_feature->dim() != 3) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead expected rank-3 value and advantage inputs (B,K,D), but value_shape="
+                << value_feature->sizes() << " and advantage_shape=" << adv_feature->sizes()
+                << ". Both outputs must pass through the IQN fusion branch.");
+        }
+        if (value_feature->size(0) != adv_feature->size(0) || value_feature->size(1) != adv_feature->size(1)) {
+            ANET_SYSTEM_ERROR("IQNDuelingHead requires matching B and K dimensions for value and advantage inputs, but value_shape="
+                << value_feature->sizes() << " and advantage_shape=" << adv_feature->sizes() << ".");
+        }
+        return std::make_shared<IQNDuelingHead>(
+            value_feature->size(-1), adv_feature->size(-1), action_dim_,
+            kKey_ValueFeature, kKey_AdvFeature, init_config_, projection_config_);
+    }
+    if (value_feature || adv_feature) {
+        ANET_SYSTEM_ERROR("IQNDuelingHead requires both 'value_feature' and 'adv_feature', or neither. "
+            "Please configure both 'net.body.output.[value_feature]' and 'net.body.output.[adv_feature]'.");
+    }
+
+    const auto t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
+    if (t.dim() != 3) {
+        ANET_SYSTEM_ERROR("IQNDuelingHead expected rank-3 'features' input (B,K,D), but got shape=" << t.sizes()
+            << ". The features output may not pass through the IQN fusion branch.");
+    }
+    return std::make_shared<IQNDuelingHead>(
+        t.size(-1), t.size(-1), action_dim_,
+        anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_, projection_config_);
 }

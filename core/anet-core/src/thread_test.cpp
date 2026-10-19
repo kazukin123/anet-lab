@@ -9,6 +9,24 @@
 #include <thread>
 #include <vector>
 
+TEST_CASE("PinnedThreadPool stops while workers return to waiting", "[thread][shutdown]")
+{
+    // task完了直後のStopを反復し、predicate確認からwaitへ入る境界との競合を踏む。
+    for (const int workers : { 1, 4 }) {
+        for (int iteration = 0; iteration < 1000; ++iteration) {
+            CAPTURE(workers, iteration);
+            anet::PinnedThreadPool pool(workers, "shutdown-test");
+            std::atomic<int> completed = 0;
+            for (int worker = 0; worker < workers; ++worker) {
+                pool.Enqueue(worker, [&] { completed.fetch_add(1, std::memory_order_relaxed); });
+            }
+            pool.WaitAll();
+            pool.Stop();
+            REQUIRE(completed.load(std::memory_order_relaxed) == workers);
+        }
+    }
+}
+
 TEST_CASE("ThreadPool ParallelFor executes every work index exactly once", "[thread][parallel_for]")
 {
     anet::PinnedThreadPool pool(3, "parallel-for-test");

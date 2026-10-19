@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Create PRD"
+  short_description: "グリルで PRD を起こし、自己点検とレビューまで行って停止する。既存 PRD は要点を示してから改訂する"
+  default_prompt: "$anet-create-prd を使って、次の題材か PRD をグリルしてください。"

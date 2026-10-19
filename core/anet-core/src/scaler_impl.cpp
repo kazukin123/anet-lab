@@ -596,7 +596,8 @@ std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObser
 // =============================================================
 
 ConstantRewardScaler::ConstantRewardScaler(float scale_factor, const std::optional<float>& clip_range)
-    : clip_range_(clip_range), scale_factor_(scale_factor)
+    : scale_factor_(scale_factor), clip_range_(clip_range)
+    , last_clip_ratio_(std::numeric_limits<float>::quiet_NaN())
 {
     ;
 }
@@ -617,6 +618,8 @@ torch::Tensor ConstantRewardScaler::Scale(const torch::Tensor& reward)
         // クリッピング実行
         return torch::clamp(scaled, -*clip_range_, *clip_range_);
     }
+    // クリップ無効時も今回の適用率を確定し、未初期化値をメトリクスへ流さない。
+    last_clip_ratio_ = 0.0f;
     return scaled;
 }
 

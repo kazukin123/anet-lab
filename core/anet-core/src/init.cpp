@@ -1,6 +1,7 @@
 ﻿#include "anet/init.hpp"
 #include "anet/log.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/default_dqn_agent.hpp"
 #include "anet/muzero_proto_agent.hpp"
@@ -8,8 +9,10 @@
 #include "nn_impl.hpp"
 
 #include <cstdlib>
+#include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 using namespace anet::rl;
 namespace LOG = anet::log;
@@ -84,10 +87,37 @@ void ApplyCudaLaunchBlockingConfig(const BackendConfig& backend_config)
 
 } // namespace
 
-void anet::rl::InitRL(const BackendConfig& backend_config)
+void anet::rl::InitRL(const BackendConfig& backend_config, const ConfigData& config_data)
 {
 	// CUDA初期化前に近い位置で、設定値をプロセス環境へ反映する
 	ApplyCudaLaunchBlockingConfig(backend_config);
+
+	// NN構築より前に全device指定を検証し、利用できない明示CUDAを一括報告する。
+	const std::array<std::pair<const char*, const char*>, 3> device_settings{{
+		{"agent.device", "auto"}, {"env.device", "cpu"}, {"run.eval_device", "auto"}
+	}};
+	std::vector<std::string> explicit_cuda_keys;
+	for (const auto& [key, default_value] : device_settings) {
+		const auto spec = config_data.Get(key, default_value);
+		torch::Device device(torch::kCPU);
+		try {
+			device = anet::ParseDevice(spec);
+		} catch (const std::exception& e) {
+			ANET_SYSTEM_ERROR("Invalid " << key << "='" << spec << "'. " << e.what());
+		}
+		if (device.is_cuda() && anet::ToLower(anet::TrimCopy(spec)) != "auto") {
+			explicit_cuda_keys.emplace_back(key);
+		}
+	}
+	if (!explicit_cuda_keys.empty() && !torch::cuda::is_available()) {
+		std::ostringstream keys;
+		for (size_t index = 0; index < explicit_cuda_keys.size(); ++index) {
+			if (index > 0) keys << ", ";
+			keys << explicit_cuda_keys[index];
+		}
+		ANET_SYSTEM_ERROR("CUDA is unavailable for explicit device settings: " << keys.str()
+			<< ". Change these keys to auto to select CPU when CUDA is unavailable.");
+	}
 
 	// CPUスレッド数設定
 	if (backend_config.torch_num_threads > 0) {

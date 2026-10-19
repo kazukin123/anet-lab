@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI ハーネスの読む道",
+    "subtitle": "入口から領域の契約と検証へ。wikiは正本をたどるためのまとめ。",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1300,
+      830
+    ],
+    "repository": {
+      "url": "https://github.com/kazukin123/anet-lab",
+      "revision": "5409cd1e9a8bf070c95d18fc606ce9b8694be6d9"
+    }
+  },
+  "components": [
+    {
+      "id": "entry_rules",
+      "type": "frontend",
+      "label": "入口",
+      "sublabel": "CLAUDE.md / AGENTS.md",
+      "pos": [
+        50,
+        300
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "CLAUDE.md"
+        },
+        {
+          "path": "AGENTS.md"
+        }
+      ]
+    },
+    {
+      "id": "domain_rules",
+      "type": "security",
+      "label": "作業規約",
+      "sublabel": "docs/agents",
+      "pos": [
+        300,
+        300
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "docs/agents/domain.md"
+        },
+        {
+          "path": "docs/agents/issue-tracker.md"
+        }
+      ]
+    },
+    {
+      "id": "design_docs",
+      "type": "backend",
+      "label": "領域の設計",
+      "sublabel": "docs/design",
+      "pos": [
+        550,
+        300
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "docs/design/README.jp.md"
+        },
+        {
+          "path": "AGENTS.md"
+        }
+      ]
+    },
+    {
+      "id": "test_chapters",
+      "type": "backend",
+      "label": "検証の章",
+      "sublabel": "設計文書のテスト章",
+      "pos": [
+        800,
+        300
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "docs/design/100_runtime_and_configuration.jp.md"
+        }
+      ]
+    },
+    {
+      "id": "test_materials",
+      "type": "database",
+      "label": "検証資材",
+      "sublabel": "testdata README",
+      "pos": [
+        1050,
+        300
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "core/anet-core/testdata/prd072/README.md"
+        }
+      ]
+    },
+    {
+      "id": "project_skills",
+      "type": "backend",
+      "label": "skill",
+      "sublabel": "両側の実体コピー",
+      "pos": [
+        300,
+        90
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": ".agents/skills/README.md"
+        },
+        {
+          "path": ".claude/skills/README.md"
+        }
+      ]
+    },
+    {
+      "id": "prd_sources",
+      "type": "database",
+      "label": "PRD",
+      "sublabel": "変更の目的と契約",
+      "pos": [
+        550,
+        90
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "docs/memo/README.md"
+        },
+        {
+          "path": ".agents/skills/anet-create-prd/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "wiki_summary",
+      "type": "database",
+      "label": "wiki",
+      "sublabel": "知見と実装の地図",
+      "pos": [
+        800,
+        90
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "docs/memo/095_llm_wiki_10prd.md",
+          "label": "wiki の採用契約"
+        }
+      ]
+    },
+    {
+      "id": "terms_decisions",
+      "type": "database",
+      "label": "用語と判断理由",
+      "sublabel": "CONTEXT.md / ADR",
+      "pos": [
+        550,
+        510
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "CONTEXT.md"
+        },
+        {
+          "path": "AGENTS.md"
+        }
+      ]
+    },
+    {
+      "id": "ci_workflows",
+      "type": "messagebus",
+      "label": "CI",
+      "sublabel": "build / test / Pages",
+      "pos": [
+        800,
+        510
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/windows-ci.yml"
+        },
+        {
+          "path": ".github/workflows/pages.yml"
+        }
+      ]
+    },
+    {
+      "id": "user_layer",
+      "type": "external",
+      "label": "ユーザー環境",
+      "sublabel": "個別指示・skill・memory",
+      "pos": [
+        50,
+        710
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": ".agents/skills/README.md"
+        },
+        {
+          "path": "CLAUDE.md"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "リポジトリ内・両エージェントの共通資料",
+      "wraps": [
+        "entry_rules",
+        "domain_rules",
+        "design_docs",
+        "test_chapters",
+        "test_materials",
+        "project_skills",
+        "prd_sources",
+        "wiki_summary",
+        "terms_decisions",
+        "ci_workflows"
+      ],
+      "pad": 25
+    },
+    {
+      "kind": "security-group",
+      "label": "ユーザー環境・エージェントごとの読み込み",
+      "wraps": [
+        "user_layer"
+      ],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "from": "entry_rules",
+      "to": "domain_rules"
+    },
+    {
+      "from": "domain_rules",
+      "to": "design_docs"
+    },
+    {
+      "from": "design_docs",
+      "to": "test_chapters"
+    },
+    {
+      "from": "test_chapters",
+      "to": "test_materials"
+    },
+    {
+      "from": "project_skills",
+      "to": "domain_rules",
+      "label": "手順",
+      "labelDy": 80
+    },
+    {
+      "from": "prd_sources",
+      "to": "design_docs",
+      "label": "実装へ",
+      "labelDy": 80
+    },
+    {
+      "from": "wiki_summary",
+      "to": "prd_sources",
+      "label": "読む"
+    },
+    {
+      "from": "terms_decisions",
+      "to": "design_docs",
+      "label": "照合"
+    },
+    {
+      "from": "test_chapters",
+      "to": "ci_workflows",
+      "label": "実行確認",
+      "labelDy": 80
+    },
+    {
+      "from": "entry_rules",
+      "to": "user_layer",
+      "label": "個別の読み込み",
+      "labelDy": 80
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "正本をたどる",
+      "items": [
+        "wikiは出典つきのまとめ。PRDは元の出典を確認する。",
+        "成立の経緯からPRDとADRを引き、srcは直接読む。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "更新と検証",
+      "items": [
+        "PRDの起草でwikiへ戻し、完了直前のblobをログへ残す。",
+        "実体コピーの同期検査やCIのパス条件化は機械化の候補。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "個別環境",
+      "items": [
+        "同名skillのshadowは両エージェントで起こりうる。",
+        "Claude Codeのglobal指示とmemoryの実体は個人版だけに記す。"
+      ]
+    }
+  ]
+}

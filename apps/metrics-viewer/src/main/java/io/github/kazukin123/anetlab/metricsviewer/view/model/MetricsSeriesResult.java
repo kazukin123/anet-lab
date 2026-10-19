@@ -20,8 +20,7 @@ public class MetricsSeriesResult {
 	private long toStep;
 	private String availability;
 	private int pointBudget;
-	private Integer level;
-	private Long bucketWidth;
+	private Long stepBucketWidth;
 	@JsonInclude(JsonInclude.Include.NON_EMPTY)
 	private List<Issue> issues;
 	private Object projection;

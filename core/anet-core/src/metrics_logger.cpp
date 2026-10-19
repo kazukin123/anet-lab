@@ -22,15 +22,6 @@ wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
 
 namespace {
 
-std::string ConfigDataToConfigString(const ConfigData& config_data)
-{
-    std::ostringstream oss;
-    for (const auto& kv : config_data.Map()) {
-        oss << kv.first << " = " << kv.second << std::endl;
-    }
-    return oss.str();
-}
-
 constexpr size_t kMaxCapturedStderr = 4096;
 constexpr auto kFfmpegStartupCheckDelay = std::chrono::milliseconds(250);
 // wx の Windows pipe は非ブロッキングなので、大きい frame は小分けに書き込む。
@@ -238,72 +229,75 @@ void JsonlBackend::Flush()
 // VideoLogger 実装
 //----------------------------------------------
 
-class anet::VideoLogger::Process final : public wxProcess {
-public:
-    void DisableTerminationCapture()
+void anet::detail::VideoLoggerProcess::OnTerminate(int pid, int status)
+{
+    // 通知を記録し、所有者が既に手放している場合だけ破棄を引き受ける。
+    bool self_delete = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        capture_termination_ = false;
+        terminated_ = true;
+        pid_ = pid;
+        exit_code_ = status;
+        has_exit_code_ = true;
+        DrainStderrLocked();
+        self_delete = released_;
     }
 
-    void OnTerminate(int pid, int status) override
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (capture_termination_) {
-            terminated_ = true;
-            pid_ = pid;
-            exit_code_ = status;
-            has_exit_code_ = true;
-            DrainStderrLocked();
-        }
-        wxProcess::OnTerminate(pid, status);
+    // 基底は呼ばず、mutexの解放後に自己削除する。所有者がいる間は生存する。
+    if (self_delete) {
+        delete this;
     }
+}
 
-    bool CopyTerminationState(long expected_pid, int* exit_code, bool* has_exit_code, std::string* captured_stderr) const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!terminated_) {
-            return false;
-        }
-        if (expected_pid != 0 && pid_ != 0 && pid_ != expected_pid) {
-            return false;
-        }
-        *exit_code = exit_code_;
-        *has_exit_code = has_exit_code_;
-        captured_stderr->append(captured_stderr_);
+bool anet::detail::VideoLoggerProcess::CopyTerminationState(
+    long expected_pid, int* exit_code, bool* has_exit_code, std::string* captured_stderr) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    // 自分に届いた終了通知だけを、まだ所有している呼び出し元へ渡す。
+    if (!terminated_) {
+        return false;
+    }
+    if (expected_pid != 0 && pid_ != 0 && pid_ != expected_pid) {
+        return false;
+    }
+    *exit_code = exit_code_;
+    *has_exit_code = has_exit_code_;
+    captured_stderr->append(captured_stderr_);
+    return true;
+}
+
+bool anet::detail::VideoLoggerProcess::ReleaseOwnership()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    // 通知済みなら所有者が破棄し、未通知なら終了通知側へ破棄責任を渡す。
+    if (terminated_) {
         return true;
     }
+    released_ = true;
+    return false;
+}
 
-private:
-    void DrainStderrLocked()
-    {
-        wxInputStream* error_stream = GetErrorStream();
-        if (!error_stream) {
-            return;
-        }
-
-        char buffer[1024];
-        while (IsErrorAvailable()) {
-            error_stream->Read(buffer, sizeof(buffer));
-            const size_t bytes_read = error_stream->LastRead();
-            if (bytes_read == 0) {
-                break;
-            }
-            captured_stderr_.append(buffer, bytes_read);
-            if (captured_stderr_.size() > kMaxCapturedStderr) {
-                captured_stderr_.erase(0, captured_stderr_.size() - kMaxCapturedStderr);
-            }
-        }
+void anet::detail::VideoLoggerProcess::DrainStderrLocked()
+{
+    // 終了通知時に残ったstderrを、破棄前に上限付きで確保する。
+    wxInputStream* error_stream = GetErrorStream();
+    if (!error_stream) {
+        return;
     }
 
-    mutable std::mutex mutex_;
-    bool capture_termination_ = true;
-    bool terminated_ = false;
-    long pid_ = 0;
-    int exit_code_ = 0;
-    bool has_exit_code_ = false;
-    std::string captured_stderr_;
-};
+    char buffer[1024];
+    while (IsErrorAvailable()) {
+        error_stream->Read(buffer, sizeof(buffer));
+        const size_t bytes_read = error_stream->LastRead();
+        if (bytes_read == 0) {
+            break;
+        }
+        captured_stderr_.append(buffer, bytes_read);
+        if (captured_stderr_.size() > kMaxCapturedStderr) {
+            captured_stderr_.erase(0, captured_stderr_.size() - kMaxCapturedStderr);
+        }
+    }
+}
 
 VideoLogger::VideoLogger(const std::string& path, int width, int height, const std::string& codec, int fps)
     : width_(width), height_(height), path_(path), codec_(codec), fps_(fps)
@@ -356,24 +350,23 @@ void VideoLogger::LaunchFfmpeg(const std::string& codec)
     pid_ = 0;
     captured_stderr_.clear();
     launch_cmd_.clear();
-    stream_ = nullptr;
 
     const wxString cmd = BuildFfmpegCommand(path_, width_, height_, codec_, fps_);
     launch_cmd_ = ToUtf8String(cmd);
     LOG::info() << "VideoLogger: cmd=" << launch_cmd_;
 
-    process_ = new Process();
+    process_ = std::make_unique<detail::VideoLoggerProcess>();
     process_->Redirect();  // 標準入出力をリダイレクト
 
     if (!wxThread::IsMain()) {
         ANET_LOG_DEBUG("Sending ffmpeg execute request into main thread. command=" << launch_cmd_);
-        ExecuteStarter executer(cmd, process_);
+        ExecuteStarter executer(cmd, process_.get());
         executer.Execute();
         pid_ = process_->GetPid();
         ANET_LOG_DEBUG("ffmpeg execute done. pid=" << pid_);
         LOG::info() << "ffmpeg started from thread. pid=" << pid_;
     } else {
-        pid_ = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
+        pid_ = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_.get());
         ANET_LOG_DEBUG("ffmpeg started from main thread. pid=" << pid_);
         LOG::info() << "ffmpeg started from main thread. pid=" << pid_;
     }
@@ -381,18 +374,19 @@ void VideoLogger::LaunchFfmpeg(const std::string& codec)
     if (pid_ == 0) {
         ffmpeg_dead_.store(true);
         const std::string failure_message = BuildFfmpegFailureMessageLocked("Failed to launch ffmpeg process");
-        CloseProcessLocked();
+        // 起動失敗では終了通知が来ないため、所有者が直接破棄する。
+        process_.reset();
         ANET_SYSTEM_ERROR(failure_message);
     }
 
     // 書き込みストリーム取得
-    stream_ = process_->GetOutputStream();
-    if (!stream_) {
+    auto* stream = process_->GetOutputStream();
+    if (!stream) {
         const std::string failure_message = BuildFfmpegFailureMessageLocked("Failed to get ffmpeg stdin stream. nullptr");
         CloseProcessLocked();
         ANET_SYSTEM_ERROR(failure_message);
     }
-    if (!stream_->IsOk()) {
+    if (!stream->IsOk()) {
         const std::string failure_message = BuildFfmpegFailureMessageLocked("Failed to get ffmpeg stdin stream. Is not OK");
         CloseProcessLocked();
         ANET_SYSTEM_ERROR(failure_message);
@@ -418,13 +412,11 @@ void VideoLogger::UpdateFfmpegDeathFromPidLocked()
             captured_stderr_.erase(0, captured_stderr_.size() - kMaxCapturedStderr);
         }
         ffmpeg_dead_.store(true);
-        stream_ = nullptr;
         return;
     }
     if (!wxProcess::Exists(static_cast<int>(pid_))) {
         DrainStderrLocked();
         ffmpeg_dead_.store(true);
-        stream_ = nullptr;
     }
 }
 
@@ -489,10 +481,12 @@ void VideoLogger::WriteFrame(const wxImage& img)
 {
     std::lock_guard<std::mutex> lock(write_mutex_);
     UpdateFfmpegDeathFromPidLocked();
-    if (ffmpeg_dead_.load() || stream_ == nullptr) {
+    // Processを所有している間だけ有効なstdinを、この呼び出し内で借りる。
+    auto* stream = process_ ? process_->GetOutputStream() : nullptr;
+    if (ffmpeg_dead_.load() || stream == nullptr) {
         ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg process is not available before frame write"));
     }
-    if (!stream_->IsOk()) {
+    if (!stream->IsOk()) {
         DrainStderrLocked();
         ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg stdin stream is not OK before frame write"));
     }
@@ -504,17 +498,17 @@ void VideoLogger::WriteFrame(const wxImage& img)
     int zero_write_retries = 0;
     while (written < nbytes) {
         const size_t write_size = std::min(kFfmpegWriteChunkBytes, nbytes - written);
-        stream_->Write(data + written, write_size);
-        if (!stream_->IsOk()) {
+        stream->Write(data + written, write_size);
+        if (!stream->IsOk()) {
             UpdateFfmpegDeathFromPidLocked();
             DrainStderrLocked();
             ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg pipe write failed"));
         }
-        const size_t last_write = stream_->LastWrite();
+        const size_t last_write = stream->LastWrite();
         if (last_write == 0) {
             UpdateFfmpegDeathFromPidLocked();
             DrainStderrLocked();
-            if (ffmpeg_dead_.load() || stream_ == nullptr || !stream_->IsOk()) {
+            if (ffmpeg_dead_.load() || stream == nullptr || !stream->IsOk()) {
                 ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg pipe wrote zero bytes after ffmpeg stopped"));
             }
             ++zero_write_retries;
@@ -531,15 +525,14 @@ void VideoLogger::WriteFrame(const wxImage& img)
 
 void VideoLogger::CloseProcessLocked()
 {
-    if (stream_) {
-        stream_ = nullptr;
-    }
+    // stdinを閉じてから、終了通知との前後関係に従って破棄責任を一度だけ渡す。
     if (process_) {
-        process_->DisableTerminationCapture();
-        process_->SetNextHandler(nullptr);
         process_->CloseOutput();
-        delete process_;
-        process_ = nullptr;
+        if (process_->ReleaseOwnership()) {
+            process_.reset();
+        } else {
+            process_.release();
+        }
     }
     pid_ = 0;
 }
@@ -595,12 +588,15 @@ MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> backend, const MetricsLog
         run_name_ = CreateRunName(config_.run_name_tmpl);
     }
 
-    auto runs_dir = root_dir / config_.runs_dir;
+    const std::u8string configured_runs_dir_text(
+        reinterpret_cast<const char8_t*>(config_.runs_dir.data()), config_.runs_dir.size());
+    const std::filesystem::path configured_runs_dir(configured_runs_dir_text);
+    auto runs_dir = root_dir / configured_runs_dir;
     backend_->Open(runs_dir, run_name_);
     json meta = { {"type","meta"}, {"event","start"}, {"timestamp", GetCurrentTimeStr()} };
     backend_->WriteJsonl(meta);
 
-    run_dir_ = root_dir / config_.runs_dir / run_name_;
+    run_dir_ = root_dir / configured_runs_dir / run_name_;
 }
 
 std::string MetricsLogger::CreateTimeStampStr() const
@@ -678,7 +674,7 @@ void MetricsLogger::Log(const std::string& tag, const ConfigData& config_data)
 {
     std::lock_guard<std::mutex> lock(log_mutex_);
 
-    auto config_str = ConfigDataToConfigString(config_data);
+    const auto config_str = config_data.ToPropertiesString();
 
     // Configと同じディレクトリにバラのファイルとしてダンプ
     std::string safe_tag = SanitizeFilename(tag);

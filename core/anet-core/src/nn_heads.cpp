@@ -17,7 +17,7 @@ PassThroughHead::PassThroughHead(const std::string& output_key)
     // 重みを持たないため register_module 等は不要
 }
 
-anet::TensorDict PassThroughHead::Forward(const anet::TensorDict& feature_dict)
+anet::TensorDict PassThroughHead::Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context)
 {
     ANET_PROFILE_FUNC();
 
@@ -68,7 +68,7 @@ LinearHead::LinearHead(
     WeightInitializer::Initialize(linear_, init_config);
 }
 
-anet::TensorDict LinearHead::Forward(const anet::TensorDict& feature_dict)
+anet::TensorDict LinearHead::Forward(const anet::TensorDict& feature_dict, const anet::nn::NetworkForwardContext& context)
 {
     ANET_PROFILE_FUNC();
 

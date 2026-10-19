@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "PRD を作り、実装して確かめる",
+    "subtitle": "担当は役割で表し、エージェント名には固定しない。",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "common",
+      "label": "共通文書"
+    },
+    {
+      "id": "authoring",
+      "label": "起票側"
+    },
+    {
+      "id": "inspection",
+      "label": "精査側"
+    },
+    {
+      "id": "implementation",
+      "label": "実装側"
+    },
+    {
+      "id": "human",
+      "label": "人間"
+    },
+    {
+      "id": "ci",
+      "label": "CI"
+    }
+  ],
+  "phases": [
+    {
+      "id": "read",
+      "label": "読む",
+      "fromCol": 0,
+      "toCol": 0
+    },
+    {
+      "id": "shape",
+      "label": "質疑と起草",
+      "fromCol": 1,
+      "toCol": 2
+    },
+    {
+      "id": "implement",
+      "label": "計画と実装",
+      "fromCol": 3,
+      "toCol": 4
+    },
+    {
+      "id": "verify",
+      "label": "引き渡し",
+      "fromCol": 5,
+      "toCol": 5
+    }
+  ],
+  "nodes": [
+    {
+      "id": "read_rules",
+      "lane": "common",
+      "col": 0,
+      "type": "frontend",
+      "label": "入口",
+      "sublabel": "共通の指示",
+      "width": 92
+    },
+    {
+      "id": "read_personal",
+      "lane": "common",
+      "col": 1,
+      "type": "external",
+      "label": "個別環境",
+      "sublabel": "指示・skill",
+      "width": 92
+    },
+    {
+      "id": "write_prd",
+      "lane": "authoring",
+      "col": 1,
+      "type": "backend",
+      "label": "PRD起草",
+      "sublabel": "wikiを読む",
+      "width": 92
+    },
+    {
+      "id": "regrill_prd",
+      "lane": "inspection",
+      "col": 2,
+      "type": "backend",
+      "label": "再グリル",
+      "sublabel": "前提の照合",
+      "width": 92
+    },
+    {
+      "id": "human_adjust",
+      "lane": "human",
+      "col": 3,
+      "type": "external",
+      "label": "調整",
+      "sublabel": "枠を仲介",
+      "width": 92
+    },
+    {
+      "id": "edit_validate",
+      "lane": "implementation",
+      "col": 4,
+      "type": "backend",
+      "label": "計画・実装",
+      "sublabel": "保存→編集→検証",
+      "width": 92
+    },
+    {
+      "id": "review_work",
+      "lane": "authoring",
+      "col": 5,
+      "type": "backend",
+      "label": "レビュー",
+      "sublabel": "独立して確認",
+      "width": 92
+    },
+    {
+      "id": "human_commit",
+      "lane": "human",
+      "col": 5,
+      "type": "external",
+      "label": "確認・commit",
+      "sublabel": "人間が判断",
+      "width": 92
+    },
+    {
+      "id": "run_analysis",
+      "lane": "common",
+      "col": 3,
+      "type": "backend",
+      "label": "Run分析",
+      "sublabel": "030・inspect",
+      "width": 92
+    },
+    {
+      "id": "experiment_record",
+      "lane": "common",
+      "col": 5,
+      "type": "database",
+      "label": "実験記録",
+      "sublabel": "campaign",
+      "width": 92
+    },
+    {
+      "id": "build_guide",
+      "lane": "ci",
+      "col": 4,
+      "type": "backend",
+      "label": "ビルド",
+      "sublabel": "040・検証章",
+      "width": 92
+    },
+    {
+      "id": "routine_work",
+      "lane": "ci",
+      "col": 0,
+      "type": "backend",
+      "label": "定常整備",
+      "sublabel": "skillの実行",
+      "width": 92
+    }
+  ],
+  "mainPath": [
+    "read_rules",
+    "read_personal",
+    "write_prd",
+    "regrill_prd",
+    "human_adjust",
+    "edit_validate",
+    "review_work",
+    "human_commit"
+  ],
+  "edges": [
+    {
+      "from": "read_rules",
+      "to": "read_personal"
+    },
+    {
+      "from": "read_personal",
+      "to": "write_prd"
+    },
+    {
+      "from": "write_prd",
+      "to": "regrill_prd"
+    },
+    {
+      "from": "regrill_prd",
+      "to": "human_adjust"
+    },
+    {
+      "from": "human_adjust",
+      "to": "edit_validate"
+    },
+    {
+      "from": "edit_validate",
+      "to": "review_work"
+    },
+    {
+      "from": "review_work",
+      "to": "human_commit"
+    },
+    {
+      "from": "regrill_prd",
+      "to": "run_analysis",
+      "label": "材料を読む"
+    },
+    {
+      "from": "run_analysis",
+      "to": "experiment_record",
+      "label": "記録を読む",
+      "labelDy": 50
+    },
+    {
+      "from": "edit_validate",
+      "to": "build_guide",
+      "label": "検証の手順",
+      "labelDx": 40
+    },
+    {
+      "from": "read_rules",
+      "to": "routine_work",
+      "label": "整備の入口"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "wikiの読みと書き戻し",
+      "items": [
+        "最初の応答前に読む。知見はPRDに出典つきで書いてから戻す。",
+        "段7の完了直前に本文と再照合し、最終blobを記録する。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "工程の境界",
+      "items": [
+        "再グリルは別の枠でも行える。実装計画は実装する枠が作る。",
+        "設定変更は実装に含め、コミット前に人間が確認する。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "検証と定常整備",
+      "items": [
+        "設計文書のテスト章からtestdata READMEへ進む。",
+        "housekeepingは候補を提示し、了承された範囲を実行する。"
+      ]
+    }
+  ]
+}

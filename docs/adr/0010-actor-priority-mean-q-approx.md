@@ -1,6 +1,7 @@
 # Actor初期優先度は平均Q空間の近似とし、Learner target-network評価/UQE targetの再現を見送る
 
 > **後発決定**: Actorヒントのtransport表現と有効性マスクに関する決定はADR 0012で置き換えた。本ADRの平均Q近似、追加forward禁止、`WithAction`、UQE再現見送りの判断は引き続き有効である。
+> **後発決定（2026-09-04）**: Actorヒントの列数と`WithAction`の再計算対象は [ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) で3列（Munchausen項を追加）へ改訂した。追加forward禁止とUQE再現見送りは不変である。
 
 PRD 035（`docs/memo/035_approx_actor_priority_per_10prd.md`）の近似Actor PER初期優先度は、行動選択で生成済みのonline出力から`actor_q_sa`（実行行動の平均Q）と`actor_state_value`（`max_a Q_online(s,a)`）だけを持ち出し、Learnerと同じ割引率・TBO変換・`per_eps`で近似TD誤差を作る。Learnerのtarget構成のうち次の2点は意図的に再現しない。理由が異なるため分けて記録する。
 

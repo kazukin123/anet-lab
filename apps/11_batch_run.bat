@@ -1,205 +1,321 @@
 @echo off
+
 cd /d "%~dp0runner"
-REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
-SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
-REM SET EXE="bin\Release\AnetRLRunner.exe"
 
-call:run_exe app.run_name=run_{t}
+SET "BUILD=RelWithDebInfo"
 
-REM call:run_exe app.run_name=run_{t}_PER2-2
-REM call:run_exe app.run_name=run_{t}_PER3 R.learner.per_alpha=0.4 R.learner.per_beta_start=0.6
-REM call:run_exe app.run_name=run_{t}_PER4 R.learner.per_alpha=0.2 R.learner.per_beta_start=0.4
+:waitprev
+tasklist /FI "IMAGENAME eq AnetRLRunner*" 2>nul | find /I "AnetRLRunner" >nul
+if not errorlevel 1 (
+  ping -n 31 127.0.0.1 >nul
+  goto :waitprev
+)
+REM Another bat may start its next stage within a second; confirm that no runner appears for 15 s.
+ping -n 16 127.0.0.1 >nul
+tasklist /FI "IMAGENAME eq AnetRLRunner*" 2>nul | find /I "AnetRLRunner" >nul
+if not errorlevel 1 goto :waitprev
 
+if not exist "bin\%BUILD%\AnetRLRunner_ab.exe" goto :no_exe
+if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
 
-REM call:run_exe app.run_name=run_{t}_b256 train.num_envs=256
-REM call:run_exe app.run_name=run_{t}_b256_4064 net.body.$=net.body.SuikaNet4064 "DropMergeEnv.$=DropMergeEnv.baseline > DropMergeEnv.G4064 > E"
-REM call:run_exe app.run_name=run_{t}_b512 train.num_envs=512
+SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 
+SET /A SUCCEEDED_RUNS=0
+SET /A FAILED_RUNS=0
 
-REM call:run_exe app.run_name=run_{t}_seed train.seed=7508636947373324265 
+SET "WS=--workspace DropMerge-02"
+SET "RUNS=workspaces\DropMerge-02\runs"
+SET "BASE=run.$=run.@iqn32_stratified"
+SET "QRBASE=run.$=run.@qr51_control"
+SET "BATCH=app.$=app.batchrun>P1"
+SET "B100M=app.batchrun.exp_exit_step=100000000"
+SET "MUNCH=A3.learner.munchausen.enabled=true A3.learner.use_double_dqn=false"
+SET "MMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@iqn_search_p0>metrics.scalar.@munchausen>M1>M2"
+SET "MTAU3=A3.learner.munchausen.entropy_tau=0.03 A3.learner.munchausen.clip_value_min=-1"
+SET "MAINRELU=DefaultDQNAgent.net.branch.[main_feature].structure=DMImpalaConv64 > DMImpalaPool > DMImpalaRes64(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > ReLU"
+SET "TAURELU=DefaultDQNAgent.net.branch.[tau_embedding].structure=IQNCosEmb > IQNTauProj2048 > ReLU"
+SET "VALRELU=DefaultDQNAgent.net.branch.[value_stream].structure=HeadFC1024 > ReLU"
+SET "ADVRELU=DefaultDQNAgent.net.branch.[adv_stream].structure=HeadFC1024 > ReLU"
+SET "EVONLY=A3.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 run.eval.[eval_target].eval_batch_size=16 run.eval.[eval_target].eval_episodes=100 run.eval.[eval].eval_batch_size=16 run.eval.[eval].eval_episodes=100 run.eval_schedule.[eval_target].interval=10 run.eval_schedule.[eval].interval=11 app.batchrun.exp_exit_step=40"
+SET "GEVONLY=run.eval.[eval_target_greedy].actor=eval_panel run.eval.[eval_target_greedy].eval_batch_size=16 run.eval.[eval_target_greedy].eval_episodes=100 run.eval_schedule.[eval_target_greedy].interval=12 run.eval_schedule.[eval_target_greedy].use_background=true"
+SET "GEV=run.eval.[eval_target_greedy].actor=eval_panel run.eval.[eval_target_greedy].eval_batch_size=1 run.eval.[eval_target_greedy].eval_episodes=1 run.eval_schedule.[eval_target_greedy].interval=200 run.eval_schedule.[eval_target_greedy].use_background=true"
+SET "GMET="M2.[21_eval/11_greedy_reward]=mean.episode_return $runner @session_end $eval.[eval_target_greedy]" "M2.[21_eval/13_greedy_reward_ema]=mean.episode_return $runner @session_end $eval.[eval_target_greedy] $ema ema_alpha:0.02" "M2.[21_eval/15_greedy_ep_steps]=$runner mean.episode_steps @session_end $eval.[eval_target_greedy]" "M2.[53_eval3/00_ep_step_mean_ema]=$eval.[eval_target_greedy] @session_end $env mean.ep_step $ema ema_alpha:0.02" "M2.[53_eval3/01_ep_maxrank_max]=$eval.[eval_target_greedy] @session_end $env max.ep_max_rank" "M2.[53_eval3/13_double_suika_created_mean]=$eval.[eval_target_greedy] @session_end $env $exp_step mean.ep_double_suika_created" "M2.[53_eval3/61_ep_maxrank_mean_ema]=$eval.[eval_target_greedy] @session_end $env mean.ep_max_rank $ema ema_alpha:0.02" "M2.[53_eval3/73_tr_blk_mean]=$eval.[eval_target_greedy] @session_end $env mean.term_reason_spawn_blocked" "M2.[53_eval3/74_tr_timeout_mean]=$eval.[eval_target_greedy] @session_end $env mean.term_reason_no_drop_timeout" "M2.[53_eval3/84_tr_timeout_mean_ema]=$eval.[eval_target_greedy] @session_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.02""
+SET "SGMET="M2.[36_agent_munchausen/07_soft_gap]=munchausen_soft_gap @learn $update_result""
+SET "NDT20=E1.no_drop_timeout_gameover_penalty=-20"
+SET "NSTEP3=A3.learner.n_step=3"
+SET "SNBLK=net.block.[DMImpalaRes64SNR].type=ResBlock net.block.[DMImpalaRes64SNR].res.channels=64 net.block.[DMImpalaRes64SNR].res.kernel_size=3 net.block.[DMImpalaRes64SNR].res.activation=silu net.block.[DMImpalaRes64SNR].res.activation_mode=pre net.block.[DMImpalaRes64SNR].res.norm_type=none net.block.[DMImpalaRes64SNR].res.conv1_bias=true net.block.[DMImpalaRes64SNR].res.conv2_bias=true net.block.[DMImpalaRes64SNR].res.droppath_rate=0.0 net.block.[DMImpalaRes64SNR].weight_norm.mode=spectral net.block.[DMImpalaRes64SNR].init2.mode=he net.block.[DMImpalaRes128SNR].type=ResBlock net.block.[DMImpalaRes128SNR].res.channels=128 net.block.[DMImpalaRes128SNR].res.kernel_size=3 net.block.[DMImpalaRes128SNR].res.activation=silu net.block.[DMImpalaRes128SNR].res.activation_mode=pre net.block.[DMImpalaRes128SNR].res.norm_type=none net.block.[DMImpalaRes128SNR].res.conv1_bias=true net.block.[DMImpalaRes128SNR].res.conv2_bias=true net.block.[DMImpalaRes128SNR].res.droppath_rate=0.0 net.block.[DMImpalaRes128SNR].weight_norm.mode=spectral net.block.[DMImpalaRes128SNR].init2.mode=he"
+SET "SNSTRUCT=DefaultDQNAgent.net.branch.[main_feature].structure=DMImpalaConv64 > DMImpalaPool > DMImpalaRes64SNR(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128SNR(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU"
+SET "SNMET="M2.[34_agent_plasticity/63_weight_norm_feature_effective]=plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500" "M2.[34_agent_plasticity/64_weight_norm_readout_effective]=plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500" "M2.[34_agent_plasticity/65_spectral_sigma_feature]=plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500" "M2.[34_agent_plasticity/66_spectral_sigma_readout]=plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500""
+SET "RR4=A3.learner.replay_ratio=4 A3.model.soft_update_tau=0.00125 run.eval_schedule.[eval_target].interval=400 run.eval_schedule.[eval].interval=400 run.eval_schedule.[eval_target_greedy].interval=800"
+SET "NZNET=net.block.[HeadFC1024].noisy.enabled=true net.block.[HeadFC1024].noisy.sigma0=0.5 A3.head_projection.noisy.enabled=true A3.head_projection.noisy.sigma0=0.5"
+SET "NZACT=A3.nn_forward.[act_lane].noisy.mode=sample A3.nn_forward.[act_lane].noisy.hold=call A3.nn_forward.[act_lane].noisy.share=sample A3.actor.[train].nn_forward_key=act_lane"
+SET "NZREP=A3.actor.[train].policy.uqe_eps_start=0"
+SET "NZMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@iqn_search_p0>metrics.scalar.@munchausen>M1>M2>metrics.scalar.@noisy"
+SET "PMAX=A3.learner.per_initial_priority_mode=max"
+SET "P003=A3.learner.per_initial_priority=0.03"
+SET "B512RR1=A3.learner.replay_batch_size=512 A3.learner.replay_ratio=1 A3.model.soft_update_tau=0.01 run.eval_schedule.[eval_target].interval=50 run.eval_schedule.[eval].interval=50 run.eval_schedule.[eval_target_greedy].interval=100"
+SET "B512RR2=A3.learner.replay_batch_size=512 A3.learner.replay_ratio=2"
+SET "TF8=net.block.[DMImpalaTrans128].tf.num_layers=8"
+SET "G999=A3.learner.gamma=0.999"
+SET "B1024RR1=A3.learner.replay_batch_size=1024 A3.learner.replay_ratio=1 A3.model.soft_update_tau=0.02 run.eval_schedule.[eval_target].interval=25 run.eval_schedule.[eval].interval=25 run.eval_schedule.[eval_target_greedy].interval=50"
+SET "NZGMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@iqn_search_p0>metrics.scalar.@munchausen>M1>M2>metrics.scalar.@noisy>metrics.scalar.@gradnoise>metrics.scalar.@attention"
+SET "LRHALF=A3.learner.alpha=5e-5"
+SET "B2048RR1=A3.learner.replay_batch_size=2048 A3.learner.replay_ratio=1 A3.model.soft_update_tau=0.04 run.eval_schedule.[eval_target].interval=12 run.eval_schedule.[eval].interval=12 run.eval_schedule.[eval_target_greedy].interval=25"
+SET "B4096RR1=A3.learner.replay_batch_size=4096 A3.learner.replay_ratio=1 A3.model.soft_update_tau=0.08 run.eval_schedule.[eval_target].interval=6 run.eval_schedule.[eval].interval=6 run.eval_schedule.[eval_target_greedy].interval=12"
+SET "B256RR2=A3.learner.replay_ratio=2 A3.model.soft_update_tau=0.0025 run.eval_schedule.[eval_target].interval=200 run.eval_schedule.[eval].interval=200 run.eval_schedule.[eval_target_greedy].interval=400"
 
-REM call:run_exe app.run_name=run_{t}
-REM call:run_exe app.run_name=run_{t}_g20  E.grid_rows=20  E.grid_cols=20
-REM call:run_exe app.run_name=run_{t}_g20w net.block.FC1.linear.out_features=2048 net.block.FC2.linear.out_features=1024
-REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
+SET RUNNER="bin\%BUILD%\AnetRLRunner.exe"
+SET "WS=--workspace DropMerge-03"
+SET "EVBIG=run.eval.[eval_target].eval_episodes=1250 run.eval.[eval].eval_episodes=1250 run.eval.[eval_target_greedy].eval_episodes=1250 run.eval.[eval_target].eval_batch_size=64 run.eval.[eval].eval_batch_size=64 run.eval.[eval_target_greedy].eval_batch_size=64"
+SET "EVNOISE=A3.actor.[eval].nn_forward_key=act_lane A3.actor.[eval].policy.tau_rule.sample_mode=stratified A3.actor.[eval].policy.use_spatial_exploration=true A3.actor.[eval_target].nn_forward_key=mu_only A3.actor.[eval_target].policy.tau_rule.sample_mode=fixed A3.actor.[eval_target].policy.use_spatial_exploration=false"
+:wait_disk_u0
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u0
+)
+echo === V UQE tau 0.5 on Eval1 and Eval2: 42A final, env seed 2 ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261017-185400_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=2 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.5 A3.actor.[eval_target].policy.uqe_tau_end=0.5 A3.actor.[eval].policy.uqe_tau_start=0.5 A3.actor.[eval].policy.uqe_tau_end=0.5 "app.run_name=run_{t}_dmfb_42a_ev_tau0.5_s2"
+:wait_disk_u1
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u1
+)
+echo === V UQE tau 0.85 on Eval1 and Eval2: 42A final, env seed 2 ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261017-185400_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=2 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.85 A3.actor.[eval_target].policy.uqe_tau_end=0.85 A3.actor.[eval].policy.uqe_tau_start=0.85 A3.actor.[eval].policy.uqe_tau_end=0.85 "app.run_name=run_{t}_dmfb_42a_ev_tau0.85_s2"
+:wait_disk_u2
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u2
+)
+echo === V UQE tau 0.5 on Eval1 and Eval2: 34a at 170M ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261015-081844_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.5 A3.actor.[eval_target].policy.uqe_tau_end=0.5 A3.actor.[eval].policy.uqe_tau_start=0.5 A3.actor.[eval].policy.uqe_tau_end=0.5 "app.run_name=run_{t}_dmfb_34a_ev_tau0.5"
+:wait_disk_u3
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u3
+)
+echo === V UQE tau 0.85 on Eval1 and Eval2: 34a at 170M ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261015-081844_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.85 A3.actor.[eval_target].policy.uqe_tau_end=0.85 A3.actor.[eval].policy.uqe_tau_start=0.85 A3.actor.[eval].policy.uqe_tau_end=0.85 "app.run_name=run_{t}_dmfb_34a_ev_tau0.85"
+:wait_disk_u4
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u4
+)
+echo === V UQE tau 0.5 on Eval1 and Eval2: 41a B256/RR1 at 150M ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261016-005647_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.5 A3.actor.[eval_target].policy.uqe_tau_end=0.5 A3.actor.[eval].policy.uqe_tau_start=0.5 A3.actor.[eval].policy.uqe_tau_end=0.5 "app.run_name=run_{t}_dmfb_41a_ev_tau0.5"
+:wait_disk_u5
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u5
+)
+echo === V UQE tau 0.85 on Eval1 and Eval2: 41a B256/RR1 at 150M ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261016-005647_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.85 A3.actor.[eval_target].policy.uqe_tau_end=0.85 A3.actor.[eval].policy.uqe_tau_start=0.85 A3.actor.[eval].policy.uqe_tau_end=0.85 "app.run_name=run_{t}_dmfb_41a_ev_tau0.85"
+:wait_disk_u6
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u6
+)
+echo === V UQE tau 0.5 on Eval1 and Eval2: 41d B512/RR2 at 128M ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261017-071936_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.5 A3.actor.[eval_target].policy.uqe_tau_end=0.5 A3.actor.[eval].policy.uqe_tau_start=0.5 A3.actor.[eval].policy.uqe_tau_end=0.5 "app.run_name=run_{t}_dmfb_41d_ev_tau0.5"
+:wait_disk_u7
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u7
+)
+echo === V UQE tau 0.85 on Eval1 and Eval2: 41d B512/RR2 at 128M ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261017-071936_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% %NZACT% "A3.auto_load_file=%CKPT%" %EVBIG% A3.actor.[eval_target].policy.uqe_tau_start=0.85 A3.actor.[eval_target].policy.uqe_tau_end=0.85 A3.actor.[eval].policy.uqe_tau_start=0.85 A3.actor.[eval].policy.uqe_tau_end=0.85 "app.run_name=run_{t}_dmfb_41d_ev_tau0.85"
+:wait_disk_u8
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u8
+)
+echo === 42J. +60M from 34a (170M to 230M): B1024/RR1 ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261015-081844_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" %B1024RR1% app.batchrun.exp_exit_step=60000000 "app.run_name=run_{t}_dmfb_42j_34a_b1024rr1"
+:wait_disk_u9
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u9
+)
+echo === ev only 5000 x 3: 42j final (230M) ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_*_dmfb_42j_34a_b1024rr1"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42j_ev_b1024rr1"
+:wait_disk_u10
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u10
+)
+echo === 42I. +60M from 34a (170M to 230M): B256/RR2 ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261015-081844_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" %B256RR2% app.batchrun.exp_exit_step=60000000 "app.run_name=run_{t}_dmfb_42i_34a_b256rr2"
+:wait_disk_u11
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u11
+)
+echo === ev only 5000 x 3: 42i final (230M) ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_*_dmfb_42i_34a_b256rr2"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42i_ev_b256rr2"
+:wait_disk_u12
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u12
+)
+echo === 42G. +60M from 34a (170M to 230M): B256/RR1, duplicate of 42A ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261015-081844_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" app.batchrun.exp_exit_step=60000000 "app.run_name=run_{t}_dmfb_42g_34a_ctl2"
+:wait_disk_u13
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u13
+)
+echo === ev only 5000 x 3: 42g final (230M) ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_*_dmfb_42g_34a_ctl2"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42g_ev_ctl2"
+:wait_disk_u14
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u14
+)
+echo === 42B. +60M from 34a (170M to 230M): B256/RR1 lr 7.1e-5 ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_20261015-081844_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" A3.learner.alpha=7.1e-5 app.batchrun.exp_exit_step=60000000 "app.run_name=run_{t}_dmfb_42b_34a_lr7.1e-5"
+:wait_disk_u15
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_u15
+)
+echo === ev only 5000 x 3: 42b final (230M) ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_*_dmfb_42b_34a_lr7.1e-5"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42b_ev_lr7.1e-5"
 
-
-REM call:run_exe app.run_name=run_{t}_g10  E.grid_rows=10  E.grid_cols=10
-REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
-REM call:run_exe app.run_name=run_{t}_g100 E.grid_rows=100 E.grid_cols=100
-
-REM call:run_exe app.run_name=run_{t}_b128  A.learner.replay_batch_size=128
-REM call:run_exe app.run_name=run_{t}_b512  A.learner.replay_batch_size=512
-
-REM call:run_exe app.run_name=run_{t}-EPS   A.action_policy.policy_type=0
-REM call:run_exe app.run_name=run_{t}-UQE   A.action_policy.policy_type=1
-REM call:run_exe app.run_name=run_{t}-TS    A.action_policy.policy_type=2
-
-REM call:run_exe app.run_name=run_{t}-A_5e-5 A.learner.alpha=5e-5
-REM call:run_exe app.run_name=run_{t}-A_5e-3 A.learner.alpha=5e-3
-
-
-REM call:run_exe app.run_name=run_{t}_B-16 train.num_envs=16 
-REM call:run_exe app.run_name=run_{t}_B-32 train.num_envs=32
-REM call:run_exe app.run_name=run_{t}_B-64 train.num_envs=64
-REM call:run_exe app.run_name=run_{t}_B-128 train.num_envs=128
-REM call:run_exe app.run_name=run_{t}_B-256 train.num_envs=256
-REM call:run_exe app.run_name=run_{t}_B-512 train.num_envs=512
-REM call:run_exe app.run_name=run_{t}_B-1024 train.num_envs=1024
-
-REM call:run_exe app.run_name=run_{t}_s8      "A.stucker.stack_count=8"
-REM call:run_exe app.run_name=run_{t}_s16     "A.stucker.stack_count=16"
-REM call:run_exe app.run_name=run_{t}_s4_n64  "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_s4_n128 "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=128"
-
-REM ■好成績順上位3件は収束値はほぼ同じ。違いは立ち上がりの速さ(大差ではない)。
-REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
-REM call:run_exe app.run_name=run_{t}_K2_C512_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=512" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K3_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_02_MLP_Wide "net.body.MLP.structure=Linear_256 > ReLU > Linear_120 > ReLU"
-
-
-REM call:run_exe app.run_name=run_{t}_K3_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
-REM call:run_exe app.run_name=run_{t}_K2_C512_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=512" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM call:run_exe app.run_name=run_{t}_MLP_256_128   "net.body.MLP.structure=Linear_256 > ReLU > Linear_128 > ReLU"
-
-REM call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
-REM call:run_exe app.run_name=run_{t}_C128_LR1e4 "A.learner.alpha=1e-4"
-
-REM call:run_exe app.run_name=run_{t}_K2_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K3_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K2_C128_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_K2_C64_L64    "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM call:run_exe app.run_name=run_{t}_K2_C128_L128he "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].init.mode=2" "net.block.[Conv1D_Linear].init.mode=2" "A.head_init.mode=1"
-
-
-REM call:run_exe app.run_name=run_{t}_K2_C64_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L128 "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K2_C128_L256 "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM ↑ 容量倍増：Gapだけ広がってスコア落ちたら過学習
-
-REM call:run_exe app.run_name=run_{t}_eps-10 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=10000000"
-REM call:run_exe app.run_name=run_{t}_eps-08 "A.action_policy.uqe_eps_max=0.8" "A.action_policy.uqe_eps_decay_step=10000000"
-REM call:run_exe app.run_name=run_{t}_eps-04 "A.action_policy.uqe_eps_max=0.4" "A.action_policy.uqe_eps_decay_step=10000000"
-REM call:run_exe app.run_name=run_{t}_eps-10a "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=5000000"
-REM call:run_exe app.run_name=run_{t}_eps-100 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_min=0.0" "A.action_policy.uqe_eps_decay_step=10000000"
-
-REM call:run_exe app.run_name=run_{t}_Base_K2_C64
-REM call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_channels=32" "net.block.[Conv1D_Linear].linear.out_features=32"
-REM call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-
-REM call:run_exe app.run_name=run_{t}_A_5e-5 "A.learner.alpha=5e-5"
-REM call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
-REM call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
-REM call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
-REM call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
-REM call:run_exe app.run_name=run_{t}_A_1e-1 "A.learner.alpha=1e-1"
-
-REM SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
-
-REM call:run_exe app.run_name=run_{t}_Init_Mode0 %COMMON_ARGS% "net.block.FC1.init.mode=0 net.block.FC2.init.mode=0 A.head_init.mode=0"
-REM call:run_exe app.run_name=run_{t}_Init_Mode1_Base %COMMON_ARGS% "net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
-REM call:run_exe app.run_name=run_{t}_Init_Mode2 %COMMON_ARGS% "net.block.FC1.init.mode=2 net.block.FC2.init.mode=2 A.head_init.mode=2"
-REM call:run_exe app.run_name=run_{t}_Init_Mode3 %COMMON_ARGS% "net.block.FC1.init.mode=3 net.block.FC2.init.mode=3 A.head_init.mode=3"
-REM call:run_exe app.run_name=run_{t}_Init_Mixed %COMMON_ARGS% "net.block.FC1.init.mode=2" "net.block.FC2.init.mode=2" "A.head_init.mode=1"
-
-REM call:run_exe app.run_name=run_{t}_Gain_0.0 %COMMON_ARGS% "A.head_init.manual_gain=0.0"
-REM call:run_exe app.run_name=run_{t}_Gain_0.01 %COMMON_ARGS% "A.head_init.manual_gain=0.01"
-REM call:run_exe app.run_name=run_{t}_Gain_0.1 %COMMON_ARGS% "A.head_init.manual_gain=0.1"
-REM call:run_exe app.run_name=run_{t}_Gain_1.0 %COMMON_ARGS% "A.head_init.manual_gain=1.0"
-REM call:run_exe app.run_name=run_{t}_Gain_1.41 %COMMON_ARGS% "A.head_init.manual_gain=1.41"
-
-
-REM ==========================================================
-REM 2. Deep MLP (MLPでの深層化テスト)
-REM ==========================================================
-REM [構成] Flatten -> 120 -> 120 -> 120 -> 120 -> 84 -> Out
-REM MLPを深くすると勾配消失などで学習効率が落ちるかを確認する対照実験。
-REM call:run_exe app.run_name=run_{t}_02_MLP_Deep5 "net.body.structure=Flatten > Linear_120 > ReLU > Linear_120 > ReLU > Linear_120 > ReLU > Linear_120 > ReLU > Linear_84 > ReLU"
-
-REM ==========================================================
-REM 3. ResNet Shallow (機能確認)
-REM ==========================================================
-REM [構成] ResBlock(*3)
-REM 新実装のCompositeブロックが正常に機能し、MLP並みに学習するかを確認。
-REM ※ ResBlock, Linear_Proj, Linear_Out が定義済みである前提
-REM call:run_exe app.run_name=run_{t}_03_ResNet_x3 "net.body.structure=Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU"
-
-REM ==========================================================
-REM 4. ResNet Deep (本命: 深層化耐性)
-REM ==========================================================
-REM [構成] ResBlock(*10)
-REM MLPでは厳しくなる深さでも、Skip Connectionのおかげで学習が進むか？
-REM "実時間で遅い" 問題はあるものの、一晩かければ結果は出るはず。
-REM call:run_exe app.run_name=run_{t}_04_ResNet_x10 "net.body.structure=Flatten > Linear_Proj > ReLU > ResBlock(*10) > Linear_Out > ReLU"
-
-REM ==========================================================
-REM 5. ResNet Very Deep (ストレステスト)
-REM ==========================================================
-REM [構成] ResBlock(*20)
-REM さらに深くして、エラーが出ないか、収束するかを確認。
-REM call:run_exe app.run_name=run_{t}_05_ResNet_x20 "net.body.structure=Flatten > Linear_Proj > ReLU > ResBlock(*20) > Linear_Out > ReLU"
-
-
-REM --- 1. Baseline (Standard) ---
-REM 定義 [nn.txt source: 24]: Linear_120 > ReLU > Linear_84 > ReLU
-REM call:run_exe app.run_name=run_{t}_01_MLP_Base
-
-REM --- 2. Wide MLP (Feature Rich) ---
-REM 中間層の幅を広げて特徴抽出能力を向上
-REM 構造: Linear_256 > ReLU > Linear_120 > ReLU
-REM call:run_exe app.run_name=run_{t}_02_MLP_Wide "net.body.MLP.structure=Linear_256 > ReLU > Linear_120 > ReLU"
-
-REM --- 3. Large MLP (Max Capacity) ---
-REM [nn.txt source: 23] の Linear_512 を使用した最大構成
-REM 構造: Linear_512 > ReLU > Linear_256 > ReLU
-REM call:run_exe app.run_name=run_{t}_03_MLP_Large "net.body.MLP.structure=Linear_512 > ReLU > Linear_256 > ReLU"
-
-REM --- 4. Deep MLP (3 Layers) ---
-REM 層を深くして非線形な推論能力を強化
-REM 構造: Linear_120 > ReLU > Linear_120 > ReLU > Linear_84 > ReLU
-REM call:run_exe app.run_name=run_{t}_04_MLP_Deep "net.body.MLP.structure=Linear_120 > ReLU > Linear_120 > ReLU > Linear_84 > ReLU"
-
-REM --- 5. Deep & Wide (Heavy) ---
-REM 広さと深さを両立させた重厚長大モデル
-REM 構造: Linear_256 > ReLU > Linear_256 > ReLU > Linear_120 > ReLU
-REM call:run_exe app.run_name=run_{t}_05_MLP_DeepWide "net.body.MLP.structure=Linear_256 > ReLU > Linear_256 > ReLU > Linear_120 > ReLU"
-
-
-
-REM call:run_exe app.run_name=run_{t}
-
-REM call:run_exe app.run_name=run_{t}-1_EPS   A.action_policy.policy_type=0
-REM call:run_exe app.run_name=run_{t}-2_UQE   A.action_policy.policy_type=1
-REM call:run_exe app.run_name=run_{t}-3_TS    A.action_policy.policy_type=2
-REM call:run_exe app.run_name=run_{t}-4_TSf   A.action_policy.policy_type=2 A.action_policy.uqe_use_tail_mean=true
-REM call:run_exe app.run_name=run_{t}-5_UQE5  A.action_policy.policy_type=1 A.action_policy.uqe_eps_max=0.05 A.action_policy.uqe_eps_min=0.05
-REM call:run_exe app.run_name=run_{t}-6_TSA5  A.action_policy.policy_type=2 A.action_policy.uqe_eps_max=0.05 A.action_policy.uqe_eps_min=0.05
-REM call:run_exe app.run_name=run_{t}-7_TSA5f A.action_policy.policy_type=2 A.action_policy.uqe_eps_max=0.05 A.action_policy.uqe_eps_min=0.05  A.action_policy.uqe_use_tail_mean=true
-REM call:run_exe app.run_name=run_{t}-8_UQE1  A.action_policy.policy_type=1 A.action_policy.uqe_eps_max=0.01 A.action_policy.uqe_eps_min=0.01
-REM call:run_exe app.run_name=run_{t}-9_TSA1  A.action_policy.policy_type=2 A.action_policy.uqe_eps_max=0.01 A.action_policy.uqe_eps_min=0.01
-
-
-REM call:run_exe app.run_name=run_{t}-2_B4096 A.learner.replay_batch_size=4096
-REM call:run_exe app.run_name=run_{t}-3_B256-rr2 A.learner.replay_batch_size=256 A.learner.replay_ratio=2
-REM call:run_exe app.run_name=run_{t}-4_B256-rr1 A.learner.replay_batch_size=256 A.learner.replay_ratio=1
-REM call:run_exe app.run_name=run_{t}-01_UQE  A.action_policy.policy_type=1
-REM call:run_exe app.run_name=run_{t}-02_H128 A.qnet.nn_hidden1=128 A.qnet.nn_hidden2=128
-REM call:run_exe app.run_name=run_{t}-03_B256 A.learner.replay_batch_size=256
-REM call:run_exe app.run_name=run_{t}-04_B128 A.learner.replay_batch_size=128
-
-
+if "%FAILED_RUNS%"=="0" goto :all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 pause
-exit /b
+exit /b 1
+
+:all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
+pause
+exit /b 0
 
 
 :run_exe
-echo %DATE% %TIME% START %*
-%EXE% %*
+echo %DATE% %TIME% START %WS% %*
+%RUNNER% %WS% %*
+SET "RUN_EXIT_CODE=%ERRORLEVEL%"
+if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
+echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
+SET /A FAILED_RUNS+=1
+exit /b 0
+
+:run_succeeded
+SET /A SUCCEEDED_RUNS+=1
 echo   %DATE% %TIME% END   %*
-exit /b
+exit /b 0
+
+:find_ckpt
+SET "CKPT="
+SET "CKPT_DIR="
+if not "%RUN_EXIT_CODE%"=="0" exit /b 0
+for /f "delims=" %%d in ('dir /b /ad /o-n "%RUNS%\%~1" 2^>nul') do if not defined CKPT_DIR SET "CKPT_DIR=%%d"
+if not defined CKPT_DIR goto :find_ckpt_missing
+if exist "%RUNS%\%CKPT_DIR%\agent_close.anet" SET "CKPT=%RUNS:\=/%/%CKPT_DIR%/agent_close.anet"
+if defined CKPT exit /b 0
+:find_ckpt_missing
+echo %DATE% %TIME% [ERROR] agent_close.anet not found: %RUNS%\%~1 newest=%CKPT_DIR%
+SET /A FAILED_RUNS+=1
+exit /b 0
+
+:no_exe
+echo *** bin\%BUILD%\AnetRLRunner_ab.exe or AnetRLRunner.exe not found. Nothing was run.
+pause
+exit /b 1
