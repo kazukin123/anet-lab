@@ -7,7 +7,7 @@ DefaultDQNAgent 系の探索記録です。ReplayBuffer、PER、batch、replay r
 | Env | 記録 | 概要 |
 |---|---|---|
 | Atari | [Atari 探索記録](atari/README.md) | ALE 直結。ベースライン定義（Breakout / Pong）、Atari-5 横断、可塑性メトリクスの較正と保護機構、BTR 実装との差分移植、replay の lane 窓と eval コスト |
-| DropMerge | [DropMerge 探索記録](dropmerge/README.md) | 長期 Run における batch size と replay ratio を中心とした探索 |
+| DropMerge | [DropMerge 探索記録](dropmerge/README.md) | 長期 Run における batch size と replay ratio、IQN 導入、Atari からのフィードバック（Munchausen・NoisyNet など）、勾配ノイズの機序と評価専用 Run による判定 |
 | LunarLander | [LunarLander 探索記録](lunarlander/README.md) | IQN 導入、QR/IQN 比較、ReplayBuffer capacity、warmup、UQE、quantile sample 数の探索、NoisyNet の導入確認 |
 
 ## DQN 系列共通の知見
@@ -29,6 +29,14 @@ Atari（主に Breakout）の探索で採用まで進んだ構成要素を、別
 | `per_beta` の 0.2 固定 | RR1・RR4 とも成績は変わらなかった | アニールをやめると予算に依存する学習ハイパラが無くなり、打ち切った Run が同じ設定の長い Run の前半と一致する | 切り替えの前後で勾配系のメトリクスを比べない（Atari では `21_grad_norm` と `01_loss` が不連続に変わった） | [2026-09-01](atari/2026-09-01_btr-feedback-arms.md) 探索ブロック 02・03 |
 
 持ち込んだ Env での採否は、その Env の Run で決める（本文末の「Env をまたぐ際の扱い」）。
+
+DropMerge へ持ち込んだ結果（[Atari からのフィードバック](dropmerge/2026-10-01_atari-feedback.md)）:
+
+- **Munchausen:** 採用。IQN の 100M の評価専用 Run で Eval1 +18%、Greedy +16%。
+- **A ストリームの ReLU:** 50M で差なし。**τ 埋め込みの ReLU** は Q バブルで −30%。持ち込まなかった。
+- **target 更新の方式:** hard（C=200）は soft の 2 seed より低く、soft 0.005 を維持した。
+- **ε ラダー:** 上端の lane（ε0.6）が NEET の入口になった。NoisyNet へ置き換えた（ε を外すだけだと評価で −7〜−11%）。
+- **`per_beta` の固定・時定数をそろえた soft τ の掃引:** 試していない。
 
 ### ReplayBuffer capacity は満杯後の経験分布切替時点でもある
 
@@ -238,6 +246,47 @@ Breakout / 50M の実測で、同じ ε=0.01 水準に到達した腕が ε=0 �
   `dormant_ratio` / `srank_ratio` はどれもラベルを追わなかった。検出できたのは
   **train 側の閾値越え率**（Breakout の `≥432` 率で複製幅の 3.8 倍）で、**閾値を上げるほど相対的に鋭い**。
   故障が「長いエピソードを完走できない」という裾に出るため、平均では埋もれる。
+
+### NoisyNet では学習側の点に「揺らぎへの感度」が混ざる
+
+NoisyNet は学習中の行動だけに Head の重みの揺らぎを入れる（評価は `mu_only`）。
+**同じ σ でも、ネットが揺らぎにどれだけ敏感かで、学習中の方策が失う点が変わる。**
+そのため、学習側の平均点の差は方策の強さの差とは限らない。
+
+DropMerge（[勾配ノイズと batch / replay ratio の機序](dropmerge/2026-10-15_gradient-noise-batch.md)）で、170M からの分岐 60M を比べた実測。
+
+| 腕 | 学習側の平均点（対照比） | 評価専用 Run の平均点（target ネット、対照比） | NoisyNet で行動が変わる割合 | NoisyNet ありで評価した損 |
+|---|---|---|---|---|
+| B256/RR1（対照） | — | — | 10.5% | −2.7% |
+| B1024/RR2 | +2.5% | +0.3% | 8.4% | −0.7% |
+| B1024/RR1 | +3.1〜3.9% | +0.9% | 8.3% | — |
+
+Head の σ は全腕で同じ（0.0104）だった。1 回の更新の勾配ノイズを下げた腕は、同じ揺らぎで Q が動く量が 7% 小さく、行動が変わりにくかった。
+最終 checkpoint を NoisyNet ありで評価すると学習側と同じ順と差が出たので、60M 時点の学習側の差の大部分は探索の損の差で説明できる。
+ただし分岐直後の 20M は、評価（target ネット）でも約 3% 上がっていた。上乗せのすべてが感度ではない。
+
+扱いの指針。
+
+- **NoisyNet を使う腕の比較は、NoisyNet なしの評価で判定する。** 学習側の平均点だけで腕を選ばない。
+- **探索量の物差しとして、NoisyNet で行動が変わる割合（`47_agent_noisy/10_action_disagreement_ratio`）を並べて見る。** σ が同じでも、この割合は腕で 2 割変わった。
+- **学習が進むと学習側と評価の差が広がることがある。** DropMerge の B256 系列で、学習側は評価より 3.6% → 4.2% 低くなっていった。学習側の伸びだけを見ると、停滞を実際より強く見積もる。
+- **評価専用 Run の局数は、見る量で決める。** 平均点の 1% 前後の差は各ランナー数千局で読めるが、
+  出現率が 1〜2% の事象（DropMerge のダブルスイカ）は、同じ checkpoint でも評価 seed を変えると 0.3 ポイント前後動いた。複数の局の組で数える。
+
+### 腕の評価は target ネットで、経過も見る
+
+DropMerge の同じ設定の学習 Run 2 本（170M からの 60M）を、評価専用 Run（各ランナー約 5,000 局）で比べた実測。
+
+| 評価 | 2 本の差 |
+|---|---|
+| target ネット（UQE・Greedy の 2 ランナー） | 0.0% |
+| online ネット（UQE） | 2.2%（約 4σ） |
+
+扱いの指針。
+
+- **腕の比較は target ネットの評価で行う。** online ネットは更新ごとに揺れ、checkpoint を保存した瞬間の揺れがそのまま評価に乗る。
+- **最終 checkpoint だけで比べない。** B を上げた腕は評価でも分岐後 20M までに約 3% 先行し、60M では対照が追いついた。最終の比較だけでは、同じ水準に早く着く差を見落とす。
+- **学習中の評価の局数を増やすと、経過で腕を比べられる。** 1 セッション 1 局では 10M 窓の誤差が約 ±2% だった。target の 2 ランナーを 8 局にすると 20M 窓で約 ±0.3% になり、最終の評価専用 Run と 1% 以内で合った。実時間は 9% 増えた。
 
 ### eval のコストは 本数 × エピソード長 / 間隔 で決まる
 
