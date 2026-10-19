@@ -103,6 +103,8 @@ Resource の場合はここでは判断しない。
 寿命による判断は不要。  
 （将来の分散構成時にのみ利用する）
 
+借用（所有しない参照・ポインタ）の寿命の書き方は、本書ではなく [AGENTS.md](../AGENTS.md) §コーディング規約に従う。
+
 ---
 
 # ■ 3. 最終決定原則（暗記用まとめ）
@@ -147,6 +149,9 @@ Resource の場合はここでは判断しない。
 
 - “NN はすべて無条件に Agent が所有する” → ✗
   → source/shared network は Agent が所有する。特定Actorだけが利用・同期するprivate snapshotはActorが所有する
+
+- “Resource（NetworkModel 等）に、特定モジュールの State（Learner の capture 等）へのポインタを Set/Clear で持たせる” → ✗  
+  → 呼び出しごとに引数で渡す。Resource はモジュールの State を知らない
 
 ---
 

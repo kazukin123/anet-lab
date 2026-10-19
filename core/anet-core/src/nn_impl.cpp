@@ -1989,9 +1989,9 @@ struct NetworkForwardExecutor::Impl {
     const std::shared_ptr<NetworkForwardState> state;
     std::vector<std::unique_ptr<NetworkModuleExecutor>> owned_modules;
     std::vector<std::vector<NetworkModuleExecutor*>> body_calls;
-    const std::vector<std::vector<NetworkModuleExecutor*>>* call_table = nullptr;
+    const std::vector<std::vector<NetworkModuleExecutor*>>* call_table = nullptr; ///< 自身のbody_callsを指す。既定経路ではnullptr。
     std::unique_ptr<NetworkHeadExecutor> owned_head;
-    NetworkHeadExecutor* head_call = nullptr;
+    NetworkHeadExecutor* head_call = nullptr; ///< networkが所有するHead、またはowned_headを借用する。
 };
 
 std::shared_ptr<NetworkForwardExecutor> Network::CreateForwardExecutor(

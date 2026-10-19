@@ -699,15 +699,10 @@ namespace anet::rl::dqn {
     public:
 
         /// 訓練モードを一時的に有効にし、復元して返す。
-        anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const;
+        anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info,
+            anet::nn::NetworkForwardCapture* capture = nullptr) const;
         anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key,
             anet::nn::NetworkForwardCapture* capture = nullptr) const;
-        void SetBranchCaptureRequests(
-            anet::nn::NetworkForwardCapture* online_capture,
-            anet::nn::NetworkForwardCapture* target_capture);
-        void ClearBranchCaptureRequests();
-        /// 更新中に設定されたtargetの取得要求。診断のtarget計算には使用しない。
-        anet::nn::NetworkForwardCapture* GetTargetBranchCapture() const { return target_capture_; }
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
@@ -741,8 +736,6 @@ namespace anet::rl::dqn {
 
         int64_t n_actions_;
         bool distributional_;
-        anet::nn::NetworkForwardCapture* online_capture_ = nullptr;
-        anet::nn::NetworkForwardCapture* target_capture_ = nullptr;
     };
 
 
@@ -1011,6 +1004,8 @@ namespace anet::rl::dqn {
     protected:
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
+        anet::nn::NetworkForwardCapture* OnlineBranchCapture();
+        anet::nn::NetworkForwardCapture* TargetBranchCapture();
         TargetEvaluation MakeTargetEvaluation(bool diagnostic);
         anet::nn::NetworkForwardCallInfo MakeCurrentForwardInfo() const;
         virtual std::pair<torch::Tensor, torch::Tensor> MakeTarget(
@@ -1079,8 +1074,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         anet::GradScaler grad_scaler_;
-        anet::RandomGenerator* plasticity_probe_random_ = nullptr;
-        anet::RandomGenerator* policy_churn_probe_random_ = nullptr;
+        anet::RandomGenerator* plasticity_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
+        anet::RandomGenerator* policy_churn_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
         std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
         struct GradientNoiseState {
@@ -1104,7 +1099,7 @@ namespace anet::rl::dqn {
                 DemandEntry(size_t metric, int interval) : metric(metric), gate(static_cast<uint64_t>(interval)) {}
             };
             std::vector<DemandEntry> demand;
-            anet::RandomGenerator* random = nullptr;
+            anet::RandomGenerator* random = nullptr; ///< Agent所有の専用Resourceを借用する。
             std::shared_ptr<anet::nn::NetworkForwardExecutor> sample_forward;
             uint64_t forward_clock = 0;
             NoisyMetrics values;
@@ -1212,7 +1207,7 @@ namespace anet::rl::dqn {
                 : metric(metric), gate(static_cast<uint64_t>(interval)) {}
         };
         std::vector<ReplayFitDemandEntry> replay_fit_demand_;
-        anet::RandomGenerator* replay_fit_probe_random_ = nullptr;
+        anet::RandomGenerator* replay_fit_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
     protected:
         float update_credit_ = 0.0f;
     private:

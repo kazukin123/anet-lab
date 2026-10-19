@@ -514,10 +514,12 @@ void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
     }
 }
 
-anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info) const
+anet::TensorDict NetworkModel::ForwardOnlineWithTrain(
+    const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward,
+    const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
-    return forward.Forward(obs, info, {}, online_capture_);
+    return forward.Forward(obs, info, {}, capture);
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineUpTo(
@@ -526,20 +528,6 @@ anet::TensorDict NetworkModel::ForwardOnlineUpTo(
     torch::NoGradGuard no_grad;
     anet::TrainingModeGuard guard(*online_net_, false);
     return online_net_->ForwardUpTo(obs, branch_key, capture);
-}
-
-void NetworkModel::SetBranchCaptureRequests(
-    anet::nn::NetworkForwardCapture* online_capture,
-    anet::nn::NetworkForwardCapture* target_capture)
-{
-    online_capture_ = online_capture;
-    target_capture_ = target_capture;
-}
-
-void NetworkModel::ClearBranchCaptureRequests()
-{
-    online_capture_ = nullptr;
-    target_capture_ = nullptr;
 }
 
 bool NetworkModel::IsDistributional() const
@@ -3284,17 +3272,10 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         plasticity_.online_request = plasticity_.online.MakeRequest(vars_.learn_step);
         plasticity_.target_request = plasticity_.target.MakeRequest(vars_.learn_step);
         const auto probe_request = plasticity_.probe.MakeRequest(vars_.learn_step);
-        const bool measure_online = plasticity_.online_request.Any();
-        const bool measure_target = plasticity_.target_request.Any();
         plasticity_.online_capture.Reset();
         plasticity_.target_capture.Reset();
         plasticity_.target_capture_batch_size.reset();
         plasticity_.weight_norms = torch::Tensor();
-        if (measure_online || measure_target) {
-            model_.SetBranchCaptureRequests(
-                measure_online ? &plasticity_.online_capture : nullptr,
-                measure_target ? &plasticity_.target_capture : nullptr);
-        }
         if (probe_request.Any()) {
             plasticity_.probe_request = probe_request;
             plasticity_.probe_features = torch::Tensor();
@@ -3324,19 +3305,13 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         // 固有処理呼び出し
         //auto samples = raw_samples.FlattenStates();
         std::shared_ptr<anet::rl::dqn::BatchUpdateResult> result;
-        try {
-            CaptureNoisyDiagnostics();
-            const auto replay_fit = CaptureReplayFit(dev_samples);
-            const auto attention_entropy = CaptureAttentionEntropy();
-            result = UpdateFromSamples(dev_samples);
-            if (attention_entropy.defined()) result->attention_entropy = attention_entropy;
-            if (replay_fit) result->replay_fit_metrics = replay_fit;
-            if (!noisy_.demand.empty()) result->noisy_metrics = noisy_.values;
-        } catch (...) {
-            model_.ClearBranchCaptureRequests();
-            throw;
-        }
-        model_.ClearBranchCaptureRequests();
+        CaptureNoisyDiagnostics();
+        const auto replay_fit = CaptureReplayFit(dev_samples);
+        const auto attention_entropy = CaptureAttentionEntropy();
+        result = UpdateFromSamples(dev_samples);
+        if (attention_entropy.defined()) result->attention_entropy = attention_entropy;
+        if (replay_fit) result->replay_fit_metrics = replay_fit;
+        if (!noisy_.demand.empty()) result->noisy_metrics = noisy_.values;
 
         // 更新後処理
         UpdateTargetNetwork(vars_.learn_step);
@@ -3702,6 +3677,18 @@ anet::nn::NetworkForwardCallInfo Learner::MakeCurrentForwardInfo() const
     return anet::nn::NetworkForwardCallInfo({.clock = vars_.learn_step});
 }
 
+anet::nn::NetworkForwardCapture* Learner::OnlineBranchCapture()
+{
+    // 今回の更新で要求されたときだけ、Learner所有の受け皿を同期forwardへ渡す。
+    return plasticity_.online_request.Any() ? &plasticity_.online_capture : nullptr;
+}
+
+anet::nn::NetworkForwardCapture* Learner::TargetBranchCapture()
+{
+    // targetの測定要求はonlineとは独立し、診断用forwardでは利用しない。
+    return plasticity_.target_request.Any() ? &plasticity_.target_capture : nullptr;
+}
+
 TargetEvaluation Learner::MakeTargetEvaluation(bool diagnostic)
 {
     // 生成関数はforward順序を動かさず、従来の各tau生成位置から呼ぶ。
@@ -3718,7 +3705,7 @@ TargetEvaluation Learner::MakeTargetEvaluation(bool diagnostic)
         .diagnostic = diagnostic,
         .info = anet::nn::NetworkForwardCallInfo({.clock = diagnostic ? 0 : vars_.learn_step}),
         .forwards = diagnostic ? &diagnostic_forwards_ : &target_forwards_,
-        .target_capture = diagnostic ? nullptr : model_.GetTargetBranchCapture(),
+        .target_capture = diagnostic ? nullptr : TargetBranchCapture(),
         .current_taus = [make](int64_t batch) { return make(batch, true); },
         .target_taus = [make](int64_t batch) { return make(batch, false); },
     };
@@ -3906,7 +3893,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // Q(s, a)
         // ------------------------------------------------------------
         const auto forward_info = MakeCurrentForwardInfo();
-        auto q_out = model_.ForwardOnlineWithTrain(obs, *current_forward_, forward_info);
+        auto q_out = model_.ForwardOnlineWithTrain(obs, *current_forward_, forward_info, OnlineBranchCapture());
         auto q_all = q_out.At("q"); // (B,A)
         ANET_ASSERT_SHAPE(q_all, { B, A });
 
@@ -4050,7 +4037,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
         const auto forward_info = MakeCurrentForwardInfo();
-        auto current_out = model_.ForwardOnlineWithTrain(obs, *current_forward_, forward_info);
+        auto current_out = model_.ForwardOnlineWithTrain(obs, *current_forward_, forward_info, OnlineBranchCapture());
         auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);
@@ -4175,7 +4162,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         ANET_PROFILE_SCOPE_NEXT(forward_current);
         const auto forward_info = MakeCurrentForwardInfo();
-        auto current_out = model_.ForwardOnlineWithTrain(current_input, *current_forward_, forward_info);
+        auto current_out = model_.ForwardOnlineWithTrain(current_input, *current_forward_, forward_info, OnlineBranchCapture());
         auto current_dist_all = current_out.At("q_dist");
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);

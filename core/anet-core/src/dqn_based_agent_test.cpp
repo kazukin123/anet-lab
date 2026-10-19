@@ -420,7 +420,7 @@ public:
         const auto forward_info = MakeCurrentForwardInfo();
         if (run_policy_churn_optimizer_update_) {
             // action 1 の Q を上げる決定論的な 1 update を作り、公開結果から churn を観測する。
-            auto q_values = model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info).At("q");
+            auto q_values = model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info, OnlineBranchCapture()).At("q");
             const int64_t optimized_action = n_actions_ > 1 ? 1 : 0;
             auto element_loss = -q_values.select(1, optimized_action);
             // 行ごとの係数で小batch勾配を制御し、未指定の既存テストは元の損失を使う。
@@ -438,8 +438,8 @@ public:
                 per_info);
         }
         if (run_plasticity_forward_) {
-            model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info);
-            if (run_plasticity_target_forward_) target_forwards_.target->Forward(samples.next_state.next_obs, forward_info, {}, model_.GetTargetBranchCapture());
+            model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info, OnlineBranchCapture());
+            if (run_plasticity_target_forward_) target_forwards_.target->Forward(samples.next_state.next_obs, forward_info, {}, TargetBranchCapture());
             if (parameter_mutation_delta_.has_value()) {
                 torch::NoGradGuard no_grad;
                 for (auto& parameter : model_.GetOnlineParameters()) {
