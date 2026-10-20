@@ -1166,3 +1166,29 @@ void Notifier::LogObservers() const
         idx++;
     }
 }
+
+// 結果が所有するauxのスカラーだけを読み、非スカラーは未知の読出しとして扱う。
+std::optional<float> SingleEnvResult::GetScalar(const std::string& key) const
+{
+    const auto found = aux_.find(key);
+    if (found == aux_.end() || !found->second.defined() || found->second.numel() != 1) return std::nullopt;
+    return found->second.item<float>();
+}
+
+const torch::Tensor& BatchStepResult::GetEpisodeEndMask() const
+{
+    // 初回の並行読出しも同期し、公開値を変えずにCPU転送を結果ごとに一度へまとめる。
+    std::call_once(episode_end_once_, [this]() {
+        episode_end_cpu_ = next_state.done.logical_or(next_state.truncated).to(torch::kCPU).contiguous();
+    });
+    return episode_end_cpu_;
+}
+
+std::optional<float> BatchStepResult::GetScalar(const std::string& key, int64_t lane) const
+{
+    if (lane < 0 || lane >= reward.size(0)) return std::nullopt;
+    if (key == "reward") return reward[lane].item<float>();
+    if (key == "done") return next_state.done[lane].item<float>();
+    if (key == "truncated") return next_state.truncated[lane].item<float>();
+    return std::nullopt;
+}

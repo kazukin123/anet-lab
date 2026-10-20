@@ -23,29 +23,41 @@ using namespace anet::rl;
 using namespace anet::rl::env;
 using namespace anet::rl::env::atari;
 
+// ゲームと番号の意味は不変なので、Stepごとに設定を複製せず結果と共有する。
+struct anet::rl::env::AtariScalarContext {
+    std::string game;
+    std::set<int64_t> known_numbers;
+};
+
 constexpr int kScreenHeight = 210;
 constexpr int kScreenWidth = 160;
 
 class AtariResetResult final : public anet::rl::SingleResetResult {
 public:
     AtariResetResult(anet::rl::SingleState state, anet::rl::AuxData aux)
-        : SingleResetResult(std::move(state)), aux_(std::move(aux)) {}
-
-    anet::rl::AuxData GetAuxData() const override { return aux_; }
-
-private:
-    anet::rl::AuxData aux_;
+        : SingleEnvResult(std::move(aux)), SingleResetResult(std::move(state)) {}
 };
 
 class AtariStepResult final : public anet::rl::SingleStepResult {
 public:
-    AtariStepResult(float reward, anet::rl::SingleState state, anet::rl::AuxData aux)
-        : SingleStepResult(reward, std::move(state)), aux_(std::move(aux)) {}
+    AtariStepResult(float reward, anet::rl::SingleState state, anet::rl::AuxData aux,
+        bool game_ended, float game_score, int64_t game_frames, const torch::Tensor& rgb,
+        std::shared_ptr<const AtariScalarContext> context, std::map<int64_t, float> ram_values)
+        : SingleEnvResult(std::move(aux)), SingleStepResult(reward, std::move(state)),
+          game_ended_(game_ended), game_score_(game_score), game_frames_(game_frames),
+          scalar_context_(std::move(context)), ram_values_(std::move(ram_values))
+    {
+        // 画面のstorageはその遷移が所有する。次のResetでenvが別の画面へ移っても参照は有効。
+        if (rgb.defined()) aux_.emplace("rgb_frame", rgb);
+    }
 
-    anet::rl::AuxData GetAuxData() const override { return aux_; }
-
+    std::optional<float> GetScalar(const std::string& key) const override;
 private:
-    anet::rl::AuxData aux_;
+    bool game_ended_;
+    float game_score_;
+    int64_t game_frames_;
+    std::shared_ptr<const AtariScalarContext> scalar_context_;
+    std::map<int64_t, float> ram_values_;
 };
 
 static std::string JoinValues(const std::vector<unsigned>& values)
@@ -418,6 +430,8 @@ AtariEnv::AtariEnv(
     : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
     , RandomHolder(seed)
     , config_(config)
+    , scalar_context_(std::make_shared<const AtariScalarContext>(AtariScalarContext{
+        .game = config.game, .known_numbers = config.known_ram_metric_numbers}))
     , device_(device)
 {
     if (const auto game_metrics = config_.ram_metrics.find(config_.game);
@@ -695,48 +709,35 @@ AuxData AtariEnv::MakeAuxData() const
 
 void AtariEnv::RecordGameCompletion(bool truncated)
 {
-    completion_available_ = true;
-    completed_game_score_ = game_score_;
-    completed_game_len_ = game_len_;
-    completed_game_frames_ = ale_->getEpisodeFrameNumber();
-    completed_ram_metrics_.clear();
-    for (const auto& [number, state] : ram_metrics_) completed_ram_metrics_.emplace(number, state.Value());
 
     // metrics / trace を持たない実行（EvalPanel 等）のゲームも、時刻付きで Run ログから追えるようにする。
     // スコアは ALE の整数報酬の累積なので整数で出す（float の既定書式は 7 桁以上を指数表記にする）。
     std::ostringstream ram_suffix;
-    if (!completed_ram_metrics_.empty()) {
+    if (!ram_metrics_.empty()) {
         ram_suffix << " ram_metric:";
-        for (const auto& [number, value] : completed_ram_metrics_) {
-            ram_suffix << ' ' << ram_metrics_.at(number).definition.label << '=' << value;
+        for (const auto& [number, state] : ram_metrics_) {
+            ram_suffix << ' ' << state.definition.label << '=' << state.Value();
         }
     }
     log.verbose() << (truncated ? "Game truncated by max_episode_frames." : "Game over.")
-        << " game_score=" << static_cast<int64_t>(completed_game_score_)
-        << " game_len=" << completed_game_len_
-        << " game_frames=" << completed_game_frames_ << ram_suffix.str();
+        << " game_score=" << static_cast<int64_t>(game_score_)
+        << " game_len=" << game_len_
+        << " game_frames=" << ale_->getEpisodeFrameNumber() << ram_suffix.str();
 }
 
 std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
-    // life-loss doneではALEを維持し、実ゲーム境界だけhard resetする。
+    // life-lossだけなら同じゲームを維持し、実ゲーム終了後は作り直す。
     if (life_loss_pending_ && !ale_->game_over(false)) {
+        ANET_PROFILE_SCOPE(soft_reset);
         life_loss_pending_ = false;
-        game_score_ += ActAndObserve(ale::PLAYER_A_NOOP);
-        if (ale_->game_over(false)) {
-            RecordGameCompletion(false);
-            ResetAleGame();
-            game_score_ = 0.0f;
-            game_len_ = 0;
-            ApplyResetActions();
-        } else {
-            // ゲームは継続しているのでスコアも継続。NOOPと同じく報酬を累積へ加える。
-            // noop_max はここでは打たない（NoopResetEnv 相当は実 reset のみに効く）。
-            game_score_ += ApplyFireReset();
-        }
+        // NOOPはStep側で済んでいるため、ここではFIRE系列だけを打つ。
+        // noop_maxは実ゲームを作り直すときだけ適用する。
+        game_score_ += ApplyFireReset();
     } else {
+        ANET_PROFILE_SCOPE(hard_reset);
         ResetAleGame();
         game_score_ = 0.0f;
         game_len_ = 0;
@@ -753,7 +754,6 @@ std::shared_ptr<const SingleResetResult> AtariEnv::Reset()
 std::shared_ptr<const SingleStepResult> AtariEnv::Step(int64_t action)
 {
     ANET_PROFILE_FUNC();
-    completion_available_ = false;
     if (action < 0 || action >= static_cast<int64_t>(action_set_.size())) {
         ANET_SYSTEM_ERROR("AtariEnv action index out of range. action=" << action
             << ", expected=[0," << action_set_.size() << ").");
@@ -797,16 +797,27 @@ std::shared_ptr<const SingleStepResult> AtariEnv::Step(int64_t action)
     current_lives_ = new_lives;
     life_loss_pending_ = life_done;
 
-    if (real_done || truncated) {
-        RecordGameCompletion(truncated);
-    }
-
     CaptureRgbFrame();
     auto state = MakeState(std::move(grid), done, truncated, false);
     const float reward = config_.reward_clip
         ? (reward_raw > 0.0f ? 1.0f : reward_raw < 0.0f ? -1.0f : 0.0f)
         : reward_raw;
-    return std::make_shared<const AtariStepResult>(reward, std::move(state), MakeAuxData());
+    // 学習用の観測・RGB・auxを確定してから、life-loss後のNOOPを進める。
+    auto aux = MakeAuxData();
+    if (life_done) {
+        ANET_PROFILE_SCOPE(life_loss_noop);
+        game_score_ += ActAndObserve(ale::PLAYER_A_NOOP);
+    }
+    // 補助NOOPで終わった場合も、Stepの結果へ入れるゲームの確定値をここで記録する。
+    const bool game_ended = real_done || truncated || (life_done && ale_->game_over(false));
+    if (game_ended) RecordGameCompletion(truncated);
+    // RAMも確定値の時点で所有する。途中のstepではNOOPが無く、速報値と同じ時点になる。
+    std::map<int64_t, float> ram_values;
+    for (const auto& [number, metric] : ram_metrics_) {
+        ram_values.emplace(number, static_cast<float>(metric.Value()));
+    }
+    return std::make_shared<const AtariStepResult>(reward, std::move(state), std::move(aux),
+        game_ended, game_score_, ale_->getEpisodeFrameNumber(), rgb_frame_, scalar_context_, std::move(ram_values));
 }
 
 // `game_score.ge.[N]` の N を返す。閾値はゲーム定数ではなく判定基準（Breakout の 1 画面 = 432）
@@ -836,8 +847,26 @@ static std::optional<float> ParseGameScoreThreshold(const std::string& key)
     return threshold;
 }
 
-std::optional<float> AtariEnv::GetScalar(const std::string& key, int64_t index) const
+std::optional<float> AtariStepResult::GetScalar(const std::string& key) const
 {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const bool life_only = (next_state.done || next_state.truncated) && !game_ended_;
+    // ゲーム単位の鍵は、途中なら速報値、残機だけの終端ならNaN、ゲーム終了なら確定値。
+    if (key == "game_score" || key == "game_len" || key == "game_frames") {
+        if (life_only) return nan;
+        if (game_ended_ && key == "game_score") return game_score_;
+        if (game_ended_ && key == "game_frames") return static_cast<float>(game_frames_);
+        return SingleEnvResult::GetScalar(key);
+    }
+    if (const auto threshold = ParseGameScoreThreshold(key)) {
+        if (life_only) return nan;
+        return *GetScalar("game_score") >= *threshold ? 1.0f : 0.0f;
+    }
+    if (key == "hns57" || key == "hns49") {
+        if (life_only) return nan;
+        const auto baseline = key == "hns57" ? HnsBaseline::Dqn57 : HnsBaseline::Nature49;
+        return HumanNormalizedScore(scalar_context_->game, *GetScalar("game_score"), baseline).value_or(nan);
+    }
     if (key.starts_with("ram_metric.")) {
         constexpr std::string_view prefix = "ram_metric.[";
         if (!key.starts_with(prefix) || !key.ends_with(']') || key.size() <= prefix.size() + 1) {
@@ -850,43 +879,23 @@ std::optional<float> AtariEnv::GetScalar(const std::string& key, int64_t index) 
                 << ". Expected ram_metric.[n] with n >= 1.");
         }
         int64_t number = 0;
-        const auto [end, error] = std::from_chars(
-            number_text.data(), number_text.data() + number_text.size(), number);
+        const auto [end, error] = std::from_chars(number_text.data(), number_text.data() + number_text.size(), number);
         if (error != std::errc{} || end != number_text.data() + number_text.size() || number < 1) {
             ANET_SYSTEM_ERROR("Invalid AtariEnv scalar key: " << key
                 << ". Expected ram_metric.[n] with n in int64 range.");
         }
-        if (!config_.known_ram_metric_numbers.contains(number)) return std::nullopt;
-        if (!completion_available_ || !completed_ram_metrics_.contains(number)) {
-            return std::numeric_limits<float>::quiet_NaN();
-        }
-        return static_cast<float>(completed_ram_metrics_.at(number));
+        if (!scalar_context_->known_numbers.contains(number)) return std::nullopt;
+        const auto metric = ram_values_.find(number);
+        return life_only || metric == ram_values_.end() ? nan : metric->second;
     }
+    // livesなどのauxはNOOP前のまま読み、非スカラーの画面はscalarとして公開しない。
+    return SingleEnvResult::GetScalar(key);
+}
+
+std::optional<float> AtariEnv::GetScalar(const std::string& key, int64_t index) const
+{
+    // env本体への問い合わせは、今の残機だけを返す。遷移の値はStepの結果へ移した。
     if (key == "lives") return static_cast<float>(current_lives_);
-    if (key == "game_score") {
-        return completion_available_ ? completed_game_score_ : std::numeric_limits<float>::quiet_NaN();
-    }
-    // 閾値越えを 0/1 で返す。`mean.` 集約がそのまま「越えたゲームの割合」になる。確定タイミングと
-    // NaN 契約は game_score と揃える。未確定 step で 0 を返すと分母が完了 env 数ではなく num_envs
-    // になり割合が壊れるため、ここは必ず NaN（§4.7）。
-    if (const auto threshold = ParseGameScoreThreshold(key)) {
-        if (!completion_available_) return std::numeric_limits<float>::quiet_NaN();
-        return completed_game_score_ >= *threshold ? 1.0f : 0.0f;
-    }
-    if (key == "game_len") {
-        return completion_available_ ? static_cast<float>(completed_game_len_) : std::numeric_limits<float>::quiet_NaN();
-    }
-    if (key == "game_frames") {
-        return completion_available_ ? static_cast<float>(completed_game_frames_) : std::numeric_limits<float>::quiet_NaN();
-    }
-    // 基準表に載らないゲームでも nullopt ではなく NaN を返す。nullopt は
-    // DiscreteBatchEnvBase の集約(env.cpp)でバッチ全体を打ち切ってしまうため。
-    if (key == "hns57" || key == "hns49") {
-        if (!completion_available_) return std::numeric_limits<float>::quiet_NaN();
-        const auto baseline = (key == "hns57") ? HnsBaseline::Dqn57 : HnsBaseline::Nature49;
-        const auto hns = HumanNormalizedScore(config_.game, completed_game_score_, baseline);
-        return hns.value_or(std::numeric_limits<float>::quiet_NaN());
-    }
     return std::nullopt;
 }
 

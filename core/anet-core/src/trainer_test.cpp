@@ -201,8 +201,10 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts& counts, const rl::BatchState&) const override
+    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts& counts, const rl::BatchState& state) const override
     {
+        // 次の判断へ渡された観測を公開経路の試験で確かめる。
+        observed_states_.push_back(state.obs.At(rl::ObsKeys::kVector)[0][0].item<float>());
         last_counts_ = counts;
         auto payload = torch::arange(
             1, num_envs_ * 3 + 1, torch::TensorOptions().dtype(torch::kFloat32)).reshape({ num_envs_, 3 });
@@ -217,11 +219,13 @@ public:
 
     int GetSyncCount() const { return sync_count_; }
     rl::StepCounts GetLastCounts() const { return last_counts_; }
+    const std::vector<float>& GetObservedStates() const { return observed_states_; }
 
 private:
     int64_t num_envs_ = 1;
     int sync_count_ = 0;
     mutable rl::StepCounts last_counts_;
+    mutable std::vector<float> observed_states_;
 };
 
 class HintRecordingReplayBuffer final : public rl::ReplayBuffer {
@@ -286,15 +290,16 @@ public:
 
 class TestLearner final : public rl::Learner {
 public:
-    TestLearner(std::shared_ptr<rl::ReplayBuffer> replay_buffer, int result_count)
+    TestLearner(std::shared_ptr<rl::ReplayBuffer> replay_buffer, int result_count, bool fail = false)
         : replay_buffer_(std::move(replay_buffer))
-        , result_count_(result_count)
+        , result_count_(result_count), fail_(fail)
     {
     }
 
     rl::BatchUpdateResultList UpdateFromBatch(
         const rl::StepCounts&, const rl::BatchExperience& batch_exp) override
     {
+        if (fail_) throw std::runtime_error("last learner failure");
         replay_buffer_->Push(batch_exp);
         rl::BatchUpdateResultList results;
         for (int i = 0; i < result_count_; ++i) {
@@ -306,6 +311,7 @@ public:
 private:
     std::shared_ptr<rl::ReplayBuffer> replay_buffer_;
     int result_count_ = 0;
+    bool fail_ = false;
 };
 
 class TestAgent final : public rl::Agent {
@@ -332,10 +338,11 @@ public:
 
     std::shared_ptr<rl::Learner> CreateLearner() override
     {
-        return std::make_shared<TestLearner>(replay_buffer_, learner_result_count_);
+        return std::make_shared<TestLearner>(replay_buffer_, learner_result_count_, learner_fail_);
     }
 
     void SetLearnerResultCount(int count) { learner_result_count_ = count; }
+    void SetLearnerFailure(bool fail) { learner_fail_ = fail; }
 
     std::shared_ptr<const HintRecordingReplayBuffer> GetReplayBuffer() const { return replay_buffer_; }
 
@@ -352,6 +359,75 @@ private:
     mutable std::shared_ptr<TestActor> last_actor_;
     std::shared_ptr<HintRecordingReplayBuffer> replay_buffer_;
     int learner_result_count_ = 0;
+    bool learner_fail_ = false;
+};
+
+// 通知時点のEnvと、次の判断へ渡す観測を同じ値で見分ける。
+class NotificationSingleEnv final : public rl::SingleDiscreteEnvBase {
+public:
+    explicit NotificationSingleEnv(const std::string& name)
+        : rl::SingleDiscreteEnvBase(name) {}
+    rl::EnvSpec GetSpec() const override { return MakeEnvSpec(); }
+    std::shared_ptr<const rl::SingleResetResult> Reset() override
+    {
+        // 新しいエピソードは0、終端の遷移は1とする。
+        value_ = 0.0f;
+        return std::make_shared<rl::SingleResetResult>(State(true, false));
+    }
+    std::shared_ptr<const rl::SingleStepResult> Step(int64_t) override
+    {
+        value_ = 1.0f;
+        class Result final : public rl::SingleStepResult {
+        public:
+            explicit Result(rl::SingleState state) : SingleStepResult(1.0f, std::move(state)) {}
+            std::optional<float> GetScalar(const std::string& key) const override
+            { return key == "value" ? std::optional(1.0f) : std::nullopt; }
+        };
+        return std::make_shared<Result>(State(false, true));
+    }
+    std::optional<float> GetScalar(const std::string& key, int64_t) const override
+    {
+        return key == "value" ? std::optional(value_) : std::nullopt;
+    }
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t) const override
+    {
+        if (key == "value") return torch::tensor({value_});
+        return std::nullopt;
+    }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(
+        const std::string&, int64_t) const override { return std::nullopt; }
+private:
+    rl::SingleState State(bool start, bool done) const
+    {
+        return rl::SingleState{
+            .obs = {rl::ObsKeys::kVector, torch::tensor({value_})},
+            .done = done, .truncated = false, .episode_start = start};
+    }
+    float value_ = 0.0f;
+};
+
+class NotificationSingleEnvFactory final : public rl::SingleDiscreteEnvFactory {
+public:
+    std::shared_ptr<rl::SingleDiscreteEnv> CreateSingleEnv(
+        const anet::ConfigData&, const torch::Device&, const std::string& name,
+        std::optional<anet::seed_t>, rl::RunMode, const std::string&) override
+    {
+        return std::make_shared<NotificationSingleEnv>(name);
+    }
+    std::string GetTargetEnvClassId() const override { return "NotificationSingleEnv"; }
+};
+
+class NotificationEpisodeObserver final : public rl::EpisodeEndObserver {
+public:
+    void OnEpisodeEnd(const rl::EpisodeEndEvent& event) override
+    {
+        // 完了の通知自身からEnvの今の値を読む。
+        values.push_back(*event.step_result->GetScalar("value", event.env_index));
+        tensors.push_back(event.step_result->next_state.obs.At(rl::ObsKeys::kVector).item<float>());
+    }
+    std::string ToString() const override { return "NotificationEpisodeObserver"; }
+    std::vector<float> values;
+    std::vector<float> tensors;
 };
 
 class RunManagerTestSingleEnv final : public rl::SingleDiscreteEnvBase {
@@ -560,6 +636,39 @@ TEST_CASE("PRD070 records adopted devices in owner JSON without changing configu
     CHECK(read_json("env.json").at("effective_device") == "cpu");
     CHECK(read_json("agent.json").at("device") == "auto");
     CHECK(read_json("agent.json").at("effective_device") == (torch::cuda::is_available() ? "cuda" : "cpu"));
+}
+
+TEST_CASE("Serial runner carries terminal results after the Env has automatically reset", "[trainer][prd097]")
+{
+    // 実際の逐次BatchEnvを通し、終端の通知がリセット前に届くことを確かめる。
+    auto env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(
+        anet::ConfigData{}, std::make_shared<NotificationSingleEnvFactory>(),
+        "notification", 1, torch::Device(torch::kCPU), 1);
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto episodes = std::make_shared<NotificationEpisodeObserver>();
+    notifier->Attach(episodes);
+    std::vector<float> train_values;
+    std::vector<float> train_tensors;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        train_values.push_back(*event.step_result->GetScalar("value", 0));
+        CHECK(*event.env->GetScalar("mean.value") == 0.0f);
+        train_tensors.push_back(event.step_result->next_state.obs.At(rl::ObsKeys::kVector).item<float>());
+        CHECK(event.step_result->next_state.obs.At(rl::ObsKeys::kVector).item<float>() == 1.0f);
+    }));
+    auto runner = std::make_shared<rl::SerialTrainRunner>(env, agent, notifier, rl::ActorRequest{
+        .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 1, .actor_key = "train"});
+    runner->DoStep();
+    runner->DoStep();
+    runner->Shutdown();
+
+    // 通知では終端の1を読み、次の行動の入力は新しいエピソードの0になる。
+    CHECK(train_values == std::vector<float>{1.0f, 1.0f});
+    CHECK(train_tensors == std::vector<float>{1.0f, 1.0f});
+    CHECK(episodes->values == std::vector<float>{1.0f, 1.0f});
+    CHECK(episodes->tensors == std::vector<float>{1.0f, 1.0f});
+    CHECK(agent->GetLastActor()->GetObservedStates() == std::vector<float>{0.0f, 0.0f});
 }
 
 TEST_CASE("TrainRunner delegates clone policy to Agent", "[trainer][actor]")
@@ -1341,4 +1450,88 @@ TEST_CASE("RunManager resolves Actor names only for active Runners and seeds by 
     }
     CHECK(std::any_of(first.begin(), first.end(), [](const auto& request) { return request.actor_key == "probe"; }));
     CHECK(std::any_of(first.begin(), first.end(), [](const auto& request) { return request.actor_key == "selected"; }));
+}
+
+TEST_CASE("Runners retain transition results through evaluation cancellation and shutdown", "[trainer][prd097_runner]")
+{
+    const int mode = GENERATE(0, 1, 2, 3);
+    auto env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(
+        anet::EmptyConfigData, std::make_shared<NotificationSingleEnvFactory>(),
+        "notification-lifecycle", 1, torch::Device(torch::kCPU), 1);
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    agent->SetLearnerResultCount(1);
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto episodes = std::make_shared<NotificationEpisodeObserver>();
+    notifier->Attach(episodes);
+    std::vector<float> train_values;
+    std::vector<float> learn_values;
+    std::stop_source cancellation;
+    bool cancel_next_step = mode == 3;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        train_values.push_back(*event.step_result->GetScalar("value", 0));
+        CHECK(event.step_result->next_state.obs.At(rl::ObsKeys::kVector).item<float>() == 1.0f);
+        CHECK(event.env->GetTensor("value", 0)->item<float>() == 0.0f);
+        if (cancel_next_step) cancellation.request_stop();
+    }));
+    notifier->Attach(std::make_shared<rl::FunctionLearnObserver>([&](const rl::LearnEvent&) {
+        learn_values.push_back(*env->GetScalar("mean.value"));
+    }));
+    const rl::ActorRequest request{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 1, .actor_key = "train"};
+    int expected_train = 3;
+    int expected_episodes = 3;
+    if (mode == 0) {
+        // 最初の2回の通知回数を維持し、終了は学習待機だけで完了する。
+        auto runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier, request);
+        runner->DoStep();
+        CHECK(train_values.empty());
+        runner->DoStep();
+        CHECK(train_values.empty());
+        runner->DoStep();
+        CHECK(train_values.size() == 1);
+        CHECK(*env->GetScalar("mean.value") == 0.0f);
+        runner->Shutdown();
+        CHECK_NOTHROW(runner->Shutdown());
+        expected_train = 1;
+        CHECK(learn_values == std::vector<float>{0.0f});
+    } else if (mode == 1) {
+        // 通常評価も結果は遷移の時点、次の行動は自動Reset後の状態を使う。
+        auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request);
+        for (int i = 0; i < 3; ++i) runner->DoStep();
+    } else {
+        auto session = std::make_shared<rl::EvalSessionEnv>(env, 3, std::vector<std::string>{"mean.value"});
+        auto runner = std::make_shared<rl::EvalRunner>(session, agent, notifier, request);
+        if (mode == 3) {
+            // 通知中にキャンセルしても、先読み済みの開始状態から次セッションへ進める。
+            runner->RunSession({}, cancellation.get_token());
+            CHECK_FALSE(session->GetSessionResult().has_value());
+            CHECK(*env->GetScalar("mean.value") == 0.0f);
+            CHECK(train_values.size() == 1);
+            cancel_next_step = false;
+            expected_train = expected_episodes = 4;
+        }
+        runner->RunSession({});
+        REQUIRE(session->GetSessionResult().has_value());
+        CHECK(session->GetSessionResult()->episode_steps == std::vector<int64_t>{1,1,1});
+    }
+    CHECK(train_values == std::vector<float>(expected_train, 1.0f));
+    CHECK(episodes->values == std::vector<float>(expected_episodes, 1.0f));
+    CHECK(episodes->tensors == std::vector<float>(expected_episodes, 1.0f));
+    CHECK(*env->GetScalar("mean.value") == 0.0f);
+    CHECK(agent->GetLastActor()->GetObservedStates() == std::vector<float>(mode == 3 ? 4 : 3, 0.0f));
+}
+
+TEST_CASE("Pipeline shutdown propagates its last learner failure without another Step", "[trainer][prd097_shutdown]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto env = std::make_shared<TestBatchEnv>("shutdown-failure", 1, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    agent->SetLearnerFailure(true);
+    auto runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, std::make_shared<rl::Notifier>(), rl::ActorRequest{
+        .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 1, .actor_key = "train"});
+    runner->DoStep();
+    runner->DoStep();
+    CHECK_THROWS_WITH(runner->Shutdown(), "last learner failure");
+    CHECK_NOTHROW(runner->Shutdown());
 }

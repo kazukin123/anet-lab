@@ -209,7 +209,7 @@ sequenceDiagram
     R->>A: MakeAction(state)
     A-->>R: BatchActionInfo
     R->>E: Step(action)
-    E-->>R: reward / next_state / continue_state
+    E-->>R: reward / next_state
     opt 終了したEnvがある
         R->>N: Notify EpisodeEndEvent
         N->>O: OnEpisodeEnd(event)
@@ -231,9 +231,9 @@ Eventは対応する処理が完了した時点のcountを持ち、count本体�
 ### 6.3 Pipeline Train step
 
 `PipelineTrainRunner`は前回Experienceをcloneして保持し、専用の1 workerへLearner更新を投入する。
-後続stepの冒頭では、先に投入した更新の完了と例外を回収し、`LearnEvent`と`TrainEvent`をRunnerThread上で通知する。その後Actor推論、保持しているExperienceの非同期学習投入、現在のEnv Stepを進める。
+後続stepの冒頭では、先に投入した更新の完了と例外を回収し、`LearnEvent`と`TrainEvent`をRunnerThread上で通知する。続いてActor推論、前回Experienceの非同期学習投入、現在のEnv Step（終端laneの自動Resetを含む）を進める。最初の2回を含め既存の通知回数は維持し、状態はcontinue_stateから更新する。
 Serial/PipelineともTrain stepから`Actor::Sync()`を暗黙には呼ばず、同期の要否と時点は具象Actorの契約に委ねる。DefaultDQN Train Actorの定期snapshot同期は`MakeAction()`内で処理されるため、詳細は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
-shutdown時は未完了学習を待ってpoolを停止してからEnvをshutdownする。
+shutdown時は未完了学習を待ち、futureの例外を回収してからEnvをshutdownする。終了処理でLearn/Train通知を追加しない。
 
 ```mermaid
 sequenceDiagram
@@ -271,7 +271,7 @@ sequenceDiagram
         end
         par RunnerThread
             R->>E: Step(action)
-            E-->>R: reward / next_state / continue_state
+            E-->>R: reward / next_state
             opt 終了したEnvがある
                 R->>N: Notify EpisodeEndEvent
                 N->>O: OnEpisodeEnd(event)
@@ -292,7 +292,7 @@ sequenceDiagram
 
 ### 6.4 configured Eval session
 
-`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。`RunSession()`はActorを同期して`EvalSessionEnv::Reset()`を呼び、採用episode N本が完了するまでstepを進める。途中のepisode終端では`EpisodeEndEvent`を出さず、完了後にdecorator Env、`env_index=-1`、発火元countsを持つeventを1回だけ通知する。EvalPanelはsession decoratorを使わず、従来のstep駆動、強制Action、同期方式を維持する。
+`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。Actor同期後、採用episode N本が完了するまでStepを進め、Train通知に続いて採用EpisodeEndをgroup順に通知する。各EpisodeEndはそのStep結果を持つ。decoratorは結果から採用値を蓄積し、最後にenv_index=-1・発火元countsのSessionEndを1回通知する。キャンセル時は確定通知を出さない。セッション境界で全groupがfreshならcontinue_stateを再利用する。EvalPanelはsession decoratorを使わず、従来のstep駆動・強制Action・同期方式を維持する。
 
 ## 7. 設定・lifetime・エラー・性能特性
 

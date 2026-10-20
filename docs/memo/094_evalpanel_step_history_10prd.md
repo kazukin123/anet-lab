@@ -4,6 +4,8 @@
 > 2026-10-18 改訂: 追加するパネルを近似優先度の専用から、EvalPanel の step 単位の行を直近の履歴として表で見る汎用のパネルに改めた（ファイル名も `094_evalpanel_approx_priority_view` から変更）。
 > 2026-10-19 グリル（`/anet-create-prd 094`、Claude Code）で全面改訂した。位置付けを「step 単位の詳細を記録して見るシリーズの第一弾」とし、近似優先度はその最初の利用例にした。主な決定は、値の読み口の統一とメトリクス配線の分離を段階 1 に入れること、step trace を trace チャネルへ出す段（旧段階 2）を PRD 081 へ移すこと、近似優先度を Agent の step 部品が計算すること（Actor の設定キーは足さない）、列をメトリクスの定義と分けて番号付きで宣言すること、`$env_step`・`$agent_step` を足すこと、行を選ぶか再生すると EvalPanel・QValuePanel・Conv2d が Trace モードでその時点を出すこと、自動リセットの時機は別の基盤 PRD で先に直すこと。§3 の現状をコードと照合して直した（毎秒の step 数、式の所在、ヒントの所在、env の値の出口など）。起草後に別モデル（Fable）の検討を受け、eval_panel の Actor の Q が既定で target network であること（§3.2、D6）、Trace モードに入ったら EvalPanel を一時停止すること（D11）などを反映した。ファイル名は、ほかの文書と wiki の作業記録が指しているので変えない（題は Evaluation Trace）。決定の記録は [ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) と [ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)。
 > 2026-10-19 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) のグリルの決定に合わせて、NG6・§3.3・D4・D11（Trace モード）・§7 の 1 を書き直した。097 の決定は、BatchEnv の `Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶこと（097 の D1）と、リセット後の情報は Runner だけが受け取ること（097 の D4）である。本 PRD の決定は変えていない。
+> 2026-10-20 追記: 097 を再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、env への問い合わせ（`$env`）は今の env の状態を返す。BatchEnv は Reset と Step のままで、`ResetEndedEpisodes()` は作らない。そのため、§3.3 の 097 の行と §7 の 1 を事実に合わせて直した。D4 の「`$env` は遷移のあと・リセット前の env を読む」は成り立たなくなったので、扱いを §7 の 1 の未決に置いた。D11 の「終端の行の画面はリセット前」と、097 の D4（リセット後の情報は Runner だけが受け取る）は変わらない。
+> 2026-10-20 改訂（Claude Code、097 の申し送りの反映）: step trace の列から `$env` を外した（ユーザーの裁定）。`$env_step` を 097 のメトリクスと同じ target にし、metrics の DSL へ `$env_step` を足すのは 097、`$agent_step` は 081 とした。D4・D5・D8・§7 の 1・受入 4 を直した。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
 > 関連: [done/035_approx_actor_priority_per_10prd.md](done/035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
@@ -27,7 +29,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 - **NG3**: 定期評価（configured eval）と学習側（train runner）の step trace。量が大きすぎる（§3.1）。
 - **NG4**: step trace を trace チャネル（Run artifact）へ出すこと。PRD 081 を改訂して取り込む（§7 の 2）。本 PRD は、081 がそのまま使える生成器を作るところまで。
 - **NG5**: Event / Observer の型の複製（`TrainEvent`・`LearnEvent`・`EpisodeEndEvent`・`SessionEndEvent` ごとの interface・RunnerScoped・Notifier のメソッド）の統一。step trace は既存の `TrainEvent` で受けられるので、今回の要求からは導けない別の関心である。
-- **NG6**: BatchEnv の自動リセットと通知の時機の直し。基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) で決め、本 PRD より先に実装する（§7 の 1）。
+- **NG6**: 通知の中で読む遷移の結果が終端の lane でリセット後になる問題への対処（遷移の結果を Step の結果で運ぶ直し）。基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) で決め、本 PRD より先に実装する（§7 の 1）。
 
 ## 2. 背景（KFM）
 
@@ -73,7 +75,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 - env の値の出口は 2 つある。`GetScalar(key, lane)` は完了したゲームの統計用で、Atari の `game_score`・`game_len`・`ram_metric.[n]`・`hns57` などは完了時だけ値を返し、それ以外は NaN。`lives` は今の値（[AtariEnv.cpp:839-891](../../core/envs/atari1/src/AtariEnv.cpp)）。step_result の aux（`名前 → Tensor`、[rl.hpp:349](../../core/anet-core/include/anet/rl.hpp)）は 1 step ごとの報告で、Atari は途中の `game_score`・`game_len`・`game_frames`・`lives`・`ram_metric.<label>` を毎 step 入れる（[AtariEnv.cpp:682-694](../../core/envs/atari1/src/AtariEnv.cpp)）。GridMaze・LunarLander・DropMerge も aux を持つ。
 - 単一の env をまとめる BatchEnv は、Step の中で lane ごとに env の Step を呼び、終端なら続けて Reset する（[env.cpp:712-742](../../core/anet-core/src/env.cpp)）。aux と `next_state` は Reset の前に結果へ入るのでリセット前の値、`continue_state` はリセット後の状態になる。通知の時点で env へ問い合わせる `GetScalar` と `GetTensor("rgb_frame")` は、終端の lane ではもうリセット後の env を読む。完了値が終端の通知で読めるのは、env がそれをリセットをまたいで持っているからである。
 - 定期評価の `$env mean.hns57 @session_end` は、RunManager が宣言から鍵を集めて EvalSessionEnv へ購読として渡し、EvalSessionEnv が中の BatchEnv の Step のあとで完了した lane の `GetScalar` を溜める経路で読んでいる（[trainer.cpp:954-972](../../core/anet-core/src/trainer.cpp)、[env.cpp:336-369](../../core/anet-core/src/env.cpp)）。読むのはリセット後だが、読む鍵が完了値なので正しく読めている。
-- 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) の実装のあとは、`Step` はリセットせず、Runner が通知のあとに終わったエピソードのリセット（`ResetEndedEpisodes()`）を呼ぶ（097 の D1）。通知の間は、終端の lane の env もリセット前になる。
+- 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md)（2026-10-20 改訂）の実装のあとも、`Step` の中の自動リセットは残る。遷移の結果（得点・残機・画面・完了の値）は Step の結果が答え、通知の読み手はそこから読む。env への問い合わせ（`GetScalar`・`GetTensor`）は今の env の状態を返し、終端の lane ではリセット後になる（097 の D1・D2）。
 - `continue_state` は、Runner の `state_ = result->continue_state`（[trainer.cpp:295](../../core/anet-core/src/trainer.cpp)、同 566、同 700）のほか、エピソード構造の検査（[env.cpp:142-176](../../core/anet-core/src/env.cpp)）と、EvalSessionEnv がセッションの継ぎ目で Reset を省く処理（[env.cpp:317-327](../../core/anet-core/src/env.cpp)）で使われる。
 
 ### 3.4 メトリクスの配線と値の読み口
@@ -119,24 +121,24 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 | 時点 | target と鍵 | 中身 |
 |---|---|---|
 | 判断の時点（s_t。行動を選ぶ前） | `$action_info`（`action` を含む）、`$agent_step q_sa`・`state_value`、`$actor` | s_t で何を見て何を選んだか。強制した行動も反映される |
-| 遷移のあと（a_t の結果、リセット前） | `$env_step`（`reward`・`done`・`truncated` と info の鍵）、`$env` | r_t、s_{t+1} が終端か打ち切りか、step 後の得点・残機・RAM |
+| 遷移のあと（a_t の結果、リセット前） | `$env_step`（`reward`・`done`・`truncated` と、Step の結果が答える鍵） | r_t、s_{t+1} が終端か打ち切りか、step 後の得点・残機・RAM（Atari の hns などの派生の鍵も） |
 | 遷移の全体 | `$agent_step approx_priority` | 遷移 t の近似優先度。n step 後に決まる |
 | 通知の時点のカウンタ・集計 | `$runner` | この step を数えたあとのカウンタ、この step の報酬、この step で完了したエピソードの集計（R1・R2 のあと） |
 
 - 1 行の値はすべて同じ遷移に属する。「前の判断」は行 t−1 に、「次の判断」は行 t+1 にあるので、前後を指す target（`_prev`・`_next`）は作らない。
-- `$agent`（学習側の統計。学習スレッドで step と関係なく変わり、EvalPanel が同期した複製のモデルとも一致しない）、`$exp`（scalar の鍵を持たない、§3.4）、`$update_result`（EvalRunner では空）は step trace で読めない（構築時に fail-fast）。
-- `$env` は「遷移のあと・リセット前」の env を読むものと定義する。今の BatchEnv では終端の行だけがリセット後になる。これは基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) が直し（`Step` はリセットせず、通知のあとに `ResetEndedEpisodes()` を呼ぶ。097 の D1）、本 PRD はその後に実装する。
+- `$agent`（学習側の統計。学習スレッドで step と関係なく変わり、EvalPanel が同期した複製のモデルとも一致しない）、`$exp`（scalar の鍵を持たない、§3.4）、`$update_result`（EvalRunner では空）、`$env`（今の env の状態を返し、終端の行ではリセット後の値になる。097 の D1）は step trace で読めない（構築時に fail-fast）。
+- env の値は `$env_step` で読む。遷移の結果は Step の結果で運ぶので（097 の D1）、終端の行でもリセット前の値になる。`$env` を外しても、今 `$env` で読める遷移の結果（Atari の完了値や hns などの派生の鍵）は、097 で Step の結果が答えるので `$env_step` で読める（097 の D5）。LunarLander の風（`wind_x`・`wind_torque`）のように env の今の状態だけにある鍵は、その env の Step の結果が答えるようにするまで列にできない（2026-10-20 のユーザーの裁定。097 の §8 の申し送り）。
 理由: 行の値がすべて同じ遷移に属すると保証できれば、表でも trace でも読み違えない。
 
 **D5 新しい target と鍵。**
-- `$env_step`: その step の Step の結果（lane ごと）。鍵 `reward`・`done`・`truncated`（Step の結果の欄。done・truncated は 0/1）と、env がその step の info（aux）に入れたスカラーの鍵（リセット前の値）。info の鍵が無い、またはスカラーでなければ、その鍵を最初に読んだ行で fail-fast（info の鍵は実行するまで分からない）。`reward`・`done`・`truncated` と同名の info の鍵があれば、構築時ではなく最初に読んだ行で fail-fast。
+- `$env_step`: その step の Step の結果（lane ごと）。097 のメトリクスの `$env_step` と同じ target である（097 の §4.2 の 8）。鍵は `reward`・`done`・`truncated`（Step の結果の欄。done・truncated は 0/1）と、Step の結果が答える鍵（既定は env がその step の info（aux）に入れたスカラーの鍵。Atari は hns・`game_score.ge.[N]`・`ram_metric.[n]` などの派生の鍵も。097 の D5）。値はその遷移の時点の値（速報値）で、エピソードが終わった step ではエピソード単位の鍵が確定値になる（097 の D3・D6）。鍵が無い、またはスカラーでなければ、その鍵を最初に読んだ行で fail-fast（Step の結果が答える鍵は実行するまで分からない）。`reward`・`done`・`truncated` は、どの env でも Step の結果そのものが lane ごとの欄の値で答える鍵で、env の aux に同じ名前の鍵があっても読まない（env の Step の結果の型が lane ごとの問い合わせを欄へ回す。097 の途中の実装もこの順）。これは不正な設定を別の値へ置き換える挙動ではなく、target の契約が持つ予約の鍵である。env は aux にこの 3 つの名前を使わない（使うと読まれない）。
 - `$agent_step`: Agent の step 部品（D6）の値。鍵は `q_sa`（Q(s_t, a_t)）・`state_value`（max_a Q(s_t, a)。Munchausen では soft value）・`approx_priority`。ほかの鍵は構築時に fail-fast。部品を出さない Agent では 3 つとも NaN（空欄）にし、構築時に止めない。理由は、既定の列（D13、common.txt）がどの env・Agent にも効くので、DQN 系以外の構成を止めないためであり、既知の鍵が値を持たないときの NaN は trace と同じ扱いだからである（[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) の Consequences「既知値の NaN は null、値の意味の選択は設定者が担う」）。
 - `$runner` の鍵 `step_in_episode`（新規、lane ごと）: この遷移を数えたあとの、今のエピソードの中の step 数（1 始まり。終端の行ではエピソードの長さ）。Runner がエピソードの集計に使っている lane ごとの step 数（`EpisodeStatsAccumulator`、[env.cpp:230-241](../../core/anet-core/src/env.cpp)）から読み、別のカウンタを持たない。`episode_step` という名前は、DSL でエピソード数の軸を指すので使わない（§3.4）。
 - `$runner` のエピソード集計の鍵（`episode_return`・`episode_steps`）は、Runner の鍵の形のとおり集約の接頭辞つき（`mean.episode_return` など）で書く。step trace では、その step で完了したエピソードの値（完了が無ければ NaN）になる。集約の接頭辞を書けるのはこの鍵だけで、ほかの鍵と target では fail-fast（trace と同じく、step trace は lane ごとの値を扱うため）。
 - `$action_info` の鍵 `action`: 実行した行動（強制した行動を含む）。離散なら `action`、連続なら次元ごとの `action.[<次元>]`。連続の行動に `action` を書いたら fail-fast で `action.[<次元>]` を案内する。どの Agent でも読める（ActionInfo の `GetAction()` から読み、Module の `GetScalar` を要しない）。
 - 新しい target の名前 `$env_step`・`$agent_step` は、DSL の step 軸のトークン（`$exp_step` など）と同じ `_step` で終わる。字句としては衝突せず（step 軸のトークンは決まった 6 つ、§3.4）、名前はユーザーの指定なので、このままにする（2026-10-19 の裁定）。
-- 新しい target は列の宣言（D8）の解析と読み口（D1）に足す。metrics の DSL（`ParseMetricTokens` と trace の target の制限）へ足すのは、step trace を trace チャネルへ出す PRD 081 の改訂で行う。
-理由: 値の持ち主ごとに target を分けると、設定の階層がフレームワークの概念（Runner・Actor・Env・Agent）と一致し、PRD 081 の step trace でも同じ書き方で使える。毎 step の env の値は info にしか無い（§3.3）。
+- 新しい target は列の宣言（D8）の解析と読み口（D1）に足す。metrics の DSL（`ParseMetricTokens` と trace の target の制限）へは、`$env_step` を 097 が足し（097 の §4.2 の 9）、`$agent_step` を step trace を trace チャネルへ出す PRD 081 の改訂で足す。
+理由: 値の持ち主ごとに target を分けると、設定の階層がフレームワークの概念（Runner・Actor・Env・Agent）と一致し、PRD 081 の step trace でも同じ書き方で使える。遷移の時点の env の値は Step の結果にしか無い（§3.3、097 の D1）。
 
 **D6 Agent の step 部品（近似優先度）。** Agent が step trace 用の部品を作って渡す。DQN 系（DefaultDQNAgent の DQN・QR・IQN、Munchausen を含む。同じ DQN の部品を使う RainbowAgent）だけが作り、ほかの Agent は作らない（`$agent_step` は空欄）。
 - 部品は lane ごとに、step ごとの `action_info`・報酬・done・truncated を受け取る。`q_sa`・`state_value` はその step のうちに返し、`approx_priority` は n step 後に「何行前の遷移の値か」を添えて返す。
@@ -169,7 +171,7 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 - `label:` は列の見出し（空白を含まない、1 文字以上）。省くと鍵が見出しになる。見出しの重複は許す。
 - 1 行に同じ属性（`label:`・`display:`）は 1 回だけ書ける（trace の宣言で指定の重複を拒むのと同じ。[140 の trace チャネルの節](../design/140_observability.jp.md)）。
 - `display:` は表示の仕方。行動の列（`$action_info action`）は `value`（番号）・`name`（EnvSpec の `action_spec.value_labels` の名前）・`value_name`（`3:UPFIRE`。既定）。数値の列は `value`（既定）・`pct`（直近の値の中の百分位）。連続行動の `action.[<次元>]` は `value` だけ。行の値は数値のままで、名前は表示だけで置き換える。離散の行動では、行動の数が `value_labels` の数そのものなので（[rl.hpp:269-273](../../core/anet-core/include/anet/rl.hpp)）、名前の無い行動は無く、代わりの表示も置かない。連続行動の env では既定の列の `$action_info action` が構築時に止まるので、その env の設定で列を上書きする（PPO に対応するときに見直す）。
-- 構築時の fail-fast: 番号が 1 以上の整数でない、target が無い・2 つ以上、鍵が 1 つでない、未知の target や step trace で読めない target、`$runner` のエピソード集計の鍵以外への集約の接頭辞、未知のトークンや属性、同じ属性の重複、空の `label:`、`display:` の値と列の組み合わせが合わない（連続行動に `name`・`value_name` を含む）。
+- 構築時の fail-fast: 番号が 1 以上の整数でない、target が無い・2 つ以上、鍵が 1 つでない、未知の target や step trace で読めない target（`$agent`・`$exp`・`$update_result`・`$env`）、`$runner` のエピソード集計の鍵以外への集約の接頭辞、未知のトークンや属性、同じ属性の重複、空の `label:`、`display:` の値と列の組み合わせが合わない（連続行動に `name`・`value_name` を含む）。
 - 実行時の fail-fast: 読み手が値を返さない鍵（未知の鍵）は、最初に読んだ行で止める（trace と同じ規則）。値が NaN・±Inf なら空欄。
 理由: 記録の宣言と切り離して見られ、本 PRD だけで完結し、GUI がメトリクスの配線に依存しない（[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)）。表示上の鍵は列番号なので、番号を設定の鍵にする。連続行動（PPO）に備えて、`display:` の値は番号を前提にしない名前にした。
 
@@ -303,8 +305,8 @@ app.eval_trace_panel.columns.[21] = $env_step lives
 
 | # | 事項 | 扱い |
 |---|---|---|
-| 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](097_env_auto_reset_after_notification_10prd.md) のグリル（2026-10-19）で M2 に決めた。`Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶ（097 の D1）。リセット後の情報は Runner だけが受け取る（097 の D4）。097 を本 PRD より先に実装する |
-| 2 | step trace を trace チャネルへ出す段 | PRD 081 を改訂して取り込む（081 の冒頭に 2026-10-19 に追記済み。改訂は 081 のグリルで行う）。081 の実装ノートが trainer.cpp を名指ししている箇所は、`MetricsWiring` を指すよう直す。改訂で決めること: trace 行の step 座標（step trace は `TrainEvent` から作るので、`@train` 系の規則なら EvalPanel 自身の counts になり、`54_evalpanel/episode` の学習側 counts と座標が違う。ADR 0047、CONTEXT.md「学習側 counts」「step座標系」）、metrics の DSL への `$env_step`・`$agent_step` の追加、遅れて決まる列を待って 1 行を書くこと |
+| 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](097_env_auto_reset_after_notification_10prd.md) は、2026-10-19 に M2 に決めたあと、2026-10-20 の再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、`$env` は今の env の状態を返す。BatchEnv は Reset と Step のまま（097 の D1・D2）。リセット後の情報は Runner だけが受け取る（097 の D4、変わらない）。`$env_step` は、097 の Step の結果が答える鍵（既定は aux のスカラー、Atari は派生の鍵も）を読む、メトリクスと同じ target になる（097 の §4.2 の 8）。097 を本 PRD より先に実装する。step trace の列の `$env` は、097 の §8 の申し送り（ADR 0057 の「時点が決まっている target だけを読む」）どおり列の target から外し、遷移の結果は `$env_step` で読む（2026-10-20 のユーザーの裁定、D4） |
+| 2 | step trace を trace チャネルへ出す段 | PRD 081 を改訂して取り込む（081 の冒頭に 2026-10-19 に追記済み。改訂は 081 のグリルで行う）。081 の実装ノートが trainer.cpp を名指ししている箇所は、`MetricsWiring` を指すよう直す。改訂で決めること: trace 行の step 座標（step trace は `TrainEvent` から作るので、`@train` 系の規則なら EvalPanel 自身の counts になり、`54_evalpanel/episode` の学習側 counts と座標が違う。ADR 0047、CONTEXT.md「学習側 counts」「step座標系」）、metrics の DSL への `$agent_step` の追加（`$env_step` は 097 が足す）、遅れて決まる列を待って 1 行を書くこと |
 
 ## 8. 成功の測り方と受入基準
 
@@ -318,8 +320,8 @@ app.eval_trace_panel.columns.[21] = $env_step lives
 1. 段階 1 の等価性: 編集前と後で、同 seed・決定的モードの短い Run（Atari、DropMerge、LunarLander の `run.@cpu`、GridMaze）の metrics checksum、`metrics.scalar.defs`・`metrics.trace.defs` の中身、WARN の行が一致する。
 2. 単体テスト（Agent の step 部品）: 合成したヒント・報酬の系列について、`approx_priority` が replay の初期優先度の推定（`InitialPriorityCompleter` 経由の値）と一致する。n step の途中の終端、打ち切り（空欄）、TBO、Munchausen の有無、reward scaler の倍率を含む。
 3. 学習の値が変わらない: ヒントのヘルパーを切り出す前と後で、`actor_approx` の同 seed・決定的モードの短い Run の metrics checksum が一致する。
-4. 単体テスト（列の宣言）: 構築時の fail-fast（番号が整数でない・0 以下、鍵が 2 つ、target が無い、未知の target、`$agent`・`$exp`・`$update_result`、`$runner` のエピソード集計以外への集約の接頭辞、未知の属性、同じ属性の重複、空の `label:`、`display:name` を数値の列に、連続行動の `action` と `display:name`）と、正しい宣言の解析結果（番号順、label の既定）。
-5. 単体テスト（時点）: 終端の行の `$env_step` の info の値がリセット前、`$runner step_in_episode` が終端の行でエピソードの長さになり次の行で 1 に戻る、強制した行動が `$action_info action` に出る、`approx_priority` が n step 後に正しい行へ入る。
+4. 単体テスト（列の宣言）: 構築時の fail-fast（番号が整数でない・0 以下、鍵が 2 つ、target が無い、未知の target、`$agent`・`$exp`・`$update_result`・`$env`、`$runner` のエピソード集計以外への集約の接頭辞、未知の属性、同じ属性の重複、空の `label:`、`display:name` を数値の列に、連続行動の `action` と `display:name`）と、正しい宣言の解析結果（番号順、label の既定）。
+5. 単体テスト（時点）: 終端の行の `$env_step` の値がリセット前（097 の実装のあと）、`$runner step_in_episode` が終端の行でエピソードの長さになり次の行で 1 に戻る、強制した行動が `$action_info action` に出る、aux に `reward` という鍵を持つ env の Step の結果でも `$env_step reward` が lane ごとの欄の値を返す、`approx_priority` が n step 後に正しい行へ入る。
 6. 単体テスト（R1・R2）: EvalRunner の `TrainEvent` の時点で `$runner reward` がその step の報酬、`$runner mean.episode_steps` がその step で完了したエピソードの値（完了が無ければ NaN）。定期評価のセッションの scalar と trace は編集前と一致する。
 7. 単体テスト（再生の制御）: 速度の段階と端、Live からの再生がいちばん古い行から始まる、いちばん新しい行で止まる、一時停止中の再生が選んでいる行から始まる、選んでいる行が消えたらいちばん古い行へ移る。Live のときの一時停止・ステップ実行・1 行戻るがいちばん新しい行で Trace に入る、いちばん新しい行でのステップ実行といちばん古い行での 1 行戻るがその行に留まる（`Trace: end`・`Trace: start`）、行が 0 件の間はボタンとスライダーが無効。
 8. 手動の確認（Runner、Atari の online）:

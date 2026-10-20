@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <mutex>
 #include <cstdint>
 #include <cctype>
 #include <chrono>
@@ -356,8 +357,12 @@ namespace anet::rl {
 
     class SingleEnvResult {
     public:
-        virtual AuxData GetAuxData() const { return AuxData(); }
+        explicit SingleEnvResult(AuxData aux = {}) : aux_(std::move(aux)) {}
+        virtual AuxData GetAuxData() const { return aux_; }
+        virtual std::optional<float> GetScalar(const std::string& key) const;
         virtual ~SingleEnvResult() = default;
+    protected:
+        AuxData aux_;  ///< 結果の時点の値を所有し、scalarの読出しでは複製しない。
     };
 
     class SingleResetResult : virtual public SingleEnvResult {
@@ -579,6 +584,8 @@ namespace anet::rl {
     public:
         BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_episode_end_in);
         std::string ToString() const;
+        virtual std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const;
+        const torch::Tensor& GetEpisodeEndMask() const;
 
         virtual ~BatchStepResult() = default;
     public:
@@ -587,6 +594,9 @@ namespace anet::rl {
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_episode_end;     ///< 今回のStepにおけるエピソード終了カウント数
+    private:
+        mutable std::once_flag episode_end_once_;
+        mutable torch::Tensor episode_end_cpu_;
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -677,7 +687,7 @@ namespace anet::rl {
         virtual torch::Device GetDevice() const = 0;
 
         virtual std::shared_ptr<const BatchResetResult> Reset() = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< 遷移の結果を新規に返し、後のStepやResetで値を書き換えない
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -918,6 +928,7 @@ namespace anet::rl {
         AGENT,
         ACTOR,
         ENV,
+        ENV_STEP,
         UPDATE_RESULT,
         RUNNER,
         ACTION_INFO,
@@ -955,6 +966,7 @@ namespace anet::rl {
         const std::shared_ptr<const Agent> agent;
         const std::shared_ptr<const BatchEnv> env;
         int env_index;
+        const std::shared_ptr<const BatchStepResult> step_result;
     };
 
     struct SessionEndEvent {

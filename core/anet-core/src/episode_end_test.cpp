@@ -7,6 +7,8 @@
 #include "anet/test_util.hpp"
 
 #include <algorithm>
+#include <array>
+#include <barrier>
 #include <atomic>
 #include <cmath>
 #include <chrono>
@@ -77,7 +79,7 @@ public:
     TestStepResult(
         const std::vector<float>& rewards,
         const std::vector<bool>& done,
-        const std::vector<bool>& truncated, bool shared = false)
+        const std::vector<bool>& truncated, bool shared = false, std::vector<float> scores = {})
         : rl::BatchStepResult(
             FloatTensor(rewards),
             MakeState(done, truncated),
@@ -91,8 +93,14 @@ public:
                 }()),
             static_cast<uint32_t>(rewards.size()),
             shared ? 1 : CountEpisodeEnds(done, truncated))
-        , num_envs_(static_cast<int>(rewards.size()))
+        , num_envs_(static_cast<int>(rewards.size())), scores_(std::move(scores))
     {
+    }
+
+    std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+    {
+        if (key == "score" && !scores_.empty()) return scores_.at(lane < 0 ? 0 : static_cast<size_t>(lane));
+        return BatchStepResult::GetScalar(key, lane);
     }
 
     std::vector<rl::AuxData> GetAuxDataList(int env_index = -1) const override
@@ -112,6 +120,7 @@ private:
     }
 
     int num_envs_ = 0;
+    std::vector<float> scores_;
 };
 
 class TestResetResult final : public rl::BatchResetResult {
@@ -203,13 +212,13 @@ public:
             return std::make_shared<TestStepResult>(
                 std::vector<float>{ 1.0f, 2.0f },
                 std::vector<bool>{ true, true },
-                std::vector<bool>{ false, false }, shared_);
+                std::vector<bool>{ false, false }, shared_, scores_);
         }
         scores_ = { 30.0f, 40.0f };
         return std::make_shared<TestStepResult>(
             std::vector<float>{ 3.0f, 4.0f },
             std::vector<bool>{ true, true },
-            std::vector<bool>{ false, false }, shared_);
+            std::vector<bool>{ false, false }, shared_, scores_);
     }
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
@@ -257,7 +266,7 @@ public:
         return std::make_shared<TestStepResult>(
             std::vector<float>{1.0f, 2.0f},
             std::vector<bool>{true, true},
-            std::vector<bool>{false, false});
+            std::vector<bool>{false, false}, false, std::vector<float>{1.0f, 2.0f});
     }
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
@@ -1056,4 +1065,77 @@ TEST_CASE("Background trace observer failure reaches the next learn callback", "
     counts.learn_step = 2;
     CHECK_THROWS_WITH(scheduler.OnLearn(rl::LearnEvent{ experience, nullptr, counts, agent, {} }),
         Catch::Matchers::ContainsSubstring("tag='broken' key='unknown_score' lane=0 target=env"));
+}
+
+TEST_CASE("Batch step end masks retain values across repeated reads", "[prd097_mask][episode_end]")
+{
+    const int pattern = GENERATE(0, 1, 2);
+    torch::Device device(torch::kCPU);
+    SECTION("CPU") {}
+    SECTION("CUDA") {
+        if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
+        device = torch::Device(torch::kCUDA);
+    }
+    const std::vector<bool> done = pattern == 0 ? std::vector<bool>{false, false, false, false}
+        : pattern == 1 ? std::vector<bool>{false, true, false, true}
+        : std::vector<bool>{true, true, true, true};
+    const std::vector<bool> truncated = pattern == 1
+        ? std::vector<bool>{false, false, true, true} : std::vector<bool>(4, false);
+    const auto expected = BoolTensor(done).logical_or(BoolTensor(truncated));
+    const auto next = MakeState(done, truncated).To(device);
+    const rl::PlainBatchStepResult result(FloatTensor({0, 1, 2, 3}).to(device), next, next, 4,
+        static_cast<uint32_t>(expected.sum().item<int64_t>()), {});
+    for (int read = 0; read < 16; ++read) {
+        const auto& mask = result.GetEpisodeEndMask();
+        CHECK(mask.device().is_cpu());
+        CHECK(mask.scalar_type() == torch::kBool);
+        CHECK(torch::equal(mask, expected));
+    }
+}
+
+TEST_CASE("Batch step end masks support simultaneous first reads", "[prd097_mask][episode_end]")
+{
+    const int pattern = GENERATE(0, 1, 2);
+    torch::Device device(torch::kCPU);
+    SECTION("CPU") {}
+    SECTION("CUDA") {
+        if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
+        device = torch::Device(torch::kCUDA);
+    }
+    const std::vector<bool> done = pattern == 0 ? std::vector<bool>{false, false, false, false}
+        : pattern == 1 ? std::vector<bool>{false, true, false, true}
+        : std::vector<bool>{true, true, true, true};
+    const std::vector<bool> truncated = pattern == 1
+        ? std::vector<bool>{false, false, true, true} : std::vector<bool>(4, false);
+    const auto expected = BoolTensor(done).logical_or(BoolTensor(truncated));
+    const auto next = MakeState(done, truncated).To(device);
+    const rl::PlainBatchStepResult result(FloatTensor({0, 1, 2, 3}).to(device), next, next, 4,
+        static_cast<uint32_t>(expected.sum().item<int64_t>()), {});
+
+    // 未読の同一結果へ一斉に入り、全読み手が同じCPU値を反復して取得できることを確かめる。
+    constexpr int kReaders = 16;
+    std::barrier start(kReaders);
+    std::array<bool, kReaders> passed{};
+    std::vector<std::thread> readers;
+    for (int i = 0; i < kReaders; ++i) {
+        readers.emplace_back([&, i]() {
+            start.arrive_and_wait();
+            try {
+                bool matches = true;
+                for (int read = 0; read < 32; ++read) {
+                    const auto& mask = result.GetEpisodeEndMask();
+                    matches = matches && mask.device().is_cpu()
+                        && mask.scalar_type() == torch::kBool && torch::equal(mask, expected);
+                }
+                passed[i] = matches;
+            } catch (...) {
+                passed[i] = false;
+            }
+        });
+    }
+    for (auto& reader : readers) reader.join();
+    for (int i = 0; i < kReaders; ++i) {
+        CAPTURE(i, pattern, device.str());
+        CHECK(passed[i]);
+    }
 }

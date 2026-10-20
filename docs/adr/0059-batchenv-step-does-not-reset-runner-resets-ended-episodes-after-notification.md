@@ -1,5 +1,7 @@
 # BatchEnv の Step は終端の lane をリセットせず、Runner が通知のあとに終わったエピソードをリセットする
 
+> 2026-10-20 後発決定: [ADR 0060](0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) で本 ADR の決定（Step はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶ）を取り消した。実装で Atari の非同期の学習 Runner が 5〜8% 遅くなったためである。BatchEnv は Reset と Step の 2 つに戻り、遷移の結果は Step の結果で運ぶ。通知の中で読む遷移の結果を終端の lane でもリセット前にする、という目的は ADR 0060 が引き継ぐ。
+
 `Step` の中で終端の lane を自動リセットすると、通知（`TrainEvent`・`EpisodeEndEvent`）の中で env に問い合わせる読み手が終端の lane だけリセット後の値を読み、env の完了値の持ち越しで埋め合わせても、残機や画面のような今の値は直らない。そこで **BatchEnv の `Step` はリセットせず、Runner がその `Step` の通知をすべて済ませてから `ResetEndedEpisodes()` を毎回 1 回呼び、その戻り値を次の判断の状態にする**ことを決定する。通知の間はどの lane の env も「遷移のあと・リセット前」になり読む側は何もしなくても正しい値を読めるので、`Reset` と `Step` の 2 つだけという単純さを手放し、増えた呼び出しの順番は fail-fast で守る。
 
 ## Considered Options

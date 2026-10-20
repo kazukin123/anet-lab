@@ -217,7 +217,7 @@ flowchart TB
 
 ### 6.3 Env共通
 
-Env共通機能は、Observation、Action、Reward、終了条件を `EnvSpec` で宣言し、`Reset` と `Step` の入出力契約を統一します。単体 Env は共通 wrapper で `BatchEnv` 化でき、設定に応じて複数 lane の Step を worker thread へ分配します。Step 結果は、学習用の終端を保持する `next_state` と、終了 lane を Reset 済み状態へ差し替えた次回実行用の `continue_state` を区別します。
+Env共通機能は、Observation、Action、Reward、終了条件を `EnvSpec` で宣言し、`Reset` と `Step` の入出力契約を統一します。単体 Env は共通 wrapper で `BatchEnv` 化でき、設定に応じて複数 lane の Step を worker thread へ分配します。Step内で終端laneを自動Resetし、結果の`next_state`に遷移、`continue_state`に次行動用の状態を返します。通知は結果を所有し、遷移値をその結果から読みます。env本体への問い合わせは現在状態を返します。
 
 Env の実装規約と batch 化は[環境](120_environments.jp.md)を参照してください。
 
@@ -267,7 +267,7 @@ sequenceDiagram
         P-->>A: value or policy output
         A-->>R: BatchActionInfo
         R->>E: Step(action)
-        E-->>R: reward, next_state, continue_state
+        E-->>R: reward, next_state
         opt 終了した lane がある
             R->>N: Notify EpisodeEndEvent
         end
@@ -318,10 +318,11 @@ sequenceDiagram
             EN-->>EA: evaluation output
             EA-->>ER: action
             ER->>EE: Step(action)
-            EE-->>ER: reward, next_state, done
+            EE-->>ER: StepResult（next_state / continue_state）
             ER->>N: Notify scoped TrainEvent
+            ER->>N: Notify adopted EpisodeEndEvent (if ended)
         end
-        ER->>N: Notify final EpisodeEndEvent
+        ER->>N: Notify SessionEndEvent
         N->>MO: Record aggregated evaluation metrics
     end
 ```

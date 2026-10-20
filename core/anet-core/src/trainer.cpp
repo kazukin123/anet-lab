@@ -97,7 +97,7 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
         completed_episode_steps_.Add(static_cast<float>(episode.episode_steps));
         const int env_index = batch_env_spec.episode_scope == EpisodeScope::PER_LANE
             ? static_cast<int>(episode.group_index) : -1;
-        EpisodeEndEvent event{ self, event_counts, agent_, env_, env_index };
+        EpisodeEndEvent event{ self, event_counts, agent_, env_, env_index, result };
         notifier_->Notify(event);
     }
 
@@ -225,10 +225,11 @@ void EvalRunner::Sync(const StepCounts& source_counts)
 
 StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
 {
-    return DoStepInternal(action, event_counts, true);
+    DoStepInternal(action, event_counts, true);
+    return step_counts_;
 }
 
-StepCounts EvalRunner::DoStepInternal(
+std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     int64_t action, const StepCounts& event_counts, bool notify_episode_end)
 {
     ANET_PROFILE_FUNC();
@@ -294,7 +295,7 @@ StepCounts EvalRunner::DoStepInternal(
     }
     state_ = result->continue_state;
 
-    return step_counts_;
+    return result;
 }
 
 StepCounts EvalRunner::DoStep(int64_t action)
@@ -331,13 +332,13 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     // 通常の完了通知を抑制し、採用 episode の確定値が有効な Step 直後にだけ通知する。
     size_t completed = 0;
     while (!stop.stop_requested() && !session_env_->GetSessionResult().has_value()) {
-        DoStepInternal(-1, event_counts, false);
+        const auto step = DoStepInternal(-1, event_counts, false);
         for (const int64_t group : session_env_->LastAdoptedGroups()) {
             const int env_index = session_env_->GetBatchSpec().episode_scope == EpisodeScope::PER_LANE
                 ? static_cast<int>(group) : -1;
             notifier_->Notify(EpisodeEndEvent{
                 .runner = shared_from_this(), .counts = event_counts,
-                .agent = agent_, .env = session_env_, .env_index = env_index });
+                .agent = agent_, .env = session_env_, .env_index = env_index, .step_result = step });
             ++completed;
         }
     }
@@ -594,10 +595,13 @@ PipelineTrainRunner::PipelineTrainRunner(
 
 void PipelineTrainRunner::Shutdown()
 {
+    ANET_PROFILE_FUNC();
+    // 最後の学習も待ち、次のDoStepが無くてもworkerの例外を呼出元へ届ける。
     if (learn_pool_) {
         learn_pool_->WaitAll();
         learn_pool_->Stop();
     }
+    if (learn_future_.valid()) learn_future_.get();
     TrainRunner::Shutdown();
 }
 

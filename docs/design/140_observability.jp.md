@@ -24,7 +24,7 @@
 |---|---|
 | `TrainEvent` | Env step後のExperience、ActionInfo、Env、Agent、Runner、countsを運ぶevent |
 | `LearnEvent` | Learner更新後のExperience、UpdateResult、Agent、Runner、countsを運ぶevent |
-| `EpisodeEndEvent` | episode終端group、Agent、Env、Runner、countsを運ぶevent。return値はRunner scalarから取得する |
+| `EpisodeEndEvent` | episode終端group、Agent、Env、Runner、counts、step_resultを運ぶevent。return値はRunner scalarから取得する |
 | `Notifier` | 4種類のObserverを登録し、対応eventを同期的に配信するRun内hub。`RunManager`がTrain/Eval間で共有する |
 | Runner-scoped Observer | Trainまたは特定Eval Runnerのeventだけを実Observerへ通すwrapper |
 | `SessionEndEvent` | configured Eval の採用 N episode の集約が確定したことを運ぶ event。セッションごとに1回通知する |
@@ -190,7 +190,7 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 |---|---|---|
 | `@event` | `@train`、`@learn`、`@episode_end`、`@session_end`（eval専用） | Observerを呼ぶevent。省略時は`@train` |
 | `$step_axis` | `$train_step`、`$learn_step`、`$episode_step`、`$exp_step`、`$update_step`、`$sim_step` | JSONLの`step`へ使うcounter |
-| `$target` | `$runner`、`$agent`、`$actor`、`$env`、`$exp`、`$update_result`、`$action_info` | 値を取得するsource |
+| `$target` | `$runner`、`$agent`、`$actor`、`$env`、`$env_step`、`$exp`、`$update_result`、`$action_info` | 値を取得するsource |
 | `$runner_scope` | `$train`、`$eval.[name]` | eventを発生させたRunnerを限定する。stepがどのRunnerのcounterに載るかも変わる |
 | `$ema` | - | Observer内でEMAを計算する |
 | `ema_alpha:A` | 0より大きく1以下のfinite値を指定する | EMAが新しい値へ寄る係数を指定する |
@@ -241,10 +241,10 @@ QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarは
 ### 6.x trace チャネル
 
 ```text
-metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env game_score game_len game_frames hns57
+metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env_step game_score game_len game_frames hns57
 ```
 
-trace は統計を集約せず、完了した採用 episode を1行で保存する。宣言がなければ observer も行も生成しない。event と target は明示必須で、event は `@episode_end` / `event:episode_end` のみ、target は `$env` / `$runner` / `$agent` / `$actor`（属性形も可）。scope の既定は `$train`、step 軸は `exp_step` とする。
+trace は統計を集約せず、完了した採用 episode を1行で保存する。宣言がなければ observer も行も生成しない。event と target は明示必須で、event は `@episode_end` / `event:episode_end` のみ、target は `$env_step` / `$env` / `$runner` / `$agent` / `$actor`（属性形も可）。scope の既定は `$train`、step 軸は `exp_step` とする。
 
 裸トークンは1個以上のキーで、取得順と定義の `keys` 配列は宣言順。キー重複、集約 prefix、EMA、clip、interval、`key:`、未知・不正な制御指定を読み込み時に拒否する。event・target・scope・step軸の重複は同値・異値・別表記を問わず拒否し、後続指定による上書きで不正指定を隠せない。scalar の既存の後勝ち・既定値・WARN は変えない。
 
@@ -252,9 +252,9 @@ trace は統計を集約せず、完了した採用 episode を1行で保存す�
 {"type":"trace","tag":"51_eval1/episode","step":456,"lane":3,"data":{"game_score":422,"game_len":1242,"game_frames":4968,"hns57":31.2}}
 ```
 
-系列は `(type, tag)` で区別し、scalar と trace の同名 tag を許可する。`lane` はイベントの `env_index`（PER_LANE は lane、SHARED は -1）。`step` は scalar と同じ整数座標で、同一 step・同一 lane に複数 episode が並ぶことも許容する。`timestamp` と top-level `value` は持たず、`data` のキー順は保証しない。未知キーの `nullopt` は tag/key/lane/target 付きで fail-fast、NaN / ±Inf はキーを残して `null` とする。
+系列は `(type, tag)` で区別し、scalar と trace の同名 tag を許可する。`lane` はイベントの `env_index`（PER_LANE は lane、SHARED は -1）。`step` は scalar と同じ整数座標で、同一 step・同一 lane に複数 episode が並ぶことも許容する。`timestamp`を持ち、top-level `value` は持たず、`data` のキー順は保証しない。未知キーの `nullopt` は tag/key/lane/target 付きで fail-fast、NaN / ±Inf はキーを残して `null` とする。
 
-`EvalSessionEnv::LastAdoptedGroups()` は直前 Step で完了した採用 group のみを返し、EvalRunner は Step 直後・次の Step より前に通知する。SHARED の group 0 は通知時に -1 へ変換する。確定値は callback 内で読むため、個体値列を decorator に蓄積しない。セッション末尾の return 集約と SessionEnd は一度だけ行う。train も同じ trace observer を使う。
+`EvalSessionEnv::LastAdoptedGroups()` は直前 Step で完了した採用 group のみを返し、EvalRunner は Step 直後・次の Step より前に通知する。SHARED の group 0 は通知時に -1 へ変換する。確定値はevent.step_resultからlane指定で読むため、個体値列をdecoratorに蓄積しない。セッション末尾の return 集約と SessionEnd は一度だけ行う。train も同じ trace observer を使う。
 
 attach 済み定義だけを `metrics.scalar.defs` / `metrics.trace.defs` に分けて記録し、dormant eval を除外する。空の定義は出力しない。trace 定義は `{tag: {step_axis, runner, scope, eval_name, eval_episodes, num_envs, event, target, keys}}` で、両定義は同じ内容で `json/<定義tag>.json` にミラーされる。Agent への購読ヒントは scalar 定義だけを渡す。
 
@@ -335,3 +335,11 @@ Observerまたは出力形式を変更する場合は次を確認する。
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [DropMerge Optuna利用ガイド](../optuna.md)
+
+### 遷移値のtarget `env_step`
+
+`$env_step`は`TrainEvent.step_result`または`EpisodeEndEvent.step_result`を読む。scalarのtrainは全lane、episode_endはdoneまたはtruncatedのlaneだけを昇順に読み、既存のmean/std/min/maxでNaNを除外して集約する。同じStepで複数のEpisodeEnd通知があっても、scalar読出しとEMA更新は1回だけである。SHAREDではlane=-1のbatch値を1回読む。traceは通知ごとのenv_indexだけを読み、1完了groupにつき1行を記録する。
+
+`$env_step`はtrain/episode_end専用。結果を持たないlearn/session_endの宣言は構築時に拒否する。未知・非スカラーキーは最初の読出しでtag/key/lane付きfail-fast、既知未成立はNaN。組込みreward/done/truncatedと、具象結果が答える派生・引数つきキーを同じtargetで読む。`$env`は現在envの状態、session_endではEvalSessionEnvが採用結果から蓄積した集約値を読む。
+
+完了統計をtrainからepisode_endへ移す設定は、tag・EMAと明示したstep軸を維持する。定義レコードのtargetは`env_step`。inspect_runは設定導出も認識し、Java Metrics Viewerは定義JSONをtarget値に制限を置かず保存する。Atariのlivesはtrainの全lane速報値、ゲーム統計はepisode_endの確定値として設定する。

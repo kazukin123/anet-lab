@@ -714,6 +714,15 @@ void RunnerApp::DrainBackgroundObservers(anet::rl::ShutdownMode mode)
 int RunnerApp::OnRun()
 {
     const int exit_code = wxApp::OnRun();
+    try {
+        // 最終終了だけで学習threadをjoinし、最後の学習の失敗を終了コードへ反映する。
+        // 通常のStop/再開ではRunnerをShutdownせず、既存の再開契約を保つ。
+        if (trainer_thread_ != nullptr) trainer_thread_->Stop();
+        if (run_manager_ != nullptr) run_manager_->GetTrainRunner()->Shutdown();
+    } catch (...) {
+        // 終了時のworker失敗も、既存の報告経路と終了コードへ反映する。
+        OnUnhandledException();
+    }
     if (exit_code != 0) {
         return exit_code;
     }

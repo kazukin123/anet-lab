@@ -84,13 +84,7 @@ namespace anet::rl::env {
         int wall_collisions_;
         float ep_reward_sum_;
         bool done_, truncated_, episode_start_;
-        bool episode_just_ended_ = false;
 
-        // メトリクス提供用の直近エピソード結果保持
-        float last_reward_sum_ = 0.0f;
-        float last_is_success_ = 0.0f;
-        float last_is_hole_ = 0.0f;
-        float last_wall_collisions_ = 0.0f;
     };
 
     class GridMazeEnvFactory : public anet::rl::SingleDiscreteEnvFactory {

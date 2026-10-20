@@ -1,5 +1,6 @@
 #include "AtariEnv.hpp"
 #include "AtariPreprocess.hpp"
+#include <ale/ale_interface.hpp>
 
 #include <algorithm>
 #include <clocale>
@@ -18,6 +19,23 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+// 検証対象の振る舞いは公開APIで読み、friendはALEの初期条件設定に限定する。
+class anet::rl::env::AtariEnvTestAccess {
+public:
+    void PrepareLifeLossNoopCompletion(AtariEnv& env) const
+    {
+        const auto actions = env.ale_->getMinimalActionSet();
+        uint32_t state = 1;
+        for (int frame = 0; frame < 300; ++frame) {
+            state = 1664525u * state + 1013904223u;
+            env.ale_->act(actions[state % actions.size()]);
+            if (env.ale_->game_over(false)) env.ale_->reset_game();
+        }
+        env.ale_->setRAM(0x53, 1);
+        env.ale_->setRAM(0x47, 3);
+    }
+};
 
 namespace {
 
@@ -495,17 +513,17 @@ TEST_CASE("AtariEnv reports a configured RAM metric at game completion", "[atari
     const auto reset = env->Reset();
     REQUIRE(reset->GetAuxData().contains("ram_metric.score_high"));
     CHECK(reset->GetAuxData().at("ram_metric.score_high").dtype() == torch::kInt64);
-    REQUIRE(env->GetScalar("ram_metric.[1]"));
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    CHECK_FALSE(env->GetScalar("ram_metric.[1]").has_value());
 
     const auto pending = env->Step(0);
     CHECK_FALSE(pending->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    CHECK(pending->GetScalar("ram_metric.[1]") ==
+        static_cast<float>(pending->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
 
     const auto completed = env->Step(0);
     REQUIRE(completed->next_state.truncated);
     REQUIRE(completed->GetAuxData().contains("ram_metric.score_high"));
-    CHECK(*env->GetScalar("ram_metric.[1]") ==
+    CHECK(*completed->GetScalar("ram_metric.[1]") ==
         static_cast<float>(completed->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
 }
 
@@ -640,14 +658,15 @@ TEST_CASE("AtariEnv distinguishes absent RAM numbers from malformed scalar keys"
     data.Set("AtariEnv.ram_metric.[qbert].metrics", "2:round");
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-absent", 123);
-    REQUIRE(env->Step(0)->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[2]")));
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[02]")));
-    CHECK_FALSE(env->GetScalar("ram_metric.[3]").has_value());
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
+    CHECK(std::isnan(*step->GetScalar("ram_metric.[2]")));
+    CHECK(std::isnan(*step->GetScalar("ram_metric.[02]")));
+    CHECK_FALSE(step->GetScalar("ram_metric.[3]").has_value());
     for (const std::string key : {"ram_metric.[]", "ram_metric.[0]", "ram_metric.[-1]",
             "ram_metric.[1x]", "ram_metric.[+1]", "ram_metric.[999999999999999999999]"}) {
         INFO(key);
-        CHECK_THROWS_WITH(env->GetScalar(key), Catch::Matchers::ContainsSubstring("ram_metric"));
+        CHECK_THROWS_WITH(step->GetScalar(key), Catch::Matchers::ContainsSubstring("ram_metric"));
     }
 }
 
@@ -668,11 +687,12 @@ TEST_CASE("AtariEnv appends numbered RAM values to the game completion log", "[a
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-log", 123);
-    REQUIRE(env->Step(0)->next_state.truncated);
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
     logs.Flush();
     const auto suffix = " ram_metric: first="
-        + std::to_string(static_cast<int64_t>(*env->GetScalar("ram_metric.[1]")))
-        + " later=" + std::to_string(static_cast<int64_t>(*env->GetScalar("ram_metric.[3]")));
+        + std::to_string(static_cast<int64_t>(*step->GetScalar("ram_metric.[1]")))
+        + " later=" + std::to_string(static_cast<int64_t>(*step->GetScalar("ram_metric.[3]")));
     bool found = false;
     for (const auto& record : logs.Records()) {
         if (record.message.starts_with("ram-log: Game truncated by max_episode_frames.")) {
@@ -704,12 +724,13 @@ TEST_CASE("AtariEnv reports Kung Fu Master progress from the configured RAM byte
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-kfm", 123);
     REQUIRE(env->Step(0)->next_state.done == false);
-    REQUIRE(env->Step(0)->next_state.truncated);
-    CHECK(*env->GetScalar("ram_metric.[1]") == 0.0f);
-    CHECK(*env->GetScalar("ram_metric.[2]") == 0.0f);
-    CHECK(*env->GetScalar("ram_metric.[3]") == 0.0f);
-    CHECK(*env->GetScalar("ram_metric.[4]") == 1.0f);
-    CHECK(*env->GetScalar("ram_metric.[5]") == 39.0f);
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
+    CHECK(*step->GetScalar("ram_metric.[1]") == 0.0f);
+    CHECK(*step->GetScalar("ram_metric.[2]") == 0.0f);
+    CHECK(*step->GetScalar("ram_metric.[3]") == 0.0f);
+    CHECK(*step->GetScalar("ram_metric.[4]") == 1.0f);
+    CHECK(*step->GetScalar("ram_metric.[5]") == 39.0f);
 }
 
 TEST_CASE("AtariEnv counts RAM transitions inside one frame skip window", "[atari][rom][ram_metric]")
@@ -730,7 +751,7 @@ TEST_CASE("AtariEnv counts RAM transitions inside one frame skip window", "[atar
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-pong-count", 1357);
     const auto step = env->Step(0);
     REQUIRE(step->next_state.done);
-    CHECK(*env->GetScalar("ram_metric.[1]") == 21.0f);
+    CHECK(*step->GetScalar("ram_metric.[1]") == 21.0f);
     CHECK(step->GetAuxData().at("ram_metric.cpu_points").item<int64_t>() == 21);
 }
 
@@ -757,7 +778,7 @@ TEST_CASE("AtariEnv keeps RAM counts through life-loss reset and clears them on 
 
     const auto life_done = env->Step(0);
     REQUIRE(life_done->next_state.done);
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    CHECK(std::isnan(*life_done->GetScalar("ram_metric.[1]")));
     const int64_t before = life_done->GetAuxData().at("ram_metric.life_loss").item<int64_t>();
     CHECK(before >= 1);
 
@@ -960,16 +981,16 @@ TEST_CASE("AtariEnv reports an ALE-frame limit as truncation with completion met
 
     CHECK_FALSE(step->next_state.done);
     CHECK(step->next_state.truncated);
-    REQUIRE(env->GetScalar("game_frames").has_value());
-    CHECK(*env->GetScalar("game_frames") >= 1.0f);
-    CHECK(std::isfinite(*env->GetScalar("game_score")));
-    CHECK(*env->GetScalar("game_len") == 2.0f);
+    REQUIRE(step->GetScalar("game_frames").has_value());
+    CHECK(*step->GetScalar("game_frames") >= 1.0f);
+    CHECK(std::isfinite(*step->GetScalar("game_score")));
+    CHECK(*step->GetScalar("game_len") == 2.0f);
 
     env->Reset();
-    CHECK(std::isfinite(*env->GetScalar("game_score")));
+    CHECK_FALSE(env->GetScalar("game_score").has_value());
     const auto next_episode_step = env->Step(0);
     CHECK_FALSE(next_episode_step->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("game_score")));
+    CHECK(next_episode_step->GetScalar("game_score") == AuxFloat(next_episode_step, "game_score"));
 }
 
 TEST_CASE("AtariEnv logs one verbose line per completed game with the completion values", "[atari][rom][terminal][log]")
@@ -1012,19 +1033,20 @@ TEST_CASE("AtariEnv logs one verbose line per completed game with the completion
         return lines;
     };
     // ログの値は trace / metrics が読む完了値と一致しなければならない。
-    const auto completion_line = [](const std::string& name, const std::string& head, const auto& env) {
+    const auto completion_line = [](const std::string& name, const std::string& head, const auto& result) {
         return name + ": " + head
-            + " game_score=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_score")))
-            + " game_len=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_len")))
-            + " game_frames=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_frames")));
+            + " game_score=" + std::to_string(static_cast<int64_t>(*result->GetScalar("game_score")))
+            + " game_len=" + std::to_string(static_cast<int64_t>(*result->GetScalar("game_len")))
+            + " game_frames=" + std::to_string(static_cast<int64_t>(*result->GetScalar("game_frames")));
     };
 
     truncated->Reset();
     truncated->Step(0);
     CHECK(game_lines("atari-log-truncated").empty());
-    REQUIRE(truncated->Step(0)->next_state.truncated);
+    const auto truncated_step = truncated->Step(0);
+    REQUIRE(truncated_step->next_state.truncated);
     const std::vector<std::string> expected_truncated{
-        completion_line("atari-log-truncated", "Game truncated by max_episode_frames.", truncated) };
+        completion_line("atari-log-truncated", "Game truncated by max_episode_frames.", truncated_step) };
     CHECK(game_lines("atari-log-truncated") == expected_truncated);
     // 次のゲームの途中では増えない。
     truncated->Reset();
@@ -1036,7 +1058,7 @@ TEST_CASE("AtariEnv logs one verbose line per completed game with the completion
     REQUIRE(game_over_step->next_state.done);
     REQUIRE_FALSE(game_over_step->next_state.truncated);
     CHECK(game_lines("atari-log-game-over") == std::vector<std::string>{
-        completion_line("atari-log-game-over", "Game over.", game_over) });
+        completion_line("atari-log-game-over", "Game over.", game_over_step) });
 }
 
 TEST_CASE("AtariEnv exposes game_score threshold indicators", "[atari][rom][terminal]")
@@ -1060,32 +1082,32 @@ TEST_CASE("AtariEnv exposes game_score threshold indicators", "[atari][rom][term
 
     env->Reset();
 
-    // 未確定 step は game_score と同じく NaN。0 を返すと集約の分母が完了 env 数でなくなる。
-    const auto pending = env->GetScalar("game_score.ge.[0]");
+    // 途中のstepでも、結果が保持する速報スコアから任意閾値を計算できる。
+    const auto first = env->Step(0);
+    const auto pending = first->GetScalar("game_score.ge.[0]");
     REQUIRE(pending.has_value());
-    CHECK(std::isnan(*pending));
+    CHECK(*pending == (*first->GetScalar("game_score") >= 0.0f ? 1.0f : 0.0f));
 
-    env->Step(0);
-    env->Step(0);
-    const auto score = env->GetScalar("game_score");
+    const auto step = env->Step(0);
+    const auto score = step->GetScalar("game_score");
     REQUIRE(score.has_value());
     REQUIRE(std::isfinite(*score));
 
-    CHECK(*env->GetScalar("game_score.ge.[-1000]") == 1.0f);  // 負の閾値も許す(Pong は -21..21)
-    CHECK(*env->GetScalar("game_score.ge.[1000]") == 0.0f);
-    CHECK(*env->GetScalar("game_score.ge.[0]") == (*score >= 0.0f ? 1.0f : 0.0f));
-    CHECK(*env->GetScalar("game_score.ge.[0.5]") == (*score >= 0.5f ? 1.0f : 0.0f));
+    CHECK(*step->GetScalar("game_score.ge.[-1000]") == 1.0f);  // 負の閾値も許す(Pong は -21..21)
+    CHECK(*step->GetScalar("game_score.ge.[1000]") == 0.0f);
+    CHECK(*step->GetScalar("game_score.ge.[0]") == (*score >= 0.0f ? 1.0f : 0.0f));
+    CHECK(*step->GetScalar("game_score.ge.[0.5]") == (*score >= 0.5f ? 1.0f : 0.0f));
 
     // 前方一致しないキーは未知キーのまま返し、GetScalar の既定経路へ落とす。
-    CHECK_FALSE(env->GetScalar("game_score.ge").has_value());
-    CHECK_FALSE(env->GetScalar("game_score_ge432").has_value());
+    CHECK_FALSE(step->GetScalar("game_score.ge").has_value());
+    CHECK_FALSE(step->GetScalar("game_score_ge432").has_value());
 
     // 前方一致するのに閾値が読めないキーは黙って無視せず停止する。
-    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[]"),
+    CHECK_THROWS_WITH(step->GetScalar("game_score.ge.[]"),
         Catch::Matchers::ContainsSubstring("threshold is empty"));
-    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[abc]"),
+    CHECK_THROWS_WITH(step->GetScalar("game_score.ge.[abc]"),
         Catch::Matchers::ContainsSubstring("invalid threshold"));
-    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[1x]"),
+    CHECK_THROWS_WITH(step->GetScalar("game_score.ge.[1x]"),
         Catch::Matchers::ContainsSubstring("invalid threshold"));
 }
 
@@ -1129,8 +1151,8 @@ TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score",
     CHECK(clipped_step->reward == std::copysign(1.0f, raw_step->reward));
     CHECK(AuxFloat(clipped_step, "game_score") == Catch::Approx(raw_step->reward));
     CHECK(AuxFloat(raw_step, "game_score") == Catch::Approx(raw_step->reward));
-    CHECK(*clipped->GetScalar("game_score") == Catch::Approx(raw_step->reward));
-    CHECK(*raw->GetScalar("game_score") == Catch::Approx(raw_step->reward));
+    CHECK(*clipped_step->GetScalar("game_score") == Catch::Approx(raw_step->reward));
+    CHECK(*raw_step->GetScalar("game_score") == Catch::Approx(raw_step->reward));
 
     // real game overでskip窓を中断し、ALEが実際に進めたframe数を完了値として返す。
     const auto clipped_aux_frames = AuxInt64(clipped_step, "game_frames");
@@ -1138,8 +1160,8 @@ TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score",
     REQUIRE(clipped_aux_frames > 0);
     CHECK(clipped_aux_frames < kFrameSkip);
     CHECK(raw_aux_frames == clipped_aux_frames);
-    const auto clipped_scalar_frames = clipped->GetScalar("game_frames");
-    const auto raw_scalar_frames = raw->GetScalar("game_frames");
+    const auto clipped_scalar_frames = clipped_step->GetScalar("game_frames");
+    const auto raw_scalar_frames = raw_step->GetScalar("game_frames");
     REQUIRE(clipped_scalar_frames.has_value());
     REQUIRE(raw_scalar_frames.has_value());
     CHECK(*clipped_scalar_frames == static_cast<float>(clipped_aux_frames));
@@ -1260,16 +1282,16 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
             const auto life_loss_frame = AuxInt64(skipped_step, "game_frames");
             const auto life_loss_score = AuxFloat(skipped_step, "game_score");
             CHECK(life_loss_frame % 4 == 2); // FIRE reset 2 frames (FIRE + action set 3番目) + 完走したskip窓
-            CHECK(std::isnan(*skipped->GetScalar("game_score")));
+            CHECK(std::isnan(*skipped_step->GetScalar("game_score")));
 
-            // life-loss後のsoft resetは実ゲームの集約を維持したままNOOP 1回を打つ。
+            // life-loss後のNOOPはStepで済み、soft resetは実ゲームの集約を維持する。
             // fire_reset=true なので続けてFIRE + action set 3番目が入る（FireResetEnv 同手順、計3フレーム）。
             const auto soft_reset = skipped->Reset();
             const auto reset_aux = soft_reset->GetAuxData();
             CHECK(soft_reset->state.episode_start);
             CHECK(reset_aux.at("game_frames").item<int64_t>() == life_loss_frame + 3);
             CHECK(reset_aux.at("game_score").item<float>() == Catch::Approx(life_loss_score));
-            CHECK(std::isnan(*skipped->GetScalar("game_score")));
+            CHECK_FALSE(skipped->GetScalar("game_score").has_value());
         }
     }
 
@@ -1279,8 +1301,8 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
     bool observed_real_game_over = false;
     for (int window = 0; window < 25000 && !observed_real_game_over; ++window) {
         const auto step = skipped->Step(1); // FIREを維持して次のlifeを確実に開始する。
-        const auto completed_score = *skipped->GetScalar("game_score");
-        if (std::isfinite(completed_score)) {
+        const auto completed_score = *step->GetScalar("game_score");
+        if (step->next_state.done && std::isfinite(completed_score)) {
             observed_real_game_over = true;
             REQUIRE(step->next_state.done);
             CHECK_FALSE(step->next_state.truncated);
@@ -1288,18 +1310,13 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
             break;
         }
 
-        CHECK(std::isnan(completed_score));
+        if (step->next_state.done) CHECK(std::isnan(completed_score));
+        else CHECK(std::isfinite(completed_score));
         if (step->next_state.done) {
             CHECK_FALSE(step->next_state.truncated);
             const auto reset = skipped->Reset();
             CHECK(reset->state.episode_start);
-            const auto reset_completed_score = *skipped->GetScalar("game_score");
-            if (std::isfinite(reset_completed_score)) {
-                // soft-reset NOOP中のreal game overも実ゲーム完了として扱う。
-                observed_real_game_over = true;
-            } else {
-                CHECK(std::isnan(reset_completed_score));
-            }
+            CHECK_FALSE(skipped->GetScalar("game_score").has_value());
         } else {
             CHECK_FALSE(step->next_state.truncated);
         }
@@ -1315,7 +1332,7 @@ TEST_CASE("AtariEnv soft reset applies the fire sequence only when fire_reset is
         SKIP("breakout.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
     }
 
-    // fire_reset=false（v5 既定）では life-loss 後の soft reset は NOOP 1 回のまま。
+    // fire_reset=false（v5 既定）ではlife-loss後にStepのNOOP 1回だけが進む。
     // true にすると FIRE + action set 3番目が続き（FireResetEnv 同手順）、計 3 フレームになる。
     const auto make = [&](bool fire_reset) {
         anet::ConfigData config_data;
@@ -1375,4 +1392,99 @@ int main(int argc, char* argv[])
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("Atari life-loss NOOP result retains final game values after automatic reset", "[atari][rom][prd097_atari]")
+{
+    const auto rom = FindRom("asterix");
+    // 必須受入なのでROMやC++ ALEの条件が欠けた場合はskipしない。
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "asterix");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.repeat_action_probability", 0.0);
+    data.Set("AtariEnv.noop_max", 0);
+    data.Set("AtariEnv.fire_reset", false);
+    data.Set("AtariEnv.episodic_life", true);
+    data.Set("AtariEnv.max_episode_frames", 0);
+    class FixtureFactory final : public anet::rl::SingleDiscreteEnvFactory {
+    public:
+        std::string GetTargetEnvClassId() const override { return "AtariEnv"; }
+        std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
+            const anet::ConfigData& config, const torch::Device& device, const std::string& name,
+            std::optional<anet::seed_t>, anet::rl::RunMode mode, const std::string&) override
+        {
+            // fixtureのALE seedはlane seed変換を経ず1へ固定する。
+            child = std::make_shared<anet::rl::env::AtariEnv>(
+                anet::rl::env::AtariEnvConfig(config), device, name, 1, mode);
+            return child;
+        }
+        std::shared_ptr<anet::rl::env::AtariEnv> child;
+    };
+    auto factory = std::make_shared<FixtureFactory>();
+    anet::rl::VectorizedDiscreteBatchEnv env(data, factory, "asterix-noop-completion", 1, torch::Device(torch::kCPU), 1);
+    env.Reset();
+    anet::rl::env::AtariEnvTestAccess{}.PrepareLifeLossNoopCompletion(*factory->child);
+    const auto step = env.Step(std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)));
+    REQUIRE(step->next_state.done.item<bool>());
+    CHECK_FALSE(step->next_state.truncated.item<bool>());
+    CHECK(step->n_episode_end == 1);
+    CHECK(step->GetScalar("lives", 0) == 1.0f);
+    CHECK(step->GetAuxDataList(0).at(0).at("game_frames").item<int64_t>() == 301);
+    REQUIRE(step->GetScalar("game_score", 0).has_value());
+    REQUIRE(std::isfinite(*step->GetScalar("game_score", 0)));
+    CHECK(step->GetScalar("game_len", 0) == 1.0f);
+    CHECK(step->GetScalar("game_frames", 0) == 302.0f);
+    CHECK(step->continue_state.episode_start.item<bool>());
+    CHECK_FALSE(env.GetScalar("game_score", 0).has_value());
+    const auto aux = step->GetAuxDataList(0).at(0);
+    REQUIRE(aux.contains("rgb_frame"));
+    const auto rgb = aux.at("rgb_frame").clone();
+    CHECK_FALSE(torch::equal(rgb, *env.GetTensor("rgb_frame", 0)));
+    env.Step(std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)));
+    CHECK(step->GetScalar("game_frames", 0) == 302.0f);
+    CHECK(torch::equal(rgb, step->GetAuxDataList(0).at(0).at("rgb_frame")));
+}
+
+TEST_CASE("Atari Step results answer provisional derived and numbered RAM scalars", "[atari][rom][prd097_atari_derived]")
+{
+    const auto rom = FindRom("pong");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_episode_frames", 2);
+    data.Set("AtariEnv.repeat_action_probability", 0.0f);
+    data.Set("AtariEnv.ram_metric.[pong].[score_high]", "0x8D max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:score_high");
+    data.Set("AtariEnv.ram_metric.[qbert].[round]", "0xE3 inc_count");
+    data.Set("AtariEnv.ram_metric.[qbert].metrics", "2:round");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "derived-result", 1);
+    env->Reset();
+    const auto first = env->Step(0);
+    REQUIRE_FALSE((first->next_state.done || first->next_state.truncated));
+    const auto score = first->GetAuxData().at("game_score").item<float>();
+    REQUIRE(first->GetScalar("hns57").has_value());
+    CHECK(first->GetScalar("hns57") == anet::rl::env::HumanNormalizedScore(
+        "pong", score, anet::rl::env::HnsBaseline::Dqn57));
+    CHECK(first->GetScalar("hns49") == anet::rl::env::HumanNormalizedScore(
+        "pong", score, anet::rl::env::HnsBaseline::Nature49));
+    CHECK(first->GetScalar("game_score.ge.[-1000]") == 1.0f);
+    CHECK(first->GetScalar("game_score.ge.[1000]") == 0.0f);
+    CHECK(first->GetScalar("ram_metric.[1]") ==
+        static_cast<float>(first->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
+    REQUIRE(first->GetScalar("ram_metric.[2]").has_value());
+    CHECK(std::isnan(*first->GetScalar("ram_metric.[02]")));
+    CHECK_FALSE(first->GetScalar("ram_metric.[3]").has_value());
+    const auto last = env->Step(0);
+    REQUIRE(last->next_state.truncated);
+    CHECK(last->GetScalar("game_frames") == 2.0f);
+    env->Reset();
+    CHECK(first->GetScalar("game_frames") == 1.0f);
+    CHECK(last->GetScalar("game_frames") == 2.0f);
+    for (const auto& key : {"game_score", "hns57", "game_score.ge.[0]", "ram_metric.[1]"})
+        CHECK_FALSE(env->GetScalar(key).has_value());
 }

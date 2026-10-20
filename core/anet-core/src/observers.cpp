@@ -838,10 +838,13 @@ void MetricsLogTraceObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
 {
     ANET_PROFILE_FUNC();
     
-    // 対象を一度だけ解決し、次の Step が確定値を消す前に宣言順で読む。
+    // 遷移を所有する結果と現在の状態を返すtargetを分け、宣言順で読む。
     const anet::Module* target = nullptr;
     const char* target_name = "unknown";
     switch (field_) {
+    case EventField::ENV_STEP:
+        target_name = "env_step";
+        break;
     case EventField::ENV:
         target_name = "env";
         target = event.env != nullptr ? event.env.get()
@@ -857,7 +860,9 @@ void MetricsLogTraceObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
     }
     anet::json data = anet::json::object();
     for (const auto& key : keys_) {
-        const auto value = target != nullptr ? target->GetScalar(key, event.env_index) : std::nullopt;
+        const auto value = field_ == EventField::ENV_STEP
+            ? (event.step_result ? event.step_result->GetScalar(key, event.env_index) : std::nullopt)
+            : (target != nullptr ? target->GetScalar(key, event.env_index) : std::nullopt);
         if (!value.has_value()) {
             ANET_SYSTEM_ERROR("Trace metric key is unavailable. tag='" << tag_
                 << "' key='" << key << "' lane=" << event.env_index << " target=" << target_name
@@ -1084,7 +1089,7 @@ void MetricsLogObserverBase::OnTrainUpdate(const TrainEvent& event)
         event.runner != nullptr ? event.runner->GetBatchEnv() : event.env,
         &event.experience,
         &event.update_result_list,
-        event.action_info);
+        event.action_info, event.step_result);
 }
 
 void MetricsLogObserverBase::OnGenericUpdate(
@@ -1094,10 +1099,39 @@ void MetricsLogObserverBase::OnGenericUpdate(
     std::shared_ptr<const BatchEnv> env,
     const BatchExperience* experience,
     const BatchUpdateResultList* update_result_list,
-    std::shared_ptr<const BatchActionInfo> action_info)
+    std::shared_ptr<const BatchActionInfo> action_info,
+    std::shared_ptr<const BatchStepResult> step_result, bool ended_only)
 {
-    // メトリクスの出力データをリストとして取得
-    auto metrics_list = GetMetricsDataList(counts, agent, runner, env, experience, update_result_list, action_info);
+    ANET_PROFILE_FUNC();
+    // 遷移の値は結果から読み、現在のenvと混ぜない。laneは既存と同じ昇順で集約する。
+    MetricsDataList metrics_list;
+    if (event_field_ == EventField::ENV_STEP) {
+        ANET_CHECK_MSG(step_result != nullptr && env != nullptr,
+            "Missing Step result for $env_step. tag='" << tag_ << "' key='" << key_ << "'.");
+        const auto spec = env->GetBatchSpec();
+        const auto parsed = anet::ParseScalarAggregationKey(key_);
+        ANET_CHECK_MSG(parsed.has_value() || spec.episode_scope == EpisodeScope::SHARED,
+            "$env_step scalar requires aggregation. tag='" << tag_ << "' key='" << key_ << "'.");
+        const auto& key = parsed ? parsed->base_key : key_;
+        const auto& mask = step_result->GetEpisodeEndMask();
+        const auto* ended = mask.const_data_ptr<bool>();
+        anet::ScalarSampleAccumulator samples;
+        const int64_t groups = spec.episode_scope == EpisodeScope::SHARED ? 1 : spec.num_envs;
+        for (int64_t group = 0; group < groups; ++group) {
+            if (ended_only && !ended[group]) continue;
+            const auto lane = spec.episode_scope == EpisodeScope::SHARED ? -1 : group;
+            const auto value = step_result->GetScalar(key, lane);
+            if (!value) {
+                ANET_SYSTEM_ERROR("Step scalar is unavailable. tag='" << tag_ << "' key='" << key
+                    << "' lane=" << lane << " expected=recognized scalar key.");
+            }
+            samples.Add(value);
+        }
+        metrics_list.emplace_back(counts.GetByAxis(step_axis_),
+            samples.Get(parsed ? parsed->aggregation : anet::ScalarAggregation::MEAN));
+    } else {
+        metrics_list = GetMetricsDataList(counts, agent, runner, env, experience, update_result_list, action_info);
+    }
 
     // 取れたメトリクスを順に試す
     for (const auto& metrics : metrics_list) {
@@ -1272,6 +1306,7 @@ namespace metrics_def_names {
         case EventField::ACTOR:         return "actor";
         case EventField::AGENT:         return "agent";
         case EventField::ENV:           return "env";
+        case EventField::ENV_STEP:      return "env_step";
         case EventField::EXPERIENCE:    return "exp";
         case EventField::UPDATE_RESULT: return "update_result";
         case EventField::RUNNER:        return "runner";
@@ -1360,7 +1395,7 @@ namespace metric_tokens {
                 || raw == "$exp_step" || raw == "$update_step" || raw == "$sim_step") {
                 token.kind = Kind::STEP;
                 token.value = raw.substr(1);
-            } else if (raw == "$actor" || raw == "$agent" || raw == "$env" || raw == "$runner"
+            } else if (raw == "$actor" || raw == "$agent" || raw == "$env" || raw == "$env_step" || raw == "$runner"
                 || raw == "$batch_experience" || raw == "$exp" || raw == "$batch_update_result"
                 || raw == "$update_result" || raw == "$result" || raw == "$action" || raw == "$action_info") {
                 token.kind = Kind::TARGET;
@@ -1398,6 +1433,7 @@ namespace metric_tokens {
                 if (token.value == "actor") token.field = EventField::ACTOR;
                 else if (token.value == "agent") token.field = EventField::AGENT;
                 else if (token.value == "env") token.field = EventField::ENV;
+                else if (token.value == "env_step") token.field = EventField::ENV_STEP;
                 else if (token.value == "runner") token.field = EventField::RUNNER;
                 else if (token.value == "exp" || token.value == "batch_experience") token.field = EventField::EXPERIENCE;
                 else if (token.value == "update_result" || token.value == "batch_update_result" || token.value == "result") token.field = EventField::UPDATE_RESULT;
@@ -1494,6 +1530,11 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             auto key = *key_opt;
             auto event = event_opt.value_or(EventType::TRAIN);
+            // Stepの結果を持たないイベントは、宣言の時点で拒否する。
+            if (field_opt == EventField::ENV_STEP && event != EventType::TRAIN && event != EventType::EPISODE_END) {
+                ANET_SYSTEM_ERROR("$env_step requires @train or @episode_end. config_key=" << config_key
+                    << " config_value='" << config_value << "'.");
+            }
             auto runner_scope = runner_scope_opt.value_or(RunnerScope::TRAIN);
 
             // eval の個体完了とセッション集約を混同する束縛を拒否する。
@@ -1620,8 +1661,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     break;
                 case Kind::TARGET:
                     unique(target_seen, token);
-                    if (token.field != EventField::ENV && token.field != EventField::RUNNER && token.field != EventField::AGENT && token.field != EventField::ACTOR) {
-                        invalid(token.raw, "$env, $runner, $agent or $actor");
+                    if (token.field != EventField::ENV && token.field != EventField::ENV_STEP && token.field != EventField::RUNNER && token.field != EventField::AGENT && token.field != EventField::ACTOR) {
+                        invalid(token.raw, "$env_step, $env, $runner, $agent or $actor");
                     }
                     field = token.field;
                     break;
@@ -1658,7 +1699,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 }
             }
             if (!event_seen) invalid("<missing>", "an explicit @episode_end event");
-            if (!target_seen) invalid("<missing>", "an explicit $env, $runner, $agent or $actor target");
+            if (!target_seen) invalid("<missing>", "an explicit $env_step, $env, $runner, $agent or $actor target");
             if (keys.empty()) invalid("<missing>", "at least one bare scalar key");
             trace_metric_defs_.push_back(TraceMetricDef{
                 .tag = trace_tag, .step_axis = metrics_def_names::StepAxisToken(axis),
@@ -1735,4 +1776,14 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             continue;
         }
 	}
+}
+
+void MetricsLogEpisodeEndObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
+{
+    if (event_field_ == EventField::ENV_STEP) {
+        if (const auto previous = last_step_result_.lock(); previous && previous == event.step_result) return;
+        last_step_result_ = event.step_result;
+    }
+    OnGenericUpdate(event.counts, event.agent, event.runner, event.env, nullptr, nullptr,
+        nullptr, event.step_result, true);
 }

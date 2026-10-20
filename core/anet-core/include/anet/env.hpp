@@ -174,7 +174,7 @@ namespace anet::rl {
 
         bool HasAllFreshGroups(const BatchState& state) const;
         void BeginSession();
-        void CaptureScalars(int64_t group_index);
+        void CaptureScalars(const BatchStepResult& result, int64_t group_index);
 
         std::shared_ptr<BatchEnv> inner_;
         BatchEnvSpec batch_spec_;

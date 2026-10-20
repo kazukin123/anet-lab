@@ -25,14 +25,14 @@ AtariEnv / AtariEnvFactory / AtariView / 前処理関数群、ALE v0.12.0 の設
 ```
 BatchEnvBuilder (env.class_id = AtariEnv)
   └─ AtariEnvFactory (SingleDiscreteEnvFactory)
-       └─ AtariEnv × N lanes（並列・auto-reset は既存 wrapper）
+       └─ AtariEnv × N lanes（並列実行とStep内の自動リセットは共通 wrapper）
             ├─ ale::ALEInterface（1対1、ALE 側 frame_skip=1 固定）
             └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → area resize → uint8 [1,S,S]
 ```
 
 - frame stack は出さない。Actor 側 stucker と ReplayBuffer 側 stack_count の既存両輪が担う。
 - RB には単フレーム uint8 が保存され、stack はサンプル時に展開される（ADR 0026）。
-- 責務分担: **AtariEnv = 1 ALE の駆動と標準前処理**。並列・stack・autoreset・seed 配布はフレームワーク既存機構。
+- 責務分担: **AtariEnv = 1 ALE の駆動と標準前処理**。並列・stack・Step内の終端lane自動リセット・seed 配布はフレームワーク既存機構。
 
 ## 3. 外部依存（ALE v0.12.0）
 
@@ -138,7 +138,7 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 | `full_action_space` | bool | false | true で legal 18 行動 |
 | `mode` / `difficulty` | int | -1 | -1=ALE 既定。それ以外は `setMode`/`setDifficulty`（flavor） |
 | `max_episode_frames` | int | 108000 | 自前カウントの truncation 閾（0=無効） |
-| `retain_rgb_frame` | bool | true | Step 毎に RGB 画面を保持し `GetTensor("rgb_frame")` で公開（AtariView 用。§5） |
+| `retain_rgb_frame` | bool | true | Step毎にRGBを保持し結果のauxへ参照を保存。現在画面は`GetTensor("rgb_frame")`（§5） |
 | `display_screen` | bool | false | SDL 観戦ウィンドウ（ALE 透過） |
 | `sound` | bool | false | SDL 音声（ALE 透過。display と独立） |
 | `ram_metric.[game].[label]` / `ram_metric.[game].metrics` | string | 定義なし | ゲーム別の RAM 定義と番号付け（§4.9） |
@@ -195,7 +195,7 @@ Step(action_index):
 - `reward_clip=true`（既定）のとき Step の reward は `sign(reward_raw)`（学習報酬）。生スコアは env 内部で累積し、実 game over / truncation で `game_score` として確定する（生スコア／学習報酬の区別は `CONTEXT.md`）。キー名が `episode_` ではなく `game_` なのは、`episodic_life=true` のとき RL のエピソード境界（life 単位）と確定境界（ゲーム 1 回）が一致しないため。
 - `done = ale.game_over(false)`（ALE 側 truncation は無効化済みなので純粋な terminal）。real game overだけが skip 窓の早期終了理由になる。
 - `truncated` = `ale.getEpisodeFrameNumber()` が `max_episode_frames` に到達（done 優先）。自前 frame counter は持たず、Reset中のNOOP/FIREもALE frameへ含める。
-- `episodic_life=true` の場合: skip 窓完走後に lives を1回だけ比較し、**ライフ減少かつ残 lives > 0** なら done=true を返す。`lives > 0` ガードは baselines 由来（SB3 / CleanRL / rlpyt と同一の条件式）。Qbert 系は game over の数フレーム前から lives=0 を報告するため、ガードが無いと実終端の直前に偽の life-loss done が 1 回出る（Gymnasium `AtariPreprocessing` はガード無しだが、あちらは `terminal_on_life_loss=False` 既定で分岐が実質使われない。episodic_life を実際に true で運用する系統は全てガード有り）。life loss後の残り反復と報酬も同じStepに含める。直後の `Reset()` は実 game over でなければ **soft-reset**（`ale.reset_game()` せず NOOP 1 フレームで観測のみ更新。game_score・ALE episode frameは継続）。**`fire_reset=true` のときは続けて FIRE 系列（§4.5.1）を打つ**（計 3 フレーム。報酬は game_score へ加算）。Breakout 系はライフ喪失でボールが消え FIRE を押すまで再投入されないため、これが無いとエージェントが自力で FIRE を選ぶまで無報酬 step が流れる。標準の wrapper 構成が `FireResetEnv` を `EpisodicLifeEnv` の外側に置き life-loss 後の reset でも FIRE を入れるのに合わせた契約。`noop_max` は soft-reset では打たない（`NoopResetEnv` 相当は実 reset のみに効く）。auto-reset wrapper（done||truncated → Reset）の契約とこの soft-reset で「学習上の episode = life 単位、メトリクス上の単位 = 実ゲーム 1 回」を両立する。`game_score` / `game_len` / `game_frames` の確定は実 game over / truncation 時のみ。configured `eval1` / `eval2` とEvalPanel用`eval_panel`は`env.episodic_life=false`を明示し、評価セッションのepisode境界を実game over / truncationへ揃える。
+- `episodic_life=true` の場合: skip 窓完走後に lives を1回だけ比較し、**ライフ減少かつ残 lives > 0** なら done=true を返す。`lives > 0` ガードは baselines 由来（SB3 / CleanRL / rlpyt と同一の条件式）。Qbert 系は game over の数フレーム前から lives=0 を報告するため、ガードが無いと実終端の直前に偽の life-loss done が 1 回出る（Gymnasium `AtariPreprocessing` はガード無しだが、あちらは `terminal_on_life_loss=False` 既定で分岐が実質使われない。episodic_life を実際に true で運用する系統は全てガード有り）。life loss後の残り反復と報酬も同じStepに含める。Stepは学習用観測・RGB・auxを確定した後、NOOPを1フレーム進める。この報酬はgame_scoreだけに加算し、返す遷移を変えない。このNOOPで実game overになった場合も同じStep内で完了値を確定する。同じBatch Step内の `Reset()` は実 game over でなければ **soft-reset**（`ale.reset_game()`せず、game_score・ALE episode frameは継続）。**`fire_reset=true` のときは続けて FIRE 系列（§4.5.1）を打つ**（FIRE系列は2フレーム。報酬は game_score へ加算）。Breakout 系はライフ喪失でボールが消え FIRE を押すまで再投入されないため、これが無いとエージェントが自力で FIRE を選ぶまで無報酬 step が流れる。標準の wrapper 構成が `FireResetEnv` を `EpisodicLifeEnv` の外側に置き life-loss 後の reset でも FIRE を入れるのに合わせた契約。`noop_max` は soft-reset では打たない（`NoopResetEnv` 相当は実 reset のみに効く）。BatchEnvがStep内で終端laneをResetする契約とこの soft-reset で「学習上の episode = life 単位、メトリクス上の単位 = 実ゲーム 1 回」を両立する。`game_score` / `game_len` / `game_frames` の確定は実 game over / truncation 時のみ。configured `eval1` / `eval2` とEvalPanel用`eval_panel`は`env.episodic_life=false`を明示し、評価セッションのepisode境界を実game over / truncationへ揃える。
 
 #### 4.5.1 FIRE 系列（`fire_reset`）
 
@@ -227,21 +227,20 @@ ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）
 
 | API | キー | 確定タイミング | 値 |
 |---|---|---|---|
-| GetScalar | `game_score` | 実 game over / truncation | 生スコアのゲーム 1 回分の合計（未確定 step は NaN） |
-| GetScalar | `game_score.ge.[N]` | 同上 | `game_score >= N` なら 1、未満なら 0（未確定 step は NaN）。`N` は float として解釈し負値も許す |
-| GetScalar | `game_len` | 同上 | agent step 数。汎用 `episode_steps` とは `episodic_life` 下の episode 境界が異なる |
-| GetScalar | `game_frames` | 同上 | エミュレータフレーム数 |
-| GetScalar | `hns57` | 同上 | 人間正規化スコア %（57 ゲーム表。§4.8） |
-| GetScalar | `hns49` | 同上 | 人間正規化スコア %（49 ゲーム表。§4.8） |
-| GetScalar | `lives` | 常時 | 現在ライフ |
-| GetScalar | `ram_metric.[n]` | 実 game over / truncation | ゲーム別 RAM 定義の確定値。現在ゲームに番号がないか未完了なら NaN、全ゲームに番号がなければ未知キー（§4.9） |
-| GetTensor | `rgb_frame` | 常時（`retain_rgb_frame=true` 時） | 直近 Step の RGB 画面 uint8 `[3, 210, 160]`（CHW） |
+| Step結果.GetScalar | `game_score` / `game_len` / `game_frames` | 通常StepはNOOP前速報値、life-only終端はNaN、実game over/truncationは確定値 | scoreは生報酬合計、lenはagent step、framesはALE frame |
+| Step結果.GetScalar | `game_score.ge.[N]` / `hns57` / `hns49` | game_scoreと同じ成立条件 | 閾値判定・HNS基準表から計算。Nは負値を含むfloat |
+| Step結果.GetScalar | `ram_metric.[n]` | 通常Stepはsnapshot、life-only終端/現在ゲームに番号なしはNaN、実終端は確定値 | 全ゲームに番号がなければ未知 |
+| Step結果.GetScalar | `lives` | 毎Step、補助NOOP前 | 返す遷移に対応する残機 |
+| Env.GetScalar | `lives` | 常時 | 現在ALEの残機。上記ゲーム統計キーは未知 |
+| Env.GetTensor | `rgb_frame` | 常時 | 現在画面。ViewはStep結果のaux.rgb_frameを使用 |
+
+Step結果は生成時の値を保持し、Resetや通知後も変わらない。env本体には完了値を持ち越さず、移した統計キーは未知とする。結果の`lives`は補助NOOP前、env本体の`lives`は現在ALEの値である。
 
 バッチ集約（`mean.` 等の prefix）と NaN 慣行は wrapper の共通規約に従う。`GetConfigData()` は実効 config を返す（Run の `config/env.*.txt` ダンプ対象）。
 
 **ゲーム完了の verbose ログ。** 上表の確定と同じ時点・同じ値で 1 行出す（`Game over.` または `Game truncated by max_episode_frames.` に `game_score` / `game_len` / `game_frames` が続く）。番号付き RAM 定義がある場合は末尾へ ` ram_metric: floor_clear=0 boss_kill=0` を番号順で足す。prefix は lane 名（`env.[train].[0]:` / `env.[EvalPanel].[0]:` など）。Run のログファイルには常に残り、`app.log_level` は LogPanel の表示だけを絞る。metrics / trace を持たない EvalPanel のゲームも、ここからミリ秒の時刻付きで追える。
 
-**集約の分母に注意。** 上表で「確定タイミング＝実 game over / truncation」のキーは未確定 step で NaN を返し、バッチ集約は NaN を分母から除外する（`core/anet-core/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
+**集約の分母に注意。** ゲーム単位のキーはlife-only終端でNaNを返し、episode_endでは実game over/truncationだけが集約に入るため、バッチ集約は NaN を分母から除外する（`core/anet-core/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
 
 `game_score.ge.[N]` はこの分母を `game_score` と共有する 0/1 指標で、`mean.` を取ると「その step でゲームを終えた env のうち N 点以上だった割合」になる。窓平均すれば発火イベント単位ではなく**ゲーム 1 回単位の割合**が得られるため、閾値越えの頻度を見る用途では `mean.` の潰れと `max.` の飽和の両方を避けられる（`mean.` は二山分布の両端を潰し、`max.` は評価セッションの episode 数を増やすほど飽和する）。Breakout の 1 画面 = 432 のようにゲーム依存の閾値は §4.8 の HNS 表と違いキー側のパラメータで持つ。1 Run で複数の閾値を同時に測るためと、閾値がゲームの物理定数ではなく解析上の判定基準だからである。
 
@@ -264,7 +263,7 @@ hns = 100 * (game_score - random) / (human - random)
 
 契約:
 
-- 確定タイミングは `game_score` と同じ（実 game over / truncation のみ。未確定は NaN）
+- Step結果の`game_score`と同じ時点と成立条件（通常はNOOP前速報値、life-only終端はNaN、実game over/truncationは確定値）
 - **基準表に載らないゲームは NaN**（`std::nullopt` ではない）。`nullopt` は `DiscreteBatchEnvBase` の集約でバッチ全体を打ち切ってしまうため。ALE は 104 ゲームを持つのに対し標準表は 57 / 49 しか覆わず、57 表のみに載る 8 ゲーム（berzerk / defender / phoenix / pitfall / skiing / solaris / surround / yars_revenge）は `hns49` が NaN になる
 - 対象は生スコア。reward clip 後の学習報酬ではない
 - 49 表の値は Extended Data Table 2 の "Normalized DQN (% Human)" 列で検算済み（`AtariEnv_test.cpp` の `[atari][hns]`）
@@ -280,7 +279,7 @@ eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[t
 
 畳み方は `max_seen` / `min_seen`（`reset_game()` 直後の値を含む最大・最小）、`inc_count` / `dec_count`（前フレームからの増加・減少回数）、`reach_count:N`（0～255 の N へ入った回数）の 5 種。比較するのは生の 1 バイトで、毎 `act()` 後に観測する。集計は実ゲーム 1 回を単位とし、episodic-life の soft reset をまたいで継続、`reset_game()` ごとに仕切り直す。
 
-`ram_metric.[n]` はゲーム完了時のスナップショットを返す。どこかのゲームが n を使えば既知キーなので、現在ゲームに n がない場合も NaN を返す。番号は全ゲーム共通の大まかな意味を保つ: 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数。当てはまらないゲームには番号を付けない。trace は `@episode_end`、scalar の `mean.` は完了 lane だけから値を取る。番号を持たないゲームでは trace は `null`、scalar は行が出ない。番号の具体的なラベルは Run の `config/config_data.txt` で引く。
+Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了時の確定値を返し、life-only終端ではNaNとする。どこかのゲームが n を使えば既知キーなので、現在ゲームに n がない場合も NaN を返す。番号は全ゲーム共通の大まかな意味を保つ: 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数。当てはまらないゲームには番号を付けない。trace は `@episode_end`、scalar の `mean.` は完了 lane だけから値を取る。番号を持たないゲームでは trace は `null`、scalar は行が出ない。番号の具体的なラベルは Run の `config/config_data.txt` で引く。
 
 | ゲーム | 番号付き定義 | 番号なしの参考定義 |
 |---|---|---|
@@ -289,7 +288,7 @@ eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[t
 | phoenix | `1:wave_clear` = `0xCA inc_count`、`2:boss_kill` = `0xFC inc_count` | なし |
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
 
-番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。ゲーム完了時だけ成立する GetScalar と異なり、こちらは AtariView の観戦表示用であり、毎 step の scalar キーにはしない。詳細な調査根拠と既知の限界は [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
+番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
 
 ## 5. AtariView
 
@@ -297,7 +296,7 @@ eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[t
 
 ### 5.1 表示内容
 
-- **主表示: 生 RGB 画面**（210×160、`env->GetTensor("rgb_frame", 0)`）。人間の観戦とデバッグの主対象。
+- **主表示: 生 RGB 画面**（210×160、`event.step_result->GetAuxDataList(0)`の`rgb_frame`）。人間の観戦とデバッグの主対象。
 - **副表示: 前処理後 obs**（S×S グレー、TrainEvent の step_result から lane 0 の grid を取得）。「エージェントが見ているもの」の確認用で、resize / max-pool の不具合を生画面との見比べで検出できる。
 - **既定は生 RGB 画面（カラー）のみ**。中クリックで「元画像のみ → Agent画像（前処理後 obs）のみ → 両方 → 元画像のみ」と循環する。描画面・テキストオーバーレイ・Panel のどこでも1クリックで1段階進み、停止中も即座に再描画する。
 - 単独表示はキャンバス全体を使って中央配置し、両方表示は RGB を左 2/3、前処理後 obs を右 1/3 の領域に並べる。既存の余白と整数倍拡大（ドット絵の視認性優先、GL_NEAREST）を維持する。画像未取得の領域は背景色のままとする。
@@ -307,7 +306,7 @@ eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[t
 ### 5.2 データ経路と制約
 
 - 表示対象は **lane 0 固定**（全 lane 同一ゲーム・同一設定のため代表 1 lane で挙動確認の目的を満たす。lane 選択 UI は将来拡張）。
-- RGB は env が Step 毎に `getScreenRGB` を保持して公開する（`retain_rgb_frame`、既定 true。保持コストは約 100KB memcpy/step/lane で数十 µs）。ヘッドレス運用や性能検証で切りたい場合は config で false。
+- RGBはenvがStep毎に`getScreenRGB`で取得し、そのTensor参照をStep結果のauxに保持する（`retain_rgb_frame`、既定 true。保持コストは約 100KB memcpy/step/lane で数十 µs）。ヘッドレス運用や性能検証で切りたい場合は config で false。
 - 更新は既存 View 機構の標準契約（`UIDataStore`、既定 `force_update_interval_ms=200` ≈ 5Hz。TrainEvent 毎に描画するわけではない）。
 - **描画基盤は wxGLCanvas**（HeatMapPanel / Conv2dPanel の既存 GL pane パターンを流用。テクスチャ 2 枚 + GL_NEAREST で整数倍拡大）。採用理由は既存パターンとの整合と、将来のスムーズ観戦モード（update interval 短縮による 30〜60fps 描画、SDL 窓の実用代替）への布石であり、**性能ではない**——既定 5Hz・210×160 規模では GDI（wxBitmap 流）でも性能問題は構造的に発生しないことを確認済み。テキストオーバーレイは wx 側で重畳描画する。スムーズ観戦モード自体（interval の config 化）は本仕様の対象外（将来拡張）。
 - SDL の観戦ウィンドウ（`display_screen`）とは独立・併用可（View = Runner pane 統合、SDL = ALE ネイティブ・音声付き）。
@@ -317,7 +316,7 @@ eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[t
 - 三値 cache 変数 `ANET_ENABLE_ATARI` = `AUTO`（既定）/`ON`/`OFF`。AUTO は `ALE_ROOT` の存在と `src/ale/ale_interface.hpp` の実在で判定。ON で不備なら configure エラー。判定結果は STATUS ログへ。
 - 有効時のみ: `add_subdirectory(core/envs/atari1)`、runner へ `AtariEnv` リンク + `ANET_HAS_ATARI` 定義、`RunnerApp.cpp` の `#ifdef ANET_HAS_ATARI` で `InitAtari()`。
 - ale.lib は `$<IF:$<CONFIG:Debug>,Debug,Release>` で選択（RelWithDebInfo は Release 側。IDL/CRT 整合）。
-- テストは module と同時ビルド。ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。前処理 golden テストは常時実行。
+- テストは module と同時ビルド。通常の ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。PRD097 の必須受入 `[prd097_atari]` は Asterix ROM の利用を `REQUIRE` で検査し、未解決を合格・skip扱いにしない。前処理 golden テストは常時実行。
 
 ### 6.1 テストと拡張時の確認事項
 
@@ -330,3 +329,5 @@ RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](..
 - `docs/memo/051_atari_ale_env_10prd.md` — 実装計画（PH1 スコープ・受入基準）
 - `reports/atari_env_survey_2026-08-13.md` — ALE サーベイ（プロトコル・ベンチマーク動向）
 - `CONTEXT.md` — 用語（sticky actions / flavor / 生スコア / プロトコルプリセット）
+
+遷移の観測・RGB・auxは残機喪失時の補助NOOPより前に作る。NOOPでゲームが終わったとき、Step結果のゲーム確定値にはNOOPの得点とframeを含めるが、返すreward/next_state/RGB/livesは置き換えない。AtariViewは結果のrgb_frameを表示するため、自動Reset後の画面へずれない。結果は後続StepやResetから独立し、envへ完了値を持ち越さない。受入AsterixのRAM条件と公開API試験は[PRD097検証手順](../../core/anet-core/testdata/prd097/README.md)を参照する。

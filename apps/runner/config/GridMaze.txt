@@ -158,15 +158,15 @@ metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau 
 #metrics.scalar.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @session_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
-metrics.scalar.[42_env/51_wall_collisions_max]  = $env max.wall_collisions @train
-metrics.scalar.[42_env/61_is_success_mean]      = $env mean.is_success @train
-metrics.scalar.[42_env/62_is_hole_mean]         = $env mean.is_hole @train
-metrics.scalar.[42_env/63_wall_collisions_mean] = $env mean.wall_collisions @train
+metrics.scalar.[42_env/51_wall_collisions_max]  = $env_step max.wall_collisions @episode_end $train_step
+metrics.scalar.[42_env/61_is_success_mean]      = $env_step mean.is_success @episode_end $train_step
+metrics.scalar.[42_env/62_is_hole_mean]         = $env_step mean.is_hole @episode_end $train_step
+metrics.scalar.[42_env/63_wall_collisions_mean] = $env_step mean.wall_collisions @episode_end $train_step
 
-metrics.scalar.[42_env/51_wall_collisions_max_ema]  = $env max.wall_collisions @train $ema ema_alpha:0.001
-metrics.scalar.[42_env/61_is_success_mean_ema]      = $env mean.is_success @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/62_is_hole_mean_ema]         = $env mean.is_hole @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/63_wall_collisions_mean_ema] = $env mean.wall_collisions @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/51_wall_collisions_max_ema]  = $env_step max.wall_collisions @episode_end $train_step $ema ema_alpha:0.001
+metrics.scalar.[42_env/61_is_success_mean_ema]      = $env_step mean.is_success @episode_end $train_step $ema ema_alpha:0.005
+metrics.scalar.[42_env/62_is_hole_mean_ema]         = $env_step mean.is_hole @episode_end $train_step $ema ema_alpha:0.005
+metrics.scalar.[42_env/63_wall_collisions_mean_ema] = $env_step mean.wall_collisions @episode_end $train_step $ema ema_alpha:0.001
 
 
 metrics.scalar.[42_env/00_ep_step_mean]  = $runner mean.episode_steps @train

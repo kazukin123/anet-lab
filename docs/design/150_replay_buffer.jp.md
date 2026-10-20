@@ -32,7 +32,7 @@ DQN固有のQ値schemaと学習式、MuZero固有buffer、ImageCls dataset/cache
 - 終端を含む次の`BatchState`
 
 RunnerはEnvが再利用するstorageからExperienceを切り離すため、State、Reward、次Stateを必要な境界でcloneする。
-`continue_state`はRunnerが次stepへ進むための状態で、ReplayBufferへ保存する終端付き`next_state`とは役割が異なる。
+Runnerの次行動用状態はStep結果の`continue_state`から取得する。終端laneはStep内で自動Resetされるが、ReplayBufferへ保存する`next_state`はリセット前の終端観測を保持する。
 
 ### 2.2 ReplayBuffer公開contract
 

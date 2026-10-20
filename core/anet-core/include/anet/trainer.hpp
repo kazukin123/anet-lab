@@ -111,7 +111,7 @@ namespace anet::rl {
         void RunSession(const StepCounts& event_counts, std::stop_token stop = {});
 
     private:
-        StepCounts DoStepInternal(
+        std::shared_ptr<const BatchStepResult> DoStepInternal(
             int64_t action, const StepCounts& event_counts, bool notify_episode_end);
         std::shared_ptr<EvalSessionEnv> session_env_;
         StepCounts source_counts_;

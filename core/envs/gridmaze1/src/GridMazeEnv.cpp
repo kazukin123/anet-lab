@@ -16,19 +16,33 @@ namespace LOG = anet::log;
 class GridMazeResetResult : public anet::rl::SingleResetResult {
 public:
     GridMazeResetResult(anet::rl::SingleState state, anet::rl::AuxData aux)
-        : anet::rl::SingleResetResult(std::move(state)), aux_(std::move(aux)) {}
-    anet::rl::AuxData GetAuxData() const override { return aux_; }
-private:
-    anet::rl::AuxData aux_;
+        : anet::rl::SingleEnvResult(std::move(aux)), anet::rl::SingleResetResult(std::move(state)) {}
 };
 
 class GridMazeStepResult : public anet::rl::SingleStepResult {
 public:
-    GridMazeStepResult(float reward, anet::rl::SingleState next_state, anet::rl::AuxData aux)
-        : anet::rl::SingleStepResult(reward, std::move(next_state)), aux_(std::move(aux)) {}
-    anet::rl::AuxData GetAuxData() const override { return aux_; }
+    GridMazeStepResult(float reward, anet::rl::SingleState state, anet::rl::AuxData aux,
+        float reward_sum, int wall_collisions, float reward_goal, float reward_hole)
+        : anet::rl::SingleEnvResult(std::move(aux)), anet::rl::SingleStepResult(reward, std::move(state)),
+          reward_sum_(reward_sum), wall_collisions_(wall_collisions),
+          success_(reward == reward_goal), hole_(reward == reward_hole) {}
+
+    std::optional<float> GetScalar(const std::string& key) const override
+    {
+        // 累積量は途中でも速報値を返し、結果の成否は終端のstepだけで確定させる。
+        if (key == "reward_sum") return reward_sum_;
+        if (key == "wall_collisions") return static_cast<float>(wall_collisions_);
+        if (key == "is_success" || key == "is_hole") {
+            if (!next_state.done && !next_state.truncated) return std::numeric_limits<float>::quiet_NaN();
+            return (key == "is_success" ? success_ : hole_) ? 1.0f : 0.0f;
+        }
+        return anet::rl::SingleEnvResult::GetScalar(key);
+    }
 private:
-    anet::rl::AuxData aux_;
+    float reward_sum_;
+    int wall_collisions_;
+    bool success_;
+    bool hole_;
 };
 
 
@@ -178,6 +192,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset()
 
     step_count_ = 0;
     ep_reward_sum_ = 0.0f;
+    // 終端フラグを戻し、新しいエピソードの開始状態にする。
     done_ = false;
     truncated_ = false;
     episode_start_ = true;
@@ -197,7 +212,6 @@ std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t acti
     ANET_PROFILE_FUNC();
     episode_start_ = false;
     step_count_++;
-    episode_just_ended_ = false;
 
     float reward = config_.reward_step;
 
@@ -230,14 +244,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t acti
 
     ep_reward_sum_ += reward;
 
-    if (done_ || truncated_) {
-        episode_just_ended_ = true;
-
-        last_reward_sum_ = ep_reward_sum_;
-        last_is_success_ = (reward == config_.reward_goal) ? 1.0f : 0.0f;
-        last_is_hole_ = (reward == config_.reward_hole) ? 1.0f : 0.0f;
-        last_wall_collisions_ = static_cast<float>(wall_collisions_);
-    }
+    // この時点の累積報酬と盤面の結果を、新しいStep結果へ保存する。
 
     anet::rl::SingleState next_state {
         .obs = { anet::rl::ObsKeys::kVector, torch::tensor(GetObservation(), obs_opt_) },
@@ -246,29 +253,13 @@ std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t acti
         .episode_start = episode_start_
     };
 
-    return std::make_shared<GridMazeStepResult>(reward, std::move(next_state), MakeAuxData());
+    return std::make_shared<GridMazeStepResult>(reward, std::move(next_state), MakeAuxData(),
+        ep_reward_sum_, wall_collisions_, config_.reward_goal, config_.reward_hole);
 }
 
 std::optional<float> GridMazeEnv::GetScalar(const std::string& key, int64_t index) const
 {
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-
-    if (key == "reward_sum") {
-        if (!episode_just_ended_) return nan;
-        return last_reward_sum_;
-    }
-    if (key == "is_success") {
-        if (!episode_just_ended_) return nan;
-        return last_is_success_;
-    }
-    if (key == "is_hole") {
-        if (!episode_just_ended_) return nan;
-        return last_is_hole_;
-    }
-    if (key == "wall_collisions") {
-        if (!episode_just_ended_) return nan;
-        return last_wall_collisions_;
-    }
+    // 遷移の統計はStepの結果だけが所有し、env本体に持ち越して公開しない。
     return std::nullopt;
 }
 
