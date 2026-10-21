@@ -222,7 +222,7 @@ void Conv2dPanel::RenderActivations(anet::rl::step_t step, const anet::TensorDic
     canvas_->Refresh();
 }
 
-std::shared_ptr<const anet::rl::gui::TraceSnapshot> Conv2dPanel::CaptureTraceSnapshot(const anet::rl::TrainEvent& event)
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> Conv2dPanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
 {
     ANET_PROFILE_FUNC();
     if (!latest_step_ || *latest_step_ != event.counts.exp_step || !latest_activations_) {

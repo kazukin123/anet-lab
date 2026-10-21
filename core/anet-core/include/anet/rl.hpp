@@ -506,7 +506,7 @@ namespace anet::rl {
     };
 
     // 行動選択時の情報
-    class BatchActionInfo : public anet::graphviz::GraphVizProvider {
+    class BatchActionInfo : public anet::ModuleBase, public anet::graphviz::GraphVizProvider {
     public:
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
@@ -532,6 +532,7 @@ namespace anet::rl {
         }
 
         torch::Tensor GetAction(torch::Device device) const;
+        std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
             return std::make_shared<BatchActionInfo>(
@@ -542,8 +543,6 @@ namespace anet::rl {
             return std::make_shared<BatchActionInfo>(
                 std::move(action), info_, aux_, replay_initial_priority_hint_);
         }
-        /// 同期的に読むscalar提供元。行動だけを持つ型は提供しない。
-        virtual const anet::Module* GetScalarSource() const { return nullptr; }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
         const anet::TensorDict& GetInfo() const { return info_; }
@@ -756,43 +755,34 @@ namespace anet::rl {
 
     struct ScalarMetricSubscription;
 
-    struct AgentStepValues : anet::ModuleBase {
-        float q_sa = std::numeric_limits<float>::quiet_NaN();
-        float state_value = std::numeric_limits<float>::quiet_NaN();
-        float approx_priority = std::numeric_limits<float>::quiet_NaN();
-        std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
-        {
-            // 既知だが未成立の値と未知の鍵を分ける。
-            if (key == "q_sa") return q_sa;
-            if (key == "state_value") return state_value;
-            if (key == "approx_priority") return approx_priority;
-            return std::nullopt;
-        }
-    };
-
-    struct AgentStepCompletion {
+    struct AgentStepDiagnosticsCompletion {
         int64_t lane = 0;
         int64_t steps_back = 0;
-        float approx_priority = std::numeric_limits<float>::quiet_NaN();
+        std::vector<std::string> resolved_keys;
+        std::unique_ptr<const anet::Module> values; ///< 対象1行をGetScalar(key, 0)で読む所有値。
     };
 
     struct AgentStepDiagnosticsResult {
-        std::vector<AgentStepValues> current;
-        std::vector<AgentStepCompletion> completed;
+        std::unique_ptr<const anet::Module> current; ///< batchをGetScalar(key, lane)で読む所有値。
+        std::vector<std::vector<std::string>> pending_keys; ///< lane別。NaNとは独立に遅延確定を示す。
+        std::vector<AgentStepDiagnosticsCompletion> completed;
     };
 
-    class AgentStepDiagnostics {
+    /// Agent固有のstep診断値を生成し、laneごとの系列窓を所有する。
+    /// pendingに示す鍵もcurrentでは既知の鍵としてNaNを返す。
+    /// pendingの鍵は値が成立しなかった場合もNaNで確定を返し、必ず待機を終える。
+    class AgentStepDiagnosticsProvider {
     public:
         virtual AgentStepDiagnosticsResult Observe(const BatchExperience& experience) = 0;
         virtual void Reset() = 0;
-        virtual ~AgentStepDiagnostics() = default;
+        virtual ~AgentStepDiagnosticsProvider() = default;
     };
 
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
         virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
-        virtual std::unique_ptr<AgentStepDiagnostics> CreateStepDiagnostics(int64_t num_lanes) const
+        virtual std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const
         {
             return nullptr;
         }

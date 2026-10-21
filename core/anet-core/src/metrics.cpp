@@ -1,17 +1,102 @@
-// step_trace.cpp
-#include "anet/step_trace.hpp"
-#include <sstream>
-#include <array>
-#include <format>
-#include <cmath>
+// metrics.cpp
+#include "anet/metrics.hpp"
+#include <algorithm>
 #include <charconv>
+#include <limits>
 #include <set>
-#include "metric_tokens.hpp"
-#include "anet/str_util.hpp"
-#include "anet/observers.hpp"
+#include "metrics_impl.hpp"
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
+#include "anet/util.hpp"
 
 using namespace anet::rl;
+using namespace anet::rl::metric_tokens;
+
+std::optional<float> MetricValueReader::Read(const MetricValueContext& context,
+    EventField field, const std::string& key, int64_t lane)
+{
+    // 結果型はModuleではないため、遷移の読み口へ直接委譲する。
+    if (field == EventField::ENV_STEP) {
+        return context.step_result ? context.step_result->GetScalar(key, lane) : std::nullopt;
+    }
+    // 呼び出し側が集約・探索・未知値の扱いを決め、ここは取得元だけを解決する。
+    const anet::Module* source = nullptr;
+    switch (field) {
+    case EventField::AGENT: source = context.agent; break;
+    case EventField::AGENT_STEP: source = context.agent_step; break;
+    case EventField::RUNNER: source = context.runner; break;
+    case EventField::ACTOR: source = context.runner ? context.runner->GetActor().get() : nullptr; break;
+    case EventField::ENV: source = context.env ? context.env
+        : (context.runner ? context.runner->GetBatchEnv().get() : nullptr); break;
+    case EventField::EXPERIENCE: source = context.experience; break;
+    case EventField::ACTION_INFO: source = context.action_info; break;
+    case EventField::UPDATE_RESULT: source = context.update_result; break;
+    default: break;
+    }
+    return source ? source->GetScalar(key, lane) : std::nullopt;
+}
+
+// 宣言順と各指定の出現を残し、既定値・後勝ち・診断はチャネル側へ委ねる。
+std::vector<Token> anet::rl::metric_tokens::ParseMetricTokens(const std::string& definition)
+{
+    std::vector<Token> tokens;
+    for (const auto& raw : anet::Split(definition, { " " }, true)) {
+        Token token{ .raw = raw, .value = raw };
+        if (raw == "@train" || raw == "@learn" || raw == "@episode_end" || raw == "@session_end") {
+            token.kind = Kind::EVENT;
+            token.value = raw.substr(1);
+        } else if (raw == "$train_step" || raw == "$learn_step" || raw == "$episode_step"
+            || raw == "$exp_step" || raw == "$update_step" || raw == "$sim_step") {
+            token.kind = Kind::STEP;
+            token.value = raw.substr(1);
+        } else if (raw == "$actor" || raw == "$agent" || raw == "$env" || raw == "$env_step" || raw == "$runner"
+            || raw == "$batch_experience" || raw == "$exp" || raw == "$batch_update_result"
+            || raw == "$update_result" || raw == "$result" || raw == "$action" || raw == "$action_info") {
+            token.kind = Kind::TARGET;
+            token.value = raw.substr(1);
+        } else if (raw == "$train" || anet::StartsWith(raw, "$eval.[")) {
+            token.kind = Kind::SCOPE;
+            token.value = raw == "$train" ? "train" : anet::ExtractBetween(raw, "$eval.[", "]");
+        } else if (raw == "$ema") {
+            token.kind = Kind::EMA;
+        } else {
+            const auto attr = anet::Split(raw, { ":" }, true);
+            if (attr.size() == 2) {
+                token.kind = Kind::ATTRIBUTE;
+                token.attribute = attr[0];
+                token.value = attr[1];
+                if (attr[0] == "event") token.kind = Kind::EVENT;
+                else if (attr[0] == "step" || attr[0] == "step_axis") token.kind = Kind::STEP;
+                else if (attr[0] == "target") token.kind = Kind::TARGET;
+            }
+        }
+        if (token.kind == Kind::EVENT) {
+            if (token.value == "train") token.event = EventType::TRAIN;
+            else if (token.value == "learn") token.event = EventType::LEARN;
+            else if (token.value == "episode_end") token.event = EventType::EPISODE_END;
+            else if (token.value == "session_end") token.event = EventType::SESSION_END;
+        } else if (token.kind == Kind::STEP) {
+            // 属性形は従来の短縮名を受理し、$ 形だけ train_step / learn_step を受理する。
+            if (token.value == "train" || (token.attribute.empty() && token.value == "train_step")) token.step = StepAxis::TRAIN;
+            else if (token.value == "learn" || (token.attribute.empty() && token.value == "learn_step")) token.step = StepAxis::LEARN;
+            else if (token.value == "episode" || token.value == "episode_step") token.step = StepAxis::EPISODE;
+            else if (token.value == "exp" || token.value == "exp_step") token.step = StepAxis::EXP;
+            else if (token.value == "update" || token.value == "update_step") token.step = StepAxis::UPDATE;
+            else if (token.value == "sim" || token.value == "sim_step") token.step = StepAxis::SIM;
+        } else if (token.kind == Kind::TARGET) {
+            if (token.value == "actor") token.field = EventField::ACTOR;
+            else if (token.value == "agent") token.field = EventField::AGENT;
+            else if (token.value == "env") token.field = EventField::ENV;
+            else if (token.value == "env_step") token.field = EventField::ENV_STEP;
+            else if (token.value == "runner") token.field = EventField::RUNNER;
+            else if (token.value == "exp" || token.value == "batch_experience") token.field = EventField::EXPERIENCE;
+            else if (token.value == "update_result" || token.value == "batch_update_result" || token.value == "result") token.field = EventField::UPDATE_RESULT;
+            else if (token.value == "action_info" || token.value == "action") token.field = EventField::ACTION_INFO;
+        }
+        tokens.push_back(std::move(token));
+    }
+    return tokens;
+}
 
 std::vector<StepTraceColumnSpec> StepTraceColumnSpec::Parse(const anet::ConfigData& config, const EnvSpec& spec)
 {
@@ -65,10 +150,6 @@ std::vector<StepTraceColumnSpec> StepTraceColumnSpec::Parse(const anet::ConfigDa
             && (aggregation->base_key == "episode_return" || aggregation->base_key == "episode_steps"))) {
             invalid("aggregation only for $runner episode_return/episode_steps");
         }
-        if (column.target == "$agent_step" && column.key != "q_sa"
-            && column.key != "state_value" && column.key != "approx_priority") {
-            invalid("q_sa, state_value or approx_priority for $agent_step");
-        }
         const bool action = column.target == "$action_info" && column.key == "action";
         const bool action_dimension = column.target == "$action_info" && column.key.starts_with("action.[");
         if (action && !spec.action_spec.is_discrete) invalid("action.[dimension] for continuous actions");
@@ -98,12 +179,9 @@ StepTraceBuilder::StepTraceBuilder(const anet::ConfigData& config, const EnvSpec
     : columns_(StepTraceColumnSpec::Parse(config, spec)), num_lanes_(num_lanes)
 {
     ANET_CHECK_MSG(num_lanes > 0, "Step trace lane count must be positive. actual=" << num_lanes);
-    diagnostics_ = agent ? agent->CreateStepDiagnostics(num_lanes) : nullptr;
+    diagnostics_ = agent ? agent->CreateStepDiagnosticsProvider(num_lanes) : nullptr;
     lane_steps_.resize(static_cast<size_t>(num_lanes), 0);
     pending_.resize(static_cast<size_t>(num_lanes));
-    has_priority_column_ = std::any_of(columns_.begin(), columns_.end(), [](const auto& column) {
-        return column.target == "$agent_step" && column.key == "approx_priority";
-    });
 }
 
 void StepTraceBuilder::SetHandlers(AddedHandler added, Handler completed)
@@ -123,20 +201,19 @@ void StepTraceBuilder::Reset()
 void StepTraceBuilder::OnTrain(const TrainEvent& event)
 {
     ANET_PROFILE_FUNC();
-    // 診断は一度だけbatchで進め、Qと将来確定した値を同じ遷移へ結び付ける。
+    // 診断は一度だけbatchで進め、即時値と将来確定した値を同じ遷移へ結び付ける。
     ANET_CHECK_MSG(event.step_result != nullptr && event.step_result->reward.size(0) == num_lanes_,
         "Step trace requires a matching Step result. expected_lanes=" << num_lanes_);
     auto values = diagnostics_ ? diagnostics_->Observe(event.experience) : AgentStepDiagnosticsResult{};
     if (diagnostics_) {
-        ANET_CHECK_MSG(values.current.size() == static_cast<size_t>(num_lanes_),
+        ANET_CHECK_MSG(values.current && values.pending_keys.size() == static_cast<size_t>(num_lanes_),
             "Step diagnostics lane count mismatch. expected=" << num_lanes_);
     }
-    const AgentStepValues unavailable;
     for (int64_t lane = 0; lane < num_lanes_; ++lane) {
         const MetricValueContext context{ .agent = event.agent.get(), .runner = event.runner.get(),
             .env = event.env.get(), .experience = &event.experience,
             .action_info = event.action_info.get(), .step_result = event.step_result.get(),
-            .agent_step = diagnostics_ ? &values.current[lane] : &unavailable };
+            .agent_step = values.current.get() };
         auto row = std::make_shared<StepTrace>();
         row->id = next_id_++;
         row->step = event.counts.exp_step;
@@ -149,22 +226,31 @@ void StepTraceBuilder::OnTrain(const TrainEvent& event)
                 : column.target == "$actor" ? EventField::ACTOR
                 : column.target == "$action_info" ? EventField::ACTION_INFO
                 : column.target == "$agent_step" ? EventField::AGENT_STEP : EventField::ENV_STEP;
-            const auto value = MetricValueReader::Read(context, field, column.key, lane);
+            const auto value = field == EventField::AGENT_STEP && !diagnostics_
+                ? std::optional(std::numeric_limits<float>::quiet_NaN())
+                : MetricValueReader::Read(context, field, column.key, lane);
             if (!value) {
                 ANET_SYSTEM_ERROR("Step trace scalar is unavailable. column=" << column.number
                     << " target='" << column.target << "' key='" << column.key << "' lane=" << lane
                     << " expected=recognized scalar key.");
             }
             row->values.push_back(*value);
+            // 値がfiniteでもpendingなら待ち、既知NaNでもpendingでなければ確定する。
+            const bool waiting = diagnostics_ && field == EventField::AGENT_STEP
+                && std::find(values.pending_keys[lane].begin(), values.pending_keys[lane].end(), column.key)
+                    != values.pending_keys[lane].end();
+            row->value_ready.push_back(!waiting);
         }
-        row->complete = !diagnostics_ || !has_priority_column_;
+        row->complete = std::all_of(row->value_ready.begin(), row->value_ready.end(), [](bool ready) { return ready; });
         if (!row->complete) pending_[lane].push_back({ .step = lane_steps_[lane], .row = row });
         if (added_) added_(row, event);
-        if (row->complete && completed_) completed_(row);
+        if (row->complete && completed_) completed_(row, {});
     }
     // 保持画像を持たないcoreの行だけを待ち、遅延列を一度だけ確定する。
     for (const auto& completion : values.completed) {
-        ANET_CHECK(completion.lane >= 0 && completion.lane < num_lanes_ && completion.steps_back >= 0);
+        ANET_CHECK_MSG(completion.lane >= 0 && completion.lane < num_lanes_ && completion.steps_back >= 0
+            && completion.values, "Invalid step diagnostic completion. lane=" << completion.lane
+            << " steps_back=" << completion.steps_back << " expected=valid lane, nonnegative distance and scalar source.");
         auto& pending = pending_[completion.lane];
         const auto wanted = lane_steps_[completion.lane] - completion.steps_back;
         const auto found = std::find_if(pending.begin(), pending.end(), [&](const auto& value) {
@@ -172,180 +258,25 @@ void StepTraceBuilder::OnTrain(const TrainEvent& event)
         });
         if (found == pending.end()) continue;
         auto row = found->row;
+        std::vector<size_t> resolved_columns;
         for (size_t i = 0; i < columns_.size(); ++i) {
-            if (columns_[i].target == "$agent_step" && columns_[i].key == "approx_priority") {
-                row->values[i] = completion.approx_priority;
+            const auto& column = columns_[i];
+            if (row->value_ready[i] || column.target != "$agent_step"
+                || std::find(completion.resolved_keys.begin(), completion.resolved_keys.end(), column.key)
+                    == completion.resolved_keys.end()) continue;
+            const auto value = completion.values->GetScalar(column.key, 0);
+            if (!value) {
+                ANET_SYSTEM_ERROR("Step trace completion scalar is unavailable. column=" << column.number
+                    << " key='" << column.key << "' lane=" << completion.lane << " expected=recognized scalar key.");
             }
+            row->values[i] = *value;
+            row->value_ready[i] = true;
+            resolved_columns.push_back(i);
         }
-        row->complete = true;
-        if (completed_) completed_(row);
-        pending.erase(found);
+        row->complete = std::all_of(row->value_ready.begin(), row->value_ready.end(), [](bool ready) { return ready; });
+        if (!resolved_columns.empty() && completed_) completed_(row, resolved_columns);
+        if (row->complete) pending.erase(found);
     }
     for (auto& step : lane_steps_) ++step;
 }
 
-void TracePlayer::SetRows(std::vector<int64_t> oldest_to_newest)
-{
-    // 行IDで選択を追跡し、先頭への挿入で選択や位置を動かさない。
-    rows_ = std::move(oldest_to_newest);
-    if (rows_.empty()) {
-        selected_.reset();
-        playing_ = false;
-        progress_ = 0;
-    } else if (selected_ && std::find(rows_.begin(), rows_.end(), *selected_) == rows_.end()) {
-        selected_ = rows_.front();
-        progress_ = 0;
-    }
-}
-
-void TracePlayer::Select(int64_t id, bool keep_playing)
-{
-    ANET_CHECK_MSG(std::find(rows_.begin(), rows_.end(), id) != rows_.end(),
-        "Trace selection is unavailable. id=" << id << " expected=a retained row.");
-    selected_ = id;
-    if (!keep_playing) playing_ = false;
-    progress_ = 0;
-}
-
-bool TracePlayer::CanPlay(double base_steps_per_second) const
-{
-    ANET_CHECK_MSG(std::isfinite(base_steps_per_second) && base_steps_per_second >= 0,
-        "Invalid trace playback rate. base_rate=" << base_steps_per_second << " expected=finite nonnegative value.");
-    return !rows_.empty() && base_steps_per_second > 0;
-}
-
-std::string TracePlayer::Play()
-{
-    if (rows_.empty()) return {};
-    // Liveと最新での再生開始だけを最古へ戻す。
-    if (!selected_ || (!playing_ && *selected_ == rows_.back())) selected_ = rows_.front();
-    playing_ = true;
-    progress_ = 0;
-    return "Trace: play";
-}
-
-std::string TracePlayer::Pause()
-{
-    if (rows_.empty()) return {};
-    if (!selected_) selected_ = rows_.back();
-    playing_ = false;
-    progress_ = 0;
-    return "Trace: pause";
-}
-
-std::string TracePlayer::Stop()
-{
-    selected_.reset();
-    playing_ = false;
-    progress_ = 0;
-    return "Trace: stop (live)";
-}
-
-std::string TracePlayer::StepForward()
-{
-    if (rows_.empty()) return {};
-    if (!selected_) {
-        selected_ = rows_.back();
-        return "Trace: step";
-    }
-    playing_ = false;
-    progress_ = 0;
-    const auto found = std::find(rows_.begin(), rows_.end(), *selected_);
-    if (std::next(found) == rows_.end()) return "Trace: end";
-    selected_ = *std::next(found);
-    return "Trace: step";
-}
-
-std::string TracePlayer::StepBack()
-{
-    if (rows_.empty()) return {};
-    if (!selected_) {
-        selected_ = rows_.back();
-        return "Trace: step back";
-    }
-    playing_ = false;
-    progress_ = 0;
-    const auto found = std::find(rows_.begin(), rows_.end(), *selected_);
-    if (found == rows_.begin()) return "Trace: start";
-    selected_ = *std::prev(found);
-    return "Trace: step back";
-}
-
-double TracePlayer::GetSpeed() const
-{
-    return std::ldexp(1.0, speed_index_ - 3);
-}
-
-std::string TracePlayer::GetSpeedLabel() const
-{
-    const std::array<const char*, 7> labels{ "x1/8", "x1/4", "x1/2", "x1", "x2", "x4", "x8" };
-    return labels[speed_index_];
-}
-
-std::string TracePlayer::Faster()
-{
-    const bool at_end = speed_index_ == 6;
-    if (!at_end) ++speed_index_;
-    return "Trace: speed " + GetSpeedLabel() + (at_end ? " (max)" : "");
-}
-
-std::string TracePlayer::Slower()
-{
-    const bool at_end = speed_index_ == 0;
-    if (!at_end) --speed_index_;
-    return "Trace: speed " + GetSpeedLabel() + (at_end ? " (min)" : "");
-}
-
-std::string TracePlayer::Tick(double seconds, double base_steps_per_second)
-{
-    ANET_CHECK_MSG(std::isfinite(seconds) && seconds >= 0 && std::isfinite(base_steps_per_second)
-        && base_steps_per_second >= 0, "Invalid trace playback clock. seconds=" << seconds
-        << " base_rate=" << base_steps_per_second << " expected=finite nonnegative values.");
-    if (!playing_ || !selected_ || rows_.empty()) return {};
-    // 端へ到達した瞬間に止め、実行環境のfps変更にも次のtickから追随する。
-    progress_ += seconds * base_steps_per_second * GetSpeed();
-    while (progress_ >= 1.0) {
-        progress_ -= 1.0;
-        auto found = std::find(rows_.begin(), rows_.end(), *selected_);
-        if (std::next(found) != rows_.end()) selected_ = *std::next(found);
-        if (*selected_ == rows_.back()) {
-            playing_ = false;
-            progress_ = 0;
-            return "Trace: end";
-        }
-    }
-    return {};
-}
-
-float anet::rl::AppendTracePercentile(std::deque<float>& values, float value, size_t window_size)
-{
-    ANET_PROFILE_FUNC();
-    ANET_CHECK_MSG(window_size > 0, "Trace percentile window must be positive. actual=" << window_size);
-    // 不成立値は窓を進めず、有限値の直近窓へ自分を含めて中央順位を求める。
-    if (!std::isfinite(value)) return std::numeric_limits<float>::quiet_NaN();
-    values.push_back(value);
-    if (values.size() > window_size) values.pop_front();
-    size_t less = 0;
-    size_t equal = 0;
-    for (const float previous : values) {
-        if (previous < value) ++less;
-        else if (previous == value) ++equal;
-    }
-    return static_cast<float>(100.0 * (static_cast<double>(less) + 0.5 * equal) / values.size());
-}
-
-std::string StepTraceColumnSpec::Format(float value, const ActionSpec& actions) const
-{
-    // 空欄は非有限値だけに使い、大きな整数を有効数字で丸めない。
-    if (!std::isfinite(value)) return {};
-    if (target == "$action_info" && key == "action") {
-        ANET_CHECK_MSG(actions.is_discrete && std::trunc(value) == value && value >= 0
-            && value < static_cast<float>(actions.value_labels.size()),
-            "Trace action is out of range. column=" << number << " value=" << value
-                << " expected=[0," << actions.value_labels.size() << ").");
-        const auto index = static_cast<size_t>(value);
-        if (display == "name") return actions.value_labels[index];
-        if (display == "value_name") return std::to_string(index) + ":" + actions.value_labels[index];
-    }
-    return std::trunc(value) == value ? std::format("{:.0f}", value) : std::format("{:.4g}", value);
-}

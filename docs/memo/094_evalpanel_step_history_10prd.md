@@ -7,6 +7,16 @@
 > 2026-10-20 追記: 097 を再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、env への問い合わせ（`$env`）は今の env の状態を返す。BatchEnv は Reset と Step のままで、`ResetEndedEpisodes()` は作らない。そのため、§3.3 の 097 の行と §7 の 1 を事実に合わせて直した。D4 の「`$env` は遷移のあと・リセット前の env を読む」は成り立たなくなったので、扱いを §7 の 1 の未決に置いた。D11 の「終端の行の画面はリセット前」と、097 の D4（リセット後の情報は Runner だけが受け取る）は変わらない。
 > 2026-10-20 改訂（Claude Code、097 の申し送りの反映）: step trace の列から `$env` を外した（ユーザーの裁定）。`$env_step` を 097 のメトリクスと同じ target にし、metrics の DSL へ `$env_step` を足すのは 097、`$agent_step` は 081 とした。D4・D5・D8・§7 の 1・受入 4 を直した。
 > 2026-10-21 訂正（Claude Code、実装のコードレビューで判明）: §3.1 の「1 frame に複数の step を進める構成では、View のスナップショットは step ごとには作られない」は誤りだった。EvalPanel は View の更新を強制の指定で呼んでおり、変更前から step ごとに作っていた。§3.1 と D11 の該当文を事実に合わせて直した。決定は変えていない。
+> 2026-10-21 改訂（Claude Code、実装のコードレビューで判明した、共通の仕組みへの DQN の鍵の漏れの直し）:
+> - 旧 D5 は、`$agent_step` の鍵を共通の側で `q_sa`・`state_value`・`approx_priority` に決め、構築時に検査していた。そのため、共通の型と列の解析が DQN の鍵の名前を持っていた。
+> - 鍵は Agent の step 部品が決め、共通の仕組みは鍵の名前を持たない形に改めた。部品が答えない鍵は最初の行で止める。
+> - 部品を出さない Agent では、`$agent_step` の列は鍵によらず空欄にする。そのため、その場合は鍵の書き間違いに気づけない。
+> - 実装（20impl）が先に書き換えた D5・D6・D9 を、契約の文に整えた。D4・D8・D10・§4.4・受入 5 も合わせた。
+> 2026-10-21 改訂（実装の名前・継承・置き場の見直し。ユーザーと Claude Code が決め、Codex が実装した）:
+> - Agent の step 部品の名前を、責務が分かる `AgentStepDiagnosticsProvider` に改めた。関連する型も `AgentStepDiagnostics` で始まる名前にそろえた。
+> - `BatchActionInfo` を Module にした。実行した行動（`action`）は、その型の `GetScalar` が答える（D5）。
+> - 追従 pane の口の名前を `CreateTraceSnapshot` にし、`MetricsWiring` を `RunManager` の内側のクラスにした。
+> - §4.4 のクラス一覧を合わせ、`BatchActionInfo` の行を足した。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
 > 関連: [done/035_approx_actor_priority_per_10prd.md](done/035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
@@ -121,9 +131,9 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 
 | 時点 | target と鍵 | 中身 |
 |---|---|---|
-| 判断の時点（s_t。行動を選ぶ前） | `$action_info`（`action` を含む）、`$agent_step q_sa`・`state_value`、`$actor` | s_t で何を見て何を選んだか。強制した行動も反映される |
+| 判断の時点（s_t。行動を選ぶ前） | `$action_info`（`action` を含む）、`$agent_step` のうちその step で決まる鍵（DQN 系では `q_sa`・`state_value`）、`$actor` | s_t で何を見て何を選んだか。強制した行動も反映される |
 | 遷移のあと（a_t の結果、リセット前） | `$env_step`（`reward`・`done`・`truncated` と、Step の結果が答える鍵） | r_t、s_{t+1} が終端か打ち切りか、step 後の得点・残機・RAM（Atari の hns などの派生の鍵も） |
-| 遷移の全体 | `$agent_step approx_priority` | 遷移 t の近似優先度。n step 後に決まる |
+| 遷移の全体 | `$agent_step` のうちあとで決まる鍵（DQN 系では `approx_priority`） | 遷移 t の近似優先度。n step 後に決まる |
 | 通知の時点のカウンタ・集計 | `$runner` | この step を数えたあとのカウンタ、この step の報酬、この step で完了したエピソードの集計（R1・R2 のあと） |
 
 - 1 行の値はすべて同じ遷移に属する。「前の判断」は行 t−1 に、「次の判断」は行 t+1 にあるので、前後を指す target（`_prev`・`_next`）は作らない。
@@ -133,16 +143,26 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 
 **D5 新しい target と鍵。**
 - `$env_step`: その step の Step の結果（lane ごと）。097 のメトリクスの `$env_step` と同じ target である（097 の §4.2 の 8）。鍵は `reward`・`done`・`truncated`（Step の結果の欄。done・truncated は 0/1）と、Step の結果が答える鍵（既定は env がその step の info（aux）に入れたスカラーの鍵。Atari は hns・`game_score.ge.[N]`・`ram_metric.[n]` などの派生の鍵も。097 の D5）。値はその遷移の時点の値（速報値）で、エピソードが終わった step ではエピソード単位の鍵が確定値になる（097 の D3・D6）。鍵が無い、またはスカラーでなければ、その鍵を最初に読んだ行で fail-fast（Step の結果が答える鍵は実行するまで分からない）。`reward`・`done`・`truncated` は、どの env でも Step の結果そのものが lane ごとの欄の値で答える鍵で、env の aux に同じ名前の鍵があっても読まない（env の Step の結果の型が lane ごとの問い合わせを欄へ回す。097 の途中の実装もこの順）。これは不正な設定を別の値へ置き換える挙動ではなく、target の契約が持つ予約の鍵である。env は aux にこの 3 つの名前を使わない（使うと読まれない）。
-- `$agent_step`: Agent の step 部品（D6）の値。鍵は `q_sa`（Q(s_t, a_t)）・`state_value`（max_a Q(s_t, a)。Munchausen では soft value）・`approx_priority`。ほかの鍵は構築時に fail-fast。部品を出さない Agent では 3 つとも NaN（空欄）にし、構築時に止めない。理由は、既定の列（D13、common.txt）がどの env・Agent にも効くので、DQN 系以外の構成を止めないためであり、既知の鍵が値を持たないときの NaN は trace と同じ扱いだからである（[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) の Consequences「既知値の NaN は null、値の意味の選択は設定者が担う」）。
+- `$agent_step`: Agent の step 部品（D6）が答える値。
+  - どの鍵があり何を意味するかは部品が決める。共通の仕組み（列の解析、生成器、パネル）は鍵の名前を持たない。共通の側で鍵を決めると、共通の型と列の解析が DQN の鍵の名前を持つことになるためである（2026-10-21 のコードレビューで判明）。
+  - DQN 系の部品が答える鍵は、`q_sa`（Q(s_t, a_t)）、`state_value`（max_a Q(s_t, a)。Munchausen では soft value）、`approx_priority`（あとで決まる）の 3 つ。
+  - 部品が答えない鍵は、ほかの target と同じく、最初に読んだ行で fail-fast にする（D8 の実行時の fail-fast）。部品が知っている鍵でも、値がまだ無ければ NaN（空欄）になる。
+  - 部品を出さない Agent では、`$agent_step` の列は、鍵が何であってもすべて NaN（空欄）にし、止めない。既定の列（D13、common.txt）をどの env・Agent でも使えるようにするためである。そのかわり、部品を出さない Agent では、鍵の書き間違いに気づけない。
 - `$runner` の鍵 `step_in_episode`（新規、lane ごと）: この遷移を数えたあとの、今のエピソードの中の step 数（1 始まり。終端の行ではエピソードの長さ）。Runner がエピソードの集計に使っている lane ごとの step 数（`EpisodeStatsAccumulator`、[env.cpp:230-241](../../core/anet-core/src/env.cpp)）から読み、別のカウンタを持たない。`episode_step` という名前は、DSL でエピソード数の軸を指すので使わない（§3.4）。
 - `$runner` のエピソード集計の鍵（`episode_return`・`episode_steps`）は、Runner の鍵の形のとおり集約の接頭辞つき（`mean.episode_return` など）で書く。step trace では、その step で完了したエピソードの値（完了が無ければ NaN）になる。集約の接頭辞を書けるのはこの鍵だけで、ほかの鍵と target では fail-fast（trace と同じく、step trace は lane ごとの値を扱うため）。
-- `$action_info` の鍵 `action`: 実行した行動（強制した行動を含む）。離散なら `action`、連続なら次元ごとの `action.[<次元>]`。連続の行動に `action` を書いたら fail-fast で `action.[<次元>]` を案内する。どの Agent でも読める（ActionInfo の `GetAction()` から読み、Module の `GetScalar` を要しない）。
+- `$action_info` の鍵 `action`: 実行した行動（強制した行動を含む）。離散なら `action`、連続なら次元ごとの `action.[<次元>]`。連続の行動に `action` を書いたら fail-fast で `action.[<次元>]` を案内する。どの Agent でも読める（ActionInfo の基底の型が、lane を指定した問い合わせに `GetAction()` の値で答えるので、Agent ごとの実装を要しない）。
 - 新しい target の名前 `$env_step`・`$agent_step` は、DSL の step 軸のトークン（`$exp_step` など）と同じ `_step` で終わる。字句としては衝突せず（step 軸のトークンは決まった 6 つ、§3.4）、名前はユーザーの指定なので、このままにする（2026-10-19 の裁定）。
 - 新しい target は列の宣言（D8）の解析と読み口（D1）に足す。metrics の DSL（`ParseMetricTokens` と trace の target の制限）へは、`$env_step` を 097 が足し（097 の §4.2 の 9）、`$agent_step` を step trace を trace チャネルへ出す PRD 081 の改訂で足す。
 理由: 値の持ち主ごとに target を分けると、設定の階層がフレームワークの概念（Runner・Actor・Env・Agent）と一致し、PRD 081 の step trace でも同じ書き方で使える。遷移の時点の env の値は Step の結果にしか無い（§3.3、097 の D1）。
 
 **D6 Agent の step 部品（近似優先度）。** Agent が step trace 用の部品を作って渡す。DQN 系（DefaultDQNAgent の DQN・QR・IQN、Munchausen を含む。同じ DQN の部品を使う RainbowAgent）だけが作り、ほかの Agent は作らない（`$agent_step` は空欄）。
-- 部品は lane ごとに、step ごとの `action_info`・報酬・done・truncated を受け取る。`q_sa`・`state_value` はその step のうちに返し、`approx_priority` は n step 後に「何行前の遷移の値か」を添えて返す。
+- 部品と生成器（D9）の取り決め（どの Agent の部品にも共通）:
+  - 部品は、step ごとに lane ごとの `action_info`・報酬・done・truncated を受け取る。
+  - その step の値は、lane と鍵で 1 つずつ引ける形で返す。ほかの target と同じく、Module の `GetScalar(鍵, lane)` で読む。鍵の名前と値の型は部品の中に置き、共通の型には置かない。
+  - その step の行で、あとで決まる鍵を lane ごとに示す。「値がまだ決まっていない」と「決まったが値が無い（NaN）」は別のものとして扱う。
+  - あとで決まると示した鍵も、その step の値の中では、知っている鍵として NaN で答える。
+  - 値が決まったら、「どの lane の何行前の行か」「決まった鍵」「その値」を添えて返す。打ち切りなどで決まらないと分かったときも、NaN で決まったものとして返す。あとで決まると示した鍵は、必ずどちらかの形で返す。
+- DQN 系の部品は、`q_sa`・`state_value` をその step のうちに返す。`approx_priority` は、あとで決まる鍵として示し、n step 後に返す。DQN の鍵の名前と値の型は、DQN の実装の中だけに置く。
 - Actor Q ヒントは、Actor と同じ共有のヘルパーで aux の `q_values` から作る（`Actor::MakeAction` の該当部分をヘルパーへ切り出し、Actor もそれを呼ぶ）。`actor_approx` の構成で `action_info` に既にヒントがあっても使わず、常にヘルパーで作り直す（gather と max が 1 回ずつで軽く、構成によって値の出どころを変えないため）。n step の組み立ては replay と同じ処理を使い、式は `DqnInitialPriorityEstimator` を使う。GUI に式を書かない。Actor の設定キーは足さない。
 - 使う設定は Learner の γ・実効 n・per_eps・clip・TBO・Munchausen。PER の有無と `per_initial_priority_mode` によらず計算する（見たいのは TD の大きさで、PER が無くても意味がある）。
 - 報酬には、学習側と同じ reward scaler の変換（倍率とクリップ）を、統計を更新せずに掛ける。RunningStd の scaler では、replay に入った報酬は Push の時点の倍率なので、今の倍率とは違いうる。
@@ -173,11 +193,15 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 - 1 行に同じ属性（`label:`・`display:`）は 1 回だけ書ける（trace の宣言で指定の重複を拒むのと同じ。[140 の trace チャネルの節](../design/140_observability.jp.md)）。
 - `display:` は表示の仕方。行動の列（`$action_info action`）は `value`（番号）・`name`（EnvSpec の `action_spec.value_labels` の名前）・`value_name`（`3:UPFIRE`。既定）。数値の列は `value`（既定）・`pct`（直近の値の中の百分位）。連続行動の `action.[<次元>]` は `value` だけ。行の値は数値のままで、名前は表示だけで置き換える。離散の行動では、行動の数が `value_labels` の数そのものなので（[rl.hpp:269-273](../../core/anet-core/include/anet/rl.hpp)）、名前の無い行動は無く、代わりの表示も置かない。連続行動の env では既定の列の `$action_info action` が構築時に止まるので、その env の設定で列を上書きする（PPO に対応するときに見直す）。
 - 構築時の fail-fast: 番号が 1 以上の整数でない、target が無い・2 つ以上、鍵が 1 つでない、未知の target や step trace で読めない target（`$agent`・`$exp`・`$update_result`・`$env`）、`$runner` のエピソード集計の鍵以外への集約の接頭辞、未知のトークンや属性、同じ属性の重複、空の `label:`、`display:` の値と列の組み合わせが合わない（連続行動に `name`・`value_name` を含む）。
-- 実行時の fail-fast: 読み手が値を返さない鍵（未知の鍵）は、最初に読んだ行で止める（trace と同じ規則）。値が NaN・±Inf なら空欄。
+- 実行時の fail-fast: 読み手が値を返さない鍵（未知の鍵）は、最初に読んだ行で止める（trace と同じ規則）。値が NaN・±Inf なら空欄。部品を出さない Agent の `$agent_step` は、読み手が無いので止めずに空欄にする（D5）。
 理由: 記録の宣言と切り離して見られ、本 PRD だけで完結し、GUI がメトリクスの配線に依存しない（[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)）。表示上の鍵は列番号なので、番号を設定の鍵にする。連続行動（PPO）に備えて、`display:` の値は番号を前提にしない名前にした。
 
 **D9 step trace の生成器。** core に、EvalRunner の `TrainEvent` から step trace を作る生成器を置く。宣言（D8）を解析し、読み口（D1）で列を読み、Agent の step 部品（D6）を lane ごとに呼ぶ。
-- 生成器は「step trace を足した」と「遅れて決まる列がすべて決まった（または、そのエピソードが終わって決まらないと分かった）」の 2 つを知らせる。パネルは前者で行を足して後者で埋め、PRD 081 の trace の出口は後者で 1 行を書ける。
+- 生成器は、列ごとに値が決まったかを持つ。待つのは、部品があとで決まると示した鍵（D6）の列だけである。NaN で決まった列も、そこで待つのをやめる。鍵の名前で待つ列を決める処理は置かない。
+- 生成器は 2 つのことを知らせる。「step trace を足した」と「列が決まった」である。
+  - 「列が決まった」は、あとで決まる列が決まるたびに、その行と、新たに決まった列の位置（列の並びの中の位置）を添えて知らせる。1 回の知らせで全部の列が決まるとは限らない。
+  - 行のすべての列が決まると、その行は「決まった」状態になる。あとで決まる列が無い行も、足した直後に、決まった列なしで 1 回知らせる。
+  - パネルは、前者で行を足し、後者で決まった列を埋める。PRD 081 の trace の出口は、後者のうち、行が「決まった」状態になった知らせでだけ 1 行を書く。途中の知らせでは書かない。
 - 色付けのため、報酬・done・truncated は宣言の有無にかかわらず持つ。
 - UI スレッドで同期に動き、ロックを持たない（§3.1）。
 理由: 表と trace が同じ生成器を使えば、シリーズの後続は列を足すだけで済む。
@@ -188,7 +212,7 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 - メモリの見積もり（Atari、1000 行）: 1 行あたり、EvalPanel の View のスナップショット（210×160 の RGB 画面と 84×84 の観測で約 120〜220 KB）、QValuePanel の値（数 KB）、Conv2d を開いていれば活性（Nature CNN で約 85 KB）。合わせて約 130〜300 MB。表示している間は Live でも持つ。
 - 数値: 値が整数（小数部が 0）なら整数で、そうでなければ有効数字 4 桁で出す。NaN は空欄、done・truncated は 0/1（列の幅をそろえ、空欄を「値が無い」だけに使うため。得点のような大きな整数を丸めないため）。
 - 報酬が 0 でない行と、done か truncated の行に色を付ける（列に出しているかによらない。場面を探す手がかりにするため）。
-- `display:pct` の百分位は、その列の直近 `app.eval_trace_panel.pct_window` 個（既定 10000、1 以上の整数。違反は構築時に fail-fast）の値の中での位置（0〜100、NaN を除く）。表の行数より長い窓で、ゲーム数本分の分布の中の位置を出す。近似優先度のように遅れて決まる値は、決まったときに計算する。
+- `display:pct` の百分位は、その列の直近 `app.eval_trace_panel.pct_window` 個（既定 10000、1 以上の整数。違反は構築時に fail-fast）の値の中での位置（0〜100、NaN を除く）。表の行数より長い窓で、ゲーム数本分の分布の中の位置を出す。百分位は、列の値が決まったときに 1 回だけ計算する（近似優先度のようにあとで決まる値は、決まったとき）。表の上限で消えた行の値も、決まったときに窓へ入れる。
 - パネルを閉じている間も購読は付けたままにし、非表示なら何もしない（step trace もスナップショットも作らず、Agent の step 部品も呼ばない）。開き直したら、表、`pct_window` の値、Agent の step 部品の n step の窓をすべて空から始める。
 理由: `AttachScoped` の Detach は効かず、走行中の attach と detach は学習スレッドの通知と競合しうる（§3.1）。
 
@@ -261,23 +285,24 @@ app.eval_trace_panel.columns.[21] = $env_step lives
 | 名前 | 区分 | 責務 |
 |---|---|---|
 | `MetricValueReader` | 新規 | target・鍵・lane と通知から値を読む共通の読み口。scalar・trace・step trace が使う |
-| `MetricsWiring` | 新規 | RunManager から分けたメトリクス配線（scope の解決、dormant の WARN、attach、定義レコード、購読ヒント） |
-| `RunManager` | 変更 | メトリクスの配線を `MetricsWiring` へ任せる |
+| `RunManager::MetricsWiring` | 新規（RunManager の内側のクラス） | RunManager から分けたメトリクス配線（scope の解決、dormant の WARN、attach、定義レコード、購読ヒント） |
+| `RunManager` | 変更 | メトリクスの配線を内側の `MetricsWiring` へ任せる |
 | `MetricsLogObserverBase`・`MetricsLogTraceObserver` | 変更 | target の解決を `MetricValueReader` に任せる |
+| `BatchActionInfo` | 変更 | Module になる。lane を指定した `action`・`action.[<次元>]` の問い合わせに、実行した行動で答える |
 | `StepTraceColumnSpec` | 新規 | 列の宣言（番号・target・鍵・label・display）の解析と構築時の検査 |
-| `StepTrace` | 新規 | step trace 1 件（列の値、報酬・done・truncated、遅れて決まる列の状態） |
-| `StepTraceBuilder` | 新規 | EvalRunner の `TrainEvent` から step trace を作り、遅れて決まる列を埋め、「足した」「決まった」を知らせる |
-| `AgentStepDiagnostics` | 新規 | Agent の step 部品の interface（lane ごとの step の入力、即時の値、遅れて決まる値） |
-| `Agent` | 変更 | `AgentStepDiagnostics` を作る口を足す（既定は作らない） |
-| `DqnAgentStepDiagnostics` | 新規 | DQN 系の step 部品。ヒントの共有ヘルパー、replay と同じ n step の処理、`DqnInitialPriorityEstimator` で値を出す |
-| Actor Q ヒントの共有ヘルパー | 変更 | `Actor::MakeAction` から切り出し、Actor と `DqnAgentStepDiagnostics` が使う |
+| `StepTrace` | 新規 | step trace 1 件（列の値と列ごとに決まったか、報酬・done・truncated） |
+| `StepTraceBuilder` | 新規 | EvalRunner の `TrainEvent` から step trace を作り、あとで決まる列を埋め、「足した」「列が決まった」を知らせる。鍵の名前で処理を分けない |
+| `AgentStepDiagnosticsProvider` | 新規 | Agent の step 部品の interface（lane ごとの step の入力、その step の値、あとで決まる鍵、決まった値）。鍵の名前と値の型は持たない |
+| `Agent` | 変更 | step 部品を作る口 `CreateStepDiagnosticsProvider` を足す（既定は作らない） |
+| `DqnAgentStepDiagnosticsProvider` | 新規 | DQN 系の step 部品。ヒントの共有ヘルパー、replay と同じ n step の処理、`DqnInitialPriorityEstimator` で値を出す。DQN の鍵（`q_sa`・`state_value`・`approx_priority`）と値の型はこの中に置く |
+| Actor Q ヒントの共有ヘルパー | 変更 | `Actor::MakeAction` から切り出し、Actor と `DqnAgentStepDiagnosticsProvider` が使う |
 | n step の組み立て（`NStepQueueController`・`DefaultExperienceBuilder`） | 変更 | replay と step 部品が共有できる置き場へ移す |
 | `RunnerBase` | 変更 | `step_in_episode` を返す（`EpisodeStatsAccumulator` の lane ごとの step 数と、終端の行では完了したエピソードの長さから） |
 | `EpisodeStatsAccumulator` | 変更 | lane ごとの今の step 数を読めるようにする |
 | `EvalRunner` | 変更 | R1・R2（通知の前の `UpdateMetrics` と、エピソード集計の順） |
 | `EvalTracePanel` | 新規 | Evaluation Trace の pane。表、色、百分位、スナップショットの保持、Live / Trace の切り替え |
-| `TracePlayer` | 新規 | 再生の制御（今の行、速度、端の扱い、行の消失）。GUI に依らない |
-| `TraceFollower` | 新規 | 追従 pane の共通の口（スナップショットを作る、渡されたものを出す、Live に戻る） |
+| `TracePlayer` | 新規（GUI の機能グループ） | 再生の制御（今の行、速度、端の扱い、行の消失）。wx の画面の部品に依らない |
+| `TraceFollower` | 新規 | 追従 pane の共通の口（スナップショットを作る `CreateTraceSnapshot`、渡されたものを出す、Live に戻る） |
 | `ViewBase`（gui.hpp） | 変更 | View のスナップショットを追従 pane の口で渡し、出せるようにする |
 | `EvalPanel`・`QValuePanel`・`Conv2dPanel` | 変更 | 追従 pane として実装する |
 | `RunnerFrame` | 変更 | Evaluation Trace の出し入れ、Live に戻すきっかけ（Resume・手動の行動・Evaluation Trace を閉じる）の配線 |
@@ -307,7 +332,7 @@ app.eval_trace_panel.columns.[21] = $env_step lives
 | # | 事項 | 扱い |
 |---|---|---|
 | 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](097_env_auto_reset_after_notification_10prd.md) は、2026-10-19 に M2 に決めたあと、2026-10-20 の再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、`$env` は今の env の状態を返す。BatchEnv は Reset と Step のまま（097 の D1・D2）。リセット後の情報は Runner だけが受け取る（097 の D4、変わらない）。`$env_step` は、097 の Step の結果が答える鍵（既定は aux のスカラー、Atari は派生の鍵も）を読む、メトリクスと同じ target になる（097 の §4.2 の 8）。097 を本 PRD より先に実装する。step trace の列の `$env` は、097 の §8 の申し送り（ADR 0057 の「時点が決まっている target だけを読む」）どおり列の target から外し、遷移の結果は `$env_step` で読む（2026-10-20 のユーザーの裁定、D4） |
-| 2 | step trace を trace チャネルへ出す段 | PRD 081 を改訂して取り込む（081 の冒頭に 2026-10-19 に追記済み。改訂は 081 のグリルで行う）。081 の実装ノートが trainer.cpp を名指ししている箇所は、`MetricsWiring` を指すよう直す。改訂で決めること: trace 行の step 座標（step trace は `TrainEvent` から作るので、`@train` 系の規則なら EvalPanel 自身の counts になり、`54_evalpanel/episode` の学習側 counts と座標が違う。ADR 0047、CONTEXT.md「学習側 counts」「step座標系」）、metrics の DSL への `$agent_step` の追加（`$env_step` は 097 が足す）、遅れて決まる列を待って 1 行を書くこと |
+| 2 | step trace を trace チャネルへ出す段 | PRD 081 を改訂して取り込む（081 の冒頭に 2026-10-19 に追記済み。改訂は 081 のグリルで行う）。081 の実装ノートが trainer.cpp を名指ししている箇所は、`MetricsWiring` を指すよう直す。改訂で決めること: trace 行の step 座標（step trace は `TrainEvent` から作るので、`@train` 系の規則なら EvalPanel 自身の counts になり、`54_evalpanel/episode` の学習側 counts と座標が違う。ADR 0047、CONTEXT.md「学習側 counts」「step座標系」）、metrics の DSL への `$agent_step` の追加（`$env_step` は 097 が足す）、あとで決まる列を待って 1 行を書くこと（生成器の知らせ方は D9） |
 
 ## 8. 成功の測り方と受入基準
 
@@ -322,7 +347,7 @@ app.eval_trace_panel.columns.[21] = $env_step lives
 2. 単体テスト（Agent の step 部品）: 合成したヒント・報酬の系列について、`approx_priority` が replay の初期優先度の推定（`InitialPriorityCompleter` 経由の値）と一致する。n step の途中の終端、打ち切り（空欄）、TBO、Munchausen の有無、reward scaler の倍率を含む。
 3. 学習の値が変わらない: ヒントのヘルパーを切り出す前と後で、`actor_approx` の同 seed・決定的モードの短い Run の metrics checksum が一致する。
 4. 単体テスト（列の宣言）: 構築時の fail-fast（番号が整数でない・0 以下、鍵が 2 つ、target が無い、未知の target、`$agent`・`$exp`・`$update_result`・`$env`、`$runner` のエピソード集計以外への集約の接頭辞、未知の属性、同じ属性の重複、空の `label:`、`display:name` を数値の列に、連続行動の `action` と `display:name`）と、正しい宣言の解析結果（番号順、label の既定）。
-5. 単体テスト（時点）: 終端の行の `$env_step` の値がリセット前（097 の実装のあと）、`$runner step_in_episode` が終端の行でエピソードの長さになり次の行で 1 に戻る、強制した行動が `$action_info action` に出る、aux に `reward` という鍵を持つ env の Step の結果でも `$env_step reward` が lane ごとの欄の値を返す、`approx_priority` が n step 後に正しい行へ入る。
+5. 単体テスト（時点）: 終端の行の `$env_step` の値がリセット前（097 の実装のあと）、`$runner step_in_episode` が終端の行でエピソードの長さになり次の行で 1 に戻る、強制した行動が `$action_info action` に出る、aux に `reward` という鍵を持つ env の Step の結果でも `$env_step reward` が lane ごとの欄の値を返す、`approx_priority` が n step 後に正しい行へ入る。DQN 以外の部品（テスト用）が答える任意の鍵の列を読める、あとで決まる鍵は部品が示した行の列だけが埋まる（NaN で決まった列も待つのをやめる）、部品が答えない鍵は最初の行で止まる、部品を出さない Agent では `$agent_step` の列が鍵によらず空欄になる。
 6. 単体テスト（R1・R2）: EvalRunner の `TrainEvent` の時点で `$runner reward` がその step の報酬、`$runner mean.episode_steps` がその step で完了したエピソードの値（完了が無ければ NaN）。定期評価のセッションの scalar と trace は編集前と一致する。
 7. 単体テスト（再生の制御）: 速度の段階と端、Live からの再生がいちばん古い行から始まる、いちばん新しい行で止まる、一時停止中の再生が選んでいる行から始まる、選んでいる行が消えたらいちばん古い行へ移る。Live のときの一時停止・ステップ実行・1 行戻るがいちばん新しい行で Trace に入る、いちばん新しい行でのステップ実行といちばん古い行での 1 行戻るがその行に留まる（`Trace: end`・`Trace: start`）、行が 0 件の間はボタンとスライダーが無効。
 8. 手動の確認（Runner、Atari の online）:

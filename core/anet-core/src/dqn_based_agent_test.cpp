@@ -7,7 +7,7 @@
 #include "anet/rainbow_agent.hpp"
 #include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
-#include "anet/step_trace.hpp"
+#include "anet/metrics.hpp"
 #include "dqn_based_agent.hpp"
 #include "dqn_based_heads.hpp"
 #include "nn_impl.hpp"
@@ -8639,7 +8639,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     diagnostic_spec.action_spec.value_labels = { "a0", "a1" };
     std::shared_ptr<rl::Agent> agent = std::make_shared<dqn::DefaultDQNAgent>(config,
         MakeAgentForwardNetworkConfig(), rl::BatchEnvSpec{1, 1}, diagnostic_spec, torch::kCPU, 123);
-    auto diagnostics = agent->CreateStepDiagnostics(1);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
     REQUIRE(diagnostics);
     const auto make = [&](bool first, float reward, const torch::Tensor& q) {
         auto action = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64),
@@ -8650,16 +8650,21 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
             action, torch::tensor({reward}), MakeDeterminismState(1, 1, {false}, {false}, {false})};
     };
     const auto first = diagnostics->Observe(make(true, 1.0f, torch::tensor({{4.0f, 5.0f}})));
-    REQUIRE(first.current.size() == 1);
-    CHECK(first.current[0].q_sa == 5.0f);
-    CHECK(first.current[0].state_value == 5.0f);
+    REQUIRE(first.current);
+    CHECK(first.current->GetScalar("q_sa", 0) == 5.0f);
+    CHECK(first.current->GetScalar("state_value", 0) == 5.0f);
+    CHECK(first.pending_keys == std::vector<std::vector<std::string>>{{"approx_priority"}});
+    CHECK(std::isnan(*first.current->GetScalar("approx_priority", 0)));
+    CHECK_FALSE(first.current->GetScalar("unknown", 0));
     CHECK(first.completed.empty());
     const auto second = diagnostics->Observe(make(false, 0.0f, torch::tensor({{6.0f, 2.0f}})));
     REQUIRE(second.completed.size() == 1);
     CHECK(second.completed[0].lane == 0);
     CHECK(second.completed[0].steps_back == 1);
     // clip(2*r)=1.5、bootstrap=0.5*6、開始Q=5なので|4.5-5|+0.1。
-    CHECK(second.completed[0].approx_priority == Catch::Approx(0.6f));
+    REQUIRE(second.completed[0].values);
+    CHECK(second.completed[0].resolved_keys == std::vector<std::string>{"approx_priority"});
+    CHECK(*second.completed[0].values->GetScalar("approx_priority", 0) == Catch::Approx(0.6f));
     CHECK(std::isnan(*agent->GetScalar("reward_scaler.clip_ratio")));
     diagnostics->Reset();
     CHECK(diagnostics->Observe(make(false, 1.0f, torch::tensor({{4.0f, 5.0f}}))).completed.empty());
@@ -8672,7 +8677,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     std::vector<std::shared_ptr<rl::StepTrace>> rows;
     std::vector<int64_t> completed_ids;
     trace.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); },
-        [&](const auto& row) { completed_ids.push_back(row->id); });
+        [&](const auto& row, std::span<const size_t>) { completed_ids.push_back(row->id); });
     const auto add = [&](bool start, float reward, const torch::Tensor& q, rl::step_t step) {
         const auto experience = make(start, reward, q);
         auto result = std::make_shared<rl::PlainBatchStepResult>(experience.reward,
@@ -8738,7 +8743,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
     spec.action_spec.value_labels = {"a0", "a1"};
     auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 345);
-    auto diagnostics = agent->CreateStepDiagnostics(1);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
     REQUIRE(diagnostics);
     const dqn::ActorQHintConfig hint_config{ .munchausen = config.learner.munchausen,
         .use_tbo = tbo, .tbo_epsilon = config.learner.tbo_epsilon };
@@ -8778,11 +8783,11 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
             PrioritySlot slot;
             reference.CompleteReady(0, hints[step], actual_n, index, slot);
             if (cut) {
-                CHECK(std::isnan(completed.approx_priority));
+                CHECK(std::isnan(*completed.values->GetScalar("approx_priority", 0)));
                 CHECK(slot.source == rl::ReplayPrioritySource::MAX_INITIAL);
             } else {
                 CHECK(slot.source == rl::ReplayPrioritySource::ACTOR_INITIAL);
-                CHECK(completed.approx_priority == Catch::Approx(slot.raw).margin(1e-6));
+                CHECK(*completed.values->GetScalar("approx_priority", 0) == Catch::Approx(slot.raw).margin(1e-6));
             }
         }
     }
@@ -8803,7 +8808,7 @@ TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd0
     spec.action_spec.value_labels = {"a0", "a1"};
     auto agent = std::make_shared<LockableAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 123);
-    auto diagnostics = agent->CreateStepDiagnostics(1);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
     auto action = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64),
         anet::TensorDict{}, rl::AuxData{{"q_values", torch::tensor({{1.0f, 2.0f}})}});
     const rl::BatchExperience experience{MakeDeterminismState(0, 1, {false}, {false}, {true}),
@@ -8818,6 +8823,6 @@ TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd0
     lock.unlock();
     const auto result = observed.get();
     CHECK(status == std::future_status::ready);
-    REQUIRE(result.current.size() == 1);
-    CHECK(result.current[0].q_sa == 1.0f);
+    REQUIRE(result.current);
+    CHECK(result.current->GetScalar("q_sa", 0) == 1.0f);
 }

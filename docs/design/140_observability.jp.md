@@ -264,7 +264,7 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 
 ### 6.1 Evaluation Traceの列と読み取り
 
-`MetricValueReader`はtarget・鍵・laneと通知の借用から値を取得する。scalarの探索・集約・EMAとtraceの未知キー診断はそれぞれのObserverが持つ。`MetricsWiring`が購読先を結び付け、`StepTraceBuilder`は鏡写しEvalRunnerの`TrainEvent`からlaneごとの`StepTrace`を生成する。列はmetrics定義とは独立した`app.eval_trace_panel.columns.[番号]`で選ぶ。番号は1以上で飛び番を許し、昇順に表示する。
+`MetricValueContext`・`MetricValueReader`と`StepTraceColumnSpec`・`StepTrace`・`StepTraceBuilder`は共通のmetrics機能群（include/anet/metrics.hpp・src/metrics.cpp）に置く。`MetricValueReader`はtarget・鍵・laneと通知の借用から値を取得する。DSLの共通字句分類はsrc/metrics_impl.hppで内部宣言し、metrics.cppで実装する。metricsはobserversやguiをincludeしない。scalarの探索・集約・EMAとtraceの未知キー診断はそれぞれのObserverが持つ。`RunManager::MetricsWiring`が購読先を結び付け、`StepTraceBuilder`は鏡写しEvalRunnerの`TrainEvent`からlaneごとの`StepTrace`を生成する。列はmetrics定義とは独立した`app.eval_trace_panel.columns.[番号]`で選ぶ。番号は1以上で飛び番を許し、昇順に表示する。`StepTrace.step`はcounts.exp_stepと同じstep_tの座標である。
 
 | target | 時点・鍵 |
 |---|---|
@@ -272,11 +272,17 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 | `$actor` | その判断時点のActorのscalar |
 | `$env_step` | 遷移の結果。`reward`・`done`・`truncated`と結果型のscalar。終端でもリセット前 |
 | `$runner` | 今回を数えたcounts・報酬・完了集計。`step_in_episode`は1始まりで終端行は完了長 |
-| `$agent_step` | `q_sa`・`state_value`・遅延確定する`approx_priority`。非対応AgentはNaN |
+| `$agent_step` | Agentの診断が所有するModuleのscalar。DQNでは`q_sa`・`state_value`・`approx_priority`。診断非対応Agentではtarget全体をNaNにする |
 
 `$agent`・`$env`・`$exp`・`$update_result`は列で使えない。集約prefixを使えるのは`$runner`のepisode_return/episode_stepsだけで、完了しない行ではNaNになる。未知キーは最初の読出しでfail-fast、既知未成立と非有限値は空欄にする。metrics DSLへ`$agent_step`を足すものではない。
 
-Agentのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。PERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
+`AgentStepDiagnosticsResult.current`は`unique_ptr<const Module>`でbatchの値を所有し、`GetScalar(key, lane)`で読む。共通層はキーを制限せず、提供元があるときの未知キー（nullopt）は最初の読み取りで列番号・キー付きfail-fastにする。提供元がないAgentでは任意の`$agent_step`列をNaNとし、既定列を使える。既知NaNと未確定は独立で、lane別`pending_keys`のうち選択列に対応するものだけを待つ。
+
+Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生成する。Providerはlaneごとの系列窓を所有し、pendingに示す鍵もcurrentでは既知NaNを返す。pendingの鍵は値が成立しなかった場合もNaNで必ず確定を返す。遅延確定は`AgentStepDiagnosticsCompletion`の`lane`・`steps_back`・`resolved_keys`と、対象1行を所有する`values`で通知する。値は`GetScalar(key, 0)`で読む。`StepTrace.value_ready`は列ごとに確定を表し、NaNでの確定でもtrueにする。全選択列の確定で`complete`になる。更新handlerは新たに確定した列の0始まりindexを同期`span<const size_t>`で受ける（spanは通知中だけ有効）。同じキーの複数列も各列を一度ずつ確定する。
+
+`BatchActionInfo`はModuleBaseから派生し、lane指定の`action`・`action.[次元]`を共通のGetScalarで読む。次元は文字列全体と範囲を検証する。lane=-1のscalar問い合わせではこの2キーを認識せず、Agent固有のscalarは派生型が提供する。DQNActionInfoは自分のキー以外を基底へ委譲する。非DQNを含め未知キーはnulloptとなり、scalar Observerでは通常のvalue not found WARNを出す。通知にActionInfo自体が無い要求は従来どおりエラーにする。
+
+DQNの具体的な提供元と3キーの認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。PERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
 
 生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)で確かめる。
 

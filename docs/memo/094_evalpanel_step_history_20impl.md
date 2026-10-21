@@ -210,3 +210,78 @@ Debug/Releaseは既存のproject includeで`.scratch/prd094/bin`へ隔離し、P
 `run_validation.py after`と`compare_configs.py --after after-v1 --existing-only`が成功し、解決済み全キーと文字列値のhashも両側一致した。出力先だけは各世代のRun親と一致することを別途検査した。結果は同世代の`summary.json`・各`*.comparison.json`・`config-equivalence.json`へ保存した。
 
 今回の8件の対応は完了。未確認は指定どおり実機pane操作・UIイベント順序・浮動タイトルの表示・ProfileRange呼出回数・速度・メモリであり、合格に読み替えない。範囲外として見つかった既存gui.cppのdynamic_cast 3件は今回変更していない。訂正済みPRDと無関係な4ファイルは保存時hashのまま保持し、通常の実行体を上書きせず、stage・commit・pushも行っていない。
+
+## GetScalarベースへの汎用化（2026-10-21）
+
+### 承認された計画
+
+ユーザーのPLEASE IMPLEMENT THIS PLANに基づき、641b8c81を基準に案Aを実装する。共通の固定値型AgentStepValuesを削除し、既存Module/GetScalarへ委譲する。TensorDict・新しいscalar用interface・互換層は追加しない。色調整と追加Run・性能測定・実機UI確認は対象外。無関係な4変更を保持する。
+
+- AgentStepDiagnosticsResult.currentはbatchの値を所有するunique_ptr<const Module>とし、GetScalar(key,lane)で読む。lane別pending_keysを持たせ、NaNと未確定を分ける。
+- AgentStepCompletionはlane・steps_back・resolved_keys・unique_ptr<const Module> valuesとし、対象1行をGetScalar(key,0)で読む。DQNの具体値型と3キーの認識はDQN実装内に置く。Agentが診断を生成し、窓・演算順・forward・RNG・Reset・ロックなしの診断を維持する。
+- 列parserのDQNキー限定を除去する。提供元ありの未知キーは最初のGetScalarで列番号・キー付きfail-fast。既知未成立はNaN。診断非対応Agentは$agent_step列をキーによらずNaNにする。
+- StepTraceに列別value_readyを持たせ、選択列のpendingだけを待つ。更新通知は新たに確定した列index（columns配列の0始まり）を同期spanで渡す。部分更新・NaNでの確定を扱い、UIの保持上限から消えた行も通知された列だけを百分位窓へ一度入れる。
+- approx_priority専用分岐とhas_priority_column_を共通処理/GUIから除去し、設定・既存表示値を維持する。所有値は通知中にscalarへ変換し、長寿命の借用を追加しない。
+
+Public surfaceはStepTraceBuilder/列設定、AgentStepDiagnostics、既存GetScalarと列更新通知。TDDは任意キーの記録を最初の縦スライスとし、非DQN提供元の複数lane/複数時点での確定、未知・NaN・非対応・Reset・保持上限後の百分位を順に確認する。DQN参照値とmutex競合の既存テストをGetScalarへ移行する。
+
+Debug/ReleaseはVsDevCmdから既存のisolate.cmakeを注入し、.scratch/prd094/binへ隔離する。関連テストとDebug core CTestを実行し、終了時に両cacheの一時設定を外す。PRD・設計140/160・検証資材を更新し、品質観点の自己点検と独立an-reviewを行う。stage・commit・pushは行わない。
+
+### 経過・検証結果
+
+- 未決事項監査: ユーザー判断が必要なブロッカー0。修正範囲はTrace側も汎用化すると回答済み。Moduleの既知NaN/未知nullopt、診断の所有先は既存規約を維持する。列更新のindexと同期span、診断非対応時の空欄維持を計画へ固定した。
+- RED→GREEN 1: `[generic_step_keys]`で任意キーentropyが旧parserに拒否されることを確認し、parser制限と非対応時の固定キー提供元を撤去。`generic-keys-red.log`は期待した失敗、`generic-keys-green.log`は列parserを含む2tests/1029assertions成功。最初のテスト入力のコンストラクタ引数不足はRED判定前に修正した。
+- RED→GREEN 2: `[generic_step_completion]`を追加し、Module所有値・pending_keys・列別ready・更新spanが旧APIに無いことをコンパイルで確認（`generic-completion-red-build.log`）。共通API・DQN提供元・GUIを同じ変更で移行し、`generic-completion-green.log`は汎用確定とDQN参照値の3tests/464assertions成功。
+- 続く契約検証: 2laneで任意キーの即時値、finiteでもpendingの列、既知NaN、別時点で確定する2列、同じキーの複数列、確定済みキーの再通知抑止、NaNでの確定、Reset後の旧行への通知消去、未知キーの列番号・キー付きエラーを確認。表示1行のconsumerと実際の百分位窓を接続し、表示外の部分更新でも通知列だけが一度投入されることを確認した。実機GUIの表示確認とは区別する。
+- Debug関連テスト: `powershell -NoProfile -ExecutionPolicy Bypass -File .scratch/prd094/build.ps1 generic-contracts-green '[prd094],[observers],[scaler],[runner]'`成功、53tests/2089assertions（`generic-contracts-green.log`）。`[diagnostic_no_wait]`も含み、Agent mutex保持中の完了、報酬std更新とReset、replayとの優先度一致を維持した。競合テストはロックを解放してからfutureを回収する。
+- 旧固定型とhas_priority_column_は現用コードに残存せず、step_traceとEvalTracePanelにDQNのキー判定は残っていない。DQNのヒント・報酬変換・優先度の式と演算順・forward・RNG経路は差分で維持を確認。PRD D5/D6、設計140 §6.1・160 §3.4、検証資材READMEを更新した。
+- 品質観点の自己点検: 全55項目を適用範囲で走査。機械検査では変更ヘッダのusing namespace、productionのdynamic_cast、TODO形式違反、共通プロセスへのプロジェクト依存が0件。全13変更ファイルはw/lf、git diff --checkも成功。新しい公開契約は本計画へ固定済み、Moduleは値を所有し借用メンバを増やさず、互換層・設定変更・新規ファイルは無い。
+- Debug/Releaseの全体ビルドとDebug core CTestは隔離先で進行中。Release関連テストはCTestとの一時ファイル競合を避けて順次実行する。追加の比較Run・性能測定・実機UI確認は計画どおり行わず、未確認を合格へ読み替えない。
+- 独立an-review初回: 計画はOK、実装はPRD D9の通知契約の移行漏れ1件で差し戻し。D9を部分確定ごとの列更新通知へ揃え、最終確定はrow.complete、PRD081の出力はその条件で1行だけと明記した。即時完了行の空span通知も記録した。新規の範囲外検出は無い。
+- Debug/Release全体ビルド成功（`generic-debug-build.log`・`generic-release-build.log`）。両方ともVsDevCmdから`cmake --build --preset x64-Debug` / `x64-Release`を実行し、出力先は`.scratch/prd094/bin/{Debug,Release}`。Debug core CTestは進行中。
+- 独立an-review再確認: D9の修正が実装と整合し、計画・実装ともOK（差し戻し0）。コードを変更せず、検証の完了記録を残す段階へ進んだ。
+- Debug core CTest初回は735tests中733成功・1失敗・1skip（149825assertions中1失敗、`generic-core-ctest.log`）。失敗は未変更の`EpisodeEvalObserver destructor catches a background failure`の終了ログ確認1件で、テストにはworker完了を待つ50ms固定sleepがある。単独実行は1test/1assertion成功（`generic-observer-isolated.log`）。原因を確定したものとは扱わず、ソースは変更せず、全体ビルドと重ねない状態でcore CTestを再実行中（`generic-core-ctest-retry.log`）。
+- Release関連テスト: `.scratch/prd094/bin/Release/anet-core-test.exe '[prd094],[observers],[scaler],[runner]' --abort`成功、53tests/2089assertions（`generic-release-related.log`）。初回CTestで失敗した既存Observerテストも成功した。
+- Debug core CTest再実行成功: VsDevCmd経由の`ctest --test-dir out/build/x64-Debug -R '^anet-core-test$' --output-on-failure`が100%成功。735tests中734成功・既存1skip、149825assertions全成功（`generic-core-ctest-retry.log`・`generic-core-ctest-retry-details.log`）。初回失敗を消さずに併記し、反復性能測定とは扱わない。
+- 終了処理: 両presetで`cmake --preset x64-Debug -U CMAKE_PROJECT_anet-lab_INCLUDE` / `x64-Release`をVsDevCmd経由で実行し成功（`generic-restore-debug.log`・`generic-restore-release.log`）。両cacheに一時includeが残らないこと、通常実行体4本のhashが変わらないことを確認した。復帰後の通常ビルドは行っていない。
+- 今回のGetScalar汎用化は完了。自己点検・独立レビューとも対応済み。対象外の色調整・追加比較Run・性能測定・実機UI表示/呼出回数は未実施のまま保持する。無関係な4変更には触れず、stage・commit・pushは行っていない。
+
+## 名前・継承・配置の見直し（2026-10-21）
+
+### 実装計画と前提
+
+現在の作業ツリーを基準とする。ユーザーの修正依頼に従い、AgentStepDiagnosticsProvider系へ名前を統一し、BatchActionInfoをModuleBaseにしてGetScalarSourceを廃止する。TraceFollowerの口はCreateTraceSnapshot、StepTrace.stepはstep_tへ揃える。EpisodeStatsAccumulatorの個数型は変更しない。MetricsWiringはRunManagerのprivate入れ子とする。
+
+値の読取り・列定義/行/生成器はmetrics.hpp/cpp、内部字句分類はmetrics_impl.hppへ集約する。再生・百分位・セル書式はgui.hpp/cppへ移し、生成テストはmetrics_test.cpp、GUI補助テストはgui_test.cppへ分ける。旧step_trace.*・metric_tokens.*は削除する。追加ファイルはこの機能グループとテストだけとし、Logger/Observer/EventFieldの責務は維持する。ソース収集はCMakeのCONFIGURE_DEPENDS付きGLOBであるため、再configureで新旧一覧を反映し、明示一覧は増やさない。
+
+唯一の挙動変更は、Moduleを提供しなかった非DQN ActionInfoの未知scalarがnulloptとなり、既存のvalue not found WARNへ進むこと。lane指定のaction/action.[次元]は基底GetScalarへ移し、scalarのlane=-1では認識しない。DQN固有値の集計・演算、既存WARNの間引き規則、forward/RNG、色は変更しない。Providerのpendingキーは既知NaNを返し、値が成立しなかった場合もNaNで確定を返す契約をコメントに残す。
+
+### テストと検証
+
+- Public surfaceはBatchActionInfo/GetScalar、MetricValueReader、MetricsLogTrainObserver、AgentのProvider生成、StepTraceBuilder、GUIの純粋な再生/表示補助。
+- RED→GREEN 1: 非DQN ActionInfoの未知scalarが既存Observer経由でWARNになることを確認する。RED→GREEN 2: 基底GetScalarがlane指定の実行行動へ答え、lane=-1と未知キーにはnulloptを返すことを確認する。その後の純粋な改名・移動は既存関連テストのGREENを維持する。
+- 基準ソース・作業差分・実行体/設定を`.scratch/prd094/naming-layout-20261021`へ凍結済み。無関係なbat・921・anet.asta・wiki/logと通常実行体のhashを保存した。既存の汎用化差分はそのまま保持する。
+- 比較は既存run_validation/compare_metricsを使い、5構成・同seed・決定的設定・65536経験を修正前後で各1回、追加Runは同時1本。基準の反復性能測定は行わない。scalar/trace/定義/WARNと既存設定を比較する。
+- Debug/ReleaseはVsDevCmd経由、既存isolate.cmakeを注入して`.scratch/prd094/bin`へ隔離する。関連`[prd094],[observers],[scaler],[runner]`とDebug core CTestを順次実行し、最後に両cacheの一時includeを外す。実機UI・速度/メモリ測定は対象外。
+- PRDは冒頭改訂と§4.4の名称/区分を追随し、設計100/140/160・検証README・カテゴリmatchを更新する。履歴資料の旧名は書き換えず、現用範囲の移行漏れを検索する。自己点検・独立an-reviewと結果記録まで実施し、stage/commit/pushはしない。
+
+### 経過・結果
+
+- 未決事項監査: ブロッカー0。基準は未コミット汎用化を含む現作業ツリー。SnapshotのCreateへの変更、Provider名、EpisodeStatsの個数型維持、生成とGUI補助の配置、非DQN未知scalarのWARN化は指定済み。GUIセル書式の関数名はFormatTraceValueとする。規約上の分割・型の判断を今回の指定へ固定した。
+- 文書追随ではPRDの§4.4と冒頭改訂に加え、D5のaction読取りの1文も共通基底GetScalarへ訂正した。旧文の「ModuleのGetScalarを要しない」が新しい継承/委譲と矛盾するためであり、Agent固有実装を要せず全Agentで読める意味は維持する。生成器と百分位consumerの結合テストはmetrics_test.cpp、純粋なGUI補助の単体テストはgui_test.cppとする。
+- 修正前の5構成を固定Release実行体から各1回採取した（`naming-before-runs.log`）。同seed・65536経験、同時1本。各Runの実行引数・終了コード・実行体hashは世代別のexecution.jsonに保持した。
+- RED→GREEN 1: 既存Observer経由で非DQN ActionInfoの未知scalarのWARNが出ないことをREDで確認（`naming-action-warn-red.log`）。ModuleBase継承とGetScalarSource削除後、同テストと従来scalar契約の2tests/10assertions成功（`naming-action-warn-green.log`）。
+- RED→GREEN 2: Module経由の基底action読取りがnulloptとなることをREDで確認（`naming-action-lane-red.log`）。lane別読取り・厳密な次元解析を基底へ移し、DQNとテスト具象型の未知キーを基底へ委譲。関連55tests/2178assertions成功（`naming-action-lane-green.log`）。lane=-1のscalar集計やDQN固有の計算は変更していない。
+- GREEN後に指定の改名・移動を適用した。new metrics機能群とgui補助、Provider/Createの各利用側を同じ変更で移行し、旧ファイルを削除した。CMakeはGLOB差分を検出して再生成している。現用のコード・設計文書・PRDに旧API名/旧includeパスの残存が無いことを検索で確認した。
+- 改名・移動後もDebug関連55tests/2178assertionsが成功（`naming-layout-green.log`）。新しいmetrics.hpp/cpp・metrics_impl.hppはobservers/guiをincludeせず、生成器と表示補助の依存方向を確認した。新カテゴリのJSONとmatch、変更テキストのLF、公開ヘッダのusing namespace不在、保護対象のhashを検査した。
+- 品質観点は全55項目を適用範囲で自己点検した。新しい公開API・配置・既知NaN/未知nulloptの契約は本計画と設計文書へ反映済み。処理移動先へコメントと既存ProfileRangeを保持し、所有値/同期借用の境界は変えていない。既存gui.cppのdynamic_cast 3件は基準と同数で今回増やしておらず、範囲外として保持する。WARN頻度とDQN固有scalarのlane集計も今回の修正に含めない。
+- Debug/Release全体ビルド、Release関連テスト、修正後5構成比較、Debug core CTestと一時設定解除はこれから完了を追記する。CTestは全体ビルド・比較Runと重ねず、終了ログの既存50ms待機テストの競合を減らす。実機UI・速度/メモリの測定は未実施として残す。
+- Debug/Release全体ビルド成功（`naming-debug-build.log`・`naming-release-build.log`）。両方とも通常の実行体を上書きせず、隔離先へ生成した。Release関連テストと修正後5構成比較へ進み、独立an-reviewには今回の凍結基準との差分43ファイル（既存変更/削除38、新規5）を提出した。
+- Release関連テストも55tests/2178assertions成功（`naming-release-related.log`）。純粋な改名・移動の前後と両構成で関連テストのGREENを維持した。
+- 独立an-reviewは計画・実装ともOK、差し戻し0。品質観点55項目を適用範囲で確認し、今回の差分への修正要求・開発者確認事項は無かった。比較Run・core CTest・一時設定解除の結果は完了後に追記する。
+- 新たな範囲外の検出: 既存DQNActionInfoの既知キーtrain_actor_snapshot_interval/ageは提供状態が無い場合にnulloptを返しており、既知未成立をNaNとする規約と一致しない。凍結基準と既存テストも同じ契約のため、数値挙動の変更を限定する今回の依頼では修正せず、別件の検討候補として記録する。
+- 修正後の5構成比較は全件成功（`naming-after-runs.log`）。Atari 5008点、DropMerge 14033点、LunarLander CPU 7242点、GridMaze 11146点、actor_approx CPU 10310点、合計47739点（うちtrace 1697行）が一致した。各構成のscalar/trace定義とWARNも一致。既存の時間/資源群とtrace timestampを除く既定の数値比較であり、速度やメモリの合格根拠にはしない。
+- 解決済み設定の比較も全件成功（`naming-config-equivalence.log`）。5構成の既存4930キーに追加・欠落・値変更は0、全キー/文字列値のhashも一致し、世代別出力先の整合も確認した。結果は`naming-layout-20261021/acceptance/after-v1`のsummary.json、各comparison.json、config-equivalence.jsonへ保存した。修正前後各1回のみで、反復性能測定は行っていない。
+- Debug core CTest成功: VsDevCmd経由の`ctest --test-dir out/build/x64-Debug -R '^anet-core-test$' --output-on-failure`が100%成功（`naming-core-ctest.log`・`naming-core-ctest-details.log`）。737tests中736成功・既存1skip、149914assertions全成功。全体ビルド・追加Runと重ねず1回で通過した。
+- 終了処理: 両presetをVsDevCmd経由の`cmake --preset x64-Debug -U CMAKE_PROJECT_anet-lab_INCLUDE` / `x64-Release`で再configureし成功（`naming-restore-debug.log`・`naming-restore-release.log`）。両cacheに一時includeが残らず、保護対象9ファイル（無関係な変更5ファイルと通常実行体4本）のhashが保存時と一致することを確認した。復帰後の通常ビルドは行っていない。
+- 今回の名前・継承・配置の見直しは完了。新規は指定の5ファイルに限定し、旧5ファイルを削除、現用利用側と設計文書を同じ変更で移行した。変更テキスト38ファイルはLFでgit diff --checkも成功、stageは空のまま。実機UI表示・呼出回数・速度/メモリ測定は対象外として未確認。色調整、範囲外の既存挙動、無関係な変更を保持し、stage・commit・pushは行っていない。

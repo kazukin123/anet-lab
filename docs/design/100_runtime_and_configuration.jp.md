@@ -125,7 +125,7 @@ class ConfigManager
 class ConfigResolver
 class ConfigData
 class RunManager
-class MetricsWiring
+class RunManagerMetricsWiring["RunManager::MetricsWiring"]
 class ObserverFactory
 class BatchEnvBuilder
 class Agent
@@ -142,9 +142,9 @@ ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
 RunManager *-- BatchEnvBuilder
 RunManager *-- Agent
-RunManager *-- MetricsWiring
-MetricsWiring --> ObserverFactory : 宣言を解析
-MetricsWiring --> Notifier : scopeとeventへ購読を接続
+RunManager *-- RunManagerMetricsWiring : private
+RunManagerMetricsWiring --> ObserverFactory : 宣言を解析
+RunManagerMetricsWiring --> Notifier : scopeとeventへ購読を接続
 RunManager *-- Notifier
 RunManager *-- TrainRunner
 RunManager o-- EvalRunner
@@ -157,7 +157,7 @@ RunnerThread --> TrainRunner : stepを反復
 
 ### 5.1 メトリクス配線の所有
 
-`RunManager`は`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagの一度だけのWARN、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
+`RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagの一度だけのWARN、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
 
 領域の検証手順は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)を参照する。
 

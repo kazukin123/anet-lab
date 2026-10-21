@@ -97,7 +97,7 @@ namespace anet::rl::dqn {
     public:
         std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
-        std::unique_ptr<AgentStepDiagnostics> CreateStepDiagnostics(int64_t num_lanes) const override;
+        std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
 

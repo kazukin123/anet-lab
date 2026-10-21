@@ -289,7 +289,7 @@ private:
     std::atomic<int> step_count_ = 0;
 };
 
-class TestActionInfo final : public rl::BatchActionInfo, public anet::ModuleBase {
+class TestActionInfo final : public rl::BatchActionInfo {
 public:
     TestActionInfo(torch::Tensor action, const anet::TensorDict& info, const rl::AuxData& aux, float score)
         : rl::BatchActionInfo(std::move(action), info, aux)
@@ -302,12 +302,11 @@ public:
         return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
     }
 
-    const anet::Module* GetScalarSource() const override { return this; }
 
-    std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
         if (key == "action_info_score") return score_;
-        return std::nullopt;
+        return BatchActionInfo::GetScalar(key, index);
     }
 
 private:

@@ -7,6 +7,7 @@
 #include "anet/profile.hpp"
 
 using namespace anet::rl;
+using anet::rl::gui::TracePlayer;
 
 class EvalTracePanel::Table final : public wxGridTableBase {
 public:
@@ -21,7 +22,7 @@ public:
         const auto& data = owner_.rows_.at(static_cast<size_t>(row));
         const auto& column = owner_.columns_.at(static_cast<size_t>(col));
         const float value = column.display == "pct" ? data.percentiles[col] : data.trace->values[col];
-        return wxString::FromUTF8(column.Format(value, owner_.env_spec_.action_spec));
+        return wxString::FromUTF8(gui::FormatTraceValue(column, value, owner_.env_spec_.action_spec));
     }
     wxGridCellAttr* GetAttr(int row, int, wxGridCellAttr::wxAttrKind) override
     {
@@ -106,8 +107,8 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
     grid_->SetDefaultRowSize(24);
     builder_->SetHandlers([weak = wxWeakRef<EvalTracePanel>(this)](const auto& row, const TrainEvent& event) {
         if (weak && weak->active_) weak->AddRow(row, event);
-    }, [weak = wxWeakRef<EvalTracePanel>(this)](const auto& row) {
-        if (weak && weak->active_) weak->CompleteRow(row);
+    }, [weak = wxWeakRef<EvalTracePanel>(this)](const auto& row, std::span<const size_t> columns) {
+        if (weak && weak->active_) weak->CompleteRow(row, columns);
     });
     observer_ = manager->GetNotifier()->AttachScoped<FunctionTrainObserver>(runner,
         [weak = wxWeakRef<EvalTracePanel>(this)](const TrainEvent& event) {
@@ -183,12 +184,11 @@ void EvalTracePanel::ClearRows()
 
 void EvalTracePanel::ApplyPercentiles(Row& row)
 {
-    // 即時列は追加時、優先度は確定時に一度だけ窓へ入れる。
+    // 各列が確定した時点で、NaNも含め一度だけ処理する。
     for (size_t col = 0; col < columns_.size(); ++col) {
         if (columns_[col].display != "pct" || row.percentile_ready[col]) continue;
-        const bool delayed = columns_[col].target == "$agent_step" && columns_[col].key == "approx_priority";
-        if (delayed && !row.trace->complete) continue;
-        row.percentiles[col] = AppendTracePercentile(percentile_windows_[col], row.trace->values[col], pct_window_);
+        if (!row.trace->value_ready[col]) continue;
+        row.percentiles[col] = gui::AppendTracePercentile(percentile_windows_[col], row.trace->values[col], pct_window_);
         row.percentile_ready[col] = true;
     }
 }
@@ -235,15 +235,15 @@ void EvalTracePanel::AddRow(const std::shared_ptr<StepTrace>& trace, const Train
     grid_->Refresh(false);
 }
 
-void EvalTracePanel::CompleteRow(const std::shared_ptr<StepTrace>& trace)
+void EvalTracePanel::CompleteRow(const std::shared_ptr<StepTrace>& trace, std::span<const size_t> resolved_columns)
 {
     const auto found = std::find_if(rows_.begin(), rows_.end(), [&](const auto& row) { return row.trace->id == trace->id; });
     if (found != rows_.end()) ApplyPercentiles(*found);
     else {
         // 表の上限から消えていても、遅延値は百分位の長い窓へ含める。
-        for (size_t col = 0; col < columns_.size(); ++col) {
-            if (columns_[col].display == "pct" && columns_[col].target == "$agent_step" && columns_[col].key == "approx_priority") {
-                AppendTracePercentile(percentile_windows_[col], trace->values[col], pct_window_);
+        for (const auto col : resolved_columns) {
+            if (columns_[col].display == "pct") {
+                gui::AppendTracePercentile(percentile_windows_[col], trace->values[col], pct_window_);
             }
         }
     }
@@ -293,14 +293,14 @@ void EvalTracePanel::ApplySelection(bool force, bool ensure_visible)
     updating_controls_ = false;
 }
 
-void EvalTracePanel::RefreshCaptions(int64_t step)
+void EvalTracePanel::RefreshCaptions(step_t step)
 {
     ANET_PROFILE_FUNC();
     // 行移動はcaptionと描画要求だけに留め、浮動frameのタイトルも直接揃える。
     for (const auto& follower : followers_) {
         if (!IsFollowerShown(follower)) continue;
         auto& pane = manager_.GetPane(follower.window.get());
-        pane.Caption(follower.caption + wxString::Format(" [Trace: step %lld]", static_cast<long long>(step)));
+        pane.Caption(follower.caption + wxString::Format(" [Trace: step %llu]", static_cast<unsigned long long>(step)));
         if (pane.frame) pane.frame->SetLabel(pane.caption);
     }
     frame_.Refresh(false);

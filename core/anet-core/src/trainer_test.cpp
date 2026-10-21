@@ -8,7 +8,7 @@
 #include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
-#include "anet/step_trace.hpp"
+#include "anet/metrics.hpp"
 #include "anet/gui.hpp"
 #include "nn_impl.hpp"
 
@@ -1665,7 +1665,7 @@ TEST_CASE("View snapshots freeze one transition and return to the latest live da
     std::vector<std::shared_ptr<const rl::gui::TraceSnapshot>> snapshots;
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
         view->UpdateViewData(event, true);
-        snapshots.push_back(view->CaptureTraceSnapshot(event));
+        snapshots.push_back(view->CreateTraceSnapshot(event));
     }));
     runner->DoStep();
     view->CaptureViewData();

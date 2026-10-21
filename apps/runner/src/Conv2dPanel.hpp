@@ -25,7 +25,7 @@ public:
 
     virtual ~Conv2dPanel();
 public:	// TraceFollower
-    std::shared_ptr<const anet::rl::gui::TraceSnapshot> CaptureTraceSnapshot(const anet::rl::TrainEvent& event) override;
+    std::shared_ptr<const anet::rl::gui::TraceSnapshot> CreateTraceSnapshot(const anet::rl::TrainEvent& event) override;
     void ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot) override;
     void ReturnToLive() override;
 private:

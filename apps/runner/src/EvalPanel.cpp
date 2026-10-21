@@ -279,9 +279,9 @@ void EvalPanel::OnClose(wxCloseEvent& event)
 	notifier->Detach(this->observer_);
 }
 
-std::shared_ptr<const anet::rl::gui::TraceSnapshot> EvalPanel::CaptureTraceSnapshot(const anet::rl::TrainEvent& event)
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> EvalPanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
 {
-    return view_ ? view_->CaptureTraceSnapshot(event) : nullptr;
+    return view_ ? view_->CreateTraceSnapshot(event) : nullptr;
 }
 
 void EvalPanel::ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot)

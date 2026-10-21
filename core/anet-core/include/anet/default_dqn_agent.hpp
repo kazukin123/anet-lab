@@ -485,7 +485,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
-        std::unique_ptr<AgentStepDiagnostics> CreateStepDiagnostics(int64_t num_lanes) const override;
+        std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const override;
         void ConfigureScalarMetricSubscriptions(
             const std::vector<ScalarMetricSubscription>& subscriptions) override;
     public:

@@ -775,7 +775,7 @@ struct RunManager::Config : public anet::Config
     }
 };
 
-class anet::rl::MetricsWiring {
+class RunManager::MetricsWiring {
 public:
     MetricsWiring(ObserverFactory& factory, std::shared_ptr<TrainRunner> train_runner,
         const std::unordered_map<std::string, std::shared_ptr<EvalRunner>>& eval_runners,

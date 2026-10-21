@@ -109,15 +109,15 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 
 `EvalTracePanel`は右端の列に一つだけ置く常設paneで、ViewメニューとPanelツールバーから表示する。既定は非表示。新しい行を上に並べ、報酬が非ゼロの行と終端行に色を付ける。`max_rows`は既定1000、`pct_window`は既定10000で、ともに1以上の整数とする。明示的に閉じた間は購読を付けたまま生成をskipし、再表示では履歴・百分位・診断の窓をすべて空にする。最大化による一時非表示は`IsPaneOpen`が`savedHiddenState`を参照して開いたままと判定し、Trace本体と追従paneのsnapshot取得・選択・診断を継続する。メニューのcheckも同じ判定に従い、最大化中の明示開閉は復元用フラグと同期する。
 
-`TraceFollower`はsnapshot生成・snapshot表示・Live復帰の共通interfaceで、EvalPanelのView、QValuePanel、Conv2dが実装する。履歴には開いていたpaneの不変snapshotだけを保持する。Conv2dはCPU活性を保持し、選択時に画像化する。paneを開く前の行は`no data for this step`となる。SweepHeatMapは追従しない。
+`TraceFollower`は`CreateTraceSnapshot`によるsnapshot生成・snapshot表示・Live復帰の共通interfaceで、EvalPanelのView、QValuePanel、Conv2dが実装する。interfaceと再生・表示補助はcoreのgui.hpp/cppに置き、行の生成はmetrics機能群へ依存する。履歴には開いていたpaneの不変snapshotだけを保持する。Conv2dはCPU活性を保持し、選択時に画像化する。paneを開く前の行は`no data for this step`となる。SweepHeatMapは追従しない。
 
-行を選ぶとTraceモードとなりEvalPanelを停止する。行tではEval Viewが遷移後、Q/Conv2dが判断時点を表示し、captionに`Trace: step`を出す。`TracePlayer`はGUIに依らない再生制御を担当する。再生はLiveなら最古から、Traceなら選択行から新しい側へ進む。最新で停止中の再生だけは最古へ戻る。コマ送りと戻るは端で止まる。速度は1/8〜8倍、1xはEvalのfps×step_per_frameである。
+行を選ぶとTraceモードとなりEvalPanelを停止する。行tではEval Viewが遷移後、Q/Conv2dが判断時点を表示し、captionに`Trace: step`を出す。`gui::TracePlayer`はwxの実機操作に依存しない再生制御を担当する。`gui::AppendTracePercentile`と`gui::FormatTraceValue`も同じ機能群に置く。書式は列定義のメソッドにせず、列定義・値・行動情報を受け取るGUI関数で算出する。再生はLiveなら最古から、Traceなら選択行から新しい側へ進む。最新で停止中の再生だけは最古へ戻る。コマ送りと戻るは端で止まる。速度は1/8〜8倍、1xはEvalのfps×step_per_frameである。
 
 停止、表でのEsc、手動行動、Eval Resume、Trace paneを明示的に閉じる操作（✕・メニュー・ツールバー・Reset Layout）でLiveに戻る。Liveに戻すだけではEvalを再開しない。手動行動はLiveへ戻してから実行する。空履歴では操作列とsliderを無効にする。FPS 0では`CanPlay`によって再生ボタンだけを無効にし、次のUI timerで変更を反映する。既に再生中なら状態を保ち、速度0では進めず、FPS復帰後に続行する。操作結果はstatus field 0へ英語で表示し、Runログへは出さない。
 
 `manager.Update()`はTrace開始・Live復帰・追従paneの表示変更に限定する。行移動はcaptionを更新しframeへ再描画を要求する。浮動paneのframeタイトルも直接揃える。計測は`EvalTracePanel::ApplySelection.layout` / `ReturnToLive.layout`と`RefreshCaptions`で分ける。
 
-数値は整数なら整数、それ以外は有効数字4桁、非有限値は空欄。`display:pct`は自身を含む有限値の直近窓で`100*(小さい件数+同値件数/2)/件数`を確定時に算出して保持する。全件同値は50%である。
+数値は整数なら整数、それ以外は有効数字4桁、非有限値は空欄。`display:pct`は自身を含む有限値の直近窓で`100*(小さい件数+同値件数/2)/件数`を列の確定時に一度だけ算出して保持する。全件同値は50%である。即時列は行追加時、遅延列は`StepTrace.value_ready`がtrueになった時点で処理し、NaNでの確定でも待機を終える。表示上限を超えて消えた行は更新通知が指定する列だけを窓へ反映する。複数列の部分更新で以前に確定した値を二重投入しない。GUIはAgent固有のキーを判定しない。
 
 [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。
 

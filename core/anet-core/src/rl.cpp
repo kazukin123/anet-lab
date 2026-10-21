@@ -1,5 +1,6 @@
 #include "anet/rl.hpp"
 #include <stdexcept>
+#include <charconv>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 
@@ -413,6 +414,33 @@ const torch::Tensor& ReplayInitialPriorityHint::GetPayloadCpu() const
         payload_cpu_ = payload_cpu_.contiguous();
     }
     return payload_cpu_;
+}
+
+std::optional<float> BatchActionInfo::GetScalar(const std::string& key, int64_t lane) const
+{
+    // lane指定の実行行動だけを共通に読み、scalar集計は派生型へ任せる。
+    if (lane < 0 || (key != "action" && !key.starts_with("action.["))) return std::nullopt;
+    const auto action = GetAction(torch::kCPU);
+    ANET_CHECK_MSG(action.defined() && lane < action.size(0),
+        "Invalid action scalar lane. key='" << key << "' lane=" << lane << " expected=an existing lane.");
+    if (key == "action") {
+        ANET_CHECK_MSG(action.dim() == 1,
+            "Continuous action requires action.[dimension]. key='" << key << "' expected=action.[dimension].");
+        return action[lane].item<float>();
+    }
+    // 次元指定は文字列全体を解析し、suffixや負値・範囲外を受理しない。
+    int64_t dimension = -1;
+    bool valid = key.size() > 9 && key.ends_with("]");
+    if (valid) {
+        const auto end = key.data() + key.size() - 1;
+        const auto parsed = std::from_chars(key.data() + 8, end, dimension);
+        valid = parsed.ec == std::errc{} && parsed.ptr == end;
+    }
+    if (!valid || action.dim() != 2 || dimension < 0 || dimension >= action.size(1)) {
+        ANET_SYSTEM_ERROR("Invalid continuous action dimension. key='" << key
+            << "' expected=action.[integer dimension] within the action shape.");
+    }
+    return action[lane][dimension].item<float>();
 }
 
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const

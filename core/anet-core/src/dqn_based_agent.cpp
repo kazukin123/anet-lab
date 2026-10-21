@@ -459,7 +459,32 @@ std::unique_ptr<anet::rl::InitialPriorityEstimator> anet::rl::dqn::CreateInitial
 
 namespace {
 
-class DqnAgentStepDiagnostics final : public anet::rl::AgentStepDiagnostics {
+struct DqnDiagnosticRow {
+    float q_sa = std::numeric_limits<float>::quiet_NaN();
+    float state_value = std::numeric_limits<float>::quiet_NaN();
+    float approx_priority = std::numeric_limits<float>::quiet_NaN();
+};
+
+// DQN固有のキーと値を所有し、共通の診断契約へはModuleだけを公開する。
+class DqnAgentStepDiagnosticsValues final : public anet::ModuleBase {
+public:
+    explicit DqnAgentStepDiagnosticsValues(std::vector<DqnDiagnosticRow> rows) : rows_(std::move(rows)) {}
+    std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+    {
+        float DqnDiagnosticRow::* member = nullptr;
+        if (key == "q_sa") member = &DqnDiagnosticRow::q_sa;
+        else if (key == "state_value") member = &DqnDiagnosticRow::state_value;
+        else if (key == "approx_priority") member = &DqnDiagnosticRow::approx_priority;
+        else return std::nullopt;
+        ANET_CHECK_MSG(lane >= 0 && lane < static_cast<int64_t>(rows_.size()),
+            "Invalid DQN diagnostic lane. key='" << key << "' lane=" << lane << " expected=[0," << rows_.size() << ").");
+        return rows_[lane].*member;
+    }
+private:
+    std::vector<DqnDiagnosticRow> rows_;
+};
+
+class DqnAgentStepDiagnosticsProvider final : public anet::rl::AgentStepDiagnosticsProvider {
     struct Pending {
         int64_t start;
         anet::rl::ReplayExperience experience;
@@ -471,7 +496,7 @@ class DqnAgentStepDiagnostics final : public anet::rl::AgentStepDiagnostics {
         std::deque<Pending> pending;
     };
 public:
-    DqnAgentStepDiagnostics(const LearnerConfig& config, int64_t num_lanes,
+    DqnAgentStepDiagnosticsProvider(const LearnerConfig& config, int64_t num_lanes,
         std::function<torch::Tensor(const torch::Tensor&)> scale_reward)
         : config_(config), num_lanes_(num_lanes), scale_reward_(std::move(scale_reward))
         , controller_(anet::rl::CreateNStepQueueController(config.use_n_step ? config.n_step : 1))
@@ -511,13 +536,14 @@ public:
         ANET_CHECK_MSG(rewards.dim() == 1 && rewards.size(0) == num_lanes_,
             "DQN step diagnostics reward shape mismatch. expected_lanes=" << num_lanes_);
         anet::rl::AgentStepDiagnosticsResult result;
-        result.current.resize(static_cast<size_t>(num_lanes_));
+        std::vector<DqnDiagnosticRow> rows(static_cast<size_t>(num_lanes_));
+        result.pending_keys.assign(static_cast<size_t>(num_lanes_), {"approx_priority"});
         for (int64_t i = 0; i < num_lanes_; ++i) {
             auto& lane = lanes_[i];
             anet::rl::ReplayInitialPriorityHintRow current;
             for (int col = 0; col < kActorQHintColumnCount; ++col) current.push_back(hint[i][col].item<float>());
-            result.current[i].q_sa = current[kActorQSaColumn];
-            result.current[i].state_value = current[kActorStateValueColumn];
+            rows[i].q_sa = current[kActorQSaColumn];
+            rows[i].state_value = current[kActorStateValueColumn];
             const auto complete = [&](const Pending& pending, bool unavailable) {
                 float priority = std::numeric_limits<float>::quiet_NaN();
                 if (!unavailable) {
@@ -532,7 +558,8 @@ public:
                     if (estimated) priority = *estimated;
                 }
                 result.completed.push_back({ .lane = i, .steps_back = lane.step - pending.start,
-                    .approx_priority = priority });
+                    .resolved_keys = {"approx_priority"}, .values = std::make_unique<DqnAgentStepDiagnosticsValues>(
+                        std::vector<DqnDiagnosticRow>{{ .approx_priority = priority }}) });
             };
             // episode開始と将来Qの到着を、現在rewardを窓へ入れる前に処理する。
             if (starts[i].item<bool>()) {
@@ -563,6 +590,7 @@ public:
             }
             ++lane.step;
         }
+        result.current = std::make_unique<DqnAgentStepDiagnosticsValues>(std::move(rows));
         return result;
     }
 private:
@@ -577,11 +605,11 @@ private:
 
 } // namespace
 
-std::unique_ptr<anet::rl::AgentStepDiagnostics> anet::rl::dqn::CreateStepDiagnostics(
+std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> anet::rl::dqn::CreateStepDiagnosticsProvider(
     const LearnerConfig& config, int64_t num_lanes,
     std::function<torch::Tensor(const torch::Tensor&)> scale_reward)
 {
-    return std::make_unique<DqnAgentStepDiagnostics>(config, num_lanes, std::move(scale_reward));
+    return std::make_unique<DqnAgentStepDiagnosticsProvider>(config, num_lanes, std::move(scale_reward));
 }
 
 
@@ -1059,7 +1087,7 @@ std::optional<int64_t> ParseActionFullQMarginKey(const std::string& key)
 
 } // namespace
 
-std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) const
+std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == "train_actor_snapshot_interval" || key == "train_actor_snapshot_age") {
         if (!train_actor_snapshot_metrics_.has_value()) {
@@ -1246,7 +1274,7 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) c
 
     const auto parsed_key = ParseActionUqeScalarKey(key);
     if (!parsed_key.has_value()) {
-        return std::nullopt;
+        return BatchActionInfo::GetScalar(key, index);
     }
     const int64_t action_index = parsed_key->action_index;
 

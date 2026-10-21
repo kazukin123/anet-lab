@@ -940,7 +940,7 @@ void QValuePanel::OnCloseWindow(wxCloseEvent& event)
     }
 }
 
-std::shared_ptr<const anet::rl::gui::TraceSnapshot> QValuePanel::CaptureTraceSnapshot(const anet::rl::TrainEvent& event)
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> QValuePanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
 {
     ANET_PROFILE_FUNC();
     // 通常Observerが作った同じstepの値を共有し、計算を重複させない。

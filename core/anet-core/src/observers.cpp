@@ -1,7 +1,6 @@
 // observers.cpp
 
 #include "anet/observers.hpp"
-#include <charconv>
 #include <chrono>
 #include <format>
 #include <limits>
@@ -14,7 +13,8 @@
 #include "anet/log.hpp"
 #include "anet/env.hpp"
 #include "anet/trainer.hpp"
-#include "metric_tokens.hpp"
+#include "anet/metrics.hpp"
+#include "metrics_impl.hpp"
 
 
 using namespace anet::rl;
@@ -830,54 +830,6 @@ MetricsLogSessionEndObserver::MetricsLogSessionEndObserver(const std::string& ta
     ;
 }
 
-std::optional<float> MetricValueReader::Read(const MetricValueContext& context,
-    EventField field, const std::string& key, int64_t lane)
-{
-    // 実行行動は型を横断して読めるようcarrier自身から取り出す。
-    if (field == EventField::ACTION_INFO && context.action_info && lane >= 0
-        && (key == "action" || key.starts_with("action.["))) {
-        const auto action = context.action_info->GetAction(torch::kCPU);
-        ANET_CHECK_MSG(action.defined() && lane >= 0 && lane < action.size(0),
-            "Invalid action scalar lane. key='" << key << "' lane=" << lane << " expected=an existing lane.");
-        if (key == "action") {
-            ANET_CHECK_MSG(action.dim() == 1,
-                "Continuous action requires action.[dimension]. key='" << key << "' expected=action.[dimension].");
-            return action[lane].item<float>();
-        }
-        int64_t dimension = -1;
-        bool valid = key.size() > 9 && key.ends_with("]");
-        if (valid) {
-            const auto end = key.data() + key.size() - 1;
-            const auto parsed = std::from_chars(key.data() + 8, end, dimension);
-            valid = parsed.ec == std::errc{} && parsed.ptr == end;
-        }
-        if (!valid || action.dim() != 2 || dimension < 0 || dimension >= action.size(1)) {
-            ANET_SYSTEM_ERROR("Invalid continuous action dimension. key='" << key
-                << "' expected=action.[integer dimension] within the action shape.");
-        }
-        return action[lane][dimension].item<float>();
-    }
-    // 結果型はModuleではないため、遷移の読み口へ直接委譲する。
-    if (field == EventField::ENV_STEP) {
-        return context.step_result ? context.step_result->GetScalar(key, lane) : std::nullopt;
-    }
-    // 呼び出し側が集約・探索・未知値の扱いを決め、ここは取得元だけを解決する。
-    const anet::Module* source = nullptr;
-    switch (field) {
-    case EventField::AGENT: source = context.agent; break;
-    case EventField::AGENT_STEP: source = context.agent_step; break;
-    case EventField::RUNNER: source = context.runner; break;
-    case EventField::ACTOR: source = context.runner ? context.runner->GetActor().get() : nullptr; break;
-    case EventField::ENV: source = context.env ? context.env
-        : (context.runner ? context.runner->GetBatchEnv().get() : nullptr); break;
-    case EventField::EXPERIENCE: source = context.experience; break;
-    case EventField::ACTION_INFO: source = context.action_info ? context.action_info->GetScalarSource() : nullptr; break;
-    case EventField::UPDATE_RESULT: source = context.update_result; break;
-    default: break;
-    }
-    return source ? source->GetScalar(key, lane) : std::nullopt;
-}
-
 MetricsLogTraceObserver::MetricsLogTraceObserver(const std::string& tag,
     std::vector<std::string> keys, StepAxis step_axis, EventField field)
     : TaggedObserver(tag), keys_(std::move(keys)), step_axis_(step_axis), field_(field)
@@ -926,13 +878,10 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
 {
     ANET_CHECK(event_field != EventField::UPDATE_RESULT);
 
-    // 既存scalarのaction未提供時のNaNと診断を保つ。
+    // 通知にActionInfoが無い場合だけ、要求されたtargetを読めないと診断する。
     if (event_field == EventField::ACTION_INFO) {
         if (!action_info) {
             ANET_SYSTEM_ERROR("MetricsLogObserverBase: $action_info is only available for TrainEvent.");
-        }
-        if (!action_info->GetScalarSource()) {
-            return MetricsData{ counts.GetByAxis(step_axis_), std::numeric_limits<float>::quiet_NaN() };
         }
     }
     const MetricValueContext context{ .agent = agent.get(), .runner = runner.get(),

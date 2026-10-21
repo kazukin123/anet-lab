@@ -538,11 +538,11 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
 }
 
-std::unique_ptr<anet::rl::AgentStepDiagnostics> DefaultDQNAgent::CreateStepDiagnostics(int64_t num_lanes) const
+std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateStepDiagnosticsProvider(int64_t num_lanes) const
 {
     // 診断部品がAgentを共有所有し、scalerが公開した変換だけをロックなしで読む。
     auto self = shared_from_this();
-    return anet::rl::dqn::CreateStepDiagnostics(config_.learner, num_lanes,
+    return anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, num_lanes,
         [self](const torch::Tensor& reward) {
             return self->reward_scaler_->ScaleWithoutUpdate(reward);
         });

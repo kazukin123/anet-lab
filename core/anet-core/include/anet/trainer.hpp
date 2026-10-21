@@ -219,8 +219,6 @@ namespace anet::rl {
     // RunManager
     // ----------------------------------------------------------------------
 
-    class MetricsWiring;
-
     class RunManager {
     public:
         //RunManager(const ConfigData& config_data, const std::string& config_prefix = "train");
@@ -245,6 +243,7 @@ namespace anet::rl {
         void LogEnvConfig(const BatchEnv& env);
     private:
         // パラメータ
+        class MetricsWiring;
         struct Config;
         std::unique_ptr<Config> config_;
         std::string env_class_id_;

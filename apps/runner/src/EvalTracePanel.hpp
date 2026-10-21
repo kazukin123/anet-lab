@@ -9,7 +9,7 @@
 #include <wx/grid.h>
 #include <wx/slider.h>
 #include <wx/weakref.h>
-#include "anet/step_trace.hpp"
+#include "anet/metrics.hpp"
 #include "anet/gui.hpp"
 #include "anet/trainer.hpp"
 #include "EvalPanel.hpp"
@@ -32,7 +32,7 @@ public:
         binding.window = pane;
         binding.caption = manager_.GetPane(pane).caption;
         binding.capture = [weak](const anet::rl::TrainEvent& event) {
-            return weak ? weak->CaptureTraceSnapshot(event) : nullptr;
+            return weak ? weak->CreateTraceSnapshot(event) : nullptr;
         };
         binding.show = [weak](std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot) {
             if (weak) weak->ShowTraceSnapshot(std::move(snapshot));
@@ -60,10 +60,10 @@ private:
         std::unordered_map<uint64_t, Snapshot> snapshots;
     };
     void AddRow(const std::shared_ptr<anet::rl::StepTrace>& trace, const anet::rl::TrainEvent& event);
-    void CompleteRow(const std::shared_ptr<anet::rl::StepTrace>& trace);
+    void CompleteRow(const std::shared_ptr<anet::rl::StepTrace>& trace, std::span<const size_t> resolved_columns);
     void ApplyPercentiles(Row& row);
     void ApplySelection(bool force, bool ensure_visible);
-    void RefreshCaptions(int64_t step);
+    void RefreshCaptions(anet::rl::step_t step);
     void SyncControls();
     void ClearRows();
     void SelectIndex(int index, bool keep_playing = false);
@@ -86,7 +86,7 @@ private:
     std::vector<std::deque<float>> percentile_windows_;
     std::vector<Binding> followers_;
     uint64_t next_follower_id_ = 0;
-    anet::rl::TracePlayer player_;
+    anet::rl::gui::TracePlayer player_;
     std::optional<int64_t> displayed_id_;
     wxGrid* grid_ = nullptr;
     Table* table_ = nullptr;

@@ -3,6 +3,9 @@
 #pragma once
 
 #include <chrono>
+#include <deque>
+#include <optional>
+#include <string>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -12,6 +15,8 @@
 #include "anet/common.hpp"
 #include "anet/rl.hpp"
 #include "anet/profile.hpp"
+
+namespace anet::rl { struct StepTraceColumnSpec; }
 
 namespace anet::rl::gui {
 
@@ -255,7 +260,7 @@ namespace anet::rl::gui {
 
     class TraceFollower {
     public:
-        virtual std::shared_ptr<const TraceSnapshot> CaptureTraceSnapshot(const TrainEvent& event) = 0;
+        virtual std::shared_ptr<const TraceSnapshot> CreateTraceSnapshot(const TrainEvent& event) = 0;
         virtual void ShowTraceSnapshot(std::shared_ptr<const TraceSnapshot> snapshot) = 0;
         virtual void ReturnToLive() = 0;
         virtual ~TraceFollower() = default;
@@ -297,7 +302,7 @@ namespace anet::rl::gui {
             auto data = std::make_shared<const ViewDataType>(CreateViewData(event));
             data_store_.Update(Frame{ .step = event.counts.exp_step, .data = std::move(data) });
         }
-        std::shared_ptr<const TraceSnapshot> CaptureTraceSnapshot(const TrainEvent& event) override
+        std::shared_ptr<const TraceSnapshot> CreateTraceSnapshot(const TrainEvent& event) override
         {
             ANET_PROFILE_FUNC();
             // 同じ通知で既に作ったViewDataは再計算しない。
@@ -401,6 +406,37 @@ namespace anet::rl::gui {
     private:
         anet::ConfigData config_data_;
     };
+
+    // Evaluation Traceの表示と再生を、生成側から独立して扱う。
+    float AppendTracePercentile(std::deque<float>& values, float value, size_t window_size);
+
+    class TracePlayer {
+    public:
+        void SetRows(std::vector<int64_t> oldest_to_newest);
+        void Select(int64_t id, bool keep_playing = false);
+        bool CanPlay(double base_steps_per_second) const;
+        std::string Play();
+        std::string Pause();
+        std::string Stop();
+        std::string StepForward();
+        std::string StepBack();
+        std::string Faster();
+        std::string Slower();
+        std::string Tick(double seconds, double base_steps_per_second);
+        std::optional<int64_t> GetSelected() const { return selected_; }
+        bool IsPlaying() const { return playing_; }
+        double GetSpeed() const;
+        std::string GetSpeedLabel() const;
+    private:
+        std::vector<int64_t> rows_;
+        std::optional<int64_t> selected_;
+        bool playing_ = false;
+        int speed_index_ = 3;
+        double progress_ = 0;
+    };
+
+    std::string FormatTraceValue(const StepTraceColumnSpec& column, float value, const ActionSpec& actions);
+
 
 }   // namespace anet::rl::gui
 

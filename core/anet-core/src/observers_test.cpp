@@ -194,7 +194,7 @@ private:
     mutable int scalar_query_count_ = 0;
 };
 
-class TestActionInfo final : public rl::BatchActionInfo, public anet::ModuleBase {
+class TestActionInfo final : public rl::BatchActionInfo {
 public:
     TestActionInfo(torch::Tensor action, const anet::TensorDict& info, const rl::AuxData& aux, float score)
         : rl::BatchActionInfo(std::move(action), info, aux)
@@ -207,12 +207,11 @@ public:
         return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
     }
 
-    const anet::Module* GetScalarSource() const override { return this; }
 
-    std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
         if (key == "action_info_score") return score_;
-        return std::nullopt;
+        return BatchActionInfo::GetScalar(key, index);
     }
 
 private:
@@ -1920,4 +1919,49 @@ TEST_CASE("Scalar action-info action keys keep the scalar-provider contract", "[
         return row.value("type", "") == "scalar" && row.value("tag", "") == "unknown_action";
     }));
     anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("Unknown non-DQN action scalar follows the standard missing-value warning", "[prd094][observers][action_info_module]")
+{
+    anet::MetricsLogger::Reset();
+    anet::MetricsLoggerConfig config;
+    config.run_name_tmpl = "prd094_action_module";
+    anet::MetricsLogger::Init(std::make_unique<CapturingBackend>(), config, "C:/tmp");
+    anet::test::LogCaptureGuard logs;
+    auto info = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64));
+    const auto state = MakeState({false}, {false});
+    const rl::BatchExperience experience{state, info, FloatTensor({0.0f}), state};
+    const rl::TrainEvent event{{experience, nullptr, {.exp_step=1}, nullptr, {}}, nullptr, nullptr, info};
+    rl::MetricsLogTrainObserver observer("missing_action_scalar", "not_provided", rl::StepAxis::EXP,
+        rl::EventField::ACTION_INFO, 1, false, 0.01f, std::nullopt);
+    // 非対応の特別扱いではなく、通常の未知キーとして既存WARNへ到達する。
+    observer.OnTrain(event);
+    logs.Flush();
+    CHECK(std::ranges::any_of(logs.Records(), [](const auto& record) {
+        return ContainsText(record.message, "value not found")
+            && ContainsText(record.message, "tag=missing_action_scalar")
+            && ContainsText(record.message, "key=not_provided");
+    }));
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("Base ActionInfo exposes lane actions without scalar aggregation", "[prd094][action_info_lane]")
+{
+    const rl::BatchActionInfo discrete(torch::tensor({1, 2}, torch::kInt64));
+    const anet::Module& module = discrete;
+    CHECK(module.GetScalar("action", 0) == 1.0f);
+    CHECK(module.GetScalar("action", 1) == 2.0f);
+    CHECK_FALSE(module.GetScalar("action", -1));
+    CHECK_FALSE(module.GetScalar("unknown", 0));
+    const rl::BatchActionInfo continuous(torch::tensor({{0.25f, -0.5f}, {0.75f, 0.5f}}));
+    CHECK(continuous.GetScalar("action.[1]", 0) == -0.5f);
+    CHECK(continuous.GetScalar("action.[0]", 1) == 0.75f);
+    CHECK_FALSE(continuous.GetScalar("action.[0]", -1));
+    // scalarの問い合わせはlaneの共通値を作らず、厳密な次元検証はlane指定時だけ行う。
+    CHECK_FALSE(continuous.GetScalar("action.[x]", -1));
+    CHECK_THROWS(continuous.GetScalar("action", 0));
+    CHECK_THROWS(discrete.GetScalar("action", 2));
+    const std::string key = GENERATE("action.[0x]", "action.[x]", "action.[-1]", "action.[0",
+        "action.[2147483648]", "action.[]", "action.[0]junk", "action.[2]");
+    CHECK_THROWS_WITH(continuous.GetScalar(key, 0), Catch::Matchers::ContainsSubstring("expected=action.[integer dimension]"));
 }

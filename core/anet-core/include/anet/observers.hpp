@@ -306,24 +306,6 @@ namespace anet::rl {
     // MetricsLogObserver
     // -----------------------------------------------------------------
 
-    /// 呼び出し中だけ有効な通知の借用。読み手は保持しない。
-    struct MetricValueContext {
-        const Agent* agent = nullptr; ///< 同期呼び出し元が所有
-        const Runner* runner = nullptr; ///< 同期呼び出し元が所有
-        const BatchEnv* env = nullptr; ///< 同期呼び出し元が所有
-        const BatchExperience* experience = nullptr; ///< 同期呼び出し元が所有
-        const BatchActionInfo* action_info = nullptr; ///< 同期呼び出し元が所有
-        const BatchStepResult* step_result = nullptr; ///< 同期呼び出し元が所有
-        const BatchUpdateResult* update_result = nullptr; ///< 同期呼び出し元が所有
-        const anet::Module* agent_step = nullptr; ///< 同期呼び出し元が所有
-    };
-
-    class MetricValueReader {
-    public:
-        static std::optional<float> Read(const MetricValueContext& context,
-            EventField field, const std::string& key, int64_t lane = -1);
-    };
-
     class MetricsLogObserverBase : public TaggedObserver {
     public:
         MetricsLogObserverBase(
