@@ -78,6 +78,7 @@ namespace anet::rl {
         anet::ScalarSampleAccumulator completed_episode_returns_;
         anet::ScalarSampleAccumulator completed_episode_steps_;
         bool last_step_had_episode_end_ = false;
+        std::vector<CompletedEpisodeResult> last_completed_episodes_;
     };
 
 
@@ -218,6 +219,8 @@ namespace anet::rl {
     // RunManager
     // ----------------------------------------------------------------------
 
+    class MetricsWiring;
+
     class RunManager {
     public:
         //RunManager(const ConfigData& config_data, const std::string& config_prefix = "train");
@@ -254,7 +257,7 @@ namespace anet::rl {
         std::unordered_map<std::string, std::shared_ptr<EvalRunner>> eval_runners;
         std::unordered_map<std::string, std::string> env_name_owners_;
         std::unordered_set<std::string> dormant_eval_tags_;
-        std::unordered_set<std::string> warned_dormant_metric_tags_;
+        std::unique_ptr<MetricsWiring> metrics_wiring_;
         std::unordered_map<std::string, RunMode> configured_eval_run_modes_;
         std::unordered_map<std::string, std::string> configured_actor_keys_;
         std::unordered_set<std::string> warned_unsupported_env_config_names_;

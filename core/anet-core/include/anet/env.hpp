@@ -115,6 +115,7 @@ namespace anet::rl {
 
         void Reset();
         std::vector<CompletedEpisodeResult> Add(const BatchStepResult& result);
+        int64_t GetCurrentSteps(int64_t lane) const;
 
     private:
         BatchEnvSpec batch_spec_;

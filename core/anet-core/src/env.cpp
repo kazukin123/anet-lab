@@ -245,6 +245,15 @@ void EpisodeStatsAccumulator::Reset()
     std::fill(current_steps_.begin(), current_steps_.end(), 0);
 }
 
+int64_t EpisodeStatsAccumulator::GetCurrentSteps(int64_t lane) const
+{
+    // laneをepisode groupへ写すだけで、独立した時計は増やさない。
+    const bool shared = batch_spec_.episode_scope == EpisodeScope::SHARED;
+    ANET_CHECK_MSG((lane >= 0 && lane < batch_spec_.num_envs) || (shared && lane == -1),
+        "Episode step lane is out of range. lane=" << lane << " expected=[0," << batch_spec_.num_envs << ").");
+    return current_steps_[shared ? 0 : static_cast<size_t>(lane)];
+}
+
 std::vector<CompletedEpisodeResult> EpisodeStatsAccumulator::Add(const BatchStepResult& result)
 {
     ANET_PROFILE_FUNC();

@@ -8,6 +8,8 @@
 #include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
+#include "anet/step_trace.hpp"
+#include "anet/gui.hpp"
 #include "nn_impl.hpp"
 
 #include <algorithm>
@@ -25,6 +27,32 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][prd094][pane_open]")
+{
+    wxWindow window;
+    wxAuiPaneInfo pane;
+    pane.Window(&window).Show();
+    CHECK(anet::rl::gui::IsPaneOpen(pane, false));
+    pane.Hide();
+    CHECK_FALSE(anet::rl::gui::IsPaneOpen(pane, false));
+    // 最大化で隠されたdock paneは、退避した開閉状態で判定する。
+    pane.SetFlag(wxAuiPaneInfo::savedHiddenState, false);
+    CHECK(anet::rl::gui::IsPaneOpen(pane, true));
+    // 明示的な開閉を退避状態にも反映すれば、復元後も一致する。
+    for (const bool closed : {true, false}) {
+        pane.SetFlag(wxAuiPaneInfo::savedHiddenState, closed);
+        CHECK(anet::rl::gui::IsPaneOpen(pane, true) == !closed);
+        pane.Show(!pane.HasFlag(wxAuiPaneInfo::savedHiddenState));
+        CHECK(anet::rl::gui::IsPaneOpen(pane, false) == !closed);
+        pane.Hide();
+    }
+    pane.Float();
+    CHECK_FALSE(anet::rl::gui::IsPaneOpen(pane, true));
+    pane.Dock().ToolbarPane().Hide();
+    CHECK_FALSE(anet::rl::gui::IsPaneOpen(pane, true));
+    CHECK_FALSE(anet::rl::gui::IsPaneOpen(wxAuiPaneInfo(), true));
+}
 
 namespace {
 
@@ -1534,4 +1562,130 @@ TEST_CASE("Pipeline shutdown propagates its last learner failure without another
     runner->DoStep();
     CHECK_THROWS_WITH(runner->Shutdown(), "last learner failure");
     CHECK_NOTHROW(runner->Shutdown());
+}
+
+TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer][prd094][step_trace]")
+{
+    // 実Runnerの通知から列を読む経路を最小の1行で通す。
+    auto env = std::make_shared<TestBatchEnv>("eval", 1, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{ .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = "eval" };
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request, "eval");
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward");
+    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1);
+    std::vector<std::shared_ptr<rl::StepTrace>> rows;
+    builder.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
+    auto observer = std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        builder.OnTrain(event);
+    });
+    notifier->Attach(observer);
+    runner->DoStep();
+    REQUIRE(rows.size() == 1);
+    REQUIRE(rows[0]->values.size() == 1);
+    CHECK(rows[0]->values[0] == 0.0f);
+    CHECK(rows[0]->step == 1);
+}
+
+TEST_CASE("Step trace reads one transition across Runner counters and terminal results", "[trainer][prd094][trace_timing]")
+{
+    const bool terminal = GENERATE(false, true);
+    std::shared_ptr<rl::BatchEnv> env;
+    if (terminal) {
+        env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(anet::EmptyConfigData,
+            std::make_shared<NotificationSingleEnvFactory>(), "trace-timing", 1, torch::kCPU, 1);
+    } else {
+        env = std::make_shared<TestBatchEnv>("trace-timing", 1, torch::Device(torch::kCPU));
+    }
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{ .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = "eval" };
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request);
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[1]", "$runner reward");
+    config.Set("app.eval_trace_panel.columns.[2]", "$runner step_in_episode");
+    config.Set("app.eval_trace_panel.columns.[3]", "$runner mean.episode_steps");
+    config.Set("app.eval_trace_panel.columns.[4]", terminal ? "$env_step value" : "$env_step reward");
+    config.Set("app.eval_trace_panel.columns.[5]", "$action_info action");
+    config.Set("app.eval_trace_panel.columns.[6]", "$agent_step q_sa");
+    config.Set("app.eval_trace_panel.columns.[7]", "$runner exp_step");
+    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1);
+    std::vector<std::shared_ptr<rl::StepTrace>> rows;
+    builder.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        builder.OnTrain(event);
+    }));
+    runner->DoStep(0);
+    runner->DoStep(0);
+    REQUIRE(rows.size() == 2);
+    for (int i = 0; i < 2; ++i) {
+        CHECK(rows[i]->values[0] == (terminal ? 1.0f : 0.0f));
+        CHECK(rows[i]->values[1] == (terminal ? 1.0f : static_cast<float>(i + 1)));
+        if (terminal) CHECK(rows[i]->values[2] == 1.0f);
+        else CHECK(std::isnan(rows[i]->values[2]));
+        CHECK(rows[i]->values[3] == (terminal ? 1.0f : 0.0f));
+        CHECK(rows[i]->values[4] == 0.0f);
+        CHECK(std::isnan(rows[i]->values[5]));
+        CHECK(rows[i]->values[6] == i + 1);
+        CHECK(rows[i]->complete);
+    }
+}
+
+TEST_CASE("View snapshots freeze one transition and return to the latest live data", "[prd094][trace_snapshot]")
+{
+    // native windowを作らず、Viewの公開snapshot/描画経路だけを検証する。
+    class Window final : public wxWindow {
+    public:
+        int displayed = -1;
+        bool shown = true;
+        void ApplyData(const int& data) { displayed = data; }
+        bool Show(bool value = true) override { shown = value; return true; }
+    };
+    class View final : public rl::gui::ViewBase<int, Window> {
+    public:
+        View() : ViewBase(nullptr) { window_ = &output; }
+        mutable int created = 0;
+        Window output;
+        int CreateViewData(const rl::TrainEvent& event) const override
+        {
+            ++created;
+            return static_cast<int>(event.counts.exp_step);
+        }
+    };
+    auto view = std::make_shared<View>();
+    auto env = std::make_shared<TestBatchEnv>("snapshot", 1, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{ .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = "eval" };
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request);
+    std::vector<std::shared_ptr<const rl::gui::TraceSnapshot>> snapshots;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        view->UpdateViewData(event, true);
+        snapshots.push_back(view->CaptureTraceSnapshot(event));
+    }));
+    runner->DoStep();
+    view->CaptureViewData();
+    CHECK(view->output.displayed == 1);
+    runner->DoStep();
+    view->ShowTraceSnapshot(snapshots.front());
+    CHECK(view->output.displayed == 1);
+    runner->DoStep();
+    view->CaptureViewData();
+    CHECK(view->output.displayed == 1);
+    CHECK(view->created == 3);
+    view->ReturnToLive();
+    CHECK(view->output.displayed == 3);
+    view->ShowTraceSnapshot(nullptr);
+    view->CaptureViewData();
+    CHECK_FALSE(view->output.shown);
+    view->ReturnToLive();
+    CHECK(view->output.shown);
+    CHECK(view->output.displayed == 3);
+    const auto orphan = snapshots.front();
+    view.reset();
+    CHECK_NOTHROW(orphan->show());
 }

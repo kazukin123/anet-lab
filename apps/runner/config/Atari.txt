@@ -1417,3 +1417,7 @@ app.online.eval_panel.fps = 14.5
 app.online.train_panel.fps = 10
 
 QValuePanel.row_height = 20
+
+# 遷移結果の得点・残機を履歴へ並べる。
+app.eval_trace_panel.columns.[20] = $env_step game_score
+app.eval_trace_panel.columns.[21] = $env_step lives

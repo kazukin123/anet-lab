@@ -302,6 +302,8 @@ public:
         return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
     }
 
+    const anet::Module* GetScalarSource() const override { return this; }
+
     std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
     {
         if (key == "action_info_score") return score_;

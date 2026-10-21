@@ -207,6 +207,8 @@ public:
         return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
     }
 
+    const anet::Module* GetScalarSource() const override { return this; }
+
     std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
     {
         if (key == "action_info_score") return score_;
@@ -1890,4 +1892,32 @@ TEST_CASE("env_step fails at the first unknown or nonscalar read", "[observers][
     const auto result = std::make_shared<TestStepResult>(std::vector<float>{1, 2},
         std::vector<bool>{true, false}, std::vector<bool>{false, false});
     CHECK_THROWS_WITH(runner->FireEpisodeEnd(result, {}), Catch::Matchers::ContainsSubstring("missing"));
+}
+
+TEST_CASE("Scalar action-info action keys keep the scalar-provider contract", "[metrics][observers][prd094][scalar_action_contract]")
+{
+    const std::string key = GENERATE("action", "action.[x]", "action.[0]");
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* captured = backend.get();
+    anet::MetricsLoggerConfig config;
+    config.run_name_tmpl = "prd094_scalar_action";
+    anet::MetricsLogger::Init(std::move(backend), config, "C:/tmp");
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>();
+    auto env = std::make_shared<TestBatchEnv>("scalar-action", 1);
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    auto info = std::make_shared<TestActionInfo>(torch::tensor({0}, torch::kInt64), anet::TensorDict{}, rl::AuxData{}, 12.5f);
+    const auto state = MakeState({false}, {false});
+    const rl::BatchExperience experience{state, info, FloatTensor({0.0f}), state};
+    const rl::TrainEvent event{{experience, runner, {.exp_step=1}, agent, {}}, env, nullptr, info};
+    rl::MetricsLogTrainObserver observer("unknown_action", key, rl::StepAxis::EXP,
+        rl::EventField::ACTION_INFO, 1, false, 0.01f, std::nullopt);
+    // 未知のscalar鍵は出力なし。lane別のcarrier読取りへ入ってはいけない。
+    CHECK_NOTHROW(observer.OnTrain(event));
+    CHECK_FALSE(HasScalarRecord(*captured, "unknown_action", 1, 0.0));
+    CHECK(std::none_of(captured->records.begin(), captured->records.end(), [](const auto& row) {
+        return row.value("type", "") == "scalar" && row.value("tag", "") == "unknown_action";
+    }));
+    anet::MetricsLogger::Reset();
 }

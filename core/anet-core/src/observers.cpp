@@ -1,6 +1,7 @@
 // observers.cpp
 
 #include "anet/observers.hpp"
+#include <charconv>
 #include <chrono>
 #include <format>
 #include <limits>
@@ -13,6 +14,7 @@
 #include "anet/log.hpp"
 #include "anet/env.hpp"
 #include "anet/trainer.hpp"
+#include "metric_tokens.hpp"
 
 
 using namespace anet::rl;
@@ -828,6 +830,54 @@ MetricsLogSessionEndObserver::MetricsLogSessionEndObserver(const std::string& ta
     ;
 }
 
+std::optional<float> MetricValueReader::Read(const MetricValueContext& context,
+    EventField field, const std::string& key, int64_t lane)
+{
+    // 実行行動は型を横断して読めるようcarrier自身から取り出す。
+    if (field == EventField::ACTION_INFO && context.action_info && lane >= 0
+        && (key == "action" || key.starts_with("action.["))) {
+        const auto action = context.action_info->GetAction(torch::kCPU);
+        ANET_CHECK_MSG(action.defined() && lane >= 0 && lane < action.size(0),
+            "Invalid action scalar lane. key='" << key << "' lane=" << lane << " expected=an existing lane.");
+        if (key == "action") {
+            ANET_CHECK_MSG(action.dim() == 1,
+                "Continuous action requires action.[dimension]. key='" << key << "' expected=action.[dimension].");
+            return action[lane].item<float>();
+        }
+        int64_t dimension = -1;
+        bool valid = key.size() > 9 && key.ends_with("]");
+        if (valid) {
+            const auto end = key.data() + key.size() - 1;
+            const auto parsed = std::from_chars(key.data() + 8, end, dimension);
+            valid = parsed.ec == std::errc{} && parsed.ptr == end;
+        }
+        if (!valid || action.dim() != 2 || dimension < 0 || dimension >= action.size(1)) {
+            ANET_SYSTEM_ERROR("Invalid continuous action dimension. key='" << key
+                << "' expected=action.[integer dimension] within the action shape.");
+        }
+        return action[lane][dimension].item<float>();
+    }
+    // 結果型はModuleではないため、遷移の読み口へ直接委譲する。
+    if (field == EventField::ENV_STEP) {
+        return context.step_result ? context.step_result->GetScalar(key, lane) : std::nullopt;
+    }
+    // 呼び出し側が集約・探索・未知値の扱いを決め、ここは取得元だけを解決する。
+    const anet::Module* source = nullptr;
+    switch (field) {
+    case EventField::AGENT: source = context.agent; break;
+    case EventField::AGENT_STEP: source = context.agent_step; break;
+    case EventField::RUNNER: source = context.runner; break;
+    case EventField::ACTOR: source = context.runner ? context.runner->GetActor().get() : nullptr; break;
+    case EventField::ENV: source = context.env ? context.env
+        : (context.runner ? context.runner->GetBatchEnv().get() : nullptr); break;
+    case EventField::EXPERIENCE: source = context.experience; break;
+    case EventField::ACTION_INFO: source = context.action_info ? context.action_info->GetScalarSource() : nullptr; break;
+    case EventField::UPDATE_RESULT: source = context.update_result; break;
+    default: break;
+    }
+    return source ? source->GetScalar(key, lane) : std::nullopt;
+}
+
 MetricsLogTraceObserver::MetricsLogTraceObserver(const std::string& tag,
     std::vector<std::string> keys, StepAxis step_axis, EventField field)
     : TaggedObserver(tag), keys_(std::move(keys)), step_axis_(step_axis), field_(field)
@@ -838,31 +888,21 @@ void MetricsLogTraceObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
 {
     ANET_PROFILE_FUNC();
     
-    // 遷移を所有する結果と現在の状態を返すtargetを分け、宣言順で読む。
-    const anet::Module* target = nullptr;
+    // target解決だけを共有し、trace固有の診断と宣言順は維持する。
     const char* target_name = "unknown";
     switch (field_) {
-    case EventField::ENV_STEP:
-        target_name = "env_step";
-        break;
-    case EventField::ENV:
-        target_name = "env";
-        target = event.env != nullptr ? event.env.get()
-            : (event.runner != nullptr ? event.runner->GetBatchEnv().get() : nullptr);
-        break;
-    case EventField::ACTOR:
-        target_name = "actor";
-        target = event.runner != nullptr ? event.runner->GetActor().get() : nullptr;
-        break;
-    case EventField::AGENT: target_name = "agent"; target = event.agent.get(); break;
-    case EventField::RUNNER: target_name = "runner"; target = event.runner.get(); break;
+    case EventField::ENV_STEP: target_name = "env_step"; break;
+    case EventField::ENV: target_name = "env"; break;
+    case EventField::ACTOR: target_name = "actor"; break;
+    case EventField::AGENT: target_name = "agent"; break;
+    case EventField::RUNNER: target_name = "runner"; break;
     default: break;
     }
+    const MetricValueContext context{ .agent = event.agent.get(), .runner = event.runner.get(),
+        .env = event.env.get(), .step_result = event.step_result.get() };
     anet::json data = anet::json::object();
     for (const auto& key : keys_) {
-        const auto value = field_ == EventField::ENV_STEP
-            ? (event.step_result ? event.step_result->GetScalar(key, event.env_index) : std::nullopt)
-            : (target != nullptr ? target->GetScalar(key, event.env_index) : std::nullopt);
+        const auto value = MetricValueReader::Read(context, field_, key, event.env_index);
         if (!value.has_value()) {
             ANET_SYSTEM_ERROR("Trace metric key is unavailable. tag='" << tag_
                 << "' key='" << key << "' lane=" << event.env_index << " target=" << target_name
@@ -886,52 +926,19 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
 {
     ANET_CHECK(event_field != EventField::UPDATE_RESULT);
 
-    // Scalar取得対象
-    const anet::Module* target = nullptr;
-
-    // 指定に従ってScalar取得対象を取得
-    switch (event_field) {
-    case anet::rl::EventField::EXPERIENCE:
-        target = experience;
-        break;
-    case anet::rl::EventField::ACTOR:
-        target = runner != nullptr ? runner->GetActor().get() : nullptr;
-        break;
-    case anet::rl::EventField::AGENT:
-        target = agent.get();
-        break;
-    case anet::rl::EventField::RUNNER:
-        target = runner.get();
-        break;
-    case anet::rl::EventField::ENV:
-        if (env != nullptr) {
-            target = env.get();
-        } else if (runner != nullptr) {
-            target = runner->GetBatchEnv().get(); // Runner経由で取得
-        }
-        break;
-    case anet::rl::EventField::ACTION_INFO:
-        if (action_info == nullptr) {
+    // 既存scalarのaction未提供時のNaNと診断を保つ。
+    if (event_field == EventField::ACTION_INFO) {
+        if (!action_info) {
             ANET_SYSTEM_ERROR("MetricsLogObserverBase: $action_info is only available for TrainEvent.");
         }
-        target = dynamic_cast<const anet::Module*>(action_info.get());
-        if (target == nullptr) {
-            auto step = counts.GetByAxis(this->step_axis_);
-            return MetricsData{ step, std::numeric_limits<float>::quiet_NaN() };
+        if (!action_info->GetScalarSource()) {
+            return MetricsData{ counts.GetByAxis(step_axis_), std::numeric_limits<float>::quiet_NaN() };
         }
-        break;
-    default:
-        ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
-        break;
     }
-    ANET_CHECK(target != nullptr);
-
-    // step取得
-    auto step = counts.GetByAxis(this->step_axis_);
-
-    // 値取得
-    std::optional<float> value;
-    value = target->GetScalar(this->key_);
+    const MetricValueContext context{ .agent = agent.get(), .runner = runner.get(),
+        .env = env.get(), .experience = experience, .action_info = action_info.get() };
+    const auto step = counts.GetByAxis(step_axis_);
+    const auto value = MetricValueReader::Read(context, event_field, key_);
 
     // 結果生成
     MetricsData ret{ step, value };
@@ -956,7 +963,8 @@ MetricsLogObserverBase::UpdateResultMetricsLookup MetricsLogObserverBase::GetMet
         // StepAxis::LEARNの場合、UpdateResultの一件毎にメトリクス情報
         for (const auto& update_result : *update_result_list) {
             // メトリクス情報取得
-            auto scaler = update_result->GetScalar(this->key_);
+            auto scaler = MetricValueReader::Read(
+                MetricValueContext{ .update_result = update_result.get() }, EventField::UPDATE_RESULT, key_);
             if (scaler.has_value()) {
                 ret.recognized = true;
             }
@@ -972,7 +980,8 @@ MetricsLogObserverBase::UpdateResultMetricsLookup MetricsLogObserverBase::GetMet
         float sum = 0.0f;
         int count = 0;
         for (const auto& update_result : *update_result_list) {
-            auto scaler = update_result->GetScalar(this->key_);
+            auto scaler = MetricValueReader::Read(
+                MetricValueContext{ .update_result = update_result.get() }, EventField::UPDATE_RESULT, key_);
             if (!scaler.has_value()) continue;
             // key認識は有限値の成立可否と分離し、既知NaNから他sourceへ探索させない。
             ret.recognized = true;
@@ -1120,7 +1129,8 @@ void MetricsLogObserverBase::OnGenericUpdate(
         for (int64_t group = 0; group < groups; ++group) {
             if (ended_only && !ended[group]) continue;
             const auto lane = spec.episode_scope == EpisodeScope::SHARED ? -1 : group;
-            const auto value = step_result->GetScalar(key, lane);
+            const auto value = MetricValueReader::Read(
+                MetricValueContext{ .step_result = step_result.get() }, EventField::ENV_STEP, key, lane);
             if (!value) {
                 ANET_SYSTEM_ERROR("Step scalar is unavailable. tag='" << tag_ << "' key='" << key
                     << "' lane=" << lane << " expected=recognized scalar key.");
@@ -1370,80 +1380,6 @@ anet::json anet::rl::TraceMetricDefsToJson(const std::vector<ObserverFactory::Tr
     return payload;
 }
 
-namespace metric_tokens {
-    enum class Kind { KEY, EVENT, STEP, TARGET, SCOPE, EMA, ATTRIBUTE };
-    struct Token {
-        Kind kind = Kind::KEY;
-        std::string raw;
-        std::string value;
-        std::string attribute;
-        std::optional<EventType> event;
-        std::optional<StepAxis> step;
-        std::optional<EventField> field;
-    };
-
-    // 宣言順と各指定の出現を残し、既定値・後勝ち・診断はチャネル側へ委ねる。
-    static std::vector<Token> ParseMetricTokens(const std::string& definition)
-    {
-        std::vector<Token> tokens;
-        for (const auto& raw : anet::Split(definition, { " " }, true)) {
-            Token token{ .raw = raw, .value = raw };
-            if (raw == "@train" || raw == "@learn" || raw == "@episode_end" || raw == "@session_end") {
-                token.kind = Kind::EVENT;
-                token.value = raw.substr(1);
-            } else if (raw == "$train_step" || raw == "$learn_step" || raw == "$episode_step"
-                || raw == "$exp_step" || raw == "$update_step" || raw == "$sim_step") {
-                token.kind = Kind::STEP;
-                token.value = raw.substr(1);
-            } else if (raw == "$actor" || raw == "$agent" || raw == "$env" || raw == "$env_step" || raw == "$runner"
-                || raw == "$batch_experience" || raw == "$exp" || raw == "$batch_update_result"
-                || raw == "$update_result" || raw == "$result" || raw == "$action" || raw == "$action_info") {
-                token.kind = Kind::TARGET;
-                token.value = raw.substr(1);
-            } else if (raw == "$train" || anet::StartsWith(raw, "$eval.[")) {
-                token.kind = Kind::SCOPE;
-                token.value = raw == "$train" ? "train" : anet::ExtractBetween(raw, "$eval.[", "]");
-            } else if (raw == "$ema") {
-                token.kind = Kind::EMA;
-            } else {
-                const auto attr = anet::Split(raw, { ":" }, true);
-                if (attr.size() == 2) {
-                    token.kind = Kind::ATTRIBUTE;
-                    token.attribute = attr[0];
-                    token.value = attr[1];
-                    if (attr[0] == "event") token.kind = Kind::EVENT;
-                    else if (attr[0] == "step" || attr[0] == "step_axis") token.kind = Kind::STEP;
-                    else if (attr[0] == "target") token.kind = Kind::TARGET;
-                }
-            }
-            if (token.kind == Kind::EVENT) {
-                if (token.value == "train") token.event = EventType::TRAIN;
-                else if (token.value == "learn") token.event = EventType::LEARN;
-                else if (token.value == "episode_end") token.event = EventType::EPISODE_END;
-                else if (token.value == "session_end") token.event = EventType::SESSION_END;
-            } else if (token.kind == Kind::STEP) {
-                // 属性形は従来の短縮名を受理し、$ 形だけ train_step / learn_step を受理する。
-                if (token.value == "train" || (token.attribute.empty() && token.value == "train_step")) token.step = StepAxis::TRAIN;
-                else if (token.value == "learn" || (token.attribute.empty() && token.value == "learn_step")) token.step = StepAxis::LEARN;
-                else if (token.value == "episode" || token.value == "episode_step") token.step = StepAxis::EPISODE;
-                else if (token.value == "exp" || token.value == "exp_step") token.step = StepAxis::EXP;
-                else if (token.value == "update" || token.value == "update_step") token.step = StepAxis::UPDATE;
-                else if (token.value == "sim" || token.value == "sim_step") token.step = StepAxis::SIM;
-            } else if (token.kind == Kind::TARGET) {
-                if (token.value == "actor") token.field = EventField::ACTOR;
-                else if (token.value == "agent") token.field = EventField::AGENT;
-                else if (token.value == "env") token.field = EventField::ENV;
-                else if (token.value == "env_step") token.field = EventField::ENV_STEP;
-                else if (token.value == "runner") token.field = EventField::RUNNER;
-                else if (token.value == "exp" || token.value == "batch_experience") token.field = EventField::EXPERIENCE;
-                else if (token.value == "update_result" || token.value == "batch_update_result" || token.value == "result") token.field = EventField::UPDATE_RESULT;
-                else if (token.value == "action_info" || token.value == "action") token.field = EventField::ACTION_INFO;
-            }
-            tokens.push_back(std::move(token));
-        }
-        return tokens;
-    }
-}
 
 ObserverFactory::ObserverFactory(const ConfigData& config_data)
 {

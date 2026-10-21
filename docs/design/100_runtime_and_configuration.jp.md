@@ -125,6 +125,8 @@ class ConfigManager
 class ConfigResolver
 class ConfigData
 class RunManager
+class MetricsWiring
+class ObserverFactory
 class BatchEnvBuilder
 class Agent
 class Notifier
@@ -140,6 +142,9 @@ ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
 RunManager *-- BatchEnvBuilder
 RunManager *-- Agent
+RunManager *-- MetricsWiring
+MetricsWiring --> ObserverFactory : 宣言を解析
+MetricsWiring --> Notifier : scopeとeventへ購読を接続
 RunManager *-- Notifier
 RunManager *-- TrainRunner
 RunManager o-- EvalRunner
@@ -149,6 +154,12 @@ RunnerThread --> TrainRunner : stepを反復
 ```
 
 主Train EnvはTrainRunnerが使用し、EvalRunnerごとに別のEnvとActorを作る。AgentとNotifierはRun内で共有される。
+
+### 5.1 メトリクス配線の所有
+
+`RunManager`は`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagの一度だけのWARN、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
+
+領域の検証手順は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)を参照する。
 
 ## 6. 処理フロー
 
@@ -341,6 +352,8 @@ sequenceDiagram
 - `train_step_per_sec`と`exp_step_per_sec`はbatch sizeの意味が異なる。比較時は同じ設定とstep軸を使う。
 
 ## 8. テストと拡張時の確認事項
+
+- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界

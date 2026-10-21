@@ -14,7 +14,7 @@
 #include "anet/gui.hpp"
 #include "anet/config.hpp"
 
-class Conv2dPanel final : public anet::rl::gui::Panel
+class Conv2dPanel final : public anet::rl::gui::Panel, public anet::rl::gui::TraceFollower
 {
 public:
     // observer: ヒートマップ生成ロジックを持つクラスの所有権を受け取る
@@ -24,6 +24,10 @@ public:
         const anet::ConfigData& config_data);
 
     virtual ~Conv2dPanel();
+public:	// TraceFollower
+    std::shared_ptr<const anet::rl::gui::TraceSnapshot> CaptureTraceSnapshot(const anet::rl::TrainEvent& event) override;
+    void ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot) override;
+    void ReturnToLive() override;
 private:
     // イベントハンドラ
     //void OnTimer(wxTimerEvent& event);
@@ -37,6 +41,7 @@ private:
     void UpdateRefreshRate();
 private:
     void CreateVisualizer();
+    void RenderActivations(anet::rl::step_t step, const anet::TensorDict& activations);
     void CreateObserver(anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner);
 private:
     class Config;
@@ -52,6 +57,10 @@ private:
     std::mutex image_mutex_;
     wxImage current_image_;
     bool closed_ = false;
+    bool trace_mode_ = false;
+    std::optional<anet::rl::step_t> latest_step_;
+    std::shared_ptr<const anet::TensorDict> latest_activations_;
+    wxStaticText* no_data_label_ = nullptr;
 
     // ロジック
     std::unique_ptr<anet::rl::Conv2dVisualizer> visualizer_;

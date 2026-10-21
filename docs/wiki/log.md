@@ -53,3 +53,5 @@
 2026-10-20 writeback docs/memo/999_episode_end_read_semantics_10prd.md blob:542a11169d6c23696f8e8be9ce4de3b6c9d24892 → なし
 2026-10-20 writeback docs/memo/087_review_agent_quality_viewpoints_10prd.md blob:835dc425b7c62d80af39d0127329e0f26986cf03 → なし
 2026-10-20 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:8f218a1004e57afda4673d9affb4d588580b3f7c → なし
+2026-10-21 fix docs/design/160_applications_and_tools.jp.md blob:6a6ccca3cf3b3517c41ab145c204e1fcc4fe35ab → docs/wiki/apps/110_runner_app.md
+2026-10-21 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:de710b63491897bd072dc2964f9bdb8e3bf21d23 → なし

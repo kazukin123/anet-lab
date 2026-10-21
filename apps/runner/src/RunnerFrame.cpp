@@ -64,6 +64,7 @@ enum {
     ID_TrainPanel,
     ID_EvalPanel,
     ID_QValuePanel,
+    ID_EvalTracePanel,
     ID_HeatMap,
     ID_Conv2d,
     ID_TrainToggle,
@@ -265,6 +266,7 @@ void RunnerFrame::SetupMenuBar()
     //view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
     view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(false);
     view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(false);
+    view_menu->AppendCheckItem(ID_EvalTracePanel, "Evaluation Trace")->Check(false);
 
     // 区切り
     view_menu->AppendSeparator();
@@ -390,6 +392,7 @@ void RunnerFrame::SetupToolBars()
     panel_toolbar_->AddTool(ID_LogView, "Logs", wxBitmapBundle(), "Show/hide Logs", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_EvalPanel, "Eval View", wxBitmapBundle(), "Show/hide Eval View", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_QValuePanel, "Q-Values", wxBitmapBundle(), "Show/hide Q-Values", wxITEM_CHECK);
+    panel_toolbar_->AddTool(ID_EvalTracePanel, "Trace", wxBitmapBundle(), "Show/hide Evaluation Trace", wxITEM_CHECK);
     panel_toolbar_->Realize();
 
     // float 時のミニフレームは pane caption を window title に使うため、name とは別に caption を与える。
@@ -441,7 +444,9 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     );
 
     // EvalExperienceView
-    eval_panel_ = new EvalPanel(this, eval_panel_config);
+    eval_panel_ = new EvalPanel(this, eval_panel_config, [this] {
+        if (eval_trace_panel_) eval_trace_panel_->ReturnToLive();
+    });
     wxAuiPaneInfo eval_info = wxAuiPaneInfo()
         .Name("EvalExperiencePanel").Caption("Evaluation View")
         .Right().Layer(kTrainEvalLayer).Row(0).Position(0)
@@ -466,6 +471,11 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Hide();
     q_value_info.dock_size = q_value_width;
     aui_mgr_.AddPane(q_value_panel_, q_value_info);
+
+    // 履歴は右の補助列に一枚だけ置き、起動時は生成・記録とも休止する。
+    eval_trace_panel_ = new EvalTracePanel(*this, aui_mgr_, *eval_panel_, config_data);
+    AddAuxPane(eval_trace_panel_, wxAuiPaneInfo().Name("EvalTracePanel").Caption("Evaluation Trace")
+        .CloseButton(true).MaximizeButton(true).Hide());
 }
 
 void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
@@ -485,6 +495,10 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
         eval_panel_->DoStep(action);
         eval_panel_->Refresh();
     });
+
+    eval_trace_panel_->Initialize(run_manager, eval_runner_);
+    eval_trace_panel_->RegisterFollower(eval_panel_);
+    eval_trace_panel_->RegisterFollower(q_value_panel_);
 
     // Trainer thread 上で status snapshot を作り、UI から可変 Runner 状態を直読しない。
     AttachTrainStatusObserver(run_manager);
@@ -660,6 +674,7 @@ void RunnerFrame::SetupEvents()
     RegisterPaneMenu(ID_TrainPanel, train_panel_);
     RegisterPaneMenu(ID_EvalPanel, eval_panel_);
     RegisterPaneMenu(ID_QValuePanel, q_value_panel_);
+    RegisterPaneMenu(ID_EvalTracePanel, eval_trace_panel_);
 
     // Update UI は操作経路に依存せず、実状態から menu と toolbar を同期する。
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
@@ -687,12 +702,13 @@ void RunnerFrame::SetupEvents()
         {ID_LogView, log_panel_},
         {ID_EvalPanel, eval_panel_},
         {ID_QValuePanel, q_value_panel_},
+        {ID_EvalTracePanel, eval_trace_panel_},
     };
     for (const auto& [id, window] : panel_bindings) {
         Bind(wxEVT_UPDATE_UI, [this, window](wxUpdateUIEvent& event) {
             auto& pane = aui_mgr_.GetPane(window);
             event.Enable(pane.IsOk());
-            event.Check(pane.IsOk() && pane.IsShown());
+            event.Check(anet::rl::gui::IsPaneOpen(pane, HasMaximizedPane()));
         }, id);
     }
 
@@ -729,7 +745,7 @@ void RunnerFrame::SetupEvents()
 
 bool RunnerFrame::IsAuxPane(const wxAuiPaneInfo& pane) const
 {
-    return pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith("Conv2dPanel_");
+    return pane.name == "EvalTracePanel" || pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith("Conv2dPanel_");
 }
 
 std::vector<wxAuiPaneInfo*> RunnerFrame::GetAuxPanes()
@@ -903,6 +919,8 @@ void RunnerFrame::HideAuxPanes()
 {
     for (auto* pane : GetAuxPanes()) {
         if (!pane) continue;
+        pane->SetFlag(wxAuiPaneInfo::savedHiddenState, true);
+        OnPaneHiding(*pane);
         pane->Show(false).Restore();
         pane->Dock().Right().Layer(kAuxLayer).Row(0).Position(0);
         pane->dock_size = kDefaultAuxDockWidth;   // 幅の記憶も既定へ戻す
@@ -1050,6 +1068,16 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
     }
 }
 
+void RunnerFrame::OnPaneHiding(wxAuiPaneInfo& pane)
+{
+    if (pane.window == eval_trace_panel_) eval_trace_panel_->SetActive(false);
+}
+
+void RunnerFrame::OnPaneShowing(wxAuiPaneInfo& pane)
+{
+    if (pane.window == eval_trace_panel_) eval_trace_panel_->SetActive(true);
+}
+
 void RunnerFrame::OnConv2d(wxCommandEvent& event)
 {
     if (!eval_runner_) return;
@@ -1063,6 +1091,7 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
         MakeUniquePaneInfo("Conv2dPanel", "EvalConv2d")        // name, caption, subcaption
         .CloseButton(true).MaximizeButton(true)
     );
+    eval_trace_panel_->RegisterFollower(conv2d_panel);
 }
 
 void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))

@@ -96,6 +96,10 @@ namespace anet::rl {
     };
    
 
+    /// replayとstep診断で同じ系列抽出・収益の演算順序を使う。
+    std::unique_ptr<ExperienceQueueController> CreateNStepQueueController(int n_step);
+    std::unique_ptr<ReplayExperienceBuilder> CreateDefaultExperienceBuilder(float gamma);
+
     // ======================================================
     // Valid Index Manager
     // ======================================================

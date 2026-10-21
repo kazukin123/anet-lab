@@ -182,12 +182,19 @@ void AuiLayoutFrame::RegisterPaneMenu(int menu_id, wxWindow* window)
     Bind(wxEVT_MENU, &AuiLayoutFrame::OnTogglePaneMenu, this, menu_id);
 }
 
+bool anet::rl::gui::IsPaneOpen(const wxAuiPaneInfo& pane, bool has_maximized_pane)
+{
+    // wxAUIが最大化時に退避するのはdockされた非toolbar paneの非表示フラグだけ。
+    return pane.IsOk() && (pane.IsShown() || (has_maximized_pane && pane.IsDocked()
+        && !pane.IsToolbar() && !pane.HasFlag(wxAuiPaneInfo::savedHiddenState)));
+}
+
 void AuiLayoutFrame::UpdatePaneMenuChecks()
 {
     for (const auto& binding : pane_menu_bindings_) {
         auto& pane = aui_mgr_.GetPane(binding.window);
         if (pane.IsOk()) {
-            CheckPaneMenuItem(binding.menu_id, pane.IsShown());
+            CheckPaneMenuItem(binding.menu_id, IsPaneOpen(pane, HasMaximizedPane()));
         }
     }
 }
@@ -286,7 +293,11 @@ void AuiLayoutFrame::OnTogglePaneMenu(wxCommandEvent& event)
     auto& pane = aui_mgr_.GetPane(binding->window);
     if (!pane.IsOk()) return;
 
-    if (!event.IsChecked()) {
+    // 最大化解除で明示的な開閉が巻き戻されないよう、退避フラグも同期する。
+    pane.SetFlag(wxAuiPaneInfo::savedHiddenState, !event.IsChecked());
+    if (event.IsChecked()) {
+        OnPaneShowing(pane);
+    } else {
         // 非表示化で dock が消える前に、実 dock サイズを pane 側へ退避する
         SyncDockSizesToPanes();
         OnPaneHiding(pane);
@@ -312,6 +323,7 @@ void AuiLayoutFrame::OnAuiPaneClose(wxAuiManagerEvent& event)
     if (const PaneMenuBinding* binding = FindBindingByWindow(pane->window)) {
         CheckPaneMenuItem(binding->menu_id, false);
     }
+    pane->SetFlag(wxAuiPaneInfo::savedHiddenState, true);
     OnPaneHiding(*pane);
 
     // ポリシー適用はクローズ処理の完了後に行う必要があるため遅延させる

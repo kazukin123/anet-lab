@@ -751,6 +751,7 @@ namespace anet::rl::dqn {
     class DQNActionInfo final : public anet::rl::BatchActionInfo, public anet::ModuleBase {
     public:
         using anet::rl::BatchActionInfo::BatchActionInfo;
+        const anet::Module* GetScalarSource() const override { return this; }
 
         std::shared_ptr<anet::rl::BatchActionInfo> To(torch::Device device) const override;
         std::shared_ptr<anet::rl::BatchActionInfo> WithAction(torch::Tensor action) const override;
@@ -919,6 +920,15 @@ namespace anet::rl::dqn {
         bool use_tbo = false;
         float tbo_epsilon = 0.01f;
     };
+
+    struct ActorQHintData {
+        torch::Tensor payload;
+        torch::Tensor munchausen_terms;
+    };
+    ActorQHintData MakeActorQHint(const torch::Tensor& q_values,
+        const torch::Tensor& action, const ActorQHintConfig& config);
+    std::unique_ptr<AgentStepDiagnostics> CreateStepDiagnostics(const LearnerConfig& config,
+        int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward);
 
     class Actor : public anet::rl::Actor, public anet::RandomHolder {
     public:

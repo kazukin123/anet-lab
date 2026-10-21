@@ -490,6 +490,35 @@ close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で
 
 checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにWARNが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
+### 6.5 Evaluation Traceで遷移を調べる
+
+ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
+
+上部の操作列は、1行戻る・再生・一時停止・停止・ステップ実行・速度ダウン・速度アップです。Liveから再生すると最古の行から進み、最新で止まります。停止または表でEscを押すとLiveへ戻ります。EvalのResumeや手動行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+
+列は次の形で指定します。番号は1以上で、飛び番を許します。
+
+```text
+app.eval_trace_panel.max_rows = 1000
+app.eval_trace_panel.pct_window = 10000
+app.eval_trace_panel.columns.[20] = $env_step game_score
+app.eval_trace_panel.columns.[21] = $env_step lives
+app.eval_trace_panel.columns.[22] = $agent_step approx_priority display:pct label:priority_pct
+```
+
+`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+
+学習側と同じonline networkのQで見たい場合は、次の指定を使います。
+
+```text
+DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
+```
+
+FPSを0にすると再生ボタンだけが無効になります。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
+
+> [!NOTE]
+> 画面は行動の結果、Q値と活性はその行動を決めた時点です。百分位は直近の有限値の中での中央順位で、全件同値は50%です。近似優先度はn-step分の情報が揃ってから埋まります。打ち切りを含む窓と非対応Agentは空欄です。eval_panelの既定はtarget networkのQです。時点と再生の仕組みは[Applications and Tools](160_applications_and_tools.jp.md#34-evaluation-trace)を参照してください。
+
 ## 7. 成果物
 
 workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runner/workspaces/dm_long/runs/<run_name>/`へ保存される。絶対パスworkspaceでも同様に、そのworkspaceの`runs/`配下へ保存される。

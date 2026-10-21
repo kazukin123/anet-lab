@@ -218,6 +218,16 @@ private:
 };
 
 
+std::unique_ptr<ExperienceQueueController> anet::rl::CreateNStepQueueController(int n_step)
+{
+    return std::make_unique<NStepQueueController>(n_step);
+}
+
+std::unique_ptr<ReplayExperienceBuilder> anet::rl::CreateDefaultExperienceBuilder(float gamma)
+{
+    return std::make_unique<DefaultExperienceBuilder>(gamma);
+}
+
 // ===========================================================================
 // Valid Index Manager
 // ===========================================================================
@@ -2325,8 +2335,8 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     }
 
     // 内部コンポーネントの構築
-    auto queue_controller = std::make_unique<NStepQueueController>(config.n_step);
-    auto builder = std::make_unique<DefaultExperienceBuilder>(config.gamma);
+    auto queue_controller = CreateNStepQueueController(config.n_step);
+    auto builder = CreateDefaultExperienceBuilder(config.gamma);
 
     std::shared_ptr<ReplayExperienceSampler> sampler;
     std::shared_ptr<ReplayPriorityStore> priority_store;

@@ -3,12 +3,15 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
+#include <memory>
 #include <vector>
 #include <wx/wx.h>
 #include <wx/aui/aui.h>
 #include <wx/aui/serializer.h>
 #include "anet/common.hpp"
 #include "anet/rl.hpp"
+#include "anet/profile.hpp"
 
 namespace anet::rl::gui {
 
@@ -83,6 +86,9 @@ namespace anet::rl::gui {
     // AuiLayoutFrame
     // =============================================================
 
+    /// 最大化による一時非表示を含め、利用者が開いているpaneかを返す。
+    bool IsPaneOpen(const wxAuiPaneInfo& pane, bool has_maximized_pane);
+
     // wxAUI レイアウト管理 Frame の共通基底クラス (制約吸収層。docs/adr/0016 参照)。
     //
     // wxAUI の dock サイズは内部 dock 構造体が持ち、pane.dock_size は dock が
@@ -105,6 +111,9 @@ namespace anet::rl::gui {
         
         /// pane 非表示化の直前 (メニュー OFF / ✕ボタン共通) の追加処理。
         virtual void OnPaneHiding(wxAuiPaneInfo& WXUNUSED(pane)) {}
+
+        /// pane 表示の直前 (メニュー ON) の追加処理。
+        virtual void OnPaneShowing(wxAuiPaneInfo& WXUNUSED(pane)) {}
 
     protected:
         // ---- 派生クラスが使う道具 ----
@@ -240,7 +249,19 @@ namespace anet::rl::gui {
     // View
     // =============================================================
 
-    class View {
+    struct TraceSnapshot {
+        std::function<void()> show;
+    };
+
+    class TraceFollower {
+    public:
+        virtual std::shared_ptr<const TraceSnapshot> CaptureTraceSnapshot(const TrainEvent& event) = 0;
+        virtual void ShowTraceSnapshot(std::shared_ptr<const TraceSnapshot> snapshot) = 0;
+        virtual void ReturnToLive() = 0;
+        virtual ~TraceFollower() = default;
+    };
+
+    class View : public TraceFollower, public std::enable_shared_from_this<View> {
     public:
         virtual void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false) = 0;     ///< Trainerスレッド/Mainスレッド
         virtual void UpdateViewData(const anet::rl::LearnEvent& event, bool force = false) = 0;     ///< Trainerスレッド/Mainスレッド
@@ -260,30 +281,69 @@ namespace anet::rl::gui {
 
         void CaptureViewData() override
         {
-            auto data = data_store_.Get();
-            if (!data.has_value()) return;
-            window_->ApplyData(*data);
+            // Trace中はlive storeを表示へ流さず、選択したsnapshotを固定する。
+            if (trace_mode_) {
+                if (trace_data_) window_->ApplyData(*trace_data_);
+                return;
+            }
+            const auto frame = data_store_.Get();
+            if (frame && frame->data) window_->ApplyData(*frame->data);
         }
         void UpdateViewData(const anet::rl::LearnEvent& event, bool force) override {}
-        void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false)
+        void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false) override
         {
-            // Update不要ならスキップ
-            if (!force && !data_store_.ShouldUpdate())
-                return;
-
-            // UIデータを生成
-            ViewDataType ui_data = CreateViewData(event);
-
-            // UIデータを保存
-            data_store_.Update(ui_data);
+            // 既存の生成頻度を維持し、immutable dataをLiveと履歴で共有する。
+            if (!force && !data_store_.ShouldUpdate()) return;
+            auto data = std::make_shared<const ViewDataType>(CreateViewData(event));
+            data_store_.Update(Frame{ .step = event.counts.exp_step, .data = std::move(data) });
+        }
+        std::shared_ptr<const TraceSnapshot> CaptureTraceSnapshot(const TrainEvent& event) override
+        {
+            ANET_PROFILE_FUNC();
+            // 同じ通知で既に作ったViewDataは再計算しない。
+            auto frame = data_store_.Get();
+            if (!frame || frame->step != event.counts.exp_step) {
+                auto data = std::make_shared<const ViewDataType>(CreateViewData(event));
+                frame = Frame{ .step = event.counts.exp_step, .data = std::move(data) };
+                data_store_.Update(*frame);
+            }
+            auto weak = std::weak_ptr<ViewBaseType>(
+                std::static_pointer_cast<ViewBaseType>(this->shared_from_this()));
+            return std::make_shared<const TraceSnapshot>(TraceSnapshot{
+                .show = [weak, data = frame->data] {
+                    if (auto view = weak.lock()) {
+                        view->trace_data_ = data;
+                        view->window_->Show();
+                        view->window_->ApplyData(*data);
+                    }
+                } });
+        }
+        void ShowTraceSnapshot(std::shared_ptr<const TraceSnapshot> snapshot) override
+        {
+            trace_mode_ = true;
+            trace_data_.reset();
+            if (snapshot && snapshot->show) snapshot->show();
+            else window_->Hide();
+        }
+        void ReturnToLive() override
+        {
+            trace_mode_ = false;
+            trace_data_.reset();
+            window_->Show();
+            CaptureViewData();
         }
         wxWindow* AsWindow() override { return window_; }
-        
         virtual ~ViewBase() = default;
     protected:
+        struct Frame {
+            anet::rl::step_t step = 0;
+            std::shared_ptr<const ViewDataType> data;
+        };
         wxWindow* parent_;
-        anet::rl::gui::UIDataStore<ViewDataType> data_store_;
+        anet::rl::gui::UIDataStore<Frame> data_store_;
         ViewWindowType* window_ = nullptr;
+        std::shared_ptr<const ViewDataType> trace_data_;
+        bool trace_mode_ = false;
     };
 
 

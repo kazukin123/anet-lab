@@ -262,6 +262,24 @@ attach 済み定義だけを `metrics.scalar.defs` / `metrics.trace.defs` に分
 
 Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混ぜない。読み取りは `inspect_run.py trace-csv` が担い、行をそのまま CSV へ落とす（[030 §6.9](030_user_guide_analysis.jp.md#69-traceの個体行をcsvで取り出す)）。分位点・閾値越え率などの集約、Metrics Viewer 上の可視化、追加イベント、`episode_id`、`model_version` は本機能の範囲外。決定の背景は [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) を参照する。
 
+### 6.1 Evaluation Traceの列と読み取り
+
+`MetricValueReader`はtarget・鍵・laneと通知の借用から値を取得する。scalarの探索・集約・EMAとtraceの未知キー診断はそれぞれのObserverが持つ。`MetricsWiring`が購読先を結び付け、`StepTraceBuilder`は鏡写しEvalRunnerの`TrainEvent`からlaneごとの`StepTrace`を生成する。列はmetrics定義とは独立した`app.eval_trace_panel.columns.[番号]`で選ぶ。番号は1以上で飛び番を許し、昇順に表示する。
+
+| target | 時点・鍵 |
+|---|---|
+| `$action_info` | 判断時点の値。`action`は強制を含む実行行動。連続行動は`action.[次元]` |
+| `$actor` | その判断時点のActorのscalar |
+| `$env_step` | 遷移の結果。`reward`・`done`・`truncated`と結果型のscalar。終端でもリセット前 |
+| `$runner` | 今回を数えたcounts・報酬・完了集計。`step_in_episode`は1始まりで終端行は完了長 |
+| `$agent_step` | `q_sa`・`state_value`・遅延確定する`approx_priority`。非対応AgentはNaN |
+
+`$agent`・`$env`・`$exp`・`$update_result`は列で使えない。集約prefixを使えるのは`$runner`のepisode_return/episode_stepsだけで、完了しない行ではNaNになる。未知キーは最初の読出しでfail-fast、既知未成立と非有限値は空欄にする。metrics DSLへ`$agent_step`を足すものではない。
+
+Agentのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。PERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
+
+生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)で確かめる。
+
 ## 7. 出力とlifetime
 
 | 出力 | 生成主体 | 更新・flush境界 |
@@ -312,6 +330,8 @@ background 時、前セッション完了を待ってブロックした場合だ
 - text logのperiodic flushはGUI FPSから分離する。metrics/stdoutまで同じtimerでflushしてI/O頻度を増やさない。
 
 ## 9. テストと拡張時の確認事項
+
+- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 Observerまたは出力形式を変更する場合は次を確認する。
 

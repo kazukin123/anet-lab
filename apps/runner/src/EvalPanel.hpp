@@ -37,9 +37,9 @@ struct EvalPanelConfig {
 	void Validate() const;
 };
 
-class EvalPanel final : public wxPanel {
+class EvalPanel final : public wxPanel, public anet::rl::gui::TraceFollower {
 public:
-	EvalPanel(wxWindow* parent, const EvalPanelConfig& config);
+	EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action);
 	~EvalPanel();
 
 	void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
@@ -49,8 +49,14 @@ public:
 	bool IsPaused() const { return is_pause_; }
 	void SetFps(float fps);
 	void TogglePause();
+    void PauseForTrace() { is_pause_ = true; }
+    double GetPlaybackRate() const { return current_fps_ * config_.step_per_frame; }
 	void DoStep();
 	void DoStep(int64_t action);
+public:	// TraceFollower
+    std::shared_ptr<const anet::rl::gui::TraceSnapshot> CaptureTraceSnapshot(const anet::rl::TrainEvent& event) override;
+    void ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot) override;
+    void ReturnToLive() override;
 protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
@@ -72,5 +78,8 @@ private:
 	int frames_since_model_sync_ = 0;
 	int episodes_since_model_sync_ = 0;
 	std::chrono::steady_clock::time_point last_model_sync_time_;
-	bool is_pause_ = false;
+    bool is_pause_ = false;
+    float current_fps_ = 0;
+    std::function<void()> before_live_action_;
+    wxStaticText* no_data_label_ = nullptr;
 };

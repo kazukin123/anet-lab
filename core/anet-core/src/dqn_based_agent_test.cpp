@@ -7,10 +7,12 @@
 #include "anet/rainbow_agent.hpp"
 #include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
+#include "anet/step_trace.hpp"
 #include "dqn_based_agent.hpp"
 #include "dqn_based_heads.hpp"
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
+#include "replay_buffer_impl.hpp"
 
 #include <ATen/autocast_mode.h>
 #include <torch/csrc/autograd/profiler_legacy.h>
@@ -24,6 +26,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <limits>
 #include <map>
 #include <memory>
@@ -8612,4 +8615,209 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
         compare_networks(first.GetTargetNetwork(), second.GetTargetNetwork());
     }
     CHECK(probes >= 2);
+}
+
+TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and complete a bootstrap", "[dqn][prd094][step_diagnostics]")
+{
+    ScopedNoopMetricsLogger logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.learner.use_per = false;
+    config.learner.use_n_step = false;
+    config.learner.n_step = 1;
+    config.learner.gamma = 0.5f;
+    config.learner.use_tbo = false;
+    config.learner.per_eps = 0.1f;
+    config.learner.use_per_prio_clip = false;
+    config.learner.munchausen.enabled = false;
+    config.reward_scaler.use_dynamic_scaling = false;
+    config.reward_scaler.use_auto_post_scale = false;
+    config.reward_scaler.constant_scale = 2.0f;
+    config.reward_scaler.manual_post_scale = 1.0f;
+    config.reward_scaler.use_clipping = true;
+    config.reward_scaler.clip_range = 1.5f;
+    auto diagnostic_spec = MakeLearnerEnvSpec();
+    diagnostic_spec.action_spec.value_labels = { "a0", "a1" };
+    std::shared_ptr<rl::Agent> agent = std::make_shared<dqn::DefaultDQNAgent>(config,
+        MakeAgentForwardNetworkConfig(), rl::BatchEnvSpec{1, 1}, diagnostic_spec, torch::kCPU, 123);
+    auto diagnostics = agent->CreateStepDiagnostics(1);
+    REQUIRE(diagnostics);
+    const auto make = [&](bool first, float reward, const torch::Tensor& q) {
+        auto action = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64),
+            anet::TensorDict{}, rl::AuxData{{"q_values", q}},
+            rl::ReplayInitialPriorityHint(torch::full({1, 3}, 100.0f)));
+        action = action->WithAction(torch::tensor({1}, torch::kInt64));
+        return rl::BatchExperience{MakeDeterminismState(0, 1, {false}, {false}, {first}),
+            action, torch::tensor({reward}), MakeDeterminismState(1, 1, {false}, {false}, {false})};
+    };
+    const auto first = diagnostics->Observe(make(true, 1.0f, torch::tensor({{4.0f, 5.0f}})));
+    REQUIRE(first.current.size() == 1);
+    CHECK(first.current[0].q_sa == 5.0f);
+    CHECK(first.current[0].state_value == 5.0f);
+    CHECK(first.completed.empty());
+    const auto second = diagnostics->Observe(make(false, 0.0f, torch::tensor({{6.0f, 2.0f}})));
+    REQUIRE(second.completed.size() == 1);
+    CHECK(second.completed[0].lane == 0);
+    CHECK(second.completed[0].steps_back == 1);
+    // clip(2*r)=1.5、bootstrap=0.5*6、開始Q=5なので|4.5-5|+0.1。
+    CHECK(second.completed[0].approx_priority == Catch::Approx(0.6f));
+    CHECK(std::isnan(*agent->GetScalar("reward_scaler.clip_ratio")));
+    diagnostics->Reset();
+    CHECK(diagnostics->Observe(make(false, 1.0f, torch::tensor({{4.0f, 5.0f}}))).completed.empty());
+
+    // 実Agentの部品を列生成器まで通し、同じ元行の重複列が一度だけ確定する。
+    anet::ConfigData columns;
+    columns.Set("app.eval_trace_panel.columns.[1]", "$agent_step approx_priority");
+    columns.Set("app.eval_trace_panel.columns.[2]", "$agent_step approx_priority display:pct");
+    rl::StepTraceBuilder trace(columns, diagnostic_spec, agent, 1);
+    std::vector<std::shared_ptr<rl::StepTrace>> rows;
+    std::vector<int64_t> completed_ids;
+    trace.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); },
+        [&](const auto& row) { completed_ids.push_back(row->id); });
+    const auto add = [&](bool start, float reward, const torch::Tensor& q, rl::step_t step) {
+        const auto experience = make(start, reward, q);
+        auto result = std::make_shared<rl::PlainBatchStepResult>(experience.reward,
+            experience.next_state, experience.next_state, 1, 0, std::vector<rl::AuxData>{rl::AuxData{}});
+        trace.OnTrain(rl::TrainEvent{ {experience, nullptr, {.exp_step=step}, agent, {}},
+            nullptr, result, experience.action });
+    };
+    add(true, 1.0f, torch::tensor({{4.0f, 5.0f}}), 1);
+    REQUIRE(rows.size() == 1);
+    const auto retained = rows.front();
+    CHECK_FALSE(retained->complete);
+    CHECK(std::isnan(retained->values[0]));
+    add(false, 0.0f, torch::tensor({{6.0f, 2.0f}}), 2);
+    CHECK(completed_ids == std::vector<int64_t>{retained->id});
+    CHECK(retained->complete);
+    CHECK(retained->values[0] == Catch::Approx(0.6f));
+    CHECK(retained->values[0] == retained->values[1]);
+    CHECK_FALSE(rows.back()->complete);
+    trace.Reset();
+    rows.clear();
+    completed_ids.clear();
+    add(false, 0.0f, torch::tensor({{2.0f, 1.0f}}), 3);
+    CHECK(completed_ids.empty());
+
+}
+
+TEST_CASE("DQN step diagnostics match replay completion for n-step episode boundaries", "[dqn][prd094][diagnostic_replay]")
+{
+    // completionの公開出力先として、1slotだけを所有するpriority storeを使う。
+    class PrioritySlot final : public rl::ReplayPriorityStore {
+    public:
+        float raw = std::numeric_limits<float>::quiet_NaN();
+        rl::ReplayPrioritySource source = rl::ReplayPrioritySource::NONE;
+        void InvalidateSlot(int64_t) override { raw = std::numeric_limits<float>::quiet_NaN(); }
+        void SetRawInitialPriority(int64_t, float value, rl::ReplayPrioritySource from) override { raw = value; source = from; }
+        void SetMaxInitialPriority(int64_t) override { source = rl::ReplayPrioritySource::MAX_INITIAL; }
+        rl::ReplayPriorityUpdateResult ApplyLearnerPriorities(const std::vector<int64_t>&, const std::vector<float>&) override { return {}; }
+        std::optional<float> GetScalar(const std::string&) const override { return std::nullopt; }
+        std::optional<torch::Tensor> GetPriorityTensor(int64_t) const override { return torch::tensor(raw); }
+        torch::Tensor GatherPriorityRows(const torch::Tensor&) const override { return torch::tensor({raw}); }
+    };
+    const int n = GENERATE(1, 3);
+    const int boundary = GENERATE(0, 1, 2, 3);
+    const bool tbo = GENERATE(false, true);
+    const bool munchausen = GENERATE(false, true);
+    ScopedNoopMetricsLogger logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.learner.use_n_step = true;
+    config.learner.n_step = n;
+    config.learner.gamma = 0.9f;
+    config.learner.use_tbo = tbo;
+    config.learner.munchausen.enabled = munchausen;
+    config.learner.per_eps = 0.03f;
+    config.learner.use_per_prio_clip = true;
+    config.learner.per_prio_clip_value = 20.0f;
+    config.reward_scaler.use_dynamic_scaling = false;
+    config.reward_scaler.use_auto_post_scale = false;
+    config.reward_scaler.manual_post_scale = 1.0f;
+    config.reward_scaler.constant_scale = 1.25f;
+    config.reward_scaler.use_clipping = true;
+    config.reward_scaler.clip_range = 1.0f;
+    auto spec = MakeLearnerEnvSpec();
+    spec.action_spec.value_labels = {"a0", "a1"};
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 345);
+    auto diagnostics = agent->CreateStepDiagnostics(1);
+    REQUIRE(diagnostics);
+    const dqn::ActorQHintConfig hint_config{ .munchausen = config.learner.munchausen,
+        .use_tbo = tbo, .tbo_epsilon = config.learner.tbo_epsilon };
+    std::vector<rl::ReplayInitialPriorityHintRow> hints;
+    std::vector<float> rewards;
+    for (int step = 0; step < 8; ++step) {
+        const auto q = torch::tensor({{0.2f * step, 0.3f + 0.1f * step}});
+        const auto action = torch::tensor({step % 2}, torch::kInt64);
+        const auto payload = dqn::MakeActorQHint(q, action, hint_config).payload;
+        rl::ReplayInitialPriorityHintRow hint;
+        for (int k = 0; k < 3; ++k) hint.push_back(payload[0][k].item<float>());
+        hints.push_back(hint);
+        const float reward = 0.25f * (step + 1);
+        rewards.push_back(std::clamp(reward * 1.25f, -1.0f, 1.0f));
+        const bool done = step == 1 && (boundary == 1 || boundary == 3);
+        const bool truncated = step == 1 && (boundary == 2 || boundary == 3);
+        auto info = std::make_shared<rl::BatchActionInfo>(action, anet::TensorDict{}, rl::AuxData{{"q_values", q}});
+        const rl::BatchExperience experience{ MakeDeterminismState(step, 1, {false}, {false}, {step == 0 || (step == 2 && boundary != 0)}),
+            info, torch::tensor({reward}), MakeDeterminismState(step + 1, 1, {done}, {truncated}, {false}) };
+        const auto result = diagnostics->Observe(experience);
+        for (const auto& completed : result.completed) {
+            const int start = step - static_cast<int>(completed.steps_back);
+            const bool crosses = boundary != 0 && start <= 1 && start + n > 1;
+            const int actual_n = crosses ? 2 - start : n;
+            const bool terminal = crosses && (boundary == 1 || boundary == 3);
+            const bool cut = crosses && boundary == 2;
+            float target_return = 0;
+            for (int j = actual_n - 1; j >= 0; --j) target_return = rewards[start + j] + config.learner.gamma * target_return;
+            rl::ValidIndexManager index(1, 32);
+            for (int j = 0; j < 16; ++j) {
+                index.MarkWritten(0, j); index.AdvanceWriteCursor(0); index.MarkValid(0);
+            }
+            rl::InitialPriorityCompleter reference({ .mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX,
+                .gamma = config.learner.gamma, .n_step = n }, 1, dqn::CreateInitialPriorityEstimator(config.learner));
+            reference.Enqueue(0, { .logical_time_idx = 0, .flat_slot_index = 0, .target_return = target_return,
+                .terminal = terminal, .truncated = cut, .actual_n_steps = actual_n, .start_hint = hints[start] });
+            PrioritySlot slot;
+            reference.CompleteReady(0, hints[step], actual_n, index, slot);
+            if (cut) {
+                CHECK(std::isnan(completed.approx_priority));
+                CHECK(slot.source == rl::ReplayPrioritySource::MAX_INITIAL);
+            } else {
+                CHECK(slot.source == rl::ReplayPrioritySource::ACTOR_INITIAL);
+                CHECK(completed.approx_priority == Catch::Approx(slot.raw).margin(1e-6));
+            }
+        }
+    }
+}
+
+TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd094][diagnostic_no_wait]")
+{
+    class LockableAgent final : public dqn::DefaultDQNAgent {
+    public:
+        using dqn::DefaultDQNAgent::DefaultDQNAgent;
+        std::shared_mutex& MutexForTest() { return *mutex_; }
+    };
+    const bool dynamic = GENERATE(false, true);
+    ScopedNoopMetricsLogger logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.reward_scaler.use_dynamic_scaling = dynamic;
+    auto spec = MakeLearnerEnvSpec();
+    spec.action_spec.value_labels = {"a0", "a1"};
+    auto agent = std::make_shared<LockableAgent>(config, MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 123);
+    auto diagnostics = agent->CreateStepDiagnostics(1);
+    auto action = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64),
+        anet::TensorDict{}, rl::AuxData{{"q_values", torch::tensor({{1.0f, 2.0f}})}});
+    const rl::BatchExperience experience{MakeDeterminismState(0, 1, {false}, {false}, {true}),
+        action, torch::tensor({1.0f}), MakeDeterminismState(1, 1, {false}, {false}, {false})};
+    // 初回のTensor処理を先に済ませ、ロック待ちだけを制御する。
+    diagnostics->Observe(experience);
+    diagnostics->Reset();
+    std::unique_lock lock(agent->MutexForTest());
+    auto observed = std::async(std::launch::async, [&] { return diagnostics->Observe(experience); });
+    const auto status = observed.wait_for(std::chrono::seconds(1));
+    // REDでも必ず解放してからjoin相当のgetを行い、テストを停止可能にする。
+    lock.unlock();
+    const auto result = observed.get();
+    CHECK(status == std::future_status::ready);
+    REQUIRE(result.current.size() == 1);
+    CHECK(result.current[0].q_sa == 1.0f);
 }
