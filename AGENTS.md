@@ -529,6 +529,8 @@ Get-ChildItem apps\runner\workspaces\*\runs\*★ -Directory
 
 ## AI エージェントのRun結果分析ルール
 
+分析の結論が出たら、PRDに繋がるものはPRDの背景へ、繋がらないものは実験記録へ書くかを1問で確かめる。書いたら、同じ会話の終わりに `anet-ingest-wiki` で取り込む。
+
 Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
 
 ユーザーがRun名（またはRunフォルダのパス）だけを提示した場合は、原則としてRun分析の依頼として扱ってください。

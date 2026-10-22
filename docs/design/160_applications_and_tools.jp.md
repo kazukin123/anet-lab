@@ -349,7 +349,15 @@ sequenceDiagram
 - DB recordとRun folderは別lifetimeである。Run folderを削除してもOptuna trialは残り、保存pathがstaleになる。
 - summary studyは閲覧用であり、source studyを変更しない。
 
+### 7.4 wikiと監査台帳の保守
+
+- wikiは外の正本を束ねたまとめで、取り込みが書く部分を、点検がファイル・PRD一覧を更新する。材料、blob記録、更新手順は[wikiの規約](../wiki/README.md)を正本とする。
+- `reports/tools/registry.py list --category` は分類定義に従う。`build` は台帳の派生一覧と、地図の目印の間だけを更新する。全地図の目印を検査してから書き、区画外とwikiログは変更しない。
+- `reports/tools/wiki_support.py` は材料・blob・リンク候補の読み取りと地図の機械的な2節の再生成を補助する。知見の意味や裁定はエージェントが正本を読んで判断する。台帳の正本は `reports/registry/findings.jsonl`、CLIとレコード形式はregistry.pyの冒頭を参照する。
+
 ## 8. テストと変更時の確認事項
+
+- [PRD095検証資材](../../core/anet-core/testdata/prd095/README.md): 一時台帳での分類・地図の派生区画・不正な目印での無変更と、取り込み・点検・housekeepingの試走を確認する。
 
 - [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 

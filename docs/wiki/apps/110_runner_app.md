@@ -22,6 +22,29 @@
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-09-24: device 指定の auto 対応とキー体系統一（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、題・目的）。
 
+## 選ばなかった形
+
+- workspace選択のCancelで `_default` へ進む案 — 不採用: 選んでいないworkspaceの箱が作られる副作用がある（出典: [PRD046](../../memo/done/046_workspace_10prd.md)、§2.1）。
+- Runner GUIで実行中にworkspaceを切り替える — 範囲外: 現状は再起動で切り替え、後続PRDへ分ける（出典: [PRD046](../../memo/done/046_workspace_10prd.md)、§7）。
+- `RunManager` が `EpisodeEvalObserver` を直接保持して排水する案 — 不採用: 背景スレッドを持つobserver一般の終了の口を優先した（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、Complexity audit・9）。
+- `RunnerApp::DrainBackgroundObservers()` で例外を捕捉する案 — 不採用: 既存の再送出契約とfatal経路でexit code 1へ到達でき、捕捉層を足さない（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、Complexity audit・11）。
+- Evaluation Traceに学習側の優先度を表示する — 不採用: EvalPanelは1つのnetworkのforwardしか持たず、replayも無い（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
+- Evaluation TraceでAgentの入力を表示する — 先送り: 画像Tensorの部分表示は読みにくい。再開条件: 必要と分かったとき、選択行の入力を文字列でログへ出す形から起こす（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
+- Evaluation Traceの列を折れ線で表示する — 先送り: まず表と再生で足りるかを見る。再開条件: 近似優先度の推移を一目で見たくなったとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
+- Evaluation Traceで条件に合う行を自動で一時停止する — 先送り: まず再生で場面を探す。再開条件: その手間が大きいと分かったとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
+
+## 変えるときの条件
+
+一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
+
+- ImageCls batch入力の変更前後で、trainのmax_steps episode、episode_start、Conv2d表示のcadenceを維持する（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、§1.3）。
+- close時のTrain停止、checkpoint保存、log/metricsのflush、EvalPanel detach、AUI破棄の順序を維持する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.1）。
+- Train panelのFPSが0でも学習は続け、実行時のFPS選択をconfig dumpへ書き戻さない（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.1）。
+- Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・同一seedで全スロットの結果がEvalPanel起動中でも一致することを確かめる（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、§7・§8の受入9）。
+- メトリクス配線の整理前後で、同seed・決定的モードの短いRunのmetrics checksum、scalar/traceの定義、WARN行を一致させる（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D3・§8の受入1）。
+- ActorのQヒントのヘルパー切り出し前後で、actor_approxの同seed・決定的モードの短いRunのmetrics checksumを一致させる（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§8の受入3）。
+- EvalRunnerと学習側のカウンタを数える時機はそろえず、既存のmetricsのstepをずらさない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D9）。
+
 ## 関係
 
 - 設計: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §2.1・§3.1・§5.1・§7.1・§8。
@@ -35,6 +58,7 @@
 - [Conv2dPanel.cpp](../../../apps/runner/src/Conv2dPanel.cpp) / [Conv2dPanel.hpp](../../../apps/runner/src/Conv2dPanel.hpp)
 - [ErrorDialog.cpp](../../../apps/runner/src/ErrorDialog.cpp) / [ErrorDialog.hpp](../../../apps/runner/src/ErrorDialog.hpp)
 - [EvalPanel.cpp](../../../apps/runner/src/EvalPanel.cpp) / [EvalPanel.hpp](../../../apps/runner/src/EvalPanel.hpp)
+- [EvalTracePanel.cpp](../../../apps/runner/src/EvalTracePanel.cpp) / [EvalTracePanel.hpp](../../../apps/runner/src/EvalTracePanel.hpp) / [EvalTracePanel_test.cpp](../../../apps/runner/src/EvalTracePanel_test.cpp)
 - [HeatMapPanel.cpp](../../../apps/runner/src/HeatMapPanel.cpp) / [HeatMapPanel.hpp](../../../apps/runner/src/HeatMapPanel.hpp)
 - [LogPanel.cpp](../../../apps/runner/src/LogPanel.cpp) / [LogPanel.hpp](../../../apps/runner/src/LogPanel.hpp)
 - [PlotPanel.cpp](../../../apps/runner/src/PlotPanel.cpp) / [PlotPanel.hpp](../../../apps/runner/src/PlotPanel.hpp)
@@ -112,3 +136,15 @@
 - [PRD084](../../memo/084_noisynet_10prd.md) — NoisyNet (Noisy Networks for Exploration) PRD
 - [PRD092](../../memo/092_gradient_noise_scale_10prd.md) — 勾配ノイズの大きさ（gradient noise scale）の計測 PRD
 - [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md) — TransformerEncoder の attention エントロピー診断 PRD
+- [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
+
+## 台帳の指摘
+
+台帳のツールが作り直す。手で直さない。
+
+<!-- registry:begin -->
+なし
+
+[台帳の一覧](../../../reports/registry/findings.md)
+<!-- registry:end -->

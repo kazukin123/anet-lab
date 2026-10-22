@@ -29,6 +29,8 @@ description: Integrated improvement audit for anet-lab. One lens (refactor, defe
 - 挙動が変わる修正はリファクタ候補にしない。defect として扱う。
 - ADR と矛盾する提案は出さない。ADR が意図と記録している形は候補にしない。当時の前提が今は崩れていると判断した場合だけ、ADR 再訪の候補として ADR 番号と前提が崩れた根拠を書く。
 - hot path(Sample、Push、Learn、per-step 経路)や RNG 呼び出し順に触る提案は、対処方針に perf-neutral 確認と同 seed 再現性チェックを含める。
+- refactor・architectureでは、地図の経緯のADR・PRDが意図した形と「不採用」の形を候補にしない。前提が崩れた根拠がある場合だけ、出典と根拠を添えて再訪の候補にする。「先送り」「範囲外」は再開条件が揃った根拠を添えれば候補にしてよい。候補の対処方針には地図の「変えるときの条件」を引く。
+- wikiの書く部分は編集しない。食い違いは完了報告へ挙げる。buildによる「台帳の指摘」の区画の更新だけは台帳の一覧と同じ派生ビューとして扱う。
 - ホットスポット補正: `reports/stats/stats.json` の `flow.churn90` で上位のファイルは優先度を 1 段上げ、今後触る予定の無い場所は 1 段下げる。
 
 ## 範囲(scope)の決め方
@@ -41,8 +43,9 @@ description: Integrated improvement audit for anet-lab. One lens (refactor, defe
 
 1. lens と scope を確定し、`run_id = <YYYY-MM-DD>-<claude|codex>` を決める。
 2. 基準を読む(観点ファイル、設計文書、summary.md のうち該当するもの)。refactor、architecture、drift では範囲に対応する ADR も読む(`docs/adr/` のファイル名一覧を領域の語で絞る)。
+   refactor・architectureでは、範囲の実装の地図も先に読む。keyなら1xxはdocs/wiki/apps、31x〜32xはdocs/wiki/categoriesの同名ページ。パスならcategories.jsonで当たるカテゴリと、そのパスを置き場に持つアプリケーションのページを読む。ページが無い場合は読まない。
 3. 範囲のコードと文書を読む。読み取り専用のコマンド(rg、git log、git blame、`python reports/tools/registry.py list`)は使ってよい。ビルドとテスト実行はしない。
-4. 既存レコードを再検証する。
+4. 既存レコードを再検証する。範囲がkeyなら `registry.py list --status open --category` にそのkeyを渡す（1xxもcategories.jsonの範囲どおり）。範囲がパスなら従来どおり以下の--pathで引く。
 
    ```
    python reports/tools/registry.py list --status open --path <scope のパス>
@@ -64,7 +67,7 @@ description: Integrated improvement audit for anet-lab. One lens (refactor, defe
    ```
 
 7. `rotation.json` を更新する。
-8. 完了報告: 観点と範囲、再検証の結果(touched / fixed / stale の件数)、新規(id と優先度)、上位 3 件の要旨、次回の観点と範囲。
+8. 完了報告に読んだ地図のページ名を1行で示す（無ければ「なし」）。refactor・architectureでは、根拠なく不採用の形を候補にした件数と、対処方針に変えるときの条件を引いた件数も記録する。完了報告: 観点と範囲、再検証の結果(touched / fixed / stale の件数)、新規(id と優先度)、上位 3 件の要旨、次回の観点と範囲。
 
 ## レコードの品質基準
 

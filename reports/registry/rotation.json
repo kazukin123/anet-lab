@@ -70,7 +70,9 @@
     {
       "key": "110_runner_app",
       "kind": "code",
-      "last_seen": {}
+      "last_seen": {
+        "refactor": "2026-10-22"
+      }
     },
     {
       "key": "120_metrics_viewer",

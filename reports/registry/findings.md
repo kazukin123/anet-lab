@@ -1,6 +1,6 @@
 # 指摘台帳(派生ビュー)
 
-生成 2026-10-03。正本は findings.jsonl。この文書は毎回再生成される。
+生成 2026-10-22。正本は findings.jsonl。この文書は毎回再生成される。
 
 ## 概況
 
@@ -15,13 +15,7 @@ open の観点別: architecture 0, backlog 0, defect 4, drift 0, process 0, refa
 
 ## 最近の変化(14 日)
 
-| id | 更新 | 状態 | 優先度 | 観点 | 場所 | タイトル |
-|---|---|---|---|---|---|---|
-| F-0001 | 2026-10-03 | fixed | P1 | refactor | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js`::MetricsViewerClientApp.outlierPercentile | 排他的な外れ値表示モードを二つのSetと分散した排他処理で保持している |
-| F-0002 | 2026-09-23 | open | P2 | defect | `apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java`::LodPageCache.find | 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる |
-| F-0003 | 2026-09-23 | open | P1 | defect | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js`::PlotlyController.renderBySelection | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
-| F-0004 | 2026-09-23 | open | P2 | defect | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js`::MetricsViewerClientApp.onReload / onWorkspaceChanged | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
-| F-0005 | 2026-09-23 | open | P2 | defect | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js`::MetricsViewerClientApp.init / onToggleScreenshot | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
+変化なし。
 
 ## open(優先度順)
 

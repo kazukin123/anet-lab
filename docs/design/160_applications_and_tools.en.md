@@ -334,7 +334,15 @@ sequenceDiagram
 - DB records and Run folders have separate lifetimes. Deleting a Run folder leaves its Optuna trial and stale saved paths.
 - Summary studies are for browsing and do not modify source studies.
 
+### 7.4 Wiki and Audit Registry Maintenance
+
+- The wiki summarizes external authoritative sources. Ingestion updates authored sections; lint regenerates file and PRD lists. [Wiki conventions](../wiki/README.md) define materials, blob records, and update procedures.
+- `reports/tools/registry.py list --category` follows category definitions. `build` regenerates registry views and only marked registry sections in wiki maps after validating every marker pair. It preserves surrounding prose and the wiki log.
+- `reports/tools/wiki_support.py` supports material/blob/link inspection and mechanical map regeneration. Agents read sources to interpret findings and decisions. `reports/registry/findings.jsonl` remains authoritative; the registry.py docstring defines its CLI and record format.
+
 ## 8. Tests and Change Checks
+
+- [PRD095 validation assets](../../core/anet-core/testdata/prd095/README.md): category filtering, generated map sections, no writes on invalid markers, and ingestion/lint/housekeeping trials.
 
 - Runner UI changes: check Frame close order, toolbar dock/float/reset, pane/menu/toolbar linkage, Train/Eval inputs, model synchronization, FPS, status snapshots, and SVG replacement on theme changes.
 - Metrics Viewer backend changes: run integration tests for SQLite/source identity, ingestion/LOD, range APIs, scheduler, and query concurrency.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Wiki Ingest"
+  short_description: "正本を読んで知見と実装の地図を更新し、出典・目録・取り込み記録を揃える"
+  default_prompt: "$anet-ingest-wiki を使って、wikiの規約に従い取り込みを行ってください。"
