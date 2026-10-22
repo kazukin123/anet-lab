@@ -285,3 +285,56 @@ Debug/ReleaseはVsDevCmdから既存のisolate.cmakeを注入し、.scratch/prd0
 - Debug core CTest成功: VsDevCmd経由の`ctest --test-dir out/build/x64-Debug -R '^anet-core-test$' --output-on-failure`が100%成功（`naming-core-ctest.log`・`naming-core-ctest-details.log`）。737tests中736成功・既存1skip、149914assertions全成功。全体ビルド・追加Runと重ねず1回で通過した。
 - 終了処理: 両presetをVsDevCmd経由の`cmake --preset x64-Debug -U CMAKE_PROJECT_anet-lab_INCLUDE` / `x64-Release`で再configureし成功（`naming-restore-debug.log`・`naming-restore-release.log`）。両cacheに一時includeが残らず、保護対象9ファイル（無関係な変更5ファイルと通常実行体4本）のhashが保存時と一致することを確認した。復帰後の通常ビルドは行っていない。
 - 今回の名前・継承・配置の見直しは完了。新規は指定の5ファイルに限定し、旧5ファイルを削除、現用利用側と設計文書を同じ変更で移行した。変更テキスト38ファイルはLFでgit diff --checkも成功、stageは空のまま。実機UI表示・呼出回数・速度/メモリ測定は対象外として未確認。色調整、範囲外の既存挙動、無関係な変更を保持し、stage・commit・pushは行っていない。
+
+
+## 終了時のクラッシュの修正（2026-10-22）
+
+### 保存した追加計画
+
+- PRD094に起因する終了時不具合として扱う。wxEVT_SHOWハンドラは初回追加コミット641b8c81から存在する。引継ぎのダンプ解析と現在の実装は整合するが、実行再現は修正前に確認する。
+- wxWidgets 3.3.3のDestroyChildrenは子のwxWindowBase::DestroyからSendDestroyEventを呼び、派生デストラクタの前にm_isBeingDeletedを立てる。wxWindowMSWのデストラクタは子を破棄後にDestroyWindowを呼ぶ。AuiLayoutFrameのmanagerメンバはwxFrame基底の子破棄より先に消える。
+- wxEVT_SHOWの先頭でIsBeingDeletedを検査し、破棄中はevent.Skipだけで戻る。manager、状態、子へのアクセスを防ぎ、通常の表示切替は維持する。他のBind、公開APIは変えない。
+- 通常タグ[prd094][trace_ui_close]で、依存先が生きた破棄イベント中の表示イベントから不要なLive復帰を検出しRED→GREENを記録する。実際と同じmanagerメンバを持つ表示中フレームのDestroyと保留削除も通す。
+- VsDevCmd経由でDebug/Releaseを分離ビルドし、GUI回帰、core CTestと関連テストを実行する。通常のRunner実行体は保護する。既存の分離runtimeディレクトリを再利用し、今回のログと変更前exeは.scratch/prd094/close-crash-20261022へ保存する。出力注入cacheは最後に元へ戻す。
+- Release実Runnerの人による終了確認は自動回帰と区別し、未実施なら記録する。自己点検後に同じ独立an-reviewへ計画・実装・検証を渡す。
+- PRD本文、別件のObserver終了競合、他のイベント購読、既存ダンプ、既存変更とRunを保持し、stage・commit・pushは行わない。
+
+### REDの観測と修正
+
+依存先が生きているpanelのwxEVT_DESTROY内で、IsBeingDeleted=trueを確認して非表示wxShowEventを公開イベント処理へ渡した。修正前はfollowerのReturnToLiveが0→1、保持行数が1→0となり、1件7項目中3失敗、終了42を確認した（close-crash-20261022/red-test.log・red-test.json）。未定義動作やAV発生を成功条件にしていない。SendDestroyEventはこの段階で破棄フラグを立てているため、代替のUnbindは不要と判断し、ハンドラ先頭のIsBeingDeletedガードだけを追加した。
+
+初回GREENは同じ1件7項目すべて成功、終了0（green-first.log・green-first-results.json）。この後、AuiLayoutFrameを実際にShowし、行選択後にDestroyしてProcessIdleで保留削除を通す追加回帰を加える。
+
+### 検証手順と実機確認の区別
+
+今回の変更ファイルはEvalTracePanel.cpp（showハンドラのみ）、EvalTracePanel_test.cpp（probe/フレームfixtureと通常のclose回帰2件）、本20implの追加節だけ。21implに記録した既存UI調整は保持する。公開のNotifier、RegisterFollower、grid選択イベント、wxのDestroy/ProcessIdleから観測する。
+
+- ビルドはリポジトリのPythonから`.scratch/prd094/close-crash-20261022/build.py`を実行し、同スクリプトがVsDevCmd.batをcallしてCMake presetを使用する。DebugのtargetはAnetRLRunner-gui-testとanet-core-test、ReleaseはAnetRLRunner-gui-test（本体への依存を含む）。正確な引数・終了値は各buildの*-result.jsonに保存する。
+- `.\.venv\Scripts\python.exe .scratch/prd094/close-crash-20261022/tests.py gui`でDebug/Release×light/darkの通常[prd094]と描画回帰、各構成3回のclose回帰を順次実行する。
+- `.\.venv\Scripts\python.exe .scratch/prd094/close-crash-20261022/tests.py core`で[prd094],[observers],[runner]と、VsDevCmd経由の`ctest --test-dir out/build/x64-Debug -R "^anet-core-test$" --output-on-failure`を順次実行する。
+- 実アプリの人による確認手順: Release Runnerを起動し、Evaluation Traceペインを表示して行が出た後、行を選択してRunnerを閉じる。プロセスの終了コード0とapps/runnerへの新規dmp不在を確認する。今回の自動テストは実Runを起動しておらず、人による実Runner確認・過去dumpと同じ実RunのAV再現は未実施。既存Runを停止・再起動しないため、この未確認を自動回帰の成功と区別する。
+- 仕様/API/設定の変更は無いため、設計文書、ユーザーガイド、PRDの改訂は行わない。既存のUI実機受入の保留も維持する。
+
+### 自己点検・検証の途中結果
+
+- Debug/Releaseの本体とGUIテストのビルド成功。各テーマの通常GUIは9件83項目、描画回帰は1件38項目が各成功。終了回帰は両構成で各3回、毎回2件15項目が成功（gui-results.json）。
+- core関連[prd094],[observers],[runner]は56件2187項目が成功。core CTest全体は実行中で、まだ成功扱いにしない。
+- docs/quality/impl.mdの62項目を適用範囲に沿って自己点検した（self-check.json）。公開API・設定・ログ・Agent所有権は変更なし。productionはshowハンドラのガードだけで、profileを要する処理を追加していない。補助クラスは既存test.cppの無名名前空間内、借用メンバの追加なし。CreateTraceSnapshot/ShowTraceSnapshot/ReturnToLiveは既存TraceFollower（gui.hpp）の同名通知と同じ意味で使う。
+- 機械検査は追加production dynamic_cast/TODO各0、共有契約のproject語0、変更3ファイルのBOM維持/LFのみ、diff check成功（static-checks.json）。既存UI変更との差分は開始時snapshotとのscope.diffで分離した。
+- 自己点検でユーザー判断を必要とする新規未決はなし。core CTest、cache復元・保全結果は最終結果を追記する。独立レビューへは未完了を明示して渡す。
+
+### 全体テストの最終結果
+
+core CTestは終了0、100%成功、284.29秒（core-ctest.log、core-results.json）。保存した詳細core-ctest-details.logでは、隠し以外の741件中740件成功・既存1件skip（init_test.cppのCUDA availability条件）、150011項目すべて成功。今回のcore関連回帰は56件2187項目であり、前回実行の結果と混同していない。全ビルド・GUI通常/描画・終了反復・関連core・CTestを完了し、失敗が残っている項目はない。
+
+### 検証後の復元・保全
+
+Debug/ReleaseのCMAKE_PROJECT_anet-lab_INCLUDEは開始時の状態（未設定）へ復元し、再configureは両方終了0。復元後の通常ビルドは行っていない。PRD本文、21impl、Runner CMake、trainer.cpp、episode_end_test.cpp、通常RunnerのDebug/Release実行体の計7ファイルが開始時と同じSHA-256であることを確認した（cleanup-checks.json）。今回の変更前/後exeをclose-crash-20261022/before-bin・after-binに分離し、後世代のSHA-256も保存した。既存Runの停止・再起動、stage・commit・push・起票は行っていない。
+
+自己点検の最終結果は不足なし。実Runnerの人による終了確認のみ未実施として保持する。同じ独立レビュー担当の最終判定を待つ。
+
+### 独立レビューと工程の終了
+
+同じ独立したan-review担当への追加レビュー1往復で、計画・実装ともOK（差し戻し0）。不足点・修正要求・新規の範囲外検出・開発者への確認事項はなし。原文は`.scratch/prd094/close-crash-20261022/review-20261022-2246.md`。全62項目を走査し、修正前REDと実フレームの破棄順、保存されたビルド/GUI/coreの結果と復元・保全を確認した。実Runnerの人による終了確認と過去dumpと同じ実RunのAV再現は未実施で、自動回帰の成功と区別することが再確認ポイントとなった。
+
+承認済みの追加修正・自動検証・自己点検・独立レビューは完了。新規起票候補はなし。既存の実機受入の未確認は保持する。通常のRunner実行体は上書きせず、stage・commit・pushは実行せず、この工程を終了する。

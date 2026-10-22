@@ -1,6 +1,7 @@
 #include "anet/catch_test.hpp"
 #include "anet/gui.hpp"
 #include "anet/metrics.hpp"
+#include <array>
 #include <cmath>
 
 using namespace anet::rl;
@@ -35,13 +36,13 @@ TEST_CASE("Trace player obeys Live entry playback boundaries and row eviction", 
     CHECK(player.StepForward() == "Trace: end");
     player.Stop();
     CHECK(player.StepBack() == "Trace: step back");
-    CHECK(player.GetSelected() == 13);
+    CHECK(player.GetSelected() == 12);
     player.Stop();
-    CHECK(player.StepForward() == "Trace: step");
+    CHECK(player.StepForward() == "Trace: end");
     CHECK(player.GetSelected() == 13);
     for (int i = 0; i < 8; ++i) player.Slower();
     CHECK(player.GetSpeed() == 0.125);
-    CHECK(player.Slower() == "Trace: speed x1/8 (min)");
+    CHECK(player.Slower() == "Trace: speed x0.125 (min)");
     for (int i = 0; i < 8; ++i) player.Faster();
     CHECK(player.GetSpeed() == 8.0);
     CHECK(player.Faster() == "Trace: speed x8 (max)");
@@ -101,4 +102,42 @@ TEST_CASE("Trace playback availability follows the current base rate", "[prd094]
     CHECK(player.Stop() == "Trace: stop (live)");
     CHECK_FALSE(player.CanPlay(0.0));
     CHECK(player.CanPlay(15.0));
+}
+
+TEST_CASE("Trace Live stepping selects the adjacent frame and reports boundaries", "[prd094][trace_live_step]")
+{
+    TracePlayer player;
+    player.SetRows({10, 11, 12});
+    CHECK(player.StepBack() == "Trace: step back");
+    CHECK(player.GetSelected() == 11);
+    CHECK_FALSE(player.IsPlaying());
+    player.Stop();
+    CHECK(player.StepForward() == "Trace: end");
+    CHECK(player.GetSelected() == 12);
+    CHECK_FALSE(player.IsPlaying());
+}
+
+TEST_CASE("Trace Live stepping handles empty and single-row histories", "[prd094][trace_live_boundary]")
+{
+    TracePlayer player;
+    CHECK(player.StepBack().empty());
+    CHECK(player.StepForward().empty());
+    CHECK_FALSE(player.GetSelected());
+    player.SetRows({42});
+    CHECK(player.StepBack() == "Trace: start");
+    CHECK(player.GetSelected() == 42);
+    player.Stop();
+    CHECK(player.StepForward() == "Trace: end");
+    CHECK(player.GetSelected() == 42);
+}
+
+TEST_CASE("Trace speed labels use decimal multipliers", "[prd094][trace_speed_label]")
+{
+    TracePlayer player;
+    const std::array<const char*, 7> labels{"x0.125", "x0.25", "x0.5", "x1", "x2", "x4", "x8"};
+    for (int i = 0; i < 3; ++i) player.Slower();
+    for (const auto* label : labels) {
+        CHECK(player.GetSpeedLabel() == label);
+        player.Faster();
+    }
 }

@@ -21,7 +21,7 @@
 - 2026-09-22: 終了時の背景評価セッションは完走を既定とし、設定または上限時間による協調キャンセルで抜けられるようにして、部分集計は設けない（出典: [ADR 0045](../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)）。
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-09-24: device 指定の auto 対応とキー体系統一（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、題・目的）。
-- 2026-10-22: Evaluation Traceの表示・操作を、内容に応じた列幅・システム色・再生／一時停止トグルを持つアイコン操作・Trace中の操作バー赤枠、低速倍率の小数表示、操作バーと行動列までを守る最小幅、行選択に依存しない列見出し配色、truncated列の短い見出しtruncに調整する仕様を定めた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D10〜D13・§8のUI受入）。
+- 2026-10-22: Evaluation Traceの表示・操作を、内容に応じた列幅・システム色・再生／一時停止トグルを持つアイコン操作・Trace中の操作バー赤枠、低速倍率の小数表示、操作バーと行動列までを守る最小幅、行選択に依存しない列見出し配色、truncated列の短い見出しtrunc、action直後のreward列へ調整する仕様を定めた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D10〜D13・§8のUI受入）。
 
 ## 選ばなかった形
 
@@ -85,12 +85,6 @@
 
 ### 機能カテゴリなし
 
-- [AnetRLRunner.exe(1).27616.dmp](../../../apps/runner/AnetRLRunner.exe(1).27616.dmp)
-- [AnetRLRunner.exe(1).44712.dmp](../../../apps/runner/AnetRLRunner.exe(1).44712.dmp)
-- [AnetRLRunner.exe.27616.dmp](../../../apps/runner/AnetRLRunner.exe.27616.dmp)
-- [AnetRLRunner.exe.29980.dmp](../../../apps/runner/AnetRLRunner.exe.29980.dmp)
-- [AnetRLRunner.exe.44712.dmp](../../../apps/runner/AnetRLRunner.exe.44712.dmp)
-- [AnetRLRunner.exe.59548.dmp](../../../apps/runner/AnetRLRunner.exe.59548.dmp)
 - [CMakeLists.txt](../../../apps/runner/CMakeLists.txt)
 - [Atari.txt](../../../apps/runner/config/Atari.txt)
 - [CartPole.txt](../../../apps/runner/config/CartPole.txt)

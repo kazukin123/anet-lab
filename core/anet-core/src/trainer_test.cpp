@@ -199,17 +199,25 @@ public:
     {
     }
 
-    rl::EnvSpec GetSpec() const override { return MakeEnvSpec(); }
+    rl::EnvSpec GetSpec() const override { ++spec_read_count; return spec; }
+
+    // 公開Runner経路で、拒否した入力の副作用と仕様の再取得を観測する。
+    rl::EnvSpec spec = MakeEnvSpec();
+    mutable int spec_read_count = 0;
+    int reset_count = 0;
+    std::vector<int64_t> actions;
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return device_; }
 
     std::shared_ptr<const rl::BatchResetResult> Reset() override
     {
+        ++reset_count;
         return std::make_shared<TestResetResult>(batch_spec_.num_envs);
     }
 
-    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo>) override
+    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo> action_info) override
     {
+        actions.push_back(action_info->GetAction()[0].item<int64_t>());
         return std::make_shared<TestStepResult>(batch_spec_.num_envs);
     }
 
@@ -815,6 +823,80 @@ TEST_CASE("Train runners fire LearnEvent only for a non-empty update result list
         CHECK(single.first == 1);
         CHECK(single.second == 1);
     }
+}
+
+TEST_CASE("EvalRunner rejects unavailable forced actions before side effects", "[trainer][eval_runner][manual_action]")
+{
+    const bool configured_session = GENERATE(false, true);
+    const bool already_started = GENERATE(false, true);
+    auto env = std::make_shared<TestBatchEnv>("manual-env", 1, torch::Device(torch::kCPU));
+    env->spec.action_spec.value_labels = { "Up", "Left", "Down", "Right" };
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{ .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = "eval" };
+    std::shared_ptr<rl::EvalRunner> runner;
+    if (configured_session) {
+        auto session = std::make_shared<rl::EvalSessionEnv>(env, 1, std::vector<std::string>{});
+        runner = std::make_shared<rl::EvalRunner>(session, agent, notifier, request, "manual-eval");
+    } else {
+        runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request, "manual-eval");
+    }
+    int notifications = 0;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+        ++notifications;
+    }));
+    if (already_started) runner->DoStep(0);
+
+    // 初回も継続中も、拒否だけではReset・Actor・Step・通知・時計を動かさない。
+    const auto before = runner->GetCounts();
+    const int spec_reads = env->spec_read_count;
+    const int steps = already_started ? 1 : 0;
+    CHECK_THROWS_WITH(runner->DoStep(4),
+        Catch::Matchers::ContainsSubstring("EvalRunner 'manual-eval' forced action=4 is out of range. expected=[0, 3]."));
+    CHECK_THROWS_WITH(runner->DoStep(9, {}),
+        Catch::Matchers::ContainsSubstring("EvalRunner 'manual-eval' forced action=9 is out of range. expected=[0, 3]."));
+    CHECK(env->reset_count == steps);
+    CHECK(env->actions.size() == steps);
+    CHECK(agent->GetLastActor()->GetObservedStates().size() == steps);
+    CHECK(notifications == steps);
+    CHECK(runner->GetCounts().train_step == before.train_step);
+    CHECK(runner->GetCounts().exp_step == before.exp_step);
+    CHECK(runner->GetCounts().episode_count == before.episode_count);
+    CHECK(env->spec_read_count == spec_reads);
+
+    // 拒否後にも有効な操作を続けられる。
+    runner->DoStep(3);
+    CHECK(env->actions.back() == 3);
+    CHECK(notifications == steps + 1);
+}
+
+TEST_CASE("EvalRunner accepts action boundaries and actor selection", "[trainer][eval_runner][manual_action]")
+{
+    const int64_t action = GENERATE(0, 3, -1, -2);
+    auto env = std::make_shared<TestBatchEnv>("manual-env", 1, torch::Device(torch::kCPU));
+    env->spec.action_spec.value_labels = { "Up", "Left", "Down", "Right" };
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{ .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = "eval" };
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request, "manual-eval");
+    const int spec_reads = env->spec_read_count;
+    int notifications = 0;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        CHECK(event.action_info->GetAction()[0].item<int64_t>() == (action >= 0 ? action : 0));
+        ++notifications;
+    }));
+
+    runner->DoStep(action);
+    CHECK(env->reset_count == 1);
+    REQUIRE(env->actions.size() == 1);
+    CHECK(env->actions[0] == (action >= 0 ? action : 0));
+    CHECK(agent->GetLastActor()->GetObservedStates().size() == 1);
+    CHECK(notifications == 1);
+    CHECK(runner->GetCounts().train_step == 1);
+    CHECK(runner->GetCounts().exp_step == 1);
+    CHECK(env->spec_read_count == spec_reads);
 }
 
 TEST_CASE("EvalRunner allows shared actor when actor device matches agent device", "[trainer][eval_runner]")

@@ -83,6 +83,8 @@ This document covers current `apps/runner`, `apps/metrics-viewer`, `apps/runner/
 | Runtime integration | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp), [trainer.cpp](../../core/anet-core/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
+For manual discrete Actions, EvalPanel checks the ActionSpec retained at initialization. Out-of-range input displays the requested value and valid range in English in status field 0 without writing to the Run log. Rejection precedes Live restoration and model synchronization, preserving the environment, step counts, and Trace selection. Both EvalRunner constructors also retain the target environment's ActionSpec; directly supplied out-of-range forced Actions fail fast before Reset, Actor execution, or Step. Validation does not retrieve EnvSpec again.
+
 ### 3.2 Metrics Viewer
 
 | Area | Main files |

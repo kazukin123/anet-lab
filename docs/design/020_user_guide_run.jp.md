@@ -464,7 +464,7 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | Run操作ツールバーの`Save Checkpoint` | Trainが走行中ならまずpauseし、Run directoryと`agent_<exp_step>.anet`を既定に、任意pathへAgentを保存する |
 | Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
-Action数はEnvごとに異なる。範囲外Actionを前提にせず、QValue paneまたはEnvのActionSpecを確認する。
+Action数はEnvごとに異なる。QValue paneまたはEnvのActionSpecで有効範囲を確認する。離散Actionの範囲外の番号を指定すると、ステータス欄に指定値と有効範囲が表示され、Evalは進まない。選択中のTrace履歴もそのまま維持される。
 
 EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`run.eval.[eval_panel].actor = eval_panel`から専用Actorを参照する。DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコアのActionを選ぶ。定期評価のεやUQE設定はそのまま使える。表示用の方策を変える場合は`<Agent>.actor.[eval_panel].*`を上書きし、別の評価設定を表示したい場合は`app.eval_panel.eval_config_tag`を指定する。
 
@@ -494,7 +494,11 @@ checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固�
 
 ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
 
-上部の操作列は、1行戻る・再生・一時停止・停止・ステップ実行・速度ダウン・速度アップです。Liveから再生すると最古の行から進み、最新で止まります。停止または表でEscを押すとLiveへ戻ります。EvalのResumeや手動行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+上部のアイコンは、左から再生／一時停止（右三角／二本線）・停止（四角）・コマ戻し（左三角の右に縦棒）・コマ送り（縦棒の右に右三角）・速度減少（左二重三角）・速度増加（右二重三角）です。再生中の先頭ボタンは一時停止、それ以外は再生として使います。英語のツールチップでも操作を確認できます。速度は`x0.125`・`x0.25`・`x0.5`・`x1`・`x2`・`x4`・`x8`で表示します。Liveから再生すると最古の行から進み、最新で止まります。停止または表でEscを押すとLiveへ戻ります。EvalのResumeや手動行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+
+Liveでコマ戻しを押すと最新の1つ前の行を選びます。1行だけならその行で止まります。Liveでコマ送りを押すと最新行を選びます。Trace中は操作バー全体の赤枠を目印にしてください。一時停止中も枠は残り、Liveへ戻ると消えます。
+
+列の幅は見出しと値に合わせて広がります。手動で幅を変えた列は、その表示中は自動調整されません。初期幅へ戻すにはパネルを閉じて開き直してください。この操作で履歴も空になります。パネルは操作バー全体と、左端から最初のアクション列までが収まる幅を下限にします。残りの列は横スクロールで確認してください。通常・選択の配色はシステムのテーマに従い、報酬行は薄い緑、終端行は薄い橙が目印です。行を選択しても列見出しの色は変わりません。
 
 列は次の形で指定します。番号は1以上で、飛び番を許します。
 
@@ -506,7 +510,7 @@ app.eval_trace_panel.columns.[21] = $env_step lives
 app.eval_trace_panel.columns.[22] = $agent_step approx_priority display:pct label:priority_pct
 ```
 
-`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+既定列は`step → ep_step → action → reward → Q_sa → V_s → done → trunc → prio → prio_pct`の順です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
 
 学習側と同じonline networkのQで見たい場合は、次の指定を使います。
 
@@ -514,7 +518,7 @@ app.eval_trace_panel.columns.[22] = $agent_step approx_priority display:pct labe
 DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
 ```
 
-FPSを0にすると再生ボタンだけが無効になります。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
+FPSが0のときは再生を開始できません。再生中に0へ変更した場合も、先頭の一時停止ボタンは使えます。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
 
 > [!NOTE]
 > 画面は行動の結果、Q値と活性はその行動を決めた時点です。百分位は直近の有限値の中での中央順位で、全件同値は50%です。近似優先度はn-step分の情報が揃ってから埋まります。打ち切りを含む窓と非対応Agentは空欄です。eval_panelの既定はtarget networkのQです。時点と再生の仕組みは[Applications and Tools](160_applications_and_tools.jp.md#34-evaluation-trace)を参照してください。

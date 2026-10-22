@@ -214,6 +214,7 @@ EvalRunner::EvalRunner(
     const ActorRequest& request,
     std::string name)
     : RunnerBase(env, agent, notifier, request, std::move(name))
+    , action_spec_(env_->GetSpec().action_spec)
 {
 }
 
@@ -224,6 +225,7 @@ EvalRunner::EvalRunner(
     const ActorRequest& request,
     std::string name)
     : RunnerBase(env, agent, notifier, request, std::move(name))
+    , action_spec_(env_->GetSpec().action_spec)
     , session_env_(std::move(env))
 {
 }
@@ -245,6 +247,11 @@ std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     int64_t action, const StepCounts& event_counts, bool notify_episode_end)
 {
     ANET_PROFILE_FUNC();
+    // 強制行動の不正値は、Reset・Actor実行・環境更新より前に拒否する。
+    if (action >= 0 && action_spec_.is_discrete && action >= action_spec_.GetNumActions()) {
+        ANET_SYSTEM_ERROR("EvalRunner '" << name_ << "' forced action=" << action
+            << " is out of range. expected=[0, " << action_spec_.GetNumActions() - 1 << "].");
+    }
     torch::NoGradGuard grad_guard;
 
     if (!env_initialized_) {

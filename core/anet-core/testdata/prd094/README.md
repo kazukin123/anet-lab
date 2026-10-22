@@ -20,3 +20,16 @@ GetScalarへの汎用化では`[generic_step_keys]`・`[generic_step_completion]
 レビュー後の比較では修正前ソース・実行体を`review-fixes-20261021`へ固定し、`PRD094_ACCEPTANCE_ROOT`をその`acceptance`へ向ける。基準は5構成を各1回採取し、`after`で各1回比較する。両側ともTrace設定を持つため、設定比較には`--existing-only`を付け、キーの追加も許可しない。これは性能の反復測定ではない。
 
 レビュー修正の回帰テストは`[diagnostic_no_wait]`（失敗時もmutexを解放してjoin）、`[diagnostic_scaling]`（std更新・Reset）、`[scalar_action_contract]` / `[trace_action_dimension]`（委譲・厳密次元）、`[pane_open]`（最大化・明示開閉・復元・浮動pane）、`[trace_play_available]`（FPS 0・復帰）で確認する。実機pane操作・ProfileRangeの呼出回数・速度・メモリは今回の修正検証に含めず、上記の受入手順で別途確かめる。
+
+## 2026-10-22の表示・操作調整
+
+今回の正本は[21impl](../../../../docs/memo/094_evalpanel_step_history_21impl.md)。以前のRunの数値と、この調整の測定を混同しない。
+
+- `AnetRLRunner-gui-test`を明示的にビルドする。通常の全体ビルドには含めず、Runnerと同じbinへ出力する。C++のビルドはAGENTS.mdのVsDevCmd経由とする。
+- 通常実行は、実wxGridとwxAuiToolBarの公開API・標準イベントを通して、6操作・幅・遅延確定・手動指定・開き直し・システム配色・フォント変更を確認する。学習RunやRunnerAppのOnInitは起動しない。
+- `[trace_ui_visual]`を明示すると短時間だけ検証用frameを表示する。再生・一時停止・終了・Stop・Esc・slider・開き直しと、操作バー全体の赤枠・配置の安定を確認し、PNGを保存する。`PRD094_UI_CAPTURE_DIR`で保存先を指定できる。既定はOSの一時ディレクトリ配下の`anet-eval-trace-<PID>/captures/`で、実際の保存先を標準出力へ表示する。MetricsLoggerの出力先も同じプロセス用一時ディレクトリの`metrics/`配下とする。`PRD094_UI_DARK=1`で起動前にダーク、指定なしでライトを選ぶ。
+- wxMSW 3.3.3はwindow作成後のSetAppearanceをCannotChangeで拒否する。ライト／ダークは別processで確認し、表示中の再反映はsystem-colour通知を送る。OSのテーマ切替や実モニタ間のDPI変更の確認とは区別する。
+- `[trace_ui_perf]`は12列＋遅延2列、履歴1000行の実UI経路を測る。Notify内の表更新・診断も含む時間であり、AtariのNN・View・学習速度の測定ではない。固定の時間を通常の単体テストの合否にしない。
+- coreの`[prd094]`も実行し、時点・列解析・再生の回帰を確認する。Liveのコマ操作と速度の表示以外の期待値は維持する。
+
+追加調整の正本は[22impl](../../../../docs/memo/094_evalpanel_step_history_22impl.md)。`[trace_speed_label]`で小数倍率の全7段階、`[trace_ui_minimum]`で操作バーとアクション列までの最小幅・手動幅・フォント変更、`[trace_ui_header]`で行選択後も列見出しが強調されないことを確認する。描画回帰は赤枠に加えて列見出しのLive／Trace同一配色も確認する。

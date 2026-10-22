@@ -419,6 +419,23 @@ std::shared_ptr<View> DefaultViewFactory::CreateView(
 }
 
 // Evaluation Traceの表示・再生補助
+wxBitmapBundle anet::rl::gui::MakePlaybackBitmap(PlaybackIcon icon, const wxColour& colour)
+{
+    // 形と色を分け、テーマが変わった時だけSVGを再生成できるようにする。
+    const std::array<const char*, 7> shapes{
+        R"(<path d="M4 2 L13 8 L4 14 Z"/>)",
+        R"(<path d="M4 2 H7 V14 H4 Z M9 2 H12 V14 H9 Z"/>)",
+        R"(<rect x="3" y="3" width="10" height="10"/>)",
+        R"(<path d="M10 2 L2 8 L10 14 Z M12 2 H14 V14 H12 Z"/>)",
+        R"(<path d="M2 2 H4 V14 H2 Z M6 2 L14 8 L6 14 Z"/>)",
+        R"(<path d="M8 2 L1 8 L8 14 Z M15 2 L8 8 L15 14 Z"/>)",
+        R"(<path d="M1 2 L8 8 L1 14 Z M8 2 L15 8 L8 14 Z"/>)"};
+    const auto svg = wxString::Format(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\"><g fill=\"%s\">%s</g></svg>",
+        colour.GetAsString(wxC2S_HTML_SYNTAX), wxString::FromUTF8(shapes.at(static_cast<size_t>(icon))));
+    return wxBitmapBundle::FromSVG(svg.utf8_str(), wxSize(16, 16));
+}
+
 void TracePlayer::SetRows(std::vector<int64_t> oldest_to_newest)
 {
     // 行IDで選択を追跡し、先頭への挿入で選択や位置を動かさない。
@@ -479,10 +496,8 @@ std::string TracePlayer::Stop()
 std::string TracePlayer::StepForward()
 {
     if (rows_.empty()) return {};
-    if (!selected_) {
-        selected_ = rows_.back();
-        return "Trace: step";
-    }
+    // Liveは最新行を起点とし、通常の端判定へ進める。
+    if (!selected_) selected_ = rows_.back();
     playing_ = false;
     progress_ = 0;
     const auto found = std::find(rows_.begin(), rows_.end(), *selected_);
@@ -494,10 +509,8 @@ std::string TracePlayer::StepForward()
 std::string TracePlayer::StepBack()
 {
     if (rows_.empty()) return {};
-    if (!selected_) {
-        selected_ = rows_.back();
-        return "Trace: step back";
-    }
+    // Liveも最新行から一つ戻し、1件だけならstartになる。
+    if (!selected_) selected_ = rows_.back();
     playing_ = false;
     progress_ = 0;
     const auto found = std::find(rows_.begin(), rows_.end(), *selected_);
@@ -513,7 +526,7 @@ double TracePlayer::GetSpeed() const
 
 std::string TracePlayer::GetSpeedLabel() const
 {
-    const std::array<const char*, 7> labels{ "x1/8", "x1/4", "x1/2", "x1", "x2", "x4", "x8" };
+    const std::array<const char*, 7> labels{ "x0.125", "x0.25", "x0.5", "x1", "x2", "x4", "x8" };
     return labels[speed_index_];
 }
 

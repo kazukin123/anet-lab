@@ -9,8 +9,8 @@ REPO = Path(__file__).resolve().parents[4]
 ROOT = Path(os.environ.get('PRD094_ACCEPTANCE_ROOT',str(REPO / '.scratch/prd094/acceptance-20261021')))
 CASES = ('atari1', 'dropmerge', 'lunarlander', 'gridmaze', 'actorapprox')
 COLUMNS = ('$runner exp_step label:step', '$runner step_in_episode label:ep_step',
-           '$action_info action', '$agent_step q_sa', '$agent_step state_value',
-           '$env_step reward', '$env_step done', '$env_step truncated',
+           '$action_info action', '$env_step reward', '$agent_step q_sa label:Q_sa',
+           '$agent_step state_value label:V_s', '$env_step done', '$env_step truncated label:trunc',
            '$agent_step approx_priority label:prio',
            '$agent_step approx_priority display:pct label:prio_pct')
 

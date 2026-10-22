@@ -410,6 +410,10 @@ namespace anet::rl::gui {
     // Evaluation Traceの表示と再生を、生成側から独立して扱う。
     float AppendTracePercentile(std::deque<float>& values, float value, size_t window_size);
 
+    // 同じ16 DIPの記号をメインと履歴の操作バーで共有する。
+    enum class PlaybackIcon { Play, Pause, Stop, StepBack, StepForward, Slower, Faster };
+    wxBitmapBundle MakePlaybackBitmap(PlaybackIcon icon, const wxColour& colour);
+
     class TracePlayer {
     public:
         void SetRows(std::vector<int64_t> oldest_to_newest);

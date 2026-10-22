@@ -114,6 +114,7 @@ namespace anet::rl {
     private:
         std::shared_ptr<const BatchStepResult> DoStepInternal(
             int64_t action, const StepCounts& event_counts, bool notify_episode_end);
+        const ActionSpec action_spec_;
         std::shared_ptr<EvalSessionEnv> session_env_;
         StepCounts source_counts_;
     };

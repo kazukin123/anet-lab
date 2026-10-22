@@ -465,7 +465,7 @@ Select `Train` on the Run Control toolbar to pause/resume Train. Left-clicking t
 | `Save Checkpoint` on the Run Operations toolbar | Pauses Train first if running, then saves the Agent to an arbitrary path, defaulting to the Run directory and `agent_<exp_step>.anet` |
 | `Open Run Folder` on the Run Operations toolbar | Opens the current Run directory in Explorer |
 
-The number of Actions varies by Env. Check the QValue pane or the Env's ActionSpec rather than assuming out-of-range Actions are valid.
+The number of Actions varies by Env. Check the valid range in the QValue pane or the Env's ActionSpec. An out-of-range discrete Action displays the requested value and valid range in the status bar without advancing Eval or changing the selected Trace history.
 
 EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, referencing a dedicated Actor through `run.eval.[eval_panel].actor = eval_panel`. DQN Agents use Greedy on the target net (Rainbow uses ε=0); MuZero uses temperature 0 without search noise; ImageCls selects the highest-scoring Action. Periodic evaluation's ε and UQE settings remain available. Override `<Agent>.actor.[eval_panel].*` to change the display policy, or set `app.eval_panel.eval_config_tag` to display a different evaluation configuration.
 

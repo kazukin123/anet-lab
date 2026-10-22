@@ -146,14 +146,16 @@ private:
 
 class TestBatchEnv final : public rl::BatchEnvBase {
 public:
-    TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f)
+    TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f,
+        rl::EnvSpec env_spec = MakeEnvSpec())
         : rl::BatchEnvBase(name, num_envs)
         , batch_spec_{ num_envs, 1 }
+        , env_spec_(std::move(env_spec))
         , env_score_(env_score)
     {
     }
 
-    rl::EnvSpec GetSpec() const override { return MakeEnvSpec(); }
+    rl::EnvSpec GetSpec() const override { return env_spec_; }
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
 
@@ -183,6 +185,7 @@ public:
 
 private:
     rl::BatchEnvSpec batch_spec_;
+    rl::EnvSpec env_spec_;
     float env_score_ = 0.0f;
     torch::Tensor last_action_;
 };
@@ -532,7 +535,10 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, true, 12.5f);
-    auto env = std::make_shared<TestBatchEnv>("episode-end-single", 1);
+    // 通常行動0と異なる有効な強制行動1を、このテストだけで宣言する。
+    auto env_spec = MakeEnvSpec();
+    env_spec.action_spec.value_labels = { "noop", "forced" };
+    auto env = std::make_shared<TestBatchEnv>("episode-end-single", 1, 0.0f, std::move(env_spec));
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     notifier->Attach(std::make_shared<rl::MetricsLogTrainObserver>(
         "action_info_score",
@@ -545,10 +551,11 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
         std::nullopt));
 
     rl::StepCounts event_counts;
-    runner->DoStep(5, event_counts);
+    // 行動の上書きと派生型のscalarが、環境と通知まで保持されることを確かめる。
+    runner->DoStep(1, event_counts);
 
     REQUIRE(env->GetLastAction().defined());
-    REQUIRE(torch::equal(env->GetLastAction(), torch::tensor({ 5 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(torch::equal(env->GetLastAction(), torch::tensor({ 1 }, torch::TensorOptions().dtype(torch::kInt64))));
     REQUIRE(HasScalarRecord(*backend_raw, "action_info_score", 1, 12.5));
     anet::MetricsLogger::Reset();
 }

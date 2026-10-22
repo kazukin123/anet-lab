@@ -39,13 +39,6 @@ constexpr int kMinQValueWidth = 300;
 constexpr int kMinAuxWidth = 100;
 const wxSize kToolBitmapSize(16, 16);
 
-constexpr const char* kPlaySvg =
-    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#000000" d="M4 2 L13 8 L4 14 Z"/></svg>)";
-constexpr const char* kPauseSvg =
-    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="#000000" x="4" y="2" width="3" height="12"/><rect fill="#000000" x="9" y="2" width="3" height="12"/></svg>)";
-constexpr const char* kStepSvg =
-    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#000000" d="M3 2 L10 8 L3 14 Z"/><rect fill="#000000" x="11.5" y="2" width="2.5" height="12"/></svg>)";
-
 }  // namespace runner_layout
 
 using namespace runner_layout;
@@ -112,20 +105,6 @@ public:
             wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
     }
 };
-
-wxBitmapBundle MakeSystemTextSvg(const char* source)
-{
-    std::string svg(source);
-    const auto colour = wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)
-        .GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
-    constexpr const char* token = "#000000";
-    size_t offset = 0;
-    while ((offset = svg.find(token, offset)) != std::string::npos) {
-        svg.replace(offset, std::char_traits<char>::length(token), colour);
-        offset += colour.size();
-    }
-    return wxBitmapBundle::FromSVG(svg.c_str(), kToolBitmapSize);
-}
 
 wxString FormatFpsConfigLabel(float fps)
 {
@@ -342,12 +321,14 @@ void RunnerFrame::SetupToolBars()
     run_control_toolbar_->SetToolBitmapSize(kToolBitmapSize);
     run_control_toolbar_->SetOverflowVisible(false);
     // 生成時は停止状態の再生アイコンを置き、実行状態に応じた差し替えは UpdateToggleBitmap が行う。
-    run_control_toolbar_->AddTool(ID_TrainToggle, "Train", MakeSystemTextSvg(kPlaySvg),
+    const auto text_colour = wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT);
+    const auto play_bitmap = anet::rl::gui::MakePlaybackBitmap(anet::rl::gui::PlaybackIcon::Play, text_colour);
+    run_control_toolbar_->AddTool(ID_TrainToggle, "Train", play_bitmap,
         "Pause/resume training (Shift / left-click)", wxITEM_CHECK);
     run_control_toolbar_->AddSeparator();
-    run_control_toolbar_->AddTool(ID_EvalToggle, "Eval", MakeSystemTextSvg(kPlaySvg),
+    run_control_toolbar_->AddTool(ID_EvalToggle, "Eval", play_bitmap,
         "Pause/resume evaluation (Space / right-click)", wxITEM_CHECK);
-    run_control_toolbar_->AddTool(ID_EvalStep, "Step", MakeSystemTextSvg(kStepSvg),
+    run_control_toolbar_->AddTool(ID_EvalStep, "Step", anet::rl::gui::MakePlaybackBitmap(anet::rl::gui::PlaybackIcon::StepForward, text_colour),
         "Advance evaluation by one step (Ctrl)");
     run_control_toolbar_->EnableTool(ID_TrainToggle, false);
     run_control_toolbar_->EnableTool(ID_EvalToggle, false);
@@ -585,7 +566,9 @@ void RunnerFrame::UpdateToggleBitmap(
     // 200ms 周期で呼ばれるため、表示が実状態と一致している間は再描画を要求しない。
     if (shown_as_running.has_value() && *shown_as_running == running) return;
 
-    toolbar->SetToolBitmap(tool_id, MakeSystemTextSvg(running ? kPauseSvg : kPlaySvg));
+    const auto icon = running ? anet::rl::gui::PlaybackIcon::Pause : anet::rl::gui::PlaybackIcon::Play;
+    toolbar->SetToolBitmap(tool_id, anet::rl::gui::MakePlaybackBitmap(icon,
+        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)));
     shown_as_running = running;
     toolbar->Refresh(false);
 }
@@ -626,7 +609,7 @@ void RunnerFrame::UpdateToolBarBitmaps()
     eval_toggle_running_.reset();
     UpdateToggleBitmap(run_control_toolbar_, ID_TrainToggle, train_running, train_toggle_running_);
     UpdateToggleBitmap(run_control_toolbar_, ID_EvalToggle, eval_running, eval_toggle_running_);
-    run_control_toolbar_->SetToolBitmap(ID_EvalStep, MakeSystemTextSvg(kStepSvg));
+    run_control_toolbar_->SetToolBitmap(ID_EvalStep, anet::rl::gui::MakePlaybackBitmap(anet::rl::gui::PlaybackIcon::StepForward, wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)));
     run_control_toolbar_->Realize();
     run_control_toolbar_->Refresh(false);
 }
@@ -810,6 +793,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
         int row;
         int width;
         int original_width;
+        int min_width;
         bool has_q_value;
         std::vector<wxString> pane_names;
     };
@@ -835,11 +819,14 @@ void RunnerFrame::OnApplyLayoutPolicy()
                 .row = pane.dock_row,
                 .width = width,
                 .original_width = width,
+                .min_width = 0,
                 .has_q_value = false,
                 .pane_names = {},
             });
             dock = &right_docks.back();
         }
+        // 幅を融通する時も、同じ列に入る各paneの最小幅を守る。
+        dock->min_width = std::max({dock->min_width, pane.min_size.x, pane.window->GetMinSize().x});
         dock->has_q_value = dock->has_q_value || is_q_value;
         dock->pane_names.push_back(pane.name);
     }
@@ -849,6 +836,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
     int q_value_width = 0;
     int aux_width = 0;
     for (auto& dock : right_docks) {
+        dock.width = std::max(dock.width, dock.min_width);
         if (dock.layer == kTrainEvalLayer) {
             eval_dock = &dock;
         } else if (dock.has_q_value) {
@@ -867,7 +855,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
         for (auto& dock : right_docks) {
             if (shortage <= 0) break;
             if (dock.layer == kTrainEvalLayer || dock.has_q_value) continue;
-            const int reducible = std::max(0, dock.width - kMinAuxWidth);
+            const int reducible = std::max(0, dock.width - std::max(kMinAuxWidth, dock.min_width));
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
             shortage -= reduction;
@@ -875,7 +863,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
         for (auto& dock : right_docks) {
             if (shortage <= 0) break;
             if (dock.layer == kTrainEvalLayer || !dock.has_q_value) continue;
-            const int reducible = std::max(0, dock.width - kMinQValueWidth);
+            const int reducible = std::max(0, dock.width - std::max(kMinQValueWidth, dock.min_width));
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
             shortage -= reduction;
@@ -981,10 +969,12 @@ void RunnerFrame::AddAuxPane(wxWindow* window, const wxAuiPaneInfo& pane_info)
 
     wxAuiPaneInfo info = pane_info;
     info.Dock().Right().Layer(kAuxLayer).Row(0).Position(static_cast<int>(GetAuxPanes().size()));
-    info.BestSize(aux_width, 400);      // ドッキング時の推奨サイズ
-    info.FloatingSize(400, 400);        // 切り離したときのウィンドウサイズ
-    info.MinSize(kMinAuxWidth, 100);    // これ以上小さくならないようにする
-    info.dock_size = aux_width;
+    const int min_width = std::max({kMinAuxWidth, info.min_size.x, window->GetMinSize().x});
+    const int preferred_width = std::max(aux_width, min_width);
+    info.BestSize(preferred_width, 400);      // ドッキング時の推奨サイズ
+    info.FloatingSize(std::max(400, min_width), 400);        // 切り離したときのウィンドウサイズ
+    info.MinSize(min_width, std::max({100, info.min_size.y, window->GetMinSize().y}));    // これ以上小さくならないようにする
+    info.dock_size = preferred_width;
 
     aui_mgr_.AddPane(window, info);
     aui_mgr_.Update();

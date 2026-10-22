@@ -1,5 +1,6 @@
 // EvalTracePanel.hpp
 #pragma once
+#include <array>
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -21,6 +22,7 @@ public:
     void Initialize(std::shared_ptr<anet::rl::RunManager> manager, std::shared_ptr<anet::rl::EvalRunner> runner);
     void SetActive(bool active);
     void ReturnToLive();
+    bool SetFont(const wxFont& font) override;
 
     template<class Pane>
     void RegisterFollower(Pane* pane)
@@ -65,6 +67,11 @@ private:
     void ApplySelection(bool force, bool ensure_visible);
     void RefreshCaptions(anet::rl::step_t step);
     void SyncControls();
+    void UpdateIcons();
+    void UpdateAppearance();
+    void UpdateMinimumSize();
+    void ResetColumnWidths();
+    void GrowColumnWidths(int row, std::span<const size_t> columns = {});
     void ClearRows();
     void SelectIndex(int index, bool keep_playing = false);
     void OnTimer(wxTimerEvent& event);
@@ -80,6 +87,8 @@ private:
     int pct_window_ = 10000;
     anet::rl::EnvSpec env_spec_;
     std::vector<anet::rl::StepTraceColumnSpec> columns_;
+    std::vector<bool> manual_columns_;
+    bool sizing_columns_ = false;
     std::unique_ptr<anet::rl::StepTraceBuilder> builder_;
     std::shared_ptr<anet::rl::TrainObserver> observer_;
     std::deque<Row> rows_;
@@ -91,9 +100,13 @@ private:
     wxGrid* grid_ = nullptr;
     Table* table_ = nullptr;
     wxSlider* slider_ = nullptr;
-    wxButton* play_button_ = nullptr;
+    wxPanel* controls_panel_ = nullptr;
+    wxAuiToolBar* toolbar_ = nullptr;
+    std::array<int, 6> tool_ids_{};
+    std::array<wxBitmapBundle, 7> icons_;
+    bool showing_pause_ = false;
+    bool showing_trace_ = false;
     wxStaticText* speed_label_ = nullptr;
-    std::vector<wxButton*> buttons_;
     wxTimer timer_;
     std::chrono::steady_clock::time_point last_tick_;
     bool active_ = false;

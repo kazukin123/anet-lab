@@ -14,6 +14,7 @@ project(AnetRLRunner)
 # ---------------------------------------------------------------------
 
 file(GLOB_RECURSE ANET_PRIVATE_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp")
+list(FILTER ANET_PRIVATE_SOURCES EXCLUDE REGEX "_test\\.cpp$")
 file(GLOB ANET_CONFIGS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/config/*.txt")
 
 if(WIN32)
@@ -142,3 +143,16 @@ source_group("src" REGULAR_EXPRESSION "cmake_pch.*")
 if(WIN32)
     source_group("src" FILES ${ANET_WIN_SOURCES})
 endif()
+
+# 実wxWidgetの公開操作を検証する。通常の全体buildには追加しない。
+add_executable(AnetRLRunner-gui-test EXCLUDE_FROM_ALL ${ANET_PRIVATE_SOURCES} src/EvalTracePanel_test.cpp ${ANET_WIN_SOURCES})
+get_target_property(ANET_RUNNER_TEST_LIBRARIES AnetRLRunner LINK_LIBRARIES)
+target_link_libraries(AnetRLRunner-gui-test PRIVATE ${ANET_RUNNER_TEST_LIBRARIES} catch2)
+# コンパイルPDBを本体と分け、Releaseでも他targetのPDBに依存させない。
+target_precompile_headers(AnetRLRunner-gui-test PRIVATE "src/pch.hpp")
+add_dependencies(AnetRLRunner-gui-test AnetRLRunner)
+if(ANET_ATARI_ENABLED)
+    target_compile_definitions(AnetRLRunner-gui-test PRIVATE ANET_HAS_ATARI)
+endif()
+
+set_target_properties(AnetRLRunner-gui-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:AnetRLRunner>")

@@ -68,6 +68,7 @@ private:
 private:
 	const EvalPanelConfig config_;
 	std::shared_ptr<anet::rl::EvalRunner> runner_ = nullptr;
+    anet::rl::ActionSpec action_spec_{};
 	std::mutex source_counts_mutex_;
 	anet::rl::StepCounts source_counts_;
 	std::shared_ptr<anet::rl::TrainObserver> source_counts_observer_;

@@ -110,7 +110,9 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 	this->Layout();
 
 	// EvalRunnerを保存(これで独自の評価エピソードを回す。ENVはTrainと同等の別インスタンス、AGENTはTrainと共用)
+    // 入力判定でEnvSpecを毎回構築しないよう、ActionSpecを保持
 	runner_ = runner;
+    action_spec_ = runner_->GetBatchEnv()->GetSpec().action_spec;
 
 	// Observer生成
 	auto notifier = run_manager->GetNotifier();
@@ -164,6 +166,13 @@ void EvalPanel::DoStep()
 
 void EvalPanel::DoStep(int64_t action)
 {
+    // 範囲外入力では、Live復帰やモデル同期も行わず表示履歴を維持する。
+    if (action >= 0 && action_spec_.is_discrete && action >= action_spec_.GetNumActions()) {
+        wxGetApp().GetMainFrame()->SetStatusText(wxString::Format(
+            "Action %lld is unavailable; valid range: 0-%d.",
+            static_cast<long long>(action), action_spec_.GetNumActions() - 1), 0);
+        return;
+    }
     if (before_live_action_) before_live_action_();
 	SyncBeforeManualStep();
 	runner_->DoStep(action);
