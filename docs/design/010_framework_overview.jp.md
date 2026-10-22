@@ -347,7 +347,7 @@ Event、Observer、成果物形式は[可観測性](140_observability.jp.md)を�
 
 プロファイリング機能は、Actor 推論、Env Step、Learner 更新、ReplayBuffer、device 転送、可視化などの主要境界へ安定した計測名を付与します。Tracy で CPU thread と処理時間、NVTX 対応環境で GPU 処理との対応を確認し、Serial/Pipeline や設定間の性能差を同じ範囲で比較できるようにします。
 
-計測を追加・変更する規約はリポジトリ直下の[AGENTS.md](../../AGENTS.md)を参照してください。
+計測を追加・変更する規約は[実装 品質確認観点](../quality/impl.md#計測)の「計測」の規約を参照してください。
 
 ### 6.11 テスト
 

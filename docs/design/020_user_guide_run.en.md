@@ -160,7 +160,7 @@ backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmar
 
 #### 3.4.2 Profiles `@name`
 
-Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in [AGENTS.md](../../AGENTS.md)). `:` means the same as `.` and is used only at a profile boundary.
+Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#設定ファイル)). `:` means the same as `.` and is used only at a profile boundary.
 
 - A definition alone does not contribute values. Only the portion selected by a chain or partial selection enters the final values.
 - Short `@name` resolves in the namespace where it is written (the definition site). `Env.$ = @a` refers to `Env.@a`, and `Env.@a : $ = @b` refers to `Env.@b`. Even when used elsewhere as `Other.$ = Env.@a`, the `@b` inside `@a` still refers to `Env.@b`.
@@ -285,7 +285,7 @@ X.key ?= v              既定葉。X.$ に負ける
 | Workspace `config/_main.txt` | `$include` directives for the `<Env>.txt` files to enable | - |
 | bat, CLI | `run.$` selection and leaf overrides | `=` |
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in [AGENTS.md](../../AGENTS.md)). Do not use `?=` merely because a value might be overridden later. Group only the leaves that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#設定ファイル)). Do not use `?=` merely because a value might be overridden later. Group only the leaves that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
@@ -528,7 +528,7 @@ For comparison or reproduction, treat `config/config_data.txt` in the Run direct
 
 - [CONTEXT.md](../../CONTEXT.md) (canonical configuration terminology)
 - [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md) (rationale for configuration contracts)
-- [AGENTS.md](../../AGENTS.md), Configuration File Assignment Operators (operator usage rules)
+- [Implementation Quality Viewpoints](../quality/impl.md#設定ファイル), Configuration Files rules (Configuration File Assignment Operators) (operator usage rules)
 - [Analysis User Guide](030_user_guide_analysis.en.md)
 - [Development Environment](040_development_environment.en.md)
 - [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.md)

@@ -38,7 +38,7 @@ Configuration is collected into `ConfigData`, which holds string key/value pairs
 
 **`$` supplies the base; partial selections and explicit leaves override it.** Since `A2 > A3` merges each source's completed values as differences, eps_end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in `AGENTS.md`; see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#設定ファイル); see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
 
 Write defaults at the same location with `?=` and intentional explicit assignments with `=`. Do not add a defaults profile at the beginning of the chain. `?=` is prohibited in Run profiles, CLI assignments, and selection declarations `.$`. After adding configuration, use `check_default_leaves.py` to check for `=` remaining in shared bases/defaults and `?=` mixed into Env-specific explicit assignments. Update the checker's classification reasons when changing a setting's role.
 

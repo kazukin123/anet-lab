@@ -36,5 +36,5 @@ goldenは契約を意図的に変えるときだけ更新する。変更前の�
 
 ## 関連
 
-- `?=` と `=` の運用規約: `AGENTS.md`「設定ファイルの代入演算子」、[Run実行ユーザーガイド](../../../../docs/design/020_user_guide_run.jp.md) §3.6〜§3.8
+- `?=` と `=` の運用規約: [実装 品質確認観点](../../../../docs/quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、[Run実行ユーザーガイド](../../../../docs/design/020_user_guide_run.jp.md) §3.6〜§3.8
 - 設計: [実行基盤と設定](../../../../docs/design/100_runtime_and_configuration.jp.md) §8
