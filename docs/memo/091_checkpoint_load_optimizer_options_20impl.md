@@ -70,7 +70,7 @@ core\anet-core\bin\Debug\anet-core-test.exe
 
 ### 同一 device smoke
 
-- 親 Run: run_20261014-080249_dm_fb_munch_tau3e-2_ndtpen20_nzrep_c100_b512rr2_20m の agent_close.anet。
+- 親 Run: run_20261014-080249_dmfb_31e_21_b512rr2 の agent_close.anet。
 - 保存時・読み込み時とも CUDA。親 Run の保存済み実効 config を --config で読み、auto_load_file と learner.alpha=5e-5 を CLI で指定した。
 - 短時間検証用に num_envs=8、replay_capacity=512、replay_batch_size=32、update_warmup_steps=0、exp_exit_step=256 とし、background eval の interval を0にした。Network 構成は維持した。
 - 結果 Run: run_20261015-085156_prd091_smoke。終了コード0、終了時 agent_close.anet 保存成功。

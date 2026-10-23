@@ -405,3 +405,50 @@ wiki_test.py 8テスト、registry_test.py 6テストは成功した。
 - 全16地図97項目の再判定が完了し、12地図72項目を変更、再開条件4件を補完した。不採用61・先送り16・範囲外20。規約、地図12枚、log、22implの15ファイルを変更した。logは最新PRD095 blobのfix行を追記しただけ。
 - 未決・起票候補・判断待ち: なし。未実施の必要検証: なし。コード変更が無いためDebugビルド・コードテストは対象外。過去工程のmemory未移行・Claude側作業の残件は、この完了に含めていない。
 - 最終hash・mtimeと開始時との差分をstage3-verdictへ保存し、再読して保持を確認する。PRD・ADR・CONTEXT・categories・正本・別作業の未コミット変更は保持。stage・commit・pushは行わず停止する。
+
+## 2026-10-23 Claude Code の memory の移し替え（Claude Code 側）
+
+上の作業が範囲外とした、Claude Code の memory の移し替えと索引のポインタ置換（受入 18 の memory の部分）を、Claude Code のセッションで行った。作業メモと退避は `.scratch/prd095/memory-migration/`（RESUME.md・照合の結果・書き出しの指示文・作業前の全ファイルの退避）。
+
+- 対象と分類: memory 173 本（project 129・feedback 42 ほか）を、正本があるか・wiki にあるか・正本が無いか・進み具合や指示や好みか、の 4 つに分けて照合した。
+- ポインタ化:
+  - project の 97 本を、正本と wiki へのポインタに縮めた。
+  - 運用・工程と構想の 31 本は、作業上の情報と方向性なので残した。
+  - MEMORY.md の索引の行を、新しい中身に合わせた。
+  - `feedback_experiment_records` を新しい運用（知見は memory に溜めず、正本へ書いて wiki に取り込む）に改めた。
+- wiki への取り込み: 正本があって wiki に無い 61 項目を、出典の節で確かめてから足した。足さなかった項目は、出典に書かれていないか、地図の経緯にその PRD・ADR が無いもの。`subjects/imagecls.md` を新しく作った。
+- 書き出し（正本の無い知見のうち、ユーザーが選んだもの。値はすべて Run で確かめ直した）:
+  - 新しい実験記録 3 本:
+    - `default-dqn/atari/2026-10-15_kfm-boss-route.md`
+    - `default-dqn/atari/2026-10-11_noisynet-realtime.md`
+    - `image-cls/imagecls/2026-06-25_food101-scratch.md`（`image-cls/` を新設）
+  - 既存の記録への追記:
+    - `dropmerge/2026-10-15_gradient-noise-batch.md` の探索ブロック 14〜16 と、ブロック 11 の判断更新
+    - `atari/2026-09-21` の探索ブロック 05
+    - `atari/2026-09-27` の探索ブロック 06
+  - config のコピー: atari 56 本、dropmerge 7 本、imagecls 28 本。imagecls のコピーに入っているデータの置き場の絶対パスは、コミット済みの `ImageCls.txt` と同じ値なので、ユーザーの判断でそのまま残した。
+  - 正本の古い記述の直し（各 PRD に 2026-10-23 の改訂行）:
+    - 082
+    - 999 の nstep_target_correction・smdp・dropmerge_neet_diagnostics・bootstrapped_multihead_q・seed_population_early_stop・intrinsic_reward_novelty・llm_actor・replay_eviction_sample_count
+    - 094
+    - frozen/026、done/033、done/077
+    - 古い `dm_fb_` の Run 名: 086・088・999_decision_aligned_nstep（改訂行つき）と、090_20impl・091_20impl
+  - 台帳: F-0028〜F-0035 を登録した（run_id `2026-10-23-claude`）。
+    - 直っていたもの（RB の B3・P1・P3・SumTree の誤差、IQN の 2 件、070 の 1 件）は登録していない。
+    - 性能の候補 2 件も登録していない。
+  - 取り込み: 書いた・直した材料はすべて取り込み、log.md に ingest と fix の行を足した。
+- Run で確かめて、memory の値と食い違ったもの: 正本には Run の値を書いた。主なものは次のとおり。
+  - KFM の B1024 の 3 本目は完走していた。
+  - seed 2 の 2 本は複製ではなかった。
+  - KFM の Run フォルダの一部は `_kfm_` に改名されていた。
+  - DropMerge の B1024 の系列は、横ばいではなかった。
+  - ImageCls の cosine の比較では、batch と RRC も同時に変わっていた。
+- 検査: `wiki_support.py scan` はリンク切れ 0・目録漏れ 0。未取り込みは 13 件で、どれも別作業（PRD098 など）の材料。`registry.py validate` は 35 レコード・問題 0 件。公開できない値の走査では、新しく出たものは無い。
+- 受入 18 の memory の部分:
+  - 移した memory の索引の行は、正本・wiki・台帳を指す記述に置き換わった。
+  - 正本の無い知見は、memory の「確認待ち」に残した。PRD017・018、Train の定期停止、NOOP 停滞の診断、GPU 予算、BF16 の実測、8 列の固定、qbert の ROM パッチなどで、ユーザーの判断で今は書き出さない。
+- 残件（どれもユーザーの判断待ち）:
+  - done/033 の GPU 稼働率 87% の Env。memory の中身からは DropMerge の DQN と読めるが、推定なので直していない。
+  - 999_seed_population_early_stop・999_bootstrapped_multihead_q の設計の部分が、古い見立ての上に組まれたまま。それぞれのグリルで扱う。
+  - 既存の campaign へ足す候補: 9/25 のサンプル効率優先の KFM 50M → `atari/2026-09-25`、seed 3 の 100M 完走 → `atari/2026-09-23`。
+  - 上限の 40 文字を超えた既存の metrics の tag（最長 52 文字）。台帳の drift 候補。

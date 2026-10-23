@@ -66,7 +66,7 @@
 - PPO/SAC・複数損失・別optimizer向けの拡張口 — 先送り: 単一損失・AdamWの現用途で完結させる。再開条件: 対象Learner・観測したい損失とoptimizerが具体化したとき（出典: [PRD092](../../memo/092_gradient_noise_scale_10prd.md)、§8 5・§10.2）。
 - 購読間隔ごとの別EMA — 不採用: 状態と系列が増える。独立した時間幅はrawの利用側での再平滑化に任せる（出典: [PRD092](../../memo/092_gradient_noise_scale_10prd.md)、§10.2）。
 - head単位統計とattention entropy最小値 — 先送り: 層平均で足りる間は公開値と保持データを増やさない。再開条件: 層平均が下がったRunで内訳が必要になったとき。最小値は6層構成で読みにくくなったとき（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§5・§7）。
-- TQLのattention entropy正則化 — 範囲外: anetでは本指標で集中の進行をまだ観測していない。再開条件: 層平均の集中と成績の頭打ち・下降が時期として重なったとき。因果は別途判断する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§7 1）。
+- TQLのattention entropy正則化 — 先送り: anetでは本指標で集中の進行をまだ観測していない。再開条件: 層平均の集中と成績の頭打ち・下降が時期として重なったとき。因果は別途判断する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§7 1）。
 - 学習側の厳密な優先度の列 — 不採用: EvalPanelには単一networkのforwardしかなくreplayも無いため学習側のonline/targetによる値は得られない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
 - moduleのbufferにεを置きreset_noiseで引き直す形 — 不採用: shared networkの同時forwardで競合し、snapshotとhard updateで別用途のεが混入する（出典: [ADR 0048](../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)、Considered Options）。
 - ReplayBufferから別に一様抽出する勾配ノイズprobe — 不採用: 実更新と抽選分布・IS重みが違い、forwardも増える（出典: [ADR 0054](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)、Considered Options）。
@@ -83,7 +83,7 @@
 - 明示的なActor::Syncは呼出時の強制同期として維持する。shared既定ではaction forward回数と保存形式を保つ（出典: [PRD036](../../memo/done/036_train_actor_periodic_snapshot_10prd.md)、目的）。
 - Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・seedの各スロットの結果を確認する（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、7.4・8）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [PRD083](../../memo/083_action_context_retire_10prd.md)、Context・確定した設計判断2〜4・11）。
-- 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§8.2・§12・§13）。
+- 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とする（PRD060は基準を取り損ねた）（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§8.2・§12・§13）。
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [PRD092](../../memo/092_gradient_noise_scale_10prd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 1・5）。
 - ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
@@ -137,6 +137,7 @@
 - F-0013 P2 refactor — 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う
 - F-0014 P2 refactor — TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている
 - F-0019 P2 refactor — BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖
+- F-0029 P2 defect — use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる
 - F-0021 P3 refactor — dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い
 
 [台帳の一覧](../../../reports/registry/findings.md)

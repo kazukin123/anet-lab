@@ -37,6 +37,13 @@
 - ゲーム別RAM番地・畳み方をコードの固定表に持つ形 — 不採用: 番地を試すたびに再ビルドが要り、解析上の選択を固定する（出典: [ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)、Considered Options）。
 - RAM番地またはラベルをmetricsキーへ直接出す形 — 不採用: ゲームやイベントの変更でmetrics定義を書き換えることになる（出典: [ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)、Considered Options）。
 - frame skip窓のあとだけRAMを観測する形 — 不採用: 窓途中とreset中の遷移を回数系で取りこぼす（出典: [ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)、Considered Options）。
+- ImageCls の decode cache を bounded LRU にする形 — 不採用: epoch シャッフルでは再利用距離が平均約 0.75N で、容量 K=N/2 でも LRU の hit 率は約 15% にとどまり、同じ容量の固定ピン留め（hit 率 50%）に常に劣る（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、12.11 D9解決）。
+- ImageCls の評価を固定の部分集合で行う形 — 不採用: 毎回同じ画像だけを見ることになる（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、12.2 維持された主要判断・12.8 D5解決）。
+- 評価の終わりを driver 側（Runner）で sample 数を数えて決める形 — 不採用: 端数の padding は物理的に Source 側で必須なので処理が二重になり、汎用の EvalRunner が valid 件数という dataset の語彙を持つことになる（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、12.8 D5解決）。
+- EvalPanel の Source の乱数列を同じタグの configured eval にそろえる形（option 2） — 不採用（棄却）: GUI の操作で cursor がすぐずれて整列は保てず、同じ seed だから同じ対象を見ているという偽の手がかりだけが残る（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、12.12 D10解決）。
+- NoDropTimeout を truncated にする形 — 不採用（却下）: ショットクロックは観測にあり、クロックを進めるのは agent 自身の NOOP なので、終端は agent の支配下の Markov な帰結で done が意味論的に正しい。flag の切り替えで行うと観測の次元まで変わり、一軸の A/B が壊れる（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約 8）。
+- missed_resignation（persistence 条件付きの投了失敗）メトリクス — 不採用（却下）: use_instant_drop では次の行動選択の時点の persistence は高々 1 frame で、Phase 2 の後は該当する状態が構造的に空集合になり、厳密な投了率には反実仮想の物理シミュレーションが要る（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約 2）。
+- timeout 時の再分類・裁定の上限・no_legal_adjudication_timeout — 不採用（導入しない）: blocked-persistence の裁定では到達できない dead 機構になり、瞬間の candidate による再分類は振動して時々 legal が開く盤面を NoLegal へ誤分類する（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約 5）。
 
 ## 変えるときの条件
 

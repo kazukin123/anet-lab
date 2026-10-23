@@ -7,16 +7,24 @@
 | 状態 | 件数 |
 |---|---|
 | fixed | 1 |
-| open | 26 |
+| open | 34 |
 
-open の優先度別: P0 1, P1 4, P2 16, P3 5
+open の優先度別: P0 1, P1 4, P2 18, P3 11
 
-open の観点別: architecture 0, backlog 0, defect 10, drift 4, process 0, refactor 10, test-gap 2
+open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, refactor 12, test-gap 3
 
 ## 最近の変化(14 日)
 
 | id | 更新 | 状態 | 優先度 | 観点 | 場所 | タイトル |
 |---|---|---|---|---|---|---|
+| F-0028 | 2026-10-23 | open | P2 | defect | `core/anet-core/src/exception.cpp`::AnetException::AnetException | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
+| F-0029 | 2026-10-23 | open | P2 | defect | `core/anet-core/src/dqn_based_agent.cpp`::Learner::ComputeElementError | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
+| F-0030 | 2026-10-23 | open | P3 | defect | `core/anet-core/src/init.cpp`::anet::rl::InitRL | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
+| F-0031 | 2026-10-23 | open | P3 | refactor | `core/anet-core/src/init.cpp`::anet::rl::InitRL | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている |
+| F-0032 | 2026-10-23 | open | P3 | drift | `core/anet-core/src/init.cpp`::anet::rl::InitRL | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
+| F-0033 | 2026-10-23 | open | P3 | drift | `docs/design/100_runtime_and_configuration.jp.md`::run.eval_device | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
+| F-0034 | 2026-10-23 | open | P3 | refactor | `core/anet-core/src/replay_buffer_impl.hpp`::InitialPriorityCompleter::GetStats | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない |
+| F-0035 | 2026-10-23 | open | P3 | test-gap | `core/anet-core/src/replay_buffer_impl.cpp`::DefaultReplayBuffer::DefaultReplayBuffer | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
 | F-0006 | 2026-10-22 | open | P0 | defect | `core/anet-core/src/rl.cpp`::Notifier | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | F-0007 | 2026-10-22 | open | P1 | defect | `core/envs/dropmerge1/src/DropMergeEnv.cpp`::DropMergeEnv::Step | Directモードで列0への落下にもNOOPペナルティが加算される |
 | F-0008 | 2026-10-22 | open | P1 | defect | `core/anet-core/src/metrics_logger.cpp`::VideoLogger::WriteFrame | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
@@ -65,11 +73,19 @@ open の観点別: architecture 0, backlog 0, defect 10, drift 4, process 0, ref
 | F-0025 | P2 | high | drift | fail-fastの方針 | `core/anet-core/src/trainer.cpp`::RunnerFactory::CreateMainRunner | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う | 2026-07-04 | 2026-10-22 |
 | F-0026 | P2 | high | test-gap | テストの空白 | `core/anet-core/src/scaler_impl.cpp`::RewardScalerFactory::CreateRewardScaler/RunningStdSingleTensorNormalizer | 報酬スケーラのauto_post_scaleと、観測正規化のrobust update・SymLogにテストが無い（どれも既定で有効） | 2026-07-04 | 2026-10-22 |
 | F-0009 | P2 | med | defect | 整合性 | `core/anet-core/src/trainer.cpp`::PipelineTrainRunner::DoStep | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる | 2026-07-04 | 2026-10-22 |
+| F-0029 | P2 | med | defect | 境界 | `core/anet-core/src/dqn_based_agent.cpp`::Learner::ComputeElementError | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる | 2026-06-12 | 2026-10-23 |
+| F-0028 | P2 | low | defect | 例外 | `core/anet-core/src/exception.cpp`::AnetException::AnetException | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる | 2026-09-06 | 2026-10-23 |
 | F-0021 | P3 | high | refactor | 規約違反・不統一 | `core/anet-core/src/dqn_based_agent.hpp` | dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い | 2026-07-04 | 2026-10-22 |
 | F-0022 | P3 | high | drift | 設定のコメント | `apps/runner/config/metrics_scalar.txt`::metrics.scalar 記法のコメント | metrics_scalar.txt冒頭のscalar記法のミニ仕様が古い（&step、@learn/@trainだけ、属性の欠落） | 2026-07-04 | 2026-10-22 |
 | F-0023 | P3 | high | drift | 設定のコメント | `apps/runner/config/nn.txt`::Supported Module Types のコメント | nn.txtの対応typeの一覧とinit.modeのコメントが実装とずれている | 2026-07-04 | 2026-10-22 |
 | F-0027 | P3 | high | test-gap | テストの空白 | `core/anet-core/src/muzero_rb.cpp`::MuZeroReplayBuffer | MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い | 2026-07-04 | 2026-10-22 |
+| F-0030 | P3 | high | defect | 例外 | `core/anet-core/src/init.cpp`::anet::rl::InitRL | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す | 2026-09-23 | 2026-10-23 |
+| F-0031 | P3 | high | refactor | 重複 | `core/anet-core/src/init.cpp`::anet::rl::InitRL | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている | 2026-09-23 | 2026-10-23 |
+| F-0032 | P3 | high | drift | fail-fastの方針 | `core/anet-core/src/init.cpp`::anet::rl::InitRL | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない | 2026-09-23 | 2026-10-23 |
+| F-0034 | P3 | high | refactor | コメント | `core/anet-core/src/replay_buffer_impl.hpp`::InitialPriorityCompleter::GetStats | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない | 2026-07-16 | 2026-10-23 |
+| F-0035 | P3 | high | test-gap | テストの空白 | `core/anet-core/src/replay_buffer_impl.cpp`::DefaultReplayBuffer::DefaultReplayBuffer | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い | 2026-07-16 | 2026-10-23 |
 | F-0010 | P3 | med | defect | 境界 | `core/anet-core/include/anet/rl.hpp`::ActionSpec::GetShape | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す | 2026-07-04 | 2026-10-22 |
+| F-0033 | P3 | med | drift | 用語ずれ | `docs/design/100_runtime_and_configuration.jp.md`::run.eval_device | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ | 2026-09-23 | 2026-10-23 |
 
 ### 詳細
 
@@ -262,6 +278,24 @@ open の観点別: architecture 0, backlog 0, defect 10, drift 4, process 0, ref
 - 対処: 学習を投入したときのexp・countsを結果と一緒に保持し、イベントにはその組を渡す。
 - 根拠: core/anet-core/src/trainer.cpp:692 学習の投入は、この時点のprev_exp_（1つ前のstepの遷移）とprev_counts_で行う; core/anet-core/src/trainer.cpp:712 そのあとprev_exp_をこのstepの遷移で上書きする; core/anet-core/src/trainer.cpp:665 次のstepのLearnEventは、上書き後のprev_exp_と、上書き前の遷移で投入した学習の結果を組にする; core/anet-core/src/trainer.cpp:673 TrainEventも同じ組で通知する; core/anet-core/src/trainer.cpp:569 SerialTrainRunnerは同じexpで学習した結果を、そのexpと組にする
 
+#### F-0029 P2 use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる
+
+- 観点/分類: defect / 境界
+- 場所: `core/anet-core/src/dqn_based_agent.cpp`::Learner::ComputeElementError
+- 要約: clampの勾配はclipの範囲の外で0なので、|TD|がtd_clip_valueを超えたサンプルは損失が一定になり、学習に寄与しない。smooth_l1は1を超えたところで勾配を±1に抑えているので、clampが足すのは大きな誤差の勾配を消すことだけになる。DQNの誤差クリップ（勾配を±1に抑える）とは働きが違う。あわせて、td_clip_value<=0は黙ってclipを切る（値の特別扱い）。
+- シナリオ: quantile_mode=none、use_td_clip=true、td_clip_value=10で学習する → |TD|が10を超えたサンプル（まれな大きい報酬、学習初期の大きな誤差）の勾配が0になる → いちばん外れた予測ほど直らず、PERではその優先度が高いまま何度も引かれて、更新に寄与しないサンプルに予算が使われる。
+- 対処: 誤差クリップの意図ならclampを外してsmooth_l1のbeta（またはHuberのdelta）にtd_clip_valueを渡す。損失を打ち切る意図なら、その旨を設定の説明と設計文書に書く。td_clip_value<=0はfail-fastにする。
+- 根拠: core/anet-core/src/dqn_based_agent.cpp:4379 use_td_clipかつtd_clip_value>0のとき、TDを[-td_clip_value, td_clip_value]へclampしてからsmooth_l1_loss（4381）に渡す; core/anet-core/src/dqn_based_agent.cpp:4411 QR・IQNのComputeElementErrorはuse_td_clipを読まない。効くのはquantile_mode=noneのLearnerだけ; apps/runner/config/agent.txt:194 use_td_clip ?= false（DefaultDQNAgent、RainbowAgentは315）。DropMerge.txt:216にtrueにした跡がコメントで残る
+
+#### F-0028 P2 AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる
+
+- 観点/分類: defect / 例外
+- 場所: `core/anet-core/src/exception.cpp`::AnetException::AnetException
+- 要約: 2026-09-06にanet-core-testの上で確かめたところ、wxStackWalkerのWalkがOnStackFrameを一度も呼ばず、stack_trace()は常に空だった。SymInitializeがerr=87（同じプロセスで先に初期化済み）、SymFromAddrがerr=126で失敗していた。exception.cppはその後変わっていない。確保失敗の経路だけはdbghelpを使わない採り方に移してある。
+- シナリオ: Runnerで設定の誤りなどからAnetExceptionが投げられる → コンストラクタのWalk(2)がフレームを1つも返さない → stack_trace()が空文字列になり、エラーダイアログのdetail欄と完全な情報（full_info）にスタックが残らない。
+- 対処: FormatCurrentStackと同じモジュール名＋offsetの形でスタックを採り、PDBで後から解く。wxStackWalkerを残すなら、dbghelpの初期化をTracyと分け合う（TRACY_DBGHELP_LOCK）ことを検討する。
+- 根拠: core/anet-core/src/exception.cpp:58 コンストラクタでwxStackWalker::Walk(2)を走らせ、OnStackFrame（20〜37）で集めたものだけをstack_trace_にする; CMakeLists.txt:32 ANET_ENABLE_TRACYは既定でON。Tracyのクライアントが同じプロセスでdbghelpを使う; apps/runner/src/RunnerApp.cpp:752 showFatalErrorがe1.stack_trace()をエラーダイアログのdetailに渡す（RunnerFrame.cpp:1215も同じ）; core/anet-core/src/exception.cpp:128 FormatCurrentStackはRtlCaptureStackBackTraceとモジュール名＋offsetで、dbghelpを使わずにスタックを採る
+
 #### F-0021 P3 dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い
 
 - 観点/分類: refactor / 規約違反・不統一
@@ -298,6 +332,51 @@ open の観点別: architecture 0, backlog 0, defect 10, drift 4, process 0, ref
 - 対処: 短いエピソードを手で作り、価値ターゲットとmaskの期待値を並べるテストを足す。
 - 根拠: core/anet-core/src/muzero_rb.cpp:98 最新のstepがdone・truncatedのとき、残りのstepを終端までの報酬で打ち切ってフラッシュする（98〜119）; core/anet-core/src/muzero_rb.cpp:222 サンプラーはunroll_steps+1の窓で行動・報酬・価値・maskを詰め、終端（248）以降をmaskで切る; core/anet-core/src/muzero_rb.cpp:287 Pushはbatchの経験をenvごとのキューへ渡す
 
+#### F-0030 P3 device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す
+
+- 観点/分類: defect / 例外
+- 場所: `core/anet-core/src/init.cpp`::anet::rl::InitRL
+- 要約: ParseDeviceが投げるときに1回、InitRLがキー名を添えて投げ直すときにもう1回、LOG::fatalが出る。2回目のメッセージは1回目の全文（ファイル名と行番号を含む）を中に持つ。
+- シナリオ: agent.device = cuda:x と書いて起動する → ログにfatalが2件並び、2件目は1件目の本文とソースの位置を入れ子で含む → 1回の誤りが2つの失敗に見える。
+- 対処: InitRLで文法を検証してキー付きのエラーを1回だけ出す（ParseDeviceに検証だけの形を設けるか、捕まえた例外にキーを添えて投げ直すときにログを重ねない）。
+- 根拠: core/anet-core/src/init.cpp:104 ParseDevice(spec)の例外をstd::exceptionで捕まえ、106でANET_SYSTEM_ERRORを投げ直す; core/anet-core/src/tensor_util.cpp:29 ParseDeviceは不正な指定をANET_SYSTEM_ERRORで投げる; core/anet-core/src/diag.cpp:22 ThrowErrorは投げる前に毎回LOG::fatalを出す
+
+#### F-0031 P3 InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている
+
+- 観点/分類: refactor / 重複
+- 場所: `core/anet-core/src/init.cpp`::anet::rl::InitRL
+- 要約: 3つのdeviceキーの既定値が、所有クラス（Agent・Env・Runの設定）とInitRLの検証の表の2か所に書かれている。どちらかだけを変えると、検証が見る値と実際に使う値がずれる。
+- シナリオ: env.deviceの既定をautoに変えてenv.hppだけを直す → 未指定のときInitRLはcpuとして検証し、実際のEnvはautoで動く → 明示cudaの一括検査（D5）とRunの実効値が食い違う。
+- 対処: 既定値を所有クラスの定数から引くか、InitRLはキーが無ければ検証を所有クラスに任せる。
+- 根拠: core/anet-core/src/init.cpp:96 検証用の表に、3キーの既定値auto・cpu・autoを書いている（96〜98）; core/anet-core/include/anet/agent.hpp:330 Agentの設定のdevice既定はauto; core/anet-core/include/anet/env.hpp:346 Envの設定のdevice既定はcpu; core/anet-core/src/trainer.cpp:764 eval_deviceの既定はauto
+
+#### F-0032 P3 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない
+
+- 観点/分類: drift / fail-fastの方針
+- 場所: `core/anet-core/src/init.cpp`::anet::rl::InitRL
+- 要約: PRD070 D5の一括エラーは、cudaを指定しているキーの一覧とautoへの直し方を出すが、各キーに何を書いたか（cuda・cuda:1など）を出さない。エラーに指定値を含める方針に足りない。
+- シナリオ: CPU機でagent.device = cuda:1、run.eval_device = cudaの設定を起動する → エラーはagent.device, run.eval_deviceとだけ言う → どちらに何を書いたかは、設定の継承をたどって自分で確かめることになる。
+- 対処: キー=指定値の形で並べる。
+- 根拠: core/anet-core/src/init.cpp:118 CUDA is unavailable for explicit device settings: の後ろにキー名だけを並べる（118〜119）; AGENTS.md:193 エラー・WARNには対象の識別子と指定値を含める方針
+
+#### F-0034 P3 InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない
+
+- 観点/分類: refactor / コメント
+- 場所: `core/anet-core/src/replay_buffer_impl.hpp`::InitialPriorityCompleter::GetStats
+- 要約: stats_はPushの側のCompleteReadyが更新し、GetStatsはそれを読むので、GetStatsもmetadata_mutex_の下で呼ぶ必要がある。今の呼び出し元は守っているが、クラスの@noteにその前提が書かれていない。
+- シナリオ: 新しいメトリクスのためにLearnerの側からGetStatsをロック無しで呼ぶ → PushのスレッドのCompleteReadyと同時にstats_を読み書きするデータ競合になるが、@noteを読んでも気づけない。
+- 対処: @noteにGetStatsを足す。
+- 根拠: core/anet-core/src/replay_buffer_impl.hpp:324 @noteはEnqueueとCompleteReadyだけを、metadata_mutex_を保持して呼ぶものとして挙げる; core/anet-core/src/replay_buffer_impl.hpp:371 GetStatsはCompleteReadyが更新するstats_をそのまま写して返す; core/anet-core/src/replay_buffer_impl.cpp:2017 今の唯一の呼び出し元（GetScalar）はmetadata_mutex_を取ってから呼ぶ
+
+#### F-0035 P3 DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い
+
+- 観点/分類: test-gap / テストの空白
+- 場所: `core/anet-core/src/replay_buffer_impl.cpp`::DefaultReplayBuffer::DefaultReplayBuffer
+- 要約: PERではpriority storeと初期優先度のcompleterを対で持ち、uniformではどちらも持たない、という不変条件をコンストラクタが検証している。completerを作る側（CreateInitialPriorityCompleter）にはテストがあるが、コンストラクタに片方だけを渡したときに失敗することを確かめるテストが無い。
+- シナリオ: コンストラクタの検査を消す、または条件を取り違える → どのテストも落ちない → あとでファクトリやテストの組み立てがpriority storeだけを渡すようになっても止まらず、PERのitemに初期優先度が付かないまま動く。
+- 対処: 片方だけを渡すとコンストラクタが投げることのテストを足す。
+- 根拠: core/anet-core/src/replay_buffer_impl.cpp:1455 priority_store_とinitial_priority_completer_の片方だけがあるとANET_SYSTEM_ERRORにする（1455〜1457）; core/anet-core/src/replay_buffer_test.cpp:1727 テストが確かめるのはCreateInitialPriorityCompleterがPERのときだけcompleterを作ることまでで、コンストラクタに片方だけを渡す経路は通らない
+
 #### F-0010 P3 ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す
 
 - 観点/分類: defect / 境界
@@ -306,6 +385,15 @@ open の観点別: architecture 0, backlog 0, defect 10, drift 4, process 0, ref
 - シナリオ: 3次元の連続行動のEnvを足す → GetShapeが{1,1,1}を返し、replayのactions_が(num_envs, capacity, 1, 1, 1)で確保される → (N, 3)の行動を書き込むとshapeが合わずに落ちる。
 - 対処: 連続行動では{dims.size()}を返す。連続行動を足すときに、replayへの書き込みと合わせて確かめる。
 - 根拠: core/anet-core/include/anet/rl.hpp:255 連続行動では次元ごとに1をpushし、{1,1,...}を返す（コメントは(dims.size(),)と言う）; core/anet-core/src/replay_buffer_impl.cpp:492 replayのactions_をこのshapeで確保する
+
+#### F-0033 P3 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ
+
+- 観点/分類: drift / 用語ずれ
+- 場所: `docs/design/100_runtime_and_configuration.jp.md`::run.eval_device
+- 要約: device指定を解決した結果を、設計文書の4か所は「採用値」、PRD070とJSONの欄の名前は「実効」と呼ぶ。100では「採用値」が評価セッションの採用episodeの値という別の意味でも使われている。CONTEXT.mdにはどちらの語も無い。
+- シナリオ: 実効deviceの記録を「実効」で設計文書から探す → device の節は「採用値」と書いているので当たらず、100では「採用値」が評価の値の意味でも出てくるので、どちらの話か読み分けが要る。
+- 対処: 設定の解決結果は既存の「実効値」に揃え、評価の採用episodeの「採用値」と分ける。
+- 根拠: docs/design/100_runtime_and_configuration.jp.md:318 run.eval_deviceの採用値はjson/run.jsonのeffective_eval_device、と書く; docs/design/100_runtime_and_configuration.jp.md:306 同じ文書で、評価セッションのdecoratorが採用episodeから蓄積する値も「採用値」と呼ぶ; docs/design/110_agents_and_learning.jp.md:185 agent.deviceの採用値はjson/agent.json（120:216のenv.device、020:67も同じ語）; core/anet-core/src/trainer.cpp:776 JSONの欄の名前はeffective_eval_device（agent・envはeffective_device）
 
 
 ## クローズ済み・保留

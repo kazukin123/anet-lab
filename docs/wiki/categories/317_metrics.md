@@ -22,6 +22,10 @@
 - step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
 - Event/Observerの型の統一 — 範囲外: step traceとは別の関心。再開条件: 新しいEvent型を足す変更が出たとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
 - metricsのtrace定義tagをEvaluation Traceの列として参照する形 — 不採用: 見るだけでも記録の宣言が要り、EMA・間隔・集約を持つscalar統計はstepの生値に合わない（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、Considered Options）。
+- trace の level（off / record / forensic） — 不採用（cut）: 宣言の有無で足りる。forensic は想像上の需要である（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、4.0 決定一覧 D2・9. 複雑さ監査）。
+- trace の行の episode_id・model_version の欄 — 範囲外（cut。912・932 へ）: コードに概念が無い。再開条件: episode_id は 932 で EpisodeId が実装されたとき、model_version は 912 に着手するとき（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、8. フェーズとゲート・9. 複雑さ監査）。
+- data を宣言順に出す専用の JSON 経路 — 不採用（cut）: 名前と値の対応で目的を満たし、取得順と定義の keys 配列だけを宣言順で保つ（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、9. 複雑さ監査）。
+- eval scalar の @episode_end を WARN 付きで受理する alias — 不採用（cut）: リポジトリの外に workspace は無く、クリーンブレークの方針どおり fail-fast のメッセージで置換先を案内する（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、4.0 決定一覧 D5・D11・9. 複雑さ監査）。
 
 ## 変えるときの条件
 

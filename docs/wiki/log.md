@@ -343,3 +343,85 @@
 2026-10-23 lint rev:e885a5ae2469f503a156cab6ea4bb2ed57a0490e → docs/wiki/apps/120_metrics_viewer.md, docs/wiki/categories/312_util.md, docs/wiki/categories/314_tensor.md, docs/wiki/categories/315_nn.md, docs/wiki/categories/316_config.md, docs/wiki/categories/317_metrics.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/319_gui.md, docs/wiki/categories/320_env_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/322_env_individual.md, docs/wiki/categories/324_dqn.md, docs/wiki/mechanisms/action_query_attention.md, docs/wiki/mechanisms/diagnostic_cost.md, docs/wiki/mechanisms/evaluation.md, docs/wiki/mechanisms/gradient_noise_batch.md, docs/wiki/mechanisms/llm_prior_knowledge.md, docs/wiki/mechanisms/metrics_resolution.md, docs/wiki/mechanisms/model_based_evidence.md, docs/wiki/mechanisms/noisynet.md, docs/wiki/mechanisms/plasticity.md, docs/wiki/mechanisms/replay_ratio_lane_window.md, docs/wiki/mechanisms/reward_scale_discount.md, docs/wiki/mechanisms/target_update.md, docs/wiki/mechanisms/tau_sampling.md, docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/subjects/atari.md, docs/wiki/subjects/battle_zone.md, docs/wiki/subjects/breakout.md, docs/wiki/subjects/double_dunk.md, docs/wiki/subjects/dropmerge.md, docs/wiki/subjects/kung_fu_master.md, docs/wiki/subjects/lunarlander.md, docs/wiki/subjects/name_this_game.md, docs/wiki/subjects/phoenix.md, docs/wiki/subjects/qbert.md, docs/wiki/subjects/robot_tasks.md; 段階3指摘対応。未取り込み0、リンク切れ0、目録漏れ0、孤立0、PRDカテゴリ98組の不足0、結論の指示語0、定型の問い0。maps2回目更新0、台帳27件問題0。サブエージェント不使用、独立レビュー未実施。
 2026-10-23 writeback docs/memo/095_llm_wiki_10prd.md blob:68a35cb369420d5707f47385ca99e5aab4d3b3cd → なし
 2026-10-23 fix docs/memo/095_llm_wiki_10prd.md blob:68a35cb369420d5707f47385ca99e5aab4d3b3cd → docs/wiki/README.md, docs/wiki/apps/120_metrics_viewer.md, docs/wiki/categories/311_dev_tools.md, docs/wiki/categories/314_tensor.md, docs/wiki/categories/315_nn.md, docs/wiki/categories/316_config.md, docs/wiki/categories/317_metrics.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/319_gui.md, docs/wiki/categories/320_env_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/322_env_individual.md, docs/wiki/categories/324_dqn.md; 改訂§4.6に従い全16地図97項目を出典から再判定。裁定72件変更、再開条件4件補完。
+2026-10-23 fix docs/memo/093_attention_entropy_diagnostics_10prd.md blob:591c0fd25de7164eb16445d0f252f0650eab3442 → docs/wiki/categories/315_nn.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/324_dqn.md
+2026-10-23 fix docs/experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md blob:f8b8f1af83e143d10ff7b3adcb9c431576e6f530 → docs/wiki/subjects/dropmerge.md, docs/wiki/mechanisms/evaluation.md
+2026-10-23 fix docs/memo/999_dropmerge_neet_diagnostics_10prd.md blob:e2cdf0bf3c7e7560ce4a67e32852e65044dd0955 → docs/wiki/subjects/dropmerge.md
+2026-10-23 fix docs/memo/999_smdp_transition_duration_10prd.md blob:d093d56a8d24ace10b324762d153896ef487adfb → docs/wiki/subjects/dropmerge.md, docs/wiki/mechanisms/temporal_abstraction.md
+2026-10-23 fix docs/experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md blob:62ff7ee8c365f50c275647063649dea758f11cfc → docs/wiki/subjects/dropmerge.md, docs/wiki/mechanisms/gradient_noise_batch.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md blob:eea51b362bdeaaa95787ff363b7cdc56cf1d4b06 → docs/wiki/mechanisms/evaluation.md, docs/wiki/mechanisms/noisynet.md, docs/wiki/subjects/qbert.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md blob:ab22bcac4a97c53ce7a5183b12309ae9678c46bd → docs/wiki/mechanisms/noisynet.md, docs/wiki/mechanisms/plasticity.md, docs/wiki/subjects/battle_zone.md, docs/wiki/subjects/name_this_game.md, docs/wiki/subjects/phoenix.md, docs/wiki/subjects/qbert.md
+2026-10-23 fix docs/memo/999_eval_schedule_first_fire_10prd.md blob:5ff6b0eac8d148675f04524d99cd914831610db5 → docs/wiki/mechanisms/diagnostic_cost.md
+2026-10-23 fix docs/memo/done/052_eval_schedule_separation_10prd.md blob:d8c1ac2ed3702dfbd88172221bb49bcc8856c171 → docs/wiki/mechanisms/diagnostic_cost.md
+2026-10-23 fix docs/memo/done/060_eval_batch_episodes_10prd.md blob:a13e70100e9432cd1e7a4fa915d2eee7c8cd838b → docs/wiki/categories/318_rl_core.md, docs/wiki/mechanisms/diagnostic_cost.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-08-28_plasticity.md blob:c630b33f8d5a3e435afe6e5222e54378104b3d26 → docs/wiki/mechanisms/diagnostic_cost.md, docs/wiki/mechanisms/plasticity.md
+2026-10-23 fix docs/memo/done/053_interval_gate_perf_ema_10prd.md blob:c6ed4e4b853fdb2b7c8807640f9156b46f3e49ad → docs/wiki/mechanisms/diagnostic_cost.md
+2026-10-23 fix docs/memo/done/015_deterministic_algorithms_10prd.md blob:ec4a49268f1ccb193eadd798fc2372448a7ef166 → docs/wiki/categories/312_util.md, docs/wiki/mechanisms/diagnostic_cost.md
+2026-10-23 fix docs/adr/0006-deterministic-algorithms.md blob:a8984bfa96d08fa6a2efd40b6b617ff1d51953d2 → docs/wiki/categories/312_util.md, docs/wiki/mechanisms/diagnostic_cost.md
+2026-10-23 fix docs/experiments/default-dqn/lunarlander/2026-10-06_noisynet.md blob:8ea1238d64d8605344ff3a0dda074a211d44d737 → docs/wiki/mechanisms/noisynet.md
+2026-10-23 fix docs/memo/084_noisynet_10prd.md blob:930153f635485c633ddaaebe6269afdabfe19ec3 → docs/wiki/categories/315_nn.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/324_dqn.md, docs/wiki/mechanisms/noisynet.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md blob:5109f7fd720a54aa1db406d8248d787daa988264 → docs/wiki/mechanisms/noisynet.md
+2026-10-23 fix docs/memo/done/063_plasticity_weight_norm_10prd.md blob:2c260764400cf4e418c22d5b2f902ebf64adad84 → docs/wiki/mechanisms/plasticity.md
+2026-10-23 fix reports/reward_scale_discount_survey_2026-09-23.md blob:f3ccd16e2f96c0c64b5f39ac812a79a27bca98cc → docs/wiki/mechanisms/reward_scale_discount.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-09-15_replay-lane-window.md blob:5e532c7bfbc5aaefa0f789dd5c6c8fad23e7b92e → docs/wiki/mechanisms/replay_ratio_lane_window.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md blob:2c0f68a1240da22294a18c9e9ff649a68dcc4897 → docs/wiki/mechanisms/replay_ratio_lane_window.md, docs/wiki/subjects/atari.md, docs/wiki/subjects/name_this_game.md, docs/wiki/subjects/qbert.md
+2026-10-23 fix docs/memo/999_intrinsic_reward_novelty_10prd.md blob:4601201a06870fba8c6599c51643bb9d4fcfc43c → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 fix docs/memo/999_seed_population_early_stop_10prd.md blob:fcdd33157a9a1ac59b87d6c0db492dabc37cff22 → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 fix docs/memo/082_atari_ram_progress_metrics_10prd.md blob:6ec6141bddf12ddb2487bdb8cd06cf281788ca7c → docs/wiki/subjects/qbert.md
+2026-10-23 fix reports/atari_env_survey_2026-08-13.md blob:d13a16d5365aecd204885d43203346e11b4db32b → docs/wiki/subjects/atari.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-08-17_baseline.md blob:f785ea67b670c7f165c88706bd8be78691078cd7 → docs/wiki/subjects/atari.md
+2026-10-23 fix docs/experiments/default-dqn/atari/2026-09-01_btr-feedback-arms.md blob:3af07a6d07a9a08af57c18344660616442ac9dba → docs/wiki/subjects/breakout.md
+2026-10-23 fix docs/memo/999_metric_targeted_hyperparam_control_10prd.md blob:44fd6cfd716590c518ddf9782364392c984dd210 → docs/wiki/subjects/breakout.md
+2026-10-23 fix docs/memo/done/032_lunarlander_obs_include_action_10prd.md blob:a935299f7924719d69aa8a6715bebe044a3649d2 → docs/wiki/subjects/lunarlander.md
+2026-10-23 fix docs/memo/done/023_imagecls_gap_head_10prd.md blob:0281aea43b7fc3d20f39be8413fa4495442a42a9 → docs/wiki/index.md, docs/wiki/subjects/imagecls.md
+2026-10-23 fix docs/memo/done/033_imagecls_bf16_head_10prd.md blob:78d503e552a056a22b6f0117caaca712bca5baa5 → docs/wiki/categories/315_nn.md
+2026-10-23 fix docs/memo/done/065_nn_spectral_norm_10prd.md blob:7c48839d704946557bac5d776d14fd5b168522ab → docs/wiki/categories/315_nn.md
+2026-10-23 fix docs/memo/done/011_fused_adamw_10prd.md blob:52239363dbbaa9ad23a521d4612b1b75cc53cbff → docs/wiki/categories/315_nn.md, docs/wiki/categories/324_dqn.md
+2026-10-23 fix docs/memo/done/001_iqn_10prd.md blob:5a1404d11c429ba274ad135b6f13bf2b0fd0e356 → docs/wiki/categories/315_nn.md, docs/wiki/categories/324_dqn.md
+2026-10-23 fix docs/memo/done/067_MunchausenRL_10prd.md blob:aa52cc3ca826072d26e08f308f4252d7059d704b → docs/wiki/categories/324_dqn.md
+2026-10-23 fix docs/memo/done/044_iqn_tau_stratified_sampling_10prd.md blob:f02ad5d46c7c0b4c818651163cd76147c62720d1 → docs/wiki/categories/324_dqn.md
+2026-10-23 fix docs/adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md blob:ba3d00cd53bd31b5c2a2659105a105e67a9a9b0d → docs/wiki/categories/318_rl_core.md
+2026-10-23 fix docs/memo/done/050_replay_ring_stack_margin_10prd.md blob:0fba57f1b9f4b4fa8c028d0391db487766d6cecd → docs/wiki/categories/318_rl_core.md
+2026-10-23 fix docs/memo/done/077_valid_index_scratch_reuse_10prd.md blob:61024f9ad4d90e5cf369fa6b90fecda8c3d4852f → docs/wiki/categories/318_rl_core.md
+2026-10-23 fix docs/adr/0012-replay-initial-priority-hint-completion.md blob:9ea94d860ce4ee48c17a1125f4e3b6e76e16de0c → docs/wiki/categories/318_rl_core.md
+2026-10-23 fix docs/memo/done/020_device_transfer_common_part_10prd.md blob:58aa17f3553a8142c020ac85fddab1d1a4c03f5b → docs/wiki/categories/318_rl_core.md
+2026-10-23 fix docs/memo/done/069_metrics_trace_channel_10prd.md blob:3c47cf608aa169a8321e34e6c7fd1f8f62db920b → docs/wiki/categories/317_metrics.md
+2026-10-23 fix docs/memo/done/072_config_selection_final_value_10prd.md blob:94d747d6ddc52fdefb28fb6517a8e458d1fdef7f → docs/wiki/categories/316_config.md
+2026-10-23 fix docs/memo/done/059_config_concept_tree_alignment_10prd.md blob:d4911673205e7adba7c3f50905da1d0d142ca7eb → docs/wiki/categories/316_config.md
+2026-10-23 fix docs/memo/done/061_eval_slot_policy_override_10prd.md blob:f76857cf9dac945e0fb05d9b8705d50002221775 → docs/wiki/categories/316_config.md
+2026-10-23 fix docs/memo/done/034_imagecls_batch_input_10prd.md blob:7453591e8125848826c0b5692a27940a7f505a97 → docs/wiki/categories/320_env_core.md, docs/wiki/categories/322_env_individual.md
+2026-10-23 fix docs/memo/done/039_dropmerge_nolegal_adjudication_10prd.md blob:e7745bcf00223a7a49ba9f73b850769f4c264a35 → docs/wiki/categories/322_env_individual.md
+2026-10-23 fix docs/memo/done/055_runner_toolbar_10prd.md blob:231fd03cdcfa36da9f8f8e8510801fa40f875db0 → docs/wiki/apps/110_runner_app.md
+2026-10-23 fix docs/memo/done/049_metrics_query_supersede_10prd.md blob:18c53fc76c897fc1ba9acf013670a3a7bebeb589 → docs/wiki/apps/120_metrics_viewer.md
+2026-10-23 fix docs/memo/done/041_metrics_sqlite_cache_10prd.md blob:8555b0e57495ec4bcdafd06eb85e8e5954f57ab1 → docs/wiki/apps/120_metrics_viewer.md
+2026-10-23 fix docs/adr/0015-metrics-cache-disposable-derivative.md blob:04d89e1dfccb4c784d78537844f2b8454f93347c → docs/wiki/apps/120_metrics_viewer.md
+2026-10-23 fix docs/memo/done/045_ema_debias_warmup_10prd.md blob:a83c71837cc27a78adb4304ff26801bf623ee97d → docs/wiki/categories/312_util.md
+2026-10-23 fix docs/memo/done/038_env_log_auto_prefix_10prd.md blob:a001a05a20feaffe2e18c07f4798888c522756f9 → docs/wiki/categories/312_util.md
+2026-10-23 ingest docs/experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md blob:b172658cbd674ceae05274442831bf1731ba489e → docs/wiki/subjects/kung_fu_master.md, docs/wiki/index.md
+2026-10-23 ingest docs/memo/082_atari_ram_progress_metrics_10prd.md blob:6e6c1c04b66b1ad86c49e31e189811d5acf14360 → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 ingest docs/experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md blob:0e1008e1eb42fddb457f1610771170d61e8f04cd → docs/wiki/subjects/qbert.md
+2026-10-23 ingest docs/experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md blob:030470c89a455154914d5a2b8b81799b876cad1c → docs/wiki/subjects/qbert.md, docs/wiki/index.md
+2026-10-23 ingest docs/experiments/default-dqn/atari/README.md blob:ef4079a8593bb9a0e3bf9b2460612630e8904fa9 → なし
+2026-10-23 ingest docs/experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md blob:284ef1ff98d469f38bc9ff3e1acda14100a598c9 → docs/wiki/mechanisms/noisynet.md, docs/wiki/subjects/breakout.md, docs/wiki/subjects/battle_zone.md, docs/wiki/subjects/double_dunk.md, docs/wiki/subjects/phoenix.md, docs/wiki/subjects/name_this_game.md, docs/wiki/subjects/qbert.md, docs/wiki/subjects/kung_fu_master.md, docs/wiki/subjects/atari.md, docs/wiki/index.md
+2026-10-23 ingest docs/experiments/default-dqn/atari/README.md blob:f5c684f92404fc9f1e3717b60b4b86c2b95ba2a9 → なし
+2026-10-23 ingest docs/experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md blob:c4e036de6498758bc12a3579dbaa962450d5f090 → docs/wiki/subjects/dropmerge.md, docs/wiki/mechanisms/gradient_noise_batch.md, docs/wiki/mechanisms/evaluation.md, docs/wiki/mechanisms/noisynet.md
+2026-10-23 ingest docs/experiments/image-cls/imagecls/2026-06-25_food101-scratch.md blob:7df05cc96cdf51b8dc8f2940cb774cfea02e9c46 → docs/wiki/subjects/imagecls.md, docs/wiki/mechanisms/evaluation.md, docs/wiki/index.md
+2026-10-23 ingest docs/experiments/image-cls/imagecls/README.md blob:398d06014f7b54cbdb707c66b3ecec328f321bc9 → なし
+2026-10-23 ingest docs/experiments/image-cls/README.md blob:fddf1220c9dc86bec6db4493e81cb0cb89f31f7e → なし
+2026-10-23 ingest docs/memo/999_nstep_target_correction_10prd.md blob:fef06a5540b88f8f9d6efb6082f41602ebb0d093 → なし
+2026-10-23 ingest docs/memo/999_smdp_transition_duration_10prd.md blob:c8dcf68510ab1a64ad4ae8221d8dab055e189fba → なし
+2026-10-23 ingest docs/memo/999_dropmerge_neet_diagnostics_10prd.md blob:9adf39624e39ac02f77e3055e38138f351c08da5 → なし
+2026-10-23 ingest docs/memo/999_bootstrapped_multihead_q_10prd.md blob:b83eb8a4cc9d7d08c791e4de637780835faac99f → なし
+2026-10-23 ingest docs/memo/999_seed_population_early_stop_10prd.md blob:a44a0656530a1e5b128a74e5e39c5ab676ef9900 → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 ingest docs/memo/999_intrinsic_reward_novelty_10prd.md blob:b1eb66511241c26133eb0cfbc2df3a069ff01ccd → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 ingest docs/memo/094_evalpanel_step_history_10prd.md blob:7e27ddb41704b62c9de3893ddc84957c3d18df6d → なし
+2026-10-23 ingest docs/memo/999_llm_actor_10prd.md blob:14ee110a49d54b8625d1b1120bce0ad6785db646 → なし
+2026-10-23 ingest docs/memo/999_replay_eviction_sample_count_10prd.md blob:fe1ee0b152f203db6026dd20b99738423ba2da87 → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 ingest docs/memo/frozen/026_metricslog_lifecycle_10prd.md blob:92010a2a3b6734f0e42a17a256d90217582c312d → なし
+2026-10-23 ingest docs/memo/done/077_valid_index_scratch_reuse_10prd.md blob:05eba2f02a528d6c1f59ae93a0e868d274728871 → なし
+2026-10-23 ingest docs/memo/done/033_imagecls_bf16_head_10prd.md blob:2497a59ff1bc43bad3c8265e437ad6e87f047b7f → なし
+2026-10-23 fix docs/memo/999_intrinsic_reward_novelty_10prd.md blob:b1eb66511241c26133eb0cfbc2df3a069ff01ccd → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 fix docs/memo/999_seed_population_early_stop_10prd.md blob:a44a0656530a1e5b128a74e5e39c5ab676ef9900 → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 fix docs/memo/999_replay_eviction_sample_count_10prd.md blob:fe1ee0b152f203db6026dd20b99738423ba2da87 → docs/wiki/subjects/kung_fu_master.md
+2026-10-23 ingest docs/memo/086_dropmerge_macro_actions_10prd.md blob:20ffe5447a98218f4399a02b91fe8e4f021fbac7 → なし
+2026-10-23 ingest docs/memo/088_nn_adaptive_max_pool_10prd.md blob:65df5ac18509a8a1e54c1c6edd1d09c906dab66d → なし
+2026-10-23 ingest docs/memo/999_decision_aligned_nstep_10prd.md blob:aabdfa3c549435b0ad33555f936b82d46a4aeb2d → なし

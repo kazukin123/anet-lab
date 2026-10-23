@@ -9,12 +9,13 @@
 - [Double Dunk](subjects/double_dunk.md) — サンプル効率優先のε=0評価は20.4Mで22.1、45.7Mで23.2（BTR比101%）だった。実時間優先seed2は50.7Mで21.5、91.1Mで23.0に達した。 （別名: DoubleDunk, double_dunk）
 - [Phoenix](subjects/phoenix.md) — サンプル効率優先45.7M・ε=0の最良399,895はBTR Table A2比94%だった。同断面の100本中44本が27,000 step上限で打ち切られた。 （別名: Phoenix, phoenix）
 - [Battle Zone](subjects/battle_zone.md) — 低εラダーのε=0最良は118,388、旧ラダーは115,533だった。64 env・容量1Mの2 seedは40–50M評価が94,621・86,616で、128 env・2Mの106,389を下回った。 （別名: BattleZone, battle_zone, bz）
-- [Qbert](subjects/qbert.md) — 低εラダーの64 env・容量1Mでは45–50Mの第8面突破率が3 seedで45.6・32.6・0.7%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まり、初突破が早い腕でも突破が定着しない例があった。 （別名: Qbert, qbert, Q*bert）
+- [Qbert](subjects/qbert.md) — 低εラダーの64 env・容量1Mでは、45–50Mの第8面突破率（29,000点以上かつround_clear≥8）が4 seedで45.3・32.5・0.7・0.1%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まった。seed 4 は得点ループに入り、得点だけの突破率は突破を表さなかった。 （別名: Qbert, qbert, Q*bert）
 - [LunarLander](subjects/lunarlander.md) — matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。 （別名: LunarLander, ll, ホバリング）
 - [DropMerge](subjects/dropmerge.md) — IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの探索置換はNEETを抑えたが、batch増加の学習側の上乗せの大部分はノイズ感度の差だった。 （別名: DropMerge, dm, Suika, NEET）
 - [Atari横断](subjects/atari.md) — 学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。 （別名: Atari, ALE, Atari-5, Atari5）
 - [Breakout](subjects/breakout.md) — LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だった。BTR型NNとSNの効果はreplay ratioと学習予算に依存し、SN無しの早期優位が後期に反転した。 （別名: Breakout, breakout）
-- [kung_fu_master](subjects/kung_fu_master.md) — 実時間優先3 seedのうちseed3はボス行きを学び、15M以降の評価の面クリアはほぼ100%だったが、試した設定変更では定着しなかった。最終スコア75,000点の断絶は1UPへの到達に対応し、ボスや面の進行は示さなかった。 （別名: KFM, kfm, Kung-Fu Master, KungFuMaster）
+- [ImageCls](subjects/imagecls.md) — Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/CutMixの86.0〜86.4%（seed 1の3本）で、同じ学習条件のConvNeXt Atto・Femto（stem stride 2）は83.1・83.7%だった。 （別名: ImageCls, imagecls, imgcls, Food-101, food101, 画像分類）
+- [kung_fu_master](subjects/kung_fu_master.md) — 実時間優先3 seedのうちseed3はボス行きを学び、15M以降の評価の面クリアはほぼ100%だったが、2026-10に設定を変えた22本はどれもボス行きに入らなかった。最終スコア75,000点の断絶は1UPへの到達に対応し、ボスや面の進行は示さなかった。 （別名: KFM, kfm, Kung-Fu Master, KungFuMaster）
 
 ## 機構
 
@@ -27,8 +28,8 @@
 - [報酬尺度と割引率](mechanisms/reward_scale_discount.md) — 調査ではDQN系・約200M framesで報酬clipだけを外した整ったA/Bは確認できなかった。DropMergeのγ0.999は100Mで基準とほぼ同点だったが、序盤と中盤の推移は異なった。 （別名: reward clip, TBO, h(x), Pop-Art, gamma, discount）
 - [Target更新の比較](mechanisms/target_update.md) — n=2でhard C=125だけが低分散という主張は、n=4で撤回された。DropMergeのIQN＋Munchausenでは同時定数のhard C=200がsoftの2 seedを下回り、NOOPも増えた。 （別名: target network, hard update, soft update, τ, C）
 - [勾配ノイズとbatch](mechanisms/gradient_noise_batch.md) — GNSと有効batchの対応はoptimizer・曲率・抽出方法・予算に依存する。DropMergeでは臨界batchが学習とともに増えたが、batch増加の最終target評価の差は学習側の差より小さかった。 （別名: GNS, gradient noise scale, Bnoise, batch size）
-- [NoisyNetの観測](mechanisms/noisynet.md) — LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率は終盤に2〜4%へ縮んだ。DropMergeではεラダーへの上乗せではNEETが残り、NoisyNetへの置換で抑えられた。 （別名: NoisyNet, noisy, nzrep, μ-only）
-- [評価と比較の条件](mechanisms/evaluation.md) — Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。 （別名: eval, Greedy, ε, target, seed, 評価）
+- [NoisyNetの観測](mechanisms/noisynet.md) — LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率は終盤に2〜4%へ縮んだ。DropMergeではεラダーへの上乗せではNEETが残り、NoisyNetへの置換で抑えられた。Atariの実時間優先50Mでεラダーを置き換えると7ゲームとも基準を下回り、BreakoutではNoisyNet自体の差は±0だった。 （別名: NoisyNet, noisy, nzrep, nz_eps0, nz_ladder, μ-only）
+- [評価と比較の条件](mechanisms/evaluation.md) — Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。 （別名: eval, Greedy, ε, target, seed, 評価）
 - [τ配置とIQN比較](mechanisms/tau_sampling.md) — 直接比較を確認できなかった初期調査に対し、DropMergeの2 seedではstratifiedとantitheticが有力だった。M削減の速度利得とM64による十分なlate改善は確認されなかった。 （別名: IQN, QR, tau, stratified, antithetic, quantile）
 - [可塑性指標と成績](mechanisms/plasticity.md) — 同じ勾配step付近の摩耗はreplay ratio間で似ていたが、付随する新規データ量と成績の推移は異なった。SiLUやLN512で機序指標が改善しても、RR8短期screeningの成績は改善しなかった。 （別名: plasticity, srank, dormant, dead ratio, SN）
 - [Replay ratioとlane窓](mechanisms/replay_ratio_lane_window.md) — Breakoutの該当構成ではlane窓16,384の2点がε=0で685.12・685.30、窓8,192が615.73だった。効果の機序は未測定である。 （別名: RR, replay ratio, replay_ratio, lane window, capacity）

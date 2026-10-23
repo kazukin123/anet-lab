@@ -65,6 +65,12 @@
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - 全targetを許し値の時点差は文書だけで説明する形 — 不採用: 終端行でリセット前後の値が混ざっても見た目で気付けない（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、Considered Options）。
 - 速報値と確定値を別の鍵名に分ける形 — 不採用: Step結果が2組の値を持つ作りになり、現用の設定キー名も移行する必要がある（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、Considered Options）。
+- eviction 統計（last_evicted 系）も sampleable の範囲を基準にする形 — 不採用（却下）: 追い出される slot は必ず history margin を過ぎてから追い出されるので、wrap 後に統計が恒常的に 0 件になり、一度も引かれずに追い出された割合の指標が死ぬ（出典: [ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、Considered Options；[PRD050](../../memo/done/050_replay_ring_stack_margin_10prd.md)、0. 決定一覧 D7）。
+- sampleable index を返す GetValidIndices1D を非 const にする形 — 不採用（採らない）: const な呼び出し元 4 箇所が、unique_ptr の operator-> が const を伝播しないことに依存して非 const を呼ぶ形になり、将来 propagate_const などで塞がれると通らなくなる（出典: [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md)、D4）。
+- 初期優先度のヒントを TensorDict で任意の named tensor として運ぶ形 — 不採用（棄却）: 複数 value の CPU 化が複数の D2H になり、1 key へ pack すると単一 tensor の carrier と実質同じになる（出典: [ADR 0012](../../adr/0012-replay-initial-priority-hint-completion.md)、Considered Options）。
+- 転送の in-flight 数を blocking cap で抑える形 — 不採用（入れない）: worker の Acquire と learner の future.get の間でデッドロックを生む。in-flight は呼び側の 1-deep prefetch で back-pressure され有界になる（出典: [PRD020](../../memo/done/020_device_transfer_common_part_10prd.md)、Solution（概要）設計判断 5）。
+- 評価セッションで group ごとに固定の quota を割り当てる形 — 不採用（却下）: 不偏だが、episode 長が不均一なほど最も遅い group の quota 合計に律速される（出典: [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、11. 却下した旧解決候補）。
+- partial Reset・masked Step（採用権を持たない group を Step の対象から外す） — 先送り: P2 には導入しない。再開条件: P3 の実測で必要性が出たら、別の契約として設計する（出典: [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、4.3 評価セッションと採用規則）。
 
 ## 変えるときの条件
 
@@ -73,7 +79,7 @@
 - PushとExtractのstorage shared/exclusive lockによる排他を維持する（出典: [PRD014](../../memo/done/014_async_loader_prefetch_10prd.md)、1.2 ReplayBuffer）。
 - scratchの再利用でもindexの昇順を変えず、wrap・stack・n-step・PERの既存回帰を通す（出典: [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md)、D5: 昇順契約を維持する）。
 - 公開ReplayBuffer API、replay item keyの符号化、sampling分布、PER completionとeviction統計のready基準を変更しない（出典: [PRD078](../../memo/done/078_replay_frame_history_integrity_10prd.md)、6.2 モジュールの責務）。
-- 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§8.2・§12・§13）。
+- 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とし、開始時の状態を再現できないHEADからの後追い比較は基準にしない（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§8.2・§12・§13；[PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、6. 受入条件 8）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
 - ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
 - Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、ゴールG3・§7 1/4）。
@@ -139,6 +145,8 @@
 - F-0025 P2 drift — train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う
 - F-0010 P3 defect — ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す
 - F-0027 P3 test-gap — MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い
+- F-0034 P3 refactor — InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない
+- F-0035 P3 test-gap — DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い
 
 [台帳の一覧](../../../reports/registry/findings.md)
 <!-- registry:end -->

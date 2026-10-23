@@ -1,6 +1,7 @@
 # Atari のゲーム固有イベントを RAM メトリクスとして取る — 番号付き汎用キーへゲーム別に紐づける PRD
 
 > 起点: 2026-09-23、kung_fu_master を 2 seed 回した結果、最終スコアの断絶は 75,000 点の 1UP だと分かった。一方で「ボスに攻撃を当てたか」「面を抜けたか」は今のメトリクスでは測れない。ボス討伐を直近の目標に置くため、まず測れるようにする。2026-09-24 のグリルで、原案の「番地をキーに直書きした min / max」を退け、番号付きの汎用キーへゲーム別に紐づける形へ改めた。同日、Atari-5 と Breakout の RAM も調べ、番号に全ゲーム共通の大まかな意味（1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数）を持たせた。
+> 2026-10-23 改訂: Context の RAM 表の 0x9F の行と「既知の限界と後続」の 0x9F の項を、あとで実 Run で確かめた事実（面 2 → 3 でも増えること、死亡とゲームオーバーでは増えないこと）に合わせた。出典は `run_20260925-130017_atari_kfm_rr1_100m_seed3` と [2026-10-15 の実験記録](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04「seed 3 の RAM メトリクス」。
 > 関連: [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)（本 PRD の決定）、[081](081_evalpanel_episode_trace_10prd.md)（NG2 で本件を別 PRD とした）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)（trace チャネル）、[220 §4.7](../design/220_atari_env.jp.md)（AtariEnv の Env accessor）、[2026-09-23 の実験記録](../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)。
 
 ## Context / Problem Statement
@@ -20,7 +21,7 @@ ALE v0.12.0 を直接動かす使い捨てのプログラムで調べた。stick
 | 0x98 / 0x99 / 0x9A | スコア（BCD、上位 → 下位） | ALE の `KungFuMasterSettings` |
 | 0x9B / 0x9C | タイマー（BCD、上位 / 下位。2000 から減る） | 6 つのフレームで画面の表示と一致 |
 | 0x9D | 残機（ALE の `lives()` = (b & 7) + 1、0xFF でゲームオーバー） | ALE |
-| 0x9F | 面の番号（1 始まり） | 面 1 → 2 の切り替わりで 1 → 2。切り替わりは 1 回しか見ていない |
+| 0x9F | 面の番号（1 始まり） | 面 1 → 2 の切り替わりで 1 → 2。実 Run（`run_20260925-130017_atari_kfm_rr1_100m_seed3` の学習中のゲーム 31,484 本）で、1 ゲームの中で 2 回増える（面 2 → 3）ゲームが 5 本あり、死亡とゲームオーバーでは増えない（全機を失って終わった 12,031 本は `floor_clear` = 0）ことを確かめた（[2026-10-15 の実験記録](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) 探索ブロック 04）。3 回以上増えたゲームは無い |
 | 0xCB | 自機の体力（満タン 39、0 で 1 機失う） | 画面の PLAYER バーの長さと一致 |
 | 0xCC | ボスの体力（満タン 39） | ボス戦の 340 フレームすべてで ENEMY バーの長さと一致 |
 
@@ -330,7 +331,7 @@ M1.[53_evalg/58_ram_metric_3_max]  = $eval.[greedy_dist] @session_end $env max.r
 
 ## 既知の限界と後続
 
-- **0x9F の確認範囲。** 面 1 → 2 しか見ていない。面 2 → 3 と、5 面を抜けて 1 面へ戻るときの値は未確認である。実 Run の `floor_max` の分布（2 以上の出方、6 以上が出ないこと）で確かめる。
+- **0x9F の確認範囲。** 面 1 → 2 と面 2 → 3 の増加、死亡とゲームオーバーで増えないことは実 Run で確かめた（Context の RAM 表）。3 面より先と、5 面を抜けて 1 面へ戻るときの値は未確認である。実 Run の `floor_max` の分布（6 以上が出ないこと）で確かめる。
 - **0xCC の戻り。** 死亡時と次の面でボス体力は 39 へ戻る。増加なので `dec_count` には入らないが、`boss_hit` は「面をまたいだ累計」である。面ごとの命中数が要るなら NG5 と同じ後続になる。
 - **phoenix の周回。** 0xCA と 0xFC の意味は 2 周ぶん（母艦 2 回）しか見ていない。
 - **breakout の 2 枚目。** 2 枚目を消しても作り直しが起きないので、`wall_clear` は 0 か 1 にしかならない。

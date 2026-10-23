@@ -25,6 +25,13 @@
 ## 選ばなかった形
 
 - PRD072固定入力・goldenの再採取 — 不採用: resolver契約は変わらず過去入力の固定資料を保持し、現用設定は別に前後比較する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§9 複雑さ監査）。
+- 上書き層の予約名・ドット数による判定・明示登録 — 不採用（cut）: 通常の prefix の差分合成で扱え、名前だけで意味を変えない（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
+- 弱い既定値を @defaults プロファイルへ移す形（全面移行とチェーン先頭での明示、先頭プロファイルが継承する慣用句、暗黙の補完） — 不採用（cut・取り下げ）: 既定値の脱落が実際に起き、C++ の既定値と一致して気づけない。空プロファイルの定義と静的検査、分類規約や予約名が増え、現行設定での利得は 0 件だった（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
+- = を下書き、:= を上書きとする記法 — 不採用（cut）: プロファイル内の = が再びベースに負け、上書きの記号に既知の意味がない（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
+- 個別の葉と継承値の競合の WARN — 不採用（cut）: P2 が認める意図的な上書きにも警告してしまう。既定値は ?= で区別する（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
+- 素材の表記案（キー先頭のドット、連続ドット、bracket の流用、セクションヘッダ、::） — 不採用（棄却）: 素材が root の別領域に集まって所有が切れる、見づらい、名前付きインスタンスの角括弧と意味が衝突する、1 行完結・位置独立を壊す、仰々しい（出典: [PRD059](../../memo/done/059_config_concept_tree_alignment_10prd.md)、付録 D. 検討経緯）。
+- use_optimistic_target の廃止 — 不採用（却下）: 実効値は明示の指定で同じになるが、optimistic 化のたびに target_policy の全キーを書き換える（戻しも含む）保守コストが戻る（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
+- IQN の spec K の専用キー（net.taus_shape など）と、カタログ全項目と Learner の最大の K — 不採用（却下）: Learner の N で足り、設定項目やカタログの走査を増やさない（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
 
 ## 変えるときの条件
 

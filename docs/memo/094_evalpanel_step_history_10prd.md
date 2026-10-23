@@ -25,6 +25,7 @@
 > 2026-10-22 追加改訂（ユーザー指定）:
 > - 既定のtruncated列は取得キーを変えず見出しをtruncとする。低速倍率は小数表記にし、操作バー全体とアクション列までを守る最小幅を設ける。行選択でも列見出しの色を変えず、Traceの目印を赤枠とcaptionにそろえる。
 > 2026-10-22 列順改訂（ユーザー指定）: 行動と結果を隣り合わせで読むため、既定のreward列をaction列の直後へ移す（D13）。
+> 2026-10-23 改訂: KFM の Run 名 2 つを今のフォルダ名に直した（`…_atari_kung_fu_master_…` などから `…_kfm_…` への改名。値は変えていない）。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
 > 関連: [done/035_approx_actor_priority_per_10prd.md](done/035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
@@ -52,9 +53,9 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 
 ## 2. 背景（KFM）
 
-- KFM の実時間優先 3 seed（100M）のうち、ボス行き（面クリア）を学んだのは seed 3（`run_20260925-130017_atari_kung_fu_master_rr1_100m_seed3`）だけで、報酬クリップを外す、ライフで区切る、ε を下げる、PER の `per_alpha` を 0.6 にする、UQE にする、などの 2026-10-14〜17 の 30〜50M の Run ではボス行きは定着しなかった（出典: [999_intrinsic_reward_novelty §2.2](999_intrinsic_reward_novelty_10prd.md#22-学習の結果)）。
+- KFM の実時間優先 3 seed（100M）のうち、ボス行き（面クリア）を学んだのは seed 3（`run_20260925-130017_atari_kfm_rr1_100m_seed3`）だけで、報酬クリップを外す、ライフで区切る、ε を下げる、PER の `per_alpha` を 0.6 にする、UQE にする、などの 2026-10-14〜17 の 30〜50M の Run ではボス行きは定着しなかった（出典: [999_intrinsic_reward_novelty §2.2](999_intrinsic_reward_novelty_10prd.md#22-学習の結果)）。
 - クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048 でほぼ同じ。当て 1 発は 0 点、撃破はクリップ後 +1 で雑魚と同じで、成功を区別できるのは出口の換算だけ（出典: [999_intrinsic_reward_novelty §2.3](999_intrinsic_reward_novelty_10prd.md#23-分析の結論2026-1016〜17)）。
-- 実時間優先の構成では、1 遷移が寿命中に引かれる回数の期待値は約 1.0 で、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では、raw priority が 20 倍でも引かれやすさは約 1.8 倍にとどまる（出典: [999_replay_eviction_sample_count §2](999_replay_eviction_sample_count_10prd.md#2-現状2026-10-16-に確認したこと)、`run_20261016-042902_kung_fu_master_rr1_50m_noclip200_seed2`）。
+- 実時間優先の構成では、1 遷移が寿命中に引かれる回数の期待値は約 1.0 で、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では、raw priority が 20 倍でも引かれやすさは約 1.8 倍にとどまる（出典: [999_replay_eviction_sample_count §2](999_replay_eviction_sample_count_10prd.md#2-現状2026-10-16-に確認したこと)、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`）。
 - TD 誤差による優先度が珍しい経験を目立たせないと考えられる理由は、報酬クリップの下では撃破の報酬が雑魚と同じ +1 であること、撃破の先の価値（出口の換算）がまだ target に入っていないこと、優先度は引かれたときにしか更新されないこと、IQN の TD は τ の揺らぎを含むこと。どれも推測で、場面ごとに確かめる手段が無い。
 
 ## 3. 現状（2026-10-19 にコードで確かめたこと。§3.6 は 2026-10-22）

@@ -21,11 +21,15 @@
 
 - 未選択Runの背景取り込みを廃止し、選択時だけ取り込む形 — 不採用: 定常I/Oの削減とは分け、既存の背景取り込みを保つ（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、0.3 Non-goals）。
 - WatchServiceなどのfilesystem通知によるevent駆動化 — 不採用: poll経路の無駄な完全検査を抑える範囲に絞る（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、0.3 Non-goals）。
+- 既存の queryRevision を supersede の連番に流用する形 — 不採用（流用しない）: queryRevision はユーザー操作でしか増えず、Auto Reload の経路では同じ値の POST が同時に飛びうる（出典: [PRD049](../../memo/done/049_metrics_query_supersede_10prd.md)、1. 現状の事実・2.1 query channelと連番）。
+- C++ 側からの gzip 出力 — 不採用: PRD041 の実測の表に不採用の確定として記されている（理由の記述は無い）（出典: [PRD041](../../memo/done/041_metrics_sqlite_cache_10prd.md)、Context の実測）。
+- schema の不一致・破損・ソース同一性の喪失のときに cache を migration する形 — 不採用: cache はマスタから再構築できる破棄可能な従属導出物なので、警告なしの全破棄・再構築で解決する（出典: [ADR 0015](../../adr/0015-metrics-cache-disposable-derivative.md)、本文；[PRD041](../../memo/done/041_metrics_sqlite_cache_10prd.md)、1. 原則 2）。
 
 ## 変えるときの条件
 
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
+- MetricsQueryCoordinator の critical section の中では、Statement.cancel、旧 request の完了待ち、Workspace・DB の lock の取得、query 本体の実行のどれも行わない（出典: [PRD049](../../memo/done/049_metrics_query_supersede_10prd.md)、2.3 supersede規則）。
 - 通常追記ではcache世代を維持し、全再構築だけで世代を変える。commit済みprefix、tag隔離、Run-level errorのtransaction境界を変えない（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、1.1 正本とcache）。
 - priority 3・background 1、単一writer、完成行のtransaction境界でのworkspace切替を維持する（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、1.2 Scheduling）。
 - 色分離の変更でserver、Metricsキャッシュ、HTTP APIを変更しない（出典: [PRD074](../../memo/done/074_run_color_distinctness_10prd.md)、対象）。

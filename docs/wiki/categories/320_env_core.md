@@ -28,6 +28,8 @@
 - episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 999_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§5）。
 - ResetEndedEpisodesの段・外から読む値の写し・予備ALE — 不採用: 段の案は非同期学習を5〜8%遅くし、写しは埋め合わせを残し、予備ALEはAtari固有になる（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§5・§4.1 D1/D2）。
 - 速報値と確定値を別の鍵名に分ける形 — 不採用: Step結果が2組の値を持つ作りになり、現用の設定キー名も移行する必要がある（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、Considered Options）。
+- 評価の終わりを driver 側（Runner）で sample 数を数えて決める形 — 不採用: 端数の padding は物理的に Source 側で必須なので処理が二重になり、汎用の EvalRunner が valid 件数という dataset の語彙を持つことになる（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、12.8 D5解決）。
+- dormant tag の非生成を native ImageCls だけに限る形 — 不採用: 限るには class_id の比較か batch-native かの Env 種別の分岐が要り、どちらもフレームワークへの染み出しになる（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、12.7 D4解決）。
 
 ## 変えるときの条件
 

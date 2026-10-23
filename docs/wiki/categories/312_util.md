@@ -26,13 +26,20 @@
 
 ## 選ばなかった形
 
-記述なし。
+- SDPA の backend を math に固定する形 — 不採用（棄却）: 決定化はできるが math は遅く、mem-efficient の決定的 backward で同じ再現性が得られるので、backend を局所的に縛る複雑さと版差の脆さを払う価値がない（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Considered Options）。
+- SDPA 化を撤回して MultiheadAttention の経路へ戻す形 — 不採用（棄却。本 ADR の範囲外）: SDPA に実時間の利点は出なかったが、非決定は他の atomic 系 op でも起こり得るので本質解でなく、差分・互換のコストも大きい（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Considered Options）。
+- EmaFilter のウォームアップを累積平均から固定 α へ切り替える案（案 B） — 不採用（却下）: 序盤にトレンドする学習メトリクスでは一様平均が古い値を引きずってラグが出、切替点に折れ目ができ、設定項目ゼロの案 A に劣る（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、5. 代替案と却下理由）。
+- 値をバッファに溜めてウォームアップ後に遡及出力する案（案 C） — 不採用（却下）: MetricsLogger に過去 step への遡及出力 API が要って責務が漏れ、SQLite キャッシュ（PK=序数）と非互換で、グラフ冒頭が同じ値のフラット線になり、ライブビューも遅れる（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、5. 代替案と却下理由）。
+- 分散からウォームアップの終わりを自動判定する案（案 E） — 不採用（却下）: 平滑と収束判定の 2 関心を 1 機構に混ぜ、案 A では判定自体が要らない（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、5. 代替案と却下理由）。
+- thread-local logging context・structured logging・JSON logging — 範囲外（対象外）: Env ログの name prefix を扱う PRD の対象外に置かれた（出典: [PRD038](../../memo/done/038_env_log_auto_prefix_10prd.md)、対象外）。
+- Logger の debug メンバ関数 — 不採用（追加しない）: debug ログの価値（guard による整形コストゼロ、ファイル名・行番号・関数名の自動付与、ビルドでの消去）はマクロでしか保てない（出典: [PRD038](../../memo/done/038_env_log_auto_prefix_10prd.md)、解決方針・対象外）。
 
 ## 変えるときの条件
 
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
 - EMA内部の状態を変えても公開シグネチャを変更しない（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、3. API 契約）。
+- 同 seed の再現を確かめるときは `backend.deterministic_algorithms` を true、`backend.deterministic_warn_only` を false にする。warn_only を true にすると決定版の無い op を素通りさせるので再現性は保証されない（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Consequences；[PRD015](../../memo/done/015_deterministic_algorithms_10prd.md)、1.1 API）。
 
 ## 関係
 
@@ -86,7 +93,10 @@
 台帳のツールが作り直す。手で直さない。
 
 <!-- registry:begin -->
-なし
+- F-0028 P2 defect — AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる
+- F-0030 P3 defect — device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す
+- F-0031 P3 refactor — InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている
+- F-0032 P3 drift — 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない
 
 [台帳の一覧](../../../reports/registry/findings.md)
 <!-- registry:end -->
