@@ -38,6 +38,17 @@ class WikiSupportTest(unittest.TestCase):
         self.assertIn(path.relative_to(REPO).as_posix(),[r['path'] for r in data['pending']])
         self.assertEqual((REPO/'docs/wiki/log.md').read_bytes(),log_before)
 
+    def test_scan_reports_material_unchanged_since_start_and_clears_recorded_blob(self):
+        # 開始時から変わらない既存材料も、全体走査の公開CLIで検出する。
+        root = self.fixture()
+        path = 'docs/adr/0001-default-dqn-tbo-scope.md'
+        blob = self.material(root, path, (REPO/path).read_text(encoding='utf-8'))
+        data = self.run_helper(root)
+        self.assertIn(path, [row['path'] for row in data['pending']])
+        with (root/'docs/wiki/log.md').open('a', encoding='utf-8') as log:
+            log.write('2026-10-23 ingest '+path+' blob:'+blob+' → なし\n')
+        self.assertNotIn(path, [row['path'] for row in self.run_helper(root)['pending']])
+
     def test_fixture_selects_its_own_git_index(self):
         root=self.fixture()
         env=dict(os.environ)

@@ -2,9 +2,7 @@
 
 ## 今の結論
 
-ボスへ向かう方策はseedによって成立したが、試した設定変更だけでは定着しなかった。
-最終スコアの断絶は75,000点の1UPへの到達に対応し、ボスや面の進行を示すものではなかった。
-近似優先度が貴重な経験を目立たせるか、新しさや方策の違いが練習を保つかは未検証である。
+実時間優先3 seedのうちseed3はボス行きを学び、15M以降の評価の面クリアはほぼ100%だったが、試した設定変更では定着しなかった。最終スコア75,000点の断絶は1UPへの到達に対応し、ボスや面の進行は示さなかった。
 
 ## 分かっていること
 
@@ -34,6 +32,8 @@
 
 ## 関連
 
+- [AtariEnv のゲーム固有 RAM メトリクスは番号付き汎用キーで参照し、意味はゲーム別の RAM 定義が持つ](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)。
+- [Atari Env（ALE 統合）](../../design/220_atari_env.jp.md)。
 - [Atari環境](../../design/220_atari_env.jp.md) §4、[観測と可視化](../../design/140_observability.jp.md) traceチャネル。
 - [CONTEXT.md](../../../CONTEXT.md) の「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」。
 - [RunnerAppの実装の地図](../apps/110_runner_app.md)。

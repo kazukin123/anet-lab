@@ -99,16 +99,13 @@ def broken_links(root):
 
 
 def scan(root):
-    # 開始revision以後の材料だけをblobで比較し、点検の自己出力を候補にしない。
+    # 材料全体をblobで比較し、点検の自己出力を候補にしない。
     root = Path(root).resolve()
     start, checkpoint, records = log_state(root)
-    changed = changed_paths(root, start, ['docs/experiments', 'reports', 'docs/memo', 'docs/design', 'docs/adr'])
     known_blobs = set(records.values())
     pending = []
     moved = []
     for path in material_paths(root):
-        if path not in changed:
-            continue
         blob = git(root, 'hash-object', '--', path).strip()
         if records.get(path) == blob:
             continue

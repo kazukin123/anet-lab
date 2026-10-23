@@ -44,7 +44,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `MetricsViewerApplication` | Spring Boot application entry |
 | `RunScanner` | runs directory直下から`metrics.jsonl`または`metrics.jsonl.gz`を持つRunを列挙する |
 | `MetricsCacheDatabase` | RunごとのSQLite cache、source fingerprint、generation、短命connectionを管理する |
-| `MetricsIngestor` / `LodIngestWriter` | JSONL/gzipをstreaming parseし、L0、factor 16 LOD、`TagStats`を同一transactionで更新する |
+| `MetricsIngestor` / `LodIngestWriter` | JSONL/gzipをstreaming parseし、L0、factor 4 LOD、`TagStats`を同一transactionで更新する |
 | `IngestScheduler` / `LoadingThread` | actionable Runへpriority 3 : background 1で1 blockずつ単一writerへ配分し、terminal/no-op Runは同一cycleで再検査しない |
 | `MetricsRepository` | Runごとの短命read snapshotでrange解決、点数quota、単一LOD projectionを組み立てる |
 | `MetricsService` | Run metadata、range query semaphore、priority集合を提供するapplication service |
