@@ -54,6 +54,12 @@ SET "UQ99=A2.actor.[train].policy.uqe_tau_start=0.99 A2.actor.[train].policy.uqe
 SET "OPT=A3.use_optimistic_target=true"
 SET "RT10=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@batch"
 SET "B1K=A2.learner.replay_batch_size=1024"
+SET "RT10V=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@vitva>run.@batch"
+SET "SENZ=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@batch"
+SET "NZSIGSE=net.block.[AtariHeadFC512].noisy.sigma0=1.1 A2.head_projection.noisy.sigma0=1.2"
+SET "BTRENV=run.train.num_envs=64 A2.learner.replay_capacity=1048576 A2.actor.[train].sync_interval.value=1"
+SET "BTREPS=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train].policy.eps_start=1.0 A2.actor.[train].policy.eps_end=0.01 A2.actor.[train].policy.eps_decay_steps=4000000"
+SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head_init.mode=default A2.head_projection.noisy.sigma0=0.5"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
@@ -113,21 +119,48 @@ if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=5
 echo === 19. kung_fu_master rt 30m seed 6: batch 1024, four times the experience per update ===
 call :find_done kfm_b1k_s06
 if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=6 %B1K% "app.run_name=run_{t}_kfm_b1k_s06"
-echo === 20. kung_fu_master rt 30m seed 7: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s07
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=7 %B1K% "app.run_name=run_{t}_kfm_b1k_s07"
-echo === 21. kung_fu_master rt 30m seed 8: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s08
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=8 %B1K% "app.run_name=run_{t}_kfm_b1k_s08"
-echo === 22. kung_fu_master rt 30m seed 9: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s09
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=9 %B1K% "app.run_name=run_{t}_kfm_b1k_s09"
-echo === 23. kung_fu_master rt 30m seed 10: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s10
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=10 %B1K% "app.run_name=run_{t}_kfm_b1k_s10"
-echo === 24. kung_fu_master rt 30m seed 11: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s11
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=11 %B1K% "app.run_name=run_{t}_kfm_b1k_s11"
+echo === 20. kung_fu_master rt 10m seed 4: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s04
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=4 "app.run_name=run_{t}_kfm_vit_s04"
+echo === 21. kung_fu_master rt 10m seed 5: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s05
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=5 "app.run_name=run_{t}_kfm_vit_s05"
+echo === 22. kung_fu_master rt 10m seed 6: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s06
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=6 "app.run_name=run_{t}_kfm_vit_s06"
+echo === 23. kung_fu_master rt 10m seed 7: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s07
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=7 "app.run_name=run_{t}_kfm_vit_s07"
+echo === 24. kung_fu_master rt 10m seed 8: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s08
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=8 "app.run_name=run_{t}_kfm_vit_s08"
+echo === 25. kung_fu_master rt 10m seed 9: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s09
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=9 "app.run_name=run_{t}_kfm_vit_s09"
+echo === 26. kung_fu_master rt 10m seed 10: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s10
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=10 "app.run_name=run_{t}_kfm_vit_s10"
+echo === 27. kung_fu_master rt 10m seed 11: impala plus vit trunk, does the boss fight improve ===
+call :find_done kfm_vit_s11
+if not defined DONE_DIR call :run_exe "%RT10V%" E1.game=kung_fu_master run.seed=11 "app.run_name=run_{t}_kfm_vit_s11"
+echo === 28. battle_zone se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
+call :find_done a5_bz_se_nz_s1
+if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=battle_zone run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_bz_se_nz_s1"
+echo === 29. qbert se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
+call :find_done a5_qb_se_nz_s1
+if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=qbert run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_qb_se_nz_s1"
+echo === 30. double_dunk se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
+call :find_done a5_dd_se_nz_s1
+if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=double_dunk run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_dd_se_nz_s1"
+echo === 31. qbert se 50m seed 1: aligned to btr, 64 env 1m replay, actor synced every step, decaying epsilon, btr noisy init ===
+call :find_done a5_qb_btrlike_s1
+if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=qbert run.seed=1 %BTRENV% %BTREPS% %BTRNZ% "app.run_name=run_{t}_a5_qb_btrlike_s1"
+echo === 32. phoenix se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
+call :find_done a5_ph_se_nz_s1
+if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=phoenix run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_ph_se_nz_s1"
+echo === 33. name_this_game se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
+call :find_done a5_ntg_se_nz_s1
+if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=name_this_game run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_ntg_se_nz_s1"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
