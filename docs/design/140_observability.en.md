@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:92ab383a82c6e82ef2fda114c66e58a5df258d17 date:2026-10-07 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:9fc46fddc9534f7fcf4dd01b06acbb1c9b8d6b04 date:2026-10-23 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -25,7 +25,7 @@ This document covers current `Notifier`, Observers, `ObserverFactory`, `MetricsL
 |---|---|
 | `TrainEvent` | Carries Experience, ActionInfo, Env, Agent, Runner, and counts after an Env step |
 | `LearnEvent` | Carries Experience, UpdateResult, Agent, Runner, and counts after a Learner update |
-| `EpisodeEndEvent` | Carries the terminating episode group, Agent, Env, Runner, and counts. Return values come from Runner scalars |
+| `EpisodeEndEvent` | Carries the terminating episode group, Agent, Env, Runner, counts, and step_result. Return values come from Runner scalars |
 | `Notifier` | Run-local hub registering four Observer types and synchronously delivering corresponding events. Shared between Train/Eval by `RunManager` |
 | Runner-scoped Observer | Wrapper forwarding only Train or a particular Eval Runner's events to the actual Observer |
 | `SessionEndEvent` | Reports finalized aggregation of N adopted configured-Eval episodes, once per session |
@@ -191,7 +191,7 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 |---|---|---|
 | `@event` | `@train`, `@learn`, `@episode_end`, `@session_end` (eval only) | Event invoking the Observer; defaults to `@train` |
 | `$step_axis` | `$train_step`, `$learn_step`, `$episode_step`, `$exp_step`, `$update_step`, `$sim_step` | Counter used for JSONL `step` |
-| `$target` | `$runner`, `$agent`, `$actor`, `$env`, `$exp`, `$update_result`, `$action_info` | Value source |
+| `$target` | `$runner`, `$agent`, `$actor`, `$env`, `$env_step`, `$exp`, `$update_result`, `$action_info` | Value source |
 | `$runner_scope` | `$train`, `$eval.[name]` | Restricts the originating Runner; also affects whose counter supplies the step |
 | `$ema` | - | Computes EMA inside the Observer |
 | `ema_alpha:A` | Finite value greater than 0 and at most 1 | Coefficient controlling EMA movement toward new values |
@@ -242,10 +242,10 @@ The current parser converts `interval`, `ema_alpha`, and `clip` with `stoi`/`sto
 ### 6.x Trace Channel
 
 ```text
-metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env game_score game_len game_frames hns57
+metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env_step game_score game_len game_frames hns57
 ```
 
-Trace saves each completed adopted episode as one row without aggregation. Without declarations, neither Observers nor rows are created. Event and target are mandatory: only `@episode_end` / `event:episode_end` is supported; targets are `$env`, `$runner`, `$agent`, or `$actor` (attribute forms are also accepted). Scope defaults to `$train`, and the step axis to `exp_step`.
+Trace saves each completed adopted episode as one row without aggregation. Without declarations, neither Observers nor rows are created. Event and target are mandatory: only `@episode_end` / `event:episode_end` is supported; targets are `$env_step`, `$env`, `$runner`, `$agent`, or `$actor` (attribute forms are also accepted). Scope defaults to `$train`, and the step axis to `exp_step`.
 
 Bare tokens specify one or more keys. Retrieval and the definition's `keys` array follow declaration order. Duplicate keys, aggregate prefixes, EMA, clip, interval, `key:`, and unknown/invalid controls are rejected at load time. Duplicate event, target, scope, or step-axis controls are rejected regardless of equal/different values or notation; later assignments cannot conceal invalid earlier ones. Existing scalar later-wins, default, and WARN behavior remains unchanged.
 
@@ -253,15 +253,39 @@ Bare tokens specify one or more keys. Retrieval and the definition's `keys` arra
 {"type":"trace","tag":"51_eval1/episode","step":456,"lane":3,"data":{"game_score":422,"game_len":1242,"game_frames":4968,"hns57":31.2}}
 ```
 
-Series are identified by `(type, tag)`, allowing scalar and trace to share a tag. `lane` is the event's `env_index` (lane for PER_LANE, -1 for SHARED). `step` uses the same integer coordinates as scalars; multiple episodes may share a step and lane. Records have neither `timestamp` nor top-level `value`, and `data` key order is unspecified. Unknown-key `nullopt` fails fast with tag/key/lane/target; NaN and ±Inf retain the key with a `null` value.
+Series are identified by `(type, tag)`, allowing scalar and trace to share a tag. `lane` is the event's `env_index` (lane for PER_LANE, -1 for SHARED). `step` uses the same integer coordinates as scalars; multiple episodes may share a step and lane. Records have `timestamp` but no top-level `value`, and `data` key order is unspecified. Unknown-key `nullopt` fails fast with tag/key/lane/target; NaN and ±Inf retain the key with a `null` value.
 
-`EvalSessionEnv::LastAdoptedGroups()` returns only adopted groups completed in the immediately preceding Step. EvalRunner notifies immediately after that Step and before the next. SHARED group 0 becomes -1 at notification. Finalized values are read inside callbacks, so individual-value sequences are not accumulated in the decorator. Return aggregation and SessionEnd happen only once at session end. Train uses the same trace Observer.
+`EvalSessionEnv::LastAdoptedGroups()` returns only adopted groups completed in the immediately preceding Step. EvalRunner notifies immediately after that Step and before the next. SHARED group 0 becomes -1 at notification. Finalized values are read for the specified lane from event.step_result, so individual-value sequences are not accumulated in the decorator. Return aggregation and SessionEnd happen only once at session end. Train uses the same trace Observer.
 
 Only attached definitions are recorded, separately as `metrics.scalar.defs` and `metrics.trace.defs`, excluding dormant eval. Empty definitions are not output. Trace definitions use `{tag: {step_axis, runner, scope, eval_name, eval_episodes, num_envs, event, target, keys}}`; both definition records are mirrored unchanged to `json/<definition tag>.json`. Only scalar definitions are passed to Agent as subscription hints.
 
 The `inspect_run` master/cache paths prefer new `metrics.scalar.defs`, reading old `metrics.defs` only if absent. Both report `def_source=metrics_defs` without a WARN solely for renaming. Old-name compatibility is an exception lasting until the active Run working set uses only the new name; historical artifacts remain unchanged. Configuration derivation when definitions are absent is retained, including `session_end` derivation for selector expansion without caches and for `tags --no-observed`.
 
 Metrics Viewer stores traces in existing `json_lines`, separately from scalars. `inspect_run.py trace-csv` reads and exports rows directly to CSV ([030 Section 6.9](030_user_guide_analysis.en.md#69-extracting-individual-trace-rows-as-csv)). Quantile/threshold aggregation, Metrics Viewer visualization, additional events, `episode_id`, and `model_version` are outside this feature's scope. See [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) for rationale.
+
+### 6.1 Evaluation Trace Columns and Value Reading
+
+`MetricValueContext`, `MetricValueReader`, `StepTraceColumnSpec`, `StepTrace`, and `StepTraceBuilder` belong to the shared metrics functional group (include/anet/metrics.hpp and src/metrics.cpp). `MetricValueReader` retrieves values using a target, key, lane, and borrowed notification. Shared DSL token classification is declared internally in src/metrics_impl.hpp and implemented in metrics.cpp. Metrics does not include observers or gui. Scalar lookup/aggregation/EMA and trace unknown-key diagnostics remain in their respective Observers. `RunManager::MetricsWiring` connects subscriptions, while `StepTraceBuilder` generates a `StepTrace` per lane from a mirror EvalRunner's `TrainEvent`. Columns are chosen independently of metrics definitions through `app.eval_trace_panel.columns.[number]`. Numbers are at least 1, may have gaps, and appear in ascending order. `StepTrace.step` uses the same step_t coordinate as counts.exp_step.
+
+| target | Timing and keys |
+|---|---|
+| `$action_info` | Decision-time values. `action` is the executed action, including forced actions; continuous actions use `action.[dimension]` |
+| `$actor` | Actor scalars at that decision time |
+| `$env_step` | Transition results: `reward`, `done`, `truncated`, and result-type scalars, before Reset even at termination |
+| `$runner` | Counts including this step, rewards, and completion aggregates. `step_in_episode` is 1-based; a terminal row shows the completed length |
+| `$agent_step` | Scalars from the Module owned by Agent diagnostics. DQN provides `q_sa`, `state_value`, and `approx_priority`. Agents without diagnostics make the entire target NaN |
+
+Columns cannot use `$agent`, `$env`, `$exp`, or `$update_result`. Aggregation prefixes are supported only for `$runner` episode_return/episode_steps, returning NaN on non-completion rows. Unknown keys fail fast on first read; known unavailable and nonfinite values appear blank. This does not add `$agent_step` to the metrics DSL.
+
+`AgentStepDiagnosticsResult.current` owns batch values through `unique_ptr<const Module>` and exposes them via `GetScalar(key, lane)`. The shared layer does not restrict keys. If a provider exists, an unknown key (nullopt) fails fast on first read with the column number and key. Without a provider, arbitrary `$agent_step` columns yield NaN, allowing default columns to work. Known NaN and pending status are independent; only lane-specific `pending_keys` corresponding to selected columns are awaited.
+
+Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsProvider`. The Provider owns a sequence window per lane, and even pending keys return known NaN in current. Every pending key eventually resolves, including with NaN if a value could not be established. Delayed resolution uses `AgentStepDiagnosticsCompletion` with `lane`, `steps_back`, `resolved_keys`, and `values` owning the target row; read the value through `GetScalar(key, 0)`. `StepTrace.value_ready` marks resolution per column, becoming true even for a resolved NaN. All selected columns resolving makes the row `complete`. An update handler receives newly resolved zero-based column indices through a synchronous `span<const size_t>` valid only during notification. Multiple columns for the same key each resolve once.
+
+`BatchActionInfo` derives from ModuleBase and exposes lane-specific `action` and `action.[dimension]` through shared GetScalar. The entire dimension string and range are validated. Scalar queries with lane=-1 do not recognize these two keys; derived types provide Agent-specific scalars. DQNActionInfo delegates keys it does not own to the base. Unknown keys, including for non-DQN Agents, return nullopt, causing scalar Observers' ordinary value not found WARN. Requests whose notification lacks ActionInfo remain errors.
+
+The concrete DQN provider and recognition of its three keys stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Computation is independent of PER and adds no forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the initial std at Reset through an atomic; diagnostics read only this value, without accessing the Agent mutex or mutable Tensor statistics. Learning-side operation order is unchanged, and no restoration mechanism is added for reward statistics absent from current checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows.
+
+The builder reports row additions separately from delayed column resolution. Images are not retained for rows beyond the GUI's retention limit. Verify public paths for column parsing, timing, diagnostics, playback, and numerical equivalence with the [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md).
 
 ## 7. Output and Lifetimes
 
@@ -271,7 +295,7 @@ Metrics Viewer stores traces in existing `json_lines`, separately from scalars. 
 | `config/*.txt` | `MetricsLogger` | Written per tag when Config is logged; Env uses `env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | Overwritten or created per step when JSON metadata is logged |
 | `json/eval.[<tag>].session_cancelled.json` | `MetricsLogger` | Records the coordinates, elapsed time, and number of completed episodes when an evaluation session is cooperatively cancelled. Also appended to the Metrics master with `type=json` |
-| `videos/<tag>.mkv` | `VideoLogger` | Logger created at the first frame and closed at Run end |
+| `videos/<tag>.mkv` | `VideoLogger` | Logger created at the first frame and closed at Run end. The receiver of ffmpeg termination notification deletes wxProcess; if its owner releases it first, it deletes itself upon notification |
 | `images/<tag>/*.png` | `MetricsLogger` | Created per frame when `use_png_dump=true` |
 | `dot/**/*.dot` | `MetricsLogger` | Created per GraphViz event |
 | `<run_name>.log` | `FileLogger` | Periodic timer, warnings and above, explicit flush |
@@ -314,6 +338,8 @@ Generic evaluation episode lengths are available in baseline/full through `21_ev
 
 ## 9. Tests and Extension Checks
 
+- [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
+
 When changing Observers or output formats, check the following:
 
 1. Event, runner scope, step axis, and target combinations are explicit.
@@ -336,3 +362,11 @@ Main regression tests belong in [observers_test.cpp](../../core/anet-core/src/ob
 - [Applications and Tools](160_applications_and_tools.en.md)
 - [DQN Agents](200_dqn_agents.en.md)
 - [DropMerge Optuna Guide](optuna.md)
+
+### Transition-Value Target `env_step`
+
+`$env_step` reads `TrainEvent.step_result` or `EpisodeEndEvent.step_result`. Scalar train reads all lanes; episode_end reads only done or truncated lanes in ascending order, excluding NaN through the existing mean/std/min/max aggregation. Even when the same Step emits several EpisodeEnd notifications, scalar reading and EMA update occur only once. SHARED reads the lane=-1 batch value once. Trace reads only each notification's env_index and records one row per completed group.
+
+`$env_step` is limited to train/episode_end. Declarations for learn/session_end, which have no result, are rejected at construction. Unknown or nonscalar keys fail fast on first read with tag/key/lane; known unavailable keys yield NaN. Built-in reward/done/truncated and derived or parameterized keys supplied by concrete results use the same target. `$env` reads current Env state, or at session_end the aggregates accumulated by EvalSessionEnv from adopted results.
+
+When moving completion-statistic definitions from train to episode_end, preserve tags, EMA, and explicitly selected step axes. Definition records use target `env_step`. inspect_run also recognizes configuration-derived definitions, and Java Metrics Viewer stores definition JSON without restricting target values. Atari lives is configured as provisional values from all lanes at train, while game statistics are final values at episode_end.

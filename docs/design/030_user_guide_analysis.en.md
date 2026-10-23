@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:ce6df5b9b7ef633bbee3ff59d09520034babbbc1 date:2026-10-12 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:2d53c8fd74e5eb61dce88d53ce946bcefb00769b date:2026-10-23 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -233,6 +233,51 @@ Additional interpretation notes:
 The five raw diagnostics (`01` / `03` / `04` / `06` / `07`) are computed in FP32 real space even with TBO and are collected with PER OFF too. **Only metric output for `07` is disabled by default; computation and readback still run for all five.** Known keys for disabled or unavailable values return `NaN`; do not reinterpret it as zero. Readback transfers priority and clip counts, IQN diagnostics, Munchausen diagnostics, and upper-tail statistics together in that order. Actor `actor_approx` uses existing action scores and should be treated as a different approximation from Learner's empirical-quantile approximation.
 
 Compare overhead between modes using `forward_target`, `forward_munchausen_online`, `munchausen_target`, and elapsed-time differences over the same exp-step interval. Diagnostics or one seed's score alone do not establish improvement.
+
+### 4.9 Reading the Gradient Noise Scale
+
+1. Select `metrics.scalar.@gradnoise`. For DropMerge, append `run.@gradnoise` to the selection chain. Defaults are 8 small batches, EMA coefficient 0.05, interval 503 for all 15 rows, and the learn_step axis. Use FP32 or BF16.
+2. Choose indicators from the table, primarily `01_scale_adam`.
+
+| tag | Purpose |
+|---|---|
+| 01_scale_adam | Overall gradient noise scale in Adam coordinates; primary indicator |
+| 02_scale_adam_feature / 03_scale_adam_readout | The same quantity for the feature dependency closure / readout |
+| 05_ratio_adam | 01 divided by B; compare with 1 within a Run |
+| 11_scale | Overall reference independent of Adam preconditioning |
+| 21_signal_adam / 22_variance_adam | Smoothed overall signal / variance |
+| 31_signal_adam_raw / 32_variance_adam_raw | One estimate of the overall Adam signal / variance |
+| 33_signal_raw / 34_variance_raw | One estimate of the unpreconditioned signal / variance |
+| 35_signal_adam_feature_raw / 36_variance_adam_feature_raw | One estimate of the feature Adam signal / variance |
+| 37_signal_adam_readout_raw / 38_variance_adam_readout_raw | One estimate of the readout Adam signal / variance |
+
+3. Follow this table for unavailable values, reaggregation, and comparisons between Runs.
+
+| Check | Procedure / interpretation |
+|---|---|
+| scale or ratio is unavailable | If 21 is finite and nonpositive, the signal is nonpositive. If 21 is also unavailable, check for insufficient state, nonfinite values, or similar causes. Do not replace missing values with 0 |
+| scale is frequently unavailable | Smooth raw signal and variance again over a longer window |
+| 05 exceeds 1 | Read it as a within-Run diagnostic, not a guarantee that changing B improves results |
+| Reproducing the internal EMA | Use raw values from every measurement point included in that EMA. If raw subscriptions at different intervals were added, also check the measurement points |
+| Comparing Runs with different B or RR | For intervals matched by experience count, divide the mean raw signal by the mean raw variance and report the measurement count. Do not directly compare only 01 or 05 at the window end |
+| Unavailable-value rate | For normally completed Runs, calculate the fraction of each key's own scheduled firing points without a recorded finite value. Exclude ordinary unmeasured steps. An empty group has 0 scheduled points and an undefined rate. Report the interval, subscription interval, scheduled-point count, finite-value count, and log completeness |
+
+> [!NOTE]
+> - Signal and variance are EMA-smoothed separately before division. Finite negative signal estimates are retained, so scale and ratio are unavailable while the smoothed signal is nonpositive. The recording path omits nonfinite values; not every tag necessarily appears in the file, and the reason for missing data cannot always be recovered uniquely.
+> - Adam values are primary because they use the optimizer's coordinates. They are not the SNR of the actual update including momentum, clipping, and weight decay. Values are conditional on the same single NoisyNet epsilon draw as the update. Do not interpret them as independent-sample noise when BatchNorm or similar components couple samples.
+> - The EMA updates at the union of subscription firing points. Adding raw subscriptions at different intervals also changes how quickly scale responds. All 15 default rows use the same interval and therefore share measurement points.
+> - Signal estimates become less precise as noise dominates. Increasing k mainly helps variance estimation and has little effect on signal precision.
+
+### 4.10 Reading Attention Entropy
+
+`48_agent_attention/01_entropy_layer0` through `04_entropy_layer3` average each layer's attention-distribution entropy over heads, queries, and samples, normalized to 0–1. A value of 1 means uniform attention, and 0 means concentration on one token. This is not an average across layers.
+
+In DropMerge or Atari, append `run.@attention` to the Run chain to record four layers on the `learn_step` axis at interval 503. Measurements use a dedicated sample passed through the online network in eval mode before the update, rather than the training forward itself. Values are unavailable when not measured, when samples are insufficient, or when sequence length is less than 2. The default endpoint is `learner.final_feature_branch_key`.
+
+Compare periods of sustained decline in each layer's value with periods when results plateau or decline. Do not classify values as normal or abnormal using a fixed threshold. Layer averages can hide concentration in individual heads, so a high value does not guarantee that every head is healthy. Coinciding timing does not establish causality.
+
+> [!NOTE]
+> Do not compare these values with TQL's target of 0.8; the aggregation methods differ.
 
 ## 5. Analyzing Optuna Results
 
