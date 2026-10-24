@@ -37,7 +37,7 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 **`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないeps_endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は`AGENTS.md`「設定ファイルの代入演算子」、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
 
 既定値は同じ位置に`?=`で書き、意図した個別指定は`=`で書く。既定値用プロファイルをチェーン先頭へ追加しない。Runプロファイル内・CLI・選択宣言`.$`には`?=`を書けない。設定を追加したら`check_default_leaves.py`で、共通ベース・デフォルト設定に残った`=`と環境別の個別指定に紛れた`?=`を確認する。用途を変える場合は検査器の分類理由も更新する。
 
@@ -125,6 +125,8 @@ class ConfigManager
 class ConfigResolver
 class ConfigData
 class RunManager
+class RunManagerMetricsWiring["RunManager::MetricsWiring"]
+class ObserverFactory
 class BatchEnvBuilder
 class Agent
 class Notifier
@@ -140,6 +142,9 @@ ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
 RunManager *-- BatchEnvBuilder
 RunManager *-- Agent
+RunManager *-- RunManagerMetricsWiring : private
+RunManagerMetricsWiring --> ObserverFactory : 宣言を解析
+RunManagerMetricsWiring --> Notifier : scopeとeventへ購読を接続
 RunManager *-- Notifier
 RunManager *-- TrainRunner
 RunManager o-- EvalRunner
@@ -149,6 +154,12 @@ RunnerThread --> TrainRunner : stepを反復
 ```
 
 主Train EnvはTrainRunnerが使用し、EvalRunnerごとに別のEnvとActorを作る。AgentとNotifierはRun内で共有される。
+
+### 5.1 メトリクス配線の所有
+
+`RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagの一度だけのWARN、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
+
+領域の検証手順は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)を参照する。
 
 ## 6. 処理フロー
 
@@ -209,7 +220,7 @@ sequenceDiagram
     R->>A: MakeAction(state)
     A-->>R: BatchActionInfo
     R->>E: Step(action)
-    E-->>R: reward / next_state / continue_state
+    E-->>R: reward / next_state
     opt 終了したEnvがある
         R->>N: Notify EpisodeEndEvent
         N->>O: OnEpisodeEnd(event)
@@ -231,9 +242,9 @@ Eventは対応する処理が完了した時点のcountを持ち、count本体�
 ### 6.3 Pipeline Train step
 
 `PipelineTrainRunner`は前回Experienceをcloneして保持し、専用の1 workerへLearner更新を投入する。
-後続stepの冒頭では、先に投入した更新の完了と例外を回収し、`LearnEvent`と`TrainEvent`をRunnerThread上で通知する。その後Actor推論、保持しているExperienceの非同期学習投入、現在のEnv Stepを進める。
+後続stepの冒頭では、先に投入した更新の完了と例外を回収し、`LearnEvent`と`TrainEvent`をRunnerThread上で通知する。続いてActor推論、前回Experienceの非同期学習投入、現在のEnv Step（終端laneの自動Resetを含む）を進める。最初の2回を含め既存の通知回数は維持し、状態はcontinue_stateから更新する。
 Serial/PipelineともTrain stepから`Actor::Sync()`を暗黙には呼ばず、同期の要否と時点は具象Actorの契約に委ねる。DefaultDQN Train Actorの定期snapshot同期は`MakeAction()`内で処理されるため、詳細は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
-shutdown時は未完了学習を待ってpoolを停止してからEnvをshutdownする。
+shutdown時は未完了学習を待ち、futureの例外を回収してからEnvをshutdownする。終了処理でLearn/Train通知を追加しない。
 
 ```mermaid
 sequenceDiagram
@@ -271,7 +282,7 @@ sequenceDiagram
         end
         par RunnerThread
             R->>E: Step(action)
-            E-->>R: reward / next_state / continue_state
+            E-->>R: reward / next_state
             opt 終了したEnvがある
                 R->>N: Notify EpisodeEndEvent
                 N->>O: OnEpisodeEnd(event)
@@ -292,7 +303,7 @@ sequenceDiagram
 
 ### 6.4 configured Eval session
 
-`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。`RunSession()`はActorを同期して`EvalSessionEnv::Reset()`を呼び、採用episode N本が完了するまでstepを進める。途中のepisode終端では`EpisodeEndEvent`を出さず、完了後にdecorator Env、`env_index=-1`、発火元countsを持つeventを1回だけ通知する。EvalPanelはsession decoratorを使わず、従来のstep駆動、強制Action、同期方式を維持する。
+`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。Actor同期後、採用episode N本が完了するまでStepを進め、Train通知に続いて採用EpisodeEndをgroup順に通知する。各EpisodeEndはそのStep結果を持つ。decoratorは結果から採用値を蓄積し、最後にenv_index=-1・発火元countsのSessionEndを1回通知する。キャンセル時は確定通知を出さない。セッション境界で全groupがfreshならcontinue_stateを再利用する。EvalPanelはsession decoratorを使わず、従来のstep駆動・強制Action・同期方式を維持する。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -341,6 +352,8 @@ sequenceDiagram
 - `train_step_per_sec`と`exp_step_per_sec`はbatch sizeの意味が異なる。比較時は同じ設定とstep軸を使う。
 
 ## 8. テストと拡張時の確認事項
+
+- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界

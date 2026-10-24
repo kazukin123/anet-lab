@@ -81,6 +81,8 @@ namespace anet::rl {
          * @return [N] スケール済みの Tensor
          */
         virtual torch::Tensor Scale(const torch::Tensor& reward) = 0;
+        /// 現在の統計で変換し、統計とclip率を更新しない。
+        virtual torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const = 0;
         virtual void Reset() = 0;
 
         virtual ~RewardScaler() = default;

@@ -44,7 +44,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `MetricsViewerApplication` | Spring Boot application entry |
 | `RunScanner` | runs directory直下から`metrics.jsonl`または`metrics.jsonl.gz`を持つRunを列挙する |
 | `MetricsCacheDatabase` | RunごとのSQLite cache、source fingerprint、generation、短命connectionを管理する |
-| `MetricsIngestor` / `LodIngestWriter` | JSONL/gzipをstreaming parseし、L0、factor 16 LOD、`TagStats`を同一transactionで更新する |
+| `MetricsIngestor` / `LodIngestWriter` | JSONL/gzipをstreaming parseし、L0、factor 4 LOD、`TagStats`を同一transactionで更新する |
 | `IngestScheduler` / `LoadingThread` | actionable Runへpriority 3 : background 1で1 blockずつ単一writerへ配分し、terminal/no-op Runは同一cycleで再検査しない |
 | `MetricsRepository` | Runごとの短命read snapshotでrange解決、点数quota、単一LOD projectionを組み立てる |
 | `MetricsService` | Run metadata、range query semaphore、priority集合を提供するapplication service |
@@ -82,6 +82,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | runtime接続 | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)、[trainer.cpp](../../core/anet-core/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
+手動の離散Actionは、EvalPanelが初期化時に保持したActionSpecで有効範囲を確認する。範囲外なら指定値と有効範囲をstatus field 0へ英語で表示し、Runログには出さない。Live復帰・model同期より前に戻るため、環境、step数、Trace選択は変わらない。EvalRunnerも両コンストラクタで対象環境のActionSpecを保持し、直接渡された範囲外の強制ActionはReset・Actor実行・Stepより前にfail-fastする。判定時にEnvSpecを再取得しない。
+
 ### 3.2 Metrics Viewer
 
 | 領域 | 主なファイル |
@@ -104,6 +106,26 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) |
 | Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
 | 詳細運用仕様 | [optuna.md](../optuna.md) |
+
+### 3.4 Evaluation Trace
+
+`EvalTracePanel`は右端の列に一つだけ置く常設paneで、ViewメニューとPanelツールバーから表示する。既定は非表示。新しい行を上に並べ、報酬が非ゼロの行と終端行に色を付ける。`max_rows`は既定1000、`pct_window`は既定10000で、ともに1以上の整数とする。明示的に閉じた間は購読を付けたまま生成をskipし、再表示では履歴・百分位・診断の窓をすべて空にする。最大化による一時非表示は`IsPaneOpen`が`savedHiddenState`を参照して開いたままと判定し、Trace本体と追従paneのsnapshot取得・選択・診断を継続する。メニューのcheckも同じ判定に従い、最大化中の明示開閉は復元用フラグと同期する。
+
+列幅は見出しと標準余白から始め、新規行の表示値と遅延確定した列だけを計測して拡張する。保持中の全行は毎step走査せず、短い値への入替えや古い行の削除でも縮めない。手動調整列はその表示中の自動変更を止め、明示的な開き直しで幅と履歴を初期化する。テーマ・フォント・DPI変更には追従し、最小幅は操作バー全体と左端から最初の行動列までの現在の合計幅（余白・縦スクロールバーを含む）の大きい方とする。行動列が無ければ操作バーだけを基準とし、連続行動は最初の次元別行動列までとする。列幅・外観変更時に更新し、ドック／フロートとRunnerの幅縮小処理でも守る。残りの列は横スクロールとする。通常セル・見出し・罫線・選択はシステム色を使う。非ゼロ報酬には緑、終端には橙の薄い色を標準背景へ重ね、終端を優先する。選択背景と選択文字色は行の強調より優先する。行選択の強調を列見出しへ波及させず、見出しのシステム配色はLive／Traceで変えない。色付けの設定は持たない。
+
+操作バーは、Play/Pauseのトグル・Stop・Step back・Step forward・Slower・Fasterの順の6アイコンと、slider・速度表示を持つ。16 DIPの記号とシステム文字色をメインツールバーと共有し、無効表示はwxに委ねる。コマ送りは縦棒の右に右三角、コマ戻しは左三角の右に縦棒で、メインのEval Stepも同じ送り記号を使う。Trace中は操作バー全体を2 DIPの赤枠で囲み、再生・一時停止・行選択の間も維持する。枠の領域を常に予約して配置を動かさず、Live復帰ですべて消す。captionのTrace表示と通常のactive/inactive配色も維持する。
+
+`TraceFollower`は`CreateTraceSnapshot`によるsnapshot生成・snapshot表示・Live復帰の共通interfaceで、EvalPanelのView、QValuePanel、Conv2dが実装する。interfaceと再生・表示補助はcoreのgui.hpp/cppに置き、行の生成はmetrics機能群へ依存する。履歴には開いていたpaneの不変snapshotだけを保持する。Conv2dはCPU活性を保持し、選択時に画像化する。paneを開く前の行は`no data for this step`となる。SweepHeatMapは追従しない。
+
+行を選ぶとTraceモードとなりEvalPanelを停止する。行tではEval Viewが遷移後、Q/Conv2dが判断時点を表示し、captionに`Trace: step`を出す。`gui::TracePlayer`はwxの実機操作に依存しない再生制御を担当する。`gui::AppendTracePercentile`と`gui::FormatTraceValue`も同じ機能群に置く。書式は列定義のメソッドにせず、列定義・値・行動情報を受け取るGUI関数で算出する。再生はLiveなら最古から、Traceなら選択行から新しい側へ進む。最新で停止中の再生だけは最古へ戻る。コマ送りと戻るは端で止まる。Liveでコマ送りを押すと最新行でTraceに入り`Trace: end`を出す。Liveでコマ戻しを押すと最新の1つ前で`Trace: step back`、1行だけならその行で`Trace: start`を出す。速度は1/8〜8倍、1xはEvalのfps×step_per_frameである。速度ラベルとstatus通知はx0.125・x0.25・x0.5・x1・x2・x4・x8とする。
+
+停止、表でのEsc、手動行動、Eval Resume、Trace paneを明示的に閉じる操作（✕・メニュー・ツールバー・Reset Layout）でLiveに戻る。Liveに戻すだけではEvalを再開しない。手動行動はLiveへ戻してから実行する。空履歴では操作列とsliderを無効にする。FPS 0では`CanPlay`によって再生ボタンだけを無効にし、次のUI timerで変更を反映する。既に再生中ならPause操作を有効に保ち、速度0では進めず、FPS復帰後に続行する。操作結果はstatus field 0へ英語で表示し、Runログへは出さない。
+
+`manager.Update()`はTrace開始・Live復帰・追従paneの表示変更と、列幅または外観の変更で最小幅が変わり実際のpane幅が不足した場合に行う。最小幅が変わらない通常の行追加・行選択・tickでは、最小幅処理による再配置を行わない。行移動はcaptionを更新しframeへ再描画を要求する。浮動paneのframeタイトルも直接揃える。計測は`EvalTracePanel::ApplySelection.layout` / `ReturnToLive.layout`と`RefreshCaptions`、最小幅の変更は`UpdateMinimumSize`で分ける。
+
+数値は整数なら整数、それ以外は有効数字4桁、非有限値は空欄。`display:pct`は自身を含む有限値の直近窓で`100*(小さい件数+同値件数/2)/件数`を列の確定時に一度だけ算出して保持する。全件同値は50%である。即時列は行追加時、遅延列は`StepTrace.value_ready`がtrueになった時点で処理し、NaNでの確定でも待機を終える。表示上限を超えて消えた行は更新通知が指定する列だけを窓へ反映する。複数列の部分更新で以前に確定した値を二重投入しない。GUIはAgent固有のキーを判定しない。既定の`Q_sa`・`V_s`・`trunc`は設定の`label:`で指定し、取得キーと値は変えない。既定列はstep、ep_step、action、reward、Q_sa、V_s、done、trunc、prio、prio_pctの順で、行動と報酬を隣接させる。
+
+[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。
 
 ## 4. 静的構造
 
@@ -333,7 +355,17 @@ sequenceDiagram
 - DB recordとRun folderは別lifetimeである。Run folderを削除してもOptuna trialは残り、保存pathがstaleになる。
 - summary studyは閲覧用であり、source studyを変更しない。
 
+### 7.4 wikiと監査台帳の保守
+
+- wikiは外の正本を束ねたまとめで、取り込みが書く部分を、点検がファイル・PRD一覧を更新する。材料、blob記録、更新手順は[wikiの規約](../wiki/README.md)を正本とする。
+- `reports/tools/registry.py list --category` は分類定義に従う。`build` は台帳の派生一覧と、地図の目印の間だけを更新する。全地図の目印を検査してから書き、区画外とwikiログは変更しない。
+- `reports/tools/wiki_support.py` は材料・blob・リンク候補の読み取りと地図の機械的な2節の再生成を補助する。知見の意味や裁定はエージェントが正本を読んで判断する。台帳の正本は `reports/registry/findings.jsonl`、CLIとレコード形式はregistry.pyの冒頭を参照する。
+
 ## 8. テストと変更時の確認事項
+
+- [PRD095検証資材](../../core/anet-core/testdata/prd095/README.md): 一時台帳での分類・地図の派生区画・不正な目印での無変更と、取り込み・点検・housekeepingの試走を確認する。
+
+- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 
 - Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。

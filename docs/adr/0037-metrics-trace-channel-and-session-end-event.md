@@ -1,5 +1,7 @@
 # 個体メトリクスは trace チャネルで出し、評価セッションは採用 episode ごとの EpisodeEndEvent と SessionEndEvent を分けて発火する
 
+> 2026-10-20 後発決定: [ADR 0060](0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) で、`EpisodeEndEvent` がその episode の終わった Step の結果を持つようになり、trace の読み手は完了 Step の直後に env の `GetScalar(key, env_index)` を読むのではなく、その Step の結果から読む（target `$env_step`）。trace チャネル、イベントの型の分け方、`@session_end` への eval scalar の束縛、`EvalSessionEnv` が trace 用の個体値列を溜め込まないことは維持する。
+
 scalar 行 `{step, tag, value}` には主体欄が無く、`mean.` 等の集約は「その step で完了した lane」を分母にするため、集約した時点で個体が失われる。PRD 060 の評価セッションで eval の N 本が 1 点へ畳まれた結果、eval 側の分位点・閾値越え率・score×len の同時分布が Run artifact から復元できなくなった。一方、`EpisodeEndEvent` は train 側では lane ごとに `env_index` 付きで既に届いており、metrics observer がそれを捨てているだけだった。eval 側は ADR 0034 が per-group event を抑制し、個体値は `EvalSessionEnv::CaptureScalars` が累積器へ畳む瞬間にしか存在しなかった。
 
 **個体メトリクスは、scalar とは別チャネル trace（`type:"trace"`）として同じ Metrics マスタへ出す**ことを決定する。行は固定属性（`tag` / `step` / `lane`）を直書きし、宣言した個別値は `data` 下に置く。scalar と同じ設定 DSL トークン表記で `metrics.trace.[tag]` として宣言する。裸トークンは全てキーで1個以上・重複不可、イベント（`@episode_end` または属性形）と target は明示必須とする。イベント・target・scope・step軸の重複指定は同値・異値・別表記を問わず拒否し、未知・禁止トークンも設定読み込み時に fail-fast する。集約 prefix と EMA / interval / clip / `key:` は受理せず、`interval:1` のように既定値と同じ指定も拒否する。共通パーサーは指定の出現情報を保持し、scalar の既存パース挙動は変えない。宣言が無ければ何も生成されない（level は持たない）。定義レコードは scalar を **`metrics.scalar.defs` へ改名**し、trace は `metrics.trace.defs` を新設する。読み取りは **`metrics.scalar.defs` を優先し、存在しない場合だけ旧 `metrics.defs`** を読む。現用の過去 Run artifact への影響を避けるための互換例外とし、writer は新名だけを出力する。

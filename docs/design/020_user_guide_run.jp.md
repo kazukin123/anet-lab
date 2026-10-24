@@ -159,7 +159,7 @@ backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmar
 
 #### 3.4.2 プロファイル`@name`
 
-プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[AGENTS.md](../../AGENTS.md)「設定ファイルのプロファイル境界」)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
+プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（プロファイル境界）)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
 
 - 定義しただけでは値に出ない。チェーンや部分選択で選ばれた分だけ最終値に入る。
 - 短い`@name`は、書いた場所(定義元)の名前空間で解決する。`Env.$ = @a`は`Env.@a`、`Env.@a : $ = @b`は`Env.@b`を指す。`Other.$ = Env.@a`のように別の場所から使っても、`@a`の中の`@b`は`Env.@b`のままである。
@@ -284,7 +284,7 @@ X.key ?= v              既定葉。X.$ に負ける
 | workspaceの`config/_main.txt` | 有効にする`<Env>.txt`の`$include` | - |
 | bat、CLI | `run.$`の選択と葉の上書き | `=` |
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[AGENTS.md](../../AGENTS.md)「設定ファイルの代入演算子」)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
@@ -464,7 +464,7 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | Run操作ツールバーの`Save Checkpoint` | Trainが走行中ならまずpauseし、Run directoryと`agent_<exp_step>.anet`を既定に、任意pathへAgentを保存する |
 | Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
-Action数はEnvごとに異なる。範囲外Actionを前提にせず、QValue paneまたはEnvのActionSpecを確認する。
+Action数はEnvごとに異なる。QValue paneまたはEnvのActionSpecで有効範囲を確認する。離散Actionの範囲外の番号を指定すると、ステータス欄に指定値と有効範囲が表示され、Evalは進まない。選択中のTrace履歴もそのまま維持される。
 
 EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`run.eval.[eval_panel].actor = eval_panel`から専用Actorを参照する。DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコアのActionを選ぶ。定期評価のεやUQE設定はそのまま使える。表示用の方策を変える場合は`<Agent>.actor.[eval_panel].*`を上書きし、別の評価設定を表示したい場合は`app.eval_panel.eval_config_tag`を指定する。
 
@@ -489,6 +489,39 @@ WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain
 close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから引き継ぎに使う。
 
 checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにWARNが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+
+### 6.5 Evaluation Traceで遷移を調べる
+
+ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
+
+上部のアイコンは、左から再生／一時停止（右三角／二本線）・停止（四角）・コマ戻し（左三角の右に縦棒）・コマ送り（縦棒の右に右三角）・速度減少（左二重三角）・速度増加（右二重三角）です。再生中の先頭ボタンは一時停止、それ以外は再生として使います。英語のツールチップでも操作を確認できます。速度は`x0.125`・`x0.25`・`x0.5`・`x1`・`x2`・`x4`・`x8`で表示します。Liveから再生すると最古の行から進み、最新で止まります。停止または表でEscを押すとLiveへ戻ります。EvalのResumeや手動行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+
+Liveでコマ戻しを押すと最新の1つ前の行を選びます。1行だけならその行で止まります。Liveでコマ送りを押すと最新行を選びます。Trace中は操作バー全体の赤枠を目印にしてください。一時停止中も枠は残り、Liveへ戻ると消えます。
+
+列の幅は見出しと値に合わせて広がります。手動で幅を変えた列は、その表示中は自動調整されません。初期幅へ戻すにはパネルを閉じて開き直してください。この操作で履歴も空になります。パネルは操作バー全体と、左端から最初のアクション列までが収まる幅を下限にします。残りの列は横スクロールで確認してください。通常・選択の配色はシステムのテーマに従い、報酬行は薄い緑、終端行は薄い橙が目印です。行を選択しても列見出しの色は変わりません。
+
+列は次の形で指定します。番号は1以上で、飛び番を許します。
+
+```text
+app.eval_trace_panel.max_rows = 1000
+app.eval_trace_panel.pct_window = 10000
+app.eval_trace_panel.columns.[20] = $env_step game_score
+app.eval_trace_panel.columns.[21] = $env_step lives
+app.eval_trace_panel.columns.[22] = $agent_step approx_priority display:pct label:priority_pct
+```
+
+既定列は`step → ep_step → action → reward → Q_sa → V_s → done → trunc → prio → prio_pct`の順です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+
+学習側と同じonline networkのQで見たい場合は、次の指定を使います。
+
+```text
+DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
+```
+
+FPSが0のときは再生を開始できません。再生中に0へ変更した場合も、先頭の一時停止ボタンは使えます。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
+
+> [!NOTE]
+> 画面は行動の結果、Q値と活性はその行動を決めた時点です。百分位は直近の有限値の中での中央順位で、全件同値は50%です。近似優先度はn-step分の情報が揃ってから埋まります。打ち切りを含む窓と非対応Agentは空欄です。eval_panelの既定はtarget networkのQです。時点と再生の仕組みは[Applications and Tools](160_applications_and_tools.jp.md#34-evaluation-trace)を参照してください。
 
 ## 7. 成果物
 
@@ -527,7 +560,7 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 
 - [CONTEXT.md](../../CONTEXT.md)(設定用語の正本)
 - [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)(設定契約の判断理由)
-- [AGENTS.md](../../AGENTS.md)「設定ファイルの代入演算子」(演算子の運用規約)
+- [実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）(演算子の運用規約)
 - [分析ユーザーガイド](030_user_guide_analysis.jp.md)
 - [開発環境](040_development_environment.jp.md)
 - [実行基盤と設定](100_runtime_and_configuration.jp.md)

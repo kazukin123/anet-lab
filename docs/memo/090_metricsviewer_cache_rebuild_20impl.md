@@ -45,7 +45,7 @@ Public surfaceは既存workspace/metrics API、IngestScheduler、SourceReader、
 
 ## 5. 検証
 
-変更前作業ツリーを隔離ビルドしてbaselineを保存。停止済みマスタ `apps/runner/workspaces/DropMerge-02/runs/run_20261006-033243_dm_fb_munch_tau3e-2_ndtpen20_nstep3_100m/metrics.jsonl.gz` （534,402,924bytes）を検証領域へ複製し同内容rawを生成。同じJVM条件・factor4・各3回で比較。raw/gzip中央値がbaselineより短いこと、出力一致、入力resource確保済み選択Runの反映待ちp95<=10秒を受入条件とする。ばらつき・heap peak・DB容量・stream待ちを併記。試行DBは一つずつ処理し検証領域内だけで解放。
+変更前作業ツリーを隔離ビルドしてbaselineを保存。停止済みマスタ `apps/runner/workspaces/DropMerge-02/runs/run_20261006-033243_dmfb_19_nstep3/metrics.jsonl.gz` （534,402,924bytes）を検証領域へ複製し同内容rawを生成。同じJVM条件・factor4・各3回で比較。raw/gzip中央値がbaselineより短いこと、出力一致、入力resource確保済み選択Runの反映待ちp95<=10秒を受入条件とする。ばらつき・heap peak・DB容量・stream待ちを併記。試行DBは一つずつ処理し検証領域内だけで解放。
 
 関連Javaテスト→全Maven test/package→Playwright。通常JAR、実Run cache、稼働中Viewerは変更しない。C++変更なしなのでDebugビルド対象外。手順・結果は `core/anet-core/testdata/prd090/README.md` に記録する。
 

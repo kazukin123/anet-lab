@@ -2,6 +2,8 @@
 
 #include "Conv2dPanel.hpp"
 #include <format>
+#include <wx/weakref.h>
+#include "anet/profile.hpp"
 #include <wx/numformatter.h>
 #include "anet/log.hpp"
 
@@ -48,6 +50,9 @@ Conv2dPanel::Conv2dPanel(
 
     // 幅:最大、高さ:最大、比率1 (ウィンドウサイズ変更に追従)
     main_sizer->Add(canvas_, 1, wxEXPAND | wxALL, 0);
+    no_data_label_ = new wxStaticText(this, wxID_ANY, "no data for this step");
+    main_sizer->Add(no_data_label_, 0, wxALL, 8);
+    no_data_label_->Hide();
 
     // Sizer設定
     SetSizer(main_sizer);
@@ -79,31 +84,17 @@ void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_
     auto notifier = run_manager.GetNotifier();
     observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
         runner,
-        [this](const anet::rl::TrainEvent& event)
-        {
-            if (closed_) return;
-
-            if (!event.action_info) {
-                return;
+        [weak = wxWeakRef<Conv2dPanel>(this)](const anet::rl::TrainEvent& event) {
+            if (!weak || weak->closed_ || !event.action_info) return;
+            // 履歴が先に取得したCPU活性は再利用し、非記録時は従来のlive経路を使う。
+            if (weak->latest_step_ && *weak->latest_step_ == event.counts.exp_step && weak->latest_activations_) {
+                if (!weak->trace_mode_) weak->RenderActivations(event.counts.train_step, *weak->latest_activations_);
+            } else {
+                weak->latest_step_ = event.counts.exp_step;
+                weak->latest_activations_.reset();
+                const auto dict = anet::rl::ExtractNnTrace(event.action_info->GetAuxData());
+                if (!weak->trace_mode_ && !dict.empty()) weak->RenderActivations(event.counts.train_step, dict);
             }
-
-            auto dict = anet::rl::ExtractNnTrace(event.action_info->GetAuxData());
-            if (dict.empty()) {
-                return;
-            }
-
-            // 画像生成
-            auto vis_result = visualizer_->Visualize(event.counts.train_step, dict);
-            wxImage new_image = vis_result.first;
-
-            // GUI描画用にスレッドセーフに保存
-            if (new_image.IsOk()) {
-                std::lock_guard<std::mutex> lock(image_mutex_);
-                current_image_ = new_image;
-            }
-
-            // 画面リフレッシュ
-            Refresh();
         },
         "Conv2dPanel");
 
@@ -218,4 +209,54 @@ void Conv2dPanel::Render()
 
     glFlush();
     canvas_->SwapBuffers();
+}
+
+void Conv2dPanel::RenderActivations(anet::rl::step_t step, const anet::TensorDict& activations)
+{
+    ANET_PROFILE_FUNC();
+    const auto result = visualizer_->Visualize(step, activations);
+    if (result.first.IsOk()) {
+        std::lock_guard lock(image_mutex_);
+        current_image_ = result.first;
+    }
+    canvas_->Refresh();
+}
+
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> Conv2dPanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
+{
+    ANET_PROFILE_FUNC();
+    if (!latest_step_ || *latest_step_ != event.counts.exp_step || !latest_activations_) {
+        // GPUやforwardの再利用bufferから独立したCPU値だけを履歴へ渡す。
+        auto cpu = std::make_shared<anet::TensorDict>();
+        if (event.action_info) {
+            for (const auto& [key, value] : anet::rl::ExtractNnTrace(event.action_info->GetAuxData())) {
+                cpu->Set(key, value.detach().to(torch::kCPU).clone());
+            }
+        }
+        latest_step_ = event.counts.exp_step;
+        latest_activations_ = cpu->empty() ? nullptr : cpu;
+    }
+    if (!latest_activations_) return nullptr;
+    return std::make_shared<const anet::rl::gui::TraceSnapshot>(anet::rl::gui::TraceSnapshot{
+        .show = [weak = wxWeakRef<Conv2dPanel>(this), data = latest_activations_, step = event.counts.train_step] {
+            if (weak) weak->RenderActivations(step, *data);
+        } });
+}
+
+void Conv2dPanel::ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot)
+{
+    trace_mode_ = true;
+    canvas_->Show(static_cast<bool>(snapshot));
+    no_data_label_->Show(!snapshot);
+    if (snapshot && snapshot->show) snapshot->show();
+    Layout();
+}
+
+void Conv2dPanel::ReturnToLive()
+{
+    trace_mode_ = false;
+    canvas_->Show();
+    no_data_label_->Hide();
+    if (latest_activations_ && latest_step_) RenderActivations(*latest_step_, *latest_activations_);
+    Layout();
 }

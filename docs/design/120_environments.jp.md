@@ -34,14 +34,17 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 
 `BatchEnvSpec`は`num_envs`、`num_threads`、`episode_scope`を持つ。`episode_scope=PER_LANE`では各laneが一つのepisode group、`SHARED`ではbatch全体が一つのepisode groupである。JSON表記は`per_lane` / `shared`とする。
 
-### 2.2 ResetとStep
+### 2.2 Reset・Stepと結果の所有
 
 - Envは生成時に`RunMode`を固定し、`GetRunMode()`で公開する。
-- `Reset()`はepisodeを開始し、初期Stateを返す。
-- `Step(Action)`はActionを適用し、次State、Reward、終端情報を返す。
-- Resetは全episode groupの`episode_start`をtrueにする。Stepではgroup内の`done` / `truncated` / `continue_state.episode_start`を一致させ、`continue_state.episode_start == (done || truncated)`、`n_episode_end == 完了group数`を満たす。`done && truncated`は許容する。
-- Train/Eval固有の乱数、augmentation、終端は生成時の`RunMode`で分ける。呼出し時に異なるmodeを渡す経路はない。
-- wrapper系BatchEnvには一部Result buffer再利用が残るため、呼び出し側が後続Stepを越えて保持する場合は各実装契約を確認する。native ImageClsはReset/Stepごとにfresh Tensorを返し、呼出し側へ所有権を渡す。
+- `Reset()`は初期Stateを返す。`Step(Action)`は遷移を進め、終端laneだけ同じ呼出し内で自動Resetする。ThreadPool版ではStepとResetを同じworkerで行う。
+- `BatchStepResult::next_state`はリセット前の遷移、`continue_state`は次の行動用の状態。継続laneでは同じ観測、終端laneではReset後の観測となる。
+- 全体Resetは全groupの`episode_start`をtrueにする。Stepはgroup内のdone/truncatedを一致させ、`n_episode_end == 完了group数`、`continue_state.episode_start == (done || truncated)`を満たす。`done && truncated`も許容する。
+- Step結果は毎回新規に生成する。単一Envの結果は、そのStepのauxと統計を所有し、自動Reset・次Step後も値を変えない。aux配列は空のlaneも含めてlane数を維持する。wrapperの全体Resetには一部Result buffer再利用が残る。
+- `SingleEnvResult::GetScalar(key)`の既定実装は所有auxのスカラーを読む。`BatchStepResult::GetScalar(key, lane)`はreward/done/truncated、wrapperはlaneの単一結果へ委譲する。nativeのSHARED Envはlane=-1でbatch値へ答える。ImageClsのrewardは有効laneの和、done/truncatedはgroupの共通終端である。
+- 既知だが未成立はNaN、未知・非スカラーはnullopt。派生鍵・引数つき鍵も結果自身が問い合わせに答え、scalarごとにaux全体を複製しない。
+- env本体の問い合わせは現在状態であり、遷移の結果を読む用途には使わない。Train/EpisodeEndの読者は通知が持つStep結果を読む。
+- Train/Eval固有の乱数、augmentation、終端は生成時の`RunMode`で分ける。
 
 ### 2.3 SingleとBatch
 
@@ -53,7 +56,7 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 - `VectorizedDiscreteBatchEnv`: 呼び出しthread上で複数Envを順に実行する。
 - `ThreadPoolDiscreteEnv`: thread poolを使って複数Envを並列実行する。
 
-ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。trainは`PER_LANE`、evalは`SHARED`であり、eval window終端時は全laneの`done`と`continue_state.episode_start`を立てて`n_episode_end=1`を返す。
+ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。trainは`PER_LANE`、evalは`SHARED`であり、eval window終端時は全laneの`done`を立てて`n_episode_end=1`を返し、同じStepで返すcontinue_stateの全laneの`episode_start`を立てる。データの先読みもStep内で行い、次の行動へ先読み済み観測を渡す。
 
 ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`run.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
 
@@ -100,7 +103,7 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 | CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | vector |
 | LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | vector、Box2D物理状態 |
 | DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | gridとvector、Box2D物理状態 |
-| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態 |
+| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態。開始からゴールへの到達可能性を保証し、解けないseedは派生seedで引き直す |
 | ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | 画像gridと分類target |
 | Atari | [core/envs/atari1](../../core/envs/atari1) | ALE由来の単フレームuint8 grid |
 
@@ -182,11 +185,16 @@ sequenceDiagram
     R->>B: Step(action_info)
     B->>E: laneごとのActionでStep
     Note over B,E: ThreadPool実装では並列実行
-    E-->>B: SingleStepResult
-    B-->>R: Reward・終端・次Stateを集約
+    E-->>B: SingleStepResult（遷移値を所有）
+    opt 終端lane
+        B->>E: Reset()
+        E-->>B: SingleResetResult
+    end
+    B-->>R: Reward・next_state・continue_state
+    Note over R,E: 通知はStep結果を読み、次行動はcontinue_stateを使う
 ```
 
-episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。`EpisodeStatsAccumulator`はepisode returnとepisode_stepsを`CompletedEpisodeResult`として同時に確定する。returnは`PER_LANE`ならlane別、`SHARED`なら全lane・全stepのreward合計とする。episode_stepsは終端を含む`Step()`回数で、`SHARED`でもlane数を掛けない。configured Evalの`EvalSessionEnv`は動的グラントで正確にN本を採用し、全groupがfreshなときだけ直前の`continue_state`を次sessionのReset結果として再利用する。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
+episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。`EpisodeStatsAccumulator`はepisode returnとepisode_stepsを`CompletedEpisodeResult`として同時に確定する。returnは`PER_LANE`ならlane別、`SHARED`なら全lane・全stepのreward合計とする。episode_stepsは終端を含む`Step()`回数で、`SHARED`でもlane数を掛けない。configured Evalの`EvalSessionEnv`は動的グラントで正確にN本を採用し、採用したStep結果のGetScalarから値を蓄積し、全groupがfreshなときだけ保存したcontinue_stateを空aux付きで次sessionのReset結果として再利用する。それ以外は全体Resetする。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
 
 ### 6.2 構築
 
@@ -224,21 +232,33 @@ Env固有設定は各factoryが同じConfigDataから読み取る。未知のcla
 - EnvのReset/Stepは主要なprofiling境界であり、worker数と`exp_step_per_sec`を併せて比較する。
 - Env deviceとAgent deviceが異なる場合は転送costが発生する。Envごとの対応deviceを設定と実装の両方で確認する。
 
+### 7.4 GridMazeの迷路生成
+
+GridMazeはResetごとに開始からゴールへ壁・穴を避けて到達できる迷路を採用する。解けるseedでは従来のセル生成と乱数消費順を保持する。解けなければ入力seedから `splitmix64(seed + k)`（k=1..1000）で引き直し、初回と1000回の引き直しがすべて失敗したら、seed・寸法・密度・座標・上限を含むエラーで停止する。
+
+寸法は正、各座標は `-1` または軸の範囲内でなければならない。両方固定の開始とゴールの重複、およびランダム開始の候補なしはエラーにする。固定開始とランダムゴールの偶然一致は引き直す。auxの `seed` は採用した実際のseedで、設定に戻すと同じ盤面を再現できる。画面のseedは設定可能な全範囲を符号なし十進表示する。固定seedを引き直したときだけ、入力seed・回数・採用seedをINFOで通知する。GridMaze内に限定して許容する排他制御付きのプロセス共有記録により、同じ設定seedの通知は個体数によらず1回とする。自動seedでは通知しない。
+
 ## 8. テストと拡張時の確認事項
 
 Envを追加・変更する場合は次を確認する。
 
 1. `EnvSpec`のshape、dtype、Action、Reward範囲が実データと一致する。
 2. 同じseedと設定に対する再現性contractを明確にする。
-3. Reset直後、通常Step、terminated、truncatedのState flagを検証する。
+3. Reset直後、通常Step、terminated、truncatedのnext_state/continue_stateと結果不変性を検証する。
 4. B=1と複数laneの両方でbatch wrapperが正しく集約する。
 5. `VectorizedDiscreteBatchEnv`と`ThreadPoolDiscreteEnv`で意味が変わらない。
 6. Viewを追加する場合はEnv class IDと`ViewRepository`登録を一致させる。
 7. 頻繁に呼ばれるReset/Stepへ意味のあるprofile rangeを置く。
 
+通知中のscalar・tensor、auxのlane対応、結果の不変性、Runner種別ごとの通知順序と再現性・性能の受入手順は[PRD097検証資材](../../core/anet-core/testdata/prd097/README.md)を参照する。
+
+GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短いRunの全scalar一致の手順は[PRD100検証資材](../../core/anet-core/testdata/prd100/README.md)を参照する。
+
 専用testがあるEnvは次のとおりである。
 
 - [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
+- [DropMergeEnv_test.cpp](../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
+- [GridMazeEnv_test.cpp](../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
 - [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
 - [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
 
@@ -254,3 +274,15 @@ single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。Im
 - [用語集](../../CONTEXT.md)
 - [ImageCls batch入力PRD](../memo/done/034_imagecls_batch_input_10prd.md)
 - [ImageCls batch Env seam ADR](../adr/0009-imagecls-batch-env-seam.md)
+
+### 具象Envの遷移統計
+
+| Env | Step結果の鍵 | 通常Step | 終端Step | env本体 |
+|---|---|---|---|---|
+| GridMaze | reward_sum、wall_collisions | 累積速報値 | 確定値 | 未知 |
+| GridMaze | is_success、is_hole | NaN | 終端報酬から0/1 | 未知 |
+| DropMerge | ep_step、ep_max_rank、ep_mean_settle_steps、ep_max_settle_steps、ep_mean_blocked_frames、ep_max_blocked_frames、ep_same_drop_col_ratio、ep_double_suika_created、ep_double_suika_achieved、ep_blocked_run_countなど累積統計 | 現時点の累積値（未成立条件はNaN） | 確定値 | 未知 |
+| DropMerge | ep_end_fruit_count、term_reason_*、blocked_drop_on_candidate、no_drop_timeout_on_candidate、ep_terminal_blocked_frames | NaN | 確定値 | 未知 |
+| ImageCls | accuracy、epoch_count | 直近の採点windowのsnapshot（初回未確定accuracyはNaN） | window確定値 | 現在の全体値も公開 |
+
+DropMergeの統計式・浮動小数点演算順序は結果への移動前と同じ。View用auxのlast_score/last_step/last_term_reasonと報酬履歴は維持する。ImageClsの先読みはStep内で1回行い、結果は採点したwindowの値を保持する。DropMerge・LunarLanderの描画auxは遷移時点のnative値を結果が所有し、表示の要求時だけTensor化する。元envへの借用は保持しない。

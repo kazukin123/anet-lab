@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:1a98578bb3a421a7d7f0756dbb9561e1ec125323 date:2026-10-07 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:bf51e5e944650840555476d27d5de9e539c81d7e date:2026-10-23 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -38,7 +38,7 @@ Configuration is collected into `ConfigData`, which holds string key/value pairs
 
 **`$` supplies the base; partial selections and explicit leaves override it.** Since `A2 > A3` merges each source's completed values as differences, eps_end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in `AGENTS.md`; see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB); see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
 
 Write defaults at the same location with `?=` and intentional explicit assignments with `=`. Do not add a defaults profile at the beginning of the chain. `?=` is prohibited in Run profiles, CLI assignments, and selection declarations `.$`. After adding configuration, use `check_default_leaves.py` to check for `=` remaining in shared bases/defaults and `?=` mixed into Env-specific explicit assignments. Update the checker's classification reasons when changing a setting's role.
 
@@ -125,6 +125,8 @@ class ConfigManager
 class ConfigResolver
 class ConfigData
 class RunManager
+class RunManagerMetricsWiring["RunManager::MetricsWiring"]
+class ObserverFactory
 class BatchEnvBuilder
 class Agent
 class Notifier
@@ -140,6 +142,9 @@ ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
 RunManager *-- BatchEnvBuilder
 RunManager *-- Agent
+RunManager *-- RunManagerMetricsWiring : private
+RunManagerMetricsWiring --> ObserverFactory : 宣言を解析
+RunManagerMetricsWiring --> Notifier : scopeとeventへ購読を接続
 RunManager *-- Notifier
 RunManager *-- TrainRunner
 RunManager o-- EvalRunner
@@ -149,6 +154,12 @@ RunnerThread --> TrainRunner : stepを反復
 ```
 
 TrainRunner uses the main Train Env; each EvalRunner gets its own Env and Actor. Agent and Notifier are shared within the Run.
+
+### 5.1 Ownership of Metrics Wiring
+
+`RunManager` owns the private nested `MetricsWiring` and delegates scope resolution, one-time WARNs for dormant tags, Observer registration by event, output of attached scalar/trace definitions, and notification of scalar subscription hints during Run construction. Its declaration is inside RunManager in trainer.hpp, and its definition is in trainer.cpp. Parsing by `ObserverFactory` and value retrieval/aggregation by Observers remain separate responsibilities. Trace wiring to mirror instances created after construction is outside this mechanism.
+
+See the [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md) for validation procedures in this area.
 
 ## 6. Processing Flows
 
@@ -209,7 +220,7 @@ sequenceDiagram
     R->>A: MakeAction(state)
     A-->>R: BatchActionInfo
     R->>E: Step(action)
-    E-->>R: reward / next_state / continue_state
+    E-->>R: reward / next_state
     opt 終了したEnvがある
         R->>N: Notify EpisodeEndEvent
         N->>O: OnEpisodeEnd(event)
@@ -231,9 +242,9 @@ Events contain counts at completion of their corresponding processing; the count
 ### 6.3 Pipeline Train Step
 
 `PipelineTrainRunner` clones and retains the previous Experience and submits Learner updates to one dedicated worker.
-At the beginning of a later step, it collects completion or exceptions from the submitted update and emits `LearnEvent` and `TrainEvent` on RunnerThread. It then runs Actor inference, submits asynchronous learning for the retained Experience, and performs the current Env Step.
+At the beginning of a later step, it collects completion or exceptions from the submitted update and emits `LearnEvent` and `TrainEvent` on RunnerThread. It then runs Actor inference, submits asynchronous learning for the previous Experience, and performs the current Env Step, including automatic Reset of terminal lanes. Existing notification counts, including those of the first two calls, are preserved, and state is updated from `continue_state`.
 Neither Serial nor Pipeline implicitly calls `Actor::Sync()` from a Train step; synchronization requirements and timing belong to the concrete Actor's contract. DefaultDQN Train Actor handles periodic snapshot synchronization within `MakeAction()`; see [DQN Agents](200_dqn_agents.en.md).
-Shutdown waits for outstanding learning, stops the pool, then shuts down Env.
+Shutdown waits for outstanding learning and collects future exceptions before shutting down Env. It adds no Learn or Train notifications.
 
 ```mermaid
 sequenceDiagram
@@ -271,7 +282,7 @@ sequenceDiagram
         end
         par RunnerThread
             R->>E: Step(action)
-            E-->>R: reward / next_state / continue_state
+            E-->>R: reward / next_state
             opt 終了したEnvがある
                 R->>N: Notify EpisodeEndEvent
                 N->>O: OnEpisodeEnd(event)
@@ -292,7 +303,7 @@ The first step resets Env and submits no Learner update because no Experience is
 
 ### 6.4 Configured Eval Session
 
-`EpisodeEvalObserver` captures `StepCounts` at trigger time and passes them to `EvalRunner::RunSession()`. `RunSession()` synchronizes Actor, calls `EvalSessionEnv::Reset()`, and advances until N adopted episodes complete. Intermediate episode endings do not emit `EpisodeEndEvent`; after completion, one event is notified with the decorator Env, `env_index=-1`, and triggering counts. EvalPanel does not use the session decorator and retains step-driven execution, forced Actions, and its synchronization modes.
+`EpisodeEvalObserver` fixes `StepCounts` at trigger time and passes them to `EvalRunner::RunSession()`. After synchronizing Actor, it advances Steps until N adopted episodes complete, notifying adopted EpisodeEnds in group order after the Train notification. Each EpisodeEnd owns that Step result. The decorator accumulates adopted values from results and finally emits one SessionEnd with env_index=-1 and the triggering counts. Cancellation emits no final notification. At a session boundary, continue_state is reused if all groups are fresh. EvalPanel does not use the session decorator and retains step-driven execution, forced Actions, and synchronization modes.
 
 ## 7. Configuration, Lifetimes, Errors, and Performance
 
@@ -341,6 +352,8 @@ Use Config classes and each Run's `config/config_data.txt` as the basis for the 
 - Batch size affects the meanings of `train_step_per_sec` and `exp_step_per_sec` differently. Compare using identical settings and step axes.
 
 ## 8. Tests and Extension Checks
+
+- [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): file/Metrics master output boundaries for config text and JSON resolution metadata

@@ -59,6 +59,7 @@ EVENT_NAMES = frozenset(["train", "learn", "episode_end", "session_end"])
 TARGET_TOKENS = {
     "agent": "agent",
     "env": "env",
+    "env_step": "env_step",
     "exp": "exp",
     "batch_experience": "exp",
     "update_result": "update_result",

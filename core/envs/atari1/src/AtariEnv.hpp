@@ -20,6 +20,8 @@ namespace ale {
 
 namespace anet::rl::env {
 
+    namespace atari { class GrayscaleResizer; }
+
     /**
      * @brief 人間正規化スコアの基準表。
      *
@@ -67,6 +69,7 @@ namespace anet::rl::env {
         std::string game;
         std::string rom_dir;
         int screen_size = 84;
+        std::string resize_mode = "adaptive_average";
         int frame_skip = 4;
         bool max_pool = true;
         float repeat_action_probability = 0.25f;
@@ -89,6 +92,9 @@ namespace anet::rl::env {
             const std::string& config_prefix = "");
     };
 
+    struct AtariScalarContext;
+    class AtariEnvTestAccess;
+
     class AtariEnv final : public SingleDiscreteEnvBase, public anet::RandomHolder {
     public:
         AtariEnv(
@@ -109,6 +115,7 @@ namespace anet::rl::env {
             const std::string& key, int64_t index = -1) const override;
 
     private:
+        friend class AtariEnvTestAccess;  // RAM fixtureの初期条件設定だけに使うテスト専用の入口。
         void ValidateConfig() const;
         std::string ResolveRomPath() const;
         void ConfigureAle(const std::string& rom_path);
@@ -126,7 +133,9 @@ namespace anet::rl::env {
         void ResetAleGame();
 
         AtariEnvConfig config_;
+        std::shared_ptr<const AtariScalarContext> scalar_context_;
         torch::Device device_;
+        std::unique_ptr<atari::GrayscaleResizer> resizer_;
         std::unique_ptr<ale::ALEInterface> ale_;
         std::vector<int> action_set_;
         std::vector<std::string> action_labels_;
@@ -136,12 +145,7 @@ namespace anet::rl::env {
         int current_lives_ = 0;
         bool life_loss_pending_ = false;
 
-        bool completion_available_ = false;
-        float completed_game_score_ = 0.0f;
-        int64_t completed_game_len_ = 0;
-        int64_t completed_game_frames_ = 0;
         std::map<int64_t, RamMetricState> ram_metrics_;
-        std::map<int64_t, int64_t> completed_ram_metrics_;
 
         std::vector<uint8_t> pooled_frame_;
         torch::Tensor rgb_frame_;

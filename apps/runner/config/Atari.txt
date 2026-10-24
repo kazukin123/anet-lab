@@ -264,6 +264,9 @@ run.@v5_iqn_impala_x2      : A2.actor.[eval].policy.eps_end   = 0.01
 
 # RR は再現プロファイルが A3 に書くので、上書きも A3 で行う(A2 では届かない)。
 # half_exp_step は据え置き。per_beta_step だけが依存するので、打ち切り Run が 100M 参照 Run の prefix になる。
+# 観測の縮小だけを面積平均へ切り替える。
+run.@pixel_area : AtariEnv.resize_mode = pixel_area
+
 run.@plasticity      : app.$ = app.batchrun > P1
 run.@plasticity      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 run.@plasticity      : @vars.max_exp_step = 20,000,000   # RR4 の谷 18.5M を含む
@@ -1175,6 +1178,7 @@ AtariEnv.@100k.fire_reset = false
 AtariEnv.game ?= pong
 AtariEnv.rom_dir ?=                            # 空 = 環境変数 ATARI_ROM_DIR を参照
 AtariEnv.screen_size ?= 84
+AtariEnv.resize_mode ?= adaptive_average
 AtariEnv.frame_skip ?= 4
 AtariEnv.max_pool ?= true
 AtariEnv.reward_clip ?= true
@@ -1256,37 +1260,37 @@ metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
 
 # metrics.trace.[tag] = $target @episode_end key1 [key2 ...] [$step] [$train | $eval.[name]]
 metrics.trace.$ = metrics.trace.@atari
-metrics.trace.@atari.[51_eval1/episode] = $eval.[eval_target] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
-metrics.trace.@atari.[52_eval2/episode] = $eval.[eval] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
-metrics.trace.@atari.[53_evalg/episode] = $eval.[greedy_dist] @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
-metrics.trace.@atari.[42_env/episode]  = $train @episode_end $env game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy_dist] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 
-M1.[42_env/10_game_score_mean]      = $env mean.game_score  @train $exp_step
-M1.[42_env/11_game_score_mean_ema]  = $env mean.game_score  @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/12_hns57_mean]           = $env mean.hns57       @train $exp_step
-M1.[42_env/13_hns57_mean_ema]       = $env mean.hns57       @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/14_hns49_mean]           = $env mean.hns49       @train $exp_step
-M1.[42_env/15_hns49_mean_ema]       = $env mean.hns49       @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/20_game_len_mean]        = $env mean.game_len    @train $exp_step
-M1.[42_env/21_game_len_mean_ema]    = $env mean.game_len    @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/22_game_frames_mean]     = $env mean.game_frames @train $exp_step
-M1.[42_env/23_game_frames_mean_ema] = $env mean.game_frames @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/30_lives_mean]           = $env mean.lives       @train $exp_step
-M1.[42_env/31_lives_mean_ema]       = $env mean.lives       @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/10_game_score_mean]      = $env_step mean.game_score  @episode_end $exp_step
+M1.[42_env/11_game_score_mean_ema]  = $env_step mean.game_score  @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/12_hns57_mean]           = $env_step mean.hns57       @episode_end $exp_step
+M1.[42_env/13_hns57_mean_ema]       = $env_step mean.hns57       @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/14_hns49_mean]           = $env_step mean.hns49       @episode_end $exp_step
+M1.[42_env/15_hns49_mean_ema]       = $env_step mean.hns49       @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/20_game_len_mean]        = $env_step mean.game_len    @episode_end $exp_step
+M1.[42_env/21_game_len_mean_ema]    = $env_step mean.game_len    @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/22_game_frames_mean]     = $env_step mean.game_frames @episode_end $exp_step
+M1.[42_env/23_game_frames_mean_ema] = $env_step mean.game_frames @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/30_lives_mean]           = $env_step mean.lives       @train $exp_step
+M1.[42_env/31_lives_mean_ema]       = $env_step mean.lives       @train $exp_step $ema ema_alpha:0.001
 
 # RAM メトリクス。番号 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数(220 §4.9)
-M1.[42_env/50_ram_metric_1_mean]     = $env mean.ram_metric.[1] @train $exp_step
-M1.[42_env/51_ram_metric_1_mean_ema] = $env mean.ram_metric.[1] @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/52_ram_metric_2_mean]     = $env mean.ram_metric.[2] @train $exp_step
-M1.[42_env/53_ram_metric_2_mean_ema] = $env mean.ram_metric.[2] @train $exp_step $ema ema_alpha:0.001
-M1.[42_env/54_ram_metric_3_mean]     = $env mean.ram_metric.[3] @train $exp_step
-M1.[42_env/55_ram_metric_3_mean_ema] = $env mean.ram_metric.[3] @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/50_ram_metric_1_mean]     = $env_step mean.ram_metric.[1] @episode_end $exp_step
+M1.[42_env/51_ram_metric_1_mean_ema] = $env_step mean.ram_metric.[1] @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/52_ram_metric_2_mean]     = $env_step mean.ram_metric.[2] @episode_end $exp_step
+M1.[42_env/53_ram_metric_2_mean_ema] = $env_step mean.ram_metric.[2] @episode_end $exp_step $ema ema_alpha:0.001
+M1.[42_env/54_ram_metric_3_mean]     = $env_step mean.ram_metric.[3] @episode_end $exp_step
+M1.[42_env/55_ram_metric_3_mean_ema] = $env_step mean.ram_metric.[3] @episode_end $exp_step $ema ema_alpha:0.001
 
-M1.[42_env/16_game_score_max]       = $env max.game_score   @train $exp_step   # mean の分母は完了 env 数なのでゲーム長が短いほどピークを潰す(§4.7)
-M1.[42_env/24_game_len_max]         = $env max.game_len     @train $exp_step
-M1.[42_env/56_ram_metric_1_max]     = $env max.ram_metric.[1] @train $exp_step
-M1.[42_env/57_ram_metric_2_max]     = $env max.ram_metric.[2] @train $exp_step
-M1.[42_env/58_ram_metric_3_max]     = $env max.ram_metric.[3] @train $exp_step
+M1.[42_env/16_game_score_max]       = $env_step max.game_score   @episode_end $exp_step   # mean の分母は完了 env 数なのでゲーム長が短いほどピークを潰す(§4.7)
+M1.[42_env/24_game_len_max]         = $env_step max.game_len     @episode_end $exp_step
+M1.[42_env/56_ram_metric_1_max]     = $env_step max.ram_metric.[1] @episode_end $exp_step
+M1.[42_env/57_ram_metric_2_max]     = $env_step max.ram_metric.[2] @episode_end $exp_step
+M1.[42_env/58_ram_metric_3_max]     = $env_step max.ram_metric.[3] @episode_end $exp_step
 
 M1.[51_eval1/10_game_score_mean]      = $eval.[eval_target] @session_end $env mean.game_score
 M1.[51_eval1/11_game_score_mean_ema]  = $eval.[eval_target] @session_end $env mean.game_score  $ema ema_alpha:0.1
@@ -1355,10 +1359,10 @@ M1.[53_evalg/58_ram_metric_3_max]     = $eval.[greedy_dist] @session_end $env ma
 
 # --- Breakout 固有(1 画面 = 18 ×(1+1+4+4+7+7) = 432、2 画面 = 864) ---
 
-metrics.scalar.@breakout.[42_env/40_game_score_ge432]     = $env mean.game_score.ge.[432] @train $exp_step
-metrics.scalar.@breakout.[42_env/41_game_score_ge432_ema] = $env mean.game_score.ge.[432] @train $exp_step $ema ema_alpha:0.001
-metrics.scalar.@breakout.[42_env/42_game_score_ge600]     = $env mean.game_score.ge.[600] @train $exp_step
-metrics.scalar.@breakout.[42_env/43_game_score_ge600_ema] = $env mean.game_score.ge.[600] @train $exp_step $ema ema_alpha:0.001
+metrics.scalar.@breakout : [42_env/40_game_score_ge432]     = $env_step mean.game_score.ge.[432] @episode_end $exp_step
+metrics.scalar.@breakout : [42_env/41_game_score_ge432_ema] = $env_step mean.game_score.ge.[432] @episode_end $exp_step $ema ema_alpha:0.001
+metrics.scalar.@breakout : [42_env/42_game_score_ge600]     = $env_step mean.game_score.ge.[600] @episode_end $exp_step
+metrics.scalar.@breakout : [42_env/43_game_score_ge600_ema] = $env_step mean.game_score.ge.[600] @episode_end $exp_step $ema ema_alpha:0.001
 
 metrics.scalar.@breakout.[51_eval1/40_game_score_ge432]     = $eval.[eval_target] @session_end $env mean.game_score.ge.[432]
 metrics.scalar.@breakout.[51_eval1/41_game_score_ge432_ema] = $eval.[eval_target] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
@@ -1417,3 +1421,7 @@ app.online.eval_panel.fps = 14.5
 app.online.train_panel.fps = 10
 
 QValuePanel.row_height = 20
+
+# 遷移結果の得点・残機を履歴へ並べる。
+app.eval_trace_panel.columns.[20] = $env_step game_score
+app.eval_trace_panel.columns.[21] = $env_step lives

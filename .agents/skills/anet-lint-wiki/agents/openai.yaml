@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Wiki Lint"
+  short_description: "wikiの取り込み漏れ・撤回・リンクを点検し、実装の地図の一覧を再生成する"
+  default_prompt: "$anet-lint-wiki を使って、wikiの規約に従い点検を行ってください。"

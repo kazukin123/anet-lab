@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <mutex>
 #include <cstdint>
 #include <cctype>
 #include <chrono>
@@ -356,8 +357,12 @@ namespace anet::rl {
 
     class SingleEnvResult {
     public:
-        virtual AuxData GetAuxData() const { return AuxData(); }
+        explicit SingleEnvResult(AuxData aux = {}) : aux_(std::move(aux)) {}
+        virtual AuxData GetAuxData() const { return aux_; }
+        virtual std::optional<float> GetScalar(const std::string& key) const;
         virtual ~SingleEnvResult() = default;
+    protected:
+        AuxData aux_;  ///< 結果の時点の値を所有し、scalarの読出しでは複製しない。
     };
 
     class SingleResetResult : virtual public SingleEnvResult {
@@ -501,7 +506,7 @@ namespace anet::rl {
     };
 
     // 行動選択時の情報
-    class BatchActionInfo : public anet::graphviz::GraphVizProvider {
+    class BatchActionInfo : public anet::ModuleBase, public anet::graphviz::GraphVizProvider {
     public:
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
@@ -527,6 +532,7 @@ namespace anet::rl {
         }
 
         torch::Tensor GetAction(torch::Device device) const;
+        std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
             return std::make_shared<BatchActionInfo>(
@@ -579,6 +585,8 @@ namespace anet::rl {
     public:
         BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_episode_end_in);
         std::string ToString() const;
+        virtual std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const;
+        const torch::Tensor& GetEpisodeEndMask() const;
 
         virtual ~BatchStepResult() = default;
     public:
@@ -587,6 +595,9 @@ namespace anet::rl {
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_episode_end;     ///< 今回のStepにおけるエピソード終了カウント数
+    private:
+        mutable std::once_flag episode_end_once_;
+        mutable torch::Tensor episode_end_cpu_;
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -677,7 +688,7 @@ namespace anet::rl {
         virtual torch::Device GetDevice() const = 0;
 
         virtual std::shared_ptr<const BatchResetResult> Reset() = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< 遷移の結果を新規に返し、後のStepやResetで値を書き換えない
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -744,10 +755,37 @@ namespace anet::rl {
 
     struct ScalarMetricSubscription;
 
+    struct AgentStepDiagnosticsCompletion {
+        int64_t lane = 0;
+        int64_t steps_back = 0;
+        std::vector<std::string> resolved_keys;
+        std::unique_ptr<const anet::Module> values; ///< 対象1行をGetScalar(key, 0)で読む所有値。
+    };
+
+    struct AgentStepDiagnosticsResult {
+        std::unique_ptr<const anet::Module> current; ///< batchをGetScalar(key, lane)で読む所有値。
+        std::vector<std::vector<std::string>> pending_keys; ///< lane別。NaNとは独立に遅延確定を示す。
+        std::vector<AgentStepDiagnosticsCompletion> completed;
+    };
+
+    /// Agent固有のstep診断値を生成し、laneごとの系列窓を所有する。
+    /// pendingに示す鍵もcurrentでは既知の鍵としてNaNを返す。
+    /// pendingの鍵は値が成立しなかった場合もNaNで確定を返し、必ず待機を終える。
+    class AgentStepDiagnosticsProvider {
+    public:
+        virtual AgentStepDiagnosticsResult Observe(const BatchExperience& experience) = 0;
+        virtual void Reset() = 0;
+        virtual ~AgentStepDiagnosticsProvider() = default;
+    };
+
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
         virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
+        virtual std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const
+        {
+            return nullptr;
+        }
         virtual torch::Device GetDevice() const = 0;
         virtual void ConfigureScalarMetricSubscriptions(
             const std::vector<ScalarMetricSubscription>& subscriptions)
@@ -918,9 +956,11 @@ namespace anet::rl {
         AGENT,
         ACTOR,
         ENV,
+        ENV_STEP,
         UPDATE_RESULT,
         RUNNER,
         ACTION_INFO,
+        AGENT_STEP,
     };
 
     struct ScalarMetricSubscription {
@@ -955,6 +995,7 @@ namespace anet::rl {
         const std::shared_ptr<const Agent> agent;
         const std::shared_ptr<const BatchEnv> env;
         int env_index;
+        const std::shared_ptr<const BatchStepResult> step_result;
     };
 
     struct SessionEndEvent {

@@ -255,10 +255,6 @@ _Avoid_: Env ID, Env key, role, context
 AgentがActor生成時に、対象EnvのEnvSpecを入力・出力として受理できるか判断する契約。Train EnvとEval EnvのEnvSpecが同一であること自体は全Agent共通の要件ではなく、汎用的な同一I/O判定はAgentが選べる補助手段として扱う。
 _Avoid_: Env間互換性, RunManager compatibility, canonical EnvSpec
 
-**終わったエピソードのリセット**（ended-episode reset）:
-Runner が Step の通知を済ませたあと、次の判断の前に毎回呼ぶ BatchEnv の段（`ResetEndedEpisodes()`）で、直前の Step で終わった episode group だけを新しいエピソードの開始状態にし、全 lane の次の判断の状態を返す。Step 自身はリセットしないので、通知の間の env は遷移のあと・リセット前にある。
-_Avoid_: 自動リセット, auto-reset（Step の中でリセットする旧来の形）, continue_state
-
 ### DropMerge終局診断
 
 **NoLegal candidate**:
@@ -306,7 +302,7 @@ Atariゲームのモード×難易度の組合せ（`setMode`/`setDifficulty`、
 _Avoid_: game variant, ステージ
 
 **生スコア**:
-reward clip適用前の環境スコア。AtariEnvでは`game_score`（GetScalar、実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。集計単位はRLのエピソードではなくゲーム1回であり、`episodic_life=true`では両者が一致しない。
+reward clip適用前の環境スコア。AtariEnvでは`game_score`（Step結果のGetScalar、通常は速報値・実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。集計単位はRLのエピソードではなくゲーム1回であり、`episodic_life=true`では両者が一致しない。
 _Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）, episode_score（旧キー名。エピソード単位と誤読させる）
 
 **人間正規化スコア**（HNS）:
@@ -506,6 +502,10 @@ _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レ�
 **trace**（トレース）:
 統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの層別activationを可視化へ流す`TraceCallback`（activationタップ）とは別概念。
 _Avoid_: activationトレース（`TraceCallback`側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
+
+**速報値／確定値**:
+Step の結果から読む env の値の、読むイベントで決まる意味。`@train` で読むとその step の途中の値（速報値）、`@episode_end` で読むとそのエピソードの終わりの値（確定値）になる。
+_Avoid_: 完了値（鍵の名前で区別する旧来の言い方）, 現在値（env への問い合わせが返す今の状態と紛れる）
 
 **query channel**:
 Metrics Viewerのmetrics queryの発行系列で、1つのブラウザタブに対応する。ページロード時に生成した識別子と、そのタブ内で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けばchannelは2つになる。

@@ -71,6 +71,7 @@ namespace anet::rl::env {
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
     private:
         void GenerateGridMap();
+        bool HasReachableGoal() const;
         std::vector<float> GetObservation() const;
         anet::rl::AuxData MakeAuxData() const;
     private:
@@ -79,18 +80,13 @@ namespace anet::rl::env {
 
         std::vector<std::vector<Cell>> map_;
         seed_t current_seed_;
+        bool regeneration_notice_checked_ = false;
         int pos_x_, pos_y_;
         int step_count_;
         int wall_collisions_;
         float ep_reward_sum_;
         bool done_, truncated_, episode_start_;
-        bool episode_just_ended_ = false;
 
-        // メトリクス提供用の直近エピソード結果保持
-        float last_reward_sum_ = 0.0f;
-        float last_is_success_ = 0.0f;
-        float last_is_hole_ = 0.0f;
-        float last_wall_collisions_ = 0.0f;
     };
 
     class GridMazeEnvFactory : public anet::rl::SingleDiscreteEnvFactory {

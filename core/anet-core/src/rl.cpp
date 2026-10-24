@@ -1,5 +1,6 @@
 #include "anet/rl.hpp"
 #include <stdexcept>
+#include <charconv>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 
@@ -413,6 +414,33 @@ const torch::Tensor& ReplayInitialPriorityHint::GetPayloadCpu() const
         payload_cpu_ = payload_cpu_.contiguous();
     }
     return payload_cpu_;
+}
+
+std::optional<float> BatchActionInfo::GetScalar(const std::string& key, int64_t lane) const
+{
+    // lane指定の実行行動だけを共通に読み、scalar集計は派生型へ任せる。
+    if (lane < 0 || (key != "action" && !key.starts_with("action.["))) return std::nullopt;
+    const auto action = GetAction(torch::kCPU);
+    ANET_CHECK_MSG(action.defined() && lane < action.size(0),
+        "Invalid action scalar lane. key='" << key << "' lane=" << lane << " expected=an existing lane.");
+    if (key == "action") {
+        ANET_CHECK_MSG(action.dim() == 1,
+            "Continuous action requires action.[dimension]. key='" << key << "' expected=action.[dimension].");
+        return action[lane].item<float>();
+    }
+    // 次元指定は文字列全体を解析し、suffixや負値・範囲外を受理しない。
+    int64_t dimension = -1;
+    bool valid = key.size() > 9 && key.ends_with("]");
+    if (valid) {
+        const auto end = key.data() + key.size() - 1;
+        const auto parsed = std::from_chars(key.data() + 8, end, dimension);
+        valid = parsed.ec == std::errc{} && parsed.ptr == end;
+    }
+    if (!valid || action.dim() != 2 || dimension < 0 || dimension >= action.size(1)) {
+        ANET_SYSTEM_ERROR("Invalid continuous action dimension. key='" << key
+            << "' expected=action.[integer dimension] within the action shape.");
+    }
+    return action[lane][dimension].item<float>();
 }
 
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
@@ -1165,4 +1193,30 @@ void Notifier::LogObservers() const
         LOG::info() << "Notifier: SESSION_END [" << idx << "] " << obs->ToString();
         idx++;
     }
+}
+
+// 結果が所有するauxのスカラーだけを読み、非スカラーは未知の読出しとして扱う。
+std::optional<float> SingleEnvResult::GetScalar(const std::string& key) const
+{
+    const auto found = aux_.find(key);
+    if (found == aux_.end() || !found->second.defined() || found->second.numel() != 1) return std::nullopt;
+    return found->second.item<float>();
+}
+
+const torch::Tensor& BatchStepResult::GetEpisodeEndMask() const
+{
+    // 初回の並行読出しも同期し、公開値を変えずにCPU転送を結果ごとに一度へまとめる。
+    std::call_once(episode_end_once_, [this]() {
+        episode_end_cpu_ = next_state.done.logical_or(next_state.truncated).to(torch::kCPU).contiguous();
+    });
+    return episode_end_cpu_;
+}
+
+std::optional<float> BatchStepResult::GetScalar(const std::string& key, int64_t lane) const
+{
+    if (lane < 0 || lane >= reward.size(0)) return std::nullopt;
+    if (key == "reward") return reward[lane].item<float>();
+    if (key == "done") return next_state.done[lane].item<float>();
+    if (key == "truncated") return next_state.truncated[lane].item<float>();
+    return std::nullopt;
 }

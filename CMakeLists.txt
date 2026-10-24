@@ -109,7 +109,15 @@ if (MSVC)
     add_compile_options(/wd4267)   # warning C4267を無効化
     add_compile_options(/w14996)   # warning C4996(deprecated)を有効化 
 
+    # Release の最適化を維持し、ダンプ解析用の完全な PDB を生成する。
+    add_compile_options($<$<CONFIG:Release>:/Zi>)
     add_link_options(/INCREMENTAL)
+    add_link_options(
+        $<$<CONFIG:Release>:/DEBUG:FULL>
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+        $<$<CONFIG:Release>:/INCREMENTAL:NO>
+    )
 
     add_definitions(-DWIN32_LEAN_AND_MEAN)
 endif()

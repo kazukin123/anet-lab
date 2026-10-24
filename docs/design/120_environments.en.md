@@ -1,4 +1,4 @@
-<!-- translated-from: 120_environments.jp.md blob:001af9d7eba0bd63040d8d69347aa5f83a4e98e3 date:2026-10-07 progress:done -->
+<!-- translated-from: 120_environments.jp.md blob:a869ad75ffbbbda25c2d667e4328e27449ffa40c date:2026-10-23 progress:done -->
 # Environments
 
 > Primary perspective: function (Env, with internal processing stages in chronological order)
@@ -35,14 +35,17 @@ Standard Observation keys are `vector`, `grid`, and `action_mask`. `action_mask`
 
 `BatchEnvSpec` contains `num_envs`, `num_threads`, and `episode_scope`. With `episode_scope=PER_LANE`, each lane is one episode group; with `SHARED`, the entire batch is one episode group. JSON uses `per_lane` / `shared`.
 
-### 2.2 Reset and Step
+### 2.2 Reset, Step, and Result Ownership
 
-- Env fixes `RunMode` at creation and exposes it through `GetRunMode()`.
-- `Reset()` starts an episode and returns its initial State.
-- `Step(Action)` applies an Action and returns the next State, Reward, and termination information.
-- Reset sets `episode_start` to true for all episode groups. Step keeps `done`, `truncated`, and `continue_state.episode_start` consistent within each group, satisfying `continue_state.episode_start == (done || truncated)` and `n_episode_end == number of completed groups`. `done && truncated` is allowed.
-- Train/Eval-specific randomness, augmentation, and termination are separated by the creation-time `RunMode`. There is no path to pass a different mode per call.
-- Some wrapper BatchEnvs still reuse result buffers; callers retaining results across later Steps must check each implementation's contract. Native ImageCls returns fresh Tensors on every Reset/Step and transfers ownership to the caller.
+- Env fixes its `RunMode` at construction and exposes it through `GetRunMode()`.
+- `Reset()` returns the initial State. `Step(Action)` advances the transition and automatically Resets only terminal lanes within the same call. The ThreadPool implementation performs Step and Reset on the same worker.
+- `BatchStepResult::next_state` holds the transition before Reset; `continue_state` is the state for the next action. Continuing lanes share the same observation, while terminal lanes use the post-Reset observation.
+- A full Reset sets `episode_start` to true for every group. Step keeps done/truncated consistent within each group and satisfies `n_episode_end == number of completed groups` and `continue_state.episode_start == (done || truncated)`. `done && truncated` is allowed.
+- Step results are newly created on every call. A single-Env result owns that Step's aux and statistics, which remain unchanged after automatic Reset or later Steps. Aux arrays retain one entry per lane, including empty lanes. Wrapper full Reset still reuses some result buffers.
+- The default `SingleEnvResult::GetScalar(key)` implementation reads scalar values from its owned aux. `BatchStepResult::GetScalar(key, lane)` handles reward/done/truncated; wrappers delegate to the lane's single result. Native SHARED Envs answer batch values at lane=-1. ImageCls reward is the sum over valid lanes, and done/truncated represents the group's shared termination.
+- Known but unavailable values return NaN; unknown or nonscalar keys return nullopt. Results also answer derived and parameterized keys themselves without copying all aux for every scalar.
+- Queries to the Env itself return its current state, not transition-result values. Train/EpisodeEnd consumers read the Step result owned by the notification.
+- Train/Eval-specific randomness, augmentation, and termination are separated by the `RunMode` fixed at construction.
 
 ### 2.3 Single and Batch
 
@@ -54,7 +57,7 @@ Ordinary concrete Envs inherit `SingleDiscreteEnvBase`; `BatchEnvBuilder` batche
 - `VectorizedDiscreteBatchEnv`: executes multiple Envs sequentially on the calling thread.
 - `ThreadPoolDiscreteEnv`: executes multiple Envs in parallel through a thread pool.
 
-ImageCls is a native batch Env directly inheriting `BatchEnvBase`. `ImageDataSource` constructs fixed-B Tensors from a Dataset without creating N single Envs or using wrapper collation. Train uses `PER_LANE`; Eval uses `SHARED`. At an eval-window boundary, it sets every lane's `done` and `continue_state.episode_start` and returns `n_episode_end=1`.
+ImageCls is a native batch Env directly inheriting `BatchEnvBase`. `ImageDataSource` constructs fixed-B Tensors from a Dataset without creating N single Envs or using wrapper collation. Train uses `PER_LANE`; Eval uses `SHARED`. At an eval-window boundary, it sets every lane's `done` and returns `n_episode_end=1`, setting every lane's `episode_start` in the continue_state returned by the same Step. Data prefetching also occurs inside Step, providing prefetched observations for the next action.
 
 ImageCls configuration requires standard Train/Eval Sources as a pair. Train uses `ImageClsEnv.train.dataset_key` and `ImageClsEnv.train.augment.*`; Eval uses `ImageClsEnv.eval.dataset_key` and `ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`. Untagged Eval uses standard Eval configuration; configured Eval overlays only required fields through `run.eval.[tag].env.eval.*`. Factory validates both manifests during Env construction, but image decoding and cache preparation are deferred until the selected Source is used.
 
@@ -101,7 +104,7 @@ Both Bases also hold protected `anet::log::Logger log`, constructing the prefix 
 | CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | Vector |
 | LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | Vector, Box2D physical state |
 | DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | Grid and vector, Box2D physical state |
-| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | Primarily vector-based maze state |
+| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | Vector-based maze state with guaranteed reachability; unsolvable seeds are deterministically resampled |
 | ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | Image grid and classification target |
 | Atari | [core/envs/atari1](../../core/envs/atari1) | Single-frame uint8 grid from ALE |
 
@@ -183,11 +186,16 @@ sequenceDiagram
     R->>B: Step(action_info)
     B->>E: laneごとのActionでStep
     Note over B,E: ThreadPool実装では並列実行
-    E-->>B: SingleStepResult
-    B-->>R: Reward・終端・次Stateを集約
+    E-->>B: SingleStepResult（遷移値を所有）
+    opt 終端lane
+        B->>E: Reset()
+        E-->>B: SingleResetResult
+    end
+    B-->>R: Reward・next_state・continue_state
+    Note over R,E: 通知はStep結果を読み、次行動はcontinue_stateを使う
 ```
 
-Batch-wrapper and Runner contracts determine when completed episode groups are reset and how `episode_start` is handled. `EpisodeStatsAccumulator` finalizes episode return and episode_steps together as `CompletedEpisodeResult`. Return is per lane for `PER_LANE`, or the sum of rewards across all lanes and steps for `SHARED`. episode_steps counts `Step()` calls including the terminal one; it is not multiplied by lane count even for `SHARED`. Configured Eval's `EvalSessionEnv` uses dynamic grants to adopt exactly N episodes and reuses the preceding `continue_state` as the next session's Reset result only when all groups are fresh. Concrete Envs focus on state transitions and Reward calculation within one episode.
+Batch-wrapper and Runner contracts determine when completed episode groups are reset and how `episode_start` is handled. `EpisodeStatsAccumulator` finalizes episode return and episode_steps together as `CompletedEpisodeResult`. Return is per lane for `PER_LANE`, or the sum of rewards across all lanes and steps for `SHARED`. episode_steps counts `Step()` calls including the terminal one; it is not multiplied by lane count even for `SHARED`. Configured Eval's `EvalSessionEnv` uses dynamic grants to adopt exactly N episodes, accumulates values through GetScalar on adopted Step results, and reuses the saved continue_state with empty aux as the next session's Reset result only when all groups are fresh. Otherwise it performs a full Reset. Concrete Envs focus on state transitions and Reward calculation within one episode.
 
 ### 6.2 Construction
 
@@ -225,25 +233,37 @@ Each factory reads Env-specific settings from the same ConfigData. Unknown class
 - Env Reset/Step are major profiling boundaries; compare worker counts together with `exp_step_per_sec`.
 - Different Env and Agent devices incur transfer costs. Check supported devices in both configuration and each Env's implementation.
 
+### 7.4 GridMaze Maze Generation
+
+Every Reset adopts a maze whose goal is reachable from the start without crossing walls or holes. Solvable seeds retain the existing cell generation and RNG consumption order. Unsolvable candidates are regenerated using `splitmix64(seed + k)` for k=1..1000. If the initial candidate and all 1000 retries fail, the error identifies the seed, dimensions, densities, coordinates and retry limit.
+
+Dimensions must be positive; each coordinate must be `-1` or inside its axis. Identical fixed start/goal coordinates and an empty random-start candidate set are errors. A randomly chosen goal coinciding with a fixed start triggers a retry. The aux `seed` is the actual accepted seed and reproduces the maze when configured again. The displayed seed uses unsigned decimal notation throughout the configurable range. Fixed-seed retries emit an INFO notice with the input seed, retry count and accepted seed. A synchronized process-wide record, explicitly allowed only within GridMaze, suppresses repeated notices for the same configured seed across instances. Automatic seeds emit no such notice.
+
 ## 8. Tests and Extension Checks
 
 When adding or modifying an Env, check the following:
 
 1. `EnvSpec` shapes, dtypes, Actions, and Reward ranges match actual data.
 2. The reproducibility contract for identical seeds and settings is explicit.
-3. State flags are validated immediately after Reset, on ordinary Steps, and for terminated/truncated states.
+3. Validate next_state/continue_state and result immutability immediately after Reset, on ordinary Steps, and for terminated/truncated states.
 4. Batch wrappers aggregate correctly for both B=1 and multiple lanes.
 5. Semantics remain identical between `VectorizedDiscreteBatchEnv` and `ThreadPoolDiscreteEnv`.
 6. An added View's Env class ID matches its `ViewRepository` registration.
 7. Frequently called Reset/Step operations have meaningful profiling ranges.
 
+See the [PRD097 validation resources](../../core/anet-core/testdata/prd097/README.md) for acceptance procedures covering scalar/tensor values during notifications, aux lane alignment, result immutability, notification order by Runner type, reproducibility, and performance.
+
 These Envs have dedicated tests:
 
 - [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
+- [DropMergeEnv_test.cpp](../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
+- [GridMazeEnv_test.cpp](../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
 - [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
 - [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
 
 Concrete single-Env tests also include paths through `VectorizedDiscreteBatchEnv`. ImageCls tests directly validate native batches, Dataset catalogs/caches, eval windows, and worker modes. When changing an Env or wrapper, add regression tests explicitly selecting the required worker modes.
+
+See the [PRD100 validation assets](../../core/anet-core/testdata/prd100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
 
 ## 9. Related Documents
 
@@ -255,3 +275,15 @@ Concrete single-Env tests also include paths through `VectorizedDiscreteBatchEnv
 - [Glossary](../../CONTEXT.md)
 - [ImageCls Batch Input PRD](../memo/done/034_imagecls_batch_input_10prd.md)
 - [ImageCls Batch Env Seam ADR](../adr/0009-imagecls-batch-env-seam.md)
+
+### Transition Statistics in Concrete Envs
+
+| Env | Step-result keys | Ordinary Step | Terminal Step | Env itself |
+|---|---|---|---|---|
+| GridMaze | reward_sum, wall_collisions | Cumulative provisional values | Final values | Unknown |
+| GridMaze | is_success, is_hole | NaN | 0/1 derived from terminal reward | Unknown |
+| DropMerge | Cumulative statistics including ep_step, ep_max_rank, ep_mean_settle_steps, ep_max_settle_steps, ep_mean_blocked_frames, ep_max_blocked_frames, ep_same_drop_col_ratio, ep_double_suika_created, ep_double_suika_achieved, ep_blocked_run_count | Current cumulative values; NaN when unavailable | Final values | Unknown |
+| DropMerge | ep_end_fruit_count, term_reason_*, blocked_drop_on_candidate, no_drop_timeout_on_candidate, ep_terminal_blocked_frames | NaN | Final values | Unknown |
+| ImageCls | accuracy, epoch_count | Snapshot of the latest scoring window; accuracy is NaN before the first window completes | Final window values | Current overall values are also exposed |
+
+DropMerge retains the same statistical formulas and floating-point operation order as before values moved into results. View aux last_score/last_step/last_term_reason and reward history are preserved. ImageCls prefetches once inside Step, while the result retains values for the scored window. DropMerge and LunarLander results own transition-time native rendering values and convert them to Tensors only when display is requested. They retain no borrowed reference to the original Env.

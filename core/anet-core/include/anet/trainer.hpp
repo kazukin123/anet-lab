@@ -78,6 +78,7 @@ namespace anet::rl {
         anet::ScalarSampleAccumulator completed_episode_returns_;
         anet::ScalarSampleAccumulator completed_episode_steps_;
         bool last_step_had_episode_end_ = false;
+        std::vector<CompletedEpisodeResult> last_completed_episodes_;
     };
 
 
@@ -111,8 +112,9 @@ namespace anet::rl {
         void RunSession(const StepCounts& event_counts, std::stop_token stop = {});
 
     private:
-        StepCounts DoStepInternal(
+        std::shared_ptr<const BatchStepResult> DoStepInternal(
             int64_t action, const StepCounts& event_counts, bool notify_episode_end);
+        const ActionSpec action_spec_;
         std::shared_ptr<EvalSessionEnv> session_env_;
         StepCounts source_counts_;
     };
@@ -242,6 +244,7 @@ namespace anet::rl {
         void LogEnvConfig(const BatchEnv& env);
     private:
         // パラメータ
+        class MetricsWiring;
         struct Config;
         std::unique_ptr<Config> config_;
         std::string env_class_id_;
@@ -254,7 +257,7 @@ namespace anet::rl {
         std::unordered_map<std::string, std::shared_ptr<EvalRunner>> eval_runners;
         std::unordered_map<std::string, std::string> env_name_owners_;
         std::unordered_set<std::string> dormant_eval_tags_;
-        std::unordered_set<std::string> warned_dormant_metric_tags_;
+        std::unique_ptr<MetricsWiring> metrics_wiring_;
         std::unordered_map<std::string, RunMode> configured_eval_run_modes_;
         std::unordered_map<std::string, std::string> configured_actor_keys_;
         std::unordered_set<std::string> warned_unsupported_env_config_names_;

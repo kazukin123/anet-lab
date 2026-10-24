@@ -16,6 +16,7 @@
 #include "TrainPanel.hpp"
 #include "EvalPanel.hpp"
 #include "QValuePanel.hpp"
+#include "EvalTracePanel.hpp"
 
 class RunnerFrame final : public anet::rl::gui::AuiLayoutFrame {
 public:
@@ -46,6 +47,8 @@ protected:
 
     // AuiLayoutFrame フック
     void OnApplyLayoutPolicy() override;
+    void OnPaneHiding(wxAuiPaneInfo& pane) override;
+    void OnPaneShowing(wxAuiPaneInfo& pane) override;
 private:
     enum class AlwaysOnTopMode {
         Off,
@@ -100,6 +103,7 @@ private:
     EvalPanel* eval_panel_ = nullptr;
     LogPanel* log_panel_ = nullptr;
     QValuePanel* q_value_panel_ = nullptr;
+    EvalTracePanel* eval_trace_panel_ = nullptr;
     wxAuiToolBar* run_control_toolbar_ = nullptr;
     wxAuiToolBar* step_toolbar_ = nullptr;
     wxAuiToolBar* run_ops_toolbar_ = nullptr;

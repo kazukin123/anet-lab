@@ -17,6 +17,7 @@
 #include "anet/tensor_util.hpp"
 #include "anet/str_util.hpp"
 #include "anet/replay_buffer.hpp"
+#include "replay_buffer_impl.hpp"
 #include "anet/image.hpp"
 #include "anet/metrics_logger.hpp"
 #include "nn_heads.hpp"
@@ -344,6 +345,32 @@ torch::Tensor anet::rl::dqn::PackActorQHint(
     return torch::stack({ actor_q_sa, actor_state_value, munchausen_term }, 1).to(torch::kFloat32).contiguous();
 }
 
+ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
+    const torch::Tensor& action, const ActorQHintConfig& config)
+{
+    ANET_PROFILE_FUNC();
+    // 既存Actorと同じgather/maxと平均Q近似を使い、forwardを追加しない。
+    if (action.device() != q_values.device()) {
+        ANET_SYSTEM_ERROR("actor_approx action and q_values must share a device. action="
+            << action.device() << " q_values=" << q_values.device());
+    }
+    auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+    auto state_value = std::get<0>(q_values.max(1));
+    auto terms = torch::zeros_like(q_values);
+    if (config.munchausen.enabled) {
+        // log_policy_modeはLearner専用。Actorは常に既存のaction scoreから近似する。
+        const auto& munchausen = config.munchausen;
+        const auto real_score = config.use_tbo ? TransformHInv(q_values, config.tbo_epsilon) : q_values;
+        const auto scaled_log = MakeScaledLogPolicy(real_score, munchausen.entropy_tau);
+        const auto soft_value = ((scaled_log / munchausen.entropy_tau).exp() * (real_score - scaled_log)).sum(1);
+        state_value = config.use_tbo ? TransformH(soft_value, config.tbo_epsilon) : soft_value;
+        terms = munchausen.alpha * scaled_log.clamp(munchausen.clip_value_min, 0.0f);
+    }
+    // OFFも第3列ゼロの同じschemaを運び、WithAction用の全行動bonusを保持する。
+    const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+    return { .payload = PackActorQHint(q_sa, state_value, bonus), .munchausen_terms = terms };
+}
+
 ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
 {
     // tensor carrierからDQN列を取り出す境界で、共通層が扱わないschemaを検証する。
@@ -429,6 +456,162 @@ std::unique_ptr<anet::rl::InitialPriorityEstimator> anet::rl::dqn::CreateInitial
 {
     return std::make_unique<DqnInitialPriorityEstimator>(config);
 }
+
+namespace {
+
+struct DqnDiagnosticRow {
+    float q_sa = std::numeric_limits<float>::quiet_NaN();
+    float state_value = std::numeric_limits<float>::quiet_NaN();
+    float approx_priority = std::numeric_limits<float>::quiet_NaN();
+};
+
+// DQN固有のキーと値を所有し、共通の診断契約へはModuleだけを公開する。
+class DqnAgentStepDiagnosticsValues final : public anet::ModuleBase {
+public:
+    explicit DqnAgentStepDiagnosticsValues(std::vector<DqnDiagnosticRow> rows) : rows_(std::move(rows)) {}
+    std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+    {
+        float DqnDiagnosticRow::* member = nullptr;
+        if (key == "q_sa") member = &DqnDiagnosticRow::q_sa;
+        else if (key == "state_value") member = &DqnDiagnosticRow::state_value;
+        else if (key == "approx_priority") member = &DqnDiagnosticRow::approx_priority;
+        else return std::nullopt;
+        ANET_CHECK_MSG(lane >= 0 && lane < static_cast<int64_t>(rows_.size()),
+            "Invalid DQN diagnostic lane. key='" << key << "' lane=" << lane << " expected=[0," << rows_.size() << ").");
+        return rows_[lane].*member;
+    }
+private:
+    std::vector<DqnDiagnosticRow> rows_;
+};
+
+class DqnAgentStepDiagnosticsProvider final : public anet::rl::AgentStepDiagnosticsProvider {
+    struct Pending {
+        int64_t start;
+        anet::rl::ReplayExperience experience;
+        anet::rl::ReplayInitialPriorityHintRow hint;
+    };
+    struct Lane {
+        int64_t step = 0;
+        anet::rl::ExperienceQueue queue;
+        std::deque<Pending> pending;
+    };
+public:
+    DqnAgentStepDiagnosticsProvider(const LearnerConfig& config, int64_t num_lanes,
+        std::function<torch::Tensor(const torch::Tensor&)> scale_reward)
+        : config_(config), num_lanes_(num_lanes), scale_reward_(std::move(scale_reward))
+        , controller_(anet::rl::CreateNStepQueueController(config.use_n_step ? config.n_step : 1))
+        , builder_(anet::rl::CreateDefaultExperienceBuilder(config.gamma))
+        , estimator_(CreateInitialPriorityEstimator(config))
+    {
+        ANET_CHECK_MSG(num_lanes > 0 && (!config.use_n_step || config.n_step > 0),
+            "Step diagnostics require positive lanes and n_step. lanes=" << num_lanes << " n_step=" << config.n_step);
+        Reset();
+    }
+
+    void Reset() override
+    {
+        // 再表示は途中のepisodeからでも新しい窓として扱う。
+        lanes_.clear();
+        lanes_.resize(static_cast<size_t>(num_lanes_));
+    }
+
+    anet::rl::AgentStepDiagnosticsResult Observe(const anet::rl::BatchExperience& experience) override
+    {
+        ANET_PROFILE_FUNC();
+        torch::NoGradGuard no_grad;
+        const auto& aux = experience.action->GetAuxData();
+        const auto q = aux.find("q_values");
+        ANET_CHECK_MSG(q != aux.end() && q->second.defined() && q->second.dim() == 2
+            && q->second.size(0) == num_lanes_,
+            "DQN step diagnostics require aux[q_values] with shape [lanes, actions]. expected_lanes=" << num_lanes_);
+        // carrierの既存hintは使わず、強制後のactionと現在Qから必ず作り直す。
+        const ActorQHintConfig hint_config{ .munchausen = config_.munchausen,
+            .use_tbo = config_.use_tbo, .tbo_epsilon = config_.tbo_epsilon };
+        auto hint = MakeActorQHint(q->second, experience.action->GetAction(q->second.device()), hint_config)
+            .payload.detach().to(torch::kCPU).contiguous();
+        auto rewards = scale_reward_(experience.reward).to(torch::kCPU).contiguous();
+        const auto done = experience.next_state.done.to(torch::kCPU).contiguous();
+        const auto truncated = experience.next_state.truncated.to(torch::kCPU).contiguous();
+        const auto starts = experience.state.episode_start.to(torch::kCPU).contiguous();
+        ANET_CHECK_MSG(rewards.dim() == 1 && rewards.size(0) == num_lanes_,
+            "DQN step diagnostics reward shape mismatch. expected_lanes=" << num_lanes_);
+        anet::rl::AgentStepDiagnosticsResult result;
+        std::vector<DqnDiagnosticRow> rows(static_cast<size_t>(num_lanes_));
+        result.pending_keys.assign(static_cast<size_t>(num_lanes_), {"approx_priority"});
+        for (int64_t i = 0; i < num_lanes_; ++i) {
+            auto& lane = lanes_[i];
+            anet::rl::ReplayInitialPriorityHintRow current;
+            for (int col = 0; col < kActorQHintColumnCount; ++col) current.push_back(hint[i][col].item<float>());
+            rows[i].q_sa = current[kActorQSaColumn];
+            rows[i].state_value = current[kActorStateValueColumn];
+            const auto complete = [&](const Pending& pending, bool unavailable) {
+                float priority = std::numeric_limits<float>::quiet_NaN();
+                if (!unavailable) {
+                    const auto estimated = estimator_->Estimate(anet::rl::InitialPriorityEstimateInput{
+                        .start_hint = std::span<const float>(pending.hint.data(), pending.hint.size()),
+                        .bootstrap_hint = pending.experience.terminal ? std::span<const float>{}
+                            : std::span<const float>(current.data(), current.size()),
+                        .target_return = pending.experience.target_return,
+                        .discount = static_cast<float>(std::pow(config_.gamma, pending.experience.actual_n_steps)),
+                        .terminal = pending.experience.terminal,
+                        .actual_n_steps = pending.experience.actual_n_steps });
+                    if (estimated) priority = *estimated;
+                }
+                result.completed.push_back({ .lane = i, .steps_back = lane.step - pending.start,
+                    .resolved_keys = {"approx_priority"}, .values = std::make_unique<DqnAgentStepDiagnosticsValues>(
+                        std::vector<DqnDiagnosticRow>{{ .approx_priority = priority }}) });
+            };
+            // episode開始と将来Qの到着を、現在rewardを窓へ入れる前に処理する。
+            if (starts[i].item<bool>()) {
+                for (const auto& pending : lane.pending) complete(pending, true);
+                lane.pending.clear();
+                lane.queue.Clear();
+            }
+            while (!lane.pending.empty()) {
+                const auto& pending = lane.pending.front();
+                const auto expected = pending.start + pending.experience.actual_n_steps;
+                if (expected > lane.step) break;
+                ANET_CHECK_MSG(expected == lane.step, "Step diagnostics bootstrap mismatch. expected=" << expected << " actual=" << lane.step);
+                complete(pending, false);
+                lane.pending.pop_front();
+            }
+            // 系列の確定と逆順割引和はreplayの同じ部品へ委譲する。
+            lane.queue.Push(anet::rl::QueueRecord{ .time_idx = lane.step, .logical_time_idx = lane.step,
+                .reward = rewards[i].item<float>(), .done = done[i].item<bool>(),
+                .truncated = truncated[i].item<bool>(), .replay_initial_priority_hint = current });
+            for (const auto& sequence : controller_->ExtractSequences(lane.queue)) {
+                Pending pending{ .start = sequence.front().logical_time_idx,
+                    .experience = builder_->Build(sequence), .hint = *sequence.front().replay_initial_priority_hint };
+                if (pending.experience.terminal || pending.experience.truncated) {
+                    complete(pending, pending.experience.truncated);
+                } else {
+                    lane.pending.push_back(std::move(pending));
+                }
+            }
+            ++lane.step;
+        }
+        result.current = std::make_unique<DqnAgentStepDiagnosticsValues>(std::move(rows));
+        return result;
+    }
+private:
+    LearnerConfig config_;
+    int64_t num_lanes_;
+    std::function<torch::Tensor(const torch::Tensor&)> scale_reward_;
+    std::unique_ptr<anet::rl::ExperienceQueueController> controller_;
+    std::unique_ptr<anet::rl::ReplayExperienceBuilder> builder_;
+    std::unique_ptr<anet::rl::InitialPriorityEstimator> estimator_;
+    std::vector<Lane> lanes_;
+};
+
+} // namespace
+
+std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> anet::rl::dqn::CreateStepDiagnosticsProvider(
+    const LearnerConfig& config, int64_t num_lanes,
+    std::function<torch::Tensor(const torch::Tensor&)> scale_reward)
+{
+    return std::make_unique<DqnAgentStepDiagnosticsProvider>(config, num_lanes, std::move(scale_reward));
+}
+
 
 // ======================================================
 // NetworkModel
@@ -904,7 +1087,7 @@ std::optional<int64_t> ParseActionFullQMarginKey(const std::string& key)
 
 } // namespace
 
-std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) const
+std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == "train_actor_snapshot_interval" || key == "train_actor_snapshot_age") {
         if (!train_actor_snapshot_metrics_.has_value()) {
@@ -1091,7 +1274,7 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) c
 
     const auto parsed_key = ParseActionUqeScalarKey(key);
     if (!parsed_key.has_value()) {
-        return std::nullopt;
+        return BatchActionInfo::GetScalar(key, index);
     }
     const int64_t action_index = parsed_key->action_index;
 
@@ -1911,32 +2094,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
             ANET_SYSTEM_ERROR("actor_approx requires ActionPolicy aux[q_values].");
         }
         const auto& q_values = q_it->second;
-        auto action = act_info->GetAction();
-        if (action.device() != q_values.device()) {
-            ANET_SYSTEM_ERROR("actor_approx action and q_values must share a device. action="
-                << action.device() << " q_values=" << q_values.device());
-        }
-        auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
-        auto state_value = std::get<0>(q_values.max(1));
-        
-        // Actorは既存scoreから近似する。IQN+UQEでもfull queryへの差し替えや追加forwardはしない。
-        auto terms = torch::zeros_like(q_values);
-        if (actor_q_hint_config_.munchausen.enabled) {
-            const auto& config = actor_q_hint_config_;
-            // log_policy_modeはLearner専用。Actorは常に既存のaction scoreから近似する。
-            const auto& munchausen = config.munchausen;
-            const auto real_score = config.use_tbo ? TransformHInv(q_values, config.tbo_epsilon) : q_values;
-            const auto scaled_log = MakeScaledLogPolicy(real_score, munchausen.entropy_tau);
-            const auto soft_value = ((scaled_log / munchausen.entropy_tau).exp() * (real_score - scaled_log)).sum(1);
-            state_value = config.use_tbo ? TransformH(soft_value, config.tbo_epsilon) : soft_value;
-            terms = munchausen.alpha * scaled_log.clamp(munchausen.clip_value_min, 0.0f);
-        }
-        
-        // OFFも第3列ゼロの同じschemaを運び、WithAction用の全行動bonusを保持する。
-        act_info->GetAuxData()["munchausen_terms"] = terms;
-        const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
-        auto packed = PackActorQHint(q_sa, state_value, bonus);
-        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(packed)));
+        auto hint = MakeActorQHint(q_values, act_info->GetAction(), actor_q_hint_config_);
+        act_info->GetAuxData()["munchausen_terms"] = hint.munchausen_terms;
+        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(hint.payload)));
     }
 
     // AuxData の詰め込み

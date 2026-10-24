@@ -1,6 +1,7 @@
 # MetricsLogger シングルトン・ライフサイクル堅牢化 — null-safe 静的ログ API と Reset 順序 PRD
 
 > R2（Reset前のbackground Observer排水）はPRD 076で実装済み。R1（null-safe静的ログAPI）は凍結中（再開条件: 排水外の経路でReset後ログが実害になったら）。
+> 2026-10-23 改訂: 「Optuna の run 切替でも再発し得る」を直した。in-process の Optuna の run 切替は無く、`MetricsLogger::Reset()` を呼ぶのは `OnExit()` とテストだけだった（[done/076](../done/076_eval_session_drain_on_exit_10prd.md) の `apps/runner/src/RunnerApp.cpp` の節と「影響・移行」）。
 
 > 関連: `core/anet-core/src/observers.cpp`(observer ログ), `core/anet-core/include/anet/metrics_logger.hpp`(Instance/Reset), `core/anet-core/include/anet/rl.hpp`(Notifier/Observer), `apps/runner/src/RunnerApp.cpp`(OnExit)。
 > クラッシュ診断(2026-07-01)の成果物。PRD `025`(VideoLogger/ffmpeg)とは別テーマ＝MetricsLogger シングルトンのライフサイクル。実装は別途(Codex 想定)、本書は self-contained に記述する。
@@ -28,7 +29,7 @@ EpisodeEvalObserver::OnLearn::<lambda>()      (背景プール上)
 3. その in-flight エピソードが終了時に episode-end 通知経由でログ出力する。ところが `MetricsLogger::Reset()`（[RunnerApp.cpp OnExit](../../../apps/runner/src/RunnerApp.cpp)）が `instance_` を先に null 化していると、`Instance()` は**null shared_ptr** を返し、`->LogScalar` が nullptr に対して呼ばれて `this==nullptr` → クラッシュ（`LogScalar` 本体で `backend_->` を触った瞬間、[metrics_logger.hpp:131](../../../core/anet-core/include/anet/metrics_logger.hpp)）。
 4. `eval_pool_` の排水は `~EpisodeEvalObserver`（`eval_future_.wait()`+`eval_pool_->Stop()`、[observers.cpp:500-511](../../../core/anet-core/src/observers.cpp)）**のみ**＝`run_manager_` 破棄時＝`OnExit` の `Reset()` **より後**。→ Reset と eval が競合する。
 
-Optuna の run 切替（`Reset()`+`Init()`）でも同根で再発し得る。本質は「**Reset 可能なシングルトンを背景スレッドから `Instance()->X()` 直呼びする**」無防備さ（systemic）。
+当初は「Optuna の run 切替（`Reset()`+`Init()`）でも同根で再発し得る」と書いたが、in-process の Optuna の run 切替は無く、`Reset()` を呼ぶのは `OnExit()` とテストだけだった（[done/076](../done/076_eval_session_drain_on_exit_10prd.md) の確認で訂正）。本質は「**Reset 可能なシングルトンを背景スレッドから `Instance()->X()` 直呼びする**」無防備さ（systemic）。
 
 ## ゴール / 非ゴール
 
@@ -104,11 +105,11 @@ private:
   standard_stream_logger_.Stop();
   anet::MetricsLogger::Reset();
   ```
-- 明示 `Reset()` する run 切替経路（Optuna）が別にあれば、同様に直前へ `Notifier::Shutdown()` を入れる。
+- 明示 `Reset()` する run 切替経路が別にあれば、同様に直前へ `Notifier::Shutdown()` を入れる（当初は Optuna を想定したが、そのような経路は無い。上記の訂正）。
 
 ## 設計判断（why。self-contained のため明記）
 
-1. **両輪（R1 ガード + R2 順序）**: R2（順序）で正常シャットダウンの競合窓を消し、R1（null-safe static 入口）で残る全経路（Optuna run 切替・想定外の背景呼び出し）を安全網でカバー。順序＝「ライフサイクル整合」、ガード＝「null 耐性」で 1 関心ずつに分離（`feedback_design_separate_concerns` の方針）。
+1. **両輪（R1 ガード + R2 順序）**: R2（順序）で正常シャットダウンの競合窓を消し、R1（null-safe static 入口）で残る全経路（想定外の背景呼び出し。当初は Optuna の run 切替も挙げたが、その経路は無い）を安全網でカバー。順序＝「ライフサイクル整合」、ガード＝「null 耐性」で 1 関心ずつに分離（`feedback_design_separate_concerns` の方針）。
 2. **`MetricsLogger::` static を唯一の入口に**: `if (auto m = Instance())` を各所に散らさず static 入口へ内包。呼び側は `Instance()->` を除去するだけで null チェックが自動で効く。入口が `MetricsLogger` に集約され（別名前空間 facade を設けない＝「MetricsLogger が入口」）、新規ログも static 経由が自然に強制される。
 3. **instance メソッドは private impl 化**: static と同名インスタンスメソッドは C++ で共存不可のため、旧メソッドを `*Impl` へ private 改名し static が転送する。ログの直接インスタンス呼び出しを塞ぎ「入口は static のみ」を型で保証する（＝全呼び出しの移行を強制、漏れがコンパイルで露見）。
 4. **null = no-op が妥当**: ログは学習の付随出力。teardown / run 切替の一時的な欠落は許容範囲。ここでエラー化すると shutdown をかえって阻害する。

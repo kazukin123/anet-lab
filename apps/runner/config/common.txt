@@ -153,3 +153,17 @@ app.metrics_logger.video_fps ?= 15
 # 計算式: Bins (510) ÷ Quantile数 (N) 程度が目安。
 #   もし N=51 なら、510 / 51 = 10 ビンくらいの隙間が空く可能性がある
 #   半径を 3 ～ 5 に設定すれば、左右に広がるのでだいたい埋まる。
+
+# Evaluation Trace: 判断、遷移結果、優先度の順。Env固有列は20番から。
+app.eval_trace_panel.max_rows ?= 1000
+app.eval_trace_panel.pct_window ?= 10000
+app.eval_trace_panel.columns.[1] ?= $runner exp_step label:step
+app.eval_trace_panel.columns.[2] ?= $runner step_in_episode label:ep_step
+app.eval_trace_panel.columns.[3] ?= $action_info action
+app.eval_trace_panel.columns.[4] ?= $env_step reward
+app.eval_trace_panel.columns.[5] ?= $agent_step q_sa label:Q_sa
+app.eval_trace_panel.columns.[6] ?= $agent_step state_value label:V_s
+app.eval_trace_panel.columns.[7] ?= $env_step done
+app.eval_trace_panel.columns.[8] ?= $env_step truncated label:trunc
+app.eval_trace_panel.columns.[9] ?= $agent_step approx_priority label:prio
+app.eval_trace_panel.columns.[10] ?= $agent_step approx_priority display:pct label:prio_pct

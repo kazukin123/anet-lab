@@ -477,6 +477,23 @@ EVAL_CONFIG = {
 
 
 class TagsSubcommandTest(CacheFixtureMixin):
+    def test_env_step_target_from_config_and_definition_record(self):
+        for recorded in (False, True):
+            with self.subTest(recorded=recorded), tempfile.TemporaryDirectory() as temp_dir:
+                repo = Path(temp_dir)
+                run = self.make_run(repo, "ws1", "run_transition")
+                self.write_config(run, {"metrics.scalar.[transition]":
+                    "$env_step mean.game_score @episode_end $exp_step"})
+                defs = {"transition": self.metric_def(target="env_step", source_key="mean.game_score",
+                    event="episode_end", step_axis="exp_step")} if recorded else None
+                self.write_raw_master(run, [("transition", 10, 2.0)], defs=defs)
+                code, result, _ = self.run_cli_json(repo, ["tags", "run_transition"])
+                self.assertEqual(code, 0)
+                tag = result["runs"][0]["tags"][0]
+                self.assertEqual(tag["target"], "env_step")
+                self.assertEqual(tag["event"], "episode_end")
+                self.assertEqual(tag["source_key"], "mean.game_score")
+
     def make_eval_run(self, repo: Path, run_name: str = "run_a", with_defs: bool = True,
                       train_steps=(1000, 2000, 3000), eval_steps=(10, 20, 30)):
         run_dir = self.make_run(repo, "ws1", run_name)

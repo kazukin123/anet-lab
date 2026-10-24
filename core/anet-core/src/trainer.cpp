@@ -65,6 +65,7 @@ void RunnerBase::InitializeMetrics()
     completed_episode_returns_.Reset();
     completed_episode_steps_.Reset();
     last_step_had_episode_end_ = false;
+    last_completed_episodes_.clear();
 }
 
 void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
@@ -86,7 +87,8 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
 
     const auto batch_env_spec = env_->GetBatchSpec();
     ValidateEpisodeStructure(env_->GetName(), batch_env_spec, *result);
-    const auto completed = episode_stats_accumulator_->Add(*result);
+    last_completed_episodes_ = episode_stats_accumulator_->Add(*result);
+    const auto& completed = last_completed_episodes_;
     completed_episode_returns_.Reset();
     completed_episode_steps_.Reset();
     last_step_had_episode_end_ = !completed.empty();
@@ -97,7 +99,7 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
         completed_episode_steps_.Add(static_cast<float>(episode.episode_steps));
         const int env_index = batch_env_spec.episode_scope == EpisodeScope::PER_LANE
             ? static_cast<int>(episode.group_index) : -1;
-        EpisodeEndEvent event{ self, event_counts, agent_, env_, env_index };
+        EpisodeEndEvent event{ self, event_counts, agent_, env_, env_index, result };
         notifier_->Notify(event);
     }
 
@@ -176,6 +178,16 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
     if (key == EPISODE_COUNT) return static_cast<float>(step_counts_.episode_count);
     if (key == SIM_STEP) return static_cast<float>(step_counts_.sim_step);
 
+    if (key == "step_in_episode") {
+        // 終端では完了結果の長さ、それ以外では既存accumulatorの現在値を返す。
+        const auto spec = env_->GetBatchSpec();
+        const int64_t group = spec.episode_scope == EpisodeScope::SHARED ? 0 : index;
+        if (group < 0) return std::numeric_limits<float>::quiet_NaN();
+        for (const auto& completed : last_completed_episodes_) {
+            if (completed.group_index == group) return static_cast<float>(completed.episode_steps);
+        }
+        return static_cast<float>(episode_stats_accumulator_->GetCurrentSteps(index));
+    }
     if (key == REWARD) return last_reward_;
     if (key == REWARD_EMA) return reward_ema_.Value();
     const auto aggregation_key = anet::ParseScalarAggregationKey(key);
@@ -202,6 +214,7 @@ EvalRunner::EvalRunner(
     const ActorRequest& request,
     std::string name)
     : RunnerBase(env, agent, notifier, request, std::move(name))
+    , action_spec_(env_->GetSpec().action_spec)
 {
 }
 
@@ -212,6 +225,7 @@ EvalRunner::EvalRunner(
     const ActorRequest& request,
     std::string name)
     : RunnerBase(env, agent, notifier, request, std::move(name))
+    , action_spec_(env_->GetSpec().action_spec)
     , session_env_(std::move(env))
 {
 }
@@ -225,13 +239,19 @@ void EvalRunner::Sync(const StepCounts& source_counts)
 
 StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
 {
-    return DoStepInternal(action, event_counts, true);
+    DoStepInternal(action, event_counts, true);
+    return step_counts_;
 }
 
-StepCounts EvalRunner::DoStepInternal(
+std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     int64_t action, const StepCounts& event_counts, bool notify_episode_end)
 {
     ANET_PROFILE_FUNC();
+    // 強制行動の不正値は、Reset・Actor実行・環境更新より前に拒否する。
+    if (action >= 0 && action_spec_.is_discrete && action >= action_spec_.GetNumActions()) {
+        ANET_SYSTEM_ERROR("EvalRunner '" << name_ << "' forced action=" << action
+            << " is out of range. expected=[0, " << action_spec_.GetNumActions() - 1 << "].");
+    }
     torch::NoGradGuard grad_guard;
 
     if (!env_initialized_) {
@@ -273,8 +293,8 @@ StepCounts EvalRunner::DoStepInternal(
     ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
     ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
 
-	// メトリクス更新
-	//UpdateMetrics(result);
+    // この遷移の報酬を通知前に確定する。
+    UpdateMetrics(result);
 
     // カウント更新
     step_counts_.train_step++;
@@ -286,15 +306,16 @@ StepCounts EvalRunner::DoStepInternal(
     // 更新後処理
     auto self = this->shared_from_this();
     anet::rl::TrainEvent event{ exp, self, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
-    notifier_->Notify(event);
+    // 通常評価の完了集計を先に確定し、Trainの読み手へ同じ遷移を公開する。
     if (notify_episode_end) {
         AccumulateAndNotifyEpisodeEnd(self, result, event_counts);
     } else {
         last_step_had_episode_end_ = false;
     }
+    notifier_->Notify(event);
     state_ = result->continue_state;
 
-    return step_counts_;
+    return result;
 }
 
 StepCounts EvalRunner::DoStep(int64_t action)
@@ -331,13 +352,13 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     // 通常の完了通知を抑制し、採用 episode の確定値が有効な Step 直後にだけ通知する。
     size_t completed = 0;
     while (!stop.stop_requested() && !session_env_->GetSessionResult().has_value()) {
-        DoStepInternal(-1, event_counts, false);
+        const auto step = DoStepInternal(-1, event_counts, false);
         for (const int64_t group : session_env_->LastAdoptedGroups()) {
             const int env_index = session_env_->GetBatchSpec().episode_scope == EpisodeScope::PER_LANE
                 ? static_cast<int>(group) : -1;
             notifier_->Notify(EpisodeEndEvent{
                 .runner = shared_from_this(), .counts = event_counts,
-                .agent = agent_, .env = session_env_, .env_index = env_index });
+                .agent = agent_, .env = session_env_, .env_index = env_index, .step_result = step });
             ++completed;
         }
     }
@@ -594,10 +615,13 @@ PipelineTrainRunner::PipelineTrainRunner(
 
 void PipelineTrainRunner::Shutdown()
 {
+    ANET_PROFILE_FUNC();
+    // 最後の学習も待ち、次のDoStepが無くてもworkerの例外を呼出元へ届ける。
     if (learn_pool_) {
         learn_pool_->WaitAll();
         learn_pool_->Stop();
     }
+    if (learn_future_.valid()) learn_future_.get();
     TrainRunner::Shutdown();
 }
 
@@ -756,6 +780,102 @@ struct RunManager::Config : public anet::Config
     {
         return effective_eval_device;
     }
+};
+
+class RunManager::MetricsWiring {
+public:
+    MetricsWiring(ObserverFactory& factory, std::shared_ptr<TrainRunner> train_runner,
+        const std::unordered_map<std::string, std::shared_ptr<EvalRunner>>& eval_runners,
+        const std::unordered_set<std::string>& dormant_eval_tags,
+        const std::unordered_map<std::string, int>& eval_episode_counts,
+        std::shared_ptr<Notifier> notifier, std::shared_ptr<Agent> agent)
+    {
+        // 同じ構築境界で既存の順序のまま配線し、通知開始前に定義を確定する。
+        const auto resolve_runner = [&](RunnerScope scope, const std::string& eval_name) {
+            return ResolveRunner(scope, eval_name, train_runner, eval_runners, dormant_eval_tags);
+        };
+        const auto train_obs = factory.GetUpdateObservers();
+        const auto learn_obs = factory.GetLearnObservers();
+        const auto episode_end_obs = factory.GetEpisodeEndObservers();
+        AttachObservers<RunnerScopedTrainObserver>(train_obs, *notifier, resolve_runner);
+        AttachObservers<RunnerScopedLearnObserver>(learn_obs, *notifier, resolve_runner);
+        AttachObservers<RunnerScopedEpisodeEndObserver>(episode_end_obs, *notifier, resolve_runner);
+        AttachObservers<RunnerScopedSessionEndObserver>(factory.GetSessionEndObservers(), *notifier, resolve_runner);
+        const auto attached_defs = CompleteDefinitions(factory.GetScalarMetricDefs(), eval_episode_counts, resolve_runner);
+        WriteDefinitions("metrics.scalar.defs", ScalarMetricDefsToJson(attached_defs));
+        const auto attached_trace_defs = CompleteDefinitions(factory.GetTraceMetricDefs(), eval_episode_counts, resolve_runner);
+        WriteDefinitions("metrics.trace.defs", TraceMetricDefsToJson(attached_trace_defs));
+        ConfigureSubscriptions(*agent, attached_defs);
+    }
+private:
+    std::shared_ptr<const Runner> ResolveRunner(RunnerScope scope, const std::string& eval_name,
+        const std::shared_ptr<TrainRunner>& train_runner,
+        const std::unordered_map<std::string, std::shared_ptr<EvalRunner>>& eval_runners,
+        const std::unordered_set<std::string>& dormant_eval_tags)
+    {
+        // 定義済みの休止tagは一度だけ通知し、未知tagは構築時に止める。
+        if (scope == RunnerScope::TRAIN) return train_runner;
+        auto it = eval_runners.find(eval_name);
+        if (it == eval_runners.end()) {
+            if (dormant_eval_tags.contains(eval_name)) {
+                if (warned_dormant_metric_tags_.insert(eval_name).second) {
+                    LOG::warn() << "Skipping metrics for unscheduled eval tag. tag='" << eval_name
+                        << "'. The tag is defined in run.eval but has no active "
+                        << "run.eval_schedule entry.";
+                }
+                return nullptr;
+            }
+            ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics config.");
+        }
+        return it->second;
+    }
+
+    template<class ScopedObserver, class Definitions, class Resolve>
+    static void AttachObservers(const Definitions& definitions, Notifier& notifier, const Resolve& resolve)
+    {
+        // eventごとのwrapperで同じ順序を保ち、休止tagの購読は作らない。
+        for (const auto& definition : definitions) {
+            auto runner = resolve(definition.scope, definition.eval_name);
+            if (!runner) continue;
+            notifier.Attach(std::make_shared<ScopedObserver>(definition.obs, runner));
+        }
+    }
+
+    template<class Definition, class Resolve>
+    static std::vector<Definition> CompleteDefinitions(const std::vector<Definition>& definitions,
+        const std::unordered_map<std::string, int>& eval_episode_counts, const Resolve& resolve)
+    {
+        // dormant evalは除外し、実際の購読先からeval条件を確定する。
+        std::vector<Definition> attached;
+        for (auto definition : definitions) {
+            const auto runner = resolve(definition.scope, definition.eval_name);
+            if (!runner) continue;
+            if (definition.scope == RunnerScope::EVAL) {
+                definition.eval_episodes = eval_episode_counts.at(definition.eval_name);
+                definition.num_envs = runner->GetBatchEnv()->GetBatchSpec().num_envs;
+            }
+            attached.push_back(std::move(definition));
+        }
+        return attached;
+    }
+
+    static void WriteDefinitions(const std::string& tag, const anet::json& definitions)
+    {
+        // 解決済み定義を1レコードに残す正本(ADR 0029)。既存json recordの契約を保つ。
+        // traceはscalarと別チャネルであり、scalar購読ヒントにも混ぜない。
+        if (!definitions.empty()) anet::MetricsLogger::Instance()->Log(tag, definitions);
+    }
+
+    static void ConfigureSubscriptions(Agent& agent, const std::vector<ObserverFactory::ScalarMetricDef>& definitions)
+    {
+        // 実際にattachしたscalar定義だけを、学習開始前の静的な購読情報として渡す。
+        std::vector<ScalarMetricSubscription> subscriptions;
+        subscriptions.reserve(definitions.size());
+        for (const auto& definition : definitions) subscriptions.push_back(definition.subscription);
+        agent.ConfigureScalarMetricSubscriptions(subscriptions);
+    }
+private:
+    std::unordered_set<std::string> warned_dormant_metric_tags_;
 };
 
 RunManager::RunManager(const ConfigData& config_data)
@@ -1007,90 +1127,8 @@ RunManager::RunManager(const ConfigData& config_data)
         );
     };
 
-    auto resolve_runner = [&](RunnerScope scope, const std::string& eval_name) -> std::shared_ptr<const Runner> {
-        if (scope == RunnerScope::TRAIN) return train_runner_;
-        auto it = eval_runners.find(eval_name);
-        if (it == eval_runners.end()) {
-            if (dormant_eval_tags_.contains(eval_name)) {
-                if (warned_dormant_metric_tags_.insert(eval_name).second) {
-                    LOG::warn() << "Skipping metrics for unscheduled eval tag. tag='" << eval_name
-                        << "'. The tag is defined in run.eval but has no active "
-                        << "run.eval_schedule entry.";
-                }
-                return nullptr;
-            }
-            ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics config.");
-        }
-        return it->second;
-    };
-
-    auto train_obs = factory.GetUpdateObservers();
-    auto learn_obs = factory.GetLearnObservers();
-    auto episode_end_obs = factory.GetEpisodeEndObservers();
-    for (const auto& p : train_obs) {
-        auto runner = resolve_runner(p.scope, p.eval_name);
-        if (runner == nullptr) continue;
-        auto scoped_obs = std::make_shared<RunnerScopedTrainObserver>(p.obs, runner);
-        notifier_->Attach(scoped_obs);
-    }
-    for (const auto& p : learn_obs) {
-        auto runner = resolve_runner(p.scope, p.eval_name);
-        if (runner == nullptr) continue;
-        auto scoped_obs = std::make_shared<RunnerScopedLearnObserver>(p.obs, runner);
-        notifier_->Attach(scoped_obs);
-    }
-    for (const auto& p : episode_end_obs) {
-        auto runner = resolve_runner(p.scope, p.eval_name);
-        if (runner == nullptr) continue;
-        auto scoped_obs = std::make_shared<RunnerScopedEpisodeEndObserver>(p.obs, runner);
-        notifier_->Attach(scoped_obs);
-    }
-    for (const auto& p : factory.GetSessionEndObservers()) {
-        auto runner = resolve_runner(p.scope, p.eval_name);
-        if (runner == nullptr) continue;
-        auto scoped_obs = std::make_shared<RunnerScopedSessionEndObserver>(p.obs, runner);
-        notifier_->Attach(scoped_obs);
-    }
-
-    // 実際に attach した scalar metric の解決済み定義を 1 レコードだけ残す。
-    // 解析側が config から step 座標系や source key を再導出しないための正本 (ADR 0029)。
-    // 既存の type="json" record を使うため、Metrics Viewer の取り込みと cache 契約は変わらない。
-    const auto complete_metric_definition = [&](auto& def) {
-        // dormant eval は除外し、実際の購読先から eval 条件を確定する。
-        const auto runner = resolve_runner(def.scope, def.eval_name);
-        if (runner == nullptr) return false;
-        if (def.scope == RunnerScope::EVAL) {
-            def.eval_episodes = eval_episode_counts.at(def.eval_name);
-            def.num_envs = runner->GetBatchEnv()->GetBatchSpec().num_envs;
-        }
-        return true;
-    };
-    std::vector<anet::rl::ObserverFactory::ScalarMetricDef> attached_defs;
-    for (auto def : factory.GetScalarMetricDefs()) {
-        if (!complete_metric_definition(def)) continue;
-        attached_defs.push_back(std::move(def));
-    }
-    anet::json metric_defs = anet::rl::ScalarMetricDefsToJson(attached_defs);
-    if (!metric_defs.empty()) {
-        anet::MetricsLogger::Instance()->Log("metrics.scalar.defs", metric_defs);
-    }
-
-    // trace は別チャネルの定義とし、dormant eval と scalar 購読ヒントから分離する。
-    std::vector<ObserverFactory::TraceMetricDef> attached_trace_defs;
-    for (auto def : factory.GetTraceMetricDefs()) {
-        if (!complete_metric_definition(def)) continue;
-        attached_trace_defs.push_back(std::move(def));
-    }
-    const auto trace_defs = TraceMetricDefsToJson(attached_trace_defs);
-    if (!trace_defs.empty()) {
-        anet::MetricsLogger::Instance()->Log("metrics.trace.defs", trace_defs);
-    }
-
-    // 実際に attach された定義だけを、学習開始前の静的な購読情報として Agent へ渡す。
-    std::vector<ScalarMetricSubscription> subscriptions;
-    subscriptions.reserve(attached_defs.size());
-    for (const auto& def : attached_defs) subscriptions.push_back(def.subscription);
-    agent_->ConfigureScalarMetricSubscriptions(subscriptions);
+    metrics_wiring_ = std::make_unique<MetricsWiring>(factory, train_runner_, eval_runners,
+        dormant_eval_tags_, eval_episode_counts, notifier_, agent_);
 
     // 成功！
     status_ = anet::rl::RunnerStatus::RUNNING;

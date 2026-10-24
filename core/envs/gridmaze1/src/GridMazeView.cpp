@@ -116,7 +116,7 @@ void GridMazePanel::OnPaint(wxPaintEvent& event)
 
     dc.DrawText("--- GridMaze ---", text_x, text_y); text_y += line_h * 2;
     dc.DrawText(wxString::Format("Step: %s", anet::FormatWithCommas(data_.counts.exp_step)), text_x, text_y); text_y += line_h;
-    dc.DrawText(wxString::Format("Seed: %lld", static_cast<long long>(data_.current_seed)), text_x, text_y); text_y += line_h;
+    dc.DrawText(wxString::Format("Seed: %llu", static_cast<unsigned long long>(data_.current_seed)), text_x, text_y); text_y += line_h;
     dc.DrawText(wxString::Format("Pos: (%d, %d)", data_.pos_x, data_.pos_y), text_x, text_y); text_y += line_h;
     dc.DrawText(wxString::Format("Action: %s", act_str), text_x, text_y); text_y += line_h;
     dc.DrawText(wxString::Format("Reward: %.2f", reward), text_x, text_y); text_y += line_h;

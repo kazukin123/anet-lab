@@ -39,13 +39,6 @@ constexpr int kMinQValueWidth = 300;
 constexpr int kMinAuxWidth = 100;
 const wxSize kToolBitmapSize(16, 16);
 
-constexpr const char* kPlaySvg =
-    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#000000" d="M4 2 L13 8 L4 14 Z"/></svg>)";
-constexpr const char* kPauseSvg =
-    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="#000000" x="4" y="2" width="3" height="12"/><rect fill="#000000" x="9" y="2" width="3" height="12"/></svg>)";
-constexpr const char* kStepSvg =
-    R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#000000" d="M3 2 L10 8 L3 14 Z"/><rect fill="#000000" x="11.5" y="2" width="2.5" height="12"/></svg>)";
-
 }  // namespace runner_layout
 
 using namespace runner_layout;
@@ -64,6 +57,7 @@ enum {
     ID_TrainPanel,
     ID_EvalPanel,
     ID_QValuePanel,
+    ID_EvalTracePanel,
     ID_HeatMap,
     ID_Conv2d,
     ID_TrainToggle,
@@ -111,20 +105,6 @@ public:
             wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
     }
 };
-
-wxBitmapBundle MakeSystemTextSvg(const char* source)
-{
-    std::string svg(source);
-    const auto colour = wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)
-        .GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
-    constexpr const char* token = "#000000";
-    size_t offset = 0;
-    while ((offset = svg.find(token, offset)) != std::string::npos) {
-        svg.replace(offset, std::char_traits<char>::length(token), colour);
-        offset += colour.size();
-    }
-    return wxBitmapBundle::FromSVG(svg.c_str(), kToolBitmapSize);
-}
 
 wxString FormatFpsConfigLabel(float fps)
 {
@@ -265,6 +245,7 @@ void RunnerFrame::SetupMenuBar()
     //view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
     view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(false);
     view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(false);
+    view_menu->AppendCheckItem(ID_EvalTracePanel, "Evaluation Trace")->Check(false);
 
     // 区切り
     view_menu->AppendSeparator();
@@ -340,12 +321,14 @@ void RunnerFrame::SetupToolBars()
     run_control_toolbar_->SetToolBitmapSize(kToolBitmapSize);
     run_control_toolbar_->SetOverflowVisible(false);
     // 生成時は停止状態の再生アイコンを置き、実行状態に応じた差し替えは UpdateToggleBitmap が行う。
-    run_control_toolbar_->AddTool(ID_TrainToggle, "Train", MakeSystemTextSvg(kPlaySvg),
+    const auto text_colour = wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT);
+    const auto play_bitmap = anet::rl::gui::MakePlaybackBitmap(anet::rl::gui::PlaybackIcon::Play, text_colour);
+    run_control_toolbar_->AddTool(ID_TrainToggle, "Train", play_bitmap,
         "Pause/resume training (Shift / left-click)", wxITEM_CHECK);
     run_control_toolbar_->AddSeparator();
-    run_control_toolbar_->AddTool(ID_EvalToggle, "Eval", MakeSystemTextSvg(kPlaySvg),
+    run_control_toolbar_->AddTool(ID_EvalToggle, "Eval", play_bitmap,
         "Pause/resume evaluation (Space / right-click)", wxITEM_CHECK);
-    run_control_toolbar_->AddTool(ID_EvalStep, "Step", MakeSystemTextSvg(kStepSvg),
+    run_control_toolbar_->AddTool(ID_EvalStep, "Step", anet::rl::gui::MakePlaybackBitmap(anet::rl::gui::PlaybackIcon::StepForward, text_colour),
         "Advance evaluation by one step (Ctrl)");
     run_control_toolbar_->EnableTool(ID_TrainToggle, false);
     run_control_toolbar_->EnableTool(ID_EvalToggle, false);
@@ -390,6 +373,7 @@ void RunnerFrame::SetupToolBars()
     panel_toolbar_->AddTool(ID_LogView, "Logs", wxBitmapBundle(), "Show/hide Logs", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_EvalPanel, "Eval View", wxBitmapBundle(), "Show/hide Eval View", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_QValuePanel, "Q-Values", wxBitmapBundle(), "Show/hide Q-Values", wxITEM_CHECK);
+    panel_toolbar_->AddTool(ID_EvalTracePanel, "Trace", wxBitmapBundle(), "Show/hide Evaluation Trace", wxITEM_CHECK);
     panel_toolbar_->Realize();
 
     // float 時のミニフレームは pane caption を window title に使うため、name とは別に caption を与える。
@@ -441,7 +425,9 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     );
 
     // EvalExperienceView
-    eval_panel_ = new EvalPanel(this, eval_panel_config);
+    eval_panel_ = new EvalPanel(this, eval_panel_config, [this] {
+        if (eval_trace_panel_) eval_trace_panel_->ReturnToLive();
+    });
     wxAuiPaneInfo eval_info = wxAuiPaneInfo()
         .Name("EvalExperiencePanel").Caption("Evaluation View")
         .Right().Layer(kTrainEvalLayer).Row(0).Position(0)
@@ -466,6 +452,11 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Hide();
     q_value_info.dock_size = q_value_width;
     aui_mgr_.AddPane(q_value_panel_, q_value_info);
+
+    // 履歴は右の補助列に一枚だけ置き、起動時は生成・記録とも休止する。
+    eval_trace_panel_ = new EvalTracePanel(*this, aui_mgr_, *eval_panel_, config_data);
+    AddAuxPane(eval_trace_panel_, wxAuiPaneInfo().Name("EvalTracePanel").Caption("Evaluation Trace")
+        .CloseButton(true).MaximizeButton(true).Hide());
 }
 
 void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
@@ -485,6 +476,10 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
         eval_panel_->DoStep(action);
         eval_panel_->Refresh();
     });
+
+    eval_trace_panel_->Initialize(run_manager, eval_runner_);
+    eval_trace_panel_->RegisterFollower(eval_panel_);
+    eval_trace_panel_->RegisterFollower(q_value_panel_);
 
     // Trainer thread 上で status snapshot を作り、UI から可変 Runner 状態を直読しない。
     AttachTrainStatusObserver(run_manager);
@@ -571,7 +566,9 @@ void RunnerFrame::UpdateToggleBitmap(
     // 200ms 周期で呼ばれるため、表示が実状態と一致している間は再描画を要求しない。
     if (shown_as_running.has_value() && *shown_as_running == running) return;
 
-    toolbar->SetToolBitmap(tool_id, MakeSystemTextSvg(running ? kPauseSvg : kPlaySvg));
+    const auto icon = running ? anet::rl::gui::PlaybackIcon::Pause : anet::rl::gui::PlaybackIcon::Play;
+    toolbar->SetToolBitmap(tool_id, anet::rl::gui::MakePlaybackBitmap(icon,
+        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)));
     shown_as_running = running;
     toolbar->Refresh(false);
 }
@@ -612,7 +609,7 @@ void RunnerFrame::UpdateToolBarBitmaps()
     eval_toggle_running_.reset();
     UpdateToggleBitmap(run_control_toolbar_, ID_TrainToggle, train_running, train_toggle_running_);
     UpdateToggleBitmap(run_control_toolbar_, ID_EvalToggle, eval_running, eval_toggle_running_);
-    run_control_toolbar_->SetToolBitmap(ID_EvalStep, MakeSystemTextSvg(kStepSvg));
+    run_control_toolbar_->SetToolBitmap(ID_EvalStep, anet::rl::gui::MakePlaybackBitmap(anet::rl::gui::PlaybackIcon::StepForward, wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT)));
     run_control_toolbar_->Realize();
     run_control_toolbar_->Refresh(false);
 }
@@ -660,6 +657,7 @@ void RunnerFrame::SetupEvents()
     RegisterPaneMenu(ID_TrainPanel, train_panel_);
     RegisterPaneMenu(ID_EvalPanel, eval_panel_);
     RegisterPaneMenu(ID_QValuePanel, q_value_panel_);
+    RegisterPaneMenu(ID_EvalTracePanel, eval_trace_panel_);
 
     // Update UI は操作経路に依存せず、実状態から menu と toolbar を同期する。
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
@@ -687,12 +685,13 @@ void RunnerFrame::SetupEvents()
         {ID_LogView, log_panel_},
         {ID_EvalPanel, eval_panel_},
         {ID_QValuePanel, q_value_panel_},
+        {ID_EvalTracePanel, eval_trace_panel_},
     };
     for (const auto& [id, window] : panel_bindings) {
         Bind(wxEVT_UPDATE_UI, [this, window](wxUpdateUIEvent& event) {
             auto& pane = aui_mgr_.GetPane(window);
             event.Enable(pane.IsOk());
-            event.Check(pane.IsOk() && pane.IsShown());
+            event.Check(anet::rl::gui::IsPaneOpen(pane, HasMaximizedPane()));
         }, id);
     }
 
@@ -729,7 +728,7 @@ void RunnerFrame::SetupEvents()
 
 bool RunnerFrame::IsAuxPane(const wxAuiPaneInfo& pane) const
 {
-    return pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith("Conv2dPanel_");
+    return pane.name == "EvalTracePanel" || pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith("Conv2dPanel_");
 }
 
 std::vector<wxAuiPaneInfo*> RunnerFrame::GetAuxPanes()
@@ -794,6 +793,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
         int row;
         int width;
         int original_width;
+        int min_width;
         bool has_q_value;
         std::vector<wxString> pane_names;
     };
@@ -819,11 +819,14 @@ void RunnerFrame::OnApplyLayoutPolicy()
                 .row = pane.dock_row,
                 .width = width,
                 .original_width = width,
+                .min_width = 0,
                 .has_q_value = false,
                 .pane_names = {},
             });
             dock = &right_docks.back();
         }
+        // 幅を融通する時も、同じ列に入る各paneの最小幅を守る。
+        dock->min_width = std::max({dock->min_width, pane.min_size.x, pane.window->GetMinSize().x});
         dock->has_q_value = dock->has_q_value || is_q_value;
         dock->pane_names.push_back(pane.name);
     }
@@ -833,6 +836,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
     int q_value_width = 0;
     int aux_width = 0;
     for (auto& dock : right_docks) {
+        dock.width = std::max(dock.width, dock.min_width);
         if (dock.layer == kTrainEvalLayer) {
             eval_dock = &dock;
         } else if (dock.has_q_value) {
@@ -851,7 +855,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
         for (auto& dock : right_docks) {
             if (shortage <= 0) break;
             if (dock.layer == kTrainEvalLayer || dock.has_q_value) continue;
-            const int reducible = std::max(0, dock.width - kMinAuxWidth);
+            const int reducible = std::max(0, dock.width - std::max(kMinAuxWidth, dock.min_width));
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
             shortage -= reduction;
@@ -859,7 +863,7 @@ void RunnerFrame::OnApplyLayoutPolicy()
         for (auto& dock : right_docks) {
             if (shortage <= 0) break;
             if (dock.layer == kTrainEvalLayer || !dock.has_q_value) continue;
-            const int reducible = std::max(0, dock.width - kMinQValueWidth);
+            const int reducible = std::max(0, dock.width - std::max(kMinQValueWidth, dock.min_width));
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
             shortage -= reduction;
@@ -903,6 +907,8 @@ void RunnerFrame::HideAuxPanes()
 {
     for (auto* pane : GetAuxPanes()) {
         if (!pane) continue;
+        pane->SetFlag(wxAuiPaneInfo::savedHiddenState, true);
+        OnPaneHiding(*pane);
         pane->Show(false).Restore();
         pane->Dock().Right().Layer(kAuxLayer).Row(0).Position(0);
         pane->dock_size = kDefaultAuxDockWidth;   // 幅の記憶も既定へ戻す
@@ -963,10 +969,12 @@ void RunnerFrame::AddAuxPane(wxWindow* window, const wxAuiPaneInfo& pane_info)
 
     wxAuiPaneInfo info = pane_info;
     info.Dock().Right().Layer(kAuxLayer).Row(0).Position(static_cast<int>(GetAuxPanes().size()));
-    info.BestSize(aux_width, 400);      // ドッキング時の推奨サイズ
-    info.FloatingSize(400, 400);        // 切り離したときのウィンドウサイズ
-    info.MinSize(kMinAuxWidth, 100);    // これ以上小さくならないようにする
-    info.dock_size = aux_width;
+    const int min_width = std::max({kMinAuxWidth, info.min_size.x, window->GetMinSize().x});
+    const int preferred_width = std::max(aux_width, min_width);
+    info.BestSize(preferred_width, 400);      // ドッキング時の推奨サイズ
+    info.FloatingSize(std::max(400, min_width), 400);        // 切り離したときのウィンドウサイズ
+    info.MinSize(min_width, std::max({100, info.min_size.y, window->GetMinSize().y}));    // これ以上小さくならないようにする
+    info.dock_size = preferred_width;
 
     aui_mgr_.AddPane(window, info);
     aui_mgr_.Update();
@@ -1050,6 +1058,16 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
     }
 }
 
+void RunnerFrame::OnPaneHiding(wxAuiPaneInfo& pane)
+{
+    if (pane.window == eval_trace_panel_) eval_trace_panel_->SetActive(false);
+}
+
+void RunnerFrame::OnPaneShowing(wxAuiPaneInfo& pane)
+{
+    if (pane.window == eval_trace_panel_) eval_trace_panel_->SetActive(true);
+}
+
 void RunnerFrame::OnConv2d(wxCommandEvent& event)
 {
     if (!eval_runner_) return;
@@ -1063,6 +1081,7 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
         MakeUniquePaneInfo("Conv2dPanel", "EvalConv2d")        // name, caption, subcaption
         .CloseButton(true).MaximizeButton(true)
     );
+    eval_trace_panel_->RegisterFollower(conv2d_panel);
 }
 
 void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))

@@ -115,6 +115,7 @@ namespace anet::rl {
 
         void Reset();
         std::vector<CompletedEpisodeResult> Add(const BatchStepResult& result);
+        int64_t GetCurrentSteps(int64_t lane) const;
 
     private:
         BatchEnvSpec batch_spec_;
@@ -174,7 +175,7 @@ namespace anet::rl {
 
         bool HasAllFreshGroups(const BatchState& state) const;
         void BeginSession();
-        void CaptureScalars(int64_t group_index);
+        void CaptureScalars(const BatchStepResult& result, int64_t group_index);
 
         std::shared_ptr<BatchEnv> inner_;
         BatchEnvSpec batch_spec_;

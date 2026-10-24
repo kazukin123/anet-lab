@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:fe947bb60a770c584a6351bf4285c1f5be6554bb date:2026-10-07 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:b8f40105dc4605807a81e7571d18581365d25853 date:2026-10-23 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -33,13 +33,13 @@ DQN-specific Q-value schemas and learning formulas, MuZero-specific buffers, and
 - Next `BatchState`, including terminal states
 
 Runner clones State, Reward, and next State at the required boundaries to detach Experiences from storage reused by Env.
-`continue_state` advances Runner to its next step and differs from terminal-preserving `next_state` stored in ReplayBuffer.
+Runner obtains the state for its next action from the Step result's `continue_state`. Terminal lanes are automatically Reset inside Step, while `next_state` stored in ReplayBuffer preserves the terminal observation before Reset.
 
 ### 2.2 Public ReplayBuffer Contracts
 
 | Operation | Current contract |
 |---|---|
-| `Push(batch_exp)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `BatchState::episode_start` must be true only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
+| `Push(batch_exp)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `BatchState::episode_start == true` must hold only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
 | `Sample(out_samples, minibatch_size, beta)` | Requires `Size() >= minibatch_size` and constructs a minibatch from sampleable transitions. Insufficient data stops with an assertion rather than silently reducing batch size |
 | `Size()` | Returns sampleable transitions after applying stack history margins to ready ranges and excluding dummy slots, rather than the raw stored-slot count |
 | `UpdatePriorities(item_keys, priorities)` | With PER, applies raw priorities to generation-aware keys and returns applied/stale counts. Uniform sampling performs no updates |
@@ -268,7 +268,7 @@ Concrete Agent Configs and Run configuration artifacts are authoritative for ext
 
 ### 7.3 Errors and Concurrency
 
-- Callers do not start updates until `Size() >= minibatch_size`; ReplayBuffer fails fast on insufficient data.
+- Callers of `Sample()` do not start updates until `Size() >= minibatch_size`; ReplayBuffer fails fast on insufficient data.
 - Before writing, `DefaultReplayBuffer::Push()` preflights `episode_start` for every lane. Each lane expects true initially and then exactly when the preceding input had `done || truncated`; any mismatch fails fast without writing any lane.
 - Validate shapes, lane counts, stack keys, index ranges, and priorities at boundaries.
 - Background sampling/transfer exceptions are rethrown by future `get()` or at the next synchronization boundary.

@@ -32,7 +32,7 @@ DQN固有のQ値schemaと学習式、MuZero固有buffer、ImageCls dataset/cache
 - 終端を含む次の`BatchState`
 
 RunnerはEnvが再利用するstorageからExperienceを切り離すため、State、Reward、次Stateを必要な境界でcloneする。
-`continue_state`はRunnerが次stepへ進むための状態で、ReplayBufferへ保存する終端付き`next_state`とは役割が異なる。
+Runnerの次行動用状態はStep結果の`continue_state`から取得する。終端laneはStep内で自動Resetされるが、ReplayBufferへ保存する`next_state`はリセット前の終端観測を保持する。
 
 ### 2.2 ReplayBuffer公開contract
 
@@ -64,7 +64,7 @@ ring上書きで失われた履歴はepisode境界ではないためpaddingせ�
 ### 2.4 PER
 
 Prioritized Experience Replayでは、priorityに応じてindexをsampleし、確率からImportance Sampling weightを計算する。
-初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、ready化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。DQNの`K = 2` schemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、ready化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。DQNの`K = 3` schemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 LearnerはTD error等から新しいpriorityを作り、sample時に返されたkeyへ`UpdatePriorities(item_keys, priorities)`する。更新はbatch全体をpreflightし、負key、generation 0/future、長さ不一致、負またはnonfinite priorityでは部分適用しない。過去generationだけは要素単位で棄却し、戻り値の`ReplayPriorityUpdateResult`がapplied/stale件数とActor初期priority・Learner更新priorityの比較統計を返す。同一keyの重複は入力順のlast-winsである。
 uniform samplerではPER固有metricを公開しない。

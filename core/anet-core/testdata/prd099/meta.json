@@ -1,0 +1,31 @@
+{
+  "count": 24,
+  "frame_shape": [
+    210,
+    160
+  ],
+  "expected_shape": [
+    84,
+    84
+  ],
+  "per_game": {
+    "Qbert": 8,
+    "Breakout": 8,
+    "BattleZone": 8
+  },
+  "seed": 20261023,
+  "step_gap": 37,
+  "ale_py": "0.9.0",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "numpy": "1.26.4",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "opencv_build_sha256": "0840bec094df31910031c8ea76926330fae84ea35197bbe3db3535708ee05f60",
+  "opencv": "4.8.1",
+  "resize": "cv2.resize(frame, (84, 84), interpolation=cv2.INTER_AREA)",
+  "dtype": "uint8",
+  "order": "C",
+  "sha256": {
+    "frames_210x160.u8": "c78dc9b37e3bba16efccdf3401db6b0bd79d19bd8a199c885e486498399959e6",
+    "expected_84x84.u8": "28de5b1637dbefe8ee3248b3f23337b00a33e560e4447665f8264af1351426e2"
+  }
+}

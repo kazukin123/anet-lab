@@ -1,4 +1,9 @@
 ﻿#include "anet/gui.hpp"
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <format>
+#include "anet/metrics.hpp"
 
 namespace anet::rl::gui {
     // イベントIDの実体化
@@ -182,12 +187,19 @@ void AuiLayoutFrame::RegisterPaneMenu(int menu_id, wxWindow* window)
     Bind(wxEVT_MENU, &AuiLayoutFrame::OnTogglePaneMenu, this, menu_id);
 }
 
+bool anet::rl::gui::IsPaneOpen(const wxAuiPaneInfo& pane, bool has_maximized_pane)
+{
+    // wxAUIが最大化時に退避するのはdockされた非toolbar paneの非表示フラグだけ。
+    return pane.IsOk() && (pane.IsShown() || (has_maximized_pane && pane.IsDocked()
+        && !pane.IsToolbar() && !pane.HasFlag(wxAuiPaneInfo::savedHiddenState)));
+}
+
 void AuiLayoutFrame::UpdatePaneMenuChecks()
 {
     for (const auto& binding : pane_menu_bindings_) {
         auto& pane = aui_mgr_.GetPane(binding.window);
         if (pane.IsOk()) {
-            CheckPaneMenuItem(binding.menu_id, pane.IsShown());
+            CheckPaneMenuItem(binding.menu_id, IsPaneOpen(pane, HasMaximizedPane()));
         }
     }
 }
@@ -286,7 +298,11 @@ void AuiLayoutFrame::OnTogglePaneMenu(wxCommandEvent& event)
     auto& pane = aui_mgr_.GetPane(binding->window);
     if (!pane.IsOk()) return;
 
-    if (!event.IsChecked()) {
+    // 最大化解除で明示的な開閉が巻き戻されないよう、退避フラグも同期する。
+    pane.SetFlag(wxAuiPaneInfo::savedHiddenState, !event.IsChecked());
+    if (event.IsChecked()) {
+        OnPaneShowing(pane);
+    } else {
         // 非表示化で dock が消える前に、実 dock サイズを pane 側へ退避する
         SyncDockSizesToPanes();
         OnPaneHiding(pane);
@@ -312,6 +328,7 @@ void AuiLayoutFrame::OnAuiPaneClose(wxAuiManagerEvent& event)
     if (const PaneMenuBinding* binding = FindBindingByWindow(pane->window)) {
         CheckPaneMenuItem(binding->menu_id, false);
     }
+    pane->SetFlag(wxAuiPaneInfo::savedHiddenState, true);
     OnPaneHiding(*pane);
 
     // ポリシー適用はクローズ処理の完了後に行う必要があるため遅延させる
@@ -399,4 +416,184 @@ std::shared_ptr<View> DefaultViewFactory::CreateView(
     auto view  = creator->CreateView(parent, config_data_, notifier);
 
     return view;
+}
+
+// Evaluation Traceの表示・再生補助
+wxBitmapBundle anet::rl::gui::MakePlaybackBitmap(PlaybackIcon icon, const wxColour& colour)
+{
+    // 形と色を分け、テーマが変わった時だけSVGを再生成できるようにする。
+    const std::array<const char*, 7> shapes{
+        R"(<path d="M4 2 L13 8 L4 14 Z"/>)",
+        R"(<path d="M4 2 H7 V14 H4 Z M9 2 H12 V14 H9 Z"/>)",
+        R"(<rect x="3" y="3" width="10" height="10"/>)",
+        R"(<path d="M10 2 L2 8 L10 14 Z M12 2 H14 V14 H12 Z"/>)",
+        R"(<path d="M2 2 H4 V14 H2 Z M6 2 L14 8 L6 14 Z"/>)",
+        R"(<path d="M8 2 L1 8 L8 14 Z M15 2 L8 8 L15 14 Z"/>)",
+        R"(<path d="M1 2 L8 8 L1 14 Z M8 2 L15 8 L8 14 Z"/>)"};
+    const auto svg = wxString::Format(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\"><g fill=\"%s\">%s</g></svg>",
+        colour.GetAsString(wxC2S_HTML_SYNTAX), wxString::FromUTF8(shapes.at(static_cast<size_t>(icon))));
+    return wxBitmapBundle::FromSVG(svg.utf8_str(), wxSize(16, 16));
+}
+
+void TracePlayer::SetRows(std::vector<int64_t> oldest_to_newest)
+{
+    // 行IDで選択を追跡し、先頭への挿入で選択や位置を動かさない。
+    rows_ = std::move(oldest_to_newest);
+    if (rows_.empty()) {
+        selected_.reset();
+        playing_ = false;
+        progress_ = 0;
+    } else if (selected_ && std::find(rows_.begin(), rows_.end(), *selected_) == rows_.end()) {
+        selected_ = rows_.front();
+        progress_ = 0;
+    }
+}
+
+void TracePlayer::Select(int64_t id, bool keep_playing)
+{
+    ANET_CHECK_MSG(std::find(rows_.begin(), rows_.end(), id) != rows_.end(),
+        "Trace selection is unavailable. id=" << id << " expected=a retained row.");
+    selected_ = id;
+    if (!keep_playing) playing_ = false;
+    progress_ = 0;
+}
+
+bool TracePlayer::CanPlay(double base_steps_per_second) const
+{
+    ANET_CHECK_MSG(std::isfinite(base_steps_per_second) && base_steps_per_second >= 0,
+        "Invalid trace playback rate. base_rate=" << base_steps_per_second << " expected=finite nonnegative value.");
+    return !rows_.empty() && base_steps_per_second > 0;
+}
+
+std::string TracePlayer::Play()
+{
+    if (rows_.empty()) return {};
+    // Liveと最新での再生開始だけを最古へ戻す。
+    if (!selected_ || (!playing_ && *selected_ == rows_.back())) selected_ = rows_.front();
+    playing_ = true;
+    progress_ = 0;
+    return "Trace: play";
+}
+
+std::string TracePlayer::Pause()
+{
+    if (rows_.empty()) return {};
+    if (!selected_) selected_ = rows_.back();
+    playing_ = false;
+    progress_ = 0;
+    return "Trace: pause";
+}
+
+std::string TracePlayer::Stop()
+{
+    selected_.reset();
+    playing_ = false;
+    progress_ = 0;
+    return "Trace: stop (live)";
+}
+
+std::string TracePlayer::StepForward()
+{
+    if (rows_.empty()) return {};
+    // Liveは最新行を起点とし、通常の端判定へ進める。
+    if (!selected_) selected_ = rows_.back();
+    playing_ = false;
+    progress_ = 0;
+    const auto found = std::find(rows_.begin(), rows_.end(), *selected_);
+    if (std::next(found) == rows_.end()) return "Trace: end";
+    selected_ = *std::next(found);
+    return "Trace: step";
+}
+
+std::string TracePlayer::StepBack()
+{
+    if (rows_.empty()) return {};
+    // Liveも最新行から一つ戻し、1件だけならstartになる。
+    if (!selected_) selected_ = rows_.back();
+    playing_ = false;
+    progress_ = 0;
+    const auto found = std::find(rows_.begin(), rows_.end(), *selected_);
+    if (found == rows_.begin()) return "Trace: start";
+    selected_ = *std::prev(found);
+    return "Trace: step back";
+}
+
+double TracePlayer::GetSpeed() const
+{
+    return std::ldexp(1.0, speed_index_ - 3);
+}
+
+std::string TracePlayer::GetSpeedLabel() const
+{
+    const std::array<const char*, 7> labels{ "x0.125", "x0.25", "x0.5", "x1", "x2", "x4", "x8" };
+    return labels[speed_index_];
+}
+
+std::string TracePlayer::Faster()
+{
+    const bool at_end = speed_index_ == 6;
+    if (!at_end) ++speed_index_;
+    return "Trace: speed " + GetSpeedLabel() + (at_end ? " (max)" : "");
+}
+
+std::string TracePlayer::Slower()
+{
+    const bool at_end = speed_index_ == 0;
+    if (!at_end) --speed_index_;
+    return "Trace: speed " + GetSpeedLabel() + (at_end ? " (min)" : "");
+}
+
+std::string TracePlayer::Tick(double seconds, double base_steps_per_second)
+{
+    ANET_CHECK_MSG(std::isfinite(seconds) && seconds >= 0 && std::isfinite(base_steps_per_second)
+        && base_steps_per_second >= 0, "Invalid trace playback clock. seconds=" << seconds
+        << " base_rate=" << base_steps_per_second << " expected=finite nonnegative values.");
+    if (!playing_ || !selected_ || rows_.empty()) return {};
+    // 端へ到達した瞬間に止め、実行環境のfps変更にも次のtickから追随する。
+    progress_ += seconds * base_steps_per_second * GetSpeed();
+    while (progress_ >= 1.0) {
+        progress_ -= 1.0;
+        auto found = std::find(rows_.begin(), rows_.end(), *selected_);
+        if (std::next(found) != rows_.end()) selected_ = *std::next(found);
+        if (*selected_ == rows_.back()) {
+            playing_ = false;
+            progress_ = 0;
+            return "Trace: end";
+        }
+    }
+    return {};
+}
+
+float anet::rl::gui::AppendTracePercentile(std::deque<float>& values, float value, size_t window_size)
+{
+    ANET_PROFILE_FUNC();
+    ANET_CHECK_MSG(window_size > 0, "Trace percentile window must be positive. actual=" << window_size);
+    // 不成立値は窓を進めず、有限値の直近窓へ自分を含めて中央順位を求める。
+    if (!std::isfinite(value)) return std::numeric_limits<float>::quiet_NaN();
+    values.push_back(value);
+    if (values.size() > window_size) values.pop_front();
+    size_t less = 0;
+    size_t equal = 0;
+    for (const float previous : values) {
+        if (previous < value) ++less;
+        else if (previous == value) ++equal;
+    }
+    return static_cast<float>(100.0 * (static_cast<double>(less) + 0.5 * equal) / values.size());
+}
+
+std::string anet::rl::gui::FormatTraceValue(const StepTraceColumnSpec& column, float value, const ActionSpec& actions)
+{
+    // 空欄は非有限値だけに使い、大きな整数を有効数字で丸めない。
+    if (!std::isfinite(value)) return {};
+    if (column.target == "$action_info" && column.key == "action") {
+        ANET_CHECK_MSG(actions.is_discrete && std::trunc(value) == value && value >= 0
+            && value < static_cast<float>(actions.value_labels.size()),
+            "Trace action is out of range. column=" << column.number << " value=" << value
+                << " expected=[0," << actions.value_labels.size() << ").");
+        const auto index = static_cast<size_t>(value);
+        if (column.display == "name") return actions.value_labels[index];
+        if (column.display == "value_name") return std::to_string(index) + ":" + actions.value_labels[index];
+    }
+    return std::trunc(value) == value ? std::format("{:.0f}", value) : std::format("{:.4g}", value);
 }

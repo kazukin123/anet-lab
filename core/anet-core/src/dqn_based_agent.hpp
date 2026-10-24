@@ -748,7 +748,7 @@ namespace anet::rl::dqn {
         float age = std::numeric_limits<float>::quiet_NaN();
     };
 
-    class DQNActionInfo final : public anet::rl::BatchActionInfo, public anet::ModuleBase {
+    class DQNActionInfo final : public anet::rl::BatchActionInfo {
     public:
         using anet::rl::BatchActionInfo::BatchActionInfo;
 
@@ -919,6 +919,15 @@ namespace anet::rl::dqn {
         bool use_tbo = false;
         float tbo_epsilon = 0.01f;
     };
+
+    struct ActorQHintData {
+        torch::Tensor payload;
+        torch::Tensor munchausen_terms;
+    };
+    ActorQHintData MakeActorQHint(const torch::Tensor& q_values,
+        const torch::Tensor& action, const ActorQHintConfig& config);
+    std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const LearnerConfig& config,
+        int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward);
 
     class Actor : public anet::rl::Actor, public anet::RandomHolder {
     public:

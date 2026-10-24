@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <wx/weakref.h>
 #include <wx/dcbuffer.h>
 #include "anet/config.hpp"
 #include "anet/observers.hpp"
@@ -290,21 +291,20 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
     auto notifier = run_manager->GetNotifier();
     this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
         runner,
-        [this](const anet::rl::TrainEvent& event)
-        {
-            // データ作る
-            auto data = CreateData(event);
-
-            // データがなかったら反映しない
-            if (!data.has_value()) return;
-
-            // データ反映 (保存は毎Step、画面更新はApplyData内でフレーム1回に集約される)
-            ApplyData(*data);
+        [weak = wxWeakRef<QValuePanel>(this)](const anet::rl::TrainEvent& event) {
+            if (!weak) return;
+            weak->latest_step_ = event.counts.exp_step;
+            weak->latest_data_.reset();
+            auto data = weak->CreateData(event);
+            if (data) weak->ApplyData(std::move(*data));
         },
         "QValuePanel");
 
     // Detach用にNotifierを保持
     notifier_ = notifier;
+    no_data_label_ = new wxStaticText(this, wxID_ANY, "no data for this step");
+    GetSizer()->Add(no_data_label_, 0, wxALL, 8);
+    no_data_label_->Hide();
 }
 
 void QValuePanel::SetActionHandler(std::function<void(int64_t)> action_handler)
@@ -396,19 +396,21 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
     return data;
 }
 
-void QValuePanel::ApplyData(const QValueData& data)
+void QValuePanel::ApplyData(QValueData data)
 {
     ANET_PROFILE_FUNC();
 
     // 最新断面を保存
-    data_store_.Update(data);
+    latest_data_ = std::make_shared<const QValueData>(std::move(data));
+    data_store_.Update(latest_data_);
 
     // 画面更新はイベントループへ1回だけ予約する
     // (タイマーハンドラ内で毎Step呼ばれても、Update()の実行はフレームあたり1回に集約される)
     if (!update_pending_.exchange(true)) {
-        CallAfter([this] {
-            update_pending_.store(false);
-            Update();
+        CallAfter([weak = wxWeakRef<QValuePanel>(this)] {
+            if (!weak) return;
+            weak->update_pending_.store(false);
+            weak->Update();
         });
     }
 }
@@ -417,11 +419,12 @@ void QValuePanel::Update()
 {
     ANET_PROFILE_FUNC();
 
-    auto data_opt = data_store_.Get();
-    if (!data_opt.has_value()) return;
+    const auto data_opt = data_store_.Get();
+    const auto selected = trace_mode_ ? trace_data_ : (data_opt ? *data_opt : nullptr);
+    if (!selected) return;
 
-    // データコピー
-    QValueData data = *data_opt;
+    // 表示用の変換は共有snapshotを書き換えず、ローカルコピーへ適用する。
+    QValueData data = *selected;
     if (data.vv.empty()) return;
 
     // UI状態取得
@@ -935,4 +938,53 @@ void QValuePanel::OnCloseWindow(wxCloseEvent& event)
     if (notifier_ && observer_) {
         notifier_->Detach(observer_);
     }
+}
+
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> QValuePanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
+{
+    ANET_PROFILE_FUNC();
+    // 通常Observerが作った同じstepの値を共有し、計算を重複させない。
+    if (!latest_step_ || *latest_step_ != event.counts.exp_step) {
+        latest_step_ = event.counts.exp_step;
+        latest_data_.reset();
+        if (auto data = CreateData(event)) ApplyData(std::move(*data));
+    }
+    if (!latest_data_) return nullptr;
+    // Traceは表の実行行動と揃える。LiveのAgent選択表示と共有データは変更しない。
+    auto trace_data = std::make_shared<QValueData>(*latest_data_);
+    trace_data->selected_action = event.action_info->GetAction(torch::kCPU)[0].item<int64_t>();
+    // IQNの観測用full分布の平均ではなく、その判断に用いたQを数値欄へ出す。
+    const auto q = event.action_info->GetAuxData().at("q_values")[0]
+        .detach().to(torch::kCPU, torch::kFloat32).contiguous();
+    ANET_CHECK(q.dim() == 1 && q.size(0) == trace_data->stats.size());
+    const auto* q_values = q.data_ptr<float>();
+    for (size_t i = 0; i < trace_data->stats.size(); ++i) trace_data->stats[i].mean = q_values[i];
+    return std::make_shared<const anet::rl::gui::TraceSnapshot>(anet::rl::gui::TraceSnapshot{
+        .show = [weak = wxWeakRef<QValuePanel>(this), data = std::shared_ptr<const QValueData>(std::move(trace_data))] {
+            if (!weak) return;
+            weak->trace_data_ = data;
+            weak->Update();
+        } });
+}
+
+void QValuePanel::ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot)
+{
+    trace_mode_ = true;
+    trace_data_.reset();
+    grid_->Show(static_cast<bool>(snapshot));
+    heatmap_panel_->Show(static_cast<bool>(snapshot));
+    if (no_data_label_) no_data_label_->Show(!snapshot);
+    if (snapshot && snapshot->show) snapshot->show();
+    Layout();
+}
+
+void QValuePanel::ReturnToLive()
+{
+    trace_mode_ = false;
+    trace_data_.reset();
+    grid_->Show(true);
+    heatmap_panel_->Show();
+    if (no_data_label_) no_data_label_->Hide();
+    Update();
+    Layout();
 }

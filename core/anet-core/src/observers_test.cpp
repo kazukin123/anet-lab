@@ -194,7 +194,7 @@ private:
     mutable int scalar_query_count_ = 0;
 };
 
-class TestActionInfo final : public rl::BatchActionInfo, public anet::ModuleBase {
+class TestActionInfo final : public rl::BatchActionInfo {
 public:
     TestActionInfo(torch::Tensor action, const anet::TensorDict& info, const rl::AuxData& aux, float score)
         : rl::BatchActionInfo(std::move(action), info, aux)
@@ -207,10 +207,11 @@ public:
         return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
     }
 
-    std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
+
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
         if (key == "action_info_score") return score_;
-        return std::nullopt;
+        return BatchActionInfo::GetScalar(key, index);
     }
 
 private:
@@ -1800,4 +1801,167 @@ TEST_CASE("Episode steps presets resolve to Runner session metrics", "[observer_
     } else {
         CHECK_FALSE(definitions.contains("20_eps/12_train_ep_steps"));
     }
+}
+
+TEST_CASE("env_step aggregates ended lanes and updates EMA once per Step", "[observers][prd097_step_metrics]")
+{
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* captured = backend.get();
+    anet::MetricsLoggerConfig logger;
+    logger.run_name_tmpl = "prd097_step_metrics";
+    anet::MetricsLogger::Init(std::move(backend), logger, "C:/tmp");
+    struct Cleanup { ~Cleanup() { anet::MetricsLogger::Reset(); } } cleanup;
+    auto env = std::make_shared<TestBatchEnv>("step-metrics", 3);
+    auto agent = std::make_shared<TestAgent>();
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    anet::ConfigData config;
+    config.Set("metrics.scalar.[ended]", "$env_step mean.reward @episode_end $exp_step ema_alpha:0.5");
+    config.Set("metrics.scalar.[all]", "$env_step mean.reward @train $exp_step");
+    rl::ObserverFactory factory(config);
+    for (const auto& scoped : factory.GetEpisodeEndObservers()) notifier->Attach(scoped.obs);
+    const auto first = std::make_shared<TestStepResult>(
+        std::vector<float>{2,10,90}, std::vector<bool>{true,true,false}, std::vector<bool>{false,false,false});
+    rl::StepCounts counts; counts.exp_step = 20;
+    CHECK(runner->FireEpisodeEnd(first, counts));
+    CHECK(HasScalarRecord(*captured, "ended", 20, 6.0));
+    const auto second = std::make_shared<TestStepResult>(
+        std::vector<float>{6,14,90}, std::vector<bool>{true,false,false}, std::vector<bool>{false,true,false});
+    counts.exp_step = 23;
+    CHECK(runner->FireEpisodeEnd(second, counts));
+    CHECK(HasScalarRecord(*captured, "ended", 23, 26.0 / 3.0));
+    rl::BatchExperience exp;
+    const rl::TrainEvent event{exp, runner, counts, agent, {}, env, first, nullptr};
+    factory.GetUpdateObservers().front().obs->OnTrain(event);
+    CHECK(HasScalarRecord(*captured, "all", 23, 34.0));
+}
+
+TEST_CASE("env_step trace reads each completed lane from its Step result", "[observers][prd097_step_trace]")
+{
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* captured = backend.get();
+    anet::MetricsLoggerConfig logger; logger.run_name_tmpl = "prd097_step_trace";
+    anet::MetricsLogger::Init(std::move(backend), logger, "C:/tmp");
+    struct Cleanup { ~Cleanup() { anet::MetricsLogger::Reset(); } } cleanup;
+    anet::ConfigData config;
+    config.Set("metrics.trace.[transition]", "$env_step reward done truncated @episode_end");
+    rl::ObserverFactory factory(config);
+    auto env = std::make_shared<TestBatchEnv>("step-trace", 3);
+    auto agent = std::make_shared<TestAgent>();
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    notifier->Attach(factory.GetEpisodeEndObservers().front().obs);
+    auto step = std::make_shared<TestStepResult>(std::vector<float>{2,10,90},
+        std::vector<bool>{true,false,false}, std::vector<bool>{false,true,false});
+    rl::StepCounts counts; counts.exp_step = 45;
+    runner->FireEpisodeEnd(step, counts);
+    std::vector<anet::json> traces;
+    for (const auto& row : captured->records) if (row.value("type", "") == "trace") traces.push_back(row);
+    REQUIRE(traces.size() == 2);
+    CHECK(traces[0].at("lane") == 0);
+    CHECK(traces[0].at("data").at("reward") == 2.0f);
+    CHECK(traces[1].at("lane") == 1);
+    CHECK(traces[1].at("data").at("truncated") == 1.0f);
+    CHECK(traces[1].at("step") == 45);
+    CHECK(factory.GetTraceMetricDefs().front().target == "env_step");
+}
+
+TEST_CASE("env_step rejects events that have no Step result at construction", "[observers][prd097_step_invalid]")
+{
+    const std::string declaration = GENERATE(std::string("$env_step mean.reward @learn"),
+        std::string("$eval.[eval] $env_step mean.reward @session_end"));
+    CHECK_THROWS_WITH(rl::ObserverFactory(MakeScalarConfig(declaration)),
+        Catch::Matchers::ContainsSubstring("$env_step"));
+}
+
+TEST_CASE("env_step fails at the first unknown or nonscalar read", "[observers][prd097_unknown_result]")
+{
+    const bool trace = GENERATE(false, true);
+    anet::ConfigData config;
+    config.Set(trace ? "metrics.trace.[invalid]" : "metrics.scalar.[invalid]",
+        trace ? "$env_step missing @episode_end" : "$env_step mean.missing @episode_end");
+    rl::ObserverFactory factory(config);
+    auto env = std::make_shared<TestBatchEnv>("unknown-result", 2);
+    auto agent = std::make_shared<TestAgent>();
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    notifier->Attach(factory.GetEpisodeEndObservers().front().obs);
+    const auto result = std::make_shared<TestStepResult>(std::vector<float>{1, 2},
+        std::vector<bool>{true, false}, std::vector<bool>{false, false});
+    CHECK_THROWS_WITH(runner->FireEpisodeEnd(result, {}), Catch::Matchers::ContainsSubstring("missing"));
+}
+
+TEST_CASE("Scalar action-info action keys keep the scalar-provider contract", "[metrics][observers][prd094][scalar_action_contract]")
+{
+    const std::string key = GENERATE("action", "action.[x]", "action.[0]");
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* captured = backend.get();
+    anet::MetricsLoggerConfig config;
+    config.run_name_tmpl = "prd094_scalar_action";
+    anet::MetricsLogger::Init(std::move(backend), config, "C:/tmp");
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>();
+    auto env = std::make_shared<TestBatchEnv>("scalar-action", 1);
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    auto info = std::make_shared<TestActionInfo>(torch::tensor({0}, torch::kInt64), anet::TensorDict{}, rl::AuxData{}, 12.5f);
+    const auto state = MakeState({false}, {false});
+    const rl::BatchExperience experience{state, info, FloatTensor({0.0f}), state};
+    const rl::TrainEvent event{{experience, runner, {.exp_step=1}, agent, {}}, env, nullptr, info};
+    rl::MetricsLogTrainObserver observer("unknown_action", key, rl::StepAxis::EXP,
+        rl::EventField::ACTION_INFO, 1, false, 0.01f, std::nullopt);
+    // 未知のscalar鍵は出力なし。lane別のcarrier読取りへ入ってはいけない。
+    CHECK_NOTHROW(observer.OnTrain(event));
+    CHECK_FALSE(HasScalarRecord(*captured, "unknown_action", 1, 0.0));
+    CHECK(std::none_of(captured->records.begin(), captured->records.end(), [](const auto& row) {
+        return row.value("type", "") == "scalar" && row.value("tag", "") == "unknown_action";
+    }));
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("Unknown non-DQN action scalar follows the standard missing-value warning", "[prd094][observers][action_info_module]")
+{
+    anet::MetricsLogger::Reset();
+    anet::MetricsLoggerConfig config;
+    config.run_name_tmpl = "prd094_action_module";
+    anet::MetricsLogger::Init(std::make_unique<CapturingBackend>(), config, "C:/tmp");
+    anet::test::LogCaptureGuard logs;
+    auto info = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64));
+    const auto state = MakeState({false}, {false});
+    const rl::BatchExperience experience{state, info, FloatTensor({0.0f}), state};
+    const rl::TrainEvent event{{experience, nullptr, {.exp_step=1}, nullptr, {}}, nullptr, nullptr, info};
+    rl::MetricsLogTrainObserver observer("missing_action_scalar", "not_provided", rl::StepAxis::EXP,
+        rl::EventField::ACTION_INFO, 1, false, 0.01f, std::nullopt);
+    // 非対応の特別扱いではなく、通常の未知キーとして既存WARNへ到達する。
+    observer.OnTrain(event);
+    logs.Flush();
+    CHECK(std::ranges::any_of(logs.Records(), [](const auto& record) {
+        return ContainsText(record.message, "value not found")
+            && ContainsText(record.message, "tag=missing_action_scalar")
+            && ContainsText(record.message, "key=not_provided");
+    }));
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("Base ActionInfo exposes lane actions without scalar aggregation", "[prd094][action_info_lane]")
+{
+    const rl::BatchActionInfo discrete(torch::tensor({1, 2}, torch::kInt64));
+    const anet::Module& module = discrete;
+    CHECK(module.GetScalar("action", 0) == 1.0f);
+    CHECK(module.GetScalar("action", 1) == 2.0f);
+    CHECK_FALSE(module.GetScalar("action", -1));
+    CHECK_FALSE(module.GetScalar("unknown", 0));
+    const rl::BatchActionInfo continuous(torch::tensor({{0.25f, -0.5f}, {0.75f, 0.5f}}));
+    CHECK(continuous.GetScalar("action.[1]", 0) == -0.5f);
+    CHECK(continuous.GetScalar("action.[0]", 1) == 0.75f);
+    CHECK_FALSE(continuous.GetScalar("action.[0]", -1));
+    // scalarの問い合わせはlaneの共通値を作らず、厳密な次元検証はlane指定時だけ行う。
+    CHECK_FALSE(continuous.GetScalar("action.[x]", -1));
+    CHECK_THROWS(continuous.GetScalar("action", 0));
+    CHECK_THROWS(discrete.GetScalar("action", 2));
+    const std::string key = GENERATE("action.[0x]", "action.[x]", "action.[-1]", "action.[0",
+        "action.[2147483648]", "action.[]", "action.[0]junk", "action.[2]");
+    CHECK_THROWS_WITH(continuous.GetScalar(key, 0), Catch::Matchers::ContainsSubstring("expected=action.[integer dimension]"));
 }
