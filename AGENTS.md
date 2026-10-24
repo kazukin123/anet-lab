@@ -61,6 +61,7 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 | 設定ファイルを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「設定ファイル」 |
 | PRD を書く・直す | [PRD 品質確認観点](docs/quality/prd.md) |
 | 設計文書・ユーザーガイドを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「検証と報告」 |
+| `AGENTS.md`・品質確認観点・プロセス契約とレジストリ・エージェント定義(`.claude/agents/`・`.codex/agents/`)を書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「検証と報告」と、直す品質確認観点のファイルの「位置づけ」 |
 | skill を書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「skill」と、[skills README](.agents/skills/README.md) |
 
 先に読むものは書く前に読み、読んだ節の名前を応答に 1 行で示す。書いたあとの自己点検では、同じファイルの全項目を通す。
