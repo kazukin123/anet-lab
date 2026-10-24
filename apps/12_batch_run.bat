@@ -47,7 +47,7 @@ SET "SNBLK=net.block.[DMImpalaRes64SNR].type=ResBlock net.block.[DMImpalaRes64SN
 SET "SNSTRUCT=DefaultDQNAgent.net.branch.[main_feature].structure=DMImpalaConv64 > DMImpalaPool > DMImpalaRes64SNR(*2) > DMImpalaConv128 > DMImpalaPool > DMImpalaRes128SNR(*2) > SiLU > PosEmbed2D > DMImpalaTrans128 > Flatten > Linear_2048 > SiLU"
 SET "SNMET="M2.[34_agent_plasticity/63_weight_norm_feature_effective]=plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500" "M2.[34_agent_plasticity/64_weight_norm_readout_effective]=plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500" "M2.[34_agent_plasticity/65_spectral_sigma_feature]=plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500" "M2.[34_agent_plasticity/66_spectral_sigma_readout]=plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500""
 SET "RR4=A3.learner.replay_ratio=4 A3.model.soft_update_tau=0.00125 run.eval_schedule.[eval_target].interval=400 run.eval_schedule.[eval].interval=400 run.eval_schedule.[eval_target_greedy].interval=800"
-SET "NZNET=net.block.[HeadFC1024].noisy.enabled=true net.block.[HeadFC1024].noisy.sigma0=0.5 A3.head_projection.noisy.enabled=true A3.head_projection.noisy.sigma0=0.5"
+SET "NZNET=net.block.[HeadFC1024].noisy.enabled=true net.block.[HeadFC1024].noisy.sigma0=0.5 A3.head.projection.noisy.enabled=true A3.head.projection.noisy.sigma0=0.5"
 SET "NZACT=A3.nn_forward.[act_lane].noisy.mode=sample A3.nn_forward.[act_lane].noisy.hold=call A3.nn_forward.[act_lane].noisy.share=sample A3.actor.[train].nn_forward_key=act_lane"
 SET "NZREP=A3.actor.[train].policy.uqe_eps_start=0"
 SET "NZMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@iqn_search_p0>metrics.scalar.@munchausen>M1>M2>metrics.scalar.@noisy"
@@ -68,71 +68,84 @@ SET RUNNER="bin\%BUILD%\AnetRLRunner.exe"
 SET "WS=--workspace DropMerge-03"
 SET "EVBIG=run.eval.[eval_target].eval_episodes=1250 run.eval.[eval].eval_episodes=1250 run.eval.[eval_target_greedy].eval_episodes=1250 run.eval.[eval_target].eval_batch_size=64 run.eval.[eval].eval_batch_size=64 run.eval.[eval_target_greedy].eval_batch_size=64"
 SET "EV8=run.eval.[eval_target].eval_batch_size=8 run.eval.[eval_target].eval_episodes=8 run.eval.[eval_target_greedy].eval_batch_size=8 run.eval.[eval_target_greedy].eval_episodes=8"
-:wait_disk_v0
+:wait_disk_y0
 SET "FREE_GB=0"
 for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
 if %FREE_GB% LSS 15 (
   echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
   ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_v0
+  goto :wait_disk_y0
 )
-echo === ev only 5000 x 3: 42i final (230M) ===
+echo === 46a. +60M from 45a (290M to 350M): B1024/RR1 Munchausen alpha 0.9 unchanged, in-training eval x8 ===
 SET "RUNS=workspaces\DropMerge-03\runs"
 SET "RUN_EXIT_CODE=0"
-call :find_ckpt "run_*_dmfb_42i_34a_b256rr2"
-if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42i_ev_b256rr2"
-:wait_disk_v1
+call :find_ckpt "run_20261021-001853_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" %B1024RR1% app.batchrun.exp_exit_step=60000000 %EV8% "app.run_name=run_{t}_dmfb_46a_45a_ctl"
+:wait_disk_y1
 SET "FREE_GB=0"
 for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
 if %FREE_GB% LSS 15 (
   echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
   ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_v1
+  goto :wait_disk_y1
 )
-echo === 42G. +60M from 34a (170M to 230M): B256/RR1, duplicate of 42A, in-training eval x8 ===
+echo === ev only 5000 x 3: 46a final (350M) ===
 SET "RUNS=workspaces\DropMerge-03\runs"
 SET "RUN_EXIT_CODE=0"
-call :find_ckpt "run_20261015-081844_*"
-if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" app.batchrun.exp_exit_step=60000000 %EV8% "app.run_name=run_{t}_dmfb_42g_34a_ctl2"
-:wait_disk_v2
+call :find_ckpt "run_*_dmfb_46a_45a_ctl"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_46a_ev_ctl"
+:wait_disk_y2
 SET "FREE_GB=0"
 for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
 if %FREE_GB% LSS 15 (
   echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
   ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_v2
+  goto :wait_disk_y2
 )
-echo === ev only 5000 x 3: 42g final (230M) ===
+echo === 46b. +60M from 45e (290M to 350M): B1024/RR1 Munchausen alpha 0.7 unchanged, in-training eval x8 ===
 SET "RUNS=workspaces\DropMerge-03\runs"
 SET "RUN_EXIT_CODE=0"
-call :find_ckpt "run_*_dmfb_42g_34a_ctl2"
-if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42g_ev_ctl2"
-:wait_disk_v3
+call :find_ckpt "run_20261022-064721_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" %B1024RR1% A3.learner.munchausen.alpha=0.7 app.batchrun.exp_exit_step=60000000 %EV8% "app.run_name=run_{t}_dmfb_46b_45e_ma0.7"
+:wait_disk_y3
 SET "FREE_GB=0"
 for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
 if %FREE_GB% LSS 15 (
   echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
   ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_v3
+  goto :wait_disk_y3
 )
-echo === 42B. +60M from 34a (170M to 230M): B256/RR1 lr 7.1e-5, in-training eval x8 ===
+echo === ev only 5000 x 3: 46b final (350M) ===
 SET "RUNS=workspaces\DropMerge-03\runs"
 SET "RUN_EXIT_CODE=0"
-call :find_ckpt "run_20261015-081844_*"
-if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" A3.learner.alpha=7.1e-5 app.batchrun.exp_exit_step=60000000 %EV8% "app.run_name=run_{t}_dmfb_42b_34a_lr7.1e-5"
-:wait_disk_v4
+call :find_ckpt "run_*_dmfb_46b_45e_ma0.7"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_46b_ev_ma0.7"
+:wait_disk_y4
 SET "FREE_GB=0"
 for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
 if %FREE_GB% LSS 15 (
   echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
   ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_v4
+  goto :wait_disk_y4
 )
-echo === ev only 5000 x 3: 42b final (230M) ===
+echo === 46c. +60M from 45a (290M to 350M): B1024/RR1 Munchausen alpha 0.5, in-training eval x8 ===
 SET "RUNS=workspaces\DropMerge-03\runs"
 SET "RUN_EXIT_CODE=0"
-call :find_ckpt "run_*_dmfb_42b_34a_lr7.1e-5"
-if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_42b_ev_lr7.1e-5"
+call :find_ckpt "run_20261021-001853_*"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %B100M% %MUNCH% "%NZGMET%" %MTAU3% %GEV% %GMET% %SGMET% %NDT20% %NZNET% %NZACT% %NZREP% "A3.auto_load_file=%CKPT%" %B1024RR1% A3.learner.munchausen.alpha=0.5 app.batchrun.exp_exit_step=60000000 %EV8% "app.run_name=run_{t}_dmfb_46c_45a_ma0.5"
+:wait_disk_y5
+SET "FREE_GB=0"
+for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
+if %FREE_GB% LSS 15 (
+  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
+  ping -n 301 127.0.0.1 >nul
+  goto :wait_disk_y5
+)
+echo === ev only 5000 x 3: 46c final (350M) ===
+SET "RUNS=workspaces\DropMerge-03\runs"
+SET "RUN_EXIT_CODE=0"
+call :find_ckpt "run_*_dmfb_46c_45a_ma0.5"
+if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_46c_ev_ma0.5"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

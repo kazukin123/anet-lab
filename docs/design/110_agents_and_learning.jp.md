@@ -153,6 +153,10 @@ sequenceDiagram
 
 Actor内部のObservation加工、Network forward、Policy、snapshot同期は具象実装の責務である。RunnerによるActor生成と同期の利用箇所は[実行基盤と設定](100_runtime_and_configuration.jp.md)、GUI Evalの同期は[アプリケーションとツール](160_applications_and_tools.jp.md)を参照する。
 
+DefaultDQNのskip網は `skip.network_mode=action_out|action_in` で構成を選ぶ。action_inはaction入力のbindを必須とし、action_outはそのbindを禁止する。有効時だけskip網を構築し、無効時は設定値だけを検証する。IQNの既定入力はprimaryの融合済み特徴で、skip側のtaus bindは必須にしない。Jはenvが既定を持ち、実装既定は未指定（0）。明示1は許し、明示0以下は無効時も拒否する。
+
+DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動`WithAction`は実行行動とQヒントを差し替えるが、Actorの継続状態を更新しない。
+
 ### 6.2 Experience受入れと更新結果
 
 ```mermaid

@@ -231,6 +231,14 @@ namespace anet::rl {
         const torch::Tensor& GetActualNSteps() const { return actual_n_steps_; }
         /// extractorへring layoutを露出せず、実slotの履歴開始だけを返す。
         bool IsHistoryStart(int64_t env_idx, int64_t physical_idx) const;
+        /// 1 step の事実を、n-step確定とは独立して保存する。
+        void RecordStep(int64_t env_idx, int64_t time_idx, float reward, bool done, bool truncated, bool decision);
+        float GetStepReward(int64_t env_idx, int64_t time_idx) const;
+        uint8_t GetStepFlags(int64_t env_idx, int64_t time_idx) const;
+        static constexpr uint8_t kDone = 1;
+        static constexpr uint8_t kTruncated = 2;
+        static constexpr uint8_t kDecision = 4;
+        static constexpr uint8_t kDummy = 8;
     public:
         // 可視化用
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
@@ -250,6 +258,16 @@ namespace anet::rl {
         torch::Tensor terminals_;
         torch::Tensor actual_n_steps_;
         std::vector<uint8_t> history_starts_;
+        std::vector<float> step_rewards_;
+        std::vector<uint8_t> step_flags_;
+    };
+
+    /// slot の記録から、利用側が要求する窓の上限を求める規則。
+    class SampleWindowRule {
+    public:
+        virtual int GetLimit() const = 0;
+        virtual int GetMaxLength(const ReplayExperienceStorage& storage, int64_t env_idx, int64_t time_idx) const = 0;
+        virtual ~SampleWindowRule() = default;
     };
     
 
@@ -267,6 +285,7 @@ namespace anet::rl {
     class ReplayExperienceSampler {
     public:
         virtual IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) = 0;
+        virtual torch::Tensor SampleWindowLengths(const torch::Tensor& max_lengths) = 0;
         virtual ~ReplayExperienceSampler() = default;
     };
 
@@ -277,7 +296,7 @@ namespace anet::rl {
             ExperienceSamples& out_samples,
             const ReplayExperienceStorage& storage,
             const IndexSampleResult& idx_result,
-            int stack_count, int unroll_steps) const = 0;
+            int stack_count, int unroll_steps, ReplayExperienceSampler& sampler) const = 0;
         virtual ~ExperienceSampleExtractor() = default;
     };
 
@@ -488,6 +507,7 @@ namespace anet::rl {
         int64_t capacity_per_env_;
 
         std::unique_ptr<ReplayExperienceStorage> storage_;
+        int sample_n_step_ = 1; ///< sampleableだけに適用する未来側の幅。readyの幅はconfig_.n_step。
         std::unique_ptr<ValidIndexManager> index_manager_;
 
         std::unique_ptr<ExperienceQueueController> queue_controller_;

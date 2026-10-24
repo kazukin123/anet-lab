@@ -22,7 +22,7 @@ $pair084 = @(
 )
 foreach ($mode084 in @('none','spectral','spectral_cap')) {
     $base084 = @('net.block.[AtariHeadFC512].weight_norm.mode='+$mode084)
-    $pair084 += @{name=('learning_sn_'+$mode084); profile='nz_learning'; a=@($base084 + @('net.block.[AtariHeadFC512].noisy.enabled=false','DefaultDQNAgent.head_projection.noisy.enabled=false')); b=$base084}
+    $pair084 += @{name=('learning_sn_'+$mode084); profile='nz_learning'; a=@($base084 + @('net.block.[AtariHeadFC512].noisy.enabled=false','DefaultDQNAgent.head.projection.noisy.enabled=false')); b=$base084}
 }
 if ($Pairs.Count -gt 0) {
     foreach ($selected084 in $Pairs) {

@@ -33,6 +33,8 @@ def assignment_role(filename, key):
             return "intentional Optuna seed override"
         return None
     if filename in ENV_FILES:
+        if key == "DefaultDQNAgent.skip.max_length":
+            return "environment agent default definition"
         if re.match(r"[A-Z][A-Za-z0-9]*Env\.", key) and "@" not in key:
             return "environment default definition"
         if filename == "Atari.txt" and key in ATARI_AGENT_DEFAULTS:
@@ -43,7 +45,7 @@ def assignment_role(filename, key):
     # 名前を持つ選択肢のうち、ベースとして提供する定義だけを既定葉にする。
     if re.search(r"\.(?:@?baseline|@eval_base)\.", key):
         return "base profile definition"
-    if key.startswith("net."):
+    if key.startswith("net.") or re.search(r"\.net\.@[^.]+\.", key):
         return "reusable network definition"
     if filename in ("common.txt", "agent.txt"):
         return "explicit choice profile" if "@" in key else "shared default definition"

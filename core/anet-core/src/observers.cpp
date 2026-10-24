@@ -1340,8 +1340,13 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
         const std::string& config_key = kv.first;
         const std::string& config_value = kv.second;
 
-        auto scalar_metrics_tag = anet::ExtractBetween(
-            config_key, CONFIG_KEY_METRICS_SCALAR_PREFIX, CONFIG_KEY_METRICS_SCALAR_SUFFIX);
+        // tag自身に添字を含められるため、最後の閉じ括弧までをtagとして保持する。
+        const auto scalar_begin = config_key.find(CONFIG_KEY_METRICS_SCALAR_PREFIX);
+        const auto scalar_end = config_key.rfind(CONFIG_KEY_METRICS_SCALAR_SUFFIX);
+        const auto scalar_content = scalar_begin == std::string::npos ? scalar_begin
+            : scalar_begin + std::char_traits<char>::length(CONFIG_KEY_METRICS_SCALAR_PREFIX);
+        const auto scalar_metrics_tag = scalar_content != std::string::npos && scalar_end != std::string::npos && scalar_end > scalar_content
+            ? config_key.substr(scalar_content, scalar_end - scalar_content) : std::string();
 
 		if (!scalar_metrics_tag.empty())
         {

@@ -1218,7 +1218,7 @@ TEST_CASE("Runner selects an Actor catalog entry and exposes its epsilon", "[tra
     auto env = std::make_shared<TestBatchEnv>("train", 2, torch::Device(torch::kCPU));
     anet::ConfigData config;
     config.Set("DefaultDQNAgent.quantile_mode", "none");
-    config.Set("DefaultDQNAgent.use_dueling_net", false);
+    config.Set("DefaultDQNAgent.head.use_dueling", false);
     config.Set("DefaultDQNAgent.stucker.use_stacker", false);
     config.Set("DefaultDQNAgent.obs_norm.pass_through", true);
     config.Set("DefaultDQNAgent.learner.enabled", false);

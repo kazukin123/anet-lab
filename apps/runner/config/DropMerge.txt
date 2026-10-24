@@ -252,7 +252,7 @@ A2.learner.grad_clip_tau = 5
 
 #E1.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
-#A2.use_dueling_net = false
+#A2.head.use_dueling = false
 
 #E1.damping = 0
 #E1.friction = 0.0              # 本家相当？:摩擦無し
@@ -481,6 +481,23 @@ A2.learner.grad_clip_tau = 5
 # 定着済み・比較対照・次期実験・再現検証に使う構成だけを定義する。
 # 既定はすべてOFF。run.$の1行またはCLIのrun.$=run.@<name>で選択する。
 
+
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+DefaultDQNAgent.skip.max_length ?= 10
+DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1 > M2 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[8]] = skip_length_rate.[8] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[9]] = skip_length_rate.[9] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
 # IQN K/N/M=32 + stratified。現行の主力構成。
 run.@iqn32_stratified : backend.$ = backend.@non-deterministic
 run.@iqn32_stratified : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1

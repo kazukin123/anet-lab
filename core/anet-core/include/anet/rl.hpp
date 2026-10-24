@@ -837,6 +837,15 @@ namespace anet::rl {
 
         // --- N-Step & PER メタデータ ---
         torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
+
+        struct {
+            torch::Tensor lengths;     ///< [B] 抽選した窓の長さ。規則未指定なら未定義。
+            torch::Tensor max_lengths; ///< [B] 起点から取れる窓の最大長
+            torch::Tensor returns;     ///< [B] 窓の割引報酬
+            torch::Tensor terminals;   ///< [B] 真の終端
+            torch::Tensor truncated;   ///< [B] 打ち切り
+            anet::TensorDict next_obs; ///< k先の観測（履歴を含む）
+        } window;
         torch::Tensor replay_item_keys; ///< [B] generation付きopaque key (CPU int64)
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
         torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource (CPU int8)
@@ -861,6 +870,12 @@ namespace anet::rl {
             next_state.next_obs.ForEachTensor(visit);
             visit(next_state.terminals);
             visit(n_steps);
+            visit(window.lengths);
+            visit(window.max_lengths);
+            visit(window.returns);
+            visit(window.terminals);
+            visit(window.truncated);
+            window.next_obs.ForEachTensor(visit);
             visit(replay_item_keys);
             visit(is_weights);
             visit(per_priority_sources);

@@ -36,12 +36,22 @@ backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 # ALGO プロファイル(@qr / @iqn)は agent.txt の共通定義を参照(切替はチェーンの 1 項)。配線実体 net.@qr / net.@iqn は本ファイル所有。
 
 # --- Run プロファイル ---
+
 run.@repro : backend.$ = backend.@deterministic
 run.@repro : DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
-#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
 
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+DefaultDQNAgent.skip.max_length ?= 4
+DefaultDQNAgent.net.body.output.[skip_context] = fusion
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
 run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > @heavy > A1 > @bf16 > A2
 run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > M1
 
@@ -53,10 +63,12 @@ run.@cpu : backend.torch_num_threads = 4   # i5-10500 で 4 / 10 / -1 を比べ�
 # NoisyNet は V/A ストリームの FC と Head の V/A 射影に掛ける。Linear128 は main_feature と IQN fusion で共用なので掛けない
 run.@noisy : net.block.[HeadFC128].noisy.enabled = true
 run.@noisy : net.block.[HeadFC128].noisy.sigma0 = 0.5
-run.@noisy : A2.head_projection.noisy.enabled = true
-run.@noisy : A2.head_projection.noisy.sigma0 = 0.5
+run.@noisy : A2.head.projection.noisy.enabled = true
+run.@noisy : A2.head.projection.noisy.sigma0 = 0.5
 run.@noisy : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > metrics.scalar.@noisy > M1
 
+
+#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
 run.$ = run.@munch
 #run.$ = run.@rfit
 #run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
@@ -136,8 +148,8 @@ A2.learner.use_rb_prefetch = true
 
 E1.landing_detection_mode = not_awake
 
-A2.head_init.mode = orthogonal
-A2.head_init.manual_gain = 0.01
+A2.head.init.mode = orthogonal
+A2.head.init.manual_gain = 0.01
 
 A2.learner.use_tbo = false
 
@@ -235,8 +247,8 @@ DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > LN128 > ReLU
 DefaultDQNAgent.net.body.output.[value_feature] = value_stream
 DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 
-A1.head_init.mode = xavier
-A1.head_init.manual_gain = 0.0
+A1.head.init.mode = xavier
+A1.head.init.manual_gain = 0.0
 
 
 ## --- 切替用配線プロファイル(ALGO プロファイルの net.$ から参照される。config_data.txt には出ない) ---

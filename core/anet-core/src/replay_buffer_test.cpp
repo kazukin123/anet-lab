@@ -307,8 +307,8 @@ public:
 
 class ConstantInitialPriorityEstimator final : public rl::InitialPriorityEstimator {
 public:
-    explicit ConstantInitialPriorityEstimator(std::optional<float> result)
-        : result_(result)
+    explicit ConstantInitialPriorityEstimator(std::optional<float> result, std::shared_ptr<int> calls = {})
+        : result_(result), calls_(std::move(calls))
     {
     }
 
@@ -322,11 +322,13 @@ public:
 
     std::optional<float> Estimate(const rl::InitialPriorityEstimateInput&) const override
     {
+        if (calls_) ++*calls_;
         return result_;
     }
 
 private:
     std::optional<float> result_;
+    std::shared_ptr<int> calls_;
 };
 
 class RecordingPriorityStore final : public rl::ReplayPriorityStore {
@@ -782,6 +784,160 @@ void RequireSlotsIn(
         CAPTURE(key, slot);
         REQUIRE(std::find(allowed.begin(), allowed.end(), slot) != allowed.end());
     }
+}
+
+TEST_CASE("Replay windows stop at the next decision and return discounted transitions", "[replay_buffer][prd098]")
+{
+    const int execution = GENERATE(0, 1, 2);
+    if (execution == 2 && !torch::cuda::is_available()) return;
+    auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    auto buffer = MakeBuffer(config, 1);
+    if (execution) buffer.rb = std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb,
+        execution == 2 ? torch::Device(torch::kCUDA) : torch::Device(torch::kCPU));
+    // 同じ行動でも、3 stepごとの判断を跨いだ窓にはしない。
+    for (int t = 0; t < 12; ++t) {
+        anet::TensorDict info;
+        info.Set("decision", torch::tensor({ t % 3 == 0 }, torch::kBool));
+        buffer.rb->Push(MakeBatch({ float(t) }, { float(t + 1) }, { 1.0f },
+            { false }, { false }, { t == 0 }, false, info));
+    }
+    REQUIRE(buffer.rb->Size() == 8);
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 8, 0.0f);
+    REQUIRE(samples.window.lengths.numel() == 8);
+    for (int64_t i = 0; i < 8; ++i) {
+        const int start = static_cast<int>(samples.obs.At(kVectorKey)[i].item<float>());
+        const int length = samples.window.lengths[i].item<int>();
+        REQUIRE(samples.window.max_lengths[i].item<int>() == 3 - start % 3);
+        REQUIRE(length >= 1);
+        REQUIRE(length <= 3 - start % 3);
+        REQUIRE(samples.window.returns[i].item<float>() == Catch::Approx(2.0f * (1.0f - std::pow(0.5f, length))));
+        REQUIRE_FALSE(samples.window.terminals[i].item<bool>());
+        REQUIRE(samples.window.next_obs.At(kVectorKey)[i].item<float>() == Catch::Approx(start + length));
+    }
+    if (execution == 2) CHECK(samples.window.next_obs.device().is_cuda());
+    // Probeもwindowと同じ候補範囲を使い、通常Sampleとは独立したcaller RNGで窓を得る。
+    anet::RandomGenerator random(98);
+    const auto history = buffer.rb->ProbeSamplingHistory({.counts = true, .sampled_batch_size = 1}, &random);
+    CHECK(history.unsampled_count + history.sampled_count == 8);
+    REQUIRE(history.sampled);
+    REQUIRE(history.sampled->window.lengths.defined());
+    CHECK(history.sampled->window.lengths.item<int>() >= 1);
+    CHECK(history.sampled->window.next_obs.device().is_cpu());
+}
+
+TEST_CASE("Decision window margin does not delay PER initial-priority completion", "[replay_buffer][prd098]")
+{
+    // J=4のsampleableは8件だが、n_step=2の優先度は10件完成している。
+    auto config = MakeConfig(32, 2, 0.5f, 1, rl::ReplaySamplerType::PRIORITIZED);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    const auto calls = std::make_shared<int>(0);
+    const auto buffer = MakeBuffer(config, 1, false, 98, std::make_unique<ConstantInitialPriorityEstimator>(1.0f, calls));
+    for (int step = 0; step < 12; ++step) {
+        buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {1}, {false}, {false}, {step == 0}, false,
+            anet::TensorDict{{"decision", torch::tensor({step % 3 == 0}, torch::kBool)}},
+            rl::ReplayInitialPriorityHint(torch::ones({1, 1}))));
+    }
+    CHECK(*calls == 10);
+    CHECK(buffer.rb->Size() == 8);
+}
+
+TEST_CASE("Replay windows retain episode boundaries through ring wrap and transfer", "[replay_buffer][prd098]")
+{
+    auto config = MakeConfig(16, 2, 0.5f, 3, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    const auto buffer = MakeBuffer(config, 1);
+    bool episode_start = true;
+    for (int t = 0; t < 60; ++t) {
+        const bool done = t % 11 == 8;
+        const bool truncated = t % 11 == 10;
+        anet::TensorDict info;
+        info.Set("decision", torch::tensor({ episode_start || t % 3 == 0 }, torch::kBool));
+        buffer.rb->Push(MakeBatch({ float(t) }, { truncated ? -float(t + 1) : float(t + 1) },
+            { float(t + 1) }, { done }, { truncated }, { episode_start }, false, info));
+        episode_start = done || truncated;
+    }
+    anet::RandomGenerator random(98);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random));
+    samples = samples.To(torch::kCPU);
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        const int start = static_cast<int>(samples.obs.At(kVectorKey)[row][-1].item<float>());
+        const int length = samples.window.lengths[row].item<int>();
+        int maximum = 0;
+        for (int offset = 0; offset < 4; ++offset) {
+            const int time = start + offset;
+            if (offset && time % 3 == 0) break;
+            ++maximum;
+            if (time % 11 == 8 || time % 11 == 10) break;
+        }
+        REQUIRE(samples.window.max_lengths[row].item<int>() == maximum);
+        REQUIRE(length <= maximum);
+        float expected = 0.0f;
+        for (int offset = 0; offset < length; ++offset) expected += std::pow(0.5f, offset) * (start + offset + 1);
+        REQUIRE(samples.window.returns[row].item<float>() == Catch::Approx(expected));
+        const int last = start + length - 1;
+        REQUIRE(samples.window.terminals[row].item<bool>() == (last % 11 == 8));
+        REQUIRE(samples.window.truncated[row].item<bool>() == (last % 11 == 10));
+        if (last % 11 != 8) {
+            const float next = last % 11 == 10 ? -float(last + 1) : float(last + 1);
+            REQUIRE(samples.window.next_obs.At(kVectorKey)[row][-1].item<float>() == Catch::Approx(next));
+        }
+    }
+}
+
+TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly", "[replay_buffer][prd098]")
+{
+    auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    const auto ordinary = MakeBuffer(config, 1);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    const auto windowed = MakeBuffer(config, 1);
+    for (int step = 0; step < 16; ++step) {
+        anet::TensorDict info{{"decision", torch::tensor({step == 0}, torch::kBool)}};
+        const auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false, info);
+        ordinary.rb->Push(batch);
+        windowed.rb->Push(batch);
+    }
+    CHECK(ordinary.rb->Size() - windowed.rb->Size() == 3);
+    anet::RandomGenerator random(98);
+    std::array<int, 4> count{};
+    rl::ExperienceSamples sample;
+    for (int draw = 0; draw < 4000; ++draw) {
+        REQUIRE(windowed.rb->SampleUniqueUniform(sample, 1, random));
+        REQUIRE(sample.window.max_lengths.item<int>() == 4);
+        const int length = sample.window.lengths.item<int>();
+        REQUIRE(length >= 1);
+        REQUIRE(length <= 4);
+        ++count[length - 1];
+    }
+    for (const int observed : count) { CHECK(observed > 800); CHECK(observed < 1200); }
+    REQUIRE(ordinary.rb->SampleUniqueUniform(sample, 1, random));
+    CHECK_FALSE(sample.window.lengths.defined());
+    config.capacity = 4;
+    CHECK_THROWS(MakeBuffer(config, 1));
+}
+
+TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buffer][prd098]")
+{
+    auto config = MakeConfig(16, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = rl::CreateDecisionWindowRule(3);
+    const bool continuous = GENERATE(false, true);
+    auto env = MakeEnvSpec();
+    env.action_spec.is_discrete = !continuous;
+    if (continuous) env.action_spec.dims.resize(1);
+    const auto buffer = rl::CreateReplayBuffer(config, env, 1, torch::kCPU, false, 98);
+    for (int step = 0; step < 10; ++step) {
+        auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false,
+            anet::TensorDict{{"decision", torch::tensor({step == 0}, torch::kBool)}});
+        const auto action = continuous ? torch::full({1, 1}, float(step % 2)) : torch::tensor({step % 2}, torch::kInt64);
+        batch.action = batch.action->WithAction(action);
+        buffer->Push(batch);
+    }
+    rl::ExperienceSamples sample;
+    anet::RandomGenerator random(98);
+    CHECK_THROWS_WITH(buffer->SampleUniqueUniform(sample, 1, random), Catch::Matchers::ContainsSubstring("Invalid window action"));
 }
 
 TEST_CASE("SumTree supports explicit floating-point value types", "[replay_buffer][per][precision]")

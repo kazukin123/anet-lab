@@ -109,10 +109,10 @@ DefaultDQNAgent.@random.learner.update_warmup_steps = 999,999,999
 DefaultDQNAgent.@random.learner.alpha = 0
 
 
-DefaultDQNAgent.@baseline.head_init.manual_gain ?= 0.0
-DefaultDQNAgent.@baseline.head_init.mode ?= xavier
-DefaultDQNAgent.@baseline : head_projection.noisy.enabled ?= false
-DefaultDQNAgent.@baseline : head_projection.noisy.sigma0 ?= 0.5
+DefaultDQNAgent.@baseline : head.init.manual_gain ?= 0.0
+DefaultDQNAgent.@baseline : head.init.mode ?= xavier
+DefaultDQNAgent.@baseline : head.projection.noisy.enabled ?= false
+DefaultDQNAgent.@baseline : head.projection.noisy.sigma0 ?= 0.5
 DefaultDQNAgent.@baseline.model.soft_update_tau ?= 0.001      # 1.0 0.004  0.01 0.005
 
 DefaultDQNAgent.@baseline.nn_viz.show_param_shapes ?= true
@@ -253,7 +253,7 @@ DefaultDQNAgent.@baseline.obs_norm.robust_warmup_count ?= 200
 DefaultDQNAgent.@baseline.obs_norm.robust_std_threshold ?= 5.0
 DefaultDQNAgent.@baseline.obs_norm.post_process_type ?= 1             # 0=none 1=SymLog 2=Tanh 3=Softsign
 DefaultDQNAgent.@baseline.obs_norm.post_process_threshold ?= 10.0
-DefaultDQNAgent.@baseline.use_dueling_net ?= true       #
+DefaultDQNAgent.@baseline : head.use_dueling ?= true       #
 DefaultDQNAgent.@baseline.quantile_mode ?= qr            # none / qr / iqn
 DefaultDQNAgent.@baseline.qr.num_quantiles ?= 51         # QR-DQNの分位数 N
 
@@ -298,12 +298,26 @@ DefaultDQNAgent.@baseline.qr.num_quantiles ?= 51         # QR-DQNの分位数 N
 # 　per_beta=0　→ 補正無し、 per_beta=1.0 →完全補正
 
 
+# TempoRL: envのAgentチェーンから選ぶ共有profileと小さなMLP配線。
+# TempoRLの共通既定。envがJと入力特徴を選び、Runで有効にする。
+DefaultDQNAgent.@baseline : skip.enabled ?= false
+DefaultDQNAgent.@baseline : net.body.output.[skip_context] ?= main_feature
+DefaultDQNAgent.@baseline : skip.net.branch.[skip_feature].bind ?= skip_context
+DefaultDQNAgent.@baseline : skip.net.branch.[skip_feature].bind_concat_dim ?= -1
+DefaultDQNAgent.@baseline : skip.net.branch.[skip_feature].structure ?= SkipFC1 > SkipReLU > SkipFC2 > SkipReLU
+DefaultDQNAgent.@baseline : skip.net.body.output.[features] ?= skip_feature
+DefaultDQNAgent.@baseline : skip.network_mode ?= action_out
+DefaultDQNAgent.@baseline : skip.head.use_dueling ?= false
+DefaultDQNAgent.@baseline : learner.skip.feature_gradient ?= stop
+DefaultDQNAgent.@baseline : learner.skip.loss_weight ?= 1.0
+DefaultDQNAgent.@baseline : learner.skip.priority_lambda ?= 0
+
 # ==============================================================================
 # RainbowAgent
 # ==============================================================================
 
-RainbowAgent.@baseline.head_init.manual_gain ?= 0.0
-RainbowAgent.@baseline.head_init.mode ?= xavier
+RainbowAgent.@baseline : head.init.manual_gain ?= 0.0
+RainbowAgent.@baseline : head.init.mode ?= xavier
 RainbowAgent.@baseline.model.soft_update_tau ?= 0.001     # 1.0 0.004  0.01 0.005
 RainbowAgent.@baseline.actor.[train].policy.eps_start ?= 1.00              # 指数減衰
 RainbowAgent.@baseline.actor.[train].policy.eps_end ?= 0.05              # 0.1 0.05

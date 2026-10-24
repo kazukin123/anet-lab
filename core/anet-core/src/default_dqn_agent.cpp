@@ -1,11 +1,11 @@
 ﻿// default_dqn_agent.cpp
 
 #include "anet/default_dqn_agent.hpp"
-#include "dqn_based_agent.hpp"
 #include <memory>
 #include <sstream>
 #include <torch/torch.h>
 #include <cmath>
+#include "anet/profile.hpp"
 #include "anet/str_util.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/tensor_util.hpp"
@@ -14,15 +14,21 @@
 #include "anet/random.hpp"
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
-#include "anet/profile.hpp"
 #include "anet/stacker.hpp"
-#include "dqn_based_heads.hpp"
-#include "nn_heads.hpp"
 #include "anet/serialize.hpp"
+#include "nn_heads.hpp"
+#include "dqn_based_heads.hpp"
+#include "dqn_based_agent.hpp"
 
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
+
+namespace {
+// Agent全体の保存形式。第1版の識別子は既存primary checkpointのため保持する。
+constexpr char kCheckpointFormatV1[] = "DefaultDQNAgent";
+constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
+} // namespace
 
 // ======================================================
 // DefaultDQNAgent
@@ -36,6 +42,11 @@ DefaultDQNAgent::DefaultDQNAgent(
     : AgentBase(device, batch_env_spec, env_spec, seed)
     , config_(config)
 {
+    // 直接DTOを渡す構築経路でも、有効化時は未指定のJを資源構築前に拒否する。
+    if (config_.skip.enabled && config_.skip.max_length < 1) {
+        ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.max_length=" << config_.skip.max_length
+            << "; expected explicit value >= 1 when skip.enabled=true.");
+    }
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
     // ログ：パラメータ記録
@@ -87,37 +98,37 @@ DefaultDQNAgent::DefaultDQNAgent(
     // ------------------------------------------------------------
 
     // Head用の初期化設定を作成 (AgentがConfigDataから読み取る)
-    const anet::nn::WeightInitConfig& head_init_config = config_.head_init;
+    const anet::nn::WeightInitConfig& head_init_config = config_.head.init;
 
     std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
 
     // 分布表現とDuelingの直積でHeadを選択する。
     if (config_.quantile_mode == "iqn") {
-        if (config_.use_dueling_net) {
-            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config, config_.head_projection);
+        if (config_.head.use_dueling) {
+            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: IQN Dueling";
         } else {
-            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config, config_.head_projection);
+            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: IQN Plain";
         }
     } else if (config_.quantile_mode == "qr") {
-        if (config_.use_dueling_net) {
+        if (config_.head.use_dueling) {
             head_factory = std::make_shared<QuantileDuelingHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head_projection);
+                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: Quantile Dueling (N=" << config_.qr.num_quantiles << ")";
         } else {
             head_factory = std::make_shared<QuantileHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head_projection);
+                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: Quantile Plain (N=" << config_.qr.num_quantiles << ")";
         }
     } else {
-        if (config_.use_dueling_net) {
+        if (config_.head.use_dueling) {
             head_factory = std::make_shared<DuelingHeadFactory>(
-                n_actions_, head_init_config, config_.head_projection);
+                n_actions_, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: Dueling";
         } else {
             head_factory = std::make_shared<LinearHeadFactory>(
-                n_actions_, head_init_config, config_.head_projection);
+                n_actions_, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: Plain Linear";
         }
     }
@@ -159,10 +170,20 @@ DefaultDQNAgent::DefaultDQNAgent(
     }
 
     // NetworkModel生成
+    std::optional<SkipNetworkDefinition> skip_definition;
+    if (config_.skip.enabled) {
+        skip_definition.emplace(SkipNetworkDefinition{
+            .config = config_.skip,
+            .network_config = anet::nn::NetworkConfig(config_.skip_net, "DefaultDQNAgent.skip.net"),
+            .head_factory = std::make_shared<SkipHeadFactory>(n_actions_, config_.skip.max_length,
+                config_.skip.network_mode, config_.quantile_mode, config_.qr.num_quantiles,
+                config_.skip.head.init, config_.skip.head.projection),
+            .seed = seed_maker.MakeNamedSeed("skip_network")});
+    }
     this->model_ = std::make_unique<NetworkModel>(
         config_.model, device_,
         net_config, network_obs_spec, n_actions_, head_factory,
-        is_distributional, network_seed
+        is_distributional, network_seed, skip_definition ? &*skip_definition : nullptr
     );
 
     // Network グラフ可視化
@@ -172,6 +193,10 @@ DefaultDQNAgent::DefaultDQNAgent(
         anet::MetricsLogger::Instance()->Log("net.structure", *structure_view);
         auto detail_view = net.MakeGraphViz(config_.nn_viz);
         anet::MetricsLogger::Instance()->Log("net.detail", *detail_view);
+        if (const auto skip = model_->GetSkipOnlineNetwork()) {
+            anet::MetricsLogger::Instance()->Log("skip.net.structure", *skip->MakeGraphViz(anet::nn::NetworkGraphVizConfig{}));
+            anet::MetricsLogger::Instance()->Log("skip.net.detail", *skip->MakeGraphViz(config_.nn_viz));
+        }
     }
 
     // Target Policyの妥当性チェック
@@ -274,7 +299,7 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
 
     // ヘッダ
     anet::ArchiveHeader header;
-    header.info = "DefaultDQNAgent";
+    header.info = config_.skip.enabled ? kCheckpointFormatV2 : kCheckpointFormatV1;
     auto header_size = archive.Write(header);
 	total_size += header_size;
 
@@ -323,13 +348,23 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
     LOG::info() << "LoadNetwork: config: len=" << config_len;
     LOG::verbose() << "LoadNetwork: config: config_str=\n" << config_str;
 
+    const bool has_skip = header.info == kCheckpointFormatV2;
+    if (header.info != kCheckpointFormatV1 && !has_skip) {
+        ANET_SYSTEM_ERROR("Invalid DefaultDQN checkpoint header='" << header.info
+            << "'; expected " << kCheckpointFormatV1 << " or " << kCheckpointFormatV2 << ".");
+    }
+    if (has_skip && !config_.skip.enabled) ANET_SYSTEM_ERROR("Checkpoint contains skip networks but DefaultDQNAgent.skip.enabled=false.");
+
 	// Network
-	auto model_size = model_->Load(in);
+	auto model_size = model_->LoadCheckpoint(in, has_skip);
     LOG::info() << "LoadNetwork: model_size=" << model_size;
 
 	// Learner
-	auto learner_size = learner_->Load(in);
+	auto learner_size = learner_->LoadCheckpoint(in, has_skip);
     LOG::info() << "LoadNetwork: learner_size=" << learner_size;
+    if (config_.skip.enabled && !has_skip) {
+        LOG::warn() << "Checkpoint has no skip networks; restored primary networks and optimizer state, initialized skip networks and optimizer groups. file=" << filename;
+    }
 }
 
 std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(const std::string& key)
@@ -523,11 +558,28 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         request.batch_env_spec.num_envs, request.device);
     auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     auto network = source;
+    std::optional<SkipActorResources> skip;
+    if (config_.skip.enabled) {
+        auto skip_source = cfg.network == "target" ? model_->GetSkipTargetNetwork() : model_->GetSkipOnlineNetwork();
+        // greedy評価は両方をgreedyに揃え、既定では同じPolicyの現在値を使う。
+        const bool shared_policy = !cfg.has_skip_policy || cfg.policy.policy_type == "Greedy";
+        skip.emplace(SkipActorResources{
+            .config = config_.skip,
+            .policy = shared_policy ? policy : CreateActionPolicy(cfg.skip_policy, cfg.skip_policy.use_spatial_exploration,
+                request.batch_env_spec.num_envs, request.device),
+            .network = skip_source, .source = skip_source,
+            .use_amp = cfg.policy.use_amp, .use_amp_bf16 = cfg.policy.use_amp_bf16,
+            .shared_policy = shared_policy});
+    }
     if (cfg.clone_model) {
         // sourceのparameterとbufferを学習更新から保護して複製する。
         std::shared_lock lock(*mutex_);
         network = source->Clone(request.device);
         network->eval();
+        if (skip) {
+            skip->network = skip->source->Clone(request.device);
+            skip->network->eval();
+        }
     }
     const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
@@ -535,7 +587,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
         .tbo_epsilon = config_.learner.tbo_epsilon};
     return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
-        mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config);
+        mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config, std::move(skip));
 }
 
 std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateStepDiagnosticsProvider(int64_t num_lanes) const

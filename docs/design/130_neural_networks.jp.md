@@ -56,6 +56,8 @@ Network構成では、stack軸を暗黙に復元せず、目的に応じて次�
 - Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logitsなどが該当する。
 - `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict)`を公開する。
 
+`Network::Forward`と準備済み実行器は、Headの出力に`net.body.output`の公開特徴量を合わせて返す。Headの公開鍵を優先し、まだ無い鍵へBodyのTensorを浅く追加する。追加した特徴量はBodyのdtypeと勾配接続を維持し、Headに渡す際のFP32変換から独立している。既存の`q`・`q_dist`・logitsの精度は変えない。特徴量を別の学習経路へ渡す際のdetachは利用側が行う。
+
 この分離により、共通Backboneを複数のAgent固有Headから利用できる。
 
 NetworkForwardConfig はキーと選択済み ConfigData をコピーして保持する不変の搬送型で、具象設定型・解釈・検証を持たない。Network::CreateForwardExecutor(config, clock_kind, seed) は構築後の Module／Head に準備を委譲する。通常の部品は本体を直接呼び、設定を使う具象部品だけが私有の解釈済み enum・数値を持つ処理を返す。子 Module へも準備を伝達し、bind・依存閉包・trace・capture・FP32 保護は既存の計算本体を共用する。新しい設定の追加は利用する具象部品だけに閉じる。
@@ -79,7 +81,7 @@ NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不
 - branchのbind term、`bind_concat_dim`、raw key、出力key
 - block/branch単位のconfig profile
 
-`bind`は`,`区切りのtermを入力し、各termでは`*`区切りのfactorをfeature-last elementwise productする。`*`は`,`より優先し、rank差は低rank側のbatch直後へsingleton次元を挿入して揃える。複数termはbranch単位の`bind_concat_dim`（既定1、負値可）で連結するが、batch次元0への連結は禁止する。
+`bind`は`,`区切りのtermを入力し、各termでは`*`区切りのfactorをfeature-last elementwise productする。`*`は`,`より優先し、rank差は低rank側のbatch直後へsingleton次元を挿入して揃える。複数termはbranch単位の`bind_concat_dim`（既定1、負値可）で連結する。各termはbatch軸とfeature軸を持つrank 2以上を要求する。軸は最大rankで正規化し、batch次元0への連結は禁止する。末尾feature軸で連結するときは、低rank項のbatch直後へ不足するsingleton軸を挿入し、中間軸だけをbroadcastする。たとえば[B,K,F]と[B,A]を-1で結ぶと[B,K,F+A]になる。既存軸やbatchは拡張しない。
 
 設定のJSON表現と`ToJson()`は`bind_terms`と`bind_concat_dim`を現行schemaとし、旧`bind_keys`は現行契約に含めない。
 
@@ -204,6 +206,8 @@ Repositoryが管理するのはfactoryであり、学習中のmodule instanceや
 
 ### 6.1 Network構築
 
+DefaultDQNのHead設定はAgent配下の `head.init.*` / `head.projection.*` / `head.use_dueling` が読み口である。skipは `skip.head.init.*` / `skip.head.projection.*` と `skip.head.use_dueling`（bool）・`skip.network_mode` を使う。Bodyの配線は `net.*` / `skip.net.*` が所有し、Head設定をNetworkConfigへ混在させない。
+
 ```mermaid
 sequenceDiagram
     participant A as AgentFactory
@@ -281,10 +285,10 @@ sequenceDiagram
 
 - 未登録のmodule type、存在しないblock、解決不能なbind key、循環branchは構築時に失敗させる。
 - input specのkeyが全bind factorにもdirect `net.body.output` mappingにも参照されない場合は、keyごとに1 build 1回だけWARNする。この診断は書き忘れの候補を示すだけで、最終出力への到達性や意味的寄与を保証しない。
-- bind積はfactor間のbatch sizeを検証する。複数termの連結は先頭termのrankで`bind_concat_dim`を正規化し、範囲、batch次元でないこと、term間batch sizeを明示検証する。それ以外のbroadcast/concat shape不整合はlibtorchのエラーとして扱う。
+- bind積はfactor間のbatch sizeを検証する。複数termの連結は最大rankで`bind_concat_dim`を正規化し、範囲、batch次元でないこと、term間batch sizeを明示検証する。それ以外のbroadcast/concat shape不整合はlibtorchのエラーとして扱う。
 - input specと実入力TensorDictのshape/dtypeが一致しない場合はNetwork境界で検出する。
 - IQN Headはrank 3 `(B,K,D)`、IQN Dueling Headはvalue/advantageのB/K一致を局所入力契約としてdummy forward時に検証する。これは`taus`が最終出力へ意味的に寄与することの証明ではない。
-- Weight初期化modeは`default`、`xavier`、`he`、`orthogonal`、`constant`、`trunc_normal`を受け付け、未知値をfail-fastする。
+- Weight初期化modeは`default`、`xavier`、`he`、`orthogonal`、`constant`、`trunc_normal`を受け付け、未知値をfail-fastする。`nn.hpp`の`ValidateWeightInitConfig`が共通条件を所有し、Agentの設定読込と`WeightInitializer`の適用前から呼ぶ。全数値引数の有限性、`trunc_std > 0`と`trunc_a < trunc_b`も方式によらず検証する。診断には呼出元の設定キーを渡せる。`manual_gain <= 0`のgain自動選択は維持する。
 - `Linear`、`Conv1d`、`Conv2d`、`ResBlock`、`CNBlock`、`TransformerEncoder`の`weight_norm.mode`は`none`、`spectral`、`spectral_cap`だけを受け付ける。未知値はkey、指定値、許容値を含めてfail-fastする。
 - `spectral`はzero-init weightを構築時に拒否する。zero-initを維持する残差blockには`init2.mode=he`等を指定するか、`spectral_cap`を使う。
 - TransformerEncoderでSNを使う場合は`tf.use_sdpa=true`を要求する。

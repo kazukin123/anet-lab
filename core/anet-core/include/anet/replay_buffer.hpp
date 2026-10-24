@@ -14,6 +14,10 @@
 
 namespace anet::rl {
 
+    class SampleWindowRule;
+    /// 判断で区切った区間内の窓を選ぶ規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateDecisionWindowRule(int max_length);
+
 
     // ======================================================
     // Config & Data Structures
@@ -47,6 +51,8 @@ namespace anet::rl {
     };
 
     struct ReplayBufferConfig {
+
+        std::shared_ptr<const SampleWindowRule> window_rule; ///< 未指定なら追加の窓を抽出しない。
 
         int64_t capacity = 100000;              // ENV毎の容量ではなく、全ENVの総容量(1Dツリーサイズ)
         ReplaySamplerType sampler_type = ReplaySamplerType::UNIFORM;

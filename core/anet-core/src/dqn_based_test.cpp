@@ -10,6 +10,19 @@
 #include <vector>
 
 namespace {
+TEST_CASE("Skip Head exposes action and duration dimensions", "[dqn][prd098]")
+{
+    anet::nn::WeightInitConfig init;
+    anet::rl::dqn::SkipHeadFactory factory(3, 4, anet::rl::dqn::SkipNetworkMode::ActionOut, "qr", 5, init);
+    anet::TensorDict features;
+    features.Set(anet::nn::kKey_DefaultOutput, torch::ones({2, 8}));
+    const auto head = factory.CreateHead(features);
+    const auto output = head->Forward(features, anet::nn::NetworkForwardContext::GetDefault());
+    REQUIRE(output.At("skip_q").sizes() == torch::IntArrayRef({2, 3, 4}));
+    REQUIRE(output.At("skip_q_dist").sizes() == torch::IntArrayRef({2, 3, 4, 5}));
+    REQUIRE(torch::equal(output.At("skip_q"), output.At("skip_q_dist").mean(-1)));
+}
+
 // テスト用の生データから選択項目だけを取り出し、公開 constructor へ渡す。
 anet::ConfigData SelectForwardConfigData(const anet::ConfigData& data, const std::string& prefix)
 {
@@ -1177,4 +1190,26 @@ TEST_CASE("DQN Heads validate used settings during preparation", "[dqn][head][no
     CHECK_NOTHROW(validate(data));
     data.Set("nn_forward.[head_prepared].noisy.hold", "count");
     CHECK_THROWS_WITH(validate(data), Catch::Matchers::ContainsSubstring("noisy.count"));
+}
+
+TEST_CASE("Skip Head graph describes mean Q and quantile distribution axes", "[dqn][head][prd098][prd098-r2-dot]")
+{
+    const auto mode = GENERATE(std::string("none"), std::string("qr"), std::string("iqn"));
+    const auto action_in = GENERATE(false, true);
+    CAPTURE(mode, action_in);
+    anet::nn::WeightInitConfig init;
+    dqn::SkipHeadFactory factory(3, 4, action_in ? dqn::SkipNetworkMode::ActionIn : dqn::SkipNetworkMode::ActionOut,
+        mode, 5, init);
+    anet::TensorDict features;
+    features.Set(anet::nn::kKey_DefaultOutput, mode == "iqn" ? torch::ones({2, 7, 8}) : torch::ones({2, 8}));
+    const auto head = factory.CreateHead(features);
+    const auto info = head->GetGraphVizInfo();
+    auto shape = action_in ? std::vector<int64_t>{4} : std::vector<int64_t>{3, 4};
+    CHECK(HasOutput(info, "skip_q", shape));
+    if (mode != "none") {
+        shape.push_back(mode == "qr" ? 5 : -1);
+        CHECK(HasOutput(info, "skip_q_dist", shape));
+    } else {
+        CHECK(info.outputs.size() == 1);
+    }
 }

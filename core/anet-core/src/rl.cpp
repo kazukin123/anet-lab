@@ -772,6 +772,14 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
+            .window = {
+                .lengths = anet::To(window.lengths, device, non_blocking),
+                .max_lengths = anet::To(window.max_lengths, device, non_blocking),
+                .returns = anet::To(window.returns, device, non_blocking),
+                .terminals = anet::To(window.terminals, device, non_blocking),
+                .truncated = anet::To(window.truncated, device, non_blocking),
+                .next_obs = window.next_obs.To(device, non_blocking),
+            },
             // replay item key/source は ReplayBuffer の CPU metadata なので learner device へは送らない。
             .replay_item_keys = replay_item_keys.defined()
                 ? (replay_item_keys.device().is_cpu() ? replay_item_keys : replay_item_keys.to(torch::kCPU))
@@ -794,6 +802,14 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .terminals = next_state.terminals.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+        .window = {
+            .lengths = anet::To(window.lengths, device, non_blocking),
+            .max_lengths = anet::To(window.max_lengths, device, non_blocking),
+            .returns = anet::To(window.returns, device, non_blocking),
+            .terminals = anet::To(window.terminals, device, non_blocking),
+            .truncated = anet::To(window.truncated, device, non_blocking),
+            .next_obs = window.next_obs.To(device, non_blocking),
+        },
         .replay_item_keys = replay_item_keys.defined() ? replay_item_keys.to(torch::kCPU) : replay_item_keys,
         .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
         .per_priority_sources = per_priority_sources.defined()

@@ -34,7 +34,7 @@ SET "SE=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>r
 
 SET "RT50NZ=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@nz_learning>run.@batch"
 SET "EPS0=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train].policy.eps_start=0 A2.actor.[train].policy.eps_end=0"
-SET "NZSIG=net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head_projection.noisy.sigma0=1.2"
+SET "NZSIG=net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head.projection.noisy.sigma0=1.2"
 SET "BOMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy"
 SET "BOMET0=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2"
 SET "NOCLIP=E1.reward_clip=false A3.reward_scaler.constant_scale=0.005"
@@ -56,10 +56,10 @@ SET "RT10=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>r
 SET "B1K=A2.learner.replay_batch_size=1024"
 SET "RT10V=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@vitva>run.@batch"
 SET "SENZ=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@batch"
-SET "NZSIGSE=net.block.[AtariHeadFC512].noisy.sigma0=1.1 A2.head_projection.noisy.sigma0=1.2"
+SET "NZSIGSE=net.block.[AtariHeadFC512].noisy.sigma0=1.1 A2.head.projection.noisy.sigma0=1.2"
 SET "BTRENV=run.train.num_envs=64 A2.learner.replay_capacity=1048576 A2.actor.[train].sync_interval.value=1"
 SET "BTREPS=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train].policy.eps_start=1.0 A2.actor.[train].policy.eps_end=0.01 A2.actor.[train].policy.eps_decay_steps=4000000"
-SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head_init.mode=default A2.head_projection.noisy.sigma0=0.5"
+SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head.init.mode=default A2.head.projection.noisy.sigma0=0.5"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===

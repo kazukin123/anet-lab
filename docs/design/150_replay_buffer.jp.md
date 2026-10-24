@@ -40,7 +40,7 @@ Runnerの次行動用状態はStep結果の`continue_state`から取得する。
 |---|---|
 | `Push(batch_exp)` | 構築時の`num_envs`と同じlane数を持つ1 step分のExperienceを受け取る。各laneの初回と直前入力が`done || truncated`だった次の入力だけ`BatchState::episode_start == true`とし、全laneを事前検証してから書き込む。`DefaultReplayBuffer`はObservation、Action、info、履歴開始を事前確保storageへ即時copyし、N-step確定用の軽量recordをlane別queueへ積む |
 | `Sample(out_samples, minibatch_size, beta)` | `Size() >= minibatch_size`を前提に、sample可能transitionからminibatchを作る。不足時はassertで停止し、暗黙に小さいbatchへ変更しない |
-| `Size()` | 保存済みraw slot数ではなく、ready rangeへstackのhistory marginを適用し、dummyを除外したsampleable rangeのtransition数を返す |
+| `Size()` | 保存済みraw slot数ではなく、ready rangeへstackのhistory marginとwindowの追加未来marginを適用し、dummyを除外したsampleable rangeのtransition数を返す |
 | `UpdatePriorities(item_keys, priorities)` | PER有効時にgeneration-aware keyへraw priorityを適用し、applied/stale件数を返す。uniform samplerでは更新を行わない |
 
 ReplayBuffer capacityは全laneの合計として指定する。現行実装は`capacity_per_env = capacity / num_envs`とし、`actual_capacity = capacity_per_env * num_envs`へ切り下げ、laneごとに同じ長さのring時間列を持つ。generation keyの基数とSumTree容量には、この`actual_capacity`を使う。
@@ -49,7 +49,7 @@ ReplayBuffer capacityは全laneの合計として指定する。現行実装は`
 
 keyは物理indexではなく`generation * actual_capacity + flat_slot_index`であり、ring overwrite後のstale更新を識別する。sample結果のTensor handleとmetadataはcallerが所有する。非同期CUDA転送では転送元payloadをready event完了まで内部で保持し、consumer streamへ`record_stream`して早期再利用を防ぐ。
 
-`ValidIndexManager`はenv laneごとに、未上書きかつN-step/unrollの未来側条件が確定した論理区間をready rangeとして管理する。uniform sampling、PER、`Size()`、可視化accessor、`DumpToLog()`は、ready rangeへring折り返し後のhistory margin（`stack_count - 1`）を適用し、dummy slotを除外したsampleable rangeを共有する。wrap前と`stack_count == 1`ではhistory marginは0である。`InitialPriorityCompleter`とeviction統計は、過去stack履歴を必要としないためready rangeを使う。
+`ValidIndexManager`はenv laneごとに、未上書きかつN-step/unrollの未来側条件が確定した論理区間をready rangeとして管理する。uniform sampling、PER、`Size()`、可視化accessor、`DumpToLog()`は、ready rangeへring折り返し後のhistory margin（`stack_count - 1`）とwindow指定時の追加未来marginを適用し、dummy slotを除外したsampleable rangeを共有する。wrap前と`stack_count == 1`ではhistory marginは0である。windowの未来側条件は§6.1.1に従う。`InitialPriorityCompleter`とeviction統計は、過去stack履歴やwindowを必要としないためready rangeを使う。
 
 ### 2.3 Frame stacking
 
@@ -90,7 +90,7 @@ uniform samplerではPER固有metricを公開しない。
 | `DefaultReplayBuffer` | storage、valid index、sample、N-step/PERを束ねるfacade |
 | `ReplayExperienceStorage` | lane別ring storageへObservation、Action、infoと実slotの履歴開始を保持する。未書込slotとdummy slotの履歴開始はfalse |
 | `ExperienceQueueController` | laneごとの遷移からN-step targetを確定する |
-| `ValidIndexManager` | 書込状態とN-step/unrollの未来側条件からready rangeを管理し、ring折り返し後のhistory marginとdummy除外を加えたsampleable rangeを全consumerへ提供する |
+| `ValidIndexManager` | 書込状態とN-step/unrollの未来側条件からready rangeを管理し、history margin・windowの追加未来margin・dummy除外を加えたsampleable rangeを全consumerへ提供する |
 | `ReplayExperienceSampler` | uniformまたはpriority付きindexを選ぶ |
 | `ReplayPriorityStore` / `SumTree` | priority source、leaf、total、weighted sampleを管理する |
 | `InitialPriorityCompleter` | N-step確定時にfixed、max、Actor近似の初期priorityを完成させる |
@@ -194,6 +194,14 @@ sequenceDiagram
         end
     end
 ```
+
+### 6.1.1 Sample時の可変長window
+
+Pushはn-stepの確定とは別に、各遷移の1-step reward、done／truncated、`BatchActionInfo.info["decision"]`を保持する。decisionはboolのlane列で、省略時は全laneを判断とみなす。打ち切り後のdummy slotは終端観測の保存専用であり、windowの途中には入れない。
+
+`ReplayBufferConfig.window_rule`は構築時に渡す窓規則で、規則が返す最大長からsampler自身のRNGで1以上の長さkを一様に選ぶ。`CreateDecisionWindowRule(J)`は次の判断の直前、done／truncatedの遷移を含む位置、上限Jのいずれかまでを最大長とし、区間内のaction一致を検証する。抽出した`ExperienceSamples.window`はk、最大長、割引報酬和、終わり方、k先のstack済み観測を持つ。tensor列挙とCPU／CUDA転送、prefetchもこの欄を運ぶ。
+
+window指定時のsampleable範囲は未来側に`max(1, n_step, J)`の遅れを置く。Sample、一様非復元sample、抽選履歴probe、件数が同じ範囲を使う。容量下限にもこの遅れを含める。PER初期優先度の完成とeviction統計は従来のn-step ready範囲を使う。規則が無ければwindowは空で、追加の乱数を使わない。
 
 ### 6.2 1-deep prefetchとCUDA転送
 
@@ -312,7 +320,7 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 ### 7.7 一様・非復元probe sample
 
-`SampleUniqueUniform(out, batch_size, random)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。RNGはcallerが所有し、ReplayBufferはprobe用RNGを保持しない。件数不足時は`false`を返し、出力とcaller RNGを変更しない。全件要求時もRNGを消費しない。通常sampler、priority、`MarkSampledOnce`、eviction統計へは触れない。
+`SampleUniqueUniform(out, batch_size, random)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。RNGはcallerが所有し、ReplayBufferはprobe用RNGを保持しない。件数不足時は`false`を返し、出力とcaller RNGを変更しない。全件要求のindex選択はRNGを消費しないが、window指定時は各起点の長さ抽選にcaller RNGを使う。通常sampler、priority、`MarkSampledOnce`、eviction統計へは触れない。
 
 DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`から独立した`RandomGenerator` Resourceを作り、inner Learnerが非所有参照で各sample呼出しへ渡す。このためpolicy churnのON/OFFやcadenceは、通常Replay sampleとplasticity probeの乱数系列を変えない。callerごとの系列再現性はcaller seedの責務であり、ReplayBuffer seedからprobe系列を暗黙生成しない。
 
@@ -330,6 +338,8 @@ Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとpr
 
 ## 8. テストと拡張時の確認事項
 
+可変窓の判断境界・終端・truncated・stack・ring折返し・一様抽選・sampleable遅延は [PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) の公開 ReplayBuffer テストを使う。window を追加する実装は通常転送・prefetch・probe経路も含め、規則無しのRNGとsample列を維持する。
+
 [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)には、現行source上で次のtest caseが置かれている。
 
 - multi-envのPush/Sampleとvalid index
@@ -339,7 +349,7 @@ Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとpr
 - visualization accessor
 - concurrent Push/Sample/UpdatePriorities
 - CPU/CUDA device transfer
-- caller-owned probe RNGの決定性・consumer間分離・件数不足/全件時の非消費
+- caller-owned probe RNGの決定性・consumer間分離・件数不足時とwindow無しの全件時の非消費
 - PrefetchingReplayBufferの決定性、FIFO順序、Push/priority更新との同期、write-behind payloadのlifetime
 - 履歴開始のfail-fast、容量到達前後、短episode、pending/wrapped metadata、およびstack・N-step・lane・capacity・Uniform/PER・CPU Prefetchを組み合わせた384条件の非既定integrity assay
 

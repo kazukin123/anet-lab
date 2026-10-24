@@ -75,6 +75,24 @@ _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 
+### スキップ（TempoRL）
+
+**スキップ**:
+判断の step で選んだ行動を、スキップ長の間そのまま続ける区間（TempoRL）。Agent の判断の間隔であり、Env が 1 agent step の中でフレームを反復する frame_skip とは層が違う。
+_Avoid_: action repeat（frame_skip と混同）, 行動反復, frame skip（Env 側）, マクロ行動（Env が足す行動）
+
+**スキップ長**:
+スキップで同じ行動を続ける agent step の数 j。1 以上、最大スキップ長 J 以下で、J は Agent の設定が持つ。
+_Avoid_: repeat count, 持続長, 継続長
+
+**スキップ価値**:
+状態と選んだ行動を条件に、スキップ長ごとに「その長さだけ続けてから行動価値に従う」価値を推定する Q（skip Q）。終点の価値は行動価値で測り、スキップ価値自身では測らない。
+_Avoid_: 継続価値, skip Q 関数（英語名は skip Q）
+
+**判断**:
+Actor が行動とスキップ長を選ぶ step。スキップの途中の step は判断ではなく、Actor は続けている行動を出すだけである。スキップを持たない Agent では、すべての step が判断である。
+_Avoid_: 意思決定ステップ, decision step（英語名は decision）
+
 ### NoisyNet・探索
 
 **NoisyNet**:
@@ -148,7 +166,7 @@ env laneごとの、未来側条件（N-stepに必要な未来観測の書込完
 _Avoid_: valid range（dummy除外前後のどちらとも読める）, sampleable（stack込みの最終集合と混同する）
 
 **sampleable range**:
-ready rangeへwrap後のhistory marginを適用した、sample候補の最終論理時刻区間。uniform sampling、PER、`Size()`、可視化accessorが共有する唯一の集合。dummyはこの区間に含まれたまま列挙時にphysical slot単位で除外する。
+ready rangeへ、wrap後のhistory marginと、窓の規則（可変長の区間サンプル）が要る未来側の余白（窓の上限まで。窓の規則が無ければ0）を適用した、sample候補の最終論理時刻区間。uniform sampling、PER、`Size()`、可視化accessorが共有する唯一の集合。dummyはこの区間に含まれたまま列挙時にphysical slot単位で除外する。
 _Avoid_: valid indices（実装上の列挙結果であって概念名ではない）, ready range（未来側条件のみの広い区間と混同する）
 
 **history margin**:
@@ -420,7 +438,7 @@ pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実
 _Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
 
 **step trace**:
-Runner の遷移 1 つを 1 件とし、判断の時点の値（行動・Q）、遷移のあとの値（報酬・終端・env の info）、遷移全体の値（近似Actor初期優先度）を持つ記録の単位。Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする。
+Runner の遷移 1 つを 1 件とし、行動を選ぶ時点の値（行動・Q）、遷移のあとの値（報酬・終端・env の info）、遷移全体の値（近似Actor初期優先度）を持つ記録の単位。Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする。
 _Avoid_: step 行, 履歴行, step log, ステップ履歴
 
 **追従 pane**:

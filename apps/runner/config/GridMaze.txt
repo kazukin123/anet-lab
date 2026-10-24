@@ -20,6 +20,21 @@ DefaultDQNAgent.$ = @baseline > @fast > A1 > A2 > A3
 
 DefaultDQNAgent.net.body.$ = net.body.@MLP2
 
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
+
+# TempoRL を使うときは次の行を有効にする（変種は CLI の葉で上書き）。
+#run.$ = run.@skip
+
 
 # ==============================================================================
 # 実験
@@ -76,6 +91,7 @@ A1.learner.per_beta_step = 100,000            # 100K
 # Env依存設定
 # ==============================================================================
 
+DefaultDQNAgent.skip.max_length ?= 7
 
 #A1.stucker.use_stacker = true
 A1.stucker.stack_count = 1

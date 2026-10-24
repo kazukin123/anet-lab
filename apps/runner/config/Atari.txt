@@ -41,6 +41,23 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
 
 
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+DefaultDQNAgent.skip.max_length ?= 10
+DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[8]] = skip_length_rate.[8] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[9]] = skip_length_rate.[9] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
+
 # ==============================================================================
 # Run設定
 # ==============================================================================
@@ -452,8 +469,8 @@ run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@m
 # nz_learning は既存の初期化・AMP を継承し、Actor / Learner は call/batch。
 run.@nz_learning : net.block.[AtariHeadFC512].noisy.enabled = true
 run.@nz_learning : net.block.[AtariHeadFC512].noisy.sigma0 = 0.5
-run.@nz_learning : A2.head_projection.noisy.enabled = true
-run.@nz_learning : A2.head_projection.noisy.sigma0 = 0.5
+run.@nz_learning : A2.head.projection.noisy.enabled = true
+run.@nz_learning : A2.head.projection.noisy.sigma0 = 0.5
 run.@nz_learning : A2.actor.[train].nn_forward_key = act_sample
 run.@nz_learning : A2.learner.current.nn_forward_key = act_sample
 run.@nz_learning : A2.learner.target.nn_forward_key = act_sample
@@ -462,12 +479,12 @@ run.@nz_learning : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.
 # nz_reference: default 初期化・AMP 継承・Body FC は FP32・標準 call/batch。ON/OFF は enabled だけ異なる。
 run.@nz_reference : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512Def > ReLU
 run.@nz_reference : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512Def > ReLU
-run.@nz_reference : A2.head_init.mode = default
+run.@nz_reference : A2.head.init.mode = default
 run.@nz_reference : net.block.[AtariHeadFC512Def].force_fp32 = true
 run.@nz_reference : net.block.[AtariHeadFC512Def].noisy.enabled = true
 run.@nz_reference : net.block.[AtariHeadFC512Def].noisy.sigma0 = 0.5
-run.@nz_reference : A2.head_projection.noisy.enabled = true
-run.@nz_reference : A2.head_projection.noisy.sigma0 = 0.5
+run.@nz_reference : A2.head.projection.noisy.enabled = true
+run.@nz_reference : A2.head.projection.noisy.sigma0 = 0.5
 run.@nz_reference : A2.actor.[train].nn_forward_key = act_sample
 run.@nz_reference : A2.learner.current.nn_forward_key = act_sample
 run.@nz_reference : A2.learner.target.nn_forward_key = act_sample
@@ -476,12 +493,12 @@ run.@nz_reference : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar
 # nz_reference_off: default 初期化・AMP 継承・Body FC は FP32・標準 call/batch。ON/OFF は enabled だけ異なる。
 run.@nz_reference_off : DefaultDQNAgent.net.branch.[value_stream].structure = AtariHeadFC512Def > ReLU
 run.@nz_reference_off : DefaultDQNAgent.net.branch.[adv_stream].structure = AtariHeadFC512Def > ReLU
-run.@nz_reference_off : A2.head_init.mode = default
+run.@nz_reference_off : A2.head.init.mode = default
 run.@nz_reference_off : net.block.[AtariHeadFC512Def].force_fp32 = true
 run.@nz_reference_off : net.block.[AtariHeadFC512Def].noisy.enabled = false
 run.@nz_reference_off : net.block.[AtariHeadFC512Def].noisy.sigma0 = 0.5
-run.@nz_reference_off : A2.head_projection.noisy.enabled = false
-run.@nz_reference_off : A2.head_projection.noisy.sigma0 = 0.5
+run.@nz_reference_off : A2.head.projection.noisy.enabled = false
+run.@nz_reference_off : A2.head.projection.noisy.sigma0 = 0.5
 run.@nz_reference_off : A2.actor.[train].nn_forward_key = act_sample
 run.@nz_reference_off : A2.learner.current.nn_forward_key = act_sample
 run.@nz_reference_off : A2.learner.target.nn_forward_key = act_sample
@@ -556,7 +573,7 @@ run.@capall : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@brea
 # ==============================================================================
 # Nature DQN 2015 再現構成
 # ==============================================================================
-# use_dueling_net=false でも value_stream / adv_stream は写像されず実行され続ける(死に計算。Linear(512→512)×2 で conv に対しては誤差)。
+# head.use_dueling=false でも value_stream / adv_stream は写像されず実行され続ける(死に計算。Linear(512→512)×2 で conv に対しては誤差)。
 
 # quantile_mode=none の配線は QR と同一(V/A を main_feature 直結)。fusion が要るのは IQN だけなので @none は作らない。
 DefaultDQNAgent.@nature : quantile_mode = none    # 分布 RL なし(単一 Q)
@@ -568,7 +585,7 @@ DefaultDQNAgent.@iqn2304 : quantile_mode = iqn
 DefaultDQNAgent.@iqn2304 : net.$ = net.@iqn2304
 DefaultDQNAgent.@iqn1024 : quantile_mode = iqn
 DefaultDQNAgent.@iqn1024 : net.$ = net.@iqn1024
-DefaultDQNAgent.@nature.use_dueling_net = false
+DefaultDQNAgent.@nature : head.use_dueling = false
 DefaultDQNAgent.@nature.learner.use_per = false
 DefaultDQNAgent.@nature.learner.use_double_dqn = false
 DefaultDQNAgent.@nature.learner.n_step = 1
@@ -1101,7 +1118,7 @@ DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 DefaultDQNAgent.net.branch.[value_stream].structure ?= AtariHeadFC512 > SiLU # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 DefaultDQNAgent.net.branch.[adv_stream].structure ?= AtariHeadFC512 > SiLU   # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 
-# use_dueling_net=false 時の Head は `features`(nn_heads.hpp の kKey_DefaultOutput)だけを読む。この 1 行が無いと起動時に落ちる。
+# head.use_dueling=false 時の Head は `features`(nn_heads.hpp の kKey_DefaultOutput)だけを読む。この 1 行が無いと起動時に落ちる。
 DefaultDQNAgent.net.body.output.[features] ?= main_feature # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 
 

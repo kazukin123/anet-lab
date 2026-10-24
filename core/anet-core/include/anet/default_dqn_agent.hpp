@@ -82,8 +82,13 @@ namespace anet::rl::dqn {
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
-        anet::nn::WeightInitConfig head_init;
-        anet::ConfigData head_projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
+        struct {
+            bool use_dueling = true;
+            anet::nn::WeightInitConfig init;
+            anet::ConfigData projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
+        } head;
+        SkipConfig skip;
+        anet::ConfigData skip_net;
         anet::nn::NetworkGraphVizConfig nn_viz;
         std::string auto_load_file;
 
@@ -91,7 +96,6 @@ namespace anet::rl::dqn {
             int num_quantiles = 51;
         } qr;
         std::string quantile_mode = "qr";
-        bool use_dueling_net = true;
         bool use_optimistic_target = false;
 
     public:
@@ -105,22 +109,23 @@ namespace anet::rl::dqn {
             : anet::Config(config_data, "DefaultDQNAgent")
         {
             // Head 射影の構築設定は opaque にコピーし、固有の項目を Agent で読み取らない。
-            const auto projection_prefix = MakeDefaultConfigKey("head_projection") + ".";
+            const auto projection_prefix = MakeDefaultConfigKey("head.projection") + ".";
             for (const auto& [key, value] : config_data.Map()) {
                 if (!key.starts_with(projection_prefix)) continue;
-                head_projection.Set(key.substr(projection_prefix.size()), value);
+                head.projection.Set(key.substr(projection_prefix.size()), value);
                 const auto relative = key.substr(GetConfigPrefix().size() + 1);
                 my_config_data_.Set(relative, value);
                 my_config_json_[relative] = value;
             }
 
-            ANET_READ_CONFIG(config_data, head_init.mode);
-            ANET_READ_CONFIG(config_data, head_init.manual_gain);
-            ANET_READ_CONFIG(config_data, head_init.constant_val);
-            ANET_READ_CONFIG(config_data, head_init.trunc_std);
-            ANET_READ_CONFIG(config_data, head_init.trunc_a);
-            ANET_READ_CONFIG(config_data, head_init.trunc_b);
-			head_init.nonlinearity = "linear";
+            ANET_READ_CONFIG(config_data, head.init.mode);
+            ANET_READ_CONFIG(config_data, head.init.manual_gain);
+            ANET_READ_CONFIG(config_data, head.init.constant_val);
+            ANET_READ_CONFIG(config_data, head.init.trunc_std);
+            ANET_READ_CONFIG(config_data, head.init.trunc_a);
+            ANET_READ_CONFIG(config_data, head.init.trunc_b);
+			head.init.nonlinearity = "linear";
+            anet::nn::ValidateWeightInitConfig(head.init, MakeDefaultConfigKey("head.init"));
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
             ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
@@ -156,6 +161,9 @@ namespace anet::rl::dqn {
             for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"))) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
+                for (const auto& [leaf, value] : sub.Map()) {
+                    if (leaf.starts_with("skip.policy.")) entry.has_skip_policy = true;
+                }
                 ReadActionPolicyConfig(config_data, prefix + ".policy", entry.policy);
                 ReadConfig(config_data, prefix + ".network", entry.network);
                 ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
@@ -375,7 +383,71 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, auto_load_file);
             ANET_READ_CONFIG(config_data, quantile_mode);
             ANET_READ_CONFIG(config_data, qr.num_quantiles);
-            ANET_READ_CONFIG(config_data, use_dueling_net);
+            ANET_READ_CONFIG(config_data, head.use_dueling);
+
+            ANET_READ_CONFIG(config_data, skip.enabled);
+            const bool has_skip_limit = HasConfigValue(config_data, "skip.max_length");
+            ANET_READ_CONFIG(config_data, skip.max_length);
+            // 文字列の設定を境界で検証し、実行系へは構成を表すenumだけを渡す。
+            std::string network_mode = "action_out";
+            ReadConfig(config_data, "skip.network_mode", network_mode);
+            if (network_mode == "action_out") skip.network_mode = SkipNetworkMode::ActionOut;
+            else if (network_mode == "action_in") skip.network_mode = SkipNetworkMode::ActionIn;
+            else ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << network_mode << "'; expected action_out or action_in.");
+            ANET_READ_CONFIG(config_data, skip.head.use_dueling);
+            ANET_READ_CONFIG(config_data, learner.skip.feature_gradient);
+            ANET_READ_CONFIG(config_data, learner.skip.loss_weight);
+            ANET_READ_CONFIG(config_data, learner.skip.priority_lambda);
+            if ((skip.enabled && !has_skip_limit) || (has_skip_limit && skip.max_length < 1)) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.max_length=" << skip.max_length
+                    << " specified=" << has_skip_limit << "; expected explicit integer >= 1 when skip.enabled=true.");
+            }
+            if (learner.skip.feature_gradient != "stop" && learner.skip.feature_gradient != "merge") {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.feature_gradient='" << learner.skip.feature_gradient << "'; expected stop or merge.");
+            }
+            for (const auto& [key, value] : std::initializer_list<std::pair<const char*, float>>{
+                {"loss_weight", learner.skip.loss_weight}, {"priority_lambda", learner.skip.priority_lambda}}) {
+                if (!std::isfinite(value) || value < 0.0f) {
+                    ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip." << key << "=" << value << "; expected finite value >= 0.");
+                }
+            }
+            if (skip.enabled && learner.use_amp && !learner.use_amp_bf16) {
+                ANET_SYSTEM_ERROR("DefaultDQNAgent.skip.enabled=true requires learner.use_amp=false or learner.use_amp_bf16=true.");
+            }
+            skip.head.projection = head.projection;
+            for (const auto& [key, value] : config_data.Map()) {
+                for (const auto& [prefix, destination] : std::initializer_list<std::pair<std::string, anet::ConfigData*>>{
+                    {"skip.net", &skip_net}, {"skip.head.projection", &skip.head.projection}}) {
+                    const auto full_prefix = MakeDefaultConfigKey(prefix) + ".";
+                    if (!key.starts_with(full_prefix)) continue;
+                    destination->Set(prefix == "skip.net" ? key : key.substr(full_prefix.size()), value);
+                    const auto relative = key.substr(GetConfigPrefix().size() + 1);
+                    my_config_data_.Set(relative, value);
+                    my_config_json_[relative] = value;
+                }
+            }
+            if (skip.enabled && skip_net.Map().begin() == skip_net.Map().end()) {
+                ANET_SYSTEM_ERROR("Missing DefaultDQNAgent.skip.net; expected a network definition when skip.enabled=true.");
+            }
+            for (const auto& [key, value] : config_data.Map()) {
+                if (key.starts_with("net.block.") || key.starts_with("net.config_profile.")) skip_net.Set(key, value);
+            }
+            skip.head.init = head.init;
+            ANET_READ_CONFIG(config_data, skip.head.init.mode);
+            ANET_READ_CONFIG(config_data, skip.head.init.manual_gain);
+            ANET_READ_CONFIG(config_data, skip.head.init.constant_val);
+            ANET_READ_CONFIG(config_data, skip.head.init.trunc_std);
+            ANET_READ_CONFIG(config_data, skip.head.init.trunc_a);
+            ANET_READ_CONFIG(config_data, skip.head.init.trunc_b);
+            anet::nn::ValidateWeightInitConfig(skip.head.init, MakeDefaultConfigKey("skip.head.init"));
+            (void)skip.head.projection.Get<bool>("noisy.enabled", false);
+            const auto skip_sigma = skip.head.projection.Get<double>("noisy.sigma0", 0.5);
+            if (!std::isfinite(skip_sigma) || skip_sigma < 0) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.head.projection.noisy.sigma0=" << skip_sigma << "; expected finite >= 0.");
+            }
+            if (skip_net.Has("DefaultDQNAgent.skip.net.body.output.[features]")) {
+                (void)anet::nn::NetworkConfig(skip_net, "DefaultDQNAgent.skip.net");
+            }
 
             // 学習も読み込みもしないRunは初期重みの評価になる。意図的な構成もあり得るので止めず、書き忘れ検出用に1度だけWARNする。
             if (!learner.enabled && auto_load_file.empty()) {
@@ -385,7 +457,11 @@ namespace anet::rl::dqn {
             }
 
             // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
-            for (auto& [key, entry] : actor) entry.policy.quantile_mode = quantile_mode;
+            for (auto& [key, entry] : actor) {
+                entry.policy.quantile_mode = quantile_mode;
+                entry.skip_policy = entry.policy;
+                ReadActionPolicyConfig(config_data, "actor.[" + key + "].skip.policy", entry.skip_policy);
+            }
             target_policy.quantile_mode = quantile_mode;
             learner.quantile_mode = quantile_mode;
             learner.num_quantiles = qr.num_quantiles;
@@ -419,6 +495,7 @@ namespace anet::rl::dqn {
             ValidateActionPolicy(target_policy, "DefaultDQNAgent.target_policy");
             for (auto& [key, entry] : actor) {
                 ValidateActionPolicy(entry.policy, "DefaultDQNAgent.actor.[" + key + "].policy");
+                ValidateActionPolicy(entry.skip_policy, "DefaultDQNAgent.actor.[" + key + "].skip.policy");
             }
 
             if (quantile_mode == "iqn"

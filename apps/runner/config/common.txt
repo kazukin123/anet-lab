@@ -167,3 +167,5 @@ app.eval_trace_panel.columns.[7] ?= $env_step done
 app.eval_trace_panel.columns.[8] ?= $env_step truncated label:trunc
 app.eval_trace_panel.columns.[9] ?= $agent_step approx_priority label:prio
 app.eval_trace_panel.columns.[10] ?= $agent_step approx_priority display:pct label:prio_pct
+
+# TempoRL の共有定義。明示的に選択した場合だけ利用する。

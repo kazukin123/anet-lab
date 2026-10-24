@@ -344,6 +344,7 @@
 2026-10-23 writeback docs/memo/095_llm_wiki_10prd.md blob:68a35cb369420d5707f47385ca99e5aab4d3b3cd → なし
 2026-10-23 fix docs/memo/095_llm_wiki_10prd.md blob:68a35cb369420d5707f47385ca99e5aab4d3b3cd → docs/wiki/README.md, docs/wiki/apps/120_metrics_viewer.md, docs/wiki/categories/311_dev_tools.md, docs/wiki/categories/314_tensor.md, docs/wiki/categories/315_nn.md, docs/wiki/categories/316_config.md, docs/wiki/categories/317_metrics.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/319_gui.md, docs/wiki/categories/320_env_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/322_env_individual.md, docs/wiki/categories/324_dqn.md; 改訂§4.6に従い全16地図97項目を出典から再判定。裁定72件変更、再開条件4件補完。
 2026-10-23 fix docs/memo/093_attention_entropy_diagnostics_10prd.md blob:591c0fd25de7164eb16445d0f252f0650eab3442 → docs/wiki/categories/315_nn.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/324_dqn.md
+2026-10-23 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:e7d751422a527f6db48787207fed8097dcb37612 → docs/wiki/categories/315_nn.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/324_dqn.md, docs/wiki/mechanisms/temporal_abstraction.md
 2026-10-23 fix docs/experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md blob:f8b8f1af83e143d10ff7b3adcb9c431576e6f530 → docs/wiki/subjects/dropmerge.md, docs/wiki/mechanisms/evaluation.md
 2026-10-23 fix docs/memo/999_dropmerge_neet_diagnostics_10prd.md blob:e2cdf0bf3c7e7560ce4a67e32852e65044dd0955 → docs/wiki/subjects/dropmerge.md
 2026-10-23 fix docs/memo/999_smdp_transition_duration_10prd.md blob:d093d56a8d24ace10b324762d153896ef487adfb → docs/wiki/subjects/dropmerge.md, docs/wiki/mechanisms/temporal_abstraction.md
@@ -426,12 +427,15 @@
 2026-10-23 ingest docs/memo/088_nn_adaptive_max_pool_10prd.md blob:65df5ac18509a8a1e54c1c6edd1d09c906dab66d → なし
 2026-10-23 ingest docs/memo/999_decision_aligned_nstep_10prd.md blob:aabdfa3c549435b0ad33555f936b82d46a4aeb2d → なし
 2026-10-23 writeback docs/memo/099_atari_resize_mode_10prd.md blob:785d4f2d4545c5a01ba82adfb4cf609de64f52a8 → docs/wiki/subjects/atari.md, docs/wiki/subjects/qbert.md, docs/wiki/categories/322_env_individual.md, docs/wiki/index.md
+2026-10-24 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:250852875b656a416c153f12e9fab2740f5f2fbd → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:4a5c84156cd37fa85768f3ece057900116027acc → docs/wiki/categories/322_env_individual.md
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:41f7c23010362b5ad96dba73ce50a9d1bd7c7cc5 → なし（レビュー対応後の照合。322 の記述は変わらない）
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:4c04caf56da6473823bd985606f4ddd5f3bbc8e4 → docs/wiki/categories/322_env_individual.md
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:43f0c13447fc3e75a80887fb2aac821b82d8e1a4 → docs/wiki/categories/322_env_individual.md
+2026-10-24 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:4d2f27904c6e844b6e03a563d26f62c6ffbdee9a → docs/wiki/mechanisms/temporal_abstraction.md
 2026-10-24 writeback docs/memo/999_gridmaze_seed_mode_10prd.md blob:6971655f3367ee61585b05c1173b2be566ca3621 → docs/wiki/categories/322_env_individual.md, docs/wiki/index.md
 2026-10-24 writeback docs/memo/999_intrinsic_reward_novelty_10prd.md blob:532f2ee7eb4002d0294a5bec96eba2e763d49e30 → docs/wiki/mechanisms/evaluation.md
 
 2026-10-24 fix docs/memo/999_gridmaze_seed_mode_10prd.md → docs/memo/102_gridmaze_seed_mode_10prd.md（正式採番。過去ログは保持）
 2026-10-24 writeback docs/memo/102_gridmaze_seed_mode_10prd.md blob:bd35c61814c7d64c3d2b146b9b0e267fb3576420 → docs/wiki/categories/322_env_individual.md, docs/wiki/categories/316_config.md, docs/wiki/index.md
+2026-10-24 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:95ddf02ea8789c3d18288334467e4de42cbf538c → なし（§5.7 の範囲外の j で止める時機を実装に合わせた。wiki の記述は変わらない）

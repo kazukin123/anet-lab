@@ -243,11 +243,11 @@ DefaultDQNのTD / QR / IQNは`learner.munchausen.enabled=false`を既定とす�
 
 | mode | bonus用current出力 | next価値・方策用出力 |
 |---|---|---|
-| `target` | 正規化済みcurrent/nextを連結した2B target forwardの前半 | 同じforwardの後半 |
-| `online` | current train・target-valueの後のNoGrad / eval fresh online | B target forward |
-| `online_reuse` | 既存current train出力をdetach | B target forward |
+| `target` | 正規化済みcurrent/nextを連結したtarget forwardの先頭B行 | 同じforwardの残りの終端行。skip無効時は全体2B、有効時はwindow終端を加えて3B |
+| `online` | current train・target-valueの後のNoGrad / eval fresh online | skip無効時B、有効時はwindow終端を加えた2Bのtarget forward |
+| `online_reuse` | 既存current train出力をdetach | skip無効時B、有効時はwindow終端を加えた2Bのtarget forward |
 
-ONではhard action選択を呼ばない。IQNはcurrent N本、target M本、必要ならfresh online N本の順にtauを生成する。target modeのbonusはM本、他modeはN本を使う。OFFのforward順とRNG消費は維持する。target modeのplasticity captureは`[2B,F]`を検証し、nextに対応する後半B行を返す。
+ONではhard action選択を呼ばない。IQNはcurrent N本、target M本、必要ならfresh online N本の順にtauを生成する。target modeのbonusはM本、他modeはN本を使う。OFFのforward順とRNG消費は維持する。target modeのplasticity captureはskip無効時`[2B,F]`、有効時`[3B,F]`を検証し、通常nextに対応するB〜2B行を返す。
 
 方策・bonus・soft bootstrapはNoGrad・FP32実空間で計算する。TBO時は各分位点を個別に逆変換する。先頭状態のclip済みbonusをN-step returnへ1回加え、終端maskはbootstrapだけへ掛ける。TDはsoft state value、QR/IQNは各行動の全分布を方策確率で混合し、完成したtargetだけをh変換する。
 
@@ -287,6 +287,26 @@ sequenceDiagram
 
 `Sync()`はstepを受け取らないため、強制同期後に最初に呼ばれたactionの`train_step`をage 0の基準にする。shared Actorと`sync_interval.*`未宣言のActorは定期snapshotを持たない。
 
+DefaultDQNのprimary Headはboolの `head.use_dueling` で選び、既定trueはV + A − mean(A)である。初期化は `head.init.*`、射影は `head.projection.*` をAgentが読み取る。設定DTOも `head.init`・`head.projection`・`head.use_dueling` と同じ階層に揃え、固定キーの読み込みは `ANET_READ_CONFIG` を使う。skip側も `skip.head.*` に揃える。
+
+### 6.5 DefaultDQNのskip方策
+
+共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列だけを選び、Agentのチェーンを書き直さない。merge・Dueling・action_in・層幅はCLIの葉で指定する。
+
+`skip.enabled=false`が既定で、無効時はskip網を構築しない。設定値の型・列挙・範囲の検証は無効でも行う。Jの実装既定0は未指定を表し、有効時はJを必須とする。明示0以下は無効時も拒否し、明示1は許す。有効時はprimaryのonline／targetにskipのonline／targetを加え、同期を同じ時点で行う。skip targetはtargetを元にするActorだけが使い、Learnerのbootstrapはprimaryを使う。
+
+`skip.net.*`は通常のNetworkと同じbranch・block・bind・body.output記法を使う。入力specはprimaryのBody公開出力、Observation、包含型の`action`、IQNの`taus`から、実際に参照する鍵だけを構築する。primaryのdummy出力でshapeを確定する。IQNはprimaryの融合済み特徴（[B,K,F]）か、skip網自身でtausと融合した特徴を使う。tausのbind自体は必須にせず、HeadがIQNでrank3、それ以外でrank2を要求する。`skip.network_mode=action_out`（既定）はactionのbindを禁止し、`action_in`はactionのbindを要求する。いずれもskip有効時のAgent構築で検証する。包含型のactionは離散specでone-hot化する。`skip.net.structure`と`skip.net.detail`を独立したGraphVizとして出す。GraphVizでは平均出力`skip_q`と、QRの固定K／IQNの可変K（-1）を持つ`skip_q_dist`を分けて示す。起動ログはskip網のパラメータ形を`skip.`付きで列挙し、online／targetのテンソル数にはskip分も含める。
+
+Headは`features`を読み、TDでは`skip_q`、QR／IQNでは`skip_q_dist`と分位平均の`skip_q`を返す。既定の分離型は全action×Jを出し、`skip.network_mode=action_in`の包含型はJだけを出す。`skip.head.use_dueling=true`（既定false）はprimaryの選択actionの値をdetachし、`Q(s,a) + advantage(j) - advantage(1)`を分位ごとに組む。射影と初期化は`skip.head.projection.*`・`skip.head.init.*`で上書きでき、省略した項目はprimaryから継承する。
+
+Actorはprimaryを毎step全laneで実行する。判断laneだけが選択actionと長さjを採用し、残りj−1回は同じactionを返す。episode開始は残り回数を破棄する。skipのforwardは継続laneを含めて1回行い、方策用RNGをprimaryと分ける。既定のskip方策は同じActionPolicyの現在のε・τ・spatial配置を使用する。`actor.[key].skip.policy.*`を指定すると独立したPolicyを構築する。greedy評価はskipもgreedyにする。
+
+ActionPolicyはprimaryの特徴量と使用したtausをActorまで一時保持する。IQNの既定skip方策は同じrisk queryを使い、任意のfull query部分はscoreから除く。専用skip方策は自身のtau rule・現在tau・spatial配置でqueryを作り、primary queryの末尾へ加える。primaryとskipはこの同じtausを各1回のforwardで評価し、primaryの選択には元の領域、skipの選択には追加領域だけを使う。平均方策はfull range、UQEは指定分位またはtailをそのまま問い合わせる。Actorの返却infoは`decision`、auxは`skip_decision`・`skip_length`・`skip_q_values`を持つ。Actor近似PERのQヒントは継続による上書き後のactionから作る。
+
+Learnerは同じReplay sampleからQのn-step targetとwindowのskip targetを作る。skip targetは窓の割引報酬にγ^kのprimary bootstrapを加え、doneではbootstrapを除く。Munchausenの先頭bonusは1回だけ加え、TBOの計算は実空間へ戻してから行う。target方式のMunchausen forwardはcurrent B・通常終端B・窓終端Bの3B、その他の終端評価は2Bをまとめる。
+
+skip currentの入力特徴量は`learner.skip.feature_gradient=stop`でdetachし、`merge`ならprimaryへ勾配を返す。Q lossと`learner.skip.loss_weight`倍のskip lossを一度だけbackwardし、primaryとskipを別々に同じ閾値でclipする。GNSの入力はQ lossとprimary parameterだけである。skip有効時のFP16 AMPは非対応で構築時に拒否し、BF16またはAMPなしを使う。PERは`|δQ| + learner.skip.priority_lambda * |δskip| + ε`で、係数の既定は0。同じIS重みを両lossへ掛ける。
+
 ## 7. DefaultDQNとRainbowの構成・設定
 
 ### 7.1 主な相違
@@ -324,7 +344,7 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 `nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。項目内容は利用する具象部品の準備時に検証し、未参照項目と部品が使わない設定群は検証しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
 
-TD・QR・IQN と Dueling の最終射影は `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner はcurrent用1個・target用途のonline用1個・target用1個の箱と実更新のlearn_stepを使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持し、Munchausen の `[2B]` 入力には CPU 側で `[0..B-1,0..B-1]` を検証・確定した NetworkForwardRowMapping を一度転送して渡し、同一遷移の current/next が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
+TD・QR・IQN と Dueling の最終射影は `head.projection.noisy.enabled=false` / `head.projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner はcurrent用1個・target用途のonline用1個・target用1個の箱と実更新のlearn_stepを使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持する。Munchausen target方式では、skip無効時の `[2B]` 入力に `[0..B-1,0..B-1]`、有効時の `[3B]` 入力に `[0..B-1,0..B-1,0..B-1]` の NetworkForwardRowMapping をCPU側で検証・確定して一度転送する。これにより同一遷移のcurrent・n-step終端・window終端が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
 
 Config DTO は設定値と nn_forward_key のみを持ち、カタログは ConfigData を保持する。Agent が選択済み搬送型を Resource として持ち、初期化時に用途別 NetworkForwardExecutor を準備する。Actor は専用実行オブジェクト、Learner は現在値／target 用を持つ。target用途のonline／targetは同じ設定・時計種別で独立したStateを持ち、network_forward.target_online／network_forward.targetのnamed seedを使う。probeのμ-only側は既定Forwardで、sample側だけが専用実行を持つ。CallInfo は別の文で生成し、時計を進める判断は Actor／Learner に残す。Learnerはcurrent実行器とtarget／診断の用途ペアを持ち、target captureは通常更新だけに渡す。ActionPolicyは実行器を参照で借用する。DQNの6射影Headは共通基底で準備・再利用検証・parameter列挙を行い、value→adv順と固有の計算を維持する。Double DQNとMunchausen onlineのsampleは箱の分離で乱数の割り当てが変わるが分布は同じである。
 
@@ -346,7 +366,11 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 ### 8.2 checkpoint
 
-現行`DefaultDQNAgent::Save()`はarchive header、Config文字列、online/target Network、inner Learnerを保存する。inner `dqn::Learner::Save()`のpayloadはOptimizerだけである。`auto_load_file`はAgent構築中にこのpayloadを読み、NetworkとOptimizerへ復元する。
+DefaultDQNAgent全体の保存形式は、第1版の `DefaultDQNAgent` と第2版の `DefaultDQNAgent-2` で識別する。識別子はdefault_dqn_agent.cpp内の `kCheckpointFormatV1` / `kCheckpointFormatV2` に一元化し、書込・読込・診断で共有する。skip無効時は既存の第1版、skip有効時はprimaryとskipのonline／targetの4 Networkを持つ第2版を保存する。識別子以外のバイト配置は変更しない。optimizer は primary通常・primaryσ・skip通常・skipσの役割名と状態を保存する。読み込み時は保存された役割でgroupを対応付け、momentとstepを復元してから現在のoptionsを役割ごとに適用する。空のσ groupも役割を保持する。
+
+skip 無効の checkpoint は従来の header と2 Network・optimizer の形式を保持する。これを skip 有効で読むと primary とその optimizer 状態を引き継ぎ、skip を新規初期化して一度 WARN する。この分岐は基準 Run から skip 学習へ移るための現行契約である。skip 有効の checkpoint を無効の構成で読む場合は fail-fast する。Actor の継続状態と replay は保存しない。
+
+現行`DefaultDQNAgent::Save()`はarchive header、Config文字列、NetworkModel、inner Learnerを保存する。NetworkModelは上記の有効・無効の形式に従い、inner `dqn::Learner::Save()`はOptimizerの状態と、有効時のgroup役割を保存する。`auto_load_file`はAgent構築中にこのpayloadを読み、NetworkとOptimizerへ復元する。
 
 次は現行DefaultDQN checkpointへ保存・復元しない。
 
@@ -494,6 +518,8 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
+
+TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
 
 主なDQN testは[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)と[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)に置く。
 

@@ -123,8 +123,8 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 
 設定ファイルで左辺にプロファイル（`@name`）を含む行は、**プロファイルの境界を`:`で区切り、`.`で続けない**。`:`は`.`と同じ意味で、どこまでがプロファイルかを読み取りやすくするために使う。
 
-- NG: `DefaultDQNAgent.@baseline.head_projection.noisy.enabled ?= false`
-- OK: `DefaultDQNAgent.@baseline : head_projection.noisy.enabled ?= false`
+- NG: `DefaultDQNAgent.@baseline.head.projection.noisy.enabled ?= false`
+- OK: `DefaultDQNAgent.@baseline : head.projection.noisy.enabled ?= false`
 
 **metrics の tag の文字数**
 

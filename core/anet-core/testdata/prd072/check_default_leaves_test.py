@@ -13,6 +13,26 @@ import check_default_leaves as checker
 
 
 class DefaultLeafAuditTest(unittest.TestCase):
+    def test_malformed_selection_keys_are_rejected(self):
+        # 抽出からmainの終了値まで通し、誤った+=を見逃さない。
+        for line in ("Env.$ += @extra", "run.@skip : Env.$ += @extra", "Env.$.child = invalid", "Env.$bad = invalid"):
+            with self.subTest(line=line):
+                code, report = self.audit([line])
+                self.assertEqual(code, 1)
+                self.assertTrue(any(row["reason"] == "malformed selection key" for row in report))
+        code, _ = self.audit([("apps/runner/config/common.txt", "app.$ = app.online > @skip_trace"),
+                             ("apps/runner/config/metrics_scalar.txt", "metrics.scalar.@skip : [skip] ?= skip_length @train $action_info")])
+        self.assertEqual(code, 0)
+
+    def test_agent_owned_network_profiles_are_shared_defaults(self):
+        code, report = self.audit([
+            ("apps/runner/config/agent.txt", "ExampleAgent.skip.net.@base : branch.[features].bind ?= vector"),
+            ("apps/runner/config/agent.txt", "ExampleAgent.@skip : skip.net.$ = @base"),
+            ("apps/runner/tools/example.ps1", "$ErrorActionPreference = 'Stop'"),
+            ("apps/runner/tools/example.ps1", "[string]$Argument = 'value'")])
+        self.assertEqual(code, 0)
+        self.assertTrue(any(row["reason"] == "reusable network definition" for row in report))
+
     def test_shared_actor_catalog_leaves_are_defaults(self):
         groups = [
             ([f"ImageClsAgent.actor.[{tag}].{leaf}"
@@ -31,6 +51,15 @@ class DefaultLeafAuditTest(unittest.TestCase):
                     self.assertEqual(code, 0 if operator == expected_operator else 1)
                     self.assertEqual(len(report), len(keys))
                     self.assertTrue(all(row["expected_operator"] == expected_operator for row in report))
+
+    def test_environment_owns_the_skip_duration_default(self):
+        # JはEnvが所有する既定。Headの実験選択を既定葉へ広げない。
+        for env in ("GridMaze", "LunarLander", "Atari", "DropMerge"):
+            file = "apps/runner/config/" + env + ".txt"
+            code, _ = self.audit([(file, "DefaultDQNAgent.skip.max_length ?= 7")])
+            self.assertEqual(code, 0)
+            code, _ = self.audit([(file, "DefaultDQNAgent.head.use_dueling ?= false")])
+            self.assertEqual(code, 1)
 
     def audit(self, lines):
         records = [json.dumps({"type": "match", "data": {

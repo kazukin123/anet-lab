@@ -80,7 +80,7 @@ Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkF
 - Branch bind terms, `bind_concat_dim`, raw keys, and output keys
 - Per-block/per-branch config profiles
 
-`bind` accepts comma-separated terms. Within each term, `*`-separated factors form a feature-last elementwise product. `*` has precedence over `,`; rank differences are aligned by inserting singleton dimensions immediately after the lower-rank factor's batch axis. Multiple terms concatenate along the branch's `bind_concat_dim` (default 1; negative values allowed), but concatenation along batch dimension 0 is prohibited.
+`bind` accepts comma-separated terms. Within each term, `*`-separated factors form a feature-last elementwise product. `*` has precedence over `,`; rank differences are aligned by inserting singleton dimensions immediately after the lower-rank factor's batch axis. Multiple terms concatenate along the branch's `bind_concat_dim` (default 1; negative values allowed), each term must have rank >= 2. The axis is normalized using the maximum term rank; concatenation along batch dimension 0 is prohibited. For feature-last concatenation, missing singleton axes are inserted after the lower-rank term's batch axis and only those inserted axes are broadcast. For example, [B,K,F] and [B,A] concatenate into [B,K,F+A] at -1. Existing axes and the batch axis are never expanded.
 
 The current configuration JSON and `ToJson()` schema uses `bind_terms` and `bind_concat_dim`; old `bind_keys` is outside the current contract.
 
@@ -282,10 +282,10 @@ Passing a `TraceCallback` enables collection of intermediate module/branch Tenso
 
 - Unregistered module types, missing blocks, unresolvable bind keys, and cyclic branches fail during construction.
 - If an input-spec key is referenced by neither any bind factor nor a direct `net.body.output` mapping, warn once per key per build. This only identifies possible omissions; it does not guarantee reachability or semantic contribution to final outputs.
-- Bind products validate batch sizes across factors. Concatenating multiple terms normalizes `bind_concat_dim` using the first term's rank and explicitly validates its range, exclusion of the batch axis, and matching term batch sizes. Other broadcast/concatenation shape mismatches are libtorch errors.
+- Bind products validate batch sizes across factors. Concatenating multiple terms normalizes `bind_concat_dim` using the maximum term rank and explicitly validates its range, exclusion of the batch axis, and matching term batch sizes. Other broadcast/concatenation shape mismatches are libtorch errors.
 - Input-spec versus actual TensorDict shape/dtype mismatches are detected at the Network boundary.
 - IQN Head validates rank 3 `(B,K,D)`; IQN Dueling Head validates matching value/advantage B/K as local input contracts during dummy forward. This does not prove that `taus` contributes semantically to the final output.
-- Weight initialization accepts `default`, `xavier`, `he`, `orthogonal`, `constant`, and `trunc_normal`; unknown values fail fast.
+- Weight initialization accepts `default`, `xavier`, `he`, `orthogonal`, `constant`, and `trunc_normal`; unknown values fail fast. `ValidateWeightInitConfig` in `nn.hpp` owns shared validation, called during Agent config loading and before `WeightInitializer` applies parameters. It requires finite numeric arguments, `trunc_std > 0`, and `trunc_a < trunc_b` for every mode. Callers can supply their logical config-key prefix for diagnostics. Automatic gain selection for `manual_gain <= 0` is preserved.
 - `weight_norm.mode` for `Linear`, `Conv1d`, `Conv2d`, `ResBlock`, `CNBlock`, and `TransformerEncoder` accepts only `none`, `spectral`, and `spectral_cap`. Unknown values fail fast with the key, supplied value, and allowed values.
 - `spectral` rejects zero-initialized weights at construction. For residual blocks retaining zero initialization, specify something such as `init2.mode=he`, or use `spectral_cap`.
 - SN in TransformerEncoder requires `tf.use_sdpa=true`.

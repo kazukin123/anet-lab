@@ -75,6 +75,8 @@
 - attention entropy専用のfeatureキー — 先送り: 今の構成ではTransformerがfeature閉包内にある。再開条件: Transformerがfeature閉包の外へ置かれたとき（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§5）。
 - 構築時dummy forwardで層数を数える追加API — 不採用: 黙ったNaNは最初の測定のfail-fastで防げ、APIを1つ増やす必要がない（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§5）。
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
+- NetworkModel が特徴空間・行動価値・スキップ価値の 3 つの Network を持つ形 — 不採用: 切れ目は DAG の branch で表せ、checkpoint の形と Network 1 つ前提の経路へ波及する。補助 Network は primary の公開出力を入力に取り、その target は bootstrap に使わず target 側の Actor の行動にだけ使う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D3、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)）。
+- 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（999_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D10・§9）。
 
 ## 変えるときの条件
 
@@ -87,6 +89,7 @@
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [PRD092](../../memo/092_gradient_noise_scale_10prd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 1・5）。
 - ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
+- スキップ中も全 lane で forward し、行動だけを上書きする（全 lane の q_values を前提にする step 診断・Actor Q ヒント・spatial・Noisy・stacker・Push の契約を保つ）（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D2・§5.5）。
 
 ## 関係
 

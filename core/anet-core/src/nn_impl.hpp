@@ -25,6 +25,8 @@ namespace anet::nn {
         template <typename T>
         static void Initialize(T& layer, const WeightInitConfig& config)
         {
+            // 設定由来・直接指定のどちらも、重みを変更する前に共通条件を検証する。
+            ValidateWeightInitConfig(config);
             if (config.mode == "default") return;
 
             auto& weight = layer->weight;
@@ -63,9 +65,6 @@ namespace anet::nn {
                 torch::nn::init::constant_(weight, config.constant_val);
             } else if (config.mode == "trunc_normal") {
                 TruncNormal_(weight, config);
-            } else {
-                ANET_SYSTEM_ERROR("Unknown WeightInitConfig.mode: \"" << config.mode
-                    << "\" expected one of: default, xavier, he, orthogonal, constant, trunc_normal");
             }
 
             // バイアスはゼロ初期化
@@ -87,22 +86,8 @@ namespace anet::nn {
             return (1.0 + std::erf(x / std::sqrt(2.0))) / 2.0;
         }
 
-        static void ValidateTruncNormalConfig(const WeightInitConfig& config)
-        {
-            if (!std::isfinite(config.trunc_std) || config.trunc_std <= 0.0) {
-                ANET_SYSTEM_ERROR("Invalid WeightInitConfig.trunc_std: " << config.trunc_std
-                    << " expected > 0 for mode=trunc_normal");
-            }
-            if (!std::isfinite(config.trunc_a) || !std::isfinite(config.trunc_b) || config.trunc_a >= config.trunc_b) {
-                ANET_SYSTEM_ERROR("Invalid WeightInitConfig truncation range: trunc_a=" << config.trunc_a
-                    << " trunc_b=" << config.trunc_b << " expected trunc_a < trunc_b for mode=trunc_normal");
-            }
-        }
-
         static void TruncNormal_(torch::Tensor& tensor, const WeightInitConfig& config)
         {
-            ValidateTruncNormalConfig(config);
-
             const double low = NormalCdf(config.trunc_a / config.trunc_std);
             const double high = NormalCdf(config.trunc_b / config.trunc_std);
             tensor.uniform_(2.0 * low - 1.0, 2.0 * high - 1.0);

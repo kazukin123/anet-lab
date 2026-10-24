@@ -82,6 +82,7 @@ Dropout 導入前の前提整理として、NN module の `train()` / `eval()` m
 - `DefaultDQNAgent::UpdateFromBatch()` / `RainbowAgent::UpdateFromBatch()` の `unique_lock` が Learner 内の `ForwardOnlineWithTrain()`、optimizer step、target update 全体を覆っているか。
 - `TDLearner` / `QRLearner` へ外部から直接到達できる bypass がないか。
 - `Actor::MakeAction()` の clone なし経路が `shared_lock` 内で forward しているか。
+- `Actor::MakeAction()` が `shared_lock` の外で `obs_norm_->Normalize()` を呼ぶ一方、`DefaultDQNAgent::UpdateFromBatch()` は `unique_lock` 内で同じ normalizer の `NormalizeAndUpdateStats()` で統計を更新している。学習 Actor の推論と前 step の学習は `learn_pool_` 経由で別スレッドに重なるため、統計 Tensor のその場更新と読みが race し得るか。race し得る場合、normalizer / reward scaler 側に統計の差し替え公開（`diagnostic_std_` と同じ発想）を置くか、Actor の Normalize を `shared_lock` 内へ移すか。なお `unique_lock` が統計を守っている相手は現状メトリクス読み口（`GetScalar()` / `GetTensor()`）だけである。
 - `CreateActor()` の `src_network->Clone(device)` が runtime 中に呼ばれ得るか。呼ばれ得る場合、source network read に `shared_lock` が必要か。
 - `Actor::Sync()` が source network read を `shared_lock` で守れているか。
 - `Actor::Sync()` と同一 Actor の `MakeAction()` が並行し得るか。並行し得る場合、actor-private `network_` の `CopyTo()` と forward が race しないか。

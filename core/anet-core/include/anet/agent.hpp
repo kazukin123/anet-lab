@@ -7,6 +7,7 @@
 #include "anet/rl.hpp"
 #include "anet/config.hpp"
 #include "anet/scaler.hpp"
+#include "anet/nn.hpp"
 #include "anet/schedule.hpp"
 
 namespace anet::nn {
@@ -139,10 +140,25 @@ namespace anet::rl {
 
         struct DQNActorConfig {
             ActionPolicyConfig policy;
+            ActionPolicyConfig skip_policy;
+            bool has_skip_policy = false;
             std::string network = "online";
             bool clone_model = false;
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
             std::string nn_forward_key;
+        };
+
+        enum class SkipNetworkMode { ActionOut, ActionIn };
+
+        struct SkipConfig {
+            bool enabled = false;
+            int max_length = 0;
+            SkipNetworkMode network_mode = SkipNetworkMode::ActionOut;
+            struct {
+                bool use_dueling = false;
+                anet::nn::WeightInitConfig init;
+                anet::ConfigData projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
+            } head;
         };
 
         struct StuckerConfig {
@@ -166,6 +182,11 @@ namespace anet::rl {
         }
 
         struct LearnerConfig {
+            struct {
+                std::string feature_gradient = "stop";
+                float loss_weight = 1.0f;
+                float priority_lambda = 0.0f;
+            } skip;
             struct ForwardSelection {
                 std::string nn_forward_key;
             };

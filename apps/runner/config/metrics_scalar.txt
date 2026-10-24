@@ -364,3 +364,14 @@ metrics.scalar.@attention : [48_agent_attention/01_entropy_layer0] ?= attention_
 metrics.scalar.@attention : [48_agent_attention/02_entropy_layer1] ?= attention_entropy.[1] @learn $learn_step $update_result interval:503
 metrics.scalar.@attention : [48_agent_attention/03_entropy_layer2] ?= attention_entropy.[2] @learn $learn_step $update_result interval:503
 metrics.scalar.@attention : [48_agent_attention/04_entropy_layer3] ?= attention_entropy.[3] @learn $learn_step $update_result interval:503
+
+# TempoRL の共有定義。明示的に選択した場合だけ利用する。
+metrics.scalar.@skip : [50_agent_skip/01_decision_rate] ?= skip_decision_rate @train $action_info
+metrics.scalar.@skip : [50_agent_skip/02_skip_length_mean] ?= skip_length_mean @train $action_info
+metrics.scalar.@skip : [50_agent_skip/03_skip_length_rate.[1]] ?= skip_length_rate.[1] @train $action_info
+metrics.scalar.@skip : [50_agent_skip/04_skip_q_gap] ?= skip_q_gap @train $action_info
+metrics.scalar.@skip : [50_agent_skip/11_loss] ?= skip_loss @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/12_td_abs_mean] ?= skip_td_abs_mean @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/13_sample_k_mean] ?= skip_sample_k_mean @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/14_kmax_mean] ?= skip_kmax_mean @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/15_grad_norm] ?= skip_grad_norm @learn $learn_step $update_result
