@@ -443,3 +443,7 @@
 2026-10-24 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:95ddf02ea8789c3d18288334467e4de42cbf538c → なし（§5.7 の範囲外の j で止める時機を実装に合わせた。wiki の記述は変わらない）
 
 2026-10-24 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:cb483383ef732bb0ca5d1623d22175e568e12943 → docs/wiki/categories/321_agent_core.md, docs/wiki/categories/316_config.md, docs/wiki/categories/318_rl_core.md
+2026-10-24 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:8ea32cf4d3f855aa5e43d184d82a94e45a7f0432 → docs/wiki/categories/321_agent_core.md（PER β の適用時機を保つ改訂）
+2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:29f54dc7e9383324c62833dd5c92f5a56c8cc6e9 → docs/wiki/categories/321_agent_core.md, docs/wiki/categories/316_config.md（実装計画前レビュー 5 件の対応）
+2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:39e78d6c3219660246b3c0d7b40191cf0024f684 → なし（レビュー OK 後に G8 の例外の文言を補っただけ。wiki の記述は変わらない）
+2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:dd3db5b2aa11a926e69917f5320b64c802f8048a → なし（G5・D14 の等価性の例外範囲を新 D8 に合わせた。wiki の記述は変わらない）
