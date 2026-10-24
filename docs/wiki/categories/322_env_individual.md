@@ -28,9 +28,11 @@
 - 2026-10-20: 各Envの遷移の値をStepの結果へ移し終端の読み取りをそろえた（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§4.3.5〜4.3.7・§4.4 クラス一覧）。
 - 2026-10-20: 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、本文）。
 
+- 2026-10-23: Atari観測の縮小方式を設定で選ぶ仕様を精査した。実装と数値・性能の受入は後続工程である（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§1・§8）。
 - 2026-10-24: GridMaze の迷路生成に到達可能性の保証を足し、解けない seed は派生 seed で決定的に引き直す。解ける seed の迷路は変えない（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、題・§4）。
 ## 選ばなかった形
 
+- OpenCV依存の追加・84専用制限・OpenCV全分岐の厳密再現 — 不採用: 自前前処理の境界と縮小全範囲の設定を保ち、anetの数値規則と固定画像の許容差を定める（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§7）。
 - 詰み判定のために内部の盤面を進めて裁定する方式 — 不採用: 問題設定が複雑化し、人間のプレイ感覚から乖離する（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約）。
 - episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 999_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§5）。
 - ResetEndedEpisodesの段・外から読む値の写し・予備ALE — 不採用: 段の案は非同期学習を5〜8%遅くし、写しは埋め合わせを残し、予備ALEはAtari固有になる（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§5・§4.1 D1/D2）。
@@ -50,6 +52,7 @@
 
 ## 変えるときの条件
 
+- 縮小方式追加では既定の学習系列のchecksumを保持し、84×84の各参照画像で全画素差1以下・99.9%以上一致を確認する。64 envの速度比中央値0.98以上を要求し、対照測定の揺れが1%を超える場合は判定保留にする（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§6）。
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
 - 直前action観測のON/OFFを同seed・同action列で並走し、先頭8次元を全stepで一致させる（出典: [PRD032](../../memo/done/032_lunarlander_obs_include_action_10prd.md)、テスト項目）。

@@ -3,14 +3,23 @@
 #include <ale/ale_interface.hpp>
 
 #include <algorithm>
+#include <array>
+#include <random>
 #include <clocale>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <wx/cmdline.h>
 
+#include <torch/nn/functional/upsampling.h>
+
 #include "anet/catch_test.hpp"
+#include "anet/profile.hpp"
 #include "anet/env/Atari.hpp"
 #include "anet/observers.hpp"
 #include "anet/test_util.hpp"
@@ -38,6 +47,127 @@ public:
 };
 
 namespace {
+
+    // 2026-10-24の高速化前の実装を固定したテスト参照。式と積算順を変更しない。
+    class PixelAreaReferenceResizer final {
+    public:
+        PixelAreaReferenceResizer(int source_height, int source_width, int destination_size,
+            const std::string& mode);
+        torch::Tensor Resize(const uint8_t* source) const;
+
+    private:
+        struct PixelWeight {
+            int index;
+            int overlap;
+        };
+        static std::vector<std::vector<PixelWeight>> MakeWeights(int source_size, int destination_size);
+
+        int source_height_;
+        int source_width_;
+        int destination_size_;
+        bool pixel_area_;
+        std::vector<std::vector<PixelWeight>> horizontal_weights_;
+        std::vector<std::vector<PixelWeight>> vertical_weights_;
+    };
+
+    PixelAreaReferenceResizer::PixelAreaReferenceResizer(
+        int source_height, int source_width, int destination_size, const std::string& mode)
+        : source_height_(source_height)
+        , source_width_(source_width)
+        , destination_size_(destination_size)
+        , pixel_area_(mode == "pixel_area")
+    {
+        // 設定に依存する検証と重みの準備は構築時に完了させる。
+        if (source_height <= 0 || source_width <= 0 || destination_size <= 0) {
+            ANET_SYSTEM_ERROR("PixelAreaReferenceResizer requires positive dimensions. source_height="
+                << source_height << ", source_width=" << source_width
+                << ", destination_size=" << destination_size << ". Expected dimensions > 0.");
+        }
+        if (mode != "adaptive_average" && mode != "pixel_area") {
+            ANET_SYSTEM_ERROR("PixelAreaReferenceResizer mode='" << mode
+                << "'. Expected adaptive_average or pixel_area.");
+        }
+        if (pixel_area_) {
+            if (destination_size > std::min(source_height, source_width)) {
+                ANET_SYSTEM_ERROR("PixelAreaReferenceResizer pixel_area destination_size=" << destination_size
+                    << ". Expected <= " << std::min(source_height, source_width) << ".");
+            }
+            horizontal_weights_ = MakeWeights(source_width, destination_size);
+            vertical_weights_ = MakeWeights(source_height, destination_size);
+        }
+    }
+
+    std::vector<std::vector<PixelAreaReferenceResizer::PixelWeight>> PixelAreaReferenceResizer::MakeWeights(
+        int source_size, int destination_size)
+    {
+        // 境界を出力サイズ倍した整数格子へ写し、正規化前の重なり幅を誤差なく保持する。
+        std::vector<std::vector<PixelWeight>> result(destination_size);
+        for (int destination = 0; destination < destination_size; ++destination) {
+            const int64_t begin = static_cast<int64_t>(destination) * source_size;
+            const int64_t end = static_cast<int64_t>(destination + 1) * source_size;
+            const int first = static_cast<int>(begin / destination_size);
+            const int last = static_cast<int>((end + destination_size - 1) / destination_size);
+            for (int source = first; source < last; ++source) {
+                const int64_t overlap = std::min(end, static_cast<int64_t>(source + 1) * destination_size)
+                    - std::max(begin, static_cast<int64_t>(source) * destination_size);
+                result[destination].push_back({.index = source, .overlap = static_cast<int>(overlap)});
+            }
+        }
+        return result;
+    }
+
+    torch::Tensor PixelAreaReferenceResizer::Resize(const uint8_t* source) const
+    {
+        ANET_PROFILE_SCOPE(resize);
+        if (source == nullptr) {
+            ANET_SYSTEM_ERROR("PixelAreaReferenceResizer source=null. Expected a non-null grayscale image.");
+        }
+        if (!pixel_area_) {
+            // 現行方式のfloat32 area補間とuint8への戻し方をそのまま保つ。
+            auto input = torch::from_blob(
+                const_cast<uint8_t*>(source), {1, 1, source_height_, source_width_},
+                torch::TensorOptions().dtype(torch::kUInt8));
+            auto resized = torch::nn::functional::interpolate(
+                input.to(torch::kFloat32),
+                torch::nn::functional::InterpolateFuncOptions()
+                    .size(std::vector<int64_t>{destination_size_, destination_size_})
+                    .mode(torch::kArea));
+            return resized.squeeze(0).round().clamp(0, 255).to(torch::kUInt8).contiguous();
+        }
+
+        // 正規化前の整数の和を横→縦へ渡し、途中の除算と丸めを避ける。
+        std::vector<int64_t> horizontal(static_cast<size_t>(source_height_) * destination_size_, 0);
+        for (int y = 0; y < source_height_; ++y) {
+            for (int x = 0; x < destination_size_; ++x) {
+                int64_t value = 0;
+                for (const auto& weight : horizontal_weights_[x]) {
+                    value += static_cast<int64_t>(source[y * source_width_ + weight.index]) * weight.overlap;
+                }
+                horizontal[y * destination_size_ + x] = value;
+            }
+        }
+        auto output = torch::empty({1, destination_size_, destination_size_},
+            torch::TensorOptions().dtype(torch::kUInt8));
+        auto* pixels = output.data_ptr<uint8_t>();
+        // 各軸の重みの和は元の辺長。両軸分を最後に一度だけ正規化する。
+        const int64_t divisor = static_cast<int64_t>(source_height_) * source_width_;
+        for (int y = 0; y < destination_size_; ++y) {
+            for (int x = 0; x < destination_size_; ++x) {
+                int64_t value = 0;
+                for (const auto& weight : vertical_weights_[y]) {
+                    value += horizontal[weight.index * destination_size_ + x] * weight.overlap;
+                }
+                // 商と余りなら数学的な半整数を正確に識別でき、浮動小数誤差が入らない。
+                const int64_t integer = value / divisor;
+                const int64_t twice_remainder = 2 * (value % divisor);
+                const int64_t rounded = integer + (twice_remainder > divisor
+                    || (twice_remainder == divisor && integer % 2 != 0));
+                pixels[y * destination_size_ + x] = static_cast<uint8_t>(rounded);
+            }
+        }
+        return output;
+    }
+
 
     std::optional<std::filesystem::path> FindRom(const std::string& game)
     {
@@ -401,7 +531,7 @@ TEST_CASE("RollingMaxPool uses its sole frame and fresh steps do not retain prio
     CHECK(second_output == std::vector<uint8_t>{ 1, 2 });
 }
 
-TEST_CASE("ResizeGrayscale area-resizes and rounds to uint8", "[atari][preprocess]")
+TEST_CASE("GrayscaleResizer preserves adaptive average and uint8 rounding", "[atari][preprocess]")
 {
     const std::vector<uint8_t> source{
         0, 1, 10, 11,
@@ -410,8 +540,8 @@ TEST_CASE("ResizeGrayscale area-resizes and rounds to uint8", "[atari][preproces
         102, 103, 202, 204,
     };
 
-    const auto output = anet::rl::env::atari::ResizeGrayscale(
-        source.data(), 4, 4, 2);
+    const anet::rl::env::atari::GrayscaleResizer resizer(4, 4, 2, "adaptive_average");
+    const auto output = resizer.Resize(source.data());
 
     CHECK(output.sizes().vec() == std::vector<int64_t>{ 1, 2, 2 });
     CHECK(output.dtype() == torch::kUInt8);
@@ -1487,4 +1617,399 @@ TEST_CASE("Atari Step results answer provisional derived and numbered RAM scalar
     CHECK(last->GetScalar("game_frames") == 2.0f);
     for (const auto& key : {"game_score", "hns57", "game_score.ge.[0]", "ram_metric.[1]"})
         CHECK_FALSE(env->GetScalar(key).has_value());
+}
+
+TEST_CASE("Atari factory reports the default resize mode with its Reset observation", "[atari][prd099][resize-config]")
+{
+    // 工場からResetまで通し、実効設定と観測契約を同時に確認する。
+    const auto rom = FindRom("pong");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-default", 123);
+    const auto reset = env->Reset();
+    CHECK(env->GetSpec().state_spec.ValidateObservation(reset->state.obs, false));
+    const auto effective = env->GetConfigData();
+    REQUIRE(effective.has_value());
+    REQUIRE(effective->Has("AtariEnv.resize_mode"));
+    CHECK(effective->Get("AtariEnv.resize_mode") == "adaptive_average");
+}
+
+TEST_CASE("GrayscaleResizer uses pixel overlap for fractional downsampling", "[atari][prd099][resize-area]")
+{
+    // 3→2の境界をまたぐ画素で、等重みのadaptive平均との違いを固定する。
+    const std::vector<uint8_t> source{0, 0, 90, 0, 0, 90, 90, 90, 90};
+    const anet::rl::env::atari::GrayscaleResizer resizer(3, 3, 2, "pixel_area");
+    const auto output = resizer.Resize(source.data());
+    CHECK(output.sizes().vec() == std::vector<int64_t>{1, 2, 2});
+    CHECK(output.dtype() == torch::kUInt8);
+    CHECK(output.is_contiguous());
+    CHECK(output.flatten().to(torch::kInt64).equal(torch::tensor({0, 60, 60, 80}, torch::kInt64)));
+}
+
+TEST_CASE("Pixel area matches each fixed OpenCV reference image", "[atari][prd099][resize-golden]")
+{
+    // 同じ入力と最終uint8期待値を読み、画像ごとに許容を判定する。
+    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "core/anet-core/testdata/prd099";
+    const auto read = [](const std::filesystem::path& path) {
+        std::ifstream stream(path, std::ios::binary);
+        REQUIRE(stream.good());
+        return std::vector<uint8_t>(std::istreambuf_iterator<char>(stream), {});
+    };
+    const auto frames = read(directory / "frames_210x160.u8");
+    const auto expected = read(directory / "expected_84x84.u8");
+    REQUIRE(frames.size() == 24 * 210 * 160);
+    REQUIRE(expected.size() == 24 * 84 * 84);
+    const anet::rl::env::atari::GrayscaleResizer area(210, 160, 84, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, "adaptive_average");
+    int maximum_error = 0;
+    int total_mismatches = 0;
+    bool differs_from_adaptive = false;
+    for (int frame = 0; frame < 24; ++frame) {
+        CAPTURE(frame);
+        const auto actual = area.Resize(frames.data() + frame * 210 * 160);
+        const auto existing = adaptive.Resize(frames.data() + frame * 210 * 160);
+        const auto* pixels = actual.data_ptr<uint8_t>();
+        const auto* old_pixels = existing.data_ptr<uint8_t>();
+        int mismatches = 0;
+        int error = 0;
+        for (int pixel = 0; pixel < 84 * 84; ++pixel) {
+            const int reference = expected[frame * 84 * 84 + pixel];
+            error = std::max(error, std::abs(static_cast<int>(pixels[pixel]) - reference));
+            mismatches += pixels[pixel] != reference;
+            differs_from_adaptive |= old_pixels[pixel] != reference;
+        }
+        INFO("mismatches=" << mismatches << ", max_error=" << error);
+        CHECK(error <= 1);
+        CHECK(mismatches * 1000 <= 84 * 84);
+        maximum_error = std::max(maximum_error, error);
+        total_mismatches += mismatches;
+    }
+    CHECK(differs_from_adaptive);
+    std::cout << "PRD099 golden: frames=24 max_error=" << maximum_error
+        << " mismatches=" << total_mismatches << "/" << 24 * 84 * 84 << std::endl;
+}
+
+TEST_CASE("Atari resize configuration rejects unknown modes at reading", "[atari][prd099][resize-invalid-mode]")
+{
+    // 共通値と評価個別値の両方で、利用者が直すキーと指定値を診断する。
+    for (const auto& prefix : {std::string("AtariEnv"), std::string("run.eval.[eval_panel].env")}) {
+        for (const auto& value : {std::string("unknown"), std::string("")}) {
+            const std::string key = prefix + ".resize_mode";
+            CAPTURE(key, value);
+            anet::ConfigData data;
+            data.Set("AtariEnv.game", "pong");
+            data.Set(key, value);
+            anet::test::LogCaptureGuard logs(wxLOG_Info);
+            CHECK_THROWS_WITH(anet::rl::env::AtariEnvConfig(data, prefix == "AtariEnv" ? "" : prefix),
+                Catch::Matchers::ContainsSubstring(key)
+                && Catch::Matchers::ContainsSubstring("'" + value + "'")
+                && Catch::Matchers::ContainsSubstring("adaptive_average")
+                && Catch::Matchers::ContainsSubstring("pixel_area"));
+        }
+    }
+}
+
+TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration key", "[atari][prd099][resize-invalid-size]")
+{
+    // ROMを読む前に、型・範囲と評価個別の指定箇所を診断する。
+    anet::rl::env::AtariEnvFactory factory;
+    for (const auto& prefix : {std::string("AtariEnv"), std::string("run.eval.[eval_panel].env")}) {
+        for (const auto& value : {std::string("0"), std::string("-1"), std::string("161"), std::string("84.5")}) {
+            const std::string key = prefix + ".screen_size";
+            CAPTURE(key, value);
+            anet::ConfigData data;
+            data.Set("AtariEnv.game", "pong");
+            data.Set("AtariEnv.resize_mode", "pixel_area");
+            data.Set(key, value);
+            anet::test::LogCaptureGuard logs(wxLOG_Info);
+            CHECK_THROWS_WITH(factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "invalid-size", 1,
+                anet::rl::RunMode::Train, prefix == "AtariEnv" ? "" : prefix),
+                Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(value));
+        }
+    }
+}
+
+TEST_CASE("Atari Run profile selects pixel area while evaluation keeps explicit overrides", "[atari][prd099][resize-profile]")
+{
+    // 実際のAtari.txtを解決し、Runの共通値と評価個別の責務を確認する。
+    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "apps/runner/config";
+    const wxCmdLineEntryDesc description[] = {
+        {wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE}, {wxCMD_LINE_NONE},
+    };
+    wxCmdLineParser cli(description, wxString::FromUTF8(
+        "run.$=run.@v5_iqn_impala_x2>run.@pixel_area run.eval.[eval_panel].env.resize_mode=adaptive_average"));
+    REQUIRE(cli.Parse(false) == 0);
+    anet::ConfigManagerOptions options;
+    options.config_search_dirs = {directory};
+    options.overwrite_config_paths = {directory / "Atari.txt"};
+    const auto data = anet::ConfigManager(directory / "_main.txt", &cli, options).GetConfigData();
+    CHECK(data.Get("AtariEnv.resize_mode") == "pixel_area");
+    const anet::rl::env::AtariEnvConfig common(data);
+    CHECK(common.resize_mode == "pixel_area");
+    const anet::rl::env::AtariEnvConfig panel(data, "run.eval.[eval_panel].env");
+    CHECK(panel.resize_mode == "adaptive_average");
+    CHECK(panel.GetScopedConfigData().Get("run.eval.[eval_panel].env.resize_mode") == "adaptive_average");
+    const anet::rl::env::AtariEnvConfig inherited(data, "run.eval.[eval_target].env");
+    CHECK(inherited.resize_mode == "pixel_area");
+}
+
+TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari][prd099][resize-boundary]")
+{
+    using anet::rl::env::atari::GrayscaleResizer;
+    // 半整数と途中丸めを、二進で正確な重みになる入力で固定する。
+    const std::vector<std::vector<uint8_t>> examples{{0, 1, 0, 1}, {1, 2, 1, 2}, {2, 3, 2, 3}, {0, 1, 0, 2}};
+    const std::vector<int> rounded{0, 2, 2, 1};
+    const GrayscaleResizer half(2, 2, 1, "pixel_area");
+    for (size_t i = 0; i < examples.size(); ++i) {
+        CAPTURE(i);
+        CHECK(half.Resize(examples[i].data()).item<uint8_t>() == rounded[i]);
+    }
+
+    // 元画面の大きさでも半整数を保つ。浮動小数の逐次積算では128.5が129へ化けた。
+    std::vector<uint8_t> native_half(210 * 160);
+    const GrayscaleResizer native_average(210, 160, 1, "pixel_area");
+    for (int base : {0, 1, 2, 126, 127, 128, 129, 254}) {
+        CAPTURE(base);
+        for (bool horizontal : {false, true}) {
+            CAPTURE(horizontal);
+            for (int y = 0; y < 210; ++y) {
+                for (int x = 0; x < 160; ++x) {
+                    native_half[y * 160 + x] = static_cast<uint8_t>(
+                        base + (horizontal ? x >= 80 : y >= 105));
+                }
+            }
+            CHECK(native_average.Resize(native_half.data()).item<uint8_t>() == base + base % 2);
+        }
+    }
+    const GrayscaleResizer native_fractional(210, 160, 84, "pixel_area");
+    for (int base : {126, 127, 128, 129}) {
+        CAPTURE(base);
+        std::fill(native_half.begin(), native_half.end(), static_cast<uint8_t>(base));
+        // 左上の重みは42/200と38/200。6×42−4×38=100で平均がbase+0.5。
+        native_half[0] = static_cast<uint8_t>(base + 6);
+        native_half[1] = static_cast<uint8_t>(base - 4);
+        CHECK(native_fractional.Resize(native_half.data()).data_ptr<uint8_t>()[0] == base + base % 2);
+    }
+
+    // 小さい非整数比では、区間を整数格子へ拡大した独立な面積計算と照合する。
+    std::vector<uint8_t> source(5 * 7);
+    for (size_t i = 0; i < source.size(); ++i) source[i] = static_cast<uint8_t>((17 * i) % 256);
+    for (int size = 1; size <= 5; ++size) {
+        const GrayscaleResizer area(5, 7, size, "pixel_area");
+        const auto actual = area.Resize(source.data());
+        const auto* pixels = actual.data_ptr<uint8_t>();
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                int numerator = 0;
+                for (int sy = 0; sy < 5; ++sy) {
+                    const int height = std::max(0, std::min((y + 1) * 5, (sy + 1) * size) - std::max(y * 5, sy * size));
+                    for (int sx = 0; sx < 7; ++sx) {
+                        const int width = std::max(0, std::min((x + 1) * 7, (sx + 1) * size) - std::max(x * 7, sx * size));
+                        numerator += source[sy * 7 + sx] * height * width;
+                    }
+                }
+                const int expected = numerator / 35 + ((numerator % 35) * 2 > 35);
+                CAPTURE(size, y, x);
+                CHECK(pixels[y * size + x] == expected);
+            }
+        }
+    }
+
+    // 定数保持が正規化を、入力範囲の保持が非負の重みを外から確かめる。
+    std::vector<uint8_t> constant(210 * 160, 17);
+    for (int size = 1; size <= 160; ++size) {
+        CAPTURE(size);
+        const GrayscaleResizer area(210, 160, size, "pixel_area");
+        const auto image = area.Resize(constant.data());
+        CHECK(image.sizes().vec() == std::vector<int64_t>{1, size, size});
+        CHECK(image.min().item<uint8_t>() == 17);
+        CHECK(image.max().item<uint8_t>() == 17);
+    }
+    for (int size : {1, 84, 160}) {
+        const GrayscaleResizer area(210, 160, size, "pixel_area");
+        for (size_t i = 0; i < constant.size(); ++i) constant[i] = i % 2 ? 203 : 17;
+        const auto image = area.Resize(constant.data());
+        CHECK(image.min().item<uint8_t>() >= 17);
+        CHECK(image.max().item<uint8_t>() <= 203);
+    }
+    const GrayscaleResizer existing(210, 160, 161, "adaptive_average");
+    CHECK(existing.Resize(constant.data()).sizes().vec() == std::vector<int64_t>{1, 161, 161});
+
+    // 整数倍の箱平均は既存方式と一致し、入力は借用しても結果は独立して所有する。
+    const std::vector<uint8_t> box{0, 1, 10, 11, 2, 2, 12, 12, 100, 101, 200, 201, 102, 103, 202, 204};
+    const GrayscaleResizer area_box(4, 4, 2, "pixel_area");
+    const GrayscaleResizer existing_box(4, 4, 2, "adaptive_average");
+    CHECK(torch::equal(area_box.Resize(box.data()), existing_box.Resize(box.data())));
+    auto borrowed = std::vector<uint8_t>{7, 7, 7, 7};
+    const auto owned = half.Resize(borrowed.data());
+    std::fill(borrowed.begin(), borrowed.end(), 0);
+    CHECK(owned.item<uint8_t>() == 7);
+}
+
+TEST_CASE("Atari Reset and Step apply resize mode without changing the emulator", "[atari][prd099][resize-env]")
+{
+    // 同じseedと行動を与え、公開RGBは一致したまま観測だけが方式で変わることを確認する。
+    const auto rom = FindRom("qbert");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "qbert");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.resize_mode", "pixel_area");
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_pool", false);
+    data.Set("AtariEnv.noop_max", 30);
+    data.Set("run.eval.[eval_panel].env.resize_mode", "adaptive_average");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto area = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-area", 13);
+    const auto panel = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-panel", 13,
+        anet::rl::RunMode::Eval1, "run.eval.[eval_panel].env");
+    CHECK(area->GetConfigData()->Get("AtariEnv.resize_mode") == "pixel_area");
+    CHECK(panel->GetConfigData()->Get("run.eval.[eval_panel].env.resize_mode") == "adaptive_average");
+    const auto rgb_equal = [&] {
+        const auto a = area->GetTensor("rgb_frame");
+        const auto b = panel->GetTensor("rgb_frame");
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK(torch::equal(*a, *b));
+    };
+    bool reset_differs = false;
+    for (int repeat = 0; repeat < 4; ++repeat) {
+        const auto a = area->Reset();
+        const auto b = panel->Reset();
+        rgb_equal();
+        reset_differs |= !torch::equal(a->state.obs.Get(anet::rl::ObsKeys::kGrid).value(),
+            b->state.obs.Get(anet::rl::ObsKeys::kGrid).value());
+    }
+    CHECK(reset_differs);
+    bool step_differs = false;
+    for (int step = 0; step < 32; ++step) {
+        const auto a = area->Step(0);
+        const auto b = panel->Step(0);
+        rgb_equal();
+        CHECK(a->next_state.done == b->next_state.done);
+        CHECK(a->next_state.truncated == b->next_state.truncated);
+        step_differs |= !torch::equal(a->next_state.obs.Get(anet::rl::ObsKeys::kGrid).value(),
+            b->next_state.obs.Get(anet::rl::ObsKeys::kGrid).value());
+        if (a->next_state.done || a->next_state.truncated) {
+            area->Reset();
+            panel->Reset();
+        }
+    }
+    CHECK(step_differs);
+}
+
+TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][prd099-perf-exact]")
+{
+    using anet::rl::env::atari::GrayscaleResizer;
+    // 各サイズの参照と実装を再利用し、呼び出しを繰り返したときの作業領域も検査する。
+    std::vector<PixelAreaReferenceResizer> reference;
+    std::vector<GrayscaleResizer> actual;
+    reference.reserve(160);
+    actual.reserve(160);
+    for (int size = 1; size <= 160; ++size) {
+        reference.emplace_back(210, 160, size, "pixel_area");
+        actual.emplace_back(210, 160, size, "pixel_area");
+    }
+    int comparisons = 0;
+    int64_t pixels = 0;
+    const auto compare = [&](const uint8_t* input) {
+        for (int size = 1; size <= 160; ++size) {
+            CAPTURE(size);
+            const auto expected = reference[size - 1].Resize(input);
+            const auto output = actual[size - 1].Resize(input);
+            REQUIRE(torch::equal(expected, output));
+            ++comparisons;
+            pixels += size * size;
+        }
+    };
+
+    // 固定24枚はS=84だけでなく、対応する全160サイズで比較する。
+    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "core/anet-core/testdata/prd099/frames_210x160.u8";
+    std::ifstream stream(path, std::ios::binary);
+    REQUIRE(stream.good());
+    const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
+    REQUIRE(frames.size() == 24 * 210 * 160);
+    for (int image = 0; image < 24; ++image) {
+        CAPTURE(image);
+        compare(frames.data() + image * 210 * 160);
+    }
+
+    // 乱数1000枚とS=1..160の直積をすべて比較し、特定の縮小率だけの一致にしない。
+    std::mt19937 random(20261024);
+    std::vector<uint8_t> input(210 * 160);
+    for (int image = 0; image < 1000; ++image) {
+        CAPTURE(image);
+        for (auto& pixel : input) pixel = static_cast<uint8_t>(random());
+        compare(input.data());
+    }
+    // 定数・縦縞・横縞・市松模様も全サイズで確認する。
+    for (int pattern = 0; pattern < 5; ++pattern) {
+        CAPTURE(pattern);
+        for (int y = 0; y < 210; ++y) {
+            for (int x = 0; x < 160; ++x) {
+                const bool high = pattern == 1 || (pattern == 2 && x % 2)
+                    || (pattern == 3 && y % 2) || (pattern == 4 && (x + y) % 2);
+                input[y * 160 + x] = high ? 255 : 0;
+            }
+        }
+        compare(input.data());
+    }
+    // 32bitに収まらない任意寸法も、従来の64bit積算で維持する。
+    const std::vector<uint8_t> large(3000 * 3000, 255);
+    const PixelAreaReferenceResizer wide_reference(3000, 3000, 1, "pixel_area");
+    const GrayscaleResizer wide_actual(3000, 3000, 1, "pixel_area");
+    REQUIRE(torch::equal(wide_reference.Resize(large.data()), wide_actual.Resize(large.data())));
+    CHECK(wide_actual.Resize(large.data()).item<uint8_t>() == 255);
+    std::cout << "PRD099 exact equivalence comparisons=" << comparisons << " pixels=" << pixels
+        << " mismatches=0 random_images=1000 sizes=1..160 wide_case=passed" << std::endl;
+}
+
+TEST_CASE("PRD099 resize prototype timings", "[.][prd099-resize-probe]")
+{
+    // 同じ実行体の中で高速化前の参照・現在方式・既定を交互に測る。正式なEnv Step受入ではない。
+    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "core/anet-core/testdata/prd099/frames_210x160.u8";
+    std::ifstream stream(path, std::ios::binary);
+    REQUIRE(stream.good());
+    const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
+    REQUIRE(frames.size() == 24 * 210 * 160);
+    const PixelAreaReferenceResizer baseline(210, 160, 84, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer current(210, 160, 84, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, "adaptive_average");
+    int checksum = 0;
+    const auto time = [&](const auto& resizer, int count) {
+        const auto begin = std::chrono::steady_clock::now();
+        for (int i = 0; i < count; ++i) {
+            const auto output = resizer.Resize(frames.data() + (i % 24) * 210 * 160);
+            checksum += output.template data_ptr<uint8_t>()[i % (84 * 84)];
+        }
+        return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count() / count;
+    };
+    time(baseline, 50);
+    time(current, 50);
+    time(adaptive, 50);
+    std::array<std::vector<double>, 3> samples;
+    const std::array<const char*, 3> names{"baseline", "current", "adaptive"};
+    // 5巡で開始方式を回し、各方式2000回の平均を1試行として記録する。
+    for (int round = 0; round < 5; ++round) {
+        for (int offset = 0; offset < 3; ++offset) {
+            const int variant = (round + offset) % 3;
+            double elapsed = 0;
+            if (variant == 0) elapsed = time(baseline, 2000);
+            else if (variant == 1) elapsed = time(current, 2000);
+            else elapsed = time(adaptive, 2000);
+            CHECK(elapsed > 0);
+            samples[variant].push_back(elapsed);
+            std::cout << "PRD099 resize probe round=" << round << " variant=" << names[variant]
+                << " us=" << elapsed << std::endl;
+        }
+    }
+    for (auto& values : samples) std::sort(values.begin(), values.end());
+    std::cout << "PRD099 resize probe median_baseline_us=" << samples[0][2]
+        << " median_current_us=" << samples[1][2] << " median_adaptive_us=" << samples[2][2]
+        << " speed_ratio=" << samples[0][2] / samples[1][2] << " checksum=" << checksum
+        << " formal_env_acceptance=not_measured" << std::endl;
 }

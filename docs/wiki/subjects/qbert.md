@@ -25,6 +25,7 @@
 
 ## 分かっていないこと
 
+- BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？
 - 64 env・容量1Mで突破が増えた効き方の仕組みは何か（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ6・探索ブロック03「効き方の仕組みは測れていない」）？
 - 64 env・1M の seed 4 だけが、第 8 面の中で点を重ね、そのあと面が進まないまま点だけが増えるゲームへ入ったのはなぜか（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、pending）？
 
@@ -36,3 +37,4 @@
 
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
+- [PRD099](../../memo/099_atari_resize_mode_10prd.md)（縮小方式だけを変える比較）。

@@ -20,6 +20,8 @@ namespace ale {
 
 namespace anet::rl::env {
 
+    namespace atari { class GrayscaleResizer; }
+
     /**
      * @brief 人間正規化スコアの基準表。
      *
@@ -67,6 +69,7 @@ namespace anet::rl::env {
         std::string game;
         std::string rom_dir;
         int screen_size = 84;
+        std::string resize_mode = "adaptive_average";
         int frame_skip = 4;
         bool max_pool = true;
         float repeat_action_probability = 0.25f;
@@ -132,6 +135,7 @@ namespace anet::rl::env {
         AtariEnvConfig config_;
         std::shared_ptr<const AtariScalarContext> scalar_context_;
         torch::Device device_;
+        std::unique_ptr<atari::GrayscaleResizer> resizer_;
         std::unique_ptr<ale::ALEInterface> ale_;
         std::vector<int> action_set_;
         std::vector<std::string> action_labels_;

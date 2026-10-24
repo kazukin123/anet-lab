@@ -27,7 +27,7 @@ BatchEnvBuilder (env.class_id = AtariEnv)
   └─ AtariEnvFactory (SingleDiscreteEnvFactory)
        └─ AtariEnv × N lanes（並列実行とStep内の自動リセットは共通 wrapper）
             ├─ ale::ALEInterface（1対1、ALE 側 frame_skip=1 固定）
-            └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → area resize → uint8 [1,S,S]
+            └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
 - frame stack は出さない。Actor 側 stucker と ReplayBuffer 側 stack_count の既存両輪が担う。
@@ -112,7 +112,7 @@ ALE は GPL-2.0。①非同梱（外部参照）②オプショナルビルド �
 core/envs/atari1/include/anet/env/Atari.hpp   … void InitAtari();
 core/envs/atari1/src/Atari.cpp                … factory + view creator 登録
 core/envs/atari1/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
-core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理 free 関数（named namespace、ALE 非依存）
+core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
 core/envs/atari1/src/AtariView.hpp/.cpp       … AtariView（§5）
 core/envs/atari1/src/AtariEnv_test.cpp
 core/envs/atari1/src/pch.hpp
@@ -128,6 +128,7 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 | `game` | string | （必須） | ROM 名（snake_case、拡張子なし） |
 | `rom_dir` | string | `""` | 非空なら `ATARI_ROM_DIR` より優先 |
 | `screen_size` | int | 84 | 出力解像度 S（正方形） |
+| `resize_mode` | string | adaptive_average | adaptive_average（従来）/pixel_area（面積平均＋最後に偶数丸め）。pixel_areaはS=1〜160 |
 | `frame_skip` | int | 4 | 1 step のエミュレータフレーム数（自前 skip ループ） |
 | `max_pool` | bool | true | skip 窓の最後 2 フレームの pixel-wise max |
 | `repeat_action_probability` | float | 0.25 | sticky actions（ALE 透過） |
@@ -153,7 +154,7 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 
 標準準拠ノート（2026-08-18 に SB3 `atari_wrappers.py` / Gymnasium `AtariPreprocessing` / ale-py v5 登録 / rlpyt と突き合わせて監査済み）:
 
-- 標準実装は 2 系統ある。**baselines 系**（OpenAI Baselines 2017 → SB3 → CleanRL、および rlpyt＝SPR/EfficientZero の土台。episodic_life=true で運用）と **Dopamine 系**（Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo。terminal_on_life_loss=False で運用）。本 env は wrapper 挙動（noop の乱数範囲と適用位置、FIRE 系列、max-pool 対象、sign clip、grayscale=ALE 直、INTER_AREA、episodic_life 判定）をこの 2 系統と一致させてある。系統間で割れる箇所は「その分岐を実際に使う側」に合わせる（例: episodic_life の `lives > 0` ガードは baselines 系に一致。§4.5）。
+- 標準実装は 2 系統ある。**baselines 系**（OpenAI Baselines 2017 → SB3 → CleanRL、および rlpyt＝SPR/EfficientZero の土台。episodic_life=true で運用）と **Dopamine 系**（Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo。terminal_on_life_loss=False で運用）。本 env は wrapper 挙動（noop の乱数範囲と適用位置、FIRE 系列、max-pool 対象、sign clip、grayscale=ALE 直、episodic_life 判定）をこの2系統と一致させてある。縮小の数値規則は§4.3の方式選択に従う。系統間で割れる箇所は「その分岐を実際に使う側」に合わせる（例: episodic_life の `lives > 0` ガードは baselines 系に一致。§4.5）。
 - **v5 は Machado et al. 2018 勧告と 1 点だけ乖離している**: Machado は full action set（18 行動）を勧告するが、ale-py v5 の既定は `full_action_space=False`（minimal）。本 env の v5 プリセットは ale-py 側（false）に合わせる。
 - **「v5 で noop 0」は系統依存**: ale-py v5 の raw env に noop start は無く（Dopamine/Machado 系）、一方 Gymnasium `AtariPreprocessing` wrapper の既定は `noop_max=30`。v5 世代の事例でも「+ Gymnasium 標準前処理」の構成は noop 30 で走っているため、比較先の wrapper 構成を確認する。
 - classic の `max_episode_frames=108000` は歴史的 v4（gym 登録の TimeLimit=100,000 フレーム）と 8% 違う。SB3 `AtariWrapper` 自体は上限を持たないため、v5 と揃えた 108,000 を採用している。
@@ -175,13 +176,18 @@ Step(action_index):
   reward_raw = Σ ale.act(a)                         # sticky は ALE 内で毎フレーム判定
       （当該Step内でrolling 2-slotに画面を取得し、real game overだけ早期終了）
   frame = max_pool ? 当該Stepで実行できた最後の最大2フレームのmax : 最終フレーム
-  grid  = ResizeGrayscale(frame, 210, 160, S)        # area 補間 → round/clamp → uint8 [1,S,S]
+  grid  = resizer.Resize(frame)                       # area 補間 → round/clamp → uint8 [1,S,S]
 ```
 
-前処理は `AtariPreprocess` の free 関数（named namespace）とし、ALE 非依存の golden テストで数値を固定する:
+前処理は `AtariPreprocess` の関数群と `GrayscaleResizer`（named namespace、ALE非依存）で行い、合成入力と固定画像のテストで数値を確認する。
 
-- `PixelwiseMax(a, b, out)` — 210×160 グレー 2 枚の要素 max
-- `ResizeGrayscale(src, src_h, src_w, dst_size)` — `torch::from_blob`（uint8）→ `interpolate(mode=area)` → `round().clamp(0,255).to(kUInt8)`。area 補間は慣行実装（cv2 INTER_AREA）と同系
+- `PixelwiseMax(a, b, out)` — 210×160グレー2枚の要素max。
+- `GrayscaleResizer(src_h, src_w, S, mode).Resize(src)` — 各Envが設定と重みを所有し、Reset/Stepの両方でCPU縮小してから観測をdeviceへ送る。
+- `pixel_area`の作業領域は縮小器が構築時に確保し、各Resizeで再利用する。同一縮小器のResizeは同時に呼び出さない。各AtariEnvが独自の縮小器を持ち、同じEnvのReset/Stepは直列に実行する。出力Tensorは呼び出しごとに独立して所有する。
+- `adaptive_average`は既存のfloat32 `interpolate(mode=area)`→`round().clamp(0,255).to(kUInt8)`を維持する。非整数比では、整数窓の等重み平均でありOpenCV INTER_AREAと同じ値とは限らない。
+- `pixel_area`は出力領域と元画素の重なり面積で平均する。各軸の重みを構築時に準備し、横→縦を整数化せず計算した最後に偶数丸めしてuint8 `[1,S,S]`を返す。正方形のS=1〜160を認め、拡大はエラーとする。OpenCVの全分岐の丸めを再現する契約ではない。
+
+`AtariEnv.resize_mode ?= adaptive_average`を既定とし、`run.@pixel_area : AtariEnv.resize_mode = pixel_area`をRun選択チェーンへ加えると新方式になる。`run.eval.[tag].env.resize_mode`の明示値があれば、その評価と同じtagを使うEvalPanelだけ上書きする。実効設定と各Envの構築時verboseログに方式が残る。既定のinfo表示では構築ログを表示せず、verbose表示とファイルログで個別のEnvを追跡する。未知・空の方式名や不正なサイズは、キー・指定値・期待値を含むエラーで構築時に失敗する。
 
 ### 4.4 行動
 
@@ -319,6 +325,8 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 - テストは module と同時ビルド。通常の ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。PRD097 の必須受入 `[prd097_atari]` は Asterix ROM の利用を `REQUIRE` で検査し、未解決を合格・skip扱いにしない。前処理 golden テストは常時実行。
 
 ### 6.1 テストと拡張時の確認事項
+
+縮小方式の変更時は[PRD099検証手順](../../core/anet-core/testdata/prd099/README.md)を参照する。固定24画像は各画像で全画素差1以下・99.9%以上一致を要求し、既定の学習系列のchecksumを保持する。性能受入は84×84・64 envの交互比較で速度比中央値0.98以上、現行同士の対照が1%以内に収まらない場合は判定保留とする。
 
 RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../core/anet-core/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。
 

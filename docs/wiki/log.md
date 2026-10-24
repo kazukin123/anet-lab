@@ -425,6 +425,7 @@
 2026-10-23 ingest docs/memo/086_dropmerge_macro_actions_10prd.md blob:20ffe5447a98218f4399a02b91fe8e4f021fbac7 → なし
 2026-10-23 ingest docs/memo/088_nn_adaptive_max_pool_10prd.md blob:65df5ac18509a8a1e54c1c6edd1d09c906dab66d → なし
 2026-10-23 ingest docs/memo/999_decision_aligned_nstep_10prd.md blob:aabdfa3c549435b0ad33555f936b82d46a4aeb2d → なし
+2026-10-23 writeback docs/memo/099_atari_resize_mode_10prd.md blob:785d4f2d4545c5a01ba82adfb4cf609de64f52a8 → docs/wiki/subjects/atari.md, docs/wiki/subjects/qbert.md, docs/wiki/categories/322_env_individual.md, docs/wiki/index.md
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:4a5c84156cd37fa85768f3ece057900116027acc → docs/wiki/categories/322_env_individual.md
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:41f7c23010362b5ad96dba73ce50a9d1bd7c7cc5 → なし（レビュー対応後の照合。322 の記述は変わらない）
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:4c04caf56da6473823bd985606f4ddd5f3bbc8e4 → docs/wiki/categories/322_env_individual.md

@@ -32,6 +32,25 @@ struct anet::rl::env::AtariScalarContext {
 constexpr int kScreenHeight = 210;
 constexpr int kScreenWidth = 160;
 
+static void ValidateResizeMode(const std::string& key, const std::string& value)
+{
+    if (value != "adaptive_average" && value != "pixel_area") {
+        ANET_SYSTEM_ERROR(key << "='" << value << "'. Expected adaptive_average or pixel_area.");
+    }
+}
+
+static void ValidateScreenSize(const std::string& key, int size, const std::string& resize_mode)
+{
+    // 設定読取と直接組み立てた設定の構築で、同じネイティブ解像度の条件を使う。
+    if (size <= 0) {
+        ANET_SYSTEM_ERROR(key << " must be > 0, but was " << size << ".");
+    }
+    if (resize_mode == "pixel_area" && size > std::min(kScreenHeight, kScreenWidth)) {
+        ANET_SYSTEM_ERROR(key << "=" << size
+            << " with resize_mode='pixel_area'. Expected an integer in [1,160].");
+    }
+}
+
 class AtariResetResult final : public anet::rl::SingleResetResult {
 public:
     AtariResetResult(anet::rl::SingleState state, anet::rl::AuxData aux)
@@ -363,6 +382,14 @@ AtariEnvConfig::AtariEnvConfig(
     ANET_READ_CONFIG(config_data, game);
     ANET_READ_CONFIG(config_data, rom_dir);
     ANET_READ_CONFIG(config_data, screen_size);
+    ANET_READ_CONFIG(config_data, resize_mode);
+    // 読み取る宣言を両方検証し、個別上書きで不正な共通値を隠さない。
+    for (const auto& key : {MakeDefaultConfigKey("resize_mode"), MakeOverrideConfigKey("resize_mode")}) {
+        if (config_data.Has(key)) ValidateResizeMode(key, config_data.Get(key));
+    }
+    const auto override_size_key = MakeOverrideConfigKey("screen_size");
+    const auto size_key = config_data.Has(override_size_key) ? override_size_key : MakeDefaultConfigKey("screen_size");
+    ValidateScreenSize(size_key, screen_size, resize_mode);
     ANET_READ_CONFIG(config_data, frame_skip);
     ANET_READ_CONFIG(config_data, max_pool);
     ANET_READ_CONFIG(config_data, repeat_action_probability);
@@ -442,6 +469,8 @@ AtariEnv::AtariEnv(
     }
     // 設定とROMを先に確定し、不完全なEnvを公開しない。
     ValidateConfig();
+    resizer_ = std::make_unique<GrayscaleResizer>(
+        kScreenHeight, kScreenWidth, config_.screen_size, config_.resize_mode);
     if (config_.sound) {
         EnsureSdlAudioDriverDefault();
     }
@@ -454,6 +483,7 @@ AtariEnv::AtariEnv(
         log.warn() << "AtariEnv.display_screen=true creates one SDL window per ALE instance and is unsupported with worker threads; use AtariView for Runner observation.";
     }
 
+    log.verbose() << "AtariEnv resize_mode=" << config_.resize_mode;
     Reset();
 }
 
@@ -490,11 +520,12 @@ AtariEnv::~AtariEnv() = default;
 
 void AtariEnv::ValidateConfig() const
 {
+    // 設定オブジェクトを直接組み立てた呼び出しも同じ方式契約を守る。
+    const auto mode_prefix = config_.GetOverridePrefix().empty() ? "AtariEnv" : config_.GetOverridePrefix();
+    ValidateResizeMode(mode_prefix + ".resize_mode", config_.resize_mode);
+    ValidateScreenSize(mode_prefix + ".screen_size", config_.screen_size, config_.resize_mode);
     if (!std::regex_match(config_.game, std::regex("[a-z0-9]+(?:_[a-z0-9]+)*"))) {
         ANET_SYSTEM_ERROR("AtariEnv.game must be a non-empty snake_case ROM stem, but was '" << config_.game << "'.");
-    }
-    if (config_.screen_size <= 0) {
-        ANET_SYSTEM_ERROR("AtariEnv.screen_size must be > 0, but was " << config_.screen_size << ".");
     }
     if (config_.frame_skip < 1) {
         ANET_SYSTEM_ERROR("AtariEnv.frame_skip must be >= 1, but was " << config_.frame_skip << ".");
@@ -664,8 +695,7 @@ torch::Tensor AtariEnv::CaptureObservation()
 {
     std::vector<uint8_t> frame;
     ale_->getScreenGrayscale(frame);
-    return ResizeGrayscale(
-        frame.data(), kScreenHeight, kScreenWidth, config_.screen_size).to(device_);
+    return resizer_->Resize(frame.data()).to(device_);
 }
 
 void AtariEnv::CaptureRgbFrame()
@@ -780,8 +810,7 @@ std::shared_ptr<const SingleStepResult> AtariEnv::Step(int64_t action)
         ale_->getScreenGrayscale(pooled_frame_);
     }
 
-    auto grid = ResizeGrayscale(
-        pooled_frame_.data(), kScreenHeight, kScreenWidth, config_.screen_size).to(device_);
+    auto grid = resizer_->Resize(pooled_frame_.data()).to(device_);
 
     game_score_ += reward_raw;
     game_len_++;

@@ -264,6 +264,9 @@ run.@v5_iqn_impala_x2      : A2.actor.[eval].policy.eps_end   = 0.01
 
 # RR は再現プロファイルが A3 に書くので、上書きも A3 で行う(A2 では届かない)。
 # half_exp_step は据え置き。per_beta_step だけが依存するので、打ち切り Run が 100M 参照 Run の prefix になる。
+# 観測の縮小だけを面積平均へ切り替える。
+run.@pixel_area : AtariEnv.resize_mode = pixel_area
+
 run.@plasticity      : app.$ = app.batchrun > P1
 run.@plasticity      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 run.@plasticity      : @vars.max_exp_step = 20,000,000   # RR4 の谷 18.5M を含む
@@ -1175,6 +1178,7 @@ AtariEnv.@100k.fire_reset = false
 AtariEnv.game ?= pong
 AtariEnv.rom_dir ?=                            # 空 = 環境変数 ATARI_ROM_DIR を参照
 AtariEnv.screen_size ?= 84
+AtariEnv.resize_mode ?= adaptive_average
 AtariEnv.frame_skip ?= 4
 AtariEnv.max_pool ?= true
 AtariEnv.reward_clip ?= true

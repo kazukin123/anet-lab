@@ -6,6 +6,8 @@
 
 ## 分かっていること
 
+- Atari観測の縮小は、anetのadaptive average poolingとBTRのOpenCV INTER_AREAで、非整数比の画素境界の重み付けが異なる。areaという名前だけでは数値一致を意味せず、OpenCVの丸めも経路で異なる。Qbertの成績への影響は未検証である（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§2.1・§3）。
+
 - 2026-08の調査では、ALEはC++ APIで状態・RAM・flavorを扱える環境として整理された。前処理とROM・ライセンスの条件は別に確認する。（出典: [atari_env_survey_2026-08-13.md](../../../reports/atari_env_survey_2026-08-13.md)、8. 総合評価）。
 - 同じ調査の時点では、新規に始めるなら v5 相当（sticky actions 0.25・frameskip 4、Machado et al. 2018 の勧告）が標準で、Atari 100k 系の事例と比べるときは sticky actions なしが慣行、評価の集計は median ではなく IQM と信頼区間が現行標準とされた（出典: [atari_env_survey_2026-08-13.md](../../../reports/atari_env_survey_2026-08-13.md)、5.2・5.3・5.5・8. 総合評価）。
 - Pong は v5 プリセット・num_envs 64 で 1M step から動き出し、2.5M で eval1 +7.10 だった（出典: [2026-08-17_baseline.md](../../experiments/default-dqn/atari/2026-08-17_baseline.md)、現時点のまとめ7）。

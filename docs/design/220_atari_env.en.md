@@ -28,7 +28,7 @@ BatchEnvBuilder (env.class_id = AtariEnv)
   └─ AtariEnvFactory (SingleDiscreteEnvFactory)
        └─ AtariEnv × N lanes（並列実行とStep内の自動リセットは共通 wrapper）
             ├─ ale::ALEInterface（1対1、ALE 側 frame_skip=1 固定）
-            └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → area resize → uint8 [1,S,S]
+            └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
 - Does not produce frame stacks. The existing Actor-side stacker and ReplayBuffer-side stack_count jointly handle stacking.
@@ -113,7 +113,7 @@ ALE is GPL-2.0. The main project's Apache-2.0 license is maintained through (1) 
 core/envs/atari1/include/anet/env/Atari.hpp   … void InitAtari();
 core/envs/atari1/src/Atari.cpp                … factory + view creator 登録
 core/envs/atari1/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
-core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理 free 関数（named namespace、ALE 非依存）
+core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
 core/envs/atari1/src/AtariView.hpp/.cpp       … AtariView（§5）
 core/envs/atari1/src/AtariEnv_test.cpp
 core/envs/atari1/src/pch.hpp
@@ -129,6 +129,7 @@ The class_id is `AtariEnv`. `AtariEnv : public SingleDiscreteEnvBase, public ane
 | `game` | string | Required | ROM name (snake_case, without extension) |
 | `rom_dir` | string | `""` | Takes precedence over `ATARI_ROM_DIR` when nonempty |
 | `screen_size` | int | 84 | Output resolution S (square) |
+| `resize_mode` | string | adaptive_average | adaptive_average (existing) / pixel_area (area-weighted mean, final ties-to-even rounding); pixel_area accepts S=1..160 |
 | `frame_skip` | int | 4 | Emulator frames per step (custom skip loop) |
 | `max_pool` | bool | true | Pixelwise maximum of the last two frames in the skip window |
 | `repeat_action_probability` | float | 0.25 | Sticky actions, passed through to ALE |
@@ -154,7 +155,7 @@ Protocol presets (defined in `Atari.txt`, selected through the `AtariEnv.$` sele
 
 Standard-conformance notes (audited on 2026-08-18 against SB3 `atari_wrappers.py`, Gymnasium `AtariPreprocessing`, ale-py v5 registration, and rlpyt):
 
-- There are two standard lineages: **baselines** (OpenAI Baselines 2017 → SB3 → CleanRL, plus rlpyt, the basis of SPR/EfficientZero; uses episodic_life=true) and **Dopamine** (Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo; uses terminal_on_life_loss=False). This env matches their wrapper behavior: NOOP random ranges and placement, FIRE sequences, max-pooling inputs, sign clipping, direct ALE grayscale, INTER_AREA, and episodic_life decisions. Where the lineages differ, follow the one that actually uses that branch; for example, the episodic_life `lives > 0` guard follows baselines (§4.5).
+- There are two standard lineages: **baselines** (OpenAI Baselines 2017 → SB3 → CleanRL, plus rlpyt, the basis of SPR/EfficientZero; uses episodic_life=true) and **Dopamine** (Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo; uses terminal_on_life_loss=False). This env matches their wrapper behavior: NOOP random ranges and placement, FIRE sequences, max-pooling inputs, sign clipping, direct ALE grayscale and episodic_life decisions. Resize behavior is selected independently as described in §4.3. Where the lineages differ, follow the one that actually uses that branch; for example, the episodic_life `lives > 0` guard follows baselines (§4.5).
 - **v5 differs from Machado et al. 2018 recommendations in one respect**: Machado recommends the full 18-action set, while ale-py v5 defaults to `full_action_space=False` (minimal). This env's v5 presets follow ale-py (false).
 - **NOOP 0 in v5 depends on lineage**: raw ale-py v5 has no NOOP starts (Dopamine/Machado lineage), whereas Gymnasium's `AtariPreprocessing` wrapper defaults to `noop_max=30`. Even v5 examples using standard Gymnasium preprocessing run with NOOP 30; check the comparison wrapper configuration.
 - Classic `max_episode_frames=108000` differs by 8% from historical v4 (gym registration TimeLimit=100,000 frames). SB3 `AtariWrapper` itself has no limit, so 108,000 is used to match v5.
@@ -176,13 +177,18 @@ Step(action_index):
   reward_raw = Σ ale.act(a)                         # sticky は ALE 内で毎フレーム判定
       （当該Step内でrolling 2-slotに画面を取得し、real game overだけ早期終了）
   frame = max_pool ? 当該Stepで実行できた最後の最大2フレームのmax : 最終フレーム
-  grid  = ResizeGrayscale(frame, 210, 160, S)        # area 補間 → round/clamp → uint8 [1,S,S]
+  grid  = resizer.Resize(frame)                       # area 補間 → round/clamp → uint8 [1,S,S]
 ```
 
-Preprocessing uses free functions in `AtariPreprocess` (a named namespace), with numerical behavior fixed by ALE-independent golden tests:
+Preprocessing uses the functions and `GrayscaleResizer` in `AtariPreprocess` (a named namespace, independent of ALE). Synthetic inputs and fixed reference images validate the results.
 
-- `PixelwiseMax(a, b, out)` — elementwise maximum of two 210×160 grayscale frames
-- `ResizeGrayscale(src, src_h, src_w, dst_size)` — `torch::from_blob` (uint8) → `interpolate(mode=area)` → `round().clamp(0,255).to(kUInt8)`. Area interpolation belongs to the same family as conventional cv2 INTER_AREA implementations.
+- `PixelwiseMax(a, b, out)` computes the elementwise maximum of two 210×160 grayscale images.
+- Each Env owns `GrayscaleResizer(src_h, src_w, S, mode)` and its weights. Both Reset and Step call `Resize(src)` on the CPU, then transfer the observation to the configured device.
+- `pixel_area` allocates its workspace at construction and reuses it across Resize calls. Do not call Resize concurrently on the same resizer. Each AtariEnv owns its resizer, and Reset/Step for that Env run serially. Each output Tensor retains independent ownership.
+- `adaptive_average` preserves float32 `interpolate(mode=area)` followed by `round().clamp(0,255).to(kUInt8)`. Integer-window adaptive averaging can differ from OpenCV INTER_AREA for fractional ratios.
+- `pixel_area` averages the source pixels by their overlap with each output region. Axis weights are prepared once at construction. Horizontal and vertical accumulation has no intermediate integer rounding; the final result uses ties-to-even rounding and returns uint8 `[1,S,S]`. Square S=1..160 is supported; enlargement is rejected. This does not reproduce the rounding of every OpenCV execution path.
+
+The default is `AtariEnv.resize_mode ?= adaptive_average`. Add `run.@pixel_area` to the Run selection chain to use `run.@pixel_area : AtariEnv.resize_mode = pixel_area`. An explicit `run.eval.[tag].env.resize_mode` overrides the common value for that evaluation and an EvalPanel using the same tag. Effective dumps and one verbose construction log per Env record the mode. The default info view hides these construction messages; verbose output and file logs retain each Env record. Unknown or empty modes and invalid sizes fail at construction, identifying the key, supplied value and expected values.
 
 ### 4.4 Actions
 
@@ -320,6 +326,8 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 - Tests build with the module. Ordinary ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Mandatory PRD097 acceptance cases tagged `[prd097_atari]` use `REQUIRE` to check Asterix ROM availability; an unresolved ROM is neither a pass nor a skip. Preprocessing golden tests always run.
 
 ### 6.1 Tests and Extension Checks
+
+For resize changes, follow the [PRD099 validation procedure](../../core/anet-core/testdata/prd099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
 
 When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`.
 
