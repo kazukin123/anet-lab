@@ -60,7 +60,7 @@ RainbowAgent::RainbowAgent(
 	// ------------------------------------------------------------
 	
 	// Head用の初期化設定を作成 (AgentがConfigDataから読み取る)
-    const anet::nn::WeightInitConfig& head_init_config = config_.head_init;
+    const anet::nn::WeightInitConfig& head_init_config = config_.head.init;
 
     std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
 

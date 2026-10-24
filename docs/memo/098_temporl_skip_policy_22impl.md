@@ -234,3 +234,55 @@ core/anet-core/bin/Debug/anet-core-test.exe '[dqn][serialize],[prd098]'
 - 決まらなかったこと: なし。新たな起票候補もなし。
 - 判断してほしいこと: なし。
 - 次にできること: 人間による差分確認・コミット。stage/commit/pushは実施していない。今回の追加修正は完了し停止する。
+
+
+## 追加修正: 全体レビューの指摘6件
+
+承認済み計画に従い、指示付き初期化、SkipHeadのファイル内可視性、追加includeの位置、Rainbowのhead.init階層とmacro読取り、Noisy射影設定の共通検証、外部識別子の定数化をまとめて直す。入力は `.scratch/prd098/review-20261024-2146-impl.md` とユーザーが承認した計画。計画基準9e50159cの後続コミットを取り込んだ着手時HEADはbaseline-head.txtへ記録した。対象コードに計画基準からの差分はない。
+
+公開面の変更は、nn.hppのValidateLinearProjectionConfig(config, owner)、BatchActionInfoのdecision鍵定数、Rainbow DTOのhead.init。既存の外部キー、文字列値、既定値、RNG、計算と保存レイアウトは維持する。Noisyのbool/sigma読取りと検証はnn_modules.cpp内で一元化し、公開検証と既存射影の構築が同じ処理を使う。Agentは不透明な射影設定を渡すだけにする。共通NN層にDQN名を入れない。
+
+TDDの優先behaviorは、Rainbowの公開Config経路で未知初期化modeを構築前に拒否するRED→GREEN、続いて共通射影APIと公開Network/Agent経路で不正bool・負/非有限sigma・無効skipと既定/ゼロsigmaを確認する。設定記録・6葉の読み込み、GraphViz、GetScalar、判断記録、checkpointは既存公開経路の回帰を使う。記法と定数化はGREEN後のリファクタとして行い、値と処理順を維持する。
+
+VsDevCmd経由でDebugのanet-core-test/AnetRLRunnerを構築し、[prd098]、[noisynet]、[dqn][head]、[dqn][serialize]と追加Rainbow設定テストを実行する。自己点検は現行品質観点の全項目、LF/BOM・追加空白・保存値と共有参照を確認する。同じreviewerへ6件をまとめて再提出し、原文と検証結果を保存する。設計130英日と200を追随する。
+
+設定コンストラクタ全体の3フェーズ整理、長時間学習、追加の実験条件変更、stage/commit/pushは範囲外。今回のログと着手前snapshotは `.scratch/prd098/review-fix-20261024-222202/`。判断待ちは0。
+
+
+### 全体レビュー6件の検証結果
+
+ログは `.scratch/prd098/review-fix-20261024-222202/`。今回の差分は20ファイルで、公開ヘッダ5、production実装/内部ヘッダ9、テスト2、設計3、本メモ1。
+
+```bash
+cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test AnetRLRunner --parallel 2'
+```
+
+```bash
+core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dqn][serialize],[dqn][config]'
+```
+
+- TDD: 01-red-buildは終了0、02-red-testはRainbowの未知初期化modeが設定読込で受理される1ケース・1assertionの失敗（exit42）。head.initへの移行と共通検証後、03-rainbow-green-build・04-rainbow-green-testは終了0、同ケースが成功した。
+- 共通化と定数化の途中の05-refactor-buildは宣言順によるコンパイル失敗（exit2）。分布mode定数を先に宣言される既存ActionPolicyConfigへ移して解消し、05b-refactor-buildは終了0。06-related-testsは102ケース・30,807 assertionsすべて成功した。
+- 静的レビューで追加includeの位置と、分布modeを含む7診断の定数参照に不足があった。2点をまとめて修正した。診断の定数を展開した式を修正前と照合し、文字列内容と周辺式が同じであることを確認した。
+- 最終の07-final-buildはRunnerとanet-core-testのDebugビルドに成功（exit0）。08-final-testsはDQN設定の全ケースも加えた142ケース・31,128 assertionsすべて成功（exit0）。検証開始時の16ソース/ヘッダのSHAと最終ソースが一致した。
+- 追加テストではRainbowの6葉と設定記録、設定読込時の未知mode拒否、共通射影検証と公開Module factoryの不正bool・負/非有限sigma拒否、無効skipの明示不正値拒否、既定設定・ゼロsigmaの受理とゼロsigmaの射影出力を確認した。事前検証の実装はConfigDataの読取りだけで、Network・重み・乱数を生成しない。
+- 回帰テストにはskip Headの全3分布modeとaction_in/action_outのGraphViz出力名・shape、GetScalarのdecision/length/Qと非活性値、ActorとReplayの判断記録、checkpointヘッダ、第1版からskipへの分岐、optimizer stateと次更新の復元が含まれる。保存role/archiveキーのwriter・reader・診断も同じ定数へ揃え、文字列値と保存の順序を維持した。
+- 現行品質観点の全項目を適用範囲に従い自己点検した。計画との対応、内部DTOの全参照移行、共通検証の責務、英語診断の対象/値/期待値、指示付き初期化、SkipHeadと共通Configのファイル内可視性、追加includeの位置、macroによる固定キー読取り、識別子と診断の定数共有、所有と依存方向、公開経路のテスト、設計追随を確認した。GetScalarは文字列参照だけの変更で、nullopt/NaNの契約を変えていない。頻繁な経路に同期・ロック・転送を追加していない。
+- selfcheck.jsonとmechanical-checks.jsonで20ファイルのLF/BOM保持、追加末尾空白0、禁止表記0、共有18識別子のproduction定義が各1箇所であることを確認した。新しい可変global・借用メンバ・worker・UI・interface取り出し口・skill・互換層・検証資材は追加しておらず、その固有項目は対象外。Configファイルを変更していないため設定ファイル監査は対象外。
+- Release・通常の全core/Envスイート・比較Run・長時間学習は今回繰り返していない。今回の境界はレビュー6件の修正と短い関連検証であり、実験条件、既存の計算、保存レイアウトを変えない。初回PRD098の性能条件と長時間学習の未達/未実施は過去の記録のまま保持する。
+- 無関係な作業ツリー変更を保持した。並行作業でADR0064/0065がstageされた状態も保持し、今回stage/commit/pushは実施していない。追加の判断待ちはない。
+
+
+### 全体レビュー6件の完了報告
+
+- 実施内容: 指示付き初期化・SkipHeadの可視範囲・追加includeの位置を修正し、Rainbowのhead.initとmacro読取り、共通射影検証、共有識別子の定数化を完了。既存の文字列値・計算・保存配置を維持した。最終Debugビルドと関連142ケース・31,128 assertionsが成功した。
+- 変更ファイル: DQN/Rainbow/NN/Replayのproduction14、テスト2、設計130英日と200、本メモの計20ファイル。差分・SHA・検証ログは上記ログrootへ保存した。
+- レビュー結果: 同じ独立reviewerの正式判定1回、OK、差し戻し0。途中の静的不足2点をまとめて直して1回で追送した。初期化・可視範囲・include・macro・共通化・識別子の6件、最終検証、文字列/保存配置の維持を再確認済み。見送った指摘はない。原文: `.scratch/prd098/review-20261024-2248.md`。
+- 決まらなかったこと: なし。新たな起票候補もなし。
+- 判断してほしいこと: なし。
+- 次にできること: 人間による差分確認・コミット。stage/commit/pushは実施せず、並行作業を保持した。今回の修正は完了し停止する。
+
+
+### PRDの特徴量キー説明の整合（2026-10-24）
+
+ユーザー指示により、PRDのD4でzを説明上の記号と明記し、§5.6のIQN配線を既存の公開名skip_contextと各envの融合済みbranchへ合わせた。冒頭へ3回目の改訂行を追記した。実装・設定・受入・過去Runは変更せず、文書のみのためビルドとテストは繰り返していない。LF/BOM・差分空白・相対リンクを確認し、同じPRD reviewerの正式判定1回、OK、差し戻し0、確認事項なし。原文: `.scratch/prd098/review-20261024-2330-prd.md`。未決・新たな起票候補なし。stage/commit/pushなし。なお、その後のskip_contextの改名候補の相談は名称未採用のため、この整合修正へ混ぜない。

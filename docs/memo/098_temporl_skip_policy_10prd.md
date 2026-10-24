@@ -7,6 +7,7 @@
 > 改訂: 2026-10-23。実装レビュー対応。強制行動をtrainへ接続するときの判断記録と、§5.11の実装名を明記した。
 > 改訂: 2026-10-24。段 1 の途中経過（GridMaze の迷路依存）を §7 に、既定 seed での崩壊の機構を §9 に追記。
 > 改訂: 2026-10-24（2 回目）。設定見直し第 2 依頼の実装に合わせ、§5.3 に skip Head の出力の形と包含型 × IQN の broadcast 連結、§5.7 に Trace 列 `skip_q.[j]`、§7 に段 1 の包含型の取り直しの結果を追記。
+> 改訂: 2026-10-24（3 回目）。特徴量の説明上の記号 z と設定の公開出力名を区別し、§5.6 の IQN の配線を現行の `skip_context` と融合済み branch の対応へ合わせた。
 
 ## 1. 目的と問題
 
@@ -91,7 +92,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 | D1 | NEET の抑制は非ゴール。ゴールは判断の回数と、同じ step 数での学習の速さ | §3 の機序。J・続ける行動・受入の指標・最初の env はこの決定から決まる（§7） |
 | D2 | 新しく作る機構は 6 つ: スキップ価値の Network（Head 含む）、Actor のスキップの実行、replay の可変長の区間サンプル、Learner のスキップの loss、スキップ長の探索、指標。skip 中の forward の省略は作らない | それぞれの寄与: 価値の本体、判断の回数を減らす実行、目標値の材料、学習、探索、ゴールの計測。forward の省略は §3 の非ゴール |
 | D3 | NetworkModel は primary（今の Network）と、スキップ価値の Network（skip Network）の 2 つを持つ。skip Network も online と target の対を持つが、その target は Learner の bootstrap に使わず、target を元にする Actor（eval_target・EvalPanel）の行動にだけ使う。特徴空間・行動価値・スキップ価値を別 Network にする 3 分割と、1 つの Network に skip の branch と射影を足す形は採らない | 3 分割は checkpoint の object 数と、Network 1 つを前提にする診断（plasticity・churn・replay fit・GNS・weight norm・attention・Noisy σ）と GraphViz、呼び出し 31 か所とテスト 73 か所に波及し、特徴空間と行動価値の切れ目は primary の DAG の branch で表せる。1 つの Network は、包含型で Actor の forward が全 branch で 2 回になり、勾配を止めるブロックが要るうえ、`NetworkModel::Load` が module を丸ごと読むため無効の checkpoint から分岐できない。MuZero 試作が 3 つに分けるのは dynamics を再帰的に当てるためで、skip には当たらない。skip の target を持つのは、target 側の Actor が online の skip を遅れた z に当てる歪みを避け、DropMerge の eval_target と EvalPanel でスキップをそのまま測るため。[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) |
-| D4 | 特徴量 z の取り出しは、primary の `net.body.output.[鍵] = branch` に書いた鍵を Network の出力にも残すことで行う（Head の出力に Body の出力を合わせる。コピーは無く、dtype は Body のまま）。skip Network はその鍵を bind して読む。skip Network の入力 spec は、その bind が参照する鍵（primary の公開出力、obs の鍵、`action`、`taus`）だけから導く | 新しい記法を増やさない。全 obs の spec を渡すと未使用入力 WARN（[ADR 0018](../adr/0018-iqn-via-bind-product-dag.md)）が毎回出る。D3 に依存 |
+| D4 | 特徴量 z（説明上の記号。設定例の公開出力名は `skip_context`）の取り出しは、primary の `net.body.output.[鍵] = branch` に書いた鍵を Network の出力にも残すことで行う（Head の出力に Body の出力を合わせる。コピーは無く、dtype は Body のまま）。skip Network はその鍵を bind して読む。skip Network の入力 spec は、その bind が参照する鍵（primary の公開出力、obs の鍵、`action`、`taus`）だけから導く | 新しい記法を増やさない。全 obs の spec を渡すと未使用入力 WARN（[ADR 0018](../adr/0018-iqn-via-bind-product-dag.md)）が毎回出る。D3 に依存 |
 | D5 | skip Head は分離型（全行動分のスキップ価値を出し、選んだ行動で絞る）を既定にし、包含型（行動を skip Network の入力に取り、その行動のスキップ価値だけを出す。論文の形）も設定で選べる。Learner と選択が読むスキップ価値は、どちらの形でも「選んだ行動の、スキップ長ごとの値」に統一する | 論文の主張を確かめるには論文の形が要り、行動数の多い env には分離型が向く。D3 により forward の回数はどちらも primary 1 回と skip 1 回。読み口を統一するので Learner と選択は 1 経路で済む |
 | D6 | skip の loss の勾配を primary へ流すか（合算）止めるか（遮断）は設定 1 つで切り替える。optimizer は 1 つで、総 loss = L_Q + w·L_skip を 1 回 backward する。global norm クリップは primary と skip Network で別々に取る | 遮断時に Q 側が skip の勾配の影響を全く受けないようにするため（クリップを共有すると ‖g‖ に skip の勾配が入る）。Adam の更新は各パラメータ自身の勾配の履歴で決まるので、1 optimizer + Network 別クリップは optimizer 2 つと同じ更新になる。無効では group が primary だけで今と同一。optimizer 2 つは Save/Load・ADR 0053 の options 置換・GNS が 2 系統になるため採らない |
 | D7 | スキップ価値の型は Q と同じ（TD ならスカラー、QR なら K 本の分位、IQN なら taus ごとの分位）。loss と bootstrap は既存の Learner の目標値の組み立てを、サンプルごとの k で流用する | UQE・Thompson がスキップ長の選択にも掛かる。D8 の Q 共有型で次元が揃う。既存の 3 Learner の目標値の関数を再利用できる。スカラーは §8 の先送り |
@@ -219,7 +220,7 @@ DefaultDQNAgent.skip.network_mode=action_in "DefaultDQNAgent.skip.net.branch.[sk
 
 `@skip` のようなプロファイルは作らない（2026-10-24 の設定見直し。ベースは agent.txt、env と CLI は部分上書き）。チェーンへ項を足す記法は無く、`X.$ += …` と書くと `X.$+` という読まれない葉になる。
 
-IQN で分布型にするときは `skip_feature` が `fusion`（taus 込みの branch を公開した鍵）か、`z` と `taus` の両方を bind する。
+IQN の既定は、primary の融合済み branch（LunarLander は `fusion`、Atari・DropMerge は `iqn_fusion`）を `net.body.output.[skip_context]` で公開し、skip 側の `skip_feature` が `skip_context` を bind する。skip 側で taus を融合する構成を選ぶ場合は、primary の融合前の特徴を公開した鍵と `taus` を bind し、IQN Head が要求する [B,K,F] の特徴を作る（§5.3）。
 
 ### 5.7 メトリクスと trace
 

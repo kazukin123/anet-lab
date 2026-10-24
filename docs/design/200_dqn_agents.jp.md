@@ -385,6 +385,10 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 
 `RainbowAgent`は現行コードで独自の`Save()` / `Load()`をoverrideせず、基底Agentのno-opを使う。DefaultDQNと同じcheckpoint対応があると仮定しない。
 
+Rainbowの初期化設定も `head.init.*` の6葉を入れ子DTOと `ANET_READ_CONFIG` で読み、設定記録のキーをメンバのパスと一致させる。構築前に `ValidateWeightInitConfig` で検証する。RainbowのDueling設定は従来の `use_dueling_net` を使う。
+
+ActorからReplayへ渡す判断のinfo鍵は `BatchActionInfo::kKeyDecision` で共有する。skip出力・行動入力・補助情報・GetScalarの鍵と分布modeはDQN側の所有型、optimizer role・Torch archive鍵・GraphViz tagは利用するcpp内の定数が持つ。書込・読込・比較・表示・診断で同じ定義を参照し、外部の文字列値と保存順は変えない。
+
 NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target Networkとともに保存・復元される。`Clone()`は構築seedを再利用して同じ構造を再構築してから、parameterとbufferを完全copyする。
 
 ## 9. 可観測性・性能・エラー

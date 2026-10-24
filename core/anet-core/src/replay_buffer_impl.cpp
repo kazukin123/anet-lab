@@ -1483,7 +1483,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
 
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
-    const auto decision = action_info.Get("decision");
+    const auto decision = action_info.Get(BatchActionInfo::kKeyDecision);
     if (decision && (decision->scalar_type() != torch::kBool || decision->dim() != 1 || decision->size(0) != num_envs_)) {
         ANET_SYSTEM_ERROR("Invalid decision: expected bool tensor with shape [" << num_envs_ << "]");
     }

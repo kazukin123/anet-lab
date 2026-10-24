@@ -81,6 +81,9 @@ private:
 // SkipHead
 // ===========================================================================
 
+namespace {
+constexpr const char* kSkipHeadType = "SkipHead";
+
 class SkipHead final : public ProjectionHead<SkipHead, 1> {
 public:
     SkipHead(int64_t in_features, int64_t actions, int lengths, SkipNetworkMode network_mode,
@@ -89,7 +92,7 @@ public:
         : ProjectionHead<SkipHead, 1>({std::make_shared<anet::nn::LinearProjectionModule>(projection)})
         , actions_(actions), lengths_(lengths), network_mode_(network_mode), mode_(std::move(mode)), quantiles_(quantiles)
     {
-        const int64_t width = ((network_mode_ == SkipNetworkMode::ActionIn) ? 1 : actions_) * lengths_ * (mode_ == "qr" ? quantiles_ : 1);
+        const int64_t width = ((network_mode_ == SkipNetworkMode::ActionIn) ? 1 : actions_) * lengths_ * (mode_ == ActionPolicyConfig::kQuantileModeQr ? quantiles_ : 1);
         linear_ = register_module("linear", torch::nn::Linear(in_features, width));
         anet::nn::WeightInitializer::Initialize(linear_, init);
         projections_[0]->Bind(linear_);
@@ -100,7 +103,7 @@ public:
     {
         ANET_PROFILE_FUNC();
         const auto x = GetFeature(features, anet::nn::kKey_DefaultOutput);
-        const int rank = mode_ == "iqn" ? 3 : 2;
+        const int rank = mode_ == ActionPolicyConfig::kQuantileModeIqn ? 3 : 2;
         if (x.dim() != rank) {
             ANET_SYSTEM_ERROR("SkipHead features shape=" << x.sizes() << " expected rank=" << rank << " mode=" << mode_);
         }
@@ -108,16 +111,16 @@ public:
         const auto batch = x.size(0);
         const auto actions = (network_mode_ == SkipNetworkMode::ActionIn) ? 1 : actions_;
         anet::TensorDict result;
-        if (mode_ == "none") {
+        if (mode_ == ActionPolicyConfig::kQuantileModeNone) {
             values = values.reshape({batch, actions, lengths_});
-            result.Set("skip_q", (network_mode_ == SkipNetworkMode::ActionIn) ? values.squeeze(1) : values);
+            result.Set(SkipHeadFactory::kKeyQ, (network_mode_ == SkipNetworkMode::ActionIn) ? values.squeeze(1) : values);
         } else {
-            values = mode_ == "iqn"
+            values = mode_ == ActionPolicyConfig::kQuantileModeIqn
                 ? values.reshape({batch, x.size(1), actions, lengths_}).permute({0, 2, 3, 1})
                 : values.reshape({batch, actions, lengths_, quantiles_});
             if ((network_mode_ == SkipNetworkMode::ActionIn)) values = values.squeeze(1);
-            result.Set("skip_q_dist", values);
-            result.Set("skip_q", values.mean(-1));
+            result.Set(SkipHeadFactory::kKeyQDist, values);
+            result.Set(SkipHeadFactory::kKeyQ, values.mean(-1));
         }
         return result;
     }
@@ -125,13 +128,13 @@ public:
     anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
     {
         anet::nn::HeadGraphVizInfo info;
-        info.type = "SkipHead";
-        info.outputs.push_back({"skip_q", (network_mode_ == SkipNetworkMode::ActionIn) ? std::vector<int64_t>{lengths_} : std::vector<int64_t>{actions_, lengths_}});
+        info.type = kSkipHeadType;
+        info.outputs.push_back({.name = SkipHeadFactory::kKeyQ, .shape = (network_mode_ == SkipNetworkMode::ActionIn) ? std::vector<int64_t>{lengths_} : std::vector<int64_t>{actions_, lengths_}});
         // 平均 Q と分布を分け、IQN の可変 K は primary Head と同じ -1 で示す。
-        if (mode_ != "none") {
+        if (mode_ != ActionPolicyConfig::kQuantileModeNone) {
             auto shape = info.outputs.back().shape;
-            shape.push_back(mode_ == "qr" ? quantiles_ : -1);
-            info.outputs.push_back({.name = "skip_q_dist", .shape = std::move(shape)});
+            shape.push_back(mode_ == ActionPolicyConfig::kQuantileModeQr ? quantiles_ : -1);
+            info.outputs.push_back({.name = SkipHeadFactory::kKeyQDist, .shape = std::move(shape)});
         }
         info.details.push_back({"quantile_mode", mode_});
         return info;
@@ -144,6 +147,7 @@ private:
     std::string mode_;
     int quantiles_;
 };
+} // namespace
 
 SkipHeadFactory::SkipHeadFactory(int64_t action_dim, int max_length, SkipNetworkMode network_mode,
     std::string quantile_mode, int num_quantiles, const anet::nn::WeightInitConfig& init_config,

@@ -298,7 +298,7 @@ namespace anet::nn {
         std::array<NetworkModuleExecutor*, N> calls_{};
     };
 
-    /// Body と Head が合成して使う具象の射影。設定型・状態型は Impl の内部に閉じる。
+    /// Body と Head が合成して使う具象の射影。設定型・状態型は実装に閉じる。
     class LinearProjectionModule final : public NetworkModule {
     public:
         explicit LinearProjectionModule(const anet::ConfigData& data);

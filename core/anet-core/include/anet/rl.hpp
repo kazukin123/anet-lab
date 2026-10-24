@@ -508,6 +508,9 @@ namespace anet::rl {
     // 行動選択時の情報
     class BatchActionInfo : public anet::ModuleBase, public anet::graphviz::GraphVizProvider {
     public:
+        /// 判断の境界をActorからReplayへ渡す共有info鍵。
+        static constexpr const char* kKeyDecision = "decision";
+
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
 

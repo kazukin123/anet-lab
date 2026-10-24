@@ -28,6 +28,9 @@ namespace {
 // Agent全体の保存形式。第1版の識別子は既存primary checkpointのため保持する。
 constexpr char kCheckpointFormatV1[] = "DefaultDQNAgent";
 constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
+constexpr const char* kSkipStructureTag = "skip.net.structure";
+constexpr const char* kSkipDetailTag = "skip.net.detail";
+constexpr const char* kSkipNetworkSeed = "skip_network";
 } // namespace
 
 // ======================================================
@@ -82,7 +85,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
 
-    const bool is_distributional = config_.quantile_mode != "none";
+    const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
@@ -103,7 +106,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
 
     // 分布表現とDuelingの直積でHeadを選択する。
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         if (config_.head.use_dueling) {
             head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: IQN Dueling";
@@ -111,7 +114,7 @@ DefaultDQNAgent::DefaultDQNAgent(
             head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config, config_.head.projection);
             LOG::info() << "Network Head: IQN Plain";
         }
-    } else if (config_.quantile_mode == "qr") {
+    } else if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeQr) {
         if (config_.head.use_dueling) {
             head_factory = std::make_shared<QuantileDuelingHeadFactory>(
                 n_actions_, config_.qr.num_quantiles, head_init_config, config_.head.projection);
@@ -160,7 +163,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     }
 
     // tausはObservationではなくAgentが注入するNN入力なので、Stacker調整後にspecを追加する。
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         anet::TensorSpec tau_spec;
         tau_spec.type = anet::SpaceType::Vector;
         tau_spec.shape = { config_.learner.iqn.current_taus.num_taus };
@@ -178,7 +181,7 @@ DefaultDQNAgent::DefaultDQNAgent(
             .head_factory = std::make_shared<SkipHeadFactory>(n_actions_, config_.skip.max_length,
                 config_.skip.network_mode, config_.quantile_mode, config_.qr.num_quantiles,
                 config_.skip.head.init, config_.skip.head.projection),
-            .seed = seed_maker.MakeNamedSeed("skip_network")});
+            .seed = seed_maker.MakeNamedSeed(kSkipNetworkSeed)});
     }
     this->model_ = std::make_unique<NetworkModel>(
         config_.model, device_,
@@ -194,8 +197,8 @@ DefaultDQNAgent::DefaultDQNAgent(
         auto detail_view = net.MakeGraphViz(config_.nn_viz);
         anet::MetricsLogger::Instance()->Log("net.detail", *detail_view);
         if (const auto skip = model_->GetSkipOnlineNetwork()) {
-            anet::MetricsLogger::Instance()->Log("skip.net.structure", *skip->MakeGraphViz(anet::nn::NetworkGraphVizConfig{}));
-            anet::MetricsLogger::Instance()->Log("skip.net.detail", *skip->MakeGraphViz(config_.nn_viz));
+            anet::MetricsLogger::Instance()->Log(kSkipStructureTag, *skip->MakeGraphViz(anet::nn::NetworkGraphVizConfig{}));
+            anet::MetricsLogger::Instance()->Log(kSkipDetailTag, *skip->MakeGraphViz(config_.nn_viz));
         }
     }
 
@@ -218,7 +221,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     if (risk_score) munchausen_info << " risk_tau=" << risk_score->tau << " use_tail_mean=" << risk_score->use_tail_mean;
 
     // Learner生成
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         this->learner_ = std::make_unique<IQNLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
             target_policy_,
@@ -228,7 +231,7 @@ DefaultDQNAgent::DefaultDQNAgent(
             plasticity_probe_random_.get(), policy_churn_probe_random_.get());
         LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
             << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")" << munchausen_info.str();
-    } else if (config_.quantile_mode == "qr") {
+    } else if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeQr) {
         this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
             target_policy_,
@@ -263,16 +266,18 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
         return std::make_shared<EpsilonGreedyActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
-        if (config_.quantile_mode == "none") {
+        if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
             ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
-                << "' requires quantile_mode=qr or iqn, actual='" << config_.quantile_mode << "'");
+                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << config_.quantile_mode << "'");
         }
         return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.IsThompsonSampling()) {
         //ThompsonSampling
-        if (config_.quantile_mode == "none") {
+        if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
             ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
-                << "' requires quantile_mode=qr or iqn, actual='" << config_.quantile_mode << "'");
+                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << config_.quantile_mode << "'");
         }
         return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
@@ -671,12 +676,13 @@ void DefaultDQNAgentFactory::ValidateQuantileNetworkContract(
     }
 
     // quantile_mode と自分の net サブツリーとの局所契約を、モデル構築前に検証する。
-    if (config.quantile_mode == "iqn" && taus_bind_keys.empty()) {
+    if (config.quantile_mode == ActionPolicyConfig::kQuantileModeIqn && taus_bind_keys.empty()) {
         ANET_SYSTEM_ERROR(
-            "Invalid DefaultDQNAgent.quantile_mode='iqn': expected at least one 'taus' factor in "
+            "Invalid DefaultDQNAgent.quantile_mode='" << ActionPolicyConfig::kQuantileModeIqn
+            << "': expected at least one 'taus' factor in "
             << net_config_prefix << ".branch.[*].bind.");
     }
-    if (config.quantile_mode != "iqn" && !taus_bind_keys.empty()) {
+    if (config.quantile_mode != ActionPolicyConfig::kQuantileModeIqn && !taus_bind_keys.empty()) {
         std::string joined_keys;
         for (const auto& key : taus_bind_keys) {
             if (!joined_keys.empty()) {

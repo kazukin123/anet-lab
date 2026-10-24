@@ -98,6 +98,10 @@ namespace anet::rl {
         };
 
         struct ActionPolicyConfig {
+            static constexpr const char* kQuantileModeNone = "none";
+            static constexpr const char* kQuantileModeQr = "qr";
+            static constexpr const char* kQuantileModeIqn = "iqn";
+
             // Poilcy選択
             std::string policy_type = "EpsilonGreedy"; ///< "EpsilonGreedy", "UQE", "ThompsonSampling", "Greedy"
 
@@ -130,7 +134,7 @@ namespace anet::rl {
 
             TauRuleConfig tau_rule;
             FullDistributionQueryConfig full_distribution_query;
-            std::string quantile_mode = "none";
+            std::string quantile_mode = kQuantileModeNone;
 
             bool IsThompsonSampling() const
             {
@@ -182,8 +186,11 @@ namespace anet::rl {
         }
 
         struct LearnerConfig {
+            static constexpr const char* kFeatureGradientStop = "stop";
+            static constexpr const char* kFeatureGradientMerge = "merge";
+
             struct {
-                std::string feature_gradient = "stop";
+                std::string feature_gradient = kFeatureGradientStop;
                 float loss_weight = 1.0f;
                 float priority_lambda = 0.0f;
             } skip;
@@ -193,7 +200,7 @@ namespace anet::rl {
             ForwardSelection current;
             ForwardSelection target;
             bool enabled = true;         ///< falseで学習を完全停止する(評価専用Run)。ReplayBuffer構築も勾配更新も行わない
-            std::string quantile_mode = "none"; ///< Agent config から解決して渡す内部mode
+            std::string quantile_mode = ActionPolicyConfig::kQuantileModeNone; ///< Agent config から解決して渡す内部mode
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
             float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
             float noisy_weight_decay = 0.0f; ///< 勾配が成立した Noisy sigma の専用 decay

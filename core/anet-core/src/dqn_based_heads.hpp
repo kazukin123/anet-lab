@@ -33,6 +33,9 @@ namespace anet::rl::dqn {
     /// skip の射影は primary と同じ分布表現を使い、行動・継続長の軸を公開する。
     class SkipHeadFactory final : public HeadFactoryBase {
     public:
+        static constexpr const char* kKeyQ = "skip_q";
+        static constexpr const char* kKeyQDist = "skip_q_dist";
+
         SkipHeadFactory(int64_t action_dim, int max_length, SkipNetworkMode network_mode,
             std::string quantile_mode, int num_quantiles, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);

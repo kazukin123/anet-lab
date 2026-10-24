@@ -6,7 +6,6 @@
 #include "anet/muzero_proto_agent.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/test_util.hpp"
-#include "anet/tensor_check.hpp"
 #include "anet/trainer.hpp"
 #include "anet/metrics.hpp"
 #include "dqn_based_agent.hpp"
@@ -43,6 +42,8 @@
 #include <vector>
 #include <wx/cmdline.h>
 #include <wx/utils.h>
+
+#include "anet/tensor_check.hpp"
 
 namespace {
 // テストの既定経路も、製品と同じ統合factoryで生成する。
@@ -2883,7 +2884,7 @@ TEST_CASE("DefaultDQN constructs skip networks only when enabled", "[dqn][prd098
     config.skip_net.Set("DefaultDQNAgent.skip.net.body.output.[features]", "skip_feature");
     const auto make = [&] {
         return std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
-            rl::BatchEnvSpec{1, 1}, MakeLearnerEnvSpec(), torch::Device(torch::kCPU), 98);
+            rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::Device(torch::kCPU), 98);
     };
     // 無効の定義は構築しない。有効にした同じ不正配線だけを拒否する。
     if (config.skip.enabled) REQUIRE_THROWS(make());
@@ -2999,7 +3000,7 @@ TEST_CASE("DefaultDQN learns skip values from replay windows", "[dqn][prd098]")
     config.learner.update_interval = 1;
     config.learner.replay_ratio = -1.0f;
     const auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
-        rl::BatchEnvSpec{1, 1}, MakeLearnerEnvSpec(), torch::Device(torch::kCPU), 98);
+        rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::Device(torch::kCPU), 98);
     const auto learner = agent->CreateLearner();
     rl::BatchUpdateResultList results;
     for (rl::step_t step = 0; step < 20; ++step) {
@@ -3051,7 +3052,7 @@ TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dq
     const auto env = MakeLearnerEnvSpec();
     const auto make_agent = [&](const dqn::DefaultDQNAgentConfig& settings, anet::seed_t seed) {
         return std::make_shared<dqn::DefaultDQNAgent>(settings, MakeAgentForwardNetworkConfig(),
-            rl::BatchEnvSpec{1, 1}, env, torch::Device(torch::kCPU), seed);
+            rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, env, torch::Device(torch::kCPU), seed);
     };
     const auto source = make_agent(config, 98);
     const auto checkpoint = std::filesystem::temp_directory_path()
@@ -3064,7 +3065,7 @@ TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dq
     config.auto_load_file = checkpoint.string();
     const auto restored = make_agent(config, 99);
     const auto values = [&](const std::shared_ptr<dqn::DefaultDQNAgent>& agent) {
-        const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = {1, 1}, .env_spec = env,
+        const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = {.num_envs = 1, .num_threads = 1}, .env_spec = env,
             .device = torch::Device(torch::kCPU), .seed = 98, .actor_key = "eval"});
         const auto flags = torch::zeros({1}, torch::kBool);
         const rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({1, 2})}}, flags, flags, flags);
@@ -3231,8 +3232,8 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 data = WithDefaultForwardConfig(data);
                 const auto env = MakeIqnTracerEnvSpec();
                 const auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
-                    anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{2, 1}, env, torch::kCPU, 98);
-                const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = {2, 1}, .env_spec = env,
+                    anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98);
+                const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = {.num_envs = 2, .num_threads = 1}, .env_spec = env,
                     .device = torch::Device(torch::kCPU), .seed = 98, .actor_key = "train"});
                 const auto learner = agent->CreateLearner();
                 rl::BatchUpdateResultList updates;
@@ -3311,7 +3312,7 @@ TEST_CASE("Skip updates reject nonfinite gradients before either optimizer appli
     config.use_amp_bf16 = bf16;
     config.use_fused_optimizer = false;
     dqn::RuntimeVars vars;
-    dqn::TDLearner learner(config, model, vars, nullptr, {2, 1}, env, torch::kCPU, 98,
+    dqn::TDLearner learner(config, model, vars, nullptr, {.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98,
         std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), {});
     const auto network = poison_skip ? model.GetSkipOnlineNetwork() : model.GetOnlineNetwork();
     const auto parameter = network->parameters().front();
@@ -3371,7 +3372,7 @@ TEST_CASE("Skip target uses window return and duration and masks only terminal b
     config.use_grad_clip = true;
     config.grad_clip_tau = 0.1f;
     dqn::RuntimeVars vars;
-    dqn::TDLearner learner(config, model, vars, nullptr, {2, 1}, env, torch::kCPU, 98,
+    dqn::TDLearner learner(config, model, vars, nullptr, {.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98,
         std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), {});
     rl::ExperienceSamples samples;
     samples.obs = anet::TensorDict{{kVectorKey, torch::zeros({2, 2})}};
@@ -3465,7 +3466,7 @@ TEST_CASE("Skip Munchausen targets match numeric returns for TD QR IQN and TBO",
     policy_config.quantile_mode = mode;
     const auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
     std::unique_ptr<dqn::Learner> learner;
-    const rl::BatchEnvSpec batch_spec{2, 1};
+    const rl::BatchEnvSpec batch_spec{.num_envs = 2, .num_threads = 1};
     if (mode == "none") learner = std::make_unique<dqn::TDLearner>(config, model, vars, nullptr, batch_spec, env, torch::kCPU, 98, policy, dqn::LearnerForwardResources{});
     else if (mode == "qr") learner = std::make_unique<dqn::QRLearner>(config, model, vars, nullptr, batch_spec, env, torch::kCPU, 98, policy, dqn::LearnerForwardResources{});
     else learner = std::make_unique<dqn::IQNLearner>(config, model, vars, nullptr, batch_spec, env, torch::kCPU, 98, policy, dqn::LearnerForwardResources{});
@@ -3536,8 +3537,8 @@ TEST_CASE("Primary checkpoint group mismatch reports saved and expected counts w
     config.enabled = false;
     config.use_fused_optimizer = false;
     dqn::RuntimeVars source_vars, destination_vars;
-    TestLearner first(config, *source, source_vars, {1, 1}, env, {});
-    TestLearner second(config, *destination, destination_vars, {1, 1}, env, {});
+    TestLearner first(config, *source, source_vars, {.num_envs = 1, .num_threads = 1}, env, {});
+    TestLearner second(config, *destination, destination_vars, {.num_envs = 1, .num_threads = 1}, env, {});
     first.SetupAdamW();
     second.SetupAdamW();
     std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
@@ -3568,7 +3569,7 @@ TEST_CASE("Primary checkpoint branches into skip with identical next primary opt
         config.head.projection.Set("noisy.enabled", noisy);
         const auto make = [&](const dqn::DefaultDQNAgentConfig& settings, anet::seed_t seed) {
             return std::make_shared<dqn::DefaultDQNAgent>(settings, MakeAgentForwardNetworkConfig(),
-                rl::BatchEnvSpec{1, 1}, MakeLearnerEnvSpec(), torch::kCPU, seed);
+                rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::kCPU, seed);
         };
         auto source = make(config, 98);
         rl::ExperienceSamples samples;
@@ -3620,6 +3621,59 @@ TEST_CASE("Primary checkpoint branches into skip with identical next primary opt
         CHECK_THROWS(make(config, 100));
         std::filesystem::remove(file);
     }
+}
+
+TEST_CASE("Rainbow rejects invalid initialization during config loading", "[dqn][config][prd098][review-fix-rainbow]")
+{
+    // Networkを作る前に、認識した初期化modeの誤りを公開設定経路で拒否する。
+    anet::ConfigData data;
+    data.Set("RainbowAgent.head.init.mode", "unknown");
+    REQUIRE_THROWS(dqn::RainbowAgentConfig(data));
+}
+
+TEST_CASE("Rainbow records all nested initialization settings", "[dqn][config][prd098][review-fix-rainbow]")
+{
+    // 外部の6葉と設定記録が、同じhead.init階層へ一致することを確かめる。
+    anet::ConfigData data;
+    data.Set("RainbowAgent.head.init.mode", "constant");
+    data.Set("RainbowAgent.head.init.manual_gain", 1.5);
+    data.Set("RainbowAgent.head.init.constant_val", 0.25);
+    data.Set("RainbowAgent.head.init.trunc_std", 0.5);
+    data.Set("RainbowAgent.head.init.trunc_a", -2.0);
+    data.Set("RainbowAgent.head.init.trunc_b", 2.0);
+    const dqn::RainbowAgentConfig config(data);
+    CHECK(config.head.init.mode == "constant");
+    CHECK(config.head.init.manual_gain == 1.5);
+    CHECK(config.head.init.constant_val == 0.25);
+    CHECK(config.head.init.trunc_std == 0.5);
+    CHECK(config.head.init.trunc_a == -2.0);
+    CHECK(config.head.init.trunc_b == 2.0);
+    const auto& recorded = config.GetConfigData();
+    CHECK(recorded.Get("head.init.mode") == "constant");
+    CHECK(recorded.Get<double>("head.init.manual_gain") == 1.5);
+    CHECK(recorded.Get<double>("head.init.constant_val") == 0.25);
+    CHECK(recorded.Get<double>("head.init.trunc_std") == 0.5);
+    CHECK(recorded.Get<double>("head.init.trunc_a") == -2.0);
+    CHECK(recorded.Get<double>("head.init.trunc_b") == 2.0);
+}
+
+TEST_CASE("Disabled skip uses common projection validation", "[dqn][config][prd098][review-fix-projection]")
+{
+    // 無効のskipでも明示されたboolとsigmaを検証し、負値の診断に論理キーを残す。
+    for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
+        {"noisy.enabled", "sometimes"}, {"noisy.sigma0", "-0.5"},
+        {"noisy.sigma0", "nan"}, {"noisy.sigma0", "inf"}}) {
+        auto data = WithDefaultForwardConfig();
+        data.Set("DefaultDQNAgent.skip.head.projection." + key, value);
+        CAPTURE(key, value);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(data));
+    }
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.skip.head.projection.noisy.sigma0", -0.5);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.skip.head.projection.noisy.sigma0"));
+    data.Set("DefaultDQNAgent.skip.head.projection.noisy.sigma0", 0.0);
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
 }
 
 TEST_CASE("Primary initialization is validated before skip overrides", "[dqn][config][prd098][weight-init-validation]")
@@ -3684,7 +3738,7 @@ TEST_CASE("Skip network mode and action binding must agree at Agent construction
             data.Set(bind_key, mode == "action_in" ? "features, action" : "features");
             const auto make = [&] {
                 return std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
-                    anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{2, 1},
+                    anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1},
                     MakeIqnTracerEnvSpec(), torch::kCPU, 98);
             };
             REQUIRE_NOTHROW(make());
@@ -9721,13 +9775,13 @@ TEST_CASE("DefaultDQN baseline uses Head booleans and leaves omitted skip length
     data = WithDefaultForwardConfig(data);
     const auto env = MakeIqnTracerEnvSpec();
     const auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
-        anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{2, 1}, env, torch::kCPU, 98);
+        anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98);
     const anet::TensorDict obs{{kVectorKey, torch::ones({2, 4})}};
     auto forward = agent->GetTensorDictFunction("policy-net.forward");
     REQUIRE(forward.has_value());
     const auto output = (*forward)(obs);
     CHECK_FALSE(agent->GetTensorDictFunction("policy-net.v_values").has_value());
-    const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec={2,1}, .env_spec=env,
+    const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec={.num_envs = 2, .num_threads = 1}, .env_spec=env,
         .device=torch::Device(torch::kCPU), .seed=98, .actor_key="eval"});
     const auto flags = torch::zeros({2}, torch::kBool);
     const auto action = actor->MakeAction({}, rl::BatchState(obs, flags, flags, flags));
@@ -9768,12 +9822,12 @@ TEST_CASE("Skip IQN consumes fused primary features with optional action input",
     const auto env = MakeIqnTracerEnvSpec();
     const auto make = [&](const anet::ConfigData& settings) {
         return std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(settings),
-            anet::nn::NetworkConfig(settings, "DefaultDQNAgent.net"), rl::BatchEnvSpec{2, 1}, env, torch::kCPU, 98);
+            anet::nn::NetworkConfig(settings, "DefaultDQNAgent.net"), rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98);
     };
     // skipにtau枝が無くても、融合済みrank3特徴で構築・Actor実行できる。
     std::shared_ptr<dqn::DefaultDQNAgent> agent;
     REQUIRE_NOTHROW(agent = make(data));
-    const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec={2,1}, .env_spec=env,
+    const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec={.num_envs = 2, .num_threads = 1}, .env_spec=env,
         .device=torch::Device(torch::kCPU), .seed=98, .actor_key="eval"});
     const auto flags = torch::zeros({2}, torch::kBool);
     const rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2,4})}}, flags, flags, flags);

@@ -289,6 +289,7 @@ sequenceDiagram
 - input specと実入力TensorDictのshape/dtypeが一致しない場合はNetwork境界で検出する。
 - IQN Headはrank 3 `(B,K,D)`、IQN Dueling Headはvalue/advantageのB/K一致を局所入力契約としてdummy forward時に検証する。これは`taus`が最終出力へ意味的に寄与することの証明ではない。
 - Weight初期化modeは`default`、`xavier`、`he`、`orthogonal`、`constant`、`trunc_normal`を受け付け、未知値をfail-fastする。`nn.hpp`の`ValidateWeightInitConfig`が共通条件を所有し、Agentの設定読込と`WeightInitializer`の適用前から呼ぶ。全数値引数の有限性、`trunc_std > 0`と`trunc_a < trunc_b`も方式によらず検証する。診断には呼出元の設定キーを渡せる。`manual_gain <= 0`のgain自動選択は維持する。
+- Linear射影の `noisy.enabled` と `noisy.sigma0` は `ValidateLinearProjectionConfig`（`nn.hpp`）でNetwork構築前にも検証できる。bool変換と有限・非負sigmaの検証は `nn_modules.cpp` の同じ読取り処理を使い、射影の通常構築と事前検証で重複しない。呼出元は診断用の論理キーを渡せる。無効な射影でも明示不正値を拒否し、事前検証ではNetwork・重み・乱数を作らない。NN実行設定のmode/hold/share/countは従来どおり利用側の準備で検証する。
 - `Linear`、`Conv1d`、`Conv2d`、`ResBlock`、`CNBlock`、`TransformerEncoder`の`weight_norm.mode`は`none`、`spectral`、`spectral_cap`だけを受け付ける。未知値はkey、指定値、許容値を含めてfail-fastする。
 - `spectral`はzero-init weightを構築時に拒否する。zero-initを維持する残差blockには`init2.mode=he`等を指定するか、`spectral_cap`を使う。
 - TransformerEncoderでSNを使う場合は`tf.use_sdpa=true`を要求する。

@@ -21,9 +21,24 @@
 #include "anet/image.hpp"
 #include "anet/metrics_logger.hpp"
 #include "nn_heads.hpp"
+#include "dqn_based_heads.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
+
+namespace {
+// optimizerの保存契約は、roleの対応付け・Torch読込・診断で同じ値を使う。
+constexpr const char* kOptimizerRolePrimary = "primary";
+constexpr const char* kOptimizerRolePrimarySigma = "primary_sigma";
+constexpr const char* kOptimizerRoleSkip = "skip";
+constexpr const char* kOptimizerRoleSkipSigma = "skip_sigma";
+constexpr const char* kOptimizerSigmaRoleSuffix = "_sigma";
+constexpr const char* kArchiveParamGroups = "param_groups";
+constexpr const char* kArchiveParamGroupCount = "param_groups/size";
+constexpr const char* kSkipForwardSeed = "skip_network_forward";
+constexpr const char* kSkipPolicySeed = "skip_policy";
+} // namespace
+
 
 std::array<float, 3> anet::rl::dqn::MeasureNoisyQProbe(
     const torch::Tensor& mean_q, int num_draws, const std::function<torch::Tensor(int)>& draw)
@@ -673,7 +688,7 @@ NetworkModel::NetworkModel(
 
         // 包含型なら action を候補に足す
         if (skip_config_.network_mode == SkipNetworkMode::ActionIn) {
-            available["action"] = anet::TensorSpec{
+            available[NetworkModel::kKeyActionInput] = anet::TensorSpec{
                 .type = anet::SpaceType::Vector, .shape = {}, .dtype = torch::kInt64, .num_classes = n_actions_};
         }
 
@@ -685,7 +700,7 @@ NetworkModel::NetworkModel(
             for (const auto& term : branch.bind_terms) {
                 for (const auto& key : term) {
                     if (available.contains(key)) inputs[key] = available.at(key);
-                    if (key == "action") binds_action = true;
+                    if (key == NetworkModel::kKeyActionInput) binds_action = true;
                 }
             }
         }
@@ -1193,18 +1208,18 @@ std::optional<int64_t> ParseActionFullQMarginKey(const std::string& key)
 
 std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t index) const
 {
-    const bool skip_rate = key.starts_with("skip_length_rate.");
-    const bool skip_value = key.starts_with("skip_q.");
-    if (skip_rate || skip_value || key == "skip_decision_rate" || key == "skip_length_mean"
-        || key == "skip_q_gap" || key == "skip_decision" || key == "skip_length") {
-        const auto duration = skip_rate ? ParseActionScalarIndex(key, "skip_length_rate.[")
-            : skip_value ? ParseActionScalarIndex(key, "skip_q.[") : 1;
+    const bool skip_rate = key.starts_with(DQNActionInfo::kSkipLengthRatePrefix);
+    const bool skip_value = key.starts_with(DQNActionInfo::kSkipQPrefix);
+    if (skip_rate || skip_value || key == DQNActionInfo::kSkipDecisionRate || key == DQNActionInfo::kSkipLengthMean
+        || key == DQNActionInfo::kSkipQGap || key == DQNActionInfo::kSkipDecision || key == DQNActionInfo::kSkipLength) {
+        const auto duration = skip_rate ? ParseActionScalarIndex(key, DQNActionInfo::kSkipLengthRateIndexPrefix)
+            : skip_value ? ParseActionScalarIndex(key, DQNActionInfo::kSkipQIndexPrefix) : 1;
         if (duration < 1) ANET_SYSTEM_ERROR("DQNActionInfo: " << key << " requires duration >= 1.");
-        const auto decision_it = aux_.find("skip_decision");
+        const auto decision_it = aux_.find(DQNActionInfo::kSkipDecision);
         if (decision_it == aux_.end()) return std::numeric_limits<float>::quiet_NaN();
         const auto& decision = decision_it->second;
-        const auto& lengths = aux_.at("skip_length");
-        const auto& values = aux_.at("skip_q_values");
+        const auto& lengths = aux_.at(DQNActionInfo::kSkipLength);
+        const auto& values = aux_.at(DQNActionInfo::kSkipQValues);
         const auto batch = GetAction().size(0);
         if (decision.scalar_type() != torch::kBool || decision.dim() != 1 || decision.size(0) != batch
             || lengths.scalar_type() != torch::kInt64 || lengths.sizes() != decision.sizes()
@@ -1214,7 +1229,7 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t in
         }
         const auto limit = values.size(1);
         if ((skip_rate || skip_value) && duration > limit) ANET_SYSTEM_ERROR("DQNActionInfo: " << key << " requires duration in [1," << limit << "].");
-        const bool trace = skip_value || key == "skip_decision" || key == "skip_length";
+        const bool trace = skip_value || key == DQNActionInfo::kSkipDecision || key == DQNActionInfo::kSkipLength;
         if (trace && (index < 0 || index >= batch)) ANET_SYSTEM_ERROR("DQNActionInfo: " << key << " lane=" << index << " expected=[0," << batch - 1 << "].");
         if (!skip_diagnostics_cpu_.defined()) {
             ANET_PROFILE_SCOPE(skip_diagnostics);
@@ -1231,8 +1246,8 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t in
         }
         const int64_t offset = skip_value ? 3 + limit + 2 * batch + index * limit + duration - 1
             : skip_rate ? 3 + duration - 1
-            : key == "skip_decision_rate" ? 0 : key == "skip_length_mean" ? 1
-            : key == "skip_q_gap" ? 2 : 3 + limit + index + (key == "skip_length" ? batch : 0);
+            : key == DQNActionInfo::kSkipDecisionRate ? 0 : key == DQNActionInfo::kSkipLengthMean ? 1
+            : key == DQNActionInfo::kSkipQGap ? 2 : 3 + limit + index + (key == DQNActionInfo::kSkipLength ? batch : 0);
         return skip_diagnostics_cpu_[offset].item<float>();
     }
     if (key == "train_actor_snapshot_interval" || key == "train_actor_snapshot_age") {
@@ -1642,7 +1657,7 @@ std::shared_ptr<DQNActionInfo> anet::rl::dqn::ActionPolicy::MakeActionInfo(const
     aux["raw_actions"] = action_values;
 
     // QRの固定quantile列はtau順のfull distributionとしてそのまま診断へ使う。
-    if (config_.quantile_mode == "qr" && q_quantiles.defined()) {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeQr && q_quantiles.defined()) {
         AttachQuantileTailPolicyDiagnostics(action_info, q_quantiles);
     }
 
@@ -1713,7 +1728,7 @@ std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const ane
 
     // IQNではpolicy自身のtau ruleでサンプルし、QR/TDは従来入力をそのまま使う。
     anet::TensorDict out;
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         auto taus = evaluation
             ? MakeTauMidpointPositions(evaluation->num_taus, torch::TensorOptions().dtype(torch::kFloat32).device(obs.device()))
                 .unsqueeze(0).expand({ obs.Size(0), evaluation->num_taus })
@@ -1928,7 +1943,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     ANET_PROFILE_SCOPE(generate_taus);
     anet::TensorDict out;
     int64_t risk_num_taus = 0;
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const int64_t N = obs.Size(0);
         torch::Tensor risk_taus;
         if (evaluation) {
@@ -1995,7 +2010,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     }
     torch::Tensor full_q_values;
     torch::Tensor full_q_quantiles;
-    if (config_.quantile_mode == "iqn" && full_query) {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn && full_query) {
         full_q_quantiles = q_quantiles.slice(2, risk_num_taus);
         q_quantiles = q_quantiles.slice(2, 0, risk_num_taus);
         q_values = q_quantiles.mean(2);
@@ -2005,7 +2020,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     // IQNのrisk部分は問い合わせたい分位だけで構成済みなので、その平均をそのまま行動scoreにする。
     // QRは固定quantile列から基準分位またはupper-tailを抽出する既存処理を維持する。
     torch::Tensor uqe_values;
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         uqe_values = q_values;
     } else if (use_vectorized_tau) {
         // 学習時: バッチごとに異なるTauが渡されている場合（hompsonSampling向け）
@@ -2042,7 +2057,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     }
 
     // 行動決定済みのTensorだけを使い、Policy診断を1本のreadback単位へまとめる。
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         ANET_PROFILE_SCOPE_NEXT(policy_diagnostics);
         const auto float_options = q_values.options().dtype(torch::kFloat32);
         const float nan = std::numeric_limits<float>::quiet_NaN();
@@ -2130,7 +2145,7 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
         return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback, false, nullptr, additional_taus);
     }
 
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         return MakeUQEActionInfo(
             0.0f, torch::Tensor(), obs, greedy_only, forward, rnd, info, callback,
             /*iqn_use_full_range=*/true, nullptr, additional_taus);
@@ -2150,14 +2165,14 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
 
 torch::Tensor ActionPolicy::MakeValueQueryTaus(int64_t batch, const torch::Device& device, anet::RandomGenerator& random) const
 {
-    if (config_.quantile_mode != "iqn") return {};
+    if (config_.quantile_mode != ActionPolicyConfig::kQuantileModeIqn) return {};
     // 平均方策はprimaryのrisk範囲によらずfull rangeを問い合わせる。
     return GenerateTaus(batch, config_.tau_rule.num_taus, config_.tau_rule.sample_mode, 0.0f, 1.0f, device, random);
 }
 
 torch::Tensor UQEActionPolicy::MakeValueQueryTaus(int64_t batch, const torch::Device& device, anet::RandomGenerator& random) const
 {
-    if (config_.quantile_mode != "iqn") return {};
+    if (config_.quantile_mode != ActionPolicyConfig::kQuantileModeIqn) return {};
     if (config_.IsThompsonSampling() && !IsSpatialExplorationEnabled()) {
         return ActionPolicy::MakeValueQueryTaus(batch, device, random);
     }
@@ -2182,7 +2197,7 @@ torch::Tensor UQEActionPolicy::SelectFromValues(const torch::Tensor& q, const to
     std::shared_ptr<anet::RandomGenerator> random, bool iqn_risk_query) const
 {
     torch::Tensor score;
-    if (config_.quantile_mode == "iqn" && iqn_risk_query) {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn && iqn_risk_query) {
         score = q;
     } else if (IsSpatialExplorationEnabled()) {
         score = MakeVectorizedUQEValues(GetSpatialTauTensor(q.size(0), q.device()).unsqueeze(1), distribution);
@@ -2205,7 +2220,7 @@ anet::TensorDict anet::rl::dqn::MakeSkipInput(const anet::TensorDict& obs, const
     auto input = obs;
     for (const auto& [key, value] : primary) input.Set(key, stop_gradient ? value.detach() : value);
     // action_in は [B] int64 の行動を bind し、Body が one-hot へ展開する。
-    input.Set("action", actions);
+    input.Set(NetworkModel::kKeyActionInput, actions);
     return input;
 }
 
@@ -2213,8 +2228,8 @@ anet::TensorDict anet::rl::dqn::ReadSkipValues(const anet::TensorDict& output, c
     const torch::Tensor& actions, const SkipConfig& config)
 {
     ANET_PROFILE_FUNC();
-    const bool distributed = output.Contains("skip_q_dist");
-    auto values = output.At(distributed ? "skip_q_dist" : "skip_q");
+    const bool distributed = output.Contains(SkipHeadFactory::kKeyQDist);
+    auto values = output.At(distributed ? SkipHeadFactory::kKeyQDist : SkipHeadFactory::kKeyQ);
     const auto batch = actions.size(0);
     // 分離型の [B,A,J(,K)] は返す行動で絞り、包含型と同じ [B,J(,K)] に揃える。
     if (config.network_mode == SkipNetworkMode::ActionOut) {
@@ -2262,8 +2277,8 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     if (skip_) {
         const anet::SeedMaker seeds(GetSeed());
         skip_forward_ = skip_->network->CreateForwardExecutor(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
-            seeds.MakeNamedSeed("skip_network_forward"));
-        skip_random_ = std::make_shared<anet::RandomGenerator>(seeds.MakeNamedSeed("skip_policy"));
+            seeds.MakeNamedSeed(kSkipForwardSeed));
+        skip_random_ = std::make_shared<anet::RandomGenerator>(seeds.MakeNamedSeed(kSkipPolicySeed));
     }
     if (snapshot_sync_interval.has_value()) {
         snapshot_sync_interval_.emplace(std::move(*snapshot_sync_interval));
@@ -2445,10 +2460,10 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
 
     // info.decision は replay の判断境界、aux 3 つは scalar と Trace の診断へ渡す。
     auto result = std::make_shared<DQNActionInfo>(actions, proposal->GetInfo(), proposal->GetAuxData());
-    result->GetInfo().Set("decision", decision);
-    result->GetAuxData()["skip_decision"] = decision;
-    result->GetAuxData()["skip_length"] = skip_lengths_;
-    result->GetAuxData()["skip_q_values"] = q;
+    result->GetInfo().Set(anet::rl::BatchActionInfo::kKeyDecision, decision);
+    result->GetAuxData()[DQNActionInfo::kSkipDecision] = decision;
+    result->GetAuxData()[DQNActionInfo::kSkipLength] = skip_lengths_;
+    result->GetAuxData()[DQNActionInfo::kSkipQValues] = q;
     return result;
 }
 
@@ -2833,19 +2848,19 @@ std::pair<float, float> Learner::EvaluateReplayFit(const ExperienceSamples& inpu
     const int64_t size = batch.actions.size(0);
     auto current_input = normalized.obs;
     torch::Tensor taus;
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         taus = evaluation.current_taus(size);
         current_input.Set(anet::nn::kKey_Taus, taus);
     }
     ANET_PROFILE_SCOPE_NEXT(forward);
     const auto current = model_.GetOnlineNetwork()->Forward(current_input);
-    const bool distributional = config_.quantile_mode != "none";
+    const bool distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
     const auto all = current.At(distributional ? "q_dist" : "q");
     const auto selected = distributional
         ? all.gather(1, batch.actions.view({ size, 1, 1 }).expand({ size, 1, all.size(2) })).squeeze(1)
         : all.gather(1, batch.actions.unsqueeze(1)).squeeze(1);
     const auto [target, ignored] = MakeTarget(batch, normalized.obs, normalized.next_obs, all, evaluation);
-    if (loss && config_.quantile_mode == "iqn") taus = taus.unsqueeze(2);
+    if (loss && config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) taus = taus.unsqueeze(2);
     ANET_PROFILE_SCOPE_NEXT(error);
     const auto error = ComputeElementError(selected, target, taus, ElementErrorRequest{ .td = td, .loss = loss });
     // 必要な平均だけをまとめてCPUへ移し、IS weightや学習時の補助診断は適用しない。
@@ -2887,7 +2902,7 @@ void Learner::CaptureNoisyDiagnostics()
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.noisy_probe.probe.batch_size);
     auto input = NormalizeSampleObservations(samples).obs;
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const auto midpoint = (torch::arange(config_.noisy_probe.iqn.num_taus,
             torch::TensorOptions().dtype(torch::kFloat32).device(device_)) + 0.5f) / config_.noisy_probe.iqn.num_taus;
         input.Set(anet::nn::kKey_Taus, midpoint.unsqueeze(0)
@@ -3005,7 +3020,7 @@ void Learner::CapturePolicyChurnProbe()
     ValidateDeviceSamples(samples, config_.policy_churn.probe.batch_size);
     policy_churn_.probe_obs = NormalizeSampleObservations(samples).obs;
 
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device_);
         const auto midpoint = torch::arange(config_.policy_churn.iqn.num_taus, options) + 0.5f;
         policy_churn_.fixed_taus = midpoint.div(static_cast<float>(config_.policy_churn.iqn.num_taus))
@@ -3023,7 +3038,7 @@ torch::Tensor Learner::ForwardPolicyChurnExpectedQ(bool target) const
 
     // IQN は 1 update 内で共有する固定 midpoint taus を shallow copy へ注入する。
     auto input = policy_churn_.probe_obs;
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         input.Set(anet::nn::kKey_Taus, policy_churn_.fixed_taus);
     }
     const auto q = network->Forward(input).At("q");
@@ -3106,9 +3121,9 @@ std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::st
 
 std::vector<std::string> Learner::OptimizerRoles() const
 {
-    if (model_.GetSkipOnlineNetwork()) return {"primary", "primary_sigma", "skip", "skip_sigma"};
+    if (model_.GetSkipOnlineNetwork()) return {kOptimizerRolePrimary, kOptimizerRolePrimarySigma, kOptimizerRoleSkip, kOptimizerRoleSkipSigma};
     return model_.GetOnlineNetwork()->GetNoisyParameterEntries().empty()
-        ? std::vector<std::string>{"primary"} : std::vector<std::string>{"primary", "primary_sigma"};
+        ? std::vector<std::string>{kOptimizerRolePrimary} : std::vector<std::string>{kOptimizerRolePrimary, kOptimizerRolePrimarySigma};
 }
 
 std::vector<torch::optim::AdamWOptions> Learner::BuildOptimizerOptions() const
@@ -3914,9 +3929,9 @@ public:
     void load(torch::serialize::InputArchive& archive) override
     {
         torch::serialize::InputArchive groups;
-        archive.read("param_groups", groups);
+        archive.read(kArchiveParamGroups, groups);
         torch::Tensor count;
-        groups.read("param_groups/size", count);
+        groups.read(kArchiveParamGroupCount, count);
         const auto saved = count.item<int64_t>();
         const auto expected = static_cast<int64_t>(param_groups().size());
         if (saved != expected) {
@@ -3949,7 +3964,8 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
             size += archive.Read(role);
             const auto it = std::find(roles.begin(), roles.end(), role);
             if (it == roles.end() || std::find(saved_roles.begin(), saved_roles.end(), role) != saved_roles.end()) {
-                ANET_SYSTEM_ERROR("Invalid optimizer role='" << role << "'; expected each primary/primary_sigma/skip/skip_sigma role once.");
+                ANET_SYSTEM_ERROR("Invalid optimizer role='" << role << "'; expected each " << kOptimizerRolePrimary << "/" << kOptimizerRolePrimarySigma
+                    << "/" << kOptimizerRoleSkip << "/" << kOptimizerRoleSkipSigma << " role once.");
             }
             saved_roles.push_back(role);
             ordered.emplace_back(optimizer_->param_groups()[std::distance(roles.begin(), it)]);
@@ -3999,7 +4015,7 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
             warn_difference("lr", "learner.alpha", loaded.lr(), current.lr());
         }
         if (loaded.weight_decay() != current.weight_decay()) {
-            warn_difference("weight_decay", roles[i].ends_with("_sigma") ? "learner.noisy_weight_decay" : "learner.weight_decay",
+            warn_difference("weight_decay", roles[i].ends_with(kOptimizerSigmaRoleSuffix) ? "learner.noisy_weight_decay" : "learner.weight_decay",
                 loaded.weight_decay(), current.weight_decay());
         }
         if (loaded.eps() != current.eps()) {
@@ -4095,7 +4111,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeMunchausenTarge
     const int64_t B = samples.actions.size(0);
     const int64_t C = obs.Size(0);
     const bool target_mode = config_.munchausen.log_policy_mode == "target";
-    const bool iqn = config_.quantile_mode == "iqn";
+    const bool iqn = config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn;
 
     // 正規化済み入力を連結し、target規則のtauをcurrent生成の後に消費する。
     ANET_PROFILE_SCOPE(forward_target);
@@ -4396,7 +4412,7 @@ SkipLearningResult Learner::ComputeSkipLoss(const ExperienceSamples& samples, co
     if (!skip_current_forward_) return {};
     ANET_PROFILE_FUNC();
     // stop は公開特徴を detach、merge は同じ forward graph を通じて primary Body にも勾配を戻す。
-    const auto skip_input = MakeSkipInput(input, primary, samples.actions, config_.skip.feature_gradient == "stop");
+    const auto skip_input = MakeSkipInput(input, primary, samples.actions, config_.skip.feature_gradient == LearnerConfig::kFeatureGradientStop);
     anet::TrainingModeGuard train(*model_.GetSkipOnlineNetwork(), true);
     const auto output = skip_current_forward_->Forward(skip_input, info);
     const auto values = ReadSkipValues(output, primary, samples.actions, model_.GetSkipConfig());
@@ -4448,7 +4464,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeTarget(
     const auto actions = SelectTargetActions(next_obs, evaluation);
     ANET_PROFILE_SCOPE_NEXT(forward_target);
     auto input = next_obs;
-    if (config_.quantile_mode == "iqn") input.Set(anet::nn::kKey_Taus, evaluation.target_taus(samples.actions.size(0)));
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) input.Set(anet::nn::kKey_Taus, evaluation.target_taus(samples.actions.size(0)));
     const auto output = evaluation.forwards->target->Forward(input, evaluation.info, {}, evaluation.target_capture);
     return { CalcTargetQuantiles(samples, GatherActionQuantiles(output.At("q_dist"), actions)), {} };
 }
@@ -4461,7 +4477,7 @@ ElementError QuantileLearnerBase::ComputeElementError(const torch::Tensor& curre
     if (request.td) result.td = (current_mean.defined() ? current_mean : current.mean(1)) - target.mean(1).detach();
     if (!request.loss) return result;
     // TDのみの観測では全quantileペアを生成しない。IQNの補助統計は学習側だけが要求する。
-    if (config_.quantile_mode == "iqn") {
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const auto error = ComputeIqnQuantileHuberLoss(current, target, taus, config_.quantile_huber_kappa, request.auxiliary);
         result.loss = error.element_loss;
         result.pair_abs_td = error.pair_abs_td;

@@ -712,6 +712,8 @@ namespace anet::rl::dqn {
 
     class NetworkModel : public anet::Serializable {
     public:
+        static constexpr const char* kKeyActionInput = "action";
+
         NetworkModel(
             const NetworkModelConfig& config,
             const torch::Device device,
@@ -790,6 +792,17 @@ namespace anet::rl::dqn {
 
     class DQNActionInfo final : public anet::rl::BatchActionInfo {
     public:
+        static constexpr const char* kSkipDecision = "skip_decision";
+        static constexpr const char* kSkipLength = "skip_length";
+        static constexpr const char* kSkipQValues = "skip_q_values";
+        static constexpr const char* kSkipDecisionRate = "skip_decision_rate";
+        static constexpr const char* kSkipLengthMean = "skip_length_mean";
+        static constexpr const char* kSkipQGap = "skip_q_gap";
+        static constexpr const char* kSkipLengthRatePrefix = "skip_length_rate.";
+        static constexpr const char* kSkipLengthRateIndexPrefix = "skip_length_rate.[";
+        static constexpr const char* kSkipQPrefix = "skip_q.";
+        static constexpr const char* kSkipQIndexPrefix = "skip_q.[";
+
         using anet::rl::BatchActionInfo::BatchActionInfo;
         anet::TensorDict forward_output; ///< Actor が skip 入力を組むまで保持する一時出力。
         int64_t risk_num_taus = 0;

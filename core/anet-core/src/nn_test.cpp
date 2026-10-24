@@ -1,5 +1,6 @@
-#include <algorithm>
 #include "anet/catch_test.hpp"
+
+#include <algorithm>
 
 #include "anet/default_dqn_agent.hpp"
 #include "anet/metrics_logger.hpp"
@@ -5437,4 +5438,40 @@ TEST_CASE("Network feature-last concat broadcasts missing intermediate axes", "[
     state.Set("low", torch::ones({3, 5}));
     CHECK_THROWS_WITH(branch.Execute(state, anet::nn::NetworkForwardContext::GetDefault()),
         Catch::Matchers::ContainsSubstring("batch size mismatch"));
+}
+
+TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noisynet][config][prd098][review-fix-projection]")
+{
+    EnsureNNInitialized();
+    // 事前検証は射影資源を作らず、既定とゼロsigmaをそのまま受理する。
+    CHECK_NOTHROW(anet::nn::ValidateLinearProjectionConfig(anet::EmptyConfigData));
+    const auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("Linear");
+    for (const bool enabled : {false, true}) {
+        anet::ConfigData data;
+        data.Set("linear.out_features", 3);
+        data.Set("init.mode", "constant");
+        data.Set("init.constant_val", 0.125);
+        data.Set("noisy.enabled", enabled);
+        data.Set("noisy.sigma0", 0.0);
+        CHECK_NOTHROW(anet::nn::ValidateLinearProjectionConfig(data));
+        const auto module = factory->CreateModule(data,
+            anet::nn::ModuleContext{.random_source = MakeTestModuleRandomSource()});
+        const auto out = module->Forward(torch::ones({2, 4}), anet::nn::NetworkForwardContext::GetDefault());
+        CHECK(torch::equal(out, torch::full({2, 3}, 0.625)));
+    }
+    // 同じ不正値を事前検証と公開Module factoryの両方が拒否する。
+    for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
+        {"noisy.enabled", "sometimes"}, {"noisy.sigma0", "-0.5"},
+        {"noisy.sigma0", "nan"}, {"noisy.sigma0", "inf"}}) {
+        anet::ConfigData data;
+        data.Set("linear.out_features", 3);
+        data.Set(key, value);
+        CAPTURE(key, value);
+        CHECK_THROWS(anet::nn::ValidateLinearProjectionConfig(data));
+        CHECK_THROWS(factory->CreateModule(data, anet::nn::ModuleContext{.random_source = MakeTestModuleRandomSource()}));
+    }
+    anet::ConfigData data;
+    data.Set("noisy.sigma0", -0.5);
+    CHECK_THROWS_WITH(anet::nn::ValidateLinearProjectionConfig(data, "probe.projection"),
+        Catch::Matchers::ContainsSubstring("probe.projection.noisy.sigma0"));
 }

@@ -13,7 +13,9 @@ namespace anet::rl::dqn {
 
     struct RainbowAgentConfig : public anet::Config {
 
-        anet::nn::WeightInitConfig head_init;
+        struct {
+            anet::nn::WeightInitConfig init;
+        } head;
         NetworkModelConfig model;
         std::map<std::string, DQNActorConfig> actor;
         LearnerConfig learner;
@@ -23,13 +25,14 @@ namespace anet::rl::dqn {
         bool use_qr = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
-            ReadConfig(config_data, "head.init.mode", head_init.mode);
-            ReadConfig(config_data, "head.init.manual_gain", head_init.manual_gain);
-            ReadConfig(config_data, "head.init.constant_val", head_init.constant_val);
-            ReadConfig(config_data, "head.init.trunc_std", head_init.trunc_std);
-            ReadConfig(config_data, "head.init.trunc_a", head_init.trunc_a);
-            ReadConfig(config_data, "head.init.trunc_b", head_init.trunc_b);
-            head_init.nonlinearity = "linear";
+            ANET_READ_CONFIG(config_data, head.init.mode);
+            ANET_READ_CONFIG(config_data, head.init.manual_gain);
+            ANET_READ_CONFIG(config_data, head.init.constant_val);
+            ANET_READ_CONFIG(config_data, head.init.trunc_std);
+            ANET_READ_CONFIG(config_data, head.init.trunc_a);
+            ANET_READ_CONFIG(config_data, head.init.trunc_b);
+            head.init.nonlinearity = "linear";
+            anet::nn::ValidateWeightInitConfig(head.init, MakeDefaultConfigKey("head.init"));
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);

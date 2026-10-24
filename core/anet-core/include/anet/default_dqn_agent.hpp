@@ -52,18 +52,20 @@ namespace anet::rl::dqn {
         ValidateTauRule(policy.tau_rule, key + ".tau_rule");
         ValidateTauRule(policy.full_distribution_query.tau_rule, key + ".full_distribution_query.tau_rule");
 
-        if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == "none") {
+        if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
             ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
-                << "' expected quantile_mode=qr or iqn");
+                << "' expected quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                << " or " << ActionPolicyConfig::kQuantileModeIqn);
         }
         // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
         if (policy.full_distribution_query.enabled
-            && quantile_mode == "iqn" && !is_uqe(policy.policy_type)) {
+            && quantile_mode == ActionPolicyConfig::kQuantileModeIqn && !is_uqe(policy.policy_type)) {
             ANET_SYSTEM_ERROR("Invalid " << key << ".full_distribution_query.enabled: value=true"
-                << " expected policy_type=UQE when quantile_mode=iqn, actual quantile_mode='"
+                << " expected policy_type=UQE when quantile_mode=" << ActionPolicyConfig::kQuantileModeIqn
+                << ", actual quantile_mode='"
                 << quantile_mode << "' policy_type='" << policy.policy_type << "'");
         }
-        const bool uses_iqn_tau_range = quantile_mode == "iqn"
+        const bool uses_iqn_tau_range = quantile_mode == ActionPolicyConfig::kQuantileModeIqn
             && (is_uqe(policy.policy_type) || (policy.IsThompsonSampling() && policy.use_spatial_exploration));
         if (uses_iqn_tau_range
             && (!std::isfinite(policy.uqe_tau_start) || policy.uqe_tau_start < 0.0f || policy.uqe_tau_start > 1.0f
@@ -95,7 +97,7 @@ namespace anet::rl::dqn {
         struct QrConfig {
             int num_quantiles = 51;
         } qr;
-        std::string quantile_mode = "qr";
+        std::string quantile_mode = ActionPolicyConfig::kQuantileModeQr;
         bool use_optimistic_target = false;
 
     public:
@@ -402,8 +404,9 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.max_length=" << skip.max_length
                     << " specified=" << has_skip_limit << "; expected explicit integer >= 1 when skip.enabled=true.");
             }
-            if (learner.skip.feature_gradient != "stop" && learner.skip.feature_gradient != "merge") {
-                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.feature_gradient='" << learner.skip.feature_gradient << "'; expected stop or merge.");
+            if (learner.skip.feature_gradient != LearnerConfig::kFeatureGradientStop && learner.skip.feature_gradient != LearnerConfig::kFeatureGradientMerge) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.feature_gradient='" << learner.skip.feature_gradient << "'; expected " << LearnerConfig::kFeatureGradientStop
+                    << " or " << LearnerConfig::kFeatureGradientMerge << ".");
             }
             for (const auto& [key, value] : std::initializer_list<std::pair<const char*, float>>{
                 {"loss_weight", learner.skip.loss_weight}, {"priority_lambda", learner.skip.priority_lambda}}) {
@@ -440,11 +443,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, skip.head.init.trunc_a);
             ANET_READ_CONFIG(config_data, skip.head.init.trunc_b);
             anet::nn::ValidateWeightInitConfig(skip.head.init, MakeDefaultConfigKey("skip.head.init"));
-            (void)skip.head.projection.Get<bool>("noisy.enabled", false);
-            const auto skip_sigma = skip.head.projection.Get<double>("noisy.sigma0", 0.5);
-            if (!std::isfinite(skip_sigma) || skip_sigma < 0) {
-                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.head.projection.noisy.sigma0=" << skip_sigma << "; expected finite >= 0.");
-            }
+            anet::nn::ValidateLinearProjectionConfig(skip.head.projection, MakeDefaultConfigKey("skip.head.projection"));
             if (skip_net.Has("DefaultDQNAgent.skip.net.body.output.[features]")) {
                 (void)anet::nn::NetworkConfig(skip_net, "DefaultDQNAgent.skip.net");
             }
@@ -467,13 +466,14 @@ namespace anet::rl::dqn {
             learner.num_quantiles = qr.num_quantiles;
 
             // 現行の分布表現契約と全tau ruleを、利用前の設定境界で検証する。
-            if (quantile_mode != "none" && quantile_mode != "qr" && quantile_mode != "iqn") {
+            if (quantile_mode != ActionPolicyConfig::kQuantileModeNone && quantile_mode != ActionPolicyConfig::kQuantileModeQr && quantile_mode != ActionPolicyConfig::kQuantileModeIqn) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.quantile_mode: value='" << quantile_mode
-                    << "' expected one of: none, qr, iqn");
+                    << "' expected one of: " << ActionPolicyConfig::kQuantileModeNone << ", "
+                    << ActionPolicyConfig::kQuantileModeQr << ", " << ActionPolicyConfig::kQuantileModeIqn);
             }
-            if (quantile_mode == "qr" && qr.num_quantiles <= 1) {
+            if (quantile_mode == ActionPolicyConfig::kQuantileModeQr && qr.num_quantiles <= 1) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.qr.num_quantiles: value=" << qr.num_quantiles
-                    << " expected > 1 when quantile_mode=qr");
+                    << " expected > 1 when quantile_mode=" << ActionPolicyConfig::kQuantileModeQr);
             }
 
             ValidateTauRule(target_policy.tau_rule, "DefaultDQNAgent.target_policy.tau_rule");
@@ -498,10 +498,11 @@ namespace anet::rl::dqn {
                 ValidateActionPolicy(entry.skip_policy, "DefaultDQNAgent.actor.[" + key + "].skip.policy");
             }
 
-            if (quantile_mode == "iqn"
+            if (quantile_mode == ActionPolicyConfig::kQuantileModeIqn
                 && (!std::isfinite(learner.quantile_huber_kappa) || learner.quantile_huber_kappa <= 0.0f)) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.quantile_huber_kappa: value="
-                    << learner.quantile_huber_kappa << " expected finite value > 0 when quantile_mode=iqn");
+                    << learner.quantile_huber_kappa << " expected finite value > 0 when quantile_mode="
+                    << ActionPolicyConfig::kQuantileModeIqn);
             }
         }
     private:
