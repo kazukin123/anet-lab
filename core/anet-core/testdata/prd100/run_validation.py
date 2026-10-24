@@ -50,7 +50,6 @@ def execute(stage):
         "DefaultDQNAgent.learner.update_warmup_steps = " + ("100000" if log_run else "256"),
         "run.train.num_envs = " + ("256" if log_run else "8"),
         "GridMazeEnv.seed = " + str(seed),
-        "GridMazeEnv.randomize_seed = false",
         "app.exp_exit_step = " + ("256" if log_run else "8704"),
         "app.batchrun.exp_exit_step = " + ("256" if log_run else "8704"),
     ]

@@ -2,13 +2,54 @@
 
 #include "GridMazeEnv.hpp"
 #include <array>
+#include <exception>
 #include <mutex>
 #include <unordered_set>
 #include "anet/profile.hpp"
+#include "anet/log.hpp"
 #include "anet/env.hpp"
 
 using namespace anet::rl::env;
 namespace {
+
+// PRD102の限定例外。共有するのは採番済み入力seedと初期化結果だけ。
+class GridMazeProcessSeedState {
+public:
+    anet::seed_t Get(const anet::log::Logger& logger)
+    {
+        ANET_PROFILE_FUNC();
+        // 例外も結果として保存し、call_once自体の自動retryを防ぐ。
+        std::call_once(once_, [&] {
+            try {
+                Initialize(logger);
+            } catch (...) {
+                failure_ = std::current_exception();
+            }
+        });
+        if (failure_) {
+            std::rethrow_exception(failure_);
+        }
+        return seed_;
+    }
+
+private:
+    void Initialize(const anet::log::Logger& logger)
+    {
+        // 自動採番に失敗した場合は他の戦略へ代替しない。
+        try {
+            seed_ = anet::SeedMaker::MakeAutoSeed();
+        } catch (const std::exception& error) {
+            ANET_SYSTEM_ERROR("GridMaze process seed initialization failed: expected an automatic seed; cause=" << error.what());
+        }
+        logger.info() << "GridMaze process seed initialized: seed=" << seed_;
+    }
+
+    std::once_flag once_;
+    anet::seed_t seed_ = 0;
+    std::exception_ptr failure_;
+};
+
+GridMazeProcessSeedState process_seed_state;
 
 // PRD100で許容した限定例外。共有するのは通知済みseedだけで、生成状態は個体が持つ。
 std::mutex regeneration_notice_mutex;
@@ -16,6 +57,15 @@ std::unordered_set<anet::seed_t> regeneration_notice_seeds;
 
 } // namespace
 
+
+void GridMazeEnvConfig::ValidateSeedMode() const
+{
+    // 設定読込と直接構築で、同じモードの値域を検証する。
+    if (seed_mode != kSeedModeEpisode && seed_mode != kSeedModeProcess) {
+        ANET_SYSTEM_ERROR("GridMazeEnv.seed_mode='" << seed_mode << "': expected "
+            << kSeedModeEpisode << ", " << kSeedModeProcess);
+    }
+}
 
 // ----------------------------------------------------
 // GridMazeEnv Results
@@ -64,7 +114,10 @@ GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config, const torch::Device& d
     : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
     , RandomHolder(seed)
     , config_(config)
+    , initial_seed_(config.seed.value_or(0))
 {
+    // 直接構築のDTOにも、設定読込と同じモード検証を適用する。
+    config_.ValidateSeedMode();
     // 盤面の確保と座標選択に先立ち、正の寸法を保証する。
     if (config_.width <= 0 || config_.height <= 0) {
         ANET_SYSTEM_ERROR("GridMazeEnv.width=" << config_.width << ", GridMazeEnv.height=" << config_.height
@@ -88,6 +141,10 @@ GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config, const torch::Device& d
             << ", GridMazeEnv.goal_pos_x=" << config_.goal_pos_x
             << ", GridMazeEnv.goal_pos_y=" << config_.goal_pos_y
             << ": expected distinct fixed start and goal coordinates");
+    }
+    // プロセス共通の入力seedは構築時に取得し、Resetでは個体内の値を使う。
+    if (!config_.seed.has_value() && config_.seed_mode == GridMazeEnvConfig::kSeedModeProcess) {
+        initial_seed_ = process_seed_state.Get(log);
     }
     obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     Reset();
@@ -245,7 +302,8 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset()
     ANET_PROFILE_FUNC();
 
     // 各Resetの入力seedを固定し、解けない候補だけを派生seedで引き直す。
-    const auto initial_seed = config_.randomize_seed ? anet::SeedMaker::MakeAutoSeed() : config_.seed;
+    const auto initial_seed = !config_.seed.has_value() && config_.seed_mode == GridMazeEnvConfig::kSeedModeEpisode
+        ? anet::SeedMaker::MakeAutoSeed() : initial_seed_;
     constexpr int max_retries = 1000;
     bool reachable = false;
     int retry = 0;
@@ -267,15 +325,15 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset()
     }
 
     // 同じ固定seedの通知はプロセス全体で一度にし、個体の2回目以降は共有ロックを取らない。
-    if (!config_.randomize_seed && retry > 0 && !regeneration_notice_checked_) {
+    if (config_.seed.has_value() && retry > 0 && !regeneration_notice_checked_) {
         bool emit_notice = false;
         {
             std::lock_guard<std::mutex> lock(regeneration_notice_mutex);
-            emit_notice = regeneration_notice_seeds.insert(config_.seed).second;
+            emit_notice = regeneration_notice_seeds.insert(*config_.seed).second;
         }
         regeneration_notice_checked_ = true;
         if (emit_notice) {
-            log.info() << "GridMaze maze regenerated: seed=" << config_.seed
+            log.info() << "GridMaze maze regenerated: seed=" << *config_.seed
                 << ", retries=" << retry << ", actual_seed=" << current_seed_;
         }
     }

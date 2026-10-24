@@ -215,8 +215,7 @@ env.class_id = GridMazeEnv
 
 GridMazeEnv.width ?= 5
 GridMazeEnv.height ?= 5
-GridMazeEnv.seed ?= 6545537233705677626
-GridMazeEnv.randomize_seed ?= false
+GridMazeEnv.seed_mode ?= process   # seed指定時は固定。未指定時はprocess（起動単位）またはepisode（Reset単位）。
 
 GridMazeEnv.wall_density ?= 0.2
 GridMazeEnv.hole_density ?= 0.1

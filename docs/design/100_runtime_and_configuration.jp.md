@@ -339,6 +339,8 @@ sequenceDiagram
 
 ### 7.3 エラー
 
+設定DTOの`std::optional<T>`は、既存の`ConfigData`が読む葉値の型に対応する。未指定ならDTOの初期値を保持し、初期値も未指定なら設定記録へ葉を追加しない。指定があれば通常値の読み取りへ委譲し、default prefix→override prefixの順序と型検証・記録を保つ。空文字や不正な数値を未指定へ変換しない。複合`ConfigReader`をoptionalで包む形は対象外で、型の段階で拒否する。
+
 - `ConfigData`の型変換失敗は例外とし、既定値はキー欠落時だけ使う。範囲・enum・組み合わせは各`Config`または再利用設定型の検証、class IDはrepository解決時の検証に従う。
 - RunnerThread内の例外は握りつぶさずapplicationのexception callbackへ渡す。
 - Pipeline workerの例外はfuture取得時にcaller threadへ再送出する。

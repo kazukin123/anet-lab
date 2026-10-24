@@ -1523,3 +1523,80 @@ TEST_CASE("ConfigManager resolves relative main config from cwd before config se
 
     std::filesystem::remove_all(root);
 }
+
+TEST_CASE("Config optional values preserve absence and typed prefix overrides", "[config][prd102_optional]")
+{
+    struct OptionalValueConfig : anet::Config {
+        std::optional<uint64_t> number;
+        explicit OptionalValueConfig(const anet::ConfigData& data,
+            std::optional<uint64_t> initial = std::nullopt)
+            : anet::Config(data, "OptionalValue", "override"), number(initial)
+        {
+            ANET_READ_CONFIG(data, number);
+        }
+    };
+    // 未指定はDTOの初期値を保ち、設定記録で指定値に化けない。
+    const anet::ConfigData empty;
+    const OptionalValueConfig missing(empty);
+    CHECK_FALSE(missing.number.has_value());
+    CHECK_FALSE(missing.GetConfigData().Has("number"));
+    CHECK_FALSE(missing.ToJson().contains("number"));
+    const OptionalValueConfig initial(empty, uint64_t{7});
+    CHECK(initial.number == 7);
+    CHECK(initial.GetConfigData().Get("number") == "7");
+    CHECK(initial.GetScopedConfigData().Get("override.number") == "7");
+    CHECK(initial.ToJson().at("number").get<uint64_t>() == 7);
+    CHECK_FALSE(missing.GetScopedConfigData().Has("override.number"));
+
+    // 0と最大値も通常の整数として読み、上書きprefixを優先する。
+    anet::ConfigData data;
+    data.Set("OptionalValue.number", "0");
+    const OptionalValueConfig zero(data);
+    REQUIRE(zero.number.has_value());
+    CHECK(*zero.number == 0);
+    CHECK(zero.GetConfigData().Get("number") == "0");
+    data.Set("override.number", "18446744073709551615");
+    const OptionalValueConfig maximum(data);
+    CHECK(maximum.number == std::numeric_limits<uint64_t>::max());
+    CHECK(maximum.ToJson().at("number").get<uint64_t>() == std::numeric_limits<uint64_t>::max());
+    for (const auto* invalid : {"", "nan", "-1", "18446744073709551616", "1.5"}) {
+        anet::ConfigData invalid_data;
+        invalid_data.Set("OptionalValue.number", invalid);
+        CHECK_THROWS_WITH(OptionalValueConfig(invalid_data), Catch::Matchers::ContainsSubstring("OptionalValue.number"));
+    }
+    // 不正なbaseは有効な上書きがあっても見逃さない。
+    data.Set("OptionalValue.number", "bad");
+    CHECK_THROWS(OptionalValueConfig(data));
+}
+
+TEST_CASE("Config optional native leaves preserve explicit empty values and round trip", "[config][prd102_optional]")
+{
+    struct OptionalLeavesConfig : anet::Config {
+        std::optional<std::string> text;
+        std::optional<bool> enabled;
+        std::optional<std::vector<int64_t>> items;
+        explicit OptionalLeavesConfig(const anet::ConfigData& data)
+            : anet::Config(data, "OptionalLeaves")
+        {
+            ANET_READ_CONFIG(data, text);
+            ANET_READ_CONFIG(data, enabled);
+            ANET_READ_CONFIG(data, items);
+        }
+    };
+    // 空の葉値も明示指定であり、未指定へ読み替えない。
+    anet::ConfigData data;
+    data.Set("OptionalLeaves.text", "");
+    data.Set("OptionalLeaves.enabled", false);
+    data.Set("OptionalLeaves.items", "");
+    const OptionalLeavesConfig original(data);
+    REQUIRE(original.text.has_value());
+    CHECK(original.text->empty());
+    REQUIRE(original.enabled.has_value());
+    CHECK_FALSE(*original.enabled);
+    REQUIRE(original.items.has_value());
+    CHECK(original.items->empty());
+    const OptionalLeavesConfig restored(original.GetScopedConfigData());
+    CHECK(restored.text == original.text);
+    CHECK(restored.enabled == original.enabled);
+    CHECK(restored.items == original.items);
+}

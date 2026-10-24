@@ -339,6 +339,8 @@ Use Config classes and each Run's `config/config_data.txt` as the basis for the 
 
 ### 7.3 Errors
 
+Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types. A missing key preserves the DTO initial value; an absent initial value also leaves the key out of recorded configuration. Present values delegate to the normal typed reader, preserving default-prefix then override-prefix precedence, validation and recording. Empty or invalid numeric values do not become absence. Wrapping a composite `ConfigReader` is unsupported and rejected at compile time.
+
 - `ConfigData` conversion failures throw; defaults apply only to missing keys. Range, enum, and combination checks belong to each `Config` or reusable configuration type; class IDs are checked during repository resolution.
 - RunnerThread exceptions are passed to the application's exception callback rather than swallowed.
 - Pipeline worker exceptions are rethrown on the caller thread when retrieving the future.

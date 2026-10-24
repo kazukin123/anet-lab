@@ -22,6 +22,8 @@
 - 2026-09-24: deviceキーの文字列化に合わせ現用設定とbaseline検証を移行した（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD6・受入基準）。
 - 2026-10-18: 特徴branchキー改名の設定比較を更新しPRD072の固定資料を保持した（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 受入基準3・§10 文書同期）。
 
+- 2026-10-24: GridMazeのseed指定と未指定を区別するため、設定DTOのoptional葉値を共通読み取りへ追加した（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、§5.1）。
+
 ## 選ばなかった形
 
 - PRD072固定入力・goldenの再採取 — 不採用: resolver契約は変わらず過去入力の固定資料を保持し、現用設定は別に前後比較する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§9 複雑さ監査）。
@@ -42,6 +44,8 @@
 - 設定移行後も同じevalが同じ周期・seed系で走ることを、意図した寄生evalの除去と区別して確認する（出典: [PRD052](../../memo/done/052_eval_schedule_separation_10prd.md)、Context（背景・目的））。
 - deviceをauto解決してもconfig_dataとconfig/*.txtの指定値は保持する（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD9）。
 - 特徴branchキーの改名前後で現用config dumpの差分がキー名だけであることを確認する。PRD072の固定入力・golden・manifestと実験記録のdumpは保持する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 3）。
+
+- optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、A15）。
 
 ## 関係
 

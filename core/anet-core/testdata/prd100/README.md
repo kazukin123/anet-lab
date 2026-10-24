@@ -12,7 +12,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 core\envs\gridmaze1\bin\Debug\GridMazeEnv-test.exe "[gridmaze]"
 ```
 
-構築・Reset・auxとStepを通じて到達可能性、seedの決定性と復元、既定25セル、上限、寸法・座標・候補なし、自動seed50回を確認する。穴終端の既存テストはseed58の `.OG / ...` を使う。ログ専用タグ `[prd100_log]` は新しいプロセスで実行し、共有記録の既存テストとの干渉を避ける。
+構築・Reset・auxとStepを通じて到達可能性、seedの決定性と復元、既定25セル、上限、寸法・座標・候補なし、seed未指定・seed_mode=episodeでの自動seed50回を確認する。指定seedはmode指定なしで固定される。穴終端の既存テストはseed58の `.OG / ...` を使う。ログ専用タグ `[prd100_log]` は新しいプロセスで実行し、共有記録の既存テストとの干渉を避ける。
 
 ```bash
 core\envs\gridmaze1\bin\Debug\GridMazeEnv-test.exe "[prd100_log]"

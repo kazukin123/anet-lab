@@ -30,6 +30,10 @@
 
 - 2026-10-23: Atari観測の縮小方式を設定で選ぶ仕様を精査した。実装と数値・性能の受入は後続工程である（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§1・§8）。
 - 2026-10-24: GridMaze の迷路生成に到達可能性の保証を足し、解けない seed は派生 seed で決定的に引き直す。解ける seed の迷路は変えない（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、題・§4）。
+
+
+- 2026-10-24: GridMazeの迷路seedを指定値またはエピソード・プロセス単位で選ぶよう整理した（出典: [GridMaze seed_mode PRD](../../memo/102_gridmaze_seed_mode_10prd.md)、§1・§4）。
+
 ## 選ばなかった形
 
 - OpenCV依存の追加・84専用制限・OpenCV全分岐の厳密再現 — 不採用: 自前前処理の境界と縮小全範囲の設定を保ち、anetの数値規則と固定画像の許容差を定める（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§7）。
@@ -50,6 +54,9 @@
 - GridMaze で解けない迷路を止めるだけにする、通路を掘る、生成アルゴリズムを変える — 不採用: 自動 seed の Run が途中で止まる／迷路の分布が偏る／解ける seed の迷路が変わる（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§8）。
 - GridMaze の迷路の難しさ（最短路の長さ、穴の近さ）の制御 — 範囲外: 別の関心。再開条件: 難しさの違いで学習の差を見たくなったとき（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§8）。
 
+
+- GridMazeの個体別・BatchEnv別の一度だけの採番 — 不採用: 学習・評価・GUIを同じプロセスの入力seedへそろえる目的を満たさない（出典: [GridMaze seed_mode PRD](../../memo/102_gridmaze_seed_mode_10prd.md)、§4 D2・§8）。
+
 ## 変えるときの条件
 
 - 縮小方式追加では既定の学習系列のchecksumを保持し、84×84の各参照画像で全画素差1以下・99.9%以上一致を確認する。64 envの速度比中央値0.98以上を要求し、対照測定の揺れが1%を超える場合は判定保留にする（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§6）。
@@ -62,6 +69,9 @@
 - Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、ゴールG3・§7 1/4）。
 - GridMaze の解ける seed の迷路は変えない。既定 seed（5×5）の 25 セルの golden と、既定 seed の短い Run の metrics checksum の一致で確かめる（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§7 の 2・6）。
 - GridMazeの変更では固定seedの反復・採用seedからの復元、表示seedを設定へ戻す再現経路、ランダム座標の到達可能性、不正な寸法・座標の構築エラー、複数Envでの通知件数も確認する（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§5.3・§7の5・7〜9）。
+
+
+- GridMazeのseed_mode追加では、全Env共有と破棄・再作成後の保持、並行8個体、episodeの50 Reset、独立プロセスでのINFO1回、採用seedからの復元を確認する。旧固定条件とのscalar比較はseedだけを指定する（出典: [GridMaze seed_mode PRD](../../memo/102_gridmaze_seed_mode_10prd.md)、§7）。
 
 ## 関係
 

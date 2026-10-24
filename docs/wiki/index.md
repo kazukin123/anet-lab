@@ -43,7 +43,7 @@
 
 - [325 Agent個別実装 MuZero系列](categories/325_muzero.md) — MuZeroAgentは登録済みAgentの試作実装である。（別名: 325_muzero）。
 - [324 Agent個別実装 DQN系列](categories/324_dqn.md) — DefaultDQNAgentとRainbowAgentが共通DQN componentを合成する具象実装を扱う。分類上同じ範囲にあるImageClsAgentも一覧に載せる。（別名: 324_dqn）。
-- [322 Env個別実装](categories/322_env_individual.md) — 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（別名: 322_env_individual）。
+- [322 Env個別実装](categories/322_env_individual.md) — 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（別名: 322_env_individual, GridMaze, seed_mode）。
 - [321 Agent 共通基盤](categories/321_agent_core.md) — Agent、Actor、Learnerの生成・行動・更新と、Agentが所有するResource、更新部品が所有するStateの境界を扱う。（別名: 321_agent_core）。
 - [320 Env 共通基盤](categories/320_env_core.md) — SingleDiscreteEnvとBatchEnv、spec・state・Reset・Step、factoryとBuilderの共通契約を扱う。（別名: 320_env_core）。
 - [319 GUI 共通基盤](categories/319_gui.md) — Env固有ViewをRunner GUIへ接続し、AuiLayoutFrameがdockサイズ往復・遷移時同期・paneとメニューの連動を担う。（別名: 319_gui）。

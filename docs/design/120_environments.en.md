@@ -235,6 +235,8 @@ Each factory reads Env-specific settings from the same ConfigData. Unknown class
 
 ### 7.4 GridMaze Maze Generation
 
+A present `GridMazeEnv.seed` fixes the maze using that value, regardless of mode. Without a seed, `GridMazeEnv.seed_mode = process | episode` selects automatic seeding (`process` by default). Zero is an ordinary fixed seed, not absence, and shared defaults do not define a seed. `episode` samples on each Reset. `process` samples once when first needed and shares only the input seed across training, evaluation, GUI instances and Runs in the same process, including after instance destruction and recreation. Each Env owns its map and RNG. The shared input is logged once as `GridMaze process seed initialized: seed=...`. Automatic seeding is independent of `run.seed`. Initialization failures are cached and rethrown on subsequent requests. Unknown modes are rejected even when a seed is present.
+
 Every Reset adopts a maze whose goal is reachable from the start without crossing walls or holes. Solvable seeds retain the existing cell generation and RNG consumption order. Unsolvable candidates are regenerated using `splitmix64(seed + k)` for k=1..1000. If the initial candidate and all 1000 retries fail, the error identifies the seed, dimensions, densities, coordinates and retry limit.
 
 Dimensions must be positive; each coordinate must be `-1` or inside its axis. Identical fixed start/goal coordinates and an empty random-start candidate set are errors. A randomly chosen goal coinciding with a fixed start triggers a retry. The aux `seed` is the actual accepted seed and reproduces the maze when configured again. The displayed seed uses unsigned decimal notation throughout the configurable range. Fixed-seed retries emit an INFO notice with the input seed, retry count and accepted seed. A synchronized process-wide record, explicitly allowed only within GridMaze, suppresses repeated notices for the same configured seed across instances. Automatic seeds emit no such notice.
@@ -264,6 +266,8 @@ These Envs have dedicated tests:
 Concrete single-Env tests also include paths through `VectorizedDiscreteBatchEnv`. ImageCls tests directly validate native batches, Dataset catalogs/caches, eval windows, and worker modes. When changing an Env or wrapper, add regression tests explicitly selecting the required worker modes.
 
 See the [PRD100 validation assets](../../core/anet-core/testdata/prd100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
+
+See the [PRD102 validation assets](../../core/anet-core/testdata/prd102/README.md) for seed precedence, automatic scope, concurrent initialization, recreation, RunManager integration, optional configuration and resolved-value differences.
 
 ## 9. Related Documents
 

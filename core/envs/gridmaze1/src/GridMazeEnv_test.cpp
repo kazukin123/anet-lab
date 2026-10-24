@@ -1,3 +1,5 @@
+#include "anet/catch_test.hpp"
+
 #include "GridMazeEnv.hpp"
 
 #include <cmath>
@@ -5,10 +7,15 @@
 #include <algorithm>
 #include <array>
 #include <vector>
-#include <unordered_set>
+#include <filesystem>
+#include <fstream>
 #include <future>
-#include "anet/catch_test.hpp"
+#include <latch>
+#include <wx/cmdline.h>
+#include "anet/init.hpp"
 #include "anet/env.hpp"
+#include "anet/metrics_logger.hpp"
+#include "anet/trainer.hpp"
 #include "anet/test_util.hpp"
 
 TEST_CASE("GridMaze Step statistics survive automatic reset and later transitions", "[gridmaze][prd097_gridmaze]")
@@ -132,7 +139,7 @@ TEST_CASE("GridMaze replaces unsolvable seed with a reachable maze", "[gridmaze]
 TEST_CASE("GridMaze fixed seeds preserve maps and reproduce from the accepted seed", "[gridmaze][prd100][prd100_repro]")
 {
     anet::test::LogCaptureGuard logs;
-    const auto seed = GENERATE(anet::seed_t{2}, anet::seed_t{6545537233705677626ULL}, ~anet::seed_t{0});
+    const auto seed = GENERATE(anet::seed_t{0}, anet::seed_t{2}, anet::seed_t{6545537233705677626ULL}, ~anet::seed_t{0});
     auto config = FixedMazeConfig(seed);
     if (seed == ~anet::seed_t{0}) config.wall_density = config.hole_density = 0.0f;
     anet::rl::env::GridMazeEnv first(config, torch::kCPU, "gridmaze-first", 1);
@@ -244,7 +251,8 @@ TEST_CASE("GridMaze automatic seeds and random coordinates always produce reacha
     anet::test::LogCaptureGuard logs;
     const int mode = GENERATE(0, 1, 2, 3, 4, 5, 6, 7, 8);
     auto config = FixedMazeConfig();
-    config.randomize_seed = true;
+    config.seed_mode = "episode";
+    config.seed.reset();
     if (mode == 1 || mode == 3 || mode == 5) config.init_pos_x = -1;
     if (mode == 2 || mode == 3 || mode == 5) config.init_pos_y = -1;
     if (mode == 4 || mode == 5) config.goal_pos_x = config.goal_pos_y = -1;
@@ -261,12 +269,10 @@ TEST_CASE("GridMaze automatic seeds and random coordinates always produce reacha
         config.wall_density = 0.9f; config.hole_density = 0.2f;
     }
     anet::rl::env::GridMazeEnv env(config, torch::kCPU, "gridmaze-random", 1);
-    std::unordered_set<anet::seed_t> seeds;
     for (int i = 0; i < 50; ++i) {
         const auto reset = env.Reset();
         const auto aux = reset->GetAuxData();
         CHECK_FALSE(FindGoalPath(aux).empty());
-        CHECK(seeds.insert(static_cast<anet::seed_t>(aux.at("seed").item<int64_t>())).second);
         CHECK(reset->state.episode_start);
         CHECK_FALSE(reset->state.done);
         CHECK_FALSE(reset->state.truncated);
@@ -291,7 +297,7 @@ TEST_CASE("GridMaze reports bounded failure with generation context", "[gridmaze
     }
 }
 
-TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "[prd100_log]")
+TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "[.][prd100_log]")
 {
     // 他のseed2テストで共有記録を先に埋めないよう、このタグは別プロセスで実行する。
     anet::test::LogCaptureGuard logs;
@@ -310,7 +316,8 @@ TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "
     for (size_t i = 1; i < pending.size(); ++i) CHECK(pending[i].get() == accepted);
     auto no_retry = FixedMazeConfig(6545537233705677626ULL);
     anet::rl::env::GridMazeEnv unchanged(no_retry, torch::kCPU, "gridmaze-no-retry", 1);
-    no_retry.randomize_seed = true;
+    no_retry.seed_mode = "episode";
+    no_retry.seed.reset();
     anet::rl::env::GridMazeEnv automatic(no_retry, torch::kCPU, "gridmaze-auto-notice", 1);
     for (int i = 0; i < 5; ++i) automatic.Reset();
     logs.Flush();
@@ -328,6 +335,112 @@ TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "
     CHECK(notices.front().find("actual_seed=" + std::to_string(accepted)) != std::string::npos);
 }
 
+TEST_CASE("GridMaze default process seed is logged once and reproduces the maze", "[.][prd102_process]")
+{
+    // 初回の構築から公開auxと共通通知までを独立プロセスで通す。
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("GridMazeEnv.width", 3);
+    data.Set("GridMazeEnv.height", 3);
+    data.Set("GridMazeEnv.wall_density", 0.0);
+    data.Set("GridMazeEnv.hole_density", 0.0);
+    data.Set("GridMazeEnv.init_pos_x", 0);
+    data.Set("GridMazeEnv.init_pos_y", 0);
+    data.Set("GridMazeEnv.goal_pos_x", 2);
+    data.Set("GridMazeEnv.goal_pos_y", 2);
+    const anet::rl::env::GridMazeEnvConfig config(data);
+    CHECK_FALSE(config.GetConfigData().Has("seed"));
+    anet::rl::env::GridMazeEnv env(config, torch::kCPU, "process-default", 1);
+    const auto initial = env.Reset()->GetAuxData();
+    for (int i = 0; i < 3; ++i) {
+        const auto next = env.Reset()->GetAuxData();
+        CHECK(torch::equal(next.at("map"), initial.at("map")));
+        CHECK(next.at("seed").item<int64_t>() == initial.at("seed").item<int64_t>());
+    }
+    logs.Flush();
+    std::vector<std::string> notices;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("GridMaze process seed initialized:") != std::string::npos) {
+            CHECK(record.level == wxLOG_Message);
+            notices.push_back(record.message);
+        }
+    }
+    REQUIRE(notices.size() == 1);
+    const auto input_seed = std::stoull(notices.front().substr(notices.front().find("seed=") + 5));
+    CHECK(static_cast<anet::seed_t>(initial.at("seed").item<int64_t>()) == input_seed);
+    data.Set("GridMazeEnv.seed", std::to_string(input_seed));
+    anet::rl::env::GridMazeEnv restored(anet::rl::env::GridMazeEnvConfig(data), torch::kCPU, "process-restored", 8);
+    const auto restored_aux = restored.Reset()->GetAuxData();
+    CHECK(torch::equal(restored_aux.at("map"), initial.at("map")));
+    CHECK(restored_aux.at("seed").item<int64_t>() == initial.at("seed").item<int64_t>());
+}
+
+TEST_CASE("GridMaze shares the process seed across concurrent instances and recreation", "[.][prd102_concurrent]")
+{
+    // 同時に初回構築し、通知と入力seedの共有を独立プロセスで確かめる。
+    anet::test::LogCaptureGuard logs;
+    auto config = FixedMazeConfig();
+    config.seed_mode = "process";
+    config.seed.reset();
+    config.wall_density = config.hole_density = 0.0f;
+    std::latch start(8);
+    std::vector<std::future<anet::rl::AuxData>> pending;
+    for (int i = 0; i < 8; ++i) {
+        pending.push_back(std::async(std::launch::async, [config, i, &start] {
+            start.count_down();
+            start.wait();
+            anet::rl::env::GridMazeEnv env(config, torch::kCPU, "process-concurrent-" + std::to_string(i), i);
+            const auto initial = env.Reset()->GetAuxData();
+            env.Reset();
+            return initial;
+        }));
+    }
+    const auto initial = pending.front().get();
+    for (size_t i = 1; i < pending.size(); ++i) {
+        const auto next = pending[i].get();
+        CHECK(next.at("seed").item<int64_t>() == initial.at("seed").item<int64_t>());
+        CHECK(torch::equal(next.at("map"), initial.at("map")));
+    }
+    // 全個体が破棄されても、設定seedを変えて作る個体は同じ入力seedを使う。
+    config.seed.reset();
+    anet::rl::env::GridMazeEnv recreated(config, torch::kCPU, "process-recreated", 999);
+    CHECK(recreated.Reset()->GetAuxData().at("seed").item<int64_t>() == initial.at("seed").item<int64_t>());
+    logs.Flush();
+    int notices = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("GridMaze process seed initialized:") != std::string::npos) ++notices;
+    }
+    CHECK(notices == 1);
+}
+
+TEST_CASE("GridMaze episode mode resamples without a seed and reproduces every accepted maze", "[gridmaze][prd102_episode]")
+{
+    // 自動採番の重複を禁止せず、公開値から各盤面を復元できることを確かめる。
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("GridMazeEnv.seed_mode", "episode");
+    const anet::rl::env::GridMazeEnvConfig config(data);
+    REQUIRE_FALSE(config.seed.has_value());
+    anet::rl::env::GridMazeEnv env(config, torch::kCPU, "episode-automatic", 1);
+    for (int i = 0; i < 50; ++i) {
+        const auto aux = env.Reset()->GetAuxData();
+        CHECK_FALSE(FindGoalPath(aux).empty());
+        auto restored_config = config;
+        restored_config.seed = static_cast<anet::seed_t>(aux.at("seed").item<int64_t>());
+        anet::rl::env::GridMazeEnv restored(restored_config, torch::kCPU, "episode-seed-only", 99);
+        const auto copy = restored.Reset()->GetAuxData();
+        CHECK(torch::equal(copy.at("map"), aux.at("map")));
+        CHECK(copy.at("pos_x").item<int>() == aux.at("pos_x").item<int>());
+        CHECK(copy.at("pos_y").item<int>() == aux.at("pos_y").item<int>());
+        CHECK(copy.at("seed").item<int64_t>() == aux.at("seed").item<int64_t>());
+    }
+    logs.Flush();
+    for (const auto& record : logs.Records()) {
+        CHECK(record.message.find("GridMaze process seed initialized:") == std::string::npos);
+        CHECK(record.message.find("GridMaze maze regenerated:") == std::string::npos);
+    }
+}
+
 int main(int argc, char* argv[])
 {
     // 共通の非対話テスト設定を使い、失敗は終了コードへ届ける。
@@ -341,4 +454,223 @@ int main(int argc, char* argv[])
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("GridMaze validates modes even with an explicit seed and rejects invalid seeds", "[.][prd102_settings]")
+{
+    anet::test::LogCaptureGuard logs;
+    // 設定読込と、読込後にDTOを変えた直接構築の双方を検証する。
+    for (const auto* mode : {"", "other", "PROCESS"}) {
+        anet::ConfigData data;
+        data.Set("GridMazeEnv.seed", "0");
+        data.Set("GridMazeEnv.seed_mode", mode);
+        CHECK_THROWS_WITH(anet::rl::env::GridMazeEnvConfig(data),
+            Catch::Matchers::ContainsSubstring("GridMazeEnv.seed_mode='" + std::string(mode) + "': expected episode, process"));
+    }
+    auto invalid = FixedMazeConfig();
+    invalid.seed_mode = "other";
+    CHECK_THROWS_WITH(anet::rl::env::GridMazeEnv(invalid, torch::kCPU, "invalid-mode", 1),
+        Catch::Matchers::ContainsSubstring("GridMazeEnv.seed_mode='other': expected episode, process"));
+    // seedが存在すれば、どちらのモードでも0と最大値を通常の固定値として使う。
+    for (const auto* mode : {"process", "episode"}) {
+        for (const auto* seed : {"0", "18446744073709551615"}) {
+            anet::ConfigData data;
+            data.Set("GridMazeEnv.seed_mode", mode);
+            data.Set("GridMazeEnv.seed", seed);
+            data.Set("GridMazeEnv.wall_density", 0.0);
+            data.Set("GridMazeEnv.hole_density", 0.0);
+            const anet::rl::env::GridMazeEnvConfig config(data);
+            anet::rl::env::GridMazeEnv env(config, torch::kCPU, "seed-priority", 1);
+            for (int i = 0; i < 3; ++i) {
+                const auto aux = env.Reset()->GetAuxData();
+                CHECK(static_cast<anet::seed_t>(aux.at("seed").item<int64_t>()) == std::stoull(seed));
+            }
+        }
+        for (const auto* seed : {"", "nan", "-1", "18446744073709551616", "1.5"}) {
+            anet::ConfigData data;
+            data.Set("GridMazeEnv.seed_mode", mode);
+            data.Set("GridMazeEnv.seed", seed);
+            CHECK_THROWS_WITH(anet::rl::env::GridMazeEnvConfig(data),
+                Catch::Matchers::ContainsSubstring("GridMazeEnv.seed"));
+        }
+    }
+    logs.Flush();
+    for (const auto& record : logs.Records()) {
+        CHECK(record.level != wxLOG_Warning);
+        CHECK(record.message.find("GridMaze process seed initialized:") == std::string::npos);
+    }
+}
+
+TEST_CASE("GridMaze initializes the process seed lazily and shares only the input seed", "[.][prd102_late]")
+{
+    anet::test::LogCaptureGuard logs;
+    auto first = FixedMazeConfig();
+    { anet::rl::env::GridMazeEnv fixed(first, torch::kCPU, "late-fixed", 1); }
+    auto episode = first;
+    episode.seed.reset();
+    episode.seed_mode = "episode";
+    { anet::rl::env::GridMazeEnv automatic(episode, torch::kCPU, "late-episode", 1); }
+    logs.Flush();
+    for (const auto& record : logs.Records()) CHECK(record.message.find("GridMaze process seed initialized:") == std::string::npos);
+    // 異なる寸法・密度も同じ入力seedを使い、盤面と乱数器は別々に所有する。
+    first.seed.reset();
+    auto second = first;
+    second.width = 7;
+    second.height = 6;
+    second.goal_pos_x = 6;
+    second.goal_pos_y = 5;
+    second.wall_density = 0.1f;
+    anet::rl::env::GridMazeEnv a(first, torch::kCPU, "late-a", 1);
+    anet::rl::env::GridMazeEnv b(second, torch::kCPU, "late-b", 999);
+    logs.Flush();
+    std::vector<std::string> notices;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("GridMaze process seed initialized:") != std::string::npos) notices.push_back(record.message);
+    }
+    REQUIRE(notices.size() == 1);
+    const auto input = std::stoull(notices.front().substr(notices.front().find("seed=") + 5));
+    const auto original_b = b.Reset()->GetAuxData();
+    a.Step(3);
+    for (int i = 0; i < 10; ++i) a.Reset();
+    const auto next_b = b.Reset()->GetAuxData();
+    CHECK(torch::equal(original_b.at("map"), next_b.at("map")));
+    for (auto config : {first, second}) {
+        auto& actual = config.width == first.width ? a : b;
+        const auto actual_aux = actual.Reset()->GetAuxData();
+        REQUIRE_FALSE(FindGoalPath(actual_aux).empty());
+        config.seed = input;
+        anet::rl::env::GridMazeEnv restored(config, torch::kCPU, "late-restored", 2);
+        const auto aux = restored.Reset()->GetAuxData();
+        CHECK(torch::equal(actual_aux.at("map"), aux.at("map")));
+        CHECK(actual_aux.at("seed").item<int64_t>() == aux.at("seed").item<int64_t>());
+    }
+}
+
+TEST_CASE("GridMaze configuration comparison resolves every manifest input", "[.][prd102_config_snapshot]")
+{
+    // Propertiesの情報通知もcaptureし、無人検証でダイアログを開かない。
+    anet::test::LogCaptureGuard logs;
+    const auto repo = std::filesystem::current_path();
+    const auto output = repo / ".scratch" / "prd102";
+    std::ifstream source(repo / "core/anet-core/testdata/prd102/manifest.json");
+    REQUIRE(source.good());
+    const auto manifest = anet::json::parse(source);
+    std::filesystem::create_directories(output / "config-inputs");
+    // 同じ17入力を、編集前の隔離設定と現用設定へ渡して全キーを保存する。
+    for (const auto* stage : {"before", "after"}) {
+        const auto config_root = std::string(stage) == "before" ? output / "baseline-config" : repo / "apps/runner/config";
+        anet::json snapshots = anet::json::object();
+        for (const auto& input : manifest.at("inputs")) {
+            const auto id = input.at("id").get<std::string>();
+            INFO(std::string(stage) + "/" + id);
+            const auto path = output / "config-inputs" / (std::string(stage) + "-" + id + ".txt");
+            {
+                std::ofstream stream(path);
+                stream << "$include <" << (config_root / "_main.txt").generic_string() << ">\n";
+                stream << "$include <" << (config_root / (input.at("env").get<std::string>() + ".txt")).generic_string() << ">\n";
+                REQUIRE(stream.good());
+            }
+            const wxCmdLineEntryDesc description[] = {
+                {wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+                    wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE},
+                {wxCMD_LINE_NONE}
+            };
+            const auto cli = input.at("cli").get<std::string>();
+            wxCmdLineParser command_line(description, wxString::FromUTF8(cli));
+            REQUIRE(command_line.Parse(false) == 0);
+            const anet::ConfigManager manager(path, &command_line);
+            snapshots[id] = manager.GetConfigData().ToJson();
+        }
+        std::ofstream stream(output / (std::string("config-") + stage + ".json"));
+        stream << snapshots.dump(2) << '\n';
+        REQUIRE(stream.good());
+    }
+}
+
+namespace {
+
+class GridMazeNoopMetricsBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path& runs_dir, const std::string& run_name) override
+    {
+        std::filesystem::create_directories(runs_dir / run_name);
+    }
+    void WriteJsonl(const anet::json&) override {}
+    void Flush() override {}
+};
+
+class GridMazeMetricsGuard final {
+public:
+    GridMazeMetricsGuard()
+    {
+        anet::MetricsLogger::Reset();
+        anet::MetricsLoggerConfig config;
+        config.run_name_tmpl = "gridmaze_process_test";
+        anet::MetricsLogger::Init(std::make_unique<GridMazeNoopMetricsBackend>(), config,
+            std::filesystem::current_path() / ".scratch/prd102/runner-metrics");
+    }
+    ~GridMazeMetricsGuard() { anet::MetricsLogger::Reset(); }
+};
+
+} // namespace
+
+TEST_CASE("RunManager shares GridMaze process seed across training evaluation panels and Runs", "[.][prd102_runner]")
+{
+    anet::test::LogCaptureGuard logs;
+    GridMazeMetricsGuard metrics;
+    anet::rl::EnvRepository::Instance().Regist(std::make_shared<anet::rl::env::GridMazeEnvFactory>());
+    const auto repo = std::filesystem::current_path();
+    const auto path = repo / ".scratch/prd102/runner-input.txt";
+    {
+        std::ofstream stream(path);
+        stream << "$include <" << (repo / "apps/runner/config/_main.txt").generic_string() << ">\n";
+        stream << "$include <" << (repo / "apps/runner/config/GridMaze.txt").generic_string() << ">\n";
+        REQUIRE(stream.good());
+    }
+    const auto resolved = anet::ConfigManager(path).GetConfigData();
+    anet::ConfigData data;
+    // 実験用seedを持つ現用設定は保持し、この試験だけ未指定のRunを作る。
+    for (const auto& [key, value] : resolved.Map()) {
+        if (key != "GridMazeEnv.seed") data.Set(key, value);
+    }
+    for (const auto* key : {"agent.device", "env.device", "run.eval_device"}) data.Set(key, "cpu");
+    data.Set("run.seed", 1);
+    data.Set("run.train.num_envs", 2);
+    data.Set("run.train.runner_type", "serial");
+    data.Set("DefaultDQNAgent.skip.enabled", false);
+    data.Set("DefaultDQNAgent.learner.use_amp", false);
+    data.Set("DefaultDQNAgent.learner.replay_batch_size", 16);
+    data.Set("DefaultDQNAgent.learner.replay_capacity", 4096);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    data.Set("run.eval_schedule.[eval].interval", 100);
+    data.Set("run.eval_schedule.[eval_target].interval", 0);
+    data.Set("run.eval.[panel].run_mode", "eval");
+    data.Set("run.eval.[panel].actor", "eval");
+    // 通常起動と同じ公開初期化でNNの型とAgent factoryを登録する。
+    anet::rl::InitRL(anet::rl::BackendConfig(data), data);
+    anet::rl::AuxData original;
+    // 1つ目のRunを全て破棄した後も、別Runの全用途で共通seedを使う。
+    for (int run = 0; run < 2; ++run) {
+        data.Set("run.seed", run + 1);
+        anet::rl::RunManager manager(data);
+        REQUIRE(manager.GetStatus() == anet::rl::RunnerStatus::RUNNING);
+        const auto train = manager.GetTrainRunner()->GetBatchEnv();
+        const auto eval = manager.GetEvalRunner("eval")->GetBatchEnv();
+        const auto panel = manager.CreateEvalRunner("EvalPanel", "panel")->GetBatchEnv();
+        for (const auto& env : {train, eval, panel}) {
+            const auto reset = env->Reset();
+            for (int lane = 0; lane < env->GetBatchSpec().num_envs; ++lane) {
+                const auto aux = reset->GetAuxDataList(lane).at(0);
+                if (original.empty()) original = aux;
+                CHECK(torch::equal(original.at("map"), aux.at("map")));
+                CHECK(original.at("seed").item<int64_t>() == aux.at("seed").item<int64_t>());
+            }
+        }
+    }
+    logs.Flush();
+    int notices = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("GridMaze process seed initialized:") != std::string::npos) ++notices;
+    }
+    CHECK(notices == 1);
 }

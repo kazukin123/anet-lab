@@ -252,6 +252,27 @@ namespace anet {
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
     };
 
+    /// ConfigDataで扱う葉値のoptional。未指定ならDTOの初期値を保持する。
+    template<typename T>
+    struct ConfigReader<std::optional<T>> {
+        static constexpr bool kEnabled = true;
+
+        static void Read(Config& owner, const ConfigData& config_data,
+            const std::string& key, std::optional<T>& value)
+        {
+            static_assert(!ConfigReader<T>::kEnabled,
+                "Optional configuration supports native ConfigData leaf values.");
+            // 不在を記録値に変えず、既定値も無い場合は読み取り自体を省く。
+            if (!value.has_value() && !owner.HasConfigValue(config_data, key)) {
+                return;
+            }
+            // prefix順序・変換・記録は通常値の共通経路へ委譲する。
+            T parsed = value.value_or(T{});
+            owner.ReadConfig(config_data, key, parsed);
+            value = std::move(parsed);
+        }
+    };
+
     /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
     class ConfigManager {
     public:

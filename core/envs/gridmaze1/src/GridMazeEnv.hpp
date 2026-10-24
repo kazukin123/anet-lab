@@ -1,6 +1,8 @@
 // GridMazeEnv.hpp
 #pragma once
 
+#include <optional>
+#include <string>
 #include <vector>
 #include <torch/torch.h>
 #include "anet/random.hpp"
@@ -10,10 +12,13 @@
 namespace anet::rl::env {
 
     struct GridMazeEnvConfig : public anet::Config {
+        static constexpr char kSeedModeEpisode[] = "episode";
+        static constexpr char kSeedModeProcess[] = "process";
+
         int width = 5;
         int height = 5;
-        seed_t seed = 0;
-        bool randomize_seed = false;
+        std::optional<seed_t> seed;
+        std::string seed_mode = kSeedModeProcess;
 
         float wall_density = 0.2f;
         float hole_density = 0.1f;
@@ -30,13 +35,15 @@ namespace anet::rl::env {
 
         int max_steps = 100;
 
-        GridMazeEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
+        GridMazeEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData,
+            const std::string& config_prefix = "")
             : anet::Config(config_data, "GridMazeEnv", config_prefix)
         {
+            // 設定を読み取り、生成を始める前にモードの値域を検証する。
             ANET_READ_CONFIG(config_data, width);
             ANET_READ_CONFIG(config_data, height);
             ANET_READ_CONFIG(config_data, seed);
-            ANET_READ_CONFIG(config_data, randomize_seed);
+            ANET_READ_CONFIG(config_data, seed_mode);
             ANET_READ_CONFIG(config_data, wall_density);
             ANET_READ_CONFIG(config_data, hole_density);
             ANET_READ_CONFIG(config_data, init_pos_x);
@@ -48,7 +55,10 @@ namespace anet::rl::env {
             ANET_READ_CONFIG(config_data, reward_wall);
             ANET_READ_CONFIG(config_data, reward_step);
             ANET_READ_CONFIG(config_data, max_steps);
+            ValidateSeedMode();
         }
+
+        void ValidateSeedMode() const;
     };
 
     class GridMazeEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder {
@@ -80,6 +90,7 @@ namespace anet::rl::env {
 
         std::vector<std::vector<Cell>> map_;
         seed_t current_seed_;
+        seed_t initial_seed_;
         bool regeneration_notice_checked_ = false;
         int pos_x_, pos_y_;
         int step_count_;

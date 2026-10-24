@@ -234,9 +234,11 @@ Env固有設定は各factoryが同じConfigDataから読み取る。未知のcla
 
 ### 7.4 GridMazeの迷路生成
 
+`GridMazeEnv.seed`があればその値で固定し、未指定なら`GridMazeEnv.seed_mode = process | episode`で自動採番の単位を選ぶ（既定`process`）。0も通常の固定値で、未指定を表す値ではない。seedの共有既定は置かず、seedだけ指定すればどちらのmodeでも固定できる。`episode`はResetごとに採番する。`process`は最初の該当Env構築時に一度だけ採番し、学習・評価・GUI・同一プロセス内の別Runで入力seedを共有する。Envの破棄・再作成でも維持し、盤面と乱数器は各Envが所有する。共通入力seedを`GridMaze process seed initialized: seed=...`のINFOで1回記録する。自動採番は`run.seed`から独立している。初期化の失敗も保存し、後続の要求へ再送出する。未知modeはseed指定時でも構築前に拒否する。
+
 GridMazeはResetごとに開始からゴールへ壁・穴を避けて到達できる迷路を採用する。解けるseedでは従来のセル生成と乱数消費順を保持する。解けなければ入力seedから `splitmix64(seed + k)`（k=1..1000）で引き直し、初回と1000回の引き直しがすべて失敗したら、seed・寸法・密度・座標・上限を含むエラーで停止する。
 
-寸法は正、各座標は `-1` または軸の範囲内でなければならない。両方固定の開始とゴールの重複、およびランダム開始の候補なしはエラーにする。固定開始とランダムゴールの偶然一致は引き直す。auxの `seed` は採用した実際のseedで、設定に戻すと同じ盤面を再現できる。画面のseedは設定可能な全範囲を符号なし十進表示する。固定seedを引き直したときだけ、入力seed・回数・採用seedをINFOで通知する。GridMaze内に限定して許容する排他制御付きのプロセス共有記録により、同じ設定seedの通知は個体数によらず1回とする。自動seedでは通知しない。
+寸法は正、各座標は `-1` または軸の範囲内でなければならない。両方固定の開始とゴールの重複、およびランダム開始の候補なしはエラーにする。固定開始とランダムゴールの偶然一致は引き直す。auxの `seed` は採用した実際のseedで、設定に戻すと同じ盤面を再現できる。画面のseedは設定可能な全範囲を符号なし十進表示する。固定seedを引き直したときだけ、入力seed・回数・採用seedをINFOで通知する。GridMaze内に限定して許容する排他制御付きのプロセス共有記録により、同じ設定seedの通知は個体数によらず1回とする。自動seedでは引き直し通知を出さない。
 
 ## 8. テストと拡張時の確認事項
 
@@ -263,6 +265,8 @@ GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短い
 - [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
 
 single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。ImageCls testはnative batch、Dataset catalog/cache、eval window、worker方式を直接検証する。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
+
+採番単位・指定seed優先・並行初期化・構築し直し・RunManager経路・共通optional設定・設定値差分の検証手順は[PRD102検証資材](../../core/anet-core/testdata/prd102/README.md)を参照する。
 
 ## 9. 関連文書
 
