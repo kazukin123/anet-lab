@@ -71,6 +71,7 @@ namespace anet::rl::env {
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
     private:
         void GenerateGridMap();
+        bool HasReachableGoal() const;
         std::vector<float> GetObservation() const;
         anet::rl::AuxData MakeAuxData() const;
     private:
@@ -79,6 +80,7 @@ namespace anet::rl::env {
 
         std::vector<std::vector<Cell>> map_;
         seed_t current_seed_;
+        bool regeneration_notice_checked_ = false;
         int pos_x_, pos_y_;
         int step_count_;
         int wall_collisions_;

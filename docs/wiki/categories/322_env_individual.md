@@ -28,6 +28,7 @@
 - 2026-10-20: 各Envの遷移の値をStepの結果へ移し終端の読み取りをそろえた（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§4.3.5〜4.3.7・§4.4 クラス一覧）。
 - 2026-10-20: 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、本文）。
 
+- 2026-10-24: GridMaze の迷路生成に到達可能性の保証を足し、解けない seed は派生 seed で決定的に引き直す。解ける seed の迷路は変えない（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、題・§4）。
 ## 選ばなかった形
 
 - 詰み判定のために内部の盤面を進めて裁定する方式 — 不採用: 問題設定が複雑化し、人間のプレイ感覚から乖離する（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約）。
@@ -44,6 +45,8 @@
 - NoDropTimeout を truncated にする形 — 不採用（却下）: ショットクロックは観測にあり、クロックを進めるのは agent 自身の NOOP なので、終端は agent の支配下の Markov な帰結で done が意味論的に正しい。flag の切り替えで行うと観測の次元まで変わり、一軸の A/B が壊れる（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約 8）。
 - missed_resignation（persistence 条件付きの投了失敗）メトリクス — 不採用（却下）: use_instant_drop では次の行動選択の時点の persistence は高々 1 frame で、Phase 2 の後は該当する状態が構造的に空集合になり、厳密な投了率には反実仮想の物理シミュレーションが要る（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約 2）。
 - timeout 時の再分類・裁定の上限・no_legal_adjudication_timeout — 不採用（導入しない）: blocked-persistence の裁定では到達できない dead 機構になり、瞬間の candidate による再分類は振動して時々 legal が開く盤面を NoLegal へ誤分類する（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約 5）。
+- GridMaze で解けない迷路を止めるだけにする、通路を掘る、生成アルゴリズムを変える — 不採用: 自動 seed の Run が途中で止まる／迷路の分布が偏る／解ける seed の迷路が変わる（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§8）。
+- GridMaze の迷路の難しさ（最短路の長さ、穴の近さ）の制御 — 範囲外: 別の関心。再開条件: 難しさの違いで学習の差を見たくなったとき（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§8）。
 
 ## 変えるときの条件
 
@@ -54,6 +57,8 @@
 - batch入力の移行でも既存Envのnameとrunner/observer/GUI接続を維持する（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、1.3 維持する外部contract）。
 - RAM計測で学習の信号を変えず、番号を追加しても既存番号の意味を変えない（出典: [PRD082](../../memo/082_atari_ram_progress_metrics_10prd.md)、非ゴールNG1・契約8）。
 - Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、ゴールG3・§7 1/4）。
+- GridMaze の解ける seed の迷路は変えない。既定 seed（5×5）の 25 セルの golden と、既定 seed の短い Run の metrics checksum の一致で確かめる（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§7 の 2・6）。
+- GridMazeの変更では固定seedの反復・採用seedからの復元、表示seedを設定へ戻す再現経路、ランダム座標の到達可能性、不正な寸法・座標の構築エラー、複数Envでの通知件数も確認する（出典: [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md)、§5.3・§7の5・7〜9）。
 
 ## 関係
 

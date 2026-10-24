@@ -1,11 +1,20 @@
 // GridMazeEnv.cpp
 
 #include "GridMazeEnv.hpp"
+#include <array>
+#include <mutex>
+#include <unordered_set>
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
 
 using namespace anet::rl::env;
-namespace LOG = anet::log;
+namespace {
+
+// PRD100で許容した限定例外。共有するのは通知済みseedだけで、生成状態は個体が持つ。
+std::mutex regeneration_notice_mutex;
+std::unordered_set<anet::seed_t> regeneration_notice_seeds;
+
+} // namespace
 
 
 // ----------------------------------------------------
@@ -56,6 +65,30 @@ GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config, const torch::Device& d
     , RandomHolder(seed)
     , config_(config)
 {
+    // 盤面の確保と座標選択に先立ち、正の寸法を保証する。
+    if (config_.width <= 0 || config_.height <= 0) {
+        ANET_SYSTEM_ERROR("GridMazeEnv.width=" << config_.width << ", GridMazeEnv.height=" << config_.height
+            << ": expected positive board dimensions");
+    }
+    // -1以外の座標を、その軸の範囲へ明示的に制限する。
+    const auto validate_coordinate = [](const char* key, int value, int extent) {
+        if (value < -1 || value >= extent) {
+            ANET_SYSTEM_ERROR(key << "=" << value << ": expected -1 or [0, " << extent << ")");
+        }
+    };
+    validate_coordinate("GridMazeEnv.init_pos_x", config_.init_pos_x, config_.width);
+    validate_coordinate("GridMazeEnv.init_pos_y", config_.init_pos_y, config_.height);
+    validate_coordinate("GridMazeEnv.goal_pos_x", config_.goal_pos_x, config_.width);
+    validate_coordinate("GridMazeEnv.goal_pos_y", config_.goal_pos_y, config_.height);
+    // 固定した開始とゴールの重複は生成を試す前に設定エラーにする。
+    if (config_.init_pos_x >= 0 && config_.init_pos_y >= 0
+        && config_.init_pos_x == config_.goal_pos_x && config_.init_pos_y == config_.goal_pos_y) {
+        ANET_SYSTEM_ERROR("GridMazeEnv.init_pos_x=" << config_.init_pos_x
+            << ", GridMazeEnv.init_pos_y=" << config_.init_pos_y
+            << ", GridMazeEnv.goal_pos_x=" << config_.goal_pos_x
+            << ", GridMazeEnv.goal_pos_y=" << config_.goal_pos_y
+            << ": expected distinct fixed start and goal coordinates");
+    }
     obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     Reset();
 }
@@ -124,6 +157,7 @@ anet::rl::AuxData GridMazeEnv::MakeAuxData() const
 
 void GridMazeEnv::GenerateGridMap()
 {
+    ANET_PROFILE_FUNC();
     map_.assign(config_.height, std::vector<Cell>(config_.width, Cell::Empty));
     wall_collisions_ = 0;
 
@@ -167,8 +201,10 @@ void GridMazeEnv::GenerateGridMap()
             pos_x_ = candidates[idx].first;
             pos_y_ = candidates[idx].second;
         } else {
-            pos_x_ = pos_x_ == -1 ? 0 : pos_x_;
-            pos_y_ = pos_y_ == -1 ? 0 : pos_y_;
+            ANET_SYSTEM_ERROR("GridMazeEnv.init_pos_x=" << config_.init_pos_x
+                << ", GridMazeEnv.init_pos_y=" << config_.init_pos_y
+                << ": no start candidates for width=" << config_.width << ", height=" << config_.height
+                << ", goal_pos=(" << gx << "," << gy << "); expected at least one start cell distinct from goal");
         }
     }
 
@@ -177,18 +213,72 @@ void GridMazeEnv::GenerateGridMap()
     }
 }
 
+bool GridMazeEnv::HasReachableGoal() const
+{
+    ANET_PROFILE_FUNC();
+    // 偶然に開始とゴールが重なった候補は採用しない。
+    if (map_[pos_y_][pos_x_] == Cell::Goal) return false;
+
+    // 各セルを一度だけ調べる。判定では乱数を消費しない。
+    std::vector<std::vector<bool>> visited(config_.height, std::vector<bool>(config_.width, false));
+    std::vector<std::pair<int, int>> pending{{pos_x_, pos_y_}};
+    visited[pos_y_][pos_x_] = true;
+    constexpr std::array<int, 4> dx{0, -1, 0, 1};
+    constexpr std::array<int, 4> dy{-1, 0, 1, 0};
+    for (size_t i = 0; i < pending.size(); ++i) {
+        const auto [x, y] = pending[i];
+        for (int direction = 0; direction < 4; ++direction) {
+            const int nx = x + dx[direction];
+            const int ny = y + dy[direction];
+            if (nx < 0 || ny < 0 || nx >= config_.width || ny >= config_.height) continue;
+            if (visited[ny][nx] || map_[ny][nx] == Cell::Wall || map_[ny][nx] == Cell::Hole) continue;
+            if (map_[ny][nx] == Cell::Goal) return true;
+            visited[ny][nx] = true;
+            pending.push_back({nx, ny});
+        }
+    }
+    return false;
+}
+
 std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
-    if (config_.randomize_seed) {
-        current_seed_ = anet::SeedMaker::MakeAutoSeed();
-        //LOG::info() << "GridMazeEnv: current_seed=" << current_seed_;
-    } else {
-        current_seed_ = config_.seed;
+    // 各Resetの入力seedを固定し、解けない候補だけを派生seedで引き直す。
+    const auto initial_seed = config_.randomize_seed ? anet::SeedMaker::MakeAutoSeed() : config_.seed;
+    constexpr int max_retries = 1000;
+    bool reachable = false;
+    int retry = 0;
+    for (; retry <= max_retries; ++retry) {
+        current_seed_ = retry == 0 ? initial_seed : anet::splitmix64(initial_seed + static_cast<anet::seed_t>(retry));
+        GenerateGridMap();
+        if (HasReachableGoal()) {
+            reachable = true;
+            break;
+        }
+    }
+    if (!reachable) {
+        ANET_SYSTEM_ERROR("GridMaze maze generation failed: seed=" << initial_seed
+            << ", width=" << config_.width << ", height=" << config_.height
+            << ", wall_density=" << config_.wall_density << ", hole_density=" << config_.hole_density
+            << ", init_pos=(" << config_.init_pos_x << "," << config_.init_pos_y << ")"
+            << ", goal_pos=(" << config_.goal_pos_x << "," << config_.goal_pos_y << ")"
+            << ", max_retries=" << max_retries);
     }
 
-    GenerateGridMap();
+    // 同じ固定seedの通知はプロセス全体で一度にし、個体の2回目以降は共有ロックを取らない。
+    if (!config_.randomize_seed && retry > 0 && !regeneration_notice_checked_) {
+        bool emit_notice = false;
+        {
+            std::lock_guard<std::mutex> lock(regeneration_notice_mutex);
+            emit_notice = regeneration_notice_seeds.insert(config_.seed).second;
+        }
+        regeneration_notice_checked_ = true;
+        if (emit_notice) {
+            log.info() << "GridMaze maze regenerated: seed=" << config_.seed
+                << ", retries=" << retry << ", actual_seed=" << current_seed_;
+        }
+    }
 
     step_count_ = 0;
     ep_reward_sum_ = 0.0f;

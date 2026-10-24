@@ -104,7 +104,7 @@ Both Bases also hold protected `anet::log::Logger log`, constructing the prefix 
 | CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | Vector |
 | LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | Vector, Box2D physical state |
 | DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | Grid and vector, Box2D physical state |
-| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | Primarily vector-based maze state |
+| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | Vector-based maze state with guaranteed reachability; unsolvable seeds are deterministically resampled |
 | ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | Image grid and classification target |
 | Atari | [core/envs/atari1](../../core/envs/atari1) | Single-frame uint8 grid from ALE |
 
@@ -233,6 +233,12 @@ Each factory reads Env-specific settings from the same ConfigData. Unknown class
 - Env Reset/Step are major profiling boundaries; compare worker counts together with `exp_step_per_sec`.
 - Different Env and Agent devices incur transfer costs. Check supported devices in both configuration and each Env's implementation.
 
+### 7.4 GridMaze Maze Generation
+
+Every Reset adopts a maze whose goal is reachable from the start without crossing walls or holes. Solvable seeds retain the existing cell generation and RNG consumption order. Unsolvable candidates are regenerated using `splitmix64(seed + k)` for k=1..1000. If the initial candidate and all 1000 retries fail, the error identifies the seed, dimensions, densities, coordinates and retry limit.
+
+Dimensions must be positive; each coordinate must be `-1` or inside its axis. Identical fixed start/goal coordinates and an empty random-start candidate set are errors. A randomly chosen goal coinciding with a fixed start triggers a retry. The aux `seed` is the actual accepted seed and reproduces the maze when configured again. The displayed seed uses unsigned decimal notation throughout the configurable range. Fixed-seed retries emit an INFO notice with the input seed, retry count and accepted seed. A synchronized process-wide record, explicitly allowed only within GridMaze, suppresses repeated notices for the same configured seed across instances. Automatic seeds emit no such notice.
+
 ## 8. Tests and Extension Checks
 
 When adding or modifying an Env, check the following:
@@ -256,6 +262,8 @@ These Envs have dedicated tests:
 - [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
 
 Concrete single-Env tests also include paths through `VectorizedDiscreteBatchEnv`. ImageCls tests directly validate native batches, Dataset catalogs/caches, eval windows, and worker modes. When changing an Env or wrapper, add regression tests explicitly selecting the required worker modes.
+
+See the [PRD100 validation assets](../../core/anet-core/testdata/prd100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
 
 ## 9. Related Documents
 
