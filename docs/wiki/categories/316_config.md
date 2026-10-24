@@ -23,6 +23,8 @@
 - 2026-10-18: 特徴branchキー改名の設定比較を更新しPRD072の固定資料を保持した（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 受入基準3・§10 文書同期）。
 
 - 2026-10-24: GridMazeのseed指定と未指定を区別するため、設定DTOのoptional葉値を共通読み取りへ追加した（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、§5.1）。
+- 2026-10-24: ProfiledValue の定数は裸のスカラー 1 行で書き、root の `.value` 記法は置かない（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、本文）。
+- 2026-10-24: 探索と学習のパラメータのキーを概念ごとの入れ子（`spatial.*`・`uqe.*`・`learner.learning_rate` など）へ移し、定数は bare、スケジュールは sub-key で書く記法を加えた（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4・§4.2 D5）。
 
 ## 選ばなかった形
 
@@ -34,6 +36,12 @@
 - 素材の表記案（キー先頭のドット、連続ドット、bracket の流用、セクションヘッダ、::） — 不採用（棄却）: 素材が root の別領域に集まって所有が切れる、見づらい、名前付きインスタンスの角括弧と意味が衝突する、1 行完結・位置独立を壊す、仰々しい（出典: [PRD059](../../memo/done/059_config_concept_tree_alignment_10prd.md)、付録 D. 検討経緯）。
 - use_optimistic_target の廃止 — 不採用（却下）: 実効値は明示の指定で同じになるが、optimistic 化のたびに target_policy の全キーを書き換える（戻しも含む）保守コストが戻る（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
 - IQN の spec K の専用キー（net.taus_shape など）と、カタログ全項目と Learner の最大の K — 不採用（却下）: Learner の N で足り、設定項目やカタログの走査を増やさない（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
+- 機能ごとの設定ファイル（PRD098 の skip.txt のように 1 機能の Agent プロファイル・NN 部品・metrics・run.@・app の既定を 1 ファイルに置く形） — 不採用: 関心で分けた 020 §3.6 の表と二軸になり、置き場を表で答えられない。機能は具象 Agent のファイル（`<Agent>.txt`）から `<Agent>_<feature>.txt` を include する形にし、metrics はカタログ、`run.@` は env ファイルに残す（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§4・§8 D3）。
+- 設定ファイルの Agent 別フォルダ化 — 先送り: include は含むファイルの隣から解決するので仕組みは足りるが、平らな名前で層を表せる間は増やさない。再開条件: 具象 Agent が 6 以上、または 1 Agent の機能ファイルが 4 本を超えたとき（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§7）。
+- ProfiledValue の定数を常に `.value` で書く形 — 不採用: 定数の行が全部 1 段増え、既存の定数の行を書き換える（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
+- bare を書いたら type を constant に強制する形 — 不採用: baseline が bare で書いた定数を Run プロファイルが `.type = linear` で差し替える用法が fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
+- bare と `.value` の両記法を許し両方書いたら fail-fast にする形 — 不採用: 読み取りが default と override の 2 つの prefix を見るので、ベース＋部分上書きの普通の層構成まで fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
+- 眠る bare が確定葉なら fail-fast にする実行時検査と、`check_default_leaves.py` の静的検査 — 先送り: 既定葉の情報を読み取りまで運ぶ配線が要り、env の確定葉の定数を Run プロファイルで schedule にする用法も止まる。再開条件: 眠った値に気づかずに Run を回した事故が起きたとき（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 
 ## 変えるときの条件
 
@@ -44,8 +52,10 @@
 - 設定移行後も同じevalが同じ周期・seed系で走ることを、意図した寄生evalの除去と区別して確認する（出典: [PRD052](../../memo/done/052_eval_schedule_separation_10prd.md)、Context（背景・目的））。
 - deviceをauto解決してもconfig_dataとconfig/*.txtの指定値は保持する（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD9）。
 - 特徴branchキーの改名前後で現用config dumpの差分がキー名だけであることを確認する。PRD072の固定入力・golden・manifestと実験記録のdumpは保持する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 3）。
+- 設定ファイルを分けたり移したりするときは、7 env の解決済み設定（全キーと文字列値）の前後一致と check_default_leaves.py の errors=0 で、解決値と演算子の規約が変わっていないことを確かめる（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§6）。
 
 - optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、A15）。
+- ProfiledValue を読む設定キーでは、root の定数は bare だけで書き（root の `.value` は fail-fast）、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
 
 ## 関係
 

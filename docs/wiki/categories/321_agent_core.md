@@ -54,6 +54,8 @@
 - 2026-10-18: Learnerの購読時probeと更新結果へattention entropyを接続した（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§4 決定した設計）。
 - 2026-10-19: step trace の近似優先度は Agent が出す step 部品が計算し、Actor の設定キーで eval_panel にだけヒントを作らせることはしない（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - 2026-10-21: Actorと共有するヒント計算を使うDQNのstep診断部品を加えた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6）。
+- 2026-10-24: 探索の ε・UQE の ε と τ・ラダーの両端を ProfiledValue で時間変化させ、時間の値とラダーの両端を別キーに分け、学習側の 7 値も同じ器にする（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、題・§1・§4）。
+- 2026-10-24: 時間で変わる割引率は、schedule のときだけ抽選時に保存済みの step 報酬から収益を作り直す（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、本文）。
 
 ## 選ばなかった形
 
@@ -77,6 +79,13 @@
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - NetworkModel が特徴空間・行動価値・スキップ価値の 3 つの Network を持つ形 — 不採用: 切れ目は DAG の branch で表せ、checkpoint の形と Network 1 つ前提の経路へ波及する。補助 Network は primary の公開出力を入力に取り、その target は bootstrap に使わず target 側の Actor の行動にだけ使う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D3、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)）。
 - 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（999_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D10・§9）。
+- 具象 Agent を anet-core の中のサブフォルダに分けるだけの形 — 不採用: 内部ヘッダ（Head 部品と Replay の生成）への依存が残り、責務の境界が CMake で強制されない。Env と同じ具象別の独立ライブラリ（`src/agents/<agent>/`）にし、`Init<Agent>()` を app が呼ぶ（出典: [PRD999 ソース配置](../../memo/999_source_layout_10prd.md)、§4・§5）。
+- DQN 系を家族 1 ライブラリにまとめる形（DefaultDQN と Rainbow を同じライブラリに置く） — 先送り: 移動量は少ないが、Env と同じ「具象 1 つに 1 パス」から外れる。再開条件: グリルで具象別の境界の価値が移動量に見合わないと裁定したとき（出典: [PRD999 ソース配置](../../memo/999_source_layout_10prd.md)、§8 D3）。
+- Thompson sampling の τ の区間を `thompson.tau_low/high` で設定する形 — 不採用: 非 spatial の Thompson は τ を U[0,1]（IQN は全範囲）から引き、区間は存在しない。spatial は `spatial.uqe.tau.*` のラダーを使う（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§2.1・§4.2 D9）。
+- log ラダーの 0 の端を fail-fast にして 0 に届くラダーを新しい並べ方 `exponential` で書く形、下限をキー（`spatial.log_floor`）にする形、1e-4 への clamp を残す形 — 不採用: log の計算値が下限 1e-4 以下になった lane を生の両端の線形補間で置き換える規則 1 つにし、モードやキーを増やさず、0 と書いて 1e-4 で動く形を残さない（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.2 D8）。
+- MuZero の温度 `temp_start/end/decay_steps` の ProfiledValue 化 — 範囲外: 試作 Agent。再開条件: 本線に戻すときに同じ器で足す（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§3 非ゴール・§7）。
+- NoisyNet の雑音の倍率を時間で変える — 先送り: σ は学習するパラメータで、外から掛ける倍率は forward の雑音の作り方に新しい入力が要る。再開条件: ε の形で差が説明できないとき（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§7）。
+- step の軸を learn_step やエピソード数にする — 先送り: 探索と β はすべて exp_step で動いている。再開条件: 別の軸が要る例が出たとき（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§7）。
 
 ## 変えるときの条件
 
@@ -85,11 +94,14 @@
 - 明示的なActor::Syncは呼出時の強制同期として維持する。shared既定ではaction forward回数と保存形式を保つ（出典: [PRD036](../../memo/done/036_train_actor_periodic_snapshot_10prd.md)、目的）。
 - Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・seedの各スロットの結果を確認する（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、7.4・8）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [PRD083](../../memo/083_action_context_retire_10prd.md)、Context・確定した設計判断2〜4・11）。
+- Agent のライブラリは anet-core の公開ヘッダと自分のライブラリだけに依存し、anet-core は Agent のライブラリに依存しない。ソースを移すときは 4 env の metrics checksum の一致と全テストで挙動不変を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [PRD999 ソース配置](../../memo/999_source_layout_10prd.md)、§4 8・§6）。
 - 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とする（PRD060は基準を取り損ねた）（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§8.2・§12・§13）。
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [PRD092](../../memo/092_gradient_noise_scale_10prd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 1・5）。
 - ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
 - スキップ中も全 lane で forward し、行動だけを上書きする（全 lane の q_values を前提にする step 診断・Actor Q ヒント・spatial・Noisy・stacker・Push の契約を保つ）（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D2・§5.5）。
+- 探索のキーを ProfiledValue へ移すとき、既存の log ラダー（0.4〜0.01、0.05〜1e-4）と非 spatial の ε・τ の値を変えず、Atari・DropMerge（最後の lane を 1e-4 と書いた検査用設定）・GridMaze・LunarLander の短い決定的 Run の metrics checksum を実装前に保存した実行体と比べる。評価の時機は Actor が `UpdateSchedule` の `exp_step`、Learner が update の先頭の `exp_step`（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.2 D7・D8・§6.1 1）。
+- Munchausen の α・entropy_tau を時間で変えるときは、Actor の Q ヒント・Evaluation Trace の step 診断・Learner の target が同じ step で同じ値を使うことを確かめる（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D19・§6.2 5）。
 
 ## 関係
 

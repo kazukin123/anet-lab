@@ -72,7 +72,7 @@ IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環�
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 
 **tau配置方式**:
-taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
+taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、UQE の τ の時間の値（`uqe.tau` の schedule）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 
 ### スキップ（TempoRL）
@@ -122,6 +122,14 @@ _Avoid_: 独立ノイズ（区分の片側だけを指す）, per-env / per-tran
 **ノイズ probe**:
 ReplayBuffer から一様に抜いた同じ状態集合に対して、μ-only と sample の出力を比べる診断。Q 差・行動不一致率・反復エントロピーを出す。policy churn（1 update の前後）や target policy disagreement（online と target）とは比較の相手が違う。
 _Avoid_: 探索指標（探索の良さは示さない）, 不確実性（較正された量ではない）
+
+**spatial exploration（ε ラダー）**:
+学習の lane ごとに探索の強さ（ε や UQE の τ）を、両端の値と並べ方（log・linear）で段状に割り当てる方式。両端は時間で変わってよく、全 lane で 1 つの値を使う探索（時間の値）とは別のキーで持つ。
+_Avoid_: vectorized exploration（導入時の名。PRD002）, ε 分布, lane ごとの減衰（時間の値と紛れる）
+
+**時間の値**:
+全 lane に共通で、学習の進み（exp_step）に沿って変わる探索・学習パラメータの値。探索ではラダーの両端とは別のキーで持ち、どちらを使うかはラダーの有効化だけで決まる。
+_Avoid_: eps_start / eps_end（旧キー。時間の両端と lane の両端を兼ねた）, 減衰（直線に限る印象）, アニーリング（温度の語）
 
 ### Replay・PER
 
