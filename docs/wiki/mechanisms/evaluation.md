@@ -14,10 +14,11 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 - qbert の ε=0 断面の第 8 面到達は、断面ごとに大きく上下した（例: ε 腕 40.6M 93/100 → 45.7M 32/103、64 env・1M の seed 1 20.4M 68/102 → 25.5M 4/109）。同じ落ち込みは 128 env・2M の seed 2・3 と UQE にも出ており、1 断面の比較では判定しない（出典: [2026-09-27_btr-gap-qbert-bz.md](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ12・探索ブロック03。Run: run_20260927-035604_a5_qbert_btr50m_eps005_end0 / run_20260928-065041_a5_qbert_btr50m_eps005_env64）。
 - ImageCls の ResNet18ish_hr＋Mixup/CutMix では、LR の cosine の長さが違う Run の順位が途中の step と最終で入れ替わった。15M の時点は、学習予算 30M の Run が 74.5%、20M の Run が 82.0%、cosine を 15M で終える Mixup なしの Run が 83.7% で、最終は 86.4・86.0・83.7% だった。cosine の長さが違う Run は最終同士で比べる（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、現時点のまとめ7・探索ブロック05。Run: run_20260707-084617_imgcls_ResNet18HR32_30 / run_20260706-124351_imgcls_ResNet18HRmix / run_20260704-214337_imgcls_ResNet18ish_hr）。
 - ImageCls では、同じ実効設定・同じ seed の 2 本が、cudnn deterministic の設定でも同じ exp step で 0.3〜1.0pt ずれた（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、探索ブロック02。Run: run_20260627-234723_imgcls_Res18_do1 / run_20260630-004827_imgcls_ResNet18ish_hr）。
+- GridMaze で、安定してゴールできるようになった後も、EvalPanel の手操作で点数の方策がほとんど通らないセルへ誘導してから再開させると、ゴールに着かなかった（ユーザーの観察。Run 名の記録は無い）。今の設定では、開始位置は (0, 0) に固定、観測は位置の 2 次元だけで、手操作の遷移は学習に入らない。固定の開始位置からの評価の成功は、通らない状態から届くことを示さない（出典: [999_intrinsic_reward_novelty_10prd.md](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.7「観察」「今の構成」）。
 
 ## 分かっていないこと
 
-なし
+- GridMaze で通らないセルから再開してゴールに着かないとき、点数の方策は壁へ向かう行動を繰り返して位置が変わらないまま打ち切られているのか（出典: [999_intrinsic_reward_novelty_10prd.md](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.7「見立て」。Run では未確認）。
 
 ## 撤回・更新
 
@@ -31,6 +32,7 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 - [Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)。
 - [遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD](../../memo/097_env_auto_reset_after_notification_10prd.md)。
 - [Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD](../../memo/094_evalpanel_step_history_10prd.md)。
+- [内的報酬と方策の家族 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/999_intrinsic_reward_novelty_10prd.md)。
 - [replay_ratio_lane_window](../mechanisms/replay_ratio_lane_window.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
 - [Envをまたぐ比較の独自分析](../../experiments/default-dqn/README.md#env-をまたぐ際の扱い)。

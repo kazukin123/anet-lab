@@ -429,3 +429,4 @@
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:41f7c23010362b5ad96dba73ce50a9d1bd7c7cc5 → なし（レビュー対応後の照合。322 の記述は変わらない）
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:4c04caf56da6473823bd985606f4ddd5f3bbc8e4 → docs/wiki/categories/322_env_individual.md
 2026-10-24 writeback docs/memo/100_gridmaze_solvable_maze_10prd.md blob:43f0c13447fc3e75a80887fb2aac821b82d8e1a4 → docs/wiki/categories/322_env_individual.md
+2026-10-24 writeback docs/memo/999_intrinsic_reward_novelty_10prd.md blob:532f2ee7eb4002d0294a5bec96eba2e763d49e30 → docs/wiki/mechanisms/evaluation.md
