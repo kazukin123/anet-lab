@@ -23,6 +23,7 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | 2026-09-27〜 | [BTR との差の切り分け（qbert / battle_zone）](2026-09-27_btr-gap-qbert-bz.md) | qbert/battle_zone、探索、env数、容量、同期、UQE、ViTの比較 | active |
 | 2026-10-11〜10-16 | [NoisyNet の実時間優先プロファイルへの投入](2026-10-11_noisynet-realtime.md) | NoisyNetのεラダーへの置換と上乗せ、Breakoutの2×2、probe | completed |
 | 2026-10-15〜10-20 | [kung_fu_master のボス行きの定着](2026-10-15_kfm-boss-route.md) | kung_fu_masterのボス行き、報酬クリップ、ライフ区切り、sticky、ε、PER、UQE、seed数、batch、ViT | completed |
+| 2026-10-23〜 | [BTR 公開実装の qbert 再現と、序盤の学習の遅れ（初期値）](2026-10-23_btr-qbert-repro-init.md) | BTR公開実装の手元での再現、BTR寄せ、縮小方式、BTRのε、コード照合、SN付きconvの初期値 | active |
 
 ## 知見のまとめ
 

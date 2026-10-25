@@ -60,6 +60,10 @@ SET "NZSIGSE=net.block.[AtariHeadFC512].noisy.sigma0=1.1 A2.head.projection.nois
 SET "BTRENV=run.train.num_envs=64 A2.learner.replay_capacity=1048576 A2.actor.[train].sync_interval=1"
 SET "BTREPS=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon=1.0 A2.actor.[train].policy.epsilon.start=1.0 A2.actor.[train].policy.spatial.epsilon.first=1.0 A2.actor.[train].policy.epsilon.end=0.01 A2.actor.[train].policy.spatial.epsilon.last=0.01 A2.actor.[train].policy.epsilon.type=linear A2.actor.[train].policy.epsilon.steps=4000000"
 SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head.init.mode=default A2.head.projection.noisy.sigma0=0.5"
+SET "SENZPA=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@batch"
+SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImpalaConv64].init.mode=default net.block.[AtariImpalaRes32SN].init1.mode=default net.block.[AtariImpalaRes32SN].init2.mode=default net.block.[AtariImpalaRes64SN].init1.mode=default net.block.[AtariImpalaRes64SN].init2.mode=default net.block.[AtariIQNTauProj2304].init.mode=default"
+SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
+SET "WLAD=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first=0.4 A2.actor.[train].policy.spatial.epsilon.last=0"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
@@ -158,9 +162,21 @@ if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=qbert run.seed=1 %BTRENV%
 echo === 32. phoenix se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
 call :find_done a5_ph_se_nz_s1
 if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=phoenix run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_ph_se_nz_s1"
-echo === 33. name_this_game se 50m seed 1: noisynet on the sample efficiency profile, epsilon ladder kept ===
-call :find_done a5_ntg_se_nz_s1
-if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=name_this_game run.seed=1 %NZSIGSE% "app.run_name=run_{t}_a5_ntg_se_nz_s1"
+echo === 34. qbert 50m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, wide constant ladder 0.4 to 0 ===
+call :find_done a5_qb_aln_wlad_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=qbert run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_qb_aln_wlad_s1"
+echo === 35. battle_zone 50m seed 1: same setup as 34 ===
+call :find_done a5_bz_aln_wlad_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=battle_zone run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_bz_aln_wlad_s1"
+echo === 36. phoenix 50m seed 1: same setup as 34 ===
+call :find_done a5_ph_aln_wlad_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=phoenix run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_ph_aln_wlad_s1"
+echo === 37. name_this_game 50m seed 1: same setup as 34 ===
+call :find_done a5_ntg_aln_wlad_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=name_this_game run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_ntg_aln_wlad_s1"
+echo === 38. double_dunk 50m seed 1: same setup as 34 ===
+call :find_done a5_dd_aln_wlad_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=double_dunk run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_dd_aln_wlad_s1"
 
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
