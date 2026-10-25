@@ -163,3 +163,14 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 配置修正後の結果: MSVC経由Debug全体0（constructor-hpp/build.log）。GridMazeEnv-test.exe "[gridmaze],[prd102_settings]"は2261 assertions/11 cases、独立プロセスの"[prd102_process]"は12 assertions/1 caseで全て成功。ログ・終了値はconstructor-hpp/gridmaze.log、process.log、results.json。新規テスト追加なし、動作変更なしを差分で自己点検した。実装品質の全項目を走査し、今回適用される配置/定数/設定読込/検証/コメント/符号化/検証記録を確認、ほかは既存判定を維持する。
 
 - 配置修正の独立再レビューも実装・計画ともOK、修正要求・未決・開発者確認事項なし。原文: .scratch/prd102/constructor-hpp/review-20261024-2012.md。hppの設定一覧とコンストラクタをセットにする意図を今後も維持する。
+
+
+## 2026-10-25 GridMaze seedの監査分類の修正
+
+- 原因: HEAD版のassignment_roleはGridMaze.txtのGridMazeEnv.seedをenvironment default definitionと分類し、意図的な実験指定「=」に対して「?=」を要求していた。同じ現用設定を使った分類関数の差し替えで、HEAD版はエラー1件・現用版は0件を確認した。以前の「既存実験seed1件」の監査記録は当時の結果として保持し、今回解消した。
+- 対応: 調査開始時点で作業ツリーにあったmigrate.pyの分類修正（explicit experiment seed）を採用する。GridMazeのseed値・演算子・Envの実行時契約を変更しない。
+- 回帰: 既存test_gridmaze_experiment_seed_remains_an_explicit_choiceを補強。「=」の受理・分類理由・期待演算子、「?=」の拒否、seed_modeの環境既定「?= process」の受理、migrate_textによる値・「=」・コメント・改行の保持を確認する。
+- RED/GREEN: 本体ファイルを書き戻さず、メモリ上のHEAD分類関数で補強テストを実行して3 failures/0 errors。現用分類ではPython回帰16 testsが全て成功、全体監査errors=0・終了値0。red-head-rule.log、regression.log、regression-cli.log、audit.logを.scratch/prd102/seed-classification-20261025へ保存した。
+- コマンド: .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves_test.py、および.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py。
+- 自己点検: 実装品質の全項目を走査し、今回適用するPythonコメント・ログ・公開監査/移行経路の検証・記録・BOM/LF・差分範囲を確認。C++・設定・公開API・設計契約・skillは非変更のため該当項目は対象外。承認計画どおりC++ビルドは不要で未実施。
+- 未決なし。設定ファイルの内容と既存indexを保持し、staging/commit/pushは行わない。
