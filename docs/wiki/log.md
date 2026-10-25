@@ -449,3 +449,7 @@
 2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:dd3db5b2aa11a926e69917f5320b64c802f8048a → なし（G5・D14 の等価性の例外範囲を新 D8 に合わせた。wiki の記述は変わらない）
 2026-10-25 fix docs/wiki/categories/316_config.md, docs/wiki/categories/321_agent_core.md（定数記法とLunarLanderの検査用末端を現行契約へ訂正）
 2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:a39f5b8ab807f76708ec43e3686718a53b894c69 → docs/wiki/categories/312_util.md, docs/wiki/categories/316_config.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/324_dqn.md
+2026-10-25 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:7cee4bae2679c4baf0b4add973468cab0a0ca830 → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/categories/324_dqn.md
+2026-10-25 fix docs/memo/098_temporl_skip_policy_10prd.md blob:51649950be7d598f29323abf22917fca87c091e0 → docs/wiki/mechanisms/temporal_abstraction.md（今の結論の、GridMaze の実測と NEET の見込みが混ざった文を分けた）
+2026-10-25 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:5406ddfbb87a9ae6599d3b82fd16a2ead127f904 → docs/wiki/categories/318_rl_core.md, docs/wiki/categories/324_dqn.md
+2026-10-25 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:267710e5b6ea37044fa79bb212fb86d427d3beb3 → docs/wiki/categories/318_rl_core.md, docs/wiki/categories/324_dqn.md

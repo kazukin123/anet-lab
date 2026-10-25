@@ -8,6 +8,7 @@
 > 改訂: 2026-10-24。段 1 の途中経過（GridMaze の迷路依存）を §7 に、既定 seed での崩壊の機構を §9 に追記。
 > 改訂: 2026-10-24（2 回目）。設定見直し第 2 依頼の実装に合わせ、§5.3 に skip Head の出力の形と包含型 × IQN の broadcast 連結、§5.7 に Trace 列 `skip_q.[j]`、§7 に段 1 の包含型の取り直しの結果を追記。
 > 改訂: 2026-10-24（3 回目）。特徴量の説明上の記号 z と設定の公開出力名を区別し、§5.6 の IQN の配線を現行の `skip_context` と融合済み branch の対応へ合わせた。
+> 改訂: 2026-10-25。§8 の「全 k を mask 付きで一括するサンプル」「k_max に比例する重み」「skip 中の lane の forward を省く」の行を、後続の暫定 PRD（[999_temporl_skip_followups](999_temporl_skip_followups_10prd.md)）へ向けた。
 
 ## 1. 目的と問題
 
@@ -355,14 +356,14 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 |---|---|---|
 | スカラーのスキップ価値（Q が分布型でも skip はスカラー） | 先送り | 型を 1 つにして Learner の目標値を流用する（D7）。再開条件: 分布型の skip で j の選択が不安定、または QR の分離型で射影が重いと分かったら |
 | skip Head の独立 Dueling（V_J と A_J の 2 射影） | 先送り | `use_dueling` の Dueling が同じ役を primary の Q(s,a) で担う（D8）。再開条件: Q(s,a) の基準が skip の学習を不安定にしたら。足すときに V の取り方のキーを足す |
-| 全 k を mask 付きで一括するサンプル | 先送り | target forward が J 倍（D13）。再開条件: 1 点 k で skip の学習が遅く、target forward の費用を払えるとき |
+| 全 k を mask 付きで一括するサンプル | 先送り | target forward が J 倍（D13）。再開条件: 1 点 k で skip の学習が遅く、target forward の費用を払えるとき。後続は [999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) の (K)（全 k の一括。作るかは同書の段 0 で決める） |
 | skip 専用の lr・クリップ閾値 | 先送り | キーを増やさない（§6 の 6・7）。再開条件: 遮断で skip の学習率を変えたい実測が出たら |
 | j の分布のヒストグラム画像 | 先送り | `03_skip_length_rate.[j]` で代用できる。再開条件: j の分布を頻繁に見る必要が出たら |
 | 評価 slot でスキップを切る口（常に j=1） | 先送り | 腕の比較に要るかは段 1〜2 で分かる。再開条件: 学習した skip を使う評価と使わない評価の比較が要ると分かったら |
 | 特徴空間を別の Network（F）に分ける | 先送り | 切れ目は DAG で表せる（D3）。再開条件: F を単体で差し替える、または事前学習を載せる要件が pin されたら |
-| k_max に比例する重み（論文の「接続ごとに等しい重み」に合わせる） | 先送り | 一様な k で始める（D13）。再開条件: 短い k の偏りが skip の学習に効くと分かったら |
+| k_max に比例する重み（論文の「接続ごとに等しい重み」に合わせる） | 先送り | 一様な k で始める（D13）。再開条件: 短い k の偏りが skip の学習に効くと分かったら。後続は [999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) の (K) が、全接続を等しく数える形でこの重みも扱う（同書 D7） |
 | 可視化の TensorDictFunction の `skip-net.` prefix | 先送り | 入力（obs を primary に通し、包含型では greedy の行動を使う）を決める読み手がまだ無い。再開条件: skip Network の可視化が要ると分かったら |
-| skip 中の lane の forward を省く | 範囲外 | §3 の非ゴール。再開条件: TempoRL が同じ step 数で効くと分かり、forward が律速の env があるとき |
+| skip 中の lane の forward を省く | 範囲外 | §3 の非ゴール。再開条件: TempoRL が同じ step 数で効くと分かり、forward が律速の env があるとき。後続は [999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) の D9・§8（学習では作らない。1 env のリアルタイム実行の PRD が起きたときに、判断する lane が無い step の forward を丸ごと飛ばす形で作る） |
 | Env 側のマクロ行動、経過時間の割引、次の判断まで遡る n-step、n-step の目標値の補正 | 範囲外 | それぞれ [086](086_dropmerge_macro_actions_10prd.md)、[999_smdp](999_smdp_transition_duration_10prd.md)、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md)、[999_nstep_target_correction](999_nstep_target_correction_10prd.md) |
 
 ## 9. 未決
