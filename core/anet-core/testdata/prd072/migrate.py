@@ -32,6 +32,8 @@ def assignment_role(filename, key):
         if key in ("DropMergeEnv.seed_mode", "DropMergeEnv.global_seed"):
             return "intentional Optuna seed override"
         return None
+    if filename == "GridMaze.txt" and key == "GridMazeEnv.seed":
+        return "explicit experiment seed"
     if filename in ENV_FILES:
         if key == "DefaultDQNAgent.skip.max_length":
             return "environment agent default definition"

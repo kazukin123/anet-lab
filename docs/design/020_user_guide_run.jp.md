@@ -73,9 +73,8 @@ device指定は`auto`、`cpu`、`cuda`、`cuda:N`を受け付ける。`auto`はC
 ```properties
 DefaultDQNAgent.actor.[explore].$ = DefaultDQNAgent.actor.[eval]
 DefaultDQNAgent.actor.[explore].policy.policy_type = EpsilonGreedy
-DefaultDQNAgent.actor.[explore].policy.eps_start = 0.1
-DefaultDQNAgent.actor.[explore].policy.eps_end = 0.1
-DefaultDQNAgent.actor.[explore].policy.eps_decay_steps = 0
+DefaultDQNAgent.actor.[explore].policy.epsilon.type = constant
+DefaultDQNAgent.actor.[explore].policy.epsilon = 0.1
 DefaultDQNAgent.actor.[explore].network = online
 DefaultDQNAgent.actor.[explore].clone_model = true
 run.eval.[explore].actor = explore
@@ -86,6 +85,11 @@ run.eval_schedule.[explore].use_background = false
 run.eval_schedule.[explore].wait_on_exit = true
 metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ```
+
+探索を定数にする場合は `policy.epsilon.type = constant` とbare値 `policy.epsilon = 0.1` を指定する。時間変化は `type = linear|cosine|cosine_restart|exponential|phased` と対応する欄で指定する。
+
+> [!NOTE]
+> 非constantを継承している場所でbare値だけを書いても、その値は評価されず保持される。constantへ切り替える場合はtypeとbare値を併記する。phase内の定数だけは `phase.[name].value` を使う。
 
 共通スロットは`eval_target`と`eval`で、それぞれtarget / onlineを参照する。metricsの既存出力タグは維持する。未定義のActor参照は起動時に失敗するが、スケジュールのない定義や`interval=0`のスロットはActorを生成しない。sharedのActorはAgentと同じdeviceを使う。MuZeroはcloneに対応せず、`clone_model=false`を指定する。
 

@@ -35,7 +35,7 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 7. 最終値へ`${full.key}`を1段だけ展開する。未定義・連鎖・未解決の値参照はfail-fastする。`.$`と`@` segmentを持つ定義を除いた`ConfigData`とresolution JSONを返し、各`Config`が型付きfieldを読む。workspaceの最終`app.runs_dir`は注入値との文字列完全一致を検証する。
 8. Runnerは実効設定を`config/config_data.txt`へ保存し、構造化した解決記録を`MetricsLogger::Log("config_resolution", json)`へ渡す。`json/config_resolution.json`には`type` / `tag` / `data` envelope付きで保存され、同じrecordがMetrics masterにも記録される。
 
-**`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないeps_endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
+**`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないepsilon.endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
 運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
 
@@ -63,6 +63,15 @@ DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId()
 `--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
 `ConfigData::Read` / `Get`は、キーが存在しない場合だけ呼出側が渡した値を使う。存在する値の型変換に失敗した場合は、key、raw値、期待型を含む`ANET_SYSTEM_ERROR`でfail-fastし、既定値へ戻さない。default prefixとoverride prefixの各layerは独立して書式検証するため、後続overrideは先行layerの書式不正を隠さない。typed readerは前後空白、値全体の消費、overflow、負unsigned値、nonfinite値、不正bool、vector tokenを共通に検証する。stringとvectorの明示的な空値は有効である。値域、enum、組み合わせは各Configまたは再利用される設定型の構築時validatorが検証する。複数layerの合成後に行う構造・bounds検証は物理layerを推測せず、Config所有者から見た論理keyを診断へ使う。
+
+#### ProfiledValue の定数と時間の値
+
+定数は `epsilon = 0.05` のようにrootのbare値で指定する。`type` の既定は `constant`。
+`linear`・`cosine` は `start`・`end`・`steps`、`cosine_restart` はさらに `cycle_mult`、
+`exponential` は `start`・`end`・`time_constant` を使う。rootの指数は `end` に漸近し続ける。
+`phased` は空白区切りの `phases` に列挙した `phase.[name]` を順に評価する。各phaseは正の `steps` で終了し、最後のphase以後はその終値を保持する。phaseの定数は `phase.[name].value` で指定する。
+
+設定の読み取りと記録は分離する。非constantの配下に継承されたbare値は保持されるが、評価と型付きdumpには使わない。dumpには実効typeが参照する欄だけを記録する。後でconstantに戻す場合は、意図するbare値も明示する。
 
 ### 2.2 RunとRunner
 

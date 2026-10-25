@@ -68,13 +68,12 @@ namespace anet::rl::muzero_proto {
 
     class MuZeroReplayBuilder {
     public:
-        MuZeroReplayBuilder(int n_step, float gamma);
+        explicit MuZeroReplayBuilder(int n_step);
 
         /// Queueの状態を見て、可能なら確定済みRecordを生成する
-        std::vector<MuZeroReplayRecord> ProcessQueue(MuZeroExperienceQueue& queue);
+        std::vector<MuZeroReplayRecord> ProcessQueue(MuZeroExperienceQueue& queue, float gamma);
     private:
         const int n_step_;
-        const float gamma_;
     };
 
     class MuZeroReplayStorage {
@@ -120,7 +119,7 @@ namespace anet::rl::muzero_proto {
             const ReplayBufferConfig& config, int64_t num_envs, int64_t num_actions, std::optional<anet::seed_t> seed = std::nullopt);
 
         // --- anet::rl::ReplayBuffer Interfaces ---
-        void Push(const anet::rl::BatchExperience& batch_exp);
+        void Push(const anet::rl::BatchExperience& batch_exp, float gamma);
         //void Push(const std::vector<anet::rl::SingleExperience>& exps) { /* Not Used */ }
         int64_t Size() const;
         //void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) {}
@@ -129,7 +128,7 @@ namespace anet::rl::muzero_proto {
         //anet::rl::ExperienceSamples Sample(int64_t minibatch_size, torch::Device device, float beta = -1) const ;
 
         /// brief Learner向けにKステップ展開された時系列バッチをサンプリングする
-        MuZeroExperienceSamples Sample(int64_t batch_size, torch::Device device) const;
+        MuZeroExperienceSamples Sample(int64_t batch_size, torch::Device device, float gamma) const;
     public:
         // dummy overrides
         //std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override { return std::nullopt; }

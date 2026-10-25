@@ -358,7 +358,7 @@ anet::rl::img_cls::ImageClsAgentConfig MakeImageClsLearningRateTestConfig()
     config_data.Set("ImageClsAgent.learning_rate.start", 0.1);
     config_data.Set("ImageClsAgent.learning_rate.end", 0.01);
     config_data.Set("ImageClsAgent.learning_rate.steps", 10);
-    config_data.Set("ImageClsAgent.learning_rate.value", 0.1);
+    config_data.Set("ImageClsAgent.learning_rate", 0.1);
     config_data.Set("ImageClsAgent.weight_decay", 0.0);
     config_data.Set("ImageClsAgent.label_smoothing", 0.0);
     config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
@@ -368,7 +368,7 @@ anet::rl::img_cls::ImageClsAgentConfig MakeImageClsLearningRateTestConfig()
 anet::ConfigData MakeImageClsMixTestConfigData()
 {
     anet::ConfigData config_data;
-    config_data.Set("ImageClsAgent.learning_rate.value", 0.01);
+    config_data.Set("ImageClsAgent.learning_rate", 0.01);
     config_data.Set("ImageClsAgent.weight_decay", 0.0);
     config_data.Set("ImageClsAgent.label_smoothing", 0.0);
     config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
@@ -386,7 +386,7 @@ anet::ConfigData MakeImageClsMixTestConfigData()
 anet::ConfigData MakeImageClsSerializeTestConfigData()
 {
     anet::ConfigData config_data;
-    config_data.Set("ImageClsAgent.learning_rate.value", 0.01);
+    config_data.Set("ImageClsAgent.learning_rate", 0.01);
     config_data.Set("ImageClsAgent.weight_decay", 0.0);
     config_data.Set("ImageClsAgent.label_smoothing", 0.0);
     config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
@@ -1376,7 +1376,7 @@ TEST_CASE("ImageClsAgent cloned actor stays isolated until Sync", "[image_cls][a
     ScopedNoopMetricsLogger metrics_logger;
 
     auto config_data = MakeImageClsSerializeTestConfigData();
-    config_data.Set("ImageClsAgent.learning_rate.value", 0.1);
+    config_data.Set("ImageClsAgent.learning_rate", 0.1);
     auto env_spec = MakeImageClsEnvSpec();
     torch::manual_seed(20240706);
     anet::rl::img_cls::ImageClsAgent agent(

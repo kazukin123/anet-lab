@@ -118,13 +118,13 @@ TEST_CASE("PRD061 target Actor inherits final eval policy with explicit override
             { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
                 wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
         };
-        std::string arguments = "DefaultDQNAgent.actor.[eval].policy.eps_start=0.123";
-        if (override_target) arguments += " DefaultDQNAgent.actor.[eval_target].policy.eps_start=0.234";
+        std::string arguments = "DefaultDQNAgent.actor.[eval].policy.epsilon=0.123";
+        if (override_target) arguments += " DefaultDQNAgent.actor.[eval_target].policy.epsilon=0.234";
         wxCmdLineParser cli(description, wxString::FromUTF8(arguments));
         REQUIRE(cli.Parse(false) == 0);
         const auto config = anet::ConfigManager(input_path, &cli).GetConfigData();
-        CHECK(config.Get("DefaultDQNAgent.actor.[eval].policy.eps_start") == "0.123");
-        CHECK(config.Get("DefaultDQNAgent.actor.[eval_target].policy.eps_start") == (override_target ? "0.234" : "0.123"));
+        CHECK(config.Get("DefaultDQNAgent.actor.[eval].policy.epsilon") == "0.123");
+        CHECK(config.Get("DefaultDQNAgent.actor.[eval_target].policy.epsilon") == (override_target ? "0.234" : "0.123"));
         // 右側のtarget差分と、Actor自身に指定した葉の優先順位も維持する。
         CHECK(config.Get("DefaultDQNAgent.actor.[eval_target].network") == "target");
         CHECK(config.Get("DefaultDQNAgent.actor.[eval].network") == "online");
@@ -215,9 +215,9 @@ TEST_CASE("PRD061 shipped configurations resolve every Actor reference without p
     // 現用7環境で選ばれないRainbowも共通カタログのGreedy既定を検証する。
     const auto rainbow = anet::rl::dqn::RainbowAgentConfig(full).ToJson();
     CHECK(rainbow.at("actor.[eval_panel].network") == "target");
-    CHECK(rainbow.at("actor.[eval_panel].policy.eps_start") == 0.0);
-    CHECK(rainbow.at("actor.[eval_panel].policy.eps_end") == 0.0);
-    CHECK(rainbow.at("actor.[eval_panel].policy.eps_decay_steps") == 0);
+    CHECK(rainbow.at("actor.[eval_panel].policy.epsilon") == 0.0);
+    CHECK_FALSE(rainbow.contains("actor.[eval_panel].policy.epsilon.end"));
+    CHECK_FALSE(rainbow.contains("actor.[eval_panel].policy.epsilon.steps"));
 
 }
 
@@ -225,7 +225,10 @@ TEST_CASE("ConfigManager compares frozen PRD072 configuration inputs", "[.][prd0
 {
     // 入力定義とgoldenを版管理し、固定設定の展開と比較結果だけをローカルへ置く。
     const auto repo = std::filesystem::current_path();
-    const auto root = repo / ".scratch" / "prd072-differential" / "validation";
+    wxString prepared_root;
+    constexpr const char* kPrd072RootEnv = "ANET_PRD072_ROOT";
+    REQUIRE(wxGetEnv(kPrd072RootEnv, &prepared_root));
+    const auto root = std::filesystem::path(prepared_root.ToStdWstring());
     std::ifstream manifest_file(repo / "core/anet-core/testdata/prd072/manifest.json");
     REQUIRE(manifest_file.good());
     const auto manifest = anet::json::parse(manifest_file);

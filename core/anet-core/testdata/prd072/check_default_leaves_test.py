@@ -61,6 +61,32 @@ class DefaultLeafAuditTest(unittest.TestCase):
             code, _ = self.audit([(file, "DefaultDQNAgent.head.use_dueling ?= false")])
             self.assertEqual(code, 1)
 
+    def test_gridmaze_experiment_seed_remains_an_explicit_choice(self):
+        from migrate import migrate_text
+
+        # seedは明示的な実験選択であり、既定葉の?=へ弱めない。
+        file = "apps/runner/config/GridMaze.txt"
+        for operator, expected_code in (("=", 0), ("?=", 1)):
+            with self.subTest(operator=operator):
+                code, report = self.audit([(file, f"GridMazeEnv.seed {operator} 6545537233705677626")])
+                self.assertEqual(code, expected_code)
+                self.assertEqual(len(report), 1)
+                self.assertEqual(report[0]["key"], "GridMazeEnv.seed")
+                self.assertEqual(report[0]["reason"], "explicit experiment seed")
+                self.assertEqual(report[0]["expected_operator"], "=")
+
+        # 自動採番の単位は環境既定のままで、seedの分類を波及させない。
+        code, report = self.audit([(file, "GridMazeEnv.seed_mode ?= process")])
+        self.assertEqual(code, 0)
+        self.assertEqual(report[0]["reason"], "environment default definition")
+        self.assertEqual(report[0]["expected_operator"], "?=")
+
+        # 移行処理を通しても、値・演算子・コメント・改行を保持する。
+        source = "GridMazeEnv.seed = 6545537233705677626  # 実験用seed\n"
+        migrated, changes = migrate_text("GridMaze.txt", source)
+        self.assertEqual(migrated, source)
+        self.assertEqual(changes, [])
+
     def audit(self, lines):
         records = [json.dumps({"type": "match", "data": {
             "path": {"text": line[0] if isinstance(line, tuple) else "apps/runner/config/Example.txt"},

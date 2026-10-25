@@ -59,7 +59,7 @@ namespace anet::rl {
 
         // N-step 用
         int n_step = 1;
-        float gamma = 0.99f;
+        bool recompute_returns_on_sample = false; ///< schedule gamma用の抽選済み報酬列を保持する。
 
         // PER系
         float per_alpha = 0.5f;
@@ -114,12 +114,12 @@ namespace anet::rl {
         PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device);
         ~PrefetchingReplayBuffer() override;
 
-        void Push(const BatchExperience& batch_exp) override;
-        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        void Push(const BatchExperience& batch_exp, float gamma) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const override;
         bool SampleUniqueUniform(
-            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const override;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;

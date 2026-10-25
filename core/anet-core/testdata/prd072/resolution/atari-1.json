@@ -239,12 +239,12 @@
   ],
   "references": [
     {
-      "source": "A1.learner.per_beta_step",
+      "source": "A1.learner.per_beta.steps",
       "target": "@vars.half_exp_step",
       "value": "25,000,000"
     },
     {
-      "source": "DefaultDQNAgent.learner.per_beta_step",
+      "source": "DefaultDQNAgent.learner.per_beta.steps",
       "target": "@vars.half_exp_step",
       "value": "25,000,000"
     },

@@ -249,9 +249,9 @@ private:
 
 class DefaultExperienceBuilder : public ReplayExperienceBuilder {
 public:
-    DefaultExperienceBuilder(float gamma) : gamma_(gamma) {}
 
-    ReplayExperience Build(const ExperienceSequence& sequence) const override
+
+    ReplayExperience Build(const ExperienceSequence& sequence, float gamma) const override
     {
         ReplayExperience exp{};
         exp.target_return = 0.0f;
@@ -274,12 +274,10 @@ public:
 
         // 割引報酬和の計算 (逆順)
         for (int i = n - 1; i >= 0; --i) {
-            exp.target_return = sequence[i].reward + gamma_ * exp.target_return;
+            exp.target_return = sequence[i].reward + gamma * exp.target_return;
         }
         return exp;
     }
-private:
-    float gamma_;
 };
 
 
@@ -288,9 +286,9 @@ std::unique_ptr<ExperienceQueueController> anet::rl::CreateNStepQueueController(
     return std::make_unique<NStepQueueController>(n_step);
 }
 
-std::unique_ptr<ReplayExperienceBuilder> anet::rl::CreateDefaultExperienceBuilder(float gamma)
+std::unique_ptr<ReplayExperienceBuilder> anet::rl::CreateDefaultExperienceBuilder()
 {
-    return std::make_unique<DefaultExperienceBuilder>(gamma);
+    return std::make_unique<DefaultExperienceBuilder>();
 }
 
 // ===========================================================================
@@ -497,7 +495,7 @@ void InitialPriorityCompleter::CompleteReady(
             .start_hint = start_hint,
             .bootstrap_hint = bootstrap_hint,
             .target_return = entry.target_return,
-            .discount = static_cast<float>(std::pow(config_.gamma, entry.actual_n_steps)),
+            .discount = entry.discount,
             .terminal = entry.terminal,
             .actual_n_steps = entry.actual_n_steps,
         });
@@ -532,7 +530,6 @@ std::unique_ptr<InitialPriorityCompleter> anet::rl::CreateInitialPriorityComplet
         InitialPriorityCompleter::Config{
             .mode = config.per_initial_priority_mode,
             .fixed_raw_priority = config.per_initial_priority,
-            .gamma = config.gamma,
             .n_step = config.n_step,
             .unroll_steps = config.muzero.unroll_steps,
         },
@@ -1271,11 +1268,13 @@ private:
 class DefaultSampleExtractor : public ExperienceSampleExtractor {
 public:
     explicit DefaultSampleExtractor(const ReplayBufferConfig& config)
-        : stack_keys_(config.stack_keys), window_rule_(config.window_rule), gamma_(config.gamma)
+        : stack_keys_(config.stack_keys), window_rule_(config.window_rule), recompute_returns_(config.recompute_returns_on_sample), n_step_(config.n_step)
     {
+        if (recompute_returns_ && config.muzero.unroll_steps != 0)
+            ANET_SYSTEM_ERROR("Scheduled return extraction: unroll_steps=" << config.muzero.unroll_steps << " expected=0");
     }
 
-    void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps, ReplayExperienceSampler& sampler) const override
+    void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps, ReplayExperienceSampler& sampler, float gamma) const override
     {
         ANET_PROFILE_FUNC();
 
@@ -1288,6 +1287,14 @@ public:
 
         // 再利用される出力に、前回の窓を残さない。無効時はRNGを消費しない。
         out.window = {};
+        out.sampled_rewards = torch::Tensor();
+        out.sampled_window_rewards = torch::Tensor();
+        std::vector<float> sampled_rewards, sampled_window_rewards;
+        // schedule γだけ抽選時のstep報酬snapshotを確保し、定数γの保存済み収益経路は保つ。
+        if (recompute_returns_) {
+            sampled_rewards.resize(B * n_step_, 0.0f);
+            if (window_rule_) sampled_window_rewards.resize(B * window_rule_->GetLimit(), 0.0f);
+        }
         std::vector<float> window_returns;
         std::vector<uint8_t> window_terminals, window_truncated;
         std::vector<anet::TensorDict> window_next_obs;
@@ -1336,6 +1343,13 @@ public:
             int64_t env_idx = idx1d / cap;
             int64_t time_idx = idx1d % cap;
             int64_t actual_n = actual_n_steps_acc[env_idx][time_idx];
+            // ringが上書きされる前に行ごとの報酬と長さを確保し、prefetch消費時に読み直さない。
+            if (recompute_returns_) {
+                ANET_CHECK_MSG(actual_n > 0 && actual_n <= n_step_, "Invalid sampled return length: row=" << b << " lane=" << env_idx << " slot=" << time_idx << " value=" << actual_n << " expected [1," << n_step_ << "]");
+                for (int64_t offset = 0; offset < actual_n; ++offset) {
+                    sampled_rewards[b * n_step_ + offset] = storage.GetStepReward(env_idx, (time_idx + offset) % cap);
+                }
+            }
 
             // 未来方向 (Unroll) のスライス抽出 ---
             batch_actions.push_back(RingSlice(storage.GetActions(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
@@ -1379,7 +1393,9 @@ public:
                             << " expected no dummy or episode end before window end");
                     }
                     value += discount * storage.GetStepReward(env_idx, slot);
-                    discount *= gamma_;
+                    discount *= gamma;
+                    // TempoRL窓も同じ抽選時点の列を保持し、消費側γで窓収益を確定できるようにする。
+                    if (recompute_returns_) sampled_window_rewards[b * window_rule_->GetLimit() + offset] = storage.GetStepReward(env_idx, slot);
                 }
                 window_returns.push_back(value);
                 window_terminals.push_back((flags & ReplayExperienceStorage::kDone) != 0);
@@ -1414,6 +1430,14 @@ public:
             out.info = anet::TensorDict::Stack(batch_info, 0);
         }
 
+        // snapshotをバッチ所有のTensorへ移し、抽出時γで一度確定する。
+        // prefetchはこの列を運び、消費側Sampleが返す時点のγで再確定する（D20）。
+        if (recompute_returns_) {
+            out.sampled_rewards = torch::tensor(sampled_rewards).view({B, n_step_}).to(out.target_returns.device());
+            if (window_rule_) out.sampled_window_rewards = torch::tensor(sampled_window_rewards).view({B, window_rule_->GetLimit()}).to(out.target_returns.device());
+            out.FinalizeReturns(gamma);
+        }
+
         // --- PER等のメタデータ引き継ぎ ---
         out.is_weights = idx_result.is_weights;
         out.per_priority_sources = idx_result.per_priority_sources;
@@ -1421,7 +1445,8 @@ public:
 private:
     std::vector<std::string> stack_keys_;
     std::shared_ptr<const SampleWindowRule> window_rule_;
-    float gamma_;
+    bool recompute_returns_;
+    int n_step_;
 };
 
 
@@ -1464,7 +1489,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     sampled_once_.assign(static_cast<size_t>(num_envs_ * capacity_per_env_), 0);
 }
 
-void DefaultReplayBuffer::Push(const BatchExperience& batch)
+void DefaultReplayBuffer::Push(const BatchExperience& batch, float gamma)
 {
     ANET_PROFILE_FUNC();
 
@@ -1572,7 +1597,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
             queues_[b].Push(dummy_rec);
         }
 
-        ProcessQueue(b, rec.replay_initial_priority_hint, rec.logical_time_idx);
+        ProcessQueue(b, rec.replay_initial_priority_hint, rec.logical_time_idx, gamma);
         lane_expects_episode_start_[static_cast<size_t>(b)] = rec.done || rec.truncated;
     }
 
@@ -1624,7 +1649,7 @@ void DefaultReplayBuffer::StoreLastEvictionStats(int64_t evicted_sampleable_coun
 void DefaultReplayBuffer::ProcessQueue(
     int64_t env_idx,
     const std::optional<ReplayInitialPriorityHintRow>& current_hint,
-    int64_t current_logical_idx)
+    int64_t current_logical_idx, float gamma)
 {
     ANET_PROFILE_FUNC();
 
@@ -1645,7 +1670,7 @@ void DefaultReplayBuffer::ProcessQueue(
         }
 
         // Builderで割引報酬和を計算
-        ReplayExperience exp = builder_->Build(seq);
+        ReplayExperience exp = builder_->Build(seq, gamma);
 
         // 先頭の time_idx を取り出し、Storageを上書き(Update)
         int64_t time_idx = seq.front().time_idx;
@@ -1658,6 +1683,9 @@ void DefaultReplayBuffer::ProcessQueue(
                 .logical_time_idx = seq.front().logical_time_idx,
                 .flat_slot_index = env_idx * capacity_per_env_ + time_idx,
                 .target_return = exp.target_return,
+                // discountを使うactor_approxだけγ^nを計算する。他方式では未使用なので0を保持する。
+                .discount = config_.per_initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX
+                    ? static_cast<float>(std::pow(gamma, exp.actual_n_steps)) : 0.0f,
                 .terminal = exp.terminal,
                 .truncated = exp.truncated,
                 .actual_n_steps = exp.actual_n_steps,
@@ -1702,7 +1730,7 @@ int64_t DefaultReplayBuffer::EncodeReplayItemKey(int64_t flat_slot_index) const
     return EncodeReplayItemKeyChecked(generation, flat_slot_index, actual_capacity_);
 }
 
-void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
+void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const
 {
     ANET_PROFILE_FUNC();
 
@@ -1728,7 +1756,7 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
     metadata_lock.unlock();
 
     ANET_PROFILE_SCOPE(extract);
-    extractor_->ExtractSamples(out_samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps, *sampler_);
+    extractor_->ExtractSamples(out_samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps, *sampler_, gamma);
     auto flat_indices = idx_result.flat_slot_indices.to(torch::kCPU).contiguous();
     auto flat_acc = flat_indices.accessor<int64_t, 1>();
     std::vector<int64_t> item_keys(static_cast<size_t>(flat_indices.size(0)));
@@ -1741,7 +1769,7 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
 }
 
 bool DefaultReplayBuffer::SampleUniqueUniform(
-    ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const
+    ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const
 {
     ANET_PROFILE_FUNC();
     ANET_ASSERT_MSG(batch_size >= 1, "SampleUniqueUniform requires batch_size >= 1. batch_size=" << batch_size);
@@ -1759,7 +1787,7 @@ bool DefaultReplayBuffer::SampleUniqueUniform(
     metadata_lock.unlock();
 
     ExperienceSamples samples;
-    extractor_->ExtractSamples(samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps, unique_uniform_sampler);
+    extractor_->ExtractSamples(samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps, unique_uniform_sampler, gamma);
     const auto flat_indices = idx_result.flat_slot_indices.to(torch::kCPU).contiguous();
     const auto flat_acc = flat_indices.accessor<int64_t, 1>();
     std::vector<int64_t> item_keys(static_cast<size_t>(flat_indices.size(0)));
@@ -1773,7 +1801,7 @@ bool DefaultReplayBuffer::SampleUniqueUniform(
 }
 
 SamplingHistoryProbeResult DefaultReplayBuffer::ProbeSamplingHistory(
-    const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const
+    const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const
 {
     ANET_PROFILE_FUNC();
     SamplingHistoryProbeResult result;
@@ -1839,7 +1867,7 @@ SamplingHistoryProbeResult DefaultReplayBuffer::ProbeSamplingHistory(
     const auto extract_samples = [&](const IndexSampleResult& indices) {
         ExperienceSamples samples;
         UniqueUniformSampler window_sampler(*random);
-        extractor_->ExtractSamples(samples, *storage_, indices, config_.stack_count, config_.muzero.unroll_steps, window_sampler);
+        extractor_->ExtractSamples(samples, *storage_, indices, config_.stack_count, config_.muzero.unroll_steps, window_sampler, gamma);
         const auto flat = indices.flat_slot_indices.contiguous();
         const auto slots = flat.accessor<int64_t, 1>();
         std::vector<int64_t> keys(static_cast<size_t>(flat.numel()));
@@ -2199,19 +2227,19 @@ struct PrefetchingReplayBuffer::State {
     }
 
     /// inner からサンプルし transfer まで行って PrefetchedBatch を作る（prefetch worker 本体）。
-    PrefetchedBatch Fetch(int64_t minibatch_size, float beta);
+    PrefetchedBatch Fetch(int64_t minibatch_size, float beta, float gamma);
 
     /// CPU サンプルを pin→H2D→event record して DeviceTransfer 化する（CPU device 時は同期 To のみ）。
     PrefetchedBatch TransferSamples(ExperienceSamples cpu_samples);
 
     /// future 未起動なら次の 1-deep prefetch を worker に投入する（mutex 保持前提）。
-    void LaunchPrefetchLocked(int64_t minibatch_size, float beta);
+    void LaunchPrefetchLocked(int64_t minibatch_size, float beta, float gamma);
 
     /// in-flight prefetch future の完了を待つ（消費はしない。mutex 保持前提）。
     void WaitForPrefetchLocked();
 
     /// armed 後の Push を worker FIFO に write-behind 投入する（mutex 保持前提）。
-    void EnqueueDelayedPushLocked(BatchExperience batch_exp);
+    void EnqueueDelayedPushLocked(BatchExperience batch_exp, float gamma);
 
     /// 完了済み delayed push を非ブロッキングで回収する（mutex 保持前提）。
     void PruneCompletedPushesLocked();
@@ -2232,11 +2260,11 @@ struct PrefetchingReplayBuffer::State {
     std::deque<std::future<void>> push_futures;
 };
 
-PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::Fetch(int64_t minibatch_size, float beta)
+PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::Fetch(int64_t minibatch_size, float beta, float gamma)
 {
     ANET_PROFILE_SCOPE(sample);
     ExperienceSamples cpu_samples;
-    inner.Sample(cpu_samples, minibatch_size, beta);
+    inner.Sample(cpu_samples, minibatch_size, beta, gamma);
 
     return TransferSamples(std::move(cpu_samples));
 }
@@ -2261,12 +2289,12 @@ PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::
         event_recycler);
 }
 
-void PrefetchingReplayBuffer::State::LaunchPrefetchLocked(int64_t minibatch_size, float beta)
+void PrefetchingReplayBuffer::State::LaunchPrefetchLocked(int64_t minibatch_size, float beta, float gamma)
 {
     if (future.valid()) return;
 
-    future = pool->EnqueueFuture(0, [this, minibatch_size, beta]() {
-        return Fetch(minibatch_size, beta);
+    future = pool->EnqueueFuture(0, [this, minibatch_size, beta, gamma]() {
+        return Fetch(minibatch_size, beta, gamma);
     });
 }
 
@@ -2277,11 +2305,11 @@ void PrefetchingReplayBuffer::State::WaitForPrefetchLocked()
     }
 }
 
-void PrefetchingReplayBuffer::State::EnqueueDelayedPushLocked(BatchExperience batch_exp)
+void PrefetchingReplayBuffer::State::EnqueueDelayedPushLocked(BatchExperience batch_exp, float gamma)
 {
-    push_futures.push_back(pool->EnqueueFuture(0, [this, batch_exp = std::move(batch_exp)]() mutable {
+    push_futures.push_back(pool->EnqueueFuture(0, [this, batch_exp = std::move(batch_exp), gamma]() mutable {
         ANET_PROFILE_SCOPE_FULL(push_worker, "PrefetchingReplayBuffer::Push.push_worker");
-        inner.Push(batch_exp);
+        inner.Push(batch_exp, gamma);
     }));
 }
 
@@ -2333,13 +2361,13 @@ PrefetchingReplayBuffer::~PrefetchingReplayBuffer()
     }
 }
 
-void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp)
+void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp, float gamma)
 {
     ANET_PROFILE_FUNC();
 
     std::lock_guard<std::mutex> lock(state_->mutex);
     if (!state_->future.valid()) {
-        inner_->Push(batch_exp);
+        inner_->Push(batch_exp, gamma);
         return;
     }
 
@@ -2349,11 +2377,11 @@ void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp)
     BatchExperience snapshot = batch_exp;
     {
         ANET_PROFILE_SCOPE_NEXT(enqueue_push);
-        state_->EnqueueDelayedPushLocked(std::move(snapshot));
+        state_->EnqueueDelayedPushLocked(std::move(snapshot), gamma);
     }
 }
 
-void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
+void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const
 {
     ANET_PROFILE_FUNC();
 
@@ -2367,18 +2395,19 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
             // futureの有無をこの順序で更新することで、二重起動せず常に最大1件だけ先読みする。
             batch = state_->future.get();
             state_->PruneCompletedPushesLocked();
-            state_->LaunchPrefetchLocked(minibatch_size, beta);
+            state_->LaunchPrefetchLocked(minibatch_size, beta, gamma);
         } else {
             ANET_PROFILE_SCOPE(cold_fetch);
 
             // 初回はfutureが無いため、state mutex内で同期Sampleし、Push/UpdatePrioritiesとの順序を固定する。
-            batch = state_->Fetch(minibatch_size, beta);
-            state_->LaunchPrefetchLocked(minibatch_size, beta);
+            batch = state_->Fetch(minibatch_size, beta, gamma);
+            state_->LaunchPrefetchLocked(minibatch_size, beta, gamma);
         }
     }
 
     if (!batch.ready_event) {
         out_samples = std::move(batch.device_samples);
+        out_samples.FinalizeReturns(gamma);
         return;
     }
 
@@ -2391,6 +2420,7 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
         anet::transfer::RecordStreamOn(batch.device_samples, current_stream);
     }
     out_samples = std::move(batch.device_samples);
+    out_samples.FinalizeReturns(gamma);
 
     {
         ANET_PROFILE_SCOPE(retire_ready_event);
@@ -2400,7 +2430,7 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
 }
 
 bool PrefetchingReplayBuffer::SampleUniqueUniform(
-    ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const
+    ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const
 {
     ANET_PROFILE_FUNC();
 
@@ -2408,18 +2438,18 @@ bool PrefetchingReplayBuffer::SampleUniqueUniform(
     // 呼び出し時点までの worker FIFO を確定し、通常 prefetch future は消費しない
     state_->WaitForPrefetchLocked();
     state_->WaitForQueuedPushesLocked();
-    return inner_->SampleUniqueUniform(out_samples, batch_size, random);
+    return inner_->SampleUniqueUniform(out_samples, batch_size, random, gamma);
 }
 
 SamplingHistoryProbeResult PrefetchingReplayBuffer::ProbeSamplingHistory(
-    const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const
+    const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const
 {
     ANET_PROFILE_FUNC();
     std::lock_guard<std::mutex> lock(state_->mutex);
     // 通常prefetchを消費せず、呼び出し時点までのPushと抽選履歴を確定する。
     state_->WaitForPrefetchLocked();
     state_->WaitForQueuedPushesLocked();
-    return inner_->ProbeSamplingHistory(request, random);
+    return inner_->ProbeSamplingHistory(request, random, gamma);
 }
 
 int64_t PrefetchingReplayBuffer::Size() const
@@ -2499,7 +2529,7 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
 
     // 内部コンポーネントの構築
     auto queue_controller = CreateNStepQueueController(config.n_step);
-    auto builder = CreateDefaultExperienceBuilder(config.gamma);
+    auto builder = CreateDefaultExperienceBuilder();
 
     std::shared_ptr<ReplayExperienceSampler> sampler;
     std::shared_ptr<ReplayPriorityStore> priority_store;

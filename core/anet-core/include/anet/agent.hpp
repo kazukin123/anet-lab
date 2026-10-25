@@ -2,6 +2,7 @@
 #pragma once
 
 #include <memory>
+#include <limits>
 #include <optional>
 #include <mutex>
 #include "anet/rl.hpp"
@@ -72,7 +73,7 @@ namespace anet::rl {
         class BatchUpdateResult;
 
         struct NetworkModelConfig {
-            float soft_update_tau = 0.01f;
+            anet::ProfiledValueConfig<float> soft_update_tau{ .value = 0.01f, .min_value = 0.0f, .max_value = 1.0f };
             int hard_update_interval = -1;
         };
 
@@ -105,26 +106,34 @@ namespace anet::rl {
             // Poilcy選択
             std::string policy_type = "EpsilonGreedy"; ///< "EpsilonGreedy", "UQE", "ThompsonSampling", "Greedy"
 
-            // ==========================================
-            // 純粋な EpsilonGreedy 用設定
-            // ==========================================
-            float eps_start = 1.0f;
-            float eps_end = 0.05f;
-            uint64_t eps_decay_steps = 100000;
-            bool use_spatial_exploration = false;
-            std::string spatial_scale_type = "log";
-
-            // ==========================================
-            // UQE / ThompsonSampling 用設定
-            // ==========================================
-            float uqe_tau_start = 0.5f;
-            float uqe_tau_end = 0.5f;
-            uint64_t uqe_tau_decay_steps = 0;
-            bool uqe_use_tail_mean = true;
-
-            float uqe_eps_start = 0.0f;
-            float uqe_eps_end = 0.0f;
-            uint64_t uqe_eps_decay_steps = 0;
+            anet::ProfiledValueConfig<float> epsilon{
+                .value = 1.0f, .start = 1.0f, .end = 0.05f, .min_value = 0.0f, .max_value = 1.0f };
+            struct UqeConfig {
+                anet::ProfiledValueConfig<float> epsilon{
+                    .value = 0.0f, .min_value = 0.0f, .max_value = 1.0f };
+                anet::ProfiledValueConfig<float> tau{
+                    .value = 0.5f, .start = 0.5f, .end = 0.5f, .min_value = 0.0f, .max_value = 1.0f };
+                bool use_tail_mean = true;
+            } uqe;
+            struct LadderConfig {
+                anet::ProfiledValueConfig<float> first;
+                anet::ProfiledValueConfig<float> last;
+            };
+            struct SpatialConfig {
+                bool enabled = false;
+                std::string scale = "log";
+                LadderConfig epsilon{
+                    .first = {.value = 0.4f, .min_value = 0.0f, .max_value = 1.0f},
+                    .last = {.value = 0.01f, .min_value = 0.0f, .max_value = 1.0f} };
+                struct {
+                    LadderConfig epsilon{
+                        .first = {.value = 0.05f, .min_value = 0.0f, .max_value = 1.0f},
+                        .last = {.value = 0.05f, .min_value = 0.0f, .max_value = 1.0f} };
+                    LadderConfig tau{
+                        .first = {.value = 0.9f, .min_value = 0.0f, .max_value = 1.0f},
+                        .last = {.value = 0.5f, .min_value = 0.0f, .max_value = 1.0f} };
+                } uqe;
+            } spatial;
 
             // ==========================================
             // 推論（Forward）時の精度設定
@@ -141,6 +150,12 @@ namespace anet::rl {
                 return policy_type == "ThompsonSampling" || policy_type == "2";
             }
         };
+
+        inline void ValidateSpatialScale(const std::string& scale, const std::string& key)
+        {
+            if (scale != "log" && scale != "linear")
+                ANET_SYSTEM_ERROR("Invalid " << key << "=" << scale << " expected=log|linear");
+        }
 
         struct DQNActorConfig {
             ActionPolicyConfig policy;
@@ -171,12 +186,26 @@ namespace anet::rl {
 			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
         };
 
-        struct MunchausenConfig {
+        struct MunchausenValues {
             bool enabled = false;
             std::string log_policy_mode = "target"; ///< Learner専用。Actorのヒント生成では参照しない。
             float alpha = 0.9f;
             float entropy_tau = 0.03f;
             float clip_value_min = -1.0f;
+        };
+
+        struct MunchausenConfig {
+            bool enabled = false;
+            std::string log_policy_mode = "target";
+            anet::ProfiledValueConfig<float> alpha{ .value = 0.9f, .min_value = 0.0f, .max_value = 1.0f };
+            anet::ProfiledValueConfig<float> entropy_tau{ .value = 0.03f, .min_value = std::numeric_limits<float>::denorm_min() };
+            float clip_value_min = -1.0f;
+
+            MunchausenValues Resolve(float alpha_value, float entropy_tau_value) const
+            {
+                return { .enabled = enabled, .log_policy_mode = log_policy_mode,
+                    .alpha = alpha_value, .entropy_tau = entropy_tau_value, .clip_value_min = clip_value_min };
+            }
         };
 
         /// Agent prefixを含めず、選択項目を識別するNN実行設定キーを作る。
@@ -201,13 +230,13 @@ namespace anet::rl {
             ForwardSelection target;
             bool enabled = true;         ///< falseで学習を完全停止する(評価専用Run)。ReplayBuffer構築も勾配更新も行わない
             std::string quantile_mode = ActionPolicyConfig::kQuantileModeNone; ///< Agent config から解決して渡す内部mode
-            float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-            float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
+            anet::ProfiledValueConfig<float> learning_rate{ .value = 1e-3f, .min_value = 0.0f };
+            anet::ProfiledValueConfig<float> weight_decay{ .value = 1e-2f, .min_value = 0.0f };
             float noisy_weight_decay = 0.0f; ///< 勾配が成立した Noisy sigma の専用 decay
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
             bool use_fused_optimizer = true; ///< ATen fused AdamWを使うか。falseで従来AdamWへ戻す。
 
-            float gamma = 0.99f;         ///< 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+            anet::ProfiledValueConfig<float> gamma{ .value = 0.99f, .min_value = 0.0f, .max_value = 1.0f };
 
             bool use_grad_clip = true;
             float grad_clip_tau = 30.0f;
@@ -224,9 +253,8 @@ namespace anet::rl {
             int n_step = 3;
 
             float per_alpha = 0.6f;            ///< 優先度の反映度合い (0:uniform, 1:full)
-            float per_beta_start = 0.4f;       ///< IS重みの補正度合い (初期値)
-            float per_beta_end = 1.0f;         ///< IS重みの補正度合い (収束値)
-            int   per_beta_step = 100000;      ///< betaを収束値まで線形変化させるステップ数
+            anet::ProfiledValueConfig<float> per_beta{ .value = 0.4f,
+                .start = 0.4f, .end = 1.0f, .steps = 100000, .min_value = 0.0f, .max_value = 1.0f };
             float per_eps = 1e-6f;             ///< 優先度加算用微小値
             float per_initial_priority = 1.0f; ///< 新規データの初期優先度
             std::string per_initial_priority_mode = "fixed"; ///< fixed / max / actor_approx
@@ -383,3 +411,35 @@ namespace anet::rl {
         }; \
         static FactoryType##AutoRegister global_##FactoryType##_auto_register; \
     }
+
+namespace anet {
+    template<> struct ConfigReader<rl::dqn::ActionPolicyConfig> {
+        static constexpr bool kEnabled = true;
+        static void Read(Config& owner, const ConfigData& data, const std::string& key,
+            rl::dqn::ActionPolicyConfig& value)
+        {
+            // 時間の値とラダー両端を独立に読み、休眠側も値域を検証する。
+            owner.ReadSubConfig(data, key, "policy_type", value.policy_type);
+            owner.ReadSubConfig(data, key, "epsilon", value.epsilon);
+            owner.ReadSubConfig(data, key, "uqe.epsilon", value.uqe.epsilon);
+            owner.ReadSubConfig(data, key, "uqe.tau", value.uqe.tau);
+            owner.ReadSubConfig(data, key, "uqe.use_tail_mean", value.uqe.use_tail_mean);
+            owner.ReadSubConfig(data, key, "spatial.enabled", value.spatial.enabled);
+            owner.ReadSubConfig(data, key, "spatial.scale", value.spatial.scale);
+            owner.ReadSubConfig(data, key, "spatial.epsilon.first", value.spatial.epsilon.first);
+            owner.ReadSubConfig(data, key, "spatial.epsilon.last", value.spatial.epsilon.last);
+            owner.ReadSubConfig(data, key, "spatial.uqe.epsilon.first", value.spatial.uqe.epsilon.first);
+            owner.ReadSubConfig(data, key, "spatial.uqe.epsilon.last", value.spatial.uqe.epsilon.last);
+            owner.ReadSubConfig(data, key, "spatial.uqe.tau.first", value.spatial.uqe.tau.first);
+            owner.ReadSubConfig(data, key, "spatial.uqe.tau.last", value.spatial.uqe.tau.last);
+            owner.ReadSubConfig(data, key, "use_amp", value.use_amp);
+            owner.ReadSubConfig(data, key, "use_amp_bf16", value.use_amp_bf16);
+            owner.ReadSubConfig(data, key, "tau_rule.sample_mode", value.tau_rule.sample_mode);
+            owner.ReadSubConfig(data, key, "tau_rule.num_taus", value.tau_rule.num_taus);
+            owner.ReadSubConfig(data, key, "full_distribution_query.enabled", value.full_distribution_query.enabled);
+            owner.ReadSubConfig(data, key, "full_distribution_query.tau_rule.sample_mode", value.full_distribution_query.tau_rule.sample_mode);
+            owner.ReadSubConfig(data, key, "full_distribution_query.tau_rule.num_taus", value.full_distribution_query.tau_rule.num_taus);
+            rl::dqn::ValidateSpatialScale(value.spatial.scale, key + ".spatial.scale");
+        }
+    };
+}

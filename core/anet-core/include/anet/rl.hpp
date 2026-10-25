@@ -856,6 +856,11 @@ namespace anet::rl {
         // --- その他 ---
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
 
+        // schedule gamma用の抽選時snapshot。定数構成では未定義。
+        torch::Tensor sampled_rewards;        ///< [B,N] 実長以後は0
+        torch::Tensor sampled_window_rewards; ///< [B,J] 実長以後は0
+        void FinalizeReturns(float gamma);
+
         // ユーティリティ
         ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
         template <class F>
@@ -883,6 +888,8 @@ namespace anet::rl {
             visit(is_weights);
             visit(per_priority_sources);
             info.ForEachTensor(visit);
+            visit(sampled_rewards);
+            visit(sampled_window_rewards);
         }
         std::string ToString() const;
     };
@@ -915,12 +922,12 @@ namespace anet::rl {
 
     class ReplayBuffer : public anet::Module, public ReplayPriorityController {
     public:
-        virtual void Push(const BatchExperience& batch_exp) = 0;
-        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
+        virtual void Push(const BatchExperience& batch_exp, float gamma) = 0;
+        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const = 0;
         virtual bool SampleUniqueUniform(
-            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const = 0;
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const = 0;
         virtual SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const = 0;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;

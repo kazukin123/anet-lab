@@ -267,8 +267,8 @@ private:
 class HintRecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     rl::SamplingHistoryProbeResult ProbeSamplingHistory(
-        const rl::SamplingHistoryProbeRequest&, anet::RandomGenerator*) const override { return {}; }
-    void Push(const rl::BatchExperience& batch_exp) override
+        const rl::SamplingHistoryProbeRequest&, anet::RandomGenerator*, float gamma) const override { return {}; }
+    void Push(const rl::BatchExperience& batch_exp, float gamma) override
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto& hint = batch_exp.action->GetReplayInitialPriorityHint();
@@ -278,9 +278,9 @@ public:
         ++push_count_;
     }
 
-    void Sample(rl::ExperienceSamples&, int64_t, float) const override {}
+    void Sample(rl::ExperienceSamples&, int64_t, float, float gamma) const override {}
     bool SampleUniqueUniform(
-        rl::ExperienceSamples&, int64_t, anet::RandomGenerator&) const override { return false; }
+        rl::ExperienceSamples&, int64_t, anet::RandomGenerator&, float) const override { return false; }
     int64_t Size() const override { return 0; }
     rl::ReplayPriorityUpdateResult UpdatePriorities(
         const std::vector<int64_t>&, const std::vector<float>&) override
@@ -336,7 +336,7 @@ public:
         const rl::StepCounts&, const rl::BatchExperience& batch_exp) override
     {
         if (fail_) throw std::runtime_error("last learner failure");
-        replay_buffer_->Push(batch_exp);
+        replay_buffer_->Push(batch_exp, 0.99f);
         rl::BatchUpdateResultList results;
         for (int i = 0; i < result_count_; ++i) {
             results.push_back(std::make_shared<TestBatchUpdateResult>());
@@ -1226,8 +1226,9 @@ TEST_CASE("Runner selects an Actor catalog entry and exposes its epsilon", "[tra
     config.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
     config.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
     config.Set("DefaultDQNAgent.actor.[probe].policy.policy_type", "EpsilonGreedy");
-    config.Set("DefaultDQNAgent.actor.[probe].policy.eps_start", 0.3f);
-    config.Set("DefaultDQNAgent.actor.[probe].policy.eps_end", 0.3f);
+    config.Set("DefaultDQNAgent.actor.[probe].policy.epsilon", 0.3f);
+    config.Set("DefaultDQNAgent.actor.[probe].policy.epsilon.start", 0.3f);
+    config.Set("DefaultDQNAgent.actor.[probe].policy.epsilon.end", 0.3f);
     // Actor カタログの実行目的を明示し、Noisy OFF の既定動作を選ぶ。
     config.Set("DefaultDQNAgent.nn_forward.[test_default].noisy.mode", "mu_only");
     config.Set("DefaultDQNAgent.actor.[probe].nn_forward_key", "test_default");

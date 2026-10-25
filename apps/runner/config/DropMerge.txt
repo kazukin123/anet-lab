@@ -92,10 +92,11 @@ app.online.exp_pause_step  = 50,000,000      # 50M
 
 app.batchrun.exp_exit_step  = 100,000,000    # 100M
 
-#A1.learner.per_beta_step = 10,000,000              # 10M
-A1.learner.per_beta_step = 20,000,000              # 20M
-#A1.learner.per_beta_step = 40,000,000              # 40M
-#A1.learner.per_beta_step = 100,000,000            # 100M
+#A1.learner.per_beta.steps = 10,000,000              # 10M
+A1.learner.per_beta.type = linear # 20M
+A1.learner.per_beta.steps = 20,000,000
+#A1.learner.per_beta.steps = 40,000,000              # 40M
+#A1.learner.per_beta.steps = 100,000,000            # 100M
 
 #backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.@non-deterministic # 非決定論的（高速化）
@@ -115,16 +116,18 @@ backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 #app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 160,000,000     # 160M
 
-#A1.actor.[train].policy.uqe_eps_decay_steps = 2,000,000      # 2M
-A1.actor.[train].policy.uqe_eps_decay_steps = 5,000,000      # 5M
-#A1.actor.[train].policy.uqe_eps_decay_steps = 10,000,000      # 10M
-#A1.actor.[train].policy.uqe_eps_decay_steps = 20,000,000      # 20M
+#A1.actor.[train].policy.uqe.epsilon.steps = 2,000,000      # 2M
+A1.actor.[train].policy.uqe.epsilon.type = linear # 5M
+A1.actor.[train].policy.uqe.epsilon.steps = 5,000,000
+#A1.actor.[train].policy.uqe.epsilon.steps = 10,000,000      # 10M
+#A1.actor.[train].policy.uqe.epsilon.steps = 20,000,000      # 20M
 
-#A1.actor.[train].policy.uqe_tau_decay_steps = 2,000,000   # 2M
-#A1.actor.[train].policy.uqe_tau_decay_steps = 10,000,000   # 10M
-A1.actor.[train].policy.uqe_tau_decay_steps = 20,000,000   # 20M
-#A1.actor.[train].policy.uqe_tau_decay_steps = 40,000,000   # 40M
-#A1.actor.[train].policy.uqe_tau_decay_steps = 100,000,000 # 100M
+#A1.actor.[train].policy.uqe.tau.steps = 2,000,000   # 2M
+#A1.actor.[train].policy.uqe.tau.steps = 10,000,000   # 10M
+A1.actor.[train].policy.uqe.tau.type = linear # 20M
+A1.actor.[train].policy.uqe.tau.steps = 20,000,000
+#A1.actor.[train].policy.uqe.tau.steps = 40,000,000   # 40M
+#A1.actor.[train].policy.uqe.tau.steps = 100,000,000 # 100M
 
 
 # ==============================================================================
@@ -134,7 +137,7 @@ A1.actor.[train].policy.uqe_tau_decay_steps = 20,000,000   # 20M
 #app.run_name = run_{t}_apx-ll_cy08
 #A2.auto_load_file = ../../runs/run_20260805-115101_apx-ll_cy07/agent_close.anet
 #A2.auto_load_file = ../../runs/run_20260809-033908_dm_iqn32-b128-rr125/agent_close.anet
-#A2.learner.per_beta_start = 0.6
+#A2.learner.per_beta.start = 0.6
 
 
 # ==============================================================================
@@ -150,7 +153,7 @@ A2.actor.[train].policy.tau_rule.num_taus = 32
 A2.actor.[eval].policy.policy_type = UQE
 A2.actor.[eval].policy.tau_rule.sample_mode = fixed
 A2.actor.[eval].policy.tau_rule.num_taus = 32
-A2.actor.[eval].policy.uqe_use_tail_mean = true
+A2.actor.[eval].policy.uqe.use_tail_mean = true
 A2.actor.[eval].policy.full_distribution_query.enabled = true
 A2.actor.[eval].policy.full_distribution_query.tau_rule.sample_mode = fixed
 A2.actor.[eval].policy.full_distribution_query.tau_rule.num_taus = 32
@@ -163,9 +166,9 @@ A2.learner.iqn.target_taus.num_taus = 32
 E1.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
 E1.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の class 12 で表示
 
-#A2.learner.alpha = 7.5e-5
-#A2.learner.alpha = 3e-4
-A2.learner.alpha = 1e-4
+#A2.learner.learning_rate = 7.5e-5
+#A2.learner.learning_rate = 3e-4
+A2.learner.learning_rate = 1e-4
 
 #A2.learner.replay_batch_size = 128
 A2.learner.replay_batch_size = 256
@@ -186,8 +189,8 @@ A2.learner.per_initial_priority_mode = fixed
 #A2.learner.per_initial_priority_mode = max
 
 
-A2.actor.[train].policy.use_spatial_exploration = true
-#A2.actor.[train].policy.use_spatial_exploration = false
+A2.actor.[train].policy.spatial.enabled = true
+#A2.actor.[train].policy.spatial.enabled = false
 
 #A2.use_optimistic_target = true
 A2.use_optimistic_target = false
@@ -205,8 +208,8 @@ M1.[33_agent_action/12_train_actor_snapshot_age] = train_actor_snapshot_age @tra
 #A2.actor.[train].clone_model = false
 A2.actor.[train].clone_model = true
 A2.actor.[train].sync_interval.type = constant
-#A2.actor.[train].sync_interval.value = 400
-A2.actor.[train].sync_interval.value = 200
+#A2.actor.[train].sync_interval = 400
+A2.actor.[train].sync_interval = 200
 
 A2.learner.per_initial_priority = 0.3
 
@@ -223,7 +226,7 @@ A2.learner.use_tbo = true
 #backend.cuda_launch_blocking = on
 #A2.learner.use_rb_prefetch = false
 
-A2.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
+A2.target_policy.uqe.use_tail_mean = false # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
 
 A2.learner.grad_clip_tau = 5
 
@@ -235,17 +238,17 @@ A2.learner.grad_clip_tau = 5
 
 #E1.game_over_penalty = -1.0   #-10.0
 
-#A2.actor.[train].policy.spatial_scale_type = linear
+#A2.actor.[train].policy.spatial.scale = linear
 #A2.learner.weight_decay        = 0.0002
 
 #A2.target_policy.policy_type = Greedy
-#A2.actor.[train].policy.uqe_tau_start = 0.5
-#A2.actor.[train].policy.uqe_tau_end = 0.5
-#A2.actor.[train].policy.uqe_eps_start = 0.3
-#A2.actor.[train].policy.uqe_eps_end = 0.05
+#A2.actor.[train].policy.uqe.tau.start = 0.5
+#A2.actor.[train].policy.uqe.tau.end = 0.5
+#A2.actor.[train].policy.uqe.epsilon.start = 0.3
+#A2.actor.[train].policy.uqe.epsilon.end = 0.05
 
-#A2.actor.[eval].policy.uqe_tau_start = 0.5
-#A2.actor.[eval].policy.uqe_tau_end = 0.5
+#A2.actor.[eval].policy.uqe.tau.start = 0.5
+#A2.actor.[eval].policy.uqe.tau.end = 0.5
 
 #E1.use_settle_after_drop = true   # false
 #E1.use_settle_after_drop = false  # false
@@ -270,7 +273,7 @@ A2.learner.grad_clip_tau = 5
 #A2.learner.weight_decay = 1e-1 # p4
 #A2.learner.weight_decay = 0 # p5
 
-#E1.learner.alpha = 1e-4
+#E1.learner.learning_rate = 1e-4
 #E1.learner.weight_decay = 1e-2
 
 #E1.learner.adam_eps = 1e-5
@@ -293,24 +296,24 @@ A2.learner.grad_clip_tau = 5
 
 #A2.learner.replay_capacity = 524,280
 
-#A2.actor.[train].policy.uqe_eps_end = 0.0
+#A2.actor.[train].policy.uqe.epsilon.end = 0.0
 
-#A2.actor.[train].policy.uqe_tau_start = 0.95 # 0.95
-#A2.actor.[train].policy.uqe_tau_end = 0.95   # 0.85
+#A2.actor.[train].policy.uqe.tau.start = 0.95 # 0.95
+#A2.actor.[train].policy.uqe.tau.end = 0.95   # 0.85
 
-#A2.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
-#A2.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
+#A2.learner.per_beta.start = 0.4  # 0.6  0.4→0.6
+#A2.learner.per_beta.end = 0.6    # 1.0  0.4→0.6
 
 #app.online.exp_pause_step  = 80,000,000      # 80M
 
-#A2.actor.[train].policy.uqe_eps_decay_steps = 5,000,000   # 5M
-#A2.actor.[train].policy.uqe_eps_decay_steps = 20,000,000  # 20M
+#A2.actor.[train].policy.uqe.epsilon.steps = 5,000,000   # 5M
+#A2.actor.[train].policy.uqe.epsilon.steps = 20,000,000  # 20M
 
-#A2.actor.[train].policy.uqe_tau_decay_steps = 5,000,000   # 5M
-#A2.actor.[train].policy.uqe_tau_decay_steps = 20,000,000  # 20M
+#A2.actor.[train].policy.uqe.tau.steps = 5,000,000   # 5M
+#A2.actor.[train].policy.uqe.tau.steps = 20,000,000  # 20M
 
-#A2.learner.per_beta_step = 5,000,000              # 5M
-#A2.learner.per_beta_step = 20,000,000             # 20M
+#A2.learner.per_beta.steps = 5,000,000              # 5M
+#A2.learner.per_beta.steps = 20,000,000             # 20M
 
 #A2.qr.num_quantiles = 101
 
@@ -341,7 +344,7 @@ A2.learner.grad_clip_tau = 5
 #A2.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 #A2.learner.replay_capacity =  1,048,576
 
-#A2.target_policy.uqe_tau_start = 0.85
+#A2.target_policy.uqe.tau.start = 0.85
 
 #A2.use_optimistic_target = true # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
@@ -351,23 +354,23 @@ A2.learner.grad_clip_tau = 5
 #E1.box_height = 8.0      # 4.0
 
 #A2.actor.[eval].policy.policy_type = UQE
-#A2.actor.[eval].policy.uqe_tau_start = 0.65
+#A2.actor.[eval].policy.uqe.tau.start = 0.65
 
 #A2.actor.[train].policy.policy_type = EpsilonGreedy
 #A2.actor.[train].policy.policy_type = UQE
 #A2.actor.[train].policy.policy_type = ThompsonSampling
 
-#A2.actor.[train].policy.uqe_use_tail_mean = true
-#A2.target.uqe_use_tail_mean = true
+#A2.actor.[train].policy.uqe.use_tail_mean = true
+#A2.target.uqe.use_tail_mean = true
 
-#A2.actor.[train].policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy
-#A2.actor.[train].policy.eps_end = 0.05               # 0.1 0.05 for EpsilonGreedy
-#A2.actor.[train].policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
-#A2.actor.[train].policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.start = 1.00               # 指数減衰 for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.end = 0.05               # 0.1 0.05 for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.steps = 10,000,000  # 10M for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.steps = 30,000,000  # 30M for EpsilonGreedy
 
 #A2.actor.[eval].policy.policy_type = EpsilonGreedy
-#A2.actor.[eval].policy.eps_start = 0.05
-#A2.actor.[eval].policy.eps_end = 0.05
+#A2.actor.[eval].policy.epsilon.start = 0.05
+#A2.actor.[eval].policy.epsilon.end = 0.05
 
 #E1.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
 #E1.no_drop_timeout_steps = 300
@@ -428,21 +431,21 @@ A2.learner.grad_clip_tau = 5
 
 #A2.learner.adam_eps = 1.5e-4
 
-#A2.actor.[train].policy.uqe_eps_start = 1.00
+#A2.actor.[train].policy.uqe.epsilon.start = 1.00
 
-#A2.actor.[train].policy.uqe_eps_end = 0.60
-#A2.actor.[train].policy.uqe_eps_end = 0.05
-#A2.actor.[train].policy.uqe_eps_end = 0.0
+#A2.actor.[train].policy.uqe.epsilon.end = 0.60
+#A2.actor.[train].policy.uqe.epsilon.end = 0.05
+#A2.actor.[train].policy.uqe.epsilon.end = 0.0
 
-#A2.actor.[train].policy.uqe_tau_start = 0.75  # ビビリ対策
-#A2.actor.[train].policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-#A2.actor.[train].policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
+#A2.actor.[train].policy.uqe.tau.start = 0.75  # ビビリ対策
+#A2.actor.[train].policy.uqe.tau.start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+#A2.actor.[train].policy.uqe.tau.end = 0.85  # 終盤でもかなり楽観的
 
-#A2.learner.alpha = 5e-6
-#A2.learner.alpha = 1e-5
-#A2.learner.alpha = 5e-5
-#A2.learner.alpha = 5e-4
-#A2.learner.alpha = 1e-4
+#A2.learner.learning_rate = 5e-6
+#A2.learner.learning_rate = 1e-5
+#A2.learner.learning_rate = 5e-5
+#A2.learner.learning_rate = 5e-4
+#A2.learner.learning_rate = 1e-4
 
 #A2.learner.gamma = 0.999  # ★ 長期戦略考慮
 #A2.learner.gamma = 0.997   # ★ horizon=333
@@ -615,7 +618,7 @@ run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@i
 A1.actor.[train].policy.tau_rule.sample_mode = random
 A1.actor.[train].policy.tau_rule.num_taus = 32
 A1.actor.[eval].policy.policy_type = UQE
-A1.actor.[eval].policy.uqe_use_tail_mean = true
+A1.actor.[eval].policy.uqe.use_tail_mean = true
 A1.actor.[eval].policy.tau_rule.sample_mode = fixed
 A1.actor.[eval].policy.tau_rule.num_taus = 32
 A1.actor.[eval].policy.full_distribution_query.enabled = true
@@ -632,18 +635,22 @@ A1.stucker.stack_count = 4
 A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
 A1.actor.[train].policy.policy_type = UQE
-A1.actor.[train].policy.uqe_eps_start = 0.60
-A1.actor.[train].policy.uqe_eps_end = 0.0     # 0.05 0.0
-A1.actor.[train].policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-A1.actor.[train].policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
-A1.actor.[train].policy.uqe_use_tail_mean = true
+A1.actor.[train].policy.uqe.epsilon.start = 0.60
+A1.actor.[train].policy.uqe.epsilon.end = 0.0 # 0.05 0.0
+A1.actor.[train].policy.spatial.uqe.epsilon.first = 0.60
+A1.actor.[train].policy.spatial.uqe.epsilon.last = 0.0
+A1.actor.[train].policy.uqe.tau.start = 0.95 # 序盤は超楽観的（攻めの姿勢）
+A1.actor.[train].policy.uqe.tau.end = 0.85 # 終盤でもかなり楽観的（攻めの姿勢）
+A1.actor.[train].policy.spatial.uqe.tau.first = 0.95
+A1.actor.[train].policy.spatial.uqe.tau.last = 0.85
+A1.actor.[train].policy.uqe.use_tail_mean = true
 
 A1.actor.[eval].policy.policy_type = UQE
 
-A1.target_policy.uqe_tau_start = 0.85
-#A1.target_policy.uqe_use_tail_mean = true
+A1.target_policy.uqe.tau.start = 0.85
+#A1.target_policy.uqe.use_tail_mean = true
 
-A1.learner.alpha = 1e-4         # ★
+A1.learner.learning_rate = 1e-4         # ★
 A1.learner.weight_decay = 1e-3  # ★
 A1.learner.gamma = 0.997        # ★長期戦略必要
 A1.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
@@ -656,8 +663,8 @@ A1.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変え�
 A1.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
 
 A1.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
-A1.learner.per_beta_start = 0.4               # デフォルト 0.4
-A1.learner.per_beta_end = 0.6                 # デフォルト 1.0
+A1.learner.per_beta.start = 0.4 # デフォルト 0.4
+A1.learner.per_beta.end = 0.6 # デフォルト 1.0
 A1.learner.per_prio_clip_value = 50           # 30
 #A1.learner.use_per_prio_clip = true           #  true 優先度をクリッピングするか
 
@@ -670,11 +677,12 @@ A1.reward_scaler.clip_range = 10.0
 A1.model.soft_update_tau = 0.005              # 0.001 高め
 
 DefaultDQNAgent.@random : actor.[train].policy.policy_type = EpsilonGreedy
-DefaultDQNAgent.@random : actor.[train].policy.eps_start = 1.00    # Random
-DefaultDQNAgent.@random : actor.[train].policy.eps_end = 1.00
+DefaultDQNAgent.@random : actor.[train].policy.epsilon = 1.00 # Random
+DefaultDQNAgent.@random : actor.[train].policy.spatial.epsilon.first = 1.00
+DefaultDQNAgent.@random : actor.[train].policy.spatial.epsilon.last = 1.00
 DefaultDQNAgent.@random : learner.replay_capacity = 256,000
 DefaultDQNAgent.@random : learner.update_warmup_steps = 999999999
-DefaultDQNAgent.@random : learner.alpha = 0
+DefaultDQNAgent.@random : learner.learning_rate = 0
 
 
 # ==============================================================================
@@ -1704,6 +1712,7 @@ run.eval_schedule.[eval].interval = 100
 # Rank 11	スイカ		6.6		7076
 
 # 評価 Actor の旧実効値（学習方策の終端からの暗黙導出を明示）。
-A1.actor.[eval].policy.uqe_tau_start = 0.85
-A1.actor.[eval].policy.uqe_tau_end = 0.85
-A1.actor.[eval].policy.uqe_use_tail_mean = true
+A1.actor.[eval].policy.uqe.tau = 0.85
+A1.actor.[eval].policy.spatial.uqe.tau.first = 0.85
+A1.actor.[eval].policy.spatial.uqe.tau.last = 0.85
+A1.actor.[eval].policy.uqe.use_tail_mean = true

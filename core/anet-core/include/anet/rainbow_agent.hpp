@@ -41,9 +41,7 @@ namespace anet::rl::dqn {
             for (const auto& [key, sub] : config_data.MakeSubConfigData("RainbowAgent.actor")) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
-                ReadConfig(config_data, prefix + ".policy.eps_start", entry.policy.eps_start);
-                ReadConfig(config_data, prefix + ".policy.eps_end", entry.policy.eps_end);
-                ReadConfig(config_data, prefix + ".policy.eps_decay_steps", entry.policy.eps_decay_steps);
+                ReadConfig(config_data, prefix + ".policy", entry.policy);
                 ReadConfig(config_data, prefix + ".network", entry.network);
                 ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
                 if (entry.network != "online" && entry.network != "target") {
@@ -52,8 +50,11 @@ namespace anet::rl::dqn {
                 }
             }
 
-            ANET_READ_CONFIG(config_data, learner.alpha);
+            ANET_READ_CONFIG(config_data, learner.learning_rate);
+            ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.gamma);
+            ANET_READ_CONFIG(config_data, learner.munchausen.alpha);
+            ANET_READ_CONFIG(config_data, learner.munchausen.entropy_tau);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
             ANET_READ_CONFIG(config_data, learner.use_td_clip);
@@ -64,9 +65,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.update_interval);
             ANET_READ_CONFIG(config_data, learner.n_step);
             ANET_READ_CONFIG(config_data, learner.per_alpha);
-            ANET_READ_CONFIG(config_data, learner.per_beta_start);
-            ANET_READ_CONFIG(config_data, learner.per_beta_end);
-            ANET_READ_CONFIG(config_data, learner.per_beta_step);
+            ANET_READ_CONFIG(config_data, learner.per_beta);
             ANET_READ_CONFIG(config_data, learner.per_eps);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority_mode);

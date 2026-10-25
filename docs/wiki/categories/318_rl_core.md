@@ -53,7 +53,7 @@
 - 2026-10-20: 遷移結果をStepResultと通知eventで運び終端laneの値を正した（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、題・§4.1）。
 - 2026-10-21: step traceの値取得・通知とAgent診断Providerの共通接続を加えた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D5〜D9）。
 - 2026-10-24: 時間で変わる割引率は、schedule のときだけ抽選時に保存済みの step 報酬から収益を作り直す（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、本文）。
-- 2026-10-24: ReplayBuffer は γ を自分で持たず、Push と Sample の入力として呼び出し側が渡す今の γ を使い、schedule の構成では抽選時に step 報酬から収益を作り直す経路を持つ（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D20）。
+- 2026-10-24: ReplayBuffer は γ を自分で持たず、Push と Sample の入力として呼び出し側が渡す今の γ を使い、schedule の構成では抽選済みのstep報酬列と長さを保持し、prefetchを消費するSampleが返す時点のγで収益を作り直す。ring上書き後のstorageを読み直さない（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D20）。
 
 ## 選ばなかった形
 

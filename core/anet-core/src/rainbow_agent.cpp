@@ -101,8 +101,7 @@ RainbowAgent::RainbowAgent(
     // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
     greedy_cfg.policy_type = "EpsilonGreedy";
-    greedy_cfg.eps_start = 0.0f;
-    greedy_cfg.eps_end = 0.0f;
+        greedy_cfg.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
     this->target_policy_ = std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg);
 
     // Learner生成
@@ -137,6 +136,12 @@ std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(cons
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
 {
+    for (const auto* schedule_key : kLearnerScheduleMetricKeys) {
+        if (key == schedule_key) {
+            std::shared_lock<std::shared_mutex> lock(*mutex_);
+            return learner_->GetScalar(key);
+        }
+    }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
@@ -175,7 +180,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     env_spec_.CheckSameStateActionSpec(request.env_spec);
     const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
     ValidateActorDevice(cfg.clone_model, request.device);
-    auto policy = std::make_shared<EpsilonGreedyActionPolicy>(cfg.policy, false,
+    auto policy = std::make_shared<EpsilonGreedyActionPolicy>(cfg.policy, cfg.policy.spatial.enabled,
         request.batch_env_spec.num_envs, request.device);
     auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     auto network = source;
@@ -187,7 +192,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     const bool emit_hint = config_.learner.use_per
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, anet::nn::NetworkForwardConfig::GetDefault(), emit_hint,
-        std::nullopt, false, ActorQHintConfig{.munchausen = MunchausenConfig{.enabled = false}});
+        std::nullopt, false, ActorQHintConfig{.munchausen = config_.learner.munchausen, .gamma = config_.learner.gamma});
 }
 
 std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> RainbowAgent::CreateStepDiagnosticsProvider(int64_t num_lanes) const

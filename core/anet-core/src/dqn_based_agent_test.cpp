@@ -171,8 +171,19 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     {
     }
 
-    using dqn::ActionPolicy::CreateSpatialTensor;
-    using dqn::ActionPolicy::CreateSpatialLaneTensor;
+    static torch::Tensor BuildLaneTensor(int64_t lanes, float first, float last,
+        const std::string& scale, const torch::Device& device)
+    {
+        const dqn::ActionPolicyConfig::LadderConfig config{
+            .first = {.value = first, .min_value = 0.0f, .max_value = 1.0f},
+            .last = {.value = last, .min_value = 0.0f, .max_value = 1.0f}};
+        return dqn::SpatialLadderSchedule(config, scale, lanes, device).Tensor();
+    }
+    static torch::Tensor BuildTensor(int64_t lanes, float first, float last,
+        const std::string& scale, const torch::Device& device)
+    {
+        return BuildLaneTensor(lanes, first, last, scale, device).flip({0});
+    }
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, anet::nn::NetworkForwardExecutor&,
         std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&,
@@ -484,7 +495,7 @@ private:
 class RecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     rl::SamplingHistoryProbeResult ProbeSamplingHistory(
-        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*) const override
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*, float gamma) const override
     {
         ++history_probe_count;
         last_history_request = request;
@@ -493,17 +504,23 @@ public:
         if (!request.sampled_batch_size) result.sampled.reset();
         return result;
     }
+    mutable std::vector<float> sampled_betas;
+    std::vector<float> pushed_gammas;
+    mutable std::vector<float> sampled_gammas;
     mutable int history_probe_count = 0;
     mutable rl::SamplingHistoryProbeRequest last_history_request;
     rl::SamplingHistoryProbeResult history_result;
 
-    void Push(const rl::BatchExperience&) override
+    void Push(const rl::BatchExperience&, float gamma) override
     {
+        pushed_gammas.push_back(gamma);
         ++push_count;
     }
 
-    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const override
     {
+        sampled_betas.push_back(beta);
+        sampled_gammas.push_back(gamma);
         ++sample_count;
 
         out_samples.obs = anet::TensorDict{
@@ -526,11 +543,11 @@ public:
     }
 
     bool SampleUniqueUniform(
-        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&) const override
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, float gamma) const override
     {
         ++unique_sample_count;
         if (!unique_sample_enabled) return false;
-        Sample(out_samples, batch_size, 0.0f);
+        Sample(out_samples, batch_size, 0.0f, gamma);
         return true;
     }
 
@@ -643,8 +660,9 @@ anet::ConfigData MakeIqnTracerConfigData()
     config_data.Set("DefaultDQNAgent.head.use_dueling", false);
     config_data.Set("DefaultDQNAgent.stucker.use_stacker", false);
     config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.eps_start", 0.0f);
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.eps_end", 0.0f);
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.epsilon", 0.0f);
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.start", 0.0f);
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.end", 0.0f);
     config_data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.num_taus", 3);
     config_data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.sample_mode", "fixed");
     config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
@@ -996,9 +1014,10 @@ dqn::LearnerConfig MakeDeterminismLearnerConfig()
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = -1.0f;
-    config.per_beta_start = 0.4f;
-    config.per_beta_end = 1.0f;
-    config.per_beta_step = 128;
+    config.per_beta.start = 0.4f;
+    config.per_beta.end = 1.0f;
+    config.per_beta.type = "linear";
+    config.per_beta.steps = 128;
     config.use_per_prio_clip = true;
     config.per_prio_clip_value = 10.0f;
     return config;
@@ -1039,6 +1058,8 @@ public:
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::BeforeUpdateFromBatch);
         return dqn::Learner::UpdateFromBatch(step, experiences);
     }
+
+    void UseReplayBuffer(std::shared_ptr<rl::ReplayBuffer> replay) { replay_buffer_ = std::move(replay); }
 
     std::vector<DeterminismTraceEntry> Trace() const
     {
@@ -2034,14 +2055,14 @@ TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "
     for (bool use_tbo : { false, true }) {
         INFO("use_tbo=" << use_tbo);
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
-        config.alpha = 0.0f;
+        config.learning_rate.value = 0.0f;
         config.use_fused_optimizer = false;
         config.use_grad_clip = false;
         config.use_td_clip = false;
         config.use_per = false;
         config.replay_capacity = 8;
         config.replay_batch_size = 1;
-        config.gamma = 0.9f;
+        config.gamma.value = 0.9f;
         config.use_tbo = use_tbo;
         config.tbo_epsilon = 1.0e-2f;
         config.per_eps = 0.05f;
@@ -2095,7 +2116,7 @@ TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "
             .start_hint = start_hint,
             .bootstrap_hint = bootstrap_hint,
             .target_return = samples.target_returns.item<float>(),
-            .discount = static_cast<float>(std::pow(config.gamma, samples.n_steps.item<int64_t>())),
+            .discount = static_cast<float>(std::pow(config.gamma.value, samples.n_steps.item<int64_t>())),
             .terminal = false,
             .actual_n_steps = samples.n_steps.item<int>(),
         });
@@ -2908,7 +2929,11 @@ TEST_CASE("Skip Actor retains an action and resets duration on episode start", "
     for (auto& parameter : skip->parameters()) parameter.zero_();
     skip->named_parameters()["head.linear.bias"].copy_(torch::tensor({0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f}));
     dqn::ActionPolicyConfig policy_config;
-    policy_config.eps_start = policy_config.eps_end = 0.0f;
+    policy_config.epsilon.value = 0.0f;
+    policy_config.epsilon.start = 0.0f;
+    policy_config.spatial.epsilon.first.value = 0.0f;
+    policy_config.epsilon.end = 0.0f;
+    policy_config.spatial.epsilon.last.value = 0.0f;
     const auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
     dqn::SkipConfig skip_config;
     skip_config.enabled = true;
@@ -2953,17 +2978,32 @@ TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one s
     dqn::ActionPolicyConfig primary_config;
     primary_config.policy_type = "UQE";
     primary_config.quantile_mode = "iqn";
-    primary_config.uqe_tau_start = primary_config.uqe_tau_end = 0.9f;
-    primary_config.uqe_use_tail_mean = false;
-    primary_config.uqe_eps_start = primary_config.uqe_eps_end = 0;
+    primary_config.uqe.tau.value = 0.9f;
+    primary_config.uqe.tau.start = 0.9f;
+    primary_config.spatial.uqe.tau.first.value = 0.9f;
+    primary_config.uqe.tau.end = 0.9f;
+    primary_config.spatial.uqe.tau.last.value = 0.9f;
+    primary_config.uqe.use_tail_mean = false;
+    primary_config.uqe.epsilon.value = 0;
+    primary_config.uqe.epsilon.start = 0;
+    primary_config.spatial.uqe.epsilon.first.value = 0;
+    primary_config.uqe.epsilon.end = 0;
+    primary_config.spatial.uqe.epsilon.last.value = 0;
     primary_config.tau_rule.num_taus = 8;
     primary_config.tau_rule.sample_mode = "fixed";
     auto policy = std::make_shared<dqn::UQEActionPolicy>(primary_config);
     auto dedicated_config = primary_config;
     dedicated_config.policy_type = kind;
-    dedicated_config.eps_start = dedicated_config.eps_end = 0;
-    dedicated_config.uqe_tau_start = 0.2f;
-    dedicated_config.uqe_tau_end = spatial ? 0.9f : 0.2f;
+    dedicated_config.epsilon.value = 0;
+    dedicated_config.epsilon.start = 0;
+    dedicated_config.spatial.epsilon.first.value = 0;
+    dedicated_config.epsilon.end = 0;
+    dedicated_config.spatial.epsilon.last.value = 0;
+    dedicated_config.uqe.tau.value = 0.2f;
+    dedicated_config.uqe.tau.start = 0.2f;
+    dedicated_config.spatial.uqe.tau.first.value = 0.2f;
+    dedicated_config.uqe.tau.end = spatial ? 0.9f : 0.2f;
+    dedicated_config.spatial.uqe.tau.last.value = spatial ? 0.9f : 0.2f;
     std::shared_ptr<dqn::ActionPolicy> dedicated;
     if (kind == "EpsilonGreedy") dedicated = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dedicated_config, spatial, 2);
     else if (kind == "UQE") dedicated = std::make_shared<dqn::UQEActionPolicy>(dedicated_config, spatial, 2);
@@ -3207,8 +3247,9 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 }
                 data.Set("DefaultDQNAgent.head.projection.noisy.enabled", conditional);
                 data.Set("DefaultDQNAgent.actor.[train].network", "online");
-                data.Set("DefaultDQNAgent.actor.[train].policy.eps_start", 0.0f);
-                data.Set("DefaultDQNAgent.actor.[train].policy.eps_end", 0.0f);
+                data.Set("DefaultDQNAgent.actor.[train].policy.epsilon", 0.0f);
+                data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.start", 0.0f);
+                data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.end", 0.0f);
                 data.Set("net.block.[SkipTestLinear].type", "Linear");
                 data.Set("net.block.[SkipTestLinear].linear.out_features", 4);
                 data.Set("DefaultDQNAgent.net.branch.[main].bind", "vector");
@@ -3349,7 +3390,7 @@ TEST_CASE("Skip target uses window return and duration and masks only terminal b
     const anet::nn::WeightInitConfig init;
     dqn::SkipNetworkDefinition skip{.config = {.enabled = true, .max_length = 3}, .network_config = skip_net,
         .head_factory = std::make_shared<dqn::SkipHeadFactory>(1, 3, anet::rl::dqn::SkipNetworkMode::ActionOut, "none", 1, init), .seed = 99};
-    dqn::NetworkModel model({.soft_update_tau = 0.25f, .hard_update_interval = hard_sync ? 2 : -1}, torch::kCPU, MakeAgentForwardNetworkConfig(), env.state_spec.obs_spec, 1,
+    dqn::NetworkModel model({.soft_update_tau = {.value = 0.25f}, .hard_update_interval = hard_sync ? 2 : -1}, torch::kCPU, MakeAgentForwardNetworkConfig(), env.state_spec.obs_spec, 1,
         std::make_shared<dqn::LinearHeadFactory>(1, init), false, 98, &skip);
     {
         torch::NoGradGuard no_grad;
@@ -3362,8 +3403,8 @@ TEST_CASE("Skip target uses window return and duration and masks only terminal b
     auto config = WithDefaultLearnerForwardConfig();
     config.replay_capacity = 16;
     config.replay_batch_size = 2;
-    config.alpha = 0;
-    config.gamma = 0.5f;
+    config.learning_rate.value = 0;
+    config.gamma.value = 0.5f;
     config.use_fused_optimizer = false;
     config.use_per = false;
     config.use_tbo = false;
@@ -3401,10 +3442,10 @@ TEST_CASE("Skip target uses window return and duration and masks only terminal b
         CHECK(std::sqrt(squared_norm) == Catch::Approx(0.1f).margin(1e-5f));
     }
     // targetを使うActorの2 Networkは、hard/softとも同じ更新境界で揃う。
-    model.UpdateTarget(1);
+    model.UpdateTarget(1, 0.25f);
     CHECK(model.GetTargetNetwork()->named_parameters()["head.linear.bias"].item<float>() == Catch::Approx(hard_sync ? 4.0f : 3.0f));
     CHECK(model.GetSkipTargetNetwork()->named_parameters()["head.linear.bias"][0].item<float>() == Catch::Approx(hard_sync ? 0.0f : 0.25f));
-    model.UpdateTarget(2);
+    model.UpdateTarget(2, 0.25f);
     CHECK(model.GetTargetNetwork()->named_parameters()["head.linear.bias"].item<float>() == Catch::Approx(hard_sync ? 0.0f : 2.25f));
     CHECK(model.GetSkipTargetNetwork()->named_parameters()["head.linear.bias"][0].item<float>() == Catch::Approx(hard_sync ? 1.0f : 0.4375f));
 }
@@ -3445,8 +3486,8 @@ TEST_CASE("Skip Munchausen targets match numeric returns for TD QR IQN and TBO",
     config.num_quantiles = 4;
     config.replay_capacity = 16;
     config.replay_batch_size = 2;
-    config.alpha = 0;
-    config.gamma = 0.5f;
+    config.learning_rate.value = 0;
+    config.gamma.value = 0.5f;
     config.use_fused_optimizer = false;
     config.use_per = true;
     config.use_double_dqn = false;
@@ -3456,8 +3497,8 @@ TEST_CASE("Skip Munchausen targets match numeric returns for TD QR IQN and TBO",
     config.use_amp = false;
     config.munchausen.enabled = true;
     config.munchausen.log_policy_mode = bonus_mode;
-    config.munchausen.alpha = 0.9f;
-    config.munchausen.entropy_tau = 0.03f;
+    config.munchausen.alpha.value = 0.9f;
+    config.munchausen.entropy_tau.value = 0.03f;
     config.munchausen.clip_value_min = -1;
     config.skip.priority_lambda = 0.4f;
     config.update_warmup_steps = 1000;
@@ -3602,7 +3643,7 @@ TEST_CASE("Primary checkpoint branches into skip with identical next primary opt
             / ("anet_prd098_branch_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
         { std::ofstream stream(file, std::ios::binary); anet::OutputArchive archive(stream); source->Save(archive); }
         config.auto_load_file = file.string();
-        config.learner.alpha *= 0.5f;
+        config.learner.learning_rate.value *= 0.5f;
         const auto off = make(config, 99);
         config.skip.enabled = true;
         config.skip.max_length = 3;
@@ -4303,7 +4344,7 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
     const auto env_spec = MakeLearnerEnvSpec();
     const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
     auto source_config = MakeDeviceForwardDefaultDqnConfig();
-    source_config.learner.alpha = 1e-4f;
+    source_config.learner.learning_rate.value = 1e-4f;
     auto source_agent = std::make_shared<dqn::DefaultDQNAgent>(
         source_config,
         MakeAgentForwardNetworkConfig(),
@@ -4328,7 +4369,7 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
 
     const bool change_alpha = GENERATE(false, true);
     auto loaded_config = MakeDeviceForwardDefaultDqnConfig();
-    loaded_config.learner.alpha = change_alpha ? 5e-5f : source_config.learner.alpha;
+    loaded_config.learner.learning_rate.value = change_alpha ? 5e-5f : source_config.learner.learning_rate.value;
     loaded_config.auto_load_file = checkpoint.string();
     loaded_config.actor["train"].clone_model = true;
     std::shared_ptr<dqn::DefaultDQNAgent> loaded_agent;
@@ -4350,7 +4391,7 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
         CHECK(differences == (change_alpha ? 1 : 0));
         if (change_alpha) {
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
-                {"group=0", "option=lr", "key=learner.alpha", "checkpoint=0.0001", "config=5e-05"}));
+                {"group=0", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
         }
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"Learner::Load: optimizer options applied from config.", "group=0",
@@ -4971,8 +5012,11 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
     {
         dqn::ActionPolicyConfig config;
         config.quantile_mode = "iqn";
-        config.eps_start = 0.0f;
-        config.eps_end = 0.0f;
+        config.epsilon.value = 0.0f;
+        config.epsilon.start = 0.0f;
+        config.spatial.epsilon.first.value = 0.0f;
+        config.epsilon.end = 0.0f;
+        config.spatial.epsilon.last.value = 0.0f;
         config.tau_rule.num_taus = 4;
         config.tau_rule.sample_mode = "fixed";
         auto expected = torch::tensor({ 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
@@ -4984,11 +5028,17 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
     {
         dqn::ActionPolicyConfig config;
         config.quantile_mode = "iqn";
-        config.uqe_tau_start = 0.5f;
-        config.uqe_tau_end = 0.5f;
-        config.uqe_use_tail_mean = true;
-        config.uqe_eps_start = 0.0f;
-        config.uqe_eps_end = 0.0f;
+        config.uqe.tau.value = 0.5f;
+        config.uqe.tau.start = 0.5f;
+        config.spatial.uqe.tau.first.value = 0.5f;
+        config.uqe.tau.end = 0.5f;
+        config.spatial.uqe.tau.last.value = 0.5f;
+        config.uqe.use_tail_mean = true;
+        config.uqe.epsilon.value = 0.0f;
+        config.uqe.epsilon.start = 0.0f;
+        config.spatial.uqe.epsilon.first.value = 0.0f;
+        config.uqe.epsilon.end = 0.0f;
+        config.spatial.uqe.epsilon.last.value = 0.0f;
         config.tau_rule.num_taus = 2;
         config.tau_rule.sample_mode = "fixed";
         auto expected = torch::tensor({ 0.625f, 0.875f }).repeat({ 2, 1 });
@@ -5003,12 +5053,19 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
     {
         dqn::ActionPolicyConfig config;
         config.quantile_mode = "iqn";
-        config.uqe_tau_start = 0.2f;
-        config.uqe_tau_end = 0.6f;
-        config.uqe_tau_decay_steps = 10;
-        config.uqe_use_tail_mean = false;
-        config.uqe_eps_start = 0.0f;
-        config.uqe_eps_end = 0.0f;
+        config.uqe.tau.value = 0.2f;
+        config.uqe.tau.start = 0.2f;
+        config.spatial.uqe.tau.first.value = 0.2f;
+        config.uqe.tau.end = 0.6f;
+        config.spatial.uqe.tau.last.value = 0.6f;
+        config.uqe.tau.type = "linear";
+        config.uqe.tau.steps = 10;
+        config.uqe.use_tail_mean = false;
+        config.uqe.epsilon.value = 0.0f;
+        config.uqe.epsilon.start = 0.0f;
+        config.spatial.uqe.epsilon.first.value = 0.0f;
+        config.uqe.epsilon.end = 0.0f;
+        config.spatial.uqe.epsilon.last.value = 0.0f;
         config.tau_rule.num_taus = 3;
         config.tau_rule.sample_mode = "fixed";
         auto policy = std::make_shared<dqn::UQEActionPolicy>(config);
@@ -5036,13 +5093,19 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
     {
         dqn::ActionPolicyConfig config;
         config.quantile_mode = "iqn";
-        config.use_spatial_exploration = true;
-        config.spatial_scale_type = "linear";
-        config.uqe_tau_start = 0.0f;
-        config.uqe_tau_end = 0.5f;
-        config.uqe_use_tail_mean = true;
-        config.uqe_eps_start = 0.0f;
-        config.uqe_eps_end = 0.0f;
+        config.spatial.enabled = true;
+        config.spatial.scale = "linear";
+        config.uqe.tau.value = 0.0f;
+        config.uqe.tau.start = 0.0f;
+        config.spatial.uqe.tau.first.value = 0.0f;
+        config.uqe.tau.end = 0.5f;
+        config.spatial.uqe.tau.last.value = 0.5f;
+        config.uqe.use_tail_mean = true;
+        config.uqe.epsilon.value = 0.0f;
+        config.uqe.epsilon.start = 0.0f;
+        config.spatial.uqe.epsilon.first.value = 0.0f;
+        config.uqe.epsilon.end = 0.0f;
+        config.spatial.uqe.epsilon.last.value = 0.0f;
         config.tau_rule.num_taus = 2;
         config.tau_rule.sample_mode = "fixed";
         auto expected = torch::tensor({
@@ -5063,11 +5126,17 @@ TEST_CASE("IQN UQE point query exports a full distribution from the same forward
 {
     dqn::ActionPolicyConfig config;
     config.quantile_mode = "iqn";
-    config.uqe_tau_start = 0.4f;
-    config.uqe_tau_end = 0.4f;
-    config.uqe_use_tail_mean = false;
-    config.uqe_eps_start = 0.0f;
-    config.uqe_eps_end = 0.0f;
+    config.uqe.tau.value = 0.4f;
+    config.uqe.tau.start = 0.4f;
+    config.spatial.uqe.tau.first.value = 0.4f;
+    config.uqe.tau.end = 0.4f;
+    config.spatial.uqe.tau.last.value = 0.4f;
+    config.uqe.use_tail_mean = false;
+    config.uqe.epsilon.value = 0.0f;
+    config.uqe.epsilon.start = 0.0f;
+    config.spatial.uqe.epsilon.first.value = 0.0f;
+    config.uqe.epsilon.end = 0.0f;
+    config.spatial.uqe.epsilon.last.value = 0.0f;
     config.tau_rule.num_taus = 3;
     config.tau_rule.sample_mode = "fixed";
     config.full_distribution_query.enabled = true;
@@ -5112,11 +5181,17 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
 {
     dqn::ActionPolicyConfig config;
     config.quantile_mode = "iqn";
-    config.uqe_tau_start = 0.5f;
-    config.uqe_tau_end = 0.5f;
-    config.uqe_use_tail_mean = true;
-    config.uqe_eps_start = 0.0f;
-    config.uqe_eps_end = 0.0f;
+    config.uqe.tau.value = 0.5f;
+    config.uqe.tau.start = 0.5f;
+    config.spatial.uqe.tau.first.value = 0.5f;
+    config.uqe.tau.end = 0.5f;
+    config.spatial.uqe.tau.last.value = 0.5f;
+    config.uqe.use_tail_mean = true;
+    config.uqe.epsilon.value = 0.0f;
+    config.uqe.epsilon.start = 0.0f;
+    config.spatial.uqe.epsilon.first.value = 0.0f;
+    config.uqe.epsilon.end = 0.0f;
+    config.spatial.uqe.epsilon.last.value = 0.0f;
     config.tau_rule.num_taus = 2;
     config.tau_rule.sample_mode = "fixed";
     config.full_distribution_query.enabled = true;
@@ -5497,21 +5572,21 @@ TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types"
 {
     auto device = torch::Device(torch::kCPU);
 
-    auto linear = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.0f, "linear", device);
+    auto linear = ActionPolicyAccess::BuildTensor(3, 1.0f, 0.0f, "linear", device);
     CHECK(ShapeOf(linear) == std::vector<int64_t>{ 3 });
     CHECK(torch::allclose(linear, torch::tensor({ 1.0f, 0.5f, 0.0f })));
 
-    auto log = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.01f, "log", device);
+    auto log = ActionPolicyAccess::BuildTensor(3, 1.0f, 0.01f, "log", device);
     CHECK(torch::allclose(log, torch::tensor({ 1.0f, 0.1f, 0.01f }), 1.0e-5, 1.0e-5));
 
-    auto clamped = ActionPolicyAccess::CreateSpatialTensor(2, 0.0f, 0.0f, "log", device);
-    CHECK(torch::allclose(clamped, torch::tensor({ 1.0e-4f, 1.0e-4f })));
+    auto clamped = ActionPolicyAccess::BuildTensor(2, 0.0f, 0.0f, "log", device);
+    CHECK(torch::allclose(clamped, torch::tensor({ 0.0f, 0.0f })));
 
-    auto single = ActionPolicyAccess::CreateSpatialTensor(1, 0.25f, 0.75f, "linear", device);
+    auto single = ActionPolicyAccess::BuildTensor(1, 0.25f, 0.75f, "linear", device);
     CHECK(ShapeOf(single) == std::vector<int64_t>{ 1 });
     CHECK(single[0].item<float>() == Catch::Approx(0.25f).margin(1.0e-6f));
 
-    CHECK_THROWS(ActionPolicyAccess::CreateSpatialTensor(2, 1.0f, 0.0f, "invalid", device));
+    CHECK_THROWS(ActionPolicyAccess::BuildTensor(2, 1.0f, 0.0f, "invalid", device));
 }
 
 TEST_CASE("ActionPolicy reverses spatial parameter tuples for env lane assignment", "[dqn][action_policy][spatial]")
@@ -5519,46 +5594,46 @@ TEST_CASE("ActionPolicy reverses spatial parameter tuples for env lane assignmen
     auto device = torch::Device(torch::kCPU);
 
     // 補間結果を厳密に反転し、値の集合を変えずにend側をenv[0]へ割り当てる。
-    auto linear = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.0f, "linear", device);
-    auto lane_linear = ActionPolicyAccess::CreateSpatialLaneTensor(3, 1.0f, 0.0f, "linear", device);
+    auto linear = ActionPolicyAccess::BuildTensor(3, 1.0f, 0.0f, "linear", device);
+    auto lane_linear = ActionPolicyAccess::BuildLaneTensor(3, 1.0f, 0.0f, "linear", device);
     CHECK(torch::equal(lane_linear, linear.flip({ 0 })));
     CHECK(torch::equal(lane_linear, torch::tensor({ 0.0f, 0.5f, 1.0f })));
 
-    auto log = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.01f, "log", device);
-    auto lane_log = ActionPolicyAccess::CreateSpatialLaneTensor(3, 1.0f, 0.01f, "log", device);
+    auto log = ActionPolicyAccess::BuildTensor(3, 1.0f, 0.01f, "log", device);
+    auto lane_log = ActionPolicyAccess::BuildLaneTensor(3, 1.0f, 0.01f, "log", device);
     CHECK(torch::equal(lane_log, log.flip({ 0 })));
 
     // epsilonとtauを同じ向きで反転し、パラメータの組の集合を維持する。
     auto original_pairs = torch::stack({
-        ActionPolicyAccess::CreateSpatialTensor(3, 0.6f, 0.0f, "log", device),
-        ActionPolicyAccess::CreateSpatialTensor(3, 0.95f, 0.85f, "log", device),
+        ActionPolicyAccess::BuildTensor(3, 0.6f, 0.0f, "log", device),
+        ActionPolicyAccess::BuildTensor(3, 0.95f, 0.85f, "log", device),
     }, 1);
     auto lane_pairs = torch::stack({
-        ActionPolicyAccess::CreateSpatialLaneTensor(3, 0.6f, 0.0f, "log", device),
-        ActionPolicyAccess::CreateSpatialLaneTensor(3, 0.95f, 0.85f, "log", device),
+        ActionPolicyAccess::BuildLaneTensor(3, 0.6f, 0.0f, "log", device),
+        ActionPolicyAccess::BuildLaneTensor(3, 0.95f, 0.85f, "log", device),
     }, 1);
     CHECK(torch::equal(lane_pairs, original_pairs.flip({ 0 })));
-    CHECK(lane_pairs[0][0].item<float>() == Catch::Approx(1.0e-4f).margin(1.0e-7f));
+    CHECK(lane_pairs[0][0].item<float>() == Catch::Approx(0.0f).margin(1.0e-7f));
     CHECK(lane_pairs[2][0].item<float>() == Catch::Approx(0.6f).margin(1.0e-6f));
 
     // laneが1つなら反転はno-opとなり、従来どおりstart値を使う。
-    auto single = ActionPolicyAccess::CreateSpatialLaneTensor(1, 0.25f, 0.75f, "linear", device);
+    auto single = ActionPolicyAccess::BuildLaneTensor(1, 0.25f, 0.75f, "linear", device);
     CHECK(single[0].item<float>() == Catch::Approx(0.25f).margin(1.0e-6f));
 }
 
 TEST_CASE("DefaultDQNAgentConfig accepts spatial exploration per Actor and disables it for targets", "[dqn][config][spatial]")
 {
     anet::ConfigData config_data;
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.use_spatial_exploration", "true");
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial_scale_type", "linear");
-    config_data.Set("DefaultDQNAgent.actor.[eval].policy.use_spatial_exploration", "true");
-    config_data.Set("DefaultDQNAgent.target_policy.use_spatial_exploration", "true");
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial.enabled", "true");
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial.scale", "linear");
+    config_data.Set("DefaultDQNAgent.actor.[eval].policy.spatial.enabled", "true");
+    config_data.Set("DefaultDQNAgent.target_policy.spatial.enabled", "true");
 
     dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(config_data));
 
-    CHECK(config.actor.at("train").policy.use_spatial_exploration);
-    CHECK(config.actor.at("eval").policy.use_spatial_exploration);
-    CHECK_FALSE(config.target_policy.use_spatial_exploration);
+    CHECK(config.actor.at("train").policy.spatial.enabled);
+    CHECK(config.actor.at("eval").policy.spatial.enabled);
+    CHECK_FALSE(config.target_policy.spatial.enabled);
 }
 
 TEST_CASE("DefaultDQNAgentConfig defines IQN and QR sampling defaults", "[dqn][iqn][config]")
@@ -5646,7 +5721,7 @@ TEST_CASE("DefaultDQNAgent config fixture resolves the IQN profile chain", "[dqn
         stream << "IQN.actor.[train].policy.tau_rule.num_taus = 32\n";
         stream << "IQN.actor.[train].policy.tau_rule.sample_mode = random\n";
         stream << "IQN.actor.[eval].policy.policy_type = UQE\n";
-        stream << "IQN.actor.[eval].policy.uqe_use_tail_mean = true\n";
+        stream << "IQN.actor.[eval].policy.uqe.use_tail_mean = true\n";
         stream << "IQN.actor.[eval].policy.tau_rule.num_taus = 32\n";
         stream << "IQN.actor.[eval].policy.tau_rule.sample_mode = fixed\n";
         stream << "IQN.actor.[eval].policy.full_distribution_query.enabled = true\n";
@@ -5675,7 +5750,7 @@ TEST_CASE("DefaultDQNAgent config fixture resolves the IQN profile chain", "[dqn
     CHECK(config.actor.at("train").policy.tau_rule.sample_mode == "random");
     CHECK_FALSE(config.actor.at("train").policy.full_distribution_query.enabled);
     CHECK(config.actor.at("eval").policy.policy_type == "UQE");
-    CHECK(config.actor.at("eval").policy.uqe_use_tail_mean);
+    CHECK(config.actor.at("eval").policy.uqe.use_tail_mean);
     CHECK(config.actor.at("eval").policy.tau_rule.num_taus == 32);
     CHECK(config.actor.at("eval").policy.tau_rule.sample_mode == "fixed");
     CHECK(config.actor.at("eval").policy.full_distribution_query.enabled);
@@ -5824,27 +5899,30 @@ TEST_CASE("DefaultDQNAgentConfig validates IQN risk ranges only when consumed", 
     anet::ConfigData uqe_data;
     uqe_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
     uqe_data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
-    uqe_data.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_start", -0.1f);
+    uqe_data.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau", -0.1f);
+    uqe_data.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.start", -0.1f);
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(uqe_data)));
 
     anet::ConfigData non_spatial_thompson;
     non_spatial_thompson.Set("DefaultDQNAgent.quantile_mode", "iqn");
     non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "ThompsonSampling");
-    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.use_spatial_exploration", false);
-    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_start", -0.1f);
-    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_end", 1.1f);
-    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(non_spatial_thompson)));
+    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.spatial.enabled", false);
+    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau", -0.1f);
+    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.start", -0.1f);
+    non_spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.end", 1.1f);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(non_spatial_thompson)));
 
     auto spatial_thompson = non_spatial_thompson;
-    spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.use_spatial_exploration", true);
+    spatial_thompson.Set("DefaultDQNAgent.actor.[train].policy.spatial.enabled", true);
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(spatial_thompson)));
 
     anet::ConfigData qr_uqe;
     qr_uqe.Set("DefaultDQNAgent.quantile_mode", "qr");
     qr_uqe.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
-    qr_uqe.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_start", -0.1f);
-    qr_uqe.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_end", 1.1f);
-    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(qr_uqe)));
+    qr_uqe.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau", -0.1f);
+    qr_uqe.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.start", -0.1f);
+    qr_uqe.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.end", 1.1f);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(qr_uqe)));
 }
 
 TEST_CASE("DefaultDQNAgentConfig requires explicit Actor entries and optional snapshot schedules", "[dqn][config][snapshot]")
@@ -5862,11 +5940,11 @@ TEST_CASE("DefaultDQNAgentConfig rejects malformed Train Actor snapshot values",
 {
     anet::ConfigData config_data;
     config_data.Set("DefaultDQNAgent.actor.[train].clone_model", "false");
-    config_data.Set("DefaultDQNAgent.actor.[train].sync_interval.value", "400x");
+    config_data.Set("DefaultDQNAgent.actor.[train].sync_interval", "400x");
 
     CHECK_THROWS_WITH(
         dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)),
-        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.actor.[train].sync_interval.value")
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.actor.[train].sync_interval")
             && Catch::Matchers::ContainsSubstring("400x")
             && Catch::Matchers::ContainsSubstring("expected=uint64_t"));
 }
@@ -5876,11 +5954,11 @@ TEST_CASE("DefaultDQNAgentConfig requires a positive active snapshot interval", 
     anet::ConfigData config_data;
     config_data.Set("DefaultDQNAgent.actor.[train].clone_model", "false");
     config_data.Set("DefaultDQNAgent.actor.[train].sync_interval.type", "constant");
-    config_data.Set("DefaultDQNAgent.actor.[train].sync_interval.value", "0");
+    config_data.Set("DefaultDQNAgent.actor.[train].sync_interval", "0");
 
     CHECK_THROWS_WITH(
         dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)),
-        Catch::Matchers::ContainsSubstring("key=actor.[train].sync_interval.value")
+        Catch::Matchers::ContainsSubstring("key=actor.[train].sync_interval")
         && Catch::Matchers::ContainsSubstring("value=0")
         && Catch::Matchers::ContainsSubstring("expected=>=1"));
 }
@@ -5906,7 +5984,7 @@ TEST_CASE("DefaultDQNAgentConfig strictly parses every explicit snapshot field",
     }
 
     anet::ConfigData comma_data;
-    comma_data.Set("DefaultDQNAgent.actor.[train].sync_interval.value", "1,000");
+    comma_data.Set("DefaultDQNAgent.actor.[train].sync_interval", "1,000");
     const dqn::DefaultDQNAgentConfig comma_config(WithDefaultForwardConfig(comma_data));
     CHECK(comma_config.actor.at("train").sync_interval->value == 1000);
 }
@@ -5942,21 +6020,21 @@ TEST_CASE("DefaultDQNAgentConfig clears optimistic target spatial exploration", 
     anet::ConfigData config_data;
     config_data.Set("DefaultDQNAgent.use_optimistic_target", "true");
     config_data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.use_spatial_exploration", "true");
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial_scale_type", "linear");
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial.enabled", "true");
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial.scale", "linear");
 
     dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(config_data));
 
-    CHECK(config.actor.at("train").policy.use_spatial_exploration);
-    CHECK_FALSE(config.target_policy.use_spatial_exploration);
-    CHECK(config.target_policy.uqe_eps_start == Catch::Approx(0.0f));
-    CHECK(config.target_policy.uqe_eps_end == Catch::Approx(0.0f));
+    CHECK(config.actor.at("train").policy.spatial.enabled);
+    CHECK_FALSE(config.target_policy.spatial.enabled);
+    CHECK(config.target_policy.uqe.epsilon.value == Catch::Approx(0.0f));
+    CHECK(config.target_policy.uqe.epsilon.end == Catch::Approx(0.0f));
 }
 
 TEST_CASE("DefaultDQNAgentConfig rejects invalid spatial scale type", "[dqn][config][spatial]")
 {
     anet::ConfigData config_data;
-    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial_scale_type", "invalid");
+    config_data.Set("DefaultDQNAgent.actor.[train].policy.spatial.scale", "invalid");
 
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)));
 }
@@ -6159,17 +6237,26 @@ TEST_CASE("DefaultDQNAgentConfig warns when TBO shares reward compression", "[dq
     CHECK(found_warning);
 }
 
-TEST_CASE("Spatial exploration keeps scalar metrics as NaN across policy updates", "[dqn][action_policy][spatial]")
+TEST_CASE("Spatial exploration reports scalar means across policy updates", "[dqn][action_policy][spatial]")
 {
     dqn::ActionPolicyConfig config;
-    config.use_spatial_exploration = true;
-    config.spatial_scale_type = "linear";
-    config.eps_start = 1.0f;
-    config.eps_end = 0.1f;
-    config.uqe_eps_start = 0.2f;
-    config.uqe_eps_end = 0.0f;
-    config.uqe_tau_start = 0.0f;
-    config.uqe_tau_end = 1.0f;
+    config.spatial.enabled = true;
+    config.spatial.scale = "linear";
+    config.epsilon.value = 1.0f;
+    config.epsilon.start = 1.0f;
+    config.spatial.epsilon.first.value = 1.0f;
+    config.epsilon.end = 0.1f;
+    config.spatial.epsilon.last.value = 0.1f;
+    config.uqe.epsilon.value = 0.2f;
+    config.uqe.epsilon.start = 0.2f;
+    config.spatial.uqe.epsilon.first.value = 0.2f;
+    config.uqe.epsilon.end = 0.0f;
+    config.spatial.uqe.epsilon.last.value = 0.0f;
+    config.uqe.tau.value = 0.0f;
+    config.uqe.tau.start = 0.0f;
+    config.spatial.uqe.tau.first.value = 0.0f;
+    config.uqe.tau.end = 1.0f;
+    config.spatial.uqe.tau.last.value = 1.0f;
 
     dqn::EpsilonGreedyActionPolicy eps_policy(config, true, 2, torch::Device(torch::kCPU));
     dqn::UQEActionPolicy uqe_policy(config, true, 2, torch::Device(torch::kCPU));
@@ -6185,9 +6272,9 @@ TEST_CASE("Spatial exploration keeps scalar metrics as NaN across policy updates
     REQUIRE(eps.has_value());
     REQUIRE(uqe_eps.has_value());
     REQUIRE(uqe_tau.has_value());
-    CHECK(std::isnan(*eps));
-    CHECK(std::isnan(*uqe_eps));
-    CHECK(std::isnan(*uqe_tau));
+    CHECK(*eps == Catch::Approx(0.55f));
+    CHECK(*uqe_eps == Catch::Approx(0.1f));
+    CHECK(*uqe_tau == Catch::Approx(0.5f));
 }
 
 TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][spatial]")
@@ -6196,13 +6283,19 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
     auto obs = MakeSpatialUQEInput();
 
     dqn::ActionPolicyConfig config;
-    config.use_spatial_exploration = true;
-    config.spatial_scale_type = "linear";
-    config.uqe_use_tail_mean = false;
-    config.uqe_eps_start = 0.0f;
-    config.uqe_eps_end = 0.0f;
-    config.uqe_tau_start = 0.0f;
-    config.uqe_tau_end = 1.0f;
+    config.spatial.enabled = true;
+    config.spatial.scale = "linear";
+    config.uqe.use_tail_mean = false;
+    config.uqe.epsilon.value = 0.0f;
+    config.uqe.epsilon.start = 0.0f;
+    config.spatial.uqe.epsilon.first.value = 0.0f;
+    config.uqe.epsilon.end = 0.0f;
+    config.spatial.uqe.epsilon.last.value = 0.0f;
+    config.uqe.tau.value = 0.0f;
+    config.uqe.tau.start = 0.0f;
+    config.spatial.uqe.tau.first.value = 0.0f;
+    config.uqe.tau.end = 1.0f;
+    config.spatial.uqe.tau.last.value = 1.0f;
 
     auto expected_actions = torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
 
@@ -6303,19 +6396,31 @@ TEST_CASE("DQN validates spectral soft update tau only for a soft update configu
     anet::nn::InitNN();
     CHECK_THROWS_WITH(
         make_model(dqn::NetworkModelConfig{
-            .soft_update_tau = 0.5f,
+            .soft_update_tau = {.value = 0.5f},
             .hard_update_interval = -1,
         }),
-        Catch::Matchers::ContainsSubstring("model.soft_update_tau=0.5")
-            && Catch::Matchers::ContainsSubstring("[0, 0.1] or 1"));
+        Catch::Matchers::ContainsSubstring("key=model.soft_update_tau value=0.5")
+            && Catch::Matchers::ContainsSubstring("max_value=0.1"));
     CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
-        .soft_update_tau = 0.1f,
+        .soft_update_tau = {.value = 0.1f},
         .hard_update_interval = -1,
     }));
     CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
-        .soft_update_tau = 0.5f,
+        .soft_update_tau = {.value = 0.5f},
         .hard_update_interval = 100,
     }));
+    CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{ .soft_update_tau = {.value = 1.0f} }));
+    CHECK_THROWS_WITH(make_model(dqn::NetworkModelConfig{
+        .soft_update_tau = {.value = -0.1f}, .hard_update_interval = 100 }),
+        Catch::Matchers::ContainsSubstring("model.soft_update_tau"));
+    CHECK_THROWS_WITH(make_model(dqn::NetworkModelConfig{
+        .soft_update_tau = {.type = "linear", .start = 0.05f, .end = 0.11f, .steps = 8} }),
+        Catch::Matchers::ContainsSubstring("model.soft_update_tau.end"));
+    anet::ProfiledValueConfig<float> phased{.type = "phased", .phases = {"one"}};
+    phased.phase.Set("one", anet::ProfiledValuePhaseConfig<float>{.value = 1.0f, .steps = 8});
+    CHECK_THROWS_WITH(make_model(dqn::NetworkModelConfig{ .soft_update_tau = phased }),
+        Catch::Matchers::ContainsSubstring("model.soft_update_tau.phase.[one].value"));
+
 }
 
 TEST_CASE("DQN learner reports greedy action churn for one optimizer update", "[dqn][policy_churn]")
@@ -6387,7 +6492,7 @@ TEST_CASE("DQN replay fit evaluates the received PER batch before optimization",
     config.update_interval = 1;
     config.replay_ratio = -1.0f;
     config.use_per = true;
-    config.gamma = 0.5f;
+    config.gamma.value = 0.5f;
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
     const auto replay = std::make_shared<RecordingReplayBuffer>();
     replay->SetSizeValues({ 2 });
@@ -6434,8 +6539,12 @@ TEST_CASE("Replay fit policy evaluation suppresses inner AMP and stochastic auxi
             const auto iqn_network = MakeTauEchoNetwork(9, echo);
             iqn_network->to(device);
             config.quantile_mode = "iqn";
-            config.uqe_use_tail_mean = tail;
-            config.uqe_tau_start = config.uqe_tau_end = 0.5f;
+            config.uqe.use_tail_mean = tail;
+            config.uqe.tau.value = 0.5f;
+            config.uqe.tau.start = 0.5f;
+            config.spatial.uqe.tau.first.value = 0.5f;
+            config.uqe.tau.end = 0.5f;
+            config.spatial.uqe.tau.last.value = 0.5f;
             config.tau_rule.num_taus = 9;
             config.tau_rule.sample_mode = "random";
             config.full_distribution_query.enabled = true;
@@ -6497,7 +6606,7 @@ TEST_CASE("DQN replay fit populations reach the update result without another fo
     rl::ReplayBufferConfig replay_config;
     replay_config.capacity = 32;
     const auto replay = rl::CreateReplayBuffer(replay_config, env_spec, 1, torch::kCPU, false, 73001);
-    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1));
+    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1), 0.99f);
     auto probe = std::make_shared<AutocastProbeState>();
     AutocastProbeNetworkModel model(probe, torch::kCPU);
     dqn::RuntimeVars vars;
@@ -6549,7 +6658,7 @@ TEST_CASE("DQN replay fit routes each subscription and retains update-specific v
     config.update_interval = 1;
     config.replay_ratio = -1.0f;
     config.use_per = per;
-    config.gamma = 0.5f;
+    config.gamma.value = 0.5f;
     config.use_td_clip = false;
     config.replay_fit.probe.batch_size = 2;
     TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
@@ -6557,9 +6666,9 @@ TEST_CASE("DQN replay fit routes each subscription and retains update-specific v
     replay->SetSizeValues({ 2 });
     rl::ExperienceSamples u, s;
     replay->vector_value = 2.0f;
-    replay->Sample(u, 2, 0.0f);
+    replay->Sample(u, 2, 0.0f, 0.99f);
     replay->vector_value = 1.0f;
-    replay->Sample(s, 2, 0.0f);
+    replay->Sample(s, 2, 0.0f, 0.99f);
     replay->history_result = rl::SamplingHistoryProbeResult{
         .unsampled_count = 6, .sampled_count = 2, .unsampled_age_mean = 3.0f, .sampled_age_mean = 5.0f,
         .unsampled = u, .sampled = s,
@@ -7294,9 +7403,12 @@ TEST_CASE("QR UQE preserves sorted point and tail scores", "[dqn][qr][uqe][munch
     for (const bool tail_mean : { false, true }) {
         dqn::ActionPolicyConfig config;
         config.quantile_mode = "qr";
-        config.uqe_tau_start = 0.5f;
-        config.uqe_tau_end = 0.5f;
-        config.uqe_use_tail_mean = tail_mean;
+        config.uqe.tau.value = 0.5f;
+        config.uqe.tau.start = 0.5f;
+        config.spatial.uqe.tau.first.value = 0.5f;
+        config.uqe.tau.end = 0.5f;
+        config.spatial.uqe.tau.last.value = 0.5f;
+        config.uqe.use_tail_mean = tail_mean;
         dqn::UQEActionPolicy policy(config);
         const anet::nn::NetworkForwardCallInfo call_info_17({});
         const auto result = policy.SelectAction(obs, true, *MakeDefaultExecutor(MakePassthroughNetwork(2, 4)),
@@ -7320,14 +7432,14 @@ TEST_CASE("TD Munchausen target adds one bonus and masks only bootstrap", "[dqn]
     data.Set("DefaultDQNAgent.learner.munchausen.clip_value_min", -10.0f);
     data.Set("DefaultDQNAgent.learner.use_double_dqn", false);
     auto config = dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)).learner;
-    config.alpha = 0.0f;
+    config.learning_rate.value = 0.0f;
     config.use_fused_optimizer = false;
     config.use_grad_clip = false;
     config.use_td_clip = false;
     config.use_per = false;
     config.replay_capacity = 8;
     config.replay_batch_size = 2;
-    config.gamma = 0.9f;
+    config.gamma.value = 0.9f;
     TestNetworkModel model(false, 2);
     {
         torch::NoGradGuard guard;
@@ -7373,9 +7485,10 @@ TEST_CASE("DefaultDQNAgent forwards Munchausen settings to Actor approximation",
         data.Set("DefaultDQNAgent.learner.use_per", true);
         data.Set("DefaultDQNAgent.learner.per_initial_priority_mode", "actor_approx");
         data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
-        data.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_start", 0.65f);
-        data.Set("DefaultDQNAgent.actor.[train].policy.uqe_tau_end", 0.65f);
-        data.Set("DefaultDQNAgent.actor.[train].policy.uqe_use_tail_mean", tail_mean);
+        data.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau", 0.65f);
+        data.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.start", 0.65f);
+        data.Set("DefaultDQNAgent.actor.[train].policy.uqe.tau.end", 0.65f);
+        data.Set("DefaultDQNAgent.actor.[train].policy.uqe.use_tail_mean", tail_mean);
         data.Set("DefaultDQNAgent.actor.[train].policy.full_distribution_query.enabled", true);
         data.Set("DefaultDQNAgent.actor.[train].policy.full_distribution_query.tau_rule.num_taus", 5);
         dqn::DefaultDQNAgentFactory factory;
@@ -7432,9 +7545,10 @@ TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks
         const auto prefix = std::string("DefaultDQNAgent.actor.[") + key + "]";
         data.Set(prefix + ".clone_model", clone);
         data.Set(prefix + ".policy.policy_type", "EpsilonGreedy");
-        data.Set(prefix + ".policy.eps_start", 1.0f);
-        data.Set(prefix + ".policy.eps_end", 0.0f);
-        data.Set(prefix + ".policy.eps_decay_steps", 100);
+        data.Set(prefix + ".policy.epsilon.type", "linear");
+        data.Set(prefix + ".policy.epsilon.start", 1.0f);
+        data.Set(prefix + ".policy.epsilon.end", 0.0f);
+        data.Set(prefix + ".policy.epsilon.steps", 100);
         data.Set(prefix + ".policy.tau_rule.sample_mode", "random");
         data.Set(prefix + ".policy.tau_rule.num_taus", std::string(key) == "small" ? 3 : 5);
     }
@@ -7486,9 +7600,9 @@ TEST_CASE("Rainbow Actor catalog selects its own epsilon", "[dqn][prd061][rainbo
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeDeviceForwardRainbowConfig();
-    config.actor["train"].policy.eps_start = 1.0f;
-    config.actor["eval"].policy.eps_start = 0.0f;
-    config.actor["eval"].policy.eps_end = 0.0f;
+    config.actor["train"].policy.epsilon.value = 1.0f;
+    config.actor["eval"].policy.epsilon.value = 0.0f;
+    config.actor["eval"].policy.epsilon.end = 0.0f;
     auto agent = std::make_shared<dqn::RainbowAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{1, 1}, MakeLearnerEnvSpec(), torch::kCPU, 123);
     const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = {1, 1},
@@ -7510,13 +7624,14 @@ TEST_CASE("Optimistic target warns for a non optimistic Actor source and preserv
             {"use_optimistic_target=true", "actor.[train].policy.policy_type", "EpsilonGreedy", "UQE/ThompsonSampling"}));
     }
     data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "UQE");
-    data.Set("DefaultDQNAgent.target_policy.uqe_tau_start", 0.7f);
+    data.Set("DefaultDQNAgent.target_policy.uqe.tau", 0.7f);
+    data.Set("DefaultDQNAgent.target_policy.uqe.tau.start", 0.7f);
     {
         anet::test::LogCaptureGuard logs;
         const dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
         logs.Flush();
         CHECK(config.target_policy.policy_type == "UQE");
-        CHECK(config.target_policy.uqe_tau_start == Catch::Approx(0.7f));
+        CHECK(config.target_policy.uqe.tau.value == Catch::Approx(0.7f));
         CHECK_FALSE(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning, {"use_optimistic_target=true"}));
     }
 }
@@ -7615,8 +7730,9 @@ TEST_CASE("DefaultDQN Actor owns Noisy draws and advances its action clock", "[d
     data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.hold", "call");
     data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.share", "batch");
     data.Set("DefaultDQNAgent.actor.[train].nn_forward_key", "sample");
-    data.Set("DefaultDQNAgent.actor.[train].policy.eps_start", 0.0f);
-    data.Set("DefaultDQNAgent.actor.[train].policy.eps_end", 0.0f);
+    data.Set("DefaultDQNAgent.actor.[train].policy.epsilon", 0.0f);
+    data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.start", 0.0f);
+    data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.end", 0.0f);
     data.Set("DefaultDQNAgent.actor.[eval].nn_forward_key", "test_default");
     const rl::BatchEnvSpec batch_spec{ 2, 1 };
     const auto env_spec = MakeIqnTracerEnvSpec();
@@ -7843,7 +7959,7 @@ dqn::LearnerConfig MakeNoisyOptimizerLearnerConfig(const anet::ConfigData& data)
     config.update_warmup_steps = 0;
     config.update_interval = 1;
     config.replay_ratio = 0;
-    config.gamma = 0.0f;
+    config.gamma.value = 0.0f;
     config.use_n_step = false;
     config.use_per = false;
     config.use_rb_prefetch = false;
@@ -7881,18 +7997,29 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
     dqn::NetworkModel restored({}, torch::kCPU, anet::nn::NetworkConfig(data), env_spec.state_spec.obs_spec,
         1, factory, false, 492);
     auto config = MakeNoisyOptimizerLearnerConfig(data);
-    config.alpha = 1e-4f;
-    config.weight_decay = 0.01f;
+    config.learning_rate.value = 1e-4f;
+    config.weight_decay.value = 0.01f;
     config.adam_eps = 1e-5f;
     config.use_fused_optimizer = source_fused;
     const bool same_options = GENERATE(false, true);
     const bool change_defaults = GENERATE(false, true);
     auto current = config;
-    current.alpha = 5e-5f;
-    current.weight_decay = 0.02f;
+    current.learning_rate.value = 5e-5f;
+    current.weight_decay.value = 0.02f;
     current.adam_eps = 1e-4f;
     current.noisy_weight_decay = 0.03f;
     if (same_options) current = config;
+    if (change_defaults) {
+        // 引継ぎ先の時間の値は、optimizerに残っていた値と独立したstep 0から始める。
+        current.learning_rate.type = "linear";
+        current.learning_rate.start = current.learning_rate.value;
+        current.learning_rate.end = 0.0f;
+        current.learning_rate.steps = 8;
+        current.weight_decay.type = "linear";
+        current.weight_decay.start = current.weight_decay.value;
+        current.weight_decay.end = 0.0f;
+        current.weight_decay.steps = 8;
+    }
     current.use_fused_optimizer = destination_fused;
     current.enabled = !disabled;
     dqn::RuntimeVars source_vars, restored_vars;
@@ -7926,7 +8053,7 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
     CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Message) == (noisy ? 2 : 1));
     if (!same_options) {
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
-            {"Learner::Load:", "group=0", "option=lr", "key=learner.alpha", "checkpoint=0.0001", "config=5e-05"}));
+            {"Learner::Load:", "group=0", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
             {"group=0", "option=weight_decay", "key=learner.weight_decay", "checkpoint=0.01", "config=0.02"}));
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
@@ -7942,7 +8069,7 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
             {"optimizer options applied from config.", "group=1", same_options ? "weight_decay=0" : "weight_decay=0.03"}));
         if (!same_options) {
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
-                {"group=1", "option=lr", "key=learner.alpha", "checkpoint=0.0001", "config=5e-05"}));
+                {"group=1", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
                 {"group=1", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
@@ -7969,8 +8096,8 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
     REQUIRE(loaded_groups.size() == (noisy ? 2 : 1));
     for (size_t group_index = 0; group_index < loaded_groups.size(); ++group_index) {
         const auto& options = static_cast<const torch::optim::AdamWOptions&>(loaded_groups[group_index].options());
-        CHECK(options.lr() == static_cast<double>(current.alpha));
-        CHECK(options.weight_decay() == static_cast<double>(group_index == 0 ? current.weight_decay : current.noisy_weight_decay));
+        CHECK(options.lr() == static_cast<double>(current.learning_rate.value));
+        CHECK(options.weight_decay() == static_cast<double>(group_index == 0 ? current.weight_decay.value : current.noisy_weight_decay));
         CHECK(options.eps() == static_cast<double>(current.adam_eps));
         CHECK(options.betas() == torch::optim::AdamWOptions{}.betas());
         CHECK_FALSE(options.amsgrad());
@@ -8003,8 +8130,8 @@ TEST_CASE("Noisy sigma has independent AdamW decay and freezes without a gradien
         1, std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{}), false, 411);
     auto config = MakeNoisyOptimizerLearnerConfig(data);
     CHECK(config.noisy_weight_decay == Catch::Approx(sigma_decay));
-    config.alpha = 0.1f;
-    config.weight_decay = 0.8f;
+    config.learning_rate.value = 0.1f;
+    config.weight_decay.value = 0.8f;
     config.use_fused_optimizer = fused;
     const auto entries = model.GetOnlineNetwork()->GetNoisyParameterEntries();
     REQUIRE(entries.size() == 2);
@@ -8035,8 +8162,8 @@ TEST_CASE("Noisy sigma has independent AdamW decay and freezes without a gradien
     for (size_t i = 0; i < entries.size(); ++i) {
         REQUIRE(entries[i].sigma.grad().defined());
         CHECK(entries[i].sigma.grad().abs().sum().item<float>() == 0.0f);
-        CHECK(torch::allclose(entries[i].mean, mean_before[i] * (1.0f - config.alpha * config.weight_decay), 1e-6, 1e-7));
-        CHECK(torch::allclose(entries[i].sigma, sigma_before[i] * (1.0f - config.alpha * sigma_decay), 1e-6, 1e-7));
+        CHECK(torch::allclose(entries[i].mean, mean_before[i] * (1.0f - config.learning_rate.value * config.weight_decay.value), 1e-6, 1e-7));
+        CHECK(torch::allclose(entries[i].sigma, sigma_before[i] * (1.0f - config.learning_rate.value * sigma_decay), 1e-6, 1e-7));
         sigma_before[i] = entries[i].sigma.detach().clone();
     }
     // 公開Save/Loadで直前のoptimizer状態を引き継ぎ、μ-only更新がσの勾配とdecayを止めることを確認する。
@@ -8046,8 +8173,8 @@ TEST_CASE("Noisy sigma has independent AdamW decay and freezes without a gradien
     auto mean_data = data;
     mean_data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "test_default");
     auto mean_config = MakeNoisyOptimizerLearnerConfig(mean_data);
-    mean_config.alpha = config.alpha;
-    mean_config.weight_decay = config.weight_decay;
+    mean_config.learning_rate.value = config.learning_rate.value;
+    mean_config.weight_decay.value = config.weight_decay.value;
     mean_config.use_fused_optimizer = fused;
     dqn::RuntimeVars mean_vars;
     dqn::TDLearner mean_learner(mean_config, model, mean_vars, nullptr, rl::BatchEnvSpec{1, 1}, env_spec,
@@ -8394,8 +8521,8 @@ TEST_CASE("Global gradient norm and clipping include every defined Noisy sigma g
     }
     reference.GetOnlineNetwork()->CopyTo(*clipped.GetOnlineNetwork());
     auto config = MakeNoisyOptimizerLearnerConfig(data);
-    config.alpha = 0.1f;
-    config.weight_decay = 0.0f;
+    config.learning_rate.value = 0.1f;
+    config.weight_decay.value = 0.0f;
     config.noisy_weight_decay = 0.0f;
     config.use_fused_optimizer = fused;
     dqn::RuntimeVars reference_vars, clipped_vars;
@@ -8538,8 +8665,8 @@ TEST_CASE("Noisy optimizer serialization preserves the next update with identica
     source.GetOnlineNetwork()->CopyTo(*restored.GetOnlineNetwork());
     source.GetTargetNetwork()->CopyTo(*restored.GetTargetNetwork());
     auto config = MakeNoisyOptimizerLearnerConfig(data);
-    config.alpha = 0.1f;
-    config.weight_decay = 0.8f;
+    config.learning_rate.value = 0.1f;
+    config.weight_decay.value = 0.8f;
     config.noisy_weight_decay = 0.4f;
     config.use_fused_optimizer = fused;
     dqn::RuntimeVars source_vars, restored_vars;
@@ -9531,6 +9658,18 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
     CHECK(probes >= 2);
 }
 
+// 手作りの行動結果にも、Actorが公開する同じ評価済み値を明示する。
+std::shared_ptr<rl::BatchActionInfo> MakeDiagnosticActionInfo(torch::Tensor action, anet::TensorDict info,
+    rl::AuxData aux, const dqn::LearnerConfig& config, std::optional<rl::ReplayInitialPriorityHint> hint = std::nullopt)
+{
+    if (hint) aux["munchausen_terms"] = torch::zeros_like(aux.at("q_values"));
+    auto result = std::make_shared<dqn::DQNActionInfo>(std::move(action), std::move(info), std::move(aux), std::move(hint));
+    result->effective_gamma = anet::ProfiledValue<float>(config.gamma).Evaluate(0);
+    result->munchausen_alpha = anet::ProfiledValue<float>(config.munchausen.alpha).Evaluate(0);
+    result->munchausen_entropy_tau = anet::ProfiledValue<float>(config.munchausen.entropy_tau).Evaluate(0);
+    return result;
+}
+
 TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and complete a bootstrap", "[dqn][prd094][step_diagnostics]")
 {
     ScopedNoopMetricsLogger logger;
@@ -9538,7 +9677,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     config.learner.use_per = false;
     config.learner.use_n_step = false;
     config.learner.n_step = 1;
-    config.learner.gamma = 0.5f;
+    config.learner.gamma.value = 0.5f;
     config.learner.use_tbo = false;
     config.learner.per_eps = 0.1f;
     config.learner.use_per_prio_clip = false;
@@ -9556,8 +9695,8 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
     REQUIRE(diagnostics);
     const auto make = [&](bool first, float reward, const torch::Tensor& q) {
-        auto action = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64),
-            anet::TensorDict{}, rl::AuxData{{"q_values", q}},
+        auto action = MakeDiagnosticActionInfo(torch::tensor({0}, torch::kInt64),
+            anet::TensorDict{}, rl::AuxData{{"q_values", q}}, config.learner,
             rl::ReplayInitialPriorityHint(torch::full({1, 3}, 100.0f)));
         action = action->WithAction(torch::tensor({1}, torch::kInt64));
         return rl::BatchExperience{MakeDeterminismState(0, 1, {false}, {false}, {first}),
@@ -9641,7 +9780,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
     auto config = MakeDeviceForwardDefaultDqnConfig();
     config.learner.use_n_step = true;
     config.learner.n_step = n;
-    config.learner.gamma = 0.9f;
+    config.learner.gamma.value = 0.9f;
     config.learner.use_tbo = tbo;
     config.learner.munchausen.enabled = munchausen;
     config.learner.per_eps = 0.03f;
@@ -9659,7 +9798,8 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
         rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 345);
     auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
     REQUIRE(diagnostics);
-    const dqn::ActorQHintConfig hint_config{ .munchausen = config.learner.munchausen,
+    const dqn::ActorQHintValues hint_config{ .munchausen = config.learner.munchausen.Resolve(
+        config.learner.munchausen.alpha.value, config.learner.munchausen.entropy_tau.value),
         .use_tbo = tbo, .tbo_epsilon = config.learner.tbo_epsilon };
     std::vector<rl::ReplayInitialPriorityHintRow> hints;
     std::vector<float> rewards;
@@ -9674,7 +9814,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
         rewards.push_back(std::clamp(reward * 1.25f, -1.0f, 1.0f));
         const bool done = step == 1 && (boundary == 1 || boundary == 3);
         const bool truncated = step == 1 && (boundary == 2 || boundary == 3);
-        auto info = std::make_shared<rl::BatchActionInfo>(action, anet::TensorDict{}, rl::AuxData{{"q_values", q}});
+        auto info = MakeDiagnosticActionInfo(action, anet::TensorDict{}, rl::AuxData{{"q_values", q}}, config.learner);
         const rl::BatchExperience experience{ MakeDeterminismState(step, 1, {false}, {false}, {step == 0 || (step == 2 && boundary != 0)}),
             info, torch::tensor({reward}), MakeDeterminismState(step + 1, 1, {done}, {truncated}, {false}) };
         const auto result = diagnostics->Observe(experience);
@@ -9685,14 +9825,15 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
             const bool terminal = crosses && (boundary == 1 || boundary == 3);
             const bool cut = crosses && boundary == 2;
             float target_return = 0;
-            for (int j = actual_n - 1; j >= 0; --j) target_return = rewards[start + j] + config.learner.gamma * target_return;
+            for (int j = actual_n - 1; j >= 0; --j) target_return = rewards[start + j] + config.learner.gamma.value * target_return;
             rl::ValidIndexManager index(1, 32);
             for (int j = 0; j < 16; ++j) {
                 index.MarkWritten(0, j); index.AdvanceWriteCursor(0); index.MarkValid(0);
             }
             rl::InitialPriorityCompleter reference({ .mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX,
-                .gamma = config.learner.gamma, .n_step = n }, 1, dqn::CreateInitialPriorityEstimator(config.learner));
+                .n_step = n }, 1, dqn::CreateInitialPriorityEstimator(config.learner));
             reference.Enqueue(0, { .logical_time_idx = 0, .flat_slot_index = 0, .target_return = target_return,
+                .discount = static_cast<float>(std::pow(config.learner.gamma.value, actual_n)),
                 .terminal = terminal, .truncated = cut, .actual_n_steps = actual_n, .start_hint = hints[start] });
             PrioritySlot slot;
             reference.CompleteReady(0, hints[step], actual_n, index, slot);
@@ -9723,8 +9864,8 @@ TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd0
     auto agent = std::make_shared<LockableAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 123);
     auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
-    auto action = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64),
-        anet::TensorDict{}, rl::AuxData{{"q_values", torch::tensor({{1.0f, 2.0f}})}});
+    auto action = MakeDiagnosticActionInfo(torch::tensor({0}, torch::kInt64),
+        anet::TensorDict{}, rl::AuxData{{"q_values", torch::tensor({{1.0f, 2.0f}})}}, config.learner);
     const rl::BatchExperience experience{MakeDeterminismState(0, 1, {false}, {false}, {true}),
         action, torch::tensor({1.0f}), MakeDeterminismState(1, 1, {false}, {false}, {false})};
     // 初回のTensor処理を先に済ませ、ロック待ちだけを制御する。
@@ -9838,4 +9979,348 @@ TEST_CASE("Skip IQN consumes fused primary features with optional action input",
     auto invalid = data;
     invalid.Set("DefaultDQNAgent.net.body.output.[skip_context]", "main");
     CHECK_THROWS_WITH(make(invalid), Catch::Matchers::ContainsSubstring("rank=3"));
+}
+
+TEST_CASE("PRD101 policy reads a phased exponential epsilon and turns exploration off", "[dqn][prd101]")
+{
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.nn_forward.[mean].noisy.mode", "mu_only");
+    data.Set("DefaultDQNAgent.actor.[train].nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "mean");
+    const std::string key = "DefaultDQNAgent.actor.[train].policy.epsilon";
+    data.Set(key + ".type", "phased");
+    data.Set(key + ".phases", "decay off");
+    data.Set(key + ".phase.[decay].type", "exponential");
+    data.Set(key + ".phase.[decay].start", "1");
+    data.Set(key + ".phase.[decay].end", "0.01");
+    data.Set(key + ".phase.[decay].time_constant", "10");
+    data.Set(key + ".phase.[decay].steps", "25");
+    data.Set(key + ".phase.[off].value", "0");
+    data.Set(key + ".phase.[off].steps", "1");
+    const anet::rl::dqn::DefaultDQNAgentConfig config(data);
+    anet::rl::dqn::EpsilonGreedyActionPolicy policy(config.actor.at("train").policy);
+    policy.UpdateSchedule(anet::rl::StepCounts{.exp_step = 10});
+    REQUIRE(policy.GetScalar("epsilon").has_value());
+    CHECK(*policy.GetScalar("epsilon") == Catch::Approx(0.01 + 0.99 * std::exp(-1.0)));
+    policy.UpdateSchedule(anet::rl::StepCounts{.exp_step = 25});
+    CHECK(*policy.GetScalar("epsilon") == 0.0f);
+}
+TEST_CASE("PRD101 spatial log ladder preserves zero endpoints and follows its schedules", "[dqn][prd101][spatial]")
+{
+    anet::ConfigData data;
+    const std::string key = "DefaultDQNAgent.actor.[train].policy.";
+    data.Set(key + "spatial.enabled", "true");
+    data.Set(key + "spatial.scale", "log");
+    data.Set(key + "spatial.epsilon.first.type", "linear");
+    data.Set(key + "spatial.epsilon.first.start", "0.4");
+    data.Set(key + "spatial.epsilon.first.end", "0");
+    data.Set(key + "spatial.epsilon.first.steps", "10");
+    data.Set(key + "spatial.epsilon.last", "0");
+    const dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
+    dqn::EpsilonGreedyActionPolicy policy(config.actor.at("train").policy, true, 4);
+    policy.UpdateSchedule(rl::StepCounts{.exp_step = 0});
+    REQUIRE(policy.GetScalar("epsilon_lane_min").has_value());
+    CHECK(*policy.GetScalar("epsilon_lane_min") == 0.0f);
+    CHECK(*policy.GetScalar("epsilon_lane_max") == Catch::Approx(0.4));
+    CHECK(*policy.GetScalar("epsilon") == Catch::Approx((0.4 + 0.02510469717 + 0.001487772995) / 4));
+    policy.UpdateSchedule(rl::StepCounts{.exp_step = 10});
+    CHECK(*policy.GetScalar("epsilon") == 0.0f);
+}
+TEST_CASE("PRD101 learner evaluates learning rate before warmup and switches phases", "[prd101][dqn]")
+{
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.nn_forward.[mean].noisy.mode", "mu_only");
+    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "mean");
+    data.Set("DefaultDQNAgent.learner.enabled", false);
+    data.Set("DefaultDQNAgent.learner.learning_rate.type", "phased");
+    data.Set("DefaultDQNAgent.learner.learning_rate.phases", "high low");
+    data.Set("DefaultDQNAgent.learner.learning_rate.phase.[high].value", 0.002f);
+    data.Set("DefaultDQNAgent.learner.learning_rate.phase.[high].steps", 8);
+    data.Set("DefaultDQNAgent.learner.learning_rate.phase.[low].value", 0.0002f);
+    data.Set("DefaultDQNAgent.learner.learning_rate.phase.[low].steps", 16);
+    auto config = dqn::DefaultDQNAgentConfig(data).learner;
+    config.enabled = true;
+    config.current = WithDefaultLearnerForwardConfig().current;
+    config.target = WithDefaultLearnerForwardConfig().target;
+    config.update_warmup_steps = 100;
+    config.use_rb_prefetch = false;
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    CapturingLearner learner(config, model, vars, {4, 1}, MakeLearnerEnvSpec(), 101, nullptr);
+    REQUIRE(learner.GetScalar("learning_rate").has_value());
+    CHECK(learner.GetScalar("learning_rate").value() == Catch::Approx(0.002f));
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    learner.UpdateFromBatch(counts, MakeDeterminismExperience(0, 4));
+    CHECK(learner.GetScalar("learning_rate").value() == Catch::Approx(0.0002f));
+}
+
+TEST_CASE("PRD101 optimizer schedules update every group and retain sigma decay", "[prd101][dqn]")
+{
+    const bool skip = GENERATE(false, true);
+    auto data = MakeNoisyOptimizerTestData();
+    data.Set("DefaultDQNAgent.learner.weight_decay.type", "linear");
+    data.Set("DefaultDQNAgent.learner.weight_decay.start", 0.02f);
+    data.Set("DefaultDQNAgent.learner.weight_decay.end", 0.04f);
+    data.Set("DefaultDQNAgent.learner.weight_decay.steps", 8);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.update_warmup_steps = 100;
+    config.noisy_weight_decay = 0.07f;
+    config.learning_rate.type = "linear";
+    config.learning_rate.start = 0.002f;
+    config.learning_rate.end = 0.001f;
+    config.learning_rate.steps = 8;
+    const auto spec = MakeLearnerEnvSpec();
+    auto factory = std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{});
+    anet::nn::NetworkConfig skip_net;
+    skip_net.output_keys["features"] = "features";
+    dqn::SkipNetworkDefinition skip_definition{.config = {.enabled = true, .max_length = 3}, .network_config = skip_net,
+        .head_factory = std::make_shared<dqn::SkipHeadFactory>(1, 3, dqn::SkipNetworkMode::ActionOut, "none", 1, anet::nn::WeightInitConfig{}), .seed = 102};
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data), spec.state_spec.obs_spec,
+        1, factory, false, 101, skip ? &skip_definition : nullptr);
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, {1, 1}, spec, SelectLearnerForwardResources(data));
+    learner.SetupAdamW();
+    learner.UseReplayBuffer(std::make_shared<RecordingReplayBuffer>());
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    learner.UpdateFromBatch(counts, MakeNoisyOptimizerExperience(0, 1.0f));
+    auto& groups = learner.Optimizer().param_groups();
+    REQUIRE(groups.size() == (skip ? 4 : 2));
+    for (size_t i = 0; i < groups.size(); ++i) {
+        const auto& options = static_cast<const torch::optim::AdamWOptions&>(groups[i].options());
+        CHECK(options.lr() == Catch::Approx(0.001f));
+        CHECK(options.weight_decay() == Catch::Approx(i % 2 == 1 ? 0.07f : 0.04f));
+    }
+}
+
+TEST_CASE("PRD101 beta begins at zero and schedules the next sampling request", "[prd101][dqn]")
+{
+    auto data = MakeNoisyOptimizerTestData();
+    data.Set("DefaultDQNAgent.learner.per_beta.type", "phased");
+    data.Set("DefaultDQNAgent.learner.per_beta.phases", "first next");
+    data.Set("DefaultDQNAgent.learner.per_beta.phase.[first].value", 0.2f);
+    data.Set("DefaultDQNAgent.learner.per_beta.phase.[first].steps", 8);
+    data.Set("DefaultDQNAgent.learner.per_beta.phase.[next].value", 0.8f);
+    data.Set("DefaultDQNAgent.learner.per_beta.phase.[next].steps", 100);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.current = {};
+    config.target = {};
+    config.use_per = true;
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    CapturingLearner learner(config, model, vars, {1, 1}, MakeLearnerEnvSpec(), 101, nullptr);
+    CHECK(vars.per_beta == Catch::Approx(0.2f));
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({1});
+    learner.UseReplayBuffer(replay);
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    learner.UpdateFromBatch(counts, MakeDeterminismExperience(0, 1));
+    counts.exp_step = 16;
+    learner.UpdateFromBatch(counts, MakeDeterminismExperience(1, 1));
+    REQUIRE(replay->sampled_betas.size() == 2);
+    CHECK(replay->sampled_betas[0] == Catch::Approx(0.2f));
+    CHECK(replay->sampled_betas[1] == Catch::Approx(0.8f));
+}
+
+TEST_CASE("PRD101 soft target update uses the current scheduled tau", "[prd101][dqn]")
+{
+    auto data = MakeNoisyOptimizerTestData();
+    data.Set("DefaultDQNAgent.model.soft_update_tau.type", "linear");
+    data.Set("DefaultDQNAgent.model.soft_update_tau.start", 0.0f);
+    data.Set("DefaultDQNAgent.model.soft_update_tau.end", 0.1f);
+    data.Set("DefaultDQNAgent.model.soft_update_tau.steps", 8);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.current = {};
+    config.target = {};
+    TestNetworkModel model(false, 1, dqn::DefaultDQNAgentConfig(data).model);
+    {
+        torch::NoGradGuard guard;
+        for (auto& p : model.GetOnlineNetwork()->parameters()) p.fill_(1.0f);
+        for (auto& p : model.GetTargetNetwork()->parameters()) p.zero_();
+    }
+    dqn::RuntimeVars vars;
+    CapturingLearner learner(config, model, vars, {1, 1}, MakeLearnerEnvSpec(), 101, nullptr);
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({1});
+    learner.UseReplayBuffer(replay);
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    learner.UpdateFromBatch(counts, MakeDeterminismExperience(0, 1));
+    for (const auto& p : model.GetTargetNetwork()->parameters()) {
+        CHECK(torch::allclose(p, torch::full_like(p, 0.1f)));
+    }
+}
+
+TEST_CASE("PRD101 learner passes its current gamma to push and every sample", "[prd101][dqn]")
+{
+    auto data = MakeNoisyOptimizerTestData();
+    data.Set("DefaultDQNAgent.learner.gamma.type", "linear");
+    data.Set("DefaultDQNAgent.learner.gamma.start", 0.5f);
+    data.Set("DefaultDQNAgent.learner.gamma.end", 0.9f);
+    data.Set("DefaultDQNAgent.learner.gamma.steps", 8);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.current = {};
+    config.target = {};
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    CapturingLearner learner(config, model, vars, {1, 1}, MakeLearnerEnvSpec(), 101, nullptr);
+    auto replay = std::make_shared<RecordingReplayBuffer>();
+    replay->SetSizeValues({1});
+    learner.UseReplayBuffer(replay);
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    learner.UpdateFromBatch(counts, MakeDeterminismExperience(0, 1));
+    REQUIRE(replay->pushed_gammas.size() == 1);
+    REQUIRE(replay->sampled_gammas.size() == 1);
+    CHECK(replay->pushed_gammas[0] == Catch::Approx(0.9f));
+    CHECK(replay->sampled_gammas[0] == Catch::Approx(0.9f));
+    REQUIRE(learner.GetScalar("gamma").has_value());
+    CHECK(*learner.GetScalar("gamma") == Catch::Approx(0.9f));
+}
+
+TEST_CASE("PRD101 learner exposes the current Munchausen values", "[prd101][dqn]")
+{
+    auto data = MakeNoisyOptimizerTestData();
+    for (const auto* name : {"alpha", "entropy_tau"}) {
+        const auto root = std::string("DefaultDQNAgent.learner.munchausen.") + name;
+        data.Set(root + ".type", "linear");
+        data.Set(root + ".start", 0.1f);
+        data.Set(root + ".end", name == std::string("alpha") ? 0.4f : 0.7f);
+        data.Set(root + ".steps", 8);
+    }
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.current = {};
+    config.target = {};
+    config.update_warmup_steps = 100;
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    CapturingLearner learner(config, model, vars, {1, 1}, MakeLearnerEnvSpec(), 101, nullptr);
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    learner.UpdateFromBatch(counts, MakeDeterminismExperience(0, 1));
+    REQUIRE(learner.GetScalar("munchausen_alpha").has_value());
+    REQUIRE(learner.GetScalar("munchausen_entropy_tau").has_value());
+    CHECK(*learner.GetScalar("munchausen_alpha") == Catch::Approx(0.4f));
+    CHECK(*learner.GetScalar("munchausen_entropy_tau") == Catch::Approx(0.7f));
+}
+
+TEST_CASE("PRD101 Actor values survive transfer and action replacement", "[prd101][dqn]")
+{
+    ScopedNoopMetricsLogger logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.learner.use_per = false;
+    auto set = [](anet::ProfiledValueConfig<float>& value, float end) {
+        value.type = "linear"; value.start = 0.1f; value.end = end; value.steps = 8;
+    };
+    set(config.learner.gamma, 0.9f);
+    set(config.learner.munchausen.alpha, 0.4f);
+    set(config.learner.munchausen.entropy_tau, 0.7f);
+    const auto env = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{1, 1}, env, torch::kCPU, 101);
+    auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec={1, 1}, .env_spec=env,
+        .device=torch::kCPU, .seed=101, .actor_key="train"});
+    const auto state = MakeDeterminismState(0, 1, {false}, {false}, {true});
+    const auto first = actor->MakeAction({}, state);
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    const auto current = actor->MakeAction(counts, state);
+    for (const auto& result : {current, current->To(torch::kCPU), current->WithAction(torch::zeros({1}, torch::kInt64))}) {
+        for (const auto& [key, expected] : std::vector<std::pair<std::string, float>>{
+            {"gamma", 0.9f}, {"munchausen_alpha", 0.4f}, {"munchausen_entropy_tau", 0.7f}}) {
+            REQUIRE(result->GetScalar(key).has_value());
+            CHECK(*result->GetScalar(key) == Catch::Approx(expected));
+        }
+    }
+    CHECK(*first->GetScalar("gamma") == Catch::Approx(0.1f));
+}
+
+TEST_CASE("PRD101 step diagnostics use the carried gamma at bootstrap completion", "[prd101][dqn][step_diagnostics]")
+{
+    auto config = WithDefaultLearnerForwardConfig();
+    config.gamma.type = "linear";
+    config.gamma.start = 0.5f;
+    config.gamma.end = 0.9f;
+    config.gamma.steps = 2;
+    config.use_n_step = true;
+    config.n_step = 2;
+    config.per_eps = 0.1f;
+    config.use_tbo = false;
+    config.munchausen.enabled = false;
+    auto diagnostics = dqn::CreateStepDiagnosticsProvider(config, 1, [](const torch::Tensor& reward) { return reward; });
+    for (int step = 0; step < 3; ++step) {
+        auto action = std::make_shared<dqn::DQNActionInfo>(torch::zeros({1}, torch::kInt64), anet::TensorDict{},
+            rl::AuxData{{"q_values", step == 2 ? torch::tensor({{6.0f, 2.0f}}) : torch::tensor({{1.0f, 4.0f}})}});
+        action->effective_gamma = step == 2 ? 0.9f : 0.5f;
+        action->munchausen_alpha = 0.9f;
+        action->munchausen_entropy_tau = 0.03f;
+        const auto result = diagnostics->Observe(rl::BatchExperience{
+            MakeDeterminismState(step, 1, {false}, {false}, {step == 0}), action,
+            torch::tensor({float(step + 1)}), MakeDeterminismState(step + 1, 1, {false}, {false}, {false})});
+        if (step < 2) CHECK(result.completed.empty());
+        else {
+            REQUIRE(result.completed.size() == 1);
+            CHECK(*result.completed[0].values->GetScalar("approx_priority", 0) == Catch::Approx(6.76f));
+        }
+    }
+}
+
+TEST_CASE("PRD101 Agent publishes all learner schedule scalars", "[prd101][dqn]")
+{
+    ScopedNoopMetricsLogger logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.learner.use_per = false;
+    config.learner.update_warmup_steps = 100;
+    auto set = [](anet::ProfiledValueConfig<float>& value, float end) {
+        value.type = "linear"; value.start = 0.1f; value.end = end; value.steps = 8;
+    };
+    set(config.learner.learning_rate, 0.001f);
+    set(config.learner.weight_decay, 0.04f);
+    set(config.model.soft_update_tau, 0.1f);
+    set(config.learner.gamma, 0.9f);
+    set(config.learner.munchausen.alpha, 0.4f);
+    set(config.learner.munchausen.entropy_tau, 0.7f);
+    const auto env = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{1, 1}, env, torch::kCPU, 101);
+    rl::StepCounts counts;
+    counts.exp_step = 8;
+    agent->CreateLearner()->UpdateFromBatch(counts, MakeDeterminismExperience(0, 1));
+    const std::array<float, 6> expected{0.001f, 0.04f, 0.1f, 0.9f, 0.4f, 0.7f};
+    for (size_t index = 0; index < expected.size(); ++index) {
+        const auto key = dqn::kLearnerScheduleMetricKeys[index];
+        REQUIRE(agent->GetScalar(key).has_value());
+        CHECK(*agent->GetScalar(key) == Catch::Approx(expected[index]));
+    }
+}
+
+TEST_CASE("PRD101 Rainbow Actor honors spatial selection and moving endpoints", "[prd101][dqn][rainbow]")
+{
+    ScopedNoopMetricsLogger logger;
+    const bool spatial = GENERATE(false, true);
+    auto config = MakeDeviceForwardRainbowConfig();
+    auto& policy = config.actor["train"].policy;
+    policy.epsilon.value = 0.9f;
+    policy.spatial.enabled = spatial;
+    policy.spatial.scale = "linear";
+    policy.spatial.epsilon.first = anet::ProfiledValueConfig<float>{
+        .type = "linear", .start = 0.8f, .end = 0.4f, .steps = 8};
+    policy.spatial.epsilon.last.value = 0.0f;
+    const auto spec = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch_spec{.num_envs = 4, .num_threads = 1};
+    auto agent = std::make_shared<dqn::RainbowAgent>(config, MakeAgentForwardNetworkConfig(),
+        batch_spec, spec, torch::kCPU, 123);
+    auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_spec,
+        .env_spec = spec, .device = torch::kCPU, .seed = 456, .actor_key = "train"});
+    CHECK(*actor->GetScalar("epsilon") == Catch::Approx(spatial ? 0.4f : 0.9f));
+    CHECK(*actor->GetScalar("epsilon_lane_min") == Catch::Approx(spatial ? 0.0f : 0.9f));
+    auto flags = torch::zeros({4}, torch::kBool);
+    rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({4, 2})}}, flags, flags, flags);
+    actor->MakeAction(rl::StepCounts{.exp_step = 8}, state);
+    CHECK(*actor->GetScalar("epsilon") == Catch::Approx(spatial ? 0.2f : 0.9f));
+    CHECK(*actor->GetScalar("epsilon_lane_max") == Catch::Approx(spatial ? 0.4f : 0.9f));
 }

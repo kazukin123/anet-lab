@@ -45,10 +45,6 @@ namespace anet::rl::dqn {
             ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type='" << type
                 << "'; expected Greedy, EpsilonGreedy, UQE, or ThompsonSampling.");
         }
-        if (policy.spatial_scale_type != "log" && policy.spatial_scale_type != "linear") {
-            ANET_SYSTEM_ERROR("Invalid " << key << ".spatial_scale_type='" << policy.spatial_scale_type
-                << "'; expected log or linear.");
-        }
         ValidateTauRule(policy.tau_rule, key + ".tau_rule");
         ValidateTauRule(policy.full_distribution_query.tau_rule, key + ".full_distribution_query.tau_rule");
 
@@ -65,14 +61,7 @@ namespace anet::rl::dqn {
                 << ", actual quantile_mode='"
                 << quantile_mode << "' policy_type='" << policy.policy_type << "'");
         }
-        const bool uses_iqn_tau_range = quantile_mode == ActionPolicyConfig::kQuantileModeIqn
-            && (is_uqe(policy.policy_type) || (policy.IsThompsonSampling() && policy.use_spatial_exploration));
-        if (uses_iqn_tau_range
-            && (!std::isfinite(policy.uqe_tau_start) || policy.uqe_tau_start < 0.0f || policy.uqe_tau_start > 1.0f
-                || !std::isfinite(policy.uqe_tau_end) || policy.uqe_tau_end < 0.0f || policy.uqe_tau_end > 1.0f)) {
-            ANET_SYSTEM_ERROR("Invalid " << key << ".uqe_tau_start/end: values="
-                << policy.uqe_tau_start << "," << policy.uqe_tau_end << " expected finite values in [0,1]");
-        }
+
     }
 
     struct DefaultDQNAgentConfig : public anet::Config {
@@ -185,25 +174,17 @@ namespace anet::rl::dqn {
             }
 
             target_policy.policy_type = "Greedy";     // デフォルトは安全なGreedy
-            target_policy.eps_start = 0.0f;
-            target_policy.eps_end = 0.0f;
-
+            target_policy.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
             if (use_optimistic_target) {        // 「use_optimistic_target = true」だった場合、target_policyのデフォルトはactor.[train].policyをベースとする
                 const auto train = actor.find("train");
                 if (train == actor.end()) {
                     ANET_SYSTEM_ERROR("DefaultDQNAgent.use_optimistic_target=true requires actor.[train].policy.");
                 }
-                target_policy = train->second.policy;   // 明示されたコピー元から既定を作る
+                target_policy = train->second.policy;
+                target_policy.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
+                target_policy.uqe.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};   // 明示されたコピー元から既定を作る
                 const bool optimistic_source = target_policy.policy_type == "UQE" || target_policy.policy_type == "1"
                     || target_policy.IsThompsonSampling();
-                target_policy.eps_start = 0.0f; // ただしランダムノイズ(ε)はターゲット計算には絶対不要なので強制遮断
-                target_policy.eps_end = 0.0f;
-				target_policy.eps_decay_steps = 0;
-                target_policy.uqe_eps_start = 0.0f;
-                target_policy.uqe_eps_end = 0.0f;
-				target_policy.uqe_eps_decay_steps = 0;
-
-                // TrainがEpsilonGreedyだった場合は実質Greedyになるためタイプも変更
                 if (target_policy.policy_type == "EpsilonGreedy" || target_policy.policy_type == "0") {
                     target_policy.policy_type = "Greedy";
                 }
@@ -226,7 +207,7 @@ namespace anet::rl::dqn {
 
             // target_policy.*の設定があれば、継承したかもしれないデフォルト値から上書き反映
             ReadActionPolicyConfig(config_data, "target_policy", target_policy);
-            target_policy.use_spatial_exploration = false;
+            target_policy.spatial.enabled = false;
 
             // 学習停止中も宣言された参照を解決する。保持や時計の適否は実際の利用時に委譲する。
             ValidateForwardReference(
@@ -235,7 +216,7 @@ namespace anet::rl::dqn {
                 config_data, "learner.target.nn_forward_key", learner.target.nn_forward_key);
 
             ANET_READ_CONFIG(config_data, learner.enabled);
-            ANET_READ_CONFIG(config_data, learner.alpha);
+            ANET_READ_CONFIG(config_data, learner.learning_rate);
             ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.noisy_weight_decay);
             if (!std::isfinite(learner.noisy_weight_decay) || learner.noisy_weight_decay < 0.0f) {
@@ -257,9 +238,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_rb_prefetch);
             ANET_READ_CONFIG(config_data, learner.n_step);
             ANET_READ_CONFIG(config_data, learner.per_alpha);
-            ANET_READ_CONFIG(config_data, learner.per_beta_start);
-            ANET_READ_CONFIG(config_data, learner.per_beta_end);
-            ANET_READ_CONFIG(config_data, learner.per_beta_step);
+            ANET_READ_CONFIG(config_data, learner.per_beta);
             ANET_READ_CONFIG(config_data, learner.per_eps);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority_mode);
@@ -279,12 +258,6 @@ namespace anet::rl::dqn {
                 && munchausen.log_policy_mode != "online_reuse") {
                 ANET_SYSTEM_ERROR("Invalid learner.munchausen.log_policy_mode='" << munchausen.log_policy_mode
                     << "'; expected target, online, or online_reuse.");
-            }
-            if (!std::isfinite(munchausen.alpha) || munchausen.alpha < 0.0f || munchausen.alpha > 1.0f) {
-                ANET_SYSTEM_ERROR("Invalid learner.munchausen.alpha=" << munchausen.alpha << "; expected finite [0,1].");
-            }
-            if (!std::isfinite(munchausen.entropy_tau) || munchausen.entropy_tau <= 0.0f) {
-                ANET_SYSTEM_ERROR("Invalid learner.munchausen.entropy_tau=" << munchausen.entropy_tau << "; expected finite > 0.");
             }
             if (!std::isfinite(munchausen.clip_value_min) || munchausen.clip_value_min > 0.0f) {
                 ANET_SYSTEM_ERROR("Invalid learner.munchausen.clip_value_min=" << munchausen.clip_value_min << "; expected finite <= 0.");
@@ -523,27 +496,7 @@ namespace anet::rl::dqn {
 
         void ReadActionPolicyConfig(const ConfigData& data, const std::string& prefix, ActionPolicyConfig& policy)
         {
-            // ReadConfig経由で既定補完値もModule Configと保存用の記録へ残す。
-            ReadConfig(data, prefix + ".policy_type", policy.policy_type);
-            ReadConfig(data, prefix + ".eps_start", policy.eps_start);
-            ReadConfig(data, prefix + ".eps_end", policy.eps_end);
-            ReadConfig(data, prefix + ".eps_decay_steps", policy.eps_decay_steps);
-            ReadConfig(data, prefix + ".use_spatial_exploration", policy.use_spatial_exploration);
-            ReadConfig(data, prefix + ".spatial_scale_type", policy.spatial_scale_type);
-            ReadConfig(data, prefix + ".uqe_tau_start", policy.uqe_tau_start);
-            ReadConfig(data, prefix + ".uqe_tau_end", policy.uqe_tau_end);
-            ReadConfig(data, prefix + ".uqe_tau_decay_steps", policy.uqe_tau_decay_steps);
-            ReadConfig(data, prefix + ".uqe_use_tail_mean", policy.uqe_use_tail_mean);
-            ReadConfig(data, prefix + ".uqe_eps_start", policy.uqe_eps_start);
-            ReadConfig(data, prefix + ".uqe_eps_end", policy.uqe_eps_end);
-            ReadConfig(data, prefix + ".uqe_eps_decay_steps", policy.uqe_eps_decay_steps);
-            ReadConfig(data, prefix + ".use_amp", policy.use_amp);
-            ReadConfig(data, prefix + ".use_amp_bf16", policy.use_amp_bf16);
-            ReadConfig(data, prefix + ".tau_rule.sample_mode", policy.tau_rule.sample_mode);
-            ReadConfig(data, prefix + ".tau_rule.num_taus", policy.tau_rule.num_taus);
-            ReadConfig(data, prefix + ".full_distribution_query.enabled", policy.full_distribution_query.enabled);
-            ReadConfig(data, prefix + ".full_distribution_query.tau_rule.sample_mode", policy.full_distribution_query.tau_rule.sample_mode);
-            ReadConfig(data, prefix + ".full_distribution_query.tau_rule.num_taus", policy.full_distribution_query.tau_rule.num_taus);
+            ReadConfig(data, prefix, policy);
         }
 
     };

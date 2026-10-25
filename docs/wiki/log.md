@@ -447,3 +447,5 @@
 2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:29f54dc7e9383324c62833dd5c92f5a56c8cc6e9 → docs/wiki/categories/321_agent_core.md, docs/wiki/categories/316_config.md（実装計画前レビュー 5 件の対応）
 2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:39e78d6c3219660246b3c0d7b40191cf0024f684 → なし（レビュー OK 後に G8 の例外の文言を補っただけ。wiki の記述は変わらない）
 2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:dd3db5b2aa11a926e69917f5320b64c802f8048a → なし（G5・D14 の等価性の例外範囲を新 D8 に合わせた。wiki の記述は変わらない）
+2026-10-25 fix docs/wiki/categories/316_config.md, docs/wiki/categories/321_agent_core.md（定数記法とLunarLanderの検査用末端を現行契約へ訂正）
+2026-10-25 writeback docs/memo/101_exploration_schedule_profiled_value_10prd.md blob:a39f5b8ab807f76708ec43e3686718a53b894c69 → docs/wiki/categories/312_util.md, docs/wiki/categories/316_config.md, docs/wiki/categories/318_rl_core.md, docs/wiki/categories/321_agent_core.md, docs/wiki/categories/324_dqn.md

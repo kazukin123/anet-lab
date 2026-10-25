@@ -24,6 +24,8 @@
 - 2026-09-04: 評価episode集約で使う共通utilityを更新した（出典: [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、F1. metrics 経路は既に「1 セッション 1 点」であり、停止条件だけ変えても N 本平均は録れない）。
 - 2026-09-24: InitRLの初期化に明示deviceの可用性検査を加えた（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD10・Complexity audit）。
 
+- 2026-10-25: ProfiledValueに指数とphaseの終値規則を加え、定数をbareで読み、実効typeが使う欄だけをdumpする（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D2〜D4）。
+
 ## 選ばなかった形
 
 - SDPA の backend を math に固定する形 — 不採用（棄却）: 決定化はできるが math は遅く、mem-efficient の決定的 backward で同じ再現性が得られるので、backend を局所的に縛る複雑さと版差の脆さを払う価値がない（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Considered Options）。

@@ -91,14 +91,14 @@ namespace anet::rl {
     class ReplayExperienceBuilder {
     public:
         /// 系列(Sequence)を受け取り、アルゴリズムに応じた ReplayExperience を構築する
-        virtual ReplayExperience Build(const ExperienceSequence& sequence) const = 0;
+        virtual ReplayExperience Build(const ExperienceSequence& sequence, float gamma) const = 0;
         virtual ~ReplayExperienceBuilder() = default;
     };
    
 
     /// replayとstep診断で同じ系列抽出・収益の演算順序を使う。
     std::unique_ptr<ExperienceQueueController> CreateNStepQueueController(int n_step);
-    std::unique_ptr<ReplayExperienceBuilder> CreateDefaultExperienceBuilder(float gamma);
+    std::unique_ptr<ReplayExperienceBuilder> CreateDefaultExperienceBuilder();
 
     // ======================================================
     // Valid Index Manager
@@ -296,7 +296,7 @@ namespace anet::rl {
             ExperienceSamples& out_samples,
             const ReplayExperienceStorage& storage,
             const IndexSampleResult& idx_result,
-            int stack_count, int unroll_steps, ReplayExperienceSampler& sampler) const = 0;
+            int stack_count, int unroll_steps, ReplayExperienceSampler& sampler, float gamma) const = 0;
         virtual ~ExperienceSampleExtractor() = default;
     };
 
@@ -330,7 +330,6 @@ namespace anet::rl {
         struct Config {
             ReplayInitialPriorityMode mode = ReplayInitialPriorityMode::FIXED; ///< 初期優先度の決定方式
             float fixed_raw_priority = 1.0f; ///< FIXEDで適用するper_alpha変換前の優先度
-            float gamma = 0.99f;             ///< 実n-step数へ累乗する割引率
             int n_step = 1;                  ///< sampleable判定に使う未来観測幅
             int unroll_steps = 0;            ///< sampleable判定に使う未来系列幅
         };
@@ -339,6 +338,7 @@ namespace anet::rl {
             int64_t logical_time_idx = 0; ///< 開始stepのenv内単調増加index
             int64_t flat_slot_index = 0;  ///< 初期優先度を適用する物理slot
             float target_return = 0.0f;   ///< ExperienceQueue通過後の確定済みtarget return
+            float discount = 0.0f;        ///< 収益を確定したPushでの割引率
             bool terminal = false;        ///< bootstrapを行わない真の終端か
             bool truncated = false;       ///< 終端観測を推論せずmaxへfallbackする打切りか
             int actual_n_steps = 1;       ///< 終端短縮を反映した実n-step数
@@ -460,11 +460,11 @@ namespace anet::rl {
             torch::Device device,
             bool pin_memory);
 
-        void Push(const BatchExperience& batch_exp) override;
-        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
-        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
+        void Push(const BatchExperience& batch_exp, float gamma) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const override;
+        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const override;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
@@ -479,7 +479,7 @@ namespace anet::rl {
         void ProcessQueue(
             int64_t env_idx,
             const std::optional<ReplayInitialPriorityHintRow>& current_hint,
-            int64_t current_logical_idx); // 内部パイプラインの駆動
+            int64_t current_logical_idx, float gamma); // 内部パイプラインの駆動
         int64_t OnSlotWritten(int64_t flat_slot_index);
         int64_t EncodeReplayItemKey(int64_t flat_slot_index) const;
         void InvalidateAccessorCacheForStorage();

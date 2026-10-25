@@ -61,7 +61,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     {
         // 実効ホライズン (Effective Horizon) = 1 / (1 - gamma)
         // gamma=0.9 -> 10 steps, 0.99 -> 100 steps, 0.995 -> 200 steps
-        float g = config_.learner.gamma;
+        float g = anet::ProfiledValue<float>(config_.learner.gamma).Evaluate(0);
         float horizon = (std::abs(g - 1.0f) < 1e-6) ? -1.0f : (1.0f / (1.0f - g));
 
         //時系列の重みが約37%に減衰するまでのSTEP数
@@ -89,7 +89,7 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
-    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(config_.learner.gamma);
+    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(config_.learner.gamma).Evaluate(0));
 
     // ObservationNormalizer生成
     anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
@@ -202,11 +202,11 @@ DefaultDQNAgent::DefaultDQNAgent(
         }
     }
 
-    // Target Policyの妥当性チェック
-    if (config_.target_policy.policy_type == "EpsilonGreedy" &&
-        (config_.target_policy.eps_start > 0.0f || config_.target_policy.eps_end > 0.0f)) {
-        // TargetActionPolicy（学習用）はUQE/ThompsonSamplingもしくはGreedyである必要がある(ランダム要素はNG)
-        ANET_SYSTEM_ERROR("target_policy cannot be EpsilonGreedy with eps > 0. It must be deterministic or optimistic.");
+    // target用のランダム探索は全有効端点で禁止する。
+    if (config_.target_policy.policy_type == "EpsilonGreedy") {
+        auto epsilon = config_.target_policy.epsilon;
+        epsilon.max_value = 0.0f;
+        anet::detail::ValidateProfiledValueConfig(epsilon, "target_policy.epsilon");
     }
 
     // ActionPolicy生成
@@ -283,10 +283,8 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
-        greedy_cfg.eps_start = 0.0f;
-        greedy_cfg.eps_end = 0.0f;
-		greedy_cfg.eps_decay_steps = 0;
-        greedy_cfg.use_spatial_exploration = false;
+        greedy_cfg.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
+        greedy_cfg.spatial.enabled = false;
         return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg, false, num_envs, device);
     }
 
@@ -431,6 +429,12 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
     // プレフィックスで各 Policy インスタンスへ処理を委譲
     if (anet::StartsWith(key, "target_policy.")) return target_policy_->GetScalar(anet::RemovePrefix(key, "target_policy."), index);
 
+    for (const auto* schedule_key : kLearnerScheduleMetricKeys) {
+        if (key == schedule_key) {
+            std::shared_lock<std::shared_mutex> lock(*mutex_);
+            return learner_->GetScalar(key);
+        }
+    }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
@@ -559,7 +563,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         ANET_SYSTEM_ERROR("Missing resolved actor.[" << request.actor_key << "].nn_forward_key; expected a declared forward configuration.");
     }
     ValidateActorDevice(cfg.clone_model, request.device);
-    auto policy = CreateActionPolicy(cfg.policy, cfg.policy.use_spatial_exploration,
+    auto policy = CreateActionPolicy(cfg.policy, cfg.policy.spatial.enabled,
         request.batch_env_spec.num_envs, request.device);
     auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     auto network = source;
@@ -570,7 +574,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         const bool shared_policy = !cfg.has_skip_policy || cfg.policy.policy_type == "Greedy";
         skip.emplace(SkipActorResources{
             .config = config_.skip,
-            .policy = shared_policy ? policy : CreateActionPolicy(cfg.skip_policy, cfg.skip_policy.use_spatial_exploration,
+            .policy = shared_policy ? policy : CreateActionPolicy(cfg.skip_policy, cfg.skip_policy.spatial.enabled,
                 request.batch_env_spec.num_envs, request.device),
             .network = skip_source, .source = skip_source,
             .use_amp = cfg.policy.use_amp, .use_amp_bf16 = cfg.policy.use_amp_bf16,
@@ -590,7 +594,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     const ActorQHintConfig hint_config{
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
-        .tbo_epsilon = config_.learner.tbo_epsilon};
+        .tbo_epsilon = config_.learner.tbo_epsilon, .gamma = config_.learner.gamma};
     return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
         mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config, std::move(skip));
 }

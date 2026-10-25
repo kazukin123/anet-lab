@@ -55,7 +55,7 @@
 - 設定ファイルを分けたり移したりするときは、7 env の解決済み設定（全キーと文字列値）の前後一致と check_default_leaves.py の errors=0 で、解決値と演算子の規約が変わっていないことを確かめる（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§6）。
 
 - optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、A15）。
-- ProfiledValue を読む設定キーでは、root の定数は bare だけで書き（root の `.value` は読まない。現用の `sync_interval.value` は移行で bare へ写す）、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
+- ProfiledValue を読む設定キーでは、root の定数は bare、段の定数は `.phase.[name].value` で書き、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
 
 ## 関係
 

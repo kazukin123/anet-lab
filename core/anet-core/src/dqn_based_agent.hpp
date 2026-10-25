@@ -27,6 +27,9 @@ namespace anet::rl::dqn {
     /// 未知keyはnullopt、認識したindexed keyの不正番号はfail-fastにする。
     std::optional<int64_t> ParseAttentionEntropyMetric(std::string_view key);
 
+    inline constexpr std::array<const char*, 6> kLearnerScheduleMetricKeys = {
+        "learning_rate", "weight_decay", "soft_update_tau", "gamma", "munchausen_alpha", "munchausen_entropy_tau"
+    };
     inline constexpr std::array<const char*, 5> kMunchausenMetricKeys = {
         "munchausen_scaled_log_policy_mean", "munchausen_clip_ratio", "munchausen_bonus_mean",
         "munchausen_next_entropy", "munchausen_soft_gap",
@@ -47,7 +50,7 @@ namespace anet::rl::dqn {
     MunchausenTargetTerms MakeMunchausenTargetTerms(
         const torch::Tensor& current_score, const torch::Tensor& next_score,
         const torch::Tensor& next_mean_q, const torch::Tensor& actions,
-        const MunchausenConfig& config, bool collect_diagnostics = true);
+        const MunchausenValues& config, bool collect_diagnostics = true);
 
     inline constexpr std::array<const char*, 7> kPolicyChurnMetricKeys = {
         "policy_churn_action_ratio",
@@ -755,7 +758,8 @@ namespace anet::rl::dqn {
         torch::OrderedDict<std::string, torch::Tensor> GetOnlineNamedParameters() const;
 
         /// target network 同期
-        void UpdateTarget(anet::rl::step_t learn_step);
+        void UpdateTarget(anet::rl::step_t learn_step, float tau);
+        const anet::ProfiledValueConfig<float>& GetSoftUpdateTauConfig() const { return config_.soft_update_tau; }
         int GetHardUpdateInterval() const { return config_.hard_update_interval; }
 
         /// メトリクス用：TensorDict
@@ -766,7 +770,7 @@ namespace anet::rl::dqn {
         int64_t LoadCheckpoint(InputArchive& archive, bool has_skip);
     private:
         void ValidateSpectralNormSoftUpdateConfig() const;
-        void SoftUpdate();
+        void SoftUpdate(float tau);
         void HardUpdate();
     private:
         const anet::rl::dqn::NetworkModelConfig config_;
@@ -806,6 +810,9 @@ namespace anet::rl::dqn {
         using anet::rl::BatchActionInfo::BatchActionInfo;
         anet::TensorDict forward_output; ///< Actor が skip 入力を組むまで保持する一時出力。
         int64_t risk_num_taus = 0;
+        float effective_gamma = std::numeric_limits<float>::quiet_NaN();
+        float munchausen_alpha = std::numeric_limits<float>::quiet_NaN();
+        float munchausen_entropy_tau = std::numeric_limits<float>::quiet_NaN();
 
         std::shared_ptr<anet::rl::BatchActionInfo> To(torch::Device device) const override;
         std::shared_ptr<anet::rl::BatchActionInfo> WithAction(torch::Tensor action) const override;
@@ -858,6 +865,26 @@ namespace anet::rl::dqn {
         bool use_tail_mean;
     };
 
+    class SpatialLadderSchedule {
+    public:
+        SpatialLadderSchedule(const ActionPolicyConfig::LadderConfig& config,
+            std::string scale, int64_t lanes, torch::Device device);
+        void Update(step_t step);
+        const torch::Tensor& Tensor() const { return tensor_; }
+        float Mean() const { return mean_; }
+        float Min() const { return minimum_; }
+        float Max() const { return maximum_; }
+    private:
+        anet::ProfiledValue<float> first_, last_;
+        std::string scale_;
+        int64_t lanes_;
+        torch::Device device_;
+        torch::Tensor tensor_;
+        float current_first_ = std::numeric_limits<float>::quiet_NaN();
+        float current_last_ = std::numeric_limits<float>::quiet_NaN();
+        float mean_ = 0.0f, minimum_ = 0.0f, maximum_ = 0.0f;
+    };
+
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
         ActionPolicy(const ActionPolicyConfig& config,
@@ -888,14 +915,16 @@ namespace anet::rl::dqn {
         std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
-        bool IsSpatialExplorationEnabled() const { return use_spatial_exploration_; }
-        static torch::Tensor CreateSpatialTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
-        static torch::Tensor CreateSpatialLaneTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
+        bool IsSpatialExplorationEnabled() const { return spatial_enabled_; }
         torch::Tensor GetSpatialEpsilonTensor(int64_t num_envs, const torch::Device& device, bool is_uqe) const;
         torch::Tensor GetSpatialTauTensor(int64_t num_envs, const torch::Device& device) const;
     protected:
         const ActionPolicyConfig config_;
-        bool use_spatial_exploration_ = false;
+        bool spatial_enabled_ = false;
+        bool uses_uqe_ = false;
+        std::optional<anet::ProfiledValue<float>> epsilon_schedule_, tau_schedule_;
+        bool thompson_ = false;
+        std::unique_ptr<SpatialLadderSchedule> epsilon_ladder_, uqe_epsilon_ladder_, tau_ladder_;
         int64_t spatial_num_envs_ = 0;
         torch::Tensor spatial_eps_tensor_;
         torch::Tensor spatial_uqe_eps_tensor_;
@@ -922,7 +951,7 @@ namespace anet::rl::dqn {
      * UQE (Upper Quantile Exploration)
      * 分布型RLにおける楽観的探索 (Optimistic Exploration) を行うクラス。
      * 分布の右裾（上位Quantile）の情報を用いて、不確実性の高い行動を積極的に探索する。
-     * * uqe_use_tail_meanにより、以下2つの標準的な手法に対応：
+     * * uqe.use_tail_meanにより、以下2つの標準的な手法に対応：
      * 1. Q-UCB: 特定の上位分位点(tau)の値を使用 (falseの場合)
      * 2. Upper CVaR: 上位tauから1.0までの平均値を使用 (trueの場合)
      */
@@ -945,7 +974,7 @@ namespace anet::rl::dqn {
         virtual ~UQEActionPolicy() = default;
         std::optional<RiskScoreSpec> GetRiskScoreSpec() const override
         {
-            return RiskScoreSpec{ .tau = current_uqe_tau_, .use_tail_mean = config_.uqe_use_tail_mean };
+            return RiskScoreSpec{ .tau = current_uqe_tau_, .use_tail_mean = config_.uqe.use_tail_mean };
         }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
@@ -982,6 +1011,13 @@ namespace anet::rl::dqn {
         MunchausenConfig munchausen;
         bool use_tbo = false;
         float tbo_epsilon = 0.01f;
+        anet::ProfiledValueConfig<float> gamma{ .value = 0.99f, .min_value = 0.0f, .max_value = 1.0f };
+    };
+
+    struct ActorQHintValues {
+        MunchausenValues munchausen;
+        bool use_tbo = false;
+        float tbo_epsilon = 0.01f;
     };
 
     struct ActorQHintData {
@@ -989,7 +1025,7 @@ namespace anet::rl::dqn {
         torch::Tensor munchausen_terms;
     };
     ActorQHintData MakeActorQHint(const torch::Tensor& q_values,
-        const torch::Tensor& action, const ActorQHintConfig& config);
+        const torch::Tensor& action, const ActorQHintValues& config);
     std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const LearnerConfig& config,
         int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward);
 
@@ -1046,6 +1082,8 @@ namespace anet::rl::dqn {
         mutable uint64_t forward_clock_ = 0; ///< 行動選択ごとの時計。episodeやsnapshot同期でリセットしない。
         bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
         const ActorQHintConfig actor_q_hint_config_;
+        anet::ProfiledValue<float> gamma_;
+        anet::ProfiledValue<float> munchausen_alpha_, munchausen_entropy_tau_;
         mutable std::optional<anet::ProfiledValue<step_t>> snapshot_sync_interval_;
         mutable step_t last_snapshot_sync_train_step_ = 0;
         mutable bool reset_snapshot_age_on_next_action_ = false;
@@ -1169,6 +1207,15 @@ namespace anet::rl::dqn {
         int n_actions_;
         float earned_credit_;
         LearnerConfig config_;
+        anet::ProfiledValue<float> learning_rate_;
+        anet::ProfiledValue<float> weight_decay_;
+        anet::ProfiledValue<float> per_beta_;
+        anet::ProfiledValue<float> soft_update_tau_;
+        anet::ProfiledValue<float> gamma_;
+        anet::ProfiledValue<float> munchausen_alpha_, munchausen_entropy_tau_;
+        MunchausenValues munchausen_values_;
+        const bool has_optimizer_schedule_;
+        std::vector<bool> optimizer_sigma_groups_;
         std::shared_ptr<anet::nn::NetworkForwardExecutor> current_forward_;
         std::shared_ptr<anet::nn::NetworkForwardExecutor> skip_current_forward_;
         TargetForwards target_forwards_;

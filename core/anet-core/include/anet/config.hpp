@@ -182,7 +182,7 @@ namespace anet {
         anet::ConfigData GetScopedConfigData() const;
     protected:
         template<typename T>
-        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)
+        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value, bool record = true)
         {
             if constexpr (ConfigReader<T>::kEnabled) {
                 ConfigReader<T>::Read(*this, config_data, key, value);
@@ -196,19 +196,26 @@ namespace anet {
                 config_data.Read(override_config_key, value, value);
 
 			    // 取り込んだKeyとValueを保存
-                my_config_data_.Set(key, value);
-                my_config_json_[key] = value;
+                if (record) RecordConfigValue(key, value);
             }
 		}
+
+        // 読み取った値のうち、実効契約が使う欄だけを記録する。
+        template<typename T>
+        void RecordConfigValue(const std::string& key, const T& value)
+        {
+            my_config_data_.Set(key, value);
+            my_config_json_[key] = value;
+        }
 
         template<typename T>
         void ReadSubConfig(
             const ConfigData& config_data,
             const std::string& root_key,
             const std::string& sub_key,
-            T& value)
+            T& value, bool record = true)
         {
-            ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value);
+            ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value, record);
         }
 
         std::string MakeTaggedSubConfigKey(

@@ -754,6 +754,22 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 // ExperienceSamples
 // =============================================================
 
+void ExperienceSamples::FinalizeReturns(float gamma)
+{
+    if (!sampled_rewards.defined() && !sampled_window_rewards.defined()) return;
+    ANET_PROFILE_FUNC();
+    // ExperienceBuilderと同じ逆順のfloat演算で、消費時の収益を確定する。
+    const auto evaluate = [gamma](const torch::Tensor& rewards, torch::Tensor& result) {
+        if (!rewards.defined()) return;
+        result = torch::zeros({rewards.size(0)}, rewards.options());
+        for (int64_t offset = rewards.size(1); offset-- > 0;) {
+            result = rewards.select(1, offset) + gamma * result;
+        }
+    };
+    evaluate(sampled_rewards, target_returns);
+    evaluate(sampled_window_rewards, window.returns);
+}
+
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
     ANET_PROFILE_FUNC();
@@ -788,7 +804,9 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .per_priority_sources = per_priority_sources.defined()
                 ? (per_priority_sources.device().is_cpu() ? per_priority_sources : per_priority_sources.to(torch::kCPU))
                 : per_priority_sources,
-			.info = info.To(device, non_blocking)
+			.info = info.To(device, non_blocking),
+            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
+            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
         };
     }
 
@@ -815,7 +833,9 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
         .per_priority_sources = per_priority_sources.defined()
             ? per_priority_sources.to(torch::kCPU)
             : per_priority_sources,
-        .info = info.To(device, non_blocking)
+        .info = info.To(device, non_blocking),
+            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
+            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
     };
 }
 

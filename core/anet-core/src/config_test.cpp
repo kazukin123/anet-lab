@@ -480,7 +480,7 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
 {
     anet::ConfigData config_data;
     config_data.Set("ImageClsAgent.learning_rate.type", std::string("phased"));
-    config_data.Set("ImageClsAgent.learning_rate.value", 0.5);
+    config_data.Set("ImageClsAgent.learning_rate", 0.5);
     config_data.Set("ImageClsAgent.learning_rate.start", 0.0);
     config_data.Set("ImageClsAgent.learning_rate.end", 1.0);
     config_data.Set("ImageClsAgent.learning_rate.steps", 100);
@@ -526,7 +526,7 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
 
     const auto json = config.ToJson();
     CHECK(json.at("learning_rate.type") == "phased");
-    CHECK(json.at("learning_rate.value") == 0.5);
+    CHECK_FALSE(json.contains("learning_rate"));
     CHECK(json.at("learning_rate.phases") == anet::json::array({ "warmup", "main" }));
     CHECK(json.at("learning_rate.phase.[warmup].type") == "linear");
     CHECK(json.at("learning_rate.phase.[main].steps") == 90);
@@ -552,35 +552,35 @@ TEST_CASE("Config rejects a ProfiledValueConfig that violates its bounds", "[con
     {
         anet::ConfigData config_data;
         config_data.Set("PositiveProfile.interval.type", "constant");
-        config_data.Set("PositiveProfile.interval.value", "0");
+        config_data.Set("PositiveProfile.interval", "0");
 
         CHECK_THROWS_WITH(
             PositiveProfiledValueOwnerConfig(config_data),
-            Catch::Matchers::ContainsSubstring("key=interval.value value=0"));
+            Catch::Matchers::ContainsSubstring("key=interval value=0"));
     }
 
     SECTION("override layer reports the same layer-neutral logical key")
     {
         anet::ConfigData config_data;
         config_data.Set("PositiveProfile.interval.type", "constant");
-        config_data.Set("PositiveProfile.interval.value", "400");
-        config_data.Set("Trial.interval.value", "0");
+        config_data.Set("PositiveProfile.interval", "400");
+        config_data.Set("Trial.interval", "0");
 
         CHECK_THROWS_WITH(
             PositiveProfiledValueOwnerConfig(config_data, "Trial"),
-            Catch::Matchers::ContainsSubstring("key=interval.value value=0"));
+            Catch::Matchers::ContainsSubstring("key=interval value=0"));
     }
 }
 
 TEST_CASE("Config override does not mask a malformed default layer", "[config][profiled_value]")
 {
     anet::ConfigData config_data;
-    config_data.Set("PositiveProfile.interval.value", "invalid");
-    config_data.Set("Trial.interval.value", "2");
+    config_data.Set("PositiveProfile.interval", "invalid");
+    config_data.Set("Trial.interval", "2");
 
     CHECK_THROWS_WITH(
         PositiveProfiledValueOwnerConfig(config_data, "Trial"),
-        Catch::Matchers::ContainsSubstring("key=PositiveProfile.interval.value")
+        Catch::Matchers::ContainsSubstring("key=PositiveProfile.interval")
         && Catch::Matchers::ContainsSubstring("value=\"invalid\"")
         && Catch::Matchers::ContainsSubstring("expected=double"));
 }
@@ -1599,4 +1599,22 @@ TEST_CASE("Config optional native leaves preserve explicit empty values and roun
     CHECK(restored.text == original.text);
     CHECK(restored.enabled == original.enabled);
     CHECK(restored.items == original.items);
+}
+
+TEST_CASE("PRD101 bare profiled values record only active fields", "[config][prd101]")
+{
+    anet::ConfigData data;
+    data.Set("ImageClsAgent.learning_rate", "0.25");
+    ProfiledValueOwnerConfig constant(data);
+    CHECK(anet::ProfiledValue<double>(constant.learning_rate).Value() == 0.25);
+    CHECK(constant.ToJson().at("learning_rate") == 0.25);
+    CHECK(constant.ToJson().size() == 1);
+    data.Set("ImageClsAgent.learning_rate.type", "linear");
+    data.Set("ImageClsAgent.learning_rate.start", "1");
+    data.Set("ImageClsAgent.learning_rate.end", "0");
+    data.Set("ImageClsAgent.learning_rate.steps", "10");
+    ProfiledValueOwnerConfig linear(data);
+    CHECK(anet::ProfiledValue<double>(linear.learning_rate).Evaluate(5) == 0.5);
+    CHECK_FALSE(linear.ToJson().contains("learning_rate"));
+    CHECK(linear.ToJson().size() == 4);
 }
