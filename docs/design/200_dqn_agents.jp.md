@@ -55,6 +55,8 @@ Actorは、構成に応じて`DictFrameStacker`によるframe stackとdevice転�
 
 `DefaultDQNAgent`のframe stackでは、`use_stacker=true`かつ`stack_count=S>1`のとき、stack対象ObservationのNetwork入力specをEnvSpecの特徴次元へ乗算せず、`[S, *original_shape]`として構築する。これによりdummy forward、Actor、Replay sampleの入力軸が一致する。`stack_keys`対象外のspecは変更せず、`stack_count==1`では追加のstack軸をNetwork specへ導入しない。このspec変換はDefaultDQN固有であり、EnvSpec、ObservationNormalizer、ReplayBuffer、`NetworkBuilder`、`RainbowAgent`のcontractは変更しない。moduleごとのshape変換と離散Gridのone-hot境界は[ニューラルネットワーク](130_neural_networks.jp.md#22-frame-stack入力の軸contract)を参照する。
 
+ProfiledValueのrootの定数は `epsilon = 0.05` のようにbare値で指定し、`type` の既定は `constant` となる。実効typeがconstant以外の場合、bare値は `value` 欄に保持されるが、評価と型付きdumpには使われない。bare値だけで定数へ切り替えることはできないため、定数に戻す場合は `epsilon.type = constant` と意図するbare値を併記する。phase内の定数は `phase.[name].value` で指定する。
+
 時間の値は `epsilon`・`uqe.epsilon`・`uqe.tau` のProfiledValueで指定する。spatial explorationは `spatial.enabled` で選択し、`spatial.scale=linear|log` と `spatial.epsilon.first/last`・`spatial.uqe.epsilon.first/last`・`spatial.uqe.tau.first/last` でlaneの両端を指定する。両端もProfiledValueである。`SpatialLadderSchedule`が両端を評価してラダーを生成し、定数両端ではTensorを再利用する。既存のlane割り当てを保ち、1 laneはfirstとなる。
 
 logラダーは `max(端, 1e-4)` の列を指定端へ線形に伸縮する。clamp後の両端が等しければ指定端の線形補間を使う。両端とも下限以上なら従来の生成経路を維持する。DropMergeとLunarLanderのlast=0は0のまま扱い、中間laneも旧系列から変わる。`epsilon`・`uqe_epsilon`・`uqe_tau`は使用中のlane平均を返し、各値の `_lane_min`・`_lane_max`も取得できる。方策に使わない既知の指標はNaNとなる。
