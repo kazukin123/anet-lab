@@ -23,35 +23,47 @@ DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 
 #agent.device = cpu    # NNが小さいのでCPUのほうが早い場合がある
 
-app.run_name = run_{t}_ll
-
-
-# ==============================================================================
-# Run設定
-# ==============================================================================
+#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
+run.$ = run.@munch > run.@skip
+#run.$ = run.@munch     # TempoRL 無効（比較用）
+# run.@skip・run.@rfit・run.@noisy は metrics.scalar.$ を上書きし合うので、重ねると後ろの profile の連鎖だけが残る
+#run.$ = run.@rfit
+#run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
+#run.$ = run.@cpu
+#run.$ = run.@cpu > run.@noisy      # @noisy は metrics を上書きするので後ろに置く
 
 #backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 
-# ALGO プロファイル(@qr / @iqn)は agent.txt の共通定義を参照(切替はチェーンの 1 項)。配線実体 net.@qr / net.@iqn は本ファイル所有。
+app.run_name = run_{t}_ll
 
-# --- Run プロファイル ---
+
+# ==============================================================================
+# Runプロファイル
+# ==============================================================================
 
 run.@repro : backend.$ = backend.@deterministic
 run.@repro : DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
-
-# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+# TempoRL: 既定で有効（分離×合算）。2026-10-26 の評価（PRD098 §7 の段 2）で無効を 3 seed のブレ幅を超えて上回ったため。
+# 無効にするときは CLI で "run.$=run.@munch" を渡す。ほかの変種は CLI の葉で指定する。
 DefaultDQNAgent.skip.max_length ?= 4
 DefaultDQNAgent.net.body.output.[skip_context] = fusion
+DefaultDQNAgent.learner.skip.feature_gradient = merge   # 合算（agent.txt の既定は stop）。段 2 で最も速く 200 に届いた
+
 run.@skip : DefaultDQNAgent.skip.enabled = true
-run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1 > metrics.scalar.@skip
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > M1 > metrics.scalar.@skip
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
 run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
 run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
+run.@skip : app.eval_trace_panel.columns.[32] = $action_info skip_q.[1] label:q1
+run.@skip : app.eval_trace_panel.columns.[33] = $action_info skip_q.[2] label:q2
+run.@skip : app.eval_trace_panel.columns.[34] = $action_info skip_q.[3] label:q3
+run.@skip : app.eval_trace_panel.columns.[35] = $action_info skip_q.[4] label:q4
+
 run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > @heavy > A1 > @bf16 > A2
 run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > M1
 
@@ -66,14 +78,6 @@ run.@noisy : net.block.[HeadFC128].noisy.sigma0 = 0.5
 run.@noisy : A2.head.projection.noisy.enabled = true
 run.@noisy : A2.head.projection.noisy.sigma0 = 0.5
 run.@noisy : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > metrics.scalar.@noisy > M1
-
-
-#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
-run.$ = run.@munch
-#run.$ = run.@rfit
-#run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
-#run.$ = run.@cpu
-#run.$ = run.@cpu > run.@noisy      # @noisy は metrics を上書きするので後ろに置く
 
 
 # ==============================================================================

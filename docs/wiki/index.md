@@ -10,7 +10,7 @@
 - [Phoenix](subjects/phoenix.md) — サンプル効率優先45.7M・ε=0の最良399,895はBTR Table A2比94%だった。同断面の100本中44本が27,000 step上限で打ち切られた。 （別名: Phoenix, phoenix）
 - [Battle Zone](subjects/battle_zone.md) — 低εラダーのε=0最良は118,388、旧ラダーは115,533だった。64 env・容量1Mの2 seedは40–50M評価が94,621・86,616で、128 env・2Mの106,389を下回った。 （別名: BattleZone, battle_zone, bz）
 - [Qbert](subjects/qbert.md) — 低εラダーの64 env・容量1Mでは、45–50Mの第8面突破率（29,000点以上かつround_clear≥8）が4 seedで45.3・32.5・0.7・0.1%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まった。seed 4 は得点ループに入り、得点だけの突破率は突破を表さなかった。 （別名: Qbert, qbert, Q*bert）
-- [LunarLander](subjects/lunarlander.md) — matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。 （別名: LunarLander, ll, ホバリング）
+- [LunarLander](subjects/lunarlander.md) — matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。TempoRL（分離×合算）は 3 seed で無効を上回り、2026-10-26 から既定で有効。 （別名: LunarLander, ll, ホバリング）
 - [DropMerge](subjects/dropmerge.md) — IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの探索置換はNEETを抑えたが、batch増加の学習側の上乗せの大部分はノイズ感度の差だった。 （別名: DropMerge, dm, Suika, NEET）
 - [Atari横断](subjects/atari.md) — 学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。観測縮小のarea表記は数値一致を意味しない。 （別名: Atari, ALE, Atari-5, Atari5）
 - [Breakout](subjects/breakout.md) — LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だった。BTR型NNとSNの効果はreplay ratioと学習予算に依存し、SN無しの早期優位が後期に反転した。 （別名: Breakout, breakout）
