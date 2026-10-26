@@ -36,11 +36,11 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 #run.$ = run.@v5_iqn_impala_x2
 #run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex
 
-# 実時間優先プロファイルの 100M を online で回す構成
-run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
+# 実時間優先プロファイルの 100M を online で回す構成。TempoRL（分離×合算）を既定で有効にする（2026-10-27、qbert 10M の 2 seed で無効を上回った）
+run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip
 
-# 実時間優先プロファイル ＋ TempoRL
-#run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip
+# 実時間優先プロファイル、TempoRL 無効（比較用）
+#run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
 
 # ==============================================================================
 # Run設定
@@ -618,7 +618,7 @@ DefaultDQNAgent.@nature : actor.[train].policy.spatial.epsilon.last = 0.1
 
 DefaultDQNAgent.skip.max_length ?= 10
 DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
-DefaultDQNAgent.learner.skip.feature_gradient = merge   # 分離×合算（LunarLander の段 2 で最良）
+DefaultDQNAgent.learner.skip.feature_gradient = merge   # 分離×合算（LunarLander の段 2 と、qbert 実時間優先 10M の段 A で最良）
 #DefaultDQNAgent.learner.skip.feature_gradient = stop   # 分離×遮断（agent.txt の既定）
 
 # quantile_mode は ALGO プロファイル(@qr / @iqn)が供給する。A 層へ直書きするとチェーン上 qr へ戻すので置かない。

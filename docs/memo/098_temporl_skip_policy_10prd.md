@@ -13,6 +13,7 @@
 > 改訂: 2026-10-26（2 回目）。5×5 の既定 seed の件を「序盤に見つけたゴールを保持できず崩壊」から「スキップ長を UQE で選ぶとゴールに届かない」に直した（評価は一度も届かず、学習側もほぼ届いていなかった）。§7 の段 1 の結論を、届く速さと終盤の安定さに書き分けた。
 > 改訂: 2026-10-26（3 回目）。段 2 の結果を受けて LunarLander の既定を有効（分離×合算）にしたことを §6 の 21 と §7 の段 2 に追記。`run.@skip` の metrics の連鎖が Munchausen の指標を落としていた件と、その直しも §7 の段 2 に記した。
 > 改訂: 2026-10-26（2モデルレビュー対応）。実装契約を観測できる振る舞いに整理し、Agent側とRun/metrics側のprofileの区別、M1の意味、1step記録のメモリ内訳を明記した。観測パイプラインの既存ドラフトを参照先として同梱対象へ含める。
+> 改訂: 2026-10-27。§7 に段 3 のふるい（実時間優先の qbert、4 腕 × 2 seed、10M）の結果を追記し、その結果で Atari の実時間優先の既定を有効（分離×合算）にしたことを §6 の 21 に追記した。
 
 ## 1. 目的と問題
 
@@ -326,7 +327,7 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 18. 群番号は skip が 50、[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md) は 59。
 19. 不正値の扱いは §5.6（構築時に `ANET_SYSTEM_ERROR`）。
 20. 分離型／包含型の切替は `skip.network_mode`（`action_out` ／ `action_in`）。
-21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。Agent側の`DefaultDQNAgent.@skip*`と`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（Run/metrics側のprofileとは区別する）。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。
+21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。Agent側の`DefaultDQNAgent.@skip*`と`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（Run/metrics側のprofileとは区別する）。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。Atari も、2026-10-27 から実時間優先の既定の `run.$`（Atari.txt）の末尾に `run.@skip` を置いて有効にし、合算を env の葉で持つ。無効の連鎖は比較用のコメントとして残す。§7 の段 3 のふるいで、合算が 2 seed とも同じ seed の無効を上回ったためである。bat は `run.$` を CLI で渡すので、この既定の影響を受けない。
 22. 包含型の行動入力の鍵は `action`（固定キー。one-hot は自動）。
 23. 段 1 の GridMaze は論文の格子と同じ 6×10（設定の width・height）で、壁と穴の密度は今の既定。長い直線が出る大きさで差を見る。
 24. skip が有効なときの FP16 の AMP は構築時に止める（§5.4）。
@@ -356,6 +357,17 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 分離×遮断 s1 の −0.30 は 10/23 の同じ腕と一致した。学習側の判断率は、Run の前 2 割で 0.35、後ろ 4 分の 1 で 0.76 に上がり、j=4 の選択率は 7% から 1% に下がった。評価 slot の判断率は、skip の指標が学習側にしか無いので測っていない（§9 の 3）。無効が終盤に不安定になる原因は確かめていない。GridMaze の設定の UQE の楽観（τ 0.95→0.85）と、楽観的な目標値（`use_optimistic_target = true`）が候補である。
 
 段 2 の結果（2026-10-26。LunarLander、現行の LunarLander.txt の既定（IQN＋Munchausen）、J=4、2M、seed 1〜3。Run は LunarLander-01 の `run_2026102{5,6}-*_t98_ll_{off,sep,mrg,in}_s{1,2,3}`）: 評価 policy 報酬の Run 全体の平均（3 seed の平均 [最小〜最大]）は、無効 21 [−7〜68]、分離×遮断 122 [109〜135]、分離×合算 137 [131〜143]、包含×遮断 96 [21〜137]。終盤（1.5M〜）は、無効 159 [151〜165]、分離×遮断 209 [176〜231]、分離×合算 209 [189〜228]、包含×遮断 193 [172〜203]。評価 target 報酬の EMA が 200 に届いた step は、無効が 3 seed 中 1 seed だけ（1.76M）、分離×遮断 0.85M／1.17M／1.41M、分離×合算 1.09M／1.02M／1.09M、包含×遮断 1.19M／1.18M／1.90M。分離型の 2 腕は、最小の seed が無効の最大の seed を上回り、ブレ幅を超えて良い（段 2 の判定の AUC を満たす）。包含型は平均では上回るが、最小の seed が無効と重なる（段 1 の 1 seed の観察と同じく、分離型より遅い）。学習側の判断率は、分離型で終盤まで 0.42〜0.48（平均のスキップ長 2.1〜2.5）のまま続いた。終盤は j=1 が 28% から 39〜42% に増え、j=4 が 25% から 17〜18% に減った。論文の LunarLander のような「ほぼ毎 step 判断する方策」にはならなかった。評価 slot の判断率は測っていない（§9 の 3）。Evaluation Trace では、高度が高いときや NOOP を選んだときにスキップ長が長くなるのが見えた。無効の腕の終盤（policy 159）は、以前の IQN の 3 seed（終盤 186。[2026-08-08_iqn](../experiments/default-dqn/lunarlander/2026-08-08_iqn.md)）より低いが、Munchausen などの構成が違うので、同じ回の腕どうしでだけ比べる。この結果を受けて、LunarLander の既定を有効（分離×合算）にした（§6 の 21）。あわせて、`run.@skip` が `metrics.scalar.$` を Munchausen の指標を含まない連鎖で上書きしていたのを直した（この段 2 の skip 有効の腕は、Munchausen の指標が記録されていない）。既定を変える前に作った検証資材（`testdata/prd098/run_validation.py` の段 0 など）は LunarLander の既定を無効として扱っているので、再実行するときは `run.$=run.@munch` を渡す。
+
+段 3 のふるい（2026-10-27。段 3 の行の「BTR 基準の qbert、1 seed で 10M」の前に、速い実時間優先の構成で 4 腕 × 2 seed をふるった。構成は Atari.txt の実時間優先の連鎖（RR1、128 env、replay 2M、ラダー 0.4〜0.01、行動ネットの同期 400 train step）に `run.@skip`、J=10、`skip_context = iqn_fusion`、10M、seed 1・2、2026-10-26 19:32 の Release。Run は Atari5-01 の `run_20261026-*_a5_qb_rt_t98{off,mrg,sep,in}_s{1,2}`）:
+- 評価（ε 0.01、10 本 / 50 万 step）の Run 全体の平均（s1／s2）は、無効 3,156／2,315、分離×合算 3,174／2,846、分離×遮断 3,058／2,312、包含×遮断 2,262／2,588。7.5〜10M の窓では、無効 4,976／4,510、分離×合算 5,733／4,974、分離×遮断 5,591／3,432、包含×遮断 4,506／4,278。
+- ε=0 の評価（5.25M、100 本）は、無効 4,188／3,116、分離×合算 3,571／4,630、分離×遮断 4,236／3,796、包含×遮断 2,189／4,176。10M までにこの 1 点しか無い。
+- 学習側のゲームの平均点の 7.5〜10M は、無効 4,009／3,780、分離×合算 4,675／4,229、分離×遮断 3,855／3,077、包含×遮断 3,444／3,492。どの腕も同じラダーなので、腕どうしで比べられる。
+- 分離×合算は、同じ seed の無効を、Run 全体の平均（+1%／+23%）、7.5〜10M（+15%／+10%）、学習側の 7.5〜10M（+17%／+12%）のどれでも 2 seed とも上回った。seed 1 は 2.5〜5M に無効より 13% 遅れてから追い越し（論文の型 ii）、seed 2 は遅れなかった。ただし「最小の seed が無効の最大の seed を上回る」は、7.5〜10M で分離×合算の s2（4,974）と無効の s1（4,976）がほぼ同値で、満たさない。
+- 分離×遮断と包含×遮断は、seed で無効との上下が入れ替わった（包含×遮断の Run 全体の平均は −28%／+12%）。
+- 学習側の判断率は、0〜2.5M の 0.15〜0.19 から 7.5〜10M の 0.23〜0.31 へ上がった。7.5〜10M の平均のスキップ長は、分離型の 2 腕が 4.2〜4.5、包含型が 3.3〜3.8。包含型だけ j=1 の選択率が 0.03〜0.08 から 0.29〜0.32 へ上がり続けた。j=1 に戻る形（段 1 の 5×5 の既定 seed）は、どの腕にも出なかった。評価 slot の判断率は測っていない（§9 の 3）。
+- 10M の実時間（s1／s2）は、無効 25.0／27.6 分、分離×合算 29.1／31.6 分、分離×遮断 35.0／32.7 分、包含×遮断 34.6／37.8 分。
+- 同じ seed 1・同じ構成の 2026-09-21 の Run（`run_20260921-155634_a5_qbert_rr1_50m`、9 月のビルド）は 7.5〜10M が 7,306 で、今回の無効の s1（4,976）と 47% 違う。ビルドの違いと非決定論だけで、この幅がある。
+- この結果を受けて、Atari の実時間優先の既定を有効（分離×合算）にした（§6 の 21）。分離×遮断と包含×遮断は Atari では先へ進めず、段 3 の行の BTR 基準の qbert（サンプル効率優先）は分離×合算で続ける。
 
 受入（外から観測できるもの）:
 
