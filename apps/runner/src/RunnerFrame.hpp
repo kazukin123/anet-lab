@@ -41,6 +41,7 @@ protected:
     void OnToggleTraining(wxCommandEvent& event);
     void OnToggleEval(wxCommandEvent& event);
     void OnEvalStep(wxCommandEvent& event);
+    void OnEvalStepsCustom(wxCommandEvent& event);
     void OnSaveAgent(wxCommandEvent& event);
     void OnOpenRunFolder(wxCommandEvent& event);
     void OnUpdateTrainStatus(wxUpdateUIEvent& event);
@@ -118,5 +119,7 @@ private:
 
     const float train_config_fps_;
     const float eval_config_fps_;
+    const int eval_config_step_per_frame_;
+    int eval_steps_selection_ = wxID_NONE;
     bool initialized_ = false;
 };

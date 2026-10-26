@@ -556,7 +556,7 @@ void EvalTracePanel::OnTimer(wxTimerEvent&)
     const auto& pane = manager_.GetPane(this);
     if (pane.IsOk()) SetActive(IsPaneOpen(pane));
     if (!active_ || !builder_) return;
-    // 行追加が止まっていても、実行時のFPS変更を再生ボタンへ反映する。
+    // 行追加が止まっていても、実行時のFPS・step数変更を再生ボタンへ反映する。
     toolbar_->EnableTool(tool_ids_[0], player_.IsPlaying() || player_.CanPlay(eval_.GetPlaybackRate()));
     bool visibility_changed = false;
     for (auto& follower : followers_) {

@@ -475,6 +475,8 @@ EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, ref
 
 `View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` stops its rendering timer while training continues. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
 
+Use `View > Eval Steps per Frame` to change the number of automatic evaluation steps per display update. Select `1`, `2`, `4`, `10`, `20`, `50`, or `100`, or choose `Custom...` to enter an integer from 1 to 2,147,483,647; the input starts with the current value. After confirmation, `Custom (N)...` shows the entered value. Cancel preserves both the value and selection. `Config (N)` restores the startup value. Changes apply from the next automatic evaluation update and are not saved to the config dump. Changing this value does not resume evaluation or leave Trace mode; manual Step still advances exactly one step. Evaluation Trace playback at 1x follows the product of the current FPS and current steps per frame.
+
 The Steps toolbar displays `exp` and `train` counts in separate read-only text fields. Values can be selected and copied, and a standard separator divides the fields. The right side of the status bar shows `exp <N> steps/s    train <N> steps/s` and elapsed time. Before the SPS EMA initializes, its value is `-`; before the first Train snapshot, both step fields show `-` and elapsed time shows `--:--:--`. Elapsed time continues as wall-clock time during pauses.
 
 ### 6.4 Stopping, Saving, and Loading a Checkpoint into a New Run

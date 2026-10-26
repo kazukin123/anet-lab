@@ -1,11 +1,17 @@
 #include "anet/catch_test.hpp"
+#include <fstream>
+#include <string_view>
 #include "anet/test_util.hpp"
 #include "EvalTracePanel.hpp"
+#include "RunnerApp.hpp"
 #include <wx/app.h>
+#include <wx/modalhook.h>
+#include <wx/textdlg.h>
 
 #include "anet/agent.hpp"
 #include "anet/env/CartPole.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/observers.hpp"
 #include <wx/dcclient.h>
 #include <wx/settings.h>
 #include <numeric>
@@ -45,11 +51,19 @@ public:
 private:
     int step_ = 0;
 };
+// 実際のEval step数を測るときも、NNや学習を起動せず一定の行動を返す。
+class TraceUiActor final : public anet::rl::Actor {
+public:
+    std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(
+        const anet::rl::StepCounts&, const anet::rl::BatchState&) const override
+    { return std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)); }
+    void Sync() override {}
+};
 class TraceUiAgent final : public anet::rl::Agent {
 public:
     std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t) const override
     { return std::make_unique<TraceUiDiagnosticsProvider>(); }
-    std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::ActorRequest&) const override { return nullptr; }
+    std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::ActorRequest&) const override { return std::make_shared<TraceUiActor>(); }
     std::shared_ptr<anet::rl::Learner> CreateLearner() override { return nullptr; }
     torch::Device GetDevice() const override { return torch::kCPU; }
     std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
@@ -621,6 +635,217 @@ TEST_CASE("Trace control bar renders a stable border across playback Live and th
     CHECK(capture("reopened") == 0);
 }
 
+TEST_CASE("Eval runtime steps preserve startup config and reject nonpositive values", "[eval_steps]")
+{
+    wxFrame frame(nullptr, wxID_ANY, "Eval steps");
+    EvalPanelConfig config;
+    config.step_per_frame = 7;
+    config.auto_start = false;
+    EvalPanel eval(&frame, config, [] { FAIL("Changing steps must not return to Live"); });
+    CHECK(eval.GetStepsPerFrame() == 7);
+    eval.SetFps(14.5f);
+    eval.SetStepsPerFrame(4);
+    CHECK(eval.GetPlaybackRate() == 58.0);
+    CHECK(eval.GetConfig().step_per_frame == 7);
+    CHECK(eval.IsPaused());
+    for (const int invalid : {0, -1, std::numeric_limits<int>::min()}) {
+        CHECK_THROWS(eval.SetStepsPerFrame(invalid));
+        CHECK(eval.GetStepsPerFrame() == 4);
+        config.step_per_frame = invalid;
+        CHECK_THROWS(config.Validate());
+    }
+    eval.SetStepsPerFrame(std::numeric_limits<int>::max());
+    CHECK(eval.GetPlaybackRate() == 14.5 * std::numeric_limits<int>::max());
+    eval.SetFps(0);
+    config.step_per_frame = std::numeric_limits<int>::max();
+    CHECK_NOTHROW(config.Validate());
+}
+
+TEST_CASE("Changing Eval steps retains the selected Trace row", "[eval_steps]")
+{
+    TraceUiFixture ui;
+    ui.Add(1); ui.Add(2);
+    ui.Tool(2);
+    const int selected = ui.grid->GetGridCursorRow();
+    REQUIRE(ui.eval->IsPaused());
+    REQUIRE(ui.grid->IsSelection());
+    ui.eval->SetStepsPerFrame(20);
+    CHECK(ui.eval->GetPlaybackRate() == 290.0);
+    CHECK(ui.eval->IsPaused());
+    CHECK(ui.grid->IsSelection());
+    CHECK(ui.grid->GetGridCursorRow() == selected);
+    ui.eval->SetFps(0);
+}
+
+// RunnerAppの一度だけの起動を含むため、通常のTrace fixtureとは別processで実行する。
+TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[.][eval_steps_menu]")
+{
+    const auto directory = TraceUiOutputDirectory();
+    std::filesystem::create_directories(directory);
+    const auto config_path = directory / "eval_steps.txt";
+    {
+        std::ofstream config(config_path);
+        config << "env.class_id = CartPoleEnv\nenv.worker_type = 1\nenv.device = cpu\n"
+            "agent.class_id = TraceUiAgent\nagent.device = cpu\nrun.eval_device = cpu\n"
+            "run.seed = 1\nrun.train.num_envs = 1\nrun.train.runner_type = serial\n"
+            "run.eval.[panel].run_mode = eval\napp.eval_panel.eval_config_tag = panel\n"
+            "app.train_auto_start = false\napp.save_agent_on_close = false\n"
+            "app.train_panel.fps = 0\napp.eval_panel.fps = 0\n"
+            "app.eval_panel.auto_start = false\napp.eval_panel.step_per_frame = 7\n"
+            "app.run_name = eval_steps_menu\napp.runs_dir = " << directory.generic_string() << '\n';
+    }
+    auto executable = wxTheApp->argv[0].ToStdWstring();
+    auto config_arg = config_path.wstring();
+    wchar_t option[] = L"--config";
+    wchar_t* arguments[] = {executable.data(), option, config_arg.data()};
+    wxTheApp->argc = 3;
+    wxTheApp->argv.Init(3, arguments);
+    wxTheApp->SetExitOnFrameDelete(false);
+    struct AppCleanup {
+        ~AppCleanup() {
+            if (auto* frame = wxGetApp().GetMainFrame()) frame->Close(true);
+            wxTheApp->Yield(true);
+            wxTheApp->OnExit();
+        }
+    } cleanup;
+    REQUIRE(wxTheApp->OnInit());
+    auto* frame = wxGetApp().GetMainFrame();
+    // 初期化前の別Frameでは、ConfigとCustomを含む全項目が操作不可となる。
+    {
+        RunnerFrame uninitialized("Uninitialized Eval menu", TrainPanelConfig{}, EvalPanelConfig{});
+        auto* bar = uninitialized.GetMenuBar();
+        auto* menu = bar->FindItem(bar->FindMenuItem("View", "Eval Steps per Frame"))->GetSubMenu();
+        for (auto* item : menu->GetMenuItems()) {
+            wxUpdateUIEvent update(item->GetId());
+            uninitialized.GetEventHandler()->ProcessEvent(update);
+            CHECK_FALSE(update.GetEnabled());
+        }
+    }
+    EvalPanel* eval = nullptr;
+    for (auto* child : frame->GetChildren())
+        if (auto* candidate = dynamic_cast<EvalPanel*>(child)) eval = candidate;
+    REQUIRE(eval != nullptr);
+    auto* bar = frame->GetMenuBar();
+    const int menu_id = bar->FindMenuItem("View", "Eval Steps per Frame");
+    REQUIRE(menu_id != wxNOT_FOUND);
+    auto* menu = bar->FindItem(menu_id)->GetSubMenu();
+    REQUIRE(menu != nullptr);
+    CHECK(menu->GetMenuItemCount() == 9);
+    auto* config_item = menu->FindItemByPosition(0);
+    auto* custom_item = menu->FindItemByPosition(8);
+    CHECK(config_item->GetItemLabelText() == "Config (7)");
+    CHECK(config_item->IsChecked());
+    const auto select = [&](wxMenuItem* item) {
+        // nativeのradio切替を再現してから、公開のmenuイベントを配送する。
+        item->Check(true);
+        wxCommandEvent event(wxEVT_MENU, item->GetId());
+        frame->GetEventHandler()->ProcessEvent(event);
+    };
+    for (size_t i = 0; const int value : {1, 2, 4, 10, 20, 50, 100}) {
+        auto* item = menu->FindItemByPosition(++i);
+        CHECK(item->GetItemLabelText() == wxString::Format("%d", value));
+        select(item);
+        CHECK(eval->GetStepsPerFrame() == value);
+        CHECK(item->IsChecked());
+    }
+    struct DialogAnswers final : wxModalDialogHook {
+        std::vector<std::optional<wxString>> answers;
+        std::vector<wxString> initial_values;
+        int errors = 0;
+        int Enter(wxDialog* dialog) override {
+            if (auto* input = dynamic_cast<wxTextEntryDialog*>(dialog)) {
+                initial_values.push_back(input->GetValue());
+                if (answers.empty()) return wxID_CANCEL;
+                auto answer = answers.front();
+                answers.erase(answers.begin());
+                if (!answer) return wxID_CANCEL;
+                input->SetValue(*answer);
+                return wxID_OK;
+            }
+            ++errors;
+            return wxID_OK;
+        }
+    } dialogs;
+    dialogs.Register();
+    dialogs.answers = {"4"};
+    select(custom_item);
+    CHECK(dialogs.initial_values.back() == "100");
+    CHECK(eval->GetStepsPerFrame() == 4);
+    CHECK(custom_item->GetItemLabelText() == "Custom (4)...");
+    CHECK(custom_item->IsChecked());
+    dialogs.answers = {std::nullopt};
+    select(custom_item);
+    CHECK(custom_item->IsChecked());
+    select(config_item);
+    CHECK(eval->GetStepsPerFrame() == 7);
+    dialogs.answers = {std::nullopt};
+    select(custom_item);
+    CHECK(config_item->IsChecked());
+    CHECK(eval->GetStepsPerFrame() == 7);
+    for (const auto* invalid : {"0", "-1", "2147483648", "999999999999999999999999", "abc", "1.5"}) {
+        dialogs.answers = {wxString(invalid), std::nullopt};
+        select(custom_item);
+        CHECK(config_item->IsChecked());
+        CHECK(eval->GetStepsPerFrame() == 7);
+    }
+    CHECK(dialogs.errors == 6);
+    dialogs.answers = {"2147483647"};
+    select(custom_item);
+    CHECK(eval->GetStepsPerFrame() == std::numeric_limits<int>::max());
+    CHECK(eval->IsPaused());
+    CHECK(eval->GetConfig().step_per_frame == 7);
+    CHECK(wxGetApp().GetConfigData().Get<int>("app.eval_panel.step_per_frame") == 7);
+    select(menu->FindItemByPosition(3));
+    eval->SetFps(14.5f);
+    CHECK(eval->GetPlaybackRate() == 58.0);
+    eval->SetFps(0);
+
+    // UI timerの配送1回あたりのstep数と、pause・手動stepの独立性を通知で観測する。
+    int steps = 0;
+    auto notifier = wxGetApp().GetRunManager().GetNotifier();
+    auto observer = notifier->Attach<anet::rl::FunctionTrainObserver>(
+        [&steps](const anet::rl::TrainEvent& event) {
+            if (event.runner->GetName() == "EvalPanel") ++steps;
+        }, "EvalStepsAcceptance");
+    eval->DoStep();
+    CHECK(steps == 1);
+    CHECK(eval->IsPaused());
+    // 実timerの公開イベントからIDを得て、以降は同じ配送を1回ずつ行う。
+    auto timer_id = std::make_shared<int>(wxID_ANY);
+    eval->Bind(wxEVT_TIMER, [timer_id](wxTimerEvent& event) {
+        *timer_id = event.GetId();
+        event.Skip();
+    });
+    eval->SetFps(1000);
+    {
+        wxEventLoop loop;
+        wxEventLoopActivator active(&loop);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (*timer_id == wxID_ANY && std::chrono::steady_clock::now() < deadline) {
+            while (loop.Pending()) loop.Dispatch();
+            wxTheApp->ProcessPendingEvents();
+            wxMilliSleep(2);
+        }
+    }
+    eval->SetFps(0);
+    REQUIRE(*timer_id != wxID_ANY);
+    eval->TogglePause();
+    wxTimer timer(eval, *timer_id);
+    wxTimerEvent tick(timer);
+    eval->GetEventHandler()->ProcessEvent(tick);
+    CHECK(steps == 5);
+    select(menu->FindItemByPosition(2));
+    eval->GetEventHandler()->ProcessEvent(tick);
+    CHECK(steps == 7);
+    eval->PauseForTrace();
+    select(config_item);
+    eval->GetEventHandler()->ProcessEvent(tick);
+    CHECK(steps == 7);
+    CHECK(eval->IsPaused());
+    notifier->Detach(observer);
+    dialogs.Unregister();
+}
+
 int main(int argc, char** argv)
 {
     anet::test::PreparedTestArgs arguments;
@@ -635,8 +860,14 @@ int main(int argc, char** argv)
         throw std::runtime_error((condition + ": " + message).ToStdString());
     });
     wxTheApp->SetAppearance(std::getenv("PRD094_UI_DARK") ? wxApp::Appearance::Dark : wxApp::Appearance::Light);
-    wxInitAllImageHandlers();
-    anet::rl::env::InitCartPole();
+    // RunnerAppを起動する明示tagは別process専用。Env登録はOnInit側へ任せる。
+    bool starts_runner_app = false;
+    for (int i = 1; i < arguments.Argc(); ++i)
+        starts_runner_app |= std::string_view(arguments.Argv()[i]).find("eval_steps_menu") != std::string_view::npos;
+    if (!starts_runner_app) {
+        wxInitAllImageHandlers();
+        anet::rl::env::InitCartPole();
+    }
     anet::rl::AgentRepository::Instance().Register(std::make_shared<TraceUiAgentFactory>());
     int result;
     {

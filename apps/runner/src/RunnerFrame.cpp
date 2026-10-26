@@ -4,12 +4,14 @@
 #include <exception>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 #include <wx/artprov.h>
 #include <wx/display.h>
 #include <wx/filedlg.h>
 #include <wx/settings.h>
+#include <wx/textdlg.h>
 #include <wx/utils.h>
 #include "anet/exception.hpp"
 #include "anet/log.hpp"
@@ -81,6 +83,15 @@ enum {
     ID_EvalFps30,
     ID_EvalFps60,
     ID_EvalFps120,
+    ID_EvalStepsConfig,
+    ID_EvalSteps1,
+    ID_EvalSteps2,
+    ID_EvalSteps4,
+    ID_EvalSteps10,
+    ID_EvalSteps20,
+    ID_EvalSteps50,
+    ID_EvalSteps100,
+    ID_EvalStepsCustom,
 };
 
 namespace runner_frame_detail {
@@ -162,7 +173,8 @@ using namespace runner_frame_detail;
 
 RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
     : anet::rl::gui::AuiLayoutFrame(title, wxSize(1024, 1024)),
-    train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps)
+    train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps),
+    eval_config_step_per_frame_(eval_panel_config.step_per_frame)
 {
     // pane の dock/float とテーマ変更の両方で Runner 用 caption 配色を維持する。
     aui_mgr_.SetArtProvider(new RunnerDockArt());
@@ -274,6 +286,21 @@ void RunnerFrame::SetupMenuBar()
     eval_fps_menu->AppendRadioItem(ID_EvalFps60, "60");
     eval_fps_menu->AppendRadioItem(ID_EvalFps120, "120");
     view_menu->AppendSubMenu(eval_fps_menu, "Eval View FPS");
+
+    // 起動時設定へ戻す項目と任意入力を含め、選択元を実行中だけ保持する。
+    wxMenu* eval_steps_menu = new wxMenu;
+    eval_steps_menu->AppendRadioItem(ID_EvalStepsConfig,
+        wxString::Format("Config (%d)", eval_config_step_per_frame_))->Check(true);
+    eval_steps_selection_ = ID_EvalStepsConfig;
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps1, "1");
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps2, "2");
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps4, "4");
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps10, "10");
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps20, "20");
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps50, "50");
+    eval_steps_menu->AppendRadioItem(ID_EvalSteps100, "100");
+    eval_steps_menu->AppendRadioItem(ID_EvalStepsCustom, "Custom...");
+    view_menu->AppendSubMenu(eval_steps_menu, "Eval Steps per Frame");
 
     // 区切り
     view_menu->AppendSeparator();
@@ -714,6 +741,24 @@ void RunnerFrame::SetupEvents()
         Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { eval_panel_->SetFps(fps); }, id);
         Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) { event.Enable(initialized_); }, id);
     }
+
+    const std::pair<int, int> eval_steps_items[] = {
+        {ID_EvalStepsConfig, eval_config_step_per_frame_}, {ID_EvalSteps1, 1}, {ID_EvalSteps2, 2},
+        {ID_EvalSteps4, 4}, {ID_EvalSteps10, 10}, {ID_EvalSteps20, 20},
+        {ID_EvalSteps50, 50}, {ID_EvalSteps100, 100},
+    };
+    for (const auto& [id, steps] : eval_steps_items) {
+        Bind(wxEVT_MENU, [this, id, steps](wxCommandEvent&) {
+            eval_panel_->SetStepsPerFrame(steps);
+            eval_steps_selection_ = id;
+            GetMenuBar()->Check(id, true);
+        }, id);
+    }
+    Bind(wxEVT_MENU, &RunnerFrame::OnEvalStepsCustom, this, ID_EvalStepsCustom);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        event.Enable(initialized_);
+        event.Check(event.GetId() == eval_steps_selection_);
+    }, ID_EvalStepsConfig, ID_EvalStepsCustom);
 
     // ログレベルメニュー
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (log_panel_) log_panel_->SetLogLevel("info"); }, ID_LogLevelInfo);
@@ -1159,6 +1204,29 @@ void RunnerFrame::OnEvalStep(wxCommandEvent& WXUNUSED(event))
     ShowEvalPaneIfHidden();
     eval_panel_->DoStep();
     eval_panel_->Refresh();
+}
+
+void RunnerFrame::OnEvalStepsCustom(wxCommandEvent& WXUNUSED(event))
+{
+    // modal loop中も現在の選択を維持し、入力が確定してから値と選択元を更新する。
+    GetMenuBar()->Check(eval_steps_selection_, true);
+    constexpr int kMaxSteps = std::numeric_limits<int>::max();
+    wxTextEntryDialog dialog(this,
+        wxString::Format("Enter steps per frame (1-%d):", kMaxSteps),
+        "Eval Steps per Frame", wxString::Format("%d", eval_panel_->GetStepsPerFrame()));
+    while (dialog.ShowModal() == wxID_OK) {
+        wxLongLong_t steps;
+        if (dialog.GetValue().ToLongLong(&steps) && steps > 0 && steps <= kMaxSteps) {
+            eval_panel_->SetStepsPerFrame(static_cast<int>(steps));
+            eval_steps_selection_ = ID_EvalStepsCustom;
+            GetMenuBar()->SetLabel(ID_EvalStepsCustom, wxString::Format("Custom (%d)...", static_cast<int>(steps)));
+            GetMenuBar()->Check(ID_EvalStepsCustom, true);
+            return;
+        }
+        wxMessageBox(wxString::Format("Invalid step_per_frame: value=%s\nExpected an integer in [1, %d].",
+            dialog.GetValue(), kMaxSteps), "Invalid Eval Steps per Frame", wxOK | wxICON_ERROR, this);
+    }
+    GetMenuBar()->Check(eval_steps_selection_, true);
 }
 
 void RunnerFrame::OnSaveAgent(wxCommandEvent& WXUNUSED(event))

@@ -24,6 +24,14 @@ void ValidateEvalFps(float fps, const char* key)
 	}
 }
 
+void ValidateStepsPerFrame(int steps, const char* key)
+{
+	if (steps <= 0) {
+		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << steps
+			<< " (expected: positive integer)");
+	}
+}
+
 }  // namespace eval_panel_detail
 
 using namespace eval_panel_detail;
@@ -60,11 +68,12 @@ void EvalPanelModelSyncConfig::Validate() const
 void EvalPanelConfig::Validate() const
 {
 	ValidateEvalFps(fps, "app.eval_panel.fps");
+	ValidateStepsPerFrame(step_per_frame, "app.eval_panel.step_per_frame");
 	model_sync.Validate();
 }
 
 EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action)
-	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY), before_live_action_(std::move(before_live_action))
+	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY), current_step_per_frame_(config.step_per_frame), before_live_action_(std::move(before_live_action))
 {
 	config_.Validate();
 	is_pause_ = config_.auto_start ? false : true;
@@ -152,6 +161,13 @@ void EvalPanel::SetFps(float fps)
 	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
 	ANET_LOG_DEBUG("interval=" << interval);
 	update_timer_.Start(interval);
+}
+
+void EvalPanel::SetStepsPerFrame(int steps)
+{
+	// 起動時設定と実行時の値を分離し、次のtimer更新から新しいstep数を使う。
+	ValidateStepsPerFrame(steps, "EvalPanel::SetStepsPerFrame steps");
+	current_step_per_frame_ = steps;
 }
 
 void EvalPanel::DoStep()
@@ -262,18 +278,17 @@ void EvalPanel::OnTimer(wxTimerEvent& event)
 	if (is_pause_) return;
 
 	// 評価エピソードを回す（Observer経由でeval_canvas更新)
-	if (config_.step_per_frame > 0) {
-		ANET_PROFILE_SCOPE_FULL(eval_update_frame, "EvalPanel::OnEvalTimer.DoUpdateFrame");
-		SyncBeforeFrame();
-		runner_->DoUpdateFrame(
-			config_.step_per_frame,
-			nullptr,
-			[this](const anet::rl::StepCounts& counts)
-			{
-				return SyncAfterStep(counts);
-			});
-	}
+	ANET_PROFILE_SCOPE_FULL(eval_update_frame, "EvalPanel::OnEvalTimer.DoUpdateFrame");
+	SyncBeforeFrame();
+	runner_->DoUpdateFrame(
+		current_step_per_frame_,
+		nullptr,
+		[this](const anet::rl::StepCounts& counts)
+		{
+			return SyncAfterStep(counts);
+		});
 
+	ANET_PROFILE_SCOPE_END_NAMED(eval_update_frame);
 	// データ断面をキャプチャ
 	view_->CaptureViewData();
 

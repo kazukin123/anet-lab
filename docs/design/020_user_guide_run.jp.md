@@ -478,6 +478,8 @@ EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`r
 
 `View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`では描画timerを止めるが、学習は継続する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
 
+`View > Eval Steps per Frame`で、自動評価の描画更新1回あたりのstep数を変更する。`1`・`2`・`4`・`10`・`20`・`50`・`100`から選ぶか、`Custom...`で現在値を初期表示した入力欄へ1〜2,147,483,647の整数を指定する。確定後は`Custom (N)...`に入力値が表示され、キャンセルでは値と選択を保持する。`Config (N)`は起動時設定へ戻す。変更は次の自動評価更新から反映され、config dumpには保存しない。変更しても一時停止やTrace表示は解除されず、手動Stepは常に1 step進む。Evaluation Traceの1x速度は、現在のFPSと現在のstep数の積に追従する。
+
 Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text欄へ表示する。値は選択してコピーでき、exp/train間は標準separatorで区切られる。status bar右側は`exp <N> steps/s    train <N> steps/s`と経過時間を表示する。SPSのEMAがまだ初期化されていない間は`-`、最初のTrain snapshotが無い間は両step欄が`-`、経過時間が`--:--:--`になる。経過時間はpause中もwall-clockとして進む。
 
 ### 6.4 停止、保存、checkpointからの引き継ぎ

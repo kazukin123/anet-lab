@@ -336,6 +336,7 @@ sequenceDiagram
 - close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。`app.save_agent_on_close=false`では保存段階だけをskipする。close時Saveが失敗しても共通error reporterで通知した後に後続cleanupを続行する。Save/Open Run Folderの失敗はnon-fatalであり、Run継続とprocess終了コードを変えない。
 - GUI callbackで発生した契約違反の例外は共通error reporterで英語のerror logをflushしてmain loopを終了し、Trainer threadの例外は現在例外をmain threadへ転送する。両例外callbackはmain thread所有のfatal latchを設定する。`RunnerApp::OnRun()`はwxWidgetsの元の非ゼロ値を保ち、元が0でもfatal済みなら1を返す。`OnExit()`はcleanup専用である。
 - Train panelのFPSは描画頻度だけを制御し、0では描画timerを停止しても学習は継続する。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
+- Evalの`app.eval_panel.step_per_frame`は1以上のint値を起動時に検証する。`EvalPanel`は起動時configと独立した実行時値を持ち、`View > Eval Steps per Frame`のConfig・固定値（1・2・4・10・20・50・100）・Customから変更する。Custom入力は現在値から始め、1〜2,147,483,647の整数だけを確定する。キャンセルでは値・選択を維持し、固定値と同じ数を入力してもCustomの選択を保持する。実行時変更は次の自動評価更新とTraceの基準速度（現在のFPS×現在のstep数）へ反映し、起動時configとconfig dump、一時停止・Trace状態、手動Stepの1 step動作は変えない。初期選択はConfigで、初期化前は操作できない。
 - `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
 
 ### 7.2 Metrics Viewer
@@ -367,7 +368,7 @@ sequenceDiagram
 
 - [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 
-- Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。
+- Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。 step数の変更は`AnetRLRunner-gui-test "[eval_steps]"`で設定検証・Trace保持を確認し、実RunnerAppのメニュー・Custom入力・キャンセル・自動評価・手動Stepは`AnetRLRunner-gui-test "[eval_steps_menu]"`を単独processで実行する。後者は通常スイートには含めない。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
 - Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`で、Run/Tag操作、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを関心別に確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。

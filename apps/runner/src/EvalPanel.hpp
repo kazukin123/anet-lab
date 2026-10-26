@@ -48,9 +48,11 @@ public:
 	const EvalPanelConfig& GetConfig() const { return config_; }
 	bool IsPaused() const { return is_pause_; }
 	void SetFps(float fps);
+	int GetStepsPerFrame() const { return current_step_per_frame_; }
+	void SetStepsPerFrame(int steps);
 	void TogglePause();
     void PauseForTrace() { is_pause_ = true; }
-    double GetPlaybackRate() const { return current_fps_ * config_.step_per_frame; }
+    double GetPlaybackRate() const { return static_cast<double>(current_fps_) * current_step_per_frame_; }
 	void DoStep();
 	void DoStep(int64_t action);
 public:	// TraceFollower
@@ -81,6 +83,7 @@ private:
 	std::chrono::steady_clock::time_point last_model_sync_time_;
     bool is_pause_ = false;
     float current_fps_ = 0;
+    int current_step_per_frame_;
     std::function<void()> before_live_action_;
     wxStaticText* no_data_label_ = nullptr;
 };
