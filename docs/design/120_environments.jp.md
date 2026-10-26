@@ -230,6 +230,7 @@ Env固有設定は各factoryが同じConfigDataから読み取る。未知のcla
 - `num_envs`が小さい、またはEnv Stepが軽量な場合、thread-poolの同期costが利益を上回ることがある。
 - Box2Dや画像decodeのようにlaneごとの処理が重い場合、並列化の効果を実測する。
 - EnvのReset/Stepは主要なprofiling境界であり、worker数と`exp_step_per_sec`を併せて比較する。
+- thread-pool方式（single Envを束ねるwrapper）のworkerは、Windowsでは優先度を`BELOW_NORMAL`に下げて動かす。workerは既定で論理CPUの数−2本あり、同じ優先度だと学習側のスレッド（学習、autograd、replayの抽出、train）がコアから外され、その間GPUが遊ぶため。native ImageClsのsample workerは対象外。
 - Env deviceとAgent deviceが異なる場合は転送costが発生する。Envごとの対応deviceを設定と実装の両方で確認する。
 
 ### 7.4 GridMazeの迷路生成

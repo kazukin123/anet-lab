@@ -11,6 +11,9 @@
 #include <condition_variable>
 #include <atomic>
 #include <thread>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/thread.hpp"
@@ -1037,9 +1040,40 @@ int BatchEnvBuilder::ResolveWorkerThreads(int num_envs) const
     return WorkerThreadResolver::Resolve(config_.worker_threads, num_envs);
 }
 
+// env のワーカーを BELOW_NORMAL にして、学習・autograd・抽出・train のスレッドにコアを譲る。
+// ワーカーは既定で論理 CPU の数 − 2 本あり、同じ優先度だと env の Step の間に学習のスレッドがコアから外され、
+// その間 GPU が遊ぶ。学習の更新が無い step では、env は空いたコアを使えるので Step は延びにくい。
+static void LowerWorkerPriority(anet::ThreadPool& pool)
+{
+#ifdef _WIN32
+    // ワーカーのスレッドハンドルはプールの外に出ていないので、各ワーカーの上で自分の優先度を下げる。
+    // 失敗はワーカーごとの欄に残し、全員が終わってから呼び出し元のスレッドで止める。
+    const int worker_count = pool.GetWorkerCount();
+    std::vector<DWORD> errors(static_cast<size_t>(worker_count), 0);
+    for (int worker = 0; worker < worker_count; ++worker) {
+        pool.Enqueue(worker, [&errors, worker] {
+            if (!::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL)) {
+                errors[static_cast<size_t>(worker)] = ::GetLastError();
+            }
+        });
+    }
+    pool.WaitAll();
+    for (int worker = 0; worker < worker_count; ++worker) {
+        if (errors[static_cast<size_t>(worker)] != 0) {
+            ANET_SYSTEM_ERROR("SetThreadPriority(BELOW_NORMAL) failed for env worker=" << worker
+                << " error=" << errors[static_cast<size_t>(worker)]);
+        }
+    }
+#else
+    (void)pool;
+#endif
+}
+
 std::shared_ptr<anet::ThreadPool> BatchEnvBuilder::CreatePool(int worker_threads) const
 {
-    return std::make_shared<PinnedThreadPool>(worker_threads);
+    auto pool = std::make_shared<PinnedThreadPool>(worker_threads);
+    LowerWorkerPriority(*pool);
+    return pool;
 }
 
 std::shared_ptr<BatchEnv> BatchEnvBuilder::CreateBatchEnv(

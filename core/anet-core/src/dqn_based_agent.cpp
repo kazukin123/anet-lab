@@ -3513,6 +3513,17 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss, const torch::Te
     return result;
 }
 
+// 初回 priority（固定・最大・Actor 近似）由来の行をbool [B] のフラグに。
+// source は ReplayBuffer の CPU metadata なので、device へ送らずに CPU で判定する。
+static torch::Tensor MakeInitialPrioritySourceFlags(const torch::Tensor& per_priority_sources)
+{
+    using anet::rl::ReplayPrioritySource;
+    const auto sources = per_priority_sources.to(torch::kInt8).to(torch::kCPU).contiguous();
+    return sources.eq(static_cast<int8_t>(ReplayPrioritySource::FIXED_INITIAL))
+        | sources.eq(static_cast<int8_t>(ReplayPrioritySource::MAX_INITIAL))
+        | sources.eq(static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL));
+}
+
 PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     const anet::rl::ExperienceSamples& samples,
     const torch::Tensor& td_error,
@@ -3546,9 +3557,7 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     pending.per_sample_actor_initial_count = torch::zeros({}, count_options);
     if (config_.use_per && samples.per_priority_sources.defined()) {
         auto sources = samples.per_priority_sources.to(torch::kInt8).to(torch::kCPU).contiguous();
-        auto initial_flags = sources.eq(static_cast<int8_t>(ReplayPrioritySource::FIXED_INITIAL))
-            | sources.eq(static_cast<int8_t>(ReplayPrioritySource::MAX_INITIAL))
-            | sources.eq(static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL));
+        auto initial_flags = MakeInitialPrioritySourceFlags(sources);
         ANET_ASSERT_SHAPE(initial_flags, { batch_size });
         pending.per_sample_initial_count = initial_flags.to(torch::kFloat32).sum();
         pending.per_sample_fixed_initial_count = sources.eq(
@@ -5049,11 +5058,12 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             auto initial_mask = torch::zeros(
                 { B }, torch::TensorOptions().dtype(torch::kBool).device(device_));
             if (config_.use_per && samples.per_priority_sources.defined()) {
-                const auto sources = samples.per_priority_sources.to(
-                    torch::TensorOptions().dtype(torch::kInt8).device(device_));
-                initial_mask = sources.eq(static_cast<int8_t>(ReplayPrioritySource::FIXED_INITIAL))
-                    | sources.eq(static_cast<int8_t>(ReplayPrioritySource::MAX_INITIAL))
-                    | sources.eq(static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL));
+                // 旗は CPU で作り、CUDA では pinned から非同期に送る。同期コピーにすると、
+                // ここで CPU がそれまでに積んだ forward の完了を待ち、後続の演算を積めなくなるため。
+                const auto flags = MakeInitialPrioritySourceFlags(samples.per_priority_sources);
+                initial_mask = device_.is_cuda()
+                    ? flags.pin_memory().to(device_, /*non_blocking=*/true)
+                    : flags.to(device_);
             }
             const auto initial_count = initial_mask.to(torch::kFloat32).sum();
             const auto masked_mean = [&](const torch::Tensor& values) {

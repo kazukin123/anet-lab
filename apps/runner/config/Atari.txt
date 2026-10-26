@@ -5,8 +5,8 @@
 app.$ = app.online > P1
 #app.$ = app.batchrun > P1
 
-#run.seed = 1
-run.seed = 2
+run.seed = 1
+#run.seed = 2
 #run.seed = 3
 
 #run.train.num_envs = 512
@@ -34,12 +34,13 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 #DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaViT     # IMPALA+ViT ハイブリッド
 
 #run.$ = run.@v5_iqn_impala_x2
-#run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex  # 基本は 11_batch_run.bat / 12_batch_run.bat から起動
-# 既定は実時間優先プロファイルの 100M を online で回す構成。exe を素で起動して UI を整えれば
-# そのまま録画できる状態であり、リリース時の既定でもある。bat は run.$ を CLI で上書きし、
-# 終端へ run.@batch を足してヘッドレス側へ倒す。
+#run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex
+
+# 実時間優先プロファイルの 100M を online で回す構成
 run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
 
+# 実時間優先プロファイル ＋ TempoRL
+#run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip
 
 # ==============================================================================
 # Run設定
@@ -55,7 +56,7 @@ app.run_name = run_{t}_atari_${E1.game}
 #E1.game = seaquest
 #E1.game = beam_rider
 #E1.game = enduro
-E1.game = kung_fu_master
+#E1.game = kung_fu_master
 #E1.game = ms_pacman
 #E1.game = pacman
 #E1.game = boxing
@@ -71,7 +72,7 @@ E1.game = kung_fu_master
 #E1.game = double_dunk
 #E1.game = name_this_game
 #E1.game = phoenix
-#E1.game = qbert
+E1.game = qbert
 
 # --- その他(アルファベット順。combat / surround / warlords 等は対戦前提) ---
 #E1.game = adventure
@@ -205,7 +206,10 @@ A1.learner.update_warmup_steps = 200,000       # BTR Minimum Replay Size(exp_ste
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_atari_${E1.game}
+#app.run_name = run_{t}_atari_${E1.game}
+
+
+app.online.train_panel.fps = 0
 
 #A3.learner.enabled = false
 #A3.auto_load_file = ../../workspaces/atari5-01/runs/run_20260923-163113_a5_qbert_rr1_100m_seed2/agent_close.anet
@@ -267,9 +271,10 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 
 # --- 土台(実行モードと予算。腕を重ねて使う) ---
 
-# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+# TempoRL: 有効化と指標だけを持つ。J・skip_context・合算／遮断は下の「Env依存 Agent設定」の葉で切り替える。
+# metrics.scalar.$ は run.@a5_metrics の連鎖に @skip を足したもの（後ろの profile の連鎖だけが残るため、ここで全部書く）。
 run.@skip : DefaultDQNAgent.skip.enabled = true
-run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2 > metrics.scalar.@skip
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@skip
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
@@ -613,6 +618,8 @@ DefaultDQNAgent.@nature : actor.[train].policy.spatial.epsilon.last = 0.1
 
 DefaultDQNAgent.skip.max_length ?= 10
 DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
+DefaultDQNAgent.learner.skip.feature_gradient = merge   # 分離×合算（LunarLander の段 2 で最良）
+#DefaultDQNAgent.learner.skip.feature_gradient = stop   # 分離×遮断（agent.txt の既定）
 
 # quantile_mode は ALGO プロファイル(@qr / @iqn)が供給する。A 層へ直書きするとチェーン上 qr へ戻すので置かない。
 A1.qr.num_quantiles = 200                      # QR-DQN 論文値(@qr 選択時のみ効く)
@@ -1445,11 +1452,11 @@ run.eval.[eval_panel].env.repeat_action_probability = 0
 
 # 既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れ悪化。
 # 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
-app.online.eval_panel.fps = 14.5
+app.online.eval_panel.fps ?= 14.5
 
 # train_panel は 128 タイルのモザイクで、fps を落としても見栄えが落ちにくい一方、
 # 描画コストはそのまま throughput に効く。録画時もここは 10 で足りる。
-app.online.train_panel.fps = 10
+app.online.train_panel.fps ?= 10
 
 QValuePanel.row_height = 20
 
