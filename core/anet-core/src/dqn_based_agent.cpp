@@ -729,7 +729,7 @@ NetworkModel::NetworkModel(
         // action の bind は包含型だけで必須とし、分離型では禁止する。
         const bool action_in = skip_config_.network_mode == SkipNetworkMode::ActionIn;
         if (binds_action != action_in) {
-            ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << (action_in ? "action_in" : "action_out")
+            ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << (action_in ? SkipConfig::kNetworkModeActionIn : SkipConfig::kNetworkModeActionOut)
                 << "': skip.net action binding=" << binds_action
                 << "; expected " << (action_in ? "a branch binding action" : "no branch binding action") << ".");
         }

@@ -41,9 +41,10 @@ namespace anet::rl::dqn {
         const auto& quantile_mode = policy.quantile_mode;
         const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
         const auto& type = policy.policy_type;
-        if (type != "Greedy" && type != "EpsilonGreedy" && type != "0" && !is_uqe(type) && !policy.IsThompsonSampling()) {
+        if (type != kActionPolicyTypeStr_Greedy && type != kActionPolicyTypeStr_EpsilonGreedy && type != "0" && !is_uqe(type) && !policy.IsThompsonSampling()) {
             ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type='" << type
-                << "'; expected Greedy, EpsilonGreedy, UQE, or ThompsonSampling.");
+                << "'; expected " << kActionPolicyTypeStr_Greedy << ", " << kActionPolicyTypeStr_EpsilonGreedy
+                << ", " << kActionPolicyTypeStr_UQE << ", or " << kActionPolicyTypeStr_ThompsonSampling << ".");
         }
         ValidateTauRule(policy.tau_rule, key + ".tau_rule");
         ValidateTauRule(policy.full_distribution_query.tau_rule, key + ".full_distribution_query.tau_rule");
@@ -173,7 +174,7 @@ namespace anet::rl::dqn {
                 }
             }
 
-            target_policy.policy_type = "Greedy";     // デフォルトは安全なGreedy
+            target_policy.policy_type = kActionPolicyTypeStr_Greedy;     // デフォルトは安全なGreedy
             target_policy.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
             if (use_optimistic_target) {        // 「use_optimistic_target = true」だった場合、target_policyのデフォルトはactor.[train].policyをベースとする
                 const auto train = actor.find("train");
@@ -186,7 +187,7 @@ namespace anet::rl::dqn {
                 const bool optimistic_source = target_policy.policy_type == "UQE" || target_policy.policy_type == "1"
                     || target_policy.IsThompsonSampling();
                 if (target_policy.policy_type == "EpsilonGreedy" || target_policy.policy_type == "0") {
-                    target_policy.policy_type = "Greedy";
+                    target_policy.policy_type = kActionPolicyTypeStr_Greedy;
                 }
                 if (!optimistic_source) {
                     anet::log::warn() << "use_optimistic_target=true copies actor.[train].policy.policy_type='"
@@ -195,7 +196,7 @@ namespace anet::rl::dqn {
                         << "' without optimism. Select UQE/ThompsonSampling or use_optimistic_target=false.";
                 }
             } else {
-                target_policy.policy_type = "Greedy";   // デフォルトは安全なGreedy
+                target_policy.policy_type = kActionPolicyTypeStr_Greedy;   // デフォルトは安全なGreedy
             }
 
             // 楽観policyのコピー対象にせず、target推定品質の既定を決定的な32点へ戻す。
@@ -364,11 +365,11 @@ namespace anet::rl::dqn {
             const bool has_skip_limit = HasConfigValue(config_data, "skip.max_length");
             ANET_READ_CONFIG(config_data, skip.max_length);
             // 文字列の設定を境界で検証し、実行系へは構成を表すenumだけを渡す。
-            std::string network_mode = "action_out";
+            std::string network_mode = SkipConfig::kNetworkModeActionOut;
             ReadConfig(config_data, "skip.network_mode", network_mode);
-            if (network_mode == "action_out") skip.network_mode = SkipNetworkMode::ActionOut;
-            else if (network_mode == "action_in") skip.network_mode = SkipNetworkMode::ActionIn;
-            else ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << network_mode << "'; expected action_out or action_in.");
+            if (network_mode == SkipConfig::kNetworkModeActionOut) skip.network_mode = SkipNetworkMode::ActionOut;
+            else if (network_mode == SkipConfig::kNetworkModeActionIn) skip.network_mode = SkipNetworkMode::ActionIn;
+            else ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << network_mode << "'; expected " << SkipConfig::kNetworkModeActionOut << " or " << SkipConfig::kNetworkModeActionIn << ".");
             ANET_READ_CONFIG(config_data, skip.head.use_dueling);
             ANET_READ_CONFIG(config_data, learner.skip.feature_gradient);
             ANET_READ_CONFIG(config_data, learner.skip.loss_weight);
@@ -462,7 +463,8 @@ namespace anet::rl::dqn {
             // MunchausenとThompsonは共存付加
             if (learner.munchausen.enabled && target_policy.IsThompsonSampling()) {
                 ANET_SYSTEM_ERROR("learner.munchausen.enabled=true conflicts with target_policy.policy_type='"
-                    << target_policy.policy_type << "'; expected Greedy, EpsilonGreedy, or UQE. use_optimistic_target="
+                    << target_policy.policy_type << "'; expected " << kActionPolicyTypeStr_Greedy << ", "
+                    << kActionPolicyTypeStr_EpsilonGreedy << ", or " << kActionPolicyTypeStr_UQE << ". use_optimistic_target="
                     << (use_optimistic_target ? "true (actor.[train].policy copy before target overrides)" : "false"));
             }
             ValidateActionPolicy(target_policy, "DefaultDQNAgent.target_policy");

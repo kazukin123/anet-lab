@@ -90,7 +90,7 @@ _Avoid_: repeat count, 持続長, 継続長
 _Avoid_: 継続価値, skip Q 関数（英語名は skip Q）
 
 **判断**:
-Actor が行動とスキップ長を選ぶ step。スキップの途中の step は判断ではなく、Actor は続けている行動を出すだけである。スキップを持たない Agent では、すべての step が判断である。
+Actor が行動とスキップ長を選ぶ step であり、スキップの途中の step では新たな判断を行わず、続けている行動を出す。スキップを持たない Agent では、すべての step が判断である。
 _Avoid_: 意思決定ステップ, decision step（英語名は decision）
 
 ### NoisyNet・探索

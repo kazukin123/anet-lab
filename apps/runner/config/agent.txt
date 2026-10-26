@@ -307,7 +307,7 @@ DefaultDQNAgent.@baseline.qr.num_quantiles ?= 51         # QR-DQNの分位数 N
 # 　per_beta=0　→ 補正無し、 per_beta=1.0 →完全補正
 
 
-# TempoRL: envのAgentチェーンから選ぶ共有profileと小さなMLP配線。
+# TempoRL: baselineの共通既定と小さなMLP配線。env/CLIの葉で上書きする。
 # TempoRLの共通既定。envがJと入力特徴を選び、Runで有効にする。
 DefaultDQNAgent.@baseline : skip.enabled ?= false
 DefaultDQNAgent.@baseline : net.body.output.[skip_context] ?= main_feature

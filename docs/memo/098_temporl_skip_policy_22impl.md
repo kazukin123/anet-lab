@@ -286,3 +286,94 @@ core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dq
 ### PRDの特徴量キー説明の整合（2026-10-24）
 
 ユーザー指示により、PRDのD4でzを説明上の記号と明記し、§5.6のIQN配線を既存の公開名skip_contextと各envの融合済みbranchへ合わせた。冒頭へ3回目の改訂行を追記した。実装・設定・受入・過去Runは変更せず、文書のみのためビルドとテストは繰り返していない。LF/BOM・差分空白・相対リンクを確認し、同じPRD reviewerの正式判定1回、OK、差し戻し0、確認事項なし。原文: `.scratch/prd098/review-20261024-2330-prd.md`。未決・新たな起票候補なし。stage/commit/pushなし。なお、その後のskip_contextの改名候補の相談は名称未採用のため、この整合修正へ混ぜない。
+
+
+## 追加修正: 2モデルレビュー11件への対応（2026-10-26）
+
+ユーザー承認済み計画「PRD098の指摘対応と2モデル再レビュー」を本節へ固定する。着手基準は8ab85f5b。11件を修正・後続変更で解消済み・規約による見送りに分類する。実装と文書の現在値を基準にし、PRD101、LunarLanderのskip有効化/merge既定、既存のdirtyを保持する。snapshot・差分・実行ログは `.scratch/prd098/cc-fix-20261026-140112/`。
+
+### 計画と前提
+
+- 公開面の変更はSkipConfigのkNetworkModeActionOut/Inと、既存方策名定数群のkActionPolicyTypeStr_Greedyの追加だけ。既定値・比較・診断で共有し、設定の文字列値・保存形式・計算・skip_contextは維持する。
+- agent.txtの旧profileコメントとcommon.txtの孤立コメントを直す。LunarLanderのreproコメントは位置の整理が82e99853で解消済みと照合できたため、承認済み計画の当該作業を変更不要へ調整する。解決値を前後で完全比較する。
+- PRD098の内部メンバ名・軸操作・行構成を観測できる契約へ改め、作らないのはAgent側のprofileであると明記する。M1の説明を付ける。Replayはreward4Bに、終わり方と判断の有無を合わせた1Bを足す実装なので、+5Bは維持して説明を補う。
+- CONTEXTの判断定義を意味を保って2文にし、PRD910へ今回の改訂記録を付ける。一般採番規約は100以降の正式PRDを扱うリポジトリ共通運用の独立変更として目的を記録し、PRD098固有の必要性にはしない。既存履歴の組み替えは行わない。
+- 参照先の999_observation_pipeline_10prd.mdはユーザー回答に基づき新規コミット候補・全文レビュー対象に含める。既存ドラフトを尊重し、草案の実装や未決の裁定はしない。リンク・形式・PRD098との接続条件だけを確認する。
+- wikiの曖昧文は後続変更で解消済みとして現行文を照合する。ADR0062/0063はコミット済みの判断記録で、anet-create-prdの「Never rewrite an existing ADR.」と現行品質23/28に従い本文を保持する。短縮・転載整理は理由付きで見送り、書式のためだけの新ADRは作らない。
+- 今回は挙動の追加がないリファクタなので、実装を写す新規テストや人為的なREDは作らない。公開Config・Head・保存復元の既存テストを変更前GREENとして実行し、変更後に同じ関連フィルタを通す。コード変更に先立ち検証可能な基準を確保する。
+- VsDevCmd経由でDebug Runner/anet-core-testをビルドし、[prd098],[noisynet],[dqn][head],[dqn][serialize],[dqn][config]を検証する。設定監査、7envの変更前後の全キー/文字列値、リンク、LF/BOM、差分空白、定数共有を確認する。文書の実装説明には根拠のコード/テスト箇所を残す。
+- 現行品質観点を全件自己点検した後、実装・計画とPRDを分け、同じCodex担当とClaudeの前回セッションへ同じ依頼を送る。判定は今回の対応差分と直接の帰結。原文・費用・対応表を保存し、直せる追加指摘はまとめて修正する。
+- 長時間学習・新しい実験・normalizer競合修正・観測パイプライン実装・設定コンストラクタ全体の整理は行わない。stage/commit/pushは行わない。新しい質問・判断待ちは0。
+
+
+### 11件の対応表と独立した運用記録
+
+| 指摘 | 扱い | 対応・根拠 |
+| --- | --- | --- |
+| 1 参照先不足 | 修正 | 既存の999_observation_pipeline_10prd.mdを新規コミット候補・全文レビュー対象へ追加。本文の設計/未決を採用せず、関連する未同梱ドラフト2本はリンク先として同梱したと誤認させない名称表示へ整理した |
+| 2 ADRの短縮・転載整理 | 規約により見送り | ADR0062/0063は既にコミット済み。anet-create-prd SKILL.mdの「Never rewrite an existing ADR.」と品質23/28に従い本文を保持。判断自体を変えない書式整理のために新ADRを起こす3条件も満たさない。過去の判断の本文は今の仕様へ書き換えず、再レビューへこの理由を渡す |
+| 3 判断の定義 | 修正 | 意味を維持してCONTEXTの定義を2文へ整理 |
+| 4 PRD910改訂記録 | 修正 | 2026-10-26の引用行で、既存normalizer監査項目の記録補足を明記。競合の有無・修正方式は未裁定のまま |
+| 5 採番規約・無関係な整形 | 独立した運用変更として記録／一部解消済み | 下記の採番運用として目的をREADMEへ記録。PRD098固有の要件とはしない。LunarLanderのrepro注記は82e99853で選択行の近くへ移動済みなので、今回変更しない |
+| 6 定数化 | 修正 | SkipConfigのaction_out/inと既存方策名定数群のGreedyを、既定値・比較・診断から共有。展開後の全式が変更前と同じことをconstant-expansion-check.jsonで照合 |
+| 7 設定コメント | 修正 | agent.txtを現行baseline/部分上書きの説明へ更新、common.txtの孤立コメントと末尾の空行を除去 |
+| 8 wikiの結論 | 後続変更で解消済み | 現行temporal_abstraction.mdはNEETの見込み/DropMergeの実測未実施と、GridMaze/LunarLanderの実測を区別しているため保持。既存の新しい実験結果は書き換えない |
+| 9 PRDの内部実装の語 | 修正 | §5.1をn-stepの観測できる結果、§5.3を分位軸を保つ連結、§5.4を各bootstrap用観測の評価として記述 |
+| 10 profileとM1 | 修正 | Agent側のDefaultDQNAgent.@skip* / skip.net.@*を作らないこととRun/metrics側を区別。M1はenv内で宣言する追加metrics群と明記 |
+| 11 Replayのメモリ | 説明を修正・数値維持 | rewardのfloat32 4Bと、done/truncated/decisionの組合せを共有する1Bで+5B。§5.1へ内訳を明記し、ADRの当時の記録と既存割合は維持 |
+
+**一般採番規約の作業区分**: 099の次を100とし正式採番の一意性検査を非9xxへ広げた変更は、0878300d時点までの変更に同居したリポジトリ共通運用で、PRD098のスキップ方策の実装とは独立した変更である。当時の個別の要求理由は未記録だったため、PRD098に必要だったと遡って説明しない。今回、現用の正式PRD100/101/102も同じ時系列IDと一意性検査で扱うための目的をdocs/memo/README.mdへ記録した。品質確認観点の現行ルールは保持し、他作業のdirtyも編集していない。履歴の組み替えや採番の巻き戻しは行わない。
+
+### 裏づけと検証結果
+
+- §5.1の記録の根拠: replay_buffer_impl.hpp:238–240のflagsと261–262のstorage、replay_buffer_impl.cpp:550–551の確保と618–623のRecordStep。終わり方と判断の旗を同じuint8_tへ格納している。計算は変更していない。
+- §5.3の連結の根拠: nn_impl.cpp:1442–1481、nn_test.cpp:5419の公開NetworkBranchを通す[prd098-r2-bind]、dqn_based_test.cpp:1195の全mode/action_inのHead graph検査。
+- §5.4の評価の根拠: dqn_based_agent.cpp:4465付近のwindow next_obs、既存PrepareEvaluation/MakeLearningTargetsのtarget評価経路。行の内部配置は契約文から除き、Qとskipのbootstrap観測を評価する意味は維持した。
+- 設定の根拠: agent.txtのbaseline定義、LunarLander.txt・DropMerge.txtのM1.[tag]、LunarLander.txtのrun.$とlearner.skip.feature_gradient。GridMazeにはM1の葉がないため、PRDのGridMaze例から空のM1項を除いた。参照する既存ドラフトのPRD098接続条件は§1.5と§9にあり、今回未決を裁定していない。
+
+```bash
+cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test AnetRLRunner --parallel 2'
+```
+
+```bash
+core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dqn][serialize],[dqn][config]'
+```
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
+```
+
+- 01-baseline-build、02-baseline-testsは終了0。変更前の143ケース・31,142 assertionsが成功。05-final-build、06-final-testsも終了0、同じ143ケース・31,142 assertionsがすべて成功した。新しい挙動や実装を写すテストは追加していない。
+- [prd093-config-snapshot]をANET_PRD093_OUTPUTとANET_PRD093_CONFIG_ROOTをこの作業root/現用configへ指定して前後で実行（03/07）。7env全キー・文字列値の差分は0。LunarLanderのskip.enabled=true、learner.skip.feature_gradient=mergeを確認した。旧round2の設定移行期待値を今回へ再利用していない。
+- check_default_leaves.pyを前後で実行（04/08）し監査3637件・エラー0。check_default_leaves_test.py（09）は16テスト成功。すべて終了0。config-comparison.jsonに環境ごとのキー数と差分を保存した。
+- Release、全通常core/Envスイート、追加smoke Run、性能比較、長時間学習は繰り返していない。今回のコード変更は定数参照だけで、文書・コメントは値を変えず、関連Debugと全キー比較で検証した。既存の性能未達・学習結果は当時の記録として保持する。
+
+### 自己点検と再レビューの境界
+
+現行の実装品質68項目とPRD品質の全項目を、今回の適用範囲に従い自己点検した。型・const・依存方向、固定キーのmacro読取り、型変換境界の例外、共有定数と診断、既存GetScalarの意味、計測・所有・ログ・失敗の挙動、公開経路の回帰と設計文書との整合を確認した。新しいworker・状態・借用メンバ・interface・NN処理・設定値・並び番号・metrics連鎖・skillは追加しておらず、それらの固有項目は対象外。PRDの今回の追記は、定義・契約の表現と設定例の説明を整理したもので、実測や未決の設計を追加で採用していない。
+
+自己点検中にAGENTS.mdとdocs/quality/impl.md・prd.mdへ並行更新を検出した。この作業は3ファイルを編集しておらず、着手時との差分をexternal-*.diffへ保存して保持した。再レビューでは現在版の規約を使い、他作業の規約変更自体を今回の変更箇所に混ぜない。ADR0062/0063とwiki本文、LunarLander設定は着手時から不変である。今回の新規コミット候補は999_observation_pipeline_10prd.mdであり、別の未追跡ドラフト2本を追加対象にはしない。
+
+### 2モデル再レビュー第1往復と追加対応
+
+20261026-1415の同一依頼を、実装・計画とPRDに分けて同じCodex担当とClaudeセッションへ提出した。Codexは実装側4対象・PRD側3対象ともOK。Claudeは実装・計画を各1件、観測パイプライン草案を1件差し戻し、PRD098/910はOKだった。原文は `.scratch/prd098/review-20261026-1415-{impl,prd}.md` と `review-20261026-1415-{impl,prd}-claude.md`。Claudeログの費用表示は実装5.5888228 USD、PRD3.4082014 USD（再開呼び出しのSDK表示値。増分課金額としては断定しない）。
+
+- 計画のLunarLander注記を、82e99853で解消済みのため変更不要とした実際の扱いへ合わせた。
+- Greedyと同じ変更式・診断に残った3方策名を既存の共有定数へ揃えた。範囲外として報告された未変更行は残す。診断を含む定数展開後のコードは着手基準と同一である。
+- 草案のNG4/NG5/NG9へ、変更不可能という制約ではなく、観測定義の共有とは別の責務・機能なので扱わない理由を補った。未決事項は裁定していない。
+- M1の根拠はLunarLander/DropMergeであり、GridMazeの定義という記録を訂正した。GridMazeの文書例から未定義のM1項を除去し、実際の設定値は変更していない。
+- LF/BOMの個別証跡が足りないという再確認点に対し、ファイルごとのBOM有無・基準との一致・CRLF数・SHAと検査コマンド/終了値を `selfcheck-20261026-1432.json` に追加する。差分空白、リンク、定数展開、保持対象、Git indexも再照合する。
+
+追加修正後、同じVsDevCmdコマンドでDebug Runner/testを再ビルドして終了0（10-round2-build.log）。同じ関連フィルタも143ケース・31,142 assertionsがすべて成功、終了0（11-round2-tests.log）。設定ファイルは第1往復後から不変なので、7envの全キー一致と監査の実行結果を引き継ぐ。全品質項目を今回の適用範囲で再自己点検し、LF/BOM・リンク・差分空白の検査はエラー0、全4コードファイルは定数展開後のトークンが着手基準と一致した。今回変えた5ファイルだけを変更箇所として、全対象を維持した20261026-1432の同一依頼を両モデルの同じ担当・セッションへ再提出する。
+
+第2往復（20261026-1432）は、実装・計画が両モデルともOK。PRDはCodex全3対象OK、Claudeは098/910 OK、草案の改訂履歴にNG4/5/9への理由追記を記録する1件だけ差し戻しだった。草案冒頭の同日改訂行へ追記し、PRD側だけ同じ担当・セッションへ再提出する。コード・設定・未決は変更せず、ビルドとテストは第2往復の成功結果を引き継ぐ。原文は `.scratch/prd098/review-20261026-1432-{impl,prd}.md` と `review-20261026-1432-{impl,prd}-claude.md`。ClaudeのSDK費用表示は実装7.6828892 USD、PRD4.9318816 USD（再開セッションの表示値であり、前回分との単純合算はしない）。
+
+### 最終結果（2026-10-26）
+
+第3往復（20261026-1436）のPRD全3対象は両モデルともOK、差し戻し0、開発者への確認事項なし。実装・計画は第2往復の両モデルOKを引き継ぐ。最終原文は `.scratch/prd098/review-20261026-1432-impl.md`、`review-20261026-1432-impl-claude.md`、`review-20261026-1436-prd.md`、`review-20261026-1436-prd-claude.md`。最後のClaude PRDログは5.0996924 USD、2ターン、終了0。実装の最終表示7.6828892 USDとの合計表示は12.7825816 USDだが、再開セッションのSDK値なので各往復の値をさらに合算したり、今回の増分課金と断定したりしない。費用・session_id・原文はログとともに保持した。
+
+今回の11件と追加指摘の対応は完了した。規約によりADR0062/0063の短縮は見送り、wikiとLunarLander注記は解消済みとして保持。範囲外として報告された未変更行の方策名直書き、GridMaze設定の空のM1参照、草案の歴史的normalizer記述は、今回の追加修正へ広げていない。草案のQ1〜Q11、normalizer監査の結論、長時間学習は当初の範囲外のままである。
+
+Debug Runner/testビルドと関連143ケース・31,142 assertionsは成功。7env全キー比較は差分0、既定葉監査3637件・エラー0、監査テスト16件成功。最終追記はレビュー結果の記録だけなのでビルドを繰り返さず、リンク・LF/BOM・差分空白・定数展開・保持対象・index不変を再照合し、`selfcheck-final.json`へ保存する。現行品質の全項目を適用範囲に従い自己点検済み。レビュー側のsnapshotで実行できないGit検査と、実装側で実行した検査は区別して記録した。Claude原文の品質項目数の「30」は現在版の実数32と異なるが、原文を改変せず保存し、実装側とCodex側の32項目の自己点検・走査結果を保持した。
+
+変更は作業ツリーに残す。新規コミット候補の999_observation_pipeline_10prd.mdを含めて未stageであり、stage/commit/pushは行っていない。他作業のdirty・PRD101・LunarLanderのskip有効/merge既定を保持した。次は人間による差分確認とコミット対象の選定であり、自動操作はここで停止する。

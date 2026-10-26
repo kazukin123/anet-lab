@@ -12,6 +12,7 @@
 > 改訂: 2026-10-26。§7 に段 1 の 3 seed と段 2（LunarLander）の結果、§9 の 2 に 5×5 の既定 seed で届かない原因（UQE でスキップ長を選ぶこと）、§9 の 3（評価 slot の判断率）を追記。
 > 改訂: 2026-10-26（2 回目）。5×5 の既定 seed の件を「序盤に見つけたゴールを保持できず崩壊」から「スキップ長を UQE で選ぶとゴールに届かない」に直した（評価は一度も届かず、学習側もほぼ届いていなかった）。§7 の段 1 の結論を、届く速さと終盤の安定さに書き分けた。
 > 改訂: 2026-10-26（3 回目）。段 2 の結果を受けて LunarLander の既定を有効（分離×合算）にしたことを §6 の 21 と §7 の段 2 に追記。`run.@skip` の metrics の連鎖が Munchausen の指標を落としていた件と、その直しも §7 の段 2 に記した。
+> 改訂: 2026-10-26（2モデルレビュー対応）。実装契約を観測できる振る舞いに整理し、Agent側とRun/metrics側のprofileの区別、M1の意味、1step記録のメモリ内訳を明記した。観測パイプラインの既存ドラフトを参照先として同梱対象へ含める。
 
 ## 1. 目的と問題
 
@@ -120,7 +121,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 
 この節は TempoRL に限らない土台で、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md) と [999_nstep_target_correction](999_nstep_target_correction_10prd.md) も同じ土台に乗る。
 
-- `DefaultReplayBuffer` は Push のとき、slot ごとに 1 step の記録として「その遷移の reward（Agent が渡す scale 後の値）」「終わり方（なし／done／truncated）」「判断の旗（Actor が `BatchActionInfo` の info の `decision` で渡す。鍵が無ければその step を判断とみなす。鍵の名前は汎用で、skip の名を共通層に持ち込まない）」を保存する。skip の有効・無効によらず常に書く。既存の n-step の確定（`target_returns_`・`terminals_`・`actual_n_steps_`）と履歴開始は変えない。
+- `DefaultReplayBuffer` は Push のとき、slot ごとに 1 step の記録として「その遷移の reward（Agent が渡す scale 後の値）」「終わり方（なし／done／truncated）」「判断の旗（Actor が `BatchActionInfo` の info の `decision` で渡す。鍵が無ければその step を判断とみなす。鍵の名前は汎用で、skip の名を共通層に持ち込まない）」を保存する。skip の有効・無効によらず常に書く。Push時に確定する既存のn-stepの割引報酬・終端判定・実際のstep数と、履歴開始は変えない。終わり方と判断の有無は組み合わせを合わせて1 byteで記録し、rewardの4 byteと合わせた増分はslotあたり5 byteとする。
 - 終わり方は、その遷移で lane の episode が終わったかどうかと、終わり方が done か truncated かを表す。truncated の次の dummy slot は、今までどおり終端の観測を入れるためだけに置き、窓の起点にも途中にもならない（dummy は sampleable から除外されている）。
 - 抽出は「窓の規則」を通して、起点 t ごとに窓の長さ k を決める。窓の規則は、起点と slot の 1 step の記録（action・終わり方・判断の旗）、長さの上限を読み、起点から取れる最大の長さ k_max を返す。本 PRD が作る規則は §5.2 の「判断で決めた区間の中の窓」だけで、規則は差し替えられる形にする（n-step の controller と builder が interface を持つのと同じ）。固定の n で終端で切る今の n-step も、この窓の規則の 1 つとして書ける形にする（Push 時の n-step を置き換えるのは §10）。他の PRD が別の規則を足すときは、1 step の記録に必要な欄（経過時間、ランダムな手の旗、log π など）を足して同じ抽出に乗せる。
 - 窓から組む値は、窓の中の reward の割引和（γ^m を m=0..k−1 で掛けた和。γ は Learner の γ）、窓の終端の終わり方、窓の k 先の観測（起点 t+k の観測を、今の `next_obs` と同じ履歴開始の規則で stack したもの。truncated なら dummy の観測）。
@@ -140,7 +141,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 - `NetworkModel` は primary（online と target。今と同じ）に加えて、skip が有効なら skip Network（online と target）を持つ。構築は primary を先に行い、その dummy forward の出力から skip Network の入力 spec を導く（D4）。target の複製と同期（hard／soft）は primary と skip に同じ時点で掛ける。skip の target は Learner の bootstrap には使わず、target を元にする Actor の行動にだけ使う（D3）。
 - Actor の複製（clone_model）は skip Network も primary と同じ時点・同じロックで複製し、定期同期（sync_interval）も同時に行う。共有の Network を使う Actor は同じ shared lock の下で skip Network も読む。target を元にする Actor は primary の target と skip の target の組を使う。Rainbow は同じ Actor 実装を使うが、skip が無効の経路は今と同一。
 - primary の `Network::Forward` は、Head の出力に `net.body.output` の鍵をすべて合わせて返す。既存の読み手は固定の鍵しか読まないので影響しない。コピーは作らず、dtype は Body の出力のまま（AMP なら BF16。Head に渡す FP32 化は今までどおり）。
-- skip Network の構造は `DefaultDQNAgent.skip.net.*` に、primary の `net.*` と同じ記法（block・branch・bind・`body.output`）で書く。bind できる鍵は primary の公開出力（`net.body.output` の鍵）、obs の鍵、`action`（包含型のとき。離散 spec で one-hot は自動）、`taus`（IQN のとき。primary と同じ値）。特徴を共有しない構成は、skip Network が obs の鍵を bind して自前の抽出層を持つことで表す。包含型で IQN の融合済み特徴（[B,K,F]）と `action` の one-hot（[B,A]）を `,` で連結するときは、NetworkBranch の末尾 feature 連結の規則で、rank の低い項に batch の直後の singleton 軸を挿して中間軸（K）へ broadcast する（[130](../design/130_neural_networks.jp.md) の bind の規則。2026-10-24 の設定見直しで追加。`bind_concat_dim` は既存のキー）。
+- skip Network の構造は `DefaultDQNAgent.skip.net.*` に、primary の `net.*` と同じ記法（block・branch・bind・`body.output`）で書く。bind できる鍵は primary の公開出力（`net.body.output` の鍵）、obs の鍵、`action`（包含型のとき。離散 spec で one-hot は自動）、`taus`（IQN のとき。primary と同じ値）。特徴を共有しない構成は、skip Network が obs の鍵を bind して自前の抽出層を持つことで表す。包含型で IQN の融合済み特徴（[B,K,F]）と `action` の one-hot（[B,A]）を `,` で連結するときは、分位ごとに同じ行動のone-hotを共有し、分位の軸を保って末尾のfeature軸で連結する（[130](../design/130_neural_networks.jp.md) の bind の規則。2026-10-24 の設定見直しで追加。`bind_concat_dim` は既存のキー）。
 - skip Head は `features` を読み、スキップ価値を出す。出力の鍵は `skip_q`（分離型 [B,A,J]、包含型 [B,J]）で、分布型（QR・IQN）はこれに加えて `skip_q_dist`（分離型 [B,A,J,K]、包含型 [B,J,K]）を出し、`skip_q` はその分位平均になる（primary の `q` と `q_dist` と同じ形）。Actor と Learner の読み口は `skip_q_dist` があればそれを使い、選択と目標値は分位で行う。GraphViz の dot には両方の出力が出る（IQN の K は primary と同じく −1 で示す）。
   - 分離型（既定）: 全行動分のスキップ価値（行動ごと・スキップ長ごと。分布型は分位ごと）を出し、Learner と Actor が選んだ行動で絞る。射影の幅は行動数×J。
   - 包含型（`skip.network_mode = action_in`）: 行動を入力に取り、スキップ長ごとの値だけを出す。射影の幅は J。状態と行動の交差項は skip Network の Body（bind の `*` か後段の MLP）が持ち、Head の射影だけでは持たない（IQN の fusion と同じく設定者の責任）。
@@ -155,7 +156,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 
 - current の forward: primary（train mode）を今までどおり forward し、その出力の z（と包含型ならサンプルの行動）で skip Network を forward する。`learner.skip.feature_gradient = stop` なら z を切り離してから渡し、`merge` ならそのまま渡す。
 - スキップの目標値: サンプルの k・窓の割引報酬 R・終わり方・k 先の観測から、R + γ^k·V(s_{t+k}) を作る。done なら bootstrap 無し。V は Q の bootstrap と同じ関数で、Q と同じ target 方策に従う（Double DQN なら online の argmax と target の値、Munchausen なら soft value、`use_optimistic_target` なら risk score）。Munchausen の bonus は起点に 1 回、soft value は終端に入れる（[PRD067 D3](done/067_MunchausenRL_10prd.md) と同じ形）。TBO は Q と同じく実空間で組んで最後に h を掛ける。分布型では Q の分布の目標値の組み立てをそのまま使う。
-- target の forward: primary の target を、今の s_{t+n} の行に加えて s_{t+k} の行で forward する（Munchausen の target mode は 2B 行に B 行が加わる。Double DQN が有効なら s_{t+k} の online の forward も加わる）。skip の target は Learner では forward しない。
+- target の forward: Qのbootstrapに用いる観測s_{t+n}と、skipのbootstrapに用いる観測s_{t+k}をprimaryのtargetで評価する。Munchausenのtarget modeで必要な既存の評価も維持し、Double DQNが有効ならs_{t+k}の行動選択にonlineの評価を使う。skipのtargetはLearnerではforwardしない。
 - loss: L_skip はサンプルごとの loss（スカラーなら Huber、分布型なら分位 Huber。Q の loss と同じ定義）に IS 重みを掛けて平均したもの。総 loss = L_Q + `learner.skip.loss_weight`·L_skip を 1 回 backward する。
 - クリップ: `max_grad_norm` の global norm クリップを、primary の全パラメータと skip Network の全パラメータで別々に行う（閾値は同じ）。skip が無効なら今と同一。
 - optimizer: 1 つ。param group は primary（通常、Noisy の σ）に skip Network（通常、σ）を足す。lr・weight decay は primary と同じ値。
@@ -213,7 +214,7 @@ DefaultDQNAgent.@baseline : skip.network_mode ?= action_out
 # GridMaze.txt: env の既定と、skip を使う Run の profile
 DefaultDQNAgent.skip.max_length ?= 7
 run.@skip : DefaultDQNAgent.skip.enabled = true
-run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > metrics.scalar.@skip
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@skip
 
 # IQN の env（LunarLander.txt）: 融合済みの特徴を skip_context にする
 DefaultDQNAgent.net.body.output.[skip_context] = fusion
@@ -222,7 +223,7 @@ DefaultDQNAgent.net.body.output.[skip_context] = fusion
 DefaultDQNAgent.skip.network_mode=action_in "DefaultDQNAgent.skip.net.branch.[skip_feature].bind=skip_context, action"
 ```
 
-`@skip` のようなプロファイルは作らない（2026-10-24 の設定見直し。ベースは agent.txt、env と CLI は部分上書き）。チェーンへ項を足す記法は無く、`X.$ += …` と書くと `X.$+` という読まれない葉になる。
+Agent側の`DefaultDQNAgent.@skip*`や`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（2026-10-24の設定見直し。ベースはagent.txt、envとCLIは部分上書き）。Run側の`run.@skip`と指標側の`metrics.scalar.@skip`は、有効化と表示項目を選ぶために用意する。LunarLanderやDropMergeの連鎖にある`M1`は、そのenvファイルの`M1.[tag]`で定義する追加metricsの設定群であり、env固有の指標を連鎖に残すために重ねる。上のGridMaze例ではM1の葉がないため含めない。チェーンへ項を足す記法は無く、`X.$ += …`と書くと`X.$+`という読まれない葉になる。
 
 IQN の既定は、primary の融合済み branch（LunarLander は `fusion`、Atari・DropMerge は `iqn_fusion`）を `net.body.output.[skip_context]` で公開し、skip 側の `skip_feature` が `skip_context` を bind する。skip 側で taus を融合する構成を選ぶ場合は、primary の融合前の特徴を公開した鍵と `taus` を bind し、IQN Head が要求する [B,K,F] の特徴を作る（§5.3）。
 
@@ -325,7 +326,7 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 18. 群番号は skip が 50、[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md) は 59。
 19. 不正値の扱いは §5.6（構築時に `ANET_SYSTEM_ERROR`）。
 20. 分離型／包含型の切替は `skip.network_mode`（`action_out` ／ `action_in`）。
-21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。`@skip*` と `skip.net.@*` のプロファイルは作らない。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。
+21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。Agent側の`DefaultDQNAgent.@skip*`と`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（Run/metrics側のprofileとは区別する）。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。
 22. 包含型の行動入力の鍵は `action`（固定キー。one-hot は自動）。
 23. 段 1 の GridMaze は論文の格子と同じ 6×10（設定の width・height）で、壁と穴の密度は今の既定。長い直線が出る大きさで差を見る。
 24. skip が有効なときの FP16 の AMP は構築時に止める（§5.4）。

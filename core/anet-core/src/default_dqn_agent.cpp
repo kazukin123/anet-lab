@@ -280,7 +280,7 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
                 << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << config_.quantile_mode << "'");
         }
         return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
-    } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
+    } else if (policy_config.policy_type == kActionPolicyTypeStr_Greedy || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
@@ -474,7 +474,8 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
     }
     if (replay_fit_enabled && config_.target_policy.IsThompsonSampling()) {
         ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; target_policy.policy_type="
-            << config_.target_policy.policy_type << " expected Greedy, EpsilonGreedy, or UQE.");
+            << config_.target_policy.policy_type << " expected " << kActionPolicyTypeStr_Greedy << ", "
+            << kActionPolicyTypeStr_EpsilonGreedy << ", or " << kActionPolicyTypeStr_UQE << ".");
     }
     const bool needs_sampling = dqn::ResolveReplayFitRequirements(request, config_.learner.use_per).NeedsSampling();
     if (needs_sampling && !replay_fit_probe_random_) {
@@ -571,7 +572,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
     if (config_.skip.enabled) {
         auto skip_source = cfg.network == "target" ? model_->GetSkipTargetNetwork() : model_->GetSkipOnlineNetwork();
         // greedy評価は両方をgreedyに揃え、既定では同じPolicyの現在値を使う。
-        const bool shared_policy = !cfg.has_skip_policy || cfg.policy.policy_type == "Greedy";
+        const bool shared_policy = !cfg.has_skip_policy || cfg.policy.policy_type == kActionPolicyTypeStr_Greedy;
         skip.emplace(SkipActorResources{
             .config = config_.skip,
             .policy = shared_policy ? policy : CreateActionPolicy(cfg.skip_policy, cfg.skip_policy.spatial.enabled,

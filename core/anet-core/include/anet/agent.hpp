@@ -84,6 +84,7 @@ namespace anet::rl {
         static constexpr const char* kActionPolicyTypeStr_EpsilonGreedy = "EpsilonGreedy";
         static constexpr const char* kActionPolicyTypeStr_UQE = "UQE";
         static constexpr const char* kActionPolicyTypeStr_ThompsonSampling = "ThompsonSampling";
+        static constexpr const char* kActionPolicyTypeStr_Greedy = "Greedy";
 
         struct TauRuleConfig {
             std::string sample_mode = "random";
@@ -170,6 +171,9 @@ namespace anet::rl {
         enum class SkipNetworkMode { ActionOut, ActionIn };
 
         struct SkipConfig {
+            static constexpr const char* kNetworkModeActionOut = "action_out";
+            static constexpr const char* kNetworkModeActionIn = "action_in";
+
             bool enabled = false;
             int max_length = 0;
             SkipNetworkMode network_mode = SkipNetworkMode::ActionOut;
