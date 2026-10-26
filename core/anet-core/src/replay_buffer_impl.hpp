@@ -225,6 +225,7 @@ namespace anet::rl {
         // 読み取りインターフェース (Extractor用) 
         const anet::TensorDict& GetObs() const { return obs_storage_; }
         const anet::TensorDict& GetInfo() const { return info_storage_; }
+        torch::Device GetDevice() const { return device_; }
         const torch::Tensor& GetActions() const { return actions_; }
         const torch::Tensor& GetTargetReturns() const { return target_returns_; }
         const torch::Tensor& GetTerminals() const { return terminals_; }

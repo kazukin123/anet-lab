@@ -1512,6 +1512,14 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch, float gamma)
     if (decision && (decision->scalar_type() != torch::kBool || decision->dim() != 1 || decision->size(0) != num_envs_)) {
         ANET_SYSTEM_ERROR("Invalid decision: expected bool tensor with shape [" << num_envs_ << "]");
     }
+    // 判断の旗は Actor が device 上で作る。lane ごとに item() で読む・保存先へ copy_ すると lane 数だけ
+    // device との同期が起きるので、書き込みの前に一度だけ CPU へ移し、info の値も保存先の device の版に差し替える。
+    torch::Tensor decision_cpu;
+    if (decision) {
+        decision_cpu = decision->to(torch::kCPU).contiguous();
+        action_info.Set(BatchActionInfo::kKeyDecision, decision_cpu.to(storage_->GetDevice()));
+    }
+    const bool* decision_flags = decision_cpu.defined() ? decision_cpu.data_ptr<bool>() : nullptr;
     const auto& replay_hint = batch.action->GetReplayInitialPriorityHint();
     torch::Tensor replay_hint_payload;
     if (replay_hint.has_value()) {
@@ -1556,8 +1564,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch, float gamma)
         rec.reward = batch.reward[b].item<float>();
         rec.done = batch.next_state.done[b].item<bool>();
         rec.truncated = batch.next_state.truncated[b].item<bool>();
-        storage_->RecordStep(b, time_idx, rec.reward, rec.done, rec.truncated,
-            !decision || (*decision)[b].item<bool>());
+        storage_->RecordStep(b, time_idx, rec.reward, rec.done, rec.truncated, !decision_flags || decision_flags[b]);
         if (replay_hint.has_value()) {
             // 共通層では列を解釈せず、CPU化済みの1行をinline保持できる小配列へコピーする。
             auto payload = replay_hint_payload.accessor<float, 2>();
