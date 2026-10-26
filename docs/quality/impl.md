@@ -35,7 +35,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 
 ### 検索による検査
 
-項番 4 は、変更ファイルに無くても検索する。項番 5 は、`impl-plan` として渡された実装計画だけを見る。ほかの項番は、変更ファイルだけを検索する。
+項番 4 は、変更ファイルに無くても検索する。項番 5 は、`impl-plan` として渡された実装計画だけを見る。項番 71 は、現用の範囲を検索する。ほかの項番は、変更ファイルだけを検索する。
 
 | 項番 | 確認観点 | 検索対象 | パターン | 期待値 | 規約の所在 |
 | --- | --- | --- | --- | --- | --- |
@@ -44,6 +44,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 | 3 | TODO の形式 | 変更ファイルのうち `*.cpp` と `*.hpp` | `\bTODO\b`（大文字小文字を区別する） | 0 件 | 本書「コメントと TODO」の規約 |
 | 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/an-review.md`（変更ファイルに無くても検索する） | `anet`（大文字小文字を区別しない）と `PRD` | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) |
 | 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{3}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えた PRD がある | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装計画ファイル解決 |
+| 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図 `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`core/anet-core/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
 
 ### スクリプトによる検査
 
@@ -58,6 +59,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | 7 | 改行コード | `git ls-files --eol --cached --others -- <変更ファイル>` | 作業ツリーの側（`w/`）が、`.bat` は `w/crlf`、ほかのテキストは `w/lf` である。`third_party/` 配下は対象外 | [AGENTS.md](../../AGENTS.md) §改行と文字コード |
 | 8 | skill の実体コピーの同期 | `git -c core.safecrlf=false diff --no-index --no-renames --name-status .agents/skills .claude/skills`。変更ファイルに `.agents/skills/` か `.claude/skills/` の配下を含むときだけ | 変更ファイルに含まれる skill 配下のファイルが、出力に現れない。出力は、中身が違うものが `M`、片方にしか無いものが `D`（`.agents/skills` 側だけ）か `A`（`.claude/skills` 側だけ）で、片方の側のパスで出る。`skills/` より後ろの相対パスで突き合わせる | [skills README](../../.agents/skills/README.md) 冒頭 |
 | 62 | 既存ファイルの BOM | `./.venv/Scripts/python.exe -c "import codecs,subprocess,sys; from pathlib import Path; base=sys.argv[1]; subprocess.run(['git','rev-parse','--verify',base+'^{tree}'],check=True,stdout=subprocess.DEVNULL); args=[a.replace(chr(92),'/') for a in sys.argv[2:]]; paths=[p for p in args if Path(p).is_file() and subprocess.run(['git','cat-file','-e',base+':'+p],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0]; bad=[p for p in paths if (subprocess.check_output(['git','show',base+':'+p])[:3]==codecs.BOM_UTF8)!=(Path(p).read_bytes()[:3]==codecs.BOM_UTF8)]; print('\n'.join('NG: '+p+' (UTF-8 BOM changed)' for p in bad) or 'OK: UTF-8 BOM preserved ('+str(len(paths))+' checked, '+str(len(args)-len(paths))+' skipped)'); sys.exit(bool(bad))" <基準コミット> <変更ファイル>` | BOM の有無が一致すれば `OK: UTF-8 BOM preserved (<比べた件数> checked, <飛ばした件数> skipped)`・終了値0、異なれば対象パス付きの `NG`・終了値1。作業ツリーに無いファイルと基準側に無い新しいファイルは比較せず、`skipped` に数える | 本節のBOMの規約 |
+| 72 | 重なる文字列リテラル | `./.venv/Scripts/python.exe -c "import collections,re,subprocess,sys; d=subprocess.run(['git','diff','-U0',sys.argv[1],'--']+sys.argv[2:],capture_output=True,check=True).stdout.decode('utf-8','replace'); c=collections.Counter(m for l in d.splitlines() if l.startswith('+') and not l.startswith('+++') and '#include' not in l for m in re.findall(r'\"([A-Za-z_][A-Za-z0-9_./-]*)\"',l)); [print(n,s) for s,n in c.most_common() if n>=2]" <基準コミット> <変更ファイルのうち *.cpp と *.hpp（*_test.cpp を除く）>`。変更ファイルに `*.cpp` か `*.hpp` があるときだけ | 出力は、足した行に 2 回以上現れる識別子らしい文字列（回数と文字列）である。出たものはどれも、名前つきの定数になっているか、項番 66 が対象外とするものに当たる | 本書「C++ コード」の規約 |
 
 ## 読解観点
 
@@ -92,7 +94,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | --- | --- | --- | --- |
 | 18 | 同じ変更での移行 | 現用のコード・設定・テスト・サンプル・現行ドキュメントが、同じ変更の中で新しい契約へ移っている | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 | 19 | 旧契約の実装の除去 | 旧契約のための実装（別名、旧引数の overload、互換分岐、暗黙の変換、旧契約専用の WARN や検出コード）が残っていない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
-| 20 | 旧契約への参照 | 廃止した識別子を検索して、現用の範囲（コード、設定、テスト、サンプル、現行ドキュメント）に参照が残っていない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
+| 20 | 旧契約への参照 | 廃止した識別子を検索して、現用の範囲（コード、設定、テスト、サンプル、現行ドキュメント）に参照が残っていない。検索の範囲には、同じ設定の型やヘッダを使う兄弟の実装（DefaultDQN と Rainbow など）、設計文書の `.en.md`、bat、テスト、`CONTEXT.md` を含める | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 | 21 | 過去の記録の保持 | 過去の Run artifact・ADR・実験記録・履歴資料を、新しい契約に合わせて書き換えていない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 | 22 | 互換の条件 | 互換のためのコードを持つ場合、互換対象・移行方法・互換期間・削除条件が、コードか文書に書かれている。持たない実装は対象外 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 
@@ -108,6 +110,32 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | 26 | 黙った再解釈の不在 | 設定値を丸める処理、既定値へ黙って置き換える処理、特定の値に別の意味を持たせる処理が無い | [AGENTS.md](../../AGENTS.md) §設定値の扱い |
 | 27 | メッセージの内容 | エラーと WARN に、対象の識別子、指定値か必要量、期待値か上限が入っている。WARN は、対象ごとに 1 回だけ出る | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則、§設定値の扱い |
 | 28 | 背景スレッドの例外 | worker・背景スレッドの中の例外を握り潰さず、呼び出し元へ再送出して、処理の停止に届くようにしている | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則 |
+
+### 名前
+
+**規約**
+
+**名前の付け方**
+
+設定キー、メトリクスの tag、クラス・関数・メンバ・引数、層（block）、プロファイルの名前は、次に従って付ける。PRD で付ける名前も同じである。
+
+1. 設定の階層は、その値を読む持ち主（Agent・Learner・Head・Actor・Env などの概念）に合わせて入れ子にする（`head.init.*`、`spatial.epsilon.*`）。同じ部品の役割の違いは、葉の名前ではなく役割の階層で表す（`learner.current.nn_forward_key` と `learner.target.nn_forward_key`）。
+2. 1 つの名前に 2 つの意味を持たせない（時間の両端は `start`／`end`、ラダーの両端は `first`／`last`）。ほかの意味で使っている語は避け、既存の表記に揃える（Munchausen の α・`per_alpha` と紛れる `alpha` ではなく `learning_rate`）。
+3. 同じものは既存の語と形に揃える（`q`／`q_dist` に対して `skip_q`／`skip_q_dist`。参照キーは `<thing>_key`）。論文の語は、比べる軸が合うときだけ使い、合わなければ軸の合う一般の語にする（`action_out`／`action_in`）。
+4. モードや選択のキーは、何のモードかが分かる名にし、上の階層の名・値の語・ほかのキーとぶつけない（`skip.network_mode`。`skip.mode` は何のモードかを言わず、`net_mode` は root の `net` と紛れる）。
+5. 形が 1 つしか無いものに、列挙の値を持つキーを作らない。2 つ目が要るときに足す（`head.use_dueling` は bool）。
+6. 層の名は、幅ではなく層の順で付ける（`SkipFC1`。幅は `linear.out_features` で上書きする）。
+7. 構造体のメンバと引数は、型と役割が名前から読めるようにし、ある時点でしか成り立たない名を避ける（`network` ではなく `network_config`。返す時点でしか実行済みでない `executed` ではなく `actions`）。
+8. 説明に使う記号（`z`）は記号であることを書き、設定キーや公開名（`skip_context`）と取り違えないようにする。
+9. 名前を変えるときは、変える理由（多義の解消、既存の表記への揃えなど）を、PRD・実装計画・依頼のどれかに書く。
+
+用語集との照合は [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件、クラス名の接尾辞と動詞、名前つきの定数、汎用層の名前は本書「C++ コード」の規約による。
+
+適用: 名前（設定キー、メトリクスの tag、クラス・関数・メンバ・引数、層、プロファイル）を足した、または変えた実装。
+
+| 項番 | 確認観点 | 確認内容 | 規約の所在 |
+| --- | --- | --- | --- |
+| 69 | 名前の付け方 | 足した・変えた名前が、所在の節の基準（持ち主の階層と役割の階層、1 つの名前に 1 つの意味、既存の語への揃え、モードの名、列挙のキー、層の名、メンバと引数の名、記号と公開名の区別、改名の理由）に沿っている | 本節の規約 |
 
 ### 設定ファイル
 
@@ -130,12 +158,27 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 
 `metrics.scalar.[tag]` の tag は、**群名と `/` を含めて 40 文字以内**にする。Metrics Viewer の Tags 一覧で見切れるため。超えそうなら群名ではなく名前側を縮める。
 
-適用: 設定ファイルを書いた、または変えた実装。
+**並び順を番号で決める設定**
+
+並び順を番号で決める設定（Evaluation Trace の列 `app.eval_trace_panel.columns.[N]` など）は、**分類ごとに桁を分け、差し込む空きを残して振る**。十の位で分類の中の順を決め、一の位は 0 にして空けておく。添字で並ぶ列だけ一の位を使う。Trace の列の分類と番号は、[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)の§6.5の表に従う。詰めて振ると、あとから差し込むたびに全ファイルの番号を振り直すことになるため。
+
+**新しい機能の設定の足し方**
+
+新しい機能の設定は、Agent の設定ファイル（`agent.txt`）の `@baseline` に、無効の既定と、おすすめの配線・値を `?=` で書く。有効化は `skip.enabled = true` のような葉 1 つで済むようにし、env 固有の値（スキップ長の上限 J など）は env の既定（`?=`）に置く。変種は env・CLI・bat の葉で指定する。`@` プロファイルは、分布表現の切り替え（`@iqn`）のような本当に別の束にだけ作り、機能ごとの変種のために作らない。metrics の群は、env の `run.@<機能>` がカタログのプロファイルを連鎖に足す。プロファイルが増えるほど、Run で何が効いているかを追えなくなるため。
+
+**Run プロファイルの metrics の連鎖**
+
+Run プロファイル（`run.@name`）で `metrics.scalar.$` を書くと、先に重ねたプロファイルの連鎖は消え、後ろのプロファイルの連鎖だけが残る。**丸ごと書くときは、そのプロファイルと重ねて使うプロファイルの群を落とさない**（例: `run.@munch > run.@skip` と重ねる `run.@skip` は `metrics.scalar.@munchausen` を含める）。重ねて使うプロファイルは、リポジトリに書かれた組み合わせ（既定の `run.$` とコメントにした `run.$` の例、番号付きの bat、文書の例）から決める。
+
+適用: 項番 29・54 は、設定ファイルを書いた、または変えた実装。項番 67 は、並び順の番号を足した・変えた実装。項番 68 は、Run プロファイルで `metrics.scalar.$` を足した・変えた実装と、Run プロファイルを重ねる組み合わせ（既定の `run.$` とコメントにした `run.$` の例、番号付きの bat、文書の例）を足した・変えた実装。項番 70 は、新しい機能の設定キーを足した実装。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
 | 29 | 代入演算子 | 設定ファイルの変更が、所在の節の運用（`?=` と `=` の使い分け）に沿っている | 本節の規約 |
 | 54 | プロファイルの境界 | 設定ファイルで足した、または変えた行のうち、左辺にプロファイル（`@name`）を含む行が、境界を `:` で区切っている。`.` で続けていない | 本節の規約 |
+| 67 | 並び順の番号 | 足した・変えた並び順の番号が、所在の節の決まり（分類ごとの桁、一の位の空き、Trace の列はユーザーガイド §6.5 の表）に沿っている | 本節の規約 |
+| 68 | プロファイルの metrics の連鎖 | Run プロファイルで書いた `metrics.scalar.$` が、そのプロファイルと重ねて使うプロファイル（所在の節の決まりで決めたもの）の群を落としていない | 本節の規約 |
+| 70 | 機能の設定の足し方 | 足した機能の設定が、所在の節の決まり（`@baseline` への `?=` の既定、葉 1 つでの有効化、env 固有の値は env の既定、機能ごとの変種のための `@` プロファイルを作らない）に沿っている | 本節の規約 |
 
 ### C++ コード
 

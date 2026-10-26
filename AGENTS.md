@@ -56,10 +56,10 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 
 | これからすること | 先に読むもの |
 |---|---|
-| C++ のコードを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「C++ コード」「コメントと TODO」「計測」「GetScalar」「所有権」「ログ」「失敗の扱い」 |
+| C++ のコードを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「C++ コード」「名前」「コメントと TODO」「計測」「GetScalar」「所有権」「ログ」「失敗の扱い」 |
 | Python・Java・PowerShell のコードを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「コメントと TODO」「ログ」 |
-| 設定ファイルを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「設定ファイル」 |
-| PRD を書く・直す | [PRD 品質確認観点](docs/quality/prd.md) |
+| 設定ファイルを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「設定ファイル」「名前」 |
+| PRD を書く・直す | [PRD 品質確認観点](docs/quality/prd.md) と、[実装 品質確認観点](docs/quality/impl.md)の「名前」 |
 | 設計文書・ユーザーガイドを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「検証と報告」 |
 | `AGENTS.md`・品質確認観点・プロセス契約とレジストリ・エージェント定義(`.claude/agents/`・`.codex/agents/`)を書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「検証と報告」と、直す品質確認観点のファイルの「位置づけ」 |
 | skill を書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「skill」と、[skills README](.agents/skills/README.md) |
@@ -316,7 +316,10 @@ Python 補助ツールの検証も、同じ `.venv` の Python で行ってく�
   **コマンド自身に解決させてください**。
 - **既定のシェルは PowerShell です。** `&&` / `||`、三項演算子、`2>/dev/null`、
   bash の制御構文は使えません。`;` と `if ($?) { }`、`2>$null`、`Test-Path` を使います。
-  Git Bash 構文が必要な場合は、その旨をコマンドに添えてください。
+  cmd や Git Bash で実行させるコマンドは、どのシェルで実行するかを添え、そのシェルの引用符で書いてください。
+- **`>` を含む値（`app.$=app.batchrun>P1`、`run.$=run.@a > run.@b`）は、値ごと引用符で囲んでください。**
+  囲まないと `>` がリダイレクトになります。PowerShell と bash は単引用符、cmd と `.bat` は二重引用符で囲みます。
+  `.bat` の `SET "VAR=値"` では、値の中に二重引用符を入れず、使う側で `"%VAR%"` と囲みます。
 - **提示前に実行して確認してください。** 同じコマンドを既存の Run や既存のファイルに対して
   一度通し、出力形まで確かめてから提示します。
 - **既定は 1 ブロック 1 行にしてください。** 実行ボタンが出るのは 1 コマンドのブロックだけで、
@@ -329,7 +332,7 @@ Python 補助ツールの検証も、同じ `.venv` の Python で行ってく�
   1 行に収めると読めなくなるほど長い手順は、スクリプトにするか、実行ボタンを諦めて
   「コピーして貼り付けてください」と明示します。
 - **コードフェンスは ```bash を使ってください。** 中身が PowerShell でも、
-  実行ボタンが付くのは shell タグのブロックです。
+  実行ボタンが付くのは shell タグのブロックです。タグは実行ボタンのためのもので、シェルを添えたことには数えません。
 
 ## 編集しない・慎重に扱う領域
 
@@ -393,6 +396,7 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 - テストのために production 本体 API や設計を歪めない。
 - `static` は純粋計算・状態非依存の helper に限定する。
 - テストは必要なら fixture、test-only subclass、public 経路で組み、本体に test-only API を増やさない。
+- ファイルの本文は、長さによらず、シェルの heredoc やリダイレクトではなく、ファイルを書く道具で書く。短いスクリプトをシェルに直接渡して実行するのは、これに当たらない。
 
 編集後:
 
@@ -557,6 +561,7 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 - **`config_data.txt` には実効値のほかにマージ元と未選択のprofileが同居する。** `AS.*`、`A.*`、`R.*`、`X.*`、`M.*`、`metrics.scalar.baseline.*`、`metrics.scalar.full.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
 - **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
 - 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
+- **現象を名前で呼ぶ（崩壊・停滞・発散など）ときは、その名前が前提にする経過を、評価と学習の両方の指標で確かめてから書き、確かめた指標を添える。** 崩壊なら「一度届いて、保てなかった」ことを確かめる。違う現象に同じ名前を使わない。
 
 Atari-5（battle_zone / double_dunk / name_this_game / phoenix / qbert の5本）を1つのベンチマーク結果として読む場合は `atari5.py` を使ってください。`inspect_run.py` と同じRun解決・cache経路のread-only toolで、5本を個別に集計して手で合成しないでください。
 
