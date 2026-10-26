@@ -4,6 +4,11 @@ cd /d "%~dp0runner"
 
 SET "BUILD=RelWithDebInfo"
 
+REM 2026-10-26: run only the TempoRL stage 0 control (:t98c) alongside bat 11 (Atari).
+REM The full TempoRL evaluation block is :t98 (done 2026-10-26).
+REM Remove this goto to restore the wait for other runners and the DropMerge queue (46a-46c).
+goto :t98c
+
 :waitprev
 tasklist /FI "IMAGENAME eq AnetRLRunner*" 2>nul | find /I "AnetRLRunner" >nul
 if not errorlevel 1 (
@@ -146,7 +151,60 @@ SET "RUNS=workspaces\DropMerge-03\runs"
 SET "RUN_EXIT_CODE=0"
 call :find_ckpt "run_*_dmfb_46c_45a_ma0.5"
 if defined CKPT call :run_exe "%BASE%" "%BATCH%" run.seed=1 %EVONLY% %GEVONLY% %GMET% %NDT20% %NZNET% "A3.auto_load_file=%CKPT%" %EVBIG% "app.run_name=run_{t}_dmfb_46c_ev_ma0.5"
+goto :summary
 
+:t98
+REM TempoRL evaluation: PRD098 stage 1 (GridMaze 6x10) and stage 2 (LunarLander J=4), and stage 0 of the TempoRL followups PRD.
+if not exist "bin\Release\AnetRLRunner.exe" goto :no_exe
+SET RUNNER="bin\Release\AnetRLRunner.exe"
+SET /A SUCCEEDED_RUNS=0
+SET /A FAILED_RUNS=0
+SET "BATCH=app.$=app.batchrun>P1"
+SET "RUN_EXIT_CODE=0"
+
+SET "WS=--workspace LunarLander-01"
+SET "LLOFF=run.$=run.@munch"
+SET "LLSKIP=run.$=run.@munch > run.@skip"
+SET "SKIPMRG=DefaultDQNAgent.learner.skip.feature_gradient=merge"
+SET "SKIPIN=DefaultDQNAgent.skip.network_mode=action_in"
+SET "SKIPINBIND=DefaultDQNAgent.skip.net.branch.[skip_feature].bind=skip_context, action"
+echo === t98 LunarLander main arms (off, sep-stop), seeds 1-3, 2M ===
+for %%s in (1 2 3) do (
+  call :run_exe "%LLOFF%" "%BATCH%" run.seed=%%s "app.run_name=run_{t}_t98_ll_off_s%%s"
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s "app.run_name=run_{t}_t98_ll_sep_s%%s"
+)
+echo === t98 LunarLander other arms (sep-merge, in-stop), seeds 1-3, 2M ===
+for %%s in (1 2 3) do (
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s %SKIPMRG% "app.run_name=run_{t}_t98_ll_mrg_s%%s"
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s %SKIPIN% "%SKIPINBIND%" "app.run_name=run_{t}_t98_ll_in_s%%s"
+)
+
+SET "WS=--workspace GridMaze-01"
+SET "GMSKIP=run.$=run.@skip"
+SET "GM610=GridMazeEnv.width=6 GridMazeEnv.height=10 app.batchrun.exp_exit_step=500000"
+SET "GMEPS=DefaultDQNAgent.actor.[train].skip.policy.policy_type=EpsilonGreedy DefaultDQNAgent.actor.[train].skip.policy.epsilon.start=0.60 DefaultDQNAgent.actor.[train].skip.policy.epsilon.end=0.05"
+echo === t98 GridMaze 6x10 (off, sep-stop), seeds 1-3, 500k ===
+for %%s in (1 2 3) do (
+  call :run_exe "%BATCH%" run.seed=%%s %GM610% "app.run_name=run_{t}_t98_gm_off_s%%s"
+  call :run_exe "%GMSKIP%" "%BATCH%" run.seed=%%s %GM610% "app.run_name=run_{t}_t98_gm_sep_s%%s"
+)
+echo === t98 GridMaze 5x5 default maze seed, sep-stop with epsilon-greedy skip policy, seed 1, 400k ===
+call :run_exe "%GMSKIP%" "%BATCH%" run.seed=1 %GMEPS% "app.run_name=run_{t}_t98_gm_eps_s1"
+goto :summary
+
+:t98c
+REM Control for stage 0: GridMaze 5x5 default maze seed, sep-stop with the default (UQE) skip policy, current build.
+if not exist "bin\Release\AnetRLRunner.exe" goto :no_exe
+SET RUNNER="bin\Release\AnetRLRunner.exe"
+SET /A SUCCEEDED_RUNS=0
+SET /A FAILED_RUNS=0
+SET "BATCH=app.$=app.batchrun>P1"
+SET "RUN_EXIT_CODE=0"
+SET "WS=--workspace GridMaze-01"
+echo === t98 control: GridMaze 5x5 default maze seed, sep-stop with UQE skip policy, seed 1, 400k ===
+call :run_exe "run.$=run.@skip" "%BATCH%" run.seed=1 "app.run_name=run_{t}_t98_gm_uqe_s1"
+
+:summary
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 pause

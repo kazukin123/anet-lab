@@ -453,3 +453,7 @@
 2026-10-25 fix docs/memo/098_temporl_skip_policy_10prd.md blob:51649950be7d598f29323abf22917fca87c091e0 → docs/wiki/mechanisms/temporal_abstraction.md（今の結論の、GridMaze の実測と NEET の見込みが混ざった文を分けた）
 2026-10-25 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:5406ddfbb87a9ae6599d3b82fd16a2ead127f904 → docs/wiki/categories/318_rl_core.md, docs/wiki/categories/324_dqn.md
 2026-10-25 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:267710e5b6ea37044fa79bb212fb86d427d3beb3 → docs/wiki/categories/318_rl_core.md, docs/wiki/categories/324_dqn.md
+2026-10-26 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:516ca86f90e20333b9a0e9a9ae9055463f0384aa → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
+2026-10-26 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:15931937445a6f82930dbfd9d04638a7cd4063a2 → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
+2026-10-26 fix docs/memo/098_temporl_skip_policy_10prd.md blob:959a103c6f63ed9d8d9025f27f618adcc0a87b39 → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md（5×5 の既定 seed の件を「崩壊」から「ゴールに届かない」に撤回・訂正し、GridMaze の結論を届く速さと終盤の安定さに書き分けた）
+2026-10-26 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:5c36506663f0c4a01a9c4deda2120e33774be975 → docs/wiki/mechanisms/temporal_abstraction.md
