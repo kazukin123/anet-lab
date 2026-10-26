@@ -1,6 +1,6 @@
 # 指摘台帳(派生ビュー)
 
-生成 2026-10-23。正本は findings.jsonl。この文書は毎回再生成される。
+生成 2026-10-26。正本は findings.jsonl。この文書は毎回再生成される。
 
 ## 概況
 
@@ -8,6 +8,7 @@
 |---|---|
 | fixed | 1 |
 | open | 34 |
+| wontfix | 2 |
 
 open の優先度別: P0 1, P1 4, P2 18, P3 11
 
@@ -17,6 +18,8 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 
 | id | 更新 | 状態 | 優先度 | 観点 | 場所 | タイトル |
 |---|---|---|---|---|---|---|
+| F-0036 | 2026-10-26 | wontfix | P2 | process | `docs/quality/impl.md`::計測: 性能を比べる計測の条件 | 性能の比を、本番と違う構成や重い計測の下で読み、結論を出し直した |
+| F-0037 | 2026-10-26 | wontfix | P2 | process | `.agents/skills/implement-prd-with-docs/SKILL.md`::ワークフロー: 性能の受入が未達のとき | 性能の受入が未達のまま実装を閉じ、原因の切り分けが後に残った |
 | F-0028 | 2026-10-23 | open | P2 | defect | `core/anet-core/src/exception.cpp`::AnetException::AnetException | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
 | F-0029 | 2026-10-23 | open | P2 | defect | `core/anet-core/src/dqn_based_agent.cpp`::Learner::ComputeElementError | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | F-0030 | 2026-10-23 | open | P3 | defect | `core/anet-core/src/init.cpp`::anet::rl::InitRL | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
@@ -400,4 +403,6 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 
 | id | 状態 | 優先度 | 観点 | 場所 | タイトル | 更新 |
 |---|---|---|---|---|---|---|
+| F-0036 | wontfix | P2 | process | `docs/quality/impl.md` | 性能の比を、本番と違う構成や重い計測の下で読み、結論を出し直した | 2026-10-26 |
+| F-0037 | wontfix | P2 | process | `.agents/skills/implement-prd-with-docs/SKILL.md` | 性能の受入が未達のまま実装を閉じ、原因の切り分けが後に残った | 2026-10-26 |
 | F-0001 | fixed | P1 | refactor | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js` | 排他的な外れ値表示モードを二つのSetと分散した排他処理で保持している | 2026-10-03 |
