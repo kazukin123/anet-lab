@@ -23,6 +23,7 @@
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-09-24: device 指定の auto 対応とキー体系統一（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、題・目的）。
 - 2026-10-22: Evaluation Traceの表示・操作を、内容に応じた列幅・システム色・再生／一時停止トグルを持つアイコン操作・Trace中の操作バー赤枠、低速倍率の小数表示、操作バーと行動列までを守る最小幅、行選択に依存しない列見出し配色、truncated列の短い見出しtrunc、action直後のreward列へ調整する仕様を定めた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D10〜D13・§8のUI受入）。
+- 2026-10-26: Evaluation Traceの列番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の3桁にし、TempoRLのdecision・skipをrewardの右に、既定のdone・truncをQ_sa・V_sの前に置いた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、冒頭の2026-10-26の改訂・D13）。
 
 ## 選ばなかった形
 

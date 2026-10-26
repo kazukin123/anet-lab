@@ -72,7 +72,7 @@ profile matrixは4env×default/merge/dueling/action_inの16条件と、GridMaze�
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd098/verify_config_migration.py profiles --label r2_profiles1
 ```
 
-任意のQ列は `app.eval_trace_panel.columns.[32]=$action_info skip_q.[1] label:q1` のように宣言する。jは1..J、範囲外はエラー、無効はNaN。既定run.@skipのTrace列にはQ列を追加しない。
+任意のQ列は `app.eval_trace_panel.columns.[420]=$action_info skip_q.[1] label:q1` のように宣言する。jは1..J、範囲外はエラー、無効はNaN。既定run.@skipのTrace列にはQ列を追加しない。
 
 変更前snapshotは実行体・設定・検証スクリプトを一組として保存する。round2の変更前Runはsource-beforeの凍結ドライバで採取する。過去Runや固定入力を現行キーへ書き換えない。
 

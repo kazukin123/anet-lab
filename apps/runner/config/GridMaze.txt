@@ -37,8 +37,8 @@ run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
-run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
-run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
+run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
 
 
 # ==============================================================================

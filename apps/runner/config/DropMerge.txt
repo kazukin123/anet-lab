@@ -499,8 +499,9 @@ run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[8]] = skip_length_rate.[8] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[9]] = skip_length_rate.[9] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
-run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
-run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
+run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
+
 # IQN K/N/M=32 + stratified。現行の主力構成。
 run.@iqn32_stratified : backend.$ = backend.@non-deterministic
 run.@iqn32_stratified : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1

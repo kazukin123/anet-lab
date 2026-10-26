@@ -345,7 +345,7 @@ scalar tag内にも添字を含められる。たとえば設定key `metrics.sca
 
 Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの5指標も結果オブジェクトが値を保持し、初回参照時に転送する。
 
-Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[32] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) を参照する。
+Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) を参照する。
 
 - [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 

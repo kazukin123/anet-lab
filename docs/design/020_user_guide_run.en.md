@@ -503,17 +503,29 @@ Stepping backward from Live selects the row immediately before the newest; with 
 
 Columns expand to fit their headers and values. Once a column is resized manually, it is no longer adjusted automatically while the panel remains open. Close and reopen the panel to restore initial widths; this also clears the history. The panel's minimum width fits the entire control bar and the columns from the left edge through the first action column. Scroll horizontally to inspect the remaining columns. Normal and selection colors follow the system theme; reward rows are marked light green and terminal rows light orange. Selecting a row does not change the column header colors.
 
-Specify columns as follows. Numbers must be at least 1, and gaps are allowed.
+Specify columns as follows. Numbers must be at least 1, gaps are allowed, and columns are laid out from left to right in ascending order. Assign numbers by the following table.
+
+| Number | Category | Default columns |
+|---|---|---|
+| 100–199 | Free (columns to show left of step) | — |
+| 200–299 | Action and outcome | 200 step, 210 ep_step, 220 action, 230 reward, 240 decision, 250 skip |
+| 300–349 | Main environment-specific values | Atari: 300 game_score, 310 lives |
+| 350–399 | Episode end | 350 done, 360 trunc |
+| 400–499 | Values | 400 Q_sa, 410 V_s, 420–429 skip values q1–q10 |
+| 500–599 | Priority | 500 prio, 510 prio_pct |
+| 600–999 | Free (use the 900s for experimental columns) | — |
+
+The tens digit orders columns within a category, and the ones digit stays 0 to leave room for later insertions. Only columns ordered by an index (skip values q1–qJ, with j−1 in the ones digit) use the ones digit. decision, skip, and q1–qJ appear only in Runs with skip enabled.
 
 ```text
 app.eval_trace_panel.max_rows = 1000
 app.eval_trace_panel.pct_window = 10000
-app.eval_trace_panel.columns.[20] = $env_step game_score
-app.eval_trace_panel.columns.[21] = $env_step lives
-app.eval_trace_panel.columns.[22] = $agent_step approx_priority display:pct label:priority_pct
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives
+app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
 ```
 
-The default column order is `step → ep_step → action → reward → Q_sa → V_s → done → trunc → prio → prio_pct`. The truncation flag is headed `trunc` while its source key remains `truncated`. Default Q-value and state-value headers are `Q_sa` and `V_s`; their source keys remain `q_sa` and `state_value`. `label:` specifies a header without spaces. Numeric columns support `value` or `pct`, and the discrete-action `action` column supports `value`, `name`, or `value_name`. Defaults are value for numbers and value_name for actions. For continuous actions, override columns by dimension, such as `action.[0]`, and use value.
+The default column order is `step → ep_step → action → reward → done → trunc → Q_sa → V_s → prio → prio_pct`. The truncation flag is headed `trunc` while its source key remains `truncated`. Default Q-value and state-value headers are `Q_sa` and `V_s`; their source keys remain `q_sa` and `state_value`. `label:` specifies a header without spaces. Numeric columns support `value` or `pct`, and the discrete-action `action` column supports `value`, `name`, or `value_name`. Defaults are value for numbers and value_name for actions. For continuous actions, override columns by dimension, such as `action.[0]`, and use value.
 
 To inspect Q values from the same online network used for training, use:
 

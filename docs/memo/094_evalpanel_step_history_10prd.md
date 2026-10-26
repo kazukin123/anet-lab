@@ -26,6 +26,7 @@
 > - 既定のtruncated列は取得キーを変えず見出しをtruncとする。低速倍率は小数表記にし、操作バー全体とアクション列までを守る最小幅を設ける。行選択でも列見出しの色を変えず、Traceの目印を赤枠とcaptionにそろえる。
 > 2026-10-22 列順改訂（ユーザー指定）: 行動と結果を隣り合わせで読むため、既定のreward列をaction列の直後へ移す（D13）。
 > 2026-10-23 改訂: KFM の Run 名 2 つを今のフォルダ名に直した（`…_atari_kung_fu_master_…` などから `…_kfm_…` への改名。値は変えていない）。
+> 2026-10-26 列番号改訂（ユーザー指定）: 列の番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の 3 桁にし、既定の done・trunc を Q_sa・V_s の前へ移した（D5・D13）。詰めて振った 1〜10 の間には、TempoRL の decision・skip を reward の右に差し込めなかったため。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
 > 関連: [done/035_approx_actor_priority_per_10prd.md](done/035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
@@ -202,7 +203,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>] [display:<表示>]
 ```
 
-- 番号は 1 以上の整数で、飛び番を許し、小さい順に左から並べる。既定の列も含めて、すべての列をこの形で選ぶ。
+- 番号は 1 以上の整数で、飛び番を許し、小さい順に左から並べる。既定の列も含めて、すべての列をこの形で選ぶ。番号の振り方（3 桁の分類）は D13 による。
 - 値のトークンは target 1 つ、鍵 1 つ、任意の `label:`・`display:` だけ。event・scope・step 軸・EMA・`interval:` は書けない。集約の接頭辞（`mean.` など）は `$runner` のエピソード集計の鍵だけに書ける（D5）。
 - 解析は列の宣言の専用のもので、字句の分類だけを metrics の DSL と共有する。
 - `label:` は列の見出し（空白を含まない、1 文字以上）。省くと鍵が見出しになる。見出しの重複は許す。
@@ -282,27 +283,38 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 理由: 履歴を 1 行ずつ手で選ぶのはつらく、時系列で自動に送って見たい。停止を Live に寄せるとボタンが減り、Live と Trace の行き来が「選ぶ・再生する」と「停止」の対になる。最後まで再生したら止まり、その位置で見直せる。
 
 **D13 既定の設定。**
-- 行動と結果を隣り合わせで読むため、既定列はstep、ep_step、action、reward、Q_sa、V_s、done、trunc、prio、prio_pctの順とする。
+- 行動と結果を隣り合わせで読むため、既定列はstep、ep_step、action、reward、done、trunc、Q_sa、V_s、prio、prio_pctの順とする（2026-10-26 に done・trunc を Q の前へ移した。終わり方は Q や優先度より先に読みたいため）。
 - 既定の`truncated`列は`label:trunc`で短く表示する。取得キー・値・設定文法は変えない。
+- 列の番号は 3 桁で、百の位が分類、十の位が分類の中の順、一の位は 0 にして差し込み用に空ける（2026-10-26）。添字で並ぶ列（スキップ価値 q1〜qJ）だけは一の位を使う。分類は次のとおり。100 番台は、step より左に出したい列のために空けておく。
+
+| 番号 | 分類 | 列 |
+|---|---|---|
+| 100〜199 | 空き | — |
+| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip（decision・skip は各 env の `run.@skip`） |
+| 300〜349 | env 固有の主な値 | Atari は 300 game_score、310 lives |
+| 350〜399 | 終わり方 | 350 done、360 trunc |
+| 400〜499 | 価値 | 400 Q_sa、410 V_s、420〜429 スキップ価値 q1〜q10（一の位が j−1。各 env の `run.@skip`） |
+| 500〜599 | 優先度 | 500 prio、510 prio_pct |
+| 600〜999 | 空き（実験で CLI から足す列は 900 番台） | — |
 
 ```
-# common.txt（行動と報酬を隣接させ、Q・終端・優先度を続ける。env 固有の列は 20 番から）
+# common.txt
 app.eval_trace_panel.max_rows ?= 1000
 app.eval_trace_panel.pct_window ?= 10000
-app.eval_trace_panel.columns.[1] ?= $runner exp_step label:step
-app.eval_trace_panel.columns.[2] ?= $runner step_in_episode label:ep_step
-app.eval_trace_panel.columns.[3] ?= $action_info action
-app.eval_trace_panel.columns.[4] ?= $env_step reward
-app.eval_trace_panel.columns.[5] ?= $agent_step q_sa label:Q_sa
-app.eval_trace_panel.columns.[6] ?= $agent_step state_value label:V_s
-app.eval_trace_panel.columns.[7] ?= $env_step done
-app.eval_trace_panel.columns.[8] ?= $env_step truncated label:trunc
-app.eval_trace_panel.columns.[9] ?= $agent_step approx_priority label:prio
-app.eval_trace_panel.columns.[10] ?= $agent_step approx_priority display:pct label:prio_pct
+app.eval_trace_panel.columns.[200] ?= $runner exp_step label:step
+app.eval_trace_panel.columns.[210] ?= $runner step_in_episode label:ep_step
+app.eval_trace_panel.columns.[220] ?= $action_info action
+app.eval_trace_panel.columns.[230] ?= $env_step reward
+app.eval_trace_panel.columns.[350] ?= $env_step done
+app.eval_trace_panel.columns.[360] ?= $env_step truncated label:trunc
+app.eval_trace_panel.columns.[400] ?= $agent_step q_sa label:Q_sa
+app.eval_trace_panel.columns.[410] ?= $agent_step state_value label:V_s
+app.eval_trace_panel.columns.[500] ?= $agent_step approx_priority label:prio
+app.eval_trace_panel.columns.[510] ?= $agent_step approx_priority display:pct label:prio_pct
 
 # Atari.txt
-app.eval_trace_panel.columns.[20] = $env_step game_score
-app.eval_trace_panel.columns.[21] = $env_step lives
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives
 ```
 
 理由: KFM のボス撃破・出口の換算は、学習報酬（クリップ後 +1）では雑魚と区別できず、途中の得点の増え方で見分ける（§2）。`Q_sa`／`V_s`は短く対応のそろった表示名であり、既存の`label:`だけで指定する。取得キー`q_sa`・`state_value`、値とその意味、設定文法は変えず、GUIにDQN固有の鍵判定を足さない。ユーザーが別のlabelを指定した列はその指定に従う。

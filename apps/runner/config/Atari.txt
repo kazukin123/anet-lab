@@ -41,23 +41,6 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
 
 
-# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
-DefaultDQNAgent.skip.max_length ?= 10
-DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
-run.@skip : DefaultDQNAgent.skip.enabled = true
-run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2 > metrics.scalar.@skip
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[8]] = skip_length_rate.[8] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[9]] = skip_length_rate.[9] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
-run.@skip : app.eval_trace_panel.columns.[30] = $action_info skip_decision label:decision
-run.@skip : app.eval_trace_panel.columns.[31] = $action_info skip_length label:skip
-
 # ==============================================================================
 # Run設定
 # ==============================================================================
@@ -283,6 +266,21 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 
 
 # --- 土台(実行モードと予算。腕を重ねて使う) ---
+
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[8]] = skip_length_rate.[8] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[9]] = skip_length_rate.[9] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
 
 # RR は再現プロファイルが A3 に書くので、上書きも A3 で行う(A2 では届かない)。
 # half_exp_step は据え置き。per_beta.steps だけが依存するので、打ち切り Run が 100M 参照 Run の prefix になる。
@@ -612,6 +610,9 @@ DefaultDQNAgent.@nature : actor.[train].policy.spatial.epsilon.last = 0.1
 # ==============================================================================
 # Env依存 Agent設定
 # ==============================================================================
+
+DefaultDQNAgent.skip.max_length ?= 10
+DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
 
 # quantile_mode は ALGO プロファイル(@qr / @iqn)が供給する。A 層へ直書きするとチェーン上 qr へ戻すので置かない。
 A1.qr.num_quantiles = 200                      # QR-DQN 論文値(@qr 選択時のみ効く)
@@ -1453,5 +1454,5 @@ app.online.train_panel.fps = 10
 QValuePanel.row_height = 20
 
 # 遷移結果の得点・残機を履歴へ並べる。
-app.eval_trace_panel.columns.[20] = $env_step game_score
-app.eval_trace_panel.columns.[21] = $env_step lives
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives

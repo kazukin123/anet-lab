@@ -506,17 +506,29 @@ Liveでコマ戻しを押すと最新の1つ前の行を選びます。1行だ�
 
 列の幅は見出しと値に合わせて広がります。手動で幅を変えた列は、その表示中は自動調整されません。初期幅へ戻すにはパネルを閉じて開き直してください。この操作で履歴も空になります。パネルは操作バー全体と、左端から最初のアクション列までが収まる幅を下限にします。残りの列は横スクロールで確認してください。通常・選択の配色はシステムのテーマに従い、報酬行は薄い緑、終端行は薄い橙が目印です。行を選択しても列見出しの色は変わりません。
 
-列は次の形で指定します。番号は1以上で、飛び番を許します。
+列は次の形で指定します。番号は1以上で、飛び番を許し、小さい順に左から並びます。番号は次の表の決まりで振ります。
+
+| 番号 | 分類 | 既定の列 |
+|---|---|---|
+| 100〜199 | 空き（stepより左に出したい列） | — |
+| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip |
+| 300〜349 | Env固有の主な値 | Atariは300 game_score、310 lives |
+| 350〜399 | 終わり方 | 350 done、360 trunc |
+| 400〜499 | 価値 | 400 Q_sa、410 V_s、420〜429 スキップ価値q1〜q10 |
+| 500〜599 | 優先度 | 500 prio、510 prio_pct |
+| 600〜999 | 空き（実験で足す列は900番台） | — |
+
+十の位で分類の中の順を決め、一の位は0にして、あとから差し込む余地を残します。添字で並ぶ列（スキップ価値q1〜qJ。一の位がj−1）だけは一の位を使います。decision・skip・q1〜qJは、スキップを有効にしたRunだけに出ます。
 
 ```text
 app.eval_trace_panel.max_rows = 1000
 app.eval_trace_panel.pct_window = 10000
-app.eval_trace_panel.columns.[20] = $env_step game_score
-app.eval_trace_panel.columns.[21] = $env_step lives
-app.eval_trace_panel.columns.[22] = $agent_step approx_priority display:pct label:priority_pct
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives
+app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
 ```
 
-既定列は`step → ep_step → action → reward → Q_sa → V_s → done → trunc → prio → prio_pct`の順です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+既定列は`step → ep_step → action → reward → done → trunc → Q_sa → V_s → prio → prio_pct`の順です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
 
 学習側と同じonline networkのQで見たい場合は、次の指定を使います。
 

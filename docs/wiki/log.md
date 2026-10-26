@@ -458,3 +458,4 @@
 2026-10-26 fix docs/memo/098_temporl_skip_policy_10prd.md blob:959a103c6f63ed9d8d9025f27f618adcc0a87b39 → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md（5×5 の既定 seed の件を「崩壊」から「ゴールに届かない」に撤回・訂正し、GridMaze の結論を届く速さと終盤の安定さに書き分けた）
 2026-10-26 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:5c36506663f0c4a01a9c4deda2120e33774be975 → docs/wiki/mechanisms/temporal_abstraction.md
 2026-10-26 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:da4b3c7cac09ef848c42892a2594e68ee0562567 → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
+2026-10-26 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:a3b04e6d81752cb283f90a0bf001b921fbceffdc → docs/wiki/apps/110_runner_app.md
