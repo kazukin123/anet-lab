@@ -34,6 +34,8 @@
 - [可塑性指標と成績](mechanisms/plasticity.md) — 同じ勾配step付近の摩耗はreplay ratio間で似ていたが、付随する新規データ量と成績の推移は異なった。SiLUやLN512で機序指標が改善しても、RR8短期screeningの成績は改善しなかった。 （別名: plasticity, srank, dormant, dead ratio, SN）
 - [Replay ratioとlane窓](mechanisms/replay_ratio_lane_window.md) — Breakoutの該当構成ではlane窓16,384の2点がε=0で685.12・685.30、窓8,192が615.73だった。効果の機序は未測定である。 （別名: RR, replay ratio, replay_ratio, lane window, capacity）
 
+- [内的報酬による探索の比較](mechanisms/intrinsic_novelty.md) — NGU 型と E3B の比較は環境・学習器・合成に依存し、MiniHack の結果を Atari の優劣へ持ち込めない。anet の BTR を基にした構成での効果は未測定。（別名: NGU, E3B, RND, intrinsic reward, 内的報酬, 新しさ）
+
 ## アプリケーション
 
 - [Metrics Viewer](apps/120_metrics_viewer.md) — MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。（別名: 120_metrics_viewer）。

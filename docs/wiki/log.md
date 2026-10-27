@@ -459,6 +459,9 @@
 2026-10-26 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:5c36506663f0c4a01a9c4deda2120e33774be975 → docs/wiki/mechanisms/temporal_abstraction.md
 2026-10-26 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:da4b3c7cac09ef848c42892a2594e68ee0562567 → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
 2026-10-26 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:a3b04e6d81752cb283f90a0bf001b921fbceffdc → docs/wiki/apps/110_runner_app.md
+2026-10-27 writeback docs/memo/999_intrinsic_reward_novelty_10prd.md blob:082e2de908d6b16e4de9b0edc437bb9ec96c7a93 → docs/wiki/mechanisms/intrinsic_novelty.md, docs/wiki/index.md
+2026-10-27 fix docs/memo/999_intrinsic_reward_novelty_10prd.md blob:0ddb9fc2703212dc37787951e3d6eaff0cb3a8e9 → docs/wiki/mechanisms/intrinsic_novelty.md（未測定の根拠の節、比較する性質の表現、撤回した旧主張の所在を明確化）
+2026-10-27 writeback docs/memo/999_intrinsic_reward_novelty_10prd.md blob:0ddb9fc2703212dc37787951e3d6eaff0cb3a8e9 → docs/wiki/mechanisms/intrinsic_novelty.md（レビュー対応後の本文と照合。目録の結論は変更なし）
 2026-10-27 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:d6fd1b7225a378d65f3a6eebaa7c849a60b00a0b → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
 2026-10-27 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:0854182c92014567508accc6b66d7e8cc81daa03 → なし（D6 の比べた範囲の注記と、§9 の 3 の行き先を足しただけで、wiki の主張は変わらない）
 2026-10-27 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:16e25c8305f3f5fa2c462d56c96fa05eac73e08a → なし（第二弾との重なりを §9 の 10 に足しただけ）
