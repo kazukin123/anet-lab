@@ -2,7 +2,7 @@
 
 ## 今の結論
 
-TempoRLは行動へのコミット長を学ぶ設定で素のQ学習より速い学習を、FiGARはA3C・TRPO・DDPGへの行動反復追加で改善を報告した。小さい時間刻みでQ学習が失敗する条件も報告されている。anet の TempoRL は行動を選ぶ Q を変えないので、NEET の機序には効かない見込みである（DropMerge での実測はまだ無い）。anet の実測（3 seed）では、LunarLander で分離型の 2 腕が無効をブレ幅を超えて上回り、速く届いた。GridMaze では届く速さは無効と同じか遅く、差が出たのは 6×10 の終盤の安定さ（無効が終盤に不安定になる）だけだった。GridMaze 5×5 の既定 seed では、スキップ長を UQE の楽観で選ぶとゴールに届かなかった（1 seed）。長い j の不確かさ・閉ループの割り込み・全 k の一括学習は後続の暫定 PRD で扱い、スキップ中の forward の省略は作らない理由と形をそこに残した。
+TempoRLは行動へのコミット長を学ぶ設定で素のQ学習より速い学習を、FiGARはA3C・TRPO・DDPGへの行動反復追加で改善を報告した。小さい時間刻みでQ学習が失敗する条件も報告されている。anet の TempoRL は行動を選ぶ Q を変えないので、NEET の機序には効かない見込みである（DropMerge での実測はまだ無い）。anet の実測（3 seed）では、LunarLander で分離型の 2 腕が無効をブレ幅を超えて上回り、速く届いた。GridMaze では届く速さは無効と同じか遅く、差が出たのは 6×10 の終盤の安定さ（無効が終盤に不安定になる）だけだった。GridMaze 5×5 の既定 seed では、スキップ長を UQE の楽観で選ぶとゴールに届かなかった（1 seed）。6×10 の 3 seed では、スキップ長を ε-greedy で選んでも UQE と同じ速さで届いて最後まで保ち、ε-greedy の方策はほぼスキップしない（j=1 が 93〜95%）形に落ち着いた。著者の Atari の実装は合算のときに skip と Q の loss を別々の Adam で更新し、anet は 1 つの Adam で足して更新する。qbert では合算で primary の勾配ノルムが無効の約 2 倍になり、勾配のクリップが毎回発火した。合算では、skip と共有する特徴量の眠った・死んだユニットの率も無効より高くなった（遮断は 10M までは無効の線に近い。1 seed）。Munchausen の log π の clip 率は、合算に限らず TempoRL 有効で無効の約 2 倍に上がり、遮断と合算で同じだった。anet の評価 slot では、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。著者の特徴量の環境の版は skip の遷移を全部 j=1 として記録する。長い j の不確かさ・閉ループの割り込み・全 k の一括学習は後続の暫定 PRD で扱い、スキップ中の forward の省略は作らない理由と形をそこに残した。
 
 ## 分かっていること
 
@@ -19,16 +19,31 @@ TempoRLは行動へのコミット長を学ぶ設定で素のQ学習より速い
 - anet の GridMaze 6×10（3 seed、500k）: 届く速さ（評価の EMA が初めて 0.5 以上）は、分離×遮断 274k〜369k、無効 191k〜392k で同じくらいだった。差が出たのは終盤の安定さで、分離×遮断は 3 seed とも最後まで +0.93 を保ち、無効は 3 seed とも届いたあと終盤に不安定になった（最後の EMA −1.01〜−1.09）。無効が不安定になる原因は確かめておらず、GridMaze の設定の UQE の楽観と楽観的な目標値が候補。5×5 では無効のほうが速く届き（1 seed ずつ）、GridMaze では TempoRL は届く速さで有利にならなかった。学習側の判断率は 0.35 から 0.76 に上がり、長い j はほとんど使われなくなった。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 1 の 3 seed」）。
 - anet の LunarLander（IQN＋Munchausen、J=4、2M、3 seed）: 評価 policy 報酬の Run 全体の平均は、無効 21、分離×遮断 122、分離×合算 137、包含×遮断 96 で、分離型の 2 腕は最小の seed が無効の最大の seed を上回った。評価の EMA が 200 に届いたのは、分離×合算が 3 seed とも約 1.0〜1.1M、無効は 3 seed 中 1 seed だけ。包含型は平均では上回るが、最小の seed が無効と重なる。学習側の判断率は終盤まで 0.42〜0.48 で、論文の LunarLander のような「ほぼ毎 step 判断する方策」にはならなかった。これを受けて 2026-10-26 から LunarLander の既定を有効（分離×合算）にした。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 2 の結果」・§6 の 21）。
 - GridMaze 5×5 の既定 seed で skip 有効の学習がゴールに届かなかったのは、スキップ長を行動と同じ UQE の楽観で選んだときだった。評価では一度も届かず、学習側もほぼ届いていない。スキップ長だけを平均に対する ε-greedy で選ぶと、同じ迷路で 305k に届き（無効は 124k）、最後まで保った。UQE のままの対照は今のビルドでも同じく届かず、指標も前の Run と一致した（どれも 1 seed）。5×5 の seed 3 と 6×10 では、UQE のままでも届いた。（出典: [999_temporl_skip_followups_10prd.md](../../memo/999_temporl_skip_followups_10prd.md)、§7「段 0 の結果」、[098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§9 の 2）。
+- GridMaze 6×10（分離×遮断、J=7、500k、3 seed）で、スキップ長を平均に対する ε-greedy（0.60→0.05）で選ぶ腕は、UQE の既定と同じ速さで届き（評価 target の EMA が 0.5 以上になる step: ε-greedy 282k／311k／313k、UQE 269k／323k／359k）、6 本とも最後まで +0.93 を保った。ε-greedy の学習側は判断率 0.88〜0.89・j=1 が 93〜95% で、ほぼスキップしない方策になった。UQE は判断率 0.64〜0.80 で j=2 を 15〜41% 使う。届く速さと終盤に差が無いので、6×10 ではスキップの長さは成績に効いていない。2026-10-28 のビルドの UQE 3 本は 10/26 の 3 本と値が完全に一致した。（出典: [2026-10-28_temporl-skip-policy-6x10.md](../../experiments/default-dqn/gridmaze/2026-10-28_temporl-skip-policy-6x10.md)、現時点のまとめ 1〜3・探索ブロック 01。Run: run_20261028-055804_t103_gm_uqe_s1 ほか 5 本）。
+
+- 著者の公開コードの Atari の重み共有（論文の Atari の結果の構成）は、共有の畳み込みに Adam を 2 つ持ち、skip の loss と Q の loss を別々に更新する。anet は合算のとき 2 つの loss を足して 1 つの Adam で更新するので、共有部を動かす配分が勾配の大きさで決まる。遮断では 2 つの形は同じ更新になる。著者の 2 つの Adam は同じハイパーパラメータ（lr 1e-4、betas (0.9, 0.999)、eps 1e-8）をリテラルで持ち、skip 用の引数は無い。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T1）。
+- 著者の公開コードの特徴量の環境の版（LunarLander・MountainCar など）は、skip の遷移を全部 j=1・長さ 1 として記録し、報酬も区間の最後の step 以外は 0 になるので、skip の出力の j≥2 を学習しない。Atari の版は正しい。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T14）。
+- 著者の Atari の版と anet は、区間から作る sub-skip の集合が同じで、重みが違う。著者は sub-skip を 1 本ずつ一様に引くので長い k と判断の時点の状態が多く引かれ、anet の長い k のデータは著者の 1/1.8〜1/2.5 と試算される。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T6）。
+- anet の評価 slot では、スキップ長にも評価の方策（Atari の ε 0.01、LunarLander の悲観の UQE）が掛かり、評価 slot の判断率は記録していない。行動の方策が `Greedy` 型の slot（`[eval_panel]`）だけは、skip の葉が無くてもスキップ長が同じ Greedy になる。著者は評価で行動もスキップ長も greedy で、判断の回数を記録する。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T12・T13）。
+- qbert のサンプル効率優先の 10M まで（1 seed ずつ）では、遮断の primary の勾配ノルムも無効の 1.2〜1.4 倍で、合算は 2.2〜2.8 倍だった。遮断の眠ったユニットの率は無効よりやや高く増え続け（4.5→5.1%、無効 4.0〜4.2%）、合算は 1.8% で低かった。評価（ε 0.01）は 2.5〜7.5M で合算 > 遮断 > 無効。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3「段 1 の遮断」。Run: run_20261027-175541_a5_qb_aln_t98stp_s1 / run_20261027-004945_a5_qb_aln_t98mrg_s1 / run_20261025-231207_a5_qb_aln_btreps_s1）。
+- qbert のサンプル効率優先（勾配クリップの閾値 10、seed 1）では、合算の primary の勾配ノルムが無効の約 2 倍で推移し、7.5〜20M はクリップが毎回発火した（無効は 65〜78%）。実時間優先の 7.5〜10M では、無効 5〜11%、遮断 24〜38%、合算 97〜98% だった。無効の実時間優先 100M で閾値 10 に届くのは qbert だけで、NameThisGame・Phoenix・BattleZone・DoubleDunk の勾配ノルムは 0.46〜3.8 だった。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3）。
+- qbert のサンプル効率優先の合算（1 seed）は、最初の 10M の評価（ε 0.01）で無効を上回ったが、学習側の第 8 面の突破率は 40〜42.5M で 34%（無効 82%）、ε=0 の評価は 40.6M で 28,828（無効 43,621）と遅れた。BTR 自身の 2 seed でも突破の時期は大きくずれており、1 seed では合算が悪いとは言えない。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3）。
+- qbert の合算（1 seed）では、skip の文脈の入力になる特徴量（`main_feature`）の眠ったユニットの率が、実時間優先 100M の 90〜100M で 3.6%（TempoRL 無しの 100M は 0.95%、seed とビルドが違う）、サンプル効率優先 50M の 45〜50M で 14.4%（無効 10.4%）だった。実時間優先の合算は 100M まで増え続け、サンプル効率優先の合算は序盤は無効より低く 20M ごろに追い越した。死んだユニットの率も同じ向きで、サンプル効率優先の特徴量のノルムは合算 2.8・無効 6.3 だった。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3）。
+- qbert では Munchausen の log π の clip 率（取った行動が今の方策から見て下限 −1 を下回る行の割合）が、TempoRL 有効で無効より高く、遮断と合算で同じだった（サンプル効率優先 2.5〜7.5M: 無効 4.8〜6.4%、遮断 10.5〜11.7%、合算 9.4〜11.4%。実時間優先 7.5〜10M の 2 seed: 無効 2.9〜4.6%、遮断 9.2〜9.5%、合算 8.6〜9.9%。ε が 0 になったあとのサンプル効率優先の終盤は無効 0.14% 対 合算 2.9%）。上乗せは合算（勾配の混ぜ方）ではなく TempoRL 有効によるもの。Q の発散や loss の上昇は無く、実時間優先 100M の 81M の ε=0 の評価の崩れは学習側のメトリクスに出なかった。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3）。
 
 ## 分かっていないこと
 
 - anet の DQN（IQN・Munchausen・PER・UQE）で TempoRL が判断の回数と学習の速さにどう効くか。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7）。
 - スキップ長を UQE の楽観で選ぶと、なぜ 5×5 の既定 seed ではゴールに届かなくなるのか（楽観が長い j に寄ることが、どう探索や価値を損なうかは未確認）。GridMaze 6×10 で無効の腕が終盤に不安定になるのが、GridMaze の UQE の設定そのものによるのか。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§9 の 2・§7「段 1 の 3 seed」）。
+- 論文の特徴量の環境（LunarLander など）の結果が、skip の遷移を j=1 としか記録しない公開コードの版で出たのか。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T14）。
+- qbert のサンプル効率優先で合算が中盤に第 8 面の突破で遅れたのは、合算の共有部の混ざり方によるのか、勾配のクリップとの結合によるのか、seed のばらつきなのか。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3・§7 の段 1）。
+- 合算で眠った・死んだユニットが増える機序は、共有部に入る更新量の増加か、skip の目的による表現の干渉か、クリップとの結合か（分割（loss ごとの Adam）で増えるか減るかで分かれる）。Munchausen の log π の clip 率が TempoRL 有効で高いのは、skip の間に繰り返す行動の log π が途中の状態で下限に当たるためか（判断の旗で分けた計測は無い）。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3・§9 の 11・12）。
 - skip 価値のアンサンブルで長い j の不確かさを測り、悲観的に選ぶ形（UTE）や、行動を変える価値の差が閾値を超えたときだけ切り替える形（Lazy-MDP）が、anet で長い j の選び誤りや開ループの硬さに効くか。どちらも原文は未確認。（出典: [999_temporl_skip_followups_10prd.md](../../memo/999_temporl_skip_followups_10prd.md)、§2.2・§9 の 1）。
 
 ## 撤回・更新
 
 - 2026-10-26: 「5×5 の既定 seed で崩壊する機構は未解明」を更新した。原因はスキップ長を UQE の楽観で選ぶことと分かった（仕組みは未確認のまま）。「GridMaze での効果は迷路の形に依存して不明」も、6×10 の 3 seed の結果で今の結論を改めた。
+- 2026-10-28: 「Munchausen の log π の clip 率が合算で無効より高い」→「TempoRL 有効で高く、遮断と合算で同じ（合算によるものではない）」（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3）。あわせて、PRD098 D9 の「評価 slot では skip も greedy になる」は、行動の方策が `Greedy` 型の slot でだけ成り立つと分かった（出典: 同 §2.2 の T12）。
 - 2026-10-26（2 回目）: 5×5 の既定 seed の件を「序盤に見つけたゴールを保持できず崩壊」と書いていたのを撤回した。評価では一度も届かず、学習側もエピソードの報酬の最大が序盤に一度 +0.03 になっただけで、見つけたゴールを失ったのではなかった。正しくは「スキップ長を UQE で選ぶとゴールに届かない」。あわせて GridMaze の結論を、届く速さ（同じか遅い）と終盤の安定さ（6×10 で差）に書き分けた。（出典: [999_temporl_skip_followups_10prd.md](../../memo/999_temporl_skip_followups_10prd.md)、§7「段 0 の結果」、[098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 1 の 3 seed」）。
 
 ## 関連
@@ -38,4 +53,5 @@ TempoRLは行動へのコミット長を学ぶ設定で素のQ学習より速い
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
 - [TempoRL 対応 PRD](../../memo/098_temporl_skip_policy_10prd.md)。
 - [TempoRL の後続の暫定 PRD](../../memo/999_temporl_skip_followups_10prd.md)。
+- [TempoRL 第二弾（著者の実装との差）の暫定 PRD](../../memo/103_temporl_reference_alignment_10prd.md)。
 - [CONTEXT.md](../../../CONTEXT.md) の「スキップ」「スキップ長」「スキップ価値」「判断」。

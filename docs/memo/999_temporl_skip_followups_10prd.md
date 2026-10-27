@@ -5,7 +5,8 @@
 > 改訂: 2026-10-25。起票候補の 2 件を記録した。UTE と Lazy-MDP の論文解説を survey のキューに積み（§9 の 1）、PRD098 §8 の 3 行を本書へ向けた（§5.7・§9 の 8）。
 > 改訂: 2026-10-26。§7 に段 0 の結果（(a) UQE の楽観。作るのは (I) だけ）と、今のビルドでの対照を記録した。
 > 改訂: 2026-10-26（2 回目）。5×5 の既定 seed の件を「崩壊」から「ゴールに届かない」に直した（§1・§2.3・D11・§7。評価は一度も届かず、学習側もほぼ届いていなかった）。§7 の段 0 の「前半を読む」理由が、この前提に依っていたことを書き添えた。
-> 関連: [999_bootstrapped_multihead_q](999_bootstrapped_multihead_q_10prd.md)（primary の複数の Head。本書のメンバーは skip Head の中だけ）、[999_observation_pipeline](999_observation_pipeline_10prd.md)（強制行動を MakeAction の入力にする。PRD098 §9 の 1）、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md)（判断に揃える n-step）、[行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)。
+> 改訂: 2026-10-27。TempoRL 第二弾（[PRD103](103_temporl_reference_alignment_10prd.md)。著者の公開コードとの差の是正）との重なりを §9 の 10 に記した。本書は TempoRL の第三弾の扱いになる。
+> 関連: [PRD103](103_temporl_reference_alignment_10prd.md)（TempoRL 第二弾）、[999_bootstrapped_multihead_q](999_bootstrapped_multihead_q_10prd.md)（primary の複数の Head。本書のメンバーは skip Head の中だけ）、[999_observation_pipeline](999_observation_pipeline_10prd.md)（強制行動を MakeAction の入力にする。PRD098 §9 の 1）、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md)（判断に揃える n-step）、[行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)。
 
 ## 1. 目的と問題
 
@@ -286,7 +287,8 @@ Run は GridMaze-01 にある。
 | 6 | 用語（メンバー、割り込み。D12）を CONTEXT.md に入れるか | グリルで決める |
 | 7 | (K) の Atari での転送量 | 連続する観測を共有して組む実装で減らせるか。Atari を対象にするかと、性能の閾値を置くかを決める |
 | 8 | PRD098 §8 との結び | PRD098 §8 の該当 3 行を本書へ向けた（PRD098 の 2026-10-25 の改訂）。残りは無い |
-| 9 | 段 0 が (a) のときの PRD098 の既定（2026-10-26 の段 0 で (a) になった） | skip の方策の既定（今は行動の方策と同じ）を平均に対する ε-greedy に改める改訂を PRD098 に起こすか、env ごとの設定にするかを決める |
+| 9 | 段 0 が (a) のときの PRD098 の既定（2026-10-26 の段 0 で (a) になった） | 2026-10-28 に [PRD103](103_temporl_reference_alignment_10prd.md) D3 で閉じた。既定（行動の方策と同じ規則。PRD098 D9）は変えず、GridMaze は 6×10 の 3 seed（PRD103 §7 の段 1'。2026-10-28）で ε-greedy（0.60→0.05。本書の段 0 の腕と同じ葉）が UQE と同じ速さで届いたので、`run.@skip` の既定でスキップ長を ε-greedy にする。LunarLander は PRD103 の段 2 の腕の結果で決める |
+| 10 | 第二弾（[PRD103](103_temporl_reference_alignment_10prd.md)）との重なり（2026-10-27） | 2 つ重なる。(1) (K) の D7「k_max に比例する重みもこの形で扱える」は、PRD103 の D6（`learner.skip.sample_weight = kmax`。forward を増やさずに、起点を一様に引くとき sub-skip ごとの重みを著者に揃える）と同じ偏りに当たる。(K) を作るかは段 0 の結果（作らない）のままで、再開を考えるときは PRD103 の段 2・段 3 の `kmax` の結果も材料にする。(2) 本表の 9 は、PRD103 の T10（スキップ長を平均に対する ε-greedy で選ぶ腕。PRD103 §7 の段 2）と同じ問い。どちらで決めるかは PRD103 のグリルで決める（PRD103 §9 の 7） |
 
 ## 10. 依存と順序
 

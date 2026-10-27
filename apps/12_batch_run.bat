@@ -7,7 +7,7 @@ SET "BUILD=RelWithDebInfo"
 REM 2026-10-26: run only the TempoRL stage 0 control (:t98c) alongside bat 11 (Atari).
 REM The full TempoRL evaluation block is :t98 (done 2026-10-26).
 REM Remove this goto to restore the wait for other runners and the DropMerge queue (46a-46c).
-goto :t98c
+goto :t103
 
 :waitprev
 tasklist /FI "IMAGENAME eq AnetRLRunner*" 2>nul | find /I "AnetRLRunner" >nul
@@ -192,8 +192,7 @@ echo === t98 GridMaze 5x5 default maze seed, sep-stop with epsilon-greedy skip p
 call :run_exe "%GMSKIP%" "%BATCH%" run.seed=1 %GMEPS% "app.run_name=run_{t}_t98_gm_eps_s1"
 goto :summary
 
-:t98c
-REM Control for stage 0: GridMaze 5x5 default maze seed, sep-stop with the default (UQE) skip policy, current build.
+:t103
 if not exist "bin\Release\AnetRLRunner.exe" goto :no_exe
 SET RUNNER="bin\Release\AnetRLRunner.exe"
 SET /A SUCCEEDED_RUNS=0
@@ -201,8 +200,14 @@ SET /A FAILED_RUNS=0
 SET "BATCH=app.$=app.batchrun>P1"
 SET "RUN_EXIT_CODE=0"
 SET "WS=--workspace GridMaze-01"
-echo === t98 control: GridMaze 5x5 default maze seed, sep-stop with UQE skip policy, seed 1, 400k ===
-call :run_exe "run.$=run.@skip" "%BATCH%" run.seed=1 "app.run_name=run_{t}_t98_gm_uqe_s1"
+SET "GMSKIP=run.$=run.@skip"
+SET "GM610=GridMazeEnv.width=6 GridMazeEnv.height=10 app.batchrun.exp_exit_step=500000"
+SET "GMEPS=DefaultDQNAgent.actor.[train].skip.policy.policy_type=EpsilonGreedy DefaultDQNAgent.actor.[train].skip.policy.epsilon.start=0.60 DefaultDQNAgent.actor.[train].skip.policy.epsilon.end=0.05"
+echo === t103 stage 1-prime: GridMaze 6x10 sep-stop, UQE vs epsilon-greedy skip policy, seeds 1-3, 500k ===
+for %%s in (1 2 3) do (
+  call :run_exe "%GMSKIP%" "%BATCH%" run.seed=%%s %GM610% "app.run_name=run_{t}_t103_gm_uqe_s%%s"
+  call :run_exe "%GMSKIP%" "%BATCH%" run.seed=%%s %GM610% %GMEPS% "app.run_name=run_{t}_t103_gm_eps_s%%s"
+)
 
 :summary
 if "%FAILED_RUNS%"=="0" goto :all_succeeded

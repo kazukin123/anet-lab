@@ -459,3 +459,19 @@
 2026-10-26 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:5c36506663f0c4a01a9c4deda2120e33774be975 → docs/wiki/mechanisms/temporal_abstraction.md
 2026-10-26 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:da4b3c7cac09ef848c42892a2594e68ee0562567 → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
 2026-10-26 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:a3b04e6d81752cb283f90a0bf001b921fbceffdc → docs/wiki/apps/110_runner_app.md
+2026-10-27 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:d6fd1b7225a378d65f3a6eebaa7c849a60b00a0b → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
+2026-10-27 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:0854182c92014567508accc6b66d7e8cc81daa03 → なし（D6 の比べた範囲の注記と、§9 の 3 の行き先を足しただけで、wiki の主張は変わらない）
+2026-10-27 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:16e25c8305f3f5fa2c462d56c96fa05eac73e08a → なし（第二弾との重なりを §9 の 10 に足しただけ）
+2026-10-27 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:57dfe36f18dacee16982e85e0425bf272690ae81 → docs/wiki/mechanisms/temporal_abstraction.md（§2.3 に足した合算の Run の勾配ノルム以外のメトリクスを、今の結論・分かっていること・分かっていないことへ。目録は変更なし）
+2026-10-28 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:eb03c63ed1e9e83f01ad777708206372025a5b75 → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/mechanisms/evaluation.md, docs/wiki/categories/324_dqn.md, docs/wiki/index.md（グリル・別モデルの検討・レビュー 3 往復の結果を書き戻し。Munchausen の clip 率の帰属を撤回・更新に記録）
+2026-10-28 fix docs/memo/103_temporl_reference_alignment_10prd.md blob:eb03c63ed1e9e83f01ad777708206372025a5b75 → docs/wiki/categories/324_dqn.md（変えるときの条件の GridMaze の記述を、既定を変えない最終本文に合わせた）
+2026-10-28 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:69a25781c92d9351d7e0556614eb07b65e1319cc → なし（D6・D9・§6 の 2・§7 段 2・§9 の 3 に PRD103 への注記を足しただけ）
+2026-10-28 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:945c35663c8439b1907105e3dbfb3fac12d3fb4d → なし（§9 の 9 を PRD103 D3 で閉じただけ）
+2026-10-28 writeback docs/adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md blob:31c366bc137f5a00b200358bdd598eecce7bdff3 → なし（先頭に split の注記を足しただけ。PRD103 の書き戻しに含む）
+2026-10-28 ingest docs/experiments/default-dqn/gridmaze/2026-10-28_temporl-skip-policy-6x10.md blob:318c13005a7db770ca64b4a991d4446b1cd8da1d → docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md（段 1' の結果: 6×10 で ε-greedy は UQE と同じ速さで届き、ほぼスキップしない方策になる）
+2026-10-28 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:e27b45eac17aa99d9227b01b35d97ac98465209d → docs/wiki/categories/324_dqn.md（GridMaze の ε-greedy の既定を「→ PRD103 で採用」に。段 1' の結果で D3 を確定）
+2026-10-28 writeback docs/memo/098_temporl_skip_policy_10prd.md blob:49ba358908bf4461e64237943e2f782861ae07e6 → なし（D9 の注記を段 1' の結果に合わせただけ）
+2026-10-28 writeback docs/memo/999_temporl_skip_followups_10prd.md blob:6417040329272f17f678b62baf136900a4e70cfc → なし（§9 の 9 の注記を段 1' の結果に合わせただけ）
+2026-10-28 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:6e3d944f008fcc8f356e57f2d1056329901e7726 → なし（§2.3 の workspace 名を外しただけ。wiki の主張は変わらない）
+2026-10-28 writeback docs/memo/103_temporl_reference_alignment_10prd.md blob:b6da449f14306ab7b367b5789e92ce5dbf0e22f4 → docs/wiki/mechanisms/temporal_abstraction.md（別ツールのレビュー 5 件の対応。判断回数の換算と kmax の重みを近似と明記、段 1' の基準の未到達の扱い、受入 4 の記録先）
+2026-10-28 fix docs/memo/103_temporl_reference_alignment_10prd.md blob:b6da449f14306ab7b367b5789e92ce5dbf0e22f4 → docs/wiki/mechanisms/temporal_abstraction.md（合算の勾配ノルムの倍率を表の値に合わせて 2.2〜2.8 倍に）
