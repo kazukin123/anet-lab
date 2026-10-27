@@ -849,6 +849,7 @@ namespace anet::rl {
             torch::Tensor truncated;   ///< [B] 打ち切り
             anet::TensorDict next_obs; ///< k先の観測（履歴を含む）
         } window;
+        
         torch::Tensor replay_item_keys; ///< [B] generation付きopaque key (CPU int64)
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
         torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource (CPU int8)
