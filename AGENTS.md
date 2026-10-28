@@ -213,6 +213,7 @@ fail-fast の「fail」は「意図しない状態」にのみ適用する。
 - 改行コードは原則 LF で統一。ただし `.bat` は Windows batch として Shift-JIS（Windows CP932）+ CRLF を維持する。
 - `.bat` ファイルを新規作成・編集する場合は、文字コードを Shift-JIS（Windows CP932）とし、UTF-8 へ変換しない。
   PowerShell や Python で生成・置換する場合も、明示的に Shift-JIS / CP932 で読み書きする。
+- `.bat` は `@echo off` の次の行に `title %~nx0` を置き、コンソールの窓にファイル名を出す。並べて走らせたバッチの窓を、閉じるときに取り違えないため。
 - `.hpp`、`.cpp`、`.java`、`.md`、`.editorconfig`、`.gitattributes` は `.editorconfig` と `.gitattributes` の LF 指定に従う。
 - `third_party/` 配下は外部依存として改行コード統一の一括対象から除外する。
 
