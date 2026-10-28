@@ -422,6 +422,7 @@ NGU は保持件数 M・特徴次元 d に対して概ね BMd の距離計算と
 | 20 | 設定・用語・メトリクス | 方式、合成、学習頻度、方策の組、記憶、統計の設定を分ける。旧 intrinsic.type と群番号 56 は候補にとどめ、現用定義と照合する。「内的報酬」「エピソード内新規性」「方策インデックス」を CONTEXT に確定する時期も決める |
 | 21 | 実験と合否 | §9 の比較腕、seed 数、Env step／ALE frames／learn step の予算、打切り、指標の集約と数値閾値を確定する。KFM と GridMaze の効果を未実施のまま採用理由にしない |
 | 22 | 公開契約と変更対象 | 役割分担の候補は §8.1。公開 API・TensorDict キー・設定名を現行の NN／Replay の仕組みに合わせて確定し、コード・設定・テスト・サンプル・設計文書の移行一覧を絞り込む。旧名の互換層は既定で作らない |
+| 23 | replay の「window」の語の見直し | `SampleWindowRule`・`ExperienceSamples.window`・`ReplayBufferConfig.window_rule` の「window」は何の窓かを示さない名で、NGU の replay の変更にあわせて名を見直す。[PRD104](104_temporl_skip_auxiliary_only_10prd.md) D1 のグリル（2026-10-29）で「窓は何の窓かを示す 2 語の組にする」と決め、Learner 側のキーは `target_window` にしたが、replay 側の名はそのまま残した。PRD104 の工程末に記録 |
 
 ### 8.1 役割とクラスの暫定一覧
 
