@@ -199,14 +199,17 @@ SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
 SET "BATCH=app.$=app.batchrun>P1"
 SET "RUN_EXIT_CODE=0"
-SET "WS=--workspace GridMaze-01"
-SET "GMSKIP=run.$=run.@skip"
-SET "GM610=GridMazeEnv.width=6 GridMazeEnv.height=10 app.batchrun.exp_exit_step=500000"
-SET "GMEPS=DefaultDQNAgent.actor.[train].skip.policy.policy_type=EpsilonGreedy DefaultDQNAgent.actor.[train].skip.policy.epsilon.start=0.60 DefaultDQNAgent.actor.[train].skip.policy.epsilon.end=0.05"
-echo === t103 stage 1-prime: GridMaze 6x10 sep-stop, UQE vs epsilon-greedy skip policy, seeds 1-3, 500k ===
+SET "WS=--workspace LunarLander-01"
+SET "LLSKIP=run.$=run.@munch > run.@skip"
+SET "SPLIT=DefaultDQNAgent.learner.skip.feature_gradient=split"
+SET "KMAX=DefaultDQNAgent.learner.skip.sample_weight=kmax"
+SET "SKIPEPS=A2.actor.[train].skip.policy.policy_type=EpsilonGreedy A2.actor.[train].skip.policy.spatial.epsilon.first=0.3 A2.actor.[train].skip.policy.spatial.epsilon.last=0"
+echo === t103 stage 2: LunarLander J=4 sep-merge, merge / split / kmax / epsilon-greedy skip policy, seeds 1-3, 2M ===
 for %%s in (1 2 3) do (
-  call :run_exe "%GMSKIP%" "%BATCH%" run.seed=%%s %GM610% "app.run_name=run_{t}_t103_gm_uqe_s%%s"
-  call :run_exe "%GMSKIP%" "%BATCH%" run.seed=%%s %GM610% %GMEPS% "app.run_name=run_{t}_t103_gm_eps_s%%s"
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s "app.run_name=run_{t}_t103_ll_mrg_s%%s"
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s %SPLIT% "app.run_name=run_{t}_t103_ll_spl_s%%s"
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s %KMAX% "app.run_name=run_{t}_t103_ll_kmx_s%%s"
+  call :run_exe "%LLSKIP%" "%BATCH%" run.seed=%%s %SKIPEPS% "app.run_name=run_{t}_t103_ll_eps_s%%s"
 )
 
 :summary

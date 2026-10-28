@@ -59,7 +59,7 @@ def audit(side, output_name="audit.json"):
                 expect(train,'AtariEnv.episodic_life','true')
                 expect(train,'AtariEnv.fire_reset','true' if case=='atari1' else 'false')
                 resolved=config(folder/'config_data.txt')
-                for tag in ('eval_target','eval','greedy_dist'):
+                for tag in ('eval_target','eval','greedy'):
                     expect(resolved,f'run.eval_schedule.[{tag}].interval',1000)
                     expect(resolved,f'run.eval_schedule.[{tag}].use_background','false')
                     expect(resolved,f'run.eval.[{tag}].eval_batch_size',2)

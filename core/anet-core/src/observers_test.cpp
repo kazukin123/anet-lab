@@ -525,11 +525,11 @@ TEST_CASE("Scalar metric tags retain an indexed source name inside the tag", "[o
 {
     // tag内の添字の閉じ括弧を、設定keyの終端と取り違えない。
     anet::ConfigData config;
-    config.Set("metrics.scalar.[50_agent_skip/03_skip_length_rate.[1]]", "skip_length_rate.[1] @train $action_info");
+    config.Set("metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]", "skip_length_rate.[1] @train $action_info");
     rl::ObserverFactory factory(config);
     const auto definitions = factory.GetScalarMetricDefs();
     REQUIRE(definitions.size() == 1);
-    CHECK(definitions.front().tag == "50_agent_skip/03_skip_length_rate.[1]");
+    CHECK(definitions.front().tag == "50_agent_skip/03_skip_length_rate.[01]");
     CHECK(definitions.front().source_key == "skip_length_rate.[1]");
 }
 

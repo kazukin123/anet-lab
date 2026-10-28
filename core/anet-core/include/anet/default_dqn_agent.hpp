@@ -372,15 +372,23 @@ namespace anet::rl::dqn {
             else ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << network_mode << "'; expected " << SkipConfig::kNetworkModeActionOut << " or " << SkipConfig::kNetworkModeActionIn << ".");
             ANET_READ_CONFIG(config_data, skip.head.use_dueling);
             ANET_READ_CONFIG(config_data, learner.skip.feature_gradient);
+            ANET_READ_CONFIG(config_data, learner.skip.sample_weight);
             ANET_READ_CONFIG(config_data, learner.skip.loss_weight);
             ANET_READ_CONFIG(config_data, learner.skip.priority_lambda);
             if ((skip.enabled && !has_skip_limit) || (has_skip_limit && skip.max_length < 1)) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.max_length=" << skip.max_length
                     << " specified=" << has_skip_limit << "; expected explicit integer >= 1 when skip.enabled=true.");
             }
-            if (learner.skip.feature_gradient != LearnerConfig::kFeatureGradientStop && learner.skip.feature_gradient != LearnerConfig::kFeatureGradientMerge) {
+            if (learner.skip.feature_gradient != LearnerConfig::kFeatureGradientStop
+                && learner.skip.feature_gradient != LearnerConfig::kFeatureGradientMerge
+                && learner.skip.feature_gradient != LearnerConfig::kFeatureGradientSplit) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.feature_gradient='" << learner.skip.feature_gradient << "'; expected " << LearnerConfig::kFeatureGradientStop
-                    << " or " << LearnerConfig::kFeatureGradientMerge << ".");
+                    << ", " << LearnerConfig::kFeatureGradientMerge << " or " << LearnerConfig::kFeatureGradientSplit << ".");
+            }
+            if (learner.skip.sample_weight != LearnerConfig::kSampleWeightUniform
+                && learner.skip.sample_weight != LearnerConfig::kSampleWeightKmax) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.sample_weight='" << learner.skip.sample_weight
+                    << "'; expected " << LearnerConfig::kSampleWeightUniform << " or " << LearnerConfig::kSampleWeightKmax << ".");
             }
             for (const auto& [key, value] : std::initializer_list<std::pair<const char*, float>>{
                 {"loss_weight", learner.skip.loss_weight}, {"priority_lambda", learner.skip.priority_lambda}}) {

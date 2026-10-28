@@ -2966,6 +2966,62 @@ TEST_CASE("Skip Actor retains an action and resets duration on episode start", "
     CHECK(reset->GetAuxData().at("skip_length").item<int64_t>() == 1);
 }
 
+TEST_CASE("Skip Actor session statistics count decision lanes and reset on Sync", "[dqn][prd103][skip_session]")
+{
+    anet::nn::InitNN();
+    torch::NoGradGuard no_grad;
+    const bool enabled = GENERATE(false, true);
+    const auto spec = MakeLearnerEnvSpec().state_spec.obs_spec;
+    const auto network_config = MakeAgentForwardNetworkConfig();
+    const anet::nn::WeightInitConfig init;
+    const auto primary = anet::nn::NetworkBuilder::BuildNetwork(network_config, spec,
+        std::make_shared<dqn::LinearHeadFactory>(1, init), 98, torch::kCPU);
+    const auto skip = anet::nn::NetworkBuilder::BuildNetwork(network_config, spec,
+        std::make_shared<dqn::SkipHeadFactory>(1, 3, dqn::SkipNetworkMode::ActionOut, "none", 1, init), 99, torch::kCPU);
+    for (auto& parameter : skip->parameters()) parameter.zero_();
+    skip->named_parameters()["head.linear.bias"].copy_(torch::tensor({0.0f, 0.0f, 1.0f}));
+    dqn::ActionPolicyConfig policy_config;
+    policy_config.epsilon.value = policy_config.epsilon.start = policy_config.epsilon.end = 0;
+    const auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
+    std::optional<dqn::SkipActorResources> resources;
+    if (enabled) resources = dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3},
+        .policy = policy, .network = skip, .source = skip};
+    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
+        primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {}, resources);
+    for (const auto* key : {"skip_session_decision_rate", "skip_session_length_mean", "skip_session_length_rate.[1]"}) {
+        const auto value = actor.GetScalar(key);
+        REQUIRE(value.has_value());
+        CHECK(std::isnan(*value));
+    }
+    CHECK_FALSE(actor.GetScalar("unknown_session_metric").has_value());
+    const auto flags = torch::zeros({2}, torch::kBool);
+    rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2, 2})}}, flags, flags, flags);
+    actor.MakeAction({}, state);
+    if (!enabled) {
+        CHECK(std::isnan(*actor.GetScalar("skip_session_decision_rate")));
+        return;
+    }
+    CHECK(*actor.GetScalar("skip_session_decision_rate") == 1.0f);
+    state.episode_start = torch::tensor({false, true});
+    actor.MakeAction({}, state);
+    CHECK(*actor.GetScalar("skip_session_decision_rate") == 0.75f);
+    state.episode_start = flags;
+    actor.MakeAction({}, state);
+    CHECK(*actor.GetScalar("skip_session_decision_rate") == 0.5f);
+    CHECK(*actor.GetScalar("skip_session_length_mean") == 3.0f);
+    CHECK(*actor.GetScalar("skip_session_length_rate.[3]") == 1.0f);
+    CHECK(*actor.GetScalar("skip_session_length_rate.[1]") == 0.0f);
+    CHECK_THROWS(actor.GetScalar("skip_session_length_rate.[0]"));
+    CHECK_THROWS(actor.GetScalar("skip_session_length_rate.[4]"));
+    actor.Sync();
+    CHECK(std::isnan(*actor.GetScalar("skip_session_length_mean")));
+    skip->named_parameters()["head.linear.bias"].copy_(torch::tensor({1.0f, 0.0f, 0.0f}));
+    actor.MakeAction({}, state);
+    CHECK(*actor.GetScalar("skip_session_decision_rate") == 0.5f);
+    CHECK(*actor.GetScalar("skip_session_length_mean") == 1.0f);
+    CHECK(*actor.GetScalar("skip_session_length_rate.[1]") == 1.0f);
+}
+
 TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one shared forward", "[dqn][prd098][skip_policy]")
 {
     // primaryは0.9分位、skipは平均または0.2分位。primaryの分位だけでは長さが逆転する。
@@ -3116,6 +3172,74 @@ TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dq
     CHECK(same);
 }
 
+TEST_CASE("Skip checkpoint migration initializes only missing split moments and rejects dropping them", "[dqn][serialize][prd103]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const std::string saved_mode = GENERATE(std::string("off"), std::string("stop"), std::string("merge"), std::string("split"));
+    const std::string current_mode = GENERATE(std::string("stop"), std::string("merge"), std::string("split"));
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.skip.enabled = saved_mode != "off";
+    config.skip.max_length = 3;
+    config.skip_net.Set("DefaultDQNAgent.skip.net.branch.[skip_feature].bind", "features");
+    config.skip_net.Set("DefaultDQNAgent.skip.net.body.output.[features]", "skip_feature");
+    config.learner.skip.feature_gradient = saved_mode == "off" ? "stop" : saved_mode;
+    config.learner.use_amp = false;
+    const auto make_agent = [&](const dqn::DefaultDQNAgentConfig& settings) {
+        return std::make_shared<dqn::DefaultDQNAgent>(settings, MakeAgentForwardNetworkConfig(),
+            rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::kCPU, 103);
+    };
+    const auto source = make_agent(config);
+    const auto path = std::filesystem::temp_directory_path()
+        / ("anet_prd103_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
+    {
+        std::ofstream stream(path, std::ios::binary);
+        anet::OutputArchive archive(stream);
+        source->Save(archive);
+    }
+    config.skip.enabled = true;
+    config.learner.skip.feature_gradient = current_mode;
+    config.learner.learning_rate.type = "linear";
+    config.learner.learning_rate.start = 0.0003f;
+    config.learner.learning_rate.end = 0;
+    config.learner.learning_rate.steps = 10;
+    config.learner.adam_eps = 0.0002f;
+    config.learner.weight_decay.value = 0.02f;
+    config.learner.update_warmup_steps = 1000;
+    config.auto_load_file = path.string();
+    anet::test::LogCaptureGuard logs;
+    if (saved_mode == "split" && current_mode != "split") {
+        CHECK_THROWS(make_agent(config));
+    } else {
+        std::shared_ptr<dqn::DefaultDQNAgent> restored;
+        CHECK_NOTHROW(restored = make_agent(config));
+        REQUIRE(restored);
+        logs.Flush();
+        size_t initialized = 0;
+        for (const auto& record : logs.Records()) {
+            if (record.message.find("checkpoint has no primary_skip optimizer role") != std::string::npos) ++initialized;
+        }
+        CHECK(initialized == (saved_mode != "split" && current_mode == "split" ? 1 : 0));
+        if (current_mode == "split") {
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+                {"group=4", "lr=0.0003", "weight_decay=0", "eps=0.0002"}));
+        }
+        if (saved_mode == "split" && current_mode == "split") {
+            // 公開の更新境界でscheduleだけを進め、追加roleにも同じlrが保存されることを確かめる。
+            restored->CreateLearner()->UpdateFromBatch({.exp_step = 5}, MakeDeterminismExperience(0, 1));
+            {
+                std::ofstream stream(path, std::ios::binary);
+                anet::OutputArchive archive(stream);
+                restored->Save(archive);
+            }
+            CHECK_NOTHROW(make_agent(config));
+            logs.Flush();
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+                {"role=primary_skip", "option=lr", "checkpoint=0.00015", "config=0.0003"}));
+        }
+    }
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("Skip action scalars distinguish decisions, durations and inactive values", "[dqn][prd098][prd098-r2-qtrace]")
 {
     const auto actions = torch::zeros({3}, torch::kInt64);
@@ -3209,13 +3333,14 @@ TEST_CASE("Skip scalar readback timing", "[.][prd098-readback]")
     }
 }
 
-TEST_CASE("Skip learning supports distribution, target and feature-gradient combinations", "[dqn][prd098][skip_matrix]")
+TEST_CASE("Skip learning supports distribution, target and feature-gradient combinations", "[dqn][prd098][prd103][skip_matrix]")
 {
     ScopedNoopMetricsLogger metrics_logger;
+    const bool split = GENERATE(false, true);
     for (const std::string mode : {"none", "qr", "iqn"}) {
         for (const std::string target : {"disabled", "target", "online", "online_reuse"}) {
             for (const bool conditional : {false, true}) {
-                CAPTURE(mode, target, conditional);
+                CAPTURE(mode, target, conditional, split);
                 anet::ConfigData data;
                 data.Set("DefaultDQNAgent.quantile_mode", mode);
                 data.Set("DefaultDQNAgent.head.use_dueling", false);
@@ -3225,11 +3350,11 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 data.Set("DefaultDQNAgent.skip.max_length", 3);
                 data.Set("DefaultDQNAgent.skip.network_mode", conditional ? "action_in" : "action_out");
                 data.Set("DefaultDQNAgent.skip.head.use_dueling", conditional);
-                data.Set("DefaultDQNAgent.learner.skip.feature_gradient", conditional ? "merge" : "stop");
+                data.Set("DefaultDQNAgent.learner.skip.feature_gradient", split ? "split" : conditional ? "merge" : "stop");
                 data.Set("DefaultDQNAgent.learner.skip.priority_lambda", 0.25f);
                 data.Set("DefaultDQNAgent.learner.replay_capacity", 32);
                 data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
-                data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+                data.Set("DefaultDQNAgent.learner.use_fused_optimizer", split && conditional);
                 data.Set("DefaultDQNAgent.learner.use_amp", conditional);
                 data.Set("DefaultDQNAgent.learner.use_amp_bf16", true);
                 data.Set("DefaultDQNAgent.learner.use_per", true);
@@ -3271,6 +3396,15 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                     }
                 }
                 data = WithDefaultForwardConfig(data);
+                if (split && conditional) {
+                    // 共有Bodyのsigmaにもskip勾配を流し、BF16/fusedの独立更新を通す。
+                    data.Set("net.block.[SkipTestLinear].noisy.enabled", true);
+                    data.Set("DefaultDQNAgent.nn_forward.[test_sample].noisy.mode", "sample");
+                    data.Set("DefaultDQNAgent.nn_forward.[test_sample].noisy.hold", "call");
+                    data.Set("DefaultDQNAgent.nn_forward.[test_sample].noisy.share", "sample");
+                    data.Set("DefaultDQNAgent.learner.current.nn_forward_key", "test_sample");
+                    data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "test_sample");
+                }
                 const auto env = MakeIqnTracerEnvSpec();
                 const auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
                     anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98);
@@ -3294,6 +3428,12 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 }
                 CHECK(*updates.back()->GetScalar("skip_sample_k_mean") >= 1.0f);
                 CHECK(*updates.back()->GetScalar("skip_sample_k_mean") <= 3.0f);
+                for (const auto* key : {"skip_primary_grad_norm", "skip_primary_clip_ratio"}) {
+                    const auto value = updates.back()->GetScalar(key);
+                    REQUIRE(value);
+                    CHECK(std::isfinite(*value) == split);
+                    if (!split) CHECK(std::isnan(*value));
+                }
             }
         }
     }
@@ -3378,6 +3518,326 @@ TEST_CASE("Skip updates reject nonfinite gradients before either optimizer appli
 #else
     SUCCEED("Gradient NaN checks are disabled in this build");
 #endif
+}
+
+TEST_CASE("Split skip update adds independent Adam updates from the same parameters", "[dqn][prd103][split_numeric]")
+{
+    const bool fused = GENERATE(false, true);
+    const bool clipped = GENERATE(false, true);
+    anet::nn::InitNN();
+    const auto env = MakeLearnerEnvSpec();
+    anet::ConfigData data;
+    data.Set("net.block.[SharedLinear].type", "Linear");
+    data.Set("net.block.[SharedLinear].linear.out_features", 2);
+    data.Set("net.branch.[shared].bind", "vector");
+    data.Set("net.branch.[shared].structure", "SharedLinear");
+    data.Set("net.body.output.[features]", "shared");
+    anet::nn::NetworkConfig skip_net;
+    skip_net.output_keys["features"] = "features";
+    const anet::nn::WeightInitConfig init;
+    dqn::SkipNetworkDefinition skip{.config = {.enabled = true, .max_length = 1}, .network_config = skip_net,
+        .head_factory = std::make_shared<dqn::SkipHeadFactory>(1, 1, dqn::SkipNetworkMode::ActionOut, "none", 1, init), .seed = 99};
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data, "net"), env.state_spec.obs_spec, 1,
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, 98, &skip);
+    auto config = WithDefaultLearnerForwardConfig();
+    config.skip.feature_gradient = "split";
+    config.replay_capacity = 16;
+    config.replay_batch_size = 2;
+    config.learning_rate.value = 0.01f;
+    config.weight_decay.value = 0.2f;
+    config.use_per = false;
+    config.use_tbo = false;
+    config.use_td_clip = false;
+    config.use_amp = false;
+    config.use_grad_clip = clipped;
+    config.grad_clip_tau = 0.001f;
+    config.use_fused_optimizer = fused;
+    dqn::RuntimeVars vars;
+    dqn::TDLearner learner(config, model, vars, nullptr, {.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98,
+        std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), {});
+    auto primary_parameters = model.GetOnlineParameters();
+    auto skip_parameters = model.GetSkipOnlineNetwork()->parameters();
+    {
+        torch::NoGradGuard no_grad;
+        for (auto& parameter : primary_parameters) parameter.fill_(0.1f);
+        for (auto& parameter : skip_parameters) parameter.fill_(0.1f);
+    }
+    rl::ExperienceSamples samples;
+    samples.obs = anet::TensorDict{{kVectorKey, torch::ones({2, 2})}};
+    samples.actions = torch::zeros({2}, torch::kInt64);
+    samples.target_returns = torch::full({2}, 3.0f);
+    samples.n_steps = torch::ones({2}, torch::kInt64);
+    samples.next_state.next_obs = samples.obs;
+    samples.next_state.terminals = torch::ones({2}, torch::kBool);
+    samples.window.lengths = samples.n_steps;
+    samples.window.max_lengths = samples.n_steps;
+    samples.window.returns = torch::full({2}, 4.0f);
+    samples.window.next_obs = samples.obs;
+    samples.window.terminals = samples.next_state.terminals;
+    samples.window.truncated = torch::zeros({2}, torch::kBool);
+
+    // 同じ初期値から二つのlossを微分し、初回Adamの式で期待する更新量を作る。
+    const auto primary = model.GetOnlineNetwork()->Forward(samples.obs);
+    const auto auxiliary = model.GetSkipOnlineNetwork()->Forward(dqn::MakeSkipInput(samples.obs, primary, samples.actions, false));
+    const auto primary_loss = torch::nn::functional::smooth_l1_loss(primary.At("q").squeeze(1), samples.target_returns);
+    const auto skip_loss = torch::nn::functional::smooth_l1_loss(auxiliary.At("skip_q").reshape({2}), samples.window.returns);
+    const auto norm = [](const std::vector<torch::Tensor>& parameters) {
+        float squared = 0;
+        for (const auto& parameter : parameters) {
+            if (parameter.grad().defined()) squared += parameter.grad().square().sum().item<float>();
+        }
+        return std::sqrt(squared);
+    };
+    const auto delta = [&](const torch::Tensor& gradient, float global_norm) {
+        const float scale = clipped ? std::min(1.0f, config.grad_clip_tau / (global_norm + 1e-6f)) : 1.0f;
+        const auto grad = gradient * scale;
+        return config.learning_rate.value * grad / (grad.abs() + config.adam_eps);
+    };
+    primary_loss.backward({}, true);
+    const float primary_norm = norm(primary_parameters);
+    std::vector<torch::Tensor> expected;
+    for (auto& parameter : primary_parameters) {
+        const auto grad = parameter.grad();
+        expected.push_back(parameter.detach().clone() * (1 - config.learning_rate.value * config.weight_decay.value)
+            - delta(grad, primary_norm));
+        parameter.mutable_grad() = torch::Tensor();
+    }
+    skip_loss.backward();
+    const float skip_primary_norm = norm(primary_parameters);
+    const float skip_network_norm = norm(skip_parameters);
+    for (size_t i = 0; i < primary_parameters.size(); ++i) {
+        const auto grad = primary_parameters[i].grad();
+        if (grad.defined()) expected[i] -= delta(grad, skip_primary_norm);
+    }
+    for (auto& parameter : skip_parameters) {
+        const auto grad = parameter.grad();
+        expected.push_back(parameter.detach().clone() * (1 - config.learning_rate.value * config.weight_decay.value)
+            - delta(grad, skip_network_norm));
+    }
+
+    // 公開の学習更新を1回通し、共有部は二つ、各Headは一つの更新になることを確認する。
+    const auto result = learner.UpdateFromSamples(samples);
+    REQUIRE(result->GetScalar("skip_primary_grad_norm").has_value());
+    CHECK(*result->GetScalar("skip_primary_grad_norm") == Catch::Approx(skip_primary_norm));
+    REQUIRE(result->GetScalar("skip_primary_clip_ratio").has_value());
+    CHECK(*result->GetScalar("skip_primary_clip_ratio") == (clipped ? 1.0f : 0.0f));
+    auto actual = primary_parameters;
+    actual.insert(actual.end(), skip_parameters.begin(), skip_parameters.end());
+    for (size_t i = 0; i < actual.size(); ++i) {
+        INFO("parameter=" << i);
+        CHECK(torch::allclose(actual[i], expected[i], 1e-5, 1e-6));
+    }
+
+    // 両方のmomentを復元すると、同じparameterからの次の更新が完全一致する。
+    std::stringstream checkpoint(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(checkpoint);
+    learner.Save(output);
+    checkpoint.seekg(0);
+    anet::InputArchive header(checkpoint);
+    int64_t role_count = 0;
+    header.Read(role_count);
+    REQUIRE(role_count == 5);
+    std::vector<torch::Tensor> saved_parameters;
+    for (const auto& parameter : actual) saved_parameters.push_back(parameter.detach().clone());
+    learner.UpdateFromSamples(samples);
+    std::vector<torch::Tensor> continued;
+    for (const auto& parameter : actual) continued.push_back(parameter.detach().clone());
+    {
+        torch::NoGradGuard no_grad;
+        for (size_t i = 0; i < actual.size(); ++i) actual[i].copy_(saved_parameters[i]);
+    }
+    checkpoint.seekg(0);
+    anet::InputArchive input(checkpoint);
+    learner.Load(input);
+    learner.UpdateFromSamples(samples);
+    for (size_t i = 0; i < actual.size(); ++i) CHECK(torch::equal(actual[i], continued[i]));
+}
+
+TEST_CASE("Skip weighting and gradient enums are validated even while disabled", "[dqn][config][prd103]")
+{
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.skip.enabled", false);
+    data.Set("DefaultDQNAgent.learner.skip.feature_gradient", "split");
+    CHECK(dqn::DefaultDQNAgentConfig(data).learner.skip.sample_weight == "uniform");
+    data.Set("DefaultDQNAgent.learner.skip.sample_weight", "kmax");
+    CHECK(dqn::DefaultDQNAgentConfig(data).learner.skip.sample_weight == "kmax");
+    data.Set("DefaultDQNAgent.learner.skip.sample_weight", "invalid");
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(data));
+    data.Set("DefaultDQNAgent.learner.skip.sample_weight", "uniform");
+    data.Set("DefaultDQNAgent.learner.skip.feature_gradient", "invalid");
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(data));
+}
+
+TEST_CASE("Split gradient noise measures only Q loss while skip gradients change", "[dqn][prd103][gradnoise]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::ConfigData network;
+    network.Set("net.block.[SharedLinear].type", "Linear");
+    network.Set("net.block.[SharedLinear].linear.out_features", 2);
+    network.Set("net.branch.[shared].bind", "vector");
+    network.Set("net.branch.[shared].structure", "SharedLinear");
+    network.Set("net.body.output.[features]", "shared");
+    const auto make_agent = [&](float weight) {
+        torch::manual_seed(103);
+        auto config = MakeDeviceForwardDefaultDqnConfig();
+        config.skip.enabled = true;
+        config.skip.max_length = 3;
+        config.skip_net.Set("DefaultDQNAgent.skip.net.branch.[skip_feature].bind", "features");
+        config.skip_net.Set("DefaultDQNAgent.skip.net.body.output.[features]", "skip_feature");
+        config.learner.skip.feature_gradient = "split";
+        config.learner.skip.loss_weight = weight;
+        config.learner.learning_rate.value = 0;
+        config.learner.replay_capacity = 64;
+        config.learner.replay_batch_size = 8;
+        config.learner.final_feature_branch_key = "shared";
+        config.learner.grad_noise.num_micro_batches = 4;
+        config.learner.update_warmup_steps = 8;
+        config.learner.update_interval = 1;
+        config.learner.replay_ratio = -1;
+        config.learner.use_n_step = false;
+        config.learner.use_per = false;
+        config.learner.use_amp = false;
+        return std::make_shared<dqn::DefaultDQNAgent>(config, anet::nn::NetworkConfig(network, "net"),
+            rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, MakeLearnerEnvSpec(), torch::kCPU, 103);
+    };
+    const auto zero = make_agent(0), weighted = make_agent(7);
+    const auto first = zero->CreateLearner(), second = weighted->CreateLearner();
+    for (const auto& agent : {zero, weighted}) {
+        agent->ConfigureScalarMetricSubscriptions({
+            {.source_key = "grad_noise_signal_raw", .event = rl::EventType::LEARN,
+                .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN},
+            {.source_key = "grad_noise_variance_raw", .event = rl::EventType::LEARN,
+                .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN}});
+    }
+    bool measured = false, skip_gradient_seen = false;
+    for (rl::step_t step = 0; step < 24; ++step) {
+        const auto experience = MakeDeterminismExperience(step, 2);
+        const auto a = first->UpdateFromBatch({.exp_step = step * 2}, experience);
+        const auto b = second->UpdateFromBatch({.exp_step = step * 2}, experience);
+        REQUIRE(a.size() == b.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            for (const auto* key : {"grad_noise_signal_raw", "grad_noise_variance_raw"}) {
+                REQUIRE(a[i]->GetScalar(key));
+                REQUIRE(b[i]->GetScalar(key));
+                REQUIRE(std::isfinite(*a[i]->GetScalar(key)));
+                CHECK(*a[i]->GetScalar(key) == *b[i]->GetScalar(key));
+            }
+            CHECK(*a[i]->GetScalar("skip_primary_grad_norm") == 0.0f);
+            CHECK(std::isfinite(*b[i]->GetScalar("skip_primary_grad_norm")));
+            skip_gradient_seen |= *b[i]->GetScalar("skip_primary_grad_norm") > 0.0f;
+            measured = true;
+        }
+    }
+    CHECK(measured);
+    CHECK(skip_gradient_seen);
+}
+
+TEST_CASE("PRD103 convolution sharing arms construct and act through IQN", "[.][prd103-arms]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const bool separate = GENERATE(false, true);
+    const auto root = std::filesystem::current_path();
+    const auto output = root / ".scratch/prd103/arms";
+    std::filesystem::create_directories(output);
+    const auto input = output / (separate ? "separate.txt" : "shared.txt");
+    {
+        std::ofstream file(input);
+        file << "$include <" << (root / "apps/runner/config/_main.txt").generic_string() << ">\n"
+            << "$include <" << (root / "apps/runner/config/Atari.txt").generic_string() << ">\n"
+            << "$include <" << (root / "core/anet-core/testdata/prd103/arms.txt").generic_string() << ">\n"
+            << "run.$ = run.@va_base > run.@skip > run.@skip_conv_" << (separate ? "separate" : "shared") << '\n';
+    }
+    const auto data = anet::ConfigManager(input).GetConfigData();
+    auto config = dqn::DefaultDQNAgentConfig(data);
+    config.learner.replay_capacity = 32;
+    config.learner.replay_batch_size = 2;
+    config.learner.use_rb_prefetch = false;
+    CHECK(config.quantile_mode == "iqn");
+    CHECK(config.learner.skip.feature_gradient == (separate ? "stop" : "merge"));
+    CHECK(data.Get("DefaultDQNAgent.skip.net.branch.[skip_main_feature].bind") == (separate ? "grid" : "skip_context"));
+    if (!separate) CHECK(data.Get("DefaultDQNAgent.net.body.output.[skip_context]") == "trunk");
+    auto env = MakeLearnerEnvSpec();
+    env.state_spec.obs_spec.clear();
+    env.state_spec.obs_spec["grid"] = anet::TensorSpec{.type = anet::SpaceType::Grid,
+        .shape = {1, 84, 84}, .dtype = torch::kUInt8, .min_values = {0.0}, .max_values = {255.0}};
+    const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
+    const auto agent = std::make_shared<dqn::DefaultDQNAgent>(config,
+        anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), batch, env, torch::kCPU, 103);
+    const auto actor = agent->CreateActor({.batch_env_spec = batch, .env_spec = env,
+        .device = torch::kCPU, .seed = 103, .actor_key = "train"});
+    const auto flags = torch::zeros({2}, torch::kBool);
+    const rl::BatchState state(anet::TensorDict{{"grid", torch::zeros({2, 1, 84, 84}, torch::kUInt8)}}, flags, flags, ~flags);
+    const auto action = actor->MakeAction({}, state);
+    CHECK(action->GetAction().sizes().vec() == std::vector<int64_t>{2});
+    const auto values = action->GetAuxData().at("skip_q_values");
+    CHECK(values.sizes().vec() == std::vector<int64_t>{2, config.skip.max_length});
+    CHECK(torch::isfinite(values).all().item<bool>());
+    CHECK(*actor->GetScalar("skip_session_decision_rate") == 1.0f);
+}
+
+TEST_CASE("Skip kmax weights multiply IS weights without changing TD", "[dqn][prd103][skip_kmax]")
+{
+    const bool per = GENERATE(false, true);
+    const std::string weighting = GENERATE(std::string("uniform"), std::string("kmax"));
+    anet::nn::InitNN();
+    const auto env = MakeLearnerEnvSpec();
+    anet::nn::NetworkConfig skip_net;
+    skip_net.output_keys["features"] = "features";
+    const anet::nn::WeightInitConfig init;
+    dqn::SkipNetworkDefinition skip{.config = {.enabled = true, .max_length = 3}, .network_config = skip_net,
+        .head_factory = std::make_shared<dqn::SkipHeadFactory>(1, 3, dqn::SkipNetworkMode::ActionOut, "none", 1, init), .seed = 99};
+    dqn::NetworkModel model({}, torch::kCPU, MakeAgentForwardNetworkConfig(), env.state_spec.obs_spec, 1,
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, 98, &skip);
+    {
+        torch::NoGradGuard no_grad;
+        for (const auto& net : {model.GetOnlineNetwork(), model.GetSkipOnlineNetwork()}) {
+            for (auto& parameter : net->parameters()) parameter.zero_();
+        }
+    }
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.learner.skip.sample_weight", weighting);
+    auto config = WithDefaultLearnerForwardConfig();
+    config.skip = dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)).learner.skip;
+    config.replay_capacity = 18;
+    config.replay_batch_size = 3;
+    config.update_warmup_steps = 1000;
+    config.learning_rate.value = 0;
+    config.use_per = per;
+    config.use_tbo = false;
+    config.use_td_clip = false;
+    config.use_amp = false;
+    config.use_grad_clip = false;
+    config.use_fused_optimizer = false;
+    dqn::RuntimeVars vars;
+    dqn::TDLearner learner(config, model, vars, nullptr, {.num_envs = 3, .num_threads = 1}, env, torch::kCPU, 98,
+        std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), {});
+    // PERの更新先を、warmup中の公開Push経路で実在する世代にする。
+    for (rl::step_t step = 0; step < 6; ++step) {
+        learner.UpdateFromBatch({.exp_step = step * 3}, MakeDeterminismExperience(step, 3));
+    }
+    rl::ExperienceSamples samples;
+    samples.obs = anet::TensorDict{{kVectorKey, torch::zeros({3, 2})}};
+    samples.actions = torch::zeros({3}, torch::kInt64);
+    samples.target_returns = torch::tensor({1.0f, 2.0f, 3.0f});
+    samples.n_steps = torch::ones({3}, torch::kInt64);
+    samples.is_weights = torch::tensor({1.0f, 0.5f, 0.25f});
+    samples.replay_item_keys = torch::arange(3, torch::kInt64) + config.replay_capacity;
+    samples.next_state.next_obs = samples.obs;
+    samples.next_state.terminals = torch::ones({3}, torch::kBool);
+    samples.window.lengths = samples.n_steps;
+    samples.window.max_lengths = torch::tensor({1, 2, 3}, torch::kInt64);
+    samples.window.returns = samples.target_returns;
+    samples.window.next_obs = samples.obs;
+    samples.window.terminals = samples.next_state.terminals;
+    samples.window.truncated = torch::zeros({3}, torch::kBool);
+    const auto result = learner.UpdateFromSamples(samples);
+    auto expected = torch::tensor({0.5f, 1.5f, 2.5f});
+    if (per) expected *= samples.is_weights;
+    if (weighting == "kmax") expected *= torch::tensor({0.5f, 1.0f, 1.5f});
+    CHECK(*result->GetScalar("skip_loss") == Catch::Approx(expected.mean().item<float>()));
+    CHECK(*result->GetScalar("skip_td_abs_mean") == 2.0f);
+    CHECK(torch::equal(result->td_error, -samples.target_returns));
 }
 
 TEST_CASE("Skip target uses window return and duration and masks only terminal bootstrap", "[dqn][prd098]")

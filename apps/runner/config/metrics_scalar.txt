@@ -381,10 +381,14 @@ metrics.scalar.@attention : [48_agent_attention/04_entropy_layer3] ?= attention_
 # TempoRL の共有定義。明示的に選択した場合だけ利用する。
 metrics.scalar.@skip : [50_agent_skip/01_decision_rate] ?= skip_decision_rate @train $action_info
 metrics.scalar.@skip : [50_agent_skip/02_skip_length_mean] ?= skip_length_mean @train $action_info
-metrics.scalar.@skip : [50_agent_skip/03_skip_length_rate.[1]] ?= skip_length_rate.[1] @train $action_info
+metrics.scalar.@skip : [50_agent_skip/03_skip_length_rate.[01]] ?= skip_length_rate.[1] @train $action_info
 metrics.scalar.@skip : [50_agent_skip/04_skip_q_gap] ?= skip_q_gap @train $action_info
 metrics.scalar.@skip : [50_agent_skip/11_loss] ?= skip_loss @learn $learn_step $update_result
 metrics.scalar.@skip : [50_agent_skip/12_td_abs_mean] ?= skip_td_abs_mean @learn $learn_step $update_result
 metrics.scalar.@skip : [50_agent_skip/13_sample_k_mean] ?= skip_sample_k_mean @learn $learn_step $update_result
 metrics.scalar.@skip : [50_agent_skip/14_kmax_mean] ?= skip_kmax_mean @learn $learn_step $update_result
 metrics.scalar.@skip : [50_agent_skip/15_grad_norm] ?= skip_grad_norm @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/17_skip_primary_grad_norm] ?= skip_primary_grad_norm @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/18_skip_primary_clip_ratio] ?= skip_primary_clip_ratio @learn $learn_step $update_result
+metrics.scalar.@skip : [50_agent_skip/21_greedy_decision_rate] ?= skip_session_decision_rate $eval.[greedy] $actor @session_end
+metrics.scalar.@skip : [50_agent_skip/22_greedy_length_mean] ?= skip_session_length_mean $eval.[greedy] $actor @session_end

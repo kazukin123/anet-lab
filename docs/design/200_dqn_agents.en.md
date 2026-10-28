@@ -289,6 +289,18 @@ sequenceDiagram
 
 Since `Sync()` takes no step, the first action's `train_step` after forced synchronization becomes the age-zero reference. Shared Actors and Actors without `sync_interval.*` declarations have no periodic snapshots.
 
+### 6.5 DefaultDQN Skip Policy
+
+`skip.enabled` defaults to false. Enabling it adds online/target skip Networks to the primary pair. The skip Learner bootstraps from primary Q; the skip target serves target-based Actors. `skip.net.*` uses ordinary branches, blocks and binds, reading observations, published primary features, IQN taus and (for `action_in`) one-hot actions. The default `action_out` predicts every action/length pair. Each Actor selects a length on decision lanes, repeats the chosen action for the remaining steps, and discards continuation at episode start.
+
+`learner.skip.feature_gradient` accepts `stop`, `merge` and `split`. Stop detaches primary features; merge backpropagates the combined Q and weighted skip losses once. Split obtains both gradients from the same forward before changing parameters, clips primary-Q, primary-skip and skip-Network gradients independently, and adds two Adam updates to primary parameters. The extra Learner-owned optimizer uses primary lr/eps/betas and its learning-rate schedule, including sigma parameters, with zero weight decay. Primary decay occurs only on the Q side. `loss_weight` always multiplies the skip loss. Policy churn measures both steps together; GNS measures only Q loss. FP32 and BF16 are supported; FP16 AMP with skip is rejected.
+
+`learner.skip.sample_weight=uniform` preserves the ordinary loss. `kmax` multiplies each row's skip loss by `max_lengths / mean(max_lengths)`, then by the same IS weight as Q. It leaves TD values and the priority formula `|deltaQ| + priority_lambda * |deltaSkip| + epsilon` unchanged. Enum validation also applies when skip is disabled.
+
+Actors accumulate decision-length counts on device until Sync (including periodic snapshot sync). `skip_session_decision_rate` is decisions divided by lane steps, `skip_session_length_mean` averages selected lengths, and `skip_session_length_rate.[j]` divides length-j decisions by all decisions. Disabled/uninitialized values are NaN. A session without decisions has rate zero and unavailable length statistics. GetScalar caches one CPU transfer; action steps add no CPU synchronization. Session-end subscriptions use the training coordinate.
+
+Env `run.@skip` profiles enable skip, metrics, trace columns and greedy evaluation. GridMaze also selects skip epsilon-greedy from 0.60 to 0.05. Separate convolution-sharing/non-sharing arms, numerical checks and migration/Run validation are in the [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md). The arm profiles do not change the default topology and do not load its checkpoints.
+
 ## 7. DefaultDQN and Rainbow Composition and Configuration
 
 ### 7.1 Main Differences
@@ -348,7 +360,7 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 ### 8.2 Checkpoints
 
-The current `DefaultDQNAgent::Save()` saves the archive header, Config string, online/target Networks, and inner Learner. The inner `dqn::Learner::Save()` payload contains only the Optimizer. `auto_load_file` reads this payload during Agent construction and restores the Networks and Optimizer.
+`DefaultDQNAgent::Save()` saves the archive header, Config string, NetworkModel and inner Learner. Skip-disabled checkpoints retain two Networks and the existing optimizer payload. Skip-enabled checkpoints contain four Networks and optimizer roles primary, primary sigma, skip and skip sigma, including empty sigma groups. `split` adds the `primary_skip` role and its separate optimizer state. Loading four roles into split initializes missing moments with one WARN; loading five roles into stop/merge fails. All restored groups receive current options, and primary_skip retains zero weight decay. Loading a skip-disabled checkpoint into a skip-enabled Agent initializes skip with a WARN; the reverse is rejected. `auto_load_file` restores this payload during Agent construction. Replay and Actor continuation/session state are not saved.
 
 The current DefaultDQN checkpoint does not save or restore:
 
@@ -479,7 +491,7 @@ Statistics-only subscriptions do not execute probes. Dedicated boxes, clocks, RN
 
 ### 9.8 Gradient Noise Scale
 
-TD / QR / IQN pass the length-B weighted element loss computed under autocast and its mean, the existing loss, to `Optimize(loss, weighted_element_loss)`. Before zero_grad, measurement obtains gradients for k microbatches from the same graph through autograd::grad (retain_graph, allow_unused, create_graph=false). It adds no forwards or random draws and changes neither training .grad nor optimizer state. Shared calculations reside in nn_util; Learner owns subscriptions and EMA State. The scope is a single loss with AdamW.
+TD / QR / IQN pass the length-B weighted element loss computed under autocast and its mean, the existing loss, to `Optimize(primary_loss, weighted_element_loss, skip_loss)`. Before zero_grad, measurement obtains gradients for k microbatches from the same graph through autograd::grad (retain_graph, allow_unused, create_graph=false). It adds no forwards or random draws and changes neither training .grad nor optimizer state. Shared calculations reside in nn_util; Learner owns subscriptions and EMA State. The scope is a single loss with AdamW. With skip enabled, GNS still uses only Q's weighted_element_loss, excluding skip_loss.
 
 From mean squared microbatch gradients s and squared mean gradient b, estimate signal `(k*b-s)/(k-1)` and variance `(s-b)*B/(k-1)`. The Adam version uses the fixed preconditioner `1/(sqrt(v_hat)+eps)` from pre-update exp_avg_sq and step, the parameter group's beta2, and learner.adam_eps. Only gradients obtained in this measurement determine whether a parameter is used: exclude parameters unused by every microbatch and treat partially unused gradients as zero contributions. Missing state for a used parameter makes only its group and all unavailable. Feature dependency-closure/readout classification matches weight norms, but also includes used Noisy sigma parameters.
 
@@ -496,6 +508,8 @@ Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Ten
 Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
 
 ## 10. Tests and Extension Checklist
+
+For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md).
 
 Main DQN tests reside in [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) and [dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp).
 

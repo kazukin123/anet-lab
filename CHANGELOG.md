@@ -31,6 +31,8 @@
 
 黙って挙動・値が変わる変更:
 
+- TempoRLにloss別Adam更新`split`・skip loss重み`kmax`・greedy評価sessionの判断率を追加。GridMazeのskip方策をepsilon-greedyへ、Atariのsession名を`greedy`へ、長さ別tagの添字を2桁へ移行。split checkpointは追加optimizer状態を持ち、stop/mergeへの読込は拒否する(PRD103)。
+
 - 既定葉 `?=` を導入。`=` は個別葉としてチェーンの供給値に勝つため、共通ファイルに残した `=` は再確認する(PRD072, ADR0040, ADR0042)。
 - eval は `eval_batch_size`(lane 数)×`eval_episodes`(本数)の N 本平均を 1 点として記録する。1 エピソード 1 点ではない(PRD060, ADR0034)。
 - interval 系の発火が bucket-crossing 化され、perf メトリクスは時間重み EMA になった(PRD053, ADR0028)。

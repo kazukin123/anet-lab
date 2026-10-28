@@ -81,7 +81,7 @@ for repeat in range(1, 2 if FOLLOWUP else 4):
             assert config[prefix + "hold"] == hold and config[prefix + "share"] == "sample"
         assert config["DefaultDQNAgent.actor.[train].nn_forward_key"] == "ref_actor"
         assert all(config[f"DefaultDQNAgent.learner.{purpose}.nn_forward_key"] == "ref_learner" for purpose in ("current", "target"))
-        assert config["run.eval_schedule.[greedy_dist].interval"] == "0"
+        assert config["run.eval_schedule.[greedy].interval"] == "0"
         noisy = {tag: points for tag, points in scalar.items() if tag.startswith("47_agent_noisy/")}
         assert len(noisy) == 7, (name, list(noisy))
         declarations = [key for key in config if key.startswith("metrics.scalar.[47_agent_noisy/")]

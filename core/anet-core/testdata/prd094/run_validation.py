@@ -69,7 +69,7 @@ def config(target,case):
         protocol='classic'
         chain='run.@v5_iqn_impala_x2>run.@prd094'
         overrides += [f'AtariEnv.$=AtariEnv.@{protocol}>E1','E1.game=breakout']
-        for tag in ['eval_target','eval','greedy_dist']:
+        for tag in ['eval_target','eval','greedy']:
             overrides += [f'run.eval_schedule.[{tag}].use_background=false',f'run.eval_schedule.[{tag}].interval=1000',
                       f'run.eval.[{tag}].eval_batch_size=2',f'run.eval.[{tag}].eval_episodes=2']
     if case in ('lunarlander','actorapprox'):

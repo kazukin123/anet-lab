@@ -352,6 +352,71 @@ TEST_CASE("PRD093 snapshots current configuration inputs", "[.][prd093-config-sn
     }
 }
 
+TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "[.][prd103-config]")
+{
+    // 実際の設定を公開resolverに通し、変更前後の全キーを同時に保存する。
+    wxString destination;
+    REQUIRE(wxGetEnv("ANET_PRD103_OUTPUT", &destination));
+    const auto output = std::filesystem::path(destination.ToStdWstring());
+    std::filesystem::create_directories(output);
+    const auto config = (std::filesystem::current_path() / "apps/runner/config").generic_string();
+    for (const std::string env : {"GridMaze", "LunarLander", "Atari", "DropMerge"}) {
+        CAPTURE(env);
+        const auto path = output / (env + ".txt");
+        const auto includes = "$include <" + config + "/_main.txt>\n$include <" + config + "/" + env + ".txt>\n";
+        { std::ofstream file(path); file << includes; }
+        const auto defaults = anet::ConfigManager(path).GetConfigData();
+        { std::ofstream file(output / (env + "-default.json")); file << defaults.ToJson().dump(2) << '\n'; }
+        // 選択宣言は解決済みMapには残らないため、元ファイルの有効な連鎖を読む。
+        std::string chain, line;
+        std::ifstream source(config + "/" + env + ".txt");
+        const std::regex run_selection(R"(^run\.\$\s*=\s*([^#]+))");
+        while (std::getline(source, line)) {
+            std::smatch match;
+            if (std::regex_search(line, match, run_selection)) chain = match[1].str();
+        }
+        if (chain.find("run.@skip") == std::string::npos) chain += (chain.empty() ? "" : " > ") + std::string("run.@skip");
+        { std::ofstream file(path); file << includes << "run.$ = " << chain << '\n'; }
+        const auto data = anet::ConfigManager(path).GetConfigData();
+        { std::ofstream file(output / (env + "-skip.json")); file << data.ToJson().dump(2) << '\n'; }
+        CHECK(data.Get("DefaultDQNAgent.learner.skip.sample_weight") == "uniform");
+        CHECK(data.Get("DefaultDQNAgent.actor.[greedy].policy.policy_type")
+            == (env == "Atari" ? defaults.Get("DefaultDQNAgent.actor.[greedy].policy.policy_type") : "Greedy"));
+        CHECK(data.Get("run.eval.[greedy].actor") == "greedy");
+        CHECK(data.Get("DefaultDQNAgent.actor.[greedy].network") == (env == "DropMerge" ? "target" : "online"));
+        for (const auto* tag : {"17_skip_primary_grad_norm", "18_skip_primary_clip_ratio", "21_greedy_decision_rate", "22_greedy_length_mean"}) {
+            CHECK_FALSE(data.Get(std::string("metrics.scalar.[50_agent_skip/") + tag + "]").empty());
+        }
+        const auto limit = data.Get<int>("DefaultDQNAgent.skip.max_length");
+        for (int j = 1; j <= limit; ++j) {
+            const auto tag_index = (j < 10 ? "0" : "") + std::to_string(j);
+            const auto source_index = std::to_string(j);
+            CHECK(data.Get("metrics.scalar.[50_agent_skip/03_skip_length_rate.[" + tag_index + "]]")
+                == "skip_length_rate.[" + source_index + "] @train $action_info");
+            CHECK(data.Get("metrics.scalar.[50_agent_skip/23_greedy_length_rate.[" + tag_index + "]]")
+                == "skip_session_length_rate.[" + source_index + "] $eval.[greedy] $actor @session_end");
+        }
+        if (env != "Atari") {
+            CHECK(data.Get("run.eval.[greedy].eval_batch_size") == "1");
+            CHECK(data.Get("run.eval.[greedy].eval_episodes") == "1");
+            CHECK(data.Get("run.eval_schedule.[greedy].interval") == (env == "GridMaze" ? "53" : env == "LunarLander" ? "1009" : "503"));
+            CHECK(data.Get("run.eval_schedule.[greedy].use_background") == "true");
+            for (const auto* tag : {"09_greedy_reward", "10_greedy_reward_ema", "11_greedy_ep_steps", "12_greedy_ep_steps_max"}) {
+                CHECK_FALSE(data.Get(std::string("metrics.scalar.[21_eval/") + tag + "]").empty());
+            }
+        }
+        if (env == "GridMaze") {
+            CHECK(data.Get("DefaultDQNAgent.actor.[train].skip.policy.policy_type") == "EpsilonGreedy");
+            CHECK(data.Get<float>("DefaultDQNAgent.actor.[train].skip.policy.epsilon.start") == 0.60f);
+            CHECK(data.Get<float>("DefaultDQNAgent.actor.[train].skip.policy.epsilon.end") == 0.05f);
+        }
+        for (const auto& [key, value] : data.Map()) {
+            CHECK(key.find("greedy_dist") == std::string::npos);
+            CHECK(value.find("$eval.[greedy_dist]") == std::string::npos);
+        }
+    }
+}
+
 TEST_CASE("Final feature branch is a shared learner configuration", "[config][prd093][rename]")
 {
     // 特定診断に依存しない公開設定名で境界を指定する。
@@ -429,6 +494,18 @@ TEST_CASE("Attention Run profiles preserve existing metric definitions", "[confi
         CHECK(anet::rl::dqn::DefaultDQNAgentConfig(after).learner.attention_entropy.probe.batch_size == 256);
         CHECK(anet::rl::dqn::DefaultDQNAgentConfig(after).learner.final_feature_branch_key == "main_feature");
     }
+}
+
+TEST_CASE("PRD103 resolves the actual validation input", "[.][prd103-resolve]")
+{
+    wxString input, output;
+    REQUIRE(wxGetEnv("ANET_PRD103_INPUT", &input));
+    REQUIRE(wxGetEnv("ANET_PRD103_OUTPUT", &output));
+    const anet::ConfigManager manager(std::filesystem::path(input.ToStdWstring()));
+    std::ofstream file(std::filesystem::path(output.ToStdWstring()));
+    REQUIRE(file.good());
+    file << manager.GetConfigData().ToJson().dump(2) << '\n';
+    REQUIRE(file.good());
 }
 
 TEST_CASE("PRD093 validation conditions survive the Atari Run chain", "[.][prd093-validation-config]")

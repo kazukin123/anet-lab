@@ -15,7 +15,7 @@ for path in sorted(root.glob('*.execution.json')):
     for line in (run/'config/config_data.txt').read_text(encoding='utf-8-sig').splitlines():
         if ' = ' in line:
             key,value=line.split(' = ',1);config[key]=value
-    for schedule in ['eval','eval_target','greedy_dist']:
+    for schedule in ['eval','eval_target','greedy']:
         assert config[f'run.eval_schedule.[{schedule}].interval']=='0', (path,schedule)
     assert config['run.train.num_envs']=='128' and config['run.seed']=='1'
     assert config['E1.game']=='breakout'

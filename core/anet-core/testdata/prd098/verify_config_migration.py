@@ -95,7 +95,7 @@ def check_profile(run, variant, width_j1=False, trace_q=False):
         assert any('SkipFC1' in line and 'out_features</TD><TD ALIGN="RIGHT">256' in line for line in dot.splitlines())
         assert any('SkipFC2' in line and 'in_features</TD><TD ALIGN="RIGHT">256' in line for line in dot.splitlines())
     required = {'50_agent_skip/' + name for name in ('01_decision_rate', '02_skip_length_mean',
-        '03_skip_length_rate.[1]', '04_skip_q_gap', '11_loss', '12_td_abs_mean', '13_sample_k_mean', '14_kmax_mean', '15_grad_norm')}
+        '03_skip_length_rate.[01]', '04_skip_q_gap', '11_loss', '12_td_abs_mean', '13_sample_k_mean', '14_kmax_mean', '15_grad_norm')}
     values = [row for row in validation.rows(run) if row.get('tag') in required and row.get('value') is not None]
     definitions = json.loads((run / 'json/metrics.scalar.defs.json').read_text(encoding='utf-8-sig'))['data']
     assert required.issubset(definitions) and required.issubset({row['tag'] for row in values})

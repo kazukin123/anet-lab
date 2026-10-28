@@ -2,7 +2,7 @@
 
 ## 今の結論
 
-matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。TempoRL（分離×合算）は IQN＋Munchausen の 3 seed で無効を上回り、2026-10-26 から LunarLander の既定で有効にした。
+matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。TempoRL（分離×合算）は IQN＋Munchausen の 3 seed で無効を上回り、2026-10-26 から LunarLander の既定で有効にした。合算に対する分割・k_max の重み・スキップ長の ε-greedy の 3 腕（3 seed）はどれも基準を上回らず、既定は据え置いた（2026-10-28）。
 
 ## 分かっていること
 
@@ -27,6 +27,7 @@ matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差が
 
 - NoisyNet（V/A ストリームの FC と Head の射影）について: QR の matched 3-seed で、spatial UQE への上乗せも ε の置き換えも、1.5M〜2.0M の policy reward 平均（134.0 / 127.3）が OFF（145.1）の seed の幅（96.6〜199.4）に収まった。σ と probe の指標は学習とともに縮んだ（出典: [2026-10-06_noisynet.md](../../experiments/default-dqn/lunarlander/2026-10-06_noisynet.md)、現時点のまとめ・対応する探索ブロック）。
 - TempoRL（スキップ、J=4）について: IQN＋Munchausen の 3 seed・2M で、評価 policy 報酬の Run 全体の平均は無効 21、分離×遮断 122、分離×合算 137、包含×遮断 96。分離×合算は 3 seed とも約 1.0〜1.1M で評価の EMA が 200 に届いた（無効は 3 seed 中 1 seed だけ）。これを受けて 2026-10-26 から LunarLander の既定を有効（分離×合算）にし、無効の Run は CLI で `run.$=run.@munch` を渡す（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 2 の結果」・§6 の 21）。
+- TempoRL 第二弾の段 2 について: 合算の基準に対して分割・`kmax`・学習側のスキップ長の ε-greedy を同じビルドの 3 seed・2M で比べ、評価 policy 報酬の Run 全体の平均は合算 135／113／125、分割 148／133／98、`kmax` 141／135／134、ε-greedy 150／104／84。3 腕とも基準以上だが上回る腕は無く、LunarLander の既定は据え置き。基準は `[greedy]` session を足した分、10/26 の同 seed の Run（131／143／138）と値が違う（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、現時点のまとめ 1・5・探索ブロック 01・02。Run: run_20261028-131118_t103_ll_mrg_s1 ほか 11 本）。
 
 ## 分かっていないこと
 

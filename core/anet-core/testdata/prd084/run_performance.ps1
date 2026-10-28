@@ -75,7 +75,7 @@ foreach ($comparison084 in $pair084) {
             ) -join "`n"
             [System.IO.File]::WriteAllText($config084Path, $config084 + "`n", [System.Text.UTF8Encoding]::new($false))
             $args084 = @('--config',$config084Path,('app.run_name=run_{t}_prd084_perf_'+$name084),('app.exp_exit_step='+$ExperienceBudget),('app.batchrun.exp_exit_step='+$ExperienceBudget),
-                'run.eval_schedule.[eval].interval=0','run.eval_schedule.[eval_target].interval=0','run.eval_schedule.[greedy_dist].interval=0',
+                'run.eval_schedule.[eval].interval=0','run.eval_schedule.[eval_target].interval=0','run.eval_schedule.[greedy].interval=0',
                 ($actor084+'mode=sample'),($actor084+'hold=call'),($actor084+'share=batch'),'DefaultDQNAgent.actor.[train].nn_forward_key=perf_actor') + $comparison084[$side084]
             $record084 = [ordered]@{pair=$comparison084.name; repeat=$repeat084; side=$side084; profile=$profile084; executable_sha256=(Get-FileHash -LiteralPath $exe084).Hash; arguments=$args084; seed=1; experience_budget=$ExperienceBudget; start=[DateTimeOffset]::Now.ToString('o'); gpu_before_mib=(Get-GpuUsed084)}
             if ($Pairs.Count -gt 0) {

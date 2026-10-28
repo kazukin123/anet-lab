@@ -275,17 +275,27 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 # metrics.scalar.$ は run.@a5_metrics の連鎖に @skip を足したもの（後ろの profile の連鎖だけが残るため、ここで全部書く）。
 run.@skip : DefaultDQNAgent.skip.enabled = true
 run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@skip
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[2]] = skip_length_rate.[2] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[3]] = skip_length_rate.[3] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[4]] = skip_length_rate.[4] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[5]] = skip_length_rate.[5] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[6]] = skip_length_rate.[6] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[7]] = skip_length_rate.[7] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[8]] = skip_length_rate.[8] @train $action_info
-run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[9]] = skip_length_rate.[9] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[03]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[04]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[05]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[06]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[07]] = skip_length_rate.[7] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[08]] = skip_length_rate.[8] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[09]] = skip_length_rate.[9] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
 run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
 run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[01]] = skip_session_length_rate.[1] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[02]] = skip_session_length_rate.[2] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[03]] = skip_session_length_rate.[3] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[04]] = skip_session_length_rate.[4] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[05]] = skip_session_length_rate.[5] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[06]] = skip_session_length_rate.[6] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[07]] = skip_session_length_rate.[7] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[08]] = skip_session_length_rate.[8] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[09]] = skip_session_length_rate.[9] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[10]] = skip_session_length_rate.[10] $eval.[greedy] $actor @session_end
 
 # RR は再現プロファイルが A3 に書くので、上書きも A3 で行う(A2 では届かない)。
 # half_exp_step は据え置き。per_beta.steps だけが依存するので、打ち切り Run が 100M 参照 Run の prefix になる。
@@ -382,20 +392,20 @@ run.@eval2ch : run.eval_schedule.[eval_target].interval = 0
 run.@eval2ch : run.eval_schedule.[eval].interval = 3906
 run.@eval2ch : run.eval.[eval].eval_batch_size = 10
 run.@eval2ch : run.eval.[eval].eval_episodes = 10
-run.@eval2ch : run.eval_schedule.[greedy_dist].interval = 78907   # 5.05M exp step。50M 予算で 0〜45.45M の 10 回
-run.@eval2ch : run.eval_schedule.[greedy_dist].use_background = true
+run.@eval2ch : run.eval_schedule.[greedy].interval = 78907   # 5.05M exp step。50M 予算で 0〜45.45M の 10 回
+run.@eval2ch : run.eval_schedule.[greedy].use_background = true
 
 run.@eval2ch_r1 : run.eval_schedule.[eval_target].interval = 0
 run.@eval2ch_r1 : run.eval_schedule.[eval].interval = 1954   # 500,224 exp step。100M 予算で 199 回
 run.@eval2ch_r1 : run.eval.[eval].eval_batch_size = 10
 run.@eval2ch_r1 : run.eval.[eval].eval_episodes = 10
-run.@eval2ch_r1 : run.eval_schedule.[greedy_dist].interval = 39453  # 10.1M exp step。100M 予算で 0〜90.9M の 10 回
-run.@eval2ch_r1 : run.eval_schedule.[greedy_dist].use_background = true
-run.@eval2ch_r1_50m : run.eval_schedule.[greedy_dist].interval = 19727  # RR1 で 50M 予算のとき
+run.@eval2ch_r1 : run.eval_schedule.[greedy].interval = 39453  # 10.1M exp step。100M 予算で 0〜90.9M の 10 回
+run.@eval2ch_r1 : run.eval_schedule.[greedy].use_background = true
+run.@eval2ch_r1_50m : run.eval_schedule.[greedy].interval = 19727  # RR1 で 50M 予算のとき
 
 # 既定 100 本を 400 本へ戻す。ε=0 の 1 点あたりのばらつきが CV 4〜5% になるゲーム
 # (battle_zone / phoenix)で結論を出すときに足す。
-run.@gdist400 : run.eval.[greedy_dist].eval_episodes = 400
+run.@gdist400 : run.eval.[greedy].eval_episodes = 400
 
 
 # learner.enabled=false では 1 train step = 1 learn step になるので、interval はそのまま
@@ -1272,13 +1282,13 @@ A3.actor.[greedy].policy.epsilon = 0
 A3.actor.[greedy].policy.spatial.epsilon.first = 0
 A3.actor.[greedy].policy.spatial.epsilon.last = 0
 
-run.eval.[greedy_dist].actor = greedy
-run.eval.[greedy_dist].eval_batch_size = 16
+run.eval.[greedy].actor = greedy
+run.eval.[greedy].eval_batch_size = 16
 # 既定 100 本。中間点は曲線の形を見るためなので 100 本の精度で足り、400 本だと 1 Run の
 # eval が env step で train 予算の 8 割に達する(2026-09-22 実測: Atari-5 5 本で greedy 155.0M
 # 対 eval2 53.8M)。終端の精度が要るときは ev Run を別に流すか @gdist400 を足す。
-run.eval.[greedy_dist].eval_episodes = 100
-run.eval.[greedy_dist].env.episodic_life = false
+run.eval.[greedy].eval_episodes = 100
+run.eval.[greedy].env.episodic_life = false
 
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
@@ -1300,7 +1310,7 @@ metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
 metrics.trace.$ = metrics.trace.@atari
 metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
-metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy_dist] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 
 M1.[42_env/10_game_score_mean]      = $env_step mean.game_score  @episode_end $exp_step
@@ -1380,20 +1390,20 @@ M1.[52_eval2/56_ram_metric_1_max]     = $eval.[eval] @session_end $env max.ram_m
 M1.[52_eval2/57_ram_metric_2_max]     = $eval.[eval] @session_end $env max.ram_metric.[2]
 M1.[52_eval2/58_ram_metric_3_max]     = $eval.[eval] @session_end $env max.ram_metric.[3]
 
-M1.[53_evalg/10_game_score_mean]      = $eval.[greedy_dist] @session_end $env mean.game_score
-M1.[53_evalg/12_hns57_mean]           = $eval.[greedy_dist] @session_end $env mean.hns57
-M1.[53_evalg/14_hns49_mean]           = $eval.[greedy_dist] @session_end $env mean.hns49
-M1.[53_evalg/16_game_score_max]       = $eval.[greedy_dist] @session_end $env max.game_score
-M1.[53_evalg/20_game_len_mean]        = $eval.[greedy_dist] @session_end $env mean.game_len
-M1.[53_evalg/22_game_frames_mean]     = $eval.[greedy_dist] @session_end $env mean.game_frames
-M1.[53_evalg/24_game_len_max]         = $eval.[greedy_dist] @session_end $env max.game_len
-M1.[53_evalg/30_lives_mean]           = $eval.[greedy_dist] @session_end $env mean.lives
-M1.[53_evalg/50_ram_metric_1_mean]    = $eval.[greedy_dist] @session_end $env mean.ram_metric.[1]
-M1.[53_evalg/52_ram_metric_2_mean]    = $eval.[greedy_dist] @session_end $env mean.ram_metric.[2]
-M1.[53_evalg/54_ram_metric_3_mean]    = $eval.[greedy_dist] @session_end $env mean.ram_metric.[3]
-M1.[53_evalg/56_ram_metric_1_max]     = $eval.[greedy_dist] @session_end $env max.ram_metric.[1]
-M1.[53_evalg/57_ram_metric_2_max]     = $eval.[greedy_dist] @session_end $env max.ram_metric.[2]
-M1.[53_evalg/58_ram_metric_3_max]     = $eval.[greedy_dist] @session_end $env max.ram_metric.[3]
+M1.[53_evalg/10_game_score_mean]      = $eval.[greedy] @session_end $env mean.game_score
+M1.[53_evalg/12_hns57_mean]           = $eval.[greedy] @session_end $env mean.hns57
+M1.[53_evalg/14_hns49_mean]           = $eval.[greedy] @session_end $env mean.hns49
+M1.[53_evalg/16_game_score_max]       = $eval.[greedy] @session_end $env max.game_score
+M1.[53_evalg/20_game_len_mean]        = $eval.[greedy] @session_end $env mean.game_len
+M1.[53_evalg/22_game_frames_mean]     = $eval.[greedy] @session_end $env mean.game_frames
+M1.[53_evalg/24_game_len_max]         = $eval.[greedy] @session_end $env max.game_len
+M1.[53_evalg/30_lives_mean]           = $eval.[greedy] @session_end $env mean.lives
+M1.[53_evalg/50_ram_metric_1_mean]    = $eval.[greedy] @session_end $env mean.ram_metric.[1]
+M1.[53_evalg/52_ram_metric_2_mean]    = $eval.[greedy] @session_end $env mean.ram_metric.[2]
+M1.[53_evalg/54_ram_metric_3_mean]    = $eval.[greedy] @session_end $env mean.ram_metric.[3]
+M1.[53_evalg/56_ram_metric_1_max]     = $eval.[greedy] @session_end $env max.ram_metric.[1]
+M1.[53_evalg/57_ram_metric_2_max]     = $eval.[greedy] @session_end $env max.ram_metric.[2]
+M1.[53_evalg/58_ram_metric_3_max]     = $eval.[greedy] @session_end $env max.ram_metric.[3]
 
 # --- Breakout 固有(1 画面 = 18 ×(1+1+4+4+7+7) = 432、2 画面 = 864) ---
 
@@ -1412,8 +1422,8 @@ metrics.scalar.@breakout.[52_eval2/41_game_score_ge432_ema] = $eval.[eval] @sess
 metrics.scalar.@breakout.[52_eval2/42_game_score_ge600]     = $eval.[eval] @session_end $env mean.game_score.ge.[600]
 metrics.scalar.@breakout.[52_eval2/43_game_score_ge600_ema] = $eval.[eval] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
 
-metrics.scalar.@breakout.[53_evalg/40_game_score_ge432]     = $eval.[greedy_dist] @session_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[53_evalg/42_game_score_ge600]     = $eval.[greedy_dist] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout.[53_evalg/40_game_score_ge432]     = $eval.[greedy] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout.[53_evalg/42_game_score_ge600]     = $eval.[greedy] @session_end $env mean.game_score.ge.[600]
 
 # --- SN 実験用(63/64=実効ノルム、65/66=sigma。@baseline では既定 OFF) ---
 

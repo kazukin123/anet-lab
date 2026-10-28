@@ -64,7 +64,7 @@ function Invoke-ReviewRun084([string]$case084,[string]$config084,[string[]]$extr
     $args084 = @('--config',$config084,('app.run_name=run_{t}_prd084_review_'+$case084),
         ('app.exp_exit_step='+$caseBudget084)) + $extra084
     if ($case084.StartsWith('atari_') -or $case084.StartsWith('nz_')) {
-        $args084 += 'run.eval_schedule.[greedy_dist].interval=0'
+        $args084 += 'run.eval_schedule.[greedy].interval=0'
     }
     $actualBudget084 = $caseBudget084
     foreach ($argument084 in $args084) { if ($argument084 -match '^app.exp_exit_step=(\d+)$') { $actualBudget084 = [int]$Matches[1] } }

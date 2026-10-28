@@ -304,7 +304,7 @@ DefaultDQNのprimary Headはboolの `head.use_dueling` で選び、既定trueは
 
 ### 6.5 DefaultDQNのskip方策
 
-共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列だけを選び、Agentのチェーンを書き直さない。merge・Dueling・action_in・層幅はCLIの葉で指定する。
+共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列・greedy評価を選び、Agentのチェーンを書き直さない。GridMazeはskip専用のepsilon-greedy（0.60→0.05）も選ぶ。feature_gradient・Dueling・action_in・層幅はCLIの葉で指定する。
 
 `skip.enabled=false`が既定で、無効時はskip網を構築しない。設定値の型・列挙・範囲の検証は無効でも行う。Jの実装既定0は未指定を表し、有効時はJを必須とする。明示0以下は無効時も拒否し、明示1は許す。有効時はprimaryのonline／targetにskipのonline／targetを加え、同期を同じ時点で行う。skip targetはtargetを元にするActorだけが使い、Learnerのbootstrapはprimaryを使う。
 
@@ -318,7 +318,15 @@ ActionPolicyはprimaryの特徴量と使用したtausをActorまで一時保持�
 
 Learnerは同じReplay sampleからQのn-step targetとwindowのskip targetを作る。skip targetは窓の割引報酬にγ^kのprimary bootstrapを加え、doneではbootstrapを除く。Munchausenの先頭bonusは1回だけ加え、TBOの計算は実空間へ戻してから行う。target方式のMunchausen forwardはcurrent B・通常終端B・窓終端Bの3B、その他の終端評価は2Bをまとめる。
 
-skip currentの入力特徴量は`learner.skip.feature_gradient=stop`でdetachし、`merge`ならprimaryへ勾配を返す。Q lossと`learner.skip.loss_weight`倍のskip lossを一度だけbackwardし、primaryとskipを別々に同じ閾値でclipする。GNSの入力はQ lossとprimary parameterだけである。skip有効時のFP16 AMPは非対応で構築時に拒否し、BF16またはAMPなしを使う。PERは`|δQ| + learner.skip.priority_lambda * |δskip| + ε`で、係数の既定は0。同じIS重みを両lossへ掛ける。
+skip currentの入力特徴量は`learner.skip.feature_gradient=stop`でdetachし、`merge`ならprimaryへ勾配を返す。この2モードはQ lossと`learner.skip.loss_weight`倍のskip lossを一度だけbackwardし、primaryとskipを別々に同じ閾値でclipする。
+
+`split`は同じforward・更新前のパラメータからQと重み付きskipの勾配を別々に求める。primaryのQ勾配・primaryのskip勾配・skip Networkの勾配を独立して同じ閾値でclipし、primaryには別々のAdam状態による更新の和を加える。追加optimizerはLearnerが所有し、primaryの通常・sigmaパラメータをまとめて扱う。lr・eps・betasとlrスケジュールはprimaryと同じ、weight decayは0とし、decayはQ側で一度だけ適用する。`loss_weight`はどのモードでもskip lossへの倍率であり、更新量の倍率ではない。policy churnは両step全体の前後を測る。GNSの入力はQ lossとprimary parameterだけである。skip有効時のFP16 AMPは非対応で構築時に拒否し、BF16またはAMPなしを使う。
+
+`learner.skip.sample_weight=uniform`が既定で、`kmax`では行ごとのskip lossへ`max_lengths / mean(max_lengths)`を掛ける。重みの和はBで、IS重みと積にする。TD値自体は変えない。PERは`|δQ| + learner.skip.priority_lambda * |δskip| + ε`で、係数の既定は0。同じIS重みを両lossへ掛ける。
+
+Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期snapshotの同期も含む）で消す。`GetScalar()`の`skip_session_decision_rate`は判断回数／lane step数、`skip_session_length_mean`は選択長の平均、`skip_session_length_rate.[j]`は判断回数中の長さjの割合である。初回読出し時だけCPUへ転送し、stepごとの同期を増やさない。skip無効・未成立はNaN、添字範囲外はfail-fast。判断がないsessionでは判断率0、長さの平均・割合はNaNになる。`$eval.[greedy] $actor @session_end`の購読は学習側の座標に記録される。
+
+畳み込みまでの共有と完全非共有を比べる独立profile、数値例、checkpoint・設定移行・Run等価性の確認は[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)を参照する。これらのprofileは既定のNetwork構造を変えず、既定構造のcheckpointとは互換にしない。
 
 ## 7. DefaultDQNとRainbowの構成・設定
 
@@ -378,6 +386,8 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 - outer Agentの共有mutexはLearner更新、shared Actor forward、clone/sync copyの境界を直列化する。
 
 ### 8.2 checkpoint
+
+`split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
 DefaultDQNAgent全体の保存形式は、第1版の `DefaultDQNAgent` と第2版の `DefaultDQNAgent-2` で識別する。識別子はdefault_dqn_agent.cpp内の `kCheckpointFormatV1` / `kCheckpointFormatV2` に一元化し、書込・読込・診断で共有する。skip無効時は既存の第1版、skip有効時はprimaryとskipのonline／targetの4 Networkを持つ第2版を保存する。識別子以外のバイト配置は変更しない。optimizer は primary通常・primaryσ・skip通常・skipσの役割名と状態を保存する。読み込み時は保存された役割でgroupを対応付け、momentとstepを復元してから現在のoptionsを役割ごとに適用する。空のσ groupも役割を保持する。
 
@@ -518,7 +528,7 @@ probe は `learner.noisy_probe.probe.batch_size=128`、`num_draws=32`、`iqn.num
 
 ### 9.8 勾配ノイズスケール
 
-TD / QR / IQN は autocast 内で計算した長さ B の重み付き要素損失と、その平均である既存の loss を `Optimize(loss, weighted_element_loss)` へ渡す。測定は zero_grad 前に、同じグラフから k 個の小バッチの勾配を autograd::grad（retain_graph、allow_unused、create_graph=false）で取得する。forward・乱数抽選は増やさず、学習の .grad・optimizer state を変更しない。共通計算部は nn_util、購読と EMA State は Learner が所有する。単一損失・AdamW の用途に限定する。
+TD / QR / IQN は autocast 内で計算した長さ B の重み付き要素損失と、その平均である既存の loss を `Optimize(primary_loss, weighted_element_loss, skip_loss)` へ渡す。測定は zero_grad 前に、同じグラフから k 個の小バッチの勾配を autograd::grad（retain_graph、allow_unused、create_graph=false）で取得する。forward・乱数抽選は増やさず、学習の .grad・optimizer state を変更しない。共通計算部は nn_util、購読と EMA State は Learner が所有する。単一損失・AdamW の用途に限定する。 skip有効でもGNSが使うのはQのweighted_element_lossだけであり、skip_lossは測定に含めない。
 
 小バッチ勾配の二乗平均 s と平均勾配の二乗 b から、信号 `(k*b-s)/(k-1)`、分散 `(s-b)*B/(k-1)` を推定する。Adam 版は更新前の exp_avg_sq と step、所属 group の beta2、learner.adam_eps による固定前処理 `1/(sqrt(v_hat)+eps)` で測る。今回得た勾配だけで使用判定し、全小バッチ未使用は除外、一部未使用は0寄与とする。使用parameterのstate不足はその群とallだけを未成立にする。feature依存閉包・readoutの分類はweight normと共通だが、使用されたNoisy sigmaも計測対象に含む。
 
@@ -535,6 +545,8 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
+
+skipの更新方式・重み・session指標・構造の腕を変えるときは[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
 
 PRD101の比較・実Run手順は[PRD101検証資材](../../core/anet-core/testdata/prd101/README.md)を参照する。
 

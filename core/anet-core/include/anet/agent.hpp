@@ -221,9 +221,13 @@ namespace anet::rl {
         struct LearnerConfig {
             static constexpr const char* kFeatureGradientStop = "stop";
             static constexpr const char* kFeatureGradientMerge = "merge";
+            static constexpr const char* kFeatureGradientSplit = "split";
+            static constexpr const char* kSampleWeightUniform = "uniform";
+            static constexpr const char* kSampleWeightKmax = "kmax";
 
             struct {
                 std::string feature_gradient = kFeatureGradientStop;
+                std::string sample_weight = kSampleWeightUniform;
                 float loss_weight = 1.0f;
                 float priority_lambda = 0.0f;
             } skip;

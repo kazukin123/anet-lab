@@ -32,11 +32,16 @@ constexpr const char* kOptimizerRolePrimary = "primary";
 constexpr const char* kOptimizerRolePrimarySigma = "primary_sigma";
 constexpr const char* kOptimizerRoleSkip = "skip";
 constexpr const char* kOptimizerRoleSkipSigma = "skip_sigma";
+constexpr const char* kOptimizerRolePrimarySkip = "primary_skip";
 constexpr const char* kOptimizerSigmaRoleSuffix = "_sigma";
 constexpr const char* kArchiveParamGroups = "param_groups";
 constexpr const char* kArchiveParamGroupCount = "param_groups/size";
 constexpr const char* kSkipForwardSeed = "skip_network_forward";
 constexpr const char* kSkipPolicySeed = "skip_policy";
+constexpr const char* kSkipSessionDecisionRate = "skip_session_decision_rate";
+constexpr const char* kSkipSessionLengthMean = "skip_session_length_mean";
+constexpr const char* kSkipSessionLengthRatePrefix = "skip_session_length_rate.";
+constexpr const char* kSkipSessionLengthRateIndexPrefix = "skip_session_length_rate.[";
 } // namespace
 
 
@@ -2370,6 +2375,7 @@ void Actor::UpdateSnapshot(const StepCounts& step) const
     const auto snapshot_age = step.train_step - last_snapshot_sync_train_step_;
     if (snapshot_age >= snapshot_sync_interval_->Value()) {
         CopySourceNetwork();
+        ResetSkipSession();
         last_snapshot_sync_train_step_ = step.train_step;
     }
 }
@@ -2516,6 +2522,15 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     skip_remaining_ = torch::where(decision, lengths - 1, skip_remaining_ - 1);
     skip_actions_ = actions;
 
+    // 判断laneだけをdevice上で累積する。CPU転送はGetScalar要求時まで行わない。
+    ANET_PROFILE_SCOPE(skip_session);
+    const auto durations = torch::arange(1, skip_->config.max_length + 1, lengths.options());
+    const auto counts = lengths.unsqueeze(1).eq(durations).logical_and(decision.unsqueeze(1)).sum(0);
+    if (!skip_session_counts_.defined()) skip_session_counts_ = counts;
+    else skip_session_counts_.add_(counts);
+    skip_session_lane_steps_ += lengths.size(0);
+    skip_session_counts_cpu_ = torch::Tensor();
+
     // info.decision は replay の判断境界、aux 3 つは scalar と Trace の診断へ渡す。
     auto result = std::make_shared<DQNActionInfo>(actions, proposal->GetInfo(), proposal->GetAuxData());
     result->GetInfo().Set(anet::rl::BatchActionInfo::kKeyDecision, decision);
@@ -2528,10 +2543,46 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
 void Actor::Sync()
 {
     CopySourceNetwork();
+    ResetSkipSession();
     if (snapshot_sync_interval_.has_value()) {
         // Syncはstepを受け取らないため、次actionのtrain_stepを新しいage基準にする。
         reset_snapshot_age_on_next_action_ = true;
     }
+}
+
+void Actor::ResetSkipSession() const
+{
+    skip_session_counts_ = torch::Tensor();
+    skip_session_counts_cpu_ = torch::Tensor();
+    skip_session_lane_steps_ = 0;
+}
+
+std::optional<float> Actor::GetScalar(const std::string& key, int64_t index) const
+{
+    const bool length_rate = key.starts_with(kSkipSessionLengthRatePrefix);
+    if (!length_rate && key != kSkipSessionDecisionRate && key != kSkipSessionLengthMean) {
+        return policy_->GetScalar(key, index);
+    }
+    const auto duration = length_rate ? ParseActionScalarIndex(key, kSkipSessionLengthRateIndexPrefix) : 1;
+    if (duration < 1 || (skip_ && duration > skip_->config.max_length)) {
+        ANET_SYSTEM_ERROR("Actor: invalid key=" << key << " duration=" << duration
+            << "; expected duration >= 1 and <= skip.max_length=" << (skip_ ? skip_->config.max_length : 0) << ".");
+    }
+    const auto nan = std::numeric_limits<float>::quiet_NaN();
+    if (!skip_ || skip_session_lane_steps_ == 0) return nan;
+
+    // 同じsessionの各指標は一度の読み戻しを共用し、CPU上で割合と平均にする。
+    ANET_PROFILE_SCOPE(skip_session_readback);
+    if (!skip_session_counts_cpu_.defined()) skip_session_counts_cpu_ = skip_session_counts_.to(torch::kCPU);
+    const auto* counts = skip_session_counts_cpu_.data_ptr<int64_t>();
+    int64_t decisions = 0, length_sum = 0;
+    for (int64_t j = 0; j < skip_->config.max_length; ++j) {
+        decisions += counts[j];
+        length_sum += (j + 1) * counts[j];
+    }
+    if (key == kSkipSessionDecisionRate) return static_cast<float>(decisions) / skip_session_lane_steps_;
+    if (decisions == 0) return nan;
+    return static_cast<float>(length_rate ? counts[duration - 1] : length_sum) / decisions;
 }
 
 
@@ -3234,6 +3285,13 @@ void Learner::SetupOptimizer()
         }
         if (config_.use_fused_optimizer) optimizer_ = std::make_unique<anet::FusedAdamW>(groups, opts);
         else optimizer_ = std::make_unique<torch::optim::AdamW>(groups, opts);
+        if (config_.skip.feature_gradient == LearnerConfig::kFeatureGradientSplit) {
+            // primaryのdecayはQ側で一度だけ掛け、sigmaを含むskip側の状態を別に持つ。
+            auto skip_options = opts;
+            skip_options.weight_decay(0);
+            if (config_.use_fused_optimizer) skip_primary_optimizer_ = std::make_unique<anet::FusedAdamW>(model_.GetOnlineParameters(), skip_options);
+            else skip_primary_optimizer_ = std::make_unique<torch::optim::AdamW>(model_.GetOnlineParameters(), skip_options);
+        }
         return;
     }
     const auto entries = model_.GetOnlineNetwork()->GetNoisyParameterEntries();
@@ -3357,7 +3415,8 @@ std::optional<GradientNoiseMetrics> Learner::CaptureGradientNoise(const torch::T
     }
     return result;
 }
-OptimizerStepResult Learner::Optimize(const torch::Tensor& loss, const torch::Tensor& weighted_element_loss)
+OptimizerStepResult Learner::Optimize(const torch::Tensor& primary_loss, const torch::Tensor& weighted_element_loss,
+    const torch::Tensor& skip_loss)
 {
 	ANET_PROFILE_FUNC();
 	
@@ -3370,6 +3429,54 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss, const torch::Te
     ANET_PROFILE_SCOPE(zero_grad);
     optimizer_->zero_grad();
 
+    if (skip_primary_optimizer_) {
+        // 同じforwardのgraphでQの勾配を先に取り、参照を保ったまま.gradだけを外す。
+        ANET_PROFILE_SCOPE_NEXT(primary_backward);
+        primary_loss.backward({}, true);
+        std::vector<torch::Tensor> primary_gradients;
+        for (const auto& parameter : parameters) primary_gradients.push_back(parameter.grad());
+        const auto primary_grads = anet::CollectDefinedGrads(parameters);
+        optimizer_->zero_grad(true);
+
+        // パラメータを動かす前にskipの勾配も取り、Network別の3集合を確定する。
+        ANET_PROFILE_SCOPE_NEXT(skip_backward);
+        (config_.skip.loss_weight * skip_loss).backward();
+        std::vector<torch::Tensor> skip_primary_gradients;
+        for (const auto& parameter : parameters) skip_primary_gradients.push_back(parameter.grad());
+        const auto skip_primary_grads = anet::CollectDefinedGrads(parameters);
+        const auto skip_grads = anet::CollectDefinedGrads(model_.GetSkipOnlineNetwork()->parameters());
+        ANET_PROFILE_SCOPE_NEXT(grad_norm);
+        result.grad_norm_tensor = anet::ForeachGradNorm(primary_grads);
+        result.skip_grad_norm = anet::ForeachGradNorm(skip_grads);
+        result.skip_primary_grad_norm = skip_primary_grads.empty()
+            ? torch::zeros_like(result.grad_norm_tensor) : anet::ForeachGradNorm(skip_primary_grads);
+#if ANET_ENABLE_TENSOR_NAN_CHECK
+        // 診断用の同期を既存経路と同じ一回にまとめ、どちらの更新よりも前に失敗させる。
+        const auto norms = torch::stack({result.grad_norm_tensor, result.skip_primary_grad_norm, result.skip_grad_norm});
+        if (!torch::isfinite(norms).all().item<bool>()) {
+            ANET_SYSTEM_ERROR("Nonfinite gradient norms before optimizer step: [primary, skip_primary, skip]=" << norms);
+        }
+#endif
+        ANET_PROFILE_SCOPE_NEXT(grad_clip);
+        if (config_.use_grad_clip) {
+            anet::ForeachClipGradNorm_(primary_grads, result.grad_norm_tensor, config_.grad_clip_tau);
+            anet::ForeachClipGradNorm_(skip_primary_grads, result.skip_primary_grad_norm, config_.grad_clip_tau);
+            anet::ForeachClipGradNorm_(skip_grads, result.skip_grad_norm, config_.grad_clip_tau);
+        }
+
+        // Q側とskip Networkを更新し、primaryへskip由来の更新を足す。churnは和の前後で測る。
+        ANET_PROFILE_SCOPE_NEXT(optimizer_step);
+        for (size_t i = 0; i < parameters.size(); ++i) parameters[i].mutable_grad() = primary_gradients[i];
+        CapturePolicyChurnOnlineBefore();
+        optimizer_->step();
+        for (size_t i = 0; i < parameters.size(); ++i) parameters[i].mutable_grad() = skip_primary_gradients[i];
+        skip_primary_optimizer_->step();
+        CapturePolicyChurnOnlineAfter();
+        return result;
+    }
+
+    // 既定のstop/mergeは従来の合算式と一回のbackwardを保つ。
+    const auto loss = skip_loss.defined() ? primary_loss + config_.skip.loss_weight * skip_loss : primary_loss;
     if (model_.GetSkipOnlineNetwork()) {
         ANET_PROFILE_SCOPE_NEXT(backward);
         loss.backward();
@@ -3737,8 +3844,13 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
 {
     auto result = std::make_shared<BatchUpdateResult>();
     if (skip.loss.defined()) {
+        const auto skip_primary_norm = opt_result.skip_primary_grad_norm.defined()
+            ? opt_result.skip_primary_grad_norm
+            : torch::full({}, std::numeric_limits<float>::quiet_NaN(), skip.loss.options());
+        const auto skip_primary_clip = opt_result.skip_primary_grad_norm.defined()
+            ? skip_primary_norm.gt(opt_result.grad_clip_tau).to(torch::kFloat32) : skip_primary_norm;
         result->skip_metrics = torch::stack({skip.loss.detach(), skip.td.detach().abs().mean(),
-            skip.k_mean, skip.kmax_mean, opt_result.skip_grad_norm}).detach();
+            skip.k_mean, skip.kmax_mean, opt_result.skip_grad_norm, skip_primary_norm, skip_primary_clip}).detach();
     }
     result->grad_noise = opt_result.grad_noise;
     result->loss = loss.detach();
@@ -3870,6 +3982,9 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
             options.lr(learning_rate_.Value());
             if (!optimizer_sigma_groups_[i]) options.weight_decay(weight_decay_.Value());
         }
+        if (skip_primary_optimizer_) {
+            static_cast<torch::optim::AdamWOptions&>(skip_primary_optimizer_->param_groups().front().options()).lr(learning_rate_.Value());
+        }
     }
 
     // 学習停止時。空listを返すとLearnEventが発火せず(trainer側の発火条件が非空)、
@@ -3995,11 +4110,13 @@ int64_t Learner::Save(OutputArchive& archive) const
 {
     int64_t size = 0;
     if (model_.GetSkipOnlineNetwork()) {
-        const auto roles = OptimizerRoles();
+        auto roles = OptimizerRoles();
+        if (skip_primary_optimizer_) roles.push_back(kOptimizerRolePrimarySkip);
         size += archive.Write(static_cast<int64_t>(roles.size()));
         for (const auto& role : roles) size += archive.Write(role);
     }
     size += archive.WriteTorchObject(*optimizer_);
+    if (skip_primary_optimizer_) size += archive.WriteTorchObject(*skip_primary_optimizer_);
     return size;
 }
 
@@ -4038,19 +4155,29 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
 {
     ANET_PROFILE_FUNC();
     int64_t size = 0;
-    const auto roles = OptimizerRoles();
+    auto roles = OptimizerRoles();
+    bool has_primary_skip = false;
     if (has_skip) {
         if (!model_.GetSkipOnlineNetwork()) ANET_SYSTEM_ERROR("Checkpoint contains skip optimizer groups but skip.enabled=false.");
         int64_t count = 0;
         size += archive.Read(count);
-        if (count != static_cast<int64_t>(roles.size())) {
-            ANET_SYSTEM_ERROR("Invalid skip optimizer role count=" << count << " expected=" << roles.size());
+        if (count != static_cast<int64_t>(roles.size()) && count != static_cast<int64_t>(roles.size() + 1)) {
+            ANET_SYSTEM_ERROR("Invalid skip optimizer role count=" << count << " expected=4 or 5.");
         }
         std::vector<std::string> saved_roles;
         std::vector<torch::optim::OptimizerParamGroup> ordered;
         for (int64_t i = 0; i < count; ++i) {
             std::string role;
             size += archive.Read(role);
+            if (role == kOptimizerRolePrimarySkip) {
+                if (!skip_primary_optimizer_ || has_primary_skip) {
+                    ANET_SYSTEM_ERROR("Invalid optimizer role='" << role
+                        << "'; expected exactly one " << kOptimizerRolePrimarySkip << " role only for learner.skip.feature_gradient="
+                        << LearnerConfig::kFeatureGradientSplit << ".");
+                }
+                has_primary_skip = true;
+                continue;
+            }
             const auto it = std::find(roles.begin(), roles.end(), role);
             if (it == roles.end() || std::find(saved_roles.begin(), saved_roles.end(), role) != saved_roles.end()) {
                 ANET_SYSTEM_ERROR("Invalid optimizer role='" << role << "'; expected each " << kOptimizerRolePrimary << "/" << kOptimizerRolePrimarySigma
@@ -4058,6 +4185,9 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
             }
             saved_roles.push_back(role);
             ordered.emplace_back(optimizer_->param_groups()[std::distance(roles.begin(), it)]);
+        }
+        if (ordered.size() != roles.size()) {
+            ANET_SYSTEM_ERROR("Incomplete skip optimizer roles: count=" << ordered.size() << " expected=" << roles.size());
         }
         // 保存順へ同じ役割のparameterを並べ、Torchのstate読込後は構築時の役割順へ戻す。
         optimizer_->param_groups() = std::move(ordered);
@@ -4068,6 +4198,7 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
             restored.emplace_back(std::move(optimizer_->param_groups()[std::distance(saved_roles.begin(), it)]));
         }
         optimizer_->param_groups() = std::move(restored);
+        if (has_primary_skip) size += archive.ReadTorchObject(*skip_primary_optimizer_);
     } else if (model_.GetSkipOnlineNetwork()) {
         // 無効checkpointの1/2 groupをprimaryの同じTensorへ読み、skipのstateは初期状態にする。
         std::vector<torch::optim::OptimizerParamGroup> primary_groups;
@@ -4084,14 +4215,25 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
     } else {
         size += archive.ReadTorchObject(*optimizer_);
     }
+    if (skip_primary_optimizer_ && !has_primary_skip) {
+        skip_primary_optimizer_->state().clear();
+        LOG::warn() << "Learner::Load: checkpoint has no " << kOptimizerRolePrimarySkip
+            << " optimizer role; initialized moments for learner.skip.feature_gradient=" << LearnerConfig::kFeatureGradientSplit << ".";
+    }
     // 診断EMAはcheckpointの一部ではなく、引き継ぎ時は未初期化へ戻す。
     if (!grad_noise_.demand.empty()) {
         for (auto& estimator : grad_noise_.estimators) estimator = anet::GradientNoiseEstimator(config_.grad_noise.ema_alpha);
     }
     // moment と step の復元後、保存時との差を通知して group の options だけを置き換える。
-    const auto options = BuildOptimizerOptions();
+    auto options = BuildOptimizerOptions();
+    const auto main_group_count = options.size();
+    if (skip_primary_optimizer_) {
+        options.push_back(torch::optim::AdamWOptions(options.front()).weight_decay(0.0));
+        roles.push_back(kOptimizerRolePrimarySkip);
+    }
     for (size_t i = 0; i < options.size(); ++i) {
-        auto& loaded = static_cast<torch::optim::AdamWOptions&>(optimizer_->param_groups()[i].options());
+        auto& group = i < main_group_count ? optimizer_->param_groups()[i] : skip_primary_optimizer_->param_groups().front();
+        auto& loaded = static_cast<torch::optim::AdamWOptions&>(group.options());
         const auto& current = options[i];
         const auto warn_difference = [i, &roles](const char* option, const char* key, const auto& saved_value, const auto& config_value) {
             auto warning = LOG::warn();
@@ -4513,7 +4655,11 @@ SkipLearningResult Learner::ComputeSkipLoss(const ExperienceSamples& samples, co
     const auto index = distributed ? lengths.view({batch, 1, 1}).expand({batch, 1, all.size(-1)}) : lengths.view({batch, 1});
     const auto selected = all.gather(1, index).squeeze(1);
     const auto error = ComputeElementError(selected, target, taus, {});
-    const auto weighted = config_.use_per ? error.loss * samples.is_weights : error.loss;
+    auto weighted = config_.use_per ? error.loss * samples.is_weights : error.loss;
+    if (config_.skip.sample_weight == LearnerConfig::kSampleWeightKmax) {
+        const auto maximum = samples.window.max_lengths.to(torch::kFloat32);
+        weighted = weighted * (maximum / maximum.mean());
+    }
     return {.loss = weighted.mean(), .td = error.td,
         .k_mean = samples.window.lengths.to(torch::kFloat32).mean(),
         .kmax_mean = samples.window.max_lengths.to(torch::kFloat32).mean()};
@@ -4777,7 +4923,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     // loss_weight は skip loss の寄与にだけ掛け、無効時の最適化経路を保つ。
-    auto opt_result = Optimize(skip_result.loss.defined() ? loss + config_.skip.loss_weight * skip_result.loss : loss, weighted_element_loss);
+    auto opt_result = Optimize(loss, weighted_element_loss, skip_result.loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
@@ -4916,7 +5062,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     // loss_weight は skip loss の寄与にだけ掛け、無効時の最適化経路を保つ。
-    auto opt_result = Optimize(skip_result.loss.defined() ? loss + config_.skip.loss_weight * skip_result.loss : loss, weighted_element_loss);
+    auto opt_result = Optimize(loss, weighted_element_loss, skip_result.loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
@@ -5102,7 +5248,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     // loss_weight は skip loss の寄与にだけ掛け、無効時の最適化経路を保つ。
-    auto opt_result = Optimize(skip_result.loss.defined() ? loss + config_.skip.loss_weight * skip_result.loss : loss, weighted_element_loss);
+    auto opt_result = Optimize(loss, weighted_element_loss, skip_result.loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));

@@ -255,7 +255,7 @@ def main():
                     tags = sorted({row["tag"] for row in values})
                     if len(tags) < 9 or not all(math.isfinite(row["value"]) for row in values): raise RuntimeError("Missing or nonfinite skip metrics")
                     definitions = json.loads((run / "json/metrics.scalar.defs.json").read_text(encoding="utf-8-sig"))["data"]
-                    required = {"01_decision_rate", "02_skip_length_mean", "03_skip_length_rate.[1]", "04_skip_q_gap",
+                    required = {"01_decision_rate", "02_skip_length_mean", "03_skip_length_rate.[01]", "04_skip_q_gap",
                                 "11_loss", "12_td_abs_mean", "13_sample_k_mean", "14_kmax_mean", "15_grad_norm"}
                     required = {"50_agent_skip/" + suffix for suffix in required}
                     if not required.issubset(definitions) or not required.issubset(tags):

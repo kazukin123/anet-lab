@@ -338,6 +338,12 @@ Generic evaluation episode lengths are available in baseline/full through `21_ev
 
 ## 9. Tests and Extension Checks
 
+### TempoRL Scalars and Session Evaluation
+
+Skip metrics use the `50_agent_skip` group. Training length tags use two-digit indices such as `03_skip_length_rate.[01]`, while source keys remain `skip_length_rate.[1]`. Actor step statistics aggregate decision lanes; unavailable values are NaN. Learner results retain seven skip values, including `17_skip_primary_grad_norm` and `18_skip_primary_clip_ratio` for the split primary-skip gradient before clipping; these two are NaN outside split.
+
+`skip_session_decision_rate`, `skip_session_length_mean` and `skip_session_length_rate.[j]` accumulate between Actor Sync calls and are read through `$eval.[greedy] $actor @session_end`. Their tags are `21_greedy_decision_rate`, `22_greedy_length_mean` and `23_greedy_length_rate.[01]` onward, recorded with `runner=train` and the training coordinate. This is an approximate decision-count measure for sessions with multiple lanes and early lane completion. GridMaze, LunarLander and DropMerge add `21_eval/09_greedy_reward` and EMA/episode-step tags 10–12. Atari uses session name `greedy`, retaining the `53_evalg` group and its evaluation conditions. Counters stay on device and transfer once on first scalar access. See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) for numerical, Run and metadata checks.
+
 - [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 When changing Observers or output formats, check the following:

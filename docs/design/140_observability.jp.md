@@ -341,9 +341,11 @@ background 時、前セッション完了を待ってブロックした場合だ
 
 DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txtの `metrics.scalar.@skip` を選ぶと、Actor の decision_rate・判断laneの平均長・長さ別割合・選択長とj=1のQ差、および Learner の loss・平均絶対TD・k平均・k_max平均・clip前の勾配normを記録する。長さ別割合は `skip_length_rate.[j]` を1始まりで指定し、宣言したJを超える添字は fail-fast する。
 
-scalar tag内にも添字を含められる。たとえば設定key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[1]]` のtagは、内側の閉じ括弧を保持した `50_agent_skip/03_skip_length_rate.[1]` になる。
+scalar tag内にも添字を含められる。たとえば設定key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` のtagは、内側の閉じ括弧を保持した `50_agent_skip/03_skip_length_rate.[01]` になる。tagの添字は2桁、source keyの添字は`[1]`のままである。
 
-Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの5指標も結果オブジェクトが値を保持し、初回参照時に転送する。
+Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの7指標も結果オブジェクトが値を保持し、初回参照時に転送する。追加の`17_skip_primary_grad_norm`と`18_skip_primary_clip_ratio`はsplitのprimaryに入るskip勾配のclip前normと閾値超過の旗で、split以外はNaNになる。
+
+評価は`skip_session_decision_rate`・`skip_session_length_mean`・`skip_session_length_rate.[j]`を`$eval.[greedy] $actor @session_end`で読む。ActorがSync間の判断回数・選択長・lane step数を保持し、判断率・平均・長さ別割合を返す。tagは`21_greedy_decision_rate`、`22_greedy_length_mean`、`23_greedy_length_rate.[01]`～で、`runner=train`の学習側座標に並ぶ。複数lane・途中終了のあるsessionでは判断回数の近似指標である。GridMaze/LunarLander/DropMergeのgreedy報酬は`21_eval/09_greedy_reward`、EMA・episode steps・最大stepsは`10`～`12`。Atariのsession名も`greedy`で、既存の`53_evalg`群・評価条件は維持する。数値例・短縮Run・metrics定義の確認は[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)を参照する。
 
 Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) を参照する。
 

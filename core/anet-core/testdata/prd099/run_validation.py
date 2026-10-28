@@ -49,7 +49,7 @@ def run_case(label, explicit):
               'DefaultDQNAgent.learner.replay_ratio=0.25',
               'DefaultDQNAgent.learner.use_amp=false',
               'DefaultDQNAgent.learner.use_amp_bf16=false']
-    for tag in ['eval_target', 'eval', 'greedy_dist']:
+    for tag in ['eval_target', 'eval', 'greedy']:
         values.append(f'run.eval_schedule.[{tag}].interval=0')
     if explicit:
         values.append('AtariEnv.resize_mode=adaptive_average')

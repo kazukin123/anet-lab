@@ -2,7 +2,7 @@
 
 ## 今の結論
 
-Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。
+Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。
 
 ## 分かっていること
 
@@ -18,10 +18,12 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 - anet の TempoRL では、評価 slot のスキップ長にも評価の方策が掛かる（Atari の `eval` は ε 0.01、LunarLander の `eval` は UQE の τ 0.25）。行動の方策が `Greedy` 型の slot（`[eval_panel]`）だけは、skip の葉が無くてもスキップ長が同じ Greedy になる。ε-greedy の ε 0（Atari の `[greedy]`）は Greedy 型ではないが、スキップ長も ε 0 の ε-greedy で選ぶ。学習したスキップ価値そのものを測るには、行動もスキップ長も greedy の評価が要る（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T12・§4 D7）。
 - 評価 slot の action_info を `@train` の event で scalar にすると、その値は評価 runner 自身の step 軸に載り、`@session_end` の値（学習側の step 軸）とは換算できない（比は Run の中で 0.000039 から 0.0075 へ動く）。評価 session の中の割合や平均を学習の進みと並べるには、session の終わりに学習側の座標で出す必要がある（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T13・§4 D8、[140 可観測性 §6.x](../../design/140_observability.jp.md)）。
 - `run.eval_schedule.[tag].interval` で組んだ評価は、step の値によらず初回に必ず 1 回発火する（learn step 0 の未学習の方策の点が入る）。背景の評価は、次の発火のときに前回が終わっていなければ学習が待つ。Atari-5 の 400 エピソードの ε=0 の評価では、未学習の方策が打ち切り上限に張り付いた 2 ゲームで初回の評価が 1 時間級になり、次の発火で学習が 692.6s・885.5s 止まった（出典: [999_eval_schedule_first_fire_10prd.md](../../memo/999_eval_schedule_first_fire_10prd.md)、Context・実測）。
+- LunarLander の TempoRL 有効の Run に `[greedy]` session（行動もスキップ長も greedy、1009 learn step ごと）を足すと、同じ seed の 10/26 の Run と比べて、`[eval]` の最初の点（8448 step、学習前）は一致し、2 点目（14848 step、学習前）から違い、学習側の報酬の EMA も 37 エピソード目から違った。学習の設定は同じ（差は `[greedy]` の actor と tag、既定値のままの新しいキー、表示だけの列番号）。`[greedy]` の初回のエピソードが 2 点の間に入るので、評価 session の追加で同じ seed の乱数の系列が変わった。GridMaze では `[greedy]` を足す前のビルドの 3 本が 10/26 と完全に一致している（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、現時点のまとめ 5・探索ブロック 02、[103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§5.7「振る舞いが変わるもの」。Run: run_20261028-131118_t103_ll_mrg_s1 / run_20261026-020453_t98_ll_mrg_s1）。
 
 ## 分かっていないこと
 
 - GridMaze で通らないセルから再開してゴールに着かないとき、点数の方策は壁へ向かう行動を繰り返して位置が変わらないまま打ち切られているのか（出典: [999_intrinsic_reward_novelty_10prd.md](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.7「見立て」。Run では未確認）。
+- 評価 session を足すと同じ seed の軌跡が学習前から変わるのは、どの乱数の系列（評価の方策の τ の抽選、env の seed、Actor の乱数）を学習側や既存の評価 slot と共有しているためか。同じ設定の 2 本が一致するかも確かめていない（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、pending）。
 
 ## 撤回・更新
 

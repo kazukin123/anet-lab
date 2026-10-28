@@ -34,8 +34,9 @@ namespace anet::rl::dqn {
         "munchausen_scaled_log_policy_mean", "munchausen_clip_ratio", "munchausen_bonus_mean",
         "munchausen_next_entropy", "munchausen_soft_gap",
     };
-    inline constexpr std::array<const char*, 5> kSkipUpdateMetricKeys = {
-        "skip_loss", "skip_td_abs_mean", "skip_sample_k_mean", "skip_kmax_mean", "skip_grad_norm"
+    inline constexpr std::array<const char*, 7> kSkipUpdateMetricKeys = {
+        "skip_loss", "skip_td_abs_mean", "skip_sample_k_mean", "skip_kmax_mean", "skip_grad_norm",
+        "skip_primary_grad_norm", "skip_primary_clip_ratio"
     };
 
     torch::Tensor MakeRiskBiasedScore(float tau, const torch::Tensor& q_quantiles, bool use_tail_mean);
@@ -638,6 +639,7 @@ namespace anet::rl::dqn {
         std::optional<GradientNoiseMetrics> grad_noise;
         torch::Tensor grad_norm_tensor;
         torch::Tensor skip_grad_norm;
+        torch::Tensor skip_primary_grad_norm;
         std::optional<float> grad_norm;
         float grad_clip_ratio = 0.0f;
         float grad_clip_tau = std::numeric_limits<float>::infinity();
@@ -1062,9 +1064,9 @@ namespace anet::rl::dqn {
             std::optional<SkipActorResources> skip = std::nullopt);
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
-        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
-        { return policy_->GetScalar(key, index); }
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
     private:
+        void ResetSkipSession() const;
         void CopySourceNetwork() const;
         void UpdateSnapshot(const StepCounts& step) const;
         std::shared_ptr<DQNActionInfo> ApplySkip(std::shared_ptr<DQNActionInfo> proposal,
@@ -1092,6 +1094,9 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::NetworkForwardExecutor> skip_forward_;
         std::shared_ptr<anet::RandomGenerator> skip_random_;
         mutable torch::Tensor skip_remaining_;
+        mutable torch::Tensor skip_session_counts_; ///< 長さ別の判断回数。Actorと同じdeviceで加算する。
+        mutable torch::Tensor skip_session_counts_cpu_;
+        mutable int64_t skip_session_lane_steps_ = 0;
         mutable torch::Tensor skip_actions_;
         mutable torch::Tensor skip_lengths_;
     };
@@ -1159,7 +1164,8 @@ namespace anet::rl::dqn {
             const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
             const torch::Tensor& current_mean = {}) const;
         NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
-        OptimizerStepResult Optimize(const torch::Tensor& loss, const torch::Tensor& weighted_element_loss);
+        OptimizerStepResult Optimize(const torch::Tensor& primary_loss, const torch::Tensor& weighted_element_loss,
+            const torch::Tensor& skip_loss = {});
     protected:
         PerPriorityUpdatePending PreparePerPriorityUpdate(
             const anet::rl::ExperienceSamples& samples,
@@ -1227,6 +1233,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<ObservationNormalizer> obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
+        std::unique_ptr<torch::optim::Optimizer> skip_primary_optimizer_; ///< primaryへ流れるskip勾配だけの独立したモーメント。
         anet::GradScaler grad_scaler_;
         anet::RandomGenerator* plasticity_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
         anet::RandomGenerator* policy_churn_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
