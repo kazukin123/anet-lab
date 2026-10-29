@@ -12,6 +12,52 @@
 #include <wx/cmdline.h>
 #include <wx/utils.h>
 
+TEST_CASE("PRD104 defaults and auxiliary arms preserve metrics and propagate Actor limits", "[config][prd104]")
+{
+    const auto repo = std::filesystem::current_path();
+    const auto config_root = (repo / "apps/runner/config").generic_string();
+    const auto output = repo / "out/test-tmp/prd104-config";
+    std::filesystem::create_directories(output);
+    for (const std::string env : {"GridMaze", "LunarLander", "Atari", "DropMerge"}) {
+        CAPTURE(env);
+        const auto input = output / (env + ".txt");
+        const auto includes = "$include <" + config_root + "/_main.txt>\n$include <" + config_root + "/" + env + ".txt>\n"
+            + "$include <" + (repo / "core/anet-core/testdata/prd104/arms.txt").generic_string() + ">\n";
+        { std::ofstream file(input); file << includes; }
+        const auto defaults = anet::ConfigManager(input).GetConfigData();
+        const anet::rl::dqn::DefaultDQNAgentConfig baseline(defaults);
+        CHECK(baseline.learner.skip.target_window == "decision");
+        for (const auto& [key, actor] : baseline.actor) {
+            CAPTURE(key);
+            CHECK(actor.skip.max_length_mode == "full");
+            CHECK_FALSE(actor.skip.max_length.has_value());
+        }
+        CHECK_FALSE(defaults.Has("metrics.scalar.[50_agent_skip/07_max_length]"));
+        std::string chain, line;
+        std::ifstream source(config_root + "/" + env + ".txt");
+        const std::regex selection(R"(^run\.\$\s*=\s*([^#]+))");
+        while (std::getline(source, line)) {
+            std::smatch match;
+            if (std::regex_search(line, match, selection)) chain = match[1].str();
+        }
+        if (chain.find("run.@skip") == std::string::npos) chain += (chain.empty() ? "" : " > ") + std::string("run.@skip");
+        { std::ofstream file(input); file << includes << "run.$ = " << chain << '\n'; }
+        const auto before = anet::ConfigManager(input).GetConfigData();
+        { std::ofstream file(input); file << includes << "run.$ = " << chain << " > run.@skip_aux\n"; }
+        const auto after = anet::ConfigManager(input).GetConfigData();
+        const anet::rl::dqn::DefaultDQNAgentConfig auxiliary(after);
+        CHECK(auxiliary.learner.skip.target_window == "action_change");
+        for (const auto& [key, actor] : auxiliary.actor) {
+            CAPTURE(key);
+            CHECK(actor.skip.max_length_mode == "single");
+        }
+        // 補助タスクの腕はmetricsの選択を書き換えず、既存の診断をすべて保つ。
+        for (const auto& [key, value] : before.Map()) {
+            if (key.starts_with("metrics.scalar.[")) CHECK(after.Get(key) == value);
+        }
+    }
+}
+
 TEST_CASE("PRD061 captures resolved and typed configuration", "[.][prd061-capture]")
 {
     // 採取先を明示し、変更前の記録を後段の実行で上書きしない。

@@ -196,6 +196,8 @@ sequenceDiagram
     end
 ```
 
+Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` and `CreateEpisodeEndWindowRule(J)`. The former stops immediately before a different action; the latter ignores actions. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Candidate margins, uniform sampling of k, PER and transfer semantics are shared across rules. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+
 ### 6.2 One-Deep Prefetch and CUDA Transfer
 
 ```mermaid
@@ -330,6 +332,8 @@ In DefaultDQN, Agent creates independent `RandomGenerator` Resources from named 
 The Prefetching version uses the same FIFO wait as existing probes, settling accepted Push and prefetch operations before delegation while retaining the next ordinary batch. DefaultDQN's group-extraction RNG comes from the outer Agent-owned named seed `replay_fit_probe` and is created only when a group-extraction subscription becomes necessary.
 
 ## 8. Tests and Extension Checks
+
+- [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
 
 Current [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp) contains tests for:
 

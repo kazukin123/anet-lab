@@ -4,7 +4,13 @@
 
 低εラダーの64 env・容量1Mでは、45–50Mの第8面突破率（29,000点以上かつround_clear≥8）が4 seedで45.3・32.5・0.7・0.1%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まり、初突破が早い腕でも突破が定着しない例があった。seed 4 は得点ループに入り、得点だけで数えた突破率は第8面の突破を表さなかった。
 
+TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。
+
 ## 分かっていること
+
+- PRD103のsplitの50M終了checkpoint（seed1）を追加評価すると、full/single各200ゲームの平均点は26,913.6/31,358.9、突破率は63.5%/64.0%だった。評価時の固定を外すと平均点は上がったが、突破率の差は0.5ポイントだった。元3本とは学習時のビルド・構成が違う参考行である。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ5・探索ブロック01・追加splitと別枠の評価。Run: `run_20261029-131020_t104_stage0_split`）。
+
+- TempoRLの50M終了checkpoint3本（合算・遮断・重み0.3、各seed1）をfull/single各200ゲームで比べると、singleの平均点は46,495.0・33,000.3・33,859.8となり、fullの29,756.6・29,257.6・26,389.1からすべて改善した。singleの突破率は97%・96%・100%。無効は34,142.4点・突破率50.5%で、平均点と突破率の序列は一致しない。評価時に固定を外した結果であり、学習中のデータの偏りや補助学習だけの効果は未確認。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック01・未確定と今回の区切り。Run: `run_20261029-105620_t104_stage0_merge` / `run_20261029-120945_t104_stage0_stop` / `run_20261029-121756_t104_stage0_lw03` / `run_20261029-105005_t104_stage0_off`）。
 
 - RR4でも第8面の壁が残り、低εのlaneほど深い面へ届いた。（出典: [2026-09-25_sample-efficiency-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、現時点のまとめ・探索ブロック02。Run: run_20260926-022413_a5_qbert_btr50m）。
 - BTR型のεスケジュールだけでは差が埋まらず、初突破の時期はseedで大きくぶれ、早く出ても定着しない例があった。（出典: [2026-09-27_btr-gap-qbert-bz.md](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ。Run: run_20260927-173004_a5_qbert_btrsched_s1 / run_20260927-035604_a5_qbert_btr50m_eps005_end0）。
@@ -24,6 +30,8 @@
 - 実時間優先 50M で ε ラダーを NoisyNet に置き換える（ε 0）と、eval2 40-50M は 12,144（基準 seed 1 / 2 は 20,650 / 20,103）で、学習中のゲームも ε=0 断面も round_clear は最大 4（第 5 面より先へ進まない）だった（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ1・探索ブロック 01。Run: `run_20261012-015046_a5_qbert_rr1_50m_nz_eps0`）。
 
 ## 分かっていないこと
+
+- μ-onlyの評価で固定を外した改善が、NoisyNetの摂動つきの行動や別seedでも得られるか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り）？
 
 - BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？
 - 64 env・容量1Mで突破が増えた効き方の仕組みは何か（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ6・探索ブロック03「効き方の仕組みは測れていない」）？

@@ -17,6 +17,10 @@ namespace anet::rl {
     class SampleWindowRule;
     /// 判断で区切った区間内の窓を選ぶ規則を生成する。
     std::shared_ptr<const SampleWindowRule> CreateDecisionWindowRule(int max_length);
+    /// 起点と同じ行動が続く区間内の窓を選ぶ規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateActionChangeWindowRule(int max_length);
+    /// 上限とエピソードの終わりだけで窓を閉じる規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateEpisodeEndWindowRule(int max_length);
 
 
     // ======================================================

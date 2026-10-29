@@ -159,9 +159,17 @@ namespace anet::rl {
         }
 
         struct DQNActorConfig {
+            static constexpr const char* kMaxLengthSingle = "single";
+            static constexpr const char* kMaxLengthFull = "full";
+            static constexpr const char* kMaxLengthVariable = "variable";
+
             ActionPolicyConfig policy;
             ActionPolicyConfig skip_policy;
             bool has_skip_policy = false;
+            struct {
+                std::string max_length_mode = kMaxLengthFull;
+                std::optional<anet::ProfiledValueConfig<int>> max_length;
+            } skip;
             std::string network = "online";
             bool clone_model = false;
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
@@ -224,8 +232,12 @@ namespace anet::rl {
             static constexpr const char* kFeatureGradientSplit = "split";
             static constexpr const char* kSampleWeightUniform = "uniform";
             static constexpr const char* kSampleWeightKmax = "kmax";
+            static constexpr const char* kTargetWindowDecision = "decision";
+            static constexpr const char* kTargetWindowActionChange = "action_change";
+            static constexpr const char* kTargetWindowEpisodeEnd = "episode_end";
 
             struct {
+                std::string target_window = kTargetWindowDecision;
                 std::string feature_gradient = kFeatureGradientStop;
                 std::string sample_weight = kSampleWeightUniform;
                 float loss_weight = 1.0f;

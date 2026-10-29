@@ -39,6 +39,7 @@ constexpr const char* kArchiveParamGroupCount = "param_groups/size";
 constexpr const char* kSkipForwardSeed = "skip_network_forward";
 constexpr const char* kSkipPolicySeed = "skip_policy";
 constexpr const char* kSkipSessionDecisionRate = "skip_session_decision_rate";
+constexpr const char* kSkipMaxLength = "skip_max_length";
 constexpr const char* kSkipSessionLengthMean = "skip_session_length_mean";
 constexpr const char* kSkipSessionLengthRatePrefix = "skip_session_length_rate.";
 constexpr const char* kSkipSessionLengthRateIndexPrefix = "skip_session_length_rate.[";
@@ -2336,6 +2337,13 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
         skip_forward_ = skip_->network->CreateForwardExecutor(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
             seeds.MakeNamedSeed(kSkipForwardSeed));
         skip_random_ = std::make_shared<anet::RandomGenerator>(seeds.MakeNamedSeed(kSkipPolicySeed));
+        if (skip_->max_length_mode == DQNActorConfig::kMaxLengthVariable) {
+            if (!skip_->max_length) ANET_SYSTEM_ERROR("Skip Actor max_length_mode=variable requires skip.max_length.");
+            auto length = *skip_->max_length;
+            length.min_value = 1;
+            length.max_value = skip_->config.max_length;
+            skip_max_length_.emplace(std::move(length));
+        }
     }
     if (snapshot_sync_interval.has_value()) {
         snapshot_sync_interval_.emplace(std::move(*snapshot_sync_interval));
@@ -2388,6 +2396,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     // 方策状態はActorの実行境界だけで更新する。
     policy_->UpdateSchedule(step);
     if (skip_ && skip_->policy != policy_) skip_->policy->UpdateSchedule(step);
+    if (skip_max_length_) skip_max_length_->Update(step.exp_step);
 
     // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
     UpdateSnapshot(step);
@@ -2479,23 +2488,25 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     ANET_PROFILE_FUNC();
 
     const auto proposed_actions = proposal->GetAction();
+    const bool single = skip_->max_length_mode == DQNActorConfig::kMaxLengthSingle;
 
     // lane ごとに、続けている行動・残り step 数・選んだ j を保持する。
-    if (!skip_remaining_.defined()) {
+    if (!single && !skip_remaining_.defined()) {
         skip_remaining_ = torch::zeros_like(proposed_actions);
         skip_actions_ = torch::zeros_like(proposed_actions);
         skip_lengths_ = torch::ones_like(proposed_actions);
     }
 
     // Action形状チェック
-    if (skip_remaining_.sizes() != proposed_actions.sizes()) {
+    if (!single && skip_remaining_.sizes() != proposed_actions.sizes()) {
         ANET_SYSTEM_ERROR("Skip Actor lane count changed: actual=" << proposed_actions.sizes() << " expected=" << skip_remaining_.sizes());
     }
 
     // episode 開始時と残り 0 の lane だけ、新しい行動と j を判断する。
-    const auto decision = episode_start.to(proposed_actions.device()).logical_or(skip_remaining_.eq(0));
+    const auto decision = single ? torch::ones_like(proposed_actions, torch::kBool)
+        : episode_start.to(proposed_actions.device()).logical_or(skip_remaining_.eq(0));
     // 継続中の lane は今回の提案を捨て、前に選んだ行動で上書きする。
-    const auto actions = torch::where(decision, proposed_actions, skip_actions_);
+    const auto actions = single ? proposed_actions : torch::where(decision, proposed_actions, skip_actions_);
 
     // SKIPネットワークでforward
     const auto input = MakeSkipInput(obs, proposal->forward_output, actions, true);
@@ -2516,11 +2527,18 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     }
 
     // SKIP-Qをもとに、skip_policyを使ってSKIP長を決定
-    const auto lengths = skip_->policy->SelectFromValues(q, distribution, skip_random_) + 1;
+    // 上限の絞りは選択用のviewだけに適用し、診断のJ本の値は保持する。
+    const auto selection_q = skip_max_length_ ? q.narrow(1, 0, skip_max_length_->Value()) : q;
+    const auto selection_distribution = skip_max_length_ && distribution.defined()
+        ? distribution.narrow(1, 0, skip_max_length_->Value()) : distribution;
+    const auto lengths = single ? torch::ones_like(proposed_actions)
+        : skip_->policy->SelectFromValues(selection_q, selection_distribution, skip_random_) + 1;
     // 判断 lane だけ j を更新し、今回の 1 step を引いてから返す情報を組み立てる。
-    skip_lengths_ = torch::where(decision, lengths, skip_lengths_);
-    skip_remaining_ = torch::where(decision, lengths - 1, skip_remaining_ - 1);
-    skip_actions_ = actions;
+    if (!single) {
+        skip_lengths_ = torch::where(decision, lengths, skip_lengths_);
+        skip_remaining_ = torch::where(decision, lengths - 1, skip_remaining_ - 1);
+        skip_actions_ = actions;
+    }
 
     // 判断laneだけをdevice上で累積する。CPU転送はGetScalar要求時まで行わない。
     ANET_PROFILE_SCOPE(skip_session);
@@ -2535,7 +2553,7 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     auto result = std::make_shared<DQNActionInfo>(actions, proposal->GetInfo(), proposal->GetAuxData());
     result->GetInfo().Set(anet::rl::BatchActionInfo::kKeyDecision, decision);
     result->GetAuxData()[DQNActionInfo::kSkipDecision] = decision;
-    result->GetAuxData()[DQNActionInfo::kSkipLength] = skip_lengths_;
+    result->GetAuxData()[DQNActionInfo::kSkipLength] = single ? lengths : skip_lengths_;
     result->GetAuxData()[DQNActionInfo::kSkipQValues] = q;
     return result;
 }
@@ -2559,6 +2577,10 @@ void Actor::ResetSkipSession() const
 
 std::optional<float> Actor::GetScalar(const std::string& key, int64_t index) const
 {
+    if (key == kSkipMaxLength) {
+        return skip_max_length_ ? static_cast<float>(skip_max_length_->Value())
+            : std::numeric_limits<float>::quiet_NaN();
+    }
     const bool length_rate = key.starts_with(kSkipSessionLengthRatePrefix);
     if (!length_rate && key != kSkipSessionDecisionRate && key != kSkipSessionLengthMean) {
         return policy_->GetScalar(key, index);
@@ -3336,7 +3358,17 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     rep_config.capacity = config_.replay_capacity;
     rep_config.recompute_returns_on_sample = config_.gamma.type != "constant";
     rep_config.n_step = config_.use_n_step ? config_.n_step : 1;
-    if (model_.GetSkipOnlineNetwork()) rep_config.window_rule = CreateDecisionWindowRule(model_.GetSkipConfig().max_length);
+    if (model_.GetSkipOnlineNetwork()) {
+        // 窓の抽出・抽選・転送は共通機構へ任せ、閉じる条件だけを選ぶ。
+        const auto limit = model_.GetSkipConfig().max_length;
+        if (config_.skip.target_window == LearnerConfig::kTargetWindowActionChange) {
+            rep_config.window_rule = CreateActionChangeWindowRule(limit);
+        } else if (config_.skip.target_window == LearnerConfig::kTargetWindowEpisodeEnd) {
+            rep_config.window_rule = CreateEpisodeEndWindowRule(limit);
+        } else {
+            rep_config.window_rule = CreateDecisionWindowRule(limit);
+        }
+    }
 
     if (config_.use_per) {
         rep_config.sampler_type = anet::rl::ReplaySamplerType::PRIORITIZED;

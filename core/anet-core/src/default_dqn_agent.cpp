@@ -579,7 +579,8 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
                 request.batch_env_spec.num_envs, request.device),
             .network = skip_source, .source = skip_source,
             .use_amp = cfg.policy.use_amp, .use_amp_bf16 = cfg.policy.use_amp_bf16,
-            .shared_policy = shared_policy});
+            .shared_policy = shared_policy, .max_length_mode = cfg.skip.max_length_mode,
+            .max_length = cfg.skip.max_length});
     }
     if (cfg.clone_model) {
         // sourceのparameterとbufferを学習更新から保護して複製する。

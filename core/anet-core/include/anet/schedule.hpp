@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -77,30 +78,36 @@ namespace anet {
         }
 
         template<typename T>
-        void ValidateProfiledValueBounds(
+        std::optional<std::string> FindProfiledValueBoundsError(
             const ProfiledValueConfig<T>& config,
             const std::string& key,
             T value)
         {
+            // 検査結果と失敗の通知を分け、利用側が複数対象の違反を一括報告できるようにする。
+            std::ostringstream message;
             if (!IsFiniteProfiledValue(value)) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: active value must be finite. key=" << key
-                    << " value=" << value << " expected=finite");
-            }
-            if (config.min_value.has_value() && value < *config.min_value) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: active value is below min_value. key=" << key
+                message << "ProfiledValue: active value must be finite. key=" << key
+                    << " value=" << value << " expected=finite";
+            } else if (config.min_value.has_value() && value < *config.min_value) {
+                message << "ProfiledValue: active value is below min_value. key=" << key
                     << " value=" << value
                     << " min_value=" << *config.min_value
-                    << " expected=>=" << *config.min_value);
-            }
-            if (config.max_value.has_value() && value > *config.max_value) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: active value is above max_value. key=" << key
+                    << " expected=>=" << *config.min_value;
+            } else if (config.max_value.has_value() && value > *config.max_value) {
+                message << "ProfiledValue: active value is above max_value. key=" << key
                     << " value=" << value
                     << " max_value=" << *config.max_value
-                    << " expected=<=" << *config.max_value);
+                    << " expected=<=" << *config.max_value;
+            } else {
+                return std::nullopt;
             }
+            return message.str();
+        }
+
+        template<typename T>
+        void ValidateProfiledValueBounds(const ProfiledValueConfig<T>& config, const std::string& key, T value)
+        {
+            if (const auto error = FindProfiledValueBoundsError(config, key, value)) ANET_SYSTEM_ERROR(*error);
         }
 
         template<typename T>
@@ -208,6 +215,58 @@ namespace anet {
                         config, root_key, phase_name, config.phase.Get(phase_name));
                 }
             }
+        }
+
+        template<typename T, typename Visitor>
+        void VisitProfiledValueActiveFields(const ProfiledValueConfig<T>& config, const std::string& key, Visitor&& visitor)
+        {
+            // 構造検証済みの設定から、実行時に読む欄だけを列挙する。
+            constexpr const char* kConstant = "constant";
+            if (config.type == kConstant) {
+                visitor(key, config.value);
+            } else if (config.type == "phased") {
+                for (const auto& name : config.phases) {
+                    const auto& phase = config.phase.Get(name);
+                    const auto phase_key = key + ".phase.[" + name + "]";
+                    if (phase.type == kConstant) visitor(phase_key + ".value", phase.value);
+                    else {
+                        visitor(phase_key + ".start", phase.start);
+                        visitor(phase_key + ".end", phase.end);
+                    }
+                }
+            } else {
+                visitor(key + ".start", config.start);
+                visitor(key + ".end", config.end);
+            }
+        }
+
+        template<typename T>
+        std::optional<std::string> FindProfiledValueBoundsError(const ProfiledValueConfig<T>& config, const std::string& key)
+        {
+            // 構造は通常の読み込みで検証済み。boundsだけを変えた比較でもFATALを出さない。
+            std::optional<std::string> error;
+            VisitProfiledValueActiveFields(config, key, [&](const std::string& field, T value) {
+                if (!error) error = FindProfiledValueBoundsError(config, field, value);
+            });
+            return error;
+        }
+
+        template<typename T>
+        std::pair<T, T> GetProfiledValueActiveRange(const ProfiledValueConfig<T>& config, const std::string& key)
+        {
+            ValidateProfiledValueConfig(config, key);
+            T lower{}, upper{};
+            bool first = true;
+            VisitProfiledValueActiveFields(config, key, [&](const std::string&, T value) {
+                if (first) {
+                    lower = upper = value;
+                    first = false;
+                } else {
+                    lower = std::min(lower, value);
+                    upper = std::max(upper, value);
+                }
+            });
+            return {lower, upper};
         }
 
     } // namespace detail

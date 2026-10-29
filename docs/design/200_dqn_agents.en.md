@@ -291,6 +291,10 @@ Since `Sync()` takes no step, the first action's `train_step` after forced synch
 
 ### 6.5 DefaultDQN Skip Policy
 
+Each Actor selects its length range with `actor.[key].skip.max_length_mode`: `full` (default, 1..J), `single` (always 1), or `variable` (1..the integer ProfiledValue `max_length`). Variable evaluates its limit at exp_step and restricts policy selection only; it does not interrupt an existing continuation. Single uses the primary proposal every step and skips only duration selection. All modes preserve skip forward, tau queries and the J-wide auxiliary values. `skip_max_length` returns the variable limit and NaN for other modes or disabled skip.
+
+`learner.skip.target_window` selects `decision` (default), `action_change`, or `episode_end`. With skip and learning enabled, the latter two require every declared Actor to be single or variable with all active values equal to 1. Construction reports all offending Actors without interpreting their names. Stop gradients remain legal for the control arm and produce one warning explaining shared-feature and priority_lambda effects. Learning disabled suppresses combination checks. Explicit max_length values always receive the shared ProfiledValue lower-bound check (1), plus the upper bound J when skip is enabled. Enabled variable requires a value; enabled full/single warn once per Actor about an unused value. Disabled skip does not require a value or apply J/warnings. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+
 `skip.enabled` defaults to false. Enabling it adds online/target skip Networks to the primary pair. The skip Learner bootstraps from primary Q; the skip target serves target-based Actors. `skip.net.*` uses ordinary branches, blocks and binds, reading observations, published primary features, IQN taus and (for `action_in`) one-hot actions. The default `action_out` predicts every action/length pair. Each Actor selects a length on decision lanes, repeats the chosen action for the remaining steps, and discards continuation at episode start.
 
 `learner.skip.feature_gradient` accepts `stop`, `merge` and `split`. Stop detaches primary features; merge backpropagates the combined Q and weighted skip losses once. Split obtains both gradients from the same forward before changing parameters, clips primary-Q, primary-skip and skip-Network gradients independently, and adds two Adam updates to primary parameters. The extra Learner-owned optimizer uses primary lr/eps/betas and its learning-rate schedule, including sigma parameters, with zero weight decay. Primary decay occurs only on the Q side. `loss_weight` always multiplies the skip loss. Policy churn measures both steps together; GNS measures only Q loss. FP32 and BF16 are supported; FP16 AMP with skip is rejected.
@@ -508,6 +512,8 @@ Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Ten
 Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
 
 ## 10. Tests and Extension Checklist
+
+- [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): Actor length ranges, auxiliary windows, six default-equivalence cases, and stage 0/1 execution and aggregation.
 
 For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md).
 

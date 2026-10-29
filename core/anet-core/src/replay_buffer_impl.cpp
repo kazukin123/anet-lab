@@ -64,6 +64,65 @@ private:
     int limit_;
 };
 
+// 判断の旗には依存せず、同じ行動の連続区間を補助学習の教材にする。
+class ActionChangeWindowRule final : public SampleWindowRule {
+public:
+    explicit ActionChangeWindowRule(int limit) : limit_(limit)
+    {
+        if (limit < 1) ANET_SYSTEM_ERROR("Invalid window limit: value=" << limit << " expected >= 1");
+    }
+    int GetLimit() const override { return limit_; }
+    int GetMaxLength(const ReplayExperienceStorage& storage, int64_t env, int64_t time) const override
+    {
+        const auto& actions = storage.GetActions();
+        const auto cap = actions.size(1);
+        // CPU離散行動は既存規則と同じ連続配列で比較し、slotごとのTensor確保を避ける。
+        const auto* scalar_actions = actions.device().is_cpu() && actions.scalar_type() == torch::kInt64
+            && actions.dim() == 2 && actions.is_contiguous() ? actions.const_data_ptr<int64_t>() + env * cap : nullptr;
+        const auto action = scalar_actions ? torch::Tensor{} : actions[env][time];
+        for (int offset = 0; offset < limit_; ++offset) {
+            const auto slot = (time + offset) % cap;
+            const auto flags = storage.GetStepFlags(env, slot);
+            if (flags & ReplayExperienceStorage::kDummy) {
+                ANET_SYSTEM_ERROR("Invalid window: dummy slot inside window. lane=" << env << " slot=" << slot);
+            }
+            const bool matches = scalar_actions ? scalar_actions[time] == scalar_actions[slot]
+                : torch::equal(action, actions[env][slot]);
+            if (!matches) return offset;
+            if (flags & (ReplayExperienceStorage::kDone | ReplayExperienceStorage::kTruncated)) return offset + 1;
+        }
+        return limit_;
+    }
+private:
+    int limit_;
+};
+
+// 行動と判断の旗を問わず、補正しないk-stepの収益を教材にする。
+class EpisodeEndWindowRule final : public SampleWindowRule {
+public:
+    explicit EpisodeEndWindowRule(int limit) : limit_(limit)
+    {
+        if (limit < 1) ANET_SYSTEM_ERROR("Invalid window limit: value=" << limit << " expected >= 1");
+    }
+    int GetLimit() const override { return limit_; }
+    int GetMaxLength(const ReplayExperienceStorage& storage, int64_t env, int64_t time) const override
+    {
+        const auto cap = storage.GetActions().size(1);
+        // 終了遷移を含めて止めるため、次のepisodeのdummyへは進まない。
+        for (int offset = 0; offset < limit_; ++offset) {
+            const auto slot = (time + offset) % cap;
+            const auto flags = storage.GetStepFlags(env, slot);
+            if (flags & ReplayExperienceStorage::kDummy) {
+                ANET_SYSTEM_ERROR("Invalid window: dummy slot inside window. lane=" << env << " slot=" << slot);
+            }
+            if (flags & (ReplayExperienceStorage::kDone | ReplayExperienceStorage::kTruncated)) return offset + 1;
+        }
+        return limit_;
+    }
+private:
+    int limit_;
+};
+
 torch::Tensor DrawWindowLengths(const torch::Tensor& max_lengths, const torch::Generator& generator)
 {
     // 同じ上限をまとめて抽選し、batch件数分の小さいTensor確保を避ける。
@@ -86,6 +145,16 @@ torch::Tensor DrawWindowLengths(const torch::Tensor& max_lengths, const torch::G
 std::shared_ptr<const SampleWindowRule> anet::rl::CreateDecisionWindowRule(int max_length)
 {
     return std::make_shared<DecisionWindowRule>(max_length);
+}
+
+std::shared_ptr<const SampleWindowRule> anet::rl::CreateActionChangeWindowRule(int max_length)
+{
+    return std::make_shared<ActionChangeWindowRule>(max_length);
+}
+
+std::shared_ptr<const SampleWindowRule> anet::rl::CreateEpisodeEndWindowRule(int max_length)
+{
+    return std::make_shared<EpisodeEndWindowRule>(max_length);
 }
 
 int64_t anet::rl::EncodeReplayItemKeyChecked(

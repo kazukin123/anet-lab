@@ -339,6 +339,8 @@ background 時、前セッション完了を待ってブロックした場合だ
 
 ### TempoRL の scalar と Trace
 
+variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、腕の葉で `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+
 DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txtの `metrics.scalar.@skip` を選ぶと、Actor の decision_rate・判断laneの平均長・長さ別割合・選択長とj=1のQ差、および Learner の loss・平均絶対TD・k平均・k_max平均・clip前の勾配normを記録する。長さ別割合は `skip_length_rate.[j]` を1始まりで指定し、宣言したJを超える添字は fail-fast する。
 
 scalar tag内にも添字を含められる。たとえば設定key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` のtagは、内側の閉じ括弧を保持した `50_agent_skip/03_skip_length_rate.[01]` になる。tagの添字は2桁、source keyの添字は`[1]`のままである。

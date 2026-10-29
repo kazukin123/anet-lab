@@ -304,6 +304,12 @@ DefaultDQNのprimary Headはboolの `head.use_dueling` で選び、既定trueは
 
 ### 6.5 DefaultDQNのskip方策
 
+Actorごとの `actor.[key].skip.max_length_mode` は `full`（既定、1〜J）・`single`（常に1）・`variable`（1〜整数ProfiledValueの `max_length`）で幅を選ぶ。variableはexp_stepで上限を評価し、選択に渡す値だけを絞る。すでに継続している区間は上限低下でも切らない。singleは継続状態を持たず毎step方策の提案を使い、skip方策のjの選択だけを省く。どのモードでもskip forward、τ問い合わせ、J本のskip_q_valuesを維持する。`skip_max_length` はvariableの現在の上限を返し、ほかとskip無効時はNaN。
+
+Learnerの `learner.skip.target_window` は `decision`（既定）・`action_change`・`episode_end` を選ぶ。後者2つは補助学習用で、skipとLearnerが有効なら宣言された全Actorがsingle、またはvariableで常に1であることを構築時に検証する。用途名から学習Actorを推測しない。違反するActorはすべてエラーに含める。feature_gradient=stopは対照の腕として許し、共有部へ勾配が届かないこととpriority_lambdaによる優先度への影響を一度WARNする。Learner無効時は組み合わせを検査しない。
+
+max_lengthを指定した場合はモードによらずProfiledValueの共通検証で下限1、有効時は上限Jも検査する。variableの値はskip有効時に必須。full/singleで指定した値は使わず、skip有効ならActorごとに一度WARNする。skip無効では必須・上限Jの検査とWARNを行わない。既定の等価性・3モード・窓・短縮Run・実験の手順は[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+
 共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列・greedy評価を選び、Agentのチェーンを書き直さない。GridMazeはskip専用のepsilon-greedy（0.60→0.05）も選ぶ。feature_gradient・Dueling・action_in・層幅はCLIの葉で指定する。
 
 `skip.enabled=false`が既定で、無効時はskip網を構築しない。設定値の型・列挙・範囲の検証は無効でも行う。Jの実装既定0は未指定を表し、有効時はJを必須とする。明示0以下は無効時も拒否し、明示1は許す。有効時はprimaryのonline／targetにskipのonline／targetを加え、同期を同じ時点で行う。skip targetはtargetを元にするActorだけが使い、Learnerのbootstrapはprimaryを使う。
@@ -545,6 +551,8 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
+
+- [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、段0・段1の実行と集計。
 
 skipの更新方式・重み・session指標・構造の腕を変えるときは[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
 

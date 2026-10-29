@@ -1044,6 +1044,8 @@ namespace anet::rl::dqn {
         bool use_amp = false;
         bool use_amp_bf16 = true;
         bool shared_policy = true;
+        std::string max_length_mode = DQNActorConfig::kMaxLengthFull;
+        std::optional<anet::ProfiledValueConfig<int>> max_length;
     };
 
     class Actor : public anet::rl::Actor, public anet::RandomHolder {
@@ -1094,6 +1096,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::NetworkForwardExecutor> skip_forward_;
         std::shared_ptr<anet::RandomGenerator> skip_random_;
         mutable torch::Tensor skip_remaining_;
+        mutable std::optional<anet::ProfiledValue<int>> skip_max_length_;
         mutable torch::Tensor skip_session_counts_; ///< 長さ別の判断回数。Actorと同じdeviceで加算する。
         mutable torch::Tensor skip_session_counts_cpu_;
         mutable int64_t skip_session_lane_steps_ = 0;

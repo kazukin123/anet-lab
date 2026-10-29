@@ -943,6 +943,80 @@ TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buf
     CHECK_THROWS_WITH(buffer->SampleUniqueUniform(sample, 1, random, config.gamma), Catch::Matchers::ContainsSubstring("Invalid window action"));
 }
 
+TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring wrap", "[replay_buffer][prd104][prd104-windows]")
+{
+    const bool action_change = GENERATE(false, true);
+    const bool prefetch = GENERATE(false, true);
+    auto config = MakeConfig(16, 2, 0.5f, 3, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = action_change ? rl::CreateActionChangeWindowRule(4) : rl::CreateEpisodeEndWindowRule(4);
+    auto buffer = MakeBuffer(config, 1);
+    if (prefetch) buffer.rb = std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb, torch::kCPU);
+    bool episode_start = true;
+    // 判断は毎step、行動は6stepの連続区間。終了と打ち切りを挟んでringを周回する。
+    for (int t = 0; t < 60; ++t) {
+        const bool done = t % 11 == 8, truncated = t % 11 == 10;
+        auto batch = MakeBatch({float(t)}, {truncated ? -float(t + 1) : float(t + 1)},
+            {float(t + 1)}, {done}, {truncated}, {episode_start}, false,
+            anet::TensorDict{{"decision", torch::ones({1}, torch::kBool)}});
+        batch.action = batch.action->WithAction(torch::tensor({(t / 6) % 2}, torch::kLong));
+        buffer.rb->Push(batch, config.gamma);
+        episode_start = done || truncated;
+    }
+    rl::ExperienceSamples samples;
+    anet::RandomGenerator random(104);
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, config.gamma));
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        const int start = static_cast<int>(samples.obs.At(kVectorKey)[row][-1].item<float>());
+        const int length = samples.window.lengths[row].item<int>();
+        int maximum = 0;
+        for (int offset = 0; offset < 4; ++offset) {
+            const int time = start + offset;
+            if (action_change && (time / 6) % 2 != (start / 6) % 2) break;
+            ++maximum;
+            if (time % 11 == 8 || time % 11 == 10) break;
+        }
+        CHECK(samples.window.max_lengths[row].item<int>() == maximum);
+        CHECK(length >= 1);
+        CHECK(length <= maximum);
+        float expected_return = 0;
+        for (int offset = 0; offset < length; ++offset) expected_return += std::pow(0.5f, offset) * (start + offset + 1);
+        CHECK(samples.window.returns[row].item<float>() == Catch::Approx(expected_return));
+        const int last = start + length - 1;
+        CHECK(samples.window.terminals[row].item<bool>() == (last % 11 == 8));
+        CHECK(samples.window.truncated[row].item<bool>() == (last % 11 == 10));
+        if (last % 11 != 8) {
+            const float expected_next = last % 11 == 10 ? -float(last + 1) : float(last + 1);
+            CHECK(samples.window.next_obs.At(kVectorKey)[row][-1].item<float>() == Catch::Approx(expected_next));
+        }
+    }
+    // 通常のSampleも2回通し、prefetchの受け渡しが窓を運ぶことを確認する。
+    for (int sample = 0; sample < 2; ++sample) {
+        rl::ExperienceSamples actual;
+        buffer.rb->Sample(actual, 4, 0.0f, config.gamma);
+        CHECK(actual.window.lengths.numel() == 4);
+        CHECK(actual.window.lengths.ge(1).all().item<bool>());
+        CHECK(actual.window.lengths.le(actual.window.max_lengths).all().item<bool>());
+    }
+}
+
+TEST_CASE("Auxiliary window rules reject dummy slots inside a window", "[replay_buffer][prd104][prd104-windows]")
+{
+    const bool action_change = GENERATE(false, true);
+    auto config = MakeConfig(8, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    const auto make = [&](int limit) {
+        return action_change ? rl::CreateActionChangeWindowRule(limit) : rl::CreateEpisodeEndWindowRule(limit);
+    };
+    CHECK_THROWS(make(0));
+    CHECK_THROWS(make(-1));
+    rl::ReplayExperienceStorage storage(1, 8, MakeEnvSpec(), config, torch::kCPU, false);
+    const anet::TensorDict obs{{kVectorKey, torch::zeros({1})}};
+    const auto slot = storage.Push(0, obs, torch::tensor(0, torch::kLong), {}, true);
+    storage.RecordStep(0, slot, 1.0f, false, false, true);
+    // 終了の旗を付けないままdummyを置き、規則の不正データ経路を公開操作で作る。
+    storage.PushTerminalDummy(0, obs);
+    CHECK_THROWS_WITH(make(2)->GetMaxLength(storage, 0, slot), Catch::Matchers::ContainsSubstring("dummy slot"));
+}
+
 TEST_CASE("SumTree supports explicit floating-point value types", "[replay_buffer][per][precision]")
 {
     // float / double のどちらでも基本的な更新と重み付き探索が成立することを確認する。

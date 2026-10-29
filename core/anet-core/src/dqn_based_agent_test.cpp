@@ -3027,6 +3027,7 @@ TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one s
     // primaryは0.9分位、skipは平均または0.2分位。primaryの分位だけでは長さが逆転する。
     const auto kind = GENERATE(std::string("EpsilonGreedy"), std::string("UQE"), std::string("ThompsonSampling"));
     const bool spatial = GENERATE(false, true);
+    const bool single = GENERATE(false, true);
     auto primary_state = std::make_shared<TauEchoState>();
     auto skip_state = std::make_shared<TauEchoState>();
     auto primary = MakeTauEchoNetwork(8, primary_state);
@@ -3067,12 +3068,14 @@ TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one s
     dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 2, .network_mode = dqn::SkipNetworkMode::ActionIn},
-            .policy = dedicated, .network = skip, .source = skip, .shared_policy = false});
+        .policy = dedicated, .network = skip, .source = skip, .shared_policy = false,
+        .max_length_mode = single ? dqn::DQNActorConfig::kMaxLengthSingle : dqn::DQNActorConfig::kMaxLengthFull});
     const auto flags = torch::zeros({2}, torch::kBool);
     const auto result = actor.MakeAction({}, rl::BatchState(MakeTauEchoObservation(), flags, flags, flags));
     CHECK(torch::equal(result->GetAction(), torch::zeros({2}, torch::kLong)));
     CHECK(torch::allclose(result->GetAuxData().at("q_values").select(1, 0), torch::full({2}, 0.9f)));
-    const auto expected = torch::tensor({spatial && kind != "EpsilonGreedy" ? 1 : 2, 2}, torch::kLong);
+    const auto expected = single ? torch::ones({2}, torch::kLong)
+        : torch::tensor({spatial && kind != "EpsilonGreedy" ? 1 : 2, 2}, torch::kLong);
     CHECK(torch::equal(result->GetAuxData().at("skip_length"), expected));
     CHECK(primary_state->forward_count == 1);
     CHECK(skip_state->forward_count == 1);
@@ -3107,6 +3110,382 @@ TEST_CASE("DefaultDQN learns skip values from replay windows", "[dqn][prd098]")
     REQUIRE(loss.has_value());
     CHECK(std::isfinite(*loss));
     CHECK(*results.front()->GetScalar("skip_sample_k_mean") == 1.0f);
+}
+
+anet::ConfigData MakePrd104ConfigData()
+{
+    auto data = MakeDeviceForwardDefaultDqnConfig().GetScopedConfigData();
+    data.Set("DefaultDQNAgent.quantile_mode", "none");
+    data.Set("DefaultDQNAgent.head.use_dueling", false);
+    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+    data.Set("DefaultDQNAgent.skip.enabled", true);
+    data.Set("DefaultDQNAgent.skip.max_length", 3);
+    data.Set("DefaultDQNAgent.skip.net.branch.[skip_feature].bind", "features");
+    data.Set("DefaultDQNAgent.skip.net.body.output.[features]", "skip_feature");
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", "single");
+    data.Set("DefaultDQNAgent.actor.[eval].skip.max_length_mode", "single");
+    data.Set("DefaultDQNAgent.actor.[eval_target].skip.max_length_mode", "single");
+    data.Set("DefaultDQNAgent.actor.[train].policy.epsilon", 1.0f);
+    data.Set("DefaultDQNAgent.learner.use_amp", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+    data.Set("DefaultDQNAgent.learner.use_rb_prefetch", false);
+    data.Set("DefaultDQNAgent.learner.replay_capacity", 32);
+    data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_interval", 1);
+    data.Set("DefaultDQNAgent.learner.replay_ratio", -1.0f);
+    return WithDefaultForwardConfig(data);
+}
+
+TEST_CASE("Single skip configuration keeps every lane decision and learns one-step auxiliary targets", "[dqn][prd104][prd104-single]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto data = MakePrd104ConfigData();
+    const auto spec = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)),
+        MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 104);
+    const auto actor = agent->CreateActor({.batch_env_spec = batch, .env_spec = spec,
+        .device = torch::kCPU, .seed = 104, .actor_key = "train"});
+    const auto learner = agent->CreateLearner();
+    rl::BatchUpdateResultList results;
+    // 公開Actorが返す判断の旗を、そのまま経験に載せてLearnerへ渡す。
+    for (rl::step_t step = 0; step < 20; ++step) {
+        auto experience = MakeDeterminismExperience(step, 2);
+        const rl::StepCounts counts{.exp_step = step};
+        experience.action = actor->MakeAction(counts, experience.state);
+        CHECK(torch::equal(experience.action->GetAction(), torch::zeros({2}, torch::kLong)));
+        CHECK(experience.action->GetInfo().At("decision").all().item<bool>());
+        CHECK(experience.action->GetAuxData().at("skip_decision").all().item<bool>());
+        CHECK(torch::equal(experience.action->GetAuxData().at("skip_length"), torch::ones({2}, torch::kLong)));
+        CHECK(experience.action->GetAuxData().at("skip_q_values").sizes().vec() == std::vector<int64_t>{2, 3});
+        results = learner->UpdateFromBatch(counts, experience);
+    }
+    REQUIRE_FALSE(results.empty());
+    CHECK(std::isfinite(*results.front()->GetScalar("skip_loss")));
+    CHECK(*results.front()->GetScalar("skip_sample_k_mean") == 1.0f);
+    CHECK(*actor->GetScalar("skip_session_decision_rate") == 1.0f);
+}
+
+TEST_CASE("Action change auxiliary windows cross identical actions at every-step decisions", "[dqn][prd104][prd104-action-change]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.learner.skip.target_window", "action_change");
+    const auto spec = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+        MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 104);
+    const auto actor = agent->CreateActor({.batch_env_spec = batch, .env_spec = spec,
+        .device = torch::kCPU, .seed = 104, .actor_key = "train"});
+    const auto learner = agent->CreateLearner();
+    rl::BatchUpdateResultList results;
+    // 判断は毎stepでも、同じ行動なら上限Jまで教材の窓が伸びる。
+    for (rl::step_t step = 0; step < 20; ++step) {
+        auto experience = MakeDeterminismExperience(step, 2);
+        experience.state.episode_start = torch::full({2}, step == 0, torch::kBool);
+        experience.next_state.done = torch::zeros({2}, torch::kBool);
+        experience.next_state.truncated = torch::zeros({2}, torch::kBool);
+        const rl::StepCounts counts{.exp_step = step};
+        experience.action = actor->MakeAction(counts, experience.state);
+        results = learner->UpdateFromBatch(counts, experience);
+    }
+    REQUIRE_FALSE(results.empty());
+    CHECK(std::isfinite(*results.front()->GetScalar("skip_loss")));
+    CHECK(*results.front()->GetScalar("skip_kmax_mean") == 3.0f);
+}
+
+TEST_CASE("Episode end auxiliary windows ignore changing actions and decision flags", "[dqn][prd104][prd104-episode-end]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.learner.skip.target_window", "episode_end");
+    auto spec = MakeLearnerEnvSpec();
+    spec.action_spec.value_labels = {"a0", "a1"};
+    const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+        MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 104);
+    const auto learner = agent->CreateLearner();
+    rl::BatchUpdateResultList results;
+    // 行動は毎step交互に変わるが、エピソードが続く限り窓はJまで伸びる。
+    for (rl::step_t step = 0; step < 20; ++step) {
+        auto experience = MakeDeterminismExperience(step, 2);
+        experience.state.episode_start = torch::full({2}, step == 0, torch::kBool);
+        experience.next_state.done = torch::zeros({2}, torch::kBool);
+        experience.next_state.truncated = torch::zeros({2}, torch::kBool);
+        experience.action = experience.action->WithAction(torch::full({2}, step % 2, torch::kLong));
+        experience.action->GetInfo().Set("decision", torch::ones({2}, torch::kBool));
+        results = learner->UpdateFromBatch({.exp_step = step}, experience);
+    }
+    REQUIRE_FALSE(results.empty());
+    CHECK(std::isfinite(*results.front()->GetScalar("skip_loss")));
+    CHECK(*results.front()->GetScalar("skip_kmax_mean") == 3.0f);
+}
+
+TEST_CASE("Variable skip limit follows exp step and restricts only duration selection", "[dqn][prd104][prd104-variable]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", "variable");
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length.type", "linear");
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length.start", 3);
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length.end", 1);
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length.steps", 10);
+    const auto spec = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+        MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 104);
+    const auto actor = agent->CreateActor({.batch_env_spec = batch, .env_spec = spec,
+        .device = torch::kCPU, .seed = 104, .actor_key = "train"});
+    const auto initial = actor->GetScalar("skip_max_length");
+    REQUIRE(initial.has_value());
+    CHECK(*initial == 3.0f);
+    torch::Tensor previous;
+    // decisionの行だけを現在のcで制限し、継続行の長さとJ本のauxを維持する。
+    for (rl::step_t step = 0; step < 20; ++step) {
+        auto experience = MakeDeterminismExperience(step, 2);
+        const auto action = actor->MakeAction({.exp_step = step}, experience.state);
+        const int limit = step >= 10 ? 1 : static_cast<int>(3.0 - 2.0 * static_cast<double>(step) / 10.0);
+        CHECK(*actor->GetScalar("skip_max_length") == static_cast<float>(limit));
+        const auto decision = action->GetInfo().At("decision");
+        const auto lengths = action->GetAuxData().at("skip_length");
+        CHECK(lengths.masked_select(decision).le(limit).all().item<bool>());
+        if (previous.defined()) {
+            CHECK(torch::equal(lengths.masked_select(decision.logical_not()), previous.masked_select(decision.logical_not())));
+        }
+        CHECK(action->GetAuxData().at("skip_q_values").sizes().vec() == std::vector<int64_t>{2, 3});
+        previous = lengths.clone();
+    }
+    for (const auto* mode : {"full", "single"}) {
+        data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", mode);
+        auto other = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+            MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 104);
+        const auto inactive = other->CreateActor({.batch_env_spec = batch, .env_spec = spec,
+            .device = torch::kCPU, .seed = 104, .actor_key = "train"})->GetScalar("skip_max_length");
+        REQUIRE(inactive.has_value());
+        CHECK(std::isnan(*inactive));
+    }
+}
+
+TEST_CASE("Skip target windows validate the entire Actor catalog and warn for intentional controls", "[dqn][prd104][prd104-validation]")
+{
+    const bool enabled = GENERATE(false, true);
+    const bool learning = GENERATE(false, true);
+    const auto window = GENERATE(std::string("decision"), std::string("action_change"), std::string("episode_end"));
+    const auto width = GENERATE(std::string("single"), std::string("full"), std::string("unused_single"),
+        std::string("unused_full"), std::string("variable_one"), std::string("variable_two"),
+        std::string("linear_one"), std::string("linear_two"), std::string("phased_one"), std::string("phased_two"));
+    const auto gradient = GENERATE(std::string("merge"), std::string("stop"));
+    CAPTURE(enabled, learning, window, width, gradient);
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", enabled);
+    data.Set("DefaultDQNAgent.learner.enabled", learning);
+    data.Set("DefaultDQNAgent.learner.skip.target_window", window);
+    data.Set("DefaultDQNAgent.learner.skip.feature_gradient", gradient);
+    const bool unused = width.starts_with("unused_");
+    const bool variable = !unused && width != "single" && width != "full";
+    const bool exceeds_one = width == "full" || width == "unused_full" || width.ends_with("_two");
+    for (const auto* actor_key : {"train", "eval"}) {
+        const auto prefix = std::string("DefaultDQNAgent.actor.[") + actor_key + "].skip.";
+        const auto mode = variable ? "variable" : width.ends_with("single") ? "single" : "full";
+        data.Set(prefix + "max_length_mode", mode);
+        if (unused || variable) {
+            const int value = width.ends_with("_two") ? 2 : 1;
+            if (width.starts_with("linear_")) {
+                data.Set(prefix + "max_length.type", "linear");
+                data.Set(prefix + "max_length.start", 1);
+                data.Set(prefix + "max_length.end", value);
+                data.Set(prefix + "max_length.steps", 2);
+            } else if (width.starts_with("phased_")) {
+                data.Set(prefix + "max_length.type", "phased");
+                data.Set(prefix + "max_length.phases", "p");
+                data.Set(prefix + "max_length.phase.[p].value", value);
+                data.Set(prefix + "max_length.phase.[p].steps", 2);
+                data.Set(prefix + "max_length.start", 100);
+            } else {
+                data.Set(prefix + "max_length", value);
+                data.Set(prefix + "max_length.start", 100);
+            }
+        }
+    }
+    anet::test::LogCaptureGuard logs;
+    const bool invalid = enabled && learning && window != "decision" && exceeds_one;
+    if (invalid) {
+        std::string diagnostic;
+        try { (void)dqn::DefaultDQNAgentConfig(data); }
+        catch (const std::exception& error) { diagnostic = error.what(); }
+        CHECK_FALSE(diagnostic.empty());
+        CHECK(diagnostic.find("actor.[train]") != std::string::npos);
+        CHECK(diagnostic.find("actor.[eval]") != std::string::npos);
+        CHECK(diagnostic.find("target_window") != std::string::npos);
+        logs.Flush();
+        for (const auto& record : logs.Records()) CHECK(record.message.find("ProfiledValue:") == std::string::npos);
+    } else {
+        REQUIRE_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+        logs.Flush();
+        int unused_warnings = 0, control_warnings = 0;
+        for (const auto& record : logs.Records()) {
+            if (record.level != wxLOG_Warning) continue;
+            unused_warnings += record.message.find(".skip.max_length") != std::string::npos;
+            control_warnings += record.message.find("learner.skip.feature_gradient=stop") != std::string::npos;
+        }
+        CHECK(unused_warnings == (enabled && unused ? 2 : 0));
+        CHECK(control_warnings == (enabled && learning && window != "decision" && gradient == "stop" ? 1 : 0));
+    }
+}
+
+TEST_CASE("Skip length values are validated even when the Actor or Learner does not use them", "[dqn][prd104][config]")
+{
+    const bool enabled = GENERATE(false, true);
+    const bool learning = GENERATE(false, true);
+    const auto mode = GENERATE(std::string("full"), std::string("single"), std::string("variable"));
+    const auto value = GENERATE(std::string("missing"), std::string("zero"), std::string("negative"),
+        std::string("large"), std::string("valid"), std::string("unknown_type"));
+    CAPTURE(enabled, learning, mode, value);
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", enabled);
+    data.Set("DefaultDQNAgent.learner.enabled", learning);
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", mode);
+    const std::string key = "DefaultDQNAgent.actor.[train].skip.max_length";
+    if (value != "missing") data.Set(key, value == "zero" ? 0 : value == "negative" ? -1 : value == "large" ? 4 : 1);
+    if (value == "unknown_type") data.Set(key + ".type", "unknown");
+    const bool invalid = value == "zero" || value == "negative" || value == "unknown_type"
+        || (enabled && value == "large") || (enabled && mode == "variable" && value == "missing");
+    anet::test::LogCaptureGuard logs;
+    if (invalid) CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("skip.max_length"));
+    else CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+}
+
+TEST_CASE("Auxiliary catalog checks use active fields for every ProfiledValue type", "[dqn][prd104][config]")
+{
+    const auto type = GENERATE(std::string("constant"), std::string("linear"), std::string("exponential"),
+        std::string("cosine"), std::string("cosine_restart"), std::string("phased"));
+    const bool one = GENERATE(false, true);
+    CAPTURE(type, one);
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.learner.skip.target_window", "episode_end");
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", "variable");
+    const std::string key = "DefaultDQNAgent.actor.[train].skip.max_length";
+    data.Set(key + ".type", type);
+    if (type == "constant") {
+        data.Set(key, one ? 1 : 2);
+        data.Set(key + ".start", 100);
+    } else if (type == "phased") {
+        data.Set(key, 100);
+        data.Set(key + ".phases", "p");
+        data.Set(key + ".phase.[p].type", "linear");
+        data.Set(key + ".phase.[p].start", 1);
+        data.Set(key + ".phase.[p].end", one ? 1 : 2);
+        data.Set(key + ".phase.[p].steps", 2);
+    } else {
+        data.Set(key, 100);
+        data.Set(key + ".start", 1);
+        data.Set(key + ".end", one ? 1 : 2);
+        data.Set(key + ".steps", 2);
+    }
+    anet::test::LogCaptureGuard logs;
+    if (one) CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    else CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("active_range"));
+}
+
+TEST_CASE("Disabled skip has no required J or variable limit but still validates recognized values", "[dqn][prd104][config]")
+{
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.actor.[custom].network", "online");
+    data.Set("DefaultDQNAgent.actor.[custom].skip.max_length_mode", "variable");
+    data.Set("DefaultDQNAgent.learner.skip.target_window", "episode_end");
+    data = WithDefaultForwardConfig(data);
+    anet::test::LogCaptureGuard logs;
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    data.Set("DefaultDQNAgent.actor.[custom].skip.max_length", 100);
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+    data.Set("DefaultDQNAgent.actor.[custom].skip.max_length", 0);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(data));
+    data.Set("DefaultDQNAgent.actor.[custom].skip.max_length", 1);
+    data.Set("DefaultDQNAgent.actor.[custom].skip.max_length_mode", "unknown");
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("skip.max_length_mode"));
+    data.Set("DefaultDQNAgent.actor.[custom].skip.max_length_mode", "single");
+    data.Set("DefaultDQNAgent.learner.skip.target_window", "unknown");
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("skip.target_window"));
+}
+
+TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops", "[dqn][prd104][prd104-held]")
+{
+    anet::nn::InitNN();
+    torch::NoGradGuard no_grad;
+    const auto spec = MakeLearnerEnvSpec().state_spec.obs_spec;
+    const auto network_config = MakeAgentForwardNetworkConfig();
+    const anet::nn::WeightInitConfig init;
+    const auto primary = anet::nn::NetworkBuilder::BuildNetwork(network_config, spec,
+        std::make_shared<dqn::LinearHeadFactory>(2, init), 104, torch::kCPU);
+    const auto skip = anet::nn::NetworkBuilder::BuildNetwork(network_config, spec,
+        std::make_shared<dqn::SkipHeadFactory>(2, 3, dqn::SkipNetworkMode::ActionOut, "none", 1, init), 105, torch::kCPU);
+    for (auto& p : primary->parameters()) p.zero_();
+    for (auto& p : skip->parameters()) p.zero_();
+    primary->named_parameters()["head.linear.bias"].copy_(torch::tensor({3.0f, 1.0f}));
+    skip->named_parameters()["head.linear.bias"].copy_(torch::tensor({0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 2.0f}));
+    dqn::ActionPolicyConfig policy_config;
+    policy_config.epsilon.value = policy_config.epsilon.start = policy_config.epsilon.end = 0;
+    const auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
+    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
+        primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
+        dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3}, .policy = policy,
+            .network = skip, .source = skip, .max_length_mode = "variable",
+            .max_length = anet::ProfiledValueConfig<int>{.type = "linear", .start = 3, .end = 1, .steps = 1}});
+    const auto flags = torch::zeros({2}, torch::kBool);
+    rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2, 2})}}, flags, flags, flags);
+    const auto first = actor.MakeAction({}, state);
+    CHECK(torch::equal(first->GetAuxData().at("skip_length"), torch::full({2}, 3, torch::kLong)));
+    // cが1へ落ちてもlane0の3stepは続け、episodeが始まるlane1だけは新しく判断する。
+    primary->named_parameters()["head.linear.bias"].copy_(torch::tensor({1.0f, 4.0f}));
+    state.episode_start = torch::tensor({false, true});
+    const auto second = actor.MakeAction({.exp_step = 1}, state);
+    CHECK(*actor.GetScalar("skip_max_length") == 1.0f);
+    CHECK(torch::equal(second->GetAction(), torch::tensor({0, 1}, torch::kLong)));
+    CHECK(torch::equal(second->GetAuxData().at("skip_length"), torch::tensor({3, 1}, torch::kLong)));
+    CHECK(torch::equal(second->GetInfo().At("decision"), torch::tensor({false, true})));
+    state.episode_start = flags;
+    const auto third = actor.MakeAction({.exp_step = 2}, state);
+    CHECK(third->GetAction()[0].item<int>() == 0);
+    const auto fourth = actor.MakeAction({.exp_step = 3}, state);
+    CHECK(torch::equal(fourth->GetAction(), torch::ones({2}, torch::kLong)));
+    CHECK(torch::equal(fourth->GetAuxData().at("skip_length"), torch::ones({2}, torch::kLong)));
+}
+
+TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each policy", "[dqn][prd104][prd104-distribution]")
+{
+    const auto kind = GENERATE(std::string("EpsilonGreedy"), std::string("UQE"), std::string("ThompsonSampling"));
+    auto primary_state = std::make_shared<TauEchoState>();
+    auto skip_state = std::make_shared<TauEchoState>();
+    auto primary = MakeTauEchoNetwork(8, primary_state);
+    auto skip = MakeTauEchoNetwork(8, skip_state, true);
+    dqn::ActionPolicyConfig config;
+    config.policy_type = kind;
+    config.quantile_mode = "iqn";
+    config.epsilon.value = config.epsilon.start = config.epsilon.end = 0;
+    config.uqe.epsilon.value = config.uqe.epsilon.start = config.uqe.epsilon.end = 0;
+    config.tau_rule.num_taus = 8;
+    config.tau_rule.sample_mode = "fixed";
+    std::shared_ptr<dqn::ActionPolicy> policy;
+    if (kind == "EpsilonGreedy") policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(config, false, 2);
+    else if (kind == "UQE") policy = std::make_shared<dqn::UQEActionPolicy>(config, false, 2);
+    else policy = std::make_shared<dqn::ThompsonSamplingActionPolicy>(config, false, 2);
+    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
+        primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
+        dqn::SkipActorResources{.config = {.enabled = true, .max_length = 2, .network_mode = dqn::SkipNetworkMode::ActionIn},
+            .policy = policy, .network = skip, .source = skip, .max_length_mode = "variable",
+            .max_length = anet::ProfiledValueConfig<int>{.value = 1}});
+    const auto flags = torch::zeros({2}, torch::kBool);
+    const auto action = actor.MakeAction({}, rl::BatchState(MakeTauEchoObservation(), flags, flags, flags));
+    CHECK(torch::equal(action->GetAuxData().at("skip_length"), torch::ones({2}, torch::kLong)));
+    CHECK(action->GetAuxData().at("skip_q_values").sizes().vec() == std::vector<int64_t>{2, 2});
+    CHECK(primary_state->forward_count == 1);
+    CHECK(skip_state->forward_count == 1);
+    CHECK(torch::equal(primary_state->last_taus, skip_state->last_taus));
 }
 
 TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", "[dqn][serialize][prd098][checkpoint-format]")

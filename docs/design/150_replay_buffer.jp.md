@@ -209,6 +209,8 @@ Pushはn-stepの確定とは別に、各遷移の1-step reward、done／truncate
 
 window指定時のsampleable範囲は未来側に`max(1, n_step, J)`の遅れを置く。Sample、一様非復元sample、抽選履歴probe、件数が同じ範囲を使う。容量下限にもこの遅れを含める。PER初期優先度の完成とeviction統計は従来のn-step ready範囲を使う。規則が無ければwindowは空で、追加の乱数を使わない。
 
+可変長windowの追加規則は `CreateActionChangeWindowRule(J)`（起点と同じ行動の連続区間）と `CreateEpisodeEndWindowRule(J)`（行動も判断も問わない区間）で構築する。前者は異なる行動のslotの直前で閉じ、後者は行動変化でも閉じない。いずれも判断の旗を無視し、done/truncatedの遷移を含めて閉じ、上限Jで止まる。区間内のdummyはエラー。samplingの候補範囲・kの一様抽選・PER・転送の契約は規則間で共通である。[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)に境界・短縮Runの確認手順がある。
+
 ### 6.2 1-deep prefetchとCUDA転送
 
 ```mermaid
@@ -343,6 +345,8 @@ DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`か�
 Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとprefetchをsettleしてから委譲する。次回の通常batchは保持する。DefaultDQNの群抽出RNGは外側Agent所有のnamed seed `replay_fit_probe`から作り、群抽出の購読が必要になるまで生成しない。
 
 ## 8. テストと拡張時の確認事項
+
+- [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): action_change・episode_endの窓、終了・dummy・ring wrap・転送の確認。
 
 PRD101の段階別比較・短い実Run・7環境全キー比較は[PRD101検証資材](../../core/anet-core/testdata/prd101/README.md)を使う。
 

@@ -157,6 +157,8 @@ DefaultDQNのskip網は `skip.network_mode=action_out|action_in` で構成を選
 
 DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動`WithAction`は実行行動とQヒントを差し替えるが、Actorの継続状態を更新しない。
 
+DefaultDQNのActorごとの `skip.max_length_mode` はfull・single・variableを選ぶ。full/variableは継続状態をActorが所有し、singleは毎step判断して方策の提案をそのまま使う。variableの整数ProfiledValueはMakeActionの学習側exp_stepで進める（評価側は直近Syncのcounts）。skip NetworkのforwardとJ本のauxはどのモードも維持する。幅と補助学習用の窓の組み合わせはAgentがカタログ全体に対して検証し、Runnerの用途を推測しない。具体的な契約は[DQN系列](200_dqn_agents.jp.md)のskip方策、確認手順は[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+
 ### 6.2 Experience受入れと更新結果
 
 ```mermaid

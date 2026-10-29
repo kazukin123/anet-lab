@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <memory>
+#include <sstream>
 #include <torch/torch.h>
 
 #include "anet/config.hpp"
@@ -372,6 +373,7 @@ namespace anet::rl::dqn {
             else ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << network_mode << "'; expected " << SkipConfig::kNetworkModeActionOut << " or " << SkipConfig::kNetworkModeActionIn << ".");
             ANET_READ_CONFIG(config_data, skip.head.use_dueling);
             ANET_READ_CONFIG(config_data, learner.skip.feature_gradient);
+            ANET_READ_CONFIG(config_data, learner.skip.target_window);
             ANET_READ_CONFIG(config_data, learner.skip.sample_weight);
             ANET_READ_CONFIG(config_data, learner.skip.loss_weight);
             ANET_READ_CONFIG(config_data, learner.skip.priority_lambda);
@@ -389,6 +391,13 @@ namespace anet::rl::dqn {
                 && learner.skip.sample_weight != LearnerConfig::kSampleWeightKmax) {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.sample_weight='" << learner.skip.sample_weight
                     << "'; expected " << LearnerConfig::kSampleWeightUniform << " or " << LearnerConfig::kSampleWeightKmax << ".");
+            }
+            if (learner.skip.target_window != LearnerConfig::kTargetWindowDecision
+                && learner.skip.target_window != LearnerConfig::kTargetWindowActionChange
+                && learner.skip.target_window != LearnerConfig::kTargetWindowEpisodeEnd) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.target_window='" << learner.skip.target_window
+                    << "'; expected " << LearnerConfig::kTargetWindowDecision << "|" << LearnerConfig::kTargetWindowActionChange
+                    << "|" << LearnerConfig::kTargetWindowEpisodeEnd << ".");
             }
             for (const auto& [key, value] : std::initializer_list<std::pair<const char*, float>>{
                 {"loss_weight", learner.skip.loss_weight}, {"priority_lambda", learner.skip.priority_lambda}}) {
@@ -440,10 +449,77 @@ namespace anet::rl::dqn {
             // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
             for (auto& [key, entry] : actor) {
                 entry.policy.quantile_mode = quantile_mode;
+                const auto skip_prefix = "actor.[" + key + "].skip";
+                ReadConfig(config_data, skip_prefix + ".max_length_mode", entry.skip.max_length_mode);
+                if (entry.skip.max_length_mode != DQNActorConfig::kMaxLengthSingle
+                    && entry.skip.max_length_mode != DQNActorConfig::kMaxLengthFull
+                    && entry.skip.max_length_mode != DQNActorConfig::kMaxLengthVariable) {
+                    ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(skip_prefix + ".max_length_mode")
+                        << "='" << entry.skip.max_length_mode << "'; expected " << DQNActorConfig::kMaxLengthSingle
+                        << "|" << DQNActorConfig::kMaxLengthFull << "|" << DQNActorConfig::kMaxLengthVariable << ".");
+                }
+                // Jが確定したあとで、bareと配下の指定を検出して共通の値域検証へ渡す。
+                const auto length_key = skip_prefix + ".max_length";
+                const auto default_key = MakeDefaultConfigKey(length_key);
+                const auto override_key = MakeOverrideConfigKey(length_key);
+                for (const auto& [name, value] : config_data.Map()) {
+                    if (name == default_key || name.starts_with(default_key + ".")
+                        || name == override_key || name.starts_with(override_key + ".")) {
+                        entry.skip.max_length.emplace();
+                        entry.skip.max_length->min_value = 1;
+                        if (skip.enabled) entry.skip.max_length->max_value = skip.max_length;
+                        ReadConfig(config_data, length_key, *entry.skip.max_length);
+                        break;
+                    }
+                }
+                if (skip.enabled && entry.skip.max_length_mode == DQNActorConfig::kMaxLengthVariable
+                    && !entry.skip.max_length) {
+                    ANET_SYSTEM_ERROR("Missing " << default_key << "; expected an integer ProfiledValue in [1, "
+                        << skip.max_length << "] when max_length_mode=" << DQNActorConfig::kMaxLengthVariable << ".");
+                }
+                if (skip.enabled && entry.skip.max_length && entry.skip.max_length_mode != DQNActorConfig::kMaxLengthVariable) {
+                    const auto [lower, upper] = anet::detail::GetProfiledValueActiveRange(*entry.skip.max_length, default_key);
+                    anet::log::warn() << default_key << " active_range=[" << lower << "," << upper
+                        << "] is unused with max_length_mode=" << entry.skip.max_length_mode
+                        << "; expected max_length_mode=" << DQNActorConfig::kMaxLengthVariable << " to use this value.";
+                }
                 entry.skip_policy = entry.policy;
                 ReadActionPolicyConfig(config_data, "actor.[" + key + "].skip.policy", entry.skip_policy);
             }
             target_policy.quantile_mode = quantile_mode;
+            // 判断によらない教材は全Actorが常に長さ1のときだけ使い、用途名は解釈しない。
+            if (skip.enabled && learner.enabled && learner.skip.target_window != LearnerConfig::kTargetWindowDecision) {
+                std::ostringstream offending;
+                for (const auto& [key, entry] : actor) {
+                    bool invalid = entry.skip.max_length_mode == DQNActorConfig::kMaxLengthFull;
+                    if (entry.skip.max_length_mode == DQNActorConfig::kMaxLengthVariable) {
+                        auto bounds = *entry.skip.max_length;
+                        bounds.max_value = 1;
+                        invalid = anet::detail::FindProfiledValueBoundsError(bounds, "actor.[" + key + "].skip.max_length").has_value();
+                    }
+                    if (!invalid) continue;
+                    offending << " actor.[" << key << "].skip.max_length_mode=" << entry.skip.max_length_mode;
+                    if (entry.skip.max_length) {
+                        const auto [lower, upper] = anet::detail::GetProfiledValueActiveRange(*entry.skip.max_length,
+                            "actor.[" + key + "].skip.max_length");
+                        offending << " active_range=[" << lower << "," << upper << "]";
+                    }
+                    offending << ";";
+                }
+                if (!offending.str().empty()) {
+                    ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.skip.target_window=" << learner.skip.target_window
+                        << "; offending Actors:" << offending.str() << " expected every declared Actor to use "
+                        << DQNActorConfig::kMaxLengthSingle << " or " << DQNActorConfig::kMaxLengthVariable
+                        << " with active_range=[1,1]; biased skip outputs must not hold actions.");
+                }
+                if (learner.skip.feature_gradient == LearnerConfig::kFeatureGradientStop) {
+                    anet::log::warn() << "DefaultDQNAgent.learner.skip.feature_gradient=" << LearnerConfig::kFeatureGradientStop
+                        << " with target_window=" << learner.skip.target_window
+                        << ": skip loss gradients do not reach shared features, and outputs are not used for acting. "
+                        << "priority_lambda=" << learner.skip.priority_lambda
+                        << "; 0 means no effect on Q learning (control arm); positive values affect Q learning through replay priorities.";
+                }
+            }
             learner.quantile_mode = quantile_mode;
             learner.num_quantiles = qr.num_quantiles;
 
