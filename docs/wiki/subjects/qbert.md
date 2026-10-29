@@ -8,6 +8,7 @@ TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、�
 
 ## 分かっていること
 
+- サンプル効率優先の50Mの合算のcheckpoint（seed1）を、`[greedy]`の評価sessionと同じ条件のEvaluation Traceで見ると（3ゲーム）、最後でない残機を失った前後で`V_s`はほとんど変わらず（4回で−0.4〜+0.0）、最後の1機のときだけ0へ崩れた。最上段から外へ出る飛び降りが、価値の上で最善の行動として選ばれた例があった。同じcheckpointのGreedyの評価200ゲームでは、45本が5面で終わり、そのうち43本が14,550点・ゲームの長さ1,063〜1,066 stepにそろっていた。（出典: [999_eval_session_step_trace_10prd.md](../../memo/999_eval_session_step_trace_10prd.md)、§1）。
 - 50M終了checkpoint（seed1、各200ゲーム）を評価時の行動の選び方を変えて評価すると、8面突破率はGreedy（μ-only・τ固定）／ノイズあり／τランダム／両方の順に、スキップなしで50.5／61.5／66.0／60.0%、TempoRL分割のfullで66.0／41.5／50.5／37.5%、分割のsingleで68.5／66.5／70.0／66.5%だった。両方はε=0の学習中のTrain Actorと同じ選び方である。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02。Run: `run_20261029-112021_evnt_off_a` ほか同ブロックの12本）。
 - スキップなしのseed2（`run_20261028-132638_a5_qb_aln_btreps_s2`）の50M終了checkpointは、学習中と同じ選び方で44.5%・29,279.6点、Greedyで25.5%・26,705.8点だった（各200ゲーム）。学習の最後の400ゲームは49.8%、最後の1,000ゲームは67.5%で、seed1（86.5%・81.4%）より低い。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ7・探索ブロック03。Run: `run_20261029-142927_evnt_off2_nt` / `run_20261029-143538_evnt_off2_a`）。
 
@@ -34,6 +35,7 @@ TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、�
 
 ## 分かっていないこと
 
+- 最後でない残機を失っても`V_s`がほとんど下がらないことは、評価sessionの多くのゲームで成り立つか。14,550点で終わるゲームは、残機を失う面・stepがそろった同じ道筋をたどっているか（出典: [999_eval_session_step_trace_10prd.md](../../memo/999_eval_session_step_trace_10prd.md)、§1・§3のG3）？
 - μ-onlyの評価で固定を外した改善が、合算・遮断・重み0.3のcheckpointでもNoisyNetの摂動つきの行動で得られるか。別seedでも得られるか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り・探索ブロック02）？
 
 - BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？

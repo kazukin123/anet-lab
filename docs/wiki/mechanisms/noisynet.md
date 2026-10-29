@@ -24,6 +24,7 @@ LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率
 
 ## 分かっていないこと
 
+- 学習のActorのlaneの一部をNoisyNetのノイズの弱い（無い）動き方にすると、Greedyの評価で同じ得点で終わる決まった失敗の道が減るか（Greedyの道の状態がreplayに少ないために直らない、という見立て）（出典: [PRD107](../../memo/107_noisy_gain_lane_ladder_10prd.md)、§1・§3）？
 - battle_zone と double_dunk で、NoisyNet を ε ラダーに足すと立ち上がりが基準より遅れるのはなぜか（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、pending）？
 - double_dunk の ε 0 で、ノイズが行動を変えなくなったのに ‖σ‖/‖μ‖ が 0.81 に留まるのはなぜか（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、pending）？
 
@@ -39,4 +40,5 @@ LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
+- [学習の Actor の lane ごとに NoisyNet のノイズの強さを変える暫定 PRD](../../memo/107_noisy_gain_lane_ladder_10prd.md)。
 - [TempoRL の skip 側の forward のノイズを Q 側と分けて指定する PRD](../../memo/106_temporl_skip_forward_noise_key_10prd.md)。

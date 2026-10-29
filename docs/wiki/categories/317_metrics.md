@@ -16,6 +16,7 @@
 - 2026-09-19: Actorカタログ変更後のメトリクス保存を回帰確認した（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-10-19: Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、本文）。
 - 2026-10-21: scalarとtraceのtarget解決を共用しメトリクス配線を分離した（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D1〜D3）。
+- 2026-10-29: 評価sessionの採用episodeのstep traceを、Evaluation Traceと同じ列の書き方で`metrics.step_trace.[<tag>]`に宣言し、traceの行としてRunの記録に残す案を暫定で起票した（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、題・§4 D1・D2・D6）。
 
 ## 選ばなかった形
 
@@ -26,6 +27,11 @@
 - trace の行の episode_id・model_version の欄 — 範囲外（cut。912・932 へ）: コードに概念が無い。再開条件: episode_id は 932 で EpisodeId が実装されたとき、model_version は 912 に着手するとき（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、8. フェーズとゲート・9. 複雑さ監査）。
 - data を宣言順に出す専用の JSON 経路 — 不採用（cut）: 名前と値の対応で目的を満たし、取得順と定義の keys 配列だけを宣言順で保つ（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、9. 複雑さ監査）。
 - eval scalar の @episode_end を WARN 付きで受理する alias — 不採用（cut）: リポジトリの外に workspace は無く、クリーンブレークの方針どおり fail-fast のメッセージで置換先を案内する（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、4.0 決定一覧 D5・D11・9. 複雑さ監査）。
+- traceの1行DSLに`@train`と複数のtargetを足す形 — 不採用: 1定義1targetの文法と検証（PRD069）を変えることになり、複数targetの列はEvaluation Traceの列の書き方がすでに表している（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§8）。
+- 画面の列（`app.eval_trace_panel.columns.*`）をそのまま記録に使う形 — 不採用: 画面の設定と記録の宣言が結び付く（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§8）。
+- 残機を失ったstepだけを書く形 — 不採用: 残機はAtari固有の値で、汎用のtraceのeventにEnv固有の判定を持ち込む（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§8）。
+- step traceの行の間引き — 先送り: 評価専用のRunなら行数が許容の範囲。再開条件: 行数が読み手やViewerの扱える量を超えたとき（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§8）。
+- 学習側（`$train`）のstep trace — 範囲外: 行数が学習の長さに比例して増える。再開条件: 学習中の行動をstepごとに追う必要が出たとき（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§8）。
 
 ## 変えるときの条件
 
@@ -34,6 +40,7 @@
 - batch入力への移行でtrainのmax_steps episode、episode_start、可視化cadenceを維持する（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、1.3 維持する外部contract）。
 - 512/1024動画はautoでNVENCを選択し、従来どおり出力できることを確かめる（出典: [PRD025](../../memo/done/025_videolog_codec_auto_ffmpeg_guard_10prd.md)、Testing Decisions）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
+- step traceの宣言が無い設定では、observerもstep部品も作らず、PRD103の検証資材の6構成のmetrics checksumを実装の前後で一致させる。既存の1行DSLのtraceの定義の記録（`json/metrics.trace.defs.json`）も前後で同一に保つ（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§4 D2・D4・§7の受入1）。
 
 ## 関係
 

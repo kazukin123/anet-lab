@@ -16,10 +16,14 @@ SET /A FAILED_RUNS=0
 
 SET "EVD=C:/dev/anet-lab/.scratch/evaldiag_noise_tau"
 
-echo === 1. no-skip s2 50M: NoisyNet sample + tau random (train-like, eps 0) ===
-call :run_cfg off2_nt
-echo === 2. no-skip s2 50M: NoisyNet off + tau fixed (current greedy) ===
-call :run_cfg off2_a
+echo === 1. PRD106 stage 0, split 50M full, eval seed 2: greedy (noise off, tau fixed) ===
+call :run_cfg p106_spl_g_e2
+echo === 2. PRD106 stage 0, split 50M full, eval seed 2: Q-side tau random, skip tau fixed (TQ) ===
+call :run_cfg p106_spl_ta_e2
+echo === 3. PRD106 stage 0, split 50M full, eval seed 2: Q-side tau fixed, skip tau random (TS) ===
+call :run_cfg p106_spl_ts_e2
+echo === 4. PRD106 stage 0, split 50M full, eval seed 2: tau random for both, shared (TB) ===
+call :run_cfg p106_spl_tb_e2
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

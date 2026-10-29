@@ -66,6 +66,9 @@ SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
 SET "WLAD=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first=0.4 A2.actor.[train].policy.spatial.epsilon.last=0"
 SET "LADEXP=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first.type=exponential A2.actor.[train].policy.spatial.epsilon.first.start=0.4 A2.actor.[train].policy.spatial.epsilon.first.end=0 A2.actor.[train].policy.spatial.epsilon.first.time_constant=5000000 A2.actor.[train].policy.spatial.epsilon.last=0"
 SET "BTREPSPH=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon.type=phased "A2.actor.[train].policy.epsilon.phases=decay off" A2.actor.[train].policy.epsilon.phase.[decay].type=exponential A2.actor.[train].policy.epsilon.phase.[decay].start=1.0 A2.actor.[train].policy.epsilon.phase.[decay].end=0.01 A2.actor.[train].policy.epsilon.phase.[decay].time_constant=2000000 A2.actor.[train].policy.epsilon.phase.[decay].steps=25000000 A2.actor.[train].policy.epsilon.phase.[off].type=constant A2.actor.[train].policy.epsilon.phase.[off].value=0 A2.actor.[train].policy.epsilon.phase.[off].steps=1"
+SET "SENZPASK=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@batch"
+SET "SKIPMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy>metrics.scalar.@skip"
+SET "MERGE=DefaultDQNAgent.learner.skip.feature_gradient=merge"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
@@ -173,6 +176,9 @@ if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=qbert run.seed=1 %BTREN
 echo === 36. qbert 50m seed 2: btr aligned, pixel_area, init default, munchausen log pi online, no ladder, epsilon 1.0 to 0.01 with time constant 2M then 0 from 25M (same as main run_20261025-231207_a5_qb_aln_btreps_s1) ===
 call :find_done a5_qb_aln_btreps_s2
 if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=qbert run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_qb_aln_btreps_s2"
+echo === 37. qbert 50m seed 2: same setup as 36 plus TempoRL sep-merge (same as main run_20261027-004945_a5_qb_aln_t98mrg_s1) ===
+call :find_done a5_qb_aln_t98mrg_s2
+if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=qbert run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_qb_aln_t98mrg_s2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
