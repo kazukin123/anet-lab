@@ -73,7 +73,7 @@ singleで元の3本は突破率と平均長が上がった。追加の分割は�
 - 元の4 Runは7 session・計1,400件、追加のsplitは2 session・400件で、全5 Runがexit0。各sessionに200件、合計1,800件の採用traceがあり、平均点・突破率・長さを独立集計して自動集計と一致した。
 - `inspect_run.py metrics`へ5 Runと`53_evalg/*`をまとめて渡し、`trace-csv`から個体行を抽出した。平均得点は1 sessionにつき1 scalar点。これを複数時点の学習曲線とは読まない。
 - 元のRunとの`config --diff --effective-only`では、ネット構造・前処理の5葉を一致させた。評価専用化、session名/本数、train lane数、新しい既定葉、学習をしないLearnerの条件差を区別した。
-- ローカルの証跡は`.scratch/prd104/analysis/stage0/including-split-metrics.json`、同所の`including-split-episodes.csv`、`.scratch/prd104/stage0-split-final-audit.log`と、各Runのconfig/log、各caseのexecution.json/result.json。元の4本だけの`all-*`と`episode-audit.json`も保持している。追加splitの結果は専用caseに保存し、元4本のresults.jsonと元3本の多数決は維持した。固定入力と生成手順は[PRD104検証資材](../../../../core/anet-core/testdata/prd104/README.md)を参照する。
+- 評価Runは上表の5つのRunフォルダ名で特定する。追加splitは参考比較として記録し、元3本の多数決は維持した。固定入力と生成手順は[PRD104検証資材](../../../../core/anet-core/testdata/prd104/README.md)を参照する。
 
 ## 追加splitと別枠の評価
 

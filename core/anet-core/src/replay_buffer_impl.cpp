@@ -26,6 +26,20 @@ namespace LOG = anet::log;
 
 namespace {
 
+auto MakeReplayActionMatcher(const torch::Tensor& actions, int64_t env, int64_t time)
+{
+    // CPUの離散行動は連続した整数配列として比較し、slotごとのTensor生成を避ける。
+    const auto* scalar_actions = actions.device().is_cpu() && actions.scalar_type() == torch::kInt64
+        && actions.dim() == 2 && actions.is_contiguous()
+        ? actions.const_data_ptr<int64_t>() + env * actions.size(1) : nullptr;
+    // storage所有のactionsを借り、GetMaxLengthの同期呼び出し内だけで使う。
+    return [&actions, env, time, scalar_actions,
+        action = scalar_actions ? torch::Tensor{} : actions[env][time]](int64_t slot) {
+        return scalar_actions ? scalar_actions[time] == scalar_actions[slot]
+            : torch::equal(action, actions[env][slot]);
+    };
+}
+
 // サンプル起点から次の判断点の直前までを上限窓とし、終端・打切り・設定上限でも閉じる。
 class DecisionWindowRule final : public SampleWindowRule {
 public:
@@ -38,10 +52,7 @@ public:
     {
         const auto& actions = storage.GetActions();
         const auto cap = actions.size(1);
-        // CPUの離散行動は連続した整数配列として比較し、slotごとのTensor生成を避ける。
-        const auto* scalar_actions = actions.device().is_cpu() && actions.scalar_type() == torch::kInt64
-            && actions.dim() == 2 && actions.is_contiguous() ? actions.const_data_ptr<int64_t>() + env * cap : nullptr;
-        const auto action = scalar_actions ? torch::Tensor{} : actions[env][time];
+        const auto matches = MakeReplayActionMatcher(actions, env, time);
         // 次の判断の行動は参照せず、区間内の行動だけを検証する。
         for (int offset = 0; offset < limit_; ++offset) {
             const auto slot = (time + offset) % cap;
@@ -50,9 +61,7 @@ public:
             if (flags & ReplayExperienceStorage::kDummy) {
                 ANET_SYSTEM_ERROR("Invalid window: dummy slot inside window. lane=" << env << " slot=" << slot);
             }
-            const bool matches = scalar_actions ? scalar_actions[time] == scalar_actions[slot]
-                : torch::equal(action, actions[env][slot]);
-            if (!matches) {
+            if (!matches(slot)) {
                 ANET_SYSTEM_ERROR("Invalid window action: lane=" << env << " slot=" << slot
                     << " expected the action selected at slot=" << time);
             }
@@ -76,19 +85,14 @@ public:
     {
         const auto& actions = storage.GetActions();
         const auto cap = actions.size(1);
-        // CPU離散行動は既存規則と同じ連続配列で比較し、slotごとのTensor確保を避ける。
-        const auto* scalar_actions = actions.device().is_cpu() && actions.scalar_type() == torch::kInt64
-            && actions.dim() == 2 && actions.is_contiguous() ? actions.const_data_ptr<int64_t>() + env * cap : nullptr;
-        const auto action = scalar_actions ? torch::Tensor{} : actions[env][time];
+        const auto matches = MakeReplayActionMatcher(actions, env, time);
         for (int offset = 0; offset < limit_; ++offset) {
             const auto slot = (time + offset) % cap;
             const auto flags = storage.GetStepFlags(env, slot);
             if (flags & ReplayExperienceStorage::kDummy) {
                 ANET_SYSTEM_ERROR("Invalid window: dummy slot inside window. lane=" << env << " slot=" << slot);
             }
-            const bool matches = scalar_actions ? scalar_actions[time] == scalar_actions[slot]
-                : torch::equal(action, actions[env][slot]);
-            if (!matches) return offset;
+            if (!matches(slot)) return offset;
             if (flags & (ReplayExperienceStorage::kDone | ReplayExperienceStorage::kTruncated)) return offset + 1;
         }
         return limit_;

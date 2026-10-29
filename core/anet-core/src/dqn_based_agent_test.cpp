@@ -3112,6 +3112,8 @@ TEST_CASE("DefaultDQN learns skip values from replay windows", "[dqn][prd098]")
     CHECK(*results.front()->GetScalar("skip_sample_k_mean") == 1.0f);
 }
 
+namespace {
+
 anet::ConfigData MakePrd104ConfigData()
 {
     auto data = MakeDeviceForwardDefaultDqnConfig().GetScopedConfigData();
@@ -3138,6 +3140,8 @@ anet::ConfigData MakePrd104ConfigData()
     data.Set("DefaultDQNAgent.learner.replay_ratio", -1.0f);
     return WithDefaultForwardConfig(data);
 }
+
+} // namespace
 
 TEST_CASE("Single skip configuration keeps every lane decision and learns one-step auxiliary targets", "[dqn][prd104][prd104-single]")
 {
