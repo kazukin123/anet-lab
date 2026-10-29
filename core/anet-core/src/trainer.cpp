@@ -14,6 +14,9 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+// 評価 session の途中経過を残す間隔。これより短い session は開始行と終了行だけになる。
+constexpr std::chrono::seconds kSessionProgressInterval{30};
+
 static std::string SanitizeEnvConfigFilename(std::string filename)
 {
     // MetricsLogger と同じ置換規則で、書き込み前に異なる Env 名の衝突を検出する。
@@ -342,6 +345,8 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     // 同期・Reset・通知まで含むセッション全体を、train 側の開始座標に対応づける。
     // 開始行は発火時点で scheduler 側が出すため、ここでは所要時間の起点だけを取る。
     const auto session_start = std::chrono::high_resolution_clock::now();
+    detail::SessionProgressLog progress(name_, session_env_->GetEvalEpisodes(), event_counts,
+        detail::SessionProgressLog::Clock::now(), kSessionProgressInterval);
 
     Sync(event_counts);
     const auto reset_result = session_env_->Reset();
@@ -360,6 +365,10 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
                 .runner = shared_from_this(), .counts = event_counts,
                 .agent = agent_, .env = session_env_, .env_index = env_index, .step_result = step });
             ++completed;
+        }
+        // 長い session だけ、間隔ごとに進み具合を残す（前景では学習側の表示が止まるため）。
+        if (const auto line = progress.Update(static_cast<int>(completed), detail::SessionProgressLog::Clock::now())) {
+            LOG::info() << *line;
         }
     }
 
@@ -402,6 +411,26 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
         name_, event_counts.learn_step, event_counts.exp_step, elapsed,
         GetScalar("mean.episode_return").value(), GetScalar("max.episode_return").value(),
         GetScalar("mean.episode_steps").value(), GetScalar("max.episode_steps").value());
+}
+
+
+anet::rl::detail::SessionProgressLog::SessionProgressLog(std::string name, int total_episodes,
+    const StepCounts& counts, Clock::time_point start, Clock::duration interval)
+    : name_(std::move(name)), total_episodes_(total_episodes), counts_(counts)
+    , start_(start), last_(start), interval_(interval)
+{
+}
+
+std::optional<std::string> anet::rl::detail::SessionProgressLog::Update(int completed, Clock::time_point now)
+{
+    // 全 episode の完了は終了行が伝えるので、途中の間だけ間隔ごとに 1 行にする。
+    if (completed >= total_episodes_ || now - last_ < interval_) return std::nullopt;
+    last_ = now;
+    const double elapsed = std::chrono::duration<double>(now - start_).count();
+    const auto eta = completed > 0
+        ? std::format("{:.2f}s", elapsed * (total_episodes_ - completed) / completed) : std::string("n/a");
+    return std::format("eval.[{}]: session progress completed={}/{} elapsed={:.2f}s eta={} learn_step={} exp_step={}",
+        name_, completed, total_episodes_, elapsed, eta, counts_.learn_step, counts_.exp_step);
 }
 
 

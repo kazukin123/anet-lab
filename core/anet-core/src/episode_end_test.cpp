@@ -699,6 +699,43 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
     }
 }
 
+TEST_CASE("SessionProgressLog reports progress once per interval until the last episode", "[eval_session][session_progress]")
+{
+    using Clock = rl::detail::SessionProgressLog::Clock;
+    const auto start = Clock::time_point{};
+    rl::StepCounts counts;
+    counts.learn_step = 7;
+    counts.exp_step = 123;
+    rl::detail::SessionProgressLog progress("eval1", 200, counts, start, std::chrono::seconds(30));
+
+    // 間隔に満たないうちは行を出さない。
+    CHECK_FALSE(progress.Update(10, start + std::chrono::seconds(29)).has_value());
+
+    const auto first = progress.Update(50, start + std::chrono::seconds(30));
+    REQUIRE(first.has_value());
+    CHECK(*first == "eval.[eval1]: session progress completed=50/200 elapsed=30.00s eta=90.00s learn_step=7 exp_step=123");
+
+    // 次の行は、前の行から間隔がたってから出す。
+    CHECK_FALSE(progress.Update(60, start + std::chrono::seconds(59)).has_value());
+    const auto second = progress.Update(100, start + std::chrono::seconds(60));
+    REQUIRE(second.has_value());
+    CHECK(second->find("completed=100/200 elapsed=60.00s eta=60.00s") != std::string::npos);
+
+    // 全 episode の完了は終了行が伝えるので、途中経過の行は出さない。
+    CHECK_FALSE(progress.Update(200, start + std::chrono::seconds(120)).has_value());
+}
+
+TEST_CASE("SessionProgressLog leaves eta unknown before the first episode", "[eval_session][session_progress]")
+{
+    using Clock = rl::detail::SessionProgressLog::Clock;
+    const auto start = Clock::time_point{};
+    rl::detail::SessionProgressLog progress("eval1", 200, rl::StepCounts{}, start, std::chrono::seconds(30));
+
+    const auto line = progress.Update(0, start + std::chrono::seconds(45));
+    REQUIRE(line.has_value());
+    CHECK(*line == "eval.[eval1]: session progress completed=0/200 elapsed=45.00s eta=n/a learn_step=0 exp_step=0");
+}
+
 TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[prd076][eval_session][shutdown]")
 {
     anet::MetricsLogger::Reset();

@@ -2,6 +2,8 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 #include <chrono>
 #include <limits>
@@ -81,6 +83,30 @@ namespace anet::rl {
         std::vector<CompletedEpisodeResult> last_completed_episodes_;
     };
 
+
+    namespace detail {
+
+        /// 評価 session の途中経過を、一定の実時間ごとに 1 行の文言にする。
+        class SessionProgressLog {
+        public:
+            using Clock = std::chrono::steady_clock;
+
+            SessionProgressLog(std::string name, int total_episodes, const StepCounts& counts,
+                Clock::time_point start, Clock::duration interval);
+
+            /// 前の行（無ければ開始）から interval 以上たち、まだ全 episode が終わっていないときだけ行を返す。
+            std::optional<std::string> Update(int completed, Clock::time_point now);
+
+        private:
+            std::string name_;
+            int total_episodes_;
+            StepCounts counts_;
+            Clock::time_point start_;
+            Clock::time_point last_;
+            Clock::duration interval_;
+        };
+
+    } // namespace detail
 
     // ======================================================
     // EvalRunner (評価用Runner）

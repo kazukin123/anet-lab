@@ -162,6 +162,8 @@ namespace anet::rl {
             const std::string& key, int64_t index = -1) const override;
 
         std::optional<EvalSessionResult> GetSessionResult() const { return session_result_; }
+        /// 1 session で採用する episode 数。
+        int GetEvalEpisodes() const { return eval_episodes_; }
         /// 直前 Step で完了した採用 episode の group index（昇順）。次の Step / Reset まで有効。
         const std::vector<int64_t>& LastAdoptedGroups() const { return last_adopted_groups_; }
 

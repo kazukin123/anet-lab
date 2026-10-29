@@ -322,6 +322,7 @@ background 時、前セッション完了を待ってブロックした場合だ
 完了行の elapsed は train thread の実待機秒（小数2桁）である。foreground と終了処理の待機では2行とも出さず、待機中の例外では待ち始めの行だけが残る。
 待った場合は `session start`、`waiting for previous session`、前セッションの `session end`、`waited for previous session` の順に並ぶ。
 終了行には確定済み scalar と同じ mean.episode_return、max.episode_return、mean.episode_steps、max.episode_steps を出す。
+session が 30 秒以上続くと、実行した thread から 30 秒ごとに `session progress completed=<採用済み>/<採用数> elapsed=... eta=... learn_step=... exp_step=...` を info で1行出す。elapsed は終了行と同じく Sync 前からの秒、eta は採用済みの1件あたりの所要から見込んだ残り秒で、採用済みが0件の間は `n/a` とする。全 episode を採用した後は出さず、30 秒より短い session は開始行と終了行だけになる。
 終了排水で待つ場合は`draining in-flight session on exit`、協調キャンセルへ切り替える場合は`cancelling in-flight session on exit reason=close|config|timeout`を出す。キャンセル完了時は正常`session end`を出さず、`session cancelled learn_step=... exp_step=... elapsed=... completed=...`を出す。対応するsession scalarは出さず、完了済みepisodeのtraceは維持する。
 異常終了時は正常終了行を出さない。起動時の scheduled 行には interval、background、wait_on_exit、episodes、batch_size を出す。
 汎用の評価エピソード長は baseline / full の `21_eval/05_target_ep_steps`〜`08_policy_ep_steps_max` で参照できる。
