@@ -314,7 +314,7 @@ scalar定義のsource key、event、target、interval、runner scope、eval名�
 
 ### 7.2 評価セッションの実行ログ
 
-configured Eval は info レベルで `eval.[<tag>]: session start` / `session end` を各1行記録する。
+configured Eval は verbose レベルで `eval.[<tag>]: session start` / `session end` を各1行記録する。
 開始行は評価の発火時点、つまり background の前セッション完了待ちより前に train thread から出し、終了行は実行した thread から出す。
 両行の learn_step / exp_step は train 側から渡されたセッション開始座標で、session_end scalar と対応する。
 終了行の elapsed は Sync 前から SessionEnd 通知後までの所要秒（小数2桁）であり、background 時の train 実待機時間ではない。開始行の時刻からの経過とも一致しない。

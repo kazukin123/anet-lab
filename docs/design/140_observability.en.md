@@ -315,7 +315,7 @@ Source key, event, target, interval, runner scope, and eval name are passed to A
 
 ### 7.2 Evaluation Session Logs
 
-Configured Eval writes one info-level `eval.[<tag>]: session start` and one `session end` line.
+Configured Eval writes one verbose-level `eval.[<tag>]: session start` and one `session end` line.
 The start line is written from the train thread when the evaluation fires, that is, before any wait for the previous background session to complete; the end line is written from the thread that ran the session.
 Both lines' learn_step/exp_step are session-start coordinates supplied by Train and correspond to session_end scalars.
 The end line's elapsed time runs from before Sync through after SessionEnd notification, in seconds with two decimals; it is not Train's actual background wait time. Nor does it match the time elapsed since the start line.

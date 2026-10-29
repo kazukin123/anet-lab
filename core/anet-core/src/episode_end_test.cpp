@@ -563,7 +563,7 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event", "[episode_end][eval_session][runner]")
 {
     const bool background = GENERATE(false, true);
-    anet::test::LogCaptureGuard logs(wxLOG_Message);
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
     auto inner = std::make_shared<SessionRunnerEnv>();
@@ -666,13 +666,13 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
             } else {
                 CHECK(ends == starts - 1);
             }
-            CHECK(record.level == wxLOG_Message);
+            CHECK(record.level == wxLOG_Info);
             CHECK(record.message.find(starts == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
         }
         if (record.message.find("eval.[eval1]: session end") != std::string::npos) {
             ++ends;
             CHECK(ends <= starts);
-            CHECK(record.level == wxLOG_Message);
+            CHECK(record.level == wxLOG_Info);
             CHECK(record.message.find(ends == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
             std::smatch mean;
             REQUIRE(std::regex_search(record.message, mean, std::regex(R"(mean.episode_return=(\S+))")));

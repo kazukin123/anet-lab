@@ -623,7 +623,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
     // 評価エピソードを終端まで回す
     if (eval_gate_ && eval_gate_->ShouldFire(step)) {
         // 実行ではなく発火を示す行なので、前セッションの完了待ちより前に出す。
-        LOG::info() << std::format(
+        LOG::verbose() << std::format(
             "eval.[{}]: session start learn_step={} exp_step={}",
             eval_runner_->GetName(), event.counts.learn_step, event.counts.exp_step);
 

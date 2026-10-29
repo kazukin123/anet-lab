@@ -405,7 +405,7 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     // 正常な通知完了後に、metrics と同じ確定値で所要時間を記録する。
     const double elapsed = std::chrono::duration<double>(
         std::chrono::high_resolution_clock::now() - session_start).count();
-    LOG::info() << std::format(
+    LOG::verbose() << std::format(
         "eval.[{}]: session end learn_step={} exp_step={} elapsed={:.2f}s"
         " mean.episode_return={} max.episode_return={} mean.episode_steps={} max.episode_steps={}",
         name_, event_counts.learn_step, event_counts.exp_step, elapsed,

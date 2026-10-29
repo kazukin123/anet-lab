@@ -3,6 +3,7 @@
 #include "EvalPanel.hpp"
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <wx/weakref.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
@@ -204,7 +205,9 @@ void EvalPanel::TogglePause()
 	if (!is_pause_) {
 		SyncModel();
 	}
-	auto log_str = std::string("Evaluation ") + (is_pause_ ? "paused" : "resumed");
+	auto log_str = is_pause_
+		? std::string("Evaluation paused")
+		: std::format("Evaluation resumed fps={} step_per_frame={}", current_fps_, current_step_per_frame_);
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
 	wxGetApp().FlushRunOutputs();
