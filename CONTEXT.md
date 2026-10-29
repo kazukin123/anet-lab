@@ -242,7 +242,7 @@ _Avoid_: include(入力を取り込む処理), マージ(適用規則が曖昧)
 _Avoid_: 部品集(曖昧), library
 
 **NN 実行設定**:
-NN の構造や学習パラメータとは独立に、呼び出し時の駆動方法（ノイズ方式など）を指定する、カタログ `nn_forward` の項目。Actor・Learner の現在値・target 構築の各用途が参照キー `nn_forward_key` で参照する。設定を共用しても、各呼び出し側のノイズ・乱数・保持状態を共用することは意味しない。
+NN の構造や学習パラメータとは独立に、呼び出し時の駆動方法（ノイズ方式など）を指定する、カタログ `nn_forward` の項目。Actor・Learner の現在値・target 構築の各用途が参照キー `nn_forward_key` で参照する（Actor のスキップ価値の forward は、既定の `skip.nn_forward_mode = shared` では行動価値の forward と同じ参照を使い、`dedicated` のとき `skip.nn_forward_key` で別に参照する）。設定を共用しても、各呼び出し側のノイズ・乱数・保持状態を共用することは意味しない。
 _Avoid_: NN 構造設定（構造と実行方法を混同）, 実行プロファイル（設定プロファイルと混同）, tag（metrics と評価タグの語）, nn_runtime（旧称。runtime は実行中の状態・操作の語）
 
 **NN 実行オブジェクト**:

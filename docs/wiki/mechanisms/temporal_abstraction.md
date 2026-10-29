@@ -8,6 +8,8 @@ qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onl
 
 ## 分かっていること
 
+- anetのTempoRLのActorは、Q側（行動価値関数のforward）とskip側（スキップ価値のforward）に別々のNN実行オブジェクトとseedを持つが、NN実行設定は同じ（Actorの`nn_forward_key`）で作る。skipのHeadの射影はQ側の`head.projection`（NoisyNetの有無とσ0）を引き継ぐ。qbertの構成ではskipの入力（`iqn_fusion`）はQ側のNoisyNetの層より前なので、skipの値にノイズが入る経路は、skipのHeadの射影のノイズと、ノイズありのQで選んだ行動の2つである。スキップ長の選択のτは、skip専用の方策（`actor.[key].skip.policy.*`）を持つActor（Q側の方策がGreedy型でないもの）ならQ側のτと分かれるが、その経路は確かめていない。AtariのTrain Actorはskip専用の方策を持たず、Q側のτを共用する。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§2.1の1〜4）。
+- qbertの分割（50M、seed1）の45〜50Mでは、Learnerのbatchでの行動価値の最大と2番目の差（`37_agent_qtd/17_q_gap`）が0.619、Train Actorの判断のlaneでのスキップ長の価値の差（`50_agent_skip/04_skip_q_gap`）が0.174だった（測る母集団が違うので大きさの比べは目安）。skip側でノイズがjを変える割合は測っていない。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§2.2の3。Run: `run_20261028-215839_a5_qb_aln_t103spl_s1`）。
 - qbertの分割のcheckpoint（PRD103、50M、seed1）を、評価時の行動の選び方を学習中のTrain Actorに寄せて各200ゲーム評価すると、fullの8面突破率はGreedy（μ-only・τ固定）の66.0%に対し、NoisyNetのノイズありで41.5%、τランダムで50.5%、両方で37.5%に下がった。singleでは4条件とも66.5〜70.0%だった。fullの判断率（0.186〜0.191）と平均スキップ長（5.24〜5.39）は4条件でほぼ同じだった。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02。Run: `run_20261029-111656_evnt_spl_a_c` / `run_20261029-112623_evnt_spl_n_c` / `run_20261029-113025_evnt_spl_t_c` / `run_20261029-110108_evnt_spl_nt_c` / `run_20261029-120441_evnt_spl_a_s` / `run_20261029-115448_evnt_spl_n_s` / `run_20261029-120013_evnt_spl_t_s` / `run_20261029-114958_evnt_spl_nt_s`）。
 
 - 追加指定のqbert split checkpoint（PRD103、50M、seed1）も同じ1Run内でfull/single各200ゲームを評価すると、平均点26,913.6→31,358.9、g=0.61だった。突破率は63.5%→64.0%でほぼ変わらなかった。学習時のビルド・構成が違うため元3本の多数決には混ぜず、参考比較としている。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ5・追加splitと別枠の評価。Run: `run_20261029-131020_t104_stage0_split`）。
@@ -44,6 +46,7 @@ qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onl
 
 ## 分かっていないこと
 
+- qbertの分割の`full`で評価時のノイズ（τのランダムさ）が8面突破率を下げるのは、Q側のノイズで選んだ行動を固定で続けるため（仮説1）か、スキップ長の選択にノイズが入るため（仮説2）か。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§1・§3）。
 - anet の DQN（IQN・Munchausen・PER・UQE）で TempoRL が判断の回数と学習の速さにどう効くか。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7）。
 - スキップ長を UQE の楽観で選ぶと、なぜ 5×5 の既定 seed ではゴールに届かなくなるのか（楽観が長い j に寄ることが、どう探索や価値を損なうかは未確認）。GridMaze 6×10 で無効の腕が終盤に不安定になるのが、GridMaze の UQE の設定そのものによるのか。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§9 の 2・§7「段 1 の 3 seed」）。
 - 論文の特徴量の環境（LunarLander など）の結果が、skip の遷移を j=1 としか記録しない公開コードの版で出たのか。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T14）。
@@ -71,4 +74,5 @@ qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onl
 - [TempoRL の後続の暫定 PRD](../../memo/999_temporl_skip_followups_10prd.md)。
 - [TempoRL 第二弾（著者の実装との差）の暫定 PRD](../../memo/103_temporl_reference_alignment_10prd.md)。
 - [TempoRL の補助学習のみモードの暫定 PRD](../../memo/104_temporl_skip_auxiliary_only_10prd.md)。
+- [TempoRL の skip 側の forward のノイズを Q 側と分けて指定する PRD](../../memo/106_temporl_skip_forward_noise_key_10prd.md)。
 - [CONTEXT.md](../../../CONTEXT.md) の「スキップ」「スキップ長」「スキップ価値」「判断」。
