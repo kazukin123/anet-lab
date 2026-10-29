@@ -4,7 +4,12 @@
 
 matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。TempoRL（分離×合算）は IQN＋Munchausen の 3 seed で無効を上回り、2026-10-26 から LunarLander の既定で有効にした。合算に対する分割・k_max の重み・スキップ長の ε-greedy の 3 腕（3 seed）はどれも基準を上回らず、既定は据え置いた（2026-10-28）。
 
+PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善したが、3seedの範囲は無効と重なり、終盤平均は上がらなかった。STOPも改善しており、補助勾配の寄与は未確定である。
+
 ## 分かっていること
+
+- 行動固定なしのSingle行動変化窓（`t104r1_ac`）は3seedのAUCが73.04／62.65／18.08で、無効（`t104r1_off`）の64.93／4.50／−6.83を同seedで上回った。ただしPRDの範囲による「上回る」は満たさず、終盤平均は156.45対161.83だった。通常TempoRLは平均138.43で、Single全群より高かった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・AUC・立ち上がりと終盤。Run: `run_20261029-154259_t104r1_ac_s1`ほか同記録の21本）。
+- STOP対照（`t104r1_ctl`）も同seedの無効を3本ともAUCで改善し、平均57.25だった。行動変化窓mergeとの優劣はseedで揃わず、補助勾配が改善を生むことは特定できなかった。k=1対照の平均は16.55で、無効を上回る得を再現しなかった。終了窓＋splitの終盤平均は179.99だったが、AUCは−24.37〜78.15と広く、終了窓mergeと同じ帯だった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-162638_t104r1_ctl_s1` / `run_20261029-230213_t104r1_spl_s3`ほか同記録）。
 
 - matched 3-seedのQR/IQN比較ではホバリング離脱の早さに明確な差はなく、離脱後のT180到達と終盤rewardはIQNが有利な可能性を示した。（出典: [2026-08-08_iqn.md](../../experiments/default-dqn/lunarlander/2026-08-08_iqn.md)、現時点のまとめ3・9・10）。
 - RB満杯付近の変化はcapacity半減で前へ動き、IQN固有より経験分布切替が有力だった。current N削減によるloss低下は集約尺度も変えるため、過学習改善と断定できない。（出典: [2026-08-08_iqn.md](../../experiments/default-dqn/lunarlander/2026-08-08_iqn.md)、現時点のまとめ5〜8）。
@@ -31,7 +36,7 @@ matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差が
 
 ## 分かっていないこと
 
-なし
+- STOPでも立ち上がりが改善する原因は何か。Single行動変化窓の改善は補助勾配の効果か、それ以外の学習過程の変化か（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、ステージ0との関係・残る問い）。
 
 ## 撤回・更新
 

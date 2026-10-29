@@ -9,6 +9,7 @@ LunarLander の DefaultDQNAgent 系 Run に関する探索索引です。
 | 2026-08-08〜 | [IQN導入とQR比較](2026-08-08_iqn.md) | IQN動作確認、ReplayBuffer capacity、warmup、UQE、quantile sample数、QR/IQN複数seed比較 | active |
 | 2026-10-06〜2026-10-07 | [NoisyNet の導入確認（QR）](2026-10-06_noisynet.md) | NoisyNet の学習成立と診断メトリクス、spatial UQE への上乗せと ε の置き換えの matched 3-seed | completed |
 | 2026-10-28 | [TempoRL 第二弾の段 2（分割・k_max の重み・ε-greedy）](2026-10-28_temporl-split-kmax-epsilon.md) | PRD103 §7 の段 2。合算の基準に対する分割・`kmax`・スキップ長の ε-greedy の同じビルド 3 seed 比較、`[greedy]` session の判断率、10/26 の同 seed との照合 | completed |
+| 2026-10-29 | [TempoRLを行動に反映しないSingleの比較](2026-10-29_temporl-auxiliary-only-stage1.md) | PRD104 ステージ1。7群×3 seed×2M、Single各群と無効の比較、STOP対照、k=1、終了窓＋split | completed |
 
 ## 知見のまとめ
 

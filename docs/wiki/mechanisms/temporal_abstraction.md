@@ -6,7 +6,11 @@ TempoRLは行動へのコミット長を学ぶ設定で素のQ学習より速い
 
 qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onlyで評価すると、固定を外したsingleで3本とも平均点が上がり、gは3.82・0.77・0.96だった。PRD104の点推定の規則では評価時の固定が主因という読みになる。学習中のデータの偏りや補助学習だけの効果は未確認のままである。分割のcheckpoint（seed1）では、評価時にNoisyNetのノイズやτのランダムさを入れると8面突破率がfullでだけ下がり（66.0%→37.5〜50.5%）、singleでは4条件とも66.5〜70.0%だった。
 
+LunarLanderのSingle行動変化窓は同seedの無効より3本ともAUCが高かったが、無効の帯を上回らず、STOPも改善したため補助勾配の寄与は未確定である。
+
 ## 分かっていること
+
+- LunarLanderの7群×3seed×2Mでは、Single行動変化窓（`t104r1_ac`）のAUC平均51.25に対し、無効（`t104r1_off`）20.87、通常TempoRL（`t104r1_mrg`）138.43だった。Single行動変化窓は同seedの無効を3本とも改善したが、3seedの範囲は重なった。STOP（`t104r1_ctl`）も平均57.25で改善し、勾配を返す効果は特定できなかった。行動変化窓のkmax平均は1.83〜2.07、終了窓は3.93〜3.96で、教材の長さは窓の違いを反映した（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-154259_t104r1_ac_s1` / `run_20261029-162638_t104r1_ctl_s1`ほか同記録の21本）。
 
 - anetのTempoRLのActorは、Q側（行動価値関数のforward）とskip側（スキップ価値のforward）に別々のNN実行オブジェクトとseedを持つが、NN実行設定は同じ（Actorの`nn_forward_key`）で作る。skipのHeadの射影はQ側の`head.projection`（NoisyNetの有無とσ0）を引き継ぐ。qbertの構成ではskipの入力（`iqn_fusion`）はQ側のNoisyNetの層より前なので、skipの値にノイズが入る経路は、skipのHeadの射影のノイズと、ノイズありのQで選んだ行動の2つである。スキップ長の選択のτは、skip専用の方策（`actor.[key].skip.policy.*`）を持つActor（Q側の方策がGreedy型でないもの）ならQ側のτと分かれるが、その経路は確かめていない。AtariのTrain Actorはskip専用の方策を持たず、Q側のτを共用する。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§2.1の1〜4）。
 - qbertの分割と合算の50M終了checkpoint（full、各seed1、200ゲーム、PRD106の実装前のビルド）で、τをQ側だけ・スキップ長だけ・両方でランダムにして評価し、Greedyでゲームが終わる面が集まる面（分割は面6、合算は面5）を除いた通過率で比べると、分割はGreedy 89.2%・Q側 69.7%・スキップ長 61.6%・両方 52.5%、合算は94.8%・84.6%・77.0%・78.6%で、どちらもスキップ長のτのほうが失敗を増やす向きだった。全体の8面突破率では、合算は両方で73.0%とGreedyの73.5%とほぼ同じで、Q側だけは79.0%と上回った。分割の面6（合算の面5）の集中はfullでだけ起きた（同じ分割のcheckpointのsingleのGreedyは面6までに終わるゲームが0本）。Greedyでは同じ得点（分割は18,925点）で終わる決まった軌跡だった。分割の400ゲーム（評価のseed1・2）では、全体の8面突破率がGreedy 64.5%・Q側のτ 58.0%・スキップ長のτ 52.5%・両方50.5%で、スキップ長のτだけで両方とほぼ同じところまで下がり、Q側のτはその半分ほどだった。分割ではQ側のτだけでは外れず（面6で35/200が終わり、33本が同じ得点）、スキップ長のτで外れた。合算ではQ側のτでも外れた（面5で13/198）。ノイズの側（Q側とskip側を分ける評価）は実装のあとに測る。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§2.2の7）。
@@ -52,7 +56,7 @@ qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onl
 - スキップ長を UQE の楽観で選ぶと、なぜ 5×5 の既定 seed ではゴールに届かなくなるのか（楽観が長い j に寄ることが、どう探索や価値を損なうかは未確認）。GridMaze 6×10 で無効の腕が終盤に不安定になるのが、GridMaze の UQE の設定そのものによるのか。（出典: [098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§9 の 2・§7「段 1 の 3 seed」）。
 - 論文の特徴量の環境（LunarLander など）の結果が、skip の遷移を j=1 としか記録しない公開コードの版で出たのか。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T14）。
 - qbertの50M終了checkpointのμ-only評価では固定を外すと改善したが、学習中のNoisyNet摂動つきの行動や中盤の遅れは、固定して集めたデータの偏り・seed差によってどこまで変わるか。序盤の得は補助タスクの効果か。同じ行動の区間・多地平の収益・k=1だけの補助・合算のクリップとの結合のどれで再現するか。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り、[PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md)、§3・§7）。
-- LunarLander での TempoRL の得は、skip の loss の補助タスクの効果と行動の固定のどちらから来るのか。（出典: [104_temporl_skip_auxiliary_only_10prd.md](../../memo/104_temporl_skip_auxiliary_only_10prd.md)、§2.2）。
+- LunarLanderでSingleの立ち上がり改善がSTOPでも出る原因は何か。補助勾配とそれ以外の学習過程の変化をどこまで分けられるか（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、ステージ0との関係・残る問い）。
 - 合算で眠った・死んだユニットが増える機序は、共有部に入る更新量の増加か、skip の目的による表現の干渉か、クリップとの結合か（分割（loss ごとの Adam）で増えるか減るかで分かれる）。Munchausen の log π の clip 率が TempoRL 有効で高いのは、skip の間に繰り返す行動の log π が途中の状態で下限に当たるためか（判断の旗で分けた計測は無い）。（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3・§9 の 11・12）。
 - skip 価値のアンサンブルで長い j の不確かさを測り、悲観的に選ぶ形（UTE）や、行動を変える価値の差が閾値を超えたときだけ切り替える形（Lazy-MDP）が、anet で長い j の選び誤りや開ループの硬さに効くか。どちらも原文は未確認。（出典: [999_temporl_skip_followups_10prd.md](../../memo/999_temporl_skip_followups_10prd.md)、§2.2・§9 の 1）。
 

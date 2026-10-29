@@ -4,7 +4,7 @@
 
 正本は [PRD104](104_temporl_skip_auxiliary_only_10prd.md)。Actor ごとのスキップ長の制御と、補助学習用の窓の選択を追加する。既定は `full`・`decision` で現行挙動を維持する。
 
-2026-10-29、ユーザーが本計画を承認し、「追加INPUTなしで段1まで実行」と指示した。その後「段0が終わったら一旦区切る（中断してレビューや整理）」へ変更したため、今回の完了範囲は受入1〜4、段0の全checkpoint評価、結果整理とレビューまでとする。段1の7腕×3 seed×2Mは再開指示待ち。段2は設定と判定手順の準備までとし開始しない。
+2026-10-29、ユーザーが本計画を承認し、「追加INPUTなしで段1まで実行」と指示した。その後「段0が終わったら一旦区切る（中断してレビューや整理）」で区切り、結果整理とレビューを完了した。さらに「PRD104 ステージ1の再開」計画を承認したため、現在の実行範囲はステージ1の7群×3 seed×2Mと分析・記録・wiki・最終レビューまでとする。ステージ2は設定と判定手順の準備までとし開始しない。
 
 区切りの整理中に、ユーザーが`run_20261028-215839_a5_qb_aln_t103spl_s1`も同じ表へ追加するよう指定した。元3本と同じ1Run内のfull/single各200ゲームを追加採取する。学習時のビルド・構成が異なるため、元3本の多数決は維持し、splitは追加比較の行として示す。段1の停止は維持する。
 
@@ -41,7 +41,7 @@ CLIの`run.$`が選んだ構造も葉へ展開する。現在の既定とは異�
 
 ### 段1
 
-2026-10-29の最新指示により実行を保留する。以下は再開後の計画であり、今回の区切りでは採用結果0/21本。
+2026-10-29、ユーザーが再開計画を承認した。開始時の採用結果は0/21本。別チャットで行うAtari評価とのGPU同時実行を許容する。
 
 無効、合算、連続区間、終わりだけ、対照、k=1だけ、終わりだけ・分割の7腕をseed1〜3、各2Mで実行する。同一Releaseビルド・設定snapshotを用い、seedごとにこの腕順で21本を順次実行する。独立Runの失敗は記録して残りを続け、欠けた結果を成功扱いしない。
 
@@ -50,7 +50,7 @@ CLIの`run.$`が選んだ構造も葉へ展開する。現在の既定とは異�
 ## 前提
 
 - 基準HEAD: `bbeab91b4ee85e179a6ec17194cf320cb8b807ac`。既存のdirty変更は保持し、設定snapshotにその時点の実効入力を含める。
-- 未決事項監査: ユーザー判断が必要なブロッカー0。既定・API・組み合わせはPRDとrepo evidenceで解決済み。最新の実行範囲は段0の完了・整理・レビューと、指定split checkpointの追加評価まで。段1は再開指示待ち。
+- 未決事項監査: ユーザー判断が必要なブロッカー0。既定・API・組み合わせはPRDとrepo evidenceで解決済み。最新の実行範囲はステージ1の再開・分析・記録・wiki・最終レビューまで。Atariの条件変更・評価は別チャットで担当し、GPU同時実行を許容する。
 - 既存Runは停止・再起動しない。通常の不具合は修正・再検証し、実験結果で生じる次の選択は記録する。段2・既定変更・commit/pushは範囲外。
 - 新しい機能グループやtest-onlyのproduction APIは追加しない。既存のCreateDecisionWindowRuleと同じCreateの意味・配置へ揃える。hot pathへ同期転送・ロックは追加しない。
 - 実験のスクリプトとREADMEはtestdata/prd104、生成した設定・証跡は.scratch/prd104、Runは専用出力先へ置く。原本checkpointと過去のRunは編集しない。
@@ -112,6 +112,34 @@ CLIの`run.$`が選んだ構造も葉へ展開する。現在の既定とは異�
 - ステージ0の実験記録からGit管理外のローカル証跡パスを除き、評価Runは表のRunフォルダ名で特定する形にした。得点・g・突破率と結論は変更していない。
 - `DecisionWindowRule`と`ActionChangeWindowRule`の行動比較をファイル内の`MakeReplayActionMatcher`へまとめた。CPU連続int64配列の直接比較と、それ以外のTensor比較を維持し、比較方法の選択と起点Tensorの取得は窓ごとに一度だけ行う。
 - `docs/quality/impl.md`全項目で自己点検し、今回の変更に対する差分・参照・LF/BOMを確認した。Debugビルドと`[prd104],[replay_buffer]`の再実行は未実施。別枠の評価Run（`evaldiag_noise_tau`）が実行中のため、負荷を掛ける検証を保留した。以前の合格結果を今回の修正後の検証としては数えない。
+
+## ステージ1の再開（2026-10-29）
+
+- ユーザーが再開計画を明示承認した。既存の全Runner待機を適用せず、同じドライバーだけOSの排他ロックで二重起動を防ぐ。実行中の他Runは操作しない。
+- 固定済みRelease実行体（SHA256 `2f74a21f48cf72349f79323c06b1e2bee1af3542943d20870905c101f82156e1`）、111ファイルのruntime manifest、固定設定、21条件のhashとseed/群順を照合した。直近の行動比較helper整理と評価進捗ログの変更は、この実行体には含まれない。
+- 再開ドライバーは`.scratch/prd104/run_stage1_resume.py`、専用出力は`.scratch/prd104/stage1-resume-20261029/`、Run名は`run_{t}_t104r1_<群略称>_s<seed>`。旧中断Runと旧execution.jsonは保持し、無効群seed1を最初から採り直す。各Runは元の固定configを読み、2M予算の正常終了・終盤ログ・実効設定・有限の評価点を照合する。終了時点のexp_stepそのものがログに無い場合、最後の定期ログ値をそのまま記録し、正確な終端stepと混同しない。
+- 成功済み・失敗済み結果は再利用し、失敗後も後続群を続ける。resultが無いのにexecution記録がある場合は上書きせず、再開前の確認を要求して止める。元ステージ0の個別結果・追加splitは変更せず、ステージ1完了時の集約へ結果を加える。
+- 起動前検証: `run_stage1_resume.py --validate`は成功。Runを起動しない`test_stage1_resume.py`で排他ロック、21条件の順序、資源不足を模した先頭失敗後の継続、保存結果の再利用、ステージ0保持、ステージ2除外を確認して成功した。
+- 15:11:47 JSTに先頭の無効群seed1を`run_20261029-151147_t104r1_off_s1`で開始し、15:12:39の定期ログで110848 experienceへの進行を確認した。21本は実行中であり、完了結果には数えない。
+- ユーザーが30分間隔の追跡作成を明示承認したため、このチャットのheartbeat `prd104-1`をACTIVEで作成した。変化がない間は通知せず、分析・記録・最終レビューまで完了したらPAUSEDへ更新する。
+- 完了後は標準`inspect_run.py`を入口にAUC・3 seed帯・EMA200・対照・k=1・split・教材kmaxを分析する。学習Runの実効configと日本語記録、wiki、計画結果を保存し、同じan-reviewへ最終レビューを依頼する。実時間・throughputはAtariとの競合があり得る条件として扱う。
+
+## ステージ1の実験完了と結果整理（2026-10-29）
+
+- 23:32 JST、固定実行体で7群×3seed×2Mの全21本が終了コード0、採用21/21となった。`stage1-resume-20261029/complete.json`はpassed=true、successful=21、stage2_executed=false。旧中断Run、ステージ0の個別結果、追加split結果を保持した。
+- `inspect_run.py metrics`で全21本をまとめて読み、policy/target報酬・判断率・skip loss・抽選k・kmax・勾配normを抽出した。policy報酬は各312点、最後の定期記録は1,998,848 exp step。固定予算と終了コード0を到達根拠にし、正確な終端stepを記録したとは書かない。
+- `.scratch/prd104/finalize_stage1_analysis.py`で標準抽出とMetricsマスタの独立計算を照合した。全期間のpolicy/skip平均、policyの0.5Mごとの区間平均・点数は一致。標準出力は`.scratch/prd104/analysis/stage1-final/inspect-metrics.json`、照合・集約は同`audit-summary.json`。
+- AUCの3seed平均は無効20.87、通常TempoRL138.43、Single行動変化窓51.25、終了窓26.69、STOP57.25、k=1 16.55、終了窓split33.09。行動変化窓とSTOPは同seedの無効を3本とも改善したが、範囲は無効と重なる。通常TempoRLだけが無効をPRDの定義で「上回る」。
+- PRD §7の主判定は、行動変化窓・終了窓の平均がともに無効の最大64.93以下なので「固定から来る」の行に入る。Singleの改善が存在しない、あるいは固定だけが因果的な原因と証明されたという意味にはしない。k=1の「上回る」は不成立。終了窓splitとmergeは同じ帯であり、clip寄与を検出しない行だが同等性の証明ではない。
+- ユーザーの主関心であるSingle対無効を正面に置いた日本語記録を`docs/experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md`へ保存し、全表にRun識別子を併記した。学習Run21本の実効configを同envの`config/`へ複製し、LF以外の全行一致を確認した。
+- 同記録にステージ0のgと既存記録を参照し、LLとQbertの証拠を混ぜず集約した。LunarLanderのSingle結果をQbertへ一般化せず、ステージ2は実行していない。AtariとのGPU同時実行があるため実時間・throughputは効果判定に使っていない。
+- STOPの改善方向を説明する原因は未特定。乱数消費・追加target計算・追加評価sessionという「軌跡が変わる経路」を改善原因と同一視しない。ユーザー指定の別枠調査向けにOS一時フォルダへ引継ぎ済みで、この実験完了を原因調査完了として扱わない。
+- wikiのLunarLander・temporal_abstraction・目録へ出典付きで取り込み、未解明のSTOP改善と補助勾配の寄与を問いとして残した。
+- 最終自己点検: `docs/quality/impl.md`全72項目を今回の適用範囲で確認した。今回は実験の記録と逐語config複製であり、productionコード・現用設定・APIを変えないため、C++実装・新規契約移行・TDD・性能計測の追加は対象外。既存の別チャットのC++変更を今回の検証済み範囲へ含めない。
+- 検査コマンド: `./.venv/Scripts/python.exe -X utf8 .scratch/prd104/finalize_stage1_analysis.py`、`./.venv/Scripts/python.exe -X utf8 .scratch/prd104/run_stage1_resume.py --validate`、`./.venv/Scripts/python.exe -X utf8 .scratch/prd104/check_stage1_writeback.py`。標準抽出と独立平均、111runtime・21入力hash、21configの内容一致、Single判断率と教材kmaxの全点条件、28ファイルのLF・既存BOM保持・リンク・wiki出典/目録/blob・秘密値走査、対象の`git diff --check`が成功した。公開値走査の一致は複製configの当時の`app.runs_dir`だけで、逐語コピーとして保持した。
+- 検査証跡は`.scratch/prd104/analysis/stage1-final/writeback-check.json`。今回はコードを変えないため新たなDebugビルド・GPU回帰は行わず、過去のビルド結果を今回の別作業コードの検証に流用しない。未解明のSTOPの原因はユーザー指定の別枠調査へ残し、ステージ1の実行合否とは分ける。
+- 同じ`an-review`（`/root/prd104_review`）による最終継続レビューは、計画と今回の実験記録・config複製・wikiの両方がOK。不足点・修正要求・範囲外検出・開発者への確認事項なし。原文を`.scratch/prd104/review-20261029-2347.md`へ保存し、読み戻しを確認した。レビューはSTOP原因の解明やステージ2を完了とするものではない。
+- 今回承認されたステージ1の実行・集計・日本語記録・21config複製・wiki・自己点検・最終レビューを完了した。完了した追跡を残さない最新のheartbeat運用に従い、`prd104-1`を削除して終了した（再開時の予定ではPAUSEDだったが、削除の成功を確認）。Gitのステージング・commit・push、既定採用変更は行っていない。
 
 ## 決まらなかったこと（区切り時点）
 
