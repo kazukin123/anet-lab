@@ -2,7 +2,7 @@
 
 ## 今の結論
 
-LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率は終盤に2〜4%へ縮んだ。DropMergeではεラダーへの上乗せではNEETが残り、NoisyNetへの置換で抑えられた。BTRの公開実装はNoisyNetを切ってもBreakoutで論文と互角だった。Atariの実時間優先50MでεラダーをNoisyNetに置き換えると7ゲームとも基準を下回り、BreakoutではNoisyNet自体の差は±0でラダーを外したぶんだった。
+LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率は終盤に2〜4%へ縮んだ。DropMergeではεラダーへの上乗せではNEETが残り、NoisyNetへの置換で抑えられた。BTRの公開実装はNoisyNetを切ってもBreakoutで論文と互角だった。Atariの実時間優先50MでεラダーをNoisyNetに置き換えると7ゲームとも基準を下回り、BreakoutではNoisyNet自体の差は±0でラダーを外したぶんだった。qbertの50M終了checkpoint（seed1）を評価時だけノイズありにすると、スキップなしでは8面突破率が上がり、TempoRL分割のfullでは下がった。
 
 ## 分かっていること
 
@@ -19,6 +19,7 @@ LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率
 - Breakout の 2 × 2 では、ε ラダーを外すと NoisyNet の有無によらず eval2 25-50M が約 70〜85 点下がり、NoisyNet の有無の差はラダーありで +15.3、ラダーなしで +0.8 だった（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ2・探索ブロック 02。Run: `run_20261014-121541_breakout_rr1_50m_nz_ladder`, `run_20261014-194942_breakout_rr1_50m_eps0`, `run_20261011-182123_breakout_rr1_50m_nz_eps0`, `run_20260919-235619_rr1_va_hard125_cap2m_100m`）。
 - NoisyNet を ε ラダーに足すと、battle_zone と double_dunk では成績が戻ったが、立ち上がりが基準より約 10M・約 20M 遅れた（battle_zone の eval2 40-50M 100,955、double_dunk は eval2 が正になるのが 40-45M）（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ3・探索ブロック 02。Run: `run_20261015-030627_a5_battle_zone_rr1_50m_nz_ladder`, `run_20261015-110003_a5_double_dunk_rr1_50m_nz_ladder`）。
 - Atari の probe では、ノイズで greedy 行動が μ-only と食い違う割合は学習開始時 27〜71% で、40-50M の平均は 0.0〜4.9%（ε 0 の 7 本）だった。readout weight の ‖σ‖/‖μ‖ は 0.869 から 40-50M の平均で 0.48〜0.81 になった。double_dunk の ε 0 は 5M 以降ノイズが行動を 1 度も変えず、相転移も起きなかった（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ4・5、探索ブロック 03。Run: `run_20261013-012055_a5_double_dunk_rr1_50m_nz_eps0` ほか同記録の Run）。
+- qbertのサンプル効率優先の50M終了checkpoint（seed1）を、評価時だけノイズあり（`nn_forward_key=act_sample`、τは固定）にして各200ゲーム評価すると、8面突破率はスキップなしでGreedyの50.5%から61.5%に上がり、TempoRL分割のfullでは66.0%から41.5%に下がった。分割のsingleは68.5%と66.5%で同じ水準だった（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック02。Run: `run_20261029-112021_evnt_off_a` / `run_20261029-113339_evnt_off_n` / `run_20261029-111656_evnt_spl_a_c` / `run_20261029-112623_evnt_spl_n_c` / `run_20261029-120441_evnt_spl_a_s` / `run_20261029-115448_evnt_spl_n_s`）。
 
 ## 分かっていないこと
 

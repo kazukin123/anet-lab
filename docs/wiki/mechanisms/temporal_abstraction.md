@@ -4,9 +4,11 @@
 
 TempoRLは行動へのコミット長を学ぶ設定で素のQ学習より速い学習を、FiGARはA3C・TRPO・DDPGへの行動反復追加で改善を報告した。小さい時間刻みでQ学習が失敗する条件も報告されている。anet の TempoRL は行動を選ぶ Q を変えないので、NEET の機序には効かない見込みである（DropMerge での実測はまだ無い）。anet の実測（3 seed）では、LunarLander で分離型の 2 腕が無効をブレ幅を超えて上回り、速く届いた。GridMaze では届く速さは無効と同じか遅く、差が出たのは 6×10 の終盤の安定さ（無効が終盤に不安定になる）だけだった。GridMaze 5×5 の既定 seed では、スキップ長を UQE の楽観で選ぶとゴールに届かなかった（1 seed）。6×10 の 3 seed では、スキップ長を ε-greedy で選んでも UQE と同じ速さで届いて最後まで保ち、ε-greedy の方策はほぼスキップしない（j=1 が 93〜95%）形に落ち着いた。LunarLander の 3 seed では、分割（loss ごとの Adam）・k_max に比例する重み・学習側のスキップ長の ε-greedy のどれも合算の基準を上回らず（基準以上ではある）、k_max の重みは長い j を増やさなかった。著者の Atari の実装は合算のときに skip と Q の loss を別々の Adam で更新し、anet は 1 つの Adam で足して更新する。qbert では合算で primary の勾配ノルムが無効の約 2 倍になり、勾配のクリップが毎回発火した。合算では、skip と共有する特徴量の眠った・死んだユニットの率も無効より高くなった（遮断は 10M までは無効の線に近い。1 seed）。Munchausen の log π の clip 率は、合算に限らず TempoRL 有効で無効の約 2 倍に上がり、遮断と合算で同じだった。qbert のサンプル効率優先（1 seed ずつ）では、遮断・合算・重み 0.3 の 3 本がそろって 30M 以降に ε=0 の評価と学習側の突破率で無効より遅れて 50M まで戻らず、序盤（5M の評価と最初の 10M の学習側の平均点）だけが skip の loss が共有部に届く量の順に並んだ（遮断は無効と同じ）。補助学習のみモード（すべての Actor がスキップ長を常に 1 にして毎 step 判断し、行動価値は今までどおり学びながら skip Head を判断で区切らない窓で補助タスクとして学ぶ）の skip の出力は、連続区間の窓では選び直しの偏りを含み、エピソードの終わりだけで閉じる窓では k を 1〜J に振った n-step の Q になり、どちらも行動の固定には使えない。anet の評価 slot では、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。著者の特徴量の環境の版は skip の遷移を全部 j=1 として記録する。長い j の不確かさ・閉ループの割り込み・全 k の一括学習は後続の暫定 PRD で扱い、スキップ中の forward の省略は作らない理由と形をそこに残した。
 
-qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onlyで評価すると、固定を外したsingleで3本とも平均点が上がり、gは3.82・0.77・0.96だった。PRD104の点推定の規則では評価時の固定が主因という読みになる。学習中のデータの偏りや補助学習だけの効果は未確認のままである。
+qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onlyで評価すると、固定を外したsingleで3本とも平均点が上がり、gは3.82・0.77・0.96だった。PRD104の点推定の規則では評価時の固定が主因という読みになる。学習中のデータの偏りや補助学習だけの効果は未確認のままである。分割のcheckpoint（seed1）では、評価時にNoisyNetのノイズやτのランダムさを入れると8面突破率がfullでだけ下がり（66.0%→37.5〜50.5%）、singleでは4条件とも66.5〜70.0%だった。
 
 ## 分かっていること
+
+- qbertの分割のcheckpoint（PRD103、50M、seed1）を、評価時の行動の選び方を学習中のTrain Actorに寄せて各200ゲーム評価すると、fullの8面突破率はGreedy（μ-only・τ固定）の66.0%に対し、NoisyNetのノイズありで41.5%、τランダムで50.5%、両方で37.5%に下がった。singleでは4条件とも66.5〜70.0%だった。fullの判断率（0.186〜0.191）と平均スキップ長（5.24〜5.39）は4条件でほぼ同じだった。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02。Run: `run_20261029-111656_evnt_spl_a_c` / `run_20261029-112623_evnt_spl_n_c` / `run_20261029-113025_evnt_spl_t_c` / `run_20261029-110108_evnt_spl_nt_c` / `run_20261029-120441_evnt_spl_a_s` / `run_20261029-115448_evnt_spl_n_s` / `run_20261029-120013_evnt_spl_t_s` / `run_20261029-114958_evnt_spl_nt_s`）。
 
 - 追加指定のqbert split checkpoint（PRD103、50M、seed1）も同じ1Run内でfull/single各200ゲームを評価すると、平均点26,913.6→31,358.9、g=0.61だった。突破率は63.5%→64.0%でほぼ変わらなかった。学習時のビルド・構成が違うため元3本の多数決には混ぜず、参考比較としている。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ5・追加splitと別枠の評価。Run: `run_20261029-131020_t104_stage0_split`）。
 
@@ -52,10 +54,11 @@ qbertの50M終了checkpoint（合算・遮断・重み0.3、各seed1）をμ-onl
 
 ## 撤回・更新
 
+- 2026-10-29: 「qbertの50M終了checkpointの比較はμ-only評価だけで、学習中のNoisyNet摂動つきの行動での固定の損は切り分けていない」→「分割のcheckpointでは、評価時にノイズ・τランダムを入れるとfullだけ8面突破率が下がり、singleは4条件で同じ水準だった。合算・遮断・重み0.3のcheckpointでは未確認」（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02）。
 - 2026-10-29: 「qbertの遅れは固定・データの偏り・seed差をまだ分けられていない」→「50M終了の3checkpointのμ-only評価では、固定を外すと3本とも改善し、gの点推定は固定が主因の行。学習中のデータの偏り・補助タスクの効果・seed差は引き続き未確認」（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ1〜3・未確定と今回の区切り）。
 
 - 2026-10-28: 「qbert の合算の中盤の遅れは、共有部の混ざり方・勾配のクリップとの結合・seed のばらつきのどれか」→「遮断と重み 0.3 も同じく遅れたので、共有部での勾配の混ざり方では説明できない。残る候補は行動の固定、固定して集めたデータの偏り、seed のばらつき」（出典: [104_temporl_skip_auxiliary_only_10prd.md](../../memo/104_temporl_skip_auxiliary_only_10prd.md)、§2.2）。
-- 2026-10-26: 「5×5 の既定 seed で崩壊する機構は未解明」を更新した。原因はスキップ長を UQE の楽観で選ぶことと分かった（仕組みは未確認のまま）。「GridMaze での効果は迷路の形に依存して不明」も、6×10 の 3 seed の結果で今の結論を改めた。
+- 2026-10-26: 「5×5 の既定 seed で崩壊する機構は未解明」を更新した。原因はスキップ長を UQE の楽観で選ぶことと分かった（仕組みは未確認のまま）。「GridMaze での効果は迷路の形に依存して不明」も、6×10 の 3 seed の結果で今の結論を改めた（出典: [999_temporl_skip_followups_10prd.md](../../memo/999_temporl_skip_followups_10prd.md)、§7「段 0 の結果」、[098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 1 の 3 seed」）。
 - 2026-10-28: 「Munchausen の log π の clip 率が合算で無効より高い」→「TempoRL 有効で高く、遮断と合算で同じ（合算によるものではない）」（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.3）。あわせて、PRD098 D9 の「評価 slot では skip も greedy になる」は、行動の方策が `Greedy` 型の slot でだけ成り立つと分かった（出典: 同 §2.2 の T12）。
 - 2026-10-26（2 回目）: 5×5 の既定 seed の件を「序盤に見つけたゴールを保持できず崩壊」と書いていたのを撤回した。評価では一度も届かず、学習側もエピソードの報酬の最大が序盤に一度 +0.03 になっただけで、見つけたゴールを失ったのではなかった。正しくは「スキップ長を UQE で選ぶとゴールに届かない」。あわせて GridMaze の結論を、届く速さ（同じか遅い）と終盤の安定さ（6×10 で差）に書き分けた。（出典: [999_temporl_skip_followups_10prd.md](../../memo/999_temporl_skip_followups_10prd.md)、§7「段 0 の結果」、[098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 1 の 3 seed」）。
 

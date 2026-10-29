@@ -650,7 +650,7 @@ A1.actor.[train].policy.spatial.epsilon.last = 0.01
 A1.learner.learning_rate = 1e-4                        # ★ lr。batch 256 の Atari 相場
 # adam_eps は A2 が持つ。A1 に書くとチェーン後段の @bf16(agent.txt:91)が 1e-4 で打ち消す。
 A1.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
-A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm 実測 0.5-1.4 に対し平常時は不発
+A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm（clip 前の中央値）は BZ・DD・Phoenix・NTG が 0.46〜3.8 で不発、qbert は 5〜13 で発火（サンプル効率優先の 5〜25M で 57〜78%、実時間優先の 10〜30M で 22〜24%。TempoRL の合算ではさらに約 2 倍）
 #A1.learner.grad_clip_tau = 30                 # 探索ブロック 12 の採用値
 #A1.learner.grad_clip_tau = 5                  # 旧既定(@baseline 継承値)
 

@@ -4,9 +4,12 @@
 
 低εラダーの64 env・容量1Mでは、45–50Mの第8面突破率（29,000点以上かつround_clear≥8）が4 seedで45.3・32.5・0.7・0.1%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まり、初突破が早い腕でも突破が定着しない例があった。seed 4 は得点ループに入り、得点だけで数えた突破率は第8面の突破を表さなかった。
 
-TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。
+TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。分割のcheckpointは、評価時にNoisyNetのノイズやτのランダムさを入れるとfullでだけ突破率が下がった。スキップなしは2 seedとも、Greedyの突破率が学習中と同じ選び方より低かった。
 
 ## 分かっていること
+
+- 50M終了checkpoint（seed1、各200ゲーム）を評価時の行動の選び方を変えて評価すると、8面突破率はGreedy（μ-only・τ固定）／ノイズあり／τランダム／両方の順に、スキップなしで50.5／61.5／66.0／60.0%、TempoRL分割のfullで66.0／41.5／50.5／37.5%、分割のsingleで68.5／66.5／70.0／66.5%だった。両方はε=0の学習中のTrain Actorと同じ選び方である。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02。Run: `run_20261029-112021_evnt_off_a` ほか同ブロックの12本）。
+- スキップなしのseed2（`run_20261028-132638_a5_qb_aln_btreps_s2`）の50M終了checkpointは、学習中と同じ選び方で44.5%・29,279.6点、Greedyで25.5%・26,705.8点だった（各200ゲーム）。学習の最後の400ゲームは49.8%、最後の1,000ゲームは67.5%で、seed1（86.5%・81.4%）より低い。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ7・探索ブロック03。Run: `run_20261029-142927_evnt_off2_nt` / `run_20261029-143538_evnt_off2_a`）。
 
 - PRD103のsplitの50M終了checkpoint（seed1）を追加評価すると、full/single各200ゲームの平均点は26,913.6/31,358.9、突破率は63.5%/64.0%だった。評価時の固定を外すと平均点は上がったが、突破率の差は0.5ポイントだった。元3本とは学習時のビルド・構成が違う参考行である。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ5・探索ブロック01・追加splitと別枠の評価。Run: `run_20261029-131020_t104_stage0_split`）。
 
@@ -31,7 +34,7 @@ TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、�
 
 ## 分かっていないこと
 
-- μ-onlyの評価で固定を外した改善が、NoisyNetの摂動つきの行動や別seedでも得られるか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り）？
+- μ-onlyの評価で固定を外した改善が、合算・遮断・重み0.3のcheckpointでもNoisyNetの摂動つきの行動で得られるか。別seedでも得られるか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り・探索ブロック02）？
 
 - BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？
 - 64 env・容量1Mで突破が増えた効き方の仕組みは何か（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ6・探索ブロック03「効き方の仕組みは測れていない」）？
@@ -39,6 +42,7 @@ TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、�
 
 ## 撤回・更新
 
+- 2026-10-29: 「μ-onlyの評価で固定を外した改善が、NoisyNetの摂動つきの行動でも得られるかは未確認」→「分割のcheckpointでは、ノイズありでもsingleが66.5%でfullの41.5%を上回った。合算・遮断・重み0.3では未確認」（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック02）。
 - 2026-10-23: 第 8 面の突破を 29,000 点以上のゲームで数える（64 env・1M の 3 seed で 45.6・32.6・0.7%） → 得点ループの Run があるので 29,000 点以上かつ round_clear ≥ 8 で数える（4 seed で 45.3・32.5・0.7・0.1%）。seed 1〜3 の判定は変わらない（出典: [2026-09-27_btr-gap-qbert-bz.md](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、メタデータ「判定指標」・現時点のまとめ13・探索ブロック 06。Run: `run_20261009-145225_a5_qbert_btr50m_eps005_env64_seed4`）。
 
 ## 関連

@@ -2,9 +2,12 @@
 
 ## 今の結論
 
-Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。
+Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。qbertでは、同じcheckpointをGreedyと学習中と同じ選び方で評価したときの成績の上下が、スキップなし（2 seed）とTempoRL分割のfullで逆になった。学習中の8面突破率は200ゲームごとの区切りで40ポイント以上動いた。
 
 ## 分かっていること
+
+- qbertのスキップなしの50M終了checkpointでは、Greedy（μ-only・τ固定）の評価が、学習中のTrain Actorと同じ選び方（NoisyNetのノイズあり・τランダム、ε=0）より8面突破率が低かった（seed1 50.5%対60.0%、seed2 25.5%対44.5%、各200ゲーム）。Greedyでは終了時のクリア面数が特定の値に集まった（seed1は3で15本、seed2は4で46本。同じseedの学習中と同じ選び方は3本・20本）。TempoRL分割のfull（seed1）では逆に、Greedyのほうが高かった（66.0%対37.5%）。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02・03。Run: `run_20261029-112021_evnt_off_a` / `run_20261029-110601_evnt_off_nt` / `run_20261029-143538_evnt_off2_a` / `run_20261029-142927_evnt_off2_nt` / `run_20261029-111656_evnt_spl_a_c` / `run_20261029-110108_evnt_spl_nt_c`）。
+- qbertのスキップなし（seed2）の学習中の8面突破率は、200ゲームごとの区切りで47.57M〜48.46Mの83.5%から、次の区切り（〜49.17M）の41.0%へ動いた。終了checkpointを学習中と同じ選び方で200ゲーム評価すると44.5%で、学習の最後の2つの区切り（58.5%・41.0%）の間に入った。seed1は評価60.0%に対し、最後の2つの区切りが87.0%・86.0%だった。どちらのseedでも評価は最後の区切りより低い。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ7・探索ブロック03。Run: `run_20261028-132638_a5_qb_aln_btreps_s2` / `run_20261025-231207_a5_qb_aln_btreps_s1` / `run_20261029-142927_evnt_off2_nt` / `run_20261029-110601_evnt_off_nt`）。
 
 - ε=0.01で見えない腕の差がε=0で現れ、20Mと50MでSNの符号も変わった。checkpoint時点と評価方策を両方揃える。（出典: [2026-09-15_replay-lane-window.md](../../experiments/default-dqn/atari/2026-09-15_replay-lane-window.md)、現時点のまとめ3〜5）。
 - 中間時点のseed差は3〜5割に達し、単一seedの山と頭打ちを一般化できなかった。（出典: [2026-09-23_realtime-profile-100m.md](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、現時点のまとめ1〜4。Run: run_20260923-020945_atari_kung_fu_master / run_20260923-095708_atari_kung_fu_master）。
@@ -24,6 +27,7 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 
 - GridMaze で通らないセルから再開してゴールに着かないとき、点数の方策は壁へ向かう行動を繰り返して位置が変わらないまま打ち切られているのか（出典: [999_intrinsic_reward_novelty_10prd.md](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.7「見立て」。Run では未確認）。
 - 評価 session を足すと同じ seed の軌跡が学習前から変わるのは、どの乱数の系列（評価の方策の τ の抽選、env の seed、Actor の乱数）を学習側や既存の評価 slot と共有しているためか。同じ設定の 2 本が一致するかも確かめていない（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、pending）。
+- qbertのスキップなしseed1で、終了checkpointを学習中と同じ選び方で評価した8面突破率（60.0%）が、学習中の最後の区切り（87.0%）より大きく低いのはなぜか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック03）。
 
 ## 撤回・更新
 

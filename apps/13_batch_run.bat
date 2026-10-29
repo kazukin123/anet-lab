@@ -64,6 +64,8 @@ SET "SENZPA=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2
 SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImpalaConv64].init.mode=default net.block.[AtariImpalaRes32SN].init1.mode=default net.block.[AtariImpalaRes32SN].init2.mode=default net.block.[AtariImpalaRes64SN].init1.mode=default net.block.[AtariImpalaRes64SN].init2.mode=default net.block.[AtariIQNTauProj2304].init.mode=default"
 SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
 SET "WLAD=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first=0.4 A2.actor.[train].policy.spatial.epsilon.last=0"
+SET "LADEXP=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first.type=exponential A2.actor.[train].policy.spatial.epsilon.first.start=0.4 A2.actor.[train].policy.spatial.epsilon.first.end=0 A2.actor.[train].policy.spatial.epsilon.first.time_constant=5000000 A2.actor.[train].policy.spatial.epsilon.last=0"
+SET "BTREPSPH=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon.type=phased "A2.actor.[train].policy.epsilon.phases=decay off" A2.actor.[train].policy.epsilon.phase.[decay].type=exponential A2.actor.[train].policy.epsilon.phase.[decay].start=1.0 A2.actor.[train].policy.epsilon.phase.[decay].end=0.01 A2.actor.[train].policy.epsilon.phase.[decay].time_constant=2000000 A2.actor.[train].policy.epsilon.phase.[decay].steps=25000000 A2.actor.[train].policy.epsilon.phase.[off].type=constant A2.actor.[train].policy.epsilon.phase.[off].value=0 A2.actor.[train].policy.epsilon.phase.[off].steps=1"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
@@ -165,19 +167,12 @@ if not defined DONE_DIR call :run_exe "%SENZ%" E1.game=phoenix run.seed=1 %NZSIG
 echo === 34. qbert 50m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, wide constant ladder 0.4 to 0 ===
 call :find_done a5_qb_aln_wlad_s1
 if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=qbert run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_qb_aln_wlad_s1"
-echo === 35. battle_zone 50m seed 1: same setup as 34 ===
-call :find_done a5_bz_aln_wlad_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=battle_zone run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_bz_aln_wlad_s1"
-echo === 36. phoenix 50m seed 1: same setup as 34 ===
-call :find_done a5_ph_aln_wlad_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=phoenix run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_ph_aln_wlad_s1"
-echo === 37. name_this_game 50m seed 1: same setup as 34 ===
-call :find_done a5_ntg_aln_wlad_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=name_this_game run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_ntg_aln_wlad_s1"
-echo === 38. double_dunk 50m seed 1: same setup as 34 ===
-call :find_done a5_dd_aln_wlad_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=double_dunk run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %WLAD% "app.run_name=run_{t}_a5_dd_aln_wlad_s1"
-
+echo === 35. qbert 50m seed 1: same setup as 34 but the ladder top decays exponentially from 0.4 to 0 with time constant 5M ===
+call :find_done a5_qb_aln_ladexp_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=qbert run.seed=1 %BTRENV% %BTRNZ% %ALNINIT% %ALNM% %LADEXP% "app.run_name=run_{t}_a5_qb_aln_ladexp_s1"
+echo === 36. qbert 50m seed 2: btr aligned, pixel_area, init default, munchausen log pi online, no ladder, epsilon 1.0 to 0.01 with time constant 2M then 0 from 25M (same as main run_20261025-231207_a5_qb_aln_btreps_s1) ===
+call :find_done a5_qb_aln_btreps_s2
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=qbert run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_qb_aln_btreps_s2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

@@ -4,18 +4,6 @@ title %~nx0
 cd /d "%~dp0runner"
 
 SET "BUILD=Release"
-
-:waitprev
-tasklist /FI "IMAGENAME eq AnetRLRunner*" 2>nul | find /I "AnetRLRunner" >nul
-if not errorlevel 1 (
-  ping -n 31 127.0.0.1 >nul
-  goto :waitprev
-)
-REM Another bat may start its next stage within a second; confirm that no runner appears for 15 s.
-ping -n 16 127.0.0.1 >nul
-tasklist /FI "IMAGENAME eq AnetRLRunner*" 2>nul | find /I "AnetRLRunner" >nul
-if not errorlevel 1 goto :waitprev
-
 if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
@@ -26,117 +14,12 @@ SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
 
-SET "WS=--workspace Atari5-01"
-SET "RUNS=workspaces\Atari5-01\runs"
-SET "RT100SKIP=run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip>run.@batch"
-SET "BTRSESKIP=run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch>run.@rfit>run.@a5_metrics>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@batch"
-SET "SKIPMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy>metrics.scalar.@skip"
-SET "BTRENV=run.train.num_envs=64 A2.learner.replay_capacity=1048576 A2.actor.[train].sync_interval=1"
-SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head.init.mode=default A2.head.projection.noisy.sigma0=0.5"
-SET "BTREPS=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon.type=phased "A2.actor.[train].policy.epsilon.phases=decay off" A2.actor.[train].policy.epsilon.phase.[decay].type=exponential A2.actor.[train].policy.epsilon.phase.[decay].start=1.0 A2.actor.[train].policy.epsilon.phase.[decay].end=0.01 A2.actor.[train].policy.epsilon.phase.[decay].time_constant=2000000 A2.actor.[train].policy.epsilon.phase.[decay].steps=25000000 A2.actor.[train].policy.epsilon.phase.[off].type=constant A2.actor.[train].policy.epsilon.phase.[off].value=0 A2.actor.[train].policy.epsilon.phase.[off].steps=1"
-SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImpalaConv64].init.mode=default net.block.[AtariImpalaRes32SN].init1.mode=default net.block.[AtariImpalaRes32SN].init2.mode=default net.block.[AtariImpalaRes64SN].init1.mode=default net.block.[AtariImpalaRes64SN].init2.mode=default net.block.[AtariIQNTauProj2304].init.mode=default"
-SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
-SET "CLIP30=DefaultDQNAgent.learner.grad_clip_tau=30"
-SET "B10M=app.batchrun.exp_exit_step=10000000"
-SET "RT100T3=run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip>run.@skip_conv_shared>run.@batch"
-SET "RT100T4=run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip>run.@skip_conv_separate>run.@batch"
-SET "SPLIT=DefaultDQNAgent.learner.skip.feature_gradient=split"
-SET "KMAX=DefaultDQNAgent.learner.skip.sample_weight=kmax"
-SET "PYTHON=..\..\.venv\Scripts\python.exe"
-SET "PERF=..\..\core\anet-core\testdata\prd103\run_current.py"
-echo === 1. PRD103 acceptance 4: Release performance, merge / split / split / merge ===
-"%PYTHON%" "%PERF%" performance --label perf2
-echo   %DATE% %TIME% PERF exit_code=%ERRORLEVEL%
-:wait_disk_a0
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a0
-)
-echo === 2. qbert 50M seed 1: BTR-aligned + init default + Munchausen online + BTR epsilon, TempoRL sep-split (PRD103 stage 3, vs run_20261027-004945_a5_qb_aln_t98mrg_s1) ===
-call :run_exe "%BTRSESKIP%" E1.game=qbert run.seed=1 %BTRENV% %BTREPS% %BTRNZ% %ALNINIT% %ALNM% "%SKIPMET%" %SPLIT% "app.run_name=run_{t}_a5_qb_aln_t103spl_s1"
-:wait_disk_a1
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a1
-)
-echo === 3. qbert realtime 10M seed 1: Atari.txt default chain with TempoRL sep-merge (PRD103 stage 4) ===
-call :run_exe "%RT100SKIP%" E1.game=qbert run.seed=1 %B10M% "%SKIPMET%" "app.run_name=run_{t}_a5_qb_rt_t103mrg_s1"
-:wait_disk_a2
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a2
-)
-echo === 4. qbert realtime 10M seed 1: Atari.txt default chain with TempoRL non-shared skip network (T4) (PRD103 stage 4) ===
-call :run_exe "%RT100T4%" E1.game=qbert run.seed=1 %B10M% "%SKIPMET%" "app.run_name=run_{t}_a5_qb_rt_t103nsh_s1"
-:wait_disk_a3
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a3
-)
-echo === 5. qbert realtime 10M seed 1: Atari.txt default chain with TempoRL conv trunk shared (T3) (PRD103 stage 4) ===
-call :run_exe "%RT100T3%" E1.game=qbert run.seed=1 %B10M% "%SKIPMET%" "app.run_name=run_{t}_a5_qb_rt_t103cnv_s1"
-:wait_disk_a4
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a4
-)
-echo === 6. qbert realtime 10M seed 2: Atari.txt default chain with TempoRL sep-merge (PRD103 stage 4) ===
-call :run_exe "%RT100SKIP%" E1.game=qbert run.seed=2 %B10M% "%SKIPMET%" "app.run_name=run_{t}_a5_qb_rt_t103mrg_s2"
-:wait_disk_a5
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a5
-)
-echo === 7. qbert realtime 10M seed 2: Atari.txt default chain with TempoRL non-shared skip network (T4) (PRD103 stage 4) ===
-call :run_exe "%RT100T4%" E1.game=qbert run.seed=2 %B10M% "%SKIPMET%" "app.run_name=run_{t}_a5_qb_rt_t103nsh_s2"
-:wait_disk_a6
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a6
-)
-echo === 8. qbert realtime 10M seed 2: Atari.txt default chain with TempoRL conv trunk shared (T3) (PRD103 stage 4) ===
-call :run_exe "%RT100T3%" E1.game=qbert run.seed=2 %B10M% "%SKIPMET%" "app.run_name=run_{t}_a5_qb_rt_t103cnv_s2"
-:wait_disk_a7
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a7
-)
-echo === 9. qbert 50M seed 1: same as 2 plus kmax sample weight (PRD103 stage 3, split + kmax) ===
-call :run_exe "%BTRSESKIP%" E1.game=qbert run.seed=1 %BTRENV% %BTREPS% %BTRNZ% %ALNINIT% %ALNM% "%SKIPMET%" %SPLIT% %KMAX% "app.run_name=run_{t}_a5_qb_aln_t103spk_s1"
-:wait_disk_a8
-SET "FREE_GB=0"
-for /f %%f in ('powershell -NoProfile -Command "[math]::Floor((Get-PSDrive C).Free/1GB)"') do SET "FREE_GB=%%f"
-if %FREE_GB% LSS 15 (
-  echo %DATE% %TIME% waiting for disk space: C: has %FREE_GB% GB free, need 15 GB
-  ping -n 301 127.0.0.1 >nul
-  goto :wait_disk_a8
-)
-echo === 10. qbert 50M seed 1: same as 2 but sep-merge with grad clip threshold 30 (PRD103 stage 1) ===
-call :run_exe "%BTRSESKIP%" E1.game=qbert run.seed=1 %BTRENV% %BTREPS% %BTRNZ% %ALNINIT% %ALNM% "%SKIPMET%" %CLIP30% "app.run_name=run_{t}_a5_qb_aln_t98c30_s1"
+SET "EVD=C:/dev/anet-lab/.scratch/evaldiag_noise_tau"
+
+echo === 1. no-skip s2 50M: NoisyNet sample + tau random (train-like, eps 0) ===
+call :run_cfg off2_nt
+echo === 2. no-skip s2 50M: NoisyNet off + tau fixed (current greedy) ===
+call :run_cfg off2_a
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -149,31 +32,18 @@ pause
 exit /b 0
 
 
-:run_exe
-echo %DATE% %TIME% START %WS% %*
-%RUNNER% %WS% %*
+:run_cfg
+echo %DATE% %TIME% START %~1
+%RUNNER% --config "%EVD%/cases/%~1/run.txt" "app.runs_dir=%EVD%/runs" "app.run_name=run_{t}_evnt_%~1"
 SET "RUN_EXIT_CODE=%ERRORLEVEL%"
 if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
-echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
+echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% case=%~1
 SET /A FAILED_RUNS+=1
 exit /b 0
 
 :run_succeeded
 SET /A SUCCEEDED_RUNS+=1
-echo   %DATE% %TIME% END   %*
-exit /b 0
-
-:find_ckpt
-SET "CKPT="
-SET "CKPT_DIR="
-if not "%RUN_EXIT_CODE%"=="0" exit /b 0
-for /f "delims=" %%d in ('dir /b /ad /o-n "%RUNS%\%~1" 2^>nul') do if not defined CKPT_DIR SET "CKPT_DIR=%%d"
-if not defined CKPT_DIR goto :find_ckpt_missing
-if exist "%RUNS%\%CKPT_DIR%\agent_close.anet" SET "CKPT=%RUNS:\=/%/%CKPT_DIR%/agent_close.anet"
-if defined CKPT exit /b 0
-:find_ckpt_missing
-echo %DATE% %TIME% [ERROR] agent_close.anet not found: %RUNS%\%~1 newest=%CKPT_DIR%
-SET /A FAILED_RUNS+=1
+echo   %DATE% %TIME% END   %~1
 exit /b 0
 
 :no_exe
