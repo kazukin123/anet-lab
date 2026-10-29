@@ -346,7 +346,7 @@ DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txt�
 
 scalar tag内にも添字を含められる。たとえば設定key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` のtagは、内側の閉じ括弧を保持した `50_agent_skip/03_skip_length_rate.[01]` になる。tagの添字は2桁、source keyの添字は`[1]`のままである。
 
-Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの7指標も結果オブジェクトが値を保持し、初回参照時に転送する。追加の`17_skip_primary_grad_norm`と`18_skip_primary_clip_ratio`はsplitのprimaryに入るskip勾配のclip前normと閾値超過の旗で、split以外はNaNになる。
+Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの7指標も結果オブジェクトが値を保持し、初回参照時に転送する。追加の`17_skip_primary_grad_norm`と`18_skip_primary_clip_ratio`はsplitのprimaryに入るskip勾配のclip前normと閾値超過の旗で、split以外はNaNになる。`19_primary_clip_ratio_ema`は18の旗の既定係数のEMAで、split以外は出力されない。
 
 評価は`skip_session_decision_rate`・`skip_session_length_mean`・`skip_session_length_rate.[j]`を`$eval.[greedy] $actor @session_end`で読む。ActorがSync間の判断回数・選択長・lane step数を保持し、判断率・平均・長さ別割合を返す。tagは`21_greedy_decision_rate`、`22_greedy_length_mean`、`23_greedy_length_rate.[01]`～で、`runner=train`の学習側座標に並ぶ。複数lane・途中終了のあるsessionでは判断回数の近似指標である。GridMaze/LunarLander/DropMergeのgreedy報酬は`21_eval/09_greedy_reward`、EMA・episode steps・最大stepsは`10`～`12`。Atariのsession名も`greedy`で、既存の`53_evalg`群・評価条件は維持する。数値例・短縮Run・metrics定義の確認は[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)を参照する。
 

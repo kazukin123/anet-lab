@@ -430,7 +430,7 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
             == (env == "Atari" ? defaults.Get("DefaultDQNAgent.actor.[greedy].policy.policy_type") : "Greedy"));
         CHECK(data.Get("run.eval.[greedy].actor") == "greedy");
         CHECK(data.Get("DefaultDQNAgent.actor.[greedy].network") == (env == "DropMerge" ? "target" : "online"));
-        for (const auto* tag : {"17_skip_primary_grad_norm", "18_skip_primary_clip_ratio", "21_greedy_decision_rate", "22_greedy_length_mean"}) {
+        for (const auto* tag : {"17_skip_primary_grad_norm", "18_skip_primary_clip_ratio", "19_primary_clip_ratio_ema", "21_greedy_decision_rate", "22_greedy_length_mean"}) {
             CHECK_FALSE(data.Get(std::string("metrics.scalar.[50_agent_skip/") + tag + "]").empty());
         }
         const auto limit = data.Get<int>("DefaultDQNAgent.skip.max_length");
