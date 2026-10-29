@@ -453,6 +453,10 @@ _Avoid_: コマンドバー, ribbon, ツールバーウィンドウ
 pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実行中に GUI から行う一時的な操作の区分。実効設定（config dump）には記録されないため、Run の比較・再現の根拠にしない。設定変更（config）とは区別する。
 _Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
 
+**強制行動**（forced action）:
+人の操作（キー・クリックなど）によって、Actor が選んだ行動を Actor の外から置き換えた実行行動。step trace では、Actor が選んだ行動と区別して読む。
+_Avoid_: 手動 Action, manual action, 上書き（設定の上書き層と紛れる）, 強制Action（表記ゆれ）
+
 **step trace**:
 Runner の遷移 1 つを 1 件とし、行動を選ぶ時点の値（行動・Q）、遷移のあとの値（報酬・終端・env の info）、遷移全体の値（近似Actor初期優先度）を持つ記録の単位。Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする。
 _Avoid_: step 行, 履歴行, step log, ステップ履歴
