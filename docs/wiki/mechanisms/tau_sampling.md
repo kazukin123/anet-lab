@@ -2,10 +2,11 @@
 
 ## 今の結論
 
-直接比較を確認できなかった初期調査に対し、DropMergeの2 seedではstratifiedとantitheticが有力だった。M削減の速度利得とM64による十分なlate改善は確認されなかった。qbertでは行動を選ぶときのτを固定からランダムにすると、スキップなしでは評価の8面突破率が上がり、TempoRL分割のfullでは下がった（seed1）。
+直接比較を確認できなかった初期調査に対し、DropMergeの2 seedではstratifiedとantitheticが有力だった。M削減の速度利得とM64による十分なlate改善は確認されなかった。qbertでは行動を選ぶときのτを固定からランダムにすると、スキップなしでは評価の8面突破率が上がり、TempoRL分割のfullでは下がった（seed1）。TempoRLの分割・合算の50M終了checkpointで、Q側をランダムのままskip側のτだけ固定にすると、共有のランダム抽選より突破率が7.50・10.25ポイント上がった（各400ゲーム、学習seed1）。主因の比k・k'は両checkpointで「決めきれない」で、学習への効果は未確認。
 
 ## 分かっていること
 
+- qbertの分割・合算の50M終了checkpoint（full、学習seed1、評価seed1/2の計400ゲーム、NoisyNetはμ-only）では、Q側だけτがランダムなTQの全体8面突破率が58.0・79.5%、Q側とskip側が同じランダム抽選を読むTBは50.5・69.25%だった。差の95%区間は+7.50 [0.75, 14.50]・+10.25 [4.50, 16.25]ポイント。集中面（分割6・合算5）を除いた通過率から作るk_Qは0.521 [0.353, 0.696]・0.445 [0.218, 0.701]で、どちらも0.5を含んだ。TBを独立抽選のTB_indepに替えたk'も、主因の読みは両方「決めきれない」だった。これは評価条件の比較で、学習条件の比較ではない（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、分割・合算の「τ（実装前）」「独立のτ抽選との比較」・「G4の判断に使う差」。Run: `run_20261029-155111_evnt_p106_spl_ta` / `run_20261029-180635_evnt_p106_spl_tb_e2` / `run_20261029-214530_t106_eval_old_mrg_TQ_s2` / `run_20261029-220252_t106_eval_old_mrg_TB_s2`ほか同記録のτ条件の計20本）。
 - 2026-08の調査で層化τの分布RLでの直接比較は確認できず、一般の分散低減理論をそのまま学習性能の保証にしていない。（出典: [tau_sampling_modes_survey.md](../../../reports/tau_sampling_modes_survey.md)、8. 総合評価）。
 - 調査対象の主要実装ではτ生成の層化・quasi-randomの工夫を確認できなかった。評価時配置・リスク歪曲・FQFは別の軸として整理された。（出典: [_survey_tau_implementations.md](../../../reports/_survey_tau_implementations.md)、まとめ（τ生成方式の一覧））。
 - FQFのfractionがほぼ一様へ収束するという後続報告は一次ソース未確認であり、確立した事実として採らない。（出典: [_survey_tau_core_papers.md](../../../reports/_survey_tau_core_papers.md)、10. 調査の限界）。
@@ -16,7 +17,7 @@
 
 ## 分かっていないこと
 
-なし
+- Train Actorのskip側のτだけ固定にすると、qbertの中盤の学習の遅れが改善するか（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、「再現と残る判断」）？
 
 ## 撤回・更新
 

@@ -4,10 +4,12 @@
 
 低εラダーの64 env・容量1Mでは、45–50Mの第8面突破率（29,000点以上かつround_clear≥8）が4 seedで45.3・32.5・0.7・0.1%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まり、初突破が早い腕でも突破が定着しない例があった。seed 4 は得点ループに入り、得点だけで数えた突破率は第8面の突破を表さなかった。
 
-TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。分割のcheckpointは、評価時にNoisyNetのノイズやτのランダムさを入れるとfullでだけ突破率が下がった。スキップなしは2 seedとも、Greedyの突破率が学習中と同じ選び方より低かった。
+TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。分割のcheckpointは、評価時にNoisyNetのノイズやτのランダムさを入れるとfullでだけ突破率が下がった。スキップなしは2 seedとも、Greedyの突破率が学習中と同じ選び方より低かった。 分割・合算の400ゲームではskip側だけノイズを切ると突破率が18.50・16.50ポイント上がり、skip側のτだけ固定にする差は分割7.50・合算10.25ポイントだった。主因の比は決めきれず、学習への効果は未確認。
 
 ## 分かっていること
 
+- TempoRL合算の50M終了checkpoint（full、学習seed1、評価400ゲーム）も、Q側だけノイズありで突破率75.00%、skip側だけと両方はともに58.50%だった。skip側を切った差は+16.50 [10.00, 22.75]ポイント。集中する面5を除いた通過率の比h_Q=0.342 [0.157, 0.536]は0.5を含み、分割と同じく主因は「決めきれない」だった。学習への効果はまだ確かめていない（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、合算の「ノイズ（実装後）」・「G4の判断に使う差」。Run: `run_20261029-230354_t106_eval_new_mrg_NQ_s2` / `run_20261029-231809_t106_eval_new_mrg_NB_s2`ほか同記録）。
+- TempoRLの分割の50M終了checkpoint（full、学習seed1、評価400ゲーム）は、Q側だけノイズありで突破率60.75%、skip側だけ39.75%、両方42.25%だった。skip側だけノイズを切る差は+18.50 [11.50, 25.00]ポイント。skip側のτだけ固定にする差も、分割+7.50 [0.75, 14.50]・合算+10.25 [4.50, 16.25]ポイントだった（τも各400ゲーム）。主因の比h（分割ノイズ）とk・k'（両checkpointのτ）は「決めきれない」。学習への効果と別の学習seedへの一般化は未確認（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、分割・合算と「G4の判断に使う差」。Run: `run_20261029-222256_t106_eval_new_spl_NQ_s2` / `run_20261029-223216_t106_eval_new_spl_NB_s2` / `run_20261029-214530_t106_eval_old_mrg_TQ_s2` / `run_20261029-220252_t106_eval_old_mrg_TB_s2`ほか同記録）。
 - サンプル効率優先の50Mの合算のcheckpoint（seed1）を、`[greedy]`の評価sessionと同じ条件のEvaluation Traceで見ると（3ゲーム）、最後でない残機を失った前後で`V_s`はほとんど変わらず（4回で−0.4〜+0.0）、最後の1機のときだけ0へ崩れた。最上段から外へ出る飛び降りが、価値の上で最善の行動として選ばれた例があった。同じcheckpointのGreedyの評価200ゲームでは、45本が5面で終わり、そのうち43本が14,550点・ゲームの長さ1,063〜1,066 stepにそろっていた。（出典: [999_eval_session_step_trace_10prd.md](../../memo/999_eval_session_step_trace_10prd.md)、§1）。
 - 50M終了checkpoint（seed1、各200ゲーム）を評価時の行動の選び方を変えて評価すると、8面突破率はGreedy（μ-only・τ固定）／ノイズあり／τランダム／両方の順に、スキップなしで50.5／61.5／66.0／60.0%、TempoRL分割のfullで66.0／41.5／50.5／37.5%、分割のsingleで68.5／66.5／70.0／66.5%だった。両方はε=0の学習中のTrain Actorと同じ選び方である。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02。Run: `run_20261029-112021_evnt_off_a` ほか同ブロックの12本）。
 - スキップなしのseed2（`run_20261028-132638_a5_qb_aln_btreps_s2`）の50M終了checkpointは、学習中と同じ選び方で44.5%・29,279.6点、Greedyで25.5%・26,705.8点だった（各200ゲーム）。学習の最後の400ゲームは49.8%、最後の1,000ゲームは67.5%で、seed1（86.5%・81.4%）より低い。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ7・探索ブロック03。Run: `run_20261029-142927_evnt_off2_nt` / `run_20261029-143538_evnt_off2_a`）。
@@ -36,7 +38,7 @@ TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、�
 ## 分かっていないこと
 
 - 最後でない残機を失っても`V_s`がほとんど下がらないことは、評価sessionの多くのゲームで成り立つか。14,550点で終わるゲームは、残機を失う面・stepがそろった同じ道筋をたどっているか（出典: [999_eval_session_step_trace_10prd.md](../../memo/999_eval_session_step_trace_10prd.md)、§1・§3のG3）？
-- μ-onlyの評価で固定を外した改善が、合算・遮断・重み0.3のcheckpointでもNoisyNetの摂動つきの行動で得られるか。別seedでも得られるか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り・探索ブロック02）？
+- NoisyNetの摂動つきの行動で固定を外す比較は、合算では既存singleと実装後fullの参考比較に留まり、同じビルドでの比較は未実施。遮断・重み0.3のcheckpointや別seedでも改善するか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、「singleの値と固定の寄与の目安」「再現と残る判断」；[qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り・探索ブロック02）？
 
 - BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？
 - 64 env・容量1Mで突破が増えた効き方の仕組みは何か（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ6・探索ブロック03「効き方の仕組みは測れていない」）？

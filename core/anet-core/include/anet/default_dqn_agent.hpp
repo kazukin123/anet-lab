@@ -447,9 +447,29 @@ namespace anet::rl::dqn {
             }
 
             // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
+            std::ostringstream missing_skip_forward;
             for (auto& [key, entry] : actor) {
                 entry.policy.quantile_mode = quantile_mode;
                 const auto skip_prefix = "actor.[" + key + "].skip";
+                ReadConfig(config_data, skip_prefix + ".nn_forward_mode", entry.skip.nn_forward_mode);
+                if (entry.skip.nn_forward_mode != DQNActorConfig::kForwardShared
+                    && entry.skip.nn_forward_mode != DQNActorConfig::kForwardDedicated) {
+                    ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(skip_prefix + ".nn_forward_mode")
+                        << "='" << entry.skip.nn_forward_mode << "'; expected " << DQNActorConfig::kForwardShared
+                        << "|" << DQNActorConfig::kForwardDedicated << ".");
+                }
+                // 明示された参照だけを保存し、未指定を config dump に追加しない。
+                const auto forward_key = skip_prefix + ".nn_forward_key";
+                if (HasConfigValue(config_data, forward_key)) {
+                    entry.skip.nn_forward_key.emplace();
+                    ValidateForwardReference(config_data, forward_key, *entry.skip.nn_forward_key);
+                }
+                if (skip.enabled && entry.skip.nn_forward_mode == DQNActorConfig::kForwardDedicated
+                    && !entry.skip.nn_forward_key) {
+                    missing_skip_forward << "Missing " << MakeDefaultConfigKey(forward_key)
+                        << "; expected a declared nn_forward key when skip.nn_forward_mode="
+                        << DQNActorConfig::kForwardDedicated << " and skip.enabled=true. ";
+                }
                 ReadConfig(config_data, skip_prefix + ".max_length_mode", entry.skip.max_length_mode);
                 if (entry.skip.max_length_mode != DQNActorConfig::kMaxLengthSingle
                     && entry.skip.max_length_mode != DQNActorConfig::kMaxLengthFull
@@ -485,6 +505,20 @@ namespace anet::rl::dqn {
                 }
                 entry.skip_policy = entry.policy;
                 ReadActionPolicyConfig(config_data, "actor.[" + key + "].skip.policy", entry.skip_policy);
+            }
+            // 一つ目で止めず、宣言された全 Actor の不足を構築時にまとめて返す。
+            if (!missing_skip_forward.str().empty()) {
+                ANET_SYSTEM_ERROR(missing_skip_forward.str());
+            }
+            // shared の値は使わないことを明示し、意図された無効状態は静かに保つ。
+            for (const auto& [key, entry] : actor) {
+                if (skip.enabled && entry.skip.nn_forward_mode == DQNActorConfig::kForwardShared
+                    && entry.skip.nn_forward_key) {
+                    anet::log::warn() << MakeDefaultConfigKey("actor.[" + key + "].skip.nn_forward_key")
+                        << "='" << *entry.skip.nn_forward_key << "' is unused with skip.nn_forward_mode="
+                        << DQNActorConfig::kForwardShared << "; expected skip.nn_forward_mode="
+                        << DQNActorConfig::kForwardDedicated << " to use this value.";
+                }
             }
             target_policy.quantile_mode = quantile_mode;
             // 判断によらない教材は全Actorが常に長さ1のときだけ使い、用途名は解釈しない。

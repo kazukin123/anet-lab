@@ -573,11 +573,15 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         auto skip_source = cfg.network == "target" ? model_->GetSkipTargetNetwork() : model_->GetSkipOnlineNetwork();
         // greedy評価は両方をgreedyに揃え、既定では同じPolicyの現在値を使う。
         const bool shared_policy = !cfg.has_skip_policy || cfg.policy.policy_type == kActionPolicyTypeStr_Greedy;
+        // モードは設定の選択だけを分け、skip の専用 seed と時計は Actor に任せる。
+        const auto& skip_forward_key = cfg.skip.nn_forward_mode == DQNActorConfig::kForwardDedicated
+            ? *cfg.skip.nn_forward_key : cfg.nn_forward_key;
         skip.emplace(SkipActorResources{
             .config = config_.skip,
             .policy = shared_policy ? policy : CreateActionPolicy(cfg.skip_policy, cfg.skip_policy.spatial.enabled,
                 request.batch_env_spec.num_envs, request.device),
             .network = skip_source, .source = skip_source,
+            .forward_config = forward_configs_.at(skip_forward_key),
             .use_amp = cfg.policy.use_amp, .use_amp_bf16 = cfg.policy.use_amp_bf16,
             .shared_policy = shared_policy, .max_length_mode = cfg.skip.max_length_mode,
             .max_length = cfg.skip.max_length});

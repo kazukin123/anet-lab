@@ -162,6 +162,8 @@ namespace anet::rl {
             static constexpr const char* kMaxLengthSingle = "single";
             static constexpr const char* kMaxLengthFull = "full";
             static constexpr const char* kMaxLengthVariable = "variable";
+            static constexpr const char* kForwardShared = "shared";
+            static constexpr const char* kForwardDedicated = "dedicated";
 
             ActionPolicyConfig policy;
             ActionPolicyConfig skip_policy;
@@ -169,6 +171,8 @@ namespace anet::rl {
             struct {
                 std::string max_length_mode = kMaxLengthFull;
                 std::optional<anet::ProfiledValueConfig<int>> max_length;
+                std::string nn_forward_mode = kForwardShared;
+                std::optional<std::string> nn_forward_key;
             } skip;
             std::string network = "online";
             bool clone_model = false;

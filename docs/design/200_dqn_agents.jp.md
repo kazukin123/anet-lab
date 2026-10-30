@@ -320,6 +320,8 @@ Headは`features`を読み、TDでは`skip_q`、QR／IQNでは`skip_q_dist`と�
 
 Actorはprimaryを毎step全laneで実行する。判断laneだけが選択actionと長さjを採用し、残りj−1回は同じactionを返す。episode開始は残り回数を破棄する。skipのforwardは継続laneを含めて1回行い、方策用RNGをprimaryと分ける。既定のskip方策は同じActionPolicyの現在のε・τ・spatial配置を使用する。`actor.[key].skip.policy.*`を指定すると独立したPolicyを構築する。greedy評価はskipもgreedyにする。
 
+Actorの `skip.nn_forward_mode=shared`（既定）では、skip側のforwardはQ側の `nn_forward_key` と同じNN実行設定で動く。`dedicated` では `skip.nn_forward_key` で宣言済みのNN実行設定を選ぶ。設定を共用しても、用途別の実行オブジェクト・ノイズ・乱数状態は独立である。どちらのモードでもskip用のseed・時計・forwardの回数と順序は同じで、`single`でもskipのforwardを行う。Learner側のskipは引き続き `learner.current.nn_forward_key` の設定を使う。
+
 ActionPolicyはprimaryの特徴量と使用したtausをActorまで一時保持する。IQNの既定skip方策は同じrisk queryを使い、任意のfull query部分はscoreから除く。専用skip方策は自身のtau rule・現在tau・spatial配置でqueryを作り、primary queryの末尾へ加える。primaryとskipはこの同じtausを各1回のforwardで評価し、primaryの選択には元の領域、skipの選択には追加領域だけを使う。平均方策はfull range、UQEは指定分位またはtailをそのまま問い合わせる。Actorの返却infoは`decision`、auxは`skip_decision`・`skip_length`・`skip_q_values`を持つ。Actor近似PERのQヒントは継続による上書き後のactionから作る。
 
 Learnerは同じReplay sampleからQのn-step targetとwindowのskip targetを作る。skip targetは窓の割引報酬にγ^kのprimary bootstrapを加え、doneではbootstrapを除く。Munchausenの先頭bonusは1回だけ加え、TBOの計算は実空間へ戻してから行う。target方式のMunchausen forwardはcurrent B・通常終端B・窓終端Bの3B、その他の終端評価は2Bをまとめる。
@@ -369,7 +371,7 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 ### 7.3 DefaultDQN の Noisy 実行設定
 
-`nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。項目内容は利用する具象部品の準備時に検証し、未参照項目と部品が使わない設定群は検証しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
+`nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。Actorのskip側は `skip.nn_forward_mode=shared|dedicated`（既定shared）で選ぶ。dedicatedでskip有効なら `skip.nn_forward_key` の欠落を全Actorについて拒否し、書かれたキーの未知参照とモード値の列挙はskipの有効・無効やsharedによらず検証する。sharedで書かれたキーは使わず、skip有効時だけActorごとに一度WARNする。skip無効時は必須検査とWARNを行わない。項目内容は利用する具象部品の準備時に検証し、未参照項目と部品が使わない設定群は検証しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
 
 TD・QR・IQN と Dueling の最終射影は `head.projection.noisy.enabled=false` / `head.projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner はcurrent用1個・target用途のonline用1個・target用1個の箱と実更新のlearn_stepを使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持する。Munchausen target方式では、skip無効時の `[2B]` 入力に `[0..B-1,0..B-1]`、有効時の `[3B]` 入力に `[0..B-1,0..B-1,0..B-1]` の NetworkForwardRowMapping をCPU側で検証・確定して一度転送する。これにより同一遷移のcurrent・n-step終端・window終端が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
 
@@ -551,6 +553,8 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
+
+Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[PRD106検証資材](../../core/anet-core/testdata/prd106/README.md)を参照する。
 
 - [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、段0・段1の実行と集計。
 

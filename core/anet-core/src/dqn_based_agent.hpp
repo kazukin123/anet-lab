@@ -1041,6 +1041,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<ActionPolicy> policy;
         std::shared_ptr<anet::nn::Network> network;
         std::shared_ptr<anet::nn::Network> source;
+        std::shared_ptr<const anet::nn::NetworkForwardConfig> forward_config;
         bool use_amp = false;
         bool use_amp_bf16 = true;
         bool shared_policy = true;

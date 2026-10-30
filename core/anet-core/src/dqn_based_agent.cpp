@@ -2334,7 +2334,7 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
             anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward"));
     if (skip_) {
         const anet::SeedMaker seeds(GetSeed());
-        skip_forward_ = skip_->network->CreateForwardExecutor(forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
+        skip_forward_ = skip_->network->CreateForwardExecutor(*skip_->forward_config, anet::nn::NetworkForwardClock::kContinuingRows,
             seeds.MakeNamedSeed(kSkipForwardSeed));
         skip_random_ = std::make_shared<anet::RandomGenerator>(seeds.MakeNamedSeed(kSkipPolicySeed));
         if (skip_->max_length_mode == DQNActorConfig::kMaxLengthVariable) {

@@ -2942,7 +2942,8 @@ TEST_CASE("Skip Actor retains an action and resets duration on episode start", "
     const auto actor_skip = cloned ? skip->Clone() : skip;
     dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         actor_primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), true, std::nullopt, false, {},
-        dqn::SkipActorResources{.config = skip_config, .policy = policy, .network = actor_skip, .source = skip});
+        dqn::SkipActorResources{.config = skip_config, .policy = policy, .network = actor_skip, .source = skip,
+            .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault())});
     const auto flags = torch::zeros({1}, torch::kBool);
     rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({1, 2})}}, flags, flags, flags);
     auto first = actor.MakeAction({}, state);
@@ -2985,7 +2986,8 @@ TEST_CASE("Skip Actor session statistics count decision lanes and reset on Sync"
     const auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
     std::optional<dqn::SkipActorResources> resources;
     if (enabled) resources = dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3},
-        .policy = policy, .network = skip, .source = skip};
+        .policy = policy, .network = skip, .source = skip,
+        .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault())};
     dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {}, resources);
     for (const auto* key : {"skip_session_decision_rate", "skip_session_length_mean", "skip_session_length_rate.[1]"}) {
@@ -3068,7 +3070,8 @@ TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one s
     dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 2, .network_mode = dqn::SkipNetworkMode::ActionIn},
-        .policy = dedicated, .network = skip, .source = skip, .shared_policy = false,
+        .policy = dedicated, .network = skip, .source = skip,
+        .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault()), .shared_policy = false,
         .max_length_mode = single ? dqn::DQNActorConfig::kMaxLengthSingle : dqn::DQNActorConfig::kMaxLengthFull});
     const auto flags = torch::zeros({2}, torch::kBool);
     const auto result = actor.MakeAction({}, rl::BatchState(MakeTauEchoObservation(), flags, flags, flags));
@@ -3141,7 +3144,240 @@ anet::ConfigData MakePrd104ConfigData()
     return WithDefaultForwardConfig(data);
 }
 
+constexpr const char* kPrd106QValuesKey = "q_values";
+
+anet::ConfigData MakePrd106IqnConfigData()
+{
+    auto data = MakeIqnTracerConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", true);
+    data.Set("DefaultDQNAgent.skip.max_length", 3);
+    data.Set("DefaultDQNAgent.learner.replay_capacity", 128);
+    data.Set("DefaultDQNAgent.net.body.output.[skip_context]", "fusion");
+    data.Set("DefaultDQNAgent.skip.net.branch.[skip_feature].bind", "skip_context");
+    data.Set("DefaultDQNAgent.skip.net.body.output.[features]", "skip_feature");
+    data.Set("DefaultDQNAgent.actor.[train].policy.policy_type", "EpsilonGreedy");
+    data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.num_taus", 8);
+    data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", "single");
+    return WithDefaultForwardConfig(data);
+}
+
+// 行動選択の実装を通さず、同じ行動と公開特徴量を skip の入力へ渡す。
+class FixedSkipInputPolicy final : public dqn::ActionPolicy {
+public:
+    explicit FixedSkipInputPolicy(torch::Tensor features)
+        : ActionPolicy(dqn::ActionPolicyConfig{}), features_(std::move(features)) {}
+    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool,
+        anet::nn::NetworkForwardExecutor&, std::shared_ptr<anet::RandomGenerator>,
+        const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&,
+        const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
+    {
+        auto result = std::make_shared<dqn::DQNActionInfo>(torch::zeros({obs.Size(0)}, torch::kLong));
+        result->forward_output.Set(anet::nn::kKey_DefaultOutput, features_);
+        return result;
+    }
+private:
+    torch::Tensor features_;
+};
+
 } // namespace
+
+TEST_CASE("Dedicated skip forward configuration reaches Actor values independently of Q", "[dqn][prd106][prd106-forward]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto q_key = GENERATE(std::string("test_default"), std::string("sample"));
+    const auto skip_key = GENERATE(std::string("shared"), std::string("test_default"), std::string("sample"));
+    const bool clone = GENERATE(false, true);
+    CAPTURE(q_key, skip_key, clone);
+    // 公開特徴量と一つの行動を固定し、Q と skip の設定を独立に確かめる。
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.head.projection.noisy.enabled", true);
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.mode", "sample");
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.hold", "call");
+    data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.share", "batch");
+    data.Set("DefaultDQNAgent.actor.[eval].nn_forward_key", q_key);
+    data.Set("DefaultDQNAgent.actor.[eval].clone_model", clone);
+    data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", skip_key == "shared" ? "shared" : "dedicated");
+    if (skip_key != "shared") data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_key", skip_key);
+    const auto spec = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
+    torch::manual_seed(106);
+    const auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+        MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 106);
+    const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch, .env_spec = spec,
+        .device = torch::kCPU, .seed = 106, .actor_key = "eval"});
+    const auto flags = torch::zeros({2}, torch::kBool);
+    const rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2, 2})}}, flags, flags, flags);
+    const auto first = actor->MakeAction({}, state);
+    const auto second = actor->MakeAction({}, state);
+    CHECK(torch::equal(first->GetAction(), second->GetAction()));
+    CHECK(torch::equal(first->GetAuxData().at(kPrd106QValuesKey), second->GetAuxData().at(kPrd106QValuesKey)) == (q_key == "test_default"));
+    const bool skip_sample = skip_key == "sample" || (skip_key == "shared" && q_key == "sample");
+    CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues), second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues)) == !skip_sample);
+    if (skip_key == "shared") {
+        // 同じ参照を dedicated で選んでも、重み・seed・時計の割り当ては変わらない。
+        data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", "dedicated");
+        data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_key", q_key);
+        torch::manual_seed(106);
+        const auto dedicated_agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+            MakeAgentForwardNetworkConfig(), batch, spec, torch::kCPU, 106);
+        const auto dedicated = dedicated_agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch, .env_spec = spec,
+            .device = torch::kCPU, .seed = 106, .actor_key = "eval"});
+        CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues), dedicated->MakeAction({}, state)->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues)));
+        CHECK(torch::equal(second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues), dedicated->MakeAction({}, state)->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues)));
+    }
+}
+
+TEST_CASE("Skip forward samples only its execution config with fixed observation features and action", "[dqn][prd106][prd106-fixed-input]")
+{
+    anet::nn::InitNN();
+    const bool sample = GENERATE(false, true);
+    anet::ConfigData projection;
+    projection.Set("noisy.enabled", true);
+    const anet::nn::WeightInitConfig init;
+    const auto primary = anet::nn::NetworkBuilder::BuildNetwork(MakeAgentForwardNetworkConfig(),
+        MakeLearnerEnvSpec().state_spec.obs_spec, std::make_shared<dqn::LinearHeadFactory>(2, init, projection), 106, torch::kCPU);
+    anet::ConfigData body;
+    body.Set("test.branch.[main].bind", anet::nn::kKey_DefaultOutput);
+    body.Set("test.body.output.[features]", "main");
+    const auto feature_spec = MakeLearnerEnvSpec().state_spec.obs_spec.at(kVectorKey);
+    const auto skip = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(body, "test"),
+        anet::TensorSpecMap{{anet::nn::kKey_DefaultOutput, feature_spec}},
+        std::make_shared<dqn::SkipHeadFactory>(2, 3, dqn::SkipNetworkMode::ActionOut, "none", 1, init, projection), 107, torch::kCPU);
+    anet::ConfigData execution;
+    execution.Set("noisy.mode", sample ? "sample" : "mu_only");
+    execution.Set("noisy.hold", "call");
+    execution.Set("noisy.share", "batch");
+    const auto policy = std::make_shared<FixedSkipInputPolicy>(torch::ones({2, 2}));
+    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 106, std::make_shared<std::shared_mutex>(), primary, primary,
+        anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
+        dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3}, .policy = policy, .network = skip, .source = skip,
+            .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>("fixed_skip", execution), .max_length_mode = "single"});
+    const auto flags = torch::zeros({2}, torch::kBool);
+    const rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2, 2})}}, flags, flags, flags);
+    const auto first = actor.MakeAction({}, state);
+    const auto second = actor.MakeAction({}, state);
+    CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues), second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues)) == !sample);
+}
+
+TEST_CASE("Skip forward mode validates recognized values even when skip is disabled", "[dqn][prd106][prd106-mode]")
+{
+    const bool enabled = GENERATE(false, true);
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", enabled);
+    data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", "unknown");
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(
+        "Invalid DefaultDQNAgent.actor.[eval].skip.nn_forward_mode='unknown'; expected shared|dedicated."));
+}
+
+TEST_CASE("Explicit skip forward references are validated in every mode", "[dqn][prd106][prd106-reference]")
+{
+    const bool enabled = GENERATE(false, true);
+    const auto mode = GENERATE(std::string("shared"), std::string("dedicated"));
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", enabled);
+    data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", mode);
+    data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_key", "undeclared");
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(
+        "Invalid DefaultDQNAgent.actor.[eval].skip.nn_forward_key='undeclared'; expected a declared nn_forward key."));
+}
+
+TEST_CASE("Dedicated skip requires keys for all declared Actors only while enabled", "[dqn][prd106][prd106-required]")
+{
+    const bool enabled = GENERATE(false, true);
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", enabled);
+    data.Set("DefaultDQNAgent.actor.[train].skip.nn_forward_mode", "dedicated");
+    data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", "dedicated");
+    if (enabled) {
+        CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+            Catch::Matchers::ContainsSubstring("Missing DefaultDQNAgent.actor.[train].skip.nn_forward_key")
+            && Catch::Matchers::ContainsSubstring("Missing DefaultDQNAgent.actor.[eval].skip.nn_forward_key")
+            && Catch::Matchers::ContainsSubstring("expected a declared nn_forward key when skip.nn_forward_mode=dedicated and skip.enabled=true."));
+    } else {
+        CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    }
+}
+
+TEST_CASE("Shared skip warns once per explicit unused key only while enabled", "[dqn][prd106][prd106-warning]")
+{
+    const bool enabled = GENERATE(false, true);
+    const auto mode = GENERATE(std::string("shared"), std::string("dedicated"));
+    auto data = MakePrd104ConfigData();
+    data.Set("DefaultDQNAgent.skip.enabled", enabled);
+    for (const auto* actor : {"train", "eval"}) {
+        const auto prefix = std::string("DefaultDQNAgent.actor.[") + actor + "].skip.";
+        data.Set(prefix + "nn_forward_mode", mode);
+        data.Set(prefix + "nn_forward_key", "test_default");
+    }
+    anet::test::LogCaptureGuard logs;
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    logs.Flush();
+    // 宣言ごとに一度だけ診断し、無効状態と dedicated の明示参照には出さない。
+    for (const auto* actor : {"train", "eval"}) {
+        const auto expected = std::string("DefaultDQNAgent.actor.[") + actor
+            + "].skip.nn_forward_key='test_default' is unused with skip.nn_forward_mode=shared; expected skip.nn_forward_mode=dedicated to use this value.";
+        int count = 0;
+        for (const auto& record : logs.Records()) {
+            if (record.level == wxLOG_Warning && record.message == expected) ++count;
+        }
+        CHECK(count == (enabled && mode == "shared" ? 1 : 0));
+    }
+}
+
+TEST_CASE("Dedicated IQN skip taus separate fixed values from random Q values through fused features", "[dqn][prd106][prd106-tau]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const bool q_random = GENERATE(false, true);
+    auto data = MakePrd106IqnConfigData();
+    data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.sample_mode", q_random ? "random" : "fixed");
+    data.Set("DefaultDQNAgent.actor.[train].skip.policy.tau_rule.sample_mode", q_random ? "fixed" : "random");
+    const auto spec = MakeIqnTracerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 16, .num_threads = 1};
+    const auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+        anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), batch, spec, torch::kCPU, 106);
+    const auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch, .env_spec = spec,
+        .device = torch::kCPU, .seed = 106, .actor_key = "train"});
+    const auto flags = torch::zeros({16}, torch::kBool);
+    const rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({16, 4})}}, flags, flags, flags);
+    // single でも専用τを追加して skip を forward する。継続行動による上書きは入れない。
+    const auto first = actor->MakeAction({}, state);
+    const auto second = actor->MakeAction({}, state);
+    const auto same_action = first->GetAction().eq(second->GetAction());
+    REQUIRE(same_action.any().item<bool>());
+    CHECK(first->GetInfo().At(rl::BatchActionInfo::kKeyDecision).all().item<bool>());
+    CHECK(second->GetInfo().At(rl::BatchActionInfo::kKeyDecision).all().item<bool>());
+    CHECK(torch::equal(first->GetAuxData().at(kPrd106QValuesKey), second->GetAuxData().at(kPrd106QValuesKey)) == !q_random);
+    CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action}),
+        second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action})) == q_random);
+}
+
+TEST_CASE("Fixed IQN skip query records grid equivalence without making it an acceptance condition", "[dqn][prd106][prd106-grid]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto shared_data = MakePrd106IqnConfigData();
+    shared_data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.sample_mode", "fixed");
+    auto dedicated_data = shared_data;
+    dedicated_data.Set("DefaultDQNAgent.actor.[train].skip.policy.tau_rule.sample_mode", "fixed");
+    const auto spec = MakeIqnTracerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 16, .num_threads = 1};
+    const auto make = [&](const anet::ConfigData& data) {
+        torch::manual_seed(106);
+        const auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(data),
+            anet::nn::NetworkConfig(data, "DefaultDQNAgent.net"), batch, spec, torch::kCPU, 106);
+        return agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch, .env_spec = spec,
+            .device = torch::kCPU, .seed = 106, .actor_key = "train"});
+    };
+    const auto flags = torch::zeros({16}, torch::kBool);
+    const rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({16, 4})}}, flags, flags, flags);
+    const auto shared = make(shared_data)->MakeAction({}, state);
+    const auto dedicated = make(dedicated_data)->MakeAction({}, state);
+    const auto same_action = shared->GetAction().eq(dedicated->GetAction());
+    REQUIRE(same_action.any().item<bool>());
+    const bool match = torch::allclose(shared->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action}),
+        dedicated->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action}));
+    // 不一致は経路の失敗ではなく、評価に G' が要るという観察として記録する。
+    SUCCEED("PRD106 shared_vs_dedicated_fixed_grid_equal=" << match);
+}
 
 TEST_CASE("Single skip configuration keeps every lane decision and learns one-step auxiliary targets", "[dqn][prd104][prd104-single]")
 {
@@ -3438,7 +3674,8 @@ TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops
     dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3}, .policy = policy,
-            .network = skip, .source = skip, .max_length_mode = "variable",
+            .network = skip, .source = skip,
+            .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault()), .max_length_mode = "variable",
             .max_length = anet::ProfiledValueConfig<int>{.type = "linear", .start = 3, .end = 1, .steps = 1}});
     const auto flags = torch::zeros({2}, torch::kBool);
     rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2, 2})}}, flags, flags, flags);
@@ -3481,7 +3718,8 @@ TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each poli
     dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 2, .network_mode = dqn::SkipNetworkMode::ActionIn},
-            .policy = policy, .network = skip, .source = skip, .max_length_mode = "variable",
+            .policy = policy, .network = skip, .source = skip,
+            .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault()), .max_length_mode = "variable",
             .max_length = anet::ProfiledValueConfig<int>{.value = 1}});
     const auto flags = torch::zeros({2}, torch::kBool);
     const auto action = actor.MakeAction({}, rl::BatchState(MakeTauEchoObservation(), flags, flags, flags));
