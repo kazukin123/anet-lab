@@ -394,6 +394,7 @@ run.@eval2ch : run.eval.[eval].eval_batch_size = 10
 run.@eval2ch : run.eval.[eval].eval_episodes = 10
 run.@eval2ch : run.eval_schedule.[greedy].interval = 78907   # 5.05M exp step。50M 予算で 0〜45.45M の 10 回
 run.@eval2ch : run.eval_schedule.[greedy].use_background = true
+run.@eval2ch : run.eval_schedule.[greedy_single].$ = run.eval_schedule.[greedy]
 
 run.@eval2ch_r1 : run.eval_schedule.[eval_target].interval = 0
 run.@eval2ch_r1 : run.eval_schedule.[eval].interval = 1954   # 500,224 exp step。100M 予算で 199 回
@@ -401,11 +402,19 @@ run.@eval2ch_r1 : run.eval.[eval].eval_batch_size = 10
 run.@eval2ch_r1 : run.eval.[eval].eval_episodes = 10
 run.@eval2ch_r1 : run.eval_schedule.[greedy].interval = 39453  # 10.1M exp step。100M 予算で 0〜90.9M の 10 回
 run.@eval2ch_r1 : run.eval_schedule.[greedy].use_background = true
+run.@eval2ch_r1 : run.eval_schedule.[greedy_single].$ = run.eval_schedule.[greedy]
 run.@eval2ch_r1_50m : run.eval_schedule.[greedy].interval = 19727  # RR1 で 50M 予算のとき
 
 # 既定 100 本を 400 本へ戻す。ε=0 の 1 点あたりのばらつきが CV 4〜5% になるゲーム
 # (battle_zone / phoenix)で結論を出すときに足す。
 run.@gdist400 : run.eval.[greedy].eval_episodes = 400
+
+# TempoRL の補助学習のみモード(PRD104): 毎 step 判断し、skip の出力は行動に使わず補助タスクとしてだけ学ぶ。
+# 判断で区切らない窓は、宣言された全 Actor が single のときだけ構築できる。[greedy]・[eval_target]・[eval_panel] は [eval] から派生する。
+# 窓を終わりだけにするときは learner.skip.target_window = episode_end を重ねる。
+run.@skip_aux : DefaultDQNAgent.learner.skip.target_window = action_change
+run.@skip_aux : DefaultDQNAgent.actor.[train].skip.max_length_mode = single
+run.@skip_aux : DefaultDQNAgent.actor.[eval].skip.max_length_mode = single
 
 
 # learner.enabled=false では 1 train step = 1 learn step になるので、interval はそのまま
@@ -1290,6 +1299,15 @@ run.eval.[greedy].eval_batch_size = 16
 run.eval.[greedy].eval_episodes = 100
 run.eval.[greedy].env.episodic_life = false
 
+# [greedy_single] は [greedy] からの差分が skip.max_length_mode = single だけ(毎 step 判断)。TempoRL の full の Run で
+# 行動の固定なしの成績を見る。スキップの無い Run・全 Actor が single の Run では [greedy] と中身が同じだが、
+# 53_evalg と 54_evalgs を全 Run で重ねて比べるために常に置く。間隔は [greedy] を置くプロファイルで継承し、同じ時点に並ぶ。
+# 1 回の評価は 3〜8 分で 5.05M(約 1.7 時間)より十分短く、2 本が同時に発火しても前回の未完了待ちは起きない(2026-10-30 qbert 実測)。
+A3.actor.[greedy_single].$ = DefaultDQNAgent.actor.[greedy]
+A3.actor.[greedy_single].skip.max_length_mode = single
+run.eval.[greedy_single].$ = run.eval.[greedy]
+run.eval.[greedy_single].actor = greedy_single
+
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
 #AtariEnv.@test1.difficulty = 1
@@ -1311,6 +1329,7 @@ metrics.trace.$ = metrics.trace.@atari
 metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
+metrics.trace.@atari : [54_evalgs/episode] = $eval.[greedy_single] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3]
 
 M1.[42_env/10_game_score_mean]      = $env_step mean.game_score  @episode_end $exp_step
@@ -1405,6 +1424,21 @@ M1.[53_evalg/56_ram_metric_1_max]     = $eval.[greedy] @session_end $env max.ram
 M1.[53_evalg/57_ram_metric_2_max]     = $eval.[greedy] @session_end $env max.ram_metric.[2]
 M1.[53_evalg/58_ram_metric_3_max]     = $eval.[greedy] @session_end $env max.ram_metric.[3]
 
+M1.[54_evalgs/10_game_score_mean]     = $eval.[greedy_single] @session_end $env mean.game_score
+M1.[54_evalgs/12_hns57_mean]          = $eval.[greedy_single] @session_end $env mean.hns57
+M1.[54_evalgs/14_hns49_mean]          = $eval.[greedy_single] @session_end $env mean.hns49
+M1.[54_evalgs/16_game_score_max]      = $eval.[greedy_single] @session_end $env max.game_score
+M1.[54_evalgs/20_game_len_mean]       = $eval.[greedy_single] @session_end $env mean.game_len
+M1.[54_evalgs/22_game_frames_mean]    = $eval.[greedy_single] @session_end $env mean.game_frames
+M1.[54_evalgs/24_game_len_max]        = $eval.[greedy_single] @session_end $env max.game_len
+M1.[54_evalgs/30_lives_mean]          = $eval.[greedy_single] @session_end $env mean.lives
+M1.[54_evalgs/50_ram_metric_1_mean]   = $eval.[greedy_single] @session_end $env mean.ram_metric.[1]
+M1.[54_evalgs/52_ram_metric_2_mean]   = $eval.[greedy_single] @session_end $env mean.ram_metric.[2]
+M1.[54_evalgs/54_ram_metric_3_mean]   = $eval.[greedy_single] @session_end $env mean.ram_metric.[3]
+M1.[54_evalgs/56_ram_metric_1_max]    = $eval.[greedy_single] @session_end $env max.ram_metric.[1]
+M1.[54_evalgs/57_ram_metric_2_max]    = $eval.[greedy_single] @session_end $env max.ram_metric.[2]
+M1.[54_evalgs/58_ram_metric_3_max]    = $eval.[greedy_single] @session_end $env max.ram_metric.[3]
+
 # --- Breakout 固有(1 画面 = 18 ×(1+1+4+4+7+7) = 432、2 画面 = 864) ---
 
 metrics.scalar.@breakout : [42_env/40_game_score_ge432]     = $env_step mean.game_score.ge.[432] @episode_end $exp_step
@@ -1424,6 +1458,9 @@ metrics.scalar.@breakout.[52_eval2/43_game_score_ge600_ema] = $eval.[eval] @sess
 
 metrics.scalar.@breakout.[53_evalg/40_game_score_ge432]     = $eval.[greedy] @session_end $env mean.game_score.ge.[432]
 metrics.scalar.@breakout.[53_evalg/42_game_score_ge600]     = $eval.[greedy] @session_end $env mean.game_score.ge.[600]
+
+metrics.scalar.@breakout.[54_evalgs/40_game_score_ge432]    = $eval.[greedy_single] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout.[54_evalgs/42_game_score_ge600]    = $eval.[greedy_single] @session_end $env mean.game_score.ge.[600]
 
 # --- SN 実験用(63/64=実効ノルム、65/66=sigma。@baseline では既定 OFF) ---
 

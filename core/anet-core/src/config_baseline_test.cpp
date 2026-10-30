@@ -18,6 +18,19 @@ TEST_CASE("PRD104 defaults and auxiliary arms preserve metrics and propagate Act
     const auto config_root = (repo / "apps/runner/config").generic_string();
     const auto output = repo / "out/test-tmp/prd104-config";
     std::filesystem::create_directories(output);
+    // 既定は env の設定を含めない共通の設定（agent.txt）で確かめる。env の設定が Actor ごとに選んだ値はここでは見ない。
+    {
+        const auto input = output / "main_only.txt";
+        { std::ofstream file(input); file << "$include <" << config_root << "/_main.txt>\n"; }
+        const anet::rl::dqn::DefaultDQNAgentConfig baseline(anet::ConfigManager(input).GetConfigData());
+        CHECK(baseline.learner.skip.target_window == "decision");
+        REQUIRE_FALSE(baseline.actor.empty());
+        for (const auto& [key, actor] : baseline.actor) {
+            CAPTURE(key);
+            CHECK(actor.skip.max_length_mode == "full");
+            CHECK_FALSE(actor.skip.max_length.has_value());
+        }
+    }
     for (const std::string env : {"GridMaze", "LunarLander", "Atari", "DropMerge"}) {
         CAPTURE(env);
         const auto input = output / (env + ".txt");
@@ -25,13 +38,6 @@ TEST_CASE("PRD104 defaults and auxiliary arms preserve metrics and propagate Act
             + "$include <" + (repo / "core/anet-core/testdata/prd104/arms.txt").generic_string() + ">\n";
         { std::ofstream file(input); file << includes; }
         const auto defaults = anet::ConfigManager(input).GetConfigData();
-        const anet::rl::dqn::DefaultDQNAgentConfig baseline(defaults);
-        CHECK(baseline.learner.skip.target_window == "decision");
-        for (const auto& [key, actor] : baseline.actor) {
-            CAPTURE(key);
-            CHECK(actor.skip.max_length_mode == "full");
-            CHECK_FALSE(actor.skip.max_length.has_value());
-        }
         CHECK_FALSE(defaults.Has("metrics.scalar.[50_agent_skip/07_max_length]"));
         std::string chain, line;
         std::ifstream source(config_root + "/" + env + ".txt");

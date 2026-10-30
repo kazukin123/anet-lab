@@ -324,36 +324,40 @@ TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge
         CHECK(scalar->eval_name == reference->eval_name);
         CHECK(scalar->interval == reference->interval);
     };
-    struct RamScalarGroup {
-        std::string name;
-        bool has_ema;
-        float ema_alpha;
-    };
-    const std::vector<RamScalarGroup> groups{
-        {"42_env", true, 0.001f},
-        {"51_eval1", true, 0.1f},
-        {"52_eval2", true, 0.1f},
-        {"53_evalg", false, 0.0f},
-    };
+    // RAM の指標を持つ群は、得点の平均の指標を持つ群として設定から拾う。群を足してもテストは直さずに済み、書き忘れた群は落ちる。
+    const std::string score_suffix = "/10_game_score_mean";
+    std::vector<std::string> groups;
+    for (const auto& def : scalar_defs) {
+        if (def.tag.ends_with(score_suffix)) groups.push_back(def.tag.substr(0, def.tag.size() - score_suffix.size()));
+    }
+    REQUIRE_FALSE(groups.empty());
+    std::set<std::string> expected_ram_tags;
     for (const auto& group : groups) {
+        const std::string stem = group + "/";
+        // EMA は得点の平均の EMA を持つ群だけが持ち、係数もそれに揃える。
+        const auto score_ema = find_scalar(stem + "11_game_score_mean_ema");
         for (int number = 1; number <= 3; ++number) {
-            const std::string stem = group.name + "/";
             const std::string key = "ram_metric.[" + std::to_string(number) + "]";
             const std::string suffix = "ram_metric_" + std::to_string(number);
             const std::string mean_tag = stem + std::to_string(48 + 2 * number) + "_" + suffix + "_mean";
             const std::string max_tag = stem + std::to_string(55 + number) + "_" + suffix + "_max";
             check_ram_scalar(mean_tag, "mean." + key, false, 0.0f, stem + "10_game_score_mean");
             check_ram_scalar(max_tag, "max." + key, false, 0.0f, stem + "16_game_score_max");
-            if (group.has_ema) {
+            expected_ram_tags.insert({mean_tag, max_tag});
+            if (score_ema != scalar_defs.end()) {
                 const std::string ema_tag = stem + std::to_string(49 + 2 * number) + "_" + suffix + "_mean_ema";
-                check_ram_scalar(ema_tag, "mean." + key, true, group.ema_alpha,
+                check_ram_scalar(ema_tag, "mean." + key, true, score_ema->ema_alpha,
                     stem + "11_game_score_mean_ema");
+                expected_ram_tags.insert(ema_tag);
             }
         }
     }
-    CHECK(std::count_if(scalar_defs.begin(), scalar_defs.end(), [](const auto& def) {
-        return def.tag.find("_ram_metric_") != std::string::npos;
-    }) == 33);
+    // RAM の tag は、どれかの群の規則どおりのものだけにする。
+    for (const auto& def : scalar_defs) {
+        if (def.tag.find("_ram_metric_") == std::string::npos) continue;
+        CAPTURE(def.tag);
+        CHECK(expected_ram_tags.contains(def.tag));
+    }
     for (const std::string old_tag : {
         "42_env/50_stage_clear_mean", "42_env/51_boss_kill_mean", "42_env/52_boss_hit_mean",
         "53_evalg/51_ram_metric_1_mean_ema", "53_evalg/53_ram_metric_2_mean_ema",
