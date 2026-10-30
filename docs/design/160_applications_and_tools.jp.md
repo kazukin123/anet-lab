@@ -30,7 +30,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
 | `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50）を持つ。paneの表示切り替えでwindow sizeは変更しない |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
-| `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
+| `EvalPanel` | 専用`EvalRunner`をtimerまたは強制行動で駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
 | `LogPanel` | wxLogの画面表示とlevel filterを提供する |
 | `DefaultViewFactory` | Env class IDからTrain/Eval用Viewを生成する |
@@ -82,7 +82,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | runtime接続 | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)、[trainer.cpp](../../core/anet-core/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
-手動の離散Actionは、EvalPanelが初期化時に保持したActionSpecで有効範囲を確認する。範囲外なら指定値と有効範囲をstatus field 0へ英語で表示し、Runログには出さない。Live復帰・model同期より前に戻るため、環境、step数、Trace選択は変わらない。EvalRunnerも両コンストラクタで対象環境のActionSpecを保持し、直接渡された範囲外の強制ActionはReset・Actor実行・Stepより前にfail-fastする。判定時にEnvSpecを再取得しない。
+離散の強制行動は、EvalPanelが初期化時に保持したActionSpecで有効範囲を確認する。範囲外なら指定値と有効範囲をstatus field 0へ英語で表示し、Runログには出さない。Live復帰・model同期より前に戻るため、環境、step数、Trace選択は変わらない。EvalRunnerも両コンストラクタで対象環境のActionSpecを保持し、直接渡された範囲外の強制行動はReset・Actor実行・Stepより前にfail-fastする。判定時にEnvSpecを再取得しない。
 
 ### 3.2 Metrics Viewer
 
@@ -109,23 +109,29 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 
 ### 3.4 Evaluation Trace
 
-`EvalTracePanel`は右端の列に一つだけ置く常設paneで、ViewメニューとPanelツールバーから表示する。既定は非表示。新しい行を上に並べ、報酬が非ゼロの行と終端行に色を付ける。`max_rows`は既定1000、`pct_window`は既定10000で、ともに1以上の整数とする。明示的に閉じた間は購読を付けたまま生成をskipし、再表示では履歴・百分位・診断の窓をすべて空にする。最大化による一時非表示は`IsPaneOpen`が`savedHiddenState`を参照して開いたままと判定し、Trace本体と追従paneのsnapshot取得・選択・診断を継続する。メニューのcheckも同じ判定に従い、最大化中の明示開閉は復元用フラグと同期する。
+`EvalTracePanel`は右端の列に一つだけ置く常設paneで、ViewメニューとPanelツールバーから表示する。既定は非表示。既定はstepの降順で新しい行を上に並べ、列見出しのクリックで数値の降順・昇順を切り替える。報酬が非ゼロの行と終端行に色を付ける。`max_rows`は既定1000、`pct_window`は既定10000で、ともに1以上の整数とする。明示的に閉じた間は購読を付けたまま生成をskipし、再表示では履歴・百分位・診断の窓をすべて空にする。最大化による一時非表示は`IsPaneOpen`が`savedHiddenState`を参照して開いたままと判定し、Trace本体と追従paneのsnapshot取得・選択・診断を継続する。メニューのcheckも同じ判定に従い、最大化中の明示開閉は復元用フラグと同期する。
 
 列幅は見出しと標準余白から始め、新規行の表示値と遅延確定した列だけを計測して拡張する。保持中の全行は毎step走査せず、短い値への入替えや古い行の削除でも縮めない。手動調整列はその表示中の自動変更を止め、明示的な開き直しで幅と履歴を初期化する。テーマ・フォント・DPI変更には追従し、最小幅は操作バー全体と左端から最初の行動列までの現在の合計幅（余白・縦スクロールバーを含む）の大きい方とする。行動列が無ければ操作バーだけを基準とし、連続行動は最初の次元別行動列までとする。列幅・外観変更時に更新し、ドック／フロートとRunnerの幅縮小処理でも守る。残りの列は横スクロールとする。通常セル・見出し・罫線・選択はシステム色を使う。非ゼロ報酬には緑、終端には橙の薄い色を標準背景へ重ね、終端を優先する。選択背景と選択文字色は行の強調より優先する。行選択の強調を列見出しへ波及させず、見出しのシステム配色はLive／Traceで変えない。色付けの設定は持たない。
 
 操作バーは、Play/Pauseのトグル・Stop・Step back・Step forward・Slower・Fasterの順の6アイコンと、slider・速度表示を持つ。16 DIPの記号とシステム文字色をメインツールバーと共有し、無効表示はwxに委ねる。コマ送りは縦棒の右に右三角、コマ戻しは左三角の右に縦棒で、メインのEval Stepも同じ送り記号を使う。Trace中は操作バー全体を2 DIPの赤枠で囲み、再生・一時停止・行選択の間も維持する。枠の領域を常に予約して配置を動かさず、Live復帰ですべて消す。captionのTrace表示と通常のactive/inactive配色も維持する。
 
-`TraceFollower`は`CreateTraceSnapshot`によるsnapshot生成・snapshot表示・Live復帰の共通interfaceで、EvalPanelのView、QValuePanel、Conv2dが実装する。interfaceと再生・表示補助はcoreのgui.hpp/cppに置き、行の生成はmetrics機能群へ依存する。履歴には開いていたpaneの不変snapshotだけを保持する。Conv2dはCPU活性を保持し、選択時に画像化する。paneを開く前の行は`no data for this step`となる。SweepHeatMapは追従しない。
+`TraceFollower`は`CreateTraceSnapshot`によるsnapshot生成・snapshot表示・Live復帰の共通interfaceで、EvalPanelのView、QValuePanel、Conv2dが実装する。interfaceと再生・表示補助はcoreのgui.hpp/cppに置き、行の生成はmetrics機能群へ依存する。履歴は開いていたpaneの不変snapshotに加え、ダンプ用に遷移前状態のTensor参照、action_infoとstep_resultの共有参照、counts、Runner・Env・Agent名、通知時点のforcedを保持する。行削除とpane閉鎖で解放する。Conv2dはCPU活性を保持し、選択時に画像化する。paneを開く前の行は`no data for this step`となる。SweepHeatMapは追従しない。
 
-行を選ぶとTraceモードとなりEvalPanelを停止する。行tではEval Viewが遷移後、Q/Conv2dが判断時点を表示し、captionに`Trace: step`を出す。`gui::TracePlayer`はwxの実機操作に依存しない再生制御を担当する。`gui::AppendTracePercentile`と`gui::FormatTraceValue`も同じ機能群に置く。書式は列定義のメソッドにせず、列定義・値・行動情報を受け取るGUI関数で算出する。再生はLiveなら最古から、Traceなら選択行から新しい側へ進む。最新で停止中の再生だけは最古へ戻る。コマ送りと戻るは端で止まる。Liveでコマ送りを押すと最新行でTraceに入り`Trace: end`を出す。Liveでコマ戻しを押すと最新の1つ前で`Trace: step back`、1行だけならその行で`Trace: start`を出す。速度は1/8〜8倍、1xはEvalのfps×step_per_frameである。速度ラベルとstatus通知はx0.125・x0.25・x0.5・x1・x2・x4・x8とする。
+行を選ぶとTraceモードとなりEvalPanelを停止する。行tではEval Viewが遷移後、Q/Conv2dが判断時点を表示し、captionに`Trace: step`を出す。`gui::TracePlayer`はwxの実機操作に依存しない再生制御を担当する。`gui::AppendTracePercentile`と`gui::FormatTraceValue`も同じ機能群に置く。書式は列定義のメソッドにせず、列定義・値・行動情報を受け取るGUI関数で算出する。TracePlayerへは表の下端から上端の再生順で行IDを渡す。再生はLiveなら下端から、Traceなら選択行から上へ進み、上端で止まる。上端で停止中の再生だけは下端へ戻る。コマ送りと戻るは端で止まる。Liveでコマ送りを押すと表の上端でTraceに入り`Trace: end`を出す。Liveでコマ戻しを押すと表の上から2行目で`Trace: step back`、1行だけならその行で`Trace: start`を出す。速度は1/8〜8倍、1xはEvalのfps×step_per_frameである。速度ラベルとstatus通知はx0.125・x0.25・x0.5・x1・x2・x4・x8とする。
 
 停止、表でのEsc、手動行動、Eval Resume、Trace paneを明示的に閉じる操作（✕・メニュー・ツールバー・Reset Layout）でLiveに戻る。Liveに戻すだけではEvalを再開しない。手動行動はLiveへ戻してから実行する。空履歴では操作列とsliderを無効にする。FPS 0では`CanPlay`によって再生ボタンだけを無効にし、次のUI timerで変更を反映する。既に再生中ならPause操作を有効に保ち、速度0では進めず、FPS復帰後に続行する。操作結果はstatus field 0へ英語で表示し、Runログへは出さない。
 
 `manager.Update()`はTrace開始・Live復帰・追従paneの表示変更と、列幅または外観の変更で最小幅が変わり実際のpane幅が不足した場合に行う。最小幅が変わらない通常の行追加・行選択・tickでは、最小幅処理による再配置を行わない。行移動はcaptionを更新しframeへ再描画を要求する。浮動paneのframeタイトルも直接揃える。計測は`EvalTracePanel::ApplySelection.layout` / `ReturnToLive.layout`と`RefreshCaptions`、最小幅の変更は`UpdateMinimumSize`で分ける。
 
-数値は整数なら整数、それ以外は有効数字4桁、非有限値は空欄。`display:pct`は自身を含む有限値の直近窓で`100*(小さい件数+同値件数/2)/件数`を列の確定時に一度だけ算出して保持する。全件同値は50%である。即時列は行追加時、遅延列は`StepTrace.value_ready`がtrueになった時点で処理し、NaNでの確定でも待機を終える。表示上限を超えて消えた行は更新通知が指定する列だけを窓へ反映する。複数列の部分更新で以前に確定した値を二重投入しない。GUIはAgent固有のキーを判定しない。既定の`Q_sa`・`V_s`・`trunc`は設定の`label:`で指定し、取得キーと値は変えない。既定列はstep、ep_step、action、reward、Q_sa、V_s、done、trunc、prio、prio_pctの順で、行動と報酬を隣接させる。
+数値は整数なら整数、それ以外は有効数字4桁、非有限値は空欄。`display:pct`は自身を含む有限値の直近窓で`100*(小さい件数+同値件数/2)/件数`を列の確定時に一度だけ算出して保持する。全件同値は50%である。即時列は行追加時、遅延列は`StepTrace.value_ready`がtrueになった時点で処理し、NaNでの確定でも待機を終える。表示上限を超えて消えた行は更新通知が指定する列だけを窓へ反映する。複数列の部分更新で以前に確定した値を二重投入しない。GUIはAgent固有のキーを判定しない。既定の`Q_sa`・`V_s`・`trunc`は設定の`label:`で指定し、取得キーと値は変えない。既定列はstep、ep_step、action、reward、forced、done、trunc、Q_sa、V_s、prio、prio_pctの順で、行動と報酬を隣接させる。
 
-[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。
+並べ替えはgui.hpp/cppの`TraceRowSorter`が担当し、表示値の数値で比較する。百分位列は保持した百分位、行動列は行動番号を使い、pendingと非有限値は向きによらず下端、同値はstep降順とする。既定は実step降順。新規行と遅延値が確定した行を位置へ入れ直すが、保持対象は常にstepの新しい順にmax_rows件で、百分位窓は並べ替えで変えない。選択行IDと再生状態を維持し、選択行を可視範囲へ出す。Liveは上端を表示し続ける。列幅のドラッグは並べ替えず、見出しのダブルクリックは並べ替え2回として扱う。開き直しでは並べ替えも初期化する。
+
+TraceモードはTracePlayerの選択の有無で判定する。RunnerFrameはanetのPanelから転送された↑↓をEvalTracePanelの行移動へ回し、←→は消費する。移動の通知は出さない。表・ログ欄・スライダーが自分で使う矢印は奪わない。Liveの転送矢印と、モードによらないテンキー・QValueのクリック・Ctrl・Spaceの進み方は維持する。EvalPanelは有効な強制stepの成功後、status field 0へ`Forced action: 番号:名前`を出す。行動指定なしのStepでは出さず、Runログにも出さない。EvalRunnerのlane指定の`forced`は初期値0、強制stepは1、通常stepは0で、通知前に確定する。
+
+行のダブルクリックは行選択と通知内容のダンプを行う。`TraceDumpFormatter`はGUIに依らず、`Trace dump step=... lane=...:`で始まるINFOの1行とVERBOSEの複数行1件を作る。INFOには全列（表の書式、未確定はpending）と、名前・countsの全欄・実行行動・forced・報酬・終端・action_infoのinfo/aux・step_resultのauxを出す。通知項目は列の構成によらず出す。単一要素Tensorは値、複数要素と空Tensorは形・型・元deviceのみ、未定義はundefinedとする。VERBOSEは状態・行動情報・Step結果の既存の文字列化にinfoと不透明なReplay初期優先度ヒントを加える。転送と文字列化はダンプ時だけ行い、GPUの内容はCPUへ写して書く。追従paneのsnapshotは出さない。ログ欄の既存のlevel処理を維持する。
+
+[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。[PRD105検証資材](../../core/anet-core/testdata/prd105/README.md)に、矢印・forced・並べ替え・再生順・ダンプと4環境の学習値比較の手順を置く。
 
 ## 4. 静的構造
 
@@ -232,7 +238,7 @@ sequenceDiagram
     A->>T: Start()
 ```
 
-GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で通常の`BatchEnv`を持つ独立EvalRunnerをstep単位で進めるため、`EvalSessionEnv`を使うconfigured background evalとは別用途である。強制Actionと既存のmodel同期方式もEvalPanel側に維持する。全Agentで`app.eval_panel.eval_config_tag`に参照するEval tagを明示し、その`run_mode`、`env.*`、`actor`参照を別instanceへ適用する。`actor`省略時はタグ名を使う。共通既定は`eval_panel`タグと同名の専用Actorを参照し、DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコア選択とする。表示用Env設定は標準評価タグから継承し、環境別のEnv上書きを適用する。定期評価の方策とは独立に変更できる。未定義のEval tagまたはActor参照はfail-fastする。
+GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で通常の`BatchEnv`を持つ独立EvalRunnerをstep単位で進めるため、`EvalSessionEnv`を使うconfigured background evalとは別用途である。強制行動と既存のmodel同期方式もEvalPanel側に維持する。全Agentで`app.eval_panel.eval_config_tag`に参照するEval tagを明示し、その`run_mode`、`env.*`、`actor`参照を別instanceへ適用する。`actor`省略時はタグ名を使う。共通既定は`eval_panel`タグと同名の専用Actorを参照し、DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコア選択とする。表示用Env設定は標準評価タグから継承し、環境別のEnv上書きを適用する。定期評価の方策とは独立に変更できる。未定義のEval tagまたはActor参照はfail-fastする。
 
 RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
 
@@ -363,6 +369,8 @@ sequenceDiagram
 - `reports/tools/wiki_support.py` は材料・blob・リンク候補の読み取りと地図の機械的な2節の再生成を補助する。知見の意味や裁定はエージェントが正本を読んで判断する。台帳の正本は `reports/registry/findings.jsonl`、CLIとレコード形式はregistry.pyの冒頭を参照する。
 
 ## 8. テストと変更時の確認事項
+
+- [PRD105検証資材](../../core/anet-core/testdata/prd105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
 - [PRD095検証資材](../../core/anet-core/testdata/prd095/README.md): 一時台帳での分類・地図の派生区画・不正な目印での無変更と、取り込み・点検・housekeepingの試走を確認する。
 

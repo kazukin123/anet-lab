@@ -114,6 +114,8 @@ namespace anet::rl {
 
     class EvalRunner final : public RunnerBase, public std::enable_shared_from_this<EvalRunner> {
     public:
+        static constexpr const char* kKeyForced = "forced";
+
         EvalRunner(
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
@@ -129,6 +131,7 @@ namespace anet::rl {
 
         void Sync(const StepCounts& source_counts);
         void Shutdown() override { }
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         //RunnerStatus Initialize(const ConfigData& config_data);
         StepCounts DoStep(int64_t action);
@@ -141,6 +144,7 @@ namespace anet::rl {
         std::shared_ptr<const BatchStepResult> DoStepInternal(
             int64_t action, const StepCounts& event_counts, bool notify_episode_end);
         const ActionSpec action_spec_;
+        std::vector<bool> last_forced_;
         std::shared_ptr<EvalSessionEnv> session_env_;
         StepCounts source_counts_;
     };

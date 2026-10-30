@@ -1040,6 +1040,17 @@ void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
     auto key_event = event.GetKeyEvent();
     ANET_LOG_DEBUG("KeyDown: key=" << key_event.GetKeyCode());
 
+    // Traceの選択がある間だけ、転送された矢印を履歴の操作として消費する。
+    if (eval_trace_panel_ && eval_trace_panel_->IsTraceMode()) {
+        switch (key_event.GetKeyCode()) {
+        case WXK_UP: eval_trace_panel_->MoveSelection(-1); return;
+        case WXK_DOWN: eval_trace_panel_->MoveSelection(1); return;
+        case WXK_LEFT:
+        case WXK_RIGHT: return;
+        default: break;
+        }
+    }
+
     int64_t action;
 
     switch (key_event.GetKeyCode()) {

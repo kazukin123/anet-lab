@@ -9,6 +9,7 @@
 #include "anet/log.hpp"
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
+#include "anet/metrics.hpp"
 #include "anet/observers.hpp"
 #include "RunnerApp.hpp"
 
@@ -196,6 +197,14 @@ void EvalPanel::DoStep(int64_t action)
 	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
+    // 実行できた強制行動だけを、Traceの行動列と同じ表示名で知らせる。
+    if (action >= 0 && action_spec_.is_discrete) {
+        constexpr const char* kActionInfoTarget = "$action_info";
+        constexpr const char* kActionKey = "action";
+        const anet::rl::StepTraceColumnSpec column{.target=kActionInfoTarget, .key=kActionKey, .display="value_name"};
+        const auto name = anet::rl::gui::FormatTraceValue(column, static_cast<float>(action), action_spec_);
+        wxGetApp().GetMainFrame()->SetStatusText(wxString::FromUTF8("Forced action: " + name), 0);
+    }
 }
 
 void EvalPanel::TogglePause()

@@ -164,6 +164,7 @@ app.eval_trace_panel.columns.[200] ?= $runner exp_step label:step
 app.eval_trace_panel.columns.[210] ?= $runner step_in_episode label:ep_step
 app.eval_trace_panel.columns.[220] ?= $action_info action
 app.eval_trace_panel.columns.[230] ?= $env_step reward
+app.eval_trace_panel.columns.[260] ?= $runner forced label:forced
 app.eval_trace_panel.columns.[350] ?= $env_step done
 app.eval_trace_panel.columns.[360] ?= $env_step truncated label:trunc
 app.eval_trace_panel.columns.[400] ?= $agent_step q_sa label:Q_sa

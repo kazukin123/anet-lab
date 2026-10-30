@@ -5,6 +5,7 @@
 #include <chrono>
 #include <deque>
 #include <optional>
+#include <span>
 #include <string>
 #include <functional>
 #include <memory>
@@ -16,7 +17,7 @@
 #include "anet/rl.hpp"
 #include "anet/profile.hpp"
 
-namespace anet::rl { struct StepTraceColumnSpec; }
+namespace anet::rl { struct StepTraceColumnSpec; struct StepTrace; }
 
 namespace anet::rl::gui {
 
@@ -414,9 +415,52 @@ namespace anet::rl::gui {
     enum class PlaybackIcon { Play, Pause, Stop, StepBack, StepForward, Slower, Faster };
     wxBitmapBundle MakePlaybackBitmap(PlaybackIcon icon, const wxColour& colour);
 
+    /// 表の数値とstepだけを所有し、通知や画像の寿命から独立して順序を決める。
+    class TraceRowSorter {
+    public:
+        struct Row {
+            int64_t id = 0;
+            step_t step = 0;
+            std::vector<float> values;
+        };
+        void Reset(std::optional<size_t> step_column = std::nullopt);
+        void ToggleColumn(size_t column);
+        size_t Upsert(Row row);
+        std::optional<int64_t> Trim(size_t max_rows);
+        std::vector<int64_t> GetDisplayOrder() const;
+        std::optional<size_t> GetColumn() const { return column_; }
+        bool IsAscending() const { return ascending_; }
+    private:
+        bool ComesBefore(const Row& left, const Row& right) const;
+        std::optional<size_t> step_column_;
+        std::optional<size_t> column_;
+        bool ascending_ = false;
+        std::deque<Row> rows_;
+    };
+
+    /// 行の寿命で保持した通知内容を、明示要求時だけ文字列化する。
+    class TraceDumpFormatter {
+    public:
+        struct Data {
+            BatchState state;
+            std::shared_ptr<const BatchActionInfo> action_info;
+            std::shared_ptr<const BatchStepResult> step_result;
+            StepCounts counts;
+            std::string runner_name;
+            std::string env_name;
+            std::string agent_name;
+            float forced = 0;
+        };
+        static std::string FormatInfo(const Data& data, const StepTrace& trace,
+            std::span<const StepTraceColumnSpec> columns, std::span<const float> displayed_values,
+            const ActionSpec& actions);
+        static std::string FormatVerbose(const Data& data, const StepTrace& trace);
+    };
+
     class TracePlayer {
     public:
-        void SetRows(std::vector<int64_t> oldest_to_newest);
+        /// 表の下端から上端の再生順。既定のstep降順では古い行から新しい行。
+        void SetRows(std::vector<int64_t> playback_order);
         void Select(int64_t id, bool keep_playing = false);
         bool CanPlay(double base_steps_per_second) const;
         std::string Play();

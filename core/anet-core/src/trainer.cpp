@@ -218,6 +218,7 @@ EvalRunner::EvalRunner(
     std::string name)
     : RunnerBase(env, agent, notifier, request, std::move(name))
     , action_spec_(env_->GetSpec().action_spec)
+    , last_forced_(static_cast<size_t>(env_->GetBatchSpec().num_envs), false)
 {
 }
 
@@ -229,8 +230,21 @@ EvalRunner::EvalRunner(
     std::string name)
     : RunnerBase(env, agent, notifier, request, std::move(name))
     , action_spec_(env_->GetSpec().action_spec)
+    , last_forced_(static_cast<size_t>(env_->GetBatchSpec().num_envs), false)
     , session_env_(std::move(env))
 {
+}
+
+std::optional<float> EvalRunner::GetScalar(const std::string& key, int64_t index) const
+{
+    // 強制の有無はlane単位の遷移の事実で、集約値は持たない。
+    if (key != kKeyForced) return RunnerBase::GetScalar(key, index);
+    if (index < 0) return std::nullopt;
+    if (index >= static_cast<int64_t>(last_forced_.size())) {
+        ANET_SYSTEM_ERROR("Invalid EvalRunner scalar lane. key='" << kKeyForced << "' lane=" << index
+            << " expected=[0, " << static_cast<int64_t>(last_forced_.size()) - 1 << "].");
+    }
+    return last_forced_[static_cast<size_t>(index)] ? 1.0f : 0.0f;
 }
 
 void EvalRunner::Sync(const StepCounts& source_counts)
@@ -296,7 +310,8 @@ std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
     ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
 
-    // この遷移の報酬を通知前に確定する。
+    // 同じ遷移の強制の有無と報酬を、読み手へ通知する前に確定する。
+    std::fill(last_forced_.begin(), last_forced_.end(), action >= 0);
     UpdateMetrics(result);
 
     // カウント更新

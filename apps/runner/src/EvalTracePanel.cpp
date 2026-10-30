@@ -5,11 +5,43 @@
 #include <cmath>
 #include <wx/dcbuffer.h>
 #include <wx/settings.h>
+#include "anet/log.hpp"
 #include "anet/observers.hpp"
 #include "anet/profile.hpp"
 
 using namespace anet::rl;
 using anet::rl::gui::TracePlayer;
+
+namespace {
+// 見出しを中央寄せしても、右側のソート印と文字が重ならない余白を確保する。
+constexpr int kColumnLabelPaddingDip = 28;
+
+class TraceGrid final : public wxGrid {
+public:
+    using wxGrid::wxGrid;
+
+    void DrawColLabel(wxDC& dc, int col) override
+    {
+        // ラベルと枠は標準描画に任せ、ソート印だけをシステム色で描く。
+        wxGrid::DrawColLabel(dc, col);
+        if (!IsSortingBy(col) || GetColSize(col) < FromDIP(16) || GetColLabelSize() < FromDIP(8)) return;
+        const int x = GetColRight(col) - FromDIP(8);
+        const int y = GetColLabelSize() / 2;
+        const int half_width = FromDIP(4);
+        const int half_height = FromDIP(3);
+        const int direction = IsSortOrderAscending() ? -1 : 1;
+        const std::array<wxPoint, 3> triangle{
+            wxPoint(x - half_width, y - direction * half_height),
+            wxPoint(x + half_width, y - direction * half_height),
+            wxPoint(x, y + direction * half_height)};
+        // 文字グリフを使わず、テーマやDPIの変更後もその場の色と寸法に従う。
+        const auto colour = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+        const wxDCPenChanger pen(dc, wxPen(colour));
+        const wxDCBrushChanger brush(dc, wxBrush(colour));
+        dc.DrawPolygon(static_cast<int>(triangle.size()), triangle.data());
+    }
+};
+}
 
 class EvalTracePanel::Table final : public wxGridTableBase {
 public:
@@ -108,7 +140,7 @@ EvalTracePanel::EvalTracePanel(wxFrame& frame, wxAuiManager& manager, EvalPanel&
     border->Add(controls, 1, wxEXPAND | wxALL, FromDIP(3));
     controls_panel_->SetSizer(border);
     layout->Add(controls_panel_, 0, wxEXPAND);
-    grid_ = new wxGrid(this, wxID_ANY);
+    grid_ = new TraceGrid(this, wxID_ANY);
     layout->Add(grid_, 1, wxEXPAND);
     SetSizer(layout);
     slider_->Bind(wxEVT_SLIDER, [this](wxCommandEvent&) {
@@ -137,11 +169,17 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
 {
     // 表の宣言と通知購読を一度だけ結び、非表示時はcallbackの先頭で止める。
     env_spec_ = runner->GetBatchEnv()->GetSpec();
+    // 通知に名前のためのresourceを保持せず、評価Envの実効設定から一度だけ読む。
+    const auto env_config = runner->GetBatchEnv()->GetConfigData();
+    env_name_ = env_config ? env_config->Get<std::string>("env.class_id", runner->GetBatchEnv()->GetName())
+        : runner->GetBatchEnv()->GetName();
+    agent_name_ = config_.Get("agent.class_id");
     builder_ = std::make_unique<StepTraceBuilder>(config_, env_spec_, manager->GetAgent(), 1);
     columns_ = builder_->GetColumns();
     percentile_windows_.resize(columns_.size());
     table_ = new Table(*this);
     grid_->SetTable(table_, true, wxGrid::wxGridSelectRows);
+    ResetSorting();
     grid_->EnableEditing(false);
     // 行選択は標準の選択色にし、列見出しへ強調を波及させない。
     grid_->DisableOverlaySelection();
@@ -177,17 +215,22 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
         if (!updating_controls_) SelectIndex(event.GetRow());
         event.Skip();
     });
+    grid_->Bind(wxEVT_GRID_LABEL_LEFT_CLICK, [this](wxGridEvent& event) {
+        SortByColumn(event.GetCol());
+    });
+    grid_->Bind(wxEVT_GRID_LABEL_LEFT_DCLICK, [this](wxGridEvent& event) {
+        // nativeのダブルクリックは、最初のクリックに続く2回目の切替とする。
+        SortByColumn(event.GetCol());
+    });
+    grid_->Bind(wxEVT_GRID_CELL_LEFT_DCLICK, [this](wxGridEvent& event) {
+        DumpRow(event.GetRow());
+    });
     grid_->Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& event) {
         if (event.GetKeyCode() == WXK_ESCAPE) {
             ReturnToLive();
             Notify("Trace: stop (live)");
         } else if ((event.GetKeyCode() == WXK_UP || event.GetKeyCode() == WXK_DOWN) && !rows_.empty()) {
-            int index = 0;
-            if (const auto selected = player_.GetSelected()) {
-                for (size_t i = 0; i < rows_.size(); ++i) if (rows_[i].trace->id == *selected) index = static_cast<int>(i);
-            }
-            index += event.GetKeyCode() == WXK_UP ? -1 : 1;
-            SelectIndex(std::clamp(index, 0, static_cast<int>(rows_.size()) - 1));
+            MoveSelection(event.GetKeyCode() == WXK_UP ? -1 : 1);
         } else event.Skip();
     });
     SetActive(IsPaneOpen(manager_.GetPane(this)));
@@ -230,6 +273,7 @@ void EvalTracePanel::ClearRows()
         wxGridTableMessage message(table_, wxGRIDTABLE_NOTIFY_ROWS_DELETED, 0, count);
         grid_->ProcessTableMessage(message);
     }
+    ResetSorting();
     ResetColumnWidths();
     SyncControls();
 }
@@ -245,11 +289,77 @@ void EvalTracePanel::ApplyPercentiles(Row& row)
     }
 }
 
+std::vector<float> EvalTracePanel::GetDisplayedValues(const Row& row) const
+{
+    std::vector<float> values(columns_.size(), std::numeric_limits<float>::quiet_NaN());
+    for (size_t col = 0; col < columns_.size(); ++col) {
+        if (row.trace->value_ready[col]) {
+            values[col] = columns_[col].display == "pct" ? row.percentiles[col] : row.trace->values[col];
+        }
+    }
+    return values;
+}
+
+void EvalTracePanel::ResetSorting()
+{
+    // 見出しの表示名によらず、生のstep値を表示する列に既定の印を付ける。
+    constexpr const char* kRunnerTarget = "$runner";
+    std::optional<size_t> step_column;
+    for (size_t i = 0; i < columns_.size(); ++i) {
+        if (columns_[i].target == kRunnerTarget && columns_[i].key == Runner::EXP_STEP
+            && columns_[i].display == "value") {
+            step_column = i;
+            break;
+        }
+    }
+    sorter_.Reset(step_column);
+    if (table_) {
+        if (const auto column = sorter_.GetColumn()) grid_->SetSortingColumn(static_cast<int>(*column), false);
+        else grid_->UnsetSortingColumn();
+        grid_->GetGridColLabelWindow()->Refresh(false);
+    }
+}
+
+void EvalTracePanel::SyncPlayerRows()
+{
+    auto ids = sorter_.GetDisplayOrder();
+    std::reverse(ids.begin(), ids.end());
+    player_.SetRows(std::move(ids));
+}
+
+void EvalTracePanel::SortByColumn(int column)
+{
+    if (column < 0 || column >= static_cast<int>(columns_.size())) return;
+    ANET_PROFILE_FUNC();
+    // 値の並べ替えと表示の移動を分け、行IDと再生の進み具合は変えない。
+    sorter_.ToggleColumn(static_cast<size_t>(column));
+    std::unordered_map<int64_t, Row> retained;
+    retained.reserve(rows_.size());
+    for (auto& row : rows_) retained.emplace(row.trace->id, std::move(row));
+    rows_.clear();
+    for (const auto id : sorter_.GetDisplayOrder()) rows_.push_back(std::move(retained.at(id)));
+    SyncPlayerRows();
+    grid_->SetSortingColumn(column, sorter_.IsAscending());
+    grid_->GetGridColLabelWindow()->Refresh(false);
+    if (IsTraceMode()) ApplySelection(false, true);
+    else {
+        int x = 0, y = 0;
+        grid_->GetViewStart(&x, &y);
+        grid_->Scroll(x, 0);
+    }
+    SyncControls();
+    grid_->Refresh(false);
+}
+
 void EvalTracePanel::AddRow(const std::shared_ptr<StepTrace>& trace, const TrainEvent& event)
 {
     ANET_PROFILE_FUNC();
     Row row;
     row.trace = trace;
+    // experience自体は通知中の借用なので、状態のTensor参照と通知の共有部品だけを残す。
+    row.dump_data = {.state=event.experience.state, .action_info=event.action_info, .step_result=event.step_result,
+        .counts=event.counts, .runner_name=event.runner->GetName(), .env_name=env_name_, .agent_name=agent_name_,
+        .forced=event.runner->GetScalar(EvalRunner::kKeyForced, trace->lane).value()};
     row.percentiles.assign(columns_.size(), std::numeric_limits<float>::quiet_NaN());
     row.percentile_ready.assign(columns_.size(), false);
     ApplyPercentiles(row);
@@ -258,30 +368,40 @@ void EvalTracePanel::AddRow(const std::shared_ptr<StepTrace>& trace, const Train
     }
     // 挿入前の選択とscroll位置を保存し、Trace中の表示を先頭へ引っ張らない。
     const auto previous_selection = player_.GetSelected();
+    int previous_index = 0;
+    if (previous_selection) {
+        for (size_t i = 0; i < rows_.size(); ++i)
+            if (rows_[i].trace->id == *previous_selection) previous_index = static_cast<int>(i);
+    }
     int scroll_x = 0, scroll_y = 0;
     grid_->GetViewStart(&scroll_x, &scroll_y);
     updating_controls_ = true;
-    rows_.push_front(std::move(row));
-    wxGridTableMessage inserted(table_, wxGRIDTABLE_NOTIFY_ROWS_INSERTED, 0, 1);
+    const auto position = sorter_.Upsert({.id=trace->id, .step=trace->step, .values=GetDisplayedValues(row)});
+    rows_.insert(rows_.begin() + static_cast<ptrdiff_t>(position), std::move(row));
+    wxGridTableMessage inserted(table_, wxGRIDTABLE_NOTIFY_ROWS_INSERTED, static_cast<int>(position), 1);
     grid_->ProcessTableMessage(inserted);
-    if (rows_.size() > static_cast<size_t>(max_rows_)) {
-        rows_.pop_back();
-        wxGridTableMessage removed(table_, wxGRIDTABLE_NOTIFY_ROWS_DELETED, max_rows_, 1);
+    if (const auto evicted = sorter_.Trim(static_cast<size_t>(max_rows_))) {
+        const auto oldest = std::find_if(rows_.begin(), rows_.end(), [&](const auto& value) { return value.trace->id == *evicted; });
+        const int index = static_cast<int>(std::distance(rows_.begin(), oldest));
+        rows_.erase(oldest);
+        wxGridTableMessage removed(table_, wxGRIDTABLE_NOTIFY_ROWS_DELETED, index, 1);
         grid_->ProcessTableMessage(removed);
     }
     updating_controls_ = false;
-    GrowColumnWidths(0);
-    std::vector<int64_t> ids;
-    ids.reserve(rows_.size());
-    for (auto it = rows_.rbegin(); it != rows_.rend(); ++it) ids.push_back(it->trace->id);
-    player_.SetRows(std::move(ids));
+    const auto added = std::find_if(rows_.begin(), rows_.end(), [&](const auto& value) { return value.trace->id == trace->id; });
+    if (added != rows_.end()) GrowColumnWidths(static_cast<int>(std::distance(rows_.begin(), added)));
+    SyncPlayerRows();
     if (player_.GetSelected()) {
         const bool changed = player_.GetSelected() != previous_selection;
         ApplySelection(false, changed);
         if (!changed) {
             int unit_x = 0, unit_y = 0;
             grid_->GetScrollPixelsPerUnit(&unit_x, &unit_y);
-            grid_->Scroll(scroll_x, scroll_y + (unit_y > 0 ? (grid_->GetDefaultRowSize() + unit_y - 1) / unit_y : 0));
+            int current_index = 0;
+            for (size_t i = 0; i < rows_.size(); ++i)
+                if (rows_[i].trace->id == *player_.GetSelected()) current_index = static_cast<int>(i);
+            const int delta = current_index - previous_index;
+            grid_->Scroll(scroll_x, std::max(0, scroll_y + delta * (unit_y > 0 ? (grid_->GetDefaultRowSize() + unit_y - 1) / unit_y : 0)));
         }
     } else grid_->Scroll(scroll_x, 0);
     SyncControls();
@@ -293,7 +413,19 @@ void EvalTracePanel::CompleteRow(const std::shared_ptr<StepTrace>& trace, std::s
     const auto found = std::find_if(rows_.begin(), rows_.end(), [&](const auto& row) { return row.trace->id == trace->id; });
     if (found != rows_.end()) {
         ApplyPercentiles(*found);
-        if (!resolved_columns.empty()) GrowColumnWidths(static_cast<int>(std::distance(rows_.begin(), found)), resolved_columns);
+        // 更新した一行だけを入れ直し、百分位の窓へ二重投入しない。
+        const auto previous = static_cast<size_t>(std::distance(rows_.begin(), found));
+        const auto position = sorter_.Upsert({.id=trace->id, .step=trace->step, .values=GetDisplayedValues(*found)});
+        if (previous != position) {
+            Row moved = std::move(*found);
+            rows_.erase(found);
+            rows_.insert(rows_.begin() + static_cast<ptrdiff_t>(position), std::move(moved));
+            // 表の順が変わったときだけ、再生順と選択の表示を更新する。
+            SyncPlayerRows();
+            if (IsTraceMode()) ApplySelection(false, true);
+            SyncControls();
+        }
+        if (!resolved_columns.empty()) GrowColumnWidths(static_cast<int>(position), resolved_columns);
     }
     else {
         // 表の上限から消えていても、遅延値は百分位の長い窓へ含める。
@@ -313,6 +445,33 @@ void EvalTracePanel::SelectIndex(int index, bool keep_playing)
     last_tick_ = std::chrono::steady_clock::now();
     ApplySelection(false, true);
     SyncControls();
+}
+
+void EvalTracePanel::MoveSelection(int delta)
+{
+    ANET_CHECK_MSG(delta == -1 || delta == 1,
+        "Invalid trace row movement. delta=" << delta << " expected=-1 or 1.");
+    if (rows_.empty()) return;
+    // 表のキーと転送されたキーを、同じ表示順の一行移動へ集める。
+    int index = 0;
+    if (const auto selected = player_.GetSelected()) {
+        for (size_t i = 0; i < rows_.size(); ++i)
+            if (rows_[i].trace->id == *selected) index = static_cast<int>(i);
+    }
+    SelectIndex(std::clamp(index + delta, 0, static_cast<int>(rows_.size()) - 1));
+}
+
+void EvalTracePanel::DumpRow(int index)
+{
+    if (index < 0 || index >= static_cast<int>(rows_.size())) return;
+    ANET_PROFILE_FUNC();
+    // 行の選択やログ通知の間も、今回ダンプする一件の寿命を固定する。
+    const auto trace = rows_[index].trace;
+    const auto data = rows_[index].dump_data;
+    const auto values = GetDisplayedValues(rows_[index]);
+    SelectIndex(index);
+    anet::log::info() << gui::TraceDumpFormatter::FormatInfo(data, *trace, columns_, values, env_spec_.action_spec);
+    anet::log::verbose() << gui::TraceDumpFormatter::FormatVerbose(data, *trace);
 }
 
 void EvalTracePanel::ApplySelection(bool force, bool ensure_visible)
@@ -474,7 +633,7 @@ void EvalTracePanel::ResetColumnWidths()
     sizing_columns_ = true;
     grid_->BeginBatch();
     for (size_t col = 0; col < columns_.size(); ++col)
-        grid_->SetColSize(static_cast<int>(col), dc.GetTextExtent(wxString::FromUTF8(columns_[col].label)).x + FromDIP(12));
+        grid_->SetColSize(static_cast<int>(col), dc.GetTextExtent(wxString::FromUTF8(columns_[col].label)).x + FromDIP(kColumnLabelPaddingDip));
     grid_->EndBatch();
     sizing_columns_ = false;
     UpdateMinimumSize();
@@ -529,7 +688,7 @@ void EvalTracePanel::UpdateAppearance()
     sizing_columns_ = true;
     for (size_t col = 0; col < columns_.size(); ++col) {
         if (manual_columns_[col]) continue;
-        const int width = dc.GetTextExtent(wxString::FromUTF8(columns_[col].label)).x + FromDIP(12);
+        const int width = dc.GetTextExtent(wxString::FromUTF8(columns_[col].label)).x + FromDIP(kColumnLabelPaddingDip);
         grid_->SetColSize(static_cast<int>(col), std::max(width, grid_->GetColSize(static_cast<int>(col))));
     }
     sizing_columns_ = false;
@@ -541,6 +700,7 @@ void EvalTracePanel::UpdateAppearance()
     controls_panel_->Layout();
     UpdateMinimumSize();
     grid_->Refresh(false);
+    grid_->GetGridColLabelWindow()->Refresh(false);
 }
 
 void EvalTracePanel::Notify(const std::string& message)

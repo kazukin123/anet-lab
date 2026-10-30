@@ -1112,6 +1112,23 @@ TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[c
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("Default Evaluation Trace columns add forced without changing existing declarations", "[config][prd105][forced_columns]")
+{
+    // 共通設定の公開読込経路で、既定列の差分を一つに限定する。
+    const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+    const anet::ConfigManager manager(root / "apps/runner/config/common.txt");
+    const auto& config = manager.GetConfigData();
+    const std::vector<std::pair<int, std::string>> expected{
+        {200, "$runner exp_step label:step"}, {210, "$runner step_in_episode label:ep_step"},
+        {220, "$action_info action"}, {230, "$env_step reward"}, {260, "$runner forced label:forced"},
+        {350, "$env_step done"}, {360, "$env_step truncated label:trunc"},
+        {400, "$agent_step q_sa label:Q_sa"}, {410, "$agent_step state_value label:V_s"},
+        {500, "$agent_step approx_priority label:prio"}, {510, "$agent_step approx_priority display:pct label:prio_pct"}};
+    for (const auto& [number, declaration] : expected) {
+        CHECK(config.Get("app.eval_trace_panel.columns.[" + std::to_string(number) + "]") == declaration);
+    }
+}
+
 TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli]")
 {
     const auto repo_root = std::filesystem::path(__FILE__)

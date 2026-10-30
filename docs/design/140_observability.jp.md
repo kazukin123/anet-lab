@@ -271,7 +271,7 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 | `$action_info` | 判断時点の値。`action`は強制を含む実行行動。連続行動は`action.[次元]` |
 | `$actor` | その判断時点のActorのscalar |
 | `$env_step` | 遷移の結果。`reward`・`done`・`truncated`と結果型のscalar。終端でもリセット前 |
-| `$runner` | 今回を数えたcounts・報酬・完了集計。`step_in_episode`は1始まりで終端行は完了長 |
+| `$runner` | 今回を数えたcounts・報酬・完了集計。`step_in_episode`は1始まりで終端行は完了長。EvalRunnerだけはlane指定の`forced`も持ち、強制行動のstepは1、通常stepと初期値は0。lane省略は値なし、範囲外はfail-fast |
 | `$agent_step` | Agentの診断が所有するModuleのscalar。DQNでは`q_sa`・`state_value`・`approx_priority`。診断非対応Agentではtarget全体をNaNにする |
 
 `$agent`・`$env`・`$exp`・`$update_result`は列で使えない。集約prefixを使えるのは`$runner`のepisode_return/episode_stepsだけで、完了しない行ではNaNになる。未知キーは最初の読出しでfail-fast、既知未成立と非有限値は空欄にする。metrics DSLへ`$agent_step`を足すものではない。

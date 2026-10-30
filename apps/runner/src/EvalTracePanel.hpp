@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <wx/aui/aui.h>
 #include <wx/grid.h>
@@ -22,6 +23,8 @@ public:
     void Initialize(std::shared_ptr<anet::rl::RunManager> manager, std::shared_ptr<anet::rl::EvalRunner> runner);
     void SetActive(bool active);
     void ReturnToLive();
+    bool IsTraceMode() const { return player_.GetSelected().has_value(); }
+    void MoveSelection(int delta);
     bool SetFont(const wxFont& font) override;
 
     template<class Pane>
@@ -60,6 +63,7 @@ private:
         std::vector<float> percentiles;
         std::vector<bool> percentile_ready;
         std::unordered_map<uint64_t, Snapshot> snapshots;
+        anet::rl::gui::TraceDumpFormatter::Data dump_data;
     };
     void AddRow(const std::shared_ptr<anet::rl::StepTrace>& trace, const anet::rl::TrainEvent& event);
     void CompleteRow(const std::shared_ptr<anet::rl::StepTrace>& trace, std::span<const size_t> resolved_columns);
@@ -73,7 +77,12 @@ private:
     void ResetColumnWidths();
     void GrowColumnWidths(int row, std::span<const size_t> columns = {});
     void ClearRows();
+    void ResetSorting();
+    void SortByColumn(int column);
+    void SyncPlayerRows();
+    std::vector<float> GetDisplayedValues(const Row& row) const;
     void SelectIndex(int index, bool keep_playing = false);
+    void DumpRow(int index);
     void OnTimer(wxTimerEvent& event);
     bool IsFollowerShown(const Binding& binding) const;
     bool IsPaneOpen(const wxAuiPaneInfo& pane) const;
@@ -86,6 +95,8 @@ private:
     int max_rows_ = 1000;
     int pct_window_ = 10000;
     anet::rl::EnvSpec env_spec_;
+    std::string env_name_;
+    std::string agent_name_;
     std::vector<anet::rl::StepTraceColumnSpec> columns_;
     std::vector<bool> manual_columns_;
     bool sizing_columns_ = false;
@@ -96,6 +107,7 @@ private:
     std::vector<Binding> followers_;
     uint64_t next_follower_id_ = 0;
     anet::rl::gui::TracePlayer player_;
+    anet::rl::gui::TraceRowSorter sorter_;
     std::optional<int64_t> displayed_id_;
     wxGrid* grid_ = nullptr;
     Table* table_ = nullptr;

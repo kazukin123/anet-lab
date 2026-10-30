@@ -459,7 +459,7 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | 右クリック | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
 | `Space` | EvalPanelをpause/resumeする。paneの表示は変えない |
 | `Ctrl` | Evalを1 step自動実行する |
-| 矢印キー | LunarLander向けに`0`から`3`のActionを指定してEvalを1 step進める |
+| 矢印キー | Live中はLunarLander向けに`0`から`3`の強制行動でEvalを1 step進める。Trace中にViewなどから転送された↑↓は表の行を移動し、←→は何もしない |
 | テンキー`0`から`9` | 同じ番号のActionを指定してEvalを1 step進める |
 | `View > Evaluation View` | Eval paneの表示を切り替える |
 | `View > Evaluation QValue View` | Q値paneの表示を切り替える |
@@ -469,6 +469,8 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
 Action数はEnvごとに異なる。QValue paneまたはEnvのActionSpecで有効範囲を確認する。離散Actionの範囲外の番号を指定すると、ステータス欄に指定値と有効範囲が表示され、Evalは進まない。選択中のTrace履歴もそのまま維持される。
+
+矢印・テンキー・QValueの行のクリックで強制行動を実行すると、ステータス欄0に`Forced action: 2:UP`のように番号と名前が表示される。`Ctrl`とツールバーのStepではこの通知は出ない。
 
 EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`run.eval.[eval_panel].actor = eval_panel`から専用Actorを参照する。DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコアのActionを選ぶ。定期評価のεやUQE設定はそのまま使える。表示用の方策を変える場合は`<Agent>.actor.[eval_panel].*`を上書きし、別の評価設定を表示したい場合は`app.eval_panel.eval_config_tag`を指定する。
 
@@ -500,9 +502,15 @@ checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固�
 
 ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
 
-上部のアイコンは、左から再生／一時停止（右三角／二本線）・停止（四角）・コマ戻し（左三角の右に縦棒）・コマ送り（縦棒の右に右三角）・速度減少（左二重三角）・速度増加（右二重三角）です。再生中の先頭ボタンは一時停止、それ以外は再生として使います。英語のツールチップでも操作を確認できます。速度は`x0.125`・`x0.25`・`x0.5`・`x1`・`x2`・`x4`・`x8`で表示します。Liveから再生すると最古の行から進み、最新で止まります。停止または表でEscを押すとLiveへ戻ります。EvalのResumeや手動行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+上部のアイコンは、左から再生／一時停止（右三角／二本線）・停止（四角）・コマ戻し（左三角の右に縦棒）・コマ送り（縦棒の右に右三角）・速度減少（左二重三角）・速度増加（右二重三角）です。再生中の先頭ボタンは一時停止、それ以外は再生として使います。英語のツールチップでも操作を確認できます。速度は`x0.125`・`x0.25`・`x0.5`・`x1`・`x2`・`x4`・`x8`で表示します。Liveから再生すると表の下端から上へ進み、上端で止まります。Traceでは選択行から続け、上端で停止中に再生すると下端から始めます。停止または表でEscを押すとLiveへ戻ります。EvalのResume・Step（Ctrlを含む）・強制行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
 
-Liveでコマ戻しを押すと最新の1つ前の行を選びます。1行だけならその行で止まります。Liveでコマ送りを押すと最新行を選びます。Trace中は操作バー全体の赤枠を目印にしてください。一時停止中も枠は残り、Liveへ戻ると消えます。
+Liveでコマ戻しを押すと表の上から2行目を選びます。1行だけならその行で止まります。Liveでコマ送りを押すと上端の行を選びます。Trace中はコマ送りで1行上へ、コマ戻しで1行下へ移動し、スライダーも表の下端から上端へ動きます。Trace中は操作バー全体の赤枠を目印にしてください。一時停止中も枠は残り、Liveへ戻ると消えます。
+
+列見出しをクリックすると、その列の降順に並びます。同じ見出しをもう一度クリックすると昇順になります。空欄は常に下端、同じ値はstepの降順です。現在のソート列の見出しには、降順で下向き、昇順で上向きの三角が出ます。三角の色はシステムの選択ハイライト色に従います。既定のstep列にも降順の三角が出ます。既定の新しい順へ戻すにはstep列を降順にしてください。Trace中に並べ替えても選択行は維持されます。開き直すと既定の並びへ戻ります。
+
+Trace中は、表やEnvのView・QValuePanelなどで↑↓を押して表の順に1行移動できます。Viewなどから転送された←→は何もしません。表の←→は横移動、ログ欄やスライダーの矢印はその部品の操作として使ってください。最大化でTraceが隠れていても同じです。テンキーとQValueの行のクリックは強制行動となり、Liveへ戻ります。
+
+行をダブルクリックすると、その行を選んで通知内容をログへ出します。`Trace dump step=... lane=...:`で始まるINFOの1行に列値と通知の概要、VERBOSEの1件に観測やQ値などのTensorの全要素が出ます。ログ欄で詳細を見るには`View > Log Level`をverboseにしてください。同じ行を何度でもダンプできます。
 
 列の幅は見出しと値に合わせて広がります。手動で幅を変えた列は、その表示中は自動調整されません。初期幅へ戻すにはパネルを閉じて開き直してください。この操作で履歴も空になります。パネルは操作バー全体と、左端から最初のアクション列までが収まる幅を下限にします。残りの列は横スクロールで確認してください。通常・選択の配色はシステムのテーマに従い、報酬行は薄い緑、終端行は薄い橙が目印です。行を選択しても列見出しの色は変わりません。
 
@@ -511,7 +519,7 @@ Liveでコマ戻しを押すと最新の1つ前の行を選びます。1行だ�
 | 番号 | 分類 | 既定の列 |
 |---|---|---|
 | 100〜199 | 空き（stepより左に出したい列） | — |
-| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip |
+| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip、260 forced |
 | 300〜349 | Env固有の主な値 | Atariは300 game_score、310 lives |
 | 350〜399 | 終わり方 | 350 done、360 trunc |
 | 400〜499 | 価値 | 400 Q_sa、410 V_s、420〜429 スキップ価値q1〜q10 |
@@ -528,7 +536,7 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
 ```
 
-既定列は`step → ep_step → action → reward → done → trunc → Q_sa → V_s → prio → prio_pct`の順です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+既定列は`step → ep_step → action → reward → forced → done → trunc → Q_sa → V_s → prio → prio_pct`の順です。`forced`は人が指定した行動なら1、Actorが選んだ行動なら0です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
 
 学習側と同じonline networkのQで見たい場合は、次の指定を使います。
 

@@ -3,6 +3,8 @@
 #include <array>
 #include <cmath>
 #include <format>
+#include <sstream>
+#include "anet/env.hpp"
 #include "anet/metrics.hpp"
 
 namespace anet::rl::gui {
@@ -436,10 +438,206 @@ wxBitmapBundle anet::rl::gui::MakePlaybackBitmap(PlaybackIcon icon, const wxColo
     return wxBitmapBundle::FromSVG(svg.utf8_str(), wxSize(16, 16));
 }
 
-void TracePlayer::SetRows(std::vector<int64_t> oldest_to_newest)
+void TraceRowSorter::Reset(std::optional<size_t> step_column)
 {
-    // 行IDで選択を追跡し、先頭への挿入で選択や位置を動かさない。
-    rows_ = std::move(oldest_to_newest);
+    // 開き直しでは保持値と並べ替えの両方を既定へ戻す。
+    rows_.clear();
+    step_column_ = step_column;
+    column_ = step_column;
+    ascending_ = false;
+}
+
+bool TraceRowSorter::ComesBefore(const Row& left, const Row& right) const
+{
+    // step列はfloatの丸めを避け、行が持つ実stepで比較する。
+    if (column_ && column_ != step_column_) {
+        const float a = left.values.at(*column_);
+        const float b = right.values.at(*column_);
+        const bool a_finite = std::isfinite(a);
+        const bool b_finite = std::isfinite(b);
+        if (a_finite != b_finite) return a_finite;
+        if (a_finite && a != b) return ascending_ ? a < b : a > b;
+    } else if (left.step != right.step) {
+        return ascending_ ? left.step < right.step : left.step > right.step;
+    }
+    // 同値の中は向きにかかわらずstepの新しい順を保つ。
+    if (left.step != right.step) return left.step > right.step;
+    return left.id > right.id;
+}
+
+void TraceRowSorter::ToggleColumn(size_t column)
+{
+    ANET_PROFILE_FUNC();
+    // 別の列は降順から始め、同じ列だけ向きを反転する。
+    ascending_ = column_ == column ? !ascending_ : false;
+    column_ = column;
+    std::sort(rows_.begin(), rows_.end(), [this](const auto& a, const auto& b) { return ComesBefore(a, b); });
+}
+
+size_t TraceRowSorter::Upsert(Row row)
+{
+    ANET_PROFILE_FUNC();
+    // 遅延確定した行だけを取り出し、新規行と同じ挿入経路へ戻す。
+    const auto previous = std::find_if(rows_.begin(), rows_.end(), [&](const auto& value) { return value.id == row.id; });
+    if (previous != rows_.end()) rows_.erase(previous);
+    // 既定の新しい行は先頭へ足すだけにし、全行の値や画像を動かさない。
+    const auto position = rows_.empty() || ComesBefore(row, rows_.front()) ? rows_.begin()
+        : std::lower_bound(rows_.begin(), rows_.end(), row,
+            [this](const auto& a, const auto& b) { return ComesBefore(a, b); });
+    const auto index = static_cast<size_t>(std::distance(rows_.begin(), position));
+    rows_.insert(position, std::move(row));
+    return index;
+}
+
+std::optional<int64_t> TraceRowSorter::Trim(size_t max_rows)
+{
+    ANET_PROFILE_FUNC();
+    ANET_CHECK_MSG(max_rows > 0, "Invalid trace row limit. max_rows=" << max_rows << " expected=integer >= 1.");
+    if (rows_.size() <= max_rows) return std::nullopt;
+    // 表示順と独立に最古を選ぶ。既定のstep降順では末尾だけで決まる。
+    const auto oldest = !ascending_ && column_ == step_column_ ? std::prev(rows_.end())
+        : std::min_element(rows_.begin(), rows_.end(), [](const auto& a, const auto& b) {
+            return a.step != b.step ? a.step < b.step : a.id < b.id;
+        });
+    const int64_t id = oldest->id;
+    rows_.erase(oldest);
+    return id;
+}
+
+std::vector<int64_t> TraceRowSorter::GetDisplayOrder() const
+{
+    std::vector<int64_t> ids;
+    ids.reserve(rows_.size());
+    for (const auto& row : rows_) ids.push_back(row.id);
+    return ids;
+}
+
+namespace {
+
+std::string TraceDumpPrefix(const anet::rl::StepTrace& trace)
+{
+    return "Trace dump step=" + std::to_string(trace.step) + " lane=" + std::to_string(trace.lane) + ":";
+}
+
+torch::Tensor TraceDumpCpuTensor(const torch::Tensor& value)
+{
+    return value.defined() ? value.to(torch::kCPU) : value;
+}
+
+anet::TensorDict TraceDumpCpuDict(const anet::TensorDict& values)
+{
+    anet::TensorDict cpu;
+    for (const auto& [key, value] : values) cpu.Set(key, TraceDumpCpuTensor(value));
+    return cpu;
+}
+
+anet::rl::AuxData TraceDumpCpuAux(const anet::rl::AuxData& values)
+{
+    anet::rl::AuxData cpu;
+    for (const auto& [key, value] : values) cpu.emplace(key, TraceDumpCpuTensor(value));
+    return cpu;
+}
+
+anet::rl::BatchState TraceDumpCpuState(const anet::rl::BatchState& state)
+{
+    return {TraceDumpCpuDict(state.obs), TraceDumpCpuTensor(state.done),
+        TraceDumpCpuTensor(state.truncated), TraceDumpCpuTensor(state.episode_start)};
+}
+
+void AppendTraceTensorSummary(std::ostream& output, const torch::Tensor& value)
+{
+    // 要素が一つのときだけ値を読む。大きなTensorはdeviceも元のまま知らせる。
+    if (!value.defined()) output << "undefined";
+    else if (value.numel() == 1) output << TraceDumpCpuTensor(value).item<double>();
+    else output << value.sizes() << ' ' << value.scalar_type() << ' ' << value.device();
+}
+
+template<class Dictionary>
+void AppendTraceTensorFields(std::ostream& output, const char* prefix, const Dictionary& values)
+{
+    // mapの実装によらず、同じ通知の項目は同じ順で読めるようにする。
+    std::vector<std::pair<std::string, torch::Tensor>> ordered(values.begin(), values.end());
+    std::sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& [key, value] : ordered) {
+        output << ' ' << prefix << key << '=';
+        AppendTraceTensorSummary(output, value);
+    }
+}
+
+} // namespace
+
+std::string TraceDumpFormatter::FormatInfo(const Data& data, const anet::rl::StepTrace& trace,
+    std::span<const anet::rl::StepTraceColumnSpec> columns, std::span<const float> displayed_values,
+    const anet::rl::ActionSpec& actions)
+{
+    ANET_PROFILE_FUNC();
+    ANET_CHECK_MSG(data.action_info && data.step_result,
+        "Trace dump notification is unavailable. step=" << trace.step << " expected=action_info and step_result.");
+    ANET_CHECK_MSG(columns.size() == displayed_values.size() && columns.size() <= trace.value_ready.size(),
+        "Invalid trace dump columns. step=" << trace.step << " columns=" << columns.size()
+        << " values=" << displayed_values.size() << " expected=matching column and value counts.");
+    std::ostringstream output;
+    output.precision(4);
+    output << TraceDumpPrefix(trace);
+    // 列の構成によらない通知項目は、列のあとへ必ず付ける。
+    for (size_t i = 0; i < columns.size(); ++i) {
+        output << ' ' << columns[i].label << '=';
+        if (!trace.value_ready[i]) output << "pending";
+        else output << FormatTraceValue(columns[i], displayed_values[i], actions);
+    }
+    output << " runner=" << data.runner_name << " env=" << data.env_name << " agent=" << data.agent_name
+        << " counts.train_step=" << data.counts.train_step << " counts.exp_step=" << data.counts.exp_step
+        << " counts.update_step=" << data.counts.update_step << " counts.learn_step=" << data.counts.learn_step
+        << " counts.episode_count=" << data.counts.episode_count << " counts.sim_step=" << data.counts.sim_step
+        << " action_info.action=";
+    const auto action = data.action_info->GetAction();
+    if (actions.is_discrete && action.defined() && action.dim() == 1) {
+        const auto index = TraceDumpCpuTensor(action)[trace.lane].item<int64_t>();
+        output << index << ':' << actions.value_labels.at(static_cast<size_t>(index));
+    } else AppendTraceTensorSummary(output, action);
+    output << " runner.forced=" << data.forced << " step_result.reward=";
+    AppendTraceTensorSummary(output, data.step_result->reward);
+    output << " step_result.done=" << trace.done << " step_result.truncated=" << trace.truncated;
+    AppendTraceTensorFields(output, "action_info.info.", data.action_info->GetInfo());
+    AppendTraceTensorFields(output, "action_info.aux.", data.action_info->GetAuxData());
+    for (const auto& aux : data.step_result->GetAuxDataList(static_cast<int>(trace.lane))) {
+        AppendTraceTensorFields(output, "step_result.aux.", aux);
+    }
+    auto text = output.str();
+    std::replace(text.begin(), text.end(), '\r', ' ');
+    std::replace(text.begin(), text.end(), '\n', ' ');
+    return text;
+}
+
+std::string TraceDumpFormatter::FormatVerbose(const Data& data, const anet::rl::StepTrace& trace)
+{
+    ANET_PROFILE_FUNC();
+    ANET_CHECK_MSG(data.action_info && data.step_result,
+        "Trace dump notification is unavailable. step=" << trace.step << " expected=action_info and step_result.");
+    // 保持中は転送せず、要求されたこの場でCPUの部品を作り、既存の文字列化へ渡す。
+    const auto state = TraceDumpCpuState(data.state);
+    const auto info = TraceDumpCpuDict(data.action_info->GetInfo());
+    const anet::rl::BatchActionInfo action(TraceDumpCpuTensor(data.action_info->GetAction()), info,
+        TraceDumpCpuAux(data.action_info->GetAuxData()));
+    auto aux = data.step_result->GetAuxDataList();
+    for (auto& values : aux) values = TraceDumpCpuAux(values);
+    const anet::rl::PlainBatchStepResult result(TraceDumpCpuTensor(data.step_result->reward),
+        TraceDumpCpuState(data.step_result->next_state), TraceDumpCpuState(data.step_result->continue_state),
+        data.step_result->n_transitions, data.step_result->n_episode_end, std::move(aux));
+    std::ostringstream output;
+    output << TraceDumpPrefix(trace) << " verbose\nstate=" << state.ToString()
+        << "\naction_info=" << action.ToString() << "\naction_info.info=" << info.ToString();
+    if (const auto& hint = data.action_info->GetReplayInitialPriorityHint()) {
+        output << "\naction_info.replay_initial_priority_hint=" << anet::ToString(TraceDumpCpuTensor(hint->GetPayload()));
+    }
+    output << "\nstep_result=" << result.ToString();
+    return output.str();
+}
+
+void TracePlayer::SetRows(std::vector<int64_t> playback_order)
+{
+    // 表の下端から上端の再生順を受け、行IDで選択を追跡する。
+    rows_ = std::move(playback_order);
     if (rows_.empty()) {
         selected_.reset();
         playing_ = false;
@@ -469,7 +667,7 @@ bool TracePlayer::CanPlay(double base_steps_per_second) const
 std::string TracePlayer::Play()
 {
     if (rows_.empty()) return {};
-    // Liveと最新での再生開始だけを最古へ戻す。
+    // Liveと上端での再生開始だけを下端へ戻す。
     if (!selected_ || (!playing_ && *selected_ == rows_.back())) selected_ = rows_.front();
     playing_ = true;
     progress_ = 0;
@@ -496,7 +694,7 @@ std::string TracePlayer::Stop()
 std::string TracePlayer::StepForward()
 {
     if (rows_.empty()) return {};
-    // Liveは最新行を起点とし、通常の端判定へ進める。
+    // Liveは表の上端を起点とし、通常の端判定へ進める。
     if (!selected_) selected_ = rows_.back();
     playing_ = false;
     progress_ = 0;
@@ -509,7 +707,7 @@ std::string TracePlayer::StepForward()
 std::string TracePlayer::StepBack()
 {
     if (rows_.empty()) return {};
-    // Liveも最新行から一つ戻し、1件だけならstartになる。
+    // Liveも表の上端から一つ戻し、1件だけならstartになる。
     if (!selected_) selected_ = rows_.back();
     playing_ = false;
     progress_ = 0;

@@ -3,6 +3,8 @@
 #include <string_view>
 #include "anet/test_util.hpp"
 #include "EvalTracePanel.hpp"
+#include "LogPanel.hpp"
+#include "QValuePanel.hpp"
 #include "RunnerApp.hpp"
 #include <wx/app.h>
 #include <wx/modalhook.h>
@@ -210,6 +212,201 @@ TEST_CASE("Trace ignores show notifications once destruction starts", "[prd094][
     ui.panel = nullptr;
     CHECK(observed_destroy);
     CHECK(follower->live_calls == live_before);
+}
+
+TEST_CASE("Trace grid follows numeric sorting and preserves row selection and playback", "[prd105][trace_ui_sort]")
+{
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.max_rows", "3");
+    config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward label:r");
+    config.Set("app.eval_trace_panel.columns.[2]", "$runner exp_step label:step");
+    TraceUiFixture ui(config);
+    ui.Add(9);
+    ui.Add(100);
+    ui.Add(10);
+    const auto header = [&](int col) {
+        wxGridEvent event(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, col);
+        ui.grid->GetEventHandler()->ProcessEvent(event);
+    };
+    wxGridEvent select(ui.grid->GetId(), wxEVT_GRID_CELL_LEFT_CLICK, ui.grid, 0, 0);
+    ui.grid->GetEventHandler()->ProcessEvent(select);
+    REQUIRE(ui.panel->IsTraceMode());
+    header(0);
+    CHECK(ui.grid->GetCellValue(0, 0) == "100");
+    CHECK(ui.grid->GetCellValue(1, 0) == "10");
+    CHECK(ui.grid->GetGridCursorRow() == 1);
+    CHECK(ui.grid->GetSortingColumn() == 0);
+    CHECK_FALSE(ui.grid->IsSortOrderAscending());
+    header(0);
+    CHECK(ui.grid->GetCellValue(0, 0) == "9");
+    CHECK(ui.grid->GetGridCursorRow() == 1);
+    CHECK(ui.grid->IsSortOrderAscending());
+    ui.Tool(0);
+    header(1);
+    CHECK(ui.grid->GetGridCursorRow() == 0);
+    CHECK(ui.toolbar->FindToolByIndex(0)->GetShortHelp() == "Pause");
+    ui.panel->ReturnToLive();
+    header(0);
+    ui.Add(-1);
+    CHECK_FALSE(ui.panel->IsTraceMode());
+    CHECK(ui.grid->GetNumberRows() == 3);
+    CHECK(ui.grid->GetCellValue(0, 0) == "100");
+    CHECK(ui.grid->GetCellValue(2, 0) == "-1");
+    ui.panel->SetActive(false);
+    ui.panel->SetActive(true);
+    ui.Add(7);
+    ui.Add(1);
+    CHECK(ui.grid->GetCellValue(0, 0) == "1");
+    CHECK(ui.grid->GetSortingColumn() == 1);
+    CHECK_FALSE(ui.grid->IsSortOrderAscending());
+}
+
+TEST_CASE("Trace header paints the current sorting direction", "[prd105][trace_ui_sort_icon]")
+{
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward label:r");
+    config.Set("app.eval_trace_panel.columns.[2]", "$runner exp_step label:step");
+    TraceUiFixture ui(config);
+    ui.frame.Show();
+    ui.frame.Raise();
+    wxTheApp->Yield(true);
+    // プロパティだけでなく、実際の見出しに描かれた印の有無と向きを比べる。
+    wxClientDC label_dc(ui.grid);
+    label_dc.SetFont(ui.grid->GetLabelFont());
+    CHECK(ui.grid->GetColSize(1) >= label_dc.GetTextExtent("step").x + ui.grid->FromDIP(24));
+    constexpr const char* kCaptureDirEnv = "PRD105_SORT_CAPTURE_DIR";
+    constexpr const char* kCapturePrefix = "sort-header-";
+    const char* capture_directory = std::getenv(kCaptureDirEnv);
+    int capture_number = 0;
+    const auto pixels = [&] {
+        auto* header = ui.grid->GetGridColLabelWindow();
+        header->Refresh();
+        header->Update();
+        wxBitmap bitmap(header->GetClientSize());
+        wxMemoryDC destination(bitmap);
+        wxClientDC source(header);
+        destination.Blit(wxPoint(0, 0), bitmap.GetSize(), &source, wxPoint(0, 0));
+        destination.SelectObject(wxNullBitmap);
+        const auto image = bitmap.ConvertToImage();
+        if (capture_directory) {
+            const std::filesystem::path directory(capture_directory);
+            std::filesystem::create_directories(directory);
+            const auto path = directory / (std::string(kCapturePrefix) + std::to_string(capture_number++) + ".png");
+            CHECK(image.SaveFile(wxString::FromUTF8(path.string()), wxBITMAP_TYPE_PNG));
+        }
+        return std::vector<unsigned char>(image.GetData(), image.GetData() + image.GetWidth() * image.GetHeight() * 3);
+    };
+    CHECK(ui.grid->GetSortingColumn() == 1);
+    CHECK_FALSE(ui.grid->IsSortOrderAscending());
+    const auto descending = pixels();
+    const auto highlight = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+    const auto highlight_pixels = [&](const std::vector<unsigned char>& values) {
+        size_t count = 0;
+        for (size_t i = 0; i + 2 < values.size(); i += 3)
+            if (values[i] == highlight.Red() && values[i + 1] == highlight.Green() && values[i + 2] == highlight.Blue()) ++count;
+        return count;
+    };
+    CHECK(highlight_pixels(descending) > 0);
+    ui.grid->UnsetSortingColumn();
+    const auto unsorted = pixels();
+    CHECK((unsorted != descending));
+    CHECK(highlight_pixels(unsorted) == 0);
+    ui.grid->SetSortingColumn(1, false);
+    wxGridEvent ascending(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 1);
+    ui.grid->GetEventHandler()->ProcessEvent(ascending);
+    CHECK(ui.grid->IsSortOrderAscending());
+    CHECK((pixels() != descending));
+    wxGridEvent restored(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 1);
+    ui.grid->GetEventHandler()->ProcessEvent(restored);
+    CHECK((pixels() == descending));
+}
+
+TEST_CASE("Trace row retains its notification until eviction and dumps it on double click", "[prd105][trace_ui_dump]")
+{
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.max_rows", "2");
+    TraceUiFixture ui(config);
+    std::vector<std::weak_ptr<const anet::rl::BatchActionInfo>> actions;
+    std::vector<std::weak_ptr<const anet::rl::BatchStepResult>> results;
+    auto observer = std::make_shared<anet::rl::FunctionTrainObserver>([&](const anet::rl::TrainEvent& event) {
+        actions.push_back(event.action_info);
+        results.push_back(event.step_result);
+    });
+    ui.run->GetNotifier()->Attach(observer);
+    ui.Add(7);
+    REQUIRE(actions.size() == 1);
+    REQUIRE_FALSE(actions.front().expired());
+    REQUIRE_FALSE(results.front().expired());
+    class CapturedLog final : public wxLog {
+    public:
+        std::vector<std::pair<wxLogLevel, wxString>> dumps;
+    protected:
+        void DoLogTextAtLevel(wxLogLevel level, const wxString& text) override
+        {
+            if (text.Contains("Trace dump step=")) dumps.emplace_back(level, text);
+        }
+    } log;
+    struct RestoreLog {
+        wxLog* previous;
+        wxLogLevel level;
+        bool verbose;
+        ~RestoreLog() {
+            wxLog::SetActiveTarget(previous);
+            wxLog::SetLogLevel(level);
+            wxLog::SetVerbose(verbose);
+        }
+    } restore{.previous=wxLog::SetActiveTarget(&log), .level=wxLog::GetLogLevel(), .verbose=wxLog::GetVerbose()};
+    wxLog::SetLogLevel(wxLOG_Max);
+    wxLog::SetVerbose(true);
+    // 後続の異なる遷移を保持してから、過去の行を公開イベントで繰り返しダンプする。
+    ui.Add(8);
+    REQUIRE_FALSE(actions.front().expired());
+    REQUIRE_FALSE(results.front().expired());
+    for (int count = 1; count <= 2; ++count) {
+        wxGridEvent event(ui.grid->GetId(), wxEVT_GRID_CELL_LEFT_DCLICK, ui.grid, 1, 0);
+        ui.grid->GetEventHandler()->ProcessEvent(event);
+        REQUIRE(log.dumps.size() == static_cast<size_t>(count * 2));
+        CHECK(ui.panel->IsTraceMode());
+    }
+    CHECK(log.dumps[0].first == wxLOG_Message);
+    CHECK(log.dumps[1].first == wxLOG_Info);
+    CHECK(log.dumps[0].second.Contains("runner.forced=0"));
+    CHECK(log.dumps[0].second.Contains("env=CartPoleEnv"));
+    CHECK(log.dumps[0].second.Contains("Trace dump step=1 lane=0:"));
+    CHECK(log.dumps[0].second.Contains("r=7"));
+    CHECK(log.dumps[0].second.Contains("step_result.reward=7"));
+    CHECK_FALSE(log.dumps[0].second.Contains("step_result.reward=8"));
+    CHECK(log.dumps[1].second.Contains("BatchState{"));
+    CHECK(log.dumps[1].second.Contains("BatchStepResult{"));
+    CHECK(log.dumps[0].second == log.dumps[2].second);
+    CHECK(log.dumps[1].second == log.dumps[3].second);
+    ui.Add(9);
+    CHECK(actions.front().expired());
+    CHECK(results.front().expired());
+    CHECK_FALSE(actions.back().expired());
+    ui.panel->SetActive(false);
+    CHECK(actions.back().expired());
+    CHECK(results.back().expired());
+    ui.run->GetNotifier()->Detach(observer);
+}
+
+TEST_CASE("A percentile of step sorts by its displayed value without a default step marker", "[prd105][trace_ui_step_pct]")
+{
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[1]", "$runner exp_step display:pct label:rank");
+    TraceUiFixture ui(config);
+    ui.runner->DoStep();
+    ui.runner->DoStep();
+    ui.runner->DoStep();
+    CHECK(ui.grid->GetSortingColumn() == wxNOT_FOUND);
+    wxGridEvent first(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 0);
+    ui.grid->GetEventHandler()->ProcessEvent(first);
+    CHECK_FALSE(ui.grid->IsSortOrderAscending());
+    CHECK(ui.grid->GetCellValue(0, 0) == "83.33");
+    wxGridEvent second(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 0);
+    ui.grid->GetEventHandler()->ProcessEvent(second);
+    CHECK(ui.grid->IsSortOrderAscending());
+    CHECK(ui.grid->GetCellValue(0, 0) == "50");
 }
 
 TEST_CASE("Visible Trace survives deferred frame destruction", "[prd094][trace_ui_close]")
@@ -846,6 +1043,239 @@ TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[
     dialogs.Unregister();
 }
 
+// RunnerAppの起動を含むため、このタグだけを別processで実行する。
+TEST_CASE("Runner forwards Trace arrows without steps and reports successful forced actions", "[.][prd105_ui_keys]")
+{
+    const auto directory = TraceUiOutputDirectory();
+    std::filesystem::create_directories(directory);
+    constexpr const char* kRealConfigEnv = "PRD105_UI_CONFIG";
+    const char* real_config = std::getenv(kRealConfigEnv);
+    const auto config_path = real_config ? std::filesystem::path(real_config) : directory / "prd105_keys.txt";
+    if (!real_config) {
+        std::ofstream config(config_path);
+        config << "env.class_id = CartPoleEnv\nenv.worker_type = 1\nenv.device = cpu\n"
+            "agent.class_id = TraceUiAgent\nagent.device = cpu\nrun.eval_device = cpu\n"
+            "run.seed = 1\nrun.train.num_envs = 1\nrun.train.runner_type = serial\n"
+            "run.eval.[panel].run_mode = eval\napp.eval_panel.eval_config_tag = panel\n"
+            "app.train_auto_start = false\napp.save_agent_on_close = false\napp.show_error_dialog = false\n"
+            "app.train_panel.fps = 0\napp.eval_panel.fps = 0\napp.eval_panel.auto_start = false\n"
+            "backend.torch_num_threads = 1\napp.run_name = run_{t}_prd105_keys\n"
+            "app.eval_trace_panel.columns.[1] = $runner exp_step label:step\n"
+            "app.eval_trace_panel.columns.[2] = $runner forced label:forced\n"
+            "app.eval_trace_panel.columns.[3] = $action_info action\n"
+            "app.runs_dir = " << directory.generic_string() << '\n';
+    }
+    auto executable = wxTheApp->argv[0].ToStdWstring();
+    auto config_arg = config_path.wstring();
+    wchar_t option[] = L"--config";
+    wchar_t* arguments[] = {executable.data(), option, config_arg.data()};
+    wxTheApp->argc = 3;
+    wxTheApp->argv.Init(3, arguments);
+    wxTheApp->SetExitOnFrameDelete(false);
+    struct AppCleanup {
+        ~AppCleanup() {
+            if (auto* frame = wxGetApp().GetMainFrame()) frame->Close(true);
+            wxTheApp->Yield(true);
+            wxTheApp->OnExit();
+        }
+    } cleanup;
+    REQUIRE(wxTheApp->OnInit());
+    auto* frame = wxGetApp().GetMainFrame();
+    EvalPanel* eval = nullptr;
+    EvalTracePanel* panel = nullptr;
+    TrainPanel* train = nullptr;
+    for (auto* child : frame->GetChildren()) {
+        if (auto* candidate = dynamic_cast<EvalPanel*>(child)) eval = candidate;
+        if (auto* candidate = dynamic_cast<EvalTracePanel*>(child)) panel = candidate;
+        if (auto* candidate = dynamic_cast<TrainPanel*>(child)) train = candidate;
+    }
+    REQUIRE(eval);
+    REQUIRE(panel);
+    REQUIRE(train);
+    wxGrid* grid = nullptr;
+    for (auto* child : panel->GetChildren())
+        if (auto* candidate = dynamic_cast<wxGrid*>(child)) grid = candidate;
+    REQUIRE(grid);
+    const int trace_menu = frame->GetMenuBar()->FindMenuItem("View", "Evaluation Trace");
+    REQUIRE(trace_menu != wxNOT_FOUND);
+    const auto show_trace = [&](bool show) {
+        wxCommandEvent event(wxEVT_MENU, trace_menu);
+        event.SetInt(show ? 1 : 0);
+        frame->GetEventHandler()->ProcessEvent(event);
+    };
+    show_trace(true);
+    auto runner = wxGetApp().GetRunManager().GetEvalRunner("EvalPanel");
+    for (int i = 0; i < 22; ++i) eval->DoStep();
+    REQUIRE(grid->GetNumberRows() == 22);
+    const auto select_first = [&] {
+        wxGridEvent event(grid->GetId(), wxEVT_GRID_CELL_LEFT_CLICK, grid, 0, 0);
+        grid->GetEventHandler()->ProcessEvent(event);
+    };
+    const auto key = [&](int code) {
+        wxKeyEvent raw(wxEVT_KEY_DOWN);
+        raw.m_keyCode = code;
+        anet::rl::gui::ForwardedKeyEvent event;
+        event.SetKeyEvent(raw);
+        event.SetWindow(train);
+        frame->GetEventHandler()->ProcessEvent(event);
+    };
+    select_first();
+    REQUIRE(panel->IsTraceMode());
+    const auto before = runner->GetCounts().exp_step;
+    auto* manager = wxAuiManager::GetManager(frame);
+    REQUIRE(manager);
+    manager->MaximizePane(manager->GetPane(train));
+    manager->Update();
+    REQUIRE(panel->IsTraceMode());
+    for (int i = 0; i < 20; ++i) key(WXK_DOWN);
+    REQUIRE(grid->GetGridCursorRow() == 20);
+    key(WXK_LEFT);
+    key(WXK_RIGHT);
+    CHECK(grid->GetGridCursorRow() == 20);
+    CHECK(runner->GetCounts().exp_step == before);
+    CHECK(grid->GetNumberRows() == 22);
+    manager->RestorePane(manager->GetPane(train));
+    manager->Update();
+    for (int i = 0; i < 20; ++i) key(WXK_UP);
+    CHECK(grid->GetGridCursorRow() == 0);
+    CHECK(runner->GetCounts().exp_step == before);
+    panel->ReturnToLive();
+    key(WXK_UP);
+    CHECK(runner->GetCounts().exp_step == before + 1);
+    CHECK(grid->GetCellValue(0, 1) == "1");
+    CHECK(frame->GetStatusBar()->GetStatusText(0).ToStdString()
+        == "Forced action: " + grid->GetCellValue(0, 2).ToStdString());
+    select_first();
+    key(WXK_NUMPAD1);
+    CHECK_FALSE(panel->IsTraceMode());
+    CHECK(runner->GetCounts().exp_step == before + 2);
+    CHECK(grid->GetCellValue(0, 1) == "1");
+    CHECK(frame->GetStatusBar()->GetStatusText(0).ToStdString()
+        == "Forced action: " + grid->GetCellValue(0, 2).ToStdString());
+    select_first();
+    key(WXK_CONTROL);
+    CHECK_FALSE(panel->IsTraceMode());
+    CHECK(runner->GetCounts().exp_step == before + 3);
+    CHECK(grid->GetCellValue(0, 1) == "0");
+    show_trace(false);
+    key(WXK_UP);
+    CHECK_FALSE(panel->IsTraceMode());
+    CHECK(runner->GetCounts().exp_step == before + 4);
+    CHECK(runner->GetScalar("forced", 0) == 1.0f);
+    CHECK(frame->GetStatusBar()->GetStatusText(0).StartsWith("Forced action: 0:"));
+    if (real_config) {
+        // 実Env/Agentでも同じ公開操作を通し、ログ欄への反映までを測る。
+        show_trace(true);
+        for (int i = 0; i < 22; ++i) eval->DoStep();
+        REQUIRE(grid->GetNumberRows() == 22);
+        const auto normal_step = runner->GetCounts().exp_step;
+        const auto header = [&](int column) {
+            wxGridEvent event(grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, grid, -1, column);
+            grid->GetEventHandler()->ProcessEvent(event);
+        };
+        header(1);
+        CHECK_FALSE(grid->IsSortOrderAscending());
+        header(1);
+        CHECK(grid->IsSortOrderAscending());
+        int priority = wxNOT_FOUND;
+        for (int col = 0; col < grid->GetNumberCols(); ++col)
+            if (grid->GetColLabelValue(col) == "prio") priority = col;
+        REQUIRE(priority != wxNOT_FOUND);
+        header(priority);
+        CHECK_FALSE(grid->IsSortOrderAscending());
+        header(priority);
+        CHECK(grid->IsSortOrderAscending());
+        wxAuiToolBar* trace_toolbar = nullptr;
+        for (auto* child : panel->GetChildren())
+            for (auto* nested : child->GetChildren())
+                if (auto* candidate = dynamic_cast<wxAuiToolBar*>(nested)) trace_toolbar = candidate;
+        REQUIRE(trace_toolbar);
+        const auto tool = [&](size_t index) {
+            wxCommandEvent event(wxEVT_TOOL, trace_toolbar->FindToolByIndex(index)->GetId());
+            trace_toolbar->GetEventHandler()->ProcessEvent(event);
+        };
+        eval->SetFps(14.5f);
+        tool(0);
+        CHECK(grid->GetGridCursorRow() == grid->GetNumberRows() - 1);
+        tool(3);
+        CHECK(grid->GetGridCursorRow() == grid->GetNumberRows() - 2);
+        CHECK(runner->GetCounts().exp_step == normal_step);
+        tool(1);
+        header(0);
+        CHECK_FALSE(grid->IsSortOrderAscending());
+        panel->ReturnToLive();
+        key(WXK_DOWN);
+        CHECK(runner->GetCounts().exp_step == normal_step + 1);
+        CHECK(frame->GetStatusBar()->GetStatusText(0).StartsWith("Forced action: 2:"));
+        CHECK(grid->GetCellValue(0, 1) == "1");
+        select_first();
+        key(WXK_NUMPAD2);
+        CHECK_FALSE(panel->IsTraceMode());
+        CHECK(runner->GetScalar("forced", 0) == 1.0f);
+        // QValueのクリックも実際の行動handlerへ配送する。
+        QValuePanel* qvalue = nullptr;
+        LogPanel* log_panel = nullptr;
+        for (auto* child : frame->GetChildren()) {
+            if (auto* candidate = dynamic_cast<QValuePanel*>(child)) qvalue = candidate;
+            if (auto* candidate = dynamic_cast<LogPanel*>(child)) log_panel = candidate;
+        }
+        REQUIRE(qvalue);
+        manager->GetPane(qvalue).Show();
+        manager->Update();
+        wxTheApp->Yield(true);
+        wxGrid* qgrid = nullptr;
+        for (auto* child : qvalue->GetChildren())
+            if (auto* candidate = dynamic_cast<wxGrid*>(child)) qgrid = candidate;
+        REQUIRE(qgrid);
+        REQUIRE(qgrid->GetNumberRows() > 2);
+        select_first();
+        const auto before_click = runner->GetCounts().exp_step;
+        wxGridEvent action_click(qgrid->GetId(), wxEVT_GRID_CELL_LEFT_CLICK, qgrid, 2, 0);
+        qgrid->GetEventHandler()->ProcessEvent(action_click);
+        CHECK_FALSE(panel->IsTraceMode());
+        CHECK(runner->GetCounts().exp_step == before_click + 1);
+        CHECK(frame->GetStatusBar()->GetStatusText(0).StartsWith("Forced action: 2:"));
+        REQUIRE(log_panel);
+        wxTextCtrl* log_text = nullptr;
+        for (auto* child : log_panel->GetChildren())
+            if (auto* candidate = dynamic_cast<wxTextCtrl*>(child)) log_text = candidate;
+        REQUIRE(log_text);
+        // 1件目はinfoの表示だけ、2件目はverboseの表示までを確認する。
+        for (const auto* level : {"info", "verbose"}) {
+            log_panel->SetLogLevel(level);
+            const auto start_length = log_text->GetLastPosition();
+            const auto start = std::chrono::steady_clock::now();
+            wxGridEvent dump(grid->GetId(), wxEVT_GRID_CELL_LEFT_DCLICK, grid, 0, 0);
+            grid->GetEventHandler()->ProcessEvent(dump);
+            wxLog::FlushActive();
+            wxTheApp->Yield(true);
+            const auto added = log_text->GetRange(start_length, log_text->GetLastPosition());
+            CHECK(added.Contains("Trace dump step="));
+            CHECK(added.Contains("action_info.action=2:"));
+            CHECK(added.Contains(wxString::FromUTF8("env=" + wxGetApp().GetConfigData().Get("env.class_id"))));
+            CHECK(added.Contains("verbose") == (std::string_view(level) == "verbose"));
+            const double elapsed = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            std::cout << "PRD105_REAL_UI config=" << config_path.string() << " level=" << level
+                << " dump_to_log_ms=" << elapsed << " chars=" << added.size() << '\n';
+        }
+        show_trace(false);
+        show_trace(true);
+        CHECK(grid->GetNumberRows() == 0);
+        CHECK(grid->GetSortingColumn() == 0);
+        CHECK_FALSE(grid->IsSortOrderAscending());
+        show_trace(false);
+        const std::array<int, 4> arrows{WXK_UP, WXK_LEFT, WXK_DOWN, WXK_RIGHT};
+        for (size_t action = 0; action < arrows.size(); ++action) {
+            const auto prior = runner->GetCounts().exp_step;
+            key(arrows[action]);
+            CHECK(runner->GetCounts().exp_step == prior + 1);
+            CHECK(frame->GetStatusBar()->GetStatusText(0).StartsWith(
+                wxString::FromUTF8("Forced action: " + std::to_string(action) + ":")));
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     anet::test::PreparedTestArgs arguments;
@@ -862,8 +1292,11 @@ int main(int argc, char** argv)
     wxTheApp->SetAppearance(std::getenv("PRD094_UI_DARK") ? wxApp::Appearance::Dark : wxApp::Appearance::Light);
     // RunnerAppを起動する明示tagは別process専用。Env登録はOnInit側へ任せる。
     bool starts_runner_app = false;
-    for (int i = 1; i < arguments.Argc(); ++i)
-        starts_runner_app |= std::string_view(arguments.Argv()[i]).find("eval_steps_menu") != std::string_view::npos;
+    for (int i = 1; i < arguments.Argc(); ++i) {
+        const std::string_view argument(arguments.Argv()[i]);
+        starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
+            || argument.find("prd105_ui_keys") != std::string_view::npos;
+    }
     if (!starts_runner_app) {
         wxInitAllImageHandlers();
         anet::rl::env::InitCartPole();

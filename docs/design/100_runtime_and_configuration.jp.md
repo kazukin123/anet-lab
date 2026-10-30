@@ -312,7 +312,7 @@ sequenceDiagram
 
 ### 6.4 configured Eval session
 
-`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。Actor同期後、採用episode N本が完了するまでStepを進め、Train通知に続いて採用EpisodeEndをgroup順に通知する。各EpisodeEndはそのStep結果を持つ。decoratorは結果から採用値を蓄積し、最後にenv_index=-1・発火元countsのSessionEndを1回通知する。キャンセル時は確定通知を出さない。セッション境界で全groupがfreshならcontinue_stateを再利用する。EvalPanelはsession decoratorを使わず、従来のstep駆動・強制Action・同期方式を維持する。
+`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。Actor同期後、採用episode N本が完了するまでStepを進め、Train通知に続いて採用EpisodeEndをgroup順に通知する。各EpisodeEndはそのStep結果を持つ。decoratorは結果から採用値を蓄積し、最後にenv_index=-1・発火元countsのSessionEndを1回通知する。キャンセル時は確定通知を出さない。セッション境界で全groupがfreshならcontinue_stateを再利用する。EvalPanelはsession decoratorを使わず、従来のstep駆動・強制行動・同期方式を維持する。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -369,7 +369,7 @@ sequenceDiagram
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
 - [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
-- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制Action
+- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): 初期化とbackend設定
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable rootと出力path
 - [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定葉`?=`検査の手順

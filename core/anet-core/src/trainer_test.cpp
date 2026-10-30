@@ -1672,6 +1672,57 @@ TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer]
     CHECK(rows[0]->step == 1);
 }
 
+TEST_CASE("Forced Eval step publishes its flag through the transition notification", "[trainer][prd105][forced_trace]")
+{
+    // 実Runnerから同期通知で読む列までを、一つの強制stepで通す。
+    auto env = std::make_shared<TestBatchEnv>("forced-trace", 1, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = "eval"};
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request, "forced-trace");
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[260]", "$runner forced label:forced");
+    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1);
+    std::vector<std::shared_ptr<rl::StepTrace>> rows;
+    builder.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        builder.OnTrain(event);
+    }));
+    CHECK(runner->GetScalar("forced", 0) == 0.0f);
+    CHECK_FALSE(runner->GetScalar("forced").has_value());
+    CHECK_THROWS_WITH(runner->GetScalar("forced", 1), Catch::Matchers::ContainsSubstring("lane=1"));
+    runner->DoStep(0);
+    REQUIRE(rows.size() == 1);
+    REQUIRE(rows.front()->values.size() == 1);
+    CHECK(rows.front()->values.front() == 1.0f);
+    CHECK(runner->GetScalar("forced", 0) == 1.0f);
+    runner->DoStep();
+    REQUIRE(rows.size() == 2);
+    CHECK(rows.back()->values.front() == 0.0f);
+    CHECK(runner->GetScalar("forced", 0) == 0.0f);
+    CHECK(rows.front()->values.front() == 1.0f);
+}
+
+TEST_CASE("Forced flag is EvalRunner lane data and is unknown to TrainRunner", "[trainer][prd105][forced_scope]")
+{
+    // 複数laneの初期状態と、別種のRunnerへの鍵の漏れを公開APIで確かめる。
+    auto env = std::make_shared<TestBatchEnv>("forced-scope", 2, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    const rl::ActorRequest request{.batch_env_spec=env->GetBatchSpec(), .env_spec=env->GetSpec(),
+        .device=torch::kCPU, .seed=123, .actor_key="eval"};
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, nullptr, request);
+    CHECK(runner->GetScalar("forced", 0) == 0.0f);
+    CHECK(runner->GetScalar("forced", 1) == 0.0f);
+    CHECK_FALSE(runner->GetScalar("forced"));
+    CHECK_THROWS_WITH(runner->GetScalar("forced", 2), Catch::Matchers::ContainsSubstring("lane=2"));
+    CHECK(runner->GetScalar("exp_step", 0) == 0.0f);
+    auto train_request = request;
+    train_request.actor_key = "train";
+    auto train = std::make_shared<rl::SerialTrainRunner>(env, agent, nullptr, train_request);
+    CHECK_FALSE(train->GetScalar("forced", 0));
+}
+
 TEST_CASE("Step trace reads one transition across Runner counters and terminal results", "[trainer][prd094][trace_timing]")
 {
     const bool terminal = GENERATE(false, true);
