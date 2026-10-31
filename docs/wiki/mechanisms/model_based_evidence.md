@@ -1,5 +1,7 @@
 # Model-based Atariの評価
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 SimPLeの低データ性能の優位は、後に調整されたmodel-freeの結果で相殺された。world model内の学習コストと評価手順への批判が残っている。

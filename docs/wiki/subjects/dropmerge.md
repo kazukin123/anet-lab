@@ -1,5 +1,7 @@
 # DropMerge
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [題材](../index.md#題材)
+
 ## 今の結論
 
 IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの探索置換はNEETを抑えたが、batch増加の学習側の上乗せの大部分はノイズ感度の差だった。NEET期にはNOOPと最善DROPの差が0付近まで潰れ、NoDropTimeoutの終局は投了ではなくNEETだった。

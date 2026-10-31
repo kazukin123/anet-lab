@@ -1,5 +1,7 @@
 # 313 プロファイリング
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
 ## 概要・責務
 
 - ProfileRangeとmacroで関数・処理phaseをCPU/GPU profilerへ安定名で記録する。（出典: [可観測性](../../design/140_observability.jp.md)、§2・§3）。

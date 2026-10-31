@@ -1,5 +1,7 @@
 # Action queryとattentionの証拠
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 Action Q-Transformerの性能上の優位は一部ゲームに限られた。TQLはattention entropyを制御した条件で大きな価値Transformerの改善を報告したが、anetで同じ改善は未確認である。

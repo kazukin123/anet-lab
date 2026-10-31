@@ -1,5 +1,7 @@
 # 可塑性指標と成績
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 同じ勾配step付近の摩耗はreplay ratio間で似ていたが、付随する新規データ量と成績の推移は異なった。崩壊時に膨らんだのはfeature側の重みで、readout側ではなかった。SiLUやLN512で機序指標が改善しても、RR8短期screeningの成績は改善しなかった。

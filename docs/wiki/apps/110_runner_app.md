@@ -1,5 +1,7 @@
 # RunnerApp（110）
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [アプリケーション](../index.md#アプリケーション)
+
 ## 概要・責務
 
 - RunnerAppはconfig、RunManager、RunnerThread、GUI、loggingのlifecycleを統括し、RunnerThreadが学習RunnerをUI threadから分離する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.1・§5.1）。

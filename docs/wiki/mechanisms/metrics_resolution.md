@@ -1,5 +1,7 @@
 # Metrics Viewerの表示粒度
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 調査時の粒度混在は共有点予算・RunごとのLOD選択・古いwindowの再利用に起因し、引き金はmemory pressureの検出ではなかった。

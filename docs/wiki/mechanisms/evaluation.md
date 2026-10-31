@@ -1,5 +1,7 @@
 # 評価と比較の条件
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。qbertでは、同じcheckpointをGreedyと学習中と同じ選び方で評価したときの成績の上下が、スキップなし（2 seed）とTempoRL分割のfullで逆になった。学習中の8面突破率は200ゲームごとの区切りで40ポイント以上動いた。qbertのTempoRL（分割・合算のfull）では、Greedyでゲームが終わる面が1つに集まり、ランダムさはその面から外す代わりに別の面でゲームが終わることを増やすので、全体の8面突破率の比では得と損が打ち消し合った。

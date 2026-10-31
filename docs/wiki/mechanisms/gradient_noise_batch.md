@@ -1,5 +1,7 @@
 # 勾配ノイズとbatch
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 GNSと有効batchの対応はoptimizer・曲率・抽出方法・予算に依存する。DropMergeでは臨界batchが学習とともに増えたが、batch増加の最終target評価の差は学習側の差より小さかった。

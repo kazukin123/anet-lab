@@ -1,5 +1,7 @@
 # 325 Agent個別実装 MuZero系列
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
 ## 概要・責務
 
 - MuZeroAgentは登録済みAgentの試作実装である。（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.4）。

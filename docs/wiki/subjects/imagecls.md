@@ -1,5 +1,7 @@
 # ImageCls
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [題材](../index.md#題材)
+
 ## 今の結論
 
 Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/CutMixの86.0〜86.4%（seed 1の3本）で、同じ学習条件のConvNeXt Atto・Femto（stem stride 2）は83.1・83.7%だった。evalはFlatten → GAP2D、最終解像度14×14、DropHeadとdroppath、cosineで上がり、weight decay 0.1と、ConvNeXtのBodyの拡大では上がらなかった。

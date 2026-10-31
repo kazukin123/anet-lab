@@ -1,5 +1,7 @@
 # LLMの外部知識と探索
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 調査ではAtariの条件付き改善が見つかった一方、KungFuMasterのボス攻略やqbert第8面を直接改善した実証は見つからなかった。

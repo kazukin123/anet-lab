@@ -1,5 +1,7 @@
 # 317 可視化・メトリクス
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
 ## 概要・責務
 
 - eventからscalar、trace、画像、動画、GraphVizとartifactへ変換し、値の取得と保存の境界をまとめる。（出典: [可観測性](../../design/140_observability.jp.md)、§1.1・§2・§3）。

@@ -1,5 +1,7 @@
 # Breakout
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [題材](../index.md#題材)
+
 ## 今の結論
 
 LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だった。BTR型NNとSNの効果はreplay ratioと学習予算に依存し、SN無しの早期優位が後期に反転した。

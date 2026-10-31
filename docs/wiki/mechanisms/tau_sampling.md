@@ -1,5 +1,7 @@
 # τ配置とIQN比較
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 直接比較を確認できなかった初期調査に対し、DropMergeの2 seedではstratifiedとantitheticが有力だった。M削減の速度利得とM64による十分なlate改善は確認されなかった。qbertでは行動を選ぶときのτを固定からランダムにすると、スキップなしでは評価の8面突破率が上がり、TempoRL分割のfullでは下がった（seed1）。TempoRLの分割・合算の50M終了checkpointで、Q側をランダムのままskip側のτだけ固定にすると、共有のランダム抽選より突破率が7.50・10.25ポイント上がった（各400ゲーム、学習seed1）。主因の比k・k'は両checkpointで「決めきれない」で、学習への効果は未確認。

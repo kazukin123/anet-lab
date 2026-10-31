@@ -1,5 +1,7 @@
 # 316 設定管理
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
 ## 概要・責務
 
 - ConfigDataに設定を集約し、ConfigResolverがinclude・selection・Run・CLI・継承とprofileを解決する。（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.1）。

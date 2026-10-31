@@ -1,5 +1,7 @@
 # Target更新の比較
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 n=2でhard C=125だけが低分散という主張は、n=4で撤回された。DropMergeのIQN＋Munchausenでは同時定数のhard C=200がsoftの2 seedを下回り、NOOPも増えた。

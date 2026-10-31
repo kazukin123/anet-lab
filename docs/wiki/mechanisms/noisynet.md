@@ -1,5 +1,7 @@
 # NoisyNetの観測
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 LunarLanderの3 seedではNoisyNetの成績差はseed幅内で、行動変化率は終盤に2〜4%へ縮んだ。DropMergeではεラダーへの上乗せではNEETが残り、NoisyNetへの置換で抑えられた。BTRの公開実装はNoisyNetを切ってもBreakoutで論文と互角だった。Atariの実時間優先50MでεラダーをNoisyNetに置き換えると7ゲームとも基準を下回り、BreakoutではNoisyNet自体の差は±0でラダーを外したぶんだった。qbertの50M終了checkpoint（seed1）を評価時だけノイズありにすると、スキップなしでは8面突破率が上がり、TempoRL分割のfullでは下がった。 TempoRLの分割・合算でQ側だけノイズありにすると、両方ありより突破率が18.50・16.50ポイント上がったが、主因の比hは両checkpointで決めきれなかった（評価400ゲーム、学習seed1）。

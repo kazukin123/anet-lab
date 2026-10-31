@@ -1,5 +1,7 @@
 # LunarLander
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [題材](../index.md#題材)
+
 ## 今の結論
 
 matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。TempoRL（分離×合算）は IQN＋Munchausen の 3 seed で無効を上回り、2026-10-26 から LunarLander の既定で有効にした。合算に対する分割・k_max の重み・スキップ長の ε-greedy の 3 腕（3 seed）はどれも基準を上回らず、既定は据え置いた（2026-10-28）。

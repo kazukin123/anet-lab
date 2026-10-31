@@ -1,5 +1,7 @@
 # Replay ratioとlane窓
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
 ## 今の結論
 
 Breakoutの該当構成ではlane窓16,384の2点がε=0で685.12・685.30、窓8,192が615.73だった。効果の機序は未測定である。

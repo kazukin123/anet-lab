@@ -1,5 +1,7 @@
 # 318 強化学習 共通基盤
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
 ## 概要・責務
 
 - ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§1・§2）。

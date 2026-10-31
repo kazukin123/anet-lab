@@ -1,5 +1,7 @@
 # 314 テンソル処理
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
 ## 概要・責務
 
 - device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。

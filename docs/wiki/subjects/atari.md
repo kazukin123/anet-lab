@@ -1,5 +1,7 @@
 # Atari横断
 
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [題材](../index.md#題材)
+
 ## 今の結論
 
 学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。
