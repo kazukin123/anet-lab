@@ -65,6 +65,7 @@
 - 構築スレッドを使い、初期化中はFrameを不活性にする — 不採用: 不活性の窓は✕も押せず動かせもせず、「動かしても乱れない」ゴールと閉じる操作を受け付ける裁定に反する（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§4.1）。
 - 初期化中に閉じる要求があったとき、後半を済ませてから閉じる — 不採用: 閉じる道が2本になり、閉じたいだけの利用者に後半の仕事を挟む。今のclose手順は後半が無くても通る（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§4.1・D7）。
 - 初期化中のOSのログオフ・シャットダウンを✕と同じく拒否する — 不採用: OSの終了が止まり、利用者がもう一度シャットダウンする必要がある（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§4.1・D8）。
+- 初期化中にOSの終了の確定が届いたとき、構築を待ってCloseの道に通す — 不採用: 確定の前に必ず問い合わせが来て、その中で構築の終わりを待ってFrameを閉じるので実際には起きず、確定のあとはWindowsがすぐプロセスを終える（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、D10・§9の7）。
 - EvalPanel用EvalRunnerも構築スレッドで作る — 先送り: 約0.38秒で「応答なし」に遠い。再開条件: 後半の止まりが目に見えて困る例が出たとき（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§8）。
 - RunManagerの構築を途中で止める口 — 範囲外: 取り消せる点が無く、足すとcore側の構築の契約を変える。再開条件: 構築中に閉じたときに終わりを待つのが困る例が出たとき（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§2のNG2・§8）。
 - 起動の進み具合の表示（進捗バー・スプラッシュ画面） — 範囲外: 構築中のログが見えればゴールに足りる。再開条件: ログだけでは起動の進みが読めないと分かったとき（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§2のNG3・§8）。
