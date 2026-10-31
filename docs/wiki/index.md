@@ -41,7 +41,7 @@
 ## アプリケーション
 
 - [Metrics Viewer](apps/120_metrics_viewer.md) — MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。（別名: 120_metrics_viewer）。
-- [RunnerApp](apps/110_runner_app.md) — RunnerFrame・TrainPanel・EvalPanel・QValuePanelを通してRunの起動、学習とGUI、専用評価の接続をまとめる（別名: AnetRLRunner, AnetRLRunner.exe）。
+- [RunnerApp](apps/110_runner_app.md) — RunnerFrame・TrainPanel・EvalPanel・QValuePanelを通してRunの起動、学習とGUI、専用評価の接続をまとめる（別名: AnetRLRunner, AnetRLRunner.exe, テーマ, ダークモード, dark mode）。
 
 ## 機能カテゴリ
 
