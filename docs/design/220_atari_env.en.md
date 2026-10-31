@@ -329,7 +329,7 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 
 For resize changes, follow the [PRD099 validation procedure](../../core/anet-core/testdata/prd099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
 
-When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`.
+When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-test (`config_baseline_test.cpp`).
 
 ## 7. Related Documents
 

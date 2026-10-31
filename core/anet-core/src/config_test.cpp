@@ -1112,7 +1112,7 @@ TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[c
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("Default Evaluation Trace columns add forced without changing existing declarations", "[config][prd105][forced_columns]")
+TEST_CASE("Default Evaluation Trace columns add forced without changing existing declarations", "[config][prd105][forced_columns][shipped_config]")
 {
     // 共通設定の公開読込経路で、既定列の差分を一つに限定する。
     const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
@@ -1129,7 +1129,7 @@ TEST_CASE("Default Evaluation Trace columns add forced without changing existing
     }
 }
 
-TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli]")
+TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli][shipped_config]")
 {
     const auto repo_root = std::filesystem::path(__FILE__)
         .parent_path().parent_path().parent_path().parent_path();

@@ -21,7 +21,6 @@
 #include "anet/catch_test.hpp"
 #include "anet/profile.hpp"
 #include "anet/env/Atari.hpp"
-#include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 #include "anet/thread.hpp"
 
@@ -249,122 +248,6 @@ TEST_CASE("AtariEnvConfig exposes the v5 default contract", "[atari][config]")
     CHECK(config.retain_rgb_frame);
     CHECK_FALSE(config.display_screen);
     CHECK_FALSE(config.sound);
-}
-
-TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge", "[atari][config]")
-{
-    const auto source_root = std::filesystem::path(ANET_SOURCE_DIR);
-    const auto config_dir = source_root / "apps" / "runner" / "config";
-
-    const auto load_preset = [&](const std::string& preset) {
-        // Atari.txt の既定 run.$ は Run 層で AtariEnv.$ を選ぶので、プリセットはそれより強い CLI 層で選ぶ。
-        const wxCmdLineEntryDesc description[] = {
-            { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
-                wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
-        };
-        wxCmdLineParser cli(description, wxString::FromUTF8("AtariEnv.$=AtariEnv.@" + preset));
-        REQUIRE(cli.Parse(false) == 0);
-        anet::ConfigManagerOptions options;
-        options.config_search_dirs = { config_dir };
-        options.overwrite_config_paths = { config_dir / "Atari.txt" };
-        return anet::ConfigManager(config_dir / "_main.txt", &cli, options).GetConfigData();
-    };
-
-    const auto v5 = load_preset("v5_noop30");
-    CHECK(v5.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.25f));
-    CHECK(v5.Get<int>("AtariEnv.noop_max") == 30);
-    CHECK_FALSE(v5.Get<bool>("AtariEnv.episodic_life"));
-    CHECK_FALSE(v5.Get<bool>("AtariEnv.fire_reset"));
-
-    const auto classic = load_preset("classic");
-    CHECK(classic.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.0f));
-    CHECK(classic.Get<int>("AtariEnv.noop_max") == 30);
-    CHECK(classic.Get<bool>("AtariEnv.episodic_life"));
-    CHECK(classic.Get<bool>("AtariEnv.fire_reset"));
-
-    CHECK(v5.Get("AtariEnv.ram_metric.[kung_fu_master].metrics") == "1:floor_clear 2:boss_kill 3:boss_hit");
-    CHECK(v5.Get("AtariEnv.ram_metric.[qbert].metrics") == "1:round_clear");
-    CHECK(v5.Get("AtariEnv.ram_metric.[phoenix].metrics") == "1:wave_clear 2:boss_kill");
-    CHECK(v5.Get("AtariEnv.ram_metric.[breakout].metrics") == "1:wall_clear");
-    const anet::rl::env::AtariEnvConfig ram_config(v5);
-    CHECK(ram_config.known_ram_metric_numbers == std::set<int64_t>{1, 2, 3});
-    CHECK(v5.Get("metrics.trace.[51_eval1/episode]").find("ram_metric.[1] ram_metric.[2] ram_metric.[3]") != std::string::npos);
-    CHECK(v5.Get("metrics.trace.[42_env/episode]").find("ram_metric.[1] ram_metric.[2] ram_metric.[3]") != std::string::npos);
-    CHECK(v5.Get("metrics.scalar.[42_env/50_ram_metric_1_mean]").find("mean.ram_metric.[1]") != std::string::npos);
-    const anet::rl::ObserverFactory metric_factory(v5);
-    const auto& trace_defs = metric_factory.GetTraceMetricDefs();
-    const auto trace = std::find_if(trace_defs.begin(), trace_defs.end(), [](const auto& def) {
-        return def.tag == "42_env/episode";
-    });
-    REQUIRE(trace != trace_defs.end());
-    CHECK(trace->keys == std::vector<std::string>{
-        "game_score", "game_len", "game_frames", "hns57",
-        "ram_metric.[1]", "ram_metric.[2]", "ram_metric.[3]"});
-    const auto& scalar_defs = metric_factory.GetScalarMetricDefs();
-    const auto find_scalar = [&](const std::string& tag) {
-        return std::find_if(scalar_defs.begin(), scalar_defs.end(), [&](const auto& def) {
-            return def.tag == tag;
-        });
-    };
-    const auto check_ram_scalar = [&](const std::string& tag, const std::string& source_key,
-        bool has_ema, float ema_alpha, const std::string& reference_tag) {
-        INFO(tag);
-        const auto scalar = find_scalar(tag);
-        const auto reference = find_scalar(reference_tag);
-        REQUIRE(scalar != scalar_defs.end());
-        REQUIRE(reference != scalar_defs.end());
-        CHECK(scalar->source_key == source_key);
-        CHECK(scalar->has_ema == has_ema);
-        if (has_ema) CHECK(scalar->ema_alpha == Catch::Approx(ema_alpha));
-        CHECK(scalar->step_axis == reference->step_axis);
-        CHECK(scalar->runner == reference->runner);
-        CHECK(scalar->event == reference->event);
-        CHECK(scalar->target == reference->target);
-        CHECK(scalar->scope == reference->scope);
-        CHECK(scalar->eval_name == reference->eval_name);
-        CHECK(scalar->interval == reference->interval);
-    };
-    // RAM の指標を持つ群は、得点の平均の指標を持つ群として設定から拾う。群を足してもテストは直さずに済み、書き忘れた群は落ちる。
-    const std::string score_suffix = "/10_game_score_mean";
-    std::vector<std::string> groups;
-    for (const auto& def : scalar_defs) {
-        if (def.tag.ends_with(score_suffix)) groups.push_back(def.tag.substr(0, def.tag.size() - score_suffix.size()));
-    }
-    REQUIRE_FALSE(groups.empty());
-    std::set<std::string> expected_ram_tags;
-    for (const auto& group : groups) {
-        const std::string stem = group + "/";
-        // EMA は得点の平均の EMA を持つ群だけが持ち、係数もそれに揃える。
-        const auto score_ema = find_scalar(stem + "11_game_score_mean_ema");
-        for (int number = 1; number <= 3; ++number) {
-            const std::string key = "ram_metric.[" + std::to_string(number) + "]";
-            const std::string suffix = "ram_metric_" + std::to_string(number);
-            const std::string mean_tag = stem + std::to_string(48 + 2 * number) + "_" + suffix + "_mean";
-            const std::string max_tag = stem + std::to_string(55 + number) + "_" + suffix + "_max";
-            check_ram_scalar(mean_tag, "mean." + key, false, 0.0f, stem + "10_game_score_mean");
-            check_ram_scalar(max_tag, "max." + key, false, 0.0f, stem + "16_game_score_max");
-            expected_ram_tags.insert({mean_tag, max_tag});
-            if (score_ema != scalar_defs.end()) {
-                const std::string ema_tag = stem + std::to_string(49 + 2 * number) + "_" + suffix + "_mean_ema";
-                check_ram_scalar(ema_tag, "mean." + key, true, score_ema->ema_alpha,
-                    stem + "11_game_score_mean_ema");
-                expected_ram_tags.insert(ema_tag);
-            }
-        }
-    }
-    // RAM の tag は、どれかの群の規則どおりのものだけにする。
-    for (const auto& def : scalar_defs) {
-        if (def.tag.find("_ram_metric_") == std::string::npos) continue;
-        CAPTURE(def.tag);
-        CHECK(expected_ram_tags.contains(def.tag));
-    }
-    for (const std::string old_tag : {
-        "42_env/50_stage_clear_mean", "42_env/51_boss_kill_mean", "42_env/52_boss_hit_mean",
-        "53_evalg/51_ram_metric_1_mean_ema", "53_evalg/53_ram_metric_2_mean_ema",
-        "53_evalg/55_ram_metric_3_mean_ema"}) {
-        CHECK(find_scalar(old_tag) == scalar_defs.end());
-        CHECK_FALSE(v5.Has("metrics.scalar.[" + old_tag + "]"));
-    }
 }
 
 TEST_CASE("AtariEnv fails fast on invalid current config values", "[atari][config]")
@@ -1736,7 +1619,7 @@ TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration k
     }
 }
 
-TEST_CASE("Atari Run profile selects pixel area while evaluation keeps explicit overrides", "[atari][prd099][resize-profile]")
+TEST_CASE("Atari Run profile selects pixel area while evaluation keeps explicit overrides", "[atari][prd099][resize-profile][shipped_config]")
 {
     // 実際のAtari.txtを解決し、Runの共通値と評価個別の責務を確認する。
     const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "apps/runner/config";

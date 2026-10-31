@@ -145,7 +145,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 
 運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。選択宣言`.$`・Runプロファイル・CLIは常に`=`。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。
 
-この運用は設定編集・監査の規約であり、resolverの名前・位置による特別扱いではない。人向けの説明、ファイル別の一覧、DropMerge・Atariの例は[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)の§3.6・§3.7を参照する。設定変更時は`check_default_leaves.py`と全キー・文字列値の比較で意図しない変化がないことを確認する（手順は[core/anet-core/testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md)）。
+この運用は設定編集・監査の規約であり、resolverの名前・位置による特別扱いではない。人向けの説明、ファイル別の一覧、DropMerge・Atariの例は[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)の§3.6・§3.7を参照する。設定変更時は`check_default_leaves.py`と全キー・文字列値の比較で意図しない変化がないことを確認し（手順は[core/anet-core/testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md)）、あわせて `core\anet-core\bin\Debug\anet-core-test.exe "[shipped_config]"` で出荷設定の検査を通す（規約は本書「テスト」）。
 
 **設定ファイルのプロファイル境界**
 
@@ -394,12 +394,24 @@ Agent 関連の変数・オブジェクト追加時は、必ず以下の資料�
 
 ### テスト
 
-適用: テストを足した、または変えた実装。
+**規約**
+
+**本番の設定ファイルを読むテスト**
+
+設定の仕組み（resolver、Config のコンストラクタ、metrics の解析）は、testdata か合成の設定で確かめる。`apps/runner/config` 配下のファイルを読むテストは仕組みのテストではなく、出荷している設定の検査であり、固定してよいのは次の 2 つだけにする。
+
+- 共通層（`_main.txt` が include するファイル）の、PRD が既定と宣言した葉の解決値。
+- 実行時に黙って通る規則（群ごとの指標の揃い、休眠 tag の Actor 参照、プロファイル連鎖で群を落とさない、など）。
+
+env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列挙は等値比較しない。固定したいなら PRD072 の golden か hidden の採取テストにする。Run の構築時に止まる検査（未知の eval 名・未宣言の Actor）を前倒しするだけのテストは作らない。これらのテストはタグ `[shipped_config]` を持ち、設定を変えたあとに `anet-core-test.exe "[shipped_config]"` で走らせる。設定を変えてこの種のテストが落ちたら、テストを新しい値に書き換える前に、写しを規則に置き換えられないかを見る。env 別ファイルは実験のたびに変わる（Atari.txt の変更の半分は設定だけの変更）ので、写しを固定すると正当な設定変更のたびにテストが落ちるため。
+
+適用: テストを足した、または変えた実装。項番 73 は、`apps/runner/config` 配下のファイルを読むテストを足した・変えた実装。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
 | 46 | 検証の経路 | テストが、public API・設定の読み込み・runner-facing の挙動を通して、外から観測できる挙動を確かめている。private なメソッドや内部の構造を、直接確かめていない | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
 | 47 | 計画との対応 | 実装計画の「優先 behavior」のそれぞれに、対応するテストがある | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
+| 73 | 本番設定を読むテスト | 足した・変えたテストのうち `apps/runner/config` 配下のファイルを読むものが固定しているのは、共通層の PRD が宣言した既定か、実行時に止まらない規則だけである。env 別ファイルの値・本数・列挙を等値比較していない。タグ `[shipped_config]` を持つ | 本節の規約 |
 
 ### 検証と報告
 

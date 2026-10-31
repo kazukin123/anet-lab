@@ -753,7 +753,7 @@ TEST_CASE("ObserverFactory preserves weight norm UpdateResult subscriptions", "[
     }
 }
 
-TEST_CASE("ObserverFactory attaches replay fit only through its independent profile", "[observer_factory][replay_fit][profile]")
+TEST_CASE("ObserverFactory attaches replay fit only through its independent profile", "[observer_factory][replay_fit][profile][shipped_config]")
 {
     const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
     const auto config_dir = root / "apps" / "runner" / "config";
@@ -1771,7 +1771,7 @@ TEST_CASE("Train trace reads keys in declaration order and preserves nonfinite f
     CHECK(row.at("lane") == 1);
 }
 
-TEST_CASE("Episode steps presets resolve to Runner session metrics", "[observer_factory][episode_steps_config]")
+TEST_CASE("Episode steps presets resolve to Runner session metrics", "[observer_factory][episode_steps_config][shipped_config]")
 {
     const std::string profile = GENERATE(std::string("baseline"), std::string("full"));
     const wxCmdLineEntryDesc description[] = {

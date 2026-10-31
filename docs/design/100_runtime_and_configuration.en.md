@@ -358,6 +358,7 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types
 - [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
+- [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Quality Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): file/Metrics master output boundaries for config text and JSON resolution metadata
 - [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): delegation of Train clone policy to Agent, prohibition of implicit Pipeline synchronization, and Eval Actor/Agent device consistency
 - [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runner episode-end notifications and forced Eval Actions

@@ -328,7 +328,7 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 
 縮小方式の変更時は[PRD099検証手順](../../core/anet-core/testdata/prd099/README.md)を参照する。固定24画像は各画像で全画素差1以下・99.9%以上一致を要求し、既定の学習系列のchecksumを保持する。性能受入は84×84・64 envの交互比較で速度比中央値0.98以上、現行同士の対照が1%以内に収まらない場合は判定保留とする。
 
-RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../core/anet-core/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。
+RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../core/anet-core/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。既定 `Atari.txt` の群ごとの RAM 指標の揃いとプロトコルプリセットの値は、anet-core-test の `[shipped_config][atari]`（`config_baseline_test.cpp`）が検査する。
 
 ## 7. 関連文書
 

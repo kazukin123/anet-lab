@@ -201,7 +201,7 @@ std::array<double, 2> OracleLogPolicy(const std::array<double, 2>& scores, doubl
 
 } // namespace
 
-TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diagnostics", "[dqn][munchausen][munchausen_profile]")
+TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diagnostics", "[dqn][munchausen][munchausen_profile][shipped_config]")
 {
     const std::string mode = GENERATE("target", "online", "online_reuse");
     const bool risk = GENERATE(false, true);

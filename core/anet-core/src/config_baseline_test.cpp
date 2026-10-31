@@ -3,16 +3,19 @@
 #include "anet/default_dqn_agent.hpp"
 #include "anet/image_cls_agent.hpp"
 #include "anet/muzero_proto_agent.hpp"
+#include "anet/observers.hpp"
 #include "anet/rainbow_agent.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <string>
 #include <wx/cmdline.h>
 #include <wx/utils.h>
 
-TEST_CASE("PRD104 defaults and auxiliary arms preserve metrics and propagate Actor limits", "[config][prd104]")
+TEST_CASE("PRD104 defaults and auxiliary arms preserve metrics and propagate Actor limits", "[config][prd104][shipped_config]")
 {
     const auto repo = std::filesystem::current_path();
     const auto config_root = (repo / "apps/runner/config").generic_string();
@@ -120,39 +123,7 @@ TEST_CASE("PRD061 captures resolved and typed configuration", "[.][prd061-captur
     }
 }
 
-TEST_CASE("PRD061 preserves Atari evaluation Run profiles", "[config][prd061][profiles]")
-{
-    const auto repo = std::filesystem::current_path();
-    const auto root = repo / "out/test-tmp/prd061-profiles";
-    std::filesystem::create_directories(root);
-    const auto input_path = root / "main.txt";
-    {
-        std::ofstream output(input_path, std::ios::binary);
-        output << "$include <" << (repo / "apps/runner/config/_main.txt").generic_string() << ">\n"
-            << "$include <" << (repo / "apps/runner/config/Atari.txt").generic_string() << ">\n";
-    }
-    for (const auto profile : {"evalonly", "eval2only", "pl_check"}) {
-        INFO(profile);
-        const wxCmdLineEntryDesc description[] = {
-            { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
-                wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
-        };
-        wxCmdLineParser cli(description, wxString::FromUTF8(std::string("run.$=run.@") + profile));
-        REQUIRE(cli.Parse(false) == 0);
-        const auto config = anet::ConfigManager(input_path, &cli).GetConfigData();
-        CHECK(config.Get("run.eval_schedule.[eval_target].interval") == (std::string(profile) == "evalonly" ? "10" : "0"));
-        if (std::string(profile) == "evalonly") {
-            CHECK(config.Get("run.eval_schedule.[eval].interval") == "11");
-            CHECK(config.Get("run.eval.[eval_target].eval_batch_size") == "16");
-            CHECK(config.Get("run.eval.[eval_target].eval_episodes") == "100");
-            CHECK(config.Get("run.train.num_envs") == "1");
-        } else if (std::string(profile) == "pl_check") {
-            CHECK(config.Get("run.eval_schedule.[eval].interval") == "0");
-        }
-    }
-}
-
-TEST_CASE("PRD061 target Actor inherits final eval policy with explicit override priority", "[config][prd061][actor_inheritance]")
+TEST_CASE("PRD061 target Actor inherits final eval policy with explicit override priority", "[config][prd061][actor_inheritance][shipped_config]")
 {
     // 現用のbaselineと環境別上書きを読み、CLIの最終値がtargetへ伝播することを確認する。
     const auto repo = std::filesystem::current_path();
@@ -183,7 +154,7 @@ TEST_CASE("PRD061 target Actor inherits final eval policy with explicit override
     }
 }
 
-TEST_CASE("PRD061 shipped configurations resolve every Actor reference without panel overrides", "[config][prd061][shipped_actors]")
+TEST_CASE("PRD061 shipped configurations resolve every Actor reference without panel overrides", "[config][prd061][shipped_actors][shipped_config]")
 {
     const auto repo = std::filesystem::current_path();
     const auto root = repo / "out/test-tmp/prd061-shipped-actors";
@@ -271,6 +242,103 @@ TEST_CASE("PRD061 shipped configurations resolve every Actor reference without p
     CHECK_FALSE(rainbow.contains("actor.[eval_panel].policy.epsilon.end"));
     CHECK_FALSE(rainbow.contains("actor.[eval_panel].policy.epsilon.steps"));
 
+}
+
+TEST_CASE("Atari.txt presets and RAM metric groups follow the shipped rules", "[config][shipped_config][atari]")
+{
+    // 出荷している Atari.txt の検査。設定の仕組みは config_test と AtariEnv_test の fixture で確かめる（docs/quality/impl.md「テスト」の規約）。
+    const auto config_dir = std::filesystem::current_path() / "apps/runner/config";
+    const auto load_preset = [&](const std::string& preset) {
+        // Atari.txt の既定 run.$ は Run 層で AtariEnv.$ を選ぶので、プリセットはそれより強い CLI 層で選ぶ。
+        const wxCmdLineEntryDesc description[] = {
+            { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+                wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
+        };
+        wxCmdLineParser cli(description, wxString::FromUTF8("AtariEnv.$=AtariEnv.@" + preset));
+        REQUIRE(cli.Parse(false) == 0);
+        anet::ConfigManagerOptions options;
+        options.config_search_dirs = { config_dir };
+        options.overwrite_config_paths = { config_dir / "Atari.txt" };
+        return anet::ConfigManager(config_dir / "_main.txt", &cli, options).GetConfigData();
+    };
+
+    // プロトコルプリセットは名前が外部の手順（ALE v5、classic）を指すので、名前と値の対応を固定する。
+    const auto v5 = load_preset("v5_noop30");
+    CHECK(v5.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.25f));
+    CHECK(v5.Get<int>("AtariEnv.noop_max") == 30);
+    CHECK_FALSE(v5.Get<bool>("AtariEnv.episodic_life"));
+    CHECK_FALSE(v5.Get<bool>("AtariEnv.fire_reset"));
+
+    const auto classic = load_preset("classic");
+    CHECK(classic.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.0f));
+    CHECK(classic.Get<int>("AtariEnv.noop_max") == 30);
+    CHECK(classic.Get<bool>("AtariEnv.episodic_life"));
+    CHECK(classic.Get<bool>("AtariEnv.fire_reset"));
+
+    // RAM の指標の群の規則（PRD082 D19）。得点の平均を持つ群は番号 1〜4 の mean と max を持ち、得点の EMA を持つ群は EMA も持つ。
+    // 軸・event・eval 名・interval は同じ群の得点の指標に揃える。tag の番号は mean 50/52/54/59、EMA 51/53/55/59、max 56/57/58/59。
+    // 4 の 59 は指標の番号の整理（PRD108）までの暫定。
+    const anet::rl::ObserverFactory metric_factory(v5);
+    const auto& scalar_defs = metric_factory.GetScalarMetricDefs();
+    const auto find_scalar = [&](const std::string& tag) {
+        return std::find_if(scalar_defs.begin(), scalar_defs.end(), [&](const auto& def) {
+            return def.tag == tag;
+        });
+    };
+    const auto check_ram_scalar = [&](const std::string& tag, const std::string& source_key,
+        bool has_ema, float ema_alpha, const std::string& reference_tag) {
+        INFO(tag);
+        const auto scalar = find_scalar(tag);
+        const auto reference = find_scalar(reference_tag);
+        REQUIRE(scalar != scalar_defs.end());
+        REQUIRE(reference != scalar_defs.end());
+        CHECK(scalar->source_key == source_key);
+        CHECK(scalar->has_ema == has_ema);
+        if (has_ema) CHECK(scalar->ema_alpha == Catch::Approx(ema_alpha));
+        CHECK(scalar->step_axis == reference->step_axis);
+        CHECK(scalar->runner == reference->runner);
+        CHECK(scalar->event == reference->event);
+        CHECK(scalar->target == reference->target);
+        CHECK(scalar->scope == reference->scope);
+        CHECK(scalar->eval_name == reference->eval_name);
+        CHECK(scalar->interval == reference->interval);
+    };
+    // 群は設定から拾う。群を足してもテストは直さずに済み、書き忘れた群は落ちる。
+    const std::string score_suffix = "/10_game_score_mean";
+    std::vector<std::string> groups;
+    for (const auto& def : scalar_defs) {
+        if (def.tag.ends_with(score_suffix)) groups.push_back(def.tag.substr(0, def.tag.size() - score_suffix.size()));
+    }
+    REQUIRE_FALSE(groups.empty());
+    std::set<std::string> expected_ram_tags;
+    for (const auto& group : groups) {
+        const std::string stem = group + "/";
+        // EMA は得点の平均の EMA を持つ群だけが持ち、係数もそれに揃える。
+        const auto score_ema = find_scalar(stem + "11_game_score_mean_ema");
+        struct RamTagNumbers { int number; int mean; int ema; int max; };
+        for (const auto& [number, mean_no, ema_no, max_no] : {RamTagNumbers{1, 50, 51, 56}, RamTagNumbers{2, 52, 53, 57},
+                 RamTagNumbers{3, 54, 55, 58}, RamTagNumbers{4, 59, 59, 59}}) {
+            const std::string key = "ram_metric.[" + std::to_string(number) + "]";
+            const std::string suffix = "ram_metric_" + std::to_string(number);
+            const std::string mean_tag = stem + std::to_string(mean_no) + "_" + suffix + "_mean";
+            const std::string max_tag = stem + std::to_string(max_no) + "_" + suffix + "_max";
+            check_ram_scalar(mean_tag, "mean." + key, false, 0.0f, stem + "10_game_score_mean");
+            check_ram_scalar(max_tag, "max." + key, false, 0.0f, stem + "16_game_score_max");
+            expected_ram_tags.insert({mean_tag, max_tag});
+            if (score_ema != scalar_defs.end()) {
+                const std::string ema_tag = stem + std::to_string(ema_no) + "_" + suffix + "_mean_ema";
+                check_ram_scalar(ema_tag, "mean." + key, true, score_ema->ema_alpha,
+                    stem + "11_game_score_mean_ema");
+                expected_ram_tags.insert(ema_tag);
+            }
+        }
+    }
+    // RAM の tag は、どれかの群の規則どおりのものだけにする。
+    for (const auto& def : scalar_defs) {
+        if (def.tag.find("_ram_metric_") == std::string::npos) continue;
+        CAPTURE(def.tag);
+        CHECK(expected_ram_tags.contains(def.tag));
+    }
 }
 
 TEST_CASE("ConfigManager compares frozen PRD072 configuration inputs", "[.][prd072-baseline]")
@@ -503,7 +571,7 @@ TEST_CASE("Attention probe batch size validates even without a subscription", "[
     CHECK(anet::rl::img_cls::ImageClsAgentConfig(data).final_feature_branch_key == "boundary");
 }
 
-TEST_CASE("Attention Run profiles preserve existing metric definitions", "[config][attention][prd093][profiles]")
+TEST_CASE("Attention Run profiles preserve existing metric definitions", "[config][attention][prd093][profiles][shipped_config]")
 {
     // 現用の既定Runチェーンへ末尾追加し、GPU資源を作らず最終metrics定義を検証する。
     const auto root = std::filesystem::current_path();
