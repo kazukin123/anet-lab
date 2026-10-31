@@ -175,6 +175,6 @@ description: Find the rework in the current anet-lab conversation (review findin
 - PRD 送りの対策と、台帳の id。`/anet-create-prd`（Codex は `$anet-create-prd`）の題材になる。台帳に同じ問題があった記録では、今回の対策は履歴の最後の注記にあると添える。
 - 見送りと、台帳に積んだもの・状態を変えたもの。
 - 1 回分の記録の置き場。
-- 変えたファイルの一覧。ほかの作業と別のコミットにできるようにする。Topic は `#7`。コミットの文案は `prepare-commit` に任せる。
+- 変えたファイルの一覧。ほかの作業と別のコミットにできるようにする。Topic は `#7`。コミットの文案は `anet-prepare-commit` に任せる。
 
 最後に、反映した変更をレビューに出すかを 1 問で聞く。出すと答えたら、[anet-review](../anet-review/SKILL.md) の「2. 依頼を組み立てる」以降に従って出す。対象は 6 で変えたファイル、成果物キーは `impl`、入力元は「なし」、変更の目的は「この会話の手戻りの再発防止」と書く。出さないと答えたら、止まる。

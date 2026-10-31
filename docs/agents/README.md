@@ -94,7 +94,7 @@ AIハーネスはエージェントの振る舞いを決める指示・規約・
 | 検証 | 設計文書のテスト章からtestdata READMEへ、MSVC初期化の規約 | 変更に関係しない検証は増やさない | AGENTS.md「検証」、docs/design/*のテスト章 |
 | レビューと引き渡し | anet-review、共有プロセス契約、品質観点 | wiki本文は書いた側で検査する | implement-prd-with-docs、PRD095 D4 |
 | 定常整備 | anet-housekeepingの候補・予算・了承済み範囲 | dry-runでは成果物を書かない | anet-housekeeping 手順4・5 |
-| コミット準備 | prepare-commitとAGENTSのGit規約 | stage・commit・pushは人間 | AGENTS.md「Git操作」、prepare-commit |
+| コミット準備 | anet-prepare-commitとAGENTSのGit規約 | stage・commit・pushは人間 | AGENTS.md「Git操作」、anet-prepare-commit |
 
 ## 表3 AGENTS.mdの節の配置
 
@@ -141,6 +141,7 @@ AIハーネスはエージェントの振る舞いを決める指示・規約・
 | [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
 | [anet-ingest-wiki](../../.agents/skills/anet-ingest-wiki/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
 | [anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
+| [anet-prepare-commit](../../.agents/skills/anet-prepare-commit/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
 | [anet-review](../../.agents/skills/anet-review/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
 | [anet-stats](../../.agents/skills/anet-stats/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
 | [anet-survey-queue](../../.agents/skills/anet-survey-queue/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
@@ -150,7 +151,6 @@ AIハーネスはエージェントの振る舞いを決める指示・規約・
 | [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/SKILL.md) | project | 一致 | 個人版に記録 | なし | SKILL.md・両コピーの全ファイル比較 |
 | [improve-codebase-architecture](../../.agents/skills/improve-codebase-architecture/SKILL.md) | project | 一致 | 個人版に記録 | なし | SKILL.md・両コピーの全ファイル比較 |
 | [karpathy-guidelines](../../.agents/skills/karpathy-guidelines/SKILL.md) | project | 一致 | 個人版に記録 | なし | SKILL.md・両コピーの全ファイル比較 |
-| [prepare-commit](../../.agents/skills/prepare-commit/SKILL.md) | project | 一致 | 個人版に記録 | あり | SKILL.md・両コピーの全ファイル比較 |
 | [setup-matt-pocock-skills](../../.agents/skills/setup-matt-pocock-skills/SKILL.md) | project | 一致 | 個人版に記録 | なし | SKILL.md・両コピーの全ファイル比較 |
 | [tdd](../../.agents/skills/tdd/SKILL.md) | project | 一致 | 個人版に記録 | なし | SKILL.md・両コピーの全ファイル比較 |
 | [to-prd](../../.agents/skills/to-prd/SKILL.md) | project | 一致 | 個人版に記録 | なし | SKILL.md・両コピーの全ファイル比較 |
