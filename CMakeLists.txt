@@ -127,51 +127,40 @@ endif()
 # libtorch のパス検出
 # ---------------------------------------------------------------------
 
-# Multi-config (Visual Studio 等)
-if(CMAKE_CONFIGURATION_TYPES)
-    # 現在の構成を得る
-    if(NOT DEFINED CMAKE_BUILD_TYPE)
-        # VS では CMAKE_BUILD_TYPE は空なのでジェネレータ表現で判定
-        set(_cfg "$<CONFIG>")
-    else()
-        set(_cfg "${CMAKE_BUILD_TYPE}")
-    endif()
-
-    message(STATUS "Active configuration: ${_cfg}")
-
-    # Debug 構成
-    if(_cfg STREQUAL "Debug")
-        if(DEFINED ENV{Torch_DIR_DEBUG})
-            set(Torch_DIR "$ENV{Torch_DIR_DEBUG}")
-            message(STATUS "Using Torch_DIR_DEBUG: ${Torch_DIR}")
-        elseif(DEFINED ENV{Torch_DIR})
-            set(Torch_DIR "$ENV{Torch_DIR}")
-            message(STATUS "Using Torch_DIR (env) for Debug: ${Torch_DIR}")
-        else()
-            set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/debug/share/cmake/Torch")
-            message(WARNING "Fallback: local libtorch debug")
-        endif()
-
-    # RelWithDebInfo と Release は同じ扱い
-    else()
-        if(DEFINED ENV{Torch_DIR_RELEASE})
-            set(Torch_DIR "$ENV{Torch_DIR_RELEASE}")
-            message(STATUS "Using Torch_DIR_RELEASE: ${Torch_DIR}")
-        elseif(DEFINED ENV{Torch_DIR})
-            set(Torch_DIR "$ENV{Torch_DIR}")
-            message(STATUS "Using Torch_DIR (env) for Release: ${Torch_DIR}")
-        else()
-            set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/release/share/cmake/Torch")
-            message(WARNING "Fallback: local libtorch release")
-        endif()
-    endif()
-
-# Single-config (MinGW / Ninja 単体)
+# 現在の構成を得る（CMAKE_CONFIGURATION_TYPES は共通設定で常に設定するので、Ninja でも分岐しない）
+if(NOT DEFINED CMAKE_BUILD_TYPE)
+    # VS では CMAKE_BUILD_TYPE は空なのでジェネレータ表現で判定
+    set(_cfg "$<CONFIG>")
 else()
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(_cfg "${CMAKE_BUILD_TYPE}")
+endif()
+
+message(STATUS "Active configuration: ${_cfg}")
+
+# Debug 構成
+if(_cfg STREQUAL "Debug")
+    if(DEFINED ENV{Torch_DIR_DEBUG})
+        set(Torch_DIR "$ENV{Torch_DIR_DEBUG}")
+        message(STATUS "Using Torch_DIR_DEBUG: ${Torch_DIR}")
+    elseif(DEFINED ENV{Torch_DIR})
+        set(Torch_DIR "$ENV{Torch_DIR}")
+        message(STATUS "Using Torch_DIR (env) for Debug: ${Torch_DIR}")
+    else()
         set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/debug/share/cmake/Torch")
+        message(WARNING "Fallback: local libtorch debug")
+    endif()
+
+# RelWithDebInfo と Release は同じ扱い
+else()
+    if(DEFINED ENV{Torch_DIR_RELEASE})
+        set(Torch_DIR "$ENV{Torch_DIR_RELEASE}")
+        message(STATUS "Using Torch_DIR_RELEASE: ${Torch_DIR}")
+    elseif(DEFINED ENV{Torch_DIR})
+        set(Torch_DIR "$ENV{Torch_DIR}")
+        message(STATUS "Using Torch_DIR (env) for Release: ${Torch_DIR}")
     else()
         set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/release/share/cmake/Torch")
+        message(WARNING "Fallback: local libtorch release")
     endif()
 endif()
 
