@@ -684,13 +684,13 @@ class ConfigSubcommandTest(InspectRunTestBase):
             self.write_config(
                 run_dir,
                 {
-                    "app.log_level": "info",
+                    "app.log_flush_interval_ms": "500",
                     "app.online.fps": "15",
                     "net.block.[FC1].out": "128",
                 },
             )
             # module dump は完全修飾キーで、実際に読まれた設定だけを含む。
-            self.write_config(run_dir, {"app.log_level": "info"}, name="app.txt")
+            self.write_config(run_dir, {"app.log_flush_interval_ms": "500"}, name="app.txt")
 
             code, result, _ = self.run_cli_json(
                 repo, ["config", "run_a", "--config-key", "app.*", "--config-key", "net.*"]
@@ -698,7 +698,7 @@ class ConfigSubcommandTest(InspectRunTestBase):
 
             self.assertEqual(code, 0)
             marks = {item["key"]: item["effective"] for item in result["runs"][0]["config"]["values"]}
-            self.assertTrue(marks["app.log_level"])
+            self.assertTrue(marks["app.log_flush_interval_ms"])
             # 判定できないものを false と言わない。
             self.assertIsNone(marks["app.online.fps"])
             self.assertIsNone(marks["net.block.[FC1].out"])
@@ -708,7 +708,7 @@ class ConfigSubcommandTest(InspectRunTestBase):
             )
             self.assertEqual(code, 0)
             keys = [item["key"] for item in result["runs"][0]["config"]["values"]]
-            self.assertEqual(keys, ["app.log_level"])
+            self.assertEqual(keys, ["app.log_flush_interval_ms"])
 
     def test_diff_reports_differing_keys_and_absence(self):
         with tempfile.TemporaryDirectory() as temp_dir:

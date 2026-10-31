@@ -56,7 +56,6 @@ wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 struct RunnerApp::Config : public anet::Config {
     std::string run_name = "run_{t}";
     std::string runs_dir = "runs";
-    std::string log_level = "info";
     int log_flush_interval_ms = 500;
     int drain_timeout_sec = 3600;
     bool show_error_dialog = true;
@@ -76,7 +75,6 @@ struct RunnerApp::Config : public anet::Config {
     {
         ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, runs_dir);
-        ANET_READ_CONFIG(config_data, log_level);
         ANET_READ_CONFIG(config_data, log_flush_interval_ms);
         ANET_READ_CONFIG(config_data, drain_timeout_sec);
         ANET_READ_CONFIG(config_data, show_error_dialog);

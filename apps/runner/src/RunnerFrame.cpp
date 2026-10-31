@@ -170,6 +170,9 @@ void ShowUiOperationError(
 
 using namespace runner_frame_detail;
 
+// Logs ツールの説明。未確認の WARN/ERROR があるときは件数を後ろに足す。
+constexpr const char* kLogViewHelp = "Show/hide Logs";
+
 
 RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
     : anet::rl::gui::AuiLayoutFrame(title, wxSize(1024, 1024)),
@@ -205,12 +208,13 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
     aui_mgr_.Update();
     ApplyLayoutPolicy();
 
-    // 初期ログレベルに合わせてメニューのチェック状態を更新
-    std::string init_log_level = wxGetApp().GetConfigData().Get("app.log_level", "info");
-    if (init_log_level == "verbose") GetMenuBar()->Check(ID_LogLevelVerbose, true);
-    else if (init_log_level == "warn") GetMenuBar()->Check(ID_LogLevelWarn, true);
-    else if (init_log_level == "error") GetMenuBar()->Check(ID_LogLevelError, true);
-    else GetMenuBar()->Check(ID_LogLevelInfo, true);
+    // 初期ログレベル（LogPanel が設定から読んだもの）に合わせてメニューのチェック状態を更新
+    switch (log_panel_->GetLogLevel()) {
+    case wxLOG_Info: GetMenuBar()->Check(ID_LogLevelVerbose, true); break;
+    case wxLOG_Warning: GetMenuBar()->Check(ID_LogLevelWarn, true); break;
+    case wxLOG_Error: GetMenuBar()->Check(ID_LogLevelError, true); break;
+    default: GetMenuBar()->Check(ID_LogLevelInfo, true); break;
+    }
 
     // ウィンドウ表示
     Centre();
@@ -397,7 +401,7 @@ void RunnerFrame::SetupToolBars()
     // Panel 表示ツールは View menu と同じ ID を共有し、同じ pane 操作へ到達させる。
     panel_toolbar_ = new wxAuiToolBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, style);
     panel_toolbar_->SetOverflowVisible(false);
-    panel_toolbar_->AddTool(ID_LogView, "Logs", wxBitmapBundle(), "Show/hide Logs", wxITEM_CHECK);
+    panel_toolbar_->AddTool(ID_LogView, "Logs", wxBitmapBundle(), kLogViewHelp, wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_EvalPanel, "Eval View", wxBitmapBundle(), "Show/hide Eval View", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_QValuePanel, "Q-Values", wxBitmapBundle(), "Show/hide Q-Values", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_EvalTracePanel, "Trace", wxBitmapBundle(), "Show/hide Evaluation Trace", wxITEM_CHECK);
@@ -430,7 +434,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     const int main_pane_width = std::max(kMinTrainWidth, (initial_client_width - initial_q_value_width) / 2);
 
     // Log View
-    log_panel_ = new LogPanel(this);
+    log_panel_ = new LogPanel(this, wxGetApp().GetConfigData());
     wxAuiPaneInfo log_info = wxAuiPaneInfo()
         .Name("LogPanel").Caption("Logs")
         .Bottom().Layer(kTrainEvalLayer).Row(0).Position(0)
@@ -600,6 +604,44 @@ void RunnerFrame::UpdateToggleBitmap(
     toolbar->Refresh(false);
 }
 
+void RunnerFrame::UpdateLogAlertBadge()
+{
+    // Logs pane の未確認の WARN/ERROR を、pane を閉じていても Panels toolbar の Logs に印で示す。
+    if (panel_toolbar_ == nullptr || log_panel_ == nullptr) return;
+
+    // 200ms 周期で呼ばれるため、件数が変わったときだけ差し替える。
+    const auto alerts = log_panel_->GetUnviewedAlerts();
+    if (shown_log_alerts_ == alerts) return;
+    const bool had_badge = shown_log_alerts_.has_value() && shown_log_alerts_->Total() > 0;
+    const bool has_badge = alerts.Total() > 0;
+    shown_log_alerts_ = alerts;
+
+    if (has_badge) {
+        const wxArtID icon = alerts.errors > 0 ? wxART_ERROR : wxART_WARNING;
+        panel_toolbar_->SetToolBitmap(ID_LogView, wxArtProvider::GetBitmapBundle(icon, wxART_TOOLBAR, kToolBitmapSize));
+        panel_toolbar_->SetToolShortHelp(ID_LogView, wxString(kLogViewHelp) + " (" + alerts.Describe() + ")");
+    } else {
+        panel_toolbar_->SetToolBitmap(ID_LogView, wxBitmapBundle());
+        panel_toolbar_->SetToolShortHelp(ID_LogView, kLogViewHelp);
+    }
+    if (had_badge == has_badge) {
+        panel_toolbar_->Refresh(false);
+        return;
+    }
+
+    // 印の有無で Logs の幅が変わる。toolbar の idle 更新の外で測り直し、pane を並べ直す。
+    CallAfter([this] {
+        panel_toolbar_->Realize();
+        panel_toolbar_->InvalidateBestSize();
+        auto& pane = aui_mgr_.GetPane(panel_toolbar_);
+        if (!pane.IsOk()) return;
+        SyncDockSizesToPanes();
+        pane.BestSize(panel_toolbar_->GetBestSize());
+        aui_mgr_.Update();
+        ApplyLayoutPolicy();
+    });
+}
+
 void RunnerFrame::SetAlwaysOnTopMode(AlwaysOnTopMode mode)
 {
     // 選択を起動中の状態へ反映し、次回の定期更新を待たずに topmost を切り替える。
@@ -721,6 +763,11 @@ void RunnerFrame::SetupEvents()
             event.Check(anet::rl::gui::IsPaneOpen(pane, HasMaximizedPane()));
         }, id);
     }
+    // 後から Bind した handler が先に呼ばれるため、Logs の印を更新してから上の表示状態の同期へ回す。
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        UpdateLogAlertBadge();
+        event.Skip();
+    }, ID_LogView);
 
     const std::pair<int, float> train_fps_items[] = {
         {ID_TrainFpsConfig, train_config_fps_}, {ID_TrainFpsOff, 0.0f}, {ID_TrainFps1, 1.0f},

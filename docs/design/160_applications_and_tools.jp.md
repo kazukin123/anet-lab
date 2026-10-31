@@ -32,7 +32,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは強制行動で駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
-| `LogPanel` | wxLogの画面表示とlevel filterを提供する |
+| `LogPanel` | wxLogの画面表示とlevel filterを提供する。WARN以上とVERBOSEの色分け、薄い時刻、未確認のWARN/ERRORの件数、Auto-scroll・Wrap・Indent・全体コピー・クリア・検索の操作帯を持つ |
 | `DefaultViewFactory` | Env class IDからTrain/Eval用Viewを生成する |
 | `ImageProviderManager` | configで定義された画像Provider/Observerを生成・登録する |
 | `RunnerThread` | Train RunnerをUI threadから分離し、pause、resume、stopを提供する |
@@ -132,6 +132,28 @@ TraceモードはTracePlayerの選択の有無で判定する。RunnerFrameはan
 行のダブルクリックは行選択と通知内容のダンプを行う。`TraceDumpFormatter`はGUIに依らず、`Trace dump step=... lane=...:`で始まるINFOの1行とVERBOSEの複数行1件を作る。INFOには全列（表の書式、未確定はpending）と、名前・countsの全欄・実行行動・forced・報酬・終端・action_infoのinfo/aux・step_resultのauxを出す。通知項目は列の構成によらず出す。単一要素Tensorは値、複数要素と空Tensorは形・型・元deviceのみ、未定義はundefinedとする。VERBOSEは状態・行動情報・Step結果の既存の文字列化にinfoと不透明なReplay初期優先度ヒントを加える。転送と文字列化はダンプ時だけ行い、GPUの内容はCPUへ写して書く。追従paneのsnapshotは出さない。ログ欄の既存のlevel処理を維持する。
 
 [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。[PRD105検証資材](../../core/anet-core/testdata/prd105/README.md)に、矢印・forced・並べ替え・再生順・ダンプと4環境の学習値比較の手順を置く。
+
+### 3.5 Logs
+
+`LogPanel`は下段のLogs paneで、上部の操作帯とRichEdit（`wxTE_RICH2`）のログ欄を持つ。Logsの設定は`app.log_panel.*`に置く。表示levelの初期値は`app.log_panel.level`（Runのログファイルには効かない）、Auto-scroll・Wrap・Indentの既定は`app.log_panel.auto_scroll`・`app.log_panel.wrap`・`app.log_panel.indent`（共通設定でいずれも`true`）から読み、構築時に押したときと同じ経路で反映する。View menuのLog Levelのチェックは、LogPanelが読んだlevelに合わせる。操作帯は左から、未確認の警告・Auto-scroll・Wrap・Indent・Copy all・未読の行数・伸びる検索欄・Older/Newer match・Clear logの順に並ぶ。未確認の警告と未読の行数は0件の間は欄ごと隠す。未確認の警告は左端に置いて残りを左へ詰め、未読の行数は検索欄の左に置いて、出入りで検索欄の幅だけが変わるようにする（Auto-scrollなどのボタンの位置を動かさない）。Clear logは誤操作を避けるため右端に置き、wxの標準アイコンにゴミ箱が無いため、再生ボタンと同じくシステム文字色のSVGで描く。操作の結果にステータスバーは使わない。
+
+ログの受け口`LogPanel::Target`はwxLogを継承し、表示levelで絞ってから、時刻と本文（`[I] 本文`）を分けて`AppendRecord`へ渡す。時刻はwxの`TimeStampMS`と同じ書式から後ろの`: `だけを除いたもので、パネルでは半角スペース1つで本文へ続ける（Runログファイルの形は変えない）。Debug・Traceは基底の整形を通してデバッグ出力へ回す。Runログの`wxLogChain`がこの受け口を前の受け口として保持するため、受け口は差し替えない。区切りの改行は次の記録の前に置き、末尾に空行を残さない。
+
+色はFATAL/ERROR・WARN・VERBOSEの本文に付け、行の頭の時刻はlevelによらず本文より一段薄い青みの灰色にして、折り返したときも記録の境目が分かるようにする。ライト・ダークはログ欄の背景の明るさで選び、テーマ変更の通知で全行を塗り直す（色付きの行、時刻の順）。
+
+追記は利用者の選択を保つ。Auto-scroll（既定ON）がOFFの間は、表示の先頭の文字と横位置も保つ。ONに戻すと末尾へ飛ぶ。状態は保存しない。
+
+`+N`は、Auto-scrollを止めている間に届き、まだ画面に映っていない行の数で、止めている間に自分のペースで続きを読むための入り口である。行の頭の位置を古い順に控え、表示の下端の行までに頭が映った行を既読にする（スクロールバーで飛ばした行も既読とし、上へ戻っても未読に戻さない）。既読は追記・スクロールが止まったとき・ジャンプ・検索・`+N`・折り返しや字下げの切替・大きさの変化・paneの再表示で進め、paneが隠れている間は進めない。映る位置に届いた行はすぐ既読になる。`+N`を押すと、次の未読の行を直前の3行と一緒に表示の上の方へ出し、映った分だけを既読にする。押すたびに続きへ進み、押した後に届いた行も未読に足す。最下まで映っても、Auto-scrollはOFFのままにする（追従を始めると、行がまとまって届いたときに読む前に押し出されるため）。ONに戻すかClearで0にする。未確認の警告は画面に映っただけでは減らさないが、`+N`は流れの目安なので映れば既読とする。
+
+利用者のスクロール（ホイール・キー・スクロールバー・選択のドラッグ）で最下が見えなくなると、Auto-scrollは自動でOFFになる。通知はnativeの処理の前に来て、RichEditはホイールのスクロールを通知の後も続けることがあるため、一続きの操作の最初に最下が見えていたかを控え、表示の先頭が100 ms動かなくなってから決める。通知の来ないスクロールに備えて、追記の前にも最下が見えているかを確かめる。OFFの間に、操作の前は見えていなかった最下がスクロールで見えたら、自動でONに戻す。判定を待っている間に行が届いたときは、追記で最下が外れる前に決める。操作の前から最下が見えていたとき（最下にいるままのクリックやキー）は戻らない。最下へのスクロール（`SB_BOTTOM`）と横の通知は自ら送るため見ない。ログ欄の大きさが変わったときは、ONの間は最下を見せ続ける。ジャンプ・検索・`+N`はスクロールの通知を出さないので、OFFのままになる。
+
+Wrap（既定ON）はログ欄を作り直さずに切り替え、MSWは`EM_SETTARGETDEVICE`、それ以外は`wxTE_DONTWRAP`の付け外しで行う。ログ欄はOFFへ戻せるよう`wxHSCROLL`付きで作ってから折り返す。wxはRICH2に`ES_DISABLENOSCROLL`を付けるため、MSWでは折り返している間だけ`EM_SHOWSCROLLBAR`で横スクロールバーを隠す。Indent（既定ON）は折り返した2行目以降を本文の頭（時刻と種類の後ろ）にそろえる段落の字下げで、既にある行は全体への1回の指定、これから足す行は追記ごとの既定の書式でそろえる。wxは既定の書式を合成するときに2行目以降の字下げを引き継がないため、追記ごとに字下げを含めて渡す。幅は時刻と種類の文字数を等幅フォントで測り、1/10 mmに直す。記録の中の改行で始まる続きの行は別の段落なので字下げしない。折り返さない間は効果がないので、Indentは押せなくする。
+
+未確認の警告は、表示したWARN以上の記録を古い順に数える。ボタンは一番古い未確認の行を選び、その3行上から表示する。▾の`Mark all as viewed`は全件を見たことにする。画面に映っただけでは数を減らさず、表示しないlevelの記録とClearした記録は数えない。RunnerFrameは`GetUnviewedAlerts`をUpdate UIで読み、Panels toolbarのLogsに印と件数のtooltipを出す。印は未確認があるときだけ幅を取り、印の有無が変わったときはtoolbarの大きさを測り直してpaneを並べ直す（toolbarのidle更新の外で行う）。
+
+検索は大文字小文字を区別しない部分一致で、Enterと▲で古い方へ、Shift+Enterと▼で新しい方へ進む。語が空の間は▲▼を押せない。起点は選択、選択が無ければ末尾で、端まで行ったら反対の端から続ける。一致が無ければ検索欄の背景を薄い赤にする。Ctrl+FはLogs paneにフォーカスがあるときだけ検索欄へ移り、検索欄のEscはログ欄へ戻る。警告へのジャンプと検索はAuto-scrollをOFFにする。
+
+Copy allは表示中の全行をOSの改行で渡す。ClearはRunログファイルに触れない。
 
 ## 4. 静的構造
 
@@ -376,7 +398,7 @@ sequenceDiagram
 
 - [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 
-- Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。 step数の変更は`AnetRLRunner-gui-test "[eval_steps]"`で設定検証・Trace保持を確認し、実RunnerAppのメニュー・Custom入力・キャンセル・自動評価・手動Stepは`AnetRLRunner-gui-test "[eval_steps_menu]"`を単独processで実行する。後者は通常スイートには含めない。
+- Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。 step数の変更は`AnetRLRunner-gui-test "[eval_steps]"`で設定検証・Trace保持を確認し、実RunnerAppのメニュー・Custom入力・キャンセル・自動評価・手動Stepは`AnetRLRunner-gui-test "[eval_steps_menu]"`を単独processで実行する。後者は通常スイートには含めない。Logs paneは`AnetRLRunner-gui-test "[log_panel]"`で末尾の空行・時刻の形と色・選択と表示位置・未読の行数と`+N`の読み進め・Auto-scrollの自動解除と再開・設定からの既定・Wrap・Indent・検索・未確認の警告を確認する。Copy allは利用者のクリップボードを書き換えるため、`"[log_panel_clipboard]"`を明示したときだけ実行する。`"[log_panel_demo]"`はRunを起こさずに各levelの行を1秒ごとに足す窓を開き、閉じるまで手で操作を試せる（Panels toolbarの印はRunnerで確かめる）。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
 - Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`で、Run/Tag操作、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを関心別に確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。

@@ -110,7 +110,10 @@ backend.@non-deterministic.deterministic_algorithms = false
 
 app.run_name ?= run_{t}
 
-app.log_level ?= info
+app.log_panel.level ?= info
+app.log_panel.auto_scroll ?= true
+app.log_panel.wrap ?= true
+app.log_panel.indent ?= true
 
 app.log_flush_interval_ms ?= 500  # 0で定期flushを無効化。
 

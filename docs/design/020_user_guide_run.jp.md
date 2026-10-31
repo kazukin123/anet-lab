@@ -433,7 +433,7 @@ Runner画面はwxAUIのpaneで構成される。
 - `Train View`: Train Runnerから受け取ったEnv固有Viewを表示する。
 - `Evaluation View`: Trainとは別のEval Envを手動またはtimerで進める。初期状態では非表示である。
 - `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。
-- `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。
+- `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。起動時の表示levelは`app.log_panel.level`、操作帯のAuto-scroll・Wrap・Indentの既定は`app.log_panel.auto_scroll`・`app.log_panel.wrap`・`app.log_panel.indent`（いずれも既定`true`）で指定する。
 - `HeatMap` / `Conv2d`: `View`メニューから追加する補助pane。
 
 ![DropMergeのTrain ViewとEvaluation View](assets/020_runner_dropmerge_train_eval.png)

@@ -68,6 +68,7 @@ private:
     void ApplyAlwaysOnTopMode();
     void UpdateToggleBitmap(wxAuiToolBar* toolbar, int tool_id, bool running, std::optional<bool>& shown_as_running);
     void UpdateToolBarBitmaps();
+    void UpdateLogAlertBadge();
     void UpdateTrainStatus();
     bool TrySaveAgent(const std::filesystem::path& file_path);
     void ShowEvalPaneIfHidden();
@@ -115,6 +116,8 @@ private:
     // toggle bitmap へ反映済みの実行状態 (未反映は nullopt)。再生/一時停止の差し替え判定に使う。
     std::optional<bool> train_toggle_running_;
     std::optional<bool> eval_toggle_running_;
+    // Logs ボタンの印へ反映済みの未確認件数 (未反映は nullopt)。
+    std::optional<LogPanel::UnviewedAlerts> shown_log_alerts_;
     AlwaysOnTopMode always_on_top_mode_ = AlwaysOnTopMode::Off;
 
     const float train_config_fps_;
