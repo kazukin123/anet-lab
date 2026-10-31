@@ -285,7 +285,7 @@ eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[t
 
 畳み方は `max_seen` / `min_seen`（`reset_game()` 直後の値を含む最大・最小）、`inc_count` / `dec_count`（前フレームからの増加・減少回数）、`reach_count:N`（0～255 の N へ入った回数）の 5 種。比較するのは生の 1 バイトで、毎 `act()` 後に観測する。集計は実ゲーム 1 回を単位とし、episodic-life の soft reset をまたいで継続、`reset_game()` ごとに仕切り直す。
 
-Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了時の確定値を返し、life-only終端ではNaNとする。どこかのゲームが n を使えば既知キーなので、現在ゲームに n がない場合も NaN を返す。番号は全ゲーム共通の大まかな意味を保つ: 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数。当てはまらないゲームには番号を付けない。trace は `@episode_end`、scalar の `mean.` は完了 lane だけから値を取る。番号を持たないゲームでは trace は `null`、scalar は行が出ない。番号の具体的なラベルは Run の `config/config_data.txt` で引く。
+Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了時の確定値を返し、life-only終端ではNaNとする。どこかのゲームが n を使えば既知キーなので、現在ゲームに n がない場合も NaN を返す。番号は全ゲーム共通の大まかな意味を保つ: 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数。当てはまらないゲームには番号を付けない。4 は共通の意味を持たず、ゲームごとに数えたいものへ使う（ゲームをまたいで 4 の列を並べて読まない）。trace は `@episode_end`、scalar の `mean.` は完了 lane だけから値を取る。番号を持たないゲームでは trace は `null`、scalar は行が出ない。番号の具体的なラベルは Run の `config/config_data.txt` で引く。
 
 | ゲーム | 番号付き定義 | 番号なしの参考定義 |
 |---|---|---|
@@ -293,6 +293,8 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 | qbert | `1:round_clear` = `0xE3 inc_count` | `side_color` = `0x82 min_seen` |
 | phoenix | `1:wave_clear` = `0xCA inc_count`、`2:boss_kill` = `0xFC inc_count` | なし |
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
+| beam_rider | `1:sector_clear` = `0x80 inc_count`、`2:boss_kill` = `0x94 reach_count:141`、`4:torpedo_fired` = `0xD3 dec_count` | なし |
+| freeway | `4:car_hit` = `0xEA reach_count:91` | なし |
 
 番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
 

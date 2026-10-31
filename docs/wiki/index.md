@@ -14,6 +14,8 @@
 - [DropMerge](subjects/dropmerge.md) — IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの探索置換はNEETを抑えたが、batch増加の学習側の上乗せの大部分はノイズ感度の差だった。 （別名: DropMerge, dm, Suika, NEET）
 - [Atari横断](subjects/atari.md) — 学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。観測縮小のarea表記は数値一致を意味しない。 （別名: Atari, ALE, Atari-5, Atari5）
 - [Breakout](subjects/breakout.md) — LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だった。BTR型NNとSNの効果はreplay ratioと学習予算に依存し、SN無しの早期優位が後期に反転した。 （別名: Breakout, breakout）
+- [BeamRider](subjects/beam_rider.md) — RAM の 0x80 はセクター番号、0x94 はボスを魚雷で倒したフレームだけ 141 になり、0xD3 は魚雷の残りだった。ボスを倒すと残機ぶんのボーナスが入り、その間は残機が減って見える。 （別名: BeamRider, beam_rider, Beamrider, br）
+- [Freeway](subjects/freeway.md) — RAM の 0xEA は効果音のタイマーで、91 に入った回数が車に当たった回数と一致した。面とボスが無く、RAM の番号は 4 だけを置いた。 （別名: Freeway, freeway, fw）
 - [ImageCls](subjects/imagecls.md) — Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/CutMixの86.0〜86.4%（seed 1の3本）で、同じ学習条件のConvNeXt Atto・Femto（stem stride 2）は83.1・83.7%だった。 （別名: ImageCls, imagecls, imgcls, Food-101, food101, 画像分類）
 - [kung_fu_master](subjects/kung_fu_master.md) — 実時間優先3 seedのうちseed3はボス行きを学び、15M以降の評価の面クリアはほぼ100%だったが、2026-10に設定を変えた22本はどれもボス行きに入らなかった。最終スコア75,000点の断絶は1UPへの到達に対応し、ボスや面の進行は示さなかった。 （別名: KFM, kfm, Kung-Fu Master, KungFuMaster）
 
