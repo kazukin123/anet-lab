@@ -3,6 +3,7 @@
 > 2026-10-31 起票（Claude Code、`anet-create-prd`。グリルあり）。
 > 2026-10-31 別モデル（Fable）の検討のあと（同じ枠）: 初期化中に閉じる要求があったとき、構築のあと後半を行わずに閉じるよう D7 を改めた（後半を行う理由にした「close 手順は後半を前提にする」がコードと合わなかった。§1.4 の 11。ユーザーの裁定）。初期化中の OS のログオフ・シャットダウンは拒否せず、構築の終わりを待って閉じると D8 に決めた（wx は OS の終了をまず拒否できる閉じる要求として届ける。§1.4 の 13。ユーザーの裁定）。RunManager が RUNNING にならなかったときに close の保存と終了後の後始末で落ちる経路を D4 で塞ぎ、拒否できない閉じ方で構築が失敗していたときの扱いを D8 に、構築の結果を 1 回だけ受け取ることを D2 に、HeatMap のハンドラ側の確かめを D6 に足した。§4.1 に案の代価の比較を足し、受入 3・4 を直した。
 > 2026-10-31 実装側（Codex）の指摘のあと: wxWidgets 3.3.3 のソースで、OS の終了の確定の通知は Frame の閉じる要求にならず、終了処理（`OnExit`）を直接呼んでプロセスを終えると分かったので、§1.4 の 13 を訂正した。D8 から「OS の終了が決まったあとの通知」を外し、その通知は wx の扱いのまま D10 の待ちだけを通すと決めた（待機と Close の道は足さない。ユーザーの裁定）。問い合わせは Frame の側で ✕ と見分けられないので、RunnerApp が Frame の閉じる操作と分けて受けることを D8 に書いた。§5.2・§5.4・§5.5・§9 を合わせた。改訂のレビューの指摘で、確定の通知の道では `OnExit` の前に Frame とパネルが閉じる要求を経ずに削除されることを §1.4 の 13・D10・§5.2 に書き、その道で構築が失敗していたときの終了コード（1）を D10・§5.3 に、表示を省くことを G4 に書いた。160 §7.1 の「`OnExit()` は cleanup 専用」を直す対象に D13・受入 8 で加えた。
+> 2026-10-31 実装のレビューのあと: batchrun の構築の失敗が stderr にも出るとしていた §1.4 の 3・G4・受入 5 を訂正した。今の設計では、Frame を作ったあとのエラーは LogPanel と Run ログへ出て、stderr には出ない（068 の D5）。GUI テストの待ちの上限を、ユーザーが承認した実装計画の値（30 秒）に合わせた（§6 の 6）。
 > 起点: 2026-10-31、Runner の起動直後にウィンドウの中が描かれず、前の画面の残りが見えたまま乱れ、しばらくすると「応答なし」になる。ログ欄だけは起動中もログが流れて見える（§1.3）。
 > 関連: [071](071_uncaught_fatal_visibility_10prd.md)（捕まらない fatal の可視化。OnInit の冒頭と worker の例外に触るが、関心は別。NG5）、[068](done/068_batchrun_fatal_error_handling_10prd.md)（batchrun の致命エラー処理。本 PRD は §7.1 の fatal 経路をそのまま使う）、[999_runner_theme_switch](999_runner_theme_switch_10prd.md)（RunnerFrame の外観の決め直し。触る箇所は重ならない）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §5.1・§7.1。
 
@@ -50,7 +51,7 @@ Run ログの時刻から、表示から OnInit の終わりまでを区切っ�
 |---|---|---|
 | 1 | `LOG` は wxLog を通る。メインスレッドで出したログは、その場で LogPanel と Run ログファイル（C の入出力のバッファ経由）へ渡る。メインスレッド以外で出したログは wx が溜め、メインスレッドのアイドル時と、`app.log_flush_interval_ms`（既定 500 ms）ごとの書き出しのタイマーで出す。学習スレッドのログは今この経路で出ている | [log.hpp:117-121](../../core/anet-core/include/anet/log.hpp)、:226-264、[RunnerApp.cpp:517-546](../../apps/runner/src/RunnerApp.cpp) |
 | 2 | 学習スレッドで出た例外は、wx の `StoreCurrentException` で控え、`CallAfter` でメインスレッドで投げ直す。メインループ中の例外は `OnExceptionInMainLoop` が fatal の印を立ててエラーを表示し、ループを終える。`OnRun` は、印が立っていれば終了コード 1 を返す | [RunnerApp.cpp:475-478](../../apps/runner/src/RunnerApp.cpp)、:712-728、:776-787、[160 §7.1](../design/160_applications_and_tools.jp.md) |
-| 3 | エラーの表示は `app.show_error_dialog` に従う。online 構成はダイアログ、batchrun 構成は stderr と Run ログ | [160 §7.1](../design/160_applications_and_tools.jp.md)、[068](done/068_batchrun_fatal_error_handling_10prd.md) |
+| 3 | エラーの表示は `app.show_error_dialog` に従う。online 構成はダイアログを出す。batchrun 構成はダイアログを出さず、エラーをログの出力先へ書く。出力先は起動の段で移る。設定の解決の直後に stderr（Run フォルダができる前は親プロセスの stderr、標準出力の記録を始めたあとは `stderr.log`）へ切り替える。Frame を作ると、LogPanel がその出力先を置き換えて前の出力先へは渡さない。続けて Run ログのファイルを LogPanel と並べてつなぐ。そのため、Frame を作ったあとのエラー（RunManager の構築の失敗を含む）は LogPanel と Run ログへ出て、stderr には出ない | [160 §7.1](../design/160_applications_and_tools.jp.md)、[068](done/068_batchrun_fatal_error_handling_10prd.md) の D5、[RunnerApp.cpp:161-171](../../apps/runner/src/RunnerApp.cpp)・:349-351・:380-383・:515、[LogPanel.cpp:147-157](../../apps/runner/src/LogPanel.cpp)・:439、[ErrorDialog.cpp:11-18](../../apps/runner/src/ErrorDialog.cpp) |
 | 4 | launcher は、Runner の終了コードが 0 以外なら失敗として扱う | [11_batch_run.bat:65-67](../../apps/11_batch_run.bat) |
 | 5 | RunManager の状態が RUNNING でないとき、OnInit は `Failed to initialize RunManager.` を出して、学習を始めずに true を返す（ウィンドウは残る） | [RunnerApp.cpp:409-413](../../apps/runner/src/RunnerApp.cpp) |
 | 6 | RunnerFrame は `frame_->Initialize` が済んだかを覚えており、Eval の切替・Eval Step・Save・Train FPS・Eval FPS・Eval Steps per Frame のメニューとツールバーを、済むまで Update UI で無効にする。Eval の切替・Eval Step・Save は、ハンドラ側でも済んだかを見て戻る。Train の切替は学習スレッドが動くまで無効。Env の View への入力は、View が `frame_->Initialize` で作られるまで届かない | [RunnerFrame.cpp:733-806](../../apps/runner/src/RunnerFrame.cpp)、:1221-1226、:1251-1261、:1290-1292 |
@@ -71,7 +72,7 @@ Run ログの時刻から、表示から OnInit の終わりまでを区切っ�
 - G1: 起動直後からウィンドウ全体が描かれ、動かしても、重ねても、大きさを変えても乱れない。「応答なし」にならない。
 - G2: 構築中のログが、LogPanel と Run ログファイルへ、書き出しの周期（`app.log_flush_interval_ms`）程度の遅れで流れる。
 - G3: 初期化中に閉じる操作やメニュー・ツールバーの操作をしても、落ちたり状態が壊れたりしない。
-- G4: 構築の中で例外が出て止まったときの見え方を、今と同じにする。online ではエラーダイアログ、batchrun では stderr と Run ログに出て、終了コードは 0 以外になる。ただし、初期化中に OS の終了の確定の通知が届いた道（実際には起きない。D10）では、エラーの表示を省き、終了コードだけを 0 以外にする。RunManager が例外を出さずに RUNNING でない状態で戻るとき（§1.4 の 12）も、今と同じく `Failed to initialize RunManager.` をログに出してウィンドウを残す（D4。エラーダイアログは出さず、人が閉じれば終了コードは 0）。
+- G4: 構築の中で例外が出て止まったときの見え方を、今と同じにする。online ではエラーダイアログ、batchrun ではダイアログを出さずに Run ログに出て（stderr には出ない。§1.4 の 3）、終了コードは 0 以外になる。ただし、初期化中に OS の終了の確定の通知が届いた道（実際には起きない。D10）では、エラーの表示を省き、終了コードだけを 0 以外にする。RunManager が例外を出さずに RUNNING でない状態で戻るとき（§1.4 の 12）も、今と同じく `Failed to initialize RunManager.` をログに出してウィンドウを残す（D4。エラーダイアログは出さず、人が閉じれば終了コードは 0）。
 - G5: 学習の結果を変えない。同じ seed・決定的モードで、変更前後の metrics が一致する。
 
 **非ゴール**
@@ -200,7 +201,7 @@ Run ログの時刻から、表示から OnInit の終わりまでを区切っ�
 3. ログの文言: D12 と D7 のとおり。`elapsed_sec` は小数点以下 2 桁（理由: 起動の所要を Run ログで追え、閉じる要求を受けたことが見える。桁はユーザーの指定）。
 4. 拒否できない閉じ方と OS の終了の問い合わせ: 構築スレッドの終わりをその場で待ってから close 手順へ進む（D8。理由: 構築を止める口が無く、待たずに後始末すると落ちる。OS の終了は 1 回で通す）。
 5. 構築スレッドの名前: `RunInitThread`（D11）。
-6. GUI テストの待ち方: テストの側でイベントループを有効にし（gui-test は既定ではループを持たず、`Yield` ではタイマーが配られない）、初期化が済んだかを、ループを回しながら見る。120 秒を超えたら失敗にする（理由: 回しながら待たないと構築の知らせが処理されず、上限が無いと失敗したときにテストが止まらない）。
+6. GUI テストの待ち方: テストの側でイベントループを有効にし（gui-test は既定ではループを持たず、`Yield` ではタイマーが配られない）、初期化が済んだかを、ループを回しながら見る。30 秒を超えたら失敗にする（理由: 回しながら待たないと構築の知らせが処理されず、上限が無いと失敗したときにテストが止まらない。30 秒はユーザーが承認した実装計画の値（2026-10-31）で、CartPole と 3 秒の遅延の構築には足りる）。
 7. 自動の確かめ: gui-test に構築を数秒遅らせるテスト用の Agent を足し、構築中のメインスレッドのタイマー、完了前の LogPanel のログ、初期化中の閉じる操作と OS の終了の問い合わせを確かめる。隠しタグ `[.][prd109_startup]` で、RunnerApp を起動するケースごとに別プロセスで実行する（理由: 実 Run の長い構築は実機でしか出ないが、仕組みは短い遅延で確かめられる。RunnerApp を起動するテストは別プロセスで動かす慣行）。
 8. 実機の確かめ: Atari5 構成で人が目で確かめる（受入 6。理由: OS の判定と描画は実機でしか見られない）。
 9. 学習値の確かめ: PRD098 の段 0 の短縮条件で、変更前後の scalar の点を比べる（受入 7。理由: [PRD105](105_eval_trace_arrow_key_forced_action_10prd.md) で使った既存の比べ方で、構築するスレッドが変わっても学習の値が変わらないことを直接見られる）。
@@ -222,7 +223,7 @@ Run ログの時刻から、表示から OnInit の終わりまでを区切っ�
    - 拒否できない閉じ方で構築が失敗: `agent.construction_fails = true` を足し、構築中に `Close(true)` を出すと、プロセスが落ちず、`SlowInitTestAgent failed by agent.construction_fails.` を含む英語のエラー行が Run ログに出て、Run フォルダに `agent_close.anet` ができない。
    - RUNNING にならない、構築中に閉じる: 学習用 env を作れない設定（登録されていない `env.class_id` など。Run ログに `Failed to create env.` と `Failed to initialize RunManager.` が出るもの。`SlowInitTestAgent` は使わない）で、`OnInit()` が戻った直後、イベントを処理する前に拒否できる閉じる操作を出すと（構築の結果はイベントで届くので、この操作は必ず初期化中に当たる）、Frame はその時点では残り、構築が終わってから閉じ、プロセスが落ちず、`agent_close.anet` ができない。
    - RUNNING にならない、構築のあとに閉じる: 同じ設定で、閉じる操作を出さずに `Failed to initialize RunManager.` が出るまで待つと、Frame が残る。そのあと拒否できる閉じる操作を出すと、Frame が閉じ、プロセスが落ちず、`agent_close.anet` ができない。
-5. 構築の失敗: `run.eval_schedule.[nosuch].interval = 1`（RunManager の構築の中で止まる設定。[trainer.cpp:961-964](../../core/anet-core/src/trainer.cpp)）を CartPole の `--config` に足し、`app.show_error_dialog = false` で Runner の exe を起動すると、終了コードが 1 で、Run ログと `stderr.log` に `Unknown run.eval_schedule tag 'nosuch'` を含む英語のエラー行が出る。
+5. 構築の失敗: `run.eval_schedule.[nosuch].interval = 1`（RunManager の構築の中で止まる設定。[trainer.cpp:961-964](../../core/anet-core/src/trainer.cpp)）を CartPole の `--config` に足し、`app.show_error_dialog = false` で Runner の exe を起動すると、終了コードが 1 で、Run ログに `Unknown run.eval_schedule tag 'nosuch'` を含む英語のエラー行が出る。`stderr.log` にはその行が出ない（§1.4 の 3。今と同じ）。
 6. 実機の確かめ（人、Atari5 構成の qbert、online）:
    - 起動してから `Run initialized.` が出るまでの間に、Frame をドラッグで動かし、別のウィンドウを Frame の上に重ねて外す。乱れが残らず、タイトルに「(応答なし)」が出ない。
    - その間、構築のログ（`BatchEnvBuilder`・`NetworkBuilder` など）が LogPanel に流れる。

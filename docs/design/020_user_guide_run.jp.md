@@ -399,14 +399,19 @@ apps\runner\bin\Release\AnetRLRunner.exe `
 
 `--config`はworkspace、履歴、`last_workspace.txt`を一切参照しない完全自己記述モードである。`--workspace`または`--select-workspace`との併用は起動エラーになる。
 
-起動時は概ね次の順に初期化される。
+ウィンドウが表示されたら、Logsで起動のログを確認する。初期化中もウィンドウを移動・サイズ変更できる。
 
-1. workspaceを確定し、共通main config、導出`app.runs_dir`、workspace config、コマンドラインoverrideの順で解決する。
-2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
-3. libtorch backendと登録済みEnvを初期化する。
-4. `RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
-5. Train、Eval、QValue、Logの各パネルを接続する。
-6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+> [!NOTE]
+> 通常の起動時は、次の順に初期化が進む。
+>
+> 1. workspaceを確定し、共通main config、導出`app.runs_dir`、workspace config、コマンドラインoverrideの順で解決する。
+> 2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
+> 3. libtorch backendと登録済みEnvを初期化する。
+> 4. ウィンドウとLogsを表示し、そのあと背景で`RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
+> 5. 構築が正常に終わり、終了要求がなければ、メインスレッドでTrain、Eval、QValueの各パネルを接続する。
+> 6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+>
+> 詳細は[アプリケーションとツール](160_applications_and_tools.jp.md#51-runner起動)の「Runner起動」を参照する。
 
 起動に失敗した場合はerror logを確認する。online構成ではログに加えてエラーダイアログを表示する。batchrun構成ではモーダル表示せず、Run directory成立前は親processのstderr、`StandardStreamLogger`開始後は対象Runの`stderr.log`、通常logger構築後は`<run_name>.log`へ記録する。fatalを処理したprocessは非ゼロで終了する。
 
@@ -487,6 +492,11 @@ Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text�
 ### 6.4 停止、保存、checkpointからの引き継ぎ
 
 WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止・join、`agent_close.anet`保存、background Observerの排水、Run出力のflush、GUI破棄の順に進む。`app.save_agent_on_close=false`のRunではこの保存だけを省き、他の順序は変わらない。保存中または排水中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+
+初期化中に閉じたいときもCloseを1回選び、ログの終了要求を確認してウィンドウが閉じるまで待つ。押し直す必要はない。初期化中にログオフ・シャットダウンを要求した場合も、終了するまで待つ。Windowsに終了を妨げているアプリとして表示された場合、強制終了を選ぶとRunログの末尾が欠ける場合がある。
+
+> [!NOTE]
+> 初期化中のCloseはRunManagerの構築完了後に処理し、表示用Evalの準備と学習開始は省く。保存が有効なら学習前のAgentを保存し、RunManagerを初期化できなかったRunでは保存を省く。ログオフ・シャットダウンの問い合わせでは構築が終わるまでその場で待つため、待機中は描画が止まる。起動と終了の仕組みは[アプリケーションとツール](160_applications_and_tools.jp.md#71-runner)を参照する。
 
 `run.eval_schedule.[tag].wait_on_exit`は、終了時に進行中のbackground評価を完走待ちするかを指定する。既定は`true`で、全スロットが`app.drain_timeout_sec`の単一deadlineを共有する。`false`、手動終了のCancel選択、またはdeadline超過では次のEnv Step境界で協調キャンセルする。キャンセルしたセッションはsession scalarを出さず、完了済みepisodeのtraceと`eval.[<tag>].session_cancelled` JSONを残す。
 

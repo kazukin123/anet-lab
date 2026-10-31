@@ -162,7 +162,7 @@ sequenceDiagram
 
     UI->>A: StopTraining()
     A->>T: Stop()
-    opt app.save_agent_on_close=true
+    opt app.save_agent_on_close=true かつ RunManagerがRUNNING
         UI->>A: SaveAgent(agent_close.anet)
         A->>G: Save(archive)
     end

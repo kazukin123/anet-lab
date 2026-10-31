@@ -24,6 +24,21 @@
 #include <wx/utils.h>
 
 namespace {
+bool WaitForRunnerInitialization()
+{
+    // Yieldだけでは配れないtimerも、明示的なイベントループで処理する。
+    wxEventLoop loop;
+    wxEventLoopActivator activator(&loop);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!wxGetApp().IsRunInitialized() && std::chrono::steady_clock::now() < deadline) {
+        while (loop.Pending()) loop.Dispatch();
+        wxTheApp->ProcessPendingEvents();
+        loop.ProcessIdle();
+        wxMilliSleep(2);
+    }
+    return wxGetApp().IsRunInitialized();
+}
+
 std::filesystem::path TraceUiOutputDirectory()
 {
     // カレントディレクトリから独立し、同時実行するprocessごとに出力を分ける。
@@ -906,6 +921,7 @@ TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[
         }
     } cleanup;
     REQUIRE(wxTheApp->OnInit());
+    REQUIRE(WaitForRunnerInitialization());
     auto* frame = wxGetApp().GetMainFrame();
     // 初期化前の別Frameでは、ConfigとCustomを含む全項目が操作不可となる。
     {
@@ -1080,6 +1096,7 @@ TEST_CASE("Runner forwards Trace arrows without steps and reports successful for
         }
     } cleanup;
     REQUIRE(wxTheApp->OnInit());
+    REQUIRE(WaitForRunnerInitialization());
     auto* frame = wxGetApp().GetMainFrame();
     EvalPanel* eval = nullptr;
     EvalTracePanel* panel = nullptr;
@@ -1276,6 +1293,8 @@ TEST_CASE("Runner forwards Trace arrows without steps and reports successful for
     }
 }
 
+void RegisterStartupTestAgents();
+
 int main(int argc, char** argv)
 {
     anet::test::PreparedTestArgs arguments;
@@ -1295,13 +1314,15 @@ int main(int argc, char** argv)
     for (int i = 1; i < arguments.Argc(); ++i) {
         const std::string_view argument(arguments.Argv()[i]);
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
-            || argument.find("prd105_ui_keys") != std::string_view::npos;
+            || argument.find("prd105_ui_keys") != std::string_view::npos
+            || argument.find("[prd109_") != std::string_view::npos;
     }
     if (!starts_runner_app) {
         wxInitAllImageHandlers();
         anet::rl::env::InitCartPole();
     }
     anet::rl::AgentRepository::Instance().Register(std::make_shared<TraceUiAgentFactory>());
+    RegisterStartupTestAgents();
     int result;
     {
         anet::test::StderrLogGuard log;

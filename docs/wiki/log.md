@@ -537,3 +537,4 @@
 2026-10-31 ingest docs/experiments/default-dqn/atari/README.md blob:86a9b80fb3fd4295acbe04d9561150b1d3fe5f3a → なし（campaign 表の状態の欄を直しただけ）
 2026-10-31 ingest docs/memo/098_temporl_skip_policy_10prd.md blob:bcc2cb543d277943fdd5c4ce60e3a04c6a7615cb → なし（§7 の受入 4 の性能の実測を記録。wiki の知見のページは性能の受入を載せていない）
 2026-10-31 ingest docs/memo/103_temporl_reference_alignment_10prd.md blob:5a5295905de25bbee9b39427aba5073a297d8da4 → なし（§7 の受入 4 の性能の実測を記録。wiki の知見のページは性能の受入を載せていない）
+2026-10-31 writeback docs/memo/109_runner_startup_background_init_10prd.md blob:3f6e4f75b1591db5f4a180a25cc247c97aa6ba2a → なし（改訂。batchrun の構築の失敗の出力先と GUI テストの待ちの上限の訂正。wiki のページはどちらも載せていない）

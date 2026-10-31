@@ -749,6 +749,9 @@ void RunnerFrame::SetupEvents()
     Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
         event.Enable(initialized_);
     }, ID_SaveAgent);
+    Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) {
+        event.Enable(initialized_);
+    }, ID_HeatMap);
 
     const std::pair<int, wxWindow*> panel_bindings[] = {
         {ID_LogView, log_panel_},
@@ -1142,6 +1145,7 @@ void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
 
 void RunnerFrame::OnHeatMap(wxCommandEvent& event)
 {
+    if (!initialized_) return;
     auto train_runner = wxGetApp().GetRunManager().GetTrainRunner();
     auto env_spec = train_runner->GetBatchEnv()->GetSpec();
 
@@ -1363,6 +1367,10 @@ void RunnerFrame::OnAbout(wxCommandEvent& WXUNUSED(event))
 
 void RunnerFrame::OnClose(wxCloseEvent& event)
 {
+    if (!wxGetApp().PrepareRunClose(event.CanVeto())) {
+        event.Veto();
+        return;
+    }
     LOG::info() << "RunnerFrame::OnClose() called.";
 
     // train 側から新しい評価を投入できない状態にしてから、進行中評価を照会する。

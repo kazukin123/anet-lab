@@ -145,7 +145,7 @@ if(WIN32)
 endif()
 
 # 実wxWidgetの公開操作を検証する。通常の全体buildには追加しない。
-add_executable(AnetRLRunner-gui-test EXCLUDE_FROM_ALL ${ANET_PRIVATE_SOURCES} src/EvalTracePanel_test.cpp src/LogPanel_test.cpp ${ANET_WIN_SOURCES})
+add_executable(AnetRLRunner-gui-test EXCLUDE_FROM_ALL ${ANET_PRIVATE_SOURCES} src/EvalTracePanel_test.cpp src/LogPanel_test.cpp src/RunnerApp_test.cpp ${ANET_WIN_SOURCES})
 get_target_property(ANET_RUNNER_TEST_LIBRARIES AnetRLRunner LINK_LIBRARIES)
 target_link_libraries(AnetRLRunner-gui-test PRIVATE ${ANET_RUNNER_TEST_LIBRARIES} catch2)
 # コンパイルPDBを本体と分け、Releaseでも他targetのPDBに依存させない。

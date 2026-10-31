@@ -239,6 +239,7 @@ sequenceDiagram
     participant W as WorkspaceService/Dialog
     participant C as ConfigManager
     participant M as MetricsLogger
+    participant I as RunInitThread
     participant R as RunManager
     participant F as RunnerFrame
     participant T as RunnerThread
@@ -252,8 +253,13 @@ sequenceDiagram
     M-->>A: Run directory
     A->>A: backend/Env registry初期化
     A->>F: GUI paneを生成・表示
-    A->>R: RunManager(ConfigData)
-    R-->>A: Agent、Train Runner、configured Eval
+    A->>I: 設定のコピーで構築を開始
+    A-->>OS: OnInitからtrue（イベントループ開始）
+    I->>R: RunManager(ConfigData)
+    R-->>I: Agent、Train Runner、configured Eval
+    I-->>A: 完了を通知
+    A->>I: join、結果を一度だけ受領
+    Note over A,F: 終了要求がなくRUNNINGの場合だけ初期化の後半へ進む
     A->>F: Initialize(RunManager)
     F->>R: EvalPanel用EvalRunnerを生成
     A->>T: RunnerThreadを生成
@@ -265,6 +271,8 @@ GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain 
 RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
 
 補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
+
+RunManagerの構築中はメインのイベントループで描画とログの書き出しを続ける。構築だけを`RunInitThread`へ移し、DefaultViewFactory、Trainer observer、ImageProviderManager、FrameのInitialize、Notifier一覧、学習スレッドの生成・開始はメインスレッドに残す。`IsRunInitialized()`はこの後半まで正常に完了した場合だけtrueとなる。起動の開始と完了をINFOに記録し、完了の`elapsed_sec`は構築開始直前からの実時間を小数点以下2桁で表す。構築の取消や同期起動へ戻す切替は設けない。
 
 ### 5.2 Metrics Viewerの取り込みとviewport range更新
 
@@ -361,8 +369,11 @@ sequenceDiagram
 
 - `RunnerApp`が`RunManager`、`RunnerThread`、Frameを保持し、loggerの初期化・flush・停止順序を統括する。Run directoryと`run_dir_`は`MetricsLogger`が所有する。`app.show_error_dialog`は未指定時`true`で、online構成は`true`、batchrun構成は`false`へ解決する。構成名はコードで推測しない。
 - batchrun構成では、`ConfigData`解決直後から既定GUI loggerをapp所有の`wxLogStderr`へ切り替える。Run成立前は親stderr、standard stream開始後は`stderr.log`、通常logger構築後は既存Run logへ出し、部分初期化と終了時もactive targetをdanglingさせない。online構成では従来どおりエラーダイアログを表示する。
-- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。`app.save_agent_on_close=false`では保存段階だけをskipする。close時Saveが失敗しても共通error reporterで通知した後に後続cleanupを続行する。Save/Open Run Folderの失敗はnon-fatalであり、Run継続とprocess終了コードを変えない。
-- GUI callbackで発生した契約違反の例外は共通error reporterで英語のerror logをflushしてmain loopを終了し、Trainer threadの例外は現在例外をmain threadへ転送する。両例外callbackはmain thread所有のfatal latchを設定する。`RunnerApp::OnRun()`はwxWidgetsの元の非ゼロ値を保ち、元が0でもfatal済みなら1を返す。`OnExit()`はcleanup専用である。
+- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。保存は`app.save_agent_on_close=true`かつRunManagerがRUNNINGの場合だけ行う。close時Saveが失敗しても共通error reporterで通知した後に後続cleanupを続行する。Save/Open Run Folderの失敗はnon-fatalであり、Run継続とprocess終了コードを変えない。
+- GUI callbackで発生した契約違反の例外は共通error reporterで英語のerror logをflushしてmain loopを終了する。Trainer threadと構築スレッドの例外は現在例外をmain threadへ転送する。fatalを報告するcallbackはmain thread所有のfatal latchを設定する。`RunnerApp::OnRun()`はwxWidgetsの元の非ゼロ値を保ち、元が0でもfatal済みなら1を返す。未受領の構築結果には触れず、RUNNINGでないRunManagerの学習RunnerをShutdownしない。
+- 初期化中（構築スレッド開始から結果受領まで）の拒否可能なCloseは一度だけ記憶して拒否し、構築後に初期化の後半と学習開始を省いて閉じる。RUNNINGなら学習前のAgentを保存できる。RUNNINGでなければ`Failed to initialize RunManager.`を出し、終了要求がなければウィンドウを残す。HeatMapは初期化までUpdate UIとhandlerで抑止する。
+- 初期化中の`Close(true)`は構築を待ってから既存のclose手順へ進む。構築失敗はその場で既存reporterへ渡し、保存せず閉じ、終了コード1とする。OS終了の問い合わせはRunnerAppの`OnQueryEndSession`でFrameの通常Closeと区別して受け、初期化中は同じ待機経路へ通して拒否しない。初期化後はwxの既定処理に委ねる。
+- OS終了確定の通知はwxの既定処理を保ち、Closeの道を足さない。wxWidgets 3.3.3では`CallOnExit()`がFrameと子パネルをCloseなしで削除してから`OnExit()`を呼び、その戻り値で`exit()`する。`OnExit()`は残る構築スレッドを待ってから出力を片付ける。未処理の構築失敗は表示・保存を省いて戻り値1へ反映する。LogPanelが先に削除された場合、ログチェーンのUI参照を切り離してファイル側だけへ排出する。通常完了通知、拒否できないClose、OnExit以外では構築を待たない。
 - Train panelのFPSは描画頻度だけを制御し、0では描画timerを停止しても学習は継続する。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
 - Evalの`app.eval_panel.step_per_frame`は1以上のint値を起動時に検証する。`EvalPanel`は起動時configと独立した実行時値を持ち、`View > Eval Steps per Frame`のConfig・固定値（1・2・4・10・20・50・100）・Customから変更する。Custom入力は現在値から始め、1〜2,147,483,647の整数だけを確定する。キャンセルでは値・選択を維持し、固定値と同じ数を入力してもCustomの選択を保持する。実行時変更は次の自動評価更新とTraceの基準速度（現在のFPS×現在のstep数）へ反映し、起動時configとconfig dump、一時停止・Trace状態、手動Stepの1 step動作は変えない。初期選択はConfigで、初期化前は操作できない。
 - `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
@@ -391,6 +402,8 @@ sequenceDiagram
 - `reports/tools/wiki_support.py` は材料・blob・リンク候補の読み取りと地図の機械的な2節の再生成を補助する。知見の意味や裁定はエージェントが正本を読んで判断する。台帳の正本は `reports/registry/findings.jsonl`、CLIとレコード形式はregistry.pyの冒頭を参照する。
 
 ## 8. テストと変更時の確認事項
+
+- [PRD109検証資材](../../core/anet-core/testdata/prd109/README.md): 構築中のtimer・ログ・pane操作、初期化中のCloseとOS終了問い合わせ、失敗と不完全な構築、ウィンドウ先行破棄、既定スイートの失敗集合、4環境の全scalar点の完全一致。実機の描画とOSの「応答なし」は人が確認する。
 
 - [PRD105検証資材](../../core/anet-core/testdata/prd105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
