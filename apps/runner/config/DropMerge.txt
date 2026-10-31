@@ -92,10 +92,11 @@ app.online.exp_pause_step  = 50,000,000      # 50M
 
 app.batchrun.exp_exit_step  = 100,000,000    # 100M
 
-#A1.learner.per_beta_step = 10,000,000              # 10M
-A1.learner.per_beta_step = 20,000,000              # 20M
-#A1.learner.per_beta_step = 40,000,000              # 40M
-#A1.learner.per_beta_step = 100,000,000            # 100M
+#A1.learner.per_beta.steps = 10,000,000              # 10M
+A1.learner.per_beta.type = linear # 20M
+A1.learner.per_beta.steps = 20,000,000
+#A1.learner.per_beta.steps = 40,000,000              # 40M
+#A1.learner.per_beta.steps = 100,000,000            # 100M
 
 #backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.@non-deterministic # 非決定論的（高速化）
@@ -115,16 +116,18 @@ backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 #app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 160,000,000     # 160M
 
-#A1.actor.[train].policy.uqe_eps_decay_steps = 2,000,000      # 2M
-A1.actor.[train].policy.uqe_eps_decay_steps = 5,000,000      # 5M
-#A1.actor.[train].policy.uqe_eps_decay_steps = 10,000,000      # 10M
-#A1.actor.[train].policy.uqe_eps_decay_steps = 20,000,000      # 20M
+#A1.actor.[train].policy.uqe.epsilon.steps = 2,000,000      # 2M
+A1.actor.[train].policy.uqe.epsilon.type = linear # 5M
+A1.actor.[train].policy.uqe.epsilon.steps = 5,000,000
+#A1.actor.[train].policy.uqe.epsilon.steps = 10,000,000      # 10M
+#A1.actor.[train].policy.uqe.epsilon.steps = 20,000,000      # 20M
 
-#A1.actor.[train].policy.uqe_tau_decay_steps = 2,000,000   # 2M
-#A1.actor.[train].policy.uqe_tau_decay_steps = 10,000,000   # 10M
-A1.actor.[train].policy.uqe_tau_decay_steps = 20,000,000   # 20M
-#A1.actor.[train].policy.uqe_tau_decay_steps = 40,000,000   # 40M
-#A1.actor.[train].policy.uqe_tau_decay_steps = 100,000,000 # 100M
+#A1.actor.[train].policy.uqe.tau.steps = 2,000,000   # 2M
+#A1.actor.[train].policy.uqe.tau.steps = 10,000,000   # 10M
+A1.actor.[train].policy.uqe.tau.type = linear # 20M
+A1.actor.[train].policy.uqe.tau.steps = 20,000,000
+#A1.actor.[train].policy.uqe.tau.steps = 40,000,000   # 40M
+#A1.actor.[train].policy.uqe.tau.steps = 100,000,000 # 100M
 
 
 # ==============================================================================
@@ -134,7 +137,7 @@ A1.actor.[train].policy.uqe_tau_decay_steps = 20,000,000   # 20M
 #app.run_name = run_{t}_apx-ll_cy08
 #A2.auto_load_file = ../../runs/run_20260805-115101_apx-ll_cy07/agent_close.anet
 #A2.auto_load_file = ../../runs/run_20260809-033908_dm_iqn32-b128-rr125/agent_close.anet
-#A2.learner.per_beta_start = 0.6
+#A2.learner.per_beta.start = 0.6
 
 
 # ==============================================================================
@@ -150,7 +153,7 @@ A2.actor.[train].policy.tau_rule.num_taus = 32
 A2.actor.[eval].policy.policy_type = UQE
 A2.actor.[eval].policy.tau_rule.sample_mode = fixed
 A2.actor.[eval].policy.tau_rule.num_taus = 32
-A2.actor.[eval].policy.uqe_use_tail_mean = true
+A2.actor.[eval].policy.uqe.use_tail_mean = true
 A2.actor.[eval].policy.full_distribution_query.enabled = true
 A2.actor.[eval].policy.full_distribution_query.tau_rule.sample_mode = fixed
 A2.actor.[eval].policy.full_distribution_query.tau_rule.num_taus = 32
@@ -163,9 +166,9 @@ A2.learner.iqn.target_taus.num_taus = 32
 E1.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
 E1.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の class 12 で表示
 
-#A2.learner.alpha = 7.5e-5
-#A2.learner.alpha = 3e-4
-A2.learner.alpha = 1e-4
+#A2.learner.learning_rate = 7.5e-5
+#A2.learner.learning_rate = 3e-4
+A2.learner.learning_rate = 1e-4
 
 #A2.learner.replay_batch_size = 128
 A2.learner.replay_batch_size = 256
@@ -186,8 +189,8 @@ A2.learner.per_initial_priority_mode = fixed
 #A2.learner.per_initial_priority_mode = max
 
 
-A2.actor.[train].policy.use_spatial_exploration = true
-#A2.actor.[train].policy.use_spatial_exploration = false
+A2.actor.[train].policy.spatial.enabled = true
+#A2.actor.[train].policy.spatial.enabled = false
 
 #A2.use_optimistic_target = true
 A2.use_optimistic_target = false
@@ -205,8 +208,8 @@ M1.[33_agent_action/12_train_actor_snapshot_age] = train_actor_snapshot_age @tra
 #A2.actor.[train].clone_model = false
 A2.actor.[train].clone_model = true
 A2.actor.[train].sync_interval.type = constant
-#A2.actor.[train].sync_interval.value = 400
-A2.actor.[train].sync_interval.value = 200
+#A2.actor.[train].sync_interval = 400
+A2.actor.[train].sync_interval = 200
 
 A2.learner.per_initial_priority = 0.3
 
@@ -223,7 +226,7 @@ A2.learner.use_tbo = true
 #backend.cuda_launch_blocking = on
 #A2.learner.use_rb_prefetch = false
 
-A2.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
+A2.target_policy.uqe.use_tail_mean = false # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
 
 A2.learner.grad_clip_tau = 5
 
@@ -235,24 +238,24 @@ A2.learner.grad_clip_tau = 5
 
 #E1.game_over_penalty = -1.0   #-10.0
 
-#A2.actor.[train].policy.spatial_scale_type = linear
+#A2.actor.[train].policy.spatial.scale = linear
 #A2.learner.weight_decay        = 0.0002
 
 #A2.target_policy.policy_type = Greedy
-#A2.actor.[train].policy.uqe_tau_start = 0.5
-#A2.actor.[train].policy.uqe_tau_end = 0.5
-#A2.actor.[train].policy.uqe_eps_start = 0.3
-#A2.actor.[train].policy.uqe_eps_end = 0.05
+#A2.actor.[train].policy.uqe.tau.start = 0.5
+#A2.actor.[train].policy.uqe.tau.end = 0.5
+#A2.actor.[train].policy.uqe.epsilon.start = 0.3
+#A2.actor.[train].policy.uqe.epsilon.end = 0.05
 
-#A2.actor.[eval].policy.uqe_tau_start = 0.5
-#A2.actor.[eval].policy.uqe_tau_end = 0.5
+#A2.actor.[eval].policy.uqe.tau.start = 0.5
+#A2.actor.[eval].policy.uqe.tau.end = 0.5
 
 #E1.use_settle_after_drop = true   # false
 #E1.use_settle_after_drop = false  # false
 
 #E1.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
-#A2.use_dueling_net = false
+#A2.head.use_dueling = false
 
 #E1.damping = 0
 #E1.friction = 0.0              # 本家相当？:摩擦無し
@@ -270,7 +273,7 @@ A2.learner.grad_clip_tau = 5
 #A2.learner.weight_decay = 1e-1 # p4
 #A2.learner.weight_decay = 0 # p5
 
-#E1.learner.alpha = 1e-4
+#E1.learner.learning_rate = 1e-4
 #E1.learner.weight_decay = 1e-2
 
 #E1.learner.adam_eps = 1e-5
@@ -293,24 +296,24 @@ A2.learner.grad_clip_tau = 5
 
 #A2.learner.replay_capacity = 524,280
 
-#A2.actor.[train].policy.uqe_eps_end = 0.0
+#A2.actor.[train].policy.uqe.epsilon.end = 0.0
 
-#A2.actor.[train].policy.uqe_tau_start = 0.95 # 0.95
-#A2.actor.[train].policy.uqe_tau_end = 0.95   # 0.85
+#A2.actor.[train].policy.uqe.tau.start = 0.95 # 0.95
+#A2.actor.[train].policy.uqe.tau.end = 0.95   # 0.85
 
-#A2.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
-#A2.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
+#A2.learner.per_beta.start = 0.4  # 0.6  0.4→0.6
+#A2.learner.per_beta.end = 0.6    # 1.0  0.4→0.6
 
 #app.online.exp_pause_step  = 80,000,000      # 80M
 
-#A2.actor.[train].policy.uqe_eps_decay_steps = 5,000,000   # 5M
-#A2.actor.[train].policy.uqe_eps_decay_steps = 20,000,000  # 20M
+#A2.actor.[train].policy.uqe.epsilon.steps = 5,000,000   # 5M
+#A2.actor.[train].policy.uqe.epsilon.steps = 20,000,000  # 20M
 
-#A2.actor.[train].policy.uqe_tau_decay_steps = 5,000,000   # 5M
-#A2.actor.[train].policy.uqe_tau_decay_steps = 20,000,000  # 20M
+#A2.actor.[train].policy.uqe.tau.steps = 5,000,000   # 5M
+#A2.actor.[train].policy.uqe.tau.steps = 20,000,000  # 20M
 
-#A2.learner.per_beta_step = 5,000,000              # 5M
-#A2.learner.per_beta_step = 20,000,000             # 20M
+#A2.learner.per_beta.steps = 5,000,000              # 5M
+#A2.learner.per_beta.steps = 20,000,000             # 20M
 
 #A2.qr.num_quantiles = 101
 
@@ -341,7 +344,7 @@ A2.learner.grad_clip_tau = 5
 #A2.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 #A2.learner.replay_capacity =  1,048,576
 
-#A2.target_policy.uqe_tau_start = 0.85
+#A2.target_policy.uqe.tau.start = 0.85
 
 #A2.use_optimistic_target = true # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
@@ -351,23 +354,23 @@ A2.learner.grad_clip_tau = 5
 #E1.box_height = 8.0      # 4.0
 
 #A2.actor.[eval].policy.policy_type = UQE
-#A2.actor.[eval].policy.uqe_tau_start = 0.65
+#A2.actor.[eval].policy.uqe.tau.start = 0.65
 
 #A2.actor.[train].policy.policy_type = EpsilonGreedy
 #A2.actor.[train].policy.policy_type = UQE
 #A2.actor.[train].policy.policy_type = ThompsonSampling
 
-#A2.actor.[train].policy.uqe_use_tail_mean = true
-#A2.target.uqe_use_tail_mean = true
+#A2.actor.[train].policy.uqe.use_tail_mean = true
+#A2.target.uqe.use_tail_mean = true
 
-#A2.actor.[train].policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy
-#A2.actor.[train].policy.eps_end = 0.05               # 0.1 0.05 for EpsilonGreedy
-#A2.actor.[train].policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
-#A2.actor.[train].policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.start = 1.00               # 指数減衰 for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.end = 0.05               # 0.1 0.05 for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.steps = 10,000,000  # 10M for EpsilonGreedy
+#A2.actor.[train].policy.epsilon.steps = 30,000,000  # 30M for EpsilonGreedy
 
 #A2.actor.[eval].policy.policy_type = EpsilonGreedy
-#A2.actor.[eval].policy.eps_start = 0.05
-#A2.actor.[eval].policy.eps_end = 0.05
+#A2.actor.[eval].policy.epsilon.start = 0.05
+#A2.actor.[eval].policy.epsilon.end = 0.05
 
 #E1.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
 #E1.no_drop_timeout_steps = 300
@@ -428,21 +431,21 @@ A2.learner.grad_clip_tau = 5
 
 #A2.learner.adam_eps = 1.5e-4
 
-#A2.actor.[train].policy.uqe_eps_start = 1.00
+#A2.actor.[train].policy.uqe.epsilon.start = 1.00
 
-#A2.actor.[train].policy.uqe_eps_end = 0.60
-#A2.actor.[train].policy.uqe_eps_end = 0.05
-#A2.actor.[train].policy.uqe_eps_end = 0.0
+#A2.actor.[train].policy.uqe.epsilon.end = 0.60
+#A2.actor.[train].policy.uqe.epsilon.end = 0.05
+#A2.actor.[train].policy.uqe.epsilon.end = 0.0
 
-#A2.actor.[train].policy.uqe_tau_start = 0.75  # ビビリ対策
-#A2.actor.[train].policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-#A2.actor.[train].policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
+#A2.actor.[train].policy.uqe.tau.start = 0.75  # ビビリ対策
+#A2.actor.[train].policy.uqe.tau.start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+#A2.actor.[train].policy.uqe.tau.end = 0.85  # 終盤でもかなり楽観的
 
-#A2.learner.alpha = 5e-6
-#A2.learner.alpha = 1e-5
-#A2.learner.alpha = 5e-5
-#A2.learner.alpha = 5e-4
-#A2.learner.alpha = 1e-4
+#A2.learner.learning_rate = 5e-6
+#A2.learner.learning_rate = 1e-5
+#A2.learner.learning_rate = 5e-5
+#A2.learner.learning_rate = 5e-4
+#A2.learner.learning_rate = 1e-4
 
 #A2.learner.gamma = 0.999  # ★ 長期戦略考慮
 #A2.learner.gamma = 0.997   # ★ horizon=333
@@ -480,6 +483,45 @@ A2.learner.grad_clip_tau = 5
 # ==============================================================================
 # 定着済み・比較対照・次期実験・再現検証に使う構成だけを定義する。
 # 既定はすべてOFF。run.$の1行またはCLIのrun.$=run.@<name>で選択する。
+
+
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+DefaultDQNAgent.skip.max_length ?= 10
+DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1 > M2 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[03]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[04]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[05]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[06]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[07]] = skip_length_rate.[7] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[08]] = skip_length_rate.[8] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[09]] = skip_length_rate.[9] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[10]] = skip_length_rate.[10] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
+# skip価値の評価は平均Qのgreedyで行い、session開始のSyncから集計する。
+run.@skip : DefaultDQNAgent.actor.[greedy].$ = DefaultDQNAgent.actor.[eval_target] > DefaultDQNAgent.actor.@greedy
+run.@skip : run.eval.[greedy].actor = greedy
+run.@skip : run.eval.[greedy].eval_batch_size = 1
+run.@skip : run.eval.[greedy].eval_episodes = 1
+run.@skip : run.eval_schedule.[greedy].interval = 503
+run.@skip : run.eval_schedule.[greedy].use_background = true
+run.@skip : metrics.scalar.[21_eval/09_greedy_reward] = mean.episode_return $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[21_eval/10_greedy_reward_ema] = mean.episode_return $runner @session_end $eval.[greedy] $ema ema_alpha:0.1
+run.@skip : metrics.scalar.[21_eval/11_greedy_ep_steps] = mean.episode_steps $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[21_eval/12_greedy_ep_steps_max] = max.episode_steps $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[01]] = skip_session_length_rate.[1] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[02]] = skip_session_length_rate.[2] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[03]] = skip_session_length_rate.[3] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[04]] = skip_session_length_rate.[4] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[05]] = skip_session_length_rate.[5] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[06]] = skip_session_length_rate.[6] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[07]] = skip_session_length_rate.[7] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[08]] = skip_session_length_rate.[8] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[09]] = skip_session_length_rate.[9] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[10]] = skip_session_length_rate.[10] $eval.[greedy] $actor @session_end
 
 # IQN K/N/M=32 + stratified。現行の主力構成。
 run.@iqn32_stratified : backend.$ = backend.@non-deterministic
@@ -598,7 +640,7 @@ run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@i
 A1.actor.[train].policy.tau_rule.sample_mode = random
 A1.actor.[train].policy.tau_rule.num_taus = 32
 A1.actor.[eval].policy.policy_type = UQE
-A1.actor.[eval].policy.uqe_use_tail_mean = true
+A1.actor.[eval].policy.uqe.use_tail_mean = true
 A1.actor.[eval].policy.tau_rule.sample_mode = fixed
 A1.actor.[eval].policy.tau_rule.num_taus = 32
 A1.actor.[eval].policy.full_distribution_query.enabled = true
@@ -615,18 +657,22 @@ A1.stucker.stack_count = 4
 A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
 A1.actor.[train].policy.policy_type = UQE
-A1.actor.[train].policy.uqe_eps_start = 0.60
-A1.actor.[train].policy.uqe_eps_end = 0.0     # 0.05 0.0
-A1.actor.[train].policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-A1.actor.[train].policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
-A1.actor.[train].policy.uqe_use_tail_mean = true
+A1.actor.[train].policy.uqe.epsilon.start = 0.60
+A1.actor.[train].policy.uqe.epsilon.end = 0.0 # 0.05 0.0
+A1.actor.[train].policy.spatial.uqe.epsilon.first = 0.60
+A1.actor.[train].policy.spatial.uqe.epsilon.last = 0.0
+A1.actor.[train].policy.uqe.tau.start = 0.95 # 序盤は超楽観的（攻めの姿勢）
+A1.actor.[train].policy.uqe.tau.end = 0.85 # 終盤でもかなり楽観的（攻めの姿勢）
+A1.actor.[train].policy.spatial.uqe.tau.first = 0.95
+A1.actor.[train].policy.spatial.uqe.tau.last = 0.85
+A1.actor.[train].policy.uqe.use_tail_mean = true
 
 A1.actor.[eval].policy.policy_type = UQE
 
-A1.target_policy.uqe_tau_start = 0.85
-#A1.target_policy.uqe_use_tail_mean = true
+A1.target_policy.uqe.tau.start = 0.85
+#A1.target_policy.uqe.use_tail_mean = true
 
-A1.learner.alpha = 1e-4         # ★
+A1.learner.learning_rate = 1e-4         # ★
 A1.learner.weight_decay = 1e-3  # ★
 A1.learner.gamma = 0.997        # ★長期戦略必要
 A1.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
@@ -639,8 +685,8 @@ A1.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変え�
 A1.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
 
 A1.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
-A1.learner.per_beta_start = 0.4               # デフォルト 0.4
-A1.learner.per_beta_end = 0.6                 # デフォルト 1.0
+A1.learner.per_beta.start = 0.4 # デフォルト 0.4
+A1.learner.per_beta.end = 0.6 # デフォルト 1.0
 A1.learner.per_prio_clip_value = 50           # 30
 #A1.learner.use_per_prio_clip = true           #  true 優先度をクリッピングするか
 
@@ -653,11 +699,12 @@ A1.reward_scaler.clip_range = 10.0
 A1.model.soft_update_tau = 0.005              # 0.001 高め
 
 DefaultDQNAgent.@random : actor.[train].policy.policy_type = EpsilonGreedy
-DefaultDQNAgent.@random : actor.[train].policy.eps_start = 1.00    # Random
-DefaultDQNAgent.@random : actor.[train].policy.eps_end = 1.00
+DefaultDQNAgent.@random : actor.[train].policy.epsilon = 1.00 # Random
+DefaultDQNAgent.@random : actor.[train].policy.spatial.epsilon.first = 1.00
+DefaultDQNAgent.@random : actor.[train].policy.spatial.epsilon.last = 1.00
 DefaultDQNAgent.@random : learner.replay_capacity = 256,000
 DefaultDQNAgent.@random : learner.update_warmup_steps = 999999999
-DefaultDQNAgent.@random : learner.alpha = 0
+DefaultDQNAgent.@random : learner.learning_rate = 0
 
 
 # ==============================================================================
@@ -1268,56 +1315,56 @@ M1.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
 M1.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema
 M1.[38_agent_loss/02_loss_ema] = loss @learn  $ema
 
-M1.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
-#M1.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
-##M1.[42_env/03_tr_timeout_max]  = $env max.term_reason_timeout @train
-##M1.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
-##M1.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
-#M1.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
-M1.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
+M1.[42_env/01_ep_maxrank_max]  = $env_step max.ep_max_rank @episode_end $train_step
+#M1.[42_env/02_ep_frct_max]     = $env_step max.ep_end_fruit_count @episode_end $train_step
+##M1.[42_env/03_tr_timeout_max]  = $env_step max.term_reason_timeout @episode_end $train_step
+##M1.[42_env/04_tr_blocked_max]  = $env_step max.term_reason_spawn_blocked @episode_end $train_step
+##M1.[42_env/05_tr_overflow_max] = $env_step max.term_reason_overflow @episode_end $train_step
+#M1.[42_env/06_tr_maxstep_max]  = $env_step max.term_reason_maxstep @episode_end $train_step
+M1.[42_env/07_ep_max_settle_steps]  = $env_step max.ep_max_settle_steps @episode_end $train_step
 
-#M1.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
-M1.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
-M1.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_no_drop_timeout @train
-M1.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
-M1.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
-#M1.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
-M1.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
-M1.[42_env/18_tr_no_legal_mean] = $env mean.term_reason_no_legal_drop @train
+#M1.[42_env/11_ep_maxrank_mean]  = $env_step mean.ep_max_rank @episode_end $train_step
+M1.[42_env/12_ep_frct_mean]     = $env_step mean.ep_end_fruit_count @episode_end $train_step
+M1.[42_env/13_tr_timeout_mean]  = $env_step mean.term_reason_no_drop_timeout @episode_end $train_step
+M1.[42_env/14_tr_blocked_mean]  = $env_step mean.term_reason_spawn_blocked @episode_end $train_step
+M1.[42_env/15_tr_overflow_mean] = $env_step mean.term_reason_overflow @episode_end $train_step
+#M1.[42_env/16_tr_maxstep_mean]  = $env_step mean.term_reason_maxstep @episode_end $train_step
+M1.[42_env/17_ep_mean_settle_steps] = $env_step mean.ep_mean_settle_steps @episode_end $train_step
+M1.[42_env/18_tr_no_legal_mean] = $env_step mean.term_reason_no_legal_drop @episode_end $train_step
 
 # --- NoLegal candidate 診断 (PRD039 PH1) ---
-M1.[42_env/21_blkdrop_cand_mean]      = $env mean.blocked_drop_on_candidate @train
-M1.[42_env/22_timeout_cand_mean]      = $env mean.no_drop_timeout_on_candidate @train
-M1.[42_env/23_ep_mean_blocked_frames] = $env mean.ep_mean_blocked_frames @train
-M1.[42_env/24_ep_max_blocked_frames]  = $env max.ep_max_blocked_frames @train
-M1.[42_env/25_ep_terminal_blocked_frames_max] = $env max.ep_terminal_blocked_frames @train
-M1.[42_env/26_ep_blocked_run_count_mean] = $env mean.ep_blocked_run_count @train
-M1.[42_env/27_same_drop_col_ratio_mean] = $env mean.ep_same_drop_col_ratio @train
-M1.[42_env/31_double_suika_created_mean] = $env mean.ep_double_suika_created @train $exp_step
+M1.[42_env/21_blkdrop_cand_mean]      = $env_step mean.blocked_drop_on_candidate @episode_end $train_step
+M1.[42_env/22_timeout_cand_mean]      = $env_step mean.no_drop_timeout_on_candidate @episode_end $train_step
+M1.[42_env/23_ep_mean_blocked_frames] = $env_step mean.ep_mean_blocked_frames @episode_end $train_step
+M1.[42_env/24_ep_max_blocked_frames]  = $env_step max.ep_max_blocked_frames @episode_end $train_step
+M1.[42_env/25_ep_terminal_blocked_frames_max] = $env_step max.ep_terminal_blocked_frames @episode_end $train_step
+M1.[42_env/26_ep_blocked_run_count_mean] = $env_step mean.ep_blocked_run_count @episode_end $train_step
+M1.[42_env/27_same_drop_col_ratio_mean] = $env_step mean.ep_same_drop_col_ratio @episode_end $train_step
+M1.[42_env/31_double_suika_created_mean] = $env_step mean.ep_double_suika_created @episode_end $exp_step
 
-#M1.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
-#M1.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
-##M1.[42_env/53_tr_timeout_max_ema]  = $env max.term_reason_timeout @train $ema ema_alpha:0.001
-##M1.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
-##M1.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
-##M1.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
-M1.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
+#M1.[42_env/51_ep_maxrank_max_ema]  = $env_step max.ep_max_rank @episode_end $train_step $ema
+#M1.[42_env/52_ep_frct_max_ema]     = $env_step max.ep_end_fruit_count @episode_end $train_step $ema
+##M1.[42_env/53_tr_timeout_max_ema]  = $env_step max.term_reason_timeout @episode_end $train_step $ema ema_alpha:0.001
+##M1.[42_env/54_tr_blocked_max_ema]  = $env_step max.term_reason_spawn_blocked @episode_end $train_step $ema ema_alpha:0.001
+##M1.[42_env/55_tr_overflow_max_ema] = $env_step max.term_reason_overflow @episode_end $train_step $ema ema_alpha:0.001
+##M1.[42_env/56_tr_maxstep_max_ema]  = $env_step max.term_reason_maxstep @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/68_ep_max_settle_steps_ema]  = $env_step max.ep_max_settle_steps @episode_end $train_step $ema ema_alpha:0.005
 
-M1.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
-M1.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
-M1.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_no_drop_timeout @train $ema ema_alpha:0.001
-M1.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
-M1.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
-#M1.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
-M1.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
-M1.[42_env/69_tr_no_legal_mean_ema] = $env mean.term_reason_no_legal_drop @train $ema ema_alpha:0.001
-M1.[42_env/71_blkdrop_cand_mean_ema] = $env mean.blocked_drop_on_candidate @train $ema ema_alpha:0.001
-M1.[42_env/72_timeout_cand_mean_ema] = $env mean.no_drop_timeout_on_candidate @train $ema ema_alpha:0.001
-M1.[42_env/73_same_drop_col_ratio_mean_ema] = $env mean.ep_same_drop_col_ratio @train $ema ema_alpha:0.001
-M1.[42_env/81_double_suika_achieved_ema] = $env mean.ep_double_suika_achieved @train $exp_step $ema ema_alpha:0.001
+M1.[42_env/61_ep_maxrank_mean_ema]  = $env_step mean.ep_max_rank @episode_end $train_step $ema ema_alpha:0.005
+M1.[42_env/62_ep_frct_mean_ema]     = $env_step mean.ep_end_fruit_count @episode_end $train_step $ema ema_alpha:0.005
+M1.[42_env/63_tr_timeout_mean_ema]  = $env_step mean.term_reason_no_drop_timeout @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/64_tr_blocked_mean_ema]  = $env_step mean.term_reason_spawn_blocked @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/65_tr_overflow_mean_ema] = $env_step mean.term_reason_overflow @episode_end $train_step $ema ema_alpha:0.001
+#M1.[42_env/66_tr_maxstep_mean_ema]  = $env_step mean.term_reason_maxstep @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/67_ep_mean_settle_steps_ema] = $env_step mean.ep_mean_settle_steps @episode_end $train_step $ema ema_alpha:0.005
+M1.[42_env/69_tr_no_legal_mean_ema] = $env_step mean.term_reason_no_legal_drop @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/71_blkdrop_cand_mean_ema] = $env_step mean.blocked_drop_on_candidate @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/72_timeout_cand_mean_ema] = $env_step mean.no_drop_timeout_on_candidate @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/73_same_drop_col_ratio_mean_ema] = $env_step mean.ep_same_drop_col_ratio @episode_end $train_step $ema ema_alpha:0.001
+M1.[42_env/81_double_suika_achieved_ema] = $env_step mean.ep_double_suika_achieved @episode_end $exp_step $ema ema_alpha:0.001
 
-M1.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
-M1.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
+M1.[42_env/00_ep_step_mean]  = $env_step mean.ep_step @episode_end $train_step
+M1.[42_env/00_ep_step_mean_ema]  = $env_step mean.ep_step @episode_end $train_step $ema ema_alpha:0.001
 
 
 M1.[51_eval1/00_ep_step_mean]         = $eval.[eval_target] @session_end $env mean.ep_step
@@ -1687,6 +1734,7 @@ run.eval_schedule.[eval].interval = 100
 # Rank 11	スイカ		6.6		7076
 
 # 評価 Actor の旧実効値（学習方策の終端からの暗黙導出を明示）。
-A1.actor.[eval].policy.uqe_tau_start = 0.85
-A1.actor.[eval].policy.uqe_tau_end = 0.85
-A1.actor.[eval].policy.uqe_use_tail_mean = true
+A1.actor.[eval].policy.uqe.tau = 0.85
+A1.actor.[eval].policy.spatial.uqe.tau.first = 0.85
+A1.actor.[eval].policy.spatial.uqe.tau.last = 0.85
+A1.actor.[eval].policy.uqe.use_tail_mean = true

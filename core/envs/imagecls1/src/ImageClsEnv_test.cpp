@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <clocale>
+#include <cmath>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -592,4 +593,78 @@ int main(int argc, char* argv[])
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("ImageCls results retain the scored window accuracy and epoch", "[image_cls_env][prd097_imagecls_result]")
+{
+    EnsureWxImageSupport();
+    TinyImageClsDataset dataset(4);
+    auto config = dataset.MakeNativeConfigData(100);
+    config.Set("ImageClsEnv.eval.eval_window.mode", "rotating");
+    config.Set("ImageClsEnv.eval.eval_window.rotating_size", "3");
+    anet::rl::env::ImageClsEnvFactory factory;
+    auto env = factory.CreateBatchEnv(config, torch::Device(torch::kCPU),
+        "imagecls-step-result", 1, 2, anet::rl::RunMode::Eval, "");
+    env->Reset();
+    const auto correct = std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({2}, torch::kInt64));
+    const auto wrong = std::make_shared<anet::rl::BatchActionInfo>(torch::ones({2}, torch::kInt64));
+    const auto first = env->Step(correct);
+    REQUIRE(first->GetScalar("accuracy").has_value());
+    CHECK(std::isnan(*first->GetScalar("accuracy")));
+    const auto window = env->Step(correct);
+    REQUIRE(window->n_episode_end == 1);
+    CHECK(window->n_transitions == 1);
+    CHECK(window->GetScalar("accuracy") == 1.0f);
+    CHECK(window->GetScalar("epoch_count") == 0.0f);
+    env->Step(wrong);
+    const auto next_window = env->Step(wrong);
+    REQUIRE(next_window->n_episode_end == 1);
+    CHECK(next_window->GetScalar("accuracy") == 0.0f);
+    CHECK(env->GetScalar("accuracy") == 0.0f);
+    CHECK(window->GetScalar("accuracy") == 1.0f);
+    CHECK(window->GetScalar("epoch_count") == 0.0f);
+    CHECK_FALSE(window->GetScalar("unknown").has_value());
+}
+
+TEST_CASE("ImageCls shared result exposes batch transition fields", "[image_cls_env][prd097_shared_fields]")
+{
+    EnsureWxImageSupport();
+    TinyImageClsDataset dataset(4);
+    auto config = dataset.MakeNativeConfigData(100);
+    config.Set("ImageClsEnv.eval.eval_window.mode", "rotating");
+    config.Set("ImageClsEnv.eval.eval_window.rotating_size", "3");
+    anet::rl::env::ImageClsEnvFactory factory;
+    auto env = factory.CreateBatchEnv(config, torch::Device(torch::kCPU),
+        "imagecls-shared-fields", 1, 2, anet::rl::RunMode::Eval, "");
+    env->Reset();
+    const auto action = std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({2}, torch::kInt64));
+    const auto first = env->Step(action);
+    REQUIRE(first->GetScalar("reward").has_value());
+    CHECK(first->GetScalar("reward") == 2.0f);
+    CHECK(first->GetScalar("done") == 0.0f);
+    const auto last = env->Step(action);
+    CHECK(last->GetScalar("reward") == 1.0f);
+    CHECK(last->GetScalar("done") == 1.0f);
+    CHECK(last->GetScalar("truncated") == 0.0f);
+    CHECK(first->GetScalar("done") == 0.0f);
+}
+
+TEST_CASE("ImageCls continue state reuses the Step prefetch", "[image_cls_env][prd097_prefetch]")
+{
+    EnsureWxImageSupport();
+    TinyImageClsDataset dataset(3);
+    anet::rl::env::ImageClsEnvFactory factory;
+    auto env = factory.CreateBatchEnv(dataset.MakeNativeConfigData(100), torch::Device(torch::kCPU),
+        "imagecls-prefetch", 1, 1, anet::rl::RunMode::Eval, "");
+    env->Reset();
+    const auto action = std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64));
+    const auto step = env->Step(action);
+    CHECK(step->n_transitions == 1);
+    CHECK(step->n_episode_end == 0);
+    const auto prefetched = step->next_state.obs.At(anet::rl::ObsKeys::kGrid);
+    for (int index = 0; index < 3; ++index) dataset.CorruptImage(index);
+    CHECK(step->continue_state.obs.At(anet::rl::ObsKeys::kGrid).data_ptr() == prefetched.data_ptr());
+    CHECK_FALSE(step->continue_state.episode_start.any().item<bool>());
+    CHECK_THROWS(env->Step(action));
+    env->Shutdown();
 }

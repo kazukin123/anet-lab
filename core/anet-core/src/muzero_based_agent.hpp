@@ -238,7 +238,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         MuZeroLearner(
             const LearnerConfig& config,
             std::shared_ptr<std::shared_mutex> mutex,
-            std::shared_ptr<MuZeroNetworkModel> model, std::shared_ptr<MuZeroReplayBuffer> replay_buffer, torch::Device device);
+            std::shared_ptr<MuZeroNetworkModel> model, std::shared_ptr<MuZeroReplayBuffer> replay_buffer, torch::Device device, float gamma);
 
         /// Runnerから最新の経験を受け取り、RBにPushした上で学習を回す
         anet::rl::BatchUpdateResultList UpdateFromBatch(
@@ -246,6 +246,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
 
     private:
         const LearnerConfig config_;
+        const float gamma_;
         const std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<MuZeroNetworkModel> model_;
         std::shared_ptr<MuZeroReplayBuffer> replay_buffer_;

@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:ca5baaadbf5385211f919bff4ad46c45a8072bca date:2026-10-07 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:6284fef9f419a4f213af1c342138dd0e70a9230c date:2026-10-23 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -160,7 +160,7 @@ backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmar
 
 #### 3.4.2 Profiles `@name`
 
-Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in [AGENTS.md](../../AGENTS.md)). `:` means the same as `.` and is used only at a profile boundary.
+Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). `:` means the same as `.` and is used only at a profile boundary.
 
 - A definition alone does not contribute values. Only the portion selected by a chain or partial selection enters the final values.
 - Short `@name` resolves in the namespace where it is written (the definition site). `Env.$ = @a` refers to `Env.@a`, and `Env.@a : $ = @b` refers to `Env.@b`. Even when used elsewhere as `Other.$ = Env.@a`, the `@b` inside `@a` still refers to `Env.@b`.
@@ -285,7 +285,7 @@ X.key ?= v              既定葉。X.$ に負ける
 | Workspace `config/_main.txt` | `$include` directives for the `<Env>.txt` files to enable | - |
 | bat, CLI | `run.$` selection and leaf overrides | `=` |
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in [AGENTS.md](../../AGENTS.md)). Do not use `?=` merely because a value might be overridden later. Group only the leaves that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the leaves that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
@@ -465,7 +465,7 @@ Select `Train` on the Run Control toolbar to pause/resume Train. Left-clicking t
 | `Save Checkpoint` on the Run Operations toolbar | Pauses Train first if running, then saves the Agent to an arbitrary path, defaulting to the Run directory and `agent_<exp_step>.anet` |
 | `Open Run Folder` on the Run Operations toolbar | Opens the current Run directory in Explorer |
 
-The number of Actions varies by Env. Check the QValue pane or the Env's ActionSpec rather than assuming out-of-range Actions are valid.
+The number of Actions varies by Env. Check the valid range in the QValue pane or the Env's ActionSpec. An out-of-range discrete Action displays the requested value and valid range in the status bar without advancing Eval or changing the selected Trace history.
 
 EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, referencing a dedicated Actor through `run.eval.[eval_panel].actor = eval_panel`. DQN Agents use Greedy on the target net (Rainbow uses ε=0); MuZero uses temperature 0 without search noise; ImageCls selects the highest-scoring Action. Periodic evaluation's ε and UQE settings remain available. Override `<Agent>.actor.[eval_panel].*` to change the display policy, or set `app.eval_panel.eval_config_tag` to display a different evaluation configuration.
 
@@ -474,6 +474,8 @@ EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, ref
 ### 6.3 Display FPS and Progress
 
 `View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` stops its rendering timer while training continues. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
+
+Use `View > Eval Steps per Frame` to change the number of automatic evaluation steps per display update. Select `1`, `2`, `4`, `10`, `20`, `50`, or `100`, or choose `Custom...` to enter an integer from 1 to 2,147,483,647; the input starts with the current value. After confirmation, `Custom (N)...` shows the entered value. Cancel preserves both the value and selection. `Config (N)` restores the startup value. Changes apply from the next automatic evaluation update and are not saved to the config dump. Changing this value does not resume evaluation or leave Trace mode; manual Step still advances exactly one step. Evaluation Trace playback at 1x follows the product of the current FPS and current steps per frame.
 
 The Steps toolbar displays `exp` and `train` counts in separate read-only text fields. Values can be selected and copied, and a standard separator divides the fields. The right side of the status bar shows `exp <N> steps/s    train <N> steps/s` and elapsed time. Before the SPS EMA initializes, its value is `-`; before the first Train snapshot, both step fields show `-` and elapsed time shows `--:--:--`. Elapsed time continues as wall-clock time during pauses.
 
@@ -490,6 +492,51 @@ On a manual Close or `File > Exit`, if background evaluation that must be waited
 If saving `agent_close.anet` on close fails, the same notification policy applies, and log shutdown and GUI cleanup continue until the window closes. In that case, `agent_close.anet` may not be a valid checkpoint. If the Agent does not implement Save, a zero-byte file remains and a WARN includes the target path. Even successfully saved checkpoints should be loaded into a new Run only after checking that Agent, Network, and archive contracts match.
 
 To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file` in a compatible configuration for a new Run. Current examples are `R.auto_load_file`, an alias for `DefaultDQNAgent.auto_load_file`, and `ImageClsAgent.auto_load_file`. Checkpoints with different Network structures or archive contracts cannot be loaded. Saved contents vary by Agent; current DQN Agents do not restore ReplayBuffer contents or sampling state. Loading creates a new Run directory and step series; it does not append to the old Run's `metrics.jsonl`. For DefaultDQN, optimizer settings such as the learning rate come from the new Run configuration, and values that differ from the checkpoint produce WARN logs. See [DQN Agents](200_dqn_agents.en.md) for what DQN saves.
+
+### 6.5 Inspecting Transitions with Evaluation Trace
+
+Show Evaluation Trace from the View menu to stream Eval actions and results into a table, newest first. Selecting a row pauses Eval and displays that row's screen, Q values, and activations for Conv2d panes that were open at the time. Steps recorded before a pane was opened show `no data for this step`.
+
+From left to right, the top icons are play/pause (right triangle/two bars), stop (square), step backward (left triangle with a vertical bar on its right), step forward (right triangle with a vertical bar on its left), slower (double left triangle), and faster (double right triangle). The first button pauses during playback and plays otherwise. English tooltips also identify the operations. Speed is displayed as `x0.125`, `x0.25`, `x0.5`, `x1`, `x2`, `x4`, or `x8`. Starting playback from Live begins with the oldest row and stops at the newest. Stop or Esc in the table returns to Live. Resuming Eval or taking a manual action also returns to Live. Returning to Live alone does not resume Eval. Trace stepping selects a recorded step, whereas Eval Step advances the actual game.
+
+Stepping backward from Live selects the row immediately before the newest; with only one row, it stays on that row. Stepping forward from Live selects the newest row. A red border around the entire control bar indicates Trace mode. It remains while paused and disappears on returning to Live.
+
+Columns expand to fit their headers and values. Once a column is resized manually, it is no longer adjusted automatically while the panel remains open. Close and reopen the panel to restore initial widths; this also clears the history. The panel's minimum width fits the entire control bar and the columns from the left edge through the first action column. Scroll horizontally to inspect the remaining columns. Normal and selection colors follow the system theme; reward rows are marked light green and terminal rows light orange. Selecting a row does not change the column header colors.
+
+Specify columns as follows. Numbers must be at least 1, gaps are allowed, and columns are laid out from left to right in ascending order. Assign numbers by the following table.
+
+| Number | Category | Default columns |
+|---|---|---|
+| 100–199 | Free (columns to show left of step) | — |
+| 200–299 | Action and outcome | 200 step, 210 ep_step, 220 action, 230 reward, 240 decision, 250 skip |
+| 300–349 | Main environment-specific values | Atari: 300 game_score, 310 lives |
+| 350–399 | Episode end | 350 done, 360 trunc |
+| 400–499 | Values | 400 Q_sa, 410 V_s, 420–429 skip values q1–q10 |
+| 500–599 | Priority | 500 prio, 510 prio_pct |
+| 600–999 | Free (use the 900s for experimental columns) | — |
+
+The tens digit orders columns within a category, and the ones digit stays 0 to leave room for later insertions. Only columns ordered by an index (skip values q1–qJ, with j−1 in the ones digit) use the ones digit. decision, skip, and q1–qJ appear only in Runs with skip enabled.
+
+```text
+app.eval_trace_panel.max_rows = 1000
+app.eval_trace_panel.pct_window = 10000
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives
+app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
+```
+
+The default column order is `step → ep_step → action → reward → done → trunc → Q_sa → V_s → prio → prio_pct`. The truncation flag is headed `trunc` while its source key remains `truncated`. Default Q-value and state-value headers are `Q_sa` and `V_s`; their source keys remain `q_sa` and `state_value`. `label:` specifies a header without spaces. Numeric columns support `value` or `pct`, and the discrete-action `action` column supports `value`, `name`, or `value_name`. Defaults are value for numbers and value_name for actions. For continuous actions, override columns by dimension, such as `action.[0]`, and use value.
+
+To inspect Q values from the same online network used for training, use:
+
+```text
+DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
+```
+
+Playback cannot start when FPS is 0. If FPS is changed to 0 during playback, the first pause button still works. Restoring FPS continues from the same position if playback was active. No records are created while the panel is closed; reopening starts empty. Recording continues while another pane is maximized and hides this panel.
+
+> [!NOTE]
+> The screen shows the result of the action; Q values and activations are from the time that action was chosen. Percentiles use the midrank among recent finite values; all-equal values yield 50%. Approximate priority is filled once the n-step information is available. Windows containing truncation and unsupported Agents leave it blank. The default eval_panel Q values come from the target network. See [Applications and Tools](160_applications_and_tools.en.md#34-evaluation-trace) for timing and playback behavior.
 
 ## 7. Artifacts
 
@@ -528,7 +575,7 @@ For comparison or reproduction, treat `config/config_data.txt` in the Run direct
 
 - [CONTEXT.md](../../CONTEXT.md) (canonical configuration terminology)
 - [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md) (rationale for configuration contracts)
-- [AGENTS.md](../../AGENTS.md), Configuration File Assignment Operators (operator usage rules)
+- [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB), Configuration Files rules (Configuration File Assignment Operators) (operator usage rules)
 - [Analysis User Guide](030_user_guide_analysis.en.md)
 - [Development Environment](040_development_environment.en.md)
 - [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.md)

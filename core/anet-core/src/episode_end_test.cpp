@@ -7,6 +7,8 @@
 #include "anet/test_util.hpp"
 
 #include <algorithm>
+#include <array>
+#include <barrier>
 #include <atomic>
 #include <cmath>
 #include <chrono>
@@ -77,7 +79,7 @@ public:
     TestStepResult(
         const std::vector<float>& rewards,
         const std::vector<bool>& done,
-        const std::vector<bool>& truncated, bool shared = false)
+        const std::vector<bool>& truncated, bool shared = false, std::vector<float> scores = {})
         : rl::BatchStepResult(
             FloatTensor(rewards),
             MakeState(done, truncated),
@@ -91,8 +93,14 @@ public:
                 }()),
             static_cast<uint32_t>(rewards.size()),
             shared ? 1 : CountEpisodeEnds(done, truncated))
-        , num_envs_(static_cast<int>(rewards.size()))
+        , num_envs_(static_cast<int>(rewards.size())), scores_(std::move(scores))
     {
+    }
+
+    std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+    {
+        if (key == "score" && !scores_.empty()) return scores_.at(lane < 0 ? 0 : static_cast<size_t>(lane));
+        return BatchStepResult::GetScalar(key, lane);
     }
 
     std::vector<rl::AuxData> GetAuxDataList(int env_index = -1) const override
@@ -112,6 +120,7 @@ private:
     }
 
     int num_envs_ = 0;
+    std::vector<float> scores_;
 };
 
 class TestResetResult final : public rl::BatchResetResult {
@@ -137,14 +146,16 @@ private:
 
 class TestBatchEnv final : public rl::BatchEnvBase {
 public:
-    TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f)
+    TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f,
+        rl::EnvSpec env_spec = MakeEnvSpec())
         : rl::BatchEnvBase(name, num_envs)
         , batch_spec_{ num_envs, 1 }
+        , env_spec_(std::move(env_spec))
         , env_score_(env_score)
     {
     }
 
-    rl::EnvSpec GetSpec() const override { return MakeEnvSpec(); }
+    rl::EnvSpec GetSpec() const override { return env_spec_; }
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
 
@@ -174,6 +185,7 @@ public:
 
 private:
     rl::BatchEnvSpec batch_spec_;
+    rl::EnvSpec env_spec_;
     float env_score_ = 0.0f;
     torch::Tensor last_action_;
 };
@@ -203,13 +215,13 @@ public:
             return std::make_shared<TestStepResult>(
                 std::vector<float>{ 1.0f, 2.0f },
                 std::vector<bool>{ true, true },
-                std::vector<bool>{ false, false }, shared_);
+                std::vector<bool>{ false, false }, shared_, scores_);
         }
         scores_ = { 30.0f, 40.0f };
         return std::make_shared<TestStepResult>(
             std::vector<float>{ 3.0f, 4.0f },
             std::vector<bool>{ true, true },
-            std::vector<bool>{ false, false }, shared_);
+            std::vector<bool>{ false, false }, shared_, scores_);
     }
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
@@ -257,7 +269,7 @@ public:
         return std::make_shared<TestStepResult>(
             std::vector<float>{1.0f, 2.0f},
             std::vector<bool>{true, true},
-            std::vector<bool>{false, false});
+            std::vector<bool>{false, false}, false, std::vector<float>{1.0f, 2.0f});
     }
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
@@ -280,7 +292,7 @@ private:
     std::atomic<int> step_count_ = 0;
 };
 
-class TestActionInfo final : public rl::BatchActionInfo, public anet::ModuleBase {
+class TestActionInfo final : public rl::BatchActionInfo {
 public:
     TestActionInfo(torch::Tensor action, const anet::TensorDict& info, const rl::AuxData& aux, float score)
         : rl::BatchActionInfo(std::move(action), info, aux)
@@ -293,10 +305,11 @@ public:
         return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
     }
 
-    std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
+
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
         if (key == "action_info_score") return score_;
-        return std::nullopt;
+        return BatchActionInfo::GetScalar(key, index);
     }
 
 private:
@@ -522,7 +535,10 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, true, 12.5f);
-    auto env = std::make_shared<TestBatchEnv>("episode-end-single", 1);
+    // 通常行動0と異なる有効な強制行動1を、このテストだけで宣言する。
+    auto env_spec = MakeEnvSpec();
+    env_spec.action_spec.value_labels = { "noop", "forced" };
+    auto env = std::make_shared<TestBatchEnv>("episode-end-single", 1, 0.0f, std::move(env_spec));
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
     notifier->Attach(std::make_shared<rl::MetricsLogTrainObserver>(
         "action_info_score",
@@ -535,10 +551,11 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
         std::nullopt));
 
     rl::StepCounts event_counts;
-    runner->DoStep(5, event_counts);
+    // 行動の上書きと派生型のscalarが、環境と通知まで保持されることを確かめる。
+    runner->DoStep(1, event_counts);
 
     REQUIRE(env->GetLastAction().defined());
-    REQUIRE(torch::equal(env->GetLastAction(), torch::tensor({ 5 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(torch::equal(env->GetLastAction(), torch::tensor({ 1 }, torch::TensorOptions().dtype(torch::kInt64))));
     REQUIRE(HasScalarRecord(*backend_raw, "action_info_score", 1, 12.5));
     anet::MetricsLogger::Reset();
 }
@@ -546,7 +563,7 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event", "[episode_end][eval_session][runner]")
 {
     const bool background = GENERATE(false, true);
-    anet::test::LogCaptureGuard logs(wxLOG_Message);
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
     auto inner = std::make_shared<SessionRunnerEnv>();
@@ -649,13 +666,13 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
             } else {
                 CHECK(ends == starts - 1);
             }
-            CHECK(record.level == wxLOG_Message);
+            CHECK(record.level == wxLOG_Info);
             CHECK(record.message.find(starts == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
         }
         if (record.message.find("eval.[eval1]: session end") != std::string::npos) {
             ++ends;
             CHECK(ends <= starts);
-            CHECK(record.level == wxLOG_Message);
+            CHECK(record.level == wxLOG_Info);
             CHECK(record.message.find(ends == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
             std::smatch mean;
             REQUIRE(std::regex_search(record.message, mean, std::regex(R"(mean.episode_return=(\S+))")));
@@ -680,6 +697,43 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
         CHECK(*last_start_index < *wait_begin_index);
         CHECK(*wait_begin_index < *waited_index);
     }
+}
+
+TEST_CASE("SessionProgressLog reports progress once per interval until the last episode", "[eval_session][session_progress]")
+{
+    using Clock = rl::detail::SessionProgressLog::Clock;
+    const auto start = Clock::time_point{};
+    rl::StepCounts counts;
+    counts.learn_step = 7;
+    counts.exp_step = 123;
+    rl::detail::SessionProgressLog progress("eval1", 200, counts, start, std::chrono::seconds(30));
+
+    // 間隔に満たないうちは行を出さない。
+    CHECK_FALSE(progress.Update(10, start + std::chrono::seconds(29)).has_value());
+
+    const auto first = progress.Update(50, start + std::chrono::seconds(30));
+    REQUIRE(first.has_value());
+    CHECK(*first == "eval.[eval1]: session progress completed=50/200 elapsed=30.00s eta=90.00s learn_step=7 exp_step=123");
+
+    // 次の行は、前の行から間隔がたってから出す。
+    CHECK_FALSE(progress.Update(60, start + std::chrono::seconds(59)).has_value());
+    const auto second = progress.Update(100, start + std::chrono::seconds(60));
+    REQUIRE(second.has_value());
+    CHECK(second->find("completed=100/200 elapsed=60.00s eta=60.00s") != std::string::npos);
+
+    // 全 episode の完了は終了行が伝えるので、途中経過の行は出さない。
+    CHECK_FALSE(progress.Update(200, start + std::chrono::seconds(120)).has_value());
+}
+
+TEST_CASE("SessionProgressLog leaves eta unknown before the first episode", "[eval_session][session_progress]")
+{
+    using Clock = rl::detail::SessionProgressLog::Clock;
+    const auto start = Clock::time_point{};
+    rl::detail::SessionProgressLog progress("eval1", 200, rl::StepCounts{}, start, std::chrono::seconds(30));
+
+    const auto line = progress.Update(0, start + std::chrono::seconds(45));
+    REQUIRE(line.has_value());
+    CHECK(*line == "eval.[eval1]: session progress completed=0/200 elapsed=45.00s eta=n/a learn_step=0 exp_step=0");
 }
 
 TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[prd076][eval_session][shutdown]")
@@ -1056,4 +1110,77 @@ TEST_CASE("Background trace observer failure reaches the next learn callback", "
     counts.learn_step = 2;
     CHECK_THROWS_WITH(scheduler.OnLearn(rl::LearnEvent{ experience, nullptr, counts, agent, {} }),
         Catch::Matchers::ContainsSubstring("tag='broken' key='unknown_score' lane=0 target=env"));
+}
+
+TEST_CASE("Batch step end masks retain values across repeated reads", "[prd097_mask][episode_end]")
+{
+    const int pattern = GENERATE(0, 1, 2);
+    torch::Device device(torch::kCPU);
+    SECTION("CPU") {}
+    SECTION("CUDA") {
+        if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
+        device = torch::Device(torch::kCUDA);
+    }
+    const std::vector<bool> done = pattern == 0 ? std::vector<bool>{false, false, false, false}
+        : pattern == 1 ? std::vector<bool>{false, true, false, true}
+        : std::vector<bool>{true, true, true, true};
+    const std::vector<bool> truncated = pattern == 1
+        ? std::vector<bool>{false, false, true, true} : std::vector<bool>(4, false);
+    const auto expected = BoolTensor(done).logical_or(BoolTensor(truncated));
+    const auto next = MakeState(done, truncated).To(device);
+    const rl::PlainBatchStepResult result(FloatTensor({0, 1, 2, 3}).to(device), next, next, 4,
+        static_cast<uint32_t>(expected.sum().item<int64_t>()), {});
+    for (int read = 0; read < 16; ++read) {
+        const auto& mask = result.GetEpisodeEndMask();
+        CHECK(mask.device().is_cpu());
+        CHECK(mask.scalar_type() == torch::kBool);
+        CHECK(torch::equal(mask, expected));
+    }
+}
+
+TEST_CASE("Batch step end masks support simultaneous first reads", "[prd097_mask][episode_end]")
+{
+    const int pattern = GENERATE(0, 1, 2);
+    torch::Device device(torch::kCPU);
+    SECTION("CPU") {}
+    SECTION("CUDA") {
+        if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
+        device = torch::Device(torch::kCUDA);
+    }
+    const std::vector<bool> done = pattern == 0 ? std::vector<bool>{false, false, false, false}
+        : pattern == 1 ? std::vector<bool>{false, true, false, true}
+        : std::vector<bool>{true, true, true, true};
+    const std::vector<bool> truncated = pattern == 1
+        ? std::vector<bool>{false, false, true, true} : std::vector<bool>(4, false);
+    const auto expected = BoolTensor(done).logical_or(BoolTensor(truncated));
+    const auto next = MakeState(done, truncated).To(device);
+    const rl::PlainBatchStepResult result(FloatTensor({0, 1, 2, 3}).to(device), next, next, 4,
+        static_cast<uint32_t>(expected.sum().item<int64_t>()), {});
+
+    // 未読の同一結果へ一斉に入り、全読み手が同じCPU値を反復して取得できることを確かめる。
+    constexpr int kReaders = 16;
+    std::barrier start(kReaders);
+    std::array<bool, kReaders> passed{};
+    std::vector<std::thread> readers;
+    for (int i = 0; i < kReaders; ++i) {
+        readers.emplace_back([&, i]() {
+            start.arrive_and_wait();
+            try {
+                bool matches = true;
+                for (int read = 0; read < 32; ++read) {
+                    const auto& mask = result.GetEpisodeEndMask();
+                    matches = matches && mask.device().is_cpu()
+                        && mask.scalar_type() == torch::kBool && torch::equal(mask, expected);
+                }
+                passed[i] = matches;
+            } catch (...) {
+                passed[i] = false;
+            }
+        });
+    }
+    for (auto& reader : readers) reader.join();
+    for (int i = 0; i < kReaders; ++i) {
+        CAPTURE(i, pattern, device.str());
+        CHECK(passed[i]);
+    }
 }

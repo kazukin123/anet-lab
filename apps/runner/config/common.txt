@@ -52,6 +52,7 @@ DefaultDQNAgent.@heavy.learner.replay_ratio = 4
 
 env.worker_threads ?= -1	# -1=auto
 #env.worker_threads ?= 1	# -1=auto
+#env.worker_threads = 12
 env.device ?= cpu
 env.worker_type ?= 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
 
@@ -109,7 +110,10 @@ backend.@non-deterministic.deterministic_algorithms = false
 
 app.run_name ?= run_{t}
 
-app.log_level ?= info
+app.log_panel.level ?= info
+app.log_panel.auto_scroll ?= true
+app.log_panel.wrap ?= true
+app.log_panel.indent ?= true
 
 app.log_flush_interval_ms ?= 500  # 0で定期flushを無効化。
 
@@ -138,7 +142,7 @@ app.batchrun.exp_exit_step  ?= 25,600,000  # 256 * 100K = 25.6M
 app.batchrun.show_error_dialog ?= false
 app.batchrun.train_panel.fps ?= 0.0
 #app.batchrun.train_panel.fps ?= 0.5
-app.batchrun.eval_panel.fps ?= 0.5
+app.batchrun.eval_panel.fps ?= 15
 app.batchrun.eval_panel.step_per_frame ?= 10
 
 app.metrics_logger.video_codec ?= auto
@@ -153,3 +157,20 @@ app.metrics_logger.video_fps ?= 15
 # 計算式: Bins (510) ÷ Quantile数 (N) 程度が目安。
 #   もし N=51 なら、510 / 51 = 10 ビンくらいの隙間が空く可能性がある
 #   半径を 3 ～ 5 に設定すれば、左右に広がるのでだいたい埋まる。
+
+# Evaluation Trace: 列番号は 3 桁。百の位が分類、十の位が分類の中の順、一の位は差し込み用に 0（添字で並ぶ列だけ使う）。
+# 1xx 空き / 2xx 行動と結果（skip の decision 240・skip 250）/ 300〜340 env 固有・350 done・360 trunc
+# / 4xx 価値（スキップ価値 q1〜q10 は 420〜429）/ 5xx 優先度 / 900 番台は実験用。表はユーザーガイド 020 §6.5。
+app.eval_trace_panel.max_rows ?= 1000
+app.eval_trace_panel.pct_window ?= 10000
+app.eval_trace_panel.columns.[200] ?= $runner exp_step label:step
+app.eval_trace_panel.columns.[210] ?= $runner step_in_episode label:ep_step
+app.eval_trace_panel.columns.[220] ?= $action_info action
+app.eval_trace_panel.columns.[230] ?= $env_step reward
+app.eval_trace_panel.columns.[260] ?= $runner forced label:forced
+app.eval_trace_panel.columns.[350] ?= $env_step done
+app.eval_trace_panel.columns.[360] ?= $env_step truncated label:trunc
+app.eval_trace_panel.columns.[400] ?= $agent_step q_sa label:Q_sa
+app.eval_trace_panel.columns.[410] ?= $agent_step state_value label:V_s
+app.eval_trace_panel.columns.[500] ?= $agent_step approx_priority label:prio
+app.eval_trace_panel.columns.[510] ?= $agent_step approx_priority display:pct label:prio_pct

@@ -1,6 +1,6 @@
 interface:
   display_name: "ANET Review"
-  short_description: "成果物をレビューエージェントに出し、応答をそのまま示す（直さない）"
+  short_description: "成果物をレビューエージェントに出し、応答を平易に言い直して示す（直さない）"
   default_prompt: "$anet-review を使って、この会話で変更したファイルをレビューに出してください。"
 
 policy:

@@ -115,6 +115,7 @@ namespace anet::rl {
 
         void Reset();
         std::vector<CompletedEpisodeResult> Add(const BatchStepResult& result);
+        int64_t GetCurrentSteps(int64_t lane) const;
 
     private:
         BatchEnvSpec batch_spec_;
@@ -161,6 +162,8 @@ namespace anet::rl {
             const std::string& key, int64_t index = -1) const override;
 
         std::optional<EvalSessionResult> GetSessionResult() const { return session_result_; }
+        /// 1 session で採用する episode 数。
+        int GetEvalEpisodes() const { return eval_episodes_; }
         /// 直前 Step で完了した採用 episode の group index（昇順）。次の Step / Reset まで有効。
         const std::vector<int64_t>& LastAdoptedGroups() const { return last_adopted_groups_; }
 
@@ -174,7 +177,7 @@ namespace anet::rl {
 
         bool HasAllFreshGroups(const BatchState& state) const;
         void BeginSession();
-        void CaptureScalars(int64_t group_index);
+        void CaptureScalars(const BatchStepResult& result, int64_t group_index);
 
         std::shared_ptr<BatchEnv> inner_;
         BatchEnvSpec batch_spec_;

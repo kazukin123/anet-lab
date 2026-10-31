@@ -1,0 +1,4 @@
+# 補助学習のみモード。envのrun.@skipに重ねる。既定のmetrics選択は保持する。
+run.@skip_aux : DefaultDQNAgent.learner.skip.target_window = action_change
+run.@skip_aux : DefaultDQNAgent.actor.[train].skip.max_length_mode = single
+run.@skip_aux : DefaultDQNAgent.actor.[eval].skip.max_length_mode = single

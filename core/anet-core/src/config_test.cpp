@@ -480,7 +480,7 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
 {
     anet::ConfigData config_data;
     config_data.Set("ImageClsAgent.learning_rate.type", std::string("phased"));
-    config_data.Set("ImageClsAgent.learning_rate.value", 0.5);
+    config_data.Set("ImageClsAgent.learning_rate", 0.5);
     config_data.Set("ImageClsAgent.learning_rate.start", 0.0);
     config_data.Set("ImageClsAgent.learning_rate.end", 1.0);
     config_data.Set("ImageClsAgent.learning_rate.steps", 100);
@@ -526,7 +526,7 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
 
     const auto json = config.ToJson();
     CHECK(json.at("learning_rate.type") == "phased");
-    CHECK(json.at("learning_rate.value") == 0.5);
+    CHECK_FALSE(json.contains("learning_rate"));
     CHECK(json.at("learning_rate.phases") == anet::json::array({ "warmup", "main" }));
     CHECK(json.at("learning_rate.phase.[warmup].type") == "linear");
     CHECK(json.at("learning_rate.phase.[main].steps") == 90);
@@ -552,35 +552,35 @@ TEST_CASE("Config rejects a ProfiledValueConfig that violates its bounds", "[con
     {
         anet::ConfigData config_data;
         config_data.Set("PositiveProfile.interval.type", "constant");
-        config_data.Set("PositiveProfile.interval.value", "0");
+        config_data.Set("PositiveProfile.interval", "0");
 
         CHECK_THROWS_WITH(
             PositiveProfiledValueOwnerConfig(config_data),
-            Catch::Matchers::ContainsSubstring("key=interval.value value=0"));
+            Catch::Matchers::ContainsSubstring("key=interval value=0"));
     }
 
     SECTION("override layer reports the same layer-neutral logical key")
     {
         anet::ConfigData config_data;
         config_data.Set("PositiveProfile.interval.type", "constant");
-        config_data.Set("PositiveProfile.interval.value", "400");
-        config_data.Set("Trial.interval.value", "0");
+        config_data.Set("PositiveProfile.interval", "400");
+        config_data.Set("Trial.interval", "0");
 
         CHECK_THROWS_WITH(
             PositiveProfiledValueOwnerConfig(config_data, "Trial"),
-            Catch::Matchers::ContainsSubstring("key=interval.value value=0"));
+            Catch::Matchers::ContainsSubstring("key=interval value=0"));
     }
 }
 
 TEST_CASE("Config override does not mask a malformed default layer", "[config][profiled_value]")
 {
     anet::ConfigData config_data;
-    config_data.Set("PositiveProfile.interval.value", "invalid");
-    config_data.Set("Trial.interval.value", "2");
+    config_data.Set("PositiveProfile.interval", "invalid");
+    config_data.Set("Trial.interval", "2");
 
     CHECK_THROWS_WITH(
         PositiveProfiledValueOwnerConfig(config_data, "Trial"),
-        Catch::Matchers::ContainsSubstring("key=PositiveProfile.interval.value")
+        Catch::Matchers::ContainsSubstring("key=PositiveProfile.interval")
         && Catch::Matchers::ContainsSubstring("value=\"invalid\"")
         && Catch::Matchers::ContainsSubstring("expected=double"));
 }
@@ -1112,7 +1112,24 @@ TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[c
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli]")
+TEST_CASE("Default Evaluation Trace columns add forced without changing existing declarations", "[config][prd105][forced_columns][shipped_config]")
+{
+    // 共通設定の公開読込経路で、既定列の差分を一つに限定する。
+    const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+    const anet::ConfigManager manager(root / "apps/runner/config/common.txt");
+    const auto& config = manager.GetConfigData();
+    const std::vector<std::pair<int, std::string>> expected{
+        {200, "$runner exp_step label:step"}, {210, "$runner step_in_episode label:ep_step"},
+        {220, "$action_info action"}, {230, "$env_step reward"}, {260, "$runner forced label:forced"},
+        {350, "$env_step done"}, {360, "$env_step truncated label:trunc"},
+        {400, "$agent_step q_sa label:Q_sa"}, {410, "$agent_step state_value label:V_s"},
+        {500, "$agent_step approx_priority label:prio"}, {510, "$agent_step approx_priority display:pct label:prio_pct"}};
+    for (const auto& [number, declaration] : expected) {
+        CHECK(config.Get("app.eval_trace_panel.columns.[" + std::to_string(number) + "]") == declaration);
+    }
+}
+
+TEST_CASE("Runner app selection resolves the error dialog policy", "[config][resolver][cli][shipped_config]")
 {
     const auto repo_root = std::filesystem::path(__FILE__)
         .parent_path().parent_path().parent_path().parent_path();
@@ -1522,4 +1539,99 @@ TEST_CASE("ConfigManager resolves relative main config from cwd before config se
     }
 
     std::filesystem::remove_all(root);
+}
+
+TEST_CASE("Config optional values preserve absence and typed prefix overrides", "[config][prd102_optional]")
+{
+    struct OptionalValueConfig : anet::Config {
+        std::optional<uint64_t> number;
+        explicit OptionalValueConfig(const anet::ConfigData& data,
+            std::optional<uint64_t> initial = std::nullopt)
+            : anet::Config(data, "OptionalValue", "override"), number(initial)
+        {
+            ANET_READ_CONFIG(data, number);
+        }
+    };
+    // 未指定はDTOの初期値を保ち、設定記録で指定値に化けない。
+    const anet::ConfigData empty;
+    const OptionalValueConfig missing(empty);
+    CHECK_FALSE(missing.number.has_value());
+    CHECK_FALSE(missing.GetConfigData().Has("number"));
+    CHECK_FALSE(missing.ToJson().contains("number"));
+    const OptionalValueConfig initial(empty, uint64_t{7});
+    CHECK(initial.number == 7);
+    CHECK(initial.GetConfigData().Get("number") == "7");
+    CHECK(initial.GetScopedConfigData().Get("override.number") == "7");
+    CHECK(initial.ToJson().at("number").get<uint64_t>() == 7);
+    CHECK_FALSE(missing.GetScopedConfigData().Has("override.number"));
+
+    // 0と最大値も通常の整数として読み、上書きprefixを優先する。
+    anet::ConfigData data;
+    data.Set("OptionalValue.number", "0");
+    const OptionalValueConfig zero(data);
+    REQUIRE(zero.number.has_value());
+    CHECK(*zero.number == 0);
+    CHECK(zero.GetConfigData().Get("number") == "0");
+    data.Set("override.number", "18446744073709551615");
+    const OptionalValueConfig maximum(data);
+    CHECK(maximum.number == std::numeric_limits<uint64_t>::max());
+    CHECK(maximum.ToJson().at("number").get<uint64_t>() == std::numeric_limits<uint64_t>::max());
+    for (const auto* invalid : {"", "nan", "-1", "18446744073709551616", "1.5"}) {
+        anet::ConfigData invalid_data;
+        invalid_data.Set("OptionalValue.number", invalid);
+        CHECK_THROWS_WITH(OptionalValueConfig(invalid_data), Catch::Matchers::ContainsSubstring("OptionalValue.number"));
+    }
+    // 不正なbaseは有効な上書きがあっても見逃さない。
+    data.Set("OptionalValue.number", "bad");
+    CHECK_THROWS(OptionalValueConfig(data));
+}
+
+TEST_CASE("Config optional native leaves preserve explicit empty values and round trip", "[config][prd102_optional]")
+{
+    struct OptionalLeavesConfig : anet::Config {
+        std::optional<std::string> text;
+        std::optional<bool> enabled;
+        std::optional<std::vector<int64_t>> items;
+        explicit OptionalLeavesConfig(const anet::ConfigData& data)
+            : anet::Config(data, "OptionalLeaves")
+        {
+            ANET_READ_CONFIG(data, text);
+            ANET_READ_CONFIG(data, enabled);
+            ANET_READ_CONFIG(data, items);
+        }
+    };
+    // 空の葉値も明示指定であり、未指定へ読み替えない。
+    anet::ConfigData data;
+    data.Set("OptionalLeaves.text", "");
+    data.Set("OptionalLeaves.enabled", false);
+    data.Set("OptionalLeaves.items", "");
+    const OptionalLeavesConfig original(data);
+    REQUIRE(original.text.has_value());
+    CHECK(original.text->empty());
+    REQUIRE(original.enabled.has_value());
+    CHECK_FALSE(*original.enabled);
+    REQUIRE(original.items.has_value());
+    CHECK(original.items->empty());
+    const OptionalLeavesConfig restored(original.GetScopedConfigData());
+    CHECK(restored.text == original.text);
+    CHECK(restored.enabled == original.enabled);
+    CHECK(restored.items == original.items);
+}
+
+TEST_CASE("PRD101 bare profiled values record only active fields", "[config][prd101]")
+{
+    anet::ConfigData data;
+    data.Set("ImageClsAgent.learning_rate", "0.25");
+    ProfiledValueOwnerConfig constant(data);
+    CHECK(anet::ProfiledValue<double>(constant.learning_rate).Value() == 0.25);
+    CHECK(constant.ToJson().at("learning_rate") == 0.25);
+    CHECK(constant.ToJson().size() == 1);
+    data.Set("ImageClsAgent.learning_rate.type", "linear");
+    data.Set("ImageClsAgent.learning_rate.start", "1");
+    data.Set("ImageClsAgent.learning_rate.end", "0");
+    data.Set("ImageClsAgent.learning_rate.steps", "10");
+    ProfiledValueOwnerConfig linear(data);
+    CHECK(anet::ProfiledValue<double>(linear.learning_rate).Evaluate(5) == 0.5);
+    CHECK_FALSE(linear.ToJson().contains("learning_rate"));
+    CHECK(linear.ToJson().size() == 4);
 }

@@ -1,0 +1,55 @@
+# 評価と比較の条件
+
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機構](../index.md#機構)
+
+## 今の結論
+
+Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。qbertでは、同じcheckpointをGreedyと学習中と同じ選び方で評価したときの成績の上下が、スキップなし（2 seed）とTempoRL分割のfullで逆になった。学習中の8面突破率は200ゲームごとの区切りで40ポイント以上動いた。qbertのTempoRL（分割・合算のfull）では、Greedyでゲームが終わる面が1つに集まり、ランダムさはその面から外す代わりに別の面でゲームが終わることを増やすので、全体の8面突破率の比では得と損が打ち消し合った。
+
+## 分かっていること
+
+- qbertのスキップなしの50M終了checkpointでは、Greedy（μ-only・τ固定）の評価が、学習中のTrain Actorと同じ選び方（NoisyNetのノイズあり・τランダム、ε=0）より8面突破率が低かった（seed1 50.5%対60.0%、seed2 25.5%対44.5%、各200ゲーム）。Greedyでは終了時のクリア面数が特定の値に集まった（seed1は3で15本、seed2は4で46本。同じseedの学習中と同じ選び方は3本・20本）。TempoRL分割のfull（seed1）では逆に、Greedyのほうが高かった（66.0%対37.5%）。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ6・探索ブロック02・03。Run: `run_20261029-112021_evnt_off_a` / `run_20261029-110601_evnt_off_nt` / `run_20261029-143538_evnt_off2_a` / `run_20261029-142927_evnt_off2_nt` / `run_20261029-111656_evnt_spl_a_c` / `run_20261029-110108_evnt_spl_nt_c`）。
+- qbertのスキップなし（seed2）の学習中の8面突破率は、200ゲームごとの区切りで47.57M〜48.46Mの83.5%から、次の区切り（〜49.17M）の41.0%へ動いた。終了checkpointを学習中と同じ選び方で200ゲーム評価すると44.5%で、学習の最後の2つの区切り（58.5%・41.0%）の間に入った。seed1は評価60.0%に対し、最後の2つの区切りが87.0%・86.0%だった。どちらのseedでも評価は最後の区切りより低い。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、現時点のまとめ7・探索ブロック03。Run: `run_20261028-132638_a5_qb_aln_btreps_s2` / `run_20261025-231207_a5_qb_aln_btreps_s1` / `run_20261029-142927_evnt_off2_nt` / `run_20261029-110601_evnt_off_nt`）。
+- qbertのTempoRLの50M終了checkpoint（分割・合算のfull、各seed1、200ゲーム）をGreedyで評価すると、ゲームが終わる（最後の残機を失う）面が1つに集まった（分割は面6で52/200、合算は面5で45/200。ほかの面でゲームが終わる率は6.4%以下）。τやノイズのランダムさを入れるとその面で終わる率は4〜10%に下がり、代わりに面7・8などで終わるゲームが増えた（合算では集中した面のほかで終わったゲームがGreedyの8本に対し、Q側とskip側の両方のτをランダムにすると40本）。評価の記録はゲームの終わりのクリア数だけなので、どの面で残機をいくつ失ったか、その原因は分からない。全体の8面突破率の比では得と損が混ざり、合算のτは分母0.5で害が見えなかったが、集中した面を除いた通過率では分母16.2で害が見えた。PRD106はステージ0の読みを、Greedyで同じ得点で終わる軌跡が集まる面を除いた通過率で取り、学習を流すかの目安は全体の8面突破率の差で見ると決めた。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§2.2の7・§4 D7・D9）。
+- qbertの評価（noop最大30、sticky action 0.25）で、Greedy（μ-only・τ固定・ε=0）は始まり方の数だけの軌跡をほぼそのまま繰り返した。TempoRL分割のfullでは、面6で終わった52本のうち51本が18,925点で、評価のseedを変えても57本すべてが18,925点だった。突破したゲームも少数の得点に集まった（29,675点が57本）。Q側のτだけをランダムにしてもこの軌跡からほとんど外れず（33/35本が18,925点）、スキップ長のτやノイズを入れると得点がばらけた。同じcheckpointのsingleのGreedyは面6までに終わるゲームが0本で、代わりにクリア数8・26,175点で終わる塊が60本あった。同じ得点で終わる塊はスキップなしのGreedyにもあり（学習のseed1のcheckpointは面8で25,750点が45本、seed2は面5で15,850点が32本・面8で26,050点が53本）、モードによらずGreedyの評価に見られた。ランダムさを入れた条件には無かった。Greedyの200ゲームは独立な軌跡の標本ではなく、始まり方の引き直しに近い。（出典: [106_temporl_skip_forward_noise_key_10prd.md](../../memo/106_temporl_skip_forward_noise_key_10prd.md)、§2.2の7）。
+
+
+- ε=0.01で見えない腕の差がε=0で現れ、20Mと50MでSNの符号も変わった。checkpoint時点と評価方策を両方揃える。（出典: [2026-09-15_replay-lane-window.md](../../experiments/default-dqn/atari/2026-09-15_replay-lane-window.md)、現時点のまとめ3〜5）。
+- 中間時点のseed差は3〜5割に達し、単一seedの山と頭打ちを一般化できなかった。（出典: [2026-09-23_realtime-profile-100m.md](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、現時点のまとめ1〜4。Run: run_20260923-020945_atari_kung_fu_master / run_20260923-095708_atari_kung_fu_master）。
+- DropMergeではtargetの評価専用Runの複製が一致した一方、onlineは同設定複製でずれた。学習中の1局評価と多数局評価で検出できる差も異なる。（出典: [2026-10-15_gradient-noise-batch.md](../../experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md)、現時点のまとめ4・10）。
+- DropMerge の学習中の評価の値はセッションごとの報酬の合計の平均で、終局の罰（−10、NoDropTimeout は −20）を含む。評価専用 Run の平均点はログのゲームの点で、罰を含まない。罰をそろえると、学習中の評価 ×8（Eval1・Eval3 を 1 セッション 8 局）の最後の 10M と最終 checkpoint の評価専用 Run の差は 8 本で平均 −0.1%（−1.5〜+0.8%）で、×8 は系統的には低く出ない。1 本ずつでは ±1.5% ほどずれ、最も低かった 46a は最後の 2 つの 10M 窓が横ばいだった（出典: [2026-10-15_gradient-noise-batch.md](../../experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md)、この文書の読み方・探索ブロック11 判断更新。Run: run_20261019-130757_dmfb_42g_34a_ctl2 / run_20261019-184443_dmfb_42b_34a_lr7.1e-5 / run_20261021-001853_dmfb_45a_42j_ctl / run_20261022-132905_dmfb_46a_45a_ctl ほか）。
+- DropMerge の Run ごとのぶれは、IQN+M の 2 seed で 1〜2%、QR+M の 2 seed で 10〜15%（どちらも評価専用 Run）、nzrep と後の系列の seed 2 で約 6%（学習側の平均点）だった。QR+M の 2 Run の設定 dump の差は run.seed と Run 名だけで、評価専用 Run の標準誤差は 20 前後なので、測定の揺れではなく学習結果のばらつきだった（出典: [2026-10-01_atari-feedback.md](../../experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md)、現時点のまとめ13・探索ブロック04。Run: run_20261003-081944_dmfb_qr_munch / run_20261003-160717_dmfb_qr_munch_s2）。
+- qbert の ε=0 断面の第 8 面到達は、断面ごとに大きく上下した（例: ε 腕 40.6M 93/100 → 45.7M 32/103、64 env・1M の seed 1 20.4M 68/102 → 25.5M 4/109）。同じ落ち込みは 128 env・2M の seed 2・3 と UQE にも出ており、1 断面の比較では判定しない（出典: [2026-09-27_btr-gap-qbert-bz.md](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ12・探索ブロック03。Run: run_20260927-035604_a5_qbert_btr50m_eps005_end0 / run_20260928-065041_a5_qbert_btr50m_eps005_env64）。
+- ImageCls の ResNet18ish_hr＋Mixup/CutMix では、LR の cosine の長さが違う Run の順位が途中の step と最終で入れ替わった。15M の時点は、学習予算 30M の Run が 74.5%、20M の Run が 82.0%、cosine を 15M で終える Mixup なしの Run が 83.7% で、最終は 86.4・86.0・83.7% だった。cosine の長さが違う Run は最終同士で比べる（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、現時点のまとめ7・探索ブロック05。Run: run_20260707-084617_imgcls_ResNet18HR32_30 / run_20260706-124351_imgcls_ResNet18HRmix / run_20260704-214337_imgcls_ResNet18ish_hr）。
+- ImageCls では、同じ実効設定・同じ seed の 2 本が、cudnn deterministic の設定でも同じ exp step で 0.3〜1.0pt ずれた（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、探索ブロック02。Run: run_20260627-234723_imgcls_Res18_do1 / run_20260630-004827_imgcls_ResNet18ish_hr）。
+- GridMaze で、安定してゴールできるようになった後も、EvalPanel の手操作で点数の方策がほとんど通らないセルへ誘導してから再開させると、ゴールに着かなかった（ユーザーの観察。Run 名の記録は無い）。今の設定では、開始位置は (0, 0) に固定、観測は位置の 2 次元だけで、手操作の遷移は学習に入らない。固定の開始位置からの評価の成功は、通らない状態から届くことを示さない（出典: [999_intrinsic_reward_novelty_10prd.md](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.7「観察」「今の構成」）。
+- anet の TempoRL では、評価 slot のスキップ長にも評価の方策が掛かる（Atari の `eval` は ε 0.01、LunarLander の `eval` は UQE の τ 0.25）。行動の方策が `Greedy` 型の slot（`[eval_panel]`）だけは、skip の葉が無くてもスキップ長が同じ Greedy になる。ε-greedy の ε 0（Atari の `[greedy]`）は Greedy 型ではないが、スキップ長も ε 0 の ε-greedy で選ぶ。学習したスキップ価値そのものを測るには、行動もスキップ長も greedy の評価が要る（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T12・§4 D7）。
+- 評価 slot の action_info を `@train` の event で scalar にすると、その値は評価 runner 自身の step 軸に載り、`@session_end` の値（学習側の step 軸）とは換算できない（比は Run の中で 0.000039 から 0.0075 へ動く）。評価 session の中の割合や平均を学習の進みと並べるには、session の終わりに学習側の座標で出す必要がある（出典: [103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§2.2 の T13・§4 D8、[140 可観測性 §6.x](../../design/140_observability.jp.md)）。
+- `run.eval_schedule.[tag].interval` で組んだ評価は、step の値によらず初回に必ず 1 回発火する（learn step 0 の未学習の方策の点が入る）。背景の評価は、次の発火のときに前回が終わっていなければ学習が待つ。Atari-5 の 400 エピソードの ε=0 の評価では、未学習の方策が打ち切り上限に張り付いた 2 ゲームで初回の評価が 1 時間級になり、次の発火で学習が 692.6s・885.5s 止まった（出典: [999_eval_schedule_first_fire_10prd.md](../../memo/999_eval_schedule_first_fire_10prd.md)、Context・実測）。
+- LunarLander の TempoRL 有効の Run に `[greedy]` session（行動もスキップ長も greedy、1009 learn step ごと）を足すと、同じ seed の 10/26 の Run と比べて、`[eval]` の最初の点（8448 step、学習前）は一致し、2 点目（14848 step、学習前）から違い、学習側の報酬の EMA も 37 エピソード目から違った。学習の設定は同じ（差は `[greedy]` の actor と tag、既定値のままの新しいキー、表示だけの列番号）。`[greedy]` の初回のエピソードが 2 点の間に入るので、評価 session の追加で同じ seed の乱数の系列が変わった。GridMaze では `[greedy]` を足す前のビルドの 3 本が 10/26 と完全に一致している（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、現時点のまとめ 5・探索ブロック 02、[103_temporl_reference_alignment_10prd.md](../../memo/103_temporl_reference_alignment_10prd.md)、§5.7「振る舞いが変わるもの」。Run: run_20261028-131118_t103_ll_mrg_s1 / run_20261026-020453_t98_ll_mrg_s1）。
+
+## 分かっていないこと
+
+- GridMaze で通らないセルから再開してゴールに着かないとき、点数の方策は壁へ向かう行動を繰り返して位置が変わらないまま打ち切られているのか（出典: [999_intrinsic_reward_novelty_10prd.md](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.7「見立て」。Run では未確認）。
+- 評価 session を足すと同じ seed の軌跡が学習前から変わるのは、どの乱数の系列（評価の方策の τ の抽選、env の seed、Actor の乱数）を学習側や既存の評価 slot と共有しているためか。同じ設定の 2 本が一致するかも確かめていない（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、pending）。
+- qbertのスキップなしseed1で、終了checkpointを学習中と同じ選び方で評価した8面突破率（60.0%）が、学習中の最後の区切り（87.0%）より大きく低いのはなぜか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック03）。
+
+## 撤回・更新
+
+なし。
+
+## 関連
+
+- [遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)。
+- [BatchEnv の Step は終端の lane をリセットせず、Runner が通知のあとに終わったエピソードをリセットする](../../adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md)。
+- [step trace の近似優先度は Agent が出す step 部品が計算し、Actor の設定キーで eval_panel にだけヒントを作らせることはしない](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)。
+- [Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)。
+- [遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD](../../memo/097_env_auto_reset_after_notification_10prd.md)。
+- [Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD](../../memo/094_evalpanel_step_history_10prd.md)。
+- [内的報酬と方策の家族 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/999_intrinsic_reward_novelty_10prd.md)。
+- [replay_ratio_lane_window](../mechanisms/replay_ratio_lane_window.md)。
+- [temporal_abstraction](../mechanisms/temporal_abstraction.md)。
+- [TempoRL 第二弾（著者の実装との差）の PRD](../../memo/103_temporl_reference_alignment_10prd.md)。
+- [eval スケジュールの初回発火の抑止 暫定 PRD](../../memo/999_eval_schedule_first_fire_10prd.md)。
+- [仕組みと契約](../../design/200_dqn_agents.jp.md)。
+- [Envをまたぐ比較の独自分析](../../experiments/default-dqn/README.md#env-をまたぐ際の扱い)。

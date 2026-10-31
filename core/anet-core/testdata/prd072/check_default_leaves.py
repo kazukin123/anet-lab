@@ -14,7 +14,7 @@ ROOT = REPO / ".scratch/prd072-default-leaf"
 
 def assignments(line):
     # コロン表記、Run、batや生成ツールの文字列にも同じ抽出を使う。
-    for match in re.finditer(r"(?<![\w.@])([\w.@\[\]/-]+(?:\s*:\s*[\w.@\[\]/$-]+)?(?:\s*\.\s*\$)?)\s*(\?=|=)\s*([^\r\n]*)", line):
+    for match in re.finditer(r"(?<![\w.@$\[])([\w.@/-][\w.@\[\]/$+-]*(?:\s*:\s*[\w.@\[\]/$+-]+)?(?:\s*\.\s*\$)?(?:\s*\+)?)\s*(\?=|=)\s*([^\r\n]*)", line):
         key = normalize(match[1])
         run = key.startswith("run.@")
         if run:
@@ -57,6 +57,12 @@ def main():
     report, errors = [], []
     for entry in entries:
         key = entry["key"]
+        # +=を選択チェーンの追加と誤認した葉も、owner分類の前に拒否する。
+        if "$" in key and (not key.endswith(".$") or key.count("$") != 1):
+            entry["reason"] = "malformed selection key"
+            report.append(entry)
+            errors.append(entry)
+            continue
         scope = owners
         if entry["file"].startswith("apps/runner/config/") and Path(entry["file"]).name not in ("common.txt", "agent.txt"):
             scope = file_owners.get(entry["file"], set()) | file_owners.get("apps/runner/config/agent.txt", set()) | file_owners.get("apps/runner/config/common.txt", set())

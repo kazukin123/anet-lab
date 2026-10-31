@@ -182,7 +182,7 @@ namespace anet {
         anet::ConfigData GetScopedConfigData() const;
     protected:
         template<typename T>
-        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)
+        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value, bool record = true)
         {
             if constexpr (ConfigReader<T>::kEnabled) {
                 ConfigReader<T>::Read(*this, config_data, key, value);
@@ -196,19 +196,26 @@ namespace anet {
                 config_data.Read(override_config_key, value, value);
 
 			    // 取り込んだKeyとValueを保存
-                my_config_data_.Set(key, value);
-                my_config_json_[key] = value;
+                if (record) RecordConfigValue(key, value);
             }
 		}
+
+        // 読み取った値のうち、実効契約が使う欄だけを記録する。
+        template<typename T>
+        void RecordConfigValue(const std::string& key, const T& value)
+        {
+            my_config_data_.Set(key, value);
+            my_config_json_[key] = value;
+        }
 
         template<typename T>
         void ReadSubConfig(
             const ConfigData& config_data,
             const std::string& root_key,
             const std::string& sub_key,
-            T& value)
+            T& value, bool record = true)
         {
-            ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value);
+            ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value, record);
         }
 
         std::string MakeTaggedSubConfigKey(
@@ -250,6 +257,27 @@ namespace anet {
         std::string override_prefix_;
         ConfigData my_config_data_; ///< Key=String Value=String
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
+    };
+
+    /// ConfigDataで扱う葉値のoptional。未指定ならDTOの初期値を保持する。
+    template<typename T>
+    struct ConfigReader<std::optional<T>> {
+        static constexpr bool kEnabled = true;
+
+        static void Read(Config& owner, const ConfigData& config_data,
+            const std::string& key, std::optional<T>& value)
+        {
+            static_assert(!ConfigReader<T>::kEnabled,
+                "Optional configuration supports native ConfigData leaf values.");
+            // 不在を記録値に変えず、既定値も無い場合は読み取り自体を省く。
+            if (!value.has_value() && !owner.HasConfigValue(config_data, key)) {
+                return;
+            }
+            // prefix順序・変換・記録は通常値の共通経路へ委譲する。
+            T parsed = value.value_or(T{});
+            owner.ReadConfig(config_data, key, parsed);
+            value = std::move(parsed);
+        }
     };
 
     /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。

@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:7d74400d25f54aacf945e6355e1c77f5afcfd30d date:2026-10-07 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:7d700e1bacc2ecad0e226324a26de44ad037342a date:2026-10-23 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -26,14 +26,14 @@ AtariEnv / AtariEnvFactory / AtariView / preprocessing functions, ALE v0.12.0 co
 ```
 BatchEnvBuilder (env.class_id = AtariEnv)
   └─ AtariEnvFactory (SingleDiscreteEnvFactory)
-       └─ AtariEnv × N lanes（並列・auto-reset は既存 wrapper）
+       └─ AtariEnv × N lanes（並列実行とStep内の自動リセットは共通 wrapper）
             ├─ ale::ALEInterface（1対1、ALE 側 frame_skip=1 固定）
-            └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → area resize → uint8 [1,S,S]
+            └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
 - Does not produce frame stacks. The existing Actor-side stacker and ReplayBuffer-side stack_count jointly handle stacking.
 - RB stores individual uint8 frames; stacks are expanded during sampling (ADR 0026).
-- Responsibility: **AtariEnv drives one ALE instance and performs standard preprocessing**. Existing framework mechanisms handle parallelism, stacking, autoreset, and seed distribution.
+- Responsibility: **AtariEnv drives one ALE instance and performs standard preprocessing**. Existing framework mechanisms handle parallelism, stacking, automatic reset of terminal lanes inside Step, and seed distribution.
 
 ## 3. External Dependency (ALE v0.12.0)
 
@@ -113,7 +113,7 @@ ALE is GPL-2.0. The main project's Apache-2.0 license is maintained through (1) 
 core/envs/atari1/include/anet/env/Atari.hpp   … void InitAtari();
 core/envs/atari1/src/Atari.cpp                … factory + view creator 登録
 core/envs/atari1/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
-core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理 free 関数（named namespace、ALE 非依存）
+core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
 core/envs/atari1/src/AtariView.hpp/.cpp       … AtariView（§5）
 core/envs/atari1/src/AtariEnv_test.cpp
 core/envs/atari1/src/pch.hpp
@@ -129,6 +129,7 @@ The class_id is `AtariEnv`. `AtariEnv : public SingleDiscreteEnvBase, public ane
 | `game` | string | Required | ROM name (snake_case, without extension) |
 | `rom_dir` | string | `""` | Takes precedence over `ATARI_ROM_DIR` when nonempty |
 | `screen_size` | int | 84 | Output resolution S (square) |
+| `resize_mode` | string | adaptive_average | adaptive_average (existing) / pixel_area (area-weighted mean, final ties-to-even rounding); pixel_area accepts S=1..160 |
 | `frame_skip` | int | 4 | Emulator frames per step (custom skip loop) |
 | `max_pool` | bool | true | Pixelwise maximum of the last two frames in the skip window |
 | `repeat_action_probability` | float | 0.25 | Sticky actions, passed through to ALE |
@@ -139,7 +140,7 @@ The class_id is `AtariEnv`. `AtariEnv : public SingleDiscreteEnvBase, public ane
 | `full_action_space` | bool | false | True selects all 18 legal actions |
 | `mode` / `difficulty` | int | -1 | -1 uses ALE defaults; otherwise `setMode`/`setDifficulty` (flavor) |
 | `max_episode_frames` | int | 108000 | Custom truncation threshold; 0 disables |
-| `retain_rgb_frame` | bool | true | Retain the RGB screen each Step and expose it through `GetTensor("rgb_frame")` for AtariView (§5) |
+| `retain_rgb_frame` | bool | true | Retain RGB each Step and store its Tensor reference in the result aux; `GetTensor("rgb_frame")` exposes the current screen (§5) |
 | `display_screen` | bool | false | SDL spectator window, passed through to ALE |
 | `sound` | bool | false | SDL audio, passed through to ALE independently of display |
 | `ram_metric.[game].[label]` / `ram_metric.[game].metrics` | string | No definitions | Per-game RAM definitions and numbering (§4.9) |
@@ -154,7 +155,7 @@ Protocol presets (defined in `Atari.txt`, selected through the `AtariEnv.$` sele
 
 Standard-conformance notes (audited on 2026-08-18 against SB3 `atari_wrappers.py`, Gymnasium `AtariPreprocessing`, ale-py v5 registration, and rlpyt):
 
-- There are two standard lineages: **baselines** (OpenAI Baselines 2017 → SB3 → CleanRL, plus rlpyt, the basis of SPR/EfficientZero; uses episodic_life=true) and **Dopamine** (Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo; uses terminal_on_life_loss=False). This env matches their wrapper behavior: NOOP random ranges and placement, FIRE sequences, max-pooling inputs, sign clipping, direct ALE grayscale, INTER_AREA, and episodic_life decisions. Where the lineages differ, follow the one that actually uses that branch; for example, the episodic_life `lives > 0` guard follows baselines (§4.5).
+- There are two standard lineages: **baselines** (OpenAI Baselines 2017 → SB3 → CleanRL, plus rlpyt, the basis of SPR/EfficientZero; uses episodic_life=true) and **Dopamine** (Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo; uses terminal_on_life_loss=False). This env matches their wrapper behavior: NOOP random ranges and placement, FIRE sequences, max-pooling inputs, sign clipping, direct ALE grayscale and episodic_life decisions. Resize behavior is selected independently as described in §4.3. Where the lineages differ, follow the one that actually uses that branch; for example, the episodic_life `lives > 0` guard follows baselines (§4.5).
 - **v5 differs from Machado et al. 2018 recommendations in one respect**: Machado recommends the full 18-action set, while ale-py v5 defaults to `full_action_space=False` (minimal). This env's v5 presets follow ale-py (false).
 - **NOOP 0 in v5 depends on lineage**: raw ale-py v5 has no NOOP starts (Dopamine/Machado lineage), whereas Gymnasium's `AtariPreprocessing` wrapper defaults to `noop_max=30`. Even v5 examples using standard Gymnasium preprocessing run with NOOP 30; check the comparison wrapper configuration.
 - Classic `max_episode_frames=108000` differs by 8% from historical v4 (gym registration TimeLimit=100,000 frames). SB3 `AtariWrapper` itself has no limit, so 108,000 is used to match v5.
@@ -176,13 +177,18 @@ Step(action_index):
   reward_raw = Σ ale.act(a)                         # sticky は ALE 内で毎フレーム判定
       （当該Step内でrolling 2-slotに画面を取得し、real game overだけ早期終了）
   frame = max_pool ? 当該Stepで実行できた最後の最大2フレームのmax : 最終フレーム
-  grid  = ResizeGrayscale(frame, 210, 160, S)        # area 補間 → round/clamp → uint8 [1,S,S]
+  grid  = resizer.Resize(frame)                       # area 補間 → round/clamp → uint8 [1,S,S]
 ```
 
-Preprocessing uses free functions in `AtariPreprocess` (a named namespace), with numerical behavior fixed by ALE-independent golden tests:
+Preprocessing uses the functions and `GrayscaleResizer` in `AtariPreprocess` (a named namespace, independent of ALE). Synthetic inputs and fixed reference images validate the results.
 
-- `PixelwiseMax(a, b, out)` — elementwise maximum of two 210×160 grayscale frames
-- `ResizeGrayscale(src, src_h, src_w, dst_size)` — `torch::from_blob` (uint8) → `interpolate(mode=area)` → `round().clamp(0,255).to(kUInt8)`. Area interpolation belongs to the same family as conventional cv2 INTER_AREA implementations.
+- `PixelwiseMax(a, b, out)` computes the elementwise maximum of two 210×160 grayscale images.
+- Each Env owns `GrayscaleResizer(src_h, src_w, S, mode)` and its weights. Both Reset and Step call `Resize(src)` on the CPU, then transfer the observation to the configured device.
+- `pixel_area` allocates its workspace at construction and reuses it across Resize calls. Do not call Resize concurrently on the same resizer. Each AtariEnv owns its resizer, and Reset/Step for that Env run serially. Each output Tensor retains independent ownership.
+- `adaptive_average` preserves float32 `interpolate(mode=area)` followed by `round().clamp(0,255).to(kUInt8)`. Integer-window adaptive averaging can differ from OpenCV INTER_AREA for fractional ratios.
+- `pixel_area` averages the source pixels by their overlap with each output region. Axis weights are prepared once at construction. Horizontal and vertical accumulation has no intermediate integer rounding; the final result uses ties-to-even rounding and returns uint8 `[1,S,S]`. Square S=1..160 is supported; enlargement is rejected. This does not reproduce the rounding of every OpenCV execution path.
+
+The default is `AtariEnv.resize_mode ?= adaptive_average`. Add `run.@pixel_area` to the Run selection chain to use `run.@pixel_area : AtariEnv.resize_mode = pixel_area`. An explicit `run.eval.[tag].env.resize_mode` overrides the common value for that evaluation and an EvalPanel using the same tag. Effective dumps and one verbose construction log per Env record the mode. The default info view hides these construction messages; verbose output and file logs retain each Env record. Unknown or empty modes and invalid sizes fail at construction, identifying the key, supplied value and expected values.
 
 ### 4.4 Actions
 
@@ -196,7 +202,7 @@ Preprocessing uses free functions in `AtariPreprocess` (a named namespace), with
 - With `reward_clip=true` (default), the Step reward is `sign(reward_raw)` (training reward). Raw scores accumulate inside the env and are finalized as `game_score` at real game over / truncation; see `CONTEXT.md` for raw score versus training reward. The key uses `game_`, not `episode_`, because with `episodic_life=true`, RL episode boundaries (individual lives) differ from score finalization boundaries (one game).
 - `done = ale.game_over(false)` is a pure terminal condition because ALE truncation is disabled. Only real game over ends the skip window early.
 - `truncated` means `ale.getEpisodeFrameNumber()` has reached `max_episode_frames`, with done taking precedence. There is no separate frame counter; NOOP/FIRE during Reset also count as ALE frames.
-- With `episodic_life=true`, compare lives once after completing the skip window and return done=true for **life loss with remaining lives > 0**. The `lives > 0` guard comes from baselines and matches SB3 / CleanRL / rlpyt. Qbert-like games report lives=0 several frames before game over; without this guard, a false life-loss done would occur just before real termination. Gymnasium `AtariPreprocessing` lacks the guard, but defaults to `terminal_on_life_loss=False`, so the branch is effectively unused; every lineage that actually uses episodic_life=true includes the guard. Remaining repetitions and rewards after life loss belong to the same Step. The next `Reset()` performs a **soft-reset** unless real game over occurred: no `ale.reset_game()`, only one NOOP frame to update the observation, retaining game_score and ALE episode frames. **If `fire_reset=true`, follow with the FIRE sequence (§4.5.1)**, for three frames total, adding rewards to game_score. In Breakout-like games, losing a life removes the ball until FIRE is pressed; without this sequence, rewardless steps continue until the agent selects FIRE itself. This matches standard wrappers placing `FireResetEnv` outside `EpisodicLifeEnv`, thus applying FIRE after life-loss resets too. `noop_max` is not applied during soft-reset; its `NoopResetEnv` equivalent affects real resets only. The auto-reset wrapper's done||truncated → Reset contract and this soft-reset jointly support life-based learning episodes and real-game-based metrics. `game_score` / `game_len` / `game_frames` finalize only at real game over / truncation. Configured `eval1` / `eval2` and EvalPanel's `eval_panel` explicitly set `env.episodic_life=false`, aligning evaluation-session episode boundaries with real game over / truncation.
+- With `episodic_life=true`, compare lives once after completing the skip window and return done=true for **life loss with remaining lives > 0**. The `lives > 0` guard comes from baselines and matches SB3 / CleanRL / rlpyt. Qbert-like games report lives=0 several frames before game over; without this guard, a false life-loss done would occur just before real termination. Gymnasium `AtariPreprocessing` lacks the guard, but defaults to `terminal_on_life_loss=False`, so the branch is effectively unused; every lineage that actually uses episodic_life=true includes the guard. Remaining repetitions and rewards after life loss belong to the same Step. After finalizing the training observation, RGB, and aux, Step advances one NOOP frame. Its reward is added only to game_score without changing the returned transition. If this NOOP causes real game over, completion values are finalized within the same Step. `Reset()` within the same Batch Step performs a **soft-reset** unless real game over occurred: no `ale.reset_game()`, retaining game_score and ALE episode frames. **If `fire_reset=true`, follow with the FIRE sequence (§4.5.1)**, which takes two frames and adds its rewards to game_score. In Breakout-like games, losing a life removes the ball until FIRE is pressed; without this sequence, rewardless steps continue until the agent selects FIRE itself. This matches standard wrappers placing `FireResetEnv` outside `EpisodicLifeEnv`, thus applying FIRE after life-loss resets too. `noop_max` is not applied during soft-reset; its `NoopResetEnv` equivalent affects real resets only. BatchEnv's contract of resetting terminal lanes inside Step and this soft-reset jointly support life-based learning episodes and real-game-based metrics. `game_score` / `game_len` / `game_frames` finalize only at real game over / truncation. Configured `eval1` / `eval2` and EvalPanel's `eval_panel` explicitly set `env.episodic_life=false`, aligning evaluation-session episode boundaries with real game over / truncation.
 
 #### 4.5.1 FIRE Sequence (`fire_reset`)
 
@@ -207,7 +213,7 @@ With `fire_reset=true`, Reset performs these two actions in order, matching stab
 
 After each, call `reset_game()` if game over has occurred. The second action accommodates games that do not start with FIRE alone; it is **selected by index regardless of meaning** (RIGHT in Breakout, UP in Seaquest).
 
-Two applicability conditions correspond to upstream assertions:
+Two applicability conditions correspond to upstream `assert` checks:
 
 - The action set contains at least three elements.
 - Action-set index 1 is `PLAYER_A_FIRE`.
@@ -228,21 +234,20 @@ The sequence is called from hard-reset (at the end of `ApplyResetActions()`, aft
 
 | API | Key | Finalization time | Value |
 |---|---|---|---|
-| GetScalar | `game_score` | Real game over / truncation | Total raw score for one game; NaN on unfinalized steps |
-| GetScalar | `game_score.ge.[N]` | Same | 1 if `game_score >= N`, otherwise 0; NaN on unfinalized steps. `N` is parsed as float and may be negative |
-| GetScalar | `game_len` | Same | Agent step count; episode boundaries differ from generic `episode_steps` under `episodic_life` |
-| GetScalar | `game_frames` | Same | Emulator frame count |
-| GetScalar | `hns57` | Same | Human-normalized score percentage, using the 57-game table (§4.8) |
-| GetScalar | `hns49` | Same | Human-normalized score percentage, using the 49-game table (§4.8) |
-| GetScalar | `lives` | Always | Current lives |
-| GetScalar | `ram_metric.[n]` | Real game over / truncation | Finalized value of the per-game RAM definition. NaN when the current game has no such number or has not finished; an unknown key when no game has that number (§4.9) |
-| GetTensor | `rgb_frame` | Always when `retain_rgb_frame=true` | Latest Step RGB screen, uint8 `[3, 210, 160]` (CHW) |
+| Step result.GetScalar | `game_score` / `game_len` / `game_frames` | Ordinary Step: provisional before NOOP; life-only termination: NaN; real game over/truncation: finalized | Score is total raw reward, len is agent steps, frames is ALE frames |
+| Step result.GetScalar | `game_score.ge.[N]` / `hns57` / `hns49` | Same availability as game_score | Threshold comparison or HNS reference-table calculation; N is a float and may be negative |
+| Step result.GetScalar | `ram_metric.[n]` | Ordinary Step: snapshot; life-only termination or current game without n: NaN; real termination: finalized | Unknown if no game uses the number |
+| Step result.GetScalar | `lives` | Every Step, before auxiliary NOOP | Lives corresponding to the returned transition |
+| Env.GetScalar | `lives` | Always | Current ALE lives; the game-statistics keys above are unknown |
+| Env.GetTensor | `rgb_frame` | Always | Current screen; View uses the Step result's aux.rgb_frame |
+
+Step results retain values from their creation and remain unchanged after Reset or notification. The env itself does not carry completion values forward and treats the transferred statistics keys as unknown. The result's `lives` is from before the auxiliary NOOP; the env's `lives` is the current ALE value.
 
 Batch aggregation (prefixes such as `mean.`) and NaN handling follow common wrapper conventions. `GetConfigData()` returns effective configuration, dumped to the Run's `config/env.*.txt`.
 
 **Verbose log at game completion.** One line is written at the same time and with the same values as the finalization in the table above (`Game over.` or `Game truncated by max_episode_frames.`, followed by `game_score` / `game_len` / `game_frames`). When numbered RAM definitions exist, ` ram_metric: floor_clear=0 boss_kill=0` is appended at the end in number order. The prefix is the lane name (`env.[train].[0]:`, `env.[EvalPanel].[0]:`, and so on). The line always remains in the Run's log file; `app.log_level` narrows only the LogPanel display. Games in EvalPanel, which has no metrics or trace, can also be followed here with millisecond timestamps.
 
-**Watch the aggregation denominator.** Keys finalized at real game over / truncation return NaN on unfinalized steps; batch aggregation excludes NaNs from its denominator (`core/anet-core/src/util.cpp`; if all envs are NaN, the result is NaN). Thus, the denominator of `mean.game_score` is **the number of envs that actually finished a game at that step**, not num_envs. It averages multiple games only when multiple envs finish simultaneously. The simultaneous-completion rate is λ = num_envs / mean game length. In Breakout (128 envs / about 1,900 steps, λ ≈ 0.07), measurements showed 97% single completions, so the `mean.` series is effectively a sequence of individual game scores. Shorter games experience more averaging and flattened peaks; compare games with `max.` alongside it. Only `lives` is always finalized, so its denominator is num_envs and it is a true batch mean.
+**Watch the aggregation denominator.** Game-level keys return NaN for life-only termination, so only real game over/truncation contributes at episode_end; batch aggregation excludes NaNs from its denominator (`core/anet-core/src/util.cpp`; if all envs are NaN, the result is NaN). Thus, the denominator of `mean.game_score` is **the number of envs that actually finished a game at that step**, not num_envs. It averages multiple games only when multiple envs finish simultaneously. The simultaneous-completion rate is λ = num_envs / mean game length. In Breakout (128 envs / about 1,900 steps, λ ≈ 0.07), measurements showed 97% single completions, so the `mean.` series is effectively a sequence of individual game scores. Shorter games experience more averaging and flattened peaks; compare games with `max.` alongside it. Only `lives` is always finalized, so its denominator is num_envs and it is a true batch mean.
 
 `game_score.ge.[N]` is a 0/1 metric sharing this denominator with `game_score`. Its `mean.` is the fraction of envs finishing at that step whose scores were at least N. Window averaging yields a **per-game proportion**, rather than a per-firing-event proportion, avoiding both the flattening of `mean.` and saturation of `max.` when inspecting threshold-crossing frequency: `mean.` flattens the ends of a bimodal distribution, while `max.` saturates as evaluation-session episode count increases. Game-dependent thresholds, such as one Breakout screen = 432, are key parameters rather than entries in the HNS tables of §4.8. This allows multiple simultaneous thresholds in one Run and reflects that thresholds are analytical criteria, not physical game constants.
 
@@ -265,7 +270,7 @@ For example, Pong's human baseline is 14.6 in the 57-game table and 9.3 in the 4
 
 Contract:
 
-- Finalization matches `game_score`: only real game over / truncation; otherwise NaN.
+- Availability and timing match the Step result's `game_score`: ordinary Steps provide provisional values before NOOP, life-only termination returns NaN, and real game over/truncation provides finalized values.
 - **Games absent from the reference table return NaN**, not `std::nullopt`, because `nullopt` terminates aggregation for the entire batch in `DiscreteBatchEnvBase`. ALE has 104 games, while the standard tables cover only 57 / 49. The eight games appearing only in the 57-game table—berzerk / defender / phoenix / pitfall / skiing / solaris / surround / yars_revenge—return NaN for `hns49`.
 - Input is raw score, not reward-clipped training reward.
 - The 49-game table was checked against the "Normalized DQN (% Human)" column of Extended Data Table 2 (`[atari][hns]` in `AtariEnv_test.cpp`).
@@ -281,7 +286,7 @@ In an eval env's configuration dump (such as `config/env.eval.txt`), they appear
 
 There are five reducers: `max_seen` / `min_seen` (maximum and minimum, including the value right after `reset_game()`), `inc_count` / `dec_count` (number of increases and decreases from the previous frame), and `reach_count:N` (number of times the value entered N, from 0 to 255). Comparisons use the raw single byte, observed after every `act()`. Aggregation uses one real game as its unit, continues across episodic-life soft resets, and restarts at each `reset_game()`.
 
-`ram_metric.[n]` returns the snapshot at game completion. If any game uses n, it is a known key, so NaN is returned even when the current game has no n. Numbers keep a broad meaning shared across all games: 1 = stage clears, 2 = boss kills, 3 = boss hits. Games to which a meaning does not apply get no number. The trace uses `@episode_end`, and the scalar's `mean.` takes values only from completed lanes. For games without numbers, the trace is `null` and no scalar row is emitted. Look up the concrete label of each number in the Run's `config/config_data.txt`.
+The Step result's `ram_metric.[n]` returns an ordinary-Step snapshot or a finalized real-game completion value, and NaN for life-only termination. If any game uses n, it is a known key, so NaN is returned even when the current game has no n. Numbers keep a broad meaning shared across all games: 1 = stage clears, 2 = boss kills, 3 = boss hits. Games to which a meaning does not apply get no number. The trace uses `@episode_end`, and the scalar's `mean.` takes values only from completed lanes. For games without numbers, the trace is `null` and no scalar row is emitted. Look up the concrete label of each number in the Run's `config/config_data.txt`.
 
 | Game | Numbered definitions | Unnumbered reference definitions |
 |---|---|---|
@@ -290,7 +295,7 @@ There are five reducers: `max_seen` / `min_seen` (maximum and minimum, including
 | phoenix | `1:wave_clear` = `0xCA inc_count`, `2:boss_kill` = `0xFC inc_count` | None |
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
 
-In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. Unlike GetScalar, which holds only at game completion, these serve AtariView spectating and are not made per-step scalar keys. See [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
+In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. The Step result's numbered keys query the same snapshot. These label keys also serve AtariView spectating. See [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
 
 ## 5. AtariView
 
@@ -298,7 +303,7 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 
 ### 5.1 Display Contents
 
-- **Primary display: raw RGB screen**, 210×160, from `env->GetTensor("rgb_frame", 0)`. Main view for human spectating and debugging.
+- **Primary display: raw RGB screen**, 210×160, from `rgb_frame` in `event.step_result->GetAuxDataList(0)`. Main view for human spectating and debugging.
 - **Secondary display: preprocessed observation**, S×S grayscale, using lane 0 grid from TrainEvent's step_result. Shows what the agent sees and helps detect resize/max-pooling errors by comparison with the raw screen.
 - **The default is the raw RGB screen (color) only**. Middle-click cycles through raw image only → agent image (preprocessed observation) only → both → raw image only. Clicking the canvas, text overlay, or Panel advances exactly one mode and immediately redraws, including while paused.
 - A single image is centered using the full canvas. When both are shown, RGB occupies the left two-thirds and the preprocessed observation the right one-third. Preserve the existing margins and integer scaling with GL_NEAREST for pixel-art clarity. Areas without image data retain the background color.
@@ -308,7 +313,7 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 ### 5.2 Data Path and Constraints
 
 - Display is **fixed to lane 0**. All lanes share the same game and configuration, so one representative lane suffices for behavior inspection; a lane-selection UI is a future extension.
-- The env retains and exposes `getScreenRGB` each Step through `retain_rgb_frame`, default true. Retention costs about 100 KB memcpy/step/lane, taking tens of microseconds. Set false for headless operation or performance measurements.
+- The env obtains RGB through `getScreenRGB` each Step and retains its Tensor reference in the Step result aux (`retain_rgb_frame`, default true). Retention costs about 100 KB memcpy/step/lane, taking tens of microseconds. Set false for headless operation or performance measurements.
 - Updates follow the standard View contract: `UIDataStore`, default `force_update_interval_ms=200`, approximately 5 Hz. Rendering does not occur on every TrainEvent.
 - **Rendering uses wxGLCanvas**, reusing the existing GL pane pattern from HeatMapPanel / Conv2dPanel: two textures and GL_NEAREST integer scaling. The rationale is consistency with existing patterns and preparation for a future smooth spectator mode (shorter update intervals for 30–60 fps, a practical SDL-window alternative), **not performance**. At the default 5 Hz and 210×160 size, GDI (wxBitmap-style rendering) has been confirmed not to pose a structural performance problem. wx draws the text overlay. Smooth spectator mode itself, including configurable intervals, is outside this specification and remains a future extension.
 - Independent of the SDL spectator window (`display_screen`); both may be used together. View integrates into Runner panes; SDL provides native ALE display with audio.
@@ -318,11 +323,13 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 - Three-valued cache variable `ANET_ENABLE_ATARI` = `AUTO` (default) / `ON` / `OFF`. AUTO checks `ALE_ROOT` and the existence of `src/ale/ale_interface.hpp`. ON with missing prerequisites produces a configure error. Log the decision at STATUS.
 - Only when enabled: `add_subdirectory(core/envs/atari1)`, link `AtariEnv` to runner and define `ANET_HAS_ATARI`, then call `InitAtari()` under `#ifdef ANET_HAS_ATARI` in `RunnerApp.cpp`.
 - Select ale.lib using `$<IF:$<CONFIG:Debug>,Debug,Release>`; RelWithDebInfo uses Release, matching IDL/CRT.
-- Tests build with the module. ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Preprocessing golden tests always run.
+- Tests build with the module. Ordinary ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Mandatory PRD097 acceptance cases tagged `[prd097_atari]` use `REQUIRE` to check Asterix ROM availability; an unresolved ROM is neither a pass nor a skip. Preprocessing golden tests always run.
 
 ### 6.1 Tests and Extension Checks
 
-When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`.
+For resize changes, follow the [PRD099 validation procedure](../../core/anet-core/testdata/prd099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
+
+When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-test (`config_baseline_test.cpp`).
 
 ## 7. Related Documents
 
@@ -331,3 +338,5 @@ When changing RAM definition numbers or reducers, check the ROM-independent and 
 - `docs/memo/051_atari_ale_env_10prd.md` — Implementation plan (PH1 scope and acceptance criteria)
 - `reports/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
 - `CONTEXT.md` — Terminology (sticky actions / flavor / raw score / protocol preset)
+
+Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [PRD097 validation](../../core/anet-core/testdata/prd097/README.md) for Asterix RAM acceptance conditions and public-API tests.

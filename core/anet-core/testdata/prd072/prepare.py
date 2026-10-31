@@ -1,6 +1,7 @@
 """固定commitの設定を準備し、版管理されたgoldenとの比較・明示採取を実行する。"""
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -9,12 +10,17 @@ import subprocess
 import zipfile
 
 from migrate import migrate_text
+from profiled_migration import migrate
 from expected import verify_expectations
 
 
 REPO = Path(__file__).resolve().parents[4]
-ROOT = REPO / ".scratch/prd072-differential/validation"
+_inputs = b"".join(Path(__file__).with_name(name).read_bytes()
+                   for name in ("manifest.json", "migrate.py", "profiled_migration.py"))
+_inputs += (REPO / "CHANGELOG.md").read_bytes()
+ROOT = REPO / ".scratch/prd072-differential" / ("profiled-" + hashlib.sha256(_inputs).hexdigest()[:12])
 MANIFEST = Path(__file__).with_name("manifest.json")
+PRD072_ROOT_ENV = "ANET_PRD072_ROOT"
 
 
 def write_frozen(path, content):
@@ -38,6 +44,7 @@ def prepare(manifest):
                 write_frozen(ROOT / "frozen" / entry.filename, entries.read(entry))
                 content = entries.read(entry).decode("utf-8")
                 migrated, _ = migrate_text(Path(entry.filename).name, content)
+                migrated = migrate(migrated)
                 write_frozen(ROOT / "migrated" / entry.filename, migrated.encode("utf-8"))
     write_frozen(ROOT / "manifest.json", MANIFEST.read_bytes())
     for tree, inputs in (("frozen", "inputs-original"), ("migrated", "inputs")):
@@ -81,6 +88,7 @@ def main():
         verify_expectations(REPO, ROOT, manifest)
     executable = REPO / "core/anet-core/bin/Debug" / "anet-core-test.exe"
     environment = os.environ.copy()
+    environment[PRD072_ROOT_ENV] = str(ROOT)
     environment.pop("ANET_PRD072_CAPTURE", None)
     if capture:
         environment["ANET_PRD072_CAPTURE"] = "1"

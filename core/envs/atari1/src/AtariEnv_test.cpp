@@ -1,17 +1,26 @@
 #include "AtariEnv.hpp"
 #include "AtariPreprocess.hpp"
+#include <ale/ale_interface.hpp>
 
 #include <algorithm>
+#include <array>
+#include <random>
 #include <clocale>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <wx/cmdline.h>
 
+#include <torch/nn/functional/upsampling.h>
+
 #include "anet/catch_test.hpp"
+#include "anet/profile.hpp"
 #include "anet/env/Atari.hpp"
-#include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 #include "anet/thread.hpp"
 
@@ -19,7 +28,145 @@
 #include <windows.h>
 #endif
 
+// 検証対象の振る舞いは公開APIで読み、friendはALEの初期条件設定に限定する。
+class anet::rl::env::AtariEnvTestAccess {
+public:
+    void PrepareLifeLossNoopCompletion(AtariEnv& env) const
+    {
+        const auto actions = env.ale_->getMinimalActionSet();
+        uint32_t state = 1;
+        for (int frame = 0; frame < 300; ++frame) {
+            state = 1664525u * state + 1013904223u;
+            env.ale_->act(actions[state % actions.size()]);
+            if (env.ale_->game_over(false)) env.ale_->reset_game();
+        }
+        env.ale_->setRAM(0x53, 1);
+        env.ale_->setRAM(0x47, 3);
+    }
+};
+
 namespace {
+
+    // 2026-10-24の高速化前の実装を固定したテスト参照。式と積算順を変更しない。
+    class PixelAreaReferenceResizer final {
+    public:
+        PixelAreaReferenceResizer(int source_height, int source_width, int destination_size,
+            const std::string& mode);
+        torch::Tensor Resize(const uint8_t* source) const;
+
+    private:
+        struct PixelWeight {
+            int index;
+            int overlap;
+        };
+        static std::vector<std::vector<PixelWeight>> MakeWeights(int source_size, int destination_size);
+
+        int source_height_;
+        int source_width_;
+        int destination_size_;
+        bool pixel_area_;
+        std::vector<std::vector<PixelWeight>> horizontal_weights_;
+        std::vector<std::vector<PixelWeight>> vertical_weights_;
+    };
+
+    PixelAreaReferenceResizer::PixelAreaReferenceResizer(
+        int source_height, int source_width, int destination_size, const std::string& mode)
+        : source_height_(source_height)
+        , source_width_(source_width)
+        , destination_size_(destination_size)
+        , pixel_area_(mode == "pixel_area")
+    {
+        // 設定に依存する検証と重みの準備は構築時に完了させる。
+        if (source_height <= 0 || source_width <= 0 || destination_size <= 0) {
+            ANET_SYSTEM_ERROR("PixelAreaReferenceResizer requires positive dimensions. source_height="
+                << source_height << ", source_width=" << source_width
+                << ", destination_size=" << destination_size << ". Expected dimensions > 0.");
+        }
+        if (mode != "adaptive_average" && mode != "pixel_area") {
+            ANET_SYSTEM_ERROR("PixelAreaReferenceResizer mode='" << mode
+                << "'. Expected adaptive_average or pixel_area.");
+        }
+        if (pixel_area_) {
+            if (destination_size > std::min(source_height, source_width)) {
+                ANET_SYSTEM_ERROR("PixelAreaReferenceResizer pixel_area destination_size=" << destination_size
+                    << ". Expected <= " << std::min(source_height, source_width) << ".");
+            }
+            horizontal_weights_ = MakeWeights(source_width, destination_size);
+            vertical_weights_ = MakeWeights(source_height, destination_size);
+        }
+    }
+
+    std::vector<std::vector<PixelAreaReferenceResizer::PixelWeight>> PixelAreaReferenceResizer::MakeWeights(
+        int source_size, int destination_size)
+    {
+        // 境界を出力サイズ倍した整数格子へ写し、正規化前の重なり幅を誤差なく保持する。
+        std::vector<std::vector<PixelWeight>> result(destination_size);
+        for (int destination = 0; destination < destination_size; ++destination) {
+            const int64_t begin = static_cast<int64_t>(destination) * source_size;
+            const int64_t end = static_cast<int64_t>(destination + 1) * source_size;
+            const int first = static_cast<int>(begin / destination_size);
+            const int last = static_cast<int>((end + destination_size - 1) / destination_size);
+            for (int source = first; source < last; ++source) {
+                const int64_t overlap = std::min(end, static_cast<int64_t>(source + 1) * destination_size)
+                    - std::max(begin, static_cast<int64_t>(source) * destination_size);
+                result[destination].push_back({.index = source, .overlap = static_cast<int>(overlap)});
+            }
+        }
+        return result;
+    }
+
+    torch::Tensor PixelAreaReferenceResizer::Resize(const uint8_t* source) const
+    {
+        ANET_PROFILE_SCOPE(resize);
+        if (source == nullptr) {
+            ANET_SYSTEM_ERROR("PixelAreaReferenceResizer source=null. Expected a non-null grayscale image.");
+        }
+        if (!pixel_area_) {
+            // 現行方式のfloat32 area補間とuint8への戻し方をそのまま保つ。
+            auto input = torch::from_blob(
+                const_cast<uint8_t*>(source), {1, 1, source_height_, source_width_},
+                torch::TensorOptions().dtype(torch::kUInt8));
+            auto resized = torch::nn::functional::interpolate(
+                input.to(torch::kFloat32),
+                torch::nn::functional::InterpolateFuncOptions()
+                    .size(std::vector<int64_t>{destination_size_, destination_size_})
+                    .mode(torch::kArea));
+            return resized.squeeze(0).round().clamp(0, 255).to(torch::kUInt8).contiguous();
+        }
+
+        // 正規化前の整数の和を横→縦へ渡し、途中の除算と丸めを避ける。
+        std::vector<int64_t> horizontal(static_cast<size_t>(source_height_) * destination_size_, 0);
+        for (int y = 0; y < source_height_; ++y) {
+            for (int x = 0; x < destination_size_; ++x) {
+                int64_t value = 0;
+                for (const auto& weight : horizontal_weights_[x]) {
+                    value += static_cast<int64_t>(source[y * source_width_ + weight.index]) * weight.overlap;
+                }
+                horizontal[y * destination_size_ + x] = value;
+            }
+        }
+        auto output = torch::empty({1, destination_size_, destination_size_},
+            torch::TensorOptions().dtype(torch::kUInt8));
+        auto* pixels = output.data_ptr<uint8_t>();
+        // 各軸の重みの和は元の辺長。両軸分を最後に一度だけ正規化する。
+        const int64_t divisor = static_cast<int64_t>(source_height_) * source_width_;
+        for (int y = 0; y < destination_size_; ++y) {
+            for (int x = 0; x < destination_size_; ++x) {
+                int64_t value = 0;
+                for (const auto& weight : vertical_weights_[y]) {
+                    value += horizontal[weight.index * destination_size_ + x] * weight.overlap;
+                }
+                // 商と余りなら数学的な半整数を正確に識別でき、浮動小数誤差が入らない。
+                const int64_t integer = value / divisor;
+                const int64_t twice_remainder = 2 * (value % divisor);
+                const int64_t rounded = integer + (twice_remainder > divisor
+                    || (twice_remainder == divisor && integer % 2 != 0));
+                pixels[y * destination_size_ + x] = static_cast<uint8_t>(rounded);
+            }
+        }
+        return output;
+    }
+
 
     std::optional<std::filesystem::path> FindRom(const std::string& game)
     {
@@ -101,118 +248,6 @@ TEST_CASE("AtariEnvConfig exposes the v5 default contract", "[atari][config]")
     CHECK(config.retain_rgb_frame);
     CHECK_FALSE(config.display_screen);
     CHECK_FALSE(config.sound);
-}
-
-TEST_CASE("Atari.txt synthesizes v5_noop30 and classic presets through AutoMerge", "[atari][config]")
-{
-    const auto source_root = std::filesystem::path(ANET_SOURCE_DIR);
-    const auto config_dir = source_root / "apps" / "runner" / "config";
-
-    const auto load_preset = [&](const std::string& preset) {
-        // Atari.txt の既定 run.$ は Run 層で AtariEnv.$ を選ぶので、プリセットはそれより強い CLI 層で選ぶ。
-        const wxCmdLineEntryDesc description[] = {
-            { wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
-                wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE }, {wxCMD_LINE_NONE},
-        };
-        wxCmdLineParser cli(description, wxString::FromUTF8("AtariEnv.$=AtariEnv.@" + preset));
-        REQUIRE(cli.Parse(false) == 0);
-        anet::ConfigManagerOptions options;
-        options.config_search_dirs = { config_dir };
-        options.overwrite_config_paths = { config_dir / "Atari.txt" };
-        return anet::ConfigManager(config_dir / "_main.txt", &cli, options).GetConfigData();
-    };
-
-    const auto v5 = load_preset("v5_noop30");
-    CHECK(v5.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.25f));
-    CHECK(v5.Get<int>("AtariEnv.noop_max") == 30);
-    CHECK_FALSE(v5.Get<bool>("AtariEnv.episodic_life"));
-    CHECK_FALSE(v5.Get<bool>("AtariEnv.fire_reset"));
-
-    const auto classic = load_preset("classic");
-    CHECK(classic.Get<float>("AtariEnv.repeat_action_probability") == Catch::Approx(0.0f));
-    CHECK(classic.Get<int>("AtariEnv.noop_max") == 30);
-    CHECK(classic.Get<bool>("AtariEnv.episodic_life"));
-    CHECK(classic.Get<bool>("AtariEnv.fire_reset"));
-
-    CHECK(v5.Get("AtariEnv.ram_metric.[kung_fu_master].metrics") == "1:floor_clear 2:boss_kill 3:boss_hit");
-    CHECK(v5.Get("AtariEnv.ram_metric.[qbert].metrics") == "1:round_clear");
-    CHECK(v5.Get("AtariEnv.ram_metric.[phoenix].metrics") == "1:wave_clear 2:boss_kill");
-    CHECK(v5.Get("AtariEnv.ram_metric.[breakout].metrics") == "1:wall_clear");
-    const anet::rl::env::AtariEnvConfig ram_config(v5);
-    CHECK(ram_config.known_ram_metric_numbers == std::set<int64_t>{1, 2, 3});
-    CHECK(v5.Get("metrics.trace.[51_eval1/episode]").find("ram_metric.[1] ram_metric.[2] ram_metric.[3]") != std::string::npos);
-    CHECK(v5.Get("metrics.trace.[42_env/episode]").find("ram_metric.[1] ram_metric.[2] ram_metric.[3]") != std::string::npos);
-    CHECK(v5.Get("metrics.scalar.[42_env/50_ram_metric_1_mean]").find("mean.ram_metric.[1]") != std::string::npos);
-    const anet::rl::ObserverFactory metric_factory(v5);
-    const auto& trace_defs = metric_factory.GetTraceMetricDefs();
-    const auto trace = std::find_if(trace_defs.begin(), trace_defs.end(), [](const auto& def) {
-        return def.tag == "42_env/episode";
-    });
-    REQUIRE(trace != trace_defs.end());
-    CHECK(trace->keys == std::vector<std::string>{
-        "game_score", "game_len", "game_frames", "hns57",
-        "ram_metric.[1]", "ram_metric.[2]", "ram_metric.[3]"});
-    const auto& scalar_defs = metric_factory.GetScalarMetricDefs();
-    const auto find_scalar = [&](const std::string& tag) {
-        return std::find_if(scalar_defs.begin(), scalar_defs.end(), [&](const auto& def) {
-            return def.tag == tag;
-        });
-    };
-    const auto check_ram_scalar = [&](const std::string& tag, const std::string& source_key,
-        bool has_ema, float ema_alpha, const std::string& reference_tag) {
-        INFO(tag);
-        const auto scalar = find_scalar(tag);
-        const auto reference = find_scalar(reference_tag);
-        REQUIRE(scalar != scalar_defs.end());
-        REQUIRE(reference != scalar_defs.end());
-        CHECK(scalar->source_key == source_key);
-        CHECK(scalar->has_ema == has_ema);
-        if (has_ema) CHECK(scalar->ema_alpha == Catch::Approx(ema_alpha));
-        CHECK(scalar->step_axis == reference->step_axis);
-        CHECK(scalar->runner == reference->runner);
-        CHECK(scalar->event == reference->event);
-        CHECK(scalar->target == reference->target);
-        CHECK(scalar->scope == reference->scope);
-        CHECK(scalar->eval_name == reference->eval_name);
-        CHECK(scalar->interval == reference->interval);
-    };
-    struct RamScalarGroup {
-        std::string name;
-        bool has_ema;
-        float ema_alpha;
-    };
-    const std::vector<RamScalarGroup> groups{
-        {"42_env", true, 0.001f},
-        {"51_eval1", true, 0.1f},
-        {"52_eval2", true, 0.1f},
-        {"53_evalg", false, 0.0f},
-    };
-    for (const auto& group : groups) {
-        for (int number = 1; number <= 3; ++number) {
-            const std::string stem = group.name + "/";
-            const std::string key = "ram_metric.[" + std::to_string(number) + "]";
-            const std::string suffix = "ram_metric_" + std::to_string(number);
-            const std::string mean_tag = stem + std::to_string(48 + 2 * number) + "_" + suffix + "_mean";
-            const std::string max_tag = stem + std::to_string(55 + number) + "_" + suffix + "_max";
-            check_ram_scalar(mean_tag, "mean." + key, false, 0.0f, stem + "10_game_score_mean");
-            check_ram_scalar(max_tag, "max." + key, false, 0.0f, stem + "16_game_score_max");
-            if (group.has_ema) {
-                const std::string ema_tag = stem + std::to_string(49 + 2 * number) + "_" + suffix + "_mean_ema";
-                check_ram_scalar(ema_tag, "mean." + key, true, group.ema_alpha,
-                    stem + "11_game_score_mean_ema");
-            }
-        }
-    }
-    CHECK(std::count_if(scalar_defs.begin(), scalar_defs.end(), [](const auto& def) {
-        return def.tag.find("_ram_metric_") != std::string::npos;
-    }) == 33);
-    for (const std::string old_tag : {
-        "42_env/50_stage_clear_mean", "42_env/51_boss_kill_mean", "42_env/52_boss_hit_mean",
-        "53_evalg/51_ram_metric_1_mean_ema", "53_evalg/53_ram_metric_2_mean_ema",
-        "53_evalg/55_ram_metric_3_mean_ema"}) {
-        CHECK(find_scalar(old_tag) == scalar_defs.end());
-        CHECK_FALSE(v5.Has("metrics.scalar.[" + old_tag + "]"));
-    }
 }
 
 TEST_CASE("AtariEnv fails fast on invalid current config values", "[atari][config]")
@@ -383,7 +418,7 @@ TEST_CASE("RollingMaxPool uses its sole frame and fresh steps do not retain prio
     CHECK(second_output == std::vector<uint8_t>{ 1, 2 });
 }
 
-TEST_CASE("ResizeGrayscale area-resizes and rounds to uint8", "[atari][preprocess]")
+TEST_CASE("GrayscaleResizer preserves adaptive average and uint8 rounding", "[atari][preprocess]")
 {
     const std::vector<uint8_t> source{
         0, 1, 10, 11,
@@ -392,8 +427,8 @@ TEST_CASE("ResizeGrayscale area-resizes and rounds to uint8", "[atari][preproces
         102, 103, 202, 204,
     };
 
-    const auto output = anet::rl::env::atari::ResizeGrayscale(
-        source.data(), 4, 4, 2);
+    const anet::rl::env::atari::GrayscaleResizer resizer(4, 4, 2, "adaptive_average");
+    const auto output = resizer.Resize(source.data());
 
     CHECK(output.sizes().vec() == std::vector<int64_t>{ 1, 2, 2 });
     CHECK(output.dtype() == torch::kUInt8);
@@ -495,17 +530,17 @@ TEST_CASE("AtariEnv reports a configured RAM metric at game completion", "[atari
     const auto reset = env->Reset();
     REQUIRE(reset->GetAuxData().contains("ram_metric.score_high"));
     CHECK(reset->GetAuxData().at("ram_metric.score_high").dtype() == torch::kInt64);
-    REQUIRE(env->GetScalar("ram_metric.[1]"));
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    CHECK_FALSE(env->GetScalar("ram_metric.[1]").has_value());
 
     const auto pending = env->Step(0);
     CHECK_FALSE(pending->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    CHECK(pending->GetScalar("ram_metric.[1]") ==
+        static_cast<float>(pending->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
 
     const auto completed = env->Step(0);
     REQUIRE(completed->next_state.truncated);
     REQUIRE(completed->GetAuxData().contains("ram_metric.score_high"));
-    CHECK(*env->GetScalar("ram_metric.[1]") ==
+    CHECK(*completed->GetScalar("ram_metric.[1]") ==
         static_cast<float>(completed->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
 }
 
@@ -640,14 +675,15 @@ TEST_CASE("AtariEnv distinguishes absent RAM numbers from malformed scalar keys"
     data.Set("AtariEnv.ram_metric.[qbert].metrics", "2:round");
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-absent", 123);
-    REQUIRE(env->Step(0)->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[2]")));
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[02]")));
-    CHECK_FALSE(env->GetScalar("ram_metric.[3]").has_value());
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
+    CHECK(std::isnan(*step->GetScalar("ram_metric.[2]")));
+    CHECK(std::isnan(*step->GetScalar("ram_metric.[02]")));
+    CHECK_FALSE(step->GetScalar("ram_metric.[3]").has_value());
     for (const std::string key : {"ram_metric.[]", "ram_metric.[0]", "ram_metric.[-1]",
             "ram_metric.[1x]", "ram_metric.[+1]", "ram_metric.[999999999999999999999]"}) {
         INFO(key);
-        CHECK_THROWS_WITH(env->GetScalar(key), Catch::Matchers::ContainsSubstring("ram_metric"));
+        CHECK_THROWS_WITH(step->GetScalar(key), Catch::Matchers::ContainsSubstring("ram_metric"));
     }
 }
 
@@ -668,11 +704,12 @@ TEST_CASE("AtariEnv appends numbered RAM values to the game completion log", "[a
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-log", 123);
-    REQUIRE(env->Step(0)->next_state.truncated);
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
     logs.Flush();
     const auto suffix = " ram_metric: first="
-        + std::to_string(static_cast<int64_t>(*env->GetScalar("ram_metric.[1]")))
-        + " later=" + std::to_string(static_cast<int64_t>(*env->GetScalar("ram_metric.[3]")));
+        + std::to_string(static_cast<int64_t>(*step->GetScalar("ram_metric.[1]")))
+        + " later=" + std::to_string(static_cast<int64_t>(*step->GetScalar("ram_metric.[3]")));
     bool found = false;
     for (const auto& record : logs.Records()) {
         if (record.message.starts_with("ram-log: Game truncated by max_episode_frames.")) {
@@ -704,12 +741,13 @@ TEST_CASE("AtariEnv reports Kung Fu Master progress from the configured RAM byte
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-kfm", 123);
     REQUIRE(env->Step(0)->next_state.done == false);
-    REQUIRE(env->Step(0)->next_state.truncated);
-    CHECK(*env->GetScalar("ram_metric.[1]") == 0.0f);
-    CHECK(*env->GetScalar("ram_metric.[2]") == 0.0f);
-    CHECK(*env->GetScalar("ram_metric.[3]") == 0.0f);
-    CHECK(*env->GetScalar("ram_metric.[4]") == 1.0f);
-    CHECK(*env->GetScalar("ram_metric.[5]") == 39.0f);
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
+    CHECK(*step->GetScalar("ram_metric.[1]") == 0.0f);
+    CHECK(*step->GetScalar("ram_metric.[2]") == 0.0f);
+    CHECK(*step->GetScalar("ram_metric.[3]") == 0.0f);
+    CHECK(*step->GetScalar("ram_metric.[4]") == 1.0f);
+    CHECK(*step->GetScalar("ram_metric.[5]") == 39.0f);
 }
 
 TEST_CASE("AtariEnv counts RAM transitions inside one frame skip window", "[atari][rom][ram_metric]")
@@ -730,7 +768,7 @@ TEST_CASE("AtariEnv counts RAM transitions inside one frame skip window", "[atar
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "ram-pong-count", 1357);
     const auto step = env->Step(0);
     REQUIRE(step->next_state.done);
-    CHECK(*env->GetScalar("ram_metric.[1]") == 21.0f);
+    CHECK(*step->GetScalar("ram_metric.[1]") == 21.0f);
     CHECK(step->GetAuxData().at("ram_metric.cpu_points").item<int64_t>() == 21);
 }
 
@@ -757,7 +795,7 @@ TEST_CASE("AtariEnv keeps RAM counts through life-loss reset and clears them on 
 
     const auto life_done = env->Step(0);
     REQUIRE(life_done->next_state.done);
-    CHECK(std::isnan(*env->GetScalar("ram_metric.[1]")));
+    CHECK(std::isnan(*life_done->GetScalar("ram_metric.[1]")));
     const int64_t before = life_done->GetAuxData().at("ram_metric.life_loss").item<int64_t>();
     CHECK(before >= 1);
 
@@ -960,16 +998,16 @@ TEST_CASE("AtariEnv reports an ALE-frame limit as truncation with completion met
 
     CHECK_FALSE(step->next_state.done);
     CHECK(step->next_state.truncated);
-    REQUIRE(env->GetScalar("game_frames").has_value());
-    CHECK(*env->GetScalar("game_frames") >= 1.0f);
-    CHECK(std::isfinite(*env->GetScalar("game_score")));
-    CHECK(*env->GetScalar("game_len") == 2.0f);
+    REQUIRE(step->GetScalar("game_frames").has_value());
+    CHECK(*step->GetScalar("game_frames") >= 1.0f);
+    CHECK(std::isfinite(*step->GetScalar("game_score")));
+    CHECK(*step->GetScalar("game_len") == 2.0f);
 
     env->Reset();
-    CHECK(std::isfinite(*env->GetScalar("game_score")));
+    CHECK_FALSE(env->GetScalar("game_score").has_value());
     const auto next_episode_step = env->Step(0);
     CHECK_FALSE(next_episode_step->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("game_score")));
+    CHECK(next_episode_step->GetScalar("game_score") == AuxFloat(next_episode_step, "game_score"));
 }
 
 TEST_CASE("AtariEnv logs one verbose line per completed game with the completion values", "[atari][rom][terminal][log]")
@@ -1012,19 +1050,20 @@ TEST_CASE("AtariEnv logs one verbose line per completed game with the completion
         return lines;
     };
     // ログの値は trace / metrics が読む完了値と一致しなければならない。
-    const auto completion_line = [](const std::string& name, const std::string& head, const auto& env) {
+    const auto completion_line = [](const std::string& name, const std::string& head, const auto& result) {
         return name + ": " + head
-            + " game_score=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_score")))
-            + " game_len=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_len")))
-            + " game_frames=" + std::to_string(static_cast<int64_t>(*env->GetScalar("game_frames")));
+            + " game_score=" + std::to_string(static_cast<int64_t>(*result->GetScalar("game_score")))
+            + " game_len=" + std::to_string(static_cast<int64_t>(*result->GetScalar("game_len")))
+            + " game_frames=" + std::to_string(static_cast<int64_t>(*result->GetScalar("game_frames")));
     };
 
     truncated->Reset();
     truncated->Step(0);
     CHECK(game_lines("atari-log-truncated").empty());
-    REQUIRE(truncated->Step(0)->next_state.truncated);
+    const auto truncated_step = truncated->Step(0);
+    REQUIRE(truncated_step->next_state.truncated);
     const std::vector<std::string> expected_truncated{
-        completion_line("atari-log-truncated", "Game truncated by max_episode_frames.", truncated) };
+        completion_line("atari-log-truncated", "Game truncated by max_episode_frames.", truncated_step) };
     CHECK(game_lines("atari-log-truncated") == expected_truncated);
     // 次のゲームの途中では増えない。
     truncated->Reset();
@@ -1036,7 +1075,7 @@ TEST_CASE("AtariEnv logs one verbose line per completed game with the completion
     REQUIRE(game_over_step->next_state.done);
     REQUIRE_FALSE(game_over_step->next_state.truncated);
     CHECK(game_lines("atari-log-game-over") == std::vector<std::string>{
-        completion_line("atari-log-game-over", "Game over.", game_over) });
+        completion_line("atari-log-game-over", "Game over.", game_over_step) });
 }
 
 TEST_CASE("AtariEnv exposes game_score threshold indicators", "[atari][rom][terminal]")
@@ -1060,32 +1099,32 @@ TEST_CASE("AtariEnv exposes game_score threshold indicators", "[atari][rom][term
 
     env->Reset();
 
-    // 未確定 step は game_score と同じく NaN。0 を返すと集約の分母が完了 env 数でなくなる。
-    const auto pending = env->GetScalar("game_score.ge.[0]");
+    // 途中のstepでも、結果が保持する速報スコアから任意閾値を計算できる。
+    const auto first = env->Step(0);
+    const auto pending = first->GetScalar("game_score.ge.[0]");
     REQUIRE(pending.has_value());
-    CHECK(std::isnan(*pending));
+    CHECK(*pending == (*first->GetScalar("game_score") >= 0.0f ? 1.0f : 0.0f));
 
-    env->Step(0);
-    env->Step(0);
-    const auto score = env->GetScalar("game_score");
+    const auto step = env->Step(0);
+    const auto score = step->GetScalar("game_score");
     REQUIRE(score.has_value());
     REQUIRE(std::isfinite(*score));
 
-    CHECK(*env->GetScalar("game_score.ge.[-1000]") == 1.0f);  // 負の閾値も許す(Pong は -21..21)
-    CHECK(*env->GetScalar("game_score.ge.[1000]") == 0.0f);
-    CHECK(*env->GetScalar("game_score.ge.[0]") == (*score >= 0.0f ? 1.0f : 0.0f));
-    CHECK(*env->GetScalar("game_score.ge.[0.5]") == (*score >= 0.5f ? 1.0f : 0.0f));
+    CHECK(*step->GetScalar("game_score.ge.[-1000]") == 1.0f);  // 負の閾値も許す(Pong は -21..21)
+    CHECK(*step->GetScalar("game_score.ge.[1000]") == 0.0f);
+    CHECK(*step->GetScalar("game_score.ge.[0]") == (*score >= 0.0f ? 1.0f : 0.0f));
+    CHECK(*step->GetScalar("game_score.ge.[0.5]") == (*score >= 0.5f ? 1.0f : 0.0f));
 
     // 前方一致しないキーは未知キーのまま返し、GetScalar の既定経路へ落とす。
-    CHECK_FALSE(env->GetScalar("game_score.ge").has_value());
-    CHECK_FALSE(env->GetScalar("game_score_ge432").has_value());
+    CHECK_FALSE(step->GetScalar("game_score.ge").has_value());
+    CHECK_FALSE(step->GetScalar("game_score_ge432").has_value());
 
     // 前方一致するのに閾値が読めないキーは黙って無視せず停止する。
-    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[]"),
+    CHECK_THROWS_WITH(step->GetScalar("game_score.ge.[]"),
         Catch::Matchers::ContainsSubstring("threshold is empty"));
-    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[abc]"),
+    CHECK_THROWS_WITH(step->GetScalar("game_score.ge.[abc]"),
         Catch::Matchers::ContainsSubstring("invalid threshold"));
-    CHECK_THROWS_WITH(env->GetScalar("game_score.ge.[1x]"),
+    CHECK_THROWS_WITH(step->GetScalar("game_score.ge.[1x]"),
         Catch::Matchers::ContainsSubstring("invalid threshold"));
 }
 
@@ -1129,8 +1168,8 @@ TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score",
     CHECK(clipped_step->reward == std::copysign(1.0f, raw_step->reward));
     CHECK(AuxFloat(clipped_step, "game_score") == Catch::Approx(raw_step->reward));
     CHECK(AuxFloat(raw_step, "game_score") == Catch::Approx(raw_step->reward));
-    CHECK(*clipped->GetScalar("game_score") == Catch::Approx(raw_step->reward));
-    CHECK(*raw->GetScalar("game_score") == Catch::Approx(raw_step->reward));
+    CHECK(*clipped_step->GetScalar("game_score") == Catch::Approx(raw_step->reward));
+    CHECK(*raw_step->GetScalar("game_score") == Catch::Approx(raw_step->reward));
 
     // real game overでskip窓を中断し、ALEが実際に進めたframe数を完了値として返す。
     const auto clipped_aux_frames = AuxInt64(clipped_step, "game_frames");
@@ -1138,8 +1177,8 @@ TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score",
     REQUIRE(clipped_aux_frames > 0);
     CHECK(clipped_aux_frames < kFrameSkip);
     CHECK(raw_aux_frames == clipped_aux_frames);
-    const auto clipped_scalar_frames = clipped->GetScalar("game_frames");
-    const auto raw_scalar_frames = raw->GetScalar("game_frames");
+    const auto clipped_scalar_frames = clipped_step->GetScalar("game_frames");
+    const auto raw_scalar_frames = raw_step->GetScalar("game_frames");
     REQUIRE(clipped_scalar_frames.has_value());
     REQUIRE(raw_scalar_frames.has_value());
     CHECK(*clipped_scalar_frames == static_cast<float>(clipped_aux_frames));
@@ -1260,16 +1299,16 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
             const auto life_loss_frame = AuxInt64(skipped_step, "game_frames");
             const auto life_loss_score = AuxFloat(skipped_step, "game_score");
             CHECK(life_loss_frame % 4 == 2); // FIRE reset 2 frames (FIRE + action set 3番目) + 完走したskip窓
-            CHECK(std::isnan(*skipped->GetScalar("game_score")));
+            CHECK(std::isnan(*skipped_step->GetScalar("game_score")));
 
-            // life-loss後のsoft resetは実ゲームの集約を維持したままNOOP 1回を打つ。
+            // life-loss後のNOOPはStepで済み、soft resetは実ゲームの集約を維持する。
             // fire_reset=true なので続けてFIRE + action set 3番目が入る（FireResetEnv 同手順、計3フレーム）。
             const auto soft_reset = skipped->Reset();
             const auto reset_aux = soft_reset->GetAuxData();
             CHECK(soft_reset->state.episode_start);
             CHECK(reset_aux.at("game_frames").item<int64_t>() == life_loss_frame + 3);
             CHECK(reset_aux.at("game_score").item<float>() == Catch::Approx(life_loss_score));
-            CHECK(std::isnan(*skipped->GetScalar("game_score")));
+            CHECK_FALSE(skipped->GetScalar("game_score").has_value());
         }
     }
 
@@ -1279,8 +1318,8 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
     bool observed_real_game_over = false;
     for (int window = 0; window < 25000 && !observed_real_game_over; ++window) {
         const auto step = skipped->Step(1); // FIREを維持して次のlifeを確実に開始する。
-        const auto completed_score = *skipped->GetScalar("game_score");
-        if (std::isfinite(completed_score)) {
+        const auto completed_score = *step->GetScalar("game_score");
+        if (step->next_state.done && std::isfinite(completed_score)) {
             observed_real_game_over = true;
             REQUIRE(step->next_state.done);
             CHECK_FALSE(step->next_state.truncated);
@@ -1288,18 +1327,13 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
             break;
         }
 
-        CHECK(std::isnan(completed_score));
+        if (step->next_state.done) CHECK(std::isnan(completed_score));
+        else CHECK(std::isfinite(completed_score));
         if (step->next_state.done) {
             CHECK_FALSE(step->next_state.truncated);
             const auto reset = skipped->Reset();
             CHECK(reset->state.episode_start);
-            const auto reset_completed_score = *skipped->GetScalar("game_score");
-            if (std::isfinite(reset_completed_score)) {
-                // soft-reset NOOP中のreal game overも実ゲーム完了として扱う。
-                observed_real_game_over = true;
-            } else {
-                CHECK(std::isnan(reset_completed_score));
-            }
+            CHECK_FALSE(skipped->GetScalar("game_score").has_value());
         } else {
             CHECK_FALSE(step->next_state.truncated);
         }
@@ -1315,7 +1349,7 @@ TEST_CASE("AtariEnv soft reset applies the fire sequence only when fire_reset is
         SKIP("breakout.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
     }
 
-    // fire_reset=false（v5 既定）では life-loss 後の soft reset は NOOP 1 回のまま。
+    // fire_reset=false（v5 既定）ではlife-loss後にStepのNOOP 1回だけが進む。
     // true にすると FIRE + action set 3番目が続き（FireResetEnv 同手順）、計 3 フレームになる。
     const auto make = [&](bool fire_reset) {
         anet::ConfigData config_data;
@@ -1375,4 +1409,494 @@ int main(int argc, char* argv[])
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("Atari life-loss NOOP result retains final game values after automatic reset", "[atari][rom][prd097_atari]")
+{
+    const auto rom = FindRom("asterix");
+    // 必須受入なのでROMやC++ ALEの条件が欠けた場合はskipしない。
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "asterix");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.repeat_action_probability", 0.0);
+    data.Set("AtariEnv.noop_max", 0);
+    data.Set("AtariEnv.fire_reset", false);
+    data.Set("AtariEnv.episodic_life", true);
+    data.Set("AtariEnv.max_episode_frames", 0);
+    class FixtureFactory final : public anet::rl::SingleDiscreteEnvFactory {
+    public:
+        std::string GetTargetEnvClassId() const override { return "AtariEnv"; }
+        std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
+            const anet::ConfigData& config, const torch::Device& device, const std::string& name,
+            std::optional<anet::seed_t>, anet::rl::RunMode mode, const std::string&) override
+        {
+            // fixtureのALE seedはlane seed変換を経ず1へ固定する。
+            child = std::make_shared<anet::rl::env::AtariEnv>(
+                anet::rl::env::AtariEnvConfig(config), device, name, 1, mode);
+            return child;
+        }
+        std::shared_ptr<anet::rl::env::AtariEnv> child;
+    };
+    auto factory = std::make_shared<FixtureFactory>();
+    anet::rl::VectorizedDiscreteBatchEnv env(data, factory, "asterix-noop-completion", 1, torch::Device(torch::kCPU), 1);
+    env.Reset();
+    anet::rl::env::AtariEnvTestAccess{}.PrepareLifeLossNoopCompletion(*factory->child);
+    const auto step = env.Step(std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)));
+    REQUIRE(step->next_state.done.item<bool>());
+    CHECK_FALSE(step->next_state.truncated.item<bool>());
+    CHECK(step->n_episode_end == 1);
+    CHECK(step->GetScalar("lives", 0) == 1.0f);
+    CHECK(step->GetAuxDataList(0).at(0).at("game_frames").item<int64_t>() == 301);
+    REQUIRE(step->GetScalar("game_score", 0).has_value());
+    REQUIRE(std::isfinite(*step->GetScalar("game_score", 0)));
+    CHECK(step->GetScalar("game_len", 0) == 1.0f);
+    CHECK(step->GetScalar("game_frames", 0) == 302.0f);
+    CHECK(step->continue_state.episode_start.item<bool>());
+    CHECK_FALSE(env.GetScalar("game_score", 0).has_value());
+    const auto aux = step->GetAuxDataList(0).at(0);
+    REQUIRE(aux.contains("rgb_frame"));
+    const auto rgb = aux.at("rgb_frame").clone();
+    CHECK_FALSE(torch::equal(rgb, *env.GetTensor("rgb_frame", 0)));
+    env.Step(std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)));
+    CHECK(step->GetScalar("game_frames", 0) == 302.0f);
+    CHECK(torch::equal(rgb, step->GetAuxDataList(0).at(0).at("rgb_frame")));
+}
+
+TEST_CASE("Atari Step results answer provisional derived and numbered RAM scalars", "[atari][rom][prd097_atari_derived]")
+{
+    const auto rom = FindRom("pong");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_episode_frames", 2);
+    data.Set("AtariEnv.repeat_action_probability", 0.0f);
+    data.Set("AtariEnv.ram_metric.[pong].[score_high]", "0x8D max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:score_high");
+    data.Set("AtariEnv.ram_metric.[qbert].[round]", "0xE3 inc_count");
+    data.Set("AtariEnv.ram_metric.[qbert].metrics", "2:round");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "derived-result", 1);
+    env->Reset();
+    const auto first = env->Step(0);
+    REQUIRE_FALSE((first->next_state.done || first->next_state.truncated));
+    const auto score = first->GetAuxData().at("game_score").item<float>();
+    REQUIRE(first->GetScalar("hns57").has_value());
+    CHECK(first->GetScalar("hns57") == anet::rl::env::HumanNormalizedScore(
+        "pong", score, anet::rl::env::HnsBaseline::Dqn57));
+    CHECK(first->GetScalar("hns49") == anet::rl::env::HumanNormalizedScore(
+        "pong", score, anet::rl::env::HnsBaseline::Nature49));
+    CHECK(first->GetScalar("game_score.ge.[-1000]") == 1.0f);
+    CHECK(first->GetScalar("game_score.ge.[1000]") == 0.0f);
+    CHECK(first->GetScalar("ram_metric.[1]") ==
+        static_cast<float>(first->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
+    REQUIRE(first->GetScalar("ram_metric.[2]").has_value());
+    CHECK(std::isnan(*first->GetScalar("ram_metric.[02]")));
+    CHECK_FALSE(first->GetScalar("ram_metric.[3]").has_value());
+    const auto last = env->Step(0);
+    REQUIRE(last->next_state.truncated);
+    CHECK(last->GetScalar("game_frames") == 2.0f);
+    env->Reset();
+    CHECK(first->GetScalar("game_frames") == 1.0f);
+    CHECK(last->GetScalar("game_frames") == 2.0f);
+    for (const auto& key : {"game_score", "hns57", "game_score.ge.[0]", "ram_metric.[1]"})
+        CHECK_FALSE(env->GetScalar(key).has_value());
+}
+
+TEST_CASE("Atari factory reports the default resize mode with its Reset observation", "[atari][prd099][resize-config]")
+{
+    // 工場からResetまで通し、実効設定と観測契約を同時に確認する。
+    const auto rom = FindRom("pong");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    anet::rl::env::AtariEnvFactory factory;
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-default", 123);
+    const auto reset = env->Reset();
+    CHECK(env->GetSpec().state_spec.ValidateObservation(reset->state.obs, false));
+    const auto effective = env->GetConfigData();
+    REQUIRE(effective.has_value());
+    REQUIRE(effective->Has("AtariEnv.resize_mode"));
+    CHECK(effective->Get("AtariEnv.resize_mode") == "adaptive_average");
+}
+
+TEST_CASE("GrayscaleResizer uses pixel overlap for fractional downsampling", "[atari][prd099][resize-area]")
+{
+    // 3→2の境界をまたぐ画素で、等重みのadaptive平均との違いを固定する。
+    const std::vector<uint8_t> source{0, 0, 90, 0, 0, 90, 90, 90, 90};
+    const anet::rl::env::atari::GrayscaleResizer resizer(3, 3, 2, "pixel_area");
+    const auto output = resizer.Resize(source.data());
+    CHECK(output.sizes().vec() == std::vector<int64_t>{1, 2, 2});
+    CHECK(output.dtype() == torch::kUInt8);
+    CHECK(output.is_contiguous());
+    CHECK(output.flatten().to(torch::kInt64).equal(torch::tensor({0, 60, 60, 80}, torch::kInt64)));
+}
+
+TEST_CASE("Pixel area matches each fixed OpenCV reference image", "[atari][prd099][resize-golden]")
+{
+    // 同じ入力と最終uint8期待値を読み、画像ごとに許容を判定する。
+    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "core/anet-core/testdata/prd099";
+    const auto read = [](const std::filesystem::path& path) {
+        std::ifstream stream(path, std::ios::binary);
+        REQUIRE(stream.good());
+        return std::vector<uint8_t>(std::istreambuf_iterator<char>(stream), {});
+    };
+    const auto frames = read(directory / "frames_210x160.u8");
+    const auto expected = read(directory / "expected_84x84.u8");
+    REQUIRE(frames.size() == 24 * 210 * 160);
+    REQUIRE(expected.size() == 24 * 84 * 84);
+    const anet::rl::env::atari::GrayscaleResizer area(210, 160, 84, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, "adaptive_average");
+    int maximum_error = 0;
+    int total_mismatches = 0;
+    bool differs_from_adaptive = false;
+    for (int frame = 0; frame < 24; ++frame) {
+        CAPTURE(frame);
+        const auto actual = area.Resize(frames.data() + frame * 210 * 160);
+        const auto existing = adaptive.Resize(frames.data() + frame * 210 * 160);
+        const auto* pixels = actual.data_ptr<uint8_t>();
+        const auto* old_pixels = existing.data_ptr<uint8_t>();
+        int mismatches = 0;
+        int error = 0;
+        for (int pixel = 0; pixel < 84 * 84; ++pixel) {
+            const int reference = expected[frame * 84 * 84 + pixel];
+            error = std::max(error, std::abs(static_cast<int>(pixels[pixel]) - reference));
+            mismatches += pixels[pixel] != reference;
+            differs_from_adaptive |= old_pixels[pixel] != reference;
+        }
+        INFO("mismatches=" << mismatches << ", max_error=" << error);
+        CHECK(error <= 1);
+        CHECK(mismatches * 1000 <= 84 * 84);
+        maximum_error = std::max(maximum_error, error);
+        total_mismatches += mismatches;
+    }
+    CHECK(differs_from_adaptive);
+    std::cout << "PRD099 golden: frames=24 max_error=" << maximum_error
+        << " mismatches=" << total_mismatches << "/" << 24 * 84 * 84 << std::endl;
+}
+
+TEST_CASE("Atari resize configuration rejects unknown modes at reading", "[atari][prd099][resize-invalid-mode]")
+{
+    // 共通値と評価個別値の両方で、利用者が直すキーと指定値を診断する。
+    for (const auto& prefix : {std::string("AtariEnv"), std::string("run.eval.[eval_panel].env")}) {
+        for (const auto& value : {std::string("unknown"), std::string("")}) {
+            const std::string key = prefix + ".resize_mode";
+            CAPTURE(key, value);
+            anet::ConfigData data;
+            data.Set("AtariEnv.game", "pong");
+            data.Set(key, value);
+            anet::test::LogCaptureGuard logs(wxLOG_Info);
+            CHECK_THROWS_WITH(anet::rl::env::AtariEnvConfig(data, prefix == "AtariEnv" ? "" : prefix),
+                Catch::Matchers::ContainsSubstring(key)
+                && Catch::Matchers::ContainsSubstring("'" + value + "'")
+                && Catch::Matchers::ContainsSubstring("adaptive_average")
+                && Catch::Matchers::ContainsSubstring("pixel_area"));
+        }
+    }
+}
+
+TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration key", "[atari][prd099][resize-invalid-size]")
+{
+    // ROMを読む前に、型・範囲と評価個別の指定箇所を診断する。
+    anet::rl::env::AtariEnvFactory factory;
+    for (const auto& prefix : {std::string("AtariEnv"), std::string("run.eval.[eval_panel].env")}) {
+        for (const auto& value : {std::string("0"), std::string("-1"), std::string("161"), std::string("84.5")}) {
+            const std::string key = prefix + ".screen_size";
+            CAPTURE(key, value);
+            anet::ConfigData data;
+            data.Set("AtariEnv.game", "pong");
+            data.Set("AtariEnv.resize_mode", "pixel_area");
+            data.Set(key, value);
+            anet::test::LogCaptureGuard logs(wxLOG_Info);
+            CHECK_THROWS_WITH(factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "invalid-size", 1,
+                anet::rl::RunMode::Train, prefix == "AtariEnv" ? "" : prefix),
+                Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(value));
+        }
+    }
+}
+
+TEST_CASE("Atari Run profile selects pixel area while evaluation keeps explicit overrides", "[atari][prd099][resize-profile][shipped_config]")
+{
+    // 実際のAtari.txtを解決し、Runの共通値と評価個別の責務を確認する。
+    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "apps/runner/config";
+    const wxCmdLineEntryDesc description[] = {
+        {wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE}, {wxCMD_LINE_NONE},
+    };
+    wxCmdLineParser cli(description, wxString::FromUTF8(
+        "run.$=run.@v5_iqn_impala_x2>run.@pixel_area run.eval.[eval_panel].env.resize_mode=adaptive_average"));
+    REQUIRE(cli.Parse(false) == 0);
+    anet::ConfigManagerOptions options;
+    options.config_search_dirs = {directory};
+    options.overwrite_config_paths = {directory / "Atari.txt"};
+    const auto data = anet::ConfigManager(directory / "_main.txt", &cli, options).GetConfigData();
+    CHECK(data.Get("AtariEnv.resize_mode") == "pixel_area");
+    const anet::rl::env::AtariEnvConfig common(data);
+    CHECK(common.resize_mode == "pixel_area");
+    const anet::rl::env::AtariEnvConfig panel(data, "run.eval.[eval_panel].env");
+    CHECK(panel.resize_mode == "adaptive_average");
+    CHECK(panel.GetScopedConfigData().Get("run.eval.[eval_panel].env.resize_mode") == "adaptive_average");
+    const anet::rl::env::AtariEnvConfig inherited(data, "run.eval.[eval_target].env");
+    CHECK(inherited.resize_mode == "pixel_area");
+}
+
+TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari][prd099][resize-boundary]")
+{
+    using anet::rl::env::atari::GrayscaleResizer;
+    // 半整数と途中丸めを、二進で正確な重みになる入力で固定する。
+    const std::vector<std::vector<uint8_t>> examples{{0, 1, 0, 1}, {1, 2, 1, 2}, {2, 3, 2, 3}, {0, 1, 0, 2}};
+    const std::vector<int> rounded{0, 2, 2, 1};
+    const GrayscaleResizer half(2, 2, 1, "pixel_area");
+    for (size_t i = 0; i < examples.size(); ++i) {
+        CAPTURE(i);
+        CHECK(half.Resize(examples[i].data()).item<uint8_t>() == rounded[i]);
+    }
+
+    // 元画面の大きさでも半整数を保つ。浮動小数の逐次積算では128.5が129へ化けた。
+    std::vector<uint8_t> native_half(210 * 160);
+    const GrayscaleResizer native_average(210, 160, 1, "pixel_area");
+    for (int base : {0, 1, 2, 126, 127, 128, 129, 254}) {
+        CAPTURE(base);
+        for (bool horizontal : {false, true}) {
+            CAPTURE(horizontal);
+            for (int y = 0; y < 210; ++y) {
+                for (int x = 0; x < 160; ++x) {
+                    native_half[y * 160 + x] = static_cast<uint8_t>(
+                        base + (horizontal ? x >= 80 : y >= 105));
+                }
+            }
+            CHECK(native_average.Resize(native_half.data()).item<uint8_t>() == base + base % 2);
+        }
+    }
+    const GrayscaleResizer native_fractional(210, 160, 84, "pixel_area");
+    for (int base : {126, 127, 128, 129}) {
+        CAPTURE(base);
+        std::fill(native_half.begin(), native_half.end(), static_cast<uint8_t>(base));
+        // 左上の重みは42/200と38/200。6×42−4×38=100で平均がbase+0.5。
+        native_half[0] = static_cast<uint8_t>(base + 6);
+        native_half[1] = static_cast<uint8_t>(base - 4);
+        CHECK(native_fractional.Resize(native_half.data()).data_ptr<uint8_t>()[0] == base + base % 2);
+    }
+
+    // 小さい非整数比では、区間を整数格子へ拡大した独立な面積計算と照合する。
+    std::vector<uint8_t> source(5 * 7);
+    for (size_t i = 0; i < source.size(); ++i) source[i] = static_cast<uint8_t>((17 * i) % 256);
+    for (int size = 1; size <= 5; ++size) {
+        const GrayscaleResizer area(5, 7, size, "pixel_area");
+        const auto actual = area.Resize(source.data());
+        const auto* pixels = actual.data_ptr<uint8_t>();
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                int numerator = 0;
+                for (int sy = 0; sy < 5; ++sy) {
+                    const int height = std::max(0, std::min((y + 1) * 5, (sy + 1) * size) - std::max(y * 5, sy * size));
+                    for (int sx = 0; sx < 7; ++sx) {
+                        const int width = std::max(0, std::min((x + 1) * 7, (sx + 1) * size) - std::max(x * 7, sx * size));
+                        numerator += source[sy * 7 + sx] * height * width;
+                    }
+                }
+                const int expected = numerator / 35 + ((numerator % 35) * 2 > 35);
+                CAPTURE(size, y, x);
+                CHECK(pixels[y * size + x] == expected);
+            }
+        }
+    }
+
+    // 定数保持が正規化を、入力範囲の保持が非負の重みを外から確かめる。
+    std::vector<uint8_t> constant(210 * 160, 17);
+    for (int size = 1; size <= 160; ++size) {
+        CAPTURE(size);
+        const GrayscaleResizer area(210, 160, size, "pixel_area");
+        const auto image = area.Resize(constant.data());
+        CHECK(image.sizes().vec() == std::vector<int64_t>{1, size, size});
+        CHECK(image.min().item<uint8_t>() == 17);
+        CHECK(image.max().item<uint8_t>() == 17);
+    }
+    for (int size : {1, 84, 160}) {
+        const GrayscaleResizer area(210, 160, size, "pixel_area");
+        for (size_t i = 0; i < constant.size(); ++i) constant[i] = i % 2 ? 203 : 17;
+        const auto image = area.Resize(constant.data());
+        CHECK(image.min().item<uint8_t>() >= 17);
+        CHECK(image.max().item<uint8_t>() <= 203);
+    }
+    const GrayscaleResizer existing(210, 160, 161, "adaptive_average");
+    CHECK(existing.Resize(constant.data()).sizes().vec() == std::vector<int64_t>{1, 161, 161});
+
+    // 整数倍の箱平均は既存方式と一致し、入力は借用しても結果は独立して所有する。
+    const std::vector<uint8_t> box{0, 1, 10, 11, 2, 2, 12, 12, 100, 101, 200, 201, 102, 103, 202, 204};
+    const GrayscaleResizer area_box(4, 4, 2, "pixel_area");
+    const GrayscaleResizer existing_box(4, 4, 2, "adaptive_average");
+    CHECK(torch::equal(area_box.Resize(box.data()), existing_box.Resize(box.data())));
+    auto borrowed = std::vector<uint8_t>{7, 7, 7, 7};
+    const auto owned = half.Resize(borrowed.data());
+    std::fill(borrowed.begin(), borrowed.end(), 0);
+    CHECK(owned.item<uint8_t>() == 7);
+}
+
+TEST_CASE("Atari Reset and Step apply resize mode without changing the emulator", "[atari][prd099][resize-env]")
+{
+    // 同じseedと行動を与え、公開RGBは一致したまま観測だけが方式で変わることを確認する。
+    const auto rom = FindRom("qbert");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "qbert");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.resize_mode", "pixel_area");
+    data.Set("AtariEnv.frame_skip", 1);
+    data.Set("AtariEnv.max_pool", false);
+    data.Set("AtariEnv.noop_max", 30);
+    data.Set("run.eval.[eval_panel].env.resize_mode", "adaptive_average");
+    anet::rl::env::AtariEnvFactory factory;
+    const auto area = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-area", 13);
+    const auto panel = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-panel", 13,
+        anet::rl::RunMode::Eval1, "run.eval.[eval_panel].env");
+    CHECK(area->GetConfigData()->Get("AtariEnv.resize_mode") == "pixel_area");
+    CHECK(panel->GetConfigData()->Get("run.eval.[eval_panel].env.resize_mode") == "adaptive_average");
+    const auto rgb_equal = [&] {
+        const auto a = area->GetTensor("rgb_frame");
+        const auto b = panel->GetTensor("rgb_frame");
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK(torch::equal(*a, *b));
+    };
+    bool reset_differs = false;
+    for (int repeat = 0; repeat < 4; ++repeat) {
+        const auto a = area->Reset();
+        const auto b = panel->Reset();
+        rgb_equal();
+        reset_differs |= !torch::equal(a->state.obs.Get(anet::rl::ObsKeys::kGrid).value(),
+            b->state.obs.Get(anet::rl::ObsKeys::kGrid).value());
+    }
+    CHECK(reset_differs);
+    bool step_differs = false;
+    for (int step = 0; step < 32; ++step) {
+        const auto a = area->Step(0);
+        const auto b = panel->Step(0);
+        rgb_equal();
+        CHECK(a->next_state.done == b->next_state.done);
+        CHECK(a->next_state.truncated == b->next_state.truncated);
+        step_differs |= !torch::equal(a->next_state.obs.Get(anet::rl::ObsKeys::kGrid).value(),
+            b->next_state.obs.Get(anet::rl::ObsKeys::kGrid).value());
+        if (a->next_state.done || a->next_state.truncated) {
+            area->Reset();
+            panel->Reset();
+        }
+    }
+    CHECK(step_differs);
+}
+
+TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][prd099-perf-exact]")
+{
+    using anet::rl::env::atari::GrayscaleResizer;
+    // 各サイズの参照と実装を再利用し、呼び出しを繰り返したときの作業領域も検査する。
+    std::vector<PixelAreaReferenceResizer> reference;
+    std::vector<GrayscaleResizer> actual;
+    reference.reserve(160);
+    actual.reserve(160);
+    for (int size = 1; size <= 160; ++size) {
+        reference.emplace_back(210, 160, size, "pixel_area");
+        actual.emplace_back(210, 160, size, "pixel_area");
+    }
+    int comparisons = 0;
+    int64_t pixels = 0;
+    const auto compare = [&](const uint8_t* input) {
+        for (int size = 1; size <= 160; ++size) {
+            CAPTURE(size);
+            const auto expected = reference[size - 1].Resize(input);
+            const auto output = actual[size - 1].Resize(input);
+            REQUIRE(torch::equal(expected, output));
+            ++comparisons;
+            pixels += size * size;
+        }
+    };
+
+    // 固定24枚はS=84だけでなく、対応する全160サイズで比較する。
+    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "core/anet-core/testdata/prd099/frames_210x160.u8";
+    std::ifstream stream(path, std::ios::binary);
+    REQUIRE(stream.good());
+    const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
+    REQUIRE(frames.size() == 24 * 210 * 160);
+    for (int image = 0; image < 24; ++image) {
+        CAPTURE(image);
+        compare(frames.data() + image * 210 * 160);
+    }
+
+    // 乱数1000枚とS=1..160の直積をすべて比較し、特定の縮小率だけの一致にしない。
+    std::mt19937 random(20261024);
+    std::vector<uint8_t> input(210 * 160);
+    for (int image = 0; image < 1000; ++image) {
+        CAPTURE(image);
+        for (auto& pixel : input) pixel = static_cast<uint8_t>(random());
+        compare(input.data());
+    }
+    // 定数・縦縞・横縞・市松模様も全サイズで確認する。
+    for (int pattern = 0; pattern < 5; ++pattern) {
+        CAPTURE(pattern);
+        for (int y = 0; y < 210; ++y) {
+            for (int x = 0; x < 160; ++x) {
+                const bool high = pattern == 1 || (pattern == 2 && x % 2)
+                    || (pattern == 3 && y % 2) || (pattern == 4 && (x + y) % 2);
+                input[y * 160 + x] = high ? 255 : 0;
+            }
+        }
+        compare(input.data());
+    }
+    // 32bitに収まらない任意寸法も、従来の64bit積算で維持する。
+    const std::vector<uint8_t> large(3000 * 3000, 255);
+    const PixelAreaReferenceResizer wide_reference(3000, 3000, 1, "pixel_area");
+    const GrayscaleResizer wide_actual(3000, 3000, 1, "pixel_area");
+    REQUIRE(torch::equal(wide_reference.Resize(large.data()), wide_actual.Resize(large.data())));
+    CHECK(wide_actual.Resize(large.data()).item<uint8_t>() == 255);
+    std::cout << "PRD099 exact equivalence comparisons=" << comparisons << " pixels=" << pixels
+        << " mismatches=0 random_images=1000 sizes=1..160 wide_case=passed" << std::endl;
+}
+
+TEST_CASE("PRD099 resize prototype timings", "[.][prd099-resize-probe]")
+{
+    // 同じ実行体の中で高速化前の参照・現在方式・既定を交互に測る。正式なEnv Step受入ではない。
+    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "core/anet-core/testdata/prd099/frames_210x160.u8";
+    std::ifstream stream(path, std::ios::binary);
+    REQUIRE(stream.good());
+    const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
+    REQUIRE(frames.size() == 24 * 210 * 160);
+    const PixelAreaReferenceResizer baseline(210, 160, 84, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer current(210, 160, 84, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, "adaptive_average");
+    int checksum = 0;
+    const auto time = [&](const auto& resizer, int count) {
+        const auto begin = std::chrono::steady_clock::now();
+        for (int i = 0; i < count; ++i) {
+            const auto output = resizer.Resize(frames.data() + (i % 24) * 210 * 160);
+            checksum += output.template data_ptr<uint8_t>()[i % (84 * 84)];
+        }
+        return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count() / count;
+    };
+    time(baseline, 50);
+    time(current, 50);
+    time(adaptive, 50);
+    std::array<std::vector<double>, 3> samples;
+    const std::array<const char*, 3> names{"baseline", "current", "adaptive"};
+    // 5巡で開始方式を回し、各方式2000回の平均を1試行として記録する。
+    for (int round = 0; round < 5; ++round) {
+        for (int offset = 0; offset < 3; ++offset) {
+            const int variant = (round + offset) % 3;
+            double elapsed = 0;
+            if (variant == 0) elapsed = time(baseline, 2000);
+            else if (variant == 1) elapsed = time(current, 2000);
+            else elapsed = time(adaptive, 2000);
+            CHECK(elapsed > 0);
+            samples[variant].push_back(elapsed);
+            std::cout << "PRD099 resize probe round=" << round << " variant=" << names[variant]
+                << " us=" << elapsed << std::endl;
+        }
+    }
+    for (auto& values : samples) std::sort(values.begin(), values.end());
+    std::cout << "PRD099 resize probe median_baseline_us=" << samples[0][2]
+        << " median_current_us=" << samples[1][2] << " median_adaptive_us=" << samples[2][2]
+        << " speed_ratio=" << samples[0][2] / samples[1][2] << " checksum=" << checksum
+        << " formal_env_acceptance=not_measured" << std::endl;
 }

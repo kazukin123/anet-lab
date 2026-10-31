@@ -32,7 +32,7 @@ Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検
 
 ## OFF 回帰の数値比較
 
-初回実装の基準は `.scratch/prd084/old/`、当時の変更後は `new/` に保持する。今回のレビュー修正はコード編集前に現実装の実行体・依存 DLL・設定・seed・checkpoint を `.scratch/prd084/review-fix/before/` に保存し、新しい出力を `after-verified/` に分離する。旧 artifact は上書きしない。Atari 既定構成、指定の SN 付きチェーン、CPU LunarLander の3本を、同じ deterministic backend・seed・終了予算500kで実行する。学習スケジュールを変更せず、Atari の `greedy_dist` を双方で無効化する。
+初回実装の基準は `.scratch/prd084/old/`、当時の変更後は `new/` に保持する。今回のレビュー修正はコード編集前に現実装の実行体・依存 DLL・設定・seed・checkpoint を `.scratch/prd084/review-fix/before/` に保存し、新しい出力を `after-verified/` に分離する。旧 artifact は上書きしない。Atari 既定構成、指定の SN 付きチェーン、CPU LunarLander の3本を、同じ deterministic backend・seed・終了予算500kで実行する。学習スケジュールを変更せず、Atari の `greedy` を双方で無効化する。
 
 `compare_metrics.py normalize` は全数値 scalar を `(tag, step, float.hex())` に正規化し、時刻以外の数値差を保持する。性能・資源・追加 Noisy の各 metric group を除外する。`compare` は値とタグごとの点数を比較し、欠損・点数差・値の差を exit=1 にする。
 
@@ -60,7 +60,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[noisynet]'
 
 `nz_learning` は既存初期化とAMPを継承し、Actor/current/targetはcall/batch。`nz_reference` は4射影のdefault初期化・σ0=0.5、Body2FCのforce_fp32=true、AMP継承、標準call/batch。結合RunのActorだけを専用項目でepisode/sampleへ上書きする。`nz_reference_off` は同じ初期化・精度・保持設定でNoisy enabledだけを外す。
 
-`greedy_dist` はCLIで `run.eval_schedule.[greedy_dist].interval=0` を固定する。ファイルの同名葉は、後から適用される `eval2ch` profile に上書きされるため、解決済み `run.txt` と `definition-only` ログを確認する。終了予算もCLIで指定し、per_beta/epsilon/warmupのスケジュールを縮めない。
+`greedy` はCLIで `run.eval_schedule.[greedy].interval=0` を固定する。ファイルの同名葉は、後から適用される `eval2ch` profile に上書きされるため、解決済み `run.txt` と `definition-only` ログを確認する。終了予算もCLIで指定し、per_beta/epsilon/warmupのスケジュールを縮めない。
 
 両ON Runは全11行を購読する。Atariのfeature依存閉包にはNoisy層がなく、feature4統計は正常なNaN。`ScalarMetricObserver`は既知NaNを出力しないため、11購読宣言とfeature成立値の不在を確認し、NaNそのものは契約テストで確認する。readout4統計とprobe3指標は複数回の有限値を要求する。xavierの初期μ biasが0の場合、最初のbias ratioのみNaNが正しい。
 
@@ -132,7 +132,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File core/anet-core/testdata/prd0
 
 summarize_review_validation.py は正常終了・構成別予算（OFF3本は500k、結合2本は500k以上、旧checkpointは256）・seed・同一実行体・依存DLL保存・close checkpoint、OFF3本の全数値点と全既存設定値、結合2本の精度・購読・eval/probe、旧CPU checkpointのSHAとモデル／Learner読込ログを確認し、acceptance-summary.jsonに保存する。
 
-run_review_validation.ps1 の -Resume は、明示した出力先の固定実行体・設定を保ち、正常終了済みのcaseを再利用する。失敗recordとstdout/stderrはfailed-01へ分離し、元Runは保持する。未完了recordまたは現在のビルドとの実行体不一致では再開しない。greedy_distの無効化はAtari構成だけに適用する。
+run_review_validation.ps1 の -Resume は、明示した出力先の固定実行体・設定を保ち、正常終了済みのcaseを再利用する。失敗recordとstdout/stderrはfailed-01へ分離し、元Runは保持する。未完了recordまたは現在のビルドとの実行体不一致では再開しない。greedyの無効化はAtari構成だけに適用する。
 
 ## レビュー修正の最終結果
 
@@ -176,7 +176,7 @@ Noisy47件/10497 assertions、全core664passed/1skipped/34680 assertions、Debug
 
 ## Forward 事前準備の受け入れ
 
-計画: docs/memo/084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy_dist 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
+計画: docs/memo/084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
 
 ## 事前準備リファクタリングの検証資材
 

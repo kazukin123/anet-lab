@@ -16,6 +16,7 @@
 #include "TrainPanel.hpp"
 #include "EvalPanel.hpp"
 #include "QValuePanel.hpp"
+#include "EvalTracePanel.hpp"
 
 class RunnerFrame final : public anet::rl::gui::AuiLayoutFrame {
 public:
@@ -40,12 +41,15 @@ protected:
     void OnToggleTraining(wxCommandEvent& event);
     void OnToggleEval(wxCommandEvent& event);
     void OnEvalStep(wxCommandEvent& event);
+    void OnEvalStepsCustom(wxCommandEvent& event);
     void OnSaveAgent(wxCommandEvent& event);
     void OnOpenRunFolder(wxCommandEvent& event);
     void OnUpdateTrainStatus(wxUpdateUIEvent& event);
 
     // AuiLayoutFrame フック
     void OnApplyLayoutPolicy() override;
+    void OnPaneHiding(wxAuiPaneInfo& pane) override;
+    void OnPaneShowing(wxAuiPaneInfo& pane) override;
 private:
     enum class AlwaysOnTopMode {
         Off,
@@ -64,6 +68,7 @@ private:
     void ApplyAlwaysOnTopMode();
     void UpdateToggleBitmap(wxAuiToolBar* toolbar, int tool_id, bool running, std::optional<bool>& shown_as_running);
     void UpdateToolBarBitmaps();
+    void UpdateLogAlertBadge();
     void UpdateTrainStatus();
     bool TrySaveAgent(const std::filesystem::path& file_path);
     void ShowEvalPaneIfHidden();
@@ -100,6 +105,7 @@ private:
     EvalPanel* eval_panel_ = nullptr;
     LogPanel* log_panel_ = nullptr;
     QValuePanel* q_value_panel_ = nullptr;
+    EvalTracePanel* eval_trace_panel_ = nullptr;
     wxAuiToolBar* run_control_toolbar_ = nullptr;
     wxAuiToolBar* step_toolbar_ = nullptr;
     wxAuiToolBar* run_ops_toolbar_ = nullptr;
@@ -110,9 +116,13 @@ private:
     // toggle bitmap へ反映済みの実行状態 (未反映は nullopt)。再生/一時停止の差し替え判定に使う。
     std::optional<bool> train_toggle_running_;
     std::optional<bool> eval_toggle_running_;
+    // Logs ボタンの印へ反映済みの未確認件数 (未反映は nullopt)。
+    std::optional<LogPanel::UnviewedAlerts> shown_log_alerts_;
     AlwaysOnTopMode always_on_top_mode_ = AlwaysOnTopMode::Off;
 
     const float train_config_fps_;
     const float eval_config_fps_;
+    const int eval_config_step_per_frame_;
+    int eval_steps_selection_ = wxID_NONE;
     bool initialized_ = false;
 };

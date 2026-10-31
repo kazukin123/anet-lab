@@ -177,23 +177,32 @@ torch::Tensor anet::nn::DropPath(const torch::Tensor& x, double drop_prob, bool 
 // Standard Module Implementations
 // ===========================================================================
 
+namespace {
+// 設定の読取りと検証を共有し、事前検証でもNetwork・重み・乱数を生成しない。
+struct LinearProjectionNoisyConfig {
+    LinearProjectionNoisyConfig(const anet::ConfigData& data, const std::string& owner)
+        : enabled(data.Get<bool>("noisy.enabled", false))
+        , sigma0(data.Get<double>("noisy.sigma0", 0.5))
+    {
+        // 無効な定義でも、明示された値の誤りは構築時に検出する。
+        if (!std::isfinite(sigma0) || sigma0 < 0.0) {
+            ANET_SYSTEM_ERROR("Invalid " << owner << ".noisy.sigma0=" << sigma0 << "; expected finite >= 0.");
+        }
+    }
+    const bool enabled;
+    const double sigma0;
+};
+} // namespace
+
+void anet::nn::ValidateLinearProjectionConfig(const ConfigData& config, const std::string& owner)
+{
+    (void)LinearProjectionNoisyConfig(config, owner);
+}
+
 // Lazy Linear Implementation
 // 射影を利用する具象 Module が設定・検証・保持の意味を一か所で所有する。
 struct LinearProjectionModule::Impl {
-    explicit Impl(const anet::ConfigData& data) : noisy_config_(data) {}
-    struct NoisyConfig {
-        explicit NoisyConfig(const anet::ConfigData& data)
-            : enabled(data.Get<bool>("noisy.enabled", false))
-            , sigma0(data.Get<double>("noisy.sigma0", 0.5))
-        {
-            // 無効な定義でも、明示された値の誤りは構築時に検出する。
-            if (!std::isfinite(sigma0) || sigma0 < 0.0) {
-                ANET_SYSTEM_ERROR("Invalid Linear noisy.sigma0=" << sigma0 << " expected finite >= 0.");
-            }
-        }
-        const bool enabled;
-        const double sigma0;
-    };
+    explicit Impl(const anet::ConfigData& data) : noisy_config_(data, "Linear") {}
     enum class Mode { kMuOnly, kSample };
     enum class Hold { kCall, kCount, kEpisode };
     enum class Share { kBatch, kSample };
@@ -393,7 +402,7 @@ struct LinearProjectionModule::Impl {
         Impl& owner_;
         const ForwardConfig config_;
     };
-    const NoisyConfig noisy_config_;
+    const LinearProjectionNoisyConfig noisy_config_;
     torch::nn::Linear linear{nullptr};
     torch::Tensor sigma_weight_;
     torch::Tensor sigma_bias_;

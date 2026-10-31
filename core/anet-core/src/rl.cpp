@@ -1,5 +1,6 @@
 #include "anet/rl.hpp"
 #include <stdexcept>
+#include <charconv>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 
@@ -415,6 +416,33 @@ const torch::Tensor& ReplayInitialPriorityHint::GetPayloadCpu() const
     return payload_cpu_;
 }
 
+std::optional<float> BatchActionInfo::GetScalar(const std::string& key, int64_t lane) const
+{
+    // lane指定の実行行動だけを共通に読み、scalar集計は派生型へ任せる。
+    if (lane < 0 || (key != "action" && !key.starts_with("action.["))) return std::nullopt;
+    const auto action = GetAction(torch::kCPU);
+    ANET_CHECK_MSG(action.defined() && lane < action.size(0),
+        "Invalid action scalar lane. key='" << key << "' lane=" << lane << " expected=an existing lane.");
+    if (key == "action") {
+        ANET_CHECK_MSG(action.dim() == 1,
+            "Continuous action requires action.[dimension]. key='" << key << "' expected=action.[dimension].");
+        return action[lane].item<float>();
+    }
+    // 次元指定は文字列全体を解析し、suffixや負値・範囲外を受理しない。
+    int64_t dimension = -1;
+    bool valid = key.size() > 9 && key.ends_with("]");
+    if (valid) {
+        const auto end = key.data() + key.size() - 1;
+        const auto parsed = std::from_chars(key.data() + 8, end, dimension);
+        valid = parsed.ec == std::errc{} && parsed.ptr == end;
+    }
+    if (!valid || action.dim() != 2 || dimension < 0 || dimension >= action.size(1)) {
+        ANET_SYSTEM_ERROR("Invalid continuous action dimension. key='" << key
+            << "' expected=action.[integer dimension] within the action shape.");
+    }
+    return action[lane][dimension].item<float>();
+}
+
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
 {
     /// @todo GPU→CPUのno_blockingは同期が必要で面倒なので使わない
@@ -726,6 +754,22 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 // ExperienceSamples
 // =============================================================
 
+void ExperienceSamples::FinalizeReturns(float gamma)
+{
+    if (!sampled_rewards.defined() && !sampled_window_rewards.defined()) return;
+    ANET_PROFILE_FUNC();
+    // ExperienceBuilderと同じ逆順のfloat演算で、消費時の収益を確定する。
+    const auto evaluate = [gamma](const torch::Tensor& rewards, torch::Tensor& result) {
+        if (!rewards.defined()) return;
+        result = torch::zeros({rewards.size(0)}, rewards.options());
+        for (int64_t offset = rewards.size(1); offset-- > 0;) {
+            result = rewards.select(1, offset) + gamma * result;
+        }
+    };
+    evaluate(sampled_rewards, target_returns);
+    evaluate(sampled_window_rewards, window.returns);
+}
+
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
     ANET_PROFILE_FUNC();
@@ -744,6 +788,14 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
+            .window = {
+                .lengths = anet::To(window.lengths, device, non_blocking),
+                .max_lengths = anet::To(window.max_lengths, device, non_blocking),
+                .returns = anet::To(window.returns, device, non_blocking),
+                .terminals = anet::To(window.terminals, device, non_blocking),
+                .truncated = anet::To(window.truncated, device, non_blocking),
+                .next_obs = window.next_obs.To(device, non_blocking),
+            },
             // replay item key/source は ReplayBuffer の CPU metadata なので learner device へは送らない。
             .replay_item_keys = replay_item_keys.defined()
                 ? (replay_item_keys.device().is_cpu() ? replay_item_keys : replay_item_keys.to(torch::kCPU))
@@ -752,7 +804,9 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .per_priority_sources = per_priority_sources.defined()
                 ? (per_priority_sources.device().is_cpu() ? per_priority_sources : per_priority_sources.to(torch::kCPU))
                 : per_priority_sources,
-			.info = info.To(device, non_blocking)
+			.info = info.To(device, non_blocking),
+            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
+            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
         };
     }
 
@@ -766,12 +820,22 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .terminals = next_state.terminals.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+        .window = {
+            .lengths = anet::To(window.lengths, device, non_blocking),
+            .max_lengths = anet::To(window.max_lengths, device, non_blocking),
+            .returns = anet::To(window.returns, device, non_blocking),
+            .terminals = anet::To(window.terminals, device, non_blocking),
+            .truncated = anet::To(window.truncated, device, non_blocking),
+            .next_obs = window.next_obs.To(device, non_blocking),
+        },
         .replay_item_keys = replay_item_keys.defined() ? replay_item_keys.to(torch::kCPU) : replay_item_keys,
         .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
         .per_priority_sources = per_priority_sources.defined()
             ? per_priority_sources.to(torch::kCPU)
             : per_priority_sources,
-        .info = info.To(device, non_blocking)
+        .info = info.To(device, non_blocking),
+            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
+            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
     };
 }
 
@@ -1165,4 +1229,30 @@ void Notifier::LogObservers() const
         LOG::info() << "Notifier: SESSION_END [" << idx << "] " << obs->ToString();
         idx++;
     }
+}
+
+// 結果が所有するauxのスカラーだけを読み、非スカラーは未知の読出しとして扱う。
+std::optional<float> SingleEnvResult::GetScalar(const std::string& key) const
+{
+    const auto found = aux_.find(key);
+    if (found == aux_.end() || !found->second.defined() || found->second.numel() != 1) return std::nullopt;
+    return found->second.item<float>();
+}
+
+const torch::Tensor& BatchStepResult::GetEpisodeEndMask() const
+{
+    // 初回の並行読出しも同期し、公開値を変えずにCPU転送を結果ごとに一度へまとめる。
+    std::call_once(episode_end_once_, [this]() {
+        episode_end_cpu_ = next_state.done.logical_or(next_state.truncated).to(torch::kCPU).contiguous();
+    });
+    return episode_end_cpu_;
+}
+
+std::optional<float> BatchStepResult::GetScalar(const std::string& key, int64_t lane) const
+{
+    if (lane < 0 || lane >= reward.size(0)) return std::nullopt;
+    if (key == "reward") return reward[lane].item<float>();
+    if (key == "done") return next_state.done[lane].item<float>();
+    if (key == "truncated") return next_state.truncated[lane].item<float>();
+    return std::nullopt;
 }

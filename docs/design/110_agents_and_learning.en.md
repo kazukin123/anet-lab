@@ -154,6 +154,8 @@ sequenceDiagram
 
 Observation preparation, Network forward, Policy, and snapshot synchronization inside Actor belong to concrete implementations. See [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.md) for Runner use of Actor creation and synchronization, and [Applications and Tools](160_applications_and_tools.en.md) for GUI Eval synchronization.
 
+DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+
 ### 6.2 Accepting Experiences and Returning Updates
 
 ```mermaid

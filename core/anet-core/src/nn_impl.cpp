@@ -3,6 +3,7 @@
 #include "nn_impl.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <regex>
@@ -742,6 +743,32 @@ static void AddHeadGraphVizInfo(anet::graphviz::LabelData& label, const HeadGrap
     }
 }
 
+void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner)
+{
+    // 方式の契約は利用側によらず共通とし、設定元のキーで診断する。
+    if (config.mode != "default" && config.mode != "xavier" && config.mode != "he"
+        && config.mode != "orthogonal" && config.mode != "constant" && config.mode != "trunc_normal") {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".mode='" << config.mode
+            << "'; expected default, xavier, he, orthogonal, constant or trunc_normal.");
+    }
+
+    // 直接組み立てたDTOも検証し、不正値を重みへ適用する前に止める。
+    for (const auto& [key, value] : std::initializer_list<std::pair<const char*, double>>{
+        {"manual_gain", config.manual_gain}, {"constant_val", config.constant_val},
+        {"trunc_std", config.trunc_std}, {"trunc_a", config.trunc_a}, {"trunc_b", config.trunc_b}}) {
+        if (!std::isfinite(value)) {
+            ANET_SYSTEM_ERROR("Invalid " << owner << "." << key << "=" << value << "; expected finite value.");
+        }
+    }
+    if (config.trunc_std <= 0.0) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".trunc_std=" << config.trunc_std << "; expected > 0.");
+    }
+    if (config.trunc_a >= config.trunc_b) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".trunc_a=" << config.trunc_a
+            << " " << owner << ".trunc_b=" << config.trunc_b << "; expected trunc_a < trunc_b.");
+    }
+}
+
 void anet::nn::ValidateNetworkGraphVizConfig(const NetworkGraphVizConfig& config, const std::string& owner)
 {
     if (config.layout != "LR" && config.layout != "TB") {
@@ -1410,7 +1437,12 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwar
         if (term_values.size() == 1) {
             block_input = term_values.front();
         } else {
-            const int64_t rank = term_values.front().dim();
+            ANET_PROFILE_SCOPE(bind_concat);
+            
+            // 末尾feature結合は最高rankを基準にし、低rank項の中間軸をbroadcastする。
+            const auto shape_source = std::max_element(term_values.begin(), term_values.end(),
+                [](const auto& lhs, const auto& rhs) { return lhs.dim() < rhs.dim(); });
+            const int64_t rank = shape_source->dim();
             int64_t normalized_dim = bind_concat_dim_;
             if (normalized_dim < 0) normalized_dim += rank;
 
@@ -1438,8 +1470,16 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const NetworkForwar
             }
             const int64_t batch_size = term_values.front().size(0);
             for (size_t term_index = 0; term_index < term_values.size(); ++term_index) {
-                const auto& term_value = term_values[term_index];
-                // 先頭termで正規化した次元が、後続termにも存在することをcat前に保証する。
+                auto& term_value = term_values[term_index];
+                // batchと既存軸は変えず、不足する中間軸だけをviewで補う。
+                if (normalized_dim == rank - 1 && term_value.dim() >= 2 && term_value.dim() < rank) {
+                    const auto missing = rank - term_value.dim();
+                    for (int64_t axis = 0; axis < missing; ++axis) term_value = term_value.unsqueeze(1);
+                    auto shape = term_value.sizes().vec();
+                    for (int64_t axis = 1; axis <= missing; ++axis) shape[axis] = shape_source->size(axis);
+                    term_value = term_value.expand(shape);
+                }
+                // 非末尾結合やfeature軸を持たない項は、従来どおり不正な軸を拒否する。
                 if (normalized_dim >= term_value.dim()) {
                     ANET_SYSTEM_ERROR(
                         "NetworkBranch '" << name_ << "' bind_concat_dim is out of range for term: value="
@@ -1924,7 +1964,12 @@ static anet::TensorDict RunForward(
         anet::Autocast disable_amp(features.device(), false, torch::kFloat32);
 
         // Bodyから出てきたTensorはBF16になっているかもしれないのでキャストしてHeadに流し込む
-        return head_call->Forward(features.To(torch::kFloat32), context);
+        auto output = head_call->Forward(features.To(torch::kFloat32), context);
+        // Head の公開キーを保ち、Body の特徴量は元の dtype・勾配接続のまま共有する。
+        for (const auto& [key, value] : features) {
+            if (!output.Contains(key)) output.Set(key, value);
+        }
+        return output;
     } else {
 		// Headが無い場合はBodyの出力をそのまま返す
         return features;

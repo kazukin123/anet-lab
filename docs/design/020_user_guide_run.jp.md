@@ -73,9 +73,8 @@ device指定は`auto`、`cpu`、`cuda`、`cuda:N`を受け付ける。`auto`はC
 ```properties
 DefaultDQNAgent.actor.[explore].$ = DefaultDQNAgent.actor.[eval]
 DefaultDQNAgent.actor.[explore].policy.policy_type = EpsilonGreedy
-DefaultDQNAgent.actor.[explore].policy.eps_start = 0.1
-DefaultDQNAgent.actor.[explore].policy.eps_end = 0.1
-DefaultDQNAgent.actor.[explore].policy.eps_decay_steps = 0
+DefaultDQNAgent.actor.[explore].policy.epsilon.type = constant
+DefaultDQNAgent.actor.[explore].policy.epsilon = 0.1
 DefaultDQNAgent.actor.[explore].network = online
 DefaultDQNAgent.actor.[explore].clone_model = true
 run.eval.[explore].actor = explore
@@ -86,6 +85,11 @@ run.eval_schedule.[explore].use_background = false
 run.eval_schedule.[explore].wait_on_exit = true
 metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ```
+
+探索を定数にする場合は `policy.epsilon.type = constant` とbare値 `policy.epsilon = 0.1` を指定する。時間変化は `type = linear|cosine|cosine_restart|exponential|phased` と対応する欄で指定する。
+
+> [!NOTE]
+> 非constantを継承している場所でbare値だけを書いても、その値は評価されず保持される。constantへ切り替える場合はtypeとbare値を併記する。phase内の定数だけは `phase.[name].value` を使う。
 
 共通スロットは`eval_target`と`eval`で、それぞれtarget / onlineを参照する。metricsの既存出力タグは維持する。未定義のActor参照は起動時に失敗するが、スケジュールのない定義や`interval=0`のスロットはActorを生成しない。sharedのActorはAgentと同じdeviceを使う。MuZeroはcloneに対応せず、`clone_model=false`を指定する。
 
@@ -159,7 +163,7 @@ backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmar
 
 #### 3.4.2 プロファイル`@name`
 
-プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[AGENTS.md](../../AGENTS.md)「設定ファイルのプロファイル境界」)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
+プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（プロファイル境界）)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
 
 - 定義しただけでは値に出ない。チェーンや部分選択で選ばれた分だけ最終値に入る。
 - 短い`@name`は、書いた場所(定義元)の名前空間で解決する。`Env.$ = @a`は`Env.@a`、`Env.@a : $ = @b`は`Env.@b`を指す。`Other.$ = Env.@a`のように別の場所から使っても、`@a`の中の`@b`は`Env.@b`のままである。
@@ -284,7 +288,7 @@ X.key ?= v              既定葉。X.$ に負ける
 | workspaceの`config/_main.txt` | 有効にする`<Env>.txt`の`$include` | - |
 | bat、CLI | `run.$`の選択と葉の上書き | `=` |
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[AGENTS.md](../../AGENTS.md)「設定ファイルの代入演算子」)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
@@ -395,14 +399,19 @@ apps\runner\bin\Release\AnetRLRunner.exe `
 
 `--config`はworkspace、履歴、`last_workspace.txt`を一切参照しない完全自己記述モードである。`--workspace`または`--select-workspace`との併用は起動エラーになる。
 
-起動時は概ね次の順に初期化される。
+ウィンドウが表示されたら、Logsで起動のログを確認する。初期化中もウィンドウを移動・サイズ変更できる。
 
-1. workspaceを確定し、共通main config、導出`app.runs_dir`、workspace config、コマンドラインoverrideの順で解決する。
-2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
-3. libtorch backendと登録済みEnvを初期化する。
-4. `RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
-5. Train、Eval、QValue、Logの各パネルを接続する。
-6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+> [!NOTE]
+> 通常の起動時は、次の順に初期化が進む。
+>
+> 1. workspaceを確定し、共通main config、導出`app.runs_dir`、workspace config、コマンドラインoverrideの順で解決する。
+> 2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
+> 3. libtorch backendと登録済みEnvを初期化する。
+> 4. ウィンドウとLogsを表示し、そのあと背景で`RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
+> 5. 構築が正常に終わり、終了要求がなければ、メインスレッドでTrain、Eval、QValueの各パネルを接続する。
+> 6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+>
+> 詳細は[アプリケーションとツール](160_applications_and_tools.jp.md#51-runner起動)の「Runner起動」を参照する。
 
 起動に失敗した場合はerror logを確認する。online構成ではログに加えてエラーダイアログを表示する。batchrun構成ではモーダル表示せず、Run directory成立前は親processのstderr、`StandardStreamLogger`開始後は対象Runの`stderr.log`、通常logger構築後は`<run_name>.log`へ記録する。fatalを処理したprocessは非ゼロで終了する。
 
@@ -429,7 +438,7 @@ Runner画面はwxAUIのpaneで構成される。
 - `Train View`: Train Runnerから受け取ったEnv固有Viewを表示する。
 - `Evaluation View`: Trainとは別のEval Envを手動またはtimerで進める。初期状態では非表示である。
 - `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。
-- `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。
+- `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。起動時の表示levelは`app.log_panel.level`、操作帯のAuto-scroll・Wrap・Indentの既定は`app.log_panel.auto_scroll`・`app.log_panel.wrap`・`app.log_panel.indent`（いずれも既定`true`）で指定する。
 - `HeatMap` / `Conv2d`: `View`メニューから追加する補助pane。
 
 ![DropMergeのTrain ViewとEvaluation View](assets/020_runner_dropmerge_train_eval.png)
@@ -455,7 +464,7 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | 右クリック | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
 | `Space` | EvalPanelをpause/resumeする。paneの表示は変えない |
 | `Ctrl` | Evalを1 step自動実行する |
-| 矢印キー | LunarLander向けに`0`から`3`のActionを指定してEvalを1 step進める |
+| 矢印キー | Live中はLunarLander向けに`0`から`3`の強制行動でEvalを1 step進める。Trace中にViewなどから転送された↑↓は表の行を移動し、←→は何もしない |
 | テンキー`0`から`9` | 同じ番号のActionを指定してEvalを1 step進める |
 | `View > Evaluation View` | Eval paneの表示を切り替える |
 | `View > Evaluation QValue View` | Q値paneの表示を切り替える |
@@ -464,7 +473,9 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | Run操作ツールバーの`Save Checkpoint` | Trainが走行中ならまずpauseし、Run directoryと`agent_<exp_step>.anet`を既定に、任意pathへAgentを保存する |
 | Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
-Action数はEnvごとに異なる。範囲外Actionを前提にせず、QValue paneまたはEnvのActionSpecを確認する。
+Action数はEnvごとに異なる。QValue paneまたはEnvのActionSpecで有効範囲を確認する。離散Actionの範囲外の番号を指定すると、ステータス欄に指定値と有効範囲が表示され、Evalは進まない。選択中のTrace履歴もそのまま維持される。
+
+矢印・テンキー・QValueの行のクリックで強制行動を実行すると、ステータス欄0に`Forced action: 2:UP`のように番号と名前が表示される。`Ctrl`とツールバーのStepではこの通知は出ない。
 
 EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`run.eval.[eval_panel].actor = eval_panel`から専用Actorを参照する。DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコアのActionを選ぶ。定期評価のεやUQE設定はそのまま使える。表示用の方策を変える場合は`<Agent>.actor.[eval_panel].*`を上書きし、別の評価設定を表示したい場合は`app.eval_panel.eval_config_tag`を指定する。
 
@@ -474,11 +485,18 @@ EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`r
 
 `View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`では描画timerを止めるが、学習は継続する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
 
+`View > Eval Steps per Frame`で、自動評価の描画更新1回あたりのstep数を変更する。`1`・`2`・`4`・`10`・`20`・`50`・`100`から選ぶか、`Custom...`で現在値を初期表示した入力欄へ1〜2,147,483,647の整数を指定する。確定後は`Custom (N)...`に入力値が表示され、キャンセルでは値と選択を保持する。`Config (N)`は起動時設定へ戻す。変更は次の自動評価更新から反映され、config dumpには保存しない。変更しても一時停止やTrace表示は解除されず、手動Stepは常に1 step進む。Evaluation Traceの1x速度は、現在のFPSと現在のstep数の積に追従する。
+
 Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text欄へ表示する。値は選択してコピーでき、exp/train間は標準separatorで区切られる。status bar右側は`exp <N> steps/s    train <N> steps/s`と経過時間を表示する。SPSのEMAがまだ初期化されていない間は`-`、最初のTrain snapshotが無い間は両step欄が`-`、経過時間が`--:--:--`になる。経過時間はpause中もwall-clockとして進む。
 
 ### 6.4 停止、保存、checkpointからの引き継ぎ
 
 WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止・join、`agent_close.anet`保存、background Observerの排水、Run出力のflush、GUI破棄の順に進む。`app.save_agent_on_close=false`のRunではこの保存だけを省き、他の順序は変わらない。保存中または排水中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+
+初期化中に閉じたいときもCloseを1回選び、ログの終了要求を確認してウィンドウが閉じるまで待つ。押し直す必要はない。初期化中にログオフ・シャットダウンを要求した場合も、終了するまで待つ。Windowsに終了を妨げているアプリとして表示された場合、強制終了を選ぶとRunログの末尾が欠ける場合がある。
+
+> [!NOTE]
+> 初期化中のCloseはRunManagerの構築完了後に処理し、表示用Evalの準備と学習開始は省く。保存が有効なら学習前のAgentを保存し、RunManagerを初期化できなかったRunでは保存を省く。ログオフ・シャットダウンの問い合わせでは構築が終わるまでその場で待つため、待機中は描画が止まる。起動と終了の仕組みは[アプリケーションとツール](160_applications_and_tools.jp.md#71-runner)を参照する。
 
 `run.eval_schedule.[tag].wait_on_exit`は、終了時に進行中のbackground評価を完走待ちするかを指定する。既定は`true`で、全スロットが`app.drain_timeout_sec`の単一deadlineを共有する。`false`、手動終了のCancel選択、またはdeadline超過では次のEnv Step境界で協調キャンセルする。キャンセルしたセッションはsession scalarを出さず、完了済みepisodeのtraceと`eval.[<tag>].session_cancelled` JSONを残す。
 
@@ -489,6 +507,57 @@ WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain
 close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから引き継ぎに使う。
 
 checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにWARNが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+
+### 6.5 Evaluation Traceで遷移を調べる
+
+ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
+
+上部のアイコンは、左から再生／一時停止（右三角／二本線）・停止（四角）・コマ戻し（左三角の右に縦棒）・コマ送り（縦棒の右に右三角）・速度減少（左二重三角）・速度増加（右二重三角）です。再生中の先頭ボタンは一時停止、それ以外は再生として使います。英語のツールチップでも操作を確認できます。速度は`x0.125`・`x0.25`・`x0.5`・`x1`・`x2`・`x4`・`x8`で表示します。Liveから再生すると表の下端から上へ進み、上端で止まります。Traceでは選択行から続け、上端で停止中に再生すると下端から始めます。停止または表でEscを押すとLiveへ戻ります。EvalのResume・Step（Ctrlを含む）・強制行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+
+Liveでコマ戻しを押すと表の上から2行目を選びます。1行だけならその行で止まります。Liveでコマ送りを押すと上端の行を選びます。Trace中はコマ送りで1行上へ、コマ戻しで1行下へ移動し、スライダーも表の下端から上端へ動きます。Trace中は操作バー全体の赤枠を目印にしてください。一時停止中も枠は残り、Liveへ戻ると消えます。
+
+列見出しをクリックすると、その列の降順に並びます。同じ見出しをもう一度クリックすると昇順になります。空欄は常に下端、同じ値はstepの降順です。現在のソート列の見出しには、降順で下向き、昇順で上向きの三角が出ます。三角の色はシステムの選択ハイライト色に従います。既定のstep列にも降順の三角が出ます。既定の新しい順へ戻すにはstep列を降順にしてください。Trace中に並べ替えても選択行は維持されます。開き直すと既定の並びへ戻ります。
+
+Trace中は、表やEnvのView・QValuePanelなどで↑↓を押して表の順に1行移動できます。Viewなどから転送された←→は何もしません。表の←→は横移動、ログ欄やスライダーの矢印はその部品の操作として使ってください。最大化でTraceが隠れていても同じです。テンキーとQValueの行のクリックは強制行動となり、Liveへ戻ります。
+
+行をダブルクリックすると、その行を選んで通知内容をログへ出します。`Trace dump step=... lane=...:`で始まるINFOの1行に列値と通知の概要、VERBOSEの1件に観測やQ値などのTensorの全要素が出ます。ログ欄で詳細を見るには`View > Log Level`をverboseにしてください。同じ行を何度でもダンプできます。
+
+列の幅は見出しと値に合わせて広がります。手動で幅を変えた列は、その表示中は自動調整されません。初期幅へ戻すにはパネルを閉じて開き直してください。この操作で履歴も空になります。パネルは操作バー全体と、左端から最初のアクション列までが収まる幅を下限にします。残りの列は横スクロールで確認してください。通常・選択の配色はシステムのテーマに従い、報酬行は薄い緑、終端行は薄い橙が目印です。行を選択しても列見出しの色は変わりません。
+
+列は次の形で指定します。番号は1以上で、飛び番を許し、小さい順に左から並びます。番号は次の表の決まりで振ります。
+
+| 番号 | 分類 | 既定の列 |
+|---|---|---|
+| 100〜199 | 空き（stepより左に出したい列） | — |
+| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip、260 forced |
+| 300〜349 | Env固有の主な値 | Atariは300 game_score、310 lives |
+| 350〜399 | 終わり方 | 350 done、360 trunc |
+| 400〜499 | 価値 | 400 Q_sa、410 V_s、420〜429 スキップ価値q1〜q10 |
+| 500〜599 | 優先度 | 500 prio、510 prio_pct |
+| 600〜999 | 空き（実験で足す列は900番台） | — |
+
+十の位で分類の中の順を決め、一の位は0にして、あとから差し込む余地を残します。添字で並ぶ列（スキップ価値q1〜qJ。一の位がj−1）だけは一の位を使います。decision・skip・q1〜qJは、スキップを有効にしたRunだけに出ます。
+
+```text
+app.eval_trace_panel.max_rows = 1000
+app.eval_trace_panel.pct_window = 10000
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives
+app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
+```
+
+既定列は`step → ep_step → action → reward → forced → done → trunc → Q_sa → V_s → prio → prio_pct`の順です。`forced`は人が指定した行動なら1、Actorが選んだ行動なら0です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+
+学習側と同じonline networkのQで見たい場合は、次の指定を使います。
+
+```text
+DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
+```
+
+FPSが0のときは再生を開始できません。再生中に0へ変更した場合も、先頭の一時停止ボタンは使えます。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
+
+> [!NOTE]
+> 画面は行動の結果、Q値と活性はその行動を決めた時点です。百分位は直近の有限値の中での中央順位で、全件同値は50%です。近似優先度はn-step分の情報が揃ってから埋まります。打ち切りを含む窓と非対応Agentは空欄です。eval_panelの既定はtarget networkのQです。時点と再生の仕組みは[Applications and Tools](160_applications_and_tools.jp.md#34-evaluation-trace)を参照してください。
 
 ## 7. 成果物
 
@@ -527,7 +596,7 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 
 - [CONTEXT.md](../../CONTEXT.md)(設定用語の正本)
 - [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)(設定契約の判断理由)
-- [AGENTS.md](../../AGENTS.md)「設定ファイルの代入演算子」(演算子の運用規約)
+- [実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）(演算子の運用規約)
 - [分析ユーザーガイド](030_user_guide_analysis.jp.md)
 - [開発環境](040_development_environment.jp.md)
 - [実行基盤と設定](100_runtime_and_configuration.jp.md)

@@ -3,12 +3,17 @@
 #include "anet/env.hpp"
 #include <algorithm>
 #include <functional>
+#include <exception>
+#include <utility>
 #include <deque>
 #include <vector>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
 #include <thread>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/thread.hpp"
@@ -17,6 +22,49 @@
 
 using namespace anet::rl;
 namespace LOG = anet::log;
+
+
+namespace {
+
+// 同期的なEnv操作のworker例外を所有し、全laneの終了後に呼出元へ返す。
+class EnvTaskBatch {
+public:
+    EnvTaskBatch(anet::ThreadPool& pool, int64_t lane_count)
+        : pool_(pool), errors_(lane_count) {}
+    ~EnvTaskBatch()
+    {
+        // enqueue途中の失敗でも、ローカル変数を借りるworkerを残さない。
+        if (!drained_) pool_.WaitAll();
+    }
+    template<typename Fn>
+    void Enqueue(int64_t lane, int worker, Fn&& fn)
+    {
+        pool_.Enqueue(worker, [this, lane, task = std::forward<Fn>(fn)]() {
+            try {
+                task();
+            } catch (...) {
+                // laneごとに1タスクだけなので、例外slotの書込みは競合しない。
+                errors_[lane] = std::current_exception();
+            }
+        });
+    }
+    void Wait()
+    {
+        ANET_PROFILE_FUNC();
+        // 全workerとの同期を終えてから、lane順で最初の例外を再送出する。
+        pool_.WaitAll();
+        drained_ = true;
+        for (const auto& error : errors_) {
+            if (error) std::rethrow_exception(error);
+        }
+    }
+private:
+    anet::ThreadPool& pool_; // BatchEnv所有のpoolを同期操作の間だけ借用する。
+    std::vector<std::exception_ptr> errors_;
+    bool drained_ = false;
+};
+
+} // namespace
 
 
 //----------------------------------------------
@@ -200,6 +248,15 @@ void EpisodeStatsAccumulator::Reset()
     std::fill(current_steps_.begin(), current_steps_.end(), 0);
 }
 
+int64_t EpisodeStatsAccumulator::GetCurrentSteps(int64_t lane) const
+{
+    // laneをepisode groupへ写すだけで、独立した時計は増やさない。
+    const bool shared = batch_spec_.episode_scope == EpisodeScope::SHARED;
+    ANET_CHECK_MSG((lane >= 0 && lane < batch_spec_.num_envs) || (shared && lane == -1),
+        "Episode step lane is out of range. lane=" << lane << " expected=[0," << batch_spec_.num_envs << ").");
+    return current_steps_[shared ? 0 : static_cast<size_t>(lane)];
+}
+
 std::vector<CompletedEpisodeResult> EpisodeStatsAccumulator::Add(const BatchStepResult& result)
 {
     ANET_PROFILE_FUNC();
@@ -333,14 +390,15 @@ std::shared_ptr<const BatchResetResult> EvalSessionEnv::Reset()
     return result;
 }
 
-void EvalSessionEnv::CaptureScalars(int64_t group_index)
+void EvalSessionEnv::CaptureScalars(const BatchStepResult& result, int64_t group_index)
 {
     ANET_PROFILE_SCOPE(capture);
 
     const int64_t scalar_index = batch_spec_.episode_scope == EpisodeScope::PER_LANE
         ? group_index : -1;
     for (auto& subscription : subscriptions_) {
-        subscription.accumulator.Add(inner_->GetScalar(subscription.base_key, scalar_index));
+        // 自動Reset済みのenvではなく、採用episodeを終えた結果から値を溜める。
+        subscription.accumulator.Add(result.GetScalar(subscription.base_key, scalar_index));
     }
 }
 
@@ -366,7 +424,7 @@ std::shared_ptr<const BatchStepResult> EvalSessionEnv::Step(
         ANET_CHECK(completed_episodes[i].group_index == group);
         if (!adopted_groups_[static_cast<size_t>(group)]) continue;
 
-        CaptureScalars(group);
+        CaptureScalars(*result, group);
         last_adopted_groups_.push_back(group);
         adopted_groups_[static_cast<size_t>(group)] = false;
         completed_episodes_++;
@@ -466,6 +524,12 @@ public:
         : Result(num_envs), BatchStepResult(std::move(reward), std::move(next_state), std::move(continue_state), n_transitions, n_done)
     {
         ;
+    }
+    std::optional<float> GetScalar(const std::string& key, int64_t lane) const override
+    {
+        if (const auto value = BatchStepResult::GetScalar(key, lane)) return value;
+        if (lane < 0 || lane >= static_cast<int64_t>(single_results.size())) return std::nullopt;
+        return single_results[lane] ? single_results[lane]->GetScalar(key) : std::nullopt;
     }
 };
 
@@ -797,11 +861,12 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset()
     // 戻りの枠生成
     auto result = getResetResult();
 
-    // 全ENV分のResetタスクをキューに積む
+    // 全ENV分のResetタスクをキューに積む。例外もlaneごとに回収する。
+    EnvTaskBatch tasks(*pool_, N);
     for (int i = 0; i < N; ++i) {
         const int worker_id = i % worker_count;
 
-        pool_->Enqueue(worker_id, [this, &result, i]()
+        tasks.Enqueue(i, worker_id, [this, &result, i]()
             {
                 // ENV Reset 実行
                 auto single_result = envs_[i]->Reset();
@@ -819,7 +884,7 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset()
     }
 
     // 全タスク終了待ち
-    pool_->WaitAll();
+    tasks.Wait();
 
     return result;
 }
@@ -842,11 +907,12 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_p
     auto actions = action_info->GetAction(this->device_);
 
     // --- 並列に Step + 結果書き込み ---
+    EnvTaskBatch tasks(*pool_, N);
     for (int i = 0; i < N; ++i) {
         const int worker_id = i % worker_count;
         const int64_t action_i = actions[i].item<int64_t>();
 
-        pool_->Enqueue(worker_id,
+        tasks.Enqueue(i, worker_id,
             [this, &result, i, action_i]()
             {
                 // --- SingleEnv の Step 実行 ---
@@ -886,7 +952,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_p
     }
 
     // --- すべてのタスク完了を待つ ---
-    pool_->WaitAll();
+    tasks.Wait();
 
     // カウント
     auto done = result->next_state.done;
@@ -974,9 +1040,40 @@ int BatchEnvBuilder::ResolveWorkerThreads(int num_envs) const
     return WorkerThreadResolver::Resolve(config_.worker_threads, num_envs);
 }
 
+// env のワーカーを BELOW_NORMAL にして、学習・autograd・抽出・train のスレッドにコアを譲る。
+// ワーカーは既定で論理 CPU の数 − 2 本あり、同じ優先度だと env の Step の間に学習のスレッドがコアから外され、
+// その間 GPU が遊ぶ。学習の更新が無い step では、env は空いたコアを使えるので Step は延びにくい。
+static void LowerWorkerPriority(anet::ThreadPool& pool)
+{
+#ifdef _WIN32
+    // ワーカーのスレッドハンドルはプールの外に出ていないので、各ワーカーの上で自分の優先度を下げる。
+    // 失敗はワーカーごとの欄に残し、全員が終わってから呼び出し元のスレッドで止める。
+    const int worker_count = pool.GetWorkerCount();
+    std::vector<DWORD> errors(static_cast<size_t>(worker_count), 0);
+    for (int worker = 0; worker < worker_count; ++worker) {
+        pool.Enqueue(worker, [&errors, worker] {
+            if (!::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL)) {
+                errors[static_cast<size_t>(worker)] = ::GetLastError();
+            }
+        });
+    }
+    pool.WaitAll();
+    for (int worker = 0; worker < worker_count; ++worker) {
+        if (errors[static_cast<size_t>(worker)] != 0) {
+            ANET_SYSTEM_ERROR("SetThreadPriority(BELOW_NORMAL) failed for env worker=" << worker
+                << " error=" << errors[static_cast<size_t>(worker)]);
+        }
+    }
+#else
+    (void)pool;
+#endif
+}
+
 std::shared_ptr<anet::ThreadPool> BatchEnvBuilder::CreatePool(int worker_threads) const
 {
-    return std::make_shared<PinnedThreadPool>(worker_threads);
+    auto pool = std::make_shared<PinnedThreadPool>(worker_threads);
+    LowerWorkerPriority(*pool);
+    return pool;
 }
 
 std::shared_ptr<BatchEnv> BatchEnvBuilder::CreateBatchEnv(

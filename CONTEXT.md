@@ -72,8 +72,34 @@ IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環�
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 
 **tau配置方式**:
-taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
+taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、UQE の τ の時間の値（`uqe.tau` の schedule）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
+
+### スキップ（TempoRL）
+
+**スキップ**:
+判断の step で選んだ行動を、スキップ長の間そのまま続ける区間（TempoRL）。Agent の判断の間隔であり、Env が 1 agent step の中でフレームを反復する frame_skip とは層が違う。
+_Avoid_: action repeat（frame_skip と混同）, 行動反復, frame skip（Env 側）, マクロ行動（Env が足す行動）
+
+**スキップ長**:
+スキップで同じ行動を続ける agent step の数 j。1 以上、最大スキップ長 J 以下で、J は Agent の設定が持つ。
+_Avoid_: repeat count, 持続長, 継続長
+
+**スキップ価値**:
+状態と選んだ行動を条件に、スキップ長ごとに「その長さだけ続けてから行動価値に従う」価値を推定する Q（skip Q）。終点の価値は行動価値で測り、スキップ価値自身では測らない。
+_Avoid_: 継続価値, skip Q 関数（英語名は skip Q）
+
+**判断**:
+Actor が行動とスキップ長を選ぶ step であり、スキップの途中の step では新たな判断を行わず、続けている行動を出す。スキップを持たない Agent では、すべての step が判断である。
+_Avoid_: 意思決定ステップ, decision step（英語名は decision）
+
+**連続区間**:
+同じ行動が続いた step の並び。判断の有無を問わない点で、判断で決めた区間であるスキップとは違う。
+_Avoid_: 同一行動区間, action run
+
+**補助学習のみモード**:
+すべての Actor がスキップ長を常に 1 にして毎 step 判断し、行動価値は今までどおり学びながら、skip Head を判断で区切らない窓（連続区間の窓、または上限 J とエピソードの終わりだけで閉じる窓）で補助タスクとして学ぶ構成。この構成の skip Head の出力はスキップ価値ではなく、行動に使わない。
+_Avoid_: 補助タスクモード, aux-only（英語名は auxiliary-only mode）
 
 ### NoisyNet・探索
 
@@ -104,6 +130,14 @@ _Avoid_: 独立ノイズ（区分の片側だけを指す）, per-env / per-tran
 **ノイズ probe**:
 ReplayBuffer から一様に抜いた同じ状態集合に対して、μ-only と sample の出力を比べる診断。Q 差・行動不一致率・反復エントロピーを出す。policy churn（1 update の前後）や target policy disagreement（online と target）とは比較の相手が違う。
 _Avoid_: 探索指標（探索の良さは示さない）, 不確実性（較正された量ではない）
+
+**spatial exploration（ε ラダー）**:
+学習の lane ごとに探索の強さ（ε や UQE の τ）を、両端の値と並べ方（log・linear）で段状に割り当てる方式。両端は時間で変わってよく、全 lane で 1 つの値を使う探索（時間の値）とは別のキーで持つ。
+_Avoid_: vectorized exploration（導入時の名。PRD002）, ε 分布, lane ごとの減衰（時間の値と紛れる）
+
+**時間の値**:
+全 lane に共通で、学習の進み（exp_step）に沿って変わる探索・学習パラメータの値。探索ではラダーの両端とは別のキーで持ち、どちらを使うかはラダーの有効化だけで決まる。
+_Avoid_: 時間の両端とlaneの両端を兼ねる記法（意味が二義的になる）, 減衰（直線に限る印象）, アニーリング（温度の語）
 
 ### Replay・PER
 
@@ -148,7 +182,7 @@ env laneごとの、未来側条件（N-stepに必要な未来観測の書込完
 _Avoid_: valid range（dummy除外前後のどちらとも読める）, sampleable（stack込みの最終集合と混同する）
 
 **sampleable range**:
-ready rangeへwrap後のhistory marginを適用した、sample候補の最終論理時刻区間。uniform sampling、PER、`Size()`、可視化accessorが共有する唯一の集合。dummyはこの区間に含まれたまま列挙時にphysical slot単位で除外する。
+ready rangeへ、wrap後のhistory marginと、窓の規則（可変長の区間サンプル）が要る未来側の余白（窓の上限まで。窓の規則が無ければ0）を適用した、sample候補の最終論理時刻区間。uniform sampling、PER、`Size()`、可視化accessorが共有する唯一の集合。dummyはこの区間に含まれたまま列挙時にphysical slot単位で除外する。
 _Avoid_: valid indices（実装上の列挙結果であって概念名ではない）, ready range（未来側条件のみの広い区間と混同する）
 
 **history margin**:
@@ -208,7 +242,7 @@ _Avoid_: include(入力を取り込む処理), マージ(適用規則が曖昧)
 _Avoid_: 部品集(曖昧), library
 
 **NN 実行設定**:
-NN の構造や学習パラメータとは独立に、呼び出し時の駆動方法（ノイズ方式など）を指定する、カタログ `nn_forward` の項目。Actor・Learner の現在値・target 構築の各用途が参照キー `nn_forward_key` で参照する。設定を共用しても、各呼び出し側のノイズ・乱数・保持状態を共用することは意味しない。
+NN の構造や学習パラメータとは独立に、呼び出し時の駆動方法（ノイズ方式など）を指定する、カタログ `nn_forward` の項目。Actor・Learner の現在値・target 構築の各用途が参照キー `nn_forward_key` で参照する（Actor のスキップ価値の forward は、既定の `skip.nn_forward_mode = shared` では行動価値の forward と同じ参照を使い、`dedicated` のとき `skip.nn_forward_key` で別に参照する）。設定を共用しても、各呼び出し側のノイズ・乱数・保持状態を共用することは意味しない。
 _Avoid_: NN 構造設定（構造と実行方法を混同）, 実行プロファイル（設定プロファイルと混同）, tag（metrics と評価タグの語）, nn_runtime（旧称。runtime は実行中の状態・操作の語）
 
 **NN 実行オブジェクト**:
@@ -254,10 +288,6 @@ _Avoid_: Env ID, Env key, role, context
 **Actor Env contract**:
 AgentがActor生成時に、対象EnvのEnvSpecを入力・出力として受理できるか判断する契約。Train EnvとEval EnvのEnvSpecが同一であること自体は全Agent共通の要件ではなく、汎用的な同一I/O判定はAgentが選べる補助手段として扱う。
 _Avoid_: Env間互換性, RunManager compatibility, canonical EnvSpec
-
-**終わったエピソードのリセット**（ended-episode reset）:
-Runner が Step の通知を済ませたあと、次の判断の前に毎回呼ぶ BatchEnv の段（`ResetEndedEpisodes()`）で、直前の Step で終わった episode group だけを新しいエピソードの開始状態にし、全 lane の次の判断の状態を返す。Step 自身はリセットしないので、通知の間の env は遷移のあと・リセット前にある。
-_Avoid_: 自動リセット, auto-reset（Step の中でリセットする旧来の形）, continue_state
 
 ### DropMerge終局診断
 
@@ -306,7 +336,7 @@ Atariゲームのモード×難易度の組合せ（`setMode`/`setDifficulty`、
 _Avoid_: game variant, ステージ
 
 **生スコア**:
-reward clip適用前の環境スコア。AtariEnvでは`game_score`（GetScalar、実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。集計単位はRLのエピソードではなくゲーム1回であり、`episodic_life=true`では両者が一致しない。
+reward clip適用前の環境スコア。AtariEnvでは`game_score`（Step結果のGetScalar、通常は速報値・実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。集計単位はRLのエピソードではなくゲーム1回であり、`episodic_life=true`では両者が一致しない。
 _Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）, episode_score（旧キー名。エピソード単位と誤読させる）
 
 **人間正規化スコア**（HNS）:
@@ -423,8 +453,12 @@ _Avoid_: コマンドバー, ribbon, ツールバーウィンドウ
 pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実行中に GUI から行う一時的な操作の区分。実効設定（config dump）には記録されないため、Run の比較・再現の根拠にしない。設定変更（config）とは区別する。
 _Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
 
+**強制行動**（forced action）:
+人の操作（キー・クリックなど）によって、Actor が選んだ行動を Actor の外から置き換えた実行行動。step trace では、Actor が選んだ行動と区別して読む。
+_Avoid_: 手動 Action, manual action, 上書き（設定の上書き層と紛れる）, 強制Action（表記ゆれ）
+
 **step trace**:
-Runner の遷移 1 つを 1 件とし、判断の時点の値（行動・Q）、遷移のあとの値（報酬・終端・env の info）、遷移全体の値（近似Actor初期優先度）を持つ記録の単位。Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする。
+Runner の遷移 1 つを 1 件とし、行動を選ぶ時点の値（行動・Q）、遷移のあとの値（報酬・終端・env の info）、遷移全体の値（近似Actor初期優先度）を持つ記録の単位。Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする。
 _Avoid_: step 行, 履歴行, step log, ステップ履歴
 
 **追従 pane**:
@@ -506,6 +540,10 @@ _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レ�
 **trace**（トレース）:
 統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの層別activationを可視化へ流す`TraceCallback`（activationタップ）とは別概念。
 _Avoid_: activationトレース（`TraceCallback`側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
+
+**速報値／確定値**:
+Step の結果から読む env の値の、読むイベントで決まる意味。`@train` で読むとその step の途中の値（速報値）、`@episode_end` で読むとそのエピソードの終わりの値（確定値）になる。
+_Avoid_: 完了値（鍵の名前で区別する旧来の言い方）, 現在値（env への問い合わせが返す今の状態と紛れる）
 
 **query channel**:
 Metrics Viewerのmetrics queryの発行系列で、1つのブラウザタブに対応する。ページロード時に生成した識別子と、そのタブ内で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けばchannelは2つになる。

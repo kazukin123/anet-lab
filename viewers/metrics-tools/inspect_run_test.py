@@ -477,6 +477,23 @@ EVAL_CONFIG = {
 
 
 class TagsSubcommandTest(CacheFixtureMixin):
+    def test_env_step_target_from_config_and_definition_record(self):
+        for recorded in (False, True):
+            with self.subTest(recorded=recorded), tempfile.TemporaryDirectory() as temp_dir:
+                repo = Path(temp_dir)
+                run = self.make_run(repo, "ws1", "run_transition")
+                self.write_config(run, {"metrics.scalar.[transition]":
+                    "$env_step mean.game_score @episode_end $exp_step"})
+                defs = {"transition": self.metric_def(target="env_step", source_key="mean.game_score",
+                    event="episode_end", step_axis="exp_step")} if recorded else None
+                self.write_raw_master(run, [("transition", 10, 2.0)], defs=defs)
+                code, result, _ = self.run_cli_json(repo, ["tags", "run_transition"])
+                self.assertEqual(code, 0)
+                tag = result["runs"][0]["tags"][0]
+                self.assertEqual(tag["target"], "env_step")
+                self.assertEqual(tag["event"], "episode_end")
+                self.assertEqual(tag["source_key"], "mean.game_score")
+
     def make_eval_run(self, repo: Path, run_name: str = "run_a", with_defs: bool = True,
                       train_steps=(1000, 2000, 3000), eval_steps=(10, 20, 30)):
         run_dir = self.make_run(repo, "ws1", run_name)
@@ -667,13 +684,13 @@ class ConfigSubcommandTest(InspectRunTestBase):
             self.write_config(
                 run_dir,
                 {
-                    "app.log_level": "info",
+                    "app.log_flush_interval_ms": "500",
                     "app.online.fps": "15",
                     "net.block.[FC1].out": "128",
                 },
             )
             # module dump は完全修飾キーで、実際に読まれた設定だけを含む。
-            self.write_config(run_dir, {"app.log_level": "info"}, name="app.txt")
+            self.write_config(run_dir, {"app.log_flush_interval_ms": "500"}, name="app.txt")
 
             code, result, _ = self.run_cli_json(
                 repo, ["config", "run_a", "--config-key", "app.*", "--config-key", "net.*"]
@@ -681,7 +698,7 @@ class ConfigSubcommandTest(InspectRunTestBase):
 
             self.assertEqual(code, 0)
             marks = {item["key"]: item["effective"] for item in result["runs"][0]["config"]["values"]}
-            self.assertTrue(marks["app.log_level"])
+            self.assertTrue(marks["app.log_flush_interval_ms"])
             # 判定できないものを false と言わない。
             self.assertIsNone(marks["app.online.fps"])
             self.assertIsNone(marks["net.block.[FC1].out"])
@@ -691,7 +708,7 @@ class ConfigSubcommandTest(InspectRunTestBase):
             )
             self.assertEqual(code, 0)
             keys = [item["key"] for item in result["runs"][0]["config"]["values"]]
-            self.assertEqual(keys, ["app.log_level"])
+            self.assertEqual(keys, ["app.log_flush_interval_ms"])
 
     def test_diff_reports_differing_keys_and_absence(self):
         with tempfile.TemporaryDirectory() as temp_dir:

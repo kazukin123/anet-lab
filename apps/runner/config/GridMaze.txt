@@ -1,4 +1,4 @@
-
+﻿
 # ==============================================================================
 # 基本設定
 # ==============================================================================
@@ -19,6 +19,47 @@ DefaultDQNAgent.$ = @baseline > @fast > A1 > A2 > A3
 #DefaultDQNAgent.$ = @baseline > @fast > A1 > @bf16 > A2 > A3
 
 DefaultDQNAgent.net.body.$ = net.body.@MLP2
+
+# TempoRL を使うときは次の行を有効にする（変種は CLI の葉で上書き）。
+#run.$ = run.@skip
+
+
+# ==============================================================================
+# Runプロファイル
+# ==============================================================================
+
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[03]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[04]] = skip_length_rate.[4] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[05]] = skip_length_rate.[5] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[06]] = skip_length_rate.[6] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[07]] = skip_length_rate.[7] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
+# skip価値の評価は平均Qのgreedyで行い、session開始のSyncから集計する。
+run.@skip : DefaultDQNAgent.actor.[greedy].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@greedy
+run.@skip : run.eval.[greedy].actor = greedy
+run.@skip : run.eval.[greedy].eval_batch_size = 1
+run.@skip : run.eval.[greedy].eval_episodes = 1
+run.@skip : run.eval_schedule.[greedy].interval = 53
+run.@skip : run.eval_schedule.[greedy].use_background = true
+run.@skip : metrics.scalar.[21_eval/09_greedy_reward] = mean.episode_return $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[21_eval/10_greedy_reward_ema] = mean.episode_return $runner @session_end $eval.[greedy] $ema ema_alpha:0.1
+run.@skip : metrics.scalar.[21_eval/11_greedy_ep_steps] = mean.episode_steps $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[21_eval/12_greedy_ep_steps_max] = max.episode_steps $runner @session_end $eval.[greedy]
+run.@skip : DefaultDQNAgent.actor.[train].skip.policy.policy_type = EpsilonGreedy
+run.@skip : DefaultDQNAgent.actor.[train].skip.policy.epsilon.start = 0.60
+run.@skip : DefaultDQNAgent.actor.[train].skip.policy.epsilon.end = 0.05
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[01]] = skip_session_length_rate.[1] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[02]] = skip_session_length_rate.[2] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[03]] = skip_session_length_rate.[3] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[04]] = skip_session_length_rate.[4] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[05]] = skip_session_length_rate.[5] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[06]] = skip_session_length_rate.[6] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[07]] = skip_session_length_rate.[7] $eval.[greedy] $actor @session_end
 
 
 # ==============================================================================
@@ -66,16 +107,23 @@ app.metrics_logger.video_codec = libx264  # h264_nvenc
 app.online.exp_pause_step  = ${@vars.max_exp_step}
 app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 
-A1.actor.[train].policy.eps_decay_steps     = 200,000 # 200K
-A1.actor.[train].policy.uqe_eps_decay_steps = 200,000 # 200K
-A1.actor.[train].policy.uqe_tau_decay_steps = 400,000 # 400K
-A1.learner.per_beta_step = 100,000            # 100K
+A1.actor.[train].policy.epsilon.type = linear # 200K
+A1.actor.[train].policy.epsilon.steps = 200,000
+A1.actor.[train].policy.uqe.epsilon.type = linear # 200K
+A1.actor.[train].policy.uqe.epsilon.steps = 200,000
+A1.actor.[train].policy.uqe.tau.type = linear # 400K
+A1.actor.[train].policy.uqe.tau.steps = 400,000
+A1.learner.per_beta.type = linear # 100K
+A1.learner.per_beta.steps = 100,000
 
 
 # ==============================================================================
 # Env依存設定
 # ==============================================================================
 
+GridMazeEnv.seed = 6545537233705677626  # 実験用seed
+
+DefaultDQNAgent.skip.max_length ?= 7
 
 #A1.stucker.use_stacker = true
 A1.stucker.stack_count = 1
@@ -83,18 +131,22 @@ A1.stucker.stack_count = 1
 A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
 A1.actor.[train].policy.policy_type = UQE
-A1.actor.[train].policy.uqe_eps_start = 0.60
-A1.actor.[train].policy.uqe_eps_end = 0.05
-A1.actor.[train].policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-A1.actor.[train].policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
-A1.actor.[train].policy.uqe_use_tail_mean = true
+A1.actor.[train].policy.uqe.epsilon.start = 0.60
+A1.actor.[train].policy.uqe.epsilon.end = 0.05
+A1.actor.[train].policy.spatial.uqe.epsilon.first = 0.60
+A1.actor.[train].policy.spatial.uqe.epsilon.last = 0.05
+A1.actor.[train].policy.uqe.tau.start = 0.95 # 序盤は超楽観的（攻めの姿勢）
+A1.actor.[train].policy.uqe.tau.end = 0.85 # 終盤でもかなり楽観的（攻めの姿勢）
+A1.actor.[train].policy.spatial.uqe.tau.first = 0.95
+A1.actor.[train].policy.spatial.uqe.tau.last = 0.85
+A1.actor.[train].policy.uqe.use_tail_mean = true
 
 A1.actor.[eval].policy.policy_type = UQE
 
-A1.target_policy.uqe_tau_start = 0.85
-#A1.target_policy.uqe_use_tail_mean = true
+A1.target_policy.uqe.tau.start = 0.85
+#A1.target_policy.uqe.use_tail_mean = true
 
-A1.learner.alpha = 5e-5         # ★
+A1.learner.learning_rate = 5e-5         # ★
 A1.learner.gamma = 0.995        # ★
 A1.learner.n_step = 3           # ★
 A1.learner.replay_ratio = 1.0
@@ -103,7 +155,7 @@ A1.learner.replay_batch_size = 128            # 256 学習が重めなのので�
 A1.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
 A1.learner.update_warmup_steps = 2,560        # 256(replay-sample) * 10step
 #A1.learner.per_alpha = 0.6                   # デフォルト 0.6
-#A1.learner.per_beta_start = 0.4  # 0.6       # デフォルト 0.4
+#A1.learner.per_beta.start = 0.4  # 0.6       # デフォルト 0.4
 A1.learner.per_prio_clip_value = 50           # 30
 A1.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
 
@@ -158,15 +210,15 @@ metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau 
 #metrics.scalar.[22_eval/04_test2_reward_ema] = mean.episode_return $runner @session_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
-metrics.scalar.[42_env/51_wall_collisions_max]  = $env max.wall_collisions @train
-metrics.scalar.[42_env/61_is_success_mean]      = $env mean.is_success @train
-metrics.scalar.[42_env/62_is_hole_mean]         = $env mean.is_hole @train
-metrics.scalar.[42_env/63_wall_collisions_mean] = $env mean.wall_collisions @train
+metrics.scalar.[42_env/51_wall_collisions_max]  = $env_step max.wall_collisions @episode_end $train_step
+metrics.scalar.[42_env/61_is_success_mean]      = $env_step mean.is_success @episode_end $train_step
+metrics.scalar.[42_env/62_is_hole_mean]         = $env_step mean.is_hole @episode_end $train_step
+metrics.scalar.[42_env/63_wall_collisions_mean] = $env_step mean.wall_collisions @episode_end $train_step
 
-metrics.scalar.[42_env/51_wall_collisions_max_ema]  = $env max.wall_collisions @train $ema ema_alpha:0.001
-metrics.scalar.[42_env/61_is_success_mean_ema]      = $env mean.is_success @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/62_is_hole_mean_ema]         = $env mean.is_hole @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/63_wall_collisions_mean_ema] = $env mean.wall_collisions @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/51_wall_collisions_max_ema]  = $env_step max.wall_collisions @episode_end $train_step $ema ema_alpha:0.001
+metrics.scalar.[42_env/61_is_success_mean_ema]      = $env_step mean.is_success @episode_end $train_step $ema ema_alpha:0.005
+metrics.scalar.[42_env/62_is_hole_mean_ema]         = $env_step mean.is_hole @episode_end $train_step $ema ema_alpha:0.005
+metrics.scalar.[42_env/63_wall_collisions_mean_ema] = $env_step mean.wall_collisions @episode_end $train_step $ema ema_alpha:0.001
 
 
 metrics.scalar.[42_env/00_ep_step_mean]  = $runner mean.episode_steps @train
@@ -212,8 +264,8 @@ env.class_id = GridMazeEnv
 
 GridMazeEnv.width ?= 5
 GridMazeEnv.height ?= 5
-GridMazeEnv.seed ?= 6545537233705677626
-GridMazeEnv.randomize_seed ?= false
+GridMazeEnv.seed_mode ?= process   # seed指定時は固定。未指定時はprocess（起動単位）またはepisode（Reset単位）。
+#GridMazeEnv.seed_mode = episode
 
 GridMazeEnv.wall_density ?= 0.2
 GridMazeEnv.hole_density ?= 0.1
@@ -240,6 +292,7 @@ run.eval_schedule.[eval_target].interval = 10
 run.eval_schedule.[eval].interval = 10
 
 # 評価 Actor の旧実効値（学習方策の終端からの暗黙導出を明示）。
-A1.actor.[eval].policy.uqe_tau_start = 0.85
-A1.actor.[eval].policy.uqe_tau_end = 0.85
-A1.actor.[eval].policy.uqe_use_tail_mean = true
+A1.actor.[eval].policy.uqe.tau = 0.85
+A1.actor.[eval].policy.spatial.uqe.tau.first = 0.85
+A1.actor.[eval].policy.spatial.uqe.tau.last = 0.85
+A1.actor.[eval].policy.uqe.use_tail_mean = true

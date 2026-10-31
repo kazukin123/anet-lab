@@ -1,4 +1,4 @@
-<!-- translated-from: 010_framework_overview.jp.md blob:fb9a2169fcab789aa4e91c0cdd183cc296fffcb9 date:2026-09-23 progress:done -->
+<!-- translated-from: 010_framework_overview.jp.md blob:7e426bfdc7c01f50f51866ca037060b51e75bd8f date:2026-10-23 progress:done -->
 # ANET Framework Overview
 
 > Primary perspective: overall structure (organized mainly by function, with major workflows included)
@@ -218,7 +218,7 @@ See [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.
 
 ### 6.3 Shared Env Features
 
-Shared Env features declare Observations, Actions, Rewards, and termination conditions through `EnvSpec` and standardize the input/output contracts of `Reset` and `Step`. A shared wrapper can turn a single Env into a `BatchEnv`, distributing Steps across worker threads for multiple lanes according to configuration. Step results distinguish `next_state`, which preserves the terminal state for learning, from `continue_state`, which replaces completed lanes with their Reset states for the next execution.
+Shared Env features declare Observations, Actions, Rewards, and termination conditions through `EnvSpec` and standardize the input/output contracts of `Reset` and `Step`. A shared wrapper can turn a single Env into a `BatchEnv`, distributing Steps across worker threads for multiple lanes according to configuration. Step automatically Resets terminal lanes, returning the transition in `next_state` and the state for the next action in `continue_state`. Notifications own the result and read transition values from it. Queries to the Env itself return its current state.
 
 See [Environments](120_environments.en.md) for Env implementation rules and batching.
 
@@ -268,7 +268,7 @@ sequenceDiagram
         P-->>A: value or policy output
         A-->>R: BatchActionInfo
         R->>E: Step(action)
-        E-->>R: reward, next_state, continue_state
+        E-->>R: reward, next_state
         opt 終了した lane がある
             R->>N: Notify EpisodeEndEvent
         end
@@ -319,10 +319,11 @@ sequenceDiagram
             EN-->>EA: evaluation output
             EA-->>ER: action
             ER->>EE: Step(action)
-            EE-->>ER: reward, next_state, done
+            EE-->>ER: StepResult（next_state / continue_state）
             ER->>N: Notify scoped TrainEvent
+            ER->>N: Notify adopted EpisodeEndEvent (if ended)
         end
-        ER->>N: Notify final EpisodeEndEvent
+        ER->>N: Notify SessionEndEvent
         N->>MO: Record aggregated evaluation metrics
     end
 ```
@@ -347,7 +348,7 @@ See the [Run Execution Guide](020_user_guide_run.en.md) for screen layout and op
 
 Profiling assigns stable measurement names to major boundaries such as Actor inference, Env Step, Learner updates, ReplayBuffer, device transfers, and visualization. Tracy reveals CPU threads and processing times, and NVTX-enabled environments show their correspondence with GPU processing, enabling comparisons between Serial/Pipeline modes and configurations over the same ranges.
 
-See [AGENTS.md](../../AGENTS.md) at the repository root for rules on adding or changing instrumentation.
+See the Instrumentation rules in [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%88%E6%B8%AC) for rules on adding or changing instrumentation.
 
 ### 6.11 Tests
 

@@ -15,7 +15,7 @@ for path in sorted(root.glob('*.execution.json')):
     for line in (run/'config/config_data.txt').read_text(encoding='utf-8-sig').splitlines():
         if ' = ' in line:
             key,value=line.split(' = ',1);config[key]=value
-    for schedule in ['eval','eval_target','greedy_dist']:
+    for schedule in ['eval','eval_target','greedy']:
         assert config[f'run.eval_schedule.[{schedule}].interval']=='0', (path,schedule)
     assert config['run.train.num_envs']=='128' and config['run.seed']=='1'
     assert config['E1.game']=='breakout'
@@ -48,7 +48,7 @@ for path in sorted(root.glob('*.execution.json')):
     record['active_metric_points']=len(active)
     assert active, (path, 'No post-warmup throughput measurement')
     record['resolved_config']=config
-    record['resolved_settings']={k:v for k,v in config.items() if k.startswith(('DefaultDQNAgent.nn_forward.', 'DefaultDQNAgent.actor.[train].nn_forward_key','DefaultDQNAgent.learner.use_amp','DefaultDQNAgent.head_projection.', 'net.block.[AtariHeadFC512'))}
+    record['resolved_settings']={k:v for k,v in config.items() if k.startswith(('DefaultDQNAgent.nn_forward.', 'DefaultDQNAgent.actor.[train].nn_forward_key','DefaultDQNAgent.learner.use_amp','DefaultDQNAgent.head.projection.', 'net.block.[AtariHeadFC512'))}
     results.append(record)
 expected_pairs={'off','actor_share','learner_share','hold_episode','hold_count32','sn_spectral','sn_cap','precision','diagnostics','learning_sn_none','learning_sn_spectral','learning_sn_spectral_cap'}
 if len(sys.argv)>2:
@@ -73,7 +73,7 @@ assert len({(r['pair'],r['repeat'],r['side']) for r in results})==len(results)
 actor_prefix='DefaultDQNAgent.nn_forward.[perf_actor].noisy.'
 body_prefix='net.block.[AtariHeadFC512Def].'
 allowed_changes={
-    'off':{'A2.head_projection.noisy.enabled','DefaultDQNAgent.head_projection.noisy.enabled',body_prefix+'noisy.enabled'},
+    'off':{'A2.head.projection.noisy.enabled','DefaultDQNAgent.head.projection.noisy.enabled',body_prefix+'noisy.enabled'},
     'actor_share':{actor_prefix+'share'},
     'learner_share':{'DefaultDQNAgent.nn_forward.[perf_learner].noisy.share'},
     'hold_episode':{actor_prefix+'hold'},
@@ -84,7 +84,7 @@ allowed_changes={
     'diagnostics':set(),
 }
 for mode in ['none','spectral','spectral_cap']:
-    allowed_changes['learning_sn_'+mode]={'net.block.[AtariHeadFC512].noisy.enabled','DefaultDQNAgent.head_projection.noisy.enabled'}
+    allowed_changes['learning_sn_'+mode]={'net.block.[AtariHeadFC512].noisy.enabled','DefaultDQNAgent.head.projection.noisy.enabled'}
 axis_differences={}
 for name in expected_pairs:
     for repeat in repetitions:

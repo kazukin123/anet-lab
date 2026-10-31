@@ -3,12 +3,21 @@
 #pragma once
 
 #include <chrono>
+#include <deque>
+#include <optional>
+#include <span>
+#include <string>
+#include <functional>
+#include <memory>
 #include <vector>
 #include <wx/wx.h>
 #include <wx/aui/aui.h>
 #include <wx/aui/serializer.h>
 #include "anet/common.hpp"
 #include "anet/rl.hpp"
+#include "anet/profile.hpp"
+
+namespace anet::rl { struct StepTraceColumnSpec; struct StepTrace; }
 
 namespace anet::rl::gui {
 
@@ -83,6 +92,9 @@ namespace anet::rl::gui {
     // AuiLayoutFrame
     // =============================================================
 
+    /// 最大化による一時非表示を含め、利用者が開いているpaneかを返す。
+    bool IsPaneOpen(const wxAuiPaneInfo& pane, bool has_maximized_pane);
+
     // wxAUI レイアウト管理 Frame の共通基底クラス (制約吸収層。docs/adr/0016 参照)。
     //
     // wxAUI の dock サイズは内部 dock 構造体が持ち、pane.dock_size は dock が
@@ -105,6 +117,9 @@ namespace anet::rl::gui {
         
         /// pane 非表示化の直前 (メニュー OFF / ✕ボタン共通) の追加処理。
         virtual void OnPaneHiding(wxAuiPaneInfo& WXUNUSED(pane)) {}
+
+        /// pane 表示の直前 (メニュー ON) の追加処理。
+        virtual void OnPaneShowing(wxAuiPaneInfo& WXUNUSED(pane)) {}
 
     protected:
         // ---- 派生クラスが使う道具 ----
@@ -240,7 +255,19 @@ namespace anet::rl::gui {
     // View
     // =============================================================
 
-    class View {
+    struct TraceSnapshot {
+        std::function<void()> show;
+    };
+
+    class TraceFollower {
+    public:
+        virtual std::shared_ptr<const TraceSnapshot> CreateTraceSnapshot(const TrainEvent& event) = 0;
+        virtual void ShowTraceSnapshot(std::shared_ptr<const TraceSnapshot> snapshot) = 0;
+        virtual void ReturnToLive() = 0;
+        virtual ~TraceFollower() = default;
+    };
+
+    class View : public TraceFollower, public std::enable_shared_from_this<View> {
     public:
         virtual void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false) = 0;     ///< Trainerスレッド/Mainスレッド
         virtual void UpdateViewData(const anet::rl::LearnEvent& event, bool force = false) = 0;     ///< Trainerスレッド/Mainスレッド
@@ -260,30 +287,69 @@ namespace anet::rl::gui {
 
         void CaptureViewData() override
         {
-            auto data = data_store_.Get();
-            if (!data.has_value()) return;
-            window_->ApplyData(*data);
+            // Trace中はlive storeを表示へ流さず、選択したsnapshotを固定する。
+            if (trace_mode_) {
+                if (trace_data_) window_->ApplyData(*trace_data_);
+                return;
+            }
+            const auto frame = data_store_.Get();
+            if (frame && frame->data) window_->ApplyData(*frame->data);
         }
         void UpdateViewData(const anet::rl::LearnEvent& event, bool force) override {}
-        void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false)
+        void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false) override
         {
-            // Update不要ならスキップ
-            if (!force && !data_store_.ShouldUpdate())
-                return;
-
-            // UIデータを生成
-            ViewDataType ui_data = CreateViewData(event);
-
-            // UIデータを保存
-            data_store_.Update(ui_data);
+            // 既存の生成頻度を維持し、immutable dataをLiveと履歴で共有する。
+            if (!force && !data_store_.ShouldUpdate()) return;
+            auto data = std::make_shared<const ViewDataType>(CreateViewData(event));
+            data_store_.Update(Frame{ .step = event.counts.exp_step, .data = std::move(data) });
+        }
+        std::shared_ptr<const TraceSnapshot> CreateTraceSnapshot(const TrainEvent& event) override
+        {
+            ANET_PROFILE_FUNC();
+            // 同じ通知で既に作ったViewDataは再計算しない。
+            auto frame = data_store_.Get();
+            if (!frame || frame->step != event.counts.exp_step) {
+                auto data = std::make_shared<const ViewDataType>(CreateViewData(event));
+                frame = Frame{ .step = event.counts.exp_step, .data = std::move(data) };
+                data_store_.Update(*frame);
+            }
+            auto weak = std::weak_ptr<ViewBaseType>(
+                std::static_pointer_cast<ViewBaseType>(this->shared_from_this()));
+            return std::make_shared<const TraceSnapshot>(TraceSnapshot{
+                .show = [weak, data = frame->data] {
+                    if (auto view = weak.lock()) {
+                        view->trace_data_ = data;
+                        view->window_->Show();
+                        view->window_->ApplyData(*data);
+                    }
+                } });
+        }
+        void ShowTraceSnapshot(std::shared_ptr<const TraceSnapshot> snapshot) override
+        {
+            trace_mode_ = true;
+            trace_data_.reset();
+            if (snapshot && snapshot->show) snapshot->show();
+            else window_->Hide();
+        }
+        void ReturnToLive() override
+        {
+            trace_mode_ = false;
+            trace_data_.reset();
+            window_->Show();
+            CaptureViewData();
         }
         wxWindow* AsWindow() override { return window_; }
-        
         virtual ~ViewBase() = default;
     protected:
+        struct Frame {
+            anet::rl::step_t step = 0;
+            std::shared_ptr<const ViewDataType> data;
+        };
         wxWindow* parent_;
-        anet::rl::gui::UIDataStore<ViewDataType> data_store_;
+        anet::rl::gui::UIDataStore<Frame> data_store_;
         ViewWindowType* window_ = nullptr;
+        std::shared_ptr<const ViewDataType> trace_data_;
+        bool trace_mode_ = false;
     };
 
 
@@ -341,6 +407,84 @@ namespace anet::rl::gui {
     private:
         anet::ConfigData config_data_;
     };
+
+    // Evaluation Traceの表示と再生を、生成側から独立して扱う。
+    float AppendTracePercentile(std::deque<float>& values, float value, size_t window_size);
+
+    // 同じ16 DIPの記号をメインと履歴の操作バーで共有する。
+    enum class PlaybackIcon { Play, Pause, Stop, StepBack, StepForward, Slower, Faster };
+    wxBitmapBundle MakePlaybackBitmap(PlaybackIcon icon, const wxColour& colour);
+
+    /// 表の数値とstepだけを所有し、通知や画像の寿命から独立して順序を決める。
+    class TraceRowSorter {
+    public:
+        struct Row {
+            int64_t id = 0;
+            step_t step = 0;
+            std::vector<float> values;
+        };
+        void Reset(std::optional<size_t> step_column = std::nullopt);
+        void ToggleColumn(size_t column);
+        size_t Upsert(Row row);
+        std::optional<int64_t> Trim(size_t max_rows);
+        std::vector<int64_t> GetDisplayOrder() const;
+        std::optional<size_t> GetColumn() const { return column_; }
+        bool IsAscending() const { return ascending_; }
+    private:
+        bool ComesBefore(const Row& left, const Row& right) const;
+        std::optional<size_t> step_column_;
+        std::optional<size_t> column_;
+        bool ascending_ = false;
+        std::deque<Row> rows_;
+    };
+
+    /// 行の寿命で保持した通知内容を、明示要求時だけ文字列化する。
+    class TraceDumpFormatter {
+    public:
+        struct Data {
+            BatchState state;
+            std::shared_ptr<const BatchActionInfo> action_info;
+            std::shared_ptr<const BatchStepResult> step_result;
+            StepCounts counts;
+            std::string runner_name;
+            std::string env_name;
+            std::string agent_name;
+            float forced = 0;
+        };
+        static std::string FormatInfo(const Data& data, const StepTrace& trace,
+            std::span<const StepTraceColumnSpec> columns, std::span<const float> displayed_values,
+            const ActionSpec& actions);
+        static std::string FormatVerbose(const Data& data, const StepTrace& trace);
+    };
+
+    class TracePlayer {
+    public:
+        /// 表の下端から上端の再生順。既定のstep降順では古い行から新しい行。
+        void SetRows(std::vector<int64_t> playback_order);
+        void Select(int64_t id, bool keep_playing = false);
+        bool CanPlay(double base_steps_per_second) const;
+        std::string Play();
+        std::string Pause();
+        std::string Stop();
+        std::string StepForward();
+        std::string StepBack();
+        std::string Faster();
+        std::string Slower();
+        std::string Tick(double seconds, double base_steps_per_second);
+        std::optional<int64_t> GetSelected() const { return selected_; }
+        bool IsPlaying() const { return playing_; }
+        double GetSpeed() const;
+        std::string GetSpeedLabel() const;
+    private:
+        std::vector<int64_t> rows_;
+        std::optional<int64_t> selected_;
+        bool playing_ = false;
+        int speed_index_ = 3;
+        double progress_ = 0;
+    };
+
+    std::string FormatTraceValue(const StepTraceColumnSpec& column, float value, const ActionSpec& actions);
+
 
 }   // namespace anet::rl::gui
 

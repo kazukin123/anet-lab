@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:f2ea2f19e0360fc64fc4f5fb2a059c320cba597d date:2026-10-11 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:26dd40df9ad0db4a7b940873558612c208bcd5f8 date:2026-10-23 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -237,7 +237,7 @@ sequenceDiagram
 
 DefaultDQN scales Rewards and updates ObservationNormalizer statistics in the outer Agent, then passes raw Observations and scaled Rewards inward. Rainbow has no such preprocessing and delegates directly to the same inner Learner contract.
 
-`learner.enabled=false` is for evaluation-only Runs with learning completely stopped; the default is `true`. When false, no ReplayBuffer is constructed, and Push, Sample, forward, backward, and optimizer step are never called. Optimizer remains constructed for checkpoint payload compatibility. **Rather than an empty list, it returns one `BatchUpdateResult` whose diagnostic keys are all unavailable (`NaN`).** LEARN events do not fire for empty `update_results`, and evaluation is driven only by `EpisodeEvalObserver::OnLearn`. This makes one train step equal one learn step, allowing `eval_schedule` intervals to serve directly as train-step periods. Outer-Agent preprocessing (Reward scaling, ObservationNormalizer statistics, and ActionPolicy schedules) still operates; freeze statistics through `obs_norm` and `reward_scaler` settings if needed. `learner.enabled=false` without `auto_load_file` evaluates initial weights, so it warns once rather than causing construction failure.
+`learner.enabled=false` is for evaluation-only Runs with learning completely stopped; the default is `true`. When false, no ReplayBuffer is constructed, and Push, Sample, forward, backward, and optimizer step are never called. Optimizer remains constructed for checkpoint payload compatibility. **Rather than an empty list, it returns one `BatchUpdateResult` whose diagnostic keys are all unavailable (`NaN`).** LEARN events do not fire for empty `update_results`, and evaluation is driven only by `EpisodeEvalObserver::OnLearn`. This makes one train step equal one learn step, allowing `eval_schedule` `interval` to serve directly as train-step periods. Outer-Agent preprocessing (Reward scaling, ObservationNormalizer statistics, and ActionPolicy schedules) still operates; freeze statistics through `obs_norm` and `reward_scaler` settings if needed. `learner.enabled=false` without `auto_load_file` evaluates initial weights, so it warns once rather than causing construction failure.
 
 ### 6.3 Munchausen RL
 
@@ -289,6 +289,22 @@ sequenceDiagram
 
 Since `Sync()` takes no step, the first action's `train_step` after forced synchronization becomes the age-zero reference. Shared Actors and Actors without `sync_interval.*` declarations have no periodic snapshots.
 
+### 6.5 DefaultDQN Skip Policy
+
+Each Actor selects its length range with `actor.[key].skip.max_length_mode`: `full` (default, 1..J), `single` (always 1), or `variable` (1..the integer ProfiledValue `max_length`). Variable evaluates its limit at exp_step and restricts policy selection only; it does not interrupt an existing continuation. Single uses the primary proposal every step and skips only duration selection. All modes preserve skip forward, tau queries and the J-wide auxiliary values. `skip_max_length` returns the variable limit and NaN for other modes or disabled skip.
+
+`learner.skip.target_window` selects `decision` (default), `action_change`, or `episode_end`. With skip and learning enabled, the latter two require every declared Actor to be single or variable with all active values equal to 1. Construction reports all offending Actors without interpreting their names. Stop gradients remain legal for the control arm and produce one warning explaining shared-feature and priority_lambda effects. Learning disabled suppresses combination checks. Explicit max_length values always receive the shared ProfiledValue lower-bound check (1), plus the upper bound J when skip is enabled. Enabled variable requires a value; enabled full/single warn once per Actor about an unused value. Disabled skip does not require a value or apply J/warnings. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+
+`skip.enabled` defaults to false. Enabling it adds online/target skip Networks to the primary pair. The skip Learner bootstraps from primary Q; the skip target serves target-based Actors. `skip.net.*` uses ordinary branches, blocks and binds, reading observations, published primary features, IQN taus and (for `action_in`) one-hot actions. The default `action_out` predicts every action/length pair. Each Actor selects a length on decision lanes, repeats the chosen action for the remaining steps, and discards continuation at episode start.
+
+`learner.skip.feature_gradient` accepts `stop`, `merge` and `split`. Stop detaches primary features; merge backpropagates the combined Q and weighted skip losses once. Split obtains both gradients from the same forward before changing parameters, clips primary-Q, primary-skip and skip-Network gradients independently, and adds two Adam updates to primary parameters. The extra Learner-owned optimizer uses primary lr/eps/betas and its learning-rate schedule, including sigma parameters, with zero weight decay. Primary decay occurs only on the Q side. `loss_weight` always multiplies the skip loss. Policy churn measures both steps together; GNS measures only Q loss. FP32 and BF16 are supported; FP16 AMP with skip is rejected.
+
+`learner.skip.sample_weight=uniform` preserves the ordinary loss. `kmax` multiplies each row's skip loss by `max_lengths / mean(max_lengths)`, then by the same IS weight as Q. It leaves TD values and the priority formula `|deltaQ| + priority_lambda * |deltaSkip| + epsilon` unchanged. Enum validation also applies when skip is disabled.
+
+Actors accumulate decision-length counts on device until Sync (including periodic snapshot sync). `skip_session_decision_rate` is decisions divided by lane steps, `skip_session_length_mean` averages selected lengths, and `skip_session_length_rate.[j]` divides length-j decisions by all decisions. Disabled/uninitialized values are NaN. A session without decisions has rate zero and unavailable length statistics. GetScalar caches one CPU transfer; action steps add no CPU synchronization. Session-end subscriptions use the training coordinate.
+
+Env `run.@skip` profiles enable skip, metrics, trace columns and greedy evaluation. GridMaze also selects skip epsilon-greedy from 0.60 to 0.05. Separate convolution-sharing/non-sharing arms, numerical checks and migration/Run validation are in the [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md). The arm profiles do not change the default topology and do not load its checkpoints.
+
 ## 7. DefaultDQN and Rainbow Composition and Configuration
 
 ### 7.1 Main Differences
@@ -316,7 +332,7 @@ Since `Sync()` takes no step, the first action's `train_step` after forced synch
 
 The authoritative definitions of all keys and defaults are `DefaultDQNAgentConfig`, `RainbowAgentConfig`, `LearnerConfig`, `ActionPolicyConfig`, and [apps/runner/config](../../apps/runner/config). Rather than duplicating the configuration list here, inspect the resolved results in the Run's `config/config_data.txt` and `config/<tag>.txt`.
 
-DefaultDQN defaults to `quantile_mode=qr` and `qr.num_quantiles=51`. The IQN learner independently configures gradient-side `learner.iqn.current_taus` and target-distribution-side `learner.iqn.target_taus`; both default to random x 64 and allow N≠M. Target action selection uses `target_policy.tau_rule` separately from these two sets. The old DefaultDQN keys `use_qr` and the direct child `num_quantiles` are outside the current contract; Rainbow retains `use_qr` and `num_quantiles`.
+DefaultDQN defaults to `quantile_mode` set to `qr` and `qr.num_quantiles` set to 51. The IQN learner independently configures gradient-side `learner.iqn.current_taus` and target-distribution-side `learner.iqn.target_taus`; both default to random x 64 and allow N≠M. Target action selection uses `target_policy.tau_rule` separately from these two sets. The old DefaultDQN keys `use_qr` and the direct child `num_quantiles` are outside the current contract; Rainbow retains `use_qr` and `num_quantiles`.
 
 The IQN-specific loss sums over current-side N, averages over target-side M, and divides the Huber term by `kappa`. For `N = 1`, it does not use an unbiased variance estimate and explicitly sets `q_std` to 0. With `quantile_mode=none`, there are no quantiles, so `q_std` is unavailable and returns `NaN`, without disguising it as 0.
 
@@ -326,7 +342,7 @@ The IQN-specific loss sums over current-side N, averages over target-side M, and
 
 `nn_forward.[key]` is an immutable opaque catalog. `actor.[key].nn_forward_key` and `learner.current.nn_forward_key` / `learner.target.nn_forward_key` resolve references, rejecting missing and unknown keys during configuration loading. Consuming preparation validates contents; unreferenced entries and settings unused by a component remain dormant. Shared `act_sample` selects sample/call/batch and `mu_only` selects evaluation. Concrete types, interpretation, and validation remain inside each consuming Body Linear or Head; Actor/Learner pass opaque settings during initialization and call information during execution without interpretation.
 
-TD, QR, IQN, and Dueling final projections use `head_projection.noisy.enabled=false` / `head_projection.noisy.sigma0=0.5` by default. Actor owns one dedicated box and advances its action-selection clock. Learner owns one current box, one target-purpose online box, and one target-purpose target box, using actual-update learn_step. Named seeds remain independent of existing acting, learning, and τ RNGs. Every target forward preserves its configuration, box, and clock. Munchausen `[2B]` input uses NetworkForwardRowMapping with `[0..B-1,0..B-1]` validated on CPU and transferred once so current/next rows of a transition share ε. Each computation component validates online_reuse sample/sample or μ-only/μ-only compatibility.
+TD, QR, IQN, and Dueling final projections use `head.projection.noisy.enabled=false` / `head.projection.noisy.sigma0=0.5` by default. Actor owns one dedicated box and advances its action-selection clock. Learner owns one current box, one target-purpose online box, and one target-purpose target box, using actual-update learn_step. Named seeds remain independent of existing acting, learning, and τ RNGs. Every target forward preserves its configuration, box, and clock. Munchausen `[2B]` input uses NetworkForwardRowMapping with `[0..B-1,0..B-1]` validated on CPU and transferred once so current/next rows of a transition share ε. Each computation component validates online_reuse sample/sample or μ-only/μ-only compatibility.
 
 Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecutor objects. Actor has a dedicated execution; Learner has current/target executions. Target-purpose online and target calls use the same settings and clock kind but independent State, with network_forward.target_online and network_forward.target named seeds. The probe mean uses default Forward; only sample owns a dedicated execution. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement. Learner owns the current executor and target/diagnostic executor pairs; target capture applies only to ordinary updates. ActionPolicy borrows its executor by reference. A common base handles preparation, reuse validation, and parameter enumeration for the six projection Heads while preserving value-before-adv order and Head-specific computation. Independent boxes change draw assignment for Double DQN and Munchausen online sample paths, preserving the distribution.
 
@@ -348,7 +364,7 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 ### 8.2 Checkpoints
 
-The current `DefaultDQNAgent::Save()` saves the archive header, Config string, online/target Networks, and inner Learner. The inner `dqn::Learner::Save()` payload contains only the Optimizer. `auto_load_file` reads this payload during Agent construction and restores the Networks and Optimizer.
+`DefaultDQNAgent::Save()` saves the archive header, Config string, NetworkModel and inner Learner. Skip-disabled checkpoints retain two Networks and the existing optimizer payload. Skip-enabled checkpoints contain four Networks and optimizer roles primary, primary sigma, skip and skip sigma, including empty sigma groups. `split` adds the `primary_skip` role and its separate optimizer state. Loading four roles into split initializes missing moments with one WARN; loading five roles into stop/merge fails. All restored groups receive current options, and primary_skip retains zero weight decay. Loading a skip-disabled checkpoint into a skip-enabled Agent initializes skip with a WARN; the reverse is rejected. `auto_load_file` restores this payload during Agent construction. Replay and Actor continuation/session state are not saved.
 
 The current DefaultDQN checkpoint does not save or restore:
 
@@ -477,7 +493,29 @@ Probe defaults are `learner.noisy_probe.probe.batch_size=128`, `num_draws=32`, a
 
 Statistics-only subscriptions do not execute probes. Dedicated boxes, clocks, RNGs, and mode/precision guards leave ordinary ε, RNGs, and persistent SN buffers unchanged. Existing probes use default μ-only, while actual metrics use ordinary forward outputs. No additional μ-only Q statistics are published.
 
+### 9.8 Gradient Noise Scale
+
+TD / QR / IQN pass the length-B weighted element loss computed under autocast and its mean, the existing loss, to `Optimize(primary_loss, weighted_element_loss, skip_loss)`. Before zero_grad, measurement obtains gradients for k microbatches from the same graph through autograd::grad (retain_graph, allow_unused, create_graph=false). It adds no forwards or random draws and changes neither training .grad nor optimizer state. Shared calculations reside in nn_util; Learner owns subscriptions and EMA State. The scope is a single loss with AdamW. With skip enabled, GNS still uses only Q's weighted_element_loss, excluding skip_loss.
+
+From mean squared microbatch gradients s and squared mean gradient b, estimate signal `(k*b-s)/(k-1)` and variance `(s-b)*B/(k-1)`. The Adam version uses the fixed preconditioner `1/(sqrt(v_hat)+eps)` from pre-update exp_avg_sq and step, the parameter group's beta2, and learner.adam_eps. Only gradients obtained in this measurement determine whether a parameter is used: exclude parameters unused by every microbatch and treat partially unused gradients as zero contributions. Missing state for a used parameter makes only its group and all unavailable. Feature dependency-closure/readout classification matches weight norms, but also includes used Noisy sigma parameters.
+
+Train-scope @learn / $update_result subscriptions use per-key IntervalGates. Measurement occurs once at the union of firing points evaluated against learn_step before incrementing it. Subscribed versions/groups share measurement points, updating each available signal/variance EMA pair once. Finite negative signals are retained; nonpositive EMA signal produces NaN scale/ratio. Unavailable measurements neither update EMA nor publish previous values. Empty groups have NaN raw values and scale and contribute zero to all. Each key publishes only when its own gate fires; known unsubscribed, unfired, or unavailable keys return NaN, and only unknown keys return nullopt. EMA is not saved in checkpoints.
+
+The 15 metrics under 49_agent_gradnoise require explicit subscription through metrics.scalar.@gradnoise (all rows use interval 503). num_micro_batches defaults to 8 and must be at least 2 and divide B; ema_alpha defaults to 0.05 and must be finite in (0,1]. Validate these only when subscribed, rejecting FP16 before learning. FP32 / BF16 are supported, including BF16 rounding in the measurement. Validate final_feature_branch_key only for group-specific subscriptions. Different intervals are allowed with one startup WARN. Values are conditional on shared Noisy epsilon; cross-sample coupling such as BatchNorm does not guarantee an independent-sampling interpretation.
+
+### 9.9 Attention Entropy Diagnostics
+
+The shared DefaultDQN TD/QR/IQN Learner takes the union of updates due from `attention_entropy.[n]` subscriptions using `@learn $update_result` and measures only before parameter updates. `learner.attention_entropy.probe.batch_size` defaults to 256 and must be at least 1. An Agent-owned dedicated RNG (named seed `attention_entropy_probe`) samples ReplayBuffer uniformly without replacement; insufficient samples leave that update unmeasured. Normalization is applied without updating statistics. A partial forward to `learner.final_feature_branch_key` uses eval, NoGrad, the Learner's autocast, and the default Context. IQN taus are unnecessary. Training RNG, PER statistics, normalization statistics, and network buffers remain unchanged, and execution modes are restored even on exceptions.
+
+Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Tensors from each executed module are concatenated in execution order and transferred to CPU once for all layers. Results enter `BatchUpdateResult` with zero-based global indices, without further averaging or normalization. Unmeasured updates and insufficient samples return NaN through `GetScalar` without carrying values forward. Noninteger or negative indices fail fast during subscription; out-of-range indices fail at the first measurement with the key, layer count, valid range, and layer count for each populated capture key. A dependency closure without a Transformer stops because the capture prefix is unfulfilled. With no subscriptions, no sampling, extra forward, or entropy calculation occurs.
+
+Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
+
 ## 10. Tests and Extension Checklist
+
+- [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): Actor length ranges, auxiliary windows, six default-equivalence cases, and stage 0/1 execution and aggregation.
+
+For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md).
 
 Main DQN tests reside in [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) and [dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp).
 
@@ -492,6 +530,10 @@ When adding or modifying a DQN Agent, check at least the following:
 7. List saved and unsaved State and test compatible and incompatible checkpoints.
 8. Define each added metric's source, step axis, and `nullopt` or `NaN` conditions for unsupported Agents.
 9. When modifying policy churn, check zero updates, online differences, hard/soft targets, the FP32 autocast boundary, IQN fixed taus, subscription gates, and non-interference from caller-owned probe RNGs.
+
+10. When changing gradient noise measurement, verify that the mean of `Optimize`'s second argument matches loss, the estimation formulas, per-group availability, subscription unions/shared EMA, and ON/OFF non-interference in a deterministic environment. See [PRD092 validation assets](../../core/anet-core/testdata/prd092/README.md) for mainline BF16 smoke, wall time/additional memory, and unavailable-value rates.
+
+11. When changing attention diagnostics, verify subscription unions, pre-update layer averages, capture positional order, unmeasured NaN, and non-interference with RNG/statistics/buffers/modes. See [PRD093 validation assets](../../core/anet-core/testdata/prd093/README.md) for both smoke runs and GPU/performance acceptance.
 
 ## 11. Related Documents
 

@@ -74,6 +74,8 @@ target_link_libraries(anet-core-test PRIVATE
 )
 
 add_test(NAME anet-core-test COMMAND anet-core-test)
+# 現用設定を相対パスで読むテストは、直接実行と同じrepoルートで動かす。
+set_tests_properties(anet-core-test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 
 # ---------------------------------------------------------------------
