@@ -56,4 +56,4 @@
 - [314 テンソル処理](categories/314_tensor.md) — device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（別名: 314_tensor）。
 - [313 プロファイリング](categories/313_profiling.md) — ProfileRangeとmacroで関数・処理phaseをCPU/GPU profilerへ安定名で記録する。（別名: 313_profiling）。
 - [312 ユーティリティ](categories/312_util.md) — 設定からRunを組み立てる実行基盤のうち、初期化、seed、schedule、log、application共通処理の所在を引く。（別名: 312_util）。
-- [311 開発ツール](categories/311_dev_tools.md) — 開発・検証、分析ツール、探索harnessとCIの関係を引く（別名: 311_dev_tools, 開発プロセス, テスト基盤）。
+- [311 開発ツール](categories/311_dev_tools.md) — 開発・検証、分析ツール、探索harnessとCIの関係を引く（別名: 311_dev_tools, 開発プロセス, テスト基盤, リリース, release, CPack）。
