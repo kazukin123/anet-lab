@@ -41,16 +41,22 @@ def execute(stage, label, env, mode=None, prepare=False):
     destination.mkdir(parents=True, exist_ok=False)
     previous = module(ROOT.parent / "prd098/run_validation.py", "prd098")
     previous.OUT = ROOT
-    lines = previous.settings(env, enabled=True)
+    enabled = mode != "off"
+    lines = previous.settings(env, enabled=enabled)
     # 古いsession名の一覧を流用せず、今回の入力を解決して停止対象を決める。
     lines = [line.replace((ROOT / "runs").as_posix(), (OUT / "runs").as_posix())
         for line in lines if "run.eval_schedule.[" not in line]
-    if stage == "performance":
-        lines[-1] = lines[-1].replace(" > run.@skip", " > run.@btrnet > run.@skip")
-        for key, value in {"run.train.num_envs": 128, "DefaultDQNAgent.learner.replay_batch_size": 256,
+    if stage.startswith("performance"):
+        # skip 無効の腕は連鎖に run.@skip を持たないので、検証用プロファイルの前に置く。
+        anchor = " > run.@skip" if " > run.@skip" in lines[-1] else " > run.@prd098_validation"
+        lines[-1] = lines[-1].replace(anchor, " > run.@btrnet" + anchor, 1)
+        settings = {"run.train.num_envs": 128, "DefaultDQNAgent.learner.replay_batch_size": 256,
             "DefaultDQNAgent.learner.use_amp": "true", "DefaultDQNAgent.learner.use_amp_bf16": "true",
             "DefaultDQNAgent.learner.use_rb_prefetch": "true", "app.exp_exit_step": 82176,
-            "app.batchrun.exp_exit_step": 82176, "DefaultDQNAgent.learner.skip.feature_gradient": mode}.items():
+            "app.batchrun.exp_exit_step": 82176}
+        if enabled:
+            settings["DefaultDQNAgent.learner.skip.feature_gradient"] = mode
+        for key, value in settings.items():
             lines.append(PROFILE + f"{key} = {value}")
     else:
         lines += [PROFILE + "run.eval.[greedy].eval_batch_size = 1",
@@ -66,13 +72,16 @@ def execute(stage, label, env, mode=None, prepare=False):
         ("256" if stage == "smoke" and slot == "greedy" else "0") for slot in slots]
     config.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     resolved = resolve(config, destination, "resolved")
-    assert resolved["DefaultDQNAgent.skip.enabled"] == "true"
-    if stage == "performance":
-        for key, expected in {"run.train.num_envs": "128", "DefaultDQNAgent.learner.replay_batch_size": "256",
+    assert resolved["DefaultDQNAgent.skip.enabled"] == ("true" if enabled else "false")
+    if stage.startswith("performance"):
+        expected_values = {"run.train.num_envs": "128", "DefaultDQNAgent.learner.replay_batch_size": "256",
             "DefaultDQNAgent.learner.use_amp": "true", "DefaultDQNAgent.learner.use_amp_bf16": "true",
-            "DefaultDQNAgent.learner.use_rb_prefetch": "true", "DefaultDQNAgent.learner.skip.feature_gradient": mode}.items():
+            "DefaultDQNAgent.learner.use_rb_prefetch": "true"}
+        if enabled:
+            expected_values["DefaultDQNAgent.learner.skip.feature_gradient"] = mode
+        for key, expected in expected_values.items():
             assert resolved[key] == expected, (key, resolved[key])
-    binary = REPO / "apps/runner/bin" / ("Release" if stage == "performance" else "Debug") / "AnetRLRunner.exe"
+    binary = REPO / "apps/runner/bin" / ("Release" if stage.startswith("performance") else "Debug") / "AnetRLRunner.exe"
     suffix = "t103_" + name
     args = [str(binary), "--config", str(config), "app.run_name=run_{t}_" + suffix]
     record = {"arguments": args, "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -99,7 +108,7 @@ def audit(stage, env, destination, record):
     run = Path(record["run"])
     resolved = json.loads((destination / "resolved.json").read_text(encoding="utf-8"))
     scalars = [row for row in rows(run) if row.get("type") == "scalar"]
-    if stage == "performance":
+    if stage.startswith("performance"):
         timing = {row["step"]: row["value"] for row in scalars if row["tag"] == "90_perf/98_prd098_time"}
         record["seconds_per_update"] = (timing[256] - timing[64]) * 3600 / 192
     else:
@@ -131,7 +140,7 @@ def audit(stage, env, destination, record):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("smoke", "performance"))
+    parser.add_argument("stage", choices=("smoke", "performance", "performance-onoff"))
     parser.add_argument("--label", required=True)
     parser.add_argument("--audit", action="store_true", help="検証だけを既存Runへ再適用する")
     parser.add_argument("--prepare", action="store_true", help="入力を生成・解決し、学習は開始しない")
@@ -139,15 +148,17 @@ def main():
     args = parser.parse_args()
     if args.audit and args.prepare:
         parser.error("--audit and --prepare are mutually exclusive")
-    if args.stage == "performance" and not (args.audit or args.prepare):
+    if args.stage.startswith("performance") and not (args.audit or args.prepare):
         # 学習やbuildとの競合を混ぜた比を受入結果として残さない。
         active = subprocess.check_output(["powershell", "-NoProfile", "-Command",
             "Get-Process | Where-Object { $_.ProcessName -match '^(AnetRLRunner.*|anet-core-test|cl|ninja|cmake)$' } | Select-Object -ExpandProperty ProcessName"], text=True).strip()
         if active:
             raise RuntimeError("Performance measurement blocked by active processes: " + active)
     results, errors = [], []
+    # performance-onoff は PRD098 の受入 4（skip 有効と無効の比）を、PRD098 の検証資材と同じ逆順の 4 Run で測る。
+    orders = {"performance": ("merge", "split", "split", "merge"), "performance-onoff": ("merge", "off", "off", "merge")}
     cases = [(env, None) for env in (args.env or ("GridMaze", "LunarLander", "Atari"))] if args.stage == "smoke" else [
-        ("Atari", mode) for mode in ("merge", "split", "split", "merge")]
+        ("Atari", mode) for mode in orders[args.stage]]
     for i, (env, mode) in enumerate(cases):
         try:
             if args.audit:
@@ -161,9 +172,13 @@ def main():
             errors.append(str(error))
             print("FAIL", str(error), flush=True)
     report = {"results": results, "errors": errors}
-    if args.stage == "performance" and not errors and not args.prepare:
-        report["split_merge_ratio"] = sum(results[i]["seconds_per_update"] for i in (1, 2)) / sum(
-            results[i]["seconds_per_update"] for i in (0, 3))
+    if args.stage.startswith("performance") and not errors and not args.prepare:
+        ratio = sum(results[i]["seconds_per_update"] for i in (1, 2)) / sum(results[i]["seconds_per_update"] for i in (0, 3))
+        if args.stage == "performance":
+            report["split_merge_ratio"] = ratio
+        else:
+            report["on_off_ratio"] = 1 / ratio
+            report["on_off_within_1_3"] = 1 / ratio <= 1.3
     save(OUT / (args.label + "-summary.json"), report)
     raise SystemExit(bool(errors))
 

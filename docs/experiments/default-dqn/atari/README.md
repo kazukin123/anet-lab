@@ -25,6 +25,7 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | 2026-10-15〜10-20 | [kung_fu_master のボス行きの定着](2026-10-15_kfm-boss-route.md) | kung_fu_masterのボス行き、報酬クリップ、ライフ区切り、sticky、ε、PER、UQE、seed数、batch、ViT | completed |
 | 2026-10-23〜 | [BTR 公開実装の qbert 再現と、序盤の学習の遅れ（初期値）](2026-10-23_btr-qbert-repro-init.md) | BTR公開実装の手元での再現、BTR寄せ、縮小方式、BTRのε、コード照合、SN付きconvの初期値、第9面で終わるゲームの点と長さ | active |
 | 2026-10-29 | [qbertの行動固定を評価時だけ外す比較](2026-10-29_temporl-auxiliary-only-stage0.md) | PRD104段0、同じ終了checkpointでfull/single各200ゲーム、評価時のNoisyNet・τ、無効checkpointのseed2、第9面で終わったゲームとEvaluation Trace | 段0完了・段1保留 |
+| 2026-10-27〜 | [qbert の TempoRL の 50M の学習 Run どうしの比較](2026-10-31_temporl-qbert-50m-learning.md) | PRD098段3・PRD103段1・段3・PRD104段2・PRD106 G4、合算・遮断・重み0.3・分割・ノイズ切り・補助学習のみとスキップなし、Greedy・ε0.01・学習側・クリップ率 | completed（qbert は区切り。ViT 合算は 45.37M で停止） |
 
 ## 知見のまとめ
 

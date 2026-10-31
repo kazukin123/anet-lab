@@ -36,11 +36,11 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 #run.$ = run.@v5_iqn_impala_x2
 #run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex
 
-# 実時間優先プロファイルの 100M を online で回す構成。TempoRL（分離×合算）を既定で有効にする（2026-10-27、qbert 10M の 2 seed で無効を上回った）
-run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip
+# 実時間優先プロファイルの 100M を online で回す構成。TempoRL は既定で無効（2026-10-31 に戻した。qbert のサンプル効率優先 50M で合算が Greedy の評価で無効の下だった。PRD098 §6 の 21）
+run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
 
-# 実時間優先プロファイル、TempoRL 無効（比較用）
-#run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
+# 実時間優先プロファイル、TempoRL（分離×合算）有効
+#run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@skip
 
 # ==============================================================================
 # Run設定
@@ -275,6 +275,8 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 # metrics.scalar.$ は run.@a5_metrics の連鎖に @skip を足したもの（後ろの profile の連鎖だけが残るため、ここで全部書く）。
 run.@skip : DefaultDQNAgent.skip.enabled = true
 run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@skip
+# 勾配クリップの閾値（A1 の 10）を TempoRL 有効では 30 にする。Q 側の勾配ノルムが無効の約 2 倍になり、10 では qbert の 10〜35M に 93〜100% 発火した。30 で 36→17%（PRD103 §7 の段 1）
+run.@skip : DefaultDQNAgent.learner.grad_clip_tau = 30
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[03]] = skip_length_rate.[3] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[04]] = skip_length_rate.[4] @train $action_info
@@ -489,8 +491,8 @@ run.@rfit : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breako
 # Breakout 固有の閾値率(ge432 / ge600)を落とす。@rfit より後ろへ置く。
 run.@a5_metrics : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2
 
-# attention診断を追加する。Runチェーン内で、metrics.scalar.$を上書きする他のプロファイルより後ろに選ぶ。既定 run.$ の末尾の run.@skip の行も残す。
-run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > metrics.scalar.@attention > M1 > M2 > metrics.scalar.@skip
+# attention診断を追加する。Runチェーン内で、metrics.scalar.$を上書きする他のプロファイルより後ろに選ぶ。
+run.@attention : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > metrics.scalar.@attention > M1 > M2
 
 
 # --- NoisyNet: 指定の効率優先チェーン末尾へ重ねる比較用 profile ---
@@ -659,7 +661,7 @@ A1.actor.[train].policy.spatial.epsilon.last = 0.01
 A1.learner.learning_rate = 1e-4                        # ★ lr。batch 256 の Atari 相場
 # adam_eps は A2 が持つ。A1 に書くとチェーン後段の @bf16(agent.txt:91)が 1e-4 で打ち消す。
 A1.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
-A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm（clip 前の中央値）は BZ・DD・Phoenix・NTG が 0.46〜3.8 で不発、qbert は 5〜13 で発火（サンプル効率優先の 5〜25M で 57〜78%、実時間優先の 10〜30M で 22〜24%。TempoRL の合算ではさらに約 2 倍）
+A1.learner.grad_clip_tau = 10                  # BTR Table D6。grad_norm（clip 前の中央値）は BZ・DD・Phoenix・NTG が 0.46〜3.8 で不発、qbert は 5〜13 で発火（サンプル効率優先の 5〜25M で 57〜78%、実時間優先の 10〜30M で 22〜24%。TempoRL の合算ではさらに約 2 倍。TempoRL 有効では run.@skip が 30 にする）
 #A1.learner.grad_clip_tau = 30                 # 探索ブロック 12 の採用値
 #A1.learner.grad_clip_tau = 5                  # 旧既定(@baseline 継承値)
 

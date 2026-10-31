@@ -6,6 +6,8 @@
 
 TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。分割のcheckpointは、評価時にNoisyNetのノイズやτのランダムさを入れるとfullでだけ突破率が下がった。スキップなしは2 seedとも、Greedyの突破率が学習中と同じ選び方より低かった。 分割・合算の400ゲームではskip側だけノイズを切ると突破率が18.50・16.50ポイント上がり、skip側のτだけ固定にする差は分割7.50・合算10.25ポイントだった。主因の比は決めきれず、学習への効果は未確認。
 
+qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変種6種）がGreedyの評価と学習側の8面突破率でスキップなしの2 seedの下だった。ε=0.01の評価の40〜50Mは同じ帯だった。
+
 ## 分かっていること
 
 - TempoRL合算の50M終了checkpoint（full、学習seed1、評価400ゲーム）も、Q側だけノイズありで突破率75.00%、skip側だけと両方はともに58.50%だった。skip側を切った差は+16.50 [10.00, 22.75]ポイント。集中する面5を除いた通過率の比h_Q=0.342 [0.157, 0.536]は0.5を含み、分割と同じく主因は「決めきれない」だった。学習への効果はまだ確かめていない（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、合算の「ノイズ（実装後）」・「G4の判断に使う差」。Run: `run_20261029-230354_t106_eval_new_mrg_NQ_s2` / `run_20261029-231809_t106_eval_new_mrg_NB_s2`ほか同記録）。
@@ -34,6 +36,11 @@ TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、�
 - BTR の公開 CSV と比べると、20M で 24,264 対 ε 腕 19,921（ε=0.01 評価の 20-25M）と既に差があった。BTR の平均は 30M で 29,000 点を超えるのに対し、ε 腕の突破の開始（41.5M）はそれより 10M 以上遅い（出典: [2026-09-25_sample-efficiency-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、探索ブロック03「BTR の公開 CSV に対して」。Run: `run_20260927-035604_a5_qbert_btr50m_eps005_end0`）。
 - grad clip（grad_clip_tau 10）の発動率は 10-20M で 45.7% と高いが、削った勾配の量は最大 12.4% で、クリップされた step の倍率は中央値 0.84〜0.90 だった（出典: [2026-09-25_sample-efficiency-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、現時点のまとめ14・探索ブロック02「内部指標」。Run: `run_20260926-022413_a5_qbert_btr50m`）。
 - 実時間優先 50M で ε ラダーを NoisyNet に置き換える（ε 0）と、eval2 40-50M は 12,144（基準 seed 1 / 2 は 20,650 / 20,103）で、学習中のゲームも ε=0 断面も round_clear は最大 4（第 5 面より先へ進まない）だった（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ1・探索ブロック 01。Run: `run_20261012-015046_a5_qbert_rr1_50m_nz_eps0`）。
+- qbert のサンプル効率優先 50M で、Greedy の評価（`53_evalg`）の 35.55〜45.65M の 3 回平均は、TempoRL の 8 本（合算 2 seed、遮断・重み 0.3・分割・skip 側のノイズ切り・補助学習のみ・勾配クリップの閾値 30）が 24,201〜29,066 で、どれもスキップなしの 2 seed（40,999・30,415）の下だった。閾値 30 の Run は、同じ重みを毎 step 判断で評価した `54_evalgs` でも 27,732 だった。合算は 2 seed（27,058・26,523）とも、スキップなしの小さいほうの seed を下回った。（出典: [2026-10-31_temporl-qbert-50m-learning.md](../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)、現時点のまとめ1・2。Run: run_20261027-004945_a5_qb_aln_t98mrg_s1 / run_20261029-165351_a5_qb_aln_t98mrg_s2 / run_20261025-231207_a5_qb_aln_btreps_s1 / run_20261028-132638_a5_qb_aln_btreps_s2）。
+- 同じ 50M の Run で、学習側の 8 面突破率が初めて 50% を超えた窓は、スキップなしが 2 seed とも 32.5〜35M、TempoRL は補助学習のみの 47.5〜50M だけで、ほかの 7 本は 50M までに超えなかった。ε=0.01 の評価（`52_eval2`）の 40〜50M の平均は、どの腕も 23,641〜26,879 でスキップなし（25,827・24,720）と同じ帯だった。（出典: [2026-10-31_temporl-qbert-50m-learning.md](../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)、現時点のまとめ3・4）。
+- 同じ 50M の Run で、Q 側の勾配のクリップ率（閾値 10）は合算の 2 seed と skip 側のノイズ切りが 10〜35M で 93〜100%、分割はスキップなしと同じ帯（43〜67%）で、分割の勾配ノルムもスキップなしと同じ帯だった。分割の眠ったユニットの率（40〜50M）は 14.16% で、合算（12.48〜13.66%）より低くならなかった。（出典: [2026-10-31_temporl-qbert-50m-learning.md](../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)、現時点のまとめ5、探索ブロック03）。
+- 同じ 50M の構成で勾配クリップの閾値を 30 にした合算（1 seed）は、Q 側のクリップ率が 10〜15M の 36.4% から 40〜45M の 16.6% へ下がり（閾値 10 の合算は 99.9%・81.8%）、眠ったユニットの率（40〜50M）は 5.27% で全 Run で最も低かったが、Greedy の 3 回平均は 24,201 で TempoRL の中で最も低かった。（出典: [2026-10-31_temporl-qbert-50m-learning.md](../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)、現時点のまとめ5・6。Run: run_20261030-215554_a5_qb_aln_t98c30_s1）。
+- 同じ 50M の構成で特徴の幹に Transformer Encoder（4 層）を足した合算（1 seed、閾値 10）は 45.37M で止まり、35.55・40.6M の Greedy の 2 回平均は full 25,440・single 30,006 だった。同じ 2 回のスキップなしは 39,224・27,778、合算（full）は 25,572・27,694。（出典: [2026-10-31_temporl-qbert-50m-learning.md](../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)、探索ブロック05。Run: run_20261030-215601_a5_qb_aln_vitmrg_s1）。
 
 ## 分かっていないこと
 

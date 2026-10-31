@@ -30,6 +30,8 @@ smokeはenvの `run.@skip` だけを選び、変種はRunnerのCLI引数で渡�
 
 ## 短い性能比較
 
+2026-10-31 時点の注記: 下の `performance` は、評価を止める session の一覧を 2026-10-24 の解決済み設定から取るため、`[greedy_dist]`（PRD103 で `[greedy]` へ改名）を止めに行き、今の設定では使えない。受入 4 は [PRD103 の検証資材](../prd103/README.md) の `performance-onoff` で同じ条件（BTR の N128/B256、BF16、prefetch、Release、逆順の 4 Run）で測る。
+
 `run_validation.py performance --label perf1` は Atari の既定の B/N、BF16、prefetch を保ち、OFF→ON→ON→OFF の順に実行する。warmup 後の learn_step 64〜256 の実時間を測り、ON/OFF の比が 1.3 以下か判定する。起動時間を含めない。比較中はほかの学習やビルドを重ねない。
 
 追加レビューでは `--order on-off-off-on` で逆順の4 Runを測る。順序を変えるときは必ず新しい `--label` を使い、結果の `order` と `seconds_per_update` を残す。既定順も逆順も、有効2 Runの合計を無効2 Runの合計で除して1.3以下か判定する。

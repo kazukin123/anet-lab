@@ -15,6 +15,9 @@
 > 改訂: 2026-10-26（2モデルレビュー対応）。実装契約を観測できる振る舞いに整理し、Agent側とRun/metrics側のprofileの区別、M1の意味、1step記録のメモリ内訳を明記した。観測パイプラインの既存ドラフトを参照先として同梱対象へ含める。
 > 改訂: 2026-10-27。§7 に段 3 のふるい（実時間優先の qbert、4 腕 × 2 seed、10M）の結果を追記し、その結果で Atari の実時間優先の既定を有効（分離×合算）にしたことを §6 の 21 に追記した。
 > 改訂: 2026-10-27（2 回目）。著者の公開コードとの突き合わせ（[PRD103](103_temporl_reference_alignment_10prd.md)）を受けて、D6 の理由に比べた範囲の注記を足し、§9 の 3 を PRD103 の D8 へ向けた。
+> 改訂: 2026-10-31。§7 に段 3 の BTR 基準（サンプル効率優先の qbert、合算の 2 seed とスキップなしの 2 seed、50M）の結果を記録した（[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）。
+> 改訂: 2026-10-31（2 回目）。Atari の実時間優先の既定を無効に戻し、Atari の `run.@skip` で勾配クリップの閾値を 30 にしたことを §6 の 21 と §7 の段 3 のふるいに追記した（[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）。
+> 改訂: 2026-10-31（3 回目）。§7 の受入 4（性能）の測定結果を記録した。3 巡の構成ごとの中央値の比は 1.296。
 
 ## 1. 目的と問題
 
@@ -328,7 +331,7 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 18. 群番号は skip が 50、[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md) は 59。
 19. 不正値の扱いは §5.6（構築時に `ANET_SYSTEM_ERROR`）。
 20. 分離型／包含型の切替は `skip.network_mode`（`action_out` ／ `action_in`）。
-21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。Agent側の`DefaultDQNAgent.@skip*`と`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（Run/metrics側のprofileとは区別する）。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。Atari も、2026-10-27 から実時間優先の既定の `run.$`（Atari.txt）の末尾に `run.@skip` を置いて有効にし、合算を env の葉で持つ。無効の連鎖は比較用のコメントとして残す。§7 の段 3 のふるいで、合算が 2 seed とも同じ seed の無効を上回ったためである。bat は `run.$` を CLI で渡すので、この既定の影響を受けない。
+21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。Agent側の`DefaultDQNAgent.@skip*`と`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（Run/metrics側のprofileとは区別する）。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。Atari も、2026-10-27 から実時間優先の既定の `run.$`（Atari.txt）の末尾に `run.@skip` を置いて有効にし、合算を env の葉で持つ。無効の連鎖は比較用のコメントとして残す。§7 の段 3 のふるいで、合算が 2 seed とも同じ seed の無効を上回ったためである。bat は `run.$` を CLI で渡すので、この既定の影響を受けない。2026-10-31 に、Atari の既定の `run.$` を無効に戻した（有効の連鎖を例のコメントとして残す）。§7 の段 3 の BTR 基準（サンプル効率優先の qbert 50M）で、合算が 2 seed とも Greedy の評価で無効の下だったためである。実時間優先の 100M（合算 seed 1 と無効 seed 2。seed とビルドが違う）では、Greedy の評価が 50.7〜91.1M で 22,668〜25,442 対 22,955〜24,740 と同じ帯で、悪化は見えていない。あわせて、Atari の `run.@skip` は `learner.grad_clip_tau` を 30 にする（A1 の 10 から。TempoRL 有効で勾配ノルムが約 2 倍になるため。[PRD103](103_temporl_reference_alignment_10prd.md) §7 の段 1）。
 22. 包含型の行動入力の鍵は `action`（固定キー。one-hot は自動）。
 23. 段 1 の GridMaze は論文の格子と同じ 6×10（設定の width・height）で、壁と穴の密度は今の既定。長い直線が出る大きさで差を見る。
 24. skip が有効なときの FP16 の AMP は構築時に止める（§5.4）。
@@ -368,7 +371,12 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 - 学習側の判断率は、0〜2.5M の 0.15〜0.19 から 7.5〜10M の 0.23〜0.31 へ上がった。7.5〜10M の平均のスキップ長は、分離型の 2 腕が 4.2〜4.5、包含型が 3.3〜3.8。包含型だけ j=1 の選択率が 0.03〜0.08 から 0.29〜0.32 へ上がり続けた。j=1 に戻る形（段 1 の 5×5 の既定 seed）は、どの腕にも出なかった。評価 slot の判断率は測っていない（§9 の 3）。
 - 10M の実時間（s1／s2）は、無効 25.0／27.6 分、分離×合算 29.1／31.6 分、分離×遮断 35.0／32.7 分、包含×遮断 34.6／37.8 分。
 - 同じ seed 1・同じ構成の 2026-09-21 の Run（`run_20260921-155634_a5_qbert_rr1_50m`、9 月のビルド）は 7.5〜10M が 7,306 で、今回の無効の s1（4,976）と 47% 違う。ビルドの違いと非決定論だけで、この幅がある。
-- この結果を受けて、Atari の実時間優先の既定を有効（分離×合算）にした（§6 の 21）。分離×遮断と包含×遮断は Atari では先へ進めず、段 3 の行の BTR 基準の qbert（サンプル効率優先）は分離×合算で続ける。
+- この結果を受けて、Atari の実時間優先の既定を有効（分離×合算）にした（§6 の 21）。2026-10-31 に、段 3 の BTR 基準の結果を受けて無効に戻した（§6 の 21）。分離×遮断と包含×遮断は Atari では先へ進めず、段 3 の行の BTR 基準の qbert（サンプル効率優先）は分離×合算で続ける。
+
+段 3 の BTR 基準（サンプル効率優先）の結果（2026-10-31。[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)。合算 s1・s2 とスキップなし s1・s2、各 50M、ビルドは Run ごとに違う）:
+- 判定の行（評価 slot、ε=0.01）: 合算は 0〜1M で 336・381（スキップなし 249・358）、2.5〜5M で 6,078・4,996（同 3,768・3,737）で、遅れずに上回った。これを受けて 2 seed の 50M を流した。
+- 50M まで: ε=0.01 の評価の 40〜50M の平均は、合算 25,912・25,524、スキップなし 25,827・24,720 で同じ帯だった。Greedy（`53_evalg`、full）の 35.55〜45.65M の 3 回平均は、合算 27,058・26,523、スキップなし 40,999・30,415 で、合算は 2 seed ともスキップなしの小さいほうの seed を下回った。学習側の 8 面突破率は、スキップなしが 2 seed とも 32.5〜35M の窓で初めて 50% を超え、合算は 2 seed とも 50M までに超えなかった（47.5〜50M で 40%・28%）。
+- 合算の変種（遮断・重み 0.3・分割・skip 側のノイズ切り・補助学習のみ）の結果は [PRD103](103_temporl_reference_alignment_10prd.md) §7 の段 1・段 3、[PRD104](104_temporl_skip_auxiliary_only_10prd.md) §7 の段 2、[PRD106](106_temporl_skip_forward_noise_key_10prd.md) §7 の G4 に書いた。
 
 受入（外から観測できるもの）:
 
@@ -376,6 +384,7 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 2. 単体テスト: replay の走査（done・truncated・dummy・ring 折返し・J の上限・判断の旗での区切り・k の一様性・sampleable の遅れ・完成の遅れの不変）、スキップの目標値の数値例（Munchausen・TBO・分布型・done での bootstrap 無し）、skip Head の形（分離型／包含型、`use_dueling` の j=1 一致）、Actor の skip 状態（episode_start で捨てる、上書き、ヒントの再 gather、判断の旗と aux、複製と同期）、Network 別クリップ、checkpoint の 4 object と印、無効の checkpoint を有効で読む経路、有効を無効で読む fail-fast、§5.6 の不正値と FP16 の fail-fast。
 3. smoke Run の `metrics.jsonl` と `metrics.scalar.defs` に §5.7 の 9 つの tag が出て、Evaluation Trace の 2 列が読める。
 4. 性能: skip が有効な学習 1 step の実時間が無効の 1.3 倍以内（Atari BTR 構成で測る。見積もりは約 1.2 倍。§5.10）。
+   - 2026-10-31 の測定（今のソースの Release、SHA-256 先頭 `a18f17d3cb68c523`。[PRD103 の検証資材](../../core/anet-core/testdata/prd103/README.md) の `performance-onoff`。BTR の N128/B256・BF16・prefetch、評価はすべて停止、learn step 64〜256 の 1 更新の秒数）: 有効→無効→無効→有効の 4 Run を 3 巡流し、1 巡ごとの合計の比は 1.380・1.298・1.263 だった。1 巡目の最初の Run（ビルド直後の最初の Run）は 0.0626 秒で、同じ構成のほかの 5 本（0.0505〜0.0595）より遅い。構成ごとの 6 本の中央値は有効 0.0591・無効 0.0456 で、比は 1.296。中央値の比で 1.3 以内（境目）、1 巡ごとの判定では 3 巡中 2 巡が 1.3 以内。数値と Run 名は検証資材の README の性能の節にある。
 
 ## 8. 作らないもの・先送り
 

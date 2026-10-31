@@ -6,6 +6,7 @@
 > 改訂: 2026-10-26。§7 に段 0 の結果（(a) UQE の楽観。作るのは (I) だけ）と、今のビルドでの対照を記録した。
 > 改訂: 2026-10-26（2 回目）。5×5 の既定 seed の件を「崩壊」から「ゴールに届かない」に直した（§1・§2.3・D11・§7。評価は一度も届かず、学習側もほぼ届いていなかった）。§7 の段 0 の「前半を読む」理由が、この前提に依っていたことを書き添えた。
 > 改訂: 2026-10-27。TempoRL 第二弾（[PRD103](103_temporl_reference_alignment_10prd.md)。著者の公開コードとの差の是正）との重なりを §9 の 10 に記した。本書は TempoRL の第三弾の扱いになる。
+> 改訂: 2026-10-31。qbert の TempoRL の調査を区切り（合算の変種 8 本が Greedy の評価で無効に届かなかった。[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）、内的報酬（NGU）の準備を先にするので、作ると決めている割り込み (I) にも着手しない。再開条件: Freeway・BeamRider など別のゲームで、合算が無効を Greedy の評価で上回り、固定中に状況が変わって損をする場面が Evaluation Trace で見えたとき。
 > 関連: [PRD103](103_temporl_reference_alignment_10prd.md)（TempoRL 第二弾）、[999_bootstrapped_multihead_q](999_bootstrapped_multihead_q_10prd.md)（primary の複数の Head。本書のメンバーは skip Head の中だけ）、[999_observation_pipeline](999_observation_pipeline_10prd.md)（強制行動を MakeAction の入力にする。PRD098 §9 の 1）、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md)（判断に揃える n-step）、[行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)。
 
 ## 1. 目的と問題

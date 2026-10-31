@@ -5,6 +5,7 @@
 > 関連: [PRD098](098_temporl_skip_policy_10prd.md)（TempoRL 対応）、[PRD103](103_temporl_reference_alignment_10prd.md)（第二弾）、[999_temporl_skip_followups](999_temporl_skip_followups_10prd.md)（第三弾。閉ループの割り込み (I) は本書とは別の答え）、[行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)、[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)（replay の窓の規則）、[ADR 0038](../adr/0038-actor-config-catalog-without-runmode.md)（Agent は Actor の用途を知らない）。
 > 改訂: 2026-10-29（グリル。`/anet-create-prd`、Claude Code）。goal anchor と scope screen に合意し、契約 5 件と細部 17 件を決めた。補助タスクの教材（窓）を 2 つにし（連続区間の窓と、エピソードの終わりだけで閉じる窓。D3）、設定キーを Actor 側 `actor.[key].skip.max_length_mode`（`single`／`full`／`variable`）＋`max_length`（ProfiledValue）、Learner 側 `learner.skip.target_window`（`decision`／`action_change`／`episode_end`）に改めた（D1。暫定版の `skip.execution = commit／single` と `learner.skip.window = action_run` は使わない。理由は D1）。組み合わせの検査は (1) だけを止め、(2) は WARN にし、(3) は Agent では判定できないので外した（D4、[ADR 0038](../adr/0038-actor-config-catalog-without-runmode.md)）。固定を徐々に解くスケジュールは `variable` の ProfiledValue で書けるが、段には入れない（§8）。§2.2 に重み 0.3 の Run の 50M までの値を足した。§9 の 1・2・5・6 を閉じた。起草後の別モデル（Opus）の検討で、段 0 の指標を突破率の差から「平均点の差を無効の checkpoint との差で割った g」に改め（45.7M では評価側の突破率の差が閉じているため）、1 本の Run に `[greedy]`／`[greedy_single]` を並べる形にし、段 1 に k=1 だけの補助と終わりだけ・分割の対照 2 腕を足し（7 腕）、段 2 の教材の閾値を一様ランダムの水準 |A|/(|A|−1) から置き直し、D1 の理由（Actor ごとのキーが要る場面）、D8 と CONTEXT.md の文言（k step の収益、上限 J）、`[train]` の既定の置き場、D4 (2) の WARN 文と `priority_lambda`、`single` で省くのは j の選択だけ、§2.1 の事実 2 件、`variable` の検証を ProfiledValue の共通処理で表すこと、skip 無効で J が無いときの検証、丸め（§9 の 9）を直した。`variable` は残した。レビュー（`an-review`、2 往復）で、補助学習のみモードの定義（§6 の 7・D5）と `split` の腕の引き金（§6 の 13・§9 の 7）の文書内の食い違いを直し、`variable` を今作る理由（D1）と段 0 の g の分母が 0 以下のときの読み（§7）を足した。別ツールのレビュー（Claude、2 件）で、受入 3 の `variable` の smoke の構成と合格の条件、`full`・`single` で `max_length` を書いたときの WARN が出る条件（`skip.enabled = true` のときだけ。§5.1・§5.2・§6 の 4・受入 2）を直した。
 > 改訂: 2026-10-30（ユーザーの判断）。段 1（LunarLander）の結果は段 2（qbert）の参考にとどめ、段 2 の腕を段 1 の結果で絞らないことにした。LunarLander と qbert で傾向が大きく違い（段 0 の qbert の g は 3 本とも「固定が主因」、段 1 の LunarLander では補助学習のみモードの 2 腕とも無効の最大以下）、段 1 の結果で qbert の実施範囲を決める根拠にならないため。§6 の 10・13、§7 の段 2、§9 の 7 を直した。
+> 改訂: 2026-10-31。§7 の段 2 の結果（連続区間は見込みなし、終わりだけは 9.2M で停止、終わりだけ・分割は中止）を記録した（[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）。
 
 ## 1. 目的と問題
 
@@ -330,6 +331,12 @@ g の表:
 - 読む値: 最初の 10M の学習側の平均点（§2.2 と同じ 3 窓）、5.05M の ε=0 の評価、突破率が初めて 50% を超える窓、30〜45M の ε=0 の評価、Munchausen の log π の clip 率（無効と同じ帯に戻るか）、眠ったユニットの率（PRD103 D13 の観察と同じ）。比べる相手は §2.2 の無効と合算（ビルドが違う）。
 - 見込みありの判定: 最初の 10M の学習側の平均点が無効（8,207）以上で、かつ突破率が初めて 50% を超える 2.5M の窓の始まりが 37.5M 以前（37.5〜40M の窓まで含む。無効の窓の始まり 32.5M から 5M 以内）。満たせば、同じビルドでその腕と無効の seed 2 を流し、既定を変えるかの材料にする（既定の判断は同じビルドの 2 seed で行う。PRD103 §9 の 1 と同じ）。満たさなければ結果を記録し、§6 の 10 の次の腕へ進む。1 seed なので、どの場合も合否ではない。
 - qbert の Actor のカタログには `[train]`・`[eval]` のほかの Actor（`[greedy]`・`[eval_target]` など）もあるので、段 2 の `run.@skip_aux` は、宣言された全 Actor を `single` にする（D4 (1) は、`full` の Actor が 1 つでも残ると構築時に止める）。
+
+段 2 の結果（2026-10-31、[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）:
+
+- 連続区間（`run_20261030-013612_a5_qb_aln_t104ac_s1`）: 教材の確認の `14_kmax_mean`（7.5〜10M）は 4.66 で、閾値 1.5 を超えた。最初の 10M の学習側の平均点は 8,895 で無効（8,207）以上だが、突破率が初めて 50% を超えた窓の始まりは 47.5M で、37.5M 以前の条件を満たさない（見込みなし）。30〜45M の ε=0 の評価（`53_evalg`。この腕は全 Actor が `single`）は 35.55・40.60・45.65M で 26,070・26,098・29,180（3 回平均 27,116。無効 40,999、合算 27,058）。5.05M（5.25M の session）は 7,855。Munchausen の log π の clip 率（40〜50M）は 0.66%（無効 0.15〜0.38%、合算 2.89〜3.00%）、眠ったユニットの率（40〜50M）は 19.42%（無効 9.00〜9.66%、合算 12.48〜13.66%）。
+- 終わりだけ（`run_20261030-192929_a5_qb_aln_t104ee_s1`）は 9.2M で止めた（2026-10-30、ユーザーの判断）。判定しない。9.2M までの値は実験記録にある。
+- 終わりだけ・分割は流していない（2026-10-30、ユーザーの判断で中止）。
 
 受入（外から観測できるもの）:
 

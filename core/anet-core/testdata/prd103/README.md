@@ -59,7 +59,23 @@
 
 Release、Atari qbert+BTR、skip ON、N128/B256、BF16、prefetch、warmup256、RR1、capacity4096、82176 experience、評価停止。merge→split→split→mergeの4 Runで、`90_perf/98_prd098_time`のlearn step64～256の差を192で割る。比はsplit2本の合計／merge2本の合計。閾値は設けない。
 
-未実施: 既存のAnetRLRunner_ab（Atari5-01、qbert 50M、loss_weight=0.3）が稼働していたため競合下の測定を避けた。Releaseビルドは成功。driverはRunner・test・build processがあると測定開始前に失敗する。実測4 Runの名前・秒数・比、PRD §9.4への比の転記は残作業であり、受入完了とは扱わない。`--prepare`は入力の生成・解決だけを行う。
+`performance-onoff`は同じ条件で、skip有効（merge）→無効→無効→有効の4 Runを測り、有効2本の合計／無効2本の合計を`on_off_ratio`、1.3以下かを`on_off_within_1_3`に残す。PRD098の受入4（有効/無効が1.3倍以内）をこの条件で測るためのもの。PRD098の検証資材の`performance`は、評価を止めるsessionの一覧を2026-10-24の解決済み設定（`greedy_dist`を含む）から取るので、今の設定では使えない。
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd103/run_current.py performance-onoff --label <新しいlabel>
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd103/run_current.py performance --label <新しいlabel>
+```
+
+2026-10-31 の実測（今のソースの Release、`AnetRLRunner.exe` の SHA-256 先頭 `a18f17d3cb68c523`。ほかの Runner・ビルドが無い状態で、label ごとに 4 Run）:
+
+| label | 順 | 秒／更新 | 比 |
+|---|---|---|---|
+| `perf1031-split` | merge→split→split→merge | 0.05106・0.05711・0.05721・0.05132 | split/merge 1.117 |
+| `perf1031-onoff` | 有効→無効→無効→有効 | 0.06257・0.04135・0.04063・0.05054 | on/off 1.380 |
+| `perf1031-onoff2` | 同上 | 0.05900・0.04520・0.04610・0.05950 | on/off 1.298 |
+| `perf1031-onoff3` | 同上 | 0.05890・0.04680・0.04680・0.05930 | on/off 1.263 |
+
+Run は `.scratch/prd103/current/runs/` の `run_20261031-18*_t103_perf1031-*`。`perf1031-onoff` の最初の Run はビルド直後の最初の Run で、同じ構成のほかの 5 本より遅い。on/off の 3 巡の構成ごとの中央値は有効 0.0591・無効 0.0456 で、比は 1.296。
 
 ## 構造の腕と長時間実験
 
