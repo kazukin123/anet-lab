@@ -66,7 +66,8 @@ wxEvent* ForwardedKeyEvent::Clone() const
 // =============================================================
 
 Panel::Panel(wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxSize& size, long style, const wxString& name)
-    : wxPanel(parent, id, pos, size, style, name)
+    // 停止中もサイズで変わる描画の古い位置を消す。明示styleにも同じ保証を適用する。
+    : wxPanel(parent, id, pos, size, style | wxFULL_REPAINT_ON_RESIZE, name)
 {
     Bind(wxEVT_LEFT_DOWN, &Panel::OnMouse, this);
     Bind(wxEVT_RIGHT_DOWN, &Panel::OnMouse, this);
@@ -173,6 +174,12 @@ AuiLayoutFrame::AuiLayoutFrame(const wxString& title, const wxSize& size)
 
     // レイアウト機構が必要とするイベントを購読する (メニューは RegisterPaneMenu で個別に Bind)
     Bind(wxEVT_SIZE, &AuiLayoutFrame::OnFrameSize, this);
+    Bind(wxEVT_AUI_PANE_BUTTON, [this](wxAuiManagerEvent& event) {
+        // wxより後にBindして先に受け取り、宣言更新前の古いpinも同じ判定で止める。
+        const auto* pane = event.GetPane();
+        if (event.GetButton() == wxAUI_BUTTON_PIN && pane && !CanHidePane(*pane)) return;
+        event.Skip();
+    });
     Bind(wxEVT_AUI_PANE_CLOSE, &AuiLayoutFrame::OnAuiPaneClose, this);
     Bind(wxEVT_AUI_PANE_MAXIMIZE, &AuiLayoutFrame::OnAuiPaneMaximize, this);
     Bind(wxEVT_AUI_PANE_RESTORE, &AuiLayoutFrame::OnAuiPaneRestore, this);
@@ -220,13 +227,14 @@ void AuiLayoutFrame::SchedulePolicy()
 
 void AuiLayoutFrame::SyncDockSizesToPanes()
 {
-    // 表示中 pane が属する dock の実サイズを pane.dock_size へ書き戻す。
+    // 側面の dock の実サイズを pane.dock_size へ書き戻す。
     // dock が消えても (hide/maximize)、dock 再生成時に pane.dock_size が
-    // 読まれるため、サイズが復元される。
+    // 読まれるため、サイズが復元される。Centre は伸縮領域の寸法なので、
+    // 一時的に Centre に移った pane の側面の記憶幅を上書きしない。
     aui_layout_detail::LayoutSnapshot snapshot;
     aui_mgr_.SaveLayout(snapshot);
     for (const auto& info : snapshot.Panes()) {
-        if (info.dock_size <= 0) continue;   // 非表示・浮動 pane は記憶値を保持
+        if (info.dock_size <= 0 || info.dock_direction == wxAUI_DOCK_CENTER) continue;
         auto& live = aui_mgr_.GetPane(info.name);
         if (live.IsOk()) live.dock_size = info.dock_size;
     }
@@ -244,12 +252,12 @@ bool AuiLayoutFrame::HasMaximizedPane() const
 std::vector<wxAuiPaneLayoutInfo> AuiLayoutFrame::TakeLayoutSnapshot()
 {
     // SaveLayout は dock に属さない pane (非表示・浮動) の dock_size を 0 にするため、
-    // そのまま LoadLayout へ戻すと pane 側の記憶幅が消える。0 の pane は live の
-    // 記憶値 (pane.dock_size) で補完する。
+    // そのまま LoadLayout へ戻すと pane 側の記憶幅が消える。0 の pane と、
+    // 伸縮する Centre の pane は live の記憶値 (pane.dock_size) で補完する。
     aui_layout_detail::LayoutSnapshot snapshot;
     aui_mgr_.SaveLayout(snapshot);
     for (auto& info : snapshot.Panes()) {
-        if (info.dock_size > 0) continue;
+        if (info.dock_size > 0 && info.dock_direction != wxAUI_DOCK_CENTER) continue;
         auto& live = aui_mgr_.GetPane(info.name);
         if (live.IsOk()) info.dock_size = live.dock_size;
     }
@@ -300,6 +308,12 @@ void AuiLayoutFrame::OnTogglePaneMenu(wxCommandEvent& event)
     auto& pane = aui_mgr_.GetPane(binding->window);
     if (!pane.IsOk()) return;
 
+    // UI の有効状態を経由しないイベントも、状態を書き換える前に止める。
+    if (!event.IsChecked()) {
+        if (!CanHidePane(pane)) return;
+        if (pane.IsMaximized()) aui_mgr_.RestorePane(pane);
+    }
+
     // 最大化解除で明示的な開閉が巻き戻されないよう、退避フラグも同期する。
     pane.SetFlag(wxAuiPaneInfo::savedHiddenState, !event.IsChecked());
     if (event.IsChecked()) {
@@ -323,6 +337,12 @@ void AuiLayoutFrame::OnAuiPaneClose(wxAuiManagerEvent& event)
         return;
     }
 
+    // 古い caption の ✕ や直接送られたイベントも同じ契約で拒否する。
+    if (!CanHidePane(*pane)) {
+        event.Veto();
+        return;
+    }
+
     // 実際の hide+Update は wxAUI 側がこの後で行うため、dock が実在するここで退避する
     SyncDockSizesToPanes();
 
@@ -333,6 +353,12 @@ void AuiLayoutFrame::OnAuiPaneClose(wxAuiManagerEvent& event)
     pane->SetFlag(wxAuiPaneInfo::savedHiddenState, true);
     OnPaneHiding(*pane);
 
+    // wxのfloating frameは遅延破棄される。ClosePaneがframe参照を消す前に、
+    // 移動するwindowを旧sizerから外し、次のUpdateでの二重登録を防ぐ。
+    if (pane->IsFloating() && pane->frame) {
+        if (auto* sizer = pane->window->GetContainingSizer()) sizer->Detach(pane->window);
+    }
+
     // ポリシー適用はクローズ処理の完了後に行う必要があるため遅延させる
     SchedulePolicy();
     event.Skip();
@@ -342,6 +368,8 @@ void AuiLayoutFrame::OnAuiPaneMaximize(wxAuiManagerEvent& event)
 {
     // maximize で他 pane の dock が消える前に、実 dock サイズを退避する
     SyncDockSizesToPanes();
+    // wx が実際に他 pane を隠したあとで、表示に依存する処理を同期する。
+    SchedulePolicy();
     event.Skip();
 }
 

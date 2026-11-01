@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 #include <wx/artprov.h>
+#include <wx/aui/floatpane.h>
+#include <wx/dc.h>
 #include <wx/display.h>
 #include <wx/filedlg.h>
 #include <wx/settings.h>
@@ -36,9 +38,11 @@ constexpr int kAuxLayer = 20;
 constexpr int kDefaultAuxDockWidth = 400;
 constexpr int kDefaultLogDockHeight = 200;
 constexpr int kMinTrainWidth = 200;
+constexpr int kMinMainPaneHeight = 200;
 constexpr int kMinEvalWidth = 200;
 constexpr int kMinQValueWidth = 300;
 constexpr int kMinAuxWidth = 100;
+const wxString kCentreCaptionSuffix = wxS(" [Centre]");
 const wxSize kToolBitmapSize(16, 16);
 
 }  // namespace runner_layout
@@ -93,6 +97,30 @@ enum {
     ID_EvalSteps100,
     ID_EvalStepsCustom,
 };
+
+namespace {
+
+class PanelToolBarArtProvider final : public wxAuiDefaultToolBarArt {
+public:
+    wxAuiToolBarArt* Clone() override
+    {
+        return new PanelToolBarArtProvider(*this);
+    }
+
+    void DrawButton(wxDC& dc, wxWindow* window, const wxAuiToolBarItem& item, const wxRect& rect) override
+    {
+        // 標準の無効文字色を保ち、表示中のpaneを示す選択枠だけは操作可否と独立に描く。
+        wxAuiDefaultToolBarArt::DrawButton(dc, window, item, rect);
+        const int disabled_checked = wxAUI_BUTTON_STATE_DISABLED | wxAUI_BUTTON_STATE_CHECKED;
+        if ((item.GetState() & disabled_checked) == disabled_checked) {
+            wxDCPenChanger pen(dc, wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT)));
+            wxDCBrushChanger brush(dc, *wxTRANSPARENT_BRUSH);
+            dc.DrawRectangle(rect);
+        }
+    }
+};
+
+} // namespace
 
 namespace runner_frame_detail {
 
@@ -174,9 +202,10 @@ using namespace runner_frame_detail;
 constexpr const char* kLogViewHelp = "Show/hide Logs";
 
 
-RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
+RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config,
+    const EvalPanelConfig& eval_panel_config, MainView main_view)
     : anet::rl::gui::AuiLayoutFrame(title, wxSize(1024, 1024)),
-    train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps),
+    main_view_(main_view), train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps),
     eval_config_step_per_frame_(eval_panel_config.step_per_frame)
 {
     // pane の dock/float とテーマ変更の両方で Runner 用 caption 配色を維持する。
@@ -258,7 +287,7 @@ void RunnerFrame::SetupMenuBar()
     view_menu->AppendSeparator();
 
     // Eval View関連メニュー項目
-    //view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
+    view_menu->AppendCheckItem(ID_TrainPanel, "&Train View");
     view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(false);
     view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(false);
     view_menu->AppendCheckItem(ID_EvalTracePanel, "Evaluation Trace")->Check(false);
@@ -400,8 +429,10 @@ void RunnerFrame::SetupToolBars()
 
     // Panel 表示ツールは View menu と同じ ID を共有し、同じ pane 操作へ到達させる。
     panel_toolbar_ = new wxAuiToolBar(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, style);
+    panel_toolbar_->SetArtProvider(new PanelToolBarArtProvider());
     panel_toolbar_->SetOverflowVisible(false);
     panel_toolbar_->AddTool(ID_LogView, "Logs", wxBitmapBundle(), kLogViewHelp, wxITEM_CHECK);
+    panel_toolbar_->AddTool(ID_TrainPanel, "Train View", wxBitmapBundle(), "Show/hide Train View", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_EvalPanel, "Eval View", wxBitmapBundle(), "Show/hide Eval View", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_QValuePanel, "Q-Values", wxBitmapBundle(), "Show/hide Q-Values", wxITEM_CHECK);
     panel_toolbar_->AddTool(ID_EvalTracePanel, "Trace", wxBitmapBundle(), "Show/hide Evaluation Trace", wxITEM_CHECK);
@@ -453,6 +484,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .BestSize(main_pane_width, 400)
         .MinSize(200, 200)
         .CloseButton(false).MaximizeButton(true).MinimizeButton(false).PinButton(false)
+        .Show(main_view_ != MainView::Eval)
     );
 
     // EvalExperienceView
@@ -465,7 +497,8 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .BestSize(main_pane_width, 400)
         .MinSize(200, 200)
         .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(false)
-        .Hide();
+        .Show(main_view_ != MainView::Train);
+    if (main_view_ == MainView::Eval) eval_info.Centre();
     eval_info.dock_size = main_pane_width;
     aui_mgr_.AddPane(eval_panel_, eval_info);
 
@@ -478,7 +511,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Right().Layer(kQValueLayer).Row(0).Position(0)
         .BestSize(q_value_width, 800)
         .MinSize(300, 150)
-        .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(false)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(true)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
         .Hide();
     q_value_info.dock_size = q_value_width;
@@ -487,7 +520,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     // 履歴は右の補助列に一枚だけ置き、起動時は生成・記録とも休止する。
     eval_trace_panel_ = new EvalTracePanel(*this, aui_mgr_, *eval_panel_, config_data);
     AddAuxPane(eval_trace_panel_, wxAuiPaneInfo().Name("EvalTracePanel").Caption("Evaluation Trace")
-        .CloseButton(true).MaximizeButton(true).Hide());
+        .CloseButton(true).MaximizeButton(true).PinButton(true).Hide());
 }
 
 void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
@@ -755,6 +788,7 @@ void RunnerFrame::SetupEvents()
 
     const std::pair<int, wxWindow*> panel_bindings[] = {
         {ID_LogView, log_panel_},
+        {ID_TrainPanel, train_panel_},
         {ID_EvalPanel, eval_panel_},
         {ID_QValuePanel, q_value_panel_},
         {ID_EvalTracePanel, eval_trace_panel_},
@@ -762,8 +796,9 @@ void RunnerFrame::SetupEvents()
     for (const auto& [id, window] : panel_bindings) {
         Bind(wxEVT_UPDATE_UI, [this, window](wxUpdateUIEvent& event) {
             auto& pane = aui_mgr_.GetPane(window);
-            event.Enable(pane.IsOk());
-            event.Check(anet::rl::gui::IsPaneOpen(pane, HasMaximizedPane()));
+            const bool open = anet::rl::gui::IsPaneOpen(pane, HasMaximizedPane());
+            event.Enable(pane.IsOk() && (!open || CanHidePane(pane)));
+            event.Check(open);
         }, id);
     }
     // 後から Bind した handler が先に呼ばれるため、Logs の印を更新してから上の表示状態の同期へ回す。
@@ -869,124 +904,306 @@ int RunnerFrame::ResolveAuxDockWidth()
 
 void RunnerFrame::OnApplyLayoutPolicy()
 {
+    // 実際の表示を渡すので、最大化による一時非表示でも描画timerを止める。
+    train_panel_->SetViewVisible(aui_mgr_.GetPane(train_panel_).IsShown());
+    // フラグの宣言は最大化中も行う。幅の往復とは独立させる。
+    if (UpdateMainPaneControls()) ScheduleMainPaneUpdate();
+
     // maximize 中は LoadLayout 往復が復元情報 (savedHiddenState) を壊すため何もしない。
     // restore 後に基底の restore ハンドラ経由で再適用される。
     if (HasMaximizedPane()) return;
 
-    // 主領域ポリシー (Train/Eval 50:50) は両 pane が定位置にいる時だけ適用する
+    // 開閉フックを通らない遷移でも、占有規則を冪等に当て直す。
+    if (ApplyMainPaneLayout(aui_mgr_.GetPane(train_panel_).IsShown(), aui_mgr_.GetPane(eval_panel_).IsShown())) {
+        aui_mgr_.Update();
+    }
+    ApplyMainPaneSizes();
+    main_pane_placements_ = GetMainPanePlacements();
+
+    // 既知の導線は判定で防ぐ。未知の経路だけを修復して知らせる。
+    auto& train = aui_mgr_.GetPane(train_panel_);
+    auto& eval = aui_mgr_.GetPane(eval_panel_);
+    if (!(train.IsShown() && train.IsDocked()) && !(eval.IsShown() && eval.IsDocked())) {
+        train.Show().Dock().Centre().Layer(kTrainEvalLayer).Row(0).Position(0);
+        train.SetFlag(wxAuiPaneInfo::savedHiddenState, false);
+        ApplyMainPaneLayout(true, eval.IsShown());
+        UpdateMainPaneControls();
+        aui_mgr_.Update();
+        train_panel_->SetViewVisible(true);
+        LOG::warn() << "No main pane occupies the centre. Showing Train View as a fallback.";
+    } else if (train.IsShown() && train.IsDocked() && train.dock_direction == wxAUI_DOCK_CENTER
+        && eval.IsShown() && eval.IsDocked() && eval.dock_direction == wxAUI_DOCK_CENTER) {
+        // 表示前フックを通らない両Centreは、Trainを残してEvalだけを降格する。
+        RestoreMainPanePosition(eval);
+        UpdateMainPaneControls();
+        aui_mgr_.Update();
+        LOG::warn() << "Both main panes occupy the centre. Moving Evaluation View aside as a fallback.";
+    }
+}
+
+bool RunnerFrame::CanHidePane(const wxAuiPaneInfo& pane)
+{
+    // maximize の一時非表示と、利用者が閉じた状態を区別する。
+    wxWindow* other = nullptr;
+    if (pane.window == train_panel_) other = eval_panel_;
+    else if (pane.window == eval_panel_) other = train_panel_;
+    else return true;
+    const auto& partner = aui_mgr_.GetPane(other);
+    return partner.IsDocked() && anet::rl::gui::IsPaneOpen(partner, HasMaximizedPane());
+}
+
+bool RunnerFrame::ApplyMainPaneLayout(bool train_open, bool eval_open, wxWindow* showing)
+{
+    auto& train = aui_mgr_.GetPane(train_panel_);
+    auto& eval = aui_mgr_.GetPane(eval_panel_);
+    const bool train_docked = train_open && train.IsDocked();
+    const bool eval_docked = eval_open && eval.IsDocked();
+    const bool train_centre = train_docked && train.dock_direction == wxAUI_DOCK_CENTER;
+    const bool eval_centre = eval_docked && eval.dock_direction == wxAUI_DOCK_CENTER;
+    if (train_centre && eval_centre) {
+        // 隠れていた対象の復帰だけを処理し、表示済みへの冗長なONは保険へ渡す。
+        if (showing == train_panel_ && !train.IsShown()) {
+            RestoreMainPanePosition(eval);
+            return true;
+        }
+        if (showing == eval_panel_ && !eval.IsShown()) {
+            RestoreMainPanePosition(train);
+            return true;
+        }
+        return false; // 通常のポリシーで見つかった両Centreは、最後の保険が扱う。
+    }
+    // 有効な占有者がいる間は、側面へdockした相方を移動しない。
+    if (train_centre || eval_centre) return false;
+    auto* candidate = train_docked ? &train : eval_docked ? &eval : nullptr;
+    if (!candidate) return false;
+
+    // 昇格で失う位置だけを1組覚え、幅は既存のpane.dock_sizeに任せる。
+    promoted_dock_position_ = MainPaneDockPosition{.direction=candidate->dock_direction,
+        .layer=candidate->dock_layer, .row=candidate->dock_row, .position=candidate->dock_pos};
+    candidate->Centre().Layer(kTrainEvalLayer).Row(0).Position(0);
+    return true;
+}
+
+void RunnerFrame::RestoreMainPanePosition(wxAuiPaneInfo& pane)
+{
+    // 起動時など未記憶ならRight定位置へ戻す。幅の記憶は変更しない。
+    const auto position = promoted_dock_position_.value_or(MainPaneDockPosition{
+        .direction=wxAUI_DOCK_RIGHT, .layer=kTrainEvalLayer, .row=0, .position=0});
+    pane.Direction(position.direction).Layer(position.layer).Row(position.row).Position(position.position);
+}
+
+bool RunnerFrame::UpdateMainPaneControls()
+{
+    // UIに前回の判断を記憶せず、相方の開閉とdock状態から宣言し直す。
+    bool changed = false;
+    for (auto* panel : {static_cast<wxWindow*>(train_panel_), static_cast<wxWindow*>(eval_panel_)}) {
+        auto& pane = aui_mgr_.GetPane(panel);
+        const bool close = CanHidePane(pane);
+        const bool floatable = close;
+        changed |= pane.HasCloseButton() != close || pane.IsFloatable() != floatable
+            || pane.HasPinButton() != floatable;
+        pane.CloseButton(close).Floatable(floatable).PinButton(floatable);
+        const bool centre = pane.IsShown() && pane.IsDocked() && pane.dock_direction == wxAUI_DOCK_CENTER;
+        const auto marker = pane.caption.find(kCentreCaptionSuffix);
+        const bool marked = marker != wxString::npos;
+        const bool correct_marker = marked && marker + kCentreCaptionSuffix.length() == pane.caption.length();
+        if (centre ? !correct_marker : marked) {
+            // Traceの注記と本体を残し、自分の印だけを必要な末尾へ付け直す。
+            wxString caption = pane.caption;
+            caption.Replace(kCentreCaptionSuffix, wxEmptyString);
+            if (centre) caption += kCentreCaptionSuffix;
+            pane.Caption(caption);
+            if (pane.frame) pane.frame->SetLabel(caption);
+            // 注記だけの変化はdockを組み直さず、captionの再描画で反映する。
+            Refresh(false);
+        }
+    }
+    return changed;
+}
+
+std::array<RunnerFrame::MainPanePlacement, 2> RunnerFrame::GetMainPanePlacements()
+{
+    // 幅やgeometryは合図にせず、利用者が変えた置き場だけを比較する。
+    const auto placement = [](const wxAuiPaneInfo& pane) {
+        return MainPanePlacement{.direction=pane.dock_direction, .layer=pane.dock_layer,
+            .row=pane.dock_row, .position=pane.dock_pos, .floating=pane.IsFloating(), .shown=pane.IsShown()};
+    };
+    return {placement(aui_mgr_.GetPane(train_panel_)), placement(aui_mgr_.GetPane(eval_panel_))};
+}
+
+void RunnerFrame::ScheduleMainPaneUpdate(bool update_layout)
+{
+    // UPDATE_UI 中はレイアウトを組み直さず、変化したときだけ一回に集約する。
+    main_pane_layout_update_needed_ |= update_layout;
+    if (main_pane_update_scheduled_) return;
+    main_pane_update_scheduled_ = true;
+    CallAfter([this] {
+        main_pane_update_scheduled_ = false;
+        // 配置の比較だけならUpdate不要。閉じたfloatのframeを作り直さない。
+        const bool update_layout = std::exchange(main_pane_layout_update_needed_, false);
+        if (update_layout) aui_mgr_.Update();
+        // 最新の配置で一度だけ幅を当てる。最大化中と幅だけの変化は対象外。
+        if (!HasMaximizedPane() && GetMainPanePlacements() != main_pane_placements_) {
+            ApplyMainPaneSizes();
+            main_pane_placements_ = GetMainPanePlacements();
+        }
+    });
+}
+
+void RunnerFrame::ApplyMainPaneSizes()
+{
+    ANET_PROFILE_SCOPE(layout);
+
+    // Centreと相方を等分し、組に含まれないdockはその予算から除く。
     auto& train_pane = aui_mgr_.GetPane(train_panel_);
     auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
-    if (!IsInHomeDock(eval_pane, wxAUI_DOCK_RIGHT, kTrainEvalLayer)) return;
-    if (!train_pane.IsOk() || !train_pane.IsShown() || !train_pane.IsDocked()
-        || train_pane.dock_direction != wxAUI_DOCK_CENTER) return;
+    const bool train_centre = train_pane.IsShown() && train_pane.IsDocked()
+        && train_pane.dock_direction == wxAUI_DOCK_CENTER;
+    const bool eval_centre = eval_pane.IsShown() && eval_pane.IsDocked()
+        && eval_pane.dock_direction == wxAUI_DOCK_CENTER;
+    // Centreが一つでない状態は、占有規則と最後の保険へ任せる。
+    if (train_centre == eval_centre) return;
+    auto& side_pane = train_centre ? eval_pane : train_pane;
 
     auto snapshot = TakeLayoutSnapshot();
 
-    // 右側の dock (Eval の dock、QValue 列、補助 pane 列) を dock 単位で集計する
-    struct RightDock {
+    // Centreと同じ幅の上下の帯だけを、高さで等分する。縦配置では列を縮めない。
+    if (side_pane.IsShown() && side_pane.IsDocked()
+        && (side_pane.dock_direction == wxAUI_DOCK_TOP || side_pane.dock_direction == wxAUI_DOCK_BOTTOM)) {
+        for (const auto& pane : aui_mgr_.GetAllPanes()) {
+            if (!pane.IsShown() || !pane.IsDocked() || pane.window == side_pane.window) continue;
+            // 同居帯と、左右の列の下まで広がる帯はwxの配分をそのまま保つ。
+            if (pane.dock_direction == side_pane.dock_direction && pane.dock_layer == side_pane.dock_layer
+                && pane.dock_row == side_pane.dock_row) return;
+            if ((pane.dock_direction == wxAUI_DOCK_LEFT || pane.dock_direction == wxAUI_DOCK_RIGHT)
+                && pane.dock_layer <= side_pane.dock_layer) return;
+        }
+        auto* band = FindPaneLayout(snapshot, side_pane.name);
+        if (!band || band->dock_size <= 0) return;
+        const auto& centre = train_centre ? train_pane : eval_pane;
+        // Logs・toolbarを含めず、組になる2paneの現在の高さだけを予算にする。
+        const int available = centre.rect.height + band->dock_size;
+        const int height = std::clamp(available / 2, kMinMainPaneHeight,
+            std::max(kMinMainPaneHeight, available - kMinMainPaneHeight));
+        if (height == band->dock_size) return;
+        side_pane.best_size.SetHeight(height);
+        band->dock_size = height;
+        ApplyLayoutSnapshot(std::move(snapshot));
+        return; // LoadLayout後のpane参照は使わない。
+    }
+
+    // 向きもキーに含め、左右の同じlayer/rowを別の列として数える。
+    struct VerticalDock {
+        int direction;
         int layer;
         int row;
         int width;
         int original_width;
         int min_width;
         bool has_q_value;
+        bool has_aux;
+        bool has_main;
         std::vector<wxString> pane_names;
     };
-    std::vector<RightDock> right_docks;
+    std::vector<VerticalDock> docks;
 
     const auto& panes = aui_mgr_.GetAllPanes();
     for (size_t i = 0; i < panes.GetCount(); ++i) {
         const auto& pane = panes.Item(i);
-        if (!pane.IsShown() || !pane.IsDocked() || pane.dock_direction != wxAUI_DOCK_RIGHT) continue;
-        const bool is_q_value = (pane.window == q_value_panel_);
-        const bool is_main_layer = (pane.dock_layer == kTrainEvalLayer);
-        if (!is_main_layer && !is_q_value && !IsAuxPane(pane)) continue;
+        if (!pane.IsShown() || !pane.IsDocked()
+            || (pane.dock_direction != wxAUI_DOCK_LEFT && pane.dock_direction != wxAUI_DOCK_RIGHT)) continue;
 
-        RightDock* dock = nullptr;
-        for (auto& d : right_docks) {
-            if (d.layer == pane.dock_layer && d.row == pane.dock_row) { dock = &d; break; }
+        VerticalDock* dock = nullptr;
+        for (auto& d : docks) {
+            if (d.direction == pane.dock_direction && d.layer == pane.dock_layer && d.row == pane.dock_row) {
+                dock = &d;
+                break;
+            }
         }
         if (!dock) {
             const auto* layout = FindPaneLayout(snapshot, pane.name);
             const int width = (layout && layout->dock_size > 0) ? layout->dock_size : 0;
-            right_docks.push_back({
+            docks.push_back({
+                .direction = pane.dock_direction,
                 .layer = pane.dock_layer,
                 .row = pane.dock_row,
                 .width = width,
                 .original_width = width,
                 .min_width = 0,
                 .has_q_value = false,
+                .has_aux = false,
+                .has_main = false,
                 .pane_names = {},
             });
-            dock = &right_docks.back();
+            dock = &docks.back();
         }
         // 幅を融通する時も、同じ列に入る各paneの最小幅を守る。
         dock->min_width = std::max({dock->min_width, pane.min_size.x, pane.window->GetMinSize().x});
-        dock->has_q_value = dock->has_q_value || is_q_value;
+        dock->has_q_value = dock->has_q_value || pane.window == q_value_panel_;
+        dock->has_aux = dock->has_aux || IsAuxPane(pane);
+        dock->has_main = dock->has_main || pane.window == train_panel_ || pane.window == eval_panel_;
         dock->pane_names.push_back(pane.name);
     }
 
-    // Eval が属する dock (主領域側) と、その外側の列 (QValue/補助) を分けて幅を集計
-    RightDock* eval_dock = nullptr;
-    int q_value_width = 0;
-    int aux_width = 0;
-    for (auto& dock : right_docks) {
-        dock.width = std::max(dock.width, dock.min_width);
-        if (dock.layer == kTrainEvalLayer) {
-            eval_dock = &dock;
-        } else if (dock.has_q_value) {
-            q_value_width += dock.width;
-        } else {
-            aux_width += dock.width;
+    // 主paneだけの側面列が等幅の対象。同居列・上下配置はwxの幅を保つ。
+    VerticalDock* side_dock = nullptr;
+    if (side_pane.IsShown() && side_pane.IsDocked()) {
+        for (auto& dock : docks) {
+            if (dock.direction == side_pane.dock_direction && dock.layer == side_pane.dock_layer
+                && dock.row == side_pane.dock_row) side_dock = &dock;
         }
     }
-    if (!eval_dock || eval_dock->width <= 0) return;
+    const bool split = side_dock && side_dock->pane_names.size() == 1;
+    int other_width = 0;
+    for (auto& dock : docks) {
+        if ((split && &dock == side_dock) || (!dock.has_main && (dock.has_q_value || dock.has_aux))) {
+            dock.width = std::max(dock.width, dock.min_width);
+        }
+        if (!split || &dock != side_dock) other_width += dock.width;
+    }
 
     // 幅が足りない時は補助 pane 列 → QValue 列の順で縮めて主領域の最小幅を確保する
     const int client_width = GetClientSize().GetWidth();
-    const int min_main_width = kMinTrainWidth + kMinEvalWidth;
-    int shortage = min_main_width - (client_width - q_value_width - aux_width);
+    const int centre_min_width = train_centre ? kMinTrainWidth : kMinEvalWidth;
+    const int side_min_width = train_centre ? kMinEvalWidth : kMinTrainWidth;
+    const int min_main_width = split ? kMinTrainWidth + kMinEvalWidth : centre_min_width;
+    int shortage = min_main_width - (client_width - other_width);
     if (shortage > 0) {
-        for (auto& dock : right_docks) {
+        for (auto& dock : docks) {
             if (shortage <= 0) break;
-            if (dock.layer == kTrainEvalLayer || dock.has_q_value) continue;
+            if (dock.has_main || dock.has_q_value || !dock.has_aux) continue;
             const int reducible = std::max(0, dock.width - std::max(kMinAuxWidth, dock.min_width));
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
+            other_width -= reduction;
             shortage -= reduction;
         }
-        for (auto& dock : right_docks) {
+        for (auto& dock : docks) {
             if (shortage <= 0) break;
-            if (dock.layer == kTrainEvalLayer || !dock.has_q_value) continue;
+            if (dock.has_main || !dock.has_q_value) continue;
             const int reducible = std::max(0, dock.width - std::max(kMinQValueWidth, dock.min_width));
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
+            other_width -= reduction;
             shortage -= reduction;
-        }
-        q_value_width = 0;
-        aux_width = 0;
-        for (const auto& dock : right_docks) {
-            if (dock.layer == kTrainEvalLayer) continue;
-            (dock.has_q_value ? q_value_width : aux_width) += dock.width;
         }
     }
 
-    // 主領域を Train:Eval = 50:50 に分割 (Train の最小幅は確保する)
-    const int main_width = std::max(min_main_width, client_width - q_value_width - aux_width);
-    int eval_width = main_width / 2;
-    eval_width = std::clamp(eval_width, kMinEvalWidth, std::max(kMinEvalWidth, main_width - kMinTrainWidth));
-    eval_dock->width = eval_width;
+    // 間の列や外側の列を除いた主領域を半分にし、両方の最小幅を守る。
+    const int main_width = std::max(min_main_width, client_width - other_width);
+    if (split) side_dock->width = std::clamp(main_width / 2, side_min_width,
+        std::max(side_min_width, main_width - centre_min_width));
 
     bool changed = false;
-    for (const auto& dock : right_docks) {
+    for (const auto& dock : docks) {
         changed = changed || (dock.width != dock.original_width);
     }
     if (!changed) return;
 
     // live pane への書き込みは往復前に行う (LoadLayout は pane 配列を差し替えるため)
-    eval_pane.best_size.SetWidth(eval_width);
+    if (split) side_pane.best_size.SetWidth(side_dock->width);
 
-    for (const auto& dock : right_docks) {
+    for (const auto& dock : docks) {
         if (dock.width == dock.original_width) continue;
         for (const auto& name : dock.pane_names) {
             if (auto* info = FindPaneLayout(snapshot, name)) {
@@ -1012,6 +1229,8 @@ void RunnerFrame::HideAuxPanes()
 
 void RunnerFrame::RestoreDefaultPanes()
 {
+    // Reset の復帰先は起動時の設定。昇格前の位置の記憶もリセットする。
+    promoted_dock_position_.reset();
     // toolbar はフロート中でも上端 Row 0 の既定順へ回収する。
     const std::pair<wxAuiToolBar*, int> toolbars[] = {
         {run_control_toolbar_, 0}, {step_toolbar_, 1}, {run_ops_toolbar_, 2}, {panel_toolbar_, 3},
@@ -1034,14 +1253,14 @@ void RunnerFrame::RestoreDefaultPanes()
 
     auto& train_pane = aui_mgr_.GetPane(train_panel_);
     if (train_pane.IsOk()) {
-        train_pane.Show(true).Dock().Centre().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
+        train_pane.Show(main_view_ != MainView::Eval).Dock().Centre().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
         train_pane.BestSize(kMinTrainWidth, 400).MinSize(200, 200);
         train_pane.dock_size = 0;
     }
 
     auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
     if (eval_pane.IsOk()) {
-        eval_pane.Show(false).Dock().Right().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
+        eval_pane.Show(main_view_ != MainView::Train).Dock().Right().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
         eval_pane.BestSize(kMinEvalWidth, 400).MinSize(200, 200);
         eval_pane.dock_size = kMinEvalWidth;
     }
@@ -1055,6 +1274,9 @@ void RunnerFrame::RestoreDefaultPanes()
     }
 
     HideAuxPanes();
+    ApplyMainPaneLayout(train_pane.IsShown(), eval_pane.IsShown());
+    UpdateMainPaneControls();
+    main_pane_placements_ = GetMainPanePlacements();
 }
 
 void RunnerFrame::AddAuxPane(wxWindow* window, const wxAuiPaneInfo& pane_info)
@@ -1160,18 +1382,26 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
         auto heatmap_panel = new SweepHeatMapPanel(this, s.tag, s, train_runner);
         AddAuxPane(heatmap_panel,
             MakeUniquePaneInfo("HeatMapPanel", "HeatMap", s.tag)
-            .CloseButton(true).MaximizeButton(true)
+            .CloseButton(true).MaximizeButton(true).PinButton(true)
         );
     }
 }
 
 void RunnerFrame::OnPaneHiding(wxAuiPaneInfo& pane)
 {
+    // 基底が Hide / Update する前に、遷移後の Centre を決める。
+    const bool maximized = HasMaximizedPane();
+    ApplyMainPaneLayout(pane.window != train_panel_ && anet::rl::gui::IsPaneOpen(aui_mgr_.GetPane(train_panel_), maximized),
+        pane.window != eval_panel_ && anet::rl::gui::IsPaneOpen(aui_mgr_.GetPane(eval_panel_), maximized));
     if (pane.window == eval_trace_panel_) eval_trace_panel_->SetActive(false);
 }
 
 void RunnerFrame::OnPaneShowing(wxAuiPaneInfo& pane)
 {
+    // 表示対象を明示し、最大化で実際には隠れた相方と取り違えない。
+    const bool maximized = HasMaximizedPane();
+    ApplyMainPaneLayout(pane.window == train_panel_ || anet::rl::gui::IsPaneOpen(aui_mgr_.GetPane(train_panel_), maximized),
+        pane.window == eval_panel_ || anet::rl::gui::IsPaneOpen(aui_mgr_.GetPane(eval_panel_), maximized), pane.window);
     if (pane.window == eval_trace_panel_) eval_trace_panel_->SetActive(true);
 }
 
@@ -1186,7 +1416,7 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
 
     AddAuxPane(conv2d_panel,
         MakeUniquePaneInfo("Conv2dPanel", "EvalConv2d")        // name, caption, subcaption
-        .CloseButton(true).MaximizeButton(true)
+        .CloseButton(true).MaximizeButton(true).PinButton(true)
     );
     eval_trace_panel_->RegisterFollower(conv2d_panel);
 }
@@ -1236,6 +1466,8 @@ void RunnerFrame::ShowEvalPaneIfHidden()
     auto& pane = aui_mgr_.GetPane(eval_panel_);
     if (!pane.IsOk() || pane.IsShown()) return;
 
+    // 自動表示も通常の復帰フックを通し、元の占有者の再表示を先に処理する。
+    OnPaneShowing(pane);
     pane.Show(true);
     aui_mgr_.Update();
     ApplyLayoutPolicy();
@@ -1329,6 +1561,14 @@ void RunnerFrame::OnUpdateTrainStatus(wxUpdateUIEvent& WXUNUSED(event))
 {
     UpdateTrainStatus();
     ApplyAlwaysOnTopMode();
+    // ドラッグのfloatには遷移フックがないため、既存の更新で占有規則も当て直す。
+    const bool maximized = HasMaximizedPane();
+    const bool layout_changed = !maximized
+        && ApplyMainPaneLayout(aui_mgr_.GetPane(train_panel_).IsShown(), aui_mgr_.GetPane(eval_panel_).IsShown());
+    const bool controls_changed = UpdateMainPaneControls();
+    const bool placement_changed = !maximized && GetMainPanePlacements() != main_pane_placements_;
+    if (layout_changed || controls_changed || placement_changed)
+        ScheduleMainPaneUpdate(layout_changed || controls_changed);
 }
 
 bool RunnerFrame::TrySaveAgent(const std::filesystem::path& file_path)

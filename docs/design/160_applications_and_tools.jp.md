@@ -28,7 +28,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `RunnerApp` | wxWidgets application entry。config、RunManager、RunnerThread、GUI、loggingのlifecycleを統括する。Run directory自体は`MetricsLogger`が保持する |
 | `WorkspaceService` | coreのapplication共通基盤。workspace pathと新規名の検証・解決・新規生成、MRU、`last_workspace.txt`、config合成、`app.runs_dir`不変条件を管理する |
 | workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
-| `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50）を持つ。paneの表示切り替えでwindow sizeは変更しない |
+| `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担う。現在Centreにいる主paneは隠れるかfloatするまで占有を保ち、離れたら相方を昇格する。隠れた占有者がCentre情報を保ってdockedで再表示されると取り戻し、側面へdockしたpaneはそこに留まる。一方がCentreで相方が主pane専用のLeft/Rightの列なら幅を、Centreと同じ幅のTop/Bottomの帯なら高さを等分し、置き場の変化時は200msのUPDATE_UIでも当てる。Centreの主paneのcaptionの末尾には`[Centre]`を付ける。最後の主paneを隠す・pinで外すことを止める判定を各導線で共有し、✕・pin・Floatableと占有規則は200msのUPDATE_UIで状態から適用する。未知の経路で主paneが不在ならTrainをCentreへ戻し、両方CentreならEvalを降格してWARNする。paneの表示切り替えでwindow sizeは変更しない |
+| `anet::rl::gui::Panel` | Env固有Viewなどの共通panel。構築時に明示styleにも`wxFULL_REPAINT_ON_RESIZE`を加え、停止中もresize後の画面全体を描き直す。Viewごとの指定は不要。別windowであるwxGLCanvasは各canvas側で設定する |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは強制行動で駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
@@ -147,7 +148,7 @@ TraceモードはTracePlayerの選択の有無で判定する。RunnerFrameはan
 
 利用者のスクロール（ホイール・キー・スクロールバー・選択のドラッグ）で最下が見えなくなると、Auto-scrollは自動でOFFになる。通知はnativeの処理の前に来て、RichEditはホイールのスクロールを通知の後も続けることがあるため、一続きの操作の最初に最下が見えていたかを控え、表示の先頭が100 ms動かなくなってから決める。通知の来ないスクロールに備えて、追記の前にも最下が見えているかを確かめる。OFFの間に、操作の前は見えていなかった最下がスクロールで見えたら、自動でONに戻す。判定を待っている間に行が届いたときは、追記で最下が外れる前に決める。操作の前から最下が見えていたとき（最下にいるままのクリックやキー）は戻らない。最下へのスクロール（`SB_BOTTOM`）と横の通知は自ら送るため見ない。ログ欄の大きさが変わったときは、ONの間は最下を見せ続ける。ジャンプ・検索・`+N`はスクロールの通知を出さないので、OFFのままになる。
 
-Wrap（既定ON）はログ欄を作り直さずに切り替え、MSWは`EM_SETTARGETDEVICE`、それ以外は`wxTE_DONTWRAP`の付け外しで行う。ログ欄はOFFへ戻せるよう`wxHSCROLL`付きで作ってから折り返す。wxはRICH2に`ES_DISABLENOSCROLL`を付けるため、MSWでは折り返している間だけ`EM_SHOWSCROLLBAR`で横スクロールバーを隠す。Indent（既定ON）は折り返した2行目以降を本文の頭（時刻と種類の後ろ）にそろえる段落の字下げで、既にある行は全体への1回の指定、これから足す行は追記ごとの既定の書式でそろえる。wxは既定の書式を合成するときに2行目以降の字下げを引き継がないため、追記ごとに字下げを含めて渡す。幅は時刻と種類の文字数を等幅フォントで測り、1/10 mmに直す。記録の中の改行で始まる続きの行は別の段落なので字下げしない。折り返さない間は効果がないので、Indentは押せなくする。
+Wrap（既定ON）はログ欄を作り直さずに切り替え、MSWは`EM_SETTARGETDEVICE`、それ以外は`wxTE_DONTWRAP`の付け外しで行う。ログ欄はOFFへ戻せるよう`wxHSCROLL`付きで作ってから折り返す。wxはRICH2に`ES_DISABLENOSCROLL`を付けるため、MSWでは折り返している間だけ`EM_SHOWSCROLLBAR`で横スクロールバーを隠す。Indent（既定ON）は折り返した2行目以降を本文の頭（時刻と種類の後ろ）にそろえる段落の字下げで、既にある行は全体への1回の指定、これから足す行は追記ごとの既定の書式でそろえる。wxは既定の書式を合成するときに2行目以降の字下げを引き継がないため、追記ごとに字下げを含めて渡す。幅は時刻と種類の文字数を固定幅フォントで測り、1/10 mmに直す。記録の中の改行で始まる続きの行は別の段落なので字下げしない。折り返さない間は効果がないので、Indentは押せなくする。
 
 未確認の警告は、表示したWARN以上の記録を古い順に数える。ボタンは一番古い未確認の行を選び、その3行上から表示する。▾の`Mark all as viewed`は全件を見たことにする。画面に映っただけでは数を減らさず、表示しないlevelの記録とClearした記録は数えない。RunnerFrameは`GetUnviewedAlerts`をUpdate UIで読み、Panels toolbarのLogsに印と件数のtooltipを出す。印は未確認があるときだけ幅を取り、印の有無が変わったときはtoolbarの大きさを測り直してpaneを並べ直す（toolbarのidle更新の外で行う）。
 
@@ -374,7 +375,12 @@ sequenceDiagram
 - 初期化中（構築スレッド開始から結果受領まで）の拒否可能なCloseは一度だけ記憶して拒否し、構築後に初期化の後半と学習開始を省いて閉じる。RUNNINGなら学習前のAgentを保存できる。RUNNINGでなければ`Failed to initialize RunManager.`を出し、終了要求がなければウィンドウを残す。HeatMapは初期化までUpdate UIとhandlerで抑止する。
 - 初期化中の`Close(true)`は構築を待ってから既存のclose手順へ進む。構築失敗はその場で既存reporterへ渡し、保存せず閉じ、終了コード1とする。OS終了の問い合わせはRunnerAppの`OnQueryEndSession`でFrameの通常Closeと区別して受け、初期化中は同じ待機経路へ通して拒否しない。初期化後はwxの既定処理に委ねる。
 - OS終了確定の通知はwxの既定処理を保ち、Closeの道を足さない。wxWidgets 3.3.3では`CallOnExit()`がFrameと子パネルをCloseなしで削除してから`OnExit()`を呼び、その戻り値で`exit()`する。`OnExit()`は残る構築スレッドを待ってから出力を片付ける。未処理の構築失敗は表示・保存を省いて戻り値1へ反映する。LogPanelが先に削除された場合、ログチェーンのUI参照を切り離してファイル側だけへ排出する。通常完了通知、拒否できないClose、OnExit以外では構築を待たない。
-- Train panelのFPSは描画頻度だけを制御し、0では描画timerを停止しても学習は継続する。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
+- Train panelのFPSは描画頻度だけを制御し、0またはTrain Viewの非表示中は描画timerを停止しても学習は継続する。表示状態と選択FPSは初期化前も保持し、再表示時は現在選択されているFPSで再開する。observerは表示切替で外さない。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
+- 起動時とReset Layoutの主paneは`app.main_view`（`train`・`eval`・`both`、既定`eval`）で決まる。昇格した主paneの元のdock位置をFrameが1組保持し、隠れていた占有者がCentre情報を保ってdockedで再表示されると復元する。Resetで位置の記憶を消す。主paneを隠す・floatできるのは相方が開いてdockedのときだけで、両方dockedなら両方をfloatできる。CentreのpaneはwxAUIがcaptionドラッグを始めないためcaptionのpinボタンで、側面のpaneはドラッグでもpinでも外せる。主paneのpinはFloatable・✕と同じ値で描き、UPDATE_UIの宣言が追いつく前のpin押下も基底の判定で止める。pin後の昇格も既存200ms UPDATE_UIで行う。Logs・Q-Values・Evaluation Trace・HeatMap・Conv2dもpinを持ち、toolbar paneは対象外。側面へdockしたpaneはそこに留まり、最後の1つはpinも✕も無く動かせない。最大化中の開閉判定には一時非表示を除いた開閉状態を使い、当の最大化paneをmenuから隠す前に最大化を解く。最大化paneのpinはwxのrestore経路に任せる。幅のLoadLayout往復は最大化中に行わない。
+- 両主paneが表示中でdockedで、一方がCentre、相方だけがLeft/Rightのdockにあるときは、その列以外の表示中の縦dockをclient幅から差し引いた主領域の幅を等分する。方向・layer・rowでdockを特定し、layer・rowの値自体は横の等分を制限しない。相方だけがTop/Bottomのdockにあり、表示中のLeft/Rightのdockのlayerがすべてその帯より大きいときは、Centreのpane.rectの高さとその帯の実dock_sizeの和を等分する。同じdockにLogsや補助paneが同居する列・帯と、左右の列と同じか内側のlayerを含むCentreより広い帯は対象外。横の最小幅200+200と補助列→Q-Values列の縮小順を保ち、縦の高さが200+200に足りないときは最小高でclampしてLogs・toolbarや左右の列を縮めない。既存の遷移とresizeに加え、200msのUPDATE_UIで主paneの置き場（方向・layer・row・位置・float・表示）が変わったときだけ当てる。起動・Resetの比較値は現在の置き場で、dock_sizeは比較しない。サッシで変えた幅・高さは次の遷移か置き場の変化まで保つ。表示中でdockedのCentreの主paneだけcaptionの末尾に半角スペースと`[Centre]`を付け、既存のTrace注記も保持する。float・側面・非表示の主paneと、ほかのpaneにはこの印を付けない。
+- Centreの印だけの変化はTrace注記と同じくcaptionの再描画と浮動frameのタイトル更新に留め、通常のTrace行移動ではAUI全体を組み直さない。許可済みの浮動paneのcloseでは、wxがframe参照を消す前にwindowを旧sizerから外し、遅延破棄前の再表示でも二重登録を防ぐ。メニューhideとVetoにはこの解放を行わない。
+- Panels toolbarは表示中のpaneの選択枠を操作可否と独立に維持する。最後の主paneのボタンが無効でもシステムの強調色で枠を描き、文字色と操作拒否は標準の無効状態を保つ。
+- Centreのdock寸法は伸縮領域の大きさなので、共通のdockサイズ同期で`pane.dock_size`へ書き戻さない。構造化スナップショットでもCentreはliveの記憶値を使い、昇格中に別paneを隠したり幅の往復をしても、元の側面dockへ戻る幅を保持する。
 - Evalの`app.eval_panel.step_per_frame`は1以上のint値を起動時に検証する。`EvalPanel`は起動時configと独立した実行時値を持ち、`View > Eval Steps per Frame`のConfig・固定値（1・2・4・10・20・50・100）・Customから変更する。Custom入力は現在値から始め、1〜2,147,483,647の整数だけを確定する。キャンセルでは値・選択を維持し、固定値と同じ数を入力してもCustomの選択を保持する。実行時変更は次の自動評価更新とTraceの基準速度（現在のFPS×現在のstep数）へ反映し、起動時configとconfig dump、一時停止・Trace状態、手動Stepの1 step動作は変えない。初期選択はConfigで、初期化前は操作できない。
 - `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
 
@@ -402,6 +408,8 @@ sequenceDiagram
 - `reports/tools/wiki_support.py` は材料・blob・リンク候補の読み取りと地図の機械的な2節の再生成を補助する。知見の意味や裁定はエージェントが正本を読んで判断する。台帳の正本は `reports/registry/findings.jsonl`、CLIとレコード形式はregistry.pyの冒頭を参照する。
 
 ## 8. テストと変更時の確認事項
+
+- [PRD110検証資材](../../core/anet-core/testdata/prd110/README.md): 主paneの初期表示・Centre昇格とdock位置復帰、三導線の開閉制限、最大化中の開閉、Train描画timer、未知経路の保険とWARN、既定スイートの失敗集合を確認する。captionのドラッグと実画面の幅は人が確認する。
 
 - [PRD109検証資材](../../core/anet-core/testdata/prd109/README.md): 構築中のtimer・ログ・pane操作、初期化中のCloseとOS終了問い合わせ、失敗と不完全な構築、ウィンドウ先行破棄、既定スイートの失敗集合、4環境の全scalar点の完全一致。実機の描画とOSの「応答なし」は人が確認する。
 

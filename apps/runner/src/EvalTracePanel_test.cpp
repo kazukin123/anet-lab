@@ -925,7 +925,7 @@ TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[
     auto* frame = wxGetApp().GetMainFrame();
     // 初期化前の別Frameでは、ConfigとCustomを含む全項目が操作不可となる。
     {
-        RunnerFrame uninitialized("Uninitialized Eval menu", TrainPanelConfig{}, EvalPanelConfig{});
+        RunnerFrame uninitialized("Uninitialized Eval menu", TrainPanelConfig{}, EvalPanelConfig{}, RunnerFrame::MainView::Train);
         auto* bar = uninitialized.GetMenuBar();
         auto* menu = bar->FindItem(bar->FindMenuItem("View", "Eval Steps per Frame"))->GetSubMenu();
         for (auto* item : menu->GetMenuItems()) {
@@ -1074,7 +1074,7 @@ TEST_CASE("Runner forwards Trace arrows without steps and reports successful for
             "run.seed = 1\nrun.train.num_envs = 1\nrun.train.runner_type = serial\n"
             "run.eval.[panel].run_mode = eval\napp.eval_panel.eval_config_tag = panel\n"
             "app.train_auto_start = false\napp.save_agent_on_close = false\napp.show_error_dialog = false\n"
-            "app.train_panel.fps = 0\napp.eval_panel.fps = 0\napp.eval_panel.auto_start = false\n"
+            "app.main_view = train\napp.train_panel.fps = 0\napp.eval_panel.fps = 0\napp.eval_panel.auto_start = false\n"
             "backend.torch_num_threads = 1\napp.run_name = run_{t}_prd105_keys\n"
             "app.eval_trace_panel.columns.[1] = $runner exp_step label:step\n"
             "app.eval_trace_panel.columns.[2] = $runner forced label:forced\n"
@@ -1315,7 +1315,8 @@ int main(int argc, char** argv)
         const std::string_view argument(arguments.Argv()[i]);
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
             || argument.find("prd105_ui_keys") != std::string_view::npos
-            || argument.find("[prd109_") != std::string_view::npos;
+            || argument.find("[prd109_") != std::string_view::npos
+            || argument.find("[prd110_") != std::string_view::npos;
     }
     if (!starts_runner_app) {
         wxInitAllImageHandlers();

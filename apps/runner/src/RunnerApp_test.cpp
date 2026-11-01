@@ -199,20 +199,13 @@ TEST_CASE("Runner startup keeps panes usable and auxiliary views unavailable", "
         app.frame->GetEventHandler()->ProcessEvent(event);
     }
     CHECK(manager->GetAllPanes().GetCount() == count);
-    for (const auto* name : {"Log View", "Evaluation View", "Evaluation QValue View", "Evaluation Trace"}) {
+    for (const auto* name : {"Log View", "Train View", "Evaluation View", "Evaluation QValue View", "Evaluation Trace"}) {
         const int id = bar->FindMenuItem(kViewMenu, name);
         REQUIRE(id != wxNOT_FOUND);
         for (const bool show : {true, false}) {
             wxCommandEvent event(wxEVT_MENU, id);
             event.SetInt(show);
             app.frame->GetEventHandler()->ProcessEvent(event);
-        }
-    }
-    // Train は現行UIでは固定の中央paneでmenuが無いので、公開AUI操作で往復する。
-    for (auto& pane : manager->GetAllPanes()) {
-        if (dynamic_cast<TrainPanel*>(pane.window)) {
-            pane.Hide(); manager->Update();
-            pane.Show(); manager->Update();
         }
     }
     app.frame->SetSize(1000, 650);

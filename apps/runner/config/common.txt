@@ -109,6 +109,7 @@ backend.@non-deterministic.deterministic_algorithms = false
 # --- app
 
 app.run_name ?= run_{t}
+app.main_view ?= eval
 
 app.log_panel.level ?= info
 app.log_panel.auto_scroll ?= true

@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -20,7 +21,10 @@
 
 class RunnerFrame final : public anet::rl::gui::AuiLayoutFrame {
 public:
-    RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config);
+    enum class MainView { Train, Eval, Both };
+
+    RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config,
+        const EvalPanelConfig& eval_panel_config, MainView main_view);
 
     void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager);
 protected:
@@ -50,6 +54,7 @@ protected:
     void OnApplyLayoutPolicy() override;
     void OnPaneHiding(wxAuiPaneInfo& pane) override;
     void OnPaneShowing(wxAuiPaneInfo& pane) override;
+    bool CanHidePane(const wxAuiPaneInfo& pane) override;
 private:
     enum class AlwaysOnTopMode {
         Off,
@@ -75,6 +80,21 @@ private:
     void ToggleEvalPause();
     void AttachTrainStatusObserver(const std::shared_ptr<anet::rl::RunManager>& run_manager);
     void DetachTrainStatusObserver();
+    bool ApplyMainPaneLayout(bool train_open, bool eval_open, wxWindow* showing = nullptr);
+    void RestoreMainPanePosition(wxAuiPaneInfo& pane);
+    bool UpdateMainPaneControls();
+    struct MainPanePlacement {
+        int direction;
+        int layer;
+        int row;
+        int position;
+        bool floating;
+        bool shown;
+        bool operator==(const MainPanePlacement&) const = default;
+    };
+    std::array<MainPanePlacement, 2> GetMainPanePlacements();
+    void ScheduleMainPaneUpdate(bool update_layout = true);
+    void ApplyMainPaneSizes();
 private:
     // 補助 pane 列 (HeatMap/Conv2d の動的追加と幅解決)
     void AddAuxPane(wxWindow* window, const wxAuiPaneInfo& pane_info);
@@ -120,9 +140,20 @@ private:
     std::optional<LogPanel::UnviewedAlerts> shown_log_alerts_;
     AlwaysOnTopMode always_on_top_mode_ = AlwaysOnTopMode::Off;
 
+    const MainView main_view_;
     const float train_config_fps_;
     const float eval_config_fps_;
     const int eval_config_step_per_frame_;
     int eval_steps_selection_ = wxID_NONE;
     bool initialized_ = false;
+    struct MainPaneDockPosition {
+        int direction;
+        int layer;
+        int row;
+        int position;
+    };
+    std::optional<MainPaneDockPosition> promoted_dock_position_;
+    std::array<MainPanePlacement, 2> main_pane_placements_{};
+    bool main_pane_update_scheduled_ = false;
+    bool main_pane_layout_update_needed_ = false;
 };

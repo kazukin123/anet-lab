@@ -32,9 +32,9 @@ void TrainPanelConfig::Validate() const
 TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
 	: anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
 		wxTAB_TRAVERSAL | wxFULL_REPAINT_ON_RESIZE),
-	config_(config), update_timer_(this, wxID_ANY)
+	fps_(config.fps), update_timer_(this, wxID_ANY)
 {
-	config_.Validate();
+	config.Validate();
 	SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BACKGROUND));
 	Bind(wxEVT_SIZE, &TrainPanel::OnSize, this);
 }
@@ -62,25 +62,41 @@ void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 		},
 		"TrainPanel");
 
-	// Timer開始。0 は表示更新を意図的に停止する。
+	// 初期化前に受け取った表示状態と選択FPSを、そのまま初回の判定に使う。
 	Bind(wxEVT_TIMER, &TrainPanel::OnTimer, this, update_timer_.GetId());
-	SetFps(config_.fps);
+	initialized_ = true;
+	UpdateTimerState();
 }
 
 void TrainPanel::SetFps(float fps)
 {
 	ValidateTrainFps(fps, "TrainPanel::SetFps fps");
 
-	// 実行時変更では既存 timer を止めてから、新しい周期を確定する。
-	update_timer_.Stop();
-	if (fps == 0.0f) {
-		ANET_LOG_DEBUG("TrainPanel view updates disabled");
+	// 非表示中と初期化前も、次に表示するときのFPSを保持する。
+	fps_ = fps;
+	UpdateTimerState();
+}
+
+void TrainPanel::SetViewVisible(bool visible)
+{
+	view_visible_ = visible;
+	UpdateTimerState();
+}
+
+void TrainPanel::UpdateTimerState()
+{
+	// Initialize が timer の購読を用意するまでは、timer 自体には触らない。
+	if (!initialized_) return;
+	if (!view_visible_ || fps_ == 0.0f) {
+		if (update_timer_.IsRunning()) update_timer_.Stop();
 		return;
 	}
 
-	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
-	ANET_LOG_DEBUG("interval=" << interval);
-	update_timer_.Start(interval);
+	// 同じ表示状態の再適用で、稼働中timerの周期をやり直さない。
+	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps_)));
+	if (!update_timer_.IsRunning() || update_timer_.GetInterval() != interval) {
+		update_timer_.Start(interval);
+	}
 }
 
 void TrainPanel::OnTimer(wxTimerEvent& event)

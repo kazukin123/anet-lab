@@ -433,10 +433,13 @@ Runner画面はwxAUIのpaneで構成される。
 - `Run制御`: Trainのpause/resumeと、separatorを挟んでEvalのpause/resume、Evalの1 step実行を提供する。走行中のtoolは押下表示になり、iconは次の操作を表す一時停止記号へ変わる。停止中は再生記号へ戻る。非表示のEvalをresumeするか1 step実行すると`Evaluation View`も表示する。右クリックによるresumeも同じ扱いで、keyboard経路(`Space` / `Ctrl`)だけが表示と独立している。
 - `Step表示`: Trainの`exp_step`と`train_step`を表示する。
 - `Run操作`: 任意pathへのcheckpoint保存とRun folder表示を提供する。
-- `Panel表示`: `Logs`、`Eval View`、`Q-Values`の表示を切り替える。対応する`View` menuとpaneの状態に同期する。
+- `Panel表示`: `Logs`、`Train View`、`Eval View`、`Q-Values`、`Trace`の表示を切り替える。対応する`View` menuとpaneの状態に同期する。
 
-- `Train View`: Train Runnerから受け取ったEnv固有Viewを表示する。
-- `Evaluation View`: Trainとは別のEval Envを手動またはtimerで進める。初期状態では非表示である。
+各paneのcaptionにはpinボタンがあり、押すとfloating windowになる。最後の主Viewにはpinも✕も表示されない。
+中央のViewのcaptionには`[Centre]`が付く。
+
+- `Train View`: Train RunnerのEnv固有Viewを見るときは、Panelsの`Train View`または`View > Train View`で表示する。隠すときも同じ項目かpaneの✕を使う。隠している間も学習は続く。
+- `Evaluation View`: 既定ではこのViewだけが中央に表示される。Trainとは別のEval Envを手動またはtimerで進める。両方の主Viewを表示し、一方が中央、もう一方が左右どちらかの主Viewだけの列にあるとき、ほかの縦の列を除いた幅を等分する。上下に並べ、帯の幅が中央と同じで主Viewだけの帯のときは高さを等分する。Logsや補助paneと同居する帯は等分しない。窓の縁へ落として左右の列の下まで広がる帯は等分しない。落とした直後も等分になる。中央のViewはcaptionをドラッグしても動かない。外すにはcaptionのpinボタンを押す。側面のViewはドラッグでもpinでも外せる。Trainを外すとEvalが中央に広がる。外したTrainを左の縁へ落とすと左の列に留まり、中央はEvalのまま。最後の主Viewはpinも✕も無く、移動できず、表示トグルはチェック付きで無効になる。
 - `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。
 - `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。起動時の表示levelは`app.log_panel.level`、操作帯のAuto-scroll・Wrap・Indentの既定は`app.log_panel.auto_scroll`・`app.log_panel.wrap`・`app.log_panel.indent`（いずれも既定`true`）で指定する。
 - `HeatMap` / `Conv2d`: `View`メニューから追加する補助pane。
@@ -445,7 +448,7 @@ Runner画面はwxAUIのpaneで構成される。
 
 ![LunarLanderの実行画面と可視化pane](assets/020_runner_lunarlander_visualization.png)
 
-paneを閉じたり初期化前のViewを表示した場合は、次のように描画対象が少ない状態になることがある。`View > Reset Layout`で既定配置へ戻せる。
+paneを閉じたり初期化前のViewを表示した場合は、次のように描画対象が少ない状態になることがある。Train ViewとEvaluation Viewを両方とも隠すことはできない。配置を戻すには`View > Reset Layout`を選ぶ。
 
 ![描画対象がない状態のRunner画面](assets/020_runner_empty_view.png)
 
@@ -466,10 +469,11 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 | `Ctrl` | Evalを1 step自動実行する |
 | 矢印キー | Live中はLunarLander向けに`0`から`3`の強制行動でEvalを1 step進める。Trace中にViewなどから転送された↑↓は表の行を移動し、←→は何もしない |
 | テンキー`0`から`9` | 同じ番号のActionを指定してEvalを1 step進める |
-| `View > Evaluation View` | Eval paneの表示を切り替える |
+| `View > Train View` | Train paneの表示を切り替える。最後の主paneは隠せない |
+| `View > Evaluation View` | Eval paneの表示を切り替える。最後の主paneは隠せない |
 | `View > Evaluation QValue View` | Q値paneの表示を切り替える |
 | `View > Log Level` | GUIへ表示するログlevelを切り替える |
-| `View > Reset Layout` | pane配置とframe sizeを既定へ戻す |
+| `View > Reset Layout` | pane配置を起動時の設定へ戻す。frameの大きさは変えない |
 | Run操作ツールバーの`Save Checkpoint` | Trainが走行中ならまずpauseし、Run directoryと`agent_<exp_step>.anet`を既定に、任意pathへAgentを保存する |
 | Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
@@ -483,7 +487,9 @@ EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`r
 
 ### 6.3 表示FPSと進行状況
 
-`View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`では描画timerを止めるが、学習は継続する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
+起動時に表示するViewを変えるには`app.main_view`へ`train`（Trainだけ）・`eval`（Evalだけ、既定）・`both`（両方）を指定する。Runプロファイルでは`run.@trainview : app.main_view = train`のように書く。`View > Reset Layout`もこの設定へ戻る。Evalを自動で進めるかは`app.eval_panel.auto_start`で指定する。
+
+`View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`またはTrain Viewを隠している間は描画timerを止めるが、学習は継続する。隠したままFPSを選び直した場合は、再表示するとそのFPSで描画する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
 
 `View > Eval Steps per Frame`で、自動評価の描画更新1回あたりのstep数を変更する。`1`・`2`・`4`・`10`・`20`・`50`・`100`から選ぶか、`Custom...`で現在値を初期表示した入力欄へ1〜2,147,483,647の整数を指定する。確定後は`Custom (N)...`に入力値が表示され、キャンセルでは値と選択を保持する。`Config (N)`は起動時設定へ戻す。変更は次の自動評価更新から反映され、config dumpには保存しない。変更しても一時停止やTrace表示は解除されず、手動Stepは常に1 step進む。Evaluation Traceの1x速度は、現在のFPSと現在のstep数の積に追従する。
 

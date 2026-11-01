@@ -438,7 +438,7 @@ _Avoid_: event_counts（実装名）, eval step（eval 座標系と混同）
 ### Runner GUI
 
 **主領域**:
-Runner 画面中央で Train pane・Eval pane が占める領域。両 pane が定位置（Train=Centre、Eval=Right 内側）に表示されている間だけ 50:50 分割ポリシーの対象になり、どちらかが非表示・浮動・移動中は wxAUI の素の配分に任せる。
+Runner 画面中央で Train pane・Eval pane が占める領域。Centre を占める pane が隠れるか浮動すると表示中で docked の相方が Centre へ移って戻れば取り戻し、一方が Centre、他方が左右いずれかの dock か Centre と同じ幅の上下の帯に表示されている間だけ等分の分割ポリシーの対象になり、それ以外の配置は wxAUI の素の配分に任せる。
 _Avoid_: main area, センター領域
 
 **補助 pane**:

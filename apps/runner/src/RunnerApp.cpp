@@ -13,6 +13,7 @@
 #include <wx/snglinst.h>
 #include <wx/utils.h>
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/init.hpp"
 #include "anet/log.hpp"
@@ -39,6 +40,7 @@ namespace runner_app_detail {
 
 constexpr int kTextLogFlushTimerId = wxID_HIGHEST + 100;
 constexpr char kRunInitThreadName[] = "RunInitThread";
+constexpr char kEvalMainView[] = "eval";
 
 std::string PathToUtf8(const std::filesystem::path& path)
 {
@@ -63,6 +65,7 @@ struct RunnerApp::Config : public anet::Config {
     bool show_error_dialog = true;
     bool save_agent_on_close = true;
     bool train_auto_start = true;
+    std::string main_view = kEvalMainView;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
     int exp_pause_step = -1;
@@ -83,6 +86,8 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, save_agent_on_close);
 
         ANET_READ_CONFIG(config_data, train_auto_start);
+        ANET_READ_CONFIG(config_data, main_view);
+        GetMainView();
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
         ANET_READ_CONFIG(config_data, exp_pause_step);
@@ -109,6 +114,17 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.episode_interval);
         train_panel.Validate();
         eval_panel.Validate();
+    }
+
+    RunnerFrame::MainView GetMainView() const
+    {
+        // 同じ app の列挙設定と同じ正規化を行い、Frame へは解決済みの値を渡す。
+        const auto normalized = anet::ToLower(anet::TrimCopy(main_view));
+        if (normalized == "train") return RunnerFrame::MainView::Train;
+        if (normalized == kEvalMainView) return RunnerFrame::MainView::Eval;
+        if (normalized == "both") return RunnerFrame::MainView::Both;
+        ANET_SYSTEM_ERROR("Invalid app.main_view: value=" << main_view << " (expected: train, eval, both)");
+        return RunnerFrame::MainView::Eval; // ANET_SYSTEM_ERROR が送出するため到達しない。
     }
 
 private:
@@ -381,7 +397,7 @@ bool RunnerApp::OnInit()
 
     // RunnerFrame生成
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
-    frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel);
+    frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel, config_->GetMainView());
 
     // ログ初期化
     SetupLogging();

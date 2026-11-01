@@ -121,6 +121,9 @@ namespace anet::rl::gui {
         /// pane 表示の直前 (メニュー ON) の追加処理。
         virtual void OnPaneShowing(wxAuiPaneInfo& WXUNUSED(pane)) {}
 
+        /// 現在の構成で pane を隠せるか。各導線は変更の前に同じ判定を使う。
+        virtual bool CanHidePane(const wxAuiPaneInfo& WXUNUSED(pane)) { return true; }
+
     protected:
         // ---- 派生クラスが使う道具 ----
 

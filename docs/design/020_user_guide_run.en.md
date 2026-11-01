@@ -425,10 +425,13 @@ Four task-specific toolbars appear at the top. Drag their grippers to dock, floa
 - `Run Control`: provides Train pause/resume and, after a separator, Eval pause/resume and single-step execution. A running tool appears pressed, and its icon changes to a pause symbol representing the next action; while stopped, it returns to a play symbol. Resuming or stepping a hidden Eval also shows `Evaluation View`. Right-click resume behaves the same way; only the keyboard paths (`Space` / `Ctrl`) operate independently of visibility.
 - `Steps`: displays Train `exp_step` and `train_step`.
 - `Run Operations`: provides checkpoint saving to an arbitrary path and opening the Run folder.
-- `Panels`: toggles `Logs`, `Eval View`, and `Q-Values`, synchronized with the corresponding `View` menu entries and pane state.
+- `Panels`: toggles `Logs`, `Train View`, `Eval View`, `Q-Values`, and `Trace`, synchronized with the corresponding `View` menu entries and pane state.
 
-- `Train View`: displays the Env-specific View received from Train Runner.
-- `Evaluation View`: advances an Eval Env separate from Train, manually or by timer. Initially hidden.
+Each pane caption has a pin button; press it to open the pane as a floating window. The last main View has neither a pin nor a close button.
+The central View's caption includes `[Centre]`.
+
+- `Train View`: use Panels > `Train View` or `View > Train View` to display Train Runner's Env-specific View. Use the same control or the pane's close button to hide it. Training continues while hidden.
+- `Evaluation View`: the only main View displayed by default. Advances an Eval Env separate from Train, manually or by timer. When both main Views are shown, one central and the other alone in a left or right column, they equally divide the width remaining after other vertical columns are excluded. When stacked vertically with the partner alone in a band as wide as the central View, their heights are divided equally. A band shared with Logs or auxiliary panes is not split. A band dropped at the window edge and extending beneath side columns is not split. Equal splitting also applies just after docking. The central View stays in place when its caption is dragged; press its caption's pin button to float it. A side View can be floated by dragging or by pressing its pin button. Floating Train expands Eval into the centre. Drop the floating Train at the left edge to keep it in that side column while Eval remains central. The last main View has neither a pin nor a close button, cannot be moved, and keeps its visibility toggle checked and disabled.
 - `Evaluation Q-Values`: displays Eval Actor output and allows manual Action selection.
 - `Logs`: displays runtime logs with Error, Warn, Info, and Verbose levels.
 - `HeatMap` / `Conv2d`: additional panes opened from the `View` menu.
@@ -437,7 +440,7 @@ Four task-specific toolbars appear at the top. Drag their grippers to dock, floa
 
 ![LunarLander runtime screen and visualization panes](assets/020_runner_lunarlander_visualization.png)
 
-Closing panes or displaying a View before initialization may leave few items to render, as below. Use `View > Reset Layout` to restore the default layout.
+Closing panes or displaying a View before initialization may leave few items to render, as below. Train View and Evaluation View cannot both be hidden. Use `View > Reset Layout` to restore the startup layout.
 
 ![Runner screen with no rendering targets](assets/020_runner_empty_view.png)
 
@@ -458,10 +461,11 @@ Select `Train` on the Run Control toolbar to pause/resume Train. Left-clicking t
 | `Ctrl` | Automatically executes one Eval step |
 | Arrow keys | Select Actions `0` through `3` for LunarLander and advance Eval one step |
 | Numpad `0` through `9` | Select the corresponding Action and advance Eval one step |
-| `View > Evaluation View` | Toggles the Eval pane |
+| `View > Train View` | Toggles the Train pane; the last main pane cannot be hidden |
+| `View > Evaluation View` | Toggles the Eval pane; the last main pane cannot be hidden |
 | `View > Evaluation QValue View` | Toggles the Q-value pane |
 | `View > Log Level` | Changes the log level displayed in the GUI |
-| `View > Reset Layout` | Restores default pane layout and frame size |
+| `View > Reset Layout` | Restores the configured startup pane layout without changing frame size |
 | `Save Checkpoint` on the Run Operations toolbar | Pauses Train first if running, then saves the Agent to an arbitrary path, defaulting to the Run directory and `agent_<exp_step>.anet` |
 | `Open Run Folder` on the Run Operations toolbar | Opens the current Run directory in Explorer |
 
@@ -473,7 +477,9 @@ EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, ref
 
 ### 6.3 Display FPS and Progress
 
-`View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` stops its rendering timer while training continues. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
+Select the startup main Views with `app.main_view`: `train` (Train only), `eval` (Eval only, default), or `both`. For example, a Run profile can use `run.@trainview : app.main_view = train`. Reset Layout returns to this selection. Use `app.eval_panel.auto_start` to choose whether Eval advances automatically.
+
+`View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` or hiding Train View stops its rendering timer while training continues. FPS changes made while hidden apply when the View is shown again. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
 
 Use `View > Eval Steps per Frame` to change the number of automatic evaluation steps per display update. Select `1`, `2`, `4`, `10`, `20`, `50`, or `100`, or choose `Custom...` to enter an integer from 1 to 2,147,483,647; the input starts with the current value. After confirmation, `Custom (N)...` shows the entered value. Cancel preserves both the value and selection. `Config (N)` restores the startup value. Changes apply from the next automatic evaluation update and are not saved to the config dump. Changing this value does not resume evaluation or leave Trace mode; manual Step still advances exactly one step. Evaluation Trace playback at 1x follows the product of the current FPS and current steps per frame.
 

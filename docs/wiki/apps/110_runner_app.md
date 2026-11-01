@@ -29,6 +29,8 @@
 - 2026-10-29: Evaluation TraceのTraceモードの間は矢印キーを強制行動にせず表の行の移動に使い、強制したstepを見分ける列とステータス欄の通知、列見出しでの表の並べ替え、行のダブルクリックでの通知の内容のログへのダンプを足す仕様を定めた（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、題・§2）。
 - 2026-10-31: 起動中にOSのテーマ（ライト／ダーク）を切り替えたとき、通知のその場で塗らず、RunnerFrameの1か所で通知が落ち着いてから外観を1回だけ決め直し、QValueの表とEvaluation Traceの表の行の無い部分も対象にする案を暫定で起票した（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、題・§3のゴール・§4 D1・D2・D4）。
 - 2026-10-31: Runnerの起動でFrameを表示したあと、RunManagerの構築だけを別スレッド（RunInitThread）で行ってメインのイベントループを止めず、構築中のログを流し、初期化中の閉じる操作は構築が終わってから後半を行わずに行う仕様を定めた（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、題・§2・D1・D2・D7）。
+- 2026-10-31: Train Viewを隠せるようにし、Centreを占めるpaneが隠れるかfloatすると表示中でdockedの相方がCentreを占めて戻れば取り戻し、主paneを隠す・floatできるのは相方の主paneが表示中でdockedのときだけ（最後の1つは✕を持たずトグルは無効で動かせない。✕とFloatableは200msのUPDATE_UIで状態から宣言し、離れてよいかの判定を基底の1つの口にまとめる）仕様と、起動時の主paneを選ぶ`app.main_view`（既定はEvalだけ）、昇格前のdock位置を覚えて戻すこと、知らない経路でCentreが空いたときにTrainを出してWARNを出す保険を定めた。2026-11-01の再グリルで、初版の「Centreを占めるpaneはfloat不可、dockedのTrainが常に占有者」をこの対称の規則に改め、floatしたpaneは縁の帯へ落とした場所に留まることにした。同日の2回目の再グリルで、wxAUIがCentreのpaneのcaptionドラッグを始めない（captionの押下をドラッグの判定の前に打ち切る）ことが実機と調査で分かり、Centreを占めるpaneはcaptionのpinボタンでfloatし、pinはFloatableと同じ値で描き、宣言が追いつく前のpinの押下は判定で止め、pinボタンを全paneに付けることにした。同日の3回目の再グリルで、等分の条件を「Evalが Right の layer 0、Trainが Centre」の1配置から「一方がCentre、他方がLeftかRightのdock」に広げ、主paneの置き場が変わったときは200msのUPDATE_UIで幅のポリシーを当て、Centreを占める主paneのcaptionの末尾に`[Centre]`を付けることにした。同日の4回目の再グリルで、縦に並んだとき（一方がCentre、他方がCentreと同じ幅のTopかBottomの帯）も高さを等分し、帯がCentreより広いときと同居は対象外、高さ不足ではLogsを縮めないことにし、「等幅」を「等分」に改めた（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、題・§1.1の6・26〜29・§1.2・§2・D1〜D3・D5・D7・D13〜D16）。
+- 2026-10-31: Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない（出典: [ADR 0066](../../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md)）。
 
 ## 選ばなかった形
 
@@ -71,6 +73,29 @@
 - EvalPanel用EvalRunnerも構築スレッドで作る — 先送り: 約0.38秒で「応答なし」に遠い。再開条件: 後半の止まりが目に見えて困る例が出たとき（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§8）。
 - RunManagerの構築を途中で止める口 — 範囲外: 取り消せる点が無く、足すとcore側の構築の契約を変える。再開条件: 構築中に閉じたときに終わりを待つのが困る例が出たとき（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§2のNG2・§8）。
 - 起動の進み具合の表示（進捗バー・スプラッシュ画面） — 範囲外: 構築中のログが見えればゴールに足りる。再開条件: ログだけでは起動の進みが読めないと分かったとき（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§2のNG3・§8）。
+- Train ViewとEvaluation Viewを1つのCentre paneにまとめwxSplitterWindowで分ける — 不採用: Evalのfloat・単独maximize・✕を失い、表示切替がpane系とsplitter系の2系統になる（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§2のNG1・§4.1）。
+- TrainとEvalの両方をCentre dockに置く — 不採用: 別のrowでは横に並ぶがsashが無く（今の50:50も遷移で比率を戻すので損は小さい）、floatから戻したEvalは側面のdockにしか落ちないので結局昇格が要り、幅の縮小・記憶・テストを組み替える割に単純にならない（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§1.1の3・6・§4.1）。
+- Evalのmaximizeで足りるとする — 不採用: Logs・Q-Values・Evaluation Traceも消え、起動時に選べず、Trainの描画timerは回り続ける（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§1.1の23・§4.1）。
+- Train Viewを細い帯に畳む見かけの非表示 — 不採用: 右dockは85%までで、帯が空白のまま残る（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1）。
+- 最後の主paneの✕を描いたまま残し、closeのVetoだけで守る — 不採用: 押しても何も起きないボタンが常に残る。✕は状態から描き分け、Vetoは見え方が追いつく前の最大200msの守りに限る（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D3）。
+- ✕とFloatableをポリシーの適用の時機だけで付け外す — 不採用: ドラッグのfloat・dockはwxAUIがイベントを出さず、EvalをfloatしたあともTrainの✕が残って押せる（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§1.1の7・§4.1）。
+- wxEVT_AUI_RENDERでドラッグを監視する／wxAuiManagerを派生させてfloat・dockの瞬間を掴む — 不採用: 前者は描画のたびに走りADR 0016で全廃した方式に戻る。後者は掴める時機がUpdateの中かドラッグ中のヒント計算で、合図に使えない。派生でCentreのpaneのcaptionドラッグを始める形も、wxのprotectedの状態と内部の順に依存する歪なので採らず、Centreのpaneはcaptionのpinボタンで外す（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D2。2026-11-01）。
+- float中のEvalをTrainの✕でCentreへ引き込む／Centreが空いたら隠れている方を出すことを導線の意味にする — 不採用: アンドックは明示的な操作で、別の操作の副作用で覆さないというユーザーの裁定。知らない経路で空いたときの保険（WARN付き）としてだけ置く（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§2のNG4・§4.1・D13）。
+- 主paneを常にfloat不可にする／Trainだけfloat不可にする — 不採用: 前者はTrain表示中のEvalの自由を失い、後者はEvalがCentreのときにfloatで空く。Floatableは✕と同じ「相方が表示中でdocked」の判定で決める（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D2）。
+- Centreを占めるpaneを常にfloat不可にしdockedのTrainを常に占有者にする（初版）／占有者をTrain優先のまま相方がいればfloatだけ許す — 不採用: 前者はTrainだけが表示中は常にfloatできない。後者はfloatしたTrainを縁の帯へ落とすと最大200msでCentreへ跳び、側面に置き続けられない。占有者は今いる方が保ち、floatしたpaneは落とした場所に留まる（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§1.2・§4.1・D1・D2。2026-11-01）。
+- Centreの占有を先着順にして入れ替えは隠して出し直す／TrainとEvalを入れ替えるコマンドを足す／占有をTrain優先へ戻す／wxWidgetsのソースのCentreの判定を外す／Centreにダミーのpaneを置く — 不採用: 先着順は既定のevalからTrainを出すと左右が入れ替わって50:50と主領域を位置で定め直す必要があり、Centreのpaneを外す操作も無いまま。入れ替えのコマンドは導線と機構が1つ増える。Train優先は常に動かせない非対称に戻る。wxのソースはforkの保守が要る。ダミーのCentreは主paneの伸縮がwxの配分に戻る。Centreのpaneはcaptionのpinボタンで外す（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D2。2026-11-01）。
+- 主paneのpinを常に描き最後の1つでは押しても何も起きないままにする／pinの押下で相方の昇格を先回りする — 不採用: 前者はwxがFloatableでないpaneのpinを無視するので押しても何も起きないボタンが残る。後者は昇格の時機がドラッグとpinの2つになる。pinは✕と同じく状態から描き分け、押下は判定が否のときに止めるだけに使う（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D2・D3）。
+- 降格先を常に定位置にする／定位置のEvalだけを昇格の候補にする — 不採用: 前者は定位置以外に置いたEvalの位置をTrainの表示切替で失い、後者はEvalを左などに置いた人がTrainを隠す前に戻す手間が要る。昇格前の位置を覚えて戻す（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D5）。
+- Trainの描画timerをOnPaneHiding／OnPaneShowingで伝える／timerを回し続けてtickでIsShownOnScreenを見る — 不採用: 前者はReset Layoutがこの2つを通らず漏れる。後者は最小だがG3の「timerが止まる」を変え、止まっていることを外から読みにくい（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§1.1の18・§4.1・D6）。
+- TrainとEvalの表示を別々の真偽値の設定にする — 不採用: 「両方非表示」の不正な組を検証で弾く必要が出る（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D7）。
+- Train Viewを隠している間にTrain側のobserverも外す — 範囲外: FPS 0でも残る既存の挙動で、AttachScopedのDetachバグの修復が先。再開条件: その修復が入り、Trainスレッド側のView更新のコストを消したい要求が出たとき（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§2のNG2・§8）。
+- Eval paneを隠したときにEvalのtimerを止める — 範囲外: Trainの定期停止の増幅要因としての対策と一緒に決める。再開条件: 定期停止の対策のPRDを起こすとき（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§2のNG3・§8）。
+- 等分の対象をCentreに隣接する側面のdockに限る／自動の等分をやめて明示の操作とReset Layoutだけにする／側面に落とした主paneを定位置へ引き戻す — 不採用: 隣接に限ると間にQ-Values列があると効かず判定も増える。明示の操作はTrain Viewを出したとき必ず等分になる既定の見え方とADR 0016の50:50の意味を変える。引き戻しはD1の「落とした場所に留まる」を覆す。等分は一方がCentre、他方がLeftかRightのdockのときに当てる（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D15。2026-11-01）。
+- 縁へ落とした直後の等分を次の遷移まで待つ — 不採用: ドラッグで落とす操作は遷移に当たらず、落とした直後に「効かない」と見える場面が残る。主paneの置き場が変わったときだけ200msのUPDATE_UIで当て、サッシの操作は覆さない（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D15・§1.1の27。2026-11-01）。
+- Centreの印をステータスバー・Panelsのボタン・captionの色で出す／文言を`(Centre)`・記号・中点にする — 不採用: ステータスバーは離れた配置で目線が合わず実行状態の欄に配置が混ざる。ボタンは押下表示と印の2状態が乗る。色はdock artの派生とテーマ切替が絡む。文言は見た目の差で角括弧を選んだ（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D16。2026-11-01）。
+- 縦に並んだときの高さ不足でLogsの帯を縮めて確保する／帯の幅がCentreより広いTop・Bottom（windowの縁に落とした最外層）も等分の対象にする／縦の等分の予算にLogsの帯を含める — 不採用: Logsを縮める挙動は既存に無く小さい窓でLogsが勝手に縮む。左右の列の下まで広がる帯はCentreと組になっていない。横でQ-Valuesの列を予算から除くのと同じく組になる2枚だけを等分する（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§4.1・D15。2026-11-01）。
+- サッシで変えた主paneの幅の比率の記憶 — 範囲外: 別の関心。再開条件: 遷移で等分に戻る動きが邪魔だという要求が出たとき（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§2のNG7・§8）。
+- TrainとEvalの左右の入れ替え（設定で定位置を選ぶ形） — 範囲外: 要求が無い。Trainをpinで外して側面へ落としEvalをCentreにすることはできる。再開条件: Evalを左に置きたい要求が出たとき（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§8・D1）。
 
 ## 変えるときの条件
 
@@ -91,6 +116,12 @@
 - wxMSWは作ったあとのウィンドウの外観をSetAppearanceで変えられないので、テーマごとの確かめは別processで行う。RunnerAppを起動するテストのライトのprocessは、OSのアプリのモードがライトの機械でだけ作れる。開いたままのOSのテーマの切替は人が設定で切り替え、同じテーマで起動し直したスクリーンショットと領域ごとに比べる（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§2の4・§7の受入の前の段落・受入1・4）。
 - RunManagerの構築を別スレッドへ移す前後で、PRD098の段0の短縮条件（4環境、seed=1、決定的backend）の90_perf/・91_resource/・92_resource/を除く全scalarの点を、tag・step・値とも一致させる（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§7の受入7）。
 - 表示より前の起動の段（workspaceの確定から設定の解決、MetricsLogger、InitRL、Env登録、Frameの生成と表示まで）の順序と、RunManagerがRUNNINGでないときにウィンドウを残して学習を始めない振る舞いを変えない（出典: [PRD109](../../memo/109_runner_startup_background_init_10prd.md)、§2のNG4・D4）。
+- Train Viewが表示中の既存の振る舞い（Evalのfloat・maximize・✕、Train:Eval=50:50、幅の記憶、Evalのstep・resumeでEvalを出す動き、Logs・Q-Values・補助paneの配置）を変えず、既存のGUIテスト（`[eval_steps_menu]`・`[prd105_ui_keys]`・`[prd109_ui]`）が通ることを確かめる。意図して変えるのはTrain ViewもEval Viewと同じ条件でfloatできること（Centreのpaneはcaptionのpinボタンで）、floatしたpaneは縁の帯へ落とした場所に留まること、maximize中のpaneをメニューで隠すと先に解けること、起動直後の配置がEvalだけになること、Logs以外のpaneのcaptionにもpinボタンが付くこと、等分の条件を「一方がCentre、他方がLeftかRightのdock」に広げて主paneの置き場が変わったときは200ms以内に当てることの6つ（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、§2のG5・§7の受入1）。
+- 等分は、両主paneが表示中でdocked、一方がCentre、他方がLeftかRightのdock（幅）か、Centreと同じ幅のTopかBottomの帯（高さ。表示中のLeft・Rightのdockがすべてその帯より外側のlayer）のときだけ当て、帯がCentreより広いときと補助paneやLogsが同居する列・帯はwxの配分に任せる。縦の予算はCentreの高さと主paneの帯の高さの和で、Logs・toolbarは入れず縮めない。当てる時機は既存の遷移と、主paneの置き場（方向・layer・row・位置・float・表示）が変わった200msの宣言で、サッシで変えた幅は置き場が変わらないので次の遷移まで保つ。Centreを占める主paneのcaptionには`[Centre]`が付き、float中・側面・非表示の主paneとほかのpaneには付かない（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、D15・D16・§7の受入2のo〜r）。
+- paneの表示切替のチェックと有効・無効の同期、✕・pin・Floatableの宣言、ドラッグやpinでfloatした直後の占有の規則の当て直しは、既存のwxUpdateUIEventの束だけで行い、専用のtimerやイベントを足さない（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、D3）。
+- 最後の主paneのcaptionにはpinも✕も無く、宣言が追いつく前（最大200ms）の✕・pin・トグルは判定で止める。pinの押下はframeが先に受け取り、判定が否ならwxAUIへ渡さない（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、D3・§5.4・§6の21）。
+- Train Viewを隠している間も学習とTrain側のobserverは止めず、止めるのは描画のtimerだけである（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、D6・§2のNG2）。
+- 導線の操作ではRunログに保険のWARN（`No main pane occupies the centre.`と`Both main panes occupy the centre.`）が出ないことを確かめる（出典: [PRD110](../../memo/110_runner_main_pane_dynamic_centre_10prd.md)、D13・§7の受入6・8）。
 
 ## 関係
 

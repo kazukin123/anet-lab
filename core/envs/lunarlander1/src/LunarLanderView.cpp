@@ -112,7 +112,7 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
 // =============================================================
 
 LunarLanderPanel::LunarLanderPanel(wxWindow* parent)
-    : anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition)
+    : anet::rl::gui::Panel(parent)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 
