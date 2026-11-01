@@ -509,6 +509,10 @@ _Avoid_: schema version（様式の版であって内容の同一性ではない
 1つのscalar tagでcommit済みの有効な全点を対象とする正確な統計。表示rangeやLODに依存せず、無効値とtag隔離後の点は含まない。
 _Avoid_: viewport stats, LOD stats, range summary
 
+**タグセット (Tag Set)**:
+Metrics Viewerで名前を付けて保存した、表示するtagの順序の無い集合。workspaceをまたいで共有し、呼び出すとtagの選択がその中身に置き換わる。
+_Avoid_: タグリスト（Tags欄のtag一覧と混同）, プリセット, タググループ（tag番号の群と混同）
+
 **序数**（メトリクス点の）:
 同一チャネル・同一tagの系列内での記録の出現順（0始まり）。scalarとtraceの同名tagは別系列であり、序数も別に数える。同一系列のstepは非減少だが一意ではない（同一stepへ複数episodeの値が正当に載る）ため、点のidentityと順序は序数が持ち、stepは座標値として扱う。
 _Avoid_: index（多義）, step（座標値であってidentityではない）

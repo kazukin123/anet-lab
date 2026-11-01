@@ -18,6 +18,8 @@
 - 2026-09-05: メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、題・目的）。
 - 2026-09-12: PRD 074: 選択中 Run の色分離（Metrics Viewer）（出典: [PRD074](../../memo/done/074_run_color_distinctness_10prd.md)、題・目的）。
 - 2026-09-12: Run 色は比較ごとの役割とし、分離は選択中 Run の集合に対してだけ保証する（出典: [ADR 0041](../../adr/0041-run-color-is-comparison-role-not-run-identity.md)、本文）。
+- 2026-11-02: 名前を付けて保存したtagの集合（タグセット）をサーバー側の作業用ファイルに保存してworkspaceとブラウザをまたいで共有し、Tagsの下の1行と開閉する一覧で呼び出し（選択全体の置き換え）・Save・Revert・Save As・名前変更・削除・Deselectを行い、選択中のタグセットをlocalStorageに保つ仕様と、jarに同梱した初期値を作業用ファイルが無いときだけ写すことを定めた。作業用ファイルの既定はworkspaces-dirの直下で、gitで追跡しリリースの梱包からは除く（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、題・§2・D1・D2・D5・D13〜D16）。
+- 2026-11-02: タグセットは追跡する作業用ファイルと jar 同梱の初期値に分け、初期値は作業用が無いときだけ写す（出典: [ADR 0067](../../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、本文）。
 
 ## 選ばなかった形
 
@@ -26,6 +28,16 @@
 - 既存の queryRevision を supersede の連番に流用する形 — 不採用（流用しない）: queryRevision はユーザー操作でしか増えず、Auto Reload の経路では同じ値の POST が同時に飛びうる（出典: [PRD049](../../memo/done/049_metrics_query_supersede_10prd.md)、1. 現状の事実・2.1 query channelと連番）。
 - C++ 側からの gzip 出力 — 不採用: PRD041 の実測の表に不採用の確定として記されている（理由の記述は無い）（出典: [PRD041](../../memo/done/041_metrics_sqlite_cache_10prd.md)、Context の実測）。
 - schema の不一致・破損・ソース同一性の喪失のときに cache を migration する形 — 不採用: cache はマスタから再構築できる破棄可能な従属導出物なので、警告なしの全破棄・再構築で解決する（出典: [ADR 0015](../../adr/0015-metrics-cache-disposable-derivative.md)、本文；[PRD041](../../memo/done/041_metrics_sqlite_cache_10prd.md)、1. 原則 2）。
+- タグセットにRunの組・表示設定（Log、percentile、LOD、viewport）・グラフの並び順・パターン指定・workspaceごとの区別を持たせる形 — 不採用（非ゴール）: 範囲の選択（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、§2.2）。
+- タグセットの呼び出しで、見えているtagの部分だけ置き換える形／今の選択に足し込む形 — 不採用: 呼んだときの選択（workspace・選択中のRun）で結果が変わる／観点の切替にClear Allが要る（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D1・§7）。
+- タグセットの保存で、見えているtag（選択中のRunのtag）の部分だけ書き、Tags一覧に出ていない部分を残す形 — 不採用: ユーザーが単純さを選んだ（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D2・§7）。
+- タグセットの入口をセレクト＋動詞ボタン、またはチップの横並びにする形 — 不採用: 名前の欄が約93pxに細る／数が増えると隠れ、名前変更・削除が隠れ操作になる（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D5・§7）。
+- タグセットのAPIで名前をパスに入れる形、全体をGET・PUTする形 — 不採用: `%2F`をTomcatが既定で拒む／古い一覧を持つ側の保存が他の変更を消す（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D9・§7）。
+- 選択中のタグセットを外す操作を、一覧の先頭の行・行の専用ボタン・開閉ボタンの中の×に置く形 — 不採用: 呼び出しと見分けがつかない／めったに使わないのに幅を取る／§3.3に無い形でタッチで押しにくい（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D10・§7）。
+- 稼働中に外で変わったタグセットのファイル（手で直したもの、gitの切り替えで変わったもの）を、変更を検知して読み直す形、書く直前に照合して409で拒む形 — 不採用: 読み込みの経路を起動時の1つにし、照合も足さない単純さをユーザーが選んだ（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D12・§7）。
+- タグセットの作業用ファイルの既定を作業ディレクトリ基準の固定値にする形、workspaces-dir直下で親が無ければ起動を止める形 — 不採用: 既存テストが起動で落ち、別のworkspace群での起動で元の群に書くか止まる／存在しないフォルダで起動する既存テストに手当てが要り、workspaces-dirが無いだけで起動が止まる（テストの手当て自体は本当の制約ではなく、ユーザーが手間と厳しさを比べて選ばなかった）（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D16・§7）。
+- リリース用のタグセットを書き換え不可の「組み込み」の区画として作業用と並べる形／梱包で作業用の場所に置くだけの形 — 不採用: UI・APIが一回り大きくなり同名の扱いが要る／上書き展開で利用者の作業用ファイルを消す（出典: [ADR 0067](../../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、Considered Options；[PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D13・§7）。
+- タグセットの作業用ファイルをViewerのフォルダに置く形、初期値を追跡ファイルと設定キーで指す形 — 不採用: ユーザーがworkspace群と一緒に置くことを選んだ／設定キーが増え、Runnerのconfigフォルダに Viewer のファイルが混ざる（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D14・D15・§7）。
 
 ## 変えるときの条件
 
@@ -35,6 +47,8 @@
 - 通常追記ではcache世代を維持し、全再構築だけで世代を変える。commit済みprefix、tag隔離、Run-level errorのtransaction境界を変えない（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、1.1 正本とcache）。
 - priority 3・background 1、単一writer、完成行のtransaction境界でのworkspace切替を維持する（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、1.2 Scheduling）。
 - 色分離の変更でserver、Metricsキャッシュ、HTTP APIを変更しない（出典: [PRD074](../../memo/done/074_run_color_distinctness_10prd.md)、対象）。
+- タグセットを足しても、新しいtagの自動選択、Select All・Clear All・Selected Onlyの動きは変えない。タグセットはMetricsキャッシュにもRunフォルダにも置かない（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、D3・§5のE4・E16）。
+- タグセットの作業用ファイルはリリースの梱包に含めず、残っていれば梱包を失敗させる。不正JSONの400への変換はworkspace切替とタグセットのControllerに限り、metrics・prioritizeの失敗の形には影響させない。既存のテストは、サイドパネルの操作行の一覧の期待にTagsの新しい行を足すほかは変えずに通る（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、§6.1・§6.2・§8・E17）。
 
 ## 関係
 
