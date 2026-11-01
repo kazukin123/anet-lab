@@ -11,6 +11,66 @@ using namespace anet::rl::env;
 using anet::ToBool;
 using anet::ToFloat;
 
+// サイドエンジンと横風の矢印の縮尺 [px/N]。同じ縮尺にして、風がサイドエンジンの何割かを長さで比べられるようにする
+constexpr float kSideForceArrowScale = 3.0f;
+// 回転力の円弧の縮尺 [度/(N·m)]
+constexpr float kTorqueArcDegreesPerTorque = 60.0f;
+// 運動の矢印と円弧が示す先の時間 [s]。速度の矢印の先と角速度の円弧の角度は、いまの値のままこの時間だけ進んだ量
+constexpr float kMotionLookaheadSeconds = 0.5f;
+
+// 矢印の先端に返しを描く。dir は world 座標系（y 上向き）の単位方向
+static void DrawArrowHead(wxDC& dc, const wxPoint& tip, float dir_x, float dir_y)
+{
+    constexpr float head_len = 8.0f;
+    constexpr float head_ang = 0.5f;
+
+    const float back_x = -dir_x;
+    const float back_y = -dir_y;
+
+    const float hx1 =
+        back_x * std::cos(head_ang) - back_y * std::sin(head_ang);
+    const float hy1 =
+        back_x * std::sin(head_ang) + back_y * std::cos(head_ang);
+
+    const float hx2 =
+        back_x * std::cos(-head_ang) - back_y * std::sin(-head_ang);
+    const float hy2 =
+        back_x * std::sin(-head_ang) + back_y * std::cos(-head_ang);
+
+    dc.DrawLine(tip, wxPoint(
+            tip.x + static_cast<int>(hx1 * head_len),
+            tip.y - static_cast<int>(hy1 * head_len)));
+    dc.DrawLine(tip, wxPoint(
+            tip.x + static_cast<int>(hx2 * head_len),
+            tip.y - static_cast<int>(hy2 * head_len)));
+}
+
+// 中心 c の真上を中点とする半径 radius の円弧を sweep [rad] だけ描き、終点に返しを付ける。正の sweep は反時計回り
+static void DrawArcArrow(wxDC& dc, const wxPoint& c, float radius, float sweep)
+{
+    // 1px に満たない円弧は描かない
+    if (std::abs(sweep) * radius < 1.0f) {
+        return;
+    }
+
+    constexpr int arc_segments = 16;
+    const float start = static_cast<float>(M_PI) / 2.0f - sweep / 2.0f;
+    std::vector<wxPoint> pts;
+    pts.reserve(arc_segments + 1);
+    for (int i = 0; i <= arc_segments; ++i) {
+        const float a = start + sweep * static_cast<float>(i) / arc_segments;
+        pts.emplace_back(
+            c.x + static_cast<int>(std::round(radius * std::cos(a))),
+            c.y - static_cast<int>(std::round(radius * std::sin(a))));
+    }
+    dc.DrawLines(static_cast<int>(pts.size()), pts.data());
+
+    // 返しは円弧の終点の接線方向（回転の向き）に付ける
+    const float end = start + sweep;
+    const float sign = sweep > 0.0f ? 1.0f : -1.0f;
+    DrawArrowHead(dc, pts.back(), -sign * std::sin(end), sign * std::cos(end));
+}
+
 
 // =============================================================
 // LunarLanderData
@@ -57,6 +117,24 @@ LunarLanderPanel::LunarLanderPanel(wxWindow* parent)
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 
     Bind(wxEVT_PAINT, &LunarLanderPanel::OnPaint, this);
+    Bind(wxEVT_MIDDLE_DOWN, &LunarLanderPanel::OnMiddleClick, this);
+}
+
+void LunarLanderPanel::OnMiddleClick(wxMouseEvent& event)
+{
+    // 段を 1 つ進める。保存済みのスナップショットで描き直すので、停止中も次のデータ更新を待たない
+    switch (draw_level_) {
+    case DrawLevel::kLander:
+        draw_level_ = DrawLevel::kWind;
+        break;
+    case DrawLevel::kWind:
+        draw_level_ = DrawLevel::kMotion;
+        break;
+    case DrawLevel::kMotion:
+        draw_level_ = DrawLevel::kLander;
+        break;
+    }
+    Refresh();
 }
 
 void LunarLanderPanel::ApplyData(const LunarLanderData& data)
@@ -313,7 +391,7 @@ void LunarLanderPanel::DrawThrust(wxDC& dc, int width, int height)
             local_dir_x = +1.0f;
         }
 
-        arrow_len = kSideEngineForce * 3;
+        arrow_len = kSideEngineForce * kSideForceArrowScale;
     } else {
         return;
     }
@@ -345,28 +423,7 @@ void LunarLanderPanel::DrawThrust(wxDC& dc, int width, int height)
     dc.DrawLine(p0, p1);
 
     // --- Arrow head ---
-    constexpr float head_len = 8.0f;
-    constexpr float head_ang = 0.5f;
-
-    const float back_x = -dir_x;
-    const float back_y = -dir_y;
-
-    const float hx1 =
-        back_x * std::cos(head_ang) - back_y * std::sin(head_ang);
-    const float hy1 =
-        back_x * std::sin(head_ang) + back_y * std::cos(head_ang);
-
-    const float hx2 =
-        back_x * std::cos(-head_ang) - back_y * std::sin(-head_ang);
-    const float hy2 =
-        back_x * std::sin(-head_ang) + back_y * std::cos(-head_ang);
-
-    dc.DrawLine(p1, wxPoint(
-            p1.x + static_cast<int>(hx1 * head_len),
-            p1.y - static_cast<int>(hy1 * head_len)));
-    dc.DrawLine(p1, wxPoint(
-            p1.x + static_cast<int>(hx2 * head_len),
-            p1.y - static_cast<int>(hy2 * head_len)));
+    DrawArrowHead(dc, p1, dir_x, dir_y);
 }
 
 void LunarLanderPanel::DrawWind(wxDC& dc, int width, int height)
@@ -379,6 +436,82 @@ void LunarLanderPanel::DrawWind(wxDC& dc, int width, int height)
     const float wind_x = it->second[0].item<float>();
     const float wind_torque = it->second[1].item<float>();
     dc.DrawText(wxString::Format("Wind: %.2f %.2f", wind_x, wind_torque), 10, height - 20);
+
+    // 数値はどの段でも出し、矢印と円弧は「＋風」の段から出す
+    if (draw_level_ < DrawLevel::kWind) {
+        return;
+    }
+
+    auto it2 = snapshot_.aux.find("lander");
+    if (it2 == snapshot_.aux.end()) {
+        return;
+    }
+
+    // 機体の画面上の位置と大きさ
+    const auto lander = it2->second;
+    const wxPoint c = WorldToScreen(lander[0].item<float>(), lander[1].item<float>(), width, height);
+    const int r = WorldToScreen(kLanderRadius, width, height);
+
+    const wxColour wind_color(127, 119, 221);
+
+    // --- 横風 ---
+    // 機体中心から風の向きへ水平の矢印を出す。長さは力に比例し、縮尺はサイドエンジンの矢印と同じ
+    const int wind_len = static_cast<int>(std::round(wind_x * kSideForceArrowScale));
+    if (wind_len != 0) {
+        const wxPoint tip(c.x + wind_len, c.y);
+        dc.SetPen(wxPen(wind_color, 3));
+        dc.DrawLine(c, tip);
+        DrawArrowHead(dc, tip, wind_len > 0 ? 1.0f : -1.0f, 0.0f);
+    }
+
+    // --- 回転力 ---
+    // 機体を囲む円弧を回転の向きへ描く。角度は回転力に比例し、正は反時計回り（Box2D と同じ）
+    const float sweep = wind_torque * kTorqueArcDegreesPerTorque * static_cast<float>(M_PI) / 180.0f;
+    dc.SetPen(wxPen(wind_color, 2));
+    DrawArcArrow(dc, c, 1.8f * static_cast<float>(r), sweep);
+}
+
+void LunarLanderPanel::DrawMotion(wxDC& dc, int width, int height)
+{
+    // 運動は「＋運動」の段だけで出す
+    if (draw_level_ < DrawLevel::kMotion) {
+        return;
+    }
+
+    auto it = snapshot_.aux.find("lander");
+    if (it == snapshot_.aux.end()) {
+        return;
+    }
+
+    // 機体の位置・速度・角速度
+    const auto lander = it->second;
+    const float x = lander[0].item<float>();
+    const float y = lander[1].item<float>();
+    const float vx = lander[2].item<float>();
+    const float vy = lander[3].item<float>();
+    const float angular_velocity = lander[5].item<float>();
+
+    const wxPoint c = WorldToScreen(x, y, width, height);
+    const int r = WorldToScreen(kLanderRadius, width, height);
+
+    const wxColour motion_color(15, 110, 86);
+    dc.SetPen(wxPen(motion_color, 2));
+
+    // --- 速度 ---
+    // 矢印の先は、いまの速度のまま kMotionLookaheadSeconds だけ進んだ位置。world 座標で描くので、画面の拡大に追従する
+    const wxPoint tip = WorldToScreen(
+        x + vx * kMotionLookaheadSeconds, y + vy * kMotionLookaheadSeconds, width, height);
+    const float dx = static_cast<float>(tip.x - c.x);
+    const float dy = static_cast<float>(tip.y - c.y);
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len >= 1.0f) {
+        dc.DrawLine(c, tip);
+        DrawArrowHead(dc, tip, dx / len, -dy / len);
+    }
+
+    // --- 角速度 ---
+    // 回転力の円弧の外側に、いまの角速度のまま kMotionLookaheadSeconds で回る角度の円弧を描く。正は反時計回り
+    DrawArcArrow(dc, c, 2.4f * static_cast<float>(r), angular_velocity * kMotionLookaheadSeconds);
 }
 
 void LunarLanderPanel::DrawRL(wxDC& dc)
@@ -443,6 +576,7 @@ void LunarLanderPanel::OnPaint(wxPaintEvent& event)
     DrawLander(dc, width, height);
     DrawThrust(dc, width, height);
     DrawWind(dc, width, height);
+    DrawMotion(dc, width, height);
     DrawRL(dc);
 }
 
