@@ -28,6 +28,13 @@ public:
     void Sync() override {}
 };
 
+// 起動直後に学習を始める場合も、更新せずにTrain stepを進められるようにする。
+class StartupTestLearner final : public anet::rl::Learner {
+public:
+    anet::rl::BatchUpdateResultList UpdateFromBatch(const anet::rl::StepCounts&, const anet::rl::BatchExperience&) override
+    { return {}; }
+};
+
 class SlowInitTestAgent final : public anet::rl::Agent {
 private:
     struct Config final : anet::Config {
@@ -60,7 +67,7 @@ public:
     }
     std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::ActorRequest&) const override
     { return std::make_shared<StartupTestActor>(); }
-    std::shared_ptr<anet::rl::Learner> CreateLearner() override { return nullptr; }
+    std::shared_ptr<anet::rl::Learner> CreateLearner() override { return std::make_shared<StartupTestLearner>(); }
     torch::Device GetDevice() const override { return torch::kCPU; }
     std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
     std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
@@ -156,6 +163,7 @@ TEST_CASE("Runner construction keeps the event loop and logs active", "[.][prd10
     StartupFixture app;
     app.Start();
     CHECK_FALSE(wxGetApp().IsRunInitialized());
+    CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Initializing run...");
     const auto returned = Clock::now();
     wxTextCtrl* text = nullptr;
     for (auto* child : app.frame->GetChildren()) {
@@ -179,6 +187,18 @@ TEST_CASE("Runner construction keeps the event loop and logs active", "[.][prd10
     CHECK(Clock::now() - returned >= std::chrono::seconds(2));
     CHECK(ticks >= 10);
     CHECK(logged_before_ready);
+    // fixtureは自動開始しないため、起動完了だけを表示する。
+    CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Run initialized");
+}
+
+TEST_CASE("Runner status bar reports training started after construction", "[.][prd109_startup][prd109_status]")
+{
+    StartupFixture app;
+    app.Start("app.train_auto_start = true\n");
+    CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Initializing run...");
+    REQUIRE(app.Wait([] { return wxGetApp().IsRunInitialized(); }));
+    CHECK_FALSE(wxGetApp().IsTrainingPaused());
+    CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Training started");
 }
 
 TEST_CASE("Runner startup keeps panes usable and auxiliary views unavailable", "[.][prd109_startup][prd109_ui]")
@@ -308,6 +328,7 @@ TEST_CASE("Runner can close an incomplete RunManager after construction", "[.][p
     REQUIRE(app.Wait([&] { return app.Log().find("Failed to initialize RunManager.") != std::string::npos; }));
     REQUIRE(app.frame);
     CHECK_FALSE(wxGetApp().IsRunInitialized());
+    CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Run initialization failed");
     CHECK(app.frame->Close());
     REQUIRE(app.Wait([&] { return !app.frame; }));
     CHECK(app.Log().find("Failed to create env.") != std::string::npos);

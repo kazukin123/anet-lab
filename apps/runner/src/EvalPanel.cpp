@@ -172,6 +172,21 @@ void EvalPanel::SetStepsPerFrame(int steps)
 	current_step_per_frame_ = steps;
 }
 
+void EvalPanel::ReportSpeedChange()
+{
+	LOG::info() << "Evaluation speed changed " << FormatSpeed();
+	// 自分が出したresumed表示がそのまま残っている間だけ、値を今の速度へ置き換える。
+	auto* frame = wxGetApp().GetMainFrame();
+	if (resumed_status_.empty() || frame->GetStatusBar()->GetStatusText(0) != wxString::FromUTF8(resumed_status_)) return;
+	resumed_status_ = "Evaluation resumed " + FormatSpeed();
+	frame->SetStatusText(wxString::FromUTF8(resumed_status_));
+}
+
+std::string EvalPanel::FormatSpeed() const
+{
+	return std::format("fps={} step_per_frame={}", current_fps_, current_step_per_frame_);
+}
+
 void EvalPanel::DoStep()
 {
     if (before_live_action_) before_live_action_();
@@ -214,11 +229,10 @@ void EvalPanel::TogglePause()
 	if (!is_pause_) {
 		SyncModel();
 	}
-	auto log_str = is_pause_
-		? std::string("Evaluation paused")
-		: std::format("Evaluation resumed fps={} step_per_frame={}", current_fps_, current_step_per_frame_);
+	auto log_str = is_pause_ ? std::string("Evaluation paused") : "Evaluation resumed " + FormatSpeed();
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
+	resumed_status_ = is_pause_ ? std::string() : log_str;
 	wxGetApp().FlushRunOutputs();
 }
 

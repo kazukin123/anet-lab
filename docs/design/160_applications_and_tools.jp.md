@@ -273,7 +273,7 @@ RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI pa
 
 補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
 
-RunManagerの構築中はメインのイベントループで描画とログの書き出しを続ける。構築だけを`RunInitThread`へ移し、DefaultViewFactory、Trainer observer、ImageProviderManager、FrameのInitialize、Notifier一覧、学習スレッドの生成・開始はメインスレッドに残す。`IsRunInitialized()`はこの後半まで正常に完了した場合だけtrueとなる。起動の開始と完了をINFOに記録し、完了の`elapsed_sec`は構築開始直前からの実時間を小数点以下2桁で表す。構築の取消や同期起動へ戻す切替は設けない。
+RunManagerの構築中はメインのイベントループで描画とログの書き出しを続ける。構築だけを`RunInitThread`へ移し、DefaultViewFactory、Trainer observer、ImageProviderManager、FrameのInitialize、Notifier一覧、学習スレッドの生成・開始はメインスレッドに残す。`IsRunInitialized()`はこの後半まで正常に完了した場合だけtrueとなる。起動の開始と完了をINFOに記録し、完了の`elapsed_sec`は構築開始直前からの実時間を小数点以下2桁で表す。status barのfield 0は構築開始時に`Initializing run...`とし、後半の完了時に`app.train_auto_start`に応じて`Training started`または`Run initialized`、構築後にRUNNINGでなければ`Run initialization failed`へ置き換える。この更新は完了通知を受けた経路だけで行い、強制Closeや`OnExit`での受領ではframeへ触れない。構築の取消や同期起動へ戻す切替は設けない。
 
 ### 5.2 Metrics Viewerの取り込みとviewport range更新
 
@@ -381,7 +381,7 @@ sequenceDiagram
 - Centreの印だけの変化はTrace注記と同じくcaptionの再描画と浮動frameのタイトル更新に留め、通常のTrace行移動ではAUI全体を組み直さない。許可済みの浮動paneのcloseでは、wxがframe参照を消す前にwindowを旧sizerから外し、遅延破棄前の再表示でも二重登録を防ぐ。メニューhideとVetoにはこの解放を行わない。
 - Panels toolbarは表示中のpaneの選択枠を操作可否と独立に維持する。最後の主paneのボタンが無効でもシステムの強調色で枠を描き、文字色と操作拒否は標準の無効状態を保つ。
 - Centreのdock寸法は伸縮領域の大きさなので、共通のdockサイズ同期で`pane.dock_size`へ書き戻さない。構造化スナップショットでもCentreはliveの記憶値を使い、昇格中に別paneを隠したり幅の往復をしても、元の側面dockへ戻る幅を保持する。
-- Evalの`app.eval_panel.step_per_frame`は1以上のint値を起動時に検証する。`EvalPanel`は起動時configと独立した実行時値を持ち、`View > Eval Steps per Frame`のConfig・固定値（1・2・4・10・20・50・100）・Customから変更する。Custom入力は現在値から始め、1〜2,147,483,647の整数だけを確定する。キャンセルでは値・選択を維持し、固定値と同じ数を入力してもCustomの選択を保持する。実行時変更は次の自動評価更新とTraceの基準速度（現在のFPS×現在のstep数）へ反映し、起動時configとconfig dump、一時停止・Trace状態、手動Stepの1 step動作は変えない。初期選択はConfigで、初期化前は操作できない。
+- Evalの`app.eval_panel.step_per_frame`は1以上のint値を起動時に検証する。`EvalPanel`は起動時configと独立した実行時値を持ち、`View > Eval Steps per Frame`のConfig・固定値（1・2・4・10・20・50・100）・Customから変更する。Custom入力は現在値から始め、1〜2,147,483,647の整数だけを確定する。キャンセルでは値・選択を維持し、固定値と同じ数を入力してもCustomの選択を保持する。実行時変更は次の自動評価更新とTraceの基準速度（現在のFPS×現在のstep数）へ反映し、起動時configとconfig dump、一時停止・Trace状態、手動Stepの1 step動作は変えない。Eval FPSとstep数のmenuからの変更は`EvalPanel::ReportSpeedChange()`でINFOへ記録し、`EvalPanel`が最後に出したresumed表示とfield 0が一致する間だけ、その表示を新しい値へ書き直す。setterは起動時の初期化とtestからも呼ばれるため、報告はmenuの経路だけが呼ぶ。初期選択はConfigで、初期化前は操作できない。
 - `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
 
 ### 7.2 Metrics Viewer

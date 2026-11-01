@@ -50,6 +50,8 @@ public:
 	void SetFps(float fps);
 	int GetStepsPerFrame() const { return current_step_per_frame_; }
 	void SetStepsPerFrame(int steps);
+	// menuからの速度変更を知らせる。setter自体は起動時やtestからも呼ばれるため、ここへ分ける。
+	void ReportSpeedChange();
 	void TogglePause();
     void PauseForTrace() { is_pause_ = true; }
     double GetPlaybackRate() const { return static_cast<double>(current_fps_) * current_step_per_frame_; }
@@ -67,6 +69,7 @@ private:
 	void SyncBeforeFrame();
 	void SyncBeforeManualStep();
 	anet::rl::ControlSignal SyncAfterStep(const anet::rl::StepCounts& counts);
+	std::string FormatSpeed() const;
 private:
 	const EvalPanelConfig config_;
 	std::shared_ptr<anet::rl::EvalRunner> runner_ = nullptr;
@@ -86,4 +89,5 @@ private:
     int current_step_per_frame_;
     std::function<void()> before_live_action_;
     wxStaticText* no_data_label_ = nullptr;
+    std::string resumed_status_;    // 最後にstatus barへ出したresumedの文。pause中は空
 };

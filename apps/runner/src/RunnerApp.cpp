@@ -427,6 +427,7 @@ bool RunnerApp::OnInit()
     // 構築中もイベントループを回す。GUIとrun_manager_にはworkerから触れない。
     run_init_started_ = std::chrono::steady_clock::now();
     LOG::info() << "Initializing run in background.";
+    frame_->SetStatusText("Initializing run...");
     run_init_thread_ = std::thread([this, config_data] {
         try {
             anet::ProfileThreadName thread_name(kRunInitThreadName);
@@ -466,7 +467,12 @@ void RunnerApp::OnRunConstructionComplete()
         frame_->Close(true);
         return;
     }
-    if (run_manager_->GetStatus() == anet::rl::RunnerStatus::RUNNING) CompleteRunInitialization();
+    // 強制Close・OnExitの受領ではframeが消えている場合があるため、表示はこの経路だけで更新する。
+    if (run_manager_->GetStatus() == anet::rl::RunnerStatus::RUNNING) {
+        CompleteRunInitialization();
+    } else {
+        frame_->SetStatusText("Run initialization failed");
+    }
 }
 
 bool RunnerApp::PrepareRunClose(bool can_veto)
@@ -584,6 +590,8 @@ void RunnerApp::CompleteRunInitialization()
     LOG::info() << "Run initialized. elapsed_sec=" << std::fixed << std::setprecision(2) << elapsed;
     trainer_thread_->Start();
     run_initialized_ = true;
+    // 起動中の表示を、学習を始めたか待っているかの表示へ置き換える。
+    frame_->SetStatusText(config_->train_auto_start ? "Training started" : "Run initialized");
 }
 
 std::filesystem::path RunnerApp::GetRunDir()

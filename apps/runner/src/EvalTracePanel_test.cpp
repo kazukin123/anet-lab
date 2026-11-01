@@ -1013,6 +1013,55 @@ TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[
     CHECK(eval->GetPlaybackRate() == 58.0);
     eval->SetFps(0);
 
+    // menuからの速度変更はINFOへ出し、resumed表示が残っている間だけstatus barも今の値にする。
+    const auto status = [&] { return frame->GetStatusBar()->GetStatusText(0).ToStdString(); };
+    const auto speed_logs = [](const anet::test::LogCaptureGuard& logs) {
+        constexpr std::string_view kSpeedLog = "Evaluation speed changed ";
+        logs.Flush();
+        std::vector<std::string> found;
+        for (const auto& record : logs.Records())
+            if (const auto at = record.message.find(kSpeedLog); at != std::string::npos) found.push_back(record.message.substr(at));
+        return found;
+    };
+    const int fps_menu_id = bar->FindMenuItem("View", "Eval View FPS");
+    REQUIRE(fps_menu_id != wxNOT_FOUND);
+    auto* fps10_item = bar->FindItem(fps_menu_id)->GetSubMenu()->FindItemByPosition(3);
+    REQUIRE(fps10_item->GetItemLabelText() == "10");
+    eval->TogglePause();
+    REQUIRE_FALSE(eval->IsPaused());
+    CHECK(status() == "Evaluation resumed fps=0 step_per_frame=4");
+    {
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        select(menu->FindItemByPosition(5));
+        CHECK(status() == "Evaluation resumed fps=0 step_per_frame=20");
+        dialogs.answers = {"9"};
+        select(custom_item);
+        CHECK(status() == "Evaluation resumed fps=0 step_per_frame=9");
+        dialogs.answers = {std::nullopt};
+        select(custom_item);
+        CHECK(status() == "Evaluation resumed fps=0 step_per_frame=9");
+        select(fps10_item);
+        eval->SetFps(0);
+        CHECK(status() == "Evaluation resumed fps=10 step_per_frame=9");
+        CHECK(speed_logs(logs) == std::vector<std::string>{
+            "Evaluation speed changed fps=0 step_per_frame=20",
+            "Evaluation speed changed fps=0 step_per_frame=9",
+            "Evaluation speed changed fps=10 step_per_frame=9"});
+    }
+    frame->SetStatusText("Other");
+    select(menu->FindItemByPosition(1));
+    CHECK(status() == "Other");
+    eval->TogglePause();
+    REQUIRE(eval->IsPaused());
+    {
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        select(menu->FindItemByPosition(2));
+        CHECK(status() == "Evaluation paused");
+        CHECK(speed_logs(logs) == std::vector<std::string>{"Evaluation speed changed fps=0 step_per_frame=2"});
+    }
+    select(menu->FindItemByPosition(3));
+    REQUIRE(eval->GetStepsPerFrame() == 4);
+
     // UI timerの配送1回あたりのstep数と、pause・手動stepの独立性を通知で観測する。
     int steps = 0;
     auto notifier = wxGetApp().GetRunManager().GetNotifier();

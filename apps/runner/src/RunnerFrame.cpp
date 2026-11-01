@@ -823,7 +823,10 @@ void RunnerFrame::SetupEvents()
         {ID_EvalFps60, 60.0f}, {ID_EvalFps120, 120.0f},
     };
     for (const auto& [id, fps] : eval_fps_items) {
-        Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { eval_panel_->SetFps(fps); }, id);
+        Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) {
+            eval_panel_->SetFps(fps);
+            eval_panel_->ReportSpeedChange();
+        }, id);
         Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) { event.Enable(initialized_); }, id);
     }
 
@@ -835,6 +838,7 @@ void RunnerFrame::SetupEvents()
     for (const auto& [id, steps] : eval_steps_items) {
         Bind(wxEVT_MENU, [this, id, steps](wxCommandEvent&) {
             eval_panel_->SetStepsPerFrame(steps);
+            eval_panel_->ReportSpeedChange();
             eval_steps_selection_ = id;
             GetMenuBar()->Check(id, true);
         }, id);
@@ -1512,6 +1516,7 @@ void RunnerFrame::OnEvalStepsCustom(wxCommandEvent& WXUNUSED(event))
         wxLongLong_t steps;
         if (dialog.GetValue().ToLongLong(&steps) && steps > 0 && steps <= kMaxSteps) {
             eval_panel_->SetStepsPerFrame(static_cast<int>(steps));
+            eval_panel_->ReportSpeedChange();
             eval_steps_selection_ = ID_EvalStepsCustom;
             GetMenuBar()->SetLabel(ID_EvalStepsCustom, wxString::Format("Custom (%d)...", static_cast<int>(steps)));
             GetMenuBar()->Check(ID_EvalStepsCustom, true);
