@@ -1528,8 +1528,6 @@ app.online.eval_panel.fps ?= 14.5
 # 描画コストはそのまま throughput に効く。録画時もここは 10 で足りる。
 app.online.train_panel.fps ?= 10
 
-QValuePanel.row_height = 20
-
 # 遷移結果の得点・残機を履歴へ並べる。
 app.eval_trace_panel.columns.[300] = $env_step game_score
 app.eval_trace_panel.columns.[310] = $env_step lives

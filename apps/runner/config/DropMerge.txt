@@ -1530,7 +1530,7 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 58
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
-QValuePanel.row_height = 17
+QValuePanel.row_height = 16
 
 app.online.train_panel.fps = 15
 

@@ -106,8 +106,8 @@ private:
     // 既定レイアウトへの復帰 (Reset Layout)
     void RestoreDefaultPanes();
     void HideAuxPanes();
-    int GetDefaultQValueDockWidth() const;
-    void ApplyQValuePaneHeight(wxAuiPaneInfo& pane) const;
+    void ApplyQValuePaneSize(wxAuiPaneInfo& pane) const;
+    void ApplyQValuePlacement();
     bool IsQValuePlacementChanged();
     void ApplyQValueBandHeight();
 private:

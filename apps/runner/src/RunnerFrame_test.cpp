@@ -395,12 +395,14 @@ TEST_CASE("Main panes share guarded toggles and restore the previous Eval dock",
     // 昇格中は直前の記憶幅を保ち、降格後は新しい予算で等幅にする。
     const int promoted_width = ui.DockSize(ui.Eval().name);
     ui.Toggle("Train View", false);
-    ui.Manager().GetPane("EvalQValuePanel").dock_size = 500;
+    // Q-Valuesの最小幅（＝既定幅）より広げた列を、主paneの200を残すところまで縮める。
+    const int q_min = ui.Manager().GetPane("EvalQValuePanel").min_size.x;
+    ui.Manager().GetPane("EvalQValuePanel").dock_size = q_min + 50;
     ui.Toggle("Evaluation QValue View", true);
-    CHECK(ui.DockSize("EvalQValuePanel") == 500);
-    ui.frame->SetClientSize(wxSize(650, ui.frame->GetClientSize().y));
+    CHECK(ui.DockSize("EvalQValuePanel") == q_min + 50);
+    ui.frame->SetClientSize(wxSize(q_min + 220, ui.frame->GetClientSize().y));
     ui.Settle();
-    CHECK(ui.DockSize("EvalQValuePanel") == 450);
+    CHECK(ui.DockSize("EvalQValuePanel") == q_min + 20);
     CHECK(ui.Eval().dock_size == promoted_width);
     ui.frame->SetClientSize(wxSize(1800, ui.frame->GetClientSize().y));
     ui.Settle();
@@ -1494,6 +1496,102 @@ TEST_CASE("Q-Values takes only its action rows in a shared column until Reset", 
     CHECK(q_value().dock_proportion == 1);
     CHECK(q_value().best_size.y == height);
     CHECK(q_value().min_size.y == height);
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Q-Values keeps its default width as the minimum and follows a wider table", "[.][runner_layout][q_value_width]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.frame->SetClientSize(1400, 800);
+    ui.Toggle("Evaluation QValue View", true);
+    const auto q_value = [&]() -> wxAuiPaneInfo& { return ui.Manager().GetPane("EvalQValuePanel"); };
+    auto* panel = dynamic_cast<QValuePanel*>(q_value().window);
+    REQUIRE(panel);
+    wxGrid* grid = nullptr;
+    wxWindow* reset = nullptr;
+    wxWindow* hist = nullptr;
+    const auto find = [&](auto&& self, wxWindow* parent) -> void {
+        for (auto* child : parent->GetChildren()) {
+            if (auto* candidate = dynamic_cast<wxGrid*>(child)) grid = candidate;
+            if (dynamic_cast<wxButton*>(child) && child->GetLabel() == "Reset Range") reset = child;
+            if (dynamic_cast<wxCheckBox*>(child) && child->GetLabel() == "Hist") hist = child;
+            self(self, child);
+        }
+    };
+    find(find, panel);
+    REQUIRE(grid);
+    REQUIRE(reset);
+    REQUIRE(hist);
+    CHECK(grid->GetColLabelValue(1) == "Mean");
+    CHECK(grid->GetColLabelValue(2) == "Max");
+    CHECK(grid->GetColLabelValue(3) == "Min");
+    CHECK(grid->GetColLabelValue(4) == "Std");
+    // Reset Rangeはヒートマップが狭くても見える左端。
+    CHECK(reset->GetPosition().x < hist->GetPosition().x);
+
+    // 最小幅と既定幅は同じで、開いた直後の列はその幅。窓を狭めても縮まない。
+    const int width = panel->GetPreferredDockWidth();
+    CHECK(q_value().min_size.x == width);
+    CHECK(q_value().best_size.x == width);
+    CHECK(panel->GetSize().x == width);
+    ui.frame->SetClientSize(600, 800);
+    ui.Settle();
+    CHECK(panel->GetSize().x == width);
+
+    // 長い値で列が広がると、最小幅＝既定幅もその分だけ広がる。
+    ui.frame->SetClientSize(1400, 800);
+    ui.Settle();
+    const int mean_width = grid->GetColSize(1);
+    QValueData data;
+    data.stats = {{-12345.678f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f}};
+    data.selected_action = 0;
+    data.width = 1;
+    data.height = 2;
+    data.vv = {-12345.678f, 0.0f};
+    panel->ApplyData(data);
+    ui.Settle();
+    ui.Settle();
+    REQUIRE(grid->GetColSize(1) > mean_width);
+    CHECK(panel->GetPreferredDockWidth() == width + grid->GetColSize(1) - mean_width);
+    CHECK(q_value().min_size.x == panel->GetPreferredDockWidth());
+    CHECK(panel->GetSize().x == panel->GetPreferredDockWidth());
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Floating Q-Values can shrink to the table and one row", "[.][runner_layout][q_value_float]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.frame->SetClientSize(1400, 900);
+    ui.Toggle("Evaluation QValue View", true);
+    const auto q_value = [&]() -> wxAuiPaneInfo& { return ui.Manager().GetPane("EvalQValuePanel"); };
+    auto* panel = dynamic_cast<QValuePanel*>(q_value().window);
+    REQUIRE(panel);
+    const wxSize docked(panel->GetPreferredDockWidth(), panel->GetPreferredDockHeight());
+    REQUIRE(q_value().min_size == docked);
+
+    // floatした窓は、表が見える幅と見出し＋1行の高さまで縮められる。
+    ui.Button(panel, wxAUI_BUTTON_PIN);
+    REQUIRE(q_value().IsFloating());
+    REQUIRE(q_value().frame);
+    const wxSize minimum = panel->GetFloatingMinSize();
+    CHECK(minimum.x < docked.x);
+    CHECK(minimum.y < docked.y);
+    CHECK(q_value().frame->GetMinClientSize() == minimum);
+    q_value().frame->SetClientSize(minimum);
+    ui.Settle();
+    // 行が収まらず縦スクロールの幅が表に入っても、窓はその最小に合わせて広がる。
+    CHECK(panel->GetSize() == panel->GetFloatingMinSize());
+    CHECK(q_value().frame->GetClientSize() == panel->GetFloatingMinSize());
+
+    // dockへ戻すと最小＝既定に戻る。
+    q_value().Dock().Right().Layer(10).Row(0).Position(0);
+    ui.Manager().Update();
+    ui.Settle();
+    CHECK(q_value().IsDocked());
+    CHECK(q_value().min_size == docked);
+    CHECK(panel->GetSize().x == docked.x);
     ui.CheckNoMainPaneFallback();
 }
 

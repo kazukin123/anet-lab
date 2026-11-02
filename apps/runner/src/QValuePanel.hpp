@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <functional>
 #include <vector>
@@ -69,6 +70,8 @@ public:
 
     int GetPreferredDockWidth() const;
     int GetPreferredDockHeight() const;
+    wxSize GetFloatingMinSize() const;
+    void SetDockSizeHandler(std::function<void()> handler);
 
     bool IsHistogram() const;
     bool IsAdvantage() const;
@@ -84,6 +87,13 @@ private:
     void ResetRange();
     void SyncHeatMapScroll(bool refresh_grid);
     void RefreshLayoutChildren();
+    void BuildRows();
+    int MeasureTextWidth(const wxString& text, const wxFont& font) const;
+    int MeasureColumnWidth(const wxString& label, size_t chars) const;
+    bool FitValueColumn(int col, const wxString& text);
+    bool NeedsVerticalScroll() const;
+    bool UpdateGridWidth();
+    void ApplyGridWidth();
 private:
     void OnSize(wxSizeEvent& event);
     void OnCloseWindow(wxCloseEvent& event);
@@ -95,6 +105,13 @@ private:
     void OnGridKeyUp(wxKeyEvent& event);
 private:
     class Config;
+    // 表の列。0 列目は行動名で、数値列は Mean・Max・Min・Std の順
+    static constexpr int kActionCol = 0;
+    static constexpr int kMeanCol = 1;
+    static constexpr int kMaxCol = 2;
+    static constexpr int kMinCol = 3;
+    static constexpr int kStdCol = 4;
+    static constexpr int kColumnCount = 5;
 private:
     wxGrid* grid_;
     wxCheckBox* hist_check_;
@@ -120,6 +137,9 @@ private:
     std::vector<float> hist_weights_;
     std::atomic<bool> update_pending_{ false };  ///< Update()のCallAfter予約中フラグ(多重予約防止)
     int last_selected_row_ = -1;                 ///< 前回ハイライト表示した行(差分更新用)
+    std::function<void()> dock_size_handler_;    ///< 推奨の幅が変わったときの通知先
+    std::array<size_t, kColumnCount> fitted_value_chars_{};  ///< 数値列の幅を合わせた文字数
+    int grid_width_ = 0;                         ///< 固定した表の幅
 
     //  範囲記憶用
     float accumulated_min_ = std::numeric_limits<float>::max();

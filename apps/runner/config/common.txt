@@ -59,6 +59,7 @@ env.worker_type ?= 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
 
 # --- gui
 
+#QValuePanel.row_height ?= 16
 QValuePanel.row_height ?= 24
 #QValuePanel.row_height ?= 48
 QValuePanel.use_hist_smooth ?= true

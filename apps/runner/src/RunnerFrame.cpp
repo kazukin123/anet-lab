@@ -42,7 +42,6 @@ constexpr int kDefaultLogDockHeight = 200;
 constexpr int kMinTrainWidth = 200;
 constexpr int kMinMainPaneHeight = 200;
 constexpr int kMinEvalWidth = 200;
-constexpr int kMinQValueWidth = 300;
 // 同じ列で Q-Values が余りを取らない伸び率 (wx の既定は 100000。0 は wx が既定へ戻す)
 constexpr int kQValueDockProportion = 1;
 constexpr int kMinAuxWidth = 100;
@@ -465,8 +464,7 @@ void RunnerFrame::SetupToolBars()
 void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
 {
     const int initial_client_width = GetClientSize().GetWidth();
-    const int initial_q_value_width = std::max(kMinQValueWidth, initial_client_width / 3);
-    const int main_pane_width = std::max(kMinTrainWidth, (initial_client_width - initial_q_value_width) / 2);
+    const int main_pane_width = std::max(kMinTrainWidth, initial_client_width / 3);
 
     // Log View
     log_panel_ = new LogPanel(this, wxGetApp().GetConfigData());
@@ -509,16 +507,14 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     // QValuePanel
     auto config_data = wxGetApp().GetConfigData();
     q_value_panel_ = new QValuePanel(this, config_data);
-    const int q_value_width = GetDefaultQValueDockWidth();
     wxAuiPaneInfo q_value_info = wxAuiPaneInfo()
         .Name("EvalQValuePanel").Caption("Evaluation Q-Values")
         .Right().Layer(kQValueLayer).Row(0).Position(0)
-        .BestSize(q_value_width, -1)
         .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(true)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
         .Hide();
-    q_value_info.dock_size = q_value_width;
-    ApplyQValuePaneHeight(q_value_info);
+    ApplyQValuePaneSize(q_value_info);
+    q_value_info.dock_size = q_value_info.best_size.x;
     aui_mgr_.AddPane(q_value_panel_, q_value_info);
 
     // 履歴は右の補助列に一枚だけ置き、起動時は生成・記録とも休止する。
@@ -544,10 +540,20 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
         eval_panel_->DoStep(action);
         eval_panel_->Refresh();
     });
-    // 行動数が決まったので、pane の高さを行数に合わせ直す
+    // 行動数と行動名が決まったので、pane の大きさを表に合わせ直す
     auto& q_value_pane = aui_mgr_.GetPane(q_value_panel_);
-    ApplyQValuePaneHeight(q_value_pane);
+    ApplyQValuePaneSize(q_value_pane);
+    q_value_pane.dock_size = q_value_pane.best_size.x;
     if (q_value_pane.IsShown()) aui_mgr_.Update();
+    // 長い値で表が広がったときも当て直す。panel の更新処理の中から呼ばれるので一拍置く
+    q_value_panel_->SetDockSizeHandler([this] {
+        CallAfter([this] {
+            if (aui_mgr_.GetManagedWindow() == nullptr) return;
+            auto& pane = aui_mgr_.GetPane(q_value_panel_);
+            ApplyQValuePaneSize(pane);
+            if (pane.IsShown()) aui_mgr_.Update();
+        });
+    });
 
     eval_trace_panel_->Initialize(run_manager, eval_runner_);
     eval_trace_panel_->RegisterFollower(eval_panel_);
@@ -888,21 +894,50 @@ std::vector<wxAuiPaneInfo*> RunnerFrame::GetAuxPanes()
     return result;
 }
 
-int RunnerFrame::GetDefaultQValueDockWidth() const
+void RunnerFrame::ApplyQValuePaneSize(wxAuiPaneInfo& pane) const
 {
-    if (!q_value_panel_) {
-        return 640;
+    // 幅は表＋ヒートマップで、最小幅と既定幅を同じにする。
+    // 高さは行動数ぶんで、同じ列ではほかの pane へ余りを渡す。ひとりの列では伸び率に関係なく列いっぱいになる。
+    // サッシで広げた後の伸び率は wx に任せる。
+    const wxSize size(q_value_panel_->GetPreferredDockWidth(), q_value_panel_->GetPreferredDockHeight());
+    pane.BestSize(size);
+    pane.dock_proportion = kQValueDockProportion;
+    if (!pane.IsFloating()) {
+        pane.MinSize(size);
+        return;
     }
-    return std::max(kMinQValueWidth, q_value_panel_->GetPreferredDockWidth());
+    // float の窓は利用者が直接大きさを決めるので、表が見える幅と見出し＋1 行の高さまで縮められるようにする。
+    // wx は float にした時点の最小を窓へ写すため、panel と窓の最小もここで直す。
+    const wxSize minimum = q_value_panel_->GetFloatingMinSize();
+    pane.MinSize(minimum);
+    q_value_panel_->SetMinSize(minimum);
+    if (pane.frame) {
+        pane.frame->SetMinClientSize(minimum);
+        wxSize client = pane.frame->GetClientSize();
+        if (client.x < minimum.x || client.y < minimum.y) {
+            client.IncTo(minimum);
+            pane.frame->SetClientSize(client);
+        }
+    }
 }
 
-void RunnerFrame::ApplyQValuePaneHeight(wxAuiPaneInfo& pane) const
+void RunnerFrame::ApplyQValuePlacement()
 {
-    // 同じ列ではほかの pane へ余りを渡し、行動数ぶんの高さだけを取る。
-    // ひとりの列では伸び率に関係なく列いっぱいになる。サッシで広げた後の伸び率は wx に任せる。
-    const int height = q_value_panel_->GetPreferredDockHeight();
-    pane.BestSize(pane.best_size.x, height).MinSize(kMinQValueWidth, height);
-    pane.dock_proportion = kQValueDockProportion;
+    // float と dock で違う最小を当て、ひとりで入った上下の帯は行数ぶんの高さにする
+    auto& pane = aui_mgr_.GetPane(q_value_panel_);
+    ApplyQValuePaneSize(pane);
+    if (!pane.IsFloating()) {
+        aui_mgr_.Update();
+        ApplyQValueBandHeight();
+        return;
+    }
+    // 全行の高さが画面より高いときは、画面に収まる高さにする
+    if (!pane.frame) return;
+    const wxRect area = wxDisplay(pane.frame).GetClientArea();
+    const wxRect rect = pane.frame->GetRect();
+    if (rect.GetBottom() > area.GetBottom()) {
+        pane.frame->SetSize(rect.width, std::max(pane.frame->GetMinSize().y, area.GetBottom() - rect.y + 1));
+    }
 }
 
 bool RunnerFrame::IsQValuePlacementChanged()
@@ -1101,9 +1136,9 @@ void RunnerFrame::ScheduleMainPaneUpdate(bool update_layout)
             ApplyMainPaneSizes();
             main_pane_placements_ = GetMainPanePlacements();
         }
-        // Q-Valuesも同じ集約で、置き場が変わったときだけ上下の帯の高さを当てる。
+        // Q-Valuesも同じ集約で、置き場が変わったときだけ大きさを当て直す。
         if (!HasMaximizedPane() && IsQValuePlacementChanged()) {
-            ApplyQValueBandHeight();
+            ApplyQValuePlacement();
             q_value_placement_ = GetPanePlacement(aui_mgr_.GetPane(q_value_panel_));
         }
     });
@@ -1240,7 +1275,7 @@ void RunnerFrame::ApplyMainPaneSizes()
         for (auto& dock : docks) {
             if (shortage <= 0) break;
             if (dock.has_main || !dock.has_q_value) continue;
-            const int reducible = std::max(0, dock.width - std::max(kMinQValueWidth, dock.min_width));
+            const int reducible = std::max(0, dock.width - dock.min_width);
             const int reduction = std::min(reducible, shortage);
             dock.width -= reduction;
             other_width -= reduction;
@@ -1326,11 +1361,9 @@ void RunnerFrame::RestoreDefaultPanes()
 
     auto& q_value_pane = aui_mgr_.GetPane(q_value_panel_);
     if (q_value_pane.IsOk()) {
-        const int q_value_width = GetDefaultQValueDockWidth();
         q_value_pane.Show(false).Dock().Right().Layer(kQValueLayer).Row(0).Position(0).Restore();
-        q_value_pane.BestSize(q_value_width, -1);
-        q_value_pane.dock_size = q_value_width;
-        ApplyQValuePaneHeight(q_value_pane);
+        ApplyQValuePaneSize(q_value_pane);
+        q_value_pane.dock_size = q_value_pane.best_size.x;
     }
 
     HideAuxPanes();

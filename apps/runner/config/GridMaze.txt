@@ -250,8 +250,6 @@ image.phm.@per-prio.heatmap.height = 10
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
-QValuePanel.row_height = 24
-
 app.online.train_panel.fps = 30
 
 

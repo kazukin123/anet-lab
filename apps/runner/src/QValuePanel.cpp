@@ -13,8 +13,7 @@
 //static constexpr int kRowHeight = 24;   ///< 行の高さ（GridとHeatMapの同期用）
 static constexpr int kActionNameColWidth = 100;
 static constexpr int kActionNameColMinWidth = 50;
-static constexpr int kColWidth = 80;
-static constexpr int kColMinWidth = 70;
+static constexpr size_t kInitialValueChars = 6;  ///< 数値列を最初に合わせる文字数 ("-0.000")
 static constexpr bool kHistDefaultCheck = true;
 static constexpr bool kAdvDefaultCheck = true;
 static constexpr bool kLogScaleDefaultCheck = false;
@@ -177,6 +176,11 @@ void QValuePanel::InitLayout()
 
     auto* header_sizer = new wxBoxSizer(wxHORIZONTAL);
 
+    // Reset Range Button (いちばん使うので、ヒートマップが狭くても見える左端に置く)
+    reset_range_button_ = new wxButton(header_panel_, wxID_ANY, "Reset Range", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    reset_range_button_->Bind(wxEVT_BUTTON, &QValuePanel::OnResetRangeClick, this);
+    header_sizer->Add(reset_range_button_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
     // Hist CheckBox
     hist_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Hist");
     hist_check_->SetValue(kHistDefaultCheck);
@@ -201,11 +205,6 @@ void QValuePanel::InitLayout()
     auto_range_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
     header_sizer->Add(auto_range_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
-	// Reset Range Button
-    reset_range_button_ = new wxButton(header_panel_, wxID_ANY, "Reset Range", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-    reset_range_button_->Bind(wxEVT_BUTTON, &QValuePanel::OnResetRangeClick, this);
-    header_sizer->Add(reset_range_button_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
-
     // ヘッダパネルを追加
     header_panel_->SetSizer(header_sizer);
     const int header_height = std::max(config_->row_height, header_sizer->CalcMin().GetHeight());
@@ -222,35 +221,37 @@ void QValuePanel::InitLayout()
 
     main_sizer->Add(right_sizer, 1, wxEXPAND, 0);
     SetSizer(main_sizer);
+    UpdateGridWidth();
     Layout();
     RefreshLayoutChildren();
 }
 
 void QValuePanel::SetupGrid()
 {
-    grid_->CreateGrid(0, 5);
-    grid_->SetColLabelValue(0, "Action");
-    grid_->SetColLabelValue(1, "Mean");
-    grid_->SetColLabelValue(2, "Std");
-    grid_->SetColLabelValue(3, "Max");
-    grid_->SetColLabelValue(4, "Min");
+    grid_->CreateGrid(0, kColumnCount);
+    grid_->SetColLabelValue(kActionCol, "Action");
+    grid_->SetColLabelValue(kMeanCol, "Mean");
+    grid_->SetColLabelValue(kMaxCol, "Max");
+    grid_->SetColLabelValue(kMinCol, "Min");
+    grid_->SetColLabelValue(kStdCol, "Std");
 
     grid_->SetDefaultRowSize(config_->row_height, true);
     grid_->SetColLabelSize(config_->row_height); // ヘッダー高さ
     grid_->SetRowLabelSize(30);
     grid_->DisableDragRowSize(); // 高さ同期のため固定
     grid_->EnableEditing(false);
-    grid_->SetColSize(0, kActionNameColWidth);
-    grid_->SetColMinimalWidth(0, kActionNameColMinWidth);
+    grid_->SetColSize(kActionCol, kActionNameColWidth);
+    grid_->SetColMinimalWidth(kActionCol, kActionNameColMinWidth);
     grid_->ShowScrollbars(wxSHOW_SB_NEVER, wxSHOW_SB_DEFAULT);  // 横スクロールバーを強制非表示に
 
     grid_->SetDefaultCellAlignment(wxALIGN_LEFT, wxALIGN_CENTER);
-    for (int i = 1; i < 5; ++i) {
+    for (int col = kMeanCol; col < kColumnCount; ++col) {
         wxGridCellAttr* align_attr = new wxGridCellAttr();
         align_attr->SetAlignment(wxALIGN_RIGHT, wxALIGN_CENTER);
-        grid_->SetColAttr(i, align_attr);
-        grid_->SetColSize(i, kColWidth);
-        grid_->SetColMinimalWidth(i, kColMinWidth);
+        grid_->SetColAttr(col, align_attr);
+        // 見出しと "-0.000" が入る幅から始め、長い値が出たら広げる
+        grid_->SetColSize(col, MeasureColumnWidth(grid_->GetColLabelValue(col), kInitialValueChars));
+        fitted_value_chars_[col] = kInitialValueChars;
     }
 
     // セル選択を無効化
@@ -286,6 +287,7 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
     // アクション名
     auto action_spec = runner->GetBatchEnv()->GetSpec().action_spec;
     action_names_.insert(action_names_.begin(), action_spec.value_labels.begin(), action_spec.value_labels.end());
+    BuildRows();
 
 	// Observer生成&登録
     auto notifier = run_manager->GetNotifier();
@@ -446,15 +448,14 @@ void QValuePanel::Update()
     // --------------------------------------------------------
     // Grid更新 (Advantage対応)
     // --------------------------------------------------------
-    int current_rows = grid_->GetNumberRows();
-    int new_rows = static_cast<int>(action_names_.size());
-    const bool rows_changed = (new_rows != current_rows);
+    // 行と行動名は Initialize で作り、ここでは数値と選択行だけを更新する
+    const int rows = grid_->GetNumberRows();
 
     // 最大のMeanを持つアクションを特定する
     //float max_mean_val = -std::numeric_limits<float>::infinity();
     //int max_mean_idx = -1;
 
-    //for (int i = 0; i < new_rows; ++i) {
+    //for (int i = 0; i < rows; ++i) {
     //    // 統計データが揃っていない場合のガード
     //    if (i < data.stats.size()) {
     //        if (data.stats[i].mean > max_mean_val) {
@@ -469,48 +470,41 @@ void QValuePanel::Update()
 
     grid_->BeginBatch();
 
-    // 行構成・アクション名は不変なので、行数が変わったとき(実質初回)だけ構築する
-    if (rows_changed) {
-        if (new_rows > current_rows) {
-            grid_->AppendRows(new_rows - current_rows);
-        } else {
-            grid_->DeleteRows(new_rows, current_rows - new_rows);
-        }
-        for (int i = 0; i < new_rows; ++i) {
-            grid_->SetRowLabelValue(i, wxString::Format("%d", i));
-            grid_->SetCellValue(i, 0, action_names_[i]);
-        }
-        // 行再構築後のセルattrはデフォルト状態なので、ハイライトは付け直す
-        last_selected_row_ = -1;
-    }
-
     // Grid表示用のオフセット値 ★混乱するので無効化
     float grid_offset = 0.0f;// is_adv ? static_cast<float>(global_mean) : 0.0f;
 
-    // 数値セル(1～4列)のみ毎回更新する
-    for (int i = 0; i < new_rows; ++i) {
+    // 数値セルを毎回更新し、今までより長い値が出た列だけ広げる
+    bool widened = false;
+    for (int i = 0; i < rows; ++i) {
         // AdvantageONなら、平均値を引いた値を表示して確認できるようにする
         // Std(ばらつき)はシフトしても変わらないのでそのまま
-        grid_->SetCellValue(i, 1, wxString::Format("%.3f", data.stats[i].mean - grid_offset));
-        grid_->SetCellValue(i, 2, wxString::Format("%.3f", data.stats[i].std_dev));
-        grid_->SetCellValue(i, 3, wxString::Format("%.3f", data.stats[i].max - grid_offset));
-        grid_->SetCellValue(i, 4, wxString::Format("%.3f", data.stats[i].min - grid_offset));
+        const std::pair<int, float> values[] = {
+            {kMeanCol, data.stats[i].mean - grid_offset},
+            {kMaxCol, data.stats[i].max - grid_offset},
+            {kMinCol, data.stats[i].min - grid_offset},
+            {kStdCol, data.stats[i].std_dev},
+        };
+        for (const auto& [col, value] : values) {
+            const auto text = wxString::Format("%.3f", value);
+            widened |= FitValueColumn(col, text);
+            grid_->SetCellValue(i, col, text);
+        }
     }
 
     // 選択行ハイライト (毎回全行を塗り直すとattr更新が支配的になるため、変化した行だけ差分更新)
     const int selected_row = static_cast<int>(selected_idx);
     if (selected_row != last_selected_row_) {
-        if (last_selected_row_ >= 0 && last_selected_row_ < new_rows) {
-            for (int col = 0; col < 5; ++col) {
+        if (last_selected_row_ >= 0 && last_selected_row_ < rows) {
+            for (int col = 0; col < kColumnCount; ++col) {
                 // wxNullColourでリセット（システムデフォルトに戻る）
                 grid_->SetCellBackgroundColour(last_selected_row_, col, wxNullColour);
                 grid_->SetCellTextColour(last_selected_row_, col, wxNullColour);
             }
         }
-        if (selected_row >= 0 && selected_row < new_rows) {
+        if (selected_row >= 0 && selected_row < rows) {
             const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
             const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
-            for (int col = 0; col < 5; ++col) {
+            for (int col = 0; col < kColumnCount; ++col) {
                 grid_->SetCellBackgroundColour(selected_row, col, kHighlightBg);
                 grid_->SetCellTextColour(selected_row, col, kHighlightText); // 文字色も合わせる
             }
@@ -520,49 +514,9 @@ void QValuePanel::Update()
 
     grid_->EndBatch();
 
-    // 列幅・パネル幅・レイアウトの再計算は行構成が変わったときだけ行う
-    // (毎Step実行すると AutoSizeColumn のテキスト測定や全子ウィンドウの同期再描画が支配的コストになる)
-    if (rows_changed) {
-        // アクション名の列(0列目)だけ文字幅にフィットさせる
-        grid_->AutoSizeColumn(0, false);
-
-        // 1～4列目(Mean, Std, Max, Min)は固定幅(kColWidth)を維持する
-        for (int i = 1; i < 5; ++i) {
-            grid_->SetColSize(i, kColWidth);
-        }
-
-        int total_width = grid_->GetRowLabelSize();
-        for (int i = 0; i < grid_->GetNumberCols(); ++i) {
-            total_width += grid_->GetColSize(i);
-        }
-
-        // Gridの中身の仮想高さを計算（列ヘッダー ＋ 全行の高さ）
-        int virtual_height = grid_->GetColLabelSize();
-        for (int i = 0; i < grid_->GetNumberRows(); ++i) {
-            virtual_height += grid_->GetRowSize(i);
-        }
-
-        // Gridの実際の描画高さを取得
-        int current_height = grid_->GetSize().GetHeight();
-        if (current_height < 50) {
-            // UI初期化直後でまだSizerが計算されていない場合は親パネルの高さを参照
-            current_height = GetClientSize().GetHeight();
-        }
-
-        // 中身が実際の高さを超えて「縦スクロールバーが出現する」場合のみ幅を加算
-        if (virtual_height > current_height) {
-            total_width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
-        }
-        total_width += 2; // 境界線のマージン（左右1px）
-
-        // Gridの横幅を厳密にロックする（縦方向はSizer任せで拡張させる）
-        grid_->SetMinSize(wxSize(total_width, -1));
-        grid_->SetMaxSize(wxSize(total_width, -1));
-
-        // Sizer再レイアウト
-        Layout();
-        RefreshLayoutChildren();
-    }
+    // 表の幅とレイアウトの再計算は列が広がったときだけ行う
+    // (毎Step実行すると全子ウィンドウの同期再描画が支配的コストになる)
+    if (widened) ApplyGridWidth();
 
     // --------------------------------------------------------
     // HeatMapデータ加工プロセス
@@ -779,22 +733,9 @@ void QValuePanel::ResetRange() {
 
 int QValuePanel::GetPreferredDockWidth() const
 {
+    // 表の幅にヒートマップの幅を足す。pane の最小幅と既定幅の両方に使う
     static constexpr int kPreferredHeatMapWidth = 180;
-
-    if (!grid_) {
-        return 640;
-    }
-
-    int grid_width = grid_->GetMinSize().GetWidth();
-    if (grid_width <= 0) {
-        grid_width = grid_->GetRowLabelSize();
-        for (int i = 0; i < grid_->GetNumberCols(); ++i) {
-            grid_width += grid_->GetColSize(i);
-        }
-        grid_width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X) + 2;
-    }
-
-    return grid_width + kPreferredHeatMapWidth;
+    return grid_width_ + kPreferredHeatMapWidth;
 }
 
 int QValuePanel::GetPreferredDockHeight() const
@@ -808,6 +749,92 @@ int QValuePanel::GetPreferredDockHeight() const
 
     const int rows = static_cast<int>(action_names_.size());
     return grid_->GetColLabelSize() + rows * grid_->GetDefaultRowSize() + grid_->GetWindowBorderSize().GetHeight();
+}
+
+wxSize QValuePanel::GetFloatingMinSize() const
+{
+    // float の窓は表が全部見える幅と、見出し＋1 行の高さまで縮められる。残りの行は縦スクロールで見る
+    return {grid_width_, grid_->GetColLabelSize() + grid_->GetDefaultRowSize() + grid_->GetWindowBorderSize().GetHeight()};
+}
+
+void QValuePanel::SetDockSizeHandler(std::function<void()> handler)
+{
+    dock_size_handler_ = std::move(handler);
+}
+
+void QValuePanel::BuildRows()
+{
+    // 行動名は Initialize 後に変わらないので、行と行番号・行動名はここで一度だけ作る
+    const int rows = static_cast<int>(action_names_.size());
+    grid_->BeginBatch();
+    grid_->AppendRows(rows);
+    for (int row = 0; row < rows; ++row) {
+        grid_->SetRowLabelValue(row, wxString::Format("%d", row));
+        grid_->SetCellValue(row, kActionCol, action_names_[row]);
+    }
+    grid_->EndBatch();
+    // 行動名の列と行番号は文字幅に合わせる (wx の自動幅と同じ余白)
+    grid_->AutoSizeColumn(kActionCol, false);
+    if (rows > 0) {
+        grid_->SetRowLabelSize(MeasureTextWidth(wxString::Format("%d", rows - 1), grid_->GetLabelFont())
+            + grid_->FromDIP(10));
+    }
+    last_selected_row_ = -1;
+    ApplyGridWidth();
+}
+
+int QValuePanel::MeasureTextWidth(const wxString& text, const wxFont& font) const
+{
+    int width = 0;
+    int height = 0;
+    grid_->GetTextExtent(text, &width, &height, nullptr, nullptr, &font);
+    return width;
+}
+
+int QValuePanel::MeasureColumnWidth(const wxString& label, size_t chars) const
+{
+    // wx の自動幅と同じく、見出しと値の文字幅の大きいほうに余白 10 DIP を足す。
+    // 値は "-" や "." より幅のある "0" を同じ文字数だけ並べて測り、上限とする
+    return std::max(MeasureTextWidth(label, grid_->GetLabelFont()),
+        MeasureTextWidth(wxString('0', chars), grid_->GetDefaultCellFont())) + grid_->FromDIP(10);
+}
+
+bool QValuePanel::FitValueColumn(int col, const wxString& text)
+{
+    // 文字数が増えたときだけ測り、列は広げるだけで縮めない
+    if (text.length() <= fitted_value_chars_[col]) return false;
+    fitted_value_chars_[col] = text.length();
+    const int width = MeasureColumnWidth(grid_->GetColLabelValue(col), text.length());
+    if (width <= grid_->GetColSize(col)) return false;
+    grid_->SetColSize(col, width);
+    return true;
+}
+
+bool QValuePanel::NeedsVerticalScroll() const
+{
+    // 隠れている間の大きさは当てにならない。pane の最小の高さは全行が入る高さなので、収まる前提にする
+    return grid_->IsShownOnScreen() && GetPreferredDockHeight() > grid_->GetSize().y;
+}
+
+bool QValuePanel::UpdateGridWidth()
+{
+    // 行番号と各列の幅に、行が収まらないときだけ縦スクロールの幅を足して表の幅を固定する
+    int width = grid_->GetRowLabelSize() + grid_->GetWindowBorderSize().x;
+    for (int col = 0; col < kColumnCount; ++col) width += grid_->GetColSize(col);
+    if (NeedsVerticalScroll()) width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X, grid_);
+    if (width == grid_width_) return false;
+    grid_width_ = width;
+    grid_->SetMinSize(wxSize(width, -1));
+    grid_->SetMaxSize(wxSize(width, -1));
+    return true;
+}
+
+void QValuePanel::ApplyGridWidth()
+{
+    if (!UpdateGridWidth()) return;
+    Layout();
+    RefreshLayoutChildren();
+    if (dock_size_handler_) dock_size_handler_();
 }
 
 void QValuePanel::SyncHeatMapScroll(bool refresh_grid)
@@ -941,6 +968,11 @@ void QValuePanel::OnGridKeyUp(wxKeyEvent& event)
 void QValuePanel::OnSize(wxSizeEvent& event)
 {
     Layout();
+    // 高さが変わって縦スクロールの要否が変わったら、表の幅を当て直して pane へ知らせる
+    if (UpdateGridWidth()) {
+        Layout();
+        if (dock_size_handler_) dock_size_handler_();
+    }
     RefreshLayoutChildren();
     CallAfter(&QValuePanel::SyncHeatMapScroll, true);
     event.Skip();
