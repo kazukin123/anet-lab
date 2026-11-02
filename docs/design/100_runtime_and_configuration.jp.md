@@ -35,9 +35,9 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 7. 最終値へ`${full.key}`を1段だけ展開する。未定義・連鎖・未解決の値参照はfail-fastする。`.$`と`@` segmentを持つ定義を除いた`ConfigData`とresolution JSONを返し、各`Config`が型付きfieldを読む。workspaceの最終`app.runs_dir`は注入値との文字列完全一致を検証する。
 8. Runnerは実効設定を`config/config_data.txt`へ保存し、構造化した解決記録を`MetricsLogger::Log("config_resolution", json)`へ渡す。`json/config_resolution.json`には`type` / `tag` / `data` envelope付きで保存され、同じrecordがMetrics masterにも記録される。
 
-**`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないeps_endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
+**`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないepsilon.endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は`AGENTS.md`「設定ファイルの代入演算子」、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
 
 既定値は同じ位置に`?=`で書き、意図した個別指定は`=`で書く。既定値用プロファイルをチェーン先頭へ追加しない。Runプロファイル内・CLI・選択宣言`.$`には`?=`を書けない。設定を追加したら`check_default_leaves.py`で、共通ベース・デフォルト設定に残った`=`と環境別の個別指定に紛れた`?=`を確認する。用途を変える場合は検査器の分類理由も更新する。
 
@@ -63,6 +63,15 @@ DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId()
 `--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
 `ConfigData::Read` / `Get`は、キーが存在しない場合だけ呼出側が渡した値を使う。存在する値の型変換に失敗した場合は、key、raw値、期待型を含む`ANET_SYSTEM_ERROR`でfail-fastし、既定値へ戻さない。default prefixとoverride prefixの各layerは独立して書式検証するため、後続overrideは先行layerの書式不正を隠さない。typed readerは前後空白、値全体の消費、overflow、負unsigned値、nonfinite値、不正bool、vector tokenを共通に検証する。stringとvectorの明示的な空値は有効である。値域、enum、組み合わせは各Configまたは再利用される設定型の構築時validatorが検証する。複数layerの合成後に行う構造・bounds検証は物理layerを推測せず、Config所有者から見た論理keyを診断へ使う。
+
+#### ProfiledValue の定数と時間の値
+
+定数は `epsilon = 0.05` のようにrootのbare値で指定する。`type` の既定は `constant`。
+`linear`・`cosine` は `start`・`end`・`steps`、`cosine_restart` はさらに `cycle_mult`、
+`exponential` は `start`・`end`・`time_constant` を使う。rootの指数は `end` に漸近し続ける。
+`phased` は空白区切りの `phases` に列挙した `phase.[name]` を順に評価する。各phaseは正の `steps` で終了し、最後のphase以後はその終値を保持する。phaseの定数は `phase.[name].value` で指定する。
+
+設定の読み取りと記録は分離する。非constantの配下に継承されたbare値は保持されるが、評価と型付きdumpには使わない。dumpには実効typeが参照する欄だけを記録する。後でconstantに戻す場合は、意図するbare値も明示する。
 
 ### 2.2 RunとRunner
 
@@ -125,6 +134,8 @@ class ConfigManager
 class ConfigResolver
 class ConfigData
 class RunManager
+class RunManagerMetricsWiring["RunManager::MetricsWiring"]
+class ObserverFactory
 class BatchEnvBuilder
 class Agent
 class Notifier
@@ -140,6 +151,9 @@ ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
 RunManager *-- BatchEnvBuilder
 RunManager *-- Agent
+RunManager *-- RunManagerMetricsWiring : private
+RunManagerMetricsWiring --> ObserverFactory : 宣言を解析
+RunManagerMetricsWiring --> Notifier : scopeとeventへ購読を接続
 RunManager *-- Notifier
 RunManager *-- TrainRunner
 RunManager o-- EvalRunner
@@ -149,6 +163,12 @@ RunnerThread --> TrainRunner : stepを反復
 ```
 
 主Train EnvはTrainRunnerが使用し、EvalRunnerごとに別のEnvとActorを作る。AgentとNotifierはRun内で共有される。
+
+### 5.1 メトリクス配線の所有
+
+`RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagの一度だけのWARN、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
+
+領域の検証手順は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)を参照する。
 
 ## 6. 処理フロー
 
@@ -209,7 +229,7 @@ sequenceDiagram
     R->>A: MakeAction(state)
     A-->>R: BatchActionInfo
     R->>E: Step(action)
-    E-->>R: reward / next_state / continue_state
+    E-->>R: reward / next_state
     opt 終了したEnvがある
         R->>N: Notify EpisodeEndEvent
         N->>O: OnEpisodeEnd(event)
@@ -231,9 +251,9 @@ Eventは対応する処理が完了した時点のcountを持ち、count本体�
 ### 6.3 Pipeline Train step
 
 `PipelineTrainRunner`は前回Experienceをcloneして保持し、専用の1 workerへLearner更新を投入する。
-後続stepの冒頭では、先に投入した更新の完了と例外を回収し、`LearnEvent`と`TrainEvent`をRunnerThread上で通知する。その後Actor推論、保持しているExperienceの非同期学習投入、現在のEnv Stepを進める。
+後続stepの冒頭では、先に投入した更新の完了と例外を回収し、`LearnEvent`と`TrainEvent`をRunnerThread上で通知する。続いてActor推論、前回Experienceの非同期学習投入、現在のEnv Step（終端laneの自動Resetを含む）を進める。最初の2回を含め既存の通知回数は維持し、状態はcontinue_stateから更新する。
 Serial/PipelineともTrain stepから`Actor::Sync()`を暗黙には呼ばず、同期の要否と時点は具象Actorの契約に委ねる。DefaultDQN Train Actorの定期snapshot同期は`MakeAction()`内で処理されるため、詳細は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
-shutdown時は未完了学習を待ってpoolを停止してからEnvをshutdownする。
+shutdown時は未完了学習を待ち、futureの例外を回収してからEnvをshutdownする。終了処理でLearn/Train通知を追加しない。
 
 ```mermaid
 sequenceDiagram
@@ -271,7 +291,7 @@ sequenceDiagram
         end
         par RunnerThread
             R->>E: Step(action)
-            E-->>R: reward / next_state / continue_state
+            E-->>R: reward / next_state
             opt 終了したEnvがある
                 R->>N: Notify EpisodeEndEvent
                 N->>O: OnEpisodeEnd(event)
@@ -292,7 +312,7 @@ sequenceDiagram
 
 ### 6.4 configured Eval session
 
-`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。`RunSession()`はActorを同期して`EvalSessionEnv::Reset()`を呼び、採用episode N本が完了するまでstepを進める。途中のepisode終端では`EpisodeEndEvent`を出さず、完了後にdecorator Env、`env_index=-1`、発火元countsを持つeventを1回だけ通知する。EvalPanelはsession decoratorを使わず、従来のstep駆動、強制Action、同期方式を維持する。
+`EpisodeEvalObserver`は発火時の`StepCounts`を固定し、`EvalRunner::RunSession()`へ渡す。Actor同期後、採用episode N本が完了するまでStepを進め、Train通知に続いて採用EpisodeEndをgroup順に通知する。各EpisodeEndはそのStep結果を持つ。decoratorは結果から採用値を蓄積し、最後にenv_index=-1・発火元countsのSessionEndを1回通知する。キャンセル時は確定通知を出さない。セッション境界で全groupがfreshならcontinue_stateを再利用する。EvalPanelはsession decoratorを使わず、従来のstep駆動・強制行動・同期方式を維持する。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -328,6 +348,8 @@ sequenceDiagram
 
 ### 7.3 エラー
 
+設定DTOの`std::optional<T>`は、既存の`ConfigData`が読む葉値の型に対応する。未指定ならDTOの初期値を保持し、初期値も未指定なら設定記録へ葉を追加しない。指定があれば通常値の読み取りへ委譲し、default prefix→override prefixの順序と型検証・記録を保つ。空文字や不正な数値を未指定へ変換しない。複合`ConfigReader`をoptionalで包む形は対象外で、型の段階で拒否する。
+
 - `ConfigData`の型変換失敗は例外とし、既定値はキー欠落時だけ使う。範囲・enum・組み合わせは各`Config`または再利用設定型の検証、class IDはrepository解決時の検証に従う。
 - RunnerThread内の例外は握りつぶさずapplicationのexception callbackへ渡す。
 - Pipeline workerの例外はfuture取得時にcaller threadへ再送出する。
@@ -342,10 +364,13 @@ sequenceDiagram
 
 ## 8. テストと拡張時の確認事項
 
+- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
+
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
+- [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 品質確認観点](../quality/impl.md#テスト)「テスト」の規約
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
 - [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
-- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制Action
+- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): 初期化とbackend設定
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable rootと出力path
 - [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定葉`?=`検査の手順

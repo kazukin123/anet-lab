@@ -1082,7 +1082,7 @@ CHANNEL_DEF = {
     "train": {"scope": "train", "event": "train", "eval_name": None},
     "eval1": {"scope": "eval", "event": "session_end", "eval_name": "eval_target"},
     "eval2": {"scope": "eval", "event": "session_end", "eval_name": "eval"},
-    "evalg": {"scope": "eval", "event": "session_end", "eval_name": "greedy_dist"},
+    "evalg": {"scope": "eval", "event": "session_end", "eval_name": "greedy"},
 }
 
 

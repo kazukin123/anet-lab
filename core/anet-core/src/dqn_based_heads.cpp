@@ -1,13 +1,12 @@
 ﻿// dqn_based_heads.cpp
 
 #include "dqn_based_heads.hpp"
-#include "anet/profile.hpp"
-#include "nn_heads.hpp"
-
 #include <array>
 #include <cmath>
 #include <string>
 #include <utility>
+#include "anet/profile.hpp"
+#include "nn_heads.hpp"
 
 
 using namespace anet::rl::dqn;
@@ -77,6 +76,93 @@ private:
     }
 };
 
+
+// ===========================================================================
+// SkipHead
+// ===========================================================================
+
+namespace {
+constexpr const char* kSkipHeadType = "SkipHead";
+
+class SkipHead final : public ProjectionHead<SkipHead, 1> {
+public:
+    SkipHead(int64_t in_features, int64_t actions, int lengths, SkipNetworkMode network_mode,
+        std::string mode, int quantiles, const anet::nn::WeightInitConfig& init,
+        const anet::ConfigData& projection)
+        : ProjectionHead<SkipHead, 1>({std::make_shared<anet::nn::LinearProjectionModule>(projection)})
+        , actions_(actions), lengths_(lengths), network_mode_(network_mode), mode_(std::move(mode)), quantiles_(quantiles)
+    {
+        const int64_t width = ((network_mode_ == SkipNetworkMode::ActionIn) ? 1 : actions_) * lengths_ * (mode_ == ActionPolicyConfig::kQuantileModeQr ? quantiles_ : 1);
+        linear_ = register_module("linear", torch::nn::Linear(in_features, width));
+        anet::nn::WeightInitializer::Initialize(linear_, init);
+        projections_[0]->Bind(linear_);
+    }
+
+    anet::TensorDict ForwardProjected(const anet::TensorDict& features,
+        const anet::nn::NetworkForwardContext& context, anet::nn::NetworkModuleExecutor& projection)
+    {
+        ANET_PROFILE_FUNC();
+        const auto x = GetFeature(features, anet::nn::kKey_DefaultOutput);
+        const int rank = mode_ == ActionPolicyConfig::kQuantileModeIqn ? 3 : 2;
+        if (x.dim() != rank) {
+            ANET_SYSTEM_ERROR("SkipHead features shape=" << x.sizes() << " expected rank=" << rank << " mode=" << mode_);
+        }
+        auto values = projection.Forward(x, context);
+        const auto batch = x.size(0);
+        const auto actions = (network_mode_ == SkipNetworkMode::ActionIn) ? 1 : actions_;
+        anet::TensorDict result;
+        if (mode_ == ActionPolicyConfig::kQuantileModeNone) {
+            values = values.reshape({batch, actions, lengths_});
+            result.Set(SkipHeadFactory::kKeyQ, (network_mode_ == SkipNetworkMode::ActionIn) ? values.squeeze(1) : values);
+        } else {
+            values = mode_ == ActionPolicyConfig::kQuantileModeIqn
+                ? values.reshape({batch, x.size(1), actions, lengths_}).permute({0, 2, 3, 1})
+                : values.reshape({batch, actions, lengths_, quantiles_});
+            if ((network_mode_ == SkipNetworkMode::ActionIn)) values = values.squeeze(1);
+            result.Set(SkipHeadFactory::kKeyQDist, values);
+            result.Set(SkipHeadFactory::kKeyQ, values.mean(-1));
+        }
+        return result;
+    }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = kSkipHeadType;
+        info.outputs.push_back({.name = SkipHeadFactory::kKeyQ, .shape = (network_mode_ == SkipNetworkMode::ActionIn) ? std::vector<int64_t>{lengths_} : std::vector<int64_t>{actions_, lengths_}});
+        // 平均 Q と分布を分け、IQN の可変 K は primary Head と同じ -1 で示す。
+        if (mode_ != ActionPolicyConfig::kQuantileModeNone) {
+            auto shape = info.outputs.back().shape;
+            shape.push_back(mode_ == ActionPolicyConfig::kQuantileModeQr ? quantiles_ : -1);
+            info.outputs.push_back({.name = SkipHeadFactory::kKeyQDist, .shape = std::move(shape)});
+        }
+        info.details.push_back({"quantile_mode", mode_});
+        return info;
+    }
+private:
+    torch::nn::Linear linear_{nullptr};
+    int64_t actions_;
+    int lengths_;
+    SkipNetworkMode network_mode_;
+    std::string mode_;
+    int quantiles_;
+};
+} // namespace
+
+SkipHeadFactory::SkipHeadFactory(int64_t action_dim, int max_length, SkipNetworkMode network_mode,
+    std::string quantile_mode, int num_quantiles, const anet::nn::WeightInitConfig& init_config,
+    const anet::ConfigData& projection_config)
+    : HeadFactoryBase(action_dim, init_config, projection_config)
+    , max_length_(max_length), network_mode_(network_mode), quantile_mode_(std::move(quantile_mode)), num_quantiles_(num_quantiles)
+{
+}
+
+std::shared_ptr<anet::nn::NetworkHead> SkipHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
+{
+    const auto x = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
+    return std::make_shared<SkipHead>(x.size(-1), action_dim_, max_length_, network_mode_, quantile_mode_,
+        num_quantiles_, init_config_, projection_config_);
+}
 
 // ===========================================================================
 // LinearHead (Standard Q-Network Head)

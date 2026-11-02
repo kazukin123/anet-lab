@@ -1,4 +1,5 @@
 @echo off
+title %~nx0
 
 cd /d "%~dp0runner"
 
@@ -33,8 +34,8 @@ SET "RT50=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>r
 SET "SE=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@batch"
 
 SET "RT50NZ=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@nz_learning>run.@batch"
-SET "EPS0=A2.actor.[train].policy.use_spatial_exploration=false A2.actor.[train].policy.eps_start=0 A2.actor.[train].policy.eps_end=0"
-SET "NZSIG=net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head_projection.noisy.sigma0=1.2"
+SET "EPS0=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon=0 A2.actor.[train].policy.epsilon.start=0 A2.actor.[train].policy.spatial.epsilon.first=0 A2.actor.[train].policy.epsilon.end=0 A2.actor.[train].policy.spatial.epsilon.last=0"
+SET "NZSIG=net.block.[AtariHeadFC512].noisy.sigma0=0.87 A2.head.projection.noisy.sigma0=1.2"
 SET "BOMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy"
 SET "BOMET0=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@breakout>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2"
 SET "NOCLIP=E1.reward_clip=false A3.reward_scaler.constant_scale=0.005"
@@ -42,93 +43,48 @@ SET "ELIFE=E1.episodic_life=true"
 SET "STICKY0=E1.repeat_action_probability=0"
 SET "UQE=A2.actor.[train].policy.policy_type=UQE"
 SET "RT30=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_30m>run.@batch"
-SET "LOWEPS=A2.actor.[train].policy.eps_start=0.05 A2.actor.[train].policy.eps_end=0.0001 A2.actor.[train].policy.uqe_eps_end=0.0001"
-SET "PERHI=A2.learner.per_alpha=0.6 A2.learner.per_beta_start=0.4 A2.learner.per_beta_end=1.0"
+SET "LOWEPS=A2.actor.[train].policy.epsilon=0.05 A2.actor.[train].policy.epsilon.start=0.05 A2.actor.[train].policy.spatial.epsilon.first=0.05 A2.actor.[train].policy.epsilon.end=0.0001 A2.actor.[train].policy.spatial.epsilon.last=0.0001 A2.actor.[train].policy.uqe.epsilon.end=0.0001 A2.actor.[train].policy.spatial.uqe.epsilon.last=0.0001"
+SET "PERHI=A2.learner.per_alpha=0.6 A2.learner.per_beta.start=0.4 A2.learner.per_beta.end=1.0"
 SET "BOSS=%STICKY0% %LOWEPS% %NOCLIP% %PERHI%"
 SET "N10=A2.learner.n_step=10"
 SET "G999=A2.learner.gamma=0.999"
 SET "UQB=%STICKY0% %NOCLIP% %PERHI% %UQE%"
-SET "UQHI=A2.actor.[train].policy.uqe_eps_start=0.4 A2.actor.[train].policy.uqe_eps_end=0.01"
-SET "UQLO=A2.actor.[train].policy.uqe_eps_start=0.05 A2.actor.[train].policy.uqe_eps_end=0.0001"
-SET "UQ99=A2.actor.[train].policy.uqe_tau_start=0.99 A2.actor.[train].policy.uqe_tau_end=0.9"
+SET "UQHI=A2.actor.[train].policy.uqe.epsilon=0.4 A2.actor.[train].policy.uqe.epsilon.start=0.4 A2.actor.[train].policy.spatial.uqe.epsilon.first=0.4 A2.actor.[train].policy.uqe.epsilon.end=0.01 A2.actor.[train].policy.spatial.uqe.epsilon.last=0.01"
+SET "UQLO=A2.actor.[train].policy.uqe.epsilon=0.05 A2.actor.[train].policy.uqe.epsilon.start=0.05 A2.actor.[train].policy.spatial.uqe.epsilon.first=0.05 A2.actor.[train].policy.uqe.epsilon.end=0.0001 A2.actor.[train].policy.spatial.uqe.epsilon.last=0.0001"
+SET "UQ99=A2.actor.[train].policy.uqe.tau=0.99 A2.actor.[train].policy.uqe.tau.start=0.99 A2.actor.[train].policy.spatial.uqe.tau.first=0.99 A2.actor.[train].policy.uqe.tau.end=0.9 A2.actor.[train].policy.spatial.uqe.tau.last=0.9"
 SET "OPT=A3.use_optimistic_target=true"
 SET "RT10=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@batch"
 SET "B1K=A2.learner.replay_batch_size=1024"
+SET "RT10V=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@vitva>run.@batch"
+SET "SENZ=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@batch"
+SET "NZSIGSE=net.block.[AtariHeadFC512].noisy.sigma0=1.1 A2.head.projection.noisy.sigma0=1.2"
+SET "BTRENV=run.train.num_envs=64 A2.learner.replay_capacity=1048576 A2.actor.[train].sync_interval=1"
+SET "BTREPS=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon=1.0 A2.actor.[train].policy.epsilon.start=1.0 A2.actor.[train].policy.spatial.epsilon.first=1.0 A2.actor.[train].policy.epsilon.end=0.01 A2.actor.[train].policy.spatial.epsilon.last=0.01 A2.actor.[train].policy.epsilon.type=linear A2.actor.[train].policy.epsilon.steps=4000000"
+SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head.init.mode=default A2.head.projection.noisy.sigma0=0.5"
+SET "SENZPA=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@batch"
+SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImpalaConv64].init.mode=default net.block.[AtariImpalaRes32SN].init1.mode=default net.block.[AtariImpalaRes32SN].init2.mode=default net.block.[AtariImpalaRes64SN].init1.mode=default net.block.[AtariImpalaRes64SN].init2.mode=default net.block.[AtariIQNTauProj2304].init.mode=default"
+SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
+SET "WLAD=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first=0.4 A2.actor.[train].policy.spatial.epsilon.last=0"
+SET "LADEXP=A2.actor.[train].policy.spatial.enabled=true A2.actor.[train].policy.spatial.epsilon.first.type=exponential A2.actor.[train].policy.spatial.epsilon.first.start=0.4 A2.actor.[train].policy.spatial.epsilon.first.end=0 A2.actor.[train].policy.spatial.epsilon.first.time_constant=5000000 A2.actor.[train].policy.spatial.epsilon.last=0"
+SET "BTREPSPH=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon.type=phased "A2.actor.[train].policy.epsilon.phases=decay off" A2.actor.[train].policy.epsilon.phase.[decay].type=exponential A2.actor.[train].policy.epsilon.phase.[decay].start=1.0 A2.actor.[train].policy.epsilon.phase.[decay].end=0.01 A2.actor.[train].policy.epsilon.phase.[decay].time_constant=2000000 A2.actor.[train].policy.epsilon.phase.[decay].steps=25000000 A2.actor.[train].policy.epsilon.phase.[off].type=constant A2.actor.[train].policy.epsilon.phase.[off].value=0 A2.actor.[train].policy.epsilon.phase.[off].steps=1"
+SET "SENZPASK=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@batch"
+SET "SKIPMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy>metrics.scalar.@skip"
+SET "MERGE=DefaultDQNAgent.learner.skip.feature_gradient=merge"
+SET "FW10=app.batchrun.exp_exit_step=10000000 run.eval_schedule.[greedy].interval=15781"
 
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. kung_fu_master rt 10m seed 4: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s04
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=4 "app.run_name=run_{t}_kfm_10m_s04"
-echo === 2. kung_fu_master rt 10m seed 5: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s05
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=5 "app.run_name=run_{t}_kfm_10m_s05"
-echo === 3. kung_fu_master rt 10m seed 6: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s06
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=6 "app.run_name=run_{t}_kfm_10m_s06"
-echo === 4. kung_fu_master rt 10m seed 7: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s07
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=7 "app.run_name=run_{t}_kfm_10m_s07"
-echo === 5. kung_fu_master rt 10m seed 8: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s08
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=8 "app.run_name=run_{t}_kfm_10m_s08"
-echo === 6. kung_fu_master rt 10m seed 9: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s09
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=9 "app.run_name=run_{t}_kfm_10m_s09"
-echo === 7. kung_fu_master rt 10m seed 10: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s10
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=10 "app.run_name=run_{t}_kfm_10m_s10"
-echo === 8. kung_fu_master rt 10m seed 11: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s11
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=11 "app.run_name=run_{t}_kfm_10m_s11"
-echo === 9. kung_fu_master rt 10m seed 12: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s12
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=12 "app.run_name=run_{t}_kfm_10m_s12"
-echo === 10. kung_fu_master rt 10m seed 13: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s13
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=13 "app.run_name=run_{t}_kfm_10m_s13"
-echo === 11. kung_fu_master rt 10m seed 14: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s14
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=14 "app.run_name=run_{t}_kfm_10m_s14"
-echo === 12. kung_fu_master rt 10m seed 15: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s15
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=15 "app.run_name=run_{t}_kfm_10m_s15"
-echo === 13. kung_fu_master rt 10m seed 16: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s16
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=16 "app.run_name=run_{t}_kfm_10m_s16"
-echo === 14. kung_fu_master rt 10m seed 17: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s17
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=17 "app.run_name=run_{t}_kfm_10m_s17"
-echo === 15. kung_fu_master rt 10m seed 18: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s18
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=18 "app.run_name=run_{t}_kfm_10m_s18"
-echo === 16. kung_fu_master rt 10m seed 19: default settings, does the boss route ignite early ===
-call :find_done kfm_10m_s19
-if not defined DONE_DIR call :run_exe "%RT10%" E1.game=kung_fu_master run.seed=19 "app.run_name=run_{t}_kfm_10m_s19"
-echo === 17. kung_fu_master rt 30m seed 4: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s04
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=4 %B1K% "app.run_name=run_{t}_kfm_b1k_s04"
-echo === 18. kung_fu_master rt 30m seed 5: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s05
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=5 %B1K% "app.run_name=run_{t}_kfm_b1k_s05"
-echo === 19. kung_fu_master rt 30m seed 6: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s06
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=6 %B1K% "app.run_name=run_{t}_kfm_b1k_s06"
-echo === 20. kung_fu_master rt 30m seed 7: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s07
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=7 %B1K% "app.run_name=run_{t}_kfm_b1k_s07"
-echo === 21. kung_fu_master rt 30m seed 8: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s08
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=8 %B1K% "app.run_name=run_{t}_kfm_b1k_s08"
-echo === 22. kung_fu_master rt 30m seed 9: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s09
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=9 %B1K% "app.run_name=run_{t}_kfm_b1k_s09"
-echo === 23. kung_fu_master rt 30m seed 10: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s10
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=10 %B1K% "app.run_name=run_{t}_kfm_b1k_s10"
-echo === 24. kung_fu_master rt 30m seed 11: batch 1024, four times the experience per update ===
-call :find_done kfm_b1k_s11
-if not defined DONE_DIR call :run_exe "%RT30%" E1.game=kung_fu_master run.seed=11 %B1K% "app.run_name=run_{t}_kfm_b1k_s11"
-
+echo === 1. freeway 10m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, epsilon 1.0 to 0.01 with time constant 2M, greedy eval every 1.01M, no skip ===
+call :find_done a5_fw_aln_btreps_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=freeway run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %FW10% "app.run_name=run_{t}_a5_fw_aln_btreps_s1"
+echo === 2. freeway 10m seed 1: same setup as 1 plus TempoRL sep-merge ===
+call :find_done a5_fw_aln_t98mrg_s1
+if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=freeway run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% %FW10% "app.run_name=run_{t}_a5_fw_aln_t98mrg_s1"
+echo === 3. beam_rider 50m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, epsilon 1.0 to 0.01 with time constant 2M then 0 from 25M, no skip ===
+call :find_done a5_br_aln_btreps_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_br_aln_btreps_s1"
+echo === 4. beam_rider 50m seed 1: same setup as 3 plus TempoRL sep-merge ===
+call :find_done a5_br_aln_t98mrg_s1
+if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t98mrg_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

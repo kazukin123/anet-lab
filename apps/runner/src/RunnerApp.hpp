@@ -5,6 +5,8 @@
 #include <memory>
 #include <optional>
 #include <filesystem>
+#include <chrono>
+#include <thread>
 #include <wx/app.h>
 #include <wx/log.h>
 #include <wx/timer.h>
@@ -35,6 +37,7 @@ public:
     int OnExit() override;
     bool OnExceptionInMainLoop() override;
     void OnUnhandledException() override;
+    void OnQueryEndSession(wxCloseEvent& event);
 public:
     void ToggleTraining();
     void PauseTraining();
@@ -42,6 +45,8 @@ public:
     void RestartTrainingAfterCloseVeto(bool paused);
     bool IsTrainingPaused() const;
     bool IsTrainingRunning() const;
+    bool IsRunInitialized() const { return run_initialized_; }
+    bool PrepareRunClose(bool can_veto);
     bool WillBlockOnDrain() const;
     void DrainBackgroundObservers(anet::rl::ShutdownMode mode);
     anet::ConfigData GetConfigData() const { return config_mgr_->GetConfigData(); }
@@ -54,10 +59,16 @@ public:
     void FlushRunOutputs();
     void ShutdownRunLogging();
     bool ShouldShowErrorDialog() const { return show_error_dialog_; }
-    bool ShouldSaveAgentOnClose() const { return save_agent_on_close_; }
+    bool ShouldSaveAgentOnClose() const {
+        return save_agent_on_close_ && run_manager_ != nullptr
+            && run_manager_->GetStatus() == anet::rl::RunnerStatus::RUNNING;
+    }
 private:
     void SetTrainingPaused(bool paused);
     void InitTrainer();
+    void OnRunConstructionComplete();
+    void ReceiveRunConstructionResult();
+    void CompleteRunInitialization();
     void showFatalError();
     void SetupNonModalErrorLogging();
     void ShutdownNonModalErrorLogging();
@@ -71,6 +82,15 @@ private:
     std::unique_ptr<Config> config_;
     
     std::shared_ptr<anet::rl::RunManager> run_manager_;
+    // worker の結果は join 後だけ main が読み、run_manager_ への公開も main に限る。
+    std::thread run_init_thread_;
+    std::shared_ptr<anet::rl::RunManager> constructed_run_manager_;
+    bool run_construction_failed_ = false;
+    bool run_initializing_ = false;
+    bool run_initialized_ = false;
+    bool close_requested_ = false;
+    bool exiting_ = false;
+    std::chrono::steady_clock::time_point run_init_started_;
     std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
     std::unique_ptr<anet::rl::ImageProviderManager> img_prov_mgr_;

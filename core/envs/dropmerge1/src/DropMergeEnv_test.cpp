@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "anet/catch_test.hpp"
 #include "anet/env.hpp"
@@ -396,18 +397,18 @@ TEST_CASE("DropMergeEnv reports the successive DROP column ratio", "[dropmerge][
         const auto step = env->Step(action);
         REQUIRE_FALSE(step->next_state.done);
         REQUIRE_FALSE(step->next_state.truncated);
-        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
-        CHECK(std::isnan(*env->GetScalar("ep_same_drop_col_ratio")));
+        REQUIRE(step->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(std::isfinite(*step->GetScalar("ep_same_drop_col_ratio")));
     }
     const auto terminal = env->Step(6);
     REQUIRE(terminal->next_state.truncated);
-    REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
-    CHECK(*env->GetScalar("ep_same_drop_col_ratio") ==
+    REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+    CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") ==
         Catch::Approx(3.0f / 4.0f));
     logs.Flush();
 }
 
-TEST_CASE("DropMergeEnv reports Double Suika outcome only at episode end", "[dropmerge][metrics][double_suika]")
+TEST_CASE("DropMergeEnv carries Double Suika outcomes in Step results", "[dropmerge][metrics][double_suika]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::rl::env::drop_merge::DropMergeEnvConfig config;
@@ -418,18 +419,16 @@ TEST_CASE("DropMergeEnv reports Double Suika outcome only at episode end", "[dro
         config, torch::Device(torch::kCPU), "env.[dropmerge-double-suika].[0]", 123);
     env->Reset();
 
-    // エピソード中は成果イベントとして扱わず、NaNを返す。
-    REQUIRE(env->GetScalar("ep_double_suika_created").has_value());
-    CHECK(std::isnan(*env->GetScalar("ep_double_suika_created")));
-    REQUIRE(env->GetScalar("ep_double_suika_achieved").has_value());
-    CHECK(std::isnan(*env->GetScalar("ep_double_suika_achieved")));
+    // env本体には統計の鍵を残さず、遷移の結果だけが答える。
+    CHECK_FALSE(env->GetScalar("ep_double_suika_created").has_value());
+    CHECK_FALSE(env->GetScalar("ep_double_suika_achieved").has_value());
 
     // Double Suika未生成で終了したエピソードは、件数0・未達成0を返す。
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     const auto terminal = env->Step(anet::rl::env::drop_merge::kActionNoop);
     REQUIRE(terminal->next_state.truncated);
-    CHECK(*env->GetScalar("ep_double_suika_created") == 0.0f);
-    CHECK(*env->GetScalar("ep_double_suika_achieved") == 0.0f);
+    CHECK(*terminal->GetScalar("ep_double_suika_created") == 0.0f);
+    CHECK(*terminal->GetScalar("ep_double_suika_achieved") == 0.0f);
     logs.Flush();
 }
 
@@ -463,8 +462,8 @@ TEST_CASE("DropMergeEnv reports a completed Double Suika merge", "[dropmerge][me
     REQUIRE_FALSE(env->Step(1)->next_state.done);
     const auto terminal = env->Step(1);
     REQUIRE(terminal->next_state.truncated);
-    CHECK(*env->GetScalar("ep_double_suika_created") == 1.0f);
-    CHECK(*env->GetScalar("ep_double_suika_achieved") == 1.0f);
+    CHECK(*terminal->GetScalar("ep_double_suika_created") == 1.0f);
+    CHECK(*terminal->GetScalar("ep_double_suika_achieved") == 1.0f);
     logs.Flush();
 }
 
@@ -486,8 +485,8 @@ TEST_CASE("DropMergeEnv handles sparse DROP commands in the column ratio", "[dro
         anet::test::LogCaptureGuard logs(wxLOG_Info);
         const auto terminal = env->Step(2);
         REQUIRE(terminal->next_state.truncated);
-        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
-        CHECK(*env->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(0.0f));
+        REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(0.0f));
         logs.Flush();
     }
 
@@ -507,8 +506,8 @@ TEST_CASE("DropMergeEnv handles sparse DROP commands in the column ratio", "[dro
         env->Step(0);
         const auto terminal = env->Step(2);
         REQUIRE(terminal->next_state.truncated);
-        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
-        CHECK(*env->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(1.0f));
+        REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(1.0f));
         logs.Flush();
     }
 }
@@ -528,8 +527,8 @@ TEST_CASE("DropMergeEnv column ratio is NaN for move action modes", "[dropmerge]
         anet::test::LogCaptureGuard logs(wxLOG_Info);
         const auto terminal = env->Step(anet::rl::env::drop_merge::kActionNoop);
         REQUIRE(terminal->next_state.truncated);
-        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
-        CHECK(std::isnan(*env->GetScalar("ep_same_drop_col_ratio")));
+        REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(std::isnan(*terminal->GetScalar("ep_same_drop_col_ratio")));
         logs.Flush();
     }
 }
@@ -572,11 +571,11 @@ TEST_CASE("DropMergeEnv observes DROP commands rejected while busy", "[dropmerge
     const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
     CHECK(GridObs(terminal->next_state).index({ 0, 3, 3 }).item<int>() ==
         marker_class);
-    REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
-    CHECK(*env->GetScalar("ep_same_drop_col_ratio") ==
+    REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+    CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") ==
         Catch::Approx(1.0f / 2.0f));
-    REQUIRE(env->GetScalar("ep_end_fruit_count").has_value());
-    CHECK(*env->GetScalar("ep_end_fruit_count") == Catch::Approx(1.0f));
+    REQUIRE(terminal->GetScalar("ep_end_fruit_count").has_value());
+    CHECK(*terminal->GetScalar("ep_end_fruit_count") == Catch::Approx(1.0f));
     logs.Flush();
 }
 
@@ -618,22 +617,22 @@ TEST_CASE("DropMergeEnv reports DROP selected on a NoLegal candidate", "[dropmer
     const auto first_drop = env->Step(1);
     REQUIRE_FALSE(first_drop->next_state.done);
     REQUIRE_FALSE(first_drop->next_state.truncated);
-    REQUIRE(env->GetScalar("blocked_drop_on_candidate").has_value());
-    CHECK(std::isnan(*env->GetScalar("blocked_drop_on_candidate")));
-    REQUIRE(env->GetScalar("no_drop_timeout_on_candidate").has_value());
-    CHECK(std::isnan(*env->GetScalar("no_drop_timeout_on_candidate")));
-    REQUIRE(env->GetScalar("ep_mean_blocked_frames").has_value());
-    CHECK(std::isnan(*env->GetScalar("ep_mean_blocked_frames")));
-    REQUIRE(env->GetScalar("ep_max_blocked_frames").has_value());
-    CHECK(std::isnan(*env->GetScalar("ep_max_blocked_frames")));
+    REQUIRE(first_drop->GetScalar("blocked_drop_on_candidate").has_value());
+    CHECK(std::isnan(*first_drop->GetScalar("blocked_drop_on_candidate")));
+    REQUIRE(first_drop->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(std::isnan(*first_drop->GetScalar("no_drop_timeout_on_candidate")));
+    REQUIRE(first_drop->GetScalar("ep_mean_blocked_frames").has_value());
+    CHECK(std::isfinite(*first_drop->GetScalar("ep_mean_blocked_frames")));
+    REQUIRE(first_drop->GetScalar("ep_max_blocked_frames").has_value());
+    CHECK(std::isfinite(*first_drop->GetScalar("ep_max_blocked_frames")));
 
     const auto blocked_drop = env->Step(1);
     CHECK(blocked_drop->next_state.done);
     CHECK_FALSE(blocked_drop->next_state.truncated);
-    REQUIRE(env->GetScalar("term_reason_spawn_blocked").has_value());
-    CHECK(*env->GetScalar("term_reason_spawn_blocked") == 1.0f);
-    REQUIRE(env->GetScalar("blocked_drop_on_candidate").has_value());
-    CHECK(*env->GetScalar("blocked_drop_on_candidate") == 1.0f);
+    REQUIRE(blocked_drop->GetScalar("term_reason_spawn_blocked").has_value());
+    CHECK(*blocked_drop->GetScalar("term_reason_spawn_blocked") == 1.0f);
+    REQUIRE(blocked_drop->GetScalar("blocked_drop_on_candidate").has_value());
+    CHECK(*blocked_drop->GetScalar("blocked_drop_on_candidate") == 1.0f);
     logs.Flush();
 }
 
@@ -652,8 +651,8 @@ TEST_CASE("DropMergeEnv handles a fruit wider than its placement range", "[dropm
     const auto noop = env->Step(0);
     CHECK(noop->next_state.done);
     CHECK_FALSE(noop->next_state.truncated);
-    REQUIRE(env->GetScalar("term_reason_no_legal_drop").has_value());
-    CHECK(*env->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    REQUIRE(noop->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*noop->GetScalar("term_reason_no_legal_drop") == 1.0f);
     logs.Flush();
 }
 
@@ -689,8 +688,8 @@ TEST_CASE("DropMergeEnv keeps settled NoLegal NOOP termination unchanged", "[dro
     const auto noop = env->Step(0);
     CHECK(noop->next_state.done);
     CHECK_FALSE(noop->next_state.truncated);
-    REQUIRE(env->GetScalar("term_reason_no_legal_drop").has_value());
-    CHECK(*env->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    REQUIRE(noop->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*noop->GetScalar("term_reason_no_legal_drop") == 1.0f);
     logs.Flush();
 }
 
@@ -707,17 +706,17 @@ TEST_CASE("DropMergeEnv reports terminal blocked persistence for settled NoLegal
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     const auto first_drop = env->Step(1);
     REQUIRE_FALSE(first_drop->next_state.done);
-    REQUIRE(env->GetScalar("ep_terminal_blocked_frames").has_value());
-    CHECK(std::isnan(*env->GetScalar("ep_terminal_blocked_frames")));
-    REQUIRE(env->GetScalar("ep_blocked_run_count").has_value());
-    CHECK(std::isnan(*env->GetScalar("ep_blocked_run_count")));
+    REQUIRE(first_drop->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(std::isnan(*first_drop->GetScalar("ep_terminal_blocked_frames")));
+    REQUIRE(first_drop->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(std::isfinite(*first_drop->GetScalar("ep_blocked_run_count")));
 
     const auto noop = env->Step(0);
     REQUIRE(noop->next_state.done);
-    REQUIRE(env->GetScalar("ep_terminal_blocked_frames").has_value());
-    CHECK(*env->GetScalar("ep_terminal_blocked_frames") > 0.0f);
-    REQUIRE(env->GetScalar("ep_blocked_run_count").has_value());
-    CHECK(*env->GetScalar("ep_blocked_run_count") == 0.0f);
+    REQUIRE(noop->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*noop->GetScalar("ep_terminal_blocked_frames") > 0.0f);
+    REQUIRE(noop->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(*noop->GetScalar("ep_blocked_run_count") == 0.0f);
     logs.Flush();
 }
 
@@ -791,14 +790,14 @@ TEST_CASE("DropMergeEnv reports timeout with a legal DROP available", "[dropmerg
     const auto timeout = env->Step(0);
     CHECK_FALSE(timeout->next_state.done);
     CHECK(timeout->next_state.truncated);
-    REQUIRE(env->GetScalar("term_reason_no_drop_timeout").has_value());
-    CHECK(*env->GetScalar("term_reason_no_drop_timeout") == 1.0f);
-    REQUIRE(env->GetScalar("no_drop_timeout_on_candidate").has_value());
-    CHECK(*env->GetScalar("no_drop_timeout_on_candidate") == 0.0f);
-    REQUIRE(env->GetScalar("ep_terminal_blocked_frames").has_value());
-    CHECK(*env->GetScalar("ep_terminal_blocked_frames") == 0.0f);
-    REQUIRE(env->GetScalar("ep_blocked_run_count").has_value());
-    CHECK(*env->GetScalar("ep_blocked_run_count") == 0.0f);
+    REQUIRE(timeout->GetScalar("term_reason_no_drop_timeout").has_value());
+    CHECK(*timeout->GetScalar("term_reason_no_drop_timeout") == 1.0f);
+    REQUIRE(timeout->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(*timeout->GetScalar("no_drop_timeout_on_candidate") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_terminal_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(*timeout->GetScalar("ep_blocked_run_count") == 0.0f);
     logs.Flush();
 }
 
@@ -828,14 +827,14 @@ TEST_CASE("DropMergeEnv reports timeout while an unsettled board remains blocked
     REQUIRE(timeout != nullptr);
     CHECK_FALSE(timeout->next_state.done);
     CHECK(timeout->next_state.truncated);
-    REQUIRE(env->GetScalar("term_reason_no_drop_timeout").has_value());
-    CHECK(*env->GetScalar("term_reason_no_drop_timeout") == 1.0f);
-    REQUIRE(env->GetScalar("no_drop_timeout_on_candidate").has_value());
-    CHECK(*env->GetScalar("no_drop_timeout_on_candidate") == 1.0f);
-    REQUIRE(env->GetScalar("ep_mean_blocked_frames").has_value());
-    CHECK(*env->GetScalar("ep_mean_blocked_frames") == 0.0f);
-    REQUIRE(env->GetScalar("ep_max_blocked_frames").has_value());
-    CHECK(*env->GetScalar("ep_max_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("term_reason_no_drop_timeout").has_value());
+    CHECK(*timeout->GetScalar("term_reason_no_drop_timeout") == 1.0f);
+    REQUIRE(timeout->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(*timeout->GetScalar("no_drop_timeout_on_candidate") == 1.0f);
+    REQUIRE(timeout->GetScalar("ep_mean_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_mean_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_max_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_max_blocked_frames") == 0.0f);
     logs.Flush();
 }
 
@@ -872,10 +871,10 @@ TEST_CASE("DropMergeEnv adjudicates persistent blocked frames without a penalty"
     CHECK(adjudicated->next_state.done);
     CHECK_FALSE(adjudicated->next_state.truncated);
     CHECK(adjudicated->reward == Catch::Approx(0.0f));
-    REQUIRE(env->GetScalar("term_reason_no_legal_drop").has_value());
-    CHECK(*env->GetScalar("term_reason_no_legal_drop") == 1.0f);
-    REQUIRE(env->GetScalar("ep_terminal_blocked_frames").has_value());
-    CHECK(*env->GetScalar("ep_terminal_blocked_frames") == 3.0f);
+    REQUIRE(adjudicated->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*adjudicated->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    REQUIRE(adjudicated->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*adjudicated->GetScalar("ep_terminal_blocked_frames") == 3.0f);
 
     logs.Flush();
     int persistence_log_count = 0;
@@ -962,17 +961,17 @@ TEST_CASE("DropMergeEnv reports the length of a resolved blocked run", "[dropmer
 
     REQUIRE(timeout != nullptr);
     REQUIRE(timeout->next_state.truncated);
-    REQUIRE(env->GetScalar("ep_mean_blocked_frames").has_value());
-    REQUIRE(env->GetScalar("ep_max_blocked_frames").has_value());
-    const float mean_blocked_frames = *env->GetScalar("ep_mean_blocked_frames");
-    const float max_blocked_frames = *env->GetScalar("ep_max_blocked_frames");
+    REQUIRE(timeout->GetScalar("ep_mean_blocked_frames").has_value());
+    REQUIRE(timeout->GetScalar("ep_max_blocked_frames").has_value());
+    const float mean_blocked_frames = *timeout->GetScalar("ep_mean_blocked_frames");
+    const float max_blocked_frames = *timeout->GetScalar("ep_max_blocked_frames");
     CHECK(mean_blocked_frames > 0.0f);
     CHECK(mean_blocked_frames == max_blocked_frames);
     CHECK(max_blocked_frames < static_cast<float>(config.no_drop_timeout_steps));
-    REQUIRE(env->GetScalar("ep_terminal_blocked_frames").has_value());
-    CHECK(*env->GetScalar("ep_terminal_blocked_frames") == 0.0f);
-    REQUIRE(env->GetScalar("ep_blocked_run_count").has_value());
-    CHECK(*env->GetScalar("ep_blocked_run_count") > 0.0f);
+    REQUIRE(timeout->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_terminal_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(*timeout->GetScalar("ep_blocked_run_count") > 0.0f);
     logs.Flush();
 }
 
@@ -991,4 +990,123 @@ int main(int argc, char* argv[])
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("DropMerge Step results retain statistics and View history through Reset", "[dropmerge][prd097_dropmerge]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.use_no_legal_adjudication = true;
+    config.no_legal_min_blocked_frames = 1;
+    config.no_drop_timeout_steps = 1;
+    config.max_step = 10;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-notification-reset", 1);
+    const std::vector<std::string> completed_keys{
+        "ep_step", "ep_max_rank", "ep_double_suika_created", "ep_double_suika_achieved",
+        "ep_end_fruit_count", "ep_same_drop_col_ratio", "ep_mean_settle_steps", "ep_max_settle_steps",
+        "term_reason_spawn_blocked", "term_reason_overflow", "term_reason_maxstep",
+        "term_reason_no_drop_timeout", "term_reason_no_legal_drop", "blocked_drop_on_candidate",
+        "no_drop_timeout_on_candidate", "ep_mean_blocked_frames", "ep_max_blocked_frames",
+        "ep_terminal_blocked_frames", "ep_blocked_run_count"};
+    env->Reset();
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
+    for (const auto& key : completed_keys) {
+        REQUIRE(step->GetScalar(key).has_value());
+        CHECK(std::isfinite(*step->GetScalar(key)));
+    }
+    CHECK(step->GetScalar("ep_step") == 1.0f);
+    const auto terminal_aux = step->GetAuxData();
+    const auto reset_aux = env->Reset()->GetAuxData();
+    // 完了キーは前回値を返さず、View専用の履歴だけを維持する。
+    for (const auto& key : completed_keys) {
+        CHECK_FALSE(env->GetScalar(key).has_value());
+        REQUIRE(step->GetScalar(key).has_value());
+        CHECK(std::isfinite(*step->GetScalar(key)));
+    }
+    for (const auto& key : {"last_score", "last_step", "last_term_reason"}) {
+        CHECK(torch::equal(terminal_aux.at(key), reset_aux.at(key)));
+    }
+    CHECK(terminal_aux.at("rewards")[3].item<float>() == reset_aux.at("rewards")[3].item<float>());
+    CHECK_FALSE(env->GetScalar("unknown").has_value());
+}
+
+TEST_CASE("DropMerge results retain every auxiliary value before first materialization", "[dropmerge][prd097_dropmerge][aux_snapshot]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const int grid_size = GENERATE(1, 12);
+    const torch::Device device(torch::kCPU);
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.grid_rows = grid_size;
+    config.grid_cols = grid_size;
+    config.max_step = 2;
+    auto control = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(config, device, "aux-control", 1);
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(config, device, "aux-retained", 1);
+    std::vector<anet::rl::AuxData> expected;
+    std::vector<std::shared_ptr<const anet::rl::SingleEnvResult>> retained;
+    expected.push_back(control->Reset()->GetAuxData());
+    retained.push_back(env->Reset());
+    CHECK_FALSE(expected[0].contains("fruits"));
+    for (const int64_t action : {1, 0}) {
+        expected.push_back(control->Step(action)->GetAuxData());
+        retained.push_back(env->Step(action));
+    }
+    REQUIRE(expected[1].contains("fruits"));
+    REQUIRE(expected[2].contains("fruits"));
+
+    // 初回の表示要求より先に元Envを更新・Reset・破棄し、値所有を公開結果だけで確かめる。
+    env->Reset();
+    env->Step(0);
+    env->Reset();
+    std::weak_ptr<const anet::rl::env::drop_merge::DropMergeEnv> weak_env = env;
+    env.reset();
+    REQUIRE(weak_env.expired());
+    for (size_t i = 0; i < retained.size(); ++i) {
+        const auto actual = retained[i]->GetAuxData();
+        REQUIRE(actual.size() == (i == 0 ? 10 : 11));
+        const std::vector<std::pair<std::string, std::vector<int64_t>>> fixed_shapes{
+            {"dropper", {5}}, {"grid", {grid_size, grid_size}}, {"world_info", {3}},
+            {"rewards", {4}}, {"step", {2}}, {"last_step", {1}},
+            {"last_term_reason", {1}}, {"score", {1}}, {"last_score", {1}}, {"action_mode", {2}}};
+        for (const auto& [key, shape] : fixed_shapes) {
+            CAPTURE(i, key);
+            REQUIRE(actual.contains(key));
+            CHECK(actual.at(key).sizes().vec() == shape);
+            CHECK(actual.at(key).scalar_type() == torch::kFloat32);
+            CHECK(actual.at(key).device().is_cpu());
+        }
+        if (i > 0) {
+            REQUIRE(actual.contains("fruits"));
+            CHECK(actual.at("fruits").dim() == 2);
+            CHECK(actual.at("fruits").size(1) == 5);
+            CHECK(actual.at("fruits").scalar_type() == torch::kFloat32);
+            CHECK(actual.at("fruits").device().is_cpu());
+        }
+        CHECK(torch::equal(actual.at("world_info"), torch::tensor(
+            {config.box_width, config.box_height, config.ground_y}, torch::kFloat32)));
+        REQUIRE(actual.size() == expected[i].size());
+        for (const auto& [key, value] : expected[i]) {
+            CAPTURE(i, key, grid_size, device.str());
+            REQUIRE(actual.contains(key));
+            CHECK(actual.at(key).sizes() == value.sizes());
+            CHECK(actual.at(key).scalar_type() == value.scalar_type());
+            CHECK(actual.at(key).device() == value.device());
+            CHECK(torch::equal(actual.at(key), value));
+            const auto scalar = retained[i]->GetScalar(key);
+            if (value.numel() == 1) {
+                REQUIRE(scalar.has_value());
+                CHECK(*scalar == value.item<float>());
+            } else {
+                CHECK_FALSE(scalar.has_value());
+            }
+        }
+        CHECK_FALSE(retained[i]->GetScalar("unknown_aux_key").has_value());
+    }
 }

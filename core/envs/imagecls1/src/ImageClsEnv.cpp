@@ -15,6 +15,43 @@ anet::seed_t ResolveSeed(std::optional<anet::seed_t> seed)
 
 } // namespace
 
+// 採点したwindowの値を、その後の先読みや次windowから独立して保持する。
+class ImageClsStepResult final : public anet::rl::BatchStepResult {
+public:
+    ImageClsStepResult(torch::Tensor reward, anet::rl::BatchState next_state,
+        anet::rl::BatchState continue_state, uint32_t transitions, uint32_t ended,
+        std::vector<anet::rl::AuxData> aux, float accuracy, float epoch_count)
+        : BatchStepResult(std::move(reward), std::move(next_state), std::move(continue_state), transitions, ended),
+          aux_(std::move(aux)), accuracy_(accuracy), epoch_count_(epoch_count) {}
+
+    std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+    {
+        // 採点とepochはlaneに属さないため、SHAREDのbatch値として問い合わせる。
+        if (key == "accuracy" || key == "epoch_count") {
+            ANET_CHECK_MSG(lane == -1, "ImageCls Step scalar is global. key='" << key
+                << "' index=" << lane << " expected_index=-1.");
+            return key == "accuracy" ? accuracy_ : epoch_count_;
+        }
+        // SHAREDのreturnは有効laneの和、終端はgroup全体の共通フラグとして読む。
+        if (lane == -1) {
+            if (key == "reward") return reward.sum().item<float>();
+            if (key == "done") return next_state.done.all().item<float>();
+            if (key == "truncated") return next_state.truncated.all().item<float>();
+        }
+        return BatchStepResult::GetScalar(key, lane);
+    }
+    std::vector<anet::rl::AuxData> GetAuxDataList(int lane = -1) const override
+    {
+        if (lane < 0) return aux_;
+        if (lane >= static_cast<int>(aux_.size())) return {};
+        return {aux_[static_cast<size_t>(lane)]};
+    }
+private:
+    std::vector<anet::rl::AuxData> aux_;
+    float accuracy_;
+    float epoch_count_;
+};
+
 ImageClsEnv::ImageClsEnv(
     const ImageClsEnvConfig& config,
     std::unique_ptr<anet::img::ImageDataSource> source,
@@ -152,7 +189,7 @@ std::shared_ptr<const anet::rl::BatchStepResult> ImageClsEnv::Step(
             batch_spec_.num_envs - current_batch_.valid_count).zero_();
     }
     UpdateMetrics(reward);
-    const auto scored_aux_data = MakeAuxDataList(current_batch_);
+    auto scored_aux_data = MakeAuxDataList(current_batch_);
 
     // train episodeまたはeval windowの境界を既存BatchEnv flagへ翻訳する。
     ++step_count_;
@@ -185,9 +222,9 @@ std::shared_ptr<const anet::rl::BatchStepResult> ImageClsEnv::Step(
     current_batch_ = std::move(next_batch);
     if (episode_end) step_count_ = 0;
 
-    return std::make_shared<const anet::rl::PlainBatchStepResult>(
+    return std::make_shared<const ImageClsStepResult>(
         std::move(reward), std::move(next_state), std::move(continue_state),
-        n_transitions, n_episode_end, scored_aux_data);
+        n_transitions, n_episode_end, std::move(scored_aux_data), accuracy_snapshot_, static_cast<float>(epoch_count_));
 }
 
 void ImageClsEnv::Shutdown()

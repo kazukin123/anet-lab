@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Prepare Commit"
+  short_description: "会話とGit差分からコミット案と対象ファイルを整理し、選ばれたときだけステージする"
+  default_prompt: "$anet-prepare-commit を使って、現在の会話と差分からコミット案を作成してください。"

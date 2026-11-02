@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <mutex>
 #include <cstdint>
 #include <cctype>
 #include <chrono>
@@ -356,8 +357,12 @@ namespace anet::rl {
 
     class SingleEnvResult {
     public:
-        virtual AuxData GetAuxData() const { return AuxData(); }
+        explicit SingleEnvResult(AuxData aux = {}) : aux_(std::move(aux)) {}
+        virtual AuxData GetAuxData() const { return aux_; }
+        virtual std::optional<float> GetScalar(const std::string& key) const;
         virtual ~SingleEnvResult() = default;
+    protected:
+        AuxData aux_;  ///< 結果の時点の値を所有し、scalarの読出しでは複製しない。
     };
 
     class SingleResetResult : virtual public SingleEnvResult {
@@ -501,8 +506,11 @@ namespace anet::rl {
     };
 
     // 行動選択時の情報
-    class BatchActionInfo : public anet::graphviz::GraphVizProvider {
+    class BatchActionInfo : public anet::ModuleBase, public anet::graphviz::GraphVizProvider {
     public:
+        /// 判断の境界をActorからReplayへ渡す共有info鍵。
+        static constexpr const char* kKeyDecision = "decision";
+
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
 
@@ -527,6 +535,7 @@ namespace anet::rl {
         }
 
         torch::Tensor GetAction(torch::Device device) const;
+        std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
             return std::make_shared<BatchActionInfo>(
@@ -579,6 +588,8 @@ namespace anet::rl {
     public:
         BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_episode_end_in);
         std::string ToString() const;
+        virtual std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const;
+        const torch::Tensor& GetEpisodeEndMask() const;
 
         virtual ~BatchStepResult() = default;
     public:
@@ -587,6 +598,9 @@ namespace anet::rl {
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_episode_end;     ///< 今回のStepにおけるエピソード終了カウント数
+    private:
+        mutable std::once_flag episode_end_once_;
+        mutable torch::Tensor episode_end_cpu_;
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -677,7 +691,7 @@ namespace anet::rl {
         virtual torch::Device GetDevice() const = 0;
 
         virtual std::shared_ptr<const BatchResetResult> Reset() = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< 遷移の結果を新規に返し、後のStepやResetで値を書き換えない
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -744,10 +758,37 @@ namespace anet::rl {
 
     struct ScalarMetricSubscription;
 
+    struct AgentStepDiagnosticsCompletion {
+        int64_t lane = 0;
+        int64_t steps_back = 0;
+        std::vector<std::string> resolved_keys;
+        std::unique_ptr<const anet::Module> values; ///< 対象1行をGetScalar(key, 0)で読む所有値。
+    };
+
+    struct AgentStepDiagnosticsResult {
+        std::unique_ptr<const anet::Module> current; ///< batchをGetScalar(key, lane)で読む所有値。
+        std::vector<std::vector<std::string>> pending_keys; ///< lane別。NaNとは独立に遅延確定を示す。
+        std::vector<AgentStepDiagnosticsCompletion> completed;
+    };
+
+    /// Agent固有のstep診断値を生成し、laneごとの系列窓を所有する。
+    /// pendingに示す鍵もcurrentでは既知の鍵としてNaNを返す。
+    /// pendingの鍵は値が成立しなかった場合もNaNで確定を返し、必ず待機を終える。
+    class AgentStepDiagnosticsProvider {
+    public:
+        virtual AgentStepDiagnosticsResult Observe(const BatchExperience& experience) = 0;
+        virtual void Reset() = 0;
+        virtual ~AgentStepDiagnosticsProvider() = default;
+    };
+
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
         virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
+        virtual std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const
+        {
+            return nullptr;
+        }
         virtual torch::Device GetDevice() const = 0;
         virtual void ConfigureScalarMetricSubscriptions(
             const std::vector<ScalarMetricSubscription>& subscriptions)
@@ -799,12 +840,27 @@ namespace anet::rl {
 
         // --- N-Step & PER メタデータ ---
         torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
+
+        struct {
+            torch::Tensor lengths;     ///< [B] 抽選した窓の長さ。規則未指定なら未定義。
+            torch::Tensor max_lengths; ///< [B] 起点から取れる窓の最大長
+            torch::Tensor returns;     ///< [B] 窓の割引報酬
+            torch::Tensor terminals;   ///< [B] 真の終端
+            torch::Tensor truncated;   ///< [B] 打ち切り
+            anet::TensorDict next_obs; ///< k先の観測（履歴を含む）
+        } window;
+        
         torch::Tensor replay_item_keys; ///< [B] generation付きopaque key (CPU int64)
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
         torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource (CPU int8)
 
         // --- その他 ---
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
+
+        // schedule gamma用の抽選時snapshot。定数構成では未定義。
+        torch::Tensor sampled_rewards;        ///< [B,N] 実長以後は0
+        torch::Tensor sampled_window_rewards; ///< [B,J] 実長以後は0
+        void FinalizeReturns(float gamma);
 
         // ユーティリティ
         ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
@@ -823,10 +879,18 @@ namespace anet::rl {
             next_state.next_obs.ForEachTensor(visit);
             visit(next_state.terminals);
             visit(n_steps);
+            visit(window.lengths);
+            visit(window.max_lengths);
+            visit(window.returns);
+            visit(window.terminals);
+            visit(window.truncated);
+            window.next_obs.ForEachTensor(visit);
             visit(replay_item_keys);
             visit(is_weights);
             visit(per_priority_sources);
             info.ForEachTensor(visit);
+            visit(sampled_rewards);
+            visit(sampled_window_rewards);
         }
         std::string ToString() const;
     };
@@ -859,12 +923,12 @@ namespace anet::rl {
 
     class ReplayBuffer : public anet::Module, public ReplayPriorityController {
     public:
-        virtual void Push(const BatchExperience& batch_exp) = 0;
-        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
+        virtual void Push(const BatchExperience& batch_exp, float gamma) = 0;
+        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const = 0;
         virtual bool SampleUniqueUniform(
-            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const = 0;
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const = 0;
         virtual SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const = 0;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
@@ -918,9 +982,11 @@ namespace anet::rl {
         AGENT,
         ACTOR,
         ENV,
+        ENV_STEP,
         UPDATE_RESULT,
         RUNNER,
         ACTION_INFO,
+        AGENT_STEP,
     };
 
     struct ScalarMetricSubscription {
@@ -955,6 +1021,7 @@ namespace anet::rl {
         const std::shared_ptr<const Agent> agent;
         const std::shared_ptr<const BatchEnv> env;
         int env_index;
+        const std::shared_ptr<const BatchStepResult> step_result;
     };
 
     struct SessionEndEvent {

@@ -271,13 +271,19 @@
       "to": "11"
     },
     {
-      "key": "A3.eval_policy.eps_start",
+      "key": "A3.eval_policy.epsilon",
       "by": "run.@greedy_eval",
       "from": "",
       "to": "0"
     },
     {
-      "key": "A3.eval_policy.eps_end",
+      "key": "A3.eval_policy.spatial.epsilon.first",
+      "by": "run.@greedy_eval",
+      "from": "",
+      "to": "0"
+    },
+    {
+      "key": "A3.eval_policy.spatial.epsilon.last",
       "by": "run.@greedy_eval",
       "from": "",
       "to": "0"
@@ -285,12 +291,12 @@
   ],
   "references": [
     {
-      "source": "A1.learner.per_beta_step",
+      "source": "A1.learner.per_beta.steps",
       "target": "@vars.half_exp_step",
       "value": "25"
     },
     {
-      "source": "DefaultDQNAgent.learner.per_beta_step",
+      "source": "DefaultDQNAgent.learner.per_beta.steps",
       "target": "@vars.half_exp_step",
       "value": "25"
     },

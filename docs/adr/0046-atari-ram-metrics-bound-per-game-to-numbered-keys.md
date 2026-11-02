@@ -1,5 +1,7 @@
 # AtariEnv のゲーム固有 RAM メトリクスは番号付き汎用キーで参照し、意味はゲーム別の RAM 定義が持つ
 
+> 2026-10-20 後発決定: [ADR 0060](0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) で、`ram_metric.[n]` を答えるのは `AtariEnv` の `GetScalar` ではなく、その Step の結果になった。設定の例の `$env` は `$env_step` に替わる。「確定タイミングと NaN の慣行は `game_score` と同一」は保ち、その `game_score` の慣行が変わった（`@train` で読むと途中の値、`episodic_life` で残機を失ったがゲームが続く step は NaN、ゲームが終わった step は確定値）。番号付き汎用キー、ゲーム別 RAM 定義と番号付け行、閉じた 5 語、集計単位（実ゲーム 1 回）、番号の意味は維持する。
+
 ALE のゲーム設定（`KungFuMasterSettings` 等）が読む RAM はスコアと残機だけで、面やボスの体力のような
 ゲーム固有の進行情報は RAM を直接読むしかない。RAM の番地とその意味はゲームごとに違う。
 一方、metrics の定義（`metrics.trace` / `metrics.scalar`）は Atari-5 の batch 起動が 1 本の腕チェーンを

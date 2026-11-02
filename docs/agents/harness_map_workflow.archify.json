@@ -3,7 +3,6 @@
   "diagram_type": "workflow",
   "meta": {
     "title": "PRD を作り、実装して確かめる",
-    "subtitle": "担当は役割で表し、エージェント名には固定しない。",
     "quality_profile": "showcase"
   },
   "lanes": [
@@ -164,7 +163,7 @@
       "col": 0,
       "type": "backend",
       "label": "定常整備",
-      "sublabel": "skillの実行",
+      "sublabel": "統計・wiki点検・監査",
       "width": 92
     }
   ],
@@ -235,8 +234,8 @@
       "dot": "cyan",
       "title": "wikiの読みと書き戻し",
       "items": [
-        "最初の応答前に読む。知見はPRDに出典つきで書いてから戻す。",
-        "段7の完了直前に本文と再照合し、最終blobを記録する。"
+        "PRDづくりは地図の不採用案と変更条件を読み、出典を確かめる。",
+        "起草で書き戻し、完了前に最終blobを記録する。"
       ]
     },
     {
@@ -251,8 +250,8 @@
       "dot": "slate",
       "title": "検証と定常整備",
       "items": [
-        "設計文書のテスト章からtestdata READMEへ進む。",
-        "housekeepingは候補を提示し、了承された範囲を実行する。"
+        "Run分析は正本へ書いてから取り込む。点検は取りこぼしを補う。",
+        "housekeepingは統計の次にwiki点検を選び、了承した範囲を実行する。"
       ]
     }
   ]

@@ -3,11 +3,14 @@
 BTR (arXiv:2411.03820) の実行結果を MetricsViewer と inspect_run.py で
 anet-lab の Run と横並びに見るための変換器。再実行すると全て再生成する。
 
-取り込む入力は 3 種類。
+取り込む入力は 4 種類。
 
-  Experiment.npy   train エピソードの (score, env_step)
-  Evaluation.npy   eval 点ごとの全エピソードスコア (点数, エピソード数)
-  *_<N>M.model     10M frames ごとの online network state_dict
+  Experiment.npy         train エピソードの (score, env_step)
+  Evaluation.npy         eval 点ごとの全エピソードスコア (点数, エピソード数)
+  *_<N>M.model           10M frames ごとの online network state_dict
+  *_train_episodes.csv   --ram_inc_addr 付きの main.py が出すエピソードごとの
+  *_eval_episodes.csv    RAM カウンタ (steps|index,score,ram_inc,trun,hist)。
+                         無ければ飛ばす。anet の ram_metric.[n] の tag で出す
 
 軸の対応。BTR の env_steps は遷移数なので anet-lab の exp_step と同一単位。
 checkpoint 由来の指標は anet-lab 側が learn_step 軸なので、BTR の更新則
@@ -27,6 +30,11 @@ checkpoint の方策で 1 度だけ収集し、out 配下へ残して再利用�
     python btr_to_metrics.py --btr-run ~/BTR/BTR_Breakout200M_noisy0 \
         --out /mnt/c/.../runs/run_20260911-095808_btr_noisyoff_wsl \
         --btr-src ~/BTR --start 2026-09-11T09:58:08
+
+    python btr_to_metrics.py --btr-run ~/BTR/BTR_Qbert200M_1 \
+        --out /mnt/c/.../runs/run_20261023-174500_btr_qbert_r0_wsl \
+        --btr-src ~/BTR --start 2026-10-23T17:45:00 \
+        --game Qbert --n-actions 6 --noisy 1 --thresholds 29000
 """
 import argparse
 import glob
@@ -39,7 +47,6 @@ import numpy as np
 
 TRAIN_EMA_ALPHA = 0.001
 EVAL_EMA_ALPHA = 0.1
-THRESHOLDS = [(432, "40", "41"), (600, "42", "43")]
 
 FRAMES_PER_EVAL_POINT = 1_000_000
 TRANSITIONS_PER_FRAME = 0.25
@@ -95,7 +102,17 @@ def load_one(pattern, directory):
     return np.load(hits[0], allow_pickle=True)
 
 
-def emit_episodes(emitter, btr_run):
+def threshold_tags(thresholds):
+    """閾値ごとの tag 番号。先頭から 40/41, 42/43, ... (anet の @breakout と同じ並び)。"""
+    return [(threshold, str(40 + 2 * k), str(41 + 2 * k)) for k, threshold in enumerate(thresholds)]
+
+
+def eval_step(index):
+    """eval 点の番号 (0 始まり、1M frames ごと) を exp_step へ直す。"""
+    return int((index + 1) * FRAMES_PER_EVAL_POINT * TRANSITIONS_PER_FRAME)
+
+
+def emit_episodes(emitter, btr_run, thresholds):
     """Experiment.npy: train エピソードのスコア。"""
     exp = load_one("*Experiment.npy", btr_run)
     order = np.argsort(exp[:, 1], kind="stable")
@@ -103,29 +120,69 @@ def emit_episodes(emitter, btr_run):
     meta = dict(step_axis="exp_step", scope="train", event="train")
     emitter.add_pair("42_env", "10", "11", "game_score_mean", "mean.game_score",
                      steps, scores, TRAIN_EMA_ALPHA, **meta)
-    for threshold, raw_num, ema_num in THRESHOLDS:
+    for threshold, raw_num, ema_num in threshold_tags(thresholds):
         emitter.add_pair("42_env", raw_num, ema_num, f"game_score_ge{threshold}",
                          f"mean.game_score.ge.[{threshold}]", steps,
                          (scores >= threshold).astype(float), TRAIN_EMA_ALPHA, **meta)
     return len(exp)
 
 
-def emit_evals(emitter, btr_run):
+def emit_evals(emitter, btr_run, thresholds):
     """Evaluation.npy: eval 点ごとの平均・最大・閾値超え率。"""
     ev = load_one("*Evaluation.npy", btr_run)
     rows = [i for i in range(ev.shape[0]) if ev[i].any()]
-    steps = [int((i + 1) * FRAMES_PER_EVAL_POINT * TRANSITIONS_PER_FRAME) for i in rows]
+    steps = [eval_step(i) for i in rows]
     meta = dict(step_axis="exp_step", scope="eval", event="session_end",
                 eval_name="eval2", eval_episodes=int(ev.shape[1]), num_envs=10)
     emitter.add_pair("52_eval2", "10", "11", "game_score_mean", "mean.game_score",
                      steps, [float(ev[i].mean()) for i in rows], EVAL_EMA_ALPHA, **meta)
     emitter.add("52_eval2/16_game_score_max", steps, [float(ev[i].max()) for i in rows],
                 source_key="max.game_score", **meta)
-    for threshold, raw_num, ema_num in THRESHOLDS:
+    for threshold, raw_num, ema_num in threshold_tags(thresholds):
         emitter.add_pair("52_eval2", raw_num, ema_num, f"game_score_ge{threshold}",
                          f"mean.game_score.ge.[{threshold}]", steps,
                          [float(np.mean(ev[i] >= threshold)) for i in rows], EVAL_EMA_ALPHA, **meta)
     return len(rows)
+
+
+def read_ram_csv(btr_run, pattern):
+    """エピソード CSV の (先頭列, ram_inc) を先頭列ごとにまとめる。ram_inc が -1 (不明) の行は捨てる。"""
+    hits = glob.glob(os.path.join(btr_run, pattern))
+    if not hits:
+        return {}
+    grouped = {}
+    with open(hits[0], encoding="utf-8") as fp:
+        for line in fp:
+            key, _, ram_inc = line.split(",", 3)[:3]
+            if int(ram_inc) >= 0:
+                grouped.setdefault(int(key), []).append(float(ram_inc))
+    return grouped
+
+
+def emit_ram_metric(emitter, btr_run, index):
+    """エピソード CSV の RAM カウンタ: anet の ram_metric.[index] と同じ tag で平均・EMA・最大を出す。
+
+    train は同じ step で終わった lane をまとめ、eval は eval 点ごとにまとめる (anet の集計と同じ単位)。
+    """
+    train = read_ram_csv(btr_run, "*_train_episodes.csv")
+    if train:
+        steps = sorted(train)
+        meta = dict(step_axis="exp_step", scope="train", event="train")
+        emitter.add_pair("42_env", "50", "51", f"ram_metric_{index}_mean", f"mean.ram_metric.[{index}]",
+                         steps, [float(np.mean(train[s])) for s in steps], TRAIN_EMA_ALPHA, **meta)
+        emitter.add(f"42_env/56_ram_metric_{index}_max", steps, [max(train[s]) for s in steps],
+                    source_key=f"max.ram_metric.[{index}]", **meta)
+    evals = read_ram_csv(btr_run, "*_eval_episodes.csv")
+    if evals:
+        points = sorted(evals)
+        steps = [eval_step(i) for i in points]
+        meta = dict(step_axis="exp_step", scope="eval", event="session_end", eval_name="eval2",
+                    eval_episodes=max(len(v) for v in evals.values()), num_envs=10)
+        emitter.add_pair("52_eval2", "50", "51", f"ram_metric_{index}_mean", f"mean.ram_metric.[{index}]",
+                         steps, [float(np.mean(evals[i])) for i in points], EVAL_EMA_ALPHA, **meta)
+        emitter.add(f"52_eval2/56_ram_metric_{index}_max", steps, [max(evals[i]) for i in points],
+                    source_key=f"max.ram_metric.[{index}]", **meta)
+    return len(train), len(evals)
 
 
 def checkpoint_steps(btr_run):
@@ -323,7 +380,11 @@ def main():
     parser.add_argument("--probe-batch", type=int, default=512, help="anet 側 plasticity.probe.batch_size と揃える")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--skip-checkpoints", action="store_true", help="重み由来の指標を出さない")
-    # BTR 側の構成。既定は BTR の CLI 既定値に一致する。
+    parser.add_argument("--thresholds", default="432,600",
+                        help="閾値超え率を出すスコアの閾値 (カンマ区切り、空で出さない)。既定は Breakout")
+    parser.add_argument("--ram-metric-index", type=int, default=1,
+                        help="エピソード CSV の RAM カウンタを出す anet 側の ram_metric 番号 (qbert の round_clear は 1)")
+    # BTR 側の構成。既定は BTR の CLI 既定値に一致する (noisy だけは Breakout の noisy0 Run に合わせて 0)。
     parser.add_argument("--framestack", type=int, default=4)
     parser.add_argument("--model-size", type=float, default=2)
     parser.add_argument("--linear-size", type=int, default=512)
@@ -339,13 +400,16 @@ def main():
     out_dir = os.path.expanduser(args.out)
     os.makedirs(out_dir, exist_ok=True)
 
+    thresholds = [int(t) for t in args.thresholds.split(",") if t.strip()]
     emitter = Emitter()
-    episodes = emit_episodes(emitter, args.btr_run)
-    eval_points = emit_evals(emitter, args.btr_run)
+    episodes = emit_episodes(emitter, args.btr_run, thresholds)
+    eval_points = emit_evals(emitter, args.btr_run, thresholds)
+    ram_train_steps, ram_eval_points = emit_ram_metric(emitter, args.btr_run, args.ram_metric_index)
     checkpoints = 0 if args.skip_checkpoints else emit_checkpoints(emitter, args, out_dir)
     note = write_run(out_dir, emitter, args.start)
 
     print(f"episodes={episodes} eval_points={eval_points} checkpoints={checkpoints}")
+    print(f"ram_metric_{args.ram_metric_index}: train_steps={ram_train_steps} eval_points={ram_eval_points}")
     print(f"tags={len(emitter.defs)} rows={len(emitter.rows)}")
     print(note)
 

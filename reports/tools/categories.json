@@ -33,7 +33,7 @@
     {"key": "315_nn", "label": "315 ニューラルネットワーク", "topic": 11, "match": ["/(nn|nn_impl|nn_modules|nn_heads|nn_util)\\.(cpp|hpp)$"]},
     {"key": "314_tensor", "label": "314 テンソル処理", "topic": 10, "match": ["/(tensor_util|tensor_check|transfer|stacker|scaler|scaler_impl|image)\\.(cpp|hpp)$"]},
     {"key": "316_config", "label": "316 設定管理", "topic": 12, "match": ["/(config|config_impl|config_baseline)\\.(cpp|hpp)$"]},
-    {"key": "317_metrics", "label": "317 可視化/メトリクス", "topic": 13, "match": ["/(metrics_logger|metrics_logger_impl|heat_map|graphviz|probe)\\.(cpp|hpp)$"]},
+    {"key": "317_metrics", "label": "317 可視化/メトリクス", "topic": 13, "match": ["/(metrics|metrics_impl|metrics_logger|metrics_logger_impl|heat_map|graphviz|probe)\\.(cpp|hpp)$"]},
     {"key": "318_rl_core", "label": "318 強化学習 共通基盤", "topic": 14, "match": ["/(rl|trainer|replay_buffer|replay_buffer_impl|muzero_rb|serialize|observers|episode_end)\\.(cpp|hpp)$"]},
     {"key": "320_env_core", "label": "320 Env 共通基盤", "topic": 16, "match": ["/env\\.(cpp|hpp)$"]},
     {"key": "321_agent_core", "label": "321 Agent 共通基盤", "topic": 17, "match": ["/(agent|dqn_based_agent|dqn_based_heads|dqn_based|dqn_munchausen|muzero_based_agent)\\.(cpp|hpp)$"]},

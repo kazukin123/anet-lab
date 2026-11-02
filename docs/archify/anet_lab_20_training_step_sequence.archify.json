@@ -6,7 +6,7 @@
     "quality_profile": "showcase",
     "viewBox": [
       1080,
-      668
+      636
     ],
     "column_fit": "spread"
   },
@@ -15,7 +15,7 @@
       "id": "runner",
       "type": "backend",
       "label": "TrainRunner",
-      "sublabel": "RunnerThread"
+      "sublabel": "SerialTrainRunner"
     },
     {
       "id": "actor",
@@ -27,7 +27,7 @@
       "id": "network",
       "type": "backend",
       "label": "Network",
-      "sublabel": "online"
+      "sublabel": "DefaultDQN"
     },
     {
       "id": "env",
@@ -52,12 +52,6 @@
       "type": "messagebus",
       "label": "Notifier",
       "sublabel": "Event 配信"
-    },
-    {
-      "id": "metrics",
-      "type": "backend",
-      "label": "MetricsLogger",
-      "sublabel": "metrics.jsonl"
     }
   ],
   "segments": [
@@ -78,7 +72,7 @@
     },
     {
       "from": 516,
-      "to": 594,
+      "to": 566,
       "label": "Event 通知と記録"
     }
   ],
@@ -120,14 +114,15 @@
       "to": "env",
       "y": 272,
       "label": "Step(action)",
-      "variant": "emphasis"
+      "variant": "emphasis",
+      "note": "終端laneを同じworker内で自動Reset"
     },
     {
       "id": "step-result",
       "from": "env",
       "to": "runner",
       "y": 300,
-      "label": "reward / next_state / continue_state",
+      "label": "StepResult / continue_state",
       "variant": "return"
     },
     {
@@ -136,7 +131,8 @@
       "to": "notifier",
       "y": 328,
       "label": "EpisodeEndEvent",
-      "variant": "default"
+      "variant": "default",
+      "note": "step_resultがリセット前の値を所有"
     },
     {
       "id": "update-batch",
@@ -196,21 +192,15 @@
       "to": "notifier",
       "y": 552,
       "label": "TrainEvent",
-      "variant": "emphasis"
-    },
-    {
-      "id": "record",
-      "from": "notifier",
-      "to": "metrics",
-      "y": 580,
-      "label": "記録"
+      "variant": "emphasis",
+      "note": "次行動はcontinue_stateを使う"
     }
   ],
   "activations": [
     {
       "participant": "runner",
       "from": 154,
-      "to": 560,
+      "to": 566,
       "type": "backend"
     },
     {
@@ -254,40 +244,16 @@
       "from": 518,
       "to": 566,
       "type": "messagebus"
-    },
-    {
-      "participant": "metrics",
-      "from": 574,
-      "to": 590,
-      "type": "backend"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "代表経路の前提",
+      "title": "結果を通知で運ぶ",
       "items": [
-        "SerialTrainRunner + DefaultDQN の1 step。初回だけ Env を Reset",
-        "Actor は方策と固有 RNG を持ち、学習 counts で方策を更新",
-        "Pipeline は前回 Experience を LearnThread で学習"
-      ]
-    },
-    {
-      "dot": "emerald",
-      "title": "学習が何回起きるか",
-      "items": [
-        "Push は毎 step、学習は CanUpdate と update_credit により 0 回以上",
-        "更新結果が空の step では LearnEvent を通知しない",
-        "根拠: core/anet-core/src/dqn_based_agent.cpp"
-      ]
-    },
-    {
-      "dot": "rose",
-      "title": "通知順の契約",
-      "items": [
-        "EpisodeEnd、Learn、Train の順に通知後 continue_state を state へ移す",
-        "counter は通知後に進むため counts は step 開始時点の値",
-        "根拠: core/anet-core/src/trainer.cpp"
+        "遷移の値はStep結果のGetScalarから取得。env本体は現在状態。",
+        "逐次Runnerの経路。pipelineでは前Stepの学習待合せ後にLearn/Trainを通知。",
+        "core/anet-core/src/trainer.cpp / core/anet-core/src/env.cpp"
       ]
     }
   ]

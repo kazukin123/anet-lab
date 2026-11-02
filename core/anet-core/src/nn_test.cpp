@@ -1,5 +1,7 @@
 #include "anet/catch_test.hpp"
 
+#include <algorithm>
+
 #include "anet/default_dqn_agent.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/muzero_proto_agent.hpp"
@@ -904,6 +906,8 @@ TEST_CASE("Network keeps head output FP32 under CPU autocast", "[nn][head][bf16]
     }
     REQUIRE(output.Contains("logits"));
     REQUIRE(output.At("logits").dtype() == torch::kFloat32);
+    REQUIRE(output.Contains(anet::nn::kKey_DefaultOutput));
+    REQUIRE(output.At(anet::nn::kKey_DefaultOutput).is_same(input.At("obs")));
 
     auto logits_func = network->GetTensorDictFunction("logits");
     REQUIRE(logits_func.has_value());
@@ -1135,18 +1139,18 @@ TEST_CASE("Network bind rejects batch and out-of-range concat dimensions", "[nn]
             && Catch::Matchers::ContainsSubstring("term_shapes="));
     }
 
-    SECTION("concat dimension must exist in every term")
+    SECTION("feature concat requires a feature axis in every term")
     {
         anet::nn::NetworkBranch branch(
             "concat", { { "a" }, { "b" } }, 2, network_struct);
         anet::TensorDict state;
         state.Set("a", torch::ones({ 2, 3, 4 }));
-        state.Set("b", torch::ones({ 2, 5 }));
+        state.Set("b", torch::ones({ 2 }));
         CHECK_THROWS_WITH(
             branch.Execute(state, anet::nn::NetworkForwardContext::GetDefault()),
             Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
             && Catch::Matchers::ContainsSubstring("value=2")
-            && Catch::Matchers::ContainsSubstring("term_rank=2")
+            && Catch::Matchers::ContainsSubstring("term_rank=1")
             && Catch::Matchers::ContainsSubstring("term_shapes="));
     }
 }
@@ -1926,6 +1930,72 @@ TEST_CASE("Body-only Network exposes forward TensorDictFunction", "[nn][function
     REQUIRE(direct_out.Contains("feature"));
     REQUIRE(func_out.Contains("feature"));
     CHECK(torch::equal(func_out.At("feature"), direct_out.At("feature")));
+}
+
+TEST_CASE("WeightInitConfig validates shared settings with caller diagnostics", "[nn][init][weight-init-config]")
+{
+    const std::string owner = "net.block.[Probe].init";
+    // 正常な各方式と既存のgain自動選択は、利用側にかかわらず受け付ける。
+    for (const std::string mode : {"default", "xavier", "he", "orthogonal", "constant", "trunc_normal"}) {
+        const anet::nn::WeightInitConfig config{.mode = mode, .manual_gain = -1.0};
+        CHECK_NOTHROW(anet::nn::ValidateWeightInitConfig(config, owner));
+    }
+    const anet::nn::WeightInitConfig unknown{.mode = "unsupported"};
+    CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown, owner),
+        Catch::Matchers::ContainsSubstring(owner + ".mode") && Catch::Matchers::ContainsSubstring("unsupported"));
+
+    // 設定パーサを通らないDTOでも、非有限値を論理キー付きで拒否する。
+    using NumericField = double anet::nn::WeightInitConfig::*;
+    const std::pair<const char*, NumericField> fields[]{
+        {"manual_gain", &anet::nn::WeightInitConfig::manual_gain},
+        {"constant_val", &anet::nn::WeightInitConfig::constant_val},
+        {"trunc_std", &anet::nn::WeightInitConfig::trunc_std},
+        {"trunc_a", &anet::nn::WeightInitConfig::trunc_a},
+        {"trunc_b", &anet::nn::WeightInitConfig::trunc_b}};
+    for (const auto& [key, field] : fields) {
+        for (const double value : {std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()}) {
+            INFO("key=" << key << " value=" << value);
+            anet::nn::WeightInitConfig config;
+            config.*field = value;
+            CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
+                Catch::Matchers::ContainsSubstring(owner + "." + key)
+                && Catch::Matchers::ContainsSubstring("expected finite"));
+        }
+    }
+
+    // 使用方式に依存しない数値範囲は、構築前に同じ条件で検証する。
+    for (const double deviation : {0.0, -0.1}) {
+        const anet::nn::WeightInitConfig config{.trunc_std = deviation};
+        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
+            Catch::Matchers::ContainsSubstring(owner + ".trunc_std") && Catch::Matchers::ContainsSubstring("expected > 0"));
+    }
+    for (const auto& [lower, upper] : {std::pair{0.0, 0.0}, std::pair{1.0, -1.0}}) {
+        const anet::nn::WeightInitConfig config{.trunc_a = lower, .trunc_b = upper};
+        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
+            Catch::Matchers::ContainsSubstring(owner + ".trunc_a")
+            && Catch::Matchers::ContainsSubstring(owner + ".trunc_b"));
+    }
+}
+
+TEST_CASE("WeightInitializer validates settings before changing parameters", "[nn][init][weight-init-config]")
+{
+    auto layer = MakeWeightInitTestLinear();
+    FillWeightInitTestLinear(layer, 0.25, -0.75);
+    // 直接指定したNaNをweight/biasへ書き込む前に失敗させる。
+    const anet::nn::WeightInitConfig constant{
+        .mode = "constant", .constant_val = std::numeric_limits<double>::quiet_NaN()};
+    CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, constant),
+        Catch::Matchers::ContainsSubstring("WeightInitConfig.constant_val"));
+    CheckTensorClose(torch::full_like(layer->weight, 0.25), layer->weight);
+    CheckTensorClose(torch::full_like(layer->bias, -0.75), layer->bias);
+
+    // defaultの早期returnでも、認識済みの不正な設定を見逃さない。
+    const anet::nn::WeightInitConfig unchanged{.mode = "default", .trunc_std = 0.0};
+    CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, unchanged),
+        Catch::Matchers::ContainsSubstring("WeightInitConfig.trunc_std"));
+    CheckTensorClose(torch::full_like(layer->weight, 0.25), layer->weight);
+    CheckTensorClose(torch::full_like(layer->bias, -0.75), layer->bias);
 }
 
 TEST_CASE("WeightInitializer string modes match torch initializers", "[nn][init]")
@@ -5344,4 +5414,64 @@ TEST_CASE("Repeated Transformer captures have stable positions and execution-ord
     const auto prepared = capture.GetAll(prefix);
     REQUIRE(prepared.size() == entries.size());
     CHECK(torch::equal(torch::cat({ prepared[0].second, prepared[1].second }), layers));
+}
+
+TEST_CASE("Network feature-last concat broadcasts missing intermediate axes", "[nn][bind][prd098][prd098-r2-bind]")
+{
+    const int64_t count = GENERATE(1, 3);
+    const bool reverse = GENERATE(false, true);
+    const auto high = torch::arange(2 * count * 4, torch::kFloat32).reshape({2, count, 4});
+    auto low = torch::arange(10, torch::kFloat32).reshape({2, 5}).clone();
+    low.set_requires_grad(true);
+    std::vector<std::vector<std::string>> terms{{"high"}, {"low"}};
+    if (reverse) std::reverse(terms.begin(), terms.end());
+    anet::nn::NetworkBranch branch("joined", terms, -1, std::make_shared<anet::nn::NetworkStruct>());
+    anet::TensorDict state{{"high", high}, {"low", low}};
+    // どちらの項順でもfeature以外の軸とbatchを保つ。
+    branch.Execute(state, anet::nn::NetworkForwardContext::GetDefault());
+    const auto repeated = low.unsqueeze(1).expand({2, count, 5});
+    const auto expected = reverse ? torch::cat({repeated, high}, -1) : torch::cat({high, repeated}, -1);
+    CHECK(torch::equal(state.At("joined"), expected));
+    state.At("joined").sum().backward();
+    CHECK(torch::equal(low.grad(), torch::full_like(low, static_cast<double>(count))));
+    // rank補完でbatchの食い違いを隠さない。
+    state.Set("low", torch::ones({3, 5}));
+    CHECK_THROWS_WITH(branch.Execute(state, anet::nn::NetworkForwardContext::GetDefault()),
+        Catch::Matchers::ContainsSubstring("batch size mismatch"));
+}
+
+TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noisynet][config][prd098][review-fix-projection]")
+{
+    EnsureNNInitialized();
+    // 事前検証は射影資源を作らず、既定とゼロsigmaをそのまま受理する。
+    CHECK_NOTHROW(anet::nn::ValidateLinearProjectionConfig(anet::EmptyConfigData));
+    const auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("Linear");
+    for (const bool enabled : {false, true}) {
+        anet::ConfigData data;
+        data.Set("linear.out_features", 3);
+        data.Set("init.mode", "constant");
+        data.Set("init.constant_val", 0.125);
+        data.Set("noisy.enabled", enabled);
+        data.Set("noisy.sigma0", 0.0);
+        CHECK_NOTHROW(anet::nn::ValidateLinearProjectionConfig(data));
+        const auto module = factory->CreateModule(data,
+            anet::nn::ModuleContext{.random_source = MakeTestModuleRandomSource()});
+        const auto out = module->Forward(torch::ones({2, 4}), anet::nn::NetworkForwardContext::GetDefault());
+        CHECK(torch::equal(out, torch::full({2, 3}, 0.625)));
+    }
+    // 同じ不正値を事前検証と公開Module factoryの両方が拒否する。
+    for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
+        {"noisy.enabled", "sometimes"}, {"noisy.sigma0", "-0.5"},
+        {"noisy.sigma0", "nan"}, {"noisy.sigma0", "inf"}}) {
+        anet::ConfigData data;
+        data.Set("linear.out_features", 3);
+        data.Set(key, value);
+        CAPTURE(key, value);
+        CHECK_THROWS(anet::nn::ValidateLinearProjectionConfig(data));
+        CHECK_THROWS(factory->CreateModule(data, anet::nn::ModuleContext{.random_source = MakeTestModuleRandomSource()}));
+    }
+    anet::ConfigData data;
+    data.Set("noisy.sigma0", -0.5);
+    CHECK_THROWS_WITH(anet::nn::ValidateLinearProjectionConfig(data, "probe.projection"),
+        Catch::Matchers::ContainsSubstring("probe.projection.noisy.sigma0"));
 }

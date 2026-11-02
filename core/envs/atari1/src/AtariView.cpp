@@ -221,9 +221,6 @@ AtariViewData AtariView::CreateViewData(const anet::rl::TrainEvent& event) const
     AtariViewData data;
     constexpr int64_t lane = 0;
 
-    if (const auto rgb = event.env->GetTensor("rgb_frame", lane); rgb.has_value()) {
-        data.rgb_hwc = rgb->detach().to(torch::kCPU).permute({ 1, 2, 0 }).contiguous();
-    }
     if (event.step_result && event.step_result->next_state.obs.Contains(anet::rl::ObsKeys::kGrid)) {
         auto grid = event.step_result->next_state.obs.At(anet::rl::ObsKeys::kGrid)[lane]
             .detach().to(torch::kCPU);
@@ -231,6 +228,10 @@ AtariViewData AtariView::CreateViewData(const anet::rl::TrainEvent& event) const
 
         const auto aux_list = event.step_result->GetAuxDataList(static_cast<int>(lane));
         if (!aux_list.empty()) {
+            // 自動Reset後のenvではなく、この遷移で保存した画面を表示する。
+            if (const auto rgb = aux_list[0].find("rgb_frame"); rgb != aux_list[0].end()) {
+                data.rgb_hwc = rgb->second.detach().to(torch::kCPU).permute({1, 2, 0}).contiguous();
+            }
             data.game_score = GetAuxFloat(aux_list[0], "game_score", 0.0f);
             data.lives = GetAuxInt64(aux_list[0], "lives", 0);
             data.game_len = GetAuxInt64(aux_list[0], "game_len", 0);

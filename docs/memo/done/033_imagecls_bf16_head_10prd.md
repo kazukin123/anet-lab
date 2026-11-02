@@ -3,6 +3,7 @@
 > 設計分担: Claude=設計/PRD、実装=Codex。本書は self-contained。
 > 前提の議論: BF16 autocast の適用箇所（learner/actor）と、Head/loss の精度保護をどう担保するか。
 > 結論として **Head 化で「Head=FP32」を構造で保証**し、BF16 設定は「有効無効＋適用箇所」だけに絞る。
+> 2026-10-23 改訂: §正直なリスクの BF16 の調査の対象を「LunarLander」から「DropMerge の DQN」に直した（2026-06-13 の調査の作業メモは DropMerge の DQN が対象で、律速の内訳の最大は `DropMergeEnv::Step` だった）。
 
 ## Context（背景・目的）
 
@@ -167,7 +168,7 @@ BF16 を素直に入れる上での構造的な障害が 1 点ある:
 
 ## 正直なリスク
 
-- **BF16 が割に合わない可能性**: 作業メモ（LunarLander の BF16 調査）では「CPU 律速で 1.2x どまり＋学習劣化」だった。
+- **BF16 が割に合わない可能性**: 作業メモ（DropMerge の DQN の BF16 調査、2026-06-13。当初は LunarLander の調査と書いた）では「CPU 律速で 1.2x どまり＋学習劣化」だった。
   ただし ImageCls は Learn が GPU compute-bound で文脈が異なり、効く見込み。**seed 違い複数 run の終盤平均ブレ幅**で判断し、
   劣化なら `bf16.enabled=false` で即戻し（構成比較はブレ幅基準）。
 - **autocast スコープに backward を含める実装ミス**は勾配 BF16 化＝劣化に直結。E/F で **forward だけ**を囲むこと。

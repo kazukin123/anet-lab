@@ -1,6 +1,7 @@
 // DropMergeEnv.cpp
 #include "DropMergeEnv.hpp"
 #include <cmath>
+#include <array>
 #include <algorithm>
 #include <iostream>
 #include "anet/profile.hpp"
@@ -53,49 +54,80 @@ static std::pair<BodyType, int> DecodeUserData(uintptr_t val)
 
 class DropMergeEnv::Result : virtual public anet::rl::SingleEnvResult {
 public:
-    Result(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward, bool capture_now)
-        : env_(env), reward_(reward), raw_reward_(raw_reward)
-    {
-        if (capture_now) {
-            cached_aux_ = env->CreateAuxData(reward, raw_reward);
-            has_cache_ = true;
-        }
-    }
-
-    anet::rl::AuxData GetAuxData() const override
-    {
-        // キャッシュがあればそれを返す（Reset後でも大丈夫）
-        if (has_cache_) {
-            return cached_aux_;
-        }
-
-        // キャッシュがなければ、今のEnvから生成する（通常時はこちら）
-        return env_->CreateAuxData(reward_, raw_reward_);
-    }
-protected:
-    std::shared_ptr<const DropMergeEnv> env_;
-    float reward_;
-    float raw_reward_;
-    bool has_cache_ = false;
-    anet::rl::AuxData cached_aux_;
+    Result(const DropMergeEnv& env, float reward, float raw_reward);
+    anet::rl::AuxData GetAuxData() const override;
+    std::optional<float> GetScalar(const std::string& key) const override;
+private:
+    torch::TensorOptions float_opt_;
+    std::array<float, 5> dropper_{};
+    std::vector<float> fruits_;
+    std::vector<float> grid_;
+    int64_t grid_rows_ = 0;
+    int64_t grid_cols_ = 0;
+    std::array<float, 3> world_info_{};
+    std::array<float, 4> rewards_{};
+    std::array<float, 2> steps_{};
+    float last_step_ = 0.0f;
+    float last_term_reason_ = 0.0f;
+    float score_ = 0.0f;
+    float last_score_ = 0.0f;
+    std::array<float, 2> action_mode_info_{};
 };
 
 class DropMergeEnv::ResetResult : public anet::rl::SingleResetResult, public DropMergeEnv::Result {
 public:
-    ResetResult(std::shared_ptr<const DropMergeEnv> env, const anet::rl::SingleState state)
-        : Result(env, 0.0f, 0.0f, false)
-        , SingleResetResult(std::move(state))
-    {
-    }
+    ResetResult(const DropMergeEnv& env, const anet::rl::SingleState state)
+        : SingleResetResult(std::move(state)), Result(env, 0.0f, 0.0f) {}
 };
 
 class DropMergeEnv::StepResult : public anet::rl::SingleStepResult, public DropMergeEnv::Result {
 public:
-    StepResult(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward, anet::rl::SingleState next_state)
-		: Result(env, reward, raw_reward, false)
-        , SingleStepResult(reward, std::move(next_state))
-    {
+    StepResult(const DropMergeEnv& env, float reward, float raw_reward,
+        anet::rl::SingleState state)
+        : SingleStepResult(reward, std::move(state)), Result(env, reward, raw_reward)
+        , action_mode_(env.action_mode_)
+        , blocked_candidate_frames_(env.blocked_candidate_frames_)
+        , ep_blocked_drop_on_candidate_(env.ep_blocked_drop_on_candidate_)
+        , ep_blocked_run_count_(env.ep_blocked_run_count_)
+        , ep_blocked_run_max_(env.ep_blocked_run_max_)
+        , ep_blocked_run_sum_(env.ep_blocked_run_sum_)
+        , ep_double_suika_created_(env.ep_double_suika_created_)
+        , ep_drop_command_count_(env.ep_drop_command_count_)
+        , ep_end_fruit_count_(env.ep_end_fruit_count_)
+        , ep_max_rank_(env.ep_max_rank_)
+        , ep_no_drop_timeout_on_candidate_(env.ep_no_drop_timeout_on_candidate_)
+        , ep_same_drop_col_count_(env.ep_same_drop_col_count_)
+        , ep_settle_count_(env.ep_settle_count_)
+        , ep_settle_steps_max_(env.ep_settle_steps_max_)
+        , ep_settle_steps_sum_(env.ep_settle_steps_sum_)
+        , ep_suika_created_(env.ep_suika_created_)
+        , step_count_(env.step_count_)
+        , term_reason_(env.term_reason_)
+        {
+        // 確定と速報の規則を結果に固定し、元のenvの更新から独立させる。
+        episode_ended_ = next_state.done || next_state.truncated;
     }
+    std::optional<float> GetScalar(const std::string& key) const override;
+private:
+    bool episode_ended_;
+    ActionMode action_mode_;
+    int blocked_candidate_frames_;
+    bool ep_blocked_drop_on_candidate_;
+    int ep_blocked_run_count_;
+    int ep_blocked_run_max_;
+    int ep_blocked_run_sum_;
+    int ep_double_suika_created_;
+    int ep_drop_command_count_;
+    int ep_end_fruit_count_;
+    int ep_max_rank_;
+    bool ep_no_drop_timeout_on_candidate_;
+    int ep_same_drop_col_count_;
+    int ep_settle_count_;
+    int ep_settle_steps_max_;
+    int ep_settle_steps_sum_;
+    int ep_suika_created_;
+    int step_count_;
+    TerminationReason term_reason_;
 };
 
 
@@ -420,6 +452,24 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset()
     episode_score_ = 0.0f;
     episode_reward_ = 0.0f;
 
+    // 新しいエピソードの統計を、最初のStepまで持ち越さずResetで初期化する。
+    ep_max_rank_ = 0;
+    ep_end_fruit_count_ = 0;
+    term_reason_ = TerminationReason::None;
+    ep_settle_steps_sum_ = 0;
+    ep_settle_count_ = 0;
+    ep_settle_steps_max_ = 0;
+    ep_suika_created_ = 0;
+    ep_double_suika_created_ = 0;
+    ep_blocked_run_sum_ = 0;
+    ep_blocked_run_count_ = 0;
+    ep_blocked_run_max_ = 0;
+    ep_blocked_drop_on_candidate_ = false;
+    ep_no_drop_timeout_on_candidate_ = false;
+    ep_drop_command_count_ = 0;
+    ep_same_drop_col_count_ = 0;
+    ep_previous_drop_col_ = -1;
+
     // Dropper初期化
     dropper_.x = 0.0f;
     dropper_.current_rank = determineNextRank();
@@ -430,7 +480,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset()
     auto state = makeState();
     state.episode_start = true;
 
-    return std::make_shared<ResetResult>(this->shared_from_this(), std::move(state));
+    return std::make_shared<ResetResult>(*this, std::move(state));
 }
 
 bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
@@ -957,27 +1007,6 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     ANET_PROFILE_FUNC();
 
     // エピーソード開始してる
-    episode_just_ended_ = false;
-
-    // 新しいエピソードの最初のステップでメトリクスをリセット
-    if (step_count_ == 0) {
-        ep_max_rank_ = 0;
-        ep_end_fruit_count_ = 0;
-        term_reason_ = TerminationReason::None;
-        ep_settle_steps_sum_ = 0;
-        ep_settle_count_ = 0;
-        ep_settle_steps_max_ = 0;
-        ep_suika_created_ = 0;
-        ep_double_suika_created_ = 0;
-        ep_blocked_run_sum_ = 0;
-        ep_blocked_run_count_ = 0;
-        ep_blocked_run_max_ = 0;
-        ep_blocked_drop_on_candidate_ = false;
-        ep_no_drop_timeout_on_candidate_ = false;
-        ep_drop_command_count_ = 0;
-        ep_same_drop_col_count_ = 0;
-        ep_previous_drop_col_ = -1;
-    }
 
     // この Step が返す Observation には、選択された命令を執行成否に関係なく記録する。
     last_action_ = action;
@@ -1205,7 +1234,6 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // エピソード終了時のフルーツ数カウント＆フラグ立て
     if (done || truncated) {
         // エピソード終了時情報を返せる状態、だよ
-        episode_just_ended_ = true;
 
         // 果物の数を記録
         ep_end_fruit_count_ = 0;
@@ -1218,23 +1246,11 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             }
         }
 
-        // 前回エピソード情報を記録
+        // View用の履歴だけを保持し、GetScalarの完了値には使わない。
         last_episode_score_ = episode_score_;
         last_episode_step_ = step_count_;
         last_episode_term_reason_ = term_reason_;
         last_episode_reward_ = episode_reward_;
-        last_ep_max_settle_steps_ = ep_settle_steps_max_;
-        last_ep_mean_settle_steps_ = (ep_settle_count_ > 0) ? (static_cast<float>(ep_settle_steps_sum_) / ep_settle_count_) : 0.0f;
-        last_ep_max_blocked_frames_ = ep_blocked_run_max_;
-        last_ep_mean_blocked_frames_ = (ep_blocked_run_count_ > 0)
-            ? (static_cast<float>(ep_blocked_run_sum_) / ep_blocked_run_count_)
-            : 0.0f;
-        // 終端まで解消しなかった blocked run を、終了理由と同じタイミングで確定する。
-        last_ep_terminal_blocked_frames_ = blocked_candidate_frames_;
-        last_ep_same_drop_col_ratio_ = ep_drop_command_count_ >= 2
-            ? static_cast<float>(ep_same_drop_col_count_) /
-                static_cast<float>(ep_drop_command_count_ - 1)
-            : 0.0f;
     }
 
     // State生成
@@ -1251,7 +1267,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     episode_reward_ += accumulated_reward;
 
     return std::make_shared<StepResult>(
-        this->shared_from_this(), accumulated_reward, accumulated_raw_reward, std::move(state));
+        *this, accumulated_reward, accumulated_raw_reward, std::move(state));
 }
 
 // -------------------------------------------------------------
@@ -1312,6 +1328,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     const float cell_w = (max_x - min_x) / config_.grid_cols;
     const float cell_h = (max_y - min_y) / config_.grid_rows;
 
+    /// @todo CUDA bufferをhostから書かない観測構築へ分離する。現行CPU経路と別の既存不具合。
     float* vec_ptr = vec_buffer_.data_ptr<float>();
     int8_t* grid_ptr = grid_buffer_.data_ptr<int8_t>();
 
@@ -1474,99 +1491,96 @@ std::pair<float, float> DropMergeEnv::calcReward()
     return { reward, raw_reward };
 }
 
-anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) const
+DropMergeEnv::Result::Result(const DropMergeEnv& env, float reward, float raw_reward)
 {
-	ANET_PROFILE_FUNC();
+    // Tensorを作らずに遷移時点の値を所有し、後のStep/ResetとEnvの寿命から切り離す。
+    ANET_PROFILE_SCOPE(capture_aux);
+    float_opt_ = env.float_opt_;
+    const float r_curr = env.dropper_.current_rank > 0
+        ? env.config_.fruit_radii[env.dropper_.current_rank - 1] : 0.0f;
+    const float r_next = env.dropper_.next_rank > 0
+        ? env.config_.fruit_radii[env.dropper_.next_rank - 1] : 0.0f;
+    dropper_ = {env.dropper_.x, static_cast<float>(env.dropper_.current_rank),
+        static_cast<float>(env.dropper_.next_rank), r_curr, r_next};
 
+    // Bodyの走査順と各果物の5要素をそのまま固定し、body/configの参照を持ち越さない。
+    for (b2Body* body = env.world_->GetBodyList(); body; body = body->GetNext()) {
+        if (body->GetType() != b2_dynamicBody) continue;
+        const auto data = DecodeUserData(body->GetUserData().pointer);
+        if (data.first != BodyType::Fruit) continue;
+        const b2Vec2 position = body->GetPosition();
+        const float radius = env.config_.fruit_radii[data.second - 1];
+        const float angle = body->GetAngle();
+        fruits_.insert(fruits_.end(), {position.x, position.y, radius,
+            static_cast<float>(data.second), angle});
+    }
+    grid_ = env.grid_cache_;
+    grid_rows_ = env.config_.grid_rows;
+    grid_cols_ = env.config_.grid_cols;
+    world_info_ = {env.config_.box_width, env.config_.box_height, env.config_.ground_y};
+    rewards_ = {reward, raw_reward, env.episode_reward_, env.last_episode_reward_};
+    steps_ = {static_cast<float>(env.step_count_), static_cast<float>(env.last_step_sim_steps_)};
+    last_step_ = static_cast<float>(env.last_episode_step_);
+    last_term_reason_ = static_cast<float>(env.last_episode_term_reason_);
+    score_ = env.episode_score_;
+    last_score_ = env.last_episode_score_;
+    action_mode_info_ = {static_cast<float>(env.action_mode_), static_cast<float>(env.num_drop_actions_)};
+}
+
+anet::rl::AuxData DropMergeEnv::Result::GetAuxData() const
+{
+    ANET_PROFILE_FUNC();
     anet::rl::AuxData aux;
 
-    // --- Dropper情報 ---
-    float r_curr = (dropper_.current_rank > 0) ? config_.fruit_radii[dropper_.current_rank - 1] : 0.0f;
-    float r_next = (dropper_.next_rank > 0) ? config_.fruit_radii[dropper_.next_rank - 1] : 0.0f;
-    aux.emplace("dropper", torch::tensor({
-        dropper_.x,
-        (float)dropper_.current_rank,
-        (float)dropper_.next_rank,
-		r_curr, // 手元の果物半径
-		r_next, // 次の果物半径
-        }, float_opt_));
-
-    // --- 果物リスト (表示用) ---
-    std::vector<float> fruits_data;
-    for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
-        if (b->GetType() != b2_dynamicBody) continue;
-        auto data = DecodeUserData(b->GetUserData().pointer);
-        if (data.first == BodyType::Fruit) {
-            b2Vec2 p = b->GetPosition();
-            float r = config_.fruit_radii[data.second - 1];
-            float angle = b->GetAngle();
-
-            fruits_data.push_back(p.x);
-            fruits_data.push_back(p.y);
-            fruits_data.push_back(r);
-            fruits_data.push_back((float)data.second); // Rank
-            fruits_data.push_back(angle);
-        }
+    // 表示要求時だけ、所有する値を従来のキー・shape・deviceへ変換する。
+    aux.emplace("dropper", torch::tensor({dropper_[0], dropper_[1], dropper_[2], dropper_[3], dropper_[4]}, float_opt_));
+    if (!fruits_.empty()) {
+        aux.emplace("fruits", torch::tensor(fruits_, torch::kFloat32).reshape(
+            {static_cast<int64_t>(fruits_.size() / 5), 5}));
     }
-    // N x 5 tensor
-    if (!fruits_data.empty()) {
-        auto t = torch::from_blob(fruits_data.data(), { (long)fruits_data.size() / 5, 5 }, torch::kFloat).clone();
-        aux.emplace("fruits", t);
+    if (!grid_.empty()) {
+        aux.emplace("grid", torch::tensor(grid_, torch::kFloat32).reshape({grid_rows_, grid_cols_}));
     }
-
-    // グリッド (デバッグ表示用)
-    // makeStateで計算した grid_cache_ を利用
-    if (!grid_cache_.empty()) {
-        auto t = torch::from_blob((float*)grid_cache_.data(), { config_.grid_rows, config_.grid_cols }, torch::kFloat).clone();
-        aux.emplace("grid", t);
-    }
-
-    // Config情報 (枠描画用)
-    aux.emplace("world_info", torch::tensor({
-        config_.box_width, config_.box_height, config_.ground_y
-        }, float_opt_));
-
-    // 報酬
-    aux.emplace("rewards", torch::tensor({
-        reward,
-        raw_reward,
-        episode_reward_,
-        last_episode_reward_
-        }, float_opt_));
-
-    // ステップ数情報
-    aux.emplace("step", torch::tensor({
-        (float)step_count_,
-        (float)last_step_sim_steps_
-        }, float_opt_));
-    aux.emplace("last_step", torch::tensor({ (float)last_episode_step_ }, float_opt_));
-    aux.emplace("last_term_reason", torch::tensor({ static_cast<float>(last_episode_term_reason_) }, float_opt_));
-
-    // スコア
-    aux.emplace("score", torch::tensor({ episode_score_ }, float_opt_));
-    aux.emplace("last_score", torch::tensor({ last_episode_score_ }, float_opt_));
-
-    // AcionMode
-    float mode_id = static_cast<float>(action_mode_);
-    aux.emplace("action_mode", torch::tensor({ mode_id, (float)num_drop_actions_ }, float_opt_));
-
+    aux.emplace("world_info", torch::tensor({world_info_[0], world_info_[1], world_info_[2]}, float_opt_));
+    aux.emplace("rewards", torch::tensor({rewards_[0], rewards_[1], rewards_[2], rewards_[3]}, float_opt_));
+    aux.emplace("step", torch::tensor({steps_[0], steps_[1]}, float_opt_));
+    aux.emplace("last_step", torch::tensor({last_step_}, float_opt_));
+    aux.emplace("last_term_reason", torch::tensor({last_term_reason_}, float_opt_));
+    aux.emplace("score", torch::tensor({score_}, float_opt_));
+    aux.emplace("last_score", torch::tensor({last_score_}, float_opt_));
+    aux.emplace("action_mode", torch::tensor({action_mode_info_[0], action_mode_info_[1]}, float_opt_));
     return aux;
 }
 
+std::optional<float> DropMergeEnv::Result::GetScalar(const std::string& key) const
+{
+    // aux全体をTensor化せず、従来numel==1だった値だけを同じfloatで返す。
+    if (key == "last_step") return last_step_;
+    if (key == "last_term_reason") return last_term_reason_;
+    if (key == "score") return score_;
+    if (key == "last_score") return last_score_;
+    if (key == "grid" && grid_.size() == 1) return grid_[0];
+    return std::nullopt;
+}
+
 std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t index) const
+{
+    // 統計の問い合わせはStepの結果へ移し、今のenvはその鍵を公開しない。
+    return std::nullopt;
+}
+
+std::optional<float> DropMergeEnv::StepResult::GetScalar(const std::string& key) const
 {
     const float nan = std::numeric_limits<float>::quiet_NaN();
 
     // --- 基本情報 ---
 
     if (key == "ep_step") {
-        if (!episode_just_ended_) return nan;
-        return static_cast<float>(last_episode_step_);
+        return static_cast<float>(step_count_);
     }
 
     // --- 成果・盤面状態 ---
     if (key == "ep_max_rank") {
-        if (!episode_just_ended_) return nan;
         float display_rank = static_cast<float>(ep_max_rank_);
 
         // スイカ(Rank 11)以上が出来ている場合の特別計算
@@ -1592,15 +1606,13 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
         return display_rank;
     }
     if (key == "ep_double_suika_created") {
-        if (!episode_just_ended_) return nan;
         return static_cast<float>(ep_double_suika_created_);
     }
     if (key == "ep_double_suika_achieved") {
-        if (!episode_just_ended_) return nan;
         return ep_double_suika_created_ > 0 ? 1.0f : 0.0f;
     }
     if (key == "ep_end_fruit_count") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return static_cast<float>(ep_end_fruit_count_);
     }
     if (key == "ep_same_drop_col_ratio") {
@@ -1608,69 +1620,69 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
             action_mode_ != ActionMode::DirectNoop) {
             return nan;
         }
-        if (!episode_just_ended_) return nan;
-        return last_ep_same_drop_col_ratio_;
+        return ep_drop_command_count_ >= 2
+            ? static_cast<float>(ep_same_drop_col_count_) /
+                static_cast<float>(ep_drop_command_count_ - 1)
+            : 0.0f;
     }
 
     // --- Settle関連統計 ---
     if (key == "ep_mean_settle_steps") {
-        if (!episode_just_ended_) return nan;
-        return last_ep_mean_settle_steps_;
+        return (ep_settle_count_ > 0) ? (static_cast<float>(ep_settle_steps_sum_) / ep_settle_count_) : 0.0f;
     }
     if (key == "ep_max_settle_steps") {
-        if (!episode_just_ended_) return nan;
-        return static_cast<float>(last_ep_max_settle_steps_);
+        return static_cast<float>(ep_settle_steps_max_);
     }
 
     // --- 死因（One-hot表現） ---
     if (key == "term_reason_spawn_blocked") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return (term_reason_ == TerminationReason::SpawnBlocked) ? 1.0f : 0.0f;
     }
     if (key == "term_reason_overflow") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return (term_reason_ == TerminationReason::Overflow) ? 1.0f : 0.0f;
     }
     if (key == "term_reason_maxstep") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return (term_reason_ == TerminationReason::MaxStep) ? 1.0f : 0.0f;
     }
     if (key == "term_reason_no_drop_timeout") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return (term_reason_ == TerminationReason::NoDropTimeout) ? 1.0f : 0.0f;
     }
     if (key == "term_reason_no_legal_drop") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return (term_reason_ == TerminationReason::NoLegalDrop) ? 1.0f : 0.0f;
     }
 
     // --- NoLegal candidate 診断 ---
     if (key == "blocked_drop_on_candidate") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return ep_blocked_drop_on_candidate_ ? 1.0f : 0.0f;
     }
     if (key == "no_drop_timeout_on_candidate") {
-        if (!episode_just_ended_) return nan;
+        if (!episode_ended_) return nan;
         return ep_no_drop_timeout_on_candidate_ ? 1.0f : 0.0f;
     }
     if (key == "ep_mean_blocked_frames") {
-        if (!episode_just_ended_) return nan;
-        return last_ep_mean_blocked_frames_;
+        return (ep_blocked_run_count_ > 0)
+            ? (static_cast<float>(ep_blocked_run_sum_) / ep_blocked_run_count_)
+            : 0.0f;
     }
     if (key == "ep_max_blocked_frames") {
-        if (!episode_just_ended_) return nan;
-        return static_cast<float>(last_ep_max_blocked_frames_);
+        return static_cast<float>(ep_blocked_run_max_);
     }
     if (key == "ep_terminal_blocked_frames") {
-        if (!episode_just_ended_) return nan;
-        return static_cast<float>(last_ep_terminal_blocked_frames_);
+        // 終端まで解消しなかったblocked runを、その遷移の統計から読む。
+        if (!episode_ended_) return nan;
+        return static_cast<float>(blocked_candidate_frames_);
     }
     if (key == "ep_blocked_run_count") {
-        if (!episode_just_ended_) return nan;
         return static_cast<float>(ep_blocked_run_count_);
     }
 
-    return std::nullopt;
+    return Result::GetScalar(key);
 }
 
 std::optional<torch::Tensor> DropMergeEnv::GetTensor(const std::string& key, int64_t index) const

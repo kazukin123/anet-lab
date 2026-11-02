@@ -275,7 +275,6 @@ namespace anet::rl::env::drop_merge {
         // 観測・報酬
         anet::rl::SingleState makeState() const;
         std::pair<float, float> calcReward();
-        anet::rl::AuxData CreateAuxData(float reward, float raw_reward) const;
     private:
         // 設定情報
         DropMergeEnvConfig config_;
@@ -320,7 +319,6 @@ namespace anet::rl::env::drop_merge {
 
         // メトリクス用
         TerminationReason term_reason_ = TerminationReason::None;   ///< エピーソード終了要因
-        bool episode_just_ended_ = false; ///< GetScalarで値を返す判定用
         int ep_max_rank_ = 0;             ///< エピソード中の最大ランク
         int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
         int ep_suika_created_ = 0;        ///< エピソード中に作成されたスイカの総数
@@ -328,23 +326,17 @@ namespace anet::rl::env::drop_merge {
         int ep_drop_command_count_ = 0;   ///< エピソード中に選択された direct 系 DROP 命令数
         int ep_same_drop_col_count_ = 0;  ///< 直前 DROP と同じ命令列を連続選択した回数
         int ep_previous_drop_col_ = -1;   ///< 比較対象となる直前 DROP 命令列
-        float last_ep_same_drop_col_ratio_ = 0.0f; ///< 終了エピソードの同一列選択率
 
         // Settleステップ計測用
         int ep_settle_steps_sum_ = 0;
         int ep_settle_count_ = 0;
         int ep_settle_steps_max_ = 0;
-        float last_ep_mean_settle_steps_ = 0.0f;
-        int last_ep_max_settle_steps_ = 0;
         int last_step_sim_steps_ = 0;     ///< 直近のStepで回った物理ステップ数(UI用)
 
         // NoLegal candidate 診断用
         int ep_blocked_run_sum_ = 0;
         int ep_blocked_run_count_ = 0;
         int ep_blocked_run_max_ = 0;
-        float last_ep_mean_blocked_frames_ = 0.0f;
-        int last_ep_max_blocked_frames_ = 0;
-        int last_ep_terminal_blocked_frames_ = 0;
         bool ep_blocked_drop_on_candidate_ = false;
         bool ep_no_drop_timeout_on_candidate_ = false;
 

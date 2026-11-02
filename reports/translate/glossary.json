@@ -28,6 +28,9 @@
     "排水": "drain",
     "RAM メトリクス": "RAM metric",
     "RAM 定義": "RAM definition",
-    "畳み方": "reducer"
+    "畳み方": "reducer",
+    "勾配ノイズスケール": "gradient noise scale",
+    "attention エントロピー": "attention entropy",
+    "追従 pane": "follower pane"
   }
 }

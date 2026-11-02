@@ -3,10 +3,13 @@
 #include "EvalPanel.hpp"
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <wx/weakref.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
+#include "anet/metrics.hpp"
 #include "anet/observers.hpp"
 #include "RunnerApp.hpp"
 
@@ -20,6 +23,14 @@ void ValidateEvalFps(float fps, const char* key)
 	if (!std::isfinite(fps) || fps < 0.0f || fps > 1000.0f) {
 		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << fps
 			<< " (expected: finite number in [0, 1000])");
+	}
+}
+
+void ValidateStepsPerFrame(int steps, const char* key)
+{
+	if (steps <= 0) {
+		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << steps
+			<< " (expected: positive integer)");
 	}
 }
 
@@ -59,11 +70,12 @@ void EvalPanelModelSyncConfig::Validate() const
 void EvalPanelConfig::Validate() const
 {
 	ValidateEvalFps(fps, "app.eval_panel.fps");
+	ValidateStepsPerFrame(step_per_frame, "app.eval_panel.step_per_frame");
 	model_sync.Validate();
 }
 
-EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
-	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY)
+EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action)
+	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY), current_step_per_frame_(config.step_per_frame), before_live_action_(std::move(before_live_action))
 {
 	config_.Validate();
 	is_pause_ = config_.auto_start ? false : true;
@@ -101,12 +113,17 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 
 	// レイアウト
 	wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
-	sizer->Add(view_window_, 1, wxEXPAND | wxALL, 5);
+    sizer->Add(view_window_, 1, wxEXPAND | wxALL, 5);
+    no_data_label_ = new wxStaticText(this, wxID_ANY, "no data for this step");
+    sizer->Add(no_data_label_, 0, wxALL, 8);
+    no_data_label_->Hide();
 	this->SetSizer(sizer);
 	this->Layout();
 
 	// EvalRunnerを保存(これで独自の評価エピソードを回す。ENVはTrainと同等の別インスタンス、AGENTはTrainと共用)
+    // 入力判定でEnvSpecを毎回構築しないよう、ActionSpecを保持
 	runner_ = runner;
+    action_spec_ = runner_->GetBatchEnv()->GetSpec().action_spec;
 
 	// Observer生成
 	auto notifier = run_manager->GetNotifier();
@@ -121,11 +138,9 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 	notifier->Attach(source_counts_observer_);
 	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
 		runner,
-		[this](const anet::rl::TrainEvent& event)
-		{
-			view_->UpdateViewData(event, true);		// Step毎に画面反映したいかもなのでforce=true
-			//view_->CaptureViewData();
-		},
+        [weak = wxWeakRef<EvalPanel>(this)](const anet::rl::TrainEvent& event) {
+            if (weak && weak->view_) weak->view_->UpdateViewData(event, true);
+        },
 		"EvalPanel");
 
 	// Timer開始。Eval FPS は表示だけでなく Eval step の実行周期を表す。
@@ -136,6 +151,7 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 void EvalPanel::SetFps(float fps)
 {
 	ValidateEvalFps(fps, "EvalPanel::SetFps fps");
+    current_fps_ = fps;
 
 	// 実行時変更では既存 timer を止めてから、新しい周期を確定する。
 	update_timer_.Stop();
@@ -149,8 +165,16 @@ void EvalPanel::SetFps(float fps)
 	update_timer_.Start(interval);
 }
 
+void EvalPanel::SetStepsPerFrame(int steps)
+{
+	// 起動時設定と実行時の値を分離し、次のtimer更新から新しいstep数を使う。
+	ValidateStepsPerFrame(steps, "EvalPanel::SetStepsPerFrame steps");
+	current_step_per_frame_ = steps;
+}
+
 void EvalPanel::DoStep()
 {
+    if (before_live_action_) before_live_action_();
 	SyncBeforeManualStep();
 	runner_->DoStep();
 	SyncAfterStep(runner_->GetCounts());
@@ -160,20 +184,39 @@ void EvalPanel::DoStep()
 
 void EvalPanel::DoStep(int64_t action)
 {
+    // 範囲外入力では、Live復帰やモデル同期も行わず表示履歴を維持する。
+    if (action >= 0 && action_spec_.is_discrete && action >= action_spec_.GetNumActions()) {
+        wxGetApp().GetMainFrame()->SetStatusText(wxString::Format(
+            "Action %lld is unavailable; valid range: 0-%d.",
+            static_cast<long long>(action), action_spec_.GetNumActions() - 1), 0);
+        return;
+    }
+    if (before_live_action_) before_live_action_();
 	SyncBeforeManualStep();
 	runner_->DoStep(action);
 	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
+    // 実行できた強制行動だけを、Traceの行動列と同じ表示名で知らせる。
+    if (action >= 0 && action_spec_.is_discrete) {
+        constexpr const char* kActionInfoTarget = "$action_info";
+        constexpr const char* kActionKey = "action";
+        const anet::rl::StepTraceColumnSpec column{.target=kActionInfoTarget, .key=kActionKey, .display="value_name"};
+        const auto name = anet::rl::gui::FormatTraceValue(column, static_cast<float>(action), action_spec_);
+        wxGetApp().GetMainFrame()->SetStatusText(wxString::FromUTF8("Forced action: " + name), 0);
+    }
 }
 
 void EvalPanel::TogglePause()
 {
+    if (is_pause_ && before_live_action_) before_live_action_();
 	is_pause_ = !is_pause_;
 	if (!is_pause_) {
 		SyncModel();
 	}
-	auto log_str = std::string("Evaluation ") + (is_pause_ ? "paused" : "resumed");
+	auto log_str = is_pause_
+		? std::string("Evaluation paused")
+		: std::format("Evaluation resumed fps={} step_per_frame={}", current_fps_, current_step_per_frame_);
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
 	wxGetApp().FlushRunOutputs();
@@ -247,18 +290,17 @@ void EvalPanel::OnTimer(wxTimerEvent& event)
 	if (is_pause_) return;
 
 	// 評価エピソードを回す（Observer経由でeval_canvas更新)
-	if (config_.step_per_frame > 0) {
-		ANET_PROFILE_SCOPE_FULL(eval_update_frame, "EvalPanel::OnEvalTimer.DoUpdateFrame");
-		SyncBeforeFrame();
-		runner_->DoUpdateFrame(
-			config_.step_per_frame,
-			nullptr,
-			[this](const anet::rl::StepCounts& counts)
-			{
-				return SyncAfterStep(counts);
-			});
-	}
+	ANET_PROFILE_SCOPE_FULL(eval_update_frame, "EvalPanel::OnEvalTimer.DoUpdateFrame");
+	SyncBeforeFrame();
+	runner_->DoUpdateFrame(
+		current_step_per_frame_,
+		nullptr,
+		[this](const anet::rl::StepCounts& counts)
+		{
+			return SyncAfterStep(counts);
+		});
 
+	ANET_PROFILE_SCOPE_END_NAMED(eval_update_frame);
 	// データ断面をキャプチャ
 	view_->CaptureViewData();
 
@@ -271,4 +313,23 @@ void EvalPanel::OnClose(wxCloseEvent& event)
 	update_timer_.Stop();
 	auto notifier = wxGetApp().GetRunManager().GetNotifier();
 	notifier->Detach(this->observer_);
+}
+
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> EvalPanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
+{
+    return view_ ? view_->CreateTraceSnapshot(event) : nullptr;
+}
+
+void EvalPanel::ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot)
+{
+    if (view_) view_->ShowTraceSnapshot(snapshot);
+    if (no_data_label_) no_data_label_->Show(!snapshot);
+    Layout();
+}
+
+void EvalPanel::ReturnToLive()
+{
+    if (view_) view_->ReturnToLive();
+    if (no_data_label_) no_data_label_->Hide();
+    Layout();
 }

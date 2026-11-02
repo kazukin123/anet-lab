@@ -5,6 +5,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <new>
 #include <vector>
 #include <wx/cmdline.h>
@@ -12,6 +13,7 @@
 #include <wx/snglinst.h>
 #include <wx/utils.h>
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/init.hpp"
 #include "anet/log.hpp"
@@ -37,6 +39,8 @@ namespace LOG = anet::log;
 namespace runner_app_detail {
 
 constexpr int kTextLogFlushTimerId = wxID_HIGHEST + 100;
+constexpr char kRunInitThreadName[] = "RunInitThread";
+constexpr char kEvalMainView[] = "eval";
 
 std::string PathToUtf8(const std::filesystem::path& path)
 {
@@ -56,12 +60,12 @@ wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 struct RunnerApp::Config : public anet::Config {
     std::string run_name = "run_{t}";
     std::string runs_dir = "runs";
-    std::string log_level = "info";
     int log_flush_interval_ms = 500;
     int drain_timeout_sec = 3600;
     bool show_error_dialog = true;
     bool save_agent_on_close = true;
     bool train_auto_start = true;
+    std::string main_view = kEvalMainView;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
     int exp_pause_step = -1;
@@ -76,13 +80,14 @@ struct RunnerApp::Config : public anet::Config {
     {
         ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, runs_dir);
-        ANET_READ_CONFIG(config_data, log_level);
         ANET_READ_CONFIG(config_data, log_flush_interval_ms);
         ANET_READ_CONFIG(config_data, drain_timeout_sec);
         ANET_READ_CONFIG(config_data, show_error_dialog);
         ANET_READ_CONFIG(config_data, save_agent_on_close);
 
         ANET_READ_CONFIG(config_data, train_auto_start);
+        ANET_READ_CONFIG(config_data, main_view);
+        GetMainView();
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
         ANET_READ_CONFIG(config_data, exp_pause_step);
@@ -109,6 +114,17 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.episode_interval);
         train_panel.Validate();
         eval_panel.Validate();
+    }
+
+    RunnerFrame::MainView GetMainView() const
+    {
+        // 同じ app の列挙設定と同じ正規化を行い、Frame へは解決済みの値を渡す。
+        const auto normalized = anet::ToLower(anet::TrimCopy(main_view));
+        if (normalized == "train") return RunnerFrame::MainView::Train;
+        if (normalized == kEvalMainView) return RunnerFrame::MainView::Eval;
+        if (normalized == "both") return RunnerFrame::MainView::Both;
+        ANET_SYSTEM_ERROR("Invalid app.main_view: value=" << main_view << " (expected: train, eval, both)");
+        return RunnerFrame::MainView::Eval; // ANET_SYSTEM_ERROR が送出するため到達しない。
     }
 
 private:
@@ -264,6 +280,8 @@ bool RunnerApp::OnInit()
 
     // wxWidgets初期化
     wxInitAllImageHandlers();
+    // wxMSWのhandlerはvirtualではないため、問い合わせをこのアプリで明示的に受ける。
+    Bind(wxEVT_QUERY_END_SESSION, &RunnerApp::OnQueryEndSession, this);
 
     // DarkModeサポート
     SetAppearance(Appearance::System);
@@ -379,7 +397,7 @@ bool RunnerApp::OnInit()
 
     // RunnerFrame生成
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
-    frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel);
+    frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel, config_->GetMainView());
 
     // ログ初期化
     SetupLogging();
@@ -406,13 +424,86 @@ bool RunnerApp::OnInit()
     LOG::info() << "RunnerApp config=" << config_->ToString();
     anet::MetricsLogger::Instance()->Log(*config_);
 
-    // RunManager生成
-    run_manager_ = std::make_shared<anet::rl::RunManager>(config_data);
-    auto status = run_manager_->GetStatus();
-    if (status != anet::rl::RunnerStatus::RUNNING) {
+    // 構築中もイベントループを回す。GUIとrun_manager_にはworkerから触れない。
+    run_init_started_ = std::chrono::steady_clock::now();
+    LOG::info() << "Initializing run in background.";
+    run_init_thread_ = std::thread([this, config_data] {
+        try {
+            anet::ProfileThreadName thread_name(kRunInitThreadName);
+            ANET_PROFILE_SCOPE_FULL(construction, "RunnerApp::ConstructRunManager");
+            constructed_run_manager_ = std::make_shared<anet::rl::RunManager>(config_data);
+        } catch (...) {
+            StoreCurrentException();
+            run_construction_failed_ = true;
+        }
+        CallAfter([this] { OnRunConstructionComplete(); });
+    });
+    run_initializing_ = true;
+    return true;
+}
+
+void RunnerApp::ReceiveRunConstructionResult()
+{
+    ANET_PROFILE_FUNC();
+    // joinをworkerとの同期境界にし、完成した結果だけをmainへ公開する。
+    run_init_thread_.join();
+    // 通知と強制Closeのどちらが先でも、この受領で初期化中を終える。
+    run_initializing_ = false;
+    run_manager_ = std::move(constructed_run_manager_);
+    if (run_construction_failed_) RethrowStoredException();
+    if (run_manager_->GetStatus() != anet::rl::RunnerStatus::RUNNING) {
         LOG::error() << "Failed to initialize RunManager.";
-        return true;
     }
+}
+
+void RunnerApp::OnRunConstructionComplete()
+{
+    // 強制Closeの受領後やOnExit後に届いた通知は、結果やGUIへ触れない。
+    if (exiting_ || !run_initializing_) return;
+    ReceiveRunConstructionResult();
+    // 終了要求があれば表示用Evalの準備も学習開始も行わずに閉じる。
+    if (close_requested_) {
+        frame_->Close(true);
+        return;
+    }
+    if (run_manager_->GetStatus() == anet::rl::RunnerStatus::RUNNING) CompleteRunInitialization();
+}
+
+bool RunnerApp::PrepareRunClose(bool can_veto)
+{
+    if (!run_initializing_) return true;
+    if (can_veto) {
+        if (!close_requested_) {
+            close_requested_ = true;
+            LOG::info() << "Close requested during initialization. The window will close when RunManager construction finishes.";
+            FlushTextLog();
+        }
+        return false;
+    }
+    try {
+        ReceiveRunConstructionResult();
+    } catch (...) {
+        // Closeを完遂する前に報告する。後から届く通知には投げ直しを任せない。
+        OnUnhandledException();
+    }
+    return true;
+}
+
+void RunnerApp::OnQueryEndSession(wxCloseEvent& event)
+{
+    // OSの問い合わせを通常のCloseへ渡すとD7のvetoでログオフも止まる。
+    // 初期化中だけ拒否できないCloseへ通し、構築を待ってから閉じる。
+    if (run_initializing_) {
+        frame_->Close(true);
+        return;
+    }
+    wxApp::OnQueryEndSession(event);
+}
+
+void RunnerApp::CompleteRunInitialization()
+{
+    ANET_PROFILE_FUNC();
+    const auto config_data = config_mgr_->GetConfigData();
 
     // DefaultViewFactory
     view_factory_ = std::make_unique<anet::rl::gui::DefaultViewFactory>(config_data);
@@ -488,9 +579,11 @@ bool RunnerApp::OnInit()
         trainer_thread_->Pause();
         FlushRunOutputs();
     }
+    const double elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - run_init_started_).count();
+    LOG::info() << "Run initialized. elapsed_sec=" << std::fixed << std::setprecision(2) << elapsed;
     trainer_thread_->Start();
-
-    return true;
+    run_initialized_ = true;
 }
 
 std::filesystem::path RunnerApp::GetRunDir()
@@ -563,14 +656,15 @@ void RunnerApp::ShutdownRunLogging()
         return;
     }
 
-    // Save完了など、終了直前に発生した全出力をfile loggerのclose前に確定する。
-    FlushRunOutputs();
-
-    // LogPanelが破棄される前にactive targetを戻し、chainが所有するFileLoggerをcloseする。
-    if (wxLog::GetActiveTarget() != run_log_chain_) {
-        run_log_chain_ = nullptr;
-        return;
+    // CallOnExitはLogPanelを先に削除し、以前のtargetへ戻す。残ったchainを
+    // file専用にしてから保留ログを排出し、削除済みpanelへは渡さない。
+    wxLog* const active_target = wxLog::GetActiveTarget();
+    const bool ui_detached = active_target != run_log_chain_;
+    if (ui_detached) {
+        run_log_chain_->DetachOldLog();
+        wxLog::SetActiveTarget(run_log_chain_);
     }
+    FlushRunOutputs();
 
     wxLogChain* const run_log_chain = run_log_chain_;
     run_log_chain_ = nullptr;
@@ -578,6 +672,7 @@ void RunnerApp::ShutdownRunLogging()
     if (detached_chain == run_log_chain) {
         delete detached_chain;
     }
+    if (ui_detached) wxLog::SetActiveTarget(active_target);
 }
 
 int64_t RunnerApp::SaveAgent(const std::filesystem::path& file_path)
@@ -714,6 +809,17 @@ void RunnerApp::DrainBackgroundObservers(anet::rl::ShutdownMode mode)
 int RunnerApp::OnRun()
 {
     const int exit_code = wxApp::OnRun();
+    try {
+        // 最終終了だけで学習threadをjoinし、最後の学習の失敗を終了コードへ反映する。
+        // 通常のStop/再開ではRunnerをShutdownせず、既存の再開契約を保つ。
+        if (trainer_thread_ != nullptr) trainer_thread_->Stop();
+        if (run_manager_ != nullptr && run_manager_->GetStatus() == anet::rl::RunnerStatus::RUNNING) {
+            run_manager_->GetTrainRunner()->Shutdown();
+        }
+    } catch (...) {
+        // 終了時のworker失敗も、既存の報告経路と終了コードへ反映する。
+        OnUnhandledException();
+    }
     if (exit_code != 0) {
         return exit_code;
     }
@@ -722,6 +828,17 @@ int RunnerApp::OnRun()
 
 int RunnerApp::OnExit()
 {
+    exiting_ = true;
+    if (run_init_thread_.joinable()) {
+        run_init_thread_.join();
+        run_initializing_ = false;
+        // 確定終了では表示できるGUIが残っていない。例外は消費して終了値へ反映する。
+        if (run_construction_failed_) {
+            try { RethrowStoredException(); }
+            catch (...) { fatal_error_seen_ = true; }
+        }
+        constructed_run_manager_.reset();
+    }
     if (trainer_thread_ != nullptr) {
         trainer_thread_->Stop();
     }
@@ -730,7 +847,7 @@ int RunnerApp::OnExit()
     anet::MetricsLogger::Reset();
     standard_stream_logger_.Flush();
     standard_stream_logger_.Stop();
-    return 0;
+    return fatal_error_seen_ ? 1 : 0;
 }
 
 void RunnerApp::showFatalError()

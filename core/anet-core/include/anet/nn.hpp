@@ -75,6 +75,12 @@ namespace anet::nn {
         double trunc_b = 2.0; ///< trunc_normalの切断区間の上限。
     };
 
+    /// 初期化設定の共通条件を検証する。ownerは診断に用いる設定キーの接頭辞。
+    void ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner = "WeightInitConfig");
+
+    /// 射影の設定をNetwork構築前にも検証する。設定の解釈は具象の射影実装と共有する。
+    void ValidateLinearProjectionConfig(const ConfigData& config, const std::string& owner = "LinearProjection");
+
     /// 利用側が指定する構造図の表示項目とレイアウト。
     struct NetworkGraphVizConfig {
         bool show_param_shapes = false; ///< parameterのshapeを表示するか。

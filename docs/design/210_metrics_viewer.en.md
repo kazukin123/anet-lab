@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:b8d082f3a936f255dc1d422b8c6c25743305ac00 date:2026-10-12 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:9118a94b20a708505a96addf694439e11e1ee7e8 date:2026-10-23 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -198,7 +198,7 @@ LOD approximates display resolution; reconstructing statistics from it would mak
 
 ### 2.7 Common Step Bins and Point Limits
 
-Stored LOD buckets cover ordinals; display bins cover common Step intervals. All Runs of a graph use `[k*w,(k+1)*w)` anchored at Step 0. Width is `max(1,ceil(viewport span / target bins))`, where target bins is the graph width in pixels limited to 256–2000. Run count and selected tag count do not affect it.
+Stored LOD buckets cover ordinals; display bins cover common Step intervals. All Runs of a graph use `[k*w,(k+1)*w)` anchored at Step 0. Width `w` is `max(1,ceil(viewport span / target bins))`, where target bins is the graph width in pixels limited to 256–2000. Run count and selected tag count do not affect it.
 
 Reuse a complete stored bucket if all its points fit in one display bin. Descend through lower LOD levels only for crossing buckets, finally reading L0. Combine means weighted by point count; preserve extrema at their actual Steps, duplicate Steps, and last points. Omit empty bins. Return raw only for Step width 1 when all points fit the cap; otherwise return bin min/max/last and summary arrays.
 
@@ -217,7 +217,7 @@ Each range response is self-contained and independent of the previous response, 
 Series that share one graph are fetched in one request. Select the Step width from the visible viewport before extending it for prefetch. Align window boundaries to the common bins so panning does not shift the grid. Normal mode renders Plotly only within one scroll viewport before and after the visible area. Retain selected detail windows in a 64 MiB LRU and prefetch nearest graphs while capacity remains; scrolling alone does not discard windows. Fetch compact overviews for all selected tags first, using about 64 common Step bins over each tag's full range and batches of eight graphs. Lightweight SVG exported from the same Plotly figure as details keeps overview lines visible offscreen and while details load. Replace the whole graph when all Runs have matching detail resolution; never mix overview and detail series in one graph. Keep blocks 300px tall and retain headers and scroll position; replace only the inner content after rendering completes. Screenshot mode fetches all selected graphs sequentially.
 If any one series needs refetching, all series of that graph are refetched together. Overview responses also update all Runs atomically. The 64 MiB cap accounts for decoded detail arrays and per-series management overhead; it is not a process-wide limit including SVG, Plotly, or server heap.
 
-Overview SVGs use Plotly 2.27 with the same traces/layout as details; there is no handwritten coordinate, axis, or Band renderer. Shared header controls and legend visibility state apply to both. Overviews remain static images; hover, zoom/pan, and legend clicks are handled by detailed plots. Generate nearest graphs first, one at a time, yielding between jobs. Network queries and detailed rendering do not await SVG generation. Retain one current image per tag and regenerate on data, selection, width, or display-setting changes. Workspace changes invalidate older image jobs.
+Overview SVGs use Plotly 2.27 with the same traces/layout as details; there is no handwritten coordinate, axis, or Band renderer. The shared header's Log/percentile controls and legend visibility state apply to both. Overviews remain static images; hover, zoom/pan, and legend clicks are handled by detailed plots. Generate nearest graphs first, one at a time, yielding between jobs. Network queries and detailed rendering do not await SVG generation. Retain one current image per tag and regenerate on data, selection, width, or display-setting changes. Workspace changes invalidate older image jobs.
 
 Keep the previous content until new SVG decoding or detailed rendering completes. Reject late results whose Run selection, cache generation, display settings, or width no longer match. Scroll rendering updates use requestAnimationFrame separately from network debounce.
 
@@ -418,48 +418,48 @@ sequenceDiagram
     participant D as metrics_cache.db
 
     L->>W: runIngestCycle()
-    W->>W: acquire query snapshot lease
-    loop 4 slots (priority 3 : background 1)
-        W->>W: acquire switch gate, check epoch/shutdown
+    W->>W: snapshot lease取得
+    loop 4 slot（priority 3 : background 1）
+        W->>W: 切替gate取得、epoch/shutdown確認
         W->>S: runNextBlock()
-        S->>S: inspect all workspaces in segments, choose actionable Run
-        S->>I: ingestBlock(runId, runDir, source attributes)
-        I->>I: compare source/cache attributes with validated observation
-        alt unchanged attributes and previous state ready/error
+        S->>S: 全workspaceの分割検査、処理可能Runを配分
+        S->>I: ingestBlock(runId, runDir, source属性)
+        I->>I: source/cache属性を検証済み観測と照合
+        alt 属性一致かつ前回stateがready/error
             I-->>S: didWork=false, immediateRetry=false
         else
             I->>R: prepare(database)
-            R->>D: compare source fingerprint
-            alt mismatch
-                D->>D: discard cache and recreate with new generation
+            R->>D: source fingerprint照合
+            alt 不一致
+                D->>D: cache全破棄と新generationで再作成
             end
             alt readRequired = false
                 I-->>S: didWork=false, immediateRetry=false
             else
                 I->>D: BEGIN
-                loop up to 1,000,000 lines / one second / yield request
-                    I->>R: extract complete line from 64KiB buffer
+                loop 最大1,000,000行 / 1秒 / 早期終了要求
+                    I->>R: 64KiB bufferから完全行を抽出
                     I->>I: JSON parse
                     alt type = scalar
-                        I->>D: scalars batch (up to 4096)
-                        I->>D: factor4 scalars_lod batch (up to 4096)
-                    else non-scalar
-                        I->>D: json_lines batch (4096 rows / 1MiB)
+                        I->>D: scalars batch（最大4096）
+                        I->>D: 子4件のscalars_lod batch（最大4096）
+                    else 非scalar
+                        I->>D: json_lines batch（4096件 / 1MiB）
                     end
                 end
-                I->>D: flush remaining batches, UPSERT tag_stats
-                I->>D: update source_meta (offset, fingerprint, state)
+                I->>D: 残りbatch flush、tag_stats UPSERT
+                I->>D: source_meta（offset・fingerprint・state）更新
                 I->>D: COMMIT
-                I-->>S: didWork, next state, immediateRetry
+                I-->>S: didWork、次state、immediateRetry
             end
         end
-        S->>S: mark terminal/no-op Run exhausted for this cycle
+        S->>S: terminal/no-op Runをcycle内でexhausted化
         S-->>W: immediateRetry
-        W->>W: release switch gate
+        W->>W: 切替gate解放
     end
-    W->>W: release snapshot lease
+    W->>W: snapshot lease解放
     alt immediateRetry = false
-        L->>L: wait up to 10s (1s with priority; wake on priority/switch/shutdown)
+        L->>L: 最大10秒wait（優先変更・切替・停止でwake）
     end
 ```
 
@@ -539,7 +539,7 @@ sequenceDiagram
     A->>K: needsFetch判定
     A->>F: POST /api/metrics.json（viewport左右1画面を含む3画面window）
     F-->>A: 系列結果
-    A->>K: generationとrevisionが一致する結果だけwindowを置換
+    A->>K: 全系列のgeneration・revision・Step幅を確認してgraphごと一括置換
     A->>P: raw/MinMax/Mean/Bandで再描画
 
     U->>P: zoom / pan
@@ -552,7 +552,7 @@ sequenceDiagram
     F-->>A: Run/tag metadata
     A->>K: isOutdated判定（取得時のtag点数・最終step・statusと比べる）
     A->>F: 古くなったgraphの系列だけPOST /api/metrics.json（無ければ送らない）
-    A->>P: Replace changed graph contents after drawing completes
+    A->>P: 描画keyが変わったgraphの内容を完成時に差し替える
 ```
 
 Each range is a complete result independent of previous responses; the client replaces whole windows without incremental merging.
@@ -633,7 +633,6 @@ Client constants not supplied by the server are defined at the beginning of [met
 | `RUN_SOLO_INTERVAL_MS` | 350 | Threshold treating repeated clicks on the same Run row as solo selection |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Delay from hovering a Tag list entry to scrolling to its graph |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | Movement threshold for drag scrolling under scroll lock |
-| `RUN_COLOR_MIN_DISTANCE` | 0.16 | Minimum separation for preserving existing Run colors in `Auto Recolor` |
 
 `MetricsViewerClientApp` owns Run colors and resolves them at the start of `refreshLists()`. It first assigns colors from `RUN_COLORS` in order to uncolored Runs sorted by runId, then separates only selected Runs if `Auto Recolor` is ON.
 `Recolor` ignores current colors and assigns farthest-point colors in selection order, starting from palette color `#2F7DE1`. `Auto Recolor` reassigns only Runs whose existing colors fail `min(RUN_COLOR_MIN_DISTANCE, best achievable with the current palette)`.
@@ -923,7 +922,7 @@ lod : { "kind":"lod",
 
 - `MetricsService` starts `LoadingThread` in `@PostConstruct`. `@PreDestroy` calls `MetricsQueryCoordinator.cancelAll()`, waits up to 30 seconds for `LoadingThread` to stop, then calls `WorkspaceManager.shutdown()`.
 - Metrics queries acquire a workspace lease after obtaining a coordinator permit. On completion, they release SQL/connections, the lease, and the permit in that order, closing old resources retired by switching before returning the permit.
-- `LoadingThread` is a daemon thread. It sleeps for 10 seconds when no immediate retry is required by a `converting` backlog or workspace switch. Cycles committing small appends through `ready` also sleep. Priority changes, switches, and shutdown wake the writer. Unexpected RuntimeExceptions are logged as ERROR and stop the writer.
+- `LoadingThread` is the single daemon writer. When no immediately actionable backlog remains, it waits for at most 10 seconds; priority changes, switches, and shutdown wake it. Unexpected RuntimeExceptions are logged as ERROR and stop the writer.
 - `WorkspaceManager.shutdown()` is terminal. Once it begins, new leases and workspace switches immediately fail with `IllegalStateException`; an active cycle stops after safely finishing its current block. Existing leases remain usable, and the last release closes retired display resources exactly once. Writer termination or shutdown closes process ingestion resources independently of query leases.
 - For Runs undergoing gzip conversion, `GzipInputSessions` retains decompressed streams between blocks. Moving such a Run folder is unsupported during conversion, including background conversion in unopened workspaces. Streams are released on `ready`, failure, removal from registered workspaces, or shutdown.
 - `LodPageCache` retains pages made of completed buckets, including the tail page, and discards them when a Run disappears or its generation changes. Capacity overflow evicts entries by access-order LRU.
@@ -1055,7 +1054,7 @@ See the [PRD090 validation README](../../core/anet-core/testdata/prd090/README.m
 3. Add new ingestion work to the same transaction. Splitting L0, LOD, `TagStats`, and `source_meta` across commits breaks consistency on crashes.
 4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels. `LodPageCache` derives the completed-bucket count from the tag point count, so when changing when parents are written, change this derivation as well.
 5. Do not derive statistics from LOD. Build range-independent statistics from all committed L0 points.
-6. After changing Step resolution or point caps, test 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries.
+6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../core/anet-core/testdata/prd089/README.md) for PRD089 procedures.
 7. Keep new client state in the client app so it survives Plotly DOM reconstruction during Reload.
    If the input determines a graph's appearance, add it to the shared display model render key (`PlotlyController._graphModel` / `_graphDisplayKey`). State changed directly in Plotly must also be read back with `capturePlotState` and reflected in the model. An input omitted from the model cannot invalidate drawing or reject late results when it changes.
    If the condition affects a window's contents, also reflect it in the Reload freshness check (`DataCache.isOutdated`).

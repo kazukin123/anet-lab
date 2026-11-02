@@ -13,7 +13,9 @@ namespace anet::rl::dqn {
 
     struct RainbowAgentConfig : public anet::Config {
 
-        anet::nn::WeightInitConfig head_init;
+        struct {
+            anet::nn::WeightInitConfig init;
+        } head;
         NetworkModelConfig model;
         std::map<std::string, DQNActorConfig> actor;
         LearnerConfig learner;
@@ -23,13 +25,14 @@ namespace anet::rl::dqn {
         bool use_qr = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
-            ANET_READ_CONFIG(config_data, head_init.mode);
-            ANET_READ_CONFIG(config_data, head_init.manual_gain);
-            ANET_READ_CONFIG(config_data, head_init.constant_val);
-            ANET_READ_CONFIG(config_data, head_init.trunc_std);
-            ANET_READ_CONFIG(config_data, head_init.trunc_a);
-            ANET_READ_CONFIG(config_data, head_init.trunc_b);
-            head_init.nonlinearity = "linear";
+            ANET_READ_CONFIG(config_data, head.init.mode);
+            ANET_READ_CONFIG(config_data, head.init.manual_gain);
+            ANET_READ_CONFIG(config_data, head.init.constant_val);
+            ANET_READ_CONFIG(config_data, head.init.trunc_std);
+            ANET_READ_CONFIG(config_data, head.init.trunc_a);
+            ANET_READ_CONFIG(config_data, head.init.trunc_b);
+            head.init.nonlinearity = "linear";
+            anet::nn::ValidateWeightInitConfig(head.init, MakeDefaultConfigKey("head.init"));
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
@@ -38,9 +41,7 @@ namespace anet::rl::dqn {
             for (const auto& [key, sub] : config_data.MakeSubConfigData("RainbowAgent.actor")) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
-                ReadConfig(config_data, prefix + ".policy.eps_start", entry.policy.eps_start);
-                ReadConfig(config_data, prefix + ".policy.eps_end", entry.policy.eps_end);
-                ReadConfig(config_data, prefix + ".policy.eps_decay_steps", entry.policy.eps_decay_steps);
+                ReadConfig(config_data, prefix + ".policy", entry.policy);
                 ReadConfig(config_data, prefix + ".network", entry.network);
                 ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
                 if (entry.network != "online" && entry.network != "target") {
@@ -49,8 +50,11 @@ namespace anet::rl::dqn {
                 }
             }
 
-            ANET_READ_CONFIG(config_data, learner.alpha);
+            ANET_READ_CONFIG(config_data, learner.learning_rate);
+            ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.gamma);
+            ANET_READ_CONFIG(config_data, learner.munchausen.alpha);
+            ANET_READ_CONFIG(config_data, learner.munchausen.entropy_tau);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
             ANET_READ_CONFIG(config_data, learner.use_td_clip);
@@ -61,9 +65,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.update_interval);
             ANET_READ_CONFIG(config_data, learner.n_step);
             ANET_READ_CONFIG(config_data, learner.per_alpha);
-            ANET_READ_CONFIG(config_data, learner.per_beta_start);
-            ANET_READ_CONFIG(config_data, learner.per_beta_end);
-            ANET_READ_CONFIG(config_data, learner.per_beta_step);
+            ANET_READ_CONFIG(config_data, learner.per_beta);
             ANET_READ_CONFIG(config_data, learner.per_eps);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority_mode);
@@ -97,6 +99,7 @@ namespace anet::rl::dqn {
     public:
         std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
+        std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
 

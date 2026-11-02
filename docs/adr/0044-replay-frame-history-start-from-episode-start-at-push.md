@@ -1,5 +1,7 @@
 # ReplayBufferのframe履歴開始はPush時のepisode_startで確定し、n-step確定metadataから導出しない
 
+> 2026-10-23 後発決定: [ADR 0063](0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) で、slot に 1 step の reward と終わり方（END）を 1 step の記録として持つことにした。本 ADR のうち「END を slot 単位には保持しない」の部分だけを改め、履歴開始を Push 時の `episode_start` から確定し extractor がそれだけを stack の境界に読む判断は維持する。以下の本文は当時の記録として保持する。
+
 `DefaultReplayBuffer`はframe stackを保存せず、sample時に開始slotから過去へ`stack_count - 1`件遡って再構成する。
 再構成の境界判定には、slotに保存された`terminal && actual_n_steps <= 1`を使っていた。この2値はn-step結果の確定時に書かれる派生値であり、
 境界の一次情報ではない。整合性アッセイと公開APIの最小再現で、この代理指標が2通りに破れることを確認した。

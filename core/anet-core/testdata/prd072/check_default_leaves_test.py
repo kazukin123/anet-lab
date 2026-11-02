@@ -13,6 +13,26 @@ import check_default_leaves as checker
 
 
 class DefaultLeafAuditTest(unittest.TestCase):
+    def test_malformed_selection_keys_are_rejected(self):
+        # 抽出からmainの終了値まで通し、誤った+=を見逃さない。
+        for line in ("Env.$ += @extra", "run.@skip : Env.$ += @extra", "Env.$.child = invalid", "Env.$bad = invalid"):
+            with self.subTest(line=line):
+                code, report = self.audit([line])
+                self.assertEqual(code, 1)
+                self.assertTrue(any(row["reason"] == "malformed selection key" for row in report))
+        code, _ = self.audit([("apps/runner/config/common.txt", "app.$ = app.online > @skip_trace"),
+                             ("apps/runner/config/metrics_scalar.txt", "metrics.scalar.@skip : [skip] ?= skip_length @train $action_info")])
+        self.assertEqual(code, 0)
+
+    def test_agent_owned_network_profiles_are_shared_defaults(self):
+        code, report = self.audit([
+            ("apps/runner/config/agent.txt", "ExampleAgent.skip.net.@base : branch.[features].bind ?= vector"),
+            ("apps/runner/config/agent.txt", "ExampleAgent.@skip : skip.net.$ = @base"),
+            ("apps/runner/tools/example.ps1", "$ErrorActionPreference = 'Stop'"),
+            ("apps/runner/tools/example.ps1", "[string]$Argument = 'value'")])
+        self.assertEqual(code, 0)
+        self.assertTrue(any(row["reason"] == "reusable network definition" for row in report))
+
     def test_shared_actor_catalog_leaves_are_defaults(self):
         groups = [
             ([f"ImageClsAgent.actor.[{tag}].{leaf}"
@@ -31,6 +51,41 @@ class DefaultLeafAuditTest(unittest.TestCase):
                     self.assertEqual(code, 0 if operator == expected_operator else 1)
                     self.assertEqual(len(report), len(keys))
                     self.assertTrue(all(row["expected_operator"] == expected_operator for row in report))
+
+    def test_environment_owns_the_skip_duration_default(self):
+        # JはEnvが所有する既定。Headの実験選択を既定葉へ広げない。
+        for env in ("GridMaze", "LunarLander", "Atari", "DropMerge"):
+            file = "apps/runner/config/" + env + ".txt"
+            code, _ = self.audit([(file, "DefaultDQNAgent.skip.max_length ?= 7")])
+            self.assertEqual(code, 0)
+            code, _ = self.audit([(file, "DefaultDQNAgent.head.use_dueling ?= false")])
+            self.assertEqual(code, 1)
+
+    def test_gridmaze_experiment_seed_remains_an_explicit_choice(self):
+        from migrate import migrate_text
+
+        # seedは明示的な実験選択であり、既定葉の?=へ弱めない。
+        file = "apps/runner/config/GridMaze.txt"
+        for operator, expected_code in (("=", 0), ("?=", 1)):
+            with self.subTest(operator=operator):
+                code, report = self.audit([(file, f"GridMazeEnv.seed {operator} 6545537233705677626")])
+                self.assertEqual(code, expected_code)
+                self.assertEqual(len(report), 1)
+                self.assertEqual(report[0]["key"], "GridMazeEnv.seed")
+                self.assertEqual(report[0]["reason"], "explicit experiment seed")
+                self.assertEqual(report[0]["expected_operator"], "=")
+
+        # 自動採番の単位は環境既定のままで、seedの分類を波及させない。
+        code, report = self.audit([(file, "GridMazeEnv.seed_mode ?= process")])
+        self.assertEqual(code, 0)
+        self.assertEqual(report[0]["reason"], "environment default definition")
+        self.assertEqual(report[0]["expected_operator"], "?=")
+
+        # 移行処理を通しても、値・演算子・コメント・改行を保持する。
+        source = "GridMazeEnv.seed = 6545537233705677626  # 実験用seed\n"
+        migrated, changes = migrate_text("GridMaze.txt", source)
+        self.assertEqual(migrated, source)
+        self.assertEqual(changes, [])
 
     def audit(self, lines):
         records = [json.dumps({"type": "match", "data": {

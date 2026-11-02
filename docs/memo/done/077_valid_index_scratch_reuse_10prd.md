@@ -1,5 +1,7 @@
 # PRD 077: sampleable index 列の確保を持続バッファへ移す
 
+> 2026-10-23 改訂: NG2 の PRD 018 への参照を、何を指していたかが分かる文に直した（018 の文書は repo にも git の履歴にも無い）。
+
 ## Context
 
 `ValidIndexManager::GetValidIndices1D` は `Sample()` のたびに replay capacity と同じ長さの
@@ -98,7 +100,7 @@ requested_bytes = 12,582,951
   [PRD 078](078_replay_frame_history_integrity_10prd.md) が `done/` へ移るまで着手しない。**
   index 列挙の内部を同時に触ると、アッセイの陽性がどちらに由来するか切り分けられなくなる。
 - **NG2: dummy 機構の撤廃。** truncation 対策のダミー挿入 (`replay_buffer_impl.cpp:1356`) は
-  PRD 018 の対象であり、本 PRD は現行の dummy 除外をそのまま維持する。
+  018（終端 obs を疎な side-store に持って dummy を撤廃する案。文書は repo に無い）の対象であり、本 PRD は現行の dummy 除外をそのまま維持する。
 - **NG3: `GetSampleableCount` の変更。** 集計のみで Tensor を作らない現行の設計は正しい。
 - **NG4: `bad_alloc` 一般の対策。** 他 8 本の Run の確保地点は不明のままで、本 PRD は
   それらを閉じない。診断 (`_set_new_handler`) が次の実例を捕らえるのを待つ。

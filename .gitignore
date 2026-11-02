@@ -80,3 +80,4 @@ __pycache__/
 # anet-stats の再生成可能キャッシュ(blame/cloc)
 /reports/stats/cache/
 /subagent-reviews
+/apps/runner/*.dmp

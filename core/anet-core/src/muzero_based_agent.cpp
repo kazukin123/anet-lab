@@ -920,8 +920,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::r
 MuZeroLearner::MuZeroLearner(
     const LearnerConfig& config,
     std::shared_ptr<std::shared_mutex> mutex,
-    std::shared_ptr<MuZeroNetworkModel> model, std::shared_ptr<MuZeroReplayBuffer> replay_buffer, torch::Device device)
+    std::shared_ptr<MuZeroNetworkModel> model, std::shared_ptr<MuZeroReplayBuffer> replay_buffer, torch::Device device, float gamma)
     : config_(config)
+    , gamma_(gamma)
     , mutex_(mutex)
     , model_(std::move(model))
     , replay_buffer_(std::move(replay_buffer))
@@ -941,7 +942,7 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     ANET_PROFILE_FUNC();
 
     // Runnerから渡された最新の経験をReplayBufferに蓄積する
-    replay_buffer_->Push(experiences);
+    replay_buffer_->Push(experiences, gamma_);
 
     // バッファ量不十分なら何もしない
     if (replay_buffer_->Size() < config_.batch_size) {
@@ -949,7 +950,7 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     }
 
     // Kステップ展開(Unroll)されたバッチデータをサンプリング
-    auto sample = replay_buffer_->Sample(config_.batch_size, device_);
+    auto sample = replay_buffer_->Sample(config_.batch_size, device_, gamma_);
 
     // [ASSERT] サンプリング直後のバッチ形状チェック
     int64_t B = sample.obs.Size(0);

@@ -201,7 +201,7 @@ std::array<double, 2> OracleLogPolicy(const std::array<double, 2>& scores, doubl
 
 } // namespace
 
-TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diagnostics", "[dqn][munchausen][munchausen_profile]")
+TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diagnostics", "[dqn][munchausen][munchausen_profile][shipped_config]")
 {
     const std::string mode = GENERATE("target", "online", "online_reuse");
     const bool risk = GENERATE(false, true);
@@ -229,8 +229,8 @@ TEST_CASE("Atari Munchausen profile resolves algorithm settings and enabled diag
     CHECK(config.quantile_mode == "iqn");
     CHECK(config.learner.munchausen.enabled);
     CHECK(config.learner.munchausen.log_policy_mode == mode);
-    CHECK(config.learner.munchausen.alpha == Catch::Approx(0.9));
-    CHECK(config.learner.munchausen.entropy_tau == Catch::Approx(0.03));
+    CHECK(config.learner.munchausen.alpha.value == Catch::Approx(0.9));
+    CHECK(config.learner.munchausen.entropy_tau.value == Catch::Approx(0.03));
     CHECK(config.learner.munchausen.clip_value_min == Catch::Approx(-1.0));
     CHECK_FALSE(config.learner.use_double_dqn);
     CHECK(config.use_optimistic_target == risk);
@@ -270,7 +270,7 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
         CAPTURE(mode);
         anet::rl::dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 67021, std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
             true, std::nullopt, false, ActorQHintConfig{
-                .munchausen = MunchausenConfig{ .enabled = enabled, .log_policy_mode = mode, .entropy_tau = 0.7f },
+                .munchausen = MunchausenConfig{ .enabled = enabled, .log_policy_mode = mode, .entropy_tau = {.value = 0.7f} },
                 .use_tbo = tbo, .tbo_epsilon = 0.001f });
         records->clear();
         const auto result = actor.MakeAction(StepCounts{}, state);
@@ -360,11 +360,11 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         config.iqn.target_taus.sample_mode = "random";
         config.munchausen.enabled = true;
         config.munchausen.log_policy_mode = mode;
-        config.munchausen.entropy_tau = 0.7f;
+        config.munchausen.entropy_tau.value = 0.7f;
         config.munchausen.clip_value_min = -2.0f;
         if (scenario == 2) {
-            config.munchausen.alpha = 0.0f;
-            config.munchausen.entropy_tau = 1e-5f;
+            config.munchausen.alpha.value = 0.0f;
+            config.munchausen.entropy_tau.value = 1e-5f;
             // 低温極限の検証を、h逆変換の丸めによるclip境界の左右差から分離する。
             config.munchausen.clip_value_min = -1.7f;
         }
@@ -374,14 +374,14 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         config.use_double_dqn = false;
         config.use_tbo = tbo;
         config.tbo_epsilon = 0.001f;
-        config.alpha = 0.0f;
+        config.learning_rate.value = 0.0f;
         config.use_fused_optimizer = false;
         config.use_grad_clip = false;
         config.use_td_clip = false;
         config.use_per = false;
         config.replay_capacity = 8;
         config.replay_batch_size = 2;
-        config.gamma = 0.9f;
+        config.gamma.value = 0.9f;
         auto online = std::make_shared<std::vector<SoftForward>>();
         auto target = std::make_shared<std::vector<SoftForward>>();
         SoftOracleModel model(kind, tbo, device, online, target);
@@ -389,12 +389,19 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         ActionPolicyConfig policy_config;
         policy_config.quantile_mode = kind;
         policy_config.policy_type = repeat == 0 ? "Greedy" : "EpsilonGreedy";
-        policy_config.eps_start = 0.0f;
-        policy_config.eps_end = 0.0f;
-        policy_config.uqe_tau_start = 0.9f;
-        policy_config.uqe_tau_end = 0.4f;
-        policy_config.uqe_tau_decay_steps = 100;
-        policy_config.uqe_use_tail_mean = risk_mode == 2;
+        policy_config.epsilon.value = 0.0f;
+        policy_config.epsilon.start = 0.0f;
+        policy_config.spatial.epsilon.first.value = 0.0f;
+        policy_config.epsilon.end = 0.0f;
+        policy_config.spatial.epsilon.last.value = 0.0f;
+        policy_config.uqe.tau.value = 0.9f;
+        policy_config.uqe.tau.start = 0.9f;
+        policy_config.spatial.uqe.tau.first.value = 0.9f;
+        policy_config.uqe.tau.end = 0.4f;
+        policy_config.spatial.uqe.tau.last.value = 0.4f;
+        policy_config.uqe.tau.type = "linear";
+        policy_config.uqe.tau.steps = 100;
+        policy_config.uqe.use_tail_mean = risk_mode == 2;
         std::shared_ptr<ActionPolicy> policy = risk_mode == 0
             ? std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config))
             : std::shared_ptr<ActionPolicy>(std::make_shared<UQEActionPolicy>(policy_config));
@@ -478,11 +485,11 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
                     next_scores[a] = risk_score(next, a);
                 }
             }
-            const auto current_log = OracleLogPolicy(current_scores, config.munchausen.entropy_tau);
+            const auto current_log = OracleLogPolicy(current_scores, config.munchausen.entropy_tau.value);
             if (hard_actions.defined()) CHECK(hard_actions[b].item<int64_t>() == (next_scores[0] > next_scores[1] ? 0 : 1));
-            const auto next_log = OracleLogPolicy(next_scores, config.munchausen.entropy_tau);
+            const auto next_log = OracleLogPolicy(next_scores, config.munchausen.entropy_tau.value);
             const double selected_log = current_log[b];
-            const double bonus = config.munchausen.alpha * std::clamp(selected_log, static_cast<double>(config.munchausen.clip_value_min), 0.0);
+            const double bonus = config.munchausen.alpha.value * std::clamp(selected_log, static_cast<double>(config.munchausen.clip_value_min), 0.0);
             expected_diagnostics[0] += selected_log / 2.0;
             expected_diagnostics[1] += (selected_log < config.munchausen.clip_value_min ? 1.0 : 0.0) / 2.0;
             expected_diagnostics[2] += bonus / 2.0;
@@ -491,10 +498,10 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
             for (int k = 0; k < next.size(2); ++k) {
                 double soft = 0.0;
                 for (int a = 0; a < 2; ++a) {
-                    const double probability = std::exp(next_log[a] / config.munchausen.entropy_tau);
+                    const double probability = std::exp(next_log[a] / config.munchausen.entropy_tau.value);
                     const double value = next[b][a][k].item<double>();
                     soft += probability * ((tbo ? OracleHInv(value) : value) - next_log[a]);
-                    if (k == 0) expected_diagnostics[3] -= probability * next_log[a] / config.munchausen.entropy_tau / 2.0;
+                    if (k == 0) expected_diagnostics[3] -= probability * next_log[a] / config.munchausen.entropy_tau.value / 2.0;
                 }
                 soft_mean += soft / next.size(2);
                 if (scenario == 2) {
@@ -650,7 +657,7 @@ TEST_CASE("Munchausen target capture exposes only next state rows", "[dqn][munch
 
 TEST_CASE("Munchausen clip ratio counts strictly below the lower boundary", "[dqn][munchausen][clip]")
 {
-    MunchausenConfig config;
+    MunchausenValues config;
     config.entropy_tau = 0.03f;
     config.clip_value_min = -2.0f;
     const auto scores = torch::tensor({ { 0.0f, 2.0f }, { 0.0f, 3.0f }, { 0.0f, 2.0f } });
@@ -686,7 +693,7 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     config.use_n_step = false;
     config.use_td_clip = false;
     config.use_double_dqn = double_dqn;
-    config.gamma = 0.9f;
+    config.gamma.value = 0.9f;
     config.quantile_huber_kappa = 2.0f;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
@@ -786,7 +793,11 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         policy_config.quantile_mode = kind;
         policy_config.use_amp = true;
         policy_config.use_amp_bf16 = true;
-        policy_config.uqe_tau_start = policy_config.uqe_tau_end = 0.65f;
+        policy_config.uqe.tau.value = 0.65f;
+        policy_config.uqe.tau.start = 0.65f;
+        policy_config.spatial.uqe.tau.first.value = 0.65f;
+        policy_config.uqe.tau.end = 0.65f;
+        policy_config.spatial.uqe.tau.last.value = 0.65f;
         policy_config.tau_rule.num_taus = 4;
         policy_config.full_distribution_query.enabled = true;
         policy_config.full_distribution_query.tau_rule.num_taus = 3;
@@ -901,16 +912,24 @@ TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dq
     config.replay_capacity = 8;
     config.replay_batch_size = 2;
     config.update_warmup_steps = 1000;
-    config.gamma = 0.9f;
+    config.gamma.value = 0.9f;
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, tbo, device, online, target);
     RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
-    policy_config.eps_start = policy_config.eps_end = 0.0f;
-    policy_config.uqe_tau_start = policy_config.uqe_tau_end = 0.65f;
-    policy_config.uqe_use_tail_mean = true;
+    policy_config.epsilon.value = 0.0f;
+    policy_config.epsilon.start = 0.0f;
+    policy_config.spatial.epsilon.first.value = 0.0f;
+    policy_config.epsilon.end = 0.0f;
+    policy_config.spatial.epsilon.last.value = 0.0f;
+    policy_config.uqe.tau.value = 0.65f;
+    policy_config.uqe.tau.start = 0.65f;
+    policy_config.spatial.uqe.tau.first.value = 0.65f;
+    policy_config.uqe.tau.end = 0.65f;
+    policy_config.spatial.uqe.tau.last.value = 0.65f;
+    policy_config.uqe.use_tail_mean = true;
     policy_config.tau_rule.num_taus = 5;
     policy_config.tau_rule.sample_mode = "random";
     std::shared_ptr<ActionPolicy> policy = risk

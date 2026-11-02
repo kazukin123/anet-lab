@@ -20,6 +20,7 @@ public:
 
 	void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager);
 	void SetFps(float fps);
+	void SetViewVisible(bool visible);
 protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
@@ -28,10 +29,14 @@ protected:
 	//void OnMouseRightClick(wxMouseEvent& event);
 private:
 	void RefreshViewSurface();
+	void UpdateTimerState();
 
-	const TrainPanelConfig config_;
+	float fps_;
+	bool view_visible_ = true;
+	bool initialized_ = false;
 	std::shared_ptr<anet::rl::gui::View> view_;
 	std::shared_ptr<anet::rl::TrainObserver> observer_;
 	wxWindow* view_window_ = nullptr;
+protected:
 	wxTimer update_timer_;
 };

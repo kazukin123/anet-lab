@@ -53,7 +53,7 @@ function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,
         return
     }
     $args084 = @('--config',$Config,('app.run_name=run_{t}_prd084_forward_'+$Name),('app.exp_exit_step='+$Budget),('app.batchrun.exp_exit_step='+$Budget))
-    if ($Noisy -or $Name.StartsWith('atari_')) { $args084 += 'run.eval_schedule.[greedy_dist].interval=0' }
+    if ($Noisy -or $Name.StartsWith('atari_')) { $args084 += 'run.eval_schedule.[greedy].interval=0' }
     if ($Noisy) {
         # プロファイルの選択宣言より後に、比較条件を CLI で明示する。
         $args084 += @('DefaultDQNAgent.nn_forward.[ref_actor].noisy.mode=sample','DefaultDQNAgent.nn_forward.[ref_actor].noisy.hold=episode','DefaultDQNAgent.nn_forward.[ref_actor].noisy.share=sample','DefaultDQNAgent.actor.[train].nn_forward_key=ref_actor','DefaultDQNAgent.nn_forward.[ref_learner].noisy.mode=sample','DefaultDQNAgent.nn_forward.[ref_learner].noisy.hold=call','DefaultDQNAgent.nn_forward.[ref_learner].noisy.share=sample','DefaultDQNAgent.learner.current.nn_forward_key=ref_learner','DefaultDQNAgent.learner.target.nn_forward_key=ref_learner','DefaultDQNAgent.learner.munchausen.enabled=true','DefaultDQNAgent.learner.munchausen.log_policy_mode=target')
@@ -132,7 +132,7 @@ function Invoke-ForwardRun084([string]$Name,[string]$Executable,[string]$Config,
     $record084 | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath $recordPath084
     if ($record084.exit_code -ne 0 -or $runs084.Count -ne 1) { throw ('Run failed: '+$Name) }
     $normalizeArgs084 = @((Join-Path $repo084 'core/anet-core/testdata/prd084/compare_metrics.py'),'normalize',$record084.run,(Join-Path $root084 ($Name+'.metrics.jsonl')))
-    if ($Noisy -or $Name.StartsWith('atari_')) { $args084 += 'run.eval_schedule.[greedy_dist].interval=0' }
+    if ($Noisy -or $Name.StartsWith('atari_')) { $args084 += 'run.eval_schedule.[greedy].interval=0' }
     if ($Noisy) { $normalizeArgs084 += '--include-noisy' }
     & (Join-Path $repo084 '.venv/Scripts/python.exe') @normalizeArgs084
     if ($LASTEXITCODE -ne 0) { throw 'Metric normalization failed' }
@@ -161,7 +161,7 @@ if ($Stage -eq 'off') {
         ('$include <'+$source084+'/_main.txt>'),('$include <'+$source084+'/Atari.txt>'),('run.$='+$chain084+'>run.@nz_reference'),
         'run.train.num_envs=128','E1.game=breakout','run.seed=1','backend.$=backend.@deterministic','backend.deterministic_warn_only=false',
         'app.$=app.batchrun>P1','app.show_error_dialog=false',('app.runs_dir='+$root084.Replace('\','/')+'/runs'),
-        'run.eval_schedule.[greedy_dist].interval=0',
+        'run.eval_schedule.[greedy].interval=0',
         'DefaultDQNAgent.nn_forward.[ref_actor].noisy.mode=sample','DefaultDQNAgent.nn_forward.[ref_actor].noisy.hold=episode',
         'DefaultDQNAgent.nn_forward.[ref_actor].noisy.share=sample','DefaultDQNAgent.actor.[train].nn_forward_key=ref_actor',
         'DefaultDQNAgent.nn_forward.[ref_learner].noisy.mode=sample','DefaultDQNAgent.nn_forward.[ref_learner].noisy.hold=call',

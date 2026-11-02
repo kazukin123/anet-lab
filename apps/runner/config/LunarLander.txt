@@ -23,24 +23,61 @@ DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 
 #agent.device = cpu    # NNが小さいのでCPUのほうが早い場合がある
 
-app.run_name = run_{t}_ll
-
-
-# ==============================================================================
-# Run設定
-# ==============================================================================
+#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
+run.$ = run.@munch > run.@skip
+#run.$ = run.@munch     # TempoRL 無効（比較用）
+# run.@skip・run.@rfit・run.@noisy は metrics.scalar.$ を上書きし合うので、重ねると後ろの profile の連鎖だけが残る
+#run.$ = run.@rfit
+#run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
+#run.$ = run.@cpu
+#run.$ = run.@cpu > run.@noisy      # @noisy は metrics を上書きするので後ろに置く
 
 #backend.$ = backend.@deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.@non-deterministic # 非決定論的（高速化）
 
-# ALGO プロファイル(@qr / @iqn)は agent.txt の共通定義を参照(切替はチェーンの 1 項)。配線実体 net.@qr / net.@iqn は本ファイル所有。
+app.run_name = run_{t}_ll
 
-# --- Run プロファイル ---
+
+# ==============================================================================
+# Runプロファイル
+# ==============================================================================
+
 run.@repro : backend.$ = backend.@deterministic
 run.@repro : DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
-#run.$ = run.@repro     # 同 seed 再現検証 Run はこの 1 行だけ有効化する
+# TempoRL: 既定で有効（分離×合算）。2026-10-26 の評価（PRD098 §7 の段 2）で無効を 3 seed のブレ幅を超えて上回ったため。
+# 無効にするときは CLI で "run.$=run.@munch" を渡す。ほかの変種は CLI の葉で指定する。
+DefaultDQNAgent.skip.max_length ?= 4
+DefaultDQNAgent.net.body.output.[skip_context] = fusion
+DefaultDQNAgent.learner.skip.feature_gradient = merge   # 合算（agent.txt の既定は stop）。段 2 で最も速く 200 に届いた
+
+run.@skip : DefaultDQNAgent.skip.enabled = true
+run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > M1 > metrics.scalar.@skip
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[03]] = skip_length_rate.[3] @train $action_info
+run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[04]] = skip_length_rate.[4] @train $action_info
+run.@skip : app.eval_trace_panel.columns.[240] = $action_info skip_decision label:decision
+run.@skip : app.eval_trace_panel.columns.[250] = $action_info skip_length label:skip
+# skip価値の評価は平均Qのgreedyで行い、session開始のSyncから集計する。
+run.@skip : DefaultDQNAgent.actor.[greedy].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@greedy
+run.@skip : run.eval.[greedy].actor = greedy
+run.@skip : run.eval.[greedy].eval_batch_size = 1
+run.@skip : run.eval.[greedy].eval_episodes = 1
+run.@skip : run.eval_schedule.[greedy].interval = 1009
+run.@skip : run.eval_schedule.[greedy].use_background = true
+run.@skip : metrics.scalar.[21_eval/09_greedy_reward] = mean.episode_return $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[21_eval/10_greedy_reward_ema] = mean.episode_return $runner @session_end $eval.[greedy] $ema ema_alpha:0.1
+run.@skip : metrics.scalar.[21_eval/11_greedy_ep_steps] = mean.episode_steps $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[21_eval/12_greedy_ep_steps_max] = max.episode_steps $runner @session_end $eval.[greedy]
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[01]] = skip_session_length_rate.[1] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[02]] = skip_session_length_rate.[2] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[03]] = skip_session_length_rate.[3] $eval.[greedy] $actor @session_end
+run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[04]] = skip_session_length_rate.[4] $eval.[greedy] $actor @session_end
+run.@skip : app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1
+run.@skip : app.eval_trace_panel.columns.[421] = $action_info skip_q.[2] label:q2
+run.@skip : app.eval_trace_panel.columns.[422] = $action_info skip_q.[3] label:q3
+run.@skip : app.eval_trace_panel.columns.[423] = $action_info skip_q.[4] label:q4
 
 run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > @heavy > A1 > @bf16 > A2
 run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > M1
@@ -53,15 +90,9 @@ run.@cpu : backend.torch_num_threads = 4   # i5-10500 で 4 / 10 / -1 を比べ�
 # NoisyNet は V/A ストリームの FC と Head の V/A 射影に掛ける。Linear128 は main_feature と IQN fusion で共用なので掛けない
 run.@noisy : net.block.[HeadFC128].noisy.enabled = true
 run.@noisy : net.block.[HeadFC128].noisy.sigma0 = 0.5
-run.@noisy : A2.head_projection.noisy.enabled = true
-run.@noisy : A2.head_projection.noisy.sigma0 = 0.5
+run.@noisy : A2.head.projection.noisy.enabled = true
+run.@noisy : A2.head.projection.noisy.sigma0 = 0.5
 run.@noisy : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > metrics.scalar.@munchausen > metrics.scalar.@noisy > M1
-
-run.$ = run.@munch
-#run.$ = run.@rfit
-#run.$ = run.@munch > run.@rfit     # 両方使うときは @rfit を後ろに置く
-#run.$ = run.@cpu
-#run.$ = run.@cpu > run.@noisy      # @noisy は metrics を上書きするので後ろに置く
 
 
 # ==============================================================================
@@ -80,31 +111,38 @@ A2.learner.update_warmup_steps = 8,192
 #A2.learner.replay_capacity = 256,000
 A2.learner.replay_capacity = 512,000
 
-A2.actor.[train].policy.policy_type = UQE
-#A2.actor.[train].policy.uqe_use_tail_mean = true
-A2.actor.[train].policy.uqe_use_tail_mean = false
-A2.actor.[train].policy.uqe_tau_start = 0.9
-#A2.actor.[train].policy.uqe_tau_end = 0.7
-A2.actor.[train].policy.uqe_tau_end = 0.5
 A2.actor.[train].policy.tau_rule.sample_mode = random
 A2.actor.[train].policy.tau_rule.num_taus = 32
-A2.actor.[train].policy.uqe_eps_start = 0.3
-#A2.actor.[train].policy.uqe_eps_end = 0.05
-A2.actor.[train].policy.uqe_eps_end = 0.0
+
+A2.actor.[train].policy.policy_type = UQE
+#A2.actor.[train].policy.uqe.use_tail_mean = true
+A2.actor.[train].policy.uqe.use_tail_mean = false
+A2.actor.[train].policy.uqe.epsilon.start = 0.3
+A2.actor.[train].policy.uqe.epsilon.end = 0.0
+A2.actor.[train].policy.uqe.tau.start = 0.9
+A2.actor.[train].policy.uqe.tau.end = 0.5
+#A2.actor.[train].policy.uqe.tau.end = 0.7
+#A2.actor.[train].policy.uqe.epsilon.end = 0.05
+
+A2.actor.[train].policy.spatial.uqe.tau.first = 0.9
+A2.actor.[train].policy.spatial.uqe.tau.last = 0.5
+A2.actor.[train].policy.spatial.uqe.epsilon.first = 0.3
+A2.actor.[train].policy.spatial.uqe.epsilon.last = 0.0
 
 #A2.actor.[train].policy.policy_type = EpsilonGreedy
-#A2.actor.[train].policy.eps_start = 0.3
-#A2.actor.[train].policy.eps_end = 0.0
+#A2.actor.[train].policy.epsilon.start = 0.3
+#A2.actor.[train].policy.epsilon.end = 0.0
 #A2.actor.[train].policy.tau_rule.sample_mode = fixed
 #A2.actor.[train].policy.tau_rule.num_taus = 32
-#A2.actor.[train].policy.use_spatial_exploration = true
+#A2.actor.[train].policy.spatial.enabled = true
 
 
 A2.actor.[eval].policy.policy_type = UQE
-#A2.actor.[eval].policy.uqe_use_tail_mean = true
-A2.actor.[eval].policy.uqe_use_tail_mean = false
-A2.actor.[eval].policy.uqe_tau_start = 0.25
-A2.actor.[eval].policy.uqe_tau_end = 0.25
+#A2.actor.[eval].policy.uqe.use_tail_mean = true
+A2.actor.[eval].policy.uqe.use_tail_mean = false
+A2.actor.[eval].policy.uqe.tau = 0.25
+A2.actor.[eval].policy.spatial.uqe.tau.first = 0.25
+A2.actor.[eval].policy.spatial.uqe.tau.last = 0.25
 A2.actor.[eval].policy.tau_rule.sample_mode = fixed
 A2.actor.[eval].policy.tau_rule.num_taus = 32
 A2.actor.[eval].policy.full_distribution_query.enabled = true
@@ -129,15 +167,15 @@ A2.learner.per_initial_priority_mode = max
 
 A2.learner.use_rb_prefetch = true
 
-#A2.actor.[train].policy.uqe_tau_start = 0.95 #0.9
-#A2.actor.[train].policy.uqe_tau_end = 0.5  # 0.5
+#A2.actor.[train].policy.uqe.tau.start = 0.95 #0.9
+#A2.actor.[train].policy.uqe.tau.end = 0.5  # 0.5
 
 #E1.contact_mode = pad           # ground pad
 
 E1.landing_detection_mode = not_awake
 
-A2.head_init.mode = orthogonal
-A2.head_init.manual_gain = 0.01
+A2.head.init.mode = orthogonal
+A2.head.init.manual_gain = 0.01
 
 A2.learner.use_tbo = false
 
@@ -150,15 +188,15 @@ A2.model.soft_update_tau = 0.005
 #A2.qr.num_quantiles = 51
 A2.qr.num_quantiles = 32
 
-#A2.learner.alpha = 1e-3  # 5e-4
+#A2.learner.learning_rate = 1e-3  # 5e-4
 
-A2.actor.[train].policy.use_spatial_exploration = true
+A2.actor.[train].policy.spatial.enabled = true
 
 # Run 予算は「ステップ数 依存設定」章の @vars : max_exp_step で一点化した
 
 #E1.enable_wind = false
 
-#A2.learner.alpha = 5e-3
+#A2.learner.learning_rate = 5e-3
 
 
 # ==============================================================================
@@ -235,8 +273,8 @@ DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC128 > LN128 > ReLU
 DefaultDQNAgent.net.body.output.[value_feature] = value_stream
 DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 
-A1.head_init.mode = xavier
-A1.head_init.manual_gain = 0.0
+A1.head.init.mode = xavier
+A1.head.init.manual_gain = 0.0
 
 
 ## --- 切替用配線プロファイル(ALGO プロファイルの net.$ から参照される。config_data.txt には出ない) ---
@@ -258,8 +296,9 @@ net.@iqn : branch.[adv_stream].bind = fusion
 # ステップ数 依存設定
 # ==============================================================================
 
-#A1.learner.per_beta_step = 1,000,000              # 1M
-A1.learner.per_beta_step = 500,000
+#A1.learner.per_beta.steps = 1,000,000              # 1M
+A1.learner.per_beta.type = linear
+A1.learner.per_beta.steps = 500,000
 
 # --- Run 予算の一点化(値参照。schedule 系は予算非連動のため ${} で繋がない=059 D11) ---
 #@vars : max_exp_step = 50,000
@@ -272,19 +311,22 @@ app.online.exp_pause_step  = ${@vars.max_exp_step}
 app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 
 #A1.actor.[train].policy.eps_decay_step = 10,000,000      # 10M
-#A1.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
+#A1.learner.per_beta.steps = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
 
-A1.actor.[train].policy.uqe_eps_decay_steps = 1,000,000
-A1.actor.[train].policy.uqe_tau_decay_steps = 1,000,000  # 10M
+A1.actor.[train].policy.uqe.epsilon.type = linear
+A1.actor.[train].policy.uqe.epsilon.steps = 1,000,000
+A1.actor.[train].policy.uqe.tau.type = linear # 10M
+A1.actor.[train].policy.uqe.tau.steps = 1,000,000
 
 
 # ==============================================================================
 # 環境依存Agent設定
 # ==============================================================================
 
-A1.actor.[eval].policy.uqe_tau_start = 0.25
-A1.actor.[eval].policy.uqe_tau_end = 0.25
-A1.actor.[eval].policy.uqe_use_tail_mean = false
+A1.actor.[eval].policy.uqe.tau = 0.25
+A1.actor.[eval].policy.spatial.uqe.tau.first = 0.25
+A1.actor.[eval].policy.spatial.uqe.tau.last = 0.25
+A1.actor.[eval].policy.uqe.use_tail_mean = false
 
 A1.stucker.use_stacker = true
 A1.stucker.stack_count = 4

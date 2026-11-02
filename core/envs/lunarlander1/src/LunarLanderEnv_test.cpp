@@ -264,3 +264,25 @@ int main(int argc, char* argv[])
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
 }
+
+TEST_CASE("LunarLander results retain their drawing data after later Step and Reset", "[lunarlander][prd097_lunar_result]")
+{
+    auto env = MakeEnv(false);
+    env->Reset();
+    const auto first = env->Step(0);
+    const auto drawing = first->GetAuxData();
+    for (const auto& key : {"world", "lander", "legs", "pad", "terrain", "contacts", "joint_angle", "forces", "rewards"}) {
+        REQUIRE(drawing.contains(key));
+        CHECK(drawing.at(key).scalar_type() == (std::string(key) == "contacts" ? torch::kBool : torch::kFloat32));
+        CHECK_FALSE(first->GetScalar(key).has_value());
+    }
+    const auto second = env->Step(2);
+    REQUIRE_FALSE(torch::equal(drawing.at("lander"), second->GetAuxData().at("lander")));
+    const auto after_step = first->GetAuxData();
+    env->Reset();
+    const auto after_reset = first->GetAuxData();
+    for (const auto& [key, value] : drawing) {
+        CHECK(torch::equal(value, after_step.at(key)));
+        CHECK(torch::equal(value, after_reset.at(key)));
+    }
+}

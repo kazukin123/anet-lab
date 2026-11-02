@@ -12,4 +12,4 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 & .\core\envs\atari1\bin\Debug\AtariEnv-test.exe '[atari]' --rng-seed 123 --reporter compact
 ```
 
-既定 `Atari.txt` の変更時は、設定解決後の番号表と `ObserverFactory` の trace キー列・scalar `source_key` を `AtariEnv_test.cpp` のプリセットテストで確認する。baseline 比較の実施範囲と waiver は [実装メモ](../../../../docs/memo/082_atari_ram_progress_metrics_20impl.md) に記録する。
+既定 `Atari.txt` の変更時は、プロトコルプリセットの値と、群ごとの RAM 指標の揃い（番号、`source_key`、得点の指標との軸・event の一致）を anet-core-test の `[shipped_config][atari]`（`config_baseline_test.cpp`。ALE 不要）で確認する。本番設定を読むテストが固定してよいものの線引きは [実装 品質確認観点](../../../../docs/quality/impl.md#テスト)「テスト」の規約に従う。baseline 比較の実施範囲と waiver は [実装メモ](../../../../docs/memo/082_atari_ram_progress_metrics_20impl.md) に記録する。

@@ -75,7 +75,7 @@ std::shared_ptr<anet::rl::Actor> MuZeroAgent::CreateActor(const ActorRequest& re
 std::shared_ptr<anet::rl::Learner> MuZeroAgent::CreateLearner()
 {
     // Learnerを生成
-    return std::make_shared<MuZeroLearner>(config_.learner, mutex_, model_, replay_buffer_, device_);
+    return std::make_shared<MuZeroLearner>(config_.learner, mutex_, model_, replay_buffer_, device_, config_.buffer.gamma);
 }
 
 std::optional<float> MuZeroAgent::GetScalar(const std::string& key, int64_t index) const

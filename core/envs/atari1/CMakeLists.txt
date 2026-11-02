@@ -35,7 +35,13 @@ target_include_directories(AtariEnv
         "${ANET_ALE_ROOT}/src/ale"
         "${ANET_ALE_ROOT}/build/src/ale"
 )
-target_include_directories(AtariEnv-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# RAM fixtureの初期条件設定に必要なALEヘッダをテストtargetだけへ公開する。
+target_include_directories(AtariEnv-test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    "${ANET_ALE_ROOT}/src"
+    "${ANET_ALE_ROOT}/src/ale"
+    "${ANET_ALE_ROOT}/build/src/ale"
+)
 
 target_precompile_headers(AtariEnv PRIVATE "src/pch.hpp")
 

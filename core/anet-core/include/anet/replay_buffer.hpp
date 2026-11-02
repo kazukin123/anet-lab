@@ -14,6 +14,14 @@
 
 namespace anet::rl {
 
+    class SampleWindowRule;
+    /// 判断で区切った区間内の窓を選ぶ規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateDecisionWindowRule(int max_length);
+    /// 起点と同じ行動が続く区間内の窓を選ぶ規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateActionChangeWindowRule(int max_length);
+    /// 上限とエピソードの終わりだけで窓を閉じる規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateEpisodeEndWindowRule(int max_length);
+
 
     // ======================================================
     // Config & Data Structures
@@ -48,12 +56,14 @@ namespace anet::rl {
 
     struct ReplayBufferConfig {
 
+        std::shared_ptr<const SampleWindowRule> window_rule; ///< 未指定なら追加の窓を抽出しない。
+
         int64_t capacity = 100000;              // ENV毎の容量ではなく、全ENVの総容量(1Dツリーサイズ)
         ReplaySamplerType sampler_type = ReplaySamplerType::UNIFORM;
 
         // N-step 用
         int n_step = 1;
-        float gamma = 0.99f;
+        bool recompute_returns_on_sample = false; ///< schedule gamma用の抽選済み報酬列を保持する。
 
         // PER系
         float per_alpha = 0.5f;
@@ -108,12 +118,12 @@ namespace anet::rl {
         PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device);
         ~PrefetchingReplayBuffer() override;
 
-        void Push(const BatchExperience& batch_exp) override;
-        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        void Push(const BatchExperience& batch_exp, float gamma) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const override;
         bool SampleUniqueUniform(
-            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random) const override;
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random) const override;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;

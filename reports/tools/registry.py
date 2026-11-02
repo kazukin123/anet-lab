@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """anet-audit の指摘台帳(reports/registry/findings.jsonl)を扱う。
 
-正本は findings.jsonl(1 行 1 レコード、追記と状態更新のみ)。findings.md と findings.html は派生ビューで毎回再生成する。
+正本は findings.jsonl(1 行 1 レコード、追記と状態更新のみ)。build は findings.md・findings.html と
+wiki の実装の地図の registry:begin/end 区画を派生ビューとして再生成する。
+全地図の目印が正常な場合だけ書き込み、wiki の区画外と log.md は変更しない。
 
 使い方(リポジトリルートで実行):
   python reports/tools/registry.py validate
@@ -11,7 +13,9 @@
   python reports/tools/registry.py add --json '{...1 レコード...}' [--run RUN_ID]
   python reports/tools/registry.py touch --ids F-0003,F-0007 --run RUN_ID        # 再検証して依然として存在
   python reports/tools/registry.py set --id F-0003 --status fixed --note "..." [--run RUN_ID]
-  python reports/tools/registry.py list [--status open] [--lens refactor] [--path core/anet-core/src/replay] [--limit 50]
+  python reports/tools/registry.py list [--status open] [--lens refactor] [--path core/anet-core/src/replay] [--category 311_dev_tools] [--limit 50]
+  # --category は定義順で分類し、拡張子直前の _test を除く。110 の範囲は apps/runner/src/。
+  # build のアプリケーション地図だけは置き場全体(110 は apps/runner/)を対象にする。
   python reports/tools/registry.py fingerprint --lens refactor --file core/anet-core/src/x.cpp --symbol Foo::Bar
 
 レコード(必須: lens, title, file, summary, scenario, priority, confidence。他は任意):
@@ -42,7 +46,11 @@ import hashlib
 import html
 import json
 import os
+import re
+from pathlib import Path
 import sys
+
+from wiki_support import CategoryRules, application_paths
 
 LENSES = {"refactor", "defect", "architecture", "drift", "test-gap", "backlog", "process"}
 PRIORITIES = ["P0", "P1", "P2", "P3"]
@@ -234,6 +242,11 @@ def cmd_set(args):
 def cmd_list(args):
     _, jl, _, _ = paths()
     recs = load(jl)
+    rules = CategoryRules(repo_root()) if args.category else None
+    if rules and args.category not in [c['key'] for c in rules.categories]:
+        print(f"Unknown category '{args.category}'; expected one of: " +
+              ', '.join(c['key'] for c in rules.categories), file=sys.stderr)
+        return 1
     out = []
     for r in recs:
         if args.status and r.get("status") != args.status:
@@ -241,6 +254,8 @@ def cmd_list(args):
         if args.lens and r.get("lens") != args.lens:
             continue
         if args.path and not r.get("file", "").startswith(args.path):
+            continue
+        if rules and rules.category_of(r.get("file", "")) != args.category:
             continue
         out.append(r)
     out.sort(key=lambda r: (PRIORITIES.index(r.get("priority", "P3")) if r.get("priority") in PRIORITIES else 9, r.get("id", "")))
@@ -327,16 +342,48 @@ document.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k
 """
 
 
+def registry_map_updates(root, recs):
+    # 対象ページをすべて読み、台帳の派生区画だけを組み立てる。
+    rules = CategoryRules(root)
+    updates = []
+    for folder in ["apps", "categories"]:
+        for path in sorted((Path(root)/"docs/wiki"/folder).glob("*.md")):
+            text = path.read_bytes().decode("utf-8")
+            begin, end = "<!-- registry:begin -->", "<!-- registry:end -->"
+            # 全ページの検査・生成が終わるまでは、どの出力も書かない。
+            if (text.count(begin) != 1 or text.count(end) != 1 or
+                    not re.search(r"(?m)^" + re.escape(begin) + r"\r?$", text) or
+                    not re.search(r"(?m)^" + re.escape(end) + r"\r?$", text) or
+                    text.index(begin) >= text.index(end)):
+                raise SystemExit(f"Invalid registry markers in {path.relative_to(root)}; "
+                                 "expected one begin/end pair on separate lines in order")
+            left, rest = text.split(begin, 1)
+            _, right = rest.split(end, 1)
+            key = path.stem
+            selected = [r for r in recs if r.get("status") in {"open", "stale"} and
+                        (any(r.get("file", "").startswith(prefix) for prefix in application_paths(key))
+                         if folder == "apps" else rules.category_of(r.get("file", "")) == key)]
+            selected.sort(key=lambda r: (PRIORITIES.index(r["priority"]), r["id"]))
+            lines = [f"- {r['id']} {r['priority']} {r['lens']} — {r['title']}" for r in selected]
+            body = "\n".join(lines) if lines else "なし"
+            body += "\n\n[台帳の一覧](../../../reports/registry/findings.md)"
+            updates.append((path, left + begin + "\n" + body + "\n" + end + right))
+    return updates
+
+
 def cmd_build(args):
     _, jl, md, ht = paths()
     recs = load(jl)
     today = dt.date.today().isoformat()
+    updates = registry_map_updates(repo_root(), recs)
     with open(md, "w", encoding="utf-8", newline="\n") as f:
         f.write(build_md(recs, today))
     data = json.dumps(recs, ensure_ascii=False).replace("</", "<\\/")
     with open(ht, "w", encoding="utf-8", newline="\n") as f:
         f.write(HTML.replace("__DATA__", data).replace("__TODAY__", today))
-    print(f"built findings.md / findings.html from {len(recs)} records")
+    for path, text in updates:
+        path.write_bytes(text.encode("utf-8"))
+    print(f"built findings.md / findings.html and {len(updates)} wiki maps from {len(recs)} records")
     return 0
 
 
@@ -370,6 +417,7 @@ def main():
     l.add_argument("--status")
     l.add_argument("--lens")
     l.add_argument("--path")
+    l.add_argument("--category")
     l.add_argument("--limit", type=int, default=100)
     fp = sub.add_parser("fingerprint")
     fp.add_argument("--lens", required=True)

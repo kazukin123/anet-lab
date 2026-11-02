@@ -380,3 +380,10 @@ net.body.@Conv1D.structure ?= Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > 
 # ・再帰構造
 #    RNNやLSTMのように、同じブロックを時間軸に沿って繰り返し適用する構造。
 #    必要になったらLSTM層やRNN層をC++側で実装して対応。
+
+# TempoRL の共有定義。明示的に選択した場合だけ利用する。
+net.block.[SkipFC1].type ?= Linear
+net.block.[SkipFC1].linear.out_features ?= 128
+net.block.[SkipFC2].type ?= Linear
+net.block.[SkipFC2].linear.out_features ?= 128
+net.block.[SkipReLU].type ?= ReLU

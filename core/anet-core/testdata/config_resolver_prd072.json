@@ -95,8 +95,9 @@
     "id": "M01 parent policy with target network difference",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
@@ -105,12 +106,14 @@
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     }
   },
@@ -118,24 +121,28 @@
     "id": "M02 explicit profile leaves outrank outer differences",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A2 : actor.@eval_base.policy.eps_start = 0.01",
-      "A2 : actor.@eval_base.policy.eps_end = 0.01"
+      "A2.actor.@eval_base : policy.epsilon = 0.01",
+      "A2.actor.@eval_base : policy.spatial.epsilon.first = 0.01",
+      "A2.actor.@eval_base : policy.spatial.epsilon.last = 0.01"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     }
   },
@@ -143,24 +150,28 @@
     "id": "M03 later parent changes and new keys propagate",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A2.actor.[eval].policy.eps_start = 0.01",
+      "A2.actor.[eval].policy.epsilon = 0.01",
+      "A2.actor.[eval].policy.spatial.epsilon.first = 0.01",
       "A2.actor.[eval].policy.use_amp = true"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target",
       "DefaultDQNAgent.actor.[eval].policy.use_amp": "true",
       "DefaultDQNAgent.actor.[eval_target].policy.use_amp": "true"
@@ -170,23 +181,27 @@
     "id": "M04 child layer",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A3.actor.[eval_target].policy.eps_start = 0.02"
+      "A3.actor.[eval_target].policy.epsilon = 0.02",
+      "A3.actor.[eval_target].policy.spatial.epsilon.first = 0.02"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
     "cli": ""
@@ -195,108 +210,125 @@
     "id": "M04 CLI material",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A3.actor.[eval_target].policy.eps_start = 0.02"
+      "A3.actor.[eval_target].policy.epsilon = 0.02",
+      "A3.actor.[eval_target].policy.spatial.epsilon.first = 0.02"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.03",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.03",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.03",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
-    "cli": "DefaultDQNAgent.actor.@eval_base.policy.eps_start=0.03"
+    "cli": "DefaultDQNAgent.actor.@eval_base.policy.epsilon=0.03 DefaultDQNAgent.actor.@eval_base.policy.spatial.epsilon.first=0.03"
   },
   {
     "id": "M04 CLI parent with child layer",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A3.actor.[eval_target].policy.eps_start = 0.02"
+      "A3.actor.[eval_target].policy.epsilon = 0.02",
+      "A3.actor.[eval_target].policy.spatial.epsilon.first = 0.02"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.04",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
-    "cli": "DefaultDQNAgent.actor.[eval].policy.eps_start=0.04"
+    "cli": "DefaultDQNAgent.actor.[eval].policy.epsilon=0.04 DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first=0.04"
   },
   {
     "id": "M04 CLI child layer",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A3.actor.[eval_target].policy.eps_start = 0.02"
+      "A3.actor.[eval_target].policy.epsilon = 0.02",
+      "A3.actor.[eval_target].policy.spatial.epsilon.first = 0.02"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.06",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.06",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.06",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
-    "cli": "A3.actor.[eval_target].policy.eps_start=0.06"
+    "cli": "A3.actor.[eval_target].policy.epsilon=0.06 A3.actor.[eval_target].policy.spatial.epsilon.first=0.06"
   },
   {
     "id": "M04 CLI child",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "A3.actor.[eval_target].policy.eps_start = 0.02"
+      "A3.actor.[eval_target].policy.epsilon = 0.02",
+      "A3.actor.[eval_target].policy.spatial.epsilon.first = 0.02"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.09",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.09",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.09",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
-    "cli": "DefaultDQNAgent.actor.[eval_target].policy.eps_start=0.09"
+    "cli": "DefaultDQNAgent.actor.[eval_target].policy.epsilon=0.09 DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first=0.09"
   },
   {
     "id": "M04 CLI parent propagation",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
@@ -305,22 +337,25 @@
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.04",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.04",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.04",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.04",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
-    "cli": "DefaultDQNAgent.actor.[eval].policy.eps_start=0.04"
+    "cli": "DefaultDQNAgent.actor.[eval].policy.epsilon=0.04 DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first=0.04"
   },
   {
     "id": "M04 CLI parent and child",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
@@ -329,63 +364,75 @@
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.04",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.04",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.09",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.09",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.09",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     },
-    "cli": "DefaultDQNAgent.actor.[eval].policy.eps_start=0.04 DefaultDQNAgent.actor.[eval_target].policy.eps_start=0.09"
+    "cli": "DefaultDQNAgent.actor.[eval].policy.epsilon=0.04 DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first=0.04 DefaultDQNAgent.actor.[eval_target].policy.epsilon=0.09 DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first=0.09"
   },
   {
     "id": "M05 direct leaves before selections variant 0",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start = 0.02",
-      "DefaultDQNAgent.@baseline : actor.[eval].policy.eps_start = 0.01"
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon = 0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first = 0.02",
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.epsilon = 0.01",
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.spatial.epsilon.first = 0.01"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     }
   },
   {
     "id": "M05 direct leaves before selections variant 1",
     "config": [
-      "DefaultDQNAgent.@baseline : actor.[eval].policy.eps_start = 0.01",
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.epsilon = 0.01",
+      "DefaultDQNAgent.@baseline : actor.[eval].policy.spatial.epsilon.first = 0.01",
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start = 0.02"
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon = 0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first = 0.02"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target"
     }
   },
@@ -393,32 +440,36 @@
     "id": "M06 differential inheritance retains earlier leaves",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
       "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
-      "DefaultDQNAgent.actor.@sync : value = 400",
+      "DefaultDQNAgent.actor.@sync : steps = 400",
       "A2.actor.[eval_target].clone_model = true",
-      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval_target].policy.epsilon = 0.02",
+      "A2.actor.[eval_target].policy.spatial.epsilon.first = 0.02",
       "A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync",
       "A3.actor.[eval_target].$ = DefaultDQNAgent.actor.@greedy > DefaultDQNAgent.actor.@target"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
       "DefaultDQNAgent.actor.[eval_target].network": "target",
       "DefaultDQNAgent.actor.[eval_target].clone_model": "true",
-      "DefaultDQNAgent.actor.[eval_target].sync_interval.value": "400",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
-      "A2.actor.[eval_target].sync_interval.value": "400"
+      "DefaultDQNAgent.actor.[eval_target].sync_interval.steps": "400",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
+      "A2.actor.[eval_target].sync_interval.steps": "400"
     },
     "absent": [],
     "selections": [
@@ -489,33 +540,37 @@
     "id": "M06 differential inheritance from a catalog",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
       "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
-      "DefaultDQNAgent.actor.@sync : value = 400",
+      "DefaultDQNAgent.actor.@sync : steps = 400",
       "A2.actor.[eval_target].clone_model = true",
-      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval_target].policy.epsilon = 0.02",
+      "A2.actor.[eval_target].policy.spatial.epsilon.first = 0.02",
       "A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync",
       "A3.actor.[eval_target].$ = DefaultDQNAgent.actor.[greedy] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.@baseline : actor.[greedy].policy.policy_type = Greedy"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
       "DefaultDQNAgent.actor.[eval_target].network": "target",
       "DefaultDQNAgent.actor.[eval_target].clone_model": "true",
-      "DefaultDQNAgent.actor.[eval_target].sync_interval.value": "400",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
-      "A2.actor.[eval_target].sync_interval.value": "400"
+      "DefaultDQNAgent.actor.[eval_target].sync_interval.steps": "400",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
+      "A2.actor.[eval_target].sync_interval.steps": "400"
     },
     "absent": [],
     "selections": [
@@ -586,33 +641,37 @@
     "id": "M06 right source overrides an earlier explicit clone",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
       "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
-      "DefaultDQNAgent.actor.@sync : value = 400",
+      "DefaultDQNAgent.actor.@sync : steps = 400",
       "A2.actor.[eval_target].clone_model = true",
-      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval_target].policy.epsilon = 0.02",
+      "A2.actor.[eval_target].policy.spatial.epsilon.first = 0.02",
       "A2.actor.[eval_target].sync_interval.$ = DefaultDQNAgent.actor.@sync",
       "A3.actor.[eval_target].$ = DefaultDQNAgent.actor.@greedy > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.actor.@greedy : clone_model = false"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "Greedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
       "DefaultDQNAgent.actor.[eval_target].network": "target",
       "DefaultDQNAgent.actor.[eval_target].clone_model": "false",
-      "DefaultDQNAgent.actor.[eval_target].sync_interval.value": "400",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
-      "A2.actor.[eval_target].sync_interval.value": "400"
+      "DefaultDQNAgent.actor.[eval_target].sync_interval.steps": "400",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
+      "A2.actor.[eval_target].sync_interval.steps": "400"
     },
     "absent": [],
     "selections": [
@@ -683,7 +742,8 @@
     "id": "M06 source declarations resolve at their own definitions",
     "config": [
       "DefaultDQNAgent.actor.@eps : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eps : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eps : policy.epsilon.end = 0.05",
+      "DefaultDQNAgent.actor.@eps : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
       "A2.actor.[eval].$ = DefaultDQNAgent.actor.@eps",
       "A3.actor.[eval].$ = DefaultDQNAgent.actor.@greedy",
@@ -691,8 +751,8 @@
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "Greedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
-      "A2.actor.[eval].policy.eps_end": "0.05"
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
+      "A2.actor.[eval].policy.spatial.epsilon.last": "0.05"
     },
     "absent": []
   },
@@ -700,16 +760,17 @@
     "id": "M06 explicit source leaf survives differential composition",
     "config": [
       "DefaultDQNAgent.actor.@eps : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eps : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eps : policy.epsilon.end = 0.05",
+      "DefaultDQNAgent.actor.@eps : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@greedy : policy.policy_type = Greedy",
       "A2.actor.[eval].$ = DefaultDQNAgent.actor.@eps",
       "A3.actor.[eval].$ = DefaultDQNAgent.actor.@greedy",
       "DefaultDQNAgent.$ = A2 > A3",
-      "A2.actor.[eval].policy.eps_end = 0.05"
+      "A2.actor.[eval].policy.spatial.epsilon.last = 0.05"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "Greedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05"
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05"
     },
     "absent": []
   },
@@ -717,30 +778,36 @@
     "id": "M07 multilevel inheritance uses completed parent",
     "config": [
       "DefaultDQNAgent.actor.@eval_base : policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_start = 0.05",
-      "DefaultDQNAgent.actor.@eval_base : policy.eps_end = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.first = 0.05",
+      "DefaultDQNAgent.actor.@eval_base : policy.spatial.epsilon.last = 0.05",
       "DefaultDQNAgent.actor.@eval_base : network = online",
       "DefaultDQNAgent.actor.@target : network = target",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval] > DefaultDQNAgent.actor.@target",
       "DefaultDQNAgent.$ = @baseline > A2 > A3",
       "DefaultDQNAgent.@baseline : actor.[eval_target_check].$ = DefaultDQNAgent.actor.[eval_target]",
-      "A2.actor.[eval].policy.eps_start = 0.01",
-      "A2.actor.[eval_target].policy.eps_start = 0.02",
+      "A2.actor.[eval].policy.epsilon = 0.01",
+      "A2.actor.[eval].policy.spatial.epsilon.first = 0.01",
+      "A2.actor.[eval_target].policy.epsilon = 0.02",
+      "A2.actor.[eval_target].policy.spatial.epsilon.first = 0.02",
       "A3.actor.[eval_target_check].clone_model = true"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval].network": "online",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.02",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_end": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.02",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.last": "0.05",
       "DefaultDQNAgent.actor.[eval_target].network": "target",
-      "DefaultDQNAgent.actor.[eval_target_check].policy.eps_start": "0.02",
+      "DefaultDQNAgent.actor.[eval_target_check].policy.spatial.epsilon.first": "0.02",
       "DefaultDQNAgent.actor.[eval_target_check].network": "target",
-      "DefaultDQNAgent.actor.[eval_target_check].clone_model": "true"
+      "DefaultDQNAgent.actor.[eval_target_check].clone_model": "true",
+      "DefaultDQNAgent.actor.[eval_target_check].policy.epsilon": "0.02"
     },
     "selections": [
       {
@@ -796,15 +863,19 @@
   {
     "id": "M07 directly declared parent instruction is not copied",
     "config": [
-      "DefaultDQNAgent.actor.@eval_policy : eps_start = 0.05",
+      "DefaultDQNAgent.actor.@eval_policy : epsilon = 0.05",
+      "DefaultDQNAgent.actor.@eval_policy : spatial.epsilon.first = 0.05",
       "DefaultDQNAgent.actor.[eval].policy.$ = DefaultDQNAgent.actor.@eval_policy",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
-      "A2.actor.[eval].policy.eps_start = 0.01",
+      "A2.actor.[eval].policy.epsilon = 0.01",
+      "A2.actor.[eval].policy.spatial.epsilon.first = 0.01",
       "DefaultDQNAgent.$ = @baseline > A2"
     ],
     "values": {
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05"
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.05"
     },
     "selections": [
       {
@@ -988,21 +1059,26 @@
     "id": "M13 generated profiles and dormant inventory variant 0",
     "config": [
       "DefaultDQNAgent.@baseline : actor.@eval_base.policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.eps_start = 0.05",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.epsilon = 0.05",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.spatial.epsilon.first = 0.05",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
-      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.epsilon = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.spatial.epsilon.first = 0.01",
       "DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing",
       "DefaultDQNAgent.$ = @baseline > @cautious"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01"
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.01"
     },
     "absent": [
-      "DefaultDQNAgent.actor.@eval_base.policy.eps_start",
+      "DefaultDQNAgent.actor.@eval_base.policy.epsilon",
+      "DefaultDQNAgent.actor.@eval_base.policy.spatial.epsilon.first",
       "DefaultDQNAgent.actor.[unused].$"
     ]
   },
@@ -1010,21 +1086,26 @@
     "id": "M13 generated profiles and dormant inventory variant 1",
     "config": [
       "DefaultDQNAgent.@baseline : actor.@eval_base.policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.eps_start = 0.05",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.epsilon = 0.05",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.spatial.epsilon.first = 0.05",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
-      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.epsilon = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.spatial.epsilon.first = 0.01",
       "DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing",
       "DefaultDQNAgent.$ = @baseline"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.05",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.05"
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.05",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.05"
     },
     "absent": [
-      "DefaultDQNAgent.actor.@eval_base.policy.eps_start",
+      "DefaultDQNAgent.actor.@eval_base.policy.epsilon",
+      "DefaultDQNAgent.actor.@eval_base.policy.spatial.epsilon.first",
       "DefaultDQNAgent.actor.[unused].$"
     ]
   },
@@ -1032,10 +1113,12 @@
     "id": "M13 generated profiles and dormant inventory variant 2",
     "config": [
       "DefaultDQNAgent.@baseline : actor.@eval_base.policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.eps_start = 0.05",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.epsilon = 0.05",
+      "DefaultDQNAgent.@baseline : actor.@eval_base.policy.spatial.epsilon.first = 0.05",
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
-      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.epsilon = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.spatial.epsilon.first = 0.01",
       "DefaultDQNAgent.@unused : actor.[unused].$ = DefaultDQNAgent.actor.@missing",
       "DefaultDQNAgent.$ = @baseline > @cautious",
       "DefaultDQNAgent.@baseline : actor.@unused.policy.$ = DefaultDQNAgent.actor.@missing"
@@ -1043,11 +1126,14 @@
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
       "DefaultDQNAgent.actor.[eval_target].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01"
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.01"
     },
     "absent": [
-      "DefaultDQNAgent.actor.@eval_base.policy.eps_start",
+      "DefaultDQNAgent.actor.@eval_base.policy.epsilon",
+      "DefaultDQNAgent.actor.@eval_base.policy.spatial.epsilon.first",
       "DefaultDQNAgent.actor.[unused].$"
     ]
   },
@@ -1144,13 +1230,16 @@
       "DefaultDQNAgent.@baseline : actor.[eval].$ = DefaultDQNAgent.actor.@eval_base",
       "DefaultDQNAgent.@baseline : actor.[eval_target].$ = DefaultDQNAgent.actor.[eval]",
       "DefaultDQNAgent.@cautious : actor.@eval_base.policy.policy_type = EpsilonGreedy",
-      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.eps_start = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.epsilon = 0.01",
+      "DefaultDQNAgent.@cautious : actor.@eval_base.policy.spatial.epsilon.first = 0.01",
       "DefaultDQNAgent.$ = @baseline > @cautious"
     ],
     "values": {
       "DefaultDQNAgent.actor.[eval].policy.policy_type": "EpsilonGreedy",
-      "DefaultDQNAgent.actor.[eval].policy.eps_start": "0.01",
-      "DefaultDQNAgent.actor.[eval_target].policy.eps_start": "0.01"
+      "DefaultDQNAgent.actor.[eval].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval].policy.spatial.epsilon.first": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.epsilon": "0.01",
+      "DefaultDQNAgent.actor.[eval_target].policy.spatial.epsilon.first": "0.01"
     }
   },
   {
@@ -1626,7 +1715,8 @@
     "id": "P1 source inheritance retains missing right leaves",
     "config": [
       "Policy.@eps.type = EpsilonGreedy",
-      "Policy.@eps.eps_end = 0.05",
+      "Policy.@eps : epsilon.end = 0.05",
+      "Policy.@eps : spatial.epsilon.last = 0.05",
       "Policy.@greedy.type = Greedy",
       "A2.policy.$ = Policy.@eps",
       "A3.policy.$ = Policy.@greedy",
@@ -1634,8 +1724,10 @@
     ],
     "values": {
       "Env.policy.type": "Greedy",
-      "Env.policy.eps_end": "0.05",
-      "A2.policy.eps_end": "0.05"
+      "Env.policy.epsilon.end": "0.05",
+      "Env.policy.spatial.epsilon.last": "0.05",
+      "A2.policy.epsilon.end": "0.05",
+      "A2.policy.spatial.epsilon.last": "0.05"
     }
   },
   {

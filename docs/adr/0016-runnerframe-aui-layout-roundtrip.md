@@ -1,5 +1,7 @@
 # RunnerFrame の dock サイズ制御は構造化シリアライザ往復と遷移時同期で行う
 
+> 2026-11-01（PRD110 の 3 回目の改訂、D15）: 主 pane（Train View・Evaluation View）の置き場（方向・layer・row・位置・float・表示）が変わったときだけ、既存の 200 ms の UPDATE_UI で幅のポリシーを当てることにした。Consequences の「pane ドラッグ直後の自動補正が次の遷移まで遅延する」の許容は、主 pane 以外（補助 pane の列、サッシの操作）に残る。2 機構（構造化シリアライザ往復・遷移時同期）とほかの判断はそのまま。
+
 wxAUI (wxWidgets 3.3.1) には既存 dock のサイズを設定する公開 API が無い。dock サイズは wxAuiManager 内部の dock 構造体が持ち、`pane.dock_size` は dock が(再)生成される瞬間にしか読まれない (framemanager.cpp:2100,2110)。また pane を隠して dock が空になると dock ごと削除されてサイズはどこにも書き戻されず (:2135)、サッシドラッグ確定を通知するイベントも存在しない。RunnerFrame の主領域 50:50 ポリシーと「hide→show で幅を記憶する」挙動はこの 3 つの欠落と正面衝突する。
 
 RunnerFrame は次の 2 機構だけで dock サイズを制御する。

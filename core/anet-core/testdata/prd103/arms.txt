@@ -1,0 +1,26 @@
+# PRD103 の構造比較用の腕。Atari.txt を読んだあとで include する。
+# run.@va_base > run.@skip の後ろへ、どちらか一方を重ねる。
+# primaryのbranch名が変わるsharedは、既存構造のcheckpointを読み込まない。
+
+net.branch.@AtariImpalaX2ConvTrunk : bind = grid
+net.branch.@AtariImpalaX2ConvTrunk : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten
+net.branch.@AtariFeature512LN : bind = trunk
+net.branch.@AtariFeature512LN : structure = AtariLinear512 > AtariLN512 > ReLU
+
+# T3: 畳み込みだけを共有し、512次元への射影とtau埋め込みはskip側に持つ。
+run.@skip_conv_shared : DefaultDQNAgent.net.branch.[trunk].$ = net.branch.@AtariImpalaX2ConvTrunk
+run.@skip_conv_shared : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariFeature512LN
+run.@skip_conv_shared : DefaultDQNAgent.net.body.output.[skip_context] = trunk
+run.@skip_conv_shared : DefaultDQNAgent.skip.net.branch.[skip_main_feature].bind = skip_context
+run.@skip_conv_shared : DefaultDQNAgent.skip.net.branch.[skip_main_feature].structure = AtariLinear512 > AtariLN512 > ReLU
+run.@skip_conv_shared : DefaultDQNAgent.skip.net.branch.[skip_tau_embedding].bind = taus
+run.@skip_conv_shared : DefaultDQNAgent.skip.net.branch.[skip_tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > SiLU
+run.@skip_conv_shared : DefaultDQNAgent.skip.net.branch.[skip_feature].bind = skip_main_feature * skip_tau_embedding
+run.@skip_conv_shared : DefaultDQNAgent.learner.skip.feature_gradient = merge
+
+# T4: gridから同じ畳み込みと射影を作り、tauもskip側で融合する。
+run.@skip_conv_separate : DefaultDQNAgent.skip.net.branch.[skip_main_feature].$ = net.branch.@AtariImpalaX2LN
+run.@skip_conv_separate : DefaultDQNAgent.skip.net.branch.[skip_tau_embedding].bind = taus
+run.@skip_conv_separate : DefaultDQNAgent.skip.net.branch.[skip_tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > SiLU
+run.@skip_conv_separate : DefaultDQNAgent.skip.net.branch.[skip_feature].bind = skip_main_feature * skip_tau_embedding
+run.@skip_conv_separate : DefaultDQNAgent.learner.skip.feature_gradient = stop

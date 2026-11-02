@@ -3,7 +3,6 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "AI ハーネスの読む道",
-    "subtitle": "入口から領域の契約と検証へ。wikiは正本をたどるためのまとめ。",
     "quality_profile": "showcase",
     "viewBox": [
       1300,
@@ -11,7 +10,7 @@
     ],
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "5409cd1e9a8bf070c95d18fc606ce9b8694be6d9"
+      "revision": "c6425461a3f9635fffc887fce005912afb8fcae6"
     }
   },
   "components": [
@@ -167,7 +166,7 @@
       "id": "wiki_summary",
       "type": "database",
       "label": "wiki",
-      "sublabel": "知見と実装の地図",
+      "sublabel": "知見・経緯・変更条件",
       "pos": [
         800,
         90
@@ -178,8 +177,10 @@
       ],
       "sources": [
         {
-          "path": "docs/memo/095_llm_wiki_10prd.md",
-          "label": "wiki の採用契約"
+          "path": "docs/wiki/README.md"
+        },
+        {
+          "path": "docs/memo/095_llm_wiki_10prd.md"
         }
       ]
     },
@@ -334,16 +335,16 @@
       "dot": "cyan",
       "title": "正本をたどる",
       "items": [
-        "wikiは出典つきのまとめ。PRDは元の出典を確認する。",
-        "成立の経緯からPRDとADRを引き、srcは直接読む。"
+        "wikiから正本をたどり、選ばなかった形と変更時の条件を読む。",
+        "監査の候補は台帳が正本。地図には指摘の一覧だけを載せる。"
       ]
     },
     {
       "dot": "emerald",
       "title": "更新と検証",
       "items": [
-        "PRDの起草でwikiへ戻し、完了直前のblobをログへ残す。",
-        "実体コピーの同期検査やCIのパス条件化は機械化の候補。"
+        "取り込みが書く部分を、点検がファイル・PRD一覧を更新する。",
+        "台帳buildが地図の指摘区画を更新する。skillの両コピーを揃える。"
       ]
     },
     {

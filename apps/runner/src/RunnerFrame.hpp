@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -16,10 +17,14 @@
 #include "TrainPanel.hpp"
 #include "EvalPanel.hpp"
 #include "QValuePanel.hpp"
+#include "EvalTracePanel.hpp"
 
 class RunnerFrame final : public anet::rl::gui::AuiLayoutFrame {
 public:
-    RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config);
+    enum class MainView { Train, Eval, Both };
+
+    RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config,
+        const EvalPanelConfig& eval_panel_config, MainView main_view);
 
     void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager);
 protected:
@@ -40,12 +45,16 @@ protected:
     void OnToggleTraining(wxCommandEvent& event);
     void OnToggleEval(wxCommandEvent& event);
     void OnEvalStep(wxCommandEvent& event);
+    void OnEvalStepsCustom(wxCommandEvent& event);
     void OnSaveAgent(wxCommandEvent& event);
     void OnOpenRunFolder(wxCommandEvent& event);
     void OnUpdateTrainStatus(wxUpdateUIEvent& event);
 
     // AuiLayoutFrame フック
     void OnApplyLayoutPolicy() override;
+    void OnPaneHiding(wxAuiPaneInfo& pane) override;
+    void OnPaneShowing(wxAuiPaneInfo& pane) override;
+    bool CanHidePane(const wxAuiPaneInfo& pane) override;
 private:
     enum class AlwaysOnTopMode {
         Off,
@@ -64,12 +73,28 @@ private:
     void ApplyAlwaysOnTopMode();
     void UpdateToggleBitmap(wxAuiToolBar* toolbar, int tool_id, bool running, std::optional<bool>& shown_as_running);
     void UpdateToolBarBitmaps();
+    void UpdateLogAlertBadge();
     void UpdateTrainStatus();
     bool TrySaveAgent(const std::filesystem::path& file_path);
     void ShowEvalPaneIfHidden();
     void ToggleEvalPause();
     void AttachTrainStatusObserver(const std::shared_ptr<anet::rl::RunManager>& run_manager);
     void DetachTrainStatusObserver();
+    bool ApplyMainPaneLayout(bool train_open, bool eval_open, wxWindow* showing = nullptr);
+    void RestoreMainPanePosition(wxAuiPaneInfo& pane);
+    bool UpdateMainPaneControls();
+    struct MainPanePlacement {
+        int direction;
+        int layer;
+        int row;
+        int position;
+        bool floating;
+        bool shown;
+        bool operator==(const MainPanePlacement&) const = default;
+    };
+    std::array<MainPanePlacement, 2> GetMainPanePlacements();
+    void ScheduleMainPaneUpdate(bool update_layout = true);
+    void ApplyMainPaneSizes();
 private:
     // 補助 pane 列 (HeatMap/Conv2d の動的追加と幅解決)
     void AddAuxPane(wxWindow* window, const wxAuiPaneInfo& pane_info);
@@ -100,6 +125,7 @@ private:
     EvalPanel* eval_panel_ = nullptr;
     LogPanel* log_panel_ = nullptr;
     QValuePanel* q_value_panel_ = nullptr;
+    EvalTracePanel* eval_trace_panel_ = nullptr;
     wxAuiToolBar* run_control_toolbar_ = nullptr;
     wxAuiToolBar* step_toolbar_ = nullptr;
     wxAuiToolBar* run_ops_toolbar_ = nullptr;
@@ -110,9 +136,24 @@ private:
     // toggle bitmap へ反映済みの実行状態 (未反映は nullopt)。再生/一時停止の差し替え判定に使う。
     std::optional<bool> train_toggle_running_;
     std::optional<bool> eval_toggle_running_;
+    // Logs ボタンの印へ反映済みの未確認件数 (未反映は nullopt)。
+    std::optional<LogPanel::UnviewedAlerts> shown_log_alerts_;
     AlwaysOnTopMode always_on_top_mode_ = AlwaysOnTopMode::Off;
 
+    const MainView main_view_;
     const float train_config_fps_;
     const float eval_config_fps_;
+    const int eval_config_step_per_frame_;
+    int eval_steps_selection_ = wxID_NONE;
     bool initialized_ = false;
+    struct MainPaneDockPosition {
+        int direction;
+        int layer;
+        int row;
+        int position;
+    };
+    std::optional<MainPaneDockPosition> promoted_dock_position_;
+    std::array<MainPanePlacement, 2> main_pane_placements_{};
+    bool main_pane_update_scheduled_ = false;
+    bool main_pane_layout_update_needed_ = false;
 };

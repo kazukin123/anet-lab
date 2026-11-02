@@ -181,13 +181,19 @@
       "to": "18,000"
     },
     {
-      "key": "A2.eval_policy.eps_start",
+      "key": "A2.eval_policy.epsilon",
       "by": "run.@nature_dqn",
       "from": "0.01",
       "to": "0.05"
     },
     {
-      "key": "A2.eval_policy.eps_end",
+      "key": "A2.eval_policy.spatial.epsilon.first",
+      "by": "run.@nature_dqn",
+      "from": "0.01",
+      "to": "0.05"
+    },
+    {
+      "key": "A2.eval_policy.spatial.epsilon.last",
       "by": "run.@nature_dqn",
       "from": "0.01",
       "to": "0.05"
@@ -195,12 +201,12 @@
   ],
   "references": [
     {
-      "source": "A1.learner.per_beta_step",
+      "source": "A1.learner.per_beta.steps",
       "target": "@vars.half_exp_step",
       "value": "50,000,000"
     },
     {
-      "source": "DefaultDQNAgent.learner.per_beta_step",
+      "source": "DefaultDQNAgent.learner.per_beta.steps",
       "target": "@vars.half_exp_step",
       "value": "50,000,000"
     },

@@ -56,7 +56,7 @@ public:
     //wxImage heatmap_image;
 };
 
-class QValuePanel : public anet::rl::gui::Panel {
+class QValuePanel : public anet::rl::gui::Panel, public anet::rl::gui::TraceFollower {
 public:
     explicit QValuePanel(wxWindow* parent, const anet::ConfigData& config_data);
     void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
@@ -64,7 +64,7 @@ public:
 
     void SetActionHandler(std::function<void(int64_t)> action_handler);
 
-    void ApplyData(const QValueData& data);
+    void ApplyData(QValueData data);
     void Update();
 
     int GetPreferredDockWidth() const;
@@ -72,6 +72,10 @@ public:
     bool IsHistogram() const;
     bool IsAdvantage() const;
     bool IsLogScale() const;
+public:	//TraceFollower
+    std::shared_ptr<const anet::rl::gui::TraceSnapshot> CreateTraceSnapshot(const anet::rl::TrainEvent& event) override;
+    void ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot) override;
+    void ReturnToLive() override;
 private:
     void InitLayout();
     void SetupGrid();
@@ -106,7 +110,12 @@ private:
     std::function<void(int64_t)> action_handler_;
     std::shared_ptr<anet::rl::Notifier> notifier_ = nullptr;
     std::shared_ptr<anet::rl::TrainObserver> observer_ = nullptr;
-    anet::rl::gui::UIDataStore<QValueData> data_store_;
+    anet::rl::gui::UIDataStore<std::shared_ptr<const QValueData>> data_store_;
+    std::shared_ptr<const QValueData> latest_data_;
+    std::shared_ptr<const QValueData> trace_data_;
+    std::optional<anet::rl::step_t> latest_step_;
+    bool trace_mode_ = false;
+    wxStaticText* no_data_label_ = nullptr;
     std::vector<float> hist_weights_;
     std::atomic<bool> update_pending_{ false };  ///< Update()のCallAfter予約中フラグ(多重予約防止)
     int last_selected_row_ = -1;                 ///< 前回ハイライト表示した行(差分更新用)

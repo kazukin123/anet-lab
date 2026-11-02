@@ -323,7 +323,8 @@ namespace anet::rl {
             std::shared_ptr<const BatchEnv> env,
             const BatchExperience* experience,
             const BatchUpdateResultList* update_result_list,
-            std::shared_ptr<const BatchActionInfo> action_info = nullptr);
+            std::shared_ptr<const BatchActionInfo> action_info = nullptr,
+            std::shared_ptr<const BatchStepResult> step_result = nullptr, bool ended_only = false);
     private:
         using MetricsData = std::pair<step_t, std::optional<float>>;
         using MetricsDataList = std::vector<MetricsData>;
@@ -393,12 +394,11 @@ namespace anet::rl {
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
             int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
             
-        void OnEpisodeEnd(const EpisodeEndEvent& event) override
-        {
-            OnGenericUpdate(event.counts, event.agent, event.runner, event.env, nullptr, nullptr);
-        }
+        void OnEpisodeEnd(const EpisodeEndEvent& event) override;
         std::string GetClassName() const override { return "MetricsLogEpisodeEndObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }
+    private:
+        std::weak_ptr<const BatchStepResult> last_step_result_;
     };
 
     class MetricsLogSessionEndObserver : public MetricsLogObserverBase, public SessionEndObserver {

@@ -43,8 +43,8 @@ DefaultDQNAgent.net.branch.[adv_stream].structure = HeadFC80 > ReLU
 DefaultDQNAgent.net.body.output.[value_feature] = value_stream
 DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
 
-A1.head_init.mode = xavier
-A1.head_init.manual_gain = 0.0
+A1.head.init.mode = xavier
+A1.head.init.manual_gain = 0.0
 
 
 # ==============================================================================
