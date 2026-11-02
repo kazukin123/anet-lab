@@ -270,6 +270,8 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `MetricsService` | LoadingThreadのlifecycle、metrics body/header検証、coordinator実行、snapshot lease取得、HTTP error変換を担う |
 | `MetricsViewerController` | Run、metrics、priorityのREST APIを公開する |
 | `WorkspaceController` | workspace一覧・切替APIを公開し、同Controllerの不正JSONだけを400 `invalid_request`へ変換する |
+| `TagSetStore` | タグセットの起動時検証・初期値の複製・メモリ上の一覧・直列化したファイル更新を所有する |
+| `TagSetController` | タグセットの一覧・作成・更新・名前変更・削除を公開し、同Controllerの不正JSONを400へ変換する |
 | `MetricTraceEncoder` | double/float配列をlittle-endian Base64 chunk列へ符号化する |
 | `RunWarningRegistry` | 正規化したRun絶対パスごとに、登録workspace内に存在する間、世代をまたいで同じWARNを抑止する |
 | `HttpAccessLogFilter` | 全requestの開始・終了・所要時間をINFOで記録する |
@@ -284,15 +286,17 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `OverviewSvgRenderer` | 共通figureを1つの作業用Plotlyで直列exportし、タグごとの最新SVGだけを保持する。現在モデル・世代に一致する結果だけを公開する |
 | `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う。graphごとのデータ選択・共通表示モデル・外枠を管理し、描画keyが変わったgraphの内側だけを完成時に差し替える |
 | `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
+| `TagSetMenu` | タグセットの操作行と開閉する一覧、入力・確認・キーボード操作を描画する。選択名と取得済み一覧は `MetricsViewerClientApp` が所有する |
 | `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
 
 ### 3.3 UIコントロールの規約
 
-browserのcontrolは、押した瞬間に効果が出るもの、on/offが持続するもの、決まった段を順に巡るものの3種類しかない。
+browserのcontrolは、即時実行、トグル、巡回、開閉の4種類である。
 どれも`button`で作り、見分けはラベルの言葉づかいで付ける。
 
 | 種別 | ラベル | 状態 |
 |---|---|---|
+| 開閉 | 現在の値と `▾`。行の残りの幅を占め、名前だけを省略する | 開いている間は `.active` と `aria-expanded="true"` を対で更新する。`aria-pressed` は使わない |
 | 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View` | 持たない |
 | トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log` | `.active`と`aria-pressed`を対で更新する |
 | 巡回 | 現在の段をそのまま書く。graphの下限`p0–` / `p1–` / `p5–`と上限`–p100` / `–p99` / `–p95` | 押すたびに固定順で次の段へ進み、最後の段の次は先頭へ戻る。先頭の段以外で`.active`と`aria-pressed`をONにする |
@@ -301,6 +305,7 @@ sectionの見出し行には、ラベルに続けてそのリストへの操作�
 入りきらない分だけを次の行へ送る（Runsの`Recolor` / `Auto Recolor`）。
 サイドパネルのbuttonは、見出し行・ボタン行・globalのどこにあっても同じ寸法にする。
 絞り込み中に一括操作（`Select All`など）を押したときは、ボタンを無効化せず、絞り込みを解除してから実行する。
+前提の無い即時実行は disabled にする。タグセットの `Save`・`Revert` は選択中のセットと現在の選択に差があるときだけ押せ、文字と枠を `--control-border` より弱く表示する。
 
 on/offはラベル文字へ書かず、押下色だけで示す。状態の反映は`setToggleState()`へ集約し、
 見た目の`.active`と意味の`aria-pressed`が食い違わないようにする。checkboxは使わない。
@@ -338,6 +343,8 @@ Auto Reloadも手動Reloadも通常と同じに効き、side panelが隠れてRe
 | browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 | test | [src/test/java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
 | build | [pom.xml](../../apps/metrics-viewer/pom.xml)、[checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml) |
+
+タグセットのコード: server は `service/TagSetStore.java`・`view/TagSetController.java` と `view/model` の request/response 型、browser は `metrics-viewer.js` の `TagSetMenu`。初期値は `src/main/resources/initial_tag_sets.json`。
 
 ## 5. 静的構造
 
@@ -578,11 +585,12 @@ Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で13
 ### 7.1 Metrics Viewer固有設定
 
 すべて`application.properties`または起動引数（`--key=value`）で与える。数値設定は
-`MetricsViewerSettings`、workspace path/nameは`WorkspaceManager`のconstructorで検証し、
+`MetricsViewerSettings`、workspace path/nameは`WorkspaceManager`、タグセットのパス・ファイルは`TagSetStore`のconstructorで検証し、
 契約違反はapplication起動を中止する。
 
 | key | 既定 | 有効範囲 | 意味 |
 |---|---:|---|---|
+| `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | local file path | 作業用タグセット。相対パスは作業ディレクトリ基準。`TagSetStore` が親を作り、ディレクトリ指定・作成不能・壊れた内容では起動を止める |
 | `metricsviewer.workspaces-dir` | `workspaces` | local path | workspace群の親directory。UNC rootは起動時に拒否する |
 | `metricsviewer.initial-workspace` | `_default` | 直下directory名 | 起動時のcurrent workspace。妥当だが不在ならWARNと空のRun一覧で起動する |
 | `metricsviewer.target-points-per-series` | `8000` | 3 〜 `max-points-per-request` | requestが`maxPoints`を省略したときの1系列あたり既定vertex予算 |
@@ -619,6 +627,8 @@ request bodyは上記に加えて、`@JsonAnySetter`で未知fieldを捕捉し�
 
 既定pathとportは[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)が固定する。Optuna用の別Viewer launcherは持たず、同じworkspace selectorを使う。
 
+別の Workspace 群を起動引数で指定すると、既定の作業用タグセットもその群の親直下に作る。`metricsviewer.tag-sets-file` の明示指定で保存先を変えられる。
+
 ### 7.4 browser側の定数と永続state
 
 serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)の先頭で定義する。
@@ -638,12 +648,13 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 solo選択（同じRun行の連続click）は2回のclickを1つの操作として扱う。元から選択中だったRunは色を保ち、選択していなかったRunは新しく選んだ1本として`#2F7DE1`を取る。
 どちらも未選択Runの色を変えず、配る色がpaletteの20色を使い切るとラウンドを改める。
 
-`localStorage`へ保存するstateは次の8件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
+`localStorage`へ保存するstateは次の9件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
 | `anet.metricsviewer.workspace` | 最後に選択したworkspace。列挙に無ければserver currentで上書きする |
 | `anet.metricsviewer.activeTags` | 現在選択中のtag集合 |
+| `anet.metricsviewer.tagSet` | 選択中のタグセット名のJSON string。未選択ではキーを削除。起動時は名前だけを復元し、選択はactiveTagsから戻す |
 | `anet.metricsviewer.knownTags` | 一度でも観測したtag集合。未知tagだけを自動でactiveにするために使う |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lockのon/off |
 | `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
@@ -793,7 +804,7 @@ currentが不在でもcurrent名は返し、選択肢には含めない。
 `POST /api/workspace`は`{"name":"dm_long"}`だけを受け付ける閉じたschemaで、成功時は
 204 No Contentを返す。同じcurrent名は存在確認より先に204 no-opとし、epochを増やさない。
 未知workspaceは404 `unknown_workspace`、bodyの型・必須field・未知field違反は400
-`invalid_request`とする。不正JSONの応答変換は`WorkspaceController`内に限定し、
+`invalid_request`とする。不正JSONの応答変換は`WorkspaceController`と`TagSetController`内に限定し、
 metrics・prioritize APIのparse失敗形式へ影響させない。
 
 clientがselector表示後に外部でrename・削除されたworkspaceへ切り替え、`unknown_workspace`を受けた場合は、
@@ -916,6 +927,20 @@ lod : { "kind":"lod",
 `minMax`は各bucketの`min` / `max` / `last`を序数順に並べた折れ線用の点列で、同一序数が重なる場合は1点へ畳む。
 `summary.steps`は共通Step区間の左端であり、band描画とbucket単位のhover表示に使う。
 
+### 9.6 タグセット API と保存
+
+`GET /api/tag-sets.json` は全件を `{"tagSets":[{"name":string,"tags":[string]}]}` で返す。名前・tag は UTF-16 コード単位順。
+`POST /api/tag-sets/create`・`update` は `{"name":string,"tags":[string]}`、`rename` は `{"name":string,"newName":string}`、`delete` は `{"name":string}`。成功は200で全件を返す。
+
+bodyは閉じたschema。形の違反→名前→tag→参照元の不在→作成先の衝突→書き込みの順に判定し、400 `invalid_request`、404 `unknown_tag_set`、409 `tag_set_exists`、500 `tag_sets_write_failed` を `ApiError` で返す。workspace切替とタグセットだけが不正JSONを400 `invalid_request`へ変換し、metrics・prioritizeの失敗形式は変えない。
+名前はUnicode White_Spaceを前後から除いた1〜64コードポイントで、制御文字不可・大文字小文字を区別する。tagは空でない文字列・制御文字不可・同一セット内の重複不可。実在のRunとの照合はしない。名前の存在を確かめたあとの同名renameは書かずに200。
+
+初期値 `initial_tag_sets.json` は作業用の有無にかかわらず毎起動検証し、作業用が無いときだけ写す。両方ともJSON objectで、名前をキー、tag配列を値とする。重複キー・不正な名前・tag・型を拒否する。ファイル内の名前の前後空白は除去せず違反とする。保存は名前・tagを整列し、2字下げ・1行1tag・UTF-8 BOMなし・LF・末尾改行。同じディレクトリの一時ファイルから置き換え、成功後だけ一覧を公開する。作業用は起動時だけ読み、外部変更は再起動まで反映せず、UI保存で上書きされる。同じセットの同時更新は後勝ち。
+
+呼び出しは不可視tagを含む選択全体を置き換える。Saveも比較も全体を対象とし、新規tag自動選択を保つ。印のtitleは追加・除去・不可視の差の数を示す。手元の一覧は起動・メニューを開くとき・更新応答・Revert前に更新し、選択名が消えれば未選択にしてToastを出す。自分の改名・削除は先に選択名を移動・解除するのでToastを出さない。起動時の取得失敗は名前と選択を保ち差を未判定にする。開くときの失敗は古い一覧があれば使い、無ければ開かない。Revert前の取得失敗では選択を変えない。書き込みの通信失敗も選択を変えず、404/409ではToast後に一覧を取り直す。
+
+メニューはbody直下の固定配置で親のoverflowによる見切れを防ぎ、↑↓・Enter・Esc、入力内のEnter/Esc、外側クリックに対応する。Save Asに保存数と不可視数、一覧に見えている数/全数を表示する。作業用はgitで追跡しリリースzipから除き、jarには初期値だけを同梱する。
+
 ## 10. lifetime・並行制御・エラー境界
 
 ### 10.1 lifetime
@@ -1026,6 +1051,8 @@ frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそ�
 完全offline環境で使う場合はasset取得方法を別途用意する必要がある。
 
 ## 12. テストと拡張時の確認事項
+
+タグセットは `TagSetStoreTest`・`TagSetApiIntegrationTest`・`TagSetPlaywrightTest` で検証する。梱包を含む手順は [PRD111検証README](../../core/anet-core/testdata/prd111/README.md)。
 
 ### 12.1 テストの構成
 

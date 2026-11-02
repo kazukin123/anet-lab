@@ -723,7 +723,7 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		// 見出し行はラベルとボタンで高さが違うので、topの一致では判定できない。
 		assertEquals(
 				"run-section/header:false:false|run-section/controls:false:false"
-						+ "|tag-section/header:false:false",
+						+ "|tag-section/header:false:false|tag-section/controls:false:false",
 				page.evaluate("""
 						() => [...document.querySelectorAll('.section-header, .section-controls')]
 							.map(row => {

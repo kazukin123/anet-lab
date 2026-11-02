@@ -81,6 +81,10 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | `Recolor` | 選択中Runへ、互いに最も見分けやすい色を配り直す。選択順に固定の並びで配るので、本数が同じなら同じ色の組になる |
 | `Auto Recolor` | 新しく選んだRun（初回表示で選ばれるRunを含む）へ、選択中のほかのRunから最も見分けやすい色を自動で配る。選択中だったRunの色は変えない。既定ON |
 | `Tags` | 表示するmetric tagを選ぶ |
+| `Tag Set ▾` | 開いて名前の行を押すと、見えないtagも含めて選択全体を保存済みの集合へ置き換える。`n/m`はTags一覧に出ている数/保存した全数 |
+| `Save` / `Revert` | 名前の横の `*` は保存した集合との差。`Save` は選択全体を上書き保存し、`Revert` はサーバーから最新の中身を取り直して戻す。差が無いときは押せない |
+| `+ Save current selection as…` | 一覧の下から名前を入力して保存する。入力欄の脇で保存数と一覧に無い数を確かめる |
+| `✎` / `×` | 行の中で名前変更、または確認して削除。`Deselect tag set` はtagの選択を保ったままセットの選択だけを外す |
 | `Selected Only`（Runs / Tags） | 見出し行のトグル。選択済みRun・tagだけを一覧へ残す。`Select All`などの一括操作を押すと自動でOFFへ戻る |
 | Run行の背景と`%` | 選択したMetricsマスタをSQLiteへ取り込んだRun単位の進捗を示す |
 | `Reload` | Run一覧、tag、現在viewportのmetric rangeを再取得して再描画する |
@@ -96,6 +100,11 @@ Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる
 初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
 Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
 選択workspace、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、tag別のLogとpercentileの下限・上限はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとpercentileの下限・上限はworkspaceをまたいで同名tagへ適用される。
+
+選択中のタグセット名もlocalStorageへ保持される。ページを読み直しても未保存のtag選択を保つ。タグセットはWorkspaceをまたいで共有する。メニューは↑↓とEnterで操作でき、Escまたは外側のクリックで閉じる。入力欄のEscは編集だけを取り消す。
+
+> [!NOTE]
+> 作業用ファイルは既定で `metricsviewer.workspaces-dir` 直下の `metrics_viewer_tag_sets.json`。Viewerは親が無ければ作成し、作業用が無いときだけjar内の初期値を写す。保存先は起動引数 `--metricsviewer.tag-sets-file` で変更できる。稼働中の手動編集やgit切り替えによる変更は再起動まで反映されず、その前のUI保存で上書きされて消える。外で編集したあとはUIで保存する前にViewerを再起動する。
 
 percentileは、凡例で非表示にしたRunを除き、各Runについて現在のX範囲にあるLOD描画値から個別に計算する。Y軸は、各Runの下限percentileのうち最小のものから、上限percentileのうち最大のものまでになる。p0とp100はそれぞれ最小値と最大値である。線は変えずにY軸の表示範囲だけを絞るので、範囲外の点はY軸の外へはみ出して切れる。点数による下限はなく、tooltipには範囲内の点数と入力点数を示す。Logとの併用時もpercentileはraw値で計算してからsigned-log座標へ変換する。手動Y zoomは維持され、`Reset View`またはPlotlyのaxis resetでpercentileの範囲へ戻る。グラフheaderの統計値とclient cacheのraw値は変更しない。
 

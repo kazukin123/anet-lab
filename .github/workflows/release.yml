@@ -209,6 +209,14 @@ jobs:
         Copy-Item apps/runner/config "$stage/apps/runner/config" -Recurse
         # workspaces: ENV 別 workspace の枠 (追跡対象の config/_main.txt だけ。runs/ は実行時に Runner が生成)
         Copy-Item apps/runner/workspaces "$stage/apps/runner/workspaces" -Recurse
+        # 普段のタグセットは配らず、jar内の初期値だけを配る (ADR 0067)
+        $tagSetsFile = Join-Path $stage "apps/runner/workspaces/metrics_viewer_tag_sets.json"
+        if (Test-Path -LiteralPath $tagSetsFile) {
+          Remove-Item -LiteralPath $tagSetsFile -Force -ErrorAction Stop
+        }
+        if (Test-Path -LiteralPath $tagSetsFile) {
+          throw "Working tag sets file leaked into release stage: $tagSetsFile"
+        }
         Copy-Item apps/runner/tools "$stage/apps/runner/tools" -Recurse
 
         # wx DLL はビルド時の POST_BUILD コピー(apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast
@@ -219,6 +227,11 @@ jobs:
         # apps/metrics-viewer: jar のみ (パスは開発時と同一)
         New-Item -ItemType Directory -Force -Path "$stage/apps/metrics-viewer/target" | Out-Null
         Copy-Item apps/metrics-viewer/target/metrics-viewer.jar "$stage/apps/metrics-viewer/target/"
+        # 初回起動で作業用へ写す初期値が、配布するjarに同梱されていることを確かめる
+        $jarEntries = @(jar tf "$stage/apps/metrics-viewer/target/metrics-viewer.jar")
+        if ($LASTEXITCODE -ne 0 -or $jarEntries -notcontains "BOOT-INF/classes/initial_tag_sets.json") {
+          throw "initial_tag_sets.json missing from Metrics Viewer jar"
+        }
 
         # docs: design のみ
         New-Item -ItemType Directory -Force -Path "$stage/docs" | Out-Null
@@ -246,8 +259,12 @@ jobs:
         tar.exe -a -cf "../$docsZip" LICENSE NOTICE html
         Set-Location ..
 
-        # 各配布物が単独でライセンス文書を持つことを archive entry で検証する
+        # 配布zipのentryを読み、作業用タグセットが混入していないことを確かめる
         $mainEntries = @(tar.exe -tf $mainZip)
+        if ($mainEntries -contains "apps/runner/workspaces/metrics_viewer_tag_sets.json") {
+          throw "Working tag sets file leaked into release zip"
+        }
+        # 各配布物が単独でライセンス文書を持つことを archive entry で検証する
         foreach ($entry in @("LICENSE", "NOTICE", "apps/", "docs/", "licenses/")) {
           if ($mainEntries -notcontains $entry) { throw "Main zip entry missing: $entry" }
         }

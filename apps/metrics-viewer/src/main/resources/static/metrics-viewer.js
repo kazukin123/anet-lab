@@ -11,6 +11,7 @@ const GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX = 1;
 const HOVER_SCROLL_DELAY_MS = 300;
 const MAX_SAFE_STEP = Number.MAX_SAFE_INTEGER;
 const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
+const STORAGE_KEY_TAG_SET = "anet.metricsviewer.tagSet";
 const STORAGE_KEY_KNOWN_TAGS = "anet.metricsviewer.knownTags";
 const STORAGE_KEY_LOG_SCALE_TAGS = "anet.metricsviewer.logScaleTags";
 const STORAGE_KEY_PERCENTILE_BOUNDS = "anet.metricsviewer.percentileBounds";
@@ -285,6 +286,25 @@ class DataFetcher {
 		const response = await fetch(`${API_BASE_URL}/workspaces.json`);
 		if (!response.ok) throw new Error(`Failed workspaces.json: ${response.status}`);
 		return response.json();
+	}
+
+	async fetchTagSets() {
+		const response = await fetch(`${API_BASE_URL}/tag-sets.json`);
+		if (!response.ok) throw new Error(`Failed tag-sets.json: ${response.status}`);
+		return response.json();
+	}
+
+	async writeTagSet(operation, body) {
+		const response = await fetch(`${API_BASE_URL}/tag-sets/${operation}`, {
+			method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+		});
+		const payload = await response.json();
+		if (!response.ok) {
+			const error = new Error(payload.message ?? `Failed tag set ${operation}: ${response.status}`);
+			error.status = response.status;
+			throw error;
+		}
+		return payload;
 	}
 
 	async switchWorkspace(name) {
@@ -1601,6 +1621,234 @@ class PlotlyController {
 	}
 }
 
+// Java側と同じUnicode White_Spaceを使い、JSのtrimの追加文字を含めない。
+function normalizeTagSetName(value) {
+	const name = value.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
+	if (!name || [...name].length > 64 || /\p{Cc}/u.test(name)) {
+		throw new Error("Tag set name must contain 1–64 code points without control characters.");
+	}
+	return name;
+}
+
+class TagSetMenu {
+	constructor(app) {
+		// 親のoverflowで切れない一覧をbody直下に作り、開閉・編集の状態も初期化する。
+		this.app = app;
+		this.button = document.getElementById("btn-tag-set");
+		this.menu = document.createElement("div");
+		this.menu.id = "tag-set-menu";
+		this.menu.hidden = true;
+		this.editor = null;
+		this.openRevision = 0;
+		document.body.append(this.menu);
+		// 常設の操作行をアプリの処理へ接続し、開閉だけはメニューが扱う。
+		this.button.addEventListener("click", () => {
+			if (!this.menu.hidden) this.close();
+			else this.open();
+		});
+		document.getElementById("btn-tag-set-save").onclick = () => app.saveTagSet();
+		document.getElementById("btn-tag-set-revert").onclick = () => app.revertTagSet();
+		// 外側の操作で閉じ、キー操作と画面幅の変更も同じ一覧へ反映する。
+		document.addEventListener("click", event => {
+			if (!this.menu.contains(event.target) && !this.button.contains(event.target)) this.close();
+		});
+		document.addEventListener("keydown", event => this.onKeyDown(event));
+		window.addEventListener("resize", () => { if (!this.menu.hidden) this.position(); });
+	}
+
+	onKeyDown(event) {
+		if (this.menu.hidden || event.target instanceof HTMLInputElement) return;
+		if (event.key === "Escape") {
+			event.preventDefault();
+			this.close();
+			this.button.focus();
+		} else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			// 編集・削除の補助ボタンではなく、呼び出しと下の操作の行を巡る。
+			event.preventDefault();
+			const rows = [...this.menu.querySelectorAll(".tag-set-name, .tag-set-actions > button")];
+			if (!rows.length) return;
+			const current = rows.indexOf(document.activeElement);
+			const next = current < 0 ? (event.key === "ArrowDown" ? 0 : rows.length - 1)
+					: (current + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+			rows[next].focus();
+		}
+	}
+
+	close() {
+		this.openRevision++;
+		this.menu.hidden = true;
+		this.editor = null;
+		this.button.classList.remove("active");
+		this.button.setAttribute("aria-expanded", "false");
+	}
+
+	async open() {
+		// 取得失敗では古い一覧を使えるが、一度も取れていなければ開かない。
+		const revision = ++this.openRevision;
+		try { await this.app.refreshTagSets(); }
+		catch (error) { Toast.show(error.message); }
+		if (revision !== this.openRevision || this.app.tagSets === null) return;
+		this.menu.hidden = false;
+		this.button.classList.add("active");
+		this.button.setAttribute("aria-expanded", "true");
+		this.render();
+	}
+
+	position() {
+		const bounds = this.button.getBoundingClientRect();
+		this.menu.style.width = Math.min(420, window.innerWidth - 16) + "px";
+		this.menu.style.left = Math.max(8, Math.min(bounds.left, window.innerWidth - this.menu.offsetWidth - 8)) + "px";
+		this.menu.style.top = Math.max(8, Math.min(bounds.bottom + 3, window.innerHeight - this.menu.offsetHeight - 8)) + "px";
+	}
+
+	action(text, handler, className = "") {
+		const button = document.createElement("button");
+		button.textContent = text;
+		button.className = className;
+		// 行の置換後に、取り外したクリック元を外側クリックと誤認しない。
+		button.onclick = event => { event.stopPropagation(); handler(); };
+		return button;
+	}
+
+	render() {
+		if (this.menu.hidden) return;
+		// 一覧の再取得でも編集中の値を保ち、名前はHTMLとして解釈しない。
+		const hadInputFocus = this.menu.contains(document.activeElement);
+		this.menu.replaceChildren();
+		for (const info of this.app.tagSets ?? []) {
+			const row = document.createElement("div");
+			row.className = "tag-set-row";
+			row.dataset.name = info.name;
+			if (this.editor?.name === info.name && this.editor.kind !== "create") {
+				this.renderEditor(row);
+			} else {
+				const call = this.action(info.name, () => this.app.callTagSet(info), "tag-set-name");
+				const count = document.createElement("span");
+				count.className = "tag-set-count";
+				count.title = "Tags shown in the list / tags in the set";
+				const rename = this.action("✎", () => this.edit("rename", info.name));
+				rename.title = "Rename tag set";
+				const remove = this.action("×", () => this.edit("delete", info.name));
+				remove.title = "Delete tag set";
+				row.append(call, count, rename, remove);
+			}
+			this.menu.append(row);
+		}
+		if (!this.app.tagSets?.length) {
+			const empty = document.createElement("div");
+			empty.textContent = "No tag sets yet.";
+			this.menu.append(empty);
+		}
+		// 呼び出しの行と、保存・選択解除の操作を区切って並べる。
+		const actions = document.createElement("div");
+		actions.className = "tag-set-actions";
+		if (this.editor?.kind === "create") this.renderEditor(actions);
+		else actions.append(this.action("+ Save current selection as…", () => this.edit("create")));
+		if (this.app.selectedTagSet !== null) {
+			const deselect = this.action("Deselect tag set", () => {
+				this.app.selectTagSet(null);
+				this.close();
+			});
+			deselect.title = "Keep the current tag selection and stop tracking the tag set";
+			actions.append(deselect);
+		}
+		this.menu.append(actions);
+		this.sync();
+		this.position();
+		if (hadInputFocus) this.menu.querySelector("input")?.focus();
+	}
+
+	edit(kind, name = null) {
+		this.editor = { kind, name, value: kind === "rename" ? name : "" };
+		this.render();
+		this.menu.querySelector("input")?.focus();
+	}
+
+	renderEditor(container) {
+		// 削除は確認文、作成・改名は入力欄にし、編集中の値は再描画に備えて保持する。
+		const editor = this.editor;
+		const form = document.createElement("div");
+		form.className = "tag-set-editor";
+		let input = null;
+		if (editor.kind === "delete") {
+			const label = document.createElement("span");
+			label.textContent = `Delete "${editor.name}"?`;
+			form.append(label);
+		} else {
+			input = document.createElement("input");
+			input.setAttribute("aria-label", "Tag set name");
+			input.value = editor.value;
+			input.oninput = () => { editor.value = input.value; };
+			form.append(input);
+		}
+		const submit = async () => {
+			const operation = editor.kind;
+			try {
+				// 作る名前を先に正規化し、操作ごとのbodyを現在の編集内容から組み立てる。
+				const name = operation === "delete" ? editor.name : normalizeTagSetName(editor.value);
+				const body = operation === "create" ? { name, tags: [...this.app.activeTags] }
+						: operation === "rename" ? { name: editor.name, newName: name } : { name };
+				if (!await this.app.writeTagSet(operation, body)) return;
+				// 保存に成功したときだけ編集を終え、新規保存は閉じて改名・削除は一覧へ戻す。
+				this.editor = null;
+				if (operation === "create") this.close();
+				else this.render();
+			} catch (error) { Toast.show(error.message); }
+		};
+		// Cancelは保存せず編集だけを取り消し、通常の行を描き直す。
+		const cancel = () => { this.editor = null; this.render(); };
+		form.append(this.action(editor.kind === "create" ? "Save" : editor.kind === "rename" ? "Rename" : "Delete", submit),
+				this.action("Cancel", cancel));
+		if (input) {
+			input.onkeydown = event => {
+				if (event.key === "Enter" || event.key === "Escape") {
+					// 入力欄の確定・取り消しを、一覧全体のキー操作へ伝播させない。
+					event.preventDefault();
+					event.stopPropagation();
+					if (event.key === "Enter") submit();
+					else cancel();
+				}
+			};
+		}
+		container.append(form);
+		if (editor.kind === "create") {
+			// Save Asの入力欄の脇に件数の欄を置き、値はsyncで現在の選択から反映する。
+			const summary = document.createElement("span");
+			summary.className = "tag-set-save-count";
+			input.after(summary);
+		}
+	}
+
+	sync() {
+		// 選択全体との差を操作行へ反映し、Run選択から見える数だけを別に数える。
+		const difference = this.app.tagSetDifference();
+		const name = this.app.selectedTagSet;
+		this.button.querySelector(".tag-set-label").textContent = name ?? "Tag Set";
+		this.button.classList.toggle("unselected", name === null);
+		this.button.querySelector(".tag-set-modified").textContent = difference?.modified ? " *" : "";
+		this.button.title = difference?.modified
+				? `Modified: +${difference.added} −${difference.removed}${difference.hidden ? ` (${difference.hidden} not in the list)` : ""}`
+				: name ?? "Tag Set";
+		document.getElementById("btn-tag-set-save").disabled = !difference?.modified;
+		document.getElementById("btn-tag-set-revert").disabled = !difference?.modified;
+		const visible = this.app._visibleTagKeys();
+		for (const row of this.menu.querySelectorAll(".tag-set-row")) {
+			const info = this.app.tagSets?.find(item => item.name === row.dataset.name);
+			const call = row.querySelector(".tag-set-name");
+			if (call && info) {
+				call.textContent = info.name + (info.name === name && difference?.modified ? " *" : "");
+				call.classList.toggle("active", info.name === name);
+				row.querySelector(".tag-set-count").textContent = `${info.tags.filter(tag => visible.has(tag)).length}/${info.tags.length}`;
+			}
+		}
+		const summary = this.menu.querySelector(".tag-set-save-count");
+		if (summary) {
+			const hidden = [...this.app.activeTags].filter(tag => !visible.has(tag)).length;
+			summary.textContent = `${this.app.activeTags.size} tags${hidden ? ` (${hidden} not in the list)` : ""}`;
+		}
+	}
+}
+
 class UIController {
 	constructor(app) {
 		this.app = app;
@@ -1948,6 +2196,11 @@ class MetricsViewerClientApp {
 		this.selectedRuns = [];
 		this.activeTags = new Set();
 		this.knownTags = new Set();
+		this.tagSets = null;
+		this.selectedTagSet = null;
+		this.tagSetsRevision = 0;
+		this.tagSetWriteTail = Promise.resolve();
+		this.tagSetMenu = new TagSetMenu(this);
 		this.logScaleTags = new Set();
 		// tagKey -> { lower, upper }(percent)。下限・上限とも制限なしのtagは入れない。
 		this.percentileBoundsByTag = new Map();
@@ -1985,11 +2238,14 @@ class MetricsViewerClientApp {
 	async init() {
 		this._loadState();
 		this.ui.bindStaticControls();
+		this.tagSetMenu.sync();
 		this._syncGraphScrollLockUi();
 		this._syncAutoRecolorUi();
 		this.setMode(Mode.META_LOADING);
 		try {
 			await this._initializeWorkspace();
+			try { await this.refreshTagSets(); }
+			catch (error) { Toast.show(error.message); }
 			await this.refreshMetadata({ initial: true, requestData: false });
 			this.setMode(Mode.NORMAL);
 			await this.requestVisibleData({ force: true });
@@ -2189,8 +2445,9 @@ class MetricsViewerClientApp {
 		this._applyRunColors();
 		this.ui.renderRunList(this.cache.getRuns(), this.selectedRuns, this.runColorMap);
 		this.ui.bindRunListEvents();
-		this.ui.renderTagList([...this._visibleTagSet()]);
+		this.ui.renderTagList([...this._visibleTagKeys()]);
 		this.ui.bindTagListEvents();
+		this.tagSetMenu.sync();
 	}
 
 	_applyRunColors() {
@@ -2285,6 +2542,99 @@ class MetricsViewerClientApp {
 		this.refreshLists();
 		this._renderCurrent();
 		this.requestVisibleData().catch(error => this._handleQueryError(error));
+	}
+
+	callTagSet(info) {
+		// 保存した集合全体を選び、既存の永続化・描画経路へ渡す。
+		this.activeTags = new Set(info.tags);
+		this.selectTagSet(info.name);
+		this.tagSetMenu.close();
+		this.onTagSelectionChanged();
+	}
+
+	selectTagSet(name) {
+		this.selectedTagSet = name;
+		if (name === null) localStorage.removeItem(STORAGE_KEY_TAG_SET);
+		else localStorage.setItem(STORAGE_KEY_TAG_SET, JSON.stringify(name));
+		this.tagSetMenu.sync();
+	}
+
+	tagSetDifference() {
+		const info = this.tagSets?.find(item => item.name === this.selectedTagSet);
+		if (!info) return null;
+		const saved = new Set(info.tags);
+		const added = [...this.activeTags].filter(tag => !saved.has(tag));
+		const removed = [...saved].filter(tag => !this.activeTags.has(tag));
+		const visible = this._visibleTagKeys();
+		return { added: added.length, removed: removed.length, modified: added.length + removed.length > 0,
+			hidden: [...added, ...removed].filter(tag => !visible.has(tag)).length };
+	}
+
+	applyTagSets(payload) {
+		// 応答の形を確かめてから、差の比較に使う一覧を差し替える。
+		if (!Array.isArray(payload?.tagSets)) throw new Error("Invalid tag sets response");
+		this.tagSets = payload.tagSets;
+		// 選択名が消えていれば、タグの選択を保ったまま名前を外して知らせる。
+		if (this.selectedTagSet !== null && !this.tagSets.some(info => info.name === this.selectedTagSet)) {
+			const missing = this.selectedTagSet;
+			this.selectTagSet(null);
+			Toast.show(`Tag set "${missing}" no longer exists.`);
+		}
+		// 一覧と選択名の整合が取れたあとで、操作行と開いている一覧を更新する。
+		this.tagSetMenu.sync();
+		this.tagSetMenu.render();
+	}
+
+	async refreshTagSets() {
+		// 古いGETが更新応答を上書きしないよう、一覧取得に独立した世代を持たせる。
+		const revision = ++this.tagSetsRevision;
+		const payload = await this.fetcher.fetchTagSets();
+		if (revision !== this.tagSetsRevision) return false;
+		this.applyTagSets(payload);
+		return true;
+	}
+
+	async writeTagSet(operation, body) {
+		const write = async () => {
+			try {
+				const payload = await this.fetcher.writeTagSet(operation, body);
+				this.tagSetsRevision++;
+				// 自分の改名・削除は消失判定より先に選択名へ反映する。
+				if (operation === "create") this.selectTagSet(body.name);
+				if (operation === "rename" && this.selectedTagSet === body.name) this.selectTagSet(body.newName);
+				if (operation === "delete" && this.selectedTagSet === body.name) this.selectTagSet(null);
+				this.applyTagSets(payload);
+				return true;
+			} catch (error) {
+				Toast.show(error.message);
+				if (error.status === 404 || error.status === 409) {
+					try { await this.refreshTagSets(); }
+					catch (refreshError) { Toast.show(refreshError.message); }
+				}
+				return false;
+			}
+		};
+		this.tagSetWriteTail = this.tagSetWriteTail.then(write, write);
+		return this.tagSetWriteTail;
+	}
+
+	saveTagSet() {
+		if (this.tagSetDifference()?.modified) {
+			return this.writeTagSet("update", { name: this.selectedTagSet, tags: [...this.activeTags] });
+		}
+	}
+
+	async revertTagSet() {
+		// 操作開始時の選択名を覚え、戻す差がある場合だけ取得へ進む。
+		const name = this.selectedTagSet;
+		if (!this.tagSetDifference()?.modified) return;
+		try {
+			// 最新の一覧を取得し、取得中に選択が変わっていれば古い要求で上書きしない。
+			if (!await this.refreshTagSets() || this.selectedTagSet !== name) return;
+			// 取り直した中身を通常の呼び出し経路へ渡し、選択全体と表示を戻す。
+			const info = this.tagSets.find(item => item.name === name);
+			if (info) this.callTagSet(info);
+		} catch (error) { Toast.show(error.message); }
 	}
 
 	onViewportChanged(tagKey, range, autorange) {
@@ -2532,7 +2882,7 @@ class MetricsViewerClientApp {
 				&& Math.abs(latest - viewport.to) <= viewport.width * 0.05;
 	}
 
-	_visibleTagSet() {
+	_visibleTagKeys() {
 		const tags = new Set();
 		for (const runId of this.selectedRuns) {
 			for (const tagKey of this.cache.getTagKeys(runId)) tags.add(tagKey);
@@ -2541,13 +2891,13 @@ class MetricsViewerClientApp {
 	}
 
 	_visibleSelectedTags() {
-		const visible = this._visibleTagSet();
+		const visible = this._visibleTagKeys();
 		return [...this.activeTags].filter(tag => visible.has(tag)).sort();
 	}
 
 	_activateNewVisibleTags() {
 		let changed = false;
-		for (const tagKey of this._visibleTagSet()) {
+		for (const tagKey of this._visibleTagKeys()) {
 			if (!this.knownTags.has(tagKey)) {
 				this.knownTags.add(tagKey);
 				this.activeTags.add(tagKey);
@@ -2862,6 +3212,18 @@ class MetricsViewerClientApp {
 	}
 
 	_loadState() {
+		// 名前だけを復元し、タグ選択は従来のactiveTagsから独立に戻す。
+		try {
+			const stored = localStorage.getItem(STORAGE_KEY_TAG_SET);
+			if (stored !== null) {
+				const name = JSON.parse(stored);
+				if (typeof name !== "string" || name !== normalizeTagSetName(name)) throw new Error("expected a tag set name JSON string");
+				this.selectedTagSet = name;
+			}
+		} catch (error) {
+			console.warn(`Failed to load ${STORAGE_KEY_TAG_SET}`, error);
+			this.selectTagSet(null);
+		}
 		this.activeTags = this._loadSet(STORAGE_KEY_TAGS);
 		this.knownTags = this._loadSet(STORAGE_KEY_KNOWN_TAGS);
 		this.logScaleTags = this._loadSet(STORAGE_KEY_LOG_SCALE_TAGS);

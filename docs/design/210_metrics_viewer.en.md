@@ -271,6 +271,8 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `MetricsService` | Handles LoadingThread lifecycle, metrics body/header validation, coordinator execution, snapshot lease acquisition, and HTTP error conversion |
 | `MetricsViewerController` | Exposes Run, metrics, and priority REST APIs |
 | `WorkspaceController` | Exposes workspace listing/switching APIs and converts malformed JSON to 400 `invalid_request` only within this controller |
+| `TagSetStore` | Owns startup validation, initial-file copying, the in-memory list, and serialized file updates |
+| `TagSetController` | Exposes tag set operations and maps malformed JSON within this controller to 400 |
 | `MetricTraceEncoder` | Encodes double/float arrays into little-endian Base64 chunks |
 | `RunWarningRegistry` | Suppresses warnings by normalized absolute Run path while the Run remains in registered workspaces |
 | `HttpAccessLogFilter` | Logs every request's start, end, and elapsed time at INFO |
@@ -285,15 +287,17 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `OverviewSvgRenderer` | Serially exports shared figures using one workbench Plotly, retains the latest SVG per tag, and publishes only results matching the current model and generation |
 | `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Manages per-graph data selection, shared display models and frames; replaces changed graph contents after drawing completes |
 | `UIController` | Handles Run/Tag lists, progress display, and static control binding |
+| `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. The client app owns the selected name and fetched list |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
 ### 3.3 UI Control Conventions
 
-Browser controls have only three types: immediate actions, persistent on/off toggles, and cycles through fixed steps in order.
+Browser controls have four types: immediate actions, toggles, cycles, and expandable controls.
 All use `button` elements, distinguished by their label wording.
 
 | Type | Label | State |
 |---|---|---|
+| Expandable | Current value and `▾`; fills the remaining row width and truncates only the name | Update `.active` and `aria-expanded` together; do not use `aria-pressed` |
 | Immediate action | Starts with a verb: `Reload`, `Select All`, `Select Latest`, `Recolor`, `Clear All`, `Reset View` | None |
 | Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log` | Update `.active` and `aria-pressed` together |
 | Cycle | States the current step as is: the graph lower limits `p0–` / `p1–` / `p5–` and upper limits `–p100` / `–p99` / `–p95` | Each press advances to the next step in a fixed order, returning to the first step after the last. Set `.active` and `aria-pressed` ON for every step except the first |
@@ -302,6 +306,7 @@ In each section heading row, place list operations left-aligned after the label.
 Only overflowing controls move to the next row (Runs' `Recolor` / `Auto Recolor`).
 Sidebar buttons have the same dimensions whether in heading rows, button rows, or global controls.
 When a bulk action such as `Select All` is pressed while filtering, clear the filter and execute the action instead of disabling the button.
+Disable immediate actions whose prerequisites are absent. Tag set `Save` and `Revert` require a selected set with changes. Disabled text and borders are weaker than `--control-border`.
 
 Indicate on/off only through pressed colors, not label text. Centralize state updates in `setToggleState()`
 to keep visual `.active` and semantic `aria-pressed` consistent. Do not use checkboxes.
@@ -340,6 +345,8 @@ Only when the graph of the remembered tag has disappeared is the position restor
 | test | [src/test/java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
 | build | [pom.xml](../../apps/metrics-viewer/pom.xml), [checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml) |
 
+
+Tag set code: server `service/TagSetStore.java`, `view/TagSetController.java`, and request/response types in `view/model`; browser `TagSetMenu` in `metrics-viewer.js`; initial file `src/main/resources/initial_tag_sets.json`.
 
 ## 5. Static Structure
 
@@ -580,11 +587,12 @@ While any Run is being ingested, poll Run metadata every four seconds and update
 ### 7.1 Metrics Viewer Settings
 
 All settings are supplied through `application.properties` or startup arguments (`--key=value`). Numeric settings are validated by
-`MetricsViewerSettings`, and workspace paths/names by the `WorkspaceManager` constructor.
+`MetricsViewerSettings`, workspace paths/names by `WorkspaceManager`, and tag set paths/files by `TagSetStore` during construction.
 Contract violations abort application startup.
 
 | Key | Default | Valid range | Meaning |
 |---|---:|---|---|
+| `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | Local file path | Working tag sets file. Relative paths use the working directory; TagSetStore creates missing parents and aborts startup on invalid paths or contents |
 | `metricsviewer.workspaces-dir` | `workspaces` | Local path | Parent directory of workspaces; UNC roots are rejected at startup |
 | `metricsviewer.initial-workspace` | `_default` | Direct child directory name | Initial current workspace; a valid but missing name starts with a warning and an empty Run list |
 | `metricsviewer.target-points-per-series` | `8000` | 3 to `max-points-per-request` | Default vertex budget per series when `maxPoints` is omitted |
@@ -621,6 +629,8 @@ Request bodies additionally capture unknown fields with `@JsonAnySetter`; any su
 
 [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) fixes the default path and port. There is no separate Optuna Viewer launcher; it uses the same workspace selector.
 
+Selecting a different workspace group through startup arguments also creates the default working tag sets file directly in that group's parent directory. Override `metricsviewer.tag-sets-file` to select another location.
+
 ### 7.4 Browser Constants and Persistent State
 
 Client constants not supplied by the server are defined at the beginning of [metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js).
@@ -638,12 +648,13 @@ Client constants not supplied by the server are defined at the beginning of [met
 `Recolor` ignores current colors and assigns farthest-point colors in selection order, starting from palette color `#2F7DE1`. `Auto Recolor` reassigns only Runs whose existing colors fail `min(RUN_COLOR_MIN_DISTANCE, best achievable with the current palette)`.
 Neither changes unselected Run colors. With more than 20 selected Runs, the palette cycles into another round. Both do nothing with at most one selected Run.
 
-Only the following eight state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
+Only the following nine state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
 
 | Key | Contents |
 |---|---|
 | `anet.metricsviewer.workspace` | Last selected workspace; overwritten by server current if absent from the list |
 | `anet.metricsviewer.activeTags` | Currently selected tag set |
+| `anet.metricsviewer.tagSet` | Selected tag set name as a JSON string; absent when deselected. Startup restores only the name and keeps the selection from activeTags |
 | `anet.metricsviewer.knownTags` | All tags ever observed; used to automatically activate only unknown tags |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lock on/off |
 | `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor` on/off; defaults to ON, reading only `"false"` as OFF |
@@ -793,7 +804,7 @@ If current is missing, its name is still returned but is not included in the cho
 `POST /api/workspace` uses a closed schema accepting only `{"name":"dm_long"}` and returns
 204 No Content on success. The current name returns a 204 no-op before existence checking and does not increment the epoch.
 An unknown workspace returns 404 `unknown_workspace`; invalid body types, required fields, or unknown fields return 400
-`invalid_request`. Malformed-JSON response conversion is restricted to `WorkspaceController`,
+`invalid_request`. Malformed-JSON response conversion is restricted to `WorkspaceController` and `TagSetController`,
 without changing parse-failure formats for metrics or prioritize APIs.
 
 If a workspace is externally renamed or deleted after the selector is displayed and switching returns `unknown_workspace`,
@@ -916,6 +927,18 @@ lod : { "kind":"lod",
 `minMax` contains each bucket's `min` / `max` / `last` points in ordinal order for a polyline; repeated ordinals collapse to one point.
 `summary.steps` contains the left edge of each common Step bin and is used for band rendering and bucket-level hover display.
 
+### 9.6 Tag Sets API and Persistence
+
+`GET /api/tag-sets.json` returns `{"tagSets":[{"name":string,"tags":[string]}]}`, sorted by UTF-16 code units for both names and tags. POST endpoints `/api/tag-sets/create` and `update` take `{"name":string,"tags":[string]}`; `rename` takes `{"name":string,"newName":string}`; `delete` takes `{"name":string}`. Success returns 200 with the full list.
+
+Validate the closed body schema, names, tags, source existence, destination conflicts, and writing in that order. Errors use ApiError: 400 `invalid_request`, 404 `unknown_tag_set`, 409 `tag_set_exists`, and 500 `tag_sets_write_failed`. Names trim Unicode White_Space, contain 1–64 code points, reject control characters, and are case-sensitive. Tags are nonempty strings without control characters or duplicates; their presence in Runs is not checked. A same-name rename returns 200 without writing after source existence is checked.
+
+The working file and bundled `initial_tag_sets.json` are JSON objects mapping names to tag arrays. Validate both at startup, rejecting duplicate keys, wrong types, invalid names/tags, and surrounding whitespace in file keys. Always validate the initial file, copying it only when the working file is absent. Write sorted names/tags, two-space indentation, one tag per line, UTF-8 without BOM, LF, and one trailing newline. Replace from a temporary file in the same directory and publish memory only after success. Read the working file only at startup: external edits, including git operations, remain unseen until restart and are overwritten by UI saves. Serialize server mutations; the last writer wins.
+
+Calling a set replaces the entire selection, including tags absent from the visible list. Save and modification comparisons also use the entire selection, while newly discovered tags remain automatically selected. Refresh the list at startup, on opening the menu, after mutations, and before Revert. If the selected name disappears, clear it and show a Toast; apply one's own rename/delete to the name first to avoid a false notification. Startup fetch failure preserves the name and selection without determining modifications. Menu-open failure uses a cached list if available and otherwise stays closed. A failed pre-Revert fetch or failed mutation preserves the selection; 404/409 shows the server message and refreshes the list.
+
+The menu is fixed directly under body to avoid ancestor overflow clipping. It supports arrows, Enter, Escape, input confirmation/cancellation, and outside clicks. Rows show visible/total tags; Save As shows the total selection and hidden count. The working file is tracked separately and excluded from release staging and zip; only the initial file is bundled in the jar.
+
 ## 10. Lifetime, Concurrency, and Error Boundaries
 
 ### 10.1 Lifetime
@@ -1028,6 +1051,8 @@ Its only external dependency is Plotly loaded from a CDN (`https://cdn.plot.ly/p
 A separate asset retrieval arrangement is needed for fully offline environments.
 
 ## 12. Tests and Extension Checklist
+
+Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [PRD111 validation README](../../core/anet-core/testdata/prd111/README.md) for procedures including packaging.
 
 ### 12.1 Test Organization
 
