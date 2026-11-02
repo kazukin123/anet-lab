@@ -25,6 +25,7 @@
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-10-18: categories.jsonの対応を直し、apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
 - 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、題・§3のゴール・§4 D1・D4）。
+- 2026-11-02: Claude Codeのmemoryをgit・フォルダ・正本・規約と定期的に照合して直すskill（anet-tidy-memory）と、機械的な検査を受け持つreports/tools/memory_support.py、housekeepingの候補memory-tidyを足す案を暫定で起票した（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、題・§1・§4 D9・D10）。
 - 2026-11-02: 工程末の起票候補で直す課題を台帳へ積み、台帳のF番号を最大5件まとめてPRDにするskill（anet-create-fix-prd）と、registry.py validateのF番号の重複検査を足す案を暫定で起票した（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、題・§1・§4 D1・D5・D15）。
 
 ## 選ばなかった形
@@ -41,6 +42,10 @@
 - Linux・macOSのリリース物 — 範囲外: 先にビルドの移植が要る。再開条件: Linuxでビルドが通ったとき（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§2の14・§8）。
 - windows-ci.ymlのconfigureをリリースのpresetへ寄せる — 範囲外: CIのビルド確認の関心で、999 CI/CD改善のL1で扱う。再開条件: リリースのpresetが入ったあと（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§8）。
 - 依存の準備（LibTorchの取得など）をCMakeで行う — 範囲外: 環境整備は別の関心で、CUDA Toolkitの導入はCMakeで行えない。再開条件: 環境整備も1つのコマンドにしたくなったとき（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§3の非ゴール・§8）。
+- memoryの点検をanet-lint-wiki（wiki_support.py）に足す形 — 不採用: wikiの点検の材料はrepoの中の文書だけで、memoryはrepoの外にありClaude Codeからしか見えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
+- 汎用のconsolidate-memoryをそのまま定期に回す形 — 不採用: git・フォルダ・正本・規約と照合しないので、古い状態の記述と知見の二重持ちが残る（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
+- memoryの整備の1回分の記録をreports/housekeeping/に置く形 — 不採用: repoは公開しており、memoryには私的な事柄がある（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§3.2・§4 D6）。
+- Codexのmemoryの整備 — 先送り: CodexのmemoryはCodexアプリが更新し、書き換えの可否を確かめていない。再開条件: 段階1を2回以上回し、Codexのmemoryの書き換えの可否を確かめたとき（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
 - 工程末の起票の区分をプロセス契約（protocol.md）§7に書き足す — 不採用: 共有コアはプロジェクトに依存しない文面に保ち、anet固有の決まりはレジストリの読み替えに置く（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§4 D3）。
 - 台帳へ積む入口専用のskill（an-create-issueに当たるもの） — 不採用: 積む操作はregistry.pyのadd・touch・setだけで、手順はレジストリの1節で足りる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D4・§8）。
 - fix PRD用の台帳の新しい状態 — 不採用: promotedと注記で足り、変えるとanet-audit・anet-improve・buildまで波及する（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
@@ -60,6 +65,7 @@
 - 台帳の分類をstatsと共有する変更をした場合は、statsのカテゴリ集計が変わらないことを確かめる（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§4.7の台帳のツール・受入15）。
 - リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
 - リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
+- housekeepingに候補を足しても、reports/housekeeping/runs.jsonlの既存の行は書き換えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§5.5）。
 - 台帳のCLIを変えるときは、PRD095の検証資材のregistry_test.pyを通し、台帳の既存の記録は書き換えない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.6・§7の3）。
 
 ## 関係
