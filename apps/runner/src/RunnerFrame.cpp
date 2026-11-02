@@ -663,7 +663,9 @@ void RunnerFrame::UpdateLogAlertBadge()
     }
 
     // 印の有無で Logs の幅が変わる。toolbar の idle 更新の外で測り直し、pane を並べ直す。
+    // OnClose が AUI の管理を外した後は、削除を待つだけの frame なので並べ直さない。
     CallAfter([this] {
+        if (aui_mgr_.GetManagedWindow() == nullptr) return;
         panel_toolbar_->Realize();
         panel_toolbar_->InvalidateBestSize();
         auto& pane = aui_mgr_.GetPane(panel_toolbar_);
@@ -1043,6 +1045,8 @@ void RunnerFrame::ScheduleMainPaneUpdate(bool update_layout)
     main_pane_update_scheduled_ = true;
     CallAfter([this] {
         main_pane_update_scheduled_ = false;
+        // OnCloseがAUIの管理を外した後は、削除を待つだけのframeなので並べ直さない。
+        if (aui_mgr_.GetManagedWindow() == nullptr) return;
         // 配置の比較だけならUpdate不要。閉じたfloatのframeを作り直さない。
         const bool update_layout = std::exchange(main_pane_layout_update_needed_, false);
         if (update_layout) aui_mgr_.Update();
