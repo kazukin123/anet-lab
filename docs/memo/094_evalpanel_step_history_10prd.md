@@ -28,6 +28,7 @@
 > 2026-10-23 改訂: KFM の Run 名 2 つを今のフォルダ名に直した（`…_atari_kung_fu_master_…` などから `…_kfm_…` への改名。値は変えていない）。
 > 2026-10-26 列番号改訂（ユーザー指定）: 列の番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の 3 桁にし、既定の done・trunc を Q_sa・V_s の前へ移した（D5・D13）。詰めて振った 1〜10 の間には、TempoRL の decision・skip を reward の右に差し込めなかったため。
 > 2026-10-30: D11の上下キーの扱いは[PRD105](105_eval_trace_arrow_key_forced_action_10prd.md)のD1が、D12の再生の向きは同D7が置き換える。Traceモードの間の転送↑↓は表の行移動となり、再生は表の下端から上端へ進む。
+> 2026-11-02 改訂（ユーザー指定）: 起動したあとの OS のテーマの切替と、表示の DPI の変更への追従は、本 PRD の受入から外す。テーマの切替は [999_runner_theme_switch](999_runner_theme_switch_10prd.md) の受入で、DPI の変更は [PRD113](113_runner_per_monitor_dpi_10prd.md) の受入で確かめる。D10 の追従の契約は変えない。受入 9・10 と §6 を合わせ、受入 8 の上下キーは PRD105 の受入で確かめることを添えた。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
 > 関連: [done/035_approx_actor_priority_per_10prd.md](done/035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
@@ -380,6 +381,8 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 | 列の値の折れ線（未使用の `PlotPanel` の流用） | 先送り | まず表と再生で足りるかを見る。近似優先度の推移を一目で見たくなったときに起こす |
 | 条件に合う行で自動で一時停止する | 先送り | 再生で場面を探す手間が大きいと分かったときに起こす |
 | Event / Observer の型の統一 | 別 PRD | 別の関心（NG5）。新しい Event の型を足す変更が出たときに起票する |
+| 起動したあとの OS のテーマの切替への追従の確かめ（D10） | 別 PRD（[999_runner_theme_switch](999_runner_theme_switch_10prd.md)） | Runner はテーマの切替で画面の一部だけが新しいテーマになり、直すには RunnerFrame の 1 か所で切替を受ける仕組みが要る（同 PRD の §1・§2）。Evaluation Trace だけでは確かめられない。同 PRD の受入 3・4 が Evaluation Trace を含むので、その実装の受入で確かめる |
+| 表示の DPI の変更への追従の確かめ（D10） | 別 PRD（[PRD113](113_runner_per_monitor_dpi_10prd.md)） | Runner は manifest の gdiScaling で DPI 非対応のまま動いていて、DPI の変更が届かない（同 PRD の §2）。同 PRD の受入 3 が Evaluation Trace の推奨と最小の大きさを含む。モニターの間の移動（同 PRD の受入 7）に Evaluation Trace を足すことを、同 PRD の §9 の 10 に置いた。その実装の受入で確かめる |
 
 ## 7. 未決と依存
 
@@ -408,12 +411,12 @@ app.eval_trace_panel.columns.[310] = $env_step lives
    - Evaluation Trace を開くと行が流れ、報酬と終端の行に色が付き、`prio_pct` が出る。閉じると行を作らない（開き直すと空から）。
    - 行 t を選ぶと、EvalPanel・QValuePanel・Conv2d の見出しに `Trace: step <その行の step>` が出る。QValuePanel が示す選んだ行動とその Q が、その行の `action`・`q_sa` と一致する。EvalPanel の画面に重ねて出る行動名と報酬が、その行の `action`・`reward` と一致する。Conv2d は、同じ行を選び直すと同じ活性が出て、開く前の行では no data を出す。HeatMap は Trace モードに入らず（`Trace: step` を出さず）、今のまま更新を続ける。
    - 再生／一時停止・停止・コマ送り・コマ戻し・速度・スライダーが D12 のとおりに動き、ステータスバーの通知欄に D12 の文言が出る。停止・選択の解除（表で Esc キー。行の無いところのクリックでは戻らない）・手動の行動・EvalPanel の Resume・Evaluation Trace を閉じることで Live に戻る。
-   - 行を選ぶと EvalPanel が一時停止し、Resume で再開すると Live に戻る。表にフォーカスがあるときの上下キーは行を動かし、EvalPanel にフォーカスがあるときは行動になる。
+   - 行を選ぶと EvalPanel が一時停止し、Resume で再開すると Live に戻る。上下キーの扱いは PRD105 の D1 が置き換えたので（冒頭の 2026-10-30 の改訂行）、その受入で確かめる。
    - Evaluation Trace を開いても、EvalPanel の実際の速さが落ちない: Live で 1 分間に増えた `step` 列の値が、fps × step_per_frame × 60 の 95% 以上。学習側の速さ（ステータスバーの field 1）が、開く前の 1 分ずつ 3 回の幅に収まる。
    - Evaluation Trace を表示して 1000 行たまったときの Runner のメモリの増え方が、D10 の見積もりの範囲に収まる。
 
-9. UI調整（列幅・ラベル）: 既定列の見出しが`Q_sa`／`V_s`／`trunc`となり、取得キーと値が変わらない。短い数値・長い整数・小数・負値・D8の行動名表示を使い、見出しと値が余白付きで収まる。新規行の長い値、遅れて確定した近似優先度で必要な列だけ広がり、短い値への入替えや古い行の削除では縮まない。手動で狭めた列を含め手動幅を維持し、開き直すと手動指定を含む幅を初期化する。最小幅でも操作バー全体と左端から最初の行動列までが収まり、ドック／フロート・列幅・フォント・DPI変更後も守られる。合計幅が領域を超えても横スクロールで読める。
-10. UI調整（テーマ）: ライト／ダーク双方で通常・報酬・終端・選択行の文字が読め、報酬と終端が重なる行は終端色になる。選択中はシステムの選択背景と文字色になる。開いたままテーマを変えても配色・アイコンが追従し、DPIやフォントが変わっても見出し・アイコン・枠が欠けない。列見出しはLive／Traceと行選択で色が変わらない。色付け有無の設定は増えていない。
+9. UI調整（列幅・ラベル）: 既定列の見出しが`Q_sa`／`V_s`／`trunc`となり、取得キーと値が変わらない。短い数値・長い整数・小数・負値・D8の行動名表示を使い、見出しと値が余白付きで収まる。新規行の長い値、遅れて確定した近似優先度で必要な列だけ広がり、短い値への入替えや古い行の削除では縮まない。手動で狭めた列を含め手動幅を維持し、開き直すと手動指定を含む幅を初期化する。最小幅でも操作バー全体と左端から最初の行動列までが収まり、ドック／フロート・列幅・フォントの変更後も守られる（DPI の変更のあとは、§6 のとおり PRD113 の受入で確かめる）。合計幅が領域を超えても横スクロールで読める。
+10. UI調整（テーマ）: ライト／ダーク双方で通常・報酬・終端・選択行の文字が読め、報酬と終端が重なる行は終端色になる。選択中はシステムの選択背景と文字色になる。ライト／ダークは、それぞれのテーマで起動して確かめる。フォントが変わっても見出し・アイコン・枠が欠けない。開いたままの OS のテーマの切替と DPI の変更への追従は、§6 のとおり、それぞれの PRD の受入で確かめる。列見出しはLive／Traceと行選択で色が変わらない。色付け有無の設定は増えていない。
 11. UI調整（プレイヤーとTrace表示）: D12の6ボタンが指定順のアイコンと英語ツールチップで出る。速度の全段階がD12の分数を使わない倍率表記で表示される。コマ送りのアイコンは縦棒の右に右向き三角、コマ戻しは左向き三角の右に縦棒で、メインツールバーの Step のアイコンもコマ送りと同じ形である。Live／一時停止中はPlay、再生中はPauseとなり、最新行に到達するとPlayへ戻る。履歴0件ではボタンとスライダーが無効。行選択・再生・一時停止中は操作バー全体に2 DIPの赤枠が出て、Liveへ戻るすべてのきっかけ（D11）で消える。枠の切替で配置が動かず、見出しの`Trace: step ...`も残る。
 12. UI調整の回帰:
     - 受入 5（時点）と受入 7（再生の制御）の単体テストが通る。2026-10-22 の調整の前から期待値を変えるのは、D12 の Live の箇条と速度の表示で改めたものだけである。すなわち、低速倍率の表示（`x0.125`・`x0.25`・`x0.5`）、Live での一時停止（独立したボタンが無くなる）、Live でのコマ送りの通知（`Trace: end`）、Live でのコマ戻しで選ぶ行と通知（1 つ前の行で `Trace: step back`、行が 1 件ならその行で `Trace: start`）である。

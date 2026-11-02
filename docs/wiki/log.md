@@ -559,3 +559,5 @@
 2026-11-02 writeback docs/memo/112_claude_memory_tidy_10prd.md blob:7d348bdba9d5a02219aa09ad461d24c1757c16c8 → docs/wiki/categories/311_dev_tools.md（暫定起票。地図に成立の経緯1行・選ばなかった形4行・変えるときの条件1行を足した。最終の本文と照合して食い違いなし。知見のページに当たる主張は無い）
 2026-11-02 writeback docs/memo/114_findings_intake_and_fix_prd_10prd.md blob:506e9cce3bdb67fbd2d1c48272cc8f586c1150df → docs/wiki/categories/311_dev_tools.md, docs/wiki/index.md（暫定起票。地図に成立の経緯1行・選ばなかった形8行・変えるときの条件1行を足し、目録の311の別名に台帳・F番号・fix PRDを足した。レビュー3往復のあとで本文と照合し、選ばなかった形の「その場で直す」を本文の先送りの理由（別の関心）と再開条件に合わせて直した。知見のページに当たる主張は無い）
 2026-11-02 writeback docs/memo/114_findings_intake_and_fix_prd_10prd.md blob:a6d5a8bfbdb831de5dc1e24f3025b0cc79a57202 → なし（同日の改め。暫定 PRD に確定した決定を置かない決まりに合わせ、起点の行と §4 の書き方を改めた。最終の本文と 311 の地図の成立の経緯・選ばなかった形・変えるときの条件を照合し、食い違いなし。地図は起点の会話の方向を決定として書いていない）
+2026-11-02 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:7bd5af260dfc7ccd05b2d12ed92ddc4e7a642463 → なし（テーマの切替と DPI の変更の確かめを別 PRD へ移した。wiki と食い違いなし）
+2026-11-02 writeback docs/memo/113_runner_per_monitor_dpi_10prd.md blob:aab74ac9c77878a08d2055bc12f79753adadb07b → なし（§9 の 10 を足した改め）
