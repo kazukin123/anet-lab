@@ -440,7 +440,7 @@ Runner画面はwxAUIのpaneで構成される。
 
 - `Train View`: Train RunnerのEnv固有Viewを見るときは、Panelsの`Train View`または`View > Train View`で表示する。隠すときも同じ項目かpaneの✕を使う。隠している間も学習は続く。
 - `Evaluation View`: 既定ではこのViewだけが中央に表示される。Trainとは別のEval Envを手動またはtimerで進める。両方の主Viewを表示し、一方が中央、もう一方が左右どちらかの主Viewだけの列にあるとき、ほかの縦の列を除いた幅を等分する。上下に並べ、帯の幅が中央と同じで主Viewだけの帯のときは高さを等分する。Logsや補助paneと同居する帯は等分しない。窓の縁へ落として左右の列の下まで広がる帯は等分しない。落とした直後も等分になる。中央のViewはcaptionをドラッグしても動かない。外すにはcaptionのpinボタンを押す。側面のViewはドラッグでもpinでも外せる。Trainを外すとEvalが中央に広がる。外したTrainを左の縁へ落とすと左の列に留まり、中央はEvalのまま。最後の主Viewはpinも✕も無く、移動できず、表示トグルはチェック付きで無効になる。
-- `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。
+- `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。同じ列にほかのpaneがあると行動数ぶんの高さだけを取り、ひとりの列では列いっぱいに広がる。サッシで広げた高さは閉じて開き直しても残り、`Reset Layout`で行動数ぶんに戻る。上下の帯にひとりで置いたときも、帯の高さは行動数ぶんになる。
 - `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。起動時の表示levelは`app.log_panel.level`、操作帯のAuto-scroll・Wrap・Indentの既定は`app.log_panel.auto_scroll`・`app.log_panel.wrap`・`app.log_panel.indent`（いずれも既定`true`）で指定する。
 - `HeatMap` / `Conv2d`: `View`メニューから追加する補助pane。
 

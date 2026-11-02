@@ -797,6 +797,19 @@ int QValuePanel::GetPreferredDockWidth() const
     return grid_width + kPreferredHeatMapWidth;
 }
 
+int QValuePanel::GetPreferredDockHeight() const
+{
+    // 見出しと行動数ぶんの行がちょうど収まる高さ。行動数が決まる前は既定の下限を返す
+    static constexpr int kDefaultDockHeight = 150;
+
+    if (!grid_ || action_names_.empty()) {
+        return kDefaultDockHeight;
+    }
+
+    const int rows = static_cast<int>(action_names_.size());
+    return grid_->GetColLabelSize() + rows * grid_->GetDefaultRowSize() + grid_->GetWindowBorderSize().GetHeight();
+}
+
 void QValuePanel::SyncHeatMapScroll(bool refresh_grid)
 {
     if (!grid_ || !heatmap_panel_) return;

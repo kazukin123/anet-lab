@@ -41,6 +41,8 @@ constexpr int kMinTrainWidth = 200;
 constexpr int kMinMainPaneHeight = 200;
 constexpr int kMinEvalWidth = 200;
 constexpr int kMinQValueWidth = 300;
+// 同じ列で Q-Values が余りを取らない伸び率 (wx の既定は 100000。0 は wx が既定へ戻す)
+constexpr int kQValueDockProportion = 1;
 constexpr int kMinAuxWidth = 100;
 const wxString kCentreCaptionSuffix = wxS(" [Centre]");
 const wxSize kToolBitmapSize(16, 16);
@@ -509,12 +511,12 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     wxAuiPaneInfo q_value_info = wxAuiPaneInfo()
         .Name("EvalQValuePanel").Caption("Evaluation Q-Values")
         .Right().Layer(kQValueLayer).Row(0).Position(0)
-        .BestSize(q_value_width, 800)
-        .MinSize(300, 150)
+        .BestSize(q_value_width, -1)
         .CloseButton(true).MaximizeButton(true).MinimizeButton(false).PinButton(true)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
         .Hide();
     q_value_info.dock_size = q_value_width;
+    ApplyQValuePaneHeight(q_value_info);
     aui_mgr_.AddPane(q_value_panel_, q_value_info);
 
     // 履歴は右の補助列に一枚だけ置き、起動時は生成・記録とも休止する。
@@ -540,6 +542,10 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
         eval_panel_->DoStep(action);
         eval_panel_->Refresh();
     });
+    // 行動数が決まったので、pane の高さを行数に合わせ直す
+    auto& q_value_pane = aui_mgr_.GetPane(q_value_panel_);
+    ApplyQValuePaneHeight(q_value_pane);
+    if (q_value_pane.IsShown()) aui_mgr_.Update();
 
     eval_trace_panel_->Initialize(run_manager, eval_runner_);
     eval_trace_panel_->RegisterFollower(eval_panel_);
@@ -888,6 +894,42 @@ int RunnerFrame::GetDefaultQValueDockWidth() const
     return std::max(kMinQValueWidth, q_value_panel_->GetPreferredDockWidth());
 }
 
+void RunnerFrame::ApplyQValuePaneHeight(wxAuiPaneInfo& pane) const
+{
+    // 同じ列ではほかの pane へ余りを渡し、行動数ぶんの高さだけを取る。
+    // ひとりの列では伸び率に関係なく列いっぱいになる。サッシで広げた後の伸び率は wx に任せる。
+    const int height = q_value_panel_->GetPreferredDockHeight();
+    pane.BestSize(pane.best_size.x, height).MinSize(kMinQValueWidth, height);
+    pane.dock_proportion = kQValueDockProportion;
+}
+
+bool RunnerFrame::IsQValuePlacementChanged()
+{
+    // 隠している間は比べない。閉じて開き直しただけでは当て直さず、サッシで変えた高さを残す。
+    const auto& pane = aui_mgr_.GetPane(q_value_panel_);
+    return pane.IsShown() && GetPanePlacement(pane) != q_value_placement_;
+}
+
+void RunnerFrame::ApplyQValueBandHeight()
+{
+    // 新しい上下の帯はpaneが覚えたdock_size（左右の列にいたときの幅）の高さで作られる。
+    // ひとりで入った帯だけ行数ぶんへ当て直し、同居帯と左右の列はwxの配分を保つ。
+    const auto& q_value_pane = aui_mgr_.GetPane(q_value_panel_);
+    if (!q_value_pane.IsDocked()
+        || (q_value_pane.dock_direction != wxAUI_DOCK_TOP && q_value_pane.dock_direction != wxAUI_DOCK_BOTTOM)) return;
+    for (const auto& pane : aui_mgr_.GetAllPanes()) {
+        if (pane.window != q_value_pane.window && pane.IsShown() && pane.IsDocked()
+            && pane.dock_direction == q_value_pane.dock_direction && pane.dock_layer == q_value_pane.dock_layer
+            && pane.dock_row == q_value_pane.dock_row) return;
+    }
+    auto snapshot = TakeLayoutSnapshot();
+    auto* band = FindPaneLayout(snapshot, q_value_pane.name);
+    if (!band) return;
+    // 最小の高さを渡せば、wxがcaptionと枠を足した帯の最小まで広げる。
+    band->dock_size = q_value_pane.min_size.y;
+    ApplyLayoutSnapshot(std::move(snapshot));
+}
+
 int RunnerFrame::ResolveAuxDockWidth()
 {
     // 実 dock 幅を pane 側へ同期してから、表示中→非表示の順で記憶幅を拾う
@@ -1027,14 +1069,16 @@ bool RunnerFrame::UpdateMainPaneControls()
     return changed;
 }
 
-std::array<RunnerFrame::MainPanePlacement, 2> RunnerFrame::GetMainPanePlacements()
+RunnerFrame::PanePlacement RunnerFrame::GetPanePlacement(const wxAuiPaneInfo& pane)
 {
     // 幅やgeometryは合図にせず、利用者が変えた置き場だけを比較する。
-    const auto placement = [](const wxAuiPaneInfo& pane) {
-        return MainPanePlacement{.direction=pane.dock_direction, .layer=pane.dock_layer,
-            .row=pane.dock_row, .position=pane.dock_pos, .floating=pane.IsFloating(), .shown=pane.IsShown()};
-    };
-    return {placement(aui_mgr_.GetPane(train_panel_)), placement(aui_mgr_.GetPane(eval_panel_))};
+    return PanePlacement{.direction=pane.dock_direction, .layer=pane.dock_layer,
+        .row=pane.dock_row, .position=pane.dock_pos, .floating=pane.IsFloating(), .shown=pane.IsShown()};
+}
+
+std::array<RunnerFrame::PanePlacement, 2> RunnerFrame::GetMainPanePlacements()
+{
+    return {GetPanePlacement(aui_mgr_.GetPane(train_panel_)), GetPanePlacement(aui_mgr_.GetPane(eval_panel_))};
 }
 
 void RunnerFrame::ScheduleMainPaneUpdate(bool update_layout)
@@ -1054,6 +1098,11 @@ void RunnerFrame::ScheduleMainPaneUpdate(bool update_layout)
         if (!HasMaximizedPane() && GetMainPanePlacements() != main_pane_placements_) {
             ApplyMainPaneSizes();
             main_pane_placements_ = GetMainPanePlacements();
+        }
+        // Q-Valuesも同じ集約で、置き場が変わったときだけ上下の帯の高さを当てる。
+        if (!HasMaximizedPane() && IsQValuePlacementChanged()) {
+            ApplyQValueBandHeight();
+            q_value_placement_ = GetPanePlacement(aui_mgr_.GetPane(q_value_panel_));
         }
     });
 }
@@ -1277,8 +1326,9 @@ void RunnerFrame::RestoreDefaultPanes()
     if (q_value_pane.IsOk()) {
         const int q_value_width = GetDefaultQValueDockWidth();
         q_value_pane.Show(false).Dock().Right().Layer(kQValueLayer).Row(0).Position(0).Restore();
-        q_value_pane.BestSize(q_value_width, 800).MinSize(300, 150);
+        q_value_pane.BestSize(q_value_width, -1);
         q_value_pane.dock_size = q_value_width;
+        ApplyQValuePaneHeight(q_value_pane);
     }
 
     HideAuxPanes();
@@ -1575,7 +1625,8 @@ void RunnerFrame::OnUpdateTrainStatus(wxUpdateUIEvent& WXUNUSED(event))
     const bool layout_changed = !maximized
         && ApplyMainPaneLayout(aui_mgr_.GetPane(train_panel_).IsShown(), aui_mgr_.GetPane(eval_panel_).IsShown());
     const bool controls_changed = UpdateMainPaneControls();
-    const bool placement_changed = !maximized && GetMainPanePlacements() != main_pane_placements_;
+    const bool placement_changed = !maximized
+        && (GetMainPanePlacements() != main_pane_placements_ || IsQValuePlacementChanged());
     if (layout_changed || controls_changed || placement_changed)
         ScheduleMainPaneUpdate(layout_changed || controls_changed);
 }

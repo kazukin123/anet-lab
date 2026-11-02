@@ -1366,7 +1366,8 @@ int main(int argc, char** argv)
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos
-            || argument.find("[prd110_") != std::string_view::npos;
+            || argument.find("[prd110_") != std::string_view::npos
+            || argument.find("[q_value_") != std::string_view::npos;
     }
     if (!starts_runner_app) {
         wxInitAllImageHandlers();

@@ -83,16 +83,17 @@ private:
     bool ApplyMainPaneLayout(bool train_open, bool eval_open, wxWindow* showing = nullptr);
     void RestoreMainPanePosition(wxAuiPaneInfo& pane);
     bool UpdateMainPaneControls();
-    struct MainPanePlacement {
+    struct PanePlacement {
         int direction;
         int layer;
         int row;
         int position;
         bool floating;
         bool shown;
-        bool operator==(const MainPanePlacement&) const = default;
+        bool operator==(const PanePlacement&) const = default;
     };
-    std::array<MainPanePlacement, 2> GetMainPanePlacements();
+    static PanePlacement GetPanePlacement(const wxAuiPaneInfo& pane);
+    std::array<PanePlacement, 2> GetMainPanePlacements();
     void ScheduleMainPaneUpdate(bool update_layout = true);
     void ApplyMainPaneSizes();
 private:
@@ -106,6 +107,9 @@ private:
     void RestoreDefaultPanes();
     void HideAuxPanes();
     int GetDefaultQValueDockWidth() const;
+    void ApplyQValuePaneHeight(wxAuiPaneInfo& pane) const;
+    bool IsQValuePlacementChanged();
+    void ApplyQValueBandHeight();
 private:
     struct TrainStatusSnapshot {
         anet::rl::StepCounts counts;
@@ -153,7 +157,8 @@ private:
         int position;
     };
     std::optional<MainPaneDockPosition> promoted_dock_position_;
-    std::array<MainPanePlacement, 2> main_pane_placements_{};
+    std::array<PanePlacement, 2> main_pane_placements_{};
+    std::optional<PanePlacement> q_value_placement_; ///< 最後に見た表示中の Q-Values の置き場
     bool main_pane_update_scheduled_ = false;
     bool main_pane_layout_update_needed_ = false;
 };

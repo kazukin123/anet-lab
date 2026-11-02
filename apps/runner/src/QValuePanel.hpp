@@ -68,6 +68,7 @@ public:
     void Update();
 
     int GetPreferredDockWidth() const;
+    int GetPreferredDockHeight() const;
 
     bool IsHistogram() const;
     bool IsAdvantage() const;

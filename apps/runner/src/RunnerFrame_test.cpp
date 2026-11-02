@@ -13,6 +13,7 @@
 #include <wx/dcclient.h>
 #include <wx/dcmemory.h>
 #include <wx/evtloop.h>
+#include <wx/grid.h>
 #include <wx/settings.h>
 #include <wx/sizer.h>
 #include <wx/weakref.h>
@@ -1443,6 +1444,97 @@ TEST_CASE("Height splitting restores placement and respects manual sizing and mi
     CHECK(ui.DockSize(ui.Train().name) == minimum);
     CHECK(ui.DockSize("LogPanel") == log_height);
     ui.CheckMainCaptions();
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Q-Values takes only its action rows in a shared column until Reset", "[.][runner_layout][q_value_height]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.frame->SetClientSize(1800, 1000);
+    ui.Toggle("Evaluation QValue View", true);
+    const auto q_value = [&]() -> wxAuiPaneInfo& { return ui.Manager().GetPane("EvalQValuePanel"); };
+    const auto trace = [&]() -> wxAuiPaneInfo& { return ui.Manager().GetPane("EvalTracePanel"); };
+    auto* panel = dynamic_cast<QValuePanel*>(q_value().window);
+    REQUIRE(panel);
+    wxGrid* grid = nullptr;
+    for (auto* child : panel->GetChildren()) {
+        if (auto* candidate = dynamic_cast<wxGrid*>(child)) grid = candidate;
+    }
+    REQUIRE(grid);
+    // CartPole の 2 行動と見出しが、縦スクロールなしで収まる高さ。float の窓もこの高さで開く。
+    const int height = panel->GetPreferredDockHeight();
+    CHECK(height >= grid->GetColLabelSize() + 2 * grid->GetDefaultRowSize());
+    CHECK(q_value().best_size.y == height);
+    CHECK(q_value().min_size.y == height);
+    // ひとりの列では列いっぱい。
+    CHECK(panel->GetSize().y > height * 2);
+
+    // 同じ列のTraceへ余りを渡す。
+    ui.Toggle("Evaluation Trace", true);
+    trace().Dock().Right().Layer(q_value().dock_layer).Row(q_value().dock_row).Position(q_value().dock_pos + 1);
+    ui.Manager().Update();
+    ui.Settle();
+    CHECK(panel->GetSize().y == height);
+    CHECK(grid->GetClientSize().y >= grid->GetColLabelSize() + 2 * grid->GetDefaultRowSize());
+    CHECK(trace().window->GetSize().y > height * 2);
+
+    // サッシで広げた伸び率は wx のまま、閉じて開き直しても残る。
+    q_value().dock_proportion = trace().dock_proportion;
+    ui.Manager().Update();
+    ui.Settle();
+    CHECK(panel->GetSize().y > height * 2);
+    const int widened = q_value().dock_proportion;
+    ui.Toggle("Evaluation QValue View", false);
+    ui.Toggle("Evaluation QValue View", true);
+    CHECK(q_value().dock_proportion == widened);
+
+    // Reset だけが行数ぶんの高さへ戻す。
+    ui.Reset();
+    CHECK(q_value().dock_proportion == 1);
+    CHECK(q_value().best_size.y == height);
+    CHECK(q_value().min_size.y == height);
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Q-Values alone in a new band takes only its action rows", "[.][runner_layout][q_value_band_height]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.frame->SetClientSize(1400, 1000);
+    ui.Toggle("Log View", false);
+    ui.Toggle("Evaluation QValue View", true);
+    const auto q_value = [&]() -> wxAuiPaneInfo& { return ui.Manager().GetPane("EvalQValuePanel"); };
+    auto* panel = dynamic_cast<QValuePanel*>(q_value().window);
+    REQUIRE(panel);
+    const int height = panel->GetPreferredDockHeight();
+    // 列の幅を覚えたままdropした入力を公開AUIで作る。drop操作そのものは人の受入に残す。
+    REQUIRE(q_value().dock_size > height * 2);
+    q_value().Dock().Bottom().Row(0).Position(0);
+    ui.Manager().Update();
+    REQUIRE(ui.DockSize("EvalQValuePanel") > height * 2);
+    ui.Settle();
+    CHECK(panel->GetSize().y == height);
+    CHECK(ui.Eval().dock_direction == wxAUI_DOCK_CENTER);
+    CHECK(ui.Eval().window->GetSize().y > height * 2);
+
+    // 置き場が変わらない間はサッシで変えた高さを保ち、閉じて開き直しても残す。
+    ui.SetDockSize("EvalQValuePanel", 300);
+    ui.Settle();
+    CHECK(ui.DockSize("EvalQValuePanel") == 300);
+    ui.Toggle("Evaluation QValue View", false);
+    ui.Toggle("Evaluation QValue View", true);
+    CHECK(ui.DockSize("EvalQValuePanel") == 300);
+
+    // Logsと同居する帯はwxの高さのまま。
+    ui.Toggle("Log View", true);
+    const auto& logs = ui.Manager().GetPane("LogPanel");
+    q_value().Dock().Bottom().Layer(logs.dock_layer).Row(logs.dock_row).Position(logs.dock_pos + 1);
+    ui.Manager().Update();
+    const int shared_height = ui.DockSize("LogPanel");
+    ui.Settle();
+    CHECK(ui.DockSize("EvalQValuePanel") == shared_height);
+    CHECK(ui.DockSize("LogPanel") == shared_height);
     ui.CheckNoMainPaneFallback();
 }
 
