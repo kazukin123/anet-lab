@@ -35,6 +35,8 @@ namespace runner_layout {
 constexpr int kTrainEvalLayer = 0;
 constexpr int kQValueLayer = 10;
 constexpr int kAuxLayer = 20;
+// 上端のtoolbarは左右の列より外側に置き、全幅に並べる (wx の既定 10 では補助列が帯の幅を削る)
+constexpr int kToolBarLayer = 30;
 constexpr int kDefaultAuxDockWidth = 400;
 constexpr int kDefaultLogDockHeight = 200;
 constexpr int kMinTrainWidth = 200;
@@ -455,7 +457,7 @@ void RunnerFrame::SetupToolBars()
     for (int position = 0; position < static_cast<int>(std::size(toolbars)); ++position) {
         aui_mgr_.AddPane(toolbars[position].toolbar, wxAuiPaneInfo()
             .Name(toolbars[position].name).Caption(toolbars[position].caption)
-            .ToolbarPane().Top().Row(0).Position(position)
+            .ToolbarPane().Top().Layer(kToolBarLayer).Row(0).Position(position)
             .CloseButton(false));
     }
 }
@@ -1288,7 +1290,7 @@ void RunnerFrame::RestoreDefaultPanes()
 {
     // Reset の復帰先は起動時の設定。昇格前の位置の記憶もリセットする。
     promoted_dock_position_.reset();
-    // toolbar はフロート中でも上端 Row 0 の既定順へ回収する。
+    // toolbar はフロート中でも上端 Row 0 の既定順へ回収する。縁へのドラッグで wx が置く layer 10 からも外側へ戻す。
     const std::pair<wxAuiToolBar*, int> toolbars[] = {
         {run_control_toolbar_, 0}, {step_toolbar_, 1}, {run_ops_toolbar_, 2}, {panel_toolbar_, 3},
     };
@@ -1298,7 +1300,7 @@ void RunnerFrame::RestoreDefaultPanes()
         // ToolbarPane()は pane 側のgripperも再度有効化するため、AddPane後と同じく
         // wxAuiToolBar内蔵gripperだけが残る状態へ戻す。
         pane.Show(true).Restore().Dock().ToolbarPane().Gripper(false)
-            .Top().Row(0).Position(position).CloseButton(false);
+            .Top().Layer(kToolBarLayer).Row(0).Position(position).CloseButton(false);
     }
 
     auto& log_pane = aui_mgr_.GetPane(log_panel_);

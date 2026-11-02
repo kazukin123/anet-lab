@@ -1367,7 +1367,8 @@ int main(int argc, char** argv)
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos
             || argument.find("[prd110_") != std::string_view::npos
-            || argument.find("[q_value_") != std::string_view::npos;
+            || argument.find("[q_value_") != std::string_view::npos
+            || argument.find("[toolbar_full_width]") != std::string_view::npos;
     }
     if (!starts_runner_app) {
         wxInitAllImageHandlers();

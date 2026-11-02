@@ -1497,6 +1497,35 @@ TEST_CASE("Q-Values takes only its action rows in a shared column until Reset", 
     ui.CheckNoMainPaneFallback();
 }
 
+TEST_CASE("Toolbars span the full width above the right columns", "[.][runner_layout][toolbar_full_width]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.frame->SetClientSize(1200, 800);
+    ui.Toggle("Evaluation QValue View", true);
+    ui.Toggle("Evaluation Trace", true);
+    const auto check = [&] {
+        // 右の列は上端の帯の下から始まり、4本のtoolbarは全幅の帯に収まる。
+        for (const char* column : {"EvalQValuePanel", "EvalTracePanel"}) {
+            const auto& pane = ui.Manager().GetPane(column);
+            REQUIRE(pane.IsShown());
+            REQUIRE(pane.dock_direction == wxAUI_DOCK_RIGHT);
+            for (const char* name : {"RunControlToolBar", "StepToolBar", "RunOpsToolBar", "PanelToolBar"}) {
+                const auto& toolbar = ui.Manager().GetPane(name);
+                INFO(column << " / " << name);
+                CHECK(toolbar.rect.GetBottom() < pane.rect.GetTop());
+                CHECK(toolbar.rect.GetRight() < ui.frame->GetClientSize().x);
+            }
+        }
+    };
+    check();
+    ui.Reset();
+    ui.Toggle("Evaluation QValue View", true);
+    ui.Toggle("Evaluation Trace", true);
+    check();
+    ui.CheckNoMainPaneFallback();
+}
+
 TEST_CASE("Q-Values alone in a new band takes only its action rows", "[.][runner_layout][q_value_band_height]")
 {
     MainPaneFixture ui;

@@ -428,7 +428,7 @@ batch実験では、`app.$=app.batchrun`で低FPS表示、`exp_exit_step`、`app
 
 Runner画面はwxAUIのpaneで構成される。
 
-画面上端には対象別の4本のツールバーがある。各バーはgripperをドラッグしてdock、float、再dockでき、`View > Reset Layout`で上端1行の既定位置へ戻る。floatさせたバーのwindow titleにはバー名(`Run Control`、`Steps`、`Run Operations`、`Panels`)が出る。
+画面上端には対象別の4本のツールバーがあり、右の列の上まで窓の全幅に並ぶ。各バーはgripperをドラッグしてdock、float、再dockでき、`View > Reset Layout`で上端1行の既定位置へ戻る。floatさせたバーのwindow titleにはバー名(`Run Control`、`Steps`、`Run Operations`、`Panels`)が出る。
 
 - `Run制御`: Trainのpause/resumeと、separatorを挟んでEvalのpause/resume、Evalの1 step実行を提供する。走行中のtoolは押下表示になり、iconは次の操作を表す一時停止記号へ変わる。停止中は再生記号へ戻る。非表示のEvalをresumeするか1 step実行すると`Evaluation View`も表示する。右クリックによるresumeも同じ扱いで、keyboard経路(`Space` / `Ctrl`)だけが表示と独立している。
 - `Step表示`: Trainの`exp_step`と`train_step`を表示する。
