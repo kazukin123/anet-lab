@@ -44,6 +44,8 @@ std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> obser
 
 したがって **本修正は「無害な no-op」を「Trainer スレッドの反復中に起こりうる実 mutation」に変える**。現状安全なのは [RunnerFrame::OnClose](../../apps/runner/src/RunnerFrame.cpp) が `StopTraining()`(join まで実施) → `DetachTrainStatusObserver()` → `eval_panel_->DoClose()` の順だからであり、これは暗黙の前提である。本 PRD ではこれを **Notifier の契約として明文化する**(mutex 導入は非ゴール、NG1)。
 
+ただし `StopTraining()` の後というだけでは足りない。背景評価の worker も学習と同じ Notifier の train observer 列を走査するため、排水(`DrainBackgroundObservers()`)より前の Detach は走査と競合する。2026-11-01 に exp_exit の終了でこの経路の AV を dump で確かめた(台帳 F-0006)。OnClose は Detach を排水の後に置く。
+
 ## ゴール / 非ゴール
 
 **ゴール:**
@@ -143,7 +145,7 @@ static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_p
 `Notifier` の宣言([rl.hpp:973](../../core/anet-core/include/anet/rl.hpp))に、Attach / Detach / Notify のスレッド前提をコメントで明記する。mutex は入れない(NG1)。
 
 - `Notify` は Trainer スレッドから observer 列を走査する。`Notifier` は同期機構を持たない。
-- `Attach` / `Detach` は対象 Runner が停止している状態(初期化時、または `StopTraining()` の後)でのみ呼ぶこと。
+- `Attach` / `Detach` は対象 Runner が停止している状態(初期化時、または `StopTraining()` と背景評価の排水の後)でのみ呼ぶこと。
 - 本修正以前は `Detach` が実質 no-op だったため違反しても顕在化しなかったが、修正後は実際に列を書き換える。
 
 ### R4: 回帰テスト(G4)

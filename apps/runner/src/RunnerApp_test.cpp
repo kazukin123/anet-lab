@@ -1,8 +1,10 @@
 #include "anet/catch_test.hpp"
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <regex>
 #include <thread>
 #include <wx/evtloop.h>
@@ -19,6 +21,8 @@ constexpr char kHeatMapMenu[] = "HeatMap";
 constexpr char kCloseAgentPath[] = "startup/agent_close.anet";
 constexpr char kResolvedBeforeDirectory[] = "resolved-before";
 constexpr char kSlowInitTestAgentClassId[] = "SlowInitTestAgent";
+constexpr char kCloseDrainTestAgentClassId[] = "CloseDrainTestAgent";
+constexpr char kCloseDrainEvalTag[] = "close_drain";
 
 class StartupTestActor final : public anet::rl::Actor {
 public:
@@ -82,6 +86,91 @@ public:
         std::optional<anet::seed_t>) const override
     { return std::make_shared<SlowInitTestAgent>(config); }
     std::string GetTargetAgentClassId() const override { return kSlowInitTestAgentClassId; }
+};
+
+// 背景評価の worker を TrainEvent の通知の途中で止め、終了時の排水が始まるまで待たせる。
+class EvalNotifyHoldProbe final : public anet::rl::TrainObserver {
+public:
+    void OnTrain(const anet::rl::TrainEvent& event) override
+    {
+        // 対象の評価の最初の通知だけを止め、学習側と以降の通知は素通しする。
+        if (event.runner->GetName() != kCloseDrainEvalTag) return;
+        std::unique_lock lock(mutex_);
+        if (held_) return;
+        held_ = true;
+        changed_.notify_all();
+        // 排水が probe へ届かない不具合でもテストを止めないよう、GUI test の待機上限で戻る。
+        changed_.wait_for(lock, std::chrono::seconds(30), [this] { return released_; });
+    }
+    void Shutdown(std::chrono::steady_clock::time_point, anet::rl::ShutdownMode) override
+    {
+        // 排水の開始で、止めていた worker を通知の続きへ戻す。
+        std::lock_guard lock(mutex_);
+        released_ = true;
+        changed_.notify_all();
+    }
+    std::string ToString() const override { return "EvalNotifyHoldProbe"; }
+    bool Held() const { std::lock_guard lock(mutex_); return held_; }
+    bool Released() const { std::lock_guard lock(mutex_); return released_; }
+
+private:
+    mutable std::mutex mutex_;
+    std::condition_variable changed_;
+    bool held_ = false;
+    bool released_ = false;
+};
+
+// 終了時の排水テストが観測する probe。CloseDrainTestAgent が構築時に Notifier へ登録する。
+std::shared_ptr<EvalNotifyHoldProbe> close_drain_probe;
+
+class EmptyTestUpdateResult final : public anet::rl::BatchUpdateResult {
+public:
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override
+    { return std::nullopt; }
+};
+
+// 学習イベントを最初の 1 回だけ出し、評価 session をちょうど 1 本にする。
+class LearnOnceTestLearner final : public anet::rl::Learner {
+public:
+    anet::rl::BatchUpdateResultList UpdateFromBatch(
+        const anet::rl::StepCounts&, const anet::rl::BatchExperience&) override
+    {
+        if (learned_) return {};
+        learned_ = true;
+        return {std::make_shared<const EmptyTestUpdateResult>()};
+    }
+
+private:
+    bool learned_ = false;
+};
+
+class CloseDrainTestAgent final : public anet::rl::Agent {
+public:
+    explicit CloseDrainTestAgent(anet::rl::Notifier& notifier)
+    {
+        // RunnerFrame の train observer より前に置き、評価 worker の走査を途中で止められるようにする。
+        if (!close_drain_probe) ANET_SYSTEM_ERROR("CloseDrainTestAgent requires close_drain_probe.");
+        notifier.Attach(close_drain_probe);
+    }
+    std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::ActorRequest&) const override
+    { return std::make_shared<StartupTestActor>(); }
+    std::shared_ptr<anet::rl::Learner> CreateLearner() override { return std::make_shared<LearnOnceTestLearner>(); }
+    torch::Device GetDevice() const override { return torch::kCPU; }
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override
+    { return std::nullopt; }
+};
+
+class CloseDrainTestAgentFactory final : public anet::rl::AgentFactory {
+public:
+    std::shared_ptr<anet::rl::Agent> CreateAgent(const anet::rl::EnvSpec&, const anet::rl::BatchEnvSpec&,
+        const torch::Device&, const anet::ConfigData&, std::shared_ptr<anet::rl::Notifier> notifier,
+        std::optional<anet::seed_t>) const override
+    { return std::make_shared<CloseDrainTestAgent>(*notifier); }
+    std::string GetTargetAgentClassId() const override { return kCloseDrainTestAgentClassId; }
 };
 
 struct StartupFixture {
@@ -156,6 +245,7 @@ struct StartupFixture {
 void RegisterStartupTestAgents()
 {
     anet::rl::AgentRepository::Instance().Register(std::make_shared<SlowInitTestAgentFactory>());
+    anet::rl::AgentRepository::Instance().Register(std::make_shared<CloseDrainTestAgentFactory>());
 }
 
 TEST_CASE("Runner construction keeps the event loop and logs active", "[.][prd109_startup][prd109_ready]")
@@ -413,4 +503,25 @@ TEST_CASE("PRD109 captures configuration from frozen inputs", "[.][prd109_config
         stream << values.dump(2) << '\n';
         REQUIRE(stream.good());
     }
+}
+
+TEST_CASE("Runner keeps train observers attached until background Eval drains on close", "[.][runner_close_drain]")
+{
+    // 背景評価の worker は学習と同じ Notifier の train observer 列を走査するので、
+    // 終了処理が列を変えるのは排水の後でなければならない。
+    close_drain_probe = std::make_shared<EvalNotifyHoldProbe>();
+    StartupFixture app;
+    app.Start(std::string("agent.class_id = ") + kCloseDrainTestAgentClassId + "\n"
+        "app.train_auto_start = true\napp.save_agent_on_close = false\n"
+        "run.eval.[" + kCloseDrainEvalTag + "].run_mode = eval\n"
+        "run.eval_schedule.[" + kCloseDrainEvalTag + "].interval = 1\n"
+        "run.eval_schedule.[" + kCloseDrainEvalTag + "].use_background = true\n");
+    // worker が通知の途中で止まっている間に、exp_exit と同じ強制 Close で閉じる。
+    REQUIRE(app.Wait([] { return close_drain_probe->Held(); }));
+    CHECK(app.frame->Close(true));
+    CHECK(close_drain_probe->Released());
+    REQUIRE(app.Wait([&] { return !app.frame; }));
+    CHECK(app.Log().find(std::string("eval.[") + kCloseDrainEvalTag + "]: draining in-flight session on exit")
+        != std::string::npos);
+    close_drain_probe.reset();
 }

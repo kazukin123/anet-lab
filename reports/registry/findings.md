@@ -1,6 +1,6 @@
 # 指摘台帳(派生ビュー)
 
-生成 2026-10-26。正本は findings.jsonl。この文書は毎回再生成される。
+生成 2026-11-02。正本は findings.jsonl。この文書は毎回再生成される。
 
 ## 概況
 
@@ -18,6 +18,7 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 
 | id | 更新 | 状態 | 優先度 | 観点 | 場所 | タイトル |
 |---|---|---|---|---|---|---|
+| F-0006 | 2026-11-02 | open | P0 | defect | `core/anet-core/src/rl.cpp`::Notifier | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | F-0036 | 2026-10-26 | wontfix | P2 | process | `docs/quality/impl.md`::計測: 性能を比べる計測の条件 | 性能の比を、本番と違う構成や重い計測の下で読み、結論を出し直した |
 | F-0037 | 2026-10-26 | wontfix | P2 | process | `.agents/skills/implement-prd-with-docs/SKILL.md`::ワークフロー: 性能の受入が未達のとき | 性能の受入が未達のまま実装を閉じ、原因の切り分けが後に残った |
 | F-0028 | 2026-10-23 | open | P2 | defect | `core/anet-core/src/exception.cpp`::AnetException::AnetException | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
@@ -28,7 +29,6 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 | F-0033 | 2026-10-23 | open | P3 | drift | `docs/design/100_runtime_and_configuration.jp.md`::run.eval_device | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | F-0034 | 2026-10-23 | open | P3 | refactor | `core/anet-core/src/replay_buffer_impl.hpp`::InitialPriorityCompleter::GetStats | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない |
 | F-0035 | 2026-10-23 | open | P3 | test-gap | `core/anet-core/src/replay_buffer_impl.cpp`::DefaultReplayBuffer::DefaultReplayBuffer | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
-| F-0006 | 2026-10-22 | open | P0 | defect | `core/anet-core/src/rl.cpp`::Notifier | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | F-0007 | 2026-10-22 | open | P1 | defect | `core/envs/dropmerge1/src/DropMergeEnv.cpp`::DropMergeEnv::Step | Directモードで列0への落下にもNOOPペナルティが加算される |
 | F-0008 | 2026-10-22 | open | P1 | defect | `core/anet-core/src/metrics_logger.cpp`::VideoLogger::WriteFrame | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
 | F-0009 | 2026-10-22 | open | P2 | defect | `core/anet-core/src/trainer.cpp`::PipelineTrainRunner::DoStep | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |

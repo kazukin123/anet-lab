@@ -169,12 +169,15 @@ sequenceDiagram
     UI->>A: DrainBackgroundObservers(mode)
     A->>N: Shutdown(shared deadline, mode)
     N-->>A: background Observer停止
+    UI->>N: Detach(RunnerToolBarのtrain observer)
     UI->>A: ShutdownRunLogging()
     A->>A: periodic text-log timerを停止
     A->>M: Flush()
     A->>L: FlushActive()
     A->>L: chainをdetachしてclose
 ```
+
+RunnerFrameは状態表示用のtrain observerを排水の後にDetachする。背景評価のworkerも学習と同じNotifierのtrain observer列を走査するため、排水の前に外すと走査中の要素を解放しうる。
 
 periodic timerは`RunName.log`だけをflushする。metrics、stdout、stderrはpause、save、shutdownなどの明示的な`FlushRunOutputs()`境界でまとめてflushする。
 

@@ -1362,6 +1362,7 @@ int main(int argc, char** argv)
     bool starts_runner_app = false;
     for (int i = 1; i < arguments.Argc(); ++i) {
         const std::string_view argument(arguments.Argv()[i]);
+        starts_runner_app |= argument.find("[runner_close_drain]") != std::string_view::npos;
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos

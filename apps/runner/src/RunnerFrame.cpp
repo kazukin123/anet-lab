@@ -1648,11 +1648,12 @@ void RunnerFrame::OnClose(wxCloseEvent& event)
         }
     }
 
-    DetachTrainStatusObserver();
     if (wxGetApp().ShouldSaveAgentOnClose()) {
         TrySaveAgent(wxGetApp().GetRunDir() / "agent_close.anet");
     }
     wxGetApp().DrainBackgroundObservers(mode);
+    // 背景評価の worker も学習と同じ Notifier の train observer 列を走査するので、排水の後に外す。
+    DetachTrainStatusObserver();
     wxGetApp().ShutdownRunLogging();
 
     if (eval_panel_) {
