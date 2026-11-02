@@ -1025,8 +1025,9 @@ TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[
     };
     const int fps_menu_id = bar->FindMenuItem("View", "Eval View FPS");
     REQUIRE(fps_menu_id != wxNOT_FOUND);
-    auto* fps10_item = bar->FindItem(fps_menu_id)->GetSubMenu()->FindItemByPosition(3);
-    REQUIRE(fps10_item->GetItemLabelText() == "10");
+    auto* fps_menu = bar->FindItem(fps_menu_id)->GetSubMenu();
+    auto* fps10_item = fps_menu->FindItem(fps_menu->FindItem("10"));
+    REQUIRE(fps10_item);
     eval->TogglePause();
     REQUIRE_FALSE(eval->IsPaused());
     CHECK(status() == "Evaluation resumed fps=0 step_per_frame=4");
@@ -1368,7 +1369,8 @@ int main(int argc, char** argv)
             || argument.find("[prd109_") != std::string_view::npos
             || argument.find("[prd110_") != std::string_view::npos
             || argument.find("[q_value_") != std::string_view::npos
-            || argument.find("[toolbar_full_width]") != std::string_view::npos;
+            || argument.find("[toolbar_full_width]") != std::string_view::npos
+            || argument.find("[fps_menu]") != std::string_view::npos;
     }
     if (!starts_runner_app) {
         wxInitAllImageHandlers();

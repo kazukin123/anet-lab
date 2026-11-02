@@ -76,6 +76,8 @@ enum {
     ID_OpenRunFolder,
     ID_TrainFpsConfig,
     ID_TrainFpsOff,
+    ID_TrainFps0_1,
+    ID_TrainFps0_5,
     ID_TrainFps1,
     ID_TrainFps5,
     ID_TrainFps10,
@@ -83,6 +85,8 @@ enum {
     ID_TrainFps30,
     ID_TrainFps60,
     ID_EvalFpsConfig,
+    ID_EvalFps0_1,
+    ID_EvalFps0_5,
     ID_EvalFps1,
     ID_EvalFps5,
     ID_EvalFps10,
@@ -303,6 +307,8 @@ void RunnerFrame::SetupMenuBar()
     wxMenu* train_fps_menu = new wxMenu;
     train_fps_menu->AppendRadioItem(ID_TrainFpsConfig, FormatFpsConfigLabel(train_config_fps_))->Check(true);
     train_fps_menu->AppendRadioItem(ID_TrainFpsOff, "0 (Off)");
+    train_fps_menu->AppendRadioItem(ID_TrainFps0_1, "0.1");
+    train_fps_menu->AppendRadioItem(ID_TrainFps0_5, "0.5");
     train_fps_menu->AppendRadioItem(ID_TrainFps1, "1");
     train_fps_menu->AppendRadioItem(ID_TrainFps5, "5");
     train_fps_menu->AppendRadioItem(ID_TrainFps10, "10");
@@ -314,6 +320,8 @@ void RunnerFrame::SetupMenuBar()
     // Eval View FPS
     wxMenu* eval_fps_menu = new wxMenu;
     eval_fps_menu->AppendRadioItem(ID_EvalFpsConfig, FormatFpsConfigLabel(eval_config_fps_))->Check(true);
+    eval_fps_menu->AppendRadioItem(ID_EvalFps0_1, "0.1");
+    eval_fps_menu->AppendRadioItem(ID_EvalFps0_5, "0.5");
     eval_fps_menu->AppendRadioItem(ID_EvalFps1, "1");
     eval_fps_menu->AppendRadioItem(ID_EvalFps5, "5");
     eval_fps_menu->AppendRadioItem(ID_EvalFps10, "10");
@@ -824,9 +832,9 @@ void RunnerFrame::SetupEvents()
     }, ID_LogView);
 
     const std::pair<int, float> train_fps_items[] = {
-        {ID_TrainFpsConfig, train_config_fps_}, {ID_TrainFpsOff, 0.0f}, {ID_TrainFps1, 1.0f},
-        {ID_TrainFps5, 5.0f}, {ID_TrainFps10, 10.0f}, {ID_TrainFps15, 15.0f},
-        {ID_TrainFps30, 30.0f}, {ID_TrainFps60, 60.0f},
+        {ID_TrainFpsConfig, train_config_fps_}, {ID_TrainFpsOff, 0.0f}, {ID_TrainFps0_1, 0.1f},
+        {ID_TrainFps0_5, 0.5f}, {ID_TrainFps1, 1.0f}, {ID_TrainFps5, 5.0f},
+        {ID_TrainFps10, 10.0f}, {ID_TrainFps15, 15.0f}, {ID_TrainFps30, 30.0f}, {ID_TrainFps60, 60.0f},
     };
     for (const auto& [id, fps] : train_fps_items) {
         Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { train_panel_->SetFps(fps); }, id);
@@ -834,9 +842,9 @@ void RunnerFrame::SetupEvents()
     }
 
     const std::pair<int, float> eval_fps_items[] = {
-        {ID_EvalFpsConfig, eval_config_fps_}, {ID_EvalFps1, 1.0f}, {ID_EvalFps5, 5.0f},
-        {ID_EvalFps10, 10.0f}, {ID_EvalFps15, 15.0f}, {ID_EvalFps30, 30.0f},
-        {ID_EvalFps60, 60.0f}, {ID_EvalFps120, 120.0f},
+        {ID_EvalFpsConfig, eval_config_fps_}, {ID_EvalFps0_1, 0.1f}, {ID_EvalFps0_5, 0.5f},
+        {ID_EvalFps1, 1.0f}, {ID_EvalFps5, 5.0f}, {ID_EvalFps10, 10.0f},
+        {ID_EvalFps15, 15.0f}, {ID_EvalFps30, 30.0f}, {ID_EvalFps60, 60.0f}, {ID_EvalFps120, 120.0f},
     };
     for (const auto& [id, fps] : eval_fps_items) {
         Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) {

@@ -489,7 +489,7 @@ EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`r
 
 起動時に表示するViewを変えるには`app.main_view`へ`train`（Trainだけ）・`eval`（Evalだけ、既定）・`both`（両方）を指定する。Runプロファイルでは`run.@trainview : app.main_view = train`のように書く。`View > Reset Layout`もこの設定へ戻る。Evalを自動で進めるかは`app.eval_panel.auto_start`で指定する。
 
-`View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`またはTrain Viewを隠している間は描画timerを止めるが、学習は継続する。隠したままFPSを選び直した場合は、再表示するとそのFPSで描画する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
+`View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`またはTrain Viewを隠している間は描画timerを止めるが、学習は継続する。隠したままFPSを選び直した場合は、再表示するとそのFPSで描画する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらも1未満の`0.1`（10秒に1回）と`0.5`（2秒に1回）を選べる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
 
 `View > Eval Steps per Frame`で、自動評価の描画更新1回あたりのstep数を変更する。`1`・`2`・`4`・`10`・`20`・`50`・`100`から選ぶか、`Custom...`で現在値を初期表示した入力欄へ1〜2,147,483,647の整数を指定する。確定後は`Custom (N)...`に入力値が表示され、キャンセルでは値と選択を保持する。`Config (N)`は起動時設定へ戻す。変更は次の自動評価更新から反映され、config dumpには保存しない。変更しても一時停止やTrace表示は解除されず、手動Stepは常に1 step進む。Evaluation Traceの1x速度は、現在のFPSと現在のstep数の積に追従する。
 

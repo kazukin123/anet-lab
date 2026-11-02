@@ -1559,6 +1559,35 @@ TEST_CASE("Q-Values keeps its default width as the minimum and follows a wider t
     ui.CheckNoMainPaneFallback();
 }
 
+TEST_CASE("FPS menus offer rates below one", "[.][fps_menu]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.Toggle("Train View", true);
+    // Train Viewの描画timerは1000/FPS msで回る。
+    const auto& timer = TrainPanelProbe::Timer(ui.TrainView());
+    ui.Fps("0.1");
+    CHECK(timer.IsRunning());
+    CHECK(timer.GetInterval() == 10000);
+    ui.Fps("0.5");
+    CHECK(timer.GetInterval() == 2000);
+
+    // EvalはFPSとstep数の積がTraceの基準速度になる。
+    auto* eval = dynamic_cast<EvalPanel*>(ui.Eval().window);
+    REQUIRE(eval);
+    auto* menu = ui.frame->GetMenuBar()->FindItem(ui.MenuId("Eval View FPS"))->GetSubMenu();
+    for (const auto& [label, fps] : {std::pair{"0.1", 0.1f}, std::pair{"0.5", 0.5f}}) {
+        const int id = menu->FindItem(label);
+        REQUIRE(id != wxNOT_FOUND);
+        menu->FindItem(id)->Check(true);
+        wxCommandEvent event(wxEVT_MENU, id);
+        ui.frame->GetEventHandler()->ProcessEvent(event);
+        ui.Settle();
+        CHECK(eval->GetPlaybackRate() == static_cast<double>(fps) * eval->GetStepsPerFrame());
+    }
+    ui.CheckNoMainPaneFallback();
+}
+
 TEST_CASE("Floating Q-Values can shrink to the table and one row", "[.][runner_layout][q_value_float]")
 {
     MainPaneFixture ui;
