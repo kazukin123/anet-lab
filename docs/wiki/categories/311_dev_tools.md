@@ -25,6 +25,7 @@
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-10-18: categories.jsonの対応を直し、apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
 - 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、題・§3のゴール・§4 D1・D4）。
+- 2026-11-02: 工程末の起票候補で直す課題を台帳へ積み、台帳のF番号を最大5件まとめてPRDにするskill（anet-create-fix-prd）と、registry.py validateのF番号の重複検査を足す案を暫定で起票した（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、題・§1・§4 D1・D5・D15）。
 
 ## 選ばなかった形
 
@@ -40,6 +41,14 @@
 - Linux・macOSのリリース物 — 範囲外: 先にビルドの移植が要る。再開条件: Linuxでビルドが通ったとき（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§2の14・§8）。
 - windows-ci.ymlのconfigureをリリースのpresetへ寄せる — 範囲外: CIのビルド確認の関心で、999 CI/CD改善のL1で扱う。再開条件: リリースのpresetが入ったあと（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§8）。
 - 依存の準備（LibTorchの取得など）をCMakeで行う — 範囲外: 環境整備は別の関心で、CUDA Toolkitの導入はCMakeで行えない。再開条件: 環境整備も1つのコマンドにしたくなったとき（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§3の非ゴール・§8）。
+- 工程末の起票の区分をプロセス契約（protocol.md）§7に書き足す — 不採用: 共有コアはプロジェクトに依存しない文面に保ち、anet固有の決まりはレジストリの読み替えに置く（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§4 D3）。
+- 台帳へ積む入口専用のskill（an-create-issueに当たるもの） — 不採用: 積む操作はregistry.pyのadd・touch・setだけで、手順はレジストリの1節で足りる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D4・§8）。
+- fix PRD用の台帳の新しい状態 — 不採用: promotedと注記で足り、変えるとanet-audit・anet-improve・buildまで波及する（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
+- 直す課題に当たる999 PRDの台帳への移し替え — 先送り: 入口と出口が動いてから決める。再開条件: fix PRDの試走（出口）と工程末の試走（入口）を終えたとき（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
+- fix PRDの起票をanet-housekeepingの候補にする — 不採用: 起票にはグリルの質疑が要り、了承後は質問しない約束と合わない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
+- GitHub Issueを課題の置き場にする — 不採用: エージェントがrepoの中を検索して読む流れの外にあり、投稿のたびに外部への書き込みになる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2）。
+- 台帳のF番号の自動の振り直し — 不採用: 衝突は稀で、validateが重なりを出せば人が直せる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8）。
+- 起票候補の区分「その場で直す」 — 先送り: 課題の置き場とは別の関心で、直したあとのレビューの扱いもあわせて決める必要がある。再開条件: 台帳へ積んだ件のうち、その工程の中で直せる大きさの件が続けて出たとき（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8・§9）。
 
 ## 変えるときの条件
 
@@ -51,6 +60,7 @@
 - 台帳の分類をstatsと共有する変更をした場合は、statsのカテゴリ集計が変わらないことを確かめる（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§4.7の台帳のツール・受入15）。
 - リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
 - リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
+- 台帳のCLIを変えるときは、PRD095の検証資材のregistry_test.pyを通し、台帳の既存の記録は書き換えない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.6・§7の3）。
 
 ## 関係
 
