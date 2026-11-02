@@ -12,7 +12,7 @@
 - 観測: q_gapの縮小とaction_churnの減少は成績が落ちなかったseed 2にも出た。同じ2本のRunで、この変化だけではseed 1の頭打ちを説明できない（出典: [100M実験記録](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、現時点のまとめ4・内部指標）。
 - 観測: 2 seedの63,412ゲームの最終スコアの断絶は75,000点の1UPと対応し、ボスや面の進行を示さない。Runは上記seed 1・2。生スコアとクリップ後returnも異なる量である（出典: [100M実験記録](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、探索ブロック02・03）。
 - 観測: Atari-5の100M比較でもaction_churnは5ゲームすべてで減ったが、q_gapの縮小はbattle_zoneだけだった。KFMの指標の動きはゲームをまたいで一様ではない（出典: [Atari-5実験記録](../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、探索ブロック04「内部指標」、同節の対象Run）。
-- 観測: ボスは距離で現れ、命中時に点は入らず、撃破で2,000点、さらに出口で体力とタイマーが得点へ換算される。命中数には10〜11発の変動が記録されている（出典: [RAMメトリクスPRD](../../memo/082_atari_ram_progress_metrics_10prd.md)、§2「ゲームの仕組み」；[内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.1）。
+- 観測: ボスは距離で現れ、命中時に点は入らず、撃破で2,000点、さらに出口で体力とタイマーが得点へ換算される。命中数には10〜11発の変動が記録されている（出典: [RAMメトリクスPRD](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、§2「ゲームの仕組み」；[内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.1）。
 - 観測: 実時間優先3 seedのうちseed 3はボス行きを学び、評価の面クリアは15M以降ほぼ100%だった。Runは `run_20260925-130017_atari_kfm_rr1_100m_seed3`。同じ記録でseed 1・2はその方策を使わなかった（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.2）。
 - 観測: seed 3 の学習中のゲームの命中率は 3-4M の 10.2% から 4-5M の 51.0% へ跳ね、撃破 ÷ 命中は 1M 窓で 0.24 → 0.40 → 0.71 と上がった。eval（ε=0.01）の面クリア率は 6-8M 54.7%、8-10M 73.8%、18-20M 100%、ε=0 断面は 10.3M で 78.4%、20.4M 以降 100% だった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 04「比較相手: seed 3 の立ち上がり」。Run: `run_20260925-130017_atari_kfm_rr1_100m_seed3`）。
 - 観測: 2026-10 に設定を変えた 22 本（クリップ外し 2・ライフで区切る 1・sticky 0 1・ボス用セット系 5・広い ε の UQE 2・batch 1024 3・IMPALA+ViT の Body 8）は、どれもボス行きに入らず、学習中のゲームで面を抜けたのは各 Run で通算 0〜12 本（0.1% 以下）だった。seed 3 は学習中のゲームの 62% で面を抜けている（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ1・対象 Run）。
@@ -27,7 +27,7 @@
 - 観測: 挑み始めるきっかけは撃破ではなかった。既定 10M の s13 は 4.0〜5.5M に命中 21〜32% で挑んだが 10M まで撃破 0、s12・s18 も撃破 0〜1 本で挑んでは退いた。s08 の学習中のスコアは、挑んでいる 5.0〜6.0M の 11,027〜11,191 から、挑まなくなった 7.5M 以降の 17,521〜18,067 へ上がった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ7・探索ブロック 04。Run: `run_20261018-224452_kfm_10m_s13`, `run_20261018-153241_kfm_10m_s08`）。
 - 観測: batch 1024 の 3 seed は、s04・s05 が 30M まで命中率のピーク 1.7 / 2.7%、s06 は 16-20M に約 10〜15% 挑んだが撃破 ÷ 命中は 0.07 以下だった。30M の学習 step は 29,100 で、B256 の 10M（38,200）より少ない（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ8・探索ブロック 05。Run: `run_20261019-084922_kfm_b1k_s04`, `run_20261019-131520_kfm_b1k_s05`, `run_20261019-174028_kfm_b1k_s06`）。
 - 観測: IMPALA+ViT の Body の 8 seed は、挑んだ割合（命中率のピーク 30% 以上が 3 本）は既定と同程度だったが、撃破 ÷ 命中の最高は 0.05 で、eval2 7.5-10M の平均は 16,406（既定 16 本は 27,148）、実時間は既定の約 1.28 倍だった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ9・探索ブロック 06。Run: `run_20261019-220636_kfm_vit_s04` ほか同記録の 8 本）。
-- 観測: RAM メトリクスでは、seed 3 の学習中のゲームのうち `floor_clear` = 2（2 面を抜けた）の 5 本が、どれも `boss_kill` = 1・`boss_hit` = 11 だった。面の番号（0x9F）は 1 ゲームの中で 2 回増える（面 2 → 3）が、2 面のボスの撃破と命中は数えられていない（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 04「seed 3 の RAM メトリクス」；[RAMメトリクスPRD](../../memo/082_atari_ram_progress_metrics_10prd.md)、Context の RAM 表の 0x9F。Run: `run_20260925-130017_atari_kfm_rr1_100m_seed3`）。
+- 観測: RAM メトリクスでは、seed 3 の学習中のゲームのうち `floor_clear` = 2（2 面を抜けた）の 5 本が、どれも `boss_kill` = 1・`boss_hit` = 11 だった。面の番号（0x9F）は 1 ゲームの中で 2 回増える（面 2 → 3）が、2 面のボスの撃破と命中は数えられていない（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 04「seed 3 の RAM メトリクス」；[RAMメトリクスPRD](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、Context の RAM 表の 0x9F。Run: `run_20260925-130017_atari_kfm_rr1_100m_seed3`）。
 - 分析: seed 3 は安定してボスを倒していたので、ボス戦に勝つための情報は今の観測に入っていると正本は分析している。既定の 16 seed のうち 7 本が挑んだが撃破 ÷ 命中が上がった Run は無く、seed 3 は挑み始めの 0.24 から 0.40 → 0.71 と上がった。既定の設定でボス行きが定着するのは、seed 3 を含めて約 20 本に 1 本である（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.3）。
 - 分析: 方策の多様性は ① 行動のゆらぎ（同じネットワークで ε だけを Actor ごとに変える）、② 目的を変えた方策の家族（NGU・Agent57）、③ 別々のパラメータ（独立の seed など）の 3 段に分けられ、seed 3 だけがボス行きに入ったのは ③ の違いだったと正本は整理している（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.6）。
 - 文献上の留保: 公表値では、KFM で 20 万点を超えるのは R2D2・NGU・Agent57・MuZero など Actor が数百・フレームが数十億〜数百億の分散学習ばかりで、200M フレーム級の DQN 系はどれも 8 万点未満だった（Atari-5 の公開データ）（出典: [seed 集団の PRD](../../memo/999_seed_population_early_stop_10prd.md)、§2）。
@@ -39,7 +39,7 @@
 
 - ボス命中・撃破・出口換算の各場面で、学習側と近似Actorの優先度はどれほど高くなるか（出典: [Evaluation Trace PRD](../../memo/094_evalpanel_step_history_10prd.md)、§2・§3）？
 - 新しさや目的の違う方策は、ボスに挑む頻度と撃破までの練習を継続させられるか（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.5・§2.6）？
-- 2 面を抜けたゲームで、ボスの命中・撃破が 1 面の分しか数えられないのはなぜか（2 面のボスの体力が 0xCC に無いのか、ボス戦なしで抜けたのか）。面の番号の 3 面より先と、5 面を抜けたあとの値も確かめていない（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending；[RAMメトリクスPRD](../../memo/082_atari_ram_progress_metrics_10prd.md)、既知の限界と後続「0x9F の確認範囲」）？
+- 2 面を抜けたゲームで、ボスの命中・撃破が 1 面の分しか数えられないのはなぜか（2 面のボスの体力が 0xCC に無いのか、ボス戦なしで抜けたのか）。面の番号の 3 面より先と、5 面を抜けたあとの値も確かめていない（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending；[RAMメトリクスPRD](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、既知の限界と後続「0x9F の確認範囲」）？
 - 挑んでいる間に撃破 ÷ 命中が上がるかどうかを何が決めるか。seed 3 と s08 は挑み始めの撃破 ÷ 命中がほぼ同じ（0.24 と 0.22）だったが、seed 3 だけが上がった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending）？
 
 ## 撤回・更新
@@ -47,7 +47,7 @@
 - 2026-10-18: seed 1の50M以降の頭打ちから後半の学習を一律に無駄とする読み → seed 2は伸び続けており一般化しない（出典: [100M実験記録](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、現時点のまとめ3・探索ブロック01。Runは上記seed 1・2）。
 - 2026-10-18: 最終スコアの断絶をボスや面進行の代理とする読み → 75,000点の1UPへの到達であり、進行は別に見る（出典: [100M実験記録](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、探索ブロック02。Runは上記seed 1・2）。
 - 2026-10-19: ボスに挑み始めること（点火）が壁だという見立て → 既定の 16 seed のうち 7 本が挑んでおり挑むことは珍しくなく、壁は挑んでいる間に撃破 ÷ 命中が上がらないことにある（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、冒頭の 2026-10-21 改訂の注記・§2.3）。
-- 2026-10-23: RAM の面の番号（0x9F）は面 1 → 2 の切り替わりしか確かめていない → 面 2 → 3 でも増え、死亡とゲームオーバーでは増えないことを実 Run で確かめた。残る問いは 2 面のボスの命中・撃破の数え方（出典: [RAMメトリクスPRD](../../memo/082_atari_ram_progress_metrics_10prd.md)、冒頭の 2026-10-23 改訂・Context の RAM 表；[KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 04。Run: `run_20260925-130017_atari_kfm_rr1_100m_seed3`）。
+- 2026-10-23: RAM の面の番号（0x9F）は面 1 → 2 の切り替わりしか確かめていない → 面 2 → 3 でも増え、死亡とゲームオーバーでは増えないことを実 Run で確かめた。残る問いは 2 面のボスの命中・撃破の数え方（出典: [RAMメトリクスPRD](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、冒頭の 2026-10-23 改訂・Context の RAM 表；[KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 04。Run: `run_20260925-130017_atari_kfm_rr1_100m_seed3`）。
 
 ## 関連
 

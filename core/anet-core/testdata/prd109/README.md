@@ -1,6 +1,6 @@
 # PRD109 起動の非同期化の検証
 
-正本は [実装メモ](../../../../docs/memo/109_runner_startup_background_init_20impl.md)。結果、コマンド、未実施と理由は実装メモへ追記する。
+正本は [実装メモ](../../../../docs/memo/done/109_runner_startup_background_init_20impl.md)。結果、コマンド、未実施と理由は実装メモへ追記する。
 
 ## ビルドと変更前の採取
 

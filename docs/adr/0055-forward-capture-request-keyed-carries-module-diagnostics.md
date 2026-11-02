@@ -16,4 +16,4 @@ attention エントロピー（PRD 093）は Body の state に存在せず Tran
 - 可塑性の actual チャネルは `Get(final_feature_branch_key)` で読む。動作は不変。
 - 未知 branch 名の fail-fast は「未達の要求は error」の特例になり、Transformer の無い閉包で attention を要求した場合も同じ規則で止まる。
 - 2 つ目の module 診断は、鍵定数と module 内の `Wants`／`Add` だけで足せる。
-- 仕様の正本は `docs/memo/093_attention_entropy_diagnostics_10prd.md` §4。
+- 仕様の正本は `docs/memo/done/093_attention_entropy_diagnostics_10prd.md` §4。

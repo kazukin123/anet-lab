@@ -15,4 +15,4 @@
 - `BatchStepResult` から `continue_state` を外す。エピソード構造の検査は、Step の結果の検査と段の結果の検査に分ける。
 - 評価セッションの継ぎ目（[ADR 0034](0034-eval-session-aggregation-in-batchenv-decorator.md)）は、直前の段の結果を使い回す形へ移る。
 - 完了値の持ち越し（Atari の `completed_*` など）は外す。Atari が残機喪失直後のリセットで打つ NOOP は、完了を通知の中で読めるよう `Step` へ移す。
-- 詳細は [PRD 097](../memo/097_env_auto_reset_after_notification_10prd.md)。
+- 詳細は [PRD 097](../memo/done/097_env_auto_reset_after_notification_10prd.md)。

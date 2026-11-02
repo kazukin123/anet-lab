@@ -1,6 +1,6 @@
 # 勾配ノイズスケールは更新自身の batch を小バッチに分けて学習経路の中で測り、BF16 も対象にする
 
-勾配ノイズスケール（[PRD 092](../memo/092_gradient_noise_scale_10prd.md)）は、replay から別に取る probe ではなく、`Optimize` に重み付きの要素損失を渡し、同じ損失グラフから小バッチ k 個の勾配を `torch::autograd::grad`（retain_graph）で取って測る。測りたいのは PER・IS 重み・τ・Munchausen を含む実際の更新のノイズであり、この形なら forward を増やさず、乱数・`.grad`・optimizer の state にも触れないので、測定の ON/OFF で学習系列が変わらない。本線の Learner は BF16 autocast（GradScaler 無し、backward は autocast の外）なので、BF16 も同じ経路で測る。
+勾配ノイズスケール（[PRD 092](../memo/done/092_gradient_noise_scale_10prd.md)）は、replay から別に取る probe ではなく、`Optimize` に重み付きの要素損失を渡し、同じ損失グラフから小バッチ k 個の勾配を `torch::autograd::grad`（retain_graph）で取って測る。測りたいのは PER・IS 重み・τ・Munchausen を含む実際の更新のノイズであり、この形なら forward を増やさず、乱数・`.grad`・optimizer の state にも触れないので、測定の ON/OFF で学習系列が変わらない。本線の Learner は BF16 autocast（GradScaler 無し、backward は autocast の外）なので、BF16 も同じ経路で測る。
 
 ## Considered Options
 

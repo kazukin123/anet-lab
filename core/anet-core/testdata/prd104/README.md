@@ -1,6 +1,6 @@
 # PRD104 検証資材
 
-正本は [PRD104](../../../../docs/memo/104_temporl_skip_auxiliary_only_10prd.md)、実施記録は [実装メモ](../../../../docs/memo/104_temporl_skip_auxiliary_only_20impl.md)。実行はrepo rootのPowerShell、Pythonはrepoの `.venv` を使う。
+正本は [PRD104](../../../../docs/memo/done/104_temporl_skip_auxiliary_only_10prd.md)、実施記録は [実装メモ](../../../../docs/memo/done/104_temporl_skip_auxiliary_only_20impl.md)。実行はrepo rootのPowerShell、Pythonはrepoの `.venv` を使う。
 
 ## 入力と既定の等価性
 

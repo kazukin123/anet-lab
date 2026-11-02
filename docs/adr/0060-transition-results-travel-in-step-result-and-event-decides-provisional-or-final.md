@@ -15,4 +15,4 @@
 - `EpisodeEndEvent` は終わった Step の結果を持ち、評価セッションは採用 episode の値を Step の結果から溜める（ADR 0034 の継ぎ目は `continue_state` の使い回しに戻る）。trace の読み手も Step の結果から読む（ADR 0037 の読み口が変わる）。
 - env の `GetScalar` から、完了したときだけ値を返していた鍵と、そのための持ち越しを外す。その鍵を読む `$env ... @train` の行は `$env_step ... @episode_end` へ移る。
 - Atari は鍵を分けず、`episodic_life` で残機を失ったがゲームが続く step だけ、ゲーム単位の鍵を NaN にする。`ram_metric.[n]` も同じ規則に従う。ADR 0046 が「NaN の規則を変えるときは新しい ADR で行う」とした新しい ADR は本 ADR である。
-- 詳細は [PRD 097](../memo/097_env_auto_reset_after_notification_10prd.md)。
+- 詳細は [PRD 097](../memo/done/097_env_auto_reset_after_notification_10prd.md)。

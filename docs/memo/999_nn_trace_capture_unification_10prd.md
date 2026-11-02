@@ -2,7 +2,7 @@
 
 > 2026-10-16 093 の 3 回目のグリルで、接頭辞要求（末尾 `/`）・`GetAll`・NetworkStruct による実行位置の付与（`<branch>/<block インスタンス名>`）を 093 側へ先取りした。本 PRD の残りは trace の書き手と読み手の付け替えと `TraceCallback` の削除。§2・§4 の 1 と 2・§5・§8 の 1・§9 を合わせた。
 > 2026-10-16 起票。暫定の既定を置き、決めることを §8 の表に残した。詳細はグリルで詰める前提。
-> 起点: [093_attention_entropy_diagnostics_10prd.md](093_attention_entropy_diagnostics_10prd.md) のグリルで、`NetworkBranchCapture` を鍵要求型の `NetworkForwardCapture` に一般化した（[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)）。これで forward の中の名前付き tensor を外へ出す機構が、capture と `TraceCallback` の 2 つになる。関心は 1 つなので、残る `TraceCallback` を capture に吸収する。
+> 起点: [093_attention_entropy_diagnostics_10prd.md](done/093_attention_entropy_diagnostics_10prd.md) のグリルで、`NetworkBranchCapture` を鍵要求型の `NetworkForwardCapture` に一般化した（[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)）。これで forward の中の名前付き tensor を外へ出す機構が、capture と `TraceCallback` の 2 つになる。関心は 1 つなので、残る `TraceCallback` を capture に吸収する。
 > 関連: [ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)（capture の契約と、TraceCallback の常時 ON 問題）、[ADR 0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)（Context）、[done/062_plasticity_metrics_10prd.md](done/062_plasticity_metrics_10prd.md) の 14（TraceCallback が capture に使えない理由）、[done/069_metrics_trace_channel_10prd.md](done/069_metrics_trace_channel_10prd.md) の D1・F9（用語「trace」との区別）。
 
 ## 1. 目的と問題
@@ -95,4 +95,4 @@ forward から名前付き tensor を外へ出す口を `NetworkForwardCapture` 
 - [ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md) の A'' と Consequences（購読ヒントの将来流用）。
 - [ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)。
 - [docs/design/130_neural_networks.jp.md](../design/130_neural_networks.jp.md) の TraceCallback の記述。
-- [093_attention_entropy_diagnostics_10prd.md](093_attention_entropy_diagnostics_10prd.md) の取り出し口の決定。
+- [093_attention_entropy_diagnostics_10prd.md](done/093_attention_entropy_diagnostics_10prd.md) の取り出し口の決定。

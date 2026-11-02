@@ -2,7 +2,7 @@
 
 > 2026-10-29 起票（暫定・999。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、実装時は近傍のシンボル名で探し直す。
 > 起点: qbert の評価（合算の checkpoint、Greedy）を Evaluation Trace で見たところ、最後でない残機を失っても価値（`V_s`）がほとんど下がらなかった（3 ゲーム）。これを評価 session の 200 ゲームで数えたいが、評価 session の step ごとの値を Run の記録に残す口が無い。材料は 2026-10-29 の会話と、PRD106 の再グリルへの引継ぎ文書 `.scratch/prd106/handoff-grill-20261029.md` の §9。
-> 関連: [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル。§8 に「trace の `@train`（lane ごとの毎 step 記録）」の待機中のゲート）、[PRD094](094_evalpanel_step_history_10prd.md)（Evaluation Trace。step trace の生成器と列の書き方）、[PRD081](081_evalpanel_episode_trace_10prd.md)（EvalPanel のゲームを trace へ出す。PRD094 から「step trace を trace チャネルへ出す段」を引き継いだが、改訂はまだ）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)・[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（trace の行の契約）、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)（Evaluation Trace の列はメトリクスの定義と分けて宣言し、遷移の時点に合う target だけを読む）、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)（step の診断値は Agent の step 部品が計算する）、[PRD106](106_temporl_skip_forward_noise_key_10prd.md)。
+> 関連: [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル。§8 に「trace の `@train`（lane ごとの毎 step 記録）」の待機中のゲート）、[PRD094](094_evalpanel_step_history_10prd.md)（Evaluation Trace。step trace の生成器と列の書き方）、[PRD081](081_evalpanel_episode_trace_10prd.md)（EvalPanel のゲームを trace へ出す。PRD094 から「step trace を trace チャネルへ出す段」を引き継いだが、改訂はまだ）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)・[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（trace の行の契約）、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)（Evaluation Trace の列はメトリクスの定義と分けて宣言し、遷移の時点に合う target だけを読む）、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)（step の診断値は Agent の step 部品が計算する）、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)。
 
 ## 1. 目的と問題
 
@@ -12,7 +12,7 @@
 
 - 最後でない残機を失った前後で `V_s` がほとんど変わらない（3 ゲーム・4 回で −0.4〜+0.0）。最後の 1 機のときだけ `V_s` が 0 へ崩れる。
 - 飛び降り（最上段から外へ出る行動）が、価値の上で最善の行動として選ばれた例があった。
-- 評価 session の記録（ゲームの終わりの 1 行）では、合算の Greedy の 200 ゲームのうち 45 本が 5 面で終わり、そのうち 43 本が 14,550 点・ゲームの長さ 1,063〜1,066 step にそろっていた（[PRD106](106_temporl_skip_forward_noise_key_10prd.md) の再グリルの材料）。
+- 評価 session の記録（ゲームの終わりの 1 行）では、合算の Greedy の 200 ゲームのうち 45 本が 5 面で終わり、そのうち 43 本が 14,550 点・ゲームの長さ 1,063〜1,066 step にそろっていた（[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md) の再グリルの材料）。
 
 これらが評価 session の多くのゲームで成り立つか（残機を失った step の前後の `V_s`、失う前の判断の行動とスキップ長、14,550 点で終わるゲームの道筋がそろっているか）を数えたい。画面の Evaluation Trace では 1 ゲームずつしか見られず、記録にも残らない。
 
@@ -204,11 +204,11 @@ run.@stepdiag : metrics.step_trace.[53_evalg/step].columns.[320] = $agent_step s
 
 - [PRD094](094_evalpanel_step_history_10prd.md)（`StepTraceBuilder`・列の書き方・`$agent_step`）と [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル）の実装に乗る。
 - [PRD081](081_evalpanel_episode_trace_10prd.md) の改訂（§9 の 1）と順序が絡む。どちらを先にしても、step trace を書く口は 1 つにする。
-- [PRD106](106_temporl_skip_forward_noise_key_10prd.md) のステージ 0 の読み（Greedy の決まった失敗の扱い）は、本書の G3 の結果を材料にできるが、本書を待たない。
+- [PRD106](done/106_temporl_skip_forward_noise_key_10prd.md) のステージ 0 の読み（Greedy の決まった失敗の扱い）は、本書の G3 の結果を材料にできるが、本書を待たない。
 
 ## 11. 参照
 
-- [PRD069 trace チャネル](done/069_metrics_trace_channel_10prd.md)、[PRD094 Evaluation Trace](094_evalpanel_step_history_10prd.md)、[PRD081 EvalPanel のゲームを trace へ出す](081_evalpanel_episode_trace_10prd.md)、[PRD106](106_temporl_skip_forward_noise_key_10prd.md)
+- [PRD069 trace チャネル](done/069_metrics_trace_channel_10prd.md)、[PRD094 Evaluation Trace](094_evalpanel_step_history_10prd.md)、[PRD081 EvalPanel のゲームを trace へ出す](081_evalpanel_episode_trace_10prd.md)、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)
 - [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)
 - [140 可観測性（設計文書）](../design/140_observability.jp.md)
 - [317 可視化・メトリクス（wiki）](../wiki/categories/317_metrics.md)、[110 RunnerApp（wiki）](../wiki/apps/110_runner_app.md)

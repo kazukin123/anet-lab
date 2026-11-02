@@ -1,8 +1,8 @@
 # メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD
 
 > 2026-10-31 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した）。番号はユーザーの指示で連番の 108 を振った。行番号は起票時点のもので、実装時は近傍の名前で探し直す。
-> 起点: 2026-10-31、beam_rider と freeway の RAM メトリクスに番号 4 を足すとき、Atari の env・評価の群の中の 50〜58 が RAM 1〜3 で埋まっていて、4 の tag を暫定の 59 に置いた（[PRD082](082_atari_ram_progress_metrics_10prd.md) D20）。振り方の案を比べるうちに、ユーザーが「全体を見た時、現状は理想とかけ離れてるね。Agent関連メトリクスがいろんな番号に散らばってる」「きれいに使えそうなのは6x以降」「ramだけに番号をあまりさきたくない。かと言って可読性を大きく落としたくもない」と述べ、番号の再編を全体整理として本 PRD で行うと決めた。既存 Run との tag の互換が切れることは許容し、メイン機の Workspace（Atari-xx と Atari5-xx の両方）を切り替える意向も同時に示した。
-> 関連: [PRD082](082_atari_ram_progress_metrics_10prd.md)（RAM メトリクス。D19 の tag の作り方、D20 の暫定の 59）、[実装 品質確認観点](../quality/impl.md)（「metrics の tag の文字数」「並び順を番号で決める設定」の規約。項番 67）、[140 可観測性 §6](../design/140_observability.jp.md)（Metric 設定 contract）、[220 §4.9](../design/220_atari_env.jp.md)（RAM メトリクス）。
+> 起点: 2026-10-31、beam_rider と freeway の RAM メトリクスに番号 4 を足すとき、Atari の env・評価の群の中の 50〜58 が RAM 1〜3 で埋まっていて、4 の tag を暫定の 59 に置いた（[PRD082](done/082_atari_ram_progress_metrics_10prd.md) D20）。振り方の案を比べるうちに、ユーザーが「全体を見た時、現状は理想とかけ離れてるね。Agent関連メトリクスがいろんな番号に散らばってる」「きれいに使えそうなのは6x以降」「ramだけに番号をあまりさきたくない。かと言って可読性を大きく落としたくもない」と述べ、番号の再編を全体整理として本 PRD で行うと決めた。既存 Run との tag の互換が切れることは許容し、メイン機の Workspace（Atari-xx と Atari5-xx の両方）を切り替える意向も同時に示した。
+> 関連: [PRD082](done/082_atari_ram_progress_metrics_10prd.md)（RAM メトリクス。D19 の tag の作り方、D20 の暫定の 59）、[実装 品質確認観点](../quality/impl.md)（「metrics の tag の文字数」「並び順を番号で決める設定」の規約。項番 67）、[140 可観測性 §6](../design/140_observability.jp.md)（Metric 設定 contract）、[220 §4.9](../design/220_atari_env.jp.md)（RAM メトリクス）。
 
 ## 1. 目的と問題
 
@@ -209,6 +209,6 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
 
 ## 11. 参照
 
-- [PRD082 RAM メトリクス](082_atari_ram_progress_metrics_10prd.md)
+- [PRD082 RAM メトリクス](done/082_atari_ram_progress_metrics_10prd.md)
 - [実装 品質確認観点](../quality/impl.md)（「metrics の tag の文字数」「並び順を番号で決める設定」）
 - [140 可観測性（設計文書）](../design/140_observability.jp.md)、[200 DQN 系列（設計文書）](../design/200_dqn_agents.jp.md)、[220 Atari 環境（設計文書）](../design/220_atari_env.jp.md)、[210 Metrics Viewer（設計文書）](../design/210_metrics_viewer.jp.md)

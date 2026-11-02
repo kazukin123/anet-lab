@@ -1,6 +1,6 @@
 # PRD106 検証資材
 
-正本は [PRD106](../../../../docs/memo/106_temporl_skip_forward_noise_key_10prd.md)、作業と結果は [実装メモ](../../../../docs/memo/106_temporl_skip_forward_noise_key_20impl.md)。実行はリポジトリルートの PowerShell。
+正本は [PRD106](../../../../docs/memo/done/106_temporl_skip_forward_noise_key_10prd.md)、作業と結果は [実装メモ](../../../../docs/memo/done/106_temporl_skip_forward_noise_key_20impl.md)。実行はリポジトリルートの PowerShell。
 
 ## 既定の等価性
 

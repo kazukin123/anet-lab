@@ -1,6 +1,6 @@
 # NN Head の最終射影と出力変換の責務分離
 
-2026-09-30、[NoisyNet PRD](084_noisynet_10prd.md) のグリルから切り出した暫定 PRD。番号は 999 のままとし、方式・対象 Agent・公開契約は未裁定とする。別途グリルしてから正式化と実装範囲を決める。
+2026-09-30、[NoisyNet PRD](done/084_noisynet_10prd.md) のグリルから切り出した暫定 PRD。番号は 999 のままとし、方式・対象 Agent・公開契約は未裁定とする。別途グリルしてから正式化と実装範囲を決める。
 
 ## 1. 問題と目的
 
@@ -127,4 +127,4 @@ Head を重み無しにすること自体、クラス数を減らすこと自体
 - [NetworkHead interface](../../core/anet-core/include/anet/nn.hpp)、[Body Linear と module Factory](../../core/anet-core/src/nn_modules.cpp)。
 - [DQN Head 群](../../core/anet-core/src/dqn_based_heads.cpp)、[PassThroughHead・汎用 LinearHead](../../core/anet-core/src/nn_heads.cpp)。
 - [Network の FP32 境界と診断](../../core/anet-core/src/nn_impl.cpp)。
-- [NoisyNet PRD](084_noisynet_10prd.md): 現行 Head を維持して演算を共用する、独立した先行課題。
+- [NoisyNet PRD](done/084_noisynet_10prd.md): 現行 Head を維持して演算を共用する、独立した先行課題。

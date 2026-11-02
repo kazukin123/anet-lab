@@ -26,7 +26,7 @@
 ## 関連
 
 - [checkpoint 引き継ぎでは optimizer の options を現在の設定で置き換える](../../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)。
-- [checkpoint 引き継ぎで optimizer の設定（学習率ほか）を効かせる PRD](../../memo/091_checkpoint_load_optimizer_options_10prd.md)。
+- [checkpoint 引き継ぎで optimizer の設定（学習率ほか）を効かせる PRD](../../memo/done/091_checkpoint_load_optimizer_options_10prd.md)。
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。

@@ -23,7 +23,7 @@ Action Q-Transformerの性能上の優位は一部ゲームに限られた。TQL
 ## 関連
 
 - [forward の持ち帰りは鍵要求型の capture 1 つに統一し、module の診断も同じ器で運ぶ](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)。
-- [TransformerEncoder の attention エントロピー診断 PRD](../../memo/093_attention_entropy_diagnostics_10prd.md)。
+- [TransformerEncoder の attention エントロピー診断 PRD](../../memo/done/093_attention_entropy_diagnostics_10prd.md)。
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。

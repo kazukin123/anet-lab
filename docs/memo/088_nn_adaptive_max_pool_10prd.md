@@ -3,7 +3,7 @@
 > 2026-10-09 起票。詳細設計は別途グリルで行う前提で、決めることを §5 に残した（暫定の既定を置いてある）。
 > 2026-10-23 改訂: Run 名を今のフォルダ名に合わせた（2026-10-15〜17 の改名。対応は DropMerge の workspace の改名の対応表）。中身は変えていない。
 > 起点: DropMerge の NN で、行動（NOOP と 58 列への DROP）の列の位置を `Flatten > Linear_2048` が消している。列を残したまま縦方向だけを畳みたいが、今の `MaxPool2d` は正方形のカーネルしか書けず、出力の大きさで指定する pooling も無いので、設定では書けない。Atari でも、BTR の `AdaptiveMaxPool2d(6)` を `MaxPool2d` の組み合わせで近似してきた（`AtariPool6`）。
-> 関連: [Atari: BTR の NN 構成の移植検証](../experiments/default-dqn/atari/2026-09-12_btr-network-port.md)、[Atari: BTR との差分の腕](../experiments/default-dqn/atari/2026-09-01_btr-feedback-arms.md)、[Atari-5 の記録](../experiments/default-dqn/atari/2026-08-27_atari5.md)、[DropMerge の探索記録](../experiments/default-dqn/dropmerge/README.md)、[DropMerge の長期 Run](../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、[BTR のコード読み](../../reports/btr_code_reading_2026-08-31.md)、[設計 130 ニューラルネットワーク](../design/130_neural_networks.jp.md)、[084_noisynet_10prd.md](084_noisynet_10prd.md)（DropMerge で NEET の無い基準を作った NoisyNet）。
+> 関連: [Atari: BTR の NN 構成の移植検証](../experiments/default-dqn/atari/2026-09-12_btr-network-port.md)、[Atari: BTR との差分の腕](../experiments/default-dqn/atari/2026-09-01_btr-feedback-arms.md)、[Atari-5 の記録](../experiments/default-dqn/atari/2026-08-27_atari5.md)、[DropMerge の探索記録](../experiments/default-dqn/dropmerge/README.md)、[DropMerge の長期 Run](../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、[BTR のコード読み](../../reports/btr_code_reading_2026-08-31.md)、[設計 130 ニューラルネットワーク](../design/130_neural_networks.jp.md)、[084_noisynet_10prd.md](done/084_noisynet_10prd.md)（DropMerge で NEET の無い基準を作った NoisyNet）。
 
 ## 1. 目的と問題
 

@@ -3,7 +3,7 @@
 > 2026-11-02 起票（暫定・999。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、実装時は近傍の記述で探し直す。wxWidgets のソースの行番号は 3.3.3 のもの。
 > 2026-11-02 999 から 113 へ採番した（本文は変えていない）。
 > 起点: 2026-11-02 の会話。`AnetRLRunner-gui-test` で以前から落ちていた 2 件を調べ、そのうち `[log_panel]` の字下げのテストの失敗は、manifest の `gdiScaling=true` で Runner が DPI 非対応のまま動いていることが原因と分かった（§2）。ユーザーは、字下げの幅を RichEdit の配置から測る案（その場で示した推奨案）と、gdiScaling を外す件を、この PRD にまとめて起こすことを選んだ。もう 1 件（構築に失敗した Runner を閉じたあとの落ち）は、同じ日に PRD なしで直した（RunnerFrame の後回しの並べ直しのガード）。
-> 関連: [999_runner_theme_switch](999_runner_theme_switch_10prd.md)（OS のテーマの切替。DPI の変更はその入口に入れないとした）、[PRD110](110_runner_main_pane_dynamic_centre_10prd.md)（主 pane の配置と幅の規則）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§8。
+> 関連: [999_runner_theme_switch](999_runner_theme_switch_10prd.md)（OS のテーマの切替。DPI の変更はその入口に入れないとした）、[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md)（主 pane の配置と幅の規則）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§8。
 
 ## 1. 目的と問題
 
@@ -102,7 +102,7 @@ Runner の manifest は PMv2 を宣言しているが、同じ manifest の `gdi
 | 窓・ダイアログ・pane の大きさ | RunnerFrame の初期の窓と各 pane の推奨・最小・浮かせたときの大きさ（Reset Layout でかけ直す値を含む）、Conv2d・HeatMap・Atari の初期の大きさ、エラー・workspace の選択・HeatMap の設定のダイアログの大きさと最小の大きさ | `FromDIP` で直す |
 | 部品の大きさ | エラーのダイアログの文字欄の高さ、workspace の選択のリストの高さ、HeatMap の step の欄の幅 | `FromDIP` で直す |
 | sizer の枠と間隔 | 型 D の 37 か所と型 F の 1 か所（列の数は直さない） | `FromDIP` で直す |
-| 主 pane の幅の規則が使う最小幅 | RunnerFrame の Train・Eval の最小幅（200）と Logs の高さ（200） | 使う時点で `FromDIP` で直す（[PRD110](110_runner_main_pane_dynamic_centre_10prd.md) の等分の規則の 200+200 を含む） |
+| 主 pane の幅の規則が使う最小幅 | RunnerFrame の Train・Eval の最小幅（200）と Logs の高さ（200） | 使う時点で `FromDIP` で直す（[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md) の等分の規則の 200+200 を含む） |
 | 表の列幅 | QValuePanel の列幅と最小幅、行見出しの幅、ヒートマップの推奨幅 | `FromDIP` で直し、DPI の変更で決め直す（§5.3） |
 | GDI で描く View の余白と線の太さ | LunarLander・DropMerge の余白、型 E の `wxPen` の太さ 31 か所（QValuePanel のヒートマップの 1 か所を含む） | 描くたびに `FromDIP` で直す。線は 1px を下回らない |
 | GL で描く View の余白 | Atari の余白（10） | 実際の画素で計算している（§2 の 5）ので、`GetContentScaleFactor` を掛ける（§6 の 2） |
@@ -132,7 +132,7 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 ### 5.5 変えないもの
 
 - 100% の表示では、すべての寸法が今と同じ画素のままである（`FromDIP` は 100% では値を変えない）。配置・大きさ・振る舞いは今と同じになる。
-- [PRD110](110_runner_main_pane_dynamic_centre_10prd.md) の主 pane の規則（Centre の占有、等分の条件、200ms の宣言、保険の WARN）と、その GUI テストが確かめる中身（判定）。テストの中の固定の寸法を `FromDIP` で直すことは、判定を変えないので行ってよい（§6 の 6）。
+- [PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md) の主 pane の規則（Centre の占有、等分の条件、200ms の宣言、保険の WARN）と、その GUI テストが確かめる中身（判定）。テストの中の固定の寸法を `FromDIP` で直すことは、判定を変えないので行ってよい（§6 の 6）。
 - Close の順序（[160](../design/160_applications_and_tools.jp.md) §7.1）、Train View を隠しても学習を止めないこと、表示の FPS の扱い。
 - 設定のキー。足しも変えもしない。
 - 学習と評価。描画は UI のスレッドだけで行い、Runner・Env・Agent に触れない。
@@ -233,7 +233,7 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
    記録は、150% と 175% の各モニターで、workspace の選択・エラー・HeatMap の設定の各ダイアログ、浮かせた Logs の pane、LunarLander・DropMerge・Atari・CartPole・GridMaze の View と PlotPanel のスクリーンショットを、今の実行ファイルと新しい実行ファイルで撮り、手順の README に置く。エラーのダイアログは、起動時に止まる設定の誤り（たとえば `app.main_view` に列挙に無い値）で出す。これらの画素の大きさは合否にしない（§3 の成功の測り方の G2、§9 の 9）。
 5. 既存の GUI テスト（自動。150% の機械）: 既定のスイート、`"[log_panel]"`、RunnerApp を起動する隠しテストのタグ（`[prd109_*]`・`[prd110_*]`・`[eval_steps_menu]`・`[prd105_ui_keys]`・`[dpi_layout]`）を 1 タグ 1 process で回し、すべて通る（`[prd110_main_pane]` のように複数の RunnerApp を 1 process で起こすまとめのタグは除く）。`[prd110_toolbar]` を含む。
 6. 字下げは測り方によらない（自動）: 次の 2 つを確かめるテストを `[log_panel]` に足す。1 つ目は、ログ欄を本文より前の部分より狭くして最初の記録を足し、そのあと欄を広げると、折り返した 2 行目が本文の頭にそろう（±2px）こと。2 つ目は、`wxDPIChangedEvent` を LogPanel へ送ったあとも、折り返した 2 行目が本文の頭にそろうこと。足した 2 つと既存の字下げのテスト（[LogPanel_test.cpp:357-391](../../apps/runner/src/LogPanel_test.cpp)）が、新しい実行ファイルと、gdiScaling を戻した写し（新しい実行ファイルの manifest に、`mt.exe` で今の manifest を入れ直したもの）の両方で通る。写しで回すのは、新しい実行ファイルでは仮の幅（GDI で測った幅）と描いた幅が一致し、測った幅への置き換えの漏れが見えないためである。1 つ目のテストで欄の幅を変えるのは、テストの frame の大きさを公開の API で決める準備であり、利用者が窓の端をドラッグして欄の幅を変える操作そのものは受入 7 で人が確かめる。2 つ目のテストでイベントを送るのも、測り直しの経路を通すための準備であり、窓をモニターの間で動かす操作そのものは受入 7 で人が確かめる。
-7. モニターの間の移動（手動。人が行う）: Logs に折り返した行があり、Q-Values の表と Train・Eval の View を出した Runner を、150% のモニターから 175% のモニターへ動かし、また戻す。動かした先ごとに、スクリーンショットの画素で次を確かめる。Logs の折り返した 2 行目と本文の頭の横の位置の差が ±2px 以内である。Q-Values の表の列幅が、その拡大率の期待値と一致する。Train View と Evaluation View の幅の差が 2px 以内である（[PRD110](110_runner_main_pane_dynamic_centre_10prd.md) の等分の規則が当たる配置で）。あわせて、Logs の Clear log を押して記録を無くし（字下げの幅が仮の幅に戻る。§5.4 の 3）、窓の端をドラッグして Logs のログ欄を本文より前の部分より狭くしてから記録を出し、そのあとで窓を広げると、折り返した 2 行目と本文の頭の横の位置の差が ±2px 以内になる。結果を手順の README の表に記録する。
+7. モニターの間の移動（手動。人が行う）: Logs に折り返した行があり、Q-Values の表と Train・Eval の View を出した Runner を、150% のモニターから 175% のモニターへ動かし、また戻す。動かした先ごとに、スクリーンショットの画素で次を確かめる。Logs の折り返した 2 行目と本文の頭の横の位置の差が ±2px 以内である。Q-Values の表の列幅が、その拡大率の期待値と一致する。Train View と Evaluation View の幅の差が 2px 以内である（[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md) の等分の規則が当たる配置で）。あわせて、Logs の Clear log を押して記録を無くし（字下げの幅が仮の幅に戻る。§5.4 の 3）、窓の端をドラッグして Logs のログ欄を本文より前の部分より狭くしてから記録を出し、そのあとで窓を広げると、折り返した 2 行目と本文の頭の横の位置の差が ±2px 以内になる。結果を手順の README の表に記録する。
 8. 100% の表示（手動。任意で、合否に入れない。人が行う）: 表示の拡大率を 100% にした機械で、今の Runner と新しい Runner を同じ設定で起動し、窓・pane・ダイアログの大きさが同じ画素であることをスクリーンショットで比べる。
 9. 学習の速さ（自動に近い手動）: 150% のモニターで、LunarLander の既定の設定の Runner を対話の形で起動する（[apps/10_run.bat](../../apps/10_run.bat) と同じ既定の設定の連鎖で、`app.online.*` が効く。Train View と Evaluation View の表示の FPS はどちらも既定の 30 で、§5.7 の見積もりと同じ前提である。バッチの形の `app.$=app.batchrun` には替えない）。`run.seed=1`、`app.main_view=both`（Train View と Evaluation View を出す）、`app.online.exp_exit_step=200000`（profile と同じ接頭辞で渡す）を渡す。学習は既定のとおり自動で始まる（`app.train_auto_start` の既定は true。[common.txt:122](../../apps/runner/config/common.txt)）。この Run を、今と新しい実行ファイルで交互に 3 巡ずつ（各 3 Run）、同時には 1 本だけ走らせる。Run ごとに `90_perf/12_exp_step_per_sec` の exp step 100,000〜200,000 の点の平均を取り、群ごとの 3 Run の中央値の比（新÷今）が §9 の 1 の閾値以上である。描画の時間（§5.7）は記録だけする。
 10. 文書: 160 §2.1・§3.5・§8 が §5.8 のとおり直っている。
@@ -274,7 +274,7 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 
 ## 11. 参照
 
-- [999_runner_theme_switch](999_runner_theme_switch_10prd.md)、[PRD110](110_runner_main_pane_dynamic_centre_10prd.md)
+- [999_runner_theme_switch](999_runner_theme_switch_10prd.md)、[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md)
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§7.1・§8
 - [RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
 - [Improving the high-DPI experience in GDI based Desktop Apps](https://blogs.windows.com/windowsdeveloper/2017/05/19/improving-high-dpi-experience-gdi-based-desktop-apps/)、[High DPI Desktop Application Development on Windows](https://learn.microsoft.com/ja-jp/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows)、[wxWidgets の High DPI overview](https://docs.wxpython.org/high_dpi_overview.html)

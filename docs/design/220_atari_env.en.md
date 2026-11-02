@@ -295,7 +295,7 @@ The Step result's `ram_metric.[n]` returns an ordinary-Step snapshot or a finali
 | phoenix | `1:wave_clear` = `0xCA inc_count`, `2:boss_kill` = `0xFC inc_count` | None |
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
 
-In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. The Step result's numbered keys query the same snapshot. These label keys also serve AtariView spectating. See [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
+In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. The Step result's numbered keys query the same snapshot. These label keys also serve AtariView spectating. See [PRD082](../memo/done/082_atari_ram_progress_metrics_10prd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
 
 ## 5. AtariView
 

@@ -1,6 +1,6 @@
 # PRD110 主 pane の Centre 切替の検証
 
-等分と共通Panelのresize再描画の正本は [24impl](../../../../docs/memo/110_runner_main_pane_dynamic_centre_24impl.md)。過去の改訂記録は [23impl](../../../../docs/memo/110_runner_main_pane_dynamic_centre_23impl.md)・[22impl](../../../../docs/memo/110_runner_main_pane_dynamic_centre_22impl.md)・[21impl](../../../../docs/memo/110_runner_main_pane_dynamic_centre_21impl.md)、初版は [20impl](../../../../docs/memo/110_runner_main_pane_dynamic_centre_20impl.md)。コマンド、結果、未実施と理由、レビュー結果は実装メモに記録する。
+等分と共通Panelのresize再描画の正本は [24impl](../../../../docs/memo/done/110_runner_main_pane_dynamic_centre_24impl.md)。過去の改訂記録は [23impl](../../../../docs/memo/done/110_runner_main_pane_dynamic_centre_23impl.md)・[22impl](../../../../docs/memo/done/110_runner_main_pane_dynamic_centre_22impl.md)・[21impl](../../../../docs/memo/done/110_runner_main_pane_dynamic_centre_21impl.md)、初版は [20impl](../../../../docs/memo/done/110_runner_main_pane_dynamic_centre_20impl.md)。コマンド、結果、未実施と理由、レビュー結果は実装メモに記録する。
 
 ## ビルドと既定スイート
 
@@ -106,4 +106,4 @@ AGENTS.md の Windows/MSVC 手順で VsDevCmd.bat を経由し、Debug 全体と
 
 ### 受入結果（2026-11-02）
 
-ユーザーから「実機動作確認、受入確認OK」と報告を受けた。上記の人による受入とPRD110の受入8を確認済みとして、実機受入待ちを解消し、PRD全体を完了とする。詳細は[24implの受入記録](../../../../docs/memo/110_runner_main_pane_dynamic_centre_24impl.md#人による実機受入2026-11-02)を参照する。
+ユーザーから「実機動作確認、受入確認OK」と報告を受けた。上記の人による受入とPRD110の受入8を確認済みとして、実機受入待ちを解消し、PRD全体を完了とする。詳細は[24implの受入記録](../../../../docs/memo/done/110_runner_main_pane_dynamic_centre_24impl.md#人による実機受入2026-11-02)を参照する。

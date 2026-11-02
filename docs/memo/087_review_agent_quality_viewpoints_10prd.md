@@ -24,7 +24,7 @@
 > - §3 に G8〜G10・NG10・NG11、§5・§7・§8・§9・§10 に段階 3・4 の分を足した。
 > - [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md) の先頭に、代入演算子の運用規約の正本を移す後発決定の注記を足した（2026-10-22）。
 > - 起草のあと、別モデル（Fable）の検討を受けた（2026-10-22）。事実の誤りと参照の漏れ（100 の「正本」の名指し、impl.md の項番 17、言語を限らないコメント・ログの規約など）を直した。結論への反対 6 件はユーザーに聞き、原則の 4 行を「基本方針」に残す、「失敗の扱いと設定値」の節を分ける、読む段の位置を前に出して読んだ節を 1 行で示す、を採った。設定ファイルの細則は impl.md へ移す決定のまま、表は観点の行だけのままとし、`docs/design/` を規約の正本にしない原則を §5 に足した。
-> 関連: [docs/memo/README.md](README.md) §工程と担当、[動線マップ](../agents/README.md)、[080](080_harness_map_10prd.md)、
+> 関連: [docs/memo/README.md](README.md) §工程と担当、[動線マップ](../agents/README.md)、[080](done/080_harness_map_10prd.md)、
 > [skills README](../../.agents/skills/README.md)、[anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)、
 > [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/SKILL.md) と
 > [その手順](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md)、[AGENTS.md](../../AGENTS.md)
@@ -40,7 +40,7 @@
 
 - 何を見るかは、レビューする側のその場の判断で決まる。
 - 指摘の形が毎回違う。受け取った側が「自分で直す」「裁定を仰ぐ」「見送る」を分ける基準も無い。
-- 直した箇所の周りが次の指摘になり、往復が続く。[084](084_noisynet_10prd.md) は、2026-10-03 の 1 日で担当レビューの反映が 3 回あった（冒頭の改訂行）。
+- 直した箇所の周りが次の指摘になり、往復が続く。[084](done/084_noisynet_10prd.md) は、2026-10-03 の 1 日で担当レビューの反映が 3 回あった（冒頭の改訂行）。
 
 ### 1.2 規約の一部が、片方のエージェントにしか見えない
 
@@ -51,7 +51,7 @@
 
 ### 1.3 PRD づくりの入口 skill が shadow されている
 
-project と user-level に同名の `grill-with-docs` があり、中身が違う（動線マップ 発見事項 1）。Claude Code で `/grill-with-docs` を打つと user-level 版が起動することは、[080](080_harness_map_10prd.md) の起票時に実際に起きた。project 版に手順を足しても、その起動では読まれない。
+project と user-level に同名の `grill-with-docs` があり、中身が違う（動線マップ 発見事項 1）。Claude Code で `/grill-with-docs` を打つと user-level 版が起動することは、[080](done/080_harness_map_10prd.md) の起票時に実際に起きた。project 版に手順を足しても、その起動では読まれない。
 
 project 版は、元の skill から手順が増えている（goal anchor、scope screen、最終簡素化パス、最後の YES/NO）。同じ名前で持ち続ける理由が薄れている。
 
@@ -215,7 +215,7 @@ Claude Code の会話記録から、`/anet-create-prd` か `/grill-with-docs` �
 
 ## 4. 用語
 
-`CONTEXT.md` は RL ドメインの用語集なので、プロセスの語彙は載せない（[080](080_harness_map_10prd.md) と同じ扱い）。本 PRD と、`docs/process/` `docs/quality/` の文書で使う。
+`CONTEXT.md` は RL ドメインの用語集なので、プロセスの語彙は載せない（[080](done/080_harness_map_10prd.md) と同じ扱い）。本 PRD と、`docs/process/` `docs/quality/` の文書で使う。
 
 | 語 | 定義 | 避け語 |
 |---|---|---|

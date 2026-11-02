@@ -59,4 +59,4 @@ metrics.trace.@atari.[42_env/episode] = $train @episode_end $env game_score ... 
   観戦（EvalPanel）と記録（trace / scalar）で同じ定義を使う。
 - 他の env がゲーム固有の指標を持つときは、「番号付き汎用キー + env 側の意味定義」の同型を採るかをこの ADR を先例に判断する。
 - metrics 契約なので、後から畳み方の意味や NaN の規則を変えると既存 Run と比較できなくなる。変更するときは新しい ADR で行う。
-- 詳細設計は `docs/memo/082_atari_ram_progress_metrics_10prd.md`。
+- 詳細設計は `docs/memo/done/082_atari_ram_progress_metrics_10prd.md`。

@@ -1,6 +1,6 @@
 # NoisyNet のノイズ込み重みに対する Spectral Normalization
 
-2026-10-02、[PRD 084: NoisyNet](084_noisynet_10prd.md) のレビュー指摘 A.1 から切り出した暫定 PRD。番号は 999 とし、方式・公開設定・数値的な受け入れ条件は未裁定とする。084 の実装・完了の前提条件にはしない。
+2026-10-02、[PRD 084: NoisyNet](done/084_noisynet_10prd.md) のレビュー指摘 A.1 から切り出した暫定 PRD。番号は 999 とし、方式・公開設定・数値的な受け入れ条件は未裁定とする。084 の実装・完了の前提条件にはしない。
 
 ## 1. 問題と目的
 
@@ -110,7 +110,7 @@ Actor・target・追加診断は u/v を更新しない。ただし、正規化�
 
 ## 8. 参照
 
-- [PRD 084: NoisyNet](084_noisynet_10prd.md): μ 正規化を残す独立した先行課題。
+- [PRD 084: NoisyNet](done/084_noisynet_10prd.md): μ 正規化を残す独立した先行課題。
 - [NN 設計](../design/130_neural_networks.jp.md): 現行 SN の計算・状態・診断契約。
 - [ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md): 現行 SN の近似・buffer・更新条件を選んだ理由。
 - [SN PRD 065](done/065_nn_spectral_norm_10prd.md): 既存 SN の受け入れ条件。

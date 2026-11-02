@@ -14,7 +14,7 @@
 
 ## 目的と比較条件
 
-TempoRL（[PRD098](../../../memo/098_temporl_skip_policy_10prd.md)）を qbert のサンプル効率優先の 50M で流した学習 Run を、同じ窓で並べる。PRD098 段3、[PRD103](../../../memo/103_temporl_reference_alignment_10prd.md) 段1・段3、[PRD104](../../../memo/104_temporl_skip_auxiliary_only_10prd.md) 段2、[PRD106](../../../memo/106_temporl_skip_forward_noise_key_10prd.md) の G4 の学習の判定に使う値をまとめる。
+TempoRL（[PRD098](../../../memo/098_temporl_skip_policy_10prd.md)）を qbert のサンプル効率優先の 50M で流した学習 Run を、同じ窓で並べる。PRD098 段3、[PRD103](../../../memo/done/103_temporl_reference_alignment_10prd.md) 段1・段3、[PRD104](../../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) 段2、[PRD106](../../../memo/done/106_temporl_skip_forward_noise_key_10prd.md) の G4 の学習の判定に使う値をまとめる。
 
 - 構成は qbert、サンプル効率優先（RR4、64 env、replay 1M、IQN、NoisyNet、SN・he の初期値、pixel_area 縮小、50M）。TempoRL の腕は J=10、`skip_context = iqn_fusion`。腕ごとの違いは下の表のとおり。
 - 評価: `[greedy]`（`53_evalg`）は ε=0・NoisyNet なし・τ 固定、100 ゲーム、約 5.05M ごと。TempoRL の腕ではスキップ長も同じ方策で選ぶ（full）。補助学習のみの腕は全 Actor が毎 step 判断（single）なので、`53_evalg` も single である。`[greedy_single]`（`54_evalgs`）はノイズ切り・終わりだけ・Clip30 の 3 本だけが持つ。`[eval]`（`52_eval2`）は ε=0.01、約 0.25M ごと。

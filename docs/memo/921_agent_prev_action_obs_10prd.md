@@ -273,7 +273,7 @@ core\anet-core\bin\Debug\anet-core-test.exe
 git diff --check
 ```
 
-等価 Run は [083 の実装メモ](083_action_context_retire_20impl.md) と同じ全点 checksum の手順で比較する。
+等価 Run は [083 の実装メモ](done/083_action_context_retire_20impl.md) と同じ全点 checksum の手順で比較する。
 
 ## 確認したい点（再グリルで裁定）
 
@@ -289,5 +289,5 @@ git diff --check
 - [032_lunarlander_obs_include_action_10prd.md](done/032_lunarlander_obs_include_action_10prd.md) — env ローカルの先行実装（LunarLander）。
 - [040_dropmerge_prev_action_obs_10prd.md](done/040_dropmerge_prev_action_obs_10prd.md) — env ローカルの先行実装（DropMerge）。
 - [057_native_stack_dim_handling_10prd.md](done/057_native_stack_dim_handling_10prd.md) — stack 軸を Network の入力 spec に持つ現行契約。
-- [083_action_context_retire_10prd.md](083_action_context_retire_10prd.md) — ActionContext の廃止。
+- [083_action_context_retire_10prd.md](done/083_action_context_retire_10prd.md) — ActionContext の廃止。
 - [ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) — 履歴開始と padding の規則。

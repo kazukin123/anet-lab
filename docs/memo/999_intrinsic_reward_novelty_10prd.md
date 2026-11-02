@@ -8,7 +8,7 @@
 > 2026-10-23 改訂: §2.2 の表の誤りを直した。batch 1024 の 3 本目（s06）は 30M まで完走していて、16-20M に挑んだ。seed 2 の 2 本は複製ではなく、1 本は Munchausen α を 0.3 にした Run だった。あわせて 10M × 16 seed の行の s08・s12 の値と、seed 3 の Run 名を今の記録とフォルダ名に合わせ、実験記録への参照を足した（[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の現時点のまとめ・探索ブロック 01・04・05）。
 > 2026-10-24 改訂: GridMaze の事例（安定してゴールできるようになった後も、点数の方策がほとんど通らない状態から再開するとゴールに着かない）を 2 つ目の起点として足した（§1、§2.7、§4 の冒頭、§5、§6、§8 の 7・24〜29、§9、§10）。合わせて、評価を新しさを使わない点数の方策で行い、その方策を探索役の lane の遷移からも学ばせることと、埋め込みを観測の種類に依らず組むことをゴールに足し、env の側の対策と実行時の価値の補正を非ゴールに足した。今の段階 1〜3 の形には、このゴールに合わない所がある（§2.7）。直し方はグリルせず、§8 の 24〜29 に暫定の既定を置いた。あわせて §3 の指標の群番号の記述を今の使用状況に直した。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件の分析（§2）。人間との比較から、「同じ稼ぎに飽きて、まだ慣れていない所（ボス戦とその先）へ行く」「当てたらバーが縮んだと気付き、無くなったら何か起きそうだと試し続ける」動機がエージェントに無いことが、ゲームの仕様を変えずに足せる不足の 1 つだと整理した。2 つ目の起点は GridMaze で、安定してゴールできるようになった後も、手操作で点数の方策がほとんど通らないセルへ誘導してから再開するとゴールに着かないこと（§2.7）。
-> 関連: [999_llm_actor_10prd.md](999_llm_actor_10prd.md)（同じ起点の対 PRD。事前知識の側）、[999_input_target_train_forced_action_10prd.md](999_input_target_train_forced_action_10prd.md)（人の操作の遷移を学習に使う経路。§6）、[098_temporl_skip_policy_10prd.md](098_temporl_skip_policy_10prd.md)（primary の Body の出力を入力に取る補助 Network の器。§4.8）、[999_replay_eviction_sample_count_10prd.md](999_replay_eviction_sample_count_10prd.md)（珍しい遷移が何回引かれたかの計器）、[094_evalpanel_step_history_10prd.md](094_evalpanel_step_history_10prd.md)（EvalPanel の遷移を 1 step ずつ表で見る Evaluation Trace）、[done/048_quantile_tail_metrics_10prd.md](done/048_quantile_tail_metrics_10prd.md)（内的報酬を対象外とした観測専用の PRD）、[082_atari_ram_progress_metrics_10prd.md](082_atari_ram_progress_metrics_10prd.md)（KFM の面クリア・撃破・命中の RAM メトリクスと RAM の番地）、[CONTEXT.md](../../CONTEXT.md) の「生スコア」「RAM メトリクス」。
+> 関連: [999_llm_actor_10prd.md](999_llm_actor_10prd.md)（同じ起点の対 PRD。事前知識の側）、[999_input_target_train_forced_action_10prd.md](999_input_target_train_forced_action_10prd.md)（人の操作の遷移を学習に使う経路。§6）、[098_temporl_skip_policy_10prd.md](098_temporl_skip_policy_10prd.md)（primary の Body の出力を入力に取る補助 Network の器。§4.8）、[999_replay_eviction_sample_count_10prd.md](999_replay_eviction_sample_count_10prd.md)（珍しい遷移が何回引かれたかの計器）、[094_evalpanel_step_history_10prd.md](094_evalpanel_step_history_10prd.md)（EvalPanel の遷移を 1 step ずつ表で見る Evaluation Trace）、[done/048_quantile_tail_metrics_10prd.md](done/048_quantile_tail_metrics_10prd.md)（内的報酬を対象外とした観測専用の PRD）、[082_atari_ram_progress_metrics_10prd.md](done/082_atari_ram_progress_metrics_10prd.md)（KFM の面クリア・撃破・命中の RAM メトリクスと RAM の番地）、[CONTEXT.md](../../CONTEXT.md) の「生スコア」「RAM メトリクス」。
 
 ## 1. 目的と問題
 
@@ -44,7 +44,7 @@
 
 - ボスは距離で出る。左へ歩くだけで約 3,000 フレーム（750 step）でボスの位置に着く。雑魚は動いているときに出てくる。
 - ボス戦は約 340 フレーム（85 step）。11 発当てると倒せる。当てても点は入らず、点は撃破のときの 2,000 点だけ。
-- ボスの体力は RAM の 0xCC（満タン 39）で、画面上部の ENEMY バーの長さと一致する。1 発で 4 減るので、1 発でバーの全長の約 1 割が縮む。自機の体力は 0xCB（満タン 39）で PLAYER バーと一致する（出典: [082 §2](082_atari_ram_progress_metrics_10prd.md)）。
+- ボスの体力は RAM の 0xCC（満タン 39）で、画面上部の ENEMY バーの長さと一致する。1 発で 4 減るので、1 発でバーの全長の約 1 割が縮む。自機の体力は 0xCB（満タン 39）で PLAYER バーと一致する（出典: [082 §2](done/082_atari_ram_progress_metrics_10prd.md)）。
 - 撃破後も雑魚は出続け、攻撃しながら約 1,000 フレーム（250 step）歩くと出口で残りの体力（最大 39）とタイマー（最大 31）が得点に換算される。報酬クリップでは換算の間の毎 step が +1（最大約 70 回）、生の得点では最大約 26,000 点。
 - やられると面の最初に戻り、ボスの体力も元に戻る。
 - 観測は 84×84 の灰色、4 フレーム飛ばし、4 枚重ね（直近 16 フレーム）。報酬クリップ、sticky action 0.25、γ = 0.997、n-step 3（実時間優先の構成）。
@@ -157,7 +157,7 @@
 - 内的報酬は本 PRD で追加する機能である。[048](done/048_quantile_tail_metrics_10prd.md) の量子化分布の指標とは別の関心になる。既存 Q 学習の位置は [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md) を参照する。
 - reward scaler を通してから Replay へ渡す経路がある（[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の UpdateFromBatch）。Atari の報酬クリップは [AtariEnv.cpp](../../core/envs/atari1/src/AtariEnv.cpp) の Env 側で行う。内的報酬をどこで合成し、どの尺度を保存するかは §8 の 7・11 で決める。
 - Replay は **1 step ごとの報酬・終わり方・判断の旗を保持する**。[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) により、窓の規則から可変長の収益と窓の終点の観測をサンプル時に組める。旧記述の「1 step の報酬は後から取り出せない」は撤回する。
-- n-step の収益は、γ が定数なら Push 時の保存値を使い、schedule なら抽選後に保存済み step 報酬から現在の γ で作り直す（[ADR 0065](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、[PRD101](101_exploration_schedule_profiled_value_10prd.md) D20）。これは共通の γ の経路であり、同じ学習バッチ内で方策ごとに異なる γ を使う契約は追加の検討が要る。
+- n-step の収益は、γ が定数なら Push 時の保存値を使い、schedule なら抽選後に保存済み step 報酬から現在の γ で作り直す（[ADR 0065](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、[PRD101](done/101_exploration_schedule_profiled_value_10prd.md) D20）。これは共通の γ の経路であり、同じ学習バッチ内で方策ごとに異なる γ を使う契約は追加の検討が要る。
 - [ExperienceSamples](../../core/anet-core/include/anet/rl.hpp) の Q 用 next_state.next_obs は n-step 先で、window.next_obs は窓の長さ先である。unroll の行動・収益を得られることは、任意の未来観測列をそのまま取得できることを意味しない。SamplingHistoryProbeRequest は抽選履歴の診断であり、時系列観測の取得 API ではない。
 - [ReplayBufferConfig](../../core/anet-core/include/anet/replay_buffer.hpp) の window_rule は 1 つで、TempoRL が使っている。長さ 1 の窓を使う案だけでは、TempoRL と Embedding 学習を同時に満たす契約は決まらない。done の最終観測の保持と autoreset の境界も含め、§8 の 10 で調べる。MuZero の [専用 Replay](../../core/anet-core/src/muzero_rb.hpp) の系列取得を、共通 Replay に既に存在する機能とみなさない。
 - Actor の frame stack と Replay の stack 再構成は、使う時点が異なる。[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) の履歴開始と [Replay 設計](../design/150_replay_buffer.jp.md) の境界を守る。短期記録用 Replay への統合は未決で、内的報酬の追加と同時に統合することは決めていない。
@@ -381,8 +381,8 @@ Q^{ret}_t=Q(u_t,a_t,i)+
 | [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) | Env の遷移を受ける。内的報酬の算出時点と Replay への保存内容 |
 | [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp)・[同ヘッダ](../../core/anet-core/src/dqn_based_agent.hpp) | Actor の条件付け、primary／skip の学習、補助ネットワークの更新・保存 |
 | [rl.hpp](../../core/anet-core/include/anet/rl.hpp)・[replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp)・[実装](../../core/anet-core/src/replay_buffer_impl.cpp) | 履歴・1-step 観測・方策ごとの割引を受け渡す。汎用 Replay に NGU／E3B の判定を持ち込まない |
-| [DQN 設計](../design/200_dqn_agents.jp.md)・[Replay 設計](../design/150_replay_buffer.jp.md)・[Actor 設定 PRD](083_action_context_retire_10prd.md) | 現行契約との整合、Actor ごとの設定と学習側の責任 |
-| [TempoRL PRD](098_temporl_skip_policy_10prd.md)・[schedule PRD](101_exploration_schedule_profiled_value_10prd.md) | 窓の共有、方策別 γ と時間で変わる γ の組み合わせ |
+| [DQN 設計](../design/200_dqn_agents.jp.md)・[Replay 設計](../design/150_replay_buffer.jp.md)・[Actor 設定 PRD](done/083_action_context_retire_10prd.md) | 現行契約との整合、Actor ごとの設定と学習側の責任 |
+| [TempoRL PRD](098_temporl_skip_policy_10prd.md)・[schedule PRD](done/101_exploration_schedule_profiled_value_10prd.md) | 窓の共有、方策別 γ と時間で変わる γ の組み合わせ |
 | [agent.txt](../../apps/runner/config/agent.txt)・[Atari.txt](../../apps/runner/config/Atari.txt)・[GridMaze.txt](../../apps/runner/config/GridMaze.txt) | 実装時の設定・実験腕と観測別 NN の定義。既存定義を今回編集する指示ではない |
 | [core のテスト](../../core/anet-core)・[設計文書](../design) | 現行契約に関わるテスト・利用手順も実装と同じ変更で更新する。具体的なテストファイルの一覧は接続契約を決めてから確定する（§8 の 22） |
 
@@ -422,7 +422,7 @@ NGU は保持件数 M・特徴次元 d に対して概ね BMd の距離計算と
 | 20 | 設定・用語・メトリクス | 方式、合成、学習頻度、方策の組、記憶、統計の設定を分ける。旧 intrinsic.type と群番号 56 は候補にとどめ、現用定義と照合する。「内的報酬」「エピソード内新規性」「方策インデックス」を CONTEXT に確定する時期も決める |
 | 21 | 実験と合否 | §9 の比較腕、seed 数、Env step／ALE frames／learn step の予算、打切り、指標の集約と数値閾値を確定する。KFM と GridMaze の効果を未実施のまま採用理由にしない |
 | 22 | 公開契約と変更対象 | 役割分担の候補は §8.1。公開 API・TensorDict キー・設定名を現行の NN／Replay の仕組みに合わせて確定し、コード・設定・テスト・サンプル・設計文書の移行一覧を絞り込む。旧名の互換層は既定で作らない |
-| 23 | replay の「window」の語の見直し | `SampleWindowRule`・`ExperienceSamples.window`・`ReplayBufferConfig.window_rule` の「window」は何の窓かを示さない名で、NGU の replay の変更にあわせて名を見直す。[PRD104](104_temporl_skip_auxiliary_only_10prd.md) D1 のグリル（2026-10-29）で「窓は何の窓かを示す 2 語の組にする」と決め、Learner 側のキーは `target_window` にしたが、replay 側の名はそのまま残した。PRD104 の工程末に記録 |
+| 23 | replay の「window」の語の見直し | `SampleWindowRule`・`ExperienceSamples.window`・`ReplayBufferConfig.window_rule` の「window」は何の窓かを示さない名で、NGU の replay の変更にあわせて名を見直す。[PRD104](done/104_temporl_skip_auxiliary_only_10prd.md) D1 のグリル（2026-10-29）で「窓は何の窓かを示す 2 語の組にする」と決め、Learner 側のキーは `target_window` にしたが、replay 側の名はそのまま残した。PRD104 の工程末に記録 |
 
 ### 8.1 役割とクラスの暫定一覧
 

@@ -1,6 +1,6 @@
 # PRD084 レビュー修正の検証記録
 
-承認済み計画は docs/memo/084_noisynet_21impl.md。修正前の測定は verification.md に当時の条件のまま保持する。今回の出力は .scratch/prd084/review-fix/ に分離する。
+承認済み計画は docs/memo/done/084_noisynet_21impl.md。修正前の測定は verification.md に当時の条件のまま保持する。今回の出力は .scratch/prd084/review-fix/ に分離する。
 
 ## 基準と実装
 
@@ -90,7 +90,7 @@ PRD・20impl・21impl・README・本記録を再読し、保存済みSHA-256とm
 
 ## 時計の種類と残件の追加修正（22impl）
 
-承認済み計画は docs/memo/084_noisynet_22impl.md。時計はkNoneに加えてkTransientRows/kContinuingRowsの2種類へ統合した。episode_startとepisode保持は維持する。任意のB3は今回は入れない。
+承認済み計画は docs/memo/done/084_noisynet_22impl.md。時計はkNoneに加えてkTransientRows/kContinuingRowsの2種類へ統合した。episode_startとepisode保持は維持する。任意のB3は今回は入れない。
 
 上記48本の性能結果は改名前の実行体（F7EB69FD…）での測定。offとhold_episodeのみ新実行体で3反復A/B交互に取り直した。各Run値と中央値は後述の追加修正結果を参照。他10組、旧Runとsummary.jsonは当時の測定として保持する。同じ参照構成・Noisyありの14本でも学習中exp/sは1,005〜2,081だったため、数%の差はこの測定では読めない。
 
@@ -158,14 +158,14 @@ PRD・20impl・21impl・README・本記録を再読し、保存済みSHA-256とm
 - `core/anet-core/src/dqn_based_agent_test.cpp`
 - `core/anet-core/src/dqn_based_heads.cpp`
 - `core/anet-core/src/nn_impl.hpp`
-- `docs/memo/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_10prd.md`
 - `docs/design/130_neural_networks.jp.md`
 - `docs/design/130_neural_networks.en.md`
 - `core/anet-core/testdata/prd084/README.md`
 - `core/anet-core/testdata/prd084/review_verification.md`
 - `core/anet-core/testdata/prd084/run_performance.ps1`
 - `core/anet-core/testdata/prd084/summarize_performance.py`
-- `docs/memo/084_noisynet_22impl.md`
+- `docs/memo/done/084_noisynet_22impl.md`
 
 検証用に新規作成したローカルスクリプト: `.scratch/prd084/terms-residuals/validate.ps1`, `.scratch/prd084/terms-residuals/run_off.ps1`, `.scratch/prd084/terms-residuals/summarize_off.py`。実行体・DLL・設定コピー・Run・ログ・JSON監査は同じ出力先に保持する。
 
@@ -192,7 +192,7 @@ PRD・20impl・21impl・README・本記録を再読し、保存済みSHA-256とm
 
 - docs/design/130_neural_networks.en.md
 - docs/design/130_neural_networks.jp.md
-- docs/memo/084_noisynet_10prd.md
+- docs/memo/done/084_noisynet_10prd.md
 - core/anet-core/src/dqn_based_agent.cpp
 - core/anet-core/src/nn_impl.cpp
 - core/anet-core/src/nn_test.cpp
@@ -229,10 +229,10 @@ optimizerの3テストは、実際のTDLearnerの公開UpdateFromBatchを使う�
 
 今回の変更ファイル（12本）:
 
-- docs/memo/084_noisynet_10prd.md
-- docs/memo/084_noisynet_20impl.md
-- docs/memo/084_noisynet_21impl.md
-- docs/memo/084_noisynet_22impl.md
+- docs/memo/done/084_noisynet_10prd.md
+- docs/memo/done/084_noisynet_20impl.md
+- docs/memo/done/084_noisynet_21impl.md
+- docs/memo/done/084_noisynet_22impl.md
 - apps/runner/config/agent.txt
 - apps/runner/config/metrics_scalar.txt
 - core/anet-core/src/dqn_based_agent_test.cpp

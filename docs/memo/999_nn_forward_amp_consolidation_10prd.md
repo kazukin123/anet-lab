@@ -1,6 +1,6 @@
 # NN 実行設定への AMP の集約（全 Agent 対象）
 
-2026-10-03、[PRD 084: NoisyNet](084_noisynet_10prd.md) の追加グリルから切り出した暫定 PRD。番号は 999 とし、方式・対象 Agent・公開契約は未裁定とする。084 の実装・完了の前提条件にはしない。
+2026-10-03、[PRD 084: NoisyNet](done/084_noisynet_10prd.md) の追加グリルから切り出した暫定 PRD。番号は 999 とし、方式・対象 Agent・公開契約は未裁定とする。084 の実装・完了の前提条件にはしない。
 
 ## 1. 問題と目的
 
@@ -35,6 +35,6 @@ AMP（autocast）の有無と FP16 / BF16 の選択は、現在 DefaultDQN で�
 
 ## 5. 参照
 
-- [PRD 084: NoisyNet](084_noisynet_10prd.md) §8.2、§13。
+- [PRD 084: NoisyNet](done/084_noisynet_10prd.md) §8.2、§13。
 - [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md): AMP を束ねなかった理由。
 - [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md)、[NN 設計](../design/130_neural_networks.jp.md)。

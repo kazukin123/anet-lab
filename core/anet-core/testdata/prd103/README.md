@@ -1,6 +1,6 @@
 # PRD103 検証資材
 
-正本は[PRD103](../../../../docs/memo/103_temporl_reference_alignment_10prd.md)、実施記録は[実装メモ](../../../../docs/memo/103_temporl_reference_alignment_20impl.md)。実行はrepo rootのPowerShell。短縮受入から長時間の学習効果を判断しない。
+正本は[PRD103](../../../../docs/memo/done/103_temporl_reference_alignment_10prd.md)、実施記録は[実装メモ](../../../../docs/memo/done/103_temporl_reference_alignment_20impl.md)。実行はrepo rootのPowerShell。短縮受入から長時間の学習効果を判断しない。
 
 ## 入力と等価性
 

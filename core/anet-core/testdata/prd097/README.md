@@ -1,6 +1,6 @@
 # PRD097 検証資材（結果所有契約）
 
-現行正本は[22impl](../../../../docs/memo/097_env_auto_reset_after_notification_22impl.md)。Pythonはリポジトリの`.venv/Scripts/python.exe`で実行する。
+現行正本は[22impl](../../../../docs/memo/done/097_env_auto_reset_after_notification_22impl.md)。Pythonはリポジトリの`.venv/Scripts/python.exe`で実行する。
 
 - `run_validation.py after`: 改訂D7の7構成、512000経験、seed1、決定的backend、同期評価。凍結済みbeforeを再監査して利用し、serialだけはCLI指定でbefore3/4・after3を追加実行する。afterは環境変数`PRD097_AFTER_NAME`で世代を分ける（今回の検証先は`after-d7-v3`、既定値は`after-d7-v1`）。afterの設定は凍結beforeを基にし、Atari/DropMerge/GridMazeの宣言ファイルだけを現行DSLへ差し替える。
 - `compare_metrics.py`: scalar全点・trace全行。時間/資源3群とtrace timestamp、指定lives7タグの値だけを前後比較で除外する。`--allow-migrated-edges`は定義レコードからenv/train→env_step/episode_endと確認したtagだけ、pipeline最初/最後stepの両側を除外する。他の座標やNoisy指標は比較する。
@@ -21,7 +21,7 @@
 この節の説明・進行状況は当時の記録。`check_shutdown_profile.py`は廃止済みで、現用testdataには存在しない。現行の手順は上記と22implを参照する。
 ### PRD097 検証資材
 
-正本は `docs/memo/097_env_auto_reset_after_notification_20impl.md`。本ディレクトリのPythonはリポジトリルートの `.venv/Scripts/python.exe` で実行する。
+正本は `docs/memo/done/097_env_auto_reset_after_notification_20impl.md`。本ディレクトリのPythonはリポジトリルートの `.venv/Scripts/python.exe` で実行する。
 
 #### 構成
 

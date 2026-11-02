@@ -2,9 +2,9 @@
 
 > 2026-10-19 起票（暫定。グリル前）。質問はせず、暫定の既定を置いて §5 に決めることを残した。
 > 起点: [PRD 094](094_evalpanel_step_history_10prd.md)（Evaluation Trace）のグリルで、EvalPanel・QValuePanel が待っている間に出している時点を整理したとき、QValuePanel の Q は 1 つ前の状態のもので、クリックした行動は次の状態に当たると分かったこと（094 の §3.1）。
-> 2026-10-19 PRD [097](097_env_auto_reset_after_notification_10prd.md) のグリルで、エピソードの境目の画面をこの PRD で決めることになったので、§2 の末尾と §5 の 5・6 を書き足した。
+> 2026-10-19 PRD [097](done/097_env_auto_reset_after_notification_10prd.md) のグリルで、エピソードの境目の画面をこの PRD で決めることになったので、§2 の末尾と §5 の 5・6 を書き足した。
 > 2026-10-20 追記: 097 を再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。BatchEnv は Reset と Step のままで、`ResetEndedEpisodes()` は作らない。そのため、§2 の末尾と §5 の 5・6 の 097 の段を指す記述を、Step の結果の `continue_state` に合わせて直した。
-> 関連: [097_env_auto_reset_after_notification_10prd.md](097_env_auto_reset_after_notification_10prd.md)（遷移の結果を Step の結果で運ぶ）、[999_input_target_train_forced_action_10prd.md](999_input_target_train_forced_action_10prd.md)（入力先 train の強制行動）、[CONTEXT.md](../../CONTEXT.md) の「鏡写しインスタンス」「実行時 UI 操作」。
+> 関連: [097_env_auto_reset_after_notification_10prd.md](done/097_env_auto_reset_after_notification_10prd.md)（遷移の結果を Step の結果で運ぶ）、[999_input_target_train_forced_action_10prd.md](999_input_target_train_forced_action_10prd.md)（入力先 train の強制行動）、[CONTEXT.md](../../CONTEXT.md) の「鏡写しインスタンス」「実行時 UI 操作」。
 
 ## 1. 目的と問題
 

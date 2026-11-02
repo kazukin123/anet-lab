@@ -28,7 +28,7 @@ core/anet-core/bin/Debug/anet-core-test.exe
 
 レビューでは、具体的な設定型が具象クラス内部に閉じていること、共通層に Module 固有のフィールド・読み取り処理・型や有無の判定が無いことを確認する。`GetDefault()` は各計算部品の既定動作を明示的に要求する。具体的な設定値は持たず、Noisy の計算部品はこれを μ-only と解釈する。名前付き設定の項目不足とは区別し、暗黙の fallback にはしない。
 
-Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の公開面整理の受け入れは `docs/memo/084_noisynet_24impl.md` を正本とする。23implは当時の記録として保持する。21impl・22impl の検証は当時の契約の記録として保持する。
+Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の公開面整理の受け入れは `docs/memo/done/084_noisynet_24impl.md` を正本とする。23implは当時の記録として保持する。21impl・22impl の検証は当時の契約の記録として保持する。
 
 ## OFF 回帰の数値比較
 
@@ -140,7 +140,7 @@ review_verification.mdに受け入れ結果を記録。review-fix/after-verified
 
 ## 時計の種類と残件の追加修正（22impl）
 
-承認済み計画は docs/memo/084_noisynet_22impl.md。時計はkNoneに加えてkTransientRows/kContinuingRowsの2種類へ統合した。episode_startとepisode保持は維持する。任意のB3は今回は入れない。
+承認済み計画は docs/memo/done/084_noisynet_22impl.md。時計はkNoneに加えてkTransientRows/kContinuingRowsの2種類へ統合した。episode_startとepisode保持は維持する。任意のB3は今回は入れない。
 
 上記48本の性能結果は改名前の実行体（F7EB69FD…）での測定。offとhold_episodeのみ新実行体で3反復A/B交互に取り直した。各Run値と中央値は以下を参照。他10組、旧Runとsummary.jsonは当時の測定として保持する。同じ参照構成・Noisyありの14本でも学習中exp/sは1,005〜2,081だったため、数%の差はこの測定では読めない。
 
@@ -176,7 +176,7 @@ Noisy47件/10497 assertions、全core664passed/1skipped/34680 assertions、Debug
 
 ## Forward 事前準備の受け入れ
 
-計画: docs/memo/084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
+計画: docs/memo/done/084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
 
 ## 事前準備リファクタリングの検証資材
 
@@ -216,7 +216,7 @@ State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持
 
 ## まとめ整理 2026-10-11
 
-現用の生成APIはCreateForwardExecutorだけとし、既定設定ではState・時計種別・部品準備を持たない。BindNetworkを削除し、target用途のonline／targetはNetwork別のStateとnetwork_forward.target_online／network_forward.targetのnamed seedを持つ。Learnerの用途ペアとDQN射影Headの定型処理を集約する。計画は[26impl](../../../../docs/memo/084_noisynet_26impl.md)、結果は[検証記録](forward_refactor_verification.md)の同名節を参照する。
+現用の生成APIはCreateForwardExecutorだけとし、既定設定ではState・時計種別・部品準備を持たない。BindNetworkを削除し、target用途のonline／targetはNetwork別のStateとnetwork_forward.target_online／network_forward.targetのnamed seedを持つ。Learnerの用途ペアとDQN射影Headの定型処理を集約する。計画は[26impl](../../../../docs/memo/done/084_noisynet_26impl.md)、結果は[検証記録](forward_refactor_verification.md)の同名節を参照する。
 
 Debug全体ビルド、[noisynet]と全coreのCPU／CUDA、Release全体ビルド、設定6構成・既定葉・公開面と削除APIの機械検査を行う。最終ReleaseのOFF3本と代表ON単発を各500k経験で旧checksumと完全一致比較し、旧OFF checkpointも読み込む。出力は.scratch/prd084/forward-refactor/bundle-20261011/afterへ分離する。別の学習Runが同じGPUにある場合GPU Runは保留し、CPU OFFは実行する。性能は再測定しない。
 

@@ -1,6 +1,6 @@
 # PRD089 MetricsViewer比較粒度の検証
 
-[PRD](../../../../docs/memo/089_metricsviewer_comparison_resolution_10prd.md)と[実装計画](../../../../docs/memo/089_metricsviewer_comparison_resolution_20impl.md)を参照する。
+[PRD](../../../../docs/memo/done/089_metricsviewer_comparison_resolution_10prd.md)と[実装計画](../../../../docs/memo/done/089_metricsviewer_comparison_resolution_20impl.md)を参照する。
 
 検証コードは `apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/` に置く。fixtureは `apps/metrics-viewer/target/` 以下だけに生成し、実Run・8082の稼働中Viewerを変更しない。
 
@@ -28,7 +28,7 @@ Set-Location C:\dev\anet-lab; & .\.venv\Scripts\python.exe -B viewers\metrics-to
 
 ## 概観/詳細の描画検証
 
-[22impl](../../../../docs/memo/089_metricsviewer_comparison_resolution_22impl.md)を参照。`ComparisonResolutionPlaywrightTest`は非ゼロEMA・スパイク・異なる4Run期間、初期ロード/Run追加/scroll中の詳細応答保留、Log/Mean/Band、外枠/ヘッダー保持、遅着SVG、再取得0回を確認する。PNGは`apps/metrics-viewer/target/prd089-validation/`へ出す。
+[22impl](../../../../docs/memo/done/089_metricsviewer_comparison_resolution_22impl.md)を参照。`ComparisonResolutionPlaywrightTest`は非ゼロEMA・スパイク・異なる4Run期間、初期ロード/Run追加/scroll中の詳細応答保留、Log/Mean/Band、外枠/ヘッダー保持、遅着SVG、再取得0回を確認する。PNGは`apps/metrics-viewer/target/prd089-validation/`へ出す。
 
 `render_overview_benchmark.cjs`は4Run×64graph、192vertices/Run、各方式5回でPlotly 2.27の実装を比較する。baselineは変更前のJSを`target/prd089-validation/baseline-metrics-viewer.js`へ保存したものを使う（今回の変更では更新前の隔離JARから復元）。生成時間、初回表示の追加遅延、GC後のJS/Blink保持メモリをJSONへ記録する。実Run規模の応答・プロセス全体のメモリ保証ではない。
 

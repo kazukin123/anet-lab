@@ -1,8 +1,8 @@
 # `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる 暫定 PRD
 
 > 2026-10-20 起票（暫定。グリル前）。質問はせず、暫定の既定を置いて §5 に決めることを残した。
-> 起点: [PRD 097](097_env_auto_reset_after_notification_10prd.md) の再グリル（2026-10-20）。`$env` を「今の env の状態」を返す target として残した。そのため、`@episode_end` で `$env` を読むと、終わった lane はリセット後の値になる（097 の §4.3.2）。あわせて、手戻りの分析の中で、`$runner` の `@episode_end` の scalar が集計の途中の値を読むことが分かった。ユーザーの指示で、この 2 つを 1 本にまとめた。
-> 関連: [097_env_auto_reset_after_notification_10prd.md](097_env_auto_reset_after_notification_10prd.md)、[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「trace」「速報値／確定値」。
+> 起点: [PRD 097](done/097_env_auto_reset_after_notification_10prd.md) の再グリル（2026-10-20）。`$env` を「今の env の状態」を返す target として残した。そのため、`@episode_end` で `$env` を読むと、終わった lane はリセット後の値になる（097 の §4.3.2）。あわせて、手戻りの分析の中で、`$runner` の `@episode_end` の scalar が集計の途中の値を読むことが分かった。ユーザーの指示で、この 2 つを 1 本にまとめた。
+> 関連: [097_env_auto_reset_after_notification_10prd.md](done/097_env_auto_reset_after_notification_10prd.md)、[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「trace」「速報値／確定値」。
 
 ## 1. 目的と問題
 

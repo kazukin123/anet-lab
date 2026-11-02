@@ -7,7 +7,7 @@
 | 対象 Agent | DefaultDQNAgent（IQN + Munchausen） |
 | 対象 Env | AtariEnv（ALE v0.12.0 直結）。Breakout、Atari-5（battle_zone / double_dunk / name_this_game / phoenix / qbert）、kung_fu_master |
 | 開始日 | 2026-10-11 |
-| 主目的 | NoisyNet（[PRD 084](../../../memo/084_noisynet_10prd.md)）を実時間優先プロファイルの 50M に入れ、train の ε ラダーを NoisyNet に置き換えた腕（Noisy だけ）と、ラダーに NoisyNet を足した腕（Noisy + ラダー）を基準と比べる |
+| 主目的 | NoisyNet（[PRD 084](../../../memo/done/084_noisynet_10prd.md)）を実時間優先プロファイルの 50M に入れ、train の ε ラダーを NoisyNet に置き換えた腕（Noisy だけ）と、ラダーに NoisyNet を足した腕（Noisy + ラダー）を基準と比べる |
 | 基準 | 実時間優先（[2026-09-21](2026-09-21_realtime-profile-atari5.md)）の seed 1（50M）と seed 2（100M の 0-50M）。Breakout は `run_20260919-235619_rr1_va_hard125_cap2m_100m`（同じ構成の 100M）の 0-50M。kung_fu_master は [2026-09-23](2026-09-23_realtime-profile-100m.md) の seed 1・2 と seed 3 |
 | 判定指標 | eval2（ε=0.01、μ-only、`52_eval2/10_game_score_mean`）の 40-50M 平均。Breakout は 25-50M 平均と、学習中のゲームのうち 432 点以上の割合（`42_env/40_game_score_ge432`）も見る。ε=0 断面（`53_evalg/10_game_score_mean`、μ-only） |
 | 比較上の注意 | NoisyNet の Run はすべて `run.seed` = 1 で、同じ実行環境で回した。基準は別の実行環境・前の実行ファイルなので、実時間は比べない。各ゲームとも 1 seed。ε=0 断面の間隔は、基準の seed 2・Breakout の基準・kung_fu_master の基準が 10.1M、ほかは 5.05M。非決定論 backend |

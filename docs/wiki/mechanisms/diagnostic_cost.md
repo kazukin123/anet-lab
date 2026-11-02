@@ -29,6 +29,6 @@
 ## 関連
 
 - [可観測性](../../design/140_observability.jp.md)、§2・§7。
-- [PRD092の計測契約](../../memo/092_gradient_noise_scale_10prd.md)。
+- [PRD092の計測契約](../../memo/done/092_gradient_noise_scale_10prd.md)。
 - [学習経路内のGNS計測の判断](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)。
 - [勾配ノイズの知見](gradient_noise_batch.md)。

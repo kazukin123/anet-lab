@@ -17,4 +17,4 @@ C++の `[prd101]` が設定→Policy→schedule→指標、bare dump、指数、
 beforeとstage1の4環境で学習系列が一致した。LunarLanderの採用結果は `stage1_r2_LunarLander`。LunarLanderとDropMergeの比較用lastは `1e-4`、現用設定のlastは0を維持する。0への移行では中間laneも変わる。
 7環境の比較は `resolved-stage1-final-comparison.json`、PRD072は `prd072-r6-compare.log`、短い探索停止は `short_epsilon/assertions.json` に保存する。
 
-段階2も4環境の全学習系列が一致した。最終実行体でAtariのε停止とGridMazeの学習率切替を確認した。最終core全体と再レビューの結果は[実装メモ](../../../../docs/memo/101_exploration_schedule_profiled_value_20impl.md)に記録する。
+段階2も4環境の全学習系列が一致した。最終実行体でAtariのε停止とGridMazeの学習率切替を確認した。最終core全体と再レビューの結果は[実装メモ](../../../../docs/memo/done/101_exploration_schedule_profiled_value_20impl.md)に記録する。

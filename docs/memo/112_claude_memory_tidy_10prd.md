@@ -1,8 +1,8 @@
 # Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`）PRD
 
 > 2026-11-02 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した。番号はユーザーの指示で連番）。数値と行番号は起票時点のもので、実装時は取り直す。
-> 起点: 2026-10-31〜11-02 の会話。LLM-Wiki（[PRD095](095_llm_wiki_10prd.md)）の目的と実績を整理したところ、Claude Code の memory に結果の数値と古い状態の記述が溜まり直していると分かった。ユーザーの望みは「memory の整合チェックとお掃除を、wiki の保守とは別に定期的に回す。まず Claude Code、そのあと Codex 側の対応を検討する」。
-> 関連: [PRD095](095_llm_wiki_10prd.md)（§4.5 の memory の移し替え、D2・D38）、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)、[anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)、[wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)。
+> 起点: 2026-10-31〜11-02 の会話。LLM-Wiki（[PRD095](done/095_llm_wiki_10prd.md)）の目的と実績を整理したところ、Claude Code の memory に結果の数値と古い状態の記述が溜まり直していると分かった。ユーザーの望みは「memory の整合チェックとお掃除を、wiki の保守とは別に定期的に回す。まず Claude Code、そのあと Codex 側の対応を検討する」。
+> 関連: [PRD095](done/095_llm_wiki_10prd.md)（§4.5 の memory の移し替え、D2・D38）、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)、[anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)、[wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)。
 
 ## 1. 目的と問題
 
@@ -43,12 +43,12 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 3. 状態の記述。
    - 索引に「未コミット」を含む行が 16 行ある。
    - そのうち 4 件を git で確かめたところ、どれもコミット済みだった。
-     - PRD095 段階 3: `docs/memo/095_llm_wiki_22impl.md` が 0dc43645（10/23）。
+     - PRD095 段階 3: `docs/memo/done/095_llm_wiki_22impl.md` が 0dc43645（10/23）。
      - 動線マップ: `docs/agents/README.md` が 36cc56eb（10/31）。
      - 空き時間スキル群: `.agents/skills/anet-housekeeping/SKILL.md` が 9f0f0cc8（10/22）。
      - anet-improve: `.agents/skills/anet-improve/SKILL.md` が d8ee7501（11/02）。
 4. 知見。10/24〜11/02 に更新した project 型の topic file のうち、17 本が数値の知見（%・seed・中央値・倍）を持つ。そのうち 16 本は repo のパスも書いている。正本を指しながら、数値も memory に写している。
-5. 段階 3 の移し替え（[PRD095](095_llm_wiki_10prd.md) §4.5 の 3、[記録](095_llm_wiki_22impl.md)の「2026-10-23 Claude Code の memory の移し替え」）。
+5. 段階 3 の移し替え（[PRD095](done/095_llm_wiki_10prd.md) §4.5 の 3、[記録](done/095_llm_wiki_22impl.md)の「2026-10-23 Claude Code の memory の移し替え」）。
    - 10/23 に 97 本をポインタ化した。
    - Run で確かめると、memory の値に誤りが多数見つかった（打ち切り扱いが完走、複製扱いが別設定、Run フォルダの改名など）。
    - このため、memory の数値は正本へ写す前に Run で確かめる。
@@ -61,7 +61,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
      - 公式では「上級者向けのヒント」（[Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)）に名前が出るだけである。
      - 第三者の解説は、裏での整理と実行前のバックアップを挙げている（例: [claudefa.st](https://claudefa.st/blog/guide/mechanics/auto-dream)）。挙動は確かめていない。
    - [anet-improve](../../.agents/skills/anet-improve/SKILL.md) の「memory（Claude Code だけ）」。対象は、その会話で書いた・直した feedback memory のうち規約へ移したものだけである。
-   - [anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)。材料は repo の中の文書だけである（[PRD095](095_llm_wiki_10prd.md) §4.7）。[wiki の規約](../wiki/README.md)は「memory は出典にしない」と定めている。
+   - [anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)。材料は repo の中の文書だけである（[PRD095](done/095_llm_wiki_10prd.md) §4.7）。[wiki の規約](../wiki/README.md)は「memory は出典にしない」と定めている。
    - [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)。
      - memory の候補は無い。
      - 禁止事項に「各スキルの出力先と `reports/housekeeping/` 以外への書き込み」がある。
@@ -324,7 +324,7 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 
 ## 11. 参照
 
-- [PRD095 LLM-Wiki](095_llm_wiki_10prd.md)、[段階 3 の記録](095_llm_wiki_22impl.md)、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)
+- [PRD095 LLM-Wiki](done/095_llm_wiki_10prd.md)、[段階 3 の記録](done/095_llm_wiki_22impl.md)、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)
 - [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)
 - [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[PRD095 の検証資材](../../core/anet-core/testdata/prd095/README.md)
 - [How Claude remembers your project](https://code.claude.com/docs/en/memory)、[Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)、[Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)、[LangMem Background Quickstart](https://langchain-ai.github.io/langmem/background_quickstart)

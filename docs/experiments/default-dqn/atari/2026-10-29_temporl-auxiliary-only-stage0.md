@@ -15,7 +15,7 @@
 
 ## 目的と比較条件
 
-[PRD104](../../../memo/104_temporl_skip_auxiliary_only_10prd.md) §7の段0。「固定して集めたデータで育ったQそのものが遅い」のか、「そのQでも評価時に固定を外せば戻る」のかを切り分ける。
+[PRD104](../../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) §7の段0。「固定して集めたデータで育ったQそのものが遅い」のか、「そのQでも評価時に固定を外せば戻る」のかを切り分ける。
 
 - 学習元はqbertのサンプル効率優先50M、各腕seed1の終了時`agent_close.anet`。当初の無効、合算、遮断、重み0.3の4本をすべて読み込めたので、条件付きfallbackは使わなかった。その後、ユーザー指定でPRD103 splitのcheckpointを追加比較として採った。
 - 現在のAtari連鎖へ元CLI26葉を重ねる。元CLIのprofileが選んだmain_feature/tau_embeddingのstructure、HeadFC512とhead.projectionのNoisy有効、resize_modeの5葉も元dumpから展開し、形状と入力を合わせた。単に現在の既定ネットを使うと旧checkpointと形状が違う。

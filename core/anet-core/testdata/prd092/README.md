@@ -157,4 +157,4 @@ CPUの再比較は保存した変更前実行体・configが必要で、`run_val
 - [plasticity]: All tests passed (292 assertions in 29 test cases)。
 - 既定スイート: test cases:   686 |   685 passed | 1 skipped / assertions: 55633 | 55633 passed。
 
-ログと実行体hashは `.scratch/prd092/21-review-tests.json`、修正5件と変更ファイルの一覧は [実装メモ](../../../../docs/memo/092_gradient_noise_scale_20impl.md) の「レビュー修正（2026-10-15）」に記録した。初回受入のsmoke・性能結果は当時の実行体の記録として保持する。
+ログと実行体hashは `.scratch/prd092/21-review-tests.json`、修正5件と変更ファイルの一覧は [実装メモ](../../../../docs/memo/done/092_gradient_noise_scale_20impl.md) の「レビュー修正（2026-10-15）」に記録した。初回受入のsmoke・性能結果は当時の実行体の記録として保持する。

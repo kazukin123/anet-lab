@@ -2,7 +2,7 @@
 
 ## 比較資料と現状
 
-実装の正本は `docs/memo/093_attention_entropy_diagnostics_20impl.md`。ログ・実行体・設定基準は `.scratch/prd093/` に保存する。
+実装の正本は `docs/memo/done/093_attention_entropy_diagnostics_20impl.md`。ログ・実行体・設定基準は `.scratch/prd093/` に保存する。
 
 - `before/`: 変更前の Debug / Release Runner・DLL・config と対象ソース。`before-manifest.json` に hash とサイズを記録する。
 - `before-current/`: ConfigManager で解決した現用7環境の全キー・文字列値。過去の固定入力に依存しない。

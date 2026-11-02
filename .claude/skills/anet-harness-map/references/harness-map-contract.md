@@ -1,6 +1,6 @@
 # ANET Harness Map Contract
 
-動線マップの出力仕様。起票時の判断は `docs/memo/080_harness_map_10prd.md` にあり、本契約が出力の正本になる。
+動線マップの出力仕様。起票時の判断は `docs/memo/done/080_harness_map_10prd.md` にあり、本契約が出力の正本になる。
 
 ## 用語
 

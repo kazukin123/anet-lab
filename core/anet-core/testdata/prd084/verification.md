@@ -1,6 +1,6 @@
 # PRD084 検証記録
 
-本書は実装・検証の記録。実装の正本は `docs/memo/084_noisynet_20impl.md`。以下は修正前の条件による実施結果である。レビューで参照profileとPRDの不一致、CUDA AMP内の選択的FP32結合検証、Learner sample性能測定の不足を確認したため、全受け入れ完了の判定は取り下げる。過去のRunと数値は保持し、現行の補完結果は [review_verification.md](review_verification.md) に分ける。
+本書は実装・検証の記録。実装の正本は `docs/memo/done/084_noisynet_20impl.md`。以下は修正前の条件による実施結果である。レビューで参照profileとPRDの不一致、CUDA AMP内の選択的FP32結合検証、Learner sample性能測定の不足を確認したため、全受け入れ完了の判定は取り下げる。過去のRunと数値は保持し、現行の補完結果は [review_verification.md](review_verification.md) に分ける。
 
 ## 責任境界レビュー
 

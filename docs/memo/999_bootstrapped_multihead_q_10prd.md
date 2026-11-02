@@ -3,7 +3,7 @@
 > 2026-10-18 起票。詳細設計は別途グリルで行う前提で、暫定の既定を置き、決めることを §7 に残した。
 > 2026-10-23 改訂: §2 の KFM の見立てを直した。当初の「壁は挑む割合が跳ねる正のフィードバックに火が付くか」は、2026-10-18〜20 の既定の 10M × 16 seed で覆り、挑むことは珍しくなく、壁は挑んでいる間に撃破 ÷ 命中が上がらないことにある（[999_intrinsic_reward_novelty](999_intrinsic_reward_novelty_10prd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。
 > 起点: Atari kung_fu_master（以下 KFM）で、ボス行きに入った Run（seed 3）と入らなかった Run の違いが、設定ではなく seed、つまりネットワークがどの谷に落ちたか（方策そのものの違い）だったこと（§2）。lane ごとの ε や UQE の τ の違い（行動のゆらぎ）では、ボスに挑み続ける方策は生まれなかった。
-> 関連: [999_intrinsic_reward_novelty_10prd.md](999_intrinsic_reward_novelty_10prd.md)（段階 3 の方策の家族。目的を変えた方策を 1 つのネットワークで持つ）、[999_seed_population_early_stop_10prd.md](999_seed_population_early_stop_10prd.md)（独立の seed を多数回す側）、[084_noisynet_10prd.md](084_noisynet_10prd.md)（lane ごと・episode ごとに保持する仕組みの前例）、[CONTEXT.md](../../CONTEXT.md) の「保持方式」「共有範囲」。
+> 関連: [999_intrinsic_reward_novelty_10prd.md](999_intrinsic_reward_novelty_10prd.md)（段階 3 の方策の家族。目的を変えた方策を 1 つのネットワークで持つ）、[999_seed_population_early_stop_10prd.md](999_seed_population_early_stop_10prd.md)（独立の seed を多数回す側）、[084_noisynet_10prd.md](done/084_noisynet_10prd.md)（lane ごと・episode ごとに保持する仕組みの前例）、[CONTEXT.md](../../CONTEXT.md) の「保持方式」「共有範囲」。
 
 ## 1. 目的と問題
 

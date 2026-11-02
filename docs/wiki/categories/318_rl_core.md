@@ -46,16 +46,16 @@
 - 2026-09-20: ReplayBufferのframe履歴開始はPush時のepisode_startで確定し、n-step確定metadataから導出しない（ENDをslot単位に持たない部分だけ後にADR0063で改め、履歴開始の判断は維持）（出典: [ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)、本文と冒頭の後発決定の注記）。
 - 2026-09-22: PRD 076: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-09-22: 終了時の背景評価セッションは完走を既定とし、設定または上限時間による協調キャンセルで抜けられるようにして、部分集計は設けない（出典: [ADR 0045](../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)、本文）。
-- 2026-09-24: 評価Runnerが新しいdevice指定を解決する接続へ移行した（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD1・D9）。
-- 2026-10-10: NN実行設定の移行に合わせObserverとTrainerの接続・回帰を確認した（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§12 受け入れ条件・§13 実装順と複雑度監査）。
+- 2026-09-24: 評価Runnerが新しいdevice指定を解決する接続へ移行した（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、確定したD1・D9）。
+- 2026-10-10: NN実行設定の移行に合わせObserverとTrainerの接続・回帰を確認した（出典: [PRD084](../../memo/done/084_noisynet_10prd.md)、§12 受け入れ条件・§13 実装順と複雑度監査）。
 - 2026-10-19: Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、本文）。
 - 2026-10-19: step trace の近似優先度は Agent が出す step 部品が計算し、Actor の設定キーで eval_panel にだけヒントを作らせることはしない（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - 2026-10-20: BatchEnv の Step は終端の lane をリセットせず、Runner が通知のあとに終わったエピソードをリセットする（後にADR0060で取消）（出典: [ADR 0059](../../adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md)、本文）。
 - 2026-10-20: 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、本文）。
-- 2026-10-20: 遷移結果をStepResultと通知eventで運び終端laneの値を正した（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、題・§4.1）。
+- 2026-10-20: 遷移結果をStepResultと通知eventで運び終端laneの値を正した（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、題・§4.1）。
 - 2026-10-21: step traceの値取得・通知とAgent診断Providerの共通接続を加えた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D5〜D9）。
 - 2026-10-24: 時間で変わる割引率は、schedule のときだけ抽選時に保存済みの step 報酬から収益を作り直す（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、本文）。
-- 2026-10-24: ReplayBuffer は γ を自分で持たず、Push と Sample の入力として呼び出し側が渡す今の γ を使い、schedule の構成では抽選済みのstep報酬列と長さを保持し、prefetchを消費するSampleが返す時点のγで収益を作り直す。ring上書き後のstorageを読み直さない（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D20）。
+- 2026-10-24: ReplayBuffer は γ を自分で持たず、Push と Sample の入力として呼び出し側が渡す今の γ を使い、schedule の構成では抽選済みのstep報酬列と長さを保持し、prefetchを消費するSampleが返す時点のγで収益を作り直す。ring上書き後のstorageを読み直さない（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D20）。
 - 2026-10-29: EvalRunnerが最後のstepで行動を指定されたか（強制行動）を`$runner forced`として答える仕様を定めた（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D3）。
 
 ## 選ばなかった形
@@ -65,14 +65,14 @@
 - step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
 - 学習側の厳密な優先度の列 — 不採用: EvalPanelには単一networkのforwardしかなくreplayも無いため学習側のonline/targetによる値は得られない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
 - Event/Observerの型の統一 — 範囲外: step traceとは別の関心。再開条件: 新しいEvent型を足す変更が出たとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
-- episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 999_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§5）。
-- ResetEndedEpisodesの段・外から読む値の写し・予備ALE — 不採用: 段の案は非同期学習を5〜8%遅くし、写しは埋め合わせを残し、予備ALEはAtari固有になる（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、§5・§4.1 D1/D2）。
+- episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 999_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5）。
+- ResetEndedEpisodesの段・外から読む値の写し・予備ALE — 不採用: 段の案は非同期学習を5〜8%遅くし、写しは埋め合わせを残し、予備ALEはAtari固有になる（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5・§4.1 D1/D2）。
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - 全targetを許し値の時点差は文書だけで説明する形 — 不採用: 終端行でリセット前後の値が混ざっても見た目で気付けない（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、Considered Options）。
 - 速報値と確定値を別の鍵名に分ける形 — 不採用: Step結果が2組の値を持つ作りになり、現用の設定キー名も移行する必要がある（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、Considered Options）。
 - skip 用の replay を別に持つ（TempoRL 論文の形） — 不採用: PER・prefetch・ready・世代 key が 2 系統になり、obs の複製でメモリが 2 倍（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D11、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。
 - Push 時に同一行動の区間を確定して slot に足す形 — 不採用: 同じ起点から短い sub-skip を取れない（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D11、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。
-- 判断の境界を越えて同じ行動の連続を数える窓 — 不採用: 次の判断で同じ行動を選び直すかが次の状態に依存するため、確率的な env で長い窓に偏りが入る。窓は判断の旗で区切る（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D13、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。→ PRD104 で、skip の出力を行動に使わない構成（補助学習のみモード。全 Actor がスキップ長を常に 1 にする）に限り採用。行動の変化で閉じる窓と、上限 J とエピソードの終わりだけで閉じる窓の 2 つ（出典: [PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md)、§4 D3・D4）。
+- 判断の境界を越えて同じ行動の連続を数える窓 — 不採用: 次の判断で同じ行動を選び直すかが次の状態に依存するため、確率的な env で長い窓に偏りが入る。窓は判断の旗で区切る（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D13、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。→ PRD104 で、skip の出力を行動に使わない構成（補助学習のみモード。全 Actor がスキップ長を常に 1 にする）に限り採用。行動の変化で閉じる窓と、上限 J とエピソードの終わりだけで閉じる窓の 2 つ（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§4 D3・D4）。
 - k_max に比例する重みで論文の「接続ごとに等しい重み」に合わせる形 — 先送り: 一様な k で始める。再開条件: 短い k の偏りが skip の学習に効くと分かったら。後続の暫定 PRD では、全 k の一括学習（K）が全接続を等しく数える形でこの重みも扱う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§8、[999 TempoRL の後続](../../memo/999_temporl_skip_followups_10prd.md)、§4 D7）。
 - eviction 統計（last_evicted 系）も sampleable の範囲を基準にする形 — 不採用（却下）: 追い出される slot は必ず history margin を過ぎてから追い出されるので、wrap 後に統計が恒常的に 0 件になり、一度も引かれずに追い出された割合の指標が死ぬ（出典: [ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、Considered Options；[PRD050](../../memo/done/050_replay_ring_stack_margin_10prd.md)、0. 決定一覧 D7）。
 - sampleable index を返す GetValidIndices1D を非 const にする形 — 不採用（採らない）: const な呼び出し元 4 箇所が、unique_ptr の operator-> が const を伝播しないことに依存して非 const を呼ぶ形になり、将来 propagate_const などで塞がれると通らなくなる（出典: [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md)、D4）。
@@ -80,9 +80,9 @@
 - 転送の in-flight 数を blocking cap で抑える形 — 不採用（入れない）: worker の Acquire と learner の future.get の間でデッドロックを生む。in-flight は呼び側の 1-deep prefetch で back-pressure され有界になる（出典: [PRD020](../../memo/done/020_device_transfer_common_part_10prd.md)、Solution（概要）設計判断 5）。
 - 評価セッションで group ごとに固定の quota を割り当てる形 — 不採用（却下）: 不偏だが、episode 長が不均一なほど最も遅い group の quota 合計に律速される（出典: [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、11. 却下した旧解決候補）。
 - partial Reset・masked Step（採用権を持たない group を Step の対象から外す） — 先送り: P2 には導入しない。再開条件: P3 の実測で必要性が出たら、別の契約として設計する（出典: [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、4.3 評価セッションと採用規則）。
-- 保存済みの収益は Push 時の γ、bootstrap は学習時の γ の 2 時点を契約にする形 — 不採用: 変化中に学習の target の中へ既知のずれを作る。Replay が step 報酬を保存しているので作り直す方が安い（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D20・§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
+- 保存済みの収益は Push 時の γ、bootstrap は学習時の γ の 2 時点を契約にする形 — 不採用: 変化中に学習の target の中へ既知のずれを作る。Replay が step 報酬を保存しているので作り直す方が安い（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D20・§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - γ の schedule で常に抽選時に収益を作り直す形 — 不採用: 定数でも計算が増え、足す順を揃えないと既存 Run との checksum が変わる。定数は保存値の経路に留める（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
-- γ を今回 constant だけに限る形 — 不採用: 器としては γ だけ空く。schedule のときだけ作り直す形で両立できた（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
+- γ を今回 constant だけに限る形 — 不採用: 器としては γ だけ空く。schedule のときだけ作り直す形で両立できた（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - 強制したかを行動の情報（`WithAction`の結果）で答える形 — 不採用: 基底・DQN系・MuZero系の行動の情報とテストの型を変え、「`WithAction`の結果＝強制」という意味を公開の型に付ける。強制するのはRunnerで、Runnerが答えれば1か所で済む（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D3）。
 
 ## 変えるときの条件
@@ -92,10 +92,10 @@
 - PushとExtractのstorage shared/exclusive lockによる排他を維持する（出典: [PRD014](../../memo/done/014_async_loader_prefetch_10prd.md)、1.2 ReplayBuffer）。
 - scratchの再利用でもindexの昇順を変えず、wrap・stack・n-step・PERの既存回帰を通す（出典: [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md)、D5: 昇順契約を維持する）。
 - 公開ReplayBuffer API、replay item keyの符号化、sampling分布、PER completionとeviction統計のready基準を変更しない（出典: [PRD078](../../memo/done/078_replay_frame_history_integrity_10prd.md)、6.2 モジュールの責務）。
-- 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とし、開始時の状態を再現できないHEADからの後追い比較は基準にしない（出典: [PRD084](../../memo/084_noisynet_10prd.md)、§8.2・§12・§13；[PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、6. 受入条件 8）。
+- 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とし、開始時の状態を再現できないHEADからの後追い比較は基準にしない（出典: [PRD084](../../memo/done/084_noisynet_10prd.md)、§8.2・§12・§13；[PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、6. 受入条件 8）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
 - ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
-- Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md)、ゴールG3・§7 1/4）。
+- Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、ゴールG3・§7 1/4）。
 - slot に 1 step の記録を足しても、sampling 分布・item key・PER の completion と eviction 統計の ready 基準・Push と Extract の lock・index の昇順を変えない。スキップが無効なら ready の遅れは max(1, n_step) のまま（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§5.1・§6 の 11）。
 - EvalRunnerに強制の値を足す前後で、PRD098の検証資材の段0の短縮条件のmetrics checksumを4環境とも一致させる（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§7の受入6）。
 
@@ -138,18 +138,18 @@
 - [PRD063](../../memo/done/063_plasticity_weight_norm_10prd.md) — 可塑性 weight norm（feature/readout 分割）PRD
 - [PRD066](../../memo/done/066_policy_churn_metrics_10prd.md) — Policy churn メトリクス（35_agent_churn）PRD
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
-- [PRD070](../../memo/070_device_spec_auto_10prd.md) — PRD 070: device 指定の auto 対応とキー体系統一
+- [PRD070](../../memo/done/070_device_spec_auto_10prd.md) — PRD 070: device 指定の auto 対応とキー体系統一
 - [PRD075](../../memo/done/075_episode_steps_and_eval_session_log_10prd.md) — PRD 075: エピソード長の汎用メトリクス化と評価セッションの実行ログ
 - [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md) — PRD 076: 終了時の評価セッション排水
 - [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md) — PRD 077: sampleable index 列の確保を持続バッファへ移す
 - [PRD078](../../memo/done/078_replay_frame_history_integrity_10prd.md) — ReplayBuffer の観測履歴・bootstrap stack 整合性修復 PRD
-- [PRD084](../../memo/084_noisynet_10prd.md) — NoisyNet (Noisy Networks for Exploration) PRD
+- [PRD084](../../memo/done/084_noisynet_10prd.md) — NoisyNet (Noisy Networks for Exploration) PRD
 - [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
-- [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
+- [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
 - [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
-- [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
-- [PRD103](../../memo/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
-- [PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
+- [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
+- [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
+- [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 - [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 
 ## 台帳の指摘

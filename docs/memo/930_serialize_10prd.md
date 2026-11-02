@@ -2,7 +2,7 @@
 
 > 状態: 暫定メモ。Run 全体の Save / Load を再設計するため、現行 checkpoint の事実、Adam/AdamW で判明した問題、将来 contract の要求を記録する。
 > 起点: `auto_load_file` で長期 Run をサイクル継続した際、Run 側で変更した `learner.alpha` が optimizer load によって実効値へ反映されていなかった件。
-> 切り出し: Optimizer group の retune だけを [091_checkpoint_load_optimizer_options_10prd.md](091_checkpoint_load_optimizer_options_10prd.md) で先行する。
+> 切り出し: Optimizer group の retune だけを [091_checkpoint_load_optimizer_options_10prd.md](done/091_checkpoint_load_optimizer_options_10prd.md) で先行する。
 > 本 PRD は設計候補の記録であり、設定名、archive 形式、実装順の確定や実装着手を意味しない。
 
 ## Problem Statement
@@ -244,7 +244,7 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 
 ## 091 からの見送り事項（2026-10-15）
 
-[091](091_checkpoint_load_optimizer_options_10prd.md) の再グリルで、本 PRD の範囲として見送ったもの。
+[091](done/091_checkpoint_load_optimizer_options_10prd.md) の再グリルで、本 PRD の範囲として見送ったもの。
 
 - `continue` / `require_match` を選ぶ設定キー。091 は設定キーを足さず、Optimizer group の `retune` を唯一の挙動にした（[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)）。policy の導入は本 PRD が扱い、そのとき ADR 0053 の先頭へ注記を足す。
 - 実効 learning rate の GetScalar メトリクス。学習率 schedule が無い間は一定値で、ログと `config_data.txt` で足りる。schedule を入れるときに起票する。§Manifest と実効値の要求の「起動直後から確認可能にする」とは別口。

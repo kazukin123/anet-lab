@@ -9,7 +9,7 @@
 | 開始日 | 2026-10-15 |
 | 主目的 | 実時間優先プロファイルの 3 seed のうち seed 3 だけが覚えたボス行き（1 面のボスを倒して面を抜ける）が、設定を変えるか seed を増やすと定着するかを確かめる。ゲームの仕様（途中からの開始、RAM の値による報酬）は変えない |
 | 基準 | 実時間優先（[2026-09-23](2026-09-23_realtime-profile-100m.md) と同じ構成）。腕ごとの設定の差は「対象 Run」の表に書く |
-| 判定指標 | 学習中のゲームの RAM メトリクス。Run ログのゲーム完了行の `boss_hit`・`boss_kill`・`floor_clear`（[PRD 082](../../../memo/082_atari_ram_progress_metrics_10prd.md) の番号 3・2・1）を、exp step の窓ごとに数える。命中率は `boss_hit` が 1 以上のゲームの割合、撃破率は `boss_kill` が 1 以上、面クリア率は `floor_clear` が 1 以上の割合。撃破 ÷ 命中は、命中したゲームのうち撃破まで行ったゲームの割合。スコアは eval2（ε=0.01、`52_eval2/10_game_score_mean`）と ε=0 断面（`53_evalg/10_game_score_mean`）の生スコア |
+| 判定指標 | 学習中のゲームの RAM メトリクス。Run ログのゲーム完了行の `boss_hit`・`boss_kill`・`floor_clear`（[PRD 082](../../../memo/done/082_atari_ram_progress_metrics_10prd.md) の番号 3・2・1）を、exp step の窓ごとに数える。命中率は `boss_hit` が 1 以上のゲームの割合、撃破率は `boss_kill` が 1 以上、面クリア率は `floor_clear` が 1 以上の割合。撃破 ÷ 命中は、命中したゲームのうち撃破まで行ったゲームの割合。スコアは eval2（ε=0.01、`52_eval2/10_game_score_mean`）と ε=0 断面（`53_evalg/10_game_score_mean`）の生スコア |
 | 比較上の注意 | 2026-10-07 以降の Run はすべて同じ実行環境で回した。基準の seed 1〜3 は別の実行環境なので、実時間は比べない。非決定論 backend。報酬クリップを外した腕でも、評価のスコアは生スコアなのでクリップありの腕と比べられる |
 
 ## 現時点のまとめ

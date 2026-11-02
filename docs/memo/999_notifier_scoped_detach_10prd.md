@@ -197,4 +197,4 @@ static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_p
 
 ## 後続の候補（2026-10-31、PRD110 から）
 
-[PRD110](110_runner_main_pane_dynamic_centre_10prd.md) は Train View を隠せるようにしたが、隠している間も `TrainPanel` の Train 側 observer は外さず、描画 timer だけを止める（同 D6・NG2）。observer のコストは `Train View FPS` が 0 のときも残る既存の挙動で、`TrainPanel` の observer は本 PRD の該当箇所（`AttachScoped` の戻り値で `Detach` できない）に当たるため、本 PRD の修復が先に要る。本 PRD の修復が入ったら、Train View を隠している間と FPS 0 のときに observer を外して Train スレッド側の View 更新のコストも消す案を、別の PRD として起こす（PRD110 §8 の再開条件）。本 PRD の範囲は変えない。
+[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md) は Train View を隠せるようにしたが、隠している間も `TrainPanel` の Train 側 observer は外さず、描画 timer だけを止める（同 D6・NG2）。observer のコストは `Train View FPS` が 0 のときも残る既存の挙動で、`TrainPanel` の observer は本 PRD の該当箇所（`AttachScoped` の戻り値で `Detach` できない）に当たるため、本 PRD の修復が先に要る。本 PRD の修復が入ったら、Train View を隠している間と FPS 0 のときに observer を外して Train スレッド側の View 更新のコストも消す案を、別の PRD として起こす（PRD110 §8 の再開条件）。本 PRD の範囲は変えない。

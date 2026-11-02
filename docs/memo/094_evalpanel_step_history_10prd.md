@@ -3,7 +3,7 @@
 > 2026-10-18 起票（グリル前の暫定版）。ユーザーの希望で、999 ではなく正式番号で起票した。
 > 2026-10-18 改訂: 追加するパネルを近似優先度の専用から、EvalPanel の step 単位の行を直近の履歴として表で見る汎用のパネルに改めた（ファイル名も `094_evalpanel_approx_priority_view` から変更）。
 > 2026-10-19 グリル（`/anet-create-prd 094`、Claude Code）で全面改訂した。位置付けを「step 単位の詳細を記録して見るシリーズの第一弾」とし、近似優先度はその最初の利用例にした。主な決定は、値の読み口の統一とメトリクス配線の分離を段階 1 に入れること、step trace を trace チャネルへ出す段（旧段階 2）を PRD 081 へ移すこと、近似優先度を Agent の step 部品が計算すること（Actor の設定キーは足さない）、列をメトリクスの定義と分けて番号付きで宣言すること、`$env_step`・`$agent_step` を足すこと、行を選ぶか再生すると EvalPanel・QValuePanel・Conv2d が Trace モードでその時点を出すこと、自動リセットの時機は別の基盤 PRD で先に直すこと。§3 の現状をコードと照合して直した（毎秒の step 数、式の所在、ヒントの所在、env の値の出口など）。起草後に別モデル（Fable）の検討を受け、eval_panel の Actor の Q が既定で target network であること（§3.2、D6）、Trace モードに入ったら EvalPanel を一時停止すること（D11）などを反映した。ファイル名は、ほかの文書と wiki の作業記録が指しているので変えない（題は Evaluation Trace）。決定の記録は [ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) と [ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)。
-> 2026-10-19 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) のグリルの決定に合わせて、NG6・§3.3・D4・D11（Trace モード）・§7 の 1 を書き直した。097 の決定は、BatchEnv の `Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶこと（097 の D1）と、リセット後の情報は Runner だけが受け取ること（097 の D4）である。本 PRD の決定は変えていない。
+> 2026-10-19 基盤 PRD [097](done/097_env_auto_reset_after_notification_10prd.md) のグリルの決定に合わせて、NG6・§3.3・D4・D11（Trace モード）・§7 の 1 を書き直した。097 の決定は、BatchEnv の `Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶこと（097 の D1）と、リセット後の情報は Runner だけが受け取ること（097 の D4）である。本 PRD の決定は変えていない。
 > 2026-10-20 追記: 097 を再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、env への問い合わせ（`$env`）は今の env の状態を返す。BatchEnv は Reset と Step のままで、`ResetEndedEpisodes()` は作らない。そのため、§3.3 の 097 の行と §7 の 1 を事実に合わせて直した。D4 の「`$env` は遷移のあと・リセット前の env を読む」は成り立たなくなったので、扱いを §7 の 1 の未決に置いた。D11 の「終端の行の画面はリセット前」と、097 の D4（リセット後の情報は Runner だけが受け取る）は変わらない。
 > 2026-10-20 改訂（Claude Code、097 の申し送りの反映）: step trace の列から `$env` を外した（ユーザーの裁定）。`$env_step` を 097 のメトリクスと同じ target にし、metrics の DSL へ `$env_step` を足すのは 097、`$agent_step` は 081 とした。D4・D5・D8・§7 の 1・受入 4 を直した。
 > 2026-10-21 訂正（Claude Code、実装のコードレビューで判明）: §3.1 の「1 frame に複数の step を進める構成では、View のスナップショットは step ごとには作られない」は誤りだった。EvalPanel は View の更新を強制の指定で呼んでおり、変更前から step ごとに作っていた。§3.1 と D11 の該当文を事実に合わせて直した。決定は変えていない。
@@ -51,7 +51,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 - **NG3**: 定期評価（configured eval）と学習側（train runner）の step trace。量が大きすぎる（§3.1）。
 - **NG4**: step trace を trace チャネル（Run artifact）へ出すこと。PRD 081 を改訂して取り込む（§7 の 2）。本 PRD は、081 がそのまま使える生成器を作るところまで。
 - **NG5**: Event / Observer の型の複製（`TrainEvent`・`LearnEvent`・`EpisodeEndEvent`・`SessionEndEvent` ごとの interface・RunnerScoped・Notifier のメソッド）の統一。step trace は既存の `TrainEvent` で受けられるので、今回の要求からは導けない別の関心である。
-- **NG6**: 通知の中で読む遷移の結果が終端の lane でリセット後になる問題への対処（遷移の結果を Step の結果で運ぶ直し）。基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) で決め、本 PRD より先に実装する（§7 の 1）。
+- **NG6**: 通知の中で読む遷移の結果が終端の lane でリセット後になる問題への対処（遷移の結果を Step の結果で運ぶ直し）。基盤 PRD [097](done/097_env_auto_reset_after_notification_10prd.md) で決め、本 PRD より先に実装する（§7 の 1）。
 
 ## 2. 背景（KFM）
 
@@ -97,7 +97,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 - env の値の出口は 2 つある。`GetScalar(key, lane)` は完了したゲームの統計用で、Atari の `game_score`・`game_len`・`ram_metric.[n]`・`hns57` などは完了時だけ値を返し、それ以外は NaN。`lives` は今の値（[AtariEnv.cpp:839-891](../../core/envs/atari1/src/AtariEnv.cpp)）。step_result の aux（`名前 → Tensor`、[rl.hpp:349](../../core/anet-core/include/anet/rl.hpp)）は 1 step ごとの報告で、Atari は途中の `game_score`・`game_len`・`game_frames`・`lives`・`ram_metric.<label>` を毎 step 入れる（[AtariEnv.cpp:682-694](../../core/envs/atari1/src/AtariEnv.cpp)）。GridMaze・LunarLander・DropMerge も aux を持つ。
 - 単一の env をまとめる BatchEnv は、Step の中で lane ごとに env の Step を呼び、終端なら続けて Reset する（[env.cpp:712-742](../../core/anet-core/src/env.cpp)）。aux と `next_state` は Reset の前に結果へ入るのでリセット前の値、`continue_state` はリセット後の状態になる。通知の時点で env へ問い合わせる `GetScalar` と `GetTensor("rgb_frame")` は、終端の lane ではもうリセット後の env を読む。完了値が終端の通知で読めるのは、env がそれをリセットをまたいで持っているからである。
 - 定期評価の `$env mean.hns57 @session_end` は、RunManager が宣言から鍵を集めて EvalSessionEnv へ購読として渡し、EvalSessionEnv が中の BatchEnv の Step のあとで完了した lane の `GetScalar` を溜める経路で読んでいる（[trainer.cpp:954-972](../../core/anet-core/src/trainer.cpp)、[env.cpp:336-369](../../core/anet-core/src/env.cpp)）。読むのはリセット後だが、読む鍵が完了値なので正しく読めている。
-- 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md)（2026-10-20 改訂）の実装のあとも、`Step` の中の自動リセットは残る。遷移の結果（得点・残機・画面・完了の値）は Step の結果が答え、通知の読み手はそこから読む。env への問い合わせ（`GetScalar`・`GetTensor`）は今の env の状態を返し、終端の lane ではリセット後になる（097 の D1・D2）。
+- 基盤 PRD [097](done/097_env_auto_reset_after_notification_10prd.md)（2026-10-20 改訂）の実装のあとも、`Step` の中の自動リセットは残る。遷移の結果（得点・残機・画面・完了の値）は Step の結果が答え、通知の読み手はそこから読む。env への問い合わせ（`GetScalar`・`GetTensor`）は今の env の状態を返し、終端の lane ではリセット後になる（097 の D1・D2）。
 - `continue_state` は、Runner の `state_ = result->continue_state`（[trainer.cpp:295](../../core/anet-core/src/trainer.cpp)、同 566、同 700）のほか、エピソード構造の検査（[env.cpp:142-176](../../core/anet-core/src/env.cpp)）と、EvalSessionEnv がセッションの継ぎ目で Reset を省く処理（[env.cpp:317-327](../../core/anet-core/src/env.cpp)）で使われる。
 
 ### 3.4 メトリクスの配線と値の読み口
@@ -385,7 +385,7 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 
 | # | 事項 | 扱い |
 |---|---|---|
-| 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](097_env_auto_reset_after_notification_10prd.md) は、2026-10-19 に M2 に決めたあと、2026-10-20 の再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、`$env` は今の env の状態を返す。BatchEnv は Reset と Step のまま（097 の D1・D2）。リセット後の情報は Runner だけが受け取る（097 の D4、変わらない）。`$env_step` は、097 の Step の結果が答える鍵（既定は aux のスカラー、Atari は派生の鍵も）を読む、メトリクスと同じ target になる（097 の §4.2 の 8）。097 を本 PRD より先に実装する。step trace の列の `$env` は、097 の §8 の申し送り（ADR 0057 の「時点が決まっている target だけを読む」）どおり列の target から外し、遷移の結果は `$env_step` で読む（2026-10-20 のユーザーの裁定、D4） |
+| 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](done/097_env_auto_reset_after_notification_10prd.md) は、2026-10-19 に M2 に決めたあと、2026-10-20 の再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、`$env` は今の env の状態を返す。BatchEnv は Reset と Step のまま（097 の D1・D2）。リセット後の情報は Runner だけが受け取る（097 の D4、変わらない）。`$env_step` は、097 の Step の結果が答える鍵（既定は aux のスカラー、Atari は派生の鍵も）を読む、メトリクスと同じ target になる（097 の §4.2 の 8）。097 を本 PRD より先に実装する。step trace の列の `$env` は、097 の §8 の申し送り（ADR 0057 の「時点が決まっている target だけを読む」）どおり列の target から外し、遷移の結果は `$env_step` で読む（2026-10-20 のユーザーの裁定、D4） |
 | 2 | step trace を trace チャネルへ出す段 | PRD 081 を改訂して取り込む（081 の冒頭に 2026-10-19 に追記済み。改訂は 081 のグリルで行う）。081 の実装ノートが trainer.cpp を名指ししている箇所は、`MetricsWiring` を指すよう直す。改訂で決めること: trace 行の step 座標（step trace は `TrainEvent` から作るので、`@train` 系の規則なら EvalPanel 自身の counts になり、`54_evalpanel/episode` の学習側 counts と座標が違う。ADR 0047、CONTEXT.md「学習側 counts」「step座標系」）、metrics の DSL への `$agent_step` の追加（`$env_step` は 097 が足す）、あとで決まる列を待って 1 行を書くこと（生成器の知らせ方は D9） |
 
 ## 8. 成功の測り方と受入基準
@@ -422,7 +422,7 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 
 ## 9. 依存と順序
 
-基盤 PRD（[097](097_env_auto_reset_after_notification_10prd.md)、§7 の 1）→ 本 PRD の段階 1 → 段階 2 → PRD 081 の改訂と実装。段階 1 は基盤 PRD に依らないが、ユーザーの指示で基盤 PRD を先に行う。
+基盤 PRD（[097](done/097_env_auto_reset_after_notification_10prd.md)、§7 の 1）→ 本 PRD の段階 1 → 段階 2 → PRD 081 の改訂と実装。段階 1 は基盤 PRD に依らないが、ユーザーの指示で基盤 PRD を先に行う。
 
 ## 10. 文書同期（実装と同じ変更で更新する）
 

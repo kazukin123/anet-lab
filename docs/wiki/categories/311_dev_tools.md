@@ -23,7 +23,7 @@
 - 2026-09-05: 個体メトリクスは trace チャネルで出し、評価セッションは採用 episode ごとの EpisodeEndEvent と SessionEndEvent を分けて発火する（出典: [ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)）。
 - 2026-09-19: Actor 設定カタログと eval スロットごとの方策 / network 指定（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
-- 2026-10-18: categories.jsonの対応を直し、apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
+- 2026-10-18: categories.jsonの対応を直し、apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
 - 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、題・§3のゴール・§4 D1・D4）。
 - 2026-11-02: Claude Codeのmemoryをgit・フォルダ・正本・規約と定期的に照合して直すskill（anet-tidy-memory）と、機械的な検査を受け持つreports/tools/memory_support.py、housekeepingの候補memory-tidyを足す案を暫定で起票した（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、題・§1・§4 D9・D10）。
 - 2026-11-02: 工程末の起票候補で直す課題を台帳へ積み、台帳のF番号を最大5件まとめてPRDにするskill（anet-create-fix-prd）と、registry.py validateのF番号の重複検査を足す案を暫定で起票した（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、題・§1・§4 D1・D5・D15）。
@@ -33,7 +33,7 @@
 - inspect_runによるcacheの生成・更新・修復・migration・削除 — 不採用: 読み取り専用の抽出ツールから分ける（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10）。
 - inspect_runによるmetricの意味解釈・採否判断・Run ranking — 不採用: 分析の判断をツールへ統合しない（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10・§11）。
 - inspect_runのraw全点の無制限出力・plot画像生成・interactive viewer — 不採用: 分析用の材料抽出と分ける（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10）。
-- 監査の指摘の本文や対処方針を地図にも要約する — 不採用: 台帳の派生一覧と同じ正本の要約が2か所になる（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§1の非ゴール・§6）。
+- 監査の指摘の本文や対処方針を地図にも要約する — 不採用: 台帳の派生一覧と同じ正本の要約が2か所になる（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§1の非ゴール・§6）。
 - リリースのconfigureの引数だけをpresetへ寄せる案（packageとワークフローpresetは使わない） — 不採用: 手元でリリース物を作れない（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§8）。
 - apps/runner/bin/Releaseやフォルダを丸ごとリリースのzipに包む形 — 不採用: 手元の作業ツリーでは試行用のexe、管理外のDLL、Gitが無視するruns/が混ざる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§2の9・§8）。
 - exeのimportの表からリリースに入れるDLLを自動でたどる形 — 不採用: 実行時に読み込むDLL（third_party/runtime_dllsのSDL2など）を拾えない（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§2の6・§8）。
@@ -62,7 +62,7 @@
 - workspaceの箱を移動・削除・退避しても、Run・cache・Optuna履歴・基底configが一体で移動する自己完結性を保つ（出典: [PRD046](../../memo/done/046_workspace_10prd.md)、§1の不変条件）。
 - inspect_runのstreaming・1 pass・128点上限をfocused testで確かめる（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§9・§10）。
 - inspect_runで128点以下は全点を保持し、間引く場合も先頭・末尾と決定性を保つ（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§9）。
-- 台帳の分類をstatsと共有する変更をした場合は、statsのカテゴリ集計が変わらないことを確かめる（出典: [PRD095](../../memo/095_llm_wiki_10prd.md)、§4.7の台帳のツール・受入15）。
+- 台帳の分類をstatsと共有する変更をした場合は、statsのカテゴリ集計が変わらないことを確かめる（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§4.7の台帳のツール・受入15）。
 - リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
 - リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
 - housekeepingに候補を足しても、reports/housekeeping/runs.jsonlの既存の行は書き換えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§5.5）。
@@ -121,9 +121,9 @@
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 - [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md) — PRD 076: 終了時の評価セッション排水
 - [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
-- [PRD095](../../memo/095_llm_wiki_10prd.md) — LLM-Wiki 型のまとめの層（PRD の上流で、知見を題材と機構ごとに、実装の地図をアプリケーションと機能カテゴリごとにまとめる）PRD
-- [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
-- [PRD103](../../memo/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
+- [PRD095](../../memo/done/095_llm_wiki_10prd.md) — LLM-Wiki 型のまとめの層（PRD の上流で、知見を題材と機構ごとに、実装の地図をアプリケーションと機能カテゴリごとにまとめる）PRD
+- [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
+- [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
 
 ## 台帳の指摘
 

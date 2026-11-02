@@ -296,7 +296,7 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 | beam_rider | `1:sector_clear` = `0x80 inc_count`、`2:boss_kill` = `0x94 reach_count:141`、`4:torpedo_fired` = `0xD3 dec_count` | なし |
 | freeway | `4:car_hit` = `0xEA reach_count:91` | なし |
 
-番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
+番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/done/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
 
 ## 5. AtariView
 

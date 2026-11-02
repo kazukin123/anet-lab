@@ -1,6 +1,6 @@
 # PRD084 Forward 事前準備リファクタリングの検証（2026-10-10）
 
-計画は [084_noisynet_23impl.md](../../../../docs/memo/084_noisynet_23impl.md)。Config DTO 分離と実行経路変更を独立した段階で実装し、各段階で既存テストを確認した。
+計画は [084_noisynet_23impl.md](../../../../docs/memo/done/084_noisynet_23impl.md)。Config DTO 分離と実行経路変更を独立した段階で実装し、各段階で既存テストを確認した。
 
 ## 変更と責任境界
 
@@ -122,8 +122,8 @@ Debug テスト PDB の増大による LNK1318 は生成物を scratch へ退避
 - `docs/design/130_neural_networks.jp.md`
 - `docs/design/200_dqn_agents.en.md`
 - `docs/design/200_dqn_agents.jp.md`
-- `docs/memo/084_noisynet_10prd.md`
-- `docs/memo/084_noisynet_23impl.md`
+- `docs/memo/done/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_23impl.md`
 - `docs/ownership_guideline.md`
 
 ## 再レビュー修正（2026-10-10）
@@ -218,12 +218,12 @@ BOM／LF、NN指定6ファイルのRL語0件、対象差分check、6計算本体
 - `docs/design/130_neural_networks.jp.md`
 - `docs/design/200_dqn_agents.en.md`
 - `docs/design/200_dqn_agents.jp.md`
-- `docs/memo/084_noisynet_10prd.md`
-- `docs/memo/084_noisynet_23impl.md`
+- `docs/memo/done/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_23impl.md`
 
 ## 2026-10-10：24impl・公開面と準備経路の整理
 
-承認済み計画は `docs/memo/084_noisynet_24impl.md`。A1〜A4・B1〜B4・C1を実装した。B5は不採用とし、不変CallInfo・Params・getter・WithRowMappingを維持する。C2の再利用規則は変更しない。
+承認済み計画は `docs/memo/done/084_noisynet_24impl.md`。A1〜A4・B1〜B4・C1を実装した。B5は不採用とし、不変CallInfo・Params・getter・WithRowMappingを維持する。C2の再利用規則は変更しない。
 
 ### 今回の契約と基準
 
@@ -299,14 +299,14 @@ Run資材に`-Cases`を追加し、既定のOFF3構成を維持した。CPU構�
 - `docs/design/130_neural_networks.jp.md`
 - `docs/design/200_dqn_agents.en.md`
 - `docs/design/200_dqn_agents.jp.md`
-- `docs/memo/084_noisynet_10prd.md`
-- `docs/memo/084_noisynet_24impl.md`
+- `docs/memo/done/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_24impl.md`
 - `docs/ownership_guideline.md`
 - `core/anet-core/testdata/prd084/forward_refactor_verification.md`
 
 ## 公開面と命名 2026-10-11
 
-計画は [25impl](../../../../docs/memo/084_noisynet_25impl.md)。基準HEADは `ed9311c5b845cae1b41e569de602eae20c08855c`。資材とログは `.scratch/prd084/forward-refactor/api-20261011/` に分離した。編集前の差分・index・Release実行体とDLL計51本・設定・seed=1・旧OFF checkpointをbefore/へ保存した。
+計画は [25impl](../../../../docs/memo/done/084_noisynet_25impl.md)。基準HEADは `ed9311c5b845cae1b41e569de602eae20c08855c`。資材とログは `.scratch/prd084/forward-refactor/api-20261011/` に分離した。編集前の差分・index・Release実行体とDLL計51本・設定・seed=1・旧OFF checkpointをbefore/へ保存した。
 
 ### 変更と責任境界
 
@@ -377,8 +377,8 @@ Run資材は変更していない。Windows PowerShell 5での初回起動はUTF
 - `docs/design/130_neural_networks.jp.md`
 - `docs/design/200_dqn_agents.en.md`
 - `docs/design/200_dqn_agents.jp.md`
-- `docs/memo/084_noisynet_10prd.md`
-- `docs/memo/084_noisynet_25impl.md`
+- `docs/memo/done/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_25impl.md`
 - `docs/memo/999_outside_core_extension_layout_10prd.md`
 - `docs/ownership_guideline.md`
 
@@ -410,11 +410,11 @@ Debugテスト実行体のSHA-256は `f31aca4e08e914d57cd3e2014097a5b3ee57728462
 - `core/anet-core/include/anet/nn.hpp`
 - `core/anet-core/src/nn_impl.hpp`
 - `docs/memo/999_outside_core_extension_layout_10prd.md`
-- `docs/memo/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_10prd.md`
 - `docs/design/130_neural_networks.en.md`
 - `docs/design/200_dqn_agents.en.md`
 - `core/anet-core/testdata/prd084/run_forward_refactor.ps1`
-- `docs/memo/084_noisynet_25impl.md`
+- `docs/memo/done/084_noisynet_25impl.md`
 - `core/anet-core/testdata/prd084/forward_refactor_verification.md`
 
 ## まとめ整理 2026-10-11
@@ -488,8 +488,8 @@ core/appsで旧既定生成API・BindNetwork・ForwardTarget(・ForwardOnline(�
 - `core/anet-core/src/nn_modules.cpp`
 - `core/anet-core/src/nn_test.cpp`
 - `core/anet-core/src/dqn_based_agent_test.cpp`
-- `docs/memo/084_noisynet_10prd.md`
-- `docs/memo/084_noisynet_26impl.md`
+- `docs/memo/done/084_noisynet_10prd.md`
+- `docs/memo/done/084_noisynet_26impl.md`
 - `docs/design/130_neural_networks.jp.md`
 - `docs/design/130_neural_networks.en.md`
 - `docs/design/200_dqn_agents.jp.md`
@@ -530,7 +530,7 @@ READMEの25impl節は「25impl時点のAPI」に直し、現行APIと区別し�
 - `core/anet-core/testdata/prd084/README.md`
 - `docs/design/200_dqn_agents.jp.md`
 - `docs/design/200_dqn_agents.en.md`
-- `docs/memo/084_noisynet_26impl.md`
+- `docs/memo/done/084_noisynet_26impl.md`
 - `core/anet-core/testdata/prd084/forward_refactor_verification.md`
 - `CONTEXT.md`
 - `docs/ownership_guideline.md`
