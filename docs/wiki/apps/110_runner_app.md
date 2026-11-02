@@ -134,7 +134,7 @@
 ## 関係
 
 - 設計: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §2.1・§3.1・§5.1・§7.1・§8。
-- ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md) §2・§3。
+- ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md) §2〜§6（起動、画面、操作、Evaluation Trace）。
 - 含む機能カテゴリ: [311 開発ツール](../categories/311_dev_tools.md)。
 
 ## ファイル
@@ -146,11 +146,11 @@
 - [EvalPanel.cpp](../../../apps/runner/src/EvalPanel.cpp) / [EvalPanel.hpp](../../../apps/runner/src/EvalPanel.hpp)
 - [EvalTracePanel.cpp](../../../apps/runner/src/EvalTracePanel.cpp) / [EvalTracePanel.hpp](../../../apps/runner/src/EvalTracePanel.hpp) / [EvalTracePanel_test.cpp](../../../apps/runner/src/EvalTracePanel_test.cpp)
 - [HeatMapPanel.cpp](../../../apps/runner/src/HeatMapPanel.cpp) / [HeatMapPanel.hpp](../../../apps/runner/src/HeatMapPanel.hpp)
-- [LogPanel.cpp](../../../apps/runner/src/LogPanel.cpp) / [LogPanel.hpp](../../../apps/runner/src/LogPanel.hpp)
+- [LogPanel.cpp](../../../apps/runner/src/LogPanel.cpp) / [LogPanel.hpp](../../../apps/runner/src/LogPanel.hpp) / [LogPanel_test.cpp](../../../apps/runner/src/LogPanel_test.cpp)
 - [PlotPanel.cpp](../../../apps/runner/src/PlotPanel.cpp) / [PlotPanel.hpp](../../../apps/runner/src/PlotPanel.hpp)
 - [QValuePanel.cpp](../../../apps/runner/src/QValuePanel.cpp) / [QValuePanel.hpp](../../../apps/runner/src/QValuePanel.hpp)
-- [RunnerApp.cpp](../../../apps/runner/src/RunnerApp.cpp) / [RunnerApp.hpp](../../../apps/runner/src/RunnerApp.hpp)
-- [RunnerFrame.cpp](../../../apps/runner/src/RunnerFrame.cpp) / [RunnerFrame.hpp](../../../apps/runner/src/RunnerFrame.hpp)
+- [RunnerApp.cpp](../../../apps/runner/src/RunnerApp.cpp) / [RunnerApp.hpp](../../../apps/runner/src/RunnerApp.hpp) / [RunnerApp_test.cpp](../../../apps/runner/src/RunnerApp_test.cpp)
+- [RunnerFrame.cpp](../../../apps/runner/src/RunnerFrame.cpp) / [RunnerFrame.hpp](../../../apps/runner/src/RunnerFrame.hpp) / [RunnerFrame_test.cpp](../../../apps/runner/src/RunnerFrame_test.cpp)
 - [TrainPanel.cpp](../../../apps/runner/src/TrainPanel.cpp) / [TrainPanel.hpp](../../../apps/runner/src/TrainPanel.hpp)
 - [WorkspaceDialog.cpp](../../../apps/runner/src/WorkspaceDialog.cpp) / [WorkspaceDialog.hpp](../../../apps/runner/src/WorkspaceDialog.hpp)
 - [pch.hpp](../../../apps/runner/src/pch.hpp)
@@ -224,6 +224,15 @@
 - [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md) — TransformerEncoder の attention エントロピー診断 PRD
 - [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
+- [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
+- [PRD099](../../memo/099_atari_resize_mode_10prd.md) — Atari の観測の縮小方式を設定で切り替える PRD
+- [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
+- [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
+- [PRD103](../../memo/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
+- [PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
+- [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
+- [PRD106](../../memo/106_temporl_skip_forward_noise_key_10prd.md) — TempoRL の skip 側の forward のノイズを Q 側と分けて指定する（`full` でだけノイズが効く仕組みの切り分け）PRD
+- [PRD109](../../memo/109_runner_startup_background_init_10prd.md) — Runner の起動で RunManager を別スレッドで構築する PRD
 
 ## 台帳の指摘
 

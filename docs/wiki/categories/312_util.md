@@ -5,6 +5,7 @@
 ## 概要・責務
 
 - 設定からRunを組み立てる実行基盤のうち、初期化、seed、schedule、log、application共通処理の所在を引く。（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2・§3・§7）。
+- ProfiledValueは、定数をrootのbare値で、時間で変わる値を`type`（`linear`・`cosine`・`cosine_restart`・`exponential`・`phased`）と対応する欄で表す。読み取りと記録を分け、非constantの配下に継承されたbare値は保持しても評価とdumpに使わず、dumpには実効typeが参照する欄だけを記録する（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.1「ProfiledValue の定数と時間の値」）。
 
 ## 成立の経緯
 
@@ -21,7 +22,7 @@
 - 2026-08-21: TBO診断に関わるlog基盤を更新した（出典: [PRD008](../../memo/done/008_Transformed%20Bellman%20Operator_10prd.md)、3. 報酬スケーラとの共存と warn）。
 - 2026-08-21: TensorDict可視化の共通定義を更新した（出典: [PRD010](../../memo/done/010_image_metrics_v2_10prd.md)、Phase 3-4 — network sweep 基盤 + SweepStateHeatMap observer / UI 復旧）。
 - 2026-08-21: `backend.deterministic_algorithms` 導入（学習の同 seed 再現性確保）仕様書（出典: [PRD015](../../memo/done/015_deterministic_algorithms_10prd.md)、題・目的）。
-- 2026-08-21: forward traceで使う共通の定義を更新した（出典: [PRD006](../../memo/done/006_conv2d_visual_trace_10prd.md)、5.1 【新規】`TraceSink` 型）。
+- 2026-08-21: forward traceで使う共通の定義を更新した（出典: [PRD006](../../memo/done/006_conv2d_visual_trace_10prd.md)、5.1 【新規】`TraceSink` 型（当時の名前。今のコードに無い））。
 - 2026-08-27: PRD 068: batchrun の致命エラー処理（ダイアログ抑止・終了コード・bat 検出）（出典: [PRD068](../../memo/done/068_batchrun_fatal_error_handling_10prd.md)、題・目的）。
 - 2026-09-04: 評価episode集約で使う共通utilityを更新した（出典: [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md)、F1. metrics 経路は既に「1 セッション 1 点」であり、停止条件だけ変えても N 本平均は録れない）。
 - 2026-09-24: InitRLの初期化に明示deviceの可用性検査を加えた（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD10・Complexity audit）。
@@ -91,6 +92,8 @@
 - [PRD053](../../memo/done/053_interval_gate_perf_ema_10prd.md) — PRD 053: interval 発火の bucket-crossing 化 と perf メトリクスの時間重み EMA 化
 - [PRD060](../../memo/done/060_eval_batch_episodes_10prd.md) — 評価セッション契約: eval_batch_size（lane 数）と eval_episodes（本数）で N 本平均を 1 点として記録する
 - [PRD070](../../memo/070_device_spec_auto_10prd.md) — PRD 070: device 指定の auto 対応とキー体系統一
+- [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
+- [PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 
 ## 台帳の指摘
 

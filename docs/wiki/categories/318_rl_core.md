@@ -43,7 +43,7 @@
 - 2026-09-19: PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-09-20: PRD 077: sampleable index 列の確保を持続バッファへ移す（出典: [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md)、題・目的）。
 - 2026-09-20: ReplayBuffer の観測履歴・bootstrap stack 整合性修復 PRD（出典: [PRD078](../../memo/done/078_replay_frame_history_integrity_10prd.md)、題・目的）。
-- 2026-09-20: ReplayBufferのframe履歴開始はPush時のepisode_startで確定し、n-step確定metadataから導出しない（出典: [ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)、本文）。
+- 2026-09-20: ReplayBufferのframe履歴開始はPush時のepisode_startで確定し、n-step確定metadataから導出しない（ENDをslot単位に持たない部分だけ後にADR0063で改め、履歴開始の判断は維持）（出典: [ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)、本文と冒頭の後発決定の注記）。
 - 2026-09-22: PRD 076: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-09-22: 終了時の背景評価セッションは完走を既定とし、設定または上限時間による協調キャンセルで抜けられるようにして、部分集計は設けない（出典: [ADR 0045](../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)、本文）。
 - 2026-09-24: 評価Runnerが新しいdevice指定を解決する接続へ移行した（出典: [PRD070](../../memo/070_device_spec_auto_10prd.md)、確定したD1・D9）。
@@ -146,6 +146,11 @@
 - [PRD084](../../memo/084_noisynet_10prd.md) — NoisyNet (Noisy Networks for Exploration) PRD
 - [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [PRD097](../../memo/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
+- [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
+- [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
+- [PRD103](../../memo/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
+- [PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
+- [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 
 ## 台帳の指摘
 

@@ -5,6 +5,7 @@
 ## 概要・責務
 
 - ConfigDataに設定を集約し、ConfigResolverがinclude・selection・Run・CLI・継承とprofileを解決する。（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.1）。
+- 設定DTOの`std::optional<T>`は既存の`ConfigData`が読む葉値の型に対応し、未指定ならDTOの初期値を保持して、初期値も無ければ設定記録へ葉を足さない。指定があれば通常値の読み取りへ委譲する。複合`ConfigReader`をoptionalで包む形は型の段階で拒む（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
 
 ## 成立の経緯
 
@@ -56,12 +57,12 @@
 - 特徴branchキーの改名前後で現用config dumpの差分がキー名だけであることを確認する。PRD072の固定入力・golden・manifestと実験記録のdumpは保持する（出典: [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md)、§6 3）。
 - 設定ファイルを分けたり移したりするときは、7 env の解決済み設定（全キーと文字列値）の前後一致と check_default_leaves.py の errors=0 で、解決値と演算子の規約が変わっていないことを確かめる（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§6）。
 
-- optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、A15）。
+- optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する。指定があるときのdefault prefix→override prefixの順序と型検証・記録を保ち、空文字や不正な数値を未指定へ変換しない（出典: [PRD102](../../memo/102_gridmaze_seed_mode_10prd.md)、A15；[実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
 - ProfiledValue を読む設定キーでは、root の定数は bare、段の定数は `.phase.[name].value` で書き、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
 
 ## 関係
 
-- 設計: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.1。
+- 設計: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.1・§7.3。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
 
@@ -84,6 +85,11 @@
 - [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md) — PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 - [PRD070](../../memo/070_device_spec_auto_10prd.md) — PRD 070: device 指定の auto 対応とキー体系統一
 - [PRD093](../../memo/093_attention_entropy_diagnostics_10prd.md) — TransformerEncoder の attention エントロピー診断 PRD
+- [PRD100](../../memo/100_gridmaze_solvable_maze_10prd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
+- [PRD101](../../memo/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
+- [PRD103](../../memo/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
+- [PRD104](../../memo/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
+- [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 
 ## 台帳の指摘
 
