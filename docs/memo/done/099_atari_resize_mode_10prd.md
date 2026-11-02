@@ -2,7 +2,7 @@
 
 > 2026-10-23 起票（暫定。質疑を省いて起草）。
 > 2026-10-23 再グリル・改訂: 方式名、面積平均と偶数丸め、対応解像度1〜160、評価個別上書き、画像ごとの一致率、速度低下2%以内を確定。OpenCVの丸めの説明と84以外の画素数の説明を訂正し、事前調査の報告値と今回確認した事実を分けた。
-> 関連: [ADR 0026](../adr/0026-atari-env-single-seam-own-preprocessing.md)、[ADR 0025](../adr/0025-ale-external-build-reference-and-license.md)、[PRD088](088_nn_adaptive_max_pool_10prd.md)、[BTRコード読解](../../reports/btr_code_reading_2026-08-31.md)、[Qbert比較記録](../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)。
+> 関連: [ADR 0026](../../adr/0026-atari-env-single-seam-own-preprocessing.md)、[ADR 0025](../../adr/0025-ale-external-build-reference-and-license.md)、[PRD088](../088_nn_adaptive_max_pool_10prd.md)、[BTRコード読解](../../../reports/btr_code_reading_2026-08-31.md)、[Qbert比較記録](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)。
 
 ## 1. 目的と問題
 
@@ -14,12 +14,12 @@ Atariの観測を210×160から正方形へ縮小する方式を選べるよう�
 
 ### 2.1 今回コードで確認した事実
 
-- 現行の[ResizeGrayscale](../../core/envs/atari1/src/AtariPreprocess.cpp)は、入力をfloat32にして`interpolate(mode=torch::kArea)`を実行し、`round`・0〜255への制限・uint8への変換を行う。[AtariEnv](../../core/envs/atari1/src/AtariEnv.cpp)には、Resetから使うCaptureObservationとStepの2経路に呼び出しがある。
+- 現行の[ResizeGrayscale](../../../core/envs/atari1/src/AtariPreprocess.cpp)は、入力をfloat32にして`interpolate(mode=torch::kArea)`を実行し、`round`・0〜255への制限・uint8への変換を行う。[AtariEnv](../../../core/envs/atari1/src/AtariEnv.cpp)には、Resetから使うCaptureObservationとStepの2経路に呼び出しがある。
 - PyTorchのareaモードはadaptive average poolingへ進む。1軸の出力画素iは、元の画素の添字`floor(i·in/out)`以上、`ceil((i+1)·in/out)`未満を等しい重みで平均する。たとえば210→84の最初の窓は3画素を等しく平均する。出力の区間が覆う元画像の長さ2.5に応じて端の画素を部分的に重み付けする計算とは異なる（[PyTorch functional.py、area分岐](https://github.com/pytorch/pytorch/blob/v2.7.0/torch/nn/functional.py#L4331-L4339)、[AdaptivePooling.h](https://github.com/pytorch/pytorch/blob/v2.7.0/aten/src/ATen/native/AdaptivePooling.h)）。これらはAPIの意味を確認する出典であり、anetの利用版をv2.7.0へ変更する要求ではない。
 - BTRの公開実装は`cv2.resize(..., interpolation=cv2.INTER_AREA)`を呼ぶ（[BTR、commit 093ca77、AtariPreprocessingCustom.py](https://github.com/VIPTankz/BTR/blob/093ca77f08540d646f12fd942ee5fda763e0fd8a/AtariPreprocessingCustom.py#L224-L228)）。OpenCVの非整数比の縮小は、元画素と出力画素の重なる長さを各軸で重みにする（[OpenCV 4.8.1、computeResizeAreaTabとarea分岐](https://github.com/opencv/opencv/blob/4.8.1/modules/imgproc/src/resize.cpp#L3015-L3060)）。
 - OpenCVの丸めを一律に偶数丸めとは呼べない。2×2縮小には、非負の合計に2を足して4で整数除算する経路があり、平均0.5は1になる。非整数比のarea経路は浮動小数の加算とsaturate_castを使う。本PRDはOpenCVの全分岐・実行環境の厳密再現を要求せず、anetの規則と84×84の許容差を別に定める（[OpenCV 4.8.1、2×2経路](https://github.com/opencv/opencv/blob/4.8.1/modules/imgproc/src/resize.cpp#L2730-L2735)、[非整数比の加算・変換](https://github.com/opencv/opencv/blob/4.8.1/modules/imgproc/src/resize.cpp#L2948-L2978)）。
-- [Config::ReadConfig](../../core/anet-core/include/anet/config.hpp)は共通のAtariEnv設定を読み、評価用prefixの明示値があれば上書きする。[RunManager](../../core/anet-core/src/trainer.cpp)は定期評価とEvalPanel用のEnv生成へ`run.eval.[tag].env`を渡す。Runの葉とCLIの優先は[設定設計§2.1](../design/100_runtime_and_configuration.jp.md#21-設定の解決)および[ADR 0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md)・[ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)に従う。
-- [Atari設計§4.3](../design/220_atari_env.jp.md#43-観測と前処理チェーン)の「cv2 INTER_AREAと同系」は数値一致を意味しない。実装時に方式の違いが分かる記述へ更新する。
+- [Config::ReadConfig](../../../core/anet-core/include/anet/config.hpp)は共通のAtariEnv設定を読み、評価用prefixの明示値があれば上書きする。[RunManager](../../../core/anet-core/src/trainer.cpp)は定期評価とEvalPanel用のEnv生成へ`run.eval.[tag].env`を渡す。Runの葉とCLIの優先は[設定設計§2.1](../../design/100_runtime_and_configuration.jp.md#21-設定の解決)および[ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)・[ADR 0042](../../adr/0042-config-inheritance-as-differential-base.md)に従う。
+- [Atari設計§4.3](../../design/220_atari_env.jp.md#43-観測と前処理チェーン)の「cv2 INTER_AREAと同系」は数値一致を意味しない。実装時に方式の違いが分かる記述へ更新する。
 
 ### 2.2 引き継いだ事前調査の報告値
 
@@ -46,7 +46,7 @@ OpenCV依存の追加、ALE内蔵ベクトル環境への置換、RGB観測や�
 
 仮説は「BTRとの縮小の差を減らすとQbertの第8面以降への進行が改善する」である。64 env・replay 1M・行動ネットの毎step同期・減衰するε・BTRに寄せたNoisyNet初期値を共通にし、方式だけ異なるseed 1の50M経験のRunをまず1本ずつ比較する。解決後の設定で、方式以外の差がないことを確認し、実行機や外部依存版の差があれば併記する。
 
-[既存のQbert比較記録](../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)に合わせ、第8面突破はゲームごとの生スコア29,000以上かつ`round_clear ≥ 8`で数える。主に45〜50Mの完了ゲーム中の突破割合を比べ、初突破の経験数と、20〜25Mの完了ゲーム中で第7面以降に到達した割合を併記する。後者はround_clearが6以上のゲームで数える（0始まりの面番号からクリア回数を数える定義は[PRD082](done/082_atari_ram_progress_metrics_10prd.md)のQbert RAM表・設定例）。得点だけでは進行を代用しない。
+[既存のQbert比較記録](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)に合わせ、第8面突破はゲームごとの生スコア29,000以上かつ`round_clear ≥ 8`で数える。主に45〜50Mの完了ゲーム中の突破割合を比べ、初突破の経験数と、20〜25Mの完了ゲーム中で第7面以降に到達した割合を併記する。後者はround_clearが6以上のゲームで数える（0始まりの面番号からクリア回数を数える定義は[PRD082](082_atari_ram_progress_metrics_10prd.md)のQbert RAM表・設定例）。得点だけでは進行を代用しない。
 
 両Runが50Mへ達した時点で、改善・差を確認できず・悪化のいずれかと比較条件を実験記録に残し、初回比較を終える。初突破の早さだけや1 seedの差だけで因果を確定しない。機能受入は成績の改善を条件にせず、既定方式の変更は§7の条件が揃った後の別判断とする。
 
@@ -59,7 +59,7 @@ OpenCV依存の追加、ALE内蔵ベクトル環境への置換、RGB観測や�
 | 方式 | 文字列`AtariEnv.resize_mode`。`adaptive_average`と`pixel_area`の2値。既定は前者 | G1/G3。計算の性質を名前にし、ライブラリの全分岐との一致を名前に含めない |
 | 現行方式 | 既存の計算と有効なscreen_sizeの扱いを保持する | G3。新方式の対応範囲を理由に現行方式を狭めない |
 | 新方式の解像度 | 整数の`screen_size`が1〜160（両端を含む） | 入力は210×160、出力は正方形なので、この範囲はどちらの軸も拡大しない。84専用の制限を増やさない |
-| 不正指定 | 未知値・空の方式名、不正なscreen_sizeの型・値・組み合わせは構築完了前にANET_SYSTEM_ERROR | [Fail-Fast原則](../../AGENTS.md#fail-fast-原則)。既定への置換、別方式への代替、設定値の丸めはしない |
+| 不正指定 | 未知値・空の方式名、不正なscreen_sizeの型・値・組み合わせは構築完了前にANET_SYSTEM_ERROR | [Fail-Fast原則](../../../AGENTS.md#fail-fast-原則)。既定への置換、別方式への代替、設定値の丸めはしない |
 | 診断 | 対象の設定キー、指定値、期待する方式または範囲を含む。評価個別指定ならそのprefixも識別できる | 利用者が誤った指定箇所を修正できることが必要 |
 
 ### 4.2 面積重み付き縮小の規則
@@ -72,9 +72,9 @@ OpenCV依存の追加、ALE内蔵ベクトル環境への置換、RGB観測や�
 
 ### 4.3 所有・適用・設定例
 
-縮小は従来どおりAtariEnvのCPU側で行い、生成した観測を指定deviceへ渡す。方式と解像度に依存する重みは各Envの構築時に一度準備し、以後再利用する。ResetとStepは同じ設定を使う。理由は、[ADR 0026](../adr/0026-atari-env-single-seam-own-preprocessing.md)の前処理所有権を保ち、stepごとの重み生成を避けるためである。
+縮小は従来どおりAtariEnvのCPU側で行い、生成した観測を指定deviceへ渡す。方式と解像度に依存する重みは各Envの構築時に一度準備し、以後再利用する。ResetとStepは同じ設定を使う。理由は、[ADR 0026](../../adr/0026-atari-env-single-seam-own-preprocessing.md)の前処理所有権を保ち、stepごとの重み生成を避けるためである。
 
-[Atari.txt](../../apps/runner/config/Atari.txt)に以下を追加する。これは将来の実装契約であり、本PRDの改訂で設定ファイルを編集するものではない。
+[Atari.txt](../../../apps/runner/config/Atari.txt)に以下を追加する。これは将来の実装契約であり、本PRDの改訂で設定ファイルを編集するものではない。
 
 ```text
 AtariEnv.resize_mode ?= adaptive_average
@@ -105,7 +105,7 @@ run.eval.[eval_target].env.resize_mode = adaptive_average
 
 ### 4.5 名前・ADRと現用範囲の更新
 
-[CONTEXT.md](../../CONTEXT.md)のAtari・観測用語と衝突しない。adaptive average poolingと面積重み付き縮小は一般的な画像処理の用語で、プロジェクト固有概念の追加ではないため用語集へ増やさない。Resizerは画像縮小の責務を表す接尾辞である。
+[CONTEXT.md](../../../CONTEXT.md)のAtari・観測用語と衝突しない。adaptive average poolingと面積重み付き縮小は一般的な画像処理の用語で、プロジェクト固有概念の追加ではないため用語集へ増やさない。Resizerは画像縮小の責務を表す接尾辞である。
 
 ADR 0026のSingle接続、自前前処理、stack・並列化の責務は変更しない。方式の選択追加はその境界の内側に収まり、既定も維持するため、新しいADRも既存ADRへの注記も不要とする。
 
@@ -113,8 +113,8 @@ ADR 0026のSingle接続、自前前処理、stack・並列化の責務は変更�
 
 - AtariPreprocessの縮小処理と現用呼び出し、AtariEnvの設定・検証・Reset/Step。
 - Atari.txtの既定とRunプロファイル、AtariEnv_testの現用呼び出し・golden・設定検証。
-- PRD099の固定データ、生成スクリプト、比較・性能検証資材とREADME。既存の`core/anet-core/testdata/prdNNN/README.md`の規約に従い、PRD099資材は`core/anet-core/testdata/prd099/`へまとめ、[Atari設計書](../design/220_atari_env.jp.md)のテストの章から参照する。
-- [Atari設計書（日本語）](../design/220_atari_env.jp.md)の設定・前処理・テスト、および[英訳](../design/220_atari_env.en.md)。利用例を追加する場合も確定した方式名に揃える。
+- PRD099の固定データ、生成スクリプト、比較・性能検証資材とREADME。既存の`core/anet-core/testdata/prdNNN/README.md`の規約に従い、PRD099資材は`core/anet-core/testdata/prd099/`へまとめ、[Atari設計書](../../design/220_atari_env.jp.md)のテストの章から参照する。
+- [Atari設計書（日本語）](../../design/220_atari_env.jp.md)の設定・前処理・テスト、および[英訳](../../design/220_atari_env.en.md)。利用例を追加する場合も確定した方式名に揃える。
 
 現行adaptive_averageは新契約の一方式として保持する。廃止した関数呼び出しを移す場合は現用利用側をまとめて移し、旧引数のoverloadやaliasを残さない。過去のRun、既存golden、実験記録・ADRは保持し、読み替える互換コードは足さない。既存の未コミット変更のうち本PRDと無関係のものは編集しない。
 
@@ -163,4 +163,4 @@ ADR 0026のSingle接続、自前前処理、stack・並列化の責務は変更�
 - [BTRコード、commit 093ca77] VIPTankz. AtariPreprocessingCustom.py. [固定commit](https://github.com/VIPTankz/BTR/blob/093ca77f08540d646f12fd942ee5fda763e0fd8a/AtariPreprocessingCustom.py)。
 - [OpenCV 4.8.1] OpenCV. resize.cpp. [固定tag](https://github.com/opencv/opencv/blob/4.8.1/modules/imgproc/src/resize.cpp)。
 - [PyTorch v2.7.0] PyTorch. functional.py / AdaptivePooling.h. [areaモード](https://github.com/pytorch/pytorch/blob/v2.7.0/torch/nn/functional.py#L4331-L4339)、[窓の定義](https://github.com/pytorch/pytorch/blob/v2.7.0/aten/src/ATen/native/AdaptivePooling.h)。
-- [Qbert比較記録、2026/09] [BTRとの差を詰める比較](../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、判定指標・探索ブロック03/06。
+- [Qbert比較記録、2026/09] [BTRとの差を詰める比較](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、判定指標・探索ブロック03/06。

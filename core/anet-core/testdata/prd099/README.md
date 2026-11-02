@@ -1,6 +1,6 @@
 # PRD099 Atari縮小方式の検証
 
-[PRD](../../../../docs/memo/099_atari_resize_mode_10prd.md)・[実装メモ](../../../../docs/memo/099_atari_resize_mode_20impl.md)・[Atari設計](../../../../docs/design/220_atari_env.jp.md)。リポジトリルートから実行する。
+[PRD](../../../../docs/memo/done/099_atari_resize_mode_10prd.md)・[実装メモ](../../../../docs/memo/done/099_atari_resize_mode_20impl.md)・[Atari設計](../../../../docs/design/220_atari_env.jp.md)。リポジトリルートから実行する。
 
 ## 固定画像
 

@@ -1,6 +1,6 @@
 # PRD105 Evaluation Trace 検証
 
-実装と結果の正本は[実装メモ](../../../../docs/memo/105_eval_trace_arrow_key_forced_action_20impl.md)。
+実装と結果の正本は[実装メモ](../../../../docs/memo/done/105_eval_trace_arrow_key_forced_action_20impl.md)。
 
 ## 自動検証
 
@@ -34,7 +34,7 @@ PRD098の段0と同じ条件でGridMaze/LunarLander/Atari/DropMergeの4環境を
 
 ## 実画面での受入
 
-[PRD105の受入基準](../../../../docs/memo/105_eval_trace_arrow_key_forced_action_10prd.md#7-受入基準)の4・5・10を行う。
+[PRD105の受入基準](../../../../docs/memo/done/105_eval_trace_arrow_key_forced_action_10prd.md#7-受入基準)の4・5・10を行う。
 
 - qbertのTraceに21行以上ため、先頭行を選択する。EvalのViewへ左クリックでフォーカスを移し、↓を20回押す。選択だけが21行目へ移り、Evaluation ViewのGame stepと最新行のstepが変わらないことを確認する。←→は行・選択・Game stepを変えない。Train Viewへフォーカスを移し↑20回で先頭へ戻る。
 - StopでLiveへ戻して↓を押すと1stepの強制行動になり、forced=1と `Forced action: 2:UP` を確認する。テンキーとQValueの行のクリックも同じ。Agentの通常stepはforced=0。Trace閉鎖時も通知は出る。LunarLanderではLive/閉鎖時の矢印0〜3を確認する。
@@ -49,3 +49,5 @@ PRD098の段0と同じ条件でGridMaze/LunarLander/Atari/DropMergeの4環境を
 2026-10-30の4環境比較は `.scratch/prd105/validation-20261030-0811b/comparison.json` に保存し、全105,682点（片側合計）が一致した。実Envを使う実wxテストはqbert/LunarLanderとも73assertion成功。外部のUI操作ツールは起動不能だったため、実キー入力・フォーカス・外観の外部確認は未実施である。
 
 qbertの全要素ダンプはverbose約175万文字で、ログ欄へ反映するまで約14秒かかった。info表示でもVERBOSEの生成とファイル出力は行うため約15秒かかった。ログ欄のlevelによる表示差と処理時間の軽減を混同しない。
+
+2026-11-02、ユーザーが実機の Runner で、実キー入力・フォーカス・外観の確認（受入 4・5・10）を済ませた。

@@ -20,7 +20,7 @@
 - 観測: ライフで区切る（train の `episodic_life`）と 50M までボスに 1 度も当てず、eval のゲーム長は 10M 以降 7,823〜8,183 step、eval2 は 10-15M に 52,315（基準 seed 1 / 3 は 30,081 / 24,163）だった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ3・探索ブロック 01。Run: `run_20261016-114250_kfm_rr1_50m_elife_seed1`）。
 - 観測: ボス用セット（sticky 0・低い ε・クリップ外し・PER α 0.6）の seed 1 と、その上の n-step 10、n-step 10 + γ 0.999 は 30M まで命中 0 で、5-10M に 4 万点前後の稼ぎに固まった。UQE を足した腕は 5-10M に命中 14.6% まで挑んだが、撃破 ÷ 命中は 0.02 で、15M 以降は挑まなかった。広い ε（0.4〜0.01）の UQE の 2 本は命中 0.5% 以下だった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ4・5、探索ブロック 02・03。Run: `run_20261017-011011_kfm_rr1_30m_boss_seed1`, `run_20261017-095357_kfm_rr1_30m_boss_n10_seed1`, `run_20261017-184606_kfm_rr1_30m_boss_n10_g999_seed1`, `run_20261017-142416_kfm_rr1_30m_boss_uqe_seed1`, `run_20261018-005352_kfm_uq_s1`, `run_20261018-051750_kfm_uq99_s1`）。
 - 分析: クリップ後の報酬密度はボス行きのseed 3が0.042、1面の稼ぎが0.048だった。γ=0.997の視野と、当てても0点・撃破もクリップ後+1という条件では、途中の上達が報酬へ現れにくいと正本は分析している（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.1〜2.3、seed 3の上記Run）。
-- 観測と未検証の推測: 正本の実時間優先構成では寿命中の期待抽選回数は約1回、未抽選で消える割合は約1/4。α=0.2では優先度20倍でも抽選重みは約1.8倍となる。一方、ボスの各場面でTD誤差が目立たないという説明自体はまだ推測である（出典: [抽選回数のPRD](../../memo/999_replay_eviction_sample_count_10prd.md)、§2、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`；[Evaluation Trace PRD](../../memo/094_evalpanel_step_history_10prd.md)、§2；[内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.3）。
+- 観測と未検証の推測: 正本の実時間優先構成では寿命中の期待抽選回数は約1回、未抽選で消える割合は約1/4。α=0.2では優先度20倍でも抽選重みは約1.8倍となる。一方、ボスの各場面でTD誤差が目立たないという説明自体はまだ推測である（出典: [抽選回数のPRD](../../memo/999_replay_eviction_sample_count_10prd.md)、§2、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`；[Evaluation Trace PRD](../../memo/done/094_evalpanel_step_history_10prd.md)、§2；[内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.3）。
 - 観測: seed 3のボス命中は4〜5Mに跳ね、撃破÷命中も練習とともに上がった。10月のUQEのRunではlane4区分の命中が7.1% / 7.6% / 10.8% / 10.2%で、lane間の違いが練習を保つ形にはならなかった。前者は上記seed 3、後者は 4〜12M の集計で、Run は `run_20261017-142416_kfm_rr1_30m_boss_uqe_seed1`（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.6；[KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 02）。
 - 観測: ボス行きに入った seed 3 と入らなかった seed 2 の設定の差は `run.seed` だけだった（出典: [seed 集団の PRD](../../memo/999_seed_population_early_stop_10prd.md)、§2。Run: `run_20260925-130017_atari_kfm_rr1_100m_seed3`）。
 - 観測: seed 3 と同じ既定の設定を 10M で 16 seed（s04〜s19）回すと、0.5M 窓のボス命中のピークが 10% 以上の Run は 7 本だった。挑んでいる窓（命中 10% 以上）の撃破 ÷ 命中の最高は s08 の 0.22（5.5M）で、ほかは 0.09 以下。s08 も下がって 7.5M 以降は挑まず、ボス行きは 1 本も定着しなかった。batch 1024（30M、3 seed）と IMPALA+ViT の Body（10M、8 seed）でも定着しなかった（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.2；[KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 04〜06。16 本の Run 名は同記録の対象 Run。例 `run_20261018-153241_kfm_10m_s08`）。
@@ -37,7 +37,7 @@
 
 ## 分かっていないこと
 
-- ボス命中・撃破・出口換算の各場面で、学習側と近似Actorの優先度はどれほど高くなるか（出典: [Evaluation Trace PRD](../../memo/094_evalpanel_step_history_10prd.md)、§2・§3）？
+- ボス命中・撃破・出口換算の各場面で、学習側と近似Actorの優先度はどれほど高くなるか（出典: [Evaluation Trace PRD](../../memo/done/094_evalpanel_step_history_10prd.md)、§2・§3）？
 - 新しさや目的の違う方策は、ボスに挑む頻度と撃破までの練習を継続させられるか（出典: [内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、§2.5・§2.6）？
 - 2 面を抜けたゲームで、ボスの命中・撃破が 1 面の分しか数えられないのはなぜか（2 面のボスの体力が 0xCC に無いのか、ボス戦なしで抜けたのか）。面の番号の 3 面より先と、5 面を抜けたあとの値も確かめていない（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending；[RAMメトリクスPRD](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、既知の限界と後続「0x9F の確認範囲」）？
 - 挑んでいる間に撃破 ÷ 命中が上がるかどうかを何が決めるか。seed 3 と s08 は挑み始めの撃破 ÷ 命中がほぼ同じ（0.24 と 0.22）だったが、seed 3 だけが上がった（出典: [KFM 2026-10 の実験記録](../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending）？
@@ -55,4 +55,4 @@
 - [Atari環境](../../design/220_atari_env.jp.md) §4、[観測と可視化](../../design/140_observability.jp.md) traceチャネル。
 - [CONTEXT.md](../../../CONTEXT.md) の「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」。
 - [RunnerAppの実装の地図](../apps/110_runner_app.md)。
-- [Evaluation Trace PRD](../../memo/094_evalpanel_step_history_10prd.md)、[内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、[LLM ActorのPRD](../../memo/999_llm_actor_10prd.md)（提案は各PRDで扱う）。
+- [Evaluation Trace PRD](../../memo/done/094_evalpanel_step_history_10prd.md)、[内的報酬のPRD](../../memo/999_intrinsic_reward_novelty_10prd.md)、[LLM ActorのPRD](../../memo/999_llm_actor_10prd.md)（提案は各PRDで扱う）。

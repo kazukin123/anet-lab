@@ -248,7 +248,7 @@ IQN の既定は、primary の融合済み branch（LunarLander は `fusion`、A
 | `50_agent_skip/14_kmax_mean` | `$update_result skip_kmax_mean` | 起点の k_max の平均（replay 上で同じ行動がどれだけ続いているか） |
 | `50_agent_skip/15_grad_norm` | `$update_result skip_grad_norm` | skip Network の勾配ノルム（クリップ前） |
 
-Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_length`、`$action_info skip_q.[j]`（その lane の j 番目のスキップ価値。j は 1..J で、範囲外の j は列の値を読むとき（Trace の行を作るとき）に `ANET_SYSTEM_ERROR`、skip 無効は NaN）を宣言できる（[094](094_evalpanel_step_history_10prd.md) の列の宣言）。既定の列には入れない。学習側の per-sample の dump は足さない。
+Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_length`、`$action_info skip_q.[j]`（その lane の j 番目のスキップ価値。j は 1..J で、範囲外の j は列の値を読むとき（Trace の行を作るとき）に `ANET_SYSTEM_ERROR`、skip 無効は NaN）を宣言できる（[094](done/094_evalpanel_step_history_10prd.md) の列の宣言）。既定の列には入れない。学習側の per-sample の dump は足さない。
 
 ### 5.8 checkpoint
 

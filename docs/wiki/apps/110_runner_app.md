@@ -24,9 +24,9 @@
 - 2026-09-22: 終了時の背景評価セッションは完走を既定とし、設定または上限時間による協調キャンセルで抜けられるようにして、部分集計は設けない（出典: [ADR 0045](../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)）。
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-09-24: device 指定の auto 対応とキー体系統一（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、題・目的）。
-- 2026-10-22: Evaluation Traceの表示・操作を、内容に応じた列幅・システム色・再生／一時停止トグルを持つアイコン操作・Trace中の操作バー赤枠、低速倍率の小数表示、操作バーと行動列までを守る最小幅、行選択に依存しない列見出し配色、truncated列の短い見出しtrunc、action直後のreward列へ調整する仕様を定めた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D10〜D13・§8のUI受入）。
-- 2026-10-26: Evaluation Traceの列番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の3桁にし、TempoRLのdecision・skipをrewardの右に、既定のdone・truncをQ_sa・V_sの前に置いた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、冒頭の2026-10-26の改訂・D13）。
-- 2026-10-29: Evaluation TraceのTraceモードの間は矢印キーを強制行動にせず表の行の移動に使い、強制したstepを見分ける列とステータス欄の通知、列見出しでの表の並べ替え、行のダブルクリックでの通知の内容のログへのダンプを足す仕様を定めた（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、題・§2）。
+- 2026-10-22: Evaluation Traceの表示・操作を、内容に応じた列幅・システム色・再生／一時停止トグルを持つアイコン操作・Trace中の操作バー赤枠、低速倍率の小数表示、操作バーと行動列までを守る最小幅、行選択に依存しない列見出し配色、truncated列の短い見出しtrunc、action直後のreward列へ調整する仕様を定めた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、D10〜D13・§8のUI受入）。
+- 2026-10-26: Evaluation Traceの列番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の3桁にし、TempoRLのdecision・skipをrewardの右に、既定のdone・truncをQ_sa・V_sの前に置いた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、冒頭の2026-10-26の改訂・D13）。
+- 2026-10-29: Evaluation TraceのTraceモードの間は矢印キーを強制行動にせず表の行の移動に使い、強制したstepを見分ける列とステータス欄の通知、列見出しでの表の並べ替え、行のダブルクリックでの通知の内容のログへのダンプを足す仕様を定めた（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、題・§2）。
 - 2026-10-31: 起動中にOSのテーマ（ライト／ダーク）を切り替えたとき、通知のその場で塗らず、RunnerFrameの1か所で通知が落ち着いてから外観を1回だけ決め直し、QValueの表とEvaluation Traceの表の行の無い部分も対象にする案を暫定で起票した（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、題・§3のゴール・§4 D1・D2・D4）。
 - 2026-10-31: Runnerの起動でFrameを表示したあと、RunManagerの構築だけを別スレッド（RunInitThread）で行ってメインのイベントループを止めず、構築中のログを流し、初期化中の閉じる操作は構築が終わってから後半を行わずに行う仕様を定めた（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、題・§2・D1・D2・D7）。
 - 2026-10-31: Train Viewを隠せるようにし、Centreを占めるpaneが隠れるかfloatすると表示中でdockedの相方がCentreを占めて戻れば取り戻し、主paneを隠す・floatできるのは相方の主paneが表示中でdockedのときだけ（最後の1つは✕を持たずトグルは無効で動かせない。✕とFloatableは200msのUPDATE_UIで状態から宣言し、離れてよいかの判定を基底の1つの口にまとめる）仕様と、起動時の主paneを選ぶ`app.main_view`（既定はEvalだけ）、昇格前のdock位置を覚えて戻すこと、知らない経路でCentreが空いたときにTrainを出してWARNを出す保険を定めた。2026-11-01の再グリルで、初版の「Centreを占めるpaneはfloat不可、dockedのTrainが常に占有者」をこの対称の規則に改め、floatしたpaneは縁の帯へ落とした場所に留まることにした。同日の2回目の再グリルで、wxAUIがCentreのpaneのcaptionドラッグを始めない（captionの押下をドラッグの判定の前に打ち切る）ことが実機と調査で分かり、Centreを占めるpaneはcaptionのpinボタンでfloatし、pinはFloatableと同じ値で描き、宣言が追いつく前のpinの押下は判定で止め、pinボタンを全paneに付けることにした。同日の3回目の再グリルで、等分の条件を「Evalが Right の layer 0、Trainが Centre」の1配置から「一方がCentre、他方がLeftかRightのdock」に広げ、主paneの置き場が変わったときは200msのUPDATE_UIで幅のポリシーを当て、Centreを占める主paneのcaptionの末尾に`[Centre]`を付けることにした。同日の4回目の再グリルで、縦に並んだとき（一方がCentre、他方がCentreと同じ幅のTopかBottomの帯）も高さを等分し、帯がCentreより広いときと同居は対象外、高さ不足ではLogsを縮めないことにし、「等幅」を「等分」に改めた（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、題・§1.1の6・26〜29・§1.2・§2・D1〜D3・D5・D7・D13〜D16）。
@@ -39,20 +39,20 @@
 - Runner GUIで実行中にworkspaceを切り替える — 範囲外: 現状は再起動で切り替え、後続PRDへ分ける（出典: [PRD046](../../memo/done/046_workspace_10prd.md)、§7）。
 - `RunManager` が `EpisodeEvalObserver` を直接保持して排水する案 — 不採用: 背景スレッドを持つobserver一般の終了の口を優先した（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、Complexity audit・9）。
 - `RunnerApp::DrainBackgroundObservers()` で例外を捕捉する案 — 不採用: 既存の再送出契約とfatal経路でexit code 1へ到達でき、捕捉層を足さない（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、Complexity audit・11）。
-- Evaluation Traceに学習側の優先度を表示する — 不採用: EvalPanelは1つのnetworkのforwardしか持たず、replayも無い（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
-- Evaluation TraceでAgentの入力を表示する — 先送り: 画像Tensorの部分表示は読みにくい。再開条件: 必要と分かったとき、選択行の入力を文字列でログへ出す形から起こす（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。→ PRD105 で採用（行のダブルクリックで通知の内容をログへ出す形。出るのはEnvの観測で、Actorが積み重ねた入力ではない。出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§1.4・D9）
-- Evaluation Traceの列を折れ線で表示する — 先送り: まず表と再生で足りるかを見る。再開条件: 近似優先度の推移を一目で見たくなったとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
-- Evaluation Traceで条件に合う行を自動で一時停止する — 先送り: まず再生で場面を探す。再開条件: その手間が大きいと分かったとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
-- Evaluation Traceで強制した行を色で目立たせる — 先送り: まず列と通知で足りるかを見る。再開条件: 列があっても強制した行を見落とす例が出たとき（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§8）。
-- 矢印キーの割り当てをEnvごとに変える — 範囲外: 操作マッピングの設定化の関心。再開条件: [999_input_mapping_joystick](../../memo/999_input_mapping_joystick_10prd.md)のグリル（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG1・§8）。
-- Evaluation Traceのpaneが開いている間はLiveモードでも矢印を行の移動にする — 不採用: 明示的にTraceモードに入る操作でモードを意識させる考え（操作バーの赤枠と同じ）と、Liveモードの矢印の操縦を残すユーザーの裁定（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D1）。
-- Traceモードの間の←→をコマ送り・コマ戻しにする — 不採用: ↑↓と同じ行へ動く入口が2つになる（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D2）。
-- 表を並べ替えても再生・コマ送りは時系列のまま進める — 不採用: 並べ替えるのは何かの軸で分析するときで、時系列にこだわる理由がないというユーザーの裁定（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D7）。
-- 並べ替えをクリックした時点の並びに留め、新しい行は先頭へ足す — 不採用: 再生が表の並びに沿うので、表が並んでいないと再生の順も意味を失う（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D8）。
-- ダンプの文字列を行を作る時点で作っておく — 不採用: 観測1つを数値の文字列にするだけで数十KB・数十msかかり、stepごとには払えない（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D9）。
-- ダンプのVERBOSEを改行を含めない1行に平らにする — 不採用: 見るのはAIかコピーして整形する人で、grepで取り出す使い方は想定しない。既存の文字列化で足りる（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D10）。
-- step traceやダンプをRunの記録・ファイルへ保存する — 範囲外: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)と[PRD081](../../memo/081_evalpanel_episode_trace_10prd.md)の関心（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG8・§8）。
-- Actorが積み重ねた入力をダンプに出す — 範囲外: 通知に無く、Actorの内部を読む口が要る。再開条件: 積み重ねた入力を見ないと判断を読めない例が出たとき（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG9・§8）。
+- Evaluation Traceに学習側の優先度を表示する — 不採用: EvalPanelは1つのnetworkのforwardしか持たず、replayも無い（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
+- Evaluation TraceでAgentの入力を表示する — 先送り: 画像Tensorの部分表示は読みにくい。再開条件: 必要と分かったとき、選択行の入力を文字列でログへ出す形から起こす（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。→ PRD105 で採用（行のダブルクリックで通知の内容をログへ出す形。出るのはEnvの観測で、Actorが積み重ねた入力ではない。出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§1.4・D9）
+- Evaluation Traceの列を折れ線で表示する — 先送り: まず表と再生で足りるかを見る。再開条件: 近似優先度の推移を一目で見たくなったとき（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
+- Evaluation Traceで条件に合う行を自動で一時停止する — 先送り: まず再生で場面を探す。再開条件: その手間が大きいと分かったとき（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
+- Evaluation Traceで強制した行を色で目立たせる — 先送り: まず列と通知で足りるかを見る。再開条件: 列があっても強制した行を見落とす例が出たとき（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§8）。
+- 矢印キーの割り当てをEnvごとに変える — 範囲外: 操作マッピングの設定化の関心。再開条件: [999_input_mapping_joystick](../../memo/999_input_mapping_joystick_10prd.md)のグリル（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG1・§8）。
+- Evaluation Traceのpaneが開いている間はLiveモードでも矢印を行の移動にする — 不採用: 明示的にTraceモードに入る操作でモードを意識させる考え（操作バーの赤枠と同じ）と、Liveモードの矢印の操縦を残すユーザーの裁定（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D1）。
+- Traceモードの間の←→をコマ送り・コマ戻しにする — 不採用: ↑↓と同じ行へ動く入口が2つになる（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D2）。
+- 表を並べ替えても再生・コマ送りは時系列のまま進める — 不採用: 並べ替えるのは何かの軸で分析するときで、時系列にこだわる理由がないというユーザーの裁定（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D7）。
+- 並べ替えをクリックした時点の並びに留め、新しい行は先頭へ足す — 不採用: 再生が表の並びに沿うので、表が並んでいないと再生の順も意味を失う（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D8）。
+- ダンプの文字列を行を作る時点で作っておく — 不採用: 観測1つを数値の文字列にするだけで数十KB・数十msかかり、stepごとには払えない（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D9）。
+- ダンプのVERBOSEを改行を含めない1行に平らにする — 不採用: 見るのはAIかコピーして整形する人で、grepで取り出す使い方は想定しない。既存の文字列化で足りる（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D10）。
+- step traceやダンプをRunの記録・ファイルへ保存する — 範囲外: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)と[PRD081](../../memo/081_evalpanel_episode_trace_10prd.md)の関心（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG8・§8）。
+- Actorが積み重ねた入力をダンプに出す — 範囲外: 通知に無く、Actorの内部を読む口が要る。再開条件: 積み重ねた入力を見ないと判断を読めない例が出たとき（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG9・§8）。
 - ツールバーの状態同期に専用の wxTimer や Notifier への新しいイベントを足す形 — 不採用（行わない）: wxUpdateUIEvent による宣言的な同期を唯一の手段とし、既存の TrainPanel・EvalPanel の timer の処理後にアイドルへ戻るので、UPDATE_UI が実質 200ms 周期で回る（出典: [PRD055](../../memo/done/055_runner_toolbar_10prd.md)、0. 決定一覧 D3・2.2 同期機構）。
 - 走行中の Save を UI 側で pause を強制して安全にする形 — 不採用（しない）: Pause() は ack の無いフラグで、Pipeline 構成では pause の後も LearnThread の update が走りうるので安全化にならない（出典: [PRD055](../../memo/done/055_runner_toolbar_10prd.md)、0. 決定一覧 D8・1. 現状の事実）。
 - 各paneがOSのテーマの変更の通知を自分で受け、自分で遅らせて塗り直す形 — 不採用: まとめ方と遅らせ方をpaneごとに持つことになり、frameの部分（paneの見出し・ツールバー）には持ち主がいない（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§8）。
@@ -112,13 +112,13 @@
 - close時のTrain停止、checkpoint保存、log/metricsのflush、EvalPanel detach、AUI破棄の順序を維持する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.1）。
 - Train panelのFPSが0でも学習は続け、実行時のFPS選択をconfig dumpへ書き戻さない（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.1）。
 - Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・同一seedで全スロットの結果がEvalPanel起動中でも一致することを確かめる（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、§7・§8の受入9）。
-- メトリクス配線の整理前後で、同seed・決定的モードの短いRunのmetrics checksum、scalar/traceの定義、WARN行を一致させる（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D3・§8の受入1）。
-- ActorのQヒントのヘルパー切り出し前後で、actor_approxの同seed・決定的モードの短いRunのmetrics checksumを一致させる（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§8の受入3）。
-- EvalRunnerと学習側のカウンタを数える時機はそろえず、既存のmetricsのstepをずらさない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、D9）。
-- Traceモードでないとき（Liveモードの間とEvaluation Traceを閉じているとき）の矢印キーと、テンキー・QValuePanelのクリック・Ctrl・Spaceの、行動の割り当てとstepの進み方を変えない（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG5）。
-- Evaluation Traceの既定の並び（stepの降順）では、再生・コマ送り・スライダー・端の通知を今と同じにする（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D7・§7の受入8）。
-- 表に残す行の範囲（stepの新しい順にmax_rows件）を、並べ替えで変えない（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、D8）。
-- EvalRunnerに強制の値を足す前後で、PRD098の検証資材の段0の短縮条件のmetrics checksumを4環境とも一致させる（出典: [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md)、§7の受入6）。
+- メトリクス配線の整理前後で、同seed・決定的モードの短いRunのmetrics checksum、scalar/traceの定義、WARN行を一致させる（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、D3・§8の受入1）。
+- ActorのQヒントのヘルパー切り出し前後で、actor_approxの同seed・決定的モードの短いRunのmetrics checksumを一致させる（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§8の受入3）。
+- EvalRunnerと学習側のカウンタを数える時機はそろえず、既存のmetricsのstepをずらさない（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、D9）。
+- Traceモードでないとき（Liveモードの間とEvaluation Traceを閉じているとき）の矢印キーと、テンキー・QValuePanelのクリック・Ctrl・Spaceの、行動の割り当てとstepの進み方を変えない（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG5）。
+- Evaluation Traceの既定の並び（stepの降順）では、再生・コマ送り・スライダー・端の通知を今と同じにする（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D7・§7の受入8）。
+- 表に残す行の範囲（stepの新しい順にmax_rows件）を、並べ替えで変えない（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D8）。
+- EvalRunnerに強制の値を足す前後で、PRD098の検証資材の段0の短縮条件のmetrics checksumを4環境とも一致させる（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§7の受入6）。
 - OSのテーマの切替での外観の決め直しで、表示の状態を変えない。Evaluation TraceのLive／Traceモード・選択行・並べ替え・再生・手で変えた列幅・保持行と百分位、Logsの表示の位置・Auto-scroll・Wrap・Indent・未読の行数・未確認の警告・検索の語、paneの配置とframeの大きさ、Train・Evalの実行状態とトグルの表示である（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§4 D6・§5.5・§7の受入3）。
 - wxMSWは作ったあとのウィンドウの外観をSetAppearanceで変えられないので、テーマごとの確かめは別processで行う。RunnerAppを起動するテストのライトのprocessは、OSのアプリのモードがライトの機械でだけ作れる。開いたままのOSのテーマの切替は人が設定で切り替え、同じテーマで起動し直したスクリーンショットと領域ごとに比べる（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§2の4・§7の受入の前の段落・受入1・4）。
 - RunManagerの構築を別スレッドへ移す前後で、PRD098の段0の短縮条件（4環境、seed=1、決定的backend）の90_perf/・91_resource/・92_resource/を除く全scalarの点を、tag・step・値とも一致させる（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、§7の受入7）。
@@ -222,15 +222,15 @@
 - [PRD084](../../memo/done/084_noisynet_10prd.md) — NoisyNet (Noisy Networks for Exploration) PRD
 - [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md) — 勾配ノイズの大きさ（gradient noise scale）の計測 PRD
 - [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md) — TransformerEncoder の attention エントロピー診断 PRD
-- [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
 - [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
-- [PRD099](../../memo/099_atari_resize_mode_10prd.md) — Atari の観測の縮小方式を設定で切り替える PRD
+- [PRD099](../../memo/done/099_atari_resize_mode_10prd.md) — Atari の観測の縮小方式を設定で切り替える PRD
 - [PRD100](../../memo/done/100_gridmaze_solvable_maze_10prd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
 - [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
 - [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
-- [PRD105](../../memo/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
+- [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 - [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md) — TempoRL の skip 側の forward のノイズを Q 側と分けて指定する（`full` でだけノイズが効く仕組みの切り分け）PRD
 - [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md) — Runner の起動で RunManager を別スレッドで構築する PRD
 

@@ -2,9 +2,9 @@
 
 > 2026-10-18 起票（グリル前の暫定版）。ユーザーの希望で、999 ではなく正式番号で起票した。
 > 2026-10-18 改訂: 追加するパネルを近似優先度の専用から、EvalPanel の step 単位の行を直近の履歴として表で見る汎用のパネルに改めた（ファイル名も `094_evalpanel_approx_priority_view` から変更）。
-> 2026-10-19 グリル（`/anet-create-prd 094`、Claude Code）で全面改訂した。位置付けを「step 単位の詳細を記録して見るシリーズの第一弾」とし、近似優先度はその最初の利用例にした。主な決定は、値の読み口の統一とメトリクス配線の分離を段階 1 に入れること、step trace を trace チャネルへ出す段（旧段階 2）を PRD 081 へ移すこと、近似優先度を Agent の step 部品が計算すること（Actor の設定キーは足さない）、列をメトリクスの定義と分けて番号付きで宣言すること、`$env_step`・`$agent_step` を足すこと、行を選ぶか再生すると EvalPanel・QValuePanel・Conv2d が Trace モードでその時点を出すこと、自動リセットの時機は別の基盤 PRD で先に直すこと。§3 の現状をコードと照合して直した（毎秒の step 数、式の所在、ヒントの所在、env の値の出口など）。起草後に別モデル（Fable）の検討を受け、eval_panel の Actor の Q が既定で target network であること（§3.2、D6）、Trace モードに入ったら EvalPanel を一時停止すること（D11）などを反映した。ファイル名は、ほかの文書と wiki の作業記録が指しているので変えない（題は Evaluation Trace）。決定の記録は [ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) と [ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)。
-> 2026-10-19 基盤 PRD [097](done/097_env_auto_reset_after_notification_10prd.md) のグリルの決定に合わせて、NG6・§3.3・D4・D11（Trace モード）・§7 の 1 を書き直した。097 の決定は、BatchEnv の `Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶこと（097 の D1）と、リセット後の情報は Runner だけが受け取ること（097 の D4）である。本 PRD の決定は変えていない。
-> 2026-10-20 追記: 097 を再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、env への問い合わせ（`$env`）は今の env の状態を返す。BatchEnv は Reset と Step のままで、`ResetEndedEpisodes()` は作らない。そのため、§3.3 の 097 の行と §7 の 1 を事実に合わせて直した。D4 の「`$env` は遷移のあと・リセット前の env を読む」は成り立たなくなったので、扱いを §7 の 1 の未決に置いた。D11 の「終端の行の画面はリセット前」と、097 の D4（リセット後の情報は Runner だけが受け取る）は変わらない。
+> 2026-10-19 グリル（`/anet-create-prd 094`、Claude Code）で全面改訂した。位置付けを「step 単位の詳細を記録して見るシリーズの第一弾」とし、近似優先度はその最初の利用例にした。主な決定は、値の読み口の統一とメトリクス配線の分離を段階 1 に入れること、step trace を trace チャネルへ出す段（旧段階 2）を PRD 081 へ移すこと、近似優先度を Agent の step 部品が計算すること（Actor の設定キーは足さない）、列をメトリクスの定義と分けて番号付きで宣言すること、`$env_step`・`$agent_step` を足すこと、行を選ぶか再生すると EvalPanel・QValuePanel・Conv2d が Trace モードでその時点を出すこと、自動リセットの時機は別の基盤 PRD で先に直すこと。§3 の現状をコードと照合して直した（毎秒の step 数、式の所在、ヒントの所在、env の値の出口など）。起草後に別モデル（Fable）の検討を受け、eval_panel の Actor の Q が既定で target network であること（§3.2、D6）、Trace モードに入ったら EvalPanel を一時停止すること（D11）などを反映した。ファイル名は、ほかの文書と wiki の作業記録が指しているので変えない（題は Evaluation Trace）。決定の記録は [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) と [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)。
+> 2026-10-19 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) のグリルの決定に合わせて、NG6・§3.3・D4・D11（Trace モード）・§7 の 1 を書き直した。097 の決定は、BatchEnv の `Step` はリセットせず、Runner が通知のあとに `ResetEndedEpisodes()` を呼ぶこと（097 の D1）と、リセット後の情報は Runner だけが受け取ること（097 の D4）である。本 PRD の決定は変えていない。
+> 2026-10-20 追記: 097 を再グリルで改めた（[ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、env への問い合わせ（`$env`）は今の env の状態を返す。BatchEnv は Reset と Step のままで、`ResetEndedEpisodes()` は作らない。そのため、§3.3 の 097 の行と §7 の 1 を事実に合わせて直した。D4 の「`$env` は遷移のあと・リセット前の env を読む」は成り立たなくなったので、扱いを §7 の 1 の未決に置いた。D11 の「終端の行の画面はリセット前」と、097 の D4（リセット後の情報は Runner だけが受け取る）は変わらない。
 > 2026-10-20 改訂（Claude Code、097 の申し送りの反映）: step trace の列から `$env` を外した（ユーザーの裁定）。`$env_step` を 097 のメトリクスと同じ target にし、metrics の DSL へ `$env_step` を足すのは 097、`$agent_step` は 081 とした。D4・D5・D8・§7 の 1・受入 4 を直した。
 > 2026-10-21 訂正（Claude Code、実装のコードレビューで判明）: §3.1 の「1 frame に複数の step を進める構成では、View のスナップショットは step ごとには作られない」は誤りだった。EvalPanel は View の更新を強制の指定で呼んでおり、変更前から step ごとに作っていた。§3.1 と D11 の該当文を事実に合わせて直した。決定は変えていない。
 > 2026-10-21 改訂（Claude Code、実装のコードレビューで判明した、共通の仕組みへの DQN の鍵の漏れの直し）:
@@ -28,9 +28,9 @@
 > 2026-10-23 改訂: KFM の Run 名 2 つを今のフォルダ名に直した（`…_atari_kung_fu_master_…` などから `…_kfm_…` への改名。値は変えていない）。
 > 2026-10-26 列番号改訂（ユーザー指定）: 列の番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の 3 桁にし、既定の done・trunc を Q_sa・V_s の前へ移した（D5・D13）。詰めて振った 1〜10 の間には、TempoRL の decision・skip を reward の右に差し込めなかったため。
 > 2026-10-30: D11の上下キーの扱いは[PRD105](105_eval_trace_arrow_key_forced_action_10prd.md)のD1が、D12の再生の向きは同D7が置き換える。Traceモードの間の転送↑↓は表の行移動となり、再生は表の下端から上端へ進む。
-> 2026-11-02 改訂（ユーザー指定）: 起動したあとの OS のテーマの切替と、表示の DPI の変更への追従は、本 PRD の受入から外す。テーマの切替は [999_runner_theme_switch](999_runner_theme_switch_10prd.md) の受入で、DPI の変更は [PRD113](113_runner_per_monitor_dpi_10prd.md) の受入で確かめる。D10 の追従の契約は変えない。受入 9・10 と §6 を合わせ、受入 8 の上下キーは PRD105 の受入で確かめることを添えた。
-> 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
-> 関連: [done/035_approx_actor_priority_per_10prd.md](done/035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
+> 2026-11-02 改訂（ユーザー指定）: 起動したあとの OS のテーマの切替と、表示の DPI の変更への追従は、本 PRD の受入から外す。テーマの切替は [999_runner_theme_switch](../999_runner_theme_switch_10prd.md) の受入で、DPI の変更は [PRD113](../113_runner_per_monitor_dpi_10prd.md) の受入で確かめる。D10 の追従の契約は変えない。受入 9・10 と §6 を合わせ、受入 8 の上下キーは PRD105 の受入で確かめることを添えた。
+> 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](../999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
+> 関連: [done/035_approx_actor_priority_per_10prd.md](035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](../081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
 ## 1. 目的と問題
 
@@ -47,26 +47,26 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 
 ### 非ゴール
 
-- **NG1**: 学習側の優先度そのものの表示。replay の中の遷移の優先度や抽選回数は [999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md) が扱う。
+- **NG1**: 学習側の優先度そのものの表示。replay の中の遷移の優先度や抽選回数は [999_replay_eviction_sample_count](../999_replay_eviction_sample_count_10prd.md) が扱う。
 - **NG2**: 学習・抽選・優先度の値を変えること。本 PRD は観測だけで、学習系列を変えない。
 - **NG3**: 定期評価（configured eval）と学習側（train runner）の step trace。量が大きすぎる（§3.1）。
 - **NG4**: step trace を trace チャネル（Run artifact）へ出すこと。PRD 081 を改訂して取り込む（§7 の 2）。本 PRD は、081 がそのまま使える生成器を作るところまで。
 - **NG5**: Event / Observer の型の複製（`TrainEvent`・`LearnEvent`・`EpisodeEndEvent`・`SessionEndEvent` ごとの interface・RunnerScoped・Notifier のメソッド）の統一。step trace は既存の `TrainEvent` で受けられるので、今回の要求からは導けない別の関心である。
-- **NG6**: 通知の中で読む遷移の結果が終端の lane でリセット後になる問題への対処（遷移の結果を Step の結果で運ぶ直し）。基盤 PRD [097](done/097_env_auto_reset_after_notification_10prd.md) で決め、本 PRD より先に実装する（§7 の 1）。
+- **NG6**: 通知の中で読む遷移の結果が終端の lane でリセット後になる問題への対処（遷移の結果を Step の結果で運ぶ直し）。基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md) で決め、本 PRD より先に実装する（§7 の 1）。
 
 ## 2. 背景（KFM）
 
-- KFM の実時間優先 3 seed（100M）のうち、ボス行き（面クリア）を学んだのは seed 3（`run_20260925-130017_atari_kfm_rr1_100m_seed3`）だけで、報酬クリップを外す、ライフで区切る、ε を下げる、PER の `per_alpha` を 0.6 にする、UQE にする、などの 2026-10-14〜17 の 30〜50M の Run ではボス行きは定着しなかった（出典: [999_intrinsic_reward_novelty §2.2](999_intrinsic_reward_novelty_10prd.md#22-学習の結果)）。
-- クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048 でほぼ同じ。当て 1 発は 0 点、撃破はクリップ後 +1 で雑魚と同じで、成功を区別できるのは出口の換算だけ（出典: [999_intrinsic_reward_novelty §2.3](999_intrinsic_reward_novelty_10prd.md#23-分析の結論2026-1016〜17)）。
-- 実時間優先の構成では、1 遷移が寿命中に引かれる回数の期待値は約 1.0 で、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では、raw priority が 20 倍でも引かれやすさは約 1.8 倍にとどまる（出典: [999_replay_eviction_sample_count §2](999_replay_eviction_sample_count_10prd.md#2-現状2026-10-16-に確認したこと)、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`）。
+- KFM の実時間優先 3 seed（100M）のうち、ボス行き（面クリア）を学んだのは seed 3（`run_20260925-130017_atari_kfm_rr1_100m_seed3`）だけで、報酬クリップを外す、ライフで区切る、ε を下げる、PER の `per_alpha` を 0.6 にする、UQE にする、などの 2026-10-14〜17 の 30〜50M の Run ではボス行きは定着しなかった（出典: [999_intrinsic_reward_novelty §2.2](../999_intrinsic_reward_novelty_10prd.md#22-学習の結果)）。
+- クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048 でほぼ同じ。当て 1 発は 0 点、撃破はクリップ後 +1 で雑魚と同じで、成功を区別できるのは出口の換算だけ（出典: [999_intrinsic_reward_novelty §2.3](../999_intrinsic_reward_novelty_10prd.md#23-分析の結論2026-1016〜17)）。
+- 実時間優先の構成では、1 遷移が寿命中に引かれる回数の期待値は約 1.0 で、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では、raw priority が 20 倍でも引かれやすさは約 1.8 倍にとどまる（出典: [999_replay_eviction_sample_count §2](../999_replay_eviction_sample_count_10prd.md#2-現状2026-10-16-に確認したこと)、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`）。
 - TD 誤差による優先度が珍しい経験を目立たせないと考えられる理由は、報酬クリップの下では撃破の報酬が雑魚と同じ +1 であること、撃破の先の価値（出口の換算）がまだ target に入っていないこと、優先度は引かれたときにしか更新されないこと、IQN の TD は τ の揺らぎを含むこと。どれも推測で、場面ごとに確かめる手段が無い。
 
 ## 3. 現状（2026-10-19 にコードで確かめたこと。§3.6 は 2026-10-22）
 
 ### 3.1 EvalPanel と 1 step の流れ
 
-- EvalPanel は、`RunnerFrame` が `CreateEvalRunner("EvalPanel", eval_config_tag)` で作る 1 lane の EvalRunner（鏡写しインスタンス、Actor キーは `eval_panel`）を、UI スレッドの wxTimer で回す（[RunnerFrame.cpp:477-480](../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:243-267](../../apps/runner/src/EvalPanel.cpp)）。`Notifier::Notify` は呼んだスレッドで同期に購読者を呼ぶので、EvalRunner の購読者は UI スレッドで呼ばれる（[rl.cpp:1110-1117](../../core/anet-core/src/rl.cpp)）。
-- 1 回の `EvalRunner::DoStepInternal` は、`MakeAction(s_t)` → 行動の強制があれば `WithAction` → `env->Step(a_t)` → `TrainEvent` の通知 → `state_ = continue_state` の順に進む（[trainer.cpp:231-298](../../core/anet-core/src/trainer.cpp)）。外から見える通知は 1 step に 1 回で、行動の決定と env の step は同じ呼び出しの中で続けて起きる。
+- EvalPanel は、`RunnerFrame` が `CreateEvalRunner("EvalPanel", eval_config_tag)` で作る 1 lane の EvalRunner（鏡写しインスタンス、Actor キーは `eval_panel`）を、UI スレッドの wxTimer で回す（[RunnerFrame.cpp:477-480](../../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:243-267](../../../apps/runner/src/EvalPanel.cpp)）。`Notifier::Notify` は呼んだスレッドで同期に購読者を呼ぶので、EvalRunner の購読者は UI スレッドで呼ばれる（[rl.cpp:1110-1117](../../../core/anet-core/src/rl.cpp)）。
+- 1 回の `EvalRunner::DoStepInternal` は、`MakeAction(s_t)` → 行動の強制があれば `WithAction` → `env->Step(a_t)` → `TrainEvent` の通知 → `state_ = continue_state` の順に進む（[trainer.cpp:231-298](../../../core/anet-core/src/trainer.cpp)）。外から見える通知は 1 step に 1 回で、行動の決定と env の step は同じ呼び出しの中で続けて起きる。
   ```
   （待ち）runner は s_t を持つ。行動はまだ決まっていない
   DoStep: MakeAction(s_t) → a_t、Q(s_t,·)
@@ -74,51 +74,51 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
           Notify(TrainEvent)   ← 完了した遷移 t と、次の状態 s_{t+1} が一緒に届く
           state_ = continue_state（終端ならリセット後の s_0）
   ```
-- 毎秒の step 数は、構造体の既定（30 fps × 3 step/frame、[EvalPanel.hpp:31-32](../../apps/runner/src/EvalPanel.hpp)）ではなく設定で決まる。online の既定は 30 fps × 1 step/frame（[common.txt:133-134](../../apps/runner/config/common.txt)）、Atari の online は 14.5 fps（[Atari.txt:1413](../../apps/runner/config/Atari.txt)）。1 時間で約 5〜11 万遷移。定期評価に step 単位の記録を付けると、30M の Run で数百万行になる。
-- 設定キーは `app.eval_panel.*`（`app.online.*`・`app.batchrun.*` は `app.$` で流し込む層）で、パネルごとに `app.<パネル>_panel.*` の並びになっている（[RunnerApp.cpp:75](../../apps/runner/src/RunnerApp.cpp)、同 101-111）。
-- EvalPanel の View は、通知を受けて表示用のスナップショットを作り（`CreateViewData` → `UIDataStore`、[gui.hpp:261-279](../../core/anet-core/include/anet/gui.hpp)）、timer の 1 frame ごとに 1 回取り出して描く。`UIDataStore` は、取り出しの要求があったか一定時間たったときだけ中身を入れ替える（同 186-227）。ただし EvalPanel は View の更新を強制の指定（`UpdateViewData(event, true)`）で呼ぶので、この間引きは効かず、スナップショットは step ごとに作られる（[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) の `Initialize` の購読。コミット 4d191af3 の時点で 126 行）。間引きが効くのは、強制しない TrainPanel の View である。1 frame に複数の step を進める構成（`step_per_frame` > 1。batchrun の既定は 10）でも作るのは step ごとで、描くのはその frame の最後の step のものだけである（[EvalPanel.cpp:245-267](../../apps/runner/src/EvalPanel.cpp)）。Atari の View は、env の `rgb_frame`（通知の時点の画面。終端ではリセット後）と、step_result の `next_state` の観測・aux の得点・残機・RAM（リセット前）、行動名と報酬を出す（[AtariView.cpp:218-257](../../core/envs/atari1/src/AtariView.cpp)）。LunarLander の View は `next_state`（リセット前）と行動・報酬を出す（[LunarLanderView.cpp:28-44](../../core/envs/lunarlander1/src/LunarLanderView.cpp)）。どちらも「この状態に来た行動」を新しい状態に重ねて描いている。
-- QValuePanel は同じ通知を `FunctionTrainObserver` で受け、`action_info` の aux の `q_values`（分位点系は `q_quantiles` など）と選んだ行動を表示する（[QValuePanel.cpp:281-308](../../apps/runner/src/QValuePanel.cpp)、同 315-397）。表示用のデータは通知ごと（毎 step）に `CreateData` で作り、画面の更新だけを frame に 1 回へまとめている（同 293-302）。表示は Q(s_t, ·) で、EvalPanel の画面（s_{t+1}）より 1 step 遅れている。
-- Conv2dPanel は鏡写しインスタンス（EvalPanel）の通知から、`action_info` の aux の `nn_trace/*`（その step の判断で出した NN の活性）を画像にする（[RunnerFrame.cpp:1060](../../apps/runner/src/RunnerFrame.cpp)、[Conv2dPanel.cpp:76-112](../../apps/runner/src/Conv2dPanel.cpp)）。SweepHeatMapPanel は学習側の runner の `LearnEvent` で、学習側のネットワークを状態の 2 次元の格子の上で掃いた地図を作る（[RunnerFrame.cpp:1045](../../apps/runner/src/RunnerFrame.cpp)、[observers.cpp:390](../../core/anet-core/src/observers.cpp)）。EvalPanel の step とは関係しない。
-- パネルを閉じても購読は外れない。`AttachScoped` は内側の observer を返し、`Detach` はそれと一致しないので何も外れない（[rl.hpp:1104-1124](../../core/anet-core/include/anet/rl.hpp)、[999_notifier_scoped_detach](999_notifier_scoped_detach_10prd.md)）。Notifier はロックを持たない。
-- 表を出す部品は QValuePanel の非仮想の `wxGrid` だけ（[QValuePanel.cpp:228-279](../../apps/runner/src/QValuePanel.cpp)）。補助 pane（HeatMap・Conv2d）は `AddAuxPane` で右端の列へ足す（[RunnerFrame.cpp:959-974](../../apps/runner/src/RunnerFrame.cpp)）。折れ線の部品 `PlotPanel` はどこからも使われていない。
-- ステータスバーの左端の欄（field 0）は操作結果専用で、EvalPanel の pause/resume もここへ出す（[RunnerFrame.cpp:313-330](../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:170-179](../../apps/runner/src/EvalPanel.cpp)）。
+- 毎秒の step 数は、構造体の既定（30 fps × 3 step/frame、[EvalPanel.hpp:31-32](../../../apps/runner/src/EvalPanel.hpp)）ではなく設定で決まる。online の既定は 30 fps × 1 step/frame（[common.txt:133-134](../../../apps/runner/config/common.txt)）、Atari の online は 14.5 fps（[Atari.txt:1413](../../../apps/runner/config/Atari.txt)）。1 時間で約 5〜11 万遷移。定期評価に step 単位の記録を付けると、30M の Run で数百万行になる。
+- 設定キーは `app.eval_panel.*`（`app.online.*`・`app.batchrun.*` は `app.$` で流し込む層）で、パネルごとに `app.<パネル>_panel.*` の並びになっている（[RunnerApp.cpp:75](../../../apps/runner/src/RunnerApp.cpp)、同 101-111）。
+- EvalPanel の View は、通知を受けて表示用のスナップショットを作り（`CreateViewData` → `UIDataStore`、[gui.hpp:261-279](../../../core/anet-core/include/anet/gui.hpp)）、timer の 1 frame ごとに 1 回取り出して描く。`UIDataStore` は、取り出しの要求があったか一定時間たったときだけ中身を入れ替える（同 186-227）。ただし EvalPanel は View の更新を強制の指定（`UpdateViewData(event, true)`）で呼ぶので、この間引きは効かず、スナップショットは step ごとに作られる（[EvalPanel.cpp](../../../apps/runner/src/EvalPanel.cpp) の `Initialize` の購読。コミット 4d191af3 の時点で 126 行）。間引きが効くのは、強制しない TrainPanel の View である。1 frame に複数の step を進める構成（`step_per_frame` > 1。batchrun の既定は 10）でも作るのは step ごとで、描くのはその frame の最後の step のものだけである（[EvalPanel.cpp:245-267](../../../apps/runner/src/EvalPanel.cpp)）。Atari の View は、env の `rgb_frame`（通知の時点の画面。終端ではリセット後）と、step_result の `next_state` の観測・aux の得点・残機・RAM（リセット前）、行動名と報酬を出す（[AtariView.cpp:218-257](../../../core/envs/atari1/src/AtariView.cpp)）。LunarLander の View は `next_state`（リセット前）と行動・報酬を出す（[LunarLanderView.cpp:28-44](../../../core/envs/lunarlander1/src/LunarLanderView.cpp)）。どちらも「この状態に来た行動」を新しい状態に重ねて描いている。
+- QValuePanel は同じ通知を `FunctionTrainObserver` で受け、`action_info` の aux の `q_values`（分位点系は `q_quantiles` など）と選んだ行動を表示する（[QValuePanel.cpp:281-308](../../../apps/runner/src/QValuePanel.cpp)、同 315-397）。表示用のデータは通知ごと（毎 step）に `CreateData` で作り、画面の更新だけを frame に 1 回へまとめている（同 293-302）。表示は Q(s_t, ·) で、EvalPanel の画面（s_{t+1}）より 1 step 遅れている。
+- Conv2dPanel は鏡写しインスタンス（EvalPanel）の通知から、`action_info` の aux の `nn_trace/*`（その step の判断で出した NN の活性）を画像にする（[RunnerFrame.cpp:1060](../../../apps/runner/src/RunnerFrame.cpp)、[Conv2dPanel.cpp:76-112](../../../apps/runner/src/Conv2dPanel.cpp)）。SweepHeatMapPanel は学習側の runner の `LearnEvent` で、学習側のネットワークを状態の 2 次元の格子の上で掃いた地図を作る（[RunnerFrame.cpp:1045](../../../apps/runner/src/RunnerFrame.cpp)、[observers.cpp:390](../../../core/anet-core/src/observers.cpp)）。EvalPanel の step とは関係しない。
+- パネルを閉じても購読は外れない。`AttachScoped` は内側の observer を返し、`Detach` はそれと一致しないので何も外れない（[rl.hpp:1104-1124](../../../core/anet-core/include/anet/rl.hpp)、[999_notifier_scoped_detach](../999_notifier_scoped_detach_10prd.md)）。Notifier はロックを持たない。
+- 表を出す部品は QValuePanel の非仮想の `wxGrid` だけ（[QValuePanel.cpp:228-279](../../../apps/runner/src/QValuePanel.cpp)）。補助 pane（HeatMap・Conv2d）は `AddAuxPane` で右端の列へ足す（[RunnerFrame.cpp:959-974](../../../apps/runner/src/RunnerFrame.cpp)）。折れ線の部品 `PlotPanel` はどこからも使われていない。
+- ステータスバーの左端の欄（field 0）は操作結果専用で、EvalPanel の pause/resume もここへ出す（[RunnerFrame.cpp:313-330](../../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:170-179](../../../apps/runner/src/EvalPanel.cpp)）。
 
 ### 3.2 近似 Actor 初期優先度の式とヒント
 
-- 式は 1 か所ではない。`DqnInitialPriorityEstimator::Estimate`（[dqn_based_agent.cpp:379-423](../../core/anet-core/src/dqn_based_agent.cpp)、無名空間）は、target = 割引報酬和 ＋ 開始時の Munchausen 項 ＋ discount × 状態価値（終端なら 0、TBO なら h 空間）から |target − Q(s,a)| を作り、per_eps と clip を適用する。生成関数 `dqn::CreateInitialPriorityEstimator(const LearnerConfig&)` は内部ヘッダにある（[dqn_based_agent.hpp:168](../../core/anet-core/src/dqn_based_agent.hpp)）。
-- n step の割引報酬和、実 n step 数、`discount = γ^実n` は replay 側が作る（系列の確定 [replay_buffer_impl.cpp:150-178](../../core/anet-core/src/replay_buffer_impl.cpp)、割引報酬和 同 189-215、推定器の呼び出し 同 421-428）。n step の途中で終端になれば短い長さで確定する。打ち切り（truncated）の窓にかかる遷移は bootstrap せず最大優先度へ逃がす（同 393-398）。実効の n は `use_n_step ? n_step : 1`（[dqn_based_agent.cpp:2680](../../core/anet-core/src/dqn_based_agent.cpp) 付近）。
-- 材料の Actor Q ヒント（実行した行動の Q、状態価値、Munchausen 項の 3 列、[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)）は、aux ではなく別の欄 `GetReplayInitialPriorityHint()` にあり（[rl.hpp:544-547](../../core/anet-core/include/anet/rl.hpp)）、`Actor::MakeAction` が aux の `q_values` から作る（[dqn_based_agent.cpp:1917-1952](../../core/anet-core/src/dqn_based_agent.cpp)）。作るのは「PER あり かつ `per_initial_priority_mode = actor_approx`」のときだけで、Actor キーによらない（[default_dqn_agent.cpp:532-533](../../core/anet-core/src/default_dqn_agent.cpp)）。KFM の実時間優先の構成（`max`）では、eval_panel を含むどの Actor もヒントを作らない。`actor_approx` の構成では、eval_panel の Actor も作る。
-- eval_panel の Actor は、評価用の Actor を継いで方策だけを Greedy にしたもので、ネットワークは既定で **target** である（`actor.[eval_panel]` ← `actor.[eval_target]` ← `network = target`。[agent.txt:344-345](../../apps/runner/config/agent.txt)、同 394、[160](../design/160_applications_and_tools.jp.md) の EvalPanel の説明）。学習側の近似優先度は、学習 Actor の online の Q で計算される。
-- 報酬は、Agent が Push の前に reward scaler を通す（[default_dqn_agent.cpp:557-574](../../core/anet-core/src/default_dqn_agent.cpp)、[PRD 035](done/035_approx_actor_priority_per_10prd.md) の 29 行目）。倍率は統計を更新しない `GetScalar("reward_scaler.scale")` で読める（[scaler_impl.cpp:626-635](../../core/anet-core/src/scaler_impl.cpp)）。EvalRunner の報酬は env の報酬（Atari は env で符号クリップ）で、reward scaler は通っていない。
-- 学習側の Actor が UQE のときは学習側 Actor の aux `q_values` が上側の分位点の平均になる（[dqn_based_agent.cpp:1657-1674](../../core/anet-core/src/dqn_based_agent.cpp)）。同じ状態でも、eval_panel の Q は学習側 Actor の Q と違いうる（[ADR 0010](../adr/0010-actor-priority-mean-q-approx.md) が UQE での系統差を許容している）。
-- 近似の精度は、`actor_approx` の Run の `39_agent_per/01_actor_learner_rank_corr`（近似と学習側の優先度の順位相関）で測れる（[metrics_scalar.txt:113](../../apps/runner/config/metrics_scalar.txt)）。実時間優先の KFM の Run は `max` なので、この値が無い。
+- 式は 1 か所ではない。`DqnInitialPriorityEstimator::Estimate`（[dqn_based_agent.cpp:379-423](../../../core/anet-core/src/dqn_based_agent.cpp)、無名空間）は、target = 割引報酬和 ＋ 開始時の Munchausen 項 ＋ discount × 状態価値（終端なら 0、TBO なら h 空間）から |target − Q(s,a)| を作り、per_eps と clip を適用する。生成関数 `dqn::CreateInitialPriorityEstimator(const LearnerConfig&)` は内部ヘッダにある（[dqn_based_agent.hpp:168](../../../core/anet-core/src/dqn_based_agent.hpp)）。
+- n step の割引報酬和、実 n step 数、`discount = γ^実n` は replay 側が作る（系列の確定 [replay_buffer_impl.cpp:150-178](../../../core/anet-core/src/replay_buffer_impl.cpp)、割引報酬和 同 189-215、推定器の呼び出し 同 421-428）。n step の途中で終端になれば短い長さで確定する。打ち切り（truncated）の窓にかかる遷移は bootstrap せず最大優先度へ逃がす（同 393-398）。実効の n は `use_n_step ? n_step : 1`（[dqn_based_agent.cpp:2680](../../../core/anet-core/src/dqn_based_agent.cpp) 付近）。
+- 材料の Actor Q ヒント（実行した行動の Q、状態価値、Munchausen 項の 3 列、[ADR 0036](../../adr/0036-actor-q-hint-three-columns-munchausen.md)）は、aux ではなく別の欄 `GetReplayInitialPriorityHint()` にあり（[rl.hpp:544-547](../../../core/anet-core/include/anet/rl.hpp)）、`Actor::MakeAction` が aux の `q_values` から作る（[dqn_based_agent.cpp:1917-1952](../../../core/anet-core/src/dqn_based_agent.cpp)）。作るのは「PER あり かつ `per_initial_priority_mode = actor_approx`」のときだけで、Actor キーによらない（[default_dqn_agent.cpp:532-533](../../../core/anet-core/src/default_dqn_agent.cpp)）。KFM の実時間優先の構成（`max`）では、eval_panel を含むどの Actor もヒントを作らない。`actor_approx` の構成では、eval_panel の Actor も作る。
+- eval_panel の Actor は、評価用の Actor を継いで方策だけを Greedy にしたもので、ネットワークは既定で **target** である（`actor.[eval_panel]` ← `actor.[eval_target]` ← `network = target`。[agent.txt:344-345](../../../apps/runner/config/agent.txt)、同 394、[160](../../design/160_applications_and_tools.jp.md) の EvalPanel の説明）。学習側の近似優先度は、学習 Actor の online の Q で計算される。
+- 報酬は、Agent が Push の前に reward scaler を通す（[default_dqn_agent.cpp:557-574](../../../core/anet-core/src/default_dqn_agent.cpp)、[PRD 035](035_approx_actor_priority_per_10prd.md) の 29 行目）。倍率は統計を更新しない `GetScalar("reward_scaler.scale")` で読める（[scaler_impl.cpp:626-635](../../../core/anet-core/src/scaler_impl.cpp)）。EvalRunner の報酬は env の報酬（Atari は env で符号クリップ）で、reward scaler は通っていない。
+- 学習側の Actor が UQE のときは学習側 Actor の aux `q_values` が上側の分位点の平均になる（[dqn_based_agent.cpp:1657-1674](../../../core/anet-core/src/dqn_based_agent.cpp)）。同じ状態でも、eval_panel の Q は学習側 Actor の Q と違いうる（[ADR 0010](../../adr/0010-actor-priority-mean-q-approx.md) が UQE での系統差を許容している）。
+- 近似の精度は、`actor_approx` の Run の `39_agent_per/01_actor_learner_rank_corr`（近似と学習側の優先度の順位相関）で測れる（[metrics_scalar.txt:113](../../../apps/runner/config/metrics_scalar.txt)）。実時間優先の KFM の Run は `max` なので、この値が無い。
 
 ### 3.3 env の値の出口と自動リセット
 
-- env の値の出口は 2 つある。`GetScalar(key, lane)` は完了したゲームの統計用で、Atari の `game_score`・`game_len`・`ram_metric.[n]`・`hns57` などは完了時だけ値を返し、それ以外は NaN。`lives` は今の値（[AtariEnv.cpp:839-891](../../core/envs/atari1/src/AtariEnv.cpp)）。step_result の aux（`名前 → Tensor`、[rl.hpp:349](../../core/anet-core/include/anet/rl.hpp)）は 1 step ごとの報告で、Atari は途中の `game_score`・`game_len`・`game_frames`・`lives`・`ram_metric.<label>` を毎 step 入れる（[AtariEnv.cpp:682-694](../../core/envs/atari1/src/AtariEnv.cpp)）。GridMaze・LunarLander・DropMerge も aux を持つ。
-- 単一の env をまとめる BatchEnv は、Step の中で lane ごとに env の Step を呼び、終端なら続けて Reset する（[env.cpp:712-742](../../core/anet-core/src/env.cpp)）。aux と `next_state` は Reset の前に結果へ入るのでリセット前の値、`continue_state` はリセット後の状態になる。通知の時点で env へ問い合わせる `GetScalar` と `GetTensor("rgb_frame")` は、終端の lane ではもうリセット後の env を読む。完了値が終端の通知で読めるのは、env がそれをリセットをまたいで持っているからである。
-- 定期評価の `$env mean.hns57 @session_end` は、RunManager が宣言から鍵を集めて EvalSessionEnv へ購読として渡し、EvalSessionEnv が中の BatchEnv の Step のあとで完了した lane の `GetScalar` を溜める経路で読んでいる（[trainer.cpp:954-972](../../core/anet-core/src/trainer.cpp)、[env.cpp:336-369](../../core/anet-core/src/env.cpp)）。読むのはリセット後だが、読む鍵が完了値なので正しく読めている。
-- 基盤 PRD [097](done/097_env_auto_reset_after_notification_10prd.md)（2026-10-20 改訂）の実装のあとも、`Step` の中の自動リセットは残る。遷移の結果（得点・残機・画面・完了の値）は Step の結果が答え、通知の読み手はそこから読む。env への問い合わせ（`GetScalar`・`GetTensor`）は今の env の状態を返し、終端の lane ではリセット後になる（097 の D1・D2）。
-- `continue_state` は、Runner の `state_ = result->continue_state`（[trainer.cpp:295](../../core/anet-core/src/trainer.cpp)、同 566、同 700）のほか、エピソード構造の検査（[env.cpp:142-176](../../core/anet-core/src/env.cpp)）と、EvalSessionEnv がセッションの継ぎ目で Reset を省く処理（[env.cpp:317-327](../../core/anet-core/src/env.cpp)）で使われる。
+- env の値の出口は 2 つある。`GetScalar(key, lane)` は完了したゲームの統計用で、Atari の `game_score`・`game_len`・`ram_metric.[n]`・`hns57` などは完了時だけ値を返し、それ以外は NaN。`lives` は今の値（[AtariEnv.cpp:839-891](../../../core/envs/atari1/src/AtariEnv.cpp)）。step_result の aux（`名前 → Tensor`、[rl.hpp:349](../../../core/anet-core/include/anet/rl.hpp)）は 1 step ごとの報告で、Atari は途中の `game_score`・`game_len`・`game_frames`・`lives`・`ram_metric.<label>` を毎 step 入れる（[AtariEnv.cpp:682-694](../../../core/envs/atari1/src/AtariEnv.cpp)）。GridMaze・LunarLander・DropMerge も aux を持つ。
+- 単一の env をまとめる BatchEnv は、Step の中で lane ごとに env の Step を呼び、終端なら続けて Reset する（[env.cpp:712-742](../../../core/anet-core/src/env.cpp)）。aux と `next_state` は Reset の前に結果へ入るのでリセット前の値、`continue_state` はリセット後の状態になる。通知の時点で env へ問い合わせる `GetScalar` と `GetTensor("rgb_frame")` は、終端の lane ではもうリセット後の env を読む。完了値が終端の通知で読めるのは、env がそれをリセットをまたいで持っているからである。
+- 定期評価の `$env mean.hns57 @session_end` は、RunManager が宣言から鍵を集めて EvalSessionEnv へ購読として渡し、EvalSessionEnv が中の BatchEnv の Step のあとで完了した lane の `GetScalar` を溜める経路で読んでいる（[trainer.cpp:954-972](../../../core/anet-core/src/trainer.cpp)、[env.cpp:336-369](../../../core/anet-core/src/env.cpp)）。読むのはリセット後だが、読む鍵が完了値なので正しく読めている。
+- 基盤 PRD [097](097_env_auto_reset_after_notification_10prd.md)（2026-10-20 改訂）の実装のあとも、`Step` の中の自動リセットは残る。遷移の結果（得点・残機・画面・完了の値）は Step の結果が答え、通知の読み手はそこから読む。env への問い合わせ（`GetScalar`・`GetTensor`）は今の env の状態を返し、終端の lane ではリセット後になる（097 の D1・D2）。
+- `continue_state` は、Runner の `state_ = result->continue_state`（[trainer.cpp:295](../../../core/anet-core/src/trainer.cpp)、同 566、同 700）のほか、エピソード構造の検査（[env.cpp:142-176](../../../core/anet-core/src/env.cpp)）と、EvalSessionEnv がセッションの継ぎ目で Reset を省く処理（[env.cpp:317-327](../../../core/anet-core/src/env.cpp)）で使われる。
 
 ### 3.4 メトリクスの配線と値の読み口
 
-- メトリクスの配線は RunManager の構築処理の中にある（約 106 行、RunManager の約 24%）。scope を Runner へ解決する `resolve_runner`（dormant なら WARN して捨てる）、event 4 種ごとの attach、定義レコードの補完と `metrics.scalar.defs`・`metrics.trace.defs` の書き出し、Agent への購読ヒントである（[trainer.cpp:1010-1093](../../core/anet-core/src/trainer.cpp)）。`CreateEvalRunner` は何も配線しない（同 1147-1168）。PRD 081 が入ると、構築後に配線する最初の箇所になる。
-- 値の読み口が 2 つある。scalar は `MetricsLogObserverBase::GetMetricsData`（lane を持たず、target を省くと探索順で探す。[observers.cpp:873-934](../../core/anet-core/src/observers.cpp)）、trace は `MetricsLogTraceObserver`（lane 付き・宣言順・値が無ければ fail-fast。同 831-870）で、target の switch を別々に持つ。step_result の aux と任意の aux キーを読む target は無い。`$action_info` は `anet::Module` の `GetScalar` を読むので、行動そのもの（`GetAction()`）は読めない。`$exp`（`BatchExperience`）の `GetScalar` は常に値を返さない（[rl.hpp:615](../../core/anet-core/include/anet/rl.hpp)）。
-- trace の event は `@episode_end` に固定されている（[observers.cpp:1617](../../core/anet-core/src/observers.cpp)、同 1660、同 1666）。
-- DSL の `$<名前>_step` は step 軸のトークンで、`$episode_step` はエピソード数の軸（`episode_count`）を指す（[observers.cpp:1359-1361](../../core/anet-core/src/observers.cpp)、[rl.hpp:108-118](../../core/anet-core/include/anet/rl.hpp)）。
+- メトリクスの配線は RunManager の構築処理の中にある（約 106 行、RunManager の約 24%）。scope を Runner へ解決する `resolve_runner`（dormant なら WARN して捨てる）、event 4 種ごとの attach、定義レコードの補完と `metrics.scalar.defs`・`metrics.trace.defs` の書き出し、Agent への購読ヒントである（[trainer.cpp:1010-1093](../../../core/anet-core/src/trainer.cpp)）。`CreateEvalRunner` は何も配線しない（同 1147-1168）。PRD 081 が入ると、構築後に配線する最初の箇所になる。
+- 値の読み口が 2 つある。scalar は `MetricsLogObserverBase::GetMetricsData`（lane を持たず、target を省くと探索順で探す。[observers.cpp:873-934](../../../core/anet-core/src/observers.cpp)）、trace は `MetricsLogTraceObserver`（lane 付き・宣言順・値が無ければ fail-fast。同 831-870）で、target の switch を別々に持つ。step_result の aux と任意の aux キーを読む target は無い。`$action_info` は `anet::Module` の `GetScalar` を読むので、行動そのもの（`GetAction()`）は読めない。`$exp`（`BatchExperience`）の `GetScalar` は常に値を返さない（[rl.hpp:615](../../../core/anet-core/include/anet/rl.hpp)）。
+- trace の event は `@episode_end` に固定されている（[observers.cpp:1617](../../../core/anet-core/src/observers.cpp)、同 1660、同 1666）。
+- DSL の `$<名前>_step` は step 軸のトークンで、`$episode_step` はエピソード数の軸（`episode_count`）を指す（[observers.cpp:1359-1361](../../../core/anet-core/src/observers.cpp)、[rl.hpp:108-118](../../../core/anet-core/include/anet/rl.hpp)）。
 
 ### 3.5 Runner の時点
 
-- 学習側の Runner は、`UpdateMetrics`（`reward`・`reward_ema`）とエピソードの集計・`EpisodeEndEvent` の通知を `TrainEvent` の前に行い、カウンタは通知のあとで数える（[trainer.cpp:536-567](../../core/anet-core/src/trainer.cpp)）。
-- EvalRunner は、カウンタを通知の前に数え（[trainer.cpp:279-282](../../core/anet-core/src/trainer.cpp)）、`UpdateMetrics` はコメントアウトされていて呼ばれず（同 277）、エピソードの集計と `EpisodeEndEvent` の通知は `TrainEvent` のあとに、引数 `notify_episode_end` が真のときだけ行う（同 289-294）。定期評価のセッションはこれを偽で呼ぶ（同 334）。このため EvalRunner の `TrainEvent` の時点では、`$runner reward` は更新されず、`$runner` のエピソード集計は 1 step 前のままである。定期評価のセッションはこの集計を通らず、セッションの最後に `SetCompletedEpisodes` でまとめて確定する（同 334、同 366）。
-- 今の設定で、eval の `$runner reward` を読む metrics は無い。eval scope の `@train` で読めるのは `$action_info` だけである（[140 §6](../design/140_observability.jp.md)、observers.cpp 1509-1513）。
+- 学習側の Runner は、`UpdateMetrics`（`reward`・`reward_ema`）とエピソードの集計・`EpisodeEndEvent` の通知を `TrainEvent` の前に行い、カウンタは通知のあとで数える（[trainer.cpp:536-567](../../../core/anet-core/src/trainer.cpp)）。
+- EvalRunner は、カウンタを通知の前に数え（[trainer.cpp:279-282](../../../core/anet-core/src/trainer.cpp)）、`UpdateMetrics` はコメントアウトされていて呼ばれず（同 277）、エピソードの集計と `EpisodeEndEvent` の通知は `TrainEvent` のあとに、引数 `notify_episode_end` が真のときだけ行う（同 289-294）。定期評価のセッションはこれを偽で呼ぶ（同 334）。このため EvalRunner の `TrainEvent` の時点では、`$runner reward` は更新されず、`$runner` のエピソード集計は 1 step 前のままである。定期評価のセッションはこの集計を通らず、セッションの最後に `SetCompletedEpisodes` でまとめて確定する（同 334、同 366）。
+- 今の設定で、eval の `$runner reward` を読む metrics は無い。eval scope の `@train` で読めるのは `$action_info` だけである（[140 §6](../../design/140_observability.jp.md)、observers.cpp 1509-1513）。
 
 ### 3.6 表示・操作の現状（2026-10-22）
 
-- 列は一律95pxで、内容に応じた幅になっていない。上部には文字の7ボタンがあり、再生と一時停止が別になっている（[EvalTracePanel.cpp](../../apps/runner/src/EvalTracePanel.cpp)、構築とInitialize）。
+- 列は一律95pxで、内容に応じた幅になっていない。上部には文字の7ボタンがあり、再生と一時停止が別になっている（[EvalTracePanel.cpp](../../../apps/runner/src/EvalTracePanel.cpp)、構築とInitialize）。
 - 報酬行の背景は明るい緑、終端行は明るい橙、文字は黒の固定色で、ダークテーマのシステム色に合わせていない。同じファイルのTableが配色している。
-- Trace中は追従paneの見出しに`Trace: step ...`を出す。Trace専用のヘッダ色変更はなく、上部の操作バーを囲む表示もない（同ファイル、RefreshCaptions）。メインツールバーには、システム文字色へ追従するアイコンがある（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp)、MakeSystemTextSvg）。
+- Trace中は追従paneの見出しに`Trace: step ...`を出す。Trace専用のヘッダ色変更はなく、上部の操作バーを囲む表示もない（同ファイル、RefreshCaptions）。メインツールバーには、システム文字色へ追従するアイコンがある（[RunnerFrame.cpp](../../../apps/runner/src/RunnerFrame.cpp)、MakeSystemTextSvg）。
 - メインツールバーの Step（EvalPanel を 1 step 進める）のアイコンは、右向き三角の右に縦棒を置いた形である（同ファイル、`kStepSvg`）。動画のプレイヤーで一般的なコマ送りの形（縦棒の右に右向き三角）とは、順が逆である。
 
 ## 4. 確定事項
@@ -167,7 +167,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
   - DQN 系の部品が答える鍵は、`q_sa`（Q(s_t, a_t)）、`state_value`（max_a Q(s_t, a)。Munchausen では soft value）、`approx_priority`（あとで決まる）の 3 つ。
   - 部品が答えない鍵は、ほかの target と同じく、最初に読んだ行で fail-fast にする（D8 の実行時の fail-fast）。部品が知っている鍵でも、値がまだ無ければ NaN（空欄）になる。
   - 部品を出さない Agent では、`$agent_step` の列は、鍵が何であってもすべて NaN（空欄）にし、止めない。既定の列（D13、common.txt）をどの env・Agent でも使えるようにするためである。そのかわり、部品を出さない Agent では、鍵の書き間違いに気づけない。
-- `$runner` の鍵 `step_in_episode`（新規、lane ごと）: この遷移を数えたあとの、今のエピソードの中の step 数（1 始まり。終端の行ではエピソードの長さ）。Runner がエピソードの集計に使っている lane ごとの step 数（`EpisodeStatsAccumulator`、[env.cpp:230-241](../../core/anet-core/src/env.cpp)）から読み、別のカウンタを持たない。`episode_step` という名前は、DSL でエピソード数の軸を指すので使わない（§3.4）。
+- `$runner` の鍵 `step_in_episode`（新規、lane ごと）: この遷移を数えたあとの、今のエピソードの中の step 数（1 始まり。終端の行ではエピソードの長さ）。Runner がエピソードの集計に使っている lane ごとの step 数（`EpisodeStatsAccumulator`、[env.cpp:230-241](../../../core/anet-core/src/env.cpp)）から読み、別のカウンタを持たない。`episode_step` という名前は、DSL でエピソード数の軸を指すので使わない（§3.4）。
 - `$runner` のエピソード集計の鍵（`episode_return`・`episode_steps`）は、Runner の鍵の形のとおり集約の接頭辞つき（`mean.episode_return` など）で書く。step trace では、その step で完了したエピソードの値（完了が無ければ NaN）になる。集約の接頭辞を書けるのはこの鍵だけで、ほかの鍵と target では fail-fast（trace と同じく、step trace は lane ごとの値を扱うため）。
 - `$action_info` の鍵 `action`: 実行した行動（強制した行動を含む）。離散なら `action`、連続なら次元ごとの `action.[<次元>]`。連続の行動に `action` を書いたら fail-fast で `action.[<次元>]` を案内する。どの Agent でも読める（ActionInfo の基底の型が、lane を指定した問い合わせに `GetAction()` の値で答えるので、Agent ごとの実装を要しない）。
 - 新しい target の名前 `$env_step`・`$agent_step` は、DSL の step 軸のトークン（`$exp_step` など）と同じ `_step` で終わる。字句としては衝突せず（step 軸のトークンは決まった 6 つ、§3.4）、名前はユーザーの指定なので、このままにする（2026-10-19 の裁定）。
@@ -191,13 +191,13 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
   DefaultDQNAgent.@baseline.actor.[eval_panel].network = online
   ```
 - 学習側の Actor が UQE なら、そのほかにも系統差が出る（ADR 0010）。n step のあいだにモデルの同期があれば、開始と bootstrap で別のモデルの値になる。
-理由: 設定キーが増えず、式・ヒント・n step の組み立てが DQN の module に 1 つずつにまとまり、step trace の生成器はアルゴリズムを知らずに済む（[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)）。学習側の値は変えない（§8 の受入 3）。
+理由: 設定キーが増えず、式・ヒント・n step の組み立てが DQN の module に 1 つずつにまとまり、step trace の生成器はアルゴリズムを知らずに済む（[ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)）。学習側の値は変えない（§8 の受入 3）。
 
 **D7 EvalRunner の時点合わせ。**
 - R1: `EvalRunner::DoStepInternal` で、通知の前に `UpdateMetrics` を呼ぶ（`$runner reward`・`reward_ema` がその step の値になる）。
 - R2: エピソードの集計と `EpisodeEndEvent` の通知を `TrainEvent` の前に行う（学習側の Runner と同じ順。`notify_episode_end` が真の経路だけ）。
 - カウンタを数える時機（EvalRunner は通知の前、学習側は通知のあと）は変えない。そろえると、eval scope の `@train $action_info` の metrics の step が 1 つずれる（DropMerge の設定）。step trace の `$runner exp_step` は「この step を数えたあとの数」と定義する。
-理由: R1・R2 で `$runner` のすべての鍵が行の時点に合う。R1 は定期評価のセッションでも走るが（セッションも `DoStepInternal` を通る、[trainer.cpp:334](../../core/anet-core/src/trainer.cpp)）、eval scope で `$runner` を読む metrics は無く、セッションの集計は `SetCompletedEpisodes` で確定するので（同 366）、既存の metrics の出力は変わらない。R2 はセッションでは通らない（`notify_episode_end` が偽、§3.5）。
+理由: R1・R2 で `$runner` のすべての鍵が行の時点に合う。R1 は定期評価のセッションでも走るが（セッションも `DoStepInternal` を通る、[trainer.cpp:334](../../../core/anet-core/src/trainer.cpp)）、eval scope で `$runner` を読む metrics は無く、セッションの集計は `SetCompletedEpisodes` で確定するので（同 366）、既存の metrics の出力は変わらない。R2 はセッションでは通らない（`notify_episode_end` が偽、§3.5）。
 
 **D8 列の宣言。** 列は metrics の定義とは分けて、Evaluation Trace の設定に番号付きで 1 行 1 列で書く。
 
@@ -209,11 +209,11 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 - 値のトークンは target 1 つ、鍵 1 つ、任意の `label:`・`display:` だけ。event・scope・step 軸・EMA・`interval:` は書けない。集約の接頭辞（`mean.` など）は `$runner` のエピソード集計の鍵だけに書ける（D5）。
 - 解析は列の宣言の専用のもので、字句の分類だけを metrics の DSL と共有する。
 - `label:` は列の見出し（空白を含まない、1 文字以上）。省くと鍵が見出しになる。見出しの重複は許す。
-- 1 行に同じ属性（`label:`・`display:`）は 1 回だけ書ける（trace の宣言で指定の重複を拒むのと同じ。[140 の trace チャネルの節](../design/140_observability.jp.md)）。
-- `display:` は表示の仕方。行動の列（`$action_info action`）は `value`（番号）・`name`（EnvSpec の `action_spec.value_labels` の名前）・`value_name`（`3:UPFIRE`。既定）。数値の列は `value`（既定）・`pct`（直近の値の中の百分位）。連続行動の `action.[<次元>]` は `value` だけ。行の値は数値のままで、名前は表示だけで置き換える。離散の行動では、行動の数が `value_labels` の数そのものなので（[rl.hpp:269-273](../../core/anet-core/include/anet/rl.hpp)）、名前の無い行動は無く、代わりの表示も置かない。連続行動の env では既定の列の `$action_info action` が構築時に止まるので、その env の設定で列を上書きする（PPO に対応するときに見直す）。
+- 1 行に同じ属性（`label:`・`display:`）は 1 回だけ書ける（trace の宣言で指定の重複を拒むのと同じ。[140 の trace チャネルの節](../../design/140_observability.jp.md)）。
+- `display:` は表示の仕方。行動の列（`$action_info action`）は `value`（番号）・`name`（EnvSpec の `action_spec.value_labels` の名前）・`value_name`（`3:UPFIRE`。既定）。数値の列は `value`（既定）・`pct`（直近の値の中の百分位）。連続行動の `action.[<次元>]` は `value` だけ。行の値は数値のままで、名前は表示だけで置き換える。離散の行動では、行動の数が `value_labels` の数そのものなので（[rl.hpp:269-273](../../../core/anet-core/include/anet/rl.hpp)）、名前の無い行動は無く、代わりの表示も置かない。連続行動の env では既定の列の `$action_info action` が構築時に止まるので、その env の設定で列を上書きする（PPO に対応するときに見直す）。
 - 構築時の fail-fast: 番号が 1 以上の整数でない、target が無い・2 つ以上、鍵が 1 つでない、未知の target や step trace で読めない target（`$agent`・`$exp`・`$update_result`・`$env`）、`$runner` のエピソード集計の鍵以外への集約の接頭辞、未知のトークンや属性、同じ属性の重複、空の `label:`、`display:` の値と列の組み合わせが合わない（連続行動に `name`・`value_name` を含む）。
 - 実行時の fail-fast: 読み手が値を返さない鍵（未知の鍵）は、最初に読んだ行で止める（trace と同じ規則）。値が NaN・±Inf なら空欄。部品を出さない Agent の `$agent_step` は、読み手が無いので止めずに空欄にする（D5）。
-理由: 記録の宣言と切り離して見られ、本 PRD だけで完結し、GUI がメトリクスの配線に依存しない（[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)）。表示上の鍵は列番号なので、番号を設定の鍵にする。連続行動（PPO）に備えて、`display:` の値は番号を前提にしない名前にした。
+理由: 記録の宣言と切り離して見られ、本 PRD だけで完結し、GUI がメトリクスの配線に依存しない（[ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)）。表示上の鍵は列番号なので、番号を設定の鍵にする。連続行動（PPO）に備えて、`display:` の値は番号を前提にしない名前にした。
 
 **D9 step trace の生成器。** core に、EvalRunner の `TrainEvent` から step trace を作る生成器を置く。宣言（D8）を解析し、読み口（D1）で列を読み、Agent の step 部品（D6）を lane ごとに呼ぶ。
 - 生成器は、列ごとに値が決まったかを持つ。待つのは、部品があとで決まると示した鍵（D6）の列だけである。NaN で決まった列も、そこで待つのをやめる。鍵の名前で待つ列を決める処理は置かない。
@@ -234,7 +234,7 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 - ユーザーが幅を調整した列は、その表示中は自動拡張もしない。パネルを閉じて開き直すと、手動指定を含めて初期幅へ戻す。幅・配色・アイコンはフォント・DPI・テーマに追従する。全列の合計が表示領域を超えるときは横スクロールを使い、収めるために文字をつぶさない。
 - パネルの最小幅は、6ボタン・スライダー・速度表示を含む操作バー全体の必要幅と、左端から最初の行動列までの現在の列幅の合計（標準余白・縦スクロールバーを含む）の大きい方とする。行動列が無ければ操作バーを基準とする。連続行動は最初の次元別行動列までとする。列幅・フォント・DPI・テーマの変更に合わせて更新し、ドック中・フロート中ともそれ未満へ縮めない。残りの列は横スクロールで読む。
 - 性能の見積もり: 列の幅を決める処理は、新しい行の表示値 C 件と、あとで決まった表示値 K 件だけを対象にする（表示する 1 step あたり C+K 件の幅の判定）。持っている全行を step ごとに測り直さず、列を広げるのは、それまでより長い値が出たときだけにする。学習の step の順序と worker の構成は変えない。
-  - 頻度×単価: [common.txt](../../apps/runner/config/common.txt) の既定 10 列と [Atari.txt](../../apps/runner/config/Atari.txt) の 2 列から C=12、通常の 1 行の追加と 1 行の遅れた確定を代表として K=2（prio・prio_pct）と置く。1 件の処理（文字の幅の判定と、要るときの列幅の更新）の単価を 0.01〜0.10 ms と仮定すると、増える時間は 14 件 × 0.01〜0.10 ms = 0.14〜1.40 ms/step である。この単価は実測ではなく、方式を評価するための仮定である。
+  - 頻度×単価: [common.txt](../../../apps/runner/config/common.txt) の既定 10 列と [Atari.txt](../../../apps/runner/config/Atari.txt) の 2 列から C=12、通常の 1 行の追加と 1 行の遅れた確定を代表として K=2（prio・prio_pct）と置く。1 件の処理（文字の幅の判定と、要るときの列幅の更新）の単価を 0.01〜0.10 ms と仮定すると、増える時間は 14 件 × 0.01〜0.10 ms = 0.14〜1.40 ms/step である。この単価は実測ではなく、方式を評価するための仮定である。
   - Atari の 14.5 step/s では 1 step が約 68.97 ms なので、上限の 1.40 ms は時間で約 2.03%、速度で約 98.0% に当たる。受入 8 の 95% 以上（許す低下 5%）に対し、その半分の 2.5% を下回る。列が多いとき、終端でまとめて確定するとき、より速い再生元のときは、同じ比率にならない。実装では、列の数・確定の件数・表示の速さでこの見積もりを確かめ直し、低下が 2.5% を超える見込みなら、方式を決める前に UI だけの試作で測る。実装のあとは、受入 8 の表示の速さと UI の受入で確かめる。
 - 通常セル・見出し・文字・罫線・選択はシステム色を基本にする。報酬が0でない行は緑系、doneかtruncatedの行は橙系の薄い強調を標準背景へ重ね、ライト／ダークの双方で文字を読めるようにする。両方に当たるときは終端の橙系を優先する。選択中は行の強調よりシステム選択色・選択文字色を優先する。色付けの有無の設定は追加しない（今回合意したのは色の調整であり、表示切替の操作要件は追加しない）。
 - `display:pct` の百分位は、その列の直近 `app.eval_trace_panel.pct_window` 個（既定 10000、1 以上の整数。違反は構築時に fail-fast）の値の中での位置（0〜100、NaN を除く）。表の行数より長い窓で、ゲーム数本分の分布の中の位置を出す。百分位は、列の値が決まったときに 1 回だけ計算する（近似優先度のようにあとで決まる値は、決まったとき）。表の上限で消えた行の値も、決まったときに窓へ入れる。
@@ -249,7 +249,7 @@ app.eval_trace_panel.columns.[<番号>] = $<target> <鍵> [label:<列ラベル>]
 - Trace モードに入ったら、EvalPanel を一時停止する（調べている間に、選んでいる行が上限で消えないようにするため）。Live に戻っても再開はしない。再開は EvalPanel の Resume で行い、それが Live に戻るきっかけにもなる（2026-10-19 のユーザーの裁定）。
 - **Live モード**に戻るきっかけは、停止ボタン（D12）、選択の解除（表にフォーカスがあるときの Esc キー。行の無いところのクリックは解除にしない。押し間違いで Live に戻らないため。2026-10-19 のユーザーの裁定）、手動の行動（QValuePanel のクリック、キー、ツールバーの Step）、EvalPanel の Resume、Evaluation Trace を閉じること（閉じた表で Trace のまま残らないように）。手動の行動は Live に戻してから行う（行動は今の状態に当たるため）。Live に戻ると再生も止まる。
 - Trace の間に runner が進むことは、上の一時停止でほぼ無くなる。それでも step trace が増えたときは、選んだ行と表の表示位置を動かさず、表の上限で選んでいる行が消えたら、残っている中でいちばん古い行へ移る。
-- 上下キーは、フォーカスのある窓が受ける。表にフォーカスがあれば行を動かし、EvalPanel にフォーカスがあれば今までどおり行動になる（EvalPanel から転送されるキー、[RunnerFrame.cpp:993-994](../../apps/runner/src/RunnerFrame.cpp)）。
+- 上下キーは、フォーカスのある窓が受ける。表にフォーカスがあれば行を動かし、EvalPanel にフォーカスがあれば今までどおり行動になる（EvalPanel から転送されるキー、[RunnerFrame.cpp:993-994](../../../apps/runner/src/RunnerFrame.cpp)）。
 - SweepHeatMapPanel は追従 pane ではない（学習側のモデルの地図で、EvalPanel の step と関係しない）。Trace の間も今のまま更新する。
 理由: 既存のスナップショットをそのまま使え、どの env の View でも同じ口で動き、シリーズの後続で足す pane も同じ口で追従できる。先頭の行は今のライブの表示と同じなので、まだ行動の決まっていない「現在の状態」の仮の行は要らない。
 
@@ -323,15 +323,15 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 
 ### 4.3 規約・ADR・コードから導いたこと
 
-1. 未知の鍵は fail-fast、NaN・±Inf は空欄（trace の規則。根拠: [140 の trace チャネルの節](../design/140_observability.jp.md)、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)）。
-2. n step の途中の終端は短い長さで確定し、エピソードの始まりで窓を空にする（根拠: [replay_buffer_impl.cpp:150-178](../../core/anet-core/src/replay_buffer_impl.cpp)）。
-3. 打ち切りが窓にかかる行の近似優先度は空欄（根拠: [replay_buffer_impl.cpp:393-398](../../core/anet-core/src/replay_buffer_impl.cpp)、[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)）。
-4. 実効の n は `use_n_step ? n_step : 1`、割引は γ の実 n 乗（根拠: [dqn_based_agent.cpp:2680](../../core/anet-core/src/dqn_based_agent.cpp) 付近、[replay_buffer_impl.cpp:421-428](../../core/anet-core/src/replay_buffer_impl.cpp)）。
-5. 報酬には学習側と同じ reward scaler の変換を、統計を更新せずに掛ける（根拠: [PRD 035](done/035_approx_actor_priority_per_10prd.md) の 29 行目、[scaler_impl.cpp:626-635](../../core/anet-core/src/scaler_impl.cpp)）。
-6. Q は eval_panel の Actor の出力で計算し、UQE の系統差を許す（根拠: [ADR 0010](../adr/0010-actor-priority-mean-q-approx.md)）。
-7. step 単位の trace の event を開くのは PRD 081 で、そのとき新しい ADR を起こし ADR 0037 の先頭に注記する（根拠: [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) の「トリガは `@episode_end` のみ。要るときに開ける」）。
-8. 設定キーは `app.eval_trace_panel.*`（根拠: [RunnerApp.cpp:75](../../apps/runner/src/RunnerApp.cpp) の `app.<パネル>_panel` の並び）。
-9. step trace は UI スレッドで同期に作り、ロックを持たない（根拠: [EvalPanel.cpp:243-267](../../apps/runner/src/EvalPanel.cpp)、[rl.cpp:1110-1117](../../core/anet-core/src/rl.cpp)）。
+1. 未知の鍵は fail-fast、NaN・±Inf は空欄（trace の規則。根拠: [140 の trace チャネルの節](../../design/140_observability.jp.md)、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)）。
+2. n step の途中の終端は短い長さで確定し、エピソードの始まりで窓を空にする（根拠: [replay_buffer_impl.cpp:150-178](../../../core/anet-core/src/replay_buffer_impl.cpp)）。
+3. 打ち切りが窓にかかる行の近似優先度は空欄（根拠: [replay_buffer_impl.cpp:393-398](../../../core/anet-core/src/replay_buffer_impl.cpp)、[ADR 0012](../../adr/0012-replay-initial-priority-hint-completion.md)）。
+4. 実効の n は `use_n_step ? n_step : 1`、割引は γ の実 n 乗（根拠: [dqn_based_agent.cpp:2680](../../../core/anet-core/src/dqn_based_agent.cpp) 付近、[replay_buffer_impl.cpp:421-428](../../../core/anet-core/src/replay_buffer_impl.cpp)）。
+5. 報酬には学習側と同じ reward scaler の変換を、統計を更新せずに掛ける（根拠: [PRD 035](035_approx_actor_priority_per_10prd.md) の 29 行目、[scaler_impl.cpp:626-635](../../../core/anet-core/src/scaler_impl.cpp)）。
+6. Q は eval_panel の Actor の出力で計算し、UQE の系統差を許す（根拠: [ADR 0010](../../adr/0010-actor-priority-mean-q-approx.md)）。
+7. step 単位の trace の event を開くのは PRD 081 で、そのとき新しい ADR を起こし ADR 0037 の先頭に注記する（根拠: [ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md) の「トリガは `@episode_end` のみ。要るときに開ける」）。
+8. 設定キーは `app.eval_trace_panel.*`（根拠: [RunnerApp.cpp:75](../../../apps/runner/src/RunnerApp.cpp) の `app.<パネル>_panel` の並び）。
+9. step trace は UI スレッドで同期に作り、ロックを持たない（根拠: [EvalPanel.cpp:243-267](../../../apps/runner/src/EvalPanel.cpp)、[rl.cpp:1110-1117](../../../core/anet-core/src/rl.cpp)）。
 
 ### 4.4 クラス一覧
 
@@ -381,14 +381,14 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 | 列の値の折れ線（未使用の `PlotPanel` の流用） | 先送り | まず表と再生で足りるかを見る。近似優先度の推移を一目で見たくなったときに起こす |
 | 条件に合う行で自動で一時停止する | 先送り | 再生で場面を探す手間が大きいと分かったときに起こす |
 | Event / Observer の型の統一 | 別 PRD | 別の関心（NG5）。新しい Event の型を足す変更が出たときに起票する |
-| 起動したあとの OS のテーマの切替への追従の確かめ（D10） | 別 PRD（[999_runner_theme_switch](999_runner_theme_switch_10prd.md)） | Runner はテーマの切替で画面の一部だけが新しいテーマになり、直すには RunnerFrame の 1 か所で切替を受ける仕組みが要る（同 PRD の §1・§2）。Evaluation Trace だけでは確かめられない。同 PRD の受入 3・4 が Evaluation Trace を含むので、その実装の受入で確かめる |
-| 表示の DPI の変更への追従の確かめ（D10） | 別 PRD（[PRD113](113_runner_per_monitor_dpi_10prd.md)） | Runner は manifest の gdiScaling で DPI 非対応のまま動いていて、DPI の変更が届かない（同 PRD の §2）。同 PRD の受入 3 が Evaluation Trace の推奨と最小の大きさを含む。モニターの間の移動（同 PRD の受入 7）に Evaluation Trace を足すことを、同 PRD の §9 の 10 に置いた。その実装の受入で確かめる |
+| 起動したあとの OS のテーマの切替への追従の確かめ（D10） | 別 PRD（[999_runner_theme_switch](../999_runner_theme_switch_10prd.md)） | Runner はテーマの切替で画面の一部だけが新しいテーマになり、直すには RunnerFrame の 1 か所で切替を受ける仕組みが要る（同 PRD の §1・§2）。Evaluation Trace だけでは確かめられない。同 PRD の受入 3・4 が Evaluation Trace を含むので、その実装の受入で確かめる |
+| 表示の DPI の変更への追従の確かめ（D10） | 別 PRD（[PRD113](../113_runner_per_monitor_dpi_10prd.md)） | Runner は manifest の gdiScaling で DPI 非対応のまま動いていて、DPI の変更が届かない（同 PRD の §2）。同 PRD の受入 3 が Evaluation Trace の推奨と最小の大きさを含む。モニターの間の移動（同 PRD の受入 7）に Evaluation Trace を足すことを、同 PRD の §9 の 10 に置いた。その実装の受入で確かめる |
 
 ## 7. 未決と依存
 
 | # | 事項 | 扱い |
 |---|---|---|
-| 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](done/097_env_auto_reset_after_notification_10prd.md) は、2026-10-19 に M2 に決めたあと、2026-10-20 の再グリルで改めた（[ADR 0060](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、`$env` は今の env の状態を返す。BatchEnv は Reset と Step のまま（097 の D1・D2）。リセット後の情報は Runner だけが受け取る（097 の D4、変わらない）。`$env_step` は、097 の Step の結果が答える鍵（既定は aux のスカラー、Atari は派生の鍵も）を読む、メトリクスと同じ target になる（097 の §4.2 の 8）。097 を本 PRD より先に実装する。step trace の列の `$env` は、097 の §8 の申し送り（ADR 0057 の「時点が決まっている target だけを読む」）どおり列の target から外し、遷移の結果は `$env_step` で読む（2026-10-20 のユーザーの裁定、D4） |
+| 1 | BatchEnv の自動リセットと通知の時機 | 基盤 PRD [097_env_auto_reset_after_notification](097_env_auto_reset_after_notification_10prd.md) は、2026-10-19 に M2 に決めたあと、2026-10-20 の再グリルで改めた（[ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)）。遷移の結果は Step の結果で運び、`$env` は今の env の状態を返す。BatchEnv は Reset と Step のまま（097 の D1・D2）。リセット後の情報は Runner だけが受け取る（097 の D4、変わらない）。`$env_step` は、097 の Step の結果が答える鍵（既定は aux のスカラー、Atari は派生の鍵も）を読む、メトリクスと同じ target になる（097 の §4.2 の 8）。097 を本 PRD より先に実装する。step trace の列の `$env` は、097 の §8 の申し送り（ADR 0057 の「時点が決まっている target だけを読む」）どおり列の target から外し、遷移の結果は `$env_step` で読む（2026-10-20 のユーザーの裁定、D4） |
 | 2 | step trace を trace チャネルへ出す段 | PRD 081 を改訂して取り込む（081 の冒頭に 2026-10-19 に追記済み。改訂は 081 のグリルで行う）。081 の実装ノートが trainer.cpp を名指ししている箇所は、`MetricsWiring` を指すよう直す。改訂で決めること: trace 行の step 座標（step trace は `TrainEvent` から作るので、`@train` 系の規則なら EvalPanel 自身の counts になり、`54_evalpanel/episode` の学習側 counts と座標が違う。ADR 0047、CONTEXT.md「学習側 counts」「step座標系」）、metrics の DSL への `$agent_step` の追加（`$env_step` は 097 が足す）、あとで決まる列を待って 1 行を書くこと（生成器の知らせ方は D9） |
 
 ## 8. 成功の測り方と受入基準
@@ -421,18 +421,18 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 12. UI調整の回帰:
     - 受入 5（時点）と受入 7（再生の制御）の単体テストが通る。2026-10-22 の調整の前から期待値を変えるのは、D12 の Live の箇条と速度の表示で改めたものだけである。すなわち、低速倍率の表示（`x0.125`・`x0.25`・`x0.5`）、Live での一時停止（独立したボタンが無くなる）、Live でのコマ送りの通知（`Trace: end`）、Live でのコマ戻しで選ぶ行と通知（1 つ前の行で `Trace: step back`、行が 1 件ならその行で `Trace: start`）である。
     - 受入 8 の手動確認のうち、再生・停止・スライダー・Live に戻るきっかけ・開き直しで表が空から始まることが、D11・D12 のとおりである。
-    - [common.txt](../../apps/runner/config/common.txt)・[Atari.txt](../../apps/runner/config/Atari.txt) の `app.eval_trace_panel.columns.*` の、2026-10-22 の調整の前との差分が、`Q_sa`・`V_s`・`trunc`の`label:`指定と、rewardをaction直後へ移す列4〜6の並べ替えだけである。各列のtarget・取得キー・値は変わらない。
+    - [common.txt](../../../apps/runner/config/common.txt)・[Atari.txt](../../../apps/runner/config/Atari.txt) の `app.eval_trace_panel.columns.*` の、2026-10-22 の調整の前との差分が、`Q_sa`・`V_s`・`trunc`の`label:`指定と、rewardをaction直後へ移す列4〜6の並べ替えだけである。各列のtarget・取得キー・値は変わらない。
 
 ## 9. 依存と順序
 
-基盤 PRD（[097](done/097_env_auto_reset_after_notification_10prd.md)、§7 の 1）→ 本 PRD の段階 1 → 段階 2 → PRD 081 の改訂と実装。段階 1 は基盤 PRD に依らないが、ユーザーの指示で基盤 PRD を先に行う。
+基盤 PRD（[097](097_env_auto_reset_after_notification_10prd.md)、§7 の 1）→ 本 PRD の段階 1 → 段階 2 → PRD 081 の改訂と実装。段階 1 は基盤 PRD に依らないが、ユーザーの指示で基盤 PRD を先に行う。
 
 ## 10. 文書同期（実装と同じ変更で更新する）
 
 | 対象 | 変更 |
 |---|---|
-| [100_runtime_and_configuration.jp.md](../design/100_runtime_and_configuration.jp.md) | RunManager の責務とクラス図から、メトリクスの配線を `MetricsWiring` へ分けたこと |
-| [140_observability.jp.md](../design/140_observability.jp.md) | 値の読み口と配線のクラス、step trace の列と target（`$env_step`・`$agent_step`・`step_in_episode`・`action`）と時点の表 |
-| [160_applications_and_tools.jp.md](../design/160_applications_and_tools.jp.md) | Evaluation Trace、列幅・最小幅・テーマ配色、追従paneとLive／Trace・操作バーの赤枠、6個のアイコンボタンと再生／一時停止トグル、Live でのコマ戻し、メインツールバーの Step のアイコン |
-| [020_user_guide_run.jp.md](../design/020_user_guide_run.jp.md) | Evaluation Traceのアイコン操作（Live でのコマ戻しを含む）・赤枠・手動列幅と開き直しの使い方、列の設定とQ_sa／V_s／truncの表示名 |
-| [common.txt](../../apps/runner/config/common.txt)・[Atari.txt](../../apps/runner/config/Atari.txt) | D13 |
+| [100_runtime_and_configuration.jp.md](../../design/100_runtime_and_configuration.jp.md) | RunManager の責務とクラス図から、メトリクスの配線を `MetricsWiring` へ分けたこと |
+| [140_observability.jp.md](../../design/140_observability.jp.md) | 値の読み口と配線のクラス、step trace の列と target（`$env_step`・`$agent_step`・`step_in_episode`・`action`）と時点の表 |
+| [160_applications_and_tools.jp.md](../../design/160_applications_and_tools.jp.md) | Evaluation Trace、列幅・最小幅・テーマ配色、追従paneとLive／Trace・操作バーの赤枠、6個のアイコンボタンと再生／一時停止トグル、Live でのコマ戻し、メインツールバーの Step のアイコン |
+| [020_user_guide_run.jp.md](../../design/020_user_guide_run.jp.md) | Evaluation Traceのアイコン操作（Live でのコマ戻しを含む）・赤枠・手動列幅と開き直しの使い方、列の設定とQ_sa／V_s／truncの表示名 |
+| [common.txt](../../../apps/runner/config/common.txt)・[Atari.txt](../../../apps/runner/config/Atari.txt) | D13 |

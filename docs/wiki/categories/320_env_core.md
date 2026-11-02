@@ -23,7 +23,7 @@
 - 2026-10-20: BatchEnv の Step は終端の lane をリセットせず、Runner が通知のあとに終わったエピソードをリセットする（後にADR0060で取消）（出典: [ADR 0059](../../adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md)、本文）。
 - 2026-10-20: 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、本文）。
 - 2026-10-20: 遷移の結果をStepの結果へ移しBatchEnvの自動リセットをStep内に戻した（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§4.1 D1・D2）。
-- 2026-10-21: Env遷移の値をstep traceへ渡す読み口を接続した（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D5・D9）。
+- 2026-10-21: Env遷移の値をstep traceへ渡す読み口を接続した（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.2 D5・D9）。
 
 ## 選ばなかった形
 
@@ -39,7 +39,7 @@
 
 - batch-native移行後も既存Runner・Observer・GUIの接続とEnv nameを維持する（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、1.3 維持する外部contract）。
 - Actor設定の移行でRunMode enumとEnv側の用途を変えない（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、5.2 Agent インタフェース）。
-- 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
+- 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
 - Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、ゴールG3・§7 1/4）。
 - 評価セッションの採用規則と@session_endの集約の読み口を変えない（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§4.2 4・§4.3.4）。
 
@@ -66,7 +66,7 @@
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 - [PRD070](../../memo/done/070_device_spec_auto_10prd.md) — PRD 070: device 指定の auto 対応とキー体系統一
 - [PRD075](../../memo/done/075_episode_steps_and_eval_session_log_10prd.md) — PRD 075: エピソード長の汎用メトリクス化と評価セッションの実行ログ
-- [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
 - [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
 

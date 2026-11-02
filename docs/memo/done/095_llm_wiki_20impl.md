@@ -158,7 +158,7 @@ KFMに触れるmemoryのうち、PRD082・094・内的報酬／LLM ActorのPRD�
 
 - PRD094 の PRD づくり（Claude Code、セッション `9f59f7bb-4330-473b-8fd2-f30b477cb3c9`、2026-10-18〜19）で確かめた。記録は会話記録から起こした。
 - 要点提示の最初の応答（2026-10-18 22:44 JST）の冒頭に「読んだ wiki ページ: RunnerApp の実装の地図、kung_fu_master」が示された。KFM と RunnerApp のページを含む。
-- `docs/wiki/log.md` に `2026-10-19 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:bfb690da0d62692264c61ec5f9b439625b356857 → docs/wiki/subjects/kung_fu_master.md` の行がある。blob は、コミット `a8ba9d61` の PRD094 と一致する。
+- `docs/wiki/log.md` に `2026-10-19 writeback docs/memo/done/094_evalpanel_step_history_10prd.md blob:bfb690da0d62692264c61ec5f9b439625b356857 → docs/wiki/subjects/kung_fu_master.md` の行がある。blob は、コミット `a8ba9d61` の PRD094 と一致する。
 - 受入7: 済み。段階1の受入1〜7がそろった。段階2は、PRD095 §9 の順（094 の PRD づくりのあと）に従って着手できる。PRD094 の実装は条件ではない。
 - §8 の成功の測り方のうち 094 の分（読んだページ名、背景の事実をユーザーが直した回数、要点提示の既存部品の働きを RunnerApp の実装の地図から書けたか）は、受入とは別に、必要になったときに同じ会話記録から起こす。
 

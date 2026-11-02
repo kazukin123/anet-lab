@@ -1,6 +1,6 @@
 # PRD094 検証資材
 
-正本は[実装計画](../../../../docs/memo/094_evalpanel_step_history_20impl.md)。Pythonはリポジトリの`.venv/Scripts/python.exe`を使う。
+正本は[実装計画](../../../../docs/memo/done/094_evalpanel_step_history_20impl.md)。Pythonはリポジトリの`.venv/Scripts/python.exe`を使う。
 
 - `run_validation.py before` は既存Release実行体・DLL・設定を固定し、Atari/DropMerge/LunarLander CPU/GridMaze/actor_approxの同seed・65536経験の短いRunを各2回、必ず1本ずつ順次実行する。
 - `run_validation.py after` は変更後の実行体を固定して各1回比較する。`PRD094_BINARY_DIR`で隔離ビルドの配置を選び、`PRD094_AFTER_NAME`で`stage1`/`after-v1`などの世代を分離する。保存済み実行体を上書きしない。
@@ -23,7 +23,7 @@ GetScalarへの汎用化では`[generic_step_keys]`・`[generic_step_completion]
 
 ## 2026-10-22の表示・操作調整
 
-今回の正本は[21impl](../../../../docs/memo/094_evalpanel_step_history_21impl.md)。以前のRunの数値と、この調整の測定を混同しない。
+今回の正本は[21impl](../../../../docs/memo/done/094_evalpanel_step_history_21impl.md)。以前のRunの数値と、この調整の測定を混同しない。
 
 - `AnetRLRunner-gui-test`を明示的にビルドする。通常の全体ビルドには含めず、Runnerと同じbinへ出力する。C++のビルドはAGENTS.mdのVsDevCmd経由とする。
 - 通常実行は、実wxGridとwxAuiToolBarの公開API・標準イベントを通して、6操作・幅・遅延確定・手動指定・開き直し・システム配色・フォント変更を確認する。学習RunやRunnerAppのOnInitは起動しない。
@@ -32,4 +32,4 @@ GetScalarへの汎用化では`[generic_step_keys]`・`[generic_step_completion]
 - `[trace_ui_perf]`は12列＋遅延2列、履歴1000行の実UI経路を測る。Notify内の表更新・診断も含む時間であり、AtariのNN・View・学習速度の測定ではない。固定の時間を通常の単体テストの合否にしない。
 - coreの`[prd094]`も実行し、時点・列解析・再生の回帰を確認する。Liveのコマ操作と速度の表示以外の期待値は維持する。
 
-追加調整の正本は[22impl](../../../../docs/memo/094_evalpanel_step_history_22impl.md)。`[trace_speed_label]`で小数倍率の全7段階、`[trace_ui_minimum]`で操作バーとアクション列までの最小幅・手動幅・フォント変更、`[trace_ui_header]`で行選択後も列見出しが強調されないことを確認する。描画回帰は赤枠に加えて列見出しのLive／Trace同一配色も確認する。
+追加調整の正本は[22impl](../../../../docs/memo/done/094_evalpanel_step_history_22impl.md)。`[trace_speed_label]`で小数倍率の全7段階、`[trace_ui_minimum]`で操作バーとアクション列までの最小幅・手動幅・フォント変更、`[trace_ui_header]`で行選択後も列見出しが強調されないことを確認する。描画回帰は赤枠に加えて列見出しのLive／Trace同一配色も確認する。

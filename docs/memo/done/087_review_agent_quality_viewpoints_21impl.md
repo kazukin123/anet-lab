@@ -265,7 +265,7 @@ policy:
    - 置き場に、4 つの差分ファイルができた。名前は、すべて `__` で始まる（`.agents/skills/anet-review/SKILL.md` は `__.agents__skills__anet-review__SKILL.md.diff`）。
    - Git Bash の `ls`（`-a` なし）と、`rg --files`（`--hidden` なし）の一覧に、4 件とも出る。
    - どの差分ファイルも、同じ引数の `git diff` の標準出力と、バイト単位で一致した。CR は無い（`tr` で数えて 0 バイト）。
-7. 項番 6 のコマンド: `git diff --stat=200 HEAD` を、変えた 4 ファイルに当てた出力に、4 ファイルのパスが、省かれずに出る。本メモは、`docs/memo/087_review_agent_quality_viewpoints_21impl.md` と出る。幅を指定しない `--stat` では、いまも前半が省かれる。同じコマンド（`--stat=200`）を、Windows PowerShell 5.1 からも 1 回実行した。出力は、Git Bash のものと SHA-256 が一致した。
+7. 項番 6 のコマンド: `git diff --stat=200 HEAD` を、変えた 4 ファイルに当てた出力に、4 ファイルのパスが、省かれずに出る。本メモは、`docs/memo/done/087_review_agent_quality_viewpoints_21impl.md` と出る。幅を指定しない `--stat` では、いまも前半が省かれる。同じコマンド（`--stat=200`）を、Windows PowerShell 5.1 からも 1 回実行した。出力は、Git Bash のものと SHA-256 が一致した。
 8. 触らないファイル: `git status --short` を、共有コアの 2 ファイル、`.codex/agents/an-review.toml`、`AGENTS.md`、`CONTEXT.md`、`docs/process/registry.md`、`docs/quality/prd.md`、PRD 087、skills README の両方のコピーに当てた出力は、空である。
 
 直したあとの名前とコマンドを、レビューエージェントが使うところは、確かめていない。この作業でも、ほかのエージェントを起動しないことにしていたためである。

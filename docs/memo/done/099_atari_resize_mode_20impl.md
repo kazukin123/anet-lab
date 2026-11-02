@@ -260,3 +260,9 @@ Public interface / surface: AtariEnvFactory/AtariEnvConfig、EnvのReset/Step/Ge
 品質確認観点は全項目を適用条件に従って自己点検した。privateな計算情報を公開せず、作業領域は縮小器が所有し、共有可変状態・ロック・device転送・設定キーを追加していない。BOM/LF・Markdownリンク・固定goldenのSHA256・git diff --checkに問題なし。比較基準からの7ファイルの差分をperf-20261024/*.diffへ保存した。
 
 Claude Codeの差分レビューは未実施であり、自己点検と区別して引き渡す。仕様上の未決はなし。正式な64 env Env Stepの受入と実Runは今回の対象外で、単体の1.23757倍をその合格とは扱わない。実験用Releaseと通常実行体を保持し、staging・commit・pushせず停止する。
+
+## 残件の決着（2026-11-02）
+
+- 受入 5（性能）: 正式な交互 5 組の測定は行っていない。ユーザーが pixel_area の実 Run の動作で、性能の劣化がほぼ無いことを確認した。この確認で受入とした（ユーザー判断）。
+- 受入 6（実 Run と表示）: `run.@pixel_area` を含む `run_20261024-132319_a5_qb_btrpa_s1` の config dump に `AtariEnv.resize_mode = pixel_area` があり、評価個別の上書きは無い。構築ログでは、学習 64 lane・定期評価 10・greedy_dist 16・EvalPanel 1 がすべて `AtariEnv resize_mode=pixel_area` だった。Evaluation Trace のプレビューを使う確認は行っていない。
+- 2026-11-02 にユーザーの指示で完了とし、done/ へ移す。

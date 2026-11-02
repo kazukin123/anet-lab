@@ -19,7 +19,7 @@
 - 2026-09-19: Actorごとのframe stackerの構築・同期を接続した（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-09-24: device文字列を解決するParseDeviceをtensor_utilにまとめた（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、確定したD8）。
 - 2026-09-27: ActionContext廃止に合わせstackerをActor私有としstacker側のAgent依存を除いた（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、確定した設計判断5・7）。
-- 2026-10-21: scalarの読み口統一に合わせScaler群の値取得を接続した（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D1・§4.3 規約・ADR・コードから導いたこと）。
+- 2026-10-21: scalarの読み口統一に合わせScaler群の値取得を接続した（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D1・§4.3 規約・ADR・コードから導いたこと）。
 
 ## 選ばなかった形
 
@@ -32,7 +32,7 @@
 
 - H2DとLearner streamを安全につなぐeventのrecord/waitを維持し、性能改善のために消さない（出典: [PRD020](../../memo/done/020_device_transfer_common_part_10prd.md)、Context / Problem Statement）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、Context・確定した設計判断2〜4・11）。
-- 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
+- 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
 
 ## 関係
 
@@ -66,7 +66,7 @@
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 - [PRD070](../../memo/done/070_device_spec_auto_10prd.md) — PRD 070: device 指定の auto 対応とキー体系統一
 - [PRD083](../../memo/done/083_action_context_retire_10prd.md) — ActionContext の廃止（Actor が RNG と frame stacker を直接持つ）
-- [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 
 ## 台帳の指摘
 

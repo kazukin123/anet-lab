@@ -17,13 +17,13 @@
 - 2026-09-05: 個体メトリクスは trace チャネルで出し、評価セッションは採用 episode ごとの EpisodeEndEvent と SessionEndEvent を分けて発火する（出典: [ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)、本文）。
 - 2026-09-19: Actorカタログ変更後のメトリクス保存を回帰確認した（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-10-19: Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、本文）。
-- 2026-10-21: scalarとtraceのtarget解決を共用しメトリクス配線を分離した（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D1〜D3）。
+- 2026-10-21: scalarとtraceのtarget解決を共用しメトリクス配線を分離した（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D1〜D3）。
 - 2026-10-29: 評価sessionの採用episodeのstep traceを、Evaluation Traceと同じ列の書き方で`metrics.step_trace.[<tag>]`に宣言し、traceの行としてRunの記録に残す案を暫定で起票した（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、題・§4 D1・D2・D6）。
 
 ## 選ばなかった形
 
-- step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
-- Event/Observerの型の統一 — 範囲外: step traceとは別の関心。再開条件: 新しいEvent型を足す変更が出たとき（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
+- step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
+- Event/Observerの型の統一 — 範囲外: step traceとは別の関心。再開条件: 新しいEvent型を足す変更が出たとき（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
 - metricsのtrace定義tagをEvaluation Traceの列として参照する形 — 不採用: 見るだけでも記録の宣言が要り、EMA・間隔・集約を持つscalar統計はstepの生値に合わない（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、Considered Options）。
 - trace の level（off / record / forensic） — 不採用（cut）: 宣言の有無で足りる。forensic は想像上の需要である（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、4.0 決定一覧 D2・9. 複雑さ監査）。
 - trace の行の episode_id・model_version の欄 — 範囲外（cut。912・932 へ）: コードに概念が無い。再開条件: episode_id は 932 で EpisodeId が実装されたとき、model_version は 912 に着手するとき（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、8. フェーズとゲート・9. 複雑さ監査）。
@@ -41,7 +41,7 @@
 
 - batch入力への移行でtrainのmax_steps episode、episode_start、可視化cadenceを維持する（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、1.3 維持する外部contract）。
 - 512/1024動画はautoでNVENCを選択し、従来どおり出力できることを確かめる（出典: [PRD025](../../memo/done/025_videolog_codec_auto_ffmpeg_guard_10prd.md)、Testing Decisions）。
-- 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
+- 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
 - step traceの宣言が無い設定では、observerもstep部品も作らず、PRD103の検証資材の6構成のmetrics checksumを実装の前後で一致させる。既存の1行DSLのtraceの定義の記録（`json/metrics.trace.defs.json`）も前後で同一に保つ（出典: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)、§4 D2・D4・§7の受入1）。
 
 ## 関係
@@ -74,7 +74,7 @@
 - [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md) — ImageCls 専用 batch 入力コンポーネント / BatchEnv adapter
 - [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md) — PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
-- [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 
 ## 台帳の指摘
 

@@ -49,7 +49,7 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 - 最後でない残機を失っても`V_s`がほとんど下がらないことは、評価sessionの多くのゲームで成り立つか。14,550点で終わるゲームは、残機を失う面・stepがそろった同じ道筋をたどっているか（出典: [999_eval_session_step_trace_10prd.md](../../memo/999_eval_session_step_trace_10prd.md)、§1・§3のG3）？
 - NoisyNetの摂動つきの行動で固定を外す比較は、合算では既存singleと実装後fullの参考比較に留まり、同じビルドでの比較は未実施。遮断・重み0.3のcheckpointや別seedでも改善するか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、「singleの値と固定の寄与の目安」「再現と残る判断」；[qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り・探索ブロック02）？
 
-- BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？
+- BTRとの観測の縮小方式の差を減らすと、第8面以降への進行が改善するか（出典: [PRD099](../../memo/done/099_atari_resize_mode_10prd.md)、§3「学習効果の確かめ方」）？
 - 64 env・容量1Mで突破が増えた効き方の仕組みは何か（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ6・探索ブロック03「効き方の仕組みは測れていない」）？
 - 64 env・1M の seed 4 だけが、第 8 面の中で点を重ね、そのあと面が進まないまま点だけが増えるゲームへ入ったのはなぜか（出典: [2026-09-27のcampaign](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、pending）？
 
@@ -62,4 +62,4 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
-- [PRD099](../../memo/099_atari_resize_mode_10prd.md)（縮小方式だけを変える比較）。
+- [PRD099](../../memo/done/099_atari_resize_mode_10prd.md)（縮小方式だけを変える比較）。

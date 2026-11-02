@@ -55,7 +55,7 @@
 - 2026-10-16: 勾配ノイズスケールは更新自身の batch を小バッチに分けて学習経路の中で測り、BF16 も対象にする（出典: [ADR 0054](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)、本文）。
 - 2026-10-18: Learnerの購読時probeと更新結果へattention entropyを接続した（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§4 決定した設計）。
 - 2026-10-19: step trace の近似優先度は Agent が出す step 部品が計算し、Actor の設定キーで eval_panel にだけヒントを作らせることはしない（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
-- 2026-10-21: Actorと共有するヒント計算を使うDQNのstep診断部品を加えた（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6）。
+- 2026-10-21: Actorと共有するヒント計算を使うDQNのstep診断部品を加えた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.2 D6）。
 - 2026-10-24: 探索の ε・UQE の ε と τ・ラダーの両端を ProfiledValue で時間変化させ、時間の値とラダーの両端を別キーに分け、学習側の 7 値も同じ器にする（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、題・§1・§4）。
 - 2026-10-24: 時間で変わる割引率は、schedule のときだけ抽選時に保存済みの step 報酬から収益を作り直す（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、本文）。
 
@@ -71,7 +71,7 @@
 - 購読間隔ごとの別EMA — 不採用: 状態と系列が増える。独立した時間幅はrawの利用側での再平滑化に任せる（出典: [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md)、§10.2）。
 - head単位統計とattention entropy最小値 — 先送り: 層平均で足りる間は公開値と保持データを増やさない。再開条件: 層平均が下がったRunで内訳が必要になったとき。最小値は6層構成で読みにくくなったとき（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§5・§7）。
 - TQLのattention entropy正則化 — 先送り: anetでは本指標で集中の進行をまだ観測していない。再開条件: 層平均の集中と成績の頭打ち・下降が時期として重なったとき。因果は別途判断する（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§7 1）。
-- 学習側の厳密な優先度の列 — 不採用: EvalPanelには単一networkのforwardしかなくreplayも無いため学習側のonline/targetによる値は得られない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§6）。
+- 学習側の厳密な優先度の列 — 不採用: EvalPanelには単一networkのforwardしかなくreplayも無いため学習側のonline/targetによる値は得られない（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
 - moduleのbufferにεを置きreset_noiseで引き直す形 — 不採用: shared networkの同時forwardで競合し、snapshotとhard updateで別用途のεが混入する（出典: [ADR 0048](../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)、Considered Options）。
 - ReplayBufferから別に一様抽出する勾配ノイズprobe — 不採用: 実更新と抽選分布・IS重みが違い、forwardも増える（出典: [ADR 0054](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)、Considered Options）。
 - BatchNormの専用検出・禁止 — 不採用: 独立サンプルとして解釈できる条件を文書化し、構成と解釈は利用側に任せる（出典: [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md)、§10.2）。
@@ -100,7 +100,7 @@
 - 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とする（PRD060は基準を取り損ねた）（出典: [PRD084](../../memo/done/084_noisynet_10prd.md)、§8.2・§12・§13）。
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§6 1・5）。
-- ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
+- ヒント計算の共有化前後でactor_approxの同seed・決定的Runの学習metrics checksumを一致させ、既定のEvalPanel networkとRunnerカウンタの通知前後の時機を変えない（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.2 D6/D7・§8 3）。
 - スキップ中も全 lane で forward し、行動だけを上書きする（全 lane の q_values を前提にする step 診断・Actor Q ヒント・spatial・Noisy・stacker・Push の契約を保つ）（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D2・§5.5）。
 - 探索のキーを ProfiledValue へ移すとき、既存の log ラダー（0.4〜0.01、0.05〜1e-4）と非 spatial の ε・τ の値を変えず、Atari・DropMerge・GridMaze・LunarLander（DropMergeとLunarLanderだけ最後のlaneを1e-4と書いた検査用設定） の短い決定的 Run の metrics checksum を実装前に保存した実行体と比べる。評価の時機は Actor が `UpdateSchedule` の `exp_step`、Learner が update の先頭の `exp_step`。PER β だけは今の時機（前回の更新の終わりに次回分を評価、初期値は step 0 の値）を保つ（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.2 D7・D8・§4.4 D18・§6.1 1）。
 - Munchausen の α・entropy_tau を時間で変えるときは、Actor の Q ヒント・Evaluation Trace の step 診断・Learner の target が同じ step で同じ値を使うことを確かめる（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.4 D19・§6.2 5）。
@@ -144,7 +144,7 @@
 - [PRD084](../../memo/done/084_noisynet_10prd.md) — NoisyNet (Noisy Networks for Exploration) PRD
 - [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md) — 勾配ノイズの大きさ（gradient noise scale）の計測 PRD
 - [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md) — TransformerEncoder の attention エントロピー診断 PRD
-- [PRD094](../../memo/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
 - [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
 - [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD

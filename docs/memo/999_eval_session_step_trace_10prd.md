@@ -2,7 +2,7 @@
 
 > 2026-10-29 起票（暫定・999。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、実装時は近傍のシンボル名で探し直す。
 > 起点: qbert の評価（合算の checkpoint、Greedy）を Evaluation Trace で見たところ、最後でない残機を失っても価値（`V_s`）がほとんど下がらなかった（3 ゲーム）。これを評価 session の 200 ゲームで数えたいが、評価 session の step ごとの値を Run の記録に残す口が無い。材料は 2026-10-29 の会話と、PRD106 の再グリルへの引継ぎ文書 `.scratch/prd106/handoff-grill-20261029.md` の §9。
-> 関連: [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル。§8 に「trace の `@train`（lane ごとの毎 step 記録）」の待機中のゲート）、[PRD094](094_evalpanel_step_history_10prd.md)（Evaluation Trace。step trace の生成器と列の書き方）、[PRD081](081_evalpanel_episode_trace_10prd.md)（EvalPanel のゲームを trace へ出す。PRD094 から「step trace を trace チャネルへ出す段」を引き継いだが、改訂はまだ）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)・[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（trace の行の契約）、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)（Evaluation Trace の列はメトリクスの定義と分けて宣言し、遷移の時点に合う target だけを読む）、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)（step の診断値は Agent の step 部品が計算する）、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)。
+> 関連: [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル。§8 に「trace の `@train`（lane ごとの毎 step 記録）」の待機中のゲート）、[PRD094](done/094_evalpanel_step_history_10prd.md)（Evaluation Trace。step trace の生成器と列の書き方）、[PRD081](081_evalpanel_episode_trace_10prd.md)（EvalPanel のゲームを trace へ出す。PRD094 から「step trace を trace チャネルへ出す段」を引き継いだが、改訂はまだ）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)・[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（trace の行の契約）、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)（Evaluation Trace の列はメトリクスの定義と分けて宣言し、遷移の時点に合う target だけを読む）、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)（step の診断値は Agent の step 部品が計算する）、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)。
 
 ## 1. 目的と問題
 
@@ -23,7 +23,7 @@
 3. Evaluation Trace（EvalPanel の pane）は、`StepTraceBuilder` が `TrainEvent` から lane・step ごとの行（step trace）を組み、`app.eval_trace_panel.columns.[n]` で宣言した列を読む（[metrics.hpp:43-79](../../core/anet-core/include/anet/metrics.hpp)）。列の target は `$runner`・`$actor`・`$env_step`・`$action_info`・`$agent_step` で、1 列に 1 target・1 key（[metrics.cpp:120-143](../../core/anet-core/src/metrics.cpp)）。列の宣言の置き場は `app.eval_trace_panel.columns.` に固定されている（同 100-108 行）。`$agent_step` の値（`q_sa`・`state_value`・`approx_priority`）は Agent の step 部品（`AgentStepDiagnosticsProvider`）が作り、あとで決まる値は待ってから行を確定する（[rl.hpp:777-790](../../core/anet-core/include/anet/rl.hpp)、[dqn_based_agent.cpp:496-497](../../core/anet-core/src/dqn_based_agent.cpp)）。
 4. Evaluation Trace の表は画面に出すだけで、書き出しは無く、最大行数は `app.eval_trace_panel.max_rows`（既定 1,000）である（[EvalTracePanel.cpp:52-54](../../apps/runner/src/EvalTracePanel.cpp)）。
 5. PRD069 §8 は、「trace の `@train` / `@learn`（per-step lane fan-out）」を待機中のゲートとし、開けるきっかけを「932 forensic、または lane ごとの毎 step 記録が要るとき」、コストを「検証行列の分岐 + observer 1 種」としている（[PRD069](done/069_metrics_trace_channel_10prd.md) §8）。本書の需要は後者に当たる。
-6. PRD094 は「step trace を trace チャネルへ出す段」を PRD081 へ移し、そこで決めることを「trace 行の step 座標」「metrics の DSL への `$agent_step` の追加」「あとで決まる列を待って 1 行を書くこと」とした（[PRD094](094_evalpanel_step_history_10prd.md) §7 の 2）。PRD081 のその改訂はまだ無い。PRD081 の対象は EvalPanel（鏡写しインスタンス）で、評価 session ではない。
+6. PRD094 は「step trace を trace チャネルへ出す段」を PRD081 へ移し、そこで決めることを「trace 行の step 座標」「metrics の DSL への `$agent_step` の追加」「あとで決まる列を待って 1 行を書くこと」とした（[PRD094](done/094_evalpanel_step_history_10prd.md) §7 の 2）。PRD081 のその改訂はまだ無い。PRD081 の対象は EvalPanel（鏡写しインスタンス）で、評価 session ではない。
 7. 用語: 「step trace」は「Runner の遷移 1 つを 1 件とし…Evaluation Trace の 1 行で、trace へ出すときもこの単位で 1 レコードにする」と定義済み（[CONTEXT.md](../../CONTEXT.md) の「step trace」）。「trace」は「1 件の個体（lane のエピソード完了など）を 1 レコードとして…記帳するメトリクスチャネル」（同「trace」）。
 
 ## 3. ゴール・非ゴール・成功の測り方
@@ -37,7 +37,7 @@
 **非ゴール**
 
 - 学習側（`$train`）の step ごとの記録。消える案は学習中の全 step を残す案で、本当の制約ではない（同じ observer で付けられる）が、行数が学習の長さに比例して桁違いに増え、今回の問いに要らない。
-- EvalPanel（鏡写しインスタンス）の step trace を記録に残すこと。PRD081 の改訂の関心である（§9 の 1）。消える案は本書で EvalPanel も扱う案で、本当の制約ではないが、EvalPanel の step 座標の問題（[PRD094](094_evalpanel_step_history_10prd.md) §7 の 2）を含むので分ける。
+- EvalPanel（鏡写しインスタンス）の step trace を記録に残すこと。PRD081 の改訂の関心である（§9 の 1）。消える案は本書で EvalPanel も扱う案で、本当の制約ではないが、EvalPanel の step 座標の問題（[PRD094](done/094_evalpanel_step_history_10prd.md) §7 の 2）を含むので分ける。
 - 行を間引くこと（何 step に 1 行、何ゲームに 1 本）。消える案は間引きの設定を足す案で、本当の制約ではないが、評価専用の Run で使う前提では行数が許容の範囲（§5.5）なので、要ると分かるまで作らない（§8）。
 - Metrics Viewer で step trace を表示すること。消える案は Viewer に step trace の表を足す案で、本当の制約ではないが、G3 の数え方は CSV で足りる。
 - trace チャネルの今の 1 行 DSL（`metrics.trace.[<tag>] = …`）の文法を変えること（§4 の D1）。消える案は 1 行 DSL に `@train` と複数の target を足す案で、本当の制約ではない（クリーンブレークで変えられる）が、列の書き方がすでに同じことを表している（§8）。
@@ -56,7 +56,7 @@
 - **D5. step 座標は、その event に載る counts（評価 session の `@train` 系 event では EvalRunner 自身の counts。§2 の 2）の `exp_step` とする。** ゲームの中の位置は、列に `$runner step_in_episode` を宣言して残す。理由: 評価専用の Run（学習を止めた Run）では学習側の counts が動かないので、EvalRunner の counts だけが行を並べる座標になる。学習中の Run の評価 session に宣言したときに、学習側の counts（[CONTEXT.md](../../CONTEXT.md) の「学習側 counts」）とどう並べるかは §9 の 3。
 - **D6. 採用 episode の行だけを書く。** 採用権の無い episode（session の途中で完了したものも、session の終わりに途中だったものも）の行は書かない。採用かどうかは、行の遷移が属する episode について判定する。採用は episode の開始時に決まる（[CONTEXT.md](../../CONTEXT.md) の「採用エピソード」）が、今は評価 session の Env が group ごとの採用の旗を外へ出していない（[env.hpp:188](../../core/anet-core/include/anet/env.hpp) の非公開の欄。公開されているのは直前 Step で完了した採用 group の一覧だけ。同 167-168 行）。また Env は、採用 episode が終わった Step の中でその group の旗を下ろし、採用権が残っていれば、次の episode に旗を立て直す（[env.cpp:425-438](../../core/anet-core/src/env.cpp)）。そのため終わりの遷移のあとで旗を読むと、次の episode の旗を読んでしまう。そこで `EvalSessionEnv` に「その lane が属する episode group の、今の episode が採用か」を返す読み口を足し、observer は episode の最初の遷移でその episode が採用かを読み、その episode の終わりの遷移（`done` か `truncated` が真の遷移）まで同じ判定を使う。理由: 評価 session の記録（`@session_end` の scalar、`@episode_end` の trace）はどれも採用 episode だけを数えるので、step trace も同じ範囲にそろう。読み手が突き合わせて除く手間が無く、採用 episode はどれも終わりまで進むので、どの episode の行も `done` か `truncated` が真の行で終わる（§7 の受入 3）。依存: CONTEXT.md の「採用エピソード」の定義と、Env が旗を下ろす時機（env.cpp:425-438）。
 - **D7. あとで決まる列（`$agent_step` の一部）は、値が決まってから行を書く。session の終わりにまだ決まらない列は NaN で確定させて書く（JSON では `null`）。** 理由: step 部品の契約が「pending の鍵は値が成立しなかった場合も NaN で確定を返し、必ず待機を終える」である（§2 の 3）。
-- **D8. 予定の無い（dormant の）評価 session への step trace の宣言は、保持も結び付けもせず、何も書かない。定義の記録にも載せない。構築時に、その tag について WARN を 1 回出す。** これは [ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) の「`RunManager` は dormant タグを参照する trace observer を捨てずに保持し、同じタグで `CreateEvalRunner` された Runner（鏡写しインスタンス）へ結び付け、保持した trace の定義を起動時の定義レコードに載せる」とは違う扱いである。理由: dormant の評価 session に結び付くのは EvalPanel（鏡写しインスタンス）で、その step trace は非ゴールであり、PRD081 の改訂で決める（§9 の 1）。ここで ADR 0047 に従うと、EvalPanel の step 座標の問題（[PRD094](094_evalpanel_step_history_10prd.md) §7 の 2）を決めないまま行が書かれる。WARN を出すのは、宣言が効かないことを黙って見過ごさないため。1 行 DSL の trace の dormant の扱い（ADR 0047）は変えない。依存: 非ゴール（EvalPanel）、§9 の 1。
+- **D8. 予定の無い（dormant の）評価 session への step trace の宣言は、保持も結び付けもせず、何も書かない。定義の記録にも載せない。構築時に、その tag について WARN を 1 回出す。** これは [ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) の「`RunManager` は dormant タグを参照する trace observer を捨てずに保持し、同じタグで `CreateEvalRunner` された Runner（鏡写しインスタンス）へ結び付け、保持した trace の定義を起動時の定義レコードに載せる」とは違う扱いである。理由: dormant の評価 session に結び付くのは EvalPanel（鏡写しインスタンス）で、その step trace は非ゴールであり、PRD081 の改訂で決める（§9 の 1）。ここで ADR 0047 に従うと、EvalPanel の step 座標の問題（[PRD094](done/094_evalpanel_step_history_10prd.md) §7 の 2）を決めないまま行が書かれる。WARN を出すのは、宣言が効かないことを黙って見過ごさないため。1 行 DSL の trace の dormant の扱い（ADR 0047）は変えない。依存: 非ゴール（EvalPanel）、§9 の 1。
 
 ## 5. 実装契約
 
@@ -202,13 +202,13 @@ run.@stepdiag : metrics.step_trace.[53_evalg/step].columns.[320] = $agent_step s
 
 ## 10. 依存と順序
 
-- [PRD094](094_evalpanel_step_history_10prd.md)（`StepTraceBuilder`・列の書き方・`$agent_step`）と [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル）の実装に乗る。
+- [PRD094](done/094_evalpanel_step_history_10prd.md)（`StepTraceBuilder`・列の書き方・`$agent_step`）と [PRD069](done/069_metrics_trace_channel_10prd.md)（trace チャネル）の実装に乗る。
 - [PRD081](081_evalpanel_episode_trace_10prd.md) の改訂（§9 の 1）と順序が絡む。どちらを先にしても、step trace を書く口は 1 つにする。
 - [PRD106](done/106_temporl_skip_forward_noise_key_10prd.md) のステージ 0 の読み（Greedy の決まった失敗の扱い）は、本書の G3 の結果を材料にできるが、本書を待たない。
 
 ## 11. 参照
 
-- [PRD069 trace チャネル](done/069_metrics_trace_channel_10prd.md)、[PRD094 Evaluation Trace](094_evalpanel_step_history_10prd.md)、[PRD081 EvalPanel のゲームを trace へ出す](081_evalpanel_episode_trace_10prd.md)、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)
+- [PRD069 trace チャネル](done/069_metrics_trace_channel_10prd.md)、[PRD094 Evaluation Trace](done/094_evalpanel_step_history_10prd.md)、[PRD081 EvalPanel のゲームを trace へ出す](081_evalpanel_episode_trace_10prd.md)、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)
 - [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)
 - [140 可観測性（設計文書）](../design/140_observability.jp.md)
 - [317 可視化・メトリクス（wiki）](../wiki/categories/317_metrics.md)、[110 RunnerApp（wiki）](../wiki/apps/110_runner_app.md)

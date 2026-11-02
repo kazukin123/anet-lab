@@ -88,8 +88,8 @@ Debug/ReleaseのCMake注入cacheは開始時へ復元し、どちらもconfigure
 PRD094 をクローズするため、ユーザーと受入の残件を整理した。
 
 - テーマの切替と DPI の変更への追従は、PRD094 の受入から外した。確かめるのは別の PRD である。
-  - テーマの切替: [999_runner_theme_switch](999_runner_theme_switch_10prd.md) の受入 3・4。
-  - DPI の変更: [PRD113](113_runner_per_monitor_dpi_10prd.md) の受入 3。モニター間の移動（受入 7）に Evaluation Trace を足す案を、同 PRD の §9 の 10 に置いた。
+  - テーマの切替: [999_runner_theme_switch](../999_runner_theme_switch_10prd.md) の受入 3・4。
+  - DPI の変更: [PRD113](../113_runner_per_monitor_dpi_10prd.md) の受入 3。モニター間の移動（受入 7）に Evaluation Trace を足す案を、同 PRD の §9 の 10 に置いた。
   - PRD094 の冒頭の 2026-11-02 の改訂行、§6、受入 9・10 に書いた。上の「未実施・未確認」のうち、テーマと DPI はこれで受入の外になった。
 - 受入 8 の上下キーは、PRD105 の D1 が置き換えたので、PRD105 の受入で確かめる。
 - 受入 8 の実機確認のうち、次の 4 項目は、ユーザーが実 Runner（Atari qbert、`run_20261102-172220_atari_qbert`）で確かめて OK とした（2026-11-02）。受入 12 の 2 つ目（再生・停止・スライダー・Live に戻るきっかけ・開き直し）も、3 に含めて確かめた。

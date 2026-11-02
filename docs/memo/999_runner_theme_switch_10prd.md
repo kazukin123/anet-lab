@@ -2,7 +2,7 @@
 
 > 2026-10-31 起票（暫定・999。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、実装時は近傍の記述で探し直す。wxWidgets のソースの行番号は 3.3.3 のもの。
 > 起点: 2026-10-31 の会話。Runner の起動後に Windows のテーマを切り替えると、画面の一部だけが新しいテーマになった（ユーザーのスクリーンショット 1 枚）。原因を調べ、直し方の 3 案（再起動を案内する／塗り直しを 1 か所に集めて切替が落ち着いてから行う／フレームを作り直す）を比べ、ユーザーは実装で直す 2 つ目の案を選んだ。
-> 関連: [PRD094](094_evalpanel_step_history_10prd.md)（Evaluation Trace の配色とテーマへの追従）、[PRD055](done/055_runner_toolbar_10prd.md)（ツールバーのアイコンのテーマへの追従）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.4・§3.5・§8。
+> 関連: [PRD094](done/094_evalpanel_step_history_10prd.md)（Evaluation Trace の配色とテーマへの追従）、[PRD055](done/055_runner_toolbar_10prd.md)（ツールバーのアイコンのテーマへの追従）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.4・§3.5・§8。
 
 ## 1. 目的と問題
 
@@ -31,7 +31,7 @@ Runner は起動した時点の OS のアプリのモード（ライト／ダー
 6. 作ったときの色が残る部分: wxGrid は作るときに、表の行の無い部分（セルを描かない地）の色を、セルの既定の背景と同じシステムの色に決める（wx の `src/generic/grid.cpp` の 2985〜3001 行）。あとでセルの既定の背景を変えても、MSW ではこの地の色は変わらない（同 9744〜9750 行。変えるのは GTK と Qt だけ）。Evaluation Trace の `UpdateAppearance` は、この地の色を決め直さない（[EvalTracePanel.cpp:675-681](../../apps/runner/src/EvalTracePanel.cpp)）。QValue の表（[QValuePanel.cpp:164](../../apps/runner/src/QValuePanel.cpp)）は、セル・見出し・罫線・地のどれも作ったときの色のまま残る。選んだ行の強調の色は、選ぶ行が変わったときにだけ読む（同 500〜518 行）。wxGrid が作るときに使う色は、セルの背景が WINDOW、文字が WINDOWTEXT、見出しの地が BTNFACE、罫線が GRIDLINES、選択が HIGHLIGHT である（wx の `src/generic/grid.cpp` の 2960〜3004・3222〜3269 行）。
 7. 描くたびに色を読む部分と、テーマに合わせない固定の色: Evaluation Trace の報酬と終端の行の色は、描くたびにセルの既定の背景へ薄く混ぜて作る（[EvalTracePanel.cpp:61-74](../../apps/runner/src/EvalTracePanel.cpp)）。DropMerge の View は描くたびにシステムの色を読む（[DropMergeView.cpp:185](../../core/envs/dropmerge1/src/DropMergeView.cpp) など）。テーマに合わせない固定の色は、Train View の枠（デスクトップの色。[TrainPanel.cpp:38](../../apps/runner/src/TrainPanel.cpp)）、QValue のヒートマップの地（黒。[QValuePanel.cpp:55](../../apps/runner/src/QValuePanel.cpp)）、HeatMap の step の文字（黒。[HeatMapPanel.cpp:352](../../apps/runner/src/HeatMapPanel.cpp)）、Atari の重ね書き（黒地に白。[AtariView.cpp:46-47](../../core/envs/atari1/src/AtariView.cpp)）、Env の View が描く盤面の色である。
 8. 観測（2026-10-31 のユーザーのスクリーンショット 1 枚）: タイトルバーとメニューがライトなので、ダークで起動してライトへ切り替えたあとと読める。ライトになっていたのは、タイトルバー、メニュー、ツールバーの地とアイコン（黒）、Evaluation Trace の操作帯・アイコン・列見出し、Logs の操作帯と検索欄である。ダークのまま残ったのは、pane の見出しと枠、ステータスバー、Evaluation Trace のセル（暗い緑の行。暗い既定の背景に緑を混ぜた色）・行の無い部分・横スクロールバー、Logs のログ欄である。Evaluation Trace のアイコン・列見出しとセルの既定の背景は、同じ `UpdateAppearance` の中で決めている（[EvalTracePanel.cpp:669-681](../../apps/runner/src/EvalTracePanel.cpp)）のに、テーマが分かれた。1 回の呼び出しでは説明がつかないので、通知が違う状態で複数回届いた可能性がある。どの経路でそうなったかは確かめていない（§5.3 の段 0）。
-9. 設計と受入の記述: [160](../design/160_applications_and_tools.jp.md) §3.4（114 行）は Evaluation Trace が「テーマ・フォント・DPI変更には追従」すると、§3.5（142 行）は Logs が「テーマ変更の通知で全行を塗り直す」と書く。[PRD094](094_evalpanel_step_history_10prd.md) §8 の受入 10（416 行）は、開いたままテーマを変えても配色とアイコンが追従することを求めた。その実装の記録は、OS のテーマの切替を実機では確かめておらず、通知を pane へ送るテストで代えた（[094 の 21impl:100](094_evalpanel_step_history_21impl.md)、[22impl:53](094_evalpanel_step_history_22impl.md)）。[PRD055](done/055_runner_toolbar_10prd.md) の受入 10（269 行）は、ツールバーのアイコンの追従を求めた。
+9. 設計と受入の記述: [160](../design/160_applications_and_tools.jp.md) §3.4（114 行）は Evaluation Trace が「テーマ・フォント・DPI変更には追従」すると、§3.5（142 行）は Logs が「テーマ変更の通知で全行を塗り直す」と書く。[PRD094](done/094_evalpanel_step_history_10prd.md) §8 の受入 10（416 行）は、開いたままテーマを変えても配色とアイコンが追従することを求めた。その実装の記録は、OS のテーマの切替を実機では確かめておらず、通知を pane へ送るテストで代えた（[094 の 21impl:100](done/094_evalpanel_step_history_21impl.md)、[22impl:53](done/094_evalpanel_step_history_22impl.md)）。[PRD055](done/055_runner_toolbar_10prd.md) の受入 10（269 行）は、ツールバーのアイコンの追従を求めた。
 10. 対象の OS: Runner は Windows で使っている。Linux・macOS は未検証である（[040](../design/040_development_environment.jp.md) の 39 行）。
 11. 既存のテスト: [LogPanel_test.cpp:214-217](../../apps/runner/src/LogPanel_test.cpp) と [EvalTracePanel_test.cpp:814-819](../../apps/runner/src/EvalTracePanel_test.cpp) は、pane へ通知を直接送り、塗り直しを確かめている。GUI テストの実行ファイルは `AnetRLRunner-gui-test`（[apps/runner/CMakeLists.txt:148](../../apps/runner/CMakeLists.txt)）。
 
@@ -155,7 +155,7 @@ VERBOSE で、英語で出す。色は `#RRGGBB`、外観はその時点の wx �
 | `EvalTracePanel` | 変更 | 通知を自分で受けず、RunnerFrame から `UpdateAppearance` を受ける。表の行の無い部分の地の色も決め直す | EvalTracePanel |
 | `QValuePanel` | 変更 | 表の外観の決め直し（`UpdateAppearance`）を新たに持つ | QValuePanel |
 
-`UpdateAppearance` は、LogPanel・EvalTracePanel の既存の名前と同じ動詞・同じ意味（UI の性質を今の条件へ更新する）で使う（[094 の 22impl:57](094_evalpanel_step_history_22impl.md)）。
+`UpdateAppearance` は、LogPanel・EvalTracePanel の既存の名前と同じ動詞・同じ意味（UI の性質を今の条件へ更新する）で使う（[094 の 22impl:57](done/094_evalpanel_step_history_22impl.md)）。
 
 ## 6. 細部（暫定で置いた既定）
 
@@ -214,11 +214,11 @@ VERBOSE で、英語で出す。色は `#RRGGBB`、外観はその時点の wx �
 ## 10. 依存と順序
 
 - 先に要る PRD は無い。
-- 受入 4 は、[PRD094](094_evalpanel_step_history_10prd.md) §8 の受入 10 と [PRD055](done/055_runner_toolbar_10prd.md) の受入 10 の、実機で確かめていない部分（OS のテーマの切替）を兼ねられる。
+- 受入 4 は、[PRD094](done/094_evalpanel_step_history_10prd.md) §8 の受入 10 と [PRD055](done/055_runner_toolbar_10prd.md) の受入 10 の、実機で確かめていない部分（OS のテーマの切替）を兼ねられる。
 
 ## 11. 参照
 
-- [PRD094 Evaluation Trace](094_evalpanel_step_history_10prd.md)、[PRD055 Runner ツールバー](done/055_runner_toolbar_10prd.md)
+- [PRD094 Evaluation Trace](done/094_evalpanel_step_history_10prd.md)、[PRD055 Runner ツールバー](done/055_runner_toolbar_10prd.md)
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.4・§3.5・§7.1・§8
 - [040 開発環境構築ガイド](../design/040_development_environment.jp.md) §3.4
 - [RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
