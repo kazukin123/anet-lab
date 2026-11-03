@@ -561,3 +561,5 @@
 2026-11-02 writeback docs/memo/114_findings_intake_and_fix_prd_10prd.md blob:a6d5a8bfbdb831de5dc1e24f3025b0cc79a57202 → なし（同日の改め。暫定 PRD に確定した決定を置かない決まりに合わせ、起点の行と §4 の書き方を改めた。最終の本文と 311 の地図の成立の経緯・選ばなかった形・変えるときの条件を照合し、食い違いなし。地図は起点の会話の方向を決定として書いていない）
 2026-11-02 writeback docs/memo/094_evalpanel_step_history_10prd.md blob:7bd5af260dfc7ccd05b2d12ed92ddc4e7a642463 → なし（テーマの切替と DPI の変更の確かめを別 PRD へ移した。wiki と食い違いなし）
 2026-11-02 writeback docs/memo/113_runner_per_monitor_dpi_10prd.md blob:aab74ac9c77878a08d2055bc12f79753adadb07b → なし（§9 の 10 を足した改め）
+2026-11-03 writeback docs/memo/114_findings_intake_and_fix_prd_10prd.md blob:7b87e38db49a257cd4392f9e5016d1f6ecfc7db7 → docs/wiki/categories/311_dev_tools.md, docs/wiki/index.md（再グリルで台帳の形から issue の形へ全面的に書き直した。地図の成立の経緯 3 行（PRD114 の 2 行と ADR 0068）、選ばなかった形（PRD114 由来の行を §8 に合わせて置き換え、計 20 行）、変えるときの条件 3 行を書き直し、目録の 311 の別名の F番号・fix PRD を issue・課題記録・索引のissue に替えた。名前の行は揃ったあとの名前で書いた。レビュー 12 往復のあとで最終の本文と照合し、食い違いなし。知見のページに当たる主張は無い）
+2026-11-03 writeback docs/memo/999_issue_list_views_10prd.md blob:e2caf3812b00b1b4b3359152e439c4add8d2f6fb → docs/wiki/categories/311_dev_tools.md（暫定起票。地図に成立の経緯 1 行を足した。選ばなかった形・変えるときの条件に当たるものは無い）

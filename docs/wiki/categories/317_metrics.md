@@ -84,6 +84,7 @@
 - F-0008 P1 defect — VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む
 - F-0011 P2 defect — wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する）
 - F-0016 P2 refactor — HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている
+- F-0041 P3 drift — video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す
 
 [台帳の一覧](../../../reports/registry/findings.md)
 <!-- registry:end -->

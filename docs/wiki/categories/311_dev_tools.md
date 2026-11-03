@@ -26,7 +26,10 @@
 - 2026-10-18: categories.jsonの対応を直し、apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
 - 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、題・§3のゴール・§4 D1・D4）。
 - 2026-11-02: Claude Codeのmemoryをgit・フォルダ・正本・規約と定期的に照合して直すskill（anet-tidy-memory）と、機械的な検査を受け持つreports/tools/memory_support.py、housekeepingの候補memory-tidyを足す案を暫定で起票した（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、題・§1・§4 D9・D10）。
-- 2026-11-02: 工程末の起票候補で直す課題を台帳へ積み、台帳のF番号を最大5件まとめてPRDにするskill（anet-create-fix-prd）と、registry.py validateのF番号の重複検査を足す案を暫定で起票した（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、題・§1・§4 D1・D5・D15）。
+- 2026-11-02: 課題の置き場を台帳からissue（docs/management/issues/に1課題1ファイル）に替え、課題のskillをanetのskillとして持ち、すべてのPRDにissueを伴わせて作業の状態と順序をissueで持ち、新しいPRDはフォルダを移さず起票時に正式な番号を取り、999のPRDを使われたことの無い番号へ振り直す案を、再グリルで決めた（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、題・§1・§4 D1・D2・D9・D13・D14）。
+- 2026-11-02: 作業の状態と順序はissueが持ち、PRDは指示文書としてフォルダを動かさない（出典: [ADR 0068](../../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)）。
+- 2026-11-02: 共有コア（プロセス契約・レビューエージェントの定義）とハーネスに出てくるskill・エージェント・アダプタの名前をanet-で始まる名前にし、レビューエージェントは入口のskill anet-reviewと重ならないようanet-review-agentにする。名前は課題の仕組みのファイルの初めの版を置くときに合わせて揃え、名前の新旧の対応はリポジトリに置かない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D3・§10）。
+- 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [999_issue_list_views](../../memo/999_issue_list_views_10prd.md)、題・§1・§4 D1〜D3）。
 
 ## 選ばなかった形
 
@@ -46,14 +49,26 @@
 - 汎用のconsolidate-memoryをそのまま定期に回す形 — 不採用: git・フォルダ・正本・規約と照合しないので、古い状態の記述と知見の二重持ちが残る（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
 - memoryの整備の1回分の記録をreports/housekeeping/に置く形 — 不採用: repoは公開しており、memoryには私的な事柄がある（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§3.2・§4 D6）。
 - Codexのmemoryの整備 — 先送り: CodexのmemoryはCodexアプリが更新し、書き換えの可否を確かめていない。再開条件: 段階1を2回以上回し、Codexのmemoryの書き換えの可否を確かめたとき（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
-- 工程末の起票の区分をプロセス契約（protocol.md）§7に書き足す — 不採用: 共有コアはプロジェクトに依存しない文面に保ち、anet固有の決まりはレジストリの読み替えに置く（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§4 D3）。
-- 台帳へ積む入口専用のskill（an-create-issueに当たるもの） — 不採用: 積む操作はregistry.pyのadd・touch・setだけで、手順はレジストリの1節で足りる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D4・§8）。
-- fix PRD用の台帳の新しい状態 — 不採用: promotedと注記で足り、変えるとanet-audit・anet-improve・buildまで波及する（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
-- 直す課題に当たる999 PRDの台帳への移し替え — 先送り: 入口と出口が動いてから決める。再開条件: fix PRDの試走（出口）と工程末の試走（入口）を終えたとき（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
-- fix PRDの起票をanet-housekeepingの候補にする — 不採用: 起票にはグリルの質疑が要り、了承後は質問しない約束と合わない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
-- GitHub Issueを課題の置き場にする — 不採用: エージェントがrepoの中を検索して読む流れの外にあり、投稿のたびに外部への書き込みになる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2）。
-- 台帳のF番号の自動の振り直し — 不採用: 衝突は稀で、validateが重なりを出せば人が直せる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8）。
-- 起票候補の区分「その場で直す」 — 先送り: 課題の置き場とは別の関心で、直したあとのレビューの扱いもあわせて決める必要がある。再開条件: 台帳へ積んだ件のうち、その工程の中で直せる大きさの件が続けて出たとき（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8・§9）。
+- 工程末の起票の区分をプロセス契約（protocol.md）§7に書き足す — 不採用: 共有コアはプロジェクトに依存しない文面に保ち、anet固有の決まりはレジストリの読み替えに置く（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
+- 課題の仕組みのファイルを置いた版のまま持ち、プロセス契約の節とanetの値をレジストリの読み替えで当てる — 不採用: skillが合わない節を指したまま残り、skillと読み替え表を行き来して読むことになる。足す欄も中立の語に縛られる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・§8）。
+- 台帳を監査の出力用に残し、選んだものだけissueへ上げる — 不採用: 置き場が2つに分かれる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8）。
+- 監査は候補を出すだけにし、開発者が選んで起票する — 不採用: housekeepingの中で選ぶ問いで止まり、定期の監査が回らない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D17・§8）。
+- 工程の最後に「暫定PRDを新規」の区分を残す — 不採用: 工程末に残った件がissueと999に分かれ、入口でPRD案件かの見立てが要る（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D6・§8）。
+- 同じ話題のissueとPRDの置き場を1つにし、PRDを書いたらissueを「移管」で閉じる — 不採用: PRDの優先度と作業順を番号でしか持てない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D9・§8）。
+- issueから起こしたPRDだけissueを残して状態を揃える — 不採用: ユーザーが起こしたPRDが仕事の一覧から欠ける（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D9・§8）。
+- 分類をscopeの先頭に機能カテゴリのkeyを書く決まりで持つ — 不採用: 自由記述の欄に機械が読む決まりを重ねるので壊れやすく、性質で絞れない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D5・§8）。
+- issueをPRDにする出口の別skillを作る、束ねる提案を持たない — 不採用: 別skillは一覧の並べ方と束ね方の写しになり、提案を持たないと既定5件の提案が無くなる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D11・D12・§8）。
+- レビューエージェントとプロセス契約の名指しを今の名前のまま持つ、またはファイル名だけ改めて本文の名指しを読み替える — 不採用: 共有コアの名前の接頭辞が2つになり、後者は本文と名前が食い違う（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D3・§8）。
+- 名前の新旧の対応をPRDの表に持ち、PRDの実装で名前を改める — 不採用: 名前の新旧の対応をリポジトリに置かない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D3・§8）。
+- issueのareaを1つの値にする — 不採用: 2つの機能カテゴリにまたがる課題が、主でない側の地図と絞り込みから漏れる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§6の3・§8）。
+- 台帳へ積む入口専用のskill（anet-record-finding） — 不採用: anet-create-issueが持つ（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・§8）。
+- registry.py validateのF番号の重複検査 — 不採用: issueの番号は日付と乱数で、ブランチをまたいでも重ならない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8）。
+- 9xxのPRDをすべて900からの連番へ振り直す — 不採用: 使われた番号を再び使い、過去の記録の番号が別のPRDを指す（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D13・§8）。
+- 今あるdone/・frozen/・dropped/のPRDを直下へ戻す — 不採用: 123ファイル・1,049個のリンクを直すことになる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D14・§8）。
+- PRDの実装済みを、番号をスコープに持つコミットで拾う — 不採用: PRDの工程でこの場で直したコミットや起草のコミットも拾い、誤る。PRDのissueのAIの判定（実装済み）で拾う（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D22・§8）。
+- issueの一覧の作り込み（依存のツリー、スプレッドシート、見やすいHTML、anet-list-issuesへの機能の足し方） — 先送り: 見せ方は別の関心で、試作で見比べないと決めにくい。再開条件: 最小の一覧が動いたとき（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
+- PRDの起票をanet-housekeepingの候補にする — 不採用: 起票にはグリルの質疑が要り、了承後は質問しない約束と合わない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
+- GitHub Issueを課題の置き場にする — 不採用: エージェントがrepoの中を検索して読む流れの外にあり、投稿のたびに外部への書き込みになる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§3.2・§8）。
 
 ## 変えるときの条件
 
@@ -66,7 +81,9 @@
 - リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
 - リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [999_release_packaging_cmake](../../memo/999_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
 - housekeepingに候補を足しても、reports/housekeeping/runs.jsonlの既存の行は書き換えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§5.5）。
-- 台帳のCLIを変えるときは、PRD095の検証資材のregistry_test.pyを通し、台帳の既存の記録は書き換えない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.6・§7の3）。
+- 過去のPRD（done/・frozen/・dropped/）・実装記録・ADRの本文は書き換えない。999の振り直しでは、ファイル名を指すパスの表記だけを直す（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.9・§5.12）。
+- PRDの番号は、一度使ったものを二度と使わない（コミットの件名・CHANGELOG・ADR・実験記録が番号でPRDを指すため）（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D13）。
+- 課題の仕組みのファイルは共有コアに含めず、anetのskillと文書として持つ。プロセス契約の節とanetの値はskillに直接書き、レジストリの読み替えで当てない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・D4・D5）。
 
 ## 関係
 

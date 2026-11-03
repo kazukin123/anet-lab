@@ -128,7 +128,7 @@ Actor 本体の 1 箇所に置く**だけに留める。データの演算列・
 | `apps/runner/config/agent.txt` | Action Policy 設定ガイドラインのコメント 2 行 | 「CreateActionContext/MakeAction呼出」→「CreateActor/MakeAction呼出」（受入 1 の rg 0 件のため） |
 
 `.en.md` は翻訳成果物なので本 PRD では触らず、`anet-translate-docs` に追従を任せる。ADR 0044 は当時の記録として変更しない。
-[999_episode_start_stack_contract_10prd.md](../999_episode_start_stack_contract_10prd.md) は暫定メモで、既に別点（ReplayBuffer の
+[999_episode_start_stack_contract_10prd.md](../dropped/999_episode_start_stack_contract_10prd.md) は暫定メモで、既に別点（ReplayBuffer の
 `episode_start` 扱い）が ADR 0044 と食い違っているため触らない。150 §3 の `DictFrameStacker` 行と 200 §8.2 の「Actor RNG」（非保存 State）は
 現行のまま正しい。
 
@@ -220,7 +220,7 @@ Rainbow の改修前後 Run 比較はユーザー指定（2026-09-27）により
 
 - [921_agent_prev_action_obs_10prd.md](../921_agent_prev_action_obs_10prd.md) — 後続。ActionContext 前提の記述は本 PRD 後に書き直す。
   順序（本 PRD → 観測パイプライン PRD → 921 改訂）は不変。
-- [999_episode_start_stack_contract_10prd.md](../999_episode_start_stack_contract_10prd.md) — `StackerActionContext` を引用するが暫定メモで既に陳腐化しているため触らない。
+- [999_episode_start_stack_contract_10prd.md](../dropped/999_episode_start_stack_contract_10prd.md) — `StackerActionContext` を引用するが暫定メモで既に陳腐化しているため触らない。
 - [ADR 0013](../../adr/0013-actor-network-resource-policy.md) — Actor private Resource の前例。
 - [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md) — `ActorRequest` と Actor カタログ。判断 12 の修正先の契約。
 - [ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) — Actor 側 stack が `episode_start` で初期化する事実は不変。

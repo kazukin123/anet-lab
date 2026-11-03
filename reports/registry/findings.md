@@ -1,23 +1,31 @@
 # 指摘台帳(派生ビュー)
 
-生成 2026-11-02。正本は findings.jsonl。この文書は毎回再生成される。
+生成 2026-11-03。正本は findings.jsonl。この文書は毎回再生成される。
 
 ## 概況
 
 | 状態 | 件数 |
 |---|---|
 | fixed | 1 |
-| open | 34 |
+| open | 41 |
 | wontfix | 2 |
 
-open の優先度別: P0 1, P1 4, P2 18, P3 11
+open の優先度別: P0 1, P1 5, P2 19, P3 16
 
-open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, refactor 12, test-gap 3
+open の観点別: architecture 0, backlog 0, defect 14, drift 10, process 0, refactor 14, test-gap 3
 
 ## 最近の変化(14 日)
 
 | id | 更新 | 状態 | 優先度 | 観点 | 場所 | タイトル |
 |---|---|---|---|---|---|---|
+| F-0013 | 2026-11-03 | open | P2 | refactor | `core/anet-core/include/anet/agent.hpp`::AgentRepository | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
+| F-0038 | 2026-11-03 | open | P1 | defect | `core/anet-core/src/trainer.cpp`::EvalRunner::DoStepInternal | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
+| F-0039 | 2026-11-03 | open | P3 | drift | `core/anet-core/src/default_dqn_agent.cpp`::DefaultDQNAgent::DefaultDQNAgent（stack_keysの判定） | stucker.stack_keysに存在しないキー名を書いても検出されない |
+| F-0040 | 2026-11-03 | open | P2 | refactor | `apps/runner/src/RunnerApp.cpp`::RunnerApp::Config::WarnDeprecatedRunsDirConfig | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
+| F-0041 | 2026-11-03 | open | P3 | drift | `core/anet-core/src/metrics_logger.cpp`::ResolveVideoCodec | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
+| F-0042 | 2026-11-03 | open | P3 | drift | `apps/runner/config/common.txt`::Conv2dPanel.conv2d.mergin_x/mergin_y | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
+| F-0043 | 2026-11-03 | open | P3 | refactor | `apps/runner/config/common.txt`::DefaultDQNAgent.@fast/@balance/@heavy | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
+| F-0044 | 2026-11-03 | open | P3 | drift | `apps/README.md`::リリース zip について | apps/README.mdがDoxygen zipをanet-lab-docs-<version>.zipと書くが、実際はanet-lab-doxygen-<版>.zip |
 | F-0006 | 2026-11-02 | open | P0 | defect | `core/anet-core/src/rl.cpp`::Notifier | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | F-0036 | 2026-10-26 | wontfix | P2 | process | `docs/quality/impl.md`::計測: 性能を比べる計測の条件 | 性能の比を、本番と違う構成や重い計測の下で読み、結論を出し直した |
 | F-0037 | 2026-10-26 | wontfix | P2 | process | `.agents/skills/implement-prd-with-docs/SKILL.md`::ワークフロー: 性能の受入が未達のとき | 性能の受入が未達のまま実装を閉じ、原因の切り分けが後に残った |
@@ -35,7 +43,6 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 | F-0010 | 2026-10-22 | open | P3 | defect | `core/anet-core/include/anet/rl.hpp`::ActionSpec::GetShape | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
 | F-0011 | 2026-10-22 | open | P2 | defect | `core/anet-core/src/heat_map.cpp`::TimeHeatMap::RenderRaw | wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する） |
 | F-0012 | 2026-10-22 | open | P1 | refactor | `core/anet-core/include/anet/rl.hpp`::TrainObserver/LearnObserver/EpisodeEndObserver/SessionEndObserver | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
-| F-0013 | 2026-10-22 | open | P2 | refactor | `core/anet-core/include/anet/agent.hpp`::AgentRepository | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
 | F-0014 | 2026-10-22 | open | P2 | refactor | `core/anet-core/src/dqn_based_agent.cpp`::TDLearner/QRLearner/IQNLearner::UpdateFromSamples | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |
 | F-0015 | 2026-10-22 | open | P2 | refactor | `core/anet-core/src/trainer.cpp`::SerialTrainRunner::DoStep/PipelineTrainRunner::DoStep | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
 | F-0016 | 2026-10-22 | open | P2 | refactor | `core/anet-core/src/heat_map.cpp`::HeatMap::RenderRaw/TimeHeatMap::RenderRaw | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
@@ -60,11 +67,12 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 | F-0007 | P1 | high | defect | 境界 | `core/envs/dropmerge1/src/DropMergeEnv.cpp`::DropMergeEnv::Step | Directモードで列0への落下にもNOOPペナルティが加算される | 2026-07-04 | 2026-10-22 |
 | F-0008 | P1 | high | defect | 境界 | `core/anet-core/src/metrics_logger.cpp`::VideoLogger::WriteFrame | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む | 2026-07-04 | 2026-10-22 |
 | F-0012 | P1 | high | refactor | 重複の生成源（抽象の欠落） | `core/anet-core/include/anet/rl.hpp`::TrainObserver/LearnObserver/EpisodeEndObserver/SessionEndObserver | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している | 2026-07-04 | 2026-10-22 |
+| F-0038 | P1 | med | defect | 境界 | `core/anet-core/src/trainer.cpp`::EvalRunner::DoStepInternal | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる | 2026-11-03 | 2026-11-03 |
 | F-0002 | P2 | high | defect | 境界 | `apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java`::LodPageCache.find | 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる | 2026-09-23 | 2026-09-23 |
 | F-0004 | P2 | high | defect | 並行 | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js`::MetricsViewerClientApp.onReload / onWorkspaceChanged | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる | 2026-09-23 | 2026-09-23 |
 | F-0005 | P2 | high | defect | 並行 | `apps/metrics-viewer/src/main/resources/static/metrics-viewer.js`::MetricsViewerClientApp.init / onToggleScreenshot | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない | 2026-09-23 | 2026-09-23 |
 | F-0011 | P2 | high | defect | 未定義動作 | `core/anet-core/src/heat_map.cpp`::TimeHeatMap::RenderRaw | wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する） | 2026-07-04 | 2026-10-22 |
-| F-0013 | P2 | high | refactor | 重複の生成源（抽象の欠落） | `core/anet-core/include/anet/agent.hpp`::AgentRepository | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う | 2026-07-04 | 2026-10-22 |
+| F-0013 | P2 | high | refactor | 重複の生成源（抽象の欠落） | `core/anet-core/include/anet/agent.hpp`::AgentRepository | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う | 2026-07-04 | 2026-11-03 |
 | F-0014 | P2 | high | refactor | 既存の重複・不要コード | `core/anet-core/src/dqn_based_agent.cpp`::TDLearner/QRLearner/IQNLearner::UpdateFromSamples | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている | 2026-07-04 | 2026-10-22 |
 | F-0015 | P2 | high | refactor | 既存の重複・不要コード | `core/anet-core/src/trainer.cpp`::SerialTrainRunner::DoStep/PipelineTrainRunner::DoStep | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている | 2026-07-04 | 2026-10-22 |
 | F-0016 | P2 | high | refactor | 既存の重複・不要コード | `core/anet-core/src/heat_map.cpp`::HeatMap::RenderRaw/TimeHeatMap::RenderRaw | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている | 2026-07-04 | 2026-10-22 |
@@ -75,6 +83,7 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 | F-0024 | P2 | high | drift | サンプル設定 | `apps/runner/config/nn.txt`::net.body.@ResNet/net.body.@MLP_RES | nn.txtのbodyのサンプル2つ（@ResNet・@MLP_RES）が、選ぶとエラーになる | 2026-07-04 | 2026-10-22 |
 | F-0025 | P2 | high | drift | fail-fastの方針 | `core/anet-core/src/trainer.cpp`::RunnerFactory::CreateMainRunner | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う | 2026-07-04 | 2026-10-22 |
 | F-0026 | P2 | high | test-gap | テストの空白 | `core/anet-core/src/scaler_impl.cpp`::RewardScalerFactory::CreateRewardScaler/RunningStdSingleTensorNormalizer | 報酬スケーラのauto_post_scaleと、観測正規化のrobust update・SymLogにテストが無い（どれも既定で有効） | 2026-07-04 | 2026-10-22 |
+| F-0040 | P2 | high | refactor | 規約違反・不統一 | `apps/runner/src/RunnerApp.cpp`::RunnerApp::Config::WarnDeprecatedRunsDirConfig | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する | 2026-11-03 | 2026-11-03 |
 | F-0009 | P2 | med | defect | 整合性 | `core/anet-core/src/trainer.cpp`::PipelineTrainRunner::DoStep | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる | 2026-07-04 | 2026-10-22 |
 | F-0029 | P2 | med | defect | 境界 | `core/anet-core/src/dqn_based_agent.cpp`::Learner::ComputeElementError | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる | 2026-06-12 | 2026-10-23 |
 | F-0028 | P2 | low | defect | 例外 | `core/anet-core/src/exception.cpp`::AnetException::AnetException | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる | 2026-09-06 | 2026-10-23 |
@@ -87,6 +96,11 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 | F-0032 | P3 | high | drift | fail-fastの方針 | `core/anet-core/src/init.cpp`::anet::rl::InitRL | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない | 2026-09-23 | 2026-10-23 |
 | F-0034 | P3 | high | refactor | コメント | `core/anet-core/src/replay_buffer_impl.hpp`::InitialPriorityCompleter::GetStats | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない | 2026-07-16 | 2026-10-23 |
 | F-0035 | P3 | high | test-gap | テストの空白 | `core/anet-core/src/replay_buffer_impl.cpp`::DefaultReplayBuffer::DefaultReplayBuffer | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い | 2026-07-16 | 2026-10-23 |
+| F-0039 | P3 | high | drift | fail-fastの方針 | `core/anet-core/src/default_dqn_agent.cpp`::DefaultDQNAgent::DefaultDQNAgent（stack_keysの判定） | stucker.stack_keysに存在しないキー名を書いても検出されない | 2026-11-03 | 2026-11-03 |
+| F-0041 | P3 | high | drift | fail-fastの方針 | `core/anet-core/src/metrics_logger.cpp`::ResolveVideoCodec | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す | 2026-11-03 | 2026-11-03 |
+| F-0042 | P3 | high | drift | 死にキー | `apps/runner/config/common.txt`::Conv2dPanel.conv2d.mergin_x/mergin_y | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない | 2026-11-03 | 2026-11-03 |
+| F-0043 | P3 | high | refactor | 規約違反・不統一 | `apps/runner/config/common.txt`::DefaultDQNAgent.@fast/@balance/@heavy | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う | 2026-11-03 | 2026-11-03 |
+| F-0044 | P3 | high | drift | 文書 stale | `apps/README.md`::リリース zip について | apps/README.mdがDoxygen zipをanet-lab-docs-<version>.zipと書くが、実際はanet-lab-doxygen-<版>.zip | 2026-11-03 | 2026-11-03 |
 | F-0010 | P3 | med | defect | 境界 | `core/anet-core/include/anet/rl.hpp`::ActionSpec::GetShape | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す | 2026-07-04 | 2026-10-22 |
 | F-0033 | P3 | med | drift | 用語ずれ | `docs/design/100_runtime_and_configuration.jp.md`::run.eval_device | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ | 2026-09-23 | 2026-10-23 |
 
@@ -136,6 +150,15 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 - シナリオ: 5種目のイベントを足すとき、AttachScopedテンプレートのif constexprの分岐を書き漏らす → その種類だけを実装したobserverはAttachScoped<T>で何も登録されず、エラーも出ない。Detachのoverloadや、RunnerScopedのShutdown転送の書き漏らしも同じく黙って効かない。
 - 対処: イベント型をテンプレート引数にした単一のObserver・Notifier登録へ寄せる。PRDで設計を決めてから行い、hot pathのNotifyの性能を確かめる。
 - 根拠: core/anet-core/include/anet/rl.hpp:975 UpdateEventを基底にするのはTrain・Learnだけで、EpisodeEndEvent（992）とSessionEndEvent（1001）は同じrunner・counts・agentを別に持つ; core/anet-core/include/anet/rl.hpp:1008 4つのObserver interface（1008・1017・1026・1035）がOnXxx以外同じ（Shutdown・WillBlockOnShutdown・ToString）; core/anet-core/include/anet/rl.hpp:1047 RunnerScopedのラッパを4種、同じ形で持つ（1047〜1101）; core/anet-core/include/anet/rl.hpp:1110 NotifierがAttach・Detach2種・Notifyを4組、16メソッド持つ; core/anet-core/include/anet/rl.hpp:1148 AttachScopedテンプレートがif constexprで4種に分岐し、1166〜1189に非テンプレート版も4つある; core/anet-core/src/rl.cpp:979 Attach・Detachの実装12本が同じ形（979〜1105）; core/anet-core/include/anet/observers.hpp:369 MetricsLogObserverもイベント別に4つの派生（369・380・391・404）
+
+#### F-0038 P1 actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる
+
+- 観点/分類: defect / 境界
+- 場所: `core/anet-core/src/trainer.cpp`::EvalRunner::DoStepInternal
+- 要約: per_initial_priority_mode=actor_approxかつGPUで推論するActorでは、aux のq_valuesがGPUにあり、EvalRunnerが作る強制行動はCPUにあるため、WithActionのdevice検査で止まる読みになる。
+- シナリオ: run.@aainit（Atari）やrun.@iqn32_actor_approx（DropMerge）でrun.eval_deviceがGPUになる構成のとき、EvalPanelで矢印キーかQValuePanelから手動の行動を打つと、ANET_SYSTEM_ERRORでRunnerが止まる。コードを読んだだけで、実行では確かめていない。
+- 対処: 強制行動のtensorをActorのdeviceへ移してからWithActionへ渡す（観測パイプラインのPRDの強制行動のMakeAction入力化を待たずに直せる）
+- 根拠: core/anet-core/src/trainer.cpp:294 強制行動のtensorをCPUで作る; core/anet-core/src/dqn_based_agent.cpp:978 WithActionがdeviceの違いでANET_SYSTEM_ERROR; core/anet-core/src/default_dqn_agent.cpp:599 Actor Qヒントはuse_perかつactor_approxで全Actorに有効; docs/memo/999_observation_pipeline_10prd.md:66 §1.4の所見（コード読み）
 
 #### F-0002 P2 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる
 
@@ -272,6 +295,15 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 - 対処: gammaとreference_q_stdから期待値を手計算するテスト、外れ値を含むバッチで統計が更新されないことのテスト、SymLogの数値のテストを足す。
 - 根拠: core/anet-core/src/scaler_impl.cpp:756 use_auto_post_scaleではpost_scale = reference_q_std * (1 - gamma)を使う（756〜758）; core/anet-core/src/scaler_impl.cpp:336 robust updateは、偏差がrobust_std_threshold*stdを超える値を統計から外す; core/anet-core/src/scaler_impl.cpp:279 後処理SymLogはscale*symlog(x/scale); core/anet-core/src/scaler_test.cpp:12 scalerのテスト3本はすべてuse_auto_post_scale=falseで、robust・SymLogを使うテストも無い; apps/runner/config/agent.txt:240 use_auto_post_scale ?= true。robust（251）とSymLog（254）も既定で有効
 
+#### F-0040 P2 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する
+
+- 観点/分類: refactor / 規約違反・不統一
+- 場所: `apps/runner/src/RunnerApp.cpp`::RunnerApp::Config::WarnDeprecatedRunsDirConfig
+- 要約: 廃止した旧キーを見張って案内するWARNが実装に残っている。
+- シナリオ: クリーンブレーク方針では旧キーの番人・案内を残さないが、この関数があるため旧キーの扱いが実装と文書で食い違い、同じ形の番人が増える前例になる。
+- 対処: WarnDeprecatedRunsDirConfigと呼び出しを消す
+- 根拠: apps/runner/src/RunnerApp.cpp:96 旧キー専用のWARNを呼ぶ; apps/runner/src/RunnerApp.cpp:131 WarnDeprecatedRunsDirConfigの定義; AGENTS.md:78 クリーンブレーク方針（旧契約の番人を残さない）
+
 #### F-0009 P2 PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる
 
 - 観点/分類: defect / 整合性
@@ -379,6 +411,51 @@ open の観点別: architecture 0, backlog 0, defect 13, drift 6, process 0, ref
 - シナリオ: コンストラクタの検査を消す、または条件を取り違える → どのテストも落ちない → あとでファクトリやテストの組み立てがpriority storeだけを渡すようになっても止まらず、PERのitemに初期優先度が付かないまま動く。
 - 対処: 片方だけを渡すとコンストラクタが投げることのテストを足す。
 - 根拠: core/anet-core/src/replay_buffer_impl.cpp:1455 priority_store_とinitial_priority_completer_の片方だけがあるとANET_SYSTEM_ERRORにする（1455〜1457）; core/anet-core/src/replay_buffer_test.cpp:1727 テストが確かめるのはCreateInitialPriorityCompleterがPERのときだけcompleterを作ることまでで、コンストラクタに片方だけを渡す経路は通らない
+
+#### F-0039 P3 stucker.stack_keysに存在しないキー名を書いても検出されない
+
+- 観点/分類: drift / fail-fastの方針
+- 場所: `core/anet-core/src/default_dqn_agent.cpp`::DefaultDQNAgent::DefaultDQNAgent（stack_keysの判定）
+- 要約: stack_keysに観測に無いキー名を書いても、どの経路も検出せず、そのキーは黙ってstackされない。
+- シナリオ: stack_keysの綴りを誤ると（例: obsをob）、frame stackが効かないまま学習が進み、設定どおりに動いていないことに気づけない。
+- 対処: 構築時に、stack_keysの各名前がobs_specにあるかを確かめ、無ければANET_SYSTEM_ERROR
+- 根拠: core/anet-core/src/default_dqn_agent.cpp:153 spec畳みでstack_keysに一致するキーだけをstack対象にし、一致しない名前は黙って無視する; core/anet-core/src/default_dqn_agent.cpp:399 可視化の側も同じ判定; AGENTS.md:185 未宣言の対象への参照はfail-fast
+
+#### F-0041 P3 video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す
+
+- 観点/分類: drift / fail-fastの方針
+- 場所: `core/anet-core/src/metrics_logger.cpp`::ResolveVideoCodec
+- 要約: エラー文が示すキー名が、利用者が設定に書く実際のキー（app.metrics_logger.video_codec）と違う。
+- シナリオ: h264_nvencが使えない大きさで止まったとき、エラー文のキー名をそのまま設定に書いても効かず、直し方を誤る。
+- 対処: エラー文のキー名を実際のキーに揃える
+- 根拠: core/anet-core/src/metrics_logger.cpp:94 エラー文がmetrics_logger.video_codecと書く; AGENTS.md:199 エラーには対象の識別子（キー）を含める
+
+#### F-0042 P3 Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない
+
+- 観点/分類: drift / 死にキー
+- 場所: `apps/runner/config/common.txt`::Conv2dPanel.conv2d.mergin_x/mergin_y
+- 要約: 設定ファイルがmarginをmerginと綴っているため、書いた値が読まれず、既定値で動いている。
+- シナリオ: Conv2dPanelや画像メトリクスの余白を設定で変えても効かない。設定の値と実際の表示が食い違う。
+- 対処: 設定ファイルのmerginをmarginに直し、値が効くことを確かめる
+- 根拠: apps/runner/config/common.txt:75 mergin_x・mergin_yと書いている; apps/runner/config/metrics_image.txt:96 image.@conv2d側も同じ綴り; apps/runner/src/Conv2dPanel.cpp:22 読む側はconv2d.margin_x
+
+#### F-0043 P3 Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う
+
+- 観点/分類: refactor / 規約違反・不統一
+- 場所: `apps/runner/config/common.txt`::DefaultDQNAgent.@fast/@balance/@heavy
+- 要約: Agentのプロファイルが、設計020 §3.6が定める置き場（agent.txt）ではなくcommon.txtにある。
+- シナリオ: 新しいAgentのキーをどのファイルに書くかを020 §3.6で引くと、既存のプロファイルの置き場と合わず、置き場がさらに散る。設定ファイルの配置のPRDが層を作り直すと、二重に動かすことになる。
+- 対処: 設定ファイルの配置のPRD（999_config_file_layout）と合わせて直す。単独で動かすなら agent.txt へ移す
+- 根拠: apps/runner/config/common.txt:39 DefaultDQNAgent.@fast以下のプロファイル; docs/design/020_user_guide_run.jp.md:283 §3.6の表はAgentの設定をagent.txtに置く
+
+#### F-0044 P3 apps/README.mdがDoxygen zipをanet-lab-docs-<version>.zipと書くが、実際はanet-lab-doxygen-<版>.zip
+
+- 観点/分類: drift / 文書 stale
+- 場所: `apps/README.md`::リリース zip について
+- 要約: README のDoxygen のzipの名前が、リリースの手順が実際に作る名前と違う。
+- シナリオ: 利用者がREADMEの名前でリリースからDoxygenのzipを探すと見つからない。
+- 対処: READMEのzipの名前をrelease.ymlに合わせる
+- 根拠: apps/README.md:52 anet-lab-docs-<version>.zipと書く; .github/workflows/release.yml:254 実際に作るzipの名前
 
 #### F-0010 P3 ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す
 

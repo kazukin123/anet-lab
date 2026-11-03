@@ -241,8 +241,11 @@
 <!-- registry:begin -->
 - F-0018 P2 refactor — QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う
 - F-0024 P2 drift — nn.txtのbodyのサンプル2つ（@ResNet・@MLP_RES）が、選ぶとエラーになる
+- F-0040 P2 refactor — 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する
 - F-0022 P3 drift — metrics_scalar.txt冒頭のscalar記法のミニ仕様が古い（&step、@learn/@trainだけ、属性の欠落）
 - F-0023 P3 drift — nn.txtの対応typeの一覧とinit.modeのコメントが実装とずれている
+- F-0042 P3 drift — Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない
+- F-0043 P3 refactor — Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う
 
 [台帳の一覧](../../../reports/registry/findings.md)
 <!-- registry:end -->

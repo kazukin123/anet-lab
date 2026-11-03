@@ -159,6 +159,7 @@
 <!-- registry:begin -->
 - F-0006 P0 defect — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
 - F-0012 P1 refactor — イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している
+- F-0038 P1 defect — actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる
 - F-0009 P2 defect — PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる
 - F-0015 P2 refactor — SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている
 - F-0017 P2 refactor — ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む
