@@ -1,11 +1,11 @@
 ---
 name: anet-review
-description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent an-review with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Never edits the reviewed files. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
+description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent anet-review-agent with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Never edits the reviewed files. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
 ---
 
 # ANET Review
 
-成果物を、レビューエージェント（`an-review`）のレビューに出す。対象を決め、依頼を組み立て、呼び、応答を示して止まる。
+成果物を、レビューエージェント（`anet-review-agent`）のレビューに出す。対象を決め、依頼を組み立て、呼び、応答を示して止まる。
 観点は `docs/quality/`、依頼と応答の形は `docs/process/protocol.md` の 2 節と 3.1 節、ユーザーへ示す文言の書き方は同じ文書の 3.3 節、成果物ごとの観点と入力元は `docs/process/registry.md` が持つ。本書は、それらを書き写さない。
 
 ## 禁止事項
@@ -105,8 +105,8 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 | | 新しく呼ぶ | 続けて依頼する |
 | --- | --- | --- |
-| Claude Code | サブエージェント `an-review` を起動する | 前のレビューエージェントに、起動したときに返った ID か名前を宛先にして、SendMessage で送る。SendMessage が読み込まれていなければ、先に読み込む |
-| Codex | `collaboration.spawn_agent` で `an-review` を起動し、`collaboration.wait_agent` で待つ | `collaboration.followup_task` |
+| Claude Code | サブエージェント `anet-review-agent` を起動する | 前のレビューエージェントに、起動したときに返った ID か名前を宛先にして、SendMessage で送る。SendMessage が読み込まれていなければ、先に読み込む |
+| Codex | `collaboration.spawn_agent` で `anet-review-agent` を起動し、`collaboration.wait_agent` で待つ | `collaboration.followup_task` |
 
 - 呼ぶ前に、対象、成果物キー、観点ファイル、新しく呼ぶのか続けて依頼するのかを、短く示す。確認は取らずに進める。
 - **同じ会話で、前の起動と同じ対象を出し直すとき（指摘を直したあとなど）は、新しく呼ばずに、前のレビューエージェントに続けて依頼する。** 同じ対象とは、観点ファイルが同じで、今回の対象が前の起動の対象をすべて含むことである。

@@ -1,5 +1,5 @@
 ---
-name: an-review
+name: anet-review-agent
 description: 成果物をレビューしたいときに使う。品質確認観点とテンプレートに照らして検証し、OK か差し戻しかを判定する。**成果物の修正はしない。** 工程の中から呼ばれるほか、レビューだけを頼むこともできる。
 tools: Read, Glob, Grep, Bash
 ---
@@ -107,7 +107,7 @@ Step 1 から Step 4 まで連続して進める。停止条件（`docs/process/
 
 観点の検索対象が**論理名**（ハーネス入口 / 工程 Agent 定義 / SKILL 定義 / コマンド定義）で書かれている場合は、実パスへ解決してから検索する。
 
-1. `tmp/an-harness/surface` を読み、開発サーフェスの値を得る
+1. `tmp/anet-harness/surface` を読み、開発サーフェスの値を得る
 2. `docs/process/registry.md` の「サーフェスごとの所在」表から、その列の実パスを得る
 3. 値が `—` の論理名は、そのサーフェスに実体が無い。**その観点は「対象外」として記録する**
 

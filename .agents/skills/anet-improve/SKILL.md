@@ -58,7 +58,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 
 - 新しい規約を足す前に、既存の規約で防げたかを確かめる。「読まれなかった」「曖昧」に当たるなら、規約は増やさない。
 - 規約の本文を持つのは、`AGENTS.md`（原則）と、観点の節の「規約」（細則）だけである。工程の手順は skill が持つ。観点の項目は、規約か手順を根拠として指す。
-- `docs/process/protocol.md` と `.claude/agents/an-review.md` は、プロジェクトに依らない文面に保つ（[ADR 0049](../../../docs/adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)）。anet 固有のことは、`docs/process/registry.md` か観点へ置く。
+- `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md` は、プロジェクトに依らない文面に保つ（[ADR 0049](../../../docs/adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)）。anet 固有のことは、`docs/process/registry.md` か観点へ置く。
 
 ## 3. 対策の候補を作る
 
@@ -113,12 +113,12 @@ description: Find the rework in the current anet-lab conversation (review findin
 - 書く前に、[プロセス契約](../../../docs/process/protocol.md) の 1.3 節「直した箇所の帰結を自分で洗う」の表（見出し `#### 直した箇所の帰結を自分で洗う` から、次の `####` の見出しの前まで）も読み、足した規則の写し（別ファイルにある同じ一覧など）・件数・参照を同じ応答で直す。足した文は、分岐先・根拠の形・件数に別の読みが成り立たないかを 1 行で確かめる。
 - 観点に項目を足すときは、その観点ファイルの「位置づけ」の決まり（項番の振り方など）に従う。節の規約を直したら、同じ節の項目も見直す。
 - skill を直したら、`.agents/skills/` と `.claude/skills/` の両方を同じにする。用途・起動・出力先が変わったら、[skills README](../README.md) の表を両方で直す。
-- `docs/process/protocol.md` か `.claude/agents/an-review.md` を直したら、報告に「共有の契約を直したので、揃える手順が要る」と書く。
+- `docs/process/protocol.md` か `.claude/agents/anet-review-agent.md` を直したら、報告に「共有の契約を直したので、揃える手順が要る」と書く。
 
 ## 7. 確かめる
 
 - 6 で読んだ観点ファイルの全項目を、節の適用範囲に従って通す（`AGENTS.md` の「作業ごとに読むもの」の表の下の決まり）。
-- [実装 品質確認観点](../../../docs/quality/impl.md) の機械検査を、次のとおり実行する。7（改行コード）と 62（既存ファイルの BOM）は、変えたファイルに。8（skill の実体コピーの同期）は、skill を変えたときに。4（共有する契約の非依存）は、`protocol.md` か `an-review.md` を変えたときに。
+- [実装 品質確認観点](../../../docs/quality/impl.md) の機械検査を、次のとおり実行する。7（改行コード）と 62（既存ファイルの BOM）は、変えたファイルに。8（skill の実体コピーの同期）は、skill を変えたときに。4（共有する契約の非依存）は、`protocol.md` か `anet-review-agent.md` を変えたときに。
 - 機械検査を足したら、今回の手戻りの形に当てて、捕まえられることを確かめる。当てる材料が作業ツリーに無ければ、`.scratch/anet-improve/` に作って当てる。
 - 観点の項目、手順、規約を足したら、今回の場面に当てると、どの文で止まるかを 1 行で示す。止まらなければ直す。
 
