@@ -40,7 +40,7 @@
 
 - OpenCV依存の追加・84専用制限・OpenCV全分岐の厳密再現 — 不採用: 自前前処理の境界と縮小全範囲の設定を保ち、anetの数値規則と固定画像の許容差を定める（出典: [PRD099](../../memo/done/099_atari_resize_mode_10prd.md)、§7）。
 - 詰み判定のために内部の盤面を進めて裁定する方式 — 不採用: 問題設定が複雑化し、人間のプレイ感覚から乖離する（出典: [PRD039](../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、決定経緯の要約）。
-- episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 999_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5）。
+- episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 948_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5）。
 - ResetEndedEpisodesの段・外から読む値の写し・予備ALE — 不採用: 段の案は非同期学習を5〜8%遅くし、写しは埋め合わせを残し、予備ALEはAtari固有になる（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5・§4.1 D1/D2）。
 - 速報値と確定値を別の鍵名に分ける形 — 不採用: Step結果が2組の値を持つ作りになり、現用の設定キー名も移行する必要がある（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、Considered Options）。
 - ゲーム別RAM番地・畳み方をコードの固定表に持つ形 — 不採用: 番地を試すたびに再ビルドが要り、解析上の選択を固定する（出典: [ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)、Considered Options）。
@@ -119,12 +119,29 @@
 - [PRD099](../../memo/done/099_atari_resize_mode_10prd.md) — Atari の観測の縮小方式を設定で切り替える PRD
 - [PRD100](../../memo/done/100_gridmaze_solvable_maze_10prd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-- F-0007 P1 defect — Directモードで列0への落下にもNOOPペナルティが加算される
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-be4cd5](../../management/issues/issue-20261103-be4cd5.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 322_env_individual | 不具合 | 未確認 | Directモードで列0への落下にもNOOPペナルティが加算される |
+| 2 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | 索引 | 未確認 | SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 PRD |
+| 3 | [issue-20261103-13bc20](../../management/issues/issue-20261103-13bc20.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 322_env_individual | 索引 | 未確認 | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化）暫定 PRD |
+| 4 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 322_env_individual | 索引 | 未確認 | DropMerge の評価スコア（本家互換スコアほか複数の軸）暫定 PRD |
+| 5 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core, 322_env_individual | 索引 | 未確認 | 次の判断まで遡る n-step（判断単位の可変長 n-step）暫定 PRD |
+| 6 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app, 317_metrics, 312_util, 322_env_individual | 索引 | 未確認 | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
+| 7 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
+| 8 | [issue-20261103-2349d0](../../management/issues/issue-20261103-2349d0.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 315_nn, 324_dqn, 314_tensor, 317_metrics, 110_runner_app, 322_env_individual | 索引 | 実装済み | TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD |
+| 9 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 10 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 322_env_individual, 110_runner_app | 索引 | 未確認 | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の家族 暫定 PRD |
+| 11 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
+| 12 | [issue-20261103-7f1789](../../management/issues/issue-20261103-7f1789.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 322_env_individual, 315_nn | 索引 | 未確認 | 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 PRD |
+| 13 | [issue-20261103-8c3c6d](../../management/issues/issue-20261103-8c3c6d.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 索引 | 未確認 | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る 暫定 PRD |
+| 14 | [issue-20261103-969184](../../management/issues/issue-20261103-969184.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 322_env_individual | 索引 | 未確認 | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド）暫定 PRD |
+| 15 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
+| 16 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui, 321_agent_core, 322_env_individual | 索引 | 未確認 | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 16 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

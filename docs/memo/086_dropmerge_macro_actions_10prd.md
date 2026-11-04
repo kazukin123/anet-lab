@@ -3,7 +3,7 @@
 > 2026-10-03 起票。詳細設計は別途グリルで行う前提で、決めることを §5 に残した。
 > 2026-10-23 改訂: Run 名を今のフォルダ名に合わせた（2026-10-15〜17 の改名。対応は DropMerge の workspace の改名の対応表）。中身は変えていない。
 > 起点: DropMerge の NEET（合法 DROP があるのに NOOP を選び続ける病理、[CONTEXT.md](../../CONTEXT.md)）の分析で、「1 step 待つ」ことの価値が「最善の DROP を 1 step 遅らせた価値」とほぼ同じで、両者の差が推定の揺れより小さいことが分かったこと。人間のプレイヤーは物性が落ち着くのを待ってから落とす一方、上級者は敢えて落ち着く前に滑り込ませる（時差置き）。待つこと自体は悪くないので、待ちを 1 回の判断で表せる行動を Env の設定で足せるようにする。
-> 関連: [085_dropmerge_eval_score_axes_10prd.md](085_dropmerge_eval_score_axes_10prd.md)（比較の物差し）、[999_smdp_transition_duration_10prd.md](999_smdp_transition_duration_10prd.md)（マクロ 1 回が進める時間を割引に反映する）、[098_temporl_skip_policy_10prd.md](098_temporl_skip_policy_10prd.md)（続ける長さを学習する）、[done/039_dropmerge_nolegal_adjudication_10prd.md](done/039_dropmerge_nolegal_adjudication_10prd.md)、[ADR 0014](../adr/0014-dropmerge-nodroptimeout-loss-not-truncation.md)。
+> 関連: [085_dropmerge_eval_score_axes_10prd.md](085_dropmerge_eval_score_axes_10prd.md)（比較の物差し）、[956_smdp_transition_duration_10prd.md](956_smdp_transition_duration_10prd.md)（マクロ 1 回が進める時間を割引に反映する）、[098_temporl_skip_policy_10prd.md](098_temporl_skip_policy_10prd.md)（続ける長さを学習する）、[done/039_dropmerge_nolegal_adjudication_10prd.md](done/039_dropmerge_nolegal_adjudication_10prd.md)、[ADR 0014](../adr/0014-dropmerge-nodroptimeout-loss-not-truncation.md)。
 
 ## 1. 目的と問題
 
@@ -40,7 +40,7 @@ DropMerge のアクションモードを拡張し、設定しだいで次の 2 �
 2. 落ち着くまで待つ行動: `isWorldSettled()` が成り立つか、上限 N フレーム（設定）に達するまで NOOP を続ける。
 3. 繰り返し回数の離散化: 対象の行動と k の組を設定で指定し、「その行動を k 回続ける」行動を足す。最初の対象は NOOP を想定する。
 4. マクロの実行は Env の Step の中で完結させる。途中の報酬は合計し、終端したらその時点で止める。観測は最後のフレームの後のものを返す。実行したフレーム数を記録する。
-5. Agent は改修しない。マクロ 1 回は Agent の 1 step として割り引かれる（何フレーム続いても γ は 1 回）。待つことが割引の上で安くなるという帰結を、比較のときの注意として残す。進めた時間を割引に正確に反映するのは [999 SMDP 対応](999_smdp_transition_duration_10prd.md) の範囲にする。
+5. Agent は改修しない。マクロ 1 回は Agent の 1 step として割り引かれる（何フレーム続いても γ は 1 回）。待つことが割引の上で安くなるという帰結を、比較のときの注意として残す。進めた時間を割引に正確に反映するのは [999 SMDP 対応](956_smdp_transition_duration_10prd.md) の範囲にする。
 6. 指標: エピソードあたりの Agent の step 数とフレーム数、マクロ行動ごとの選択率を出す。比較は [085](085_dropmerge_eval_score_axes_10prd.md) のスコア軸で行う。
 
 ## 4. User Stories
@@ -67,8 +67,8 @@ DropMerge のアクションモードを拡張し、設定しだいで次の 2 �
 ## 6. 対象外
 
 - 続ける長さを Agent が学習すること（TempoRL、[999](098_temporl_skip_policy_10prd.md)）。
-- マクロが進めた時間を割引に反映すること（[999 SMDP 対応](999_smdp_transition_duration_10prd.md)）。
-- 次の判断まで遡る n-step（[999](999_decision_aligned_nstep_10prd.md)）。
+- マクロが進めた時間を割引に反映すること（[999 SMDP 対応](956_smdp_transition_duration_10prd.md)）。
+- 次の判断まで遡る n-step（[999](914_decision_aligned_nstep_10prd.md)）。
 
 ## 7. 依存と順序
 

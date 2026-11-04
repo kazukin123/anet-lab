@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Create Issue"
+  short_description: "課題を1件1ファイルで記録する"
+  default_prompt: "anet-create-issue の手順で、選ばれた課題を記録してください。"

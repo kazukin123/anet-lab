@@ -78,11 +78,11 @@ IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの�
 
 - Munchausen の bonus と γ × soft gap を足した 1 step あたりの正味の項は、soft gap を記録した 3 本で 90–100M に −0.037〜−0.045 で、全窓で負だった。「毎 step の加点で生き延びるほど得になり NEET を生む」という仮説は否定された。当時の分析の −0.125〜−0.004 は学習ステップの窓で切った値で、上は経験数の窓で引き直した値である（出典: [2026-10-01_atari-feedback.md](../../experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md)、探索ブロック04 探索結果・考察・判断更新。Run は探索ブロック04の4本: run_20261003-000810_dmfb_munch / run_20261003-235455_dmfb_munch_s2 / run_20261003-081944_dmfb_qr_munch / run_20261003-160717_dmfb_qr_munch_s2）。
 
-- QR51 素の 100M の NEET 期（8〜30M）には、評価の NOOP と最善 DROP の差（UQE スコア）が −0.020〜−0.026 から −0.001〜−0.002 に潰れ、NOOP の選択率は 74〜84% だった。基準 IQN は −0.021〜−0.033 のままで、選択率は 0〜19% だった。QR51+Munchausen τ0.03 は健全な時期に差が −0.10〜−0.16 に開いたが、NEET 期（10〜22M）には 12〜14M に +0.024 まで振れ、選択率は 86% に達した（出典: [999_dropmerge_neet_diagnostics_10prd.md](../../memo/999_dropmerge_neet_diagnostics_10prd.md)、§2。Run: run_20261002-031314_dmfb_qr / run_20261001-191232_dmfb_base / run_20261003-081944_dmfb_qr_munch）。
+- QR51 素の 100M の NEET 期（8〜30M）には、評価の NOOP と最善 DROP の差（UQE スコア）が −0.020〜−0.026 から −0.001〜−0.002 に潰れ、NOOP の選択率は 74〜84% だった。基準 IQN は −0.021〜−0.033 のままで、選択率は 0〜19% だった。QR51+Munchausen τ0.03 は健全な時期に差が −0.10〜−0.16 に開いたが、NEET 期（10〜22M）には 12〜14M に +0.024 まで振れ、選択率は 86% に達した（出典: [915_dropmerge_neet_diagnostics_10prd.md](../../memo/915_dropmerge_neet_diagnostics_10prd.md)、§2。Run: run_20261002-031314_dmfb_qr / run_20261001-191232_dmfb_base / run_20261003-081944_dmfb_qr_munch）。
 
-- 評価で時間切れの瞬間に置ける列が無かった割合は、どの Run でもほぼ 0 だった。NoDropTimeout の終局は投了ではなく NEET である（出典: [999_dropmerge_neet_diagnostics_10prd.md](../../memo/999_dropmerge_neet_diagnostics_10prd.md)、§2）。
+- 評価で時間切れの瞬間に置ける列が無かった割合は、どの Run でもほぼ 0 だった。NoDropTimeout の終局は投了ではなく NEET である（出典: [915_dropmerge_neet_diagnostics_10prd.md](../../memo/915_dropmerge_neet_diagnostics_10prd.md)、§2）。
 
-- 割引は Agent の step 単位で掛かる（γ0.997、n-step 1）。use_instant_drop = true では DROP の 1 step は落とした果物が着地するまで物理を進め、NOOP の 1 step は 1 フレームしか進めないが、割引はどちらも 1 回である（出典: [999_smdp_transition_duration_10prd.md](../../memo/999_smdp_transition_duration_10prd.md)、§1）。
+- 割引は Agent の step 単位で掛かる（γ0.997、n-step 1）。use_instant_drop = true では DROP の 1 step は落とした果物が着地するまで物理を進め、NOOP の 1 step は 1 フレームしか進めないが、割引はどちらも 1 回である（出典: [956_smdp_transition_duration_10prd.md](../../memo/956_smdp_transition_duration_10prd.md)、§1）。
 
 - IQN+M・n-step 1・RR1・soft 更新の基準から hard 更新・n-step 3・RR4+SN のどれかに変えた 3 腕は、どれも Q の差（h 空間）が基準の約 2〜3 倍に開き、NOOP の差が 0 付近から上へ寄って長考型の NEET が深まった（出典: [2026-10-01_atari-feedback.md](../../experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md)、探索ブロック07 考察。Run: run_20261006-033243_dmfb_19_nstep3 / run_20261006-135602_dmfb_20_rr4sn）。
 

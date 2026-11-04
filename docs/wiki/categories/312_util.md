@@ -95,15 +95,28 @@
 - [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-- F-0028 P2 defect — AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる
-- F-0030 P3 defect — device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す
-- F-0031 P3 refactor — InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている
-- F-0032 P3 drift — 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app, 317_metrics, 312_util, 322_env_individual | 索引 | 未確認 | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
+| 2 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 315_nn, 321_agent_core | 索引 | 未確認 | forward の名前付き出力を NetworkForwardCapture に一本化する 暫定 PRD |
+| 3 | [issue-20261103-a86dcc](../../management/issues/issue-20261103-a86dcc.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 321_agent_core, 324_dqn | 索引 | 未確認 | eval スケジュールの初回発火の抑止 暫定 PRD |
+| 4 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
+| 5 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 312_util, 110_runner_app | 索引 | 未確認 | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
+| 6 | [issue-20261103-df24e5](../../management/issues/issue-20261103-df24e5.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 312_util | 不具合 | 未確認 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
+| 7 | [issue-20261103-78df9c](../../management/issues/issue-20261103-78df9c.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 312_util | 不具合 | 未確認 | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
+| 8 | [issue-20261103-9b314a](../../management/issues/issue-20261103-9b314a.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 312_util | ずれ | 未確認 | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
+| 9 | [issue-20261103-c1e48b](../../management/issues/issue-20261103-c1e48b.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 312_util | 改善 | 未確認 | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている |
+| 10 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
+| 11 | [issue-20261103-4c0f04](../../management/issues/issue-20261103-4c0f04.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 312_util | 索引 | 未確認 | MetricsViewer のタグセット（名前付きのタグ選択の保存と呼び出し）PRD |
+| 12 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 13 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
+| 14 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 311_dev_tools, 312_util, 316_config, 320_env_core, 313_profiling | 索引 | 未確認 | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD |
+| 15 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 15 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

@@ -3,32 +3,28 @@
   "diagram_type": "workflow",
   "meta": {
     "title": "PRD を作り、実装して確かめる",
-    "quality_profile": "showcase"
+    "quality_profile": "showcase",
+    "viewBox": [
+      920,
+      590
+    ]
   },
   "lanes": [
     {
       "id": "common",
-      "label": "共通文書"
+      "label": "参照する文書"
     },
     {
       "id": "authoring",
-      "label": "起票側"
+      "label": "起草・実装・レビュー"
     },
     {
       "id": "inspection",
-      "label": "精査側"
-    },
-    {
-      "id": "implementation",
-      "label": "実装側"
+      "label": "精査・検証・整備"
     },
     {
       "id": "human",
-      "label": "人間"
-    },
-    {
-      "id": "ci",
-      "label": "CI"
+      "label": "人間の判断"
     }
   ],
   "phases": [
@@ -82,7 +78,7 @@
       "col": 1,
       "type": "backend",
       "label": "PRD起草",
-      "sublabel": "wikiを読む",
+      "sublabel": "issue・wiki",
       "width": 92
     },
     {
@@ -105,7 +101,7 @@
     },
     {
       "id": "edit_validate",
-      "lane": "implementation",
+      "lane": "authoring",
       "col": 4,
       "type": "backend",
       "label": "計画・実装",
@@ -126,8 +122,8 @@
       "lane": "human",
       "col": 5,
       "type": "external",
-      "label": "確認・commit",
-      "sublabel": "人間が判断",
+      "label": "確認",
+      "sublabel": "人間がcommit",
       "width": 92
     },
     {
@@ -150,7 +146,7 @@
     },
     {
       "id": "build_guide",
-      "lane": "ci",
+      "lane": "inspection",
       "col": 4,
       "type": "backend",
       "label": "ビルド",
@@ -159,7 +155,7 @@
     },
     {
       "id": "routine_work",
-      "lane": "ci",
+      "lane": "inspection",
       "col": 0,
       "type": "backend",
       "label": "定常整備",
@@ -240,10 +236,10 @@
     },
     {
       "dot": "emerald",
-      "title": "工程の境界",
+      "title": "仕事の状態と工程の境界",
       "items": [
-        "再グリルは別の枠でも行える。実装計画は実装する枠が作る。",
-        "設定変更は実装に含め、コミット前に人間が確認する。"
+        "PRD を起こすと索引 issue を作り、題材の parent を結ぶ。",
+        "実装後は AI の判定を更新し、人の status は変えない。"
       ]
     },
     {

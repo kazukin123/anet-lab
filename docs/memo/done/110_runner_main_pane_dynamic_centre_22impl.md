@@ -90,12 +90,12 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 - 独立an-reviewは1回目で計画・実装ともOK、修正要求0件、開発者への確認事項0件。原文は `.scratch/prd110/review-20261101-1609.md`。Bindの順と拒否・Skipの配送、同じ判定でのpin宣言、wxの最大化解除、RED/GREENと23process、既定suiteの失敗集合、LF・BOM・共有契約・重複識別子を再確認した。根拠がなく見送った指摘はない。
 - 判定の依頼時点ではReleaseは未更新だった。提出後のソース変更はなく、上記追加buildでReleaseも更新した。レビュー後は本書とREADMEに結果・状態の記録だけを追記している。
-- 範囲外の検出1件: 設計160jpのMetrics ViewerのLOD記述が、§2.1のfactor 4と§7.1の完成した16子で一致していない。変更前ソースにも同じ記述がある。追加の読み取りでLodBucket.LOD_FACTOR=4とLodIngestWriter.combineの4子チェックを確認した。ユーザーが別件の記録を採用したため、[LOD記述整合の暫定PRD](../999_metrics_viewer_lod_documentation_consistency_10prd.md)へ記録した。pin修正とは切り離し、記述の修正には着手していない。
+- 範囲外の検出1件: 設計160jpのMetrics ViewerのLOD記述が、§2.1のfactor 4と§7.1の完成した16子で一致していない。変更前ソースにも同じ記述がある。追加の読み取りでLodBucket.LOD_FACTOR=4とLodIngestWriter.combineの4子チェックを確認した。ユーザーが別件の記録を採用したため、[LOD記述整合の暫定PRD](../934_metrics_viewer_lod_documentation_consistency_10prd.md)へ記録した。pin修正とは切り離し、記述の修正には着手していない。
 
 ## 決まらなかったこと
 
 - pinの仕様・実装に未決はない。実マウスとAtari5/qbert/online、動的HeatMap・Conv2dの受入8は人が行う未実施項目のまま。
-- 記録済みの別件: [999_metrics_viewer_lod_documentation_consistency_10prd.md](../999_metrics_viewer_lod_documentation_consistency_10prd.md)。ユーザーが「課題として記録する」を選択したため起票した。根拠は独立レビューの範囲外指摘と現行Java実装の4子チェック。現用の暫定PRDに同じ記述不整合はなく、過去のfrozenのSQLite移行案とは別件。未処理の起票候補はない。
+- 記録済みの別件: [999_metrics_viewer_lod_documentation_consistency_10prd.md](../934_metrics_viewer_lod_documentation_consistency_10prd.md)。ユーザーが「課題として記録する」を選択したため起票した。根拠は独立レビューの範囲外指摘と現行Java実装の4子チェック。現用の暫定PRDに同じ記述不整合はなく、過去のfrozenのSQLite移行案とは別件。未処理の起票候補はない。
 
 ## 完了報告
 

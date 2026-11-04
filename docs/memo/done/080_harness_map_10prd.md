@@ -17,7 +17,7 @@
 > [anet-housekeeping](../../../.agents/skills/anet-housekeeping/SKILL.md)、
 > [docs/design/README.jp.md](../../design/README.jp.md)、[docs/archify/README.md](../../archify/README.md)、
 > [atlas 契約](../../../.agents/skills/anet-archify-atlas/references/atlas-contract.md)、
-> [pages.yml](../../../.github/workflows/pages.yml)、[999_cicd_improvement](../999_cicd_improvement_10prd.md)
+> [pages.yml](../../../.github/workflows/pages.yml)、[999_cicd_improvement](../906_cicd_improvement_10prd.md)
 
 ## Context(背景・目的)
 

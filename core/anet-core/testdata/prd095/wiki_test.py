@@ -122,14 +122,15 @@ class WikiSupportTest(unittest.TestCase):
         page=root/'docs/wiki/apps/110_runner_app.md'
         page.parent.mkdir(parents=True)
         page.write_text('# app\n\n## 概要・責務\nKEEP PROSE\n\n## ファイル\nold\n\n'
-                        '## PRD の一覧\nold\n\n## 台帳の指摘\nKEEP REGISTRY\n',encoding='utf-8')
+                        '## PRD の一覧\nold\n\n## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP OUTSIDE\n',encoding='utf-8')
         self.run_helper(root,'maps')
         text=page.read_text(encoding='utf-8')
         row=next(line for line in text.splitlines() if 'Prd095Probe.hpp' in line)
         self.assertIn('Prd095Probe.cpp',row)
         self.assertIn('Prd095Probe_test.cpp',row)
         self.assertIn('KEEP PROSE',text)
-        self.assertTrue(text.endswith('## 台帳の指摘\nKEEP REGISTRY\n'))
+        self.assertTrue(text.endswith('KEEP OUTSIDE\n'))
+        self.assertIn('課題はありません。',text)
         first=text
         self.run_helper(root,'maps')
         self.assertEqual(page.read_text(encoding='utf-8'),first)
@@ -150,7 +151,7 @@ class WikiSupportTest(unittest.TestCase):
         page.write_text(page.read_text(encoding='utf-8').replace('999_probe_link_10prd.md)',
                         '999_probe_link_10prd.md)（出典のリンク切れ）'),encoding='utf-8')
         self.assertFalse(self.run_helper(root)['eligible'])
-        self.material(root,'reports/registry/findings.md','# derived')
+        self.material(root,'docs/management/issues/INDEX.md','# derived')
         self.material(root,'reports/housekeeping/runs.jsonl','{}')
         self.assertFalse(self.run_helper(root)['eligible'])
 
@@ -171,21 +172,23 @@ class WikiSupportTest(unittest.TestCase):
                 for q in pages:
                     page=root/q;page.parent.mkdir(parents=True,exist_ok=True)
                     page.write_text('# map\n\n## ファイル\nold\n\n## PRD の一覧\nold\n\n'
-                                    '## 台帳の指摘\nKEEP\n',encoding='utf-8')
+                                    '## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP\n',encoding='utf-8')
+                self.material(root,'apps/runner/src/Prd095Probe.cpp','// probe')
+                self.material(root,'apps/runner/tools/prd095_probe.py','# probe')
                 # 履歴は外部境界のGitだけ差し替える。本文生成と全ページ更新を通す。
                 def history(_root,*args):
                     return (f'feat(PRD{number}): probe\n' if args[0]=='log' else
                             'apps/runner/src/Prd095Probe.cpp\0apps/runner/tools/prd095_probe.py\0')
                 with patch.object(helper,'git',side_effect=history):
                     result=helper.regenerate_maps(root)
-                self.assertEqual(set(result['updated']),set(pages))
+                self.assertEqual(set(result['updated']),set(pages)|{'docs/management/issues/INDEX.md'})
                 self.assertEqual(result['unresolved_prds'],[
                     {'page':q,'prd':'PRD'+number,'matches':count} for q in pages])
                 for q in pages:
                     text=(root/q).read_text(encoding='utf-8')
                     self.assertIn('- PRD'+number+' — （PRD を一意に決められない）',text)
                     self.assertNotIn('[PRD'+number+']',text)
-                    self.assertTrue(text.endswith('## 台帳の指摘\nKEEP\n'))
+                    self.assertTrue(text.endswith('KEEP\n'))
 
     def test_only_reports_index_is_excluded_from_materials(self):
         root=self.fixture()

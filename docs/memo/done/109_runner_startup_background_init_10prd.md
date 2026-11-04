@@ -5,7 +5,7 @@
 > 2026-10-31 実装側（Codex）の指摘のあと: wxWidgets 3.3.3 のソースで、OS の終了の確定の通知は Frame の閉じる要求にならず、終了処理（`OnExit`）を直接呼んでプロセスを終えると分かったので、§1.4 の 13 を訂正した。D8 から「OS の終了が決まったあとの通知」を外し、その通知は wx の扱いのまま D10 の待ちだけを通すと決めた（待機と Close の道は足さない。ユーザーの裁定）。問い合わせは Frame の側で ✕ と見分けられないので、RunnerApp が Frame の閉じる操作と分けて受けることを D8 に書いた。§5.2・§5.4・§5.5・§9 を合わせた。改訂のレビューの指摘で、確定の通知の道では `OnExit` の前に Frame とパネルが閉じる要求を経ずに削除されることを §1.4 の 13・D10・§5.2 に書き、その道で構築が失敗していたときの終了コード（1）を D10・§5.3 に、表示を省くことを G4 に書いた。160 §7.1 の「`OnExit()` は cleanup 専用」を直す対象に D13・受入 8 で加えた。
 > 2026-10-31 実装のレビューのあと: batchrun の構築の失敗が stderr にも出るとしていた §1.4 の 3・G4・受入 5 を訂正した。今の設計では、Frame を作ったあとのエラーは LogPanel と Run ログへ出て、stderr には出ない（068 の D5）。GUI テストの待ちの上限を、ユーザーが承認した実装計画の値（30 秒）に合わせた（§6 の 6）。
 > 起点: 2026-10-31、Runner の起動直後にウィンドウの中が描かれず、前の画面の残りが見えたまま乱れ、しばらくすると「応答なし」になる。ログ欄だけは起動中もログが流れて見える（§1.3）。
-> 関連: [071](../071_uncaught_fatal_visibility_10prd.md)（捕まらない fatal の可視化。OnInit の冒頭と worker の例外に触るが、関心は別。NG5）、[068](068_batchrun_fatal_error_handling_10prd.md)（batchrun の致命エラー処理。本 PRD は §7.1 の fatal 経路をそのまま使う）、[999_runner_theme_switch](../999_runner_theme_switch_10prd.md)（RunnerFrame の外観の決め直し。触る箇所は重ならない）、[160 アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §5.1・§7.1。
+> 関連: [071](../071_uncaught_fatal_visibility_10prd.md)（捕まらない fatal の可視化。OnInit の冒頭と worker の例外に触るが、関心は別。NG5）、[068](068_batchrun_fatal_error_handling_10prd.md)（batchrun の致命エラー処理。本 PRD は §7.1 の fatal 経路をそのまま使う）、[999_runner_theme_switch](../953_runner_theme_switch_10prd.md)（RunnerFrame の外観の決め直し。触る箇所は重ならない）、[160 アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §5.1・§7.1。
 
 ## 1. 問題
 

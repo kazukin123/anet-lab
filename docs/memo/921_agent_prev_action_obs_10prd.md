@@ -1,7 +1,7 @@
 # 直前行動観測の共通部品（`prev_action` フレーム段）
 
 > 本書は self-contained。実装時は行番号ではなく、近傍のシンボル名で再検索する。
-> 前提: [999 観測パイプライン](999_observation_pipeline_10prd.md) の単位 A（強制行動の `MakeAction` 入力）と単位 B（`ObservationPipeline`）。
+> 前提: [999 観測パイプライン](944_observation_pipeline_10prd.md) の単位 A（強制行動の `MakeAction` 入力）と単位 B（`ObservationPipeline`）。
 > 本 PRD はその上に最初のフレーム段を足す。
 > 改訂: 2026-10-03。配置を Agent 内部に確定し、観測パイプラインのフレーム段として全面的に書き直した。BatchEnv デコレータ案（旧 案 B）と
 > その wrap 点（旧 FLAG1）、ActionContext 前提の記述を削除した。NN 統合は現行の `bind` 記法と `bind_concat_dim` に合わせた。
@@ -193,7 +193,7 @@ stack された `prev_action`（`[B, S, A]`）は grid 扱いで `vector` の後
 - 連続行動（構築時エラー。将来は生の行動ベクトルを同じキーで入れる変種）。
 - 直前報酬など、2 種類目のフレーム段。
 - Rainbow / MuZero / ImageCls への展開、PPO。
-- dynamic 正規化の成立（[999 観測パイプライン](999_observation_pipeline_10prd.md) §10）。
+- dynamic 正規化の成立（[999 観測パイプライン](944_observation_pipeline_10prd.md) §10）。
 - 032 と 040 の整理（下記「確認したい点」）。
 
 ## 受け入れ基準
@@ -279,13 +279,13 @@ git diff --check
 
 1. 設定キーの名前（`prev_action_obs.enabled`）。
 2. 受入れ側の置き場。外側の `DefaultDQNAgent::UpdateFromBatch`（提案）か、inner の `dqn::Learner`（Rainbow へ広げる場合）か。
-3. Actor がフレーム段と stacker を別々の部品として持つか、1 つの私有オブジェクトにまとめるか（[999 観測パイプライン](999_observation_pipeline_10prd.md) §9 Q3）。
+3. Actor がフレーム段と stacker を別々の部品として持つか、1 つの私有オブジェクトにまとめるか（[999 観測パイプライン](944_observation_pipeline_10prd.md) §9 Q3）。
 4. 受け入れ基準 8（032 との等価性アッセイ）を合否に含めるか。
 5. 本機能の採用後に LunarLander を本機能へ移し、032 の env flag を削除するか。040 の trio は表現が違う（DROP 列の連続値）ので残る。
 
 ## 関連
 
-- [999_observation_pipeline_10prd.md](999_observation_pipeline_10prd.md) — 前提。フレーム段の置き場、フレーム spec、強制行動の `MakeAction` 入力。
+- [944_observation_pipeline_10prd.md](944_observation_pipeline_10prd.md) — 前提。フレーム段の置き場、フレーム spec、強制行動の `MakeAction` 入力。
 - [032_lunarlander_obs_include_action_10prd.md](done/032_lunarlander_obs_include_action_10prd.md) — env ローカルの先行実装（LunarLander）。
 - [040_dropmerge_prev_action_obs_10prd.md](done/040_dropmerge_prev_action_obs_10prd.md) — env ローカルの先行実装（DropMerge）。
 - [057_native_stack_dim_handling_10prd.md](done/057_native_stack_dim_handling_10prd.md) — stack 軸を Network の入力 spec に持つ現行契約。

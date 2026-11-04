@@ -28,8 +28,8 @@
 > 2026-10-23 改訂: KFM の Run 名 2 つを今のフォルダ名に直した（`…_atari_kung_fu_master_…` などから `…_kfm_…` への改名。値は変えていない）。
 > 2026-10-26 列番号改訂（ユーザー指定）: 列の番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の 3 桁にし、既定の done・trunc を Q_sa・V_s の前へ移した（D5・D13）。詰めて振った 1〜10 の間には、TempoRL の decision・skip を reward の右に差し込めなかったため。
 > 2026-10-30: D11の上下キーの扱いは[PRD105](105_eval_trace_arrow_key_forced_action_10prd.md)のD1が、D12の再生の向きは同D7が置き換える。Traceモードの間の転送↑↓は表の行移動となり、再生は表の下端から上端へ進む。
-> 2026-11-02 改訂（ユーザー指定）: 起動したあとの OS のテーマの切替と、表示の DPI の変更への追従は、本 PRD の受入から外す。テーマの切替は [999_runner_theme_switch](../999_runner_theme_switch_10prd.md) の受入で、DPI の変更は [PRD113](../113_runner_per_monitor_dpi_10prd.md) の受入で確かめる。D10 の追従の契約は変えない。受入 9・10 と §6 を合わせ、受入 8 の上下キーは PRD105 の受入で確かめることを添えた。
-> 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](../999_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
+> 2026-11-02 改訂（ユーザー指定）: 起動したあとの OS のテーマの切替と、表示の DPI の変更への追従は、本 PRD の受入から外す。テーマの切替は [999_runner_theme_switch](../953_runner_theme_switch_10prd.md) の受入で、DPI の変更は [PRD113](../113_runner_per_monitor_dpi_10prd.md) の受入で確かめる。D10 の追従の契約は変えない。受入 9・10 と §6 を合わせ、受入 8 の上下キーは PRD105 の受入で確かめることを添えた。
+> 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件で、「ボス撃破のような貴重な経験は、TD 誤差による PER の優先度で本当に目立つのか」という疑問が出たこと（§2）。学習側の計器（[999_replay_eviction_sample_count](../950_replay_eviction_sample_count_10prd.md)）は Run 全体の集計を出すが、1 つ 1 つの場面で行動・報酬・優先度がどう並ぶかを見る手段が無い。
 > 関連: [done/035_approx_actor_priority_per_10prd.md](035_approx_actor_priority_per_10prd.md)（近似 Actor 初期優先度）、[ADR 0010](../../adr/0010-actor-priority-mean-q-approx.md)、[ADR 0012](../../adr/0012-replay-initial-priority-hint-completion.md)、[ADR 0036](../../adr/0036-actor-q-hint-three-columns-munchausen.md)、[081_evalpanel_episode_trace_10prd.md](../081_evalpanel_episode_trace_10prd.md)（鏡写しインスタンスの trace。step trace の記録はここへ移す）、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[140_observability.jp.md](../../design/140_observability.jp.md)、[160_applications_and_tools.jp.md](../../design/160_applications_and_tools.jp.md)、[CONTEXT.md](../../../CONTEXT.md) の「Actor Qヒント」「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」「補助 pane」「実行時 UI 操作」「trace」「step trace」「Live モード／Trace モード」。
 
 ## 1. 目的と問題
@@ -47,7 +47,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 
 ### 非ゴール
 
-- **NG1**: 学習側の優先度そのものの表示。replay の中の遷移の優先度や抽選回数は [999_replay_eviction_sample_count](../999_replay_eviction_sample_count_10prd.md) が扱う。
+- **NG1**: 学習側の優先度そのものの表示。replay の中の遷移の優先度や抽選回数は [999_replay_eviction_sample_count](../950_replay_eviction_sample_count_10prd.md) が扱う。
 - **NG2**: 学習・抽選・優先度の値を変えること。本 PRD は観測だけで、学習系列を変えない。
 - **NG3**: 定期評価（configured eval）と学習側（train runner）の step trace。量が大きすぎる（§3.1）。
 - **NG4**: step trace を trace チャネル（Run artifact）へ出すこと。PRD 081 を改訂して取り込む（§7 の 2）。本 PRD は、081 がそのまま使える生成器を作るところまで。
@@ -56,9 +56,9 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 
 ## 2. 背景（KFM）
 
-- KFM の実時間優先 3 seed（100M）のうち、ボス行き（面クリア）を学んだのは seed 3（`run_20260925-130017_atari_kfm_rr1_100m_seed3`）だけで、報酬クリップを外す、ライフで区切る、ε を下げる、PER の `per_alpha` を 0.6 にする、UQE にする、などの 2026-10-14〜17 の 30〜50M の Run ではボス行きは定着しなかった（出典: [999_intrinsic_reward_novelty §2.2](../999_intrinsic_reward_novelty_10prd.md#22-学習の結果)）。
-- クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048 でほぼ同じ。当て 1 発は 0 点、撃破はクリップ後 +1 で雑魚と同じで、成功を区別できるのは出口の換算だけ（出典: [999_intrinsic_reward_novelty §2.3](../999_intrinsic_reward_novelty_10prd.md#23-分析の結論2026-1016〜17)）。
-- 実時間優先の構成では、1 遷移が寿命中に引かれる回数の期待値は約 1.0 で、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では、raw priority が 20 倍でも引かれやすさは約 1.8 倍にとどまる（出典: [999_replay_eviction_sample_count §2](../999_replay_eviction_sample_count_10prd.md#2-現状2026-10-16-に確認したこと)、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`）。
+- KFM の実時間優先 3 seed（100M）のうち、ボス行き（面クリア）を学んだのは seed 3（`run_20260925-130017_atari_kfm_rr1_100m_seed3`）だけで、報酬クリップを外す、ライフで区切る、ε を下げる、PER の `per_alpha` を 0.6 にする、UQE にする、などの 2026-10-14〜17 の 30〜50M の Run ではボス行きは定着しなかった（出典: [999_intrinsic_reward_novelty §2.2](../924_intrinsic_reward_novelty_10prd.md#22-学習の結果)）。
+- クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048 でほぼ同じ。当て 1 発は 0 点、撃破はクリップ後 +1 で雑魚と同じで、成功を区別できるのは出口の換算だけ（出典: [999_intrinsic_reward_novelty §2.3](../924_intrinsic_reward_novelty_10prd.md#23-分析の結論2026-1016〜17)）。
+- 実時間優先の構成では、1 遷移が寿命中に引かれる回数の期待値は約 1.0 で、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では、raw priority が 20 倍でも引かれやすさは約 1.8 倍にとどまる（出典: [999_replay_eviction_sample_count §2](../950_replay_eviction_sample_count_10prd.md#2-現状2026-10-16-に確認したこと)、`run_20261016-042902_kfm_rr1_50m_noclip200_seed2`）。
 - TD 誤差による優先度が珍しい経験を目立たせないと考えられる理由は、報酬クリップの下では撃破の報酬が雑魚と同じ +1 であること、撃破の先の価値（出口の換算）がまだ target に入っていないこと、優先度は引かれたときにしか更新されないこと、IQN の TD は τ の揺らぎを含むこと。どれも推測で、場面ごとに確かめる手段が無い。
 
 ## 3. 現状（2026-10-19 にコードで確かめたこと。§3.6 は 2026-10-22）
@@ -79,7 +79,7 @@ EvalPanel（鏡写しインスタンス）で遊ばせているゲームを、1 
 - EvalPanel の View は、通知を受けて表示用のスナップショットを作り（`CreateViewData` → `UIDataStore`、[gui.hpp:261-279](../../../core/anet-core/include/anet/gui.hpp)）、timer の 1 frame ごとに 1 回取り出して描く。`UIDataStore` は、取り出しの要求があったか一定時間たったときだけ中身を入れ替える（同 186-227）。ただし EvalPanel は View の更新を強制の指定（`UpdateViewData(event, true)`）で呼ぶので、この間引きは効かず、スナップショットは step ごとに作られる（[EvalPanel.cpp](../../../apps/runner/src/EvalPanel.cpp) の `Initialize` の購読。コミット 4d191af3 の時点で 126 行）。間引きが効くのは、強制しない TrainPanel の View である。1 frame に複数の step を進める構成（`step_per_frame` > 1。batchrun の既定は 10）でも作るのは step ごとで、描くのはその frame の最後の step のものだけである（[EvalPanel.cpp:245-267](../../../apps/runner/src/EvalPanel.cpp)）。Atari の View は、env の `rgb_frame`（通知の時点の画面。終端ではリセット後）と、step_result の `next_state` の観測・aux の得点・残機・RAM（リセット前）、行動名と報酬を出す（[AtariView.cpp:218-257](../../../core/envs/atari1/src/AtariView.cpp)）。LunarLander の View は `next_state`（リセット前）と行動・報酬を出す（[LunarLanderView.cpp:28-44](../../../core/envs/lunarlander1/src/LunarLanderView.cpp)）。どちらも「この状態に来た行動」を新しい状態に重ねて描いている。
 - QValuePanel は同じ通知を `FunctionTrainObserver` で受け、`action_info` の aux の `q_values`（分位点系は `q_quantiles` など）と選んだ行動を表示する（[QValuePanel.cpp:281-308](../../../apps/runner/src/QValuePanel.cpp)、同 315-397）。表示用のデータは通知ごと（毎 step）に `CreateData` で作り、画面の更新だけを frame に 1 回へまとめている（同 293-302）。表示は Q(s_t, ·) で、EvalPanel の画面（s_{t+1}）より 1 step 遅れている。
 - Conv2dPanel は鏡写しインスタンス（EvalPanel）の通知から、`action_info` の aux の `nn_trace/*`（その step の判断で出した NN の活性）を画像にする（[RunnerFrame.cpp:1060](../../../apps/runner/src/RunnerFrame.cpp)、[Conv2dPanel.cpp:76-112](../../../apps/runner/src/Conv2dPanel.cpp)）。SweepHeatMapPanel は学習側の runner の `LearnEvent` で、学習側のネットワークを状態の 2 次元の格子の上で掃いた地図を作る（[RunnerFrame.cpp:1045](../../../apps/runner/src/RunnerFrame.cpp)、[observers.cpp:390](../../../core/anet-core/src/observers.cpp)）。EvalPanel の step とは関係しない。
-- パネルを閉じても購読は外れない。`AttachScoped` は内側の observer を返し、`Detach` はそれと一致しないので何も外れない（[rl.hpp:1104-1124](../../../core/anet-core/include/anet/rl.hpp)、[999_notifier_scoped_detach](../999_notifier_scoped_detach_10prd.md)）。Notifier はロックを持たない。
+- パネルを閉じても購読は外れない。`AttachScoped` は内側の observer を返し、`Detach` はそれと一致しないので何も外れない（[rl.hpp:1104-1124](../../../core/anet-core/include/anet/rl.hpp)、[999_notifier_scoped_detach](../942_notifier_scoped_detach_10prd.md)）。Notifier はロックを持たない。
 - 表を出す部品は QValuePanel の非仮想の `wxGrid` だけ（[QValuePanel.cpp:228-279](../../../apps/runner/src/QValuePanel.cpp)）。補助 pane（HeatMap・Conv2d）は `AddAuxPane` で右端の列へ足す（[RunnerFrame.cpp:959-974](../../../apps/runner/src/RunnerFrame.cpp)）。折れ線の部品 `PlotPanel` はどこからも使われていない。
 - ステータスバーの左端の欄（field 0）は操作結果専用で、EvalPanel の pause/resume もここへ出す（[RunnerFrame.cpp:313-330](../../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:170-179](../../../apps/runner/src/EvalPanel.cpp)）。
 
@@ -381,7 +381,7 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 | 列の値の折れ線（未使用の `PlotPanel` の流用） | 先送り | まず表と再生で足りるかを見る。近似優先度の推移を一目で見たくなったときに起こす |
 | 条件に合う行で自動で一時停止する | 先送り | 再生で場面を探す手間が大きいと分かったときに起こす |
 | Event / Observer の型の統一 | 別 PRD | 別の関心（NG5）。新しい Event の型を足す変更が出たときに起票する |
-| 起動したあとの OS のテーマの切替への追従の確かめ（D10） | 別 PRD（[999_runner_theme_switch](../999_runner_theme_switch_10prd.md)） | Runner はテーマの切替で画面の一部だけが新しいテーマになり、直すには RunnerFrame の 1 か所で切替を受ける仕組みが要る（同 PRD の §1・§2）。Evaluation Trace だけでは確かめられない。同 PRD の受入 3・4 が Evaluation Trace を含むので、その実装の受入で確かめる |
+| 起動したあとの OS のテーマの切替への追従の確かめ（D10） | 別 PRD（[999_runner_theme_switch](../953_runner_theme_switch_10prd.md)） | Runner はテーマの切替で画面の一部だけが新しいテーマになり、直すには RunnerFrame の 1 か所で切替を受ける仕組みが要る（同 PRD の §1・§2）。Evaluation Trace だけでは確かめられない。同 PRD の受入 3・4 が Evaluation Trace を含むので、その実装の受入で確かめる |
 | 表示の DPI の変更への追従の確かめ（D10） | 別 PRD（[PRD113](../113_runner_per_monitor_dpi_10prd.md)） | Runner は manifest の gdiScaling で DPI 非対応のまま動いていて、DPI の変更が届かない（同 PRD の §2）。同 PRD の受入 3 が Evaluation Trace の推奨と最小の大きさを含む。モニターの間の移動（同 PRD の受入 7）に Evaluation Trace を足すことを、同 PRD の §9 の 10 に置いた。その実装の受入で確かめる |
 
 ## 7. 未決と依存

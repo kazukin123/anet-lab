@@ -27,7 +27,7 @@
 - 2026-10-22: Evaluation Traceの表示・操作を、内容に応じた列幅・システム色・再生／一時停止トグルを持つアイコン操作・Trace中の操作バー赤枠、低速倍率の小数表示、操作バーと行動列までを守る最小幅、行選択に依存しない列見出し配色、truncated列の短い見出しtrunc、action直後のreward列へ調整する仕様を定めた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、D10〜D13・§8のUI受入）。
 - 2026-10-26: Evaluation Traceの列番号を、百の位が分類・十の位が分類の中の順・一の位が差し込み用の3桁にし、TempoRLのdecision・skipをrewardの右に、既定のdone・truncをQ_sa・V_sの前に置いた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、冒頭の2026-10-26の改訂・D13）。
 - 2026-10-29: Evaluation TraceのTraceモードの間は矢印キーを強制行動にせず表の行の移動に使い、強制したstepを見分ける列とステータス欄の通知、列見出しでの表の並べ替え、行のダブルクリックでの通知の内容のログへのダンプを足す仕様を定めた（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、題・§2）。
-- 2026-10-31: 起動中にOSのテーマ（ライト／ダーク）を切り替えたとき、通知のその場で塗らず、RunnerFrameの1か所で通知が落ち着いてから外観を1回だけ決め直し、QValueの表とEvaluation Traceの表の行の無い部分も対象にする案を暫定で起票した（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、題・§3のゴール・§4 D1・D2・D4）。
+- 2026-10-31: 起動中にOSのテーマ（ライト／ダーク）を切り替えたとき、通知のその場で塗らず、RunnerFrameの1か所で通知が落ち着いてから外観を1回だけ決め直し、QValueの表とEvaluation Traceの表の行の無い部分も対象にする案を暫定で起票した（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、題・§3のゴール・§4 D1・D2・D4）。
 - 2026-10-31: Runnerの起動でFrameを表示したあと、RunManagerの構築だけを別スレッド（RunInitThread）で行ってメインのイベントループを止めず、構築中のログを流し、初期化中の閉じる操作は構築が終わってから後半を行わずに行う仕様を定めた（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、題・§2・D1・D2・D7）。
 - 2026-10-31: Train Viewを隠せるようにし、Centreを占めるpaneが隠れるかfloatすると表示中でdockedの相方がCentreを占めて戻れば取り戻し、主paneを隠す・floatできるのは相方の主paneが表示中でdockedのときだけ（最後の1つは✕を持たずトグルは無効で動かせない。✕とFloatableは200msのUPDATE_UIで状態から宣言し、離れてよいかの判定を基底の1つの口にまとめる）仕様と、起動時の主paneを選ぶ`app.main_view`（既定はEvalだけ）、昇格前のdock位置を覚えて戻すこと、知らない経路でCentreが空いたときにTrainを出してWARNを出す保険を定めた。2026-11-01の再グリルで、初版の「Centreを占めるpaneはfloat不可、dockedのTrainが常に占有者」をこの対称の規則に改め、floatしたpaneは縁の帯へ落とした場所に留まることにした。同日の2回目の再グリルで、wxAUIがCentreのpaneのcaptionドラッグを始めない（captionの押下をドラッグの判定の前に打ち切る）ことが実機と調査で分かり、Centreを占めるpaneはcaptionのpinボタンでfloatし、pinはFloatableと同じ値で描き、宣言が追いつく前のpinの押下は判定で止め、pinボタンを全paneに付けることにした。同日の3回目の再グリルで、等分の条件を「Evalが Right の layer 0、Trainが Centre」の1配置から「一方がCentre、他方がLeftかRightのdock」に広げ、主paneの置き場が変わったときは200msのUPDATE_UIで幅のポリシーを当て、Centreを占める主paneのcaptionの末尾に`[Centre]`を付けることにした。同日の4回目の再グリルで、縦に並んだとき（一方がCentre、他方がCentreと同じ幅のTopかBottomの帯）も高さを等分し、帯がCentreより広いときと同居は対象外、高さ不足ではLogsを縮めないことにし、「等幅」を「等分」に改めた（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、題・§1.1の6・26〜29・§1.2・§2・D1〜D3・D5・D7・D13〜D16）。
 - 2026-10-31: Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない（出典: [ADR 0066](../../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md)）。
@@ -44,24 +44,24 @@
 - Evaluation Traceの列を折れ線で表示する — 先送り: まず表と再生で足りるかを見る。再開条件: 近似優先度の推移を一目で見たくなったとき（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
 - Evaluation Traceで条件に合う行を自動で一時停止する — 先送り: まず再生で場面を探す。再開条件: その手間が大きいと分かったとき（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
 - Evaluation Traceで強制した行を色で目立たせる — 先送り: まず列と通知で足りるかを見る。再開条件: 列があっても強制した行を見落とす例が出たとき（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§8）。
-- 矢印キーの割り当てをEnvごとに変える — 範囲外: 操作マッピングの設定化の関心。再開条件: [999_input_mapping_joystick](../../memo/999_input_mapping_joystick_10prd.md)のグリル（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG1・§8）。
+- 矢印キーの割り当てをEnvごとに変える — 範囲外: 操作マッピングの設定化の関心。再開条件: [922_input_mapping_joystick](../../memo/922_input_mapping_joystick_10prd.md)のグリル（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG1・§8）。
 - Evaluation Traceのpaneが開いている間はLiveモードでも矢印を行の移動にする — 不採用: 明示的にTraceモードに入る操作でモードを意識させる考え（操作バーの赤枠と同じ）と、Liveモードの矢印の操縦を残すユーザーの裁定（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D1）。
 - Traceモードの間の←→をコマ送り・コマ戻しにする — 不採用: ↑↓と同じ行へ動く入口が2つになる（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D2）。
 - 表を並べ替えても再生・コマ送りは時系列のまま進める — 不採用: 並べ替えるのは何かの軸で分析するときで、時系列にこだわる理由がないというユーザーの裁定（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D7）。
 - 並べ替えをクリックした時点の並びに留め、新しい行は先頭へ足す — 不採用: 再生が表の並びに沿うので、表が並んでいないと再生の順も意味を失う（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D8）。
 - ダンプの文字列を行を作る時点で作っておく — 不採用: 観測1つを数値の文字列にするだけで数十KB・数十msかかり、stepごとには払えない（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D9）。
 - ダンプのVERBOSEを改行を含めない1行に平らにする — 不採用: 見るのはAIかコピーして整形する人で、grepで取り出す使い方は想定しない。既存の文字列化で足りる（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D10）。
-- step traceやダンプをRunの記録・ファイルへ保存する — 範囲外: [999_eval_session_step_trace](../../memo/999_eval_session_step_trace_10prd.md)と[PRD081](../../memo/081_evalpanel_episode_trace_10prd.md)の関心（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG8・§8）。
+- step traceやダンプをRunの記録・ファイルへ保存する — 範囲外: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)と[PRD081](../../memo/081_evalpanel_episode_trace_10prd.md)の関心（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG8・§8）。
 - Actorが積み重ねた入力をダンプに出す — 範囲外: 通知に無く、Actorの内部を読む口が要る。再開条件: 積み重ねた入力を見ないと判断を読めない例が出たとき（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§2のNG9・§8）。
 - ツールバーの状態同期に専用の wxTimer や Notifier への新しいイベントを足す形 — 不採用（行わない）: wxUpdateUIEvent による宣言的な同期を唯一の手段とし、既存の TrainPanel・EvalPanel の timer の処理後にアイドルへ戻るので、UPDATE_UI が実質 200ms 周期で回る（出典: [PRD055](../../memo/done/055_runner_toolbar_10prd.md)、0. 決定一覧 D3・2.2 同期機構）。
 - 走行中の Save を UI 側で pause を強制して安全にする形 — 不採用（しない）: Pause() は ack の無いフラグで、Pipeline 構成では pause の後も LearnThread の update が走りうるので安全化にならない（出典: [PRD055](../../memo/done/055_runner_toolbar_10prd.md)、0. 決定一覧 D8・1. 現状の事実）。
-- 各paneがOSのテーマの変更の通知を自分で受け、自分で遅らせて塗り直す形 — 不採用: まとめ方と遅らせ方をpaneごとに持つことになり、frameの部分（paneの見出し・ツールバー）には持ち主がいない（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§8）。
-- テーマの変更の通知のその場で塗り直し、遅らせてもう一度塗る形 — 不採用: 1回目は切替の前の色で塗りうる（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§2の3・§8）。
-- OSのテーマの切替でRunnerFrameを作り直す形 — 不採用: RunManager・各pane・Traceの状態の付け替えが大きい（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§8）。
-- テーマに合わせない固定の色（Train Viewの枠・QValueのヒートマップの地・HeatMapのstepの文字・Atariの重ね書き）をテーマに合わせる — 範囲外: 起動時から合わせていない部分で、別の関心。再開条件: 固定の色が見づらいという要求が出たとき（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§2の7・§8）。
-- Runnerの設定でライト／ダークを選ぶ — 範囲外: 別の関心。再開条件: OSと違うテーマでRunnerを使いたい要求が出たとき（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§8）。
-- wxWidgetsのソースを手元で直してテーマの切替の不具合を避ける — 範囲外: wxの版を上げるたびに当て直しが要る。再開条件: wxの不具合と分かった部分が、上流の更新でも直らないとき（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§3の非ゴール・§8）。
-- 表示のDPI・フォントの変更も、テーマの切替と同じ入口で受ける — 範囲外: 今は別の経路で追従していて、別の関心である。再開条件: DPIかフォントの変更で、半端な反映が見つかったとき（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§3の非ゴール・§8）。
+- 各paneがOSのテーマの変更の通知を自分で受け、自分で遅らせて塗り直す形 — 不採用: まとめ方と遅らせ方をpaneごとに持つことになり、frameの部分（paneの見出し・ツールバー）には持ち主がいない（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§8）。
+- テーマの変更の通知のその場で塗り直し、遅らせてもう一度塗る形 — 不採用: 1回目は切替の前の色で塗りうる（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§2の3・§8）。
+- OSのテーマの切替でRunnerFrameを作り直す形 — 不採用: RunManager・各pane・Traceの状態の付け替えが大きい（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§8）。
+- テーマに合わせない固定の色（Train Viewの枠・QValueのヒートマップの地・HeatMapのstepの文字・Atariの重ね書き）をテーマに合わせる — 範囲外: 起動時から合わせていない部分で、別の関心。再開条件: 固定の色が見づらいという要求が出たとき（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§2の7・§8）。
+- Runnerの設定でライト／ダークを選ぶ — 範囲外: 別の関心。再開条件: OSと違うテーマでRunnerを使いたい要求が出たとき（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§8）。
+- wxWidgetsのソースを手元で直してテーマの切替の不具合を避ける — 範囲外: wxの版を上げるたびに当て直しが要る。再開条件: wxの不具合と分かった部分が、上流の更新でも直らないとき（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§3の非ゴール・§8）。
+- 表示のDPI・フォントの変更も、テーマの切替と同じ入口で受ける — 範囲外: 今は別の経路で追従していて、別の関心である。再開条件: DPIかフォントの変更で、半端な反映が見つかったとき（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§3の非ゴール・§8）。
 - 起動でFrameの表示をOnInitの最後へ移す — 不採用: 初期化中はウィンドウが出ず、構築中のログが見えない（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、§4.1）。
 - 表示の直後に1回だけ同期で描かせ、残りをCallAfterで後回しにする — 不採用: 後回しにした処理の中でも5秒を超えてイベントループが止まり「応答なし」になる（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、§4.1）。
 - 起動中にログを出すたびにメッセージを処理させる — 不採用: ログが出ない区間（最初のネットワーク構築の約5秒）で「応答なし」になり、処理の途中の割り込みの危険が増える（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、§4.1）。
@@ -100,7 +100,7 @@
 - manifestのgdiScalingを残す（今のまま） — 不採用: DPIの宣言が上書きされてDPI非対応で動き、字幅の食い違いとぼやけが残り、manifestと実際の動きが違う（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の2〜4・§8）。
 - システムのDPIだけに対応する宣言（System aware）／Per-Monitor（V1）の宣言 — 不採用: 前者は起動時の1つのDPIでしかくっきり描けず150%と175%の間で動かすとぼやけ、後者は子のウィンドウにDPIの変更が通知されない（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の3・§8）。
 - gdiScalingを外すだけにし、Logsの字下げはGDIで測ったままにする — 不採用: 測る側と描く側が別の仕組みのままで、フォントの代替などで再び食い違いうる（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、D4・§8）。
-- DPIの変更をテーマの切替と同じ入口（RunnerFrameの1か所）で受ける — 範囲外: 999_runner_theme_switchが分けると決めた。再開条件: 両方を実装したあとで、DPIの変更の反映が半端になる例が出たとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の8・§8）。
+- DPIの変更をテーマの切替と同じ入口（RunnerFrameの1か所）で受ける — 範囲外: 953_runner_theme_switchが分けると決めた。再開条件: 両方を実装したあとで、DPIの変更の反映が半端になる例が出たとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の8・§8）。
 - アイコン・Viewの絵を高い解像度向けに描き直す — 範囲外: 別の関心。再開条件: PMv2にしたあとで、ぼやけて見える絵が見つかったとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§3の非ゴール・§8）。
 - px直書きの型（大きさ・枠と間隔・余白と線の太さの6つの型）に当たらない、Viewの絵の中の長さと位置（矢印の長さ、Atariの待ちの表示の文字の位置など）をDIPにする — 範囲外: 画面の大きさのゴールは6つの型の大きさまでとした。再開条件: PMv2にしたあとで、小さく見える絵の部品が見つかったとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の5・§8）。
 
@@ -119,8 +119,8 @@
 - Evaluation Traceの既定の並び（stepの降順）では、再生・コマ送り・スライダー・端の通知を今と同じにする（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D7・§7の受入8）。
 - 表に残す行の範囲（stepの新しい順にmax_rows件）を、並べ替えで変えない（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D8）。
 - EvalRunnerに強制の値を足す前後で、PRD098の検証資材の段0の短縮条件のmetrics checksumを4環境とも一致させる（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§7の受入6）。
-- OSのテーマの切替での外観の決め直しで、表示の状態を変えない。Evaluation TraceのLive／Traceモード・選択行・並べ替え・再生・手で変えた列幅・保持行と百分位、Logsの表示の位置・Auto-scroll・Wrap・Indent・未読の行数・未確認の警告・検索の語、paneの配置とframeの大きさ、Train・Evalの実行状態とトグルの表示である（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§4 D6・§5.5・§7の受入3）。
-- wxMSWは作ったあとのウィンドウの外観をSetAppearanceで変えられないので、テーマごとの確かめは別processで行う。RunnerAppを起動するテストのライトのprocessは、OSのアプリのモードがライトの機械でだけ作れる。開いたままのOSのテーマの切替は人が設定で切り替え、同じテーマで起動し直したスクリーンショットと領域ごとに比べる（出典: [999_runner_theme_switch](../../memo/999_runner_theme_switch_10prd.md)、§2の4・§7の受入の前の段落・受入1・4）。
+- OSのテーマの切替での外観の決め直しで、表示の状態を変えない。Evaluation TraceのLive／Traceモード・選択行・並べ替え・再生・手で変えた列幅・保持行と百分位、Logsの表示の位置・Auto-scroll・Wrap・Indent・未読の行数・未確認の警告・検索の語、paneの配置とframeの大きさ、Train・Evalの実行状態とトグルの表示である（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§4 D6・§5.5・§7の受入3）。
+- wxMSWは作ったあとのウィンドウの外観をSetAppearanceで変えられないので、テーマごとの確かめは別processで行う。RunnerAppを起動するテストのライトのprocessは、OSのアプリのモードがライトの機械でだけ作れる。開いたままのOSのテーマの切替は人が設定で切り替え、同じテーマで起動し直したスクリーンショットと領域ごとに比べる（出典: [953_runner_theme_switch](../../memo/953_runner_theme_switch_10prd.md)、§2の4・§7の受入の前の段落・受入1・4）。
 - RunManagerの構築を別スレッドへ移す前後で、PRD098の段0の短縮条件（4環境、seed=1、決定的backend）の90_perf/・91_resource/・92_resource/を除く全scalarの点を、tag・step・値とも一致させる（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、§7の受入7）。
 - 表示より前の起動の段（workspaceの確定から設定の解決、MetricsLogger、InitRL、Env登録、Frameの生成と表示まで）の順序と、RunManagerがRUNNINGでないときにウィンドウを残して学習を始めない振る舞いを変えない（出典: [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md)、§2のNG4・D4）。
 - Train Viewが表示中の既存の振る舞い（Evalのfloat・maximize・✕、Train:Eval=50:50、幅の記憶、Evalのstep・resumeでEvalを出す動き、Logs・Q-Values・補助paneの配置）を変えず、既存のGUIテスト（`[eval_steps_menu]`・`[prd105_ui_keys]`・`[prd109_ui]`）が通ることを確かめる。意図して変えるのはTrain ViewもEval Viewと同じ条件でfloatできること（Centreのpaneはcaptionのpinボタンで）、floatしたpaneは縁の帯へ落とした場所に留まること、maximize中のpaneをメニューで隠すと先に解けること、起動直後の配置がEvalだけになること、Logs以外のpaneのcaptionにもpinボタンが付くこと、等分の条件を「一方がCentre、他方がLeftかRightのdock」に広げて主paneの置き場が変わったときは200ms以内に当てることの6つ（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、§2のG5・§7の受入1）。
@@ -195,6 +195,7 @@
 - [_main.txt](../../../apps/runner/workspaces/GridMaze_muzero-01/config/_main.txt)
 - [_main.txt](../../../apps/runner/workspaces/ImageCls-01/config/_main.txt)
 - [_main.txt](../../../apps/runner/workspaces/LunarLander-01/config/_main.txt)
+- [metrics_viewer_tag_sets.json](../../../apps/runner/workspaces/metrics_viewer_tag_sets.json)
 
 ## PRD の一覧
 
@@ -234,18 +235,34 @@
 - [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md) — TempoRL の skip 側の forward のノイズを Q 側と分けて指定する（`full` でだけノイズが効く仕組みの切り分け）PRD
 - [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md) — Runner の起動で RunManager を別スレッドで構築する PRD
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-- F-0018 P2 refactor — QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う
-- F-0024 P2 drift — nn.txtのbodyのサンプル2つ（@ResNet・@MLP_RES）が、選ぶとエラーになる
-- F-0040 P2 refactor — 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する
-- F-0022 P3 drift — metrics_scalar.txt冒頭のscalar記法のミニ仕様が古い（&step、@learn/@trainだけ、属性の欠落）
-- F-0023 P3 drift — nn.txtの対応typeの一覧とinit.modeのコメントが実装とずれている
-- F-0042 P3 drift — Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない
-- F-0043 P3 refactor — Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-07629c](../../management/issues/issue-20261103-07629c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui | 索引 | 未確認 | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 PRD |
+| 2 | [issue-20261103-206933](../../management/issues/issue-20261103-206933.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 110_runner_app | 索引 | 未確認 | 多数の seed で打席を稼ぐ（条件付きの打ち切りで、火が付かなかった Run を早く止める）暫定 PRD |
+| 3 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app, 317_metrics, 312_util, 322_env_individual | 索引 | 未確認 | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
+| 4 | [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 316_config, 110_runner_app | 索引 | 未確認 | Run キュー（計画スナップショット + exe 固定）暫定 PRD |
+| 5 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 312_util, 110_runner_app | 索引 | 未確認 | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
+| 6 | [issue-20261103-58bf49](../../management/issues/issue-20261103-58bf49.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 110_runner_app | 改善 | 未確認 | QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う |
+| 7 | [issue-20261103-2c9a07](../../management/issues/issue-20261103-2c9a07.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 110_runner_app | 改善 | 未確認 | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
+| 8 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
+| 9 | [issue-20261103-15f115](../../management/issues/issue-20261103-15f115.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 319_gui | 索引 | 未確認 | Runner を Per-Monitor V2 の DPI 対応で動かす PRD（manifest の gdiScaling を外す） |
+| 10 | [issue-20261103-2349d0](../../management/issues/issue-20261103-2349d0.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 315_nn, 324_dqn, 314_tensor, 317_metrics, 110_runner_app, 322_env_individual | 索引 | 実装済み | TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD |
+| 11 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
+| 12 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 320_env_core, 317_metrics, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 未確認 | 評価 session の step trace を Run の記録に残す PRD |
+| 13 | [issue-20261103-53ed7a](../../management/issues/issue-20261103-53ed7a.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 319_gui | 索引 | 未確認 | 起動中の Runner を OS のテーマ（ライト／ダーク）の切替に追従させる PRD |
+| 14 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 索引 | 未確認 | 操作入力の入力先切替と Train 側の強制行動（学習への反映）暫定 PRD |
+| 15 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 16 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 322_env_individual, 110_runner_app | 索引 | 未確認 | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の家族 暫定 PRD |
+| 17 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
+| 18 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
+| 19 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 索引 | 未確認 | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す PRD |
+| 20 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
+| 21 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui, 321_agent_core, 322_env_individual | 索引 | 未確認 | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 21 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

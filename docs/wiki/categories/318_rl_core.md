@@ -65,7 +65,7 @@
 - step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
 - 学習側の厳密な優先度の列 — 不採用: EvalPanelには単一networkのforwardしかなくreplayも無いため学習側のonline/targetによる値は得られない（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
 - Event/Observerの型の統一 — 範囲外: step traceとは別の関心。再開条件: 新しいEvent型を足す変更が出たとき（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§6）。
-- episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 999_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5）。
+- episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 948_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5）。
 - ResetEndedEpisodesの段・外から読む値の写し・予備ALE — 不採用: 段の案は非同期学習を5〜8%遅くし、写しは埋め合わせを残し、予備ALEはAtari固有になる（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§5・§4.1 D1/D2）。
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - 全targetを許し値の時点差は文書だけで説明する形 — 不採用: 終端行でリセット前後の値が混ざっても見た目で気付けない（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、Considered Options）。
@@ -73,7 +73,7 @@
 - skip 用の replay を別に持つ（TempoRL 論文の形） — 不採用: PER・prefetch・ready・世代 key が 2 系統になり、obs の複製でメモリが 2 倍（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D11、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。
 - Push 時に同一行動の区間を確定して slot に足す形 — 不採用: 同じ起点から短い sub-skip を取れない（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D11、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。
 - 判断の境界を越えて同じ行動の連続を数える窓 — 不採用: 次の判断で同じ行動を選び直すかが次の状態に依存するため、確率的な env で長い窓に偏りが入る。窓は判断の旗で区切る（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D13、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。→ PRD104 で、skip の出力を行動に使わない構成（補助学習のみモード。全 Actor がスキップ長を常に 1 にする）に限り採用。行動の変化で閉じる窓と、上限 J とエピソードの終わりだけで閉じる窓の 2 つ（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§4 D3・D4）。
-- k_max に比例する重みで論文の「接続ごとに等しい重み」に合わせる形 — 先送り: 一様な k で始める。再開条件: 短い k の偏りが skip の学習に効くと分かったら。後続の暫定 PRD では、全 k の一括学習（K）が全接続を等しく数える形でこの重みも扱う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§8、[999 TempoRL の後続](../../memo/999_temporl_skip_followups_10prd.md)、§4 D7）。
+- k_max に比例する重みで論文の「接続ごとに等しい重み」に合わせる形 — 先送り: 一様な k で始める。再開条件: 短い k の偏りが skip の学習に効くと分かったら。後続の暫定 PRD では、全 k の一括学習（K）が全接続を等しく数える形でこの重みも扱う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§8、[999 TempoRL の後続](../../memo/958_temporl_skip_followups_10prd.md)、§4 D7）。
 - eviction 統計（last_evicted 系）も sampleable の範囲を基準にする形 — 不採用（却下）: 追い出される slot は必ず history margin を過ぎてから追い出されるので、wrap 後に統計が恒常的に 0 件になり、一度も引かれずに追い出された割合の指標が死ぬ（出典: [ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、Considered Options；[PRD050](../../memo/done/050_replay_ring_stack_margin_10prd.md)、0. 決定一覧 D7）。
 - sampleable index を返す GetValidIndices1D を非 const にする形 — 不採用（採らない）: const な呼び出し元 4 箇所が、unique_ptr の operator-> が const を伝播しないことに依存して非 const を呼ぶ形になり、将来 propagate_const などで塞がれると通らなくなる（出典: [PRD077](../../memo/done/077_valid_index_scratch_reuse_10prd.md)、D4）。
 - 初期優先度のヒントを TensorDict で任意の named tensor として運ぶ形 — 不採用（棄却）: 複数 value の CPU 化が複数の D2H になり、1 key へ pack すると単一 tensor の carrier と実質同じになる（出典: [ADR 0012](../../adr/0012-replay-initial-priority-hint-completion.md)、Considered Options）。
@@ -152,22 +152,53 @@
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 - [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-- F-0006 P0 defect — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
-- F-0012 P1 refactor — イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している
-- F-0038 P1 defect — actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる
-- F-0009 P2 defect — PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる
-- F-0015 P2 refactor — SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている
-- F-0017 P2 refactor — ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む
-- F-0025 P2 drift — train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う
-- F-0010 P3 defect — ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す
-- F-0027 P3 test-gap — MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い
-- F-0034 P3 refactor — InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない
-- F-0035 P3 test-gap — DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
+| 2 | [issue-20261103-cfe994](../../management/issues/issue-20261103-cfe994.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
+| 3 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
+| 4 | [issue-20261103-07629c](../../management/issues/issue-20261103-07629c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui | 索引 | 未確認 | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 PRD |
+| 5 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | 索引 | 未確認 | SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 PRD |
+| 6 | [issue-20261103-182ca1](../../management/issues/issue-20261103-182ca1.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 索引 | 未確認 | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 暫定 PRD |
+| 7 | [issue-20261103-34d35d](../../management/issues/issue-20261103-34d35d.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core | 索引 | 未確認 | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる 暫定 PRD |
+| 8 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
+| 9 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app, 317_metrics, 312_util, 322_env_individual | 索引 | 未確認 | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
+| 10 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 315_nn, 321_agent_core | 索引 | 未確認 | forward の名前付き出力を NetworkForwardCapture に一本化する 暫定 PRD |
+| 11 | [issue-20261103-a86dcc](../../management/issues/issue-20261103-a86dcc.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 321_agent_core, 324_dqn | 索引 | 未確認 | eval スケジュールの初回発火の抑止 暫定 PRD |
+| 12 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
+| 13 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
+| 14 | [issue-20261103-582880](../../management/issues/issue-20261103-582880.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | ずれ | 未確認 | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
+| 15 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
+| 16 | [issue-20261103-ca1a85](../../management/issues/issue-20261103-ca1a85.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
+| 17 | [issue-20261103-60f11c](../../management/issues/issue-20261103-60f11c.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い |
+| 18 | [issue-20261103-b2a0b1](../../management/issues/issue-20261103-b2a0b1.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
+| 19 | [issue-20261103-5a5373](../../management/issues/issue-20261103-5a5373.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない |
+| 20 | [issue-20261103-d4aa77](../../management/issues/issue-20261103-d4aa77.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
+| 21 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
+| 22 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core | 索引 | 未確認 | メトリクス目標値によるハイパラ自律調整 暫定 PRD |
+| 23 | [issue-20261103-2349d0](../../management/issues/issue-20261103-2349d0.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 315_nn, 324_dqn, 314_tensor, 317_metrics, 110_runner_app, 322_env_individual | 索引 | 実装済み | TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD |
+| 24 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
+| 25 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 320_env_core, 317_metrics, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 未確認 | 評価 session の step trace を Run の記録に残す PRD |
+| 26 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 索引 | 未確認 | 操作入力の入力先切替と Train 側の強制行動（学習への反映）暫定 PRD |
+| 27 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 28 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 322_env_individual, 110_runner_app | 索引 | 未確認 | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の家族 暫定 PRD |
+| 29 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
+| 30 | [issue-20261103-8c3c6d](../../management/issues/issue-20261103-8c3c6d.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 索引 | 未確認 | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る 暫定 PRD |
+| 31 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
+| 32 | [issue-20261103-969184](../../management/issues/issue-20261103-969184.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 322_env_individual | 索引 | 未確認 | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド）暫定 PRD |
+| 33 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 索引 | 未確認 | 直前行動観測の共通部品（`prev_action` フレーム段） |
+| 34 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 索引 | 未確認 | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す PRD |
+| 35 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor | 索引 | 未確認 | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 PRD |
+| 36 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
+| 37 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui, 321_agent_core, 322_env_individual | 索引 | 未確認 | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD |
+| 38 | [issue-20261103-b713c2](../../management/issues/issue-20261103-b713c2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core | 索引 | 実装済み | 課題の記録を issue（1 課題 1 ファイル）に替え、仕事は issue・指示は PRD で持つ（台帳の退役、課題の仕組み、PRD の採番とフォルダの改め）PRD |
+| 39 | [issue-20261103-f39d10](../../management/issues/issue-20261103-f39d10.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn | 索引 | 未確認 | Background eval の network snapshot 順序保証 |
+| 40 | [issue-20261103-f40ae8](../../management/issues/issue-20261103-f40ae8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 317_metrics, 314_tensor, 318_rl_core | 索引 | 未確認 | TimeHistogram fine-bin保持・描画時集約 PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 40 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

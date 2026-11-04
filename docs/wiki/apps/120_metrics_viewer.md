@@ -93,15 +93,19 @@
 - [RunWarningRegistry.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RunWarningRegistry.java)
 - [SeriesAvailability.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SeriesAvailability.java)
 - [SourceReader.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)
+- [TagSetStore.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/TagSetStore.java)
 - [WorkspaceManager.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java)
 - [MetricTraceEncoder.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java)
 - [HttpAccessLogFilter.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/HttpAccessLogFilter.java)
 - [MetricsViewerController.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)
+- [TagSetController.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/TagSetController.java)
 - [WorkspaceController.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java)
 - [ApiError.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/ApiError.java)
+- [DeleteTagSetRequest.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/DeleteTagSetRequest.java)
 - [GetMetricsRequest.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/GetMetricsRequest.java)
 - [GetMetricsResponse.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/GetMetricsResponse.java)
 - [GetRunsResponse.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/GetRunsResponse.java)
+- [GetTagSetsResponse.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/GetTagSetsResponse.java)
 - [GetWorkspacesResponse.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/GetWorkspacesResponse.java)
 - [IngestInfo.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/IngestInfo.java)
 - [Issue.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/Issue.java)
@@ -112,15 +116,19 @@
 - [MinMaxProjection.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/MinMaxProjection.java)
 - [PrioritizeRunsRequest.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/PrioritizeRunsRequest.java)
 - [RawProjection.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RawProjection.java)
+- [RenameTagSetRequest.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RenameTagSetRequest.java)
 - [RunInfo.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RunInfo.java)
 - [RunStats.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RunStats.java)
+- [SaveTagSetRequest.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/SaveTagSetRequest.java)
 - [StrictStringDeserializer.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/StrictStringDeserializer.java)
 - [SwitchWorkspaceRequest.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/SwitchWorkspaceRequest.java)
 - [TagInfo.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/TagInfo.java)
+- [TagSetInfo.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/TagSetInfo.java)
 - [TagStats.java](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/TagStats.java)
 - [additional-spring-configuration-metadata.json](../../../apps/metrics-viewer/src/main/resources/META-INF/additional-spring-configuration-metadata.json)
 - [spring-devtools.properties](../../../apps/metrics-viewer/src/main/resources/META-INF/spring-devtools.properties)
 - [application.properties](../../../apps/metrics-viewer/src/main/resources/application.properties)
+- [initial_tag_sets.json](../../../apps/metrics-viewer/src/main/resources/initial_tag_sets.json)
 - [favicon.png](../../../apps/metrics-viewer/src/main/resources/static/favicon.png)
 - [index.html](../../../apps/metrics-viewer/src/main/resources/static/index.html)
 - [metrics-viewer.css](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) / [metrics-viewer.js](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)
@@ -141,6 +149,8 @@
 - [MetricsRepositoryStepRangeIntegrationTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepositoryStepRangeIntegrationTest.java)
 - [MetricsViewerSettingsTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsViewerSettingsTest.java)
 - [SeriesAvailabilityTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/SeriesAvailabilityTest.java)
+- [TagSetApiIntegrationTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/TagSetApiIntegrationTest.java)
+- [TagSetStoreTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/TagSetStoreTest.java)
 - [WorkspaceApiIntegrationTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceApiIntegrationTest.java)
 - [WorkspaceManagerTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManagerTest.java)
 - [WorkspaceSnapshotIntegrationTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceSnapshotIntegrationTest.java)
@@ -156,6 +166,7 @@
 - [ScreenshotModePlaywrightTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/ScreenshotModePlaywrightTest.java)
 - [SignedLogPlaywrightTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/SignedLogPlaywrightTest.java)
 - [TagListPlaywrightTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/TagListPlaywrightTest.java)
+- [TagSetPlaywrightTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/TagSetPlaywrightTest.java)
 - [WorkspaceSelectorPlaywrightTest.java](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceSelectorPlaywrightTest.java)
 
 ## PRD の一覧
@@ -165,15 +176,24 @@
 - [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md) — Metrics Viewer 定常取り込み I/O 抑制 PRD
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-- F-0003 P1 defect — window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない
-- F-0002 P2 defect — 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる
-- F-0004 P2 defect — DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる
-- F-0005 P2 defect — 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 2 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
+| 3 | [issue-20261103-55b5f1](../../management/issues/issue-20261103-55b5f1.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer | 索引 | 未確認 | Metrics ViewerのLOD集約数の記述整合 暫定PRD |
+| 4 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
+| 5 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
+| 6 | [issue-20261103-863fe2](../../management/issues/issue-20261103-863fe2.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる |
+| 7 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
+| 8 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
+| 9 | [issue-20261103-4c0f04](../../management/issues/issue-20261103-4c0f04.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 312_util | 索引 | 未確認 | MetricsViewer のタグセット（名前付きのタグ選択の保存と呼び出し）PRD |
+| 10 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
+| 11 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 311_dev_tools, 312_util, 316_config, 320_env_core, 313_profiling | 索引 | 未確認 | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 11 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

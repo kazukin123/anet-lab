@@ -195,12 +195,12 @@ ctest --test-dir out/build/x64-Debug --output-on-failure -j 1
 
 - 公開API・結果の値所有・NaN/nullopt・通知とlane対応・日本語段階コメント・ProfileRange・設定移行・LF・既存dirty保持を再点検。ソース変更がないため、成功済みの全体ビルド/テストを繰り返さない。
 - 必須受入の未実施はない。判定不能4構成の性能は原因調査結果付きで持ち越す。最終独立レビューはOK。プロセス契約§7の候補①②はユーザーが採用し、下記の課題へ記録済み。
-- 持ち越し課題: [999_prd097_performance_remeasurement_10prd.md](../999_prd097_performance_remeasurement_10prd.md)（安定条件での性能再測定・serial追加費用）、[999_metrics_action_info_dynamic_cast_10prd.md](999_metrics_action_info_dynamic_cast_10prd.md)（既存Observerの型判別整理）。PRD094・開始通知・QValuePanel・英訳・過去記録・commit/pushは対象外。
+- 持ち越し課題: [999_prd097_performance_remeasurement_10prd.md](../946_prd097_performance_remeasurement_10prd.md)（安定条件での性能再測定・serial追加費用）、[999_metrics_action_info_dynamic_cast_10prd.md](928_metrics_action_info_dynamic_cast_10prd.md)（既存Observerの型判別整理）。PRD094・開始通知・QValuePanel・英訳・過去記録・commit/pushは対象外。
 
 - 最終独立レビューはplan/implともOK、修正要求0件（原文 .scratch/prd097/review-20261020-2158-final-impl.md）。最終51ファイルのhash/LF、全受入記録と判定不能4構成の持ち越し条件も確認された。コード30/30再照合済み。残る工程末の選択は、性能再測定候補と既存dynamic_cast整理候補の起票だけであり、選択前には課題記録を作らない。commit/pushなし。
 
 ## 完了報告
 
-- ユーザーは工程末の候補①②をともに採用した。レジストリのissue-record形式で、[999_prd097_performance_remeasurement_10prd.md](../999_prd097_performance_remeasurement_10prd.md)と[999_metrics_action_info_dynamic_cast_10prd.md](999_metrics_action_info_dynamic_cast_10prd.md)を新規作成した。重複する既存課題は見つからなかった。
+- ユーザーは工程末の候補①②をともに採用した。レジストリのissue-record形式で、[999_prd097_performance_remeasurement_10prd.md](../946_prd097_performance_remeasurement_10prd.md)と[999_metrics_action_info_dynamic_cast_10prd.md](928_metrics_action_info_dynamic_cast_10prd.md)を新規作成した。重複する既存課題は見つからなかった。
 - 改訂PRD097に沿う再実装、全体ビルド/テスト、全7構成の系列一致、手動画面確認、性能測定・判定不能の調査、自己点検、独立最終レビューを完了した。性能の未確定4構成は上記課題へ持ち越し、合格とは表記しない。
 - 必須検証の未実施と追加の判断待ちはない。GPUを使う検証と全Runnerは終了。今回の工程を完了して停止する。commit/pushなし。

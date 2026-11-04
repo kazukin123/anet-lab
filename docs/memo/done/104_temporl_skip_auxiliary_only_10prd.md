@@ -2,7 +2,7 @@
 
 > 2026-10-28 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、実装時は近傍のシンボル名で探し直す。
 > 起点: [PRD103](103_temporl_reference_alignment_10prd.md)（TempoRL 第二弾）の段 1（qbert、サンプル効率優先）の結果の読み（2026-10-28 の会話）。遮断・合算・重み 0.3 の 3 本がそろって中盤に無効より遅れ、序盤の速さだけが skip の loss の重みの順に並んだことから、「得は補助学習の側、損は行動を固定する側」という仮説を立て、それを確かめる形を起こした。
-> 関連: [PRD098](../098_temporl_skip_policy_10prd.md)（TempoRL 対応）、[PRD103](103_temporl_reference_alignment_10prd.md)（第二弾）、[999_temporl_skip_followups](../999_temporl_skip_followups_10prd.md)（第三弾。閉ループの割り込み (I) は本書とは別の答え）、[行動の時間尺度（wiki）](../../wiki/mechanisms/temporal_abstraction.md)、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)（replay の窓の規則）、[ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)（Agent は Actor の用途を知らない）。
+> 関連: [PRD098](../098_temporl_skip_policy_10prd.md)（TempoRL 対応）、[PRD103](103_temporl_reference_alignment_10prd.md)（第二弾）、[999_temporl_skip_followups](../958_temporl_skip_followups_10prd.md)（第三弾。閉ループの割り込み (I) は本書とは別の答え）、[行動の時間尺度（wiki）](../../wiki/mechanisms/temporal_abstraction.md)、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)（replay の窓の規則）、[ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)（Agent は Actor の用途を知らない）。
 > 改訂: 2026-10-29（グリル。`/anet-create-prd`、Claude Code）。goal anchor と scope screen に合意し、契約 5 件と細部 17 件を決めた。補助タスクの教材（窓）を 2 つにし（連続区間の窓と、エピソードの終わりだけで閉じる窓。D3）、設定キーを Actor 側 `actor.[key].skip.max_length_mode`（`single`／`full`／`variable`）＋`max_length`（ProfiledValue）、Learner 側 `learner.skip.target_window`（`decision`／`action_change`／`episode_end`）に改めた（D1。暫定版の `skip.execution = commit／single` と `learner.skip.window = action_run` は使わない。理由は D1）。組み合わせの検査は (1) だけを止め、(2) は WARN にし、(3) は Agent では判定できないので外した（D4、[ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)）。固定を徐々に解くスケジュールは `variable` の ProfiledValue で書けるが、段には入れない（§8）。§2.2 に重み 0.3 の Run の 50M までの値を足した。§9 の 1・2・5・6 を閉じた。起草後の別モデル（Opus）の検討で、段 0 の指標を突破率の差から「平均点の差を無効の checkpoint との差で割った g」に改め（45.7M では評価側の突破率の差が閉じているため）、1 本の Run に `[greedy]`／`[greedy_single]` を並べる形にし、段 1 に k=1 だけの補助と終わりだけ・分割の対照 2 腕を足し（7 腕）、段 2 の教材の閾値を一様ランダムの水準 |A|/(|A|−1) から置き直し、D1 の理由（Actor ごとのキーが要る場面）、D8 と CONTEXT.md の文言（k step の収益、上限 J）、`[train]` の既定の置き場、D4 (2) の WARN 文と `priority_lambda`、`single` で省くのは j の選択だけ、§2.1 の事実 2 件、`variable` の検証を ProfiledValue の共通処理で表すこと、skip 無効で J が無いときの検証、丸め（§9 の 9）を直した。`variable` は残した。レビュー（`an-review`、2 往復）で、補助学習のみモードの定義（§6 の 7・D5）と `split` の腕の引き金（§6 の 13・§9 の 7）の文書内の食い違いを直し、`variable` を今作る理由（D1）と段 0 の g の分母が 0 以下のときの読み（§7）を足した。別ツールのレビュー（Claude、2 件）で、受入 3 の `variable` の smoke の構成と合格の条件、`full`・`single` で `max_length` を書いたときの WARN が出る条件（`skip.enabled = true` のときだけ。§5.1・§5.2・§6 の 4・受入 2）を直した。
 > 改訂: 2026-10-30（ユーザーの判断）。段 1（LunarLander）の結果は段 2（qbert）の参考にとどめ、段 2 の腕を段 1 の結果で絞らないことにした。LunarLander と qbert で傾向が大きく違い（段 0 の qbert の g は 3 本とも「固定が主因」、段 1 の LunarLander では補助学習のみモードの 2 腕とも無効の最大以下）、段 1 の結果で qbert の実施範囲を決める根拠にならないため。§6 の 10・13、§7 の段 2、§9 の 7 を直した。
 > 改訂: 2026-10-31。§7 の段 2 の結果（連続区間は見込みなし、終わりだけは 9.2M で停止、終わりだけ・分割は中止）を記録した（[実験記録](../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）。
@@ -105,7 +105,7 @@ LunarLander（IQN＋Munchausen、J=4、2M、3 seed）: 評価 policy 報酬の R
 非ゴール（消える案と、それが本当の制約かどうか）:
 
 - TempoRL（固定する形）の既定を変えること: 段の結果が出る前に既定を動かさない。結果によっては別の改訂で変える。制約ではなく、実験の結果が要ることによる非ゴール。
-- 閉ループの割り込み（第三弾の (I)）: 固定に歯止めを掛ける別の答えで、[999_temporl_skip_followups](../999_temporl_skip_followups_10prd.md) が持つ。本書の Actor の口と組み合わせられるが、本書では作らない。別の関心による非ゴール。
+- 閉ループの割り込み（第三弾の (I)）: 固定に歯止めを掛ける別の答えで、[999_temporl_skip_followups](../958_temporl_skip_followups_10prd.md) が持つ。本書の Actor の口と組み合わせられるが、本書では作らない。別の関心による非ゴール。
 - 途中まで固定し、途中から毎 step 判断にする切り替え（スケジュール）を段に入れること: `variable` の ProfiledValue で書けるようになるが、仮説の判定に要らない（§8）。制約ではなく、ゴールに要らないことによる非ゴール。
 - 補助学習のみモードの skip の出力を、行動の選択や評価の指標に使うこと: 判断で区切らない窓で学んだ出力は「a を続けてから Q に従う」価値ではない（連続区間の窓は選び直しの偏りを含み、終わりだけの窓は a_t から k step の補正の無い収益になる。D3・D8）。制約（意味の違い）による非ゴール。D4 (1) で止める。
 - 行動を選ぶ Q の学習を変えること: 本書は Actor のスキップ長の幅と skip の loss の窓だけで閉じる。ゴールに要らないことによる非ゴール。
@@ -259,7 +259,7 @@ checkpoint は窓の規則も Actor の幅も持たない（§2.1）ので、補
 1. `single` の Actor の動き: skip の方策の j の選択だけを省き（スケジュールの更新と τ の問い合わせは今と同じ）、skip Network の forward と aux（`skip_decision` 全部真、`skip_length` 全部 1、`skip_q_values` J 本）は出す（理由: Trace と指標の読み手を変えない。forward は MLP 1 回。§9 の 2 を閉じる）。
 2. `variable` の絞り: 方策の選択だけを上限までの j に絞り、aux の `skip_q_values` は J 本のまま（理由: Trace の `skip_q.[j]` の範囲検査を変えない）。整数への丸めは既存の整数の ProfiledValue と同じ切り捨て。
 3. `variable` の上限を指標に出す: Actor の `GetScalar` に `skip_max_length` を足し、tag `50_agent_skip/07_max_length` を腕の葉で足す。`full`・`single` では NaN（理由: スケジュールを Viewer で確かめる。既定の連鎖には入れない）。
-4. 読まないモード（`full`・`single`）で `max_length` が書かれていたら: 値の検証（1〜J）だけして使わず、`skip.enabled = true` なら `learner.enabled` の値によらず WARN を 1 回出す。`skip.enabled = false` なら出さない（理由: `variable` の書き忘れに気づける。[999_temporl_skip_followups](../999_temporl_skip_followups_10prd.md) §5.1 の λ の扱いと同じ）。
+4. 読まないモード（`full`・`single`）で `max_length` が書かれていたら: 値の検証（1〜J）だけして使わず、`skip.enabled = true` なら `learner.enabled` の値によらず WARN を 1 回出す。`skip.enabled = false` なら出さない（理由: `variable` の書き忘れに気づける。[999_temporl_skip_followups](../958_temporl_skip_followups_10prd.md) §5.1 の λ の扱いと同じ）。
 5. D4 (2) の WARN の文: キーと値と「skip の loss の勾配が共有部に届かず、出力も行動に使わない。`priority_lambda` が 0 なら Q の学習に効かない（対照の腕）。0 より大きければ優先度を通じて効く」を 1 回（理由: 2026-10-29 の決定）。
 6. D4 (1) のエラー文: 当たった Actor のキー、`max_length_mode`（`variable` なら上限の範囲）、`target_window` の値、「偏った skip 出力で固定する」を示す（理由: 構築時に直し方が分かる）。
 7. 用語: 「補助学習のみモード」は「全 Actor のスキップ長が常に 1（`single`、または `variable` で常に 1）で、`target_window` が `decision` 以外」と定義し（D8・§5.2・CONTEXT.md と同じ定義）、「連続区間」とともに CONTEXT.md に入れる（理由: 設定値と文書が使う語で、既存の語で言い換えられない。D8）。
@@ -276,7 +276,7 @@ checkpoint は窓の規則も Actor の幅も持たない（§2.1）ので、補
 
 ## 7. 検証と受入
 
-用語の定義（[999_temporl_skip_followups](../999_temporl_skip_followups_10prd.md) §7 と同じ）:
+用語の定義（[999_temporl_skip_followups](../958_temporl_skip_followups_10prd.md) §7 と同じ）:
 
 - **AUC**: 評価 slot の評価報酬の、Run 全体での平均。
 - **A が B 以上**: 腕 A の 3 seed の AUC の平均が、腕 B の 3 seed の AUC の最小値を下回らない。
@@ -357,8 +357,8 @@ g の表:
 |---|---|---|
 | 途中まで固定し、途中から毎 step 判断にする切り替え（スケジュール）を段に入れること | 先送り | `decision` の窓では `variable` の ProfiledValue で書ける（§5.1 の設定例。窓は判断で区切るままなので特別な扱いは要らない）。判断で区切らない窓では D4 (1) が止める（偏った skip の出力で固定する期間を作らない）。再開条件: 段 2 で補助学習のみモードが序盤の得を出さなかったとき、または固定の期間の長さが成績に効くと分かったとき |
 | 補助学習のみモードを 1 つのモードの値で持つ形 | 不採用 | D1 のキーと意味が重なる（D5） |
-| `single` の Actor で skip Network の forward を省く | 不採用 | 読み手（Trace の列、指標）を変えない（§6 の 1）。再開条件: 1 env のリアルタイム実行の PRD が起きたとき（[999_temporl_skip_followups](../999_temporl_skip_followups_10prd.md) §8 と同じ） |
-| 閉ループの割り込み | 範囲外 | [999_temporl_skip_followups](../999_temporl_skip_followups_10prd.md) の (I)。本書の `single` と同時には使わない（`single` は続けている状態を持たない） |
+| `single` の Actor で skip Network の forward を省く | 不採用 | 読み手（Trace の列、指標）を変えない（§6 の 1）。再開条件: 1 env のリアルタイム実行の PRD が起きたとき（[999_temporl_skip_followups](../958_temporl_skip_followups_10prd.md) §8 と同じ） |
+| 閉ループの割り込み | 範囲外 | [999_temporl_skip_followups](../958_temporl_skip_followups_10prd.md) の (I)。本書の `single` と同時には使わない（`single` は続けている状態を持たない） |
 | 補助タスクの予測先（a と k）を増やす形（複数の割引率など、§2.3 の先行例の形） | 範囲外 | 本書は skip Head の予測先を変えず、窓の切り方だけを足す（終わりだけの窓も、予測するのは「a を打って k step 進む価値」で、予測先は同じ a と k）。別の予測先は別の PRD。再開条件: 段 1 か段 2 で補助学習のみモードが無効を上回る得を出し、補助タスクそのものが効くと分かったとき（どの予測先が効くかを比べる意味が出る） |
 | 「`decision` なのに学習に使う Actor が `single`」を止める検査（暫定版の D4 (3)） | 不採用 | Agent は Actor の用途を知らない（ADR 0038）。退化形として本文に書く（§5.2） |
 | 判断で区切らない窓なのに `stop` を止める検査（暫定版の D4 (2)） | 不採用 | `stop` は明示のモードで、`single` ＋ `stop` は対照の腕になる（D4）。WARN で受ける |
@@ -389,7 +389,7 @@ g の表:
 
 ## 11. 参照
 
-- [PRD098 TempoRL 対応](../098_temporl_skip_policy_10prd.md)、[PRD103 TempoRL 第二弾](103_temporl_reference_alignment_10prd.md)、[999 TempoRL の後続](../999_temporl_skip_followups_10prd.md)、[PRD101 探索と学習のスケジュール](101_exploration_schedule_profiled_value_10prd.md)（ProfiledValue の記法）
+- [PRD098 TempoRL 対応](../098_temporl_skip_policy_10prd.md)、[PRD103 TempoRL 第二弾](103_temporl_reference_alignment_10prd.md)、[999 TempoRL の後続](../958_temporl_skip_followups_10prd.md)、[PRD101 探索と学習のスケジュール](101_exploration_schedule_profiled_value_10prd.md)（ProfiledValue の記法）
 - [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)、[ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)
 - [200 DQN 系列（設計文書）](../../design/200_dqn_agents.jp.md)、[150 ReplayBuffer（設計文書）](../../design/150_replay_buffer.jp.md)、[行動の時間尺度（wiki）](../../wiki/mechanisms/temporal_abstraction.md)、[324 DQN 系列（wiki）](../../wiki/categories/324_dqn.md)、[318 強化学習 共通基盤（wiki）](../../wiki/categories/318_rl_core.md)
 - [TempoRL 論文解説](../../../reports/biedenkapp2021_temporl_paper_2026-10-03.md)、[2026-10-28 LunarLander の実験記録](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)

@@ -1,6 +1,6 @@
 # 記録の発番
 
-課題記録と作業記録の ID を出す手順である。接頭辞が違うだけで、規則は同じである。
+課題記録の ID を出す手順である。anet の作業記録は PRD と実装計画が兼ねるので、接頭辞 worklog は使わない。
 
 ## 発番のしかた
 
@@ -24,6 +24,6 @@ node docs/process/scripts/newid.js <接頭辞> [件数]
 
 ## Node.js が見つからないとき
 
-コマンドが「`node` が見つからない」旨のエラー（`command not found`、`is not recognized` など）で失敗したら、**ID を推測で作らずに止まり**、開発者へ次をそのまま示す（`docs/process/protocol.md` 4 節の停止条件 6）。
+コマンドが「`node` が見つからない」旨のエラー（`command not found`、`is not recognized` など）で失敗したら、**ID を推測で作らずに止まり**、開発者へ次をそのまま示す（`docs/process/protocol.md` 5 節の停止条件 6）。
 
 > 記録に付ける番号を作るのに Node.js が必要ですが、この環境では見つかりませんでした。Node.js（https://nodejs.org/ の LTS 版）を入れたら、この AI を使っているエディターを閉じて開き直し（ターミナルで使っているときは、そのターミナルを開き直し）、もう一度依頼してください。入れたコマンドを読み込ませるためです。

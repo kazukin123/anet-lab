@@ -1,6 +1,6 @@
 ---
 name: anet-improve
-description: Find the rework in the current anet-lab conversation (review findings, user corrections, redone work, misunderstandings, tool failures), classify why the current harness did not prevent each, show candidate countermeasures for the harness (AGENTS.md, docs/quality, docs/process, skills, agent definitions) as an overview followed by per-problem selection, apply the selected ones in place, self-check them, record the declined ones and the ones that need a PRD in reports/registry/findings.jsonl, and stop. Use only when the user invokes /anet-improve or $anet-improve, or picks the anet-improve candidate offered in the completion report of anet-create-prd or implement-prd-with-docs.
+description: Find the rework in the current anet-lab conversation (review findings, user corrections, redone work, misunderstandings, tool failures), classify why the current harness did not prevent each, show candidate countermeasures for the harness (AGENTS.md, docs/quality, docs/process, skills, agent definitions) as an overview followed by per-problem selection, apply the selected ones in place, self-check them, record the declined ones and the ones that need a PRD in docs/management/issues/, and stop. Use only when the user invokes /anet-improve or $anet-improve, or picks the anet-improve candidate offered in the completion report of anet-create-prd or implement-prd-with-docs.
 ---
 
 # ANET Improve
@@ -18,7 +18,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 
 ## 禁止事項
 
-- ハーネスの外（wiki、`CONTEXT.md`、`docs/design/`、ADR、コード、設定）は直さない。手戻りの原因がそこにあると分かったら、報告に書く。ただし、8 の台帳の作り直し（`build`）が書き換える `docs/wiki/` の地図の「台帳の指摘」の区画は、台帳から作る一覧として扱い、この禁止に当たらない。
+- ハーネスの外（wiki、`CONTEXT.md`、`docs/design/`、ADR、コード、設定）は直さない。手戻りの原因がそこにあると分かったら、報告に書く。ただし、8 のissueの一覧の作り直し（wiki_support.py maps）が書き換える `docs/wiki/` の地図の「課題」の区画は、issueから作る一覧として扱い、この禁止に当たらない。
 - git の書き込み操作をしない。
 - 作業領域の外にある会話の履歴（会話の記録ファイル）を読まない。作業の正本ではなく、指示を取り違えるおそれがあるためである。
 - 覚えていないことを推測で埋めない。
@@ -35,7 +35,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 | この会話で保存したレビュー応答の原文（`.scratch/prdNNN/review-*.md`、`.scratch/review/review-*.md`） | 指摘の 1 件ずつの中身 |
 | この会話で変えたファイルと、その差分 | 手戻りの前後で、何をどう直したか |
 | この会話で書いた・直した feedback memory（Claude Code だけ） | ユーザーの訂正の記録 |
-| 台帳 `reports/registry/findings.jsonl` のうち、`"lens": "process"` の行（状態を問わない）。1 行 1 件なので、検索で引く（例: `rg '"lens": "process"' reports/registry/findings.jsonl`） | 前にも出た問題。初出（`first_seen`）、最終確認日（`last_seen`）、状態（`status`）、履歴（`history`） |
+| kindがハーネス、phaseがハーネス保守のissue（状態を問わない） | 前にも出た問題と対応内容 |
 
 - 同じ会話で 2 回目以降に起動されたときは、この会話で書いた前回の記録（8 の置き場）より後だけを見る。
 - 会話が圧縮されて覚えていない部分は、「覚えていないこと」として、4 の一覧の末尾に書く。
@@ -74,7 +74,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 | 推し | 推す対策に ★ を付ける。同じ効き目なら、毎回読む量とレビューの時間が増えないものを推す |
 | PRD が要る | 次のどれかに当たる対策に、印を付ける。新しいファイルとしてスクリプト・skill・エージェントを足すもの、既存の ADR の判断と食い違うもの、工程の順序を組み替えるもの。品質確認観点の検査の表に 1 行のコマンドを足すのは、これに当たらない |
 
-台帳に同じ問題があれば、「前回も出た」と、初出の日付、今の状態、履歴にある再発の回数を添える。前回に採らなかった問題が再び起きたことは、推しの理由に足す。
+issueに同じ問題があれば、「前回も出た」と、初出の日付、今の状態、履歴にある再発の回数を添える。前回に採らなかった問題が再び起きたことは、推しの理由に足す。
 
 ## 4. 全体の一覧を示す
 
@@ -108,7 +108,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 
 ## 6. 反映する
 
-- 「PRD が要る」の対策は、採っても書かない。8 で、その問題を台帳へ積む。同じ問題のほかの対策を反映しても、積む。報告で、PRD の題材として示す。
+- 「PRD が要る」の対策は、採っても書かない。8 で、その問題をissueへ積む。同じ問題のほかの対策を反映しても、積む。報告で、PRD の題材として示す。
 - それ以外の採った対策を、置き場へ書く。書く前に、`AGENTS.md` の「作業ごとに読むもの」の表で置き場に当たる行（skill は「skill を書く・直す」、それ以外のハーネスは `AGENTS.md`・品質確認観点・プロセス契約とレジストリ・エージェント定義の行）の節を読み、読んだ節の名前を応答に 1 行で示す。
 - 書く前に、[プロセス契約](../../../docs/process/protocol.md) の 1.3 節「直した箇所の帰結を自分で洗う」の表（見出し `#### 直した箇所の帰結を自分で洗う` から、次の `####` の見出しの前まで）も読み、足した規則の写し（別ファイルにある同じ一覧など）・件数・参照を同じ応答で直す。足した文は、分岐先・根拠の形・件数に別の読みが成り立たないかを 1 行で確かめる。
 - 観点に項目を足すときは、その観点ファイルの「位置づけ」の決まり（項番の振り方など）に従う。節の規約を直したら、同じ節の項目も見直す。
@@ -128,40 +128,20 @@ description: Find the rework in the current anet-lab conversation (review findin
 
 `.scratch/anet-improve/<YYYYMMDD-HHMM>_<題>.md` に、4 の一覧、選んだ結果、反映したファイルと節、7 の結果、PRD 送りと見送りを書く。`<題>` は、この会話の作業を表す短い英小文字の語にする。
 
-### 台帳
+### issue
 
-問題ごとに、台帳 `reports/registry/findings.jsonl` での扱いを次で決める。項目と CLI は `reports/tools/registry.py` 冒頭の docstring が正本である。
+問題の記録はanet-create-issueの「分け方」と本文の構成に従う。同じ問題なら既存のissueへ、再発した日、今回の場面、今回の対策と扱いを追記する。
 
-| 問題 | 台帳 |
-| --- | --- |
-| 「PRD が要る」の対策を採った問題（同じ問題のほかの対策を反映していても） | `open` で積む |
-| 対策をすべて採らなかった問題 | `wontfix` で積む |
-| 採った対策を反映し、「PRD が要る」の対策を採っていない問題 | 積まない。反映した差分が記録になるためである。台帳に同じ問題があれば、`fixed` にする |
-| 1 回限りの問題 | 積まない |
+| 問題 | 記録 |
+|---|---|
+| PRDが要る対策を採った | 未着手で起票する |
+| 対策をすべて採らなかった | 次版で起票する |
+| 対策を反映し、PRD送りが無い | 新規には起票しない。既存の同じissueは判定で直った見込みにする |
+| 1回限り | 起票しない |
 
-新しく積む記録の項目（台帳に同じ問題がすでにある記録には及ばない。下の手順 2 による）:
+新規はkindをハーネス、phaseをハーネス保守、typeを改善、areaを該当するkey（通常311_dev_tools）にする。本文に事象・再発した場合の影響・選んだ対策を分けて書き、priorityとWSJFは課題のskillの定義で見立てる。既存issueのstatusと監理項目はAIの判断で変えない。
 
-| 項目 | 値 |
-| --- | --- |
-| `lens` | `process` |
-| `category` | 2 の分類の名前 |
-| `title` | 問題の 1 行 |
-| `file`、`symbol` | 書く対策の置き場のファイルと、「節名: 問題の短い名前」。書く対策は、`open` なら採った「PRD が要る」の対策（2 つ以上採ったときは、推しがあれば推し、無ければ記号が最初のもの）、`wontfix` なら推しの対策である。「節名: 問題の短い名前」にするのは、同じ節の別の問題が、1 件に潰れないようにするためである |
-| `evidence` | 書く対策の置き場の、節の見出しの行 |
-| `summary` | 何が起きたか |
-| `scenario` | 対策が無いまま同じ場面になると、何が起きるか |
-| `fix_hint` | `open` なら「PRD が要る: 」で始め、採った「PRD が要る」の対策の中身をすべて並べる。`wontfix` なら推しの対策の中身 |
-| `priority` | `P2`。再発は、優先度ではなく履歴で表す |
-| `confidence` | `high` は会話かファイルで確かめたもの、`med` は覚えている範囲だけのもの |
-
-手順（`<run_id>` は `<YYYY-MM-DD>-improve-<claude|codex>`、台帳の CLI は `./.venv/Scripts/python.exe reports/tools/registry.py`）:
-
-1. 台帳に同じ問題が無い問題は、新しく積む記録を `.scratch/anet-improve/` の JSONL に書き、`add --file <JSONL> --run <run_id>` を実行する。`wontfix` で積む記録は、続けて `set --id <id> --status wontfix --note "anet-improve で採らなかった"` を実行する。
-2. 台帳に同じ問題がある問題は、新しく積まない。既存の記録の本文（`title`、`summary`、`scenario`）と、`file`・`symbol`・`fix_hint` は書き換えない。`file`・`symbol` を変えると、次に同じ問題を突き合わせられなくなるためである。`touch --ids <id> --run <run_id>` で最終確認日を更新し、`set --id <id> --status <上の表の状態> --note "再発。<今回の扱い>: <今回の対策>" --run <run_id>` を実行する。
-   - `<今回の扱い>` は「PRD 送り」「採らなかった」「反映した」のどれかにする。
-   - `<今回の対策>` は、PRD 送りなら採った「PRD が要る」の対策すべての置き場と中身、採らなかったなら推しの対策の置き場と中身、反映したなら反映した置き場にする。
-   - 状態が前と同じでも実行する。履歴の「再発」の注記が、再発と今回の対策の記録になるためである。
-3. `build` と `validate` を実行する。`build` は、台帳の派生一覧と、`docs/wiki/` の地図の「台帳の指摘」の区画を書き換える。
+repoの.venvからreports/tools/wiki_support.py mapsを実行し、INDEXと地図の課題区画を作り直す。
 
 ### memory（Claude Code だけ）
 
@@ -173,8 +153,8 @@ description: Find the rework in the current anet-lab conversation (review findin
 
 - 反映したファイルと節。
 - 7 の結果（自己点検、機械検査、今回の形に当てた結果）。
-- PRD 送りの対策と、台帳の id。`/anet-create-prd`（Codex は `$anet-create-prd`）の題材になる。台帳に同じ問題があった記録では、今回の対策は履歴の最後の注記にあると添える。
-- 見送りと、台帳に積んだもの・状態を変えたもの。
+- PRD 送りの対策と、issueのID。`/anet-create-prd`（Codex は `$anet-create-prd`）の題材になる。同じ問題の既存issueには今回の対策を追記したことを添える。
+- 見送りと、issueに積んだもの・状態を変えたもの。
 - 1 回分の記録の置き場。
 - 変えたファイルの一覧。ほかの作業と別のコミットにできるようにする。Topic は `#7`。コミットの文案は `anet-prepare-commit` に任せる。
 

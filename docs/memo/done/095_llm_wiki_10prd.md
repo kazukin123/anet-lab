@@ -12,7 +12,7 @@
 > 2026-10-23 改訂（段階 3 のレビュー）: 段階 3 で作る機能カテゴリの地図の成立の経緯を、§4.6 の決まり（コミットの scope の PRD。`done/` へ移ったかを問わない）で作ることにし、D26 と §4.7 の点検の直し方の「その時点の `done/` の PRD から」を改めた。「分かっていないこと」に書く問いを、出典にある未解決の問いと出典どうしの食い違いに限った（§4.6、§4.7、D26）。
 > 2026-10-23 改訂（段階 3 の修正のレビュー）: 「選ばなかった形」の裁定の語を、出典の語をそのまま写すのではなく、「不採用」「先送り」「範囲外」のどれかに当てはめて書くことにし、当てはめ方を決めた。出典の語は括弧で添えてよい（§4.6）。
 > 起点: LLM-Wiki（Karpathy が 2026-04 に公開した、LLM が資料を取り込みながら相互リンクの wiki を保つ型）を anet に入れる検討。anet では PRD が起点で、PRD は実験記録・サーベイ・src を材料にグリルして作る。新しい層はその材料の側（PRD の上流）に置く。
-> 関連: [docs/experiments/README.md](../../experiments/README.md)、[reports/INDEX.md](../../../reports/INDEX.md)、[動線マップ](../../agents/README.md)（表 2、発見事項 12）、[anet-create-prd](../../../.agents/skills/anet-create-prd/SKILL.md)、[anet-housekeeping](../../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-audit](../../../.agents/skills/anet-audit/SKILL.md)、[skills README](../../../.agents/skills/README.md)、[リファクタリング観点](../../quality/refactor.md)、[087_review_agent_quality_viewpoints_10prd.md](087_review_agent_quality_viewpoints_10prd.md)（anet-create-prd の 7 段）、[094_evalpanel_step_history_10prd.md](094_evalpanel_step_history_10prd.md)・[999_intrinsic_reward_novelty_10prd.md](../999_intrinsic_reward_novelty_10prd.md)（試作の材料）、[ADR 0056](../../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)、[ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、[AGENTS.md](../../../AGENTS.md) の「設計判断の記録(ADR)を読む条件」「用語(CONTEXT.md)を引く条件」「実験記録と実効 config の保存ルール」「AI エージェントのRun結果分析ルール」。
+> 関連: [docs/experiments/README.md](../../experiments/README.md)、[reports/INDEX.md](../../../reports/INDEX.md)、[動線マップ](../../agents/README.md)（表 2、発見事項 12）、[anet-create-prd](../../../.agents/skills/anet-create-prd/SKILL.md)、[anet-housekeeping](../../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-audit](../../../.agents/skills/anet-audit/SKILL.md)、[skills README](../../../.agents/skills/README.md)、[リファクタリング観点](../../quality/refactor.md)、[087_review_agent_quality_viewpoints_10prd.md](087_review_agent_quality_viewpoints_10prd.md)（anet-create-prd の 7 段）、[094_evalpanel_step_history_10prd.md](094_evalpanel_step_history_10prd.md)・[999_intrinsic_reward_novelty_10prd.md](../924_intrinsic_reward_novelty_10prd.md)（試作の材料）、[ADR 0056](../../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)、[ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、[AGENTS.md](../../../AGENTS.md) の「設計判断の記録(ADR)を読む条件」「用語(CONTEXT.md)を引く条件」「実験記録と実効 config の保存ルール」「AI エージェントのRun結果分析ルール」。
 
 ## 1. 目的と問題
 
@@ -91,7 +91,7 @@ LLM-Wiki は、RAG のように質問のたびに元の資料を読み直すの�
   - 実験記録: [2026-09-21](../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、[2026-09-23](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、Atari の README（3 か所、どれも 9 月まで）。
   - サーベイ: `reports/INDEX.md` で、[報酬スケールと割引率](../../../reports/reward_scale_discount_survey_2026-09-23.md)と [LLM の事前知識](../../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)の 2 本が KFM を関連に挙げている。
   - PRD: 10 本（081、082、094 と、999 の 7 本）が KFM に触れている。
-  - 10 月の分析（ボス行きが定着しない件、2026-10-14〜17 の 30〜50M の Run、UQE の Run での lane 別のボス命中率など）は実験記録に無く、[094 の §2](094_evalpanel_step_history_10prd.md) と [999_intrinsic_reward_novelty の §2](../999_intrinsic_reward_novelty_10prd.md)（2.2・2.3・2.6）にだけある。
+  - 10 月の分析（ボス行きが定着しない件、2026-10-14〜17 の 30〜50M の Run、UQE の Run での lane 別のボス命中率など）は実験記録に無く、[094 の §2](094_evalpanel_step_history_10prd.md) と [999_intrinsic_reward_novelty の §2](../924_intrinsic_reward_novelty_10prd.md)（2.2・2.3・2.6）にだけある。
   - Claude Code の memory（ユーザーごとの私的な領域）では 16 本が KFM に触れている。
 - Claude Code の memory には project 型が 123 本ある（2026-10-18 時点）。最大のもの（qbert の第 8 面）は約 26 KB で、wiki の 1 ページと同じ中身である。索引は 162 行で、毎セッション読み込まれる。Codex からは読めない。
 - Codex にも memory がある（2026-10-22 に確認）。`~/.codex/memories/` に、作業ごとのまとめ（`MEMORY.md`、約 295 KB。再利用できる知見・ユーザーの好み・失敗と次の手）、その要約（`memory_summary.md`、約 70 KB）、元の記録（`raw_memories.md`、約 280 KB）、会話ごとの要約（`rollout_summaries/`、62 本）がある。anet-lab への言及は 3 つのファイルで延べ 780 行あり、MetricsViewer の解像度の調査の根本原因や実測値のように、repo に正本の無い知見が混ざる。`MEMORY.md` は、会話の記録と要約から Codex のアプリが作り直す形に見える。会話のファイルのパスや thread id など、公開できない値も多い。Claude Code からは、ファイルとして読める。
@@ -110,12 +110,12 @@ LLM-Wiki は、RAG のように質問のたびに元の資料を読み直すの�
 - 成立の経緯をたどる手がかり: 全 1,044 コミットのうち、scope に PRD 番号を持つもの（`feat(PRD087)` など）は 93 件で、PRD の工程を始める前の作業はコミットから PRD にたどれない。設計文書が示す PRD・ADR も少ない（110「Agent と学習」は PRD・ADR とも 0 件、200「DQN 系 Agent」は PRD 3 件・ADR 7 件）。
 - atlas（[docs/archify/README.md](../../archify/README.md)）は、コードから作る 5 枚の構造図で、成立の経緯や根拠は持たない。
 - リファクタリングの判断材料（2026-10-22 に確認したこと）:
-  - 監査の台帳（`reports/registry/findings.jsonl`。操作は [registry.py](../../../reports/tools/registry.py)）は、[anet-audit](../../../.agents/skills/anet-audit/SKILL.md) の指摘の正本である。状態（open・fixed・wontfix・stale・promoted）と、観点・ファイル・シンボルによる重複の判定を持ち、一覧（`findings.md`・`findings.html`）を作り直す。レコードは 5 件（refactor 1 件が fixed、defect 4 件が open。どれも metrics-viewer）。巡回の状態（`reports/registry/rotation.json`）では、コードの範囲 16 のうち監査したのは 120 MetricsViewer だけである（refactor 2026-09-19、defect 2026-09-23）。レコードの `category` は観点の中の分類（[リファクタリング観点](../../quality/refactor.md)の観点名など）で、機能カテゴリではない。レコードには `file`・`evidence`（パスと行）・具体的な `scenario` が要り、「可能性がある」だけの推測は書かない。
+  - 監査の台帳（`reports/registry/findings.jsonl`。操作は [registry.py](https://github.com/kazukin123/anet-lab/blob/1cbe76d65c3087f7d6b06645cf7243ddb2e2179b/reports/tools/registry.py)）は、[anet-audit](../../../.agents/skills/anet-audit/SKILL.md) の指摘の正本である。状態（open・fixed・wontfix・stale・promoted）と、観点・ファイル・シンボルによる重複の判定を持ち、一覧（`findings.md`・`findings.html`）を作り直す。レコードは 5 件（refactor 1 件が fixed、defect 4 件が open。どれも metrics-viewer）。巡回の状態（`reports/registry/rotation.json`）では、コードの範囲 16 のうち監査したのは 120 MetricsViewer だけである（refactor 2026-09-19、defect 2026-09-23）。レコードの `category` は観点の中の分類（[リファクタリング観点](../../quality/refactor.md)の観点名など）で、機能カテゴリではない。レコードには `file`・`evidence`（パスと行）・具体的な `scenario` が要り、「可能性がある」だけの推測は書かない。
   - 2026-07-04 に、コアの詳細レビュー、リファクタリング候補の走査、仕様のずれの監査の 3 本が行われた。結果の約 40 件（不具合 5、疑い 5、性能 5、リファクタリング候補 13、そのとき新しく見つけた不具合 3、仕様のずれ 6、テストの空白 5）は Claude Code の memory にだけあり、repo にはリファクタリング観点の例示などの断片しか無い。一部は直っている（VideoLogger の 2 件は、2026-10-20 のコミット `ef7862d4` で直された見込み）。監査の観点（refactor、defect、architecture、drift、test-gap、backlog、process）に性能は無い。
   - 選ばなかった形の所在は PRD ごとにばらばらである。PRD 140 本のうち 37 本が「不採用」か「却下」を含み、そのための見出し（「作らないもの・先送り」「却下した案」など）を持つのは 16 本である。ほかは、設計の節（[046](046_workspace_10prd.md) の §2.1・§3.1）、複雑さの監査の節（[076](076_eval_session_drain_on_exit_10prd.md)）、確定事項の表（本 PRD の D5）にある。RunnerApp の成立の経緯に載る 6 本（2026-10-22 時点。034・046・061・070・076・094）のうち 5 本に、選ばなかった形がある。ADR は 61 本のうち 46 本が Considered Options を持つ。
   - 挙動を変えていないことの確かめ方は、PRD の確定事項と受入の節にある。[083](083_action_context_retire_10prd.md) の「確定した設計判断」11（等価性の合否は metrics checksum、checkpoint の checksum は合否に使わない）と、[084](084_noisynet_10prd.md) の受入（無効時の回帰は同 seed の metrics checksum の一致）である。§4.7 の取り込みは確定事項と受入を材料から除くので、今の決まりでは拾えない。
   - anet-audit は、refactor・architecture・drift の観点で、範囲の ADR を `docs/adr/` のファイル名から領域の語で絞って読む。ADR が意図した形は候補にせず、hot path や RNG の呼び出し順に触る提案には性能と同 seed の再現性の確認を含める（ガードレール）。地図と PRD は読まない。1 回に 1 観点 × 1 範囲で、新規は既定で 8 件までである。
-  - anet-audit は手順 4 で、範囲の既存の指摘を `python reports/tools/registry.py list --status open --path <範囲のパス>` で引いて確かめ直す。`--path` は、レコードの `file` の先頭が一致するかで絞る（[registry.py](../../../reports/tools/registry.py) の `cmd_list`）。巡回の範囲の多くは categories.json の key で、そのパスの集合は正規表現で決まる。たとえば 318 RL 基盤は `/(rl|trainer|replay_buffer|…)\.(cpp|hpp)$` のようにファイル名を並べた 1 つの正規表現で、先に当たったものを採る決まりもある。そのため、先頭の一致では key の範囲を正しく引けない。
+  - anet-audit は手順 4 で、範囲の既存の指摘を `python reports/tools/registry.py list --status open --path <範囲のパス>` で引いて確かめ直す。`--path` は、レコードの `file` の先頭が一致するかで絞る（[registry.py](https://github.com/kazukin123/anet-lab/blob/1cbe76d65c3087f7d6b06645cf7243ddb2e2179b/reports/tools/registry.py) の `cmd_list`）。巡回の範囲の多くは categories.json の key で、そのパスの集合は正規表現で決まる。たとえば 318 RL 基盤は `/(rl|trainer|replay_buffer|…)\.(cpp|hpp)$` のようにファイル名を並べた 1 つの正規表現で、先に当たったものを採る決まりもある。そのため、先頭の一致では key の範囲を正しく引けない。
   - [リファクタリング観点](../../quality/refactor.md)は、観点と運用ルールと、実施時の条件 3 つ（hot path に触るなら性能をブレ幅基準で確かめる、RNG の呼び出し順・走査順・並列化に触るなら同 seed の再現性を確かめる、テストの無い箇所は特性テストを先に足す）を持つ。
   - anet-stats は、ファイルごとの直近 90 日の変更回数（`churn90`）と、機能カテゴリ × 年代のテストの充足（`reports/stats/trend.md` の「テスト充足」）を出す。ファイルや機能カテゴリの同時変更は数えていない。
 
@@ -356,7 +356,7 @@ docs/wiki/
   - 出どころは `first_seen: "2026-07-04"` で残す（台帳の一覧の「初出」の列に出る）。run_id は登録日の `<YYYY-MM-DD>-claude` にする。
   - anet-audit のレコードの品質基準に従う。
   - 登録する文に、§4.6 の公開できない値が無いことを確かめる。
-- 登録しないもの（どれも報告に挙げる）: 直っていたもの。具体的な筋書きを書けないもの（memory に残す）。性能の 5 件（監査の観点に性能が無いため。§6。[999_core_perf_candidates_202607_10prd.md](../999_core_perf_candidates_202607_10prd.md) に起票済みなので、memory の側はその PRD へのポインタにする）。リファクタリング候補の節の「着手順の推奨」（計画なので台帳にも地図にも置かない。非ゴール。memory に残し、段階 3 の memory の移し替えで扱いを確かめる）。
+- 登録しないもの（どれも報告に挙げる）: 直っていたもの。具体的な筋書きを書けないもの（memory に残す）。性能の 5 件（監査の観点に性能が無いため。§6。[999_core_perf_candidates_202607_10prd.md](../909_core_perf_candidates_202607_10prd.md) に起票済みなので、memory の側はその PRD へのポインタにする）。リファクタリング候補の節の「着手順の推奨」（計画なので台帳にも地図にも置かない。非ゴール。memory に残し、段階 3 の memory の移し替えで扱いを確かめる）。
 - 終わり方: `python reports/tools/registry.py build` と `validate` を通す（`build` が地図の「台帳の指摘」も作り直す）。memory の 3 本の節を、台帳へのポインタと、上で memory に残したものだけにする。
 
 ### 4.8 機構とゴールへの寄与
@@ -434,7 +434,7 @@ docs/wiki/
 | memory の 2026-07 の指摘を、anet-audit に見つけ直させる | 不採用 | 監査は 1 回 1 観点 × 1 範囲で新規 8 件まで、回った実績は 2026-09-19〜10-14 に 2 回で（§3）、多くの範囲と 4 つの観点にまたがる約 40 件を回りきるまで数か月かかる。anet-audit に手がかりを受け取る入力を足すことにもなる |
 | memory の 2026-07 の指摘の登録を、段階 3 の memory の移し替えと一緒にする | 不採用 | 段階 2 で地図に載せる「台帳の指摘」がほぼ空のままになり、候補の正本が揃うのが遅れる |
 | ファイルや機能カテゴリの同時変更の集計 | 範囲外（別の関心） | git の統計で、anet-stats の関心である（stats は変更回数とテストの充足を出す）。wiki に置くと統計の役を wiki が持つ。監査の「変更の波及」の観点でこの数を使うと決めたら、stats の PRD として起こす |
-| 2026-07 の性能の 5 件の登録 | 範囲外（別の関心） | 監査の観点に性能が無く、台帳に載せる観点が無い。2026-10-22 に [999_core_perf_candidates_202607_10prd.md](../999_core_perf_candidates_202607_10prd.md) として起票し、repo の中に置き場を作った |
+| 2026-07 の性能の 5 件の登録 | 範囲外（別の関心） | 監査の観点に性能が無く、台帳に載せる観点が無い。2026-10-22 に [999_core_perf_candidates_202607_10prd.md](../909_core_perf_candidates_202607_10prd.md) として起票し、repo の中に置き場を作った |
 
 ## 7. 確定事項と未決
 

@@ -3,12 +3,12 @@
 > 2026-10-03 起票（暫定。質疑を省き、決めることを §5 に残していた）。
 > 2026-10-23 グリル（`/anet-create-prd`、Claude Code）で全面改訂した。論文解説、外部の壁打ちで作った引継ぎ資料と図、下調べ、現行コードの再確認（2 体の調査）に照らし、暫定版の「区間をまとめた遷移を replay に入れ、割引は SMDP の経過時間で行う」「網の構成は詳細解説を確かめてから選ぶ」を、次の決定で置き換えた: ゴールは判断の回数と学習の速さで、NEET の抑制は非ゴール（D1）。NetworkModel は primary とスキップ価値の Network の 2 つで、skip の target は bootstrap に使わず target 側の Actor の行動にだけ使う（D3、[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)）。replay は slot に 1 step の reward・終わり方・判断の旗を残し、サンプル時に判断で決めた区間の中の窓を組む（D11・D13、[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)）。skip Head は分離型と包含型の両方（D5）、勾配は合算／遮断を設定で切り替え、クリップは Network 別（D6）、スキップ価値は Q と同じ型（D7）、Dueling は無しを既定に Q 共有型も選べる（D8）、探索は行動の方策と同じ規則（D9）、サンプルは 1 点 k（D13）、PER は Q の TD を既定に合成も選べる（D14）。同日に実装へ着手するため 999 から 098 へ採番した。起草後に別モデル（Opus）の検討を受け、窓を判断で区切ること（D13）、skip の target の複製（D3）、sampleable の遅れの範囲（D11）、Actor の複製と同期（§5.3・§5.5）、群番号（59）、FP16 との併用の禁止、§7 の判定の細部を直した。
 > 起点: DropMerge の NEET の分析で、待ちを 1 step ずつ判断することが問題の一部だと分かったこと。[086](086_dropmerge_macro_actions_10prd.md) は「繰り返し回数を離散化した行動」を Env 側で足し、Agent の改修なしで試せるようにする。本 PRD はその次の段階として「どの行動か」と「何 step 続けるか」を Agent が分けて学ぶ TempoRL を扱う。
-> 関連: [086_dropmerge_macro_actions_10prd.md](086_dropmerge_macro_actions_10prd.md)、[999_smdp_transition_duration_10prd.md](999_smdp_transition_duration_10prd.md)（経過時間の割引。非ゴール）、[999_decision_aligned_nstep_10prd.md](999_decision_aligned_nstep_10prd.md)・[999_nstep_target_correction_10prd.md](999_nstep_target_correction_10prd.md)（§5.1 の土台に乗る 2 本）、[999_observation_pipeline_10prd.md](999_observation_pipeline_10prd.md)（強制行動を判断の入力にする単位 A。§9）、[done/067_MunchausenRL_10prd.md](done/067_MunchausenRL_10prd.md)（D3 の n-step の形）、[done/078_replay_frame_history_integrity_10prd.md](done/078_replay_frame_history_integrity_10prd.md)、[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)、[CONTEXT.md](../../CONTEXT.md) の「スキップ」「スキップ長」「スキップ価値」「判断」「NEET」。
+> 関連: [086_dropmerge_macro_actions_10prd.md](086_dropmerge_macro_actions_10prd.md)、[956_smdp_transition_duration_10prd.md](956_smdp_transition_duration_10prd.md)（経過時間の割引。非ゴール）、[914_decision_aligned_nstep_10prd.md](914_decision_aligned_nstep_10prd.md)・[943_nstep_target_correction_10prd.md](943_nstep_target_correction_10prd.md)（§5.1 の土台に乗る 2 本）、[944_observation_pipeline_10prd.md](944_observation_pipeline_10prd.md)（強制行動を判断の入力にする単位 A。§9）、[done/067_MunchausenRL_10prd.md](done/067_MunchausenRL_10prd.md)（D3 の n-step の形）、[done/078_replay_frame_history_integrity_10prd.md](done/078_replay_frame_history_integrity_10prd.md)、[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)、[CONTEXT.md](../../CONTEXT.md) の「スキップ」「スキップ長」「スキップ価値」「判断」「NEET」。
 > 改訂: 2026-10-23。実装レビュー対応。強制行動をtrainへ接続するときの判断記録と、§5.11の実装名を明記した。
 > 改訂: 2026-10-24。段 1 の途中経過（GridMaze の迷路依存）を §7 に、既定 seed での崩壊の機構を §9 に追記。
 > 改訂: 2026-10-24（2 回目）。設定見直し第 2 依頼の実装に合わせ、§5.3 に skip Head の出力の形と包含型 × IQN の broadcast 連結、§5.7 に Trace 列 `skip_q.[j]`、§7 に段 1 の包含型の取り直しの結果を追記。
 > 改訂: 2026-10-24（3 回目）。特徴量の説明上の記号 z と設定の公開出力名を区別し、§5.6 の IQN の配線を現行の `skip_context` と融合済み branch の対応へ合わせた。
-> 改訂: 2026-10-25。§8 の「全 k を mask 付きで一括するサンプル」「k_max に比例する重み」「skip 中の lane の forward を省く」の行を、後続の暫定 PRD（[999_temporl_skip_followups](999_temporl_skip_followups_10prd.md)）へ向けた。
+> 改訂: 2026-10-25。§8 の「全 k を mask 付きで一括するサンプル」「k_max に比例する重み」「skip 中の lane の forward を省く」の行を、後続の暫定 PRD（[999_temporl_skip_followups](958_temporl_skip_followups_10prd.md)）へ向けた。
 > 改訂: 2026-10-26。§7 に段 1 の 3 seed と段 2（LunarLander）の結果、§9 の 2 に 5×5 の既定 seed で届かない原因（UQE でスキップ長を選ぶこと）、§9 の 3（評価 slot の判断率）を追記。
 > 改訂: 2026-10-26（2 回目）。5×5 の既定 seed の件を「序盤に見つけたゴールを保持できず崩壊」から「スキップ長を UQE で選ぶとゴールに届かない」に直した（評価は一度も届かず、学習側もほぼ届いていなかった）。§7 の段 1 の結論を、届く速さと終盤の安定さに書き分けた。
 > 改訂: 2026-10-26（3 回目）。段 2 の結果を受けて LunarLander の既定を有効（分離×合算）にしたことを §6 の 21 と §7 の段 2 に追記。`run.@skip` の metrics の連鎖が Munchausen の指標を落としていた件と、その直しも §7 の段 2 に記した。
@@ -86,8 +86,8 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 
 非ゴール（消える案と、それが本当の制約かどうか）:
 
-- Env 側のマクロ行動（[086](086_dropmerge_macro_actions_10prd.md)）と、経過時間 τ を割引に通すこと（[999_smdp](999_smdp_transition_duration_10prd.md)）: 別の関心で、別 PRD。本 PRD の割引は k から γ^k を作る（§5.4）。τ は §5.1 の 1 step の記録に欄を足せば乗る。
-- 次の判断まで遡る n-step（[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md)）と n-step の目標値の補正（[999_nstep_target_correction](999_nstep_target_correction_10prd.md)）: 別の関心。本 PRD は窓の規則を差し替えられる土台だけを作る（§5.1）。
+- Env 側のマクロ行動（[086](086_dropmerge_macro_actions_10prd.md)）と、経過時間 τ を割引に通すこと（[999_smdp](956_smdp_transition_duration_10prd.md)）: 別の関心で、別 PRD。本 PRD の割引は k から γ^k を作る（§5.4）。τ は §5.1 の 1 step の記録に欄を足せば乗る。
+- 次の判断まで遡る n-step（[999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md)）と n-step の目標値の補正（[999_nstep_target_correction](943_nstep_target_correction_10prd.md)）: 別の関心。本 PRD は窓の規則を差し替えられる土台だけを作る（§5.1）。
 - NEET の抑制: 論文の形では行動を選ぶ Q は 1 step の TD のままで、静止した盤面での NOOP と最善 DROP の差 (1−γ)V ≈ 0.3%（γ 0.997）は変わらない。スキップ価値が決めるのは NOOP を選んだあとに何 step 続けるかだけである。NEET は 999_smdp・086・999_decision_aligned_nstep に任せる。制約ではなく、効かない見込みによる非ゴール。
 - skip 中の lane の forward を省いて実時間を減らすこと: 全 lane の `q_values` を前提にする読み手（§2.3）の契約を変える別の関心。クリーンブレークで移せるが、Learner が律速の Atari では利きが小さい。再開条件: TempoRL が同じ step 数で効くと分かり、forward が律速の env がある。
 
@@ -108,13 +108,13 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 | D7 | スキップ価値の型は Q と同じ（TD ならスカラー、QR なら K 本の分位、IQN なら taus ごとの分位）。loss と bootstrap は既存の Learner の目標値の組み立てを、サンプルごとの k で流用する | UQE・Thompson がスキップ長の選択にも掛かる。D8 の Q 共有型で次元が揃う。既存の 3 Learner の目標値の関数を再利用できる。スカラーは §8 の先送り |
 | D8 | skip Head の Dueling は無し（論文標準）を既定にし、Q 共有型（primary の Q(s,a) を切り離して基準にし、j=1 を引いた advantage を足す）も設定で選べる。独立 Dueling は作らない | スキップ長の選択は同じ行動の中で j を比べるので、Q(s,a) を足しても argmax は変わらず、違いは学習の目標値の尺度だけ。Q 共有型は尺度を Q が供給し、j=1 のスキップ価値が Q(s,a) に一致する。基準の Q(s,a) は常に切り離す（skip の loss が Q の目標値の定義を変えないため）。D7 に依存 |
 | D9 | スキップ長の探索は、既定で行動の方策と同じ規則・同じ値（ε-greedy なら同じ ε で J から一様乱択、UQE なら skip の分位に同じ τ の risk score、Noisy は skip Network の Noisy、spatial の lane ラダーも同じ。乱数は行動と独立）。`actor.[key].skip.policy` を明示したときだけ専用の方策 | 論文は行動と skip に同じ ε のスケジュールを使う。評価 slot では skip も greedy になる。専用方策は policy_type の組み合わせと spatial の値を自分で持つ。2026-10-28 注記: 「評価 slot では skip も greedy になる」は、行動の方策が `Greedy` 型の slot でだけ成り立つ（ε-greedy や UQE の評価 slot では、スキップ長にも同じ規則が掛かる）。学習したスキップ価値そのものは、[PRD103](done/103_temporl_reference_alignment_10prd.md) D7 の、行動もスキップ長も greedy の評価 session `[greedy]` で測る。GridMaze は 6×10 の 3 seed で ε-greedy が UQE と同じ速さで届いたので（2026-10-28）、`run.@skip` の既定でスキップ長を ε-greedy にする（PRD103 D3） |
-| D10 | EvalPanel などの強制行動（WithAction の事後上書き）と Actor の skip 状態のずれは許す。強制した step のあとも Actor は残りのスキップ長の間、元の行動を続ける | 事後 hook を Actor に足さない（決定点への入力を優先する）。[999_observation_pipeline](999_observation_pipeline_10prd.md) の単位 A（強制行動を MakeAction の入力にする）が入ったら、強制された lane の skip 状態を捨てて新しい判断にする（§9） |
+| D10 | EvalPanel などの強制行動（WithAction の事後上書き）と Actor の skip 状態のずれは許す。強制した step のあとも Actor は残りのスキップ長の間、元の行動を続ける | 事後 hook を Actor に足さない（決定点への入力を優先する）。[999_observation_pipeline](944_observation_pipeline_10prd.md) の単位 A（強制行動を MakeAction の入力にする）が入ったら、強制された lane の skip 状態を捨てて新しい判断にする（§9） |
 | D11 | replay は slot に 1 step の reward（scale 後）と終わり方（なし／done／truncated）を残し、サンプル時に起点から次の判断の手前まで（上限 J）を走査して k_max を得て、割引報酬と k 先の観測を組む。sampleable の列挙の遅れを max(1, n_step, J) に広げる（PER の初期優先度の完成と eviction 統計は n_step の遅れのまま）。論文どおりの skip 用の別 replay と、Push 時に区間を確定して slot に足す形は採らない | 別 replay は PER・prefetch・ready・世代 key が 2 系統になり obs を複製するとメモリ 2 倍。Push 時の確定は同じ起点から k_max より短い sub-skip を取れない。+5 B/slot。他の 2 本も同じ記録に欄を足し、窓の規則を差し替えることで乗る。[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)、[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) の END の部分を改める |
 | D12 | 可変長の区間サンプルの土台（1 step の記録と、窓の規則を差し替えられる抽出）は、本 PRD の中に節を分けて書く（§5.1）。他の 2 本の窓の規則は作らない | 他の 2 本の要件が pin されていない。節と ADR で分離を保ち、グリルは 1 回で済ませる |
 | D13 | スキップの窓は判断で決めた区間の中だけから作る（論文の接続と同じ）。Actor が出す判断の旗を 1 step の記録に残し、窓は次の判断で止まる。サンプルは 1 点 k で、起点の k_max 以下から k を 1 つ一様に引く。Sample の出力に k・窓の割引報酬・終端・k 先の観測を足す | 判断の境界を越えて同じ行動を数えると、境界の先で同じ行動を選び直すかが次の状態に依存するため、確率的な env では長い窓に「選び直したくなる状態」だけが入り、長い j が過大になる。判断で区切れば k_max は判断の時点で決まり、偏りは終端の打ち切りの分だけ。全 k を mask 付きで一括すると target forward が J 倍（Atari で 11 倍）。k を一様に引くので短い k は論文の「接続ごとに等しい重み」より多く入る（重み付けは §8 の先送り） |
 | D14 | PER の優先度は Q の TD だけを既定（λ=0）とし、合成 \|δ_Q\| + λ\|δ_skip\| の λ も設定で選べる。IS 重みは Q と skip の両方の loss に同じ値を掛ける。Q と skip で独立にサンプルしない | λ=0 なら遮断モードで Q 側のサンプル分布が今とほぼ同じになる（sampleable が最新の J−n step 分だけ狭まる）。独立サンプルは forward と抽出が 2 倍。IS 重みはサンプルの確率から決まるので両方に掛ける |
 | D15 | 用語は「スキップ（skip）」。スキップ長 j、最大スキップ長 J、スキップ価値（skip Q）、判断（decision）。設定キーは `skip`、クラス名は `Skip…`、メトリクスの群は `50_agent_skip` | 論文と wiki の語。Env の frame_skip（1 agent step の中のフレーム反復）とは層が違うことを用語集で定義し、action repeat・行動反復を Avoid にする（[CONTEXT.md](../../CONTEXT.md)） |
-| D16 | 指標は群 `50_agent_skip` の 9 つ（§5.7）。Evaluation Trace に `skip_decision`・`skip_length` の列を足せる | 判断の回数（ゴール）と skip の学習の両方を scalar で追う。[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md) の群番号は 59 へ移した（53〜58 は評価の群と他の 999 の予約で使用中） |
+| D16 | 指標は群 `50_agent_skip` の 9 つ（§5.7）。Evaluation Trace に `skip_decision`・`skip_length` の列を足せる | 判断の回数（ゴール）と skip の学習の両方を scalar で追う。[999_replay_eviction_sample_count](950_replay_eviction_sample_count_10prd.md) の群番号は 59 へ移した（53〜58 は評価の群と他の 999 の予約で使用中） |
 | D17 | 検証は段 0（等価性）→ 段 1 GridMaze（6×10）J=7 → 段 2 LunarLander J=4 → 段 3 qbert J=10 → 段 4 DropMerge（基準の checkpoint から分岐）。受入は §7 | 論文の J（表形式 7、LunarLander 4、Atari 10）と結果の型。DropMerge は判定に 50M 以上かかるので最後 |
 | D18 | 細部は §6 の推奨の既定で埋める | グリルで「推奨で埋める」を選んだ |
 
@@ -124,7 +124,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 
 ### 5.1 replay: 1 step の記録と、窓の規則を差し替えられる抽出
 
-この節は TempoRL に限らない土台で、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md) と [999_nstep_target_correction](999_nstep_target_correction_10prd.md) も同じ土台に乗る。
+この節は TempoRL に限らない土台で、[999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md) と [999_nstep_target_correction](943_nstep_target_correction_10prd.md) も同じ土台に乗る。
 
 - `DefaultReplayBuffer` は Push のとき、slot ごとに 1 step の記録として「その遷移の reward（Agent が渡す scale 後の値）」「終わり方（なし／done／truncated）」「判断の旗（Actor が `BatchActionInfo` の info の `decision` で渡す。鍵が無ければその step を判断とみなす。鍵の名前は汎用で、skip の名を共通層に持ち込まない）」を保存する。skip の有効・無効によらず常に書く。Push時に確定する既存のn-stepの割引報酬・終端判定・実際のstep数と、履歴開始は変えない。終わり方と判断の有無は組み合わせを合わせて1 byteで記録し、rewardの4 byteと合わせた増分はslotあたり5 byteとする。
 - 終わり方は、その遷移で lane の episode が終わったかどうかと、終わり方が done か truncated かを表す。truncated の次の dummy slot は、今までどおり終端の観測を入れるためだけに置き、窓の起点にも途中にもならない（dummy は sampleable から除外されている）。
@@ -328,7 +328,7 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 15. Evaluation Trace の `skip_decision`・`skip_length` は既定の列に入れず、設定例に書く（無効の Run で空の列を出さない）。
 16. 可視化の TensorDictFunction の `skip-net.` prefix は §8 の先送り。
 17. GraphViz は skip Network を別のグラフとして出す。
-18. 群番号は skip が 50、[999_replay_eviction_sample_count](999_replay_eviction_sample_count_10prd.md) は 59。
+18. 群番号は skip が 50、[999_replay_eviction_sample_count](950_replay_eviction_sample_count_10prd.md) は 59。
 19. 不正値の扱いは §5.6（構築時に `ANET_SYSTEM_ERROR`）。
 20. 分離型／包含型の切替は `skip.network_mode`（`action_out` ／ `action_in`）。
 21. 設定の置き場（2026-10-24 の設定見直し）: agent.txt の `DefaultDQNAgent.@baseline` に無効のままおすすめの既定（配線 `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU`、`skip_context`、network_mode・use_dueling・learner.skip の既定）を `?=` で置く。各 env は `skip.max_length ?= J` の既定と `run.@skip`（enabled、metrics のチェーンに `@skip`、`03_skip_length_rate.[2..J]`、Trace の 2 列）を持つ。IQN の env は `net.body.output.[skip_context]` を融合済みの branch（`iqn_fusion` ／ `fusion`）に上書きし、skip 側では taus を融合しない。merge・use_dueling・action_in・層幅は CLI か bat の葉。Agent側の`DefaultDQNAgent.@skip*`と`DefaultDQNAgent.skip.net.@*`のプロファイルは作らない（Run/metrics側のprofileとは区別する）。無効の Run は skip Network を構築しない。§7 の腕はこの葉から派生させる。例外として LunarLander は、2026-10-26 から既定で有効（`run.$ = run.@munch > run.@skip`）で、合算（`learner.skip.feature_gradient = merge`）を env の葉で持つ。§7 の段 2 で、分離型が無効を 3 seed のブレ幅を超えて上回り、合算が最も速く 200 に届いたためである。LunarLander で無効の Run は CLI で `run.$=run.@munch` を渡す。Atari も、2026-10-27 から実時間優先の既定の `run.$`（Atari.txt）の末尾に `run.@skip` を置いて有効にし、合算を env の葉で持つ。無効の連鎖は比較用のコメントとして残す。§7 の段 3 のふるいで、合算が 2 seed とも同じ seed の無効を上回ったためである。bat は `run.$` を CLI で渡すので、この既定の影響を受けない。2026-10-31 に、Atari の既定の `run.$` を無効に戻した（有効の連鎖を例のコメントとして残す）。§7 の段 3 の BTR 基準（サンプル効率優先の qbert 50M）で、合算が 2 seed とも Greedy の評価で無効の下だったためである。実時間優先の 100M（合算 seed 1 と無効 seed 2。seed とビルドが違う）では、Greedy の評価が 50.7〜91.1M で 22,668〜25,442 対 22,955〜24,740 と同じ帯で、悪化は見えていない。あわせて、Atari の `run.@skip` は `learner.grad_clip_tau` を 30 にする（A1 の 10 から。TempoRL 有効で勾配ノルムが約 2 倍になるため。[PRD103](done/103_temporl_reference_alignment_10prd.md) §7 の段 1）。
@@ -392,30 +392,30 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 |---|---|---|
 | スカラーのスキップ価値（Q が分布型でも skip はスカラー） | 先送り | 型を 1 つにして Learner の目標値を流用する（D7）。再開条件: 分布型の skip で j の選択が不安定、または QR の分離型で射影が重いと分かったら |
 | skip Head の独立 Dueling（V_J と A_J の 2 射影） | 先送り | `use_dueling` の Dueling が同じ役を primary の Q(s,a) で担う（D8）。再開条件: Q(s,a) の基準が skip の学習を不安定にしたら。足すときに V の取り方のキーを足す |
-| 全 k を mask 付きで一括するサンプル | 先送り | target forward が J 倍（D13）。再開条件: 1 点 k で skip の学習が遅く、target forward の費用を払えるとき。後続は [999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) の (K)（全 k の一括。作るかは同書の段 0 で決める） |
+| 全 k を mask 付きで一括するサンプル | 先送り | target forward が J 倍（D13）。再開条件: 1 点 k で skip の学習が遅く、target forward の費用を払えるとき。後続は [999_temporl_skip_followups](958_temporl_skip_followups_10prd.md) の (K)（全 k の一括。作るかは同書の段 0 で決める） |
 | skip 専用の lr・クリップ閾値 | 先送り | キーを増やさない（§6 の 6・7）。再開条件: 遮断で skip の学習率を変えたい実測が出たら |
 | j の分布のヒストグラム画像 | 先送り | `03_skip_length_rate.[j]` で代用できる。再開条件: j の分布を頻繁に見る必要が出たら |
 | 評価 slot でスキップを切る口（常に j=1） | 先送り | 腕の比較に要るかは段 1〜2 で分かる。再開条件: 学習した skip を使う評価と使わない評価の比較が要ると分かったら |
 | 特徴空間を別の Network（F）に分ける | 先送り | 切れ目は DAG で表せる（D3）。再開条件: F を単体で差し替える、または事前学習を載せる要件が pin されたら |
-| k_max に比例する重み（論文の「接続ごとに等しい重み」に合わせる） | 先送り | 一様な k で始める（D13）。再開条件: 短い k の偏りが skip の学習に効くと分かったら。後続は [999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) の (K) が、全接続を等しく数える形でこの重みも扱う（同書 D7） |
+| k_max に比例する重み（論文の「接続ごとに等しい重み」に合わせる） | 先送り | 一様な k で始める（D13）。再開条件: 短い k の偏りが skip の学習に効くと分かったら。後続は [999_temporl_skip_followups](958_temporl_skip_followups_10prd.md) の (K) が、全接続を等しく数える形でこの重みも扱う（同書 D7） |
 | 可視化の TensorDictFunction の `skip-net.` prefix | 先送り | 入力（obs を primary に通し、包含型では greedy の行動を使う）を決める読み手がまだ無い。再開条件: skip Network の可視化が要ると分かったら |
-| skip 中の lane の forward を省く | 範囲外 | §3 の非ゴール。再開条件: TempoRL が同じ step 数で効くと分かり、forward が律速の env があるとき。後続は [999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) の D9・§8（学習では作らない。1 env のリアルタイム実行の PRD が起きたときに、判断する lane が無い step の forward を丸ごと飛ばす形で作る） |
-| Env 側のマクロ行動、経過時間の割引、次の判断まで遡る n-step、n-step の目標値の補正 | 範囲外 | それぞれ [086](086_dropmerge_macro_actions_10prd.md)、[999_smdp](999_smdp_transition_duration_10prd.md)、[999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md)、[999_nstep_target_correction](999_nstep_target_correction_10prd.md) |
+| skip 中の lane の forward を省く | 範囲外 | §3 の非ゴール。再開条件: TempoRL が同じ step 数で効くと分かり、forward が律速の env があるとき。後続は [999_temporl_skip_followups](958_temporl_skip_followups_10prd.md) の D9・§8（学習では作らない。1 env のリアルタイム実行の PRD が起きたときに、判断する lane が無い step の forward を丸ごと飛ばす形で作る） |
+| Env 側のマクロ行動、経過時間の割引、次の判断まで遡る n-step、n-step の目標値の補正 | 範囲外 | それぞれ [086](086_dropmerge_macro_actions_10prd.md)、[999_smdp](956_smdp_transition_duration_10prd.md)、[999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md)、[999_nstep_target_correction](943_nstep_target_correction_10prd.md) |
 
 ## 9. 未決
 
 | # | 事項 | 扱い |
 |---|---|---|
-| 1 | 強制行動（WithAction）と skip 状態のずれ | D10 で許す。[999_observation_pipeline](999_observation_pipeline_10prd.md) の単位 A（強制行動を MakeAction の入力にする）が入ったら、強制された lane の skip 状態を捨てて新しい判断にする。強制したstep自体を `decision=true` として記録し、そのlaneの新しい判断の開始点にする。現行のReplay窓は区間内の行動不一致をSample時にfail-fastするため、train側へ強制行動を接続する際は状態リセットと判断の旗を同時に満たす。それまでは Evaluation Trace の `skip_decision` と `skip_length` で見分ける。課題は [999_observation_pipeline](999_observation_pipeline_10prd.md) の単位 A に追記した（2026-10-23） |
-| 2 | 5×5 の既定 seed で有効の 2 型がゴールに届かない原因（2026-10-26 まで「序盤に見つけたゴールを保持できず崩壊する機構」と書いていた。実際には評価で一度も届かず、学習側もエピソードの報酬の最大が序盤に一度 +0.03 になっただけで、見つけたゴールを失ったのではなかった） | 原因は分かった（2026-10-26。[999_temporl_skip_followups](999_temporl_skip_followups_10prd.md) §7 の段 0）。スキップ長の方策を平均に対する ε-greedy（`actor.[train].skip.policy.policy_type = EpsilonGreedy`、ε は行動の UQE と同じ）にすると、同じ迷路で 305k に届き、最後まで保った。既定（行動の方策と同じ UQE）では、今のビルドでも同じく届かず、指標も 10/24 の Run と一致した（どちらも分離×遮断、1 seed）。スキップ長を UQE の楽観で選ぶとこの迷路ではゴールに届かない、までは言える。届かなくなる仕組み（楽観が長い j と J に寄ることがどう探索や価値を損なうか）は確かめていない。5×5 の seed 3 と 6×10 では、同じ UQE のままでも届いた。段 2（LunarLander）でも問題は出なかった。skip の方策の既定を見直すかは後続の暫定 PRD の §9 の 9 |
+| 1 | 強制行動（WithAction）と skip 状態のずれ | D10 で許す。[999_observation_pipeline](944_observation_pipeline_10prd.md) の単位 A（強制行動を MakeAction の入力にする）が入ったら、強制された lane の skip 状態を捨てて新しい判断にする。強制したstep自体を `decision=true` として記録し、そのlaneの新しい判断の開始点にする。現行のReplay窓は区間内の行動不一致をSample時にfail-fastするため、train側へ強制行動を接続する際は状態リセットと判断の旗を同時に満たす。それまでは Evaluation Trace の `skip_decision` と `skip_length` で見分ける。課題は [999_observation_pipeline](944_observation_pipeline_10prd.md) の単位 A に追記した（2026-10-23） |
+| 2 | 5×5 の既定 seed で有効の 2 型がゴールに届かない原因（2026-10-26 まで「序盤に見つけたゴールを保持できず崩壊する機構」と書いていた。実際には評価で一度も届かず、学習側もエピソードの報酬の最大が序盤に一度 +0.03 になっただけで、見つけたゴールを失ったのではなかった） | 原因は分かった（2026-10-26。[999_temporl_skip_followups](958_temporl_skip_followups_10prd.md) §7 の段 0）。スキップ長の方策を平均に対する ε-greedy（`actor.[train].skip.policy.policy_type = EpsilonGreedy`、ε は行動の UQE と同じ）にすると、同じ迷路で 305k に届き、最後まで保った。既定（行動の方策と同じ UQE）では、今のビルドでも同じく届かず、指標も 10/24 の Run と一致した（どちらも分離×遮断、1 seed）。スキップ長を UQE の楽観で選ぶとこの迷路ではゴールに届かない、までは言える。届かなくなる仕組み（楽観が長い j と J に寄ることがどう探索や価値を損なうか）は確かめていない。5×5 の seed 3 と 6×10 では、同じ UQE のままでも届いた。段 2（LunarLander）でも問題は出なかった。skip の方策の既定を見直すかは後続の暫定 PRD の §9 の 9 |
 | 3 | 評価 slot の判断率 | §7 の段 1・段 2 の判定は評価 slot の `01_decision_rate` を使うと決めたが、`metrics.scalar.@skip` の skip の指標は学習側（`@train`）にしか無く、2026-10-26 の段 1・段 2 では測れなかった。評価 slot（`$eval.[tag]`）の判断率の tag を `@skip` に足すかを、段 3 の前に決める。それまでは Evaluation Trace の `skip_decision` で見る。2026-10-27: [PRD103](done/103_temporl_reference_alignment_10prd.md) の D8（評価 slot の判断率とスキップ長の平均の tag を、各 env の `run.@skip` に足す）で扱う。2026-10-28: PRD103 のグリルで、行動もスキップ長も greedy の評価 session `[greedy]`（Atari は `greedy_dist` を改名）に `50_agent_skip/21_greedy_decision_rate`・`22_greedy_length_mean`・`23_greedy_length_rate.[01]`〜`[J]` を置くと決めた（PRD103 D7・D8）。値は Actor が session の中で累積したものを `@session_end` で読むので、学習側の exp step の座標に載る。ゴールの指標はこの `21` で読む |
 
 ## 10. 依存と順序
 
 - 単独で作れる。実装は replay（§5.1・5.2）、Network と Learner（§5.3・5.4）、Actor と指標（§5.5・5.7）の順に段階を分けられ、段階ごとに段 0 の等価性を確かめられる。
-- [999_decision_aligned_nstep](999_decision_aligned_nstep_10prd.md) と [999_nstep_target_correction](999_nstep_target_correction_10prd.md) は §5.1 の土台に乗る（それぞれ 1 step の記録に欄を足し、窓の規則を差し替える）。判断に揃える n-step を入れるときは、Q の n-step もサンプル時の窓へ移し、Push 時の n-step の確定を退役させて割引和の機構を 1 つにする。本 PRD では移さない（等価性の確認と、actor_approx の完成が使う target return の作り直しが要る）。
-- [999_smdp](999_smdp_transition_duration_10prd.md) は §5.1 の記録に経過時間の欄を足せば、窓の割引を γ^τ の積に変えられる。
-- [999_observation_pipeline](999_observation_pipeline_10prd.md) の単位 A は §9 の 1 を解く。
+- [999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md) と [999_nstep_target_correction](943_nstep_target_correction_10prd.md) は §5.1 の土台に乗る（それぞれ 1 step の記録に欄を足し、窓の規則を差し替える）。判断に揃える n-step を入れるときは、Q の n-step もサンプル時の窓へ移し、Push 時の n-step の確定を退役させて割引和の機構を 1 つにする。本 PRD では移さない（等価性の確認と、actor_approx の完成が使う target return の作り直しが要る）。
+- [999_smdp](956_smdp_transition_duration_10prd.md) は §5.1 の記録に経過時間の欄を足せば、窓の割引を γ^τ の積に変えられる。
+- [999_observation_pipeline](944_observation_pipeline_10prd.md) の単位 A は §9 の 1 を解く。
 - [086](086_dropmerge_macro_actions_10prd.md) とは独立。
 
 ## 11. 参照

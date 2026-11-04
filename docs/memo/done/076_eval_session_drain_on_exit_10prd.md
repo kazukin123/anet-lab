@@ -112,7 +112,7 @@ pool を直しても解決しない（NG4）。
 ### 排水が生む新しい実害
 
 排水を入れると、今度は **exe が数分から数十分落ちない**事態が起こり得る。起点 Run の断面は 22 分級、
-[999_eval_schedule_first_fire](../999_eval_schedule_first_fire_10prd.md) が実測した t=0 の貪欲方策の張り付きは 1 時間級である。
+[999_eval_schedule_first_fire](../918_eval_schedule_first_fire_10prd.md) が実測した t=0 の貪欲方策の張り付きは 1 時間級である。
 設定を間違えた Run を即座に落としたい場面や、online 構成で Eval 中と意識せずに × を押す場面で、待つしかない設計は
 人を強制終了へ追い込む。強制終了は最後の flush 以降の metrics と exit code 0 を失うので、回避策として劣る。
 したがって「抜ける手段」を本 PRD の要件に含める（G4 / D8）。
@@ -146,7 +146,7 @@ R1 は systemic なガードで別の関心なので、本 PRD は R2 系の**�
   `eval_episodes` が Run 内で不揃いになって比較不能な点を新しく作るためである。キャンセルは何も集計しない。
 - **NG2**: 発火の開始下限・終了マージン。初期重みの貪欲方策が上限まで張り付く問題
   （RR1 実測 2,940 秒 / スコア 0）は別の関心なので、`run.eval_schedule.[tag]` の別キーとして切り分ける
-  （[999_eval_schedule_first_fire](../999_eval_schedule_first_fire_10prd.md)）。ただし移行上の依存はある。
+  （[999_eval_schedule_first_fire](../918_eval_schedule_first_fire_10prd.md)）。ただし移行上の依存はある。
   999 が入るまでは、短い Run で t=0 に発火した `greedy_dist` セッションが終了時に in-flight になり、本 PRD の既定では
   上限時間まで待つ。配線 arm 側の手当ては「影響・移行」に書く。
 - **NG3**: PRD 026 R1（null-safe static ログ API）。

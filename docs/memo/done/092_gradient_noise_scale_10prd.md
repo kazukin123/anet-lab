@@ -10,7 +10,7 @@
 > 2026-10-15 3 回目のグリル（2 回目の追加グリル）: 機構は増減しない。推定の分解能（§2.4）、B・RR の違う腕の比べ方と scale が NaN になりがちなときの読み方（§7.4）、`05_ratio_adam` の用途を明確にし、費用が目標を超えたときに $k$ を下げるかは報告を読んだ開発者が決めることにした（§5 の 10）。裁定は §9.1 の A16〜A20、監査は §10.3。
 > 初回の判断理由は [ADR 0054](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)。追加グリル後の現行の決定は §9.1、監査は §10.2・§10.3 に記録し、初回の決定表と監査は §9.2・§10.1 に履歴として保持する。実装時の文書同期は §11。
 > 起点: DropMerge のフィードバック実験で、「長期 Run の後半にバッチ（B）や RR を上げると停滞を抜けられる」という経験則の機序を、成績ではなく測った量で確かめたくなった。2026-10-14 の分岐（§3 の最後）では、B を上げて 1 回の更新のノイズを下げた腕が効き、取りこぼしを減らす腕や更新を増やす腕は小さかった。この「ノイズ」を直接測る指標が無い。
-> 関連: [done/062_plasticity_metrics_10prd.md](062_plasticity_metrics_10prd.md)（actual / probe のチャネルと購読の型を借りる）、[093_attention_entropy_diagnostics_10prd.md](093_attention_entropy_diagnostics_10prd.md)（同じ時期に起票した診断。群の番号 48 を使う予定）、[091_checkpoint_load_optimizer_options_10prd.md](091_checkpoint_load_optimizer_options_10prd.md)（継続の Run で学習率を変えられるようにする）、[999_metric_targeted_hyperparam_control_10prd.md](../999_metric_targeted_hyperparam_control_10prd.md)（測った値でハイパラを動かす構想）、[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR 0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、[実験記録 2026-07-27](../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、[サーベイ 2026-10-15](../../../reports/gradient_noise_observation_and_control_survey_2026-10-15.md)（観測と対処の一般事例。§7 の考察を本 PRD に反映した）。
+> 関連: [done/062_plasticity_metrics_10prd.md](062_plasticity_metrics_10prd.md)（actual / probe のチャネルと購読の型を借りる）、[093_attention_entropy_diagnostics_10prd.md](093_attention_entropy_diagnostics_10prd.md)（同じ時期に起票した診断。群の番号 48 を使う予定）、[091_checkpoint_load_optimizer_options_10prd.md](091_checkpoint_load_optimizer_options_10prd.md)（継続の Run で学習率を変えられるようにする）、[999_metric_targeted_hyperparam_control_10prd.md](../927_metric_targeted_hyperparam_control_10prd.md)（測った値でハイパラを動かす構想）、[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR 0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、[実験記録 2026-07-27](../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、[サーベイ 2026-10-15](../../../reports/gradient_noise_observation_and_control_survey_2026-10-15.md)（観測と対処の一般事例。§7 の考察を本 PRD に反映した）。
 > 行番号は 2026-10-15 時点の作業ツリー。実装時は近傍のシンボル名で再検索する。
 
 ## 1. 目的と問題
@@ -141,7 +141,7 @@ $$
 
 非ゴール（§8 に、作る条件を書いた）:
 
-- 測った値で B や学習率を自動で変えること（[999_metric_targeted_hyperparam_control_10prd.md](../999_metric_targeted_hyperparam_control_10prd.md) の範囲）。
+- 測った値で B や学習率を自動で変えること（[999_metric_targeted_hyperparam_control_10prd.md](../927_metric_targeted_hyperparam_control_10prd.md) の範囲）。
 - 曲率まで入れた臨界バッチ（ヘッセ行列を使う版の noise scale）。
 - 層ごとの細かい内訳、target network 側の測定。
 - ε を引き直して NoisyNet のばらつきまで含めた総ノイズの測定。
@@ -291,7 +291,7 @@ B・RR の違う腕どうしは、経験数でそろえた終盤窓に入る raw
 
 1. **ε を引き直す版の総ノイズ測定:** 小バッチごとに NoisyNet の ε を引き直して、ε のばらつきまで含めた noise scale を測る（forward が増え、専用の乱数が要る）。作る条件: 分岐 Run の結果が条件付きの値の読みと食い違い、かつ `47_agent_noisy/09_q_abs_diff` が大きい（ε の効きが無視できない）とき。
 2. **臨界バッチ（曲率を含む版）:** ヘッセ行列とベクトルの積で $\operatorname{tr}(H\Sigma)/(G^\top H G)$ を測る。作る条件: 単純な版と実際の B の効き目が食い違ったとき。
-3. **自動調整:** noise scale に合わせて B や学習率を動かす。作る条件: 本 PRD の値で「後半に noise scale が B を超える」ことが Run をまたいで再現し、手動で B を上げた分岐と効き目が合ったとき。[999_metric_targeted_hyperparam_control_10prd.md](../999_metric_targeted_hyperparam_control_10prd.md) の入力の 1 つにする。
+3. **自動調整:** noise scale に合わせて B や学習率を動かす。作る条件: 本 PRD の値で「後半に noise scale が B を超える」ことが Run をまたいで再現し、手動で B を上げた分岐と効き目が合ったとき。[999_metric_targeted_hyperparam_control_10prd.md](../927_metric_targeted_hyperparam_control_10prd.md) の入力の 1 つにする。
 4. **層ごとの内訳:** feature / readout で差が見え、どの block かを特定する必要が出たとき。
 5. **PPO / SAC への対応:** その Learner と観測したい損失・optimizer が具体化したときに、計算部の再利用範囲と必要な API を検討する。今回の共通部は単一損失・AdamW の用途で完結させ、複数損失の key、別 optimizer の拡張口、ロールアウト相関への対応を先に設計・実装しない。
 

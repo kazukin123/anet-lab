@@ -648,8 +648,9 @@ runner アプリと同じ実行時配置に揃えています。
 
 Implementation issues live as Markdown files under `.scratch/<feature>/`;
 PRDs and implementation plans remain under `docs/memo/`.
-Completed, frozen, and dropped PRDs move into the `done/`, `frozen/`, and
-`dropped/` subfolders; see `docs/memo/README.md`.
+New PRDs stay directly under `docs/memo/`; their state and order live in
+`docs/management/issues/`. Existing `done/`, `frozen/`, and `dropped/` folders
+are historical storage; see `docs/memo/README.md`.
 See `docs/agents/issue-tracker.md`.
 
 ### Triage labels

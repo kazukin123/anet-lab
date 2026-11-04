@@ -363,13 +363,17 @@ sequenceDiagram
 - DB records and Run folders have separate lifetimes. Deleting a Run folder leaves its Optuna trial and stale saved paths.
 - Summary studies are for browsing and do not modify source studies.
 
-### 7.4 Wiki and Audit Registry Maintenance
+### 7.4 Wiki and Issue Maintenance
 
-- The wiki summarizes external authoritative sources. Ingestion updates authored sections; lint regenerates file and PRD lists. [Wiki conventions](../wiki/README.md) define materials, blob records, and update procedures.
-- `reports/tools/registry.py list --category` follows category definitions. `build` regenerates registry views and only marked registry sections in wiki maps after validating every marker pair. It preserves surrounding prose and the wiki log.
-- `reports/tools/wiki_support.py` supports material/blob/link inspection and mechanical map regeneration. Agents read sources to interpret findings and decisions. `reports/registry/findings.jsonl` remains authoritative; the registry.py docstring defines its CLI and record format.
+- The wiki summarizes authoritative sources; agents interpret their meaning. [Wiki conventions](../wiki/README.md) define materials, ingestion and records.
+- One file per issue under docs/management/issues/ is authoritative. Human work status and management fields are separate from AI judgments. Every new PRD has an index issue and stays directly under docs/memo/.
+- reports/tools/wiki_support.py scan reads materials, blobs, links and newly implemented PRDs without writing. maps rebuilds INDEX, file and PRD lists, and marked issue sections only after validating all inputs and markers. Surrounding prose and the wiki log are preserved.
+- Lists default to current work. Dependencies inherit WSJF before filtering. Application maps include only issues whose area contains that application's own key. Statistics read issue states and types, and derive current PRD state from index issues while retaining historical folder counts.
+- Install PyYAML 6.0.3 from reports/tools/requirements.txt into the repository .venv.
 
 ## 8. Tests and Change Checks
+
+- [PRD114 validation](../../core/anet-core/testdata/prd114/README.md): public issue-to-index/map/statistics paths, dependency and WSJF ordering, no writes on invalid input, same-blob implementation detection, isolated skill trials and migration checks.
 
 - [PRD110 validation](../../core/anet-core/testdata/prd110/README.md): initial main panes, Centre promotion and dock restoration, three guarded visibility paths, maximize, Train rendering timer, fallback warnings, and unchanged default-suite failure sets. Caption dragging and actual screen widths require manual confirmation.
 

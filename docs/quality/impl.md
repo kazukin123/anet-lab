@@ -42,7 +42,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 | 1 | ヘッダの `using namespace` | 変更ファイルのうち `*.hpp` | `^\s*using\s+namespace\b` | 0 件 | 本書「C++ コード」の規約 |
 | 2 | production の `dynamic_cast` | 変更ファイルのうち `*.cpp` と `*.hpp`（`*_test.cpp` を除く） | `dynamic_cast` | 0 件 | 本書「C++ コード」の規約 |
 | 3 | TODO の形式 | 変更ファイルのうち `*.cpp` と `*.hpp` | `\bTODO\b`（大文字小文字を区別する） | 0 件 | 本書「コメントと TODO」の規約 |
-| 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md`（変更ファイルに無くても検索する） | `anet`（大文字小文字を区別しない）と `PRD` | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) |
+| 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md`（変更ファイルに無くても検索する。課題の仕組みのファイルは対象外） | `rg -n -P -i 'anet(?!-[a-z0-9-]+)'` と `rg -n 'PRD'`。`anet-` で始まる skill・エージェント・アダプタの名前と作業用パスを前者のパターンで除く | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) 先頭の注記 |
 | 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{3}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えた PRD がある | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装計画ファイル解決 |
 | 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図 `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`core/anet-core/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
 

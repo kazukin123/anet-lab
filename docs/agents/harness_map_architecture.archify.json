@@ -10,7 +10,7 @@
     ],
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "c6425461a3f9635fffc887fce005912afb8fcae6"
+      "revision": "1cbe76d65c3087f7d6b06645cf7243ddb2e2179b"
     }
   },
   "components": [
@@ -143,8 +143,8 @@
     {
       "id": "prd_sources",
       "type": "database",
-      "label": "PRD",
-      "sublabel": "変更の目的と契約",
+      "label": "issue と PRD",
+      "sublabel": "仕事の状態と、変更の指示",
       "pos": [
         550,
         90
@@ -154,6 +154,9 @@
         72
       ],
       "sources": [
+        {
+          "path": "docs/management/issues/README.md"
+        },
         {
           "path": "docs/memo/README.md"
         },
@@ -180,7 +183,7 @@
           "path": "docs/wiki/README.md"
         },
         {
-          "path": "docs/memo/095_llm_wiki_10prd.md"
+          "path": "docs/memo/done/095_llm_wiki_10prd.md"
         }
       ]
     },
@@ -333,10 +336,10 @@
   "cards": [
     {
       "dot": "cyan",
-      "title": "正本をたどる",
+      "title": "仕事と指示を分ける",
       "items": [
-        "wikiから正本をたどり、選ばなかった形と変更時の条件を読む。",
-        "監査の候補は台帳が正本。地図には指摘の一覧だけを載せる。"
+        "状態・優先度・依存は issue が持ち、PRD は指示文書として直下に保持する。",
+        "題材の課題は parent で PRD の索引 issue に結び付ける。"
       ]
     },
     {

@@ -39,8 +39,8 @@
 - 素材の表記案（キー先頭のドット、連続ドット、bracket の流用、セクションヘッダ、::） — 不採用（棄却）: 素材が root の別領域に集まって所有が切れる、見づらい、名前付きインスタンスの角括弧と意味が衝突する、1 行完結・位置独立を壊す、仰々しい（出典: [PRD059](../../memo/done/059_config_concept_tree_alignment_10prd.md)、付録 D. 検討経緯）。
 - use_optimistic_target の廃止 — 不採用（却下）: 実効値は明示の指定で同じになるが、optimistic 化のたびに target_policy の全キーを書き換える（戻しも含む）保守コストが戻る（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
 - IQN の spec K の専用キー（net.taus_shape など）と、カタログ全項目と Learner の最大の K — 不採用（却下）: Learner の N で足り、設定項目やカタログの走査を増やさない（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
-- 機能ごとの設定ファイル（PRD098 の skip.txt のように 1 機能の Agent プロファイル・NN 部品・metrics・run.@・app の既定を 1 ファイルに置く形） — 不採用: 関心で分けた 020 §3.6 の表と二軸になり、置き場を表で答えられない。機能は具象 Agent のファイル（`<Agent>.txt`）から `<Agent>_<feature>.txt` を include する形にし、metrics はカタログ、`run.@` は env ファイルに残す（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§4・§8 D3）。
-- 設定ファイルの Agent 別フォルダ化 — 先送り: include は含むファイルの隣から解決するので仕組みは足りるが、平らな名前で層を表せる間は増やさない。再開条件: 具象 Agent が 6 以上、または 1 Agent の機能ファイルが 4 本を超えたとき（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§7）。
+- 機能ごとの設定ファイル（PRD098 の skip.txt のように 1 機能の Agent プロファイル・NN 部品・metrics・run.@・app の既定を 1 ファイルに置く形） — 不採用: 関心で分けた 020 §3.6 の表と二軸になり、置き場を表で答えられない。機能は具象 Agent のファイル（`<Agent>.txt`）から `<Agent>_<feature>.txt` を include する形にし、metrics はカタログ、`run.@` は env ファイルに残す（出典: [PRD999 設定ファイル配置](../../memo/907_config_file_layout_10prd.md)、§4・§8 D3）。
+- 設定ファイルの Agent 別フォルダ化 — 先送り: include は含むファイルの隣から解決するので仕組みは足りるが、平らな名前で層を表せる間は増やさない。再開条件: 具象 Agent が 6 以上、または 1 Agent の機能ファイルが 4 本を超えたとき（出典: [PRD999 設定ファイル配置](../../memo/907_config_file_layout_10prd.md)、§7）。
 - ProfiledValue の定数を常に `.value` で書く形 — 不採用: 定数の行が全部 1 段増え、既存の定数の行を書き換える（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - bare を書いたら type を constant に強制する形 — 不採用: baseline が bare で書いた定数を Run プロファイルが `.type = linear` で差し替える用法が fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - bare と `.value` の両記法を許し両方書いたら fail-fast にする形 — 不採用: 読み取りが default と override の 2 つの prefix を見るので、ベース＋部分上書きの普通の層構成まで fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
@@ -55,7 +55,7 @@
 - 設定移行後も同じevalが同じ周期・seed系で走ることを、意図した寄生evalの除去と区別して確認する（出典: [PRD052](../../memo/done/052_eval_schedule_separation_10prd.md)、Context（背景・目的））。
 - deviceをauto解決してもconfig_dataとconfig/*.txtの指定値は保持する（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、確定したD9）。
 - 特徴branchキーの改名前後で現用config dumpの差分がキー名だけであることを確認する。PRD072の固定入力・golden・manifestと実験記録のdumpは保持する（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§6 3）。
-- 設定ファイルを分けたり移したりするときは、7 env の解決済み設定（全キーと文字列値）の前後一致と check_default_leaves.py の errors=0 で、解決値と演算子の規約が変わっていないことを確かめる（出典: [PRD999 設定ファイル配置](../../memo/999_config_file_layout_10prd.md)、§6）。
+- 設定ファイルを分けたり移したりするときは、7 env の解決済み設定（全キーと文字列値）の前後一致と check_default_leaves.py の errors=0 で、解決値と演算子の規約が変わっていないことを確かめる（出典: [PRD999 設定ファイル配置](../../memo/907_config_file_layout_10prd.md)、§6）。
 
 - optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する。指定があるときのdefault prefix→override prefixの順序と型検証・記録を保ち、空文字や不正な数値を未指定へ変換しない（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、A15；[実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
 - ProfiledValue を読む設定キーでは、root の定数は bare、段の定数は `.phase.[name].value` で書き、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
@@ -91,12 +91,20 @@
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 - [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-なし
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 316_config, 110_runner_app | 索引 | 未確認 | Run キュー（計画スナップショット + exe 固定）暫定 PRD |
+| 2 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config | 索引 | 未確認 | 行カバレッジ計測（OpenCppCoverage）暫定 PRD |
+| 3 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
+| 4 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 5 | [issue-20261103-7c8cd7](../../management/issues/issue-20261103-7c8cd7.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 316_config | 索引 | 未確認 | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ）暫定 PRD |
+| 6 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 311_dev_tools, 312_util, 316_config, 320_env_core, 313_profiling | 索引 | 未確認 | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD |
+| 7 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 7 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

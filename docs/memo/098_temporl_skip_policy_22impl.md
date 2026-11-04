@@ -298,7 +298,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dq
 - agent.txtの旧profileコメントとcommon.txtの孤立コメントを直す。LunarLanderのreproコメントは位置の整理が82e99853で解消済みと照合できたため、承認済み計画の当該作業を変更不要へ調整する。解決値を前後で完全比較する。
 - PRD098の内部メンバ名・軸操作・行構成を観測できる契約へ改め、作らないのはAgent側のprofileであると明記する。M1の説明を付ける。Replayはreward4Bに、終わり方と判断の有無を合わせた1Bを足す実装なので、+5Bは維持して説明を補う。
 - CONTEXTの判断定義を意味を保って2文にし、PRD910へ今回の改訂記録を付ける。一般採番規約は100以降の正式PRDを扱うリポジトリ共通運用の独立変更として目的を記録し、PRD098固有の必要性にはしない。既存履歴の組み替えは行わない。
-- 参照先の999_observation_pipeline_10prd.mdはユーザー回答に基づき新規コミット候補・全文レビュー対象に含める。既存ドラフトを尊重し、草案の実装や未決の裁定はしない。リンク・形式・PRD098との接続条件だけを確認する。
+- 参照先の944_observation_pipeline_10prd.mdはユーザー回答に基づき新規コミット候補・全文レビュー対象に含める。既存ドラフトを尊重し、草案の実装や未決の裁定はしない。リンク・形式・PRD098との接続条件だけを確認する。
 - wikiの曖昧文は後続変更で解消済みとして現行文を照合する。ADR0062/0063はコミット済みの判断記録で、anet-create-prdの「Never rewrite an existing ADR.」と現行品質23/28に従い本文を保持する。短縮・転載整理は理由付きで見送り、書式のためだけの新ADRは作らない。
 - 今回は挙動の追加がないリファクタなので、実装を写す新規テストや人為的なREDは作らない。公開Config・Head・保存復元の既存テストを変更前GREENとして実行し、変更後に同じ関連フィルタを通す。コード変更に先立ち検証可能な基準を確保する。
 - VsDevCmd経由でDebug Runner/anet-core-testをビルドし、[prd098],[noisynet],[dqn][head],[dqn][serialize],[dqn][config]を検証する。設定監査、7envの変更前後の全キー/文字列値、リンク、LF/BOM、差分空白、定数共有を確認する。文書の実装説明には根拠のコード/テスト箇所を残す。
@@ -310,7 +310,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dq
 
 | 指摘 | 扱い | 対応・根拠 |
 | --- | --- | --- |
-| 1 参照先不足 | 修正 | 既存の999_observation_pipeline_10prd.mdを新規コミット候補・全文レビュー対象へ追加。本文の設計/未決を採用せず、関連する未同梱ドラフト2本はリンク先として同梱したと誤認させない名称表示へ整理した |
+| 1 参照先不足 | 修正 | 既存の944_observation_pipeline_10prd.mdを新規コミット候補・全文レビュー対象へ追加。本文の設計/未決を採用せず、関連する未同梱ドラフト2本はリンク先として同梱したと誤認させない名称表示へ整理した |
 | 2 ADRの短縮・転載整理 | 規約により見送り | ADR0062/0063は既にコミット済み。anet-create-prd SKILL.mdの「Never rewrite an existing ADR.」と品質23/28に従い本文を保持。判断自体を変えない書式整理のために新ADRを起こす3条件も満たさない。過去の判断の本文は今の仕様へ書き換えず、再レビューへこの理由を渡す |
 | 3 判断の定義 | 修正 | 意味を維持してCONTEXTの定義を2文へ整理 |
 | 4 PRD910改訂記録 | 修正 | 2026-10-26の引用行で、既存normalizer監査項目の記録補足を明記。競合の有無・修正方式は未裁定のまま |
@@ -352,7 +352,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dq
 
 現行の実装品質68項目とPRD品質の全項目を、今回の適用範囲に従い自己点検した。型・const・依存方向、固定キーのmacro読取り、型変換境界の例外、共有定数と診断、既存GetScalarの意味、計測・所有・ログ・失敗の挙動、公開経路の回帰と設計文書との整合を確認した。新しいworker・状態・借用メンバ・interface・NN処理・設定値・並び番号・metrics連鎖・skillは追加しておらず、それらの固有項目は対象外。PRDの今回の追記は、定義・契約の表現と設定例の説明を整理したもので、実測や未決の設計を追加で採用していない。
 
-自己点検中にAGENTS.mdとdocs/quality/impl.md・prd.mdへ並行更新を検出した。この作業は3ファイルを編集しておらず、着手時との差分をexternal-*.diffへ保存して保持した。再レビューでは現在版の規約を使い、他作業の規約変更自体を今回の変更箇所に混ぜない。ADR0062/0063とwiki本文、LunarLander設定は着手時から不変である。今回の新規コミット候補は999_observation_pipeline_10prd.mdであり、別の未追跡ドラフト2本を追加対象にはしない。
+自己点検中にAGENTS.mdとdocs/quality/impl.md・prd.mdへ並行更新を検出した。この作業は3ファイルを編集しておらず、着手時との差分をexternal-*.diffへ保存して保持した。再レビューでは現在版の規約を使い、他作業の規約変更自体を今回の変更箇所に混ぜない。ADR0062/0063とwiki本文、LunarLander設定は着手時から不変である。今回の新規コミット候補は944_observation_pipeline_10prd.mdであり、別の未追跡ドラフト2本を追加対象にはしない。
 
 ### 2モデル再レビュー第1往復と追加対応
 
@@ -376,4 +376,4 @@ core/anet-core/bin/Debug/anet-core-test.exe '[prd098],[noisynet],[dqn][head],[dq
 
 Debug Runner/testビルドと関連143ケース・31,142 assertionsは成功。7env全キー比較は差分0、既定葉監査3637件・エラー0、監査テスト16件成功。最終追記はレビュー結果の記録だけなのでビルドを繰り返さず、リンク・LF/BOM・差分空白・定数展開・保持対象・index不変を再照合し、`selfcheck-final.json`へ保存する。現行品質の全項目を適用範囲に従い自己点検済み。レビュー側のsnapshotで実行できないGit検査と、実装側で実行した検査は区別して記録した。Claude原文の品質項目数の「30」は現在版の実数32と異なるが、原文を改変せず保存し、実装側とCodex側の32項目の自己点検・走査結果を保持した。
 
-変更は作業ツリーに残す。新規コミット候補の999_observation_pipeline_10prd.mdを含めて未stageであり、stage/commit/pushは行っていない。他作業のdirty・PRD101・LunarLanderのskip有効/merge既定を保持した。次は人間による差分確認とコミット対象の選定であり、自動操作はここで停止する。
+変更は作業ツリーに残す。新規コミット候補の944_observation_pipeline_10prd.mdを含めて未stageであり、stage/commit/pushは行っていない。他作業のdirty・PRD101・LunarLanderのskip有効/merge既定を保持した。次は人間による差分確認とコミット対象の選定であり、自動操作はここで停止する。

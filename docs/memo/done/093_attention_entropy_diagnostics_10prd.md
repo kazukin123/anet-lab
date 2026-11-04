@@ -2,7 +2,7 @@
 
 > 2026-10-16 3 回目のグリル（精査。簡素化パスは省略）: capture を「鍵 1 つに Tensor 1 つ」とし、module の鍵には NetworkStruct が実行位置 `<branch>/<block インスタンス名>` を付ける。要求は完全一致か末尾 `/` の接頭辞で、Learner は接頭辞で受けて実行順に連結する（999 の接頭辞要求と位置付与を先取り）。Atari の `run.@attention` は既定 `run.$` の実効チェーンに積む。030 ガイドの 0.8 は補足枠へ移し、エントロピー関数の参照は libtorch MHA の head ごとの重みとした。用語「層平均」を CONTEXT.md に定義した。§8 の D3〜D5・D10〜D12・D17 を改め、D18・D19 を足した。
 > 2026-10-16 追加グリル: 観測の解釈を層平均の集中度の推移に限定し、測定を更新前へ統一。capture は層ごとの正規化済み FP32 scalar Tensor へ縮小。PRD072 の固定入力・golden は保持し、長期 Run の分析を機能完了条件から分離した。0.8 は比較・閾値に使わない論文の背景説明として残す。§8・§9 は追加裁定を反映した現行の決定と監査結果。
-> 2026-10-16 グリル（初回）: 暫定の既定をすべて裁定に置き換えた（§8）。取り出し口は capture の一般化（[ADR 0055](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)）、設定キーは `final_feature_branch_key` へ改名、`attention_entropy_min` は cut、公開は `$update_result`・interval 503、層番号は 0 始まり。TraceCallback の統合は [999_nn_trace_capture_unification_10prd.md](../999_nn_trace_capture_unification_10prd.md) へ先送り。
+> 2026-10-16 グリル（初回）: 暫定の既定をすべて裁定に置き換えた（§8）。取り出し口は capture の一般化（[ADR 0055](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)）、設定キーは `final_feature_branch_key` へ改名、`attention_entropy_min` は cut、公開は `$update_result`・interval 503、層番号は 0 始まり。TraceCallback の統合は [999_nn_trace_capture_unification_10prd.md](../938_nn_trace_capture_unification_10prd.md) へ先送り。
 > 2026-10-10 起票（暫定）。
 > 起点: TQL(Dong et al. 2026、ICML 2026)の論文解説 [reports/dong2026_tql_paper_2026-10-05.md](../../../reports/dong2026_tql_paper_2026-10-05.md)。Transformer の価値関数を大きくすると、層の attention が少数のトークンへ偏り（エントロピーの崩壊）、成績が下がるという報告。
 > 関連: [done/062_plasticity_metrics_10prd.md](062_plasticity_metrics_10prd.md)（可塑性メトリクス。測り方の型を借りる）、[done/012_sdpa_attention_10prd.md](012_sdpa_attention_10prd.md)（self-attention の SDPA 化）、[084_noisynet_10prd.md](084_noisynet_10prd.md)、[092_gradient_noise_scale_10prd.md](092_gradient_noise_scale_10prd.md)（公開の形の先例）、[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR 0004](../../adr/0004-sdpa-attention-via-aten.md)、[ADR 0051](../../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)、[ADR 0055](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)。
@@ -143,7 +143,7 @@ anet では Transformer を含むネットが本線と常設の構成に入っ�
 
 1. 段階 2（TQL の正則化）: 層ごとの温度（学習する値）と目標エントロピーを TransformerEncoder のオプションに持たせ、補助損失を Learner の損失に足す。検討を始める条件: 本 PRD の指標で層平均の集中の進行が見え、成績の頭打ちや下降と時期が重なること。この対応だけで因果関係や改善を断定せず、実装は別の PRD で決める。作るときは、ネットの forward で出た値を Learner の損失へ足す口（今の anet には無い）と、学習の forward でも attention の確率を計算する経路が要る。損失側の定義（head ごとか head 平均か）はそのとき改めて選ぶ。
 2. 段階 3（価値を読むトークン）: 行動ごとにクエリトークンを置き、各トークンが盤面のトークンを読んで Q を出す構造。作る条件: 行動クエリの構成を試すと決めたとき。その block は feature 閉包の外になるので、専用の到達キーと別の capture 鍵が要る。
-3. ゲート付きの先送り（§5）: head 単位の値の公開、専用の到達キー、TraceCallback の統合（[999_nn_trace_capture_unification_10prd.md](../999_nn_trace_capture_unification_10prd.md)）。
+3. ゲート付きの先送り（§5）: head 単位の値の公開、専用の到達キー、TraceCallback の統合（[999_nn_trace_capture_unification_10prd.md](../938_nn_trace_capture_unification_10prd.md)）。
 
 ## 8. 決定事項（2026-10-16 3 回目のグリル反映）
 
@@ -233,7 +233,7 @@ anet では Transformer を含むネットが本線と常設の構成に入っ�
 - 完成単位 2（step 1＋step 2）: capture の一般化と attention 診断を一つの機能として完成させる。step 1 は器の契約（鍵 1 つに Tensor 1 つ、接頭辞要求、`GetAll`、未達の 2 条件）、NetworkStruct の実行位置の付与、`ForwardUpTo` の配線、`/` 禁止、既存 capture 利用側・テストの移行。step 2 は平均・正規化まで完結する純関数、TransformerEncoder の層数長 Tensor の書き込み、更新前の probe と `BatchUpdateResult`、購読、metrics 設定、テスト、両 smoke、ON/OFF 等価性、性能報告、文書同期。作業・レビュー・コミットは分割できるが、capture 一般化だけを診断機能の完了とはしない。
 - 後続実験: DropMerge 100M と Atari `@vitva` の長期 Run の実施・分析は別タスクで行う。機能完了を待たせず、その結果を §7 の検討材料にする。
 - [092_gradient_noise_scale_10prd.md](092_gradient_noise_scale_10prd.md) とは独立。
-- [999_nn_trace_capture_unification_10prd.md](../999_nn_trace_capture_unification_10prd.md) は本 PRD の capture がコミットされた後、ゲートが開いたとき。接頭辞要求と実行位置の付与は本 PRD で入るので、999 の差分は trace の書き手（NN 付きの鍵）と読み手の付け替え、TraceCallback の削除に縮む。
+- [999_nn_trace_capture_unification_10prd.md](../938_nn_trace_capture_unification_10prd.md) は本 PRD の capture がコミットされた後、ゲートが開いたとき。接頭辞要求と実行位置の付与は本 PRD で入るので、999 の差分は trace の書き手（NN 付きの鍵）と読み手の付け替え、TraceCallback の削除に縮む。
 - 本 PRD の指標が段階 2 の作る条件を判断する材料になるので、正則化より先に行う。
 
 ## 12. 参照

@@ -4,7 +4,7 @@
 > 2026-11-02 999 から 113 へ採番した（本文は変えていない）。
 > 2026-11-02 追記: PRD094 が、Evaluation Trace の DPI の変更への追従の確かめを本 PRD へ移した。受入 7 に Evaluation Trace を足すかを、§9 の 10 に置いた。
 > 起点: 2026-11-02 の会話。`AnetRLRunner-gui-test` で以前から落ちていた 2 件を調べ、そのうち `[log_panel]` の字下げのテストの失敗は、manifest の `gdiScaling=true` で Runner が DPI 非対応のまま動いていることが原因と分かった（§2）。ユーザーは、字下げの幅を RichEdit の配置から測る案（その場で示した推奨案）と、gdiScaling を外す件を、この PRD にまとめて起こすことを選んだ。もう 1 件（構築に失敗した Runner を閉じたあとの落ち）は、同じ日に PRD なしで直した（RunnerFrame の後回しの並べ直しのガード）。
-> 関連: [999_runner_theme_switch](999_runner_theme_switch_10prd.md)（OS のテーマの切替。DPI の変更はその入口に入れないとした）、[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md)（主 pane の配置と幅の規則）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§8。
+> 関連: [999_runner_theme_switch](953_runner_theme_switch_10prd.md)（OS のテーマの切替。DPI の変更はその入口に入れないとした）、[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md)（主 pane の配置と幅の規則）、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§8。
 
 ## 1. 目的と問題
 
@@ -48,7 +48,7 @@ Runner の manifest は PMv2 を宣言しているが、同じ manifest の `gdi
    `FromDIP` を使っているのは [EvalTracePanel.cpp](../../apps/runner/src/EvalTracePanel.cpp)（17 か所）と LogPanel（2 か所）だけで、DPI の変更（`wxEVT_DPI_CHANGED`）を受けるのは [EvalTracePanel.cpp:157](../../apps/runner/src/EvalTracePanel.cpp) だけである。GL で描く 3 つは、描く大きさを `GetContentScaleFactor` で実際の画素に直している（[Conv2dPanel.cpp:139](../../apps/runner/src/Conv2dPanel.cpp)・[HeatMapPanel.cpp:571](../../apps/runner/src/HeatMapPanel.cpp)・[AtariView.cpp:147・171](../../core/envs/atari1/src/AtariView.cpp)）。Env の View・PlotPanel・QValuePanel・Evaluation Trace の操作帯は、バッファに描いてから写す（`wxAutoBufferedPaintDC` など。[LunarLanderView.cpp:560](../../core/envs/lunarlander1/src/LunarLanderView.cpp)・[DropMergeView.cpp:635](../../core/envs/dropmerge1/src/DropMergeView.cpp)・[PlotPanel.cpp:29](../../apps/runner/src/PlotPanel.cpp)・[QValuePanel.cpp:91](../../apps/runner/src/QValuePanel.cpp) など）。DropMerge の View は描くたびに pt 指定のフォントを作る（[DropMergeView.cpp:264](../../core/envs/dropmerge1/src/DropMergeView.cpp) など）。Env の View の `OnPaint` には計測の範囲が無い（[LunarLanderView.cpp:558](../../core/envs/lunarlander1/src/LunarLanderView.cpp) など）。
 6. wxWidgets の振る舞い: MSW では窓の座標は実際の画素で、100% の大きさから直すには `FromDIP()` を使うことが勧められている（[wxWidgets の High DPI overview](https://docs.wxpython.org/high_dpi_overview.html)）。wx 3.3.3 の AUI は DPI の変更を受けると、各 pane の最小・推奨の大きさと dock の幅を新しい DPI へ拡縮してから並べ直す（wx の `src/aui/framemanager.cpp` の 623〜653 行）。フォントは pt で持つので、窓の DPI に合わせて wx が大きさを直す。
 7. gdiScaling を外した写しでの GUI テスト（2026-11-02、144 DPI のモニター）: 既定のテスト 28 件は全部通った（今の実行ファイルでは字下げの 1 件が落ちる）。RunnerApp を起動するテスト 37 タグを 1 タグ 1 process で回すと、今と結果が違ったのは `[prd110_toolbar]` だけで、新たに落ちた（[RunnerFrame_test.cpp:311](../../apps/runner/src/RunnerFrame_test.cpp)。Panels ツールバーのボタンの 1 つの幅が 0。並びきらずに隠れたと推定）。`[prd110_main_pane]` は 34 件をまとめて 1 process で回すタグで、今も写しも Env の二重登録で落ちる（回し方の問題で、DPI とは関係ない）。
-8. 関係する PRD: [999_runner_theme_switch](999_runner_theme_switch_10prd.md) は、OS のテーマの切替を RunnerFrame の 1 か所で受けるとし、DPI とフォントの変更は同じ入口に入れず、Evaluation Trace が自分で受ける今の経路を残すとした（同 §3 の非ゴール・§5.6・§8）。
+8. 関係する PRD: [999_runner_theme_switch](953_runner_theme_switch_10prd.md) は、OS のテーマの切替を RunnerFrame の 1 か所で受けるとし、DPI とフォントの変更は同じ入口に入れず、Evaluation Trace が自分で受ける今の経路を残すとした（同 §3 の非ゴール・§5.6・§8）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -62,7 +62,7 @@ Runner の manifest は PMv2 を宣言しているが、同じ manifest の `gdi
 **非ゴール**
 
 - 見た目の意匠を変えること。消える案は、PMv2 にするのに合わせて、アイコンや View の絵を高い解像度向けに描き直す案である。本当の制約ではない（描き直すことはできる）が、ツールバーのアイコンはすでに SVG から作っていて、別の関心である。
-- OS のテーマの切替の扱い。消える案は、DPI の変更もテーマの切替と同じ入口（RunnerFrame の 1 か所）で受ける案である。本当の制約ではない（同じ入口で受けることもできる）が、[999_runner_theme_switch](999_runner_theme_switch_10prd.md) が DPI を分けると決めていて（§2 の 8）、別の関心である。
+- OS のテーマの切替の扱い。消える案は、DPI の変更もテーマの切替と同じ入口（RunnerFrame の 1 か所）で受ける案である。本当の制約ではない（同じ入口で受けることもできる）が、[999_runner_theme_switch](953_runner_theme_switch_10prd.md) が DPI を分けると決めていて（§2 の 8）、別の関心である。
 - Runner 以外の実行ファイル。消える案は、Metrics Viewer なども同じ見直しの対象にする案である。本当の制約ではないが、Metrics Viewer は Java の別のアプリで、ほかの C++ の実行ファイルは窓を持たない。
 - Linux・macOS で確かめること。消える案は、ほかの OS でも受入を通す案である。本当の制約ではない（wx の汎用の `FromDIP` で書く）が、Runner がそこで未検証である（[040 開発環境構築ガイド](../design/040_development_environment.jp.md)）。
 
@@ -247,7 +247,7 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 | システムの DPI だけに対応する宣言（System aware） | 不採用 | 起動したときの 1 つの DPI でしかくっきり描けず、150% と 175% の間で窓を動かすとぼやける（§2 の 3） |
 | Per-Monitor（V1）の宣言 | 不採用 | 子のウィンドウに DPI の変更が通知されない（§2 の 3） |
 | gdiScaling を外すだけにし、字下げは GDI で測ったままにする | 不採用 | 測る側と描く側が別の仕組みのままで、フォントの代替などで再び食い違いうる（D4） |
-| DPI の変更もテーマの切替と同じ入口（RunnerFrame の 1 か所）で受ける | 範囲外 | [999_runner_theme_switch](999_runner_theme_switch_10prd.md) が分けると決めた（§2 の 8）。再開条件: 両方を実装したあとで、DPI の変更の反映が半端になる例が出たとき |
+| DPI の変更もテーマの切替と同じ入口（RunnerFrame の 1 か所）で受ける | 範囲外 | [999_runner_theme_switch](953_runner_theme_switch_10prd.md) が分けると決めた（§2 の 8）。再開条件: 両方を実装したあとで、DPI の変更の反映が半端になる例が出たとき |
 | アイコン・View の絵を高い解像度向けに描き直す | 範囲外 | 別の関心。再開条件: PMv2 にしたあとで、ぼやけて見える絵が見つかったとき |
 | §2 の 5 の型 A〜F に当たらない、View の絵の中の長さと位置（矢印の長さ、Atari の待ちの表示の文字の位置など）を DIP にする | 範囲外 | G2 は型 A〜F の大きさまでとした。再開条件: PMv2 にしたあとで、小さく見える絵の部品が見つかったとき |
 | Runner 以外の実行ファイルの見直し | 範囲外 | Metrics Viewer は Java の別のアプリ。再開条件: そちらで同じ問題が見つかったとき |
@@ -271,12 +271,12 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 ## 10. 依存と順序
 
 - 先に要る PRD は無い。
-- [999_runner_theme_switch](999_runner_theme_switch_10prd.md) とは独立で、どちらを先に実装してもよい。両方を実装したあとは、テーマの切替の決め直しと DPI の変更の決め直しが同じ pane（LogPanel・QValuePanel・Evaluation Trace）に別々の入口で届く。
+- [999_runner_theme_switch](953_runner_theme_switch_10prd.md) とは独立で、どちらを先に実装してもよい。両方を実装したあとは、テーマの切替の決め直しと DPI の変更の決め直しが同じ pane（LogPanel・QValuePanel・Evaluation Trace）に別々の入口で届く。
 - 同じ日に PRD なしで直した、構築に失敗した Runner を閉じたあとの落ちの直し（RunnerFrame の後回しの並べ直しのガード）とは独立である。
 
 ## 11. 参照
 
-- [999_runner_theme_switch](999_runner_theme_switch_10prd.md)、[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md)
+- [999_runner_theme_switch](953_runner_theme_switch_10prd.md)、[PRD110](done/110_runner_main_pane_dynamic_centre_10prd.md)
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§7.1・§8
 - [RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
 - [Improving the high-DPI experience in GDI based Desktop Apps](https://blogs.windows.com/windowsdeveloper/2017/05/19/improving-high-dpi-experience-gdi-based-desktop-apps/)、[High DPI Desktop Application Development on Windows](https://learn.microsoft.com/ja-jp/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows)、[wxWidgets の High DPI overview](https://docs.wxpython.org/high_dpi_overview.html)

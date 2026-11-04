@@ -1,6 +1,6 @@
 # DefaultDQNAgent / GridMaze 探索記録
 
-GridMaze の DefaultDQNAgent 系 Run に関する探索索引です。TempoRL の段の結果のうち、PRD の検証節に書いたもの（[PRD098](../../../memo/098_temporl_skip_policy_10prd.md) §7 の段 1、[第三弾](../../../memo/999_temporl_skip_followups_10prd.md) §7 の段 0）はそちらが正本です。
+GridMaze の DefaultDQNAgent 系 Run に関する探索索引です。TempoRL の段の結果のうち、PRD の検証節に書いたもの（[PRD098](../../../memo/098_temporl_skip_policy_10prd.md) §7 の段 1、[第三弾](../../../memo/958_temporl_skip_followups_10prd.md) §7 の段 0）はそちらが正本です。
 
 ## campaign
 

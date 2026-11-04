@@ -439,16 +439,16 @@ V1 系の初回タグ。コードは 2026-03-28 時点の V1 実装で、この�
 
 ## 将来バージョンの対応候補
 
-`docs/memo/` 直下(未対応 / 対応中)と `frozen/` の PRD から。番号と状態の意味は `docs/memo/README.md`。
+対応するissueで状態・優先度・順序を管理するPRDから。新しいPRDは直下に保持し、過去の保管場所は移さない。番号の意味はdocs/memo/README.md。
 
-正式採番済み(着手中・実装待ち):
+従来から正式番号を持つ候補:
 
 - TimeHistogram の fine-bin 保持と描画時集約。有効時に学習スループットが 1/3〜1/4 に落ちる問題の解消(PRD056)。
 - 捕まらない fatal の可視化(worker catch・set_terminate・エラーログ write-through)。CUDA 非搭載機で無言終了する事象の対策(PRD071)。
 - .cpp の内部リンケージ(static / 無名 namespace)と namespace インデント規約の確定、既存 39 ブロックの一括是正(PRD079)。
 - EvalPanel のゲームを trace へ出す。鏡写し eval インスタンスを起動時に宣言し、dormant trace だけを束縛(PRD081, ADR0047)。
 
-バックログ(Phase 別。下 1 桁が推奨着手順):
+従来から9xxのIDを持つ候補（番号は順序を表さない）:
 
 - train / eval mode 整理後の network 排他(lock)の精査(PRD910)。
 - background eval が参照する network snapshot の順序保証(PRD912)。
@@ -461,7 +461,7 @@ V1 系の初回タグ。コードは 2026-03-28 時点の V1 実装で、この�
 - target network 更新の step 軸正規化。`soft_update_tau` / `hard_update_interval` を replay ratio に追随させる(PRD940)。
 - IQN 初回 Learner priority の quantile-pair 方式(PRD941)。
 
-バックログ(Phase 未割当 999):
+PRD114で未使用の9xxへ振り直した候補:
 
 - CI/CD 改善。ビルド・テスト自動化、定点ジョブ、LLM 補助。
 - 設定 root の所有整合。`app.run_name` 等の階層ずれを規約で棚卸し。

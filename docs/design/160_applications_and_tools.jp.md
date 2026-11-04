@@ -402,13 +402,17 @@ sequenceDiagram
 - DB recordとRun folderは別lifetimeである。Run folderを削除してもOptuna trialは残り、保存pathがstaleになる。
 - summary studyは閲覧用であり、source studyを変更しない。
 
-### 7.4 wikiと監査台帳の保守
+### 7.4 wikiと課題の保守
 
-- wikiは外の正本を束ねたまとめで、取り込みが書く部分を、点検がファイル・PRD一覧を更新する。材料、blob記録、更新手順は[wikiの規約](../wiki/README.md)を正本とする。
-- `reports/tools/registry.py list --category` は分類定義に従う。`build` は台帳の派生一覧と、地図の目印の間だけを更新する。全地図の目印を検査してから書き、区画外とwikiログは変更しない。
-- `reports/tools/wiki_support.py` は材料・blob・リンク候補の読み取りと地図の機械的な2節の再生成を補助する。知見の意味や裁定はエージェントが正本を読んで判断する。台帳の正本は `reports/registry/findings.jsonl`、CLIとレコード形式はregistry.pyの冒頭を参照する。
+- wikiは外の正本を束ね、書く部分の意味はエージェントが判断する。材料・取り込み・記録は[wikiの規約](../wiki/README.md)に従う。
+- 課題の正本はdocs/management/issues/の単票。状態と監理の項目は人の指示、AIの判定は別の欄で持つ。新しいPRDは索引issueを伴い、直下に保持する。
+- reports/tools/wiki_support.pyのscanは読み取りだけで材料・blob・リンクと実装済み判定の取り込み漏れを返す。mapsはINDEX、地図のファイル・PRD一覧と課題の目印の間を作り直す。全入力と目印の検証が済むまで出力せず、区画外とwikiログは保つ。
+- 一覧の既定は本版。依存とWSJFの継承は全件で計算し、アプリケーションの課題はareaに自身のkeyがあるものだけを出す。統計は単票から状態・性質を集計し、直下PRDの状態は索引issueから読む。過去の保管場所の集計は保持する。
+- PyYAML 6.0.3をreports/tools/requirements.txtで明示する。repoの.venvへ導入して使う。
 
 ## 8. テストと変更時の確認事項
+
+- [PRD114検証資材](../../core/anet-core/testdata/prd114/README.md): issueからINDEX・地図・統計への公開CLI、依存とWSJF継承、不正入力時の全出力不変、同blobの実装済み検出、隔離したskill試走と移行の検証。
 
 - [PRD110検証資材](../../core/anet-core/testdata/prd110/README.md): 主paneの初期表示・Centre昇格とdock位置復帰、三導線の開閉制限、最大化中の開閉、Train描画timer、未知経路の保険とWARN、既定スイートの失敗集合を確認する。captionのドラッグと実画面の幅は人が確認する。
 
@@ -416,7 +420,7 @@ sequenceDiagram
 
 - [PRD105検証資材](../../core/anet-core/testdata/prd105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
-- [PRD095検証資材](../../core/anet-core/testdata/prd095/README.md): 一時台帳での分類・地図の派生区画・不正な目印での無変更と、取り込み・点検・housekeepingの試走を確認する。
+- [PRD095検証資材](../../core/anet-core/testdata/prd095/README.md): 地図・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
 
 - [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 

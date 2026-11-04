@@ -31,7 +31,7 @@ qbert のサンプル効率優先の構成（BTR に寄せた構成）では、�
 1. Greedy の評価（各 200 ゲーム）で、同じ得点で終わる道の集中: 合算の `full` は面 5 で 45 本中 43 本が 14,550 点、分割の `full` は面 6 で 52 本中 51 本が 18,925 点（評価の seed 2 では 57 本すべて）、スキップなしの seed 1 は面 8 で 45 本が 25,750 点、seed 2 は面 5 で 32 本が 15,850 点・面 8 で 53 本が 26,050 点、分割の `single` はクリア数 8 で 60 本が 26,175 点（[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md) §2.2 の 7）。同じ checkpoint の評価に skip 側の τ やノイズのランダムさを入れると、集中した面で終わるゲームの得点はばらける。Q 側の τ だけをランダムにした評価は、分割の面 6 の道からほとんど外れない（面 6 で終わった 35 本中 33 本が 18,925 点。同 §2.2 の 7）。
 2. ε のラダー: qbert で ε のラダーを 1e-4〜0.05 へ下げて効いたのは、低 ε の lane の割合で、同じ ε での腕前ではなかった（[Qbert（wiki）](../wiki/subjects/qbert.md) の「分かっていること」。出典は [2026-09-25 の実験記録](../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md) の現時点のまとめ 12）。
 3. NoisyNet と ε のラダー: Atari の実時間優先 50M で ε のラダーを NoisyNet に置き換えると 7 ゲームとも基準を下回り、Breakout の 2×2 では NoisyNet の有無の差がラダーありで +15.3、なしで +0.8 だった（[NoisyNet の観測（wiki）](../wiki/mechanisms/noisynet.md)。出典は [2026-10-11 の実験記録](../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)）。lane ごとに探索の強さを散らすことが効いている可能性を示すが、NoisyNet の強さのラダーを測った結果は無い。
-4. Evaluation Trace の観察（3 ゲーム）: 最後でない残機を失っても `V_s` はほとんど変わらなかった（[999_eval_session_step_trace](999_eval_session_step_trace_10prd.md) §1）。誤りを経験しても直す信号が弱い可能性があり、本書の効き目を弱めうる。
+4. Evaluation Trace の観察（3 ゲーム）: 最後でない残機を失っても `V_s` はほとんど変わらなかった（[999_eval_session_step_trace](919_eval_session_step_trace_10prd.md) §1）。誤りを経験しても直す信号が弱い可能性があり、本書の効き目を弱めうる。
 
 ## 3. ゴール・非ゴール・仮説と成功の測り方
 
@@ -225,7 +225,7 @@ forward（Q 側と skip 側）ごとに、その forward の NN 実行設定と�
 
 ## 11. 参照
 
-- [PRD084 NoisyNet](done/084_noisynet_10prd.md)、[PRD101 探索と学習のスケジュール](done/101_exploration_schedule_profiled_value_10prd.md)、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)、[PRD104](done/104_temporl_skip_auxiliary_only_10prd.md)、[999_eval_session_step_trace](999_eval_session_step_trace_10prd.md)
+- [PRD084 NoisyNet](done/084_noisynet_10prd.md)、[PRD101 探索と学習のスケジュール](done/101_exploration_schedule_profiled_value_10prd.md)、[PRD106](done/106_temporl_skip_forward_noise_key_10prd.md)、[PRD104](done/104_temporl_skip_auxiliary_only_10prd.md)、[999_eval_session_step_trace](919_eval_session_step_trace_10prd.md)
 - [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)、[ADR 0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)
 - [130 ニューラルネットワーク（設計文書）](../design/130_neural_networks.jp.md)、[200 DQN 系列（設計文書）](../design/200_dqn_agents.jp.md)
 - [NoisyNet の観測（wiki）](../wiki/mechanisms/noisynet.md)、[Qbert（wiki）](../wiki/subjects/qbert.md)、[2026-09-25 の実験記録](../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、[2026-10-11 の実験記録](../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)

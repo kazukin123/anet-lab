@@ -59,3 +59,5 @@ description: Generate anet-lab's fixed-point statistics from git history and loc
 - categories.json を変えない(追加案は報告に書く)。
 - 統計にない数字を書かない。
 - git の書き込み操作をしない。
+
+課題の正本はdocs/management/issues/の単票である。件数を状態・typeごとに集計し、直下PRDの状態は索引issueから引く。過去のdone/frozen/droppedの集計は保持する。

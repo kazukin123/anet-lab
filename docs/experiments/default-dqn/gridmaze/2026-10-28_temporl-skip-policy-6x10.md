@@ -7,7 +7,7 @@
 | 対象 Agent | DefaultDQNAgent（QR、TempoRL 分離×遮断。GridMaze.txt の `run.@skip`） |
 | 対象 Env | GridMazeEnv 6×10（`GridMazeEnv.width=6 GridMazeEnv.height=10`）。J=7 |
 | 開始日 | 2026-10-28 |
-| 主目的 | [PRD103](../../../memo/done/103_temporl_reference_alignment_10prd.md) §7 の段 1'。スキップ長を行動と同じ UQE（楽観）で選ぶ既定と、平均に対する ε-greedy（ε 0.60→0.05。[第三弾](../../../memo/999_temporl_skip_followups_10prd.md) の段 0 の腕と同じ葉）で選ぶ腕を、同じビルドで 3 seed 比べる |
+| 主目的 | [PRD103](../../../memo/done/103_temporl_reference_alignment_10prd.md) §7 の段 1'。スキップ長を行動と同じ UQE（楽観）で選ぶ既定と、平均に対する ε-greedy（ε 0.60→0.05。[第三弾](../../../memo/958_temporl_skip_followups_10prd.md) の段 0 の腕と同じ葉）で選ぶ腕を、同じビルドで 3 seed 比べる |
 | 基準 | `run.$=run.@skip`（UQE）、seed 1〜3 |
 | 判定指標 | 届く速さ: 評価 target の EMA（`21_eval/03_target_reward_ema`）が初めて 0.5 以上になった step（[PRD098](../../../memo/098_temporl_skip_policy_10prd.md) §7 の段 1 と同じ）。終盤の安定さ: 最後の EMA と、最後の 100k の平均。seed ごとに比べる（PRD103 §7 の段 1' の条件） |
 | 比較上の注意 | 500k exp step、256 env、1 seed ずつ 3 seed。評価は 10 learn step ごとに 1 エピソード。実行ファイルは 2026-10-28 のビルド。同じ条件の 10/26 の Run（`run_20261026-04*_t98_gm_sep_s1〜3`）と値が完全に一致した（決定的） |

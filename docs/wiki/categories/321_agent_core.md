@@ -80,9 +80,9 @@
 - 構築時dummy forwardで層数を数える追加API — 不採用: 黙ったNaNは最初の測定のfail-fastで防げ、APIを1つ増やす必要がない（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§5）。
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - NetworkModel が特徴空間・行動価値・スキップ価値の 3 つの Network を持つ形 — 不採用: 切れ目は DAG の branch で表せ、checkpoint の形と Network 1 つ前提の経路へ波及する。補助 Network は primary の公開出力を入力に取り、その target は bootstrap に使わず target 側の Actor の行動にだけ使う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D3、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)）。
-- 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（999_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D10・§9）。
-- 具象 Agent を anet-core の中のサブフォルダに分けるだけの形 — 不採用: 内部ヘッダ（Head 部品と Replay の生成）への依存が残り、責務の境界が CMake で強制されない。Env と同じ具象別の独立ライブラリ（`src/agents/<agent>/`）にし、`Init<Agent>()` を app が呼ぶ（出典: [PRD999 ソース配置](../../memo/999_source_layout_10prd.md)、§4・§5）。
-- DQN 系を家族 1 ライブラリにまとめる形（DefaultDQN と Rainbow を同じライブラリに置く） — 先送り: 移動量は少ないが、Env と同じ「具象 1 つに 1 パス」から外れる。再開条件: グリルで具象別の境界の価値が移動量に見合わないと裁定したとき（出典: [PRD999 ソース配置](../../memo/999_source_layout_10prd.md)、§8 D3）。
+- 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（944_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D10・§9）。
+- 具象 Agent を anet-core の中のサブフォルダに分けるだけの形 — 不採用: 内部ヘッダ（Head 部品と Replay の生成）への依存が残り、責務の境界が CMake で強制されない。Env と同じ具象別の独立ライブラリ（`src/agents/<agent>/`）にし、`Init<Agent>()` を app が呼ぶ（出典: [PRD999 ソース配置](../../memo/957_source_layout_10prd.md)、§4・§5）。
+- DQN 系を家族 1 ライブラリにまとめる形（DefaultDQN と Rainbow を同じライブラリに置く） — 先送り: 移動量は少ないが、Env と同じ「具象 1 つに 1 パス」から外れる。再開条件: グリルで具象別の境界の価値が移動量に見合わないと裁定したとき（出典: [PRD999 ソース配置](../../memo/957_source_layout_10prd.md)、§8 D3）。
 - Thompson sampling の τ の区間を `thompson.tau_low/high` で設定する形 — 不採用: 非 spatial の Thompson は τ を U[0,1]（IQN は全範囲）から引き、区間は存在しない。spatial は `spatial.uqe.tau.*` のラダーを使う（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§2.1・§4.2 D9）。
 - log ラダーの 0 の端を fail-fast にして 0 に届くラダーを新しい並べ方 `exponential` で書く形、下限をキー（`spatial.log_floor`）にする形、1e-4 への clamp を残す形 — 不採用: 下限 1e-4 で log に並べた列を書いた両端へ線形に伸縮する規則 1 つにし（両端が 1e-4 以上なら恒等）、モードやキーを増やさず、0 と書いて 1e-4 で動く形を残さず、端が 0 へ下がる途中も値を連続にする（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.2 D8）。
 - MuZero の温度 `temp_start/end/decay_steps` の ProfiledValue 化 — 範囲外: 試作 Agent。再開条件: 本線に戻すときに同じ器で足す（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3 非ゴール・§7）。
@@ -96,7 +96,7 @@
 - 明示的なActor::Syncは呼出時の強制同期として維持する。shared既定ではaction forward回数と保存形式を保つ（出典: [PRD036](../../memo/done/036_train_actor_periodic_snapshot_10prd.md)、目的）。
 - Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・seedの各スロットの結果を確認する（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、7.4・8）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、Context・確定した設計判断2〜4・11）。
-- Agent のライブラリは anet-core の公開ヘッダと自分のライブラリだけに依存し、anet-core は Agent のライブラリに依存しない。ソースを移すときは 4 env の metrics checksum の一致と全テストで挙動不変を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [PRD999 ソース配置](../../memo/999_source_layout_10prd.md)、§4 8・§6）。
+- Agent のライブラリは anet-core の公開ヘッダと自分のライブラリだけに依存し、anet-core は Agent のライブラリに依存しない。ソースを移すときは 4 env の metrics checksum の一致と全テストで挙動不変を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [PRD999 ソース配置](../../memo/957_source_layout_10prd.md)、§4 8・§6）。
 - 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とする（PRD060は基準を取り損ねた）（出典: [PRD084](../../memo/done/084_noisynet_10prd.md)、§8.2・§12・§13）。
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§6 1・5）。
@@ -151,16 +151,43 @@
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 - [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md) — TempoRL の skip 側の forward のノイズを Q 側と分けて指定する（`full` でだけノイズが効く仕組みの切り分け）PRD
 
-## 台帳の指摘
+## 課題
 
-台帳のツールが作り直す。手で直さない。
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
-<!-- registry:begin -->
-- F-0013 P2 refactor — 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う
-- F-0014 P2 refactor — TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている
-- F-0019 P2 refactor — BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖
-- F-0029 P2 defect — use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる
-- F-0021 P3 refactor — dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | 索引 | 未確認 | SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 PRD |
+| 2 | [issue-20261103-4a2b5e](../../management/issues/issue-20261103-4a2b5e.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 315_nn, 321_agent_core | 索引 | 未確認 | NN Head の最終射影と出力変換の責務分離 |
+| 3 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
+| 4 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core, 322_env_individual | 索引 | 未確認 | 次の判断まで遡る n-step（判断単位の可変長 n-step）暫定 PRD |
+| 5 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 315_nn, 321_agent_core | 索引 | 未確認 | forward の名前付き出力を NetworkForwardCapture に一本化する 暫定 PRD |
+| 6 | [issue-20261103-71c4f4](../../management/issues/issue-20261103-71c4f4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 315_nn, 317_metrics, 321_agent_core | 索引 | 未確認 | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
+| 7 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core | 索引 | 未確認 | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）暫定 PRD |
+| 8 | [issue-20261103-a86dcc](../../management/issues/issue-20261103-a86dcc.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 321_agent_core, 324_dqn | 索引 | 未確認 | eval スケジュールの初回発火の抑止 暫定 PRD |
+| 9 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core | 索引 | 未確認 | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD |
+| 10 | [issue-20261103-72f807](../../management/issues/issue-20261103-72f807.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 不具合 | 未確認 | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
+| 11 | [issue-20261103-741251](../../management/issues/issue-20261103-741251.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 改善 | 未確認 | BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖 |
+| 12 | [issue-20261103-ab98b7](../../management/issues/issue-20261103-ab98b7.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 改善 | 未確認 | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |
+| 13 | [issue-20261103-e29c92](../../management/issues/issue-20261103-e29c92.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 改善 | 未確認 | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
+| 14 | [issue-20261103-03a1b6](../../management/issues/issue-20261103-03a1b6.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 321_agent_core | 改善 | 未確認 | dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い |
+| 15 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
+| 16 | [issue-20261103-2349d0](../../management/issues/issue-20261103-2349d0.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 315_nn, 324_dqn, 314_tensor, 317_metrics, 110_runner_app, 322_env_individual | 索引 | 実装済み | TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD |
+| 17 | [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 索引 | 未確認 | 999: train/eval mode 整理後の排他精査 PRD（草案） |
+| 18 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
+| 19 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 320_env_core, 317_metrics, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 未確認 | 評価 session の step trace を Run の記録に残す PRD |
+| 20 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 21 | [issue-20261103-6f6c73](../../management/issues/issue-20261103-6f6c73.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core | 索引 | 未確認 | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習）暫定 PRD |
+| 22 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 322_env_individual, 110_runner_app | 索引 | 未確認 | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の家族 暫定 PRD |
+| 23 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
+| 24 | [issue-20261103-8c3c6d](../../management/issues/issue-20261103-8c3c6d.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 索引 | 未確認 | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る 暫定 PRD |
+| 25 | [issue-20261103-969184](../../management/issues/issue-20261103-969184.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 322_env_individual | 索引 | 未確認 | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド）暫定 PRD |
+| 26 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 索引 | 未確認 | 直前行動観測の共通部品（`prev_action` フレーム段） |
+| 27 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor | 索引 | 未確認 | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 PRD |
+| 28 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
+| 29 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui, 321_agent_core, 322_env_individual | 索引 | 未確認 | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD |
+| 30 | [issue-20261103-f33167](../../management/issues/issue-20261103-f33167.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn | 索引 | 実装済み | 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー）PRD |
 
-[台帳の一覧](../../../reports/registry/findings.md)
-<!-- registry:end -->
+着手できる 30 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

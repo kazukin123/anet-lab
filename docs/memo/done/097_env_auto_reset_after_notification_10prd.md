@@ -25,7 +25,7 @@
 >
 > 決定の記録は [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) で、[ADR 0059](../../adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md)・[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)・[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)・[ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) の先頭に注記を足した。ファイル名は、ほかの文書と wiki の作業記録が指しているので変えない。
 > 起点: [PRD 094](094_evalpanel_step_history_10prd.md)（Evaluation Trace）のグリルで、step trace の列 `$env` を「遷移のあと・リセット前」の env と定義したところ、今の BatchEnv では終端の lane だけがリセット後になると分かったこと（094 の §3.3、D4、§7 の 1）。ユーザーの裁定で、この直しは別の PRD とし、094 より先に実施する。
-> 関連: [094_evalpanel_step_history_10prd.md](094_evalpanel_step_history_10prd.md)、[081_evalpanel_episode_trace_10prd.md](../081_evalpanel_episode_trace_10prd.md)、[999_qvaluepanel_manual_action_state_alignment_10prd.md](../999_qvaluepanel_manual_action_state_alignment_10prd.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)、[ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、[ADR 0059](../../adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md)、[120_environments.jp.md](../../design/120_environments.jp.md)、[140_observability.jp.md](../../design/140_observability.jp.md)、[220_atari_env.jp.md](../../design/220_atari_env.jp.md)、[CONTEXT.md](../../../CONTEXT.md) の「episode scope」「episode group」「評価セッション」「trace」「速報値／確定値」。
+> 関連: [094_evalpanel_step_history_10prd.md](094_evalpanel_step_history_10prd.md)、[081_evalpanel_episode_trace_10prd.md](../081_evalpanel_episode_trace_10prd.md)、[999_qvaluepanel_manual_action_state_alignment_10prd.md](../948_qvaluepanel_manual_action_state_alignment_10prd.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0046](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)、[ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、[ADR 0059](../../adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md)、[120_environments.jp.md](../../design/120_environments.jp.md)、[140_observability.jp.md](../../design/140_observability.jp.md)、[220_atari_env.jp.md](../../design/220_atari_env.jp.md)、[CONTEXT.md](../../../CONTEXT.md) の「episode scope」「episode group」「評価セッション」「trace」「速報値／確定値」。
 
 ## 1. 目的と問題
 
@@ -210,7 +210,7 @@ env の確定の単位がフレームワークのエピソードより長いと�
 - リセット後の情報とは、次のエピソードの最初の観測・画面 s_0 である。
 - View は、終端の step では Step の結果の画面 s_T を出す。手動で進めるときは、エピソードの境目で s_0 を見ずに最初の行動を選ぶことになる。Run の最初のエピソードの今の扱い（§3.5）と同じである。
 
-理由: 「エピソードの開始」の通知は、ゴールに効かない機能の追加である。また、境目で何を画面に出すかは、[999_qvaluepanel_manual_action_state_alignment](../999_qvaluepanel_manual_action_state_alignment_10prd.md) と同じ関心である（§5）。
+理由: 「エピソードの開始」の通知は、ゴールに効かない機能の追加である。また、境目で何を画面に出すかは、[999_qvaluepanel_manual_action_state_alignment](../948_qvaluepanel_manual_action_state_alignment_10prd.md) と同じ関心である（§5）。
 依存: NG4。
 
 **D5 派生・引数つきの鍵は、Step の結果が問い合わせに答える。**
@@ -220,7 +220,7 @@ env の確定の単位がフレームワークのエピソードより長いと�
 - 設定の鍵の書き方は今と同じ（例: `M1.[42_env/40_game_score_ge432] = $env_step mean.game_score.ge.[432] @episode_end $exp_step`）。
 
 理由: 計算の規則を env の中に 1 つだけ置け、aux は増えない。`.ge.[N]` の N も今どおり任意に書ける。
-退けた案: hns と番号つきの ram_metric を固定の鍵で aux に載せ、`.ge.[N]` は DSL の汎用の演算にする。aux が毎 step・毎 lane 増え、DSL に演算が増える。汎用の閾値の判定は [999_scalar_threshold_rate](../999_scalar_threshold_rate_10prd.md) の関心として別に扱う。
+退けた案: hns と番号つきの ram_metric を固定の鍵で aux に載せ、`.ge.[N]` は DSL の汎用の演算にする。aux が毎 step・毎 lane 増え、DSL に演算が増える。汎用の閾値の判定は [999_scalar_threshold_rate](../954_scalar_threshold_rate_10prd.md) の関心として別に扱う。
 依存: D1、D3、§3.7。
 
 **D6 Atari の残機喪失直後の NOOP は `Step` の中で打つ。速報値は NOOP の前の値、ゲームが終わった step の確定値は NOOP のあとの値にする。**
@@ -432,8 +432,8 @@ public:
 
 | 項目 | 裁定 | 理由と再開条件 |
 |---|---|---|
-| エピソードの開始（s_0）を Observer に知らせる通知と、View の開始の表示 | 先送り | ゴールに効かない（D4）。境目の画面は [999_qvaluepanel_manual_action_state_alignment](../999_qvaluepanel_manual_action_state_alignment_10prd.md) と同じ関心で、その PRD で手動の時点のずれを決めるときに作る |
-| `.ge.[N]` を DSL の汎用の演算にすること | 別 PRD | D5 で Step の結果が答える。env を問わない閾値の判定は [999_scalar_threshold_rate](../999_scalar_threshold_rate_10prd.md) で扱う |
+| エピソードの開始（s_0）を Observer に知らせる通知と、View の開始の表示 | 先送り | ゴールに効かない（D4）。境目の画面は [999_qvaluepanel_manual_action_state_alignment](../948_qvaluepanel_manual_action_state_alignment_10prd.md) と同じ関心で、その PRD で手動の時点のずれを決めるときに作る |
+| `.ge.[N]` を DSL の汎用の演算にすること | 別 PRD | D5 で Step の結果が答える。env を問わない閾値の判定は [999_scalar_threshold_rate](../954_scalar_threshold_rate_10prd.md) で扱う |
 | `$agent_step` のメトリクスへの追加 | 081 のまま | G1 に要らない |
 | 段（`ResetEndedEpisodes()`）、外から読む値の写し（W）、予備の ALE（S1） | 不採用 | D1・D2 |
 
@@ -490,7 +490,7 @@ public:
   - step trace の `$env` は、遷移の時点の値を返さない target になる（D1）。ADR 0057 の「時点が決まっている target だけを読む」に従い、列の target から `$env` を外し、遷移の結果は `$env_step` で読む。
   - `$env_step` を、本 PRD のメトリクスの target と同じものにする（§4.2 の 8）。
 - PRD 081 は、メトリクスの DSL への `$env_step` の追加を本 PRD に譲り、`$agent_step` だけを扱う。
-- [999_qvaluepanel_manual_action_state_alignment](../999_qvaluepanel_manual_action_state_alignment_10prd.md) の案 A（次の状態の `MakeAction` を通知のあとに先に行う）を採る場合、次の状態は `continue_state` から取る。
+- [999_qvaluepanel_manual_action_state_alignment](../948_qvaluepanel_manual_action_state_alignment_10prd.md) の案 A（次の状態の `MakeAction` を通知のあとに先に行う）を採る場合、次の状態は `continue_state` から取る。
 
 ## 9. 文書同期（実装と同じ変更で更新する）
 
