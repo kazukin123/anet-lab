@@ -83,6 +83,7 @@
 - [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md) — PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 - [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+- [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md) — PRD115: 画像メモリの所有権とDropMergeのNOOP判定の修正
 
 ## 課題
 
@@ -91,13 +92,13 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-ba635a](../../management/issues/issue-20261103-ba635a.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 317_metrics | 不具合 | 未確認 | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
+| 1 | [issue-20261103-ba635a](../../management/issues/issue-20261103-ba635a.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 317_metrics | 不具合 | 残っている | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
 | 2 | [issue-20261104-cc2529](../../management/issues/issue-20261104-cc2529.md) | 未着手 | 3.6 | 高 | — | 成果物 | PRD | 317_metrics, 322_env_individual | 索引 | 実装済み | 画像メモリの所有権とDropMergeのNOOP判定の修正 PRD |
 | 3 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app, 317_metrics, 312_util, 322_env_individual | 索引 | 未確認 | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | 4 | [issue-20261103-71c4f4](../../management/issues/issue-20261103-71c4f4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 315_nn, 317_metrics, 321_agent_core | 索引 | 未確認 | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | 5 | [issue-20261103-dd8058](../../management/issues/issue-20261103-dd8058.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 317_metrics | 不具合 | 直った見込み | wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する） |
-| 6 | [issue-20261103-e6dbb4](../../management/issues/issue-20261103-e6dbb4.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 317_metrics | 改善 | 未確認 | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
-| 7 | [issue-20261103-eeb2c3](../../management/issues/issue-20261103-eeb2c3.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 317_metrics | ずれ | 未確認 | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
+| 6 | [issue-20261103-e6dbb4](../../management/issues/issue-20261103-e6dbb4.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 317_metrics | 改善 | 残っている | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
+| 7 | [issue-20261103-eeb2c3](../../management/issues/issue-20261103-eeb2c3.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 317_metrics | ずれ | 残っている | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
 | 8 | [issue-20261103-2349d0](../../management/issues/issue-20261103-2349d0.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 315_nn, 324_dqn, 314_tensor, 317_metrics, 110_runner_app, 322_env_individual | 索引 | 実装済み | TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD |
 | 9 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 320_env_core, 317_metrics, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 未確認 | 評価 session の step trace を Run の記録に残す PRD |
 | 10 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |

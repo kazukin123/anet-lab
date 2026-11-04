@@ -94,23 +94,29 @@
 
 点検が作り直す。手で直さない。
 
+- [Atari.hpp](../../../core/envs/atari1/include/anet/env/Atari.hpp)
 - [Atari.cpp](../../../core/envs/atari1/src/Atari.cpp)
 - [AtariEnv.cpp](../../../core/envs/atari1/src/AtariEnv.cpp) / [AtariEnv.hpp](../../../core/envs/atari1/src/AtariEnv.hpp) / [AtariEnv_test.cpp](../../../core/envs/atari1/src/AtariEnv_test.cpp)
 - [AtariPreprocess.cpp](../../../core/envs/atari1/src/AtariPreprocess.cpp) / [AtariPreprocess.hpp](../../../core/envs/atari1/src/AtariPreprocess.hpp)
 - [pch.hpp](../../../core/envs/atari1/src/pch.hpp)
+- [CartPole.hpp](../../../core/envs/cartpole2/include/anet/env/CartPole.hpp)
 - [CartPole.cpp](../../../core/envs/cartpole2/src/CartPole.cpp)
 - [CartPoleEnv.cpp](../../../core/envs/cartpole2/src/CartPoleEnv.cpp) / [CartPoleEnv.hpp](../../../core/envs/cartpole2/src/CartPoleEnv.hpp)
 - [pch.hpp](../../../core/envs/cartpole2/src/pch.hpp)
+- [DropMerge.hpp](../../../core/envs/dropmerge1/include/anet/env/DropMerge.hpp)
 - [DropMerge.cpp](../../../core/envs/dropmerge1/src/DropMerge.cpp)
 - [DropMergeEnv.cpp](../../../core/envs/dropmerge1/src/DropMergeEnv.cpp) / [DropMergeEnv.hpp](../../../core/envs/dropmerge1/src/DropMergeEnv.hpp) / [DropMergeEnv_test.cpp](../../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
 - [pch.hpp](../../../core/envs/dropmerge1/src/pch.hpp)
+- [GridMaze.hpp](../../../core/envs/gridmaze1/include/anet/env/GridMaze.hpp)
 - [GridMaze.cpp](../../../core/envs/gridmaze1/src/GridMaze.cpp)
 - [GridMazeEnv.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp) / [GridMazeEnv.hpp](../../../core/envs/gridmaze1/src/GridMazeEnv.hpp) / [GridMazeEnv_test.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
 - [pch.hpp](../../../core/envs/gridmaze1/src/pch.hpp)
+- [ImageCls.hpp](../../../core/envs/imagecls1/include/anet/env/ImageCls.hpp)
 - [ImageCls.cpp](../../../core/envs/imagecls1/src/ImageCls.cpp)
 - [ImageClsEnv.cpp](../../../core/envs/imagecls1/src/ImageClsEnv.cpp) / [ImageClsEnv.hpp](../../../core/envs/imagecls1/src/ImageClsEnv.hpp) / [ImageClsEnv_test.cpp](../../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
 - [ImageData.cpp](../../../core/envs/imagecls1/src/ImageData.cpp) / [ImageData.hpp](../../../core/envs/imagecls1/src/ImageData.hpp)
 - [pch.hpp](../../../core/envs/imagecls1/src/pch.hpp)
+- [LunarLander.hpp](../../../core/envs/lunarlander1/include/anet/env/LunarLander.hpp)
 - [LunarLander.cpp](../../../core/envs/lunarlander1/src/LunarLander.cpp)
 - [LunarLanderEnv.cpp](../../../core/envs/lunarlander1/src/LunarLanderEnv.cpp) / [LunarLanderEnv.hpp](../../../core/envs/lunarlander1/src/LunarLanderEnv.hpp) / [LunarLanderEnv_test.cpp](../../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
 - [pch.hpp](../../../core/envs/lunarlander1/src/pch.hpp)
@@ -127,6 +133,7 @@
 - [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
 - [PRD099](../../memo/done/099_atari_resize_mode_10prd.md) — Atari の観測の縮小方式を設定で切り替える PRD
 - [PRD100](../../memo/done/100_gridmaze_solvable_maze_10prd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
+- [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md) — PRD115: 画像メモリの所有権とDropMergeのNOOP判定の修正
 
 ## 課題
 
