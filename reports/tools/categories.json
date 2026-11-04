@@ -28,7 +28,7 @@
     ["other", ".*"]
   ],
   "categories": [
-    {"key": "322_env_individual", "label": "322 ENV個別実装", "topic": 18, "match": ["^core/envs/[^/]+/src/(?!.*View)"]},
+    {"key": "322_env_individual", "label": "322 ENV個別実装", "topic": 18, "match": ["^core/envs/[^/]+/src/(?!.*View)", "^core/envs/[^/]+/include/anet/env/[^/]+\\.hpp$"]},
     {"key": "319_gui", "label": "319 GUI 共通基盤", "topic": 15, "test_target": false, "match": ["View\\.(cpp|hpp)$", "/gui\\.(cpp|hpp)$"]},
     {"key": "315_nn", "label": "315 ニューラルネットワーク", "topic": 11, "match": ["/(nn|nn_impl|nn_modules|nn_heads|nn_util)\\.(cpp|hpp)$"]},
     {"key": "314_tensor", "label": "314 テンソル処理", "topic": 10, "match": ["/(tensor_util|tensor_check|transfer|stacker|scaler|scaler_impl|image)\\.(cpp|hpp)$"]},
