@@ -106,7 +106,180 @@ int CountOccurrences(const std::string& value, const std::string& needle)
     return count;
 }
 
+constexpr const char* kDirectMode = "direct";
+constexpr const char* kDirectNoopMode = "direct_noop";
+constexpr const char* kMoveMode = "move";
+constexpr const char* kMoveFastMode = "move_fast";
+constexpr int kBusyReloadMinSteps = 20;
+
+std::pair<std::shared_ptr<const anet::rl::SingleStepResult>, bool> RequireNoopRewardSequence(
+    anet::rl::env::drop_merge::DropMergeEnvConfig config,
+    const std::vector<int64_t>& actions, const std::vector<bool>& noops, float penalty = -0.25f)
+{
+    constexpr const char* kRewardsKey = "rewards";
+    constexpr const char* kStepKey = "step";
+    constexpr int kSeed = 123;
+    constexpr float kTolerance = 1.0e-5f;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    REQUIRE(actions.size() == noops.size());
+    config.seed_mode = "fixed";
+    config.drop_divisions = 3;
+    config.max_step = static_cast<int>(actions.size());
+    config.noop_penalty = 0.0f;
+    auto control = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[noop-control].[0]", kSeed);
+    config.noop_penalty = penalty;
+    auto treatment = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[noop-treatment].[0]", kSeed);
+    CHECK(torch::equal(VectorObs(control->Reset()->state), VectorObs(treatment->Reset()->state)));
+
+    // 同じ命令列で、報酬以外の観測・物理状態と、現在の累積報酬を比較する。
+    float expected_sum = 0.0f;
+    bool saw_multiple_sim_steps = false;
+    std::shared_ptr<const anet::rl::SingleStepResult> last;
+    for (size_t i = 0; i < actions.size(); ++i) {
+        CAPTURE(config.action_mode, config.noop_override, actions[i], i, penalty);
+        const auto lhs = control->Step(actions[i]);
+        const auto rhs = treatment->Step(actions[i]);
+        const float expected_delta = noops[i] ? penalty : 0.0f;
+        expected_sum += expected_delta;
+        CHECK(rhs->reward - lhs->reward == Catch::Approx(expected_delta).margin(kTolerance));
+        CHECK(torch::equal(VectorObs(lhs->next_state), VectorObs(rhs->next_state)));
+        CHECK(torch::equal(GridObs(lhs->next_state), GridObs(rhs->next_state)));
+        CHECK(lhs->next_state.done == rhs->next_state.done);
+        CHECK(lhs->next_state.truncated == rhs->next_state.truncated);
+        const auto lhs_aux = lhs->GetAuxData();
+        const auto rhs_aux = rhs->GetAuxData();
+        REQUIRE(lhs_aux.size() == rhs_aux.size());
+        for (const auto& [key, tensor] : lhs_aux) {
+            REQUIRE(rhs_aux.contains(key));
+            if (key != kRewardsKey) CHECK(torch::equal(tensor, rhs_aux.at(key)));
+        }
+        const auto lhs_rewards = lhs_aux.at(kRewardsKey);
+        const auto rhs_rewards = rhs_aux.at(kRewardsKey);
+        if (penalty == 0.0f) CHECK(torch::equal(lhs_rewards, rhs_rewards));
+        CHECK(lhs_rewards[1].item<float>() == rhs_rewards[1].item<float>());
+        CHECK(rhs_rewards[2].item<float>() - lhs_rewards[2].item<float>() ==
+            Catch::Approx(expected_sum).margin(kTolerance));
+        saw_multiple_sim_steps |= rhs_aux.at(kStepKey)[1].item<float>() > 1.0f;
+        last = rhs;
+    }
+    REQUIRE(last);
+    CHECK(last->next_state.truncated);
+    return { last, saw_multiple_sim_steps };
+}
+
 } // namespace
+
+TEST_CASE("DropMergeEnv does not penalize Direct column zero as NOOP", "[dropmerge][noop_penalty]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = kDirectMode;
+
+    // Directの0は先頭列のDROP命令なので、罰の設定だけでは報酬が変わらない。
+    RequireNoopRewardSequence(config, { 0 }, { false });
+}
+
+TEST_CASE("DropMergeEnv applies NOOP penalties according to every action mode", "[dropmerge][noop_penalty]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    struct ActionCase {
+        std::string mode;
+        std::vector<int64_t> actions;
+        std::vector<bool> noops;
+    };
+    const std::vector<ActionCase> cases{
+        { .mode = kDirectMode, .actions = { 0, 1, 2 }, .noops = { false, false, false } },
+        { .mode = kDirectNoopMode, .actions = { 0, 1, 2, 3 }, .noops = { true, false, false, false } },
+        { .mode = kMoveMode, .actions = { 0, 1, 2, 3 }, .noops = { true, false, false, false } },
+        { .mode = kMoveFastMode, .actions = { 0, 1, 2, 3, 4, 5 }, .noops = { true, false, false, false, false, false } },
+    };
+    // 各命令は空の盤面の独立した個体から始め、終了stepも比較する。
+    for (const auto& item : cases) {
+        for (size_t i = 0; i < item.actions.size(); ++i) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = item.mode;
+            RequireNoopRewardSequence(config, { item.actions[i] }, { item.noops[i] });
+        }
+    }
+}
+
+TEST_CASE("DropMergeEnv preserves selected-command NOOP rewards across execution boundaries", "[dropmerge][noop_penalty]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    SECTION("NOOP override keeps the meaning of the selected command")
+    {
+        const std::vector<std::pair<std::string, bool>> cases{
+            { kDirectMode, false }, { kDirectNoopMode, true }, { kMoveMode, true }, { kMoveFastMode, true }
+        };
+        for (const auto& [mode, noop] : cases) {
+            for (const bool override_noop : { false, true }) {
+                anet::rl::env::drop_merge::DropMergeEnvConfig config;
+                config.action_mode = mode;
+                config.noop_override = override_noop;
+                RequireNoopRewardSequence(config, { 0 }, { noop });
+            }
+        }
+    }
+    SECTION("DROP rejected while busy never becomes NOOP")
+    {
+        constexpr const char* kFruitsKey = "fruits";
+        for (const auto& [mode, drop] : std::vector<std::pair<std::string, int64_t>>{
+            { kDirectMode, 0 }, { kDirectNoopMode, 1 } }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            config.use_instant_drop = false;
+            config.reload_min_steps = kBusyReloadMinSteps;
+            const auto result = RequireNoopRewardSequence(config, { drop, drop }, { false, false }).first;
+            CHECK(VectorObs(result->next_state)[3].item<float>() == Catch::Approx(1.0f));
+            CHECK(result->GetAuxData().at(kFruitsKey).size(0) == 1);
+        }
+    }
+    SECTION("cumulative rewards count commands rather than physics steps")
+    {
+        for (const std::string& mode : { kDirectMode, kDirectNoopMode, kMoveMode, kMoveFastMode }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            config.use_instant_drop = true;
+            config.reload_min_steps = kBusyReloadMinSteps;
+            if (mode == kDirectMode) {
+                CHECK(RequireNoopRewardSequence(config, { 0, 1, 2 }, { false, false, false }).second);
+            } else {
+                const int64_t drop = mode == kDirectNoopMode ? 1 : 2;
+                CHECK(RequireNoopRewardSequence(config, { 0, 0, drop, 0 }, { true, true, false, true }).second);
+            }
+        }
+    }
+    SECTION("NOOP spanning multiple physics steps receives one penalty")
+    {
+        constexpr const char* kStepKey = "step";
+        for (const char* mode : { kDirectNoopMode, kMoveMode, kMoveFastMode }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            config.use_settle_after_drop = true;
+            config.settle_max_steps = 2;
+            config.reload_min_steps = kBusyReloadMinSteps;
+            const int64_t drop = mode == kDirectNoopMode ? 1 : 2;
+            // DROPでbusyを残し、続くNOOP自体が複数物理stepになる条件を作る。
+            const auto result = RequireNoopRewardSequence(config, { drop, 0, 0 }, { false, true, true }).first;
+            CHECK(result->GetAuxData().at(kStepKey)[1].item<float>() > 1.0f);
+        }
+    }
+    SECTION("zero penalty preserves all results in every mode")
+    {
+        for (const std::string& mode : { kDirectMode, kDirectNoopMode, kMoveMode, kMoveFastMode }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            if (mode == kDirectMode) {
+                RequireNoopRewardSequence(config, { 0, 1, 2 }, { false, false, false }, 0.0f);
+            } else {
+                const int64_t drop = mode == kDirectNoopMode ? 1 : 2;
+                RequireNoopRewardSequence(config, { 0, drop, 0 }, { true, false, true }, 0.0f);
+            }
+        }
+    }
+}
 
 TEST_CASE("DropMergeEnv appends the selected previous action trio", "[dropmerge][prev_action]")
 {

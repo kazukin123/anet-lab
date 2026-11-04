@@ -49,12 +49,12 @@
 
 - [325 Agent個別実装 MuZero系列](categories/325_muzero.md) — MuZeroAgentは登録済みAgentの試作実装である。（別名: 325_muzero）。
 - [324 Agent個別実装 DQN系列](categories/324_dqn.md) — DefaultDQNAgentとRainbowAgentが共通DQN componentを合成する具象実装を扱う。分類上同じ範囲にあるImageClsAgentも一覧に載せる。（別名: 324_dqn）。
-- [322 Env個別実装](categories/322_env_individual.md) — 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（別名: 322_env_individual, GridMaze, seed_mode）。
+- [322 Env個別実装](categories/322_env_individual.md) — 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（別名: 322_env_individual, GridMaze, seed_mode, DropMerge, NOOP, noop_penalty）。
 - [321 Agent 共通基盤](categories/321_agent_core.md) — Agent、Actor、Learnerの生成・行動・更新と、Agentが所有するResource、更新部品が所有するStateの境界を扱う。（別名: 321_agent_core）。
 - [320 Env 共通基盤](categories/320_env_core.md) — SingleDiscreteEnvとBatchEnv、spec・state・Reset・Step、factoryとBuilderの共通契約を扱う。（別名: 320_env_core）。
 - [319 GUI 共通基盤](categories/319_gui.md) — Env固有ViewをRunner GUIへ接続し、AuiLayoutFrameがdockサイズ往復・遷移時同期・paneとメニューの連動を担う。（別名: 319_gui）。
 - [318 強化学習 共通基盤](categories/318_rl_core.md) — ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。（別名: 318_rl_core）。
-- [317 可視化・メトリクス](categories/317_metrics.md) — eventからscalar、trace、画像、動画、GraphVizとartifactへ変換し、値の取得と保存の境界をまとめる。（別名: 317_metrics）。
+- [317 可視化・メトリクス](categories/317_metrics.md) — eventからscalar、trace、画像、動画、GraphVizとartifactへ変換し、値の取得と保存の境界をまとめる。（別名: 317_metrics, HeatMap, TimeHistogram, Histgram, SweepedHeatMap, wxImage）。
 - [316 設定管理](categories/316_config.md) — ConfigDataに設定を集約し、ConfigResolverがinclude・selection・Run・CLI・継承とprofileを解決する。（別名: 316_config）。
 - [315 ニューラルネットワーク](categories/315_nn.md) — TensorDictから設定でNetworkを構築し、Bodyのbranch DAGとHead、forward、clone/sync、可視化の境界をまとめる。（別名: 315_nn）。
 - [314 テンソル処理](categories/314_tensor.md) — device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（別名: 314_tensor）。

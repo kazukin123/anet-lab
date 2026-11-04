@@ -330,6 +330,10 @@ session が 30 秒以上続くと、実行した thread から 30 秒ごとに `
 異常終了時は正常終了行を出さない。起動時の scheduled 行には interval、background、wait_on_exit、episodes、batch_size を出す。
 汎用の評価エピソード長は baseline / full の `21_eval/05_target_ep_steps`〜`08_policy_ep_steps_max` で参照できる。
 
+### 7.3 画像メモリの所有権
+
+TimeHeatMapのScale描画、Histgram、SweepedHeatMapは、wxImage自身が確保した画素領域へ描く。返した画像の寿命が画素領域の寿命を持ち、生成元や元の画像を破棄しても、画像のコピーが残る間は画素を保持する。空のTimeHeatMapは1×1の黒画像を返す。画像を確保できないときは画素へアクセスする前にANET_SYSTEM_ERRORで停止し、描画対象と要求した幅・高さを報告する。
+
 ## 8. Profilingと性能上の注意
 
 - 関数全体は`ANET_PROFILE_FUNC()`、通常phaseは`ANET_PROFILE_SCOPE(phase)`を使う。
@@ -340,6 +344,8 @@ session が 30 秒以上続くと、実行した thread から 30 秒ごとに `
 - text logのperiodic flushはGUI FPSから分離する。metrics/stdoutまで同じtimerでflushしてI/O頻度を増やさない。
 
 ## 9. テストと拡張時の確認事項
+
+画像の固定画素・所有権の回帰テストは`heat_map_test.cpp`で確認する。確保・解放の不一致と確保失敗は通常の描画成功だけで判定せず、[画像メモリの検証資材](../../core/anet-core/testdata/prd115/README.md)で実際のwxWidgets境界を通して確認する。
 
 ### TempoRL の scalar と Trace
 
@@ -378,7 +384,7 @@ Observerまたは出力形式を変更する場合は次を確認する。
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
-- [DropMerge Optuna利用ガイド](../optuna.md)
+- [DropMerge Optuna利用ガイド](optuna.md)
 
 ### 遷移値のtarget `env_step`
 

@@ -1259,7 +1259,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     state.truncated = truncated;
 
     // NOOPペナルティ
-    if (action == kActionNoop) {
+    if (is_noop_action) {
         accumulated_reward += config_.noop_penalty;
     }
 

@@ -253,7 +253,13 @@ LunarLanderViewは機体のまわりの矢印を3段で出す。中クリック�
 
 円弧は機体の真上を中点とし、正の値を反時計回りに描く。角速度の円弧は回転力の円弧の外側に置く。加速度は1 stepの行動でほぼ決まって毎回大きく変わり、約200msごとに間引かれる表示ではちらつくため出さない。
 
+### 7.6 DropMergeのNOOPへの罰
+
+`noop_penalty`は、選択された命令がその行動モードでNOOPとなる場合だけ、EnvのStepあたり1回加算する。`direct`にはNOOPがなく列0もDROPである。`direct_noop`・`move`・`move_fast`の行動0はNOOPとなる。`noop_override`でNOOPを移動へ変換しても罰を加算し、落下中などにDROPが実行されなくてもNOOPとは扱わない。Step報酬と現在のエピソード累積報酬に同じ罰を反映し、生スコアと物理遷移は変えない。
+
 ## 8. テストと拡張時の確認事項
+
+DropMergeの`[noop_penalty]`テストは、同seed・同行動列の2個体で罰だけを変え、4行動モード、NOOP変換、未実行DROP、終了stepと累積報酬、複数物理stepを比較する。関連する[PRD115検証資材](../../core/anet-core/testdata/prd115/README.md)に実行条件をまとめる。
 
 Envを追加・変更する場合は次を確認する。
 

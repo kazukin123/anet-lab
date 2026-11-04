@@ -331,6 +331,10 @@ When the exit drain waits, `draining in-flight session on exit` is written; when
 Abnormal termination does not emit a normal end line. Startup scheduled lines include interval, background, wait_on_exit, episodes, and batch_size.
 Generic evaluation episode lengths are available in baseline/full through `21_eval/05_target_ep_steps`–`08_policy_ep_steps_max`.
 
+### 7.3 Image Memory Ownership
+
+TimeHeatMap in Scale mode, Histgram, and SweepedHeatMap draw into pixel storage allocated by wxImage itself. The returned image owns that storage; a copy retains the pixels after the original image and its source are destroyed. An empty TimeHeatMap returns a black 1-by-1 image. If allocation fails, ANET_SYSTEM_ERROR stops processing before pixel access and reports the rendering target and requested width and height.
+
 ## 8. Profiling and Performance Considerations
 
 - Use `ANET_PROFILE_FUNC()` for whole functions and `ANET_PROFILE_SCOPE(phase)` for ordinary phases.
@@ -341,6 +345,8 @@ Generic evaluation episode lengths are available in baseline/full through `21_ev
 - Separate periodic text-log flushing from GUI FPS. Do not increase I/O frequency by flushing metrics/stdout on the same timer.
 
 ## 9. Tests and Extension Checks
+
+The fixed-pixel and ownership regression tests are in `heat_map_test.cpp`. Successful rendering alone does not verify allocator compatibility or allocation failure handling; use the [image memory verification materials](../../core/anet-core/testdata/prd115/README.md) to exercise the actual wxWidgets boundary.
 
 ### TempoRL Scalars and Trace
 

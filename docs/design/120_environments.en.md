@@ -254,7 +254,13 @@ LunarLanderView displays arrows around the lander at three levels. Middle-click 
 
 Arcs are centered directly above the lander, with positive values drawn counterclockwise. The angular-velocity arc sits outside the torque arc. Acceleration is omitted because it is largely determined by each step's action and varies sharply; displaying it at intervals of about 200 ms would flicker.
 
+### 7.6 DropMerge NOOP Penalties
+
+`noop_penalty` is added once per Env Step only when the selected command is NOOP in its action mode. `direct` has no NOOP; column zero is also DROP. Action zero is NOOP in `direct_noop`, `move`, and `move_fast`. A NOOP converted to movement by `noop_override` still receives the penalty. A DROP rejected while the dropper is busy remains DROP. The same penalty is included in the Step reward and current episode return; raw score and physical transitions are unchanged.
+
 ## 8. Tests and Extension Checks
+
+The DropMerge `[noop_penalty]` tests compare two instances with the same seed and action sequence, changing only the penalty. They cover all four action modes, NOOP overrides, rejected DROP commands, terminal steps, cumulative rewards, and multiple physics steps. Execution conditions are described in the [PRD115 verification materials](../../core/anet-core/testdata/prd115/README.md).
 
 When adding or modifying an Env, check the following:
 
