@@ -6,8 +6,16 @@
 
 IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの探索置換はNEETを抑えたが、batch増加の学習側の上乗せの大部分はノイズ感度の差だった。NEET期にはNOOPと最善DROPの差が0付近まで潰れ、NoDropTimeoutの終局は投了ではなくNEETだった。
 
+TempoRLのscratch（分離×合算、1本）はGreedyの評価で無効の対照を下回り、補助学習のみは10.8Mで止めるまで対照を上回った（1本）。新ビルドの対照2本は旧ビルド3本より30M以降に低かったが、決定的モードではUQEのεを揃えると新旧のexeの学習系列が30Mまで一致し、原因は特定できていない。
+
 ## 分かっていること
 
+- TempoRL（分離×合算、J=10、scratch、seed 1、61Mで閉じた）のGreedyの50・55・60Mの3回平均（full / single）は1,033 / 1,145で、同じseedの無効の対照は1,233 / 1,242だった。maxrankの平均は9.75 / 9.85対10.05 / 10.06。fullの対照との差は10〜20Mの−30%から50〜60Mの−16%へ縮んだ。評価専用RunのEval1は721で、Greedyの1,099より低かった（対照はEval1とGreedyがほぼ同じ）（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ1・2・4、探索ブロック02。Run: run_20261101-015439_dmfb_47a_scr_skmrg / run_20261101-081421_dmfb_47b_scr_ctl）。
+- TempoRLの補助学習のみ（1本、10.8Mで止めた）のEval3は6Mまで対照と同じ帯で、8〜10Mは963（対照703、744）、10MのGreedyは1,069（対照733、768）だった。DropMergeの判断の予算（50M）には届いていない（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ5・探索ブロック03。Run: run_20261102-080236_dmfb_47f_aux_mrg）。
+- nzrepのレシピの対照で、新ビルド（11/01）2本のEval3の40〜50Mは1,158、1,254、旧ビルド3本（10/15のexeを11/02に走らせた47dを含む）は1,422、1,450、1,476だった。20〜30Mまでは重なり、30M以降に分かれた。100Mの評価専用Runは47bがnzrepの−8〜−10%だった。実効設定で学習に効く差はUQEのε（旧は全lane 1e-4、新は0）だけである（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ6・9、探索ブロック04。Run: run_20261008-015339_dmfb_21_nzrep / run_20261015-204705_dmfb_40_s2 / run_20261102-032037_dmfb_47d_ctl_old / run_20261101-081421_dmfb_47b_scr_ctl / run_20261101-204458_dmfb_47c_scr_ctl_s2）。
+- 同じ対照で、Qの最大（実空間）は旧3本が30〜50Mで8.3〜9.0に上がり、新2本は40〜50Mで6.3〜6.5だった。47bは70〜80Mで8.1に届き、そのときバッチの優先度の平均・loss・replayの指標も旧の30〜50Mの値の範囲に入った（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ7・探索ブロック04）。
+- 決定的モード・評価オフで、UQEのεを1e-4に揃えた10/15のexeと11/01のexeの学習系列は、30Mまで7指標（lossは117,086点）の全点が値まで同じだった（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ8・探索ブロック05。Run: run_20261102-091611_rg_e0L / run_20261102-114539_rg_e7L）。
+- 特徴ノルム・Q側の勾配ノルム・序盤の次状態のエントロピーの水準はビルドではなくseedで揃い、40〜50Mまでseed 1の2本がseed 2の2本より低いままで、Eval3の新旧の差とは対応しなかった（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ10・探索ブロック04）。
 - 成熟checkpointでB512/RR2が有利という初期判断は、後の長期評価で弱められた。1窓の比較を長期の普遍的優位とは扱わない。（出典: [2026-07-27_longrun-batch-replay.md](../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、現時点のまとめ11・探索ブロック07）。
 - random tau IQNとQR51の初期100M比較ではQRが上だったが、各1 Runであり最終汎化の優劣は確定していない。層化とantitheticは後の複製でrandomより良い傾向を示した。（出典: [2026-08-09_iqn.md](../../experiments/default-dqn/dropmerge/2026-08-09_iqn.md)、現時点のまとめ。Run: run_20260811-113930_dm_iqn32-b256-rr100 / run_20260812-003400_dm_qr51-b256-rr100）。
 - IQNがQR51に負けるという判断はUQE評価との相互作用で、Greedyでは順位が変わった。Munchausenはこの系列で改善を示したが、AtariのReLUなどはそのまま持ち込めなかった。（出典: [2026-10-01_atari-feedback.md](../../experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md)、現時点のまとめ）。
@@ -89,6 +97,7 @@ IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの�
 ## 分かっていないこと
 
 - ε ラダーのランダムな DROP は、Munchausen の bonus で大きく負の値を受けて DROP 側の Q を押し下げ、NEET の入口になっているか（出典: [2026-10-01_atari-feedback.md](../../experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md)、探索ブロック08 考察。候補の機序として挙げられ、検証されていない。Munchausen 無しの QR51 でも NEET が出たので唯一の機序ではない）？
+- 新ビルドの対照が旧ビルドより30M以降に低いのは、UQEのε（0か1e-4か）の差か、本番モードだけで通る経路の差か、Runごとのぶれか（出典: [2026-11-01_temporl-and-control-gap.md](../../experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md)、現時点のまとめ9・探索ブロック05 考察）？
 
 ## 撤回・更新
 
@@ -101,4 +110,5 @@ IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの�
 
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
+- [temporal_abstraction](../mechanisms/temporal_abstraction.md)。
 - [campaignにない独自の分析](../../experiments/default-dqn/dropmerge/README.md#独自の分析)。

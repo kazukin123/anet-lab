@@ -10,6 +10,7 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 | 2026-08-09〜 | [IQN 導入・QR 比較](2026-08-09_iqn.md) | IQN成立性、QR51比較、tau sampling 5方式、K/N/M本数探索 | active |
 | 2026-10-01〜2026-10-15 | [Atari からのフィードバック](2026-10-01_atari-feedback.md) | Munchausen、IQN と UQE の相互作用、target 更新、NoDropTimeout 罰、NoisyNet と NEET、RR・NN 構造・γ、100M からの分岐 | completed |
 | 2026-10-15〜 | [勾配ノイズと batch / replay ratio の機序](2026-10-15_gradient-noise-batch.md) | PRD092 の勾配ノイズ、B・RR・学習率の分岐、B の上限、評価専用 Run による判定、NoisyNet の揺らぎへの感度、Run ごとのぶれと学習中の評価 ×8、学習の中身の多角比較 | active |
+| 2026-11-01〜 | [TempoRL（scratch 第 1 弾）と対照の新旧の差](2026-11-01_temporl-and-control-gap.md) | TempoRL の分離×合算と補助学習のみ、新ビルドの対照が旧ビルドより低い差の切り分け、決定的モードでの新旧の比較 | active |
 
 ## 知見のまとめ
 
