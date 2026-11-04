@@ -183,13 +183,13 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 1 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
 | 2 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
 | 3 | [issue-20261103-55b5f1](../../management/issues/issue-20261103-55b5f1.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer | 索引 | 未確認 | Metrics ViewerのLOD集約数の記述整合 暫定PRD |
 | 4 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
-| 5 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
-| 6 | [issue-20261103-863fe2](../../management/issues/issue-20261103-863fe2.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる |
-| 7 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 未確認 | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
+| 5 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
+| 6 | [issue-20261103-863fe2](../../management/issues/issue-20261103-863fe2.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 直った見込み | 未完成のLOD pageをbucketごとに全行読み直すため、LOD射影で読む行数が表示bucket数の2乗になる |
+| 7 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
 | 8 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
 | 9 | [issue-20261103-4c0f04](../../management/issues/issue-20261103-4c0f04.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 312_util | 索引 | 未確認 | MetricsViewer のタグセット（名前付きのタグ選択の保存と呼び出し）PRD |
 | 10 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |

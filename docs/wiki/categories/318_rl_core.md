@@ -159,9 +159,9 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
-| 2 | [issue-20261103-cfe994](../../management/issues/issue-20261103-cfe994.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
-| 3 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
+| 1 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残っている | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
+| 2 | [issue-20261103-cfe994](../../management/issues/issue-20261103-cfe994.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
+| 3 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残っている | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | 4 | [issue-20261103-07629c](../../management/issues/issue-20261103-07629c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui | 索引 | 未確認 | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 PRD |
 | 5 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | 索引 | 未確認 | SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 PRD |
 | 6 | [issue-20261103-182ca1](../../management/issues/issue-20261103-182ca1.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 索引 | 未確認 | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 暫定 PRD |
@@ -171,14 +171,14 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | 10 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 315_nn, 321_agent_core | 索引 | 未確認 | forward の名前付き出力を NetworkForwardCapture に一本化する 暫定 PRD |
 | 11 | [issue-20261103-a86dcc](../../management/issues/issue-20261103-a86dcc.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 321_agent_core, 324_dqn | 索引 | 未確認 | eval スケジュールの初回発火の抑止 暫定 PRD |
 | 12 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
-| 13 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
-| 14 | [issue-20261103-582880](../../management/issues/issue-20261103-582880.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | ずれ | 未確認 | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
-| 15 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
-| 16 | [issue-20261103-ca1a85](../../management/issues/issue-20261103-ca1a85.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
-| 17 | [issue-20261103-60f11c](../../management/issues/issue-20261103-60f11c.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い |
-| 18 | [issue-20261103-b2a0b1](../../management/issues/issue-20261103-b2a0b1.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 未確認 | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
-| 19 | [issue-20261103-5a5373](../../management/issues/issue-20261103-5a5373.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない |
-| 20 | [issue-20261103-d4aa77](../../management/issues/issue-20261103-d4aa77.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 未確認 | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
+| 13 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残っている | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
+| 14 | [issue-20261103-582880](../../management/issues/issue-20261103-582880.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | ずれ | 残っている | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
+| 15 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
+| 16 | [issue-20261103-ca1a85](../../management/issues/issue-20261103-ca1a85.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
+| 17 | [issue-20261103-60f11c](../../management/issues/issue-20261103-60f11c.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い |
+| 18 | [issue-20261103-b2a0b1](../../management/issues/issue-20261103-b2a0b1.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残っている | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
+| 19 | [issue-20261103-5a5373](../../management/issues/issue-20261103-5a5373.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | InitialPriorityCompleterのロックの前提の@noteがGetStatsに触れていない |
+| 20 | [issue-20261103-d4aa77](../../management/issues/issue-20261103-d4aa77.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
 | 21 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
 | 22 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core | 索引 | 未確認 | メトリクス目標値によるハイパラ自律調整 暫定 PRD |
 | 23 | [issue-20261103-2349d0](../../management/issues/issue-20261103-2349d0.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 315_nn, 324_dqn, 314_tensor, 317_metrics, 110_runner_app, 322_env_individual | 索引 | 実装済み | TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD |
