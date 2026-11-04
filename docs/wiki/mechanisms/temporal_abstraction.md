@@ -12,7 +12,14 @@ LunarLanderのSingle行動変化窓は同seedの無効より3本ともAUCが高�
 
 qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変種6種）がGreedyの評価と学習側の8面突破率でスキップなしの2 seedの下だった。ε=0.01の評価の40〜50Mは同じ帯だった。
 
+BeamRiderのサンプル効率優先50Mでは、Greedyの3回平均が合算s1のfullで9,854とスキップなしの2本（22,914・85,872）の下、同じ重みのsingleで31,458と2本の間、補助学習のみs1で79,799とスキップなしs2と同じ帯だった（補助学習のみは1本）。Freewayの10Mは上限付近で並んだ（1 seed）。
+
 ## 分かっていること
+
+- BeamRiderのサンプル効率優先50Mで、Greedyの35.55〜45.65Mの3回平均（full / single）は、スキップなしが22,914 / 23,626と85,872 / 84,636、合算s1が9,854 / 31,458、補助学習のみs1が79,799 / 82,482だった。合算s2は約17Mで止めるまでs1と同じ帯だった（15.35Mでfull 9,575対7,127、single 21,020対20,248）。合算s1のGreedyの平均スキップ長は5M以降の窓で3.35〜4.30 stepだった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ1〜3・探索ブロック01・03。Run: run_20261102-014747_a5_br_aln_t98mrg_s1 / run_20261104-114810_a5_br_aln_t98mrg_s2 / run_20261103-220328_a5_br_aln_t104ac_s1 / run_20261031-232353_a5_br_aln_btreps_s1 / run_20261103-080630_a5_br_aln_btreps_s2）。
+- 同じBeamRiderの4本（スキップなし2本・補助学習のみ・合算）で、Q側の勾配のクリップ率は窓の平均で0.02%以下、Q側の勾配ノルムは0.97〜2.93だった（閾値はスキップなし10、合算と補助学習のみ30）。40〜50Mの眠ったユニットの率は、合算と補助学習のみが16.9%、スキップなしが20.2〜21.6%だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、探索ブロック04）。
+- Freewayのサンプル効率優先10M（1 seed）で、Greedyの7.27〜9.29Mの3回平均（full / single）はスキップなしが32.78 / 32.84、合算が32.43 / 33.05だった。合算は1.21Mで25.84 / 26.87（スキップなし21.48 / 21.38）と高く、2.22Mのfullは27.51（同31.54）と低かった。合算の平均スキップ長は、Greedyで1.21Mの7.49から9.29Mの3.69 stepへ短くなった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ8・探索ブロック07。Run: run_20261031-120603_a5_fw_aln_btreps_s1 / run_20261031-170233_a5_fw_aln_t98mrg_s1）。
+- PRD103 §8の再開条件（合算がスキップなしをGreedyの評価で上回る）に当てると、BeamRiderのfullは2本とも下回り、singleはs1を上回りs2を下回った。Freewayはfullが約0.4低く、singleが約0.2高く、どちらも上限付近だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ9・探索ブロック08）。
 
 - qbertの行動固定を評価時だけ外した比較では、singleの高得点の多くも第9面で終わった。各200ゲームの第9面突破はsingleで4〜15本、fullで0〜2本で、合算singleは第9面で色を付け戻して点を重ねる様子をEvaluation Traceで観測した。行動固定を外した平均点の改善と、次の面への進行を分けて読む（出典: [行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック04。Run: `run_20261029-105620_t104_stage0_merge`、Trace: `run_20261029-223411_tmp_trace_mrg_s`、ほか同ブロックの対象Run）。
 - LunarLanderの7群×3seed×2Mでは、Single行動変化窓（`t104r1_ac`）のAUC平均51.25に対し、無効（`t104r1_off`）20.87、通常TempoRL（`t104r1_mrg`）138.43だった。Single行動変化窓は同seedの無効を3本とも改善したが、3seedの範囲は重なった。STOP（`t104r1_ctl`）も平均57.25で改善し、勾配を返す効果は特定できなかった。行動変化窓のkmax平均は1.83〜2.07、終了窓は3.93〜3.96で、教材の長さは窓の違いを反映した（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-154259_t104r1_ac_s1` / `run_20261029-162638_t104r1_ctl_s1`ほか同記録の21本）。
@@ -86,6 +93,8 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 ## 関連
 
 - [atari](../subjects/atari.md)。
+- [BeamRider](../subjects/beam_rider.md)。
+- [Freeway](../subjects/freeway.md)。
 - [evaluation](../mechanisms/evaluation.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
 - [TempoRL 対応 PRD](../../memo/098_temporl_skip_policy_10prd.md)。

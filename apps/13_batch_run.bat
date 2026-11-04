@@ -85,6 +85,12 @@ if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=beam_rider run.seed=1 %
 echo === 4. beam_rider 50m seed 1: same setup as 3 plus TempoRL sep-merge ===
 call :find_done a5_br_aln_t98mrg_s1
 if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t98mrg_s1"
+echo === 5. beam_rider 50m seed 2: same setup as 3 ===
+call :find_done a5_br_aln_btreps_s2
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=beam_rider run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_br_aln_btreps_s2"
+echo === 6. beam_rider 50m seed 2: same setup as 4 ===
+call :find_done a5_br_aln_t98mrg_s2
+if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=beam_rider run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t98mrg_s2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

@@ -4,8 +4,8 @@ title %~nx0
 cd /d "%~dp0runner"
 
 SET "BUILD=Release"
-if not exist "bin\%BUILD%\AnetRLRunner_t106frz.exe" goto :no_exe
-copy /Y "bin\%BUILD%\AnetRLRunner_t106frz.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
+if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
+copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
 if not exist "bin\%BUILD%\AnetRLRunner_ab.exe" goto :no_exe
 
@@ -26,11 +26,15 @@ SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
 SET "MERGE=DefaultDQNAgent.learner.skip.feature_gradient=merge"
 SET "SKGS=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@batch"
 SET "C30=DefaultDQNAgent.learner.grad_clip_tau=30"
+SET "SKAUX=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@skip_aux>run.@batch"
 
 call :use_ws Atari5-01 Atari.txt
 echo === 1. PRD103 stage 1 qbert 50m seed 1: TempoRL merge, gradient clip threshold 30 instead of 10, plus single greedy eval ===
 call :find_done a5_qb_aln_t98c30_s1
 if not defined DONE_DIR call :run_exe "%SKGS%" "%SKIPMET%" E1.game=qbert run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% %C30% "app.run_name=run_{t}_a5_qb_aln_t98c30_s1"
+echo === 2. beam_rider 50m seed 1: TempoRL auxiliary-only, train and eval decide every step, skip loss on action_change windows, merge, same setup as AtariSub-01 4 ===
+call :find_done a5_br_aln_t104ac_s1
+if not defined DONE_DIR call :run_exe "%SKAUX%" "%SKIPMET%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t104ac_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -74,6 +78,6 @@ echo   %DATE% %TIME% END   %*
 exit /b 0
 
 :no_exe
-echo *** bin\%BUILD%\AnetRLRunner_t106frz.exe not found or copy failed. Nothing was run.
+echo *** bin\%BUILD%\AnetRLRunner.exe not found or copy failed. Nothing was run.
 pause
 exit /b 1
