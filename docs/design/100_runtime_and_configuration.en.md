@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:bf51e5e944650840555476d27d5de9e539c81d7e date:2026-10-23 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:0d562a33bba1ad8f555811f03ad5a15447605900 date:2026-11-04 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -36,7 +36,7 @@ Configuration is collected into `ConfigData`, which holds string key/value pairs
 7. Expand `${full.key}` one level into final values. Undefined, chained, or unresolved value references fail fast. Return `ConfigData` excluding `.$` and definitions containing `@` segments, along with resolution JSON; each `Config` then reads typed fields. The workspace's final `app.runs_dir` must exactly match the injected string.
 8. Runner saves effective configuration to `config/config_data.txt` and passes the structured resolution record to `MetricsLogger::Log("config_resolution", json)`. It is saved in `json/config_resolution.json` with a `type` / `tag` / `data` envelope, and the same record is written to the Metrics master.
 
-**`$` supplies the base; partial selections and explicit leaves override it.** Since `A2 > A3` merges each source's completed values as differences, eps_end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
+**`$` supplies the base; partial selections and explicit leaves override it.** Since `A2 > A3` merges each source's completed values as differences, epsilon.end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
 
 The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB); see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
 
@@ -63,6 +63,15 @@ The DefaultDQN, ImageCls, and Rainbow Agent Factories pass `GetTargetAgentClassI
 Explicit `--config` selects a fully self-contained mode, skipping workspace resolution, injection, and overlay in step 2. `--config`, `--workspace`, and `--select-workspace` are mutually exclusive.
 
 `ConfigData::Read` / `Get` use caller-supplied defaults only when a key is absent. Conversion failures for present values fail fast with `ANET_SYSTEM_ERROR` containing the key, raw value, and expected type; they never fall back to defaults. Each default-prefix and override-prefix layer is validated independently, so later overrides cannot hide malformed earlier layers. Typed readers uniformly validate surrounding whitespace, consumption of the entire value, overflow, negative unsigned values, nonfinite values, invalid booleans, and vector tokens. Explicitly empty strings and vectors are valid. Ranges, enums, and combinations are checked by construction-time validators in each Config or reusable configuration type. Structural/bounds validation after combining layers uses the logical key from the Config owner's perspective rather than guessing a physical layer for diagnostics.
+
+#### ProfiledValue Constants and Time-Varying Values
+
+Specify constants as bare values at the root, such as `epsilon = 0.05`. `type` defaults to `constant`.
+`linear` and `cosine` use `start`, `end`, and `steps`; `cosine_restart` also uses `cycle_mult`.
+`exponential` uses `start`, `end`, and `time_constant`. A root exponential continues approaching `end` asymptotically.
+`phased` evaluates the `phase.[name]` entries listed in the whitespace-separated `phases` in order. Each phase ends after a positive number of `steps`; after the last phase, its final value is held. Specify phase constants with `phase.[name].value`.
+
+Reading configuration and recording it are separate. A bare value inherited under a nonconstant type is retained but is not used for evaluation or typed dumps. Dumps record only the fields referenced by the effective type. To switch back to constant later, also specify the intended bare value explicitly.
 
 ### 2.2 Runs and Runners
 
@@ -303,7 +312,7 @@ The first step resets Env and submits no Learner update because no Experience is
 
 ### 6.4 Configured Eval Session
 
-`EpisodeEvalObserver` fixes `StepCounts` at trigger time and passes them to `EvalRunner::RunSession()`. After synchronizing Actor, it advances Steps until N adopted episodes complete, notifying adopted EpisodeEnds in group order after the Train notification. Each EpisodeEnd owns that Step result. The decorator accumulates adopted values from results and finally emits one SessionEnd with env_index=-1 and the triggering counts. Cancellation emits no final notification. At a session boundary, continue_state is reused if all groups are fresh. EvalPanel does not use the session decorator and retains step-driven execution, forced Actions, and synchronization modes.
+`EpisodeEvalObserver` fixes `StepCounts` at trigger time and passes them to `EvalRunner::RunSession()`. After synchronizing Actor, it advances Steps until N adopted episodes complete, notifying adopted EpisodeEnds in group order after the Train notification. Each EpisodeEnd owns that Step result. The decorator accumulates adopted values from results and finally emits one SessionEnd with env_index=-1 and the triggering counts. Cancellation emits no final notification. At a session boundary, continue_state is reused if all groups are fresh. EvalPanel does not use the session decorator and retains step-driven execution, forced actions, and synchronization modes.
 
 ## 7. Configuration, Lifetimes, Errors, and Performance
 
@@ -361,7 +370,7 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types
 - [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Quality Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
 - [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): file/Metrics master output boundaries for config text and JSON resolution metadata
 - [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): delegation of Train clone policy to Agent, prohibition of implicit Pipeline synchronization, and Eval Actor/Agent device consistency
-- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runner episode-end notifications and forced Eval Actions
+- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runner episode-end notifications and forced actions in Eval
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): initialization and backend settings
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable root and output paths
 - [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-leaf `?=` audit

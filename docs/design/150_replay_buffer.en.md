@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:b8f40105dc4605807a81e7571d18581365d25853 date:2026-10-23 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:e3f070ebd634cdd8144b6be2490cbe3a13558440 date:2026-11-04 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -39,9 +39,9 @@ Runner obtains the state for its next action from the Step result's `continue_st
 
 | Operation | Current contract |
 |---|---|
-| `Push(batch_exp)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `BatchState::episode_start == true` must hold only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
-| `Sample(out_samples, minibatch_size, beta)` | Requires `Size() >= minibatch_size` and constructs a minibatch from sampleable transitions. Insufficient data stops with an assertion rather than silently reducing batch size |
-| `Size()` | Returns sampleable transitions after applying stack history margins to ready ranges and excluding dummy slots, rather than the raw stored-slot count |
+| `Push(batch_exp, gamma)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `BatchState::episode_start == true` must hold only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
+| `Sample(out_samples, minibatch_size, beta, gamma)` | Requires `Size() >= minibatch_size` and constructs a minibatch from sampleable transitions. Insufficient data stops with an assertion rather than silently reducing batch size |
+| `Size()` | Returns sampleable transitions after applying stack history margins and additional future margins for windows to ready ranges and excluding dummy slots, rather than the raw stored-slot count |
 | `UpdatePriorities(item_keys, priorities)` | With PER, applies raw priorities to generation-aware keys and returns applied/stale counts. Uniform sampling performs no updates |
 
 ReplayBuffer capacity is specified across all lanes. The current implementation uses `capacity_per_env = capacity / num_envs`, rounding down to `actual_capacity = capacity_per_env * num_envs`, with equal-length ring time series per lane. Generation-key radix and SumTree capacity use this `actual_capacity`.
@@ -50,7 +50,13 @@ ReplayBuffer capacity is specified across all lanes. The current implementation 
 
 Keys are `generation * actual_capacity + flat_slot_index`, not physical indices, enabling stale updates after ring overwrite to be identified. The caller owns sample Tensor handles and metadata. Asynchronous CUDA transfers internally retain source payloads until ready events complete and apply `record_stream` to consumer streams to prevent premature reuse.
 
-For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals not overwritten and satisfying future-side N-step/unroll requirements. Uniform sampling, PER, `Size()`, visualization accessors, and `DumpToLog()` share sampleable ranges obtained by applying the post-wrap history margin (`stack_count - 1`) and excluding dummy slots. Before wrap, or with `stack_count == 1`, the history margin is zero. `InitialPriorityCompleter` and eviction statistics use ready ranges because they do not need past stack history.
+For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals not overwritten and satisfying future-side N-step/unroll requirements. Uniform sampling, PER, `Size()`, visualization accessors, and `DumpToLog()` share sampleable ranges obtained by applying the post-wrap history margin (`stack_count - 1`), the additional future margin when a window is configured, and dummy-slot exclusion. Before wrap, or with `stack_count == 1`, the history margin is zero. Section 6.1.1 defines window future-side requirements. `InitialPriorityCompleter` and eviction statistics use ready ranges because they need neither past stack history nor windows.
+
+Push, Sample, uniform probes, and sampling-history probes receive the current γ from the caller; builders and extractors do not retain γ persistently. Push stores the existing n-step return using that γ. Entries awaiting initial-priority completion retain the bootstrap discount evaluated at the same Push.
+
+With constant γ, stored returns are returned unchanged. Only configurations with scheduled γ add a snapshot of each sampled start's step rewards to `ExperienceSamples`, zero-padded to length N (J for windows). `FinalizeReturns(gamma)` computes returns with the same reverse-order sum as the existing builder, using the same γ as bootstrapping. Actual done/truncated lengths follow existing `n_steps` and window lengths. Snapshots are transferred through `To` and `ForEachTensor`.
+
+Prefetch retains the snapshot taken at sampling and finalizes returns with γ at the point the consumer's `Sample` returns. It does not reread the original storage after ring overwrite. Window returns and diagnostic sampling follow the same contract. β still uses the value at sampling request time, separately from γ finalization.
 
 ### 2.3 Frame Stacking
 
@@ -65,7 +71,7 @@ History lost through ring overwrite is not an episode boundary and is not padded
 ### 2.4 PER
 
 Prioritized Experience Replay samples indices according to priorities and computes Importance Sampling weights from their probabilities.
-Initial sources are `fixed_initial`, `max_initial`, or `actor_initial`; after learning, `learner_updated`; invalid slots use `none`. Sources distinguish zero priority from invalidation. Actor approximation mode carries the starting step's initial-priority hint as an opaque row until N-step finalization, then combines it with a bootstrap hint at the ready boundary. The shared layer does not interpret columns; an injected `InitialPriorityEstimator` validates the schema and estimates priority. True terminals use an empty bootstrap span. Truncation validates the starting hint before falling back to max initialization. Nonfinite hints or estimates fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds. See [DQN Agents](200_dqn_agents.en.md) for DQN's `K = 2` schema and formula.
+Initial sources are `fixed_initial`, `max_initial`, or `actor_initial`; after learning, `learner_updated`; invalid slots use `none`. Sources distinguish zero priority from invalidation. Actor approximation mode carries the starting step's initial-priority hint as an opaque row until N-step finalization, then combines it with a bootstrap hint at the ready boundary. The shared layer does not interpret columns; an injected `InitialPriorityEstimator` validates the schema and estimates priority. True terminals use an empty bootstrap span. Truncation validates the starting hint before falling back to max initialization. Nonfinite hints or estimates fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds. See [DQN Agents](200_dqn_agents.en.md) for DQN's `K = 3` schema and formula.
 
 Learner computes new priorities from TD errors or similar values and calls `UpdatePriorities(item_keys, priorities)` with sampled keys. The entire update batch is preflighted: negative keys, generation 0/future generations, length mismatches, or negative/nonfinite priorities prevent partial application. Only past generations are rejected per element. `ReplayPriorityUpdateResult` returns applied/stale counts and comparison statistics between Actor initial and Learner-updated priorities. Duplicate keys use input-order last-wins semantics.
 Uniform samplers do not expose PER-specific metrics.
@@ -91,7 +97,7 @@ Concrete Agents decide whether to use the shared interface. ReplayBuffer is not 
 | `DefaultReplayBuffer` | Facade combining storage, valid indices, sampling, and N-step/PER |
 | `ReplayExperienceStorage` | Stores Observations, Actions, info, and real-slot history starts in per-lane rings. Unwritten and dummy slots have a false history start |
 | `ExperienceQueueController` | Finalizes N-step targets from per-lane transitions |
-| `ValidIndexManager` | Manages ready ranges from write state and future-side N-step/unroll conditions, supplying all consumers with sampleable ranges after post-wrap history margins and dummy exclusion |
+| `ValidIndexManager` | Manages ready ranges from write state and future-side N-step/unroll conditions, supplying all consumers with sampleable ranges after history margins, additional window future margins, and dummy exclusion |
 | `ReplayExperienceSampler` | Selects uniform or prioritized indices |
 | `ReplayPriorityStore` / `SumTree` | Manages priority sources, leaves, totals, and weighted sampling |
 | `InitialPriorityCompleter` | Completes fixed, max, or Actor-approximate initial priorities at N-step finalization |
@@ -172,7 +178,7 @@ sequenceDiagram
     participant X as ExperienceSampleExtractor
 
     R->>L: UpdateFromBatch(BatchExperience)
-    L->>B: Push(experience)
+    L->>B: Push(experience, gamma)
     B->>Q: laneごとの遷移を追加
     Q-->>B: 確定したtarget return / terminal
     B->>V: ready rangeを更新
@@ -180,7 +186,7 @@ sequenceDiagram
         B->>P: 初期priorityとsourceを確定
     end
     alt warmupと更新条件を満たす
-        L->>B: Sample(minibatch_size, beta)
+        L->>B: Sample(minibatch_size, beta, gamma)
         B->>V: GetValidIndices1D()
         V-->>B: sampleable indices
         B->>S: SampleIndices(sampleable indices, beta)
@@ -196,7 +202,15 @@ sequenceDiagram
     end
 ```
 
-Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` and `CreateEpisodeEndWindowRule(J)`. The former stops immediately before a different action; the latter ignores actions. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Candidate margins, uniform sampling of k, PER and transfer semantics are shared across rules. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+### 6.1.1 Variable-Length Windows at Sampling
+
+Independently of n-step finalization, Push retains each transition's one-step reward, done/truncated flags, and `BatchActionInfo.info["decision"]`. decision is a bool vector over lanes; if omitted, every lane is treated as making a decision. Dummy slots after truncation store only terminal observations and cannot occur inside a window.
+
+`ReplayBufferConfig.window_rule` is the window rule supplied at construction. The sampler's own RNG uniformly selects a length k of at least 1 up to the maximum returned by the rule. `CreateDecisionWindowRule(J)` ends that maximum immediately before the next decision, at a done/truncated transition inclusive, or at J, and validates identical actions inside the interval. Extracted `ExperienceSamples.window` contains k, maximum length, discounted reward sum, ending condition, and the stacked observation k steps ahead. Tensor enumeration, CPU/CUDA transfers, and prefetch carry this field too.
+
+With a window configured, the sampleable range has a future-side delay of `max(1, n_step, J)`. Sample, uniform sampling without replacement, sampling-history probes, and counts use the same range. The minimum capacity includes this delay. PER initial-priority completion and eviction statistics retain the existing n-step ready range. Without a rule, the window is empty and no additional randomness is consumed.
+
+Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` (the continuous interval with the starting action) and `CreateEpisodeEndWindowRule(J)` (an interval ignoring both actions and decisions). The former stops immediately before a different-action slot; the latter does not stop at action changes. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Sampling candidate ranges, uniform selection of k, PER, and transfer contracts are shared across rules. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md) for boundary and shortened-Run checks.
 
 ### 6.2 One-Deep Prefetch and CUDA Transfer
 
@@ -248,7 +262,7 @@ Before any future starts, `Push` delegates synchronously to the inner buffer. Du
 | Setting | Meaning |
 |---|---|
 | Replay capacity | Requested total capacity across lanes, rounded down to a multiple of lane count |
-| `n_step` / `gamma` | Future horizon and discount factor for target returns |
+| `n_step` / `recompute_returns_on_sample` | Future horizon of target returns and whether reward snapshots are retained for scheduled γ. The latter is an internal setting derived from DQN's γ type |
 | Sampler type | Uniform or prioritized |
 | `per_alpha` | Strength of priority influence on sampling probability |
 | `per_initial_priority` | Initial priority of new transitions |
@@ -315,7 +329,7 @@ DQN's warmup latch and PER beta are also excluded. Loading therefore restarts wa
 
 ### 7.7 Uniform Sampling without Replacement for Probes
 
-`SampleUniqueUniform(out, batch_size, random)` returns a unique CPU batch sampled uniformly without replacement from sampleable indices, with IS weights set to 1. The caller owns the RNG; ReplayBuffer stores no probe RNG. If insufficient items exist, it returns `false` without changing output or caller RNG. Requesting all items also consumes no RNG. It does not touch the ordinary sampler, priorities, `MarkSampledOnce`, or eviction statistics.
+`SampleUniqueUniform(out, batch_size, random, gamma)` returns a unique CPU batch sampled uniformly without replacement from sampleable indices, with IS weights set to 1. The caller owns the RNG; ReplayBuffer stores no probe RNG. If insufficient items exist, it returns `false` without changing output or caller RNG. Selecting all indices consumes no RNG, but when a window is configured, selecting each start's length uses the caller RNG. It does not touch the ordinary sampler, priorities, `MarkSampledOnce`, or eviction statistics.
 
 In DefaultDQN, Agent creates independent `RandomGenerator` Resources from named seeds `plasticity_probe` and `policy_churn_probe`; inner Learner passes non-owning references to sample calls. Policy-churn activation or cadence therefore changes neither ordinary Replay sampling nor plasticity-probe random sequences. Each caller's seed owns reproducibility; ReplayBuffer does not implicitly derive probe sequences from its own seed.
 
@@ -323,7 +337,7 @@ In DefaultDQN, Agent creates independent `RandomGenerator` Resources from named 
 
 ### 7.8 Probes by Sampling History
 
-`ProbeSamplingHistory(request, random)` partitions sampleable entries from the same storage/metadata snapshot into never-sampled U and sampled S using existing `sampled_once_`. Ordinary Sample, including prefetched samples, moves entries to S; replacement by a new generation on ring Push returns them to U. Dummies and history margins are excluded.
+`ProbeSamplingHistory(request, random, gamma)` partitions sampleable entries from the same storage/metadata snapshot into never-sampled U and sampled S using existing `sampled_once_`. Ordinary Sample, including prefetched samples, moves entries to S; replacement by a new generation on ring Push returns them to U. Dummies and history margins are excluded.
 
 `counts` returns both group populations and mean ages. Age is the difference between the lane's write cursor and retained logical index, measured in Pushes to that lane including episode-end dummies. Dummies themselves do not contribute to the average. Empty groups have NaN mean age. Population-only requests create no candidate Tensors, sampling RNG, or Experience batches.
 
@@ -335,6 +349,10 @@ The Prefetching version uses the same FIFO wait as existing probes, settling acc
 
 - [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
 
+Use [PRD101 validation assets](../../core/anet-core/testdata/prd101/README.md) for staged comparisons, short actual Runs, and comparison of every key across seven Envs.
+
+Use the public ReplayBuffer tests in [PRD098 validation assets](../../core/anet-core/testdata/prd098/README.md) for decision boundaries, termination, truncation, stacking, ring wrap, uniform sampling, and sampleable delay in variable windows. Window additions also cover ordinary transfer, prefetch, and probe paths, preserving the RNG and sample sequence when no rule is configured.
+
 Current [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp) contains tests for:
 
 - Multi-Env Push/Sample and valid indices
@@ -344,7 +362,7 @@ Current [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp
 - Visualization accessors
 - Concurrent Push/Sample/UpdatePriorities
 - CPU/CUDA device transfer
-- Caller-owned probe RNG determinism, isolation between consumers, and no consumption for insufficient/all-item requests
+- Caller-owned probe RNG determinism, isolation between consumers, and no consumption for insufficient requests or all-item requests without a window
 - PrefetchingReplayBuffer determinism, FIFO ordering, synchronization with Push/priority updates, and write-behind payload lifetimes
 - History-start fail-fast behavior, capacity boundaries, short episodes, pending/wrapped metadata, and a 384-case non-default integrity assay combining stack, N-step, lane count, capacity, Uniform/PER, and CPU prefetch
 

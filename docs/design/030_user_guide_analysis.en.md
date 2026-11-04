@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:2d53c8fd74e5eb61dce88d53ce946bcefb00769b date:2026-10-23 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:e5194fd9cdebec68952242f051b72a8ef734f264 date:2026-11-04 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -93,7 +93,7 @@ Only the initial display automatically selects the latest Run. Thereafter, manua
 Reload preserves known OFF tags and automatically enables only newly discovered visible tags.
 The selected workspace, tags, LOD mode, Scroll Lock, `Auto Recolor`, and per-tag Log and percentile lower and upper limits persist in browser `localStorage`. Run colors themselves do not persist; they are reassigned on reload and workspace changes. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
 
-The selected tag set name also persists in localStorage. Reloading retains unsaved tag selection. Tag sets are shared across workspaces. Use arrows and Enter in the menu, and Escape or an outside click to close it. Escape inside an input cancels only that edit.
+The selected tag set name also persists in localStorage. Reloading retains unsaved tag selection. Tag sets are shared across workspaces. Use ↑↓ and Enter in the menu, and Esc or an outside click to close it. Esc inside an input cancels only that edit.
 
 > [!NOTE]
 > The working file defaults to `metrics_viewer_tag_sets.json` directly under `metricsviewer.workspaces-dir`. Viewer creates missing parents and copies the bundled initial file only when the working file is absent. Override `--metricsviewer.tag-sets-file` to choose another location. External edits, including git changes, remain unseen until restart and are overwritten by UI saves. Restart Viewer after external editing before saving through the UI.

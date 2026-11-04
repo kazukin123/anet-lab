@@ -1,4 +1,4 @@
-<!-- translated-from: 120_environments.jp.md blob:a869ad75ffbbbda25c2d667e4328e27449ffa40c date:2026-10-23 progress:done -->
+<!-- translated-from: 120_environments.jp.md blob:9cacedfd7810b512ddb0e4f7209db0f4ccdb25ce date:2026-11-04 progress:done -->
 # Environments
 
 > Primary perspective: function (Env, with internal processing stages in chronological order)
@@ -231,6 +231,7 @@ Each factory reads Env-specific settings from the same ConfigData. Unknown class
 - With small `num_envs` or lightweight Env Steps, thread-pool synchronization costs may outweigh benefits.
 - Measure parallelism benefits when each lane performs expensive work such as Box2D or image decoding.
 - Env Reset/Step are major profiling boundaries; compare worker counts together with `exp_step_per_sec`.
+- On Windows, workers in thread-pool wrappers that batch single Envs run at `BELOW_NORMAL` priority. The default worker count is the number of logical CPUs minus two; at equal priority, they can displace training-side threads (learning, autograd, replay sampling, and train), leaving the GPU idle. Native ImageCls sample workers are excluded.
 - Different Env and Agent devices incur transfer costs. Check supported devices in both configuration and each Env's implementation.
 
 ### 7.4 GridMaze Maze Generation
@@ -240,6 +241,18 @@ A present `GridMazeEnv.seed` fixes the maze using that value, regardless of mode
 Every Reset adopts a maze whose goal is reachable from the start without crossing walls or holes. Solvable seeds retain the existing cell generation and RNG consumption order. Unsolvable candidates are regenerated using `splitmix64(seed + k)` for k=1..1000. If the initial candidate and all 1000 retries fail, the error identifies the seed, dimensions, densities, coordinates and retry limit.
 
 Dimensions must be positive; each coordinate must be `-1` or inside its axis. Identical fixed start/goal coordinates and an empty random-start candidate set are errors. A randomly chosen goal coinciding with a fixed start triggers a retry. The aux `seed` is the actual accepted seed and reproduces the maze when configured again. The displayed seed uses unsigned decimal notation throughout the configurable range. Fixed-seed retries emit an INFO notice with the input seed, retry count and accepted seed. A synchronized process-wide record, explicitly allowed only within GridMaze, suppresses repeated notices for the same configured seed across instances. Automatic seeds emit no such notice.
+
+### 7.5 LunarLanderView Display Levels
+
+LunarLanderView displays arrows around the lander at three levels. Middle-click cycles through “lander and thrust → + wind → + motion → lander and thrust,” advancing one level and redrawing immediately even while paused. The default is “+ wind.” Each Panel retains its own level across data updates. The text at the upper left and wind values at the lower left appear at every level.
+
+| Level | Added elements | Length and angle |
+|---|---|---|
+| Lander and thrust | Terrain, pad, lander, legs, and arrows for firing engines (red, in the thrust direction) | Main: 1 px/N; side: 3 px/N |
+| + wind | Crosswind arrow and torque arc (purple, in the directions the lander is pushed and turned) | Crosswind: 3 px/N, matching the side engine; torque: 60°/(N·m) |
+| + motion | Velocity arrow and angular-velocity arc (dark green) | Motion over 0.5 seconds at the current values. The arrow tip is the position after 0.5 seconds; the arc spans the angle turned in 0.5 seconds |
+
+Arcs are centered directly above the lander, with positive values drawn counterclockwise. The angular-velocity arc sits outside the torque arc. Acceleration is omitted because it is largely determined by each step's action and varies sharply; displaying it at intervals of about 200 ms would flicker.
 
 ## 8. Tests and Extension Checks
 

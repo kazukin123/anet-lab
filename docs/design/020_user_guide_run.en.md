@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:6284fef9f419a4f213af1c342138dd0e70a9230c date:2026-10-23 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:a2de8b4fac456bf5f7e16d7f4c14d2201ff194e9 date:2026-11-04 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -74,9 +74,8 @@ Evaluation slots refer to `<Agent>.actor.[key]` by name. Policy type, epsilon, n
 ```properties
 DefaultDQNAgent.actor.[explore].$ = DefaultDQNAgent.actor.[eval]
 DefaultDQNAgent.actor.[explore].policy.policy_type = EpsilonGreedy
-DefaultDQNAgent.actor.[explore].policy.eps_start = 0.1
-DefaultDQNAgent.actor.[explore].policy.eps_end = 0.1
-DefaultDQNAgent.actor.[explore].policy.eps_decay_steps = 0
+DefaultDQNAgent.actor.[explore].policy.epsilon.type = constant
+DefaultDQNAgent.actor.[explore].policy.epsilon = 0.1
 DefaultDQNAgent.actor.[explore].network = online
 DefaultDQNAgent.actor.[explore].clone_model = true
 run.eval.[explore].actor = explore
@@ -87,6 +86,11 @@ run.eval_schedule.[explore].use_background = false
 run.eval_schedule.[explore].wait_on_exit = true
 metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ```
+
+For constant exploration, specify both `policy.epsilon.type = constant` and the bare value `policy.epsilon = 0.1`. For time-varying exploration, use `type = linear|cosine|cosine_restart|exponential|phased` and the corresponding fields.
+
+> [!NOTE]
+> A bare value written where a nonconstant type is inherited is retained but not evaluated. To switch to constant, specify both the type and the bare value. Only constants inside a phase use `phase.[name].value`.
 
 The shared slots are `eval_target` and `eval`, referring to target and online respectively. Existing metrics output tags are retained. Undefined Actor references fail at startup, but definitions without schedules and slots with `interval=0` do not create Actors. Shared Actors use the same device as the Agent. MuZero does not support cloning; specify `clone_model=false`.
 
@@ -396,14 +400,19 @@ apps\runner\bin\Release\AnetRLRunner.exe `
 
 `--config` is a fully self-contained mode that never consults workspaces, history, or `last_workspace.txt`. Combining it with `--workspace` or `--select-workspace` is a startup error.
 
-Startup initialization proceeds approximately in this order:
+When the window appears, check the startup logs in Logs. You can move and resize the window during initialization. The status bar shows `Initializing run...` until initialization finishes, then changes to `Training started` (`Run initialized` with `app.train_auto_start=false`). If initialization fails, it shows `Run initialization failed`.
 
-1. Resolve the workspace, then shared main config, derived `app.runs_dir`, workspace config, and command-line overrides in that order.
-2. Prepare the Run directory, `metrics.jsonl`, and standard output logs.
-3. Initialize the libtorch backend and registered Envs.
-4. `RunManager` constructs Env, Agent, Train Runner, and configured Evals.
-5. Connect the Train, Eval, QValue, and Log panels.
-6. Start `RunnerThread`. With `app.train_auto_start=false`, it waits paused.
+> [!NOTE]
+> Normal startup initializes in this order:
+>
+> 1. Resolve the workspace, then shared main config, derived `app.runs_dir`, workspace config, and command-line overrides in that order.
+> 2. Prepare the Run directory, `metrics.jsonl`, and standard output logs.
+> 3. Initialize the libtorch backend and registered Envs.
+> 4. Show the window and Logs, then construct Env, Agent, Train Runner, and configured Evals through `RunManager` in the background.
+> 5. If construction succeeds and no shutdown has been requested, connect the Train, Eval, and QValue panels on the main thread.
+> 6. Start `RunnerThread`. With `app.train_auto_start=false`, it waits paused.
+>
+> See “Runner Startup” in [Applications and Tools](160_applications_and_tools.en.md#51-runner-startup) for details.
 
 If startup fails, inspect the error log. Online configurations display an error dialog in addition to logging. Batchrun configurations do not display modal dialogs: errors go to the parent process's stderr before the Run directory exists, the Run's `stderr.log` after `StandardStreamLogger` starts, and `<run_name>.log` after the regular logger is constructed. A process that handles a fatal error exits with a nonzero status.
 
@@ -420,7 +429,7 @@ For batch experiments, `app.$=app.batchrun` selects a batchrun configuration com
 
 The Runner screen consists of wxAUI panes.
 
-Four task-specific toolbars appear at the top. Drag their grippers to dock, float, or redock them. `View > Reset Layout` restores the default single row at the top. Floating toolbar windows display their names (`Run Control`, `Steps`, `Run Operations`, `Panels`) as window titles.
+Four task-specific toolbars span the full window width at the top, including above the right-hand column. Drag their grippers to dock, float, or redock them. `View > Reset Layout` restores the default single row at the top. Floating toolbar windows display their names (`Run Control`, `Steps`, `Run Operations`, `Panels`) as window titles.
 
 - `Run Control`: provides Train pause/resume and, after a separator, Eval pause/resume and single-step execution. A running tool appears pressed, and its icon changes to a pause symbol representing the next action; while stopped, it returns to a play symbol. Resuming or stepping a hidden Eval also shows `Evaluation View`. Right-click resume behaves the same way; only the keyboard paths (`Space` / `Ctrl`) operate independently of visibility.
 - `Steps`: displays Train `exp_step` and `train_step`.
@@ -432,8 +441,8 @@ The central View's caption includes `[Centre]`.
 
 - `Train View`: use Panels > `Train View` or `View > Train View` to display Train Runner's Env-specific View. Use the same control or the pane's close button to hide it. Training continues while hidden.
 - `Evaluation View`: the only main View displayed by default. Advances an Eval Env separate from Train, manually or by timer. When both main Views are shown, one central and the other alone in a left or right column, they equally divide the width remaining after other vertical columns are excluded. When stacked vertically with the partner alone in a band as wide as the central View, their heights are divided equally. A band shared with Logs or auxiliary panes is not split. A band dropped at the window edge and extending beneath side columns is not split. Equal splitting also applies just after docking. The central View stays in place when its caption is dragged; press its caption's pin button to float it. A side View can be floated by dragging or by pressing its pin button. Floating Train expands Eval into the centre. Drop the floating Train at the left edge to keep it in that side column while Eval remains central. The last main View has neither a pin nor a close button, cannot be moved, and keeps its visibility toggle checked and disabled.
-- `Evaluation Q-Values`: displays Eval Actor output and allows manual Action selection.
-- `Logs`: displays runtime logs with Error, Warn, Info, and Verbose levels.
+- `Evaluation Q-Values`: displays Eval Actor output and allows manual Action selection. The table columns are Action, Mean, Max, Min, and Std. The pane cannot be narrower than its default width, which fits the table and heatmap. A floating window can shrink to the width needed to show the table and the height of one row. Reset the heatmap range with `Reset Range` at the left of the control row. When sharing a column with other panes, it takes only the height needed for all Actions; alone in a column, it fills that column. A height enlarged with the sash survives closing and reopening; `Reset Layout` restores the height needed for all Actions. When alone in a top or bottom band, the band also takes the height needed for all Actions.
+- `Logs`: displays runtime logs with Error, Warn, Info, and Verbose levels. Set the startup level with `app.log_panel.level` and the control bar's Auto-scroll, Wrap, and Indent defaults with `app.log_panel.auto_scroll`, `app.log_panel.wrap`, and `app.log_panel.indent` (all default to `true`).
 - `HeatMap` / `Conv2d`: additional panes opened from the `View` menu.
 
 ![DropMerge Train View and Evaluation View](assets/020_runner_dropmerge_train_eval.png)
@@ -459,7 +468,7 @@ Select `Train` on the Run Control toolbar to pause/resume Train. Left-clicking t
 | Right-click | Pauses/resumes EvalPanel. Shows the pane on resume if hidden |
 | `Space` | Pauses/resumes EvalPanel without changing pane visibility |
 | `Ctrl` | Automatically executes one Eval step |
-| Arrow keys | Select Actions `0` through `3` for LunarLander and advance Eval one step |
+| Arrow keys | In Live, advance Eval one step with forced Actions `0` through `3` for LunarLander. In Trace, ↑↓ forwarded from Views and similar panes move between table rows; ←→ do nothing |
 | Numpad `0` through `9` | Select the corresponding Action and advance Eval one step |
 | `View > Train View` | Toggles the Train pane; the last main pane cannot be hidden |
 | `View > Evaluation View` | Toggles the Eval pane; the last main pane cannot be hidden |
@@ -471,6 +480,8 @@ Select `Train` on the Run Control toolbar to pause/resume Train. Left-clicking t
 
 The number of Actions varies by Env. Check the valid range in the QValue pane or the Env's ActionSpec. An out-of-range discrete Action displays the requested value and valid range in the status bar without advancing Eval or changing the selected Trace history.
 
+Executing a forced action with an arrow key, a numpad key, or a click on a QValue row displays its number and name in status field 0, for example `Forced action: 2:UP`. `Ctrl` and the toolbar's Step do not display this notification.
+
 EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, referencing a dedicated Actor through `run.eval.[eval_panel].actor = eval_panel`. DQN Agents use Greedy on the target net (Rainbow uses ε=0); MuZero uses temperature 0 without search noise; ImageCls selects the highest-scoring Action. Periodic evaluation's ε and UQE settings remain available. Override `<Agent>.actor.[eval_panel].*` to change the display policy, or set `app.eval_panel.eval_config_tag` to display a different evaluation configuration.
 
 `app.eval_panel.model_sync.mode` synchronizes periodically by `frame`, `time`, or `episode`. The referenced `<Agent>.actor.[key].clone_model` determines whether to clone the model. Even shared models update the training-side counts at synchronization, and synchronization also occurs on resume. The displayed Eval may not always match Train's latest parameters; record the Actor name, clone setting, mode, and interval when comparing.
@@ -479,15 +490,22 @@ EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, ref
 
 Select the startup main Views with `app.main_view`: `train` (Train only), `eval` (Eval only, default), or `both`. For example, a Run profile can use `run.@trainview : app.main_view = train`. Reset Layout returns to this selection. Use `app.eval_panel.auto_start` to choose whether Eval advances automatically.
 
-`View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` or hiding Train View stops its rendering timer while training continues. FPS changes made while hidden apply when the View is shown again. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
+`View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` or hiding Train View stops its rendering timer while training continues. FPS changes made while hidden apply when the View is shown again. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both menus offer sub-1 FPS values: `0.1` (once every 10 seconds) and `0.5` (once every 2 seconds). Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
 
 Use `View > Eval Steps per Frame` to change the number of automatic evaluation steps per display update. Select `1`, `2`, `4`, `10`, `20`, `50`, or `100`, or choose `Custom...` to enter an integer from 1 to 2,147,483,647; the input starts with the current value. After confirmation, `Custom (N)...` shows the entered value. Cancel preserves both the value and selection. `Config (N)` restores the startup value. Changes apply from the next automatic evaluation update and are not saved to the config dump. Changing this value does not resume evaluation or leave Trace mode; manual Step still advances exactly one step. Evaluation Trace playback at 1x follows the product of the current FPS and current steps per frame.
+
+Changing `View > Eval View FPS` or `View > Eval Steps per Frame` writes the new FPS and step count to an INFO log as `Evaluation speed changed fps=<F> step_per_frame=<S>`. If the status bar still shows the resume message `Evaluation resumed fps=<F> step_per_frame=<S>`, it is also updated to the new values. The status bar remains unchanged while another message is displayed or Eval is paused.
 
 The Steps toolbar displays `exp` and `train` counts in separate read-only text fields. Values can be selected and copied, and a standard separator divides the fields. The right side of the status bar shows `exp <N> steps/s    train <N> steps/s` and elapsed time. Before the SPS EMA initializes, its value is `-`; before the first Train snapshot, both step fields show `-` and elapsed time shows `--:--:--`. Elapsed time continues as wall-clock time during pauses.
 
 ### 6.4 Stopping, Saving, and Loading a Checkpoint into a New Run
 
 Close the window or select `File > Exit` to stop the Run. Shutdown stops and joins Train, saves `agent_close.anet`, drains background Observers, flushes Run output, and destroys the GUI in that order. With `app.save_agent_on_close=false`, only the save is skipped; the rest of the sequence remains unchanged. Forcing the process to terminate during saving or draining may leave the checkpoint, metrics, or video tails incomplete, so wait for the window to close.
+
+To close during initialization, select Close once, confirm the shutdown request in the log, and wait for the window to close. There is no need to select it again. Also wait for termination when requesting logoff or shutdown during initialization. If Windows lists the application as preventing shutdown, forcing termination may lose the end of the Run log.
+
+> [!NOTE]
+> A Close during initialization is handled after `RunManager` construction finishes, skipping display Eval preparation and training startup. If saving is enabled, the Agent is saved before training; saving is skipped for Runs whose `RunManager` could not initialize. A logoff or shutdown query waits synchronously for construction to finish, so rendering stops during that wait. See [Applications and Tools](160_applications_and_tools.en.md#71-runner) for startup and shutdown behavior.
 
 `run.eval_schedule.[tag].wait_on_exit` specifies whether to wait at shutdown for in-progress background evaluation to run to completion. The default is `true`, and all slots share a single deadline of `app.drain_timeout_sec`. With `false`, when Cancel is chosen at a manual shutdown, or when the deadline is exceeded, the session is cooperatively cancelled at the next Env Step boundary. A cancelled session emits no session scalars; it leaves the traces of completed episodes and the `eval.[<tag>].session_cancelled` JSON.
 
@@ -503,9 +521,15 @@ To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file`
 
 Show Evaluation Trace from the View menu to stream Eval actions and results into a table, newest first. Selecting a row pauses Eval and displays that row's screen, Q values, and activations for Conv2d panes that were open at the time. Steps recorded before a pane was opened show `no data for this step`.
 
-From left to right, the top icons are play/pause (right triangle/two bars), stop (square), step backward (left triangle with a vertical bar on its right), step forward (right triangle with a vertical bar on its left), slower (double left triangle), and faster (double right triangle). The first button pauses during playback and plays otherwise. English tooltips also identify the operations. Speed is displayed as `x0.125`, `x0.25`, `x0.5`, `x1`, `x2`, `x4`, or `x8`. Starting playback from Live begins with the oldest row and stops at the newest. Stop or Esc in the table returns to Live. Resuming Eval or taking a manual action also returns to Live. Returning to Live alone does not resume Eval. Trace stepping selects a recorded step, whereas Eval Step advances the actual game.
+From left to right, the top icons are play/pause (right triangle/two bars), stop (square), step backward (left triangle with a vertical bar on its right), step forward (right triangle with a vertical bar on its left), slower (double left triangle), and faster (double right triangle). The first button pauses during playback and plays otherwise. English tooltips also identify the operations. Speed is displayed as `x0.125`, `x0.25`, `x0.5`, `x1`, `x2`, `x4`, or `x8`. Starting playback from Live proceeds from the bottom of the table to the top and stops there. In Trace, playback continues from the selected row; starting while stopped at the top begins again at the bottom. Stop or Esc in the table returns to Live. Eval Resume, Step (including `Ctrl`), and forced actions also return to Live. Returning to Live alone does not resume Eval. Trace stepping selects a recorded step, whereas Eval Step advances the actual game.
 
-Stepping backward from Live selects the row immediately before the newest; with only one row, it stays on that row. Stepping forward from Live selects the newest row. A red border around the entire control bar indicates Trace mode. It remains while paused and disappears on returning to Live.
+Stepping backward from Live selects the second row from the top; with only one row, it stays on that row. Stepping forward from Live selects the top row. In Trace, step forward moves one row up and step backward moves one row down; the slider also moves from the bottom of the table to the top. A red border around the entire control bar indicates Trace mode. It remains while paused and disappears on returning to Live.
+
+Click a column header to sort that column in descending order; click it again for ascending order. Empty cells always appear at the bottom, and ties use descending step order. The current sort column shows a downward triangle for descending order or an upward triangle for ascending order. Its color follows the system selection highlight color. The default step column also shows a descending triangle. To restore newest-first order, sort step in descending order. Sorting in Trace preserves the selected row. Reopening restores the default order.
+
+In Trace, use ↑↓ in the table, an Env View, QValuePanel, or similar panes to move one row in table order. ←→ forwarded from Views and similar panes do nothing. In the table, ←→ scroll horizontally; arrow keys in the log field or slider operate that control. This also applies while maximization hides Trace. Numpad keys and clicks on QValue rows execute forced actions and return to Live.
+
+Double-click a row to select it and dump its notification contents to the log. One INFO line beginning `Trace dump step=... lane=...:` contains column values and a notification summary; one VERBOSE entry contains all Tensor elements, including observations and Q values. Select verbose in `View > Log Level` to inspect the details in the log pane. The same row can be dumped repeatedly.
 
 Columns expand to fit their headers and values. Once a column is resized manually, it is no longer adjusted automatically while the panel remains open. Close and reopen the panel to restore initial widths; this also clears the history. The panel's minimum width fits the entire control bar and the columns from the left edge through the first action column. Scroll horizontally to inspect the remaining columns. Normal and selection colors follow the system theme; reward rows are marked light green and terminal rows light orange. Selecting a row does not change the column header colors.
 
@@ -514,7 +538,7 @@ Specify columns as follows. Numbers must be at least 1, gaps are allowed, and co
 | Number | Category | Default columns |
 |---|---|---|
 | 100–199 | Free (columns to show left of step) | — |
-| 200–299 | Action and outcome | 200 step, 210 ep_step, 220 action, 230 reward, 240 decision, 250 skip |
+| 200–299 | Action and outcome | 200 step, 210 ep_step, 220 action, 230 reward, 240 decision, 250 skip, 260 forced |
 | 300–349 | Main environment-specific values | Atari: 300 game_score, 310 lives |
 | 350–399 | Episode end | 350 done, 360 trunc |
 | 400–499 | Values | 400 Q_sa, 410 V_s, 420–429 skip values q1–q10 |
@@ -531,7 +555,7 @@ app.eval_trace_panel.columns.[310] = $env_step lives
 app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
 ```
 
-The default column order is `step → ep_step → action → reward → done → trunc → Q_sa → V_s → prio → prio_pct`. The truncation flag is headed `trunc` while its source key remains `truncated`. Default Q-value and state-value headers are `Q_sa` and `V_s`; their source keys remain `q_sa` and `state_value`. `label:` specifies a header without spaces. Numeric columns support `value` or `pct`, and the discrete-action `action` column supports `value`, `name`, or `value_name`. Defaults are value for numbers and value_name for actions. For continuous actions, override columns by dimension, such as `action.[0]`, and use value.
+The default column order is `step → ep_step → action → reward → forced → done → trunc → Q_sa → V_s → prio → prio_pct`. `forced` is 1 for a human-specified action and 0 for an action chosen by the Actor. The truncation flag is headed `trunc` while its source key remains `truncated`. Default Q-value and state-value headers are `Q_sa` and `V_s`; their source keys remain `q_sa` and `state_value`. `label:` specifies a header without spaces. Numeric columns support `value` or `pct`, and the discrete-action `action` column supports `value`, `name`, or `value_name`. Defaults are value for numbers and value_name for actions. For continuous actions, override columns by dimension, such as `action.[0]`, and use value.
 
 To inspect Q values from the same online network used for training, use:
 

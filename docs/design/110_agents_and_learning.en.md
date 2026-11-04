@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:1a02d7fe5ce52542f7fcb8a77d023b3ab3b19166 date:2026-10-07 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:3c5006c75cdbd3d7eb29b3e783d291d22cb78c4b date:2026-11-04 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -153,6 +153,10 @@ sequenceDiagram
 ```
 
 Observation preparation, Network forward, Policy, and snapshot synchronization inside Actor belong to concrete implementations. See [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.md) for Runner use of Actor creation and synchronization, and [Applications and Tools](160_applications_and_tools.en.md) for GUI Eval synchronization.
+
+DefaultDQN selects the skip network configuration with `skip.network_mode=action_out|action_in`. action_in requires an action-input bind; action_out prohibits it. The skip network is constructed only when enabled; when disabled, only the configuration values are validated. The default IQN input is the primary network's fused features, and a taus bind on the skip side is not required. The Env supplies the default J; the implementation default is unspecified (0). An explicit 1 is allowed, while explicit values of 0 or less are rejected even when skip is disabled.
+
+With DefaultDQN skip enabled, Actor owns each lane's ongoing action, selected length, and remaining count. `episode_start` clears continuation, and `decision` in info marks a new decision. Runner steps and Env frame skip remain unchanged, and the primary forward still runs every step. Primary and skip cloning and synchronization occur under the same Agent lock. The forced-action operation `WithAction` replaces the executed action and Q hint without updating Actor's continuation state.
 
 DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
 

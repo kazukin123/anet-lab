@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:7d700e1bacc2ecad0e226324a26de44ad037342a date:2026-10-23 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:65611c21e7eda41b98872d59dd3c38c6d16a8b8f date:2026-11-04 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -245,7 +245,7 @@ Step results retain values from their creation and remain unchanged after Reset 
 
 Batch aggregation (prefixes such as `mean.`) and NaN handling follow common wrapper conventions. `GetConfigData()` returns effective configuration, dumped to the Run's `config/env.*.txt`.
 
-**Verbose log at game completion.** One line is written at the same time and with the same values as the finalization in the table above (`Game over.` or `Game truncated by max_episode_frames.`, followed by `game_score` / `game_len` / `game_frames`). When numbered RAM definitions exist, ` ram_metric: floor_clear=0 boss_kill=0` is appended at the end in number order. The prefix is the lane name (`env.[train].[0]:`, `env.[EvalPanel].[0]:`, and so on). The line always remains in the Run's log file; `app.log_level` narrows only the LogPanel display. Games in EvalPanel, which has no metrics or trace, can also be followed here with millisecond timestamps.
+**Verbose log at game completion.** One line is written at the same time and with the same values as the finalization in the table above (`Game over.` or `Game truncated by max_episode_frames.`, followed by `game_score` / `game_len` / `game_frames`). When numbered RAM definitions exist, ` ram_metric: floor_clear=0 boss_kill=0` is appended at the end in number order. The prefix is the lane name (`env.[train].[0]:`, `env.[EvalPanel].[0]:`, and so on). The line always remains in the Run's log file; `app.log_panel.level` narrows only the LogPanel display. Games in EvalPanel, which has no metrics or trace, can also be followed here with millisecond timestamps.
 
 **Watch the aggregation denominator.** Game-level keys return NaN for life-only termination, so only real game over/truncation contributes at episode_end; batch aggregation excludes NaNs from its denominator (`core/anet-core/src/util.cpp`; if all envs are NaN, the result is NaN). Thus, the denominator of `mean.game_score` is **the number of envs that actually finished a game at that step**, not num_envs. It averages multiple games only when multiple envs finish simultaneously. The simultaneous-completion rate is λ = num_envs / mean game length. In Breakout (128 envs / about 1,900 steps, λ ≈ 0.07), measurements showed 97% single completions, so the `mean.` series is effectively a sequence of individual game scores. Shorter games experience more averaging and flattened peaks; compare games with `max.` alongside it. Only `lives` is always finalized, so its denominator is num_envs and it is a true batch mean.
 
@@ -286,7 +286,7 @@ In an eval env's configuration dump (such as `config/env.eval.txt`), they appear
 
 There are five reducers: `max_seen` / `min_seen` (maximum and minimum, including the value right after `reset_game()`), `inc_count` / `dec_count` (number of increases and decreases from the previous frame), and `reach_count:N` (number of times the value entered N, from 0 to 255). Comparisons use the raw single byte, observed after every `act()`. Aggregation uses one real game as its unit, continues across episodic-life soft resets, and restarts at each `reset_game()`.
 
-The Step result's `ram_metric.[n]` returns an ordinary-Step snapshot or a finalized real-game completion value, and NaN for life-only termination. If any game uses n, it is a known key, so NaN is returned even when the current game has no n. Numbers keep a broad meaning shared across all games: 1 = stage clears, 2 = boss kills, 3 = boss hits. Games to which a meaning does not apply get no number. The trace uses `@episode_end`, and the scalar's `mean.` takes values only from completed lanes. For games without numbers, the trace is `null` and no scalar row is emitted. Look up the concrete label of each number in the Run's `config/config_data.txt`.
+The Step result's `ram_metric.[n]` returns an ordinary-Step snapshot or a finalized real-game completion value, and NaN for life-only termination. If any game uses n, it is a known key, so NaN is returned even when the current game has no n. Numbers keep a broad meaning shared across all games: 1 = stage clears, 2 = boss kills, 3 = boss hits. Games to which a meaning does not apply get no number. Number 4 has no common meaning and is used for game-specific counters; do not compare its columns across games. The trace uses `@episode_end`, and the scalar's `mean.` takes values only from completed lanes. For games without numbers, the trace is `null` and no scalar row is emitted. Look up the concrete label of each number in the Run's `config/config_data.txt`.
 
 | Game | Numbered definitions | Unnumbered reference definitions |
 |---|---|---|
@@ -294,6 +294,8 @@ The Step result's `ram_metric.[n]` returns an ordinary-Step snapshot or a finali
 | qbert | `1:round_clear` = `0xE3 inc_count` | `side_color` = `0x82 min_seen` |
 | phoenix | `1:wave_clear` = `0xCA inc_count`, `2:boss_kill` = `0xFC inc_count` | None |
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
+| beam_rider | `1:sector_clear` = `0x80 inc_count`, `2:boss_kill` = `0x94 reach_count:141`, `4:torpedo_fired` = `0xD3 dec_count` | None |
+| freeway | `4:car_hit` = `0xEA reach_count:91` | None |
 
 In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. The Step result's numbered keys query the same snapshot. These label keys also serve AtariView spectating. See [PRD082](../memo/done/082_atari_ram_progress_metrics_10prd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
 

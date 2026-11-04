@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:9118a94b20a708505a96addf694439e11e1ee7e8 date:2026-10-23 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:d755e03884f7287df18adc25621469c5f0d5772d date:2026-11-04 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -272,7 +272,7 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `MetricsViewerController` | Exposes Run, metrics, and priority REST APIs |
 | `WorkspaceController` | Exposes workspace listing/switching APIs and converts malformed JSON to 400 `invalid_request` only within this controller |
 | `TagSetStore` | Owns startup validation, initial-file copying, the in-memory list, and serialized file updates |
-| `TagSetController` | Exposes tag set operations and maps malformed JSON within this controller to 400 |
+| `TagSetController` | Exposes tag set listing, creation, update, rename, and deletion, and maps malformed JSON within this controller to 400 |
 | `MetricTraceEncoder` | Encodes double/float arrays into little-endian Base64 chunks |
 | `RunWarningRegistry` | Suppresses warnings by normalized absolute Run path while the Run remains in registered workspaces |
 | `HttpAccessLogFilter` | Logs every request's start, end, and elapsed time at INFO |
@@ -287,7 +287,7 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `OverviewSvgRenderer` | Serially exports shared figures using one workbench Plotly, retains the latest SVG per tag, and publishes only results matching the current model and generation |
 | `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Manages per-graph data selection, shared display models and frames; replaces changed graph contents after drawing completes |
 | `UIController` | Handles Run/Tag lists, progress display, and static control binding |
-| `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. The client app owns the selected name and fetched list |
+| `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. `MetricsViewerClientApp` owns the selected name and fetched list |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
 ### 3.3 UI Control Conventions
@@ -297,7 +297,7 @@ All use `button` elements, distinguished by their label wording.
 
 | Type | Label | State |
 |---|---|---|
-| Expandable | Current value and `▾`; fills the remaining row width and truncates only the name | Update `.active` and `aria-expanded` together; do not use `aria-pressed` |
+| Expandable | Current value and `▾`; fills the remaining row width and truncates only the name | While open, set `.active` and `aria-expanded="true"` together; do not use `aria-pressed` |
 | Immediate action | Starts with a verb: `Reload`, `Select All`, `Select Latest`, `Recolor`, `Clear All`, `Reset View` | None |
 | Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log` | Update `.active` and `aria-pressed` together |
 | Cycle | States the current step as is: the graph lower limits `p0–` / `p1–` / `p5–` and upper limits `–p100` / `–p99` / `–p95` | Each press advances to the next step in a fixed order, returning to the first step after the last. Set `.active` and `aria-pressed` ON for every step except the first |
@@ -592,7 +592,7 @@ Contract violations abort application startup.
 
 | Key | Default | Valid range | Meaning |
 |---|---:|---|---|
-| `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | Local file path | Working tag sets file. Relative paths use the working directory; TagSetStore creates missing parents and aborts startup on invalid paths or contents |
+| `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | Local file path | Working tag sets file. Relative paths use the working directory. `TagSetStore` creates missing parents and aborts startup for a directory path, creation failure, or malformed contents |
 | `metricsviewer.workspaces-dir` | `workspaces` | Local path | Parent directory of workspaces; UNC roots are rejected at startup |
 | `metricsviewer.initial-workspace` | `_default` | Direct child directory name | Initial current workspace; a valid but missing name starts with a warning and an empty Run list |
 | `metricsviewer.target-points-per-series` | `8000` | 3 to `max-points-per-request` | Default vertex budget per series when `maxPoints` is omitted |
@@ -644,9 +644,11 @@ Client constants not supplied by the server are defined at the beginning of [met
 | `HOVER_SCROLL_DELAY_MS` | 300 | Delay from hovering a Tag list entry to scrolling to its graph |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | Movement threshold for drag scrolling under scroll lock |
 
-`MetricsViewerClientApp` owns Run colors and resolves them at the start of `refreshLists()`. It first assigns colors from `RUN_COLORS` in order to uncolored Runs sorted by runId, then separates only selected Runs if `Auto Recolor` is ON.
-`Recolor` ignores current colors and assigns farthest-point colors in selection order, starting from palette color `#2F7DE1`. `Auto Recolor` reassigns only Runs whose existing colors fail `min(RUN_COLOR_MIN_DISTANCE, best achievable with the current palette)`.
-Neither changes unselected Run colors. With more than 20 selected Runs, the palette cycles into another round. Both do nothing with at most one selected Run.
+`MetricsViewerClientApp` owns Run colors and resolves them at the start of `refreshLists()`. It first assigns base colors from `RUN_COLORS` in order to uncolored Runs sorted by runId.
+With `Auto Recolor` ON, Runs that were not selected at the previous resolution, including the latest Run selected automatically at first display, count as newly selected. In selection order, each receives the color farthest from other selected Run colors. Previously selected Runs keep their colors; a newly selected Run's base color is ignored. Switching from OFF to ON does not itself change colors.
+`Recolor` treats all selected Runs as newly selected, ignoring current colors and assigning farthest-point colors in selection order starting at palette color `#2F7DE1`. One selected Run receives `#2F7DE1`.
+Solo selection through consecutive clicks on the same Run row treats both clicks as one operation. A previously selected Run keeps its color; a previously unselected Run receives `#2F7DE1` as the sole newly selected Run.
+Neither operation changes unselected Run colors. Once all 20 palette colors have been allocated, allocation starts another round.
 
 Only the following nine state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
 
@@ -931,13 +933,13 @@ lod : { "kind":"lod",
 
 `GET /api/tag-sets.json` returns `{"tagSets":[{"name":string,"tags":[string]}]}`, sorted by UTF-16 code units for both names and tags. POST endpoints `/api/tag-sets/create` and `update` take `{"name":string,"tags":[string]}`; `rename` takes `{"name":string,"newName":string}`; `delete` takes `{"name":string}`. Success returns 200 with the full list.
 
-Validate the closed body schema, names, tags, source existence, destination conflicts, and writing in that order. Errors use ApiError: 400 `invalid_request`, 404 `unknown_tag_set`, 409 `tag_set_exists`, and 500 `tag_sets_write_failed`. Names trim Unicode White_Space, contain 1–64 code points, reject control characters, and are case-sensitive. Tags are nonempty strings without control characters or duplicates; their presence in Runs is not checked. A same-name rename returns 200 without writing after source existence is checked.
+Validate the closed body schema, names, tags, source existence, destination conflicts, and writing in that order. Errors use ApiError: 400 `invalid_request`, 404 `unknown_tag_set`, 409 `tag_set_exists`, and 500 `tag_sets_write_failed`. Only workspace switching and tag sets convert malformed JSON to 400 `invalid_request`; metrics/prioritize failure formats are unchanged. Names trim Unicode White_Space, contain 1–64 code points, reject control characters, and are case-sensitive. Tags are nonempty strings without control characters or duplicates; their presence in Runs is not checked. A same-name rename returns 200 without writing after source existence is checked.
 
 The working file and bundled `initial_tag_sets.json` are JSON objects mapping names to tag arrays. Validate both at startup, rejecting duplicate keys, wrong types, invalid names/tags, and surrounding whitespace in file keys. Always validate the initial file, copying it only when the working file is absent. Write sorted names/tags, two-space indentation, one tag per line, UTF-8 without BOM, LF, and one trailing newline. Replace from a temporary file in the same directory and publish memory only after success. Read the working file only at startup: external edits, including git operations, remain unseen until restart and are overwritten by UI saves. Serialize server mutations; the last writer wins.
 
-Calling a set replaces the entire selection, including tags absent from the visible list. Save and modification comparisons also use the entire selection, while newly discovered tags remain automatically selected. Refresh the list at startup, on opening the menu, after mutations, and before Revert. If the selected name disappears, clear it and show a Toast; apply one's own rename/delete to the name first to avoid a false notification. Startup fetch failure preserves the name and selection without determining modifications. Menu-open failure uses a cached list if available and otherwise stays closed. A failed pre-Revert fetch or failed mutation preserves the selection; 404/409 shows the server message and refreshes the list.
+Calling a set replaces the entire selection, including tags absent from the visible list. Save and modification comparisons also use the entire selection, while newly discovered tags remain automatically selected. The indicator's title shows counts of added, removed, and hidden differences. Refresh the list at startup, on opening the menu, after mutations, and before Revert. If the selected name disappears, clear it and show a Toast; apply one's own rename/delete to the name first to avoid a false notification. Startup fetch failure preserves the name and selection without determining modifications. Menu-open failure uses a cached list if available and otherwise stays closed. A failed pre-Revert fetch or failed mutation preserves the selection; 404/409 shows a Toast and refreshes the list.
 
-The menu is fixed directly under body to avoid ancestor overflow clipping. It supports arrows, Enter, Escape, input confirmation/cancellation, and outside clicks. Rows show visible/total tags; Save As shows the total selection and hidden count. The working file is tracked separately and excluded from release staging and zip; only the initial file is bundled in the jar.
+The menu is fixed directly under body to avoid ancestor overflow clipping. It supports ↑↓, Enter, Esc, Enter/Esc within inputs, and outside clicks. Rows show visible/total tags; Save As shows the total selection and hidden count. The working file is tracked in Git and excluded from the release zip; only the initial file is bundled in the jar.
 
 ## 10. Lifetime, Concurrency, and Error Boundaries
 

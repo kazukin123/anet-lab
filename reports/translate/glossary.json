@@ -31,6 +31,14 @@
     "畳み方": "reducer",
     "勾配ノイズスケール": "gradient noise scale",
     "attention エントロピー": "attention entropy",
-    "追従 pane": "follower pane"
+    "追従 pane": "follower pane",
+    "強制行動": "forced action",
+    "スキップ": "skip",
+    "スキップ長": "skip length",
+    "判断": "decision",
+    "連続区間": "continuous interval",
+    "時間の値": "time-varying value",
+    "主領域": "main region",
+    "補助 pane": "auxiliary pane"
   }
 }

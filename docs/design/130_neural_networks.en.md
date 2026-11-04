@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:3452c4c26512fc35a5107c54135197d41a8243e6 date:2026-10-23 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:ca1760b3cd68d89f736ddc7072ac4869e1313a69 date:2026-11-04 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -56,6 +56,8 @@ Discrete Grids retain `[S,1,H,W]` in the raw Network spec, but `NetworkBoundaryP
 - Network Body executes the configured branch DAG and produces a feature TensorDict.
 - Network Head converts features into Agent-specific outputs, such as DQN Q values, quantiles, or ImageCls class logits.
 - `Network` combines Body and Head and exposes one `Forward(TensorDict)`.
+
+`Network::Forward` and prepared executors return the Head output together with the public features from `net.body.output`. Head output keys take precedence; Body Tensors are shallowly added only for keys not already present. Added features retain the Body dtype and gradient connection, independently of the FP32 conversion used when passing features to the Head. Precision of existing `q`, `q_dist`, and logits is unchanged. Callers detach features when passing them to a separate learning path.
 
 This separation allows multiple Agent-specific Heads to use a shared Backbone.
 
@@ -204,6 +206,8 @@ Repositories manage factories, not training module instances or parameters. Actu
 ## 6. Processing Flows
 
 ### 6.1 Network Construction
+
+DefaultDQN reads Head settings from the Agent-owned `head.init.*`, `head.projection.*`, and `head.use_dueling`. Skip uses `skip.head.init.*`, `skip.head.projection.*`, `skip.head.use_dueling` (bool), and `skip.network_mode`. Body wiring belongs to `net.*` and `skip.net.*`; Head settings are not mixed into NetworkConfig.
 
 ```mermaid
 sequenceDiagram
