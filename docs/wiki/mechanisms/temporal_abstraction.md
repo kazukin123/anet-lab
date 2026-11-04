@@ -14,6 +14,7 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 
 ## 分かっていること
 
+- qbertの行動固定を評価時だけ外した比較では、singleの高得点の多くも第9面で終わった。各200ゲームの第9面突破はsingleで4〜15本、fullで0〜2本で、合算singleは第9面で色を付け戻して点を重ねる様子をEvaluation Traceで観測した。行動固定を外した平均点の改善と、次の面への進行を分けて読む（出典: [行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック04。Run: `run_20261029-105620_t104_stage0_merge`、Trace: `run_20261029-223411_tmp_trace_mrg_s`、ほか同ブロックの対象Run）。
 - LunarLanderの7群×3seed×2Mでは、Single行動変化窓（`t104r1_ac`）のAUC平均51.25に対し、無効（`t104r1_off`）20.87、通常TempoRL（`t104r1_mrg`）138.43だった。Single行動変化窓は同seedの無効を3本とも改善したが、3seedの範囲は重なった。STOP（`t104r1_ctl`）も平均57.25で改善し、勾配を返す効果は特定できなかった。行動変化窓のkmax平均は1.83〜2.07、終了窓は3.93〜3.96で、教材の長さは窓の違いを反映した（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-154259_t104r1_ac_s1` / `run_20261029-162638_t104r1_ctl_s1`ほか同記録の21本）。
 
 - qbertの合算の50M終了checkpoint（full、学習seed1）もノイズ4条件を評価seed1/2の400ゲームへ増やすと、Q側だけノイズありで突破率75.00%、skip側だけと両方はともに58.50%、Gは79.25%だった。skip側だけを切った差は+16.50 [10.00, 22.75]ポイント。集中する面5で終わった数はG48・Q側だけ30・skip側だけ28・両方32本で、そこを除いた通過率の比h_Q=0.342 [0.157, 0.536]は0.5を含むため、主因は「決めきれない」だった（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、合算の「ノイズ（実装後）」・「G4の判断に使う差」。Run: `run_20261029-230354_t106_eval_new_mrg_NQ_s2` / `run_20261029-231809_t106_eval_new_mrg_NB_s2`ほか同記録）。
@@ -89,7 +90,7 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
 - [TempoRL 対応 PRD](../../memo/098_temporl_skip_policy_10prd.md)。
 - [TempoRL の後続の暫定 PRD](../../memo/958_temporl_skip_followups_10prd.md)。
-- [TempoRL 第二弾（著者の実装との差）の暫定 PRD](../../memo/done/103_temporl_reference_alignment_10prd.md)。
-- [TempoRL の補助学習のみモードの暫定 PRD](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)。
+- [TempoRL 第二弾（著者の実装との差）のPRD](../../memo/done/103_temporl_reference_alignment_10prd.md)。
+- [TempoRL の補助学習のみモードのPRD](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)。
 - [TempoRL の skip 側の forward のノイズを Q 側と分けて指定する PRD](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md)。
 - [CONTEXT.md](../../../CONTEXT.md) の「スキップ」「スキップ長」「スキップ価値」「判断」。

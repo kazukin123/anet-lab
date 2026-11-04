@@ -12,10 +12,11 @@
 - 2026-08-30: Network Head構築のweight norm設定を接続した（出典: [PRD065](../../memo/done/065_nn_spectral_norm_10prd.md)、題・目的）。
 - 2026-09-08: Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す（出典: [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)、本文）。
 - 2026-09-19: MuZero試作AgentのActor生成をカタログ参照へ移行した（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
+- 2026-10-26: ProfiledValueの導入対象を本線の探索・学習へ絞り、試作MuZero固有の温度は対象外とした（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3の非ゴール）。
 
 ## 選ばなかった形
 
-記述なし。
+- MuZero固有の温度を今回ProfiledValueへ移す形 — 範囲外: 試作Agentの探索設定で本線のDQNと器が違い、今は本線へ戻す予定が無い。再開条件: MuZeroを本線へ戻すとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3の非ゴール）。
 
 ## 変えるときの条件
 

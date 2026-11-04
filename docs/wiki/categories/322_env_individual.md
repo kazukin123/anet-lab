@@ -5,6 +5,7 @@
 ## 概要・責務
 
 - 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（出典: [環境](../../design/120_environments.jp.md)、§1.3・§2・§3）。
+- GridMazeは到達できる迷路の生成とseed採番の単位を所有し、LunarLanderViewは推力・風・運動の表示切替を所有する。具象Env・Viewの条件は共通基盤と分けて引く（出典: [環境](../../design/120_environments.jp.md)、§7.4・§7.5）。
 
 ## 成立の経緯
 

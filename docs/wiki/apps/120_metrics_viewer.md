@@ -6,6 +6,7 @@
 
 - MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§1.1・§2.1）。
 - JSONL/gzipをstreaming parseし、L0・factor4のLOD・TagStatsを同一transactionで更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.2 Metrics Viewer）。
+- タグセットはTagSetStoreが起動時の検証と保存を、TagSetControllerがAPIを、TagSetMenuが選択・編集の操作を受け持つ。Workspaceをまたぐ保存済みの集合と、ブラウザの未保存の選択を分けて持つ（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§8・§9.6）。
 
 ## 成立の経緯
 
@@ -18,11 +19,17 @@
 - 2026-09-05: メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す（出典: [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md)、題・目的）。
 - 2026-09-12: PRD 074: 選択中 Run の色分離（Metrics Viewer）（出典: [PRD074](../../memo/done/074_run_color_distinctness_10prd.md)、題・目的）。
 - 2026-09-12: Run 色は比較ごとの役割とし、分離は選択中 Run の集合に対してだけ保証する（出典: [ADR 0041](../../adr/0041-run-color-is-comparison-role-not-run-identity.md)、本文）。
+- 2026-10-10: 比較するRunの表示粒度を共通Step区間へそろえ、保存LODをfactor4にした（出典: [PRD089](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)、題・目標と解決策）。
+- 2026-10-12: キャッシュ再構築の入力とSQLをまとめ、全workspaceの検査・背景取り込みと表示workspaceの寿命を分けた（出典: [PRD090](../../memo/done/090_metricsviewer_cache_rebuild_10prd.md)、題・§2・§4.1〜§4.4）。
 - 2026-11-02: 名前を付けて保存したtagの集合（タグセット）をサーバー側の作業用ファイルに保存してworkspaceとブラウザをまたいで共有し、Tagsの下の1行と開閉する一覧で呼び出し（選択全体の置き換え）・Save・Revert・Save As・名前変更・削除・Deselectを行い、選択中のタグセットをlocalStorageに保つ仕様と、jarに同梱した初期値を作業用ファイルが無いときだけ写すことを定めた。作業用ファイルの既定はworkspaces-dirの直下で、gitで追跡しリリースの梱包からは除く（出典: [PRD111](../../memo/111_metrics_viewer_tag_sets_10prd.md)、題・§2・D1・D2・D5・D13〜D16）。
 - 2026-11-02: タグセットは追跡する作業用ファイルと jar 同梱の初期値に分け、初期値は作業用が無いときだけ写す（出典: [ADR 0067](../../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、本文）。
 
 ## 選ばなかった形
 
+- 任意factor設定・旧DB変換・新しい永続ストア — 不採用: 比較粒度の障害解消に不要で、マスタから再構築する既存の境界で足りる（出典: [PRD089](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)、複雑性監査）。
+- 全Runを常にrawで保持する形 — 不採用: マスタ全点を保持せずに正確な区間集約ができる（出典: [PRD089](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)、複雑性監査）。
+- 汎用ジョブ基盤と高度な予測prefetch — 先送り: 近傍読み込みの実測を先に行う。再開条件: 近傍読み込みでも応答性不足が実測されたとき（出典: [PRD089](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)、複雑性監査）。
+- 再構築キュー用の新しい永続ストア — 不採用: process内で未処理Runと理由を持ち、起動時にキャッシュから必要な作業を再発見できる（出典: [PRD090](../../memo/done/090_metricsviewer_cache_rebuild_10prd.md)、§2）。
 - 未選択Runの背景取り込みを廃止し、選択時だけ取り込む形 — 不採用: 定常I/Oの削減とは分け、既存の背景取り込みを保つ（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、0.3 Non-goals）。
 - WatchServiceなどのfilesystem通知によるevent駆動化 — 不採用: poll経路の無駄な完全検査を抑える範囲に絞る（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、0.3 Non-goals）。
 - 既存の queryRevision を supersede の連番に流用する形 — 不採用（流用しない）: queryRevision はユーザー操作でしか増えず、Auto Reload の経路では同じ値の POST が同時に飛びうる（出典: [PRD049](../../memo/done/049_metrics_query_supersede_10prd.md)、1. 現状の事実・2.1 query channelと連番）。
@@ -43,6 +50,8 @@
 
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
+- 共通Step区間への変更でもマスタと過去Run artifact、MinMax/Mean/Band・極値hover・全点TagStats・凡例・Log・percentile・Scroll Lock・Reloadを維持する（出典: [PRD089](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)、利用者の要求と受け入れ条件5・6）。
+- 再構築をまとめて処理しても同一Stepの複数点・tagの序数・極値の同値時の選択・点数加重平均・非scalar行の順序を変えず、L0・LOD・統計・source位置を同じcommitで確定する（出典: [PRD090](../../memo/done/090_metricsviewer_cache_rebuild_10prd.md)、§4.1・§5の2〜4）。
 - MetricsQueryCoordinator の critical section の中では、Statement.cancel、旧 request の完了待ち、Workspace・DB の lock の取得、query 本体の実行のどれも行わない（出典: [PRD049](../../memo/done/049_metrics_query_supersede_10prd.md)、2.3 supersede規則）。
 - 通常追記ではcache世代を維持し、全再構築だけで世代を変える。commit済みprefix、tag隔離、Run-level errorのtransaction境界を変えない（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、1.1 正本とcache）。
 - priority 3・background 1、単一writer、完成行のtransaction境界でのworkspace切替を維持する（出典: [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md)、1.2 Scheduling）。
@@ -53,6 +62,7 @@
 ## 関係
 
 - 設計: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§1.1・§2.1。
+- タグセットと保存: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§8・§9.6。操作は[Run分析ガイド](../../design/030_user_guide_analysis.jp.md)、§3。
 - ユーザーガイド: [Run分析ガイド](../../design/030_user_guide_analysis.jp.md)。
 - 含む機能カテゴリ: なし。
 

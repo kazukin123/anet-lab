@@ -4,6 +4,8 @@
 
 ## 今の結論
 
+サンプル効率優先の1 seedでは、初期値をPyTorchの既定へ戻すと序盤の評価がBTRの帯に入り、同系統の50Mでは第8面の突破が増えた。実時間優先では初期値を戻しても改善しなかった。第8面を抜けた後の高得点には、第9面で長く点を重ねるゲームが含まれ、第9面の突破とは分けて読む。
+
 低εラダーの64 env・容量1Mでは、45–50Mの第8面突破率（29,000点以上かつround_clear≥8）が4 seedで45.3・32.5・0.7・0.1%だった。容量だけ・env数だけを変えた腕は1.0%・0.1%に留まり、初突破が早い腕でも突破が定着しない例があった。seed 4 は得点ループに入り、得点だけで数えた突破率は第8面の突破を表さなかった。
 
 TempoRLの50M終了checkpoint（合算・遮断・重み0.3、各seed1）は、μ-only評価で行動の固定を外すとすべて平均点が上がった。gの点推定は3.82・0.77・0.96で、PRD104の規則では評価時の固定が主因と読める。学習中の遅れの原因や別seedへの一般化は未確認。分割のcheckpointは、評価時にNoisyNetのノイズやτのランダムさを入れるとfullでだけ突破率が下がった。スキップなしは2 seedとも、Greedyの突破率が学習中と同じ選び方より低かった。 分割・合算の400ゲームではskip側だけノイズを切ると突破率が18.50・16.50ポイント上がり、skip側のτだけ固定にする差は分割7.50・合算10.25ポイントだった。主因の比は決めきれず、学習への効果は未確認。
@@ -12,6 +14,9 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 
 ## 分かっていること
 
+- 初期値の比較: サンプル効率優先の1 seedでは、convとτ埋め込みの初期値をPyTorch既定へ戻した評価の5〜7.5Mが11,450、7.5〜10Mが14,918で、BTRの2本の帯に入った。Munchausenのlog πをonlineへ替えた上乗せは見えなかった。実時間優先の1 seedでは7.5〜10Mが4,448で、従来の2本の7,306・5,068を下回った。構成をまたいで初期値の効果を一般化しない（出典: [BTRとの比較と初期値の記録](../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、探索ブロック06・07。Run: `run_20261025-191201_a5_qb_aln_init_s1` / `run_20261025-224454_a5_qb_rt_aln_s1`）。
+- 初期値・εの経過・Munchausenのlog πをBTRへ寄せた50M（seed1）のtrainの第8面突破は47.5〜50Mに86.8%、ε=0評価の40.6Mは100本すべて突破した。一方、第9面の突破はtrainの37.5〜50Mで各窓0.9%以下で、後半の点と長さの伸びは第9面で終わるゲームの増加と、その面で重ねる点の増加に対応した。BTRの2本も第9面で止まる形だった。BTRの評価は先に終わった20本を採るため、平均点の直接比較には長いゲームの採用の偏りが入る（出典: [BTRとの比較と初期値の記録](../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、メタデータ・探索ブロック08・09。Run: `run_20261025-231207_a5_qb_aln_btreps_s1` / `run_20261023-174528_btr_qbert_r0_wsl` / `run_20261024-235540_btr_qbert_r1_wsl`）。
+- TempoRLの評価を各200ゲームで数え直すと、第9面の突破はsingleでも4〜15本、fullでは0〜2本だった。合算singleで第9面に終わったゲームの長さの中央値は9,080 step、得点の中央値は43,850で、3本は27,000 stepの上限まで続いた。同条件のEvaluation Traceでは中央付近のキューブの色を付けたり戻したりして点を重ねていた。平均点の改善を次の面への進行と同一視しない（出典: [行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック04。評価Run: `run_20261029-105620_t104_stage0_merge`、Trace: `run_20261029-223411_tmp_trace_mrg_s`、ほか同ブロックの対象Run）。
 - TempoRL合算の50M終了checkpoint（full、学習seed1、評価400ゲーム）も、Q側だけノイズありで突破率75.00%、skip側だけと両方はともに58.50%だった。skip側を切った差は+16.50 [10.00, 22.75]ポイント。集中する面5を除いた通過率の比h_Q=0.342 [0.157, 0.536]は0.5を含み、分割と同じく主因は「決めきれない」だった。学習への効果はまだ確かめていない（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、合算の「ノイズ（実装後）」・「G4の判断に使う差」。Run: `run_20261029-230354_t106_eval_new_mrg_NQ_s2` / `run_20261029-231809_t106_eval_new_mrg_NB_s2`ほか同記録）。
 - TempoRLの分割の50M終了checkpoint（full、学習seed1、評価400ゲーム）は、Q側だけノイズありで突破率60.75%、skip側だけ39.75%、両方42.25%だった。skip側だけノイズを切る差は+18.50 [11.50, 25.00]ポイント。skip側のτだけ固定にする差も、分割+7.50 [0.75, 14.50]・合算+10.25 [4.50, 16.25]ポイントだった（τも各400ゲーム）。主因の比h（分割ノイズ）とk・k'（両checkpointのτ）は「決めきれない」。学習への効果と別の学習seedへの一般化は未確認（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、分割・合算と「G4の判断に使う差」。Run: `run_20261029-222256_t106_eval_new_spl_NQ_s2` / `run_20261029-223216_t106_eval_new_spl_NB_s2` / `run_20261029-214530_t106_eval_old_mrg_TQ_s2` / `run_20261029-220252_t106_eval_old_mrg_TB_s2`ほか同記録）。
 - サンプル効率優先の50Mの合算のcheckpoint（seed1）を、`[greedy]`の評価sessionと同じ条件のEvaluation Traceで見ると（3ゲーム）、最後でない残機を失った前後で`V_s`はほとんど変わらず（4回で−0.4〜+0.0）、最後の1機のときだけ0へ崩れた。最上段から外へ出る飛び降りが、価値の上で最善の行動として選ばれた例があった。同じcheckpointのGreedyの評価200ゲームでは、45本が5面で終わり、そのうち43本が14,550点・ゲームの長さ1,063〜1,066 stepにそろっていた。（出典: [919_eval_session_step_trace_10prd.md](../../memo/919_eval_session_step_trace_10prd.md)、§1）。
@@ -46,6 +51,9 @@ qbertのサンプル効率優先50Mでは、TempoRLの8本（合算2 seedと変�
 
 ## 分かっていないこと
 
+- 第8面の突破にεを25Mで0へ落とすことは必要か。初期値の効果はほかのゲームでも出るか。BF16・最後のpool・PER優先度の定義の差はどれだけ寄与するか（出典: [BTRとの比較と初期値の記録](../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、pending）？
+- 実時間優先の構成では、初期値を戻しても評価が上がらなかったのはなぜか（出典: [BTRとの比較と初期値の記録](../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、pending・探索ブロック07）？
+- BTRとanetに残る第9面の壁は、色が戻るルールによるものか、速度と敵の量によるものか（出典: [BTRとの比較と初期値の記録](../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、pending；[行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック04）？
 - 最後でない残機を失っても`V_s`がほとんど下がらないことは、評価sessionの多くのゲームで成り立つか。14,550点で終わるゲームは、残機を失う面・stepがそろった同じ道筋をたどっているか（出典: [919_eval_session_step_trace_10prd.md](../../memo/919_eval_session_step_trace_10prd.md)、§1・§3のG3）？
 - NoisyNetの摂動つきの行動で固定を外す比較は、合算では既存singleと実装後fullの参考比較に留まり、同じビルドでの比較は未実施。遮断・重み0.3のcheckpointや別seedでも改善するか。学習中のデータの偏りと補助タスクの効果はどれだけ残るか（出典: [Q側・skip側のノイズとτを分けた評価](../../experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md)、「singleの値と固定の寄与の目安」「再現と残る判断」；[qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、未確定と今回の区切り・探索ブロック02）？
 

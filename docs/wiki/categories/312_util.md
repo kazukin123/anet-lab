@@ -28,6 +28,8 @@
 - 2026-09-24: InitRLの初期化に明示deviceの可用性検査を加えた（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、確定したD10・Complexity audit）。
 
 - 2026-10-25: ProfiledValueに指数とphaseの終値規則を加え、定数をbareで読み、実効typeが使う欄だけをdumpする（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D2〜D4）。
+- 2026-10-26: 既存の自動seed入口を使い、GridMazeの自動採番をRun seedから独立させた（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、§2・§5.2）。
+- 2026-10-29: 整数のProfiledValueをActorのスキップ長上限へ接続した（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§4 D1・D2・§5.1）。
 
 ## 選ばなかった形
 
@@ -45,6 +47,7 @@
 
 - EMA内部の状態を変えても公開シグネチャを変更しない（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、3. API 契約）。
 - 同 seed の再現を確かめるときは `backend.deterministic_algorithms` を true、`backend.deterministic_warn_only` を false にする。warn_only を true にすると決定版の無い op を素通りさせるので再現性は保証されない（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Consequences；[PRD015](../../memo/done/015_deterministic_algorithms_10prd.md)、1.1 API）。
+- 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
 
 ## 関係
 
