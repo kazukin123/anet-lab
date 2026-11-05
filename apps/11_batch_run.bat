@@ -14,27 +14,84 @@ SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
 
-SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
-SET "RR4=run.@hard500>run.@rr4>run.@munch"
-SET "RF=run.@rfit>run.@a5_metrics"
-SET "SKIPMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy>metrics.scalar.@skip"
-SET "BTRENV=run.train.num_envs=64 A2.learner.replay_capacity=1048576 A2.actor.[train].sync_interval=1"
-SET "BTREPSPH=A2.actor.[train].policy.spatial.enabled=false A2.actor.[train].policy.epsilon.type=phased "A2.actor.[train].policy.epsilon.phases=decay off" A2.actor.[train].policy.epsilon.phase.[decay].type=exponential A2.actor.[train].policy.epsilon.phase.[decay].start=1.0 A2.actor.[train].policy.epsilon.phase.[decay].end=0.01 A2.actor.[train].policy.epsilon.phase.[decay].time_constant=2000000 A2.actor.[train].policy.epsilon.phase.[decay].steps=25000000 A2.actor.[train].policy.epsilon.phase.[off].type=constant A2.actor.[train].policy.epsilon.phase.[off].value=0 A2.actor.[train].policy.epsilon.phase.[off].steps=1"
-SET "BTRNZ=net.block.[AtariHeadFC512].init.mode=default net.block.[AtariHeadFC512].noisy.sigma0=0.5 A2.head.init.mode=default A2.head.projection.noisy.sigma0=0.5"
-SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImpalaConv64].init.mode=default net.block.[AtariImpalaRes32SN].init1.mode=default net.block.[AtariImpalaRes32SN].init2.mode=default net.block.[AtariImpalaRes64SN].init1.mode=default net.block.[AtariImpalaRes64SN].init2.mode=default net.block.[AtariIQNTauProj2304].init.mode=default"
-SET "ALNM=A2.learner.munchausen.log_policy_mode=online"
-SET "MERGE=DefaultDQNAgent.learner.skip.feature_gradient=merge"
-SET "SKGS=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@batch"
-SET "C30=DefaultDQNAgent.learner.grad_clip_tau=30"
-SET "SKAUX=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@pixel_area>run.@skip>run.@skip_aux>run.@batch"
+SET "LLMRG=run.$=run.@munch>run.@skip"
+SET "LLOFF=run.$=run.@munch"
+SET "LLAPP=app.$=app.batchrun>P1"
+SET "EVONLY=run.seed=1 DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 app.batchrun.exp_exit_step=40 run.eval_schedule.[eval_target].interval=0"
+SET "EVUQE=run.eval.[eval].eval_batch_size=64 run.eval.[eval].eval_episodes=400 run.eval_schedule.[eval].interval=12"
+SET "EVGRD=run.eval.[greedy].eval_batch_size=64 run.eval.[greedy].eval_episodes=400 run.eval_schedule.[greedy].interval=12"
+SET "EVGS=DefaultDQNAgent.actor.[greedy_single].$=DefaultDQNAgent.actor.[greedy] DefaultDQNAgent.actor.[greedy_single].skip.max_length_mode=single run.eval.[greedy_single].actor=greedy_single run.eval.[greedy_single].eval_batch_size=64 run.eval.[greedy_single].eval_episodes=400 run.eval_schedule.[greedy_single].interval=12 run.eval_schedule.[greedy_single].use_background=true"
+SET "EVUS=DefaultDQNAgent.actor.[eval_single].$=DefaultDQNAgent.actor.[eval] DefaultDQNAgent.actor.[eval_single].skip.max_length_mode=single run.eval.[eval_single].actor=eval_single run.eval.[eval_single].eval_batch_size=64 run.eval.[eval_single].eval_episodes=400 run.eval_schedule.[eval_single].interval=12 run.eval_schedule.[eval_single].use_background=true"
+SET "GSEL=DefaultDQNAgent.actor.[greedy].$=DefaultDQNAgent.actor.[eval]>DefaultDQNAgent.actor.@greedy"
+SET "GOFF=run.eval.[greedy].actor=greedy run.eval_schedule.[greedy].use_background=true"
+SET "MGR="metrics.scalar.[21_eval/09_greedy_reward]=mean.episode_return $runner @session_end $eval.[greedy]" "metrics.scalar.[21_eval/11_greedy_ep_steps]=mean.episode_steps $runner @session_end $eval.[greedy]""
+SET "MGS="metrics.scalar.[21_eval/31_greedy_s_reward]=mean.episode_return $runner @session_end $eval.[greedy_single]" "metrics.scalar.[21_eval/32_greedy_s_steps]=mean.episode_steps $runner @session_end $eval.[greedy_single]""
+SET "MUS="metrics.scalar.[21_eval/33_eval_s_reward]=mean.episode_return $runner @session_end $eval.[eval_single]" "metrics.scalar.[21_eval/34_eval_s_steps]=mean.episode_steps $runner @session_end $eval.[eval_single]""
+SET "MSK="metrics.scalar.[50_agent_skip/31_eval_decision_rate]=skip_session_decision_rate $eval.[eval] $actor @session_end" "metrics.scalar.[50_agent_skip/32_eval_length_mean]=skip_session_length_mean $eval.[eval] $actor @session_end""
 
-call :use_ws Atari5-01 Atari.txt
-echo === 1. PRD103 stage 1 qbert 50m seed 1: TempoRL merge, gradient clip threshold 30 instead of 10, plus single greedy eval ===
-call :find_done a5_qb_aln_t98c30_s1
-if not defined DONE_DIR call :run_exe "%SKGS%" "%SKIPMET%" E1.game=qbert run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% %C30% "app.run_name=run_{t}_a5_qb_aln_t98c30_s1"
-echo === 2. beam_rider 50m seed 1: TempoRL auxiliary-only, train and eval decide every step, skip loss on action_change windows, merge, same setup as AtariSub-01 4 ===
-call :find_done a5_br_aln_t104ac_s1
-if not defined DONE_DIR call :run_exe "%SKAUX%" "%SKIPMET%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t104ac_s1"
+SET "TWSES=DefaultDQNAgent.actor.[greedy_single].$=DefaultDQNAgent.actor.[greedy] DefaultDQNAgent.actor.[greedy_single].skip.max_length_mode=single run.eval.[greedy_single].actor=greedy_single run.eval.[greedy_single].eval_batch_size=1 run.eval.[greedy_single].eval_episodes=1 run.eval_schedule.[greedy_single].interval=1009 run.eval_schedule.[greedy_single].use_background=true DefaultDQNAgent.actor.[eval_single].$=DefaultDQNAgent.actor.[eval] DefaultDQNAgent.actor.[eval_single].skip.max_length_mode=single run.eval.[eval_single].actor=eval_single run.eval.[eval_single].eval_batch_size=1 run.eval.[eval_single].eval_episodes=1 run.eval_schedule.[eval_single].interval=200 run.eval_schedule.[eval_single].use_background=true"
+SET "TWMET="metrics.scalar.[50_agent_skip/07_max_length]=$actor skip_max_length @learn $exp_step""
+SET "TWVAR=DefaultDQNAgent.actor.[train].skip.max_length_mode=variable DefaultDQNAgent.actor.[train].skip.max_length.type=phased "DefaultDQNAgent.actor.[train].skip.max_length.phases=hold off" DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].type=constant DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].value=4 DefaultDQNAgent.actor.[train].skip.max_length.phase.[off].type=constant DefaultDQNAgent.actor.[train].skip.max_length.phase.[off].value=1 DefaultDQNAgent.actor.[train].skip.max_length.phase.[off].steps=1"
+SET "TWWU=DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].steps=8192"
+SET "TWE05=DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].steps=500000"
+SET "TWUNI=DefaultDQNAgent.actor.[train].skip.policy.policy_type=EpsilonGreedy DefaultDQNAgent.actor.[train].skip.policy.spatial.epsilon.first=1 DefaultDQNAgent.actor.[train].skip.policy.spatial.epsilon.last=1"
+
+call :use_ws LunarLander-01 LunarLander.txt
+echo === 1. LunarLander eval only, merge seed 1 checkpoint: UQE and Greedy, full and single ===
+call :find_done ll_ev_mrg_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% %EVGS% %EVUS% %MGS% %MUS% %MSK% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261028-131118_t103_ll_mrg_s1\agent_close.anet" "app.run_name=run_{t}_ll_ev_mrg_s1"
+echo === 2. LunarLander eval only, merge seed 2 checkpoint: UQE and Greedy, full and single ===
+call :find_done ll_ev_mrg_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% %EVGS% %EVUS% %MGS% %MUS% %MSK% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261028-143129_t103_ll_mrg_s2\agent_close.anet" "app.run_name=run_{t}_ll_ev_mrg_s2"
+echo === 3. LunarLander eval only, merge seed 3 checkpoint: UQE and Greedy, full and single ===
+call :find_done ll_ev_mrg_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% %EVGS% %EVUS% %MGS% %MUS% %MSK% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261028-155145_t103_ll_mrg_s3\agent_close.anet" "app.run_name=run_{t}_ll_ev_mrg_s3"
+echo === 4. LunarLander eval only, no skip seed 1 checkpoint: UQE and Greedy ===
+call :find_done ll_ev_off_s1
+if not defined DONE_DIR call :run_exe "%LLOFF%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% "%GSEL%" %GOFF% %MGR% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261025-230909_t98_ll_off_s1\agent_close.anet" "app.run_name=run_{t}_ll_ev_off_s1"
+echo === 5. LunarLander eval only, no skip seed 2 checkpoint: UQE and Greedy ===
+call :find_done ll_ev_off_s2
+if not defined DONE_DIR call :run_exe "%LLOFF%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% "%GSEL%" %GOFF% %MGR% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261026-001350_t98_ll_off_s2\agent_close.anet" "app.run_name=run_{t}_ll_ev_off_s2"
+echo === 6. LunarLander eval only, no skip seed 3 checkpoint: UQE and Greedy ===
+call :find_done ll_ev_off_s3
+if not defined DONE_DIR call :run_exe "%LLOFF%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% "%GSEL%" %GOFF% %MGR% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261026-010415_t98_ll_off_s3\agent_close.anet" "app.run_name=run_{t}_ll_ev_off_s3"
+
+echo === 7. LunarLander 2M seed 1: merge, train skip length uniform random ===
+call :find_done ll_tw_uni_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWUNI% "app.run_name=run_{t}_ll_tw_uni_s1"
+echo === 8. LunarLander 2M seed 1: merge, train repeats only until 8192 experiences ===
+call :find_done ll_tw_wu_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWWU% "app.run_name=run_{t}_ll_tw_wu_s1"
+echo === 9. LunarLander 2M seed 1: merge, train repeats only until 500000 experiences ===
+call :find_done ll_tw_e05_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWE05% "app.run_name=run_{t}_ll_tw_e05_s1"
+echo === 10. LunarLander 2M seed 1: merge baseline ===
+call :find_done ll_tw_base_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% "app.run_name=run_{t}_ll_tw_base_s1"
+echo === 11. LunarLander 2M seed 2: merge, train repeats only until 8192 experiences ===
+call :find_done ll_tw_wu_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWWU% "app.run_name=run_{t}_ll_tw_wu_s2"
+echo === 12. LunarLander 2M seed 2: merge, train repeats only until 500000 experiences ===
+call :find_done ll_tw_e05_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWE05% "app.run_name=run_{t}_ll_tw_e05_s2"
+echo === 13. LunarLander 2M seed 2: merge baseline ===
+call :find_done ll_tw_base_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% "app.run_name=run_{t}_ll_tw_base_s2"
+echo === 14. LunarLander 2M seed 2: merge, train skip length uniform random ===
+call :find_done ll_tw_uni_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWUNI% "app.run_name=run_{t}_ll_tw_uni_s2"
+echo === 15. LunarLander 2M seed 3: merge, train repeats only until 500000 experiences ===
+call :find_done ll_tw_e05_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWE05% "app.run_name=run_{t}_ll_tw_e05_s3"
+echo === 16. LunarLander 2M seed 3: merge baseline ===
+call :find_done ll_tw_base_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% "app.run_name=run_{t}_ll_tw_base_s3"
+echo === 17. LunarLander 2M seed 3: merge, train skip length uniform random ===
+call :find_done ll_tw_uni_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWUNI% "app.run_name=run_{t}_ll_tw_uni_s3"
+echo === 18. LunarLander 2M seed 3: merge, train repeats only until 8192 experiences ===
+call :find_done ll_tw_wu_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWWU% "app.run_name=run_{t}_ll_tw_wu_s3"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

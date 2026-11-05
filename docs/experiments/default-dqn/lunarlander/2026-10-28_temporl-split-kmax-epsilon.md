@@ -123,7 +123,7 @@
 | 2 | 143.2 | 112.5 | 210.0 | 220.9 | 1,020k | 1,141k |
 | 3 | 137.6 | 125.2 | 228.5 | 225.4 | 1,071k | 1,026k |
 
-- seed 1 の照合: `[eval]` の policy 報酬の最初の点（8448 step）は両方 −850.618 で一致し、2 点目（14848 step）は −17.4 対 −52.5 で違う。学習側の報酬の EMA（`20_eps/11_train_reward_ema`）は最初の 8 点が一致し、9 点目（37 エピソード目）から違う。skip の loss（`50_agent_skip/11_loss`）は最初の learn step から違う（4.215 対 4.127。学習は 76,800 step から）。
+- seed 1 の照合: `[eval]` の policy 報酬の最初の点（8448 step）は両方 −850.618 で一致し、2 点目（14848 step）は −17.4 対 −52.5 で違う。学習側の報酬の EMA（`20_eps/11_train_reward_ema`）は最初の 8 点が一致し、9 点目（37 エピソード目）から違う。skip の loss（`50_agent_skip/11_loss`）は最初の learn step から違う（4.215 対 4.127。学習は 76,800 step から。2026-11-05 訂正: `update_warmup_steps` の実効値は `A1` の 76,800 ではなく `DefaultDQNAgent` の 8,192 で、最初の学習は 8,448 exp step）。
 - 設定 dump の差（Run 名と時刻を除く）: `[greedy]` session の actor の葉（`DefaultDQNAgent.actor.[greedy].*`）と tag `21_eval/09_greedy_reward`、既定値のままの新しいキー `DefaultDQNAgent.learner.skip.sample_weight = uniform`、Evaluation Trace の列番号（表示だけ）。学習の設定は同じ。
 - `[greedy]` session の初回のエピソードは 8448 step で発火し、`[eval]` の 2 点目（14848 step）より前に終わる。学習前に `[eval]` の 2 点目が変わるので、同じ seed の乱数の系列が `[greedy]` session で変わったとみる。どの系列を共有しているか（評価の方策の τ の抽選、env の seed、Actor の乱数）は確かめていない。
 - GridMaze 6×10 では、10/28 の朝のビルド（`[greedy]` session を足す前）の UQE 3 本が 10/26 の 3 本と完全に一致した（[2026-10-28_temporl-skip-policy-6x10](../gridmaze/2026-10-28_temporl-skip-policy-6x10.md)）ので、違いは PRD103 の実装のあとに入った設定（`[greedy]` session）による。

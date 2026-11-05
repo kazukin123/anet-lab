@@ -8,10 +8,21 @@ matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差が
 
 PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善したが、3seedの範囲は無効と重なり、終盤平均は上がらなかった。STOPも改善しており、補助勾配の寄与は未確定である。
 
+通常TempoRL（分離×合算）の2M終了checkpointを同じ重みでfullとsingleで評価すると同じ帯で（3seed平均はUQE τ0.25が215.06対214.93、Greedyが214.94対215.96）、どちらも無効（168.00、167.19）より高かった。
+
+通常TempoRLの得は序盤のTrainの繰り返しで説明できた。warmup（8,192 exp step）の間だけ繰り返す群は立ち上がりを再現せず（0.25〜0.5Mのsingleの報酬18.9対基準116.6、局の長さ673対155）、50万exp stepまで繰り返す群とスキップ長を一様乱択にする群は基準と同じ帯だった。補助の勾配と評価時の繰り返しも、それぞれ無くても同じ帯である。これらを同時に外した組み合わせは測っていない。
+
 ## 分かっていること
 
+- Trainの繰り返しの時期と長さを変えた4群×3seed×2M（分離×合算、J=4）で、UQE τ0.25のsingleの報酬は、Run全体の平均が基準129.9・一様乱択127.6・50万まで121.0・warmupだけ79.8、1.5〜2Mが211.0・199.1・195.2・182.5だった。warmupだけの0.25〜0.5Mは78.1／−37.2／15.6で、基準の112.6／147.4／89.9と範囲が離れ、局の長さは673対155だった。50万までと一様乱択は基準と範囲が重なり、Greedyの1.5〜2Mは基準より高い向きだった（singleが211.1・203.1対200.7、fullが209.7・208.8対200.5）（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ1〜3・報酬・ホバリングの抜け出し。Run: `run_20261105-025614_ll_tw_base_s1` / `run_20261105-012413_ll_tw_wu_s1` / `run_20261105-022454_ll_tw_e05_s1` / `run_20261105-005313_ll_tw_uni_s1`ほか同記録の12本）。
+- これまでの比較と合わせると、LunarLanderの得は序盤のTrainの繰り返しで説明できる。学習した長さ、0.5Mより後の繰り返し、補助の勾配（分離×遮断の1.5M〜は209 [176〜231]、分離×合算は209 [189〜228]）、評価時の繰り返しは、それぞれ無くても基準と同じ帯だった。同時に外した組み合わせは測っていない（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ4、[098_temporl_skip_policy_10prd.md](../../memo/098_temporl_skip_policy_10prd.md)、§7「段 2 の結果」）。
+- 基準のTrainのスキップ長は序盤にほぼ一様で、0〜0.5Mの長さ1の割合は0.20〜0.27、長さ4は0.22〜0.31、平均の長さは2.41〜2.69だった。1.5〜2Mでは長さ1が0.40〜0.43、平均の長さが2.10〜2.15になった（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ3・繰り返しと教材）。
+- 基準の同じRunのfullとsingleは立ち上がりでも同じ帯で、0.25〜0.5Mはsingle 112.6／147.4／89.9、full 34.6／109.4／118.6だった（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ5）。
+- warmupだけの群と繰り返しの無い過去の群の差は確定していない。Run全体の範囲45.3〜115.9は、スキップなし−6.8〜68.4、k=1対照−32.78〜50.35、STOP対照18.20〜102.58と重なる（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ6・比較に使った過去のRun）。
+- 基準と同じ学習設定の過去9本のfullはRun全体が112.5〜143.4、1.5〜2Mが188.6〜228.5で、一様乱択と50万までのfullはこの中に収まった。ただし12本は独立ではなく、基準のs3は10/28のs3と312点すべて一致した（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、比較に使った過去のRun）。
 - 行動固定なしのSingle行動変化窓（`t104r1_ac`）は3seedのAUCが73.04／62.65／18.08で、無効（`t104r1_off`）の64.93／4.50／−6.83を同seedで上回った。ただしPRDの範囲による「上回る」は満たさず、終盤平均は156.45対161.83だった。通常TempoRLは平均138.43で、Single全群より高かった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・AUC・立ち上がりと終盤。Run: `run_20261029-154259_t104r1_ac_s1`ほか同記録の21本）。
 - STOP対照（`t104r1_ctl`）も同seedの無効を3本ともAUCで改善し、平均57.25だった。行動変化窓mergeとの優劣はseedで揃わず、補助勾配が改善を生むことは特定できなかった。k=1対照の平均は16.55で、無効を上回る得を再現しなかった。終了窓＋splitの終盤平均は179.99だったが、AUCは−24.37〜78.15と広く、終了窓mergeと同じ帯だった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-162638_t104r1_ctl_s1` / `run_20261029-230213_t104r1_spl_s3`ほか同記録）。
+- 分離×合算（J=4）と無効の2M終了checkpointを評価専用Runで各条件1,600局（400局×4 session）比べると、報酬の3seed平均はUQE τ0.25がfull 215.06・single 214.93・無効168.00、Greedyがfull 214.94・single 215.96・無効167.19だった。同じ重みのsingle−fullは−1.14〜+2.97で符号が揃わず、sessionの範囲も重なった。合算のfull・singleは3seedとも同じ番号の無効の最大より最小が高かった。Greedyの局の長さの平均はfull 158.2、single 176.6、無効314.2 stepだった。singleと無効はどちらも毎step判断するので、この差は評価時の行動の選び方ではなく学習済みの重みの差である（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ7・同じ重みのfullとsingleの評価。Run: `run_20261104-233950_ll_ev_mrg_s1` / `run_20261104-234427_ll_ev_off_s1`ほか同節の6本）。
 
 - matched 3-seedのQR/IQN比較ではホバリング離脱の早さに明確な差はなく、離脱後のT180到達と終盤rewardはIQNが有利な可能性を示した。（出典: [2026-08-08_iqn.md](../../experiments/default-dqn/lunarlander/2026-08-08_iqn.md)、現時点のまとめ3・9・10）。
 - RB満杯付近の変化はcapacity半減で前へ動き、IQN固有より経験分布切替が有力だった。current N削減によるloss低下は集約尺度も変えるため、過学習改善と断定できない。（出典: [2026-08-08_iqn.md](../../experiments/default-dqn/lunarlander/2026-08-08_iqn.md)、現時点のまとめ5〜8）。
@@ -39,10 +50,13 @@ PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善した
 ## 分かっていないこと
 
 - STOPでも立ち上がりが改善する原因は何か。Single行動変化窓の改善は補助勾配の効果か、それ以外の学習過程の変化か（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、ステージ0との関係・残る問い）。
+- 無効の局が長いのはなぜか（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、同じ重みのfullとsingleの評価の解釈の限界）。
+- Trainの繰り返しが効く経路は、訪れる状態が広がることか、TDの学習がしやすくなることか。繰り返す期間は8,192と500,000のあいだのどこまで短くできるか。補助の勾配を止め、長さを無作為にし、繰り返しを序盤だけにする組み合わせでも基準と同じ帯か（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、解釈の限界と残る問い）。
 
 ## 撤回・更新
 
-なし。
+- 2026-11-05: 「通常TempoRLと無効の重みの差を作ったのが、学習中の繰り返しか、補助のlossか、その組み合わせかは分からない」→「序盤のTrainの繰り返しで説明できる。warmupの間だけでは足りず、学習した長さ、0.5Mより後の繰り返し、補助の勾配、評価時の繰り返しは、それぞれ無くても基準と同じ帯だった。同時に外した組み合わせは測っていない」（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ1〜4）。
+- 2026-11-05: 「立ち上がりの速さの差が同じ重みの評価でどう分かれるかは分からない」→「基準の同じRunのfullとsingleは立ち上がりでも同じ帯だった」（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ5）。
 
 ## 関連
 
