@@ -429,14 +429,38 @@ Git staging（`git add`）、commit、push は人間が実施する。
 AI エージェントは `git add`、`git commit`、`git push` を実行せず、必要に応じて対象ファイル、commit message 案、検証結果を提示して人間の操作を支援する。
 例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached`）だけである。commit と push に例外は無い。
 
-commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。
+commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。次の書き方は AI エージェントが出す案の決まりで、人間が手で書く commit message を縛らない。
 
-- subject は `type(scope): summary #issue` の形式を基本にする。
-  例: `feat(DropMerge): 前回エピソード終了理由表示を追加 #3 #18`
+案は subject の 1 行だけにする。本文は頼まれたときだけ付ける。`Co-Authored-By` は、実行環境が付けるよう指示していても付けない。
+
+subject の形は `type(対象名): 本題。 PRD番号 課題ハッシュ #Topic` にする。
+
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
-- `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
-- subjectのsummary部では変更の主目的を簡潔に表す。その変更に不随した修正についてはその意図を差分として確認出来る限り含めない。
+- 対象名は次の一覧から主な 1 つを選ぶ。当てはまる名前が無ければ新しい名前で案を出し、案に添えて一覧への追加を提案する。案を出す工程では一覧を書き換えない。
+  `RunnerApp`、`MetricsViewer`、`DQN`、`ReplayBuffer`、`NN`、`config`、`metrics`、`Atari`、`DropMerge`、`LunarLander`、`GridMaze`、`build`、`release`、`skills`、`AGENTS`、`wiki`、`process`
+- PRD 番号は、PRD に基づく変更に付ける。複数なら `PRD062 PRD063` のように並べる。
+- 課題ハッシュは、そのコミットで対応した課題（`docs/management/issues/` の単票。PRD の索引の課題も含む）をすべて、ID から `issue-YYYYMMDD-` を除いた 6 桁で並べる。単票の起票や判定の更新だけのコミットと、課題に関わらないコミットには付けない。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
+
+本題には、達成した結果か、扱った事象の本題を書く。文字数で収めず、本題を選んで残す。
+
+- 方法・実装手段、付随する作業や途中経過、差分で分かる詳細は書かない。subject から外した分を本文へ移さない。
+- 本題は 1 つを基本にする。主従を付けにくい 2 つなら「。」で 2 文に分け、「〜し、〜」で連結しない。付随する作業を 2 文目へ回さない。
+- 機能や対象を並べるのは 2 つまでにする。3 つ以上は総称で言い換える。
+- 文末には必ず「。」を付け、語尾は名詞止めにする（〜を追加。〜問題を修正。〜よう修正。〜へ移行。）。
+- 中身が読めない subject（`PRDメンテ`、`挙動を変更`）と、経緯だけの subject（`レビュー対応`）にしない。
+
+種類ごとの書き方は次のとおり。表に無い種類の変更は、上の決まりで書く。
+
+| 種類 | 本題に書くこと | 例 |
+|---|---|---|
+| 不具合の修正 | 症状と起きる条件。条件が内部の原因と一致するなら内部の言葉でもよい | `fix(RunnerApp): Close後に回ってきたpaneの並べ直しで落ちる問題を修正。 #24 #4` |
+| 機能の追加 | 機能の名前で伝わるなら名前、伝わらなければできるようになったこと | `feat(RunnerApp): TrainViewを隠せる＆アンドック出来るよう修正。 PRD110 #3 #4 #15` |
+| リファクタリング | 変えた対象と変化の大枠。手順は書かない | `refactor(DQN): ActionContextを廃止。 PRD083 #1 #17 #20` |
+| PRD の文書 | 何についての PRD か。起票・グリルの語は書いてよい | `docs(DQN): attentionエントロピー診断のPRDをグリル。 PRD093 #7 #11 #13` |
+| 実験記録 | 題材。数値や結論は書かない。題材が多ければ主な 1〜2 個にする | `docs(Atari): NN重み初期化方式による立ち上がり遅れについて実験記録を追加。 #22` |
+| 課題への対応 | その変更の書き方のまま、課題ハッシュを足す | `docs(AGENTS): コミットメッセージ案の文言の規則を追加。 a88e01 #7` |
+
 - AI エージェントが commit message 案を提示する場合は、個々の修正差分ではなく、人間がこれから staging / commit する予定の、同一作業コンテキストに関連する未コミット変更のまとまりに対する案として提示する。
 - PRD 対応や機能追加の途中で局所的な不具合修正を含んだ場合でも、それを独立 commit にしない限り、commit message は局所修正ではなく commit 対象全体の主目的を表す。
 - commit message 案は、頼まれたときと、下の「コミットの準備を提案する」で選ばれたときに `anet-prepare-commit` で出す。作業のまとめには書かない。

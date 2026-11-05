@@ -179,16 +179,26 @@ def file_rows(root, page, files, rules, app_key=None):
     return '\n'.join(lines)
 
 
+def subject_prd_numbers(subject):
+    # 過去の形のscopeと、今の形の件名末尾の参照の並びからPRD番号を読む。本題の文中の番号は拾わない。
+    numbers = set()
+    scope = re.match(r'^[^()]+\(([^)]+)\):', subject)
+    if scope:
+        numbers.update(re.findall(r'PRD(\d{3})', scope[1]))
+    references = re.search(r'(?:\s+(?:PRD\d{3}|[0-9a-f]{6}|#\d+))+\s*$', subject)
+    if references:
+        numbers.update(re.findall(r'PRD(\d{3})', references[0]))
+    return numbers
+
+
 def prd_rows(root, page, files):
-    # コミットscopeの複数PRD番号も拾う。コマンド長を抑えて履歴を読む。
+    # コマンド長を抑えて履歴を読む。
     import os
     numbers = set()
     for offset in range(0, len(files), 80):
         subjects = git(root, 'log', '--format=%s', '--', *files[offset:offset+80])
         for line in subjects.splitlines():
-            match = re.match(r'^[^()]+\(([^)]+)\):', line)
-            if match:
-                numbers.update(re.findall(r'PRD(\d{3})', match[1]))
+            numbers.update(subject_prd_numbers(line))
     rows = ['点検が作り直す。手で直さない。', '']
     unresolved = []
     for number in sorted(numbers):
