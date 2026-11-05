@@ -1,6 +1,6 @@
 ---
 name: anet-prepare-commit
-description: Inspect the full conversation and all staged, unstaged, and untracked Git changes to propose commit messages and classify commit files under the current AGENTS.md, then ask with a one-click choice whether to stage the targets, including only the target hunks of partially targeted files. Use when the user asks for a commit message, commit target list, staging scope, or invokes $anet-prepare-commit. Runs git add only after the user picks the stage choice (in plan mode, also after approving a staging-only plan). Never commit or push.
+description: Inspect the full conversation and all staged, unstaged, and untracked Git changes to propose commit messages and classify commit files under the current AGENTS.md, then ask with a one-click choice whether to stage the targets, including only the target hunks of partially targeted files. Use when the user asks for a commit message, commit target list, staging scope, picks the コミットの準備をする choice offered when a unit of work ends, or invokes $anet-prepare-commit. Runs git add only after the user picks the stage choice (in plan mode, also after approving a staging-only plan). Never commit or push.
 ---
 
 # ANET Prepare Commit
@@ -97,6 +97,8 @@ Claude Code は、次のうち使える最初の方法で聞く。どの方法�
 2. `mcp__ccd_turn__wrap_up` が無ければ、出力を最終メッセージにし、その末尾に問いと選択肢を 1 行で書いて応答を終える。答えは次のメッセージで届く。`AskUserQuestion` は使わない。問いの画面が出力より先に出て、出力は答えたあとの最終メッセージか選択肢の `preview` にしか載らず、対象の一覧を見てから選べないためである。
 
 Codex は、先に `request_user_input_async` で聞き、そのあと出力を最終メッセージとして書いて応答を終える。この道具は答えを待たずに戻るので、出力が最後に残る。答えは次のメッセージで届く。
+
+作業の終わりにこのスキルを実行するかを聞くとき（[AGENTS.md](../../../AGENTS.md) の「コミットの準備を提案する」）も、同じ方法で聞く。その場合は、出力を、その応答の報告に読み替える。
 
 プランモードでも、最初の応答は上と同じにし、計画を出さない。
 

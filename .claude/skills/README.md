@@ -19,7 +19,7 @@
 | anet-survey-queue | `reports/INDEX.md` のキューで状態 `ready` のサーベイを 1 件回し、済みへ移す。`survey` か `paper-details` スキルが必要 | `/anet-survey-queue` | `reports/*.md`、`reports/INDEX.md` |
 | anet-archify-atlas | Archify スキルで 5 図の architecture atlas を生成する。明示起動のみ | `$anet-archify-atlas` | `docs/archify/` |
 | anet-harness-map | AI ハーネス(指示・規約・設計文書・skill・memory・CI)の動線マップを再生成する。公開版は `docs/agents/`(README + Archify 2 図)、個人版は `.scratch/harness-map/`。Archify スキルが必要。明示起動と anet-housekeeping の変更検知から | `$anet-harness-map` | `docs/agents/`、`.scratch/harness-map/` |
-| anet-prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理し、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞く。選ばれたときだけ `git add` と部分 stage（`git apply --cached`）。commit も push もしない | `/anet-prepare-commit`、`$anet-prepare-commit` | 報告。選ばれたときは Git index |
+| anet-prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理し、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞く。選ばれたときだけ `git add` と部分 stage（`git apply --cached`）。commit も push もしない | `/anet-prepare-commit`、`$anet-prepare-commit`、作業の終わりの提案で「コミットの準備をする」を選ぶ | 報告。選ばれたときは Git index |
 | anet-create-prd | 題材または既存 PRD から、根拠を調べた質疑、起草、任意の別モデル検討（Claude Code だけ）、自己点検、レビューと差し戻し対応まで進め、未決を示して停止する。実装へ進まない。既存 PRD は要点を示してから改訂する。グリルの規律は mattpocock/skills の grill-with-docs から派生 | `/anet-create-prd 091_checkpoint_load_optimizer_options_10prd.md` | `docs/memo/*_10prd.md`、`CONTEXT.md`、`docs/adr/`、`docs/wiki/` |
 | anet-create-issue | 選ばれた課題を1件1ファイルで記録する | `$anet-create-issue` | `docs/management/issues/` |
 | anet-list-issues | 本版の課題を依存とWSJFで並べ、棚卸しと束ねる提案を示す。記録は変えない | `$anet-list-issues`、`$anet-list-issues 束ね max=5` | 報告 |

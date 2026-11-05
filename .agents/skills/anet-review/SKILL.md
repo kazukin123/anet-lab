@@ -151,6 +151,6 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 ### 止まる
 
-説明を示したら止まる。指摘への対応は始めない。
+説明を示したら止まる。指摘への対応は始めない。判定が OK のときは、[AGENTS.md](../../../AGENTS.md) の「コミットの準備を提案する」に従って、コミットの準備をするかを聞いてから止まる。
 
 新しいPRDは直下に保持し、状態は索引issueが持つ。過去の保管場所も完全一致検索の対象にする。
