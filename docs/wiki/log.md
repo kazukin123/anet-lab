@@ -719,3 +719,7 @@
 2026-11-05 ingest docs/experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md blob:42e661ea00a5facd11803d1a92062eb02dcff22b → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md（解釈の限界の「組み合わせ」の文を遮断の結果と新しい記録への参照に直した分を、撤回・更新へ反映）
 2026-11-05 ingest docs/experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md blob:f38a639b601da87de80c5f9e52ac7afceeca521f → なし（探索ブロックの「学習は 76,800 step から」に実効値の訂正を添えただけで、wiki はこの値を引いていない）
 2026-11-05 ingest docs/experiments/default-dqn/lunarlander/README.md blob:a438c00baead60bf3e8d49d6a599477efbc6042e → なし（campaign 表に行を足しただけで、独自の分析は変わっていない）
+2026-11-06 ingest docs/experiments/default-dqn/lunarlander/2026-11-05_temporl-stop-single-bit-compare.md blob:353fef41cd12e146dfbf6f0d279a6bfbab760414 → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md, docs/wiki/index.md
+2026-11-06 ingest docs/experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md blob:014454f5de95a346bae722826bb0cc6d616ad7d6 → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md（STOP対照が無効の別の標本と分かった追記を、撤回・更新へ反映）
+2026-11-06 ingest docs/experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md blob:8b751e802b2677df95e90fd73e8840a468acb850 → なし（STOP対照の読みの追記だけで、差が確定しないという項目の主張は変わっていない）
+2026-11-06 ingest docs/experiments/default-dqn/lunarlander/README.md blob:cb67e61bf9e3bf46fec82b44d9552941875247ce → なし（campaign 表に行を足しただけで、独自の分析は変わっていない）

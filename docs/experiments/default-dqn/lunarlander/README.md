@@ -11,6 +11,7 @@ LunarLander の DefaultDQNAgent 系 Run に関する探索索引です。
 | 2026-10-28 | [TempoRL 第二弾の段 2（分割・k_max の重み・ε-greedy）](2026-10-28_temporl-split-kmax-epsilon.md) | PRD103 §7 の段 2。合算の基準に対する分割・`kmax`・スキップ長の ε-greedy の同じビルド 3 seed 比較、`[greedy]` session の判断率、10/26 の同 seed との照合 | completed |
 | 2026-10-29〜2026-11-04 | [TempoRLを行動に反映しないSingleの比較](2026-10-29_temporl-auxiliary-only-stage1.md) | PRD104 ステージ1。7群×3 seed×2M、Single各群と無効の比較、STOP対照、k=1、終了窓＋split。同じ重みのfullとsingleの評価 | completed |
 | 2026-11-05 | [TempoRLのTrainの繰り返しの時期と長さの比較](2026-11-05_temporl-train-repeat-timing.md) | 4群×3 seed×2M。warmupだけ・50万exp stepまで・スキップ長の一様乱択を合算の基準と比較 | completed |
+| 2026-11-05 | [TempoRLのSTOP×Singleと無効のbit比較](2026-11-05_temporl-stop-single-bit-compare.md) | 決定的モードのseed 1で、skipの学習がQ側へ届くかと、無効との差が乱数の順番とtargetのforwardだけかを100万exp stepまで比較 | completed |
 
 ## 知見のまとめ
 

@@ -6,7 +6,7 @@
 
 matched 3-seedのQR/IQN比較ではホバリング離脱時期に明確な差がなかった。持続的T180到達はQR1/3対IQN3/3、終盤reward平均は144.3対186.0だった。TempoRL（分離×合算）は IQN＋Munchausen の 3 seed で無効を上回り、2026-10-26 から LunarLander の既定で有効にした。合算に対する分割・k_max の重み・スキップ長の ε-greedy の 3 腕（3 seed）はどれも基準を上回らず、既定は据え置いた（2026-10-28）。
 
-PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善したが、3seedの範囲は無効と重なり、終盤平均は上がらなかった。STOPも改善しており、補助勾配の寄与は未確定である。
+PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善したが、3seedの範囲は無効と重なり、終盤平均は上がらなかった。STOP×Singleは決定的モードのbit比較で無効の別の標本と分かり、無効の帯はこれを含めて−6.83〜102.58に広がる。行動変化窓はこの帯の中で、補助勾配の寄与は未確定である。
 
 通常TempoRL（分離×合算）の2M終了checkpointを同じ重みでfullとsingleで評価すると同じ帯で（3seed平均はUQE τ0.25が215.06対214.93、Greedyが214.94対215.96）、どちらも無効（168.00、167.19）より高かった。
 
@@ -21,7 +21,8 @@ PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善した
 - warmupだけの群と繰り返しの無い過去の群の差は確定していない。Run全体の範囲45.3〜115.9は、スキップなし−6.8〜68.4、k=1対照−32.78〜50.35、STOP対照18.20〜102.58と重なる（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ6・比較に使った過去のRun）。
 - 基準と同じ学習設定の過去9本のfullはRun全体が112.5〜143.4、1.5〜2Mが188.6〜228.5で、一様乱択と50万までのfullはこの中に収まった。ただし12本は独立ではなく、基準のs3は10/28のs3と312点すべて一致した（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、比較に使った過去のRun）。
 - 行動固定なしのSingle行動変化窓（`t104r1_ac`）は3seedのAUCが73.04／62.65／18.08で、無効（`t104r1_off`）の64.93／4.50／−6.83を同seedで上回った。ただしPRDの範囲による「上回る」は満たさず、終盤平均は156.45対161.83だった。通常TempoRLは平均138.43で、Single全群より高かった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・AUC・立ち上がりと終盤。Run: `run_20261029-154259_t104r1_ac_s1`ほか同記録の21本）。
-- STOP対照（`t104r1_ctl`）も同seedの無効を3本ともAUCで改善し、平均57.25だった。行動変化窓mergeとの優劣はseedで揃わず、補助勾配が改善を生むことは特定できなかった。k=1対照の平均は16.55で、無効を上回る得を再現しなかった。終了窓＋splitの終盤平均は179.99だったが、AUCは−24.37〜78.15と広く、終了窓mergeと同じ帯だった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-162638_t104r1_ctl_s1` / `run_20261029-230213_t104r1_spl_s3`ほか同記録）。
+- STOP×Singleは決定的モードのseed 1で、`loss_weight`を1と0にしても100万exp stepまでQ側の239,083点が全点一致した。窓長の抽選と窓のtargetのτを別の乱数列にし、窓のtargetを別のforwardで計算するパッチでは、無効と共通の103 tag・239,213点が全点一致した。STOP×Singleは無効と同じ分布の別の標本である。Run全体のAUCの帯は無効5本とSTOP対照3本の8本で−6.83〜102.58で、Single行動変化窓の18.08〜73.04はこの中、通常TempoRLの131.40〜143.39は上だった（出典: [STOP×Singleと無効のbit比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-stop-single-bit-compare.md)、現時点のまとめ1〜6・解釈の限界と残る問い。Run: `run_20261105-150316_sv_stop_w1L` / `run_20261105-153456_sv_stop_w0L` / `run_20261105-162700_sv_pbL_off` / `run_20261105-164426_sv_pbL_stop`ほか同記録の11本）。
+- STOP対照（`t104r1_ctl`）も同seedの無効を3本ともAUCで改善し、平均57.25だったが、この差は無効の別の標本どうしの偶然である（上の項目）。行動変化窓mergeとの優劣はseedで揃わず、補助勾配が改善を生むことは特定できなかった。k=1対照の平均は16.55で、無効を上回る得を再現しなかった。終了窓＋splitの終盤平均は179.99だったが、AUCは−24.37〜78.15と広く、終了窓mergeと同じ帯だった（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ・対照・教材と解釈の限界。Run: `run_20261029-162638_t104r1_ctl_s1` / `run_20261029-230213_t104r1_spl_s3`ほか同記録）。
 - 分離×合算（J=4）と無効の2M終了checkpointを評価専用Runで各条件1,600局（400局×4 session）比べると、報酬の3seed平均はUQE τ0.25がfull 215.06・single 214.93・無効168.00、Greedyがfull 214.94・single 215.96・無効167.19だった。同じ重みのsingle−fullは−1.14〜+2.97で符号が揃わず、sessionの範囲も重なった。合算のfull・singleは3seedとも同じ番号の無効の最大より最小が高かった。Greedyの局の長さの平均はfull 158.2、single 176.6、無効314.2 stepだった。singleと無効はどちらも毎step判断するので、この差は評価時の行動の選び方ではなく学習済みの重みの差である（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、現時点のまとめ7・同じ重みのfullとsingleの評価。Run: `run_20261104-233950_ll_ev_mrg_s1` / `run_20261104-234427_ll_ev_off_s1`ほか同節の6本）。
 
 - matched 3-seedのQR/IQN比較ではホバリング離脱の早さに明確な差はなく、離脱後のT180到達と終盤rewardはIQNが有利な可能性を示した。（出典: [2026-08-08_iqn.md](../../experiments/default-dqn/lunarlander/2026-08-08_iqn.md)、現時点のまとめ3・9・10）。
@@ -49,12 +50,13 @@ PRD104のSingle行動変化窓は同seedの無効を3本ともAUCで改善した
 
 ## 分かっていないこと
 
-- STOPでも立ち上がりが改善する原因は何か。Single行動変化窓の改善は補助勾配の効果か、それ以外の学習過程の変化か（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、ステージ0との関係・残る問い）。
+- Single行動変化窓（補助のlossの勾配を共有部へ返す）は、無効と別の分布か（出典: [STOP×Singleと無効のbit比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-stop-single-bit-compare.md)、解釈の限界と残る問い）。
 - 無効の局が長いのはなぜか（出典: [Singleの7群比較](../../experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md)、同じ重みのfullとsingleの評価の解釈の限界）。
 - Trainの繰り返しが効く経路は、訪れる状態が広がることか、TDの学習がしやすくなることか。繰り返す期間は8,192と500,000のあいだのどこまで短くできるか。補助の勾配を止め、長さを無作為にし、繰り返しを序盤だけにする組み合わせでも基準と同じ帯か（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、解釈の限界と残る問い）。
 
 ## 撤回・更新
 
+- 2026-11-06: 「STOPでも立ち上がりが改善し、原因は分からない」→「STOP×Singleは決定的モードのseed 1で乱数とtargetのforwardを分けると無効と全点一致し、無効の別の標本だった。改善に見えた差は偶然である」（出典: [STOP×Singleと無効のbit比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-stop-single-bit-compare.md)、現時点のまとめ1〜4）。
 - 2026-11-05: 「通常TempoRLと無効の重みの差を作ったのが、学習中の繰り返しか、補助のlossか、その組み合わせかは分からない」→「序盤のTrainの繰り返しで説明できる。warmupの間だけでは足りず、学習した長さ、0.5Mより後の繰り返し、補助の勾配、評価時の繰り返しは、それぞれ無くても基準と同じ帯だった。同時に外した組み合わせは測っていない」（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ1〜4）。
 - 2026-11-05: 「立ち上がりの速さの差が同じ重みの評価でどう分かれるかは分からない」→「基準の同じRunのfullとsingleは立ち上がりでも同じ帯だった」（出典: [Trainの繰り返しの時期と長さの比較](../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、現時点のまとめ5）。
 
