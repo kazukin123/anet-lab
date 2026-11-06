@@ -723,3 +723,5 @@
 2026-11-06 ingest docs/experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md blob:014454f5de95a346bae722826bb0cc6d616ad7d6 → docs/wiki/subjects/lunarlander.md, docs/wiki/mechanisms/temporal_abstraction.md（STOP対照が無効の別の標本と分かった追記を、撤回・更新へ反映）
 2026-11-06 ingest docs/experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md blob:8b751e802b2677df95e90fd73e8840a468acb850 → なし（STOP対照の読みの追記だけで、差が確定しないという項目の主張は変わっていない）
 2026-11-06 ingest docs/experiments/default-dqn/lunarlander/README.md blob:cb67e61bf9e3bf46fec82b44d9552941875247ce → なし（campaign 表に行を足しただけで、独自の分析は変わっていない）
+2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:9893b46b39122ac6a041f504644c5a28fcbf603d → docs/wiki/mechanisms/intrinsic_novelty.md, docs/wiki/index.md（暫定。RND 単独の腕の切り出しと、一生の新しさの口の形）
+2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:fdd82ca5cb786cf40e4741fbf003d6e56dec278e → なし（口の形をユーザーが確認した行を冒頭に足しただけで、主張は変わっていない）
