@@ -36,7 +36,7 @@
     {"key": "317_metrics", "label": "317 可視化/メトリクス", "topic": 13, "match": ["/(metrics|metrics_impl|metrics_logger|metrics_logger_impl|heat_map|graphviz|probe)\\.(cpp|hpp)$"]},
     {"key": "318_rl_core", "label": "318 強化学習 共通基盤", "topic": 14, "match": ["/(rl|trainer|replay_buffer|replay_buffer_impl|muzero_rb|serialize|observers|episode_end)\\.(cpp|hpp)$"]},
     {"key": "320_env_core", "label": "320 Env 共通基盤", "topic": 16, "match": ["/env\\.(cpp|hpp)$"]},
-    {"key": "321_agent_core", "label": "321 Agent 共通基盤", "topic": 17, "match": ["/(agent|dqn_based_agent|dqn_based_heads|dqn_based|dqn_munchausen|muzero_based_agent)\\.(cpp|hpp)$"]},
+    {"key": "321_agent_core", "label": "321 Agent 共通基盤", "topic": 17, "match": ["/(agent|dqn_based_agent|dqn_based_heads|dqn_based|dqn_munchausen|muzero_based_agent|intrinsic|intrinsic_rnd)\\.(cpp|hpp)$"]},
     {"key": "324_dqn", "label": "324 AGENT個別実装 DQN系列", "topic": 20, "match": ["/(default_dqn_agent|rainbow_agent|image_cls_agent)\\.(cpp|hpp)$"]},
     {"key": "325_muzero", "label": "325 AGENT個別実装 MuZero系列", "topic": 21, "match": ["/(muzero_proto_agent)\\.(cpp|hpp)$"]},
     {"key": "313_profiling", "label": "313 プロファイリング", "topic": 9, "match": ["/profile\\.(cpp|hpp)$"]},

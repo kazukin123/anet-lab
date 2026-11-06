@@ -9,6 +9,7 @@
 #include "anet/common.hpp"
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
+#include "anet/serialize.hpp"
 
 namespace anet::rl {
 
@@ -16,7 +17,7 @@ namespace anet::rl {
     // ObservationNormalizer
     // =============================================================
 
-    class ObservationNormalizer : virtual public Module {
+    class ObservationNormalizer : virtual public Module, public anet::Serializable {
     public:
         virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
         virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
@@ -60,6 +61,9 @@ namespace anet::rl {
 
         // dynamicなScalerの種類が増えたらそのアルゴリズムを指定する設定を追加
     };
+
+    /// 正規化設定が所有する値域を、呼び出し側の論理キーで検証する。
+    void ValidateObservationNormalizerConfig(const ObservationNormalizerConfig& config, const std::string& prefix);
 
     class ObservationNormalizerFactory {
     public:

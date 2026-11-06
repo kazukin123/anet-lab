@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:71b8e423ca9be9100d445a642faadd40331220dd date:2026-11-04 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:495b1985b7d8d9dd2198254307361689156c6b3c date:2026-11-06 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -206,6 +206,12 @@ Actors using shared Networks invoke Policy under a shared lock to avoid conflict
 
 ### 6.2 Experience Acceptance and Learning Updates
 
+See [212 RND Novelty and Intrinsic Rewards (Japanese)](212_rnd_lifelong_novelty.jp.md) for basic concepts, formulas and processing order, and configuration and metric examples.
+
+With `intrinsic.enabled=true`, the DefaultDQN facade scores next observations under its existing write lock after external reward scaling. It adds `beta(exp_step) * (alpha - 1)`, masking done lanes to zero while retaining bonuses for truncated lanes. The combined reward enters Replay; Actor, Replay schema, and Q optimizers are unchanged. With `learner.enabled=false`, it warns once and suspends intrinsic scoring and training.
+
+RND owns a fixed target and a predictor, separate observation normalization, cumulative error statistics, AdamW, and a training RNG. Noncategorical byte observations become float inside RND. Scoring uses previous statistics, then updates them. Warm-up counts scoring calls and returns one without training. Afterwards, the multiplier is `clamp(1 + (e - mean) / std, 1, multiplier_max)`, or one without a usable variance. Randomly selected lanes contribute to the MSE. The scoring graph is reused for training; backward computation can span the full batch. CPU normalization requires an input H2D transfer and one error D2H transfer per batch on CUDA.
+
 ```mermaid
 sequenceDiagram
     participant R as TrainRunner
@@ -354,6 +360,8 @@ See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) f
 
 ### 7.2 Configuration Groups
 
+Intrinsic reward uses facade-owned `intrinsic.enabled` and nonnegative ProfiledValue `intrinsic.beta`; the factory interprets opaque `intrinsic.rnd.*`. Defaults reside in `agent.txt` baseline. Atari, GridMaze and LunarLander provide `run.@rnd`, selecting the body and group 56 metrics. Append it to the existing run chain. Disabled mode does not interpret beta/RND leaves or construct intrinsic networks, optimizer, statistics, or diagnostic keys. The public interface is in `intrinsic.hpp`; RND and its configuration remain private in `intrinsic_rnd.hpp/.cpp`.
+
 | Group | Main responsibilities |
 |---|---|
 | Network/Head | `quantile_mode=none|qr|iqn`, QR quantile count, Dueling, initialization, online/target synchronization |
@@ -397,6 +405,10 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 ### 8.2 Checkpoints
 
+The version-1/version-2 descriptions below use `intrinsic.enabled=false` as their baseline. Enabled mode also saves and restores the additional section described next.
+
+Intrinsic-enabled DefaultDQN appends `;intrinsic` to its existing header identifier and writes an RND section after the learner. It contains both networks, AdamW moments/step, observation normalization, error statistics, scoring count, and training RNG. Loading requires the section presence to match the current enabled setting. Current optimizer options replace saved options. Disabled mode retains the previous identifier, configuration string, and payload layout.
+
 The `split` optimizer adds `primary_skip` to the ordinary four roles, saving the additional optimizer's moments and step. Loading a four-role checkpoint into split initializes the added state and warns once; loading five roles into stop/merge is rejected. After restoration, the additional optimizer also receives current lr, eps, and betas, retaining zero weight decay. Stop/merge save formats are unchanged.
 
 DefaultDQNAgent save formats are identified by version-1 `DefaultDQNAgent` and version-2 `DefaultDQNAgent-2`. Their identifiers are centralized as `kCheckpointFormatV1` and `kCheckpointFormatV2` in default_dqn_agent.cpp, shared by writing, reading, and diagnostics. Disabled skip saves existing version 1; enabled skip saves version 2 containing primary and skip online/target Networks. Byte layout beyond the identifier is unchanged. Optimizers save role names and state for primary ordinary, primary σ, skip ordinary, and skip σ groups. Loading matches groups by saved roles, restores moments and steps, then applies current options by role. Empty σ groups retain their roles.
@@ -410,7 +422,7 @@ The current DefaultDQN checkpoint does not save or restore:
 - ReplayBuffer contents, generations, priorities, normal sample RNG, or prefetch state
 - Plasticity/policy churn probe RNGs and policy churn measurement State during an update
 - Learning progress State such as `RuntimeVars`, update credit, warmup latch, and PER beta
-- RewardScaler and ObservationNormalizer statistics
+- External RewardScaler and Q-input ObservationNormalizer statistics (RND statistics are saved in its separate section)
 - Run StepCounts and metric series
 - Actor-private snapshots, synchronization interval runtime, last sync step, or Actor RNGs
 
@@ -427,6 +439,8 @@ Network SN u/v are named buffers and are saved/restored with the online/target N
 ## 9. Observability, Performance, and Errors
 
 ### 9.1 Metrics
+
+Group `56_agent_in` reads `$agent intrinsic.<key> @learn`: `bonus_mean`, `bonus_max`, and `bonus_share` use the weighted, done-masked bonus; share divides its sum by the sum of absolute external rewards plus bonuses (NaN for zero denominator). `error_mean`/`error_std` describe cumulative error, `error_step` the current mean, `clip_ratio` the fraction at the multiplier cap, and `predictor_loss` the training loss. Unavailable values are NaN; disabled keys return nullopt. Fixed diagnostic keys hold atomic values, so UI reads acquire no additional lock.
 
 - `DQNActionInfo` carries the Action, auxiliary Q/quantile information, and an optional replay initial-priority hint.
 - `episode_start_action_uqe_margin.[i]` and `episode_start_action_q_margin.[i]` average the difference between action `i` and the best other action over episode-start lanes in the batch. The UQE version uses UQE values; the Q version uses Q-related scores from the network output, remaining in h-space even with TBO. With IQN+UQE, both use the same risk-biased action score, not full-distribution `E[Z]`. Steps without episode-start lanes return `NaN` and skip scalar output.
@@ -555,6 +569,8 @@ Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Ten
 Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
 
 ## 10. Tests and Extension Checklist
+
+See [PRD116 validation](../../core/anet-core/testdata/prd116/README.md) for intrinsic scoring, training, checkpoint continuation, disabled equivalence, profiles, and smoke runs. Measure performance separately without competing runs.
 
 See [PRD106 validation assets](../../core/anet-core/testdata/prd106/README.md) for Actor skip NN execution settings, exact equality across seven defaults, all-key comparisons of four Envs with default/skip configurations, and isolation through qbert evaluation.
 

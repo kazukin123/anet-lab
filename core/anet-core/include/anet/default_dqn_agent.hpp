@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <memory>
+#include <atomic>
 #include <sstream>
 #include <torch/torch.h>
 
@@ -13,6 +14,7 @@
 #include "anet/agent.hpp"
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
+#include "anet/intrinsic.hpp"
 
 namespace anet::rl {
     class FrameStacker;
@@ -76,6 +78,11 @@ namespace anet::rl::dqn {
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
         struct {
+            bool enabled = false;
+            anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
+            anet::ConfigData rnd; ///< Factory へ渡す opaque な構築設定（共有 NN カタログを含む）。
+        } intrinsic;
+        struct {
             bool use_dueling = true;
             anet::nn::WeightInitConfig init;
             anet::ConfigData projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
@@ -101,6 +108,21 @@ namespace anet::rl::dqn {
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
         {
+            ANET_READ_CONFIG(config_data, intrinsic.enabled);
+            if (intrinsic.enabled) {
+                ANET_READ_CONFIG(config_data, intrinsic.beta);
+                intrinsic.rnd = config_data;
+                const auto prefix = MakeDefaultConfigKey("intrinsic.rnd") + ".";
+                for (const auto& [key, value] : config_data.Map()) {
+                    if (!key.starts_with(prefix)) continue;
+                    const auto relative = key.substr(GetConfigPrefix().size() + 1);
+                    my_config_data_.Set(relative, value);
+                    my_config_json_[relative] = value;
+                }
+            } else {
+                // 無効時の checkpoint 内の設定文字列を従来と同一にする。
+                my_config_json_.erase("intrinsic.enabled");
+            }
             // Head 射影の構築設定は opaque にコピーし、固有の項目を Agent で読み取らない。
             const auto projection_prefix = MakeDefaultConfigKey("head.projection") + ".";
             for (const auto& [key, value] : config_data.Map()) {
@@ -660,6 +682,9 @@ namespace anet::rl::dqn {
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
+        std::unique_ptr<anet::rl::intrinsic::LifelongNoveltyEstimator> lifelong_novelty_;
+        std::optional<anet::ProfiledValue<float>> intrinsic_beta_;
+        std::map<std::string, std::atomic<float>> intrinsic_diagnostics_; ///< キーは構築時に固定。UI は値だけ読む。
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource
         std::shared_ptr<anet::RandomGenerator> policy_churn_probe_random_; ///< policy churn probe 専用 Resource

@@ -96,7 +96,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | 2 | [issue-20261104-cc2529](../../management/issues/issue-20261104-cc2529.md) | 未着手 | 3.6 | 高 | — | 成果物 | PRD | 317_metrics, 322_env_individual | 索引 | 実装済み | 画像メモリの所有権とDropMergeのNOOP判定の修正 PRD |
 | 3 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app, 317_metrics, 312_util, 322_env_individual | 索引 | 未確認 | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | 4 | [issue-20261103-71c4f4](../../management/issues/issue-20261103-71c4f4.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 315_nn, 317_metrics, 321_agent_core | 索引 | 未確認 | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
-| 5 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | 索引 | 未確認 | RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD |
+| 5 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | 索引 | 実装済み | RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD |
 | 6 | [issue-20261103-dd8058](../../management/issues/issue-20261103-dd8058.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 317_metrics | 不具合 | 直った見込み | wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する） |
 | 7 | [issue-20261103-e6dbb4](../../management/issues/issue-20261103-e6dbb4.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 317_metrics | 改善 | 残っている | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
 | 8 | [issue-20261103-eeb2c3](../../management/issues/issue-20261103-eeb2c3.md) | 未着手 | 1.7 | 低 | — | 成果物 | 監査 | 317_metrics | ずれ | 残っている | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |

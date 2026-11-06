@@ -14,7 +14,7 @@ namespace anet::rl {
      * @brief 並列Welfordアルゴリズムを用いて、ストリームデータの平均と分散を逐次計算するクラス。
      * Reward Scaling (Scalar) と Observation Normalization (Vector) の両方で使用可能。
      */
-    class RunningMeanStd {
+    class RunningMeanStd : public anet::Serializable {
     public:
         /**
          * @param shape 統計を取るデータの形状。
@@ -27,6 +27,8 @@ namespace anet::rl {
         virtual ~RunningMeanStd() = default;
 
         void Reset();
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
 
         /**
          * @brief バッチデータを入力して統計情報を更新する
@@ -63,7 +65,7 @@ namespace anet::rl {
     // SingleTensorNormalizer (内部用インターフェース)
     // =============================================================
 
-    class SingleTensorNormalizer : virtual public ModuleBase {
+    class SingleTensorNormalizer : virtual public ModuleBase, public anet::Serializable {
     public:
         virtual torch::Tensor Normalize(const torch::Tensor& obs) const = 0;
         virtual torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) = 0;
@@ -78,6 +80,8 @@ namespace anet::rl {
 
     class ConstantSingleTensorNormalizer : public SingleTensorNormalizer {
     public:
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
         ConstantSingleTensorNormalizer(bool pass_through,
             const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
             const std::vector<float>& fixed_mean = {}, // 空なら 0.0
@@ -112,6 +116,8 @@ namespace anet::rl {
 
     class RunningStdSingleTensorNormalizer : public SingleTensorNormalizer {
     public:
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
         RunningStdSingleTensorNormalizer(
             const std::optional<float>& clip_range,
             const std::vector<int64_t>& shape, float epsilon,
@@ -152,6 +158,8 @@ namespace anet::rl {
 
     class DictObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
     public:
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
         DictObservationNormalizer() = default;
 
         // 初期化時にKeyごとのNormalizerを登録する

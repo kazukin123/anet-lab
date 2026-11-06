@@ -204,6 +204,12 @@ sequenceDiagram
 
 ### 6.2 Experience受入れと学習更新
 
+RND の基本概念、数式と処理順、設定・指標の具体例は [212 RND による新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
+
+DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼ぶ。次観測を採点し、`beta(exp_step) × (alpha − 1)` を加算する。done の lane の bonus は0、truncated だけの lane は加算する。Replay へ渡す報酬に畳み込むため、Actor、Replay の形式、Q の optimizer は変えない。`learner.enabled=false` では一度 WARN し、採点と補助学習を休止する。
+
+RND は独立した固定 target と predictor を所有する。専用の観測正規化で更新前の統計を使い、採点後に観測統計と予測誤差の累積統計を更新する。非カテゴリの uint8 は RND 内で float に変換する。warm-up は batch Env step の採点回数で数え、倍率1・補助学習なしとする。その後は更新前の誤差統計から `clamp(1 + (e − mean) / std, 1, multiplier_max)` を返す（分散未成立時は1）。独立 RNG で選んだ lane の MSE を私有 AdamW で更新する。採点の predictor グラフを使うため追加 forward はなく、逆伝播の計算幅は最大 B である。CPU で正規化した入力の H2D と、誤差の D2H を各 batch で行う。
+
 ```mermaid
 sequenceDiagram
     participant R as TrainRunner
@@ -360,6 +366,9 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | Learner | 学習の有効化(`enabled`)、optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
+| 内的報酬 | `intrinsic.enabled`、ProfiledValue の `intrinsic.beta`、Factory が解釈する `intrinsic.rnd.*` |
+
+RND の既定は `agent.txt` の `@baseline` に置く。Atari・GridMaze・LunarLander の `run.@rnd` は有効化、観測から独立に組む Body、群56の指標を選ぶ。既存 `run.$` の末尾へ追加して使う。無効時は beta と RND の葉を解釈せず、Network・optimizer・統計・診断キーを生成しない。公開ヘッダは `intrinsic.hpp`、実装と設定 DTO は `intrinsic_rnd.hpp/.cpp` に分離し、DQN は具体型を参照しない。
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
@@ -395,6 +404,10 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 ### 8.2 checkpoint
 
+以下の第1版・第2版の説明は `intrinsic.enabled=false` を基準とする。有効時は次の追加節も保存・復元する。
+
+内的報酬が有効な DefaultDQN は、従来の識別子へ `;intrinsic` を付け、Learner の後へ RND の節を追加する。固定 target、predictor、AdamW の moment/step、観測正規化、誤差統計、採点回数、学習用 RNG を保存する。読込時は有効設定と節の有無が一致しなければ fail-fast する。optimizer options は現在設定を優先する。無効時の識別子・設定文字列・payload の配置は従来どおりである。
+
 `split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
 DefaultDQNAgent全体の保存形式は、第1版の `DefaultDQNAgent` と第2版の `DefaultDQNAgent-2` で識別する。識別子はdefault_dqn_agent.cpp内の `kCheckpointFormatV1` / `kCheckpointFormatV2` に一元化し、書込・読込・診断で共有する。skip無効時は既存の第1版、skip有効時はprimaryとskipのonline／targetの4 Networkを持つ第2版を保存する。識別子以外のバイト配置は変更しない。optimizer は primary通常・primaryσ・skip通常・skipσの役割名と状態を保存する。読み込み時は保存された役割でgroupを対応付け、momentとstepを復元してから現在のoptionsを役割ごとに適用する。空のσ groupも役割を保持する。
@@ -408,7 +421,7 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 - ReplayBufferの内容、generation、priority、通常sample RNG、prefetch状態
 - plasticity/policy churn probe RNGと、update途中のpolicy churn測定State
 - `RuntimeVars`、update credit、warmup latch、PER betaなどの学習進行State
-- RewardScalerとObservationNormalizerの統計
+- 外的報酬の RewardScaler と Q 入力用 ObservationNormalizer の統計（RND 専用の統計は上記の節へ保存する）
 - RunのStepCountsとmetric系列
 - Actor-private snapshot、同期周期runtime、last sync step、Actor RNG
 
@@ -425,6 +438,8 @@ NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target
 ## 9. 可観測性・性能・エラー
 
 ### 9.1 metric
+
+内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max` は beta 倍と done マスク後の値、`bonus_share` は内的報酬の和を「外的報酬の絶対値の和＋内的報酬の和」で割る（分母0はNaN）。`error_mean`・`error_std` は累積統計、`error_step` は今回の誤差平均、`clip_ratio` は倍率上限に達した lane の比率、`predictor_loss` は更新時の損失である。未採点・未更新はNaN、無効時はキーが無く nullopt。構築時にキーを固定した atomic の診断値を読むため、UI 読み出しで新たなロックを取らない。
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
 - `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力のQ系scoreを使い、TBO有効時もh空間のまま扱う。IQN+UQEでは両者が同じrisk-biased action scoreになり、full-distributionの`E[Z]`ではない。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。
@@ -553,6 +568,8 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
+
+内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [PRD116 検証資材](../../core/anet-core/testdata/prd116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
 
 Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[PRD106検証資材](../../core/anet-core/testdata/prd106/README.md)を参照する。
 

@@ -8,6 +8,119 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+constexpr char kRunningStatsFormat[] = "RunningMeanStd-1";
+constexpr char kConstantNormalizerFormat[] = "ConstantSingleTensorNormalizer-1";
+constexpr char kRunningNormalizerFormat[] = "RunningStdSingleTensorNormalizer-1";
+constexpr char kDictNormalizerFormat[] = "DictObservationNormalizer-1";
+
+static int64_t ReadNormalizerFormat(anet::InputArchive& archive, const char* expected)
+{
+    std::string actual;
+    const auto bytes = archive.Read(actual);
+    if (actual != expected)
+        ANET_SYSTEM_ERROR("Invalid normalizer checkpoint format='" << actual << "' expected='" << expected << "'.");
+    return bytes;
+}
+
+int64_t RunningMeanStd::Save(anet::OutputArchive& archive) const
+{
+    // 平均・分散だけでなく、再開後の Welford 合成に必要な M2 と件数を保存する。
+    int64_t bytes = archive.Write(std::string(kRunningStatsFormat));
+    bytes += archive.Write(count_);
+    bytes += archive.Write(mean_);
+    bytes += archive.Write(var_);
+    bytes += archive.Write(m2_);
+    return bytes;
+}
+
+int64_t RunningMeanStd::Load(anet::InputArchive& archive)
+{
+    int64_t bytes = ReadNormalizerFormat(archive, kRunningStatsFormat);
+    int64_t count;
+    torch::Tensor mean, variance, m2;
+    bytes += archive.Read(count);
+    bytes += archive.Read(mean);
+    bytes += archive.Read(variance);
+    bytes += archive.Read(m2);
+    // 現在の観測仕様と一致する状態だけを公開する。
+    if (count < 0) ANET_SYSTEM_ERROR("Invalid RunningMeanStd.count=" << count << "; expected >= 0.");
+    for (const auto& tensor : {mean, variance, m2}) {
+        if (tensor.sizes() != mean_.sizes() || tensor.scalar_type() != torch::kDouble
+            || !tensor.device().is_cpu() || !torch::isfinite(tensor).all().item<bool>())
+            ANET_SYSTEM_ERROR("Invalid RunningMeanStd checkpoint tensor; expected finite CPU double with shape=" << mean_.sizes());
+    }
+    if ((variance < 0).any().item<bool>() || (m2 < 0).any().item<bool>())
+        ANET_SYSTEM_ERROR("Invalid RunningMeanStd variance or M2; expected >= 0.");
+    count_ = count;
+    mean_ = mean;
+    var_ = variance;
+    m2_ = m2;
+    return bytes;
+}
+
+int64_t ConstantSingleTensorNormalizer::Save(anet::OutputArchive& archive) const
+{
+    auto bytes = archive.Write(std::string(kConstantNormalizerFormat));
+    bytes += archive.Write(last_clip_ratio_);
+    return bytes;
+}
+
+int64_t ConstantSingleTensorNormalizer::Load(anet::InputArchive& archive)
+{
+    auto bytes = ReadNormalizerFormat(archive, kConstantNormalizerFormat);
+    bytes += archive.Read(last_clip_ratio_);
+    return bytes;
+}
+
+int64_t RunningStdSingleTensorNormalizer::Save(anet::OutputArchive& archive) const
+{
+    auto bytes = archive.Write(std::string(kRunningNormalizerFormat));
+    bytes += stats_.Save(archive);
+    bytes += archive.Write(last_clip_ratio_);
+    bytes += archive.Write(last_outlier_ratio_);
+    return bytes;
+}
+
+int64_t RunningStdSingleTensorNormalizer::Load(anet::InputArchive& archive)
+{
+    auto bytes = ReadNormalizerFormat(archive, kRunningNormalizerFormat);
+    bytes += stats_.Load(archive);
+    bytes += archive.Read(last_clip_ratio_);
+    bytes += archive.Read(last_outlier_ratio_);
+    return bytes;
+}
+
+int64_t DictObservationNormalizer::Save(anet::OutputArchive& archive) const
+{
+    // unordered_map の列挙順に保存バイト列を依存させない。
+    auto bytes = archive.Write(std::string(kDictNormalizerFormat));
+    bytes += archive.Write(static_cast<int64_t>(normalizers_.size()));
+    const std::map<std::string, std::shared_ptr<SingleTensorNormalizer>> ordered(normalizers_.begin(), normalizers_.end());
+    for (const auto& [key, normalizer] : ordered) {
+        bytes += archive.Write(key);
+        bytes += normalizer->Save(archive);
+    }
+    return bytes;
+}
+
+int64_t DictObservationNormalizer::Load(anet::InputArchive& archive)
+{
+    auto bytes = ReadNormalizerFormat(archive, kDictNormalizerFormat);
+    int64_t count;
+    bytes += archive.Read(count);
+    if (count != static_cast<int64_t>(normalizers_.size()))
+        ANET_SYSTEM_ERROR("Invalid normalizer checkpoint key count=" << count << "; expected=" << normalizers_.size());
+    const std::map<std::string, std::shared_ptr<SingleTensorNormalizer>> ordered(normalizers_.begin(), normalizers_.end());
+    for (const auto& [expected, normalizer] : ordered) {
+        std::string key;
+        bytes += archive.Read(key);
+        if (key != expected)
+            ANET_SYSTEM_ERROR("Invalid normalizer checkpoint key='" << key << "'; expected='" << expected << "'.");
+        bytes += normalizer->Load(archive);
+    }
+    return bytes;
+}
+
 
 // =============================================================
 // RunningMeanStd
@@ -550,6 +663,29 @@ std::optional<float> DictObservationNormalizer::GetScalar(const std::string& key
 // =============================================================
 // ObservationNormalizerFactory
 // =============================================================
+
+void anet::rl::ValidateObservationNormalizerConfig(
+    const ObservationNormalizerConfig& config, const std::string& prefix)
+{
+    // 値域は正規化機構の共通契約として検証し、利用側の種類を知らない。
+    const auto positive = [&](float value, const char* leaf) {
+        if (!std::isfinite(value) || value <= 0.0f)
+            ANET_SYSTEM_ERROR("Invalid " << prefix << "." << leaf << "=" << value << "; expected finite > 0.");
+    };
+    positive(config.clip_range, "clip_range");
+    positive(config.epsilon, "epsilon");
+    positive(config.robust_std_threshold, "robust_std_threshold");
+    positive(config.post_process_threshold, "post_process_threshold");
+    if (config.robust_warmup_count < 0)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".robust_warmup_count=" << config.robust_warmup_count << "; expected >= 0.");
+    if (config.post_process_type < kPostProcessNone || config.post_process_type > kPostProcessSoftsign)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".post_process_type=" << config.post_process_type << "; expected 0..3.");
+    for (const auto value : config.constant_mean) {
+        if (!std::isfinite(value))
+            ANET_SYSTEM_ERROR("Invalid " << prefix << ".constant_mean=" << value << "; expected finite.");
+    }
+    for (const auto value : config.constant_std) positive(value, "constant_std");
+}
 
 ObservationNormalizerFactory::ObservationNormalizerFactory(const ObservationNormalizerConfig& config)
     : config_(config)

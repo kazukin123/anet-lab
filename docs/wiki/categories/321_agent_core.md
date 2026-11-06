@@ -123,11 +123,14 @@
 点検が作り直す。手で直さない。
 
 - [agent.hpp](../../../core/anet-core/include/anet/agent.hpp)
+- [intrinsic.hpp](../../../core/anet-core/include/anet/intrinsic.hpp)
 - [agent.cpp](../../../core/anet-core/src/agent.cpp)
 - [dqn_based_test.cpp](../../../core/anet-core/src/dqn_based_test.cpp)
 - [dqn_based_agent.cpp](../../../core/anet-core/src/dqn_based_agent.cpp) / [dqn_based_agent.hpp](../../../core/anet-core/src/dqn_based_agent.hpp) / [dqn_based_agent_test.cpp](../../../core/anet-core/src/dqn_based_agent_test.cpp)
 - [dqn_based_heads.cpp](../../../core/anet-core/src/dqn_based_heads.cpp) / [dqn_based_heads.hpp](../../../core/anet-core/src/dqn_based_heads.hpp)
 - [dqn_munchausen_test.cpp](../../../core/anet-core/src/dqn_munchausen_test.cpp)
+- [intrinsic.cpp](../../../core/anet-core/src/intrinsic.cpp) / [intrinsic_test.cpp](../../../core/anet-core/src/intrinsic_test.cpp)
+- [intrinsic_rnd.cpp](../../../core/anet-core/src/intrinsic_rnd.cpp) / [intrinsic_rnd.hpp](../../../core/anet-core/src/intrinsic_rnd.hpp)
 - [muzero_based_agent.cpp](../../../core/anet-core/src/muzero_based_agent.cpp) / [muzero_based_agent.hpp](../../../core/anet-core/src/muzero_based_agent.hpp)
 
 ## PRD の一覧
@@ -174,7 +177,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | 7 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core | 索引 | 未確認 | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）暫定 PRD |
 | 8 | [issue-20261103-a86dcc](../../management/issues/issue-20261103-a86dcc.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util, 321_agent_core, 324_dqn | 索引 | 未確認 | eval スケジュールの初回発火の抑止 暫定 PRD |
 | 9 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 321_agent_core | 索引 | 未確認 | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD |
-| 10 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | 索引 | 未確認 | RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD |
+| 10 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | 索引 | 実装済み | RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD |
 | 11 | [issue-20261103-72f807](../../management/issues/issue-20261103-72f807.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 不具合 | 残っている | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | 12 | [issue-20261103-741251](../../management/issues/issue-20261103-741251.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 改善 | 残っている | BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖 |
 | 13 | [issue-20261103-ab98b7](../../management/issues/issue-20261103-ab98b7.md) | 未着手 | 2.2 | 中 | — | 成果物 | 監査 | 321_agent_core | 改善 | 残っている | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |

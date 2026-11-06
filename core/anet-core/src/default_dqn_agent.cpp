@@ -28,6 +28,12 @@ namespace {
 // Agent全体の保存形式。第1版の識別子は既存primary checkpointのため保持する。
 constexpr char kCheckpointFormatV1[] = "DefaultDQNAgent";
 constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
+constexpr char kCheckpointIntrinsicV1[] = "DefaultDQNAgent;intrinsic";
+constexpr char kCheckpointIntrinsicV2[] = "DefaultDQNAgent-2;intrinsic";
+constexpr char kIntrinsicPrefix[] = "intrinsic.";
+constexpr char kIntrinsicBonusMean[] = "intrinsic.bonus_mean";
+constexpr char kIntrinsicBonusMax[] = "intrinsic.bonus_max";
+constexpr char kIntrinsicBonusShare[] = "intrinsic.bonus_share";
 constexpr const char* kSkipStructureTag = "skip.net.structure";
 constexpr const char* kSkipDetailTag = "skip.net.detail";
 constexpr const char* kSkipNetworkSeed = "skip_network";
@@ -86,6 +92,20 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->vars_ = std::make_unique<RuntimeVars>();
 
     const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
+
+    // 内的報酬の推定器と診断を初期化
+    if (config_.intrinsic.enabled) {
+        lifelong_novelty_ = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            config_.intrinsic.rnd, config_.GetConfigPrefix() + ".intrinsic.rnd",
+            env_spec.state_spec.obs_spec, device_, seed_maker);
+        intrinsic_beta_.emplace(config_.intrinsic.beta);
+        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
+            intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
+        for (const auto key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare})
+            intrinsic_diagnostics_.try_emplace(key, std::numeric_limits<float>::quiet_NaN());
+        if (!config_.learner.enabled)
+            LOG::warn() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
+    }
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
@@ -303,6 +323,8 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     // ヘッダ
     anet::ArchiveHeader header;
     header.info = config_.skip.enabled ? kCheckpointFormatV2 : kCheckpointFormatV1;
+    if (lifelong_novelty_)
+        header.info = config_.skip.enabled ? kCheckpointIntrinsicV2 : kCheckpointIntrinsicV1;
     auto header_size = archive.Write(header);
 	total_size += header_size;
 
@@ -321,6 +343,7 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     // Learner(Adam)
     auto adam_size = learner_->Save(archive);
 	total_size += adam_size;
+    if (lifelong_novelty_) total_size += lifelong_novelty_->Save(archive);
 
     // ログ
     LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
@@ -351,11 +374,16 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
     LOG::info() << "LoadNetwork: config: len=" << config_len;
     LOG::verbose() << "LoadNetwork: config: config_str=\n" << config_str;
 
-    const bool has_skip = header.info == kCheckpointFormatV2;
-    if (header.info != kCheckpointFormatV1 && !has_skip) {
+    const bool has_intrinsic = header.info == kCheckpointIntrinsicV1 || header.info == kCheckpointIntrinsicV2;
+    const bool has_skip = header.info == kCheckpointFormatV2 || header.info == kCheckpointIntrinsicV2;
+    if (header.info != kCheckpointFormatV1 && header.info != kCheckpointFormatV2 && !has_intrinsic) {
         ANET_SYSTEM_ERROR("Invalid DefaultDQN checkpoint header='" << header.info
-            << "'; expected " << kCheckpointFormatV1 << " or " << kCheckpointFormatV2 << ".");
+            << "'; expected " << kCheckpointFormatV1 << ", " << kCheckpointFormatV2
+            << ", " << kCheckpointIntrinsicV1 << " or " << kCheckpointIntrinsicV2 << ".");
     }
+    if (has_intrinsic != config_.intrinsic.enabled)
+        ANET_SYSTEM_ERROR("Checkpoint header='" << header.info << "' intrinsic=" << has_intrinsic
+            << "; expected intrinsic=" << config_.intrinsic.enabled << " from DefaultDQNAgent.intrinsic.enabled.");
     if (has_skip && !config_.skip.enabled) ANET_SYSTEM_ERROR("Checkpoint contains skip networks but DefaultDQNAgent.skip.enabled=false.");
 
 	// Network
@@ -364,6 +392,11 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
 
 	// Learner
 	auto learner_size = learner_->LoadCheckpoint(in, has_skip);
+    if (lifelong_novelty_) {
+        lifelong_novelty_->Load(in);
+        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
+            intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+    }
     LOG::info() << "LoadNetwork: learner_size=" << learner_size;
     if (config_.skip.enabled && !has_skip) {
         LOG::warn() << "Checkpoint has no skip networks; restored primary networks and optimizer state, initialized skip networks and optimizer groups. file=" << filename;
@@ -426,6 +459,11 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
+    if (key.starts_with(kIntrinsicPrefix)) {
+        const auto it = intrinsic_diagnostics_.find(key);
+        if (it == intrinsic_diagnostics_.end()) return std::nullopt;
+        return it->second.load(std::memory_order_relaxed);
+    }
     // プレフィックスで各 Policy インスタンスへ処理を委譲
     if (anet::StartsWith(key, "target_policy.")) return target_policy_->GetScalar(anet::RemovePrefix(key, "target_policy."), index);
 
@@ -633,6 +671,23 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 
         // RewardScaler
         auto scaled_rewards = this->reward_scaler_->Scale(batch_exp.reward);
+
+        if (lifelong_novelty_ && config_.learner.enabled) {
+            ANET_PROFILE_SCOPE(intrinsic_reward);
+            const auto alpha = lifelong_novelty_->Multiplier(batch_exp.next_state.obs);
+            const auto bonus = (intrinsic_beta_->Evaluate(counts.exp_step) * (alpha - 1.0f))
+                .masked_fill(batch_exp.next_state.done, 0.0f);
+            const float bonus_sum = bonus.sum().item<float>();
+            const float denominator = scaled_rewards.abs().sum().item<float>() + bonus_sum;
+            intrinsic_diagnostics_.at(kIntrinsicBonusMean).store(bonus.mean().item<float>(), std::memory_order_relaxed);
+            intrinsic_diagnostics_.at(kIntrinsicBonusMax).store(bonus.max().item<float>(), std::memory_order_relaxed);
+            intrinsic_diagnostics_.at(kIntrinsicBonusShare).store(denominator > 0.0f ? bonus_sum / denominator
+                : std::numeric_limits<float>::quiet_NaN(), std::memory_order_relaxed);
+            scaled_rewards = scaled_rewards + bonus;
+            lifelong_novelty_->Update(batch_exp.next_state.obs);
+            for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
+                intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+        }
 
         // Normalize observations 統計更新
         this->obs_norm_->NormalizeAndUpdateStats(batch_exp.state.obs);
