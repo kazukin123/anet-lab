@@ -60,7 +60,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | 7 | 改行コード | `git ls-files --eol --cached --others -- <変更ファイル>` | 作業ツリーの側（`w/`）が、`.bat` は `w/crlf`、ほかのテキストは `w/lf` である。`third_party/` 配下は対象外 | [AGENTS.md](../../AGENTS.md) §改行と文字コード |
 | 8 | skill の実体コピーの同期 | `git -c core.safecrlf=false diff --no-index --no-renames --name-status .agents/skills .claude/skills`。変更ファイルに `.agents/skills/` か `.claude/skills/` の配下を含むときだけ | 変更ファイルに含まれる skill 配下のファイルが、出力に現れない。出力は、中身が違うものが `M`、片方にしか無いものが `D`（`.agents/skills` 側だけ）か `A`（`.claude/skills` 側だけ）で、片方の側のパスで出る。`skills/` より後ろの相対パスで突き合わせる | [skills README](../../.agents/skills/README.md) 冒頭 |
 | 62 | 既存ファイルの BOM | `./.venv/Scripts/python.exe -c "import codecs,subprocess,sys; from pathlib import Path; base=sys.argv[1]; subprocess.run(['git','rev-parse','--verify',base+'^{tree}'],check=True,stdout=subprocess.DEVNULL); args=[a.replace(chr(92),'/') for a in sys.argv[2:]]; paths=[p for p in args if Path(p).is_file() and subprocess.run(['git','cat-file','-e',base+':'+p],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0]; bad=[p for p in paths if (subprocess.check_output(['git','show',base+':'+p])[:3]==codecs.BOM_UTF8)!=(Path(p).read_bytes()[:3]==codecs.BOM_UTF8)]; print('\n'.join('NG: '+p+' (UTF-8 BOM changed)' for p in bad) or 'OK: UTF-8 BOM preserved ('+str(len(paths))+' checked, '+str(len(args)-len(paths))+' skipped)'); sys.exit(bool(bad))" <基準コミット> <変更ファイル>` | BOM の有無が一致すれば `OK: UTF-8 BOM preserved (<比べた件数> checked, <飛ばした件数> skipped)`・終了値0、異なれば対象パス付きの `NG`・終了値1。作業ツリーに無いファイルと基準側に無い新しいファイルは比較せず、`skipped` に数える | 本節のBOMの規約 |
-| 72 | 重なる文字列リテラル | `./.venv/Scripts/python.exe -c "import collections,re,subprocess,sys; d=subprocess.run(['git','diff','-U0',sys.argv[1],'--']+sys.argv[2:],capture_output=True,check=True).stdout.decode('utf-8','replace'); c=collections.Counter(m for l in d.splitlines() if l.startswith('+') and not l.startswith('+++') and '#include' not in l for m in re.findall(r'\"([A-Za-z_][A-Za-z0-9_./-]*)\"',l)); [print(n,s) for s,n in c.most_common() if n>=2]" <基準コミット> <変更ファイルのうち *.cpp と *.hpp（*_test.cpp を除く）>`。変更ファイルに `*.cpp` か `*.hpp` があるときだけ | 出力は、足した行に 2 回以上現れる識別子らしい文字列（回数と文字列）である。出たものはどれも、名前つきの定数になっているか、項番 66 が対象外とするものに当たる | 本書「C++ コード」の規約 |
+| 72 | 重なる文字列リテラル | `./.venv/Scripts/python.exe -c "import collections,re,subprocess,sys; from pathlib import Path; base=sys.argv[1]; subprocess.run(['git','rev-parse','--verify',base+'^{tree}'],check=True,stdout=subprocess.DEVNULL); paths=[p.replace(chr(92),'/') for p in sys.argv[2:]]; diffs=[(p,subprocess.check_output(['git','diff','--no-ext-diff','--no-color','-U0',base,'--',p]).decode('utf-8','replace') if subprocess.run(['git','cat-file','-e',base+':'+p],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0 else '\n'.join('+'+l for l in Path(p).read_text(encoding='utf-8-sig').splitlines())) for p in paths]; rx=chr(34)+r'([A-Za-z_][A-Za-z0-9_./-]*)'+chr(34); counts=[(p,collections.Counter(m for l in d.splitlines() if l.startswith('+') and not l.startswith('+++') and '#include' not in l for m in re.findall(rx,l))) for p,d in diffs]; [print(p,n,s) for p,c in counts for s,n in c.most_common() if n>=2]" <基準コミット> <変更ファイルのうち *.cpp と *.hpp（*_test.cpp を含む）>`。変更ファイルに `*.cpp` か `*.hpp` があるときだけ。基準に無い新規ファイルは、未追跡でも全文を読む | 出力は、同じファイルの追加行に 2 回以上現れる識別子らしい文字列（パス・回数・文字列）である。候補を項番 66 で判定し、設定キー・ログ文言・テストの期待値などの例外は同項に従う。単独の識別子や既存行との重複はこの検査だけでは拾えないので、項番 66 の確認も行う | 本書「C++ コード」の規約 |
 
 ## 読解観点
 
@@ -82,7 +82,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
-| 14 | 受入基準の充足 | PRD の受入基準のうち、今回の実装の範囲に当たる各項目について、それを満たす実装・テスト・検証の結果を特定できる。満たしていない項目は、未解決か範囲外として、理由とともに実装計画か依頼に書かれている | 入力元の PRD（受入基準） |
+| 14 | 受入基準の充足 | PRD の受入基準のうち、今回の実装の範囲に当たる各項目について、それを満たす実装・テスト・検証の結果を特定できる。指定された入力・回数・観測対象・拒否条件を、テストの設定と assertion または検証結果へ照合する。関連するテストがあるだけで充足としない。満たしていない項目は、未解決か範囲外として、理由とともに実装計画か依頼に書かれている | 入力元の PRD（受入基準） |
 | 15 | 確定事項への適合 | 実装が、PRD の確定事項と実装の契約に反していない | 入力元の PRD（確定事項、実装の契約） |
 | 16 | 過剰の不在 | PRD と実装計画に無い機能・設定キー・public interface・ファイルを足していない。足した場合は、理由が実装計画に書かれている | [AGENTS.md](../../AGENTS.md) §基本方針、[PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
 | 17 | 変更の範囲 | 変更ファイルが、PRD と実装計画に要る範囲に収まっている。無関係な整形・リネームと、生成物・ローカル環境のファイルの追加が無い | [AGENTS.md](../../AGENTS.md) §基本方針 |
@@ -102,11 +102,15 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 
 ### 失敗の扱い
 
+**規約**
+
+Tensor を組み合わせる処理では、入力と出力の rank・各軸の意味・許す broadcast を確認する。契約上は不正な shape が、broadcast によって計算を通ってしまう場合も拒否する。構築時に判定できる条件は構築時に検証し、実データが必要な条件だけを実行時に検証する。既存の検証が保証する条件を重ねて検証する必要はない。
+
 適用: 設定値・入力・失敗しうる操作の扱いを足した、または変えた実装。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
-| 23 | 意図しない状態 | 読み取り対象にした設定値と入力について、所在の節の表が「意図しない状態」とするものを検出し、`ANET_SYSTEM_ERROR` で止めている | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則 |
+| 23 | 意図しない状態 | 読み取り対象にした設定値と入力について、AGENTS.md の表が「意図しない状態」とするものを検出し、`ANET_SYSTEM_ERROR` で止めている。Tensor を組み合わせる変更では、rank・各軸・broadcast が契約を満たし、不正な shape を判定可能な境界で拒否している | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則、本節の規約 |
 | 24 | 意図された休止 | 利用者が意図して止めた機能と、それを参照する設定を、エラーにしていない | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則 |
 | 25 | 代替の条件 | 実行できない要求を、黙って別のものに代えていない。代替するのは `auto` 系のモードだけで、1 回 WARN して、以後の選択を固定している | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則 |
 | 26 | 黙った再解釈の不在 | 設定値を丸める処理、既定値へ黙って置き換える処理、特定の値に別の意味を持たせる処理が無い | [AGENTS.md](../../AGENTS.md) §設定値の扱い |
@@ -212,7 +216,9 @@ C++ コードは Google C++ スタイルガイドを前提とします。
   ```
 - C++ の `.hpp` 側では `using namespace` を使用しない。
 - C++ の `.cpp` 側では、`namespace ... {}` で全体を囲むのではなく `using namespace ...;` を使用。
+- `.cpp` の namespace を追加・変更するときは、[PRD079「確定事項」D1〜D4](../memo/079_cpp_internal_linkage_convention_10prd.md#確定事項) のブロックのインデントと内部リンケージの使い分けを読む。テストも対象にする。
 - 同じ名前空間で省略可能な名前空間修飾は省略する。
+- 初期化処理は、依存に必要な順序を守ったうえで、共通基本処理から個別機能へ並べる。同じ目的の初期化ブロックを、別機能の初期化で分断しない。たとえば seed の準備をまとめ、共通の実行時変数を生成してから、個別機能の推定器を生成する。依存のためにこの順序にできない場合は、その依存が分かるコメントを置く。
 - `const` を適切かつ積極的に使う。
 - 生ポインタ `T*` は所有しない借用を表す。所有は `std::unique_ptr` / `std::shared_ptr` で表す（フレームワークが所有を規定する場合は下記）。
 - 引数は、必須なら `T&`、省略可なら `T* = nullptr`。値が小さく複製が安い省略可の入力は `std::optional<T>` で受ける。借用に `std::optional<std::reference_wrapper<T>>` は使わない。
@@ -238,8 +244,8 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 | --- | --- | --- | --- |
 | 30 | ファイルの単位 | 新しいクラスが、既存の機能グループのファイルに置かれている。新しいファイルを作った場合は、独立させる理由が PRD か実装計画にある。置いた機能グループの関心にクラスが合っており、別の関心が混ざっていない。関数 1 つだけの機能グループを作っていない | 本節の規約 |
 | 31 | 対の `.cpp` | 新しく作った `.hpp` に、同じ名前の `.cpp` がある。実装がヘッダだけで完結する場合、その `.cpp` は当該ヘッダの include だけである | 本節の規約 |
-| 32 | `.cpp` の名前空間 | 新しく書いた `.cpp` が、全体を `namespace … {}` で囲まず、`using namespace` を使っている | 本節の規約 |
-| 33 | 指示付き初期化 | 新しく書いた集成体の初期化に、指示付き初期化を使っている。使っていない箇所は、所在の節がいう例外に当たる | 本節の規約 |
+| 32 | `.cpp` の名前空間 | 新しく書いた `.cpp` が、全体を `namespace … {}` で囲まず、`using namespace` を使っている。追加・変更した namespace は PRD079 D1〜D4 に沿い、中身がインデントされ、無名 namespace は型定義だけである。関数・定数・`TEST_CASE` は外に置いている。テストも確認する | 本節の規約 |
+| 33 | 指示付き初期化 | 新しく書いた集成体の初期化に、指示付き初期化を使っている。テスト用の補助型・後始末用の型も確認する。使っていない箇所は、所在の節がいう例外に当たる | 本節の規約 |
 | 34 | 公開ヘッダの変更 | `include/anet/` 配下の変更が、PRD か実装計画に書かれている | [AGENTS.md](../../AGENTS.md) §基本方針 |
 | 35 | グローバル状態 | 暗黙のグローバル状態（関数の外の可変な変数、可変な static）を足していない | [AGENTS.md](../../AGENTS.md) §基本方針 |
 | 55 | 借用の保持 | 足した、または変えた生ポインタ・参照のメンバが、所有者が借り手も所有している借用か、同期呼び出しの間だけ生きる値型のどちらかで、誰の所有を借りるかの行末コメントがある。Set/Clear の対で借用を保持していない。所有は `unique_ptr` / `shared_ptr` で表している（フレームワークが所有を規定する場合を除く） | 本節の規約 |
@@ -251,7 +257,8 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 | 63 | include の順 | 新しく書いた `.cpp`・`.hpp` の include が、所在の節の順（自身のヘッダ → 標準 → ミドルウェア → anet 系。anet 系の中は基礎のヘッダが先。テストは先頭が `anet/catch_test.hpp`）に並んでいる。既存のファイルに足した include は、その順の該当する位置にある | 本節の規約 |
 | 64 | 設定キーの読み取り | 足した・変えた設定の読み取りで、固定キーを `ANET_READ_CONFIG` で読み、メンバのパスが設定キーと一致している。`ReadConfig` へ文字列のキーを直接渡す箇所は、所在の節がいう例外に当たる | 本節の規約 |
 | 65 | 共通処理の置き場 | 足した処理のうち、扱う型・機構の情報だけで正誤や結果が決まるもの（設定の値域・整合の検証など）が、個別の利用側ではなく、その型・機構の共通処理にあって、利用側はそれを呼んでいる。既存の共通処理と同じ内容を、利用側に重ねて書いていない | [AGENTS.md](../../AGENTS.md) §汎用機構と利用側の責任境界 |
-| 66 | リテラルの定数化 | 足した・変えたコードで、2 か所以上で使う同じ値と、所在の節が挙げる外と取り決める識別子が名前つきの定数になっていて、使う箇所と診断のメッセージはその定数を参照している。設定キー・ログの文言・1 か所だけのテストの期待値と設定の列挙値は対象外 | 本節の規約 |
+| 66 | リテラルの定数化 | 足した・変えたコードで、2 か所以上で使う同じ値と、所在の節が挙げる外と取り決める識別子が名前つきの定数になっていて、使う箇所と診断のメッセージはその定数を参照している。テストと新規ファイルも確認する。設定キー・ログの文言・1 か所だけのテストの期待値と設定の列挙値は対象外 | 本節の規約 |
+| 75 | 初期化の順序 | 追加・変更した初期化が、依存順序を守り、共通基本処理から個別機能へ並んでいる。同じ目的のブロックが別機能で分断されていない。依存のために順序を変えた箇所は、コメントから理由が分かる | 本節の規約 |
 
 ### コメントと TODO
 
@@ -412,7 +419,7 @@ env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列�
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
 | 46 | 検証の経路 | テストが、public API・設定の読み込み・runner-facing の挙動を通して、外から観測できる挙動を確かめている。private なメソッドや内部の構造を、直接確かめていない | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
-| 47 | 計画との対応 | 実装計画の「優先 behavior」のそれぞれに、対応するテストがある | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
+| 47 | 計画との対応 | 実装計画の「優先 behavior」のそれぞれに、対応するテストがある。計画が指定する入力・回数・観測対象・拒否条件と、テストの設定・assertion が一致している | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
 | 73 | 本番設定を読むテスト | 足した・変えたテストのうち `apps/runner/config` 配下のファイルを読むものが固定しているのは、共通層の PRD が宣言した既定か、実行時に止まらない規則だけである。env 別ファイルの値・本数・列挙を等値比較していない。タグ `[shipped_config]` を持つ | 本節の規約 |
 
 ### 検証と報告
@@ -421,13 +428,15 @@ env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列�
 
 ユーザーガイド（0xx）の本文は、利用者の手順と指示だけにする。仕組みや理由は `> [!NOTE]` の補足か、該当の設計文書に書く。
 
+設計文書の英語版も編集するときは、[anet-translate-docs](../../.agents/skills/anet-translate-docs/SKILL.md) の翻訳元情報とリンクの扱いに従う。日本語版との内容の対応とリンク先を確認してから、確認した範囲に合う `translated-from` の blob・progress を記録する。内容を確認せずにハッシュだけ更新しない。日本語版だけを編集する依頼に、英訳の作成を追加する決まりではない。
+
 適用: `impl` を渡されたとき。常時。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
-| 48 | 検証の実施 | コードを変えた場合、Debug ビルドと関連するテストを実行した記録（コマンドと結果）が、実装計画か依頼にある。コードを変えていない場合は、行った検証の記録がある | [AGENTS.md](../../AGENTS.md) §検証、§AI エージェントの作業ルール（編集後） |
+| 48 | 検証の実施 | コードを変えた場合、Debug ビルドと関連するテストを実行した記録（コマンドと結果）が、実装計画か依頼にある。コードを変えていない場合は、行った検証の記録がある。長時間・大量出力の検証では、実行前に標準出力・標準エラーの保存先、返す要約、完了通知または長めの待機方法を確認し、実行記録でもその扱いを確認できる。テスト用 reporter の出力先だけを指定して、通常ログを大量に返していない | [AGENTS.md](../../AGENTS.md) §検証、§AI エージェントの作業ルール（編集後）、§長時間のビルド・テスト・バッチ検証 |
 | 49 | 未実施の検証 | 実行できなかった検証が、理由とともに書かれている | [AGENTS.md](../../AGENTS.md) §AI エージェントの作業ルール（編集後） |
-| 50 | 設計文書の追随 | 仕様・設定・利用方法が変わる実装で、`docs/design/` の該当する文書が、同じ変更の中で更新されている。ユーザーガイド（0xx）の本文は利用者の手順と指示だけで、仕組みや理由は `> [!NOTE]` の補足か、該当の設計文書にある | [AGENTS.md](../../AGENTS.md) §AI エージェントの作業ルール（編集後）、本節の規約 |
+| 50 | 設計文書の追随 | 仕様・設定・利用方法が変わる実装で、`docs/design/` の該当する文書が、同じ変更の中で更新されている。英語版も編集した場合、内容とリンクが確認した日本語版に対応し、翻訳元情報が確認範囲を正しく表す。ユーザーガイド（0xx）の本文は利用者の手順と指示だけで、仕組みや理由は `> [!NOTE]` の補足か、該当の設計文書にある | [AGENTS.md](../../AGENTS.md) §AI エージェントの作業ルール（編集後）、本節の規約 |
 | 51 | 検証資材の置き場 | PRD 固有・領域固有の検証資材が、所在の節が定める場所にあり、領域の設計文書のテストの章から参照されている。`AGENTS.md` の検証の節に追記していない。検証資材を足していない実装は対象外 | [AGENTS.md](../../AGENTS.md) §検証 |
 | 52 | 設定変更の検査 | 設定ファイルを変えた場合、所在の節が定める検査を実行した記録がある。設定ファイルを変えていない実装は対象外 | 本書「設定ファイル」の規約 |
 
