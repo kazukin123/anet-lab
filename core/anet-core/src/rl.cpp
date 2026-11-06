@@ -1,5 +1,6 @@
 #include "anet/rl.hpp"
 #include <stdexcept>
+#include <charconv>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 
@@ -17,7 +18,7 @@ namespace LOG = anet::log;
 
 namespace anet::rl {
 
-anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace)
+anet::TraceCallback MakeActionTraceCallback(anet::TensorDict& trace)
 {
     return [&trace](std::string_view key, const torch::Tensor& activation) {
         trace.Set(std::string(key), activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone());
@@ -293,6 +294,17 @@ anet::json BatchEnvSpec::ToJson() const
     anet::json j;
     j["num_envs"] = num_envs;
     j["num_threads"] = num_threads;
+    switch (episode_scope) {
+    case EpisodeScope::PER_LANE:
+        j["episode_scope"] = "per_lane";
+        break;
+    case EpisodeScope::SHARED:
+        j["episode_scope"] = "shared";
+        break;
+    default:
+        ANET_SYSTEM_ERROR("Unknown BatchEnvSpec episode_scope="
+            << static_cast<int>(episode_scope) << ".");
+    }
     return j;
 }
 
@@ -402,6 +414,33 @@ const torch::Tensor& ReplayInitialPriorityHint::GetPayloadCpu() const
         payload_cpu_ = payload_cpu_.contiguous();
     }
     return payload_cpu_;
+}
+
+std::optional<float> BatchActionInfo::GetScalar(const std::string& key, int64_t lane) const
+{
+    // lane指定の実行行動だけを共通に読み、scalar集計は派生型へ任せる。
+    if (lane < 0 || (key != "action" && !key.starts_with("action.["))) return std::nullopt;
+    const auto action = GetAction(torch::kCPU);
+    ANET_CHECK_MSG(action.defined() && lane < action.size(0),
+        "Invalid action scalar lane. key='" << key << "' lane=" << lane << " expected=an existing lane.");
+    if (key == "action") {
+        ANET_CHECK_MSG(action.dim() == 1,
+            "Continuous action requires action.[dimension]. key='" << key << "' expected=action.[dimension].");
+        return action[lane].item<float>();
+    }
+    // 次元指定は文字列全体を解析し、suffixや負値・範囲外を受理しない。
+    int64_t dimension = -1;
+    bool valid = key.size() > 9 && key.ends_with("]");
+    if (valid) {
+        const auto end = key.data() + key.size() - 1;
+        const auto parsed = std::from_chars(key.data() + 8, end, dimension);
+        valid = parsed.ec == std::errc{} && parsed.ptr == end;
+    }
+    if (!valid || action.dim() != 2 || dimension < 0 || dimension >= action.size(1)) {
+        ANET_SYSTEM_ERROR("Invalid continuous action dimension. key='" << key
+            << "' expected=action.[integer dimension] within the action shape.");
+    }
+    return action[lane][dimension].item<float>();
 }
 
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
@@ -715,6 +754,22 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 // ExperienceSamples
 // =============================================================
 
+void ExperienceSamples::FinalizeReturns(float gamma)
+{
+    if (!sampled_rewards.defined() && !sampled_window_rewards.defined()) return;
+    ANET_PROFILE_FUNC();
+    // ExperienceBuilderと同じ逆順のfloat演算で、消費時の収益を確定する。
+    const auto evaluate = [gamma](const torch::Tensor& rewards, torch::Tensor& result) {
+        if (!rewards.defined()) return;
+        result = torch::zeros({rewards.size(0)}, rewards.options());
+        for (int64_t offset = rewards.size(1); offset-- > 0;) {
+            result = rewards.select(1, offset) + gamma * result;
+        }
+    };
+    evaluate(sampled_rewards, target_returns);
+    evaluate(sampled_window_rewards, window.returns);
+}
+
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
     ANET_PROFILE_FUNC();
@@ -733,6 +788,14 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
+            .window = {
+                .lengths = anet::To(window.lengths, device, non_blocking),
+                .max_lengths = anet::To(window.max_lengths, device, non_blocking),
+                .returns = anet::To(window.returns, device, non_blocking),
+                .terminals = anet::To(window.terminals, device, non_blocking),
+                .truncated = anet::To(window.truncated, device, non_blocking),
+                .next_obs = window.next_obs.To(device, non_blocking),
+            },
             // replay item key/source は ReplayBuffer の CPU metadata なので learner device へは送らない。
             .replay_item_keys = replay_item_keys.defined()
                 ? (replay_item_keys.device().is_cpu() ? replay_item_keys : replay_item_keys.to(torch::kCPU))
@@ -741,7 +804,9 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .per_priority_sources = per_priority_sources.defined()
                 ? (per_priority_sources.device().is_cpu() ? per_priority_sources : per_priority_sources.to(torch::kCPU))
                 : per_priority_sources,
-			.info = info.To(device, non_blocking)
+			.info = info.To(device, non_blocking),
+            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
+            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
         };
     }
 
@@ -755,12 +820,22 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .terminals = next_state.terminals.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+        .window = {
+            .lengths = anet::To(window.lengths, device, non_blocking),
+            .max_lengths = anet::To(window.max_lengths, device, non_blocking),
+            .returns = anet::To(window.returns, device, non_blocking),
+            .terminals = anet::To(window.terminals, device, non_blocking),
+            .truncated = anet::To(window.truncated, device, non_blocking),
+            .next_obs = window.next_obs.To(device, non_blocking),
+        },
         .replay_item_keys = replay_item_keys.defined() ? replay_item_keys.to(torch::kCPU) : replay_item_keys,
         .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
         .per_priority_sources = per_priority_sources.defined()
             ? per_priority_sources.to(torch::kCPU)
             : per_priority_sources,
-        .info = info.To(device, non_blocking)
+        .info = info.To(device, non_blocking),
+            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
+            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
     };
 }
 
@@ -820,6 +895,16 @@ void RunnerScopedTrainObserver::OnTrain(const TrainEvent& event)
     }
 }
 
+void RunnerScopedTrainObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedTrainObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
+}
+
 std::string RunnerScopedTrainObserver::ToString() const
 {
     return "RunnerScopedTrainObserver(" + real_observer_->ToString() + ")";
@@ -839,6 +924,16 @@ void RunnerScopedLearnObserver::OnLearn(const LearnEvent& event)
     if (event.runner == target_runner_) {
         real_observer_->OnLearn(event);
     }
+}
+
+void RunnerScopedLearnObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedLearnObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
 }
 
 std::string RunnerScopedLearnObserver::ToString() const
@@ -863,9 +958,48 @@ void RunnerScopedEpisodeEndObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
     }
 }
 
+void RunnerScopedEpisodeEndObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedEpisodeEndObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
+}
+
 std::string RunnerScopedEpisodeEndObserver::ToString() const
 {
     return "RunnerScopedEpisodeEndObserver(" + real_observer_->ToString() + ")";
+}
+
+
+RunnerScopedSessionEndObserver::RunnerScopedSessionEndObserver(std::shared_ptr<SessionEndObserver> real_observer, std::shared_ptr<const Runner> target_runner)
+    : real_observer_(real_observer), target_runner_(target_runner)
+{
+    ANET_CHECK(target_runner_ != nullptr);
+}
+
+void RunnerScopedSessionEndObserver::OnSessionEnd(const SessionEndEvent& event)
+{
+    if (event.runner == target_runner_) {
+        real_observer_->OnSessionEnd(event);
+    }
+}
+
+void RunnerScopedSessionEndObserver::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    real_observer_->Shutdown(deadline, mode);
+}
+
+bool RunnerScopedSessionEndObserver::WillBlockOnShutdown() const
+{
+    return real_observer_->WillBlockOnShutdown();
+}
+
+std::string RunnerScopedSessionEndObserver::ToString() const
+{
+    return "RunnerScopedSessionEndObserver(" + real_observer_->ToString() + ")";
 }
 
 
@@ -893,6 +1027,12 @@ std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> o
 std::shared_ptr<EpisodeEndObserver> Notifier::Attach(std::shared_ptr<EpisodeEndObserver> obs)
 {
     episode_end_observers_.push_back(obs);
+    return obs;
+}
+
+std::shared_ptr<SessionEndObserver> Notifier::Attach(std::shared_ptr<SessionEndObserver> obs)
+{
+    session_end_observers_.push_back(obs);
     return obs;
 }
 
@@ -935,6 +1075,19 @@ void Notifier::Detach(std::shared_ptr<EpisodeEndObserver> obs)
     );
 }
 
+void Notifier::Detach(std::shared_ptr<SessionEndObserver> obs)
+{
+    session_end_observers_.erase(
+        std::remove_if(
+            session_end_observers_.begin(), session_end_observers_.end(),
+            [&](const std::shared_ptr<SessionEndObserver>& o) {
+                return o == obs;
+            }
+        ),
+        session_end_observers_.end()
+    );
+}
+
 void Notifier::Detach(const TrainObserver* observer)
 {
     train_observers_.erase(
@@ -974,11 +1127,48 @@ void Notifier::Detach(const EpisodeEndObserver* observer)
     );
 }
 
+void Notifier::Detach(const SessionEndObserver* observer)
+{
+    session_end_observers_.erase(
+        std::remove_if(
+            session_end_observers_.begin(), session_end_observers_.end(),
+            [&](const std::shared_ptr<SessionEndObserver>& o) {
+                return o.get() == observer;
+            }
+        ),
+        session_end_observers_.end()
+    );
+}
+
 void Notifier::Clear()
 {
     train_observers_.clear();
     learn_observers_.clear();
     episode_end_observers_.clear();
+    session_end_observers_.clear();
+}
+
+void Notifier::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
+{
+    // observer の登録列を順に排水する。例外は呼び出し元へそのまま伝える。
+    for (const auto& observer : train_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : learn_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : episode_end_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : session_end_observers_) observer->Shutdown(deadline, mode);
+}
+
+bool Notifier::WillBlockOnShutdown() const
+{
+    // どれか一つでも WAIT を伴うなら、終了UIへ通知する。
+    for (const auto& observer : train_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    for (const auto& observer : learn_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    for (const auto& observer : episode_end_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    for (const auto& observer : session_end_observers_)
+        if (observer->WillBlockOnShutdown()) return true;
+    return false;
 }
 
 void Notifier::Notify(const TrainEvent& event)
@@ -1008,6 +1198,15 @@ void Notifier::Notify(const EpisodeEndEvent& event)
     }
 }
 
+void Notifier::Notify(const SessionEndEvent& event)
+{
+    ANET_PROFILE_FUNC();
+
+    for (auto obs : session_end_observers_) {
+        obs->OnSessionEnd(event);
+    }
+}
+
 void Notifier::LogObservers() const
 {
     int idx = 0;
@@ -1025,4 +1224,35 @@ void Notifier::LogObservers() const
         LOG::info() << "Notifier: EPISODE_END [" << idx << "] " << obs->ToString();
         idx++;
     }
+    idx = 0;
+    for (auto obs : session_end_observers_) {
+        LOG::info() << "Notifier: SESSION_END [" << idx << "] " << obs->ToString();
+        idx++;
+    }
+}
+
+// 結果が所有するauxのスカラーだけを読み、非スカラーは未知の読出しとして扱う。
+std::optional<float> SingleEnvResult::GetScalar(const std::string& key) const
+{
+    const auto found = aux_.find(key);
+    if (found == aux_.end() || !found->second.defined() || found->second.numel() != 1) return std::nullopt;
+    return found->second.item<float>();
+}
+
+const torch::Tensor& BatchStepResult::GetEpisodeEndMask() const
+{
+    // 初回の並行読出しも同期し、公開値を変えずにCPU転送を結果ごとに一度へまとめる。
+    std::call_once(episode_end_once_, [this]() {
+        episode_end_cpu_ = next_state.done.logical_or(next_state.truncated).to(torch::kCPU).contiguous();
+    });
+    return episode_end_cpu_;
+}
+
+std::optional<float> BatchStepResult::GetScalar(const std::string& key, int64_t lane) const
+{
+    if (lane < 0 || lane >= reward.size(0)) return std::nullopt;
+    if (key == "reward") return reward[lane].item<float>();
+    if (key == "done") return next_state.done[lane].item<float>();
+    if (key == "truncated") return next_state.truncated[lane].item<float>();
+    return std::nullopt;
 }

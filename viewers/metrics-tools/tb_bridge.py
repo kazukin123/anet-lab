@@ -22,7 +22,18 @@ import os
 import time
 import json
 import glob
-from torch.utils.tensorboard import SummaryWriter
+from dataclasses import dataclass
+
+from metrics_source import open_metrics_binary, resolve_metrics_path, resolve_run_metrics
+
+
+@dataclass
+class RunState:
+    writer: object
+    source_path: object
+    last_pos: int = 0
+    line_count: int = 0
+    gzip_stream: object | None = None
 
 
 def tail_jsonl(file_path, last_pos):
@@ -30,15 +41,36 @@ def tail_jsonl(file_path, last_pos):
     new_lines = []
     new_pos = last_pos
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        metrics_path = resolve_metrics_path(file_path)
+        with open_metrics_binary(metrics_path) as f:
             f.seek(last_pos)
-            for line in f:
+            while line := f.readline():
+                line_start = f.tell() - len(line)
+                if not line.endswith(b"\n"):
+                    # 書き込み途中の末尾行はoffsetを進めず、次回pollで再読込する。
+                    f.seek(line_start)
+                    break
                 if line.strip():
-                    new_lines.append(line.strip())
+                    new_lines.append(line.decode("utf-8").strip())
             new_pos = f.tell()
     except FileNotFoundError:
         pass
     return new_lines, new_pos
+
+
+def tail_run_state(state):
+    """rawは追従し、gzipは同じ展開streamを保持して差分を読む。"""
+    if state.source_path.name != "metrics.jsonl.gz":
+        return tail_jsonl(state.source_path, state.last_pos)
+    if state.gzip_stream is None:
+        state.gzip_stream = open_metrics_binary(state.source_path)
+        state.gzip_stream.seek(state.last_pos)
+
+    lines = []
+    for raw_line in state.gzip_stream:
+        if raw_line.strip():
+            lines.append(raw_line.decode("utf-8").strip())
+    return lines, state.gzip_stream.tell()
 
 
 def process_json_line(writer, j):
@@ -87,16 +119,18 @@ def process_json_line(writer, j):
 
 
 def main(log_root="runs", poll_interval=1.0, log_interval=100, clean_events=True):
+    from torch.utils.tensorboard import SummaryWriter
+
     print(f"📡 Watching '{log_root}' for JSONL runs...")
 
-    run_states = {}  # { run_dir: (SummaryWriter, last_pos, line_count) }
+    run_states = {}
 
     while True:
         run_dirs = [d for d in glob.glob(os.path.join(log_root, "*")) if os.path.isdir(d)]
 
         for run_dir in run_dirs:
-            jsonl_path = os.path.join(run_dir, "metrics.jsonl")
-            if not os.path.exists(jsonl_path):
+            metrics_path = resolve_run_metrics(run_dir)
+            if metrics_path is None:
                 continue
 
             if run_dir not in run_states:
@@ -112,25 +146,30 @@ def main(log_root="runs", poll_interval=1.0, log_interval=100, clean_events=True
                 print(f"🆕 New run detected: {run_dir}")
                 # ファイル名固定化 (再起動時も追記扱い)
                 writer = SummaryWriter(log_dir=run_dir, filename_suffix=".bridge")
-                run_states[run_dir] = (writer, 0, 0)  # (writer, last_pos, line_count)
+                run_states[run_dir] = RunState(writer, metrics_path)
 
-            writer, last_pos, line_count = run_states[run_dir]
-            new_lines, new_pos = tail_jsonl(jsonl_path, last_pos)
+            state = run_states[run_dir]
+            if state.source_path != metrics_path:
+                if state.gzip_stream is not None:
+                    state.gzip_stream.close()
+                    state.gzip_stream = None
+                state.source_path = metrics_path
+            new_lines, new_pos = tail_run_state(state)
 
             if new_lines:
                 for line in new_lines:
                     try:
                         j = json.loads(line)
-                        process_json_line(writer, j)
-                        line_count += 1
+                        process_json_line(state.writer, j)
+                        state.line_count += 1
                         # ✅ 定期的に進捗ログを出力
-                        if line_count % log_interval == 0:
-                            print(f"[{time.strftime('%H:%M:%S')}] {run_dir}: processed {line_count} lines")
+                        if state.line_count % log_interval == 0:
+                            print(f"[{time.strftime('%H:%M:%S')}] {run_dir}: processed {state.line_count} lines")
                     except json.JSONDecodeError:
                         # 書き込み途中行 → スキップ（再処理保証あり）
                         continue
-                writer.flush()
-                run_states[run_dir] = (writer, new_pos, line_count)
+                state.writer.flush()
+            state.last_pos = new_pos
 
         time.sleep(poll_interval)
 

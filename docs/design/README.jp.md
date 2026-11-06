@@ -41,7 +41,7 @@ ANET は、libtorch を基盤とする C++20 の強化学習実験フレーム�
 
 | 番号 | 文書 | 主な観点 | 対象読者 |
 |---:|---|---|---|
-| 020 | [Run 実行ガイド](020_user_guide_run.jp.md) | 設定、起動、画面、基本操作、Run 成果物 | 実行利用者 |
+| 020 | [Run 実行ガイド](020_user_guide_run.jp.md) | 設定ファイルの書き方、起動、画面、基本操作、Run 成果物 | 実行利用者 |
 | 030 | [Run 分析ガイド](030_user_guide_analysis.jp.md) | メトリクス、Metrics Viewer、Run 比較、外部分析ツール | 分析利用者 |
 
 ### 3.3 開発ガイド
@@ -72,6 +72,7 @@ ANET は、libtorch を基盤とする C++20 の強化学習実験フレーム�
 |---:|---|---|---|
 | 200 | [DQN 系 Agent](200_dqn_agents.jp.md) | DefaultDQN、Rainbow、DQN 共通部品、学習・同期・PER | DQN 系 Agent 開発者 |
 | 210 | [Metrics Viewer](210_metrics_viewer.jp.md) | 取り込み、キャッシュ DB、range query、描画、設定、依存 | Metrics Viewer 開発者 |
+| 220 | [Atari Env（ALE 統合）](220_atari_env.jp.md) | AtariEnv、ALE 設定キー契約、前処理、プリセット、AtariView | Env 開発者・Atari 実験利用者 |
 
 ## 4. 関連文書
 

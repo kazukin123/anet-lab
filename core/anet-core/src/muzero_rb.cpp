@@ -57,13 +57,13 @@ const MuZeroStepRecord& MuZeroExperienceQueue::Peek(size_t index) const
 // MuZeroReplayBuilder
 // ======================================================
 
-MuZeroReplayBuilder::MuZeroReplayBuilder(int n_step, float gamma)
-    : n_step_(n_step), gamma_(gamma)
+MuZeroReplayBuilder::MuZeroReplayBuilder(int n_step)
+    : n_step_(n_step)
 {
     ;
 }
 
-std::vector<MuZeroReplayRecord> MuZeroReplayBuilder::ProcessQueue(MuZeroExperienceQueue& queue)
+std::vector<MuZeroReplayRecord> MuZeroReplayBuilder::ProcessQueue(MuZeroExperienceQueue& queue, float gamma)
 {
     ANET_PROFILE_FUNC();
 
@@ -77,7 +77,7 @@ std::vector<MuZeroReplayRecord> MuZeroReplayBuilder::ProcessQueue(MuZeroExperien
         // 未来Nステップ分の報酬を足し込む
         for (int i = 0; i < n_step_; ++i) {
             target_value += current_gamma * queue.Peek(i).reward;
-            current_gamma *= gamma_;
+            current_gamma *= gamma;
         }
         // Nステップ先の状態価値を足し込む
         target_value += current_gamma * queue.Peek(n_step_).root_value;
@@ -106,7 +106,7 @@ std::vector<MuZeroReplayRecord> MuZeroReplayBuilder::ProcessQueue(MuZeroExperien
                 // 終了までの報酬を足し込む
                 for (size_t i = 0; i < steps_to_done; ++i) {
                     target_value += current_gamma * queue.Peek(k + i).reward;
-                    current_gamma *= gamma_;
+                    current_gamma *= gamma;
                 }
 
                 // truncatedの場合、残りの価値を0ではなく最後の状態の予測価値(root_value)でブートストラップして底上げする
@@ -279,12 +279,12 @@ MuZeroReplayBuffer::MuZeroReplayBuffer(
     : anet::RandomHolder(seed), num_envs_(num_envs), num_actions_(num_actions)
 {
     queues_.resize(num_envs_);
-    builder_ = std::make_unique<MuZeroReplayBuilder>(config.n_step, config.gamma);
+    builder_ = std::make_unique<MuZeroReplayBuilder>(config.n_step);
     storage_ = std::make_unique<MuZeroReplayStorage>(config.capacity, num_envs_);
     sampler_ = std::make_unique<MuZeroUniformSampler>(config.unroll_steps, seed);
 }
 
-void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp)
+void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp, float gamma)
 {
     ANET_PROFILE_FUNC();
 
@@ -310,7 +310,7 @@ void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp)
         queue.Push(step);
 
         // BuilderでN-Step計算済みレコードを抽出
-        auto records = builder_->ProcessQueue(queue);
+        auto records = builder_->ProcessQueue(queue, gamma);
 
         // Storageに格納
         for (const auto& rec : records) {
@@ -324,7 +324,7 @@ int64_t MuZeroReplayBuffer::Size() const
     return storage_->GetTotalSize();
 }
 
-MuZeroExperienceSamples MuZeroReplayBuffer::Sample(int64_t batch_size, torch::Device device) const
+MuZeroExperienceSamples MuZeroReplayBuffer::Sample(int64_t batch_size, torch::Device device, float /*gamma*/) const
 {
     ANET_PROFILE_FUNC();
     

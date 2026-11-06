@@ -1,0 +1,23 @@
+# BTR 公開実装 (github BTR) を WSL2 上で実行したもの。anet-lab の Run ではない。
+# metrics.jsonl は npy からの変換 (scratchpad/btr_to_metrics.py)。再実行で全再生成される。
+btr.source = C:\dev\BTR (WSL: ~/BTR)
+btr.command = main.py --game Breakout --envs 64 --rr 1 --eval_envs 10 --num_eval_episodes 20 --noisy 0
+btr.frames = 200,000,000
+btr.envs = 64
+btr.rr = 1
+btr.replay_ratio_equivalent = 4
+btr.batch_size = 256
+btr.noisy = 0
+btr.sticky = 0.25
+btr.noop_max = 30
+btr.frameskip = 4
+btr.life_info = 0
+btr.eval_eps = 0.01 (<=125M frames) / 0 (>125M frames)
+btr.eval_episodes = 20
+platform = WSL2 Ubuntu-24.04
+python = 3.12.3
+torch = 2.11.0+cu128
+gymnasium = 0.29.1
+ale_py = 0.9.0
+patch.1 = import ale_py + gym.register_envs(ale_py)
+patch.2 = AsyncVectorEnv context spawn -> fork (env worker only)

@@ -1,205 +1,140 @@
 @echo off
+title %~nx0
+
 cd /d "%~dp0runner"
-REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
-SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
-REM SET EXE="bin\Release\AnetRLRunner.exe"
 
-call:run_exe app.run_name=run_{t}
+SET "BUILD=Release"
+if not exist "bin\%BUILD%\AnetRLRunner.exe" goto :no_exe
+copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
+if errorlevel 1 goto :no_exe
+if not exist "bin\%BUILD%\AnetRLRunner_ab.exe" goto :no_exe
 
-REM call:run_exe app.run_name=run_{t}_PER2-2
-REM call:run_exe app.run_name=run_{t}_PER3 R.learner.per_alpha=0.4 R.learner.per_beta_start=0.6
-REM call:run_exe app.run_name=run_{t}_PER4 R.learner.per_alpha=0.2 R.learner.per_beta_start=0.4
+SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
 
+SET /A SUCCEEDED_RUNS=0
+SET /A FAILED_RUNS=0
 
-REM call:run_exe app.run_name=run_{t}_b256 train.num_envs=256
-REM call:run_exe app.run_name=run_{t}_b256_4064 net.body.$=net.body.SuikaNet4064 "DropMergeEnv.$=DropMergeEnv.baseline > DropMergeEnv.G4064 > E"
-REM call:run_exe app.run_name=run_{t}_b512 train.num_envs=512
+SET "LLMRG=run.$=run.@munch>run.@skip"
+SET "LLOFF=run.$=run.@munch"
+SET "LLAPP=app.$=app.batchrun>P1"
+SET "EVONLY=run.seed=1 DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 app.batchrun.exp_exit_step=40 run.eval_schedule.[eval_target].interval=0"
+SET "EVUQE=run.eval.[eval].eval_batch_size=64 run.eval.[eval].eval_episodes=400 run.eval_schedule.[eval].interval=12"
+SET "EVGRD=run.eval.[greedy].eval_batch_size=64 run.eval.[greedy].eval_episodes=400 run.eval_schedule.[greedy].interval=12"
+SET "EVGS=DefaultDQNAgent.actor.[greedy_single].$=DefaultDQNAgent.actor.[greedy] DefaultDQNAgent.actor.[greedy_single].skip.max_length_mode=single run.eval.[greedy_single].actor=greedy_single run.eval.[greedy_single].eval_batch_size=64 run.eval.[greedy_single].eval_episodes=400 run.eval_schedule.[greedy_single].interval=12 run.eval_schedule.[greedy_single].use_background=true"
+SET "EVUS=DefaultDQNAgent.actor.[eval_single].$=DefaultDQNAgent.actor.[eval] DefaultDQNAgent.actor.[eval_single].skip.max_length_mode=single run.eval.[eval_single].actor=eval_single run.eval.[eval_single].eval_batch_size=64 run.eval.[eval_single].eval_episodes=400 run.eval_schedule.[eval_single].interval=12 run.eval_schedule.[eval_single].use_background=true"
+SET "GSEL=DefaultDQNAgent.actor.[greedy].$=DefaultDQNAgent.actor.[eval]>DefaultDQNAgent.actor.@greedy"
+SET "GOFF=run.eval.[greedy].actor=greedy run.eval_schedule.[greedy].use_background=true"
+SET "MGR="metrics.scalar.[21_eval/09_greedy_reward]=mean.episode_return $runner @session_end $eval.[greedy]" "metrics.scalar.[21_eval/11_greedy_ep_steps]=mean.episode_steps $runner @session_end $eval.[greedy]""
+SET "MGS="metrics.scalar.[21_eval/31_greedy_s_reward]=mean.episode_return $runner @session_end $eval.[greedy_single]" "metrics.scalar.[21_eval/32_greedy_s_steps]=mean.episode_steps $runner @session_end $eval.[greedy_single]""
+SET "MUS="metrics.scalar.[21_eval/33_eval_s_reward]=mean.episode_return $runner @session_end $eval.[eval_single]" "metrics.scalar.[21_eval/34_eval_s_steps]=mean.episode_steps $runner @session_end $eval.[eval_single]""
+SET "MSK="metrics.scalar.[50_agent_skip/31_eval_decision_rate]=skip_session_decision_rate $eval.[eval] $actor @session_end" "metrics.scalar.[50_agent_skip/32_eval_length_mean]=skip_session_length_mean $eval.[eval] $actor @session_end""
 
+SET "TWSES=DefaultDQNAgent.actor.[greedy_single].$=DefaultDQNAgent.actor.[greedy] DefaultDQNAgent.actor.[greedy_single].skip.max_length_mode=single run.eval.[greedy_single].actor=greedy_single run.eval.[greedy_single].eval_batch_size=1 run.eval.[greedy_single].eval_episodes=1 run.eval_schedule.[greedy_single].interval=1009 run.eval_schedule.[greedy_single].use_background=true DefaultDQNAgent.actor.[eval_single].$=DefaultDQNAgent.actor.[eval] DefaultDQNAgent.actor.[eval_single].skip.max_length_mode=single run.eval.[eval_single].actor=eval_single run.eval.[eval_single].eval_batch_size=1 run.eval.[eval_single].eval_episodes=1 run.eval_schedule.[eval_single].interval=200 run.eval_schedule.[eval_single].use_background=true"
+SET "TWMET="metrics.scalar.[50_agent_skip/07_max_length]=$actor skip_max_length @learn $exp_step""
+SET "TWVAR=DefaultDQNAgent.actor.[train].skip.max_length_mode=variable DefaultDQNAgent.actor.[train].skip.max_length.type=phased "DefaultDQNAgent.actor.[train].skip.max_length.phases=hold off" DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].type=constant DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].value=4 DefaultDQNAgent.actor.[train].skip.max_length.phase.[off].type=constant DefaultDQNAgent.actor.[train].skip.max_length.phase.[off].value=1 DefaultDQNAgent.actor.[train].skip.max_length.phase.[off].steps=1"
+SET "TWWU=DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].steps=8192"
+SET "TWE05=DefaultDQNAgent.actor.[train].skip.max_length.phase.[hold].steps=500000"
+SET "TWUNI=DefaultDQNAgent.actor.[train].skip.policy.policy_type=EpsilonGreedy DefaultDQNAgent.actor.[train].skip.policy.spatial.epsilon.first=1 DefaultDQNAgent.actor.[train].skip.policy.spatial.epsilon.last=1"
 
-REM call:run_exe app.run_name=run_{t}_seed train.seed=7508636947373324265 
+call :use_ws LunarLander-01 LunarLander.txt
+echo === 1. LunarLander eval only, merge seed 1 checkpoint: UQE and Greedy, full and single ===
+call :find_done ll_ev_mrg_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% %EVGS% %EVUS% %MGS% %MUS% %MSK% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261028-131118_t103_ll_mrg_s1\agent_close.anet" "app.run_name=run_{t}_ll_ev_mrg_s1"
+echo === 2. LunarLander eval only, merge seed 2 checkpoint: UQE and Greedy, full and single ===
+call :find_done ll_ev_mrg_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% %EVGS% %EVUS% %MGS% %MUS% %MSK% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261028-143129_t103_ll_mrg_s2\agent_close.anet" "app.run_name=run_{t}_ll_ev_mrg_s2"
+echo === 3. LunarLander eval only, merge seed 3 checkpoint: UQE and Greedy, full and single ===
+call :find_done ll_ev_mrg_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% %EVGS% %EVUS% %MGS% %MUS% %MSK% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261028-155145_t103_ll_mrg_s3\agent_close.anet" "app.run_name=run_{t}_ll_ev_mrg_s3"
+echo === 4. LunarLander eval only, no skip seed 1 checkpoint: UQE and Greedy ===
+call :find_done ll_ev_off_s1
+if not defined DONE_DIR call :run_exe "%LLOFF%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% "%GSEL%" %GOFF% %MGR% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261025-230909_t98_ll_off_s1\agent_close.anet" "app.run_name=run_{t}_ll_ev_off_s1"
+echo === 5. LunarLander eval only, no skip seed 2 checkpoint: UQE and Greedy ===
+call :find_done ll_ev_off_s2
+if not defined DONE_DIR call :run_exe "%LLOFF%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% "%GSEL%" %GOFF% %MGR% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261026-001350_t98_ll_off_s2\agent_close.anet" "app.run_name=run_{t}_ll_ev_off_s2"
+echo === 6. LunarLander eval only, no skip seed 3 checkpoint: UQE and Greedy ===
+call :find_done ll_ev_off_s3
+if not defined DONE_DIR call :run_exe "%LLOFF%" "%LLAPP%" %EVONLY% %EVUQE% %EVGRD% "%GSEL%" %GOFF% %MGR% "DefaultDQNAgent.auto_load_file=%RUNS%\run_20261026-010415_t98_ll_off_s3\agent_close.anet" "app.run_name=run_{t}_ll_ev_off_s3"
 
-REM call:run_exe app.run_name=run_{t}
-REM call:run_exe app.run_name=run_{t}_g20  E.grid_rows=20  E.grid_cols=20
-REM call:run_exe app.run_name=run_{t}_g20w net.block.FC1.linear.out_features=2048 net.block.FC2.linear.out_features=1024
-REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
+echo === 7. LunarLander 2M seed 1: merge, train skip length uniform random ===
+call :find_done ll_tw_uni_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWUNI% "app.run_name=run_{t}_ll_tw_uni_s1"
+echo === 8. LunarLander 2M seed 1: merge, train repeats only until 8192 experiences ===
+call :find_done ll_tw_wu_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWWU% "app.run_name=run_{t}_ll_tw_wu_s1"
+echo === 9. LunarLander 2M seed 1: merge, train repeats only until 500000 experiences ===
+call :find_done ll_tw_e05_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWE05% "app.run_name=run_{t}_ll_tw_e05_s1"
+echo === 10. LunarLander 2M seed 1: merge baseline ===
+call :find_done ll_tw_base_s1
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=1 %TWSES% %MGS% %MUS% %MSK% %TWMET% "app.run_name=run_{t}_ll_tw_base_s1"
+echo === 11. LunarLander 2M seed 2: merge, train repeats only until 8192 experiences ===
+call :find_done ll_tw_wu_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWWU% "app.run_name=run_{t}_ll_tw_wu_s2"
+echo === 12. LunarLander 2M seed 2: merge, train repeats only until 500000 experiences ===
+call :find_done ll_tw_e05_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWE05% "app.run_name=run_{t}_ll_tw_e05_s2"
+echo === 13. LunarLander 2M seed 2: merge baseline ===
+call :find_done ll_tw_base_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% "app.run_name=run_{t}_ll_tw_base_s2"
+echo === 14. LunarLander 2M seed 2: merge, train skip length uniform random ===
+call :find_done ll_tw_uni_s2
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=2 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWUNI% "app.run_name=run_{t}_ll_tw_uni_s2"
+echo === 15. LunarLander 2M seed 3: merge, train repeats only until 500000 experiences ===
+call :find_done ll_tw_e05_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWE05% "app.run_name=run_{t}_ll_tw_e05_s3"
+echo === 16. LunarLander 2M seed 3: merge baseline ===
+call :find_done ll_tw_base_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% "app.run_name=run_{t}_ll_tw_base_s3"
+echo === 17. LunarLander 2M seed 3: merge, train skip length uniform random ===
+call :find_done ll_tw_uni_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWUNI% "app.run_name=run_{t}_ll_tw_uni_s3"
+echo === 18. LunarLander 2M seed 3: merge, train repeats only until 8192 experiences ===
+call :find_done ll_tw_wu_s3
+if not defined DONE_DIR call :run_exe "%LLMRG%" "%LLAPP%" run.seed=3 %TWSES% %MGS% %MUS% %MSK% %TWMET% %TWVAR% %TWWU% "app.run_name=run_{t}_ll_tw_wu_s3"
 
-
-REM call:run_exe app.run_name=run_{t}_g10  E.grid_rows=10  E.grid_cols=10
-REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
-REM call:run_exe app.run_name=run_{t}_g100 E.grid_rows=100 E.grid_cols=100
-
-REM call:run_exe app.run_name=run_{t}_b128  A.learner.replay_batch_size=128
-REM call:run_exe app.run_name=run_{t}_b512  A.learner.replay_batch_size=512
-
-REM call:run_exe app.run_name=run_{t}-EPS   A.action_policy.policy_type=0
-REM call:run_exe app.run_name=run_{t}-UQE   A.action_policy.policy_type=1
-REM call:run_exe app.run_name=run_{t}-TS    A.action_policy.policy_type=2
-
-REM call:run_exe app.run_name=run_{t}-A_5e-5 A.learner.alpha=5e-5
-REM call:run_exe app.run_name=run_{t}-A_5e-3 A.learner.alpha=5e-3
-
-
-REM call:run_exe app.run_name=run_{t}_B-16 train.num_envs=16 
-REM call:run_exe app.run_name=run_{t}_B-32 train.num_envs=32
-REM call:run_exe app.run_name=run_{t}_B-64 train.num_envs=64
-REM call:run_exe app.run_name=run_{t}_B-128 train.num_envs=128
-REM call:run_exe app.run_name=run_{t}_B-256 train.num_envs=256
-REM call:run_exe app.run_name=run_{t}_B-512 train.num_envs=512
-REM call:run_exe app.run_name=run_{t}_B-1024 train.num_envs=1024
-
-REM call:run_exe app.run_name=run_{t}_s8      "A.stucker.stack_count=8"
-REM call:run_exe app.run_name=run_{t}_s16     "A.stucker.stack_count=16"
-REM call:run_exe app.run_name=run_{t}_s4_n64  "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_s4_n128 "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=128"
-
-REM ■好成績順上位3件は収束値はほぼ同じ。違いは立ち上がりの速さ(大差ではない)。
-REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
-REM call:run_exe app.run_name=run_{t}_K2_C512_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=512" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K3_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_02_MLP_Wide "net.body.MLP.structure=Linear_256 > ReLU > Linear_120 > ReLU"
-
-
-REM call:run_exe app.run_name=run_{t}_K3_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
-REM call:run_exe app.run_name=run_{t}_K2_C512_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=512" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM call:run_exe app.run_name=run_{t}_MLP_256_128   "net.body.MLP.structure=Linear_256 > ReLU > Linear_128 > ReLU"
-
-REM call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
-REM call:run_exe app.run_name=run_{t}_C128_LR1e4 "A.learner.alpha=1e-4"
-
-REM call:run_exe app.run_name=run_{t}_K2_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K3_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K2_C128_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_K2_C64_L64    "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM call:run_exe app.run_name=run_{t}_K2_C128_L128he "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].init.mode=2" "net.block.[Conv1D_Linear].init.mode=2" "A.head_init.mode=1"
-
-
-REM call:run_exe app.run_name=run_{t}_K2_C64_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
-REM call:run_exe app.run_name=run_{t}_K2_C256_L128 "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-REM call:run_exe app.run_name=run_{t}_K2_C128_L256 "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=256"
-REM ↑ 容量倍増：Gapだけ広がってスコア落ちたら過学習
-
-REM call:run_exe app.run_name=run_{t}_eps-10 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=10000000"
-REM call:run_exe app.run_name=run_{t}_eps-08 "A.action_policy.uqe_eps_max=0.8" "A.action_policy.uqe_eps_decay_step=10000000"
-REM call:run_exe app.run_name=run_{t}_eps-04 "A.action_policy.uqe_eps_max=0.4" "A.action_policy.uqe_eps_decay_step=10000000"
-REM call:run_exe app.run_name=run_{t}_eps-10a "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=5000000"
-REM call:run_exe app.run_name=run_{t}_eps-100 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_min=0.0" "A.action_policy.uqe_eps_decay_step=10000000"
-
-REM call:run_exe app.run_name=run_{t}_Base_K2_C64
-REM call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_size=3"
-REM call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_channels=32" "net.block.[Conv1D_Linear].linear.out_features=32"
-REM call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-
-REM call:run_exe app.run_name=run_{t}_A_5e-5 "A.learner.alpha=5e-5"
-REM call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
-REM call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
-REM call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
-REM call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
-REM call:run_exe app.run_name=run_{t}_A_1e-1 "A.learner.alpha=1e-1"
-
-REM SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
-
-REM call:run_exe app.run_name=run_{t}_Init_Mode0 %COMMON_ARGS% "net.block.FC1.init.mode=0 net.block.FC2.init.mode=0 A.head_init.mode=0"
-REM call:run_exe app.run_name=run_{t}_Init_Mode1_Base %COMMON_ARGS% "net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
-REM call:run_exe app.run_name=run_{t}_Init_Mode2 %COMMON_ARGS% "net.block.FC1.init.mode=2 net.block.FC2.init.mode=2 A.head_init.mode=2"
-REM call:run_exe app.run_name=run_{t}_Init_Mode3 %COMMON_ARGS% "net.block.FC1.init.mode=3 net.block.FC2.init.mode=3 A.head_init.mode=3"
-REM call:run_exe app.run_name=run_{t}_Init_Mixed %COMMON_ARGS% "net.block.FC1.init.mode=2" "net.block.FC2.init.mode=2" "A.head_init.mode=1"
-
-REM call:run_exe app.run_name=run_{t}_Gain_0.0 %COMMON_ARGS% "A.head_init.manual_gain=0.0"
-REM call:run_exe app.run_name=run_{t}_Gain_0.01 %COMMON_ARGS% "A.head_init.manual_gain=0.01"
-REM call:run_exe app.run_name=run_{t}_Gain_0.1 %COMMON_ARGS% "A.head_init.manual_gain=0.1"
-REM call:run_exe app.run_name=run_{t}_Gain_1.0 %COMMON_ARGS% "A.head_init.manual_gain=1.0"
-REM call:run_exe app.run_name=run_{t}_Gain_1.41 %COMMON_ARGS% "A.head_init.manual_gain=1.41"
-
-
-REM ==========================================================
-REM 2. Deep MLP (MLPでの深層化テスト)
-REM ==========================================================
-REM [構成] Flatten -> 120 -> 120 -> 120 -> 120 -> 84 -> Out
-REM MLPを深くすると勾配消失などで学習効率が落ちるかを確認する対照実験。
-REM call:run_exe app.run_name=run_{t}_02_MLP_Deep5 "net.body.structure=Flatten > Linear_120 > ReLU > Linear_120 > ReLU > Linear_120 > ReLU > Linear_120 > ReLU > Linear_84 > ReLU"
-
-REM ==========================================================
-REM 3. ResNet Shallow (機能確認)
-REM ==========================================================
-REM [構成] ResBlock(*3)
-REM 新実装のCompositeブロックが正常に機能し、MLP並みに学習するかを確認。
-REM ※ ResBlock, Linear_Proj, Linear_Out が定義済みである前提
-REM call:run_exe app.run_name=run_{t}_03_ResNet_x3 "net.body.structure=Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU"
-
-REM ==========================================================
-REM 4. ResNet Deep (本命: 深層化耐性)
-REM ==========================================================
-REM [構成] ResBlock(*10)
-REM MLPでは厳しくなる深さでも、Skip Connectionのおかげで学習が進むか？
-REM "実時間で遅い" 問題はあるものの、一晩かければ結果は出るはず。
-REM call:run_exe app.run_name=run_{t}_04_ResNet_x10 "net.body.structure=Flatten > Linear_Proj > ReLU > ResBlock(*10) > Linear_Out > ReLU"
-
-REM ==========================================================
-REM 5. ResNet Very Deep (ストレステスト)
-REM ==========================================================
-REM [構成] ResBlock(*20)
-REM さらに深くして、エラーが出ないか、収束するかを確認。
-REM call:run_exe app.run_name=run_{t}_05_ResNet_x20 "net.body.structure=Flatten > Linear_Proj > ReLU > ResBlock(*20) > Linear_Out > ReLU"
-
-
-REM --- 1. Baseline (Standard) ---
-REM 定義 [nn.txt source: 24]: Linear_120 > ReLU > Linear_84 > ReLU
-REM call:run_exe app.run_name=run_{t}_01_MLP_Base
-
-REM --- 2. Wide MLP (Feature Rich) ---
-REM 中間層の幅を広げて特徴抽出能力を向上
-REM 構造: Linear_256 > ReLU > Linear_120 > ReLU
-REM call:run_exe app.run_name=run_{t}_02_MLP_Wide "net.body.MLP.structure=Linear_256 > ReLU > Linear_120 > ReLU"
-
-REM --- 3. Large MLP (Max Capacity) ---
-REM [nn.txt source: 23] の Linear_512 を使用した最大構成
-REM 構造: Linear_512 > ReLU > Linear_256 > ReLU
-REM call:run_exe app.run_name=run_{t}_03_MLP_Large "net.body.MLP.structure=Linear_512 > ReLU > Linear_256 > ReLU"
-
-REM --- 4. Deep MLP (3 Layers) ---
-REM 層を深くして非線形な推論能力を強化
-REM 構造: Linear_120 > ReLU > Linear_120 > ReLU > Linear_84 > ReLU
-REM call:run_exe app.run_name=run_{t}_04_MLP_Deep "net.body.MLP.structure=Linear_120 > ReLU > Linear_120 > ReLU > Linear_84 > ReLU"
-
-REM --- 5. Deep & Wide (Heavy) ---
-REM 広さと深さを両立させた重厚長大モデル
-REM 構造: Linear_256 > ReLU > Linear_256 > ReLU > Linear_120 > ReLU
-REM call:run_exe app.run_name=run_{t}_05_MLP_DeepWide "net.body.MLP.structure=Linear_256 > ReLU > Linear_256 > ReLU > Linear_120 > ReLU"
-
-
-
-REM call:run_exe app.run_name=run_{t}
-
-REM call:run_exe app.run_name=run_{t}-1_EPS   A.action_policy.policy_type=0
-REM call:run_exe app.run_name=run_{t}-2_UQE   A.action_policy.policy_type=1
-REM call:run_exe app.run_name=run_{t}-3_TS    A.action_policy.policy_type=2
-REM call:run_exe app.run_name=run_{t}-4_TSf   A.action_policy.policy_type=2 A.action_policy.uqe_use_tail_mean=true
-REM call:run_exe app.run_name=run_{t}-5_UQE5  A.action_policy.policy_type=1 A.action_policy.uqe_eps_max=0.05 A.action_policy.uqe_eps_min=0.05
-REM call:run_exe app.run_name=run_{t}-6_TSA5  A.action_policy.policy_type=2 A.action_policy.uqe_eps_max=0.05 A.action_policy.uqe_eps_min=0.05
-REM call:run_exe app.run_name=run_{t}-7_TSA5f A.action_policy.policy_type=2 A.action_policy.uqe_eps_max=0.05 A.action_policy.uqe_eps_min=0.05  A.action_policy.uqe_use_tail_mean=true
-REM call:run_exe app.run_name=run_{t}-8_UQE1  A.action_policy.policy_type=1 A.action_policy.uqe_eps_max=0.01 A.action_policy.uqe_eps_min=0.01
-REM call:run_exe app.run_name=run_{t}-9_TSA1  A.action_policy.policy_type=2 A.action_policy.uqe_eps_max=0.01 A.action_policy.uqe_eps_min=0.01
-
-
-REM call:run_exe app.run_name=run_{t}-2_B4096 A.learner.replay_batch_size=4096
-REM call:run_exe app.run_name=run_{t}-3_B256-rr2 A.learner.replay_batch_size=256 A.learner.replay_ratio=2
-REM call:run_exe app.run_name=run_{t}-4_B256-rr1 A.learner.replay_batch_size=256 A.learner.replay_ratio=1
-REM call:run_exe app.run_name=run_{t}-01_UQE  A.action_policy.policy_type=1
-REM call:run_exe app.run_name=run_{t}-02_H128 A.qnet.nn_hidden1=128 A.qnet.nn_hidden2=128
-REM call:run_exe app.run_name=run_{t}-03_B256 A.learner.replay_batch_size=256
-REM call:run_exe app.run_name=run_{t}-04_B128 A.learner.replay_batch_size=128
-
-
+if "%FAILED_RUNS%"=="0" goto :all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 pause
-exit /b
+exit /b 1
 
+:all_succeeded
+echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
+pause
+exit /b 0
+
+
+:use_ws
+SET "WS=--workspace %~1"
+SET "RUNS=workspaces\%~1\runs"
+if exist "workspaces\%~1\config\_main.txt" exit /b 0
+mkdir "workspaces\%~1\config" 2>nul
+>"workspaces\%~1\config\_main.txt" echo $include ^<%~2^>
+exit /b 0
+
+:find_done
+SET "DONE_DIR="
+for /f "delims=" %%d in ('dir /b /ad "%RUNS%\run_*_%~1" 2^>nul') do (
+  findstr /m /c:"Stop training requested" "%RUNS%\%%d\*.log" >nul 2>&1 && SET "DONE_DIR=%%d"
+)
+if defined DONE_DIR echo %DATE% %TIME% SKIP %~1 already finished in %DONE_DIR%
+exit /b 0
 
 :run_exe
-echo %DATE% %TIME% START %*
-%EXE% %*
+echo %DATE% %TIME% START %WS% %*
+%RUNNER% %WS% %*
+SET "RUN_EXIT_CODE=%ERRORLEVEL%"
+if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
+echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
+SET /A FAILED_RUNS+=1
+exit /b 0
+
+:run_succeeded
+SET /A SUCCEEDED_RUNS+=1
 echo   %DATE% %TIME% END   %*
-exit /b
+exit /b 0
+
+:no_exe
+echo *** bin\%BUILD%\AnetRLRunner.exe not found or copy failed. Nothing was run.
+pause
+exit /b 1

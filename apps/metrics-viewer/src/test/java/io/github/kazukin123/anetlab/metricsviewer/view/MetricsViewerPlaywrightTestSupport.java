@@ -1,7 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.*;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +19,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
@@ -97,6 +98,23 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	}
 
 	protected static void fulfillJson(Route route, String body) {
+		if (route.request().url().endsWith("/api/metrics.json")) {
+			final var payload=JsonParser.parseString(body).getAsJsonObject();
+			if (payload.has("data")) {
+				final var requests=JsonParser.parseString(route.request().postData()).getAsJsonObject().getAsJsonArray("series");
+				for (var data:payload.getAsJsonArray("data")) {
+					final var result=data.getAsJsonObject();
+					for(var element:requests) {
+						final var request=element.getAsJsonObject();
+						if (!request.get("runId").equals(result.get("runId")) || !request.get("tagKey").equals(result.get("tagKey"))) continue;
+						result.add("fromStep",request.get("fromStep"));
+						result.add("toStep",request.get("toStep"));
+						result.add("stepBucketWidth",request.get("stepBucketWidth"));
+					}
+				}
+				body=payload.toString();
+			}
+		}
 		route.fulfill(new Route.FulfillOptions()
 				.setStatus(200)
 				.setContentType("application/json")
@@ -108,14 +126,14 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	}
 
 	protected static void waitForGraph(Page page) {
-		page.waitForFunction("document.querySelectorAll('.js-plotly-plot path.js-line').length > 0",
+		page.waitForFunction("document.querySelectorAll('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage]) path.js-line').length > 0",
 				null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
 	protected static void waitForMultiRunGraph(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?.data?.length ?? 0) > 1;
 				}
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -123,21 +141,38 @@ abstract class MetricsViewerPlaywrightTestSupport {
 
 	protected static void waitForGraphCount(Page page, int count) {
 		page.waitForFunction("""
-				count => document.querySelectorAll('.js-plotly-plot').length === count
-					&& document.querySelectorAll('.js-plotly-plot path.js-line').length >= count
+				count => document.querySelectorAll('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])').length === count
+					&& document.querySelectorAll('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage]) path.js-line').length >= count
 				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
-	protected static boolean isAutoReloadButtonActive(Page page) {
+	/**
+	 * トグルのON/OFFを返す。aria-pressedを正とし、見た目の.activeが食い違っていれば失敗させる。
+	 */
+	protected static boolean isToggleOn(Page page, String selector) {
 		return Boolean.TRUE.equals(page.evaluate("""
-				() => document.getElementById('btn-auto-reload').classList.contains('active')
-				"""));
+				selector => {
+					const el = document.querySelector(selector);
+					if (!el) throw new Error('toggle not found: ' + selector);
+					const pressed = el.getAttribute('aria-pressed') === 'true';
+					if (pressed !== el.classList.contains('active')) {
+						throw new Error('toggle state mismatch: ' + selector);
+					}
+					return pressed;
+				}
+				""", selector));
+	}
+
+	protected static void setToggle(Page page, String selector, boolean on) {
+		if (isToggleOn(page, selector) != on) page.click(selector);
+	}
+
+	protected static boolean isAutoReloadButtonActive(Page page) {
+		return isToggleOn(page, "#btn-auto-reload");
 	}
 
 	protected static boolean isGraphScrollLockButtonActive(Page page) {
-		return Boolean.TRUE.equals(page.evaluate("""
-				() => document.getElementById('btn-graph-scroll-lock').classList.contains('active')
-				"""));
+		return isToggleOn(page, "#btn-graph-scroll-lock");
 	}
 
 	protected static boolean isGraphScrollLockButtonVisible(Page page) {
@@ -185,7 +220,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static boolean isPlotlyDragModeFalse(Page page) {
 		return Boolean.TRUE.equals(page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === false;
 				}
 				"""));
@@ -194,7 +229,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForPlotlyDragModeFalse(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === false;
 				}
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -204,7 +239,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static Map<String, Number> readFirstTraceMiddlePointScreenPosition(Page page) {
 		return (Map<String, Number>) page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const full = plot?._fullLayout;
 					const trace = plot?.data?.[0];
 					if (!plot || !full || !trace || trace.x.length < 2 || trace.y.length < 2) {
@@ -224,10 +259,22 @@ abstract class MetricsViewerPlaywrightTestSupport {
 		page.mouse().move(position.get("x").doubleValue(), position.get("y").doubleValue());
 	}
 
+	protected static void tapFirstTraceMiddlePoint(Page page) {
+		final Map<String, Number> position = readFirstTraceMiddlePointScreenPosition(page);
+		dispatchTouchTap(page, position.get("x").doubleValue(), position.get("y").doubleValue());
+	}
+
 	protected static void waitForPlotlyHoverText(Page page) {
 		page.waitForFunction("""
-				() => Array.from(document.querySelectorAll('.hovertext'))
-					.some(el => (el.textContent || '').trim().length > 0)
+				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
+					.some(el => el.style.display !== 'none' && (el.textContent || '').trim().length > 0)
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	protected static void waitForHoverOverlayHidden(Page page) {
+		page.waitForFunction("""
+				() => Array.from(document.querySelectorAll('.graph-hover-overlay'))
+					.every(el => getComputedStyle(el).display === 'none')
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
@@ -238,7 +285,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForLegendOnlyTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return Array.from(plot?.data ?? []).some(trace => trace.visible === 'legendonly');
 				}
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -310,6 +357,30 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
+	protected static boolean isDocumentScrollable(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.scrollingElement ?? document.documentElement;
+					return el.scrollHeight > el.clientHeight;
+				}
+				"""));
+	}
+
+	protected static void setDocumentScrollTop(Page page, int scrollTop) {
+		page.evaluate("""
+				scrollTop => {
+					const el = document.scrollingElement ?? document.documentElement;
+					el.scrollTop = scrollTop;
+				}
+				""", scrollTop);
+	}
+
+	protected static void waitForDocumentScrolled(Page page) {
+		page.waitForFunction("""
+				() => (document.scrollingElement ?? document.documentElement).scrollTop > 0
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
 	protected static void waitForPlotlyDragCoverRemoved(Page page) {
 		page.waitForFunction("""
 				() => !document.querySelector('.dragcover')
@@ -334,6 +405,17 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					return rect.top + rect.height / 2;
 				}
 				""")).doubleValue();
+	}
+
+	protected static void dispatchTouchTap(Page page, double x, double y) {
+		final CDPSession cdp = page.context().newCDPSession(page);
+		try {
+			dispatchTouchEvent(cdp, "touchStart", x, y);
+			page.waitForTimeout(60);
+			dispatchTouchEvent(cdp, "touchEnd", x, y);
+		} finally {
+			cdp.detach();
+		}
 	}
 
 	protected static void dispatchTouchSwipe(Page page, double x, double startY, double endY) {
@@ -425,7 +507,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readTraceColor(Page page, String runId) {
 		return (String) page.evaluate("""
 				runId => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const trace = Array.from(plot?.data ?? [])
 						.find(candidate => candidate?.meta?.runId === runId);
 					const color = trace?.line?.color ?? trace?.marker?.color ?? '';
@@ -443,7 +525,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readFirstTraceUid(Page page) {
 		return (String) page.evaluate("""
 				(() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return plot?.data?.[0]?.uid ?? '';
 				})()
 				""");
@@ -452,7 +534,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String renderFirstPlotPngPrefix(Page page) {
 		return (String) page.evaluate("""
 				async () => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const imageUrl = await Plotly.toImage(plot, {
 						format: 'png',
 						width: plot._fullLayout.width,
@@ -474,7 +556,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readYAxisType(Page page) {
 		return (String) page.evaluate("""
 				(() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return plot ? (plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type || 'linear') : '';
 				})()
 				""");
@@ -483,14 +565,15 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const button = document.querySelector('.graph-log-toggle');
 					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
 					if ((plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type) !== 'linear') return false;
 
 					const y = Array.from(plot.data?.[0]?.y ?? []);
 					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
-					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const ticktext = Array.from(
+						plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
 					return y.length === 3
 						&& customdata.length === 3
 						&& customdata.every((raw, index) => {
@@ -508,7 +591,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogMixedSignTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const button = document.querySelector('.graph-log-toggle');
 					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
 					if ((plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type) !== 'linear') return false;
@@ -516,7 +599,8 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					const expectedRaw = [-100, -9, 0, 9, 100];
 					const y = Array.from(plot.data?.[0]?.y ?? []);
 					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
-					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const ticktext = Array.from(
+						plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
 					const requiredTicks = ['-100', '-10', '-1', '0', '1', '10', '100'];
 					return y.length === expectedRaw.length
 						&& customdata.length === expectedRaw.length
@@ -534,7 +618,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogZoomSourceTrace(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const button = document.querySelector('.graph-log-toggle');
 					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
 
@@ -549,7 +633,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void zoomToSignedLogRange(Page page, int minStep, int maxStep, double minValue, double maxValue) {
 		page.evaluate("""
 				({ minStep, maxStep, minValue, maxValue }) => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const signedLog = value => Math.sign(value) * Math.log10(1 + Math.abs(value));
 					return Plotly.relayout(plot, {
 						'xaxis.range[0]': minStep,
@@ -568,7 +652,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForSignedLogZoomTicks(Page page) {
 		page.waitForFunction("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					const yaxis = plot?._fullLayout?.yaxis ?? plot?.layout?.yaxis;
 					const tickvals = Array.from(yaxis?.tickvals ?? []);
 					const ticktext = Array.from(yaxis?.ticktext ?? []);
@@ -589,7 +673,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void setPlotlyPanMode(Page page) {
 		page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return Plotly.relayout(plot, { dragmode: 'pan' });
 				}
 				""");
@@ -615,7 +699,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static String readPlotlyDragMode(Page page) {
 		return (String) page.evaluate("""
 				() => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode ?? '';
 				}
 				""");
@@ -624,7 +708,7 @@ abstract class MetricsViewerPlaywrightTestSupport {
 	protected static void waitForPlotlyDragMode(Page page, String dragMode) {
 		page.waitForFunction("""
 				dragMode => {
-					const plot = document.querySelector('.js-plotly-plot');
+					const plot = document.querySelector('#main-area > .graph-block > .js-plotly-plot:not([data-render-stage])');
 					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === dragMode;
 				}
 				""", dragMode, new Page.WaitForFunctionOptions().setTimeout(30000));
@@ -672,6 +756,56 @@ abstract class MetricsViewerPlaywrightTestSupport {
 					return el ? getComputedStyle(el).touchAction : '';
 				}
 				""");
+	}
+
+	protected static String readChipColor(Page page, String runId) {
+		return (String) page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.dataset.runId === runId);
+					const chip = row?.querySelector('.run-color');
+					return chip ? getComputedStyle(chip).backgroundColor : '';
+				}
+				""", runId);
+	}
+
+	protected static List<String> readChipColors(Page page, List<String> runIds) {
+		return runIds.stream().map(runId -> readChipColor(page, runId)).toList();
+	}
+
+	protected static void clickRunRow(Page page, String runId) {
+		// 行はrefreshListsのたびに作り直されるため、click前に必ず引き直す。
+		page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.dataset.runId === runId);
+					if (!row) throw new Error('run not found: ' + runId);
+					row.click();
+				}
+				""", runId);
+	}
+
+	protected static void setAutoRecolor(Page page, boolean enabled) {
+		setToggle(page, "#btn-auto-recolor", enabled);
+	}
+
+	protected static String readAutoRecolorStorage(Page page) {
+		return (String) page.evaluate("""
+				() => localStorage.getItem('anet.metricsviewer.autoRecolorEnabled')
+				""");
+	}
+
+	protected static void waitForRunRows(Page page, int count) {
+		page.waitForFunction("""
+				count => document.querySelectorAll('#run-list .run-row').length === count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	protected static void waitForSelectedTraceCount(Page page, int count) {
+		page.waitForFunction("""
+				count => (document.querySelector('.js-plotly-plot')?.data ?? [])
+					.filter(trace => trace?.meta?.runId).length >= count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
 	protected static void selectSingleRun(Page page, String runId) {

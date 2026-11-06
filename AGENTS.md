@@ -21,7 +21,7 @@ output paths and encodings in this environment.
 
 このドキュメントは、anet-lab を編集する AI エージェントおよび開発支援ツール向けの作業規約です。
 `CLAUDE.md` などから参照される場合もあるため、特定の AI エージェント実装に依存しない共通ルールとして扱います。
-人間が読む開発メモとしても使えるように、リポジトリ構成、ビルド手順、コーディング方針をまとめます。
+人間が読む開発メモとしても使えるように、リポジトリ構成、ビルド手順、共通の原則をまとめ、作業ごとの細則は品質確認観点へ案内します。
 
 ## プロジェクト概要
 
@@ -47,6 +47,24 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 - 依存方向を単純に保ち、循環依存を避ける。
 - 暗黙のグローバル状態を増やさない。
 - 生成物やローカル環境ファイルを不用意に編集・追加しない。
+- 性能影響に対しては妥協しない姿勢を基本とし、可読性・保守性との折り合いを付ける。
+- 読みやすく、責務が明確な実装にする。
+- 例外、安全性、境界条件を意識する。
+- 大規模な整形変更や無関係なリネームは避ける。
+
+## 作業ごとに読むもの
+
+| これからすること | 先に読むもの |
+|---|---|
+| C++ のコードを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「C++ コード」「名前」「コメントと TODO」「計測」「GetScalar」「所有権」「ログ」「失敗の扱い」 |
+| Python・Java・PowerShell のコードを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「コメントと TODO」「ログ」 |
+| 設定ファイルを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「設定ファイル」「名前」 |
+| PRD を書く・直す | [PRD 品質確認観点](docs/quality/prd.md) と、[実装 品質確認観点](docs/quality/impl.md)の「名前」 |
+| 設計文書・ユーザーガイドを書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「検証と報告」 |
+| `AGENTS.md`・品質確認観点・プロセス契約とレジストリ・エージェント定義(`.claude/agents/`・`.codex/agents/`)を書く・直す、直し方の案を出す | [実装 品質確認観点](docs/quality/impl.md)の「検証と報告」と、直す品質確認観点のファイルの「位置づけ」。プロセス契約とレビューエージェントの定義を直す案では、[レジストリ](docs/process/registry.md)の「読み替え表」の前文 |
+| skill を書く・直す | [実装 品質確認観点](docs/quality/impl.md)の「skill」と、[skills README](.agents/skills/README.md) |
+
+先に読むものは書く前に読み、読んだ節の名前を応答に 1 行で示す。直し方の案を出すときは、案を示す応答の前に読み、その応答に 1 行を置く。書いたあとの自己点検では、同じファイルの全項目を通す。
 
 ## クリーンブレーク方針
 
@@ -71,6 +89,46 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 移行後の旧キーは現行契約に存在せず、設定基盤が未知キーを一律検出しない場合は NoCare となる。
 一方、新しい `quantile_mode` や `qr.num_quantiles` を認識した後の値・組み合わせは、通常どおり明示的に検証して fail-fast する。
 
+## 設計判断の記録(ADR)を読む条件
+
+`docs/adr/` の ADR は「なぜ今この形になっているか」の記録であり、現在の仕様書ではない。
+毎回読む必要はなく、次のときだけ着手前に該当 ADR を読む。
+
+- 既存の契約・構造を変える提案をするとき、または契約・構造の変更を含む実装をするとき。
+- 冗長・不要・古いと見えるコードを整理・削除しようとするとき。
+  意図してその形にしたかどうかはコードに書かれておらず、ADR にしか残っていない。
+- 他者の変更をレビューするとき。対象の変更が上の 2 つに当たる場合に限る。
+- 既存の ADR と矛盾する結論に達したとき。黙って上書きせず、どの ADR のどの判断と矛盾するかを明示する。
+
+次のときは読まなくてよい。
+
+- バグ修正、テスト追加、ログ・計測の追加。
+- 既存 PRD に沿った実装。必要な判断は PRD が持つ。
+
+該当 ADR はファイル名一覧から探す。ファイル名が決定文になっているため、領域の語で絞り込める。
+設計文書(1xx・2xx)に該当章があるときは、そこからの参照を優先する。
+現在の仕様は設計文書を正本とし、ADR は当時の判断理由として読む。
+ユーザーガイド(0xx)は PRD も ADR も参照しない。
+
+## wiki(docs/wiki)を引く条件
+
+- PRD を起こす・グリルする前、ある機構の知見を別の Env へ持ち込む前、Run 分析の結論を出す前に、[wiki の目録](docs/wiki/index.md)を題材の語（別名を含む）で引き、関係するページを読む。
+- 既存の契約・構造を変える提案の前に、触る部分のアプリケーション・機能カテゴリのページ（実装の地図）を引き、成立の経緯から該当の PRD と ADR をたどる。
+- ページと出典（または新しい結果）の食い違いに気づいたら、出典を正としてその場で直し、`docs/wiki/log.md` に `fix` の行を足す。PRD づくりでは起草でまとめて直す。Plan Mode では編集せず、是正事項を計画へ残す。
+- wiki だけにある知見を作らない。新しい知見は先に正本へ書く。書式・出典・確かめ方は [wiki の規約](docs/wiki/README.md)に従う。
+
+## 用語(CONTEXT.md)を引く条件
+
+`CONTEXT.md` はドメイン用語集であり、実装仕様ではない。次のときに引く。
+
+- 新しい名前を付けるとき。設定キー、メトリクス名、TensorDict キー、公開クラス名など、
+  後から変更するとクリーンブレーク方針により現用の全箇所を移行することになるもの。
+- 既存の概念を別の語で呼びたくなったとき。`_Avoid_` に挙がっていないかを確認する。
+
+日常の実装・修正で毎回読む必要はない。
+用語集に無い概念へ名前を付けるときは、まず既存の語で言い換えられないかを確認する。
+言い換えられない場合は用語の欠落として扱い、用語を決めてから名前を確定する。
+
 ## 汎用機構と利用側の責任境界
 
 利用側が部品や接続を選べる汎用機構では、次の責任境界を基本とする。
@@ -83,8 +141,11 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 | フレームワーク | 構文、型、参照先、局所的な事前条件、共有する不変条件など、汎用機構自身が所有し、局所的かつ決定的に判定できる契約を検証する。違反は fail-fast にする |
 | 利用側 | 目的に合った入力、部品、接続、順序を選び、その構成が意図した処理やアルゴリズムを表していることに責任を持つ |
 
+汎用層の型・関数・分岐・検証は、特定の Agent・Env・アルゴリズムの名前（鍵、欄、モード）を持たず、個別の実装の値はその実装が宣言して提供する（GetScalar の鍵など）。
+
 個別機能の意味を理解しなければ判定できない検証を汎用層へ持ち込み、あらゆる誤構成をフレームワークで防ごうとしない。
 一方、汎用機構自身が所有する契約を、利用側の責任として放置しない。
+汎用機構の局所的な情報だけで正誤や結果が決まる処理（ある型の設定の値域や整合の検証など）を足すときは、個別の実装の中に書かず、その型・機構の共通処理として足して利用側から呼ぶ。先に既存の共通処理を探し、あれば使うか拡張する。
 
 検証は、必要な情報が揃う最も早い自然な境界で行う。
 
@@ -107,6 +168,7 @@ WARN は利用者の確認を助けるための診断であり、構成の意味
 - TensorSpec にある入力がどの branch にも直接 bind されていない場合の WARN は、書き忘れを見つけるための診断であり、その入力の到達性や意味的寄与を保証しない。
 - 設定値の型、列挙値、値域はフレームワークが検証する。その設定値を実験目的に対して選ぶことは利用側が判断する。
 - component や callback の存在、interface、lifecycle はフレームワークが検証する。その組み合わせや実行順序が目的に適していることは利用側が判断する。
+- `WeightInitConfig` の mode の値域、数値の有限性、`trunc_a < trunc_b` は初期化設定そのものの条件なので、Agent の設定読み込みに書かず、`nn.hpp` の `ValidateWeightInitConfig` に置いて、各 Agent と `WeightInitializer` から呼ぶ。
 
 ## Fail-Fast 原則
 
@@ -146,103 +208,14 @@ fail-fast の「fail」は「意図しない状態」にのみ適用する。
 - sentinel・magic 値による黙った再解釈を導入しない。例: `0` を「全件」と読み替える、範囲外を clamp する。「設定に書いたことがそのまま起きる」を保証し、意図の分岐が必要な場合はモード値として明示させる（例: `mode = full | rotating` ＋ `size`。不正な組み合わせは fail-fast）。
 - エラーメッセージには、問題のあるキー、指定値、期待される値または範囲を含める。
 
-## コーディング規約
+## 改行と文字コード
 
-C++ コードは Google C++ スタイルガイドを前提とします。
-ただし、既存コードに明確なローカル規約がある場合は、無理に一括変更せず、周辺コードとの一貫性を優先してください。
-
-個別の指示・合意が無い限りにおいて、以下を意識してください。
-
-- C++20 を前提とする。
-- 性能影響に対しては妥協しない姿勢を基本とし、可読性・保守性との折り合いを付ける。
-- 読みやすく、責務が明確な実装にする。
-- ANET では、原則として 1 クラス 1 ファイルではなく、機能グループ単位で `.hpp` / `.cpp` を作る。
-  例: `dqn_based_agent.*` は DQN 系の Policy、Actor、Learner をまとめ、`nn_modules.*` は NN module 群をまとめ、`observers.*` は Observer 群をまとめる。
-- 新しいクラスを追加する場合も、まず既存の機能グループに属するかを確認し、独立したサブシステムとして分ける理由がある場合だけ新規ファイルを作る。
-- ヘッダオンリーで実装が完結する `.hpp` を新設する場合も、同じ機能グループ名の `.cpp` を作り、その `.cpp` では当該ヘッダの include だけを行う。
-  例: `foo.hpp` を追加する場合は `foo.cpp` も追加し、公開ヘッダなら `#include "anet/foo.hpp"`、内部ヘッダなら周辺コードと同じ include 形式で当該ヘッダだけを include する。
-- C++20 の指示付き初期化（Designated Initializers）は原則使用し、可読性が極端に低下する場合のみ通常のコンストラクタ呼び出しや段階的な代入を優先する。
-- include は必要最小限にする。
-- C++ の `.hpp` 側では `using namespace` を使用しない。
-- C++ の `.cpp` 側では、`namespace ... {}` で全体を囲むのではなく `using namespace ...;` を使用。
-- 同じ名前空間で省略可能な名前空間修飾は省略する。
-- `const` を適切かつ積極的に使う。
-- `dynamic_cast` はテストコード内に限定し、production code では使用しない。型ごとの分岐が必要な場合は、仮想関数、明示的な interface、既存 API の拡張、または型情報を持つデータ構造で表現する。
-- 例外、安全性、境界条件を意識する。
-- 大規模な整形変更や無関係なリネームは避ける。
-- 改行コードは LF で統一。
+- 改行コードは原則 LF で統一。ただし `.bat` は Windows batch として Shift-JIS（Windows CP932）+ CRLF を維持する。
+- `.bat` ファイルを新規作成・編集する場合は、文字コードを Shift-JIS（Windows CP932）とし、UTF-8 へ変換しない。
+  PowerShell や Python で生成・置換する場合も、明示的に Shift-JIS / CP932 で読み書きする。
+- `.bat` は `@echo off` の次の行に `title %~nx0` を置き、コンソールの窓にファイル名を出す。並べて走らせたバッチの窓を、閉じるときに取り違えないため。
 - `.hpp`、`.cpp`、`.java`、`.md`、`.editorconfig`、`.gitattributes` は `.editorconfig` と `.gitattributes` の LF 指定に従う。
 - `third_party/` 配下は外部依存として改行コード統一の一括対象から除外する。
-
-## コメント・TODO ルール
-
-- 日本語でコメントを入れる。
-- メソッド内で実装段階毎にその内容を説明するコメントを記載する。
-- 共通化や関数切り出しでコメントが消える場合は、移動先の関数に同等の意図コメントを移す。
-- コメントは「この段階で何をしているか」「なぜこの順序なのか」を後から追える粒度にする。
-- 行単位で自明な説明を増やすのではなく、アルゴリズム、同期境界、副作用境界、メトリクス算出意図を優先して説明する。
-- 実装中に設計上の懸念、未対応の分岐、将来修正が必要な点に気づき、その場で解決しない場合は Doxygen 形式の TODO コメントを残す。
-- TODO コメントは `/// @todo ...` または `///< @todo ...` の形式を使い、理由と残作業が追える短い内容にする。
-
-## 性能測定・ProfileRange ルール
-
-性能測定が必要な処理には `ANET_PROFILE_SCOPE` 系のマクロを入れ、後から実測できる状態を保ってください。
-
-特に以下の処理を追加・変更する場合は、計測範囲を入れることを優先してください。
-
-- 学習・評価・実行ループから頻繁に呼ばれる処理。
-- `Step`、`Reset`、`MakeAction`、`UpdateFromBatch`、`Forward`、`Sample`、`Push` など、実行時間の主要因になりやすい境界。
-- batch size、env 数、action 数、node 数、画像サイズ、ログ量などに応じて処理量が増える処理。
-- Tensor 変換、device 転送、同期、queue 処理、ReplayBuffer、NN forward、loss 計算、可視化、画像・動画・GraphViz 出力など、CPU/GPU/I/O の負荷が読みにくい処理。
-- 既存の計測済み処理を分割・共通化する場合の、分割後の主要フェーズ。
-
-計測名は既存コードに合わせて `ClassName::FunctionName` または `ClassName::FunctionName.phase` のように安定した名前にしてください。
-細かすぎる getter、単純な分岐、軽量な per-element 内側ループには原則として入れず、測定のノイズにならない意味のある処理境界を選んでください。
-計測用のブロックを作ってスコープを不自然に狭めないでください。
-フェーズ全体を測る場合は、原則として `ANET_PROFILE_SCOPE(phase)` を対象フェーズの先頭に置き、そのフェーズで使うローカル変数の構築・初期化も測定対象に含めてください。
-測定対象から意図的に外したい重い初期化がある場合だけ、別スコープへ分けてください。
-連続フェーズを測る場合は、同じ可視 lifetime 内で `ANET_PROFILE_SCOPE_NEXT(phase)` または `ANET_PROFILE_SCOPE_NEXT_FROM(phase, prev_phase)` を使ってください。
-
-`ANET_PROFILE_SCOPE_FULL(var_name, full_name_literal)` は例外用途です。
-lambda / callback / timer / async worker / prefetch など、自動生成される `ClassName::FunctionName.phase` が profiler 上の論理処理名として不適切な場合、または既存の計測名を維持して before/after 比較を可能にしたい場合だけ使ってください。
-`full_name_literal` は `ClassName::FunctionName.phase` またはそれに準じる stable な完全名にしてください。
-通常のメンバ関数・自由関数内のフェーズ計測では `ANET_PROFILE_SCOPE(phase)` を優先し、単に任意の名前を付けたいという理由では `ANET_PROFILE_SCOPE_FULL` を使わないでください。
-
-推奨:
-
-```cpp
-ANET_PROFILE_SCOPE(sample);
-ExperienceSamples cpu_samples;
-inner_->Sample(cpu_samples, minibatch_size, beta);
-```
-
-避ける例:
-
-```cpp
-ExperienceSamples cpu_samples;
-{
-    ANET_PROFILE_SCOPE(sample);
-    inner_->Sample(cpu_samples, minibatch_size, beta);
-}
-```
-
-## Agent 系実装の所有権ルール
-
-Agent 関連の変数・オブジェクト追加時は、必ず以下の資料に従ってください。
-
-- `docs/ownership_guideline.md`
-
-要点:
-
-- State は、それを更新するモジュールが所有する。
-- Resource は Agent が所有する。
-- Policy が Learner に依存する構造は禁止する。
-- Agent モジュール間の循環依存を避ける。
-
-例:
-
-- epsilon、EMA 統計、warmup counter などは、それを更新するモジュールの State。
-- policy net、target net、optimizer、ReplayBuffer、RNG、Config などは Agent 所有の Resource。
 
 ## ビルド
 
@@ -292,7 +265,23 @@ Doxygen ドキュメントを確認する場合:
 cmake --build --preset x64-Debug --target doc
 ```
 
-テストが追加された場合は、このドキュメントに標準のテスト実行手順を追記してください。
+Runner workspace 機構と補助 launcher、MLflow bridge の標準テスト手順:
+
+```powershell
+core\anet-core\bin\Debug\anet-core-test.exe "[workspace]"
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\resolve_workspace_test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\batchrun_fatal_error_handling_test.ps1
+.\.venv\Scripts\python.exe apps\runner\tools\compress_workspace_metrics_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\mlflow_bridge_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\metrics_source_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\tb_bridge_test.py
+.\.venv\Scripts\python.exe apps\runner\tools\optuna_workspace_test.py
+.\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
+```
+
+この節には既定スイート相当の標準手順だけを書く。PRD 固有・領域固有の検証資材（golden 比較、網羅アッセイ、契約テストの実行手順）は
+`core/anet-core/testdata/prdNNN/README.md` に置き、当該領域の設計文書の「テストと拡張時の確認事項」章から参照する。この節へは追記しない。
 
 ## Python 補助ツールの実行
 
@@ -316,6 +305,36 @@ C:\Python314\python.exe -m venv .venv
 Python 補助ツールの検証も、同じ `.venv` の Python で行ってください。
 `.venv` はローカル実行環境として扱い、Git 管理対象にしないでください。
 
+## 人間へ提示するコマンドの書き方
+
+ユーザーが受け取ったコマンドは、実行ボタンからそのままターミナルへ流されます。
+**提示するコマンドは、編集せずに実行できる状態にしてください。**
+
+- **プレースホルダを書かないでください。** `<run名>` のような山括弧は PowerShell が
+  リダイレクト演算子として解釈し、`演算子 '<' は、今後の使用のために予約されています` で
+  パースエラーになります。Run 名やパスが実行時にしか決まらない場合は、
+  `Get-ChildItem ... | Sort-Object Name -Descending | Select-Object -First 1` のように
+  **コマンド自身に解決させてください**。
+- **既定のシェルは PowerShell です。** `&&` / `||`、三項演算子、`2>/dev/null`、
+  bash の制御構文は使えません。`;` と `if ($?) { }`、`2>$null`、`Test-Path` を使います。
+  cmd や Git Bash で実行させるコマンドは、どのシェルで実行するかを添え、そのシェルの引用符で書いてください。
+- **`>` を含む値（`app.$=app.batchrun>P1`、`run.$=run.@a > run.@b`）は、値ごと引用符で囲んでください。**
+  囲まないと `>` がリダイレクトになります。PowerShell と bash は単引用符、cmd と `.bat` は二重引用符で囲みます。
+  `.bat` の `SET "VAR=値"` では、値の中に二重引用符を入れず、使う側で `"%VAR%"` と囲みます。
+- **提示前に実行して確認してください。** 同じコマンドを既存の Run や既存のファイルに対して
+  一度通し、出力形まで確かめてから提示します。
+- **既定は 1 ブロック 1 行にしてください。** 実行ボタンが出るのは 1 コマンドのブロックだけで、
+  複数行のブロックはコピーボタンしか出ません。手順が複数ステップになる場合は
+  `;` で連結し、条件分岐は `if (...) { ... } else { ... }` を同じ行へ畳みます。
+- **1 行でも、読んで何をするか分かる形にしてください。** ユーザーは実行前にコマンドを読んで
+  監査します。省略記法で詰めるより、`Get-ChildItem` / `Select-String` / `Where-Object` を
+  そのまま書き、`-Filter` や `-Pattern` に意図が出るようにします。
+  エイリアス（`gci` / `?` / `%`）と位置引数の省略は避け、パイプの各段が 1 つの意味を持つよう並べます。
+  1 行に収めると読めなくなるほど長い手順は、スクリプトにするか、実行ボタンを諦めて
+  「コピーして貼り付けてください」と明示します。
+- **コードフェンスは ```bash を使ってください。** 中身が PowerShell でも、
+  実行ボタンが付くのは shell タグのブロックです。タグは実行ボタンのためのもので、シェルを添えたことには数えません。
+
 ## 編集しない・慎重に扱う領域
 
 以下は生成物、ローカル環境、または外部依存として扱います。
@@ -332,21 +351,26 @@ Python 補助ツールの検証も、同じ `.venv` の Python で行ってく�
 
 このリポジトリで作業する AI エージェントは、ユーザーが明示的に別言語を指定しない限り日本語で書いてください。
 
+語は、英語の用語を直訳した語ではなく、日本語として普通に使う語を選んでください。
+例: 比べる条件ごとの Run の組は「腕」（arm）ではなく「群」（A群・B群）、順に進める実験の区切りは「段」（stage）ではなく「ステージ」（「フェーズ」は別の用途と被るので使わない）、wall-clock time は「壁時計」「壁時間」ではなく「実時間」。
+
 `<proposed_plan>` を出す場合も、本文と見出しは日本語にしてください。
 
 コード、コマンド、ファイルパス、API 名、設定キー、エラーメッセージ、外部仕様名、引用は、原文または既存表記を保持してかまいません。
 
-実装内のログは後述のログ出力ルールに従い、UI 文言、出力ファイルの文言は、周辺コード、既存仕様、個別指示を優先してください。
+実装内のログは[実装 品質確認観点の「ログ」の規約](docs/quality/impl.md#ログ)に従い、UI 文言、出力ファイルの文言は、周辺コード、既存仕様、個別指示を優先してください。
 この応答言語ルールだけを理由に、実装内の英語文言を一括で日本語化しないでください。
 
-## ログ出力ルール
+## AI エージェントの概念説明ルール
 
-実装内のログ出力は、ユーザーから個別に指定がない限り基本英語で書いてください。
+設計や仕様の議論で新しい概念を導入・提案する場合は、その概念を前提とした質問や選択肢を提示する前に、ユーザーが内容と判断への影響を理解できるように説明してください。
 
-- `LOG::info()`、`LOG::warn()`、`LOG::error()`、`anet::log::warn()`、`ANET_LOG_DEBUG`、`ANET_SYSTEM_ERROR` などで出すメッセージは英語を既定にする。
-- 設定キー、ファイルパス、型名、関数名、例外メッセージ、外部ツールの出力は、原文または既存表記を保持してよい。
-- 既存の日本語ログを、このルールだけを理由に一括で英語へ翻訳しない。触った箇所、新規追加箇所、修正対象の近傍から適用する。
-- コメントやユーザー向け応答は、それぞれの日本語ルールを優先し、ログ出力ルールと混同しない。
+- 概念の名前だけでなく、「何を表すか」「何の問題を解決するために必要か」「既存の概念や仕組みとどう関係し、何が違うか」を平易な日本語で説明する。
+- 現在議論している処理や利用場面に即した具体例を示し、導入すると何が変わるかを伝える。必要に応じて短いコード例や図を使う。
+- プロジェクト独自の新概念だけでなく、その会話でまだ説明・共有されていない専門用語、設計パターン、抽象化にも適用する。用語を提示しただけで共通理解が成立したとみなさない。
+- 既存仕様と今回の提案を区別し、未合意の概念を採用済みの前提として扱わない。
+- 説明に続けて仕様質問をする場合は、何を決めたいのかと、選択肢によって挙動や責務がどう変わるかを示す。
+- 説明の長さは判断に必要な範囲に絞る。説明済みの内容を毎回繰り返したり、形式的な理解確認だけの往復を必須にしたりしない。
 
 ## LLM コーディング規律 (karpathy-guidelines)
 
@@ -376,6 +400,7 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 - テストのために production 本体 API や設計を歪めない。
 - `static` は純粋計算・状態非依存の helper に限定する。
 - テストは必要なら fixture、test-only subclass、public 経路で組み、本体に test-only API を増やさない。
+- ファイルの本文は、長さによらず、シェルの heredoc やリダイレクトではなく、ファイルを書く道具で書く。短いスクリプトをシェルに直接渡して実行するのは、これに当たらない。
 
 編集後:
 
@@ -384,20 +409,66 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 - 修正内容が `docs/design/` 配下の設計ドキュメントと乖離する場合は、必要に応じて関連ページも同じ変更内で更新する。
 - ビルドを試す場合は、素の PowerShell から `cmake --build` せず、PowerShell-safe な `cmd /s /c 'call "...VsDevCmd.bat" ... && cmake --build ...'` 形式で MSVC 環境を初期化する。
 - 実行できなかった検証があれば理由を明記する。
+- 作業のまとまりが終わったら、「Git 操作・コミットメッセージルール」の「コミットの準備を提案する」に従って聞く。
+
+## 長時間のビルド・テスト・バッチ検証
+
+長時間処理や多数条件の検証では、モデルによる待機・確認の往復を抑え、検証の完全性を維持する。
+
+- 条件の順次実行、終了コードの記録、結果集計は外側のスクリプトへまとめる。独立した条件は、1 条件が失敗しても後続を継続できる構成にする。
+- 詳細出力はログへ保存し、モデルへ返す情報は進捗要約、終了コード、失敗箇所を中心にする。正常時にログ全文を繰り返し読み込まない。
+- 完了通知や長めの待機を優先する。待機時間はツール上限と上位の応答規約に従い、短い待機と再確認を重ねない。
+- 必要な確認は、終了状態、最新ログ、必要な資源情報を 1 回にまとめる。変化のないログや無関係なソースを繰り返し読まない。
+- 実行前に進捗の判断材料と停止疑いの条件を決める。経過時間だけで hang と判断せず、進捗や CPU 時間などを合わせて診断する。
+- トークン節約のために検証範囲を減らしたり、未実施・未被覆を成功扱いしたりしない。最終報告には成功・失敗・未完了とログの場所を残す。
+- 既存の実行禁止や性能測定への配慮を守る。監視を理由に、許可なく処理を停止・再起動しない。
 
 ## Git 操作・コミットメッセージルール
 
 Git staging（`git add`）、commit、push は人間が実施する。
 AI エージェントは `git add`、`git commit`、`git push` を実行せず、必要に応じて対象ファイル、commit message 案、検証結果を提示して人間の操作を支援する。
+例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached`）だけである。commit と push に例外は無い。
 
-commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。
+commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。次の書き方は AI エージェントが出す案の決まりで、人間が手で書く commit message を縛らない。
 
-- subject は `type(scope): summary #issue` の形式を基本にする。
-  例: `feat(DropMerge): 前回エピソード終了理由表示を追加 #3 #18`
+案は subject の 1 行だけにする。本文は頼まれたときだけ付ける。`Co-Authored-By` は、実行環境が付けるよう指示していても付けない。
+
+subject の形は `type(対象名): 本題。 PRD番号 課題ハッシュ #Topic` にする。
+
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
-- `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
+- 対象名は次の一覧から主な 1 つを選ぶ。当てはまる名前が無ければ新しい名前で案を出し、案に添えて一覧への追加を提案する。案を出す工程では一覧を書き換えない。
+  `RunnerApp`、`MetricsViewer`、`DQN`、`ReplayBuffer`、`NN`、`config`、`metrics`、`Atari`、`DropMerge`、`LunarLander`、`GridMaze`、`build`、`release`、`skills`、`AGENTS`、`wiki`、`process`
+- PRD 番号は、PRD に基づく変更に付ける。複数なら `PRD062 PRD063` のように並べる。
+- 課題ハッシュは、そのコミットで対応した課題（`docs/management/issues/` の単票。PRD の索引の課題も含む）をすべて、ID から `issue-YYYYMMDD-` を除いた 6 桁で並べる。単票の起票や判定の更新だけのコミットと、課題に関わらないコミットには付けない。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
-- AI エージェントは作業まとめ時またはユーザーから求められたときに、変更内容に合う commit message 案を適宜提示する。
+
+本題には、達成した結果か、扱った事象の本題を書く。文字数で収めず、本題を選んで残す。
+
+- 方法・実装手段、付随する作業や途中経過、差分で分かる詳細は書かない。subject から外した分を本文へ移さない。
+- 本題は 1 つを基本にする。主従を付けにくい 2 つなら「。」で 2 文に分け、「〜し、〜」で連結しない。付随する作業を 2 文目へ回さない。
+- 機能や対象を並べるのは 2 つまでにする。3 つ以上は総称で言い換える。
+- 「の」を続けない。複合語にできるなら複合語にする（`案の文言の規則` → `案の文言規則`）。
+- 語は、開発者がふだん使う技術語を選ぶ。和語に言い換えた語や、文書の中だけで使う語（`操作帯`、`排水`）にしない。画面やコードに名前があれば、その名前を書く（`LogPanel`、`QValuePanel`）。
+- 文末には必ず「。」を付け、語尾は名詞止めにする（〜を追加。〜問題を修正。〜よう修正。〜へ移行。）。
+- 中身が読めない subject（`PRDメンテ`、`挙動を変更`）と、経緯だけの subject（`レビュー対応`）にしない。
+
+種類ごとの書き方は次のとおり。表に無い種類の変更は、上の決まりで書く。
+
+| 種類 | 本題に書くこと | 例 |
+|---|---|---|
+| 不具合の修正 | 症状と起きる条件。条件が内部の原因と一致するなら内部の言葉でもよい | `fix(RunnerApp): Close後に回ってきたpaneの並べ直しで落ちる問題を修正。 #24 #4` |
+| 機能の追加 | 機能の名前で伝わるなら名前、伝わらなければできるようになったこと | `feat(RunnerApp): TrainViewを隠せる＆アンドック出来るよう修正。 PRD110 #3 #4 #15` |
+| リファクタリング | 変えた対象と変化の大枠。手順は書かない | `refactor(DQN): ActionContextを廃止。 PRD083 #1 #17 #20` |
+| PRD の文書 | 何についての PRD か。起票・グリルの語は書いてよい | `docs(DQN): attentionエントロピー診断のPRDをグリル。 PRD093 #7 #11 #13` |
+| 実験記録 | 題材。数値や結論は書かない。題材が多ければ主な 1〜2 個にする | `docs(Atari): NN重み初期化方式による立ち上がり遅れについて実験記録を追加。 #22` |
+| 課題への対応 | その変更の書き方のまま、課題ハッシュを足す | `docs(AGENTS): コミットメッセージ案の文言規則を追加。 a88e01 #7` |
+
+- AI エージェントが commit message 案を提示する場合は、個々の修正差分ではなく、人間がこれから staging / commit する予定の、同一作業コンテキストに関連する未コミット変更のまとまりに対する案として提示する。
+- PRD 対応や機能追加の途中で局所的な不具合修正を含んだ場合でも、それを独立 commit にしない限り、commit message は局所修正ではなく commit 対象全体の主目的を表す。
+- commit message 案は、頼まれたときと、下の「コミットの準備を提案する」で選ばれたときに `anet-prepare-commit` で出す。作業のまとめには書かない。
+
+Topic Issue 番号は、個々の修正経緯ではなく、commit 対象全体の主目的と主な対象領域に基づいて選ぶ。
+例: workspace 機能追加 PRD の中で局所的な不具合修正を含んだ場合でも、同じ commit にまとめるなら主目的は `030_機能追加` とし、独立した不具合修正 commit にする場合だけ `040_不具合対応` を付ける。
 
 Topic Issue 番号は以下の対応表から、変更目的と対象領域に合うものを選ぶ。
 
@@ -427,11 +498,146 @@ Topic Issue 番号は以下の対応表から、変更目的と対象領域に�
 | 325_AGENT個別実装 > MuZero系列 | #21 |
 | 330_ハイパラ探索 | #22 |
 
+### コミットの準備を提案する
+
+作業のまとまりが終わり、その変更がまだコミットされていないときは（`git status` で確かめる）、その応答の最後で、`anet-prepare-commit` を実行するかを聞く。commit message 案や対象の一覧は、この時点では書かない。
+
+作業のまとまりが終わったときは、次の場面に限る。
+
+- PRD づくりか実装の工程の完了報告をするとき。
+- PRD に沿わない変更（不具合の修正、ハーネスの直し、定常整備など）が検証まで終わったとき。
+- `anet-review` の判定が OK のとき。
+- ユーザーが動作確認や Run の結果を見て、問題が無いと答えたとき。
+- Run の分析の結論を実験記録に書き、wiki へ取り込んだとき。
+
+次のときは、上の場面でも聞かない。
+
+- PRD づくりか実装の工程の途中のとき。レビューの OK、動作確認、「この場で直す」が途中にあっても聞かず、完了報告で 1 回聞く。
+- 答えを待って止まっている問い（質疑、起票の候補など）があるとき。指摘の直し、ビルド・テスト・Run の結果を待っているとき。完了報告の `判断してほしいこと` と、`anet-review` の「確かめてほしいこと」は、ここでいう問いに当たらない。
+- 同じまとまりについて「今はしない」と答えられたか、`anet-prepare-commit` を実行したあと、変更が増えていないとき。
+- サブエージェントとして動いているとき。
+
+選択肢は「コミットの準備をする」を先頭に、「今はしない」を次に置く。聞く手段は [anet-prepare-commit](.agents/skills/anet-prepare-commit/SKILL.md) の「ステージ」の節と同じにする。その応答の報告を最終メッセージに残したまま、ボタン 1 つか短い返事で選べるようにするためである。
+
+工程の完了報告でも、同じ手段で聞く。あわせて「次にできること」の番号付きの候補に「コミットの準備をする」を載せる。判断の候補があれば、その後ろに置く。無ければ候補 1 にする。「今はしない」は番号付きの候補に載せず、手段の選択肢にだけ置く。
+
+「コミットの準備をする」が選ばれたら、聞き直さずに `anet-prepare-commit` を実行する。「今はしない」か別の話が返ったら、実行せずにそれへ応じる。
+
+## Run 命名・後片付けルール
+
+Run はフォルダがそのまま管理単位なので、**「消してよいか」が Run 名だけで判別できる**ことを規約とします。
+
+- **確認用の使い捨て Run には、名前へ `tmp` を含める。** 配線確認、疎通確認、パラメータの当たり確認など、
+  結果を記録に残さず後で削除する Run が対象です。`app.run_name = run_{t}_tmp_wiring` のように書きます。
+- **用途別のキーワードを増やさない。** `tmp` が担うのは「消してよいか」の 1 軸だけで、用途は後続の語で表します
+  （`run_{t}_tmp_wiring` / `run_{t}_tmp_smoke_065`）。語を分けると glob が増えて消し漏れます。
+- **成果物として残す Run には付けない。** PRD の受入条件を満たした証拠として保存する smoke Run などは正規 Run です。
+  この線引きを `tmp` の有無で表現します。
+- **`tmp` はタイムスタンプの後に置く。** Run フォルダ名の先頭は `run_` のままにしてください
+  （`viewers/metrics-tools/mlflow_bridge.py` が `run_*` で glob しており、prefix を変えると発見できなくなります）。
+- **Run フォルダ名は全体で 40 文字以内を目安にする。** Metrics Viewer の Run 一覧は末尾を省略して表示するため、長いと見分けられなくなります。
+- 一括削除は次で行えます。実行はユーザーが行い、AI エージェントは削除しません。削除する場合はユーザの指示もしくは同意が必須。
+
+```powershell
+Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
+```
+
+### 重要 Run のマーク（★）と、記録との分離
+
+**残す価値が特に高い Run には、フォルダ名の末尾へ `★` を付けます。** 基準は
+**「消すと結論を守れなくなるか」**、すなわち再取得のコストが高く、かつ記録中の結論を単独で支えている Run です。
+基準 Run、複製対の片割れ、外部実装との比較 Run、スナップショットを他 Run から参照されている Run などが該当します。
+
+- **`★` は運用のためのマークで、実験記録には持ち込みません。記録・config コピーの Run 名は常に `★` 無しで書きます。**
+  記録は「何を測ったか」、`★` は「消してよいか」を表すもので、担う軸が違います。
+  記録側に持ち込むと、マークを付け外しするたびに記録本文の書き換えが必要になり、
+  過去の記録と現在のフォルダ名が食い違います。
+- **付け外しはユーザーが行います。** AI エージェントはリネームしません。候補の提示までです。
+- **`★` はタイムスタンプ以降の末尾に置きます。** `tmp` と同じく先頭の `run_` は変えません。
+
+```powershell
+Get-ChildItem apps\runner\workspaces\*\runs\*★ -Directory
+```
+
+## 実験記録と実効 config の保存ルール
+
+`apps/runner/workspaces` は `.gitignore` 済みで Run artifact は失われうるため、
+実験記録の再現性と再見性は記録側だけで完結させます。
+**実験記録が参照する Run の実効 config を、記録と同じ場所へ複製してください。**
+
+- **置き場は `docs/experiments/<agent>/<env>/config/<Run フォルダ名>.txt`。** 内容は Run artifact の
+  `config/config_data.txt` をそのままコピーしたものです。env ごとにフラットな 1 ディレクトリへ置きます。
+- **ファイル名は Run フォルダ名から `★` などの可変マーカーを除いたもの。** 記録側がタイムスタンプだけで
+  Run を参照している場合があるため、**`run_YYYYMMDD-HHMMSS` を join キーとして扱います**。
+- **対象は実験記録の本文に Run 名が出る学習 Run だけ。** 次のものは複製しません。
+  - 配線確認や捨て Run（`tmp` 付き）。
+  - **評価専用 Run（`run.@evalonly` 系。`ev_` / `nolearn_` など）。** `learner.enabled = false` で
+    学習設定を行使しないため、評価対象のスナップショットを出した学習 Run の config が複製されていれば足ります。
+    eval の条件（ε、`eval_batch_size`、`eval_episodes`）は記録の本文に書いてください。
+- **タイミングは実験記録を更新するコミットと同じ。** 記録を書く時点で一緒に複製すれば漏れません。
+- **複製した config は再実行できます。** `--config <保存した config>` は workspace 解決を省く完全自己記述モードです。
+  実行時は `app.run_name` を書き換え、`app.runs_dir` が相対パスなので `apps/runner` を作業ディレクトリにしてください。
+  必須キーが増えた改訂（例: PRD 084 の `nn_forward_key`）をまたいで再実行するときは、追加された必須キーを保存 config へ書き足してください。
+- **ただし再現できるのは実効設定であって解決過程ではありません。** `config_data.txt` は `.$` が消費済みのリーフなので、
+  プロファイル合成やチェーンの挙動を検証したいときは `run.$` チェーンで引き直してください。
+- **`run.$` チェーンを記録へ書くことは複製の代わりになりません。** プロファイルは改名・削除・内容変更されるため、
+  チェーンは当時の env 設定ファイルとセットでしか意味を持ちません。
+- **workspace 名は記録へ書きません。** `対象 workspace: …` のような行を置かず、Run 名だけで特定します。
+  workspace は運用の都合で普通に移動・改名されるため（2026-09-17 に `atari-1st/2nd/3rd` →
+  `atari-01/02/03`、`atari-5` → `atari5-01`）、記録へ焼き込むと必ず実体と食い違います。
+  workspace 名は測定結果ではなく置き場所のポインタです。`inspect_run.py` は
+  `workspaces/*/runs/<Run 名>` の glob で解決するので、参照側でも workspace 名は要りません。
+  **例外は複製した config ダンプ**で、こちらは実行時の逐語コピーなので `app.runs_dir` に
+  当時の workspace 名が残っていても書き換えません。
+- **複製時は公開できない値が混ざっていないか走査してください。** 絶対パス、ユーザー名、認証情報、メール、URL、IP。
+
 ## AI エージェントのRun結果分析ルール
+
+分析の結論が出たら、PRDに繋がるものはPRDの背景へ、繋がらないものは実験記録へ書くかを1問で確かめる。書いたら、同じ会話の終わりに `anet-ingest-wiki` で取り込む。取り込んだら、「コミットの準備を提案する」に従って聞く。
 
 Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
 
-- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。
+ユーザーがRun名（またはRunフォルダのパス）だけを提示した場合は、原則としてRun分析の依頼として扱ってください。
+分析の入口には `inspect_run.py` を使い、Run treeを再帰 `rg` / `Get-ChildItem -Recurse` で探索しないでください。
+`metrics.jsonl` は数百MB〜数GBになるため、直接 `Get-Content` / `Select-String` しないでください。
+このtoolはread-onlyで、実行中のRunへ当てても artifact を変更しません。
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py runs
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags RUN
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config RUN [RUN ...] --diff
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics RUN [RUN ...] --metric TAG --range -4M:
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py trace-csv RUN [RUN ...] --tag TAG
+```
+
+- `runs` はRun発見とartifact・Metricsマスタ・Metricsキャッシュの状態、`tags` はmetric tagの一覧と定義・到達step、`config` は実効設定と差分、`metrics` はscalar抽出と比較、`trace-csv` はtraceチャネルの個体行のCSV出力。
+- **分位点・閾値越え率・同時分布はscalarから復元できない。** scalarは集約後の統計で、評価セッション1回が1点に畳まれている。個体単位で見たい場合は `trace-csv` を使い、集計はCSVを受け取った側で行う。
+- **metricは1回の呼び出しへ束ねる。** Metricsマスタの走査はRunごとに1 passで、tag数には比例しない。tagごとに呼び分けるとpassの回数だけ時間が増える。
+- Run名の探索範囲は `apps/runner/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
+- 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
+- **`config_data.txt` には実効値のほかにマージ元と未選択のprofileが同居する。** `AS.*`、`A.*`、`R.*`、`X.*`、`M.*`、`metrics.scalar.baseline.*`、`metrics.scalar.full.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
+- **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
+- 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
+- **現象を名前で呼ぶ（崩壊・停滞・発散など）ときは、その名前が前提にする経過を、評価と学習の両方の指標で確かめてから書き、確かめた指標を添える。** 崩壊なら「一度届いて、保てなかった」ことを確かめる。違う現象に同じ名前を使わない。
+
+Atari-5（battle_zone / double_dunk / name_this_game / phoenix / qbert の5本）を1つのベンチマーク結果として読む場合は `atari5.py` を使ってください。`inspect_run.py` と同じRun解決・cache経路のread-only toolで、5本を個別に集計して手で合成しないでください。
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py score RUN RUN RUN RUN RUN
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py curve RUN... --bins 10
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py compare RUN... --ref btr --stat max
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py refs
+.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py export RUN... --name atari5_rr1_50m --ref btr
+```
+
+- `score` はゲーム別スコアと集約、`curve` は予算・実時間に対する推移、`compare` は公表エージェントとの突き合わせ、`refs` は参照テーブルと出典。`--format json` で機械可読になる（既定は `md`）。
+- `export` だけが書き込みを行い、MetricsViewer で開ける疑似Runを workspace 直下へ作ります。既存タグ（`52_eval2/12_hns57_mean` 等）へ Atari-5 集約を載せるので、5本の実Runと同じグラフに重なります。`60_atari5/*` は集約専用で、3チャネル並置・median/mean・ゲーム横並び・参照エージェントの水平線。**疑似Runの削除はユーザーが行います。**
+- **疑似Runは step ごとに集約してから並べ、`score` は窓平均してから1回集約します。** log 空間の重み付き和なので両者はずれます。どちらも正しく、意味が違います。
+- **Atari-5 は5本の単純中央値ではない。** Aitchison et al. 2023 の log 空間の重み付き回帰で、`median` とは値が違う。公表値と比べるときは回帰側を使う。
+- ゲームの対応付けは Run 名ではなく実効 `AtariEnv.game` で行う。5本揃わない場合と、random を大きく下回るゲームがある場合は集約を出さずに警告する。
+- 公表値の集計方法は出典ごとに違う。BTR は学習中の最良評価なので `--stat max` で揃える。sticky の有無などプロトコル差は `compare` の `protocol` 行に出る。
+
+- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。Run artifactが失われている場合は、`docs/experiments/<agent>/<env>/config/<Run名>.txt`に複製がある（前節）。
 - 分析開始時に到達step、停止理由、artifactの更新時刻を確認し、実行途中の分析は暫定結果と明記する。完了後は終盤値を再取得して結論を更新する。
 - Run成立性、主目的score、変更機構の健全性、Env挙動、throughput・実所要時間・資源消費を分けて評価し、機構が正常なことと成績改善を混同しない。
 - 報酬は単一の最終点や短期の立ち上がりではなく、比較可能な同一step範囲の終盤window、水準、傾き、急落からの回復を確認する。ユーザーが指定した評価期間とseed数を優先する。
@@ -486,7 +692,7 @@ core\anet-core\bin\Debug\anet-core-test.exe
 ```
 
 テスト実行ファイルは意図的に `core/anet-core/bin/<Config>` 配下へ出力します。
-CMake の post-build 処理で libtorch の DLL を実行ファイルの隣へコピーし、
+CMake の post-build 処理で libtorch と wxWidgets の DLL を実行ファイルの隣へコピーし、
 runner アプリと同じ実行時配置に揃えています。
 
 ## Agent skills
@@ -495,6 +701,9 @@ runner アプリと同じ実行時配置に揃えています。
 
 Implementation issues live as Markdown files under `.scratch/<feature>/`;
 PRDs and implementation plans remain under `docs/memo/`.
+New PRDs stay directly under `docs/memo/`; their state and order live in
+`docs/management/issues/`. Existing `done/`, `frozen/`, and `dropped/` folders
+are historical storage; see `docs/memo/README.md`.
 See `docs/agents/issue-tracker.md`.
 
 ### Triage labels

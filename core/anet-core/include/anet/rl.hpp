@@ -10,8 +10,10 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <mutex>
 #include <cstdint>
 #include <cctype>
+#include <chrono>
 #include <torch/torch.h>
 #include "anet/common.hpp"
 #include "anet/tensor_check.hpp"
@@ -73,6 +75,11 @@ namespace anet::rl {
 
     ========================
     */
+
+    enum class ShutdownMode {
+        WAIT,
+        CANCEL,
+    };
 
     // =============================================================
     // Step / StepAxis
@@ -290,9 +297,15 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
+    enum class EpisodeScope {
+        PER_LANE,  ///< 各laneを独立したepisode groupとして扱う。
+        SHARED,    ///< 全laneを1つの共有episode groupとして扱う。
+    };
+
     struct BatchEnvSpec {
         int num_envs;
         int num_threads;
+        EpisodeScope episode_scope = EpisodeScope::PER_LANE;
 
         anet::json ToJson() const;
         std::string ToString() const;
@@ -337,15 +350,19 @@ namespace anet::rl {
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
     inline constexpr std::string_view kNnTracePrefix = "nn_trace/";
-    anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace);
+    anet::TraceCallback MakeActionTraceCallback(anet::TensorDict& trace);
     void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace);
     anet::TensorDict ExtractNnTrace(const AuxData& aux);
 
 
     class SingleEnvResult {
     public:
-        virtual AuxData GetAuxData() const { return AuxData(); }
+        explicit SingleEnvResult(AuxData aux = {}) : aux_(std::move(aux)) {}
+        virtual AuxData GetAuxData() const { return aux_; }
+        virtual std::optional<float> GetScalar(const std::string& key) const;
         virtual ~SingleEnvResult() = default;
+    protected:
+        AuxData aux_;  ///< 結果の時点の値を所有し、scalarの読出しでは複製しない。
     };
 
     class SingleResetResult : virtual public SingleEnvResult {
@@ -489,8 +506,11 @@ namespace anet::rl {
     };
 
     // 行動選択時の情報
-    class BatchActionInfo : public anet::graphviz::GraphVizProvider {
+    class BatchActionInfo : public anet::ModuleBase, public anet::graphviz::GraphVizProvider {
     public:
+        /// 判断の境界をActorからReplayへ渡す共有info鍵。
+        static constexpr const char* kKeyDecision = "decision";
+
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
 
@@ -515,6 +535,7 @@ namespace anet::rl {
         }
 
         torch::Tensor GetAction(torch::Device device) const;
+        std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
             return std::make_shared<BatchActionInfo>(
@@ -567,6 +588,8 @@ namespace anet::rl {
     public:
         BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_episode_end_in);
         std::string ToString() const;
+        virtual std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const;
+        const torch::Tensor& GetEpisodeEndMask() const;
 
         virtual ~BatchStepResult() = default;
     public:
@@ -575,6 +598,9 @@ namespace anet::rl {
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_episode_end;     ///< 今回のStepにおけるエピソード終了カウント数
+    private:
+        mutable std::once_flag episode_end_once_;
+        mutable torch::Tensor episode_end_cpu_;
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -665,7 +691,7 @@ namespace anet::rl {
         virtual torch::Device GetDevice() const = 0;
 
         virtual std::shared_ptr<const BatchResetResult> Reset() = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< 遷移の結果を新規に返し、後のStepやResetで値を書き換えない
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -693,7 +719,15 @@ namespace anet::rl {
     // Policy APIs
     // =============================================================
 
-    class Actor {
+    struct ActorRequest {
+        BatchEnvSpec batch_env_spec;
+        EnvSpec env_spec;
+        torch::Device device;
+        seed_t seed;
+        std::string actor_key;
+    };
+
+    class Actor : public ModuleBase {
     public:
         /// @brief BatchStateから行動を生成する。
         /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
@@ -722,16 +756,45 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
+    struct ScalarMetricSubscription;
+
+    struct AgentStepDiagnosticsCompletion {
+        int64_t lane = 0;
+        int64_t steps_back = 0;
+        std::vector<std::string> resolved_keys;
+        std::unique_ptr<const anet::Module> values; ///< 対象1行をGetScalar(key, 0)で読む所有値。
+    };
+
+    struct AgentStepDiagnosticsResult {
+        std::unique_ptr<const anet::Module> current; ///< batchをGetScalar(key, lane)で読む所有値。
+        std::vector<std::vector<std::string>> pending_keys; ///< lane別。NaNとは独立に遅延確定を示す。
+        std::vector<AgentStepDiagnosticsCompletion> completed;
+    };
+
+    /// Agent固有のstep診断値を生成し、laneごとの系列窓を所有する。
+    /// pendingに示す鍵もcurrentでは既知の鍵としてNaNを返す。
+    /// pendingの鍵は値が成立しなかった場合もNaNで確定を返し、必ず待機を終える。
+    class AgentStepDiagnosticsProvider {
+    public:
+        virtual AgentStepDiagnosticsResult Observe(const BatchExperience& experience) = 0;
+        virtual void Reset() = 0;
+        virtual ~AgentStepDiagnosticsProvider() = default;
+    };
+
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
-        virtual std::shared_ptr<Actor> CreateActor(
-            const BatchEnvSpec& batch_env_spec,
-            const EnvSpec& env_spec,
-            RunMode run_mode,
-            std::optional<bool> clone_model_override = std::nullopt,
-            std::optional<torch::Device> device = std::nullopt) const = 0;
+        virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
+        virtual std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const
+        {
+            return nullptr;
+        }
         virtual torch::Device GetDevice() const = 0;
+        virtual void ConfigureScalarMetricSubscriptions(
+            const std::vector<ScalarMetricSubscription>& subscriptions)
+        {
+            (void)subscriptions;
+        }
     public:
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }
@@ -777,12 +840,27 @@ namespace anet::rl {
 
         // --- N-Step & PER メタデータ ---
         torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
+
+        struct {
+            torch::Tensor lengths;     ///< [B] 抽選した窓の長さ。規則未指定なら未定義。
+            torch::Tensor max_lengths; ///< [B] 起点から取れる窓の最大長
+            torch::Tensor returns;     ///< [B] 窓の割引報酬
+            torch::Tensor terminals;   ///< [B] 真の終端
+            torch::Tensor truncated;   ///< [B] 打ち切り
+            anet::TensorDict next_obs; ///< k先の観測（履歴を含む）
+        } window;
+        
         torch::Tensor replay_item_keys; ///< [B] generation付きopaque key (CPU int64)
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
         torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource (CPU int8)
 
         // --- その他 ---
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
+
+        // schedule gamma用の抽選時snapshot。定数構成では未定義。
+        torch::Tensor sampled_rewards;        ///< [B,N] 実長以後は0
+        torch::Tensor sampled_window_rewards; ///< [B,J] 実長以後は0
+        void FinalizeReturns(float gamma);
 
         // ユーティリティ
         ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
@@ -801,14 +879,38 @@ namespace anet::rl {
             next_state.next_obs.ForEachTensor(visit);
             visit(next_state.terminals);
             visit(n_steps);
+            visit(window.lengths);
+            visit(window.max_lengths);
+            visit(window.returns);
+            visit(window.terminals);
+            visit(window.truncated);
+            window.next_obs.ForEachTensor(visit);
             visit(replay_item_keys);
             visit(is_weights);
             visit(per_priority_sources);
             info.ForEachTensor(visit);
+            visit(sampled_rewards);
+            visit(sampled_window_rewards);
         }
         std::string ToString() const;
     };
 
+
+    /// 同一sampleable snapshotに対する履歴別の集計・抽出要求。
+    struct SamplingHistoryProbeRequest {
+        bool counts = false;
+        std::optional<int64_t> unsampled_batch_size;
+        std::optional<int64_t> sampled_batch_size;
+    };
+
+    struct SamplingHistoryProbeResult {
+        int64_t unsampled_count = 0;
+        int64_t sampled_count = 0;
+        float unsampled_age_mean = std::numeric_limits<float>::quiet_NaN();
+        float sampled_age_mean = std::numeric_limits<float>::quiet_NaN();
+        std::optional<ExperienceSamples> unsampled;
+        std::optional<ExperienceSamples> sampled;
+    };
 
     class ReplayPriorityController {
     public:
@@ -821,8 +923,12 @@ namespace anet::rl {
 
     class ReplayBuffer : public anet::Module, public ReplayPriorityController {
     public:
-        virtual void Push(const BatchExperience& batch_exp) = 0;
-        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
+        virtual void Push(const BatchExperience& batch_exp, float gamma) = 0;
+        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const = 0;
+        virtual bool SampleUniqueUniform(
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const = 0;
+        virtual SamplingHistoryProbeResult ProbeSamplingHistory(
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
@@ -862,7 +968,8 @@ namespace anet::rl {
     enum class EventType {
         TRAIN,
         LEARN,
-        EPISODE_END
+        EPISODE_END,
+        SESSION_END
     };
 
     enum class RunnerScope {
@@ -873,10 +980,22 @@ namespace anet::rl {
     enum class EventField {
         EXPERIENCE,
         AGENT,
+        ACTOR,
         ENV,
+        ENV_STEP,
         UPDATE_RESULT,
         RUNNER,
         ACTION_INFO,
+        AGENT_STEP,
+    };
+
+    struct ScalarMetricSubscription {
+        std::string source_key;
+        EventType event = EventType::TRAIN;
+        std::optional<EventField> target;
+        int interval = 1;
+        RunnerScope scope = RunnerScope::TRAIN;
+        std::string eval_name;
     };
 
     struct UpdateEvent {
@@ -902,12 +1021,21 @@ namespace anet::rl {
         const std::shared_ptr<const Agent> agent;
         const std::shared_ptr<const BatchEnv> env;
         int env_index;
-        float eps_total_reward;
+        const std::shared_ptr<const BatchStepResult> step_result;
+    };
+
+    struct SessionEndEvent {
+        const std::shared_ptr<const Runner> runner;
+        const StepCounts counts;
+        const std::shared_ptr<const Agent> agent;
+        const std::shared_ptr<const BatchEnv> env;
     };
 
     class TrainObserver {
     public:
         virtual void OnTrain(const TrainEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~TrainObserver() = default;
     };
@@ -915,6 +1043,8 @@ namespace anet::rl {
     class LearnObserver {
     public:
         virtual void OnLearn(const LearnEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~LearnObserver() = default;
     };
@@ -922,8 +1052,19 @@ namespace anet::rl {
     class EpisodeEndObserver {
     public:
         virtual void OnEpisodeEnd(const EpisodeEndEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
         virtual std::string ToString() const = 0;
         virtual ~EpisodeEndObserver() = default;
+    };
+
+    class SessionEndObserver {
+    public:
+        virtual void OnSessionEnd(const SessionEndEvent& event) = 0;
+        virtual void Shutdown(std::chrono::steady_clock::time_point, ShutdownMode) {}
+        virtual bool WillBlockOnShutdown() const { return false; }
+        virtual std::string ToString() const = 0;
+        virtual ~SessionEndObserver() = default;
     };
 
     // -----------------------------------------------------------------
@@ -934,6 +1075,8 @@ namespace anet::rl {
         RunnerScopedTrainObserver(std::shared_ptr<TrainObserver> real_observer, std::shared_ptr<const Runner> target_runner);
 
         void OnTrain(const TrainEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<TrainObserver> real_observer_;
@@ -947,6 +1090,8 @@ namespace anet::rl {
     public:
         RunnerScopedLearnObserver(std::shared_ptr<LearnObserver> real_observer, std::shared_ptr<const Runner> target_runner);
         void OnLearn(const LearnEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<LearnObserver> real_observer_;
@@ -960,9 +1105,23 @@ namespace anet::rl {
     public:
         RunnerScopedEpisodeEndObserver(std::shared_ptr<EpisodeEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
         void OnEpisodeEnd(const EpisodeEndEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
         std::string ToString() const override;
     private:
         std::shared_ptr<EpisodeEndObserver> real_observer_;
+        std::shared_ptr<const Runner> target_runner_;
+    };
+
+    class RunnerScopedSessionEndObserver : public SessionEndObserver {
+    public:
+        RunnerScopedSessionEndObserver(std::shared_ptr<SessionEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
+        void OnSessionEnd(const SessionEndEvent& event) override;
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode) override;
+        bool WillBlockOnShutdown() const override;
+        std::string ToString() const override;
+    private:
+        std::shared_ptr<SessionEndObserver> real_observer_;
         std::shared_ptr<const Runner> target_runner_;
     };
 
@@ -989,7 +1148,15 @@ namespace anet::rl {
         void Detach(const EpisodeEndObserver* observer);
         void Notify(const EpisodeEndEvent& event);
 
+        std::shared_ptr<SessionEndObserver> Attach(std::shared_ptr<SessionEndObserver> observer);
+        void Detach(std::shared_ptr<SessionEndObserver> observer);
+        void Detach(const SessionEndObserver* observer);
+        void Notify(const SessionEndEvent& event);
+
         void Clear();
+
+        void Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode);
+        bool WillBlockOnShutdown() const;
 
         void LogObservers() const;
     public:
@@ -1016,6 +1183,10 @@ namespace anet::rl {
                 auto wrapper = std::make_shared<RunnerScopedEpisodeEndObserver>(obs, target_runner);
                 this->Attach(wrapper);
             }
+            if constexpr (std::is_base_of_v<SessionEndObserver, T>) {
+                auto wrapper = std::make_shared<RunnerScopedSessionEndObserver>(obs, target_runner);
+                this->Attach(wrapper);
+            }
             return obs;
         }
         std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> observer, std::shared_ptr<const Runner> target_runner)
@@ -1036,10 +1207,17 @@ namespace anet::rl {
             this->Attach(wrapper);
             return observer;
         }
+        std::shared_ptr<SessionEndObserver> AttachScoped(std::shared_ptr<SessionEndObserver> observer, std::shared_ptr<const Runner> target_runner)
+        {
+            auto wrapper = std::make_shared<RunnerScopedSessionEndObserver>(observer, target_runner);
+            this->Attach(wrapper);
+            return observer;
+        }
     private:
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
         std::vector<std::shared_ptr<EpisodeEndObserver>> episode_end_observers_;
+        std::vector<std::shared_ptr<SessionEndObserver>> session_end_observers_;
     };
 
     // =============================================================
@@ -1074,14 +1252,13 @@ namespace anet::rl {
         virtual const std::string& GetName() const = 0;
         virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;
         virtual std::shared_ptr<anet::rl::Agent> GetAgent() const = 0;
+        virtual std::shared_ptr<anet::rl::Actor> GetActor() const = 0;
         virtual std::shared_ptr<anet::rl::Notifier> GetNotifier() const = 0;
     public:
         virtual ~Runner() = default;
     public:
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
-        static constexpr const char* TRAIN_EPISODE_REWARD = "train_episode_reward";
-        static constexpr const char* EPS_TOTAL_REWARD = "eps_total_reward";
         static constexpr const char* TRAIN_STEP = "train_step";
         static constexpr const char* EXP_STEP = "exp_step";
         static constexpr const char* LEARN_STEP = "learn_step";

@@ -18,7 +18,7 @@ record LodBucket(
 		double mean,
 		double lastValue) {
 
-	static final int LOD_FACTOR = 16;
+	static final int LOD_FACTOR = 4;
 	static final int POINTS_PER_LOD_BUCKET = 3;
 
 	static LodBucket point(long ordinal, long step, double value) {

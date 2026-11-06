@@ -1,0 +1,63 @@
+# 325 Agent個別実装 MuZero系列
+
+[anet-lab](../../../README.md) › [wiki の目録](../index.md) › [機能カテゴリ](../index.md#機能カテゴリ)
+
+## 概要・責務
+
+- MuZeroAgentは登録済みAgentの試作実装である。（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.4）。
+
+## 成立の経緯
+
+- 2026-07-20: batch Envの仕様とAgent生成の接続を更新した（出典: [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md)、題・目的）。
+- 2026-08-30: Network Head構築のweight norm設定を接続した（出典: [PRD065](../../memo/done/065_nn_spectral_norm_10prd.md)、題・目的）。
+- 2026-09-08: Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す（出典: [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)、本文）。
+- 2026-09-19: MuZero試作AgentのActor生成をカタログ参照へ移行した（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
+- 2026-10-26: ProfiledValueの導入対象を本線の探索・学習へ絞り、試作MuZero固有の温度は対象外とした（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3の非ゴール）。
+
+## 選ばなかった形
+
+- MuZero固有の温度を今回ProfiledValueへ移す形 — 範囲外: 試作Agentの探索設定で本線のDQNと器が違い、今は本線へ戻す予定が無い。再開条件: MuZeroを本線へ戻すとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3の非ゴール）。
+
+## 変えるときの条件
+
+一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
+
+記述なし。
+
+## 関係
+
+- [共通ReplayBufferとの境界](../../design/150_replay_buffer.jp.md)、§2.5。
+- 設計: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.4。
+- ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
+- 含まれるアプリケーション: なし。
+
+## ファイル
+
+点検が作り直す。手で直さない。
+
+- [muzero_proto_agent.hpp](../../../core/anet-core/include/anet/muzero_proto_agent.hpp)
+- [muzero_proto_agent.cpp](../../../core/anet-core/src/muzero_proto_agent.cpp)
+
+## PRD の一覧
+
+点検が作り直す。手で直さない。
+
+- [PRD034](../../memo/done/034_imagecls_batch_input_10prd.md) — ImageCls 専用 batch 入力コンポーネント / BatchEnv adapter
+- [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md) — PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
+- [PRD065](../../memo/done/065_nn_spectral_norm_10prd.md) — NN Spectral Normalization（weight_norm.mode）PRD
+- [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
+
+## 課題
+
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
+
+<!-- issues:begin -->
+| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 索引 | 未確認 | 999: train/eval mode 整理後の排他精査 PRD（草案） |
+| 2 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
+| 3 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 4 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
+
+着手できる 4 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

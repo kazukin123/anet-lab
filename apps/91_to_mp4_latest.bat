@@ -1,18 +1,24 @@
 @echo off
-cd /d "%~dp0runner"
+setlocal
+call "%~dp0runner\tools\resolve_workspace.bat" "%~1"
+if errorlevel 1 exit /b 1
 
 set "run="
-for /f "delims=" %%A in ('dir runs /b /o:n') do (
+for /f "delims=" %%A in ('dir "%RUNS_DIR%" /b /o:n /ad 2^>nul') do (
     set "run=%%A"
 )
 echo RUN: %run%
 
-cd runs\%run%
+if "%run%"=="" (
+    echo [ERROR] No run directory found.
+    exit /b 1
+)
+pushd "%RUNS_DIR%\%run%" || exit /b 1
 mkdir videos-mp4
 for /f "delims=" %%A in ('dir videos /b /o:n') do (
    call:to_mp4 %%A
 )
-cd ../..
+popd
 exit /b
 
 

@@ -90,20 +90,20 @@ TEST_CASE("FileLogger flushes main and worker thread info messages", "[log]")
 TEST_CASE("Logger prefixes an info message exactly once", "[log][logger]")
 {
     anet::test::LogCaptureGuard logs;
-    anet::log::Logger logger("train[0]: ");
+    anet::log::Logger logger("env.[train].[0]: ");
 
     logger.info() << "body";
     logs.Flush();
 
     REQUIRE(logs.Records().size() == 1);
     CHECK(logs.Records()[0].level == wxLOG_Message);
-    CHECK(logs.Records()[0].message == "train[0]: body");
+    CHECK(logs.Records()[0].message == "env.[train].[0]: body");
 }
 
 TEST_CASE("Logger level methods preserve wx levels and prefix", "[log][logger]")
 {
     anet::test::LogCaptureGuard logs;
-    anet::log::Logger logger("eval: ");
+    anet::log::Logger logger("env.[eval]: ");
 
     logger.verbose() << "verbose-body";
     logger.warn() << "warn-body";
@@ -112,19 +112,19 @@ TEST_CASE("Logger level methods preserve wx levels and prefix", "[log][logger]")
 
     REQUIRE(logs.Records().size() == 3);
     CHECK(logs.Records()[0].level == wxLOG_Info);
-    CHECK(logs.Records()[0].message == "eval: verbose-body");
+    CHECK(logs.Records()[0].message == "env.[eval]: verbose-body");
     CHECK(logs.Records()[1].level == wxLOG_Warning);
-    CHECK(logs.Records()[1].message == "eval: warn-body");
+    CHECK(logs.Records()[1].message == "env.[eval]: warn-body");
     CHECK(logs.Records()[2].level == wxLOG_Error);
-    CHECK(logs.Records()[2].message == "eval: error-body");
+    CHECK(logs.Records()[2].message == "env.[eval]: error-body");
 }
 
 TEST_CASE("Logger keeps its construction prefix and defaults to no prefix", "[log][logger]")
 {
-    anet::log::Logger prefixed("train: ");
+    anet::log::Logger prefixed("env.[train]: ");
     anet::log::Logger unprefixed;
 
-    CHECK(prefixed.prefix() == "train: ");
+    CHECK(prefixed.prefix() == "env.[train]: ");
     CHECK(unprefixed.prefix().empty());
 
     anet::test::LogCaptureGuard logs;

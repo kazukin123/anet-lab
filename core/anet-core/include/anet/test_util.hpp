@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <exception>
 #include <initializer_list>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -228,11 +229,14 @@ namespace anet::test {
         protected:
             void DoLogRecord(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) override
             {
+                // 並行Envの通知も同じcaptureへ入るため、追加を直列化する。
+                std::lock_guard<std::mutex> lock(records_mutex_);
                 auto utf8 = msg.ToUTF8();
                 records_.push_back({ level, utf8.data() ? utf8.data() : "" });
             }
 
         private:
+            std::mutex records_mutex_;
             std::vector<CapturedLogRecord> records_;
         };
 

@@ -1,6 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,7 +54,10 @@ class MetricsApiIntegrationTest {
 
 	@DynamicPropertySource
 	static void configure(DynamicPropertyRegistry registry) {
-		registry.add("metricsviewer.runs-dir", () -> RUNS_DIR.toString());
+		registry.add("metricsviewer.workspaces-dir",
+				() -> RUNS_DIR.getParent().getParent().toString());
+		registry.add("metricsviewer.initial-workspace",
+				() -> RUNS_DIR.getParent().getFileName().toString());
 		registry.add("metricsviewer.cache-memory-mb", () -> "0");
 		registry.add("metricsviewer.target-points-per-series", () -> "60");
 		registry.add("metricsviewer.max-points-per-request", () -> "100");
@@ -63,12 +68,12 @@ class MetricsApiIntegrationTest {
 		awaitStates();
 		final String request = """
 				{"series":[
-				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":2,"maxPoints":3},
-				  {"runId":"run-pending","tagKey":"loss","fromStep":0,"toStep":1,"maxPoints":3},
-				  {"runId":"run-ready","tagKey":"a","fromStep":100,"toStep":101,"maxPoints":3},
-				  {"runId":"run-ready","tagKey":"missing","fromStep":0,"toStep":1,"maxPoints":3},
-				  {"runId":"run-absent","tagKey":"a","fromStep":0,"toStep":1,"maxPoints":3},
-				  {"runId":"run-error","tagKey":"loss","fromStep":0,"toStep":0,"maxPoints":3}
+				  {"runId":"run-ready","tagKey":"a","stepBucketWidth":1,"fromStep":0,"toStep":2,"maxPoints":3},
+				  {"runId":"run-pending","tagKey":"loss","stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3},
+				  {"runId":"run-ready","tagKey":"a","stepBucketWidth":1,"fromStep":100,"toStep":101,"maxPoints":3},
+				  {"runId":"run-ready","tagKey":"missing","stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3},
+				  {"runId":"run-absent","tagKey":"a","stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3},
+				  {"runId":"run-error","tagKey":"loss","stepBucketWidth":1,"fromStep":0,"toStep":0,"maxPoints":3}
 				]}
 				""";
 
@@ -76,8 +81,7 @@ class MetricsApiIntegrationTest {
 		assertEquals(6, data.size());
 		assertEquals(List.of("ok", "pending", "empty", "not_found", "not_found", "ok"),
 				statuses(data));
-		assertTrue(data.get(2).has("level") && data.get(2).path("level").isNull());
-		assertTrue(data.get(2).has("bucketWidth") && data.get(2).path("bucketWidth").isNull());
+		assertTrue(data.get(2).has("stepBucketWidth") && data.get(2).path("stepBucketWidth").isNull());
 		assertTrue(data.get(2).has("projection") && data.get(2).path("projection").isNull());
 		assertTrue(data.get(4).has("generation") && data.get(4).path("generation").isNull());
 		assertEquals("run-error", data.get(5).path("runId").asText());
@@ -92,7 +96,7 @@ class MetricsApiIntegrationTest {
 				{"series":[{
 				  "runId":"run-ready",
 				  "tagKey":"dup",
-				  "fromStep":1,
+				  "stepBucketWidth":1,"fromStep":1,
 				  "toStep":1,
 				  "maxPoints":3
 				}]}
@@ -150,7 +154,7 @@ class MetricsApiIntegrationTest {
 			final JsonNode result = postMetrics("""
 					{"series":[{
 					  "runId":"run-ready","tagKey":"a",
-					  "fromStep":0,"toStep":1,"maxPoints":3
+					  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3
 					}]}
 					""", 200).path("data").get(0);
 			assertEquals("pending", result.path("availability").asText());
@@ -187,33 +191,32 @@ class MetricsApiIntegrationTest {
 	}
 
 	@Test
-	void minimumQuotaOverflowReturnsTheThreeContractFields() throws Exception {
+	void fullResolutionOverflowReturnsRequiredPoints() throws Exception {
 		awaitStates();
 		final JsonNode body = postMetrics("""
 				{"series":[
-				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63,"maxPoints":60},
-				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63,"maxPoints":60},
-				  {"runId":"run-ready","tagKey":"c","fromStep":0,"toStep":63,"maxPoints":60}
+				  {"runId":"run-ready","tagKey":"a","stepBucketWidth":1,"fromStep":0,"toStep":63,"maxPoints":80},
+				  {"runId":"run-ready","tagKey":"b","stepBucketWidth":1,"fromStep":0,"toStep":63,"maxPoints":80},
+				  {"runId":"run-ready","tagKey":"c","stepBucketWidth":1,"fromStep":0,"toStep":63,"maxPoints":80}
 				]}
 				""", 422);
 
 		assertEquals(3, body.path("seriesCount").asInt());
-		assertEquals(150, body.path("requiredMinimumPoints").asInt());
+		assertEquals(192, body.path("requiredPoints").asInt());
 		assertEquals(100, body.path("maxPointsPerRequest").asInt());
 	}
 
 	@Test
-	void waterFillingKeepsEqualSeriesBudgetsFair() throws Exception {
+	void requestOverflowIsRejectedInsteadOfReducingComparisonResolution() throws Exception {
 		awaitStates();
-		final JsonNode data = postMetrics("""
+		final JsonNode body = postMetrics("""
 				{"series":[
-				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63,"maxPoints":80},
-				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63,"maxPoints":80}
+				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63,"maxPoints":80,"stepBucketWidth":1},
+				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63,"maxPoints":80,"stepBucketWidth":1}
 				]}
-				""", 200).path("data");
-
-		assertEquals(50, data.get(0).path("pointBudget").asInt());
-		assertEquals(50, data.get(1).path("pointBudget").asInt());
+				""", 422);
+		assertEquals(128, body.path("requiredPoints").asInt());
+		assertEquals(100, body.path("maxPointsPerRequest").asInt());
 	}
 
 	@Test
@@ -221,19 +224,23 @@ class MetricsApiIntegrationTest {
 		awaitStates();
 		mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content("""
 								{"series":[{
 								  "runId":"run-ready","tagKey":"a",
-								  "fromStep":0,"toStep":1,"fromOrdinal":0
+								  "stepBucketWidth":1,"fromStep":0,"toStep":1,"fromOrdinal":0
 								}]}
 								"""))
 				.andExpect(status().isBadRequest());
 		mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content("""
 								{"series":[{
 								  "runId":"run-ready","tagKey":"a",
-								  "fromStep":9007199254740992,"toStep":9007199254740992
+								  "stepBucketWidth":1,"fromStep":9007199254740992,"toStep":9007199254740992
 								}]}
 								"""))
 				.andExpect(status().isBadRequest());
@@ -246,42 +253,118 @@ class MetricsApiIntegrationTest {
 				"""
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":"0","toStep":1
+				  "stepBucketWidth":1,"fromStep":"0","toStep":1
 				}]}
 				""",
 				"""
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":0.5,"toStep":1
+				  "stepBucketWidth":1,"fromStep":0.5,"toStep":1
 				}]}
 				""",
 				"""
 				{"series":[{
 				  "runId":123,"tagKey":"a",
-				  "fromStep":0,"toStep":1
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1
 				}]}
 				""",
 				"""
 				{"series":[{
 				  "runId":"run-ready","tagKey":"a",
-				  "fromStep":0,"toStep":1,"maxPoints":3.5
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3.5
 				}]}
 				""")) {
 			mockMvc.perform(post("/api/metrics.json")
 							.contentType("application/json")
+							.header("X-Query-Channel", UUID.randomUUID().toString())
+							.header("X-Query-Sequence", "0")
 							.content(request))
 					.andExpect(status().isBadRequest());
 		}
 	}
 
+	@Test
+	void queryHeadersAreRequiredAndStrictlyValidated() throws Exception {
+		awaitStates();
+		final String request = """
+				{"series":[{
+				  "runId":"run-ready","tagKey":"a",
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3
+				}]}
+				""";
+
+		assertInvalidQueryHeaders(request, null, "0");
+		assertInvalidQueryHeaders(request, "browser-tab", null);
+		assertInvalidQueryHeaders(request, " ", "0");
+		assertInvalidQueryHeaders(request, "x".repeat(129), "0");
+		assertInvalidQueryHeaders(request, "browser-tab", "-1");
+		assertInvalidQueryHeaders(request, "browser-tab", "9007199254740992");
+		assertInvalidQueryHeaders(request, "browser-tab", "not-a-number");
+	}
+
+	@Test
+	void aLateSequenceReturnsTheSupersededHttpContract() throws Exception {
+		awaitStates();
+		final String request = """
+				{"series":[{
+				  "runId":"run-ready","tagKey":"a",
+				  "stepBucketWidth":1,"fromStep":0,"toStep":1,"maxPoints":3
+				}]}
+				""";
+		final String channel = "late-sequence-" + UUID.randomUUID();
+		mockMvc.perform(post("/api/metrics.json")
+						.contentType("application/json")
+						.header("X-Query-Channel", channel)
+						.header("X-Query-Sequence", "1")
+						.content(request))
+				.andExpect(status().isOk());
+
+		final var response = mockMvc.perform(post("/api/metrics.json")
+						.contentType("application/json")
+						.header("X-Query-Channel", channel)
+						.header("X-Query-Sequence", "0")
+						.content(request))
+				.andExpect(status().isConflict())
+				.andReturn()
+				.getResponse();
+		assertNull(response.getHeader("Retry-After"));
+		assertEquals("superseded", OBJECT_MAPPER.readTree(
+				response.getContentAsString(StandardCharsets.UTF_8)).path("code").asText());
+	}
+
+	@Test
+	void invalidOrMissingStepBucketWidthIsRejected() throws Exception {
+		for (String width:List.of("null","0","-1","9007199254740992","1.5","\"2\"")) {
+			postMetrics("{\"series\":[{\"runId\":\"run-ready\",\"tagKey\":\"a\",\"fromStep\":0,\"toStep\":1,\"stepBucketWidth\":"+width+"}]}",400);
+		}
+		postMetrics("{\"series\":[{\"runId\":\"run-ready\",\"tagKey\":\"a\",\"fromStep\":0,\"toStep\":1}]}",400);
+	}
+
 	private JsonNode postMetrics(String request, int expectedStatus) throws Exception {
 		final var response = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andExpect(status().is(expectedStatus))
 				.andReturn()
 				.getResponse();
 		return OBJECT_MAPPER.readTree(response.getContentAsString(StandardCharsets.UTF_8));
+	}
+
+	private void assertInvalidQueryHeaders(String request, String channel, String sequence)
+			throws Exception {
+		final var builder = post("/api/metrics.json")
+				.contentType("application/json")
+				.content(request);
+		if (channel != null) builder.header("X-Query-Channel", channel);
+		if (sequence != null) builder.header("X-Query-Sequence", sequence);
+		final String body = mockMvc.perform(builder)
+				.andExpect(status().isBadRequest())
+				.andReturn()
+				.getResponse()
+				.getContentAsString(StandardCharsets.UTF_8);
+		assertEquals("invalid_request", OBJECT_MAPPER.readTree(body).path("code").asText());
 	}
 
 	private void awaitStates() throws Exception {
@@ -357,7 +440,8 @@ class MetricsApiIntegrationTest {
 
 	private static Path createFixture() {
 		try {
-			final Path runsDir = Path.of("target", "metrics-api-integration-" + System.nanoTime())
+			final Path runsDir = Path.of(
+					"target", "metrics-api-integration-" + System.nanoTime(), "_test", "runs")
 					.toAbsolutePath()
 					.normalize();
 			final Path ready = runsDir.resolve("run-ready");

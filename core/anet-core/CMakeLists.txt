@@ -74,6 +74,8 @@ target_link_libraries(anet-core-test PRIVATE
 )
 
 add_test(NAME anet-core-test COMMAND anet-core-test)
+# 現用設定を相対パスで読むテストは、直接実行と同じrepoルートで動かす。
+set_tests_properties(anet-core-test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 
 # ---------------------------------------------------------------------
@@ -119,6 +121,9 @@ if (MSVC)
   else()
     message(WARNING "No DLLs found in ${TORCH_DLL_DIR}")
   endif()
+
+  # --- wxWidgets DLLコピー ---
+  anet_copy_wx_dlls(anet-core-test)
 endif()
 
 

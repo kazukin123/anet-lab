@@ -596,7 +596,8 @@ std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObser
 // =============================================================
 
 ConstantRewardScaler::ConstantRewardScaler(float scale_factor, const std::optional<float>& clip_range)
-    : clip_range_(clip_range), scale_factor_(scale_factor)
+    : scale_factor_(scale_factor), clip_range_(clip_range)
+    , last_clip_ratio_(std::numeric_limits<float>::quiet_NaN())
 {
     ;
 }
@@ -617,7 +618,17 @@ torch::Tensor ConstantRewardScaler::Scale(const torch::Tensor& reward)
         // クリッピング実行
         return torch::clamp(scaled, -*clip_range_, *clip_range_);
     }
+    // クリップ無効時も今回の適用率を確定し、未初期化値をメトリクスへ流さない。
+    last_clip_ratio_ = 0.0f;
     return scaled;
+}
+
+torch::Tensor ConstantRewardScaler::ScaleWithoutUpdate(const torch::Tensor& reward) const
+{
+    ANET_PROFILE_FUNC();
+    // 学習と同じ順序で変換し、診断は統計を書き換えない。
+    const auto scaled = reward * scale_factor_;
+    return clip_range_ ? torch::clamp(scaled, -*clip_range_, *clip_range_) : scaled;
 }
 
 std::optional<float> ConstantRewardScaler::GetScalar(const std::string& key, int64_t index) const
@@ -646,6 +657,8 @@ RunningStdRewardScaler::RunningStdRewardScaler(const std::optional<float>& clip_
 void RunningStdRewardScaler::Reset()
 {
     stats_.Reset();
+    // epsilonを含む実際の初期変換を、診断へ一つの値として公開する。
+    diagnostic_std_.store(static_cast<float>(stats_.GetStd().item<double>()), std::memory_order_relaxed);
 }
 
 torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
@@ -668,6 +681,8 @@ torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
     // 現在の標準偏差を取得 (Double Tensor)
     torch::Tensor stdev_t = stats_.GetStd();
     float stdev_val = static_cast<float>(stdev_t.item<double>());
+    // 学習の演算値をそのまま公開し、診断側にAgentロックを要求しない。
+    diagnostic_std_.store(stdev_val, std::memory_order_relaxed);
 
 
     // 正規化
@@ -687,6 +702,16 @@ torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
         return torch::clamp(scaled, -*clip_range_, *clip_range_);
     }
     return scaled;
+}
+
+torch::Tensor RunningStdRewardScaler::ScaleWithoutUpdate(const torch::Tensor& reward) const
+{
+    ANET_PROFILE_FUNC();
+    // Scaleの統計更新後と同じ現在のstdで、除算・post scale・clipの順を守る。
+    const float stdev = diagnostic_std_.load(std::memory_order_relaxed);
+    auto scaled = reward / stdev;
+    if (post_scale_ != 1.0f) scaled *= post_scale_;
+    return clip_range_ ? torch::clamp(scaled, -*clip_range_, *clip_range_) : scaled;
 }
 
 std::optional<float> RunningStdRewardScaler::GetScalar(const std::string& key, int64_t index) const

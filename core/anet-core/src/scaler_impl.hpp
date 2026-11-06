@@ -1,6 +1,7 @@
 ﻿// scaler_impl.hpp
 #pragma once
 
+#include <atomic>
 #include "anet/scaler.hpp"
 
 namespace anet::rl {
@@ -174,6 +175,7 @@ namespace anet::rl {
     public:
         ConstantRewardScaler(float scale_factor, const std::optional<float>& clip_range = std::nullopt);
         torch::Tensor Scale(const torch::Tensor& reward) override;
+        torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const override;
         void Reset() override {}
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -188,6 +190,7 @@ namespace anet::rl {
         RunningStdRewardScaler(const std::optional<float>& clip_range = std::nullopt, float epsilon = 1e-8f, float post_scale = 1.0f);
 
         torch::Tensor Scale(const torch::Tensor& reward) override;
+        torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const override;
         void Reset() override;
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -199,6 +202,7 @@ namespace anet::rl {
 
         // 統計
         RunningMeanStd stats_;
+        std::atomic<float> diagnostic_std_{1.0f}; ///< 診断は可変Tensor統計を参照せず、公開済みのstdだけを読む
         float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
     };
 
