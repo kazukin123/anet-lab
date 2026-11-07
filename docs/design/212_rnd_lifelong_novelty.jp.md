@@ -481,8 +481,8 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 | 出荷設定 | Atariの両Networkのパラメータ数と約33.2MBのcheckpoint増分、Conv1d/2dの寸法、Taigaの8葉が一致 |
 | Runの設定解決 | 保存済みMontezuma基準Runと全キー比較。rainbowからtaigaへの差はRND設定18葉と診断13葉だけ。noop_max=0、Nature構造、Munchausen指標の不在を確認 |
 | 無効時の同一性 | GridMaze・LunarLander・Atari・DropMergeの105,682点と指標定義が変更前と一致 |
-| GridMazeのsmoke | 100k経験で完走、記録したlearn_countの最大値2,724、指標の不正な非有限値なし。平均bonusは前半8.61e-5から後半0へ減少したが、正の点が0.312%で受入条件の9割に未達 |
-| KFMのsmoke | 新しい3層CNNで100k経験を完走。warm-up後5,448点で不正な非有限値なし、clip_ratioの最大0で受入条件を満たす |
+| GridMazeのsmoke | 100k経験で完走、学習後5,448点、記録したlearn_countの最大値2,724、指標の不正な非有限値なしで、完走・有限性・補助学習の進行という改訂後の条件を満たす。観測が正規化した(x, y)の2値で盤面固定のため、限られた入力に慣れて新しさが尽きると既定のbonusは0になり、符号と減少は判定しない |
+| KFMのsmoke | 新しい3層CNNで100k経験を完走し、学習後5,448点のclip_ratioは最大0。ただし保存済みr1はbonus_shareが4,008点で欠測しており、NaN例外を厳密にした再判定では不合格。旧集計は保持し、新しいRunは起こしていない |
 | Montezumaのsmoke | Taiga設定で100k経験を完走。記録6,233点すべてでbonus_minが負、指標の不正な非有限値なしで受入条件を満たす |
 | 性能測定 | 別途の実施確認が必要なため未実施。実行速度への影響は未確定 |
 

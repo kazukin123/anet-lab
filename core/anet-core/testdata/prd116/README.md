@@ -26,8 +26,8 @@ MSVCを初期化してDebugビルド後、`anet-core-test.exe "[prd116],[scaler]
 
 次に起こすsmokeのRun名は `run_<t>_prd116_<label>_tmp_smoke_<env>` となる。既存のprd098名のRun・基準・記録は変更しない。
 
-GridMaze は warm-up 後の bonus と減少傾向、bonus_share の有限性を確認する。Atari KFM は 100k experience で失敗・NaN・clip_ratio の張り付きを確認する。手順と実行結果は実装記録へ追記する。
+GridMazeは完走・群56の有限性・補助学習の進行を確認し、bonusの符号と減少は判定しない。観測が正規化した(x, y)の2値で盤面固定のため、限られた入力に慣れて新しさが尽きると、既定のclipped・whitenではbonusが0になる。Atari KFMは100k experienceで失敗・NaN・clip_ratioの張り付きを確認する。手順と実行結果は実装記録へ追記する。
 
 `run_validation.py smoke --env GridMaze Atari Montezuma --label reference-smoke-r1` は各100k experienceを順に実行する。GridMazeとAtari KFMは既存の連鎖へ `run.@rnd`、MontezumaはAtariの連鎖へ `run.@rainbow_like > run.@rnd > run.@rnd_taiga` を加える。PRD098の短縮条件（8 lane、Q replay batch 16、capacity 4096、Q warm-up 256、RR1、評価休止など）は最後の検証用profileで選ぶ。RNDの8設定値は変更しない。
 
-実行体を保存し、13指標の件数・範囲・前後四分の一の平均と受入判定を記録する。`32_learn_count > 0` の点を対象にし、`03_bonus_share` の分母が0のNaNを許す。GridMazeは正のbonusが9割以上かつ後半50kの平均が前半より減少、KFMはclip_ratioの全点が1未満、Montezumaはbonus_minが負の点が9割以上であることを確認する。機構のsmokeであり、成績・性能の比較ではない。再実行時に別の実行体なら新しいlabelを使い、記録済みRunを上書きしない。
+実行体を保存し、13指標の件数・範囲・前後四分の一の平均と受入判定を記録する。`32_learn_count > 0` の点を対象にし、`03_bonus_share` が記録され、その値がNaNで同じ点の `01_bonus_mean` が0の場合だけ例外として許す。欠測や±Infは許さない。GridMazeは対象点が1つ以上あり、群56の全指標が有限（前述のNaN例外を除く）であること、KFMはclip_ratioの全点が1未満、Montezumaはbonus_minが負の点が9割以上であることを確認する。機構のsmokeであり、成績・性能の比較ではない。再実行時に別の実行体なら新しいlabelを使い、記録済みRunを上書きしない。

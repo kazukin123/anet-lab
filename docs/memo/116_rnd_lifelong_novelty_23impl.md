@@ -166,3 +166,14 @@ request-20261107-runname.mdに従い、PRD098ドライバのRUN_PREFIX（既定p
 
 追加差分のレビュー（20261107-2023）はCodex・Claudeとも計画・実装OK。不足点・修正要求はなし。原文は `.scratch/prd116/review-20261107-2023-impl.md` と `review-20261107-2023-impl-claude.md`、Claudeログの表示額は7.9922205 USD。新Runの実フォルダ確認、GridMazeの以前からの未達と原因未切分けは残る。ステージ・commit・pushは実施していない。
 
+## 追加調整: GridMaze smokeの判定
+
+以下は共通検査を維持した最初の調整の記録であり、その後に開発者が選んだ有限性検査の追加修正と最新の再判定は末尾の「この場で直す」を参照する。
+
+改訂済みPRD116 §6.4（blob 68f6e58d52d1b5b12984f720ce86918b2dfc04cc）とrequest-20261107-gridmaze-smoke.mdに従い、GridMazeの符号・減少条件を外し、完走・群56の有限性（既存のNaN例外を除く）・補助学習の進行で判定するよう修正した。対象は検証ドライバ・README・212日本語版§5.2・本記録・索引issueの5ファイル。観測が正規化した(x, y)の2値で盤面固定なので、限られた入力に慣れると既定のbonusが0になる理由を記した。`.venv/Scripts/python.exe -X utf8 .scratch/prd116/gridmaze_smoke_check.py` は実際の集計・判定部分を抽出して検証し、変更前はゼロbonusで受入失敗（gridmaze-smoke-red.log、終了1）、変更後はゼロ・負bonusと既存NaN例外の許容、欠測・非有限・学習なしの拒否の計8ケースが成功（gridmaze-smoke-green.log、終了0）。保存済みGridMaze r2は完走・学習後5,448点・記録したlearn_count最大2,724で新条件に合格し、Atari r1（5,448点）・Montezuma r3（6,233点）の判定と3群すべての13指標の集計は旧結果と一致した。新判定は `.scratch/prd116/gridmaze-smoke-reassessment.json` へ別名保存し、旧集計・実行記録・PRD・indexのSHA256不変を確認した。新しいRunは起こさず、RND本体・設定・PRD・英語版・§4.3と実行体の複製を変更していない。MSVC初期化付きDebug全体ビルドも成功（gridmaze-smoke-build.log、ninja: no work to do）、Python構文・UTF-8・LF・BOM保持・差分空白を確認した。設定を変えていないため既定葉検査・[shipped_config]は再実行しない。全品質項目を適用範囲に沿って自己点検し、実装上の未決はない。上の未達と原因未切分けの記述はPRD改訂前の履歴であり、今回の改訂後のGridMaze smokeには残らない。 独立レビュー（20261107-2215）は計画・実装ともOKで、原文は `.scratch/prd116/review-20261107-2215-gridmaze.md`。範囲外の検出1件として、共通の有限性検査はbonus_mean=0でbonus_shareのNaNだけでなく±Inf・欠測も許容する既存問題があった。今回の変更前から存在し、共通検査を維持する依頼の範囲外なので未修正とし、工程末の「この場で直す」候補として開発者の選択を待つ。
+
+
+## この場で直す: bonus_shareのNaN例外
+
+開発者が前回レビューの範囲外の検出を「この場で修正して再レビュー」と選んだため、共通検査の例外を、03_bonus_shareが記録済み・値がNaN・同じ点の01_bonus_mean=0の場合だけに限定した。±Infと欠測を拒否し、READMEにも明記した。上の選択待ちは解消済みである。検証は `.venv/Scripts/python.exe -X utf8 .scratch/prd116/gridmaze_smoke_check.py`。追加の3ケースは変更前に拒否できずRED（gridmaze-smoke-finite-red.log、拒否5/8、終了1）、変更後は従来の8ケースを含む11ケースが成功（gridmaze-smoke-finite-green.log、終了0）。保存Runを再検査するとGridMaze r2とMontezuma r3は合格し、それぞれ13指標の集計も旧結果と一致した。一方、KFM r1は学習後5,448点中4,008点でbonus_shareが欠測し、最初の検出はexp step 13,168だった。すべてbonus_mean=0の点で、旧検査が見逃していた欠測を厳密化後に拒否するため、KFMの保存記録の判定は合格から不合格へ変わる。これは検証コードの回帰失敗ではなく、修正が検出すべき既存記録の不足であり、212 §5.2も現在の不合格を示すよう更新した。新判定は `.scratch/prd116/gridmaze-smoke-reassessment-finite.json`、全欠測点はsmoke-finite-inventory.jsonへ別名保存し、旧集計と最初の再判定JSONは保持した。保存済み集計・実行記録・PRD・indexのSHA256不変、Python構文・UTF-8/LF/BOM・相対リンク・差分空白、MSVC初期化付きDebug全体ビルド（no work to do、終了0）を確認した（gridmaze-smoke-finite-static.log、gridmaze-smoke-finite-build.log）。新しいRun、過去の欠測の補完、出力側の変更は行っていない。設定・本体・PRD・英語版・212 §4.3も保持し、既定葉検査と[shipped_config]は再実行していない。追加修正の検証は成功し、保存KFMのsmoke不合格を全受入条件成功とは扱わない。 再レビュー（20261107-2227）は計画・実装ともOKで、不足点・修正要求・新たな範囲外の検出は0件。原文は `.scratch/prd116/review-20261107-2227-gridmaze.md`。今回の追加修正は完了し、保存KFMの欠測による受入不合格は既知の結果として残す。新規の起票候補・判断待ちはなく、ステージ・commit・pushは実施していない。
+
