@@ -1292,6 +1292,11 @@ AtariEnv.ram_metric.[beam_rider].metrics ?= 1:sector_clear 2:boss_kill 4:torpedo
 AtariEnv.ram_metric.[freeway].[car_hit] ?= 0xEA reach_count:91
 AtariEnv.ram_metric.[freeway].metrics ?= 4:car_hit
 
+AtariEnv.ram_metric.[montezuma_revenge].[room_max] ?= 0x83 max_seen  # 到達した最大の部屋番号（開始は 1）。面の区切りが無いので 1 に使う
+AtariEnv.ram_metric.[montezuma_revenge].[x_min] ?= 0xAA min_seen  # x の最小。鍵は部屋 1 の x=12 付近
+AtariEnv.ram_metric.[montezuma_revenge].[room_up] ?= 0x83 inc_count  # 番号なし。評価しない
+AtariEnv.ram_metric.[montezuma_revenge].metrics ?= 1:room_max 4:x_min
+
 
 # --- Eval設定 ---
 

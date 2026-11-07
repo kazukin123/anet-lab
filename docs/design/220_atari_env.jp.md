@@ -295,6 +295,9 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
 | beam_rider | `1:sector_clear` = `0x80 inc_count`、`2:boss_kill` = `0x94 reach_count:141`、`4:torpedo_fired` = `0xD3 dec_count` | なし |
 | freeway | `4:car_hit` = `0xEA reach_count:91` | なし |
+| montezuma_revenge | `1:room_max` = `0x83 max_seen`、`4:x_min` = `0xAA min_seen` | `room_up` = `0x83 inc_count` |
+
+montezuma_revenge には面の区切りが無いので、1 には到達した最大の部屋番号を使う。回数ではなく部屋番号で、開始の部屋が 1 なので、どこにも進まなかったゲームも 1 になる。部屋番号は先へ進むほど大きくなる傾向だが、開始の左の部屋は 0 なので、最大値の増加だけで進みを読む。`room_up` は部屋番号が増えた回数で、部屋の行き来でも増えるので番号を付けない。4 の `x_min` は x 座標の最小で、開始は 77、鍵は部屋 1 の x=12 付近にある。別の部屋に入るとその部屋の座標になるので、鍵までの進みとして読めるのは部屋 1 にいる間だけである。
 
 番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/done/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
 
