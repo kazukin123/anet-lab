@@ -14,11 +14,15 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - 調査の範囲: anet の BTR を基にした構成での NGU／E3B の効果は未測定であり、今回の調査では直接比較に使える BTR＋NGU 全体の実績も確認できていない（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§3「現状」・§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）。
 - 切り出し: RND による一生の新しさは lane 別の記憶を持たず、facade（`DefaultDQNAgent::UpdateFromBatch`）で次観測を採点して報酬へ畳めば Replay・Actor の契約を変えずに腕にできる。KFM では対照腕で、判断に効くのは GridMaze の到達率と費用・統計の確認（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§1.1・§4 D1・D2・§7）。
 - 切り出し: 一生の新しさの口は「倍率 α を返す採点・補助学習・診断・保存」の 4 操作で、RND の本体は DQN から見えない非公開の実装に閉じる暫定の設計（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§5.1・§5.7）。
+- 比較対象の実装: Taiga ら（ICLR 2020）の Rainbow＋RND は、行動した観測 x_t を agent step ごとに 1 件で採点・学習し、誤差の z を分散に相当する値で割って 0.00005 倍し、Runner が [−1, 1] に clip した外的報酬に足す。合計は clip せず、負の値もそのまま入る。観測の統計は正規化後の値で更新する。Burda ら・anet が採点するのは次観測 x_{t+1}（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1・§8.1 の 6）。
+- RND の尺度の条件: target と predictor の出力の尺度が揃っていれば、初期値の種類（he／xavier と直交）で新しさの判別は大きく変わらず、target だけ小さいと predictor が誤差を下げられず判別が落ちる。PyTorch の写しで Montezuma の画面を 6 万 step 学習した判断材料で、受入の基準ではない（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1）。
+- 設定の落とし穴: anet の層カタログ `Conv2d_S`・`Conv2d_M` は葉の階層が読み込みと合わず、2026-11-06〜07 の Atari の RND の Run は既定の 128@3/1 ×2（1 Network 約 1 億パラメータ）で動いていた。写しの比較では判別は落ちず、実証された害は速さと checkpoint の大きさ（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1）。
 
 ## 分かっていないこと
 
 - 同じ anet の学習器・経験予算で、個々の訪問ベクトルとの局所的な近さを測る NGU と、まだ十分に経験していない特徴方向を評価する E3B のどちらが、KFM・GridMaze の外的成績を改善するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）？
 - 探索による経験の増加が、点数を目的とする方策の未訪問状態からの到達率へ転移するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.7）？
+- RND の target と predictor の形は、公開実装の形（predictor を深く、出力 512）と NGU の同形・出力 128 のどちらが長い学習で判別を保つか。写しの 6 万 step では同形のほうが誤差の比が大きい（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1・§8 の 2）？
 
 ## 撤回・更新
 

@@ -731,6 +731,7 @@
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:9034f0c9eacd610e7eeb8b120fd7eb81bc6742da → docs/wiki/mechanisms/intrinsic_novelty.md（補助学習の刻みと件数を lane 数に依らない形へ。置き場は Push 側のまま、exp step 基準の credit と lane 抽選を facade に置き、Learn は渡された観測で 1 step。葉は learn_ratio・learn_batch_size、warmup_steps は観測の件数。経緯は §8.1、未決は §8 の 12・13）
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:a57611e5c01983964a4604eebb5ef2f4ba4258dc → なし（§8.1 の 6 を確認済みの事実に差し替えた。Taiga らの Rainbow＋RND は原典コードで Push 側、NGU は付録 A で Sample 側。exp step あたりの predictor の step 数の比較を添え、§8 の 4 と §11 の参照を補った。機構の主張は変わっていない）
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:69f1eda744df443df2bec777476d2bff38853edf → なし（Learn が進めたかを bool で返す形に §5.1・§5.2・D7・§5.3・§5.5 を直した。credit は結果に依らず消費する。機構の主張は変わっていない）
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:e7d50a22bb65d2d634eeec5b5e4190deb1272310 → なし（§5.5 の predictor_loss に「読込直後も次の step まで NaN」を足しただけ。機構の主張は変わっていない）
 2026-11-07 ingest docs/design/140_observability.jp.md blob:fdfd3a1b38743d800acd1d945cd7ac1f5b3fa037 → なし（全文と既存引用を照合。前回からの変更はOptunaガイドへの相対リンクで、wikiの主張は変わらない）
 2026-11-07 ingest docs/design/200_dqn_agents.jp.md blob:839e5d90f23dcc188701842b2409cc7b79963057 → docs/wiki/categories/324_dqn.md（方式の概要と実装レイヤーの節番号を追随し、RNDの採点・補助学習・facadeの責務と212への導線を追加。RNDの効果を実証済みとは扱わない）
 2026-11-07 ingest docs/design/README.jp.md blob:f3459c0e72a6315e601424afbb170619bb1e4894 → なし（全文照合。212への入口追加は324の関係へ反映済み。311の開発ツールの責務は変わらない）
@@ -773,3 +774,5 @@
 2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:5f67c9e765cc0298b5b4663cb0b516127c4d10c8 → なし（予測誤差に残る教師出力の条件付き分散を独立した数式例で説明。iLLMの実測上の失敗とは区別）
 2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:e7cd3e0fbb56188d35f71d95f97744405903d58d → なし（INSIGHTは著者サイトだけ確認した関連候補として記載。GPT-4による説明と探索改善を区別し、47論文には含めない）
 2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:6c885e6c983fd85dcb1da3959c128c9f782bd966 → なし（残枠でINSIGHT公刊本文§3–5を追加確認。説明生成は学習へ戻さず、説明品質にも未解決点がある。主対象47論文とは別の比較用補足）
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:084876f23d17fec9f44a5ca8161f13e2a354bb1b → docs/wiki/mechanisms/intrinsic_novelty.md（分かっていること 3 行: Taiga らの Rainbow＋RND の採点点と式を原典コードで確認、target と predictor の尺度の条件（写しの判断材料）、層カタログ Conv2d_S・Conv2d_M の葉違いで Atari の RND が 1 億パラメータで動いていたこと。分かっていないこと 1 行: 公開実装の形と NGU の同形・128 の長い学習での優劣）、docs/wiki/index.md（要約に 1 文、別名 Taiga）。PRD は本家再現向けの改訂で、独立レビュー 3 往復で OK
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:1a9e6067b3fe8c007010d67f743af1f492528fee → なし（§8 の 16 の課題候補を issue-20261107-0c34dd の起票に置き換えただけ。機構の主張は変わっていない）
