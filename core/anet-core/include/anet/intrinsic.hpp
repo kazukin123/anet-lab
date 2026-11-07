@@ -12,10 +12,12 @@ namespace anet::rl::intrinsic {
     /// 一生の新しさを倍率として返す。呼び出し側が報酬への合成を所有する。
     class LifelongNoveltyEstimator : public anet::Serializable {
     public:
-        /// CPU の次観測を採点し、CPU float の lane ごとの倍率を返す。
-        virtual torch::Tensor Multiplier(const anet::TensorDict& observations) = 0;
-        /// 直前に採点した同じ観測で補助学習する。保存はこの操作の完了後に行う。
-        virtual void Update(const anet::TensorDict& observations) = 0;
+        /// 観測を採点して統計を更新し、入力と同じ device の float の lane ごとの倍率を返す。
+        virtual torch::Tensor Estimate(const anet::TensorDict& observations) = 0;
+        /// 任意のdeviceの観測すべてで補助学習を1 step進めたらtrueを返す。統計は更新しない。
+        /// warm-up中だけは何も進めずfalseを返す。抽選と刻みは呼び出し側が持つ。
+        /// Estimate と観測・順序・回数を揃える必要はなく、操作間ではいつでも Save/Load できる。
+        virtual bool Learn(const anet::TensorDict& observations) = 0;
         /// 認識する診断キーを常に返し、未成立の値は NaN とする。
         virtual std::map<std::string, float> Diagnostics() const = 0;
         virtual ~LifelongNoveltyEstimator() = default;

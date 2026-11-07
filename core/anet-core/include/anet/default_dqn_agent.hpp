@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <memory>
+#include <random>
 #include <atomic>
 #include <sstream>
 #include <torch/torch.h>
@@ -80,6 +81,8 @@ namespace anet::rl::dqn {
         struct {
             bool enabled = false;
             anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
+            float learn_ratio = 0.25f;
+            int learn_batch_size = 32;
             anet::ConfigData rnd; ///< Factory へ渡す opaque な構築設定（共有 NN カタログを含む）。
         } intrinsic;
         struct {
@@ -111,6 +114,14 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, intrinsic.enabled);
             if (intrinsic.enabled) {
                 ANET_READ_CONFIG(config_data, intrinsic.beta);
+                ANET_READ_CONFIG(config_data, intrinsic.learn_ratio);
+                ANET_READ_CONFIG(config_data, intrinsic.learn_batch_size);
+                if (!std::isfinite(intrinsic.learn_ratio) || intrinsic.learn_ratio <= 0.0f || intrinsic.learn_ratio > 1.0f)
+                    ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.intrinsic.learn_ratio=" << intrinsic.learn_ratio
+                        << "; expected finite 0 < value <= 1.");
+                if (intrinsic.learn_batch_size < 1)
+                    ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.intrinsic.learn_batch_size=" << intrinsic.learn_batch_size
+                        << "; expected integer >= 1.");
                 intrinsic.rnd = config_data;
                 const auto prefix = MakeDefaultConfigKey("intrinsic.rnd") + ".";
                 for (const auto& [key, value] : config_data.Map()) {
@@ -684,6 +695,9 @@ namespace anet::rl::dqn {
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
         std::unique_ptr<anet::rl::intrinsic::LifelongNoveltyEstimator> lifelong_novelty_;
         std::optional<anet::ProfiledValue<float>> intrinsic_beta_;
+        float intrinsic_learn_credit_ = 0.0f; ///< facadeが更新する補助学習の未消費credit。
+        int64_t intrinsic_learn_count_ = 0; ///< optimizerが実際に進んだ累計step数。
+        std::optional<std::mt19937_64> intrinsic_learn_random_; ///< 有効時だけ作るlane抽選のResource。
         std::map<std::string, std::atomic<float>> intrinsic_diagnostics_; ///< キーは構築時に固定。UI は値だけ読む。
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::RandomGenerator> plasticity_probe_random_; ///< plasticity probe 専用 Resource

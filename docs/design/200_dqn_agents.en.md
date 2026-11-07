@@ -210,7 +210,9 @@ See [212 RND Novelty and Intrinsic Rewards (Japanese)](212_rnd_lifelong_novelty.
 
 With `intrinsic.enabled=true`, the DefaultDQN facade scores next observations under its existing write lock after external reward scaling. It adds `beta(exp_step) * (alpha - 1)`, masking done lanes to zero while retaining bonuses for truncated lanes. The combined reward enters Replay; Actor, Replay schema, and Q optimizers are unchanged. With `learner.enabled=false`, it warns once and suspends intrinsic scoring and training.
 
-RND owns a fixed target and a predictor, separate observation normalization, cumulative error statistics, AdamW, and a training RNG. Noncategorical byte observations become float inside RND. Scoring uses previous statistics, then updates them. Warm-up counts scoring calls and returns one without training. Afterwards, the multiplier is `clamp(1 + (e - mean) / std, 1, multiplier_max)`, or one without a usable variance. Randomly selected lanes contribute to the MSE. The scoring graph is reused for training; backward computation can span the full batch. CPU normalization requires an input H2D transfer and one error D2H transfer per batch on CUDA.
+RND owns an independent fixed target and predictor. It normalizes observations using previous statistics, then updates observation and cumulative prediction-error statistics after scoring. Noncategorical uint8 inputs become float inside RND. Warm-up counts scored observations, with a default of 12,800, returning a multiplier of one without auxiliary learning. Afterwards, it returns `clamp(1 + (e - mean) / std, 1, multiplier_max)`, or one without a usable variance.
+
+The facade owns auxiliary-learning cadence and lane selection. Each intake of N lanes earns `N * intrinsic.learn_ratio / k` credits, where k is `min(intrinsic.learn_batch_size,N)`. It calls `Learn` on disjoint groups of k lanes, up to `floor(N/k)` times per intake, carrying unused credit forward. RND recomputes target and predictor outputs for all supplied observations, advances its private AdamW once using mean MSE, and returns true. During warm-up it returns false. The facade consumes credit regardless of the result and counts only true results in `intrinsic.learn_count`. Scoring graphs are not retained. Normalization runs on CPU; CUDA computation requires input H2D and error D2H transfers for scoring and each learning step. See sections 3.5 and 5.1 of document 212 for boundaries and costs.
 
 ```mermaid
 sequenceDiagram
@@ -360,8 +362,6 @@ See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) f
 
 ### 7.2 Configuration Groups
 
-Intrinsic reward uses facade-owned `intrinsic.enabled` and nonnegative ProfiledValue `intrinsic.beta`; the factory interprets opaque `intrinsic.rnd.*`. Defaults reside in `agent.txt` baseline. Atari, GridMaze and LunarLander provide `run.@rnd`, selecting the body and group 56 metrics. Append it to the existing run chain. Disabled mode does not interpret beta/RND leaves or construct intrinsic networks, optimizer, statistics, or diagnostic keys. The public interface is in `intrinsic.hpp`; RND and its configuration remain private in `intrinsic_rnd.hpp/.cpp`.
-
 | Group | Main responsibilities |
 |---|---|
 | Network/Head | `quantile_mode=none|qr|iqn`, QR quantile count, Dueling, initialization, online/target synchronization |
@@ -370,6 +370,9 @@ Intrinsic reward uses facade-owned `intrinsic.enabled` and nonnegative ProfiledV
 | Learner | Learning enablement (`enabled`), optimizer, update interval/ratio, AMP, Double DQN, N-step, PER, TBO |
 | Replay | Capacity, batch size, warmup, prefetch, priority mode |
 | Preprocessing | Frame stack, reward scaling, observation normalization |
+| Intrinsic reward | `intrinsic.enabled`, ProfiledValue `intrinsic.beta`, `intrinsic.learn_ratio`, `intrinsic.learn_batch_size`, and factory-interpreted `intrinsic.rnd.*` |
+
+RND defaults reside in `agent.txt` `@baseline`, with learning ratio 0.25 and batch size 32. Atari, GridMaze, and LunarLander `run.@rnd` profiles enable it and select an independently composed observation Body and group 56 metrics. Append the profile to the existing `run.$` chain. Disabled mode interprets no leaves other than enabled and creates no Networks, optimizer, statistics, or diagnostic keys. The public header is `intrinsic.hpp`; implementation and configuration DTOs are separated into `intrinsic_rnd.hpp/.cpp`, and DQN does not reference concrete types.
 
 The authoritative definitions of all keys and defaults are `DefaultDQNAgentConfig`, `RainbowAgentConfig`, `LearnerConfig`, `ActionPolicyConfig`, and [apps/runner/config](../../apps/runner/config). Rather than duplicating the configuration list here, inspect the resolved results in the Run's `config/config_data.txt` and `config/<tag>.txt`.
 
@@ -407,7 +410,7 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 The version-1/version-2 descriptions below use `intrinsic.enabled=false` as their baseline. Enabled mode also saves and restores the additional section described next.
 
-Intrinsic-enabled DefaultDQN appends `;intrinsic` to its existing header identifier and writes an RND section after the learner. It contains both networks, AdamW moments/step, observation normalization, error statistics, scoring count, and training RNG. Loading requires the section presence to match the current enabled setting. Current optimizer options replace saved options. Disabled mode retains the previous identifier, configuration string, and payload layout.
+Intrinsic-enabled DefaultDQN appends `;intrinsic` to its existing header identifier and writes an intrinsic section after the learner. The RND payload comes first, identified by `RndNoveltyEstimator-2`: fixed target, predictor, AdamW moments/step, observation normalization, error statistics, and scored-observation count. The facade then saves unused credit, lane-selection RNG state, and cumulative successful learning steps. RND rejects checkpoints with a different payload format. Section presence must match the enabled setting. Current optimizer options replace saved options. Disabled mode retains the previous identifier, configuration string, and payload layout.
 
 The `split` optimizer adds `primary_skip` to the ordinary four roles, saving the additional optimizer's moments and step. Loading a four-role checkpoint into split initializes the added state and warns once; loading five roles into stop/merge is rejected. After restoration, the additional optimizer also receives current lr, eps, and betas, retaining zero weight decay. Stop/merge save formats are unchanged.
 
@@ -440,7 +443,7 @@ Network SN u/v are named buffers and are saved/restored with the online/target N
 
 ### 9.1 Metrics
 
-Group `56_agent_in` reads `$agent intrinsic.<key> @learn`: `bonus_mean`, `bonus_max`, and `bonus_share` use the weighted, done-masked bonus; share divides its sum by the sum of absolute external rewards plus bonuses (NaN for zero denominator). `error_mean`/`error_std` describe cumulative error, `error_step` the current mean, `clip_ratio` the fraction at the multiplier cap, and `predictor_loss` the training loss. Unavailable values are NaN; disabled keys return nullopt. Fixed diagnostic keys hold atomic values, so UI reads acquire no additional lock.
+Group `56_agent_in` reads `$agent intrinsic.<key> @learn`: `bonus_mean`, `bonus_max`, and `bonus_share` use the weighted, done-masked bonus; share divides its sum by the sum of absolute external rewards plus bonuses (NaN for zero denominator). `error_mean`/`error_std` describe cumulative error, `error_step` the current mean, and `clip_ratio` the fraction at the multiplier cap. `predictor_loss` retains the most recent successful step's loss through intakes without learning (NaN before learning or immediately after loading). `learn_count` counts actual optimizer steps, excluding false returns during warm-up. Disabled keys return nullopt. Fixed diagnostic keys hold atomic values, so UI reads acquire no additional lock.
 
 - `DQNActionInfo` carries the Action, auxiliary Q/quantile information, and an optional replay initial-priority hint.
 - `episode_start_action_uqe_margin.[i]` and `episode_start_action_q_margin.[i]` average the difference between action `i` and the best other action over episode-start lanes in the batch. The UQE version uses UQE values; the Q version uses Q-related scores from the network output, remaining in h-space even with TBO. With IQN+UQE, both use the same risk-biased action score, not full-distribution `E[Z]`. Steps without episode-start lanes return `NaN` and skip scalar output.

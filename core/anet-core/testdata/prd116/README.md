@@ -1,6 +1,6 @@
 # PRD116 RND 検証
 
-実装記録は [20impl](../../../../docs/memo/116_rnd_lifelong_novelty_20impl.md)。
+初回実装の記録は [20impl](../../../../docs/memo/116_rnd_lifelong_novelty_20impl.md)、Estimate/Learnの独立化とdevice・保存の契約を見直した記録は [21impl](../../../../docs/memo/116_rnd_lifelong_novelty_21impl.md)、補助学習のcredit・件数・bool結果を見直した記録は [22impl](../../../../docs/memo/116_rnd_lifelong_novelty_22impl.md)。
 
 ## 無効時の同一性
 

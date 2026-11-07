@@ -725,3 +725,9 @@
 2026-11-06 ingest docs/experiments/default-dqn/lunarlander/README.md blob:cb67e61bf9e3bf46fec82b44d9552941875247ce → なし（campaign 表に行を足しただけで、独自の分析は変わっていない）
 2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:9893b46b39122ac6a041f504644c5a28fcbf603d → docs/wiki/mechanisms/intrinsic_novelty.md, docs/wiki/index.md（暫定。RND 単独の腕の切り出しと、一生の新しさの口の形）
 2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:fdd82ca5cb786cf40e4741fbf003d6e56dec278e → なし（口の形をユーザーが確認した行を冒頭に足しただけで、主張は変わっていない）
+2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:717e882ace0c7efc1682b1bd1de81392e8d7a8d5 → なし（§9 に設計文書 212 の新設を成果物として追記しただけで、主張は変わっていない）
+2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:c1c6c896e7d2484b11e0608dca31845d9465d589 → なし（冒頭に、§9 へ設計文書 212 の新設を追記した改訂記録を足しただけで、主張は変わっていない）
+2026-11-06 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:7f60c39ff28d57a7cb4400b3a23bd08a9c16d52f → docs/wiki/mechanisms/intrinsic_novelty.md（口の見直し。Multiplier→Estimate、Update→Learn、Learn は渡された観測で独立に学習、device は入力に従う。§5.1・§5.3・D7・§6.2・§8 の 12）
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:9034f0c9eacd610e7eeb8b120fd7eb81bc6742da → docs/wiki/mechanisms/intrinsic_novelty.md（補助学習の刻みと件数を lane 数に依らない形へ。置き場は Push 側のまま、exp step 基準の credit と lane 抽選を facade に置き、Learn は渡された観測で 1 step。葉は learn_ratio・learn_batch_size、warmup_steps は観測の件数。経緯は §8.1、未決は §8 の 12・13）
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:a57611e5c01983964a4604eebb5ef2f4ba4258dc → なし（§8.1 の 6 を確認済みの事実に差し替えた。Taiga らの Rainbow＋RND は原典コードで Push 側、NGU は付録 A で Sample 側。exp step あたりの predictor の step 数の比較を添え、§8 の 4 と §11 の参照を補った。機構の主張は変わっていない）
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:69f1eda744df443df2bec777476d2bff38853edf → なし（Learn が進めたかを bool で返す形に §5.1・§5.2・D7・§5.3・§5.5 を直した。credit は結果に依らず消費する。機構の主張は変わっていない）

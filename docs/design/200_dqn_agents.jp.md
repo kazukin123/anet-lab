@@ -208,7 +208,9 @@ RND の基本概念、数式と処理順、設定・指標の具体例は [212 R
 
 DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼ぶ。次観測を採点し、`beta(exp_step) × (alpha − 1)` を加算する。done の lane の bonus は0、truncated だけの lane は加算する。Replay へ渡す報酬に畳み込むため、Actor、Replay の形式、Q の optimizer は変えない。`learner.enabled=false` では一度 WARN し、採点と補助学習を休止する。
 
-RND は独立した固定 target と predictor を所有する。専用の観測正規化で更新前の統計を使い、採点後に観測統計と予測誤差の累積統計を更新する。非カテゴリの uint8 は RND 内で float に変換する。warm-up は batch Env step の採点回数で数え、倍率1・補助学習なしとする。その後は更新前の誤差統計から `clamp(1 + (e − mean) / std, 1, multiplier_max)` を返す（分散未成立時は1）。独立 RNG で選んだ lane の MSE を私有 AdamW で更新する。採点の predictor グラフを使うため追加 forward はなく、逆伝播の計算幅は最大 B である。CPU で正規化した入力の H2D と、誤差の D2H を各 batch で行う。
+RNDは独立した固定targetとpredictorを所有する。専用の観測正規化で更新前の統計を使い、採点後に観測統計と予測誤差の累積統計を更新する。非カテゴリのuint8はRND内でfloatに変換する。warm-upは採点した観測の件数で数え、既定12,800件までは倍率1・補助学習なしとする。その後は更新前の誤差統計から `clamp(1 + (e − mean) / std, 1, multiplier_max)` を返す（分散未成立時は1）。
+
+補助学習の刻みと抽選はfacadeが持つ。N laneのintakeごとにcreditへ `N × intrinsic.learn_ratio / k` を加え、k=`min(intrinsic.learn_batch_size,N)` 件ずつ重複なく選んで `Learn` を呼ぶ。1 intakeの上限は `floor(N/k)` 回で、未消費creditは繰り越す。RNDは渡された全k件でtarget・predictorのforwardをやり直し、平均MSEで私有AdamWを1 step進めてtrueを返す。warm-up中はfalseで、facadeは戻り値にかかわらずcreditを消費し、trueだけを `intrinsic.learn_count` に数える。採点のグラフは持ち越さない。正規化はCPUで行い、CUDA計算では採点・各学習stepに入力H2Dと誤差D2Hがある。詳しい境界・費用は212の§3.5・§5.1を参照する。
 
 ```mermaid
 sequenceDiagram
@@ -366,9 +368,9 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | Learner | 学習の有効化(`enabled`)、optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
-| 内的報酬 | `intrinsic.enabled`、ProfiledValue の `intrinsic.beta`、Factory が解釈する `intrinsic.rnd.*` |
+| 内的報酬 | `intrinsic.enabled`、ProfiledValue の `intrinsic.beta`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factory が解釈する `intrinsic.rnd.*` |
 
-RND の既定は `agent.txt` の `@baseline` に置く。Atari・GridMaze・LunarLander の `run.@rnd` は有効化、観測から独立に組む Body、群56の指標を選ぶ。既存 `run.$` の末尾へ追加して使う。無効時は beta と RND の葉を解釈せず、Network・optimizer・統計・診断キーを生成しない。公開ヘッダは `intrinsic.hpp`、実装と設定 DTO は `intrinsic_rnd.hpp/.cpp` に分離し、DQN は具体型を参照しない。
+RNDの既定は `agent.txt` の `@baseline` に置く。学習のratioは0.25、batch sizeは32。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、観測から独立に組むBody、群56の指標を選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の葉を解釈せず、Network・optimizer・統計・診断キーを生成しない。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
@@ -406,7 +408,7 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 以下の第1版・第2版の説明は `intrinsic.enabled=false` を基準とする。有効時は次の追加節も保存・復元する。
 
-内的報酬が有効な DefaultDQN は、従来の識別子へ `;intrinsic` を付け、Learner の後へ RND の節を追加する。固定 target、predictor、AdamW の moment/step、観測正規化、誤差統計、採点回数、学習用 RNG を保存する。読込時は有効設定と節の有無が一致しなければ fail-fast する。optimizer options は現在設定を優先する。無効時の識別子・設定文字列・payload の配置は従来どおりである。
+内的報酬が有効なDefaultDQNは、従来の識別子へ `;intrinsic` を付け、Learnerの後へintrinsic節を追加する。最初に `RndNoveltyEstimator-2` のRND本体（固定target、predictor、AdamWのmoment/step、観測正規化、誤差統計、採点した観測の件数）、続けてfacadeの未消費credit・lane抽選の乱数状態・累計成功回数を保存する。本体の書式が異なるcheckpointはRNDの検査で拒否する。読込時は有効設定と節の有無が一致しなければfail-fastする。optimizer optionsは現在設定を優先する。無効時の識別子・設定文字列・payloadの配置は従来どおりである。
 
 `split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
@@ -439,7 +441,7 @@ NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target
 
 ### 9.1 metric
 
-内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max` は beta 倍と done マスク後の値、`bonus_share` は内的報酬の和を「外的報酬の絶対値の和＋内的報酬の和」で割る（分母0はNaN）。`error_mean`・`error_std` は累積統計、`error_step` は今回の誤差平均、`clip_ratio` は倍率上限に達した lane の比率、`predictor_loss` は更新時の損失である。未採点・未更新はNaN、無効時はキーが無く nullopt。構築時にキーを固定した atomic の診断値を読むため、UI 読み出しで新たなロックを取らない。
+内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max` はbeta倍とdoneマスク後の値、`bonus_share` は内的報酬の和を「外的報酬の絶対値の和＋内的報酬の和」で割る（分母0はNaN）。`error_mean`・`error_std` は累積統計、`error_step` は今回の誤差平均、`clip_ratio` は倍率上限に達したlaneの比率。`predictor_loss` は直近の成功stepの損失を、学習しないintakeでも保持する（未学習・読込直後はNaN）。`learn_count` は実際にoptimizerが進んだ累計回数で、warm-upのfalseは数えない。無効時はキーが無くnullopt。構築時にキーを固定したatomicの診断値を読むため、UI読み出しで新たなロックを取らない。
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
 - `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力のQ系scoreを使い、TBO有効時もh空間のまま扱う。IQN+UQEでは両者が同じrisk-biased action scoreになり、full-distributionの`E[Z]`ではない。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。

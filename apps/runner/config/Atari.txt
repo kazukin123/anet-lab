@@ -17,6 +17,7 @@ run.@rnd : metrics.scalar.[56_agent_in/12_error_std] = $agent intrinsic.error_st
 run.@rnd : metrics.scalar.[56_agent_in/13_error_step] = $agent intrinsic.error_step @learn
 run.@rnd : metrics.scalar.[56_agent_in/21_clip_ratio] = $agent intrinsic.clip_ratio @learn
 run.@rnd : metrics.scalar.[56_agent_in/31_predictor_loss] = $agent intrinsic.predictor_loss @learn
+run.@rnd : metrics.scalar.[56_agent_in/32_learn_count] = $agent intrinsic.learn_count @learn
 
 #app.$ = app.batchrun > P1
 

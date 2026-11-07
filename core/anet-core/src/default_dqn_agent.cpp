@@ -1,7 +1,9 @@
 ﻿// default_dqn_agent.cpp
 
 #include "anet/default_dqn_agent.hpp"
+#include <algorithm>
 #include <memory>
+#include <numeric>
 #include <sstream>
 #include <torch/torch.h>
 #include <cmath>
@@ -24,7 +26,6 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
-namespace {
 // Agent全体の保存形式。第1版の識別子は既存primary checkpointのため保持する。
 constexpr char kCheckpointFormatV1[] = "DefaultDQNAgent";
 constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
@@ -34,10 +35,11 @@ constexpr char kIntrinsicPrefix[] = "intrinsic.";
 constexpr char kIntrinsicBonusMean[] = "intrinsic.bonus_mean";
 constexpr char kIntrinsicBonusMax[] = "intrinsic.bonus_max";
 constexpr char kIntrinsicBonusShare[] = "intrinsic.bonus_share";
+constexpr char kIntrinsicLearnCount[] = "intrinsic.learn_count";
+constexpr char kIntrinsicLearnSeed[] = "intrinsic.learn";
 constexpr const char* kSkipStructureTag = "skip.net.structure";
 constexpr const char* kSkipDetailTag = "skip.net.detail";
 constexpr const char* kSkipNetworkSeed = "skip_network";
-} // namespace
 
 // ======================================================
 // DefaultDQNAgent
@@ -87,6 +89,8 @@ DefaultDQNAgent::DefaultDQNAgent(
         seed_maker.MakeNamedSeed("plasticity_probe"));
     this->policy_churn_probe_random_ = std::make_shared<anet::RandomGenerator>(
         seed_maker.MakeNamedSeed("policy_churn_probe"));
+    if (config_.intrinsic.enabled)
+        intrinsic_learn_random_.emplace(seed_maker.MakeNamedSeed(kIntrinsicLearnSeed));
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
@@ -99,6 +103,11 @@ DefaultDQNAgent::DefaultDQNAgent(
             config_.intrinsic.rnd, config_.GetConfigPrefix() + ".intrinsic.rnd",
             env_spec.state_spec.obs_spec, device_, seed_maker);
         intrinsic_beta_.emplace(config_.intrinsic.beta);
+        intrinsic_diagnostics_.try_emplace(kIntrinsicLearnCount, 0.0f);
+        if (batch_env_spec.num_envs < config_.intrinsic.learn_batch_size)
+            LOG::warn() << "DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.intrinsic.learn_batch_size
+                << " exceeds num_envs=" << batch_env_spec.num_envs
+                << "; using num_envs observations per intrinsic learning step.";
         for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
             intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
         for (const auto key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare})
@@ -343,7 +352,17 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     // Learner(Adam)
     auto adam_size = learner_->Save(archive);
 	total_size += adam_size;
-    if (lifelong_novelty_) total_size += lifelong_novelty_->Save(archive);
+
+    // RND本体に続けて、facadeのcredit・lane抽選の乱数状態・累計成功回数を保存する。
+    // 読込時にRND本体の書式検査で異なる形式を拒否できるよう、本体を先に置く。
+    if (lifelong_novelty_) {
+        total_size += lifelong_novelty_->Save(archive);
+        total_size += archive.Write(intrinsic_learn_credit_);
+        std::ostringstream random_state;
+        random_state << *intrinsic_learn_random_;
+        total_size += archive.Write(random_state.str());
+        total_size += archive.Write(intrinsic_learn_count_);
+    }
 
     // ログ
     LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
@@ -392,8 +411,24 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
 
 	// Learner
 	auto learner_size = learner_->LoadCheckpoint(in, has_skip);
+
+    // RND本体に続けて、facadeのcredit・lane抽選の乱数状態・累計成功回数を復元し、診断へ反映する。
+    // 異なる形式をfacadeの状態として読む前に拒否するため、RND本体の書式検査を先に行う。
     if (lifelong_novelty_) {
         lifelong_novelty_->Load(in);
+        in.Read(intrinsic_learn_credit_);
+        if (!std::isfinite(intrinsic_learn_credit_) || intrinsic_learn_credit_ < 0.0f)
+            ANET_SYSTEM_ERROR("Invalid intrinsic learning credit=" << intrinsic_learn_credit_ << "; expected finite value >= 0.");
+        std::string random_state;
+        in.Read(random_state);
+        std::istringstream random_stream(random_state);
+        if (!(random_stream >> *intrinsic_learn_random_))
+            ANET_SYSTEM_ERROR("Invalid intrinsic learning RNG state in checkpoint; expected mt19937_64 state.");
+        in.Read(intrinsic_learn_count_);
+        if (intrinsic_learn_count_ < 0)
+            ANET_SYSTEM_ERROR("Invalid intrinsic learn_count=" << intrinsic_learn_count_ << "; expected value >= 0.");
+        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(
+            static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
         for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
             intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
     }
@@ -674,17 +709,51 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 
         if (lifelong_novelty_ && config_.learner.enabled) {
             ANET_PROFILE_SCOPE(intrinsic_reward);
-            const auto alpha = lifelong_novelty_->Multiplier(batch_exp.next_state.obs);
+
+            // 採点し、終端マスクを適用した内的報酬ボーナスを求める。
+            const auto alpha = lifelong_novelty_->Estimate(batch_exp.next_state.obs);
             const auto bonus = (intrinsic_beta_->Evaluate(counts.exp_step) * (alpha - 1.0f))
                 .masked_fill(batch_exp.next_state.done, 0.0f);
+
+            // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
             const float bonus_sum = bonus.sum().item<float>();
             const float denominator = scaled_rewards.abs().sum().item<float>() + bonus_sum;
             intrinsic_diagnostics_.at(kIntrinsicBonusMean).store(bonus.mean().item<float>(), std::memory_order_relaxed);
             intrinsic_diagnostics_.at(kIntrinsicBonusMax).store(bonus.max().item<float>(), std::memory_order_relaxed);
             intrinsic_diagnostics_.at(kIntrinsicBonusShare).store(denominator > 0.0f ? bonus_sum / denominator
                 : std::numeric_limits<float>::quiet_NaN(), std::memory_order_relaxed);
+
+            // 学習報酬へボーナスを加算する。
             scaled_rewards = scaled_rewards + bonus;
-            lifelong_novelty_->Update(batch_exp.next_state.obs);
+
+            // 経験件数に比例したcreditを貯め、同じintakeのlaneを重複なくk件ずつ渡す。
+            const auto num_lanes = batch_exp.next_state.obs.Size(0);
+            const auto batch_size = std::min<int64_t>(config_.intrinsic.learn_batch_size, num_lanes);
+            intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.intrinsic.learn_ratio / batch_size;
+            if (intrinsic_learn_credit_ >= 1.0f) {
+                ANET_PROFILE_SCOPE(intrinsic_selection);
+                std::vector<int64_t> lanes(num_lanes);
+                std::iota(lanes.begin(), lanes.end(), 0);
+                std::shuffle(lanes.begin(), lanes.end(), *intrinsic_learn_random_);
+                auto indices = torch::tensor(lanes, torch::kInt64);
+                // indexのdevice転送はstepループの前にまとめ、CUDAにはpinnedから非同期で送る。
+                if (batch_exp.next_state.obs.device().is_cuda())
+                    indices = indices.pin_memory().to(batch_exp.next_state.obs.device(), true);
+                for (int64_t offset = 0; offset + batch_size <= num_lanes && intrinsic_learn_credit_ >= 1.0f;
+                    offset += batch_size) {
+                    ANET_PROFILE_SCOPE(intrinsic_learn);
+                    anet::TensorDict observations;
+                    const auto selected = indices.narrow(0, offset, batch_size);
+                    for (const auto& [key, value] : batch_exp.next_state.obs)
+                        observations.Set(key, value.index_select(0, selected));
+                    if (lifelong_novelty_->Learn(observations)) ++intrinsic_learn_count_;
+                    // warm-upの未実行分も消費し、明けたときに追いつき学習をしない。
+                    intrinsic_learn_credit_ -= 1.0f;
+                }
+            }
+
+            // 補助学習後の推定器の診断値を公開する。
+            intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
             for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
                 intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
         }
