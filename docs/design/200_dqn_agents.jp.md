@@ -22,13 +22,202 @@ Agent共通contractは[Agentと学習](110_agents_and_learning.jp.md)、ReplayBu
 
 ## 2. DQN系の概要と基本概念
 
-### 2.1 実装レイヤー
+### 2.1 対応アルゴリズム
+
+まず学習・探索方式の全体像を示し、[2.2節](#22-実装レイヤー)以降で実装上の部品と接続を説明する。本節では論文のアルゴリズムに加え、本実装で選べるtarget計算や探索強度の構成も扱う。各方式の狙いと基本的な処理だけをまとめ、導出・評価条件・詳細な比較は参考論文へ委ねる。
+
+#### 2.1.1 一覧
+
+次の表の「対応」は、その方式を選べることを表し、すべてを同時に使えることや、原論文の実験設定を再現することを意味しない。実際の構成は[7章](#7-defaultdqnとrainbowの構成設定)の設定とRunの解決済み設定で確認する。
+
+| 方式 | 主に変えるもの・狙い | 本実装の対応 | 参考論文・実装 |
+|---|---|---|---|
+| DQN | Q値をNetworkで近似し、Experience ReplayとTarget Networkで学習を安定させる | 両Agentの基礎。通常Qは`TDLearner` | [DQN (2015/02)][paper-dqn] |
+| Double DQN | bootstrapする行動の選択と価値の評価を分け、最大値による過大評価を抑える | 両Agentの`learner.use_double_dqn` | [Double DQN (2015/09)][paper-double-dqn] |
+| Dueling Network | 状態価値Vと行動間のadvantage Aを分けてQ値を表す | 両AgentのHeadで選択可能 | [Dueling (2015/11)][paper-dueling] |
+| N-step return | 複数stepの報酬をまとめ、後の状態の推定値につなぐ | 両Agentの`learner.use_n_step`と`learner.n_step` | [Rainbow (2017/10), Multi-step learning][paper-rainbow] |
+| Prioritized Experience Replay（PER） | priorityに応じて経験の抽選頻度を変え、重要度サンプリング重みで抽選の偏りを補正する | 両Agentの`learner.use_per`。保存・抽選は共通ReplayBuffer | [PER (2015/11)][paper-per] |
+| NoisyNet | 学習可能なノイズ付き重みにより、Networkの出力を変動させて探索する | DefaultDQNのHead射影とNN実行設定（[7.3節](#73-defaultdqn-の-noisy-実行設定)） | [NoisyNet (2017/06)][paper-noisy] |
+| Rainbow | DQNの6つの拡張を組み合わせる | `RainbowAgent`はQRを用いる構成。原論文との相違は[2.1.3節](#213-rainbowの構成要素) | [Rainbow (2017/10)][paper-rainbow] |
+| QR-DQN | 固定した分位レベルごとの収益を学び、収益分布を表す | 両Agentの`QRLearner` | [QR-DQN (2017/10)][paper-qr] |
+| Implicit Quantile Network（IQN） | 分位レベルτを入力とし、分位関数を学ぶ | DefaultDQNの`IQNLearner` | [IQN (2018/06)][paper-iqn] |
+| Upper Quantile Exploration（UQE） | 平均収益の代わりに上位分位または上側の平均で行動を比較する | DefaultDQNのQR・IQN方策（[2.1.5節](#215-uqe上位分位を使う行動選択)） | [方策の実装](../../core/anet-core/src/dqn_based_agent.cpp)。関連：[IQN (2018/06), Section 4][paper-iqn] |
+| Thompson Sampling | 不確かさを表す分布から標本を取り、その標本で最良の行動を選ぶ | DefaultDQNの`ThompsonSampling`。収益分位を使う実装との差は[2.1.6節](#216-thompson-samplingと本実装の分位サンプリング) | [Thompson Sampling (2017/07), Chapter 4][paper-thompson] |
+| Munchausen RL | 対数方策項を報酬へ加え、softな価値の更新と組み合わせる | DefaultDQNのTD・QR・IQN（[6.3節](#63-munchausen-rl)） | [Munchausen (2020/07)][paper-munchausen] |
+| TempoRL | 行動に加えて、その行動を続ける長さを学ぶ | DefaultDQNのskip方策（[6.5節](#65-defaultdqnのskip方策)） | [TempoRL (2021/06)][paper-temporl] |
+| Random Network Distillation（RND）・内的報酬 | 固定したランダムNetworkの出力を予測する誤差を、新しさの手掛かりとして報酬へ加える | DefaultDQNの`intrinsic.enabled`（[2.1.9節](#219-rndと内的報酬)） | [RND (2018/10)][paper-rnd]、[212の解説](212_rnd_lifelong_novelty.jp.md) |
+| Transformed Bellman Operator（TBO） | 可逆変換hでQ値とBellman targetを圧縮し、値のスケールを扱いやすくする | DefaultDQNの`learner.use_tbo`（[2.1.10節](#2110-tboq値とtargetの圧縮)） | [TBO (2018/05), Section 3.2][paper-tbo] |
+| 楽観ターゲット | bootstrap方策を、平均だけでなく収益分布の上側を見るscoreで決める | DefaultDQNの`target_policy`と`use_optimistic_target`（[2.1.11節](#2111-楽観ターゲット)） | [設定・方策解決](../../core/anet-core/include/anet/default_dqn_agent.hpp)、[target計算](../../core/anet-core/src/dqn_based_agent.cpp) |
+| spatial exploration（Ape-X由来） | 同時に動くlaneごとに探索強度を変える | 両AgentのActorでεを配置。UQE用τはDefaultDQN（[2.1.12節](#2112-spatial-explorationlaneごとの探索強度)） | [Ape-X (2018/03), Section 3.1][paper-apex]、[SpatialLadderSchedule / ActionPolicy](../../core/anet-core/src/dqn_based_agent.cpp) |
+
+探索方策の設定とtau生成は[2.4節](#24-actionpolicyとdqnactioninfo)、RNDによる内的報酬の組込みは[6.2節](#62-experience受入れと学習更新)を参照する。
+
+#### 2.1.2 DQNの基本
+
+DQNは、状態sで行動aを選んだ後の割引収益の期待値を`Q(s,a)`としてNetworkで近似する。経験`(s,a,r,s')`をReplayへ蓄え、そこから取り出したminibatchで、現在のQ値を次のTD targetへ近づける。以下は1-step・通常Qの基本形であり、dは真の終端で1、それ以外で0とする。[DQN (2015/02), Methods][paper-dqn]
+
+$$
+y = r + \gamma(1-d)\max_{a'}Q_{\theta^-}(s',a')
+$$
+
+`θ`は更新するonline Network、`θ⁻`はbootstrapに使うtarget Networkのパラメータである。Experience Replayは連続する経験の相関を弱めて経験を再利用し、Target Networkは更新対象と教師値の変化を切り離す。行動選択にはQ値が最大の行動とランダムな行動を混ぜるepsilon-greedyを使う。[DQN (2015/02), Methods][paper-dqn]
+
+本実装ではonline/targetの管理を`NetworkModel`、通常Qのlossを`TDLearner`、経験の保存と抽選を共通ReplayBufferが担当する。分布を学ぶQR/IQNでも、この経験受入れ・学習・target同期の骨格を共有する（[2.3節](#23-online-networkとtarget-network)・[2.5節](#25-dqnとreplaybuffer)）。
+
+#### 2.1.3 Rainbowの構成要素
+
+原論文のRainbowは、DQNの異なる箇所を変える6要素を組み合わせる。[Rainbow (2017/10), Extensions to DQN / The Integrated Agent][paper-rainbow]
+
+```mermaid
+flowchart LR
+    subgraph T["target計算"]
+        direction TB
+        DD["Double DQN<br/>行動の選択と価値の評価を分離"]
+        N["N-step<br/>複数stepの報酬を使う"]
+        DD ~~~ N
+    end
+    subgraph V["価値の表現"]
+        direction TB
+        DU["Dueling<br/>Q = V + A − mean(A)"]
+        C["C51<br/>固定した収益の値に対する確率"]
+        DU ~~~ C
+    end
+    subgraph E["探索・Replay"]
+        direction TB
+        NZ["NoisyNet<br/>重みのノイズ振幅も学習"]
+        P["PER<br/>抽選頻度と補正重みを変える"]
+        NZ ~~~ P
+    end
+    T ~~~ V ~~~ E
+```
+
+本実装の`RainbowAgent`は分布表現にQRを使い、Actorはepsilon-greedyを使う。NoisyNetはDefaultDQNで選択する。原論文の構成と両Agentの相違は[7.1節](#71-主な相違)を参照する。
+
+#### 2.1.4 分位学習：QR-DQNとIQN
+
+通常Qは収益の平均、QR/IQNは収益の分布を学ぶ。τは分布のどの位置を見るかを表し、τ=0.9は90パーセンタイルに対応する。[QR-DQN (2017/10), Distributional RL][paper-qr]
+
+```mermaid
+flowchart LR
+    S["観測"] --> TD["通常Q"] --> Q["行動ごとの平均Q"]
+    S --> QR["QR-DQN<br/>τの位置は固定"] --> ZQ["N本の分位値<br/>本数は固定"]
+    S --> IQN["IQN<br/>τを入力する"] --> ZI["指定したτの分位値"]
+    T["問い合わせるτと本数"] --> IQN
+```
+
+**QR**は固定した`τ_i = (i − 0.5) / N`の収益の値を学び、**IQN**はτを入力する分位関数を学ぶ。どちらもquantile Huber lossを使う。QRは確率質量を固定して収益の値を学ぶ点で、収益の値を固定して確率を学ぶC51と異なる。[QR-DQN (2017/10), The Quantile Approximation / Quantile Huber Loss][paper-qr] [IQN (2018/06), Section 3][paper-iqn]
+
+本実装では、DefaultDQNの`quantile_mode`で通常Q・QR・IQNを切り替え、Rainbowは`use_qr`で通常Q・QRを切り替える。分位出力は`q_dist`、平均は`q`である。IQNのtau生成とUQEによる問い合わせは[2.4節](#24-actionpolicyとdqnactioninfo)、学習用tauとlossの扱いは[7.2節](#72-設定グループ)を参照する。
+
+#### 2.1.5 UQE：上位分位を使う行動選択
+
+本実装のUQEは、平均Qの代わりに収益分布の上側で行動を比較する。τ=0.9なら、指定分位は90パーセンタイル、上側の平均は上位約10%の平均になる。[実装：UQEActionPolicy / MakeRiskBiasedScore](../../core/anet-core/src/dqn_based_agent.cpp)
+
+```mermaid
+flowchart LR
+    Z["収益分布"] --> M["分布全体の平均<br/>平均Qによる選択"]
+    Z --> P["指定分位の値<br/>UQE: use_tail_mean=false"]
+    Z --> T["指定分位から上側の平均<br/>UQE: use_tail_mean=true"]
+    M --> A["score最大の行動<br/>ε探索を適用する前"]
+    P --> A
+    T --> A
+```
+
+QRは分位点をソートして抽出し、IQNは指定分位または`[τ,1]`を問い合わせる。τの時間変化・lane配置と、選択後の`uqe.epsilon`探索は[2.4節](#24-actionpolicyとdqnactioninfo)を参照する。[実装：MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) 分位を使う方策の一般的な説明は[IQN (2018/06), Sections 3–4][paper-iqn]を参照する。
+
+#### 2.1.6 Thompson Samplingと本実装の分位サンプリング
+
+一般的なThompson Samplingは、観測した経験を踏まえたモデルの不確かさを事後分布で表し、そこからモデルの標本を1つ取り、その標本の下で最良の行動を選ぶ。行動自体を一様に乱択するepsilon-greedyに対し、標本化した価値の比較を通じて探索する。[Thompson Sampling (2017/07), Chapters 3–4][paper-thompson]
+
+本実装の`ThompsonSampling`は、ベイズモデルの事後分布を保持する方式ではなく、学習した収益分布の分位を利用する方策名である。非spatial時の動作は次のとおりで、QRとIQNではscoreの作り方が異なる。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp)
+
+- **QR**：呼出しごと・laneごとにτを`[0,1]`から一様に1つ引き、同じτを全行動へ使う。`uqe.use_tail_mean=false`ではその分位、`true`ではその分位から上側の平均で比較する。
+- **IQN**：`tau_rule`に従って`[0,1]`全体へ複数のτを配置し、各行動の出力平均で比較する。random配置なら標本平均であり、1本なら1分位の比較になる。fixed配置ならτ生成自体に乱数を使わない。
+
+spatial有効時は、両方式ともlaneごとのτを下限または指定分位としてUQEと同じ計算へ渡す。epsilonによる乱択も別に適用する。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) 収益分布が表す結果のばらつきと、一般的なThompson Samplingが扱うモデルの不確かさは区別して読む。[IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
+
+#### 2.1.7 Munchausen RL
+
+Munchausen RLは、Q値から得るsoftmax方策πの対数を使い、報酬に`α τ log π(a|s)`を加える。αは加算項の強さ、τはsoftmaxの温度であり、ここでのτはIQNの分位レベルとは別の量である。bootstrapも行動の最大値だけでなく、方策で重み付けした`Q − τ log π`を使う。DQNへの具体化では対数方策項をclipする。この項は一般に非正で、選ばれやすい行動ほど減点が小さいため、「外的報酬に正の探索ボーナスを足す」とは異なる。[Munchausen (2020/07), Sections 2, 4 / Appendix B.1][paper-munchausen]
+
+原論文は、この更新を暗黙のKL正則化と行動価値の差（action gap）の拡大という観点から説明し、DQNとIQNへの適用を示している。[Munchausen (2020/07), Sections 3–4][paper-munchausen] 本実装はTD・QR・IQNに対応し、N-step returnへの先頭項の加算、分布targetの組立、方策を計算するNetworkの選択を[6.3節](#63-munchausen-rl)で定める。Double DQNとの併用は現行契約では認めない。
+
+#### 2.1.8 TempoRLとskip方策
+
+TempoRLは「行動a」と「継続長j」を分けて学ぶ。skipの価値は、継続区間の割引報酬と区間末尾の行動価値から学習する。[TempoRL (2021/06), Sections 3.1–3.3][paper-temporl]
+
+```mermaid
+flowchart LR
+    S["現在の状態"] --> A["primary方策<br/>行動aを選ぶ"]
+    A --> J["skip方策<br/>継続長jを選ぶ"]
+    J --> R["同じaをj step返す"] --> N["次の判断"]
+```
+
+N-stepは**targetに含める経験の長さ**、TempoRLは**実際に行動を続ける長さ**を変える。[Rainbow (2017/10), Multi-step learning][paper-rainbow] [TempoRL (2021/06), Section 3.2][paper-temporl] 本実装は`skip.enabled`で選び、継続中もprimaryを毎step forwardする。Network・学習window・勾配の扱いは[6.5節](#65-defaultdqnのskip方策)を参照する。
+
+#### 2.1.9 RNDと内的報酬
+
+RNDは、固定したランダムNetworkの出力をpredictorに学習させ、予測誤差を新しさの手掛かりにする。[RND (2018/10), Section 2.2][paper-rnd] DefaultDQNで報酬へ組み込む流れは次のとおり。
+
+```mermaid
+flowchart LR
+    S["次観測"] --> F["固定した教師"]
+    S --> P["学習するpredictor"]
+    F --> E["予測誤差"]
+    P --> E
+    E --> B["正規化・clip<br/>内的報酬 β × (α − 1)"]
+    B --> R["学習報酬<br/>Replayへ保存"]
+    X["スケール済み外的報酬"] --> R
+```
+
+UQEが行動選択のscoreを変えるのに対し、RNDは学習する報酬を変える。数式、採点・補助学習の順序、設定、指標、保存再開は[212 RNDによる新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
+
+#### 2.1.10 TBO：Q値とtargetの圧縮
+
+TBOは可逆な非線形変換hでQ値とtargetを圧縮する。報酬との合成は実空間で行い、その結果をh空間へ戻す。[TBO (2018/05), Section 3.2][paper-tbo]
+
+```mermaid
+flowchart LR
+    Q["bootstrap値<br/>h空間"] --> I["逆変換 h⁻¹"]
+    I --> V["実空間で<br/>報酬＋割引した価値"]
+    V --> H["変換 h"] --> Y["target<br/>h空間"]
+```
+
+`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：TDLearner / QuantileLearnerBase](../../core/anet-core/src/dqn_based_agent.cpp)
+
+#### 2.1.11 楽観ターゲット
+
+楽観ターゲットは、次状態でbootstrapする方策を、収益分布の上側を見るscoreで決める構成である。UQEをActorだけで使えば実際の行動が変わり、target方策でも使えば学習の教師値を組み立てる際の選択も変わる。Munchausen OFFではscoreが最大の行動を選び、選択した行動の価値・分布をtarget Networkで評価する。選択に使った上位分位のscore自体を、そのままbootstrap値に置き換える処理ではない。Munchausen ONでは、そのscoreから作るsoft方策で混合する（[6.3節](#63-munchausen-rl)）。[実装：targetの行動選択・価値評価](../../core/anet-core/src/dqn_based_agent.cpp)
+
+DefaultDQNの`use_optimistic_target=true`は、`actor.[train].policy`をtarget方策の既定へコピーし、epsilonを0にする。その後の`target_policy.*`指定で上書きできるため、有効な方式は解決後の方策で確認する。コピー元が平均Qのgreedyなら、このフラグだけで上側を見る方策にはならない。[実装：DefaultDQNAgentConfig](../../core/anet-core/include/anet/default_dqn_agent.hpp)
+
+#### 2.1.12 spatial exploration：laneごとの探索強度
+
+Ape-XのActorごとに異なるεを使う考え方を、同じActor内のlaneへ適用している。[Ape-X (2018/03), Section 3.1][paper-apex] [実装：ActionPolicy / SpatialLadderSchedule](../../core/anet-core/src/dqn_based_agent.cpp)
+
+```mermaid
+flowchart LR
+    subgraph A["Ape-X: Actorごとに配置"]
+        A0["Actor 0: εが小さい"]
+        A1["Actor 1: εが大きい"]
+    end
+    subgraph L["本実装: 同じActor内のlaneへ配置"]
+        L0["lane 0: εが小さい"]
+        L1["lane 1: εが大きい"]
+    end
+    A0 -.-> L0
+    A1 -.-> L1
+```
+
+Ape-XのAtari実験はεを学習中固定する。[Ape-X (2018/03), Section 4.1][paper-apex] 本実装は`spatial.enabled`で選び、`first`・`last`の両端を`linear`または`log`で配置する。両端には時間変化も指定でき、DefaultDQNではUQEのε・τにも広げている。時間の変化とlane間の配置は独立に指定する（[2.4節](#24-actionpolicyとdqnactioninfo)）。[実装：epsilon-greedy / UQEのlane別設定](../../core/anet-core/src/dqn_based_agent.cpp)
+
+### 2.2 実装レイヤー
 
 `DefaultDQNAgent`と`RainbowAgent`は、どちらも`AgentBase`と共通`rl::Learner`を実装する具象Agentである。`CreateLearner()`は外側のAgent自身を返し、外側が共有mutexや前後処理を管理したうえで、内側の`dqn::Learner`へ更新を委譲する。
 
 `dqn_based_agent.*`は、`NetworkModel`、`ActionPolicy`、`Actor`、`Learner`、`TDLearner`、`QRLearner`、`IQNLearner`などを提供する内部component群である。両具象Agentはこれらを合成しており、`DefaultDQNAgent`または`RainbowAgent`が内側の`dqn::Learner`を継承する構造ではない。
 
-### 2.2 Online NetworkとTarget Network
+### 2.3 Online NetworkとTarget Network
 
 `dqn::NetworkModel`はonline Networkとtarget Networkを保持する。Actorはカタログ項目の`network`設定に応じてonlineまたはtargetをsourceとして行動を選び、Learnerはonlineで現在値を計算し、targetをbootstrap値の計算に使う。targetは`soft_update_tau`または`hard_update_interval`に従って学習後に更新する。
 
@@ -43,7 +232,7 @@ HeadとLearnerは次を組み合わせる。
 
 Double DQN、N-step、PER、勾配clip、AMPなどはLearner設定で組み合わせる。すべての組合せを「Rainbow」という名称だけから暗黙に仮定せず、Runの解決済み設定を確認する。
 
-### 2.3 ActionPolicyとDQNActionInfo
+### 2.4 ActionPolicyとDQNActionInfo
 
 `ActionPolicy`はNetwork forwardとAction選択を担当し、Action、Q値、quantileなどを`DQNActionInfo`へまとめる。現行の共通部品にはepsilon-greedy、UQE、Thompson Samplingがある。DefaultDQNはTrain、Eval、target用Policyを分け、RainbowはAction用Policyと学習target用のgreedy Policyを構成する。
 
@@ -61,7 +250,7 @@ ProfiledValueのrootの定数は `epsilon = 0.05` のようにbare値で指定�
 
 logラダーは `max(端, 1e-4)` の列を指定端へ線形に伸縮する。clamp後の両端が等しければ指定端の線形補間を使う。両端とも下限以上なら従来の生成経路を維持する。DropMergeとLunarLanderのlast=0は0のまま扱い、中間laneも旧系列から変わる。`epsilon`・`uqe_epsilon`・`uqe_tau`は使用中のlane平均を返し、各値の `_lane_min`・`_lane_max`も取得できる。方策に使わない既知の指標はNaNとなる。
 
-### 2.4 DQNとReplayBuffer
+### 2.5 DQNとReplayBuffer
 
 内側の`dqn::Learner`はCPU上の共通ReplayBufferを所有し、ExperienceをPushしてからwarmup、sample可能数、update creditを確認する。更新可能な間はminibatchをsampleし、学習deviceへ移してTDまたはquantile lossを計算する。N-step、frame stack、generation-aware item key、PER、prefetchの共通contractは[ReplayBuffer](150_replay_buffer.jp.md)を正本とする。
 
@@ -507,7 +696,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 
 DQNは2チャネルを持つ。actualはonline/targetのTD計算で使ったtrain-mode/autocast forwardから`main_feature`等の指定branchを捕捉し、target更新前の特徴を同じ`BatchUpdateResult`へ載せる。probeはReplayBufferの一様・非復元sampleを既存obs正規化へ通し、NoGrad・eval mode・learnerと同じautocastで`ForwardOnlineUpTo`を実行してAgent最新値として公開する。
 
-online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`final_feature_branch_key`は購読時だけ必須・branch存在検証し、購読ゼロならNoCareでcapture/sample/statsを行わない。baseline設定は`main_feature`を指定するが、DTOは未指定を空文字で保持し、設定不在を暗黙に補完しない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド](030_user_guide_analysis.jp.md)4.7節を参照する。
+online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`final_feature_branch_key`は購読時だけ必須・branch存在検証し、購読ゼロならNoCareでcapture/sample/statsを行わない。baseline設定は`main_feature`を指定するが、DTOは未指定を空文字で保持し、設定不在を暗黙に補完しない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド4.7節](030_user_guide_analysis.jp.md#47-可塑性メトリクスを読む)を参照する。
 
 parameter側は、online networkを`final_feature_branch_key`の依存閉包でfeature/readoutへ分け、生weight norm 2値、SN適用後の実効weight norm 2値、各群の最大sigma 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、online/targetのSN validity sentinelとともに固定長8要素packとして同じ`BatchUpdateResult`へ載せる。6公開値のいずれかを初めて読むときだけpack全体をCPUへ移し、同じevent内でcacheする。sentinelが異常を示した場合だけNetworkを再walkし、online/targetと完全layer名を含めてfail-fastする。SN layerがない群のsigmaは`NaN`、実効normは生normと同じである。購読が無ければparameter列挙もD2Hも行わない。
 
@@ -602,6 +791,8 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 
 ## 11. 関連文書
 
+### 11.1 設計文書
+
 - [フレームワーク全体概要](010_framework_overview.jp.md)
 - [実行基盤と設定](100_runtime_and_configuration.jp.md)
 - [Agentと学習](110_agents_and_learning.jp.md)
@@ -615,3 +806,37 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 - [Replay初期priority completion ADR](../adr/0012-replay-initial-priority-hint-completion.md)
 - [IQN bind積DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
 - [IQN+UQE score ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md)
+
+### 11.2 参考論文
+
+年月は、DQNは掲載月、それ以外はarXiv初稿の公開月を示す。
+
+- [DQN, 2015/02] Mnih et al. "Human-level control through deep reinforcement learning." Nature 518, 529–533. [論文][paper-dqn]
+- [Double DQN, 2015/09] van Hasselt, Guez, Silver. "Deep Reinforcement Learning with Double Q-learning." AAAI 2016. [論文][paper-double-dqn]
+- [PER, 2015/11] Schaul et al. "Prioritized Experience Replay." ICLR 2016. [論文][paper-per]
+- [Dueling, 2015/11] Wang et al. "Dueling Network Architectures for Deep Reinforcement Learning." ICML 2016. [論文][paper-dueling]
+- [NoisyNet, 2017/06] Fortunato et al. "Noisy Networks for Exploration." ICLR 2018. [論文][paper-noisy]
+- [Thompson Sampling, 2017/07] Russo, Van Roy, Kazerouni, Osband, Wen. "A Tutorial on Thompson Sampling." Foundations and Trends in Machine Learning 11(1), 1–96, 2018. [解説論文][paper-thompson]
+- [Rainbow, 2017/10] Hessel et al. "Rainbow: Combining Improvements in Deep Reinforcement Learning." AAAI 2018. [論文][paper-rainbow]
+- [QR-DQN, 2017/10] Dabney, Rowland, Bellemare, Munos. "Distributional Reinforcement Learning with Quantile Regression." AAAI 2018. [論文][paper-qr]
+- [Ape-X, 2018/03] Horgan et al. "Distributed Prioritized Experience Replay." ICLR 2018. [論文][paper-apex]
+- [IQN, 2018/06] Dabney, Ostrovski, Silver, Munos. "Implicit Quantile Networks for Distributional Reinforcement Learning." ICML 2018. [論文][paper-iqn]
+- [TBO, 2018/05] Pohlen et al. "Observe and Look Further: Achieving Consistent Performance on Atari." arXiv:1805.11593. [論文][paper-tbo]
+- [RND, 2018/10] Burda, Edwards, Storkey, Klimov. "Exploration by Random Network Distillation." arXiv:1810.12894. [論文][paper-rnd]
+- [Munchausen, 2020/07] Vieillard, Pietquin, Geist. "Munchausen Reinforcement Learning." NeurIPS 2020. [論文][paper-munchausen]
+- [TempoRL, 2021/06] Biedenkapp, Rajan, Hutter, Lindauer. "TempoRL: Learning When to Act." ICML 2021. [論文][paper-temporl]
+
+[paper-dqn]: https://doi.org/10.1038/nature14236
+[paper-double-dqn]: https://arxiv.org/abs/1509.06461
+[paper-per]: https://arxiv.org/abs/1511.05952
+[paper-dueling]: https://arxiv.org/abs/1511.06581
+[paper-noisy]: https://arxiv.org/abs/1706.10295
+[paper-thompson]: https://arxiv.org/abs/1707.02038
+[paper-rainbow]: https://arxiv.org/abs/1710.02298
+[paper-qr]: https://arxiv.org/abs/1710.10044
+[paper-apex]: https://arxiv.org/abs/1803.00933
+[paper-iqn]: https://arxiv.org/abs/1806.06923
+[paper-tbo]: https://arxiv.org/abs/1805.11593
+[paper-rnd]: https://arxiv.org/abs/1810.12894
+[paper-munchausen]: https://arxiv.org/abs/2007.14430
+[paper-temporl]: https://arxiv.org/abs/2106.05262
