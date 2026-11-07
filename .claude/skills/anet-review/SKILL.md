@@ -1,6 +1,6 @@
 ---
 name: anet-review
-description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent anet-review-agent with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Never edits the reviewed files. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
+description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent anet-review-agent with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Offers a fix-and-re-review action when fixes are needed; edits only after the user selects it. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
 ---
 
 # ANET Review
@@ -140,7 +140,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 | 確かめてほしいこと | レビューが判断できず、ユーザーに確かめてほしいこと | `開発者への確認事項` |
 | 今回の変更とは別に見つかったこと | 1 件ずつ短く書き、今回の結果には影響しないと添える | `範囲外の検出` |
 | レビューが迷った点 | 判定に迷った点と、次に重点を置く箇所 | `再確認ポイント` |
-| 次にできること | 直す必要があれば、直してからもう一度起動すると、同じレビューの続きとして出せること。読み方を選ぶ指摘があれば、先に選ぶこと。この会話のレビューで一度でも直す必要があったとき（今回が OK でも）は、`/anet-improve`（Codex は `$anet-improve`）で、この会話の手戻りから改善策を出せること。今回が直す必要のある応答なら、「直し終えたら」と添える | — |
+| 次にできること | 直す必要があれば、「指摘を修正して再レビュー」を選ぶと、修正と検証のあと、同じレビューの続きとして出せること。読み方を選ぶ指摘があれば、先に選ぶこと。この会話のレビューで一度でも直す必要があったとき（今回が OK でも）は、`/anet-improve`（Codex は `$anet-improve`）で、この会話の手戻りから改善策を出せること。今回が直す必要のある応答なら、「直し終えたら」と添える | — |
 | 原文 | 保存したファイルのパス | — |
 
 - 原文の指摘を、1 件ずつ説明に対応させる。足さない、落とさない、判定を変えない。原文に無い直し方や判断を足さない。
@@ -149,8 +149,28 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 - 原文の「認識した内容」は書かない。呼ぶ前に示した内容と食い違うときだけ、その点を書く。
 - パスは、リポジトリからの相対パスで書く。行番号は、場所を示すのに要るときだけ書く。
 
-### 止まる
+### 次の操作を選んでもらう
 
-説明を示したら止まる。指摘への対応は始めない。判定が OK のときは、[AGENTS.md](../../../AGENTS.md) の「コミットの準備を提案する」に従って、コミットの準備をするかを聞いてから止まる。
+レビュー結果の説明は、そのターンの最終メッセージに置く。問いより前の途中の文にしない。結果を読んでから選べるようにするためである。
+
+直す必要がある指摘が 1 件以上あれば、「指摘を修正して再レビュー」を先頭に、「今はしない」を次に置いて聞く。範囲外の検出だけなら、この問いは出さない。
+
+聞く手段は [anet-prepare-commit](../anet-prepare-commit/SKILL.md) の「ステージ」の節と同じにし、その節の出力をレビュー結果の説明、問いを上の選択肢に読み替える。
+
+- Claude Code は、`mcp__ccd_turn__wrap_up` があれば `ask` と `actions` で聞き、説明を最終メッセージにする。無ければ、最終メッセージの末尾に問いと選択肢を 1 行で書く。`AskUserQuestion` は使わない。
+- Codex は、`request_user_input_async` で聞いてから、説明を最終メッセージとして書いて応答を終える。
+
+明示的な回答が来るまで、修正も再レビューも始めない。「今はしない」か別の話が返ったら、実行せずにそれへ応じる。
+
+判定が OK のときは、[AGENTS.md](../../../AGENTS.md) の「コミットの準備を提案する」に従って、コミットの準備をするかを聞いてから止まる。
+
+### 「指摘を修正して再レビュー」が選ばれたとき
+
+この選択を、指摘への対応と再レビューを行うユーザーの指示として受け、通常の作業として進める。プランモードなら編集せず、修正・検証・再レビューの計画を出し、実行の承認を待つ。
+
+1. 今回の指摘をまとめて修正する。読み方や方針をユーザーが選ぶ必要のある指摘は、先に尋ね、明示的な回答までその判断に依存する修正を待つ。範囲外の検出は修正対象に含めない。
+2. 変更に必要な検証と自己点検を行い、結果を記録する。
+3. 本スキルの 2 と 3 に従い、修正後の差分と検証結果で依頼を更新し、同じレビューエージェントに続けて依頼する。続けて依頼できないときの扱いも 3 に従う。
+4. 応答を本節のとおり示す。まだ指摘があれば、もう一度同じ選択肢を出して止まる。最初の選択を、以後の修正・再レビューを自動で繰り返す了承にはしない。
 
 新しいPRDは直下に保持し、状態は索引issueが持つ。過去の保管場所も完全一致検索の対象にする。

@@ -25,7 +25,7 @@
 | anet-list-issues | 本版の課題を依存とWSJFで並べ、棚卸しと束ねる提案を示す。記録は変えない | `$anet-list-issues`、`$anet-list-issues 束ね max=5` | 報告 |
 | anet-update-issue | 指示された状態・監理項目、またはAIの判定を更新する | `$anet-update-issue` | `docs/management/issues/` |
 | implement-prd-with-docs | PRD と現行実装を照合し、実装計画を保存して実装・検証する。自己点検、レビューと差し戻し対応を行い、未決を示して停止する | `/implement-prd-with-docs 013_sample_prefetch_10prd.md` | `docs/memo/*_2ximpl.md`、計画に従うコード・テスト・設定・文書 |
-| anet-review | 成果物(PRD、実装計画、PRD の無い変更を含む実装)をレビューエージェント `anet-review-agent` に出し、応答を平易に言い直して示す。直さない。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 087_review_agent_quality_viewpoints_10prd.md` | 報告のみ(応答の原文は毎回 `.scratch/` に保存する。実装のレビューでは差分も `.scratch/` に書き出す) |
+| anet-review | 成果物(PRD、実装計画、PRD の無い変更を含む実装)をレビューエージェント `anet-review-agent` に出し、応答を平易に言い直して示す。指摘があれば修正・再レビューの選択肢を出し、選ばれたときだけ対応する。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 087_review_agent_quality_viewpoints_10prd.md` | 報告(応答の原文は毎回 `.scratch/` に保存する。実装のレビューでは差分も `.scratch/` に書き出す)。選ばれたときは対象の修正と再レビュー |
 | anet-improve | この会話の手戻りからハーネスの改善策を選んで反映し、PRD送りと採らなかった問題をissueへ記録する | `$anet-improve` | ハーネスの変更先、`.scratch/anet-improve/`、`docs/management/issues/`、派生一覧 |
 
 anet-housekeeping が呼ぶ候補と対応: stats → anet-stats、wiki-lint → anet-lint-wiki、audit → anet-audit、translate → anet-translate-docs、survey → anet-survey-queue、harness-map → anet-harness-map、atlas → anet-archify-atlas。
