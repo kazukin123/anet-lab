@@ -7,6 +7,7 @@
 > 2026-11-06（実装中）: 口の形を見直した。`Multiplier` → `Estimate`、`Update` → `Learn` に改名し、`Learn` を渡された観測で自立して学習する操作にし、device の縛りを外した（§5.1）。改名の理由（impl.md §名前の 9）: Multiplier は名詞で処理が読めない。Update は統計の更新と紛れる。Score は anet で成績の語、Train は Train 側と torch の training mode の語なので避けた。独立化の理由: NGU では採点が行動時、補助学習が Learner 側の Replay 抽出になり、隣接した呼び出しで同じ観測を渡す前提の契約では分離できない。実装は直前の採点の計算グラフを持ち越していて、呼び順の誤りが黙って通っていた。
 > 2026-11-07（実装中）: 補助学習の刻みと件数を lane 数（num_envs）に依らない形に改めた（D6・D7・D12・§5.1〜§5.7・§6.2・§8 の 4・5・12・13）。置き場は Push 側（facade の intake）のままとし、exp step 基準の credit と lane の抽選を facade に置き、`Learn` を「渡された観測すべてで 1 step」にした。葉は `intrinsic.rnd.train_fraction` を消して facade の `intrinsic.learn_ratio`・`intrinsic.learn_batch_size` にした（impl.md §名前の 9: Train 側の語を避けて `learn_` に揃え、Learner の `replay_ratio`・`replay_batch_size` と同じ形にする）。`warmup_steps` は採点した観測の件数にした。`Learn` は進めたかを bool で返す（実装中の確認で追加。warm-up 中に何もしなかったことを、呼ぶ側が数えられるようにするため）。経緯は §8.1。
 > 2026-11-07（別の枠の報告を受けて改訂。暫定のまま）: Atari の RND の Network が意図と別の形で組まれていた不具合（§2.1）を直し、Taiga ら（ICLR 2020）の Rainbow＋RND へ anet の設定だけで寄せられる形にした（§1.2・§1.3・§2.1・§3・D1・D2・D4・D5・D6・D8・D12・D13・§5.1〜§5.7・§6.2〜§6.4・§7・§8 の 1・2・14〜17・§8.1 の 6・7・§9・§11）。target と predictor を別々の Network 設定にし（`intrinsic.rnd.target.net.*`・`intrinsic.rnd.predictor.net.*`。別の枠の案 `target_net`・`predictor_net` は、役割の違いを葉の名前ではなく役割の階層で表す impl.md §名前の 1 に合わせて改めた）、Head の初期値を `intrinsic.rnd.head.init.*` で設定にし、倍率の clip と統計をモード値にし（`intrinsic.rnd.multiplier_mode`・`intrinsic.rnd.statistics_mode`）、採点と補助学習に使う観測を `intrinsic.observation` で選べるようにし、`intrinsic.rnd.adam_eps`・診断 4 つ・checkpoint の書式 3 を足した。既定の式（`clipped`・`whiten`・`next_state`）は変えない。Atari の `run.@rnd` の既定の Network は公開実装の形（3 conv・leaky ReLU・直交 √2・predictor に FC 512 ×2・出力 512）にし、NGU の同形・128 は 924 で決める。各既定は別の枠の推奨をユーザーが「一旦おすすめの内容で」と受けたもので、暫定の既定であり合意した決定ではない。§8.1 の 6 にあった「÷ 標準偏差」「[−1, 1] に clip」は原典のコードで確かめて訂正した。経緯は §8.1 の 7。
+> 2026-11-07（夜）: §6.4 の GridMaze から bonus の符号と減少の判定を外した（ユーザーの指示）。GridMaze の観測は (x, y) の 2 値で新しさが最初の数千 step で尽きるため（結果は §7 の GridMaze の行）。§8 に 18（predictor の周期リセット案）を追加した。
 > 起点: [924 §10](924_intrinsic_reward_novelty_10prd.md) は「RND 単独はそれだけでも検証できる独立の腕」とし、§9.1 の比較腕に「RND 単独」を置いている。924 は未決が 23 件あり、エピソード内の新しさ・Replay の契約・方策の家族を一度に決めないと実装へ出せない。RND は Replay も Actor も触らずに作れる唯一の部品なので、先に切り出す。
 > 関連: [924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（内的報酬の全体。本 PRD はその第一の腕）、索引 issue [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md)、[DQN 系 Agent 設計 §6.2・§8.2](../design/200_dqn_agents.jp.md)、[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)（補助 Network の置き場。§4 D3 で関係を書く）、[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)（checkpoint 読込時の optimizer options）、[CONTEXT.md](../../CONTEXT.md) の「報酬スケーラ」。
 
@@ -392,7 +393,7 @@ warm-up 中は bonus 系が 0、error 系は値を持つ。無効のときは ke
 
 smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条の条件を、その Run の記録された点のうち `56_agent_in/32_learn_count` が 0 より大きい点（warm-up 後。`learn_count` が 0 の点は除く）で満たすこと。「有限」の条件は、§5.5 が NaN を定める場合を除いて見る: `03_bonus_share` は同じ点の `01_bonus_mean` が 0 のとき、`31_predictor_loss` は同じ点の `32_learn_count` が 0 のときの NaN を許し、それ以外の NaN は否。機構の確認であり成績の判定ではない。
 
-- GridMaze で `run.@rnd` を回し、`56_agent_in/01_bonus_mean` の点の 9 割以上が正で、後半 50k exp step の点の平均が前半（warm-up 後）の点の平均より小さい（同じ盤面なので慣れる）。群 56 の全指標が全点で有限（上の NaN の例外を除く）。
+- GridMaze で `run.@rnd` を回し、落ちない・群 56 の全指標が全点で有限（上の NaN の例外を除く）・`56_agent_in/32_learn_count` が 0 より大きい点がある。bonus の符号と減少は判定しない（2026-11-07 に外した。観測が正規化した (x, y) の 2 値で、盤面は `seed_mode = process` で固定なので、RND の入力は 25 通り以下しか無い。ε = 1 から始まる探索が最初の数千 step で全部を踏み、predictor が覚え切って一生の誤差平均を下回り続け、既定（`clipped`・`whiten`）の bonus は 0 になる。「同じ盤面に慣れる」は確かめられるが、新しさの判別の確認には使えない。結果は §7 の GridMaze の行）。
 - Atari（KFM）で `run.@rnd` を回し、落ちない・群 56 の全指標が全点で有限（上の NaN の例外を除く）・`56_agent_in/21_clip_ratio` の全点が 1 未満。2026-11-07 の改訂後は公開実装の形の既定の Network で取り直す。
 - Montezuma で `run.@rainbow_like > run.@rnd > run.@rnd_taiga` を回し、落ちない・群 56 の全指標が全点で有限（上の NaN の例外を除く）・`56_agent_in/04_bonus_min` の点のうち負の点が 9 割以上（z の負が報酬に入っている。warm-up 0 なので最初の点から数える）。
 
@@ -402,7 +403,7 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 
 | Run | 見るもの | 本 PRD での位置づけ |
 | --- | --- | --- |
-| GridMaze: 通っていないセルからの到達率 | RND だけで収束後も被覆が続くか。924 §2.7 の見立ては「続かない」 | 判断に効く。続くなら方策の家族の優先度が下がる |
+| GridMaze: 通っていないセルからの到達率 | RND だけで収束後も被覆が続くか。924 §2.7 の見立ては「続かない」。2026-11-07 の Run（256 lane・400k exp step、`run_20261107-212611`）では見立てどおり続かなかった: bonus は warm-up 直後の 9 点以外 0、predictor の誤差は 1e-9、手で通っていないセルへ誘導すると穴へ入る（未踏ではなく off-path の Q の粗さ。§8 の 18） | 判断に効く。続くなら方策の家族の優先度が下がる |
 | LunarLander: 既定との比較 | 害の確認（易しい env で成績を落とさないか） | 924 §9.1 の害の確認 |
 | KFM 10M × 数 seed、16 seed の基準と比較 | 挑む窓の本数、撃破÷命中、費用 | 対照腕。924 §2.5 の見立てでは壁は越えない |
 | Montezuma: `run.@rainbow_like > run.@rnd > run.@rnd_taiga`、評価側の Greedy の平均点 | Taiga らの Rainbow＋RND（Montezuma）と並ぶ範囲に入るか。寄せない差は §2.1 の表 | 本家再現の確認。合否の数値は 924 問い 21 で置く |
@@ -428,6 +429,7 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 | 15 | Head の葉の置き場 | `intrinsic.rnd.output_dim` は `rnd` 直下、初期値は `rnd.head.init.*`。Head の設定の root の扱い（設定 root 所有の PRD、Head の `net.head` 候補）が決まれば揃える |
 | 16 | 設定の読まれない葉の検出 | 本 PRD の範囲外（§2.1 の不具合は 4 block の葉を直して閉じる）。`net.block` の未知の葉を構築時に検出する仕組みは [issue-20261107-0c34dd](../management/issues/issue-20261107-0c34dd.md) に起票した（2026-11-07、開発者の選択） |
 | 17 | `learn_batch_size` > N のときの縮小 | 既定は N 件で学習し構築時に WARN 1 回（2026-11-07 未明の改訂）。レビューで、明示した値を N へ丸めて続ける挙動が AGENTS.md §設定値の扱いの clamp に当たると指摘された（2026-11-07 昼）。候補: ERROR にして N 以下を要求する。924 で `learn_batch_size` の既定値（§8 の 4）と一緒に決める |
+| 18 | predictor の周期リセット（ユーザー案、2026-11-07） | 未決。一生の新しさが尽きた盤面で「最近の経験に対する新しさ」を作る案。predictor と誤差統計を一定間隔で初期化し warm-up をやり直す（target は固定のまま）。初期化の直後は predictor が訪問の多い状態から先に覚えるので、訪問の少ない状態の誤差がしばらく高く残り、その間だけ訪問回数の逆順に近い bonus が出る。統計を一緒に初期化しないと直後に全 lane が α = L に張り付く。近い事例は Q 側の周期リセット（primacy bias、BBF）とエピソード単位のリセット（NGU のエピソード記憶、E3B、NovelD のエピソード内ゲート）で、RND の predictor を周期的に初期化する既知の事例は 2026-11-07 時点で見つけていない。3 の EMA だけでは収束し切った誤差の差（1e-9）を拾えない。候補の葉: `intrinsic.rnd.reset.mode ?= none`（none｜predictor）と `intrinsic.rnd.reset.interval`（learn step）。エピソード内の新しさ（924）との優劣は 924 で決める |
 
 ### 8.1 補助学習の置き場と刻みの経緯（2026-11-07）
 

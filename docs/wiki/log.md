@@ -780,3 +780,4 @@
 2026-11-07 ingest reports/llm_reward_shaping_guarantees_2026-11-07.md blob:4427843e1633ebaee4c22c8a60f7418d197fb12b → なし（検算の説明を本文で完結させ、作業用資材への参照を整理。数式・前提・結果の主張は変わらない）
 2026-11-07 ingest reports/llm_rl_action_advice_2026-11-07.md blob:3ab948f65b7b09a4dd394380d755f6e60dc29f0b → なし（検算の説明を本文で完結させ、作業用資材への参照を整理。数式・前提・結果の主張は変わらない）
 2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:8aecdf0e10b1fd384b362c01dc18e742b9c5b408 → なし（検算の説明を本文で完結させ、作業用資材への参照を整理。数式・前提・結果の主張は変わらない）
+2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:68f6e58d52d1b5b12984f720ce86918b2dfc04cc → docs/wiki/mechanisms/intrinsic_novelty.md（分かっていること 1 行: GridMaze では観測が (x, y) の 2 値で RND の新しさが最初の数千 step で尽き、既定の bonus が 0 になること。§6.4 の GridMaze の判定を外し、§7 に Run の結果、§8 に 18（predictor の周期リセット案）を追加）

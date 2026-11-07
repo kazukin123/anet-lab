@@ -17,6 +17,7 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - 比較対象の実装: Taiga ら（ICLR 2020）の Rainbow＋RND は、行動した観測 x_t を agent step ごとに 1 件で採点・学習し、誤差の z を分散に相当する値で割って 0.00005 倍し、Runner が [−1, 1] に clip した外的報酬に足す。合計は clip せず、負の値もそのまま入る。観測の統計は正規化後の値で更新する。Burda ら・anet が採点するのは次観測 x_{t+1}（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1・§8.1 の 6）。
 - RND の尺度の条件: target と predictor の出力の尺度が揃っていれば、初期値の種類（he／xavier と直交）で新しさの判別は大きく変わらず、target だけ小さいと predictor が誤差を下げられず判別が落ちる。PyTorch の写しで Montezuma の画面を 6 万 step 学習した判断材料で、受入の基準ではない（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1）。
 - 設定の落とし穴: anet の層カタログ `Conv2d_S`・`Conv2d_M` は葉の階層が読み込みと合わず、2026-11-06〜07 の Atari の RND の Run は既定の 128@3/1 ×2（1 Network 約 1 億パラメータ）で動いていた。写しの比較では判別は落ちず、実証された害は速さと checkpoint の大きさ（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1）。
+- GridMaze では RND の新しさが最初の数千 step で尽きる: 観測が正規化した (x, y) の 2 値で盤面は固定（`seed_mode = process`）なので入力は 25 通り以下。ε = 1 から始まる 256 lane が全部を踏み、predictor が覚え切って一生の誤差平均を下回り続け、既定（`clipped`・`whiten`）の bonus は 0 になる（2026-11-07 の `run_20261107-212611`: 1,551 点中 9 点以外 0、predictor の損失 3e-9）。手で通っていないセルへ誘導したときの失敗は未踏ではなく off-path の Q の粗さ [PRD116 §6.4・§7]
 
 ## 分かっていないこと
 
