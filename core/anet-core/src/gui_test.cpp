@@ -3,7 +3,9 @@
 #include "anet/env.hpp"
 #include "anet/metrics.hpp"
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <thread>
 
 using namespace anet::rl;
 using namespace anet::rl::gui;
@@ -256,4 +258,27 @@ TEST_CASE("Trace speed labels use decimal multipliers", "[prd094][trace_speed_la
         CHECK(player.GetSpeedLabel() == label);
         player.Faster();
     }
+}
+
+TEST_CASE("UIDataStore restarts the forced update interval at each Update", "[ui_data_store]")
+{
+    constexpr int kForceIntervalMs = 100;
+    UIDataStore<int> store(kForceIntervalMs);
+
+    // 初回は画面側の要求が立っている。書いた直後は、間隔が過ぎるまで更新を求めない。
+    CHECK(store.ShouldUpdate());
+    store.Update(1);
+    CHECK_FALSE(store.ShouldUpdate());
+
+    // 画面側が取り出さなくても、間隔が過ぎたら更新を求める。
+    std::this_thread::sleep_for(std::chrono::milliseconds(kForceIntervalMs + 50));
+    CHECK(store.ShouldUpdate());
+
+    // 書いた時点から間隔を数え直すので、続く通知ごとには更新を求めない。
+    store.Update(2);
+    CHECK_FALSE(store.ShouldUpdate());
+
+    // 画面側が取り出したら、間隔を待たずに次の更新を求める。
+    CHECK(store.Get() == 2);
+    CHECK(store.ShouldUpdate());
 }

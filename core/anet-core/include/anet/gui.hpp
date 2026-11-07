@@ -233,6 +233,8 @@ namespace anet::rl::gui {
             data_ = data;
             data_exists_.store(true);
             data_request_.store(false);
+            // 強制更新の間隔は、この更新の時点から数え直す。
+            last_update_time_rep_.store(Clock::now().time_since_epoch().count(), std::memory_order_release);
         }
 
         // UI側から取得（コピーを返す）
