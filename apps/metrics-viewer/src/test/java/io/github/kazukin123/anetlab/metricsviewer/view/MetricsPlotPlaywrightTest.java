@@ -10,10 +10,15 @@ import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlayw
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.legendStateRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.lodMetricsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.metricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.mixedSampleCountMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.mixedSampleCountRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.rawSeriesJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runJsonWithGeneration;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.singleBucketLodMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.singleSampleMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.singleSampleRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.statsWarningMetricsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.statsWarningRunsJson;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -155,6 +160,66 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		page.waitForFunction("document.querySelector('#lod-display-mode')?.value === 'Band'");
 		page.waitForFunction("document.querySelector('.js-plotly-plot')?.data?.length === 3");
 		assertEquals(2, metricsRequests.get());
+	}
+
+	@Test
+	void singleSampleSeriesIsDrawnAsAMarkerInTheRunColor() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, singleSampleRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, singleSampleMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?singleSampleTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForDrawnMarkers(page, 1);
+
+		// 背景に紛れず、どのRunの点か読めること。
+		final String markerColor = (String) page.evaluate(
+				"getComputedStyle(document.querySelector('.scatterlayer path.point')).fill");
+		assertEquals(readRunChips(page).get(0).get("color"), markerColor);
+	}
+
+	@Test
+	void singleBucketProjectionStaysVisibleInEveryLodDisplayMode() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, singleSampleRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, singleBucketLodMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?singleBucketTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForDrawnMarkers(page, 1);
+
+		page.selectOption("#lod-display-mode", "Mean");
+		page.waitForFunction("document.querySelector('.js-plotly-plot')?.data?.[0]?.meta?.role === 'mean'");
+		waitForDrawnMarkers(page, 1);
+
+		// Bandはmin/max/meanの3 traceに分かれる。幅の無いbandは塗れないので点で残す。
+		page.selectOption("#lod-display-mode", "Band");
+		page.waitForFunction("document.querySelector('.js-plotly-plot')?.data?.length === 3");
+		waitForDrawnMarkers(page, 3);
+	}
+
+	@Test
+	void multiRunGraphDrawsMarkersOnlyForTheSingleSampleRun() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, mixedSampleCountRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, mixedSampleCountMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?mixedSampleCountTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
+		page.click("#btn-select-all-runs");
+		waitForDrawnMarkers(page, 1);
+
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const modes = new Map(Array.from(plot?.data ?? []).map(trace => [trace.meta.runId, trace.mode]));
+					return modes.get('run_many') === 'lines'
+						&& modes.get('run_single') === 'markers'
+						&& plot.querySelectorAll('.scatterlayer path.js-line').length === 1;
+				}
+				""");
 	}
 
 	@Test

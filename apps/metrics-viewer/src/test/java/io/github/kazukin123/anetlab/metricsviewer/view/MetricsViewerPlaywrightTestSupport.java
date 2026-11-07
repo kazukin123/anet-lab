@@ -130,6 +130,14 @@ abstract class MetricsViewerPlaywrightTestSupport {
 				null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
+	protected static void waitForDrawnMarkers(Page page, int count) {
+		page.waitForFunction("""
+				count => document.querySelectorAll(
+					'#main-area > .graph-block > .js-plotly-plot:not([data-render-stage]) .scatterlayer path.point'
+				).length === count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
 	protected static void waitForMultiRunGraph(Page page) {
 		page.waitForFunction("""
 				() => {

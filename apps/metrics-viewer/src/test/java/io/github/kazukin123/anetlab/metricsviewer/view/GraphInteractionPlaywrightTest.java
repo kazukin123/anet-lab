@@ -130,6 +130,25 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 	}
 
 	@Test
+	void hoveringNearASingleSampleShowsItsValue() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, singleSampleRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, singleSampleMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?singleSampleHoverTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForDrawnMarkers(page, 1);
+
+		// 実際のカーソルはそのstepへ正確には重ならないので、点から数px外して動かす。
+		final BoundingBox marker = page.locator(".scatterlayer path.point").boundingBox();
+		page.mouse().move(marker.x + marker.width / 2 + 3, marker.y + marker.height / 2);
+		waitForPlotlyHoverText(page);
+
+		assertEquals("run_single", page.textContent(".hover-tip-name"));
+		assertEquals("step 0", page.textContent(".hover-tip-step"));
+	}
+
+	@Test
 	void tappingTheGraphShowsTheHoverOverlayOnTouchDevice() {
 		reopenPage(new Browser.NewContextOptions()
 				.setViewportSize(1280, 720)

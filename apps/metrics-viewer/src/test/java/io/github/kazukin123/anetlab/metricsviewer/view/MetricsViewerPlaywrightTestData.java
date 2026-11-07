@@ -441,6 +441,50 @@ final class MetricsViewerPlaywrightTestData {
 				+ "\"}}}";
 	}
 
+	static String singleSampleRunsJson() {
+		return "{\"runs\":[" + runJson("run_single", 0, TAG_KEY) + "]}";
+	}
+
+	static String singleSampleMetricsJson() {
+		return "{\"data\":["
+				+ rawSeriesJson("run_single", TAG_KEY, new double[] {0}, new float[] {5})
+				+ "]}";
+	}
+
+	static String singleBucketLodMetricsJson() {
+		final String steps = encodeFloat64(new double[] {0});
+		final String values = encodeFloat32(new float[] {5});
+		return "{\"data\":[{"
+				+ "\"runId\":\"run_single\",\"tagKey\":\"" + TAG_KEY + "\","
+				+ "\"generation\":\"" + GENERATION + "\","
+				+ "\"fromStep\":0,\"toStep\":15,\"availability\":\"ok\","
+				+ "\"pointBudget\":1,\"stepBucketWidth\":16,\"issues\":[],"
+				+ "\"projection\":{\"kind\":\"lod\","
+				+ "\"minMax\":{\"steps\":\"" + steps + "\",\"values\":\"" + values + "\"},"
+				+ "\"summary\":{\"steps\":\"" + steps + "\","
+				+ "\"mins\":\"" + values + "\","
+				+ "\"maxs\":\"" + values + "\","
+				+ "\"means\":\"" + values + "\","
+				+ "\"minSteps\":\"" + steps + "\","
+				+ "\"maxSteps\":\"" + steps + "\"}}}]}";
+	}
+
+	static String mixedSampleCountRunsJson() {
+		return "{\"runs\":["
+				+ runJson("run_many", 2, TAG_KEY)
+				+ ","
+				+ runJson("run_single", 0, TAG_KEY)
+				+ "]}";
+	}
+
+	static String mixedSampleCountMetricsJson() {
+		return "{\"data\":["
+				+ rawSeriesJson("run_many", TAG_KEY, new double[] {0, 1, 2}, new float[] {1, 2, 3})
+				+ ","
+				+ rawSeriesJson("run_single", TAG_KEY, new double[] {0}, new float[] {5})
+				+ "]}";
+	}
+
 	static String statsWarningRunsJson() {
 		return """
 				{"runs":[

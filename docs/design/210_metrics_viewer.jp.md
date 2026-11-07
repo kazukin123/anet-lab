@@ -926,6 +926,7 @@ lod : { "kind":"lod",
 
 `minMax`は各bucketの`min` / `max` / `last`を序数順に並べた折れ線用の点列で、同一序数が重なる場合は1点へ畳む。
 `summary.steps`は共通Step区間の左端であり、band描画とbucket単位のhover表示に使う。
+線は2点ないと引けないので、browserは頂点が1つだけのtraceを線の代わりにマーカーで描く。判定はtraceごとで、同じgraphの他のRunの線は変えない。
 
 ### 9.6 タグセット API と保存
 

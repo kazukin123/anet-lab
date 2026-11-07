@@ -633,6 +633,8 @@ class HoverOverlay {
 		// 途中で終わっている系列にも Plotly は端の点を返す。別 step の値が混ざるので落とす。
 		const xs = point.data?.x;
 		if (!Number.isFinite(cursorX) || !xs?.length) return true;
+		// 1点だけの系列は幅が無く、カーソルが同じstepへ重ならない。Plotlyが近いと返した点を使う。
+		if (xs.length === 1) return true;
 		return cursorX >= Number(xs[0]) && cursorX <= Number(xs[xs.length - 1]);
 	}
 
@@ -852,13 +854,16 @@ class PlotlyController {
 	}
 
 	_makeLineTrace(runId, tagKey, steps, values, suffix = "line") {
+		const color = this.app.runColorMap.get(runId);
 		return {
 			type: "scatter",
 			x: steps,
 			y: values,
 			name: runId,
-			mode: "lines",
-			line: { width: 1.5, color: this.app.runColorMap.get(runId) },
+			// 線は2点ないと引けないので、1点だけの系列は点で描く。
+			mode: steps.length === 1 ? "markers" : "lines",
+			marker: { size: 6, color },
+			line: { width: 1.5, color },
 			uid: makePlotlyTraceUid(runId, tagKey, suffix),
 			meta: { tagKey, runId, role: suffix },
 			legendgroup: makePlotlyTraceUid(runId, tagKey, "legend"),
