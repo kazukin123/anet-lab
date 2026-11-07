@@ -21,25 +21,26 @@ allowed-tools: Read, Glob, Write, Bash
 2. `docs/process/numbering.md` の手順で、接頭辞 `issue` の **ID を得る**（`Bash`）
 3. 出力先に既存の `issue-*.md` があるかを確かめる。**無ければ出力先ごと作る**（`Glob`）
 4. ID に `.md` を付けた名前で、下のテンプレートに従って 1 ファイル書く（`Write`）
-5. 起票したファイル名を呼び出し元へ返す
+5. リポジトリルートから repo の `.venv` の Python で `reports/tools/wiki_support.py maps` を回す（`Bash`）。全部の課題の frontmatter を検証し、`docs/management/issues/INDEX.md` と wiki の地図の「課題」の区画を作り直す。検証で止まったら、どの出力も変わらない。今回書いた課題で止まったら、書式を直して回し直す。ほかの課題で止まったら直さずに、その課題と止まった理由を呼び出し元へ返す。複数を書くときは、書き終えてから 1 回回す
+6. 起票したファイル名を呼び出し元へ返す
 
 ## テンプレート
 
 ```markdown
 ---
-id: issue-YYYYMMDD-xxxxxx
-title: <一行で言い切る。ファイルを開かずに何の課題か分かること>
-status: 未着手
-raised: YYYY-MM-DD
-phase: <PRD / 実装 / 監査 / ハーネス保守 / その他>
-scope: <影響範囲。どの成果物・どの機能に及ぶか>
-kind: <成果物 / ハーネス>
+id: "issue-YYYYMMDD-xxxxxx"
+title: "<一行で言い切る。ファイルを開かずに何の課題か分かること>"
+status: "未着手"
+raised: "YYYY-MM-DD"
+phase: "<PRD / 実装 / 監査 / ハーネス保守 / その他>"
+scope: "<影響範囲。どの成果物・どの機能に及ぶか>"
+kind: "<成果物 / ハーネス>"
 area: []
-type: <不具合 / ずれ / 改善 / 案 / 調査 / 索引>
+type: "<不具合 / ずれ / 改善 / 案 / 調査 / 索引>"
 ai_judge:
 ai_judged:
 docs: []
-priority: <高 / 中 / 低>
+priority: "<高 / 中 / 低>"
 depends: []
 parent:
 value: <1 / 2 / 3 / 5 / 8 / 13>
@@ -70,6 +71,8 @@ resolved:
 
 <実際に行ったこと。起票時は空でよい>
 ```
+
+frontmatter の文字列の値は二重引用符で囲み、値の中に `"` を入れない。囲まない値に「`: `」や「` :: `」があると、YAML として読めず、手順 5 の一覧の作り直しが止まるためである。
 
 ## 各項目の書き方
 
