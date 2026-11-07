@@ -142,4 +142,4 @@ q(\mathrm{good})=\frac{0.01e}{0.01e+0.99}\simeq0.02672.
 
 所属と役割は公刊論文冒頭、arXivの著者情報、[Donggukの書誌](https://pure.dongguk.edu/en/publications/agent-specific-prompt-engineering-for-llm-guided-rl-exploration/)による。行動事前分布の全著者はXue Yan、Yan Song、Xidong Feng、Mengyue Yang、Haifeng Zhang、Haitham Bou Ammar、Jun Wang。
 
-3研究とも、本調査では公式の実験コードを固定commitで検査できていない。候補抽出の失敗時挙動、cacheの実際のキー、ヒントを除く評価条件などを実装で追認したとは扱わない。§5–6の計算は独立した有限例として[検算スクリプト](tools/check_llm_action_advice.py)で確認する。
+3研究とも、本調査では公式の実験コードを固定commitで検査できていない。候補抽出の失敗時挙動、cacheの実際のキー、ヒントを除く評価条件などを実装で追認したとは扱わない。§5–6の計算は本文に示した仮定と式による独立した有限例であり、数値を代入して検算した。

@@ -777,3 +777,6 @@
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:084876f23d17fec9f44a5ca8161f13e2a354bb1b → docs/wiki/mechanisms/intrinsic_novelty.md（分かっていること 3 行: Taiga らの Rainbow＋RND の採点点と式を原典コードで確認、target と predictor の尺度の条件（写しの判断材料）、層カタログ Conv2d_S・Conv2d_M の葉違いで Atari の RND が 1 億パラメータで動いていたこと。分かっていないこと 1 行: 公開実装の形と NGU の同形・128 の長い学習での優劣）、docs/wiki/index.md（要約に 1 文、別名 Taiga）。PRD は本家再現向けの改訂で、独立レビュー 3 往復で OK
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:1a9e6067b3fe8c007010d67f743af1f492528fee → なし（§8 の 16 の課題候補を issue-20261107-0c34dd の起票に置き換えただけ。機構の主張は変わっていない）
 2026-11-07 writeback docs/memo/117_warn_policy_and_unread_config_10prd.md blob:3e288c2eeda46ad38e2c4c5efbe74006ef0e244e → なし（暫定の起票。知見のページへ書く新しい主張は無く、読んだ地図・ページとの食い違いも無かった。地図の「課題」の欄は wiki_support.py maps で作り直した）
+2026-11-07 ingest reports/llm_reward_shaping_guarantees_2026-11-07.md blob:4427843e1633ebaee4c22c8a60f7418d197fb12b → なし（検算の説明を本文で完結させ、作業用資材への参照を整理。数式・前提・結果の主張は変わらない）
+2026-11-07 ingest reports/llm_rl_action_advice_2026-11-07.md blob:3ab948f65b7b09a4dd394380d755f6e60dc29f0b → なし（検算の説明を本文で完結させ、作業用資材への参照を整理。数式・前提・結果の主張は変わらない）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:8aecdf0e10b1fd384b362c01dc18e742b9c5b408 → なし（検算の説明を本文で完結させ、作業用資材への参照を整理。数式・前提・結果の主張は変わらない）
