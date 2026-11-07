@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:99d9527a8ec8be15e944add962210ba328dbfcaf date:2026-11-04 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:fdfd3a1b38743d800acd1d945cd7ac1f5b3fa037 date:2026-11-07 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)

@@ -10,7 +10,7 @@
 | 4 | [issue-20261103-ba635a](issue-20261103-ba635a.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 317_metrics | 不具合 | 残っている | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
 | 5 | [issue-20261103-be4cd5](issue-20261103-be4cd5.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 322_env_individual | 不具合 | 直った見込み | Directモードで列0への落下にもNOOPペナルティが加算される |
 | 6 | [issue-20261103-cfe994](issue-20261103-cfe994.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残っている | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
-| 7 | [issue-20261103-73a449](issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 7 | [issue-20261103-73a449](issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判断できない | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
 | 8 | [issue-20261103-93f8a6](issue-20261103-93f8a6.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残っている | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | 9 | [issue-20261104-cc2529](issue-20261104-cc2529.md) | 未着手 | 3.6 | 高 | — | 成果物 | PRD | 317_metrics, 322_env_individual | 索引 | 実装済み | 画像メモリの所有権とDropMergeのNOOP判定の修正 PRD |
 | 10 | [issue-20261103-07629c](issue-20261103-07629c.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui | 索引 | 未確認 | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 PRD |

@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:495b1985b7d8d9dd2198254307361689156c6b3c date:2026-11-06 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:839e5d90f23dcc188701842b2409cc7b79963057 date:2026-11-07 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -23,13 +23,202 @@ See [Agents and Learning](110_agents_and_learning.en.md) for shared Agent contra
 
 ## 2. DQN Overview and Basic Concepts
 
-### 2.1 Implementation Layers
+### 2.1 Supported Algorithms
+
+This section first outlines learning and exploration methods; [Section 2.2](#22-implementation-layers) onward describes implementation components and their connections. Alongside published algorithms, it covers target computation and exploration-strength configurations available here. It summarizes each method's purpose and basic operations; see the references for derivations, evaluation conditions, and detailed comparisons.
+
+#### 2.1.1 Overview
+
+“Support” in the table means that the method can be selected, not that all methods can be combined or that the original experimental setup is reproduced. Check the actual composition through [Chapter 7](#7-defaultdqn-and-rainbow-composition-and-configuration) and the Run's resolved configuration.
+
+| Method | Main change and purpose | Support in this implementation | Reference paper or implementation |
+|---|---|---|---|
+| DQN | Approximate Q values with a Network; stabilize learning with Experience Replay and a Target Network | Foundation of both Agents; ordinary Q uses `TDLearner` | [DQN (2015/02)][paper-dqn] |
+| Double DQN | Separate bootstrap action selection from value evaluation to reduce maximization bias | `learner.use_double_dqn` in both Agents | [Double DQN (2015/09)][paper-double-dqn] |
+| Dueling Network | Represent Q through separate state value V and action advantage A | Selectable in both Agents' Heads | [Dueling (2015/11)][paper-dueling] |
+| N-step return | Combine rewards over multiple steps and bootstrap from a later state | `learner.use_n_step` and `learner.n_step` in both Agents | [Rainbow (2017/10), Multi-step learning][paper-rainbow] |
+| Prioritized Experience Replay (PER) | Change sampling frequency by priority and correct sampling bias with importance weights | `learner.use_per` in both Agents; shared ReplayBuffer stores and samples experience | [PER (2015/11)][paper-per] |
+| NoisyNet | Explore by varying Network outputs through learnable noisy weights | DefaultDQN Head projections and NN execution settings ([Section 7.3](#73-defaultdqn-noisy-execution-settings)) | [NoisyNet (2017/06)][paper-noisy] |
+| Rainbow | Combine six DQN extensions | `RainbowAgent` uses QR; differences from the paper are in [Section 2.1.3](#213-rainbow-components) | [Rainbow (2017/10)][paper-rainbow] |
+| QR-DQN | Represent a return distribution by learning returns at fixed quantile levels | `QRLearner` in both Agents | [QR-DQN (2017/10)][paper-qr] |
+| Implicit Quantile Network (IQN) | Learn a quantile function with quantile level τ as input | DefaultDQN `IQNLearner` | [IQN (2018/06)][paper-iqn] |
+| Upper Quantile Exploration (UQE) | Compare actions using an upper quantile or upper-tail mean instead of mean return | DefaultDQN QR/IQN policies ([Section 2.1.5](#215-uqe-action-selection-with-upper-quantiles)) | [Policy implementation](../../core/anet-core/src/dqn_based_agent.cpp); related: [IQN (2018/06), Section 4][paper-iqn] |
+| Thompson Sampling | Draw from an uncertainty distribution and choose the best action under that sample | DefaultDQN `ThompsonSampling`; see [Section 2.1.6](#216-thompson-sampling-and-return-quantile-sampling-in-this-implementation) for how return-quantile sampling differs | [Thompson Sampling (2017/07), Chapter 4][paper-thompson] |
+| Munchausen RL | Add a log-policy term to reward and combine it with a soft value update | DefaultDQN TD/QR/IQN ([Section 6.3](#63-munchausen-rl)) | [Munchausen (2020/07)][paper-munchausen] |
+| TempoRL | Learn how long to repeat an action as well as which action to take | DefaultDQN skip policy ([Section 6.5](#65-defaultdqn-skip-policy)) | [TempoRL (2021/06)][paper-temporl] |
+| Random Network Distillation (RND) and intrinsic reward | Use prediction error for a fixed random Network as a novelty signal added to reward | DefaultDQN `intrinsic.enabled` ([Section 2.1.9](#219-rnd-and-intrinsic-reward)) | [RND (2018/10)][paper-rnd], [explanation in 212](212_rnd_lifelong_novelty.en.md) |
+| Transformed Bellman Operator (TBO) | Compress Q values and Bellman targets with invertible h to make their scale easier to handle | DefaultDQN `learner.use_tbo` ([Section 2.1.10](#2110-tbo-compressing-q-values-and-targets)) | [TBO (2018/05), Section 3.2][paper-tbo] |
+| Optimistic target | Choose a bootstrap policy using scores from the upper return distribution, not only its mean | DefaultDQN `target_policy` and `use_optimistic_target` ([Section 2.1.11](#2111-optimistic-target)) | [Configuration and policy resolution](../../core/anet-core/include/anet/default_dqn_agent.hpp), [target computation](../../core/anet-core/src/dqn_based_agent.cpp) |
+| Spatial exploration (derived from Ape-X) | Assign different exploration strengths to concurrently running lanes | Per-lane ε in both Agents' Actors; UQE τ in DefaultDQN ([Section 2.1.12](#2112-spatial-exploration-per-lane-exploration-strength)) | [Ape-X (2018/03), Section 3.1][paper-apex], [SpatialLadderSchedule / ActionPolicy](../../core/anet-core/src/dqn_based_agent.cpp) |
+
+See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for exploration-policy configuration and tau generation, and [Section 6.2](#62-experience-acceptance-and-learning-updates) for integrating RND intrinsic reward.
+
+#### 2.1.2 DQN Basics
+
+DQN approximates the expected discounted return after choosing action a in state s as `Q(s,a)` using a Network. It stores experience `(s,a,r,s')` in Replay and trains on sampled minibatches to move current Q values toward the following TD target. This is the basic one-step, ordinary-Q form; d is 1 for a true terminal and 0 otherwise. [DQN (2015/02), Methods][paper-dqn]
+
+$$
+y = r + \gamma(1-d)\max_{a'}Q_{\theta^-}(s',a')
+$$
+
+`θ` denotes the updated online Network's parameters, and `θ⁻` those of the target Network used for bootstrapping. Experience Replay weakens correlations between consecutive experiences and reuses them; the Target Network separates changes in the learned values from changes in their targets. Epsilon-greedy action selection mixes the action with the highest Q value with random actions. [DQN (2015/02), Methods][paper-dqn]
+
+Here, `NetworkModel` manages online/target Networks, `TDLearner` computes ordinary-Q loss, and the shared ReplayBuffer stores and samples experience. Distributional QR/IQN share this intake, learning, and target-synchronization structure ([Section 2.3](#23-online-and-target-networks) and [Section 2.5](#25-dqn-and-replaybuffer)).
+
+#### 2.1.3 Rainbow Components
+
+The original Rainbow combines six components that modify different parts of DQN. [Rainbow (2017/10), Extensions to DQN / The Integrated Agent][paper-rainbow]
+
+```mermaid
+flowchart LR
+    subgraph T["target計算"]
+        direction TB
+        DD["Double DQN<br/>行動の選択と価値の評価を分離"]
+        N["N-step<br/>複数stepの報酬を使う"]
+        DD ~~~ N
+    end
+    subgraph V["価値の表現"]
+        direction TB
+        DU["Dueling<br/>Q = V + A − mean(A)"]
+        C["C51<br/>固定した収益の値に対する確率"]
+        DU ~~~ C
+    end
+    subgraph E["探索・Replay"]
+        direction TB
+        NZ["NoisyNet<br/>重みのノイズ振幅も学習"]
+        P["PER<br/>抽選頻度と補正重みを変える"]
+        NZ ~~~ P
+    end
+    T ~~~ V ~~~ E
+```
+
+This implementation's `RainbowAgent` represents distributions with QR and uses epsilon-greedy Actors. NoisyNet is selected in DefaultDQN. See [Section 7.1](#71-main-differences) for differences between the original composition and the two Agents.
+
+#### 2.1.4 Quantile Learning: QR-DQN and IQN
+
+Ordinary Q learns mean returns; QR/IQN learn their distribution. τ specifies a position in that distribution: τ=0.9 corresponds to the 90th percentile. [QR-DQN (2017/10), Distributional RL][paper-qr]
+
+```mermaid
+flowchart LR
+    S["観測"] --> TD["通常Q"] --> Q["行動ごとの平均Q"]
+    S --> QR["QR-DQN<br/>τの位置は固定"] --> ZQ["N本の分位値<br/>本数は固定"]
+    S --> IQN["IQN<br/>τを入力する"] --> ZI["指定したτの分位値"]
+    T["問い合わせるτと本数"] --> IQN
+```
+
+**QR** learns return values at fixed `τ_i = (i − 0.5) / N`; **IQN** learns a quantile function taking τ as input. Both use quantile Huber loss. QR fixes probability masses and learns return values, whereas C51 fixes return values and learns their probabilities. [QR-DQN (2017/10), The Quantile Approximation / Quantile Huber Loss][paper-qr] [IQN (2018/06), Section 3][paper-iqn]
+
+DefaultDQN selects ordinary Q, QR, or IQN through `quantile_mode`; Rainbow selects ordinary Q or QR through `use_qr`. Quantile outputs are `q_dist`, and their mean is `q`. See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for IQN tau generation and UQE queries, and [Section 7.2](#72-configuration-groups) for training taus and loss.
+
+#### 2.1.5 UQE: Action Selection with Upper Quantiles
+
+UQE here compares actions through the upper return distribution instead of mean Q. At τ=0.9, a point quantile is the 90th percentile and an upper-tail mean averages approximately the top 10%. [Implementation: UQEActionPolicy / MakeRiskBiasedScore](../../core/anet-core/src/dqn_based_agent.cpp)
+
+```mermaid
+flowchart LR
+    Z["収益分布"] --> M["分布全体の平均<br/>平均Qによる選択"]
+    Z --> P["指定分位の値<br/>UQE: use_tail_mean=false"]
+    Z --> T["指定分位から上側の平均<br/>UQE: use_tail_mean=true"]
+    M --> A["score最大の行動<br/>ε探索を適用する前"]
+    P --> A
+    T --> A
+```
+
+QR sorts and extracts quantile values; IQN queries a specified quantile or `[τ,1]`. See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for time variation and lane placement of τ and subsequent `uqe.epsilon` exploration. [Implementation: MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) For a general explanation of quantile-based policies, see [IQN (2018/06), Sections 3–4][paper-iqn].
+
+#### 2.1.6 Thompson Sampling and Return-Quantile Sampling in This Implementation
+
+Standard Thompson Sampling represents model uncertainty given observed experience with a posterior distribution, samples one model, and selects the best action under it. Unlike epsilon-greedy's uniform random action selection, it explores by comparing sampled values. [Thompson Sampling (2017/07), Chapters 3–4][paper-thompson]
+
+Here, `ThompsonSampling` names a policy using quantiles of the learned return distribution, not a method maintaining a Bayesian model posterior. Non-spatial behavior differs between QR and IQN as follows. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp)
+
+- **QR**: Draw one uniform τ from `[0,1]` per call and lane, using it for all actions. Compare that quantile when `uqe.use_tail_mean=false`, or the mean above it when `true`.
+- **IQN**: Place multiple taus across `[0,1]` according to `tau_rule` and compare mean outputs per action. Random placement gives a sample mean; a single tau compares one quantile. Fixed placement uses no randomness for tau generation.
+
+With spatial exploration enabled, both pass each lane's τ to the UQE computation as a lower bound or point quantile. Epsilon randomization also applies separately. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) Distinguish outcome variability represented by a return distribution from model uncertainty in standard Thompson Sampling. [IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
+
+#### 2.1.7 Munchausen RL
+
+Munchausen RL adds `α τ log π(a|s)` to reward using the log of softmax policy π derived from Q values. α controls the term's strength and τ is the softmax temperature, distinct from IQN's quantile level. Bootstrapping uses policy-weighted `Q − τ log π`, rather than only the largest action value. The DQN formulation clips the log-policy term. This term is generally nonpositive and penalizes more probable actions less; it is different from adding a positive exploration bonus to extrinsic reward. [Munchausen (2020/07), Sections 2, 4 / Appendix B.1][paper-munchausen]
+
+The paper explains the update through implicit KL regularization and an increased action gap, and demonstrates applications to DQN and IQN. [Munchausen (2020/07), Sections 3–4][paper-munchausen] This implementation supports TD/QR/IQN; [Section 6.3](#63-munchausen-rl) defines the first-transition term in N-step returns, distributional targets, and the Network used to compute the policy. The current contract does not allow combining it with Double DQN.
+
+#### 2.1.8 TempoRL and the Skip Policy
+
+TempoRL learns action a and its duration j separately. Skip values are learned from discounted rewards over the interval and action values at its end. [TempoRL (2021/06), Sections 3.1–3.3][paper-temporl]
+
+```mermaid
+flowchart LR
+    S["現在の状態"] --> A["primary方策<br/>行動aを選ぶ"]
+    A --> J["skip方策<br/>継続長jを選ぶ"]
+    J --> R["同じaをj step返す"] --> N["次の判断"]
+```
+
+N-step changes **the experience length included in the target**; TempoRL changes **how long an action is actually continued**. [Rainbow (2017/10), Multi-step learning][paper-rainbow] [TempoRL (2021/06), Section 3.2][paper-temporl] Select it with `skip.enabled`; primary forward still runs every step during repetition. See [Section 6.5](#65-defaultdqn-skip-policy) for Networks, learning windows, and gradients.
+
+#### 2.1.9 RND and Intrinsic Reward
+
+RND trains a predictor to reproduce a fixed random Network's output, using prediction error as a novelty signal. [RND (2018/10), Section 2.2][paper-rnd] DefaultDQN incorporates it into reward as follows.
+
+```mermaid
+flowchart LR
+    S["次観測"] --> F["固定した教師"]
+    S --> P["学習するpredictor"]
+    F --> E["予測誤差"]
+    P --> E
+    E --> B["正規化・clip<br/>内的報酬 β × (α − 1)"]
+    B --> R["学習報酬<br/>Replayへ保存"]
+    X["スケール済み外的報酬"] --> R
+```
+
+UQE changes action-selection scores; RND changes training rewards. See [212 Novelty Estimation and Intrinsic Reward with RND](212_rnd_lifelong_novelty.en.md) for formulas, scoring/auxiliary-learning order, configuration, metrics, and checkpoint restoration.
+
+#### 2.1.10 TBO: Compressing Q Values and Targets
+
+TBO compresses Q values and targets with an invertible nonlinear transformation h. Rewards are combined in real space, then the result is returned to h space. [TBO (2018/05), Section 3.2][paper-tbo]
+
+```mermaid
+flowchart LR
+    Q["bootstrap値<br/>h空間"] --> I["逆変換 h⁻¹"]
+    I --> V["実空間で<br/>報酬＋割引した価値"]
+    V --> H["変換 h"] --> Y["target<br/>h空間"]
+```
+
+Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: TDLearner / QuantileLearnerBase](../../core/anet-core/src/dqn_based_agent.cpp)
+
+#### 2.1.11 Optimistic Target
+
+An optimistic target chooses the next-state bootstrap policy using scores from the upper return distribution. Actor-only UQE changes actual actions; using it in the target policy also changes the selection used to construct learning targets. With Munchausen OFF, select the action with the largest score and evaluate its value/distribution using the target Network. The upper-quantile selection score itself does not directly replace the bootstrap value. With Munchausen ON, mix through a soft policy derived from that score ([Section 6.3](#63-munchausen-rl)). [Implementation: target action selection and value evaluation](../../core/anet-core/src/dqn_based_agent.cpp)
+
+DefaultDQN `use_optimistic_target=true` copies `actor.[train].policy` as the target-policy default and sets epsilon to 0. Subsequent `target_policy.*` settings can override it, so inspect the resolved policy to determine the effective method. If the copied policy is greedy over mean Q, this flag alone does not make it look at upper returns. [Implementation: DefaultDQNAgentConfig](../../core/anet-core/include/anet/default_dqn_agent.hpp)
+
+#### 2.1.12 Spatial Exploration: Per-Lane Exploration Strength
+
+The idea of different ε values per Actor in Ape-X is applied to lanes within one Actor. [Ape-X (2018/03), Section 3.1][paper-apex] [Implementation: ActionPolicy / SpatialLadderSchedule](../../core/anet-core/src/dqn_based_agent.cpp)
+
+```mermaid
+flowchart LR
+    subgraph A["Ape-X: Actorごとに配置"]
+        A0["Actor 0: εが小さい"]
+        A1["Actor 1: εが大きい"]
+    end
+    subgraph L["本実装: 同じActor内のlaneへ配置"]
+        L0["lane 0: εが小さい"]
+        L1["lane 1: εが大きい"]
+    end
+    A0 -.-> L0
+    A1 -.-> L1
+```
+
+Ape-X's Atari experiments keep ε fixed during training. [Ape-X (2018/03), Section 4.1][paper-apex] Here, select `spatial.enabled` and place endpoints `first`/`last` using `linear` or `log`. Endpoints can vary over time; DefaultDQN also extends this to UQE ε/τ. Time variation and lane placement are configured independently ([Section 2.4](#24-actionpolicy-and-dqnactioninfo)). [Implementation: per-lane epsilon-greedy / UQE settings](../../core/anet-core/src/dqn_based_agent.cpp)
+
+### 2.2 Implementation Layers
 
 `DefaultDQNAgent` and `RainbowAgent` both implement `AgentBase` and the shared `rl::Learner`. `CreateLearner()` returns the outer Agent itself, which manages shared mutexes and pre/post-processing before delegating updates to an inner `dqn::Learner`.
 
 `dqn_based_agent.*` provides internal components including `NetworkModel`, `ActionPolicy`, `Actor`, `Learner`, `TDLearner`, `QRLearner`, and `IQNLearner`. Both concrete Agents compose these components; neither inherits the inner `dqn::Learner`.
 
-### 2.2 Online and Target Networks
+### 2.3 Online and Target Networks
 
 `dqn::NetworkModel` holds online and target Networks. Actor selects actions using the source chosen by its catalog item's `network` setting. Learner computes current values with online and bootstrap values with target. Target updates follow learning according to `soft_update_tau` or `hard_update_interval`.
 
@@ -44,7 +233,7 @@ Heads and Learners combine as follows:
 
 Learner settings combine Double DQN, N-step, PER, gradient clipping, AMP, and more. Do not infer every combination from the name Rainbow alone; inspect each Run's resolved configuration.
 
-### 2.3 ActionPolicy and DQNActionInfo
+### 2.4 ActionPolicy and DQNActionInfo
 
 `ActionPolicy` performs Network forward and Action selection, combining Actions, Q values, quantiles, and related data into `DQNActionInfo`. Shared implementations include epsilon-greedy, UQE, and Thompson Sampling. DefaultDQN separates Train, Eval, and target Policies; Rainbow configures an action Policy and a greedy learning-target Policy.
 
@@ -62,7 +251,7 @@ Time-varying values are ProfiledValues at `epsilon`, `uqe.epsilon`, and `uqe.tau
 
 Log ladders linearly rescale the sequence generated from `max(endpoint, 1e-4)` to the requested endpoints. If clamped endpoints are equal, they use linear interpolation between the requested endpoints. If both are at least the floor, the existing generation path is retained. DropMerge and LunarLander last=0 remain exactly zero, with intermediate lanes also changing from the old sequence. `epsilon`, `uqe_epsilon`, and `uqe_tau` return the active lane mean; each also exposes `_lane_min` and `_lane_max`. Recognized metrics unused by the policy return NaN.
 
-### 2.4 DQN and ReplayBuffer
+### 2.5 DQN and ReplayBuffer
 
 Inner `dqn::Learner` owns the shared CPU ReplayBuffer, Pushes Experiences, then checks warmup, sampleable count, and update credit. While updates are possible, it samples minibatches, transfers them to the learning device, and computes TD or quantile losses. [ReplayBuffer](150_replay_buffer.en.md) is authoritative for N-step, frame-stack, generation-aware item-key, PER, and prefetch contracts.
 
@@ -206,7 +395,7 @@ Actors using shared Networks invoke Policy under a shared lock to avoid conflict
 
 ### 6.2 Experience Acceptance and Learning Updates
 
-See [212 RND Novelty and Intrinsic Rewards (Japanese)](212_rnd_lifelong_novelty.jp.md) for basic concepts, formulas and processing order, and configuration and metric examples.
+See [212 Novelty Estimation and Intrinsic Reward with RND](212_rnd_lifelong_novelty.en.md) for basic concepts, formulas and processing order, and configuration and metric examples.
 
 With `intrinsic.enabled=true`, the DefaultDQN facade scores next observations under its existing write lock after external reward scaling. It adds `beta(exp_step) * (alpha - 1)`, masking done lanes to zero while retaining bonuses for truncated lanes. The combined reward enters Replay; Actor, Replay schema, and Q optimizers are unchanged. With `learner.enabled=false`, it warns once and suspends intrinsic scoring and training.
 
@@ -605,6 +794,8 @@ When adding or modifying a DQN Agent, check at least the following:
 
 ## 11. Related Documents
 
+### 11.1 Design Documents
+
 - [Framework Overview](010_framework_overview.en.md)
 - [Runtime and Configuration](100_runtime_and_configuration.en.md)
 - [Agents and Learning](110_agents_and_learning.en.md)
@@ -618,3 +809,37 @@ When adding or modifying a DQN Agent, check at least the following:
 - [Replay Initial-Priority Completion ADR](../adr/0012-replay-initial-priority-hint-completion.md)
 - [IQN Bind Product DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
 - [IQN+UQE Score ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md)
+
+### 11.2 Reference Papers
+
+Dates indicate the publication month for DQN and the first arXiv submission month for the other papers.
+
+- [DQN, 2015/02] Mnih et al. "Human-level control through deep reinforcement learning." Nature 518, 529–533. [Paper][paper-dqn]
+- [Double DQN, 2015/09] van Hasselt, Guez, Silver. "Deep Reinforcement Learning with Double Q-learning." AAAI 2016. [Paper][paper-double-dqn]
+- [PER, 2015/11] Schaul et al. "Prioritized Experience Replay." ICLR 2016. [Paper][paper-per]
+- [Dueling, 2015/11] Wang et al. "Dueling Network Architectures for Deep Reinforcement Learning." ICML 2016. [Paper][paper-dueling]
+- [NoisyNet, 2017/06] Fortunato et al. "Noisy Networks for Exploration." ICLR 2018. [Paper][paper-noisy]
+- [Thompson Sampling, 2017/07] Russo, Van Roy, Kazerouni, Osband, Wen. "A Tutorial on Thompson Sampling." Foundations and Trends in Machine Learning 11(1), 1–96, 2018. [Tutorial][paper-thompson]
+- [Rainbow, 2017/10] Hessel et al. "Rainbow: Combining Improvements in Deep Reinforcement Learning." AAAI 2018. [Paper][paper-rainbow]
+- [QR-DQN, 2017/10] Dabney, Rowland, Bellemare, Munos. "Distributional Reinforcement Learning with Quantile Regression." AAAI 2018. [Paper][paper-qr]
+- [Ape-X, 2018/03] Horgan et al. "Distributed Prioritized Experience Replay." ICLR 2018. [Paper][paper-apex]
+- [IQN, 2018/06] Dabney, Ostrovski, Silver, Munos. "Implicit Quantile Networks for Distributional Reinforcement Learning." ICML 2018. [Paper][paper-iqn]
+- [TBO, 2018/05] Pohlen et al. "Observe and Look Further: Achieving Consistent Performance on Atari." arXiv:1805.11593. [Paper][paper-tbo]
+- [RND, 2018/10] Burda, Edwards, Storkey, Klimov. "Exploration by Random Network Distillation." arXiv:1810.12894. [Paper][paper-rnd]
+- [Munchausen, 2020/07] Vieillard, Pietquin, Geist. "Munchausen Reinforcement Learning." NeurIPS 2020. [Paper][paper-munchausen]
+- [TempoRL, 2021/06] Biedenkapp, Rajan, Hutter, Lindauer. "TempoRL: Learning When to Act." ICML 2021. [Paper][paper-temporl]
+
+[paper-dqn]: https://doi.org/10.1038/nature14236
+[paper-double-dqn]: https://arxiv.org/abs/1509.06461
+[paper-per]: https://arxiv.org/abs/1511.05952
+[paper-dueling]: https://arxiv.org/abs/1511.06581
+[paper-noisy]: https://arxiv.org/abs/1706.10295
+[paper-thompson]: https://arxiv.org/abs/1707.02038
+[paper-rainbow]: https://arxiv.org/abs/1710.02298
+[paper-qr]: https://arxiv.org/abs/1710.10044
+[paper-apex]: https://arxiv.org/abs/1803.00933
+[paper-iqn]: https://arxiv.org/abs/1806.06923
+[paper-tbo]: https://arxiv.org/abs/1805.11593
+[paper-rnd]: https://arxiv.org/abs/1810.12894
+[paper-munchausen]: https://arxiv.org/abs/2007.14430
+[paper-temporl]: https://arxiv.org/abs/2106.05262

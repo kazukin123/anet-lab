@@ -731,6 +731,10 @@
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:9034f0c9eacd610e7eeb8b120fd7eb81bc6742da → docs/wiki/mechanisms/intrinsic_novelty.md（補助学習の刻みと件数を lane 数に依らない形へ。置き場は Push 側のまま、exp step 基準の credit と lane 抽選を facade に置き、Learn は渡された観測で 1 step。葉は learn_ratio・learn_batch_size、warmup_steps は観測の件数。経緯は §8.1、未決は §8 の 12・13）
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:a57611e5c01983964a4604eebb5ef2f4ba4258dc → なし（§8.1 の 6 を確認済みの事実に差し替えた。Taiga らの Rainbow＋RND は原典コードで Push 側、NGU は付録 A で Sample 側。exp step あたりの predictor の step 数の比較を添え、§8 の 4 と §11 の参照を補った。機構の主張は変わっていない）
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:69f1eda744df443df2bec777476d2bff38853edf → なし（Learn が進めたかを bool で返す形に §5.1・§5.2・D7・§5.3・§5.5 を直した。credit は結果に依らず消費する。機構の主張は変わっていない）
+2026-11-07 ingest docs/design/140_observability.jp.md blob:fdfd3a1b38743d800acd1d945cd7ac1f5b3fa037 → なし（全文と既存引用を照合。前回からの変更はOptunaガイドへの相対リンクで、wikiの主張は変わらない）
+2026-11-07 ingest docs/design/200_dqn_agents.jp.md blob:839e5d90f23dcc188701842b2409cc7b79963057 → docs/wiki/categories/324_dqn.md（方式の概要と実装レイヤーの節番号を追随し、RNDの採点・補助学習・facadeの責務と212への導線を追加。RNDの効果を実証済みとは扱わない）
+2026-11-07 ingest docs/design/README.jp.md blob:f3459c0e72a6315e601424afbb170619bb1e4894 → なし（全文照合。212への入口追加は324の関係へ反映済み。311の開発ツールの責務は変わらない）
+2026-11-07 lint max=3 → 140・200・READMEを取り込み。出典リンク切れ0、目録・戻る導線の問題0。設計記述なし1、選ばなかった形の記述なし1、変えるときの条件の記述なし2は注記を保持。policy.noisy_gainは未実装PRD107、spatial.log_floorは不採用案の引用であり現用名へ置換しない。mapsと課題INDEXを再生成、未解決PRD参照0。
 2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:1318c0590516a5843ab596189bb51ab533935dad → docs/wiki/mechanisms/llm_prior_knowledge.md（21論文の再調査。Atariの直接実証の未確認を保持し、ロボット報酬の成功条件・対象取り違え・ローカル計画の語彙不一致を追加）
 2026-11-07 ingest reports/llm_assisted_rl_reproducibility_2026-11-07.md blob:acc79d3fd1f10bf2440ac24306583d67fea78c16 → docs/wiki/mechanisms/llm_prior_knowledge.md（固定commitでの配布設定と論文条件の違い、ローカル接続と効果の証拠を区別。GPU共有・転移の未確認を問いとして記録）
 2026-11-07 ingest reports/llm_reward_shaping_guarantees_2026-11-07.md blob:3f4f29627285b8ca6789a8a93e7222311ac174e1 → docs/wiki/mechanisms/llm_prior_knowledge.md（目標切り替え時に古い目標を使う式の反例。独立の有理数検算でありRL実験とは区別）

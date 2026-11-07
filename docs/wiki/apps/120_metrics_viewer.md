@@ -193,7 +193,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 1 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 3.6 | 高 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判断できない | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
 | 2 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
 | 3 | [issue-20261103-55b5f1](../../management/issues/issue-20261103-55b5f1.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer | 索引 | 未確認 | Metrics ViewerのLOD集約数の記述整合 暫定PRD |
 | 4 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
