@@ -2,13 +2,19 @@
 DefaultDQNAgent.$ = @baseline
 DefaultDQNAgent.@baseline : intrinsic.enabled ?= false
 DefaultDQNAgent.@baseline : intrinsic.beta ?= 0.1
+DefaultDQNAgent.@baseline : intrinsic.observation ?= next_state
 DefaultDQNAgent.@baseline : intrinsic.rnd.output_dim ?= 128
 DefaultDQNAgent.@baseline : intrinsic.rnd.multiplier_max ?= 5
+DefaultDQNAgent.@baseline : intrinsic.rnd.multiplier_mode ?= clipped
+DefaultDQNAgent.@baseline : intrinsic.rnd.statistics_mode ?= whiten
+DefaultDQNAgent.@baseline : intrinsic.rnd.head.init.mode ?= xavier
+DefaultDQNAgent.@baseline : intrinsic.rnd.head.init.manual_gain ?= 0
 DefaultDQNAgent.@baseline : intrinsic.rnd.warmup_steps ?= 12,800
 DefaultDQNAgent.@baseline : intrinsic.learn_ratio ?= 0.25
 DefaultDQNAgent.@baseline : intrinsic.learn_batch_size ?= 32
 DefaultDQNAgent.@baseline : intrinsic.rnd.learning_rate ?= 1e-4
 DefaultDQNAgent.@baseline : intrinsic.rnd.weight_decay ?= 0
+DefaultDQNAgent.@baseline : intrinsic.rnd.adam_eps ?= 1e-8
 DefaultDQNAgent.@baseline : intrinsic.rnd.obs_norm.clip_range ?= 5
 RainbowAgent.$ = @baseline
 

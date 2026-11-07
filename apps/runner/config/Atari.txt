@@ -6,20 +6,109 @@ app.$ = app.online > P1
 
 # RND 単独の比較群。既存の run.$ の末尾に run.@rnd を足して選ぶ。
 run.@rnd : DefaultDQNAgent.intrinsic.enabled = true
-run.@rnd : DefaultDQNAgent.intrinsic.rnd.net.branch.[feature].bind = grid
-run.@rnd : DefaultDQNAgent.intrinsic.rnd.net.branch.[feature].structure = Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten
-run.@rnd : DefaultDQNAgent.intrinsic.rnd.net.body.output.[features] = feature
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].bind = grid
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].structure = AtariRndConv1 > AtariRndLeaky > AtariRndConv2 > AtariRndLeaky > AtariRndConv3 > AtariRndLeaky > Flatten
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.body.output.[features] = feature
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[feature].bind = grid
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[feature].structure = AtariRndConv1 > AtariRndLeaky > AtariRndConv2 > AtariRndLeaky > AtariRndConv3 > AtariRndLeaky > Flatten > AtariRndFC > ReLU > AtariRndFC > ReLU
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.predictor.net.body.output.[features] = feature
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.output_dim = 512
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.head.init.mode = orthogonal
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.head.init.manual_gain = 1.4142135623730951
 run.@rnd : metrics.scalar.[56_agent_in/01_bonus_mean] = $agent intrinsic.bonus_mean @learn
 run.@rnd : metrics.scalar.[56_agent_in/02_bonus_max] = $agent intrinsic.bonus_max @learn
 run.@rnd : metrics.scalar.[56_agent_in/03_bonus_share] = $agent intrinsic.bonus_share @learn
+run.@rnd : metrics.scalar.[56_agent_in/04_bonus_min] = $agent intrinsic.bonus_min @learn
+run.@rnd : metrics.scalar.[56_agent_in/05_bonus_pos_ratio] = $agent intrinsic.bonus_pos_ratio @learn
 run.@rnd : metrics.scalar.[56_agent_in/11_error_mean] = $agent intrinsic.error_mean @learn
 run.@rnd : metrics.scalar.[56_agent_in/12_error_std] = $agent intrinsic.error_std @learn
 run.@rnd : metrics.scalar.[56_agent_in/13_error_step] = $agent intrinsic.error_step @learn
+run.@rnd : metrics.scalar.[56_agent_in/14_target_feature_var] = $agent intrinsic.target_feature_var @learn
+run.@rnd : metrics.scalar.[56_agent_in/15_target_feature_max] = $agent intrinsic.target_feature_max @learn
 run.@rnd : metrics.scalar.[56_agent_in/21_clip_ratio] = $agent intrinsic.clip_ratio @learn
 run.@rnd : metrics.scalar.[56_agent_in/31_predictor_loss] = $agent intrinsic.predictor_loss @learn
 run.@rnd : metrics.scalar.[56_agent_in/32_learn_count] = $agent intrinsic.learn_count @learn
 
+# Taiga の観測・統計・補助学習の条件。Q 側の比較群を選んでから末尾へ足す。
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.beta = 0.00005
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.observation = state
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.learn_ratio = 1
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.learn_batch_size = 1
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.multiplier_mode = unclipped
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.statistics_mode = variance_feedback
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.warmup_steps = 0
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.adam_eps = 1e-5
+
+# RND 専用の CNN。Q network と初期化・形状を共有しない。
+net.block.[AtariRndConv1].type = Conv2d
+net.block.[AtariRndConv1].conv.out_channels = 32
+net.block.[AtariRndConv1].conv.kernel_size = 8
+net.block.[AtariRndConv1].conv.stride = 4
+net.block.[AtariRndConv1].conv.padding = 0
+net.block.[AtariRndConv1].init.mode = orthogonal
+net.block.[AtariRndConv1].init.manual_gain = 1.4142135623730951
+net.block.[AtariRndConv2].type = Conv2d
+net.block.[AtariRndConv2].conv.out_channels = 64
+net.block.[AtariRndConv2].conv.kernel_size = 4
+net.block.[AtariRndConv2].conv.stride = 2
+net.block.[AtariRndConv2].conv.padding = 0
+net.block.[AtariRndConv2].init.mode = orthogonal
+net.block.[AtariRndConv2].init.manual_gain = 1.4142135623730951
+net.block.[AtariRndConv3].type = Conv2d
+net.block.[AtariRndConv3].conv.out_channels = 64
+net.block.[AtariRndConv3].conv.kernel_size = 3
+net.block.[AtariRndConv3].conv.stride = 1
+net.block.[AtariRndConv3].conv.padding = 0
+net.block.[AtariRndConv3].init.mode = orthogonal
+net.block.[AtariRndConv3].init.manual_gain = 1.4142135623730951
+net.block.[AtariRndFC].type = Linear
+net.block.[AtariRndFC].linear.out_features = 512
+net.block.[AtariRndFC].init.mode = orthogonal
+net.block.[AtariRndFC].init.manual_gain = 1.4142135623730951
+net.block.[AtariRndLeaky].type = LeakyReLU
+net.block.[AtariRndLeaky].negative_slope = 0.2
+
 #app.$ = app.batchrun > P1
+
+# 公開の Rainbow へ寄せた比較群（C51 は無いので IQN で代用）。実時間優先のチェーンの末尾に足す。
+# 更新が約 27 倍なので、更新ごとのメトリクスは間引き、評価は 27,000 step 続くゲーム向けに減らす。
+run.@rainbow_like : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
+run.@rainbow_like : metrics.scalar.$ = metrics.scalar.@min > M1 > M2
+run.@rainbow_like : metrics.scalar.[34_agent_plasticity/01_dormant_ratio] = plasticity_dormant_ratio @learn $learn_step $update_result interval:5000
+run.@rainbow_like : metrics.scalar.[34_agent_plasticity/02_dead_ratio] = plasticity_dead_ratio @learn $learn_step $update_result interval:5000
+run.@rainbow_like : metrics.scalar.[34_agent_plasticity/03_feature_norm] = plasticity_feature_norm @learn $learn_step $update_result interval:5000
+run.@rainbow_like : metrics.scalar.[34_agent_plasticity/05_srank_ratio] = plasticity_srank_ratio @learn $learn_step $update_result interval:5000
+run.@rainbow_like : metrics.scalar.[34_agent_plasticity/61_weight_norm_feature] = plasticity_weight_norm_feature @learn $learn_step $update_result interval:5000
+run.@rainbow_like : metrics.scalar.[37_agent_qtd/11_q_max_mean] = q_max_mean @learn $learn_step $update_result interval:2000
+run.@rainbow_like : metrics.scalar.[37_agent_qtd/17_q_gap] = q_gap @learn $learn_step $update_result interval:2000
+run.@rainbow_like : metrics.scalar.[38_agent_loss/01_loss] = loss @learn $learn_step $update_result interval:2000
+run.@rainbow_like : AtariEnv.noop_max = 0
+run.@rainbow_like : AtariEnv.resize_mode = pixel_area
+run.@rainbow_like : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariNature
+run.@rainbow_like : DefaultDQNAgent.head.use_dueling = false
+run.@rainbow_like : DefaultDQNAgent.learner.gamma = 0.99
+run.@rainbow_like : DefaultDQNAgent.learner.n_step = 3
+run.@rainbow_like : DefaultDQNAgent.learner.replay_capacity = 1,000,000
+run.@rainbow_like : DefaultDQNAgent.learner.replay_batch_size = 32
+run.@rainbow_like : DefaultDQNAgent.learner.replay_ratio = 8
+run.@rainbow_like : DefaultDQNAgent.learner.update_warmup_steps = 20,000
+run.@rainbow_like : DefaultDQNAgent.learner.per_alpha = 0.5
+run.@rainbow_like : DefaultDQNAgent.learner.per_beta.start = 0.5
+run.@rainbow_like : DefaultDQNAgent.learner.per_beta.end = 0.5
+run.@rainbow_like : DefaultDQNAgent.learner.use_double_dqn = false
+run.@rainbow_like : DefaultDQNAgent.learner.use_grad_clip = false
+run.@rainbow_like : DefaultDQNAgent.learner.learning_rate = 6.25e-5
+run.@rainbow_like : DefaultDQNAgent.learner.adam_eps = 1.5e-4
+run.@rainbow_like : DefaultDQNAgent.model.soft_update_tau = 0
+run.@rainbow_like : DefaultDQNAgent.model.hard_update_interval = 2000
+run.@rainbow_like : DefaultDQNAgent.actor.[train].policy.epsilon.start = 1.0
+run.@rainbow_like : DefaultDQNAgent.actor.[train].policy.epsilon.end = 0.01
+run.@rainbow_like : DefaultDQNAgent.actor.[train].policy.epsilon.type = linear
+run.@rainbow_like : DefaultDQNAgent.actor.[train].policy.epsilon.steps = 250,000
+run.@rainbow_like : DefaultDQNAgent.actor.[train].policy.spatial.enabled = false
+run.@rainbow_like : run.eval_schedule.[eval].interval = 500000
+run.@rainbow_like : run.eval_schedule.[greedy].interval = 1250000
+run.@rainbow_like : run.eval.[greedy].eval_episodes = 16
 
 run.seed = 1
 #run.seed = 2

@@ -35,6 +35,8 @@ constexpr char kIntrinsicPrefix[] = "intrinsic.";
 constexpr char kIntrinsicBonusMean[] = "intrinsic.bonus_mean";
 constexpr char kIntrinsicBonusMax[] = "intrinsic.bonus_max";
 constexpr char kIntrinsicBonusShare[] = "intrinsic.bonus_share";
+constexpr char kIntrinsicBonusMin[] = "intrinsic.bonus_min";
+constexpr char kIntrinsicBonusPosRatio[] = "intrinsic.bonus_pos_ratio";
 constexpr char kIntrinsicLearnCount[] = "intrinsic.learn_count";
 constexpr char kIntrinsicLearnSeed[] = "intrinsic.learn";
 constexpr const char* kSkipStructureTag = "skip.net.structure";
@@ -110,7 +112,8 @@ DefaultDQNAgent::DefaultDQNAgent(
                 << "; using num_envs observations per intrinsic learning step.";
         for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
             intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
-        for (const auto key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare})
+        for (const auto key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare,
+            kIntrinsicBonusMin, kIntrinsicBonusPosRatio})
             intrinsic_diagnostics_.try_emplace(key, std::numeric_limits<float>::quiet_NaN());
         if (!config_.learner.enabled)
             LOG::warn() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
@@ -710,16 +713,21 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         if (lifelong_novelty_ && config_.learner.enabled) {
             ANET_PROFILE_SCOPE(intrinsic_reward);
 
-            // 採点し、終端マスクを適用した内的報酬ボーナスを求める。
-            const auto alpha = lifelong_novelty_->Estimate(batch_exp.next_state.obs);
-            const auto bonus = (intrinsic_beta_->Evaluate(counts.exp_step) * (alpha - 1.0f))
-                .masked_fill(batch_exp.next_state.done, 0.0f);
+            // 生の観測を選んで採点する。次観測だけは終端のボーナスをマスクする。
+            const bool use_next_state = config_.intrinsic.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
+            const auto& intrinsic_observations = use_next_state ? batch_exp.next_state.obs : batch_exp.state.obs;
+            const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
+            auto bonus = intrinsic_beta_->Evaluate(counts.exp_step) * (alpha - 1.0f);
+            if (use_next_state) bonus = bonus.masked_fill(batch_exp.next_state.done, 0.0f);
 
             // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
-            const float bonus_sum = bonus.sum().item<float>();
+            const float bonus_sum = bonus.abs().sum().item<float>();
             const float denominator = scaled_rewards.abs().sum().item<float>() + bonus_sum;
             intrinsic_diagnostics_.at(kIntrinsicBonusMean).store(bonus.mean().item<float>(), std::memory_order_relaxed);
             intrinsic_diagnostics_.at(kIntrinsicBonusMax).store(bonus.max().item<float>(), std::memory_order_relaxed);
+            intrinsic_diagnostics_.at(kIntrinsicBonusMin).store(bonus.min().item<float>(), std::memory_order_relaxed);
+            intrinsic_diagnostics_.at(kIntrinsicBonusPosRatio).store((bonus > 0.0f).to(torch::kFloat32).mean().item<float>(),
+                std::memory_order_relaxed);
             intrinsic_diagnostics_.at(kIntrinsicBonusShare).store(denominator > 0.0f ? bonus_sum / denominator
                 : std::numeric_limits<float>::quiet_NaN(), std::memory_order_relaxed);
 
@@ -727,7 +735,7 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
             scaled_rewards = scaled_rewards + bonus;
 
             // 経験件数に比例したcreditを貯め、同じintakeのlaneを重複なくk件ずつ渡す。
-            const auto num_lanes = batch_exp.next_state.obs.Size(0);
+            const auto num_lanes = intrinsic_observations.Size(0);
             const auto batch_size = std::min<int64_t>(config_.intrinsic.learn_batch_size, num_lanes);
             intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.intrinsic.learn_ratio / batch_size;
             if (intrinsic_learn_credit_ >= 1.0f) {
@@ -737,14 +745,14 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
                 std::shuffle(lanes.begin(), lanes.end(), *intrinsic_learn_random_);
                 auto indices = torch::tensor(lanes, torch::kInt64);
                 // indexのdevice転送はstepループの前にまとめ、CUDAにはpinnedから非同期で送る。
-                if (batch_exp.next_state.obs.device().is_cuda())
-                    indices = indices.pin_memory().to(batch_exp.next_state.obs.device(), true);
+                if (intrinsic_observations.device().is_cuda())
+                    indices = indices.pin_memory().to(intrinsic_observations.device(), true);
                 for (int64_t offset = 0; offset + batch_size <= num_lanes && intrinsic_learn_credit_ >= 1.0f;
                     offset += batch_size) {
                     ANET_PROFILE_SCOPE(intrinsic_learn);
                     anet::TensorDict observations;
                     const auto selected = indices.narrow(0, offset, batch_size);
-                    for (const auto& [key, value] : batch_exp.next_state.obs)
+                    for (const auto& [key, value] : intrinsic_observations)
                         observations.Set(key, value.index_select(0, selected));
                     if (lifelong_novelty_->Learn(observations)) ++intrinsic_learn_count_;
                     // warm-upの未実行分も消費し、明けたときに追いつき学習をしない。

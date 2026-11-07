@@ -121,31 +121,31 @@ net.block.[Linear_512].init.mode ?= xavier
 # --- CNN Components (1D) ---
 
 net.block.[Conv1d_S].type ?= Conv1d
-net.block.[Conv1d_S].out_channels ?= 32
-net.block.[Conv1d_S].kernel_size ?= 8
-net.block.[Conv1d_S].stride ?= 4
-net.block.[Conv1d_S].padding ?= 0
+net.block.[Conv1d_S].conv.out_channels ?= 32
+net.block.[Conv1d_S].conv.kernel_size ?= 8
+net.block.[Conv1d_S].conv.stride ?= 4
+net.block.[Conv1d_S].conv.padding ?= 0
 
 net.block.[Conv1d_M].type ?= Conv1d
-net.block.[Conv1d_M].out_channels ?= 64
-net.block.[Conv1d_M].kernel_size ?= 4
-net.block.[Conv1d_M].stride ?= 2
-net.block.[Conv1d_M].padding ?= 1
+net.block.[Conv1d_M].conv.out_channels ?= 64
+net.block.[Conv1d_M].conv.kernel_size ?= 4
+net.block.[Conv1d_M].conv.stride ?= 2
+net.block.[Conv1d_M].conv.padding ?= 1
 
 
 # --- CNN Components (2D) ---
 
 net.block.[Conv2d_S].type ?= Conv2d
-net.block.[Conv2d_S].out_channels ?= 32
-net.block.[Conv2d_S].kernel_size ?= 8
-net.block.[Conv2d_S].stride ?= 4
-net.block.[Conv2d_S].padding ?= 0
+net.block.[Conv2d_S].conv.out_channels ?= 32
+net.block.[Conv2d_S].conv.kernel_size ?= 8
+net.block.[Conv2d_S].conv.stride ?= 4
+net.block.[Conv2d_S].conv.padding ?= 0
 
 net.block.[Conv2d_M].type ?= Conv2d
-net.block.[Conv2d_M].out_channels ?= 64
-net.block.[Conv2d_M].kernel_size ?= 4
-net.block.[Conv2d_M].stride ?= 2
-net.block.[Conv2d_M].padding ?= 1
+net.block.[Conv2d_M].conv.out_channels ?= 64
+net.block.[Conv2d_M].conv.kernel_size ?= 4
+net.block.[Conv2d_M].conv.stride ?= 2
+net.block.[Conv2d_M].conv.padding ?= 1
 
 # --- Transformer Projection用 (1x1 Conv) ---
 # Transformerの入力次元(d_model)にチャンネル数を合わせるための調整層

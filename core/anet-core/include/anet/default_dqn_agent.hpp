@@ -70,6 +70,8 @@ namespace anet::rl::dqn {
     }
 
     struct DefaultDQNAgentConfig : public anet::Config {
+        static constexpr char kIntrinsicObservationNextState[] = "next_state";
+        static constexpr char kIntrinsicObservationState[] = "state";
         std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
         StuckerConfig stucker;
@@ -81,6 +83,7 @@ namespace anet::rl::dqn {
         struct {
             bool enabled = false;
             anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
+            std::string observation = kIntrinsicObservationNextState;
             float learn_ratio = 0.25f;
             int learn_batch_size = 32;
             anet::ConfigData rnd; ///< Factory へ渡す opaque な構築設定（共有 NN カタログを含む）。
@@ -114,6 +117,10 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, intrinsic.enabled);
             if (intrinsic.enabled) {
                 ANET_READ_CONFIG(config_data, intrinsic.beta);
+                ANET_READ_CONFIG(config_data, intrinsic.observation);
+                if (intrinsic.observation != kIntrinsicObservationNextState && intrinsic.observation != kIntrinsicObservationState)
+                    ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.intrinsic.observation='" << intrinsic.observation
+                        << "'; expected next_state or state.");
                 ANET_READ_CONFIG(config_data, intrinsic.learn_ratio);
                 ANET_READ_CONFIG(config_data, intrinsic.learn_batch_size);
                 if (!std::isfinite(intrinsic.learn_ratio) || intrinsic.learn_ratio <= 0.0f || intrinsic.learn_ratio > 1.0f)

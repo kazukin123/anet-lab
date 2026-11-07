@@ -1,4 +1,5 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:abe064e96656b01fbbff91ae54f55301a0bf4960 date:2026-11-07 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:abe064e96656b01fbbff91ae54f55301a0bf4960 date:2026-11-07 progress:chapter 0/5 -->
+<!-- Translation pending: the Japanese source now includes separate networks, selectable statistics/observations/multipliers, and checkpoint format 3. The body below retains the previously verified translation. -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.

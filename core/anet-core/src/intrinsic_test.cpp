@@ -1,4 +1,5 @@
 #include "anet/catch_test.hpp"
+#include <array>
 #include <cmath>
 #include <sstream>
 #include <fstream>
@@ -19,9 +20,12 @@ constexpr char kObservation[] = "obs";
 constexpr char kErrorMean[] = "error_mean";
 constexpr char kErrorStd[] = "error_std";
 constexpr char kErrorStep[] = "error_step";
+constexpr char kClipRatio[] = "clip_ratio";
 constexpr char kPredictorLoss[] = "predictor_loss";
 constexpr char kBonusMean[] = "intrinsic.bonus_mean";
 constexpr char kBonusShare[] = "intrinsic.bonus_share";
+constexpr char kBonusMin[] = "intrinsic.bonus_min";
+constexpr char kBonusPosRatio[] = "intrinsic.bonus_pos_ratio";
 constexpr char kIntrinsicErrorStep[] = "intrinsic.error_step";
 constexpr char kNovelty[] = "novelty";
 constexpr char kTdMean[] = "td_mean";
@@ -29,18 +33,57 @@ constexpr char kSkipContext[] = "skip_context";
 constexpr char kRndPrefix[] = "rnd";
 constexpr char kIntrinsicLearnCount[] = "intrinsic.learn_count";
 constexpr char kIntrinsicPredictorLoss[] = "intrinsic.predictor_loss";
-constexpr char kRndCheckpointFormat[] = "RndNoveltyEstimator-2";
+constexpr char kTargetFeatureVar[] = "target_feature_var";
+constexpr char kTargetFeatureMax[] = "target_feature_max";
+constexpr char kReferenceGrid[] = "grid";
+constexpr char kReferenceFeature[] = "feature";
+constexpr char kTargetRole[] = "target";
+constexpr char kPredictorRole[] = "predictor";
+constexpr char kCategory[] = "category";
+constexpr char kConstantInit[] = "constant";
+constexpr char kReluBlock[] = "ReLU";
+constexpr char kInvalidConfigValue[] = "unknown";
+constexpr char kRndCheckpointFormat[] = "RndNoveltyEstimator-3";
 constexpr char kIntrinsicPrefix[] = "DefaultDQNAgent.intrinsic";
 
 static anet::ConfigData RndTestConfig()
 {
     anet::ConfigData data;
-    data.Set("rnd.net.branch.[feature].bind", kObservation);
-    data.Set("rnd.net.branch.[feature].structure", "");
-    data.Set("rnd.net.body.output.[features]", "feature");
+    for (const auto* role : {kTargetRole, kPredictorRole}) {
+        const auto prefix = std::string(kRndPrefix) + "." + role + ".net";
+        data.Set(prefix + ".branch.[feature].bind", kObservation);
+        data.Set(prefix + ".branch.[feature].structure", "");
+        data.Set(prefix + ".body.output.[features]", kReferenceFeature);
+    }
     data.Set("rnd.output_dim", 4);
     data.Set("rnd.warmup_steps", 4);
     return data;
+}
+
+TEST_CASE("RND requires independent target and predictor configurations", "[prd116][rnd_reference_network]")
+{
+    // 2つのBodyを明示して公開Factoryから採点・学習まで通す。
+    anet::nn::InitNN();
+    anet::ConfigData data;
+    for (const auto* role : {kTargetRole, kPredictorRole}) {
+        const auto prefix = std::string(kRndPrefix) + "." + role + ".net";
+        data.Set(prefix + ".branch.[feature].bind", kObservation);
+        data.Set(prefix + ".branch.[feature].structure", "");
+        data.Set(prefix + ".body.output.[features]", kReferenceFeature);
+    }
+    data.Set("rnd.output_dim", 4);
+    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.predictor.net.branch.[feature].structure", "Projection");
+    data.Set("rnd.predictor.net.block.[Projection].type", "Linear");
+    data.Set("rnd.predictor.net.block.[Projection].linear.out_features", 3);
+    anet::TensorSpecMap spec;
+    spec[kObservation] = {.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kFloat32};
+    anet::TensorDict obs;
+    obs.Set(kObservation, torch::ones({2, 2}));
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, spec, torch::kCPU, anet::SeedMaker(42));
+    CHECK(estimator->Estimate(obs).sizes() == torch::IntArrayRef({2}));
+    CHECK(estimator->Learn(obs));
 }
 
 static anet::TensorSpecMap RndTestSpec();
@@ -111,6 +154,112 @@ static anet::rl::BatchExperience IntrinsicExperience(float scale, bool done, boo
             torch::full({2}, done, torch::kBool), torch::full({2}, truncated, torch::kBool), flags)};
 }
 
+TEST_CASE("RND shipped Atari networks and Taiga settings match their contracts",
+    "[prd116][shipped_config][rnd_reference_shipped]")
+{
+    IntrinsicMetricsScope metrics;
+    const auto root = std::filesystem::current_path();
+    const auto path = root / "out/test-tmp/prd116-reference-config.txt";
+    std::filesystem::create_directories(path.parent_path());
+    const auto resolve = [&](const std::string& chain) {
+        std::ofstream file(path);
+        file << "$include <" << (root / "apps/runner/config/_main.txt").generic_string() << ">\n";
+        file << "$include <" << (root / "apps/runner/config/Atari.txt").generic_string() << ">\n";
+        file << "run.$ = " << chain << '\n';
+        file.close();
+        return anet::ConfigManager(path).GetConfigData();
+    };
+    auto data = resolve("run.@rnd");
+    const auto prefix = std::string(kIntrinsicPrefix) + ".rnd";
+    const anet::rl::intrinsic::RndNoveltyEstimatorConfig rnd_config(data, prefix);
+    CHECK(rnd_config.multiplier_max == anet::rl::intrinsic::RndNoveltyEstimatorConfig::kDefaultMultiplierMax);
+    CHECK(rnd_config.obs_norm.clip_range == 5.0f);
+    CHECK(rnd_config.head.init.mode == "orthogonal");
+    CHECK(rnd_config.head.init.manual_gain == Catch::Approx(std::sqrt(2.0)));
+    data.Set(prefix + ".warmup_steps", 0);
+    const anet::TensorSpecMap image_spec{{kReferenceGrid,
+        {.type = anet::SpaceType::Grid, .shape = {1, 84, 84}, .dtype = torch::kUInt8}}};
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, prefix, image_spec, torch::kCPU, anet::SeedMaker(42));
+    const anet::TensorDict image(kReferenceGrid, torch::zeros({1, 1, 84, 84}, torch::kUInt8));
+    estimator->Estimate(image);
+    REQUIRE(estimator->Learn(image));
+    std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(saved);
+    estimator->Save(output);
+
+    // 本体のpublic checkpointから、実際に作った両NetworkのTensorを数える。
+    anet::InputArchive input(saved);
+    std::string format, mode, target, predictor;
+    input.Read(format);
+    input.Read(mode);
+    REQUIRE(format == kRndCheckpointFormat);
+    input.Read(target);
+    input.Read(predictor);
+    const auto count_parameters = [](const std::string& bytes) {
+        torch::serialize::InputArchive archive;
+        std::istringstream stream(bytes, std::ios::binary);
+        archive.load_from(stream, torch::kCPU);
+        const auto count = [](auto&& self, torch::serialize::InputArchive& current) -> int64_t {
+            int64_t total = 0;
+            for (const auto& key : current.keys()) {
+                c10::IValue value;
+                if (current.try_read(key, value) && value.isTensor()) {
+                    total += value.toTensor().numel();
+                } else {
+                    torch::serialize::InputArchive child;
+                    if (current.try_read(key, child)) total += self(self, child);
+                }
+            }
+            return total;
+        };
+        return count(count, archive);
+    };
+    CHECK(count_parameters(target) == 1677984);
+    CHECK(count_parameters(predictor) == 2203296);
+    CHECK(saved.str().size() >= (1677984 + 2203296 * 3) * sizeof(float));
+    CHECK(saved.str().size() < 35000000);
+
+    // 共通の1D/2D部品は宣言どおりの幅でFlattenされる。
+    for (const bool image_input : {false, true}) {
+        CAPTURE(image_input);
+        auto catalog = data;
+        catalog.Set("catalog.net.branch.[feature].bind", kReferenceGrid);
+        catalog.Set("catalog.net.branch.[feature].structure",
+            image_input ? "Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten"
+                : "Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten");
+        catalog.Set("catalog.net.body.output.[features]", kReferenceFeature);
+        const anet::TensorSpec spec{.type = image_input ? anet::SpaceType::Grid : anet::SpaceType::Sequence,
+            .shape = image_input ? std::vector<int64_t>{1, 84, 84} : std::vector<int64_t>{1, 84},
+            .dtype = torch::kFloat32};
+        const anet::nn::WeightInitConfig init;
+        auto head = std::make_shared<anet::nn::LinearHeadFactory>(128, kNovelty, init);
+        auto network = anet::nn::NetworkBuilder::BuildNetwork(
+            anet::nn::NetworkConfig(catalog, "catalog.net"), {{kReferenceGrid, spec}}, head, 42, torch::kCPU);
+        const anet::TensorDict obs(kReferenceGrid, image_input
+            ? torch::zeros({1, 1, 84, 84}) : torch::zeros({1, 1, 84}));
+        CHECK(network->ForwardUpTo(obs, kReferenceFeature).At(kReferenceFeature).size(1) == (image_input ? 6400 : 640));
+        if (image_input) {
+            int64_t count = 0;
+            for (const auto& parameter : network->parameters()) count += parameter.numel();
+            CHECK(count == 854240);
+        }
+    }
+
+    // 選択済みのRun層へTaigaの8葉が届くことをtyped configで確認する。
+    const auto taiga = resolve("run.@rainbow_like > run.@rnd > run.@rnd_taiga");
+    const anet::rl::dqn::DefaultDQNAgentConfig agent(taiga);
+    const anet::rl::intrinsic::RndNoveltyEstimatorConfig rnd(taiga, prefix);
+    CHECK(agent.intrinsic.beta.value == Catch::Approx(0.00005f));
+    CHECK(agent.intrinsic.observation == anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState);
+    CHECK(agent.intrinsic.learn_ratio == 1.0f);
+    CHECK(agent.intrinsic.learn_batch_size == 1);
+    CHECK(rnd.multiplier_mode == anet::rl::intrinsic::kMultiplierUnclipped);
+    CHECK(rnd.statistics_mode == anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    CHECK(rnd.warmup_steps == 0);
+    CHECK(rnd.adam_eps == Catch::Approx(1e-5));
+}
+
 TEST_CASE("DQN intrinsic validates beta only when enabled", "[prd116][intrinsic][config]")
 {
     auto data = IntrinsicAgentData(false);
@@ -120,6 +269,51 @@ TEST_CASE("DQN intrinsic validates beta only when enabled", "[prd116][intrinsic]
     data.Set("DefaultDQNAgent.intrinsic.enabled", true);
     CHECK_THROWS_WITH(anet::rl::dqn::DefaultDQNAgentConfig(data),
         Catch::Matchers::ContainsSubstring("intrinsic.beta"));
+}
+
+TEST_CASE("DQN intrinsic state scoring ignores next observations and terminal masks", "[prd116][rnd_reference_observation]")
+{
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.observation", anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState);
+    data.Set("DefaultDQNAgent.intrinsic.beta", 0.5f);
+    data.Set("DefaultDQNAgent.intrinsic.learn_ratio", 1e-6f);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.head.init.mode", kConstantInit);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.head.init.constant_val", 1.0f);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[feature].structure", kReluBlock);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.predictor.net.block.[ReLU].type", kReluBlock);
+    auto terminal = MakeIntrinsicAgent(data);
+    auto continuing = MakeIntrinsicAgent(data);
+    auto ended = IntrinsicExperience(100.0f, true, false, true);
+    auto active = IntrinsicExperience(0.01f, false, false, true);
+    const anet::TensorDict observations(kObservation, torch::tensor({{-1.0f, 2.0f}, {2.0f, -1.0f}}));
+    ended.state.obs = observations;
+    active.state.obs = observations;
+
+    // 行動した観測は同じ。次観測とdoneを変えても内的報酬は同じである。
+    terminal->CreateLearner()->UpdateFromBatch({}, ended);
+    continuing->CreateLearner()->UpdateFromBatch({}, active);
+    CHECK(*terminal->GetScalar(kBonusMean) == Catch::Approx(0.15f));
+    CHECK(terminal->GetScalar(kBonusMean) == continuing->GetScalar(kBonusMean));
+    REQUIRE(terminal->GetScalar(kBonusMin).has_value());
+    REQUIRE(terminal->GetScalar(kBonusPosRatio).has_value());
+    CHECK(*terminal->GetScalar(kBonusMin) == 0.0f);
+    CHECK(*terminal->GetScalar(kBonusPosRatio) == 0.5f);
+
+    // 次のエピソードで誤差0の観測を渡す。負のボーナスでもshareは絶対値の比になる。
+    auto familiar = IntrinsicExperience(100.0f, true, false, true);
+    familiar.state.obs = anet::TensorDict(kObservation, torch::tensor({{1.5f, 0.0f}, {1.5f, 0.0f}}));
+    terminal->CreateLearner()->UpdateFromBatch({.exp_step = 2}, familiar);
+    REQUIRE(*terminal->GetScalar(kBonusMean) < 0.0f);
+    CHECK(*terminal->GetScalar(kBonusMin) < 0.0f);
+    CHECK(*terminal->GetScalar(kBonusPosRatio) == 0.0f);
+    const auto share = *terminal->GetScalar(kBonusShare);
+    CHECK(std::isfinite(share));
+    CHECK(share > 0.0f);
+    CHECK(share <= 1.0f);
 }
 
 TEST_CASE("DQN intrinsic learning cadence follows experience count", "[prd116][intrinsic][rnd_schedule]")
@@ -214,6 +408,104 @@ static anet::TensorDict RndTestObservation()
     return obs;
 }
 
+TEST_CASE("RND unclipped multiplier preserves negative bonuses", "[prd116][rnd_reference_multiplier]")
+{
+    // 既知の平均より小さい誤差でも、unclippedは倍率を1へ切り上げない。
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.obs_norm.pass_through", true);
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(42));
+    estimator->Estimate(RndTestObservation());
+    const auto before = estimator->Diagnostics();
+    anet::TensorDict zero;
+    zero.Set(kObservation, torch::zeros({1, 2}));
+    const auto alpha = estimator->Estimate(zero).item<float>();
+    const auto expected = 1.0f + (estimator->Diagnostics().at(kErrorStep) - before.at(kErrorMean))
+        / before.at(kErrorStd);
+    REQUIRE(expected < 1.0f);
+    CHECK(alpha == Catch::Approx(expected));
+    CHECK(estimator->Diagnostics().at(kClipRatio) == 0.0f);
+}
+
+TEST_CASE("RND variance feedback follows sequential moments and resumes them", "[prd116][rnd_reference_feedback]")
+{
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.head.init.mode", kConstantInit);
+    data.Set("rnd.head.init.constant_val", 1.0f);
+    data.Set("rnd.predictor.net.block.[ReLU].type", kReluBlock);
+    data.Set("rnd.predictor.net.branch.[feature].structure", kReluBlock);
+    const auto make = [&](const anet::ConfigData& config) {
+        return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            config, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(42));
+    };
+    auto estimator = make(data);
+
+    // 単位重み・bias=1のHeadで、target=sum(p)+1、predictor=sum(ReLU(p))+1。
+    // 入力3件を有理数で手計算した期待値。統計のコードをテスト内に写さない。
+    struct Expected {
+        double alpha, error, mean, std, target_variance, target_max;
+    };
+    const std::array<Expected, 3> expected{{
+        {.alpha = 1.0, .error = 1.0, .mean = 1.0, .std = 0.8660254037844386,
+            .target_variance = 0.0, .target_max = 2.0},
+        {.alpha = 1.6, .error = 4.0, .mean = 2.5, .std = 1.5811388300841898,
+            .target_variance = 0.25, .target_max = 3.0},
+        {.alpha = 0.4758041514894615, .error = 0.33406278932749767,
+            .mean = 1.7780209297758325, .std = 1.6597035127118214,
+            .target_variance = 0.9342019377399479, .target_max = 0.6415305437458044}
+    }};
+    const auto inputs = torch::tensor({{-1.0f, 2.0f}, {2.0f, -1.0f}, {-2.0f, 1.0f}});
+    for (int64_t i = 0; i < 3; ++i) {
+        CAPTURE(i);
+        const auto alpha = estimator->Estimate(anet::TensorDict(kObservation, inputs.narrow(0, i, 1)));
+        const auto diagnostics = estimator->Diagnostics();
+        CHECK(alpha.item<float>() == Catch::Approx(expected[i].alpha).margin(1e-5));
+        CHECK(diagnostics.at(kErrorStep) == Catch::Approx(expected[i].error).margin(1e-5));
+        CHECK(diagnostics.at(kErrorMean) == Catch::Approx(expected[i].mean).margin(1e-5));
+        CHECK(diagnostics.at(kErrorStd) == Catch::Approx(expected[i].std).margin(1e-5));
+        CHECK(diagnostics.at(kTargetFeatureVar) == Catch::Approx(expected[i].target_variance).margin(1e-5));
+        CHECK(diagnostics.at(kTargetFeatureMax) == Catch::Approx(expected[i].target_max).margin(1e-5));
+    }
+
+    // 2 laneでも単独呼出しと同じ順に統計を更新する。
+    auto batched = make(data);
+    const auto alpha = batched->Estimate(anet::TensorDict(kObservation, inputs.narrow(0, 0, 2)));
+    CHECK(alpha[0].item<float>() == Catch::Approx(expected[0].alpha));
+    CHECK(alpha[1].item<float>() == Catch::Approx(expected[1].alpha));
+    CHECK(batched->Diagnostics().at(kErrorMean) == Catch::Approx(expected[1].mean));
+
+    // 保存した統計で続きが一致し、Learnは採点統計を変えない。
+    std::stringstream bytes(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(bytes);
+    estimator->Save(output);
+    auto restored = make(data);
+    anet::InputArchive input(bytes);
+    restored->Load(input);
+    const anet::TensorDict obs(kObservation, inputs);
+    CHECK(torch::equal(estimator->Estimate(obs), restored->Estimate(obs)));
+    const auto before = restored->Diagnostics();
+    CHECK(estimator->Learn(obs));
+    CHECK(restored->Learn(obs));
+    CHECK(restored->Diagnostics().at(kErrorMean) == before.at(kErrorMean));
+    CHECK(restored->Diagnostics().at(kErrorStd) == before.at(kErrorStd));
+    CHECK(torch::equal(estimator->Estimate(obs), restored->Estimate(obs)));
+
+    // 書式の直後の統計モードが違えば、payloadを読む前に拒否する。
+    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsWhiten);
+    auto different_mode = make(data);
+    bytes.seekg(0);
+    anet::InputArchive incompatible(bytes);
+    CHECK_THROWS_WITH(different_mode->Load(incompatible),
+        Catch::Matchers::ContainsSubstring(anet::rl::intrinsic::kStatisticsVarianceFeedback) && Catch::Matchers::ContainsSubstring(anet::rl::intrinsic::kStatisticsWhiten));
+}
+
 TEST_CASE("RND factory scores observations and warms up statistics", "[prd116][intrinsic]")
 {
     anet::nn::InitNN();
@@ -284,8 +576,9 @@ TEST_CASE("RND learning is independent of repeated scoring and leaves statistics
         anet::OutputArchive output(bytes);
         estimator->Save(output);
         anet::InputArchive input(bytes);
-        std::string format, target, predictor, optimizer;
+        std::string format, statistics_mode, target, predictor, optimizer;
         input.Read(format);
+        input.Read(statistics_mode);
         input.Read(target);
         input.Read(predictor);
         input.Read(optimizer);
@@ -308,7 +601,9 @@ TEST_CASE("RND returns estimates on the input device", "[prd116][intrinsic][rnd_
     anet::nn::InitNN();
     if (!torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
     const auto compute_device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    const auto statistics_mode = GENERATE(anet::rl::intrinsic::kStatisticsWhiten, anet::rl::intrinsic::kStatisticsVarianceFeedback);
     auto data = RndTestConfig();
+    data.Set("rnd.statistics_mode", statistics_mode);
     data.Set("rnd.warmup_steps", 0);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
@@ -437,6 +732,9 @@ TEST_CASE("RND rejects invalid configuration before building networks", "[prd116
         {"output_dim", "0"},
         {"warmup_steps", "-1"}, {"multiplier_max", "1"}, {"multiplier_max", "nan"},
         {"learning_rate", "0"}, {"learning_rate", "inf"}, {"weight_decay", "-1"},
+        {"adam_eps", "0"}, {"adam_eps", "-1"}, {"adam_eps", "nan"}, {"adam_eps", "inf"},
+        {"multiplier_mode", kInvalidConfigValue}, {"statistics_mode", kInvalidConfigValue},
+        {"head.init.mode", kInvalidConfigValue}, {"head.init.manual_gain", "nan"},
         {"obs_norm.clip_range", "0"}, {"obs_norm.epsilon", "-1"},
         {"obs_norm.post_process_type", "99"}}));
     auto data = RndTestConfig();
@@ -445,6 +743,154 @@ TEST_CASE("RND rejects invalid configuration before building networks", "[prd116
     CHECK_THROWS_WITH(anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, "rnd"),
         Catch::Matchers::ContainsSubstring("rnd." + invalid.first)
         && Catch::Matchers::ContainsSubstring("expected"));
+}
+
+TEST_CASE("RND feedback preserves category IDs at the network boundary", "[prd116][rnd_reference_category]")
+{
+    // カテゴリと連続値の混在でも、IDのone-hot化はNetwork境界に任せる。
+    anet::nn::InitNN();
+    const auto dtype = GENERATE(torch::kInt64, torch::kUInt8, torch::kFloat32);
+    const bool mixed = GENERATE(false, true);
+    auto data = RndTestConfig();
+    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.obs_norm.pass_through", true);
+    for (const auto* role : {kTargetRole, kPredictorRole})
+        data.Set(std::string(kRndPrefix) + "." + role + ".net.branch.[feature].bind", kCategory);
+    auto spec = mixed ? RndTestSpec() : anet::TensorSpecMap{};
+    spec[kCategory] = {.type = anet::SpaceType::Vector, .shape = {1}, .dtype = dtype, .num_classes = 3};
+    const auto create = [&] {
+        return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            data, kRndPrefix, spec, torch::kCPU, anet::SeedMaker(123));
+    };
+    auto reference = create();
+    data.Set("rnd.obs_norm.pass_through", false);
+    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    auto feedback = create();
+    auto obs = mixed ? RndTestObservation() : anet::TensorDict{};
+    for (const auto [first, second] : {std::pair(2, 0), std::pair(0, 1), std::pair(1, 2)}) {
+        const auto categories = torch::tensor({first, second}, torch::kInt64).reshape({2, 1}).to(dtype);
+        obs.Set(kCategory, categories);
+        reference->Estimate(obs);
+        REQUIRE(torch::isfinite(feedback->Estimate(obs)).all().item<bool>());
+        CHECK(feedback->Diagnostics().at(kTargetFeatureMax) == reference->Diagnostics().at(kTargetFeatureMax));
+        CHECK(feedback->Diagnostics().at(kTargetFeatureVar) == reference->Diagnostics().at(kTargetFeatureVar));
+        REQUIRE(reference->Learn(obs));
+        REQUIRE(feedback->Learn(obs));
+        CHECK(feedback->Diagnostics().at(kPredictorLoss) == reference->Diagnostics().at(kPredictorLoss));
+        CHECK(torch::equal(obs.At(kCategory), categories));
+    }
+    std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(saved);
+    feedback->Save(output);
+    auto restored = create();
+    anet::InputArchive input(saved);
+    restored->Load(input);
+    CHECK(torch::equal(feedback->Estimate(obs), restored->Estimate(obs)));
+    REQUIRE(feedback->Learn(obs));
+    REQUIRE(restored->Learn(obs));
+    CHECK(feedback->Diagnostics().at(kPredictorLoss) == restored->Diagnostics().at(kPredictorLoss));
+}
+
+TEST_CASE("RND identifies each missing network role", "[prd116][intrinsic][config]")
+{
+    const auto role = GENERATE(kTargetRole, kPredictorRole);
+    const auto missing = std::string(kRndPrefix) + "." + role + ".net";
+    const auto complete = RndTestConfig();
+    anet::ConfigData data;
+    for (const auto& [key, value] : complete.Map())
+        if (!key.starts_with(missing)) data.Set(key, value);
+    CHECK_THROWS_WITH(anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, kRndPrefix),
+        Catch::Matchers::ContainsSubstring(missing));
+}
+
+TEST_CASE("RND applies head initialization to each independently seeded network", "[prd116][intrinsic][config]")
+{
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    data.Set("rnd.warmup_steps", 0);
+    const auto create = [&] {
+        return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    };
+    auto xavier = create();
+    data.Set("rnd.head.init.mode", kConstantInit);
+    data.Set("rnd.head.init.constant_val", 0.0f);
+    auto zero = create();
+    const auto obs = RndTestObservation();
+    xavier->Estimate(obs);
+    zero->Estimate(obs);
+    CHECK(zero->Diagnostics().at(kTargetFeatureMax) == 0.0f);
+    CHECK(xavier->Diagnostics().at(kTargetFeatureMax) > 0.0f);
+    CHECK(zero->Diagnostics().at(kErrorStep) == 0.0f);
+    CHECK(xavier->Diagnostics().at(kErrorStep) > 0.0f);
+    // このfixtureのBodyはidentityなので、targetの保存値の差はHeadの重みの差である。
+    const auto target_bytes = [](const auto& estimator) {
+        std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
+        anet::OutputArchive output(saved);
+        estimator->Save(output);
+        anet::InputArchive input(saved);
+        std::string format, mode, target;
+        input.Read(format);
+        input.Read(mode);
+        input.Read(target);
+        return target;
+    };
+    CHECK(target_bytes(xavier) != target_bytes(zero));
+}
+
+TEST_CASE("RND warns once per ignored resolved leaf", "[prd116][intrinsic][rnd_reference_warnings]")
+{
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    const bool changed = GENERATE(false, true);
+    data.Set("rnd.multiplier_max", changed ? 10 : 5);
+    data.Set("rnd.obs_norm.use_centering", !changed);
+    data.Set("rnd.obs_norm.clip_range", 3);
+    anet::test::LogCaptureGuard logs;
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    for (int step = 0; step < 3; ++step) estimator->Estimate(RndTestObservation());
+    logs.Flush();
+    const auto warnings = [&](const std::string& key) {
+        return std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+            return record.message.find("Ignored rnd." + key + "=") != std::string::npos;
+        });
+    };
+    CHECK(warnings("multiplier_max") == (changed ? 1 : 0));
+    CHECK(warnings("obs_norm.use_centering") == (changed ? 1 : 0));
+    CHECK(warnings("obs_norm.clip_range") == 0);
+}
+
+TEST_CASE("DQN validates the selected intrinsic observation only when enabled", "[prd116][intrinsic][config]")
+{
+    auto data = IntrinsicAgentData(false);
+    data.Set("DefaultDQNAgent.intrinsic.observation", kInvalidConfigValue);
+    CHECK_NOTHROW(anet::rl::dqn::DefaultDQNAgentConfig(data));
+    data.Set("DefaultDQNAgent.intrinsic.enabled", true);
+    CHECK_THROWS_WITH(anet::rl::dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring("intrinsic.observation")
+        && Catch::Matchers::ContainsSubstring(kInvalidConfigValue));
+}
+
+TEST_CASE("RND feedback warmup ends by observation count", "[prd116][intrinsic][rnd_reference_feedback]")
+{
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.warmup_steps", 2);
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    const anet::TensorDict one(kObservation, torch::tensor({{1.0f, 2.0f}}));
+    for (int step = 0; step < 2; ++step) {
+        CHECK(estimator->Estimate(one).item<float>() == 1.0f);
+        CHECK_FALSE(estimator->Learn(one));
+    }
+    CHECK(torch::isfinite(estimator->Estimate(one)).all().item<bool>());
+    CHECK(estimator->Learn(one));
+    CHECK(estimator->Diagnostics().at(kErrorMean) >= 0.0f);
 }
 
 TEST_CASE("RND rejects features with extra axes at construction", "[prd116][intrinsic][config]")
@@ -498,8 +944,9 @@ TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics
         anet::OutputArchive output(stream);
         instance->Save(output);
         anet::InputArchive input(stream);
-        std::string format, target, predictor;
+        std::string format, statistics_mode, target, predictor;
         input.Read(format);
+        input.Read(statistics_mode);
         input.Read(target);
         input.Read(predictor);
         return std::pair(target, predictor);
@@ -526,7 +973,7 @@ TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics
     const auto repeated = RndTestObservation();
     const auto target_output = [&](const std::string& saved_target) {
         auto network = anet::nn::NetworkBuilder::BuildNetwork(
-            anet::nn::NetworkConfig(data, "rnd.net"), RndTestSpec(),
+            anet::nn::NetworkConfig(data, "rnd.target.net"), RndTestSpec(),
             std::make_shared<anet::nn::LinearHeadFactory>(4, kNovelty, anet::nn::WeightInitConfig{}),
             0, torch::kCPU);
         std::istringstream saved(saved_target, std::ios::binary);
@@ -569,7 +1016,7 @@ TEST_CASE("DQN learner consumes the scaled external reward plus intrinsic bonus"
     auto data = IntrinsicAgentData(true);
     data.Set("DefaultDQNAgent.intrinsic.rnd.obs_norm.pass_through", true);
     data.Set("DefaultDQNAgent.intrinsic.beta", 0.5f);
-    data.Set("DefaultDQNAgent.head.init.mode", "constant");
+    data.Set("DefaultDQNAgent.head.init.mode", kConstantInit);
     data.Set("DefaultDQNAgent.head.init.constant_val", 0.0f);
     data.Set("DefaultDQNAgent.learner.learning_rate", 0.0f);
     data.Set("DefaultDQNAgent.learner.gamma", 0.0f);
@@ -652,7 +1099,7 @@ TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scori
 TEST_CASE("RND checkpoint applies current optimizer options", "[prd116][intrinsic][checkpoint]")
 {
     anet::nn::InitNN();
-    const auto changed_key = GENERATE("learning_rate", "weight_decay");
+    const auto changed_key = GENERATE("learning_rate", "weight_decay", "adam_eps");
     auto data = RndTestConfig();
     data.Set("rnd.warmup_steps", 0);
     data.Set("rnd.obs_norm.pass_through", true);
@@ -771,9 +1218,10 @@ static std::string IntrinsicCheckpointPayload(const anet::rl::dqn::DefaultDQNAge
 static std::string RndPredictorBytes(std::istream& stream)
 {
     anet::InputArchive archive(stream);
-    std::string format, target, predictor;
+    std::string format, statistics_mode, target, predictor;
     archive.Read(format);
     REQUIRE(format == kRndCheckpointFormat);
+    archive.Read(statistics_mode);
     archive.Read(target);
     archive.Read(predictor);
     return predictor;
@@ -782,7 +1230,7 @@ static std::string RndPredictorBytes(std::istream& stream)
 TEST_CASE("RND rejects mismatched checkpoint formats before reading payload", "[prd116][intrinsic][rnd_schedule_edges]")
 {
     anet::nn::InitNN();
-    const std::string format = GENERATE("RndNoveltyEstimator-1", "unknown-rnd-format");
+    const std::string format = GENERATE("RndNoveltyEstimator-1", "RndNoveltyEstimator-2", "unknown-rnd-format");
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         RndTestConfig(), kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
@@ -804,6 +1252,8 @@ TEST_CASE("DQN intrinsic learns distinct complete lane groups and warns once whe
     const int batch_size = std::min(num_lanes, configured_batch);
     CAPTURE(num_lanes, configured_batch, input_device);
     auto data = IntrinsicAgentData(true);
+    const auto observation = GENERATE(anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationNextState, anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState);
+    data.Set("DefaultDQNAgent.intrinsic.observation", observation);
     data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
     data.Set("DefaultDQNAgent.intrinsic.learn_ratio", 1.0f);
     data.Set("DefaultDQNAgent.intrinsic.learn_batch_size", configured_batch);
@@ -813,13 +1263,16 @@ TEST_CASE("DQN intrinsic learns distinct complete lane groups and warns once whe
     const anet::TensorDict obs(kObservation,
         torch::tensor({{1.0f, 2.0f}, {3.0f, -1.0f}, {-4.0f, 6.0f}, {8.0f, 3.0f}}).narrow(0, 0, num_lanes));
     const anet::rl::BatchExperience experience{
-        anet::rl::BatchState(obs, flags, flags, torch::ones({num_lanes}, torch::kBool)),
+        anet::rl::BatchState(anet::TensorDict(kObservation, obs.At(kObservation) * 10.0f),
+            flags, flags, torch::ones({num_lanes}, torch::kBool)),
         std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({num_lanes}, torch::kLong)),
         torch::ones({num_lanes}), anet::rl::BatchState(obs, flags, flags, flags)};
     agent->CreateLearner()->UpdateFromBatch({}, experience.To(input_device));
     CHECK(*agent->GetScalar(kIntrinsicLearnCount) == static_cast<float>(num_lanes / batch_size));
     std::istringstream actual_stream(IntrinsicCheckpointPayload(*agent), std::ios::binary);
     const auto actual_predictor = RndPredictorBytes(actual_stream);
+    const auto& selected_obs = data.Get("DefaultDQNAgent.intrinsic.observation", anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationNextState) == anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState
+        ? experience.state.obs : experience.next_state.obs;
 
     // 抽選アルゴリズムやseed列を写さず、許される全順列の重みと照合する。
     // k件全ての入力・step間の非重複・端数laneの不使用を同時に確かめる。
@@ -829,11 +1282,11 @@ TEST_CASE("DQN intrinsic learns distinct complete lane groups and warns once whe
     do {
         auto reference = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, std::string(kIntrinsicPrefix) + ".rnd", RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
-        reference->Estimate(obs);
+        reference->Estimate(selected_obs);
         for (int offset = 0; offset + batch_size <= num_lanes; offset += batch_size) {
             const std::vector<int64_t> selected(lanes.begin() + offset, lanes.begin() + offset + batch_size);
             REQUIRE(reference->Learn(anet::TensorDict(kObservation,
-                obs.At(kObservation).index_select(0, torch::tensor(selected, torch::kInt64)))));
+                selected_obs.At(kObservation).index_select(0, torch::tensor(selected, torch::kInt64)))));
         }
         std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
         anet::OutputArchive archive(saved);

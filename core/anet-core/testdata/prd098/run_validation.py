@@ -14,6 +14,7 @@ import time
 
 REPO = Path(__file__).resolve().parents[4]
 OUT = REPO / ".scratch/prd098/config-20261024-r2"
+RUN_PREFIX = "prd098"
 ENVS = ("GridMaze", "LunarLander", "Atari", "DropMerge")
 RUNNER = REPO / "apps/runner/bin/Debug/AnetRLRunner.exe"
 
@@ -120,7 +121,7 @@ def execute(name, env, before=False, enabled=False, performance=False, overrides
             return Path(saved["run"])
         raise RuntimeError("Existing run record needs a fresh --label: " + str(record))
     cfg.write_text(config_text, encoding="utf-8", newline="\n")
-    suffix = "prd098_" + name
+    suffix = RUN_PREFIX + "_" + name
     args = [str(binary), "--config", str(cfg), "app.run_name=run_{t}_" + suffix] + list(overrides)
     info = {"binary_sha256": digest, "config_sha256": config_digest, "config_inputs_sha256": config_inputs_digest, "overrides_sha256": overrides_digest, "arguments": args}
     save(record, info)

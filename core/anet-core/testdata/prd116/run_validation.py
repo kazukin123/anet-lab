@@ -15,7 +15,7 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=("before", "after", "compare", "checkpoint", "smoke"))
-    parser.add_argument("--env", nargs="+", choices=("GridMaze", "LunarLander", "Atari", "DropMerge"),
+    parser.add_argument("--env", nargs="+", choices=("GridMaze", "LunarLander", "Atari", "DropMerge", "Montezuma"),
                         default=["GridMaze", "LunarLander", "Atari", "DropMerge"])
     parser.add_argument("--label", default="after")
     args = parser.parse_args()
@@ -26,6 +26,7 @@ def main():
     driver = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(driver)
     driver.OUT = repo / ".scratch/prd116/baseline-20261106"
+    driver.RUN_PREFIX = "prd116"
     if args.stage in ("checkpoint", "smoke"):
         # 実行中の再ビルドから切り離し、記録済み実行体の上書きを拒否する。
         source = driver.RUNNER
@@ -54,39 +55,77 @@ def main():
                 raise RuntimeError("Disabled checkpoint content differs")
             print("CHECKPOINT", json.dumps(report), flush=True)
         else:
-            if any(env not in ("GridMaze", "Atari") for env in args.env):
-                parser.error("smoke requires explicit --env GridMaze Atari (or one of them)")
+            if any(env not in ("GridMaze", "Atari", "Montezuma") for env in args.env):
+                parser.error("smoke requires --env GridMaze Atari Montezuma (or a subset)")
             original_settings = driver.settings
             def rnd_settings(*settings_args, **settings_kwargs):
                 lines = original_settings(*settings_args, **settings_kwargs)
-                lines[-1] += " > run.@rnd"
+                # 短縮用の設定を最後に保ち、Q比較群とRNDの選択をその前へ挿す。
+                assignment, selected = lines[-1].split("=", 1)
+                chain, _, validation = selected.strip().rpartition(" > ")
+                profiles = "run.@rainbow_like > run.@rnd > run.@rnd_taiga" if current_env == "Montezuma" else "run.@rnd"
+                lines[-1] = assignment.strip() + " = " + " > ".join(part for part in (chain, profiles, validation) if part)
                 return lines
             driver.settings = rnd_settings
             for env in args.env:
+                current_env = env
                 overrides = ["app.exp_exit_step=100000", "app.batchrun.exp_exit_step=100000",
                              "app.save_agent_on_close=true"]
                 if env == "Atari":
                     overrides.append("E1.game=kung_fu_master")
-                run = driver.execute(args.label + "_tmp_smoke_" + env, env, overrides=overrides)
+                if env == "Montezuma":
+                    overrides.append("E1.game=montezuma_revenge")
+                run = driver.execute(args.label + "_tmp_smoke_" + env,
+                                     "Atari" if env == "Montezuma" else env, overrides=overrides)
                 summary = {}
+                by_step = {}
                 for row in driver.rows(run):
                     tag = row.get("tag", "")
                     if not tag.startswith("56_agent_in/"):
                         continue
-                    value = row["value"]
-                    if not math.isfinite(value):
-                        raise RuntimeError("Nonfinite intrinsic metric: " + tag)
-                    summary.setdefault(tag, []).append(value)
-                if len(summary) != 8:
-                    raise RuntimeError("Missing intrinsic metrics: " + str(summary.keys()))
+                    by_step.setdefault(row["step"], {})[tag.split("/", 1)[1]] = row["value"]
+                expected = {"01_bonus_mean", "02_bonus_max", "03_bonus_share", "04_bonus_min",
+                            "05_bonus_pos_ratio", "11_error_mean", "12_error_std", "13_error_step",
+                            "14_target_feature_var", "15_target_feature_max", "21_clip_ratio",
+                            "31_predictor_loss", "32_learn_count"}
+                for step, values in by_step.items():
+                    if values.get("32_learn_count", 0) <= 0:
+                        continue
+                    for tag in expected:
+                        value = values.get(tag, float("nan"))
+                        if not math.isfinite(value):
+                            if tag == "03_bonus_share" and values.get("01_bonus_mean") == 0:
+                                continue
+                            raise RuntimeError(f"Nonfinite/missing intrinsic metric: {env} step={step} {tag}")
+                        summary.setdefault(tag, []).append((step, value))
+                if not summary:
+                    raise RuntimeError("No successful auxiliary learning: " + env)
                 report = {}
-                for tag, values in summary.items():
+                for tag, points in summary.items():
+                    values = [value for _, value in points]
                     quarter = max(1, len(values) // 4)
                     report[tag] = {"count": len(values), "min": min(values), "max": max(values),
                                    "first_quarter_mean": sum(values[:quarter]) / quarter,
                                    "last_quarter_mean": sum(values[-quarter:]) / quarter}
+                checks = {}
+                if env == "GridMaze":
+                    points = summary["01_bonus_mean"]
+                    early = [value for step, value in points if step < 50000]
+                    late = [value for step, value in points if step >= 50000]
+                    checks["positive_ratio"] = sum(value > 0 for _, value in points) / len(points)
+                    checks["decreases"] = bool(early and late and sum(late) / len(late) < sum(early) / len(early))
+                    checks["passed"] = checks["positive_ratio"] >= 0.9 and checks["decreases"]
+                elif env == "Atari":
+                    checks["passed"] = all(value < 1 for _, value in summary["21_clip_ratio"])
+                else:
+                    points = summary["04_bonus_min"]
+                    checks["negative_ratio"] = sum(value < 0 for _, value in points) / len(points)
+                    checks["passed"] = checks["negative_ratio"] >= 0.9
+                report["acceptance"] = checks
                 driver.save(driver.OUT / (args.label + "_smoke_" + env + ".json"), report)
                 print("SMOKE metrics", env, json.dumps(report), flush=True)
+                if not checks["passed"]:
+                    raise RuntimeError("Smoke acceptance failed: " + env)
         return
     driver.main()
     if args.stage == "compare":
