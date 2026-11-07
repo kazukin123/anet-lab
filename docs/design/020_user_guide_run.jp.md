@@ -493,7 +493,7 @@ EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`r
 
 `View > Eval Steps per Frame`で、自動評価の描画更新1回あたりのstep数を変更する。`1`・`2`・`4`・`10`・`20`・`50`・`100`から選ぶか、`Custom...`で現在値を初期表示した入力欄へ1〜2,147,483,647の整数を指定する。確定後は`Custom (N)...`に入力値が表示され、キャンセルでは値と選択を保持する。`Config (N)`は起動時設定へ戻す。変更は次の自動評価更新から反映され、config dumpには保存しない。変更しても一時停止やTrace表示は解除されず、手動Stepは常に1 step進む。Evaluation Traceの1x速度は、現在のFPSと現在のstep数の積に追従する。
 
-`View > Eval View FPS`または`View > Eval Steps per Frame`で値を変えると、新しいFPSとstep数をINFOログへ`Evaluation speed changed fps=<F> step_per_frame=<S>`として出す。ステータスバーにEval再開時の`Evaluation resumed fps=<F> step_per_frame=<S>`が残っている間は、その表示も新しい値に置き換わる。ほかの表示が出ている間や一時停止中は、ステータスバーを変えない。
+`View > Eval View FPS`または`View > Eval Steps per Frame`で値を変えると、新しいFPSとstep数をINFOログへ`Evaluation speed changed fps=<F> step_per_frame=<S>`として出す。ステータスバーにEval再開時の`Evaluation resumed fps=<F> step_per_frame=<S>`が残っている間は、その表示も新しい値に置き換わる。ほかの表示が出ている間や一時停止中は、ステータスバーを変えない。`View > Train View FPS`で値を選ぶと、選んだFPSをINFOログへ`Train view FPS changed fps=<F>`として出す（`0 (Off)`は`fps=0`）。
 
 Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text欄へ表示する。値は選択してコピーでき、exp/train間は標準separatorで区切られる。status bar右側は`exp <N> steps/s    train <N> steps/s`と経過時間を表示する。SPSのEMAがまだ初期化されていない間は`-`、最初のTrain snapshotが無い間は両step欄が`-`、経過時間が`--:--:--`になる。経過時間はpause中もwall-clockとして進む。
 

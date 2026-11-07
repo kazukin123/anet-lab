@@ -837,7 +837,10 @@ void RunnerFrame::SetupEvents()
         {ID_TrainFps10, 10.0f}, {ID_TrainFps15, 15.0f}, {ID_TrainFps30, 30.0f}, {ID_TrainFps60, 60.0f},
     };
     for (const auto& [id, fps] : train_fps_items) {
-        Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) { train_panel_->SetFps(fps); }, id);
+        Bind(wxEVT_MENU, [this, fps](wxCommandEvent&) {
+            train_panel_->SetFps(fps);
+            LOG::info() << "Train view FPS changed fps=" << fps;
+        }, id);
         Bind(wxEVT_UPDATE_UI, [this](wxUpdateUIEvent& event) { event.Enable(initialized_); }, id);
     }
 

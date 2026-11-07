@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:a2de8b4fac456bf5f7e16d7f4c14d2201ff194e9 date:2026-11-04 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:0da794440b280f8d6794be80ee1eb3117f8f434e date:2026-11-07 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -494,7 +494,7 @@ Select the startup main Views with `app.main_view`: `train` (Train only), `eval`
 
 Use `View > Eval Steps per Frame` to change the number of automatic evaluation steps per display update. Select `1`, `2`, `4`, `10`, `20`, `50`, or `100`, or choose `Custom...` to enter an integer from 1 to 2,147,483,647; the input starts with the current value. After confirmation, `Custom (N)...` shows the entered value. Cancel preserves both the value and selection. `Config (N)` restores the startup value. Changes apply from the next automatic evaluation update and are not saved to the config dump. Changing this value does not resume evaluation or leave Trace mode; manual Step still advances exactly one step. Evaluation Trace playback at 1x follows the product of the current FPS and current steps per frame.
 
-Changing `View > Eval View FPS` or `View > Eval Steps per Frame` writes the new FPS and step count to an INFO log as `Evaluation speed changed fps=<F> step_per_frame=<S>`. If the status bar still shows the resume message `Evaluation resumed fps=<F> step_per_frame=<S>`, it is also updated to the new values. The status bar remains unchanged while another message is displayed or Eval is paused.
+Changing `View > Eval View FPS` or `View > Eval Steps per Frame` writes the new FPS and step count to an INFO log as `Evaluation speed changed fps=<F> step_per_frame=<S>`. If the status bar still shows the resume message `Evaluation resumed fps=<F> step_per_frame=<S>`, it is also updated to the new values. The status bar remains unchanged while another message is displayed or Eval is paused. Selecting a value in `View > Train View FPS` writes the selected FPS to an INFO log as `Train view FPS changed fps=<F>` (`0 (Off)` logs `fps=0`).
 
 The Steps toolbar displays `exp` and `train` counts in separate read-only text fields. Values can be selected and copied, and a standard separator divides the fields. The right side of the status bar shows `exp <N> steps/s    train <N> steps/s` and elapsed time. Before the SPS EMA initializes, its value is `-`; before the first Train snapshot, both step fields show `-` and elapsed time shows `--:--:--`. Elapsed time continues as wall-clock time during pauses.
 
