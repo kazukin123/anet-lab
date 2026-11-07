@@ -6,6 +6,12 @@
 
 | 日付 | ファイル | テーマ | 関連 |
 |---|---|---|---|
+| 2026-11-07 | [llm_rl_reading_guide_2026-11-07.md](llm_rl_reading_guide_2026-11-07.md) | LLM/RL再サーベイ47論文の索引、関心別の読み順、研究上の問いと費用の比較方法 | 11冊の案内 |
+| 2026-11-07 | [llm_rl_distillation_and_planning_2026-11-07.md](llm_rl_distillation_and_planning_2026-11-07.md) | LVLM2PとPriorZero。小さな方策への蒸留、公開PPOの分布、世界モデルとの相互学習と費用 | LLM/RL再サーベイ |
+| 2026-11-07 | [llm_rl_action_advice_2026-11-07.md](llm_rl_action_advice_2026-11-07.md) | 行動事前分布・観測ヒント・APMの3論文。候補数、cache、KL付き目的を区別 | LLM/RL再サーベイ |
+| 2026-11-07 | [llm_rl_goals_and_reflection_2026-11-07.md](llm_rl_goals_and_reflection_2026-11-07.md) | ELLM・SGRL・LLM-TALE・LAGEA。目標生成、行動の制約、失敗の振り返りと単一GPUの条件 | LLM/RL再サーベイ |
+| 2026-11-07 | [llm_rl_language_grounding_2026-11-07.md](llm_rl_language_grounding_2026-11-07.md) | ONI・RLang翻訳・DECKARDの3論文。非同期注釈、語彙とラベル解析、経験による依存関係の修正 | LLM/RL再サーベイ |
+| 2026-11-07 | [llm_rl_algorithm_discovery_2026-11-07.md](llm_rl_algorithm_discovery_2026-11-07.md) | LLMによるRL更新則発見の3論文と固定実装。独立探索・環境seed・評価先調整・候補学習費用を区別 | LLM/RL再サーベイ |
 | 2026-08-13 | [action_query_papers_2026-08-13.md](action_query_papers_2026-08-13.md) | Action Query 関連論文 | |
 | 2026-08-13 | [aqt_performance_and_visibility_2026-08-13.md](aqt_performance_and_visibility_2026-08-13.md) | AQT の性能と知名度の監査 | |
 | 2026-08-13 | [atari_env_survey_2026-08-13.md](atari_env_survey_2026-08-13.md) | Atari RL 環境(ALE、ゲーム、ラッパー) | PRD 051 |
@@ -27,6 +33,12 @@
 | 2026-11-04 | [springenberg2024_offline_actor_critic_large_models_paper_2026-11-04.md](springenberg2024_offline_actor_critic_large_models_paper_2026-11-04.md) | Springenberg et al. 2024: Perceiver-Actor-Critic | action_query_papers_2026-08-13.md、DropMerge の net.branch.@SuikaImpala2_ViT128 |
 | 2026-11-04 | [lee2024_uncertainty_aware_temporally_extended_actions_paper_2026-11-04.md](lee2024_uncertainty_aware_temporally_extended_actions_paper_2026-11-04.md) | Lee et al. 2024(UTE): skip 価値のアンサンブルと不確かさでの j 選択 | PRD 958 |
 | 2026-11-04 | [jacq2022_lazy_mdps_learning_when_to_act_paper_2026-11-04.md](jacq2022_lazy_mdps_learning_when_to_act_paper_2026-11-04.md) | Jacq et al. 2022(Lazy-MDP): 既定の方策に任せる行動と罰 η | PRD 958 |
+| 2026-11-07 | [llm_assisted_rl_resurvey_2026-11-07.md](llm_assisted_rl_resurvey_2026-11-07.md) | LLM・VLMで外部RLを補助する21論文。報酬・観測・探索・課題・更新則、比較条件と失敗例 | 2026-10-18のLLM事前知識サーベイ |
+| 2026-11-07 | [llm_assisted_rl_reproducibility_2026-11-07.md](llm_assisted_rl_reproducibility_2026-11-07.md) | LLM-Explorer・LIMEN・BIRD・Robo-Dopamineの固定commit調査とRoboRewardモデルカード | LLMとRLの再サーベイ |
+| 2026-11-07 | [llm_reward_shaping_guarantees_2026-11-07.md](llm_reward_shaping_guarantees_2026-11-07.md) | LLM報酬整形の保証と目標切り替え。2026年preprintの式に対する反例と有理数での検算 | LLMとRLの再サーベイ |
+| 2026-11-07 | [llm_generated_control_and_environments_2026-11-07.md](llm_generated_control_and_environments_2026-11-07.md) | 追加5論文。制御コード・世界モデル・探索prompt・学習環境、生成runと環境seedの違い | LLMとRLの再サーベイ |
+| 2026-11-07 | [llm_rl_small_models_and_costs_2026-11-07.md](llm_rl_small_models_and_costs_2026-11-07.md) | 追加4論文。小型VLM・軽い探索方策・経験なし報酬指定・0.5B提案器、総計算費用の境界 | LLMとRLの再サーベイ |
+| 2026-11-07 | [llm_rl_exploration_information_2026-11-07.md](llm_rl_exploration_information_2026-11-07.md) | 追加2論文。iLLMの4-bit・バッチ実行とAtari比較、IGEの復帰付き探索、前回記述の訂正 | LLMとRLの再サーベイ |
 | 不明 | [tau_sampling_modes_survey.md](tau_sampling_modes_survey.md) | 分布強化学習の τ サンプリング/配置(統合版) | PRD 044 |
 | 不明 | [_survey_tau_core_papers.md](_survey_tau_core_papers.md) | τ の選び方・配置方式(主要論文) | PRD 044 |
 | 不明 | [_survey_tau_implementations.md](_survey_tau_implementations.md) | IQN / FQF / QR-DQN の τ 生成実装 | PRD 044 |

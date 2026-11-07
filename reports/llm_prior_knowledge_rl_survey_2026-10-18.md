@@ -3,6 +3,8 @@
 Date: 2026-10-18
 Scope: reports/INDEX.md の優先度10。Read and Reap the Rewards、Motif、ELLMを起点に、ALE Atariでの実証、効果量、LLMの呼び出し頻度と費用、キャッシュ、出来事の検出、外部知識を使う結果の報告、CLIP等のVLM報酬との違いを一次論文と公式コードから調べる。
 
+更新注記（2026-11-07）: iLLMの補足資料を追加確認し、§4の問い合わせ頻度を訂正した。各stepの履歴表現計算と、rollout後にまとめる報酬用の言語課題を区別する。[訂正の根拠と追加の小型モデル比較](llm_rl_exploration_information_2026-11-07.md#3-illmの補足資料で更新された実行条件)。
+
 ## Table of Contents
 
 1. [結論と手法の見取り図](#1-結論と手法の見取り図)
@@ -134,12 +136,14 @@ we only sample the actions and rewards of the agent and exclude the states.
 | Read and Reward | 説明書QA・物体別の判定と、ゲーム中の接触検出を分ける構成 | 実呼出回数・cache運用・金額の定量報告は未確認。「最初の1回だけ」とは断定しない |
 | Motif | オフライン注釈→報酬モデル蒸留。RL中のLLM呼出なし | 500kペアの70B注釈はV100×8構成で最大15 GPU-daysと記載。報酬モデル学習約1h、RL約24h（各V100×1） |
 | ELLM | 毎stepの目標取得に応答cache。Run間でも共有 | cacheなし5M stepsならAPI待ち27h・数千ドルという当時の試算。共有cacheが育つとほぼ問い合わせ不要と報告 |
-| iLLM | 各stepでLLMを使い、履歴contextをcache | backboneはTransfo-XL 280M。context cacheはLLM推論の除去ではない。今回ドル額は確認できず |
+| iLLM | 各stepで履歴表現を計算してcontextをcache。行動・要約の報酬用問い合わせはrollout後にバッチ実行（2026-11-07訂正） | Supplement §BはTransfo-XL 280Mの4-bit版を明記。cache・バッチ化は推論の除去ではない。ドル額は未確認 |
 | LLM-Explorer | 主設定は毎episode、履歴要約→分布生成の2段階。100 actionsを抽出 | GPT-4o mini、500k-step Qbertは$1.32・9.95h。全20 Atari＋MuJoCo平均$1.30はAtari単独平均ではない |
 
 出典: [NeurIPS R&R (2023/12), §3](https://proceedings.neurips.cc/paper_files/paper/2023/file/034d7bfeace2a9a258648b16fc626298-Paper-Conference.pdf)、[ICLR Motif (2024), App.A.8.4](https://proceedings.iclr.cc/paper_files/paper/2024/file/a8de97fa77a09258b22880c230a83445-Paper-Conference.pdf)、[ICML ELLM (2023/07), App.O](https://proceedings.mlr.press/v202/du23f/du23f.pdf)、[ACML iLLM (2025), §3–4](https://raw.githubusercontent.com/mlresearch/v260/main/assets/bougie25a/bougie25a.pdf)、[NeurIPS LLM-Explorer (2025/10), §4.1–4.3・Table 1](https://arxiv.org/html/2505.15293v2)。
 
 ELLMの公開コードの価格定数と論文の当時価格は一致せず、コードのbudgetも文字数に基づく推定である。現在の再現費用はこの値から確定しない。[ELLM code (閲覧2026/10), prices / budget_used](https://github.com/yuqingd/ellm/blob/main/text_crafter/lm.py)
+
+iLLM行の訂正根拠は[Supplement §B、§D.7](https://raw.githubusercontent.com/mlresearch/v260/main/assets/bougie25a/bougie25a-supp.pdf)。同資料§D.8にはAtariのモデル別比較もあり、今回の追加確認を[探索の別冊](llm_rl_exploration_information_2026-11-07.md)へ記録した。
 
 ## 5. 出来事を検出する方法
 

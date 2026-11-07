@@ -731,3 +731,41 @@
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:9034f0c9eacd610e7eeb8b120fd7eb81bc6742da → docs/wiki/mechanisms/intrinsic_novelty.md（補助学習の刻みと件数を lane 数に依らない形へ。置き場は Push 側のまま、exp step 基準の credit と lane 抽選を facade に置き、Learn は渡された観測で 1 step。葉は learn_ratio・learn_batch_size、warmup_steps は観測の件数。経緯は §8.1、未決は §8 の 12・13）
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:a57611e5c01983964a4604eebb5ef2f4ba4258dc → なし（§8.1 の 6 を確認済みの事実に差し替えた。Taiga らの Rainbow＋RND は原典コードで Push 側、NGU は付録 A で Sample 側。exp step あたりの predictor の step 数の比較を添え、§8 の 4 と §11 の参照を補った。機構の主張は変わっていない）
 2026-11-07 writeback docs/memo/116_rnd_lifelong_novelty_10prd.md blob:69f1eda744df443df2bec777476d2bff38853edf → なし（Learn が進めたかを bool で返す形に §5.1・§5.2・D7・§5.3・§5.5 を直した。credit は結果に依らず消費する。機構の主張は変わっていない）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:1318c0590516a5843ab596189bb51ab533935dad → docs/wiki/mechanisms/llm_prior_knowledge.md（21論文の再調査。Atariの直接実証の未確認を保持し、ロボット報酬の成功条件・対象取り違え・ローカル計画の語彙不一致を追加）
+2026-11-07 ingest reports/llm_assisted_rl_reproducibility_2026-11-07.md blob:acc79d3fd1f10bf2440ac24306583d67fea78c16 → docs/wiki/mechanisms/llm_prior_knowledge.md（固定commitでの配布設定と論文条件の違い、ローカル接続と効果の証拠を区別。GPU共有・転移の未確認を問いとして記録）
+2026-11-07 ingest reports/llm_reward_shaping_guarantees_2026-11-07.md blob:3f4f29627285b8ca6789a8a93e7222311ac174e1 → docs/wiki/mechanisms/llm_prior_knowledge.md（目標切り替え時に古い目標を使う式の反例。独立の有理数検算でありRL実験とは区別）
+2026-11-07 ingest reports/llm_generated_control_and_environments_2026-11-07.md blob:64a5175c5c8cd24ff0fd8a8212119303df77834e → docs/wiki/mechanisms/llm_prior_knowledge.md（追加5論文。生成runと環境seed、JAXAtari・JS cloneとALEを区別し、小型モデルによる再発見を未確認の問いとして保持）
+2026-11-07 ingest reports/llm_rl_small_models_and_costs_2026-11-07.md blob:ea081eb5cfb705f56557694077fb7dc85c61ad8d → docs/wiki/mechanisms/llm_prior_knowledge.md（追加4論文。小型VLMの課題依存、問い合わせ数と総費用、報酬順位評価と方策学習の区別を追加）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:a1ef2e3e48c0e5f51e8f022d6e69d0ab7c4c7408 → docs/wiki/mechanisms/llm_prior_knowledge.md（追加2論文。iLLMの4-bit・バッチ化・補助損失、IGEの探索と復帰費用の境界を確認）
+2026-11-07 fix reports/llm_prior_knowledge_rl_survey_2026-10-18.md blob:4357d167329e14c7d1a4a4738d72e6732e6346d9 → docs/wiki/mechanisms/llm_prior_knowledge.md（補足資料の確認によりiLLMの問い合わせ頻度を訂正。各stepの履歴表現とrollout後の二つの言語課題を区別）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:3df4d97224495b1193a13054d6eca0bb895251ea → なし（追加別冊への導線と全体32論文の件数を追記。主張は各別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_small_models_and_costs_2026-11-07.md blob:64a76f6a290fa28824f0da4c38d9fa131b6dfef7 → なし（iLLMの追加比較への導線を追記。主張は探索の別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_algorithm_discovery_2026-11-07.md blob:3e7d39c6f14476681ecafaa156ee23f5c1691dff → docs/wiki/mechanisms/llm_prior_knowledge.md（追加3論文。独立した探索と環境seed、DiscoGenの成功条件と候補学習費用を追加）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:6f2e905c3f38b58f0a7b9fa2d95f94c04395a85b → なし（更新則発見への導線と全体35論文の件数を追記。主張は別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_language_grounding_2026-11-07.md blob:af68d959ce373fce982f9accd572438aa7831958 → docs/wiki/mechanisms/llm_prior_knowledge.md（追加3論文。ONIの別GPU条件、RLangの語彙欠落、DECKARDの事前学習と環境操作の前提を記録）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:81b19763ce9e0f60d03f10c53db8a33f69364097 → なし（言語と環境への導線と全体38論文の件数を追記。主張は別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_goals_and_reflection_2026-11-07.md blob:b51aa85838d5613bc6030f474daa89b7d51bc326 → docs/wiki/mechanisms/llm_prior_knowledge.md（追加4論文。LAGEAの単一GPU・目標画像・成功ラベル条件、SGRLの速度比較を記録）
+2026-11-07 ingest reports/llm_reward_shaping_guarantees_2026-11-07.md blob:cc1835dd31a4ef36035f4b90c0ad3b60c4d12576 → docs/wiki/mechanisms/llm_prior_knowledge.md（差の後にtanhを適用する場合の2step反例を追加。方策順位の逆転を独立計算で検算）
+2026-11-07 ingest reports/llm_assisted_rl_reproducibility_2026-11-07.md blob:74e00e7fc6458e48b5fe3104ffd60a36ab95291a → docs/wiki/mechanisms/llm_prior_knowledge.md（GPU共有の未確認事項の対象を限定し、別方式LAGEAの証拠を追記）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:a7683ac0aac415d7c9d760322d65f8e24acebfa2 → なし（追加別冊と42論文の読み順へ案内。主張は別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_small_models_and_costs_2026-11-07.md blob:b4999a19c9a8888a6767d3a77aad62a2915dbfbd → なし（LAGEAの追加証拠へ案内。主張は別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_reading_guide_2026-11-07.md blob:fa12979df97449487d3420c1e68e3ae538d0c176 → なし（42論文と9冊の横断索引。新しい実験知見を含まず、既存報告を読むための案内）
+2026-11-07 ingest reports/llm_rl_action_advice_2026-11-07.md blob:7e02e585cdf0f44f636eae794f70946627fa5128 → docs/wiki/mechanisms/llm_prior_knowledge.md（追加3論文。候補による価値更新の制限、観測ヒントの条件、有限候補とKL付き目的の独立計算を区別）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:2a70232bc228394173bc6b1093c652dfbdb18f8c → なし（45論文・10冊へ更新。知見は別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_reading_guide_2026-11-07.md blob:c89481ac28c39186ec27534732d0c3a1143e5a85 → なし（行動助言の索引と比較軸を追加）
+2026-11-07 ingest reports/llm_rl_distillation_and_planning_2026-11-07.md blob:9a5ca72e462081fb1beb993d80fe7bbfd50c9f6e → docs/wiki/mechanisms/llm_prior_knowledge.md（追加2論文。LVLM2P公開PPOの分布変換、PriorZeroの学習・評価data_idxと計算条件を記録）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:8d7c42596a1caa6d5374a8f3631256106e632540 → なし（47論文・11冊への更新。主張は別冊から反映済み）
+2026-11-07 ingest reports/llm_rl_reading_guide_2026-11-07.md blob:5401a0b724fed4d075a32cf867f1874248e5bbf3 → なし（蒸留と先読みを加えた47論文の横断索引）
+2026-11-07 ingest reports/llm_rl_action_advice_2026-11-07.md blob:a1fedb7fbc32f7a18ff23df23e57ae695ff43a9e → なし（APMのモデル比較は意味の一致でありRL再学習ではないこと、同期問い合わせの待ち時間を追記）
+2026-11-07 ingest reports/llm_rl_distillation_and_planning_2026-11-07.md blob:c47f52387ce9a23f465f9d561d3a0652bea3cdbc → なし（教師だけが識別できる状態の仮想例と、KLの向きの違いを追記。新しい実験結果ではない）
+2026-11-07 ingest reports/llm_assisted_rl_resurvey_2026-11-07.md blob:be5c54403ff44ae6687a207954a36bee2453910a → docs/wiki/mechanisms/llm_prior_knowledge.md（TextAtariの実評価1,000 stepをPDF本文・付録で照合。RAM入力と公開READMEの条件差を追加）
+2026-11-07 ingest reports/llm_rl_reading_guide_2026-11-07.md blob:bec083bbbe03f95b3a76134748d22117194a409a → なし（TextAtariの評価長と学習seed・環境配置の区別を索引へ反映）
+2026-11-07 ingest reports/llm_rl_distillation_and_planning_2026-11-07.md blob:1d038dfe4ad97aeca9eb6a0ef1a0dd91cb5c2987 → なし（PriorZeroのquick testが渡すdata_idxと、同じ固定版の引数解析の不一致を静的に確認）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:23db8bfb6df7d4c8df7ef853a887a6234c6b40a6 → なし（iLLMの行動側は有限候補へのlog probability採点であり自由文生成ではないことを補足資料から追記）
+2026-11-07 ingest reports/llm_rl_action_advice_2026-11-07.md blob:d76803861963802d6bb3722abf0b6e00a3d52973 → なし（LLM PriorsのSaladは14Bであることを補正。7Bで学習したQと評価時4Bの組合せ、候補数と選択精度の違いを追記）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:b7e3e0f46878598d588b992d0e2cec5bb21cb636 → なし（追加調査前の全体件数32を除き、最新の横断索引へ案内）
+2026-11-07 ingest reports/llm_rl_language_grounding_2026-11-07.md blob:dc8a090947b32aa186f8e25c267c6b61d75740a9 → なし（追加調査前の全体件数38を除き、未確認候補を含めないことだけ記載）
+2026-11-07 ingest reports/llm_rl_language_grounding_2026-11-07.md blob:4c1723780d23aa43a33a0857834f8a8de2ef7e05 → なし（RLangの2026投稿版の摘要にはVLMによる語彙生成の追加実演があること、本文・採否は未確認であることを追記）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:5f67c9e765cc0298b5b4663cb0b516127c4d10c8 → なし（予測誤差に残る教師出力の条件付き分散を独立した数式例で説明。iLLMの実測上の失敗とは区別）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:e7cd3e0fbb56188d35f71d95f97744405903d58d → なし（INSIGHTは著者サイトだけ確認した関連候補として記載。GPT-4による説明と探索改善を区別し、47論文には含めない）
+2026-11-07 ingest reports/llm_rl_exploration_information_2026-11-07.md blob:6c885e6c983fd85dcb1da3959c128c9f782bd966 → なし（残枠でINSIGHT公刊本文§3–5を追加確認。説明生成は学習へ戻さず、説明品質にも未解決点がある。主対象47論文とは別の比較用補足）
