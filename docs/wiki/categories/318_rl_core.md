@@ -62,6 +62,7 @@
 - 2026-10-29: EvalRunnerが最後のstepで行動を指定されたか（強制行動）を`$runner forced`として答える仕様を定めた（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D3）。
 - 2026-10-29: 判断の旗に依存しないaction_changeとepisode_endの窓規則を足した（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.4）。
 - 2026-11-03: action_infoからscalarを読む際の実行時型判別を整理する課題を記録した（出典: [PRD928](../../memo/done/928_metrics_action_info_dynamic_cast_10prd.md)、背景と問題・取り組むこと）。
+- 2026-11-09: 文書・コメント・設定の小さな食い違いを束ねたPRDを再グリルで決め、InitialPriorityCompleterの`@note`に`GetStats`を足し、ObserverFactoryの古いscalar記法のコメントを140 §6と`ParseMetricTokens`への参照の1行に置き換えることにした（出典: [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md)、§4 D3・D9）。
 
 ## 選ばなかった形
 
@@ -89,6 +90,7 @@
 - γ の schedule で常に抽選時に収益を作り直す形 — 不採用: 定数でも計算が増え、足す順を揃えないと既存 Run との checksum が変わる。定数は保存値の経路に留める（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - γ を今回 constant だけに限る形 — 不採用: 器としては γ だけ空く。schedule のときだけ作り直す形で両立できた（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - 強制したかを行動の情報（`WithAction`の結果）で答える形 — 不採用: 基底・DQN系・MuZero系の行動の情報とテストの型を変え、「`WithAction`の結果＝強制」という意味を公開の型に付ける。強制するのはRunnerで、Runnerが答えれば1か所で済む（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D3）。
+- metrics_scalar.txtにscalar記法の要素ごとの語の一覧を写す形 — 不採用: 語を足すたびに`ParseMetricTokens`・140 §6・設定ファイルの3か所を直すことになり、知らない語はkeyとして黙って扱われるので、古い写しどおりに書くと値が記録されない。ObserverFactoryのコメントは参照の1行だけにする（出典: [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md)、§4 D9・§7）。
 
 ## 変えるときの条件
 
