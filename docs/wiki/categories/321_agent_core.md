@@ -200,6 +200,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | 29 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
 | 30 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui, 321_agent_core, 322_env_individual | 索引 | 未確認 | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD |
 | 31 | [issue-20261103-f33167](../../management/issues/issue-20261103-f33167.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn | 索引 | 実装済み | 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー）PRD |
+| 32 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 1.2 | 低 | — | 成果物 | PRD | 324_dqn, 321_agent_core | 案 | 未確認 | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 
-着手できる 31 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 32 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

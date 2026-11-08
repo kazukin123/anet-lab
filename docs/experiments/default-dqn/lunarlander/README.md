@@ -12,6 +12,7 @@ LunarLander の DefaultDQNAgent 系 Run に関する探索索引です。
 | 2026-10-29〜2026-11-04 | [TempoRLを行動に反映しないSingleの比較](2026-10-29_temporl-auxiliary-only-stage1.md) | PRD104 ステージ1。7群×3 seed×2M、Single各群と無効の比較、STOP対照、k=1、終了窓＋split。同じ重みのfullとsingleの評価 | completed |
 | 2026-11-05 | [TempoRLのTrainの繰り返しの時期と長さの比較](2026-11-05_temporl-train-repeat-timing.md) | 4群×3 seed×2M。warmupだけ・50万exp stepまで・スキップ長の一様乱択を合算の基準と比較 | completed |
 | 2026-11-05 | [TempoRLのSTOP×Singleと無効のbit比較](2026-11-05_temporl-stop-single-bit-compare.md) | 決定的モードのseed 1で、skipの学習がQ側へ届くかと、無効との差が乱数の順番とtargetのforwardだけかを100万exp stepまで比較 | completed |
+| 2026-11-08 | [RNDの害の確認とpredictorの周期リセット](2026-11-08_rnd-harm-check-and-predictor-reset.md) | PRD116 §7の害の確認。`run.@rnd`（β 0.1）の3 seed×2Mを11/05の基準9本と比較。predictorを採点50,000件ごとに初期化する周期リセットの3 seed×2M | completed |
 
 ## 知見のまとめ
 

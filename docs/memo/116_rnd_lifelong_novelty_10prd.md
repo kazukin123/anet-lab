@@ -404,7 +404,7 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 | Run | 見るもの | 本 PRD での位置づけ |
 | --- | --- | --- |
 | GridMaze: 通っていないセルからの到達率 | RND だけで収束後も被覆が続くか。924 §2.7 の見立ては「続かない」。2026-11-07 の Run（256 lane・400k exp step、`run_20261107-212611`）では見立てどおり続かなかった: bonus は warm-up 直後の 9 点以外 0、predictor の誤差は 1e-9、手で通っていないセルへ誘導すると穴へ入る（未踏ではなく off-path の Q の粗さ。§8 の 18） | 判断に効く。続くなら方策の家族の優先度が下がる |
-| LunarLander: 既定との比較 | 害の確認（易しい env で成績を落とさないか） | 924 §9.1 の害の確認 |
+| LunarLander: 既定との比較 | 害の確認（易しい env で成績を落とさないか）。2026-11-08 の `run.@rnd`（β 0.1）3 seed × 2M は、評価側（UQE full `21_eval/02_policy_reward`）の 1.5〜2M が 181.1〜225.5 で、11/05 の基準 9 本の 188.6〜225.7 と同じ帯。害は見えない。ただし bonus は採点 5〜10 万件で消えた（predictor の誤差が whiten の一生平均を下回り続ける。GridMaze と同じ構造）ので、bonus が続く状態での害は未確認。[実験記録](../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md) | 924 §9.1 の害の確認 |
 | KFM 10M × 数 seed、16 seed の基準と比較 | 挑む窓の本数、撃破÷命中、費用 | 対照腕。924 §2.5 の見立てでは壁は越えない |
 | Montezuma: `run.@rainbow_like > run.@rnd > run.@rnd_taiga`、評価側の Greedy の平均点 | Taiga らの Rainbow＋RND（Montezuma）と並ぶ範囲に入るか。寄せない差は §2.1 の表 | 本家再現の確認。合否の数値は 924 問い 21 で置く |
 
@@ -429,7 +429,7 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 | 15 | Head の葉の置き場 | `intrinsic.rnd.output_dim` は `rnd` 直下、初期値は `rnd.head.init.*`。Head の設定の root の扱い（設定 root 所有の PRD、Head の `net.head` 候補）が決まれば揃える |
 | 16 | 設定の読まれない葉の検出 | 本 PRD の範囲外（§2.1 の不具合は 4 block の葉を直して閉じる）。`net.block` の未知の葉を構築時に検出する仕組みは [issue-20261107-0c34dd](../management/issues/issue-20261107-0c34dd.md) に起票した（2026-11-07、開発者の選択） |
 | 17 | `learn_batch_size` > N のときの縮小 | 既定は N 件で学習し構築時に WARN 1 回（2026-11-07 未明の改訂）。レビューで、明示した値を N へ丸めて続ける挙動が AGENTS.md §設定値の扱いの clamp に当たると指摘された（2026-11-07 昼）。候補: ERROR にして N 以下を要求する。924 で `learn_batch_size` の既定値（§8 の 4）と一緒に決める |
-| 18 | predictor の周期リセット（ユーザー案、2026-11-07） | 未決。一生の新しさが尽きた盤面で「最近の経験に対する新しさ」を作る案。predictor と誤差統計を一定間隔で初期化し warm-up をやり直す（target は固定のまま）。初期化の直後は predictor が訪問の多い状態から先に覚えるので、訪問の少ない状態の誤差がしばらく高く残り、その間だけ訪問回数の逆順に近い bonus が出る。統計を一緒に初期化しないと直後に全 lane が α = L に張り付く。近い事例は Q 側の周期リセット（primacy bias、BBF）とエピソード単位のリセット（NGU のエピソード記憶、E3B、NovelD のエピソード内ゲート）で、RND の predictor を周期的に初期化する既知の事例は 2026-11-07 時点で見つけていない。3 の EMA だけでは収束し切った誤差の差（1e-9）を拾えない。候補の葉: `intrinsic.rnd.reset.mode ?= none`（none｜predictor）と `intrinsic.rnd.reset.interval`（learn step）。エピソード内の新しさ（924）との優劣は 924 で決める |
+| 18 | predictor の周期リセット（ユーザー案、2026-11-07） | 未決。一生の新しさが尽きた盤面で「最近の経験に対する新しさ」を作る案。predictor と誤差統計を一定間隔で初期化し warm-up をやり直す（target は固定のまま）。初期化の直後は predictor が訪問の多い状態から先に覚えるので、訪問の少ない状態の誤差がしばらく高く残り、その間だけ訪問回数の逆順に近い bonus が出る。統計を一緒に初期化しないと直後に全 lane が α = L に張り付く。近い事例は Q 側の周期リセット（primacy bias、BBF）とエピソード単位のリセット（NGU のエピソード記憶、E3B、NovelD のエピソード内ゲート）で、RND の predictor を周期的に初期化する既知の事例は 2026-11-07 時点で見つけていない。3 の EMA だけでは収束し切った誤差の差（1e-9）を拾えない。候補の葉: `intrinsic.rnd.reset.mode ?= none`（none｜predictor）と `intrinsic.rnd.reset.interval`（learn step）。エピソード内の新しさ（924）との優劣は 924 で決める。2026-11-08 に暫定実装（50,000 件ごと）で試した: GridMaze 1 本では warm-up 直後の窓にしか bonus が出ず、LunarLander 3 seed × 2M では bonus は続くが評価側の終盤は同じ帯で利得が無く、1 seed が途中で崩れて Q と勾配が膨らんだ。実装は戻し、考えと結果は [issue-20261108-227b05](../management/issues/issue-20261108-227b05.md) と[実験記録](../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)に残した |
 
 ### 8.1 補助学習の置き場と刻みの経緯（2026-11-07）
 
