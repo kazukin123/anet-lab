@@ -27,6 +27,7 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | 2026-10-29 | [qbertの行動固定を評価時だけ外す比較](2026-10-29_temporl-auxiliary-only-stage0.md) | PRD104段0、同じ終了checkpointでfull/single各200ゲーム、評価時のNoisyNet・τ、無効checkpointのseed2、第9面で終わったゲームとEvaluation Trace | 段0完了・段1保留 |
 | 2026-10-27〜 | [qbert の TempoRL の 50M の学習 Run どうしの比較](2026-10-31_temporl-qbert-50m-learning.md) | PRD098段3・PRD103段1・段3・PRD104段2・PRD106 G4、合算・遮断・重み0.3・分割・ノイズ切り・補助学習のみとスキップなし、Greedy・ε0.01・学習側・クリップ率 | completed（qbert は区切り。ViT 合算は 45.37M で停止） |
 | 2026-10-31〜11-04 | [BeamRider と Freeway での TempoRL](2026-11-04_temporl-freeway-beamrider.md) | PRD103の再開条件、合算・補助学習のみとスキップなし、Greedy・ε0.01・学習側、スキップなしのseedの割れ、ボスの回数とゲームが終わるセクター、BTRの公開値と手元の再現 | completed（BeamRider の合算 s2 は約 17M で停止） |
+| 2026-11-08 | [Montezuma's Revenge の RND（サンプル効率優先・30M）](2026-11-08_montezuma-rnd-se-30m.md) | RND（β0.1）とサンプル効率優先の30M、Greedy・ε0.01・学習側、bonusとQ・loss、評価時のε・τの4条件（30Mと20.07Mの重み） | completed |
 
 ## 知見のまとめ
 

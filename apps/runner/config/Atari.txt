@@ -110,6 +110,17 @@ run.@rainbow_like : run.eval_schedule.[eval].interval = 500000
 run.@rainbow_like : run.eval_schedule.[greedy].interval = 1250000
 run.@rainbow_like : run.eval.[greedy].eval_episodes = 16
 
+# run.@rainbow_like の畳み込みだけ IMPALA に替える（Dopamine の IMPALA の群に相当）。
+run.@rainbow_like_impala : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2
+
+# 実時間優先から Munchausen だけを外す比較群。Double DQN は基準と揃えて切ったままにする。
+# 評価は 27,000 step 続くゲーム向けに減らす（RR1・128 lane の learn step で約 200 万 exp step ごと）。
+run.@no_munch : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3
+run.@no_munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@replay_fit > M1 > M2
+run.@no_munch : DefaultDQNAgent.learner.use_double_dqn = false
+run.@no_munch : run.eval_schedule.[eval].interval = 7816
+run.@no_munch : run.eval.[greedy].eval_episodes = 16
+
 run.seed = 1
 #run.seed = 2
 #run.seed = 3
@@ -530,6 +541,7 @@ run.@skip_aux : DefaultDQNAgent.actor.[eval].skip.max_length_mode = single
 run.@evalonly : A3.learner.enabled = false
 run.@evalonly : app.save_agent_on_close = false
 run.@evalonly : run.train.num_envs = 1
+run.@evalonly : DefaultDQNAgent.actor.[train].policy.spatial.enabled = false  # 1 lane では ε ラダーを組めない
 run.@evalonly : run.eval.[eval_target].eval_batch_size = 16
 run.@evalonly : run.eval.[eval_target].eval_episodes = 100
 run.@evalonly : run.eval.[eval].eval_batch_size = 16
@@ -754,6 +766,7 @@ A1.learner.iqn.current_taus.num_taus = 8       # N
 A1.learner.iqn.target_taus.num_taus  = 8       # N'
 A1.actor.[train].policy.tau_rule.num_taus    = 8       # K(行動推論)
 A1.actor.[eval].policy.tau_rule.num_taus     = 8       # K(評価)
+A1.actor.[eval].policy.tau_rule.sample_mode  = random  # 評価(ε 0.01)は Train と同じ抽選。IQN 論文の方策・BTR の評価と同じ作り。[greedy] は固定(Eval設定)
 
 # --- 探索 ---
 A1.actor.[train].policy.policy_type = EpsilonGreedy
@@ -1405,11 +1418,13 @@ run.eval.[eval_target].env.episodic_life = false
 run.eval.[eval].env.episodic_life = false
 
 # --- ε=0(貪欲)の断面スロット ---
-# [greedy] は [eval] からの差分が ε だけ。network / tau_rule / clone_model は [eval] を継承する。
+# [greedy] は [eval] からの差分が ε と τ の配置。network / τ の本数 / clone_model は [eval] を継承する。
+# τ は [eval]・[eval_target]・EvalPanel がランダム(BTR と並べる物差し)、[greedy] は固定(学習した価値で正しく動けるかの物差し)。
 A3.actor.[greedy].$ = DefaultDQNAgent.actor.[eval]
 A3.actor.[greedy].policy.epsilon = 0
 A3.actor.[greedy].policy.spatial.epsilon.first = 0
 A3.actor.[greedy].policy.spatial.epsilon.last = 0
+A3.actor.[greedy].policy.tau_rule.sample_mode = fixed
 
 run.eval.[greedy].actor = greedy
 run.eval.[greedy].eval_batch_size = 16

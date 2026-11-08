@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。qbertでは、同じcheckpointをGreedyと学習中と同じ選び方で評価したときの成績の上下が、スキップなし（2 seed）とTempoRL分割のfullで逆になった。学習中の8面突破率は200ゲームごとの区切りで40ポイント以上動いた。qbertのTempoRL（分割・合算のfull）では、Greedyでゲームが終わる面が1つに集まり、ランダムさはその面から外す代わりに別の面でゲームが終わることを増やすので、全体の8面突破率の比では得と損が打ち消し合った。BeamRiderのスキップなしは、設定の差がseedだけの2本でGreedyの3回平均が22,914と85,872に割れた。同じ重みの別sessionの差より、隣の評価（約5.05M後）との差のほうが大きかった。
+Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の符号も20Mと50Mで逆転した。DropMergeでは同設定複製のtarget評価が一致した一方、online評価にはずれが残った。ImageClsでは、LRのcosineの長さが違うRunの順位が途中のstepと最終で入れ替わった。TempoRL の評価 slot では、スキップ長にも評価の方策（ε・UQE）が掛かり、行動の方策が `Greedy` 型の slot だけがスキップ長も greedy になる。`run.eval_schedule` で組んだ評価は learn step 0 で必ず 1 回発火し、未学習の方策の点が入る。評価 session を 1 つ足すと、同じ seed でも学習前から学習側と既存の評価 slot の軌跡が変わるので、評価 session を足す前の Run とは比べない。qbertでは、同じcheckpointをGreedyと学習中と同じ選び方で評価したときの成績の上下が、スキップなし（2 seed）とTempoRL分割のfullで逆になった。学習中の8面突破率は200ゲームごとの区切りで40ポイント以上動いた。qbertのTempoRL（分割・合算のfull）では、Greedyでゲームが終わる面が1つに集まり、ランダムさはその面から外す代わりに別の面でゲームが終わることを増やすので、全体の8面突破率の比では得と損が打ち消し合った。BeamRiderのスキップなしは、設定の差がseedだけの2本でGreedyの3回平均が22,914と85,872に割れた。同じ重みの別sessionの差より、隣の評価（約5.05M後）との差のほうが大きかった。MontezumaのRNDの30Mでは、Greedyはε=0.01の評価より10M以上遅れて400点に届き、30Mの重みで届かないゲームは部屋1のまま打ち切りまで続いた。評価時にε 0.01かτの乱数を足すと29〜32/32が400点以上になった。学習Runの中で0/16だったGreedyの約5,200 learn step前の重みは、Greedyでも全ゲーム400点だった。
 
 ## 分かっていること
 
@@ -30,6 +30,7 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 - `run.eval_schedule.[tag].interval` で組んだ評価は、step の値によらず初回に必ず 1 回発火する（learn step 0 の未学習の方策の点が入る）。背景の評価は、次の発火のときに前回が終わっていなければ学習が待つ。Atari-5 の 400 エピソードの ε=0 の評価では、未学習の方策が打ち切り上限に張り付いた 2 ゲームで初回の評価が 1 時間級になり、次の発火で学習が 692.6s・885.5s 止まった（出典: [918_eval_schedule_first_fire_10prd.md](../../memo/918_eval_schedule_first_fire_10prd.md)、Context・実測）。
 - LunarLander の TempoRL 有効の Run に `[greedy]` session（行動もスキップ長も greedy、1009 learn step ごと）を足すと、同じ seed の 10/26 の Run と比べて、`[eval]` の最初の点（8448 step、学習前）は一致し、2 点目（14848 step、学習前）から違い、学習側の報酬の EMA も 37 エピソード目から違った。学習の設定は同じ（差は `[greedy]` の actor と tag、既定値のままの新しいキー、表示だけの列番号）。`[greedy]` の初回のエピソードが 2 点の間に入るので、評価 session の追加で同じ seed の乱数の系列が変わった。GridMaze では `[greedy]` を足す前のビルドの 3 本が 10/26 と完全に一致している（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、現時点のまとめ 5・探索ブロック 02、[103_temporl_reference_alignment_10prd.md](../../memo/done/103_temporl_reference_alignment_10prd.md)、§5.7「振る舞いが変わるもの」。Run: run_20261028-131118_t103_ll_mrg_s1 / run_20261026-020453_t98_ll_mrg_s1）。
 - BeamRiderのサンプル効率優先50Mで、設定の差がseedとRun名だけのスキップなし2本のGreedyの35.55〜45.65Mの3回平均は22,914と85,872だった。5.25〜45.65Mの9回で、同じ重みの`53_evalg`と`54_evalgs`の差の平均はスキップなしs1が1,639、s2が2,542、補助学習のみが3,949で、隣の評価（約5.05M後）との差の平均は4,379、16,035、22,027だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ1・探索ブロック01「session の揺れ」。Run: run_20261031-232353_a5_br_aln_btreps_s1 / run_20261103-080630_a5_br_aln_btreps_s2 / run_20261103-220328_a5_br_aln_t104ac_s1）。
+- Montezumaのサンプル効率優先＋RNDの30M（seed 1）で、ε=0.01・τ乱数の評価は14.21Mから400点が続いたが、Greedy（ε=0・τ固定）は20.4Mまで0点、25.45Mに9/16が400点で、5.25M以降のGreedyのゲームは1本を除いて打ち切りで終わった。30Mの重みを4条件・各32ゲームで測ると、ε=0・τ固定が400点以上19/32で、ε=0・τ乱数が29/32、ε=0.01はτ固定・乱数とも32/32だった。exp step 20,066,688で保存した重みは4条件とも全ゲーム400点で、学習Runの中で0/16だったGreedyのsession（exp step 20,400,384）はこの重みより約5,200 learn stepあとだった（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ1・2・5・6・探索ブロック01・04。Run: run_20261108-003056_mz_se_rnd_k32_s1 / run_20261108-110233_mz_se_ev30m_2x2 / run_20261108-111508_mz_se_ev20m_2x2）。
 
 ## 分かっていないこと
 
@@ -51,6 +52,7 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 - [Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD](../../memo/done/094_evalpanel_step_history_10prd.md)。
 - [内的報酬と方策の家族 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/924_intrinsic_reward_novelty_10prd.md)。
 - [replay_ratio_lane_window](../mechanisms/replay_ratio_lane_window.md)。
+- [Montezuma's Revenge](../subjects/montezuma_revenge.md)。
 - [temporal_abstraction](../mechanisms/temporal_abstraction.md)。
 - [TempoRL 第二弾（著者の実装との差）の PRD](../../memo/done/103_temporl_reference_alignment_10prd.md)。
 - [eval スケジュールの初回発火の抑止 暫定 PRD](../../memo/918_eval_schedule_first_fire_10prd.md)。
