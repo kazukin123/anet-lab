@@ -73,7 +73,7 @@
 | 67 | [issue-20261103-52bda0](issue-20261103-52bda0.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
 | 68 | [issue-20261103-5addea](issue-20261103-5addea.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 未確認 | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | 69 | [issue-20261103-66f453](issue-20261103-66f453.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 316_config, 110_runner_app | 索引 | 未確認 | Run キュー（計画スナップショット + exe 固定）暫定 PRD |
-| 70 | [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 322_env_individual, 110_runner_app | 索引 | 未確認 | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の家族 暫定 PRD |
+| 70 | [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 322_env_individual, 110_runner_app | 索引 | 未確認 | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 暫定 PRD |
 | 71 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 未着手 | 1.4 | 中 | — | ハーネス | ハーネス保守 | 311_dev_tools | 改善 | 未確認 | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | 72 | [issue-20261107-2d4932](issue-20261107-2d4932.md) | 未着手 | 1.4 | 中 | — | 成果物 | その他 | 110_runner_app, 324_dqn | 案 | 未確認 | EvalPanelで行動選択のτをランダムと固定で切り替えられず、学んだ行動と学習した価値の判断を見比べられない |
 | 73 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | 中 | — | 成果物 | PRD | 315_nn, 317_metrics, 321_agent_core | 索引 | 未確認 | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |

@@ -5,7 +5,7 @@
 > 2026-10-18 起票。詳細設計は別途グリルで行う前提で、暫定の既定を置き、決めることを §7 に残した。
 > 2026-10-23 改訂: §2 の KFM の見立てを直した。当初の「壁は挑む割合が跳ねる正のフィードバックに火が付くか」は、2026-10-18〜20 の既定の 10M × 16 seed で覆り、挑むことは珍しくなく、壁は挑んでいる間に撃破 ÷ 命中が上がらないことにある（[999_intrinsic_reward_novelty](924_intrinsic_reward_novelty_10prd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。
 > 起点: Atari kung_fu_master（以下 KFM）で、ボス行きに入った Run（seed 3）と入らなかった Run の違いが、設定ではなく seed、つまりネットワークがどの谷に落ちたか（方策そのものの違い）だったこと（§2）。lane ごとの ε や UQE の τ の違い（行動のゆらぎ）では、ボスに挑み続ける方策は生まれなかった。
-> 関連: [924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（段階 3 の方策の家族。目的を変えた方策を 1 つのネットワークで持つ）、[955_seed_population_early_stop_10prd.md](955_seed_population_early_stop_10prd.md)（独立の seed を多数回す側）、[084_noisynet_10prd.md](done/084_noisynet_10prd.md)（lane ごと・episode ごとに保持する仕組みの前例）、[CONTEXT.md](../../CONTEXT.md) の「保持方式」「共有範囲」。
+> 関連: [924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（段階 3 の方策の組。目的を変えた方策を 1 つのネットワークで持つ）、[955_seed_population_early_stop_10prd.md](955_seed_population_early_stop_10prd.md)（独立の seed を多数回す側）、[084_noisynet_10prd.md](done/084_noisynet_10prd.md)（lane ごと・episode ごとに保持する仕組みの前例）、[CONTEXT.md](../../CONTEXT.md) の「保持方式」「共有範囲」。
 
 ## 1. 目的と問題
 
@@ -30,7 +30,7 @@
 - seed 3 は 3-4M にボス命中 10%・撃破 ÷ 命中 0.03 で、2026-10-17 に挑んだが撤退した UQE の腕と同じ水準だった。そこから 4-5M に命中 51% へ跳ね、撃破 ÷ 命中は 4-5M の 0.24 から 5-6M に 0.40、6-7M に 0.71、11-16M に 0.9 まで上がった。
 - 挑むことは珍しくない。seed 3 と同じ既定の設定を 10M で 16 seed 回すと、0.5M 窓の命中率のピークが 10% 以上の Run が 7 本あったが、挑んでいる間に撃破 ÷ 命中が上がった Run は無く、定着した Run も無かった。s08 は挑み始めの撃破 ÷ 命中が 0.22 と seed 3 の 0.24 とほぼ同じだったが、0.14 → 0.09 と下がり、7.5M 以降は挑まなかった。壁は挑み始めることではなく、挑んでいる間に勝ち方を覚えることにある（[999_intrinsic_reward_novelty](924_intrinsic_reward_novelty_10prd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。当初は「壁は稼ぎが固まる前に、挑む割合が跳ねる正のフィードバックに火が付くか」と書いたが、この 16 seed で覆った。
 - 行動のゆらぎでは足りなかった。2026-10-17 の UQE（低い ε）の Run では、4〜12M のボス命中が lane の 4 区分で 7.1% / 7.6% / 10.8% / 10.2% とほぼ一様で、lane ごとの τ の違いがあっても全 lane が 1 つの戦略として挑み、1 つの戦略として撤退した。
-- 方策の多様性には 3 つの段がある（① 行動のゆらぎ、② 目的を変えた方策の家族、③ 別々のパラメータ）。seed 3 との違いは ③ で、本 PRD は ③ を 1 本の Run の中で安く作る。
+- 方策の多様性には 3 つの段がある（① 行動のゆらぎ、② 目的を変えた方策の組、③ 別々のパラメータ）。seed 3 との違いは ③ で、本 PRD は ③ を 1 本の Run の中で安く作る。
 - Bootstrapped DQN（Osband ら 2016）は、Head ごとに別の Q を持ち、エピソードの間 1 つの Head で行動することで、時間的に一貫した探索（deep exploration）を作る。Atari では、遷移を Head ごとに間引く bootstrap の印を付けなくても（全 Head が全遷移を学んでも）、Head の初期値の違いだけで多様性が出たと報告している（本 PRD の既定はこれに従う。原文での照合はグリルの前に行う）。Osband ら 2018 は、Head ごとに固定の乱数の「事前関数」を足すと多様性が保たれることを示した。
 
 ## 3. 現状（2026-10-18 に確認したこと）

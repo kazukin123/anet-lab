@@ -5,7 +5,7 @@
 > 2026-10-18 起票。詳細設計は別途グリルで行う前提で、暫定の既定を置き、決めることを §7 に残した。
 > 2026-10-23 改訂: §2 の KFM の見立てと 16 seed の結果を直し（挑むことは珍しくなく、壁は挑んでいる間に撃破 ÷ 命中が上がらないこと。[999_intrinsic_reward_novelty](924_intrinsic_reward_novelty_10prd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）、§2 の Run 名を今のフォルダ名に直した。§1・§4 の「火が付く」の言い方と打ち切りの規則の例は変えていない。
 > 起点: Atari kung_fu_master（以下 KFM）で、ボス行きに入るかが seed で決まり（既定の実時間優先で 5 本中 1 本）、入った Run は 4-5M に火が付いていたこと（§2）。独立の seed を多数回せば打席は稼げるが、全部を最後まで回すと時間が足りない。火が付かなかった Run だけを早く止め、付いた Run はそのまま最後まで続けたい。
-> 関連: [905_bootstrapped_multihead_q_10prd.md](905_bootstrapped_multihead_q_10prd.md)（1 本の Run の中に別々の価値関数を持つ側）、[924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（段階 3 の方策の家族）、[954_scalar_threshold_rate_10prd.md](954_scalar_threshold_rate_10prd.md)（閾値越え率の汎用化。打ち切りの条件に使える指標）、[927_metric_targeted_hyperparam_control_10prd.md](927_metric_targeted_hyperparam_control_10prd.md)（指標を見て Run 中に設定を動かす側）、[930_serialize_10prd.md](930_serialize_10prd.md)（Run 全体の保存と再開）、[done/016_dropmerge_optuna_10prd.md](done/016_dropmerge_optuna_10prd.md)（Optuna の prune）、[CONTEXT.md](../../CONTEXT.md) の「RAM メトリクス」。
+> 関連: [905_bootstrapped_multihead_q_10prd.md](905_bootstrapped_multihead_q_10prd.md)（1 本の Run の中に別々の価値関数を持つ側）、[924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（段階 3 の方策の組）、[954_scalar_threshold_rate_10prd.md](954_scalar_threshold_rate_10prd.md)（閾値越え率の汎用化。打ち切りの条件に使える指標）、[927_metric_targeted_hyperparam_control_10prd.md](927_metric_targeted_hyperparam_control_10prd.md)（指標を見て Run 中に設定を動かす側）、[930_serialize_10prd.md](930_serialize_10prd.md)（Run 全体の保存と再開）、[done/016_dropmerge_optuna_10prd.md](done/016_dropmerge_optuna_10prd.md)（Optuna の prune）、[CONTEXT.md](../../CONTEXT.md) の「RAM メトリクス」。
 
 ## 1. 目的と問題
 
@@ -92,7 +92,7 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 成功の測り方:
 
 - KFM で、既定の実時間優先・最後までの予算 50M・10M で規則を評価、を 16 seed 回し、火が付いた Run だけが 50M まで回る。全体の時間が、全部を最後まで回す場合のおおむね 3 分の 1 になる。
-- 火が付いた Run の数（16 本中）から、点火の割合を見積もる。これを、内的報酬の方策の家族や Bootstrapped DQN の複数の Head を入れた構成と比べる物差しにする。
+- 火が付いた Run の数（16 本中）から、点火の割合を見積もる。これを、内的報酬の方策の組や Bootstrapped DQN の複数の Head を入れた構成と比べる物差しにする。
 
 受入の目安（詳細はグリルで確定する）:
 

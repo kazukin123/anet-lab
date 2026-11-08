@@ -37,7 +37,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 
 ### 検索による検査
 
-項番 4 は、変更ファイルに無くても検索する。項番 5 は、`impl-plan` として渡された実装計画だけを見る。項番 71 は、現用の範囲を検索する。ほかの項番は、変更ファイルだけを検索する。
+項番 4 は、変更ファイルに無くても検索する。項番 5 は、`impl-plan` として渡された実装計画だけを見る。項番 71 は、現用の範囲を検索する。項番 76 は、変更ファイルの差分の追加行だけを検索する。ほかの項番は、変更ファイルだけを検索する。
 
 | 項番 | 確認観点 | 検索対象 | パターン | 期待値 | 規約の所在 |
 | --- | --- | --- | --- | --- | --- |
@@ -47,6 +47,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 | 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md`（変更ファイルに無くても検索する。課題の仕組みのファイルは対象外） | `rg -n -P -i 'anet(?!-[a-z0-9-]+)'` と `rg -n 'PRD'`。`anet-` で始まる skill・エージェント・アダプタの名前と作業用パスを前者のパターンで除く | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) 先頭の注記 |
 | 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{3}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えた PRD がある | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装計画ファイル解決 |
 | 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図 `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`core/anet-core/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
+| 76 | 直訳の語の不在 | 変更ファイルの差分の追加行（項番 6 で得た差分）。コード・コメント・設計文書・実装計画を含む | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルールの表で、「検索」が「する」の行の避ける語のそれぞれを、固定文字列で | 0 件。外部からの引用と外部の固有名の中は数えない | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルール |
 
 ### スクリプトによる検査
 

@@ -50,7 +50,7 @@ Breakoutではε=0.01で見えない腕の差がε=0に現れ、SNの効果の�
 - [Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)。
 - [遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD](../../memo/done/097_env_auto_reset_after_notification_10prd.md)。
 - [Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD](../../memo/done/094_evalpanel_step_history_10prd.md)。
-- [内的報酬と方策の家族 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/924_intrinsic_reward_novelty_10prd.md)。
+- [内的報酬と方策の組 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/924_intrinsic_reward_novelty_10prd.md)。
 - [replay_ratio_lane_window](../mechanisms/replay_ratio_lane_window.md)。
 - [Montezuma's Revenge](../subjects/montezuma_revenge.md)。
 - [temporal_abstraction](../mechanisms/temporal_abstraction.md)。

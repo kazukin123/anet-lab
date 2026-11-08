@@ -8,14 +8,14 @@
 > 2026-11-07（実装中）: 補助学習の刻みと件数を lane 数（num_envs）に依らない形に改めた（D6・D7・D12・§5.1〜§5.7・§6.2・§8 の 4・5・12・13）。置き場は Push 側（facade の intake）のままとし、exp step 基準の credit と lane の抽選を facade に置き、`Learn` を「渡された観測すべてで 1 step」にした。葉は `intrinsic.rnd.train_fraction` を消して facade の `intrinsic.learn_ratio`・`intrinsic.learn_batch_size` にした（impl.md §名前の 9: Train 側の語を避けて `learn_` に揃え、Learner の `replay_ratio`・`replay_batch_size` と同じ形にする）。`warmup_steps` は採点した観測の件数にした。`Learn` は進めたかを bool で返す（実装中の確認で追加。warm-up 中に何もしなかったことを、呼ぶ側が数えられるようにするため）。経緯は §8.1。
 > 2026-11-07（別の枠の報告を受けて改訂。暫定のまま）: Atari の RND の Network が意図と別の形で組まれていた不具合（§2.1）を直し、Taiga ら（ICLR 2020）の Rainbow＋RND へ anet の設定だけで寄せられる形にした（§1.2・§1.3・§2.1・§3・D1・D2・D4・D5・D6・D8・D12・D13・§5.1〜§5.7・§6.2〜§6.4・§7・§8 の 1・2・14〜17・§8.1 の 6・7・§9・§11）。target と predictor を別々の Network 設定にし（`intrinsic.rnd.target.net.*`・`intrinsic.rnd.predictor.net.*`。別の枠の案 `target_net`・`predictor_net` は、役割の違いを葉の名前ではなく役割の階層で表す impl.md §名前の 1 に合わせて改めた）、Head の初期値を `intrinsic.rnd.head.init.*` で設定にし、倍率の clip と統計をモード値にし（`intrinsic.rnd.multiplier_mode`・`intrinsic.rnd.statistics_mode`）、採点と補助学習に使う観測を `intrinsic.observation` で選べるようにし、`intrinsic.rnd.adam_eps`・診断 4 つ・checkpoint の書式 3 を足した。既定の式（`clipped`・`whiten`・`next_state`）は変えない。Atari の `run.@rnd` の既定の Network は公開実装の形（3 conv・leaky ReLU・直交 √2・predictor に FC 512 ×2・出力 512）にし、NGU の同形・128 は 924 で決める。各既定は別の枠の推奨をユーザーが「一旦おすすめの内容で」と受けたもので、暫定の既定であり合意した決定ではない。§8.1 の 6 にあった「÷ 標準偏差」「[−1, 1] に clip」は原典のコードで確かめて訂正した。経緯は §8.1 の 7。
 > 2026-11-07（夜）: §6.4 の GridMaze から bonus の符号と減少の判定を外した（ユーザーの指示）。GridMaze の観測は (x, y) の 2 値で新しさが最初の数千 step で尽きるため（結果は §7 の GridMaze の行）。§8 に 18（predictor の周期リセット案）を追加した。
-> 起点: [924 §10](924_intrinsic_reward_novelty_10prd.md) は「RND 単独はそれだけでも検証できる独立の腕」とし、§9.1 の比較腕に「RND 単独」を置いている。924 は未決が 23 件あり、エピソード内の新しさ・Replay の契約・方策の家族を一度に決めないと実装へ出せない。RND は Replay も Actor も触らずに作れる唯一の部品なので、先に切り出す。
+> 起点: [924 §10](924_intrinsic_reward_novelty_10prd.md) は「RND 単独はそれだけでも検証できる独立の腕」とし、§9.1 の比較腕に「RND 単独」を置いている。924 は未決が 23 件あり、エピソード内の新しさ・Replay の契約・方策の組を一度に決めないと実装へ出せない。RND は Replay も Actor も触らずに作れる唯一の部品なので、先に切り出す。
 > 関連: [924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（内的報酬の全体。本 PRD はその第一の腕）、索引 issue [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md)、[DQN 系 Agent 設計 §6.2・§8.2](../design/200_dqn_agents.jp.md)、[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)（補助 Network の置き場。§4 D3 で関係を書く）、[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)（checkpoint 読込時の optimizer options）、[CONTEXT.md](../../CONTEXT.md) の「報酬スケーラ」。
 
 ## 1. 問題とゴール
 
 ### 1.1 問題
 
-anet の DQN 系 Agent には、観測の新しさに応じて Agent 自身が足す報酬（内的報酬）が無い。[924](924_intrinsic_reward_novelty_10prd.md) はエピソード内の新しさ（NGU の k 近傍、E3B）、RND による一生の新しさ、方策の家族を 1 本で扱うが、採点点・Replay の契約・方策の表現が未決で、実装の単位にできない。
+anet の DQN 系 Agent には、観測の新しさに応じて Agent 自身が足す報酬（内的報酬）が無い。[924](924_intrinsic_reward_novelty_10prd.md) はエピソード内の新しさ（NGU の k 近傍、E3B）、RND による一生の新しさ、方策の組を 1 本で扱うが、採点点・Replay の契約・方策の表現が未決で、実装の単位にできない。
 
 RND（Random Network Distillation）は、固定の乱数 Network の出力を学習する Network が真似し、その予測誤差を新しさとする方式である。一生の履歴に対する新しさなので lane 別の記憶を持たず、採点は観測 1 つで閉じる。924 §2.5 の見立てでは、KFM のボス戦の壁には効かない（挑み始めると画面に慣れて消える）ので、この腕は KFM では**対照腕**であり、判断に効くのは GridMaze の到達率と、部品・費用・統計の確認である。
 
@@ -31,7 +31,7 @@ RND（Random Network Distillation）は、固定の乱数 Network の出力を�
 | 退けた案 | 扱いと理由 |
 | --- | --- |
 | エピソード内の新しさ（k 近傍・E3B）、Embedding と逆動力学 | 別の関心。924 の再グリルで採点点と Replay の契約を決めてから作る。技術の制約ではなく順序の選択 |
-| 方策の家族（β_i・γ_i の組）、β=0 の評価 | 924 の問い 1・11 で決める。本 PRD の価値は 1 本で、評価も内的報酬込みで学んだ Q を使う |
+| 方策の組（β_i・γ_i を変えた方策）、β=0 の評価 | 924 の問い 1・11 で決める。本 PRD の価値は 1 本で、評価も内的報酬込みで学んだ Q を使う |
 | 内的報酬を外的報酬と別に Replay へ保存すること | Replay の契約の変更（924 問い 4）。本 PRD は Push の前に報酬へ畳む仮の運び方（§4 D2）を使い、924 の契約が入った時点で置き換える。制約ではなく移行の順序 |
 | 2 本の価値 Head（RND 論文の V_E＋V_I）と非エピソード的な内的収益 | 価値の分解は 924 §6 の別の選択肢。本 PRD では終端で切る 1 本の価値のまま |
 | Actor での採点（924 の準備が推す最終形） | 採点を Actor に置くと 1 step 遅れる採点を Replay の注釈で運ぶ契約が要る。facade で次観測を採点すれば終端観測も採点でき契約を増やさない。最終形への移行は 924 |
@@ -403,7 +403,7 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 
 | Run | 見るもの | 本 PRD での位置づけ |
 | --- | --- | --- |
-| GridMaze: 通っていないセルからの到達率 | RND だけで収束後も被覆が続くか。924 §2.7 の見立ては「続かない」。2026-11-07 の Run（256 lane・400k exp step、`run_20261107-212611`）では見立てどおり続かなかった: bonus は warm-up 直後の 9 点以外 0、predictor の誤差は 1e-9、手で通っていないセルへ誘導すると穴へ入る（未踏ではなく off-path の Q の粗さ。§8 の 18） | 判断に効く。続くなら方策の家族の優先度が下がる |
+| GridMaze: 通っていないセルからの到達率 | RND だけで収束後も被覆が続くか。924 §2.7 の見立ては「続かない」。2026-11-07 の Run（256 lane・400k exp step、`run_20261107-212611`）では見立てどおり続かなかった: bonus は warm-up 直後の 9 点以外 0、predictor の誤差は 1e-9、手で通っていないセルへ誘導すると穴へ入る（未踏ではなく off-path の Q の粗さ。§8 の 18） | 判断に効く。続くなら方策の組の優先度が下がる |
 | LunarLander: 既定との比較 | 害の確認（易しい env で成績を落とさないか）。2026-11-08 の `run.@rnd`（β 0.1）3 seed × 2M は、評価側（UQE full `21_eval/02_policy_reward`）の 1.5〜2M が 181.1〜225.5 で、11/05 の基準 9 本の 188.6〜225.7 と同じ帯。害は見えない。ただし bonus は採点 5〜10 万件で消えた（predictor の誤差が whiten の一生平均を下回り続ける。GridMaze と同じ構造）ので、bonus が続く状態での害は未確認。[実験記録](../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md) | 924 §9.1 の害の確認 |
 | KFM 10M × 数 seed、16 seed の基準と比較 | 挑む窓の本数、撃破÷命中、費用 | 対照腕。924 §2.5 の見立てでは壁は越えない |
 | Montezuma: `run.@rainbow_like > run.@rnd > run.@rnd_taiga`、評価側の Greedy の平均点 | Taiga らの Rainbow＋RND（Montezuma）と並ぶ範囲に入るか。寄せない差は §2.1 の表 | 本家再現の確認。合否の数値は 924 問い 21 で置く |
