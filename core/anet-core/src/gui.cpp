@@ -307,16 +307,19 @@ void AuiLayoutFrame::OnTogglePaneMenu(wxCommandEvent& event)
 
     auto& pane = aui_mgr_.GetPane(binding->window);
     if (!pane.IsOk()) return;
+    SetPaneOpen(pane, event.IsChecked());
+}
 
-    // UI の有効状態を経由しないイベントも、状態を書き換える前に止める。
-    if (!event.IsChecked()) {
-        if (!CanHidePane(pane)) return;
-        if (pane.IsMaximized()) aui_mgr_.RestorePane(pane);
-    }
+void AuiLayoutFrame::SetPaneOpen(wxAuiPaneInfo& pane, bool open)
+{
+    // UI の有効状態を経由しない要求も、状態を書き換える前に止める。
+    if (!open && !CanHidePane(pane)) return;
 
-    // 最大化解除で明示的な開閉が巻き戻されないよう、退避フラグも同期する。
-    pane.SetFlag(wxAuiPaneInfo::savedHiddenState, !event.IsChecked());
-    if (event.IsChecked()) {
+    // dock の構成を変える前に最大化を解く。wx も dock 付きの追加や dock への drop では先に解く。
+    // 最大化を残すと、開いた pane が最大化した pane の横に並ぶだけで、サッシも等分も効かない。
+    if (HasMaximizedPane()) aui_mgr_.RestoreMaximizedPane();
+
+    if (open) {
         OnPaneShowing(pane);
     } else {
         // 非表示化で dock が消える前に、実 dock サイズを pane 側へ退避する
@@ -324,7 +327,7 @@ void AuiLayoutFrame::OnTogglePaneMenu(wxCommandEvent& event)
         OnPaneHiding(pane);
     }
 
-    pane.Show(event.IsChecked());
+    pane.Show(open);
     aui_mgr_.Update();
     ApplyLayoutPolicy();
 }

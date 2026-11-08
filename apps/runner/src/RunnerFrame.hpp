@@ -161,4 +161,5 @@ private:
     std::optional<PanePlacement> q_value_placement_; ///< 最後に見た表示中の Q-Values の置き場
     bool main_pane_update_scheduled_ = false;
     bool main_pane_layout_update_needed_ = false;
+    bool had_maximized_pane_ = false; ///< 前回の定期更新で最大化中のpaneがあったか（イベントの無い解除を拾う）
 };

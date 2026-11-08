@@ -149,6 +149,22 @@ struct MainPaneFixture {
         Settle();
     }
 
+    void RunControl(const wxString& label)
+    {
+        // Run Control toolbarのボタンを、表示名で探して公開のtoolイベントで押す。
+        auto* toolbar = dynamic_cast<wxAuiToolBar*>(Manager().GetPane("RunControlToolBar").window);
+        REQUIRE(toolbar);
+        wxAuiToolBarItem* tool = nullptr;
+        for (size_t i = 0; i < toolbar->GetToolCount(); ++i) {
+            auto* candidate = toolbar->FindToolByIndex(static_cast<int>(i));
+            if (candidate->GetLabel() == label) tool = candidate;
+        }
+        REQUIRE(tool);
+        wxCommandEvent event(wxEVT_TOOL, tool->GetId());
+        toolbar->GetEventHandler()->ProcessEvent(event);
+        Settle();
+    }
+
     void Fps(const char* label)
     {
         auto* menu = frame->GetMenuBar()->FindItem(MenuId("Train View FPS"))->GetSubMenu();
@@ -766,28 +782,15 @@ TEST_CASE("Eval Step and Resume reclaim its centre without a fallback", "[.][prd
     ui.Train().Dock().Left().Layer(2).Row(1).Position(3);
     ui.Manager().Update();
     ui.Settle();
-    const auto control = [&](const wxString& label) {
-        auto* toolbar = dynamic_cast<wxAuiToolBar*>(ui.Manager().GetPane("RunControlToolBar").window);
-        REQUIRE(toolbar);
-        wxAuiToolBarItem* tool = nullptr;
-        for (size_t i = 0; i < toolbar->GetToolCount(); ++i) {
-            auto* candidate = toolbar->FindToolByIndex(static_cast<int>(i));
-            if (candidate->GetLabel() == label) tool = candidate;
-        }
-        REQUIRE(tool);
-        wxCommandEvent event(wxEVT_TOOL, tool->GetId());
-        toolbar->GetEventHandler()->ProcessEvent(event);
-        ui.Settle();
-    };
     // メニューの表示トグル以外からの再表示も、元のCentreを取り戻す。
     ui.Toggle("Evaluation View", false);
-    control("Step");
+    ui.RunControl("Step");
     CHECK(ui.Eval().IsShown());
     CHECK(ui.Eval().dock_direction == wxAUI_DOCK_CENTER);
     CHECK(ui.Train().dock_direction == wxAUI_DOCK_LEFT);
     CHECK(ui.Train().dock_layer == 2);
     ui.Toggle("Evaluation View", false);
-    control("Eval");
+    ui.RunControl("Eval");
     CHECK(ui.Eval().IsShown());
     CHECK(ui.Eval().dock_direction == wxAUI_DOCK_CENTER);
     CHECK(ui.Train().dock_direction == wxAUI_DOCK_LEFT);
@@ -810,7 +813,13 @@ TEST_CASE("Maximized main panes restore before hiding and preserve explicit clos
 
     ui.Toggle("Train View", true);
     ui.Button(ui.Train().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    // 最大化で隠れた相方を閉じる操作も、先に最大化を解いてから閉じる。
     ui.Toggle("Evaluation View", false);
+    CHECK_FALSE(ui.Train().IsMaximized());
+    CHECK(ui.Train().IsShown());
+    CHECK_FALSE(ui.Eval().IsShown());
+    // ひとりで最大化したTrainの✕は拒否され、最大化も保たれる。
+    ui.Button(ui.Train().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
     CHECK_FALSE(ui.Train().HasCloseButton());
     ui.Close(ui.Train().window);
     CHECK(ui.Train().IsShown());
@@ -838,7 +847,7 @@ TEST_CASE("Maximized main panes restore before hiding and preserve explicit clos
     ui.Button(logs, wxAUI_BUTTON_MAXIMIZE_RESTORE);
     CHECK(ui.Train().IsShown());
     CHECK(TrainPanelProbe::Timer(ui.TrainView()).IsRunning());
-    // 補助pane最大化中の再表示でも、元の占有者を正しく選ぶ。
+    // 補助pane最大化中の再表示は、最大化を解いてから元の占有者を正しく選ぶ。
     ui.Toggle("Evaluation View", true);
     ui.Train().Float();
     ui.Manager().Update();
@@ -849,13 +858,106 @@ TEST_CASE("Maximized main panes restore before hiding and preserve explicit clos
     ui.Toggle("Evaluation View", false);
     ui.Button(logs, wxAUI_BUTTON_MAXIMIZE_RESTORE);
     ui.Toggle("Evaluation View", true);
-    ui.Button(logs, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    CHECK_FALSE(ui.Manager().GetPane(logs).IsMaximized());
+    CHECK(ui.Train().IsShown());
     CHECK(ui.Train().dock_direction == wxAUI_DOCK_LEFT);
     CHECK(ui.Train().dock_layer == 2);
     CHECK(ui.Eval().dock_direction == wxAUI_DOCK_CENTER);
     ui.CheckToggle("Train View", true, true);
     ui.CheckToggle("Evaluation View", true, true);
 
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Toggling a pane while another is maximized restores the layout first", "[.][prd110_main_pane][prd110_maximize_toggle]")
+{
+    MainPaneFixture ui;
+    ui.Start();
+    ui.frame->SetClientSize(wxSize(1600, 800));
+    ui.Settle();
+    auto* logs = ui.Manager().GetPane("LogPanel").window;
+    // 既定ではEvalだけがCentreにある。Evalを最大化してから、閉じていたTrainをツールバーで開く。
+    ui.Button(ui.Eval().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    REQUIRE(ui.Eval().IsMaximized());
+    REQUIRE_FALSE(ui.Manager().GetPane(logs).IsShown());
+    ui.Toggle("Train View", true, true);
+    // 最大化したpaneの横に並べず、最大化前の配置へ戻してから開くので、Logsも戻り主paneは等分になる。
+    CHECK_FALSE(ui.Eval().IsMaximized());
+    CHECK(ui.Manager().GetPane(logs).IsShown());
+    CHECK(ui.Train().dock_direction == wxAUI_DOCK_CENTER);
+    ui.CheckMainSplit();
+    ui.CheckMainCaptions();
+
+    // 最大化で隠れているだけのpaneを閉じる操作も、先に最大化を解いてから閉じる。
+    ui.Button(ui.Train().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    REQUIRE(ui.Train().IsMaximized());
+    ui.Toggle("Log View", false, true);
+    CHECK_FALSE(ui.Train().IsMaximized());
+    CHECK(ui.Eval().IsShown());
+    CHECK_FALSE(ui.Manager().GetPane(logs).IsShown());
+    ui.CheckMainSplit();
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Eval Step while another pane is maximized restores the layout before showing Eval", "[.][prd110_main_pane][prd110_maximize_eval_show]")
+{
+    MainPaneFixture ui;
+    ui.Start("app.main_view = train\n");
+    REQUIRE(ui.Train().IsShown());
+    REQUIRE_FALSE(ui.Eval().IsShown());
+    ui.Button(ui.Train().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    REQUIRE(ui.Train().IsMaximized());
+    // 閉じていたEvalをStepで出すときも、最大化を解いてから出す。
+    ui.RunControl("Step");
+    CHECK_FALSE(ui.Train().IsMaximized());
+    CHECK(ui.Eval().IsShown());
+    CHECK(ui.Manager().GetPane("LogPanel").IsShown());
+    // 出したEvalは開いた扱いなので、Trainを隠すとEvalがCentreを継ぎ、保険は動かない。
+    ui.Toggle("Train View", false);
+    CHECK_FALSE(ui.Train().IsShown());
+    CHECK(ui.Eval().IsShown());
+    CHECK(ui.Eval().dock_direction == wxAUI_DOCK_CENTER);
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("Reset Layout during maximize leaves the sashes usable", "[.][prd110_main_pane][prd110_maximize_reset]")
+{
+    MainPaneFixture ui;
+    ui.Start("app.main_view = both\n");
+    ui.frame->SetClientSize(wxSize(1600, 800));
+    ui.Settle();
+    ui.Button(ui.Eval().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    REQUIRE(ui.Eval().IsMaximized());
+    ui.Reset();
+    CHECK_FALSE(ui.Eval().IsMaximized());
+    ui.CheckMainSplit();
+    // TrainとEvalの境目のサッシの上では、wxがサイズ変更のカーソルを返す。
+    // wxの最大化の印が残ると、サッシ自体が作られずカーソルも返らない。
+    const wxRect eval = ui.Eval().rect;
+    bool sizing_cursor = false;
+    for (int offset = 1; offset <= 16 && !sizing_cursor; ++offset) {
+        wxSetCursorEvent event(eval.GetLeft() - offset, eval.GetTop() + eval.GetHeight() / 2);
+        ui.frame->GetEventHandler()->ProcessEvent(event);
+        sizing_cursor = event.HasCursor();
+    }
+    CHECK(sizing_cursor);
+    ui.CheckNoMainPaneFallback();
+}
+
+TEST_CASE("A maximize released without a restore event resumes the Train view", "[.][prd110_main_pane][prd110_maximize_dock_release]")
+{
+    MainPaneFixture ui;
+    ui.Start("app.main_view = both\n");
+    ui.Settle();
+    REQUIRE(TrainPanelProbe::Timer(ui.TrainView()).IsRunning());
+    ui.Button(ui.Eval().window, wxAUI_BUTTON_MAXIMIZE_RESTORE);
+    REQUIRE_FALSE(TrainPanelProbe::Timer(ui.TrainView()).IsRunning());
+    // floatのpaneをdockへ落としたときのwxと同じく、restoreのイベントを出さずに最大化を解く。
+    ui.Manager().RestoreMaximizedPane();
+    ui.Manager().Update();
+    ui.Settle();
+    CHECK(ui.Train().IsShown());
+    CHECK(TrainPanelProbe::Timer(ui.TrainView()).IsRunning());
     ui.CheckNoMainPaneFallback();
 }
 

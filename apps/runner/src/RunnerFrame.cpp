@@ -1326,7 +1326,7 @@ void RunnerFrame::HideAuxPanes()
         if (!pane) continue;
         pane->SetFlag(wxAuiPaneInfo::savedHiddenState, true);
         OnPaneHiding(*pane);
-        pane->Show(false).Restore();
+        pane->Show(false);
         pane->Dock().Right().Layer(kAuxLayer).Row(0).Position(0);
         pane->dock_size = kDefaultAuxDockWidth;   // 幅の記憶も既定へ戻す
     }
@@ -1334,6 +1334,8 @@ void RunnerFrame::HideAuxPanes()
 
 void RunnerFrame::RestoreDefaultPanes()
 {
+    // 最大化は wx の解除の口で解く。pane の印を消すだけでは wx 内部の最大化の状態が残り、サッシが作られない。
+    aui_mgr_.RestoreMaximizedPane();
     // Reset の復帰先は起動時の設定。昇格前の位置の記憶もリセットする。
     promoted_dock_position_.reset();
     // toolbar はフロート中でも上端 Row 0 の既定順へ回収する。縁へのドラッグで wx が置く layer 10 からも外側へ戻す。
@@ -1345,34 +1347,34 @@ void RunnerFrame::RestoreDefaultPanes()
         if (!pane.IsOk()) continue;
         // ToolbarPane()は pane 側のgripperも再度有効化するため、AddPane後と同じく
         // wxAuiToolBar内蔵gripperだけが残る状態へ戻す。
-        pane.Show(true).Restore().Dock().ToolbarPane().Gripper(false)
+        pane.Show(true).Dock().ToolbarPane().Gripper(false)
             .Top().Layer(kToolBarLayer).Row(0).Position(position).CloseButton(false);
     }
 
     auto& log_pane = aui_mgr_.GetPane(log_panel_);
     if (log_pane.IsOk()) {
-        log_pane.Show(true).Dock().Bottom().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
+        log_pane.Show(true).Dock().Bottom().Layer(kTrainEvalLayer).Row(0).Position(0);
         log_pane.BestSize(400, kDefaultLogDockHeight).MinSize(100, 100).FloatingSize(800, 400);
         log_pane.dock_size = kDefaultLogDockHeight;
     }
 
     auto& train_pane = aui_mgr_.GetPane(train_panel_);
     if (train_pane.IsOk()) {
-        train_pane.Show(main_view_ != MainView::Eval).Dock().Centre().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
+        train_pane.Show(main_view_ != MainView::Eval).Dock().Centre().Layer(kTrainEvalLayer).Row(0).Position(0);
         train_pane.BestSize(kMinTrainWidth, 400).MinSize(200, 200);
         train_pane.dock_size = 0;
     }
 
     auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
     if (eval_pane.IsOk()) {
-        eval_pane.Show(main_view_ != MainView::Train).Dock().Right().Layer(kTrainEvalLayer).Row(0).Position(0).Restore();
+        eval_pane.Show(main_view_ != MainView::Train).Dock().Right().Layer(kTrainEvalLayer).Row(0).Position(0);
         eval_pane.BestSize(kMinEvalWidth, 400).MinSize(200, 200);
         eval_pane.dock_size = kMinEvalWidth;
     }
 
     auto& q_value_pane = aui_mgr_.GetPane(q_value_panel_);
     if (q_value_pane.IsOk()) {
-        q_value_pane.Show(false).Dock().Right().Layer(kQValueLayer).Row(0).Position(0).Restore();
+        q_value_pane.Show(false).Dock().Right().Layer(kQValueLayer).Row(0).Position(0);
         ApplyQValuePaneSize(q_value_pane);
         q_value_pane.dock_size = q_value_pane.best_size.x;
     }
@@ -1543,7 +1545,6 @@ void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))
         info.dock_pos = live.dock_pos;
         info.dock_size = live.dock_size;
         info.is_hidden = !live.IsShown();
-        info.is_maximized = false;    // RestoreDefaultPanes で Restore 済み
     }
     ApplyLayoutSnapshot(std::move(snapshot));
 
@@ -1570,11 +1571,8 @@ void RunnerFrame::ShowEvalPaneIfHidden()
     auto& pane = aui_mgr_.GetPane(eval_panel_);
     if (!pane.IsOk() || pane.IsShown()) return;
 
-    // 自動表示も通常の復帰フックを通し、元の占有者の再表示を先に処理する。
-    OnPaneShowing(pane);
-    pane.Show(true);
-    aui_mgr_.Update();
-    ApplyLayoutPolicy();
+    // 自動表示もメニューと同じ開く口を通す。最大化を先に解き、元の占有者の再表示を先に処理する。
+    SetPaneOpen(pane, true);
 }
 
 void RunnerFrame::ToggleEvalPause()
@@ -1666,8 +1664,11 @@ void RunnerFrame::OnUpdateTrainStatus(wxUpdateUIEvent& WXUNUSED(event))
 {
     UpdateTrainStatus();
     ApplyAlwaysOnTopMode();
-    // ドラッグのfloatには遷移フックがないため、既存の更新で占有規則も当て直す。
     const bool maximized = HasMaximizedPane();
+    // floatのpaneをdockへ落とすと、wxはrestoreのイベントを出さずに最大化を解く。
+    // 解けたことを状態の変化で拾い、restoreボタンと同じくポリシー（Trainの描画timerを含む）を当て直す。
+    if (std::exchange(had_maximized_pane_, maximized) && !maximized) SchedulePolicy();
+    // ドラッグのfloatには遷移フックがないため、既存の更新で占有規則も当て直す。
     const bool layout_changed = !maximized
         && ApplyMainPaneLayout(aui_mgr_.GetPane(train_panel_).IsShown(), aui_mgr_.GetPane(eval_panel_).IsShown());
     const bool controls_changed = UpdateMainPaneControls();

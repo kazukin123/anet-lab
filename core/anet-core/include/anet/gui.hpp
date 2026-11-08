@@ -115,10 +115,10 @@ namespace anet::rl::gui {
         /// レイアウトポリシー適用フック。表示遷移後・リサイズ後・restore 後に呼ばれる。
         virtual void OnApplyLayoutPolicy() {}
         
-        /// pane 非表示化の直前 (メニュー OFF / ✕ボタン共通) の追加処理。
+        /// pane 非表示化の直前 (SetPaneOpen で閉じるとき / ✕ボタン共通) の追加処理。
         virtual void OnPaneHiding(wxAuiPaneInfo& WXUNUSED(pane)) {}
 
-        /// pane 表示の直前 (メニュー ON) の追加処理。
+        /// pane 表示の直前 (SetPaneOpen で開くとき) の追加処理。
         virtual void OnPaneShowing(wxAuiPaneInfo& WXUNUSED(pane)) {}
 
         /// 現在の構成で pane を隠せるか。各導線は変更の前に同じ判定を使う。
@@ -132,6 +132,10 @@ namespace anet::rl::gui {
  
         // pane とメニュー項目を対応付け、表示トグル・✕連動・チェック同期を有効にする
         void RegisterPaneMenu(int menu_id, wxWindow* window);
+ 
+        // 利用者の操作として pane を開閉する (メニュー・ツールバーと、派生の自動表示の共通の口)。
+        // 隠せない pane は変えない。最大化中は先に最大化を解く。
+        void SetPaneOpen(wxAuiPaneInfo& pane, bool open);
  
         // 登録済み pane の表示状態をメニューのチェックへ反映する
         void UpdatePaneMenuChecks();
