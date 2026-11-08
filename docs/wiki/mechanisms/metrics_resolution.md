@@ -12,8 +12,7 @@
 
 ## 分かっていないこと
 
-- 現行実装が4子だと確認したPRD934に対し、設計160内のfactor4と「完成した16子」というLODの説明は、どう整合するか（出典: [アプリケーションとツール §2.2](../../design/160_applications_and_tools.jp.md#22-metrics-viewer)、[同 §7.2](../../design/160_applications_and_tools.jp.md#72-metrics-viewer)、[PRD934](../../memo/934_metrics_viewer_lod_documentation_consistency_10prd.md)、問題・ゴールと範囲）？
-なし
+なし。
 
 ## 撤回・更新
 
