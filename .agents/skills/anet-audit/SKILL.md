@@ -43,7 +43,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 
 1. lensとscopeを確定する。観点ファイル、設計文書、必要なADRを読む。refactor・architectureは実装の地図と、選ばなかった形・変えるときの条件も先に読む。
 2. コードと文書を読み取りだけで確かめる。ビルドとテストは実行しない。
-3. 範囲にareaが当たる、次版・解決でなくtypeが索引でない既存issueを本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残件有り」、消えたなら「直った見込み」、判断できなければ「判断できない」をanet-update-issueの「判定」で記録する。statusと監理の項目は変えない。新しい根拠は本文へ追記できる。
+3. 範囲にareaが当たる、次版・解決でなくtypeが索引でない既存issueを本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残件有り」、消えたなら「残件無し」、判断できなければ「判定不能」をanet-update-issueの「判定」で記録する。statusと監理の項目は変えない。新しい根拠は本文へ追記できる。
 4. 新しい指摘はanet-create-issueの「分け方」で既存との重複を判定し、同じなら追記し、違えば起票する。phaseは監査。defect→不具合、drift→ずれ、refactor・architecture・test-gap・process→改善、backlog→調査。kindはprocessだけハーネス、ほかは成果物。areaは範囲に当たるcategories.jsonのkeyの並びとする。
 5. 新規はmax以内（既定8件）で、WSJFの大きいものから記録する。WSJFの4つの値とpriorityの置き方、本文の構成はanet-create-issueに従う。
 6. repoの.venvからreports/tools/wiki_support.py mapsを実行してINDEXと地図の課題区画を再生成する。入力の不備で失敗したら成功扱いしない。

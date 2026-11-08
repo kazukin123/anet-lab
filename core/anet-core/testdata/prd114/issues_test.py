@@ -48,7 +48,7 @@ class IssueViewsTest(unittest.TestCase):
 
     def issue(self,suffix='000001',**changes):
         data = dict(id='issue-20261103-'+suffix,title='課題 '+suffix,status='未着手',raised='2026-11-03',phase='監査',scope='test',kind='成果物',
-                    area=['311_dev_tools'],type='改善',ai_judge=None,ai_judged=None,docs=[],priority='中',depends=[],parent=None,
+                    area=['311_dev_tools'],type='改善',ai_judge='未確認',ai_judged=None,docs=[],priority='中',depends=[],parent=None,
                     value=5,urgency=5,risk=3,size=5,wsjf=2.6,resolved=None)
         data.update(changes)
         self.write('docs/management/issues/'+data['id']+'.md','---\n'+yaml.safe_dump(data,allow_unicode=True,sort_keys=False)+'---\n\n## 背景\nfixture\n')
@@ -105,14 +105,33 @@ class IssueViewsTest(unittest.TestCase):
         paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
         before = {path:path.read_bytes() for path in paths}
         # 追加欄を1つずつ壊し、拒否理由と全出力の不変を確かめる。
-        for field,value in [('type','unknown'),('ai_judge','unknown'),('area',['unknown']),('docs',['docs/missing.md'])]:
-            with self.subTest(field=field):
+        for field,value in [('type','unknown'),('ai_judge','unknown'),('ai_judge',None),('ai_judge',''),('area',['unknown']),('docs',['docs/missing.md'])]:
+            with self.subTest(field=field,value=value):
                 self.issue(**{field:value})
                 error = self.cli(success=False)
                 self.assertIn('issue-20261103-000001.md',error)
                 self.assertIn(field,error)
                 self.assertIn('expected',error)
                 self.assertEqual({path:path.read_bytes() for path in paths},before)
+
+    def test_ai_judged_must_match_whether_ai_judge_is_a_judgement(self):
+        # 正常な生成結果を保存し、判定と日付の組み合わせだけを壊す。
+        self.issue()
+        self.cli()
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
+        before = {path:path.read_bytes() for path in paths}
+        # 未確認に日付がある組と、判定に日付が無い組を、どちらも拒否する。
+        for judge,judged in (('未確認','2026-11-09'),('残件有り',None),('残件無し',''),('判定不能',None),('実装済み',None)):
+            with self.subTest(ai_judge=judge,ai_judged=judged):
+                self.issue(ai_judge=judge,ai_judged=judged)
+                error = self.cli(success=False)
+                self.assertIn('ai_judged',error)
+                self.assertEqual({path:path.read_bytes() for path in paths},before)
+        # 5 つの値は、判定の有無に合った日付となら受け付ける。
+        for judge,judged in (('未確認',None),('残件有り','2026-11-09'),('残件無し','2026-11-09'),('判定不能','2026-11-09'),('実装済み','2026-11-09')):
+            with self.subTest(ai_judge=judge,ai_judged=judged,accepted=True):
+                self.issue(ai_judge=judge,ai_judged=judged)
+                self.cli()
 
     def test_active_wsjf_crosses_held_prerequisite_without_using_held_own_score(self):
         # 保留を間に挟み、保留自身の点数は活動中の課題より高くする。

@@ -255,7 +255,7 @@ def validate_issue(root, path, record):
             raise ValueError(f'{path}: {key}={record.get(key)!r}; expected {expected}')
     for key, values in (
         ('type',('不具合','ずれ','改善','案','調査','索引')),
-        ('ai_judge',(None,'','残件有り','直った見込み','判断できない','実装済み')),
+        ('ai_judge',('未確認','残件有り','残件無し','判定不能','実装済み')),
         ('status',('未着手','調査中','対応中','中断中','保留','次版','解決')),
         ('kind',('成果物','ハーネス')),
         ('phase',('PRD','実装','監査','ハーネス保守','その他')),
@@ -287,7 +287,8 @@ def validate_issue(root, path, record):
         except (ValueError,TypeError):
             require(key,False,'a YYYY-MM-DD date')
         record[key] = str(value)
-    require('ai_judged',not record.get('ai_judge') or bool(record.get('ai_judged')),'a date when ai_judge is set')
+    # 未確認は判定していない印なので日付を持たず、ほかの4値は判定した日付を持つ。
+    require('ai_judged',(record['ai_judge']=='未確認')==(record.get('ai_judged') in (None,'')),'empty when ai_judge is 未確認, otherwise a date')
     # WSJFの元の値は離散的な見立てであり、端数を黙って補正しない。
     from decimal import Decimal, ROUND_HALF_UP
     import math
@@ -369,7 +370,7 @@ def issue_table(root, page, records, all_records=None):
             link = Path(os.path.relpath(source,page.parent)).as_posix()
             waiting.append(f'[{key}]({link})' if source.exists() else key+'（無い）')
         cells = [number, f"[{record['id']}]({target})", record['status'], wsjf, record.get('priority','—'), ', '.join(waiting) or '—',
-                 record['kind'], record['phase'], ', '.join(record['area']) or '—', record['type'], record.get('ai_judge') or '未確認', record['title']]
+                 record['kind'], record['phase'], ', '.join(record['area']) or '—', record['type'], record['ai_judge'], record['title']]
         lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
     if records:
         lines += ['', ' / '.join(f'{label} {sum(r.get("_group")==group for r in records)}' for group,label in enumerate(('着手できる','待ち','保留','次版','解決'),1))]

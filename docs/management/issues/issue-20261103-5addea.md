@@ -8,7 +8,7 @@ scope: "PRD 079: .cpp の内部リンケージと namespace インデント規�
 kind: "成果物"
 area: ["311_dev_tools", "318_rl_core", "315_nn", "312_util", "317_metrics", "321_agent_core", "319_gui", "316_config", "322_env_individual", "324_dqn", "110_runner_app", "325_muzero", "313_profiling"]
 type: "索引"
-ai_judge: 
+ai_judge: "未確認"
 ai_judged: 
 docs: ["docs/memo/079_cpp_internal_linkage_convention_10prd.md"]
 priority: "低"

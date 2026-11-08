@@ -51,7 +51,7 @@
 | 45 | [issue-20261103-cdac7c](issue-20261103-cdac7c.md) | 未着手 | 2.2 | 中 | — | 成果物 | PRD | 321_agent_core | 索引 | 未確認 | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD |
 | 46 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 321_agent_core | 不具合 | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | 47 | [issue-20261103-39ddb2](issue-20261103-39ddb2.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
-| 48 | [issue-20261103-73a449](issue-20261103-73a449.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判断できない | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 48 | [issue-20261103-73a449](issue-20261103-73a449.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判定不能 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
 | 49 | [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
 | 50 | [issue-20261103-7c8cd7](issue-20261103-7c8cd7.md) | 未着手 | 2.0 | 中 | — | 成果物 | PRD | 316_config | 索引 | 未確認 | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ）暫定 PRD |
 | 51 | [issue-20261103-7f1789](issue-20261103-7f1789.md) | 未着手 | 2.0 | 中 | — | 成果物 | PRD | 315_nn, 322_env_individual | 索引 | 未確認 | 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 PRD |
@@ -67,7 +67,7 @@
 | 61 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | 中 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | 索引 | 未確認 | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）暫定 PRD |
 | 62 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | 中 | — | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 改善 | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
 | 63 | [issue-20261103-e6dbb4](issue-20261103-e6dbb4.md) | 未着手 | 1.4 | 中 | — | 成果物 | 監査 | 317_metrics | 改善 | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
-| 64 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | 中 | — | 成果物 | 監査 | 312_util | 不具合 | 判断できない | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
+| 64 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | 中 | — | 成果物 | 監査 | 312_util | 不具合 | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
 | 65 | [issue-20261103-182ca1](issue-20261103-182ca1.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 索引 | 未確認 | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 暫定 PRD |
 | 66 | [issue-20261103-50644a](issue-20261103-50644a.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 317_metrics, 320_env_core, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 未確認 | 評価 session の step trace を Run の記録に残す PRD |
 | 67 | [issue-20261103-52bda0](issue-20261103-52bda0.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
