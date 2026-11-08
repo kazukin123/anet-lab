@@ -46,7 +46,7 @@
 
 | 工程 | 入口 | 扱い |
 | --- | --- | --- |
-| 要件定義・PRD の作成／改訂 | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md) | PRD が設計契約も持つ。起草・自己点検・レビュー後に停止する |
+| 要件定義・PRD の作成／改訂 | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md) | PRD が設計契約も持つ。起草・自己点検・レビュー後に停止する（暫定の印が残る PRD はレビューを受けない。下の読み替え表） |
 | 設計 | 独立した工程は置かない | PRD の実装契約に含める |
 | 実装計画・実装・検証 | [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/SKILL.md) | 保存済み計画から実装し、自己点検・レビュー後に停止する |
 | コミット | [anet-prepare-commit](../../.agents/skills/anet-prepare-commit/SKILL.md)、人間 | 工程を終えた側が、完了報告で skill を実行するかを聞く（[AGENTS.md](../../AGENTS.md) の「コミットの準備を提案する」）。skill が文案を作り、選ばれたらステージする。commit と push は人間が行う |
@@ -78,6 +78,7 @@
 | 自己点検で残った未決は、まとめて 1 問で聞く。まとめた問いから除くのは、標準で決まる事項と、主要な流れを止める事項ですでに聞いたものだけである（1 節） | `anet-create-prd` は、自己点検で見つけた目的のずれを、まとめた問いに入れず、その前に別の 1 問で聞く。選択肢は「ゴールを変える」「ずれた部分を戻す」である。主要な流れを止める事項（1.2 節）としては扱わないので、「決めずに進める」「決まるまで止める」は置かない。ゴールの変更を「推奨案で埋める」で一括に決めないためである |
 | 残る項目を推奨案とともに並べて 1 問で聞くのは、質疑を切り上げるとき（1.2 節） | `anet-create-prd` は、後で要るので同時に作るものの細部も、この形で聞く（[anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md#scope-screen) の「scope screen」）。契約は 1 問ずつ詰め、細部の往復だけをまとめるためである |
 | Step 2 の質疑（1.2 節） | 「暫定」と指示された起票では、質疑を省き、置いた既定も決めきれない点も未決表へ書く（[anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md#暫定と-plan-mode) の「暫定と Plan Mode」） |
+| Step 4・5 のレビュー（1 節） | 作業を終えた時点で暫定の印が残る PRD は、`anet-create-prd` ではレビューに出さない。PRD を使うときに受ける。再グリルで印を外すときは `anet-create-prd` の段6、印があるまま実装に入るときは [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md#暫定の印がある-prd) の「暫定の印がある PRD」 |
 | 課題記録への起票 | `docs/management/issues/` の issue。新規か既存への追記かは `anet-create-issue` の「分け方」。工程中の未決は PRD の未決表か `/// @todo` にも置ける。工程末に issue にした件は、未決表と `/// @todo` に ID を添える（7 節の段階3） |
 | 起票の候補の区分（新規・既存へ追記・見送り推奨。7 節） | 「この場で直す」を足した4区分。条件と流れは下の節による |
 | 作業記録の発番（接頭辞 worklog） | 使わない。PRD と実装計画が作業記録を兼ねる |
