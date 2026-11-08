@@ -1,0 +1,342 @@
+{
+  "medians_seconds": {
+    "off": 23.260998772457242,
+    "on": 31.147996976505965
+  },
+  "on_off_ratio": 1.3390653291030443,
+  "overhead_percent": 33.906532910304435,
+  "experiences_per_second": {
+    "off": 7120.588484623482,
+    "on": 5317.581099193359
+  },
+  "acceptance": "No speed threshold; record timing and Tracy breakdown",
+  "ranges_seconds": {
+    "off": [
+      21.18399941828102,
+      24.516001855954528
+    ],
+    "on": [
+      30.069997790269554,
+      31.587000098079443
+    ]
+  },
+  "cycle_ratios": [
+    1.4083628732857127,
+    1.3177138632983671,
+    1.3057483157164014
+  ],
+  "tracy": {
+    "intrinsic_intakes": 171,
+    "observation_count": 43776,
+    "intrinsic_total_ms": 2339.369809,
+    "intrinsic_ms_per_intake": 13.68052519883041,
+    "complete_zone_span_seconds": 8.134469016,
+    "intrinsic_percent_span": 28.758727882528085,
+    "functions": {
+      "RndNoveltyEstimator::Learn": {
+        "count": 342,
+        "total_ns": 1208895006,
+        "mean_us": 3534.7807192982455,
+        "total_ms": 1208.895006,
+        "percent_intrinsic": 51.67609675687663
+      },
+      "RndNoveltyEstimator::Estimate": {
+        "count": 171,
+        "total_ns": 1107470096,
+        "mean_us": 6476.433309941521,
+        "total_ms": 1107.470096,
+        "percent_intrinsic": 47.34053127211235
+      }
+    },
+    "phases": {
+      "predictor_forward": {
+        "count": 513,
+        "total_ns": 643572366,
+        "mean_us": 1254.527029239766,
+        "total_ms": 643.572366,
+        "percent_intrinsic": 27.510501483094075
+      },
+      "backward": {
+        "count": 342,
+        "total_ns": 385904180,
+        "mean_us": 1128.3747953216375,
+        "total_ms": 385.90418,
+        "percent_intrinsic": 16.496074221157908
+      },
+      "error_transfer": {
+        "count": 513,
+        "total_ns": 27872125,
+        "mean_us": 54.33162768031189,
+        "total_ms": 27.872125,
+        "percent_intrinsic": 1.1914373218278973
+      },
+      "normalize": {
+        "count": 513,
+        "total_ns": 28687881,
+        "mean_us": 55.92179532163743,
+        "total_ms": 28.687881,
+        "percent_intrinsic": 1.2263080804767281
+      },
+      "observation_transfer": {
+        "count": 513,
+        "total_ns": 798994,
+        "mean_us": 1.5574931773879144,
+        "total_ms": 0.798994,
+        "percent_intrinsic": 0.03415424089539492
+      },
+      "statistics": {
+        "count": 171,
+        "total_ns": 110365771,
+        "mean_us": 645.413865497076,
+        "total_ms": 110.365771,
+        "percent_intrinsic": 4.717756490461744
+      },
+      "optimizer_step": {
+        "count": 342,
+        "total_ns": 435149792,
+        "mean_us": 1272.3678128654972,
+        "total_ms": 435.149792,
+        "percent_intrinsic": 18.601154478693196
+      },
+      "target_forward": {
+        "count": 513,
+        "total_ns": 677505648,
+        "mean_us": 1320.6737777777778,
+        "total_ms": 677.505648,
+        "percent_intrinsic": 28.961032385453002
+      },
+      "input_transfer": {
+        "count": 513,
+        "total_ns": 225649,
+        "mean_us": 0.43986159844054584,
+        "total_ms": 0.225649,
+        "percent_intrinsic": 0.009645717369348165
+      },
+      "result_transfer": {
+        "count": 171,
+        "total_ns": 72875,
+        "mean_us": 0.4261695906432748,
+        "total_ms": 0.072875,
+        "percent_intrinsic": 0.0031151551892153193
+      }
+    },
+    "unclassified_intrinsic_ms": 29.214528,
+    "excluded_events_outside_complete_intakes": 0,
+    "trace_sha256": "155afc28e142ad78dcab11113aab1821963e1df3400452c4a8727457f577c696",
+    "note": "CPU host inclusive ranges in a separate profiled Run; not substituted for unprofiled ON/OFF timing"
+  },
+  "runs": [
+    {
+      "name": "r01_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 22.149999090470374,
+      "experiences_per_second": 7477.742970710103,
+      "archived_config": "config/run_20261107-230211_prd116_gp_r01_off.txt",
+      "run_name": "run_20261107-230211_prd116_gp_r01_off"
+    },
+    {
+      "name": "r02_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 30.069997790269554,
+      "experiences_per_second": 5508.214571721631,
+      "learn_count_max": 1322.0,
+      "archived_config": "config/run_20261107-230238_prd116_gp_r02_on.txt",
+      "run_name": "run_20261107-230238_prd116_gp_r02_on"
+    },
+    {
+      "name": "r03_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 30.959996860474348,
+      "experiences_per_second": 5349.871343541935,
+      "learn_count_max": 1322.0,
+      "archived_config": "config/run_20261107-230313_prd116_gp_r03_on.txt",
+      "run_name": "run_20261107-230313_prd116_gp_r03_on"
+    },
+    {
+      "name": "r04_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 21.18399941828102,
+      "experiences_per_second": 7818.731332529476,
+      "archived_config": "config/run_20261107-230350_prd116_gp_r04_off.txt",
+      "run_name": "run_20261107-230350_prd116_gp_r04_off"
+    },
+    {
+      "name": "r05_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 24.370998912490904,
+      "experiences_per_second": 6796.274563662156,
+      "archived_config": "config/run_20261107-230415_prd116_gp_r05_off.txt",
+      "run_name": "run_20261107-230415_prd116_gp_r05_off"
+    },
+    {
+      "name": "r06_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 31.587000098079443,
+      "experiences_per_second": 5243.676179621463,
+      "learn_count_max": 1322.0,
+      "archived_config": "config/run_20261107-230444_prd116_gp_r06_on.txt",
+      "run_name": "run_20261107-230444_prd116_gp_r06_on"
+    },
+    {
+      "name": "r07_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 30.729002715088427,
+      "experiences_per_second": 5390.087063211852,
+      "learn_count_max": 1322.0,
+      "archived_config": "config/run_20261107-230521_prd116_gp_r07_on.txt",
+      "run_name": "run_20261107-230521_prd116_gp_r07_on"
+    },
+    {
+      "name": "r08_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 22.919998434372246,
+      "experiences_per_second": 7226.52754424311,
+      "archived_config": "config/run_20261107-230557_prd116_gp_r08_off.txt",
+      "run_name": "run_20261107-230557_prd116_gp_r08_off"
+    },
+    {
+      "name": "r09_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 23.601999110542238,
+      "experiences_per_second": 7017.710627995813,
+      "archived_config": "config/run_20261107-230627_prd116_gp_r09_off.txt",
+      "run_name": "run_20261107-230627_prd116_gp_r09_off"
+    },
+    {
+      "name": "r10_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 31.335997092537582,
+      "experiences_per_second": 5285.678305077579,
+      "learn_count_max": 1322.0,
+      "archived_config": "config/run_20261107-230655_prd116_gp_r10_on.txt",
+      "run_name": "run_20261107-230655_prd116_gp_r10_on"
+    },
+    {
+      "name": "r11_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 31.49400162510574,
+      "experiences_per_second": 5259.160203635885,
+      "learn_count_max": 1322.0,
+      "archived_config": "config/run_20261107-230732_prd116_gp_r11_on.txt",
+      "run_name": "run_20261107-230732_prd116_gp_r11_on"
+    },
+    {
+      "name": "r12_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 165632,
+      "profiled": false,
+      "measurement_seconds": 24.516001855954528,
+      "experiences_per_second": 6756.0771521058905,
+      "archived_config": "config/run_20261107-230808_prd116_gp_r12_off.txt",
+      "run_name": "run_20261107-230808_prd116_gp_r12_off"
+    }
+  ],
+  "other_runs": [
+    {
+      "name": "pilot_off",
+      "arm": "off",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 8192,
+      "profiled": false,
+      "measurement_seconds": 1.0570001089945436,
+      "archived_config": "config/run_20261107-230121_prd116_gp_pilot_off.txt",
+      "run_name": "run_20261107-230121_prd116_gp_pilot_off"
+    },
+    {
+      "name": "pilot_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 8192,
+      "profiled": false,
+      "measurement_seconds": 1.4850002015009522,
+      "learn_count_max": 92.0,
+      "archived_config": "config/run_20261107-230127_prd116_gp_pilot_on.txt",
+      "run_name": "run_20261107-230127_prd116_gp_pilot_on"
+    },
+    {
+      "name": "profile_on",
+      "arm": "on",
+      "binary_sha256": "ed7dece08b392d693891a7d08551aa6acd0147d8d73b24b02d49a478bb5d37ac",
+      "window_experiences": 331264,
+      "profiled": true,
+      "measurement_seconds": 62.419997924007475,
+      "learn_count_max": 2616.0,
+      "archived_config": "config/run_20261107-231044_prd116_gp_profile_on.txt",
+      "run_name": "run_20261107-231044_prd116_gp_profile_on"
+    }
+  ],
+  "configuration": {
+    "lanes": 256,
+    "device": "cpu",
+    "torch_threads": 1,
+    "seed": 1,
+    "env_seed": "6545537233705677626",
+    "warm_experiences": 16384,
+    "window_experiences": 165632,
+    "build": "Release",
+    "head": "3d1960c7bc4ec027451b306ca31ee520550a2bb0",
+    "note": "Existing GUI source changes were present; source-diff.patch is retained with the local binary snapshot"
+  },
+  "host": {
+    "cpu": "AMD Ryzen 7 9700X",
+    "physical_cores": 8,
+    "logical_processors": 16,
+    "visible_memory_gib": 61.6,
+    "os": "Windows 11 Pro",
+    "version": "10.0.26300"
+  },
+  "manifest_sha256": {
+    "config/run_20261107-230211_prd116_gp_r01_off.txt": "20866b3c88dd2e9d62e4e752142fa38d2a91d7ea29acbb8cbf9e9d77fe1df423",
+    "config/run_20261107-230238_prd116_gp_r02_on.txt": "c8447339fc5561fbadd325491ecf6c85d52fab1525c3a3d1c9c97e5c174d3036",
+    "config/run_20261107-230313_prd116_gp_r03_on.txt": "701c74b23b119c77550c72c5bd7934837dd6ffc3c1336eed5f2c955c6336b1bd",
+    "config/run_20261107-230350_prd116_gp_r04_off.txt": "336e42f5ea2fe9e8d0c43d0d0ee338da636fa2a42f8d6acf514639d2ec53e19a",
+    "config/run_20261107-230415_prd116_gp_r05_off.txt": "9484a96a2ee20e1a707c5ebb66c5248b09f1cc38317b2016637c3f8e719e9e4a",
+    "config/run_20261107-230444_prd116_gp_r06_on.txt": "a28a18123b2c92f64d507293111d5ab133544a38e491c9d0fb0420a619411726",
+    "config/run_20261107-230521_prd116_gp_r07_on.txt": "868942783c0d851be751bcfb57c86c98e8f7868ba244bf589e19c248f3cd7789",
+    "config/run_20261107-230557_prd116_gp_r08_off.txt": "8800e9e25b362be70af735635688995000c9f78fde5e3ab74b7b9d069d6274aa",
+    "config/run_20261107-230627_prd116_gp_r09_off.txt": "55dd06d50b83a145d74fdf258c8d07405470f16558560762a39828d214bf1673",
+    "config/run_20261107-230655_prd116_gp_r10_on.txt": "ec229bec28e52169c406415157413f04c34688112d9cd9460920e8009c184137",
+    "config/run_20261107-230732_prd116_gp_r11_on.txt": "daaed027ad98f548662bda9c014dc7fb4e8f70fd6706840bdd0930a0cfd56424",
+    "config/run_20261107-230808_prd116_gp_r12_off.txt": "274555c8a9c6a5fef8fe93befd9ca5dd82e0dad98df4018411aaef8daa796eff",
+    "config/run_20261107-230121_prd116_gp_pilot_off.txt": "1c81111cc4f7dc38ed04545dea37e918de097575f93dce944fc11634e1506171",
+    "config/run_20261107-230127_prd116_gp_pilot_on.txt": "68d1b88c9553d68620e2378c95a7ac00d1ab1f54e420c5f7fb37a02542cf7d19",
+    "config/run_20261107-231044_prd116_gp_profile_on.txt": "073d26e68218a75b0752628f2be44e19c7e5b6abed43748492d74d81bc87fd00",
+    "data/2026-11-07_rnd_performance_zones.csv": "e7cd35e3cffb7db835d3bd9c8e9043d624426896f40234ade0b2765e6b0bf037",
+    "data/2026-11-07_rnd_performance_events.csv": "8f1d71cff442f53c84fa6d62745c672a2f30fc4feacc76f033fa2c25aefde33d",
+    "data/2026-11-07_rnd_performance_facade_events.csv": "f4d424a1fa16a8a4c90faff36cf4a8e04e266e0fc5b6dbf89e06019cb450b5fd"
+  }
+}

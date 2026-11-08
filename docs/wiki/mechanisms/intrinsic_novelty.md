@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成方法に依存する。MiniHack での結果を Atari の優劣へ持ち込めず、anet の BTR を基にした構成での効果はまだ測っていない。KFM の命中にボーナスが出るかも、逆動力学の特徴がバーの差を保つかに依存する。
+NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成方法に依存する。MiniHack での結果を Atari の優劣へ持ち込めず、anet の BTR を基にした構成での効果はまだ測っていない。KFM の命中にボーナスが出るかも、逆動力学の特徴がバーの差を保つかに依存する。GridMazeのCPU・256 lane・torch thread 1・Releaseでは、既定RNDの時間はなしの1.339倍だった。
 
 ## 分かっていること
 
@@ -19,9 +19,13 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - 設定の落とし穴: anet の層カタログ `Conv2d_S`・`Conv2d_M` は葉の階層が読み込みと合わず、2026-11-06〜07 の Atari の RND の Run は既定の 128@3/1 ×2（1 Network 約 1 億パラメータ）で動いていた。写しの比較では判別は落ちず、実証された害は速さと checkpoint の大きさ（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1）。
 - GridMaze では RND の新しさが最初の数千 step で尽きる: 観測が正規化した (x, y) の 2 値で盤面は固定（`seed_mode = process`）なので入力は 25 通り以下。ε = 1 から始まる 256 lane が全部を踏み、predictor が覚え切って一生の誤差平均を下回り続け、既定（`clipped`・`whiten`）の bonus は 0 になる（2026-11-07 の `run_20261107-212611`: 1,551 点中 9 点以外 0、predictor の損失 3e-9）。手で通っていないセルへ誘導したときの失敗は未踏ではなく off-path の Q の粗さ [PRD116 §6.4・§7]
 
+- GridMazeでのRNDの費用: CPU・256 lane・torch thread 1・Release、同じ165,632経験のABBA3巡では、RNDなし/ありの実時間中央値が23.261秒/31.148秒で1.339倍。別RunのTracyではRND区間のforwardが56.47%、backwardとoptimizerが35.10%を占めた。観測は(x, y)の2値であり、Atariの画像入力やGPUへ数字を移さない（出典: [GridMazeのRND性能測定](../../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)、§通常比較の結果・§Tracyによる内訳・§確認できた範囲と残件）。
+
 - Montezumaのサンプル効率優先＋RND（β 0.1、RNDのNNは公開実装の形・出力512、30M、seed 1、RNDなしの対照なし）で、bonusの平均は24〜25Mに0.0144で、1M前（0.0062）と1M後（0.0033）より高く、26〜27Mに0.0013だった。学習側で部屋7に入ったゲームは24〜26Mに206本（22〜24Mは0本）、500点のゲームは24〜26Mに87本・26〜28Mに106本だった。同じ24〜26Mにlossは2.4〜3.0（20〜24Mは0.05〜0.11）、Qの最大の平均は14.6〜23.7（同3.7〜4.5）だった（出典: [Montezuma's RevengeのRND（サンプル効率優先・30M）](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ3・4・探索ブロック02・03。Run: run_20261108-003056_mz_se_rnd_k32_s1）。
 
 ## 分かっていないこと
+
+- Atari B=64のRNDなし・既定RND・Taigaの3群では、実時間中央値とTracyの内訳はどれほどか（出典: [GridMazeのRND性能測定](../../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)、§確認できた範囲と残件）？
 
 - 同じ anet の学習器・経験予算で、個々の訪問ベクトルとの局所的な近さを測る NGU と、まだ十分に経験していない特徴方向を評価する E3B のどちらが、KFM・GridMaze の外的成績を改善するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）？
 - 探索による経験の増加が、点数を目的とする方策の未訪問状態からの到達率へ転移するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.7）？

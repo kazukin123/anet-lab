@@ -15,6 +15,7 @@
 - `core/anet-core/src/intrinsic_test.cpp` と出荷設定テスト: 公開API・設定・checkpoint・診断でPRDの追加8行と改訂3行を確認する。
 - `docs/design/212_rnd_lifelong_novelty.jp.md`、200日英、212英語版の未訳表示、`core/anet-core/testdata/prd116/README.md`、索引issueの対応内容を更新する。212英訳本文の新規翻訳は別途。
 - 追加依頼request-20261107-runname.md: PRD098検証ドライバのRun名接頭辞をRUN_PREFIXへ集め、PRD116 wrapperからprd116を設定する。対象はtestdata/prd098/run_validation.py・testdata/prd116/run_validation.py・同README・本記録。既存Run・基準・r1〜r3・11/06の記録・profileと計測tagは保持し、新しいRunを起こさない検査で名前を確認する。
+- 追加依頼「GridMazeだけ実施」: `core/anet-core/testdata/prd116/run_performance.py` と同測定器の `run_performance_test.py` を追加し、同README・212日本語版§5.1/§5.2・本記録・索引issueの対応内容を更新する。`docs/experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md` と同名JSON、config配下の15本の実効設定、data配下のTracy CSV3点を保存し、wikiのintrinsic_novelty・index・logへ取り込む。§6.3のGridMaze分を測定し、Atariは起動しない。
 
 ## テスト
 
@@ -176,4 +177,33 @@ request-20261107-runname.mdに従い、PRD098ドライバのRUN_PREFIX（既定p
 ## この場で直す: bonus_shareのNaN例外
 
 開発者が前回レビューの範囲外の検出を「この場で修正して再レビュー」と選んだため、共通検査の例外を、03_bonus_shareが記録済み・値がNaN・同じ点の01_bonus_mean=0の場合だけに限定した。±Infと欠測を拒否し、READMEにも明記した。上の選択待ちは解消済みである。検証は `.venv/Scripts/python.exe -X utf8 .scratch/prd116/gridmaze_smoke_check.py`。追加の3ケースは変更前に拒否できずRED（gridmaze-smoke-finite-red.log、拒否5/8、終了1）、変更後は従来の8ケースを含む11ケースが成功（gridmaze-smoke-finite-green.log、終了0）。保存Runを再検査するとGridMaze r2とMontezuma r3は合格し、それぞれ13指標の集計も旧結果と一致した。一方、KFM r1は学習後5,448点中4,008点でbonus_shareが欠測し、最初の検出はexp step 13,168だった。すべてbonus_mean=0の点で、旧検査が見逃していた欠測を厳密化後に拒否するため、KFMの保存記録の判定は合格から不合格へ変わる。これは検証コードの回帰失敗ではなく、修正が検出すべき既存記録の不足であり、212 §5.2も現在の不合格を示すよう更新した。新判定は `.scratch/prd116/gridmaze-smoke-reassessment-finite.json`、全欠測点はsmoke-finite-inventory.jsonへ別名保存し、旧集計と最初の再判定JSONは保持した。保存済み集計・実行記録・PRD・indexのSHA256不変、Python構文・UTF-8/LF/BOM・相対リンク・差分空白、MSVC初期化付きDebug全体ビルド（no work to do、終了0）を確認した（gridmaze-smoke-finite-static.log、gridmaze-smoke-finite-build.log）。新しいRun、過去の欠測の補完、出力側の変更は行っていない。設定・本体・PRD・英語版・212 §4.3も保持し、既定葉検査と[shipped_config]は再実行していない。追加修正の検証は成功し、保存KFMのsmoke不合格を全受入条件成功とは扱わない。 再レビュー（20261107-2227）は計画・実装ともOKで、不足点・修正要求・新たな範囲外の検出は0件。原文は `.scratch/prd116/review-20261107-2227-gridmaze.md`。今回の追加修正は完了し、保存KFMの欠測による受入不合格は既知の結果として残す。新規の起票候補・判断待ちはなく、ステージ・commit・pushは実施していない。
+
+
+## 残件消化: GridMazeの性能測定
+
+2026-11-07、開発者がRunの切れ目を確保し、GridMazeだけの§6.3性能測定を実施するよう指示した。基準HEADは3d1960c7bc4ec027451b306ca31ee520550a2bb0。Release Runnerをビルドし、実行体・DLL・現在の設定を `.scratch/prd116/grid-performance-20261107-r1/` へ複製する。現在のGridMazeの256 lane・CPU・torch thread 1、同じQ設定とseed1、評価・描画休止でRNDなし/既定RNDを比較する。既定RNDはwhiten・clipped・next_state・ratio .25・batch32を保持し、warm-up12,800件を越えた16,384経験から測る。testdata/prd116/run_performance.pyを追加し、設定解決でRNDと診断以外の差が無いことを確認し、8,192経験の試走2本から遅い群で約30秒となる同一経験区間を選ぶ。ABBA3巡の12本は1本ずつ順次起動し、同区間の時計差・経験/秒・群ごとの中央値とON/OFF比を保存する。Tracyは通常比較へ混ぜず、別のRND有効Runのwarm-up後に公式0.13.1のcaptureを8秒接続し、CSVのtarget/predictor forward・backward・optimizer・正規化・統計・転送の区間時間と件数を記録する。組込みクライアントのprotocol76とローカルTracy0.13.2のprotocol77は異なるため、一致版を `.scratch/prd116/tracy-0.13.1/` に取得した（third_partyは変更しない）。詳細stdout/stderrは各caseのlauncher.log/capture.log、全体の進捗はgrid-performance-*.logへ保存し、モデルへは進捗・終了値・要約だけを返す。進捗はプロセスの終了・Run時計の更新・CPU時間で判断し、経過時間だけで停止しない。測定中に他のビルド・テスト・Runは重ねない。新しい設定やアルゴリズムは追加せず、Atariの測定は未実施のまま保持する。
+
+### 実行結果と保存
+
+試走2本は8,192経験でOFF 1.057秒 /ON 1.485秒となり、本測定区間を165,632経験へ固定した。ABBA3巡の12本はすべて終了0で、16,384〜182,016経験の時計が揃った。中央値はOFF 23.260999秒 /ON 31.147997秒、ON/OFFは1.339065（実時間33.91%増、経験/秒25.32%減）。範囲はOFF 21.183999〜24.516002秒 /ON 30.069998〜31.587000秒、各巡の比は1.4084 /1.3177 /1.3057だった。ONの全6本で補助学習の進行を確認し、記録したlearn_countの最大値は1,322。これは最終checkpointの回数ではない。成績による学習系列の変化も含む全体比較であり、時間差をRND内部だけの純粋な費用とは扱わない。
+
+別RunのTracyも終了0。完結したintrinsic_reward 171件（43,776観測）に含まれるEstimate 171回 /Learn 342回を集計した。CPU側のRND区間合計は2,339.370ms、1 intakeあたり13.681ms。forward合計56.47%、backwardとoptimizer合計35.10%、統計4.72%、最初の正規化1.23%だった。転送名の区間はCPUのTensor処理・検査等も含み、GPU転送の数字ではない。統計には2回目の正規化以外も含むため、二重正規化だけの費用をこの結果から断定しない。CSVのprocess起点total_percは使わず、同じthreadの完結した親区間に含まれる子区間だけを合算し、除外イベント0を確認した。
+
+正本は [実験記録](../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md) と同名JSON。15本（本測定12・試走2・Tracy1）の実効設定とTracy CSV3点は元のバイト列を保存し、manifestのSHA256を付けた。取得時のCRLFも保持するRun出力の写しであり、新規コード・説明文書のLF規約とは分けて扱う。実行体・DLL・source-diff.patch・元Run・traceは `.scratch/prd116/grid-performance-20261107-r1/` に保持した。公開用の設定・JSONでユーザー固有パスや秘密値の候補を検査した。設計212の§5.1・§5.2、検証README、索引issueの対応内容とwikiへGridMazeの結果とAtari未実施の範囲を反映した。PRD本文・英語版・本体・出荷設定は変更していない。
+
+### 検証
+
+Release全体ビルドはテスト実行体の再ビルドも始めたため中断し、MSVC初期化付きReleaseのAnetRLRunnerターゲットをビルドして終了0（gridmaze-performance-runner-build.log）。全体ビルド成功とは報告しない。測定終了後のMSVC初期化付きDebugのAnetRLRunnerターゲットは終了0（gridmaze-performance-debug-build.log、no work to do）。測定中にこれらを重ねていない。prepareの[prd103-resolve]2件は成功し、全キー差21件はRND・群56・Run名だけ。実際のOFF/ON Runもinspect_run.pyで照合して差8件はRND・Run名だけ、警告0（grid-performance-effective-diff.log）。本体と出荷設定は変更していないので、既定葉検査と[shipped_config]は再実行しない。
+
+測定器の公開経路はCLIのprepare /pilot /measure /profile /summarizeで、観測対象はRunの終了値・同じ経験区間の時計・補助学習の進行・CSVである。新規PythonコードもTDDの適用対象であり、本体を変更しないことだけでは対象外にならない。初回のCLI実装では先行するREDを実施せず、実装後にprepare成功→pilot2本→measure12本→profile1本→summarizeの正常経路を確認した。既存記録の拒否も、保護分岐を実装した後でmeasureの再実行を試し、非0終了・明示的な拒否メッセージとmeasurements.json /summary.jsonのSHA256不変を確認した（grid-performance-reuse-check.log）。この2つのbehaviorは実装先行であり、初回の先行REDは未実施の手順漏れとして残す。過去の実行をTDD済みとは扱わない。§6.3のGridMaze分は中央値と内訳を取得済みであり、Atari B=64の3群比較は残る。速度の合否閾値は追加しない。
+
+全品質項目を適用範囲に従って自己点検した。`.venv/Scripts/python.exe -X utf8 .scratch/prd116/check_grid_performance_archive.py` は終了0で、Python構文、UTF-8/LF、既存BOM保持、18点の保存SHA256と元データの完全一致、ABBA12本の終了値・件数・実行体一致、保存JSONと実測・中央値・比の一致、表の丸め、リンク、wikiの出典blob、差分空白を確認した。個人情報候補の走査で見つかった絶対パスは当該公開リポジトリの測定保存先だけで、ユーザー名・認証情報・メール・URL・IPの混入はなかった。新規コードのコメントを日本語、ログを英語で揃え、計画の主な変更と実差分を照合した。C++・本体API・契約の移行・skillの変更は無い。未決の実装判断は無く、独立レビューへ進む。
+
+### レビュー指摘への対応
+
+初回の独立レビューは計画・実装とも差し戻し。原文は `.scratch/prd116/review-20261107-2335-grid-performance.md`。測定値の不一致や範囲外の検出は無く、測定CLI自身のTDD適用と実際の順序の記載、失敗診断の実値・期待条件が不足していた。上記へ実際の順序と初回先行REDの未実施を明記し、診断には対象case・パス・終了値・時計端点・実際/期待SHA・検出件数等を加えた。本体と測定の正常系の計算・順序は変更していない。
+
+診断修正の前に合成artifactの検査を用意し、正常集計は成功したが、既存記録の拒否診断に保存先が含まれないため終了1を確認した（grid-performance-diagnostics-red.log）。この最初のREDの後、同種の診断をまとめて修正し、正常集計・記録不変・件数/予算/実行体の不整合・実行体変更・Runner終了失敗・端点不足・時計不正・学習未進行・capture未開始・完結区間無しの12 behaviorが終了0になった（grid-performance-diagnostics-green.log）。残りの診断ケースの変更前REDは採っておらず、12件すべてを先行REDで確認したとは報告しない。検査は `core/anet-core/testdata/prd116/run_performance_test.py` として保存し、READMEから案内する。CLIは子プロセスで呼び、executeの失敗は合成artifactとテスト内のプロセス差し替えを使う。Runner・CIM問い合わせ・新規性能Runは実行しない。未実施だった初回の順序と、後から実施した回帰検証を区別して再レビューする。
+
+再レビューは計画・実装ともOKで、不足点・修正要求・範囲外の検出・開発者への確認事項は0件。原文は `.scratch/prd116/review-20261107-2341-grid-performance.md`。正規配置のrun_performance_test.pyも12 behavior成功・終了0（grid-performance-diagnostics-canonical-green.log）、最終の保存整合検査も終了0（grid-performance-final-static.log）。wikiの読み取りscanは終了0、リンク切れ0・目録漏れ0で今回の出典の未取り込みは無かった（grid-performance-wiki-scan.json）。無関係なpending資料は更新しない。GridMazeの§6.3測定と記録は完了し、Atariの3群比較は既存の残件として保持する。新しい起票候補・判断待ちは無い。PRD・本体・出荷設定・元Runを保持し、ステージ・commit・pushは行っていない。
 

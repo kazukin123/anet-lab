@@ -461,7 +461,7 @@ RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付�
 
 入力はCPUでもCUDAでも受け取る。RND内部では観測をCPUへ移して正規化し、Factoryで指定した計算deviceへ送る。誤差の有限検査と統計はCPUで扱い、返すαは入力と同じdeviceに置く。facadeは先にlaneを選び、`Learn` は渡された全k件を正規化・転送する。CUDA入力の選択番号はintakeごとに1回、pinnedメモリから非同期で送る。laneごとの同期転送は置かない。
 
-RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。実際の速度差は未測定であり、観測正規化の統計更新時には既存APIによる正規化の二重計算も残る。
+RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeのCPU・256 laneで測った速度差は次節に記す。Atariの画像入力の費用は未測定であり、観測正規化の統計更新時には既存APIによる正規化の二重計算も残る。
 
 variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
 
@@ -484,7 +484,7 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 | GridMazeのsmoke | 100k経験で完走、学習後5,448点、記録したlearn_countの最大値2,724、指標の不正な非有限値なしで、完走・有限性・補助学習の進行という改訂後の条件を満たす。観測が正規化した(x, y)の2値で盤面固定のため、限られた入力に慣れて新しさが尽きると既定のbonusは0になり、符号と減少は判定しない |
 | KFMのsmoke | 新しい3層CNNで100k経験を完走し、学習後5,448点のclip_ratioは最大0。ただし保存済みr1はbonus_shareが4,008点で欠測しており、NaN例外を厳密にした再判定では不合格。旧集計は保持し、新しいRunは起こしていない |
 | Montezumaのsmoke | Taiga設定で100k経験を完走。記録6,233点すべてでbonus_minが負、指標の不正な非有限値なしで受入条件を満たす |
-| 性能測定 | 別途の実施確認が必要なため未実施。実行速度への影響は未確定 |
+| 性能測定 | GridMazeのCPU・256 lane・ReleaseでABBA3巡を実施。165,632経験の中央値はRNDなし23.261秒、あり31.148秒（1.339倍）。別RunのTracyではRND区間のforward56.47%、backward＋optimizer35.10%、統計4.72%。[実験記録](../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)に全Runの設定・ばらつき・内訳を保存。Atari B=64の3群は未実施 |
 
 無効時 checkpoint のファイル全体のバイト列は、既存の libtorch が保存するパラメータのアドレス情報により、同じ旧実行体の再実行同士でも一致しない。検証では header・設定・Network のバイトと、アドレス等の付随情報を除いた optimizer の内容を比較した。「ファイル全体の完全一致」とは報告しない。
 

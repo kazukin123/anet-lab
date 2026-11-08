@@ -20,7 +20,17 @@ MSVCを初期化してDebugビルド後、`anet-core-test.exe "[prd116],[scaler]
 
 ## 性能測定
 
-性能測定は未実施。別のRunが動いている間は実行しない。実施の確認を得たら、PRD §6.3のAtari B=64とGridMazeで有効・無効のABBAを3巡以上行う。Atariには `run.@rnd > run.@rnd_taiga` も加え、実時間中央値とtarget/predictor forward、backward、統計、転送の内訳を記録する。合否の閾値は置かない。
+GridMaze分は2026-11-07に実施し、[実験記録](../../../../docs/experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)へ3巡の中央値・Tracy内訳・全Runの実効設定を保存した。CPU・256 lane・Releaseで、RNDありの時間はなしの1.339倍だった。Atari B=64のRNDなし・既定RND・Taigaの3群は未実施のままである。合否の閾値は置かない。
+
+`run_performance.py` は今回のGridMaze専用の採取器で、prepare（Release実行体・DLL・設定の複製と解決比較）、pilot（時間から同じ経験区間を選択）、measure（ABBA3巡）、profile（別Runでwarm-up後にTracy接続）、summarize（中央値・内訳の集計）を順に実行する。全段階で同じ `--out` を指定する。既存の出力へRunを追加し直すことは拒否する。profileには同じ通信版の `tracy-capture.exe`・`tracy-csvexport.exe` のフォルダを `--tracy-tools` で渡す。Tracyは通常比較へ接続しない。
+
+今回の実行は `--out C:\dev\anet-lab\.scratch\prd116\grid-performance-20261107-r1`、profileのツールは `--tracy-tools C:\dev\anet-lab\.scratch\prd116\tracy-0.13.1\tools`。16,384経験から測り、試走後の区間は165,632経験だった。設定・本体を変えていないため、既定葉検査と[shipped_config]は再実行していない。別のRunやビルド・テストを測定へ重ねない。
+
+測定器自体の検査は次のコマンド。合成artifactでCLIの集計・既存記録の拒否と各失敗診断を確かめる。Runner起動とCIM問い合わせはテスト内で差し替え、性能Runを起こさない。
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd116/run_performance_test.py
+```
 
 ## smoke
 
