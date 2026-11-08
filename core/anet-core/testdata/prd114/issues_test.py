@@ -141,7 +141,7 @@ class IssueViewsTest(unittest.TestCase):
                     if field=='resolved':
                         changes['status'] = '解決'
                     if field=='ai_judged':
-                        changes['ai_judge'] = '残っている'
+                        changes['ai_judge'] = '残件有り'
                     self.issue(**changes)
                     error = self.cli(success=False)
                     # 拒否理由の欄名と期待形式を示し、どの派生出力も更新しない。

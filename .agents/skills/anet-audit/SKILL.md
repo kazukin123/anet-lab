@@ -31,7 +31,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 - hot path(Sample、Push、Learn、per-step 経路)や RNG 呼び出し順に触る提案は、対処方針に perf-neutral 確認と同 seed 再現性チェックを含める。
 - refactor・architectureでは、地図の経緯のADR・PRDが意図した形と「不採用」の形を候補にしない。前提が崩れた根拠がある場合だけ、出典と根拠を添えて再訪の候補にする。「先送り」「範囲外」は再開条件が揃った根拠を添えれば候補にしてよい。候補の対処方針には地図の「変えるときの条件」を引く。
 - wikiの書く部分は編集しない。食い違いは報告する。wiki_support.py mapsによる課題区画の再生成だけは派生一覧として扱う。
-- ホットスポット補正: `reports/stats/stats.json` の `flow.churn90` で上位のファイルは優先度を 1 段上げ、今後触る予定の無い場所は 1 段下げる。
+- ホットスポット補正: `reports/stats/stats.json` の `flow.churn90` で上位のファイルは `urgency` を 1 段上げ、今後触る予定の無い場所は 1 段下げる。上げ下げの幅と、上げ下げする前の値は `anet-create-issue` の「anet での当てはめ」による。補正したときは、そのことと理由を課題の背景に書く。
 
 ## 範囲(scope)の決め方
 
@@ -43,17 +43,17 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 
 1. lensとscopeを確定する。観点ファイル、設計文書、必要なADRを読む。refactor・architectureは実装の地図と、選ばなかった形・変えるときの条件も先に読む。
 2. コードと文書を読み取りだけで確かめる。ビルドとテストは実行しない。
-3. 範囲にareaが当たる、次版・解決でなくtypeが索引でない既存issueを本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残っている」、消えたなら「直った見込み」、判断できなければ「判断できない」をanet-update-issueの「判定」で記録する。statusと監理の項目は変えない。新しい根拠は本文へ追記できる。
+3. 範囲にareaが当たる、次版・解決でなくtypeが索引でない既存issueを本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残件有り」、消えたなら「直った見込み」、判断できなければ「判断できない」をanet-update-issueの「判定」で記録する。statusと監理の項目は変えない。新しい根拠は本文へ追記できる。
 4. 新しい指摘はanet-create-issueの「分け方」で既存との重複を判定し、同じなら追記し、違えば起票する。phaseは監査。defect→不具合、drift→ずれ、refactor・architecture・test-gap・process→改善、backlog→調査。kindはprocessだけハーネス、ほかは成果物。areaは範囲に当たるcategories.jsonのkeyの並びとする。
-5. 新規はmax以内（既定8件）で、優先度の高いものから記録する。優先度の意味、WSJF、本文の構成はanet-create-issueに従う。
+5. 新規はmax以内（既定8件）で、WSJFの大きいものから記録する。WSJFの4つの値とpriorityの置き方、本文の構成はanet-create-issueに従う。
 6. repoの.venvからreports/tools/wiki_support.py mapsを実行してINDEXと地図の課題区画を再生成する。入力の不備で失敗したら成功扱いしない。
 7. rotation.jsonの該当scopeの日付と次の観点を更新する。
-8. 観点・範囲、読んだ地図、AIの判定別の再検証件数、新規issueのIDと優先度、上位3件の要旨、次の観点と範囲を報告する。refactor・architectureは、不採用の形を根拠なく候補にした件数と、変えるときの条件を引いた件数も示す。
+8. 観点・範囲、読んだ地図、AIの判定別の再検証件数、新規issueのIDとWSJF、上位3件の要旨、次の観点と範囲を報告する。refactor・architectureは、不採用の形を根拠なく候補にした件数と、変えるときの条件を引いた件数も示す。
 
 ## issueの品質基準
 
 - 事象にファイル・行・symbolを、影響に具体的な失敗シナリオを書く。推測だけの指摘は書かない。
-- 起票時のpriorityとWSJFは本文を読んで見立てる。既存issueの監理項目はAIの判断で変えない。
+- 起票時のWSJFの4つの値は本文を読んで見立て、priorityは中を置く。既存issueの監理項目はAIの判断で変えない。
 - 本文の既存の事実は書き換えず、新しい根拠は日付とともに追記する。
 
 ## rotation.json

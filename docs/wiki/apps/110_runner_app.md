@@ -245,14 +245,14 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261106-ddd395](../../management/issues/issue-20261106-ddd395.md) | 未着手 | 6.0 | 低 | — | 成果物 | 実装 | 316_config, 110_runner_app | ずれ | 未確認 | Atari のパネル fps 設定2箇所が既定葉検査に反する |
-| 2 | [issue-20261103-2c9a07](../../management/issues/issue-20261103-2c9a07.md) | 未着手 | 5.0 | 低 | — | 成果物 | 監査 | 110_runner_app | 改善 | 残っている | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
-| 3 | [issue-20261103-66100f](../../management/issues/issue-20261103-66100f.md) | 未着手 | 5.0 | 低 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | ずれ | 残っている | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
+| 1 | [issue-20261106-ddd395](../../management/issues/issue-20261106-ddd395.md) | 未着手 | 6.0 | 低 | — | 成果物 | 実装 | 316_config, 110_runner_app | ずれ | 残件有り | Atari のパネル fps 設定2箇所が既定葉検査に反する |
+| 2 | [issue-20261103-2c9a07](../../management/issues/issue-20261103-2c9a07.md) | 未着手 | 5.0 | 低 | — | 成果物 | 監査 | 110_runner_app | 改善 | 残件有り | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
+| 3 | [issue-20261103-66100f](../../management/issues/issue-20261103-66100f.md) | 未着手 | 5.0 | 低 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | ずれ | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
 | 4 | [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) | 未着手 | 4.3 | 中 | — | 成果物 | その他 | 324_dqn, 110_runner_app | 案 | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
 | 5 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 3.0 | 中 | — | 成果物 | PRD | 312_util, 110_runner_app | 索引 | 未確認 | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
 | 6 | [issue-20261107-16ffd8](../../management/issues/issue-20261107-16ffd8.md) | 未着手 | 2.7 | 中 | — | 成果物 | PRD | 318_rl_core, 322_env_individual, 110_runner_app | ずれ | 未確認 | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
 | 7 | [issue-20261107-c17068](../../management/issues/issue-20261107-c17068.md) | 未着手 | 2.6 | 高 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 索引 | 未確認 | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し）暫定 PRD |
-| 8 | [issue-20261103-58bf49](../../management/issues/issue-20261103-58bf49.md) | 未着手 | 2.3 | 中 | — | 成果物 | 監査 | 110_runner_app | 改善 | 残っている | QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う |
+| 8 | [issue-20261103-58bf49](../../management/issues/issue-20261103-58bf49.md) | 未着手 | 2.3 | 中 | — | 成果物 | 監査 | 110_runner_app | 改善 | 残件有り | QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う |
 | 9 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
 | 10 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
 | 11 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 317_metrics, 320_env_core, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 未確認 | 評価 session の step trace を Run の記録に残す PRD |

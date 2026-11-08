@@ -193,13 +193,13 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 3.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
-| 2 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残っている | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
+| 1 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 3.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
+| 2 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
 | 3 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 2.0 | 中 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判断できない | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
 | 4 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
 | 5 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
 | 6 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.2 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
 | 7 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
 
-着手できる 8 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 7 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

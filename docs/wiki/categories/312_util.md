@@ -107,10 +107,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 3.0 | 中 | — | 成果物 | PRD | 312_util, 110_runner_app | 索引 | 未確認 | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
 | 2 | [issue-20261107-c17068](../../management/issues/issue-20261107-c17068.md) | 未着手 | 2.6 | 高 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 索引 | 未確認 | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し）暫定 PRD |
-| 3 | [issue-20261103-78df9c](../../management/issues/issue-20261103-78df9c.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util | 不具合 | 残っている | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
-| 4 | [issue-20261103-9b314a](../../management/issues/issue-20261103-9b314a.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util | ずれ | 残っている | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
-| 5 | [issue-20261103-c1e48b](../../management/issues/issue-20261103-c1e48b.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util | 改善 | 残っている | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている |
-| 6 | [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util, 316_config | ずれ | 残っている | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
+| 3 | [issue-20261103-78df9c](../../management/issues/issue-20261103-78df9c.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util | 不具合 | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
+| 4 | [issue-20261103-9b314a](../../management/issues/issue-20261103-9b314a.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util | ずれ | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
+| 5 | [issue-20261103-c1e48b](../../management/issues/issue-20261103-c1e48b.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util | 改善 | 残件有り | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている |
+| 6 | [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | 低 | — | 成果物 | 監査 | 312_util, 316_config | ずれ | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | 7 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | 中 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 未確認 | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
 | 8 | [issue-20261103-a86dcc](../../management/issues/issue-20261103-a86dcc.md) | 未着手 | 2.0 | 中 | — | 成果物 | PRD | 318_rl_core, 312_util | 索引 | 未確認 | eval スケジュールの初回発火の抑止 暫定 PRD |
 | 9 | [issue-20261103-df24e5](../../management/issues/issue-20261103-df24e5.md) | 未着手 | 1.4 | 中 | — | 成果物 | 監査 | 312_util | 不具合 | 判断できない | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |

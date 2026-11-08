@@ -142,7 +142,7 @@ issueに同じ問題があれば、「前回も出た」と、初出の日付、
 | 対策を反映し、PRD送りが無い | 新規には起票しない。既存の同じissueは判定で直った見込みにする |
 | 1回限り | 起票しない |
 
-新規はkindをハーネス、phaseをハーネス保守、typeを改善、areaを該当するkey（通常311_dev_tools）にする。本文に事象・再発した場合の影響・選んだ対策を分けて書き、priorityとWSJFは課題のskillの定義で見立てる。既存issueのstatusと監理項目はAIの判断で変えない。
+新規はkindをハーネス、phaseをハーネス保守、typeを改善、areaを該当するkey（通常311_dev_tools）にする。本文に事象・再発した場合の影響・選んだ対策を分けて書き、WSJFの4つの値は課題のskillの定義で見立て、priorityは中を置く。既存issueのstatusと監理項目はAIの判断で変えない。
 
 repoの.venvからreports/tools/wiki_support.py mapsを実行し、INDEXと地図の課題区画を作り直す。
 

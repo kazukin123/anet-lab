@@ -255,7 +255,7 @@ def validate_issue(root, path, record):
             raise ValueError(f'{path}: {key}={record.get(key)!r}; expected {expected}')
     for key, values in (
         ('type',('不具合','ずれ','改善','案','調査','索引')),
-        ('ai_judge',(None,'','残っている','直った見込み','判断できない','実装済み')),
+        ('ai_judge',(None,'','残件有り','直った見込み','判断できない','実装済み')),
         ('status',('未着手','調査中','対応中','中断中','保留','次版','解決')),
         ('kind',('成果物','ハーネス')),
         ('phase',('PRD','実装','監査','ハーネス保守','その他')),
