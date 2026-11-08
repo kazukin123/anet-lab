@@ -449,7 +449,7 @@ subject の形は `type(対象名): 本題。 PRD番号 課題ハッシュ #Topi
 
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
 - 対象名は次の一覧から主な 1 つを選ぶ。当てはまる名前が無ければ新しい名前で案を出し、案に添えて一覧への追加を提案する。案を出す工程では一覧を書き換えない。
-  `RunnerApp`、`MetricsViewer`、`DQN`、`ReplayBuffer`、`NN`、`config`、`metrics`、`Atari`、`DropMerge`、`LunarLander`、`GridMaze`、`build`、`release`、`skills`、`AGENTS`、`wiki`、`process`
+  `RunnerApp`、`MetricsViewer`、`DQN`、`ReplayBuffer`、`NN`、`config`、`metrics`、`Atari`、`DropMerge`、`LunarLander`、`GridMaze`、`build`、`release`、`skills`、`AGENTS`、`wiki`、`process`、`issue`
 - PRD 番号は、PRD に基づく変更に付ける。複数なら `PRD062 PRD063` のように並べる。
 - 課題ハッシュは、そのコミットで対応した課題（`docs/management/issues/` の単票。PRD の索引の課題も含む）をすべて、ID から `issue-YYYYMMDD-` を除いた 6 桁で並べる。単票の起票や判定の更新だけのコミットと、課題に関わらないコミットには付けない。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。

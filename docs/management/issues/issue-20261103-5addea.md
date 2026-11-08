@@ -6,12 +6,12 @@ raised: "2026-11-03"
 phase: "PRD"
 scope: "PRD 079: .cpp の内部リンケージと namespace インデント規約"
 kind: "成果物"
-area: ["318_rl_core", "315_nn", "312_util", "317_metrics", "321_agent_core", "319_gui", "316_config", "322_env_individual", "324_dqn", "110_runner_app", "325_muzero", "313_profiling"]
+area: ["311_dev_tools", "318_rl_core", "315_nn", "312_util", "317_metrics", "321_agent_core", "319_gui", "316_config", "322_env_individual", "324_dqn", "110_runner_app", "325_muzero", "313_profiling"]
 type: "索引"
 ai_judge: 
 ai_judged: 
 docs: ["docs/memo/079_cpp_internal_linkage_convention_10prd.md"]
-priority: "中"
+priority: "低"
 depends: []
 parent: 
 value: 2
