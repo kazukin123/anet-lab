@@ -156,24 +156,22 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261105-a88e01](../../management/issues/issue-20261105-a88e01.md) | 未着手 | 4.7 | 中 | — | ハーネス | ハーネス保守 | 311_dev_tools | 改善 | 直った見込み | コミットメッセージ案をそのまま使えるよう文言のルールを改善する |
-| 2 | [issue-20261103-c1c608](../../management/issues/issue-20261103-c1c608.md) | 未着手 | 4.5 | 中 | — | 成果物 | 実装 | 311_dev_tools | ずれ | 残っている | 現行ガイドのoptuna参照5か所が実在しない相対パスを指す |
-| 3 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools | 索引 | 未確認 | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）暫定 PRD |
-| 4 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
-| 5 | [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools | 索引 | 未確認 | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助）暫定 PRD |
-| 6 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config | 索引 | 未確認 | 行カバレッジ計測（OpenCppCoverage）暫定 PRD |
-| 7 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
-| 8 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 未着手 | 2.6 | 中 | — | ハーネス | ハーネス保守 | 311_dev_tools | 改善 | 未確認 | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
-| 9 | [issue-20261103-ee32bd](../../management/issues/issue-20261103-ee32bd.md) | 未着手 | 1.7 | 中 | — | 成果物 | 実装 | 311_dev_tools | ずれ | 残っている | PRD069の検証出力2か所が消失しており実装記録のリンクを開けない |
-| 10 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
-| 11 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
-| 12 | [issue-20261103-58696c](../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools | 索引 | 未確認 | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`）PRD |
-| 13 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
-| 14 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 311_dev_tools, 312_util, 316_config, 320_env_core, 313_profiling | 索引 | 未確認 | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD |
-| 15 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
-| 16 | [issue-20261103-b713c2](../../management/issues/issue-20261103-b713c2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core | 索引 | 実装済み | 課題の記録を issue（1 課題 1 ファイル）に替え、仕事は issue・指示は PRD で持つ（台帳の退役、課題の仕組み、PRD の採番とフォルダの改め）PRD |
-| 17 | [issue-20261103-fb8a45](../../management/issues/issue-20261103-fb8a45.md) | 未着手 | 1.6 | 中 | — | 成果物 | 実装 | 311_dev_tools | ずれ | 残っている | 過去PRDのコード参照16か所が文書からの相対パスとして解決できない |
-| 18 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | 低 | — | 成果物 | その他 | 311_dev_tools, 315_nn | 案 | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
+| 1 | [issue-20261103-c1c608](../../management/issues/issue-20261103-c1c608.md) | 未着手 | 4.5 | 中 | — | 成果物 | 実装 | 311_dev_tools | ずれ | 残っている | 現行ガイドのoptuna参照5か所が実在しない相対パスを指す |
+| 2 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools | 索引 | 未確認 | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）暫定 PRD |
+| 3 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 未確認 | メトリクスの横軸と間隔を数える単位を分ける PRD |
+| 4 | [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools | 索引 | 未確認 | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助）暫定 PRD |
+| 5 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config | 索引 | 未確認 | 行カバレッジ計測（OpenCppCoverage）暫定 PRD |
+| 6 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 2.6 | 中 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools, 318_rl_core | 索引 | 未確認 | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
+| 7 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 未着手 | 2.6 | 中 | — | ハーネス | ハーネス保守 | 311_dev_tools | 改善 | 未確認 | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
+| 8 | [issue-20261103-ee32bd](../../management/issues/issue-20261103-ee32bd.md) | 未着手 | 1.7 | 中 | — | 成果物 | 実装 | 311_dev_tools | ずれ | 残っている | PRD069の検証出力2か所が消失しており実装記録のリンクを開けない |
+| 9 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 未確認 | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
+| 10 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools | 索引 | 未確認 | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
+| 11 | [issue-20261103-58696c](../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 311_dev_tools | 索引 | 未確認 | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`）PRD |
+| 12 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 未確認 | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
+| 13 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 120_metrics_viewer, 311_dev_tools, 312_util, 316_config, 320_env_core, 313_profiling | 索引 | 未確認 | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD |
+| 14 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.6 | 中 | — | 成果物 | PRD | 110_runner_app, 317_metrics, 318_rl_core, 321_agent_core, 312_util, 320_env_core, 314_tensor, 316_config, 311_dev_tools, 322_env_individual | 索引 | 未確認 | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
+| 15 | [issue-20261103-fb8a45](../../management/issues/issue-20261103-fb8a45.md) | 未着手 | 1.6 | 中 | — | 成果物 | 実装 | 311_dev_tools | ずれ | 残っている | 過去PRDのコード参照16か所が文書からの相対パスとして解決できない |
+| 16 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | 低 | — | 成果物 | その他 | 311_dev_tools, 315_nn | 案 | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 
-着手できる 18 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 16 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->
