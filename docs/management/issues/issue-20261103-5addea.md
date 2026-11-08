@@ -14,11 +14,11 @@ docs: ["docs/memo/079_cpp_internal_linkage_convention_10prd.md"]
 priority: "中"
 depends: []
 parent: 
-value: 5
-urgency: 5
-risk: 3
+value: 2
+urgency: 8
+risk: 1
 size: 8
-wsjf: 1.6
+wsjf: 1.4
 resolved: 
 ---
 

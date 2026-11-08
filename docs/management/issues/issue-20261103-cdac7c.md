@@ -15,10 +15,10 @@ priority: "中"
 depends: []
 parent: 
 value: 5
-urgency: 5
+urgency: 3
 risk: 3
 size: 5
-wsjf: 2.6
+wsjf: 2.2
 resolved: 
 ---
 
