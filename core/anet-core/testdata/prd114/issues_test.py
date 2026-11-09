@@ -83,6 +83,44 @@ class IssueViewsTest(unittest.TestCase):
         self.assertNotIn(deferred,index)
         self.assertNotIn(resolved,index)
 
+    def index_section(self,heading):
+        # INDEXの見出しから次の見出しまでを、その欄の本文として切り出す。
+        index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
+        self.assertEqual(index.count('\n## '+heading+'\n'),1,index)
+        return index.split('\n## '+heading+'\n',1)[1].split('\n## ',1)[0]
+
+    def test_index_lists_issues_judged_done_but_not_resolved_as_waiting(self):
+        # 判定が済みを示すか、状態が解決かの組み合わせを並べる。
+        waiting = self.issue('000001',ai_judge='残件無し',ai_judged='2026-11-05')
+        deferred = self.issue('000002',status='次版',ai_judge='実装済み',ai_judged='2026-11-05',type='索引')
+        remaining = self.issue('000003',ai_judge='残件有り',ai_judged='2026-11-05')
+        resolved = self.issue('000004',status='解決',resolved='2026-11-06',ai_judge='残件無し',ai_judged='2026-11-05')
+        self.cli()
+        # 解決でない課題だけが、次版も含めて解決待ちへ出る。
+        section = self.index_section('解決待ち')
+        self.assertIn(waiting,section)
+        self.assertIn(deferred,section)
+        self.assertNotIn(remaining,section)
+        self.assertNotIn(resolved,section)
+        self.assertIn('該当する課題はありません。',self.index_section('再開候補'))
+
+    def test_index_lists_resolved_issues_judged_remaining_after_resolution_as_reopen_candidates(self):
+        # 解決の日付と判定の日付の前後を変えた解決済みの課題を並べる。
+        later = self.issue('000001',status='解決',resolved='2026-11-05',ai_judge='残件有り',ai_judged='2026-11-06')
+        same_day = self.issue('000002',status='解決',resolved='2026-11-05',ai_judge='残件有り',ai_judged='2026-11-05')
+        stale = self.issue('000003',status='解決',resolved='2026-11-09',ai_judge='残件有り',ai_judged='2026-11-04')
+        active = self.issue('000004',ai_judge='残件有り',ai_judged='2026-11-06')
+        self.cli()
+        # 解決の日付以後に残件有りとなったものだけを再開候補へ出し、状態は書き換えない。
+        section = self.index_section('再開候補')
+        self.assertIn(later,section)
+        self.assertIn(same_day,section)
+        self.assertNotIn(stale,section)
+        self.assertNotIn(active,section)
+        self.assertIn('該当する課題はありません。',self.index_section('解決待ち'))
+        record = (self.root/'docs/management/issues'/(later+'.md')).read_text(encoding='utf-8')
+        self.assertIn('status: 解決',record)
+
     def test_dependency_inherits_wsjf_before_ordering_and_links_waiting_issue(self):
         # 自分の点数が低い前提と、その前提を待つ高得点の課題を用意する。
         prerequisite = self.issue('000003',value=1,urgency=1,risk=1,size=3,wsjf=1.0)

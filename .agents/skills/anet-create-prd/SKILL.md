@@ -49,6 +49,8 @@ description: Create or revise an anet-lab PRD through a docs-aware grilling sess
 
 ### goal anchor
 
+goal anchor の応答を出す前に、`anet-update-issue` の「工程の出来事」で、題材の課題（改訂と再グリルでは、PRD を docs で指す索引の課題とその子も）を調査中にする。暫定の起票では質疑が無いので変えない。Plan Mode の間は書かず、Plan Mode を抜けて起草に入るときに書く。
+
 解く問題、ゴール、明示された非ゴールを短く示し、合意を得る。以後の判断はこのゴールに照らす。途中で方向がずれた場合は、ゴール自体が変わったかを確認する。
 
 ### scope screen
@@ -146,7 +148,7 @@ PRD以外の文書だけをdocsに持つissueは受け付け、docsは変えな�
 
 ## 3. 起草
 
-新規起票は題材の件数によらず `type: 索引` のPRDのissueを1件作る。段7で、そのdocsにPRDのパスを書き、題材のissueのparentへ索引issueのIDを書く。親子関係の更新は `anet-update-issue` の開発者の指示のモードで行い、題材のstatusと他の監理項目は変えない。既存PRDの改訂はdocsでそのPRDを指す索引issueを使い、無ければ作る。
+新規起票は題材の件数によらず `type: 索引` のPRDのissueを1件作る。段7で、そのdocsにPRDのパスを書き、題材のissueのparentへ索引issueのIDを書く。親子関係の更新は `anet-update-issue` の開発者の指示のモードで行い、題材の他の監理項目は変えない。題材のstatusは段2の goal anchor で調査中にしたもの（暫定の起票では元のまま）を変えない。既存PRDの改訂はdocsでそのPRDを指す索引issueを使い、無ければ作る。
 
 issueを題材にしたか範囲へ取り込んだPRDには、ID・題・area・現在のコードで確認した根拠の位置・直す確定事項のD番号・確かめる受入の項番の対応表を置く。未決ならD番号に代えて未決表の番号を書く。対応表の規約と検査はPRD品質確認観点の「issueの対応表」に従う。
 

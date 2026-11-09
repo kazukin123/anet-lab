@@ -388,6 +388,31 @@ def issue_table(root, page, records, all_records=None):
     return '\n'.join(lines) if records else '課題はありません。'
 
 
+def decision_sections(page, records):
+    # 状態を開発者が決める課題を、判定と状態の組み合わせから拾う。状態は書き換えない。
+    import os
+    waiting = [r for r in records if r['status'] != '解決' and r['ai_judge'] in ('実装済み','残件無し')]
+    # 解決より前の判定は、解決を決めたときに見ていたものなので候補にしない。
+    reopen = [r for r in records if r['status'] == '解決' and r['ai_judge'] == '残件有り'
+              and (r.get('resolved') in (None,'') or r['ai_judged'] >= r['resolved'])]
+    def table(rows, header, values):
+        if not rows:
+            return '該当する課題はありません。'
+        lines = ['| '+' | '.join(header)+' |', '|'+'---|'*len(header)]
+        for number, record in enumerate(sorted(rows,key=lambda r:(r['ai_judged'],r['id'])), 1):
+            target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
+            cells = [number, f"[{record['id']}]({target})", *values(record), record['title']]
+            lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
+        return '\n'.join(lines)
+    return '\n'.join([
+        '## 解決待ち', '',
+        'AI の判定が「実装済み」か「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。', '',
+        table(waiting, ['#','ID','状態','AIの判定','判定日','課題'], lambda r:[r['status'],r['ai_judge'],r['ai_judged']]), '',
+        '## 再開候補', '',
+        '解決の日付以後に（解決の日付が無ければ日付によらず）AI の判定が「残件有り」になった解決の課題。状態を戻すかは開発者が決める。', '',
+        table(reopen, ['#','ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']])])
+
+
 def issue_section(text, body, path):
     # 区画外の本文を保ち、全出力の検査が終わるまでは書かない。
     begin, end = '<!-- issues:begin -->', '<!-- issues:end -->'
@@ -405,7 +430,8 @@ def regenerate_maps(root):
     records = issue_order(issue_records(root))
     index = root/'docs/management/issues/INDEX.md'
     current = [r for r in records if r['status'] not in ('次版','解決')]
-    index_text = '# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n'
+    index_text = ('# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n\n'
+                  +decision_sections(index,records)+'\n')
     updates = [] if index.is_file() and index.read_bytes() == index_text.encode('utf-8') else [(index,index_text)]
     unresolved_prds = []
     for folder in ['apps', 'categories']:

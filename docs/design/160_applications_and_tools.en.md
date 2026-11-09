@@ -1,4 +1,4 @@
-<!-- translated-from: 160_applications_and_tools.jp.md blob:c695a6b3da764c11cb3e50d2fc64838eafa5b2c5 date:2026-11-09 progress:done -->
+<!-- translated-from: 160_applications_and_tools.jp.md blob:39582526a112bcc019a915107a12eeced73b580a date:2026-11-09 progress:done -->
 # Applications and Tools
 
 > Primary perspective: function (Runner GUI, Metrics Viewer, Optuna harness)
@@ -406,8 +406,8 @@ sequenceDiagram
 ### 7.4 Wiki and Issue Maintenance
 
 - The wiki bundles authoritative sources kept elsewhere, and agents decide the meaning of the parts they write. Materials, ingestion, and records follow the [wiki conventions](../wiki/README.md).
-- The authoritative issue records are the per-issue files under docs/management/issues/. Status and management fields follow human instructions, and AI judgments are kept in separate fields. Every new PRD comes with an index issue and stays directly under docs/memo/.
-- The scan command of reports/tools/wiki_support.py is read-only and returns ingestion gaps for materials, blobs, links, and implemented-status judgments. The maps command rebuilds INDEX, each map's file and PRD lists, and the sections between issue markers. It writes nothing until all inputs and markers are validated, and preserves content outside those sections and the wiki log.
+- The authoritative issue records are the per-issue files under docs/management/issues/. Humans decide the resolved (`解決`) and next-version (`次版`) states and the management fields; the AI writes the other states as process events occur, such as the start of a grilling session or the saving of an implementation plan. AI judgments are kept in separate fields, and resolution of issues whose judgment says they are done is offered when a commit is prepared. Every new PRD comes with an index issue and stays directly under docs/memo/.
+- The scan command of reports/tools/wiki_support.py is read-only and returns ingestion gaps for materials, blobs, links, and implemented-status judgments. The maps command rebuilds INDEX (including the resolution-waiting and reopen-candidate sections after its table), each map's file and PRD lists, and the sections between issue markers. It writes nothing until all inputs and markers are validated, and preserves content outside those sections and the wiki log.
 - Lists default to current work. Dependencies and WSJF inheritance are computed over all issues, and application issue lists show only issues whose area contains that application's own key. Statistics aggregate states and types from the per-issue files and read the state of PRDs directly under docs/memo/ from their index issues, while retaining counts for historical storage locations.
 - Install PyYAML 6.0.3 from reports/tools/requirements.txt into the repository .venv.
 

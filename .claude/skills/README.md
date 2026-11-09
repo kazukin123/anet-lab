@@ -19,12 +19,12 @@
 | anet-survey-queue | `reports/INDEX.md` のキューで状態 `ready` のサーベイを 1 件回し、済みへ移す。`survey` か `paper-details` スキルが必要 | `/anet-survey-queue` | `reports/*.md`、`reports/INDEX.md` |
 | anet-archify-atlas | Archify スキルで 5 図の architecture atlas を生成する。明示起動のみ | `$anet-archify-atlas` | `docs/archify/` |
 | anet-harness-map | AI ハーネス(指示・規約・設計文書・skill・memory・CI)の動線マップを再生成する。公開版は `docs/agents/`(README + Archify 2 図)、個人版は `.scratch/harness-map/`。Archify スキルが必要。明示起動と anet-housekeeping の変更検知から | `$anet-harness-map` | `docs/agents/`、`.scratch/harness-map/` |
-| anet-prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理し、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞く。選ばれたときだけ `git add` と部分 stage（`git apply --cached`）。commit も push もしない | `/anet-prepare-commit`、`$anet-prepare-commit`、作業の終わりの提案で「コミットの準備をする」を選ぶ | 報告。選ばれたときは Git index |
-| anet-create-prd | 題材または既存 PRD から、根拠を調べた質疑、起草、任意の別モデル検討（Claude Code だけ）、自己点検、レビューと差し戻し対応まで進め、未決を示して停止する。実装へ進まない。既存 PRD は要点を示してから改訂する。グリルの規律は mattpocock/skills の grill-with-docs から派生 | `/anet-create-prd 091_checkpoint_load_optimizer_options_10prd.md` | `docs/memo/*_10prd.md`、`CONTEXT.md`、`docs/adr/`、`docs/wiki/` |
+| anet-prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理し、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞く。コミットが対応した課題に AI が済んだと判定したものがあれば、先に解決にするかを聞き、選ばれた課題を解決にする。選ばれたときだけ `git add` と部分 stage（`git apply --cached`）。commit も push もしない | `/anet-prepare-commit`、`$anet-prepare-commit`、作業の終わりの提案で「コミットの準備をする」を選ぶ | 報告。選ばれたときは `docs/management/issues/`、INDEX、wikiの課題区画、Git index |
+| anet-create-prd | 題材または既存 PRD から、根拠を調べた質疑、起草、任意の別モデル検討（Claude Code だけ）、自己点検、レビューと差し戻し対応まで進め、未決を示して停止する。実装へ進まない。既存 PRD は要点を示してから改訂する。グリルの規律は mattpocock/skills の grill-with-docs から派生 | `/anet-create-prd 091_checkpoint_load_optimizer_options_10prd.md` | `docs/memo/*_10prd.md`、`docs/management/issues/`、`CONTEXT.md`、`docs/adr/`、`docs/wiki/` |
 | anet-create-issue | 選ばれた課題を1件1ファイルで記録し、一覧を作り直して書式を検証する | `$anet-create-issue` | `docs/management/issues/`、INDEX、wikiの課題区画 |
 | anet-list-issues | 本版の課題を依存とWSJFで並べ、棚卸しと束ねる提案を示す。記録は変えない | `$anet-list-issues`、`$anet-list-issues 束ね max=5` | 報告 |
-| anet-update-issue | 指示された状態・監理項目、またはAIの判定を更新し、一覧を作り直して書式を検証する | `$anet-update-issue` | `docs/management/issues/`、INDEX、wikiの課題区画 |
-| implement-prd-with-docs | PRD と現行実装を照合し、実装計画を保存して実装・検証する。自己点検、レビューと差し戻し対応を行い、未決を示して停止する | `/implement-prd-with-docs 013_sample_prefetch_10prd.md` | `docs/memo/*_2ximpl.md`、計画に従うコード・テスト・設定・文書 |
+| anet-update-issue | 指示された状態・監理項目、AIの判定、工程の出来事に合わせた解決以外の状態を更新し、一覧を作り直して書式を検証する | `$anet-update-issue` | `docs/management/issues/`、INDEX、wikiの課題区画 |
+| implement-prd-with-docs | PRD と現行実装を照合し、実装計画を保存して実装・検証する。自己点検、レビューと差し戻し対応を行い、未決を示して停止する | `/implement-prd-with-docs 013_sample_prefetch_10prd.md` | `docs/memo/*_2ximpl.md`、`docs/management/issues/`、計画に従うコード・テスト・設定・文書 |
 | anet-review | 成果物(PRD、実装計画、PRD の無い変更を含む実装)をレビューエージェント `anet-review-agent` に出し、応答を平易に言い直して示す。指摘があれば修正・再レビューの選択肢を出し、選ばれたときだけ対応する。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 087_review_agent_quality_viewpoints_10prd.md` | 報告(応答の原文は毎回 `.scratch/` に保存する。実装のレビューでは差分も `.scratch/` に書き出す)。選ばれたときは対象の修正と再レビュー |
 | anet-improve | この会話の手戻りからハーネスの改善策を選んで反映し、PRD送りと採らなかった問題をissueへ記録する | `$anet-improve` | ハーネスの変更先、`.scratch/anet-improve/`、`docs/management/issues/`、派生一覧 |
 

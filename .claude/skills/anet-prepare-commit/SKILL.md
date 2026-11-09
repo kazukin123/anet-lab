@@ -1,16 +1,16 @@
 ---
 name: anet-prepare-commit
-description: Inspect the full conversation and all staged, unstaged, and untracked Git changes to propose commit messages and classify commit files under the current AGENTS.md, then ask with a one-click choice whether to stage the targets, including only the target hunks of partially targeted files. Use when the user asks for a commit message, commit target list, staging scope, picks the コミットの準備をする choice offered when a unit of work ends, or invokes $anet-prepare-commit. Runs git add only after the user picks the stage choice (in plan mode, also after approving a staging-only plan). Never commit or push.
+description: Inspect the full conversation and all staged, unstaged, and untracked Git changes to propose commit messages and classify commit files under the current AGENTS.md, then ask with a one-click choice whether to stage the targets, including only the target hunks of partially targeted files. When the commit addresses issues whose AI judgment says they are done but whose status is not 解決, first ask whether to mark them 解決 and update only the chosen issue records. Use when the user asks for a commit message, commit target list, staging scope, picks the コミットの準備をする choice offered when a unit of work ends, or invokes $anet-prepare-commit. Runs git add only after the user picks the stage choice (in plan mode, also after approving a staging-only plan). Never commit or push.
 ---
 
 # ANET Prepare Commit
 
-現在の会話全体と実際の Git 差分を照合し、コミットメッセージ案と対象ファイルを整理する。整理のあと、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞き、選ばれたときだけステージする。
+現在の会話全体と実際の Git 差分を照合し、コミットメッセージ案と対象ファイルを整理する。コミットが対応した課題に解決の候補があれば、整理の前に、解決にするかを聞く。整理のあと、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞き、選ばれたときだけステージする。
 
 ## 禁止事項
 
 - commit、push を実行しない。
-- Git index を変更するのは、「ステージ」の節でユーザーがステージの選択肢を選んだ（プランモードでは、そのあとステージの計画も承認した）直後の、「ステージ」の節の手順による `git add -- <対象>` と部分 stage（`git apply --cached`）だけ。それ以外は読み取り専用の Git コマンドだけを使い、working tree と履歴を変更しない。
+- Git index を変更するのは、「ステージ」の節でユーザーがステージの選択肢を選んだ（プランモードでは、そのあとステージの計画も承認した）直後の、「ステージ」の節の手順による `git add -- <対象>` と部分 stage（`git apply --cached`）だけ。それ以外は読み取り専用の Git コマンドだけを使い、履歴を変更しない。working tree を変えるのは、「解決の候補」の節でユーザーが選んだ課題を解決にする書き換えと、`reports/tools/wiki_support.py maps` による `INDEX.md` と wiki の地図の作り直しだけである。
 - コミットメッセージ規約をこのスキル内へ複製しない。
 
 ## 手順
@@ -20,7 +20,7 @@ description: Inspect the full conversation and all staged, unstaged, and untrack
 3. ユーザーが追加対象、除外対象、分割方法を指定している場合は、その指定を会話からの推定より優先する。指定が矛盾している場合だけ確認する。
 4. staged、unstaged、untracked の全変更を調査する。`git status` だけで判断せず、`git diff --cached`、`git diff`、必要な未追跡ファイルの内容を確認する。
 5. 各差分が `コミット対象`、`コミット対象(一部)`、`コミット候補`、対象外のどれに当たるか判断する。同じファイル内に複数作業の hunk があるかも確認する。
-6. 対象の変更が基づく PRD と、対応した課題（`docs/management/issues/` の単票）を、会話と差分から特定する。単票のファイルが差分にあるだけでは対応した課題としない。PRD の索引の課題は、単票の `docs` 欄にその PRD のパスがあるものである。特定できないものは案に入れない。
+6. 対象の変更が基づく PRD と、対応した課題（`docs/management/issues/` の単票）を、会話と差分から特定する。単票のファイルが差分にあるだけでは対応した課題としない。PRD の索引の課題は、単票の `docs` 欄にその PRD のパスがあるものである。特定できないものは案に入れない。対応した課題のうち、`ai_judge` が `実装済み` か `残件無し` で、`status` が `解決` でないものを解決の候補とする。候補があれば、「解決の候補」の節に従って先に聞き、答えを反映してから 7 へ進む。
 7. `コミット対象` と `コミット対象(一部)` の全体を表すコミットメッセージ案を、原則として1件作る。`コミット候補` は既定のコミットへ含めない。
 8. 複数の意味的な作業単位へ分割できる場合も確認質問は行わず、基本案は1コミットのままとする。分割案が有用なら概要だけを付記する。
 9. ユーザーが分割方法を指定している場合は、その単位ごとにコミットメッセージ案と対象ファイルを作る。
@@ -79,6 +79,26 @@ Git 状態は併記しない。対象外と判断した変更は出力しない�
 ```
 
 ユーザーが分割を指示した場合は、各コミット単位について `コミットメッセージ案` と、項目がある対象分類だけを提示する。`コミット候補` がある場合は最後にまとめて提示する。対象外の変更は提示しない。
+
+## 解決の候補
+
+課題を「解決」にするかは開発者が決める（`anet-update-issue` の「解決を持ちかける」）。コミットは、開発者が変更を受け入れる時点なので、ここで持ちかける。解決にした書き換えが同じコミットに入り、直しと状態が揃う。
+
+候補があれば、コミット情報を出す前に、候補の表と問いだけを示して応答を終える。
+
+```markdown
+## 解決の候補
+
+| # | 課題 | 今の状態 | AI の判定 | 対応内容（最後の行の要点） |
+| --- | --- | --- | --- | --- |
+```
+
+`課題` は課題記録のファイルへのリンクに題名（長ければ要点だけ）を添える。問いの文には候補の件数と、選ばなかった課題は `INDEX.md` の「解決待ち」に残ることを書く。選択肢は「解決にする」を先頭に、「しない」を次に置く。番号で一部だけを選ぶ答えも受ける。聞く方法は「ステージ」の節と同じにし、候補の表を、その応答の最終メッセージに置く。
+
+- 「解決にする」（または番号の指定）が返ったら、選ばれた課題を `anet-update-issue` の開発者の指示のモードで「解決」にし（解決の日付、備考。備考の理由は「コミットの準備で解決の候補を選んだ」と、判定と対応内容の要点）、`reports/tools/wiki_support.py maps` を回す。書き換えた課題記録は `コミット対象` に加える。作り直した `INDEX.md` と地図には、ほかの作業の未コミットの差分も入りうるので、ほかの変更と同じく手順 5 で分類する（今回の作業の hunk だけのファイルは `コミット対象`、ほかの作業の hunk も混じるファイルは `コミット対象(一部)`）。対応内容が分からない課題は解決にせず、その旨を知らせる（`anet-update-issue` の手順 3）
+- 「しない」なら、何も書かない
+- どちらの答えでも、続けて手順 7 からコミット情報を作り、「ステージ」の節に従って聞く。候補の問いとステージの問いは、1 つの応答にまとめない
+- プランモードなら、解決にする書き換えは、ステージと同じく計画にしてから行う
 
 ## ステージ
 
