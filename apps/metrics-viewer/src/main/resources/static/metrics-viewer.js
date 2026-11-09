@@ -2141,22 +2141,24 @@ class UIController {
 		this.bindGraphScrollLockDrag(mainArea);
 	}
 
+	// Scroll Lock 中、グラフ上のマウスの drag を縦 scroll へ回す。
+	// タッチのスワイプはここで扱わない。CSS の touch-action: pan-y と dragmode:false で
+	// browser の標準 scroll に任せ、指を離したあとの慣性を browser に付けさせる。
+	// JS で scrollTop を動かすと touchmove を preventDefault するため、慣性が出ない。
 	bindGraphScrollLockDrag(mainArea) {
-		const state = { active: false, scrolling: false, startY: 0, lastY: 0, touchId: null };
+		const state = { active: false, scrolling: false, startY: 0, lastY: 0 };
 		const reset = () => {
 			state.active = false;
 			state.scrolling = false;
-			state.touchId = null;
 		};
 		const isGraphTarget = target => target instanceof Element
 				&& Boolean(target.closest(".js-plotly-plot"))
 				&& !target.closest(".modebar");
-		const begin = (target, clientY, touchId = null) => {
+		const begin = (target, clientY) => {
 			if (!this.app.graphScrollLockActive() || !isGraphTarget(target)) return;
 			state.active = true;
 			state.startY = clientY;
 			state.lastY = clientY;
-			state.touchId = touchId;
 		};
 		const move = (event, clientY) => {
 			if (!state.active || !this.app.graphScrollLockActive()) return;
@@ -2176,18 +2178,6 @@ class UIController {
 			if ((event.buttons & 1) === 1) move(event, event.clientY);
 		}, true);
 		document.addEventListener("mouseup", reset, true);
-		mainArea.addEventListener("touchstart", event => {
-			if (event.touches.length !== 1) return;
-			const touch = event.touches[0];
-			begin(event.target, touch.clientY, touch.identifier);
-		}, { capture: true, passive: true });
-		document.addEventListener("touchmove", event => {
-			for (const touch of event.touches) {
-				if (touch.identifier === state.touchId) move(event, touch.clientY);
-			}
-		}, { capture: true, passive: false });
-		document.addEventListener("touchend", reset, true);
-		document.addEventListener("touchcancel", reset, true);
 	}
 }
 

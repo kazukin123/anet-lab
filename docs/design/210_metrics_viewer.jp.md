@@ -640,7 +640,7 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `VIEWPORT_DEBOUNCE_MS` | 150 | zoom/pan後にrange requestを出すまでのdebounce |
 | `RUN_SOLO_INTERVAL_MS` | 350 | 同じRun行の連続clickをsolo選択とみなす閾値 |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
-| `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にdrag scrollへ切り替える移動量 |
+| `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にgraph上のmouse dragを縦scrollへ切り替える移動量。touchのswipeはJSで扱わず、指を離したあとの慣性が付くbrowser標準のscrollに任せる |
 
 Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配る（基本色）。
 `Auto Recolor`がONなら、前回の解決時に選択されていなかったRun（初回表示で自動選択する最新Runを含む）を新しく選んだRunとし、選択順に、ほかの選択中Runの色から最も離れた色を配る。選択中だったRunの色は変えず、新しく選んだRunの基本色は見ない。OFFからONへ切り替えた時点では色を変えない。

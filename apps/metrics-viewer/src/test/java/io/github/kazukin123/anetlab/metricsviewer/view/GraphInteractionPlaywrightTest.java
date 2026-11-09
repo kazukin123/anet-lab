@@ -232,6 +232,44 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 	}
 
 	@Test
+	void graphScrollLockLeavesTouchSwipeToNativeScrolling() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
+
+		page.navigate(baseUrl + "/?graphScrollLockNativeTouchTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraphCount(page, 5);
+		assertTrue(isMainAreaScrollable(page));
+
+		page.click("#btn-graph-scroll-lock");
+		waitForPlotlyDragModeFalse(page);
+
+		// window の capture で最初に受け、配り終えたあとの defaultPrevented を見る。
+		// 途中の listener が stopPropagation しても、ここには必ず届く。
+		page.evaluate("""
+				() => {
+					window.__graphTouchMoves = [];
+					window.addEventListener('touchmove', event => window.__graphTouchMoves.push(event),
+							{ capture: true, passive: true });
+				}
+				""");
+		setMainAreaScrollTop(page, 0);
+		dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
+				readFirstGraphCenterY(page) - 130);
+		waitForMainAreaScrolled(page);
+
+		// 指を離したあとの慣性は browser の標準 scroll が付ける。ページが touchmove を
+		// 取り消すと標準 scroll が止まり、慣性も出ない。
+		assertTrue(((Number) page.evaluate("window.__graphTouchMoves.length")).intValue() > 0);
+		assertEquals(0, ((Number) page.evaluate(
+				"window.__graphTouchMoves.filter(event => event.defaultPrevented).length")).intValue());
+	}
+
+	@Test
 	void screenshotModeAllowsVerticalTouchScrollingOnGraph() {
 		reopenPage(new Browser.NewContextOptions()
 				.setViewportSize(1280, 720)
