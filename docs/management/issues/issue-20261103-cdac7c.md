@@ -8,8 +8,8 @@ scope: "target network 更新の step 軸正規化（`soft_update_tau` / `hard_u
 kind: "成果物"
 area: ["321_agent_core"]
 type: "索引"
-ai_judge: "未確認"
-ai_judged: 
+ai_judge: "残件有り"
+ai_judged: "2026-11-09"
 docs: ["docs/memo/940_target_update_step_axis_10prd.md"]
 priority: "中"
 depends: []

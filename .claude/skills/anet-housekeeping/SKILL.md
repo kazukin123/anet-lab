@@ -30,7 +30,7 @@ description: Run anet-lab's routine upkeep (fixed-point stats, integrated audit,
 | 名前 | スキル | 前提条件 | 単位 | 初期見積(消費率 / 分) |
 |---|---|---|---|---|
 | stats | anet-stats | `reports/stats/stats.json` が無い、または `meta.generated` が 7 日以上前 | 1 回 | 3% / 5 |
-| wiki-lint | anet-lint-wiki | repoの.venvから `reports/tools/wiki_support.py scan` を回したJSONの `eligible` がtrue（未取り込み・更新あり、または未注記の出典リンク切れ）。注記済みリンク切れ、core・apps・wiki・課題の変化だけでは選ばない（PRDの実装済み判定による取り込み漏れはscanで検出する） | 1 回 | 10% / 15 |
+| wiki-lint | anet-lint-wiki | repo の `.venv` から `reports/tools/wiki_support.py scan` を回した JSON の `eligible` が true（未取り込み・更新あり、または未注記の出典リンク切れ）。注記済みリンク切れ、core・apps・wiki・課題の変化だけでは選ばない（PRD の実装済み判定による取り込み漏れは scan で検出する） | 1 回 | 10% / 15 |
 | audit | anet-audit | 常に可 | 観点 1 × 範囲 1 | 10% / 15 |
 | translate | anet-translate-docs | 未訳、続き、または訳元更新のある `docs/design/*.jp.md` がある(判定は anet-translate-docs の「対象の決め方」) | ファイル 1 本 | 8% / 10 |
 | survey | anet-survey-queue | `reports/INDEX.md` のキューに状態 `ready` の行がある | テーマ 1 つ | 30% / 40 |
