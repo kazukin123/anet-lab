@@ -322,7 +322,7 @@ namespace anet::rl {
      * mode、Estimator呼び出し、fallback、初期source、completion counterを所有する一方、
      * mutex、ValidIndexManager、ReplayPriorityStore内のpriority/source実体は所有しない。
      *
-     * @note EnqueueとCompleteReadyは、呼び出し側がmetadata_mutex_を保持した状態で実行する。
+     * @note Enqueue、CompleteReady、GetStatsは、呼び出し側がmetadata_mutex_を保持した状態で実行する。
      * @note 現在は開始itemごとにscalar priorityを1つ完成させる。MuZero等で系列内の
      *       複数stepを集約する場合は、Estimator入力とPendingEntryの表現を拡張する。
      */

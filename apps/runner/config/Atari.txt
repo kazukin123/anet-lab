@@ -325,6 +325,8 @@ A1.learner.update_warmup_steps = 200,000       # BTR Minimum Replay Size(exp_ste
 #app.run_name = run_{t}_atari_${E1.game}
 
 
+# train_panel の描画コストはそのまま throughput に効くので 0 にする。
+# 見るときは 10 で足りる（128 タイルのモザイクで、fps を落としても見栄えが落ちにくい）。
 app.online.train_panel.fps = 0
 
 #A3.learner.enabled = false
@@ -1397,7 +1399,9 @@ AtariEnv.ram_metric.[freeway].metrics ?= 4:car_hit
 AtariEnv.ram_metric.[montezuma_revenge].[room_max] ?= 0x83 max_seen  # 到達した最大の部屋番号（開始は 1）。面の区切りが無いので 1 に使う
 AtariEnv.ram_metric.[montezuma_revenge].[x_min] ?= 0xAA min_seen  # x の最小。鍵は部屋 1 の x=12 付近
 AtariEnv.ram_metric.[montezuma_revenge].[room_up] ?= 0x83 inc_count  # 番号なし。評価しない
-AtariEnv.ram_metric.[montezuma_revenge].metrics ?= 1:room_max 4:x_min
+AtariEnv.ram_metric.[montezuma_revenge].[sword_only] ?= 0xC1 reach_count:32  # 持ち物（ビット: 鍵 2、剣 32）が剣だけになった回数。鍵を使い切ってから剣を拾うと増える。ボスがいないので 2 に使う
+AtariEnv.ram_metric.[montezuma_revenge].[inv_max] ?= 0xC1 max_seen  # 持ち物の最大値。剣を持ったことがあれば 32 以上。ボスがいないので 3 に使う
+AtariEnv.ram_metric.[montezuma_revenge].metrics ?= 1:room_max 2:sword_only 3:inv_max 4:x_min
 
 
 # --- Eval設定 ---
@@ -1647,11 +1651,7 @@ run.eval.[eval_panel].env.repeat_action_probability = 0
 
 # 既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れ悪化。
 # 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
-app.online.eval_panel.fps ?= 14.5
-
-# train_panel は 128 タイルのモザイクで、fps を落としても見栄えが落ちにくい一方、
-# 描画コストはそのまま throughput に効く。録画時もここは 10 で足りる。
-app.online.train_panel.fps ?= 10
+app.online.eval_panel.fps = 14.5
 
 # 遷移結果の得点・残機を履歴へ並べる。
 app.eval_trace_panel.columns.[300] = $env_step game_score

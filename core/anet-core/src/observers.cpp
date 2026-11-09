@@ -1407,11 +1407,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 case Kind::KEY: key_opt = token.raw; break;
                 }
             }
-//            # metrics.scalar.[tag] = key [@event] [$target] [$step] [$ema] [interval:N] [ema_alpha:A]
-//              #   @event   : (default: @train) @learn || @train
-//              #   $step    : $train_step || $learn_step || $episode_step || $exp_step || $update_step || $sim_step
-//              #   $target : $update_result || $agent || $exp || $trainer
-//                metrics.scalar.min.[10_train / 10_total_reward] = train_reward_ema $ema field=trainer event:train interval:10 ema_alpha:0.01
+            // 記法の正本は docs/design/140_observability.jp.md §6、受け付ける語は metrics.cpp の ParseMetricTokens。
 
             if (!key_opt.has_value()) {
                 LOG::error() << "ObserverFactory: key not found. config_key=" << config_key << " config_value=" << config_value;

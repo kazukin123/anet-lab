@@ -49,5 +49,5 @@ workspace対応の補助batは第1引数をworkspace pathとして受け取り�
 - `docs/design/` — 設計ドキュメント
 - `licenses/` — 同梱する第三者ソフトウェアのライセンス
 
-Doxygen 生成の API ドキュメントは別 zip(`anet-lab-docs-<version>.zip`)です。
+Doxygen 生成の API ドキュメントは別 zip(`anet-lab-doxygen-<version>.zip`)です。
 このzipにも直下に`LICENSE`と`NOTICE`を同梱します。

@@ -2,6 +2,8 @@
 # Neural Network Configuration (Backbone Only)
 # ==============================================================================
 
+#init.mode ?= default # PyTorch の既定の初期化のまま
+
 #init.mode ?= xavier # Xavier Uniform
 
 #init.mode ?= he # He Normal (Kaiming)
@@ -10,22 +12,33 @@
 #init.mode ?= orthogonal  # Orthogonal
 #init.manual_gain ?= 1.0
 
+#init.mode ?= constant  # weight と bias を定数にする
+#init.constant_val ?= 0.0
+
+#init.mode ?= trunc_normal  # 切断正規分布
+#init.trunc_std ?= 0.02
+#init.trunc_a ?= -2.0
+#init.trunc_b ?= 2.0
+
 
 
 # ------------------------------------------------------------------------------
 #  Supported Module Types (サポートされている type 一覧)
 # ------------------------------------------------------------------------------
 # 【Base / Routing】
-#   Add, Flatten, Permute
+#   Flatten, Permute, Reshape, StackMerge
+#
+# 【Regularization】
+#   Dropout
 #
 # 【Activation】
 #   ReLU, GELU, SiLU, Mish, LeakyReLU
 #
 # 【Normalization & Pooling】
-#   GroupNorm, LayerNorm, BatchNorm2d, GAP1D
+#   GroupNorm, LayerNorm, LayerNorm2d, BatchNorm2d, GAP1D, GAP2D, MaxPool2d
 #
 # 【Embedding / Bridge】
-#   CosineEmbedding, SpatialEmbedder, SpatialPositionalEmbedding2D
+#   CosineEmbedding, HybridSpatialEmbedder, SpatialEmbedder, SpatialPositionalEmbedding2D
 #
 # 【Layer (Core)】
 #   Linear, Conv1d, Conv2d, ResBlock, CNBlock, TransformerEncoder
@@ -237,10 +250,6 @@ net.body.@Conv1D.structure ?= Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten
 net.body.@Conv2D.structure ?= Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten
 
 
-# [Pattern 4] ResNet-like (Complex Graph)
-net.body.@ResNet.structure ?= Linear_128 > ReLU > Linear_128(=skip_val) > Linear_128 > ReLU > Linear_128(=proc_val) > Add(@skip_val @proc_val) > ReLU > Linear_512 > MyReLU
-
-
 
 # --- CNN + Transformer ハイブリッド (ViT Style) サンプル ---
 # CNNの特徴抽出をTransformerのシーケンスに変換し、1次元ベクトルに要約して出力する
@@ -271,45 +280,12 @@ net.body.@MLP2.structure ?= Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 net.body.@MLP3.structure ?= Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > ReLU
 
 
-
-# ------------------------------------------------------------------------------
-# MLP ResBlock
-# ------------------------------------------------------------------------------
-
-net.block.[Linear_Proj].type ?= Linear
-net.block.[Linear_Proj].noisy.enabled ?= false
-net.block.[Linear_Proj].noisy.sigma0 ?= 0.5
-net.block.[Linear_Proj].force_fp32 ?= false
-net.block.[Linear_Proj].linear.out_features ?= 64
-net.block.[Linear_Proj].init.mode ?= xavier
-
-# ※ Residual Addをするため、入出力次元が揃っている必要あり
-net.block.[Linear_Hid].type ?= Linear
-net.block.[Linear_Hid].noisy.enabled ?= false
-net.block.[Linear_Hid].noisy.sigma0 ?= 0.5
-net.block.[Linear_Hid].force_fp32 ?= false
-net.block.[Linear_Hid].linear.out_features ?= 64
-net.block.[Linear_Hid].init.mode ?= xavier
-
-net.block.[Linear_Out].type ?= Linear
-net.block.[Linear_Out].noisy.enabled ?= false
-net.block.[Linear_Out].noisy.sigma0 ?= 0.5
-net.block.[Linear_Out].force_fp32 ?= false
-net.block.[Linear_Out].linear.out_features ?= 128
-net.block.[Linear_Out].init.mode ?= xavier
-
-net.block.[ResBlock].type ?= Composite
-net.block.[ResBlock].structure ?= Linear_Hid > ReLU > Linear_Hid(=proc) > Add(@input @proc) > ReLU
-
-net.body.@MLP_RES.structure ?= Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU
-
-
 # ------------------------------------------------------------------------------
 # Conv1D
 # ------------------------------------------------------------------------------
 
-## init.mode xavier=Xavier he=He orthogonal=Orthogonal
-# 浅いネットワークでは1=Xavierのほうが良好な結果が出る
+## init.mode default xavier he orthogonal constant trunc_normal（各 mode の引数はファイル先頭の例）
+# 浅いネットワークでは xavier のほうが良好な結果が出る
 
 net.block.[Conv1D_Permute].type ?= Permute
 net.block.[Conv1D_Permute].permute.dims ?= 0 2 1     # 時間軸CNN
@@ -363,9 +339,8 @@ net.body.@Conv1D.structure ?= Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > 
 # 記載      意味	              例
 # BlockName ブロックの配置        Conv1
 #  >		ブロックの連結        Conv1 > ReLU > Conv2
-# (=Tag)    出力に名前を付ける    Conv1(=skip)
-# (@Source) 入力元をtagで指定する Add(@skip @main)
 # (*N)      同じブロックを繰り返し配置する      ResBlock(*3)
+# 合流（積・連結）は branch の bind で書く（docs/design/130_neural_networks.jp.md §2.4）
 
 
 ## MEMO:表現出来ないパターン
@@ -373,7 +348,7 @@ net.body.@Conv1D.structure ?= Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > 
 #    「同じ構造のブロックを2回使う」のではなく、「全く同一の実体（メモリ上の重み）を2回使い回す」 ケース
 # ・密なスキップ結合：
 #  　U-Netでは「Encoderの1層目の出力を、Decoderの最後の層に入力」「Encoderの2層目を、Decoderの最後から2番目に...」という風に、遠く離れた層同士が多数結合する。
-#　  今の記法での表現: 可能だが、タグだらけになる。
+#　  今の記法での表現: structure の中では書けない。branch を分けて bind の連結（,）でつなげば書けるが、branch だらけになる。
 # ・条件分岐
 #    「入力データの平均値が0.5以上ならBlockAを、そうでなければBlockBを通す」といった、データ依存の動的な分岐。
 #     必要になったらConditionalBlockをC++側で実装して対応。

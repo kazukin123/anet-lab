@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:ca1760b3cd68d89f736ddc7072ac4869e1313a69 date:2026-11-04 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:77c388e560b408deeea60861036c233c18d6e50c date:2026-11-09 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -92,7 +92,7 @@ net.branch.[merged].bind = fusion, context
 net.branch.[merged].bind_concat_dim = -1
 ```
 
-`(raw)` may be written on a factor, but its meaning is key-global. Referencing the same key from another branch still treats it as raw throughout the Network. Structures can express output tags, input-tag references, and block repetition. See [apps/runner/config/nn.txt](../../apps/runner/config/nn.txt) and individual Run configurations for examples.
+`(raw)` may be written on a factor, but its meaning is key-global. Referencing the same key from another branch still treats it as raw throughout the Network. A structure is a serial notation that chains block names with `>` and can express block repetition (`(*N)`). Merges (product and concatenation) are written with branch `bind`. See [apps/runner/config/nn.txt](../../apps/runner/config/nn.txt) and individual Run configurations for examples.
 
 ## 3. Component Definitions
 

@@ -106,7 +106,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | workspace対応補助launcher | [resolve_workspace.bat](../../apps/runner/tools/resolve_workspace.bat)、[31_tb_bridge.bat](../../apps/31_tb_bridge.bat)、[41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
 | Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) |
 | Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
-| 詳細運用仕様 | [optuna.md](../optuna.md) |
+| 詳細運用仕様 | [optuna.md](optuna.md) |
 
 ### 3.4 Evaluation Trace
 
@@ -441,4 +441,4 @@ sequenceDiagram
 - [可観測性](140_observability.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [Metrics Viewer](210_metrics_viewer.jp.md)
-- [DropMerge Optuna利用ガイド](../optuna.md)
+- [DropMerge Optuna利用ガイド](optuna.md)

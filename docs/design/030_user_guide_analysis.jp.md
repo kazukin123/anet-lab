@@ -17,7 +17,7 @@
 ### 1.3 記載範囲
 
 現行のJava/Spring Metrics Viewer、Plotly画面、Run artifact、DropMerge Optunaの閲覧方法を扱う。
-新しいmetricの実装方法やOptuna探索空間の変更は設計文書と[DropMerge Optuna利用ガイド](../optuna.md)を参照する。
+新しいmetricの実装方法やOptuna探索空間の変更は設計文書と[DropMerge Optuna利用ガイド](optuna.md)を参照する。
 
 ## 2. Metrics Viewerを起動する
 
@@ -522,4 +522,4 @@ Runner実行中のRunも読める。rawは実行開始時のサイズまでを�
 - [開発環境](040_development_environment.jp.md)
 - [可観測性](140_observability.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
-- [DropMerge Optuna利用ガイド](../optuna.md)
+- [DropMerge Optuna利用ガイド](optuna.md)

@@ -1,5 +1,7 @@
 # PRD119: 文書・コメント・設定の小さな食い違いをまとめて直す
 
+> 2026-11-09 実装のレビューの指摘で直した。課題の記録の仕組みで AI の判定の値「直った見込み」が「残件無し」に改められた（コミット `180213e2`）ので、§2.2・D14・A10 の題材の課題の判定の値を `残件無し` にした。
+> 2026-11-09 実装の入口で直した。D8 の英語版のヘッダの扱いを、実装 品質確認観点の「検証と報告」の規約に合わせ、「変えない」から「対応を確かめて blob と日付を更新する」に改めた。§5.1 の D8 の行、§5.2 の「触らないもの」、A5 を合わせた。
 > 2026-11-09 再グリル（同じ日の別の枠）。暫定の印を外し、§8 の未決表の 11 行と §4 の暫定の既定を、§4 の確定事項 D1〜D15 へ移した。題材に [issue-20261103-fb8a45](../management/issues/issue-20261103-fb8a45.md) を足して 8 件にした（D13）。照合で分かった事実を §2.1 に足し、直した。structure は `(=Tag)`・`(@Source)`・`Add(...)` を解釈しない。nn.txt の 311〜312 行にも古い init.mode のコメントがある。既定葉検査はキーの名前で分類する。`anet-lab-docs-` は done/043 にもある。§1 に 1.5 を足し、§2.2 に規約 4 項目を足した。§5.1 に nn.txt の「記法」の節と設計文書 130 §2.4 を足し、§5.2・§5.4 を D 番号と fb8a45 に合わせた。§6 の A2・A5・A6 を書き直し、A10 を足した。§3.2 の非ゴールに記法の実装を足した。§7 に 4 行を足した。§8 には範囲外の 2 件（記法の実装、設計文書 220 の fps の記述）を残し、§9・§10 を整えた。レビューの指摘で、nn.txt の 376 行（密なスキップ結合をタグで書けるとする MEMO）を D7 の直す箇所に足し、§5.2 の移行対象の範囲と、タグを書く箇所の検索の書き方と、D13 の理由を直した。再グリルで足した行番号も、同じ日の作業ツリーの位置である。
 > 2026-11-09 起票（暫定。質疑を省き、既定を §8 の未決表に置いた）。行番号は起票時点の作業ツリーの位置で、実装時は近傍の記述で探し直す。
 > 起点: 2026-11-09 の課題の棚卸し。本版の課題の WSJF を同じ基準で採点し直したところ、手間の小さい課題（文書・コメント・設定の数行）が一覧の上位に並んだ。ユーザーが、それらを 1 本の暫定 PRD に束ねて起票するよう指示した。グリルと実装は別の枠で行う。
@@ -57,7 +59,7 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 - 過去の記録: 過去の PRD（done/・frozen/・dropped/）・実装記録・ADR の本文は書き換えない（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針）。PRD114 の 999 の振り直しでは、番号の振り直しで動いたファイル名を指すパスの表記だけを直した（[wiki 311](../wiki/categories/311_dev_tools.md) の「変えるときの条件」、出典は PRD114 §5.9・§5.12）。
 - 旧い記述の検索: 現用の範囲の検索には、設計文書の `.en.md` を含める（[実装 品質確認観点](../quality/impl.md) の項番 20）。
 - Train panel の fps が 0 でも学習は続く（[160](../design/160_applications_and_tools.jp.md) §7.1）。
-- 課題の状態: 状態（`解決` など）を変えるのは開発者で、AI は対応内容と AI の判定（`ai_judge`）を書く。題材の課題の判定は `直った見込み` を使う（[anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[anet-update-issue](../../.agents/skills/anet-update-issue/SKILL.md)）。
+- 課題の状態: 状態（`解決` など）を変えるのは開発者で、AI は対応内容と AI の判定（`ai_judge`）を書く。題材の課題の判定は `残件無し` を使う（[anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[anet-update-issue](../../.agents/skills/anet-update-issue/SKILL.md)）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -93,13 +95,13 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 | D5 | nn.txt の type 一覧を、nn_modules.cpp が登録する 29 種に合わせ、`Add` を外す。今の見出しを保ち、足りない 7 種を当てはまる見出しへ入れる（`Reshape`・`StackMerge` は【Base / Routing】、`LayerNorm2d`・`GAP2D`・`MaxPool2d` は【Normalization & Pooling】、`HybridSpatialEmbedder` は【Embedding / Bridge】、`Dropout` は新しい見出し【Regularization】） | 一覧の正本は登録である（§2.1 の 2751c8）。`Add` は type でも記法でもない（D7）。見出しを保つのは読み方を崩さず差分を小さくするため |
 | D6 | nn.txt の init.mode のコメント（5〜10 行と 311 行）に default・constant・trunc_normal を足して 6 種にし、312 行の「1=Xavier」を「xavier」に直す | nn.hpp が受け付けるのは 6 種の名前である（§2.1 の 2751c8） |
 | D7 | nn.txt の「記法」の節（362〜368 行）から `(=Tag)`・`(@Source)` の 2 行を消し、`>` と `(*N)` の行を残す。`(*N)` の例はそのまま残す。合流の案内として「合流（積・連結）は branch の bind で書く（docs/design/130_neural_networks.jp.md §2.4）」の 1 行を置く。「表現出来ないパターン」の MEMO の 376 行は、「structure の中では書けない。branch を分けて bind の連結（`,`）でつなげば書けるが、branch だらけになる」の趣旨に直す | パーサーは `>` と `(*N)` しか解釈しない（§2.1 の 2751c8（記法））。記法の実装は非ゴールである（§3.2）。案内は、消す行の代わりに、今できる書き方の在りかを示すため |
-| D8 | 設計文書 130 §2.4 の、structure が出力 tag・入力 tag 参照を表せるという記述（日本語版 94 行・英語版 95 行）を、block 反復（`(*N)`）だけを表せる記述に直す。英語版の冒頭の翻訳のヘッダは変えない | D7 と同じ事実による。旧い記述の検索には `.en.md` を含める（§2.2）。ヘッダは英訳の同期の道具が原文の blob で管理するので、手で書き換えない |
+| D8 | 設計文書 130 §2.4 の、structure が出力 tag・入力 tag 参照を表せるという記述（日本語版 94 行・英語版 95 行）を、block 反復（`(*N)`）だけを表せる記述に直す。英語版の冒頭の翻訳のヘッダ（`translated-from`）は、日英の対応を確かめてから、直したあとの日本語版の blob と日付に更新する | D7 と同じ事実による。旧い記述の検索には `.en.md` を含める（§2.2）。英語版を編集するときは、日本語版との対応を確かめた範囲に合う blob を記録する（[実装 品質確認観点](../quality/impl.md) の「検証と報告」の規約）。2026-11-09 の時点で英語版のヘッダの blob は日本語版の今の blob と一致しているので、同じ 1 文を日英で直せば全体が対応する |
 | D9 | metrics_scalar.txt の 11〜14 行を、`# metrics.scalar.[tag] ?= key [$step_axis] [@event] [$target] [$runner_scope] [$ema] [interval:N] [ema_alpha:A] [clip:C]` と、「各要素に書ける語と既定は docs/design/140_observability.jp.md §6」の 2 行に置き換える。observers.cpp の 1410〜1414 行は、「記法の正本は docs/design/140_observability.jp.md §6、受け付ける語は metrics.cpp の ParseMetricTokens」の 1 行に置き換える。要素ごとの語の一覧は写さない | 語は足されやすく、写しは古くなる。知らない語は黙って key として扱われ、古い写しどおりに書くと値が記録されない（§2.1 の 879a70）。要素の並びはめったに変わらないので、1 行だけ写す |
 | D10 | Atari.txt の 1650 行を `app.online.eval_panel.fps = 14.5` にする | 環境別のファイルは原則 `=` で（§2.2）、Atari.txt・bat・Run プロファイルにこのキーのほかの `=` は無いので、実効値は 14.5 のまま（§2.1 の ddd395） |
 | D11 | Atari.txt の 1654 行の `app.online.train_panel.fps ?= 10` と、その説明の 1652〜1653 行を消す。328 行の `app.online.train_panel.fps = 0` の直前に、「描画は throughput に効くので 0。見るときは 10 で足りる（128 タイルのモザイク）」の趣旨のコメントを置く。実効値は 0 のまま | ゴールは解決結果を変えない（§3.1）。1654 行を `=` にすると、後に書いた `=` が勝って実効値が 10 に変わる（§2.2）。説明を値のそばへ移し、10 の目安も残す |
 | D12 | PRD069 の実装記録は変えない。[issue-20261103-ee32bd](../management/issues/issue-20261103-ee32bd.md) の対応内容に、直さない理由（リンク先はリポジトリに入ったことが無く、過去の記録は書き換えない）を書く | 過去の記録は書き換えない（§2.2）。リンクの記法だけを外しても、読める中身は増えない（§2.1 の ee32bd）。PRD114 の先例は、番号の振り直しでリンク先が動いた場合に限る |
 | D13 | [issue-20261103-fb8a45](../management/issues/issue-20261103-fb8a45.md) を題材に入れる。done/009・done/010 は変えず、対応内容に D12 と同じ理由を書く。fb8a45 の親に、本 PRD の索引の課題を書く | 題材に入れて done/ を変えないのは D12 と同じ判断で、同じ規則で閉じれば、方針の食い違った課題が残らない（§1.5）。親を書くのは、題材の課題は parent で索引の課題を指すという決まりによる（[memo README](README.md) の冒頭） |
-| D14 | 実装の工程では、題材の各課題の対応内容に直した内容（D12・D13 では直さない理由）と場所を書き、AI の判定を `直った見込み` にする。状態を `解決` にするのは開発者である | 課題の状態は開発者が変える（§2.2） |
+| D14 | 実装の工程では、題材の各課題の対応内容に直した内容（D12・D13 では直さない理由）と場所を書き、AI の判定を `残件無し` にする。状態を `解決` にするのは開発者である | 課題の状態は開発者が変える（§2.2） |
 | D15 | PRD949 §2 の 15（README の名前の食い違いの記述）は、本 PRD では書き換えない | PRD949 は暫定の起票で、まだグリルしていない。PRD949 の再グリルで §2 の事実を今のコードと照合し直す。本 PRD が別の PRD の本文を直すと、改訂の記録が 2 本に分かれる |
 
 ## 5. 実装契約
@@ -115,7 +117,7 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 | 2751c8 | apps/runner/config/nn.txt の 16〜41 行 | type 一覧を 29 種に合わせ、`Add` を外す | D5 |
 | 2751c8 | apps/runner/config/nn.txt の 5〜10 行、311〜312 行 | init.mode のコメントを 6 種にし、「1=Xavier」を直す | D6 |
 | 2751c8 | apps/runner/config/nn.txt の 362〜368 行、376 行 | `(=Tag)`・`(@Source)` の行を消し、bind への案内を置く。376 行の MEMO を直す | D7 |
-| 2751c8 | docs/design/130_neural_networks.jp.md の 94 行、docs/design/130_neural_networks.en.md の 95 行 | 出力 tag・入力 tag 参照の記述を直す | D8 |
+| 2751c8 | docs/design/130_neural_networks.jp.md の 94 行、docs/design/130_neural_networks.en.md の 1 行・95 行 | 出力 tag・入力 tag 参照の記述を直し、英語版のヘッダの blob と日付を更新する | D8 |
 | 879a70 | apps/runner/config/metrics_scalar.txt の 11〜14 行、core/anet-core/src/observers.cpp の 1410〜1414 行 | 記法の 1 行と参照、参照の 1 行に置き換える | D9 |
 | ddd395 | apps/runner/config/Atari.txt の 1650 行 | `= 14.5` にする | D10 |
 | ddd395 | apps/runner/config/Atari.txt の 1652〜1654 行・328 行 | 1652〜1654 行を消し、328 行の直前に説明を置く | D11 |
@@ -132,7 +134,6 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 - 過去の Run の設定の写し（`docs/experiments/**/config/` の `net.body.MLP_RES.structure` などの行、`apps/runner/workspaces/**/runs/`、`core/anet-core/testdata/prd092/config/`）と、workspace の写し `apps/runner/workspaces/AtariRnd-01/config/frozen/nn.txt`。当時の記録である（§3.2）。
 - 過去の記録: PRD069 の実装記録（D12）、done/009・done/010（D13）、[done/043](done/043_release_packaging_10prd.md) の 14 行（当時の zip の名前）、[PRD001](done/001_iqn_10prd.md) の 271 行（type 一覧へ足したことの記録）、[PRD059 の実装記録](done/059_config_concept_tree_alignment_29impl_layer_biaxial.md) の 32 行（`@MLP_RES` の名前の記録）。
 - PRD949 §2 の 15（D15）。
-- 130 の英語版の冒頭の翻訳のヘッダ（D8）。
 - [220](../design/220_atari_env.jp.md) の日本語版 166 行と英語版 167 行の `app.online.eval_panel.fps = 15`。Atari.txt の実効値 14.5 と前から食い違っていて、本 PRD は値を変えない（D10）。扱いは §8 の 2。
 - 課題の単票の題・事象に書かれた当時の名前（`anet-lab-docs-`、`@ResNet` など）。課題の記録であり、課題の一覧と wiki の地図の課題の区画は単票から作り直される。
 
@@ -184,7 +185,7 @@ PRD072 の固定 17 入力比較は、固定 commit の設定を入力にする�
 - nn.txt の type 一覧の節（`Supported Module Types` を含む行の次の行から、`# 1. Block Definitions` を含む行の手前まで。直す前の作業ツリーでは 17〜45 行）に、nn_modules.cpp が `Register("<名前>"` で登録する 29 種の名前がすべてある。同じ節に、正規表現 `\bAdd\b` に当たる行が無い。
 - nn.txt のファイルの先頭から type 一覧の節の前までのコメントと、`## init.mode` で始まる行に、`default`・`xavier`・`he`・`orthogonal`・`constant`・`trunc_normal` がある。`git grep -n "1=Xavier" -- apps/runner/config/nn.txt` が 0 件である。
 - `git grep -n -e "(=" -e "(@" -e "タグ" -- apps/runner/config/nn.txt` が 0 件である（直す前は 241・302・366・367・376 行の 5 件）。nn.txt の `## MEMO:表現出来ないパターン` で始まる行から次の空行までに、`bind` を含む行がある。nn.txt の `## 記法` で始まる行から次の空行までに、`bind` と `130_neural_networks` を含む行がある。
-- `git grep -n -e "出力tag" -e "入力tag参照" -- docs/design/130_neural_networks.jp.md` と `git grep -n -e "output tags" -e "input-tag references" -- docs/design/130_neural_networks.en.md` が、どちらも 0 件である（直す前は 1 件ずつ）。
+- `git grep -n -e "出力tag" -e "入力tag参照" -- docs/design/130_neural_networks.jp.md` と `git grep -n -e "output tags" -e "input-tag references" -- docs/design/130_neural_networks.en.md` が、どちらも 0 件である（直す前は 1 件ずつ）。130 の英語版の 1 行目の `translated-from` の blob が、直したあとの `git hash-object docs/design/130_neural_networks.jp.md` と一致する。
 
 ### A6. scalar の記法の説明
 
@@ -206,7 +207,7 @@ replay_buffer_impl.hpp の `class InitialPriorityCompleter` の直前のコメ�
 
 ### A10. 課題の記録
 
-題材の 8 件の対応内容に、直した内容（ee32bd・fb8a45 では直さない理由）と場所が書かれ、AI の判定が `直った見込み` である（D14）。fb8a45 の `parent` が本 PRD の索引の課題である（D13）。
+題材の 8 件の対応内容に、直した内容（ee32bd・fb8a45 では直さない理由）と場所が書かれ、AI の判定が `残件無し` である（D14）。fb8a45 の `parent` が本 PRD の索引の課題である（D13）。
 
 ## 7. 作らないもの・先送り
 

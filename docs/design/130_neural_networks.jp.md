@@ -91,7 +91,7 @@ net.branch.[merged].bind = fusion, context
 net.branch.[merged].bind_concat_dim = -1
 ```
 
-`(raw)`はfactorへ記述できるが、意味はkey-globalである。同じkeyを別branchから参照してもNetwork全体でraw扱いになる。structureでは、出力tag、入力tag参照、block反復などを表せる。実際の使用例は[apps/runner/config/nn.txt](../../apps/runner/config/nn.txt)と各Run設定を参照する。
+`(raw)`はfactorへ記述できるが、意味はkey-globalである。同じkeyを別branchから参照してもNetwork全体でraw扱いになる。structureはblock名を`>`でつなぐ直列の記法で、block反復（`(*N)`）を表せる。合流（積・連結）はbranchのbindで書く。実際の使用例は[apps/runner/config/nn.txt](../../apps/runner/config/nn.txt)と各Run設定を参照する。
 
 ## 3. コンポーネント定義
 

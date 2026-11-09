@@ -8,10 +8,8 @@
 
 # ----- metrics
 
-    # metrics.scalar.[tag] ?= key [&step]  [@event]  [$target]
-    #   @event   : (default: @train) @learn || @train
-    #   $step    : $train_step || $learn_step || &episode_step || $exp_step || $update_step || $sim_step
-    #   $target  : $update_result || $agent || $exp || $runner
+    # metrics.scalar.[tag] ?= key [$step_axis] [@event] [$target] [$runner_scope] [$ema] [interval:N] [ema_alpha:A] [clip:C]
+    #   各要素に書ける語と既定は docs/design/140_observability.jp.md §6
 
 metrics.scalar.@baseline.[10_train/11_eps_count] ?= $runner episode_count @train $runner interval:100
 #metrics.scalar.@baseline.[10_train/12_epsilon] ?= $actor epsilon @train
