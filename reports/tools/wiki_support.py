@@ -250,6 +250,7 @@ def issue_records(root):
 
 def validate_issue(root, path, record):
     # 認識する欄の型と値を、派生ファイルの作成より先に検証する。
+    # priority と memo は開発者が直接書く管理外のメモなので、検証せず、派生ファイルにも出さない。
     def require(key, valid, expected):
         if not valid:
             raise ValueError(f'{path}: {key}={record.get(key)!r}; expected {expected}')
@@ -258,8 +259,7 @@ def validate_issue(root, path, record):
         ('ai_judge',('未確認','残件有り','残件無し','判定不能','実装済み')),
         ('status',('未着手','調査中','対応中','中断中','保留','次版','解決')),
         ('kind',('成果物','ハーネス')),
-        ('phase',('PRD','実装','監査','ハーネス保守','その他')),
-        ('priority',('高','中','低'))):
+        ('phase',('PRD','実装','監査','ハーネス保守','その他'))):
         require(key,key in record and record[key] in values,values)
     keys = {c['key'] for c in CategoryRules(root).categories}
     for key in ('area','docs','depends'):
@@ -350,14 +350,14 @@ def issue_order(records):
         group = {'保留':3,'次版':4,'解決':5}.get(record['status'],2 if waiting or cyclic else 1)
         result.append(dict(record,_waiting=waiting,_group=group,_score=scores[record['id']],_cyclic=cyclic))
     return sorted(result,key=lambda r:(r['_group'],r['status'] not in ('対応中','調査中'),r['_score'] is None,
-                                      -(r['_score'] or 0),{'高':0,'中':1,'低':2}.get(r.get('priority'),1),str(r['raised']),r['id']))
+                                      -(r['_score'] or 0),str(r['raised']),r['id']))
 
 
 def issue_table(root, page, records, all_records=None):
     # 同じ列とリンクの作り方をINDEXと地図で使う。
     import os
-    lines = ['| # | ID | 状態 | WSJF | 優先度 | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |',
-             '|---|---|---|---|---|---|---|---|---|---|---|---|']
+    lines = ['| # | ID | 状態 | WSJF | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |',
+             '|---|---|---|---|---|---|---|---|---|---|---|']
     for number, record in enumerate(records, 1):
         target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
         score = record.get('_score',record.get('wsjf'))
@@ -369,7 +369,7 @@ def issue_table(root, page, records, all_records=None):
             source = Path(root)/'docs/management/issues'/(key+'.md')
             link = Path(os.path.relpath(source,page.parent)).as_posix()
             waiting.append(f'[{key}]({link})' if source.exists() else key+'（無い）')
-        cells = [number, f"[{record['id']}]({target})", record['status'], wsjf, record.get('priority','—'), ', '.join(waiting) or '—',
+        cells = [number, f"[{record['id']}]({target})", record['status'], wsjf, ', '.join(waiting) or '—',
                  record['kind'], record['phase'], ', '.join(record['area']) or '—', record['type'], record['ai_judge'], record['title']]
         lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
     if records:

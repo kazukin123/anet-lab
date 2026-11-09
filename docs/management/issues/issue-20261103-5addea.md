@@ -1,25 +1,40 @@
 ---
-id: "issue-20261103-5addea"
+id: issue-20261103-5addea
 title: "PRD 079: .cpp の内部リンケージと namespace インデント規約"
-status: "未着手"
-raised: "2026-11-03"
-phase: "PRD"
+status: 未着手
+raised: 2026-11-03
+phase: PRD
 scope: "PRD 079: .cpp の内部リンケージと namespace インデント規約"
-kind: "成果物"
-area: ["311_dev_tools", "318_rl_core", "315_nn", "312_util", "317_metrics", "321_agent_core", "319_gui", "316_config", "322_env_individual", "324_dqn", "110_runner_app", "325_muzero", "313_profiling"]
-type: "索引"
-ai_judge: "残件有り"
-ai_judged: "2026-11-09"
-docs: ["docs/memo/079_cpp_internal_linkage_convention_10prd.md"]
-priority: "低"
+kind: 成果物
+area:
+  - 311_dev_tools
+  - 318_rl_core
+  - 315_nn
+  - 312_util
+  - 317_metrics
+  - 321_agent_core
+  - 319_gui
+  - 316_config
+  - 322_env_individual
+  - 324_dqn
+  - 110_runner_app
+  - 325_muzero
+  - 313_profiling
+type: 索引
+ai_judge: 残件有り
+ai_judged: 2026-11-09
+docs:
+  - docs/memo/079_cpp_internal_linkage_convention_10prd.md
+priority: 低
 depends: []
-parent: 
+parent:
 value: 2
 urgency: 8
 risk: 1
 size: 8
 wsjf: 1.4
-resolved: 
+resolved:
+memo:
 ---
 
 ## 背景

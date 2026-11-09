@@ -46,11 +46,13 @@ class IssueViewsTest(unittest.TestCase):
     def page(self,key):
         return self.write('docs/wiki/'+key+'.md','# map\n\n## 概要・責務\nKEEP PROSE\n\n## ファイル\nold\n\n## PRD の一覧\nold\n\n## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP TAIL\n')
 
-    def issue(self,suffix='000001',**changes):
+    def issue(self,suffix='000001',drop=(),**changes):
         data = dict(id='issue-20261103-'+suffix,title='課題 '+suffix,status='未着手',raised='2026-11-03',phase='監査',scope='test',kind='成果物',
                     area=['311_dev_tools'],type='改善',ai_judge='未確認',ai_judged=None,docs=[],priority='中',depends=[],parent=None,
                     value=5,urgency=5,risk=3,size=5,wsjf=2.6,resolved=None)
         data.update(changes)
+        for key in drop:
+            data.pop(key)
         self.write('docs/management/issues/'+data['id']+'.md','---\n'+yaml.safe_dump(data,allow_unicode=True,sort_keys=False)+'---\n\n## 背景\nfixture\n')
         return data['id']
 
@@ -135,6 +137,47 @@ class IssueViewsTest(unittest.TestCase):
         self.assertIn(independent,rows[1])
         self.assertIn(dependent,rows[2])
         self.assertIn('['+prerequisite+']('+prerequisite+'.md)',rows[2])
+
+    def test_priority_and_memo_are_free_developer_memos_kept_out_of_outputs(self):
+        # 開発者が Obsidian などで直接書く 2 つの欄に、決まりの無い値を入れる。
+        text_memo = self.issue('000001',priority='あとで',memo='人間メモ XYZ')
+        list_memo = self.issue('000002',priority=None,memo=['メモ ABC','PQR'])
+        self.cli()
+        # 道具は止まらず、どちらの値も一覧と地図に出さない。
+        index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
+        page = (self.root/'docs/wiki/categories/311_dev_tools.md').read_text(encoding='utf-8')
+        for output in (index,page):
+            self.assertIn(text_memo,output)
+            self.assertIn(list_memo,output)
+            self.assertNotIn('優先度',output)
+            for value in ('あとで','XYZ','ABC','PQR'):
+                self.assertNotIn(value,output)
+
+    def test_priority_does_not_change_the_order(self):
+        # WSJF が同じ 2 件で、新しいほうに高い priority を付ける。
+        newer = self.issue('000001',raised='2026-11-04',priority='高')
+        older = self.issue('000002',raised='2026-11-03',priority='低')
+        self.cli()
+        # priority ではなく、起票日の古い順に並ぶ。
+        index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
+        rows = [line for line in index.splitlines() if line.startswith('| ') and '](' in line]
+        self.assertIn(older,rows[0])
+        self.assertIn(newer,rows[1])
+
+    def test_obsidian_style_frontmatter_is_accepted(self):
+        # Obsidian のプロパティ欄が書き直す形（引用符なし、日付と整数の WSJF、1 行 1 項目のリスト、空の値）で書く。
+        dependency = self.issue('000002')
+        self.write('docs/management/issues/issue-20261103-000001.md','\n'.join([
+            '---','id: issue-20261103-000001','title: Obsidian の書き方の課題','status: 未着手','raised: 2026-11-03','phase: 監査',
+            'scope: "core/x.cpp :: Foo::Bar"','kind: 成果物','area:','  - 311_dev_tools','type: 改善','ai_judge: 残件有り','ai_judged: 2026-11-09',
+            'docs: []','priority: 高','depends:','  - '+dependency,'parent:','value: 3','urgency: 2','risk: 1','size: 3','wsjf: 2','resolved:','memo:',
+            '---','','## 背景','fixture','']))
+        self.cli()
+        # 値は同じに読まれ、整数で書いた WSJF も一覧では小数 1 桁で出る。
+        index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
+        row = next(line for line in index.splitlines() if 'issue-20261103-000001](' in line)
+        self.assertIn('| 2.0 |',row)
+        self.assertIn('Obsidian の書き方の課題',row)
 
     def test_invalid_new_issue_fields_fail_without_changing_any_output(self):
         # 正常な生成結果を保存し、不正入力を渡す前の状態を固定する。
@@ -261,6 +304,21 @@ class IssueViewsTest(unittest.TestCase):
         self.assertEqual(data['health']['issues']['by_type'],{'索引':2})
         self.assertEqual(data['process']['by_status'],{'保留':1,'解決':1})
         self.assertEqual(data['process']['historical_folders']['done'],1)
+
+    def test_stats_counts_free_priority_values_without_failing(self):
+        # 管理外のメモの priority に、決まりの無い値・空・リスト・欄の無いものを混ぜる。
+        self.issue('000001',priority='高')
+        self.issue('000002',priority='あとで')
+        self.issue('000003',priority=None)
+        self.issue('000004',drop=('priority',))
+        self.issue('000005',priority=['a','b'])
+        self.issue('000006',priority='低',status='解決',resolved='2026-11-03')
+        args = [sys.executable,'-B',str(REPO/'reports/tools/stats.py'),'--repo',str(self.root),'--no-cloc','--no-blame','--no-runs','--quiet']
+        result = subprocess.run(args,cwd=self.root,env=self.env,encoding='utf-8',capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        # 本版の課題だけを、空と欄の無いものは「（無し）」、リストは文字にして数える。
+        data = json.loads((self.root/'reports/stats/stats.json').read_text(encoding='utf-8'))
+        self.assertEqual(data['health']['issues']['by_priority'],{'高':1,'あとで':1,'（無し）':2,"['a', 'b']":1})
 
     def test_multi_area_issue_does_not_expand_application_scope(self):
         # 2つの機能カテゴリとアプリ自身の課題を同時に置く。

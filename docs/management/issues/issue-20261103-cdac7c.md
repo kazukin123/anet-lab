@@ -1,25 +1,28 @@
 ---
-id: "issue-20261103-cdac7c"
-title: "target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD"
-status: "未着手"
-raised: "2026-11-03"
-phase: "PRD"
-scope: "target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD"
-kind: "成果物"
-area: ["321_agent_core"]
-type: "索引"
-ai_judge: "残件有り"
-ai_judged: "2026-11-09"
-docs: ["docs/memo/940_target_update_step_axis_10prd.md"]
-priority: "中"
+id: issue-20261103-cdac7c
+title: target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD
+status: 未着手
+raised: 2026-11-03
+phase: PRD
+scope: target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD
+kind: 成果物
+area:
+  - 321_agent_core
+type: 索引
+ai_judge: 残件有り
+ai_judged: 2026-11-09
+docs:
+  - docs/memo/940_target_update_step_axis_10prd.md
+priority: 中
 depends: []
-parent: 
+parent:
 value: 5
 urgency: 3
 risk: 3
 size: 5
 wsjf: 2.2
-resolved: 
+resolved:
+memo:
 ---
 
 ## 背景

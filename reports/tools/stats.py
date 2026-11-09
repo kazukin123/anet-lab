@@ -440,10 +440,13 @@ def collect_health(repo, rules: Rules, size, files, today):
     large.sort(reverse=True)
     # 分類や不正値の扱いをwikiの派生一覧と共有する。
     records = issue_records(repo)
+    # priority は開発者が直接書く管理外のメモで検査しないので、欄の無いものや文字列でない値も数える。
+    def priority_label(value):
+        return "（無し）" if value in (None, "") else value if isinstance(value, str) else str(value)
     issues = {"current": sum(r["status"] not in ("次版", "解決") for r in records),
               "by_status": dict(collections.Counter(r["status"] for r in records)),
               "by_type": dict(collections.Counter(r["type"] for r in records)),
-              "by_priority": dict(collections.Counter(r["priority"] for r in records if r["status"] not in ("次版", "解決")))}
+              "by_priority": dict(collections.Counter(priority_label(r.get("priority")) for r in records if r["status"] not in ("次版", "解決")))}
     # config キー数の 4 週前比較
     keys_4w = None
     if rev4:
