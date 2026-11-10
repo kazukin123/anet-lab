@@ -10,7 +10,7 @@ description: Inspect the full conversation and all staged, unstaged, and untrack
 ## 禁止事項
 
 - commit、push を実行しない。
-- Git index を変更するのは、「ステージ」の節でユーザーがステージの選択肢を選んだ（プランモードでは、そのあとステージの計画も承認した）直後の、「ステージ」の節の手順による `git add -- <対象>` と部分 stage（`git apply --cached`）だけ。それ以外は読み取り専用の Git コマンドだけを使い、履歴を変更しない。working tree を変えるのは、「解決の候補」の節でユーザーが選んだ課題を解決にする書き換えと、`reports/tools/wiki_support.py maps` による `INDEX.md` と wiki の地図の作り直しだけである。
+- Git index を変更するのは、「ステージ」の節でユーザーがステージの選択肢を選んだ（プランモードでは、そのあとステージの計画も承認した）直後の、「ステージ」の節の手順による `git add -- <対象>` と部分 stage（`git apply --cached` と、課題の管理外のメモを載せる `reports/tools/stage_issue_memos.py --stage`）だけ。それ以外は読み取り専用の Git コマンドだけを使い、履歴を変更しない。working tree を変えるのは、「解決の候補」の節でユーザーが選んだ課題を解決にする書き換えと、`reports/tools/wiki_support.py maps` による `INDEX.md` と wiki の地図の作り直しだけである。
 - コミットメッセージ規約をこのスキル内へ複製しない。
 
 ## 手順
@@ -39,6 +39,12 @@ description: Inspect the full conversation and all staged, unstaged, and untrack
 ### コミット候補
 
 内容から現在の作業との関連を推定できるが、対象と断定できない変更を置く。ファイルパスごとに、推定した関連性と根拠を書く。ユーザーが追加を指示しない限り、コミットメッセージ案の対象には含めない。
+
+### 課題の管理外のメモ
+
+課題の `priority`・`memo`・`tags` は、開発者が Obsidian などで直接書く管理外のメモである（[anet-create-issue](../anet-create-issue/SKILL.md) の「管理外のメモ」）。これらの欄の変更は、この会話で開発者に頼まれて書いたものを除き、開発者の手入れとみなし、既定では対象外にする。同じファイルにある AI の作業の hunk を対象にするときも、これらの欄の行は含めない。
+
+ユーザーが「Obsidian で直した分」のように開発者の手入れを対象に指定したら、`reports/tools/stage_issue_memos.py`（引数なし）の一覧で対象を決める。会話から推定しない。`コミット対象(一部)` に課題ごとに欄の変化（`priority: 中 → 高` など）を書き、部分 stage が必要な旨を添える。一覧と地図はこれらの欄を出さないので、作り直しは要らない。
 
 ## 出力
 
@@ -138,6 +144,8 @@ Codex は、先に `request_user_input_async` で聞き、そのあと出力を�
 2. パッチを対象の分だけに削る。対象を含まない hunk は消す。対象と対象外が混じる hunk では、対象外の `+` 行を消し、対象外の `-` 行は先頭の `-` を空白に変えて文脈の行にする。`diff --git`・`index`・`---`・`+++` の行と、残す hunk の `@@` の行はそのまま残す。
 3. `git apply --cached --recount --check <パッチ>` で当たることを確かめてから、`git apply --cached --recount <パッチ>` で当てる。working tree は変わらない。
 4. `git diff --cached -- <path>` に対象だけが入り、`git diff -- <path>` に対象外が残っていることを確かめる。
+
+課題の管理外のメモ（分類の「課題の管理外のメモ」）は、上のパッチに代えて、パッチのあとに `reports/tools/stage_issue_memos.py --stage <課題の ID> ...` で載せる。対象の課題の ID を並べる。道具は index の中身を土台に、作業ツリーのこれらの欄だけを欄の単位で移し、載った中身を確かめる。作業ツリーとほかの欄・本文は変えない。読めない課題があれば何も載せずに止まるので、そのときは出力をそのまま知らせる。
 
 終わったら `git diff --cached --name-status` の結果が `コミット対象` と `コミット対象(一部)` のファイルと一致することを確かめ、一致した旨か差を短く知らせる。commit は人間が行う。
 

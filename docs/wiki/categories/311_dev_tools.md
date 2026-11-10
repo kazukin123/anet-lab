@@ -124,6 +124,7 @@
 - [watch_log.ps1](../../../apps/runner/tools/watch_log.ps1)
 - [categories.json](../../../reports/tools/categories.json)
 - [requirements.txt](../../../reports/tools/requirements.txt)
+- [stage_issue_memos.py](../../../reports/tools/stage_issue_memos.py) / [stage_issue_memos_test.py](../../../reports/tools/stage_issue_memos_test.py)
 - [stats.py](../../../reports/tools/stats.py)
 - [wiki_support.py](../../../reports/tools/wiki_support.py)
 - [atari5.py](../../../viewers/metrics-tools/atari5.py) / [atari5_test.py](../../../viewers/metrics-tools/atari5_test.py)

@@ -439,7 +439,7 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 
 Git staging（`git add`）、commit、push は人間が実施する。
 AI エージェントは `git add`、`git commit`、`git push` を実行せず、必要に応じて対象ファイル、commit message 案、検証結果を提示して人間の操作を支援する。
-例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached`）だけである。commit と push に例外は無い。
+例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached` と、課題の管理外のメモを載せる `reports/tools/stage_issue_memos.py --stage`）だけである。commit と push に例外は無い。
 
 commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。次の書き方は AI エージェントが出す案の決まりで、人間が手で書く commit message を縛らない。
 
