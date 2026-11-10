@@ -286,7 +286,7 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `OverviewSvgRenderer` | 共通figureを1つの作業用Plotlyで直列exportし、タグごとの最新SVGだけを保持する。現在モデル・世代に一致する結果だけを公開する |
 | `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う。graphごとのデータ選択・共通表示モデル・外枠を管理し、描画keyが変わったgraphの内側だけを完成時に差し替える |
 | `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
-| `TagSetMenu` | タグセットの操作行と開閉する一覧、入力・確認・キーボード操作を描画する。選択名と取得済み一覧は `MetricsViewerClientApp` が所有する |
+| `TagSetMenu` | タグセットの操作行と開閉する一覧、入力・確認・キーボード操作を描画する。選択名・取得済み一覧・セットごとの未保存の変更は `MetricsViewerClientApp` が所有する |
 | `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
 
 ### 3.3 UIコントロールの規約
@@ -648,13 +648,14 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 solo選択（同じRun行の連続click）は2回のclickを1つの操作として扱う。元から選択中だったRunは色を保ち、選択していなかったRunは新しく選んだ1本として`#2F7DE1`を取る。
 どちらも未選択Runの色を変えず、配る色がpaletteの20色を使い切るとラウンドを改める。
 
-`localStorage`へ保存するstateは次の9件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
+`localStorage`へ保存するstateは次の10件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
 | `anet.metricsviewer.workspace` | 最後に選択したworkspace。列挙に無ければserver currentで上書きする |
 | `anet.metricsviewer.activeTags` | 現在選択中のtag集合 |
 | `anet.metricsviewer.tagSet` | 選択中のタグセット名のJSON string。未選択ではキーを削除。起動時は名前だけを復元し、選択はactiveTagsから戻す |
+| `anet.metricsviewer.tagSetDrafts` | 選択中でないタグセットごとの未保存のtag選択。`{"<名前>": [tag, ...]}`のJSON objectを名前・tagの辞書順で保存し、空ならキーを削除する。選択中のセットの分はactiveTagsが持つ。不正な値は警告して全体を捨てる |
 | `anet.metricsviewer.knownTags` | 一度でも観測したtag集合。未知tagだけを自動でactiveにするために使う |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lockのon/off |
 | `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor`のon/off。既定はONで、`"false"`のときだけOFFとして読む |
@@ -939,6 +940,8 @@ bodyは閉じたschema。形の違反→名前→tag→参照元の不在→作�
 初期値 `initial_tag_sets.json` は作業用の有無にかかわらず毎起動検証し、作業用が無いときだけ写す。両方ともJSON objectで、名前をキー、tag配列を値とする。重複キー・不正な名前・tag・型を拒否する。ファイル内の名前の前後空白は除去せず違反とする。保存は名前・tagを整列し、2字下げ・1行1tag・UTF-8 BOMなし・LF・末尾改行。同じディレクトリの一時ファイルから置き換え、成功後だけ一覧を公開する。作業用は起動時だけ読み、外部変更は再起動まで反映せず、UI保存で上書きされる。同じセットの同時更新は後勝ち。
 
 呼び出しは不可視tagを含む選択全体を置き換える。Saveも比較も全体を対象とし、新規tag自動選択を保つ。印のtitleは追加・除去・不可視の差の数を示す。手元の一覧は起動・メニューを開くとき・更新応答・Revert前に更新し、選択名が消えれば未選択にしてToastを出す。自分の改名・削除は先に選択名を移動・解除するのでToastを出さない。起動時の取得失敗は名前と選択を保ち差を未判定にする。開くときの失敗は古い一覧があれば使い、無ければ開かない。Revert前の取得失敗では選択を変えない。書き込みの通信失敗も選択を変えず、404/409ではToast後に一覧を取り直す。
+
+未保存の変更はセットごとにbrowserへ残す（サーバーには送らない）。別のセットを呼ぶかDeselectすると、それまで選んでいたセットに差があればその選択を残し、そのセットを次に呼ぶと保存済みの中身の代わりに戻す。選択中のセットを選び直しても選択は変えず、保存済みへ戻すのはRevertだけである。Save As では元のセットの変更を残さない（新しいセットへ移ったとみなす）。改名では変更も新しい名前へ移り、削除と一覧からの消失では捨てる。一覧を取り直すたびに、保存済みと同じ中身になった分も捨てる。一覧では、変更を残したセットの名前にも ` *` を付ける。`n/m` は保存済みの中身で数える。残した変更には新規tagの自動選択を加えない。
 
 メニューはbody直下の固定配置で親のoverflowによる見切れを防ぎ、↑↓・Enter・Esc、入力内のEnter/Esc、外側クリックに対応する。Save Asに保存数と不可視数、一覧に見えている数/全数を表示する。作業用はgitで追跡しリリースzipから除き、jarには初期値だけを同梱する。
 

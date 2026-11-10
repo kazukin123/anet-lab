@@ -287,7 +287,7 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `OverviewSvgRenderer` | Serially exports shared figures using one workbench Plotly, retains the latest SVG per tag, and publishes only results matching the current model and generation |
 | `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Manages per-graph data selection, shared display models and frames; replaces changed graph contents after drawing completes |
 | `UIController` | Handles Run/Tag lists, progress display, and static control binding |
-| `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. `MetricsViewerClientApp` owns the selected name and fetched list |
+| `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. `MetricsViewerClientApp` owns the selected name, fetched list, and per-set unsaved changes |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
 ### 3.3 UI Control Conventions
@@ -650,13 +650,14 @@ With `Auto Recolor` ON, Runs that were not selected at the previous resolution, 
 Solo selection through consecutive clicks on the same Run row treats both clicks as one operation. A previously selected Run keeps its color; a previously unselected Run receives `#2F7DE1` as the sole newly selected Run.
 Neither operation changes unselected Run colors. Once all 20 palette colors have been allocated, allocation starts another round.
 
-Only the following nine state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
+Only the following ten state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
 
 | Key | Contents |
 |---|---|
 | `anet.metricsviewer.workspace` | Last selected workspace; overwritten by server current if absent from the list |
 | `anet.metricsviewer.activeTags` | Currently selected tag set |
 | `anet.metricsviewer.tagSet` | Selected tag set name as a JSON string; absent when deselected. Startup restores only the name and keeps the selection from activeTags |
+| `anet.metricsviewer.tagSetDrafts` | Unsaved tag selections of each tag set that is not selected. Saved as a `{"<name>": [tag, ...]}` JSON object in lexicographic order of names and tags; the key is removed when empty. The selected set's changes live in activeTags. An invalid value is discarded entirely with a warning |
 | `anet.metricsviewer.knownTags` | All tags ever observed; used to automatically activate only unknown tags |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lock on/off |
 | `anet.metricsviewer.autoRecolorEnabled` | `Auto Recolor` on/off; defaults to ON, reading only `"false"` as OFF |
@@ -938,6 +939,8 @@ Validate the closed body schema, names, tags, source existence, destination conf
 The working file and bundled `initial_tag_sets.json` are JSON objects mapping names to tag arrays. Validate both at startup, rejecting duplicate keys, wrong types, invalid names/tags, and surrounding whitespace in file keys. Always validate the initial file, copying it only when the working file is absent. Write sorted names/tags, two-space indentation, one tag per line, UTF-8 without BOM, LF, and one trailing newline. Replace from a temporary file in the same directory and publish memory only after success. Read the working file only at startup: external edits, including git operations, remain unseen until restart and are overwritten by UI saves. Serialize server mutations; the last writer wins.
 
 Calling a set replaces the entire selection, including tags absent from the visible list. Save and modification comparisons also use the entire selection, while newly discovered tags remain automatically selected. The indicator's title shows counts of added, removed, and hidden differences. Refresh the list at startup, on opening the menu, after mutations, and before Revert. If the selected name disappears, clear it and show a Toast; apply one's own rename/delete to the name first to avoid a false notification. Startup fetch failure preserves the name and selection without determining modifications. Menu-open failure uses a cached list if available and otherwise stays closed. A failed pre-Revert fetch or failed mutation preserves the selection; 404/409 shows a Toast and refreshes the list.
+
+Unsaved changes are kept per set in the browser and are never sent to the server. Calling another set or Deselect keeps the previously selected set's selection if it differs, and the next call of that set restores it instead of the saved contents. Reselecting the selected set leaves the selection unchanged; only Revert returns to the saved contents. Save As does not keep the original set's changes (they are treated as moved to the new set). Renaming moves the changes to the new name; deletion or disappearance from the list discards them. Each list refresh also discards changes that have become equal to the saved contents. The list also marks sets with kept changes with ` *`; `n/m` counts the saved contents. Newly discovered tags are not added to kept changes.
 
 The menu is fixed directly under body to avoid ancestor overflow clipping. It supports ↑↓, Enter, Esc, Enter/Esc within inputs, and outside clicks. Rows show visible/total tags; Save As shows the total selection and hidden count. The working file is tracked in Git and excluded from the release zip; only the initial file is bundled in the jar.
 

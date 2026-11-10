@@ -2,6 +2,7 @@
 
 > 2026-11-02 起票（Claude Code、`anet-create-prd`。グリルあり。2026-11-01〜02）。グリルの前に画面モック（`.scratch/prd111/tag-list-mock.html`、git 対象外）で 3 案を比べ、案 B（開閉式の一覧）を採った。
 > 2026-11-02 別モデル（Fable）の検討のあと（同じ枠）: 「見えている tag」を、コードのとおり選択中の Run の tag の和集合（Tags 一覧に出ている tag）と定めて文言を直した（§1.1 の 4、§3）。作業用ファイルの既定を `metricsviewer.workspaces-dir` の直下に改め、親が無ければ作ることにした（D16。既存テストと 210 §7.3 の起動を壊さないため。ユーザーの裁定）。外で変わった作業用ファイルを書く直前に照合して拒む案は退け、D12 に git の切り替えでも上書きされることを書いた（ユーザーの裁定）。Save As の入力欄の脇に保存される数を出すことにした（D17。ユーザーの裁定）。開閉ボタンの幅と省略、押せないボタン、localStorage の「なし」の表し方、tag の制御文字、release.yml の確かめ方を直した。
+> 2026-11-10 PRD を起こさずに変えた（ユーザーの指示）: 選択中でないタグセットの未保存の変更をセットごとに browser へ残し、そのセットを呼ぶと保存済みの中身の代わりに戻すようにした。選択中のセットを選び直しても選択は変わらず、E10 の「選び直すと `*` が消える」は Revert だけになった（§6.3 の「呼び出し」も同じ）。正本は [210](../design/210_metrics_viewer.jp.md) §7.4・§9.6。
 > 起点: 観点ごとに見たいタグの組を、130〜190 本のタグからクリックで毎回組み直している（§1.2）。
 > 関連: [210 Metrics Viewer](../design/210_metrics_viewer.jp.md) §3.3・§7.1・§7.3・§7.4・§9、[030 Run分析ユーザーガイド](../design/030_user_guide_analysis.jp.md) §3、[ADR 0015](../adr/0015-metrics-cache-disposable-derivative.md)、[ADR 0021](../adr/0021-run-classification-by-workspace-folder.md)、[ADR 0067](../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)。
 

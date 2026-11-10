@@ -66,6 +66,19 @@ class TagSetPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		return page.evaluate("JSON.stringify(JSON.parse(localStorage.getItem('anet.metricsviewer.activeTags')).sort())");
 	}
 
+	private Object drafts() {
+		return page.evaluate("localStorage.getItem('anet.metricsviewer.tagSetDrafts')");
+	}
+
+	private void callSet(String name) {
+		page.click("#btn-tag-set");
+		page.locator("#tag-set-menu .tag-set-row[data-name='" + name + "'] .tag-set-name").click();
+	}
+
+	private void toggleTag(String tag) {
+		page.locator("#tag-list li").filter(new com.microsoft.playwright.Locator.FilterOptions().setHasText(tag)).click();
+	}
+
 	@Test
 	void editingASetCanBeSavedRevertedRenamedDeletedAndDeselected() {
 		// 見えないtagを含むセットを呼び、保存直後には差が無い状態を用意する。
@@ -112,7 +125,7 @@ class TagSetPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	}
 
 	@Test
-	void saveAsPersistsSelectionAndCallingTheSetRestoresIt() throws IOException {
+	void saveAsPersistsSelectionAndReselectingKeepsChangesUntilRevert() throws IOException {
 		// Run metadataだけを置き換え、タグセットは実サーバーと実ファイルを通す。
 		page.route("**/api/runs.json", route -> fulfillJson(route, splitTagRunsJson()));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, "{\"data\":[]}"));
@@ -130,12 +143,106 @@ class TagSetPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		page.waitForFunction("localStorage.getItem('anet.metricsviewer.tagSet') === '\"Selection A\"'");
 		assertTrue(Files.readString(WORKSPACES.resolve("metrics_viewer_tag_sets.json")).contains("Selection A"));
 
-		// 選択を崩してから行を呼び直すと、保存した全体へ戻る。
+		// 選択を崩してから同じ行を選び直しても変更は残り、Revertで保存した全体へ戻る。
 		page.click("#btn-clear-all");
+		final Object cleared = activeTags();
 		page.click("#btn-tag-set");
 		page.locator("#tag-set-menu .tag-set-name").filter(
 				new com.microsoft.playwright.Locator.FilterOptions().setHasText("Selection A")).click();
-		assertEquals(saved, page.evaluate("JSON.stringify(JSON.parse(localStorage.getItem('anet.metricsviewer.activeTags')).sort())"));
+		assertEquals(cleared, activeTags());
+		assertTrue(page.locator("#btn-tag-set").textContent().contains("*"));
+		page.click("#btn-tag-set-revert");
+		page.waitForFunction("!document.querySelector('#btn-tag-set').textContent.includes('*')");
+		assertEquals(saved, activeTags());
+	}
+
+	@Test
+	void unsavedChangesStayWithEachSetAcrossSwitchesAndReload() {
+		// 見えないtagを含む2セットを用意し、Aで可視tagを1本外した変更を作る。
+		createSet("A", List.of(TAG_A, TAG_C, "hidden/A"));
+		createSet("B", List.of(TAG_C));
+		openFixture();
+		callSet("A");
+		toggleTag(TAG_A);
+		assertEquals("[\"hidden/A\",\"" + TAG_C + "\"]", activeTags());
+		// Bへ切り替えると保存済みのBになり、一覧ではAの行にだけ印が残る。
+		callSet("B");
+		assertEquals("[\"" + TAG_C + "\"]", activeTags());
+		assertFalse(page.locator("#btn-tag-set").textContent().contains("*"));
+		assertEquals("{\"A\":[\"hidden/A\",\"" + TAG_C + "\"]}", drafts());
+		page.click("#btn-tag-set");
+		page.locator("#tag-set-menu").waitFor();
+		assertEquals(List.of("A *", "B"), page.locator("#tag-set-menu .tag-set-name").allTextContents());
+		page.keyboard().press("Escape");
+		// 読み直してからAを呼ぶと外した選択と印が戻り、Aを選び直しても変わらない。
+		page.reload();
+		waitForTag(page, TAG_B);
+		callSet("A");
+		assertEquals("[\"hidden/A\",\"" + TAG_C + "\"]", activeTags());
+		assertTrue(page.locator("#btn-tag-set").textContent().contains("*"));
+		assertNull(drafts());
+		callSet("A");
+		assertEquals("[\"hidden/A\",\"" + TAG_C + "\"]", activeTags());
+		// Revertだけが保存済みへ戻し、そのあとBへ切り替えてもAの分は残らない。
+		page.click("#btn-tag-set-revert");
+		page.waitForFunction("!document.querySelector('#btn-tag-set').textContent.includes('*')");
+		assertEquals("[\"hidden/A\",\"" + TAG_A + "\",\"" + TAG_C + "\"]", activeTags());
+		callSet("B");
+		assertNull(drafts());
+	}
+
+	@Test
+	void unsavedChangesFollowRenameAndDeselectAndAreDroppedBySaveAsDeleteAndExternalDeletion() {
+		createSet("A", List.of(TAG_A, TAG_C));
+		createSet("B", List.of(TAG_C));
+		openFixture();
+		// Deselectで外したAの変更は残り、Bを経てAを呼ぶと戻る。
+		callSet("A");
+		toggleTag(TAG_A);
+		page.click("#btn-tag-set");
+		page.getByText("Deselect tag set", new com.microsoft.playwright.Page.GetByTextOptions().setExact(true)).click();
+		assertEquals("{\"A\":[\"" + TAG_C + "\"]}", drafts());
+		callSet("B");
+		callSet("A");
+		assertEquals("[\"" + TAG_C + "\"]", activeTags());
+		// Bを選んでいる間にAを改名すると、変更も新しい名前へ移る。
+		callSet("B");
+		page.click("#btn-tag-set");
+		page.locator("#tag-set-menu .tag-set-row[data-name='A'] button[title='Rename tag set']").click();
+		page.locator("#tag-set-menu input").fill("A2");
+		page.locator("#tag-set-menu input").press("Enter");
+		page.waitForFunction("localStorage.getItem('anet.metricsviewer.tagSetDrafts') === '{\"A2\":[\"tag/c\"]}'");
+		page.keyboard().press("Escape");
+		callSet("A2");
+		assertEquals("[\"" + TAG_C + "\"]", activeTags());
+		// 変更中のA2からSave Asすると変更は新しいセットへ移り、A2は保存済みの中身で呼ばれる。
+		page.click("#btn-tag-set");
+		page.getByText("+ Save current selection as…", new com.microsoft.playwright.Page.GetByTextOptions().setExact(true)).click();
+		page.locator("#tag-set-menu input").fill("C");
+		page.locator("#tag-set-menu input").press("Enter");
+		page.waitForFunction("localStorage.getItem('anet.metricsviewer.tagSet') === '\"C\"'");
+		assertNull(drafts());
+		callSet("A2");
+		assertEquals("[\"" + TAG_A + "\",\"" + TAG_C + "\"]", activeTags());
+		// 変更を残したセットを削除すると、その分も消える。
+		toggleTag(TAG_A);
+		callSet("B");
+		assertEquals("{\"A2\":[\"tag/c\"]}", drafts());
+		page.click("#btn-tag-set");
+		page.locator("#tag-set-menu .tag-set-row[data-name='A2'] button[title='Delete tag set']").click();
+		page.locator("#tag-set-menu").getByRole(com.microsoft.playwright.options.AriaRole.BUTTON,
+				new com.microsoft.playwright.Locator.GetByRoleOptions().setName("Delete").setExact(true)).click();
+		page.waitForFunction("localStorage.getItem('anet.metricsviewer.tagSetDrafts') === null");
+		page.keyboard().press("Escape");
+		// 別のブラウザ文脈で消されたセットの分は、一覧を開いて取り直したときに通知なしで消える。
+		callSet("C");
+		toggleTag(TAG_A);
+		callSet("B");
+		assertEquals("{\"C\":[\"tag/a\",\"tag/c\"]}", drafts());
+		context.request().post(baseUrl + "/api/tag-sets/delete", RequestOptions.create().setData(Map.of("name", "C")));
+		page.click("#btn-tag-set");
+		page.waitForFunction("localStorage.getItem('anet.metricsviewer.tagSetDrafts') === null");
+		assertEquals(List.of(), page.locator(".toast").allTextContents());
 	}
 
 	@Test

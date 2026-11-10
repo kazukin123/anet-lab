@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:c09b31faa216d9555a7f4b0044ca893f40467c12 date:2026-11-09 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:37424fbe55b597543eda28b62489a44b181978b5 date:2026-11-10 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -73,8 +73,8 @@ When launched without a workspace argument, the launcher pauses after displaying
 | `Recolor` | Redistributes maximally distinguishable colors among selected Runs. Colors follow a fixed sequence in selection order, so the same Run count produces the same color set |
 | `Auto Recolor` | Automatically assigns each newly selected Run (including the Run selected on initial display) the color most distinguishable from the other selected Runs. Colors of Runs that were already selected are left unchanged. ON by default |
 | `Tags` | Selects metric tags to display |
-| `Tag Set ▾` | Open and click a name to replace the entire selection, including hidden tags. Each row shows tags visible in the list / total saved tags |
-| `Save` / `Revert` | `*` marks differences. Save overwrites the set with the entire selection; Revert fetches and applies the latest server contents. Both are disabled without changes |
+| `Tag Set ▾` | Open and click a name to replace the entire selection, including hidden tags, with that set's contents. If the set still has unsaved changes, they replace the selection instead of the saved contents. Clicking the selected set leaves the selection unchanged. Each row shows tags visible in the list / total saved tags |
+| `Save` / `Revert` | `*` marks differences from the saved set. Unsaved changes survive switching to another set, and that set's name in the list also shows `*`. Save overwrites the set with the entire selection; Revert fetches and applies the latest server contents. Both are disabled without changes |
 | `+ Save current selection as…` | Enter a name below the list and save. Check the total and hidden tag counts beside the input |
 | `✎` / `×` | Rename inline or confirm deletion. `Deselect tag set` clears the selected set name while keeping tag selection |
 | `Selected Only` (Runs / Tags) | Header toggle that keeps only selected Runs or tags in the list. Bulk operations such as `Select All` automatically turn it OFF |
@@ -93,7 +93,7 @@ Only the initial display automatically selects the latest Run. Thereafter, manua
 Reload preserves known OFF tags and automatically enables only newly discovered visible tags.
 The selected workspace, tags, LOD mode, Scroll Lock, `Auto Recolor`, and per-tag Log and percentile lower and upper limits persist in browser `localStorage`. Run colors themselves do not persist; they are reassigned on reload and workspace changes. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
 
-The selected tag set name also persists in localStorage. Reloading retains unsaved tag selection. Tag sets are shared across workspaces. Use ↑↓ and Enter in the menu, and Esc or an outside click to close it. Esc inside an input cancels only that edit.
+The selected tag set name and per-set unsaved changes also persist in localStorage. Reloading retains unsaved tag selection. Unsaved changes stay in this browser only and do not appear in other browsers or devices. To return to the saved contents, call the set and press `Revert`. Saving a set under another name with `Save As` discards the original set's unsaved changes. Tag sets are shared across workspaces. Use ↑↓ and Enter in the menu, and Esc or an outside click to close it. Esc inside an input cancels only that edit.
 
 > [!NOTE]
 > The working file defaults to `metrics_viewer_tag_sets.json` directly under `metricsviewer.workspaces-dir`. Viewer creates missing parents and copies the bundled initial file only when the working file is absent. Override `--metricsviewer.tag-sets-file` to choose another location. External edits, including git changes, remain unseen until restart and are overwritten by UI saves. Restart Viewer after external editing before saving through the UI.

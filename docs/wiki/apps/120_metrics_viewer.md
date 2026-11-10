@@ -6,7 +6,7 @@
 
 - MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§1.1・§2.1）。
 - JSONL/gzipをstreaming parseし、L0・factor4のLOD・TagStatsを同一transactionで更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.2 Metrics Viewer）。
-- タグセットはTagSetStoreが起動時の検証と保存を、TagSetControllerがAPIを、TagSetMenuが選択・編集の操作を受け持つ。Workspaceをまたぐ保存済みの集合と、ブラウザの未保存の選択を分けて持つ（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§8・§9.6）。
+- タグセットはTagSetStoreが起動時の検証と保存を、TagSetControllerがAPIを、TagSetMenuが選択・編集の操作を受け持つ。Workspaceをまたぐ保存済みの集合と、ブラウザの未保存の選択を分けて持ち、未保存の変更は選択中でないセットの分もセットごとにブラウザへ残す（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§3.2・§7.4・§8・§9.6）。
 
 ## 成立の経緯
 

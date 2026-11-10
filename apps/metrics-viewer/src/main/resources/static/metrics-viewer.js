@@ -12,6 +12,7 @@ const HOVER_SCROLL_DELAY_MS = 300;
 const MAX_SAFE_STEP = Number.MAX_SAFE_INTEGER;
 const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
 const STORAGE_KEY_TAG_SET = "anet.metricsviewer.tagSet";
+const STORAGE_KEY_TAG_SET_DRAFTS = "anet.metricsviewer.tagSetDrafts";
 const STORAGE_KEY_KNOWN_TAGS = "anet.metricsviewer.knownTags";
 const STORAGE_KEY_LOG_SCALE_TAGS = "anet.metricsviewer.logScaleTags";
 const STORAGE_KEY_PERCENTILE_BOUNDS = "anet.metricsviewer.percentileBounds";
@@ -1751,7 +1752,7 @@ class TagSetMenu {
 		else actions.append(this.action("+ Save current selection as…", () => this.edit("create")));
 		if (this.app.selectedTagSet !== null) {
 			const deselect = this.action("Deselect tag set", () => {
-				this.app.selectTagSet(null);
+				this.app.deselectTagSet();
 				this.close();
 			});
 			deselect.title = "Keep the current tag selection and stop tracking the tag set";
@@ -1841,7 +1842,9 @@ class TagSetMenu {
 			const info = this.app.tagSets?.find(item => item.name === row.dataset.name);
 			const call = row.querySelector(".tag-set-name");
 			if (call && info) {
-				call.textContent = info.name + (info.name === name && difference?.modified ? " *" : "");
+				// 選択中の行は今の選択との差、ほかの行は残した変更の有無で印を付ける。
+				const modified = info.name === name ? difference?.modified : this.app.tagSetDrafts.has(info.name);
+				call.textContent = info.name + (modified ? " *" : "");
 				call.classList.toggle("active", info.name === name);
 				row.querySelector(".tag-set-count").textContent = `${info.tags.filter(tag => visible.has(tag)).length}/${info.tags.length}`;
 			}
@@ -2193,6 +2196,8 @@ class MetricsViewerClientApp {
 		this.knownTags = new Set();
 		this.tagSets = null;
 		this.selectedTagSet = null;
+		// 名前 -> 選択中でないタグセットの未保存のtag選択。選択中のセットの分はactiveTagsが持つ。
+		this.tagSetDrafts = new Map();
 		this.tagSetsRevision = 0;
 		this.tagSetWriteTail = Promise.resolve();
 		this.tagSetMenu = new TagSetMenu(this);
@@ -2540,11 +2545,54 @@ class MetricsViewerClientApp {
 	}
 
 	callTagSet(info) {
-		// 保存した集合全体を選び、既存の永続化・描画経路へ渡す。
-		this.activeTags = new Set(info.tags);
-		this.selectTagSet(info.name);
+		// 選択中のセットを選び直しても未保存の変更は消さない。保存済みへ戻すのはRevertだけ。
+		if (info.name === this.selectedTagSet) {
+			this.tagSetMenu.close();
+			return;
+		}
+		// 離れるセットの変更を残し、呼ぶセットに残した変更があれば保存済みの中身より優先する。
+		this._stashTagSetDraft();
+		const draft = this.tagSetDrafts.get(info.name);
+		this.tagSetDrafts.delete(info.name);
+		this._saveTagSetDrafts();
+		this._applyTagSetSelection(info.name, draft ?? info.tags);
+	}
+
+	_applyTagSetSelection(name, tags) {
+		// 選択全体を置き換えてセットを選び、既存の永続化・描画経路へ渡す。
+		this.activeTags = new Set(tags);
+		this.selectTagSet(name);
 		this.tagSetMenu.close();
 		this.onTagSelectionChanged();
+	}
+
+	deselectTagSet() {
+		// 外したセットの変更は残し、tagの選択はそのまま保つ。
+		this._stashTagSetDraft();
+		this.selectTagSet(null);
+	}
+
+	_stashTagSetDraft() {
+		// 選択中のセットの差をそのセットの変更として残す。差が無ければ残っていた分も消す。
+		const name = this.selectedTagSet;
+		if (name === null) return;
+		if (this.tagSetDifference()?.modified) this.tagSetDrafts.set(name, [...this.activeTags]);
+		else this.tagSetDrafts.delete(name);
+		this._saveTagSetDrafts();
+	}
+
+	_pruneTagSetDrafts() {
+		// 一覧から消えたセットの分と、保存済みと同じ中身になった分を捨てる。
+		let changed = false;
+		for (const [name, tags] of this.tagSetDrafts) {
+			const info = this.tagSets.find(item => item.name === name);
+			const saved = info ? new Set(info.tags) : null;
+			if (!saved || (saved.size === tags.length && tags.every(tag => saved.has(tag)))) {
+				this.tagSetDrafts.delete(name);
+				changed = true;
+			}
+		}
+		if (changed) this._saveTagSetDrafts();
 	}
 
 	selectTagSet(name) {
@@ -2575,6 +2623,7 @@ class MetricsViewerClientApp {
 			this.selectTagSet(null);
 			Toast.show(`Tag set "${missing}" no longer exists.`);
 		}
+		this._pruneTagSetDrafts();
 		// 一覧と選択名の整合が取れたあとで、操作行と開いている一覧を更新する。
 		this.tagSetMenu.sync();
 		this.tagSetMenu.render();
@@ -2598,6 +2647,11 @@ class MetricsViewerClientApp {
 				if (operation === "create") this.selectTagSet(body.name);
 				if (operation === "rename" && this.selectedTagSet === body.name) this.selectTagSet(body.newName);
 				if (operation === "delete" && this.selectedTagSet === body.name) this.selectTagSet(null);
+				// 残した変更も同じ操作に合わせる。Save Asでは元のセットの変更を新しいセットへ移したとみなし残さない。
+				const draft = this.tagSetDrafts.get(body.name);
+				this.tagSetDrafts.delete(body.name);
+				if (operation === "rename" && draft) this.tagSetDrafts.set(body.newName, draft);
+				this._saveTagSetDrafts();
 				this.applyTagSets(payload);
 				return true;
 			} catch (error) {
@@ -2626,9 +2680,9 @@ class MetricsViewerClientApp {
 		try {
 			// 最新の一覧を取得し、取得中に選択が変わっていれば古い要求で上書きしない。
 			if (!await this.refreshTagSets() || this.selectedTagSet !== name) return;
-			// 取り直した中身を通常の呼び出し経路へ渡し、選択全体と表示を戻す。
+			// 取り直した保存済みの中身で選択全体と表示を戻す。
 			const info = this.tagSets.find(item => item.name === name);
-			if (info) this.callTagSet(info);
+			if (info) this._applyTagSetSelection(info.name, info.tags);
 		} catch (error) { Toast.show(error.message); }
 	}
 
@@ -3219,6 +3273,9 @@ class MetricsViewerClientApp {
 			console.warn(`Failed to load ${STORAGE_KEY_TAG_SET}`, error);
 			this.selectTagSet(null);
 		}
+		// 選択中のセットの変更はactiveTagsから戻すので、同じ名前の分は持たない。
+		this.tagSetDrafts = this._loadTagSetDrafts();
+		if (this.tagSetDrafts.delete(this.selectedTagSet)) this._saveTagSetDrafts();
 		this.activeTags = this._loadSet(STORAGE_KEY_TAGS);
 		this.knownTags = this._loadSet(STORAGE_KEY_KNOWN_TAGS);
 		this.logScaleTags = this._loadSet(STORAGE_KEY_LOG_SCALE_TAGS);
@@ -3271,6 +3328,43 @@ class MetricsViewerClientApp {
 			console.warn(`Failed to load ${key}`, error);
 			return new Map();
 		}
+	}
+
+	// 保存形式は {"<タグセット名>": [tag, ...], ...}。不正な項目が1つでもあれば全体を捨てる。
+	_loadTagSetDrafts() {
+		const key = STORAGE_KEY_TAG_SET_DRAFTS;
+		try {
+			const stored = localStorage.getItem(key);
+			if (!stored) return new Map();
+			const entries = JSON.parse(stored);
+			if (entries === null || typeof entries !== "object" || Array.isArray(entries)) {
+				throw new Error("expected a JSON object");
+			}
+			const drafts = new Map();
+			for (const [name, tags] of Object.entries(entries)) {
+				if (name !== normalizeTagSetName(name)) throw new Error(`unexpected tag set name ${name}`);
+				if (!Array.isArray(tags) || tags.some(tag => typeof tag !== "string")) {
+					throw new Error(`expected a JSON string array for tag set ${name}`);
+				}
+				drafts.set(name, [...new Set(tags)]);
+			}
+			return drafts;
+		} catch (error) {
+			console.warn(`Failed to load ${key}`, error);
+			localStorage.removeItem(key);
+			return new Map();
+		}
+	}
+
+	_saveTagSetDrafts() {
+		if (this.tagSetDrafts.size === 0) {
+			localStorage.removeItem(STORAGE_KEY_TAG_SET_DRAFTS);
+			return;
+		}
+		const names = [...this.tagSetDrafts.keys()].sort();
+		localStorage.setItem(
+				STORAGE_KEY_TAG_SET_DRAFTS,
+				JSON.stringify(Object.fromEntries(names.map(name => [name, [...this.tagSetDrafts.get(name)].sort()]))));
 	}
 
 	_saveSets() {
