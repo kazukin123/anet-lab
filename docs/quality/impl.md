@@ -88,7 +88,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | 15 | 確定事項への適合 | 実装が、PRD の確定事項と実装の契約に反していない | 入力元の PRD（確定事項、実装の契約） |
 | 16 | 過剰の不在 | PRD と実装計画に無い機能・設定キー・public interface・ファイルを足していない。足した場合は、理由が実装計画に書かれている | [AGENTS.md](../../AGENTS.md) §基本方針、[PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
 | 17 | 変更の範囲 | 変更ファイルが、PRD と実装計画に要る範囲に収まっている。無関係な整形・リネームと、生成物・ローカル環境のファイルの追加が無い | [AGENTS.md](../../AGENTS.md) §基本方針 |
-| 74 | 課題の対応の記録 | 入力元の PRD を `docs` で指す索引 issue と、その子のうち今回の実装の範囲に当たる題材 issue の対応内容に、今回の対応の行がある。題材 issue の行に、その件で直したことと確かめた結果がある | [anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装後の自己点検とレビュー、[レジストリ](../process/registry.md) §この場で直す |
+| 74 | 課題の対応の記録 | 入力元の PRD の課題（`prd` でその PRD を指す issue）のうち、今回の実装の範囲に当たるもの全部の対応内容に、今回の対応の行がある。各行に、その件で直したことと確かめた結果がある | [anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装後の自己点検とレビュー、[レジストリ](../process/registry.md) §この場で直す |
 
 ### 契約の変更
 

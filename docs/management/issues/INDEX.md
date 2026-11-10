@@ -2,131 +2,137 @@
 
 道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。
 
-| # | ID | 状態 | WSJF | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 4.3 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | 索引 | 実装済み | RND による一生の新しさだけの群（内的報酬の第一の群）暫定 PRD |
-| 2 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 改善 | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
-| 3 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
-| 4 | [issue-20261107-a9a0e3](issue-20261107-a9a0e3.md) | 未着手 | 8.0 | — | 成果物 | その他 | 318_rl_core, 317_metrics, 324_dqn | 改善 | 未確認 | Atariの正常なRunで毎回出るWARN（eval_targetの未スケジュール、評価だけのRunのRND）で本物のWARNが埋もれる |
-| 5 | [issue-20261109-fa2f69](issue-20261109-fa2f69.md) | 未着手 | 7.5 | — | 成果物 | 実装 | 321_agent_core | 不具合 | 未確認 | [shipped_config]を単独で回すとRNDの出荷設定のテストがDebug版libtorchのoneDNNのassertで止まる |
-| 6 | [issue-20261103-582880](issue-20261103-582880.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 318_rl_core | ずれ | 残件有り | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
-| 7 | [issue-20261103-ba635a](issue-20261103-ba635a.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 317_metrics | 不具合 | 残件有り | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
-| 8 | [issue-20261103-b754ff](issue-20261103-b754ff.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 324_dqn | ずれ | 残件有り | stucker.stack_keysに存在しないキー名を書いても検出されない |
-| 9 | [issue-20261103-80c355](issue-20261103-80c355.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
-| 10 | [issue-20261103-93f8a6](issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 不具合 | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| 11 | [issue-20261103-2c9a07](issue-20261103-2c9a07.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 110_runner_app | 改善 | 残件有り | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
-| 12 | [issue-20261103-66100f](issue-20261103-66100f.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | ずれ | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
-| 13 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 未着手 | 5.0 | — | 成果物 | その他 | 322_env_individual | 案 | 未確認 | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
-| 14 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | ずれ | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
-| 15 | [issue-20261103-d4aa77](issue-20261103-d4aa77.md) | 未着手 | 4.5 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残件有り | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
-| 16 | [issue-20261107-1226e5](issue-20261107-1226e5.md) | 未着手 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | 案 | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
-| 17 | [issue-20261103-d337bd](issue-20261103-d337bd.md) | 未着手 | 3.7 | — | 成果物 | 監査 | 314_tensor | 改善 | 残件有り | 報酬スケーラのauto_post_scaleと、観測正規化のrobust update・SymLogにテストが無い（どれも既定で有効） |
-| 18 | [issue-20261107-0c34dd](issue-20261107-0c34dd.md) | 未着手 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | ずれ | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
-| 19 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
-| 20 | [issue-20261103-a3574b](issue-20261103-a3574b.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
-| 21 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | 成果物 | PRD | 322_env_individual | 索引 | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸）暫定 PRD |
-| 22 | [issue-20261103-c8fb06](issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | 成果物 | PRD | 312_util, 110_runner_app | 索引 | 残件有り | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
-| 23 | [issue-20261103-741251](issue-20261103-741251.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 321_agent_core | 改善 | 残件有り | BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖 |
-| 24 | [issue-20261107-16ffd8](issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | 成果物 | PRD | 318_rl_core, 322_env_individual, 110_runner_app | ずれ | 未確認 | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
-| 25 | [issue-20261107-c17068](issue-20261107-c17068.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 索引 | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し）暫定 PRD |
-| 26 | [issue-20261108-06a3f0](issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | 成果物 | その他 | 316_config, 322_env_individual | 改善 | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
-| 27 | [issue-20261108-f0f243](issue-20261108-f0f243.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 322_env_individual | 索引 | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする）暫定 PRD |
-| 28 | [issue-20261103-03a1b6](issue-20261103-03a1b6.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 321_agent_core | 改善 | 残件有り | dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い |
-| 29 | [issue-20261103-60f11c](issue-20261103-60f11c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残件有り | MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い |
-| 30 | [issue-20261103-b2a0b1](issue-20261103-b2a0b1.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 318_rl_core | 不具合 | 残件有り | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
-| 31 | [issue-20261103-78df9c](issue-20261103-78df9c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util | 不具合 | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
-| 32 | [issue-20261103-9b314a](issue-20261103-9b314a.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util | ずれ | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
-| 33 | [issue-20261103-c1e48b](issue-20261103-c1e48b.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util | 改善 | 残件有り | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている |
-| 34 | [issue-20261103-d4258c](issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util, 316_config | ずれ | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
-| 35 | [issue-20261103-7c9a70](issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 316_config | ずれ | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
-| 36 | [issue-20261103-eeb2c3](issue-20261103-eeb2c3.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 317_metrics | ずれ | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
-| 37 | [issue-20261103-58bf49](issue-20261103-58bf49.md) | 未着手 | 2.3 | — | 成果物 | 監査 | 110_runner_app | 改善 | 残件有り | QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う |
-| 38 | [issue-20261103-34d35d](issue-20261103-34d35d.md) | 未着手 | 2.3 | — | 成果物 | PRD | 318_rl_core | 索引 | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる 暫定 PRD |
-| 39 | [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 索引 | 残件有り | 999: train/eval mode 整理後の排他精査 PRD（草案） |
-| 40 | [issue-20261103-cdac7c](issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | 成果物 | PRD | 321_agent_core | 索引 | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD |
-| 41 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | 不具合 | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
-| 42 | [issue-20261103-39ddb2](issue-20261103-39ddb2.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
-| 43 | [issue-20261103-73a449](issue-20261103-73a449.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判定不能 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
-| 44 | [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 索引 | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD |
-| 45 | [issue-20261103-7c8cd7](issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | 成果物 | PRD | 316_config | 索引 | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ）暫定 PRD |
-| 46 | [issue-20261103-7f1789](issue-20261103-7f1789.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 322_env_individual | 索引 | 残件有り | 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 PRD |
-| 47 | [issue-20261103-a39330](issue-20261103-a39330.md) | 未着手 | 2.0 | — | 成果物 | PRD | 321_agent_core, 324_dqn | 索引 | 残件有り | PRD 999: IQN初回Learner priorityのquantile-pair方式 |
-| 48 | [issue-20261103-a86dcc](issue-20261103-a86dcc.md) | 未着手 | 2.0 | — | 成果物 | PRD | 318_rl_core, 312_util | 索引 | 残件有り | eval スケジュールの初回発火の抑止 暫定 PRD |
-| 49 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 索引 | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 PRD |
-| 50 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 索引 | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`）PRD |
-| 51 | [issue-20261103-e088eb](issue-20261103-e088eb.md) | 未着手 | 1.7 | — | 成果物 | 監査 | 319_gui | 改善 | 残件有り | Panel::OnKeyがproductionコードでdynamic_castを3回使う |
-| 52 | [issue-20261103-ab98b7](issue-20261103-ab98b7.md) | 未着手 | 1.6 | — | 成果物 | 監査 | 321_agent_core | 改善 | 残件有り | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |
-| 53 | [issue-20261103-0ef7b8](issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
-| 54 | [issue-20261103-61d771](issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 索引 | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助）暫定 PRD |
-| 55 | [issue-20261110-adf548](issue-20261110-adf548.md) | 未着手 | 1.6 | — | 成果物 | その他 | 322_env_individual | 案 | 未確認 | GridMaze に MiniGrid 互換の課題が無く、難しい探索の検証と DI-engine との比較に使えない |
-| 56 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | 索引 | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）暫定 PRD |
-| 57 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 改善 | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
-| 58 | [issue-20261103-e6dbb4](issue-20261103-e6dbb4.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 317_metrics | 改善 | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
-| 59 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 312_util | 不具合 | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
-| 60 | [issue-20261103-182ca1](issue-20261103-182ca1.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 索引 | 残件有り | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 暫定 PRD |
-| 61 | [issue-20261103-50644a](issue-20261103-50644a.md) | 未着手 | 1.4 | — | 成果物 | PRD | 317_metrics, 320_env_core, 321_agent_core, 318_rl_core, 110_runner_app | 索引 | 残件有り | 評価 session の step trace を Run の記録に残す PRD |
-| 62 | [issue-20261103-52bda0](issue-20261103-52bda0.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 残件有り | メトリクスの横軸と間隔を数える単位を分ける PRD |
-| 63 | [issue-20261103-5addea](issue-20261103-5addea.md) | 未着手 | 1.4 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 索引 | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
-| 64 | [issue-20261103-66f453](issue-20261103-66f453.md) | 未着手 | 1.4 | — | 成果物 | PRD | 110_runner_app, 316_config | 索引 | 残件有り | Run キュー（計画スナップショット + exe 固定）暫定 PRD |
-| 65 | [issue-20261107-2d4932](issue-20261107-2d4932.md) | 未着手 | 1.4 | — | 成果物 | その他 | 110_runner_app, 324_dqn | 案 | 未確認 | EvalPanelで行動選択のτをランダムと固定で切り替えられず、学んだ行動と学習した価値の判断を見比べられない |
-| 66 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | 成果物 | PRD | 315_nn, 317_metrics, 321_agent_core | 索引 | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
-| 67 | [issue-20261103-f39d10](issue-20261103-f39d10.md) | 未着手 | 1.3 | — | 成果物 | PRD | 318_rl_core, 324_dqn | 索引 | 残件有り | Background eval の network snapshot 順序保証 |
-| 68 | [issue-20261103-78c643](issue-20261103-78c643.md) | 未着手 | 1.2 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
-| 69 | [issue-20261103-07629c](issue-20261103-07629c.md) | 未着手 | 1.2 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui | 索引 | 残件有り | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 PRD |
-| 70 | [issue-20261103-71bb9a](issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools | 索引 | 残件有り | 行カバレッジ計測（OpenCppCoverage）暫定 PRD |
-| 71 | [issue-20261103-7227bf](issue-20261103-7227bf.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools, 317_metrics | 索引 | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング 暫定 PRD |
-| 72 | [issue-20261103-8c3c6d](issue-20261103-8c3c6d.md) | 未着手 | 1.2 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 索引 | 残件有り | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る 暫定 PRD |
-| 73 | [issue-20261103-dbe666](issue-20261103-dbe666.md) | 未着手 | 1.2 | — | 成果物 | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | 索引 | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化）暫定 PRD |
-| 74 | [issue-20261103-15f115](issue-20261103-15f115.md) | 未着手 | 1.1 | — | 成果物 | PRD | 110_runner_app, 319_gui | 索引 | 残件有り | Runner を Per-Monitor V2 の DPI 対応で動かす PRD（manifest の gdiScaling を外す） |
-| 75 | [issue-20261103-1edf84](issue-20261103-1edf84.md) | 未着手 | 1.1 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 315_nn | 索引 | 残件有り | Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ）暫定 PRD |
-| 76 | [issue-20261103-206933](issue-20261103-206933.md) | 未着手 | 1.1 | — | 成果物 | PRD | 110_runner_app | 索引 | 残件有り | 多数の seed で打席を稼ぐ（条件付きの打ち切りで、火が付かなかった Run を早く止める）暫定 PRD |
-| 77 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 未着手 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | 索引 | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する 暫定 PRD |
-| 78 | [issue-20261103-6f6c73](issue-20261103-6f6c73.md) | 未着手 | 1.0 | — | 成果物 | PRD | 321_agent_core | 索引 | 残件有り | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習）暫定 PRD |
-| 79 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | 未着手 | 1.0 | — | 成果物 | PRD | 316_config, 110_runner_app | 索引 | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD |
-| 80 | [issue-20261103-c16aab](issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | 索引 | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
-| 81 | [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | 案 | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
-| 82 | [issue-20261103-cfe994](issue-20261103-cfe994.md) | 未着手 | 0.9 | — | 成果物 | 監査 | 318_rl_core | 改善 | 残件有り | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
-| 83 | [issue-20261103-23d185](issue-20261103-23d185.md) | 未着手 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 索引 | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）暫定 PRD |
-| 84 | [issue-20261103-c5c791](issue-20261103-c5c791.md) | 未着手 | 0.9 | — | 成果物 | PRD | 322_env_individual, 318_rl_core | 索引 | 残件有り | PRD097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査 |
-| 85 | [issue-20261103-f33167](issue-20261103-f33167.md) | 未着手 | 0.9 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn | 索引 | 残件有り | 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー）PRD |
-| 86 | [issue-20261103-f40ae8](issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | 成果物 | PRD | 317_metrics, 314_tensor, 318_rl_core | 索引 | 残件有り | TimeHistogram fine-bin保持・描画時集約 PRD |
-| 87 | [issue-20261103-322a83](issue-20261103-322a83.md) | 未着手 | 0.8 | — | 成果物 | PRD | 315_nn | 索引 | 残件有り | 標準 Spectral Normalization と residual identity 開始を両立する α ゲート暫定 PRD |
-| 88 | [issue-20261103-53ed7a](issue-20261103-53ed7a.md) | 未着手 | 0.8 | — | 成果物 | PRD | 110_runner_app, 319_gui | 索引 | 残件有り | 起動中の Runner を OS のテーマ（ライト／ダーク）の切替に追従させる PRD |
-| 89 | [issue-20261103-aa8701](issue-20261103-aa8701.md) | 未着手 | 0.8 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 320_env_core | 索引 | 残件有り | Run Serialization（Run 全体 Save / Load）暫定 PRD |
-| 90 | [issue-20261103-afe841](issue-20261103-afe841.md) | 未着手 | 0.8 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 318_rl_core | 索引 | 残件有り | DefaultDQN Staged Batch / Replay Schedule 暫定 PRD |
-| 91 | [issue-20261103-b13ed2](issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 索引 | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD |
-| 92 | [issue-20261103-51220d](issue-20261103-51220d.md) | 未着手 | 0.7 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 索引 | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査）暫定 PRD |
-| 93 | [issue-20261103-969184](issue-20261103-969184.md) | 未着手 | 0.6 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | 索引 | 残件有り | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド）暫定 PRD |
-| 94 | [issue-20261103-145ee2](issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 索引 | 残件有り | メトリクス目標値によるハイパラ自律調整 暫定 PRD |
-| 95 | [issue-20261103-4a2b5e](issue-20261103-4a2b5e.md) | 未着手 | 0.5 | — | 成果物 | PRD | 315_nn, 321_agent_core | 索引 | 残件有り | NN Head の最終射影と出力変換の責務分離 |
-| 96 | [issue-20261103-6c40b8](issue-20261103-6c40b8.md) | 未着手 | 0.5 | — | 成果物 | PRD | 315_nn | 索引 | 残件有り | NoisyNet のノイズ込み重みに対する Spectral Normalization |
-| 97 | [issue-20261103-f993bc](issue-20261103-f993bc.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 索引 | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
-| 98 | [issue-20261103-9df5c5](issue-20261103-9df5c5.md) | 未着手 | 2.7 | [issue-20261103-80c355](issue-20261103-80c355.md) | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 索引 | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す PRD |
-| 99 | [issue-20261103-9bd71e](issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 索引 | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
-| 100 | [issue-20261103-ca1a85](issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 成果物 | 監査 | 318_rl_core | 改善 | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
-| 101 | [issue-20261103-124da5](issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | 索引 | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 PRD |
-| 102 | [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](issue-20261103-b754ff.md), [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-9bd71e](issue-20261103-9bd71e.md), [issue-20261103-ab98b7](issue-20261103-ab98b7.md), [issue-20261103-75b8da](issue-20261103-75b8da.md), [issue-20261107-1226e5](issue-20261107-1226e5.md), [issue-20261107-949e8a](issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | 索引 | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 暫定 PRD |
-| 103 | [issue-20261109-adc5c4](issue-20261109-adc5c4.md) | 未着手 | 1.4 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 改善 | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
-| 104 | [issue-20261103-6661d2](issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](issue-20261103-f39d10.md), [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app | 索引 | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
-| 105 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | 未着手 | 1.3 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 成果物 | PRD | 110_runner_app, 318_rl_core, 322_env_individual | 索引 | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD |
-| 106 | [issue-20261103-13bc20](issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 成果物 | PRD | 322_env_individual | 索引 | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化）暫定 PRD |
-| 107 | [issue-20261108-227b05](issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](issue-20261103-736e39.md) | 成果物 | PRD | 324_dqn, 321_agent_core | 案 | 未確認 | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
-| 108 | [issue-20261103-2dd820](issue-20261103-2dd820.md) | 未着手 | 0.6 | [issue-20261103-785e68](issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 索引 | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける）暫定 PRD |
-| 109 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 索引 | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映）暫定 PRD |
-| 110 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | 索引 | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step）暫定 PRD |
+| # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 4.3 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
+| 2 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
+| 3 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
+| 4 | [issue-20261107-a9a0e3](issue-20261107-a9a0e3.md) | 未着手 | 8.0 | — | 成果物 | その他 | 318_rl_core, 317_metrics, 324_dqn | 学習基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | Atariの正常なRunで毎回出るWARN（eval_targetの未スケジュール、評価だけのRunのRND）で本物のWARNが埋もれる |
+| 5 | [issue-20261109-fa2f69](issue-20261109-fa2f69.md) | 未着手 | 7.5 | — | 成果物 | 実装 | 321_agent_core | 開発 | 不具合 | — | 未確認 | [shipped_config]を単独で回すとRNDの出荷設定のテストがDebug版libtorchのoneDNNのassertで止まる |
+| 6 | [issue-20261103-582880](issue-20261103-582880.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不整合 | — | 残件有り | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
+| 7 | [issue-20261103-ba635a](issue-20261103-ba635a.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 317_metrics | UI | 不具合 | — | 残件有り | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
+| 8 | [issue-20261103-b754ff](issue-20261103-b754ff.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | stucker.stack_keysに存在しないキー名を書いても検出されない |
+| 9 | [issue-20261103-80c355](issue-20261103-80c355.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
+| 10 | [issue-20261103-93f8a6](issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
+| 11 | [issue-20261103-2c9a07](issue-20261103-2c9a07.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 110_runner_app | 基盤 | リファクタリング | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
+| 12 | [issue-20261103-66100f](issue-20261103-66100f.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
+| 13 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 未着手 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
+| 14 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
+| 15 | [issue-20261103-d4aa77](issue-20261103-d4aa77.md) | 未着手 | 4.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | DefaultReplayBufferのコンストラクタの、priority storeとcompleterを対で持つ不変条件にテストが無い |
+| 16 | [issue-20261107-1226e5](issue-20261107-1226e5.md) | 未着手 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | — | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
+| 17 | [issue-20261103-d337bd](issue-20261103-d337bd.md) | 未着手 | 3.7 | — | 成果物 | 監査 | 314_tensor | 学習基盤 | リファクタリング | — | 残件有り | 報酬スケーラのauto_post_scaleと、観測正規化のrobust update・SymLogにテストが無い（どれも既定で有効） |
+| 18 | [issue-20261107-0c34dd](issue-20261107-0c34dd.md) | 未着手 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
+| 19 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
+| 20 | [issue-20261103-a3574b](issue-20261103-a3574b.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 残件有り | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
+| 21 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | 成果物 | PRD | 322_env_individual | Env | 機能追加 | [PRD085](../../memo/085_dropmerge_eval_score_axes_10prd.md) | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸） |
+| 22 | [issue-20261103-c8fb06](issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | 成果物 | PRD | 312_util, 110_runner_app | 基盤 | 機能改善 | [PRD071](../../memo/071_uncaught_fatal_visibility_10prd.md) | 残件有り | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
+| 23 | [issue-20261103-741251](issue-20261103-741251.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖 |
+| 24 | [issue-20261107-16ffd8](issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | 成果物 | PRD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 未確認 | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
+| 25 | [issue-20261107-c17068](issue-20261107-c17068.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） |
+| 26 | [issue-20261108-06a3f0](issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | 成果物 | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
+| 27 | [issue-20261108-f0f243](issue-20261108-f0f243.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
+| 28 | [issue-20261103-03a1b6](issue-20261103-03a1b6.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い |
+| 29 | [issue-20261103-60f11c](issue-20261103-60f11c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | MuZeroReplayBufferの価値ターゲットの打ち切りと、unroll窓のmaskにテストが無い |
+| 30 | [issue-20261103-b2a0b1](issue-20261103-b2a0b1.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
+| 31 | [issue-20261103-78df9c](issue-20261103-78df9c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util | 基盤 | 不具合 | — | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
+| 32 | [issue-20261103-9b314a](issue-20261103-9b314a.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util | 基盤 | 不整合 | — | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
+| 33 | [issue-20261103-c1e48b](issue-20261103-c1e48b.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util | 基盤 | リファクタリング | — | 残件有り | InitRLがagent.device・env.device・run.eval_deviceの既定値を、所有するConfigとは別に持っている |
+| 34 | [issue-20261103-d4258c](issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
+| 35 | [issue-20261103-7c9a70](issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 316_config | 基盤 | 不整合 | [PRD907](../../memo/907_config_file_layout_10prd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
+| 36 | [issue-20261103-eeb2c3](issue-20261103-eeb2c3.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 317_metrics | UI | 不整合 | — | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
+| 37 | [issue-20261103-58bf49](issue-20261103-58bf49.md) | 未着手 | 2.3 | — | 成果物 | 監査 | 110_runner_app | UI | リファクタリング | — | 残件有り | QValuePanel::Updateが356行で、統計・Grid更新・HeatMap加工を1関数で行う |
+| 38 | [issue-20261103-34d35d](issue-20261103-34d35d.md) | 未着手 | 2.3 | — | 成果物 | PRD | 318_rl_core | 学習基盤 | 不具合 | [PRD916](../../memo/916_episode_end_read_semantics_10prd.md) | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる |
+| 39 | [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 学習基盤 | 調査 | [PRD910](../../memo/910_network_lock_audit_10prd.md) | 残件有り | 999: train/eval mode 整理後の排他精査 PRD（草案） |
+| 40 | [issue-20261103-cdac7c](issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | 成果物 | PRD | 321_agent_core | アルゴリズム | 機能改善 | [PRD940](../../memo/940_target_update_step_axis_10prd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
+| 41 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
+| 42 | [issue-20261103-39ddb2](issue-20261103-39ddb2.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
+| 43 | [issue-20261103-73a449](issue-20261103-73a449.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 判定不能 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 44 | [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD945](../../memo/945_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
+| 45 | [issue-20261103-7c8cd7](issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | 成果物 | PRD | 316_config | 基盤 | リファクタリング | [PRD907](../../memo/907_config_file_layout_10prd.md) | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ） |
+| 46 | [issue-20261103-7f1789](issue-20261103-7f1789.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 322_env_individual | アルゴリズム | 機能追加 | [PRD088](../../memo/088_nn_adaptive_max_pool_10prd.md) | 残件有り | 出力の大きさで指定する max pooling（AdaptiveMaxPool2d） |
+| 47 | [issue-20261103-a39330](issue-20261103-a39330.md) | 未着手 | 2.0 | — | 成果物 | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD941](../../memo/941_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD 999: IQN初回Learner priorityのquantile-pair方式 |
+| 48 | [issue-20261103-a86dcc](issue-20261103-a86dcc.md) | 未着手 | 2.0 | — | 成果物 | PRD | 318_rl_core, 312_util | 学習基盤 | 機能改善 | [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md) | 残件有り | eval スケジュールの初回発火の抑止 |
+| 49 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
+| 50 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD112](../../memo/112_claude_memory_tidy_10prd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
+| 51 | [issue-20261103-e088eb](issue-20261103-e088eb.md) | 未着手 | 1.7 | — | 成果物 | 監査 | 319_gui | UI | リファクタリング | — | 残件有り | Panel::OnKeyがproductionコードでdynamic_castを3回使う |
+| 52 | [issue-20261103-ab98b7](issue-20261103-ab98b7.md) | 未着手 | 1.6 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | — | 残件有り | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |
+| 53 | [issue-20261103-0ef7b8](issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
+| 54 | [issue-20261103-61d771](issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD906](../../memo/906_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
+| 55 | [issue-20261110-adf548](issue-20261110-adf548.md) | 未着手 | 1.6 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | GridMaze に MiniGrid 互換の課題が無く、難しい探索の検証と DI-engine との比較に使えない |
+| 56 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD943](../../memo/943_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
+| 57 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
+| 58 | [issue-20261103-e6dbb4](issue-20261103-e6dbb4.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 317_metrics | UI | リファクタリング | — | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
+| 59 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 312_util | 基盤 | 不具合 | — | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
+| 60 | [issue-20261103-182ca1](issue-20261103-182ca1.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 学習基盤 | 性能改善 | [PRD909](../../memo/909_core_perf_candidates_202607_10prd.md) | 残件有り | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 |
+| 61 | [issue-20261103-50644a](issue-20261103-50644a.md) | 未着手 | 1.4 | — | 成果物 | PRD | 317_metrics, 320_env_core, 321_agent_core, 318_rl_core, 110_runner_app | UI | 機能追加 | [PRD919](../../memo/919_eval_session_step_trace_10prd.md) | 残件有り | 評価 session の step trace を Run の記録に残す |
+| 62 | [issue-20261103-52bda0](issue-20261103-52bda0.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
+| 63 | [issue-20261103-5addea](issue-20261103-5addea.md) | 未着手 | 1.4 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| 64 | [issue-20261103-66f453](issue-20261103-66f453.md) | 未着手 | 1.4 | — | 成果物 | PRD | 110_runner_app, 316_config | 学習基盤 | 機能追加 | [PRD952](../../memo/952_run_queue_snapshot_10prd.md) | 残件有り | Run キュー（計画スナップショット + exe 固定） |
+| 65 | [issue-20261107-2d4932](issue-20261107-2d4932.md) | 未着手 | 1.4 | — | 成果物 | その他 | 110_runner_app, 324_dqn | UI | 機能追加 | — | 未確認 | EvalPanelで行動選択のτをランダムと固定で切り替えられず、学んだ行動と学習した価値の判断を見比べられない |
+| 66 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | 成果物 | PRD | 315_nn, 317_metrics, 321_agent_core | アルゴリズム | 機能追加 | [PRD920](../../memo/920_nn_block_metrics_10prd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
+| 67 | [issue-20261103-f39d10](issue-20261103-f39d10.md) | 未着手 | 1.3 | — | 成果物 | PRD | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [PRD912](../../memo/912_background_eval_snapshot_ordering_10prd.md) | 残件有り | Background eval の network snapshot 順序保証 |
+| 68 | [issue-20261103-78c643](issue-20261103-78c643.md) | 未着手 | 1.2 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
+| 69 | [issue-20261103-07629c](issue-20261103-07629c.md) | 未着手 | 1.2 | — | 成果物 | PRD | 110_runner_app, 318_rl_core, 319_gui | UI | 不具合 | [PRD948](../../memo/948_qvaluepanel_manual_action_state_alignment_10prd.md) | 残件有り | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ |
+| 70 | [issue-20261103-71bb9a](issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD959](../../memo/959_test_line_coverage_10prd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
+| 71 | [issue-20261103-7227bf](issue-20261103-7227bf.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [PRD947](../../memo/947_q_statistics_config_screening_10prd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
+| 72 | [issue-20261103-8c3c6d](issue-20261103-8c3c6d.md) | 未着手 | 1.2 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 学習基盤 | 機能追加 | [PRD950](../../memo/950_replay_eviction_sample_count_10prd.md) | 残件有り | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る |
+| 73 | [issue-20261103-dbe666](issue-20261103-dbe666.md) | 未着手 | 1.2 | — | 成果物 | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD915](../../memo/915_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
+| 74 | [issue-20261103-15f115](issue-20261103-15f115.md) | 未着手 | 1.1 | — | 成果物 | PRD | 110_runner_app, 319_gui | UI | 機能改善 | [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md) | 残件有り | Runner を Per-Monitor V2 の DPI 対応で動かす PRD（manifest の gdiScaling を外す） |
+| 75 | [issue-20261103-1edf84](issue-20261103-1edf84.md) | 未着手 | 1.1 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 315_nn | アルゴリズム | 機能追加 | [PRD905](../../memo/905_bootstrapped_multihead_q_10prd.md) | 残件有り | Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ） |
+| 76 | [issue-20261103-206933](issue-20261103-206933.md) | 未着手 | 1.1 | — | 成果物 | PRD | 110_runner_app | 学習基盤 | 機能追加 | [PRD955](../../memo/955_seed_population_early_stop_10prd.md) | 残件有り | 多数の seed で打席を稼ぐ（条件付きの打ち切りで、火が付かなかった Run を早く止める） |
+| 77 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 未着手 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
+| 78 | [issue-20261103-6f6c73](issue-20261103-6f6c73.md) | 未着手 | 1.0 | — | 成果物 | PRD | 321_agent_core | アルゴリズム | 機能追加 | [PRD958](../../memo/958_temporl_skip_followups_10prd.md) | 残件有り | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習） |
+| 79 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | 未着手 | 1.0 | — | 成果物 | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD908](../../memo/908_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
+| 80 | [issue-20261103-c16aab](issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD954](../../memo/954_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
+| 81 | [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
+| 82 | [issue-20261103-cfe994](issue-20261103-cfe994.md) | 未着手 | 0.9 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
+| 83 | [issue-20261103-23d185](issue-20261103-23d185.md) | 未着手 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD925](../../memo/925_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
+| 84 | [issue-20261103-c5c791](issue-20261103-c5c791.md) | 未着手 | 0.9 | — | 成果物 | PRD | 322_env_individual, 318_rl_core | 学習基盤 | 調査 | [PRD946](../../memo/946_prd097_performance_remeasurement_10prd.md) | 残件有り | PRD097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査 |
+| 85 | [issue-20261103-f33167](issue-20261103-f33167.md) | 未着手 | 0.9 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn | アルゴリズム | 機能追加 | [PRD107](../../memo/107_noisy_gain_lane_ladder_10prd.md) | 残件有り | 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー） |
+| 86 | [issue-20261103-f40ae8](issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | 成果物 | PRD | 317_metrics, 314_tensor, 318_rl_core | UI | 性能改善 | [PRD056](../../memo/056_timehistogram_fine_grid_10prd.md) | 残件有り | TimeHistogram fine-bin保持・描画時集約 |
+| 87 | [issue-20261103-322a83](issue-20261103-322a83.md) | 未着手 | 0.8 | — | 成果物 | PRD | 315_nn | アルゴリズム | 機能追加 | [PRD951](../../memo/951_residual_alpha_gate_10prd.md) | 残件有り | 標準 Spectral Normalization と residual identity 開始を両立する α ゲート |
+| 88 | [issue-20261103-53ed7a](issue-20261103-53ed7a.md) | 未着手 | 0.8 | — | 成果物 | PRD | 110_runner_app, 319_gui | UI | 機能追加 | [PRD953](../../memo/953_runner_theme_switch_10prd.md) | 残件有り | 起動中の Runner を OS のテーマ（ライト／ダーク）の切替に追従させる |
+| 89 | [issue-20261103-aa8701](issue-20261103-aa8701.md) | 未着手 | 0.8 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 324_dqn, 320_env_core | 学習基盤 | 機能追加 | [PRD930](../../memo/930_serialize_10prd.md) | 残件有り | Run Serialization（Run 全体 Save / Load） |
+| 90 | [issue-20261103-afe841](issue-20261103-afe841.md) | 未着手 | 0.8 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 318_rl_core | 学習基盤 | 機能追加 | [PRD933](../../memo/933_staged_batch_replay_schedule_10prd.md) | 残件有り | DefaultDQN Staged Batch / Replay Schedule |
+| 91 | [issue-20261103-b13ed2](issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD949](../../memo/949_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
+| 92 | [issue-20261103-51220d](issue-20261103-51220d.md) | 未着手 | 0.7 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [PRD932](../../memo/932_episode_forensics_10prd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
+| 93 | [issue-20261103-969184](issue-20261103-969184.md) | 未着手 | 0.6 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD926](../../memo/926_llm_actor_10prd.md) | 残件有り | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド） |
+| 94 | [issue-20261103-145ee2](issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD927](../../memo/927_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
+| 95 | [issue-20261103-4a2b5e](issue-20261103-4a2b5e.md) | 未着手 | 0.5 | — | 成果物 | PRD | 315_nn, 321_agent_core | アルゴリズム | リファクタリング | [PRD937](../../memo/937_nn_head_projection_separation_10prd.md) | 残件有り | NN Head の最終射影と出力変換の責務分離 |
+| 96 | [issue-20261103-6c40b8](issue-20261103-6c40b8.md) | 未着手 | 0.5 | — | 成果物 | PRD | 315_nn | アルゴリズム | 機能追加 | [PRD939](../../memo/939_noisynet_effective_weight_spectral_norm_10prd.md) | 残件有り | NoisyNet のノイズ込み重みに対する Spectral Normalization |
+| 97 | [issue-20261103-f993bc](issue-20261103-f993bc.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [PRD936](../../memo/936_nn_forward_amp_consolidation_10prd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
+| 98 | [issue-20261103-9df5c5](issue-20261103-9df5c5.md) | 未着手 | 2.7 | [issue-20261103-80c355](issue-20261103-80c355.md) | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [PRD942](../../memo/942_notifier_scoped_detach_10prd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
+| 99 | [issue-20261103-9bd71e](issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD921](../../memo/921_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
+| 100 | [issue-20261103-ca1a85](issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
+| 101 | [issue-20261103-124da5](issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD956](../../memo/956_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
+| 102 | [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](issue-20261103-b754ff.md), [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-9bd71e](issue-20261103-9bd71e.md), [issue-20261103-ab98b7](issue-20261103-ab98b7.md), [issue-20261103-75b8da](issue-20261103-75b8da.md), [issue-20261107-1226e5](issue-20261107-1226e5.md), [issue-20261107-949e8a](issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD924](../../memo/924_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
+| 103 | [issue-20261109-adc5c4](issue-20261109-adc5c4.md) | 未着手 | 1.4 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
+| 104 | [issue-20261103-6661d2](issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](issue-20261103-f39d10.md), [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [PRD913](../../memo/913_best_checkpoint_10prd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
+| 105 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | 未着手 | 1.3 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 成果物 | PRD | 110_runner_app, 318_rl_core, 322_env_individual | UI | 機能追加 | [PRD922](../../memo/922_input_mapping_joystick_10prd.md) | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel） |
+| 106 | [issue-20261103-13bc20](issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 成果物 | PRD | 322_env_individual | Env | 機能追加 | [PRD086](../../memo/086_dropmerge_macro_actions_10prd.md) | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化） |
+| 107 | [issue-20261108-227b05](issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](issue-20261103-736e39.md) | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 未確認 | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
+| 108 | [issue-20261103-2dd820](issue-20261103-2dd820.md) | 未着手 | 0.6 | [issue-20261103-785e68](issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| 109 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
+| 110 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
 着手できる 97 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
-AI の判定が「実装済み」か「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。
+AI の判定が「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。
 
 | # | ID | 状態 | AIの判定 | 判定日 | 課題 |
 |---|---|---|---|---|---|
-| 1 | [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 実装済み | 2026-11-07 | RND による一生の新しさだけの群（内的報酬の第一の群）暫定 PRD |
+| 1 | [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 残件無し | 2026-11-07 | RND による一生の新しさだけの群（内的報酬の第一の群） |
 
 ## 再開候補
 
 解決の日付以後に（解決の日付が無ければ日付によらず）AI の判定が「残件有り」になった解決の課題。状態を戻すかは開発者が決める。
 
 該当する課題はありません。
+
+## 課題の無い PRD
+
+docs/memo 直下の PRD のうち、どの課題の prd からも指されないもの。その PRD の仕事の課題を作るか、題材の課題の prd に書く。
+
+該当する PRD はありません。

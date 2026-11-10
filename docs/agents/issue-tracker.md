@@ -12,8 +12,11 @@ documentation source of truth.
   validation for its PRD. It lives beside the PRD as
   `docs/memo/NNN_<slug>_2ximpl.md`.
 - A persistent issue record lives in `docs/management/issues/issue-YYYYMMDD-xxxxxx.md`.
-  Every new PRD has one index issue (`type: 索引`, `docs: [PRD path]`), which owns
-  work state, priority, dependencies and order. New PRDs stay directly under
+  Each issue points to the PRD that fixes it through its `prd` field (an Obsidian
+  link such as `"[[NNN_slug_10prd]]"`; issues to PRDs are N:1). Every PRD directly
+  under `docs/memo/` has at least one such issue, and those issues own work state,
+  priority, dependencies and order. Whether a PRD is implemented is derived from
+  its issues. New PRDs stay directly under
   `docs/memo/`; existing `done/`, `frozen/` and `dropped/` folders are historical
   storage and remain searchable. See `docs/memo/README.md`.
 - An implementation issue is an independently claimable execution unit with its

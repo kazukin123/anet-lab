@@ -27,7 +27,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 | ディレクトリのパス | その配下で、基準コミットから変わったファイルと、Git が追跡していない新しいファイル | `impl` |
 
 - 基準コミットは `HEAD` にする。ユーザーが別のコミットを示したときは、それを使う。
-- PRD と実装計画がファイル名だけで渡されたときは、`docs/memo/` を再帰的に探し、完全一致で解決する。新しい PRD は直下に置き、状態は索引 issue が持つ。過去の保管場所（`done/` `frozen/` `dropped/`）も完全一致で探す対象にする。一致が無いときと、複数あるときは、呼ばずに、探した場所と候補を示して尋ねる。
+- PRD と実装計画がファイル名だけで渡されたときは、`docs/memo/` を再帰的に探し、完全一致で解決する。新しい PRD は直下に置き、状態は PRD の課題（`prd` でその PRD を指す課題）が持つ。過去の保管場所（`done/` `frozen/` `dropped/`）も完全一致で探す対象にする。一致が無いときと、複数あるときは、呼ばずに、探した場所と候補を示して尋ねる。
 - ディレクトリの配下のファイルは、`git diff --name-only --no-renames <基準コミット> -- <ディレクトリ>` と `git ls-files --others --exclude-standard -- <ディレクトリ>` で挙げる。
 
 ### 引数にパスが無いとき

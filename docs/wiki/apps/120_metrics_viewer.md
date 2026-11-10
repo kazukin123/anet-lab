@@ -191,15 +191,15 @@
 issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
 <!-- issues:begin -->
-| # | ID | 状態 | WSJF | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | 索引 | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD |
-| 2 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
-| 3 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
-| 4 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | 不具合 | 判定不能 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
-| 5 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | 索引 | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD |
-| 6 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | 索引 | 残件有り | メトリクスの横軸と間隔を数える単位を分ける PRD |
-| 7 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | 索引 | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） 暫定 PRD |
+| # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
+| 2 | [issue-20261103-a3574b](../../management/issues/issue-20261103-a3574b.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 残件有り | DataFetcherの単一のabort枠を独立した呼び出し元が奪い合い、abortが失敗Toastや初期Run選択の喪失になる |
+| 3 | [issue-20261103-39ddb2](../../management/issues/issue-20261103-39ddb2.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
+| 4 | [issue-20261103-73a449](../../management/issues/issue-20261103-73a449.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 判定不能 | window内に点が無いtagはgraph blockごと消え、全tag一括のReset View以外では戻せない |
+| 5 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
+| 6 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
+| 7 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD954](../../memo/954_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 
 着手できる 7 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

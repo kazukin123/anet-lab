@@ -53,7 +53,7 @@ description: Generate anet-lab's fixed-point statistics from git history and loc
 
 `reports/tools/categories.json` が分類の正本。領域、機能カテゴリ(GitHub Topic 31x〜32x への写像)、除外パターン(実験 config ダンプ、archify HTML、testdata)、境界日(AGENTS.md 作成日 2026-05-30)、bulk 閾値。変更は人が行う。
 
-課題の正本は `docs/management/issues/` の単票である。件数を状態・type ごとに集計し、直下 PRD の状態は索引 issue から引く。過去の done/frozen/dropped の集計は保持する。
+課題の正本は `docs/management/issues/` の単票である。件数を状態・type・domain・完了の理由ごとに集計し、直下 PRD の状態は、その PRD を `prd` で指す課題の状態から導く（指す課題が無い直下 PRD があれば止まる）。過去の done/frozen/dropped の集計は保持する。
 
 ## 禁止
 

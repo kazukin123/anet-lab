@@ -20,11 +20,12 @@ area:
   - 110_runner_app
   - 325_muzero
   - 313_profiling
-type: 索引
+type: リファクタリング
+domain: 開発
 ai_judge: 残件有り
 ai_judged: 2026-11-09
-docs:
-  - docs/memo/079_cpp_internal_linkage_convention_10prd.md
+docs: []
+prd: "[[079_cpp_internal_linkage_convention_10prd]]"
 priority: 低
 depends: []
 parent:
@@ -34,7 +35,9 @@ risk: 1
 size: 8
 wsjf: 1.4
 resolved:
+resolution:
 memo:
+tags: []
 ---
 
 ## 背景

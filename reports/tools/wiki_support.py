@@ -107,14 +107,15 @@ def scan(root):
     implemented = implemented_prds(issue_records(root))
     # 本文が同じまま実装が済んだPRDも、一度は意味を取り込み直す。
     log = (root/'docs/wiki/log.md').read_text(encoding='utf-8-sig')
-    acknowledged = {(m[1],m[2],m[3]) for m in re.finditer(r'^\d{4}-\d{2}-\d{2} (?:ingest|writeback) (.+?) blob:([0-9a-f]{40}) implemented:(\d{4}-\d{2}-\d{2})',log,re.M)}
+    # 実装済みの日は課題の判定や解決のたびに動く導いた値なので、取り込み済みかはパスと blob だけで突き合わせる。
+    acknowledged = {(m[1],m[2]) for m in re.finditer(r'^\d{4}-\d{2}-\d{2} (?:ingest|writeback) (.+?) blob:([0-9a-f]{40}) implemented:\d{4}-\d{2}-\d{2}',log,re.M)}
     known_blobs = set(records.values())
     pending = []
     moved = []
     for path in material_paths(root):
         blob = git(root, 'hash-object', '--', path).strip()
         judged = implemented.get(path)
-        if judged and (path,blob,judged) not in acknowledged:
+        if judged and (path,blob) not in acknowledged:
             pending.append(dict(path=path,blob=blob,state='実装済み',implemented=judged))
             continue
         if records.get(path) == blob:
@@ -248,15 +249,31 @@ def issue_records(root):
     return records
 
 
+ISSUE_TYPES = ('機能追加','機能改善','性能改善','リファクタリング','不具合','不整合','調査')
+ISSUE_DOMAINS = ('アルゴリズム','学習基盤','UI','Env','基盤','開発')
+ISSUE_RESOLUTIONS = ('対応済み','対応しない','重複','再現しない','不要になった')
+ISSUE_ID = r'issue-\d{8}-[0-9a-f]{6}'
+
+
+def link_name(value):
+    # Obsidian のリンク "[[名前|別名]]" から別名とパスを外し、指す先のファイル名（拡張子なし）を返す。
+    # リンクの形でない値は None を返し、呼び出し側が不正として止める。
+    if not isinstance(value,str):
+        return None
+    match = re.fullmatch(r'\[\[([^\[\]|]+)(?:\|[^\[\]]*)?\]\]', value.strip())
+    return match[1].strip().split('/')[-1] if match else None
+
+
 def validate_issue(root, path, record):
     # 認識する欄の型と値を、派生ファイルの作成より先に検証する。
-    # priority と memo は開発者が直接書く管理外のメモなので、検証せず、派生ファイルにも出さない。
+    # priority・memo・tags は開発者が直接書く管理外の欄なので、検証せず、派生ファイルにも出さない。
     def require(key, valid, expected):
         if not valid:
             raise ValueError(f'{path}: {key}={record.get(key)!r}; expected {expected}')
     for key, values in (
-        ('type',('不具合','ずれ','改善','案','調査','索引')),
-        ('ai_judge',('未確認','残件有り','残件無し','判定不能','実装済み')),
+        ('type',ISSUE_TYPES),
+        ('domain',ISSUE_DOMAINS),
+        ('ai_judge',('未確認','残件有り','残件無し','判定不能')),
         ('status',('未着手','調査中','対応中','中断中','保留','次版','解決')),
         ('kind',('成果物','ハーネス')),
         ('phase',('PRD','実装','監査','ハーネス保守','その他'))):
@@ -271,8 +288,33 @@ def validate_issue(root, path, record):
         valid = not Path(value).is_absolute() and target.is_relative_to(Path(root).resolve()) and target.is_file()
         require('docs',valid,'existing repository-relative document paths')
     require('id',isinstance(record.get('id'),str) and re.fullmatch(r'issue-\d{8}-[0-9a-f]{6}',record['id']) is not None and record['id']==path.stem,'the issue filename without .md')
-    require('depends',all(re.fullmatch(r'issue-\d{8}-[0-9a-f]{6}',v) for v in record['depends']),'issue IDs')
-    require('parent',record.get('parent') in (None,'') or isinstance(record.get('parent'),str) and re.fullmatch(r'issue-\d{8}-[0-9a-f]{6}',record['parent']) is not None,'an issue ID or an empty value')
+    # 課題と PRD を指す欄は Obsidian のリンクで書き、以後の処理には指す先の名前で渡す。
+    names = [link_name(v) for v in record['depends']]
+    require('depends',all(n is not None and re.fullmatch(ISSUE_ID,n) for n in names),'Obsidian links to issues such as "[[issue-YYYYMMDD-xxxxxx]]"')
+    record['depends'] = names
+    parent = record.get('parent')
+    if parent in (None,''):
+        record['parent'] = None
+    else:
+        name = link_name(parent)
+        require('parent',name is not None and re.fullmatch(ISSUE_ID,name) is not None,'an Obsidian link to an issue such as "[[issue-YYYYMMDD-xxxxxx]]" or an empty value')
+        record['parent'] = name
+    prd = record.get('prd')
+    if prd in (None,''):
+        record['prd'] = None
+    else:
+        # 課題が指せるのは、作業中の PRD が置かれる docs/memo 直下の PRD だけである。
+        name = link_name(prd)
+        target = Path(root)/'docs/memo'/(str(name)+'.md')
+        require('prd',name is not None and re.fullmatch(r'\d{3}_.+_10prd',name) is not None and target.is_file(),
+                'an Obsidian link to an existing PRD directly under docs/memo such as "[[NNN_slug_10prd]]" or an empty value')
+        record['prd'] = 'docs/memo/'+name+'.md'
+        require('docs',record['prd'] not in record['docs'],'no copy of the PRD that prd already points to')
+    # 完了の理由は解決の課題だけが持ち、解決でなくなった課題に古い理由を残さない。
+    if record['status'] == '解決':
+        require('resolution',record.get('resolution') in ISSUE_RESOLUTIONS,ISSUE_RESOLUTIONS)
+    else:
+        require('resolution',record.get('resolution') in (None,''),'an empty value unless status is 解決')
     for key in ('title','scope'):
         require(key,isinstance(record.get(key),str) and bool(record[key].strip()),'a nonempty string')
     from datetime import date
@@ -303,14 +345,24 @@ def validate_issue(root, path, record):
 
 
 def implemented_prds(records):
-    # 人のstatusは、実装が済んだことの根拠にしない。
-    result = {}
+    # PRD の実装済みは PRD 自身にも課題の欄にも持たせず、その PRD を prd で指す課題から導く（PRD120 §5.2）。
+    groups = {}
     for record in records:
-        if record['type'] != '索引' or record.get('ai_judge') != '実装済み':
+        if record.get('prd'):
+            groups.setdefault(record['prd'],[]).append(record)
+    result = {}
+    for path, issues in groups.items():
+        # やらないと決めた仕事が残る PRD は、指示の全部が実装されていないので実装済みにしない。
+        if any(r['status'] == '次版' or (r['status'] == '解決' and r.get('resolution') in ('対応しない','不要になった')) for r in issues):
             continue
-        for path in record['docs']:
-            if re.fullmatch(r'docs/memo/(?:done/|frozen/|dropped/)?\d{3}_.+_10prd\.md',path):
-                result[path] = record['ai_judged']
+        # 直す仕事が元から無い課題（重複・再現しない）は数えない。
+        counted = [r for r in issues if not (r['status'] == '解決' and r.get('resolution') in ('重複','再現しない'))]
+        # 解決は開発者が決めた事実なので、判定によらず済みとして数える。
+        if not counted or not all(r['ai_judge'] == '残件無し' or r['status'] == '解決' for r in counted):
+            continue
+        # 表示と記録に使う日は、判定日と解決日の最も新しい日。どちらも無ければ起票日で補う。
+        days = [d for r in counted for d in (r.get('ai_judged'), r.get('resolved')) if d]
+        result[path] = max(days) if days else max(str(r['raised']) for r in counted)
     return result
 
 
@@ -356,8 +408,8 @@ def issue_order(records):
 def issue_table(root, page, records, all_records=None):
     # 同じ列とリンクの作り方をINDEXと地図で使う。
     import os
-    lines = ['| # | ID | 状態 | WSJF | 待ち | 種別 | 工程 | 領域 | 性質 | AIの判定 | 課題 |',
-             '|---|---|---|---|---|---|---|---|---|---|---|']
+    lines = ['| # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |',
+             '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for number, record in enumerate(records, 1):
         target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
         score = record.get('_score',record.get('wsjf'))
@@ -369,8 +421,14 @@ def issue_table(root, page, records, all_records=None):
             source = Path(root)/'docs/management/issues'/(key+'.md')
             link = Path(os.path.relpath(source,page.parent)).as_posix()
             waiting.append(f'[{key}]({link})' if source.exists() else key+'（無い）')
+        # PRD の列は、ファイル名の先頭の番号を表示し、PRD 本文へのリンクにする。
+        prd = '—'
+        if record.get('prd'):
+            prd_link = Path(os.path.relpath(Path(root)/record['prd'],page.parent)).as_posix()
+            prd = f"[PRD{Path(record['prd']).name[:3]}]({prd_link})"
         cells = [number, f"[{record['id']}]({target})", record['status'], wsjf, ', '.join(waiting) or '—',
-                 record['kind'], record['phase'], ', '.join(record['area']) or '—', record['type'], record['ai_judge'], record['title']]
+                 record['kind'], record['phase'], ', '.join(record['area']) or '—', record['domain'], record['type'], prd,
+                 record['ai_judge'], record['title']]
         lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
     if records:
         lines += ['', ' / '.join(f'{label} {sum(r.get("_group")==group for r in records)}' for group,label in enumerate(('着手できる','待ち','保留','次版','解決'),1))]
@@ -388,10 +446,21 @@ def issue_table(root, page, records, all_records=None):
     return '\n'.join(lines) if records else '課題はありません。'
 
 
-def decision_sections(page, records):
+def direct_prds(root):
+    # 作業中の PRD は docs/memo の直下に置く。過去の置き場（done/ など）は含めない。
+    return sorted(p for p in (Path(root)/'docs/memo').glob('*_10prd.md') if re.match(r'\d{3}_',p.name))
+
+
+def prd_title(path):
+    # PRD の最初の見出しを題として使い、無ければファイル名にする。
+    return next((line.lstrip('# ').strip() for line in path.read_text(encoding='utf-8-sig').splitlines()
+                 if line.startswith('# ')), path.stem)
+
+
+def decision_sections(root, page, records):
     # 状態を開発者が決める課題を、判定と状態の組み合わせから拾う。状態は書き換えない。
     import os
-    waiting = [r for r in records if r['status'] != '解決' and r['ai_judge'] in ('実装済み','残件無し')]
+    waiting = [r for r in records if r['status'] != '解決' and r['ai_judge'] == '残件無し']
     # 解決より前の判定は、解決を決めたときに見ていたものなので候補にしない。
     reopen = [r for r in records if r['status'] == '解決' and r['ai_judge'] == '残件有り'
               and (r.get('resolved') in (None,'') or r['ai_judged'] >= r['resolved'])]
@@ -404,13 +473,27 @@ def decision_sections(page, records):
             cells = [number, f"[{record['id']}]({target})", *values(record), record['title']]
             lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
         return '\n'.join(lines)
+    # どの課題の prd からも指されない直下の PRD は、一覧に載る課題を持たないので名指しで出す。
+    referenced = {r['prd'] for r in records if r.get('prd')}
+    orphans = [p for p in direct_prds(root) if p.relative_to(root).as_posix() not in referenced]
+    if orphans:
+        lines = ['| # | PRD | 題 |', '|---|---|---|']
+        for number, path in enumerate(orphans, 1):
+            target = Path(os.path.relpath(path, page.parent)).as_posix()
+            lines.append(f'| {number} | [{path.stem}]({target}) | '+prd_title(path).replace('|','\\|')+' |')
+        orphan_table = '\n'.join(lines)
+    else:
+        orphan_table = '該当する PRD はありません。'
     return '\n'.join([
         '## 解決待ち', '',
-        'AI の判定が「実装済み」か「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。', '',
+        'AI の判定が「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。', '',
         table(waiting, ['#','ID','状態','AIの判定','判定日','課題'], lambda r:[r['status'],r['ai_judge'],r['ai_judged']]), '',
         '## 再開候補', '',
         '解決の日付以後に（解決の日付が無ければ日付によらず）AI の判定が「残件有り」になった解決の課題。状態を戻すかは開発者が決める。', '',
-        table(reopen, ['#','ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']])])
+        table(reopen, ['#','ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']]), '',
+        '## 課題の無い PRD', '',
+        'docs/memo 直下の PRD のうち、どの課題の prd からも指されないもの。その PRD の仕事の課題を作るか、題材の課題の prd に書く。', '',
+        orphan_table])
 
 
 def issue_section(text, body, path):
@@ -431,7 +514,7 @@ def regenerate_maps(root):
     index = root/'docs/management/issues/INDEX.md'
     current = [r for r in records if r['status'] not in ('次版','解決')]
     index_text = ('# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n\n'
-                  +decision_sections(index,records)+'\n')
+                  +decision_sections(root,index,records)+'\n')
     updates = [] if index.is_file() and index.read_bytes() == index_text.encode('utf-8') else [(index,index_text)]
     unresolved_prds = []
     for folder in ['apps', 'categories']:

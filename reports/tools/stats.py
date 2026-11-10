@@ -446,6 +446,8 @@ def collect_health(repo, rules: Rules, size, files, today):
     issues = {"current": sum(r["status"] not in ("次版", "解決") for r in records),
               "by_status": dict(collections.Counter(r["status"] for r in records)),
               "by_type": dict(collections.Counter(r["type"] for r in records)),
+              "by_domain": dict(collections.Counter(r["domain"] for r in records)),
+              "by_resolution": dict(collections.Counter(r["resolution"] for r in records if r["status"] == "解決")),
               "by_priority": dict(collections.Counter(priority_label(r.get("priority")) for r in records if r["status"] not in ("次版", "解決")))}
     # config キー数の 4 週前比較
     keys_4w = None
@@ -461,20 +463,29 @@ def collect_health(repo, rules: Rules, size, files, today):
             "issues": issues, "config_keys_4w_ago": keys_4w, "rev_4w_ago": rev4[:7] if rev4 else None}
 
 
+def prd_state(issues):
+    # 直下のPRDの状態を、そのPRDを指す課題の状態から、上の行から順に当てて導く（PRD120 D16）。
+    statuses = [r["status"] for r in issues]
+    # すべて解決なら、直した課題が1件も無いものを見送りとして解決と分ける。
+    if all(s == "解決" for s in statuses):
+        return "解決" if any(r.get("resolution") == "対応済み" for r in issues) else "見送り"
+    if all(s in ("解決", "次版") for s in statuses):
+        return "次版"
+    # 手を動かしている課題があれば、最も進んだ状態をPRDの状態にする。
+    for status in ("対応中", "調査中", "中断中", "保留"):
+        if status in statuses:
+            return status
+    return "未着手"
+
+
 def collect_process(repo, rules: Rules, files, flow, today):
-    # 未追跡のPRDも、対応する索引issueと同じ作業ツリーで数える。
+    # 未追跡のPRDも、それを指す課題と同じ作業ツリーで数える。
     root = Path(repo)
     prds = sorted(p.relative_to(root).as_posix() for p in (root/"docs/memo").rglob("*_10prd.md") if re.match(r"\d{3}_",p.name))
-    prd_paths = set(prds)
-    indexes = {}
+    groups = collections.defaultdict(list)
     for record in issue_records(repo):
-        if record["type"] == "索引":
-            for path in record["docs"]:
-                if path not in prd_paths:
-                    continue
-                if path in indexes:
-                    raise ValueError(f"{record['_path']}: docs={path!r}; expected one index issue per PRD")
-                indexes[path] = record
+        if record.get("prd"):
+            groups[record["prd"]].append(record)
     by_status = collections.Counter()
     historical = collections.Counter()
     created_m = collections.Counter()
@@ -489,17 +500,19 @@ def collect_process(repo, rules: Rules, files, flow, today):
             state = m.group(1)
             historical[state] += 1
         else:
-            if p not in indexes:
-                raise ValueError(f"{p}: expected one index issue with this PRD in docs")
-            state = indexes[p]["status"]
+            if p not in groups:
+                raise ValueError(f"{p}: expected at least one issue whose prd points to this PRD")
+            state = prd_state(groups[p])
             by_status[state] += 1
         cr = git(repo, "log", "--follow", "--diff-filter=A", "--format=%ad", "--date=short", "--", p).split()
         st = git(repo, "log", "--format=%ad", "--date=short", "--", p).split()
         created = dt.date.fromisoformat(cr[-1]) if cr else None
         moved = dt.date.fromisoformat(st[-1]) if st else None
         if not m:
-            created = created or dt.date.fromisoformat(indexes[p]["raised"])
-            moved = dt.date.fromisoformat(indexes[p]["resolved"]) if state == "解決" and indexes[p].get("resolved") else None
+            # gitに無い作成日は、指す課題の最も古い起票日で補い、解決の日は最も新しい解決の日にする。
+            created = created or min(dt.date.fromisoformat(r["raised"]) for r in groups[p])
+            resolved = [r["resolved"] for r in groups[p] if r.get("resolved")]
+            moved = dt.date.fromisoformat(max(resolved)) if state == "解決" and resolved else None
         if created:
             created_m[created.strftime("%Y-%m")] += 1
         if m and moved:
@@ -707,7 +720,7 @@ def write_trend_md(stats, out_dir, nweeks):
     H = stats["health"]
     out += ["## 健全性", "",
             f"- TODO/FIXME {H['todo_now']}(4 週前 {H['todo_4w_ago']})。参考値。",
-            f"- 本版の課題 {H['issues']['current']}。状態別 {H['issues']['by_status']}、性質別 {H['issues']['by_type']}。",
+            f"- 本版の課題 {H['issues']['current']}。状態別 {H['issues']['by_status']}、種類別 {H['issues']['by_type']}、分類別 {H['issues'].get('by_domain', {})}。",
             f"- {H['large_threshold']} 行以上のファイル {len(H['large_files'])} 本: " + ", ".join(f"{p}({n:,})" for n, p in H["large_files"][:8]), ""]
     # プロセス
     Pp = stats["process"]
