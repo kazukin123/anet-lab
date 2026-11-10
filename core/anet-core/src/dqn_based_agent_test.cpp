@@ -683,10 +683,8 @@ anet::ConfigData MakeIqnTracerConfigData()
 
 void PrepareNativeStackNetworkTest()
 {
+    // mkldnnはmain_test.cppのmainが全テストの前に切るので、ここでは切らない（PRD124）。
     anet::nn::InitNN();
-    // Debug版libtorchのoneDNNはCPU Convでthread検証assertを起こすため、
-    // native stackのCPUテストではmkldnnを無効化する。
-    at::globalContext().setUserEnabledMkldnn(false);
 }
 
 anet::ConfigData MakeNativeStackConfigData()

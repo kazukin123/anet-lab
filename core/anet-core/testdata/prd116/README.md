@@ -14,7 +14,7 @@
 
 ## 正しさ
 
-MSVCを初期化してDebugビルド後、`anet-core-test.exe "[prd116],[scaler],[shipped_config]"` をリポジトリルートから実行する。公開Factory・倍率・補助学習・保存復元・設定・facadeを検証する。Debug版libtorchのoneDNNのthread assertionを避けるため、CNNを含むテストはそのプロセスだけ `OMP_NUM_THREADS=1` とする。本番コードのbackend設定は変更しない。
+MSVCを初期化してDebugビルド後、`anet-core-test.exe "[prd116],[scaler],[shipped_config]"` をリポジトリルートから実行する。公開Factory・倍率・補助学習・保存復元・設定・facadeを検証する。本番コードのbackend設定は変更しない。
 
 `checkpoint --label` は GridMaze の16 experienceで変更前後の無効 checkpoint を保存する。libtorch optimizer が C++ パラメータアドレスを含むため、同じ旧実行体同士でもファイル全体のバイト列は一致しない。raw SHA256 を残し、header/config と Network はバイト比較、optimizer は宣言されたアドレスと生成 serialization_id だけを除いて展開内容を比較する。元の checkpoint は書き換えない。`compare_checkpoint.py` が比較を担当する。
 

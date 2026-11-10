@@ -101,11 +101,8 @@ size_t CountProfileOperator(const std::function<void()>& operation, const std::s
 void EnsureNNInitialized()
 {
     static const bool initialized = [] {
+        // mkldnnはmain_test.cppのmainが全テストの前に切るので、ここでは切らない（PRD124）。
         anet::nn::InitNN();
-        // Debug版libtorchのoneDNNはCPU grouped conv(CNBlockのdepthwise)で
-        // thread検証assert(nthr_==nthr)を起こすため、CPUテスト用にmkldnnを無効化する。
-        // release版libtorch/本番GPUでは発生しないため本番コードには入れない。
-        at::globalContext().setUserEnabledMkldnn(false);
         return true;
     }();
     (void)initialized;

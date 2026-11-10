@@ -5,7 +5,6 @@
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261107-a9a0e3](issue-20261107-a9a0e3.md) | 調査中 | 8.0 | — | 成果物 | その他 | 318_rl_core, 317_metrics, 324_dqn | 学習基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | Atariの正常なRunで毎回出るWARN（eval_targetの未スケジュール、評価だけのRunのRND）で本物のWARNが埋もれる |
-| [issue-20261109-fa2f69](issue-20261109-fa2f69.md) | 対応中 | 7.5 | — | 成果物 | 実装 | 321_agent_core | 開発 | 不具合 | [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md) | 未確認 | [shipped_config]を単独で回すとRNDの出荷設定のテストがDebug版libtorchのoneDNNのassertで止まる |
 | [issue-20261103-582880](issue-20261103-582880.md) | 調査中 | 6.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
 | [issue-20261103-2c9a07](issue-20261103-2c9a07.md) | 調査中 | 5.0 | — | 成果物 | 監査 | 110_runner_app | 基盤 | リファクタリング | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
 | [issue-20261103-66100f](issue-20261103-66100f.md) | 調査中 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
@@ -116,7 +115,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 98 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
+着手できる 97 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
