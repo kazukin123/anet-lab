@@ -1,5 +1,7 @@
 # configured eval の定義と定期駆動を別 namespace に分離し、生成は schedule エントリが駆動する
 
+> **後発決定（2026-11-10）**: Consequences の「metrics の dormant タグ参照 WARN」のレベルは [ADR 0071](0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) で INFO に改めた。同じ ADR で、本文の「旧位置キーの検出は NoCare」も、読まれない設定の葉の汎用の検出で見つかる形に改めた（旧位置キー専用の検出を作らない判断は残る）。skip する振る舞い、文言、定義と schedule を分ける判断は残る。
+
 `train.eval.[tag].*` はキーが 1 つでも存在するとタグが実 eval として列挙され、`interval` 省略時は既定 100 で背景 EvalRunner が起動していた。このため EvalPanel 用の設定キャリアとしてだけ `[eval_panel]` タグを書いていた LunarLander で全 Run に意図しない背景 eval が寄生し、Atari では SDL 音声デバイスの取り合い（無音化）として顕在化した。schema 上の根本原因は、`interval` / `use_background` の消費者が EpisodeEvalObserver（スケジューラ）ただ一つで Env / Runner の定義と無関係なのに、定義ブロックに間借りしていることである。他の消費者（metrics `$eval.[name]`、EvalPanel `eval_config_tag`）は全員「自分の namespace で宣言し、名前で参照」しており、EpisodeEvalObserver だけが例外だった。
 
 **定義 `train.eval.[tag].*`（run_mode / eval_batch_size / clone_model / env.*。純粋で、書いただけでは何もインスタンス化しない）と、定期駆動 `train.eval_schedule.[tag].*`（interval / use_background。タグを名前参照）を別 namespace に分離し、Env + Runner + Observer の生成は有効な schedule エントリが駆動する**ことを決定する。`interval` は必須（既定なし。発端バグの原因＝暗黙の既定 100 を新 namespace へ持ち込まない）、`interval = 0` は明示 OFF として許可する（エントリ無しと同一挙動）。dormant は「interval=0 で宣言する状態」から「定義済み ∧ 有効 schedule 無し」の導出状態になる。schedule の未定義タグ参照は fail-fast。旧位置キーの検出は NoCare（クリーンブレーク方針どおり検出 tripwire を残さない）とし、取り残しは起動時のタグごとロールログ（scheduled / definition-only）が可視化する。

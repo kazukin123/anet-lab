@@ -39,6 +39,7 @@
 - 残機を失ったstepだけを書く形 — 不採用: 残機はAtari固有の値で、汎用のtraceのeventにEnv固有の判定を持ち込む（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、§8）。
 - step traceの行の間引き — 先送り: 評価専用のRunなら行数が許容の範囲。再開条件: 行数が読み手やViewerの扱える量を超えたとき（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、§8）。
 - 学習側（`$train`）のstep trace — 範囲外: 行数が学習の長さに比例して増える。再開条件: 学習中の行動をstepごとに追う必要が出たとき（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、§8）。
+- 宣言した scalar の値が取れないことを INFO にする形 — 不採用: 鍵の綴り違いのような本物の誤りを INFO に埋める。休止した機能と、設定で無効にした機能は、鍵を保って NaN を返す（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D12・§8）。
 
 ## 変えるときの条件
 

@@ -42,6 +42,8 @@
 - thread-local logging context・structured logging・JSON logging — 範囲外（対象外）: Env ログの name prefix を扱う PRD の対象外に置かれた（出典: [PRD038](../../memo/done/038_env_log_auto_prefix_10prd.md)、対象外）。
 - Logger の debug メンバ関数 — 不採用（追加しない）: debug ログの価値（guard による整形コストゼロ、ファイル名・行番号・関数名の自動付与、ビルドでの消去）はマクロでしか保てない（出典: [PRD038](../../memo/done/038_env_log_auto_prefix_10prd.md)、解決方針・対象外）。
 - InitRLのdeviceの検査が、既定値を持つ設定クラスの定数を引く形 — 不採用: Runの設定の型をtrainer.cppの外へ出す変更が要り、書かれていないキーを飛ばせば今の結果のまま二重持ちが消える（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D9・§7）。
+- 整形した文面をキーにして通知を 1 回だけ出す形 — 不採用: step や件数のように変わる値が文面に入ると毎回出て、抑えるときも毎回文面を組み立てる。通知を出す箇所と対象の名前の組をキーにする（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、§5.1・§8）。
+- WARN と ERROR の間に新しいログのレベルを足す形 — 不採用: レベルを増やすと「WARN は利用者が直すべき状態」という線引きがぼやける（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、§3.2・§8）。
 
 ## 変えるときの条件
 

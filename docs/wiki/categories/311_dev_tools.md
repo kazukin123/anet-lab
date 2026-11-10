@@ -77,6 +77,7 @@
 - 課題に複数のPRDを書ける（N:M） — 不採用: 課題から導くPRDの実装済みが、ほかのPRDの進み具合を待つ（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§4 D2・§7）。
 - PRDのファイルに状態を書く — 不採用: 状態の置き場が2つになり食い違う（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§7）。
 - 課題の大まかな分類をareaから導く、またはtagsに人が書く — 不採用: 導く形はObsidianで式を書かないと絞れず課題ごとに直せない。tagsは書き忘れと表記のぶれが起き、areaと同じ軸を2か所で持つ（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§4 D6・§7）。
+- コミットの準備で出荷設定の検査のテスト（`[shipped_config]`）を流す形 — 不採用: 使わない定義の誤りは、使う Run の構築時に必ず止まるので害の経路が無く、テストの実行体が古いときの扱いという別の不確かさを持ち込む（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D13・§8）。
 
 ## 変えるときの条件
 

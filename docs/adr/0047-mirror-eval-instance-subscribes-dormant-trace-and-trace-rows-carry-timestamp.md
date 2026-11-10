@@ -1,5 +1,7 @@
 # 鏡写し eval インスタンスは dormant タグの trace を後から購読し、trace 行は時刻を持つ
 
+> **後発決定（2026-11-10）**: 「scalar は現行どおり dormant タグでは WARN して捨てる」のレベルは [ADR 0071](0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) で INFO に改めた。改めたのはレベルだけで、scalar を捨てて trace だけを保持する判断と、ほかの決定は残る。
+
 EvalPanel は configured eval tag の内容（run_mode / env overlay / actor）を鏡写し参照する別インスタンスの EvalRunner で、
 `RunManager` 構築後に `CreateEvalRunner("EvalPanel", tag)` で作られる。metrics observer の結び付け（`resolve_runner`）は
 構築時に 1 回だけ行われ、後から作る Runner には何も付かない。参照先の `eval_panel` は definition-only（dormant）なので、

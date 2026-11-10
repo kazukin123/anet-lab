@@ -49,6 +49,8 @@
 - bare を書いたら type を constant に強制する形 — 不採用: baseline が bare で書いた定数を Run プロファイルが `.type = linear` で差し替える用法が fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - bare と `.value` の両記法を許し両方書いたら fail-fast にする形 — 不採用: 読み取りが default と override の 2 つの prefix を見るので、ベース＋部分上書きの普通の層構成まで fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - 眠る bare が確定葉なら fail-fast にする実行時検査と、`check_default_leaves.py` の静的検査 — 先送り: 既定葉の情報を読み取りまで運ぶ配線が要り、env の確定葉の定数を Run プロファイルで schedule にする用法も止まる。再開条件: 眠った値に気づかずに Run を回した事故が起きたとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
+- 読まれない設定キーの一覧を最初から ERROR にして Run を止める形 — 先送り: 読まれなくても誤りではない設定キー（在庫）の区別を実際の Run で確かめる前に止めると、正しい設定の Run が起動できなくなる。再開条件: 実装をコミットした日から 1 か月のあいだ、受入の Run と番号付き bat の Run のログで、一覧に出た設定キーがすべて設定の誤りだったとき（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D3・§8）。
+- 既定キー（`?=`）を読まれない設定キーの一覧の対象から外す形 — 不採用: 共通の設定の綴り違いと旧キーが黙って残り、`?=` かどうかを構築の終わりまで運ぶ配線も増える（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D4）。
 
 ## 変えるときの条件
 

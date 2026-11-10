@@ -92,6 +92,8 @@
 - γ を今回 constant だけに限る形 — 不採用: 器としては γ だけ空く。schedule のときだけ作り直す形で両立できた（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - 強制したかを行動の情報（`WithAction`の結果）で答える形 — 不採用: 基底・DQN系・MuZero系の行動の情報とテストの型を変え、「`WithAction`の結果＝強制」という意味を公開の型に付ける。強制するのはRunnerで、Runnerが答えれば1か所で済む（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、D3）。
 - metrics_scalar.txtにscalar記法の要素ごとの語の一覧を写す形 — 不採用: 語を足すたびに`ParseMetricTokens`・140 §6・設定ファイルの3か所を直すことになり、知らない語はkeyとして黙って扱われるので、古い写しどおりに書くと値が記録されない。ObserverFactoryのコメントは参照の1行だけにする（出典: [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md)、§4 D9・§7）。
+- `interval = 0` で止めた評価 tag と、schedule の記述が無い tag で、参照の skip の通知のレベルを分ける形 — 不採用: ADR 0027 が 1 つにまとめた dormant をまた 2 つに分け、休止の出どころを運ぶ分岐が増える（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D8・§8）。
+- PER の抽選が埋まらないとき Run を止める形 — 不採用: 過去の Run のログ 616 本で 1 度も起きておらず、起きる条件が分からないまま止めると正当な極初期の状況で Run を落とす恐れがある。代替の是非は課題に起票した（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D9・§8・§9 の 20）。
 
 ## 変えるときの条件
 
