@@ -19,7 +19,7 @@
 - [BeamRider](subjects/beam_rider.md) — RAM の 0x80 はセクター番号、0x94 はボスを魚雷で倒したフレームだけ 141 になり、0xD3 は魚雷の残りだった。ボスを倒すと残機ぶんのボーナスが入り、その間は残機が減って見える。 サンプル効率優先50Mでは、設定の差がseedだけのスキップなし2本のGreedyが22,914と85,872に割れ、割れは3〜5Mに生じた。高い点の形はボスを倒す形と倒さずセクターを進む形の2通りだった。 （別名: BeamRider, beam_rider, Beamrider, br）
 - [Freeway](subjects/freeway.md) — RAM の 0xEA は効果音のタイマーで、91 に入った回数が車に当たった回数と一致した。面とボスが無く、RAM の番号は 4 だけを置いた。 サンプル効率優先10M（1 seed）ではスキップなしとTempoRLの合算が上限付近で並んだ。 （別名: Freeway, freeway, fw）
 - [ImageCls](subjects/imagecls.md) — Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/CutMixの86.0〜86.4%（seed 1の3本）で、同じ学習条件のConvNeXt Atto・Femto（stem stride 2）は83.1・83.7%だった。 （別名: ImageCls, imagecls, imgcls, Food-101, food101, 画像分類）
-- [Montezuma's Revenge](subjects/montezuma_revenge.md) — サンプル効率優先＋RND（β 0.1）の30M（1本、対照なし）では、ε=0.01の評価が14.21Mから400点を続け、Greedyは25.45Mに9/16が400点だった。30Mの重みのGreedyは19/32で、評価時にε 0.01かτの乱数を足すと29〜32/32になった。20.07Mの重みは4条件とも全ゲーム400点だった。 （別名: Montezuma, montezuma_revenge, MontezumaRevenge, mz）
+- [Montezuma's Revenge](subjects/montezuma_revenge.md) — サンプル効率優先＋RND（β 0.1）の30M（1本、対照なし）では、ε=0.01の評価が14.21Mから400点を続け、Greedyは25.45Mに9/16が400点だった。30Mの重みのGreedyは19/32で、評価時にε 0.01かτの乱数を足すと29〜32/32になった。20.07Mの重みは4条件とも全ゲーム400点だった。β 0.01・Munchausen無効のRNDではGreedyの約2/3が14.2M以降に2500点に届いて回ごとに揺れ、β 0.1・Munchausen有効では29.2Mまで0本だった（seed 1、2026-11-10）。 （別名: Montezuma, montezuma_revenge, MontezumaRevenge, mz）
 - [kung_fu_master](subjects/kung_fu_master.md) — 実時間優先3 seedのうちseed3はボス行きを学び、15M以降の評価の面クリアはほぼ100%だったが、2026-10に設定を変えた22本はどれもボス行きに入らなかった。最終スコア75,000点の断絶は1UPへの到達に対応し、ボスや面の進行は示さなかった。 （別名: KFM, kfm, Kung-Fu Master, KungFuMaster）
 
 ## 機構
@@ -39,7 +39,7 @@
 - [可塑性指標と成績](mechanisms/plasticity.md) — 同じ勾配step付近の摩耗はreplay ratio間で似ていたが、付随する新規データ量と成績の推移は異なった。SiLUやLN512で機序指標が改善しても、RR8短期screeningの成績は改善しなかった。 （別名: plasticity, srank, dormant, dead ratio, SN）
 - [Replay ratioとlane窓](mechanisms/replay_ratio_lane_window.md) — Breakoutの該当構成ではlane窓16,384の2点がε=0で685.12・685.30、窓8,192が615.73だった。効果の機序は未測定である。 （別名: RR, replay ratio, replay_ratio, lane window, capacity）
 
-- [内的報酬による探索の比較](mechanisms/intrinsic_novelty.md) — NGU 型と E3B の比較は環境・学習器・合成に依存し、MiniHack の結果を Atari の優劣へ持ち込めない。anet の BTR を基にした構成での効果は未測定。RND の一生の新しさだけは Replay・Actor を触らずに腕にできる（PRD116、暫定）。Taiga らの Rainbow＋RND の採点点と式を原典コードで確認（2026-11-07）。GridMazeのCPU・256 lane・torch thread 1・Releaseでは既定RNDの時間はなしの1.339倍（2026-11-07）。MontezumaのRNDの30M（対照なし）では、部屋7が現れた24〜25Mにbonusの平均が前後より高く、同じ窓にlossとQが上がった（2026-11-08）。LunarLanderの3 seed×2Mでは既定RNDの評価は基準と同じ帯でbonusは5〜10万件で消え、predictorの周期初期化は利得が無く1 seedが途中で崩れた（2026-11-08）。（別名: NGU, E3B, RND, intrinsic reward, 内的報酬, 新しさ, 一生の新しさ, Taiga, 周期リセット, predictor reset）
+- [内的報酬による探索の比較](mechanisms/intrinsic_novelty.md) — NGU 型と E3B の比較は環境・学習器・合成に依存し、MiniHack の結果を Atari の優劣へ持ち込めない。anet の BTR を基にした構成での効果は未測定。RND の一生の新しさだけは Replay・Actor を触らずに腕にできる（PRD116、暫定）。Taiga らの Rainbow＋RND の採点点と式を原典コードで確認（2026-11-07）。GridMazeのCPU・256 lane・torch thread 1・Releaseでは既定RNDの時間はなしの1.339倍（2026-11-07）。MontezumaのRNDの30M（対照なし）では、部屋7が現れた24〜25Mにbonusの平均が前後より高く、同じ窓にlossとQが上がった（2026-11-08）。LunarLanderの3 seed×2Mでは既定RNDの評価は基準と同じ帯でbonusは5〜10万件で消え、predictorの周期初期化は利得が無く1 seedが途中で崩れた（2026-11-08）。MontezumaのRNDでは2500点のあとQが18行動ともほぼ同じ値になりGreedyが動かなかった。外的と内的の価値を別々に学ぶ形（Agent57・Burdaら）は文献で内的報酬の重みへの頑健さと探索した部屋の数を改善した（2026-11-10）。（別名: NGU, E3B, RND, intrinsic reward, 内的報酬, 新しさ, 一生の新しさ, Taiga, 周期リセット, predictor reset, 価値の分解, Agent57, 外的の Head, 内的の Head）
 
 ## アプリケーション
 

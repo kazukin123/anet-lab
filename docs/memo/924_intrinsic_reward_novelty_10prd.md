@@ -1,5 +1,6 @@
 # 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 暫定 PRD
 
+> 2026-11-10 関連に [121](121_extrinsic_intrinsic_value_decomposition_10prd.md) を足した。121 は外的と内的の価値の分解と、外的と内的を分けて Replay に記録する口を先に作る暫定 PRD で、§8 の 2（条件付きの外的・内的価値分解）、11（外的と内的を分けて保存する）、15（目標値と PER の優先度の揃え方）の一部に当たる。関係は 121 §6。あわせて §2.7 の 923 へのリンクの文字に残っていた旧番号 999 を 923 に直した。ほかの本文と §8 の未決表は変えていない。
 > 2026-11-03 番号を 999 から 924 へ振り直した（PRD114）。
 
 > 2026-10-18 起票。詳細設計は別途グリルで行う前提で、暫定の既定を置き、決めることを §8 に残した。
@@ -10,7 +11,7 @@
 > 2026-10-23 改訂: §2.2 の表の誤りを直した。batch 1024 の 3 本目（s06）は 30M まで完走していて、16-20M に挑んだ。seed 2 の 2 本は複製ではなく、1 本は Munchausen α を 0.3 にした Run だった。あわせて 10M × 16 seed の行の s08・s12 の値と、seed 3 の Run 名を今の記録とフォルダ名に合わせ、実験記録への参照を足した（[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の現時点のまとめ・探索ブロック 01・04・05）。
 > 2026-10-24 改訂: GridMaze の事例（安定してゴールできるようになった後も、点数の方策がほとんど通らない状態から再開するとゴールに着かない）を 2 つ目の起点として足した（§1、§2.7、§4 の冒頭、§5、§6、§8 の 7・24〜29、§9、§10）。合わせて、評価を新しさを使わない点数の方策で行い、その方策を探索役の lane の遷移からも学ばせることと、埋め込みを観測の種類に依らず組むことをゴールに足し、env の側の対策と実行時の価値の補正を非ゴールに足した。今の段階 1〜3 の形には、このゴールに合わない所がある（§2.7）。直し方はグリルせず、§8 の 24〜29 に暫定の既定を置いた。あわせて §3 の指標の群番号の記述を今の使用状況に直した。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件の分析（§2）。人間との比較から、「同じ稼ぎに飽きて、まだ慣れていない所（ボス戦とその先）へ行く」「当てたらバーが縮んだと気付き、無くなったら何か起きそうだと試し続ける」動機がエージェントに無いことが、ゲームの仕様を変えずに足せる不足の 1 つだと整理した。2 つ目の起点は GridMaze で、安定してゴールできるようになった後も、手操作で点数の方策がほとんど通らないセルへ誘導してから再開するとゴールに着かないこと（§2.7）。
-> 関連: [926_llm_actor_10prd.md](926_llm_actor_10prd.md)（同じ起点の対 PRD。事前知識の側）、[923_input_target_train_forced_action_10prd.md](923_input_target_train_forced_action_10prd.md)（人の操作の遷移を学習に使う経路。§6）、[098_temporl_skip_policy_10prd.md](098_temporl_skip_policy_10prd.md)（primary の Body の出力を入力に取る補助 Network の器。§4.8）、[950_replay_eviction_sample_count_10prd.md](950_replay_eviction_sample_count_10prd.md)（珍しい遷移が何回引かれたかの計器）、[094_evalpanel_step_history_10prd.md](done/094_evalpanel_step_history_10prd.md)（EvalPanel の遷移を 1 step ずつ表で見る Evaluation Trace）、[done/048_quantile_tail_metrics_10prd.md](done/048_quantile_tail_metrics_10prd.md)（内的報酬を対象外とした観測専用の PRD）、[082_atari_ram_progress_metrics_10prd.md](done/082_atari_ram_progress_metrics_10prd.md)（KFM の面クリア・撃破・命中の RAM メトリクスと RAM の番地）、[CONTEXT.md](../../CONTEXT.md) の「生スコア」「RAM メトリクス」。
+> 関連: [121_extrinsic_intrinsic_value_decomposition_10prd.md](121_extrinsic_intrinsic_value_decomposition_10prd.md)（外的と内的の価値の分解と、Replay の報酬の成分。§8 の 2・11・15 の一部を先に作る）、[926_llm_actor_10prd.md](926_llm_actor_10prd.md)（同じ起点の対 PRD。事前知識の側）、[923_input_target_train_forced_action_10prd.md](923_input_target_train_forced_action_10prd.md)（人の操作の遷移を学習に使う経路。§6）、[098_temporl_skip_policy_10prd.md](098_temporl_skip_policy_10prd.md)（primary の Body の出力を入力に取る補助 Network の器。§4.8）、[950_replay_eviction_sample_count_10prd.md](950_replay_eviction_sample_count_10prd.md)（珍しい遷移が何回引かれたかの計器）、[094_evalpanel_step_history_10prd.md](done/094_evalpanel_step_history_10prd.md)（EvalPanel の遷移を 1 step ずつ表で見る Evaluation Trace）、[done/048_quantile_tail_metrics_10prd.md](done/048_quantile_tail_metrics_10prd.md)（内的報酬を対象外とした観測専用の PRD）、[082_atari_ram_progress_metrics_10prd.md](done/082_atari_ram_progress_metrics_10prd.md)（KFM の面クリア・撃破・命中の RAM メトリクスと RAM の番地）、[CONTEXT.md](../../CONTEXT.md) の「生スコア」「RAM メトリクス」。
 
 ## 1. 目的と問題
 
@@ -118,7 +119,7 @@
 - 観測は位置の (x, y) を 0〜1 に正規化した 2 次元のベクトルだけ（[GridMazeEnv.cpp](../../core/envs/gridmaze1/src/GridMazeEnv.cpp) の `GetObservation`）。迷路は固定の seed で毎回同じなので（[GridMaze.txt](../../apps/runner/config/GridMaze.txt) の `GridMazeEnv.randomize_seed ?= false`）、壁の配置は観測に無く、ネットワークの重みに覚え込まれる。
 - 開始位置は (0, 0) に固定（同 `GridMazeEnv.init_pos_x ?= 0`・`GridMazeEnv.init_pos_y ?= 0`）。学習のデータは (0, 0) から出た軌跡だけになる。
 - 学習と評価の方策は UQE、Body は 2 層の MLP（同 `A1.actor.[train].policy.policy_type = UQE`・`A1.actor.[eval].policy.policy_type = UQE`・`DefaultDQNAgent.net.body.$ = net.body.@MLP2`）。
-- 手操作の step は、EvalPanel が eval の runner へ行動を渡すだけで（[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) の `DoStep(int64_t action)`）、eval の runner は Learner を呼ばないので、その遷移は学習に入らない（[999_input_target_train_forced_action §1.1](923_input_target_train_forced_action_10prd.md)）。
+- 手操作の step は、EvalPanel が eval の runner へ行動を渡すだけで（[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) の `DoStep(int64_t action)`）、eval の runner は Learner を呼ばないので、その遷移は学習に入らない（[923_input_target_train_forced_action §1.1](923_input_target_train_forced_action_10prd.md)）。
 - 壁や盤の外へ向かう行動では位置が変わらない（GridMazeEnv.cpp の `Step`）。手操作の step もエピソードの step 数に数えられ、`max_steps`（既定 100）で打ち切られる。
 
 **見立て（Run では未確認）。**

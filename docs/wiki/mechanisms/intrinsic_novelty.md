@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成方法に依存する。MiniHack での結果を Atari の優劣へ持ち込めず、anet の BTR を基にした構成での効果はまだ測っていない。KFM の命中にボーナスが出るかも、逆動力学の特徴がバーの差を保つかに依存する。GridMazeのCPU・256 lane・torch thread 1・Releaseでは、既定RNDの時間はなしの1.339倍だった。Montezumaのサンプル効率優先＋RNDの30M（1本、RNDなしの対照なし）では、学習側で部屋7に入るゲームが現れた24〜25Mにbonusの平均が前後の1Mより高く、同じ24〜26MにlossとQの最大の平均が上がった。LunarLanderの3 seed×2Mでは、既定RNDを混ぜても評価は基準と同じ帯だったが、bonusは採点5〜10万件で消えた。predictorを採点50,000件ごとに初期化するとbonusは周期信号として続いたが、終盤の評価は同じ帯のままで、1 seedが途中で崩れ、Qの最大の平均と勾配ノルムは全seedで基準より大きかった。
+NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成方法に依存する。MiniHack での結果を Atari の優劣へ持ち込めず、anet の BTR を基にした構成での効果はまだ測っていない。KFM の命中にボーナスが出るかも、逆動力学の特徴がバーの差を保つかに依存する。GridMazeのCPU・256 lane・torch thread 1・Releaseでは、既定RNDの時間はなしの1.339倍だった。Montezumaのサンプル効率優先＋RNDの30M（1本、RNDなしの対照なし）では、学習側で部屋7に入るゲームが現れた24〜25Mにbonusの平均が前後の1Mより高く、同じ24〜26MにlossとQの最大の平均が上がった。LunarLanderの3 seed×2Mでは、既定RNDを混ぜても評価は基準と同じ帯だったが、bonusは採点5〜10万件で消えた。predictorを採点50,000件ごとに初期化するとbonusは周期信号として続いたが、終盤の評価は同じ帯のままで、1 seedが途中で崩れ、Qの最大の平均と勾配ノルムは全seedで基準より大きかった。MontezumaのRND（β 0.01・Munchausen無効）では、2500点のあと外的報酬の残らない局面でQが18行動ともほぼ同じ値になり、Greedyが動かなかった。文献では、外的と内的の価値を別々に学ぶ形（Agent57・Burdaら）が内的報酬の重みへの頑健さと探索した部屋の数を改善した。
 
 ## 分かっていること
 
@@ -23,6 +23,10 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - Montezumaのサンプル効率優先＋RND（β 0.1、RNDのNNは公開実装の形・出力512、30M、seed 1、RNDなしの対照なし）で、bonusの平均は24〜25Mに0.0144で、1M前（0.0062）と1M後（0.0033）より高く、26〜27Mに0.0013だった。学習側で部屋7に入ったゲームは24〜26Mに206本（22〜24Mは0本）、500点のゲームは24〜26Mに87本・26〜28Mに106本だった。同じ24〜26Mにlossは2.4〜3.0（20〜24Mは0.05〜0.11）、Qの最大の平均は14.6〜23.7（同3.7〜4.5）だった（出典: [Montezuma's RevengeのRND（サンプル効率優先・30M）](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ3・4・探索ブロック02・03。Run: run_20261108-003056_mz_se_rnd_k32_s1）。
 - LunarLanderのIQN＋Munchausen＋TempoRL（分離×合算）に既定のRND（β 0.1、`clipped`・`whiten`、warm-up 12,800件）を混ぜた3 seed×2Mでは、UQE fullの1.5〜2Mが210.7／225.5／181.1で、RNDなしの基準9本の188.6〜225.7と同じ帯だった。bonusは採点5〜10万件で消え、shareが0.01を超えた最後の点は93,696／40,960／16,128 exp stepだった。predictorの誤差がwhitenの一生平均を常に下回り、bonusが0になる。bonusが続く状態での害は測れていない（出典: [RNDの害の確認とpredictorの周期リセット](../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、現時点のまとめ1・2・bonusの推移。Run: run_20261108-061056_ll_rnd_s1 ほか同記録の3本）。
 - 同じLunarLanderで、predictorとwhitenの誤差統計を採点50,000件ごとに初期化してwarm-upをやり直す暫定の機構を足した3 seed×2Mでは、bonusは2Mの間続いた（shareのRun全体平均0.033〜0.038）。周期の中はwarm-up直後の約0.1から周期末の0.013〜0.020へ下がる鋸歯で、周期ごとの平均は後半ほど大きかった。UQE fullの1.5〜2Mは183.7／196.8／213.5で同じ帯だった。seed 2は0.78〜0.9Mに崩れて−1,000未満の局が8つ出て、同じ区間にQの最大の平均が1.35から3.5へ上がった。1.5〜2Mでは全seedでQの最大の平均（1.85〜2.17）と勾配ノルム（0.76〜0.81）が基準9本（1.06〜1.57、0.29〜0.48）より大きかった（出典: [RNDの害の確認とpredictorの周期リセット](../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、現時点のまとめ3〜6・seed 2の崩れ・学習側の指標と局の長さ。Run: run_20261108-125542_ll_rnd_rs50k_s1 ほか同記録の3本）。
+- MontezumaのRND（β 0.01、Munchausen無効、Double DQN有効、seed 1）で2500点を取ったあと、Greedyは部屋1の開始の足場でUPを押し続けて27,000 stepの打ち切りまで動かず、Qは18行動とも0.055〜0.059（差0.004で、τの標準偏差0.009〜0.010より小さい）、V_sは0.056〜0.063だった。29.2MのGreedyは16ゲームすべてが2500点・打ち切りで、学習側は15M以降のゲームが5〜8千stepでgame overにより終わった。13M以降の1 stepの内的報酬は2〜4e-4（正の値13〜19%）（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.1。Run: run_20261110-003002_mz_tg_nmdd_b001_s1）。
+- 文献の効いた条件: Agent57はQを外的と内的の別々のNN（同じ形、どちらも方策の番号を入力）の和にし、内的報酬の重みの広い範囲で学習が安定した。外すと成績が20%以上落ちた（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.2）。
+- 文献の効いた条件: Burdaら（RND）は内的の収益をgame overで切らず、価値のHeadを2つにした。内的を切らないと探索した部屋の数が増え、外的の割引率0.999・内的0.99で成績が大きく上がり、内的を0.999にすると下がった。両方を切る設定では、Headを2つにしても1つより良くならなかった（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.2）。
+- 文献の比較: Taigaら（ICLR 2020）のRainbow＋RNDはMontezumaの5 seedすべてが90Mフレームまでに4,400点を超え、NoisyNetsの5 seedは200Mフレームまで2500点にとどまった（図7を目で読んだ値）（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.2）。
 
 ## 分かっていないこと
 
@@ -33,6 +37,8 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - RND の target と predictor の形は、公開実装の形（predictor を深く、出力 512）と NGU の同形・出力 128 のどちらが長い学習で判別を保つか。写しの 6 万 step では同形のほうが誤差の比が大きい（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1・§8 の 2）？
 - bonusが続く状態の一生の新しさを混ぜたとき、LunarLanderの成績は落ちるか。predictorの周期初期化で続くbonusは状態の新しさではないので、その代わりにならない（出典: [RNDの害の確認とpredictorの周期リセット](../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、解釈の限界と残る問い）？
 - 周期初期化のseed 2の崩れは、直前のbonusの山とQの膨張から起きたのか。3 seed中1本の観察で、訪れた状態の分布も測っていない（出典: [RNDの害の確認とpredictorの周期リセット](../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、現時点のまとめ5・解釈の限界と残る問い）？
+
+- MontezumaのRNDで、Greedyの2500点の有無を分けたのは、β（0.1と0.01）とMunchausen（有効と無効）のどちらか。2本は両方を同時に変えている（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§1・§2.1）？
 
 ## 撤回・更新
 
@@ -46,3 +52,4 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - [評価と比較の条件](evaluation.md)。
 - [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)（機構・設計案と未決の正本）。
 - [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)（924 の第一の腕。一生の新しさの口と RND の実装）。
+- [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)（Q を外的と内的の 2 つの Head で学ぶ形と、924 との関係）。

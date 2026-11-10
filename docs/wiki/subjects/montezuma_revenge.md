@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-サンプル効率優先に RND（β 0.1）を載せた 30M（1 本、RND なしの対照なし）では、ε=0.01 の評価が 14.21M から 400 点（鍵と扉 1 枚）を続けた一方、Greedy は 20.4M まで 0 点で、25.45M に 9/16 が 400 点だった。30M の重みの Greedy は 400 点以上が 19/32 で、届かないゲームは部屋 1 のまま打ち切りまで続いた。評価時に ε 0.01 か τ の乱数を足すと 29〜32/32 になった。20.07M の重みは、評価の 4 条件とも全ゲーム 400 点だった。
+サンプル効率優先に RND（β 0.1）を載せた 30M（1 本、RND なしの対照なし）では、ε=0.01 の評価が 14.21M から 400 点（鍵と扉 1 枚）を続けた一方、Greedy は 20.4M まで 0 点で、25.45M に 9/16 が 400 点だった。30M の重みの Greedy は 400 点以上が 19/32 で、届かないゲームは部屋 1 のまま打ち切りまで続いた。評価時に ε 0.01 か τ の乱数を足すと 29〜32/32 になった。20.07M の重みは、評価の 4 条件とも全ゲーム 400 点だった。同じ構成から β・Munchausen・Double DQN を変えた RND の 2 本（seed 1）では、β 0.01・Munchausen 無効の Run の Greedy が 14.2M 以降に約 2/3 のゲームで 2500 点に届いて回ごとに揺れ、β 0.1・Munchausen 有効の Run は 29.2M まで 2500 点が 0 本だった。
 
 ## 分かっていること
 
@@ -15,9 +15,11 @@
 - 30M の重みを評価だけで 4 条件・各 32 ゲーム測ると、ε=0・τ 固定 259.4（400 点以上 19/32）、ε=0・τ 乱数 362.5（29/32）、ε=0.01・τ 固定 403.1（32/32）、ε=0.01・τ 乱数 412.5（32/32）だった。500 点（`room_max` 6）は ε=0.01 の 2 条件だけに出た。ε=0・τ 固定で 400 に届かなかった 13 本は部屋 1 のまま打ち切りまで続いた（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ5・探索ブロック04。Run: run_20261108-110233_mz_se_ev30m_2x2）。
 - exp step 20,066,688 で保存した重みは、4 条件とも全ゲーム 400 点だった。学習 Run の中で 0/16 だった Greedy の session（exp step 20,400,384）は、この重みより約 5,200 learn step あとである（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ6・探索ブロック04。Run: run_20261108-111508_mz_se_ev20m_2x2）。
 
+- 同じ構成（Run 名に `mz_tg_` を持つ群）から β・Munchausen・Double DQN だけを変えた RND の Run（seed 1、割引率 0.997、n-step 3）。β 0.1・Munchausen 有効・Double DQN 無効の Run は、Greedy（evalg・evalgs、各 16 ゲーム、約 1M ごと）で 29.2M まで 2500 点が 0 本、1 回の平均の最高は 462.5（27.2M）、ε 0.01 の評価は 10.2〜28.21M に 400〜490 で、学習側の最高は 2500 点（12・13・17・28M 台）だった。β 0.01・Munchausen 無効・Double DQN 有効の Run は、14.2M に Greedy で初めて 2500 点が出て、14.2〜29.2M の 16 回で 2500 点は evalg 170/256・evalgs 172/256。1 回あたり 0/16〜16/16 で揺れ、落ちた回（20.2M・27.2M・28.2M）は 500 点（剣を取って敵を倒さない）が主だった。ε 0.01 の評価は 14.21〜28.21M に 74/80 が 2500 点、学習側は 15M 以降に終わったゲームの 83〜91% が 2500 点だった（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.1。Run: run_20261108-232006_mz_tg_rnd_s1、run_20261110-003002_mz_tg_nmdd_b001_s1）。
+
 ## 分かっていないこと
 
-なし。
+- 上の 2 本で Greedy の 2500 点の有無を分けたのは、β と Munchausen のどちらか。2 本は両方を同時に変えている（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§1・§2.1）？
 
 ## 撤回・更新
 
@@ -31,4 +33,5 @@
 - [評価と比較の条件](../mechanisms/evaluation.md)。
 - [τ配置とIQN比較](../mechanisms/tau_sampling.md)。
 - [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)。
+- [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)。
 - [Montezuma's Revenge の RND（サンプル効率優先・30M）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)。
