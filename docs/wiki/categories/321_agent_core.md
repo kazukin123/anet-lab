@@ -62,6 +62,7 @@
 - 2026-10-28: skipの合算・遮断に加え、loss別のAdamで更新するsplitと評価セッションの集約値を接続した（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§5.2・§5.4・§5.8）。
 - 2026-10-29: Actorごとに毎step判断するsingleと上限を時間で変えるvariableを選べるようにした（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.1・§5.3・§5.9）。
 - 2026-10-30: Actor共通の設定へskip側のNN実行設定のモードとキーを足した（出典: [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md)、§5.1・§5.6）。
+- 2026-11-10: dqn_based_agent.hppに`#pragma once`を足し、`BatchUpdateResult::GetScalar`の本体と補助を.cppへ移して、名前を解析して受ける群の関数と、直接比べるkeyの表に分ける仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D5〜D8）。
 
 ## 選ばなかった形
 
@@ -92,6 +93,8 @@
 - MuZero の温度 `temp_start/end/decay_steps` の ProfiledValue 化 — 範囲外: 試作 Agent。再開条件: 本線に戻すときに同じ器で足す（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3 非ゴール・§7）。
 - NoisyNet の雑音の倍率を時間で変える — 先送り: σ は学習するパラメータで、外から掛ける倍率は forward の雑音の作り方に新しい入力が要る。再開条件: ε の形で差が説明できないとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7）。
 - step の軸を learn_step やエピソード数にする — 先送り: 探索と β はすべて exp_step で動いている。再開条件: 別の軸が要る例が出たとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7）。
+- `BatchUpdateResult::GetScalar`のkeyの全部を1枚の表にする形 — 不採用: 名前を解析して受ける群は名前から番号を読むので表に載らない（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6・§7）。
+- `BatchUpdateResult::GetScalar`の直接比べるkeyも群ごとの関数に分け、中をifの連鎖のままにする形 — 不採用: keyの重複や届かない分岐が機械では見つからないまま残る（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6・§7）。
 
 ## 変えるときの条件
 
@@ -111,6 +114,7 @@
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
 - 既定のsharedではskip側のseedの派生・時計・forwardの回数と順序を変えず、着手前の設定とのmetrics checksumを一致させる（出典: [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md)、§5.3・§7の受入1）。
+- `BatchUpdateResult::GetScalar`を整理するときは、keyの名前・返す値・止まる条件と文言・群を引く順を変えない。認識するkeyの全部を値がある状態と無い状態で引く特性テストを先に足して前後で通し、PRD098の検証資材の短いRun（4環境、seed 1、決定的モード）で時間と資源のtagを除く全scalarの点が一致することを確かめる（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6〜D8・§6 A5・A7）。
 
 ## 関係
 
@@ -169,12 +173,12 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 対応中 | 2.6 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
-| 2 | [issue-20261109-fa2f69](../../management/issues/issue-20261109-fa2f69.md) | 未着手 | 7.5 | — | 成果物 | 実装 | 321_agent_core | 開発 | 不具合 | — | 未確認 | [shipped_config]を単独で回すとRNDの出荷設定のテストがDebug版libtorchのoneDNNのassertで止まる |
-| 3 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| 4 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
-| 5 | [issue-20261103-741251](../../management/issues/issue-20261103-741251.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖 |
-| 6 | [issue-20261103-03a1b6](../../management/issues/issue-20261103-03a1b6.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い |
+| 1 | [issue-20261103-741251](../../management/issues/issue-20261103-741251.md) | 調査中 | 2.7 | — | 成果物 | 監査 | 321_agent_core | 学習基盤 | リファクタリング | [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) | 残件有り | BatchUpdateResult::GetScalarがヘッダ内のinlineで234行、keyの比較43個のif連鎖 |
+| 2 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 対応中 | 2.6 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
+| 3 | [issue-20261103-03a1b6](../../management/issues/issue-20261103-03a1b6.md) | 調査中 | 2.5 | — | 成果物 | 監査 | 321_agent_core | 学習基盤 | リファクタリング | [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) | 残件有り | dqn_based_agent.hppにインクルードガードが無く、先頭のファイル名のコメントが古い |
+| 4 | [issue-20261109-fa2f69](../../management/issues/issue-20261109-fa2f69.md) | 未着手 | 7.5 | — | 成果物 | 実装 | 321_agent_core | 開発 | 不具合 | — | 未確認 | [shipped_config]を単独で回すとRNDの出荷設定のテストがDebug版libtorchのoneDNNのassertで止まる |
+| 5 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
+| 6 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
 | 7 | [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 学習基盤 | 調査 | [PRD910](../../memo/910_network_lock_audit_10prd.md) | 残件有り | 999: train/eval mode 整理後の排他精査 PRD（草案） |
 | 8 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | 9 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | 成果物 | PRD | 321_agent_core | アルゴリズム | 機能改善 | [PRD940](../../memo/940_target_update_step_axis_10prd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |

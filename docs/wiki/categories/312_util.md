@@ -30,6 +30,7 @@
 - 2026-10-25: ProfiledValueに指数とphaseの終値規則を加え、定数をbareで読み、実効typeが使う欄だけをdumpする（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D2〜D4）。
 - 2026-10-26: 既存の自動seed入口を使い、GridMazeの自動採番をRun seedから独立させた（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、§2・§5.2）。
 - 2026-10-29: 整数のProfiledValueをActorのスキップ長上限へ接続した（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§4 D1・D2・§5.1）。
+- 2026-11-10: InitRLのdeviceの検査を、設定に書かれているキーだけを見る形にし、持ち主の設定クラスと二重に持っていた既定値の表を消す仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D9）。
 
 ## 選ばなかった形
 
@@ -40,6 +41,7 @@
 - 分散からウォームアップの終わりを自動判定する案（案 E） — 不採用（却下）: 平滑と収束判定の 2 関心を 1 機構に混ぜ、案 A では判定自体が要らない（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、5. 代替案と却下理由）。
 - thread-local logging context・structured logging・JSON logging — 範囲外（対象外）: Env ログの name prefix を扱う PRD の対象外に置かれた（出典: [PRD038](../../memo/done/038_env_log_auto_prefix_10prd.md)、対象外）。
 - Logger の debug メンバ関数 — 不採用（追加しない）: debug ログの価値（guard による整形コストゼロ、ファイル名・行番号・関数名の自動付与、ビルドでの消去）はマクロでしか保てない（出典: [PRD038](../../memo/done/038_env_log_auto_prefix_10prd.md)、解決方針・対象外）。
+- InitRLのdeviceの検査が、既定値を持つ設定クラスの定数を引く形 — 不採用: Runの設定の型をtrainer.cppの外へ出す変更が要り、書かれていないキーを飛ばせば今の結果のまま二重持ちが消える（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D9・§7）。
 
 ## 変えるときの条件
 
@@ -48,6 +50,7 @@
 - EMA内部の状態を変えても公開シグネチャを変更しない（出典: [PRD045](../../memo/done/045_ema_debias_warmup_10prd.md)、3. API 契約）。
 - 同 seed の再現を確かめるときは `backend.deterministic_algorithms` を true、`backend.deterministic_warn_only` を false にする。warn_only を true にすると決定版の無い op を素通りさせるので再現性は保証されない（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Consequences；[PRD015](../../memo/done/015_deterministic_algorithms_10prd.md)、1.1 API）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
+- InitRLのdeviceの検査を変えるときは、明示したcudaの一括の報告を保つ。検査は設定に書かれたキーだけを見るので、持ち主のクラスの既定値に明示のcudaを置くときは検査を見直す。`[prd070]`のテストはCUDAが使える機械ではskipになるので、環境変数`CUDA_VISIBLE_DEVICES`を`-1`にして流し、skipを合格に数えない（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§2.1・§6 A6）。
 
 ## 関係
 

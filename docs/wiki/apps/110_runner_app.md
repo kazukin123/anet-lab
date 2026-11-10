@@ -34,6 +34,7 @@
 - 2026-10-31: Train Viewを隠せるようにし、Centreを占めるpaneが隠れるかfloatすると表示中でdockedの相方がCentreを占めて戻れば取り戻し、主paneを隠す・floatできるのは相方の主paneが表示中でdockedのときだけ（最後の1つは✕を持たずトグルは無効で動かせない。✕とFloatableは200msのUPDATE_UIで状態から宣言し、離れてよいかの判定を基底の1つの口にまとめる）仕様と、起動時の主paneを選ぶ`app.main_view`（既定はEvalだけ）、昇格前のdock位置を覚えて戻すこと、知らない経路でCentreが空いたときにTrainを出してWARNを出す保険を定めた。2026-11-01の再グリルで、初版の「Centreを占めるpaneはfloat不可、dockedのTrainが常に占有者」をこの対称の規則に改め、floatしたpaneは縁の帯へ落とした場所に留まることにした。同日の2回目の再グリルで、wxAUIがCentreのpaneのcaptionドラッグを始めない（captionの押下をドラッグの判定の前に打ち切る）ことが実機と調査で分かり、Centreを占めるpaneはcaptionのpinボタンでfloatし、pinはFloatableと同じ値で描き、宣言が追いつく前のpinの押下は判定で止め、pinボタンを全paneに付けることにした。同日の3回目の再グリルで、等分の条件を「Evalが Right の layer 0、Trainが Centre」の1配置から「一方がCentre、他方がLeftかRightのdock」に広げ、主paneの置き場が変わったときは200msのUPDATE_UIで幅のポリシーを当て、Centreを占める主paneのcaptionの末尾に`[Centre]`を付けることにした。同日の4回目の再グリルで、縦に並んだとき（一方がCentre、他方がCentreと同じ幅のTopかBottomの帯）も高さを等分し、帯がCentreより広いときと同居は対象外、高さ不足ではLogsを縮めないことにし、「等幅」を「等分」に改めた（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、題・§1.1の6・26〜29・§1.2・§2・D1〜D3・D5・D7・D13〜D16）。
 - 2026-10-31: Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない（出典: [ADR 0066](../../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md)）。
 - 2026-11-02: manifestのgdiScalingを外してRunnerをPer-Monitor V2のDPI対応で動かし、画面の大きさを100%の大きさ（DIP）で書いて窓のDPIで直し、DPIの変更は画素で値を覚える部品が決め直し、Logsの字下げの幅をログ欄が描いた位置から測る案を暫定で起票した（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、題・§3のゴール・§4 D1〜D4）。
+- 2026-11-10: `QValuePanel::Update`を、Gridの更新、ヒートマップの加工、描画に分け、加工を画面の部品に依らない関数に切り出して単体テストを足す仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10・D11・§5.2）。
 
 ## 選ばなかった形
 
@@ -105,6 +106,10 @@
 - DPIの変更をテーマの切替と同じ入口（RunnerFrameの1か所）で受ける — 範囲外: 953_runner_theme_switchが分けると決めた。再開条件: 両方を実装したあとで、DPIの変更の反映が半端になる例が出たとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の8・§8）。
 - アイコン・Viewの絵を高い解像度向けに描き直す — 範囲外: 別の関心。再開条件: PMv2にしたあとで、ぼやけて見える絵が見つかったとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§3の非ゴール・§8）。
 - px直書きの型（大きさ・枠と間隔・余白と線の太さの6つの型）に当たらない、Viewの絵の中の長さと位置（矢印の長さ、Atariの待ちの表示の文字の位置など）をDIPにする — 範囲外: 画面の大きさのゴールは6つの型の大きさまでとした。再開条件: PMv2にしたあとで、小さく見える絵の部品が見つかったとき（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§2の5・§8）。
+- `QValuePanel::Update`を、メンバを直接読む関数に分けるだけにする — 不採用: ヒートマップの加工を壊したときに気づく手段が人の目のままになる（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10・§7）。
+- Runnerを起動してQ-ValuesのGridのセルとハイライトを読むGUIのテスト — 不採用: Gridの更新は中身を変えずに関数へ移すだけで、Runnerを起動するテストの保守に見合わない（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D11・§7）。
+- Q-Valuesのヒートマップの加工をcoreのGUI共通へ移し、既定のテストスイートで流す — 不採用: 加工を使うのはRunnerのQ-Valuesの表示だけで、テストを既定のスイートに入れるためにアプリケーションの部品をcoreへ置くことになる（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D11・§7）。
+- QValuePanelのGridの死にコード（無効化されたAdvantageの引き算、コメントアウト）を消す — 範囲外: もとからある死にコードは消さずに報告する決まり。再開条件: 片づけを別の課題として起こすとき（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§7）。
 
 ## 変えるときの条件
 
@@ -132,6 +137,7 @@
 - Train Viewを隠している間も学習とTrain側のobserverは止めず、止めるのは描画のtimerだけである（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、D6・§2のNG2）。
 - 導線の操作ではRunログに保険のWARN（`No main pane occupies the centre.`と`Both main panes occupy the centre.`）が出ないことを確かめる（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、D13・§7の受入6・8）。
 - DPI対応の見直しで、100%の表示の寸法（すべて今と同じ画素のまま）・配置・振る舞い、PRD110の主paneの規則とそのGUIテストの判定（テストの中の固定の寸法をFromDIPで直すことは判定を変えないので行ってよい）、Closeの順序、設定のキー、学習と評価を変えない（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§5.5）。
+- `QValuePanel::Update`を分けるときは、Gridの差分更新の2つの条件（選択が変わった行だけを塗り直す、値が広がった列だけ幅を当て直す）を残し、加工の前に値を写す回数を増やさない。切り出す前のコードで控えた加工後の値と、切り出したあとの単体テストの期待値が一致することを確かめる。加工の単体テストは`AnetRLRunner-gui-test`に置き、既定のテストスイートに入らないので、加工を変えたら流す（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10〜D12・§6 A8）。
 
 ## 関係
 
