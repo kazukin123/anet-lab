@@ -289,13 +289,15 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 
 | ゲーム | 番号付き定義 | 番号なしの参考定義 |
 |---|---|---|
-| kung_fu_master | `1:floor_clear` = `0x9F inc_count`、`2:boss_kill` = `0xCC reach_count:0`、`3:boss_hit` = `0xCC dec_count` | `floor_max` = `0x9F max_seen`、`boss_hp_min` = `0xCC min_seen` |
+| kung_fu_master | `1:floor_clear` = `0x9F inc_count`、`2:boss_kill` = `0xCC reach_count:0`、`3:boss_hit` = `0xCC dec_count`、`4:player_hp_dec` = `0xCB dec_count` | `floor_max` = `0x9F max_seen`、`boss_hp_min` = `0xCC min_seen` |
 | qbert | `1:round_clear` = `0xE3 inc_count` | `side_color` = `0x82 min_seen` |
 | phoenix | `1:wave_clear` = `0xCA inc_count`、`2:boss_kill` = `0xFC inc_count` | なし |
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
 | beam_rider | `1:sector_clear` = `0x80 inc_count`、`2:boss_kill` = `0x94 reach_count:141`、`4:torpedo_fired` = `0xD3 dec_count` | なし |
 | freeway | `4:car_hit` = `0xEA reach_count:91` | なし |
 | montezuma_revenge | `1:room_max` = `0x83 max_seen`、`4:x_min` = `0xAA min_seen` | `room_up` = `0x83 inc_count` |
+
+kung_fu_master の 4 の `player_hp_dec` は、自機の体力（`0xCB`、満タン 39）が減ったフレームの数で、被弾の量の目安に使う。面の出口で残りの体力を点に換算する間も 4 フレームに 1 単位ずつ減るので、`floor_clear` が 1 以上のゲームは換算の分を含む。被弾だけを比べるときは `floor_clear` が 0 のゲームで比べる。
 
 montezuma_revenge には面の区切りが無いので、1 には到達した最大の部屋番号を使う。回数ではなく部屋番号で、開始の部屋が 1 なので、どこにも進まなかったゲームも 1 になる。部屋番号は先へ進むほど大きくなる傾向だが、開始の左の部屋は 0 なので、最大値の増加だけで進みを読む。`room_up` は部屋番号が増えた回数で、部屋の行き来でも増えるので番号を付けない。4 の `x_min` は x 座標の最小で、開始は 77、鍵は部屋 1 の x=12 付近にある。別の部屋に入るとその部屋の座標になるので、鍵までの進みとして読めるのは部屋 1 にいる間だけである。
 

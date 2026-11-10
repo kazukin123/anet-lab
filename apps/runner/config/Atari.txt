@@ -1372,9 +1372,10 @@ AtariEnv.sound ?= false
 AtariEnv.ram_metric.[kung_fu_master].[floor_clear] ?= 0x9F inc_count
 AtariEnv.ram_metric.[kung_fu_master].[boss_kill] ?= 0xCC reach_count:0
 AtariEnv.ram_metric.[kung_fu_master].[boss_hit] ?= 0xCC dec_count
+AtariEnv.ram_metric.[kung_fu_master].[player_hp_dec] ?= 0xCB dec_count  # 自機の体力が減ったフレーム数。面の出口の換算分を含む
 AtariEnv.ram_metric.[kung_fu_master].[floor_max] ?= 0x9F max_seen  # 番号なし。評価しない
 AtariEnv.ram_metric.[kung_fu_master].[boss_hp_min] ?= 0xCC min_seen  # 番号なし。評価しない
-AtariEnv.ram_metric.[kung_fu_master].metrics ?= 1:floor_clear 2:boss_kill 3:boss_hit
+AtariEnv.ram_metric.[kung_fu_master].metrics ?= 1:floor_clear 2:boss_kill 3:boss_hit 4:player_hp_dec
 
 AtariEnv.ram_metric.[qbert].[round_clear] ?= 0xE3 inc_count
 AtariEnv.ram_metric.[qbert].[side_color] ?= 0x82 min_seen  # 番号なし。評価しない
