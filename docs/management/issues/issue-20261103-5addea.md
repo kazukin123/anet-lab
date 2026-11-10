@@ -32,8 +32,8 @@ parent:
 value: 2
 urgency: 8
 risk: 1
-size: 8
-wsjf: 1.4
+size: 5
+wsjf: 2.2
 resolved:
 resolution:
 memo:
