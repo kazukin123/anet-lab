@@ -320,7 +320,7 @@ metrics.scalar.@munchausen.[36_agent_munchausen/06_next_entropy] ?= munchausen_n
 # 07 は 06_next_entropy とほぼ同じ量の別汎関数で、50M 実測の相関は r=0.979 / 0.978(2 本)。
 # 群は 50M で全 scalar 行の 15.5% を占めるので既定では出さない。
 # ただし D15(use_optimistic_target=true) の risk-biased スコアでは 07 だけが負を取りうる唯一の
-# 指標なので、楽観ターゲットの腕を引くときは戻すこと。
+# 指標なので、use_optimistic_target=true の比較群を流すときは、下の 07 の行を戻すこと。
 #metrics.scalar.@munchausen.[36_agent_munchausen/07_soft_gap] ?= munchausen_soft_gap @learn $update_result
 
 # Replay の未抽選群・抽選済み群を、更新直前の同一条件で評価する。明示選択時だけ有効。

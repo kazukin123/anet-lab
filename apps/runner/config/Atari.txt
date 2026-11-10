@@ -387,7 +387,7 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.first = 0.01
 run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 
 
-# --- 土台(実行モードと予算。腕を重ねて使う) ---
+# --- 土台(実行モードと予算。群を重ねて使う) ---
 
 # TempoRL: 有効化と指標だけを持つ。J・skip_context・合算／遮断は下の「Env依存 Agent設定」の葉で切り替える。
 # metrics.scalar.$ は run.@a5_metrics の連鎖に @skip を足したもの（後ろの profile の連鎖だけが残るため、ここで全部書く）。
@@ -434,7 +434,7 @@ run.@a5      : app.batchrun.exp_exit_step = ${@vars.max_exp_step}
 run.@batch   : app.$ = app.batchrun > P1
 run.@a5      : A2.learner.replay_ratio = 1  # ★
 
-# 以降の新規腕はこの 3 行を再宣言せず、run.@va_base へ重ねて 1 変数だけ書く。
+# 以降の新しい群はこの 3 行を再宣言せず、run.@va_base へ重ねて 1 変数だけ書く。
 #   例: run.$=%A5%>run.@va_base>run.@hard125
 
 # --- Atari-5 ---
@@ -447,7 +447,7 @@ run.@a5_apex : app.run_name = run_{t}_atari_${E1.game}
 run.@a5_rr4  : A2.learner.replay_ratio = 4
 run.@a5_rr4  : app.run_name = run_{t}_a5_${E1.game}_rr4
 
-# --- 修飾子・ツール(run_name を持たず、任意の腕へ後付けする) ---
+# --- 修飾子・ツール(run_name を持たず、任意の群へ後付けする) ---
 
 run.@a5_20m  : @vars.max_exp_step  = 20,000,000
 run.@a5_20m  : @vars.half_exp_step = 10,000,000
@@ -503,9 +503,9 @@ run.@btreval_r4 : run.eval.[eval].eval_batch_size = 10
 run.@btreval_r4 : run.eval.[eval].eval_episodes = 100
 
 # 間隔は env step 換算で揃える。RR4 は 1 learn step = 64 env step、RR1(envs128) は 256 env step。
-# 間隔は「予算 / 10 より大きく」取る。予算ちょうどで割り切れる間隔にすると最終発火が
-# 予算到達に間に合わず、run 終了時に背景 eval セッションごと捨てられる(2026-09-17 実測:
-# 49.70M で start した断面が 3m17s で打ち切られた)。
+# 予算の終わり際に始まった評価セッションも、Run の終了時に完走を待ってから閉じる
+# (run.eval_schedule.[tag].wait_on_exit 既定 true、上限は app.drain_timeout_sec 既定 3600 秒)。
+# 最後の発火が捨てられるのを避けるために、間隔を「予算 / 10 より大きく」取る必要は無い。
 # 先頭は learn_step 0 でも発火する。初期重みの貪欲方策は FIRE デッドロックで全エピソードが
 # 上限 27,000 step に張り付くことがあり(2026-09-18 の RR1 で 49 分)、この 1 回は捨て点になる。
 run.@eval2ch : run.eval_schedule.[eval_target].interval = 0
@@ -567,8 +567,8 @@ run.@pl_snmetrics  : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scala
 
 run.@breakout_metrics : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > M1 > M2
 
-# --- 軸ごとの修飾子(1 プロファイル 1 軸。腕はチェーンで組む) ---
-# run_name は持たせない。チェーンで重ねると最後の 1 本しか勝たず腕を表現できないため、
+# --- 軸ごとの修飾子(1 プロファイル 1 軸。群はチェーンで組む) ---
+# run_name は持たせない。チェーンで重ねると最後の 1 本しか勝たず群を表現できないため、
 # bat 側から app.run_name を渡す。
 #   例: run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard500>run.@rr4>run.@munch
 
@@ -599,7 +599,7 @@ run.@rr4 : A2.learner.replay_ratio = 4
 run.@b512  : A2.learner.replay_batch_size = 512
 
 # metrics.scalar.$ は run.@breakout_metrics と同じスロットなので @breakout と @munchausen を
-# 1 本にまとめて宣言する。この腕に run.@breakout_metrics は重ねない。
+# 1 本にまとめて宣言する。run.@munch に run.@breakout_metrics は重ねない。
 run.@munch : DefaultDQNAgent.$ = @baseline > @iqn > @munchausen > A1 > @bf16 > A2 > A3
 run.@munch : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@breakout > metrics.scalar.@munchausen > M1 > M2
 
@@ -654,7 +654,7 @@ run.@nz_reference_off : A2.learner.current.nn_forward_key = act_sample
 run.@nz_reference_off : A2.learner.target.nn_forward_key = act_sample
 run.@nz_reference_off : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@noisy
 
-# --- 再訪予定の腕 ---
+# --- 再訪予定の群 ---
 
 run.@aainit : A2.learner.per_initial_priority_mode = actor_approx
 
@@ -931,7 +931,7 @@ net.block.[AtariImpalaRes64GN].res.droppath_rate = 0.0
 net.branch.@AtariImpalaX2GN.bind = grid
 net.branch.@AtariImpalaX2GN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
-# --- config のみの screening 腕(可塑性)。素の X2 から 1 点だけ変えた 3 branch ---
+# --- config のみの screening の群(可塑性)。素の X2 から 1 点だけ変えた 3 branch ---
 
 net.block.[AtariImpalaRes32He].type = ResBlock
 net.block.[AtariImpalaRes32He].res.channels = 32
@@ -985,9 +985,9 @@ net.branch.@AtariImpalaX2ViT64LN.bind = grid
 net.branch.@AtariImpalaX2ViT64LN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > PosEmbed2D > AtariImpalaTrans64 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 # --- SN screening(PRD 065)。全層適用: standalone Conv2d 3 + ResBlock 全部 + Linear512。
-# C 腕は spectral + init2=he(zero-init は W/sigma と非互換で fail-fast)。D 腕は cap + zero-init 維持。
+# C 群は spectral + init2=he(zero-init は W/sigma と非互換で fail-fast)。D 群は cap + zero-init 維持。
 
-# C 腕: weight_norm.mode = spectral
+# C 群: weight_norm.mode = spectral
 net.block.[AtariImpalaConv32SN].type = Conv2d
 net.block.[AtariImpalaConv32SN].conv.out_channels = 32
 net.block.[AtariImpalaConv32SN].conv.kernel_size = 3
@@ -1032,7 +1032,7 @@ net.block.[AtariLinear512SN].weight_norm.mode = spectral
 net.branch.@AtariImpalaX2SN.bind = grid
 net.branch.@AtariImpalaX2SN.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512SN > ReLU
 
-# D 腕: weight_norm.mode = spectral_cap
+# D 群: weight_norm.mode = spectral_cap
 net.block.[AtariImpalaConv32CAP].type = Conv2d
 net.block.[AtariImpalaConv32CAP].conv.out_channels = 32
 net.block.[AtariImpalaConv32CAP].conv.kernel_size = 3

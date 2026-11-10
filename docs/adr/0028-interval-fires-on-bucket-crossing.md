@@ -1,5 +1,7 @@
 # 飛び飛びのカウンタに対する interval を bucket-crossing で定義する
 
+> **後発決定（2026-11-10）**: `run.eval_schedule.[tag]` の評価に限り、Consequences の「初回（step=0）は発火する」を [ADR 0070](0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md) で改めた。eval schedule は既定で発火の列の先頭 1 回を走らせず、`offset` で列をずらせる。bucket-crossing の定義、catch-up しないこと、メトリクスの interval の初回発火は本 ADR のまま有効である。
+
 Observer が参照する step 軸は、軸によって刻み幅が異なる。train_step は round ごとに +1 だが、learn_step は `num_envs × replay_ratio / batch` 刻み、exp_step は `num_envs` 刻みで飛ぶ。これらに対して従来は `step % interval == 0` で発火を判定していたため、実効周期が `LCM(刻み, interval)` に伸び、刻みが interval を割り切らない構成では発火が丸ごと欠落していた。実測では `interval=100` の指定に対し num_envs=512 で 400 更新周期、num_envs=64 で 100 更新周期となり、同じ設定の Run 同士で eval 回数が 4 倍違っていた。刻みは num_envs / replay_ratio / batch から決まるため、**設定に書いた interval の意味が他の設定値に汚染される**構造になっていた。
 
 **interval の発火判定を「`step / interval` の商が前回発火時より増えたら発火する」（bucket-crossing）と定義する**。各バケット `[k·interval, (k+1)·interval)` を跨いだ最初のイベントで必ず 1 回だけ発火し、刻みが interval を割り切るかどうかに依存しない。実効周期は `max(interval, 刻み)` となり、位相ジッタは 1 イベント以内に収まる。
