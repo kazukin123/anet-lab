@@ -15,7 +15,7 @@ ping -n 16 127.0.0.1 >nul
 tasklist /FI "IMAGENAME eq AnetRLRunner_ab.exe" 2>nul | find /I "AnetRLRunner_ab.exe" >nul
 if not errorlevel 1 goto :waitprev
 
-SET "SRC_EXE=%~dp0..\.scratch\rnd-explore-20261107\bin\AnetRLRunner_rnd_20261107.exe"
+SET "SRC_EXE=%~dp0..\.scratch\rnd-taiga-20261108\bin\AnetRLRunner_rnd_20261108.exe"
 if not exist "%SRC_EXE%" goto :no_exe
 copy /Y "%SRC_EXE%" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
@@ -75,18 +75,24 @@ call :find_done mz_se_ev16m_2x2
 if not defined DONE_DIR call :run_exe "%SERND%" %MZ% %K32% %ALNINIT% %EV2X2% "A3.auto_load_file=%SEDIR%/agent_15675776.anet" "app.run_name=run_{t}_mz_se_ev16m_2x2"
 
 echo === 7. montezuma_revenge 30m seed 1: sample-efficiency profile with RND, K32 and TempoRL ===
-call :find_done mz_se_rnd_skip_s1
-if not defined DONE_DIR call :run_exe "%SERND%>run.@skip" %MZ% %K32% %ALNINIT% run.eval_schedule.[eval].interval=31264 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_se_rnd_skip_s1"
+if not exist "%RUNS%\run_20261108-123544_mz_se_rnd_skip_s1\config" call :run_exe "%SERND%>run.@skip" %MZ% %K32% %ALNINIT% run.eval_schedule.[eval].interval=31264 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_se_rnd_skip_s1"
+
+SET "TGCH=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@to_30m>run.@rnd>run.@batch"
+SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_update_interval=250 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
+SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
+SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
+SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
+echo === 16. montezuma_revenge 30m seed 1: same as mz_tg_rnd_s1 (beta 0.1) but Munchausen off and Double DQN on ===
+call :find_done mz_tg_nmdd_b01_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.1 DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_nmdd_b01_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
-pause
-exit /b 1
+goto :beep_forever
 
 :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
-pause
-exit /b 0
+goto :beep_forever
 
 
 :use_ws
@@ -127,6 +133,15 @@ echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
 SET /A FAILED_RUNS+=1
 exit /b 0
 
+:run_ws
+echo %DATE% %TIME% START %WS% %*
+%RUNNER% %WS% %*
+SET "RUN_EXIT_CODE=%ERRORLEVEL%"
+if "%RUN_EXIT_CODE%"=="0" goto :run_succeeded
+echo %DATE% %TIME% [ERROR] RUN FAILED exit_code=%RUN_EXIT_CODE% args=%*
+SET /A FAILED_RUNS+=1
+exit /b 0
+
 :run_succeeded
 SET /A SUCCEEDED_RUNS+=1
 echo   %DATE% %TIME% END   %*
@@ -134,10 +149,13 @@ exit /b 0
 
 :no_exe
 echo *** exe or config not found, or the copy failed. Nothing was run.
-pause
-exit /b 1
+goto :beep_forever
 
 :no_ckpt
 echo *** checkpoint not found. Stages 3 and 4 were not run.
-pause
-exit /b 1
+goto :beep_forever
+
+:beep_forever
+powershell -NoProfile -Command "[console]::Beep(1000,800)" >nul 2>&1
+ping -n 301 127.0.0.1 >nul
+goto :beep_forever

@@ -176,13 +176,11 @@ if not defined DONE_DIR call :run_exe "%SKBASE%" "%BATCH%" run.seed=1 %B50M% %MU
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
-pause
-exit /b 1
+goto :beep_forever
 
 :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
-pause
-exit /b 0
+goto :beep_forever
 
 
 :use_ws
@@ -259,5 +257,9 @@ exit /b 0
 
 :no_exe
 echo *** bin\%BUILD%\AnetRLRunner.exe not found or copy failed. Nothing was run.
-pause
-exit /b 1
+goto :beep_forever
+
+:beep_forever
+powershell -NoProfile -Command "[console]::Beep(1000,800)" >nul 2>&1
+ping -n 301 127.0.0.1 >nul
+goto :beep_forever

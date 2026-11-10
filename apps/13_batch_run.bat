@@ -54,6 +54,8 @@ SET "UQLO=A2.actor.[train].policy.uqe.epsilon=0.05 A2.actor.[train].policy.uqe.e
 SET "UQ99=A2.actor.[train].policy.uqe.tau=0.99 A2.actor.[train].policy.uqe.tau.start=0.99 A2.actor.[train].policy.spatial.uqe.tau.first=0.99 A2.actor.[train].policy.uqe.tau.end=0.9 A2.actor.[train].policy.spatial.uqe.tau.last=0.9"
 SET "OPT=A3.use_optimistic_target=true"
 SET "RT10=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@batch"
+SET "RT10RND=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@rnd>run.@batch"
+SET "EVFIX=DefaultDQNAgent.actor.[eval].policy.tau_rule.sample_mode=fixed"
 SET "B1K=A2.learner.replay_batch_size=1024"
 SET "RT10V=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@vitva>run.@batch"
 SET "SENZ=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@batch"
@@ -71,6 +73,7 @@ SET "SENZPASK=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eva
 SET "SKIPMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@noisy>metrics.scalar.@skip"
 SET "MERGE=DefaultDQNAgent.learner.skip.feature_gradient=merge"
 SET "FW10=app.batchrun.exp_exit_step=10000000 run.eval_schedule.[greedy].interval=15781"
+SET "EVTAU=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 app.batchrun.exp_exit_step=5 run.eval_schedule.[eval].interval=10 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy_single].interval=10 run.eval.[eval].eval_batch_size=16 run.eval.[eval].eval_episodes=100 run.eval.[greedy].eval_batch_size=16 run.eval.[greedy].eval_episodes=100 run.eval.[greedy_single].eval_batch_size=16 run.eval.[greedy_single].eval_episodes=100 DefaultDQNAgent.actor.[eval].policy.tau_rule.sample_mode=random DefaultDQNAgent.actor.[greedy].policy.tau_rule.sample_mode=random DefaultDQNAgent.actor.[greedy_single].policy.tau_rule.sample_mode=fixed"
 
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. freeway 10m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, epsilon 1.0 to 0.01 with time constant 2M, greedy eval every 1.01M, no skip ===
@@ -88,19 +91,70 @@ if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=beam_ride
 echo === 5. beam_rider 50m seed 2: same setup as 3 ===
 call :find_done a5_br_aln_btreps_s2
 if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=beam_rider run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_br_aln_btreps_s2"
-echo === 6. beam_rider 50m seed 2: same setup as 4 ===
-call :find_done a5_br_aln_t98mrg_s2
-if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=beam_rider run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t98mrg_s2"
+echo === 6. battle_zone 50m seed 1: same setup as 3 ===
+call :find_done a5_bz_aln_btreps_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=battle_zone run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_bz_aln_btreps_s1"
+echo === 7. name_this_game 50m seed 1: same setup as 3 ===
+call :find_done a5_ntg_aln_btreps_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=name_this_game run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_ntg_aln_btreps_s1"
+echo === 8. phoenix 50m seed 1: same setup as 3 ===
+call :find_done a5_ph_aln_btreps_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=phoenix run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_ph_aln_btreps_s1"
+echo === 9. double_dunk 50m seed 1: same setup as 3 ===
+call :find_done a5_dd_aln_btreps_s1
+if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=double_dunk run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_dd_aln_btreps_s1"
+echo === 10. battle_zone eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
+SET "RUN_EXIT_CODE=0"
+call :find_done a5_bz_aln_evtau_s1
+if not defined DONE_DIR call :find_ckpt "run_*_a5_bz_aln_btreps_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=battle_zone run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_bz_aln_evtau_s1"
+echo === 11. name_this_game eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
+SET "RUN_EXIT_CODE=0"
+call :find_done a5_ntg_aln_evtau_s1
+if not defined DONE_DIR call :find_ckpt "run_*_a5_ntg_aln_btreps_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=name_this_game run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_ntg_aln_evtau_s1"
+echo === 12. phoenix eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
+SET "RUN_EXIT_CODE=0"
+call :find_done a5_ph_aln_evtau_s1
+if not defined DONE_DIR call :find_ckpt "run_*_a5_ph_aln_btreps_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=phoenix run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_ph_aln_evtau_s1"
+echo === 13. double_dunk eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
+SET "RUN_EXIT_CODE=0"
+call :find_done a5_dd_aln_evtau_s1
+if not defined DONE_DIR call :find_ckpt "run_*_a5_dd_aln_btreps_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=double_dunk run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_dd_aln_evtau_s1"
+echo === 14. kung_fu_master 10m seed 4: same as kfm_10m_s04 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s04
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s04"
+echo === 15. kung_fu_master 10m seed 5: same as kfm_10m_s05 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s05
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s05"
+echo === 16. kung_fu_master 10m seed 6: same as kfm_10m_s06 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s06
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s06"
+echo === 17. kung_fu_master 10m seed 7: same as kfm_10m_s07 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s07
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s07"
+echo === 18. kung_fu_master 10m seed 8: same as kfm_10m_s08 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s08
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=8 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s08"
+echo === 19. kung_fu_master 10m seed 9: same as kfm_10m_s09 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s09
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=9 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s09"
+echo === 20. kung_fu_master 10m seed 10: same as kfm_10m_s10 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s10
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=10 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s10"
+echo === 21. kung_fu_master 10m seed 11: same as kfm_10m_s11 plus RND with the default settings (beta 0.1) ===
+call :find_done kfm_10m_rnd_b01_s11
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=11 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s11"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
-pause
-exit /b 1
+goto :beep_forever
 
 :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
-pause
-exit /b 0
+goto :beep_forever
 
 
 :use_ws
@@ -148,5 +202,9 @@ exit /b 0
 
 :no_exe
 echo *** bin\%BUILD%\AnetRLRunner.exe not found or copy failed. Nothing was run.
-pause
-exit /b 1
+goto :beep_forever
+
+:beep_forever
+powershell -NoProfile -Command "[console]::Beep(1000,800)" >nul 2>&1
+ping -n 301 127.0.0.1 >nul
+goto :beep_forever

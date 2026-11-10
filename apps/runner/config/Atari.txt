@@ -1465,11 +1465,11 @@ metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
 
 # metrics.trace.[tag] = $target @episode_end key1 [key2 ...] [$step] [$train | $eval.[name]]
 metrics.trace.$ = metrics.trace.@atari
-metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4]
-metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4]
-metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4]
-metrics.trace.@atari : [54_evalgs/episode] = $eval.[greedy_single] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4]
-metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4]
+metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
+metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
+metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
+metrics.trace.@atari : [54_evalgs/episode] = $eval.[greedy_single] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
+metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
 
 M1.[42_env/10_game_score_mean]      = $env_step mean.game_score  @episode_end $exp_step
 M1.[42_env/11_game_score_mean_ema]  = $env_step mean.game_score  @episode_end $exp_step $ema ema_alpha:0.001
