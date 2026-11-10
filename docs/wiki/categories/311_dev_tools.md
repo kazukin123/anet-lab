@@ -36,6 +36,7 @@
 - 2026-11-02: 共有コアにanet-で始まるskill・エージェント・アダプタの名前を置けると補足し、名前以外はプロジェクトに依存しない文面に保つ判断を維持した（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [925_issue_list_views](../../memo/925_issue_list_views_10prd.md)、題・§1・§4 D1〜D3）。
 - 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、PRD専用の索引の課題をやめて各課題がprd欄でPRDを1本だけ指し（N:1）、PRDの実装済みを課題の判定と状態から導き、parent・depends・prdをObsidianのリンクで書き、domain・tags・resolutionを足す案を起票した（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§1・§4 D1〜D8）。
+- 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、anet-core-testが開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、題・§3.1・§4 D1）。
 
 ## 選ばなかった形
 
@@ -78,6 +79,11 @@
 - PRDのファイルに状態を書く — 不採用: 状態の置き場が2つになり食い違う（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§7）。
 - 課題の大まかな分類をareaから導く、またはtagsに人が書く — 不採用: 導く形はObsidianで式を書かないと絞れず課題ごとに直せない。tagsは書き忘れと表記のぶれが起き、areaと同じ軸を2か所で持つ（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§4 D6・§7）。
 - コミットの準備で出荷設定の検査のテスト（`[shipped_config]`）を流す形 — 不採用: 使わない定義の誤りは、使う Run の構築時に必ず止まるので害の経路が無く、テストの実行体が古いときの扱いという別の不確かさを持ち込む（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D13・§8）。
+- 止まるテストの中だけでMKLDNNを切る形 — 不採用: 切り替えを通らずにCPUでConvを組むテストが、Catch2の既定のランダム順で止まる仕組みが残る（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D1・§7）。
+- 本番の初期化でDebugビルドのときだけMKLDNNを切る形 — 範囲外: 本番のRunnerに触り、InitNNを呼ぶ前にConvを組むテストは守られない。再開条件: Debug版のRunnerをCPUでConvのNNと回す必要が出たとき（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§3.2・§7）。
+- テストの実行順を宣言順に固定する形 — 不採用: 単独やタグを指定した実行は直らない（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§3.2・§7）。
+- テストの実行体でCPUのスレッド数を1にしてoneDNNの経路を残す形 — 不採用: 残す利点のoneDNNの経路のテストは非ゴールで、CPUのテストがすべて1スレッドになる（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§3.2・§7）。
+- NNを組まないテストの実行体（Envの5本、RunnerのGUIのテスト）のmainでもMKLDNNを切る形 — 不採用: NNを組まない。再開条件: CPUでNNを組むテストをそれらの実行体に足すとき（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D3・§7）。
 
 ## 変えるときの条件
 
@@ -95,6 +101,7 @@
 - 課題の仕組みのファイルは共有コアに含めず、anetのskillと文書として持つ。プロセス契約の節とanetの値はskillに直接書き、レジストリの読み替えで当てない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・D4・D5）。
 - 共有コアの文面はskill・エージェント・アダプタの名前以外をプロジェクトに依存させず、anet固有のことはレジストリと観点に置く（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
+- anet-core-testでMKLDNNを切るのは実行体の開始時の1か所にし、テストの中で切らない。テストの開始時に切れていることを見張りのテストで確かめ、Release（assertが出ない）でも切り替えの消失に気づけるようにする（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D1・D5・§6のA4）。
 
 ## 関係
 
