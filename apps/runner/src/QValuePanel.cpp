@@ -417,26 +417,17 @@ void QValuePanel::ApplyData(QValueData data)
     }
 }
 
-void QValuePanel::Update()
+QValueHeatMapResult ComputeQValueHeatMap(const QValueData& input,
+    const QValueHeatMapRequest& request, QValueHeatMapRangeState& range)
 {
     ANET_PROFILE_FUNC();
+    // 共有snapshotは変更せず、加工用の格子値だけを1回写す。
+    QValueHeatMapResult data{ .width = input.width, .height = input.height,
+        .vv = input.vv, .guide_line_ratio = -1.0f };
+    const bool is_hist = request.histogram;
+    const bool is_adv = request.advantage;
+    const bool is_log = request.log_scale;
 
-    const auto data_opt = data_store_.Get();
-    const auto selected = trace_mode_ ? trace_data_ : (data_opt ? *data_opt : nullptr);
-    if (!selected) return;
-
-    // 表示用の変換は共有snapshotを書き換えず、ローカルコピーへ適用する。
-    QValueData data = *selected;
-    if (data.vv.empty()) return;
-
-    // UI状態取得
-    bool is_hist = IsHistogram();
-    bool is_adv = IsAdvantage();
-    bool is_log = IsLogScale();
-
-    // --------------------------------------------------------
-    // 統計量計算 (GridとHeatMap共通で使用)
-    // --------------------------------------------------------
     double sum = std::accumulate(data.vv.begin(), data.vv.end(), 0.0);
     double global_mean = sum / data.vv.size();
 
@@ -444,79 +435,6 @@ void QValuePanel::Update()
     double sq_sum = std::inner_product(data.vv.begin(), data.vv.end(), data.vv.begin(), 0.0);
     double global_stdev = std::sqrt(sq_sum / data.vv.size() - global_mean * global_mean);
 
-
-    // --------------------------------------------------------
-    // Grid更新 (Advantage対応)
-    // --------------------------------------------------------
-    // 行と行動名は Initialize で作り、ここでは数値と選択行だけを更新する
-    const int rows = grid_->GetNumberRows();
-
-    // 最大のMeanを持つアクションを特定する
-    //float max_mean_val = -std::numeric_limits<float>::infinity();
-    //int max_mean_idx = -1;
-
-    //for (int i = 0; i < rows; ++i) {
-    //    // 統計データが揃っていない場合のガード
-    //    if (i < data.stats.size()) {
-    //        if (data.stats[i].mean > max_mean_val) {
-    //            max_mean_val = data.stats[i].mean;
-    //            max_mean_idx = i;
-    //        }
-    //    }
-    //}
-
-    // 選択されたアクションを特定
-    int64_t selected_idx = data.selected_action;
-
-    grid_->BeginBatch();
-
-    // Grid表示用のオフセット値 ★混乱するので無効化
-    float grid_offset = 0.0f;// is_adv ? static_cast<float>(global_mean) : 0.0f;
-
-    // 数値セルを毎回更新し、今までより長い値が出た列だけ広げる
-    bool widened = false;
-    for (int i = 0; i < rows; ++i) {
-        // AdvantageONなら、平均値を引いた値を表示して確認できるようにする
-        // Std(ばらつき)はシフトしても変わらないのでそのまま
-        const std::pair<int, float> values[] = {
-            {kMeanCol, data.stats[i].mean - grid_offset},
-            {kMaxCol, data.stats[i].max - grid_offset},
-            {kMinCol, data.stats[i].min - grid_offset},
-            {kStdCol, data.stats[i].std_dev},
-        };
-        for (const auto& [col, value] : values) {
-            const auto text = wxString::Format("%.3f", value);
-            widened |= FitValueColumn(col, text);
-            grid_->SetCellValue(i, col, text);
-        }
-    }
-
-    // 選択行ハイライト (毎回全行を塗り直すとattr更新が支配的になるため、変化した行だけ差分更新)
-    const int selected_row = static_cast<int>(selected_idx);
-    if (selected_row != last_selected_row_) {
-        if (last_selected_row_ >= 0 && last_selected_row_ < rows) {
-            for (int col = 0; col < kColumnCount; ++col) {
-                // wxNullColourでリセット（システムデフォルトに戻る）
-                grid_->SetCellBackgroundColour(last_selected_row_, col, wxNullColour);
-                grid_->SetCellTextColour(last_selected_row_, col, wxNullColour);
-            }
-        }
-        if (selected_row >= 0 && selected_row < rows) {
-            const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
-            const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
-            for (int col = 0; col < kColumnCount; ++col) {
-                grid_->SetCellBackgroundColour(selected_row, col, kHighlightBg);
-                grid_->SetCellTextColour(selected_row, col, kHighlightText); // 文字色も合わせる
-            }
-        }
-        last_selected_row_ = selected_row;
-    }
-
-    grid_->EndBatch();
-
-    // 表の幅とレイアウトの再計算は列が広がったときだけ行う
-    // (毎Step実行すると全子ウィンドウの同期再描画が支配的コストになる)
-    if (widened) ApplyGridWidth();
 
     // --------------------------------------------------------
     // HeatMapデータ加工プロセス
@@ -536,14 +454,14 @@ void QValuePanel::Update()
     // ==========================================
     // [Phase B] ヒストグラム化 (Histogram)
     // ==========================================
-    int n_bins = config_->hist_bins;
+    int n_bins = request.hist_bins;
     float guide_line_ratio = -1.0f; // ガイドライン位置 (0.0~1.0, 負なら非表示)
 
     if (is_hist) {
         // ----------------------------------------------------
         // 現在のフレームでの有効範囲を計算 (Mean ± Xσ)
         // ----------------------------------------------------
-        float range_k = config_->hist_range_k;// 1.0f;
+        float range_k = request.hist_range_k;// 1.0f;
         float current_min = static_cast<float>(global_mean - range_k * global_stdev);
         float current_max = static_cast<float>(global_mean + range_k * global_stdev);
 
@@ -552,7 +470,7 @@ void QValuePanel::Update()
         if (current_min > *mm.first) current_min = *mm.first;
         if (current_max < *mm.second) current_max = *mm.second;
 
-        bool is_auto_range = auto_range_check_->GetValue();
+        bool is_auto_range = request.auto_range;
         float shrink_rate = is_auto_range ? 0.05f : 0.0f;
 
         // ----------------------------------------------------
@@ -560,33 +478,33 @@ void QValuePanel::Update()
         // ----------------------------------------------------
 
         // --- Max側の更新 ---
-        if (current_max > accumulated_max_) {
+        if (current_max > range.maximum) {
             // 広がる方向は常に即時反映 (データが見切れるのを防ぐため)
-            accumulated_max_ = current_max;
+            range.maximum = current_max;
         } else {
             // 狭まる方向は shrink_rate に従う (AutoRangeOFFなら狭まらない)
-            accumulated_max_ = accumulated_max_ + (current_max - accumulated_max_) * shrink_rate;
+            range.maximum = range.maximum + (current_max - range.maximum) * shrink_rate;
         }
 
         // --- Min側の更新 ---
-        if (current_min < accumulated_min_) {
+        if (current_min < range.minimum) {
             // 広がる方向は常に即時反映 (データが見切れるのを防ぐため)
-            accumulated_min_ = current_min;
+            range.minimum = current_min;
         } else {
             // 狭まる方向は shrink_rate に従う (AutoRangeOFFなら狭まらない)
-            accumulated_min_ = accumulated_min_ + (current_min - accumulated_min_) * shrink_rate;
+            range.minimum = range.minimum + (current_min - range.minimum) * shrink_rate;
         }
 
         // Advantageモードの場合は、0を中心に対称にする（左右のバランスを保つため）
         if (is_adv) {
-            float abs_max = std::max(std::abs(accumulated_min_), std::abs(accumulated_max_));
-            accumulated_min_ = -abs_max;
-            accumulated_max_ = abs_max;
+            float abs_max = std::max(std::abs(range.minimum), std::abs(range.maximum));
+            range.minimum = -abs_max;
+            range.maximum = abs_max;
         }
 
         // 最終的なヒストグラム範囲
-        float hist_min = accumulated_min_;
-        float hist_max = accumulated_max_;
+        float hist_min = range.minimum;
+        float hist_max = range.maximum;
 
         // 幅が極小の場合の安全策
         if (std::abs(hist_max - hist_min) < 1e-4) {
@@ -624,18 +542,18 @@ void QValuePanel::Update()
             if (center_bin_idx < 0) center_bin_idx = 0;
             if (center_bin_idx >= n_bins) center_bin_idx = n_bins - 1;
 
-            if (config_->use_hist_smooth) {
+            if (request.use_hist_smooth) {
                 // ★本格スムージング (KDE: Kernel Density Estimation)
                 // そのビンを中心に、左右へ重みを配分する
                 int base_idx = action_idx * n_bins;
 
-                for (int r = -config_->smooth_radius; r <= config_->smooth_radius; ++r) {
+                for (int r = -request.smooth_radius; r <= request.smooth_radius; ++r) {
                     int target_bin = center_bin_idx + r;
 
                     // 範囲チェック
                     if (target_bin >= 0 && target_bin < n_bins) {
                         // 重みを加算
-                        new_vv[base_idx + target_bin] += hist_weights_[r + config_->smooth_radius];
+                        new_vv[base_idx + target_bin] += request.hist_weights[r + request.smooth_radius];
                     }
                 }
             } else {
@@ -714,6 +632,109 @@ void QValuePanel::Update()
         std::fill(data.vv.begin(), data.vv.end(), 0.5f);
     }
 
+    data.guide_line_ratio = guide_line_ratio;
+    return data;
+}
+
+void QValuePanel::Update()
+{
+    ANET_PROFILE_FUNC();
+    const auto data_opt = data_store_.Get();
+    const auto selected = trace_mode_ ? trace_data_ : (data_opt ? *data_opt : nullptr);
+    if (!selected || selected->vv.empty()) return;
+
+    // モードと設定を1回読み、表の更新・配列の加工・描画を順に進める。
+    const QValueHeatMapRequest request{
+        .histogram = IsHistogram(), .advantage = IsAdvantage(), .log_scale = IsLogScale(),
+        .auto_range = auto_range_check_->GetValue(), .hist_bins = config_->hist_bins,
+        .hist_range_k = config_->hist_range_k, .use_hist_smooth = config_->use_hist_smooth,
+        .smooth_radius = config_->smooth_radius, .hist_weights = hist_weights_ };
+    UpdateGrid(*selected);
+    const auto result = ComputeQValueHeatMap(*selected, request, heatmap_range_);
+    RenderHeatMap(result);
+}
+
+void QValuePanel::UpdateGrid(const QValueData& data)
+{
+    ANET_PROFILE_FUNC();
+    // --------------------------------------------------------
+    // Grid更新 (Advantage対応)
+    // --------------------------------------------------------
+    // 行と行動名は Initialize で作り、ここでは数値と選択行だけを更新する
+    const int rows = grid_->GetNumberRows();
+
+    // 最大のMeanを持つアクションを特定する
+    //float max_mean_val = -std::numeric_limits<float>::infinity();
+    //int max_mean_idx = -1;
+
+    //for (int i = 0; i < rows; ++i) {
+    //    // 統計データが揃っていない場合のガード
+    //    if (i < data.stats.size()) {
+    //        if (data.stats[i].mean > max_mean_val) {
+    //            max_mean_val = data.stats[i].mean;
+    //            max_mean_idx = i;
+    //        }
+    //    }
+    //}
+
+    // 選択されたアクションを特定
+    int64_t selected_idx = data.selected_action;
+
+    grid_->BeginBatch();
+
+    // Grid表示用のオフセット値 ★混乱するので無効化
+    float grid_offset = 0.0f;// is_adv ? static_cast<float>(global_mean) : 0.0f;
+
+    // 数値セルを毎回更新し、今までより長い値が出た列だけ広げる
+    bool widened = false;
+    for (int i = 0; i < rows; ++i) {
+        // AdvantageONなら、平均値を引いた値を表示して確認できるようにする
+        // Std(ばらつき)はシフトしても変わらないのでそのまま
+        const std::pair<int, float> values[] = {
+            {kMeanCol, data.stats[i].mean - grid_offset},
+            {kMaxCol, data.stats[i].max - grid_offset},
+            {kMinCol, data.stats[i].min - grid_offset},
+            {kStdCol, data.stats[i].std_dev},
+        };
+        for (const auto& [col, value] : values) {
+            const auto text = wxString::Format("%.3f", value);
+            widened |= FitValueColumn(col, text);
+            grid_->SetCellValue(i, col, text);
+        }
+    }
+
+    // 選択行ハイライト (毎回全行を塗り直すとattr更新が支配的になるため、変化した行だけ差分更新)
+    const int selected_row = static_cast<int>(selected_idx);
+    if (selected_row != last_selected_row_) {
+        if (last_selected_row_ >= 0 && last_selected_row_ < rows) {
+            for (int col = 0; col < kColumnCount; ++col) {
+                // wxNullColourでリセット（システムデフォルトに戻る）
+                grid_->SetCellBackgroundColour(last_selected_row_, col, wxNullColour);
+                grid_->SetCellTextColour(last_selected_row_, col, wxNullColour);
+            }
+        }
+        if (selected_row >= 0 && selected_row < rows) {
+            const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+            const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
+            for (int col = 0; col < kColumnCount; ++col) {
+                grid_->SetCellBackgroundColour(selected_row, col, kHighlightBg);
+                grid_->SetCellTextColour(selected_row, col, kHighlightText); // 文字色も合わせる
+            }
+        }
+        last_selected_row_ = selected_row;
+    }
+
+    grid_->EndBatch();
+
+    // 表の幅とレイアウトの再計算は列が広がったときだけ行う
+    // (毎Step実行すると全子ウィンドウの同期再描画が支配的コストになる)
+    if (widened) ApplyGridWidth();
+
+}
+
+void QValuePanel::RenderHeatMap(const QValueHeatMapResult& data)
+{
+    ANET_PROFILE_FUNC();
     // 描画 (vvは行優先格子なのでSetGridValuesの一括設定パスを使う)
     uint32_t flags = anet::HeatMapFlags::HM_SumMode | anet::HeatMapFlags::HM_FlipY;
     anet::HeatMap heat_map(data.width, data.height, 0, data.width, 0, data.height, 0, flags);
@@ -722,13 +743,13 @@ void QValuePanel::Update()
 
     int total_rows = static_cast<int>(action_names_.size());
     int target_height = total_rows * config_->row_height;
-    heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height, guide_line_ratio);
+    heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height, data.guide_line_ratio);
     SyncHeatMapScroll(false);
 }
 
+
 void QValuePanel::ResetRange() {
-    accumulated_min_ = std::numeric_limits<float>::max();
-    accumulated_max_ = std::numeric_limits<float>::lowest();
+    heatmap_range_ = {};
 }
 
 int QValuePanel::GetPreferredDockWidth() const

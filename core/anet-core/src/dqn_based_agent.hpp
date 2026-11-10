@@ -1,4 +1,5 @@
-﻿// rainbow_agent_impl.hpp
+﻿// dqn_based_agent.hpp
+#pragma once
 
 #include <array>
 #include <cmath>
@@ -282,246 +283,7 @@ namespace anet::rl::dqn {
     public:
         BatchUpdateResult() = default;
 
-        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
-        {
-            if (const auto layer = ParseAttentionEntropyMetric(key)) {
-                if (!attention_entropy.defined() || *layer >= attention_entropy.numel()) {
-                    return std::numeric_limits<float>::quiet_NaN();
-                }
-                return attention_entropy.data_ptr<float>()[*layer];
-            }
-            for (size_t i = 0; i < kSkipUpdateMetricKeys.size(); ++i) {
-                if (key != kSkipUpdateMetricKeys[i]) continue;
-                if (!skip_metrics.defined()) return std::numeric_limits<float>::quiet_NaN();
-                if (!skip_metrics_cpu.defined()) skip_metrics_cpu = skip_metrics.cpu();
-                return skip_metrics_cpu[static_cast<int64_t>(i)].item<float>();
-            }
-            if (const auto metric = ParseGradientNoiseMetric(key)) {
-                return grad_noise ? (*grad_noise)[*metric] : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (const auto metric = ParseNoisyMetric(key)) {
-                return noisy_metrics ? (*noisy_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (const auto metric = ParseReplayFitMetric(key)) {
-                return replay_fit_metrics ? (*replay_fit_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
-            }
-            for (size_t i = 0; i < kMunchausenMetricKeys.size(); ++i) {
-                if (key != kMunchausenMetricKeys[i]) continue;
-                if (!munchausen_diagnostics.defined()) return std::numeric_limits<float>::quiet_NaN();
-                if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != 5) {
-                    ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes() << "; expected [5].");
-                }
-                return munchausen_diagnostics[static_cast<int64_t>(i)].item<float>();
-            }
-            // 必要になって初めてCPUに転送する
-
-            if (const auto metric = ParsePolicyChurnMetric(key)) {
-                if (!policy_churn_metrics.defined()) {
-                    return std::numeric_limits<float>::quiet_NaN();
-                }
-                if (policy_churn_metrics.numel() != static_cast<int64_t>(kPolicyChurnMetricKeys.size())) {
-                    ANET_SYSTEM_ERROR("DQN policy churn scalar pack has invalid size="
-                        << policy_churn_metrics.numel() << " expected=" << kPolicyChurnMetricKeys.size() << ".");
-                }
-                return policy_churn_metrics[static_cast<int64_t>(*metric)].item<float>();
-            }
-
-            if (auto value = GetPlasticityScalar(key)) return value;
-
-            // loss/td/grad
-            if (key == "loss") {
-                if (!loss.defined()) return std::numeric_limits<float>::quiet_NaN();
-                return loss.item<float>();
-            }
-            if (key == "td_mean") {
-                if (!td_error.defined()) return std::numeric_limits<float>::quiet_NaN();
-                if (!td_error_abs_cpu.defined())
-                    td_error_abs_cpu = td_error.abs().cpu();
-                return td_error_abs_cpu.mean().item<float>();
-            }
-            if (key == "td_std") {
-                if (!td_error.defined()) return std::numeric_limits<float>::quiet_NaN();
-                if (!td_error_abs_cpu.defined())
-                    td_error_abs_cpu = td_error.abs().cpu();
-                return td_error_abs_cpu.std().item<float>();
-            }
-            if (key == "grad_norm") {
-                if (grad_norm.has_value())
-                    return *grad_norm;
-                if (grad_norm_tensor.defined())
-                    return grad_norm_tensor.item<float>();
-                // 既知keyなのでnulloptではなくNaN。nulloptは購読側で未知key扱いになり、
-                // 値未成立のupdateごとにWARNを出させてしまう。
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "grad_clip_ratio") {
-                if (!grad_norm_tensor.defined()) return std::numeric_limits<float>::quiet_NaN();
-                return (grad_norm_tensor.item<float>() > grad_clip_tau) ? 1.0f : 0.0f;
-            }
-
-			// Q Values
-            if (key == "q_max_max") {
-                TransQToCpu();
-                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.max().item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_max_mean") {
-                TransQToCpu();
-                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_max_std") {
-                TransQToCpu();
-                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_sa_mean") {
-                if (!q_sa_cpu.defined() && q_sa.defined()) q_sa_cpu = q_sa.cpu();
-                return q_sa_cpu.defined() ? std::optional<float>(q_sa_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_max_real_max") {
-                TransRealQToCpu();
-                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.max().item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_max_real_mean") {
-                TransRealQToCpu();
-                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_max_real_std") {
-                TransRealQToCpu();
-                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.std(false).item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_sa_real_mean") {
-                if (!q_sa_real_cpu.defined() && q_sa_real.defined()) q_sa_real_cpu = q_sa_real.cpu();
-                return q_sa_real_cpu.defined() ? std::optional<float>(q_sa_real_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_std") {
-                if (q_std.defined()) return anet::ToFloat(q_std);
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_gap") {
-                if (q_gap.defined()) return anet::ToFloat(q_gap);
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "q_gap_rel") {
-                if (q_gap_rel.defined()) return anet::ToFloat(q_gap_rel);
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-
-            int64_t iqn_diagnostic_index = -1;
-            if (key == "iqn_current_mc_scale") iqn_diagnostic_index = 0;
-            else if (key == "iqn_target_mc_scale") iqn_diagnostic_index = 1;
-            else if (key == "iqn_priority_mc_ratio") iqn_diagnostic_index = 2;
-            else if (key == "iqn_first_priority_mc_ratio") iqn_diagnostic_index = 3;
-            else if (key == "iqn_first_pair_abs_td") iqn_diagnostic_index = 4;
-            else if (key == "iqn_first_cancellation_ratio") iqn_diagnostic_index = 5;
-            else if (key == "iqn_first_quantile_loss_norm") iqn_diagnostic_index = 6;
-            if (iqn_diagnostic_index >= 0) {
-                return iqn_diagnostics.defined()
-                    ? iqn_diagnostics[iqn_diagnostic_index].item<float>()
-                    : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "upper_tail_priority_spearman") {
-                return upper_tail_priority_spearman;
-            }
-
-            // PER Metrics
-            if (key == "per_td_error_abs_max") {
-                if (td_error.defined())
-                    return td_error.abs().max().item<float>();
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_prio_clip_ratio") {
-                if (per_clipped_count.defined() && per_minibatch_size > 0)
-                    return per_clipped_count.item<float>() / static_cast<float>(per_minibatch_size);
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_sample_initial_ratio") {
-                if (per_sample_initial_count.defined() && per_minibatch_size > 0)
-                    return per_sample_initial_count.item<float>() / static_cast<float>(per_minibatch_size);
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_sample_initial_count") {
-                return per_sample_initial_count.defined()
-                    ? per_sample_initial_count.item<float>()
-                    : 0.0f;
-            }
-            if (key == "per_sample_fixed_initial_ratio") {
-                return per_minibatch_size > 0 && per_sample_fixed_initial_count.defined()
-                    ? per_sample_fixed_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
-                    : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_sample_max_initial_ratio") {
-                return per_minibatch_size > 0 && per_sample_max_initial_count.defined()
-                    ? per_sample_max_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
-                    : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_sample_actor_initial_ratio") {
-                return per_minibatch_size > 0 && per_sample_actor_initial_count.defined()
-                    ? per_sample_actor_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
-                    : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_priority_update_stale_ratio") {
-                const int64_t total = per_update_result.applied_count + per_update_result.stale_count;
-                return total > 0 ? static_cast<float>(per_update_result.stale_count) / static_cast<float>(total)
-                    : std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_actor_learner_pair_count") return static_cast<float>(per_update_result.actor_learner_pair_count);
-            if (key == "per_actor_learner_positive_pair_ratio") return per_update_result.actor_learner_positive_pair_ratio;
-            if (key == "per_actor_learner_ratio_median") return per_update_result.actor_learner_ratio_median;
-            if (key == "per_actor_learner_log_ratio_mean") return per_update_result.actor_learner_log_ratio_mean;
-            if (key == "per_actor_learner_spearman") return per_update_result.actor_learner_spearman;
-            if (key == "per_prio_max") {
-                if (per_priorities.defined())
-                    return per_priorities.max().item<float>();
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_batch_prio_mean") {
-                if (per_priorities.defined())
-                    return per_priorities.mean().item<float>();
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            if (key == "per_is_weight_mean") {
-                if (per_is_weights.defined())
-                    return per_is_weights.mean().item<float>();
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            // CV = 標準偏差 / 平均
-            //  高: 特定の経験に優先度が集中しており、PERが「選別」を強く行っている状態。
-            //  低(0に近い) : すべての経験が似たようなTD誤差を持っており、一様サンプリングに近い状態。
-            // 対策: per_alpha を調整
-            if (key == "per_prio_cv") {
-                if (per_priorities.defined()) {
-                    auto mean = per_priorities.mean();
-                    auto std = per_priorities.std();
-                    return (std / (mean + 1e-9)).item<float>();
-                }
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            // 勾配更新の偏り(IS Weightsベース)
-            if (key == "per_is_ess_ratio") {
-                if (per_is_weights.defined() && per_minibatch_size > 0) {
-                    auto w = per_is_weights;
-                    auto sum_w = w.sum();
-                    auto sum_w2 = (w * w).sum();
-                    // ESS = (Σw)^2 / (Σw^2) / B
-                    return ((sum_w * sum_w) / (static_cast<float>(per_minibatch_size) * sum_w2 + 1e-9)).item<float>();
-                }
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            // 有効サンプルサイズ比率 (ESS Ratio) 実質的にバッチ内の何割のデータが学習に寄与しているか (0.0 ~ 1.0) 公式: (Σp)^2 / (B * Σp^2)
-            //   1.0に近い: バッチ内のデータが均等に重要。
-            //   0に近い : バッチ内の極一部のデータ（外れ値など）が支配的で、実質的な学習効率が低下している警告信号。 対策: per_beta を上げる（初期値を 0.6 -> 0.8 にするなど）か、per_alpha を下げる。
-            // 理想: 0.5 〜 0.8 付近
-            if (key == "per_prio_ess_ratio") {
-                if (per_priorities.defined() && per_minibatch_size > 0) {
-                    auto p = per_priorities;
-                    auto sum_p = p.sum();
-                    auto sum_p2 = (p * p).sum();
-                    auto ess = (sum_p * sum_p) / (static_cast<float>(per_minibatch_size) * sum_p2 + 1e-9);
-                    return ess.item<float>();
-                }
-                return std::numeric_limits<float>::quiet_NaN();
-            }
-            return std::nullopt;
-        }
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override
         {
@@ -534,100 +296,23 @@ namespace anet::rl::dqn {
             return std::nullopt;
         }
     private:
-        std::optional<float> GetPlasticityScalar(const std::string& key) const
-        {
-            int64_t weight_norm_index = -1;
-            if (key == "plasticity_weight_norm_feature") weight_norm_index = 0;
-            else if (key == "plasticity_weight_norm_readout") weight_norm_index = 1;
-            else if (key == "plasticity_weight_norm_feature_effective") weight_norm_index = 2;
-            else if (key == "plasticity_weight_norm_readout_effective") weight_norm_index = 3;
-            else if (key == "plasticity_spectral_sigma_feature") weight_norm_index = 4;
-            else if (key == "plasticity_spectral_sigma_readout") weight_norm_index = 5;
-            if (weight_norm_index >= 0) {
-                if (!plasticity_weight_norms.defined()) {
-                    return std::numeric_limits<float>::quiet_NaN();
-                }
-                if (!plasticity_weight_norms_cpu.defined()) {
-                    plasticity_weight_norms_cpu = plasticity_weight_norms.cpu();
-                }
-                if (plasticity_weight_norms_cpu.numel() != 8) {
-                    ANET_SYSTEM_ERROR("DQN plasticity weight norm pack has invalid size="
-                        << plasticity_weight_norms_cpu.numel() << " expected=8.");
-                }
-                ValidateSpectralNormSentinel(
-                    plasticity_weight_norms_cpu[6].item<float>(), "online", plasticity_online_network);
-                ValidateSpectralNormSentinel(
-                    plasticity_weight_norms_cpu[7].item<float>(), "target", plasticity_target_network);
-                return plasticity_weight_norms_cpu[weight_norm_index].item<float>();
-            }
+        std::optional<float> GetAttentionEntropyScalar(const std::string& key) const;
+        std::optional<float> GetSkipScalar(const std::string& key) const;
+        std::optional<float> GetGradientNoiseScalar(const std::string& key) const;
+        std::optional<float> GetNoisyScalar(const std::string& key) const;
+        std::optional<float> GetReplayFitScalar(const std::string& key) const;
+        std::optional<float> GetMunchausenScalar(const std::string& key) const;
+        std::optional<float> GetPolicyChurnScalar(const std::string& key) const;
 
-            const torch::Tensor* features = nullptr;
-            const anet::nn::PlasticityMetricRequest* request = nullptr;
-            std::optional<anet::nn::PlasticityMetrics>* cache = nullptr;
-            std::string suffix;
-            if (key.starts_with("plasticity_target_")) {
-                features = &plasticity_target_features;
-                request = &plasticity_target_request;
-                cache = &plasticity_target_metrics_cache;
-                suffix = key.substr(std::string("plasticity_target_").size());
-            } else if (key.starts_with("plasticity_")) {
-                features = &plasticity_features;
-                request = &plasticity_request;
-                cache = &plasticity_metrics_cache;
-                suffix = key.substr(std::string("plasticity_").size());
-            } else {
-                return std::nullopt;
-            }
-
-            const auto metric = anet::nn::ParsePlasticityMetricSuffix(suffix);
-            if (!metric.has_value()) return std::nullopt;
-            if (!request->Contains(*metric)) return std::numeric_limits<float>::quiet_NaN();
-            if (!features->defined()) return std::numeric_limits<float>::quiet_NaN();
-            if (!cache->has_value()) {
-                *cache = anet::nn::ComputePlasticityMetrics(*features, *request);
-            }
-            const auto value = cache->value().Get(*metric);
-            if (!value.has_value()) {
-                ANET_SYSTEM_ERROR("BatchUpdateResult plasticity cache is missing a requested metric.");
-            }
-            return value;
-        }
+        std::optional<float> GetPlasticityScalar(const std::string& key) const;
 
         static void ValidateSpectralNormSentinel(
             float invalid_count,
             const std::string& network_name,
-            const std::shared_ptr<anet::nn::Network>& network)
-        {
-            if (invalid_count < 1.0f) return;
-            if (!network) {
-                ANET_SYSTEM_ERROR("DQN spectral normalization sentinel failed: network="
-                    << network_name << " invalid_count=" << invalid_count << " network handle is unavailable.");
-            }
-            for (const auto& entry : network->GetSpectralNormEntries()) {
-                const auto sigma = anet::nn::ComputeSpectralSigma(
-                    entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v).item<float>();
-                const bool valid = std::isfinite(sigma)
-                    && (entry.mode == anet::nn::WeightNormMode::kSpectralCap || sigma > 0.0f);
-                if (!valid) {
-                    ANET_SYSTEM_ERROR("DQN spectral normalization is invalid: network="
-                        << network_name << " layer=" << entry.name << " sigma=" << sigma << ".");
-                }
-            }
-            ANET_SYSTEM_ERROR("DQN spectral normalization sentinel mismatch: network="
-                << network_name << " invalid_count=" << invalid_count << ".");
-        }
+            const std::shared_ptr<anet::nn::Network>& network);
 
-        void TransQToCpu() const
-        {
-            if (max_q_cpu.defined()) return;
-            // 未測定のupdateではmax_qがundefinedなので、real側と同じくCPU転送を試みない。
-            if (max_q.defined()) max_q_cpu = max_q.cpu();
-        }
-        void TransRealQToCpu() const
-        {
-            if (max_q_real_cpu.defined()) return;
-            if (max_q_real.defined()) max_q_real_cpu = max_q_real.cpu();
-        }
+        void TransQToCpu() const;
+        void TransRealQToCpu() const;
     };
 
     struct NormalizedSampleObservations {

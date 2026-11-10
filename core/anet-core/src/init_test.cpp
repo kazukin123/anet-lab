@@ -196,3 +196,16 @@ TEST_CASE("InitRL leaves CUDA_LAUNCH_BLOCKING unchanged for inherit", "[backend]
 
     anet::MetricsLogger::Reset();
 }
+
+TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[prd122][prd070][device]")
+{
+    // 未指定の2キーを足さず、書かれた1キーの失敗が識別できることを確認する。
+    const auto* key = GENERATE("agent.device", "env.device", "run.eval_device");
+    CapturingBackend* backend = nullptr;
+    InitCapturingLogger(backend, "prd122_explicit_device");
+    anet::ConfigData data;
+    data.Set(key, "invalid-device");
+    CHECK_THROWS_WITH(anet::rl::InitRL(anet::rl::BackendConfig(), data),
+        Catch::Matchers::ContainsSubstring(key));
+    anet::MetricsLogger::Reset();
+}

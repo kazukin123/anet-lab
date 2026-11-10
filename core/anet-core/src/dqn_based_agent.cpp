@@ -5307,3 +5307,428 @@ std::optional<int64_t> anet::rl::dqn::ParseAttentionEntropyMetric(std::string_vi
     if (!valid) ANET_SYSTEM_ERROR("Invalid scalar key='" << key << "'; expected attention_entropy.[n] with integer n>=0.");
     return layer;
 }
+
+
+std::optional<float> BatchUpdateResult::GetScalar(const std::string& key, int64_t index) const
+{
+    ANET_PROFILE_FUNC();
+    // 名前の解析や固定のキー配列を使う群は、従来の順に先に引く。
+    if (const auto value = GetAttentionEntropyScalar(key)) return value;
+    if (const auto value = GetSkipScalar(key)) return value;
+    if (const auto value = GetGradientNoiseScalar(key)) return value;
+    if (const auto value = GetNoisyScalar(key)) return value;
+    if (const auto value = GetReplayFitScalar(key)) return value;
+    if (const auto value = GetMunchausenScalar(key)) return value;
+    if (const auto value = GetPolicyChurnScalar(key)) return value;
+    if (const auto value = GetPlasticityScalar(key)) return value;
+
+    // 固定名は1つの表に並べ、値の計算と遅延転送は当たった行だけで行う。
+    struct ScalarReaderEntry {
+        std::string_view key;
+        std::optional<float> (*read)(const BatchUpdateResult&);
+    };
+    static constexpr std::array<ScalarReaderEntry, 43> kDirectScalarReaders{{
+        { .key = "loss", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (!result.loss.defined()) return std::numeric_limits<float>::quiet_NaN();
+            return result.loss.item<float>();
+        } },
+        { .key = "td_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (!result.td_error.defined()) return std::numeric_limits<float>::quiet_NaN();
+            if (!result.td_error_abs_cpu.defined())
+                result.td_error_abs_cpu = result.td_error.abs().cpu();
+            return result.td_error_abs_cpu.mean().item<float>();
+        } },
+        { .key = "td_std", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (!result.td_error.defined()) return std::numeric_limits<float>::quiet_NaN();
+            if (!result.td_error_abs_cpu.defined())
+                result.td_error_abs_cpu = result.td_error.abs().cpu();
+            return result.td_error_abs_cpu.std().item<float>();
+        } },
+        { .key = "grad_norm", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.grad_norm.has_value())
+                return *result.grad_norm;
+            if (result.grad_norm_tensor.defined())
+                return result.grad_norm_tensor.item<float>();
+            // 既知keyなのでnulloptではなくNaN。nulloptは購読側で未知key扱いになり、
+            // 値未成立のupdateごとにWARNを出させてしまう。
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "grad_clip_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (!result.grad_norm_tensor.defined()) return std::numeric_limits<float>::quiet_NaN();
+            return (result.grad_norm_tensor.item<float>() > result.grad_clip_tau) ? 1.0f : 0.0f;
+        } },
+        { .key = "q_max_max", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            result.TransQToCpu();
+            return result.max_q_cpu.defined() ? std::optional<float>(result.max_q_cpu.max().item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_max_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            result.TransQToCpu();
+            return result.max_q_cpu.defined() ? std::optional<float>(result.max_q_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_max_std", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            result.TransQToCpu();
+            return result.max_q_cpu.defined() ? std::optional<float>(result.max_q_cpu.std(false).item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_sa_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (!result.q_sa_cpu.defined() && result.q_sa.defined()) result.q_sa_cpu = result.q_sa.cpu();
+            return result.q_sa_cpu.defined() ? std::optional<float>(result.q_sa_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_max_real_max", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            result.TransRealQToCpu();
+            return result.max_q_real_cpu.defined() ? std::optional<float>(result.max_q_real_cpu.max().item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_max_real_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            result.TransRealQToCpu();
+            return result.max_q_real_cpu.defined() ? std::optional<float>(result.max_q_real_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_max_real_std", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            result.TransRealQToCpu();
+            return result.max_q_real_cpu.defined() ? std::optional<float>(result.max_q_real_cpu.std(false).item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_sa_real_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (!result.q_sa_real_cpu.defined() && result.q_sa_real.defined()) result.q_sa_real_cpu = result.q_sa_real.cpu();
+            return result.q_sa_real_cpu.defined() ? std::optional<float>(result.q_sa_real_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_std", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.q_std.defined()) return anet::ToFloat(result.q_std);
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_gap", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.q_gap.defined()) return anet::ToFloat(result.q_gap);
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "q_gap_rel", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.q_gap_rel.defined()) return anet::ToFloat(result.q_gap_rel);
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_current_mc_scale", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[0].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_target_mc_scale", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[1].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_priority_mc_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[2].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_first_priority_mc_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[3].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_first_pair_abs_td", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[4].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_first_cancellation_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[5].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "iqn_first_quantile_loss_norm", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[6].item<float>() : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "upper_tail_priority_spearman", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.upper_tail_priority_spearman;
+        } },
+        { .key = "per_td_error_abs_max", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.td_error.defined())
+                return result.td_error.abs().max().item<float>();
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_prio_clip_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_clipped_count.defined() && result.per_minibatch_size > 0)
+                return result.per_clipped_count.item<float>() / static_cast<float>(result.per_minibatch_size);
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_sample_initial_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_sample_initial_count.defined() && result.per_minibatch_size > 0)
+                return result.per_sample_initial_count.item<float>() / static_cast<float>(result.per_minibatch_size);
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_sample_initial_count", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_sample_initial_count.defined()
+                ? result.per_sample_initial_count.item<float>()
+                : 0.0f;
+        } },
+        { .key = "per_sample_fixed_initial_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_minibatch_size > 0 && result.per_sample_fixed_initial_count.defined()
+                ? result.per_sample_fixed_initial_count.item<float>() / static_cast<float>(result.per_minibatch_size)
+                : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_sample_max_initial_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_minibatch_size > 0 && result.per_sample_max_initial_count.defined()
+                ? result.per_sample_max_initial_count.item<float>() / static_cast<float>(result.per_minibatch_size)
+                : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_sample_actor_initial_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_minibatch_size > 0 && result.per_sample_actor_initial_count.defined()
+                ? result.per_sample_actor_initial_count.item<float>() / static_cast<float>(result.per_minibatch_size)
+                : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_priority_update_stale_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            const int64_t total = result.per_update_result.applied_count + result.per_update_result.stale_count;
+            return total > 0 ? static_cast<float>(result.per_update_result.stale_count) / static_cast<float>(total)
+                : std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_actor_learner_pair_count", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return static_cast<float>(result.per_update_result.actor_learner_pair_count);
+        } },
+        { .key = "per_actor_learner_positive_pair_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_update_result.actor_learner_positive_pair_ratio;
+        } },
+        { .key = "per_actor_learner_ratio_median", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_update_result.actor_learner_ratio_median;
+        } },
+        { .key = "per_actor_learner_log_ratio_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_update_result.actor_learner_log_ratio_mean;
+        } },
+        { .key = "per_actor_learner_spearman", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            return result.per_update_result.actor_learner_spearman;
+        } },
+        { .key = "per_prio_max", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_priorities.defined())
+                return result.per_priorities.max().item<float>();
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_batch_prio_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_priorities.defined())
+                return result.per_priorities.mean().item<float>();
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        { .key = "per_is_weight_mean", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_is_weights.defined())
+                return result.per_is_weights.mean().item<float>();
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        // CV = 標準偏差 / 平均
+        //  高: 特定の経験に優先度が集中しており、PERが「選別」を強く行っている状態。
+        //  低(0に近い) : すべての経験が似たようなTD誤差を持っており、一様サンプリングに近い状態。
+        // 対策: per_alpha を調整
+        { .key = "per_prio_cv", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_priorities.defined()) {
+                auto mean = result.per_priorities.mean();
+                auto std = result.per_priorities.std();
+                return (std / (mean + 1e-9)).item<float>();
+            }
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        // 勾配更新の偏り(IS Weightsベース)
+        { .key = "per_is_ess_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_is_weights.defined() && result.per_minibatch_size > 0) {
+                auto w = result.per_is_weights;
+                auto sum_w = w.sum();
+                auto sum_w2 = (w * w).sum();
+                // ESS = (Σw)^2 / (Σw^2) / B
+                return ((sum_w * sum_w) / (static_cast<float>(result.per_minibatch_size) * sum_w2 + 1e-9)).item<float>();
+            }
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+        // 有効サンプルサイズ比率 (ESS Ratio) 実質的にバッチ内の何割のデータが学習に寄与しているか (0.0 ~ 1.0) 公式: (Σp)^2 / (B * Σp^2)
+        //   1.0に近い: バッチ内のデータが均等に重要。
+        //   0に近い : バッチ内の極一部のデータ（外れ値など）が支配的で、実質的な学習効率が低下している警告信号。 対策: per_beta を上げる（初期値を 0.6 -> 0.8 にするなど）か、per_alpha を下げる。
+        // 理想: 0.5 〜 0.8 付近
+        { .key = "per_prio_ess_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
+            if (result.per_priorities.defined() && result.per_minibatch_size > 0) {
+                auto p = result.per_priorities;
+                auto sum_p = p.sum();
+                auto sum_p2 = (p * p).sum();
+                auto ess = (sum_p * sum_p) / (static_cast<float>(result.per_minibatch_size) * sum_p2 + 1e-9);
+                return ess.item<float>();
+            }
+            return std::numeric_limits<float>::quiet_NaN();
+        } },
+    }};
+    static_assert([] {
+        for (size_t i = 0; i < kDirectScalarReaders.size(); ++i) {
+            for (size_t j = i + 1; j < kDirectScalarReaders.size(); ++j) {
+                if (kDirectScalarReaders[i].key == kDirectScalarReaders[j].key) return false;
+            }
+        }
+        return true;
+    }(), "Duplicate DQN update scalar key");
+    for (const auto& entry : kDirectScalarReaders) {
+        if (key == entry.key) return entry.read(*this);
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetAttentionEntropyScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    if (const auto layer = ParseAttentionEntropyMetric(key)) {
+        if (!attention_entropy.defined() || *layer >= attention_entropy.numel()) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        return attention_entropy.data_ptr<float>()[*layer];
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetSkipScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    for (size_t i = 0; i < kSkipUpdateMetricKeys.size(); ++i) {
+        if (key != kSkipUpdateMetricKeys[i]) continue;
+        if (!skip_metrics.defined()) return std::numeric_limits<float>::quiet_NaN();
+        if (!skip_metrics_cpu.defined()) skip_metrics_cpu = skip_metrics.cpu();
+        return skip_metrics_cpu[static_cast<int64_t>(i)].item<float>();
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetGradientNoiseScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    if (const auto metric = ParseGradientNoiseMetric(key)) {
+        return grad_noise ? (*grad_noise)[*metric] : std::numeric_limits<float>::quiet_NaN();
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetNoisyScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    if (const auto metric = ParseNoisyMetric(key)) {
+        return noisy_metrics ? (*noisy_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetReplayFitScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    if (const auto metric = ParseReplayFitMetric(key)) {
+        return replay_fit_metrics ? (*replay_fit_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetMunchausenScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    for (size_t i = 0; i < kMunchausenMetricKeys.size(); ++i) {
+        if (key != kMunchausenMetricKeys[i]) continue;
+        if (!munchausen_diagnostics.defined()) return std::numeric_limits<float>::quiet_NaN();
+        if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != 5) {
+            ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes() << "; expected [5].");
+        }
+        return munchausen_diagnostics[static_cast<int64_t>(i)].item<float>();
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetPolicyChurnScalar(const std::string& key) const
+{
+    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
+    if (const auto metric = ParsePolicyChurnMetric(key)) {
+        if (!policy_churn_metrics.defined()) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        if (policy_churn_metrics.numel() != static_cast<int64_t>(kPolicyChurnMetricKeys.size())) {
+            ANET_SYSTEM_ERROR("DQN policy churn scalar pack has invalid size="
+                << policy_churn_metrics.numel() << " expected=" << kPolicyChurnMetricKeys.size() << ".");
+        }
+        return policy_churn_metrics[static_cast<int64_t>(*metric)].item<float>();
+    }
+    return std::nullopt;
+}
+
+std::optional<float> BatchUpdateResult::GetPlasticityScalar(const std::string& key) const
+{
+    constexpr std::string_view kPlasticityWeightNormFeature = "plasticity_weight_norm_feature";
+    constexpr std::string_view kPlasticityWeightNormReadout = "plasticity_weight_norm_readout";
+    constexpr std::string_view kPlasticityWeightNormFeatureEffective = "plasticity_weight_norm_feature_effective";
+    constexpr std::string_view kPlasticityWeightNormReadoutEffective = "plasticity_weight_norm_readout_effective";
+    constexpr std::string_view kPlasticitySpectralSigmaFeature = "plasticity_spectral_sigma_feature";
+    constexpr std::string_view kPlasticitySpectralSigmaReadout = "plasticity_spectral_sigma_readout";
+    constexpr std::string_view kPlasticityTargetPrefix = "plasticity_target_";
+    constexpr std::string_view kPlasticityPrefix = "plasticity_";
+
+    int64_t weight_norm_index = -1;
+    if (key == kPlasticityWeightNormFeature) weight_norm_index = 0;
+    else if (key == kPlasticityWeightNormReadout) weight_norm_index = 1;
+    else if (key == kPlasticityWeightNormFeatureEffective) weight_norm_index = 2;
+    else if (key == kPlasticityWeightNormReadoutEffective) weight_norm_index = 3;
+    else if (key == kPlasticitySpectralSigmaFeature) weight_norm_index = 4;
+    else if (key == kPlasticitySpectralSigmaReadout) weight_norm_index = 5;
+    if (weight_norm_index >= 0) {
+        if (!plasticity_weight_norms.defined()) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        if (!plasticity_weight_norms_cpu.defined()) {
+            plasticity_weight_norms_cpu = plasticity_weight_norms.cpu();
+        }
+        if (plasticity_weight_norms_cpu.numel() != 8) {
+            ANET_SYSTEM_ERROR("DQN plasticity weight norm pack has invalid size="
+                << plasticity_weight_norms_cpu.numel() << " expected=8.");
+        }
+        ValidateSpectralNormSentinel(
+            plasticity_weight_norms_cpu[6].item<float>(), "online", plasticity_online_network);
+        ValidateSpectralNormSentinel(
+            plasticity_weight_norms_cpu[7].item<float>(), "target", plasticity_target_network);
+        return plasticity_weight_norms_cpu[weight_norm_index].item<float>();
+    }
+
+    const torch::Tensor* features = nullptr;
+    const anet::nn::PlasticityMetricRequest* request = nullptr;
+    std::optional<anet::nn::PlasticityMetrics>* cache = nullptr;
+    std::string suffix;
+    if (key.starts_with(kPlasticityTargetPrefix)) {
+        features = &plasticity_target_features;
+        request = &plasticity_target_request;
+        cache = &plasticity_target_metrics_cache;
+        suffix = key.substr(kPlasticityTargetPrefix.size());
+    } else if (key.starts_with(kPlasticityPrefix)) {
+        features = &plasticity_features;
+        request = &plasticity_request;
+        cache = &plasticity_metrics_cache;
+        suffix = key.substr(kPlasticityPrefix.size());
+    } else {
+        return std::nullopt;
+    }
+
+    const auto metric = anet::nn::ParsePlasticityMetricSuffix(suffix);
+    if (!metric.has_value()) return std::nullopt;
+    if (!request->Contains(*metric)) return std::numeric_limits<float>::quiet_NaN();
+    if (!features->defined()) return std::numeric_limits<float>::quiet_NaN();
+    if (!cache->has_value()) {
+        *cache = anet::nn::ComputePlasticityMetrics(*features, *request);
+    }
+    const auto value = cache->value().Get(*metric);
+    if (!value.has_value()) {
+        ANET_SYSTEM_ERROR("BatchUpdateResult plasticity cache is missing a requested metric.");
+    }
+    return value;
+}
+
+void BatchUpdateResult::ValidateSpectralNormSentinel(
+    float invalid_count,
+    const std::string& network_name,
+    const std::shared_ptr<anet::nn::Network>& network)
+{
+    if (invalid_count < 1.0f) return;
+    if (!network) {
+        ANET_SYSTEM_ERROR("DQN spectral normalization sentinel failed: network="
+            << network_name << " invalid_count=" << invalid_count << " network handle is unavailable.");
+    }
+    for (const auto& entry : network->GetSpectralNormEntries()) {
+        const auto sigma = anet::nn::ComputeSpectralSigma(
+            entry.weight.reshape({ entry.weight.size(0), -1 }), entry.u, entry.v).item<float>();
+        const bool valid = std::isfinite(sigma)
+            && (entry.mode == anet::nn::WeightNormMode::kSpectralCap || sigma > 0.0f);
+        if (!valid) {
+            ANET_SYSTEM_ERROR("DQN spectral normalization is invalid: network="
+                << network_name << " layer=" << entry.name << " sigma=" << sigma << ".");
+        }
+    }
+    ANET_SYSTEM_ERROR("DQN spectral normalization sentinel mismatch: network="
+        << network_name << " invalid_count=" << invalid_count << ".");
+}
+
+void BatchUpdateResult::TransQToCpu() const
+{
+    if (max_q_cpu.defined()) return;
+    // 未測定のupdateではmax_qがundefinedなので、real側と同じくCPU転送を試みない。
+    if (max_q.defined()) max_q_cpu = max_q.cpu();
+}
+
+void BatchUpdateResult::TransRealQToCpu() const
+{
+    if (max_q_real_cpu.defined()) return;
+    if (max_q_real.defined()) max_q_real_cpu = max_q_real.cpu();
+}

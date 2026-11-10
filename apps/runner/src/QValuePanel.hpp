@@ -7,6 +7,7 @@
 #include <functional>
 #include <vector>
 #include <optional>
+#include <span>
 #include <limits>
 #include <wx/grid.h>
 #include <wx/panel.h>
@@ -57,6 +58,35 @@ public:
     //wxImage heatmap_image;
 };
 
+// 同期呼び出しの指定。重みは従来どおりPanel側で一度作る。
+struct QValueHeatMapRequest {
+    bool histogram;
+    bool advantage;
+    bool log_scale;
+    bool auto_range;
+    int hist_bins;
+    float hist_range_k;
+    bool use_hist_smooth;
+    float smooth_radius;
+    std::span<const float> hist_weights; ///< 呼び出し元の重みを、この同期呼び出し中だけ借用する。
+};
+
+struct QValueHeatMapRangeState {
+    float minimum = std::numeric_limits<float>::max();
+    float maximum = std::numeric_limits<float>::lowest();
+};
+
+struct QValueHeatMapResult {
+    int width;
+    int height;
+    std::vector<float> vv;
+    float guide_line_ratio;
+};
+
+// 非空の格子値と有効なHistogram設定を受け、画面の部品を読まずに加工する。
+QValueHeatMapResult ComputeQValueHeatMap(const QValueData& input,
+    const QValueHeatMapRequest& request, QValueHeatMapRangeState& range);
+
 class QValuePanel : public anet::rl::gui::Panel, public anet::rl::gui::TraceFollower {
 public:
     explicit QValuePanel(wxWindow* parent, const anet::ConfigData& config_data);
@@ -83,6 +113,8 @@ public:	//TraceFollower
 private:
     void InitLayout();
     void SetupGrid();
+    void UpdateGrid(const QValueData& data);
+    void RenderHeatMap(const QValueHeatMapResult& data);
     std::optional<QValueData> CreateData(const anet::rl::TrainEvent& event);
     void ResetRange();
     void SyncHeatMapScroll(bool refresh_grid);
@@ -142,8 +174,7 @@ private:
     int grid_width_ = 0;                         ///< 固定した表の幅
 
     //  範囲記憶用
-    float accumulated_min_ = std::numeric_limits<float>::max();
-    float accumulated_max_ = std::numeric_limits<float>::lowest();
+    QValueHeatMapRangeState heatmap_range_;
 
     // モード変更検知用
     bool last_is_adv_ = false;

@@ -4545,3 +4545,26 @@ TEST_CASE("PRD101 sampling-history diagnostics receive their own current gamma",
         CHECK(samples.target_returns[row].item<float>() == Catch::Approx(expected));
     }
 }
+
+TEST_CASE("Replay constructor requires priority store and completer together", "[prd122][replay_buffer][per]")
+{
+    // ファクトリが作らない片方だけの構成も、公開コンストラクタの境界で拒否する。
+    const bool store_present = GENERATE(false, true);
+    const bool completer_present = GENERATE(false, true);
+    const auto config = MakeConfig(8);
+    auto construct = [&] {
+        return std::make_unique<rl::DefaultReplayBuffer>(config, MakeEnvSpec(), 1,
+            nullptr, nullptr, nullptr,
+            store_present ? std::make_shared<RecordingPriorityStore>() : nullptr, nullptr,
+            completer_present ? rl::CreateInitialPriorityCompleter(config, 1, nullptr) : nullptr,
+            torch::Device(torch::kCPU), false);
+    };
+    if (store_present != completer_present) {
+        CHECK_THROWS_WITH(construct(), Catch::Matchers::ContainsSubstring("must be configured together"));
+    } else {
+        // 成立する2通りは、PER/uniformそれぞれの完全な構成をfactoryから作る。
+        const auto complete_config = MakeConfig(8, 1, 0.99f, 1,
+            store_present ? rl::ReplaySamplerType::PRIORITIZED : rl::ReplaySamplerType::UNIFORM);
+        CHECK_NOTHROW(MakeBuffer(complete_config, 1));
+    }
+}

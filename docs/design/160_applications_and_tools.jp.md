@@ -29,7 +29,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `WorkspaceService` | coreのapplication共通基盤。workspace pathと新規名の検証・解決・新規生成、MRU、`last_workspace.txt`、config合成、`app.runs_dir`不変条件を管理する |
 | workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
 | `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担う。現在Centreにいる主paneは隠れるかfloatするまで占有を保ち、離れたら相方を昇格する。隠れた占有者がCentre情報を保ってdockedで再表示されると取り戻し、側面へdockしたpaneはそこに留まる。一方がCentreで相方が主pane専用のLeft/Rightの列なら幅を、Centreと同じ幅のTop/Bottomの帯なら高さを等分し、置き場の変化時は200msのUPDATE_UIでも当てる。Centreの主paneのcaptionの末尾には`[Centre]`を付ける。最後の主paneを隠す・pinで外すことを止める判定を各導線で共有し、✕・pin・Floatableと占有規則は200msのUPDATE_UIで状態から適用する。未知の経路で主paneが不在ならTrainをCentreへ戻し、両方CentreならEvalを降格してWARNする。paneの表示切り替えでwindow sizeは変更しない |
-| `anet::rl::gui::Panel` | Env固有Viewなどの共通panel。構築時に明示styleにも`wxFULL_REPAINT_ON_RESIZE`を加え、停止中もresize後の画面全体を描き直す。Viewごとの指定は不要。別windowであるwxGLCanvasは各canvas側で設定する |
+| `anet::rl::gui::Panel` | Env固有Viewなどの共通panel。構築時に明示styleにも`wxFULL_REPAINT_ON_RESIZE`を加え、停止中もresize後の画面全体を描き直す。Viewごとの指定は不要。別windowであるwxGLCanvasは各canvas側で設定する。`wxEVT_CHAR_HOOK`を`EVT_FORWARDED_KEY`へ転送し、`Skip`で標準のキー処理を続けながら`StopPropagation`で親への伝播を止める。Panelより上でキーを受ける部品は`EVT_FORWARDED_KEY`を使う。 |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは強制行動で駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
@@ -412,6 +412,8 @@ sequenceDiagram
 - PyYAML 6.0.3をreports/tools/requirements.txtで明示する。repoの.venvへ導入して使う。
 
 ## 8. テストと変更時の確認事項
+
+- [PRD122検証資材](../../core/anet-core/testdata/prd122/README.md): windowを作らないQ-Values加工の単体テスト、Panelのキー転送の特性テスト、coreの9箇所の破壊検査と4環境の全scalar比較。GUIの表示・フォーカス・実キーの動作は人が確認する。
 
 - [PRD114検証資材](../../core/anet-core/testdata/prd114/README.md): issueからINDEX・地図・統計への公開CLI、依存とWSJF継承、不正入力時の全出力不変、同blobの実装済み検出、隔離したskill試走と移行の検証。
 

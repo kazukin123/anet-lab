@@ -93,12 +93,14 @@ void anet::rl::InitRL(const BackendConfig& backend_config, const ConfigData& con
 	ApplyCudaLaunchBlockingConfig(backend_config);
 
 	// NN構築より前に全device指定を検証し、利用できない明示CUDAを一括報告する。
-	const std::array<std::pair<const char*, const char*>, 3> device_settings{{
-		{"agent.device", "auto"}, {"env.device", "cpu"}, {"run.eval_device", "auto"}
+	constexpr std::array<const char*, 3> kDeviceKeys{{
+		"agent.device", "env.device", "run.eval_device"
 	}};
 	std::vector<std::string> explicit_cuda_keys;
-	for (const auto& [key, default_value] : device_settings) {
-		const auto spec = config_data.Get(key, default_value);
+	for (const auto* key : kDeviceKeys) {
+		// 既定値は各Configが所有するので、ここでは指定されたキーだけを検査する。
+		if (!config_data.Has(key)) continue;
+		const auto spec = config_data.Get(key);
 		torch::Device device(torch::kCPU);
 		try {
 			device = anet::ParseDevice(spec);
