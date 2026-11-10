@@ -98,28 +98,29 @@
 - [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 - [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
+- [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md) — PRD918: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
 
 ## 課題
 
 issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
 
 <!-- issues:begin -->
-| # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [issue-20261103-66100f](../../management/issues/issue-20261103-66100f.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
-| 2 | [issue-20261107-0c34dd](../../management/issues/issue-20261107-0c34dd.md) | 未着手 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
-| 3 | [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 未着手 | 3.5 | — | 成果物 | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
-| 4 | [issue-20261107-c17068](../../management/issues/issue-20261107-c17068.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） |
-| 5 | [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | 成果物 | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
-| 6 | [issue-20261108-f0f243](../../management/issues/issue-20261108-f0f243.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
-| 7 | [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
-| 8 | [issue-20261103-7c9a70](../../management/issues/issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 316_config | 基盤 | 不整合 | [PRD907](../../memo/907_config_file_layout_10prd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
-| 9 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
-| 10 | [issue-20261103-7c8cd7](../../management/issues/issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | 成果物 | PRD | 316_config | 基盤 | リファクタリング | [PRD907](../../memo/907_config_file_layout_10prd.md) | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ） |
-| 11 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
-| 12 | [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 1.4 | — | 成果物 | PRD | 110_runner_app, 316_config | 学習基盤 | 機能追加 | [PRD952](../../memo/952_run_queue_snapshot_10prd.md) | 残件有り | Run キュー（計画スナップショット + exe 固定） |
-| 13 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.0 | — | 成果物 | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD908](../../memo/908_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
-| 14 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD927](../../memo/927_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
+| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261103-66100f](../../management/issues/issue-20261103-66100f.md) | 調査中 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
+| [issue-20261107-0c34dd](../../management/issues/issue-20261107-0c34dd.md) | 調査中 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
+| [issue-20261107-c17068](../../management/issues/issue-20261107-c17068.md) | 調査中 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） |
+| [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 未着手 | 3.5 | — | 成果物 | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
+| [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | 成果物 | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
+| [issue-20261108-f0f243](../../management/issues/issue-20261108-f0f243.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
+| [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
+| [issue-20261103-7c9a70](../../management/issues/issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 316_config | 基盤 | 不整合 | [PRD907](../../memo/907_config_file_layout_10prd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
+| [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
+| [issue-20261103-7c8cd7](../../management/issues/issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | 成果物 | PRD | 316_config | 基盤 | リファクタリング | [PRD907](../../memo/907_config_file_layout_10prd.md) | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ） |
+| [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
+| [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 1.4 | — | 成果物 | PRD | 110_runner_app, 316_config | 学習基盤 | 機能追加 | [PRD952](../../memo/952_run_queue_snapshot_10prd.md) | 残件有り | Run キュー（計画スナップショット + exe 固定） |
+| [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.0 | — | 成果物 | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD908](../../memo/908_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
+| [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD927](../../memo/927_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 
 着手できる 14 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

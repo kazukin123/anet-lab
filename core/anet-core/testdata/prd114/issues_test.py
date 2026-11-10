@@ -86,9 +86,26 @@ class IssueViewsTest(unittest.TestCase):
         self.cli()
         # 列は対象・工程・領域・分類・種類・PRD の順で、PRD の列は PRD へのリンクになる。
         index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
-        self.assertIn('| # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |',index)
+        self.assertIn('\n| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |\n',index)
         row = next(line for line in index.splitlines() if issue_id+'](' in line)
         self.assertIn('| 成果物 | 監査 | 311_dev_tools | UI | 機能追加 | [PRD120](../../memo/120_probe_10prd.md) | 未確認 |',row)
+
+    def test_adding_an_issue_leaves_other_rows_unchanged(self):
+        # 高い点数と低い点数の 2 件で一覧と地図を作り、その間に並ぶ課題をあとから足す。
+        self.issue('000001',value=13,urgency=13,risk=13,size=3,wsjf=13.0,ai_judge='残件無し',ai_judged='2026-11-05')
+        self.issue('000002',value=1,urgency=1,risk=1,size=3,wsjf=1.0,ai_judge='残件無し',ai_judged='2026-11-07')
+        self.cli()
+        outputs = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md']
+        rows = lambda path: [line for line in path.read_text(encoding='utf-8').splitlines() if line.startswith('| [issue-')]
+        before = {path:rows(path) for path in outputs}
+        added = self.issue('000003',value=5,urgency=5,risk=5,size=3,wsjf=5.0,ai_judge='残件無し',ai_judged='2026-11-06')
+        self.cli()
+        # 位置の番号を持たないので、足した課題の行が間に入っても、前からある行の文字は変わらない。
+        for path in outputs:
+            with self.subTest(path=path.name):
+                after = rows(path)
+                self.assertEqual([line for line in after if added+'](' not in line],before[path])
+                self.assertEqual(len(after),len(before[path])+(2 if path.name == 'INDEX.md' else 1))
 
     def test_index_defaults_to_current_work_without_closed_issues(self):
         # 本版と、既定の一覧から除く2つの状態を混在させる。

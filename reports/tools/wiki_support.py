@@ -407,10 +407,11 @@ def issue_order(records):
 
 def issue_table(root, page, records, all_records=None):
     # 同じ列とリンクの作り方をINDEXと地図で使う。
+    # 位置の番号の列は持たない。1 件の増減や並べ替えで、ほかの行まで書き換わってコミットの差分が膨らむため。
     import os
-    lines = ['| # | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |',
-             '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
-    for number, record in enumerate(records, 1):
+    lines = ['| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |',
+             '|---|---|---|---|---|---|---|---|---|---|---|---|']
+    for record in records:
         target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
         score = record.get('_score',record.get('wsjf'))
         wsjf = '—' if score is None else f'{score:.1f}'
@@ -426,7 +427,7 @@ def issue_table(root, page, records, all_records=None):
         if record.get('prd'):
             prd_link = Path(os.path.relpath(Path(root)/record['prd'],page.parent)).as_posix()
             prd = f"[PRD{Path(record['prd']).name[:3]}]({prd_link})"
-        cells = [number, f"[{record['id']}]({target})", record['status'], wsjf, ', '.join(waiting) or '—',
+        cells = [f"[{record['id']}]({target})", record['status'], wsjf, ', '.join(waiting) or '—',
                  record['kind'], record['phase'], ', '.join(record['area']) or '—', record['domain'], record['type'], prd,
                  record['ai_judge'], record['title']]
         lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
@@ -468,29 +469,29 @@ def decision_sections(root, page, records):
         if not rows:
             return '該当する課題はありません。'
         lines = ['| '+' | '.join(header)+' |', '|'+'---|'*len(header)]
-        for number, record in enumerate(sorted(rows,key=lambda r:(r['ai_judged'],r['id'])), 1):
+        for record in sorted(rows,key=lambda r:(r['ai_judged'],r['id'])):
             target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
-            cells = [number, f"[{record['id']}]({target})", *values(record), record['title']]
+            cells = [f"[{record['id']}]({target})", *values(record), record['title']]
             lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
         return '\n'.join(lines)
     # どの課題の prd からも指されない直下の PRD は、一覧に載る課題を持たないので名指しで出す。
     referenced = {r['prd'] for r in records if r.get('prd')}
     orphans = [p for p in direct_prds(root) if p.relative_to(root).as_posix() not in referenced]
     if orphans:
-        lines = ['| # | PRD | 題 |', '|---|---|---|']
-        for number, path in enumerate(orphans, 1):
+        lines = ['| PRD | 題 |', '|---|---|']
+        for path in orphans:
             target = Path(os.path.relpath(path, page.parent)).as_posix()
-            lines.append(f'| {number} | [{path.stem}]({target}) | '+prd_title(path).replace('|','\\|')+' |')
+            lines.append(f'| [{path.stem}]({target}) | '+prd_title(path).replace('|','\\|')+' |')
         orphan_table = '\n'.join(lines)
     else:
         orphan_table = '該当する PRD はありません。'
     return '\n'.join([
         '## 解決待ち', '',
         'AI の判定が「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。', '',
-        table(waiting, ['#','ID','状態','AIの判定','判定日','課題'], lambda r:[r['status'],r['ai_judge'],r['ai_judged']]), '',
+        table(waiting, ['ID','状態','AIの判定','判定日','課題'], lambda r:[r['status'],r['ai_judge'],r['ai_judged']]), '',
         '## 再開候補', '',
         '解決の日付以後に（解決の日付が無ければ日付によらず）AI の判定が「残件有り」になった解決の課題。状態を戻すかは開発者が決める。', '',
-        table(reopen, ['#','ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']]), '',
+        table(reopen, ['ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']]), '',
         '## 課題の無い PRD', '',
         'docs/memo 直下の PRD のうち、どの課題の prd からも指されないもの。その PRD の仕事の課題を作るか、題材の課題の prd に書く。', '',
         orphan_table])
