@@ -14,6 +14,8 @@
 - 全層spectral_capは重みの実効ノルムを抑えて発散しなかったが、RR4の成績は動かなかった。（出典: [2026-09-08_replay-ratio-mechanism.md](../../experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md)、現時点のまとめ6・7。Run: run_20260908-073326_rr4_capall_munch）。
 - Breakout の RR8・5M では、崩壊（eval ピーク後の低下、q_gap −57%）と同期する srank の低下や dormant の増加は無かった。重みを feature 側と readout 側に分けて測ると、膨らんだのは feature 側（RR8・5M で 1.47 倍）で readout 側は 1.10 倍、成長比は全腕で 4.2〜5.6 倍だった（出典: [063_plasticity_weight_norm_10prd.md](../../memo/done/063_plasticity_weight_norm_10prd.md)、Context（背景・目的）、初回検証 Run run_20260828-000954_plasticity_rr8_breakout；[2026-08-28_plasticity.md](../../experiments/default-dqn/atari/2026-08-28_plasticity.md)、現時点のまとめ3・探索ブロック01）。
 - サンプル効率優先の Atari-5 では、readout の重みノルムが 5 本すべてで増え続けた（5-10M → 45-50M で battle_zone 47 → 80、qbert 70 → 140 など）。実時間優先は 34〜41 でほぼ横ばいだった（出典: [2026-09-25_sample-efficiency-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、探索ブロック02「内部指標」）。
+- MontezumaのTaigaら寄せの構成＋RND（seed 1、30M、learn step約94万）で、probeのdormant率はβ 0.01・Munchausen無効のRunでlearn step 15万〜30万の0.32から90万〜94万の0.54へ上がり続け、β 0.1・Munchausen有効のRunでは同じ範囲で0.19〜0.34だった。前者はGreedyで2500点に届き、後者は届かなかった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ7・探索ブロック07。Run: run_20261110-003002_mz_tg_nmdd_b001_s1、run_20261108-232006_mz_tg_rnd_s1）。
+- 同じ構成でRNDをTaigaらの式（β 5e-05）にし、Munchausen無効・Double DQN有効にしたRunは、learn step 2万ごとの窓でprobeのdormant率が0.73から0.96、dead率が0.61から0.94、`04_srank`が211から53、`03_feature_norm`が0.35から0.06になり、Qの最大の平均は0.005〜0.012で平らだった（learn step約8万、2.53Mで止めた）（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、探索ブロック08。Run: run_20261109-221347_mz_tg_taiga_nmdd_s1）。
 
 ## 分かっていないこと
 
@@ -29,3 +31,4 @@
 - [evaluation](../mechanisms/evaluation.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
 - [可塑性メトリクスは実 forward の branch capture と学習経路外の部分 forward の 2 チャネルで測る](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)。
+- [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)。
