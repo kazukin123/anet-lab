@@ -83,3 +83,4 @@ __pycache__/
 /apps/runner/*.dmp
 /docs/management/.obsidian
 docs/management/issues.base
+/.obsidian
