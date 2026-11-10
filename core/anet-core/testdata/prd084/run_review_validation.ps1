@@ -66,6 +66,7 @@ function Invoke-ReviewRun084([string]$case084,[string]$config084,[string[]]$extr
     if ($case084.StartsWith('atari_') -or $case084.StartsWith('nz_')) {
         $args084 += 'run.eval_schedule.[greedy].interval=0'
     }
+    $args084 += @('run.eval_schedule.[eval_target].warmup_count=0','run.eval_schedule.[eval].warmup_count=0','run.eval_schedule.[eval_target].offset=0','run.eval_schedule.[eval].offset=0')
     $actualBudget084 = $caseBudget084
     foreach ($argument084 in $args084) { if ($argument084 -match '^app.exp_exit_step=(\d+)$') { $actualBudget084 = [int]$Matches[1] } }
     $record084 = [ordered]@{case=$case084; executable=$exe084; sha256=(Get-FileHash -LiteralPath $exe084).Hash; arguments=$args084; seed=1; experience_budget=$actualBudget084; start=[DateTimeOffset]::Now.ToString('o')}

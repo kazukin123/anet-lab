@@ -560,6 +560,110 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
     anet::MetricsLogger::Reset();
 }
 
+constexpr const char* kScheduleActorKey = "eval";
+constexpr const char* kScheduleRunnerName = "eval1";
+constexpr anet::seed_t kScheduleSeed = 123;
+
+TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by default", "[prd918][eval_schedule]")
+{
+    struct ScheduleCase {
+        int offset;
+        int warmup_count;
+        std::vector<rl::step_t> expected;
+    };
+    const auto schedule = GENERATE(values<ScheduleCase>({
+        {.offset = 0, .warmup_count = 1, .expected = {10, 20}},
+        {.offset = 0, .warmup_count = 0, .expected = {0, 10, 20}},
+        {.offset = 5, .warmup_count = 1, .expected = {15}},
+    }));
+    // 実際の評価セッションの完了通知から、学習側の発火座標を観測する。
+    class SessionRecorder final : public rl::SessionEndObserver {
+    public:
+        std::vector<rl::step_t> learn_steps;
+        void OnSessionEnd(const rl::SessionEndEvent& event) override
+        {
+            learn_steps.push_back(event.counts.learn_step);
+        }
+        std::string ToString() const override { return "SessionRecorder"; }
+    };
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto sessions = std::make_shared<SessionRecorder>();
+    notifier->Attach(sessions);
+    auto agent = std::make_shared<TestAgent>();
+    auto inner = std::make_shared<SessionRunnerEnv>();
+    auto env = std::make_shared<rl::EvalSessionEnv>(inner, 1, std::vector<std::string>{});
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier,
+        rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+            .device = agent->GetDevice(), .seed = kScheduleSeed, .actor_key = kScheduleActorKey}, kScheduleRunnerName);
+    rl::EpisodeEvalObserver scheduler(runner, 10, schedule.offset, schedule.warmup_count, false, true);
+    rl::BatchExperience experience;
+    for (rl::step_t step = 0; step <= 20; ++step) {
+        const rl::StepCounts counts{.learn_step = step};
+        scheduler.OnLearn(rl::LearnEvent{experience, nullptr, counts, agent, {}});
+    }
+    CHECK(sessions->learn_steps == schedule.expected);
+}
+
+TEST_CASE("EpisodeEvalObserver shifts the sequence and counts observed firings without catch-up", "[prd918][eval_schedule]")
+{
+    // 格子から決めた期待座標を固定し、共通ゲートの実装をテストへ写さない。
+    struct SequenceCase {
+        int offset;
+        int stride;
+        rl::step_t first;
+        rl::step_t last;
+        std::vector<rl::step_t> firings;
+    };
+    const auto input = GENERATE(values<SequenceCase>({
+        {.offset = 0, .stride = 1, .first = 0, .last = 9000,
+            .firings = {0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000}},
+        {.offset = 500, .stride = 1, .first = 0, .last = 9000,
+            .firings = {500, 1500, 2500, 3500, 4500, 5500, 6500, 7500, 8500}},
+        {.offset = 2500, .stride = 1, .first = 0, .last = 9000,
+            .firings = {2500, 3500, 4500, 5500, 6500, 7500, 8500}},
+        {.offset = 0, .stride = 7, .first = 0, .last = 9000,
+            .firings = {0, 1001, 2002, 3003, 4004, 5005, 6006, 7000, 8001}},
+        {.offset = 500, .stride = 7, .first = 0, .last = 9000,
+            .firings = {504, 1505, 2506, 3500, 4501, 5502, 6503, 7504, 8505}},
+        {.offset = 2500, .stride = 7, .first = 0, .last = 9000,
+            .firings = {2506, 3500, 4501, 5502, 6503, 7504, 8505}},
+        {.offset = 0, .stride = 1500, .first = 0, .last = 9000,
+            .firings = {0, 1500, 3000, 4500, 6000, 7500, 9000}},
+        {.offset = 500, .stride = 1500, .first = 0, .last = 9000,
+            .firings = {1500, 3000, 4500, 6000, 7500, 9000}},
+        {.offset = 2500, .stride = 1500, .first = 0, .last = 9000,
+            .firings = {3000, 4500, 6000, 7500, 9000}},
+        {.offset = 500, .stride = 100, .first = 2700, .last = 4700,
+            .firings = {2700, 3500, 4500}},
+    }));
+    const int warmup_count = GENERATE(0, 1, 3, 100);
+    CAPTURE(input.offset, input.stride, input.first, warmup_count);
+    class FiringRecorder final : public rl::SessionEndObserver {
+    public:
+        std::vector<rl::step_t> steps;
+        void OnSessionEnd(const rl::SessionEndEvent& event) override { steps.push_back(event.counts.learn_step); }
+        std::string ToString() const override { return "FiringRecorder"; }
+    };
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto recorder = std::make_shared<FiringRecorder>();
+    notifier->Attach(recorder);
+    auto agent = std::make_shared<TestAgent>();
+    auto inner = std::make_shared<SessionRunnerEnv>();
+    auto env = std::make_shared<rl::EvalSessionEnv>(inner, 1, std::vector<std::string>{});
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier,
+        rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+            .device = agent->GetDevice(), .seed = kScheduleSeed, .actor_key = kScheduleActorKey}, kScheduleRunnerName);
+    rl::EpisodeEvalObserver scheduler(runner, 1000, input.offset, warmup_count, false, true);
+    rl::BatchExperience experience;
+    for (rl::step_t step = input.first; step <= input.last; step += input.stride) {
+        const rl::StepCounts counts{.learn_step = step};
+        scheduler.OnLearn(rl::LearnEvent{experience, nullptr, counts, agent, {}});
+    }
+    const auto suppressed = std::min(static_cast<size_t>(warmup_count), input.firings.size());
+    const std::vector<rl::step_t> expected(input.firings.begin() + suppressed, input.firings.end());
+    CHECK(recorder->steps == expected);
+}
+
 TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event", "[episode_end][eval_session][runner]")
 {
     const bool background = GENERATE(false, true);
@@ -594,7 +698,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
     event_counts.train_step = 123;
     event_counts.exp_step = 456;
     {
-        rl::EpisodeEvalObserver scheduler(runner, 1, background, true);
+        rl::EpisodeEvalObserver scheduler(runner, 1, 0, 0, background, true);
         rl::BatchExperience experience;
         event_counts.learn_step = 1;
         scheduler.OnLearn(rl::LearnEvent{ experience, nullptr, event_counts, agent, {} });
@@ -769,7 +873,7 @@ TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[prd076][e
     metric_config.Set("metrics.scalar.[session_score]", "$eval.[eval1] @session_end $env mean.score");
     rl::ObserverFactory factory(metric_config);
     notifier->AttachScoped(factory.GetSessionEndObservers()[0].obs, runner);
-    notifier->AttachScoped<rl::EpisodeEvalObserver>(runner, runner, 1, true, true);
+    notifier->AttachScoped<rl::EpisodeEvalObserver>(runner, runner, 1, 0, 0, true, true);
 
     rl::StepCounts counts;
     counts.learn_step = 1;
@@ -821,7 +925,7 @@ TEST_CASE("Notifier cancellation stops a background evaluation at the next Step 
     };
     auto sessions = std::make_shared<SessionRecorder>();
     notifier->AttachScoped(sessions, runner);
-    notifier->AttachScoped<rl::EpisodeEvalObserver>(runner, runner, 1, true, true);
+    notifier->AttachScoped<rl::EpisodeEvalObserver>(runner, runner, 1, 0, 0, true, true);
 
     rl::StepCounts counts;
     counts.learn_step = 7;
@@ -884,7 +988,7 @@ TEST_CASE("Episode evaluation applies configured and timeout cancellation polici
         rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
             .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"},
         "eval1");
-    rl::EpisodeEvalObserver observer(runner, 1, true, timeout);
+    rl::EpisodeEvalObserver observer(runner, 1, 0, 0, true, timeout);
 
     rl::StepCounts counts;
     counts.learn_step = 1;
@@ -958,7 +1062,7 @@ TEST_CASE("Episode evaluation reports whether shutdown wait will block", "[prd07
             .env_spec = foreground_env->GetSpec(), .device = agent->GetDevice(),
             .seed = 123, .actor_key = "eval"},
         "foreground");
-    rl::EpisodeEvalObserver foreground(foreground_runner, 1, false, true);
+    rl::EpisodeEvalObserver foreground(foreground_runner, 1, 0, 0, false, true);
     CHECK_FALSE(foreground.WillBlockOnShutdown());
     foreground.Shutdown(
         std::chrono::steady_clock::now() + std::chrono::seconds(1),
@@ -972,7 +1076,7 @@ TEST_CASE("Episode evaluation reports whether shutdown wait will block", "[prd07
             .env_spec = completed_env->GetSpec(), .device = agent->GetDevice(),
             .seed = 126, .actor_key = "eval"},
         "completed");
-    rl::EpisodeEvalObserver completed(completed_runner, 1, true, true);
+    rl::EpisodeEvalObserver completed(completed_runner, 1, 0, 0, true, true);
     rl::BatchExperience experience;
     rl::StepCounts counts;
     counts.learn_step = 1;
@@ -993,7 +1097,7 @@ TEST_CASE("Episode evaluation reports whether shutdown wait will block", "[prd07
         rl::ActorRequest{.batch_env_spec = slow_env->GetBatchSpec(), .env_spec = slow_env->GetSpec(),
             .device = agent->GetDevice(), .seed = 124, .actor_key = "eval"},
         "slow");
-    rl::EpisodeEvalObserver waiting(slow_runner, 1, true, true);
+    rl::EpisodeEvalObserver waiting(slow_runner, 1, 0, 0, true, true);
     waiting.OnLearn(rl::LearnEvent{experience, slow_runner, counts, agent, {}});
     const auto start_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (slow_inner->GetStepCount() == 0 && std::chrono::steady_clock::now() < start_deadline) {
@@ -1012,7 +1116,7 @@ TEST_CASE("Episode evaluation reports whether shutdown wait will block", "[prd07
         rl::ActorRequest{.batch_env_spec = discard_env->GetBatchSpec(), .env_spec = discard_env->GetSpec(),
             .device = agent->GetDevice(), .seed = 125, .actor_key = "eval"},
         "discard");
-    rl::EpisodeEvalObserver discard(discard_runner, 1, true, false);
+    rl::EpisodeEvalObserver discard(discard_runner, 1, 0, 0, true, false);
     discard.OnLearn(rl::LearnEvent{experience, discard_runner, counts, agent, {}});
     const auto discard_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (discard_inner->GetStepCount() == 0
@@ -1055,7 +1159,7 @@ TEST_CASE("Trace DSL records adopted episode values in JSONL before the next Ste
     counts.exp_step = 456;
     // 通常の終了経路と同様に明示排水してから出力を読む。
     {
-        rl::EpisodeEvalObserver scheduler(runner, 1, background, true);
+        rl::EpisodeEvalObserver scheduler(runner, 1, 0, 0, background, true);
         rl::BatchExperience experience;
         counts.learn_step = 1;
         scheduler.OnLearn(rl::LearnEvent{ experience, nullptr, counts, agent, {} });
@@ -1102,7 +1206,7 @@ TEST_CASE("Background trace observer failure reaches the next learn callback", "
     config.Set("metrics.trace.[broken]", "$eval.[eval1] @episode_end $env unknown_score");
     rl::ObserverFactory factory(config);
     notifier->AttachScoped(factory.GetEpisodeEndObservers()[0].obs, runner);
-    rl::EpisodeEvalObserver scheduler(runner, 1, true, true);
+    rl::EpisodeEvalObserver scheduler(runner, 1, 0, 0, true, true);
     rl::BatchExperience experience;
     rl::StepCounts counts;
     counts.learn_step = 1;

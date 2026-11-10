@@ -221,6 +221,8 @@ namespace anet::rl {
         EpisodeEvalObserver(
             std::shared_ptr<EvalRunner> eval_runner,
             int eval_interval,
+            int eval_offset,
+            int eval_warmup_count,
             bool use_background,
             bool wait_on_exit);
 
@@ -238,7 +240,9 @@ namespace anet::rl {
         std::shared_ptr<EvalRunner> eval_runner_;
         const bool use_background_;
         const bool wait_on_exit_;
+        const step_t eval_offset_;
         std::optional<anet::IntervalGate> eval_gate_;   ///< eval_interval <= 0 で無効
+        int eval_warmup_remaining_;                   ///< 評価を走らせない残りの発火回数
 
         std::unique_ptr<anet::PinnedThreadPool> eval_pool_;
         std::future<void> eval_future_;

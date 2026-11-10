@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:fdfd3a1b38743d800acd1d945cd7ac1f5b3fa037 date:2026-11-07 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:e31365bcfaa8394a56da6eb01e762077343ca3b5 date:2026-11-10 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -228,6 +228,8 @@ Scalar definitions also store `clip`: `null` if absent, otherwise the symmetric 
 
 `interval:N` fires on bucket crossings: it fires once when the quotient `step / N` exceeds that at the previous firing, rather than waiting for zero remainder. Step increments differ by axis (`train_step`: +1 per round; Observer-visible `learn_step`: `num_envs × replay_ratio / batch`; `exp_step`: `num_envs`). Remainder-based checks stretch the effective interval to `LCM(increment, N)` and can omit firings when the increment does not divide N. Bucket crossing rounds the effective interval to `max(N, increment)` with phase jitter within one event. Shared `IntervalGate` implements this; the first event always fires regardless of `step`. Crossing several buckets in one call still fires only once, without catch-up. See [ADR 0028](../adr/0028-interval-fires-on-bucket-crossing.md).
 
+Eval schedules leave shared `IntervalGate` unchanged. `EpisodeEvalObserver` waits until offset is reached, then queries the gate with learn step minus offset. The first `warmup_count` firings advance the gate without running an evaluation or logging each suppression. Defaults are offset 0 and warmup_count 1; with increments of 1, the first evaluation is at interval. Offset may equal or exceed interval, and crossing several buckets still fires once without catch-up. `warmup_count` is separate from Learner `update_warmup_steps` (the period for collecting experience before learning starts); it counts firings from the beginning of the evaluation sequence.
+
 EMA state updates on every event independently of `interval`. Changing `interval` changes raw recording resolution, not `$ema` values.
 
 Unknown events, step axes, and targets have paths that warn and use defaults; unsupported Eval scope/field combinations fail fast. Scalar Eval scope is limited to `@session_end` or Eval `@train $action_info`. Eval scalar `@episode_end` fails fast with its replacement indicated; train scalar `@session_end` is also rejected.
@@ -328,7 +330,7 @@ When a wait occurs, the lines appear in the order `session start`, `waiting for 
 The end line includes mean.episode_return, max.episode_return, mean.episode_steps, and max.episode_steps matching finalized scalars.
 For a session lasting at least 30 seconds, the executing thread writes one info-level `session progress completed=<adopted>/<requested> elapsed=... eta=... learn_step=... exp_step=...` line every 30 seconds. As in the end line, elapsed is measured from before Sync; eta estimates the remaining seconds from the time per adopted episode and is `n/a` until at least one episode is adopted. No progress line is written after all episodes are adopted, and sessions shorter than 30 seconds have only start and end lines.
 When the exit drain waits, `draining in-flight session on exit` is written; when it switches to cooperative cancellation, `cancelling in-flight session on exit reason=close|config|timeout` is written. When a cancellation completes, the normal `session end` is not written; `session cancelled learn_step=... exp_step=... elapsed=... completed=...` is written instead. The corresponding session scalars are not emitted, and traces of completed episodes are retained.
-Abnormal termination does not emit a normal end line. Startup scheduled lines include interval, background, wait_on_exit, episodes, and batch_size.
+Abnormal termination does not emit a normal end line. Startup emits `eval.[<tag>]: scheduled (interval=…, offset=…, warmup_count=…, background=…, wait_on_exit=…, episodes=…, batch_size=…)`, including default offset and warmup_count values.
 Generic evaluation episode lengths are available in baseline/full through `21_eval/05_target_ep_steps`–`08_policy_ep_steps_max`.
 
 ### 7.3 Image Memory Ownership
@@ -374,6 +376,8 @@ When changing Observers or output formats, check the following:
 6. No file handles, timers, or ffmpeg processes remain after Run close.
 
 Main regression tests belong in [observers_test.cpp](../../core/anet-core/src/observers_test.cpp), [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp), [log_test.cpp](../../core/anet-core/src/log_test.cpp), and [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp).
+
+See [PRD918 validation assets](../../core/anet-core/testdata/prd918/README.md) for evaluation firing sequences, configuration migration, and a short Run.
 
 ## 10. Related Documents
 

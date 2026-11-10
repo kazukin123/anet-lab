@@ -60,7 +60,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[noisynet]'
 
 `nz_learning` は既存初期化とAMPを継承し、Actor/current/targetはcall/batch。`nz_reference` は4射影のdefault初期化・σ0=0.5、Body2FCのforce_fp32=true、AMP継承、標準call/batch。結合RunのActorだけを専用項目でepisode/sampleへ上書きする。`nz_reference_off` は同じ初期化・精度・保持設定でNoisy enabledだけを外す。
 
-`greedy` はCLIで `run.eval_schedule.[greedy].interval=0` を固定する。ファイルの同名葉は、後から適用される `eval2ch` profile に上書きされるため、解決済み `run.txt` と `definition-only` ログを確認する。終了予算もCLIで指定し、per_beta/epsilon/warmupのスケジュールを縮めない。
+`greedy` はCLIで `run.eval_schedule.[greedy].interval=0` を固定する。ファイルの同名葉は、後から適用される `eval2ch` profile に上書きされるため、解決済み `run.txt` と `definition-only` ログを確認する。休止にしない `[eval_target]`・`[eval]` は、CLI で `warmup_count=0`・`offset=0` を指定し、比較する初回評価を維持する。終了予算もCLIで指定し、per_beta/epsilon/warmupのスケジュールを縮めない。
 
 両ON Runは全11行を購読する。Atariのfeature依存閉包にはNoisy層がなく、feature4統計は正常なNaN。`ScalarMetricObserver`は既知NaNを出力しないため、11購読宣言とfeature成立値の不在を確認し、NaNそのものは契約テストで確認する。readout4統計とprobe3指標は複数回の有限値を要求する。xavierの初期μ biasが0の場合、最初のbias ratioのみNaNが正しい。
 

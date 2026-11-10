@@ -445,7 +445,7 @@ sequenceDiagram
 
 DefaultDQNは外側AgentでRewardをscaleし、ObservationNormalizerの統計を更新してから生Observationとscale済みRewardを内側へ渡す。Rainbowはこの前処理を持たず、同じinner Learner contractへ直接委譲する。
 
-`learner.enabled=false`は学習を完全に止めた評価専用Runのための設定である。既定は`true`。falseではReplayBufferを構築せず、Push、Sample、forward、backward、optimizer stepのいずれも呼ばない。Optimizerはcheckpointのpayload互換のため構築したままとする。**空のリストではなく、全診断keyが未成立=NaNの`BatchUpdateResult`を1件返す**。LEARNイベントは`update_results`が空だと発火せず、評価は`EpisodeEvalObserver::OnLearn`からしか駆動されないためである。この形で1 train stepが1 learn stepになり、`eval_schedule`の`interval`をそのままtrain step周期として使える。外側Agentの前処理（Reward scaleとObservationNormalizer統計、ActionPolicyのschedule）は無効時も従来どおり動くので、統計を凍結する場合は`obs_norm`と`reward_scaler`の設定で行う。`auto_load_file`を伴わない`learner.enabled=false`は初期重みの評価になるため、構築エラーにはせず1度だけWARNする。
+`learner.enabled=false`は学習を完全に止めた評価専用Runのための設定である。`learner.enabled` の既定は `true`。学習直後の評価が必要なタグには `run.eval_schedule.[tag].warmup_count = 0` を書き、継承した offset が不要なら `offset = 0` も書く（既定は先頭の発火を 1 回抑止する）。`learner.enabled=false` では ReplayBufferを構築せず、Push、Sample、forward、backward、optimizer stepのいずれも呼ばない。Optimizerはcheckpointのpayload互換のため構築したままとする。**空のリストではなく、全診断keyが未成立=NaNの`BatchUpdateResult`を1件返す**。LEARNイベントは`update_results`が空だと発火せず、評価は`EpisodeEvalObserver::OnLearn`からしか駆動されないためである。この形で1 train stepが1 learn stepになり、`eval_schedule`の`interval`をそのままtrain step周期として使える。外側Agentの前処理（Reward scaleとObservationNormalizer統計、ActionPolicyのschedule）は無効時も従来どおり動くので、統計を凍結する場合は`obs_norm`と`reward_scaler`の設定で行う。`auto_load_file`を伴わない`learner.enabled=false`は初期重みの評価になるため、構築エラーにはせず1度だけWARNする。
 
 ### 6.3 Munchausen RL
 

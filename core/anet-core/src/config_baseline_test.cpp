@@ -472,6 +472,12 @@ TEST_CASE("PRD093 snapshots current configuration inputs", "[.][prd093-config-sn
     }
 }
 
+constexpr const char* kAtariConfigName = "Atari";
+constexpr const char* kLunarLanderConfigName = "LunarLander";
+constexpr const char* kGridMazeConfigName = "GridMaze";
+constexpr const char* kDropMergeConfigName = "DropMerge";
+constexpr const char* kSkipRunProfile = "run.@skip";
+
 TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "[.][prd103-config]")
 {
     // 実際の設定を公開resolverに通し、変更前後の全キーを同時に保存する。
@@ -480,7 +486,7 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
     const auto output = std::filesystem::path(destination.ToStdWstring());
     std::filesystem::create_directories(output);
     const auto config = (std::filesystem::current_path() / "apps/runner/config").generic_string();
-    for (const std::string env : {"GridMaze", "LunarLander", "Atari", "DropMerge"}) {
+    for (const std::string env : {kGridMazeConfigName, kLunarLanderConfigName, kAtariConfigName, kDropMergeConfigName}) {
         CAPTURE(env);
         const auto path = output / (env + ".txt");
         const auto includes = "$include <" + config + "/_main.txt>\n$include <" + config + "/" + env + ".txt>\n";
@@ -495,15 +501,15 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
             std::smatch match;
             if (std::regex_search(line, match, run_selection)) chain = match[1].str();
         }
-        if (chain.find("run.@skip") == std::string::npos) chain += (chain.empty() ? "" : " > ") + std::string("run.@skip");
+        if (chain.find(kSkipRunProfile) == std::string::npos) chain += (chain.empty() ? "" : " > ") + std::string(kSkipRunProfile);
         { std::ofstream file(path); file << includes << "run.$ = " << chain << '\n'; }
         const auto data = anet::ConfigManager(path).GetConfigData();
         { std::ofstream file(output / (env + "-skip.json")); file << data.ToJson().dump(2) << '\n'; }
         CHECK(data.Get("DefaultDQNAgent.learner.skip.sample_weight") == "uniform");
         CHECK(data.Get("DefaultDQNAgent.actor.[greedy].policy.policy_type")
-            == (env == "Atari" ? defaults.Get("DefaultDQNAgent.actor.[greedy].policy.policy_type") : "Greedy"));
+            == (env == kAtariConfigName ? defaults.Get("DefaultDQNAgent.actor.[greedy].policy.policy_type") : "Greedy"));
         CHECK(data.Get("run.eval.[greedy].actor") == "greedy");
-        CHECK(data.Get("DefaultDQNAgent.actor.[greedy].network") == (env == "DropMerge" ? "target" : "online"));
+        CHECK(data.Get("DefaultDQNAgent.actor.[greedy].network") == (env == kDropMergeConfigName ? "target" : "online"));
         for (const auto* tag : {"17_skip_primary_grad_norm", "18_skip_primary_clip_ratio", "19_primary_clip_ratio_ema", "21_greedy_decision_rate", "22_greedy_length_mean"}) {
             CHECK_FALSE(data.Get(std::string("metrics.scalar.[50_agent_skip/") + tag + "]").empty());
         }
@@ -516,16 +522,17 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
             CHECK(data.Get("metrics.scalar.[50_agent_skip/23_greedy_length_rate.[" + tag_index + "]]")
                 == "skip_session_length_rate.[" + source_index + "] $eval.[greedy] $actor @session_end");
         }
-        if (env != "Atari") {
+        if (env != kAtariConfigName) {
             CHECK(data.Get("run.eval.[greedy].eval_batch_size") == "1");
             CHECK(data.Get("run.eval.[greedy].eval_episodes") == "1");
-            CHECK(data.Get("run.eval_schedule.[greedy].interval") == (env == "GridMaze" ? "53" : env == "LunarLander" ? "1009" : "503"));
+            CHECK(data.Get("run.eval_schedule.[greedy].interval") == (env == kGridMazeConfigName ? "50" : env == kLunarLanderConfigName ? "1000" : "500"));
+            CHECK(data.Get("run.eval_schedule.[greedy].offset") == (env == kGridMazeConfigName ? "3" : env == kLunarLanderConfigName ? "50" : "25"));
             CHECK(data.Get("run.eval_schedule.[greedy].use_background") == "true");
             for (const auto* tag : {"09_greedy_reward", "10_greedy_reward_ema", "11_greedy_ep_steps", "12_greedy_ep_steps_max"}) {
                 CHECK_FALSE(data.Get(std::string("metrics.scalar.[21_eval/") + tag + "]").empty());
             }
         }
-        if (env == "GridMaze") {
+        if (env == kGridMazeConfigName) {
             CHECK(data.Get("DefaultDQNAgent.actor.[train].skip.policy.policy_type") == "EpsilonGreedy");
             CHECK(data.Get<float>("DefaultDQNAgent.actor.[train].skip.policy.epsilon.start") == 0.60f);
             CHECK(data.Get<float>("DefaultDQNAgent.actor.[train].skip.policy.epsilon.end") == 0.05f);
@@ -533,6 +540,71 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
         for (const auto& [key, value] : data.Map()) {
             CHECK(key.find("greedy_dist") == std::string::npos);
             CHECK(value.find("$eval.[greedy_dist]") == std::string::npos);
+        }
+    }
+}
+
+TEST_CASE("PRD918 captures and checks migrated evaluation schedules", "[.][prd918-config]")
+{
+    constexpr const char* kOutputEnv = "ANET_PRD918_OUTPUT";
+    constexpr const char* kEvalTargetTag = "eval_target";
+    constexpr const char* kEvalTag = "eval";
+    constexpr const char* kGreedyTag = "greedy";
+    constexpr const char* kGreedySingleTag = "greedy_single";
+    wxString destination;
+    REQUIRE(wxGetEnv(kOutputEnv, &destination));
+    const auto output = std::filesystem::path(destination.ToStdWstring());
+    std::filesystem::create_directories(output);
+    const auto source = std::filesystem::current_path() / "apps/runner/config";
+    for (const std::string env : {kAtariConfigName, kLunarLanderConfigName, kGridMazeConfigName, kDropMergeConfigName}) {
+        CAPTURE(env);
+        // 本体の選択を保ち、skip を持たない既定だけ明示的に重ねる。
+        std::string chain, line;
+        std::ifstream original(source / (env + ".txt"));
+        const std::regex selection(R"(^run\.\$\s*=\s*([^#]+))");
+        while (std::getline(original, line)) {
+            std::smatch match;
+            if (std::regex_search(line, match, selection)) chain = match[1].str();
+        }
+        if (env != kAtariConfigName && chain.find(kSkipRunProfile) == std::string::npos) {
+            chain += (chain.empty() ? "" : " > ") + std::string(kSkipRunProfile);
+        }
+        REQUIRE_FALSE(chain.empty());
+        const auto path = output / (env + ".txt");
+        const auto includes = "$include <" + (source / "_main.txt").generic_string() + ">\n$include <"
+            + (source / (env + ".txt")).generic_string() + ">\n";
+        {
+            std::ofstream file(path);
+            file << includes << "run.$ = " << chain << '\n';
+        }
+        const auto data = anet::ConfigManager(path).GetConfigData();
+        { std::ofstream file(output / (env + ".json")); file << data.ToJson().dump(2) << '\n'; }
+        const auto check_schedule = [](const anet::ConfigData& config, const std::string& tag,
+            int interval, int offset, int warmup_count) {
+            const auto prefix = "run.eval_schedule.[" + tag + "].";
+            CAPTURE(tag);
+            CHECK(config.Get<int>(prefix + "interval") == interval);
+            CHECK(config.Get<int>(prefix + "offset", 0) == offset);
+            CHECK(config.Get<int>(prefix + "warmup_count", 1) == warmup_count);
+        };
+        if (env == kAtariConfigName) {
+            check_schedule(data, kEvalTargetTag, 0, 500, 1);
+            check_schedule(data, kEvalTag, 1954, 0, 1);
+            check_schedule(data, kGreedyTag, 39453, 0, 1);
+            check_schedule(data, kGreedySingleTag, 39453, 0, 1);
+            {
+                std::ofstream file(path);
+                file << includes << "run.$ = " << chain << " > run.@evalonly\n";
+            }
+            const auto eval_only = anet::ConfigManager(path).GetConfigData();
+            { std::ofstream file(output / "Atari-evalonly.json"); file << eval_only.ToJson().dump(2) << '\n'; }
+            for (const auto* tag : {kEvalTargetTag, kEvalTag, kGreedyTag, kGreedySingleTag}) {
+                check_schedule(eval_only, tag, 10, 0, 0);
+            }
+        } else {
+            const int interval = env == kLunarLanderConfigName ? 1000 : env == kGridMazeConfigName ? 50 : 500;
+            const int offset = env == kLunarLanderConfigName ? 50 : env == kGridMazeConfigName ? 3 : 25;
+            check_schedule(data, kGreedyTag, interval, offset, 1);
         }
     }
 }

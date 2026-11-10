@@ -499,13 +499,19 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
 EpisodeEvalObserver::EpisodeEvalObserver(
     std::shared_ptr<EvalRunner> eval_runner,
     int eval_interval,
+    int eval_offset,
+    int eval_warmup_count,
     bool use_background,
     bool wait_on_exit)
     : eval_runner_(std::move(eval_runner))
     , use_background_(use_background)
     , wait_on_exit_(wait_on_exit)
+    , eval_offset_(eval_offset)
+    , eval_warmup_remaining_(eval_warmup_count)
 {
     ANET_CHECK(eval_runner_ != nullptr);
+    ANET_CHECK(eval_offset >= 0);
+    ANET_CHECK(eval_warmup_count >= 0);
 
     // interval <= 0 は「無効」を表すため、そのときは gate を持たない
     if (eval_interval > 0)
@@ -618,10 +624,18 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
         RethrowCompletedBackgroundEval();
     }
 
-    auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
+    const auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
+
+    // offset に届く前はゲートに触れず、最初の発火を到達後まで保留する。
+    if (step < eval_offset_) return;
 
     // 評価エピソードを終端まで回す
-    if (eval_gate_ && eval_gate_->ShouldFire(step)) {
+    if (eval_gate_ && eval_gate_->ShouldFire(step - eval_offset_)) {
+        // 抑止した発火もゲートを進め、後続の発火時点を変えない。
+        if (eval_warmup_remaining_ > 0) {
+            --eval_warmup_remaining_;
+            return;
+        }
         // 実行ではなく発火を示す行なので、前セッションの完了待ちより前に出す。
         LOG::verbose() << std::format(
             "eval.[{}]: session start learn_step={} exp_step={}",

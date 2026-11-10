@@ -933,6 +933,8 @@ RunManager::RunManager(const ConfigData& config_data)
     auto eval_schedule_configs = config_data.MakeSubConfigData("run.eval_schedule");
     struct EvalScheduleConfig {
         int interval;
+        int offset;
+        int warmup_count;
         bool use_background;
         bool wait_on_exit;
     };
@@ -972,12 +974,27 @@ RunManager::RunManager(const ConfigData& config_data)
             ANET_SYSTEM_ERROR("Invalid run.eval_schedule.[" << tag << "].interval=" << interval
                 << ". Expected a non-negative value.");
         }
+        // 休止かどうかを決める前に、発火列を指定する値も検証する。
+        int offset = 0;
+        schedule_config.Read("offset", offset, offset);
+        if (offset < 0) {
+            ANET_SYSTEM_ERROR("Invalid run.eval_schedule.[" << tag << "].offset=" << offset
+                << ". Expected a non-negative value.");
+        }
+        int warmup_count = 1;
+        schedule_config.Read("warmup_count", warmup_count, warmup_count);
+        if (warmup_count < 0) {
+            ANET_SYSTEM_ERROR("Invalid run.eval_schedule.[" << tag << "].warmup_count=" << warmup_count
+                << ". Expected a non-negative value.");
+        }
         bool use_background = true;
         schedule_config.Read("use_background", use_background, use_background);
         bool wait_on_exit = true;
         schedule_config.Read("wait_on_exit", wait_on_exit, wait_on_exit);
         resolved_eval_schedules.emplace(tag, EvalScheduleConfig{
             .interval = interval,
+            .offset = offset,
+            .warmup_count = warmup_count,
             .use_background = use_background,
             .wait_on_exit = wait_on_exit,
         });
@@ -1100,6 +1117,8 @@ RunManager::RunManager(const ConfigData& config_data)
 
         const auto& schedule_config = schedule_it->second;
         const int interval = schedule_config.interval;
+        const int offset = schedule_config.offset;
+        const int warmup_count = schedule_config.warmup_count;
         const bool use_background = schedule_config.use_background;
         const bool wait_on_exit = schedule_config.wait_on_exit;
 
@@ -1111,6 +1130,7 @@ RunManager::RunManager(const ConfigData& config_data)
         }
 
         LOG::info() << "eval.[" << tag << "]: scheduled (interval=" << interval
+            << ", offset=" << offset << ", warmup_count=" << warmup_count
             << ", background=" << (use_background ? "true" : "false")
             << ", wait_on_exit=" << (wait_on_exit ? "true" : "false")
             << ", episodes=" << eval_episodes << ", batch_size=" << eval_batch_size << ")";
@@ -1166,6 +1186,8 @@ RunManager::RunManager(const ConfigData& config_data)
             train_runner_,
             eval_runner,
             interval,
+            offset,
+            warmup_count,
             use_background,
             wait_on_exit
         );

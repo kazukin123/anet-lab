@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:0d562a33bba1ad8f555811f03ad5a15447605900 date:2026-11-04 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:a2a15d1c27da4857ab1f384abafaf462ff8e3326 date:2026-11-10 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -326,7 +326,7 @@ The first step resets Env and submits no Learner update because no Experience is
 | `run.train.actor` | Actor catalog name, default `train` |
 | `run.eval_device` | Configured Eval device setting, default `auto`; adopted value in `json/run.json` as `effective_eval_device` |
 | `run.eval.[tag].*` | Configured Eval RunMode, parallel lane count `eval_batch_size`, adopted count `eval_episodes` (default 1), Env overrides, and Actor name reference |
-| `run.eval_schedule.[tag].*` | Required `interval`, `use_background`, and `wait_on_exit` (default `true`), which selects whether to wait for completion at shutdown, for periodic configured Eval |
+| `run.eval_schedule.[tag].*` | Required `interval`, learn-step shift `offset` (default `0`), initial suppressed-firing count `warmup_count` (default `1`), `use_background`, and `wait_on_exit` (default `true`) for periodic configured Eval |
 | `app.drain_timeout_sec` | Deadline in seconds for the entire background Observer drain. Default 3600; must be a positive integer |
 | `env.*` | Env class, workers, device |
 | `agent.*` | Agent class, device |
@@ -361,6 +361,8 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types
 - Serial is easier to trace; Pipeline can overlap Learner GPU work with Env CPU work.
 - Pipeline entails one-step delay, cloning, and future waits; check storage lifetimes and notification counts together.
 - Batch size affects the meanings of `train_step_per_sec` and `exp_step_per_sec` differently. Compare using identical settings and step axes.
+
+`run.eval_schedule.[tag].offset` and `warmup_count` use the same integer reader as interval; negative values are rejected before Env construction. They are validated even with `interval=0`, and neither key makes interval optional. `warmup_count` is separate from Learner `update_warmup_steps` (the period for collecting experience before learning starts); it counts firings from the beginning of the evaluation sequence.
 
 ## 8. Tests and Extension Checks
 

@@ -1567,7 +1567,7 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
     auto inner_env = std::make_shared<TestBatchEnv>("observer-scope", 1);
     auto env = std::make_shared<rl::EvalSessionEnv>(inner_env, 1, std::vector<std::string>{});
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
-    rl::EpisodeEvalObserver observer(runner, 1, true, true);
+    rl::EpisodeEvalObserver observer(runner, 1, 0, 0, true, true);
 
     rl::BatchExperience experience;
     rl::StepCounts first_counts;
@@ -1600,7 +1600,7 @@ TEST_CASE("EpisodeEvalObserver shutdown rethrows a background failure", "[prd076
         rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
             .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"},
         "eval1");
-    rl::EpisodeEvalObserver observer(runner, 1, true, true);
+    rl::EpisodeEvalObserver observer(runner, 1, 0, 0, true, true);
 
     rl::BatchExperience experience;
     rl::StepCounts counts;
@@ -1627,7 +1627,7 @@ TEST_CASE("EpisodeEvalObserver destructor catches a background failure", "[prd07
             .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"},
         "eval1");
     {
-        rl::EpisodeEvalObserver observer(runner, 1, true, true);
+        rl::EpisodeEvalObserver observer(runner, 1, 0, 0, true, true);
         rl::BatchExperience experience;
         rl::StepCounts counts;
         counts.learn_step = 1;

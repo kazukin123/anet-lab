@@ -31,6 +31,7 @@
 
 黙って挙動・値が変わる変更:
 
+- eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(PRD918, ADR0070)。
 - TempoRLにloss別Adam更新`split`・skip loss重み`kmax`・greedy評価sessionの判断率を追加。GridMazeのskip方策をepsilon-greedyへ、Atariのsession名を`greedy`へ、長さ別tagの添字を2桁へ移行。split checkpointは追加optimizer状態を持ち、stop/mergeへの読込は拒否する(PRD103)。
 
 - 既定葉 `?=` を導入。`=` は個別葉としてチェーンの供給値に勝つため、共通ファイルに残した `=` は再確認する(PRD072, ADR0040, ADR0042)。
@@ -73,6 +74,7 @@
 
 ## 0.4.0: (未リリース)
 
+- eval schedule に `offset` と `warmup_count` を追加。既定では学習直後に評価せず、位相のために曲げた間隔を offset に置き換えた。評価専用 Run は `warmup_count=0` を明示する(PRD918, ADR0070)。
 - TransformerEncoderの層平均attentionエントロピーを追加。`run.@attention` / `metrics.scalar.@attention`の購読時だけ更新前probeで測り、`48_agent_attention`へ公開する(PRD093)。
 - 実際の更新から勾配ノイズスケールを測る15指標を追加。`metrics.scalar.@gradnoise` の購読で有効化し、BF16とfeature/readoutに対応(PRD092)。
 
@@ -466,7 +468,6 @@ PRD114で未使用の9xxへ振り直した候補:
 - CI/CD 改善。ビルド・テスト自動化、定点ジョブ、LLM 補助。
 - 設定 root の所有整合。`app.run_name` 等の階層ずれを規約で棚卸し。
 - `episode_start` を stack / n-step 境界とするかの契約裁定。shouldfail 2 件の解消。
-- eval スケジュールの初回発火(learn_step=0)の抑止。
 - メトリクス目標値によるハイパラ自律調整。
 - NoisyNet(Noisy Networks for Exploration)。
 - Notifier::AttachScoped の Detach 契約修復(wrapper ハンドルを返す)。

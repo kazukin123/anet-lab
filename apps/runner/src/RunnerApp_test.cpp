@@ -515,6 +515,7 @@ TEST_CASE("Runner keeps train observers attached until background Eval drains on
         "app.train_auto_start = true\napp.save_agent_on_close = false\n"
         "run.eval.[" + kCloseDrainEvalTag + "].run_mode = eval\n"
         "run.eval_schedule.[" + kCloseDrainEvalTag + "].interval = 1\n"
+        "run.eval_schedule.[" + kCloseDrainEvalTag + "].warmup_count = 0\n"
         "run.eval_schedule.[" + kCloseDrainEvalTag + "].use_background = true\n");
     // worker が通知の途中で止まっている間に、exp_exit と同じ強制 Close で閉じる。
     REQUIRE(app.Wait([] { return close_drain_probe->Held(); }));

@@ -244,6 +244,7 @@
 - [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md) — Runner の起動で RunManager を別スレッドで構築する PRD
 - [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
 - [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md) — PRD119: 文書・コメント・設定の小さな食い違いをまとめて直す
+- [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md) — PRD918: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
 
 ## 課題
 

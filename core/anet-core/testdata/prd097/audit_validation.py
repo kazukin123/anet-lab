@@ -61,6 +61,8 @@ def audit(side, output_name="audit.json"):
                 resolved=config(folder/'config_data.txt')
                 for tag in ('eval_target','eval','greedy'):
                     expect(resolved,f'run.eval_schedule.[{tag}].interval',1000)
+                    expect(resolved,f'run.eval_schedule.[{tag}].warmup_count',0)
+                    expect(resolved,f'run.eval_schedule.[{tag}].offset',0)
                     expect(resolved,f'run.eval_schedule.[{tag}].use_background','false')
                     expect(resolved,f'run.eval.[{tag}].eval_batch_size',2)
                     expect(resolved,f'run.eval.[{tag}].eval_episodes',2)

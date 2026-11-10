@@ -92,6 +92,8 @@ def prepare():
                        PREFIX + "learner.skip.loss_weight": old.get(PREFIX + "learner.skip.loss_weight", "1"),
                        "run.eval_schedule.[eval].interval": 0, "run.eval_schedule.[eval_target].interval": 0,
                        "run.eval_schedule.[greedy].interval": 1000000000,
+                       "run.eval_schedule.[greedy].warmup_count": 0,
+                       "run.eval_schedule.[greedy].offset": 0,
                        "run.eval_schedule.[greedy].use_background": "false",
                        "run.eval.[greedy].eval_episodes": 200,
                        "metrics.trace.[53_evalg/episode]": "$eval.[greedy] @episode_end $env_step game_score game_len game_frames ram_metric.[1]"})

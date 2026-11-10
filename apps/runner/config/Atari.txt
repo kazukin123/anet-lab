@@ -506,13 +506,11 @@ run.@btreval_r4 : run.eval.[eval].eval_episodes = 100
 # 予算の終わり際に始まった評価セッションも、Run の終了時に完走を待ってから閉じる
 # (run.eval_schedule.[tag].wait_on_exit 既定 true、上限は app.drain_timeout_sec 既定 3600 秒)。
 # 最後の発火が捨てられるのを避けるために、間隔を「予算 / 10 より大きく」取る必要は無い。
-# 先頭は learn_step 0 でも発火する。初期重みの貪欲方策は FIRE デッドロックで全エピソードが
-# 上限 27,000 step に張り付くことがあり(2026-09-18 の RR1 で 49 分)、この 1 回は捨て点になる。
 run.@eval2ch : run.eval_schedule.[eval_target].interval = 0
 run.@eval2ch : run.eval_schedule.[eval].interval = 3906
 run.@eval2ch : run.eval.[eval].eval_batch_size = 10
 run.@eval2ch : run.eval.[eval].eval_episodes = 10
-run.@eval2ch : run.eval_schedule.[greedy].interval = 78907   # 5.05M exp step。50M 予算で 0〜45.45M の 10 回
+run.@eval2ch : run.eval_schedule.[greedy].interval = 78907   # 5.05M exp step。50M 予算で 5.05〜45.45M の 9 回
 run.@eval2ch : run.eval_schedule.[greedy].use_background = true
 run.@eval2ch : run.eval_schedule.[greedy_single].$ = run.eval_schedule.[greedy]
 
@@ -520,7 +518,7 @@ run.@eval2ch_r1 : run.eval_schedule.[eval_target].interval = 0
 run.@eval2ch_r1 : run.eval_schedule.[eval].interval = 1954   # 500,224 exp step。100M 予算で 199 回
 run.@eval2ch_r1 : run.eval.[eval].eval_batch_size = 10
 run.@eval2ch_r1 : run.eval.[eval].eval_episodes = 10
-run.@eval2ch_r1 : run.eval_schedule.[greedy].interval = 39453  # 10.1M exp step。100M 予算で 0〜90.9M の 10 回
+run.@eval2ch_r1 : run.eval_schedule.[greedy].interval = 39453  # 10.1M exp step。100M 予算で 10.1〜90.9M の 9 回
 run.@eval2ch_r1 : run.eval_schedule.[greedy].use_background = true
 run.@eval2ch_r1 : run.eval_schedule.[greedy_single].$ = run.eval_schedule.[greedy]
 run.@eval2ch_r1_50m : run.eval_schedule.[greedy].interval = 19727  # RR1 で 50M 予算のとき
@@ -549,7 +547,14 @@ run.@evalonly : run.eval.[eval_target].eval_episodes = 100
 run.@evalonly : run.eval.[eval].eval_batch_size = 16
 run.@evalonly : run.eval.[eval].eval_episodes = 100
 run.@evalonly : run.eval_schedule.[eval_target].interval = 10
-run.@evalonly : run.eval_schedule.[eval].interval = 11
+run.@evalonly : run.eval_schedule.[eval].interval = 10
+run.@evalonly : run.eval_schedule.[eval_target].offset = 0
+run.@evalonly : run.eval_schedule.[eval_target].warmup_count = 0
+run.@evalonly : run.eval_schedule.[eval].warmup_count = 0
+run.@evalonly : run.eval_schedule.[greedy].interval = 10
+run.@evalonly : run.eval_schedule.[greedy].warmup_count = 0
+run.@evalonly : run.eval_schedule.[greedy_single].interval = 10
+run.@evalonly : run.eval_schedule.[greedy_single].warmup_count = 0
 
 run.@greedy_eval : A3.actor.[eval].policy.epsilon = 0
 run.@greedy_eval : A3.actor.[eval].policy.spatial.epsilon.first = 0
@@ -1412,8 +1417,8 @@ AtariEnv.ram_metric.[montezuma_revenge].metrics ?= 1:room_max 2:sword_only 3:inv
 run.eval_schedule.[eval_target].interval = 1000  # RR1 で BTR 相当(1M frames = 250K exp step)。旧 2500
 #run.eval_schedule.[eval].interval = 2500
 #run.eval_schedule.[eval_target].interval = 0    # num_envs ラダー等、eval コストを排除したい測定用
-run.eval_schedule.[eval].interval = 1009  # online net 評価を復活(2026-09-03)。eval_target=1000 と互いに素にして
-                                            # eval_target/eval の同位相発火(EpisodeEvalObserver の停滞要因)を避ける。
+run.eval_schedule.[eval].interval = 1000
+run.eval_schedule.[eval_target].offset = 500  # target 評価をずらして、online 評価と同じ時点の発火を避ける。
 #run.eval_schedule.[eval].interval = 0    # eval 破棄。online net の評価と eval_target/eval 比の健全性指標を失う
 
 # eval エピソード上限はプロトコルと対。Nature 2015 = 18,000 frames(5 分)、v5 / BTR = env 既定の 108,000。下の 2 行は Classic 用。

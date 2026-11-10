@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:0da794440b280f8d6794be80ee1eb3117f8f434e date:2026-11-07 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:477e475e2bf7fd8f988931891c41416d480907c6 date:2026-11-10 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -82,6 +82,8 @@ run.eval.[explore].actor = explore
 run.eval.[explore].eval_batch_size = 2
 run.eval.[explore].eval_episodes = 2
 run.eval_schedule.[explore].interval = 100
+run.eval_schedule.[explore].offset = 0
+run.eval_schedule.[explore].warmup_count = 1
 run.eval_schedule.[explore].use_background = false
 run.eval_schedule.[explore].wait_on_exit = true
 metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
@@ -516,6 +518,11 @@ On a manual Close or `File > Exit`, if background evaluation that must be waited
 If saving `agent_close.anet` on close fails, the same notification policy applies, and log shutdown and GUI cleanup continue until the window closes. In that case, `agent_close.anet` may not be a valid checkpoint. If the Agent does not implement Save, a zero-byte file remains and a WARN includes the target path. Even successfully saved checkpoints should be loaded into a new Run only after checking that Agent, Network, and archive contracts match.
 
 To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file` in a compatible configuration for a new Run. Current examples are `R.auto_load_file`, an alias for `DefaultDQNAgent.auto_load_file`, and `ImageClsAgent.auto_load_file`. Checkpoints with different Network structures or archive contracts cannot be loaded. Saved contents vary by Agent; current DQN Agents do not restore ReplayBuffer contents or sampling state. Loading creates a new Run directory and step series; it does not append to the old Run's `metrics.jsonl`. For DefaultDQN, optimizer settings such as the learning rate come from the new Run configuration, and values that differ from the checkpoint produce WARN logs. See [DQN Agents](200_dqn_agents.en.md) for what DQN saves.
+
+Use `run.eval_schedule.[tag].offset` (default 0) to shift evaluation firings in learn steps. Set `warmup_count` (default 1) to the number of initial firings that should not run evaluations. Both must be non-negative integers. For evaluation-only Runs that need an immediate evaluation, set `warmup_count = 0` for each scheduled tag. Also set `offset = 0` when an inherited offset is unwanted.
+
+> [!NOTE]
+> `warmup_count` is separate from Learner `update_warmup_steps` (the period for collecting experience before learning starts); it counts firings from the beginning of the evaluation sequence. With offset 500, interval 1000, warmup_count 1, and increments of 1, the first evaluation is at learn step 1500. Both values are validated even for dormant schedules with `interval = 0`.
 
 ### 6.5 Inspecting Transitions with Evaluation Trace
 

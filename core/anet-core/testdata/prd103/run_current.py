@@ -70,6 +70,10 @@ def execute(stage, label, env, mode=None, prepare=False):
     slots = sorted({m[1] for key in raw if (m := re.match(r"run\.eval\.\[([^]]+)\]\.", key))})
     lines += [PROFILE + f"run.eval_schedule.[{slot}].interval = " +
         ("256" if stage == "smoke" and slot == "greedy" else "0") for slot in slots]
+    if stage == "smoke":
+        # 比較する初回セッションは、環境別の発火の既定から切り離す。
+        lines += [PROFILE + "run.eval_schedule.[greedy].warmup_count = 0",
+            PROFILE + "run.eval_schedule.[greedy].offset = 0"]
     config.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     resolved = resolve(config, destination, "resolved")
     assert resolved["DefaultDQNAgent.skip.enabled"] == ("true" if enabled else "false")

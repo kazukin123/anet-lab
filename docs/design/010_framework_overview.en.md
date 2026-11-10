@@ -1,4 +1,4 @@
-<!-- translated-from: 010_framework_overview.jp.md blob:7e426bfdc7c01f50f51866ca037060b51e75bd8f date:2026-10-23 progress:done -->
+<!-- translated-from: 010_framework_overview.jp.md blob:6be59a1be6f58481ed534ede2e0efddf5e69d0fc date:2026-11-10 progress:done -->
 # ANET Framework Overview
 
 > Primary perspective: overall structure (organized mainly by function, with major workflows included)
@@ -294,7 +294,7 @@ In the standard configuration, Env Observations and Experiences are generated an
 
 #### 6.7.3 Evaluation
 
-Evaluations defined in `run.eval.[tag]` and periodically driven by `interval>0` in `run.eval_schedule.[tag]` are started by `EpisodeEvalObserver` when the number of learning updates reaches the interval. Definitions without a schedule or with `interval=0` are dormant: no evaluation Env, Runner, or Observer is created. Once started, the evaluation Actor synchronizes with the model being trained and repeats action selection and Env Steps until an evaluation session consisting of N adopted episodes completes. Learner is not called during evaluation. In a Run with `learner.enabled=false`, one train step is one learn step, so `interval` directly means every N train steps.
+Evaluations defined in `run.eval.[tag]` and periodically driven by `interval>0` in `run.eval_schedule.[tag]` are started after `EpisodeEvalObserver` checks the learn-step sequence `offset + k * interval` and suppresses the first `warmup_count` firings. The defaults are `offset=0` and `warmup_count=1`, so evaluation does not run immediately after learning starts. Definitions without a schedule or with `interval=0` are dormant: no evaluation Env, Runner, or Observer is created. Once started, the evaluation Actor synchronizes with the model being trained and repeats action selection and Env Steps until an evaluation session consisting of N adopted episodes completes. Learner is not called during evaluation. In a Run with `learner.enabled=false`, one train step is one learn step, so `interval` directly means every N train steps.
 
 ```mermaid
 sequenceDiagram

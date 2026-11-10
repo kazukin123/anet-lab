@@ -63,7 +63,9 @@ def config(target,case):
     overrides=['app.$=app.batchrun>P1','app.show_error_dialog=false',f'app.runs_dir={target.as_posix()}/runs',
       'run.seed=1','backend.$=backend.@deterministic','backend.deterministic_warn_only=false',
       'run.train.runner_type=pipeline',
-      'run.eval_schedule.[eval_target].use_background=false','run.eval_schedule.[eval].use_background=false']
+      'run.eval_schedule.[eval_target].use_background=false','run.eval_schedule.[eval].use_background=false',
+      'run.eval_schedule.[eval_target].warmup_count=0','run.eval_schedule.[eval].warmup_count=0',
+      'run.eval_schedule.[eval_target].offset=0','run.eval_schedule.[eval].offset=0']
     chain='run.@prd094'
     if case.startswith('atari'):
         protocol='classic'
@@ -71,6 +73,7 @@ def config(target,case):
         overrides += [f'AtariEnv.$=AtariEnv.@{protocol}>E1','E1.game=breakout']
         for tag in ['eval_target','eval','greedy']:
             overrides += [f'run.eval_schedule.[{tag}].use_background=false',f'run.eval_schedule.[{tag}].interval=1000',
+                      f'run.eval_schedule.[{tag}].warmup_count=0',f'run.eval_schedule.[{tag}].offset=0',
                       f'run.eval.[{tag}].eval_batch_size=2',f'run.eval.[{tag}].eval_episodes=2']
     if case in ('lunarlander','actorapprox'):
         chain='run.@cpu>run.@prd094'

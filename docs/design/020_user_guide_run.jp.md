@@ -81,6 +81,8 @@ run.eval.[explore].actor = explore
 run.eval.[explore].eval_batch_size = 2
 run.eval.[explore].eval_episodes = 2
 run.eval_schedule.[explore].interval = 100
+run.eval_schedule.[explore].offset = 0
+run.eval_schedule.[explore].warmup_count = 1
 run.eval_schedule.[explore].use_background = false
 run.eval_schedule.[explore].wait_on_exit = true
 metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
@@ -515,6 +517,11 @@ WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain
 close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから引き継ぎに使う。
 
 checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにWARNが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+
+`run.eval_schedule.[tag].offset`（既定 0）で、評価の発火列を learn step 単位でずらす。`warmup_count`（既定 1）で、先頭から評価を走らせない発火の回数を指定する。どちらも 0 以上の整数にする。学習直後の評価が必要な評価専用 Run では、組むタグごとに `warmup_count = 0` を書く。継承した offset が不要なら `offset = 0` も書く。
+
+> [!NOTE]
+> `warmup_count` は、Learner の `update_warmup_steps`（学習を始める前に経験をためる期間）とは別で、評価の発火列の先頭から数える回数である。offset が 500、interval が 1000、warmup_count が 1 なら、刻み 1 の最初の評価は learn step 1500 になる。休止の `interval = 0` でも両方の値は検証される。
 
 ### 6.5 Evaluation Traceで遷移を調べる
 

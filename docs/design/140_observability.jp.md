@@ -227,6 +227,8 @@ scalar 定義には `clip` も保存する。未指定は `null`、指定時は�
 
 `interval:N`の発火判定はbucket-crossingである。`step / N`の商が前回発火時より増えたeventで1回だけ発火し、剰余が0になるstepを待たない。step軸の刻みは軸ごとに異なる（`train_step`はroundあたり+1、Observerが直参照する`learn_step`は`num_envs × replay_ratio / batch`刻み、`exp_step`は`num_envs`刻み）ため、剰余判定では実効周期が`LCM(刻み, N)`へ伸び、刻みがNを割り切らない構成では発火が丸ごと欠落する。bucket-crossingでは実効周期が`max(N, 刻み)`に丸まり、位相ジッタは1 event以内に収まる。判定は共通部品`IntervalGate`が持ち、初回eventは`step`の値によらず必ず発火する。1回の呼び出しで複数bucketを跨いだ場合も発火は1回で、catch-upはしない。詳細は[ADR 0028](../adr/0028-interval-fires-on-bucket-crossing.md)を参照する。
 
+eval schedule は共通の `IntervalGate` を変えず、`EpisodeEvalObserver` が offset 到達前の問い合わせを止め、到達後は learn step から offset を引いて問い合わせる。先頭の `warmup_count` 回の発火ではゲートを進めて評価を走らせず、抑止ごとのログは出さない。既定は offset 0・warmup_count 1、刻み 1 なら最初の評価は interval である。offset は interval 以上も指定でき、複数の bucket を跨いでも発火は 1 回で catch-up しない。`warmup_count` は Learner の `update_warmup_steps`（学習を始める前に経験をためる期間）とは別で、評価の発火列の先頭から数える回数である。
+
 EMA状態は`interval`と無関係に毎event更新する。`interval`を変えても`$ema`系の値は変わらず、生値の記録解像度だけが変わる。
 
 不明なevent、step軸、targetにはWARN後に既定値を使う経路があり、対応しないEval scope/fieldの組み合わせはfail-fastする。scalarのEval scopeは`@session_end`、またはEvalの`@train $action_info`に限定される。eval scalarの`@episode_end`は置換先を示してfail-fastする。train scalarの`@session_end`も拒否する。
@@ -327,7 +329,7 @@ background 時、前セッション完了を待ってブロックした場合だ
 終了行には確定済み scalar と同じ mean.episode_return、max.episode_return、mean.episode_steps、max.episode_steps を出す。
 session が 30 秒以上続くと、実行した thread から 30 秒ごとに `session progress completed=<採用済み>/<採用数> elapsed=... eta=... learn_step=... exp_step=...` を info で1行出す。elapsed は終了行と同じく Sync 前からの秒、eta は採用済みの1件あたりの所要から見込んだ残り秒で、採用済みが0件の間は `n/a` とする。全 episode を採用した後は出さず、30 秒より短い session は開始行と終了行だけになる。
 終了排水で待つ場合は`draining in-flight session on exit`、協調キャンセルへ切り替える場合は`cancelling in-flight session on exit reason=close|config|timeout`を出す。キャンセル完了時は正常`session end`を出さず、`session cancelled learn_step=... exp_step=... elapsed=... completed=...`を出す。対応するsession scalarは出さず、完了済みepisodeのtraceは維持する。
-異常終了時は正常終了行を出さない。起動時の scheduled 行には interval、background、wait_on_exit、episodes、batch_size を出す。
+異常終了時は正常終了行を出さない。起動時は `eval.[<tag>]: scheduled (interval=…, offset=…, warmup_count=…, background=…, wait_on_exit=…, episodes=…, batch_size=…)` を出し、既定値の offset と warmup_count も省略しない。
 汎用の評価エピソード長は baseline / full の `21_eval/05_target_ep_steps`〜`08_policy_ep_steps_max` で参照できる。
 
 ### 7.3 画像メモリの所有権
@@ -373,6 +375,8 @@ Observerまたは出力形式を変更する場合は次を確認する。
 6. Run close後にfile handle、timer、ffmpeg processが残らない。
 
 主な回帰testは[observers_test.cpp](../../core/anet-core/src/observers_test.cpp)、[metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp)、[log_test.cpp](../../core/anet-core/src/log_test.cpp)、[episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp)に置く。
+
+eval schedule の発火列・設定移行・短い Run の確認手順は [PRD918 検証資材](../../core/anet-core/testdata/prd918/README.md) を参照する。
 
 ## 10. 関連文書
 

@@ -1164,11 +1164,12 @@ TEST_CASE("RunManager does not warn when shared Eval adopts its only group", "[t
 
 TEST_CASE("RunManager requires an interval for every Eval schedule", "[trainer][eval_schedule]")
 {
+    const std::string field = GENERATE("use_background", "offset", "warmup_count");
     ScopedRunManagerMetricsLogger metrics_logger;
     auto factory_state = RegisterRunManagerNameTestFactories();
     auto config = MakeRunManagerNameTestConfig();
     config.Set("run.eval.[scheduled].run_mode", "eval1");
-    config.Set("run.eval_schedule.[scheduled].use_background", "false");
+    config.Set("run.eval_schedule.[scheduled]." + field, field == "use_background" ? "false" : "1");
 
     CHECK_THROWS_WITH(
         std::make_shared<rl::RunManager>(config),
@@ -1191,6 +1192,24 @@ TEST_CASE("RunManager rejects negative Eval schedule intervals before constructi
     CHECK(factory_state->creation_count == 0);
 }
 
+TEST_CASE("RunManager validates Eval offset and warmup before constructing Env", "[prd918][trainer][eval_schedule]")
+{
+    const std::string field = GENERATE("offset", "warmup_count");
+    const int interval = GENERATE(0, 100);
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("run.eval.[scheduled].run_mode", "eval1");
+    config.Set("run.eval_schedule.[scheduled].interval", interval);
+    const auto key = "run.eval_schedule.[scheduled]." + field;
+    config.Set(key, -7);
+    CAPTURE(field, interval);
+    CHECK_THROWS_WITH(std::make_shared<rl::RunManager>(config),
+        Catch::Matchers::ContainsSubstring(key + "=-7")
+        && Catch::Matchers::ContainsSubstring("non-negative"));
+    CHECK(factory_state->creation_count == 0);
+}
+
 TEST_CASE("RunManager treats a zero interval Eval schedule as definition-only", "[trainer][eval_schedule]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
@@ -1199,6 +1218,8 @@ TEST_CASE("RunManager treats a zero interval Eval schedule as definition-only", 
     auto config = MakeRunManagerNameTestConfig();
     config.Set("run.eval.[sleep].run_mode", "eval1");
     config.Set("run.eval_schedule.[sleep].interval", "0");
+    config.Set("run.eval_schedule.[sleep].offset", "2500");
+    config.Set("run.eval_schedule.[sleep].warmup_count", "3");
     config.Set("run.eval_schedule.[sleep].use_background", "false");
 
     auto manager = std::make_shared<rl::RunManager>(config);
@@ -1275,7 +1296,7 @@ TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][ru
     REQUIRE_NOTHROW(manager->GetEvalRunner("probe"));
     CHECK(manager->GetEvalRunner("probe")->GetBatchEnv()->GetBatchSpec().num_envs == 2);
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
-        "eval.[probe]: scheduled (interval=7, background=false, wait_on_exit=true, episodes=4, batch_size=2)"
+        "eval.[probe]: scheduled (interval=7, offset=0, warmup_count=1, background=false, wait_on_exit=true, episodes=4, batch_size=2)"
     }));
 }
 
@@ -1291,6 +1312,8 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
     config.Set("run.eval.[scheduled].eval_batch_size", "2");
     config.Set("run.eval_schedule.[scheduled].use_background", "false");
     config.Set("run.eval_schedule.[scheduled].wait_on_exit", "false");
+    config.Set("run.eval_schedule.[scheduled].offset", "17");
+    config.Set("run.eval_schedule.[scheduled].warmup_count", "3");
 
     auto manager = std::make_shared<rl::RunManager>(config);
     logs.Flush();
@@ -1303,7 +1326,7 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
         factory_state->config_prefixes, "run.eval.[scheduled].env")
         != factory_state->config_prefixes.end());
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
-        "eval.[scheduled]: scheduled (interval=7, background=false, wait_on_exit=false, episodes=5, batch_size=2)"
+        "eval.[scheduled]: scheduled (interval=7, offset=17, warmup_count=3, background=false, wait_on_exit=false, episodes=5, batch_size=2)"
     }));
 }
 

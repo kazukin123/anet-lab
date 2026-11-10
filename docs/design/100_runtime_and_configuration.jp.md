@@ -326,7 +326,7 @@ sequenceDiagram
 | `run.train.actor` | Actorカタログ名。既定`train` |
 | `run.eval_device` | configured Evalのdevice指定。既定`auto`。採用値は`json/run.json`の`effective_eval_device` |
 | `run.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、Actor名参照 |
-| `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`、`use_background`、終了時の完走待ちを選ぶ`wait_on_exit`（既定`true`） |
+| `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`、発火列を learn step 単位でずらす`offset`（既定`0`）、先頭の発火を抑止する回数`warmup_count`（既定`1`）、`use_background`、終了時の完走待ちを選ぶ`wait_on_exit`（既定`true`） |
 | `app.drain_timeout_sec` | background Observer排水全体のdeadline秒。既定3600、正整数必須 |
 | `env.*` | Env class、worker、device |
 | `agent.*` | Agent class、device |
@@ -361,6 +361,8 @@ sequenceDiagram
 - Serialは挙動を追いやすく、PipelineはLearnerのGPU処理とEnvのCPU処理を重ねられる。
 - Pipelineは1-step遅延、clone、future待機を伴うため、storage lifetimeと通知countを同時に確認する。
 - `train_step_per_sec`と`exp_step_per_sec`はbatch sizeの意味が異なる。比較時は同じ設定とstep軸を使う。
+
+`run.eval_schedule.[tag].offset` と `warmup_count` は interval と同じ整数の読み口で読み、負数は Env 生成前に拒否する。`interval=0` でも検証し、両キーだけを書いて interval を省略することはできない。`warmup_count` は、Learner の `update_warmup_steps`（学習を始める前に経験をためる期間）とは別で、評価の発火列の先頭から数える回数である。
 
 ## 8. テストと拡張時の確認事項
 
