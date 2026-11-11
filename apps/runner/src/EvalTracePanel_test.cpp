@@ -629,7 +629,9 @@ TEST_CASE("Trace minimum width keeps playback controls and the action column vis
     wxTheApp->Yield(true);
     CHECK(ui.panel->GetClientSize().x >= ui.panel->GetMinSize().x);
     CHECK(ui.toolbar->GetRect().GetRight() < controls->GetClientSize().x);
-    CHECK(action_edge <= ui.grid->GetGridWindow()->GetClientSize().x);
+    // 固定した左端列は別windowなので、固定側と通常側の幅を合わせて比べる。
+    REQUIRE(ui.grid->GetFrozenColGridWindow() != nullptr);
+    CHECK(action_edge <= ui.grid->GetFrozenColGridWindow()->GetClientSize().x + ui.grid->GetGridWindow()->GetClientSize().x);
 
     // 手動で幅を広げたaction列とフォント変更も、最小幅へ反映される。
     const int before = ui.panel->GetMinSize().x;
@@ -702,6 +704,75 @@ TEST_CASE("Trace selection preserves the column header appearance", "[prd094][tr
     CHECK(ui.grid->GetSelectionForeground() == wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT));
 }
 
+TEST_CASE("Trace keeps the leftmost column visible while scrolling horizontally", "[trace_ui_frozen]")
+{
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[1]", "$runner exp_step label:step");
+    for (int col = 2; col <= 12; ++col)
+        config.Set("app.eval_trace_panel.columns.[" + std::to_string(col) + "]", "$env_step reward label:reward_" + std::to_string(col));
+    TraceUiFixture ui(config);
+    for (int i = 0; i < 5; ++i) ui.Add(static_cast<float>(i));
+    ui.frame.SetClientSize(ui.frame.FromDIP(wxSize(400, 350)));
+    ui.frame.Show();
+    ui.frame.Raise();
+    ui.manager.Update();
+    wxTheApp->Yield(true);
+    REQUIRE(ui.grid->GetNumberFrozenCols() == 1);
+    auto* frozen_cells = ui.grid->GetFrozenColGridWindow();
+    auto* frozen_header = ui.grid->GetFrozenColLabelWindow();
+    REQUIRE(frozen_cells != nullptr);
+    REQUIRE(frozen_header != nullptr);
+    CHECK(frozen_cells->GetPosition().x == 0);
+    CHECK(frozen_cells->GetClientSize().x == ui.grid->GetColSize(0));
+    REQUIRE(ui.grid->GetGridWindow()->GetVirtualSize().x > ui.grid->GetGridWindow()->GetClientSize().x);
+
+    // 右端までスクロールしても固定列は左端に残り、行を選んでも左へ引き戻さない。
+    ui.grid->Scroll(ui.grid->GetGridWindow()->GetVirtualSize().x, 0);
+    wxTheApp->Yield(true);
+    const int scrolled = ui.grid->GetViewStart().x;
+    REQUIRE(scrolled > 0);
+    CHECK(frozen_cells->GetPosition().x == 0);
+    ui.Tool(2);
+    REQUIRE(ui.grid->IsSelection());
+    CHECK(ui.grid->GetViewStart().x == scrolled);
+
+    // 固定側の見出しも、ソート列の切替と開き直しで印を描き直す。自分では再描画を要求しない。
+    const auto highlight = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+    const auto marked_pixels = [&] {
+        frozen_header->Update();
+        wxTheApp->Yield(true);
+        wxBitmap bitmap(frozen_header->GetClientSize());
+        wxMemoryDC destination(bitmap);
+        wxClientDC source(frozen_header);
+        destination.Blit(wxPoint(0, 0), bitmap.GetSize(), &source, wxPoint(0, 0));
+        destination.SelectObject(wxNullBitmap);
+        const auto image = bitmap.ConvertToImage();
+        size_t count = 0;
+        for (int y = 0; y < image.GetHeight(); ++y)
+            for (int x = 0; x < image.GetWidth(); ++x)
+                if (image.GetRed(x, y) == highlight.Red() && image.GetGreen(x, y) == highlight.Green()
+                    && image.GetBlue(x, y) == highlight.Blue()) ++count;
+        return count;
+    };
+    CHECK(ui.grid->GetSortingColumn() == 0);
+    CHECK(marked_pixels() > 0);
+    wxGridEvent other(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 1);
+    ui.grid->GetEventHandler()->ProcessEvent(other);
+    CHECK(ui.grid->GetSortingColumn() == 1);
+    CHECK(marked_pixels() == 0);
+    wxGridEvent step(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 0);
+    ui.grid->GetEventHandler()->ProcessEvent(step);
+    CHECK(ui.grid->GetSortingColumn() == 0);
+    CHECK(marked_pixels() > 0);
+    ui.grid->GetEventHandler()->ProcessEvent(other);
+    REQUIRE(marked_pixels() == 0);
+    ui.panel->SetActive(false);
+    ui.panel->SetActive(true);
+    CHECK(ui.grid->GetSortingColumn() == 0);
+    CHECK(marked_pixels() > 0);
+    CHECK(ui.grid->GetNumberFrozenCols() == 1);
+}
+
 TEST_CASE("Trace grid uses native theme colours and terminal tint precedence", "[prd094][trace_ui_palette]")
 {
     TraceUiFixture ui;
@@ -710,6 +781,7 @@ TEST_CASE("Trace grid uses native theme colours and terminal tint precedence", "
     CHECK(ui.grid->GetLabelBackgroundColour() == wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
     CHECK(ui.grid->GetLabelTextColour() == wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
     CHECK(ui.grid->GetGridLineColour() == wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW));
+    CHECK(ui.grid->GetGridFrozenBorderColour() == wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW));
     CHECK(ui.grid->GetSelectionBackground() == wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT));
     CHECK(ui.grid->GetSelectionForeground() == wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT));
     ui.Add(0); ui.Add(1); ui.Add(0, true); ui.Add(1, false, true);

@@ -43,6 +43,13 @@ public:
 };
 }
 
+static void RefreshColumnLabels(wxGrid& grid)
+{
+    // 固定した左端列の見出しは別windowなので、ソート印の付け外しを両方へ反映する。
+    grid.GetGridColLabelWindow()->Refresh(false);
+    if (auto* frozen = grid.GetFrozenColLabelWindow()) frozen->Refresh(false);
+}
+
 class EvalTracePanel::Table final : public wxGridTableBase {
 public:
     explicit Table(EvalTracePanel& owner) : owner_(owner) {}
@@ -184,6 +191,11 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
     // 行選択は標準の選択色にし、列見出しへ強調を波及させない。
     grid_->DisableOverlaySelection();
     grid_->SetRowLabelSize(0);
+    // 横スクロールしても、どのstepの行かが分かるよう左端の列を固定する。
+    if (!columns_.empty()) {
+        const bool frozen = grid_->FreezeTo(0, 1);
+        ANET_CHECK_MSG(frozen, "Failed to freeze the leftmost Evaluation Trace column. columns=" << columns_.size());
+    }
     // 手動で変更した列は、次に明示的に開くまで自動調整しない。
     grid_->Bind(wxEVT_GRID_COL_SIZE, [this](wxGridSizeEvent& event) {
         if (!sizing_columns_) {
@@ -316,7 +328,7 @@ void EvalTracePanel::ResetSorting()
     if (table_) {
         if (const auto column = sorter_.GetColumn()) grid_->SetSortingColumn(static_cast<int>(*column), false);
         else grid_->UnsetSortingColumn();
-        grid_->GetGridColLabelWindow()->Refresh(false);
+        RefreshColumnLabels(*grid_);
     }
 }
 
@@ -340,7 +352,7 @@ void EvalTracePanel::SortByColumn(int column)
     for (const auto id : sorter_.GetDisplayOrder()) rows_.push_back(std::move(retained.at(id)));
     SyncPlayerRows();
     grid_->SetSortingColumn(column, sorter_.IsAscending());
-    grid_->GetGridColLabelWindow()->Refresh(false);
+    RefreshColumnLabels(*grid_);
     if (IsTraceMode()) ApplySelection(false, true);
     else {
         int x = 0, y = 0;
@@ -677,6 +689,8 @@ void EvalTracePanel::UpdateAppearance()
     grid_->SetLabelBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
     grid_->SetLabelTextColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
     grid_->SetGridLineColour(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW));
+    // wx既定の固定境界線は作成時の明暗で決まるため、罫線と同じシステム色へ揃える。
+    grid_->SetGridFrozenBorderColour(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW));
     grid_->SetSelectionBackground(wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT));
     grid_->SetSelectionForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT));
     grid_->SetDefaultCellFont(GetFont());
@@ -700,7 +714,7 @@ void EvalTracePanel::UpdateAppearance()
     controls_panel_->Layout();
     UpdateMinimumSize();
     grid_->Refresh(false);
-    grid_->GetGridColLabelWindow()->Refresh(false);
+    RefreshColumnLabels(*grid_);
 }
 
 void EvalTracePanel::Notify(const std::string& message)
