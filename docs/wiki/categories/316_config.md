@@ -111,6 +111,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261107-0c34dd](../../management/issues/issue-20261107-0c34dd.md) | 調査中 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
 | [issue-20261107-c17068](../../management/issues/issue-20261107-c17068.md) | 調査中 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） |
 | [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 未着手 | 3.5 | — | 成果物 | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
+| [issue-20261111-cdc102](../../management/issues/issue-20261111-cdc102.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 未確認 | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
 | [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | 成果物 | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
 | [issue-20261108-f0f243](../../management/issues/issue-20261108-f0f243.md) | 未着手 | 2.6 | — | 成果物 | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
 | [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
@@ -120,7 +121,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 1.4 | — | 成果物 | PRD | 110_runner_app, 316_config | 学習基盤 | 機能追加 | [PRD952](../../memo/952_run_queue_snapshot_10prd.md) | 残件有り | Run キュー（計画スナップショット + exe 固定） |
 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.0 | — | 成果物 | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD908](../../memo/908_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
+| [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD927](../../memo/927_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 
-着手できる 14 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 16 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->
