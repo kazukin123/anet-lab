@@ -81,6 +81,5 @@ __pycache__/
 /reports/stats/cache/
 /subagent-reviews
 /apps/runner/*.dmp
-/docs/management/.obsidian
-docs/management/issues.base
 /.obsidian
+*.base
