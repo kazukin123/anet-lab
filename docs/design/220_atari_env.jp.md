@@ -295,11 +295,13 @@ Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了
 | breakout | `1:wall_clear` = `0x9E inc_count` | `score_ge600` = `0xCC reach_count:6` |
 | beam_rider | `1:sector_clear` = `0x80 inc_count`、`2:boss_kill` = `0x94 reach_count:141`、`4:torpedo_fired` = `0xD3 dec_count` | なし |
 | freeway | `4:car_hit` = `0xEA reach_count:91` | なし |
-| montezuma_revenge | `1:room_max` = `0x83 max_seen`、`4:x_min` = `0xAA min_seen` | `room_up` = `0x83 inc_count` |
+| montezuma_revenge | `1:room_max` = `0x83 max_seen`、`2:sword_only` = `0xC1 reach_count:32`、`3:inv_max` = `0xC1 max_seen`、`4:x_min` = `0xAA min_seen` | `room_up` = `0x83 inc_count` |
 
 kung_fu_master の 4 の `player_hp_dec` は、自機の体力（`0xCB`、満タン 39）が減ったフレームの数で、被弾の量の目安に使う。面の出口で残りの体力を点に換算する間も 4 フレームに 1 単位ずつ減るので、`floor_clear` が 1 以上のゲームは換算の分を含む。被弾だけを比べるときは `floor_clear` が 0 のゲームで比べる。
 
 montezuma_revenge には面の区切りが無いので、1 には到達した最大の部屋番号を使う。回数ではなく部屋番号で、開始の部屋が 1 なので、どこにも進まなかったゲームも 1 になる。部屋番号は先へ進むほど大きくなる傾向だが、開始の左の部屋は 0 なので、最大値の増加だけで進みを読む。`room_up` は部屋番号が増えた回数で、部屋の行き来でも増えるので番号を付けない。4 の `x_min` は x 座標の最小で、開始は 77、鍵は部屋 1 の x=12 付近にある。別の部屋に入るとその部屋の座標になるので、鍵までの進みとして読めるのは部屋 1 にいる間だけである。
+
+montezuma_revenge にはボスがいないので、2 と 3 も共通の意味から外し、剣を追うのに使う。`0xC1` は持ち物のビットで、鍵は 2、部屋 6 の剣は 32 である。剣で敵を倒すと剣が消えて 2,000 点が入る。2 の `sword_only` は持ち物が剣だけになった回数で、鍵を使い切ってから剣を拾うと増える。鍵を持ったまま剣を拾った分は数えず、剣と鍵を持って扉で鍵を使った分は数える。3 の `inv_max` は持ち物の値の最大で、剣を持ったことがあれば 32 以上（剣と鍵なら 34）になる。敵を倒した回数の定義は置かず、得点に入った 2,000 点の数で読む。
 
 番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/done/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
 

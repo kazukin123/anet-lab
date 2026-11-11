@@ -82,9 +82,18 @@ SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_updat
 SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
 SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
 SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
-echo === 16. montezuma_revenge 30m seed 1: same as mz_tg_rnd_s1 (beta 0.1) but Munchausen off and Double DQN on ===
-call :find_done mz_tg_nmdd_b01_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.1 DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_nmdd_b01_s1"
+SET "MZT2=E1.game=montezuma_revenge run.seed=2 run.eval.[greedy].eval_episodes=16"
+echo === 17. montezuma_revenge 30m seed 1: same as mz_tg_rnd_s1 (Munchausen on, Double DQN off) but beta 0.01 ===
+call :find_done mz_tg_rnd_b001_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_rnd_b001_s1"
+
+echo === 18. montezuma_revenge 30m seed 2: same as mz_tg_nmdd_b001_s1 (beta 0.01, Munchausen off, Double DQN on) ===
+call :find_done mz_tg_nmdd_b001_s2
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.01 DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_nmdd_b001_s2"
+
+echo === 19. montezuma_revenge 30m seed 1: Munchausen off, Double DQN on, beta 0.03 ===
+call :find_done mz_tg_nmdd_b003_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.03 DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_nmdd_b003_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
