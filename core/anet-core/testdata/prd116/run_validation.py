@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import sys
 
@@ -72,7 +73,7 @@ def main():
                 overrides = ["app.exp_exit_step=100000", "app.batchrun.exp_exit_step=100000",
                              "app.save_agent_on_close=true"]
                 if env == "Atari":
-                    overrides.append("E1.game=kung_fu_master")
+                    overrides += ["E1.game=kung_fu_master", "DefaultDQNAgent.intrinsic.rnd.warmup_steps=12800"]
                 if env == "Montezuma":
                     overrides.append("E1.game=montezuma_revenge")
                 run = driver.execute(args.label + "_tmp_smoke_" + env,
@@ -88,8 +89,14 @@ def main():
                             "05_bonus_pos_ratio", "11_error_mean", "12_error_std", "13_error_step",
                             "14_target_feature_var", "15_target_feature_max", "21_clip_ratio",
                             "31_predictor_loss", "32_learn_count"}
+                # learn_predictor は warm-up 中にも学習するので、実効の件数で区切る。
+                config_text = (run / "config/config_data.txt").read_text(encoding="utf-8-sig")
+                match = re.search(r"(?m)^DefaultDQNAgent\.intrinsic\.rnd\.warmup_steps\s*=\s*([0-9,]+)\s*$", config_text)
+                if match is None:
+                    raise RuntimeError("Missing effective RND warmup_steps: " + str(run))
+                warmup_steps = int(match[1].replace(",", ""))
                 for step, values in by_step.items():
-                    if values.get("32_learn_count", 0) <= 0:
+                    if step <= warmup_steps:
                         continue
                     for tag in expected:
                         value = values.get(tag, float("nan"))

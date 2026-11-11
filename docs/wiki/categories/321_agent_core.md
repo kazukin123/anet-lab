@@ -186,7 +186,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261111-77ac3c](../../management/issues/issue-20261111-77ac3c.md) | 調査中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 未確認 | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
+| [issue-20261111-77ac3c](../../management/issues/issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
 | [issue-20261106-16b7af](../../management/issues/issue-20261106-16b7af.md) | 対応中 | 2.6 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |

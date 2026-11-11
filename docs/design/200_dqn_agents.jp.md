@@ -395,11 +395,11 @@ sequenceDiagram
 
 RND の基本概念、数式と処理順、設定・指標の具体例は [212 RND による新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
 
-DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼び、`beta(exp_step) × (alpha − 1)` を加算する。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、doneのbonusだけ0にする（truncatedは加算する）。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。Actorのframe stack後の入力とは別である。Replayへ渡す報酬に畳み込むため、Actor、Replay形式、Qのoptimizerは変えない。`learner.enabled=false` では一度WARNし、採点と補助学習を休止する。
+DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼び、`beta(exp_step) × (alpha − 1)` を加算する。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、`intrinsic.use_done_mask=true`（既定）のときdoneのbonusだけ0にする（truncatedは加算する）。falseでは終端の採点値も足す。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。この場合use_done_maskは使わず、既定と違うfalseだけ構築時1回WARNする。Actorのframe stack後の入力とは別である。Replayへ渡す報酬に畳み込むため、Actor、Replay形式、Qのoptimizerは変えない。`learner.enabled=false` では一度WARNし、採点と補助学習を休止する。
 
-RNDは別々の `target.net`・`predictor.net` から固定targetとpredictorを組み、共通の `output_dim` のLinear Headへ `head.init.*` を適用する。非カテゴリのuint8はRND内でfloatに変換する。既定の `statistics_mode=whiten` は更新前の観測・誤差統計を使い、採点後に累積統計を更新する。`variance_feedback` はlane順の再帰で観測を正規化・clipして統計へ戻し、更新後の誤差平均と分散でzを作る（標準偏差では割らない）。`multiplier_mode=clipped`（既定）は `clamp(1+z,1,multiplier_max)`、`unclipped` は負も含む `1+z` を返す。割る値0なら1。warm-upは観測件数で数え、既定12,800件の間は倍率1・補助学習なし、0なら初回から学習する。詳しい再帰とwarm-upのbatch境界は212を参照する。
+RNDは別々の `target.net`・`predictor.net` から固定targetとpredictorを組み、共通の `output_dim` のLinear Headへ `head.init.*` を適用する。非カテゴリのuint8はRND内でfloatに変換する。既定の `statistics_mode=whiten` は更新前の観測・誤差統計を使い、採点後に統計を更新する。誤差の統計は `error_norm.average_mode=cumulative`（既定）か `ema`（観測件数の時定数 `ema_steps`、既定1,000,000）で選ぶ。`error_norm.use_centering=true`（既定）は平均を引き、falseは誤差をそのまま標準偏差で割る。`variance_feedback` はlane順の再帰で観測を正規化・clipして統計へ戻し、更新後の誤差平均と分散でzを作る（標準偏差では割らない）。`multiplier_mode=clipped`（既定）は `clamp(1+z,1,multiplier_max)`、`unclipped` は `1+z` を返す。割る値0か統計が空なら1。warm-upは観測件数で数え、既定12,800件の間は倍率1。whiten の `warmup_mode=learn_predictor`（既定）は補助学習を進め、誤差を統計に入れない。collect_errors と variance_feedback は誤差を集めて補助学習を止める。0なら初回から学習する。詳しい再帰とwarm-upのbatch境界は212を参照する。
 
-補助学習の刻みと抽選はfacadeが持つ。N laneのintakeごとにcreditへ `N × intrinsic.learn_ratio / k` を加え、k=`min(intrinsic.learn_batch_size,N)` 件ずつ重複なく選んで `Learn` を呼ぶ。1 intakeの上限は `floor(N/k)` 回で、未消費creditは繰り越す。RNDは渡された全k件でtarget・predictorのforwardをやり直し、平均MSEで私有AdamWを1 step進めてtrueを返す。warm-up中はfalseで、facadeは戻り値にかかわらずcreditを消費し、trueだけを `intrinsic.learn_count` に数える。採点のグラフは持ち越さない。正規化はCPUで行い、CUDA計算では採点・各学習stepに入力H2Dと誤差D2Hがある。詳しい境界・費用は212の§3.5・§5.1を参照する。
+補助学習の刻みと抽選はfacadeが持つ。N laneのintakeごとにcreditへ `N × intrinsic.learn_ratio / k` を加え、k=`min(intrinsic.learn_batch_size,N)` 件ずつ重複なく選んで `Learn` を呼ぶ。1 intakeの上限は `floor(N/k)` 回で、未消費creditは繰り越す。RNDは渡された全k件でtarget・predictorのforwardをやり直し、平均MSEで私有AdamWを1 step進めてtrueを返す。collect_errors と variance_feedback のwarm-up中はfalseで、facadeは戻り値にかかわらずcreditを消費し、trueだけを `intrinsic.learn_count` に数える。採点のグラフは持ち越さない。正規化はCPUで行い、CUDA計算では採点・各学習stepに入力H2Dと誤差D2Hがある。詳しい境界・費用は212の§3.5・§5.1を参照する。
 
 ```mermaid
 sequenceDiagram
@@ -557,9 +557,9 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | Learner | 学習の有効化(`enabled`)、optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
-| 内的報酬 | `intrinsic.enabled`、ProfiledValueの `intrinsic.beta`、`intrinsic.observation`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factoryが解釈する `intrinsic.rnd.*`（target.net / predictor.net、head.init、multiplier_mode、statistics_mode、adam_epsなど） |
+| 内的報酬 | `intrinsic.enabled`、ProfiledValueの `intrinsic.beta`、`intrinsic.observation`、`intrinsic.use_done_mask`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factoryが解釈する `intrinsic.rnd.*`（target.net / predictor.net、head.init、multiplier_mode、statistics_mode、warmup_mode、error_norm、adam_epsなど） |
 
-RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持つ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の葉を解釈せず、Network・optimizer・統計・診断キーを生成しない。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
+RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持つ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の葉を解釈せず、Network・optimizer・統計・診断キーを生成しない。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
@@ -597,7 +597,7 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 以下の第1版・第2版の説明は `intrinsic.enabled=false` を基準とする。有効時は次の追加節も保存・復元する。
 
-内的報酬が有効なDefaultDQNは、従来の識別子へ `;intrinsic` を付け、Learnerの後へintrinsic節を追加する。最初に `RndNoveltyEstimator-3` とstatistics_modeを書き、固定target、predictor、AdamWのmoment/step、選択した方式の観測・誤差統計、target出力の累積統計、採点した観測件数を保存する。続けてfacadeの未消費credit・lane抽選の乱数状態・累計成功回数を保存する。異なる書式、または設定と異なる統計モードはpayloadを読む前に拒否し、診断に双方の値を含める。有効設定と節の有無も一致を要求する。optimizerのlearning_rate・weight_decay・adam_epsは現在設定を優先し、差があればWARNする。無効時の識別子・設定文字列・payload配置は従来どおりである。
+内的報酬が有効なDefaultDQNは、従来の識別子へ `;intrinsic` を付け、Learnerの後へintrinsic節を追加する。最初に、whiten の EMA なら `RndNoveltyEstimator-4`、累積と variance_feedback なら `RndNoveltyEstimator-3` とstatistics_modeを書き、固定target、predictor、AdamWのmoment/step、選択した方式の観測・誤差統計（EMA は重みの和・平均・二乗偏差）、target出力の累積統計、採点した観測件数を保存する。続けてfacadeの未消費credit・lane抽選の乱数状態・累計成功回数を保存する。異なる書式、または設定と異なる統計モードはpayloadを読む前に拒否し、診断に双方の値を含める。有効設定と節の有無も一致を要求する。optimizerのlearning_rate・weight_decay・adam_epsは現在設定を優先し、差があればWARNする。無効時の識別子・設定文字列・payload配置は従来どおりである。
 
 `split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
@@ -630,7 +630,7 @@ NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target
 
 ### 9.1 metric
 
-内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max`・`bonus_min` はbeta倍と選択したmask後の値、`bonus_pos_ratio` は正のlaneの割合。`bonus_share` は `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)`（分母0はNaN）で、負のボーナスでも0〜1に収まる。`error_mean`・`error_std` は選択した方式の統計（stdは分散の平方根）、`error_step` は今回の誤差平均。`target_feature_var` は出力次元ごとの一生の母分散の平均（1件目は0）、`target_feature_max` は今回の出力の絶対値最大。`clip_ratio` は倍率上限に達したlaneの比率で、unclippedなら0。`predictor_loss` は直近の成功stepの損失を、学習しないintakeでも保持する（未学習・読込直後はNaN）。`learn_count` は実際にoptimizerが進んだ累計回数で、warm-upのfalseは数えない。無効時はキーが無くnullopt。構築時にキーを固定したatomicの診断値を読むため、UI読み出しで新たなロックを取らない。
+内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max`・`bonus_min` はbeta倍と選択したmask後の値、`bonus_pos_ratio` は正のlaneの割合。`bonus_share` は `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)`（分母0はNaN）で、負のボーナスでも0〜1に収まる。`error_mean`・`error_std` は選択した方式の統計（stdは分散の平方根）、`error_step` は今回の誤差平均。`target_feature_var` は出力次元ごとの一生の母分散の平均（1件目は0）、`target_feature_max` は今回の出力の絶対値最大。`clip_ratio` は倍率上限に達したlaneの比率で、unclippedなら0。`predictor_loss` は直近の成功stepの損失を、学習しないintakeでも保持する（未学習・読込直後はNaN）。`learn_count` は実際にoptimizerが進んだ累計回数で、warm-upのfalseは数えない。無効時はキーが無くnullopt。構築時にキーを固定したatomicの診断値を読むため、UI読み出しで新たなロックを取らない。 whiten の error_mean/error_std は次の batch に使う累積か EMA の統計で、learn_predictor の warm-up 中は空なので NaN になる。learn_count はこの warm-up 中も増える。
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
 - `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力のQ系scoreを使い、TBO有効時もh空間のまま扱う。IQN+UQEでは両者が同じrisk-biased action scoreになり、full-distributionの`E[Z]`ではない。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。

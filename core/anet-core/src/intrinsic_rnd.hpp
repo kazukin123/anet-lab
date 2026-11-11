@@ -15,14 +15,26 @@ namespace anet::rl::intrinsic {
     inline constexpr char kMultiplierUnclipped[] = "unclipped";
     inline constexpr char kStatisticsWhiten[] = "whiten";
     inline constexpr char kStatisticsVarianceFeedback[] = "variance_feedback";
+    inline constexpr char kWarmupLearnPredictor[] = "learn_predictor";
+    inline constexpr char kWarmupCollectErrors[] = "collect_errors";
+    inline constexpr char kErrorAverageCumulative[] = "cumulative";
+    inline constexpr char kErrorAverageEma[] = "ema";
 
     struct RndNoveltyEstimatorConfig : public anet::Config {
         int output_dim = 128;
         static constexpr float kDefaultMultiplierMax = 5.0f;
+        static constexpr int64_t kDefaultEmaSteps = 1000000;
+        static constexpr bool kDefaultErrorNormUseCentering = true;
         std::string multiplier_mode = kMultiplierClipped;
         std::string statistics_mode = kStatisticsWhiten;
         float multiplier_max = kDefaultMultiplierMax;
         int64_t warmup_steps = 12800;
+        std::string warmup_mode = kWarmupLearnPredictor;
+        struct {
+            std::string average_mode = kErrorAverageCumulative;
+            int64_t ema_steps = kDefaultEmaSteps;
+            bool use_centering = kDefaultErrorNormUseCentering;
+        } error_norm;
         float learning_rate = 1e-4f;
         float weight_decay = 0.0f;
         double adam_eps = 1e-8;
@@ -48,6 +60,25 @@ namespace anet::rl::intrinsic {
         int64_t Save(anet::OutputArchive& archive) const override;
         int64_t Load(anet::InputArchive& archive) override;
     private:
+        // 誤差だけの統計。累積は既存の計算・保存形式をそのまま使う。
+        class RndErrorStatistics {
+        public:
+            RndErrorStatistics(bool use_ema, int64_t ema_steps);
+            void Update(const torch::Tensor& errors);
+            bool HasData() const;
+            float Mean() const;
+            float Std() const;
+            int64_t Save(anet::OutputArchive& archive) const;
+            int64_t Load(anet::InputArchive& archive);
+        private:
+            const bool use_ema_;
+            const double decay_;
+            RunningMeanStd cumulative_{{}, 0.0};
+            double weight_ = 0.0;
+            double mean_ = 0.0;
+            double m2_ = 0.0;
+        };
+
         // 観測・誤差の再帰統計。共有の正規化部品とは独立。
         class VarianceFeedbackStatistics {
         public:
@@ -77,7 +108,7 @@ namespace anet::rl::intrinsic {
         std::shared_ptr<anet::nn::Network> predictor_;
         std::unique_ptr<torch::optim::AdamW> optimizer_;
         std::shared_ptr<ObservationNormalizer> normalizer_;
-        RunningMeanStd error_stats_;
+        RndErrorStatistics error_stats_;
         RunningMeanStd target_feature_stats_;
         std::optional<VarianceFeedbackStatistics> feedback_stats_;
         int64_t score_count_ = 0;

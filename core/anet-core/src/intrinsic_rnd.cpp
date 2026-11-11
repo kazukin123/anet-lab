@@ -18,6 +18,7 @@ constexpr char kPredictorLoss[] = "predictor_loss";
 constexpr char kTargetFeatureVar[] = "target_feature_var";
 constexpr char kTargetFeatureMax[] = "target_feature_max";
 constexpr char kCheckpointFormat[] = "RndNoveltyEstimator-3";
+constexpr char kEmaCheckpointFormat[] = "RndNoveltyEstimator-4";
 
 namespace {
     // LinearHeadの最終軸射影がlaneごとの1ベクトルになる条件を構築時に確定する。
@@ -50,6 +51,79 @@ namespace {
         torch::Tensor state_;
     };
 } // namespace
+
+static const char* RndCheckpointFormat(const RndNoveltyEstimatorConfig& config)
+{
+    return config.statistics_mode == kStatisticsWhiten && config.error_norm.average_mode == kErrorAverageEma
+        ? kEmaCheckpointFormat : kCheckpointFormat;
+}
+
+RndNoveltyEstimator::RndErrorStatistics::RndErrorStatistics(bool use_ema, int64_t ema_steps)
+    : use_ema_(use_ema), decay_(1.0 - 1.0 / static_cast<double>(ema_steps))
+{
+}
+
+void RndNoveltyEstimator::RndErrorStatistics::Update(const torch::Tensor& errors)
+{
+    ANET_PROFILE_FUNC();
+    if (!use_ema_) {
+        cumulative_.Update(errors);
+        return;
+    }
+    // 既に CPU に戻した誤差を double で一括変換する。lane ごとの転送は無い。
+    const auto input = errors.to(torch::kDouble).contiguous();
+    const auto* values = input.data_ptr<double>();
+    for (int64_t lane = 0; lane < input.numel(); ++lane) {
+        const auto previous_weight = weight_ * decay_;
+        weight_ = previous_weight + 1.0;
+        const auto difference = values[lane] - mean_;
+        mean_ += difference / weight_;
+        // 二乗和同士の減算を避け、微小な散らばりの桁落ちを抑える。
+        m2_ = decay_ * m2_ + difference * difference * previous_weight / weight_;
+    }
+}
+
+bool RndNoveltyEstimator::RndErrorStatistics::HasData() const
+{
+    return use_ema_ ? weight_ > 0.0 : cumulative_.GetCount() > 0;
+}
+
+float RndNoveltyEstimator::RndErrorStatistics::Mean() const
+{
+    return use_ema_ ? static_cast<float>(mean_) : cumulative_.GetMean().item<float>();
+}
+
+float RndNoveltyEstimator::RndErrorStatistics::Std() const
+{
+    return use_ema_ ? static_cast<float>(weight_ > 0.0 ? std::sqrt(m2_ / weight_) : 0.0)
+        : cumulative_.GetStd().item<float>();
+}
+
+int64_t RndNoveltyEstimator::RndErrorStatistics::Save(anet::OutputArchive& archive) const
+{
+    if (!use_ema_) return cumulative_.Save(archive);
+    auto bytes = archive.Write(weight_);
+    bytes += archive.Write(mean_);
+    bytes += archive.Write(m2_);
+    return bytes;
+}
+
+int64_t RndNoveltyEstimator::RndErrorStatistics::Load(anet::InputArchive& archive)
+{
+    if (!use_ema_) return cumulative_.Load(archive);
+    // 検証が終わるまで内部の統計へ反映しない。
+    double weight, mean, m2;
+    auto bytes = archive.Read(weight);
+    bytes += archive.Read(mean);
+    bytes += archive.Read(m2);
+    if (!std::isfinite(weight) || weight < 0.0 || !std::isfinite(mean) || !std::isfinite(m2) || m2 < 0.0)
+        ANET_SYSTEM_ERROR("Invalid RND EMA checkpoint weight=" << weight << ", mean=" << mean
+            << ", m2=" << m2 << "; expected finite values with weight >= 0 and m2 >= 0.");
+    weight_ = weight;
+    mean_ = mean;
+    m2_ = m2;
+    return bytes;
+}
 
 // 観測の形だけbroadcastし、分散0の成分は0へ正規化する。呼出し側が倍率を1にする。
 static torch::Tensor NormalizeFeedbackField(const torch::Tensor& value, const torch::Tensor& mean,
@@ -214,6 +288,10 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
     ANET_READ_CONFIG(data, statistics_mode);
     ANET_READ_CONFIG(data, multiplier_max);
     ANET_READ_CONFIG(data, warmup_steps);
+    ANET_READ_CONFIG(data, warmup_mode);
+    ANET_READ_CONFIG(data, error_norm.average_mode);
+    ANET_READ_CONFIG(data, error_norm.ema_steps);
+    ANET_READ_CONFIG(data, error_norm.use_centering);
     ANET_READ_CONFIG(data, learning_rate);
     ANET_READ_CONFIG(data, weight_decay);
     ANET_READ_CONFIG(data, adam_eps);
@@ -271,6 +349,36 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
     if (statistics_mode != kStatisticsWhiten && statistics_mode != kStatisticsVarianceFeedback)
         ANET_SYSTEM_ERROR("Invalid " << prefix << ".statistics_mode='" << statistics_mode
             << "'; expected whiten or variance_feedback.");
+    if (warmup_mode != kWarmupLearnPredictor && warmup_mode != kWarmupCollectErrors)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".warmup_mode='" << warmup_mode
+            << "'; expected learn_predictor or collect_errors.");
+    if (error_norm.average_mode != kErrorAverageCumulative && error_norm.average_mode != kErrorAverageEma)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".error_norm.average_mode='" << error_norm.average_mode
+            << "'; expected cumulative or ema.");
+    if (error_norm.ema_steps < 1)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".error_norm.ema_steps=" << error_norm.ema_steps
+            << "; expected integer >= 1.");
+
+    // 値の検証後に、現在の組が使わない葉だけを既定との差で知らせる。
+    const auto notify_unused = [&](const char* key, const auto& value, const auto& default_value, bool info = false) {
+        if (value == default_value) return;
+        const auto message = "Ignored " + prefix + "." + key + "=" + anet::json(value).dump()
+            + " with statistics_mode=" + statistics_mode + ", error_norm.average_mode=" + error_norm.average_mode
+            + ", warmup_steps=" + std::to_string(warmup_steps) + "; default=" + anet::json(default_value).dump() + ".";
+        if (info) anet::log::info() << message;
+        else anet::log::warn() << message;
+    };
+    if (statistics_mode == kStatisticsVarianceFeedback) {
+        notify_unused("warmup_mode", warmup_mode, std::string(kWarmupLearnPredictor));
+        notify_unused("error_norm.average_mode", error_norm.average_mode, std::string(kErrorAverageCumulative));
+        notify_unused("error_norm.ema_steps", error_norm.ema_steps, kDefaultEmaSteps);
+        notify_unused("error_norm.use_centering", error_norm.use_centering, kDefaultErrorNormUseCentering);
+    } else {
+        if (warmup_steps == 0)
+            notify_unused("warmup_mode", warmup_mode, std::string(kWarmupLearnPredictor), true);
+        if (error_norm.average_mode == kErrorAverageCumulative)
+            notify_unused("error_norm.ema_steps", error_norm.ema_steps, kDefaultEmaSteps);
+    }
 
     // 解決後の値だけで判断し、無効な葉も検証済みのうえで構築時に1回知らせる。
     if (statistics_mode == kStatisticsVarianceFeedback) {
@@ -297,7 +405,9 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
 RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config,
     const anet::TensorSpecMap& observation_spec, const torch::Device& device,
     const anet::SeedMaker& seed_maker)
-    : config_(config), device_(device), error_stats_({}, 0.0), target_feature_stats_({config.output_dim}, 0.0)
+    : config_(config), device_(device),
+      error_stats_(config.error_norm.average_mode == kErrorAverageEma, config.error_norm.ema_steps),
+      target_feature_stats_({config.output_dim}, 0.0)
 {
     // 互いに独立した重みを作り、教師側は勾配と学習時の状態更新を止める。
     auto normalized_spec = observation_spec;
@@ -380,14 +490,18 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
         diagnostics_[kErrorMean] = static_cast<float>(feedback_stats_->ErrorMean());
         diagnostics_[kErrorStd] = static_cast<float>(feedback_stats_->ErrorStd());
     } else {
-        const auto std = error_stats_.GetStd().item<float>();
-        if (score_count_ >= config_.warmup_steps && error_stats_.GetCount() > 0 && std > 0.0f)
-            alpha = 1.0f + (errors - error_stats_.GetMean().item<float>()) / std;
-        error_stats_.Update(errors);
+        const auto std = error_stats_.Std();
+        if (score_count_ >= config_.warmup_steps && error_stats_.HasData() && std > 0.0f)
+            alpha = 1.0f + (errors - (config_.error_norm.use_centering ? error_stats_.Mean() : 0.0f)) / std;
+        // 新しい既定は predictor が慣れるまで誤差の統計を空のまま保つ。
+        if (score_count_ >= config_.warmup_steps || config_.warmup_mode == kWarmupCollectErrors)
+            error_stats_.Update(errors);
         /// @todo 正規化結果を捨てる二重計算の費用を測定し、統計更新専用APIの追加を判断する。
         normalizer_->NormalizeAndUpdateStats(float_observations);
-        diagnostics_[kErrorMean] = error_stats_.GetMean().item<float>();
-        diagnostics_[kErrorStd] = error_stats_.GetStd().item<float>();
+        if (error_stats_.HasData()) {
+            diagnostics_[kErrorMean] = error_stats_.Mean();
+            diagnostics_[kErrorStd] = error_stats_.Std();
+        }
     }
     if (config_.multiplier_mode == kMultiplierClipped)
         alpha = alpha.clamp(1.0f, config_.multiplier_max);
@@ -407,8 +521,9 @@ bool RndNoveltyEstimator::Learn(const anet::TensorDict& observations)
     ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
     
-    // warm-upではoptimizerを進めず、呼び出し側へ未実行を返す。
-    if (config_.warmup_steps > 0 && score_count_ <= config_.warmup_steps) return false;
+    // 誤差を集める warm-up と variance_feedback だけは optimizer を休止する。
+    if ((feedback_stats_ || config_.warmup_mode == kWarmupCollectErrors)
+        && config_.warmup_steps > 0 && score_count_ <= config_.warmup_steps) return false;
 
     // 渡された観測すべてを正規化する。採点側で育てた統計は読むだけにする。
     ANET_PROFILE_SCOPE(observation_transfer);
@@ -460,7 +575,7 @@ int64_t RndNoveltyEstimator::Save(anet::OutputArchive& archive) const
 {
     ANET_PROFILE_FUNC();
     // 固定教師を含む学習状態と、採点した観測の件数を保存する。
-    auto bytes = archive.Write(std::string(kCheckpointFormat));
+    auto bytes = archive.Write(std::string(RndCheckpointFormat(config_)));
     bytes += archive.Write(config_.statistics_mode);
     bytes += archive.WriteTorchObject(target_);
     bytes += archive.WriteTorchObject(predictor_);
@@ -481,8 +596,9 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
     ANET_PROFILE_FUNC();
     std::string format;
     auto bytes = archive.Read(format);
-    if (format != kCheckpointFormat)
-        ANET_SYSTEM_ERROR("Invalid RND checkpoint format='" << format << "'; expected='" << kCheckpointFormat << "'.");
+    const auto* expected = RndCheckpointFormat(config_);
+    if (format != expected)
+        ANET_SYSTEM_ERROR("Invalid RND checkpoint format='" << format << "'; expected='" << expected << "'.");
     std::string statistics_mode;
     bytes += archive.Read(statistics_mode);
     if (statistics_mode != config_.statistics_mode)
@@ -519,9 +635,9 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
     if (feedback_stats_ && feedback_stats_->Count() > 0) {
         diagnostics_[kErrorMean] = static_cast<float>(feedback_stats_->ErrorMean());
         diagnostics_[kErrorStd] = static_cast<float>(feedback_stats_->ErrorStd());
-    } else if (!feedback_stats_ && error_stats_.GetCount() > 0) {
-        diagnostics_[kErrorMean] = error_stats_.GetMean().item<float>();
-        diagnostics_[kErrorStd] = error_stats_.GetStd().item<float>();
+    } else if (!feedback_stats_ && error_stats_.HasData()) {
+        diagnostics_[kErrorMean] = error_stats_.Mean();
+        diagnostics_[kErrorStd] = error_stats_.Std();
     }
     if (target_feature_stats_.GetCount() > 0)
         diagnostics_[kTargetFeatureVar] = TargetFeatureVariance();

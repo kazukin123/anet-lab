@@ -718,7 +718,8 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
             const auto& intrinsic_observations = use_next_state ? batch_exp.next_state.obs : batch_exp.state.obs;
             const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
             auto bonus = intrinsic_beta_->Evaluate(counts.exp_step) * (alpha - 1.0f);
-            if (use_next_state) bonus = bonus.masked_fill(batch_exp.next_state.done, 0.0f);
+            if (use_next_state && config_.intrinsic.use_done_mask)
+                bonus = bonus.masked_fill(batch_exp.next_state.done, 0.0f);
 
             // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
             const float bonus_sum = bonus.abs().sum().item<float>();

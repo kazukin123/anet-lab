@@ -2,7 +2,7 @@
 
 > 主たる観点: 基本概念とアルゴリズムの背景から、ANET の採点・報酬合成・補助学習・保存へつなぐ。
 >
-> 対象: `DefaultDQNAgent` に追加した RND 単独の内的報酬。2026-11-07 時点の実装を説明する。
+> 対象: `DefaultDQNAgent` の RND 単独の内的報酬。
 
 RND は、**固定した問題の答えを学習する小さなモデルを持ち、「まだ答えをうまく再現できない観測」に探索のボーナスを与える仕組み**である。環境の点数とは別の手掛かりを学習へ加え、まだ十分に経験していない場所へ向かう動機を作る。
 
@@ -42,7 +42,7 @@ RND は、**固定した問題の答えを学習する小さなモデルを持�
 | 観測正規化 | 入力の尺度をそろえる処理。今回の既定は、成分ごとに平均を引き、標準偏差を使って割る。 |
 | clip・倍率 α | clipは範囲外の値を上下限へ制限すること。倍率αは1を基準とする採点結果で、既定のclippedは `[1, L]`、unclippedは `1+z` のままとする。 |
 | β・L | β はボーナスの強さを決める係数。L は倍率 α の上限。 |
-| warm-up | 開始直後に統計を集める期間。今回の RND では、この間はボーナスも predictor の更新も行わない。 |
+| warm-up | 開始直後にボーナスを止める期間。whiten の既定では predictor を学習させ、観測の統計だけを集める。 |
 | NGU | Never Give Up。エピソード内の新しさと学習全体での新しさを組み合わせ、探索の強さが異なる方策を学ぶ手法。 |
 
 ### 1.3 ANET の実装用語
@@ -173,7 +173,7 @@ RND には、目的が異なる2つの統計がある。
 
 画素などの非カテゴリの `uint8` 観測は、RND 内で浮動小数点へ変換してから正規化する。カテゴリを表す観測は、既存の観測仕様・正規化機構の扱いに従う。
 
-一方、誤差の統計は全 lane の値を1つの累積統計へ集約する。直近だけの窓ではなく、これまで採点した全 batch の情報を引き継ぐ。こちらは `epsilon=0` で構築し、標準偏差が0の場合には次節の特別扱いをする。
+一方、誤差の統計は全 lane の値を1つに集約する。`error_norm.average_mode=cumulative`（既定）は、統計に入れた全 batch の累積で、既存の Welford と `epsilon=0` を使う。`ema` は、採点した観測1件ごとに過去の重みを `d=1−1/ema_steps` 倍に減らし、重みの和で割った平均と母分散を使う（既定の `ema_steps=1,000,000`）。lane 順に更新し、同じ誤差の列なら batch の分け方によらず同じ統計になる。`ema_steps=1` は直前1件だけなので分散0になる。標準偏差0か統計が空の場合には次節の特別扱いをする。warm-up 中の誤差を入れるかは §3.5 のモードが決める。
 
 ここまでが既定の `statistics_mode=whiten` である。Taigaらの公開実装へ条件を合わせる `variance_feedback` は、別の再帰統計を使う。観測の平均 `obs_m` は0、分散に相当する値 `obs_v` は1、誤差の平均 `err_m` は0、誤差の分散に相当する値 `err_v` は1、件数 `n` は0から始める。観測の平均・分散は入力成分ごと、誤差の平均・分散はスカラーで持つ。
 
@@ -212,11 +212,13 @@ $$
 
 facade は、この倍率からボーナスを作る。
 
+`error_norm.use_centering=false` は平均を引かず、`α=1+e/σ_e` とする。clipped なら上限 L で切り、unclipped ならそのまま返す。分母は同じ誤差の標準偏差で、warm-up 中・統計が空・標準偏差0ではどちらも倍率1である。中心化と clip は独立して選べる。平均を引かないと普段の観測にも正の報酬が付き、長く生きる向きにも働くので、β の比較条件も合わせて読む。
+
 `multiplier_mode=unclipped` では下限・上限を適用せず、両統計モードとも `α=1+z` を返す。平均より小さい誤差は負のボーナスになり、`α` 自体が負になる場合もある。warm-up中や除数0では倍率1で、`clip_ratio` は常に0となる。`multiplier_max` は検証だけ行い、解決値が実装の既定5と異なるときだけ構築時に1回WARNする。
 
 $$
 b_i=\begin{cases}
-0 & \text{next\_stateを採点し、lane }i\text{ の done が true}
+0 & \text{next\_stateを採点し、use\_done\_mask=true で、lane }i\text{ の done が true}
 \\
 \beta\,(\alpha_i-1) & \text{それ以外}
 \end{cases}
@@ -228,13 +230,13 @@ $$
 
 `i` は lane 番号、`r_ext` は環境の外的報酬、`RewardScale` は既存の報酬スケール処理である。`α` から1を引くため、慣れた観測の基準値 `α=1` は追加報酬0になる。現在の β が0.1、Lが5なら、ボーナスは `[0, 0.4]` である。外的報酬を α 倍する式ではないので、外的報酬0の遷移にもボーナスを付けられる。
 
-次観測を採点する場合、`done` のlaneも採点と統計更新・補助学習の対象には含まれる。0にするのは**報酬へ足す値**である。`truncated=true` だけでは0にしない。`observation=state` は行動した観測を使い、doneでもマスクしない。その観測は終端へ至る行動時点では有効だったためである。
+次観測を採点する場合、`done` のlaneも採点と統計更新・補助学習の対象には含まれる。`intrinsic.use_done_mask=true`（既定）で0にするのは**報酬へ足す値**だけである。false は終端の観測の採点値もそのまま足す。`truncated=true` だけでは0にしない。`observation=state` は行動した観測を使い、doneでもマスクしない。その観測は終端へ至る行動時点では有効だったためである。この場合 use_done_mask は使わず、既定と違う false を指定すると構築時に1回 WARN する。
 
 ### 3.4 先に採点し、後から慣れる
 
 処理順は、同じ観測から得るボーナスを変えるため、アルゴリズムの一部である。
 
-次の表は既定のwhiten・clipped・next_stateを示す。stateを選んだ場合は観測とmaskの有無、variance_feedbackでは観測・誤差の統計の更新順が前節のとおり変わる。
+次の表は既定のwhiten・clipped・next_stateを示す。stateを選んだ場合は観測とmaskの有無、use_done_mask=false では報酬のmask、variance_feedbackでは観測・誤差の統計の更新順が前節のとおり変わる。
 
 | 順番 | 処理 | 使う状態・更新する状態 |
 | ---: | --- | --- |
@@ -242,7 +244,7 @@ $$
 | 2 | 次観測を正規化する | 今回の観測を入れる前の RND 観測統計 |
 | 3 | target と predictor の出力から誤差を計算する | 更新前の predictor の重み |
 | 4 | 倍率 α を求める | 今回の誤差を入れる前の誤差統計 |
-| 5 | 観測・誤差の累積統計と採点した観測の件数を更新する | 今回の全 lane を加える |
+| 5 | 観測・誤差の統計と採点した観測の件数を更新する | 全 lane が対象。既定の warm-up 中は誤差の統計を更新しない |
 | 6 | β を評価し、done をマスクしてボーナスを加える | `counts.exp_step` と今回の α |
 | 7 | facadeがcreditを加算し、学習可能な回数だけk laneずつ選んで `Learn` を呼ぶ | 手順5で更新した観測統計。各呼び出しで全k件を正規化・順伝播し、新しいグラフで学習する |
 | 8 | 合成済み報酬を含む経験を内側の Learner へ渡す | Q 学習と ReplayBuffer の既存経路 |
@@ -251,13 +253,15 @@ $$
 
 `Estimate` は採点だけでなく手順5まで実行する。読み取り専用の問い合わせではないが、計算グラフは保持しない。`Learn` は渡された観測から独立して計算し、その時点の観測統計を読むだけで、統計を更新しない。このため、同じ生の観測でも採点時と学習時では正規化後の値が異なることがある。
 
-現在のfacadeはintakeの全観測で `Estimate` を1回呼び、creditに応じて0回以上 `Learn` を呼ぶ。公開API自体は同じ観測・順序・回数を要求しない。例えば2回採点してから別の観測を学習してもよく、warm-upが無い、または終わっていれば `Learn` だけでも学習できる。`Learn` はoptimizerを進めたらtrue、warm-up中ならfalseを返す。将来、行動時の採点とReplayの観測を使う補助学習を分けても、この口を利用できる。
+現在のfacadeはintakeの全観測で `Estimate` を1回呼び、creditに応じて0回以上 `Learn` を呼ぶ。公開API自体は同じ観測・順序・回数を要求しない。例えば2回採点してから別の観測を学習してもよく、既定の warm-up 中も `Learn` だけで学習できる。`Learn` はoptimizerを進めたらtrue、collect_errors または variance_feedback の warm-up 中ならfalseを返す。将来、行動時の採点とReplayの観測を使う補助学習を分けても、この口を利用できる。
 
 ### 3.5 warm-up と lane の抽選
 
 既定の `warmup_steps=12,800` は、**採点した観測の件数**である。B個まとめて採点すればB件を加え、facadeから呼ぶ場合はexp stepと同じ単位になる。N=128なら100 intake、N=64なら200 intakeで同じ12,800件を集める。`Learn` は観測統計を更新しないため、単独ではwarm-upを終えられない。0なら初回の `Learn` から学習する。
 
-whitenのαはbatchの採点前の件数で判定し、閾値未満なら全laneで1を返す。variance_feedbackはlaneごとの採点前の件数で判定するため、閾値をまたぐbatchの途中から通常の倍率になる。どちらも統計はその間に更新する。`Learn` は採点後の件数が閾値以下ならfalseを返すので、ちょうど12,800件までのintakeではoptimizerを進めない。`warmup_steps=0` はこの休止を設けず、初回から学習する。whitenでも誤差統計がまだ無ければ初回のαは1、variance_feedbackでは更新後の誤差統計を使う。
+whitenのαはbatchの採点前の件数で判定し、閾値未満なら全laneで1を返す。`warmup_mode=learn_predictor`（既定）は、その間も `Learn` がtrueを返して学習し、観測の統計だけを更新する。誤差の統計は空なので error_mean/error_std は NaN である。warm-up 明けの最初の batch も空の統計で倍率1を返し、その誤差を統計に入れる。次の batch から採点前の統計を使う。
+
+`warmup_mode=collect_errors` は、warm-up 中も観測と誤差の統計を更新する一方、採点後の件数が閾値以下なら `Learn` がfalseを返す。variance_feedback の warm-up はこの形のままで、warmup_mode を使わない。ただし採点はlaneごとの採点前の件数で判定し、閾値をまたぐ batch の途中から通常の倍率になる。`warmup_steps=0` はどちらの warmup_mode でも初回から学習し、初回から誤差を統計に入れる。使わない warmup_mode が既定と違うときだけ構築時に1回 INFO を出す。
 
 学習の刻みはfacadeが持つ。kを `min(learn_batch_size,N)` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。Nがbatch sizeより小さいときは構築時に1回警告し、N件に縮めるため、同じ回数になる保証の対象外である。
 
@@ -288,11 +292,11 @@ sequenceDiagram
     R->>R: 誤差とtarget出力のD2H、有限検査
     R->>R: 更新前の誤差統計でα、統計更新
     R-->>F: α（入力と同じdevice）
-    F->>F: βとdoneマスクで内的報酬を合成
+    F->>F: βと設定されたdoneマスクで内的報酬を合成
     F->>F: credit += N × learn_ratio / k、lane順列を準備
     loop creditが1以上、最大floor(N/k)回
         F->>R: Learn(k laneずつ、重複なし)
-        opt warm-up後
+        opt learn_predictor、またはwarm-up後
         R->>R: 全k件を今の統計で正規化、H2D
         R->>T: forward(選択lane、勾配なし)
         T-->>R: 教師の出力
@@ -341,7 +345,7 @@ sequenceDiagram
 | 正規化の具体的な計算 | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) と [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | 共通の正規化・累積統計・保存処理を使う |
 | 契約をどう確かめるか | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | 固定教師、学習、更新順序、報酬加算、保存再開などを公開経路から検証する |
 
-DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`。RND固有の設定はFactoryへ渡し、`RndNoveltyEstimatorConfig` が解釈する。報酬の合成・学習の刻みを担当する側と、新しさの計算・補助学習そのものを担当する側を分けている。
+DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.observation`・`intrinsic.use_done_mask`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`。RND固有の設定はFactoryへ渡し、`RndNoveltyEstimatorConfig` が解釈する。報酬の合成・学習の刻みを担当する側と、新しさの計算・補助学習そのものを担当する側を分けている。
 
 ## 4. 具体例 ― 値・設定・指標を読む
 
@@ -369,6 +373,11 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 | `intrinsic.enabled` | false | false なら estimator を作らず、β と RND の他の設定も解釈しない |
 | `intrinsic.beta` | 0.1 | `α−1` に掛ける係数。0以上の ProfiledValue。0にしても採点・補助学習は止まらない |
 | `intrinsic.observation` | next_state | 採点・補助学習へ渡す生の観測。stateなら行動時の観測で、doneをmaskしない |
+| `intrinsic.use_done_mask` | true | next_state の done lane の内的報酬を0にするか。stateでは使わない |
+| `intrinsic.rnd.warmup_mode` | learn_predictor | whiten の warm-up 中に学習させる。collect_errors は誤差を集めて学習を止める |
+| `intrinsic.rnd.error_norm.average_mode` | cumulative | whiten の誤差の統計。cumulative または ema |
+| `intrinsic.rnd.error_norm.ema_steps` | 1,000,000 | ema の時定数。採点した観測の件数で、整数1以上 |
+| `intrinsic.rnd.error_norm.use_centering` | true | whiten の式で誤差から平均を引くか |
 | `intrinsic.rnd.multiplier_mode` | clipped | unclippedなら倍率を制限せず、負のボーナスも残す |
 | `intrinsic.rnd.statistics_mode` | whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う |
 | `intrinsic.rnd.head.init.*` | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの葉 |
@@ -377,7 +386,7 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 | `intrinsic.rnd.multiplier_max` | 5 | α の上限 L。有限で1より大きい値 |
 | `intrinsic.learn_ratio` | 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下 |
 | `intrinsic.learn_batch_size` | 32 | 補助学習1 stepの件数。整数で1以上。N件への縮小は§3.5参照 |
-| `intrinsic.rnd.warmup_steps` | 12,800 | 統計だけを集める観測の件数。0以上 |
+| `intrinsic.rnd.warmup_steps` | 12,800 | ボーナスを止める観測の件数。0以上。中身は warmup_mode による |
 | `intrinsic.rnd.learning_rate` | 0.0001 | predictor の学習率。有限で正の値 |
 | `intrinsic.rnd.weight_decay` | 0 | predictor の AdamW の重み減衰。有限で0以上 |
 | `intrinsic.rnd.obs_norm.clip_range` | 5 | 観測正規化後の制限範囲。α の上限 L とは別 |
@@ -385,6 +394,8 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 | `intrinsic.rnd.predictor.net.*` | 各環境の `run.@rnd` が指定 | predictorの入力とBody。必須。targetから暗黙に補わない |
 
 `learn_ratio` と `learn_batch_size` はoptimizerの進む回数と1回の件数を変え、誤差が減る速度にも影響する。単なる高速化の設定として扱わない。βは同じαに対する報酬の大きさ、Lは大きな誤差の倍率上限を変える。作用する位置を分けて読む。
+
+新しい5キーは、RND有効時に型・列挙・値域を検証する。variance_feedback では warmup_mode と error_norm.* を使わず、cumulative では ema_steps を使わない。使わないキーも検証し、解決値が実装の既定と違うときだけキーごとに構築時1回 WARN する。whiten・warmup_steps=0 の warmup_mode だけは機能を止めた通知なので INFO とする。RND無効時には読まず、検証も通知もしない。
 
 ### 4.3 `run.@rnd` が選ぶ構造
 
@@ -410,19 +421,19 @@ RNDは選択した生の観測を受け取り、Actor側でQ入力用に加工�
 
 | キー | 記録先 | 何を測るか |
 | --- | --- | --- |
-| `bonus_mean` | `01_bonus_mean` | 実際に加えたボーナスのbatch平均。next_stateを使うときだけdoneをmaskする |
+| `bonus_mean` | `01_bonus_mean` | 実際に加えたボーナスのbatch平均。next_state かつ use_done_mask=true でdoneをmaskする |
 | `bonus_max` | `02_bonus_max` | 同じボーナスの最大値 |
 | `bonus_share` | `03_bonus_share` | ボーナスの絶対値合計が、外的・内的報酬の絶対値合計に占める比率 |
 | `bonus_min` | `04_bonus_min` | 実際に加えたボーナスの最小値。unclippedでは負にもなる |
 | `bonus_pos_ratio` | `05_bonus_pos_ratio` | 正のボーナスを加えたlaneの割合 |
-| `error_mean` | `11_error_mean` | 今回の batch を加えた後の、誤差の累積平均 |
-| `error_std` | `12_error_std` | 今回の batch を加えた後の、誤差の累積標準偏差 |
+| `error_mean` | `11_error_mean` | 次の batch の採点に使う誤差の平均。whiten は選択した累積か EMA。統計が空なら NaN |
+| `error_std` | `12_error_std` | 同じ誤差の標準偏差。統計が空なら NaN |
 | `error_step` | `13_error_step` | 今回の全 lane の誤差の平均 |
 | `target_feature_var` | `14_target_feature_var` | targetの出力の次元ごとの累積母分散の平均。1 laneずつでも履歴を蓄積し、初回は0 |
 | `target_feature_max` | `15_target_feature_max` | 今回のtargetの出力の絶対値の最大 |
 | `clip_ratio` | `21_clip_ratio` | 今回のαが上限Lに等しいlaneの割合。done mask前。unclippedでは0 |
 | `predictor_loss` | `31_predictor_loss` | 直近に成功した補助学習stepの更新前の誤差平均。未学習ならNaN |
-| `learn_count` | `32_learn_count` | optimizerが実際に進んだ累計step数。warm-upのfalseは数えない |
+| `learn_count` | `32_learn_count` | optimizerが実際に進んだ累計step数。learn_predictor は warm-up 中も増える。false は数えない |
 
 `bonus_share` は次の式であり、個々の lane の比率を平均するのではない。
 
@@ -445,7 +456,7 @@ RND無効時のキーは `nullopt`。有効時の `learn_count` は0から始ま
 
 RND は predictor の重みだけでは再開できない。教師が変われば「答え」が変わり、統計が変われば「普段との差」が変わり、抽選の状態が変われば「どの lane で練習するか」が変わるためである。
 
-RND本体は `RndNoveltyEstimator-3` の識別子とstatistics_modeを先に書く。その後にtarget、predictor、optimizer、選択した方式の統計、target出力の累積統計、採点した観測件数を保存する。whitenは観測正規化とWelford、variance_feedbackはobs_m・obs_v・err_m・err_v・nを保存する。設定とcheckpointの統計モードが違うときは、双方の値を含むERRORでpayload読込前に拒否する。
+RND本体は、whiten の EMA だけ `RndNoveltyEstimator-4`、累積と variance_feedback は `RndNoveltyEstimator-3` の識別子とstatistics_modeを先に書く。その後にtarget、predictor、optimizer、選択した方式の統計、target出力の累積統計、採点した観測件数を保存する。whitenは観測正規化と、累積なら既存 Welford、EMAなら重みの和・平均・二乗偏差を保存する。variance_feedbackはobs_m・obs_v・err_m・err_v・nを保存する。設定に対応する識別子か statistics_mode と違えば、双方の値を含むERRORでpayload読込前に拒否する。累積の書式と中身は変えないので、保存済みの -3 をそのまま読める。warmup_mode・use_centering・ema_steps・use_done_mask は保存せず、再開時の設定に従う。
 
 Agentはその後ろにfacadeの未消費credit、lane抽選の乱数状態、累計成功回数を保存する。RND本体を先に置き、異なる書式を本体の検査で拒否する。呼び出し途中を除き、初回採点前、EstimateとLearnの間、Learn直後で保存・復元できる。計算グラフは持ち越さない。直近lossは保存対象外で、読込後の最初の成功stepまではNaNとなる。
 
@@ -470,6 +481,8 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 `learner.enabled=false` では一度警告して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。診断値の読み取りは値の受け渡し専用の仕組みを使い、画面表示のために新しい学習ロック待ちを追加しない。
 
 ### 5.2 確認済みの範囲
+
+誤差統計・warm-up・中心化・終端の mask の検証手順は [PRD123 検証資材](../../core/anet-core/testdata/prd123/README.md) にある。旧挙動を選ぶ collect_errors、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を区別する。KFM の効果確認は別の承認を受けてから行う。
 
 公開実装の形と選択肢を追加した2026-11-07の検証は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md)、再検証の入口は [PRD116 検証資材](../../core/anet-core/testdata/prd116/README.md) に置く。過去の検証は [20impl](../memo/116_rnd_lifelong_novelty_20impl.md)、[21impl](../memo/116_rnd_lifelong_novelty_21impl.md)、[22impl](../memo/116_rnd_lifelong_novelty_22impl.md) を参照する。有効時の学習系列はNetworkと設定の変更により過去のRunと異なる。
 
