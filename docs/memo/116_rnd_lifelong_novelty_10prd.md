@@ -9,6 +9,7 @@
 > 2026-11-07（別の枠の報告を受けて改訂。暫定のまま）: Atari の RND の Network が意図と別の形で組まれていた不具合（§2.1）を直し、Taiga ら（ICLR 2020）の Rainbow＋RND へ anet の設定だけで寄せられる形にした（§1.2・§1.3・§2.1・§3・D1・D2・D4・D5・D6・D8・D12・D13・§5.1〜§5.7・§6.2〜§6.4・§7・§8 の 1・2・14〜17・§8.1 の 6・7・§9・§11）。target と predictor を別々の Network 設定にし（`intrinsic.rnd.target.net.*`・`intrinsic.rnd.predictor.net.*`。別の枠の案 `target_net`・`predictor_net` は、役割の違いを葉の名前ではなく役割の階層で表す impl.md §名前の 1 に合わせて改めた）、Head の初期値を `intrinsic.rnd.head.init.*` で設定にし、倍率の clip と統計をモード値にし（`intrinsic.rnd.multiplier_mode`・`intrinsic.rnd.statistics_mode`）、採点と補助学習に使う観測を `intrinsic.observation` で選べるようにし、`intrinsic.rnd.adam_eps`・診断 4 つ・checkpoint の書式 3 を足した。既定の式（`clipped`・`whiten`・`next_state`）は変えない。Atari の `run.@rnd` の既定の Network は公開実装の形（3 conv・leaky ReLU・直交 √2・predictor に FC 512 ×2・出力 512）にし、NGU の同形・128 は 924 で決める。各既定は別の枠の推奨をユーザーが「一旦おすすめの内容で」と受けたもので、暫定の既定であり合意した決定ではない。§8.1 の 6 にあった「÷ 標準偏差」「[−1, 1] に clip」は原典のコードで確かめて訂正した。経緯は §8.1 の 7。
 > 2026-11-07（夜）: §6.4 の GridMaze から bonus の符号と減少の判定を外した（ユーザーの指示）。GridMaze の観測は (x, y) の 2 値で新しさが最初の数千 step で尽きるため（結果は §7 の GridMaze の行）。§8 に 18（predictor の周期リセット案）を追加した。
 > 2026-11-11: §8 の 1（内的報酬の式）・3（誤差統計の窓）・5（warm-up の既定値）を [PRD123](123_rnd_intrinsic_reward_scale_10prd.md)（暫定）へ移し、行に移した旨を書いた。KFM・Montezuma の Run で、累積の誤差統計が序盤の誤差で膨らみ内的報酬を抑えていたと分かったため（PRD123 §2）。D5 の whiten の観測の正規化を「移動平均・標準偏差」と書いていたのを、実物どおり「累積の平均・標準偏差」に直した（[scaler_impl.hpp](../../core/anet-core/src/scaler_impl.hpp) の `RunningMeanStd`、[212 §3.2](../design/212_rnd_lifelong_novelty.jp.md)）。暫定の印は外していない。
+> 2026-11-11（PRD123 の再グリルを受けて）: §8 の 1・3・5 が PRD123 を名指す箇所を、PRD123 の再グリル後の確定事項の番号に直し、§8 の 6（終端遷移の内的報酬）に PRD123 へ移した旨を書いた。暫定の印は外していない。
 > 起点: [924 §10](924_intrinsic_reward_novelty_10prd.md) は「RND 単独はそれだけでも検証できる独立の腕」とし、§9.1 の比較腕に「RND 単独」を置いている。924 は未決が 23 件あり、エピソード内の新しさ・Replay の契約・方策の組を一度に決めないと実装へ出せない。RND は Replay も Actor も触らずに作れる唯一の部品なので、先に切り出す。
 > 関連: [924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（内的報酬の全体。本 PRD はその第一の腕）、索引 issue [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md)、[DQN 系 Agent 設計 §6.2・§8.2](../design/200_dqn_agents.jp.md)、[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)（補助 Network の置き場。§4 D3 で関係を書く）、[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)（checkpoint 読込時の optimizer options）、[CONTEXT.md](../../CONTEXT.md) の「報酬スケーラ」。
 
@@ -413,12 +414,12 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 
 | # | 事項 | 暫定の既定と候補 |
 | --- | --- | --- |
-| 1 | 内的報酬の式 | 既定は α−1（NGU の倍率の形、`clipped`）。Taiga らの z をそのまま使う形は `multiplier_mode=unclipped` にした（2026-11-07）。残る候補: RND 原典の e_t／σ_e（平均を引かない、上限なし）。差は尺度と下限。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（平均を引かない形は 123 の §7 の 6） |
+| 1 | 内的報酬の式 | 既定は α−1（NGU の倍率の形、`clipped`）。Taiga らの z をそのまま使う形は `multiplier_mode=unclipped` にした（2026-11-07）。残る候補: RND 原典の e_t／σ_e（平均を引かない、上限なし）。差は尺度と下限。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（平均を引かない形は 123 の D7） |
 | 2 | target と predictor の形（Atari の既定） | 2026-11-07 に別々の Network 設定にして決着（D8）。残るのは Atari の既定の形で、暫定は公開実装の形（predictor に FC 512 ×2、出力 512）。候補: NGU の同形・出力 128。写しの比較では同形のほうが誤差の比が大きく（§2.1 の C・D）、長い学習での優劣は 924 の腕で確かめる |
-| 3 | 誤差統計の窓 | 既定は一生の累積。候補: EMA（係数をキーに）。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（123 の §7 の 3〜5） |
+| 3 | 誤差統計の窓 | 既定は一生の累積。候補: EMA（係数をキーに）。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（123 の D2・D3） |
 | 4 | 補助学習の刻みと件数の既定値 | 既定は `learn_ratio` 0.25・`learn_batch_size` 32（N=128 の旧既定と同じ量。exp step あたり 1/128 回・32 件）。候補: Taiga らと同じ毎 exp step 1 回・1 件（`learn_ratio` 1・`learn_batch_size` 1。費用は N 倍の backward）、件数 64 で回数を半分。比較対象との差は §8.1 の 6。指標は内的報酬が消える速さ（§6.4） |
-| 5 | warm-up の既定値 | 既定は採点した観測 12,800 件（N=128 の旧既定と同じ長さ）。候補: RND 原典の正規化の初期化の長さに揃える。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（123 の §7 の 1・2） |
-| 6 | 終端遷移の内的報酬 | 既定は 0。候補: 採点して付ける（終端観測は facade に届く） |
+| 5 | warm-up の既定値 | 既定は採点した観測 12,800 件（N=128 の旧既定と同じ長さ）。候補: RND 原典の正規化の初期化の長さに揃える。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（123 の D4・D6） |
+| 6 | 終端遷移の内的報酬 | 既定は 0。候補: 採点して付ける（終端観測は facade に届く）。2026-11-11 に [PRD123](123_rnd_intrinsic_reward_scale_10prd.md) へ移した（123 の D16。既定は 0 のまま、設定で選べるようにする） |
 | 7 | β を掛ける位置 | 既定は reward scaler の後。候補: scaler の前（スケールに乗せる） |
 | 8 | 評価での採点 | 本 PRD では無し（構造上届かない）。924 の採点点の問いで決める |
 | 9 | ADR 0062 の適用範囲の注記と、RND の Network の所有・補助学習の置き場と刻み（§8.1）を記す新 ADR | 本 PRD では起こさない。924 で起こす |

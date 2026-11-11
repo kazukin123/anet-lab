@@ -63,6 +63,7 @@
 - 2026-10-29: Actorごとに毎step判断するsingleと上限を時間で変えるvariableを選べるようにした（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.1・§5.3・§5.9）。
 - 2026-10-30: Actor共通の設定へskip側のNN実行設定のモードとキーを足した（出典: [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md)、§5.1・§5.6）。
 - 2026-11-10: dqn_based_agent.hppに`#pragma once`を足し、`BatchUpdateResult::GetScalar`の本体と補助を.cppへ移して、名前を解析して受ける群の関数と、直接比べるkeyの表に分ける仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D5〜D8）。
+- 2026-11-11: RNDのwhitenで、warm-up中の誤差を誤差の統計から外す既定と、誤差の統計の取り方（累積・直近重み）、平均を引くかの選択を足す仕様をグリルで決めた（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、題・§1・§4 D2・D4・D7）。
 
 ## 選ばなかった形
 
@@ -95,6 +96,14 @@
 - step の軸を learn_step やエピソード数にする — 先送り: 探索と β はすべて exp_step で動いている。再開条件: 別の軸が要る例が出たとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7）。
 - `BatchUpdateResult::GetScalar`のkeyの全部を1枚の表にする形 — 不採用: 名前を解析して受ける群は名前から番号を読むので表に載らない（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6・§7）。
 - `BatchUpdateResult::GetScalar`の直接比べるkeyも群ごとの関数に分け、中をifの連鎖のままにする形 — 不採用: keyの重複や届かない分岐が機械では見つからないまま残る（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6・§7）。
+- RNDの誤差の統計を直近重み（バイアス補正EMA）を既定にする形 — 先送り: 時定数というenvごとの調整値と、覚えきったenvで微小な差を拾う帰結が既定に入る。再開条件: KFMのRunで累積と直近重みを比べた結果を見て決め直す（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D2・§4.1・§8 U3）。
+- RNDのwarm-upの中身を、predictorを学習させるかと誤差を統計に入れるかの独立したスイッチ2つで選ぶ形 — 不採用: 要求の無い組が2つ増え、うち1つは膨らみが再発する（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D4・§4.1）。
+- RNDの前半は観測の統計だけ、後半はpredictorも学習させる2ステージのwarm-up — 先送り: 効果が未測定で設定キーが増える。再開条件: 新しい既定のRunの8M〜10Mの誤差の標準偏差が0.05を超えて残るか、2M〜3Mと9M〜10Mの比が1.5を超えたとき（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4.1・§8 U2）。
+- 平均を引かない形を `multiplier_mode` の3つ目の値にする形 — 不採用: clipの有無を表すキーに別の軸が混ざり、平均を引かずclipもしない形が書けない（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D7・§4.1）。
+- RNDのcheckpointの書式の識別子を一律に上げ、誤差の統計の取り方を中に書く形 — 不採用: 識別子は1つで済むが、今あるRNDのcheckpointが新しい実行体で読めなくなる。累積の書式と中身は変えず、直近重みだけ別の識別子にする（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D11・§4.1）。
+- 誤差を統計に入れ始める件数を整数1つ（0が今の中身）で持ち、warm-upの中身のモードを作らない形 — 不採用: 値に動作の切り替えを兼ねさせず、待たせるかどうかはモードのキー、件数は値のキーで表す（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D4・§4.1）。
+- 直近重みのモードを作らず累積だけにする形 — 不採用: 累積の書式を変えなければcheckpointの不利益が無く、直近重みを比べる手段を残せる（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D2・D11・§4.1）。
+- Burdaらの形（内的報酬の割引収益の標準偏差で割る） — 範囲外: laneごとの割引収益の保持と、外的・内的の価値を分ける話と組になり、PRD121・924に残す（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§1 非ゴール）。
 
 ## 変えるときの条件
 
@@ -115,6 +124,9 @@
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
 - 既定のsharedではskip側のseedの派生・時計・forwardの回数と順序を変えず、着手前の設定とのmetrics checksumを一致させる（出典: [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md)、§5.3・§7の受入1）。
 - `BatchUpdateResult::GetScalar`を整理するときは、keyの名前・返す値・止まる条件と文言・群を引く順を変えない。認識するkeyの全部を値がある状態と無い状態で引く特性テストを先に足して前後で通し、PRD098の検証資材の短いRun（4環境、seed 1、決定的モード）で時間と資源のtagを除く全scalarの点が一致することを確かめる（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6〜D8・§6 A5・A7）。
+- RNDのwhitenの既定や統計の取り方を変えるときは、`warmup_mode = collect_errors` の組・`variance_feedback`・RND無効の3構成で、同seed・決定的モードの短いRunのmetrics checksumを、着手前に保存した実行体と一致させる（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D5・§7.2 の 1）。
+- `variance_feedback`（Taigaらの再現のモード）の中身とwarm-upは変えない（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§1 非ゴール・§4 D8）。
+- RNDの累積と `variance_feedback` のcheckpointは、書式の識別子と中身を変えず、着手前に保存した実行体のcheckpointを同じ設定で読めることを確かめる（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D11・§6.3・§7.2 の 6）。
 
 ## 関係
 

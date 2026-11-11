@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成方法に依存する。MiniHack での結果を Atari の優劣へ持ち込めず、anet の BTR を基にした構成での効果はまだ測っていない。KFM の命中にボーナスが出るかも、逆動力学の特徴がバーの差を保つかに依存する。GridMazeのCPU・256 lane・torch thread 1・Releaseでは、既定RNDの時間はなしの1.339倍だった。Montezumaのサンプル効率優先＋RNDの30M（1本、RNDなしの対照なし）では、学習側で部屋7に入るゲームが現れた24〜25Mにbonusの平均が前後の1Mより高く、同じ24〜26MにlossとQの最大の平均が上がった。LunarLanderの3 seed×2Mでは、既定RNDを混ぜても評価は基準と同じ帯だったが、bonusは採点5〜10万件で消えた。predictorを採点50,000件ごとに初期化するとbonusは周期信号として続いたが、終盤の評価は同じ帯のままで、1 seedが途中で崩れ、Qの最大の平均と勾配ノルムは全seedで基準より大きかった。MontezumaのRND（β 0.01・Munchausen無効）では、2500点のあと外的報酬の残らない局面でQが18行動ともほぼ同じ値になり、Greedyが動かなかった。Taigaらの式のRNDは、Munchausenの有無に依らずMontezumaの鍵より先へ進まなかった。既定（`whiten`）のRNDでは、誤差の統計の二乗偏差の88〜99%を最初の200k exp stepの誤差が占め、KFMでは内的報酬が報酬の数%（Munchausenの項の約1/100）にとどまり、Montezumaでは誤差の標準偏差の膨らみが9〜17倍から3〜4倍へ薄まった。文献では、外的と内的の価値を別々に学ぶ形（Agent57・Burdaら）が内的報酬の重みへの頑健さと探索した部屋の数を改善した。
+NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成方法に依存する。MiniHack での結果を Atari の優劣へ持ち込めず、anet の BTR を基にした構成での効果はまだ測っていない。KFM の命中にボーナスが出るかも、逆動力学の特徴がバーの差を保つかに依存する。GridMazeのCPU・256 lane・torch thread 1・Releaseでは、既定RNDの時間はなしの1.339倍だった。Montezumaのサンプル効率優先＋RNDの30M（1本、RNDなしの対照なし）では、学習側で部屋7に入るゲームが現れた24〜25Mにbonusの平均が前後の1Mより高く、同じ24〜26MにlossとQの最大の平均が上がった。LunarLanderの3 seed×2Mでは、既定RNDを混ぜても評価は基準と同じ帯だったが、bonusは採点5〜10万件で消えた。predictorを採点50,000件ごとに初期化するとbonusは周期信号として続いたが、終盤の評価は同じ帯のままで、1 seedが途中で崩れ、Qの最大の平均と勾配ノルムは全seedで基準より大きかった。MontezumaのRND（β 0.01・Munchausen無効）では、2500点のあと外的報酬の残らない局面でQが18行動ともほぼ同じ値になり、Greedyが動かなかった。Taigaらの式のRNDは、Munchausenの有無に依らずMontezumaの鍵より先へ進まなかった。既定（`whiten`）のRNDでは、誤差の統計の二乗偏差の88〜99%を最初の200k exp stepの誤差が占め、KFMでは内的報酬が報酬の数%（Munchausenの項の約1/100）にとどまり、Montezumaでは誤差の標準偏差の膨らみが9〜17倍から3〜4倍へ薄まった。最初の20万件を統計に入れたまま時定数100万件の直近重みに替えても、膨らみが2倍を切るまで510〜700万件かかる見積もりだった。anetの既定はnext_stateを採点するときdoneのlaneの内的報酬を0にするが、Taigaらは終端の遷移も採点して0にしない。文献では、外的と内的の価値を別々に学ぶ形（Agent57・Burdaら）が内的報酬の重みへの頑健さと探索した部屋の数を改善した。
 
 ## 分かっていること
 
@@ -29,12 +29,14 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - 文献の効いた条件: Agent57はQを外的と内的の別々のNN（同じ形、どちらも方策の番号を入力）の和にし、内的報酬の重みの広い範囲で学習が安定した。外すと成績が20%以上落ちた（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.2）。
 - 文献の効いた条件: Burdaら（RND）は内的の収益をgame overで切らず、価値のHeadを2つにした。内的を切らないと探索した部屋の数が増え、外的の割引率0.999・内的0.99で成績が大きく上がり、内的を0.999にすると下がった。両方を切る設定では、Headを2つにしても1つより良くならなかった（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.2）。
 - 文献の比較: Taigaら（ICLR 2020）のRainbow＋RNDはMontezumaの5 seedすべてが90Mフレームまでに4,400点を超え、NoisyNetsの5 seedは200Mフレームまで2500点にとどまった（図7を目で読んだ値）（出典: [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§2.2）。
-- 既定のRND（`whiten`・`clipped`、warm-up 12,800件）の誤差の平均・標準偏差はRunの最初からの累積で、warm-up中の誤差も入る。KFMの実時間優先＋RND（β 0.1、10M、7 seed）では、最初の200k exp stepの誤差が二乗偏差の総量の97〜99%を占め、10Mの標準偏差は200k以降の誤差だけで逆算した値（0.026〜0.034）の7〜19倍だった。3M以降の1 stepの内的報酬はlane平均1e-4〜8e-4、報酬の絶対値に占める割合0.014〜0.057、正のlane 4〜15%で、Munchausenの項の約1/100だった（出典: [RNDの内的報酬の尺度の暫定 PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.1。Run: run_20261110-123404_kfm_10m_rnd_b01_s04 ほか同PRDの7本）。
-- 同じ既定のRNDのMontezuma（Taigaら寄せの構成、seed 1、`whiten`の5本）では、最初の200kが二乗偏差の総量の88〜97%を占め、標準偏差の膨らみ（実際の値÷200k以降の誤差だけの値）は0.5〜2Mで9〜17倍、4〜8Mで4〜7倍、14〜29Mで3〜4倍だった。膨らみは5本で同じ形で、内的報酬はRunの中で3〜5倍に強まっていた（出典: [RNDの内的報酬の尺度の暫定 PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.2。Run: run_20261108-232006_mz_tg_rnd_s1、run_20261110-003002_mz_tg_nmdd_b001_s1 ほか同PRDの5本）。
+- 既定のRND（`whiten`・`clipped`、warm-up 12,800件）の誤差の平均・標準偏差はRunの最初からの累積で、warm-up中の誤差も入る。KFMの実時間優先＋RND（β 0.1、10M、7 seed）では、最初の200k exp stepの誤差が二乗偏差の総量の97〜99%を占め、10Mの標準偏差は200k以降の誤差だけで逆算した値（0.026〜0.034）の7〜19倍だった。3M以降の1 stepの内的報酬はlane平均1e-4〜8e-4、報酬の絶対値に占める割合0.014〜0.057、正のlane 4〜15%で、Munchausenの項の約1/100だった（出典: [RNDの内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.1。Run: run_20261110-123404_kfm_10m_rnd_b01_s04 ほか同PRDの7本）。
+- 同じ既定のRNDのMontezuma（Taigaら寄せの構成、seed 1、`whiten`の5本）では、最初の200kが二乗偏差の総量の88〜97%を占め、標準偏差の膨らみ（実際の値÷200k以降の誤差だけの値）は0.5〜2Mで9〜17倍、4〜8Mで4〜7倍、14〜29Mで3〜4倍だった。膨らみは5本で同じ形で、内的報酬はRunの中で3〜5倍に強まっていた（出典: [RNDの内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.2。Run: run_20261108-232006_mz_tg_rnd_s1、run_20261110-003002_mz_tg_nmdd_b001_s1 ほか同PRDの5本）。
+- 見積もり（Runでは未確認）: KFMの200k時点の誤差の標準偏差（1.40〜4.60）は200k以降だけの値（0.026〜0.034）の52〜135倍で、最初の20万件を統計に入れたまま時定数100万件の直近重み（バイアス補正EMA）に替えても、標準偏差の膨らみが2倍を切るまで510〜700万件、1.05倍を切るまで850〜1,040万件かかる（出典: [RNDの内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.6）。
+- 比較対象の実装: anetの既定はnext_stateを採点するときdoneのlaneの内的報酬を0にし、truncatedだけのlaneは0にしない。Taigaらは終端の遷移も行動した観測で採点して0にせず、Burdaらは内的の収益をgame overで切らない。終端の1 stepを0にする差は1エピソードにつき1 stepで、内的の価値をgame overで切ることは、内的報酬が正で付く限り長く生きる向きの力になる（出典: [RNDの内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.7）。
 
 ## 分かっていないこと
 
-- 既定のRNDの序盤の大きな誤差は、predictorが未学習なためか、観測の正規化が未熟なためか。内的報酬のtagはQの学習が始まる200kより前に記録が無く、分けていない（出典: [RNDの内的報酬の尺度の暫定 PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.3）？
+- 既定のRNDの序盤の大きな誤差は、predictorが未学習なためか、観測の正規化が未熟なためか。内的報酬のtagはQの学習が始まる200kより前に記録が無く、分けていない（出典: [RNDの内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.3）？
 - Atari B=64のRNDなし・既定RND・Taigaの3群では、実時間中央値とTracyの内訳はどれほどか（出典: [GridMazeのRND性能測定](../../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)、§確認できた範囲と残件）？
 
 - 同じ anet の学習器・経験予算で、個々の訪問ベクトルとの局所的な近さを測る NGU と、まだ十分に経験していない特徴方向を評価する E3B のどちらが、KFM・GridMaze の外的成績を改善するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）？
@@ -59,6 +61,6 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)（機構・設計案と未決の正本）。
 - [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)（924 の第一の腕。一生の新しさの口と RND の実装）。
 - [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)（Q を外的と内的の 2 つの Head で学ぶ形と、924 との関係）。
-- [RND の内的報酬の尺度の暫定 PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の窓・warm-up・平均を引かない形）。
+- [RND の内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask）。
 - 仕組み: [RND の解説](../../design/212_rnd_lifelong_novelty.jp.md) §3.2〜§3.5（誤差の統計と warm-up）。
 - [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)。
