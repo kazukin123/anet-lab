@@ -35,6 +35,7 @@
 - 2026-10-31: Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない（出典: [ADR 0066](../../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md)）。
 - 2026-11-02: manifestのgdiScalingを外してRunnerをPer-Monitor V2のDPI対応で動かし、画面の大きさを100%の大きさ（DIP）で書いて窓のDPIで直し、DPIの変更は画素で値を覚える部品が決め直し、Logsの字下げの幅をログ欄が描いた位置から測る案を暫定で起票した（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、題・§3のゴール・§4 D1〜D4）。
 - 2026-11-10: `QValuePanel::Update`を、Gridの更新、ヒートマップの加工、描画に分け、加工を画面の部品に依らない関数に切り出して単体テストを足す仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10・D11・§5.2）。
+- 2026-11-12: EvalPanelがConv2dのpaneが開いている間だけstepにnn_traceの要求を渡し、RunnerAppが録画する設定（intervalが1以上）のConv2dの画像記録を登録したRunで学習側のstepに渡す仕様をグリルで決めた。Traceのダンプは要求しない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D1・D13・D14・§5.4）。
 
 ## 選ばなかった形
 
@@ -110,6 +111,8 @@
 - Runnerを起動してQ-ValuesのGridのセルとハイライトを読むGUIのテスト — 不採用: Gridの更新は中身を変えずに関数へ移すだけで、Runnerを起動するテストの保守に見合わない（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D11・§7）。
 - Q-Valuesのヒートマップの加工をcoreのGUI共通へ移し、既定のテストスイートで流す — 不採用: 加工を使うのはRunnerのQ-Valuesの表示だけで、テストを既定のスイートに入れるためにアプリケーションの部品をcoreへ置くことになる（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D11・§7）。
 - QValuePanelのGridの死にコード（無効化されたAdvantageの引き算、コメントアウト）を消す — 範囲外: もとからある死にコードは消さずに報告する決まり。再開条件: 片づけを別の課題として起こすとき（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§7）。
+- Traceの記録中はTraceのpaneもnn_traceを要求する形 — 不採用: 1行のダンプに出るnn_traceの項目は形・型・置き場所だけで、EvalPanelの費用が今と変わらなくなる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D1・§4.1）。
+- 録画するエピソードの間だけ学習側のstepにnn_traceを要求する形 — 範囲外: 要求したときの費用を下げる話で関心が別（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§3.2・§4 D14）。
 
 ## 変えるときの条件
 
@@ -138,6 +141,7 @@
 - 導線の操作ではRunログに保険のWARN（`No main pane occupies the centre.`と`Both main panes occupy the centre.`）が出ないことを確かめる（出典: [PRD110](../../memo/done/110_runner_main_pane_dynamic_centre_10prd.md)、D13・§7の受入6・8）。
 - DPI対応の見直しで、100%の表示の寸法（すべて今と同じ画素のまま）・配置・振る舞い、PRD110の主paneの規則とそのGUIテストの判定（テストの中の固定の寸法をFromDIPで直すことは判定を変えないので行ってよい）、Closeの順序、設定のキー、学習と評価を変えない（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§5.5）。
 - `QValuePanel::Update`を分けるときは、Gridの差分更新の2つの条件（選択が変わった行だけを塗り直す、値が広がった列だけ幅を当て直す）を残し、加工の前に値を写す回数を増やさない。切り出す前のコードで控えた加工後の値と、切り出したあとの単体テストの期待値が一致することを確かめる。加工の単体テストは`AnetRLRunner-gui-test`に置き、既定のテストスイートに入らないので、加工を変えたら流す（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10〜D12・§6 A8）。
+- Conv2dのpaneが「開いている」の判定は、Traceが追従するpaneの判定と同じにする。別にすると、控えを取る行にnn_traceが無いという食い違いが起きる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D13）。
 
 ## 関係
 
@@ -244,8 +248,10 @@
 - [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md) — TempoRL の skip 側の forward のノイズを Q 側と分けて指定する（`full` でだけノイズが効く仕組みの切り分け）PRD
 - [PRD109](../../memo/done/109_runner_startup_background_init_10prd.md) — Runner の起動で RunManager を別スレッドで構築する PRD
 - [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
+- [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
 - [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md) — PRD119: 文書・コメント・設定の小さな食い違いをまとめて直す
 - [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
+- [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) — RND の内的報酬の尺度（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask） PRD
 - [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md) — PRD918: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
 
 ## 課題

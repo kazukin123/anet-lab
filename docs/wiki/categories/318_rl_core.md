@@ -64,6 +64,7 @@
 - 2026-11-03: action_infoからscalarを読む際の実行時型判別を整理する課題を記録した（出典: [PRD928](../../memo/done/928_metrics_action_info_dynamic_cast_10prd.md)、背景と問題・取り組むこと）。
 - 2026-11-09: 文書・コメント・設定の小さな食い違いを束ねたPRDを再グリルで決め、InitialPriorityCompleterの`@note`に`GetStats`を足し、ObserverFactoryの古いscalar記法のコメントを140 §6と`ParseMetricTokens`への参照の1行に置き換えることにした（出典: [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md)、§4 D3・D9）。
 - 2026-11-10: PRD918 で eval schedule の `offset` と `warmup_count` を追加した。列の調整は EpisodeEvalObserver が持ち、RunManager が Env 生成前の値の検証と配線を行う（出典: [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md)、§4・§5.5；[Observability](../../design/140_observability.jp.md)、eval schedule の説明）。
+- 2026-11-12: 行動選択に添える入力をMakeActionOptionsにし、Runnerのstep（DoStep・DoUpdateFrame）とActorのMakeActionの引数で都度渡す仕様をグリルで決めた。nn_traceは要求したstepだけ作り、coreに要求の登録を持たない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D2・D3・D4・D6；[ADR 0072](../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）。
 
 ## 選ばなかった形
 
@@ -94,6 +95,13 @@
 - metrics_scalar.txtにscalar記法の要素ごとの語の一覧を写す形 — 不採用: 語を足すたびに`ParseMetricTokens`・140 §6・設定ファイルの3か所を直すことになり、知らない語はkeyとして黙って扱われるので、古い写しどおりに書くと値が記録されない。ObserverFactoryのコメントは参照の1行だけにする（出典: [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md)、§4 D9・§7）。
 - `interval = 0` で止めた評価 tag と、schedule の記述が無い tag で、参照の skip の通知のレベルを分ける形 — 不採用: ADR 0027 が 1 つにまとめた dormant をまた 2 つに分け、休止の出どころを運ぶ分岐が増える（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D8・§8）。
 - PER の抽選が埋まらないとき Run を止める形 — 不採用: 過去の Run のログ 616 本で 1 度も起きておらず、起きる条件が分からないまま止めると正当な極初期の状況で Run を落とす恐れがある。代替の是非は課題に起票した（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D9・§8・§9 の 20）。
+- Runnerが要求の数を持ち、nn_traceを読む側がRunnerに登録する形 — 不採用: stepの結果が引数に現れない数で決まり、入力の側に「事前の登録」という2つ目の渡し方ができる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4.1；[ADR 0072](../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)、Considered Options）。
+- Observerが「nn_traceが要る」と宣言し、RunnerがNotifierに聞く形 — 不採用: 全イベント・全Runnerが共有するObserverの仕組みにnn_traceの話が入り、Learnerの購読に近い形がActor側にも増える（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4.1；[ADR 0072](../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)、Considered Options）。
+- 購読ヒントと同じ経路でnn_traceの要否を渡す形 — 不採用: 学習の前に1回だけ渡す仕組みで、Runの途中で開閉するpaneに追従できない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§2.5・§4.1）。
+- MakeActionの3つ目の引数を真偽の値にする形、既定値を付けない形、引数2つの版をvirtualでない関数として残す形 — 不採用: 入力が増えるたびに基底の引数が変わる、テストの呼び出し約65か所に空の値を足すことになる、派生クラスで基底の2引数の版が名前ごと隠れる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D2・D3・§4.1）。
+- 公開のMakeActionをvirtualでない1本にして既定値をそこだけに書き、実装は別名のvirtualをoverrideする形 — 不採用: 既定値は空の構造体で食い違う余地がほとんど無く、Runnerのstepも同じ作りにそろえるとEvalRunnerで基底のDoStepが名前ごと隠れる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4.1）。
+- EvalRunnerの手動の行動の引数をMakeActionOptionsにまとめる形 — 範囲外: PRD944の範囲（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§3.2・§9）。
+- Learnerの購読ヒントを、開始前の宣言と呼び出しごとの要求に分けて見直す形 — 範囲外: 別の関心（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§8の1）。
 
 ## 変えるときの条件
 
@@ -112,6 +120,7 @@
 - train observerを外すのは学習停止と背景評価の排水の後とし、同じNotifierを走査中のworkerとDetachを競合させない（出典: [可観測性](../../design/140_observability.jp.md)、§5.2）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
+- MakeActionOptionsを渡さないstepと行動選択は、nn_traceを作らないことのほかは今と同じ結果にし、決定的な設定の短いRunのmetrics checksumを変更の前後で一致させる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§5.2・§7のA2・A11）。
 
 ## 関係
 
@@ -166,6 +175,7 @@
 - [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
 - [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) — TempoRL の補助学習のみモード（毎 step 判断し、スキップの出力は補助タスクとしてだけ学ぶ）PRD
 - [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
+- [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
 - [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md) — PRD119: 文書・コメント・設定の小さな食い違いをまとめて直す
 - [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
 - [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md) — PRD918: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
@@ -178,6 +188,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
+| [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 調査中 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | [issue-20261111-288879](../../management/issues/issue-20261111-288879.md) | 未着手 | 3.7 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | ExperienceSamples のフィールドの並びが To の 2 経路・ForEachTensor・ToString に分かれ、To の 2 経路で未定義の tensor の扱いが食い違っている |
@@ -212,7 +223,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261110-d21e5f](../../management/issues/issue-20261110-d21e5f.md) | 未着手 | 1.2 | — | 成果物 | PRD | 318_rl_core, 325_muzero | 学習基盤 | 不具合 | — | 未確認 | MuZeroのReplayで、truncatedで終わるときに補う価値が、打ち切った次の状態ではなく最後のstep自身のroot_valueになっている |
 | [issue-20261111-e90762](../../management/issues/issue-20261111-e90762.md) | 未着手 | 1.2 | — | 成果物 | PRD | 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | PERの抽選が埋まらないときに残りを一様の抽選で埋める代替が、明示した要求を黙って代替しない規約と食い違う |
 | [issue-20261103-51220d](../../management/issues/issue-20261103-51220d.md) | 未着手 | 1.1 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [PRD932](../../memo/932_episode_forensics_10prd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
-| [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 未着手 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-cfe994](../../management/issues/issue-20261103-cfe994.md) | 未着手 | 0.9 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
 | [issue-20261103-c5c791](../../management/issues/issue-20261103-c5c791.md) | 未着手 | 0.9 | — | 成果物 | PRD | 322_env_individual, 318_rl_core | 学習基盤 | 調査 | [PRD946](../../memo/946_prd097_performance_remeasurement_10prd.md) | 残件有り | PRD097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査 |

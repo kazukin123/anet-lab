@@ -256,8 +256,12 @@ _Avoid_: NN 構造設定（構造と実行方法を混同）, 実行プロファ
 _Avoid_: ノイズ状態（ノイズ以外も入り得る）, module の状態（module は持たない）, snapshot（network の複製と混同）
 
 **capture**:
-forward の出力のほかに持ち帰るものを、呼び出し側が鍵の集合で要求し、forward の中で body（branch 出力）か module（診断値）が書き込む器。渡さない forward は不変で、要求した鍵が書かれなければ error になる。
-_Avoid_: trace（可視化タップの TraceCallback、metrics の trace チャネルの両方と混同）, hook（登録して残る形ではない）
+forward の出力のほかに持ち帰るものを、呼び出し側が鍵の集合で要求し、forward の中で body（branch 出力）、module（診断値）、NetworkStruct（nn_trace）が書き込む器。渡さない forward は不変で、要求した鍵が書かれなければ error になる。
+_Avoid_: trace（nn_trace、metrics の trace チャネルの両方と混同）, hook（登録して残る形ではない）
+
+**nn_trace**:
+行動選択の forward から取り出す、NN の途中の出力（branch の入力と、描画できる block の出力）。要求した step だけ作られ、可視化（Conv2d の pane、メトリクスの画像記録）が読む。
+_Avoid_: trace（metrics の trace チャネルと混同）, activationトレース
 
 **選択の最終値**:
 選択元のベース・部分指定・個別指定と、そのキーへのRunプロファイル・CLIの指定を反映した値とキー集合。プロファイル・カタログ・通常prefixの種類によらず継承で読む結果であり、型付きConfigによる既定補完とは別である。
@@ -550,8 +554,8 @@ Runnerが構築したmetrics observerの解決済み定義を、チャネルとt
 _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レコードの様式ではなく内容を指す）
 
 **trace**（トレース）:
-統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの層別activationを可視化へ流す`TraceCallback`（activationタップ）とは別概念。
-_Avoid_: activationトレース（`TraceCallback`側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
+統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの途中の出力を可視化へ流すnn_traceとは別概念。
+_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
 
 **速報値／確定値**:
 Step の結果から読む env の値の、読むイベントで決まる意味。`@train` で読むとその step の途中の値（速報値）、`@episode_end` で読むとそのエピソードの終わりの値（確定値）になる。

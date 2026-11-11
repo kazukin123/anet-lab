@@ -1,5 +1,7 @@
 # forward の持ち帰りは鍵要求型の capture 1 つに統一し、module の診断も同じ器で運ぶ
 
+> **後発決定（2026-11-12）**: Considered Options の「`TraceCallback` に乗せる」で先送りした、nn_trace の capture への統合を、[PRD938](../memo/938_nn_trace_capture_unification_10prd.md) で決めた。`TraceCallback` を消し、nn_trace は `NetworkStruct` が `nn_trace/…` の鍵で capture に書く。要求を Actor へ渡す形は [ADR 0072](0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md) による。本 ADR の、公開の forward が capture を引数で受ける形、鍵で要求する決まり、module の鍵の形はそのまま残る。
+
 attention エントロピー（PRD 093）は Body の state に存在せず TransformerEncoder の中でしか計算できない値で、SDPA は重みを返さない（[ADR 0004](0004-sdpa-attention-via-aten.md)）ため、測定のときだけ明示計算した値を forward の外へ出す口が要った。branch 出力を body が末尾で detach する専用構造体 `NetworkBranchCapture`（[ADR 0031](0031-plasticity-metrics-out-of-band-partial-forward.md)）を、呼び出し側が鍵の集合で要求し、body（branch 名）と module（`型名/診断名` の公開定数）が forward 中に書き込む `NetworkForwardCapture` へ一般化し、`Network::Forward`・実行器の `Forward`・`ForwardUpTo` が同じ型を受ける。内部は `NetworkForwardContext` のポインタ 1 本で module まで届け、渡さない forward は null 判定 1 回で不変、要求した鍵が書かれなければ出口で fail-fast する。汎用の forward に固有目的の引数を付けないことと、forward の持ち帰りの概念を 1 つに保つことを、編集量の少なさより優先した。
 
 ## Considered Options
