@@ -11,11 +11,16 @@ if not errorlevel 1 (
   ping -n 31 127.0.0.1 >nul
   goto :waitprev
 )
+tasklist /FI "IMAGENAME eq AnetRLRunner_ab12.exe" 2>nul | find /I "AnetRLRunner_ab12.exe" >nul
+if not errorlevel 1 (
+  ping -n 31 127.0.0.1 >nul
+  goto :waitprev
+)
 ping -n 16 127.0.0.1 >nul
 tasklist /FI "IMAGENAME eq AnetRLRunner_ab.exe" 2>nul | find /I "AnetRLRunner_ab.exe" >nul
 if not errorlevel 1 goto :waitprev
 
-SET "SRC_EXE=%~dp0..\.scratch\rnd-taiga-20261108\bin\AnetRLRunner_rnd_20261108.exe"
+SET "SRC_EXE=%~dp0..\.scratch\r123-20261112\bin\AnetRLRunner_r123_20261112.exe"
 if not exist "%SRC_EXE%" goto :no_exe
 copy /Y "%SRC_EXE%" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
@@ -28,72 +33,31 @@ SET /A FAILED_RUNS=0
 SET "RUN_EXIT_CODE=0"
 
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
-SET "RR1=run.@hard125>run.@munch"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
 SET "RF=run.@rfit>run.@a5_metrics"
-SET "RT30B=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_30m"
-SET "SE30=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@to_30m"
-SET "CFG=%~dp0runner\workspaces\AtariRnd-01\config\rnd_explore.txt"
-if not exist "%CFG%" goto :no_exe
-SET "NMRND=%RT30B%>run.@rnd>run.@rnd_nn>run.@no_munch>run.@batch"
-SET "SERND=%SE30%>run.@rnd>run.@rnd_nn>run.@batch"
 SET "K32=DefaultDQNAgent.actor.[train].policy.tau_rule.num_taus=32 DefaultDQNAgent.actor.[eval].policy.tau_rule.num_taus=32"
 SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImpalaConv64].init.mode=default net.block.[AtariImpalaRes32SN].init1.mode=default net.block.[AtariImpalaRes32SN].init2.mode=default net.block.[AtariImpalaRes64SN].init1.mode=default net.block.[AtariImpalaRes64SN].init2.mode=default net.block.[AtariIQNTauProj2304].init.mode=default"
-SET "MZ=E1.game=montezuma_revenge run.seed=1 DefaultDQNAgent.intrinsic.beta=0.1 run.eval.[greedy].eval_episodes=16"
-
-call :use_ws AtariRnd-01 Atari.txt
-echo === 1. montezuma_revenge 10m seed 1: RND, K32, taus fixed in train and greedy ===
-call :find_done mz_k32_taufix_s1
-if not defined DONE_DIR call :run_exe "%NMRND%" %MZ% %K32% DefaultDQNAgent.actor.[train].policy.tau_rule.sample_mode=fixed run.eval_schedule.[eval].interval=7816 app.batchrun.exp_exit_step=10000000 "app.run_name=run_{t}_mz_k32_taufix_s1"
-
-echo === 2. montezuma_revenge 30m seed 1: sample-efficiency profile with RND and K32 ===
-call :find_done mz_se_rnd_k32_s1
-if not defined DONE_DIR call :run_exe "%SERND%" %MZ% %K32% %ALNINIT% run.eval_schedule.[eval].interval=31264 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_se_rnd_k32_s1"
-
-SET "EV2X2=A3.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 DefaultDQNAgent.actor.[train].policy.spatial.enabled=false app.batchrun.exp_exit_step=40 run.eval.[greedy].eval_episodes=32 run.eval.[greedy].eval_batch_size=32 run.eval_schedule.[greedy].interval=1000 run.eval.[greedy_single].eval_episodes=32 run.eval.[greedy_single].eval_batch_size=32 run.eval_schedule.[greedy_single].interval=1000 run.eval.[eval].eval_episodes=32 run.eval.[eval].eval_batch_size=32 run.eval_schedule.[eval].interval=1000 run.eval.[eval_target].eval_episodes=32 run.eval.[eval_target].eval_batch_size=32 run.eval_schedule.[eval_target].interval=1000 DefaultDQNAgent.actor.[greedy_single].policy.tau_rule.sample_mode=random DefaultDQNAgent.actor.[eval_target].network=online DefaultDQNAgent.actor.[eval_target].policy.tau_rule.sample_mode=fixed run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[greedy_single].warmup_count=0 run.eval_schedule.[eval].warmup_count=0 run.eval_schedule.[eval_target].warmup_count=0 run.eval_schedule.[eval_target].offset=0"
-SET "SEDIR=%RUNS:\=/%/run_20261108-003056_mz_se_rnd_k32_s1"
-if not exist "%RUNS%\run_20261108-003056_mz_se_rnd_k32_s1\agent_close.anet" goto :no_ckpt
-if not exist "%RUNS%\run_20261108-003056_mz_se_rnd_k32_s1\agent_20066688.anet" goto :no_ckpt
-
-echo === 3. montezuma_revenge eval only: SE+RND 30m weights, eps and tau as a 2x2 ===
-call :find_done mz_se_ev30m_2x2
-if not defined DONE_DIR call :run_exe "%SERND%" %MZ% %K32% %ALNINIT% %EV2X2% "A3.auto_load_file=%SEDIR%/agent_close.anet" "app.run_name=run_{t}_mz_se_ev30m_2x2"
-
-echo === 4. montezuma_revenge eval only: SE+RND 20m weights, eps and tau as a 2x2 ===
-call :find_done mz_se_ev20m_2x2
-if not defined DONE_DIR call :run_exe "%SERND%" %MZ% %K32% %ALNINIT% %EV2X2% "A3.auto_load_file=%SEDIR%/agent_20066688.anet" "app.run_name=run_{t}_mz_se_ev20m_2x2"
-
-if not exist "%RUNS%\run_20261108-003056_mz_se_rnd_k32_s1\agent_14119296.anet" goto :no_ckpt
-if not exist "%RUNS%\run_20261108-003056_mz_se_rnd_k32_s1\agent_15675776.anet" goto :no_ckpt
-
-echo === 5. montezuma_revenge eval only: SE+RND 14.1m weights, eps and tau as a 2x2 ===
-call :find_done mz_se_ev14m_2x2
-if not defined DONE_DIR call :run_exe "%SERND%" %MZ% %K32% %ALNINIT% %EV2X2% "A3.auto_load_file=%SEDIR%/agent_14119296.anet" "app.run_name=run_{t}_mz_se_ev14m_2x2"
-
-echo === 6. montezuma_revenge eval only: SE+RND 15.7m weights, eps and tau as a 2x2 ===
-call :find_done mz_se_ev16m_2x2
-if not defined DONE_DIR call :run_exe "%SERND%" %MZ% %K32% %ALNINIT% %EV2X2% "A3.auto_load_file=%SEDIR%/agent_15675776.anet" "app.run_name=run_{t}_mz_se_ev16m_2x2"
-
-echo === 7. montezuma_revenge 30m seed 1: sample-efficiency profile with RND, K32 and TempoRL ===
-if not exist "%RUNS%\run_20261108-123544_mz_se_rnd_skip_s1\config" call :run_exe "%SERND%>run.@skip" %MZ% %K32% %ALNINIT% run.eval_schedule.[eval].interval=31264 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_se_rnd_skip_s1"
-
 SET "TGCH=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@to_30m>run.@rnd>run.@batch"
 SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_update_interval=250 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
 SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
-SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
 SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
-SET "MZT2=E1.game=montezuma_revenge run.seed=2 run.eval.[greedy].eval_episodes=16"
-echo === 17. montezuma_revenge 30m seed 1: same as mz_tg_rnd_s1 (Munchausen on, Double DQN off) but beta 0.01 ===
-call :find_done mz_tg_rnd_b001_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_rnd_b001_s1"
+SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
+SET "NMDD=DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true"
+SET "R123=DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
 
-echo === 18. montezuma_revenge 30m seed 2: same as mz_tg_nmdd_b001_s1 (beta 0.01, Munchausen off, Double DQN on) ===
-call :find_done mz_tg_nmdd_b001_s2
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.01 DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_nmdd_b001_s2"
+call :use_ws AtariRnd-01 Atari.txt
 
-echo === 19. montezuma_revenge 30m seed 1: Munchausen off, Double DQN on, beta 0.03 ===
-call :find_done mz_tg_nmdd_b003_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% DefaultDQNAgent.intrinsic.beta=0.03 DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_nmdd_b003_s1"
+echo === 20. montezuma_revenge 30m seed 1: b001 recipe (Munchausen off, Double DQN on) with the PRD123 RND default (warm-up 200k), beta 0.01 ===
+call :find_done mz_tg_r123_b001_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b001_s1"
+
+echo === 21. montezuma_revenge 30m seed 1: same as 20 but beta 0.003 ===
+call :find_done mz_tg_r123_b0003_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.003 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b0003_s1"
+
+echo === 22. montezuma_revenge 30m seed 1: same as 20 but beta 0.001 ===
+call :find_done mz_tg_r123_b0001_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.001 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b0001_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
@@ -102,7 +66,6 @@ goto :beep_forever
 :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED ===
 goto :beep_forever
-
 
 :use_ws
 SET "WS=--workspace %~1"
@@ -158,10 +121,6 @@ exit /b 0
 
 :no_exe
 echo *** exe or config not found, or the copy failed. Nothing was run.
-goto :beep_forever
-
-:no_ckpt
-echo *** checkpoint not found. Stages 3 and 4 were not run.
 goto :beep_forever
 
 :beep_forever

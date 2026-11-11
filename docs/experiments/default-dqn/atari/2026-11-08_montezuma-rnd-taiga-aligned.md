@@ -12,7 +12,7 @@
 6. **β 0.1・Munchausen 無効の b01 は、2〜5M に左の扉（部屋 0）を開け、6M 台に右の扉へ移った。** 400 点のゲームのうち左の扉は 3M 台 171/171、4M 台 267/267、5M 台 487/517、6M 台 3/74 だった。b001 は 4M 台から右の扉が主だった。
 7. **probe の dormant 率は、b001 で上がり続け、s1 では上がらなかった。** b001 は learn step 15 万〜30 万の 0.32 から 90 万〜94 万の 0.54、s1 は同じ範囲で 0.19〜0.34 だった。
 8. **rnd_b001（β 0.01・Munchausen 有効）の学習側のゲームは、16〜28M に多くが打ち切りで終わった。** 2M 窓ごとに、終わったゲームの 74〜89% が打ち切りだった（28〜30M は 28%）。b001 は 16〜30M に 4〜11%、b001_s2 は 24〜30M に 2〜4% だった。
-9. **b001_s2 は PRD123 の実装後の実行体で走り、内的報酬の大きさが b001 と違った。** `intrinsic.rnd.warmup_mode = learn_predictor`（warm-up 中の誤差を統計に入れない）が効き、誤差の標準偏差（`12_error_std`）は 4M 窓のどれでも b001 の 0.55〜0.56 倍、内的報酬の平均は 8M 以降の 4M 窓で b001 の 1.6〜3.2 倍（4〜8M は 0.29 倍）。b001 との差には、seed と内的報酬の大きさの両方が入っている。rnd_b001 は b001 と同じ旧い実行体で、誤差の標準偏差は b001 と 4M 窓ごとに 0.99〜1.05 倍だった。
+9. **b001_s2 は seed だけが違うのに、誤差の標準偏差と内的報酬の大きさが b001 と違った。** 誤差の標準偏差（`12_error_std`）は 4M 窓のどれでも b001 の 0.55〜0.56 倍、内的報酬の平均は 8M 以降の 4M 窓で b001 の 1.6〜3.2 倍（4〜8M は 0.29 倍）。実行体は b001 と同じ 2026-11-08 の build で、設定の dump にある PRD123 の新しいキーは読まれていない（探索ブロック10）。rnd_b001（seed 1）の誤差の標準偏差は、b001 の 4M 窓ごとに 0.99〜1.05 倍だった。2026-11-12 の初版で「PRD123 の実装後の実行体で走った」と書いたのは誤り。
 10. **b001_s2 の Greedy は、ほぼ全ゲームが 27,000 step の打ち切りで終わり、命が残っていた。** 10.2〜29.2M の `53_evalg` 320 ゲームのうち、打ち切りでないのは 4 本。終わったときの lives の平均は 20.2〜29.2M に 3.50〜4.88。EvalPanel では、鍵を取った直後に命を失い、剣を取ったあと梯子の下で DOWN を押し続け、2500 点のあと部屋 1 で DOWN を押し続けた（探索ブロック10）。
 
 ## 目的と比較条件
@@ -39,7 +39,7 @@ Montezuma で、サンプル効率優先の構成を Taiga ら（ICLR 2020）の
 | β 0.01・Munchausen 無効・Double DQN 有効 | b001 | β 0.01、Munchausen 無効、Double DQN 有効 | 30M | `run_20261110-003002_mz_tg_nmdd_b001_s1` | [設定](config/run_20261110-003002_mz_tg_nmdd_b001_s1.txt) |
 | β 0.1・Munchausen 無効・Double DQN 有効 | b01 | Munchausen 無効、Double DQN 有効 | 22.63M で止めた | `run_20261110-120903_mz_tg_nmdd_b01_s1` | [設定](config/run_20261110-120903_mz_tg_nmdd_b01_s1.txt) |
 | β 0.01・Munchausen 有効 | rnd_b001 | β 0.01 | 30M | `run_20261110-233727_mz_tg_rnd_b001_s1` | [設定](config/run_20261110-233727_mz_tg_rnd_b001_s1.txt) |
-| β 0.01・Munchausen 無効・Double DQN 有効・seed 2 | b001_s2 | β 0.01、Munchausen 無効、Double DQN 有効、seed 2。実行体は [PRD123](../../../memo/123_rnd_intrinsic_reward_scale_10prd.md) の実装後で、`intrinsic.rnd.warmup_mode = learn_predictor`・`error_norm.average_mode = cumulative` | 30M | `run_20261111-123702_mz_tg_nmdd_b001_s2` | [設定](config/run_20261111-123702_mz_tg_nmdd_b001_s2.txt) |
+| β 0.01・Munchausen 無効・Double DQN 有効・seed 2 | b001_s2 | β 0.01、Munchausen 無効、Double DQN 有効、seed 2（b001 と同じ実行体） | 30M | `run_20261111-123702_mz_tg_nmdd_b001_s2` | [設定](config/run_20261111-123702_mz_tg_nmdd_b001_s2.txt) |
 
 ## 探索ブロック01: 9 本の到達
 
@@ -245,9 +245,9 @@ learn step 15 万ごとの窓の平均（`34_agent_plasticity`）。30M は lear
 | rnd_b001 の内的報酬の平均（`56_agent_in/01_bonus_mean`） | 4.1e-05 | 2.0e-04 | 2.6e-04 | 1.6e-03 | 5.0e-04 | 3.5e-04 | 3.3e-04 | 2.9e-04 |
 | rnd_b001 の Munchausen の項の平均（`36_agent_munchausen/04_bonus_mean`） | −0.078 | −0.079 | −0.081 | −0.130 | −0.079 | −0.080 | −0.077 | −0.079 |
 
-## 探索ブロック10: b001_s2（seed 2、PRD123 の実装後の実行体）
+## 探索ブロック10: b001_s2（seed 2）
 
-設定の dump に、`intrinsic.rnd.warmup_mode = learn_predictor` と `intrinsic.rnd.error_norm.average_mode = cumulative` がある。b001 と rnd_b001 の dump にこの 2 つのキーは無い。
+設定の dump には、PRD123 の新しいキー（`intrinsic.rnd.warmup_mode = learn_predictor`、`intrinsic.rnd.error_norm.average_mode = cumulative`、`error_norm.ema_steps`、`intrinsic.use_done_mask`）が入っている（b001 と rnd_b001 の dump には無い）。ただし実行体は b001 と同じ 2026-11-08 の build で、これらのキーの文字列を持たないので読まない。b001 の dump との差は、ほかに `run.seed`、Run 名、KFM の RAM 指標の定義、trace の列、`run.eval_schedule.[eval_target].offset`（`[eval_target]` の評価はどちらの Run でも予定されていない）だけ。
 
 | 指標（4M 窓の平均） | 0〜4M | 4〜8M | 8〜12M | 12〜16M | 16〜20M | 20〜24M | 24〜28M | 28〜30M |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -260,7 +260,7 @@ b001 の内的報酬の平均は探索ブロック06 の表。
 
 **Greedy の終わり方。** 10.2〜29.2M の `53_evalg` 320 ゲームのうち、打ち切りでないのは 4 本（25.2M と 27.2M に 2 本ずつ）。20.2〜29.2M の終わったときの lives の平均は 3.50〜4.88。
 
-**EvalPanel。** 2026-11-12 13:10〜13:20 に、exp step 29,936,256 で Training を止め、EvalPanel（Greedy、sticky 0、target の NN）で 1 ゲームを見た。
+**EvalPanel。** 2026-11-12 01:33〜01:57 に、exp step 29,936,256 で Training を止め、EvalPanel（Greedy、sticky 0、target の NN）で 1 ゲームを見た。
 
 - ep_step 92（100 点、lives 6）の Q は 18 行動とも 2.692〜2.698 で、UPFIRE（2.698）を押した。ep_step 88〜97 はおもに UPFIRE で、ep_step 95 に lives 5 になった。ep_step 246 に 500 点（扉と剣）になった。
 - ep_step 246〜254 は梯子の下で DOWN を押し続けた。ep_step 246 の Q は 18 行動とも 1.654〜1.663（DOWN 1.663、UP 1.659）。γ 0.997 で 1 step 遅れたときの差（(1 − γ) × 1.66）は約 0.005。
