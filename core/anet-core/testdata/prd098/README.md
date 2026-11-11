@@ -90,7 +90,7 @@ profile matrixは4env×default/merge/dueling/action_inの16条件と、GridMaze�
 
 prepare-longはround2 rootのlong-configへ設定とCLI引数のcommands.jsonを書き、Runnerは起動しない。変種の葉は設定ファイルへ埋め込まない。
 
-| 段 | 環境・予算 | 腕と seed | 次段へ進む条件 |
+| 段 | 環境・予算 | 群と seed | 次段へ進む条件 |
 | --- | --- | --- | --- |
 | 1 | GridMaze 6×10、J=7、500k | 無効、分離 stop、分離 merge、包含 stop。seed 1〜3 | eval の decision_rate が減り、return AUC が基準の seed 間のブレを超えて悪化しない |
 | 2 | LunarLander、J=4、2M | 無効、分離 stop、分離 merge。seed 1〜3 | AUC が同等以上、eval decision_rate < 1。落ちるなら stop を残して調査 |
@@ -99,7 +99,7 @@ prepare-longはround2 rootのlong-configへ設定とCLI引数のcommands.jsonを
 
 段4は、使用する nzrep の 50M checkpoint を `prepare-long --checkpoint` へ渡して生成する。未指定時は段4を開始できる設定に偽装せず、`long-config/status.json` に未生成の理由を記録する。保存済み Run artifact は書き換えない。
 
-判定値は評価 slot のものを使う。train の decision_rate は探索を含むので監視用。j=J の集中が続く場合は専用 skip 方策を平均値の ε-greedy にした腕を追加する。q_shared・専用方策・PER λ の効果比較は今回の長時間実験に含めない。
+判定値は評価 slot のものを使う。train の decision_rate は探索を含むので監視用。j=J の集中が続く場合は専用 skip 方策を平均値の ε-greedy にした群を追加する。q_shared・専用方策・PER λ の効果比較は今回の長時間実験に含めない。
 
 ## 結果
 

@@ -77,7 +77,7 @@ Release、Atari qbert+BTR、skip ON、N128/B256、BF16、prefetch、warmup256、
 
 Run は `.scratch/prd103/current/runs/` の `run_20261031-18*_t103_perf1031-*`。`perf1031-onoff` の最初の Run はビルド直後の最初の Run で、同じ構成のほかの 5 本より遅い。on/off の 3 巡の構成ごとの中央値は有効 0.0591・無効 0.0456 で、比は 1.296。
 
-## 構造の腕と長時間実験
+## 構造の群と長時間実験
 
 `arms.txt`をAtari.txtの後でincludeし、run.@va_base > run.@skipの後にrun.@skip_conv_shared（T3）かrun.@skip_conv_separate（T4）を置く。T3はprimaryの畳み込みtrunkだけを公開し、skip側に独立Linear512/LN/ReLUとtau融合を持つ（merge）。T4はgridから同じ畳み込みと射影・tau融合を作る（stop）。既定の構造は変えない。branch名・構造が異なるため既定checkpointとは互換にしない。
 
@@ -87,9 +87,9 @@ Run は `.scratch/prd103/current/runs/` の `run_20261031-18*_t103_perf1031-*`�
 
 初回レビューで実験レシピのmetrics選択による診断群欠落を修正した。現在の24入力は、診断追加前のRunをreference.jsonへ解決し、追加後もその全scalarキー・文字列値を保持する検査をすべて通過した。AtariのMunchausen/replay-fitとLunarLanderのMunchausen群を保持する。修正前のローカル証跡はexperiments-review1に保存。
 
-| 段 | 腕 | seed・予算 | 読み方 |
+| 段 | 群 | seed・予算 | 読み方 |
 |---|---|---|---|
-| 1 | stop、merge+loss_weight0.3、merge+clip30（T2） | seed1・50M | 既存／実行中Runを使い段3の腕を選ぶ |
+| 1 | stop、merge+loss_weight0.3、merge+clip30（T2） | seed1・50M | 既存／実行中Runを使い段3の群を選ぶ |
 | 1' | GridMaze 6×10 | 実施済み3 seed・500k | PRDの結果を保持。再実行しない |
 | 2 | merge、split、merge+kmax、skip epsilon-greedy（T10、spatial 0.3→0） | 3 seed・2M | policy報酬AUCとgreedy判断率・長さ別率 |
 | 3 | split、条件付きsplit+kmax、条件付きmerge seed2 | 各50M | kmaxは段2で基準以上、seed2は段1でばらつきが候補の場合だけ |
