@@ -28,7 +28,7 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 | 2026-10-27〜 | [qbert の TempoRL の 50M の学習 Run どうしの比較](2026-10-31_temporl-qbert-50m-learning.md) | PRD098段3・PRD103段1・段3・PRD104段2・PRD106 G4、合算・遮断・重み0.3・分割・ノイズ切り・補助学習のみとスキップなし、Greedy・ε0.01・学習側・クリップ率 | completed（qbert は区切り。ViT 合算は 45.37M で停止） |
 | 2026-10-31〜11-04 | [BeamRider と Freeway での TempoRL](2026-11-04_temporl-freeway-beamrider.md) | PRD103の再開条件、合算・補助学習のみとスキップなし、Greedy・ε0.01・学習側、スキップなしのseedの割れ、ボスの回数とゲームが終わるセクター、BTRの公開値と手元の再現 | completed（BeamRider の合算 s2 は約 17M で停止） |
 | 2026-11-08 | [Montezuma's Revenge の RND（サンプル効率優先・30M）](2026-11-08_montezuma-rnd-se-30m.md) | RND（β0.1）とサンプル効率優先の30M、Greedy・ε0.01・学習側、bonusとQ・loss、評価時のε・τの4条件（30Mと20.07Mの重み） | completed |
-| 2026-11-08〜 | [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）](2026-11-08_montezuma-rnd-taiga-aligned.md) | Taiga ら寄せのQ側とRNDの式、β（0.1・0.01）、Munchausen、Greedyの2500点、2500点のあとの局面、扉の向き、可塑性 | active |
+| 2026-11-08〜 | [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）](2026-11-08_montezuma-rnd-taiga-aligned.md) | Taiga ら寄せのQ側とRNDの式、β（0.1・0.01）、Munchausen、Greedyの2500点、2500点のあとの局面、扉の向き、可塑性、seed 2、Greedyの打ち切りと止まる局面 | active |
 
 ## 知見のまとめ
 
