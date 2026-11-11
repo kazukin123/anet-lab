@@ -1,5 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:09b8abdd865ab3cd46e72d8f43178ccace0b446d date:2026-11-11 progress:chapter 0/5 -->
-<!-- Translation pending: PRD123 updates are reflected in the affected parts of chapters 1, 3, 4 and the validation link in 5.2. Other prior translation drift has not been verified. -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:09b8abdd865ab3cd46e72d8f43178ccace0b446d date:2026-11-11 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -21,7 +20,7 @@ This document starts from the basics for readers unfamiliar with reinforcement l
 | Observation / next observation | Information the Agent receives, such as an image or position. A next observation is obtained after executing an action. It need not expose the entire internal environment state. |
 | Agent / policy | An Agent combines action selection and learning. A policy is a rule for selecting actions from observations. |
 | Extrinsic reward | Scores or success/failure evaluations supplied by the environment, representing the task ultimately to be achieved. |
-| Intrinsic reward / bonus | Additional evaluation computed by the Agent to encourage exploration. Here, a bonus is the nonnegative value actually added to training reward. |
+| Intrinsic reward / bonus | Evaluation computed by the Agent to encourage exploration and added to training reward. Nonnegative in the default clipped mode; unclipped mode can also produce negative values. |
 | Training reward | Reward passed to the learner. Here it is scaled extrinsic reward plus the bonus. |
 | Exploration / exploitation | Exploration investigates unknown outcomes; exploitation chooses actions already known to be good. |
 | Episode | One continuous trial from environment start to end. It may also be truncated, for example by a time limit. |
@@ -40,9 +39,9 @@ This document starts from the basics for readers unfamiliar with reinforcement l
 | Feature vector | A numerical representation of an observation. Individual RND target outputs need not have human-readable meanings. |
 | Prediction error / MSE | The difference between prediction and teacher output. MSE (mean squared error) squares the differences and averages over elements. |
 | Loss / auxiliary learning | Loss is the quantity minimized by learning. Auxiliary learning here reduces predictor error separately from the main action-value learning. |
-| Mean / standard deviation | The mean describes the center; standard deviation describes spread. The same difference is relatively larger when the usual spread is smaller. |
+| Mean / variance / standard deviation | The mean describes the center. Variance is the mean of squared deviations from the mean, and standard deviation is its square root. The same difference is relatively larger when the usual spread is smaller. whiten divides by the standard deviation and variance_feedback by the variance, so their multipliers differ. |
 | Observation normalization | Aligning input scales. The current default subtracts each component's mean and divides using its standard deviation. |
-| Clip / multiplier α | Clipping limits values to lower and upper bounds. Multiplier α is the novelty score constrained to `[1, L]`. |
+| Clip / multiplier α | Clipping limits values to lower and upper bounds. Multiplier α is a score with baseline 1: the default clipped mode keeps it in `[1, L]`, while unclipped mode leaves `1+z` unchanged. |
 | β / L | β controls bonus strength. L is the upper bound of multiplier α. |
 | Warm-up | An initial period without a bonus. Default whiten trains the predictor and collects observation statistics, excluding errors. |
 | NGU | Never Give Up: a method combining episodic and lifelong novelty and learning policies with different exploration strengths. |
@@ -118,8 +117,8 @@ NGU multiplies episodic reward by a lifelong-novelty factor. ANET does not curre
 | Aspect | Current ANET choice |
 | --- | --- |
 | Core RND mechanism | Error between a fixed teacher and a trainable predictor |
-| Making error scale manageable | Measure relative magnitude using the historical error mean and standard deviation |
-| Multiplier | NGU-style `[1, L]`; `alpha` in code is the clipped value |
+| Making error scale manageable | Default uses the historical mean and standard deviation; `variance_feedback` is selectable for comparison with Taiga et al. |
+| Multiplier | Default `clipped` follows NGU's `[1, L]`; `unclipped` returns `1+z` unchanged |
 | Training-reward composition | Add `β × (α − 1)` to scaled extrinsic reward |
 | Episodic visit memory / a family of policies with different exploration strengths | Not included in this implementation |
 
@@ -127,11 +126,11 @@ NGU multiplies episodic reward by a lifelong-novelty factor. ANET does not curre
 
 ### 3.1 Feeding the Same Input to Two Networks
 
-First normalize the next observation specifically for RND, then pass the same input to target and predictor.
+First normalize the observation selected by the facade specifically for RND, then pass the same input to target and predictor. The default `intrinsic.observation=next_state` selects the transition's next observation; `state` selects the observation at which the action was taken. Both are the latest single frame before the Actor's frame stacking.
 
 ```mermaid
 graph TD
-    O[次観測] --> N[観測正規化]
+    O[選んだ生の観測] --> N[観測正規化]
     N --> T[RND target]
     N --> P[RND predictor]
     T --> E[予測誤差]
@@ -145,7 +144,7 @@ $$
 e(x)=\frac{1}{d}\sum_{j=1}^{d}\left(g(x)_j-f(x)_j\right)^2
 $$
 
-`j` indexes output-vector components; d defaults to 128. Squaring and averaging component differences produces one nonnegative value per lane.
+`j` indexes output-vector components; d defaults to 128 in the implementation and is 512 in Atari's `run.@rnd`. Squaring and averaging component differences produces one nonnegative value per lane.
 
 | Location | Shape | Meaning |
 | --- | --- | --- |
@@ -158,7 +157,7 @@ $$
 
 The entry point is [`RndNoveltyEstimator::Estimate`](../../core/anet-core/src/intrinsic_rnd.cpp). Target and predictor have separate weights. Target gradient computation is disabled, and it uses a mode without training-state updates. Neither shares weights with the Q-value Network.
 
-Target and predictor use separate Body configurations and a shared output dimension, with different named seeds for initialization. Teacher weights are not copied into the predictor: identical initial mappings would match before practice and eliminate error as a novelty signal.
+Target and predictor are built separately from the required `intrinsic.rnd.target.net.*` and `intrinsic.rnd.predictor.net.*`. Their Body depth and feature counts may differ, but both project to the shared `output_dim` dimensions through a Head. Head initialization is selected by `intrinsic.rnd.head.init.*`, with xavier as the implementation default. Initialization uses different named seeds, and teacher weights are not copied into the predictor: identical initial mappings would match before practice and eliminate error as a novelty signal.
 
 ### 3.2 Two Distinct Normalizations
 
@@ -175,13 +174,31 @@ The actual divisor is `sqrt(var) + epsilon` in [`RunningMeanStd::GetStd`](../../
 
 Noncategorical `uint8` observations, such as pixels, are converted to floating point inside RND before normalization. Categorical observations follow existing observation-specification and normalization handling.
 
-Error statistics aggregate all lanes. `error_norm.average_mode=cumulative` (default) retains the existing Welford computation with `epsilon=0`. `ema` uses an observation-based decay `d=1−1/ema_steps` (default time constant 1,000,000): each earlier observation loses a factor d for each new scored observation. Mean and population variance are divided by the accumulated weight. Updates follow lane order, so splitting the same ordered errors across batches does not change the resulting statistics. With `ema_steps=1`, only the last error remains and variance is zero. Empty statistics and zero standard deviation return multiplier one. Warm-up determines whether errors enter these statistics (§3.5).
+Error statistics, by contrast, aggregate all lanes into one. `error_norm.average_mode=cumulative` (default) accumulates every batch entered into the statistics, using the existing Welford computation with `epsilon=0`. `ema` reduces the weight of the past by a factor `d=1−1/ema_steps` for each scored observation, using the mean and population variance divided by the weight sum (default `ema_steps=1,000,000`). Updates follow lane order, so the same sequence of errors yields the same statistics regardless of how it is split into batches. `ema_steps=1` keeps only the last observation, so variance is zero. Zero standard deviation or empty statistics receive the special handling in the next section. The mode in §3.5 determines whether errors during warm-up are included.
 
-These choices apply to statistics_mode=whiten. variance_feedback retains its independent lane-ordered recurrence and uses updated error mean and variance, without taking the divisor's square root. It does not use warmup_mode or error_norm.*, but validates their values and warns once per nondefault unused key at construction.
+Everything up to this point is the default `statistics_mode=whiten`. `variance_feedback`, which aligns conditions with the public implementation of Taiga et al., uses a separate recurrence. The observation mean `obs_m` starts at 0, the variance-like value `obs_v` at 1, the error mean `err_m` at 0, the error variance-like value `err_v` at 1, and the count `n` at 0. Observation mean and variance are kept per input component; error mean and variance are scalars.
+
+```text
+各laneについて、直前までの観測統計を使う:
+  n += 1
+  p = clip((x - obs_m) / obs_v, -clip_range, clip_range)
+  e = mean((predictor(p) - target(p))^2)
+  d = p - obs_m
+  obs_m += d / n
+  obs_v = (obs_v * n + d^2 * n / (n + 1)) / (n + 1)
+  d = e - err_m
+  err_m += d / n
+  err_v = (err_v * n + d^2 * n / (n + 1)) / (n + 1)
+  z = (e - err_m) / err_v
+```
+
+This method feeds the normalized `p` back into the observation statistics and also standardizes errors with the updated values. It takes no square root of the divisor, so do not read it as the same formula as whiten. Statistics are updated in lane order even with two or more lanes. Because observation-statistics and error-statistics updates are independent, Network forwards can be batched after preparing each lane's normalized input. `Learn` renormalizes with the updated observation statistics and does not update these statistics.
+
+The only normalization key used by `variance_feedback` is `obs_norm.clip_range`. Other `obs_norm.*` values are still range-checked, and when a resolved value differs from RND's internal default, construction warns once per key that it is unused. Handling does not depend on whether the value came from defaults, a profile, or the CLI.
 
 ### 3.3 From Error to Multiplier to Bonus
 
-Let e be current error, and μ_e and σ_e the error mean and standard deviation **before adding this batch**. After warm-up, when statistics are available, compute:
+In the default whiten mode, let e be current error, and μ_e and σ_e the error mean and standard deviation **before adding this batch**. After warm-up, when statistics are available, compute the default clipped multiplier as:
 
 $$
 \alpha=\operatorname{clip}\left(1+\frac{e-\mu_e}{\sigma_e},\ 1,\ L\right)
@@ -194,9 +211,11 @@ This measures how many standard deviations the error exceeds its usual value, th
 - Even large errors cannot exceed L, which defaults to 5.
 - During warm-up, without scoring history, or when `σ_e=0`, every lane gets `α=1`.
 
-With `error_norm.use_centering=false`, whiten uses `α=1+e/σ_e`, without subtracting the mean. Clipped mode caps this at L; unclipped mode keeps it unchanged. Centering and clipping are independent. The same warm-up, empty-statistics, and zero-divisor rules apply. Uncentered positive bonuses can also encourage longer episodes, so comparisons must account for β.
+The facade converts the multiplier into a bonus.
 
-The facade converts the multiplier into a bonus:
+`error_norm.use_centering=false` does not subtract the mean and uses `α=1+e/σ_e`. Clipped mode caps this at L; unclipped mode returns it unchanged. The denominator is the same error standard deviation, and during warm-up, with empty statistics, or with zero standard deviation, both give multiplier 1. Centering and clipping are selected independently. Without subtracting the mean, ordinary observations also receive positive reward, which can also favor living longer, so read comparison conditions for β together.
+
+`multiplier_mode=unclipped` applies neither lower nor upper bound and returns `α=1+z` in both statistics modes. Errors below the mean yield negative bonuses, and `α` itself may become negative. During warm-up or with a zero divisor the multiplier is 1, and `clip_ratio` is always 0. `multiplier_max` is only validated, with one construction-time WARN only when its resolved value differs from the implementation default 5.
 
 $$
 b_i=\begin{cases}
@@ -212,11 +231,13 @@ $$
 
 `i` is the lane index, `r_ext` the environment's extrinsic reward, and `RewardScale` the existing reward-scaling operation. Subtracting 1 makes the familiar-observation baseline `α=1` produce zero extra reward. With current β=0.1 and L=5, bonuses lie in `[0, 0.4]`. Extrinsic reward is not multiplied by α, so even zero-extrinsic-reward transitions can receive bonuses.
 
-Lanes with `done` still participate in scoring, statistics updates, and auxiliary learning. For next_state scoring, `intrinsic.use_done_mask=true` (default) zeros only **the amount added to reward**; false adds the terminal observation's bonus unchanged. `truncated=true` alone never zeros it. With `intrinsic.observation=state`, the action-time observation is scored and done is never masked. The mask setting is unused in that case; a nondefault false value produces one construction-time WARN.
+When scoring next observations, lanes with `done` still participate in scoring, statistics updates, and auxiliary learning. With `intrinsic.use_done_mask=true` (default), only **the amount added to reward** is zeroed; false adds the terminal observation's score unchanged. `truncated=true` alone never zeros it. `observation=state` uses the observation at which the action was taken and never masks done, because that observation was valid at the time of the action leading to termination. In that case use_done_mask is unused, and specifying the nondefault false produces one construction-time WARN.
 
 ### 3.4 Score First, Become Familiar Later
 
 Operation order changes the bonus from the same observation and is therefore part of the algorithm.
+
+The following table shows the default whiten, clipped, and next_state. Selecting state changes the observation and whether masking applies; use_done_mask=false changes reward masking; variance_feedback changes the update order of observation and error statistics as described in the previous section.
 
 | Order | Operation | State used or updated |
 | ---: | --- | --- |
@@ -229,17 +250,19 @@ Operation order changes the bonus from the same observation and is therefore par
 | 7 | Facade adds credit, selects k lanes per available learning step, and calls `Learn` | Observation statistics updated in step 5; normalize and forward all k inputs on each call, learning with a fresh graph |
 | 8 | Pass experience with composed rewards to the inner Learner | Existing Q-learning and ReplayBuffer path |
 
-Training the predictor first would score observations after becoming familiar with them. Adding current errors to the statistics first would let each observation alter its own comparison baseline. The implementation avoids both, scoring against prior state.
+Training the predictor first and then measuring error would score observations after becoming familiar with them, so both statistics modes score before learning. When error statistics are updated differs by method: whiten uses the baseline before adding current values, and variance_feedback uses the baseline after adding them.
 
 `Estimate` also performs step 5. It is not a read-only query, but retains no computation graph. `Learn` computes independently from supplied observations, reading current observation statistics without updating them. Consequently, the same raw observation can normalize differently during scoring and learning.
 
-The facade calls `Estimate` once for all intake observations, then `Learn` zero or more times according to credit. The public API requires neither identical observations nor a fixed order or count. Two scoring calls can precede learning on other observations. `Learn` returns true when the optimizer advances, including default whiten warm-up. It returns false during collect_errors or variance_feedback warm-up. The interface also supports separating action-time scoring from auxiliary learning on Replay observations.
+The facade calls `Estimate` once for all intake observations, then `Learn` zero or more times according to credit. The public API requires neither identical observations nor a fixed order or count. For example, two scoring calls can precede learning on other observations, and `Learn` alone can train even during the default warm-up. `Learn` returns true when the optimizer advances, and false during collect_errors or variance_feedback warm-up. The interface also supports separating action-time scoring from auxiliary learning on Replay observations.
 
 ### 3.5 Warm-up and Lane Sampling
 
 Default `warmup_steps=12,800` counts **scored observations**. Scoring B observations adds B; through the facade, this uses the same unit as exp steps. N=128 takes 100 intakes and N=64 takes 200 to collect 12,800 observations. `Learn` cannot finish warm-up by itself because it does not update observation statistics. With zero warm-up, the first `Learn` call trains.
 
-Whiten checks the count before scoring the batch and returns one for all lanes below the threshold. `warmup_mode=learn_predictor` (default) trains the predictor during warm-up and updates observation statistics, excluding errors. Error mean/std are NaN while empty. The first post-warm-up batch also gets multiplier one, then contributes its errors; the following batch uses those statistics. `collect_errors` updates both observation and error statistics during warm-up but returns false from `Learn` while the post-scoring count is at or below the threshold. Variance feedback retains that learning gate and its per-lane scoring threshold; it ignores warmup_mode. Zero warm-up trains and collects errors from the first call for both warmup modes. A nondefault warmup_mode with zero whiten warm-up produces one INFO rather than WARN.
+Whiten's α checks the count before scoring the batch and returns 1 for all lanes below the threshold. With `warmup_mode=learn_predictor` (default), `Learn` still returns true and trains during that period, and only observation statistics are updated. Error statistics are empty, so error_mean/error_std are NaN. The first batch after warm-up also returns multiplier 1 from the empty statistics and adds its errors to the statistics. From the next batch on, the pre-scoring statistics are used.
+
+`warmup_mode=collect_errors` updates both observation and error statistics during warm-up, while `Learn` returns false if the post-scoring count is at or below the threshold. variance_feedback warm-up keeps this form and does not use warmup_mode. However, its scoring checks the per-lane pre-scoring count, so normal multipliers begin partway through a batch that crosses the threshold. `warmup_steps=0` trains from the first call and adds errors to the statistics from the first call in either warmup_mode. An unused warmup_mode produces one construction-time INFO only when it differs from the default.
 
 The facade owns learning cadence. Let k be `min(learn_batch_size,N)`; add `N × learn_ratio / k` to credit per intake. Each full unit permits one step on k observations, retaining fractional credit. At default ratio 0.25 and batch size 32, N=128 gives one step per intake, while N=64 gives one every two intakes: both train on 32 observations once per 128 experiences. If N is below batch size, construction warns once and shrinks the batch to N; equal step counts are then not guaranteed.
 
@@ -267,14 +290,14 @@ sequenceDiagram
     T-->>R: 教師の出力
     R->>P: forward(全lane、勾配なし)
     P-->>R: 予測
-    R->>R: 誤差のD2H、有限検査
+    R->>R: 誤差とtarget出力のD2H、有限検査
     R->>R: 更新前の誤差統計でα、統計更新
     R-->>F: α（入力と同じdevice）
-    F->>F: Compose bonus with β and configured done mask
+    F->>F: βと設定されたdoneマスクで内的報酬を合成
     F->>F: credit += N × learn_ratio / k、lane順列を準備
     loop creditが1以上、最大floor(N/k)回
         F->>R: Learn(k laneずつ、重複なし)
-        opt learn_predictor or warm-up complete
+        opt learn_predictor、またはwarm-up後
         R->>R: 全k件を今の統計で正規化、H2D
         R->>T: forward(選択lane、勾配なし)
         T-->>R: 教師の出力
@@ -292,7 +315,7 @@ sequenceDiagram
     L->>N: Replayからの学習でNNの重みを更新
 ```
 
-The diagram shows one intake with CPU observations and CUDA computation. H2D transfers CPU to GPU; D2H transfers GPU to CPU; CPU computation omits these transfers. CUDA inputs move to CPU before normalization, and multipliers return to the input device. The facade completes RND `Learn` calls before passing experience to the inner Learner. The Learner updates its NN only when existing Replay and update-interval conditions hold. RND auxiliary learning and DQN NN updates use separate weights and optimizers.
+The diagram shows one intake with the default whiten, clipped, and next_state, using CPU observations and CUDA computation. H2D transfers CPU to GPU; D2H transfers GPU to CPU; CPU computation omits these transfers. CUDA inputs move to CPU before normalization, and multipliers return to the input device. The facade completes RND `Learn` calls before passing experience to the inner Learner. The Learner updates its NN only when existing Replay and update-interval conditions hold. RND auxiliary learning and DQN NN updates use separate weights and optimizers.
 
 | Comparison | DQN target network | RND target |
 | --- | --- | --- |
@@ -385,9 +408,11 @@ Appending `run.@rnd` to an existing Run chain jointly selects RND enablement, in
 | [GridMaze.txt](../../apps/runner/config/GridMaze.txt) | `vector` | `Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU` |
 | [LunarLander.txt](../../apps/runner/config/LunarLander.txt) | `vector` | Same as above |
 
-Atari uses AtariRndConv1 (32 channels, kernel 8, stride 4), AtariRndConv2 (64, 4, 2), and AtariRndConv3 (64, 3, 1), with LeakyReLU slope 0.2 after each convolution and zero padding. A 1×84×84 input becomes 3,136 features. Predictor adds two AtariRndFC Linear/ReLU layers; both Bodies end in a 512-dimensional Linear Head. Conv, FC, and Head use orthogonal initialization with gain √2 and zero bias. Target has 1,677,984 parameters; predictor has 2,203,296. GridMaze and LunarLander use the common RndMlp Body and default 128-dimensional Head.
+Atari's CNN passes through `AtariRndConv1` (32 channels, kernel 8, stride 4), `AtariRndConv2` (64, 4, 2), and `AtariRndConv3` (64, 3, 1) in order, with `AtariRndLeaky` (LeakyReLU, negative_slope 0.2) after each Conv. All padding is 0, so a 1×84×84 input becomes 3,136 dimensions after Flatten. The Linear added only to the predictor is `AtariRndFC`. Both Bodies are followed by a 512-dimensional Linear Head. Conv, FC, and Head use orthogonal initialization, gain √2, and bias 0, giving 1,677,984 parameters for target and 2,203,296 for predictor. This is a model separate from the Q network.
 
-Atari run.@rnd_taiga selects β=0.00005, observation=state, learn_ratio=1, learn_batch_size=1, multiplier_mode=unclipped, statistics_mode=variance_feedback, warmup_steps=0, and adam_eps=1e-5. Add run.@rainbow_like to the Q configuration, followed by run.@rnd > run.@rnd_taiga. It does not select num_envs.
+GridMaze/LunarLander reference `net.branch.@RndMlp` from both Bodies. It uses `MLP_FC1` / `MLP_FC2` from the common catalog, with a default 128-dimensional Head. The common catalog's `Conv1d_S/M` and `Conv2d_S/M` read the `conv.*` keys; a two-layer Conv2d gives 6,400 after Flatten and 854,240 parameters including the 128-dimensional Head.
+
+Atari's `run.@rnd_taiga` selects the following eight values: β=0.00005, observation=state, learn_ratio=1, learn_batch_size=1, multiplier_mode=unclipped, statistics_mode=variance_feedback, warmup_steps=0, and adam_eps=1e-5. Add the Q-side `run.@rainbow_like` to the existing chain, then layer `run.@rnd > run.@rnd_taiga` on top. It does not select num_envs. Also confirm in the resolved Run configuration the Q-side noop_max=0, the Nature structure of main_feature, and the absence of Munchausen metrics.
 
 RND receives the selected raw observations, rather than Actor-preprocessed Q inputs. For Atari as well, distinguish Q-input frame stacking from RND input.
 
@@ -424,7 +449,7 @@ Example interpretations:
 - Falling `predictor_loss` and `error_step` indicate progress in predicting inputs. Their values usually differ because the former uses selected lanes and the latter all lanes.
 - Low `bonus_mean` can reflect below-usual error, warm-up, small β, many done lanes, or other factors. Do not infer the cause from one metric alone.
 - Persistently high `clip_ratio` means many observations receive the same capped multiplier. Check current errors, cumulative statistics, and input normalization together.
-- `error_mean` / `error_std` are post-scoring statistics, unlike the old statistics used for current α. Substituting values from the same log row cannot exactly reproduce the score.
+- `error_mean` / `error_std` are post-scoring statistics. Whiten's α uses the values before the update, while variance_feedback uses the updated mean and `err_v`. Even for the latter, the published std is the square root of the variance, so do not use the logged std directly as the divisor.
 
 Disabled RND keys return `nullopt`. When enabled, `learn_count` starts at 0, and intakes without learning retain the latest loss. Scores before first scoring and losses before learning are NaN. This intentional unavailability differs from abnormally nonfinite computed errors, which stop processing when detected during scoring or learning. With N at least batch size and no intake-cap constraint, the post-warm-up incremental ratio of `learn_count / exp_step` is `learn_ratio / learn_batch_size`.
 
@@ -432,11 +457,13 @@ Disabled RND keys return `nullopt`. When enabled, `learn_count` starts at 0, and
 
 Predictor weights alone cannot restore RND. Changing the teacher changes the answers; changing statistics changes relative novelty; changing sampling state changes which lanes are practiced.
 
-RND first writes `RndNoveltyEstimator-4` for whiten EMA, or `RndNoveltyEstimator-3` for cumulative and variance_feedback, followed by statistics_mode. Target, predictor, optimizer, selected statistics, cumulative target-output statistics, and scored-observation count follow in the existing order. Whiten saves observation normalization plus Welford state for cumulative, or weight sum, mean, and squared deviations for EMA. Variance feedback saves obs_m, obs_v, err_m, err_v, and n. A different identifier or statistics_mode is rejected before reading the payload, reporting both saved and expected values. Cumulative format and payload remain unchanged, allowing existing -3 checkpoints to load directly. warmup_mode, use_centering, ema_steps, and use_done_mask are not saved; current settings apply after loading. The facade also saves unused credit, lane-selection RNG state, and cumulative successful steps. Latest diagnostic loss is not saved and remains NaN until learning succeeds.
+RND first writes `RndNoveltyEstimator-4` for whiten EMA, or `RndNoveltyEstimator-3` for cumulative and variance_feedback, followed by statistics_mode. Target, predictor, optimizer, selected statistics, cumulative target-output statistics, and scored-observation count follow in the existing order. Whiten saves observation normalization plus Welford state for cumulative, or weight sum, mean, and squared deviations for EMA. Variance feedback saves obs_m, obs_v, err_m, err_v, and n. A different identifier or statistics_mode is rejected before reading the payload, reporting both saved and expected values. Cumulative format and payload remain unchanged, allowing existing -3 checkpoints to load directly. warmup_mode, use_centering, ema_steps, and use_done_mask are not saved; the settings at resume apply.
+
+The Agent then saves the facade's unconsumed credit, lane-selection RNG state, and cumulative success count. The RND body comes first, so a different format is rejected by the body's check. Except in the middle of a call, saving and restoring work before the first scoring, between Estimate and Learn, and immediately after Learn. Computation graphs are not carried over. The latest loss is not saved and remains NaN until the first successful step after loading.
 
 Agent checkpoints containing RND append `;intrinsic` to the existing identifier. Loading fails if the saved checkpoint has RND but the reader disables it, or vice versa. Disabled mode uses the previous format.
 
-Loading restores predictor optimizer training state, then applies the current learning rate and weight decay. Resuming with changed values therefore differs from continuing identical training.
+Loading restores predictor optimizer training state, then applies the current learning rate, weight decay, and adam_eps, warning when they differ. Resuming with changed values therefore differs from continuing identical training.
 
 ## 5. Current Status and Limitations
 
@@ -446,7 +473,9 @@ RND target, predictor, and facade lane sampling use separate named seeds. Ordina
 
 Inputs may reside on CPU or CUDA. RND moves observations to CPU for normalization, then sends them to the Factory's computation device. Finite-error checks and statistics run on CPU; returned α uses the input device. The facade selects lanes first, and `Learn` normalizes/transfers all k supplied observations. CUDA-input selection indices are sent asynchronously from pinned memory once per intake; there are no synchronous per-lane transfers.
 
-RND owns independent FP32 models. Scoring performs two forwards on all N observations; each auxiliary step performs two forwards and one backward on k observations. After warm-up, without hitting the cap, average steps per intake are `N × learn_ratio / k`. Default N=128 gives one step on 32 observations. Learning needs fresh forwards because scoring graphs are not reused. Actual speed differences remain unmeasured, and observation-statistics updates still duplicate normalization through the existing API.
+RND owns independent FP32 models. Scoring performs two forwards on all N observations; each auxiliary step performs two forwards and one backward on k observations. After warm-up, without hitting the cap, average steps per intake are `N × learn_ratio / k`. Default N=128 gives one step on 32 observations. Learning needs fresh forwards because scoring graphs are not reused. The speed difference measured on GridMaze with CPU and 256 lanes is given in the next section. The cost for Atari image inputs remains unmeasured, and observation-statistics updates still duplicate normalization through the existing API.
+
+variance_feedback updates observation statistics on CPU in lane order, then forwards the results together. To accumulate target_feature_var, scoring returns the N×output_dim target outputs to CPU in addition to errors. The Taiga configuration uses k=1 and ratio=1, so it runs N backwards per intake, a cost very different from the default cadence. Transfer/synchronization estimates and the scope actually confirmed are recorded in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md). Performance measurement is separate.
 
 Scoring and auxiliary learning occur per batch independently of Q-learning step counts, so increasing the Q-update interval need not reduce RND cost proportionally. Profiling separates sampling, normalization, input transfer, target/predictor forward, error transfer, statistics, backward, and optimizer step.
 
@@ -454,23 +483,22 @@ With `learner.enabled=false`, scoring and auxiliary learning pause with one warn
 
 ### 5.2 Verified Scope
 
-See the [PRD123 validation guide](../../core/anet-core/testdata/prd123/README.md) for error statistics, warm-up, centering, and terminal masking. It separates before/after comparisons for collect_errors, variance_feedback, and disabled RND from analytical EMA and checkpoint checks. KFM effectiveness experiments require separate approval.
+Validation procedures for error statistics, warm-up, centering, and terminal masking are in the [PRD123 validation assets](../../core/anet-core/testdata/prd123/README.md). They distinguish before/after comparisons for collect_errors (which selects the old behavior), variance_feedback, and disabled RND from hand-calculated EMA and save/restore checks. KFM effectiveness checks are performed only after separate approval.
 
-When scoring and auxiliary learning were separated, the full Debug build and 21 tests / 998 assertions under `[prd116],[scaler]` passed, covering independent operations, different learning inputs, CPU/CUDA input and computation-device combinations, and persistence between operations. Validation of the 2026-11-07 cadence and batch-size changes is recorded separately in [22impl](../memo/116_rnd_lifelong_novelty_22impl.md).
-
-For those changes, the full Debug build, 28 related tests / 1293 assertions, and 11 shipped-configuration tests / 2583 assertions passed. Checks covered four learning steps over eight observations from the same 32 experiences with N=2/4, post-learning weights for k nonrepeating CPU/CUDA inputs, credit consumption during warm-up, loss retention, and restoring fractional credit and sampling state. Full-key comparisons of seven configurations found only the intended 28 differences.
-
-The following table records initial validation on 2026-11-06, before separating scoring and auxiliary learning. Details are in the [initial implementation record](../memo/116_rnd_lifelong_novelty_20impl.md), post-separation validation in the [public-API revision record](../memo/116_rnd_lifelong_novelty_21impl.md), and rerun entry points in [PRD116 validation assets](../../core/anet-core/testdata/prd116/README.md). Repeating disabled-mode checksums across four environments was deferred because it would conflict with an active Run; no smoke or performance measurements were made for the latest changes. Enabled-mode learning sequences differ from the earlier implementation.
+Validation of the 2026-11-07 changes that added the public-implementation form and options is in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md), with rerun entry points in [PRD116 validation assets](../../core/anet-core/testdata/prd116/README.md). For earlier validation, see [20impl](../memo/116_rnd_lifelong_novelty_20impl.md), [21impl](../memo/116_rnd_lifelong_novelty_21impl.md), and [22impl](../memo/116_rnd_lifelong_novelty_22impl.md). Enabled-mode learning sequences differ from past Runs because of Network and configuration changes.
 
 | Check | Result and scope |
 | --- | --- |
-| Debug build and related tests | 28 tests / 3160 assertions passed, including RND, normalization, and shipped configuration |
+| Debug build and related tests | Full build; 50 tests / 4,371 assertions passed. CNN CPU tests used OMP_NUM_THREADS=1 |
 | Fixed teacher and predictor | Confirmed unchanged target weights/outputs and predictor learning after 100 updates on identical input |
-| Save/resume | Checked CPU/CUDA, normalization, scoring counts, sampling, and optimizer-setting handling |
-| Disabled-mode equivalence | 105,682 training-metric points and metric definitions matched the previous implementation across GridMaze, LunarLander, Atari, and DropMerge |
-| GridMaze short smoke | Completed 100,000 experiences; confirmed bonuses and a decreasing-error trend |
-| Atari Kung-Fu Master short smoke | Completed 100,000 experiences; eight exposed metrics were finite, and multiplier `clip_ratio` peaked at 0.125 without sticking at 1 |
-| Performance | Not measured because another Run was active; execution-speed impact remains unknown |
+| Statistics, inputs, and save/resume | Confirmed three hand-calculated variance_feedback steps with N=1, sequential updates with N=2, preservation of categorical IDs (alone and mixed with continuous values; int64/uint8/float), scoring and learning with state, negative-bonus ratios, CPU/CUDA inputs for both modes, and continued saving plus rejection of mode mismatches |
+| Shipped configuration | Parameter counts of both Atari Networks, the approximately 33.2 MB checkpoint increase, Conv1d/2d dimensions, and the eight Taiga keys matched |
+| Run configuration resolution | Full-key comparison with a saved Montezuma baseline Run. The only differences from rainbow to taiga were 18 RND-setting keys and 13 diagnostic keys. Confirmed noop_max=0, the Nature structure, and the absence of Munchausen metrics |
+| Disabled-mode equivalence | 105,682 points and metric definitions matched the previous implementation across GridMaze, LunarLander, Atari, and DropMerge |
+| GridMaze smoke | Completed 100k experiences, with 5,448 post-learning points, a maximum recorded learn_count of 2,724, and no invalid nonfinite metric values, meeting the revised criteria of completion, finiteness, and auxiliary-learning progress. Because the observation is a normalized (x, y) pair on a fixed board, the default bonus becomes 0 once the predictor becomes familiar with the limited inputs and novelty is exhausted; sign and decrease are not judged |
+| KFM smoke | Completed 100k experiences with the new three-layer CNN; clip_ratio over 5,448 post-learning points peaked at 0. However, the saved r1 lacks bonus_share at 4,008 points and fails the rejudgment with a stricter NaN exception. The old aggregation is retained, and no new Run was started |
+| Montezuma smoke | Completed 100k experiences with the Taiga configuration. bonus_min was negative at all 6,233 recorded points, with no invalid nonfinite metric values, meeting the acceptance criteria |
+| Performance | Ran three ABBA rounds on GridMaze with CPU, 256 lanes, and Release. The median for 165,632 experiences was 23.261 s without RND and 31.148 s with it (1.339×). Tracy on a separate Run showed RND-section forward 56.47%, backward plus optimizer 35.10%, and statistics 4.72%. The [experiment record](../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md) keeps the configuration, variance, and breakdown of every Run. The three Atari B=64 groups have not been run |
 
 Whole-file bytes of disabled-mode checkpoints differ even between reruns of the old executable, owing to parameter-address information saved by existing libtorch. Validation compared header, configuration, and Network bytes, plus optimizer contents excluding address-related metadata. It does not claim whole-file byte equality.
 
@@ -480,10 +508,13 @@ Short smoke runs establish the connection between computation, reward addition, 
 
 Motivation to revisit familiar paths, episodic novelty, separate extrinsic/intrinsic learning, and families of policies with different exploration strengths remain separate from this standalone RND implementation. Related options and open questions are in [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md).
 
+run.@rnd_taiga is not a complete reproduction of Taiga et al. either. Q uses IQN rather than C51, the CNN uses VALID rather than SAME padding, and Q embeddings, initialization, PER, the units used to count statistics, and the ALE version also differ. During auxiliary learning, inputs are renormalized with the updated statistics. The list of remaining differences is in the [23impl table](../memo/116_rnd_lifelong_novelty_23impl.md#%E6%9C%AC%E5%AE%B6%E3%81%A8%E3%81%AE%E6%AE%8B%E3%82%8B%E5%B7%AE).
+
 ### 5.4 Sources and Related Documents
 
 - [Burda et al., Exploration by Random Network Distillation](https://arxiv.org/pdf/1810.12894), §2.2: source for fixed-teacher/predictor novelty estimation.
 - [Badia et al., Never Give Up: Learning Directed Exploration Strategies](https://arxiv.org/pdf/2002.06038), §2, Equation (1): source for lifelong novelty as a multiplier.
 - [PRD116](../memo/116_rnd_lifelong_novelty_10prd.md), [initial implementation (20impl)](../memo/116_rnd_lifelong_novelty_20impl.md), [public-API revision (21impl)](../memo/116_rnd_lifelong_novelty_21impl.md), and [cadence/batch-size revision (22impl)](../memo/116_rnd_lifelong_novelty_22impl.md): adopted contracts, implementation decisions, and validation. See 21impl for independent Estimate/Learn and device/persistence contracts, and 22impl for credit, observation counts, and bool results.
+- [Options and Network fixes aligned with the public implementation (23impl)](../memo/116_rnd_lifelong_novelty_23impl.md): implementation and validation of separate Networks, selection of statistics/observations/multipliers, Head initialization, Adam eps, diagnostics, and format 3.
 - [200 DQN Agents](200_dqn_agents.en.md): Agent specification including the stages surrounding intrinsic-reward integration.
 - [110 Agents and Learning](110_agents_and_learning.en.md), [130 Neural Networks](130_neural_networks.en.md), and [150 ReplayBuffer](150_replay_buffer.en.md): specifications of shared components used here.
