@@ -212,6 +212,7 @@ constexpr const char* kLogViewHelp = "Show/hide Logs";
 RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config,
     const EvalPanelConfig& eval_panel_config, MainView main_view)
     : anet::rl::gui::AuiLayoutFrame(title, wxSize(1024, 1024)),
+    conv2d_config_(wxGetApp().GetConfigData()),
     main_view_(main_view), train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps),
     eval_config_step_per_frame_(eval_panel_config.step_per_frame)
 {
@@ -1026,14 +1027,14 @@ void RunnerFrame::OnApplyLayoutPolicy()
         UpdateMainPaneControls();
         aui_mgr_.Update();
         train_panel_->SetViewVisible(true);
-        LOG::warn() << "No main pane occupies the centre. Showing Train View as a fallback.";
+        LOG::warn_once() << "No main pane occupies the centre. Showing Train View as a fallback.";
     } else if (train.IsShown() && train.IsDocked() && train.dock_direction == wxAUI_DOCK_CENTER
         && eval.IsShown() && eval.IsDocked() && eval.dock_direction == wxAUI_DOCK_CENTER) {
         // 表示前フックを通らない両Centreは、Trainを残してEvalだけを降格する。
         RestoreMainPanePosition(eval);
         UpdateMainPaneControls();
         aui_mgr_.Update();
-        LOG::warn() << "Both main panes occupy the centre. Moving Evaluation View aside as a fallback.";
+        LOG::warn_once() << "Both main panes occupy the centre. Moving Evaluation View aside as a fallback.";
     }
 }
 
@@ -1517,8 +1518,7 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
 
     // Conv2dPanelを生成 (サイズ・ドック位置は AddAuxPane 側で決まる)
     auto& run_manager = wxGetApp().GetRunManager();
-    auto config_data = wxGetApp().GetConfigData();
-    auto conv2d_panel = new Conv2dPanel(this, "Conv2d", run_manager, eval_runner_, config_data);
+    auto conv2d_panel = new Conv2dPanel(this, "Conv2d", run_manager, eval_runner_, conv2d_config_);
 
     AddAuxPane(conv2d_panel,
         MakeUniquePaneInfo("Conv2dPanel", "EvalConv2d")        // name, caption, subcaption

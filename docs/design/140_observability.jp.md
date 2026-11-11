@@ -231,7 +231,7 @@ eval schedule は共通の `IntervalGate` を変えず、`EpisodeEvalObserver` �
 
 EMA状態は`interval`と無関係に毎event更新する。`interval`を変えても`$ema`系の値は変わらず、生値の記録解像度だけが変わる。
 
-不明なevent、step軸、targetにはWARN後に既定値を使う経路があり、対応しないEval scope/fieldの組み合わせはfail-fastする。scalarのEval scopeは`@session_end`、またはEvalの`@train $action_info`に限定される。eval scalarの`@episode_end`は置換先を示してfail-fastする。train scalarの`@session_end`も拒否する。
+不明なevent、step軸、target、属性は構築時の`ANET_SYSTEM_ERROR`で停止し、対応しないEval scope/fieldの組み合わせはfail-fastする。scalarのEval scopeは`@session_end`、またはEvalの`@train $action_info`に限定される。eval scalarの`@episode_end`は置換先を示してfail-fastする。train scalarの`@session_end`も拒否する。
 
 `$agent`、`$actor`、`$action_info`、`$update_result`で取得できるkeyは、共通interfaceと具象Agentが公開するmetricの組合せで決まる。対応しないkeyを全Agentで同じ値に見せることはせず、Observer側は`std::optional`や`NaN`の意味をmetric定義ごとに扱う。DefaultDQNのTrain Actor snapshot診断など、Agent固有keyの意味は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
@@ -243,6 +243,8 @@ QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarは
 
 現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`はObserver構築時に1以上を検証し、0以下はfail-fastする。`clip`は範囲やfinite性を検証しないため、負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
 
+scalar・trace・graphは`metrics.<channel>.[tag] = 宣言`の1値を読むカタログであり、`[tag]`の下にフィールドは置けない。tag内の`.[01]`などの添字は保持する。画像は`metrics.image.[tag].type`や`conv2d.*`などのフィールドを持ち、項目ごとの読み口が受け付けないフィールドは構築時に拒否する。画像の形式によらず既知フィールドを型付きで読み、共通の`metrics.image.*`の既定値は画像項目が0件でも読む。項目の検査はほかの読み口の既読状態から独立させ、実際の読み取り結果は元の完全なキーへ届ける。
+
 ### 6.x trace チャネル
 
 ```text
@@ -251,7 +253,7 @@ metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env_step game_sco
 
 trace は統計を集約せず、完了した採用 episode を1行で保存する。宣言がなければ observer も行も生成しない。event と target は明示必須で、event は `@episode_end` / `event:episode_end` のみ、target は `$env_step` / `$env` / `$runner` / `$agent` / `$actor`（属性形も可）。scope の既定は `$train`、step 軸は `exp_step` とする。
 
-裸トークンは1個以上のキーで、取得順と定義の `keys` 配列は宣言順。キー重複、集約 prefix、EMA、clip、interval、`key:`、未知・不正な制御指定を読み込み時に拒否する。event・target・scope・step軸の重複は同値・異値・別表記を問わず拒否し、後続指定による上書きで不正指定を隠せない。scalar の既存の後勝ち・既定値・WARN は変えない。
+裸トークンは1個以上のキーで、取得順と定義の `keys` 配列は宣言順。キー重複、集約 prefix、EMA、clip、interval、`key:`、未知・不正な制御指定を読み込み時に拒否する。event・target・scope・step軸の重複は同値・異値・別表記を問わず拒否し、後続指定による上書きで不正指定を隠せない。scalarも未知のevent・step軸・target・属性は構築時に停止する。
 
 ```json
 {"type":"trace","tag":"51_eval1/episode","step":456,"lane":3,"data":{"game_score":422,"game_len":1242,"game_frames":4968,"hns57":31.2}}
@@ -285,7 +287,7 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 
 Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生成する。Providerはlaneごとの系列窓を所有し、pendingに示す鍵もcurrentでは既知NaNを返す。pendingの鍵は値が成立しなかった場合もNaNで必ず確定を返す。遅延確定は`AgentStepDiagnosticsCompletion`の`lane`・`steps_back`・`resolved_keys`と、対象1行を所有する`values`で通知する。値は`GetScalar(key, 0)`で読む。`StepTrace.value_ready`は列ごとに確定を表し、NaNでの確定でもtrueにする。全選択列の確定で`complete`になる。更新handlerは新たに確定した列の0始まりindexを同期`span<const size_t>`で受ける（spanは通知中だけ有効）。同じキーの複数列も各列を一度ずつ確定する。
 
-`BatchActionInfo`はModuleBaseから派生し、lane指定の`action`・`action.[次元]`を共通のGetScalarで読む。次元は文字列全体と範囲を検証する。lane=-1のscalar問い合わせではこの2キーを認識せず、Agent固有のscalarは派生型が提供する。DQNActionInfoは自分のキー以外を基底へ委譲する。非DQNを含め未知キーはnulloptとなり、scalar Observerでは通常のvalue not found WARNを出す。通知にActionInfo自体が無い要求は従来どおりエラーにする。
+`BatchActionInfo`はModuleBaseから派生し、lane指定の`action`・`action.[次元]`を共通のGetScalarで読む。次元は文字列全体と範囲を検証する。lane=-1のscalar問い合わせではこの2キーを認識せず、Agent固有のscalarは派生型が提供する。DQNActionInfoは自分のキー以外を基底へ委譲する。非DQNを含め未知キーはnulloptとなり、scalar Observerでは通常のvalue not found WARNをtagごとRunに1回出す。通知にActionInfo自体が無い要求は従来どおりエラーにする。
 
 DQNの具体的な提供元と3キーの認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。PERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
 
@@ -313,7 +315,7 @@ debug logは`ANET_LOG_DEBUG_PREFIXED(expr)`を使用する。このmacroは`ANET
 
 ### 7.1 疎なscalarと購読情報
 
-既知keyだが現在値が成立しない疎なscalarは`NaN`、未知keyは`nullopt`とする。Observerは非有限値をEMA更新前、および複数UpdateResultの平均へ加える前に除外する。後続の有限値は直前までの有限なEMA stateから正常に再開する。
+既知keyだが現在値が成立しない疎なscalarは`NaN`、未知keyは`nullopt`とする。休止中や設定で無効にした機能も既知keyを保って`NaN`を返す。Observerは非有限値をEMA更新前、および複数UpdateResultの平均へ加える前に除外する。後続の有限値は直前までの有限なEMA stateから正常に再開する。
 
 scalar定義のsource key、event、target、interval、runner scope、eval名は、実際にattachされた定義から型付き購読情報としてAgentへ渡される。metrics行の`interval`が重い計測のcadenceの正になる機能では、定義のコメントアウトが計算自体の停止まで到達する必要がある。
 
@@ -351,7 +353,7 @@ TimeHeatMapのScale描画、Histgram、SweepedHeatMapは、wxImage自身が確�
 
 ### TempoRL の scalar と Trace
 
-variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、腕の葉で `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、群の設定キーで `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
 
 DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txtの `metrics.scalar.@skip` を選ぶと、Actor の decision_rate・判断laneの平均長・長さ別割合・選択長とj=1のQ差、および Learner の loss・平均絶対TD・k平均・k_max平均・clip前の勾配normを記録する。長さ別割合は `skip_length_rate.[j]` を1始まりで指定し、宣言したJを超える添字は fail-fast する。
 

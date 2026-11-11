@@ -417,8 +417,8 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
     case kPostProcessNone:
         break;
     default:
-        LOG::warn() << "Unknown squash_type.";
-        break;
+        ANET_SYSTEM_ERROR("Invalid observation normalizer post_process_type=" << post_process_type_
+            << "; expected 0..3.");
     }
 
     // クリッピング
@@ -538,7 +538,7 @@ torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const to
                             }
                         }
                     }
-                    LOG::warn() << ss.str();
+                    ANET_LOG_DEBUG(ss.str());
                 }
 
                 // 全正常な行があればそれらで統計更新
@@ -690,7 +690,7 @@ void anet::rl::ValidateObservationNormalizerConfig(
 ObservationNormalizerFactory::ObservationNormalizerFactory(const ObservationNormalizerConfig& config)
     : config_(config)
 {
-    ;
+    ValidateObservationNormalizerConfig(config_, "obs_norm");
 }
 
 std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObservationNormalizer(

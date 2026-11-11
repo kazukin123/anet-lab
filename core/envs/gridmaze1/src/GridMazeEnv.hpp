@@ -103,6 +103,10 @@ namespace anet::rl::env {
     class GridMazeEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
     public:
         GridMazeEnvFactory() = default;
+        void ValidateConfig(const anet::ConfigData& data, anet::rl::RunMode, const std::string& prefix) const override
+        {
+            (void)GridMazeEnvConfig(data, prefix);
+        }
         std::string GetTargetEnvClassId() const override { return "GridMazeEnv"; }
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,

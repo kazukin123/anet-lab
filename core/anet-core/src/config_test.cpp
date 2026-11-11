@@ -4,6 +4,7 @@
 #include "anet/schedule.hpp"
 #include "anet/test_util.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -667,7 +668,7 @@ TEST_CASE("ConfigManager loads trial main config with include and override", "[c
     const auto config_data = manager.GetConfigData();
 
     CHECK(config_data.Get("app.run_name") == "optuna_trial_00001");
-    // 選択キーの再指定はベースだけを変更し、個別葉を上書きしない。
+    // 選択キーの再指定はベースだけを変更し、個別指定を上書きしない。
     CHECK(config_data.Get("net.branch.[main_feature].structure") == "BaseStructure");
 
     std::filesystem::remove_all(root);
@@ -1508,30 +1509,18 @@ TEST_CASE("ConfigManager resolves include paths from config search dirs", "[conf
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("ConfigManager warns and continues when include is missing", "[config]")
+TEST_CASE("ConfigManager rejects missing and malformed include inputs", "[config][prd117]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "config-manager-missing-include-test";
     std::filesystem::remove_all(root);
 
     const auto main_path = root / "trial.txt";
-    WriteConfig(main_path, {
-        "$include <missing.txt>",
-        "app.run_name = after_missing_include",
-    });
-
-    LogCaptureGuard logs;
-    anet::ConfigManager manager(
-        main_path.string(),
-        nullptr,
-        MakeConfigSearchOptions(std::vector<std::filesystem::path>{}));
-    const auto config_data = manager.GetConfigData();
-
-    logs.Flush();
-    CHECK(config_data.Get("app.run_name") == "after_missing_include");
-    CHECK(HasRecordContaining(
-        logs.Records(),
-        wxLOG_Warning,
-        { "Properties: Failed to open include file", "missing.txt" }));
+    const auto input = GENERATE("$include <missing.txt>", "$include", "$include <>", "$include <missing.txt");
+    CAPTURE(input);
+    WriteConfig(main_path, { input, "app.run_name = after_invalid_include" });
+    CHECK_THROWS_WITH(anet::ConfigManager(main_path.string(), nullptr,
+        MakeConfigSearchOptions(std::vector<std::filesystem::path>{})),
+        Catch::Matchers::ContainsSubstring(main_path.string()));
 
     std::filesystem::remove_all(root);
 }
@@ -1628,7 +1617,7 @@ TEST_CASE("Config optional native leaves preserve explicit empty values and roun
             ANET_READ_CONFIG(data, items);
         }
     };
-    // 空の葉値も明示指定であり、未指定へ読み替えない。
+    // 空の設定キーの値も明示指定であり、未指定へ読み替えない。
     anet::ConfigData data;
     data.Set("OptionalLeaves.text", "");
     data.Set("OptionalLeaves.enabled", false);
@@ -1662,4 +1651,155 @@ TEST_CASE("PRD101 bare profiled values record only active fields", "[config][prd
     CHECK(anet::ProfiledValue<double>(linear.learning_rate).Evaluate(5) == 0.5);
     CHECK_FALSE(linear.ToJson().contains("learning_rate"));
     CHECK(linear.ToJson().size() == 4);
+}
+
+TEST_CASE("Nested config catalogs retain exact prefixes and original read keys", "[config][prd117]")
+{
+    anet::ConfigData data;
+    data.Set("net.branch.[feature].config_profile.[used].end", 0.5);
+    data.Set("other.net.branch.[feature].config_profile.[foreign].end", 0.9);
+    data.Set("net.branch.[feature].config_profile.[unused].typo", "unknown");
+    const auto prefix = "net.branch.[feature].config_profile";
+    const auto profiles = data.MakeSubConfigData(prefix);
+    REQUIRE(profiles.size() == 2);
+    CHECK(profiles.at("used").Get<double>("end") == Catch::Approx(0.5));
+    CHECK((data.GetSubConfigTags(prefix) == std::unordered_set<std::string>{"used", "unused"}));
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 2);
+    CHECK(unread.at(0).first == "net.branch.[feature].config_profile.[unused].typo");
+    CHECK(unread.at(1).first == "other.net.branch.[feature].config_profile.[foreign].end");
+}
+
+TEST_CASE("Config reads from a catalog preserve original unread keys", "[config][prd117]")
+{
+    // ファイルの解決から子設定の読み取りまでを通して、元キーの差を確かめる。
+    const auto path = std::filesystem::current_path() / ".scratch" / "prd117" / "tracer.txt";
+    const std::string assignment = GENERATE("?=", "=");
+    WriteConfig(path, {"part.[one].value " + assignment + " 7", "part.[one].typo " + assignment + " 9"});
+    const anet::ConfigManager manager(path);
+    const auto data = manager.GetConfigData();
+    const auto parts = data.MakeSubConfigData("part");
+    REQUIRE(parts.at("one").Get<int>("value") == 7);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.at(0).first == "part.[one].typo");
+    CHECK(unread.at(0).second == "9");
+    LogCaptureGuard capture;
+    anet::WarnUnreadConfigKeys(data);
+    anet::WarnUnreadConfigKeys(data);
+    capture.Flush();
+    REQUIRE(CountRecords(capture.Records(), wxLOG_Warning) == 1);
+    CHECK(capture.Records().back().message ==
+        "Unread config keys: 1. These keys were not read by any component.\npart.[one].typo = 9");
+}
+
+TEST_CASE("Config overrides retain both original read records", "[config][prd117]")
+{
+    // 上書きした元キーは消費済みとし、最終値を読んだことは局所側にも届く。
+    anet::ConfigData base;
+    base.Set("value", 1);
+    anet::ConfigData local;
+    local.Set("value", 2);
+    auto merged = base;
+    REQUIRE(merged.Has("value"));
+    REQUIRE(base.GetUnreadKeys().size() == 1);
+    merged.OverwriteFrom(local);
+    CHECK(base.GetUnreadKeys().empty());
+    CHECK(merged.Get<int>("value") == 2);
+    CHECK(local.GetUnreadKeys().empty());
+}
+
+TEST_CASE("Config inventory follows copies without bypassing a closed schema", "[config][prd117]")
+{
+    anet::ConfigData data;
+    data.Set("part.[one].value", 7);
+    data.Set("catalog.[spare].typo", 9);
+    data.Set("typo", 11);
+    CHECK(data.Get<int>("part.[one].value") == 7);
+    const auto part = data.MakeSubConfigData("part").at("one");
+    const auto spare = data.MakeSubConfigData("catalog").at("spare");
+
+    // 同じ出典の在庫と既読はコピーにも反映し、構築時の検証だけは独立させる。
+    data.MarkInventory("catalog.[spare]");
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.at(0).first == "typo");
+    CHECK(part.GetUnreadKeys().empty());
+    CHECK(spare.GetUnreadKeys().empty());
+    CHECK_THROWS_WITH(spare.CreateReadScope().RequireAllKeysRead("catalog.[spare]"),
+        Catch::Matchers::ContainsSubstring("typo = 9"));
+}
+
+TEST_CASE("Config resolution retains every declared normal selection source as inventory", "[config][prd117]")
+{
+    // 置き換えられた宣言と未選択の Run 内の宣言も、解決入力の一部である。
+    const auto root = std::filesystem::current_path() / ".scratch/prd117/selection-inventory";
+    const auto input = root / "main.txt";
+    const auto extra = root / "extra.txt";
+    WriteConfig(input, {
+        "app.online.wait ?= true", "app.batchrun.wait ?= false",
+        "app.spare.wait ?= true", "app.injected.wait ?= true",
+        "app.extra.wait ?= true", "app.cli_old.wait ?= true",
+        "unused.wait ?= true", "app.$ = app.online", "app.$ = app.batchrun",
+        "run.@never : app.$ = app.spare"});
+    WriteConfig(extra, {"app.$ = app.extra"});
+    anet::ConfigManagerOptions options;
+    options.injected_config.Set("app.$", std::string("app.injected"));
+    options.overwrite_config_paths.push_back(extra);
+    const wxCmdLineEntryDesc description[] = {
+        {wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE},
+        {wxCMD_LINE_NONE},
+    };
+    wxCmdLineParser command_line(description,
+        "app.$=app.cli_old app.$=app.batchrun cli.typo=9");
+    REQUIRE(command_line.Parse(false) == 0);
+    const anet::ConfigManager manager(input, &command_line, options);
+    const auto data = manager.GetConfigData();
+    CHECK_FALSE(data.Get<bool>("app.wait"));
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 2);
+    CHECK(unread.at(0).first == "cli.typo");
+    CHECK(unread.at(1).first == "unused.wait");
+    LogCaptureGuard capture;
+    anet::WarnUnreadConfigKeys(data);
+    anet::WarnUnreadConfigKeys(data);
+    capture.Flush();
+    REQUIRE(CountRecords(capture.Records(), wxLOG_Warning) == 1);
+    CHECK(capture.Records().back().message ==
+        "Unread config keys: 2. These keys were not read by any component.\ncli.typo = 9\nunused.wait = true");
+}
+
+TEST_CASE("Unread config reports warn once without rejecting construction", "[config][prd117]")
+{
+    anet::ConfigData data;
+    data.Set("z.typo", 9);
+    data.Set("a.typo", 1);
+    data.Set("known", 7);
+    data.Set("spare.typo", 99);
+    CHECK(data.Get<int>("known") == 7);
+    data.MarkInventory("spare");
+    LogCaptureGuard capture;
+    anet::log::ResetNotifications();
+    CHECK_NOTHROW(anet::WarnUnreadConfigKeys(data));
+    CHECK_NOTHROW(anet::WarnUnreadConfigKeys(data));
+    capture.Flush();
+    REQUIRE(CountRecords(capture.Records(), wxLOG_Warning) == 1);
+    const auto warning = std::find_if(capture.Records().begin(), capture.Records().end(),
+        [](const auto& record) { return record.level == wxLOG_Warning; });
+    REQUIRE(warning != capture.Records().end());
+    CHECK(warning->message == "Unread config keys: 2. These keys were not read by any component.\na.typo = 1\nz.typo = 9");
+
+    // 0 件では通知せず、同じ Run のあとから来た実際の未読キーを隠さない。
+    anet::ConfigData clean;
+    clean.Set("known", 1);
+    CHECK(clean.Get<int>("known") == 1);
+    anet::log::ResetNotifications();
+    CHECK_NOTHROW(anet::WarnUnreadConfigKeys(clean));
+    capture.Flush();
+    CHECK(CountRecords(capture.Records(), wxLOG_Warning) == 1);
+    anet::WarnUnreadConfigKeys(data);
+    capture.Flush();
+    CHECK(CountRecords(capture.Records(), wxLOG_Warning) == 2);
+    CHECK(CountRecords(capture.Records(), wxLOG_Message) == 0);
 }

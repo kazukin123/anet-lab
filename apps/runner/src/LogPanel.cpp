@@ -145,6 +145,7 @@ public:
 
 protected:
     void DoLogRecord(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) override {
+        if (!notification_filter_.Accept(info)) return;
         // 表示レベルより詳しい記録はパネルへ出さない。
         if (level > level_) return;
 
@@ -166,6 +167,7 @@ private:
 
     LogPanel& panel_;   ///< 所有者の LogPanel から借りる（LogPanel が作り、破棄の前に受け口を戻す）
     wxLogLevel level_ = wxLOG_Message;
+    LOG::NotificationFilter notification_filter_;
     const LOG::LogFormatter body_formatter_{/*enable_timestamp=*/false};
 };
 

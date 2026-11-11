@@ -8,7 +8,7 @@
 
 `run_validation.py before/after/compare --label ...` はPRD103と同じ短縮6構成を実行する。GridMaze/LunarLanderのOFF/ON、Atari qbert BTR OFF、DropMerge nzrep OFF。8 lane、batch16、warmup256、capacity4096、RR1、seed1、8704 experience、FP32、決定論backend、評価停止。両実行体には着手前の同じ入力を渡す。比較から外すのは90_perf/・91_resource/・92_resource/だけで、全scalarのtag・step・値を完全一致比較する。
 
-`verify_config.py` は4 env×default/skipの8入力を公開ConfigManagerで解決し、全キー・文字列値を比較する。新しい既定葉（full・decision）の追加だけを許す。既定葉の検査は `core/anet-core/testdata/prd072/check_default_leaves.py` を使い、既存の指摘と今回の増分を分ける。
+`verify_config.py` は4 env×default/skipの8入力を公開ConfigManagerで解決し、全キー・文字列値を比較する。新しい既定キー（full・decision）の追加だけを許す。既定キーの検査は `core/anet-core/testdata/prd072/check_default_leaves.py` を使い、既存の指摘と今回の増分を分ける。
 
 ## 公開経路とsmoke
 
@@ -18,13 +18,13 @@
 
 ## 実験
 
-`arms.txt` の `run.@skip_aux` をenvの `run.@skip` の後へ重ねる。終わりだけは target_window=episode_end、対照はfeature_gradient=stop、k=1だけはsingle+decision、終わりだけ・分割はepisode_end+splitの葉で指定する。metricsの連鎖は書き換えない。
+`arms.txt` の `run.@skip_aux` をenvの `run.@skip` の後へ重ねる。終わりだけは target_window=episode_end、対照はfeature_gradient=stop、k=1だけはsingle+decision、終わりだけ・分割はepisode_end+splitの設定キーで指定する。metricsの連鎖は書き換えない。
 
 `run_experiments.py prepare` は現行設定とRelease実行体を固定し、段0の4入力と読込不能時の条件付きfallback、段1の21入力、段2の4条件付き入力を生成・解決する。`recipes.json` にhashと条件を残す。`run` は既存runnerが終了するのを待ち、段0・段1だけを順次実行する。各Runの引数、実行体hash、入力hash、終了コード、時間、実際のRun名を execution.json に記録する。独立Runの失敗は記録し後続を続ける。元checkpointと過去Runは変更しない。
 
 段0は各checkpointにつき同一processでfull/single各200ゲーム（無効はfullのみ）。段1は7腕×seed1〜3×2M、同じReleaseビルド・設定・256 lane・J=4。AUCは21_eval/02_policy_rewardのRun全体の有限点の平均とし、PRDの「以上・上回る・同じ帯」で判定する。summary.jsonへg、AUC、比較を保存する。段2は実行しない。
 
-段0は現在のAtari連鎖へ元CLI26葉を重ね、元の`run.$`が選んだ形状・前処理も5葉（main_feature/tau_embeddingのstructure、HeadFC512とhead.projectionのNoisy有効、resize_mode）に展開する。元dumpと解決値の一致を検査し、source.jsonに残す。
+段0は現在のAtari連鎖へ元CLI26 件を重ね、元の`run.$`が選んだ形状・前処理も5 件（main_feature/tau_embeddingのstructure、HeadFC512とhead.projectionのNoisy有効、resize_mode）に展開する。元dumpと解決値の一致を検査し、source.jsonに残す。
 
 `preflight_checkpoints.py` は段0入力のdeviceをCPU、全評価intervalを0へ上書きした40 stepのRunで、4 checkpointの読込を先に確かめる。学習と保存は無効のまま。200ゲームの本評価の代わりにはしない。
 

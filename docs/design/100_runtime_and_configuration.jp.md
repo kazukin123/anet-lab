@@ -26,16 +26,24 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 設定は文字列key/valueを保持する`ConfigData`へ集約される。
 
-1. `Properties`が共通main configと`$include`先を読み込む。各行は最初の`=`で分割し、その直前の`?`を既定葉演算子として取り除く。同じキーは`=`を`?=`より優先し、同じ強さだけ後勝ちとする。key内の空白を除去して単一の`:`を`.`へ正規化する。複数の`:`または空の区間はfail-fastする。旧parserで`:`をkey/value境界としていた`foo: bar`形式は廃止し、`=`のない行は読み飛ばす。
+1. `Properties`が共通main configと`$include`先を読み込む。各行は最初の`=`で分割し、その直前の`?`を既定キー演算子として取り除く。同じキーは`=`を`?=`より優先し、同じ強さだけ後勝ちとする。key内の空白を除去して単一の`:`を`.`へ正規化する。複数の`:`または空の区間はfail-fastする。旧parserで`:`をkey/value境界としていた`foo: bar`形式は廃止し、`=`のない行は読み飛ばす。
 2. workspaceモードではRunnerが`app.runs_dir=<workspace>/runs`を注入し、workspaceの`config/_main.txt`を後勝ちで重ねる。workspace内includeは共通config directoryへfallbackして解決する。
 3. `ConfigResolver`がCLIを解決入力へ反映し、`run.$`を通常selectionより先に展開する。Runの項は左から右へ後勝ちでrootへ供給し、同じキーのCLIをさらに優先する。Run内の`Env.$ = @base`は展開先rootを定義位置とする。
-4. 各設定を、`?=`の既定葉、全体の`.$`によるベース、配下の部分`.$`、直接書いた個別葉の順に組み立てる。異なるキーの行順でこの優先関係を変えない。各選択元の最終値を左から右へ差分合成し、右側にない葉は残す。継承由来か直書きかで葉を削除しない。
+4. 各設定を、`?=`の既定キー、全体の`.$`によるベース、配下の部分`.$`、直接書いた個別指定の順に組み立てる。異なるキーの行順でこの優先関係を変えない。各選択元の最終値を左から右へ差分合成し、右側にない設定キーは残す。継承由来か直書きかで設定キーを削除しない。
 5. 参照元への後段変更・追加キー・Run・CLIも、参照元自身の最終値として継承先へ届く。依存解決の順序と上書き順位は別である。親キーへのCLIは親の最終値を変更するが、子自身の個別指定を無条件には上書きしない。
 6. 必要なプロファイル定義を有効化し、定義位置の依存を検証する。未選択の内側プロファイルは休止した在庫として保持する。未定義のプロファイル・カタログ・その部分、自己供給、実際の循環、選択深さ10超過はfail-fastする。空の通常prefixは名前によらず許容する。
 7. 最終値へ`${full.key}`を1段だけ展開する。未定義・連鎖・未解決の値参照はfail-fastする。`.$`と`@` segmentを持つ定義を除いた`ConfigData`とresolution JSONを返し、各`Config`が型付きfieldを読む。workspaceの最終`app.runs_dir`は注入値との文字列完全一致を検証する。
 8. Runnerは実効設定を`config/config_data.txt`へ保存し、構造化した解決記録を`MetricsLogger::Log("config_resolution", json)`へ渡す。`json/config_resolution.json`には`type` / `tag` / `data` envelope付きで保存され、同じrecordがMetrics masterにも記録される。
 
-**`$`はベース、部分指定と個別葉はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないepsilon.endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
+`ConfigManager`が返す同じ実効設定のコピーは、読み取りの記録を共有する。`ConfigData::Read` / `Get`と型付き`Config`の読み取りは、存在する元の完全なキーを既読にする。`Has`と`Map`の走査は既読にしない。カタログ項目を相対キーへ分けるときも出典を保持し、読み口が値を読んだ結果を元キーへ届ける。より局所の定義に上書きされた元キーは消費済みとして扱う。
+
+閉じたスキーマの読み口は`CreateReadScope()`で今回の読み取り範囲を作り、`RequireAllKeysRead()`で未読キーを拒否する。別の読み口や複製が以前に読んだことを、今回の検証の代わりにしない。読み取りの結果は元キーへ共有される。読み取りと在庫の分類は複数スレッドから更新できる。
+
+完全キーで読む項目は`CreateReadScope(prefix)`でそのprefixだけを取り出す。`Config::MakeReadScope`はdefaultとoverrideの両方の完全キーを合わせ、通常の型付き読み取りと設定記録を保つ。
+
+解決の入力にある選択の宣言に源として現れた通常prefixは、在庫として保持する。後で置き換えられた宣言、未選択のRunプロファイル内の宣言、注入設定、追加ファイル、CLIも含む。名前の形や`?=`だけを理由に在庫にはしない。
+
+**`$`はベース、部分指定と個別指定はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないepsilon.endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
 運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
 
@@ -43,7 +51,7 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 短い`@name`は宣言の定義元で解決する。`Env.$ = @a`はEnv.@a、`Env.@a : $ = @b`はEnv.@bを参照し、`Other.$ = Env.@a`でもOther.@bへ変わらない。完全修飾termはそのまま使う。`:`は説明・設定例では`@`プロファイルの境界に使い、通常キーは`Env.$`のように`.`で記述する。CommonやA2自身の`.$`も通常の依存であり、名前のドット数で上書き層を識別しない。参照先の選択命令をコピー先で再実行しない。
 
-resolution JSONの`schema_version`は1。`selections[].key`は宣言の定義位置で、`Env.@a.$`や`DefaultDQNAgent.@baseline.actor.[eval].$`もそのまま記録する。`run.$`を先頭に置き、入力宣言順・term順に必要な依存を辿り、同じ定義の再参照は重複させない。`references`は1段値参照を参照元キー順に記録する。`overrides`はRunの最終指定が同じキーのRun葉適用前の最終値を変更した場合だけ、`key` / `by` / `from` / `to`で記録する。Runが選択キーを変更した効果は、その前提値にも反映する。途中の4→1→4は記録しない。`to`はRun値であり、同じ葉へのCLI指定後の実効値とは異なりうる。最終値は`config_data.txt`で確認する。
+resolution JSONの`schema_version`は1。`selections[].key`は宣言の定義位置で、`Env.@a.$`や`DefaultDQNAgent.@baseline.actor.[eval].$`もそのまま記録する。`run.$`を先頭に置き、入力宣言順・term順に必要な依存を辿り、同じ定義の再参照は重複させない。`references`は1段値参照を参照元キー順に記録する。`overrides`はRunの最終指定が同じキーのRun設定キー適用前の最終値を変更した場合だけ、`key` / `by` / `from` / `to`で記録する。Runが選択キーを変更した効果は、その前提値にも反映する。途中の4→1→4は記録しない。`to`はRun値であり、同じ設定キーへのCLI指定後の実効値とは異なりうる。最終値は`config_data.txt`で確認する。
 
 例えばDropMergeの次の3行は、いずれも環境別ファイルのデフォルト設定外なので`=`で書く。
 
@@ -54,9 +62,9 @@ app.run_name = run_{t}_dm_iqn-k32-n32-m32
 ```
 
 
-対象の葉へのRun・CLI指定は`=`の個別葉にも勝つ。一方、選択キーへのCLIはチェーンだけを置き換える。ベース定義の`?=`も、選択元の最終値になって継承された後は通常の値であり、`>`の右側にある値が左側の値に勝つ。
+対象の設定キーへのRun・CLI指定は`=`の個別指定にも勝つ。一方、選択キーへのCLIはチェーンだけを置き換える。ベース定義の`?=`も、選択元の最終値になって継承された後は通常の値であり、`>`の右側にある値が左側の値に勝つ。
 
-内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別葉を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[PRD072](../memo/done/072_config_selection_final_value_10prd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
+内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別指定を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[PRD072](../memo/done/072_config_selection_final_value_10prd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
 DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、PRD 059 Phase 1aではrootに維持する。
 
@@ -166,7 +174,7 @@ RunnerThread --> TrainRunner : stepを反復
 
 ### 5.1 メトリクス配線の所有
 
-`RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagの一度だけのWARN、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
+`RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagのRunごとに一度だけのINFO、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
 
 領域の検証手順は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)を参照する。
 
@@ -205,7 +213,7 @@ sequenceDiagram
 
 構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名`train`、全configured Eval tag、予約名`EvalPanel`は最初のBatchEnv構築前に一括検証する。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
 
-`run.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`run.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。activeなconfigured Evalでは`RunManager`がEnvを`EvalSessionEnv`で包み、`eval_batch_size`を並列lane数、`eval_episodes`を採用episode本数として独立に扱う。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`run.eval.[tag].env.eval.*`のoverlayを使用する。
+`run.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`run.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとRunに1回INFOでskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。activeなconfigured Evalでは`RunManager`がEnvを`EvalSessionEnv`で包み、`eval_batch_size`を並列lane数、`eval_episodes`を採用episode本数として独立に扱う。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`run.eval.[tag].env.eval.*`のoverlayを使用する。
 
 ### 6.2 Serial Train step
 
@@ -322,7 +330,7 @@ sequenceDiagram
 |---|---|
 | `run.seed` | Runのmaster seed。0の実seedは実行時に確定・記録される |
 | `run.train.num_envs` | 主Train BatchEnvのlane数 |
-| `run.train.runner_type` | `serial`または`pipeline` |
+| `run.train.runner_type` | `serial`または`pipeline`（大文字小文字を区別しない）。ほかの値は構築時に停止 |
 | `run.train.actor` | Actorカタログ名。既定`train` |
 | `run.eval_device` | configured Evalのdevice指定。既定`auto`。採用値は`json/run.json`の`effective_eval_device` |
 | `run.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、Actor名参照 |
@@ -348,9 +356,11 @@ sequenceDiagram
 
 ### 7.3 エラー
 
-設定DTOの`std::optional<T>`は、既存の`ConfigData`が読む葉値の型に対応する。未指定ならDTOの初期値を保持し、初期値も未指定なら設定記録へ葉を追加しない。指定があれば通常値の読み取りへ委譲し、default prefix→override prefixの順序と型検証・記録を保つ。空文字や不正な数値を未指定へ変換しない。複合`ConfigReader`をoptionalで包む形は対象外で、型の段階で拒否する。
+設定DTOの`std::optional<T>`は、既存の`ConfigData`が読む設定キーの値の型に対応する。未指定ならDTOの初期値を保持し、初期値も未指定なら設定記録へ設定キーを追加しない。指定があれば通常値の読み取りへ委譲し、default prefix→override prefixの順序と型検証・記録を保つ。空文字や不正な数値を未指定へ変換しない。複合`ConfigReader`をoptionalで包む形は対象外で、型の段階で拒否する。
 
 - `ConfigData`の型変換失敗は例外とし、既定値はキー欠落時だけ使う。範囲・enum・組み合わせは各`Config`または再利用設定型の検証、class IDはrepository解決時の検証に従う。
+- 指定した設定ファイルが開けない場合と、includeの空のファイル名・括弧の不整合は`ANET_SYSTEM_ERROR`で停止する。存在しなくてもよい補助ファイルは、呼ぶ側が有無を確かめてから読む。
+- RunManagerとアプリの画像登録・panel初期化を終え、最初のstepを始める前に`WarnUnreadConfigKeys`を呼ぶ。在庫と既読を除いた設定キーをソートし、件数と`key = value`を1件のWARNにまとめる。0件なら出さず、一覧があってもRunは続行する。後から読む予定の設定も、所有者がこの時点までに読んで検証するか、休止をINFOで宣言する。
 - RunnerThread内の例外は握りつぶさずapplicationのexception callbackへ渡す。
 - Pipeline workerの例外はfuture取得時にcaller threadへ再送出する。
 - 空のEnv nameまたは同一Run内の重複nameは`ANET_SYSTEM_ERROR`でfail-fastする。重複時は第二のEnvを構築せず、既存runnerを上書きしない。診断にはname、既存owner、要求owner、一意性要件を含める。
@@ -366,6 +376,8 @@ sequenceDiagram
 
 ## 8. テストと拡張時の確認事項
 
+- [PRD117検証資材](../../core/anet-core/testdata/prd117/README.md): 元キーの追跡、閉じたカタログ、未読一覧、Run単位の通知、通常RunのWARN 0件の対象と停止条件。
+
 - [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
@@ -375,7 +387,7 @@ sequenceDiagram
 - [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): 初期化とbackend設定
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable rootと出力path
-- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定葉`?=`検査の手順
+- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定キー`?=`検査の手順
 
 現行`trainer_test.cpp`はSerial/Pipeline全体、count、shutdownを広く覆うものではない。これらを変更する場合は、Serial/Pipelineのaction/snapshot境界が一致すること、B=1と複数laneのcount、Evalのscope、停止時のworker回収を対象とする回帰testを追加して確認する。
 

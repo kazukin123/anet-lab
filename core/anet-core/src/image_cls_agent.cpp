@@ -588,9 +588,12 @@ ImageClsAgent::ImageClsAgent(
     auto head_factory = std::make_shared<anet::nn::LinearHeadFactory>(num_classes, "logits", head_init_config);
     anet::SeedMaker seed_maker(GetSeed());
     const auto network_seed = seed_maker.MakeNamedSeed("network");
+    // vectorはLearnerが読む教師ラベルであり、Networkの特徴入力には含めない。
+    auto input_specs = env_spec.state_spec.obs_spec;
+    input_specs.erase(anet::rl::ObsKeys::kVector);
     network_ = anet::nn::NetworkBuilder::BuildNetwork(
         network_config,
-        env_spec.state_spec.obs_spec,
+        input_specs,
         head_factory,
         network_seed,
         device_);

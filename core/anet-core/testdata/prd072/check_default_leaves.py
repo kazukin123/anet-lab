@@ -1,4 +1,4 @@
-"""現用の選択宣言からownerを求め、説明のない個別葉を検出する。"""
+"""現用の選択宣言からownerを求め、説明のない個別指定を検出する。"""
 
 import base64
 import json
@@ -57,7 +57,7 @@ def main():
     report, errors = [], []
     for entry in entries:
         key = entry["key"]
-        # +=を選択チェーンの追加と誤認した葉も、owner分類の前に拒否する。
+        # +=を選択チェーンの追加と誤認した設定キーも、owner分類の前に拒否する。
         if "$" in key and (not key.endswith(".$") or key.count("$") != 1):
             entry["reason"] = "malformed selection key"
             report.append(entry)

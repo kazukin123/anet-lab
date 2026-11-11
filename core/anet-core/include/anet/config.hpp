@@ -1,5 +1,9 @@
 ﻿#pragma once
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <set>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -26,13 +30,23 @@ namespace anet {
 		using MapType = anet::OrderedMap<std::string, std::string>;
     public:
         ConfigData() {}
-        ConfigData(const MapType& map) : map_(map) { }
-        ConfigData(const ConfigData& from) : map_(from.map_) { }
+        ConfigData(const MapType& map) { for (const auto& [key, value] : map) Set(key, value); }
+        ConfigData(const ConfigData& from) = default;
 
         //ConfigData Make(const std::string& sub_class_id) const;
     public:
         std::unordered_map<std::string, ConfigData> MakeSubConfigData(const std::string& prefix) const;
 		std::unordered_set<std::string> GetSubConfigTags(const std::string& prefix) const;
+        /// 元の設定の読み取り記録を引き継いで、相対キーへ値を写す。
+        void CopyValueFrom(const std::string& key, const ConfigData& source, const std::string& source_key);
+        /// 読み口が消費しなかった設定キーをキー順に返す。
+        std::vector<std::pair<std::string, std::string>> GetUnreadKeys() const;
+        /// 同じ出典を保ち、今回の読み口だけを検証する範囲を作る。
+        ConfigData CreateReadScope(const std::string& prefix = "") const;
+        /// 読まれなくても誤りでない prefix を、その設定の持ち主が宣言する。
+        void MarkInventory(const std::string& prefix, const std::vector<std::string>& excluded_prefixes = {}) const;
+        /// この範囲に読まれないキーが残っていれば、読み口の受け付けるキーとともに止める。
+        void RequireAllKeysRead(const std::string& owner) const;
         void MergeFromChecked(const ConfigData& other);
         void OverwriteFrom(const ConfigData& other);
         std::string ToPropertiesString() const;
@@ -40,12 +54,12 @@ namespace anet {
     public:
         void Set(const std::string& key, const std::string& value)
         {
-            map_.Set(key, value);
+            SetString(key, value);
         }
 
         void Set(const std::string& key, bool value)
         {
-            map_.Set(key, value ? "true" : "false");
+            SetString(key, value ? "true" : "false");
         }
 
         template<typename T>
@@ -53,7 +67,7 @@ namespace anet {
         {
             std::stringstream ss;
             ss << value;
-            map_.Set(key, ss.str());
+            SetString(key, ss.str());
         }
 
         template<typename T>
@@ -64,7 +78,7 @@ namespace anet {
                 if (i > 0) ss << " ";
                 ss << value[i];
             }
-            map_.Set(key, ss.str());
+            SetString(key, ss.str());
         }
 
         bool Has(const std::string& key) const
@@ -129,8 +143,26 @@ namespace anet {
     private:
         //std::vector<std::string> ResolveModule(const std::string& module) const;
     private:
+        struct ReadEntry {
+            std::atomic_bool read = false;
+            std::atomic_bool inventory = false;
+            std::vector<std::shared_ptr<ReadEntry>> sources;
+            void MarkRead();
+            void MarkInventory();
+        };
+        struct ReadScope {
+            std::mutex mutex;
+            std::set<std::string> attempted;
+        };
+        void SetString(const std::string& key, const std::string& value);
+        void MarkRead(const std::string& key) const;
         MapType map_;
+        std::unordered_map<std::string, std::shared_ptr<ReadEntry>> read_entries_;
+        std::shared_ptr<ReadScope> read_scope_;
     };
+
+    /// Run の構築を終えた呼び出し側が、未読キーを 1 件の WARN で一覧する。
+    void WarnUnreadConfigKeys(const ConfigData& config_data);
 
 	const ConfigData EmptyConfigData;
 
@@ -151,13 +183,17 @@ namespace anet {
         ConfigData ToConfigData() const {
             return configData;
         }
-        /// 解決入力の既定葉を読み取り専用で参照する。返却参照の寿命はPropertiesと同じ。
+        /// 解決入力の既定キーを読み取り専用で参照する。返却参照の寿命はPropertiesと同じ。
         const std::unordered_set<std::string>& DefaultKeys() const {
             return default_keys_;
+        }
+        const std::unordered_set<std::string>& SelectionSourcePrefixes() const {
+            return selection_source_prefixes_;
         }
     private:
         // 読み込み途中だけ保持し、公開ConfigDataへは渡さない。
         std::unordered_set<std::string> default_keys_;
+        std::unordered_set<std::string> selection_source_prefixes_;
         ConfigData configData;
         ConfigManagerOptions options_;
 
@@ -181,6 +217,9 @@ namespace anet {
         anet::ConfigData GetConfigData() const { return my_config_data_; }
         anet::ConfigData GetScopedConfigData() const;
     protected:
+        /// default/overrideの完全キーを保ち、指定した項目だけを新しく検証する。
+        ConfigData MakeReadScope(const ConfigData& config_data, const std::string& key) const;
+
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value, bool record = true)
         {
@@ -259,7 +298,7 @@ namespace anet {
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
     };
 
-    /// ConfigDataで扱う葉値のoptional。未指定ならDTOの初期値を保持する。
+    /// ConfigDataで扱う設定キーの値のoptional。未指定ならDTOの初期値を保持する。
     template<typename T>
     struct ConfigReader<std::optional<T>> {
         static constexpr bool kEnabled = true;
@@ -288,16 +327,18 @@ namespace anet {
             const wxCmdLineParser* cmdLine = nullptr,
             ConfigManagerOptions options = {});
 
-        ConfigData GetConfigData() const { return { map_ }; }
+        ConfigData GetConfigData() const { return effective_config_; }
         anet::json GetResolutionJson() const { return resolution_json_; }
     private:
         void LoadFromFile(const std::filesystem::path& filePath);
         void OverwriteFromFile(const std::filesystem::path& filePath);
-        ConfigData::MapType ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const;
+        ConfigData::MapType ReadCmdLineOverrides(const wxCmdLineParser& cmdLine);
     private:
         ConfigManagerOptions options_;
         ConfigData::MapType map_;
+        ConfigData effective_config_;
         std::unordered_set<std::string> default_keys_;
+        std::unordered_set<std::string> selection_source_prefixes_;
         anet::json resolution_json_;
     };
 

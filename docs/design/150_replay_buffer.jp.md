@@ -73,7 +73,7 @@ Prioritized Experience Replayでは、priorityに応じてindexをsampleし、�
 初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、ready化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。DQNの`K = 3` schemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 LearnerはTD error等から新しいpriorityを作り、sample時に返されたkeyへ`UpdatePriorities(item_keys, priorities)`する。更新はbatch全体をpreflightし、負key、generation 0/future、長さ不一致、負またはnonfinite priorityでは部分適用しない。過去generationだけは要素単位で棄却し、戻り値の`ReplayPriorityUpdateResult`がapplied/stale件数とActor初期priority・Learner更新priorityの比較統計を返す。同一keyの重複は入力順のlast-winsである。
-uniform samplerではPER固有metricを公開しない。
+uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値をNaNとする。
 
 ### 2.5 Agentごとの適用範囲
 
@@ -311,7 +311,7 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 | `replaybuffer.per.priority_update_stale_drop_count` | overwrite済みgenerationとして棄却した累積件数 |
 | `replaybuffer.per.last_evicted_never_sampled_ratio` | 直近Pushでsample前にevictされたready slotの比率 |
 
-uniform samplerではPER keyを値0として偽装せず、未対応を`std::nullopt`で表す。metric定義、Event、step軸は[可観測性](140_observability.jp.md)を参照する。
+PERの既知scalar keyは、uniform samplerでPERが無効の場合も`NaN`を返す。値0へ読み替えず、未知scalar keyだけを`std::nullopt`で表す。metric定義、Event、step軸は[可観測性](140_observability.jp.md)を参照する。
 
 eviction統計はready rangeを基準にする。追い出されるslotはhistory margin期間中すでにsample不可であるため、`last_evicted_never_sampled_ratio`は「sample機会があったのに引かれなかった」件数をmargin分だけ過大に数える近似を含む。sampleable rangeを基準にするとwrap後の追い出しが構造的に0件となるため、margin幅がcapacityに対して十分小さいことを前提に、この近似を監視用途として許容する。
 

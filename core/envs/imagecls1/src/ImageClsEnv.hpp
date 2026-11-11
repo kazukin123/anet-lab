@@ -96,6 +96,7 @@ private:
 class ImageClsEnvFactory final : public anet::rl::BatchEnvFactory {
 public:
     std::string GetTargetEnvClassId() const override { return "ImageClsEnv"; }
+    std::vector<std::string> GetConfigPrefixes() const override { return {GetTargetEnvClassId(), "ImageDataset"}; }
 
     void ValidateConfig(
         const anet::ConfigData& config_data,

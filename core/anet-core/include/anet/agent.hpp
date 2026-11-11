@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <limits>
+#include <cmath>
 #include <optional>
 #include <mutex>
 #include "anet/rl.hpp"
@@ -310,6 +311,15 @@ namespace anet::rl {
             struct GradNoiseConfig {
                 int num_micro_batches = 8;
                 double ema_alpha = 0.05;
+                void Validate(const std::string& owner) const
+                {
+                    if (num_micro_batches < 2) {
+                        ANET_SYSTEM_ERROR("Invalid " << owner << ".num_micro_batches=" << num_micro_batches << "; expected integer >= 2.");
+                    }
+                    if (!std::isfinite(ema_alpha) || ema_alpha <= 0.0 || ema_alpha > 1.0) {
+                        ANET_SYSTEM_ERROR("Invalid " << owner << ".ema_alpha=" << ema_alpha << "; expected finite (0,1].");
+                    }
+                }
             } grad_noise;
 
             struct NoisyProbeConfig {
@@ -369,6 +379,7 @@ namespace anet::rl {
 
         void Register(std::shared_ptr<AgentFactory> factory);
         std::shared_ptr<AgentFactory> GetAgentFactory(const std::string& id) const;
+        void MarkUnusedConfigInventory(const ConfigData& data, const std::string& active_class_id) const;
     private:
         AgentRepository() = default;
 

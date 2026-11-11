@@ -520,23 +520,37 @@ public:
     {
     }
 
+    void ValidateConfig(const anet::ConfigData& data, rl::RunMode, const std::string& prefix) const override
+    {
+        (void)Config(data, prefix);
+    }
+
     std::shared_ptr<rl::SingleDiscreteEnv> CreateSingleEnv(
-        const anet::ConfigData&, const torch::Device&, const std::string& name,
+        const anet::ConfigData& data, const torch::Device&, const std::string& name,
         std::optional<anet::seed_t>, rl::RunMode run_mode, const std::string& config_prefix) override
     {
+        const Config config(data, config_prefix);
         ++state_->creation_count;
         state_->config_prefixes.push_back(config_prefix);
         if (state_->failing_name == name) {
             throw std::runtime_error("Requested RunManager test Env failure: " + name);
         }
         anet::ConfigData config_snapshot;
-        config_snapshot.Set("RunManagerNameTestEnv.value", 1);
+        config_snapshot.Set("RunManagerNameTestEnv.value", config.value);
         return std::make_shared<RunManagerTestSingleEnv>(name, run_mode, config_snapshot);
     }
 
     std::string GetTargetEnvClassId() const override { return "RunManagerNameTestEnv"; }
 
 private:
+    struct Config final : anet::Config {
+        int value = 1;
+        Config(const anet::ConfigData& data, const std::string& prefix)
+            : anet::Config(data, "RunManagerNameTestEnv", prefix)
+        {
+            ANET_READ_CONFIG(data, value);
+        }
+    };
     std::shared_ptr<RunManagerEnvFactoryState> state_;
 };
 
@@ -925,6 +939,28 @@ TEST_CASE("EvalRunner delegates Actor device validation to its Agent", "[trainer
     CHECK(agent->GetLastActorKey() == "explicit");
 }
 
+TEST_CASE("RunManager validates train runner types before constructing Env", "[trainer][run_manager][prd117]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto state = RegisterRunManagerNameTestFactories();
+    const std::string type = GENERATE("serial", "SERIAL", "pipeline", "PiPeLiNe", "pipline", "unknown", "");
+    CAPTURE(type);
+    auto data = MakeRunManagerNameTestConfig();
+    data.Set("run.train.runner_type", type);
+    if (type == "pipline" || type == "unknown" || type.empty()) {
+        CHECK_THROWS_WITH(std::make_shared<rl::RunManager>(data),
+            Catch::Matchers::ContainsSubstring("run.train.runner_type")
+            && Catch::Matchers::ContainsSubstring(type)
+            && Catch::Matchers::ContainsSubstring("serial")
+            && Catch::Matchers::ContainsSubstring("pipeline"));
+        CHECK(state->creation_count == 0);
+    } else {
+        const auto manager = std::make_shared<rl::RunManager>(data);
+        CHECK(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+        CHECK(state->creation_count == 1);
+    }
+}
+
 TEST_CASE("RunManager rejects reserved configured Eval names before constructing Env", "[env_name][run_manager]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
@@ -1012,6 +1048,7 @@ TEST_CASE("RunManager rejects distinct Env names that map to one config filename
 TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "[trainer][dormant_eval]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
     auto factory_state = RegisterRunManagerNameTestFactories();
     auto config = MakeRunManagerNameTestConfig();
     config.Set("run.eval.[sleep].run_mode", "eval1");
@@ -1019,8 +1056,16 @@ TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "
     config.Set(
         "metrics.scalar.[sleep_reward]",
         "mean.episode_return $runner @session_end $eval.[sleep]");
+    config.Set("metrics.scalar.[sleep_reward_second]",
+        "mean.episode_return $runner @session_end $eval.[sleep]");
 
     auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Message
+            && ContainsText(record.message, "Skipping metrics for unscheduled eval tag. tag='sleep'.");
+    }) == 1);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
     REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
     CHECK(factory_state->creation_count == 1);
     CHECK_THROWS_WITH(
@@ -1052,9 +1097,10 @@ TEST_CASE("RunManager keeps definition-only Eval tags dormant", "[trainer][eval_
     CHECK(anet::test::HasRecordContaining(
         logs.Records(), wxLOG_Message, { "eval.[sleep]: definition-only" }));
     CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
-        return record.level == wxLOG_Warning
+        return record.level == wxLOG_Message
             && ContainsText(record.message, "Skipping metrics for unscheduled eval tag. tag='sleep'.");
     }) == 1);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
 }
 
 TEST_CASE("RunManager rejects schedules for undefined Eval tags", "[trainer][eval_schedule]")
@@ -1160,6 +1206,14 @@ TEST_CASE("RunManager does not warn when shared Eval adopts its only group", "[t
             && ContainsText(record.message, "eval_tag='shared'")
             && ContainsText(record.message, "fewer adopted episodes");
     }));
+    // このEnvは設定dumpを実装しない。一意な生成対象名ごとにWARNが1件出る。
+    for (const auto* name : {"train", "shared"}) {
+        CHECK(std::ranges::count_if(logs.Records(), [&](const auto& record) {
+            return record.level == wxLOG_Warning
+                && ContainsText(record.message, "Skipping Env config dump because GetConfigData is unsupported")
+                && ContainsText(record.message, std::string("env_name='") + name + "'");
+        }) == 1);
+    }
 }
 
 TEST_CASE("RunManager requires an interval for every Eval schedule", "[trainer][eval_schedule]")
@@ -1208,6 +1262,72 @@ TEST_CASE("RunManager validates Eval offset and warmup before constructing Env",
         Catch::Matchers::ContainsSubstring(key + "=-7")
         && Catch::Matchers::ContainsSubstring("non-negative"));
     CHECK(factory_state->creation_count == 0);
+}
+
+TEST_CASE("Eval declarations reject unknown fields regardless of scheduling", "[prd117][trainer][eval_catalog]")
+{
+    const auto interval = GENERATE(Catch::Generators::values<std::optional<int>>({std::nullopt, 0, 100}));
+    const std::string field = GENERATE("typo", "env.typo");
+    ScopedRunManagerMetricsLogger metrics_logger;
+    RegisterRunManagerNameTestFactories();
+    auto data = MakeRunManagerNameTestConfig();
+    data.Set("run.eval.[probe].run_mode", "eval");
+    if (interval) data.Set("run.eval_schedule.[probe].interval", *interval);
+    const auto key = "run.eval.[probe]." + field;
+    data.Set(key, 9);
+    (void)data.Get(key);
+    CAPTURE(interval, field);
+    CHECK_THROWS_WITH(std::make_shared<rl::RunManager>(data),
+        Catch::Matchers::ContainsSubstring("run.eval.[probe]")
+        && Catch::Matchers::ContainsSubstring(field) && Catch::Matchers::ContainsSubstring("9"));
+}
+
+TEST_CASE("Eval schedules reject unknown fields even when disabled", "[prd117][trainer][eval_catalog]")
+{
+    const int interval = GENERATE(0, 100);
+    ScopedRunManagerMetricsLogger metrics_logger;
+    RegisterRunManagerNameTestFactories();
+    auto data = MakeRunManagerNameTestConfig();
+    data.Set("run.eval.[probe].run_mode", "eval");
+    data.Set("run.eval_schedule.[probe].interval", interval);
+    const std::string key = "run.eval_schedule.[probe].warmup_cout";
+    data.Set(key, 9);
+    (void)data.Get(key);
+    CHECK_THROWS_WITH(std::make_shared<rl::RunManager>(data),
+        Catch::Matchers::ContainsSubstring("run.eval_schedule.[probe]")
+        && Catch::Matchers::ContainsSubstring("warmup_cout") && Catch::Matchers::ContainsSubstring("9"));
+}
+
+TEST_CASE("Dormant Eval Env values use the Env configuration reader", "[prd117][trainer][eval_catalog]")
+{
+    const auto interval = GENERATE(Catch::Generators::values<std::optional<int>>({std::nullopt, 0}));
+    ScopedRunManagerMetricsLogger metrics_logger;
+    RegisterRunManagerNameTestFactories();
+    auto data = MakeRunManagerNameTestConfig();
+    data.Set("run.eval.[probe].run_mode", "eval");
+    if (interval) data.Set("run.eval_schedule.[probe].interval", *interval);
+    const std::string key = "run.eval.[probe].env.value";
+    data.Set(key, "invalid");
+    CHECK_THROWS_WITH(std::make_shared<rl::RunManager>(data),
+        Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected=int"));
+}
+
+TEST_CASE("Validated Eval Env overlays are read without constructing dormant Envs", "[prd117][trainer][eval_catalog]")
+{
+    const auto interval = GENERATE(Catch::Generators::values<std::optional<int>>({std::nullopt, 0, 100}));
+    ScopedRunManagerMetricsLogger metrics_logger;
+    const auto state = RegisterRunManagerNameTestFactories();
+    auto data = MakeRunManagerNameTestConfig();
+    data.Set("run.eval.[probe].run_mode", "eval");
+    data.Set("run.eval.[probe].env.value", 17);
+    if (interval) data.Set("run.eval_schedule.[probe].interval", *interval);
+    const auto manager = std::make_shared<rl::RunManager>(data);
+    CHECK(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(state->creation_count == (interval && *interval > 0 ? 2 : 1));
+    const auto unread = data.GetUnreadKeys();
+    CHECK(std::none_of(unread.begin(), unread.end(), [](const auto& item) {
+        return item.first.starts_with("run.eval.[probe].") || item.first.starts_with("run.eval_schedule.[probe].");
+    }));
 }
 
 TEST_CASE("RunManager treats a zero interval Eval schedule as definition-only", "[trainer][eval_schedule]")

@@ -211,21 +211,32 @@ struct LinearProjectionModule::Impl {
         return hold == Hold::kEpisode ? "episode" : (hold == Hold::kCount ? "count" : "call");
     }
     struct ForwardConfig {
-        struct Values {
-            std::string mode;
-            std::string hold;
-            std::string share;
-            std::optional<uint64_t> count;
+        struct ValuesConfig : anet::Config {
+            struct {
+                std::string mode;
+                std::string hold;
+                std::string share;
+                std::optional<uint64_t> count;
+            } noisy;
+
+            explicit ValuesConfig(const anet::ConfigData& data) : anet::Config(data, "")
+            {
+                // Noisy OFFでも、明示した既知の値を同じ設定DTOで読む。
+                ANET_READ_CONFIG(data, noisy.mode);
+                ANET_READ_CONFIG(data, noisy.hold);
+                ANET_READ_CONFIG(data, noisy.share);
+                ANET_READ_CONFIG(data, noisy.count);
+            }
         };
-        static Values Read(const NetworkForwardConfig& request)
+        static ValuesConfig Read(const NetworkForwardConfig& request, bool require_fields)
         {
             const auto& data = request.GetConfigData();
-            // 準備時に各葉を一度だけ取得し、その同じ値を検証とenum化へ使う。
-            const auto raw_mode = data.Get<std::string>("noisy.mode");
-            const auto raw_hold = data.Get<std::string>("noisy.hold");
-            const auto raw_share = data.Get<std::string>("noisy.share");
-            const auto count = data.Has("noisy.count")
-                ? std::optional<uint64_t>(data.Get<uint64_t>("noisy.count")) : std::nullopt;
+            // 準備時に各設定キーを一度だけ取得し、その同じ値を検証とenum化へ使う。
+            const ValuesConfig values(data);
+            const auto& raw_mode = values.noisy.mode;
+            const auto& raw_hold = values.noisy.hold;
+            const auto& raw_share = values.noisy.share;
+            const auto& count = values.noisy.count;
             // 利用する具象部品の準備で、明示値と必要項目をまとめて検証する。
             if (data.Has("noisy.mode") && raw_mode != "sample" && raw_mode != "mu_only") {
                 ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='" << raw_mode << "' expected sample or mu_only.");
@@ -242,29 +253,29 @@ struct LinearProjectionModule::Impl {
             if (raw_mode == "sample" && raw_hold == "episode" && raw_share == "batch") {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=episode requires noisy.share=sample; actual=batch.");
             }
-            if (!data.Has("noisy.mode")) {
+            if (require_fields && !data.Has("noisy.mode")) {
                 ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='' expected sample or mu_only.");
             }
-            if (raw_mode == "sample" && (!data.Has("noisy.hold") || !data.Has("noisy.share"))) {
+            if (require_fields && raw_mode == "sample" && (!data.Has("noisy.hold") || !data.Has("noisy.share"))) {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key
                     << "' requires noisy.hold=call, count, or episode and noisy.share=batch or sample.");
             }
-            if (raw_mode == "sample" && raw_hold == "count" && !count) {
+            if (require_fields && raw_mode == "sample" && raw_hold == "count" && !count) {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=count requires noisy.count.");
             }
-            return {.mode = raw_mode, .hold = raw_hold, .share = raw_share, .count = count};
+            return values;
         }
-        explicit ForwardConfig(const NetworkForwardConfig& request) try
-            : ForwardConfig(request, Read(request)) {}
+        explicit ForwardConfig(const NetworkForwardConfig& request, bool require_fields = true) try
+            : ForwardConfig(request, Read(request, require_fields)) {}
         catch (const std::exception& error) {
             ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "': " << error.what());
         }
-        ForwardConfig(const NetworkForwardConfig& request, const Values& values)
+        ForwardConfig(const NetworkForwardConfig& request, const ValuesConfig& values)
             : key(request.key)
-            , mode(values.mode == "sample" ? Mode::kSample : Mode::kMuOnly)
-            , hold(values.hold == "episode" ? Hold::kEpisode : (values.hold == "count" ? Hold::kCount : Hold::kCall))
-            , share(values.share == "sample" ? Share::kSample : Share::kBatch)
-            , count(values.count) {}
+            , mode(values.noisy.mode == "sample" ? Mode::kSample : Mode::kMuOnly)
+            , hold(values.noisy.hold == "episode" ? Hold::kEpisode : (values.noisy.hold == "count" ? Hold::kCount : Hold::kCall))
+            , share(values.noisy.share == "sample" ? Share::kSample : Share::kBatch)
+            , count(values.noisy.count) {}
         const std::string key;
         const Mode mode;
         const Hold hold;
@@ -430,7 +441,10 @@ std::unique_ptr<LinearProjectionModule::Executor> LinearProjectionModule::Create
 {
     ANET_PROFILE_FUNC();
     ANET_CHECK_MSG(!config.IsDefault(), "Default forward settings must not be passed to LinearProjectionModule::CreateProjectionExecutor.");
-    if (!impl_->noisy_config_.enabled) return nullptr;
+    if (!impl_->noisy_config_.enabled) {
+        (void)Impl::ForwardConfig(config, false);
+        return nullptr;
+    }
     auto prepared = std::make_unique<Impl::Prepared>(*impl_, config, clock);
     if (prepared->IsMeanOnly()) return nullptr;
     return prepared;
@@ -1673,7 +1687,7 @@ public:
         ValidateDropRate("res.droppath_rate", config.res.droppath_rate);
         ValidateDropRate("res.dropout_rate", config.res.dropout_rate);
         if (config.res.dropout_rate > 0.0 && config.res.norm_type == "batch") {
-            LOG::warn() << "ResBlock dropout_rate is enabled with BatchNorm. "
+            LOG::warn_once() << "ResBlock dropout_rate is enabled with BatchNorm. "
                 << "key=res.dropout_rate value=" << config.res.dropout_rate
                 << " reason=channel dropout can shift BatchNorm statistics"
                 << " recommended=use res.droppath_rate or set res.norm_type to group/none.";

@@ -1,4 +1,4 @@
-"""新しい shared の既定葉以外の全キー・文字列値が維持されることを確認する。"""
+"""新しい shared の既定キー以外の全キー・文字列値が維持されることを確認する。"""
 import re
 
 from common import OUT, REPO, resolve, save

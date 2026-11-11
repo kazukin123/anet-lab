@@ -266,11 +266,11 @@ void anet::rl::dqn::ValidateReplayPriorityConfig(
         ANET_SYSTEM_ERROR("Invalid learner.per_eps=" << config.per_eps << ". Expected a finite value >= 0.");
     }
     if (config.use_per && config.per_eps == 0.0f) {
-        LOG::warn() << "learner.per_eps=0 is allowed with learner.use_per=true, but zero-TD-error transitions may "
+        LOG::warn_once() << "learner.per_eps=0 is allowed with learner.use_per=true, but zero-TD-error transitions may "
             << "receive zero sampling priority. Set learner.per_eps to a finite value > 0 to keep a positive priority floor.";
     }
     if (config.use_per && initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
-        LOG::warn() << "learner.per_initial_priority_mode=actor_approx with learner.per_alpha=0 is allowed, but Actor "
+        LOG::warn_once() << "learner.per_initial_priority_mode=actor_approx with learner.per_alpha=0 is allowed, but Actor "
             << "priority does not affect sampling. Set learner.per_alpha to a finite value > 0 to enable prioritized sampling.";
     }
     if (config.use_per_prio_clip) {
@@ -279,11 +279,11 @@ void anet::rl::dqn::ValidateReplayPriorityConfig(
                 << ". Expected a finite value >= 0 when learner.use_per_prio_clip=true.");
         }
         if (config.per_prio_clip_value == 0.0f) {
-            LOG::warn() << "learner.use_per_prio_clip=true with learner.per_prio_clip_value=0 is allowed, but all PER "
+            LOG::warn_once() << "learner.use_per_prio_clip=true with learner.per_prio_clip_value=0 is allowed, but all PER "
                 << "priorities are clipped to zero. Set learner.per_prio_clip_value to a finite value > 0 or disable "
                 << "learner.use_per_prio_clip.";
         } else if (config.per_prio_clip_value <= config.per_eps) {
-            LOG::warn() << "learner.per_prio_clip_value=" << config.per_prio_clip_value
+            LOG::warn_once() << "learner.per_prio_clip_value=" << config.per_prio_clip_value
                 << " <= learner.per_eps=" << config.per_eps
                 << " may collapse priority differences. Set learner.per_prio_clip_value > learner.per_eps or disable "
                 << "learner.use_per_prio_clip.";
@@ -1522,7 +1522,7 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
         ANET_SYSTEM_ERROR("ActionPolicy spatial exploration requires num_envs > 0. num_envs=" << num_envs);
     }
     if (num_envs < 32) {
-        LOG::warn() << "ActionPolicy spatial exploration is enabled with num_envs < 32. num_envs=" << num_envs;
+        LOG::warn_once() << "ActionPolicy spatial exploration is enabled with num_envs < 32. num_envs=" << num_envs;
     }
 
     current_epsilon_ = std::numeric_limits<float>::quiet_NaN();
@@ -2629,6 +2629,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     , policy_churn_probe_random_(policy_churn_probe_random)
 {
     // 名前付き参照と受け取ったResourceの対応を、NNの準備や資源確保より前に確認する。
+    config_.grad_noise.Validate("learner.grad_noise");
     const auto validate_resource = [](const std::string& purpose, const std::string& key,
         const anet::nn::NetworkForwardConfig& resource) {
         const bool matches = key.empty() ? resource.IsDefault()
@@ -2811,12 +2812,9 @@ void Learner::ConfigureScalarMetricSubscriptions(
     if (!grad_noise_.demand.empty()) {
         const auto& setting = config_.grad_noise;
         const int batch = config_.replay_batch_size;
-        if (setting.num_micro_batches < 2 || batch <= 0 || batch % setting.num_micro_batches != 0) {
+        if (batch <= 0 || batch % setting.num_micro_batches != 0) {
             ANET_SYSTEM_ERROR("Invalid learner.grad_noise.num_micro_batches="
                               << setting.num_micro_batches << "; expected integer >=2 dividing replay_batch_size=" << batch);
-        }
-        if (!std::isfinite(setting.ema_alpha) || setting.ema_alpha <= 0 || setting.ema_alpha > 1) {
-            ANET_SYSTEM_ERROR("Invalid learner.grad_noise.ema_alpha=" << setting.ema_alpha << "; expected finite (0,1]");
         }
         if (config_.use_amp && !config_.use_amp_bf16) {
             ANET_SYSTEM_ERROR("Invalid learner.use_amp=true learner.use_amp_bf16=false for grad_noise metrics; expected FP32 or BF16");
@@ -2826,15 +2824,14 @@ void Learner::ConfigureScalarMetricSubscriptions(
         std::set<int> intervals;
         for (const auto& entry : grad_noise_.demand)
             intervals.insert(entry.interval);
-        if (intervals.size() > 1 && !grad_noise_intervals_warned_) {
+        if (intervals.size() > 1) {
             std::ostringstream list;
             for (const auto interval : intervals) {
                 if (list.tellp() > 0) list << ",";
                 list << interval;
             }
-            LOG::warn() << "Gradient noise subscription intervals differ: intervals=[" << list.str()
+            LOG::warn_once() << "Gradient noise subscription intervals differ: intervals=[" << list.str()
                         << "]; shared EMA updates at the union of measurement points.";
-            grad_noise_intervals_warned_ = true;
         }
         if (!grad_noise_split) {
             // 群別未購読時はfeatureフラグが結果に影響しないため、既定のfalseで全parameterを渡す。
@@ -2860,8 +2857,8 @@ void Learner::ConfigureScalarMetricSubscriptions(
         for (const auto& entry : policy_churn_.demand) {
             const int metrics_interval = entry.interval;
             const int phase_count = hard_update_interval / std::gcd(hard_update_interval, metrics_interval);
-            if (phase_count == 1 && policy_churn_warned_intervals_.insert(metrics_interval).second) {
-                LOG::warn() << "Policy churn metrics observe one hard-target phase: target_sync_age=0"
+            if (phase_count == 1) {
+                LOG::warn_once(std::to_string(metrics_interval)) << "Policy churn metrics observe one hard-target phase: target_sync_age=0"
                     << " metrics_interval=" << metrics_interval
                     << " hard_update_interval=" << hard_update_interval << ".";
             }
@@ -4249,7 +4246,7 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
     }
     if (skip_primary_optimizer_ && !has_primary_skip) {
         skip_primary_optimizer_->state().clear();
-        LOG::warn() << "Learner::Load: checkpoint has no " << kOptimizerRolePrimarySkip
+        LOG::warn_once(kOptimizerRolePrimarySkip) << "Learner::Load: checkpoint has no " << kOptimizerRolePrimarySkip
             << " optimizer role; initialized moments for learner.skip.feature_gradient=" << LearnerConfig::kFeatureGradientSplit << ".";
     }
     // 診断EMAはcheckpointの一部ではなく、引き継ぎ時は未初期化へ戻す。
@@ -4267,32 +4264,32 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
         auto& group = i < main_group_count ? optimizer_->param_groups()[i] : skip_primary_optimizer_->param_groups().front();
         auto& loaded = static_cast<torch::optim::AdamWOptions&>(group.options());
         const auto& current = options[i];
-        const auto warn_difference = [i, &roles](const char* option, const char* key, const auto& saved_value, const auto& config_value) {
-            auto warning = LOG::warn();
-            warning << "Learner::Load: optimizer option differs from checkpoint; config applied. group=" << i
+        const auto report_difference = [i, &roles](const char* option, const char* key, const auto& saved_value, const auto& config_value) {
+            auto notification = LOG::info_once(roles[i] + ":" + option);
+            notification << "Learner::Load: optimizer option differs from checkpoint; config applied. group=" << i
                 << " role=" << roles[i] << " option=" << option;
-            if (key != nullptr) warning << " key=" << key;
-            warning << " checkpoint=" << saved_value << " config=" << config_value;
+            if (key != nullptr) notification << " key=" << key;
+            notification << " checkpoint=" << saved_value << " config=" << config_value;
         };
         if (loaded.lr() != current.lr()) {
-            warn_difference("lr", "learner.learning_rate", loaded.lr(), current.lr());
+            report_difference("lr", "learner.learning_rate", loaded.lr(), current.lr());
         }
         if (loaded.weight_decay() != current.weight_decay()) {
-            warn_difference("weight_decay", roles[i].ends_with(kOptimizerSigmaRoleSuffix) ? "learner.noisy_weight_decay" : "learner.weight_decay",
+            report_difference("weight_decay", roles[i].ends_with(kOptimizerSigmaRoleSuffix) ? "learner.noisy_weight_decay" : "learner.weight_decay",
                 loaded.weight_decay(), current.weight_decay());
         }
         if (loaded.eps() != current.eps()) {
-            warn_difference("eps", "learner.adam_eps", loaded.eps(), current.eps());
+            report_difference("eps", "learner.adam_eps", loaded.eps(), current.eps());
         }
         if (loaded.betas() != current.betas()) {
             // 比較は丸める前の値で行い、ログでは2値を1つの option として示す。
             std::ostringstream saved_betas, config_betas;
             saved_betas << "(" << std::get<0>(loaded.betas()) << "," << std::get<1>(loaded.betas()) << ")";
             config_betas << "(" << std::get<0>(current.betas()) << "," << std::get<1>(current.betas()) << ")";
-            warn_difference("betas", nullptr, saved_betas.str(), config_betas.str());
+            report_difference("betas", nullptr, saved_betas.str(), config_betas.str());
         }
         if (loaded.amsgrad() != current.amsgrad()) {
-            warn_difference("amsgrad", nullptr, loaded.amsgrad(), current.amsgrad());
+            report_difference("amsgrad", nullptr, loaded.amsgrad(), current.amsgrad());
         }
         // state はそのままに全 options を代入し、実際に適用された値を記録する。
         loaded = current;

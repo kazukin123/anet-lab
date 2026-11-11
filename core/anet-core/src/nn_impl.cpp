@@ -581,25 +581,6 @@ static int ParseInt(const std::string& s, const std::string& param_name)
     }
 }
 
-static double ParseDoubleStrict(const std::string& s, const std::string& param_name)
-{
-    try {
-        size_t pos = 0;
-        const double value = std::stod(s, &pos);
-        if (pos != s.size()) {
-            ANET_SYSTEM_ERROR(
-                "Invalid double parameter: " << param_name
-                << " value=\"" << s << "\" expected=double.");
-        }
-        return value;
-    } catch (const std::exception&) {
-        ANET_SYSTEM_ERROR(
-            "Invalid double parameter: " << param_name
-            << " value=\"" << s << "\" expected=double.");
-    }
-    return 0.0;
-}
-
 static std::string FormatDoubleForConfig(double value)
 {
     std::ostringstream oss;
@@ -784,111 +765,79 @@ void anet::nn::ValidateNetworkGraphVizConfig(const NetworkGraphVizConfig& config
 // NetworkConfig
 // ===========================================================================
 
+constexpr char kLinearProfileType[] = "linear";
+
+namespace {
+    struct BlockTypeConfig final : anet::Config {
+        std::string type;
+
+        explicit BlockTypeConfig(const anet::ConfigData& data) : anet::Config(data, "")
+        {
+            ANET_READ_CONFIG(data, type);
+        }
+    };
+
+    struct ResolvedConfigProfileConfig final : anet::Config {
+        std::string type = kLinearProfileType;
+        double start = 0.0;
+        std::optional<double> end;
+
+        explicit ResolvedConfigProfileConfig(const anet::ConfigData& data) : anet::Config(data, "")
+        {
+            // 参照時の読み取り範囲で、固定キーをそのままの階層へ読む。
+            ANET_READ_CONFIG(data, type);
+            ANET_READ_CONFIG(data, start);
+            ANET_READ_CONFIG(data, end);
+        }
+    };
+}
+
 static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
+    // 元キーの対応を保ったまま、局所側の同じ項目を優先する。
+    auto merged = config_data.MakeSubConfigData("net.block");
+    if (config_prefix != "net") {
+        for (const auto& [tag, local] : config_data.MakeSubConfigData(config_prefix + ".block")) {
+            merged[tag].OverwriteFrom(local);
+        }
+    }
     std::map<std::string, NetworkBlockConfig> block_configs;
-
-    // グローバルとローカルのタグ別設定を一時保持
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> global_tag_block_map;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> local_tag_block_map;
-
-    // プレフィックスのピリオドを正規表現エスケープする ("net.dyn" -> "net\.dyn")
-    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
-
-    // グローバル(net) と ローカル(config_prefix) の正規表現
-    std::regex re_global(R"(net\.block\.\[([^\]]+)\]\.(.+))");
-    std::regex re_local(escaped_prefix + R"(\.block\.\[([^\]]+)\]\.(.+))");
-
-    auto config_map = config_data.Map();
-    for (const auto& [key, value] : config_map) {
-        std::smatch m;
-        // まずローカルマッチを試す
-        if (std::regex_match(key, m, re_local)) {
-            local_tag_block_map[m[1].str()][m[2].str()] = value;
-            continue;
-        }
-        // 次にグローバルマッチを試す
-        if (std::regex_match(key, m, re_global)) {
-            global_tag_block_map[m[1].str()][m[2].str()] = value;
-        }
-    }
-
-    // グローバルとローカルをマージ (ローカルが優先上書きされる)
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> merged_tag_block_map = std::move(global_tag_block_map);
-    for (const auto& [tag, config_map] : local_tag_block_map) {
-        for (const auto& [sub_key, val] : config_map) {
-            merged_tag_block_map[tag][sub_key] = val;
-        }
-    }
-
-    for (const auto& [tag, config_map] : merged_tag_block_map) {
-        // NetworkBlockConfig を作る
+    for (const auto& [tag, data] : merged) {
+        config_data.MarkInventory("net.block.[" + tag + "]");
+        config_data.MarkInventory(config_prefix + ".block.[" + tag + "]");
         NetworkBlockConfig block_config;
-        for (const auto& [config_sub_key, config_value] : config_map) {
-            if (config_sub_key == "type") {
-                block_config.type = config_value;
-            } else {
-                block_config.config_data.Set(config_sub_key, config_value);
-            }
+        block_config.type = BlockTypeConfig(data).type;
+        for (const auto& [key, value] : data.Map()) {
+            if (key != "type") block_config.config_data.CopyValueFrom(key, data, key);
         }
-        ANET_LOG_DEBUG("block_config type=" << block_config.type << "\n config=" << block_config.config_data.ToString());
-
-        // チェック
-        if (block_config.type.empty()) {
-            ANET_SYSTEM_ERROR("Block type not specified for block: " + tag);
-        }
-
-        // 作ったNetworkBlockConfigを保存
+        // 型とスキーマの検証は、その block を実体化するときに行う。
         block_configs[tag] = std::move(block_config);
     }
-
     return block_configs;
 }
 
 class ConfigProfile {
 public:
-    ConfigProfile(std::string tag, ConfigProfileConfig config)
-        : tag_(std::move(tag)), config_(std::move(config))
-    {
-    }
-    virtual void ValidateConfig() const = 0;
     virtual double GenerateValue(size_t index, size_t count) const = 0;
     virtual ~ConfigProfile() = default;
-protected:
-    const std::string& tag() const { return tag_; }
-    const ConfigProfileConfig& config() const { return config_; }
-private:
-    std::string tag_;
-    ConfigProfileConfig config_;
 };
 
 class LinearConfigProfile final : public ConfigProfile {
 public:
-    using ConfigProfile::ConfigProfile;
-
-    void ValidateConfig() const override
-    {
-        if (config().type != "linear") {
-            ANET_SYSTEM_ERROR(
-                "Invalid net.config_profile.[" << tag() << "].type: " << config().type
-                << ". Expected linear.");
-        }
-        if (!config().has_end) {
-            ANET_SYSTEM_ERROR(
-                "Missing required net.config_profile.[" << tag() << "].end. "
-                "Expected a double value.");
-        }
-    }
+    LinearConfigProfile(double start, double end) : start_(start), end_(end) {}
 
     double GenerateValue(size_t index, size_t count) const override
     {
         if (count <= 1) {
-            return config().start;
+            return start_;
         }
 
         const double t = static_cast<double>(index) / static_cast<double>(count - 1);
-        return config().start + (config().end - config().start) * t;
+        return start_ + (end_ - start_) * t;
     }
+private:
+    double start_;
+    double end_;
 };
 
 using ConfigProfilePtrMap = std::map<std::string, std::unique_ptr<ConfigProfile>>;
@@ -896,48 +845,27 @@ using ConfigProfilePtrMap = std::map<std::string, std::unique_ptr<ConfigProfile>
 static std::unique_ptr<ConfigProfile> CreateConfigProfile(
     const std::string& tag, const ConfigProfileConfig& config)
 {
-    // profile定義をtypeに応じた実装へ変換する。
-    if (config.type == "linear") {
-        return std::make_unique<LinearConfigProfile>(tag, config);
+    // 参照された定義だけを新しい読み取り範囲で型付きの補間規則へ変換する。
+    const auto data = config.config_data.CreateReadScope();
+    const ResolvedConfigProfileConfig parsed(data);
+    data.RequireAllKeysRead("net.config_profile.[" + tag + "]");
+    if (parsed.type != kLinearProfileType) {
+        ANET_SYSTEM_ERROR("Invalid net.config_profile.[" << tag << "].type: " << parsed.type << ". Expected " << kLinearProfileType << ".");
     }
-    ANET_SYSTEM_ERROR(
-        "Invalid net.config_profile.[" << tag << "].type: " << config.type
-        << ". Expected linear.");
-    return nullptr;
+    if (!parsed.end.has_value()) {
+        ANET_SYSTEM_ERROR("Missing required net.config_profile.[" << tag << "].end. Expected a double value.");
+    }
+    return std::make_unique<LinearConfigProfile>(parsed.start, *parsed.end);
 }
 
 static ConfigProfilePtrMap CreateConfigProfileMap(
-    const std::map<std::string, ConfigProfileConfig>& configs)
+    const std::map<std::string, ConfigProfileConfig>& configs, const std::set<std::string>& used_groups)
 {
     ConfigProfilePtrMap profiles;
     for (const auto& [tag, config] : configs) {
-        auto profile = CreateConfigProfile(tag, config);
-        profile->ValidateConfig();
-        profiles.emplace(tag, std::move(profile));
+        if (used_groups.contains(tag)) profiles.emplace(tag, CreateConfigProfile(tag, config));
     }
     return profiles;
-}
-
-static void ApplyConfigProfileConfigField(
-    ConfigProfileConfig& config,
-    const std::string& full_key,
-    const std::string& sub_key,
-    const std::string& value)
-{
-    if (sub_key == "type") {
-        config.type = value;
-        config.has_type = true;
-    } else if (sub_key == "start") {
-        config.start = ParseDoubleStrict(value, full_key);
-        config.has_start = true;
-    } else if (sub_key == "end") {
-        config.end = ParseDoubleStrict(value, full_key);
-        config.has_end = true;
-    } else {
-        ANET_SYSTEM_ERROR(
-            "Unknown config profile key: " << full_key
-            << ". Expected one of: type, start, end.");
-    }
 }
 
 static std::map<std::string, ConfigProfileConfig> MergeConfigProfileConfig(
@@ -946,19 +874,7 @@ static std::map<std::string, ConfigProfileConfig> MergeConfigProfileConfig(
 {
     auto merged_profiles = base_profiles;
     for (const auto& [tag, override_config] : override_profiles) {
-        auto& config = merged_profiles[tag];
-        if (override_config.has_type) {
-            config.type = override_config.type;
-            config.has_type = true;
-        }
-        if (override_config.has_start) {
-            config.start = override_config.start;
-            config.has_start = true;
-        }
-        if (override_config.has_end) {
-            config.end = override_config.end;
-            config.has_end = true;
-        }
+        merged_profiles[tag].config_data.OverwriteFrom(override_config.config_data);
     }
     return merged_profiles;
 }
@@ -968,43 +884,16 @@ static std::map<std::string, ConfigProfileConfig> ReadConfigProfileConfig(
 {
     std::map<std::string, ConfigProfileConfig> config_profiles;
 
-    // net.block と同じく、グローバル net とローカル config_prefix を merge し、ローカルを優先する。
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> global_profile_map;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> local_profile_map;
-
-    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
-    std::regex re_global(R"(net\.config_profile\.\[([^\]]+)\]\.(.+))");
-    std::regex re_local(escaped_prefix + R"(\.config_profile\.\[([^\]]+)\]\.(.+))");
-
-    for (const auto& [key, value] : config_data.Map()) {
-        std::smatch m;
-        if (std::regex_match(key, m, re_local)) {
-            local_profile_map[m[1].str()][m[2].str()] = value;
-            continue;
-        }
-        if (std::regex_match(key, m, re_global)) {
-            global_profile_map[m[1].str()][m[2].str()] = value;
+    auto merged = config_data.MakeSubConfigData("net.config_profile");
+    if (config_prefix != "net") {
+        for (const auto& [tag, local] : config_data.MakeSubConfigData(config_prefix + ".config_profile")) {
+            merged[tag].OverwriteFrom(local);
         }
     }
-
-    auto merged_profile_map = std::move(global_profile_map);
-    for (const auto& [tag, profile_map] : local_profile_map) {
-        for (const auto& [sub_key, value] : profile_map) {
-            merged_profile_map[tag][sub_key] = value;
-        }
-    }
-
-    for (const auto& [tag, profile_map] : merged_profile_map) {
-        ConfigProfileConfig config;
-        // profile定義を読み取り、未知キーは後方互換せずに設定エラーとして扱う。
-        for (const auto& [sub_key, value] : profile_map) {
-            const std::string full_key = "net.config_profile.[" + tag + "]." + sub_key;
-            ApplyConfigProfileConfigField(config, full_key, sub_key, value);
-        }
-        // 読み取ったprofileを実装objectへ変換し、型固有の必須項目を検証する。
-        auto profile = CreateConfigProfile(tag, config);
-        profile->ValidateConfig();
-        config_profiles[tag] = config;
+    for (auto& [tag, data] : merged) {
+        config_data.MarkInventory("net.config_profile.[" + tag + "]");
+        config_data.MarkInventory(config_prefix + ".config_profile.[" + tag + "]");
+        config_profiles[tag].config_data = std::move(data);
     }
 
     return config_profiles;
@@ -1028,18 +917,20 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
             const std::string tag = m[2].str();
             const std::string sub_key = m[3].str();
             auto& config = branch_config_profiles[b_name][tag];
-            ApplyConfigProfileConfigField(config, key, sub_key, value);
+            config.config_data.CopyValueFrom(sub_key, config_data, key);
             continue;
         }
 
         if (std::regex_match(key, m, re_branch)) {
             std::string b_name = m[1].str();
             std::string b_prop = m[2].str();
+            // 走査自体は読み取りに数えず、この読み口が解釈する項目だけを記録する。
+            const auto read_value = config_data.Get(key);
 
             branches[b_name].name = b_name;
 
             if (b_prop == "bind") {
-                std::stringstream ss(value);
+                std::stringstream ss(read_value);
                 std::string term_text;
                 while (std::getline(ss, term_text, ',')) {
                     if (term_text.empty()) continue;
@@ -1088,9 +979,9 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
             } else if (b_prop == "bind_concat_dim") {
                 config_data.Read(key, branches[b_name].bind_concat_dim, branches[b_name].bind_concat_dim);
             } else if (b_prop == "structure") {
-                branches[b_name].structure_str = value;
+                branches[b_name].structure_str = read_value;
             } else if (b_prop == "auto_format") {
-                branches[b_name].auto_format = (anet::ToLower(value) == "true" || value == "1");
+                config_data.Read(key, branches[b_name].auto_format, branches[b_name].auto_format);
             }
         }
     }
@@ -1141,7 +1032,7 @@ NetworkConfig::NetworkConfig(const anet::ConfigData& config_data, const std::str
     for (const auto& [key, value] : config_data.Map()) {
         std::smatch m;
         if (std::regex_match(key, m, re_output)) {
-            output_keys[m[1].str()] = value;
+            output_keys[m[1].str()] = config_data.Get(key);
         }
     }
 }
@@ -1194,17 +1085,7 @@ anet::json NetworkConfig::ToJson() const
         if (!v.config_profiles.empty()) {
             j["branches"][k]["config_profiles"] = anet::json::object();
             for (const auto& [profile_name, profile_config] : v.config_profiles) {
-                auto profile_json = anet::json::object();
-                if (profile_config.has_type) {
-                    profile_json["type"] = profile_config.type;
-                }
-                if (profile_config.has_start) {
-                    profile_json["start"] = profile_config.start;
-                }
-                if (profile_config.has_end) {
-                    profile_json["end"] = profile_config.end;
-                }
-                j["branches"][k]["config_profiles"][profile_name] = std::move(profile_json);
+                j["branches"][k]["config_profiles"][profile_name] = profile_config.config_data.ToJson();
             }
         }
     }
@@ -1212,7 +1093,7 @@ anet::json NetworkConfig::ToJson() const
     // profile 定義は、展開後の per-block 実効値と合わせて dump から追えるようにする。
     j["config_profiles"] = anet::json::object();
     for (const auto& [k, v] : config_profiles) {
-        j["config_profiles"][k] = { {"type", v.type}, {"start", v.start}, {"end", v.end} };
+        j["config_profiles"][k] = v.config_data.ToJson();
     }
 
     // 出力のマッピング情報を出力
@@ -1773,7 +1654,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
     std::vector<std::shared_ptr<NetworkBlock>> blocks;
     const auto expansion_plan = MakeConfigProfileExpansionPlan(root_config, structure_str);
     ValidateConfigProfileExpansionPlan(config_profiles, expansion_plan);
-    const auto profile_objects = CreateConfigProfileMap(config_profiles);
+    const auto profile_objects = CreateConfigProfileMap(config_profiles, expansion_plan.used_groups);
 
     std::map<std::string, int> type_counters;
 
@@ -1781,15 +1662,18 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
         const auto& block_def_name = instance.block_def_name;
         const auto& block_cfg = root_config.block_configs.at(block_def_name);
 
+        if (block_cfg.type.empty()) {
+            ANET_SYSTEM_ERROR("Block type not specified for block: " << block_def_name);
+        }
         auto factory = NetworkModuleRepository::Instance().GetFactory(block_cfg.type);
         ModuleContext ctx{ .random_source = random_source };
+        auto effective_config = block_cfg.config_data.CreateReadScope();
 
         std::shared_ptr<NetworkModule> inner_module;
         if (instance.markers.empty()) {
-            inner_module = factory->CreateModule(block_cfg.config_data, ctx);
+            inner_module = factory->CreateModule(effective_config, ctx);
         } else {
-            // 補間対象のinstanceだけConfigDataをコピーし、profile objectで実効値へ置換する。
-            anet::ConfigData effective_config = block_cfg.config_data;
+            // 補間は今回の読み取り範囲だけへ適用し、元の定義を変えない。
             for (const auto& marker : instance.markers) {
                 const auto& profile = *profile_objects.at(marker.group_name);
                 const size_t count = expansion_plan.group_uses.at(marker.group_name).size();
@@ -1799,6 +1683,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
             inner_module = factory->CreateModule(effective_config, ctx);
         }
 
+        effective_config.RequireAllKeysRead("net.block.[" + block_def_name + "] type=" + block_cfg.type);
         int idx = type_counters[block_def_name]++;
         std::string instance_name = block_def_name + "_" + std::to_string(idx);
 
@@ -1821,32 +1706,7 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(
     std::map<std::string, int> in_degree;
     std::map<std::string, std::vector<std::string>> adj;
     std::vector<std::string> all_raw_keys;
-    std::set<std::string> used_config_profile_groups;
     std::set<std::string> bound_input_keys;
-
-    // config_profileはbranch内で展開し、branch-local overrideをglobal既定へ重ねる。
-    for (const auto& [b_name, b_cfg] : config.branches) {
-        const auto effective_profiles = MergeConfigProfileConfig(config.config_profiles, b_cfg.config_profiles);
-        const auto expansion_plan = MakeConfigProfileExpansionPlan(config, b_cfg.structure_str);
-        ValidateConfigProfileExpansionPlan(effective_profiles, expansion_plan);
-        for (const auto& group_name : expansion_plan.used_groups) {
-            used_config_profile_groups.insert(group_name);
-        }
-        for (const auto& [group_name, profile] : b_cfg.config_profiles) {
-            (void)profile;
-            if (expansion_plan.used_groups.find(group_name) == expansion_plan.used_groups.end()) {
-                LOG::warn() << "net.branch.[" << b_name << "].config_profile.["
-                    << group_name << "] is defined but not used by that branch.";
-            }
-        }
-    }
-
-    for (const auto& [group_name, profile] : config.config_profiles) {
-        (void)profile;
-        if (used_config_profile_groups.find(group_name) == used_config_profile_groups.end()) {
-            LOG::warn() << "net.config_profile.[" << group_name << "] is defined but not used by any branch.";
-        }
-    }
 
     // 各ブランチの生成と初期化
     for (const auto& [b_name, b_cfg] : config.branches) {
@@ -1920,7 +1780,7 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(
         (void)spec;
         if (bound_input_keys.find(input_key) == bound_input_keys.end()
             && direct_output_keys.find(input_key) == direct_output_keys.end()) {
-            LOG::warn() << "NetworkBodyBuilder: input key '" << input_key
+            LOG::warn_once(input_key) << "NetworkBodyBuilder: input key '" << input_key
                 << "' is present in input_specs but not bound by any branch and not mapped directly by net.body.output.";
         }
     }
@@ -2001,10 +1861,12 @@ NetworkForwardCallInfo NetworkForwardCallInfo::WithRowMapping(
 
 struct NetworkForwardExecutor::Impl {
     explicit Impl(std::shared_ptr<Network> owner)
-        : network(std::move(owner)), head_call(network->head_.get()) {}
-    Impl(std::shared_ptr<Network> owner, const NetworkForwardConfig& config,
+        : network(std::move(owner)), config(NetworkForwardConfig::GetDefault()), head_call(network->head_.get()) {}
+    Impl(std::shared_ptr<Network> owner, const NetworkForwardConfig& requested_config,
         NetworkForwardClock clock_kind, std::shared_ptr<NetworkForwardState> state)
-        : network(std::move(owner)), state(std::move(state))
+        : network(std::move(owner))
+        , config(requested_config.key, requested_config.GetConfigData().CreateReadScope())
+        , state(std::move(state))
     {
         ANET_PROFILE_SCOPE_FULL(prepare, "NetworkForwardExecutor::Create");
         // 各具象部品が解釈結果を所有し、共通層は具体型や設定の意味を扱わない。
@@ -2024,6 +1886,7 @@ struct NetworkForwardExecutor::Impl {
             owned_head = network->head_->CreateExecutor(config, clock_kind);
             head_call = owned_head ? owned_head.get() : network->head_.get();
         }
+        config.GetConfigData().RequireAllKeysRead("NN execution setting '" + config.key + "'");
     }
     NetworkForwardContext MakeContext(const NetworkForwardCallInfo& info) const
     {
@@ -2031,6 +1894,7 @@ struct NetworkForwardExecutor::Impl {
         return NetworkForwardContext(state.get(), info);
     }
     const std::shared_ptr<Network> network;
+    const NetworkForwardConfig config; ///< 準備済み部品が借用する設定と読み取り範囲を所有する。
     const std::shared_ptr<NetworkForwardState> state;
     std::vector<std::unique_ptr<NetworkModuleExecutor>> owned_modules;
     std::vector<std::vector<NetworkModuleExecutor*>> body_calls;

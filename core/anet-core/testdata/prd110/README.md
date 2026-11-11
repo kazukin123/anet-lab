@@ -35,7 +35,7 @@ AGENTS.md の Windows/MSVC 手順で VsDevCmd.bat を経由し、Debug 全体と
 - Debug全体・GUI targetのビルド成功。新規11caseと既存3caseの計14processで成功。
 - 既定suiteの失敗集合は前後一致。coreは0件、GUIは既存のLogs indentの1件。
 - 共通設定の全値比較は`app.main_view=eval`の追加だけ。shipped_configは成功。不正値は終了255で指定診断あり。
-- 既定葉の静的検査には、変更していないAtari.txtのFPS代入2件が残る。
+- 既定キーの静的検査には、変更していないAtari.txtのFPS代入2件が残る。
 - 個別のRED / GREEN、コマンド、実行結果の保存先は実装メモを参照する。
 - レビュー修正後も全14processと既定suiteの前後比較が成功。LeftのEvalをCentreへ昇格し、Logsの非表示と右列の幅縮小による構造化往復を挟んでも、元の504pxへ戻ることを追加確認した。
 - 独立an-reviewは2往復で計画・実装ともOK。人による受入8の未実施は継続している。

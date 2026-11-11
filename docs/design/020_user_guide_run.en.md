@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:477e475e2bf7fd8f988931891c41416d480907c6 date:2026-11-10 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:38cb57d10ace1bb75dde7997ada291f446be2d66 date:2026-11-11 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -103,9 +103,9 @@ This chapter explains only the syntax and precedence needed to read and write fi
 ### 3.1 Basic Policy
 
 1. Build configuration as a base plus differences. Shared files and profiles provide the base, selection chains joined with `>` provide differences, and values written directly in Env-specific files provide the final explicit assignments.
-2. `X.$ = …` specifies the base for configuration X. `X.key = v` is an explicit assignment (explicit leaf) that overrides the base; `X.key ?= v` is a default value (default leaf) overridden by the base.
+2. `X.$ = …` specifies the base for configuration X. `X.key = v` is an explicit assignment that overrides the base; `X.key ?= v` is a default value (default key) overridden by the base.
 3. The order of lines with different keys does not affect the result. If the same key is written twice, the later value wins; if `=` and `?=` are mixed, `=` wins regardless of order. Reassigning the same `X.$` replaces its entire chain.
-4. Run profiles and command-line assignments override ordinary configuration. Their precedence applies only to the specified key, not to every leaf inherited from that key.
+4. Run profiles and command-line assignments override ordinary configuration. Their precedence applies only to the specified key, not to every configuration key inherited from that key.
 5. Choose operators according to the file's role. Use `?=` for base definitions in shared files (`common.txt`, `agent.txt`, `nn*.txt`, `metrics_*.txt`). In Env-specific files (`<Env>.txt`), use `?=` only in the default-settings block and `=` elsewhere. Selection declarations `.$`, Run profiles, and CLI assignments always use `=`.
 
 ### 3.2 Terminology
@@ -114,19 +114,19 @@ This chapter explains only the syntax and precedence needed to read and write fi
 |---|---|---|
 | Profile | A named configuration component containing a segment beginning with `@`. It does not contribute values until selected | `backend.@deterministic`, `DefaultDQNAgent.@baseline` |
 | Selection chain | A declaration such as `X.$ = A > B` that merges each term's final values from left to right as differences to build X's base | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` |
-| Final selection values | The set of values and keys after applying the selection source's own base, partial selections, explicit assignments, Run, and CLI settings. Each chain term contributes this set | The final values of `@iqn` include its leaves and the result of its own `.$` |
+| Final selection values | The set of values and keys after applying the selection source's own base, partial selections, explicit assignments, Run, and CLI settings. Each chain term contributes this set | The final values of `@iqn` include its configuration keys and the result of its own `.$` |
 | Catalog | A set of component definitions identified by `[key]` and referenced by name | `net.block.[Linear_120]`, `run.eval.[test1]`, `metrics.scalar.@baseline.[21_eval/01_target_reward]` |
 | Override layer | An ordinary prefix for differences placed at the end of a chain in an Env-specific file. A1/A2/A3 target Agent, E1 targets Env, M1/M2 target Metrics, and P1 targets app; larger numbers indicate more temporary settings | `A2.learner.per_alpha = 0.2` |
 | Run profile | A named set of selections and values characterizing a Run, declared as `run.@<name>` and selected with `run.$` | `run.@repro` |
-| Explicit assignment (explicit leaf) | A value assigned directly to a configuration leaf with `=`, overriding the base | `E1.obs_include_action = true` |
-| Default leaf | A default written with `?=`, overridden only when that configuration's base supplies the same key | `AtariEnv.game ?= pong` |
+| Explicit assignment | A value assigned directly to a configuration key with `=`, overriding the base | `E1.obs_include_action = true` |
+| Default key | A default written with `?=`, overridden only when that configuration's base supplies the same key | `AtariEnv.game ?= pong` |
 
 ### 3.3 Syntax Reference
 
 | Syntax | Example | Meaning |
 |---|---|---|
-| `key = value` | `E1.obs_include_action = true` | Explicit leaf. Overrides the base and default leaf |
-| `key ?= value` | `AtariEnv.game ?= pong` | Default leaf. Remains unless the configuration's `.$` supplies the same key |
+| `key = value` | `E1.obs_include_action = true` | Explicit assignment. Overrides the base and default key |
+| `key ?= value` | `AtariEnv.game ?= pong` | Default key. Remains unless the configuration's `.$` supplies the same key |
 | `Owner.@name : key = v` | `LunarLanderEnv.@trunk : wind_power = 3.0`, `DefaultDQNAgent.@qr  : quantile_mode = qr` | Profile definition. Separate the boundary with `:` and do not continue it with `.`. `:` means the same as `.` and is used only at a profile boundary |
 | `@vars : key = v` | `@vars : max_exp_step  = 100,000,000` | Value slot, referenced with `${@vars.max_exp_step}` |
 | `Owner.$ = A > B > C` | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` | Selection chain. Short `@name` refers to `Owner.@name` |
@@ -135,7 +135,7 @@ This chapter explains only the syntax and precedence needed to read and write fi
 | `[key].leaf`, `[key].$` | `net.block.[Linear_120].type ?= Linear`, `net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1` | Definition of a catalog item and its base |
 | Metrics definition and selection | `metrics.scalar.@baseline : [21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`, `metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | Catalog whose `[key]` is a tag; selection uses a chain |
 | Override layer | `A2.learner.per_alpha = 0.2`, `app.$ = app.online > P1` | Differences in an Env-specific file, placed at the end of the chain |
-| `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Run profile leaf |
+| `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Run profile configuration key |
 | `run.@name : Owner.$ = …` | `run.@repro : backend.$ = backend.@deterministic` | Chain replacement by a Run profile |
 | `run.$ = …` | `#run.$ = run.@repro` (file), `run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base` (bat/CLI) | Run selection |
 | `$include <file>` | `$include <common.txt>` | Include. The `"path"` form is also supported |
@@ -146,19 +146,19 @@ This chapter explains only the syntax and precedence needed to read and write fi
 
 ### 3.4 Syntax Details
 
-#### 3.4.1 Leaf Assignment with `=` and `?=`
+#### 3.4.1 Configuration Value Assignment with `=` and `?=`
 
-`key = value` declares an explicit leaf; `key ?= value` declares a default leaf.
+`key = value` declares an explicit assignment; `key ?= value` declares a default key.
 
-- An explicit leaf overrides values supplied by the same configuration's `.$`. This also applies within a profile: combining `X.@fast : $ = @baseline` with `X.@fast : lr = 0.01` makes `@fast` equal to `@baseline` with only `lr` changed.
-- A default leaf is overridden if that configuration's `.$` (whole or partial) supplies the same key; otherwise it remains. Replacing a chain does not remove default leaves.
-- For repeated assignments to a key with the same operator, later values win, including across `$include` and additional files. If `=` and `?=` are mixed, `=` wins regardless of order; a later default leaf never cancels an explicit leaf.
-- `?=` is allowed only on leaves. Using it on `.$`, a Run profile (`run.@x : …`), or the CLI causes a load error.
+- An explicit assignment overrides values supplied by the same configuration's `.$`. This also applies within a profile: combining `X.@fast : $ = @baseline` with `X.@fast : lr = 0.01` makes `@fast` equal to `@baseline` with only `lr` changed.
+- A default key is overridden if that configuration's `.$` (whole or partial) supplies the same key; otherwise it remains. Replacing a chain does not remove default keys.
+- For repeated assignments to a key with the same operator, later values win, including across `$include` and additional files. If `=` and `?=` are mixed, `=` wins regardless of order; a later default key never cancels an explicit assignment.
+- `?=` is allowed only on configuration keys. Using it on `.$`, a Run profile (`run.@x : …`), or the CLI causes a load error.
 - Pitfall: separating `?` and `=` as in `key ? = v` is an error. A `?=` within a profile yields only to that profile's own `.$`; it reaches the outer configuration as an ordinary base value.
 
 ```properties
-backend.cudnn_benchmark ?= false                   # 既定葉
-backend.torch_num_threads ?= 1                     # 既定葉
+backend.cudnn_benchmark ?= false                   # 既定キー
+backend.torch_num_threads ?= 1                     # 既定キー
 backend.@non-deterministic : cudnn_benchmark = true
 backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmark を供給する → true
                                                    # torch_num_threads はベースに無い → 1 のまま
@@ -225,14 +225,14 @@ A2.learner.iqn.current_taus.num_taus = 32
 DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 ```
 
-Pitfall: an override layer's values still yield to explicit leaves assigned with `=` at the root of that configuration. If the root specifies `DefaultDQNAgent.learner.iqn.current_taus.num_taus = 8`, it overrides A2's value of 32.
+Pitfall: an override layer's values still yield to explicit assignments assigned with `=` at the root of that configuration. If the root specifies `DefaultDQNAgent.learner.iqn.current_taus.num_taus = 8`, it overrides A2's value of 32.
 
 #### 3.4.7 Run Profiles `run.@name` and `run.$`
 
-Use `run.@name : Owner.key = v` for leaves, `run.@name : Owner.$ = …` for chain replacements, and `run.$ = run.@a > run.@b` to select them.
+Use `run.@name : Owner.key = v` for configuration keys, `run.@name : Owner.$ = …` for chain replacements, and `run.$ = run.@a > run.@b` to select them.
 
 - `run.$` expands before ordinary selections. Terms apply from left to right with later values winning; if multiple terms assign the same key, the rightmost value wins.
-- Run profile leaves occupy a separate precedence level above ordinary `=` assignments and below only the CLI. Assigning `Owner.$` in a Run profile replaces the chain.
+- Run profile configuration keys occupy a separate precedence level above ordinary `=` assignments and below only the CLI. Assigning `Owner.$` in a Run profile replaces the chain.
 - `?=` is prohibited in Run profiles. Nesting that supplies another `run.$` is also prohibited.
 - In files, use comments such as `#run.$ = run.@repro` to switch selections; in bat files or the CLI, use `run.$=run.@a>run.@b`. Keep seed outside Run profiles and specify it separately with `run.seed`, allowing multiple seeds with the same profile to be compared.
 
@@ -249,16 +249,16 @@ The syntax matches files. Write assignments without spaces, as in `E1.game=break
 
 | Assignment | Target and effect |
 |---|---|
-| `AtariEnv.game=breakout` | The effective leaf itself. Always overrides file, inherited, and Run profile values |
-| `E1.game=breakout` | A leaf in override layer E1. The value breakout reaches the destination through `AtariEnv.$ = … > E1`, but an explicit root assignment `AtariEnv.game = pong` still wins |
-| `AtariEnv.$=AtariEnv.@classic>E1` | Only the selection key. Replaces the entire chain; explicit and default leaves remain |
+| `AtariEnv.game=breakout` | The effective configuration key itself. Always overrides file, inherited, and Run profile values |
+| `E1.game=breakout` | A configuration key in override layer E1. The value breakout reaches the destination through `AtariEnv.$ = … > E1`, but an explicit root assignment `AtariEnv.game = pong` still wins |
+| `AtariEnv.$=AtariEnv.@classic>E1` | Only the selection key. Replaces the entire chain; explicit and default keys remain |
 | `run.$=run.@a>run.@b` | Replaces the Run selection itself |
 
 `?=` is prohibited on the CLI.
 
 #### 3.4.9 `$include`, `${full.key}`, and Comments
 
-- `$include <name>` searches the including file's directory first, then the config search dirs. The `"path"` form is also supported. Maximum depth is 10. Missing files produce a WARN and processing continues, so check `config/config_data.txt` to confirm that the intended configuration was loaded.
+- `$include <name>` searches the including file's directory first, then the config search dirs. The `"path"` form is also supported. Maximum depth is 10. Startup stops if the file is missing or cannot be opened, the filename is empty, or a bracket is not closed. Correct the path in the error and rerun.
 - See [4.1 Standard Startup](#41-standard-startup) for startup overlay order: shared main config, derived `app.runs_dir`, workspace `config/_main.txt`, then command line.
 - `${full.key}` refers to a resolved final value at one level only. A missing target or a target containing another `${}` is an error.
 - Text after `#` or `//` is a comment. Lines without `=` are skipped. Spaces in keys are removed, and only one `:` is allowed. `{t}` expands to the startup time.
@@ -266,15 +266,15 @@ The syntax matches files. Write assignments without spaces, as in `E1.game=break
 ### 3.5 Precedence Summary
 
 ```text
-X.key ?= v              既定葉。X.$ に負ける
+X.key ?= v              既定キー。X.$ に負ける
  < X.$ = A > B          全体のベース(チェーン。項同士は右勝ち)
  < X.sub.$ = C          部分のベース(全体より強い)
- < X.key = v            個別葉
- < run.@p : X.key = v   Run プロファイルの葉
+ < X.key = v            個別指定
+ < run.@p : X.key = v   Run プロファイルの設定キー
  < CLI X.key=v          そのキーだけ最優先
 ```
 
-- This precedence applies recursively per configuration (owner). Each chain term resolves its final values under its own precedence before merging; thus even a leaf assigned with `=` inside A3 is a base value from the outer configuration X's perspective.
+- This precedence applies recursively per configuration (owner). Each chain term resolves its final values under its own precedence before merging; thus even a configuration key assigned with `=` inside A3 is a base value from the outer configuration X's perspective.
 - Reassigning the same key uses the later value; mixed `=` and `?=` use `=`; reassigning `X.$` replaces the chain (item 3 in Section 3.1).
 - The highest precedence of Run profiles and CLI assignments applies only to the specified key (see the table in Section 3.4.8).
 
@@ -287,11 +287,11 @@ X.key ?= v              既定葉。X.$ に負ける
 | `agent.txt` | Each Agent's `@baseline`, switching profiles (`@qr`, `@iqn`, `@bf16`, etc.), and `<Agent>.$ = @baseline` | `?=` for `@baseline`; `=` for switching profiles and chains |
 | `nn.txt`, `nn_cnx.txt` | Shared NN components (`net.block.[…]`, `net.body.@…`) | `?=` |
 | `metrics_scalar.txt`, `metrics_image.txt` | Metrics catalogs such as `metrics.scalar.@baseline.[tag]` | `?=` |
-| `<Env>.txt` | Env and algorithm configuration: chains, profiles, override layers, Run profiles, NN wiring, metrics differences | `=`. Only the Env default-settings block uses `?=`. Explain any leaf requiring `?=` outside that block in a comment |
+| `<Env>.txt` | Env and algorithm configuration: chains, profiles, override layers, Run profiles, NN wiring, metrics differences | `=`. Only the Env default-settings block uses `?=`. Explain any configuration key requiring `?=` outside that block in a comment |
 | Workspace `config/_main.txt` | `$include` directives for the `<Env>.txt` files to enable | - |
-| bat, CLI | `run.$` selection and leaf overrides | `=` |
+| bat, CLI | `run.$` selection and configuration key overrides | `=` |
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the leaves that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the configuration keys that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
@@ -301,7 +301,7 @@ The convention is **`?=` for base definitions in shared files; in Env-specific f
 
 ### 3.7 Examples
 
-**Backend default leaves and switching**
+**Backend default keys and switching**
 
 ```properties
 # common.txt
@@ -318,7 +318,7 @@ backend.$ = backend.@non-deterministic
 run.@repro : backend.$ = backend.@deterministic
 ```
 
-In a normal Run, `cudnn_benchmark`, `cudnn_deterministic`, and `deterministic_algorithms` take the values from `@non-deterministic`; other default leaves such as `deterministic_warn_only` remain unchanged. Starting with `run.$=run.@repro` replaces the chain with `@deterministic`, without affecting the default leaves.
+In a normal Run, `cudnn_benchmark`, `cudnn_deterministic`, and `deterministic_algorithms` take the values from `@non-deterministic`; other default keys such as `deterministic_warn_only` remain unchanged. Starting with `run.$=run.@repro` replaces the chain with `@deterministic`, without affecting the default keys.
 
 **DropMergeEnv defaults and selection chain**
 
@@ -332,7 +332,7 @@ DropMergeEnv.grid_rows ?= 64              # グリッド行数（縦方向）
 DropMergeEnv.action_mode ?= move_fast     # move move_fast direct direct_noop
 ```
 
-`grid_cols` takes the value from the rightmost term supplying it among `@baseline`, `@G5846`, `@heavy`, and E1 (currently, `@G5846` supplies 58). Keys supplied by none of the terms retain their default-leaf values.
+`grid_cols` takes the value from the rightmost term supplying it among `@baseline`, `@G5846`, `@heavy`, and E1 (currently, `@G5846` supplies 58). Keys supplied by none of the terms retain their default-key values.
 
 **`?=` outside the default-settings block**
 
@@ -343,7 +343,7 @@ DefaultDQNAgent.net.branch.[adv_stream].structure ?= AtariHeadFC512 > SiLU   # N
 DefaultDQNAgent.net.body.output.[features] ?= main_feature # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 ```
 
-These leaves use `?=` with explanatory comments to retain defaults even in configurations selecting `@nature` (ReLU) in the chain or changing the `[features]` output destination through IQN wiring. Only leaves with such reasons use `?=` in Env-specific files.
+These configuration keys use `?=` with explanatory comments to retain defaults even in configurations selecting `@nature` (ReLU) in the chain or changing the `[features]` output destination through IQN wiring. Only configuration keys with such reasons use `?=` in Env-specific files.
 
 **Changing a value for this Run only**
 
@@ -352,7 +352,7 @@ apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 E1.game=breakout
 apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 AtariEnv.game=breakout
 ```
 
-`E1.game=breakout` changes a leaf in override layer E1 and reaches the destination through `AtariEnv.$ = … > E1`. This normally suffices. `AtariEnv.game=breakout` targets the effective leaf itself and wins even if the file explicitly specifies `AtariEnv.game = pong`. Group repeatedly used combinations into a Run profile and select it with `run.$=run.@breakout`.
+`E1.game=breakout` changes a configuration key in override layer E1 and reaches the destination through `AtariEnv.$ = … > E1`. This normally suffices. `AtariEnv.game=breakout` targets the effective configuration key itself and wins even if the file explicitly specifies `AtariEnv.game = pong`. Group repeatedly used combinations into a Run profile and select it with `run.$=run.@breakout`.
 
 ```properties
 run.@breakout : E1.game = breakout
@@ -362,7 +362,7 @@ run.@breakout : app.run_name = run_{t}_breakout
 ### 3.8 Verification and Common Errors
 
 - `config/config_data.txt` contains the resolved effective configuration. It also includes definitions of override layers (`A1`–`A3`, `E1`, `M1`/`M2`, `P1`) and ordinary selection-source prefixes such as `app.online`, but excludes `@` profiles and `.$`. This file does not reveal which profiles were selected.
-- `json/config_resolution.json` contains selection records (`selections`, with `run.$` first and `key` identifying the declaration site), value references (`references`), and leaves changed by Run profiles (`overrides`). See Sections 6.6 and 6.7 of the [Analysis User Guide](030_user_guide_analysis.en.md) for interpretation.
+- `json/config_resolution.json` contains selection records (`selections`, with `run.$` first and `key` identifying the declaration site), value references (`references`), and configuration keys changed by Run profiles (`overrides`). See Sections 6.6 and 6.7 of the [Analysis User Guide](030_user_guide_analysis.en.md) for interpretation.
 - Check for omitted operators with the static check in Section 3.6.
 
 | Message prefix | Cause | Action |
@@ -377,7 +377,11 @@ run.@breakout : app.run_name = run_{t}_breakout
 | `ConfigResolver: value reference target not found`, `chained value reference is not supported` | The `${}` target is missing or contains another `${}` | Refer to a key containing a final value |
 | `ConfigResolver: named trunk must not select another trunk` | `run.$` was written inside a Run profile | Write `run.$` only once at the startup side |
 | `Workspace config changed app.runs_dir` | Workspace configuration or CLI changed `app.runs_dir` | Do not change it in workspace mode |
-| WARN `Properties: Failed to open include file` | An `$include` target is missing (processing continues without an error) | Check the path and config search dirs |
+| ERROR `Properties: Failed to open include file` | An `$include` target is missing or cannot be opened | Check the path and config search dirs |
+| `Unread config keys in` | A catalog item being constructed contains a key its reader does not accept | Correct the item name, key/value, and accepted keys shown in the error. Startup stops |
+| `Unread config keys: N. These keys were not read by any component.` | The effective configuration contains keys read by no component | Check the following `key = value` lines and correct the spelling or destination. Startup continues |
+
+The unread-key list appears once at WARN after image registration and panel initialization, before the first step. No list appears when the count is zero. Inventory, such as unused shared catalogs and ordinary prefixes declared as selection sources, is excluded. An intentionally suspended feature reports its configuration prefix and reason at INFO. Check that normal Runs have zero WARNs; if the list appears after configuration changes, review its contents.
 
 ## 4. Starting a Run
 
@@ -411,8 +415,8 @@ When the window appears, check the startup logs in Logs. You can move and resize
 > 2. Prepare the Run directory, `metrics.jsonl`, and standard output logs.
 > 3. Initialize the libtorch backend and registered Envs.
 > 4. Show the window and Logs, then construct Env, Agent, Train Runner, and configured Evals through `RunManager` in the background.
-> 5. If construction succeeds and no shutdown has been requested, connect the Train, Eval, and QValue panels on the main thread.
-> 6. Start `RunnerThread`. With `app.train_auto_start=false`, it waits paused.
+> 5. If construction succeeds and no shutdown has been requested, register images and connect the Train, Eval, and QValue panels on the main thread.
+> 6. Report unread configuration keys once if any remain, then start `RunnerThread`. With `app.train_auto_start=false`, it waits paused.
 >
 > See “Runner Startup” in [Applications and Tools](160_applications_and_tools.en.md#51-runner-startup) for details.
 
@@ -509,7 +513,7 @@ To close during initialization, select Close once, confirm the shutdown request 
 > [!NOTE]
 > A Close during initialization is handled after `RunManager` construction finishes, skipping display Eval preparation and training startup. If saving is enabled, the Agent is saved before training; saving is skipped for Runs whose `RunManager` could not initialize. A logoff or shutdown query waits synchronously for construction to finish, so rendering stops during that wait. See [Applications and Tools](160_applications_and_tools.en.md#71-runner) for startup and shutdown behavior.
 
-`run.eval_schedule.[tag].wait_on_exit` specifies whether to wait at shutdown for in-progress background evaluation to run to completion. The default is `true`, and all slots share a single deadline of `app.drain_timeout_sec`. With `false`, when Cancel is chosen at a manual shutdown, or when the deadline is exceeded, the session is cooperatively cancelled at the next Env Step boundary. A cancelled session emits no session scalars; it leaves the traces of completed episodes and the `eval.[<tag>].session_cancelled` JSON.
+`run.eval_schedule.[tag].wait_on_exit` specifies whether to wait at shutdown for in-progress background evaluation to run to completion. The default is `true`, and all slots share a single deadline of `app.drain_timeout_sec`. With `false`, when Cancel is chosen at a manual shutdown, or when the deadline is exceeded, the session is cooperatively cancelled at the next Env Step boundary. A cancelled session emits no session scalars; it retains the traces of completed episodes and the `eval.[<tag>].session_cancelled` JSON.
 
 On a manual Close or `File > Exit`, if background evaluation that must be waited for remains after Train is stopped and joined, a three-way choice appears: `Wait and close`, `Cancel and close`, and `Keep running`. `Keep running` resumes in the paused state from before the same Train thread is closed. When the budget is reached through `app.train_exit_step` or `app.exp_exit_step`, no question is asked; the configuration and deadline apply.
 
@@ -517,7 +521,7 @@ On a manual Close or `File > Exit`, if background evaluation that must be waited
 
 If saving `agent_close.anet` on close fails, the same notification policy applies, and log shutdown and GUI cleanup continue until the window closes. In that case, `agent_close.anet` may not be a valid checkpoint. If the Agent does not implement Save, a zero-byte file remains and a WARN includes the target path. Even successfully saved checkpoints should be loaded into a new Run only after checking that Agent, Network, and archive contracts match.
 
-To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file` in a compatible configuration for a new Run. Current examples are `R.auto_load_file`, an alias for `DefaultDQNAgent.auto_load_file`, and `ImageClsAgent.auto_load_file`. Checkpoints with different Network structures or archive contracts cannot be loaded. Saved contents vary by Agent; current DQN Agents do not restore ReplayBuffer contents or sampling state. Loading creates a new Run directory and step series; it does not append to the old Run's `metrics.jsonl`. For DefaultDQN, optimizer settings such as the learning rate come from the new Run configuration, and values that differ from the checkpoint produce WARN logs. See [DQN Agents](200_dqn_agents.en.md) for what DQN saves.
+To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file` in a compatible configuration for a new Run. Current examples are `R.auto_load_file`, an alias for `DefaultDQNAgent.auto_load_file`, and `ImageClsAgent.auto_load_file`. Checkpoints with different Network structures or archive contracts cannot be loaded. Saved contents vary by Agent; current DQN Agents do not restore ReplayBuffer contents or sampling state. Loading creates a new Run directory and step series; it does not append to the old Run's `metrics.jsonl`. For DefaultDQN, optimizer settings such as the learning rate come from the new Run configuration, and values that differ from the checkpoint produce INFO logs. See [DQN Agents](200_dqn_agents.en.md) for what DQN saves.
 
 Use `run.eval_schedule.[tag].offset` (default 0) to shift evaluation firings in learn steps. Set `warmup_count` (default 1) to the number of initial firings that should not run evaluations. Both must be non-negative integers. For evaluation-only Runs that need an immediate evaluation, set `warmup_count = 0` for each scheduled tag. Also set `offset = 0` when an inherited offset is unwanted.
 
@@ -611,7 +615,6 @@ For comparison or reproduction, treat `config/config_data.txt` in the Run direct
 ## 9. Related Documents
 
 - [CONTEXT.md](../../CONTEXT.md) (canonical configuration terminology)
-- [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md) (rationale for configuration contracts)
 - [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB), Configuration Files rules (Configuration File Assignment Operators) (operator usage rules)
 - [Analysis User Guide](030_user_guide_analysis.en.md)
 - [Development Environment](040_development_environment.en.md)

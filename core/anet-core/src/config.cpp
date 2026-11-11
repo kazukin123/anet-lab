@@ -252,8 +252,141 @@ namespace anet {
 	//   sub_key = eval_batch_size, run_mode, env.init.x_range
 	//   value = 1, eval1, 0.0
 
+    void ConfigData::ReadEntry::MarkRead()
+    {
+        // コピー先の読み取りを元の設定まで届ける。同じ記録は一度だけたどる。
+        if (read.exchange(true)) return;
+        for (const auto& source : sources) source->MarkRead();
+    }
+
+    static std::unordered_set<std::string> FindSelectionSourcePrefixes(
+        const std::string& key, const std::string& value)
+    {
+        std::unordered_set<std::string> prefixes;
+        if (!key.ends_with(".$")) return prefixes;
+        // プロファイルとカタログを除き、宣言に現れた通常 prefix だけを集める。
+        for (const auto& term : anet::Split(value, {">"}, true)) {
+            const auto prefix = TrimConfigValue(term);
+            if (!prefix.empty() && prefix.find('@') == std::string::npos
+                && prefix.find('[') == std::string::npos) {
+                prefixes.insert(prefix);
+            }
+        }
+        return prefixes;
+    }
+
+    void ConfigData::ReadEntry::MarkInventory()
+    {
+        // 相対設定で持ち主が宣言した分類も、元の完全キーへ届ける。
+        if (inventory.exchange(true)) return;
+        for (const auto& source : sources) source->MarkInventory();
+    }
+
+    void ConfigData::MarkInventory(const std::string& prefix, const std::vector<std::string>& excluded_prefixes) const
+    {
+        for (const auto& [key, value] : map_) {
+            const auto matches = [&key](const std::string& candidate) {
+                return key == candidate || key.starts_with(candidate + ".");
+            };
+            if (matches(prefix) && std::none_of(excluded_prefixes.begin(), excluded_prefixes.end(), matches)) {
+                read_entries_.at(key)->MarkInventory();
+            }
+        }
+    }
+
+    void ConfigData::SetString(const std::string& key, const std::string& value)
+    {
+        map_.Set(key, value);
+        read_entries_.try_emplace(key, std::make_shared<ReadEntry>());
+    }
+
+    void ConfigData::MarkRead(const std::string& key) const
+    {
+        // 不在のキーも、読み口が受け付けるキーの診断へ残す。
+        if (read_scope_) {
+            std::lock_guard<std::mutex> lock(read_scope_->mutex);
+            read_scope_->attempted.insert(key);
+        }
+        const auto entry = read_entries_.find(key);
+        if (entry != read_entries_.end()) entry->second->MarkRead();
+    }
+
+    void ConfigData::CopyValueFrom(const std::string& key, const ConfigData& source, const std::string& source_key)
+    {
+        // Map の走査では読んだと見なさず、実際の読み口へ出典を渡す。
+        const auto value = source.map_.find(source_key);
+        ANET_CHECK_MSG(value != source.map_.end(), "Missing config source key=" << source_key);
+        const auto entry = source.read_entries_.at(source_key);
+        // 上書きで退いた値は、読まれない誤設定として残さない。
+        if (Has(key)) MarkRead(key);
+        map_.Set(key, (*value).second);
+        read_entries_[key] = entry;
+    }
+
+    std::vector<std::pair<std::string, std::string>> ConfigData::GetUnreadKeys() const
+    {
+        // 出力順は設定の定義順や unordered_map の順に依存させない。
+        std::vector<std::pair<std::string, std::string>> unread;
+        for (const auto& [key, value] : map_) {
+            const auto& entry = read_entries_.at(key);
+            if (!entry->read.load() && !entry->inventory.load()) unread.emplace_back(key, value);
+        }
+        std::sort(unread.begin(), unread.end());
+        return unread;
+    }
+
+    ConfigData ConfigData::CreateReadScope(const std::string& prefix) const
+    {
+        ConfigData scope;
+        scope.read_scope_ = std::make_shared<ReadScope>();
+        // 親の既読状態は引き継がず、今回の読み取りだけを元へ届ける。
+        for (const auto& [key, value] : map_) {
+            if (!prefix.empty() && key != prefix && !key.starts_with(prefix + ".")) continue;
+            scope.map_.Set(key, value);
+            auto entry = std::make_shared<ReadEntry>();
+            entry->sources.push_back(read_entries_.at(key));
+            scope.read_entries_.emplace(key, std::move(entry));
+        }
+        return scope;
+    }
+
+    void ConfigData::RequireAllKeysRead(const std::string& owner) const
+    {
+        const auto unread = GetUnreadKeys();
+        if (unread.empty()) return;
+        std::ostringstream message;
+        message << "Unread config keys in " << owner << ":";
+        for (const auto& [key, value] : unread) message << "\n  " << key << " = " << value;
+        message << "\nExpected keys read by this component: [";
+        if (read_scope_) {
+            std::lock_guard<std::mutex> lock(read_scope_->mutex);
+            bool first = true;
+            for (const auto& key : read_scope_->attempted) {
+                if (!first) message << ", ";
+                message << key;
+                first = false;
+            }
+        }
+        message << "].";
+        ANET_SYSTEM_ERROR(message.str());
+    }
+
+    void WarnUnreadConfigKeys(const ConfigData& config_data)
+    {
+        ANET_PROFILE_FUNC();
+        // 読み口と持ち主が分類したあと、実効設定の差だけを一覧する。
+        const auto unread = config_data.GetUnreadKeys();
+        if (unread.empty()) return;
+        std::ostringstream message;
+        message << "Unread config keys: " << unread.size()
+            << ". These keys were not read by any component.";
+        for (const auto& [key, value] : unread) message << '\n' << key << " = " << value;
+        LOG::warn_once() << message.str();
+    }
+
     bool ConfigData::Read(const std::string& key, std::string& value, const std::string& value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = (*it).second;
@@ -262,6 +395,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, int& value, int value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<int>(
@@ -272,6 +406,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, float& value, float value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<float>(
@@ -282,6 +417,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, double& value, double value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<double>(
@@ -292,6 +428,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, uint64_t& value, uint64_t value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<uint64_t>(
@@ -302,6 +439,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, int64_t& value, int64_t value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<int64_t>(
@@ -312,6 +450,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, bool& value, bool value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         const auto v = TrimConfigValue((*it).second);
@@ -322,6 +461,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, std::vector<float>& value, std::vector<float> value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
@@ -338,6 +478,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
@@ -354,6 +495,7 @@ namespace anet {
 
     bool ConfigData::Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> value_if_missing) const
     {
+        MarkRead(key);
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = anet::Split((*it).second, { " ", "　" }, true);
@@ -372,7 +514,12 @@ namespace anet {
                 << " existing=\"" << existing_value
                 << "\" incoming=\"" << value << "\"");
             if (existing == map_.end()) {
-                map_.Set(key, value);
+                CopyValueFrom(key, other, key);
+            } else {
+                auto entry = std::make_shared<ReadEntry>();
+                entry->sources = {read_entries_.at(key), other.read_entries_.at(key)};
+                if (read_entries_.at(key)->read.load()) entry->MarkRead();
+                read_entries_[key] = std::move(entry);
             }
         }
     }
@@ -381,7 +528,7 @@ namespace anet {
     {
         // 後から与えられた設定値を優先し、既存キーの定義順は維持する。
         for (const auto& [key, value] : other.Map()) {
-            map_.Set(key, value);
+            CopyValueFrom(key, other, key);
         }
     }
 
@@ -453,31 +600,16 @@ namespace anet {
 
     std::unordered_map<std::string, ConfigData> ConfigData::MakeSubConfigData(const std::string& prefix) const
     {
-        //std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
         std::unordered_map<std::string, ConfigData> tag_sub_config;
-
-        auto config_map = Map();
-        for (const auto& kv : config_map) {
-            const std::string& config_key = kv.first;
-            const std::string& config_value = kv.second;
-
-            // 設定Keyからtagを抽出
-			const std::string key_prefix = prefix + ".[";
-            const std::string key_suffix = "]";
-            auto config_tag = anet::ExtractBetween(config_key, key_prefix.c_str(), key_suffix.c_str());
-            if (config_tag.empty()) {
-                continue;
-            }
-
-            // サブキーを抽出
-            auto pos = config_key.find(key_suffix);
-            auto size = config_key.size();
-            if ((pos + 2) >= config_key.size()) continue;
-            auto config_sub_key = config_key.substr(pos + 2);
-            if (config_sub_key.empty()) continue;
-
-            // 保存
-            tag_sub_config[config_tag].Set(config_sub_key, config_value);
+        const std::string key_prefix = prefix + ".[";
+        for (const auto& [key, value] : Map()) {
+            if (!key.starts_with(key_prefix)) continue;
+            // prefix 自身に括弧がある場合も、その項目の閉じ括弧から相対化する。
+            const auto end = key.find(']', key_prefix.size());
+            if (end == std::string::npos || end == key_prefix.size()
+                || end + 2 >= key.size() || key[end + 1] != '.') continue;
+            const auto tag = key.substr(key_prefix.size(), end - key_prefix.size());
+            tag_sub_config[tag].CopyValueFrom(key.substr(end + 2), *this, key);
         }
 
 		return tag_sub_config;
@@ -487,18 +619,13 @@ namespace anet {
     {
         std::unordered_set<std::string> tags;
 
-        auto config_map = Map();
-        for (const auto& kv : config_map) {
-            const std::string& config_key = kv.first;
-            const std::string& config_value = kv.second;
-
-            // 設定Keyからtagを抽出
-            const std::string key_prefix = prefix + ".[";
-            const std::string key_suffix = "]";
-            auto config_tag = anet::ExtractBetween(config_key, key_prefix.c_str(), key_suffix.c_str());
-            if (!config_tag.empty()) {
-                tags.insert(config_tag);
-            }
+        const std::string key_prefix = prefix + ".[";
+        for (const auto& [key, value] : Map()) {
+            if (!key.starts_with(key_prefix)) continue;
+            const auto end = key.find(']', key_prefix.size());
+            if (end == std::string::npos || end == key_prefix.size()
+                || (end + 1 < key.size() && key[end + 1] != '.')) continue;
+            tags.insert(key.substr(key_prefix.size(), end - key_prefix.size()));
         }
         return tags;
     }
@@ -551,9 +678,8 @@ namespace anet {
 
         std::ifstream ifs(filename);
         if (!ifs) {
-            // ファイルが見つからない場合は警告のみで続行
-            LOG::warn() << "Properties: Failed to open file: " << filename.string();
-            return;
+            ANET_SYSTEM_ERROR("Properties: Failed to open requested file. path=" << filename.string()
+                << " expected a readable config file.");
         }
 
         // BOM スキップ
@@ -602,8 +728,8 @@ namespace anet {
                             path_part = Trim(path_part); // 前後の空白除去
 
                             if (path_part.empty()) {
-                                LOG::error() << "Properties: Empty include path in " << filename.string();
-                                continue;
+                                ANET_SYSTEM_ERROR("Properties: Empty include path. path=" << filename.string()
+                                    << " input=" << line << " expected a nonempty filename.");
                             }
 
                             // 囲み文字処理
@@ -623,24 +749,24 @@ namespace anet {
                                     path_part = Trim(path_part); // 中身もトリム
                                 } else {
                                     // 囲み文字が閉じられていない場合はエラー
-                                    LOG::error() << "Properties: Mismatched include brackets in " << filename.string() << ": " << line;
-                                    continue;
+                                    ANET_SYSTEM_ERROR("Properties: Mismatched include brackets. path=" << filename.string()
+                                        << " input=" << line << " expected closing bracket=" << expected_end);
                                 }
                             }
 
                             if (path_part.empty()) {
-                                LOG::error() << "Properties: Empty filename after parsing include in " << filename.string();
-                                continue;
+                                ANET_SYSTEM_ERROR("Properties: Empty filename after parsing include. path=" << filename.string()
+                                    << " input=" << line << " expected a nonempty filename.");
                             }
 
                             // include元ファイル基準を優先し、見つからない場合だけconfig search dirを試す。
                             const std::filesystem::path include_path = path_part;
                             const auto resolved_include_path = ResolveIncludePath(include_path, parent_dir, options_);
                             if (!resolved_include_path.has_value()) {
-                                LOG::warn() << "Properties: Failed to open include file. path=" << include_path.string()
+                                ANET_SYSTEM_ERROR("Properties: Failed to open include file. path=" << include_path.string()
                                     << " from=" << filename.string()
-                                    << " config_search_dirs=" << FormatPathList(GetConfigSearchDirs(options_));
-                                continue;
+                                    << " config_search_dirs=" << FormatPathList(GetConfigSearchDirs(options_))
+                                    << " expected a readable config file.");
                             }
 
                             // 再帰読み込み
@@ -671,7 +797,11 @@ namespace anet {
             value = Trim(value);
 
             if (!key.empty()) {
-                // 個別葉は後続の既定葉でも消さず、同じ強さだけ後勝ちにする。
+                // 上書きで退く宣言も、選ばれない Run の中の宣言も保持する。
+                for (const auto& prefix : FindSelectionSourcePrefixes(key, value)) {
+                    selection_source_prefixes_.insert(prefix);
+                }
+                // 個別指定は後続の既定キーでも消さず、同じ強さだけ後勝ちにする。
                 if (!is_default || !configData.Has(key) || default_keys_.contains(key)) {
                     configData.Set(key, value);
                     if (is_default) default_keys_.insert(key);
@@ -698,6 +828,15 @@ namespace anet {
         , override_prefix_(override_prefix)
     {
         ;
+    }
+
+    ConfigData Config::MakeReadScope(const ConfigData& config_data, const std::string& key) const
+    {
+        const auto default_key = MakeDefaultConfigKey(key);
+        const auto override_key = MakeOverrideConfigKey(key);
+        auto scope = config_data.CreateReadScope(default_key);
+        if (override_key != default_key) scope.MergeFromChecked(config_data.CreateReadScope(override_key));
+        return scope;
     }
 
     ConfigData Config::GetScopedConfigData() const
@@ -765,6 +904,9 @@ namespace anet {
         config_data.OverwriteFrom(options_.injected_config);
         for (const auto& [key, value] : options_.injected_config.Map()) {
             default_keys_.erase(key);
+            for (const auto& prefix : FindSelectionSourcePrefixes(key, value)) {
+                selection_source_prefixes_.insert(prefix);
+            }
         }
         map_ = config_data.Map();
         for (const auto& overwrite_config_path : options_.overwrite_config_paths) {
@@ -779,6 +921,8 @@ namespace anet {
         map_ = std::move(resolved.effective_map);
         default_keys_.clear();
         resolution_json_ = std::move(resolved.resolution_json);
+        effective_config_ = ConfigData(map_);
+        for (const auto& prefix : selection_source_prefixes_) effective_config_.MarkInventory(prefix);
     }
 
     void ConfigManager::LoadFromFile(const std::filesystem::path& filePath)
@@ -787,12 +931,15 @@ namespace anet {
         Properties props(resolved_path, options_);
         map_ = props.ToConfigData().Map();
         default_keys_ = props.DefaultKeys();
+        selection_source_prefixes_ = props.SelectionSourcePrefixes();
     }
 
     void ConfigManager::OverwriteFromFile(const std::filesystem::path& filePath)
     {
         const auto resolved_path = ResolveMainConfigPath(filePath, options_);
         const Properties props(resolved_path, options_);
+        selection_source_prefixes_.insert(
+            props.SelectionSourcePrefixes().begin(), props.SelectionSourcePrefixes().end());
         // 別ファイル間でも通常入力の強弱を保ったまま合成する。
         const auto config_data = props.ToConfigData();
         for (const auto& [key, value] : config_data.Map()) {
@@ -805,7 +952,7 @@ namespace anet {
         }
     }
 
-    ConfigData::MapType ConfigManager::ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const
+    ConfigData::MapType ConfigManager::ReadCmdLineOverrides(const wxCmdLineParser& cmdLine)
     {
         // 例: agent.lr=0.001 をパラメータとして渡す
         // executable agent.lr=0.001 train.max_steps=20000
@@ -827,6 +974,9 @@ namespace anet {
             const std::string val = p.substr(pos + 1);
 
             if (!key.empty()) {
+                for (const auto& prefix : FindSelectionSourcePrefixes(key, val)) {
+                    selection_source_prefixes_.insert(prefix);
+                }
                 overrides.Set(key, val);
             }
         }

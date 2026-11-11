@@ -1493,6 +1493,7 @@ TEST_CASE("ImageClsAgent exposes current learning rate scalar", "[image_cls][lea
 
     auto config = MakeImageClsLearningRateTestConfig();
     auto env_spec = MakeImageClsEnvSpec();
+    anet::test::LogCaptureGuard logs;
     anet::rl::img_cls::ImageClsAgent agent(
         config,
         MakeImageClsAgentNetworkConfig(),
@@ -1501,6 +1502,10 @@ TEST_CASE("ImageClsAgent exposes current learning rate scalar", "[image_cls][lea
         torch::Device(torch::kCPU),
         123);
 
+    logs.Flush();
+    CHECK(std::ranges::none_of(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning && record.message.find("input key '") != std::string::npos;
+    }));
     auto initial_learning_rate = agent.GetScalar("learning_rate");
     REQUIRE(initial_learning_rate.has_value());
     CHECK(*initial_learning_rate == Catch::Approx(0.1));

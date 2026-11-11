@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:a2a15d1c27da4857ab1f384abafaf462ff8e3326 date:2026-11-10 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:d49a15fc38dbe4e63d8c128aed3e5920c10edb42 date:2026-11-11 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -27,16 +27,24 @@ See the [Run Execution Guide](020_user_guide_run.en.md) for GUI operations and [
 
 Configuration is collected into `ConfigData`, which holds string key/value pairs.
 
-1. `Properties` reads the shared main config and `$include` targets. Each line is split at the first `=`, removing an immediately preceding `?` as the default-leaf operator. For duplicate keys, `=` takes precedence over `?=`; later assignments win only at equal strength. Whitespace is removed from keys, and a single `:` is normalized to `.`. Multiple colons or empty segments fail fast. The old `foo: bar` syntax, where `:` separated key and value, is abolished; lines without `=` are skipped.
+1. `Properties` reads the shared main config and `$include` targets. Each line is split at the first `=`, removing an immediately preceding `?` as the default-key operator. For duplicate keys, `=` takes precedence over `?=`; later assignments win only at equal strength. Whitespace is removed from keys, and a single `:` is normalized to `.`. Multiple colons or empty segments fail fast. The old `foo: bar` syntax, where `:` separated key and value, is abolished; lines without `=` are skipped.
 2. In workspace mode, Runner injects `app.runs_dir=<workspace>/runs`, then overlays the workspace's `config/_main.txt` with later values winning. Workspace includes fall back to the shared config directory.
 3. `ConfigResolver` incorporates CLI assignments into resolution input and expands `run.$` before ordinary selections. Run terms supply values to the root from left to right, with later values winning and CLI assignments to the same key taking further precedence. `Env.$ = @base` inside a Run uses the destination root as its definition site.
-4. Each configuration is assembled in this order: `?=` default leaves, the base from the whole `.$`, nested partial `.$` selections, and directly assigned explicit leaves. Line order between different keys does not change this precedence. Final selection values are merged left to right as differences, retaining leaves absent from the right. Leaves are not removed based on whether they were inherited or directly assigned.
+4. Each configuration is assembled in this order: `?=` default keys, the base from the whole `.$`, nested partial `.$` selections, and direct explicit assignments. Line order between different keys does not change this precedence. Final selection values are merged left to right as differences, retaining keys absent from the right. Keys are not removed based on whether they were inherited or directly assigned.
 5. Later changes, added keys, Run assignments, and CLI assignments to a source reach inheritors as part of that source's own final values. Dependency resolution order and override precedence are separate. CLI changes to a parent alter the parent's final values but do not unconditionally override a child's own explicit assignments.
 6. Activate required profile definitions and validate dependencies at their definition sites. Unselected inner profiles remain dormant inventory. Undefined profiles, catalog items or their parts, self-supply, actual cycles, and selection depth above 10 fail fast. Empty ordinary prefixes are allowed regardless of name.
 7. Expand `${full.key}` one level into final values. Undefined, chained, or unresolved value references fail fast. Return `ConfigData` excluding `.$` and definitions containing `@` segments, along with resolution JSON; each `Config` then reads typed fields. The workspace's final `app.runs_dir` must exactly match the injected string.
 8. Runner saves effective configuration to `config/config_data.txt` and passes the structured resolution record to `MetricsLogger::Log("config_resolution", json)`. It is saved in `json/config_resolution.json` with a `type` / `tag` / `data` envelope, and the same record is written to the Metrics master.
 
-**`$` supplies the base; partial selections and explicit leaves override it.** Since `A2 > A3` merges each source's completed values as differences, epsilon.end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
+Copies of the same effective configuration returned by `ConfigManager` share read records. `ConfigData::Read` / `Get` and typed `Config` reads mark existing original full keys as read. `Has` and `Map` scans do not. Splitting catalog entries into relative keys preserves their sources and propagates actual reads to the original keys. Original keys overridden by more local definitions count as consumed.
+
+A closed-schema reader creates a fresh read scope with `CreateReadScope()` and rejects unread config keys with `RequireAllKeysRead()`. Prior reads by another reader or copy do not replace this validation. Reads propagate to the original keys. Read and inventory records support updates from multiple threads.
+
+For readers using full keys, `CreateReadScope(prefix)` selects only that prefix. `Config::MakeReadScope` combines full keys from both default and override prefixes, preserving ordinary typed reads and configuration records.
+
+Ordinary prefixes appearing as sources in input selection declarations are retained as inventory. This includes declarations replaced later, declarations inside unselected Run profiles, injected configuration, additional files, and CLI assignments. Neither a naming pattern nor `?=` alone makes a key inventory.
+
+**`$` supplies the base; partial selections and explicit assignments override it.** Since `A2 > A3` merges each source's completed values as differences, epsilon.end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
 
 The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB); see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
 
@@ -44,7 +52,7 @@ Write defaults at the same location with `?=` and intentional explicit assignmen
 
 Short `@name` resolves at the declaration's definition site. `Env.$ = @a` references Env.@a, and `Env.@a : $ = @b` references Env.@b; using `Other.$ = Env.@a` does not change it to Other.@b. Fully qualified terms are used as written. In explanations and configuration examples, `:` marks an `@` profile boundary; ordinary keys use dots, as in `Env.$`. The `.$` of Common or A2 is an ordinary dependency too; override layers are not identified by counting dots in names. A referenced selection instruction is not rerun at the copy destination.
 
-Resolution JSON has `schema_version` 1. `selections[].key` records the declaration site literally, including `Env.@a.$` and `DefaultDQNAgent.@baseline.actor.[eval].$`. `run.$` comes first, then required dependencies are traversed in input declaration and term order; repeated references to the same definition are not duplicated. `references` records one-level value references in source-key order. `overrides` records `key` / `by` / `from` / `to` only when a final Run assignment changes the same key's final value before applying the Run leaf. Effects of Run changes to selection keys are included in that baseline. An intermediate 4→1→4 is not recorded. `to` is the Run value and may differ from the effective value after CLI assignment to the same leaf. Check `config_data.txt` for final values.
+Resolution JSON has `schema_version` 1. `selections[].key` records the declaration site literally, including `Env.@a.$` and `DefaultDQNAgent.@baseline.actor.[eval].$`. `run.$` comes first, then required dependencies are traversed in input declaration and term order; repeated references to the same definition are not duplicated. `references` records one-level value references in source-key order. `overrides` records `key` / `by` / `from` / `to` only when a final Run assignment changes the same key's final value before applying the Run assignment. Effects of Run changes to selection keys are included in that baseline. An intermediate 4→1→4 is not recorded. `to` is the Run value and may differ from the effective value after CLI assignment to the same key. Check `config_data.txt` for final values.
 
 For example, these three DropMerge lines are all outside the Env-specific default-settings block and therefore use `=`.
 
@@ -54,9 +62,9 @@ DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
 app.run_name = run_{t}_dm_iqn-k32-n32-m32
 ```
 
-Run and CLI assignments to the target leaf override explicit `=` leaves too. A CLI assignment to a selection key, however, replaces only the chain. A base definition using `?=` becomes an ordinary value after being resolved in its source and inherited; values on the right of `>` override those on the left.
+Run and CLI assignments to the target key override explicit `=` assignments too. A CLI assignment to a selection key, however, replaces only the chain. A base definition using `?=` becomes an ordinary value after being resolved in its source and inherited; values on the right of `>` override those on the left.
 
-Internally, the resolver activates required definitions and determines key sets, selects value suppliers in concrete owner/term order, and evaluates dependencies with explicit leaves taking precedence. Cycle/depth validation is separate from value caching, so declaration order or caching cannot change the depth-10 decision. See [PRD072](../memo/done/072_config_selection_final_value_10prd.md) for contracts and examples and [ADR0042](../adr/0042-config-inheritance-as-differential-base.md) for rationale.
+Internally, the resolver activates required definitions and determines key sets, selects value suppliers in concrete owner/term order, and evaluates dependencies with explicit assignments taking precedence. Cycle/depth validation is separate from value caching, so declaration order or caching cannot change the depth-10 decision. See [PRD072](../memo/done/072_config_selection_final_value_10prd.md) for contracts and examples and [ADR0042](../adr/0042-config-inheritance-as-differential-base.md) for rationale.
 
 The DefaultDQN, ImageCls, and Rainbow Agent Factories pass `GetTargetAgentClassId() + ".net"` to `NetworkConfig` as the final NN-tree read prefix. Branches, bodies, and outputs are read from Agent-owned subtrees such as `DefaultDQNAgent.net.*`, `ImageClsAgent.net.*`, and `RainbowAgent.net.*`; the block catalog `net.block.[*]` and `net.config_profile` are global shared definitions merged into Agent-local definitions. After constructing both Configs and before constructing NetworkModel, DefaultDQN Factory fails fast unless a branch bind directly includes `taus` when `DefaultDQNAgent.quantile_mode=iqn`, or excludes it for `qr` / `none`. MuZero's actual final trees `net.rep` / `net.dyn` / `net.pred` remain a separate pending structure at the root in PRD 059 Phase 1a.
 
@@ -99,7 +107,7 @@ Runner passes the Actor name, spec, device, and seed to Agent in `ActorRequest`.
 |---|---|
 | `Properties` | Reads Properties-like files and includes |
 | `ConfigManager` | Collects main files, injected values, later-wins overlays, and CLI overrides, then exposes resolver results |
-| `ConfigResolver` | Private deep module resolving selections, CLI leaves, and value references from a source map into effective ConfigData and resolution JSON |
+| `ConfigResolver` | Private deep module resolving selections, CLI assignments, and value references from a source map into effective ConfigData and resolution JSON |
 | `Config` | Base for reading one component's typed settings using default/override prefixes |
 | `RunManager` | Manages seed, Env, Agent, Notifier, and Runner construction and Run-shared objects |
 | `RunnerFactory` | Selects `serial` or `pipeline` TrainRunner |
@@ -166,7 +174,7 @@ TrainRunner uses the main Train Env; each EvalRunner gets its own Env and Actor.
 
 ### 5.1 Ownership of Metrics Wiring
 
-`RunManager` owns the private nested `MetricsWiring` and delegates scope resolution, one-time WARNs for dormant tags, Observer registration by event, output of attached scalar/trace definitions, and notification of scalar subscription hints during Run construction. Its declaration is inside RunManager in trainer.hpp, and its definition is in trainer.cpp. Parsing by `ObserverFactory` and value retrieval/aggregation by Observers remain separate responsibilities. Trace wiring to mirror instances created after construction is outside this mechanism.
+`RunManager` owns the private nested `MetricsWiring` and delegates scope resolution, INFO notifications once per Run for dormant tags, Observer registration by event, output of attached scalar/trace definitions, and notification of scalar subscription hints during Run construction. Its declaration is inside RunManager in trainer.hpp, and its definition is in trainer.cpp. Parsing by `ObserverFactory` and value retrieval/aggregation by Observers remain separate responsibilities. Trace wiring to mirror instances created after construction is outside this mechanism.
 
 See the [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md) for validation procedures in this area.
 
@@ -205,7 +213,7 @@ sequenceDiagram
 
 Type conversion, EnvSpec, device, class ID, Env-name collisions, and Config inconsistencies detected during construction fail before RunnerThread starts. The fixed name `train`, every configured Eval tag, and reserved name `EvalPanel` are validated together before constructing the first BatchEnv. Type-conversion failure follows the contract in [Configuration Resolution](#21-configuration-resolution).
 
-`run.eval.[tag]` defines configured Eval; a definition alone creates nothing. Eval Env, Actor, Observer, and background worker are created only when `interval>0` in `run.eval_schedule.[tag]` periodically drives the same-named definition. Defined tags without schedules or with `interval=0` are dormant: only tag-name/schema validation and reservation occur. Metrics referencing dormant tags warn once per tag and skip; references to undeclared tags and schedules targeting undefined tags are errors. For active configured Eval, `RunManager` wraps Env in `EvalSessionEnv`, treating parallel lane count `eval_batch_size` independently from adopted episode count `eval_episodes`. ImageCls requires the standard pair `ImageClsEnv.train.*` and `ImageClsEnv.eval.*`; untagged Eval uses standard Eval configuration, while configured Eval uses a `run.eval.[tag].env.eval.*` overlay.
+`run.eval.[tag]` defines configured Eval; a definition alone creates nothing. Eval Env, Actor, Observer, and background worker are created only when `interval>0` in `run.eval_schedule.[tag]` periodically drives the same-named definition. Defined tags without schedules or with `interval=0` are dormant: only tag-name/schema validation and reservation occur. Metrics referencing dormant tags report INFO once per tag per Run and skip; references to undeclared tags and schedules targeting undefined tags are errors. For active configured Eval, `RunManager` wraps Env in `EvalSessionEnv`, treating parallel lane count `eval_batch_size` independently from adopted episode count `eval_episodes`. ImageCls requires the standard pair `ImageClsEnv.train.*` and `ImageClsEnv.eval.*`; untagged Eval uses standard Eval configuration, while configured Eval uses a `run.eval.[tag].env.eval.*` overlay.
 
 ### 6.2 Serial Train Step
 
@@ -322,7 +330,7 @@ The first step resets Env and submits no Learner update because no Experience is
 |---|---|
 | `run.seed` | Run master seed. The actual seed for 0 is determined and recorded at runtime |
 | `run.train.num_envs` | Main Train BatchEnv lane count |
-| `run.train.runner_type` | `serial` or `pipeline` |
+| `run.train.runner_type` | `serial` or `pipeline`, case-insensitive; other values stop construction |
 | `run.train.actor` | Actor catalog name, default `train` |
 | `run.eval_device` | Configured Eval device setting, default `auto`; adopted value in `json/run.json` as `effective_eval_device` |
 | `run.eval.[tag].*` | Configured Eval RunMode, parallel lane count `eval_batch_size`, adopted count `eval_episodes` (default 1), Env overrides, and Actor name reference |
@@ -348,9 +356,11 @@ Use Config classes and each Run's `config/config_data.txt` as the basis for the 
 
 ### 7.3 Errors
 
-Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types. A missing key preserves the DTO initial value; an absent initial value also leaves the key out of recorded configuration. Present values delegate to the normal typed reader, preserving default-prefix then override-prefix precedence, validation and recording. Empty or invalid numeric values do not become absence. Wrapping a composite `ConfigReader` is unsupported and rejected at compile time.
+Configuration DTOs support `std::optional<T>` for native `ConfigData` value types. A missing key preserves the DTO initial value; an absent initial value also leaves the key out of recorded configuration. Present values delegate to the normal typed reader, preserving default-prefix then override-prefix precedence, validation and recording. Empty or invalid numeric values do not become absence. Wrapping a composite `ConfigReader` is unsupported and rejected at compile time.
 
 - `ConfigData` conversion failures throw; defaults apply only to missing keys. Range, enum, and combination checks belong to each `Config` or reusable configuration type; class IDs are checked during repository resolution.
+- Requested configuration files that cannot be opened, empty include filenames, and mismatched include brackets stop with `ANET_SYSTEM_ERROR`. Callers check for existence before reading optional auxiliary files.
+- Call `WarnUnreadConfigKeys` after RunManager construction and application image registration and panel initialization, before the first step. It excludes read keys and inventory, sorts the remaining keys, and emits their count and `key = value` lines as one WARN. Zero keys produce no notification, and a list does not stop the Run. Owners must read and validate settings needed later by this point or declare suspension with INFO.
 - RunnerThread exceptions are passed to the application's exception callback rather than swallowed.
 - Pipeline worker exceptions are rethrown on the caller thread when retrieving the future.
 - Empty Env names or duplicates within a Run fail fast with `ANET_SYSTEM_ERROR`. A duplicate neither constructs a second Env nor overwrites an existing runner. Diagnostics include the name, existing owner, requesting owner, and uniqueness requirement.
@@ -366,6 +376,8 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types
 
 ## 8. Tests and Extension Checks
 
+- [PRD117 validation resources](../../core/anet-core/testdata/prd117/README.md): original-key tracking, closed catalogs, unread config key lists, notifications per Run, and the configurations and stop conditions for normal Runs with zero WARNs.
+
 - [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 - [config_test.cpp](../../core/anet-core/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
@@ -375,7 +387,7 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` leaf types
 - [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runner episode-end notifications and forced actions in Eval
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): initialization and backend settings
 - [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable root and output paths
-- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-leaf `?=` audit
+- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-key `?=` audit
 
 Current `trainer_test.cpp` does not broadly cover complete Serial/Pipeline behavior, counts, or shutdown. When changing these areas, add regression tests for matching Serial/Pipeline action/snapshot boundaries, counts for B=1 and multiple lanes, Eval scope, and worker collection on shutdown.
 

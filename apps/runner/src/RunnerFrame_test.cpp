@@ -18,7 +18,35 @@
 #include <wx/sizer.h>
 #include <wx/weakref.h>
 #include "EvalTracePanel.hpp"
+#include "Conv2dPanel.hpp"
 #include "RunnerApp.hpp"
+#include "anet/test_util.hpp"
+
+TEST_CASE("Conv2d panel configuration is validated without opening the panel", "[prd117][conv2d_config]")
+{
+    anet::test::LogCaptureGuard logs;
+    const auto entry = GENERATE(std::pair{"margin_x", "-1"}, std::pair{"margin_y", "-1"},
+        std::pair{"layer_margin_y", "-2"}, std::pair{"channels_per_row", "0"},
+        std::pair{"min_block_size", "0"});
+    anet::ConfigData data;
+    const auto key = std::string("Conv2dPanel.conv2d.") + entry.first;
+    data.Set(key, entry.second);
+    CHECK_THROWS_WITH(Conv2dPanel::Config(data), Catch::Matchers::ContainsSubstring(key));
+}
+
+TEST_CASE("Conv2d panel configuration consumes its original keys without windows", "[prd117][conv2d_config]")
+{
+    anet::ConfigData data;
+    data.Set("Conv2dPanel.conv2d.margin_x", 3);
+    data.Set("Conv2dPanel.conv2d.margin_y", 4);
+    data.Set("unread.sentinel", "kept");
+    const Conv2dPanel::Config config(data);
+    CHECK(config.conv2d.margin_x == 3);
+    CHECK(config.conv2d.margin_y == 4);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.front().first == "unread.sentinel");
+}
 
 namespace {
 
@@ -975,12 +1003,18 @@ TEST_CASE("An unknown direct hide repairs the centre and warns only once", "[.][
     CHECK_FALSE(ui.Train().IsFloatable());
     CHECK(TrainPanelProbe::Timer(ui.TrainView()).IsRunning());
     ui.CheckToggle("Train View", true, false);
+    // 修復後に同じ異常配置を再発させ、2回目も修復し通知だけを抑える。
+    ui.Train().Hide();
+    ui.Eval().Hide();
+    ui.Manager().Update();
     ui.frame->SetSize(ui.frame->GetSize() + wxSize(2, 0));
     ui.Settle();
+    CHECK(ui.Train().IsShown());
     const auto log = ui.Log();
     constexpr char kWarning[] = "No main pane occupies the centre. Showing Train View as a fallback.";
     const auto first = log.find(kWarning);
     REQUIRE(first != std::string::npos);
+    CHECK(log.find(": [W] ", log.rfind('\n', first)) < first);
     CHECK(log.find(kWarning, first + sizeof(kWarning) - 1) == std::string::npos);
 
     // 直接操作で両方Centreになった場合は、通常の復帰フックとは別の保険で直す。
@@ -998,12 +1032,16 @@ TEST_CASE("An unknown direct hide repairs the centre and warns only once", "[.][
     CHECK(ui.Eval().dock_row == 0);
     CHECK(ui.Eval().dock_pos == 0);
     ui.CheckMainSplit();
+    ui.Eval().Centre();
+    ui.Manager().Update();
     ui.frame->SetSize(ui.frame->GetSize() + wxSize(2, 0));
     ui.Settle();
+    CHECK(ui.Eval().dock_direction == wxAUI_DOCK_RIGHT);
     constexpr char kCentresWarning[] = "Both main panes occupy the centre. Moving Evaluation View aside as a fallback.";
     const auto centres_log = ui.Log();
     const auto centre_first = centres_log.find(kCentresWarning);
     REQUIRE(centre_first != std::string::npos);
+    CHECK(centres_log.find(": [W] ", centres_log.rfind('\n', centre_first)) < centre_first);
     CHECK(centres_log.find(kCentresWarning, centre_first + sizeof(kCentresWarning) - 1) == std::string::npos);
     CHECK(centres_log.find(kWarning, first + sizeof(kWarning) - 1) == std::string::npos);
 }
@@ -1018,11 +1056,14 @@ TEST_CASE("A redundant show keeps unknown double centres on the fallback path", 
     ui.Toggle("Evaluation View", true);
     CHECK(ui.Train().dock_direction == wxAUI_DOCK_CENTER);
     CHECK(ui.Eval().dock_direction == wxAUI_DOCK_RIGHT);
+    ui.Eval().Centre();
+    ui.Manager().Update();
     ui.Toggle("Evaluation View", true);
     const auto log = ui.Log();
     constexpr char kWarning[] = "Both main panes occupy the centre. Moving Evaluation View aside as a fallback.";
     const auto first = log.find(kWarning);
     REQUIRE(first != std::string::npos);
+    CHECK(log.find(": [W] ", log.rfind('\n', first)) < first);
     CHECK(log.find(kWarning, first + sizeof(kWarning) - 1) == std::string::npos);
     CHECK(log.find("No main pane occupies the centre.") == std::string::npos);
 }

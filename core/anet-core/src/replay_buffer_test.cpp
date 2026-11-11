@@ -2,6 +2,7 @@
 
 #include "anet/replay_buffer.hpp"
 #include "anet/transfer.hpp"
+#include "anet/test_util.hpp"
 #include "replay_buffer_impl.hpp"
 
 #include <torch/cuda.h>
@@ -1761,6 +1762,31 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     auto env0_value = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, env0_index);
     REQUIRE(env0_value.has_value());
     RequireFlatApprox(*env0_value, { env0_priority });
+}
+
+TEST_CASE("PER falls back once when repeated rejection draws cannot select a positive priority", "[replay_buffer][per][prd117_rejection]")
+{
+    // 0は有効な明示priorityである。全slotを0にし、乱数に依存せず拒否上限へ到達させる。
+    auto config = MakeConfig(8);
+    config.per_alpha = 1.0f;
+    config.per_initial_priority = 0.0f;
+    const auto buffer = MakeBuffer(config, 1);
+    for (int64_t step = 0; step < 4; ++step) {
+        PushTime(buffer, step, {}, {}, step == 0 ? BoolValues(1, true) : std::vector<bool>{});
+    }
+    REQUIRE(buffer.rb->Size() > 0);
+    anet::test::LogCaptureGuard logs;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        rl::ExperienceSamples samples;
+        REQUIRE_NOTHROW(buffer.rb->Sample(samples, 1, 0.4f, config.gamma));
+        REQUIRE(samples.is_weights.numel() == 1);
+        CHECK(samples.is_weights.item<float>() == 1.0f);
+        CHECK(samples.replay_item_keys.numel() == 1);
+    }
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"PER Rejection Sampling failed", "filled=0", "requested=1"}));
 }
 
 TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots", "[replay_buffer][per][precision]")

@@ -4,6 +4,7 @@
 #include "anet/test_util.hpp"
 #include "metrics_logger_impl.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -12,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <wx/image.h>
+#include <wx/utils.h>
 
 namespace {
 
@@ -259,6 +261,17 @@ TEST_CASE("VideoLogger resolves configured video codec", "[metrics][video]")
     CHECK_FALSE(passthrough.requested_auto);
 }
 
+TEST_CASE("Pinned auto video selection preserves explicit codec requests", "[metrics][video][prd117]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::detail::VideoCodecSelection selection;
+    selection.PinSoftwareFallback();
+    CHECK(selection.Resolve("auto", 512, 512, "auto.mkv").codec == "libx264");
+    CHECK(selection.Resolve("h264_nvenc", 512, 512, "explicit.mkv").codec == "h264_nvenc");
+    CHECK(selection.Resolve("mjpeg", 128, 128, "explicit.mkv").codec == "mjpeg");
+    CHECK_THROWS(selection.Resolve("h264_nvenc", 128, 128, "invalid.mkv"));
+}
+
 TEST_CASE("VideoLogger rejects explicit NVENC for ineligible video size", "[metrics][video]")
 {
     try {
@@ -301,13 +314,47 @@ TEST_CASE("VideoLogger writes large frames in chunks", "[metrics][video]")
 
     {
         const auto video_path = root / "large_frame.mkv";
-        anet::VideoLogger logger(video_path.string(), image.GetWidth(), image.GetHeight(), "libx264", 15);
+        anet::detail::VideoCodecSelection selection;
+        anet::VideoLogger logger(video_path.string(), image.GetWidth(), image.GetHeight(), selection, "libx264", 15);
         logger.WriteFrame(image);
         logger.WriteFrame(image);
     }
 
     std::error_code cleanup_error;
     std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("MetricsLogger pins auto video fallback only for the current Run", "[.prd117_video_fallback]")
+{
+    constexpr char kTraceEnvironment[] = "PRD117_FFMPEG_TRACE";
+    constexpr char kOutputEnvironment[] = "PRD117_VIDEO_TEST_ROOT";
+    wxString trace_path;
+    wxString root_path;
+    REQUIRE(wxGetEnv(kTraceEnvironment, &trace_path));
+    REQUIRE(wxGetEnv(kOutputEnvironment, &root_path));
+    wxImage small(128, 128);
+    small.SetRGB(wxRect(0, 0, 128, 128), 0, 0, 0);
+    wxImage large(512, 512);
+    large.SetRGB(wxRect(0, 0, 512, 512), 0, 0, 0);
+    for (int run = 0; run < 2; ++run) {
+        anet::test::LogCaptureGuard logs;
+        anet::log::ResetNotifications();
+        {
+            anet::MetricsLoggerConfig config;
+            config.run_name_tmpl = "video_fallback_" + std::to_string(run);
+            anet::MetricsLogger logger(std::make_unique<NullBackend>(), config, root_path.ToStdString(wxConvUTF8));
+            if (run == 0) logger.Log("small", 0, small);
+            logger.Log("large_first", 0, large);
+            if (run == 0) logger.Log("large_second", 0, large);
+        }
+        logs.Flush();
+        CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+            return record.level == wxLOG_Warning
+                && record.message.find("Retrying with libx264") != std::string::npos;
+        }) == 1);
+    }
+    CHECK(ReadTextFile(trace_path.ToStdString(wxConvUTF8)) ==
+        "libx264\nh264_nvenc\nlibx264\nlibx264\nh264_nvenc\nlibx264\n");
 }
 
 TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")

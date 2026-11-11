@@ -389,7 +389,7 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 
 # --- 土台(実行モードと予算。群を重ねて使う) ---
 
-# TempoRL: 有効化と指標だけを持つ。J・skip_context・合算／遮断は下の「Env依存 Agent設定」の葉で切り替える。
+# TempoRL: 有効化と指標だけを持つ。J・skip_context・合算／遮断は下の「Env依存 Agent設定」の設定キーで切り替える。
 # metrics.scalar.$ は run.@a5_metrics の連鎖に @skip を足したもの（後ろの profile の連鎖だけが残るため、ここで全部書く）。
 run.@skip : DefaultDQNAgent.skip.enabled = true
 run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@skip

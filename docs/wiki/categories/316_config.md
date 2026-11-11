@@ -5,7 +5,7 @@
 ## 概要・責務
 
 - ConfigDataに設定を集約し、ConfigResolverがinclude・selection・Run・CLI・継承とprofileを解決する。（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.1）。
-- 設定DTOの`std::optional<T>`は既存の`ConfigData`が読む葉値の型に対応し、未指定ならDTOの初期値を保持して、初期値も無ければ設定記録へ葉を足さない。指定があれば通常値の読み取りへ委譲する。複合`ConfigReader`をoptionalで包む形は型の段階で拒む（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
+- 設定DTOの`std::optional<T>`は既存の`ConfigData`が読む設定キーの値の型に対応し、未指定ならDTOの初期値を保持して、初期値も無ければ設定記録へ設定キーを足さない。指定があれば通常値の読み取りへ委譲する。複合`ConfigReader`をoptionalで包む形は型の段階で拒む（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
 
 ## 成立の経緯
 
@@ -19,13 +19,13 @@
 - 2026-08-23: 設定体系再設計: 概念ツリー整合・素材宣言・ConfigResolver PRD（出典: [PRD059](../../memo/done/059_config_concept_tree_alignment_10prd.md)、題・目的）。
 - 2026-09-07: PRD 072: 設定継承の差分適用と最終値参照（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、題・目的）。
 - 2026-09-08: Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す（出典: [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)、本文）。
-- 2026-09-12: 設定の選択は参照先の最終値を読み、Run プロファイルの葉は CLI と同じ第 2 相で選択の後に勝つ（出典: [ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)、本文）。
+- 2026-09-12: 設定の選択は参照先の最終値を読み、Run プロファイルの設定キーは CLI と同じ第 2 相で選択の後に勝つ（出典: [ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)、本文）。
 - 2026-09-13: 設定継承は最終値の差分合成とし、個別指定をベースより優先する（出典: [ADR 0042](../../adr/0042-config-inheritance-as-differential-base.md)、本文）。
 - 2026-09-19: PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-09-24: deviceキーの文字列化に合わせ現用設定とbaseline検証を移行した（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、確定したD6・受入基準）。
 - 2026-10-18: 特徴branchキー改名の設定比較を更新しPRD072の固定資料を保持した（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§6 受入基準3・§10 文書同期）。
 
-- 2026-10-24: GridMazeのseed指定と未指定を区別するため、設定DTOのoptional葉値を共通読み取りへ追加した（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、§5.1）。
+- 2026-10-24: GridMazeのseed指定と未指定を区別するため、設定DTOのoptional設定キーの値を共通読み取りへ追加した（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、§5.1）。
 - 2026-10-24: ProfiledValue の定数は裸のスカラー 1 行で書き、root の `.value` 記法は置かない（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、本文）。
 - 2026-10-24: 探索と学習のパラメータのキーを概念ごとの入れ子（`spatial.*`・`uqe.*`・`learner.learning_rate` など）へ移し、定数は bare、スケジュールは sub-key で書く記法を加えた（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4・§4.2 D5）。
 - 2026-10-25: 迷路の寸法・開始とゴールの座標を構築時に検証する条件を整理した（出典: [PRD100](../../memo/done/100_gridmaze_solvable_maze_10prd.md)、§5.4・§5.6）。
@@ -39,7 +39,7 @@
 - 上書き層の予約名・ドット数による判定・明示登録 — 不採用（cut）: 通常の prefix の差分合成で扱え、名前だけで意味を変えない（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
 - 弱い既定値を @defaults プロファイルへ移す形（全面移行とチェーン先頭での明示、先頭プロファイルが継承する慣用句、暗黙の補完） — 不採用（cut・取り下げ）: 既定値の脱落が実際に起き、C++ の既定値と一致して気づけない。空プロファイルの定義と静的検査、分類規約や予約名が増え、現行設定での利得は 0 件だった（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
 - = を下書き、:= を上書きとする記法 — 不採用（cut）: プロファイル内の = が再びベースに負け、上書きの記号に既知の意味がない（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
-- 個別の葉と継承値の競合の WARN — 不採用（cut）: P2 が認める意図的な上書きにも警告してしまう。既定値は ?= で区別する（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
+- 個別の設定キーと継承値の競合の WARN — 不採用（cut）: P2 が認める意図的な上書きにも警告してしまう。既定値は ?= で区別する（出典: [PRD072](../../memo/done/072_config_selection_final_value_10prd.md)、8. 検討経緯と簡素化の判断）。
 - 素材の表記案（キー先頭のドット、連続ドット、bracket の流用、セクションヘッダ、::） — 不採用（棄却）: 素材が root の別領域に集まって所有が切れる、見づらい、名前付きインスタンスの角括弧と意味が衝突する、1 行完結・位置独立を壊す、仰々しい（出典: [PRD059](../../memo/done/059_config_concept_tree_alignment_10prd.md)、付録 D. 検討経緯）。
 - use_optimistic_target の廃止 — 不採用（却下）: 実効値は明示の指定で同じになるが、optimistic 化のたびに target_policy の全キーを書き換える（戻しも含む）保守コストが戻る（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
 - IQN の spec K の専用キー（net.taus_shape など）と、カタログ全項目と Learner の最大の K — 不採用（却下）: Learner の N で足り、設定項目やカタログの走査を増やさない（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、10. 却下した案と経緯）。
@@ -48,7 +48,7 @@
 - ProfiledValue の定数を常に `.value` で書く形 — 不採用: 定数の行が全部 1 段増え、既存の定数の行を書き換える（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - bare を書いたら type を constant に強制する形 — 不採用: baseline が bare で書いた定数を Run プロファイルが `.type = linear` で差し替える用法が fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - bare と `.value` の両記法を許し両方書いたら fail-fast にする形 — 不採用: 読み取りが default と override の 2 つの prefix を見るので、ベース＋部分上書きの普通の層構成まで fail-fast になる（出典: [ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
-- 眠る bare が確定葉なら fail-fast にする実行時検査と、`check_default_leaves.py` の静的検査 — 先送り: 既定葉の情報を読み取りまで運ぶ配線が要り、env の確定葉の定数を Run プロファイルで schedule にする用法も止まる。再開条件: 眠った値に気づかずに Run を回した事故が起きたとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
+- 眠る bare が`=` で書いた設定キーなら fail-fast にする実行時検査と、`check_default_leaves.py` の静的検査 — 先送り: 既定キーの情報を読み取りまで運ぶ配線が要り、env の`=` で書いた設定キーの定数を Run プロファイルで schedule にする用法も止まる。再開条件: 眠った値に気づかずに Run を回した事故が起きたとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - 読まれない設定キーの一覧を最初から ERROR にして Run を止める形 — 先送り: 読まれなくても誤りではない設定キー（在庫）の区別を実際の Run で確かめる前に止めると、正しい設定の Run が起動できなくなる。再開条件: 実装をコミットした日から 1 か月のあいだ、受入の Run と番号付き bat の Run のログで、一覧に出た設定キーがすべて設定の誤りだったとき（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D3・§8）。
 - 既定キー（`?=`）を読まれない設定キーの一覧の対象から外す形 — 不採用: 共通の設定の綴り違いと旧キーが黙って残り、`?=` かどうかを構築の終わりまで運ぶ配線も増える（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D4）。
 
@@ -63,7 +63,7 @@
 - 特徴branchキーの改名前後で現用config dumpの差分がキー名だけであることを確認する。PRD072の固定入力・golden・manifestと実験記録のdumpは保持する（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§6 3）。
 - 設定ファイルを分けたり移したりするときは、7 env の解決済み設定（全キーと文字列値）の前後一致と check_default_leaves.py の errors=0 で、解決値と演算子の規約が変わっていないことを確かめる（出典: [PRD907 設定ファイル配置](../../memo/907_config_file_layout_10prd.md)、§6）。
 
-- optional葉値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する。指定があるときのdefault prefix→override prefixの順序と型検証・記録を保ち、空文字や不正な数値を未指定へ変換しない（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、A15；[実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
+- optional設定キーの値の拡張時は、未指定/DTO初期値の設定記録、prefix優先、空の明示値の復元、不正値の早期失敗を共通Configの公開経路で確認する。指定があるときのdefault prefix→override prefixの順序と型検証・記録を保ち、空文字や不正な数値を未指定へ変換しない（出典: [PRD102](../../memo/done/102_gridmaze_seed_mode_10prd.md)、A15；[実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§7.3）。
 - ProfiledValue を読む設定キーでは、root の定数は bare、段の定数は `.phase.[name].value` で書き、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
@@ -107,9 +107,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261103-66100f](../../management/issues/issue-20261103-66100f.md) | 調査中 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
-| [issue-20261107-0c34dd](../../management/issues/issue-20261107-0c34dd.md) | 調査中 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
-| [issue-20261107-c17068](../../management/issues/issue-20261107-c17068.md) | 調査中 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） |
 | [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 未着手 | 3.5 | — | 成果物 | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
 | [issue-20261111-cdc102](../../management/issues/issue-20261111-cdc102.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 未確認 | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
 | [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | 成果物 | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
@@ -124,5 +121,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD927](../../memo/927_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 
-着手できる 16 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 13 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

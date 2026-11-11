@@ -1,4 +1,4 @@
-"""PRD104の新しい既定葉以外に設定差が無いことを確認する。"""
+"""PRD104の新しい既定キー以外に設定差が無いことを確認する。"""
 import json
 import re
 
@@ -26,7 +26,7 @@ def main():
                 config.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
                 pair[stage] = resolve(config, destination)
             before, after = pair["before"], pair["after"]
-            # 追加した既定葉だけを許可し、既存値の変更や削除は失敗にする。
+            # 追加した既定キーだけを許可し、既存値の変更や削除は失敗にする。
             changes = {key: [before.get(key), after.get(key)] for key in before.keys() | after.keys()
                        if before.get(key) != after.get(key)}
             def allowed(key, values):

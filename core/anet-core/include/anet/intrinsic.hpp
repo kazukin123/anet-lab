@@ -23,9 +23,11 @@ namespace anet::rl::intrinsic {
         virtual ~LifelongNoveltyEstimator() = default;
     };
 
-    /// 設定の葉の解釈と方式固有の構築を、呼び出し側から隠す。
+    /// 設定キーの解釈と方式固有の構築を、呼び出し側から隠す。
     class LifelongNoveltyEstimatorFactory {
     public:
+        /// 推定器を作らない場合も認識する診断キーを、初期値NaNとともに返す。
+        static std::map<std::string, float> InitialDiagnostics();
         static std::unique_ptr<LifelongNoveltyEstimator> Create(
             const anet::ConfigData& config_data, const std::string& prefix,
             const anet::TensorSpecMap& observation_spec, const torch::Device& device,

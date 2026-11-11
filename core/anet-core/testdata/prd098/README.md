@@ -60,7 +60,7 @@ Headの読み口は `head.init.*` / `head.projection.*`。primaryのDuelingは `
 
 agent.txtの@baselineへ無効のskip既定と共有配線を?=で置く。部品はnn.txtのSkipFC1/SkipFC2/SkipReLU、指標はmetrics_scalar.txt、J・IQN融合済みskip_context・run.@skipのenabled/metrics/Traceは各envが持つ。IQNは融合済みのrank3特徴を使い、taus bind自体は必須にしない。有効時だけskip網を構築し、actionのbindとnetwork_modeを検証する。
 
-`run_validation.py smoke` の `--set` は繰返し指定でき、Runnerへkey=valueの一引数として渡す。包含型は `DefaultDQNAgent.skip.network_mode=action_in` と `DefaultDQNAgent.skip.net.branch.[skip_feature].bind=skip_context, action` の2葉。mergeはlearner.skip.feature_gradient=merge、Duelingはskip.head.use_dueling=true、幅はnet.block.[SkipFC1].linear.out_featuresで指定する。成功Runの再利用には生成設定・include全体・実行体に加えてCLI引数の内容と順序も一致する必要がある。
+`run_validation.py smoke` の `--set` は繰返し指定でき、Runnerへkey=valueの一引数として渡す。包含型は `DefaultDQNAgent.skip.network_mode=action_in` と `DefaultDQNAgent.skip.net.branch.[skip_feature].bind=skip_context, action` の2 件。mergeはlearner.skip.feature_gradient=merge、Duelingはskip.head.use_dueling=true、幅はnet.block.[SkipFC1].linear.out_featuresで指定する。成功Runの再利用には生成設定・include全体・実行体に加えてCLI引数の内容と順序も一致する必要がある。
 
 7envの全キー比較は、GridMazeの着手時ON解決値をresolved-before-rawへ保持し、切替だけをOFFへ揃えたsnapshot-configのresolved-beforeと行う。4env OFFの学習指標は時間・資源以外の全scalarを完全比較する。
 
@@ -88,7 +88,7 @@ profile matrixは4env×default/merge/dueling/action_inの16条件と、GridMaze�
 
 評価報酬のstep_axisがexp_stepであることをdefsで確かめ、最終値・平均・最大値・最初に正の評価報酬へ到達したexp stepをlearning-summary.jsonへ残す。1seedの動作確認から一般的な学習効果は結論しない。
 
-prepare-longはround2 rootのlong-configへ設定とCLI引数のcommands.jsonを書き、Runnerは起動しない。変種の葉は設定ファイルへ埋め込まない。
+prepare-longはround2 rootのlong-configへ設定とCLI引数のcommands.jsonを書き、Runnerは起動しない。変種の設定キーは設定ファイルへ埋め込まない。
 
 | 段 | 環境・予算 | 群と seed | 次段へ進む条件 |
 | --- | --- | --- | --- |

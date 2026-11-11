@@ -38,7 +38,7 @@ LNK1163 は生成済み Head オブジェクトを一つ再生成して解消し
 
 OFF3本、結合2本と旧checkpointの受け入れは完了。性能12比較48 Runも完了し、今回の全受け入れ条件を満たした。OFF初回は余分なCLIで既存の未使用終了予算キーまで上書きして設定照合が失敗したため中止し、after/ に記録を保持する。不要なCLIを外した再実行は after-verified/ に分離する。Atari既定の起動時照合では全既存値が一致している。
 
-既定葉監査: Assignments 24877 / audited 3423 / errors 0。
+既定キー監査: Assignments 24877 / audited 3423 / errors 0。
 
 ## OFF 回帰
 
@@ -214,7 +214,7 @@ optimizerの3テストは、実際のTDLearnerの公開UpdateFromBatchを使う�
 | NoisyNet | 49件・10,690 assertions 成功 |
 | 全 core | 666件成功・既存1件スキップ、34,873 assertions 成功 |
 | Python予算契約 | 4件成功、延長受け入れのRED→GREENを保存 |
-| 設定既定葉監査 | 24,939 assignments、3,417 audited、errors 0 |
+| 設定既定キー監査 | 24,939 assignments、3,417 audited、errors 0 |
 | 公開ConfigManagerによる6構成の前後比較 | 全キー・文字列値・型付き設定が一致、44 assertions 成功 |
 | 集計CLIによる既存6caseの再判定 | OFF3・結合2・旧checkpointすべて成功 |
 | 形式・責任境界の監査 | 編集前/HEADのBOM・LFを維持、指定NN6ファイルのActor/Learner/Probe/laneは0件 |

@@ -333,7 +333,7 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
         ANET_SYSTEM_ERROR("Invalid " << prefix << ".multiplier_mode='" << multiplier_mode
             << "'; expected clipped or unclipped.");
     if (multiplier_mode == kMultiplierUnclipped && multiplier_max != kDefaultMultiplierMax)
-        anet::log::warn() << "Ignored " << prefix << ".multiplier_max=" << multiplier_max
+        anet::log::warn_once(prefix + ".multiplier_max") << "Ignored " << prefix << ".multiplier_max=" << multiplier_max
             << " with multiplier_mode=" << multiplier_mode << "; default=" << kDefaultMultiplierMax << ".";
     if (!std::isfinite(learning_rate) || learning_rate <= 0.0f)
         ANET_SYSTEM_ERROR("Invalid " << prefix << ".learning_rate=" << learning_rate << "; expected finite > 0.");
@@ -359,14 +359,14 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
         ANET_SYSTEM_ERROR("Invalid " << prefix << ".error_norm.ema_steps=" << error_norm.ema_steps
             << "; expected integer >= 1.");
 
-    // 値の検証後に、現在の組が使わない葉だけを既定との差で知らせる。
+    // 値の検証後に、現在の組が使わない設定キーだけを既定との差で知らせる。
     const auto notify_unused = [&](const char* key, const auto& value, const auto& default_value, bool info = false) {
         if (value == default_value) return;
         const auto message = "Ignored " + prefix + "." + key + "=" + anet::json(value).dump()
             + " with statistics_mode=" + statistics_mode + ", error_norm.average_mode=" + error_norm.average_mode
             + ", warmup_steps=" + std::to_string(warmup_steps) + "; default=" + anet::json(default_value).dump() + ".";
-        if (info) anet::log::info() << message;
-        else anet::log::warn() << message;
+        if (info) anet::log::info_once(prefix + "." + key) << message;
+        else anet::log::warn_once(prefix + "." + key) << message;
     };
     if (statistics_mode == kStatisticsVarianceFeedback) {
         notify_unused("warmup_mode", warmup_mode, std::string(kWarmupLearnPredictor));
@@ -380,11 +380,11 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
             notify_unused("error_norm.ema_steps", error_norm.ema_steps, kDefaultEmaSteps);
     }
 
-    // 解決後の値だけで判断し、無効な葉も検証済みのうえで構築時に1回知らせる。
+    // 解決後の値だけで判断し、無効な設定キーも検証済みのうえで構築時に1回知らせる。
     if (statistics_mode == kStatisticsVarianceFeedback) {
         const auto warn_ignored = [&](const char* key, const auto& value, const auto& default_value) {
             if (value != default_value)
-                anet::log::warn() << "Ignored " << prefix << ".obs_norm." << key << "=" << anet::json(value).dump()
+                anet::log::warn_once(prefix + ".obs_norm." + key) << "Ignored " << prefix << ".obs_norm." << key << "=" << anet::json(value).dump()
                     << " with statistics_mode=" << statistics_mode << "; default=" << anet::json(default_value).dump() << ".";
         };
         warn_ignored("pass_through", obs_norm.pass_through, obs_norm_defaults.pass_through);
@@ -438,9 +438,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
         normalizer_ = anet::rl::ObservationNormalizerFactory(config.obs_norm).CreateObservationNormalizer(state_spec);
     else
         feedback_stats_.emplace(normalized_spec);
-    for (const auto key : {kErrorMean, kErrorStd, kErrorStep, kClipRatio, kPredictorLoss,
-        kTargetFeatureVar, kTargetFeatureMax})
-        diagnostics_.emplace(key, std::numeric_limits<float>::quiet_NaN());
+    diagnostics_ = LifelongNoveltyEstimatorFactory::InitialDiagnostics();
 }
 
 torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations)
@@ -613,7 +611,7 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
         auto& options = static_cast<torch::optim::AdamWOptions&>(group.options());
         if (options.lr() != config_.learning_rate || options.weight_decay() != config_.weight_decay
             || options.eps() != config_.adam_eps)
-            anet::log::warn() << "RND checkpoint optimizer options replaced: learning_rate=" << options.lr()
+            anet::log::info_once(config_.GetConfigPrefix()) << "RND checkpoint optimizer options replaced: learning_rate=" << options.lr()
                 << " -> " << config_.learning_rate << ", weight_decay=" << options.weight_decay()
                 << " -> " << config_.weight_decay << ", adam_eps=" << options.eps() << " -> " << config_.adam_eps;
         options = torch::optim::AdamWOptions(config_.learning_rate).weight_decay(config_.weight_decay).eps(config_.adam_eps);
@@ -642,6 +640,15 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
     if (target_feature_stats_.GetCount() > 0)
         diagnostics_[kTargetFeatureVar] = TargetFeatureVariance();
     return bytes;
+}
+
+std::map<std::string, float> LifelongNoveltyEstimatorFactory::InitialDiagnostics()
+{
+    std::map<std::string, float> diagnostics;
+    for (const auto* key : {kErrorMean, kErrorStd, kErrorStep, kClipRatio, kPredictorLoss,
+        kTargetFeatureVar, kTargetFeatureMax})
+        diagnostics.emplace(key, std::numeric_limits<float>::quiet_NaN());
+    return diagnostics;
 }
 
 std::unique_ptr<LifelongNoveltyEstimator> LifelongNoveltyEstimatorFactory::Create(

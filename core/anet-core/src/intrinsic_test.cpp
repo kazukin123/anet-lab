@@ -14,6 +14,7 @@
 #include "anet/default_dqn_agent.hpp"
 #include "dqn_based_agent.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 
 constexpr char kObservation[] = "obs";
@@ -47,6 +48,12 @@ constexpr char kFalseConfigValue[] = "false";
 constexpr char kRndCheckpointFormat[] = "RndNoveltyEstimator-3";
 constexpr char kRndEmaCheckpointFormat[] = "RndNoveltyEstimator-4";
 constexpr char kIntrinsicPrefix[] = "DefaultDQNAgent.intrinsic";
+constexpr std::array<const char*, 13> kAllIntrinsicScalarKeys{
+    kBonusMean, "intrinsic.bonus_max", kBonusMin, kBonusPosRatio,
+    kBonusShare, kIntrinsicLearnCount, "intrinsic.error_mean", "intrinsic.error_std",
+    kIntrinsicErrorStep, "intrinsic.clip_ratio", kIntrinsicPredictorLoss,
+    "intrinsic.target_feature_var", "intrinsic.target_feature_max"};
+constexpr char kUnknownIntrinsicScalarKey[] = "intrinsic.unknown_key";
 
 static anet::ConfigData RndTestConfig()
 {
@@ -126,6 +133,7 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
     data.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", false);
     data.Set("DefaultDQNAgent.reward_scaler.use_auto_post_scale", false);
     data.Set("DefaultDQNAgent.intrinsic.enabled", enabled);
+    data.Set("DefaultDQNAgent.intrinsic.learn_batch_size", 2);
     const auto rnd_data = RndTestConfig();
     for (const auto& [key, value] : rnd_data.Map())
         data.Set("DefaultDQNAgent.intrinsic." + key, value);
@@ -261,7 +269,7 @@ TEST_CASE("RND shipped Atari networks and Taiga settings match their contracts",
         }
     }
 
-    // 選択済みのRun層へTaigaの8葉が届くことをtyped configで確認する。
+    // 選択済みのRun層へTaigaの8件が届くことをtyped configで確認する。
     const auto taiga = resolve("run.@rainbow_like > run.@rnd > run.@rnd_taiga");
     const anet::rl::dqn::DefaultDQNAgentConfig agent(taiga);
     const anet::rl::intrinsic::RndNoveltyEstimatorConfig rnd(taiga, prefix);
@@ -400,17 +408,31 @@ TEST_CASE("RND warmup counts observations and reports optimizer progress", "[prd
     }
 }
 
-TEST_CASE("DQN intrinsic disabled and evaluation-only modes stay inactive", "[prd116][intrinsic]")
+TEST_CASE("DQN intrinsic known scalar keys stay NaN while disabled or suspended", "[prd116][intrinsic][prd117]")
 {
     IntrinsicMetricsScope metrics;
-    auto disabled = MakeIntrinsicAgent(IntrinsicAgentData(false));
-    CHECK_FALSE(disabled->GetScalar(kBonusMean).has_value());
-    auto data = IntrinsicAgentData(true);
-    data.Set("DefaultDQNAgent.learner.enabled", false);
-    auto evaluation = MakeIntrinsicAgent(data);
-    evaluation->CreateLearner()->UpdateFromBatch({}, IntrinsicExperience(1, false, false));
-    REQUIRE(evaluation->GetScalar(kIntrinsicErrorStep).has_value());
-    CHECK(std::isnan(*evaluation->GetScalar(kIntrinsicErrorStep)));
+    const auto mode = GENERATE(std::pair{false, true}, std::pair{false, false}, std::pair{true, false});
+    const auto [enabled, learner_enabled] = mode;
+    CAPTURE(enabled, learner_enabled);
+    auto data = IntrinsicAgentData(enabled);
+    data.Set("DefaultDQNAgent.learner.enabled", learner_enabled);
+    anet::test::LogCaptureGuard logs;
+    auto agent = MakeIntrinsicAgent(data);
+    logs.Flush();
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Message
+            && record.message.find("intrinsic scoring and training are suspended") != std::string::npos;
+    }) == (enabled && !learner_enabled ? 1 : 0));
+    for (int intake = 0; intake < 2; ++intake) {
+        for (const auto* key : kAllIntrinsicScalarKeys) {
+            CAPTURE(key, intake);
+            const auto value = agent->GetScalar(key);
+            REQUIRE(value.has_value());
+            CHECK(std::isnan(*value));
+        }
+        CHECK_FALSE(agent->GetScalar(kUnknownIntrinsicScalarKey).has_value());
+        agent->CreateLearner()->UpdateFromBatch({}, IntrinsicExperience(1, false, false, intake == 0));
+    }
 }
 
 static anet::TensorSpecMap RndTestSpec()
@@ -1117,10 +1139,13 @@ TEST_CASE("RND warns once per ignored resolved leaf", "[prd116][intrinsic][rnd_r
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     for (int step = 0; step < 3; ++step) estimator->Estimate(RndTestObservation());
+    CHECK_NOTHROW(anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123)));
     logs.Flush();
     const auto warnings = [&](const std::string& key) {
         return std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
-            return record.message.find("Ignored rnd." + key + "=") != std::string::npos;
+            return record.level == wxLOG_Warning
+                && record.message.find("Ignored rnd." + key + "=") != std::string::npos;
         });
     };
     CHECK(warnings("multiplier_max") == (changed ? 1 : 0));
@@ -1406,7 +1431,43 @@ TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scori
     for (anet::rl::step_t step = 1; step < 5; ++step) {
         original->CreateLearner()->UpdateFromBatch({.exp_step = step}, IntrinsicExperience(10, false, false));
         restored->CreateLearner()->UpdateFromBatch({.exp_step = step}, IntrinsicExperience(10, false, false, step == 1));
-        CHECK(original->GetScalar(kBonusMean) == restored->GetScalar(kBonusMean));
+        const auto original_bonus = original->GetScalar(kBonusMean);
+        const auto restored_bonus = restored->GetScalar(kBonusMean);
+        REQUIRE(original_bonus.has_value());
+        REQUIRE(restored_bonus.has_value());
+        if (enabled) CHECK(*original_bonus == *restored_bonus);
+        else {
+            CHECK(std::isnan(*original_bonus));
+            CHECK(std::isnan(*restored_bonus));
+        }
+    }
+    if (enabled) {
+        data.Set("DefaultDQNAgent.learner.enabled", false);
+        anet::test::LogCaptureGuard logs;
+        // checkpointを1 laneで読み、batch数を縮めず、同じ通知を2回起こす。
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            const auto suspended = MakeIntrinsicAgent(data, 1);
+            const anet::rl::BatchExperience experience{};
+            const anet::rl::LearnEvent event{{.experience = experience,
+                .counts = {.exp_step = 1}, .agent = suspended}};
+            for (const auto* key : kAllIntrinsicScalarKeys) {
+                CAPTURE(key, attempt);
+                const auto value = suspended->GetScalar(key);
+                REQUIRE(value.has_value());
+                CHECK(std::isnan(*value));
+                anet::rl::MetricsLogLearnObserver observer(key, key, anet::rl::StepAxis::EXP,
+                    anet::rl::EventField::AGENT, 1, false, 0.01f, std::nullopt);
+                observer.OnLearn(event);
+            }
+            CHECK_FALSE(suspended->GetScalar(kUnknownIntrinsicScalarKey).has_value());
+        }
+        logs.Flush();
+        CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+            return record.level == wxLOG_Message
+                && record.message.find("intrinsic scoring and training are suspended") != std::string::npos;
+        }) == 1);
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+        data.Set("DefaultDQNAgent.learner.enabled", true);
     }
     data.Set("DefaultDQNAgent.intrinsic.enabled", !enabled);
     CHECK_THROWS_WITH(MakeIntrinsicAgent(data), Catch::Matchers::ContainsSubstring("Checkpoint header=")
@@ -1443,8 +1504,19 @@ TEST_CASE("RND checkpoint applies current optimizer options", "[prd116][intrinsi
     original->Save(output);
     data.Set(std::string("rnd.") + changed_key, 0.5f);
     auto changed = make(data);
+    anet::test::LogCaptureGuard logs;
     anet::InputArchive input(bytes);
     changed->Load(input);
+    bytes.clear();
+    bytes.seekg(0);
+    anet::InputArchive again(bytes);
+    changed->Load(again);
+    logs.Flush();
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Message
+            && record.message.find("RND checkpoint optimizer options replaced") != std::string::npos;
+    }) == 1);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
     CHECK(torch::equal(original->Estimate(obs), changed->Estimate(obs)));
     original->Learn(obs);
     changed->Learn(obs);
@@ -1570,15 +1642,15 @@ TEST_CASE("RND rejects mismatched checkpoint formats before reading payload", "[
         Catch::Matchers::ContainsSubstring(format) && Catch::Matchers::ContainsSubstring(kRndCheckpointFormat));
 }
 
-TEST_CASE("DQN intrinsic learns distinct complete lane groups and warns once when shrinking", "[prd116][intrinsic][rnd_sampling]")
+TEST_CASE("DQN intrinsic learns complete lane groups and rejects oversize batches", "[prd116][intrinsic][rnd_sampling][prd117]")
 {
     IntrinsicMetricsScope metrics;
     const auto input_device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (input_device.is_cuda() && !torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
     const auto dimensions = GENERATE(Catch::Generators::values<std::pair<int, int>>({
-        {2, 32}, {3, 2}, {4, 2}, {4, 1}}));
+        {2, 32}, {2, 2}, {3, 2}, {4, 2}, {4, 1}}));
     const auto [num_lanes, configured_batch] = dimensions;
-    const int batch_size = std::min(num_lanes, configured_batch);
+    const int batch_size = configured_batch;
     CAPTURE(num_lanes, configured_batch, input_device);
     auto data = IntrinsicAgentData(true);
     const auto observation = GENERATE(anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationNextState, anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState);
@@ -1587,6 +1659,21 @@ TEST_CASE("DQN intrinsic learns distinct complete lane groups and warns once whe
     data.Set("DefaultDQNAgent.intrinsic.learn_ratio", 1.0f);
     data.Set("DefaultDQNAgent.intrinsic.learn_batch_size", configured_batch);
     anet::test::LogCaptureGuard logs;
+    if (configured_batch > num_lanes) {
+        CHECK_THROWS_WITH(MakeIntrinsicAgent(data, num_lanes),
+            Catch::Matchers::ContainsSubstring("DefaultDQNAgent.intrinsic.learn_batch_size=32")
+            && Catch::Matchers::ContainsSubstring("num_envs=2"));
+        data.Set("DefaultDQNAgent.learner.enabled", false);
+        CHECK_NOTHROW(MakeIntrinsicAgent(data, num_lanes));
+        data.Set("DefaultDQNAgent.intrinsic.enabled", false);
+        data.Set("DefaultDQNAgent.learner.enabled", true);
+        CHECK_NOTHROW(MakeIntrinsicAgent(data, num_lanes));
+        logs.Flush();
+        CHECK(std::ranges::none_of(logs.Records(), [](const auto& record) {
+            return record.level == wxLOG_Warning && record.message.find("exceeds num_envs=") != std::string::npos;
+        }));
+        return;
+    }
     auto agent = MakeIntrinsicAgent(data, num_lanes);
     const auto flags = torch::zeros({num_lanes}, torch::kBool);
     const anet::TensorDict obs(kObservation,
@@ -1643,5 +1730,5 @@ TEST_CASE("DQN intrinsic learns distinct complete lane groups and warns once whe
     const auto warnings = std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
         return record.message.find("exceeds num_envs=") != std::string::npos;
     });
-    CHECK(warnings == (num_lanes < configured_batch ? 1 : 0));
+    CHECK(warnings == 0);
 }

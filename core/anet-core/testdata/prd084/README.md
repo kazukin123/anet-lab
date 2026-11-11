@@ -60,7 +60,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[noisynet]'
 
 `nz_learning` は既存初期化とAMPを継承し、Actor/current/targetはcall/batch。`nz_reference` は4射影のdefault初期化・σ0=0.5、Body2FCのforce_fp32=true、AMP継承、標準call/batch。結合RunのActorだけを専用項目でepisode/sampleへ上書きする。`nz_reference_off` は同じ初期化・精度・保持設定でNoisy enabledだけを外す。
 
-`greedy` はCLIで `run.eval_schedule.[greedy].interval=0` を固定する。ファイルの同名葉は、後から適用される `eval2ch` profile に上書きされるため、解決済み `run.txt` と `definition-only` ログを確認する。休止にしない `[eval_target]`・`[eval]` は、CLI で `warmup_count=0`・`offset=0` を指定し、比較する初回評価を維持する。終了予算もCLIで指定し、per_beta/epsilon/warmupのスケジュールを縮めない。
+`greedy` はCLIで `run.eval_schedule.[greedy].interval=0` を固定する。ファイルの同名設定キーは、後から適用される `eval2ch` profile に上書きされるため、解決済み `run.txt` と `definition-only` ログを確認する。休止にしない `[eval_target]`・`[eval]` は、CLI で `warmup_count=0`・`offset=0` を指定し、比較する初回評価を維持する。終了予算もCLIで指定し、per_beta/epsilon/warmupのスケジュールを縮めない。
 
 両ON Runは全11行を購読する。Atariのfeature依存閉包にはNoisy層がなく、feature4統計は正常なNaN。`ScalarMetricObserver`は既知NaNを出力しないため、11購読宣言とfeature成立値の不在を確認し、NaNそのものは契約テストで確認する。readout4統計とprobe3指標は複数回の有限値を要求する。xavierの初期μ biasが0の場合、最初のbias ratioのみNaNが正しい。
 
@@ -76,7 +76,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[noisynet]'
 
 ## 設定の監査
 
-既定葉はPRD072の `check_default_leaves.py` で監査する。`compare_resolved_settings.py OLD_CONFIG NEW_CONFIG` は既存の全キーと文字列値を厳密比較する。追加キーは一覧化し、artifactの `app.run_name` / `app.runs_dir` の2キーだけを場所の違いとして除く。旧Runの設定を上書きしない。
+既定キーはPRD072の `check_default_leaves.py` で監査する。`compare_resolved_settings.py OLD_CONFIG NEW_CONFIG` は既存の全キーと文字列値を厳密比較する。追加キーは一覧化し、artifactの `app.run_name` / `app.runs_dir` の2キーだけを場所の違いとして除く。旧Runの設定を上書きしない。
 
 設定記法の前後比較には、隠しテスト `[prd084-config-equivalence]` を使う。`ANET_PRD084_CONFIG_BEFORE` に編集前の設定フォルダ、`ANET_PRD084_CONFIG_OUTPUT` に新しい採取先を指定する。Atari既定、効率優先、nz_learning、nz_reference、nz_reference_off、CPU LunarLanderの6構成について、公開ConfigManagerで全キー・文字列値・型付き設定を比較する。設定採取のみで学習資源は生成しない。今回の採取先は `.scratch/prd084/review-followup-20261005/config-final/`。
 
@@ -204,7 +204,7 @@ Learner の forward_resources は必須で、有効時は current／target の�
 
 State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持する。CreateDefaultForwardExecutorはModule/Headを準備せず、名前付きCreateForwardExecutorは既定設定を拒否する。BindNetworkは同じ設定・State・時計種別を継承する。Executorの部分Forwardは削除し、Networkの既定部分Forwardは維持する。カタログの参照存在は読込時、使用する内容は具象準備時に検証する。Noisy probeの平均側は既定Forwardを使う。
 
-[simplify_default]・[simplify_catalog]・[forward_context]・[prepared]と既存[noisynet]を確認する。全coreはCPU/CUDA、設定6構成は公開ConfigManagerの全解決値比較、既定葉はprd072資材で監査する。削除したAPIの残存とNN6ファイルのRL語を検索し、NetworkForwardClock以外のkNoneは対象にしない。
+[simplify_default]・[simplify_catalog]・[forward_context]・[prepared]と既存[noisynet]を確認する。全coreはCPU/CUDA、設定6構成は公開ConfigManagerの全解決値比較、既定キーはprd072資材で監査する。削除したAPIの残存とNN6ファイルのRL語を検索し、NetworkForwardClock以外のkNoneは対象にしない。
 
 今回の出力は.scratch/prd084/forward-refactor/simplify-20261010に分離する。最終ReleaseはCPU LunarLander OFF500k（88184点）と代表ON500k（Noisy込み109941点）を旧基準と比較する。-Cases lunarlander_cpuでOFFを絞り、指定しない場合は従来3構成を維持する。CPU OFFはGPU検査・計測に依存させない。同GPUの別学習RunがあればONのみ保留する。旧OFF checkpoint読込も確認する。性能再測定はしない。結果は[検証記録](forward_refactor_verification.md)の今回の節を参照する。
 
@@ -218,6 +218,6 @@ State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持
 
 現用の生成APIはCreateForwardExecutorだけとし、既定設定ではState・時計種別・部品準備を持たない。BindNetworkを削除し、target用途のonline／targetはNetwork別のStateとnetwork_forward.target_online／network_forward.targetのnamed seedを持つ。Learnerの用途ペアとDQN射影Headの定型処理を集約する。計画は[26impl](../../../../docs/memo/done/084_noisynet_26impl.md)、結果は[検証記録](forward_refactor_verification.md)の同名節を参照する。
 
-Debug全体ビルド、[noisynet]と全coreのCPU／CUDA、Release全体ビルド、設定6構成・既定葉・公開面と削除APIの機械検査を行う。最終ReleaseのOFF3本と代表ON単発を各500k経験で旧checksumと完全一致比較し、旧OFF checkpointも読み込む。出力は.scratch/prd084/forward-refactor/bundle-20261011/afterへ分離する。別の学習Runが同じGPUにある場合GPU Runは保留し、CPU OFFは実行する。性能は再測定しない。
+Debug全体ビルド、[noisynet]と全coreのCPU／CUDA、Release全体ビルド、設定6構成・既定キー・公開面と削除APIの機械検査を行う。最終ReleaseのOFF3本と代表ON単発を各500k経験で旧checksumと完全一致比較し、旧OFF checkpointも読み込む。出力は.scratch/prd084/forward-refactor/bundle-20261011/afterへ分離する。別の学習Runが同じGPUにある場合GPU Runは保留し、CPU OFFは実行する。性能は再測定しない。
 
 Double DQNまたはMunchausen onlineでNoisy sampleを使う構成は、独立箱への変更によって乱数割り当てが変わり以前のRunと数値は一致しないが、抽選分布は維持する。代表ONはMunchausen target方式であり、この変更を通らない。以前の節とADR本文は当時の記録として保持する。

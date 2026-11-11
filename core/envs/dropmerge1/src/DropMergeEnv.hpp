@@ -347,6 +347,10 @@ namespace anet::rl::env::drop_merge {
     class DropMergeEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
     public:
         DropMergeEnvFactory() = default;
+        void ValidateConfig(const anet::ConfigData& data, anet::rl::RunMode, const std::string& prefix) const override
+        {
+            (void)DropMergeEnvConfig(data, prefix);
+        }
         std::string GetTargetEnvClassId() const override { return "DropMergeEnv"; }
 
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(

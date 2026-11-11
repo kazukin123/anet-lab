@@ -1,6 +1,5 @@
 ﻿// RunnerApp.cpp
 #include "RunnerApp.hpp"
-#include <array>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -50,6 +49,18 @@ std::string PathToUtf8(const std::filesystem::path& path)
 
 }  // namespace runner_app_detail
 
+namespace {
+    class NonModalLogTarget final : public wxLogStderr {
+    protected:
+        void DoLogRecord(wxLogLevel level, const wxString& message, const wxLogRecordInfo& info) override
+        {
+            if (notification_filter_.Accept(info)) wxLogStderr::DoLogRecord(level, message, info);
+        }
+    private:
+        LOG::NotificationFilter notification_filter_;
+    };
+}
+
 using namespace runner_app_detail;
 
 
@@ -74,9 +85,9 @@ struct RunnerApp::Config : public anet::Config {
     anet::MetricsLoggerConfig metrics_logger;
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
-    std::vector<std::string> warnings;
 
-    Config(const anet::ConfigData& config_data) : anet::Config(config_data, "app")
+    Config(const anet::ConfigData& config_data, const std::string& prefix = "")
+        : anet::Config(config_data, "app", prefix)
     {
         ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, runs_dir);
@@ -93,7 +104,6 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, exp_pause_step);
         ANET_READ_CONFIG(config_data, exp_exit_step);
 
-        WarnDeprecatedRunsDirConfig(config_data);
         ValidateRunsDir();
         ValidateLogFlushInterval();
         ValidateDrainTimeout();
@@ -114,6 +124,11 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.episode_interval);
         train_panel.Validate();
         eval_panel.Validate();
+        if (prefix.empty()) {
+            // 有効側のapp.*を変えず、未選択のモードも同じ型付きの読み口へ通す。
+            const Config online(config_data, "app.online");
+            const Config batchrun(config_data, "app.batchrun");
+        }
     }
 
     RunnerFrame::MainView GetMainView() const
@@ -123,32 +138,20 @@ struct RunnerApp::Config : public anet::Config {
         if (normalized == "train") return RunnerFrame::MainView::Train;
         if (normalized == kEvalMainView) return RunnerFrame::MainView::Eval;
         if (normalized == "both") return RunnerFrame::MainView::Both;
-        ANET_SYSTEM_ERROR("Invalid app.main_view: value=" << main_view << " (expected: train, eval, both)");
+        ANET_SYSTEM_ERROR("Invalid " << GetValidationKey("main_view") << ": value=" << main_view << " (expected: train, eval, both)");
         return RunnerFrame::MainView::Eval; // ANET_SYSTEM_ERROR が送出するため到達しない。
     }
 
 private:
-    void WarnDeprecatedRunsDirConfig(const anet::ConfigData& config_data)
+    std::string GetValidationKey(const std::string& key) const
     {
-        for (const char* key : std::array{
-            "app.metrics_logger.runs_dir",
-            "app.metrics_logger.root_dir",
-        }) {
-            if (!config_data.Has(key)) {
-                continue;
-            }
-
-            const auto value = config_data.Get(key);
-            warnings.push_back(
-                "Config key " + std::string(key) + " is deprecated and ignored. value=\""
-                + value + "\". Use app.runs_dir instead.");
-        }
+        return GetOverridePrefix().empty() ? MakeDefaultConfigKey(key) : MakeOverrideConfigKey(key);
     }
 
     void ValidateRunsDir() const
     {
         if (runs_dir.empty()) {
-            ANET_SYSTEM_ERROR("Invalid config key app.runs_dir: value must not be empty.");
+            ANET_SYSTEM_ERROR("Invalid config key " << GetValidationKey("runs_dir") << ": value must not be empty.");
         }
     }
 
@@ -156,7 +159,7 @@ private:
     {
         if (log_flush_interval_ms < 0) {
             ANET_SYSTEM_ERROR(
-                "Invalid config key app.log_flush_interval_ms: value=" << log_flush_interval_ms
+                "Invalid config key " << GetValidationKey("log_flush_interval_ms") << ": value=" << log_flush_interval_ms
                 << " (expected: >= 0; 0 disables periodic flushing).");
         }
     }
@@ -165,7 +168,7 @@ private:
     {
         if (drain_timeout_sec <= 0) {
             ANET_SYSTEM_ERROR(
-                "Invalid config key app.drain_timeout_sec: value=" << drain_timeout_sec
+                "Invalid config key " << GetValidationKey("drain_timeout_sec") << ": value=" << drain_timeout_sec
                 << " (expected: positive integer > 0).");
         }
     }
@@ -183,7 +186,7 @@ void RunnerApp::SetupNonModalErrorLogging()
     }
 
     // 解決済み設定以降の起動失敗を、既定の GUI logger ではなく stderr へ送る。
-    auto log_target = std::make_unique<wxLogStderr>();
+    auto log_target = std::make_unique<NonModalLogTarget>();
     previous_log_target_ = wxLog::SetActiveTarget(log_target.get());
     non_modal_log_target_ = std::move(log_target);
 }
@@ -404,15 +407,12 @@ bool RunnerApp::OnInit()
 
     // workspace 確定中の通知は、wxLogGUI ではなく UI と Run file のログへ送る。
     if (!startup_warning.empty()) {
-        LOG::warn() << startup_warning;
+        LOG::warn_once() << startup_warning;
     }
     if (!startup_info.empty()) {
         LOG::info() << startup_info;
     }
     standard_stream_logger_.LogStatus();
-    for (const auto& warning : config_->warnings) {
-        LOG::warn() << warning;
-    }
 
     // RunNameを記録
     //this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
@@ -530,6 +530,9 @@ void RunnerApp::CompleteRunInitialization()
 
     // ログ
     run_manager_->GetNotifier()->LogObservers();
+
+    // アプリ側の画像登録とpanel接続まで読み終え、最初のstepより前に確定する。
+    anet::WarnUnreadConfigKeys(config_data);
 
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
@@ -729,7 +732,7 @@ int64_t RunnerApp::SaveAgent(const std::filesystem::path& file_path)
     }
 
     if (size == 0) {
-        LOG::warn() << "Agent save produced zero bytes; Save may be unimplemented: file="
+        LOG::warn_once(log_file_path_str) << "Agent save produced zero bytes; Save may be unimplemented: file="
             << log_file_path_str;
     }
     LOG::info() << "Finished saving agent: file=" << log_file_path_str << " size=" << size << " bytes";

@@ -197,6 +197,10 @@ namespace anet::rl::env {
     class LunarLanderEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
     public:
         LunarLanderEnvFactory() = default;
+        void ValidateConfig(const anet::ConfigData& data, anet::rl::RunMode, const std::string& prefix) const override
+        {
+            (void)LunarLanderEnvConfig(data, prefix);
+        }
 
         std::string GetTargetEnvClassId() const override { return "LunarLanderEnv"; }
 

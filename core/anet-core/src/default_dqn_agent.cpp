@@ -99,24 +99,27 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
 
-    // 内的報酬の推定器と診断を初期化
+    // 鍵は生成側が宣言し、部品を作らない場合も既知の未成立値を保つ。
+    for (const auto& [key, value] : anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::InitialDiagnostics())
+        intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
+    for (const auto* key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare,
+        kIntrinsicBonusMin, kIntrinsicBonusPosRatio, kIntrinsicLearnCount})
+        intrinsic_diagnostics_.try_emplace(key, std::numeric_limits<float>::quiet_NaN());
+
+    // 内的報酬の推定器を初期化
     if (config_.intrinsic.enabled) {
+        if (config_.learner.enabled && batch_env_spec.num_envs < config_.intrinsic.learn_batch_size) {
+            ANET_SYSTEM_ERROR("DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.intrinsic.learn_batch_size
+                << " exceeds num_envs=" << batch_env_spec.num_envs
+                << "; expected learn_batch_size <= run.train.num_envs when DefaultDQNAgent.learner.enabled=true.");
+        }
         lifelong_novelty_ = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             config_.intrinsic.rnd, config_.GetConfigPrefix() + ".intrinsic.rnd",
             env_spec.state_spec.obs_spec, device_, seed_maker);
         intrinsic_beta_.emplace(config_.intrinsic.beta);
-        intrinsic_diagnostics_.try_emplace(kIntrinsicLearnCount, 0.0f);
-        if (batch_env_spec.num_envs < config_.intrinsic.learn_batch_size)
-            LOG::warn() << "DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.intrinsic.learn_batch_size
-                << " exceeds num_envs=" << batch_env_spec.num_envs
-                << "; using num_envs observations per intrinsic learning step.";
-        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
-            intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
-        for (const auto key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare,
-            kIntrinsicBonusMin, kIntrinsicBonusPosRatio})
-            intrinsic_diagnostics_.try_emplace(key, std::numeric_limits<float>::quiet_NaN());
+        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(0.0f, std::memory_order_relaxed);
         if (!config_.learner.enabled)
-            LOG::warn() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
+            LOG::info_once() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
     }
 
     // RewardScaler生成
@@ -437,7 +440,7 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
     }
     LOG::info() << "LoadNetwork: learner_size=" << learner_size;
     if (config_.skip.enabled && !has_skip) {
-        LOG::warn() << "Checkpoint has no skip networks; restored primary networks and optimizer state, initialized skip networks and optimizer groups. file=" << filename;
+        LOG::warn_once(filename) << "Checkpoint has no skip networks; restored primary networks and optimizer state, initialized skip networks and optimizer groups. file=" << filename;
     }
 }
 
@@ -500,6 +503,8 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
     if (key.starts_with(kIntrinsicPrefix)) {
         const auto it = intrinsic_diagnostics_.find(key);
         if (it == intrinsic_diagnostics_.end()) return std::nullopt;
+        if (!config_.intrinsic.enabled || !config_.learner.enabled)
+            return std::numeric_limits<float>::quiet_NaN();
         return it->second.load(std::memory_order_relaxed);
     }
     // プレフィックスで各 Policy インスタンスへ処理を委譲
@@ -737,7 +742,7 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 
             // 経験件数に比例したcreditを貯め、同じintakeのlaneを重複なくk件ずつ渡す。
             const auto num_lanes = intrinsic_observations.Size(0);
-            const auto batch_size = std::min<int64_t>(config_.intrinsic.learn_batch_size, num_lanes);
+            const auto batch_size = config_.intrinsic.learn_batch_size;
             intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.intrinsic.learn_ratio / batch_size;
             if (intrinsic_learn_credit_ >= 1.0f) {
                 ANET_PROFILE_SCOPE(intrinsic_selection);

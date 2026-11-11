@@ -1,4 +1,4 @@
-"""既定葉検査の抽出から判定までを合成した入力で検証する。"""
+"""既定キー検査の抽出から判定までを合成した入力で検証する。"""
 
 import contextlib
 import io
@@ -53,7 +53,7 @@ class DefaultLeafAuditTest(unittest.TestCase):
                     self.assertTrue(all(row["expected_operator"] == expected_operator for row in report))
 
     def test_environment_owns_the_skip_duration_default(self):
-        # JはEnvが所有する既定。Headの実験選択を既定葉へ広げない。
+        # JはEnvが所有する既定。Headの実験選択を既定キーへ広げない。
         for env in ("GridMaze", "LunarLander", "Atari", "DropMerge"):
             file = "apps/runner/config/" + env + ".txt"
             code, _ = self.audit([(file, "DefaultDQNAgent.skip.max_length ?= 7")])
@@ -64,7 +64,7 @@ class DefaultLeafAuditTest(unittest.TestCase):
     def test_gridmaze_experiment_seed_remains_an_explicit_choice(self):
         from migrate import migrate_text
 
-        # seedは明示的な実験選択であり、既定葉の?=へ弱めない。
+        # seedは明示的な実験選択であり、既定キーの?=へ弱めない。
         file = "apps/runner/config/GridMaze.txt"
         for operator, expected_code in (("=", 0), ("?=", 1)):
             with self.subTest(operator=operator):

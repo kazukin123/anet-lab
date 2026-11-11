@@ -83,8 +83,10 @@ namespace anet::rl::img_cls {
             for (const auto& [key, sub] : items) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
-                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
-                ReadConfig(config_data, prefix + ".bf16", entry.bf16);
+                const auto data = MakeReadScope(config_data, prefix);
+                ReadConfig(data, prefix + ".clone_model", entry.clone_model);
+                ReadConfig(data, prefix + ".bf16", entry.bf16);
+                data.RequireAllKeysRead(MakeDefaultConfigKey(prefix));
             }
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);

@@ -1,11 +1,4 @@
 #include "anet/catch_test.hpp"
-#include "anet/config.hpp"
-#include "anet/default_dqn_agent.hpp"
-#include "anet/image_cls_agent.hpp"
-#include "anet/muzero_proto_agent.hpp"
-#include "anet/observers.hpp"
-#include "anet/rainbow_agent.hpp"
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +7,85 @@
 #include <string>
 #include <wx/cmdline.h>
 #include <wx/utils.h>
+#include "anet/config.hpp"
+#include "anet/default_dqn_agent.hpp"
+#include "anet/image_cls_agent.hpp"
+#include "anet/muzero_proto_agent.hpp"
+#include "anet/observers.hpp"
+#include "anet/rainbow_agent.hpp"
+#include "anet/test_util.hpp"
+#include "nn_impl.hpp"
+
+TEST_CASE("PRD117 captures current Env defaults for key comparison", "[.][prd117-capture]")
+{
+    // 履歴の固定入力ではなく、今回変更する出荷設定の全キーを採取する。
+    constexpr const char* kCaptureOutput = "ANET_PRD117_CAPTURE_OUTPUT";
+    wxString output_directory;
+    REQUIRE(wxGetEnv(kCaptureOutput, &output_directory));
+    const auto root = std::filesystem::path(output_directory.ToStdWstring());
+    const auto config_root = std::filesystem::current_path() / "apps/runner/config";
+    std::filesystem::create_directories(root);
+    for (const auto* name : {"Atari", "CartPole", "DropMerge", "GridMaze", "GridMaze_muzero", "ImageCls", "LunarLander"}) {
+        DYNAMIC_SECTION(name) {
+            const auto output_path = root / (std::string(name) + ".json");
+            REQUIRE_FALSE(std::filesystem::exists(output_path));
+            const auto input_path = root / (std::string(name) + ".txt");
+            {
+                std::ofstream input(input_path);
+                input << "$include <" << (config_root / "_main.txt").generic_string() << ">\n"
+                    << "$include <" << (config_root / (std::string(name) + ".txt")).generic_string() << ">\n";
+            }
+            const anet::ConfigManager manager(input_path);
+            std::ofstream output(output_path);
+            REQUIRE(output.good());
+            output << manager.GetConfigData().ToJson().dump(2) << '\n';
+        }
+    }
+}
+
+TEST_CASE("PRD117 resolves an acceptance Run with scalar definitions", "[.][prd117-resolve]")
+{
+    constexpr char kResolveInput[] = "ANET_PRD117_RESOLVE_INPUT";
+    constexpr char kResolveOutput[] = "ANET_PRD117_RESOLVE_OUTPUT";
+    wxString input;
+    wxString output;
+    REQUIRE(wxGetEnv(kResolveInput, &input));
+    REQUIRE(wxGetEnv(kResolveOutput, &output));
+    const anet::ConfigManager manager(std::filesystem::path(input.ToStdWstring()));
+    const auto data = manager.GetConfigData();
+    const anet::rl::ObserverFactory factory(data);
+    std::ofstream file(std::filesystem::path(output.ToStdWstring()));
+    REQUIRE(file.good());
+    const anet::json result = {{"config", data.ToJson()}, {"resolution", manager.GetResolutionJson()},
+        {"scalar_defs", anet::rl::ScalarMetricDefsToJson(factory.GetScalarMetricDefs())}};
+    file << result.dump(2) << '\n';
+}
+
+TEST_CASE("Agent Actor catalogs reject unread keys independently of prior reads", "[config][prd117]")
+{
+    const std::string owner = GENERATE("DefaultDQNAgent", "RainbowAgent", "MuZeroAgent", "ImageClsAgent");
+    CAPTURE(owner);
+    anet::ConfigData data;
+    const auto prefix = owner + ".actor.[custom]";
+    data.Set(prefix + ".clone_model", false);
+    if (owner == "DefaultDQNAgent") {
+        data.Set(owner + ".nn_forward.[test].noisy.mode", "mu_only");
+        data.Set(prefix + ".nn_forward_key", "test");
+        data.Set(owner + ".learner.current.nn_forward_key", "test");
+        data.Set(owner + ".learner.target.nn_forward_key", "test");
+    }
+    const auto read = [&] {
+        if (owner == "DefaultDQNAgent") { const anet::rl::dqn::DefaultDQNAgentConfig config(data); }
+        else if (owner == "RainbowAgent") { const anet::rl::dqn::RainbowAgentConfig config(data); }
+        else if (owner == "MuZeroAgent") { const anet::rl::muzero_proto::MuZeroAgentConfig config(data); }
+        else { const anet::rl::img_cls::ImageClsAgentConfig config(data); }
+    };
+    CHECK_NOTHROW(read());
+    data.Set(prefix + ".typo", 9);
+    CHECK(data.Get<int>(prefix + ".typo") == 9);
+    CHECK_THROWS_WITH(read(), Catch::Matchers::ContainsSubstring(prefix)
+        && Catch::Matchers::ContainsSubstring("typo = 9"));
+}
 
 TEST_CASE("PRD104 defaults and auxiliary arms preserve metrics and propagate Actor limits", "[config][prd104][shipped_config]")
 {
@@ -148,7 +220,7 @@ TEST_CASE("PRD061 target Actor inherits final eval policy with explicit override
         const auto config = anet::ConfigManager(input_path, &cli).GetConfigData();
         CHECK(config.Get("DefaultDQNAgent.actor.[eval].policy.epsilon") == "0.123");
         CHECK(config.Get("DefaultDQNAgent.actor.[eval_target].policy.epsilon") == (override_target ? "0.234" : "0.123"));
-        // 右側のtarget差分と、Actor自身に指定した葉の優先順位も維持する。
+        // 右側のtarget差分と、Actor自身に指定した設定キーの優先順位も維持する。
         CHECK(config.Get("DefaultDQNAgent.actor.[eval_target].network") == "target");
         CHECK(config.Get("DefaultDQNAgent.actor.[eval].network") == "online");
     }
@@ -716,4 +788,144 @@ TEST_CASE("PRD093 validation conditions survive the Atari Run chain", "[.][prd09
             CHECK(value == "0");
         }
     }
+}
+
+
+static std::set<std::string> NetworkCatalogPrefixes(const anet::ConfigData& data)
+{
+    std::set<std::string> prefixes;
+    for (const auto& [key, value] : data.Map()) {
+        for (const std::string marker : {".block.[", ".config_profile.["}) {
+            const auto pos = key.find(marker);
+            if (pos == std::string::npos) continue;
+            auto prefix = key.substr(0, pos);
+            const auto branch = prefix.find(".branch.[");
+            if (branch != std::string::npos) prefix.resize(branch);
+            prefixes.insert(std::move(prefix));
+        }
+    }
+    return prefixes;
+}
+
+static void ValidateCatalogProfile(const std::string& name, const anet::nn::ConfigProfileConfig& profile)
+{
+    anet::nn::NetworkConfig probe;
+    probe.config_profiles.emplace(name, profile);
+    anet::nn::NetworkBlockConfig block;
+    block.type = "Linear";
+    block.config_data.Set("linear.out_features", 1);
+    block.config_data.Set("init.mode", "constant");
+    block.config_data.Set("init.constant_val", "@" + name);
+    probe.block_configs.emplace("ValidationLinear", std::move(block));
+    (void)anet::nn::NetworkStructBuilder::Build(probe, "ValidationLinear",
+        std::make_shared<anet::nn::ModuleRandomSource>(117));
+}
+
+static void ValidateUnusedCatalogs(const anet::ConfigData& data)
+{
+    anet::nn::InitNN();
+    for (const auto& prefix : NetworkCatalogPrefixes(data)) {
+        auto catalog_data = data;
+        if (data.MakeSubConfigData(prefix + ".branch").empty()) {
+            catalog_data.Set(prefix + ".branch.[ValidationBranch].bind", "obs");
+            catalog_data.Set(prefix + ".branch.[ValidationBranch].structure", "");
+        }
+        const anet::nn::NetworkConfig config(catalog_data, prefix);
+        for (const auto& [name, block] : config.block_configs) {
+            const auto scope = block.config_data.CreateReadScope();
+            // A9の仮値。補間profileの参照関係をblock単体の検査へ持ち込まない。
+            auto parameters = scope;
+            for (const auto& [key, value] : scope.Map()) {
+                if (value.starts_with('@')) parameters.Set(key, "0");
+            }
+            const auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory(block.type);
+            (void)factory->CreateModule(parameters,
+                {.random_source = std::make_shared<anet::nn::ModuleRandomSource>(117)});
+            parameters.RequireAllKeysRead(prefix + ".block.[" + name + "] type=" + block.type);
+        }
+        for (const auto& [name, profile] : config.config_profiles) ValidateCatalogProfile(name, profile);
+        for (const auto& [branch_name, branch] : config.branches) {
+            for (const auto& [name, local] : branch.config_profiles) {
+                auto effective = config.config_profiles.contains(name)
+                    ? config.config_profiles.at(name) : anet::nn::ConfigProfileConfig{};
+                effective.config_data.OverwriteFrom(local.config_data);
+                ValidateCatalogProfile(name, effective);
+            }
+        }
+    }
+    std::set<std::string> forward_prefixes;
+    for (const auto& [key, value] : data.Map()) {
+        const auto pos = key.find(".nn_forward.[");
+        if (pos != std::string::npos) forward_prefixes.insert(key.substr(0, pos) + ".nn_forward");
+    }
+    if (forward_prefixes.empty()) return;
+    anet::ConfigData probe;
+    probe.Set("net.block.[Linear].type", "Linear");
+    probe.Set("net.block.[Linear].linear.out_features", 2);
+    probe.Set("net.block.[Linear].noisy.enabled", false);
+    probe.Set("net.branch.[features].bind", "obs");
+    probe.Set("net.branch.[features].structure", "Linear");
+    probe.Set("net.body.output.[features]", "features");
+    const anet::TensorSpec spec{.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kFloat32};
+    const auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(probe),
+        anet::TensorSpecMap{{"obs", spec}}, nullptr, 117);
+    for (const auto& prefix : forward_prefixes) {
+        for (const auto& [name, entry] : data.MakeSubConfigData(prefix)) {
+            const anet::nn::NetworkForwardConfig config(prefix + ".[" + name + "]", entry);
+            (void)network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 117);
+        }
+    }
+}
+
+TEST_CASE("Shipped configuration reads every unused NN catalog entry", "[prd117][shipped_config]")
+{
+    const auto config_root = std::filesystem::current_path() / "apps/runner/config";
+    const auto output = std::filesystem::current_path() / "out/test-tmp/prd117-shipped-catalogs";
+    std::filesystem::create_directories(output);
+    for (const auto* env : {"Atari", "CartPole", "DropMerge", "GridMaze", "GridMaze_muzero", "ImageCls", "LunarLander"}) {
+        CAPTURE(env);
+        const auto path = output / (std::string(env) + ".txt");
+        {
+            std::ofstream file(path);
+            REQUIRE(file.good());
+            file << "$include <" << (config_root / "_main.txt").generic_string() << ">\n"
+                << "$include <" << (config_root / (std::string(env) + ".txt")).generic_string() << ">\n";
+        }
+        CHECK_NOTHROW(ValidateUnusedCatalogs(anet::ConfigManager(path).GetConfigData()));
+    }
+}
+
+TEST_CASE("Shipped catalog checker rejects unread fields in unused definitions", "[prd117][shipped_config]")
+{
+    anet::test::LogCaptureGuard logs;
+    const std::string kind = GENERATE("block", "profile", "forward");
+    anet::ConfigData data;
+    std::string unknown;
+    if (kind == "block") {
+        data.Set("net.block.[unused].type", "Conv2d");
+        data.Set("net.block.[unused].conv.out_channels", 4);
+        data.Set("net.block.[unused].conv.kernel_size", 1);
+        unknown = "net.block.[unused].out_channels";
+    } else if (kind == "profile") {
+        data.Set("net.config_profile.[unused].end", 0.2);
+        unknown = "net.config_profile.[unused].typo";
+    } else {
+        data.Set("AnyAgent.nn_forward.[unused].noisy.mode", "mu_only");
+        unknown = "AnyAgent.nn_forward.[unused].typo";
+    }
+    data.Set(unknown, 7);
+    (void)data.Get(unknown);
+    CHECK_THROWS_WITH(ValidateUnusedCatalogs(data), Catch::Matchers::ContainsSubstring(kind == "block" ? "out_channels" : "typo"));
+}
+
+TEST_CASE("Shipped catalog checker accepts branch-only profiles and dormant forward modes", "[prd117][shipped_config]")
+{
+    anet::ConfigData data;
+    data.Set("net.block.[Drop].type", "Dropout");
+    data.Set("net.block.[Drop].dropout_rate", "@only_branch");
+    data.Set("net.branch.[features].bind", "obs");
+    data.Set("net.branch.[features].structure", "Drop");
+    data.Set("net.branch.[features].config_profile.[only_branch].end", 0.2);
+    data.Set("AnyAgent.nn_forward.[unused].noisy.mode", "sample");
+    CHECK_NOTHROW(ValidateUnusedCatalogs(data));
 }

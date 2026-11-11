@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:77c388e560b408deeea60861036c233c18d6e50c date:2026-11-09 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:cbafddf15f389eb6073e3531b9a419d48acb8e0c date:2026-11-12 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -27,6 +27,8 @@ See [Agents and Learning](110_agents_and_learning.en.md) for shared Agent owners
 
 Network inputs and outputs use `TensorDict`, a map from string keys to Tensors.
 `TensorSpecMap` specifies each input key's shape, dtype, and value range. It starts with Observation specs inherited from EnvSpec; Agent-owned additional input specs can be added to the same map before Network construction. For DefaultDQN IQN, Agent adds `taus`, which is not an Env Observation, and Actor/Learner injects it into a copy of the input TensorDict immediately before forward.
+
+Agent selects the specs used as inputs to its Network. For ImageClsAgent, `vector` carries the training labels consumed by Learner, so it is excluded from the Network input specs; the image `grid` is the NN input. The Env Observation and training labels are preserved.
 
 At the Network Body entrance, `NetworkBoundaryPreprocessor`:
 
@@ -63,13 +65,13 @@ This separation allows multiple Agent-specific Heads to use a shared Backbone.
 
 NetworkForwardConfig is an immutable carrier of a key and copied selected ConfigData, without concrete types, parsing, or validation. Network::CreateForwardExecutor delegates preparation to constructed Modules and Head. Ordinary components remain direct call targets; only consuming concrete components return prepared calls with private enums and numbers. Child Modules propagate preparation while reusing bind, dependencies, trace, capture, and FP32 computation. New settings remain local to consuming components.
 
+CreateForwardExecutor requires a Network owned by shared_ptr.
+
+Public nn.hpp contains NN consumer contracts. NetworkHead, NetworkHeadExecutor, NetworkHeadFactory, HeadGraphVizInfo, and WeightNormConfig definitions live in internal nn_impl.hpp. Module/Head CreateExecutor returns nullptr when no dedicated executor is needed, keeping the ordinary body as the direct call target. Public declarations retain only forward declarations required by signatures. State, Context, component execution interfaces, and RunForward are absent from public signatures. A cpp-local RunForward shares the Body/Head computation for default and prepared paths.
+
 NetworkForwardExecutor owns Network lifetime. CreateForwardExecutor uses named settings and clock kind during component preparation; the executor owns prepared calls and Network-specific internal State. Default settings perform no component preparation and own no State or clock kind; clock_kind and seed are unused. Calls refer to existing weights; clones need separate preparation. Runtime switching remains deferred.
 
 Immutable NetworkForwardCallInfo contains clock value, episode_start, and row mapping. Construct it in a separate statement before Forward(input, info). WithRowMapping copies all Params and replaces only the mapping. Internal Context holds a State pointer and a const CallInfo reference, without clock kind. Impl-local MakeContext performs no Tensor copies, draws, State updates, or computation. The reference lives only during synchronous Forward; Tensor storage must not change during the call.
-
-The internal NN helpers PreparedModuleChildren<N> and PreparedHeadExecutor<Head, ForwardMethod, N> own prepared child calls and bind the Head computation at compile time. They do not interpret DQN, Noisy, or concrete settings. A Head with only default child calls runs its original body directly. CreateForwardExecutor requires a Network owned by shared_ptr.
-
-Public nn.hpp contains NN consumer contracts. NetworkHead, NetworkHeadExecutor, NetworkHeadFactory, HeadGraphVizInfo, and WeightNormConfig definitions live in internal nn_impl.hpp. Module/Head CreateExecutor returns nullptr when no dedicated executor is needed, keeping the ordinary body as the direct call target. Public declarations retain only forward declarations required by signatures. State, Context, component execution interfaces, and RunForward are absent from public signatures. A cpp-local RunForward shares the Body/Head computation for default and prepared paths.
 
 Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkForwardContext::GetDefault internally; Noisy defaults to μ-only. Dummy calls, extra diagnostics, other Agents, and unchanged TensorDictFunction operations use this route. Named settings are no longer passed in Context. Setting access uses no RTTI, dynamic_cast, or type tokens; internal State type management remains separate. Configuration loading validates references; consuming concrete preparation validates contents and usage, and computations validate runtime shape/device and clocks. ValidateForwardReuse delegates reuse constraints.
 
@@ -81,6 +83,12 @@ Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkF
 - `net.body.[name].structure`: serial structures connecting blocks with `>`
 - Branch bind terms, `bind_concat_dim`, raw keys, and output keys
 - Per-block/per-branch config profiles
+
+A block appearing in a structure is checked against a closed schema after its module factory finishes reading. Unread config keys stop construction with the block name, type, keys and values, and the keys read by that factory. Writing `out_channels` instead of `conv.out_channels` fails whether assigned with `?=` or `=`. Prior reads by copies or another reader do not bypass this validation.
+
+Blocks absent from structures are not instantiated or schema-validated during a Run. Replacing only an existing block's type leaves fields for its old type, which stop construction as unread keys when used. Define a separately named block and select it in the structure instead.
+
+Config profiles also validate types, numbers, required fields, and unread keys only when referenced. Construction information retains raw settings with their sources, and ToJson records string values as it does for other raw settings; dumping does not parse or mark unreferenced invalid values as read. Unreferenced global profiles are inventory, while profiles unused within their owning branch remain in the Run's unread list. Original keys overridden by local definitions count as consumed.
 
 `bind` accepts comma-separated terms. Within each term, `*`-separated factors form a feature-last elementwise product. `*` has precedence over `,`; rank differences are aligned by inserting singleton dimensions immediately after the lower-rank factor's batch axis. Multiple terms concatenate along the branch's `bind_concat_dim` (default 1; negative values allowed), each term must have rank >= 2. The axis is normalized using the maximum term rank; concatenation along batch dimension 0 is prohibited. For feature-last concatenation, missing singleton axes are inserted after the lower-rank term's batch axis and only those inserted axes are broadcast. For example, [B,K,F] and [B,A] concatenate into [B,K,F+A] at -1. Existing axes and the batch axis are never expanded.
 
@@ -285,7 +293,7 @@ Passing a `TraceCallback` enables collection of intermediate module/branch Tenso
 ### 7.1 Construction-Time Validation
 
 - Unregistered module types, missing blocks, unresolvable bind keys, and cyclic branches fail during construction.
-- If an input-spec key is referenced by neither any bind factor nor a direct `net.body.output` mapping, warn once per key per build. This only identifies possible omissions; it does not guarantee reachability or semantic contribution to final outputs.
+- If an input-spec key is referenced by neither any bind factor nor a direct `net.body.output` mapping, warn once per key per Run. This only identifies possible omissions; it does not guarantee reachability or semantic contribution to final outputs.
 - Bind products validate batch sizes across factors. Concatenating multiple terms normalizes `bind_concat_dim` using the maximum term rank and explicitly validates its range, exclusion of the batch axis, and matching term batch sizes. Other broadcast/concatenation shape mismatches are libtorch errors.
 - Input-spec versus actual TensorDict shape/dtype mismatches are detected at the Network boundary.
 - IQN Head validates rank 3 `(B,K,D)`; IQN Dueling Head validates matching value/advantage B/K as local input contracts during dummy forward. This does not prove that `taus` contributes semantically to the final output.
@@ -346,11 +354,11 @@ Plasticity statistics accept rank-2 `(N,D)` features and a requested metric set,
 
 Body `Linear` defaults to `noisy.enabled=false`, `noisy.sigma0=0.5`, and `force_fp32=false`. Existing weight/bias remain μ with their names, initialization, and RNG order preserved. Enabling Noisy registers signed trainable `sigma_weight` / `sigma_bias`, both initialized to `sigma0 / sqrt(fan_in)`.
 
-The concrete LinearProjectionModule composed by Body Linear and Heads privately interprets noisy.mode/hold/share/count during preparation. Consuming preparation validates written types, enums, ranges, required fields, episode/batch compatibility, and clock constraints. Unreferenced entries and OFF components leave execution contents dormant. Mu-only does not require unused holding fields, while explicit recognized values are validated by the consuming component.
+The concrete LinearProjectionModule composed by Body Linear and Heads privately interprets noisy.mode/hold/share/count during preparation. Consuming preparation validates written types, enums, ranges, required fields, episode/batch compatibility, and clock constraints. Unreferenced entries are not validated. Each instantiated named execution setting owns a fresh read scope and rejects unread keys after all concrete components have been prepared. Noisy OFF still validates explicit recognized values but does not require fields for an execution mode it does not use. Mu-only likewise does not require unused holding fields.
 
 Internal opaque `NetworkForwardState` owned by named execution stores ε per module instance and a dedicated RNG. Call redraws when the clock changes; count redraws every N Actor calls; episode redraws only Actor lanes marked by `episode_start`. Repeating a forward at the same clock preserves ε and does not apply an episode boundary twice. Episode boundaries do not reset count. Held shape/device mismatches and backward clocks fail fast. The immutable NetworkForwardRowMapping validates CPU int64 indices and the source-row count once, then transfers indices to the execution device once. Projections use SelectRows without exposing internal indices and check only row/device metadata at execution. GetIndices returns an independent inspection copy.
 
-Concrete prepared calls own parsed values. Normal forward has no setting lookup, parsing, or configuration locks, independently of source lifetime, mutation, and key reuse.
+Concrete prepared calls own parsed values. The internal NN helpers PreparedModuleChildren<N> and PreparedHeadExecutor<Head, ForwardMethod, N> own prepared child calls and bind the selected Head computation at compile time. They do not interpret DQN, Noisy, or concrete settings. A Head with only default child calls runs its original body directly. Normal forward has no setting lookup, parsing, or configuration locks, independently of source lifetime, mutation, and key reuse.
 
 Sample uses separate `Linear(x, μ)` and `Linear(x*ε_in, σ)*ε_out` operations without materializing `[B,out,in]` weights. ε broadcasts over non-batch dimensions, including IQN τ. μ-only and `GetDefault()` exclude σ from the graph and consume no ε/RNG. Existing FP32 spectral normalization applies only to μ. Independent `force_fp32` preserves ordinary AMP inheritance and Head FP32 boundaries.
 
@@ -359,6 +367,8 @@ Cloning, hard/soft copying, and serialization include μ/σ parameters and exist
 `ComputeNoisyParameterStatistics(feature_key)` classifies the feature dependency closure versus readout and returns weight/bias σ mean-abs and L2 ratios. Only paired μ contributes to denominators, using effective μ for SN. Empty populations are NaN; a zero denominator invalidates only its ratio. Existing weight norms exclude σ.
 
 ## 8. Tests and Extension Checks
+
+- [PRD117 validation resources](../../core/anet-core/testdata/prd117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
 
 When changing Networks, check the following:
 

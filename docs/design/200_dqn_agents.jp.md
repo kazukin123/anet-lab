@@ -395,11 +395,11 @@ sequenceDiagram
 
 RND の基本概念、数式と処理順、設定・指標の具体例は [212 RND による新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
 
-DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼び、`beta(exp_step) × (alpha − 1)` を加算する。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、`intrinsic.use_done_mask=true`（既定）のときdoneのbonusだけ0にする（truncatedは加算する）。falseでは終端の採点値も足す。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。この場合use_done_maskは使わず、既定と違うfalseだけ構築時1回WARNする。Actorのframe stack後の入力とは別である。Replayへ渡す報酬に畳み込むため、Actor、Replay形式、Qのoptimizerは変えない。`learner.enabled=false` では一度WARNし、採点と補助学習を休止する。
+DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼び、`beta(exp_step) × (alpha − 1)` を加算する。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、`intrinsic.use_done_mask=true`（既定）のときdoneのbonusだけ0にする（truncatedは加算する）。falseでは終端の採点値も足す。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。この場合use_done_maskは使わず、既定と違うfalseだけ構築時1回WARNする。Actorのframe stack後の入力とは別である。Replayへ渡す報酬に畳み込むため、Actor、Replay形式、Qのoptimizerは変えない。`learner.enabled=false` ではRunに1回INFOを出し、採点と補助学習を休止する。
 
 RNDは別々の `target.net`・`predictor.net` から固定targetとpredictorを組み、共通の `output_dim` のLinear Headへ `head.init.*` を適用する。非カテゴリのuint8はRND内でfloatに変換する。既定の `statistics_mode=whiten` は更新前の観測・誤差統計を使い、採点後に統計を更新する。誤差の統計は `error_norm.average_mode=cumulative`（既定）か `ema`（観測件数の時定数 `ema_steps`、既定1,000,000）で選ぶ。`error_norm.use_centering=true`（既定）は平均を引き、falseは誤差をそのまま標準偏差で割る。`variance_feedback` はlane順の再帰で観測を正規化・clipして統計へ戻し、更新後の誤差平均と分散でzを作る（標準偏差では割らない）。`multiplier_mode=clipped`（既定）は `clamp(1+z,1,multiplier_max)`、`unclipped` は `1+z` を返す。割る値0か統計が空なら1。warm-upは観測件数で数え、既定12,800件の間は倍率1。whiten の `warmup_mode=learn_predictor`（既定）は補助学習を進め、誤差を統計に入れない。collect_errors と variance_feedback は誤差を集めて補助学習を止める。0なら初回から学習する。詳しい再帰とwarm-upのbatch境界は212を参照する。
 
-補助学習の刻みと抽選はfacadeが持つ。N laneのintakeごとにcreditへ `N × intrinsic.learn_ratio / k` を加え、k=`min(intrinsic.learn_batch_size,N)` 件ずつ重複なく選んで `Learn` を呼ぶ。1 intakeの上限は `floor(N/k)` 回で、未消費creditは繰り越す。RNDは渡された全k件でtarget・predictorのforwardをやり直し、平均MSEで私有AdamWを1 step進めてtrueを返す。collect_errors と variance_feedback のwarm-up中はfalseで、facadeは戻り値にかかわらずcreditを消費し、trueだけを `intrinsic.learn_count` に数える。採点のグラフは持ち越さない。正規化はCPUで行い、CUDA計算では採点・各学習stepに入力H2Dと誤差D2Hがある。詳しい境界・費用は212の§3.5・§5.1を参照する。
+補助学習の刻みと抽選はfacadeが持つ。N laneのintakeごとにcreditへ `N × intrinsic.learn_ratio / k` を加え、k=`intrinsic.learn_batch_size` 件ずつ重複なく選んで `Learn` を呼ぶ。learnerが有効でkがNを超える構成は構築時に停止する。learner無効時はこの比較を行わない。1 intakeの上限は `floor(N/k)` 回で、未消費creditは繰り越す。RNDは渡された全k件でtarget・predictorのforwardをやり直し、平均MSEで私有AdamWを1 step進めてtrueを返す。collect_errors と variance_feedback のwarm-up中はfalseで、facadeは戻り値にかかわらずcreditを消費し、trueだけを `intrinsic.learn_count` に数える。採点のグラフは持ち越さない。正規化はCPUで行い、CUDA計算では採点・各学習stepに入力H2Dと誤差D2Hがある。詳しい境界・費用は212の§3.5・§5.1を参照する。
 
 ```mermaid
 sequenceDiagram
@@ -503,11 +503,11 @@ DefaultDQNのprimary Headはboolの `head.use_dueling` で選び、既定trueは
 
 Actorごとの `actor.[key].skip.max_length_mode` は `full`（既定、1〜J）・`single`（常に1）・`variable`（1〜整数ProfiledValueの `max_length`）で幅を選ぶ。variableはexp_stepで上限を評価し、選択に渡す値だけを絞る。すでに継続している区間は上限低下でも切らない。singleは継続状態を持たず毎step方策の提案を使い、skip方策のjの選択だけを省く。どのモードでもskip forward、τ問い合わせ、J本のskip_q_valuesを維持する。`skip_max_length` はvariableの現在の上限を返し、ほかとskip無効時はNaN。
 
-Learnerの `learner.skip.target_window` は `decision`（既定）・`action_change`・`episode_end` を選ぶ。後者2つは補助学習用で、skipとLearnerが有効なら宣言された全Actorがsingle、またはvariableで常に1であることを構築時に検証する。用途名から学習Actorを推測しない。違反するActorはすべてエラーに含める。feature_gradient=stopは対照の腕として許し、共有部へ勾配が届かないこととpriority_lambdaによる優先度への影響を一度WARNする。Learner無効時は組み合わせを検査しない。
+Learnerの `learner.skip.target_window` は `decision`（既定）・`action_change`・`episode_end` を選ぶ。後者2つは補助学習用で、skipとLearnerが有効なら宣言された全Actorがsingle、またはvariableで常に1であることを構築時に検証する。用途名から学習Actorを推測しない。違反するActorはすべてエラーに含める。feature_gradient=stopは対照群として許し、共有部へ勾配が届かないこととpriority_lambdaによる優先度への影響をRunに1回INFOで説明する。Learner無効時は組み合わせを検査しない。
 
 max_lengthを指定した場合はモードによらずProfiledValueの共通検証で下限1、有効時は上限Jも検査する。variableの値はskip有効時に必須。full/singleで指定した値は使わず、skip有効ならActorごとに一度WARNする。skip無効では必須・上限Jの検査とWARNを行わない。既定の等価性・3モード・窓・短縮Run・実験の手順は[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
 
-共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列・greedy評価を選び、Agentのチェーンを書き直さない。GridMazeはskip専用のepsilon-greedy（0.60→0.05）も選ぶ。feature_gradient・Dueling・action_in・層幅はCLIの葉で指定する。
+共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列・greedy評価を選び、Agentのチェーンを書き直さない。GridMazeはskip専用のepsilon-greedy（0.60→0.05）も選ぶ。feature_gradient・Dueling・action_in・層幅はCLIの設定キーで指定する。
 
 `skip.enabled=false`が既定で、無効時はskip網を構築しない。設定値の型・列挙・範囲の検証は無効でも行う。Jの実装既定0は未指定を表し、有効時はJを必須とする。明示0以下は無効時も拒否し、明示1は許す。有効時はprimaryのonline／targetにskipのonline／targetを加え、同期を同じ時点で行う。skip targetはtargetを元にするActorだけが使い、Learnerのbootstrapはprimaryを使う。
 
@@ -559,7 +559,7 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | 前処理 | frame stack、Reward scale、Observation normalize |
 | 内的報酬 | `intrinsic.enabled`、ProfiledValueの `intrinsic.beta`、`intrinsic.observation`、`intrinsic.use_done_mask`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factoryが解釈する `intrinsic.rnd.*`（target.net / predictor.net、head.init、multiplier_mode、statistics_mode、warmup_mode、error_norm、adam_epsなど） |
 
-RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持つ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の葉を解釈せず、Network・optimizer・統計・診断キーを生成しない。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
+RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持つ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の設定キーを解釈せず、Network・optimizer・統計を生成しない。既知の診断キーは無効時も保持してNaNを返す。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
@@ -571,7 +571,7 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 
 ### 7.3 DefaultDQN の Noisy 実行設定
 
-`nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。Actorのskip側は `skip.nn_forward_mode=shared|dedicated`（既定shared）で選ぶ。dedicatedでskip有効なら `skip.nn_forward_key` の欠落を全Actorについて拒否し、書かれたキーの未知参照とモード値の列挙はskipの有効・無効やsharedによらず検証する。sharedで書かれたキーは使わず、skip有効時だけActorごとに一度WARNする。skip無効時は必須検査とWARNを行わない。項目内容は利用する具象部品の準備時に検証し、未参照項目と部品が使わない設定群は検証しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
+`nn_forward.[key]` は不変な opaque 設定カタログ。`actor.[key].nn_forward_key` と `learner.current.nn_forward_key` / `learner.target.nn_forward_key` は解決済み設定を参照し、欠落・未知参照を設定読み込み時に拒否する。Actorのskip側は `skip.nn_forward_mode=shared|dedicated`（既定shared）で選ぶ。dedicatedでskip有効なら `skip.nn_forward_key` の欠落を全Actorについて拒否し、書かれたキーの未知参照とモード値の列挙はskipの有効・無効やsharedによらず検証する。sharedで書かれたキーは使わず、skip有効時だけActorごとに一度WARNする。skip無効時は必須検査とWARNを行わない。項目内容は利用する具象部品の準備時に検証し、全具象部品の準備後に未読キーを拒否する。未参照項目は検証しない。Noisy OFFでも明示した既知値の型・列挙・値域を検証するが、利用しない実行方式の必須項目は要求しない。共通の `act_sample` は sample/call/batch、`mu_only` は評価用途。内容の具体型・解釈・検証はそれを利用する Body Linear と各 Head 内部に閉じ、Actor/Learner は解釈せず、初期化時は不透明な設定、実行時は呼び出し情報を渡す。
 
 TD・QR・IQN と Dueling の最終射影は `head.projection.noisy.enabled=false` / `head.projection.noisy.sigma0=0.5` で選択する。Actor は専用箱1個と行動選択時計、Learner はcurrent用1個・target用途のonline用1個・target用1個の箱と実更新のlearn_stepを使う。named seed は acting・学習・τ の既存 RNG から独立する。target 計算の設定・箱・時計は全 forward で保持する。Munchausen target方式では、skip無効時の `[2B]` 入力に `[0..B-1,0..B-1]`、有効時の `[3B]` 入力に `[0..B-1,0..B-1,0..B-1]` の NetworkForwardRowMapping をCPU側で検証・確定して一度転送する。これにより同一遷移のcurrent・n-step終端・window終端が同じ ε を使う。online_reuse の sample/sample または μ-only/μ-only 可否は各計算部品が検証する。
 
@@ -597,7 +597,7 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 以下の第1版・第2版の説明は `intrinsic.enabled=false` を基準とする。有効時は次の追加節も保存・復元する。
 
-内的報酬が有効なDefaultDQNは、従来の識別子へ `;intrinsic` を付け、Learnerの後へintrinsic節を追加する。最初に、whiten の EMA なら `RndNoveltyEstimator-4`、累積と variance_feedback なら `RndNoveltyEstimator-3` とstatistics_modeを書き、固定target、predictor、AdamWのmoment/step、選択した方式の観測・誤差統計（EMA は重みの和・平均・二乗偏差）、target出力の累積統計、採点した観測件数を保存する。続けてfacadeの未消費credit・lane抽選の乱数状態・累計成功回数を保存する。異なる書式、または設定と異なる統計モードはpayloadを読む前に拒否し、診断に双方の値を含める。有効設定と節の有無も一致を要求する。optimizerのlearning_rate・weight_decay・adam_epsは現在設定を優先し、差があればWARNする。無効時の識別子・設定文字列・payload配置は従来どおりである。
+内的報酬が有効なDefaultDQNは、従来の識別子へ `;intrinsic` を付け、Learnerの後へintrinsic節を追加する。最初に、whiten の EMA なら `RndNoveltyEstimator-4`、累積と variance_feedback なら `RndNoveltyEstimator-3` とstatistics_modeを書き、固定target、predictor、AdamWのmoment/step、選択した方式の観測・誤差統計（EMA は重みの和・平均・二乗偏差）、target出力の累積統計、採点した観測件数を保存する。続けてfacadeの未消費credit・lane抽選の乱数状態・累計成功回数を保存する。異なる書式、または設定と異なる統計モードはpayloadを読む前に拒否し、診断に双方の値を含める。有効設定と節の有無も一致を要求する。optimizerのlearning_rate・weight_decay・adam_epsは現在設定を優先し、差があればRunに1回INFOで知らせる。無効時の識別子・設定文字列・payload配置は従来どおりである。
 
 `split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
@@ -616,11 +616,11 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 - RunのStepCountsとmetric系列
 - Actor-private snapshot、同期周期runtime、last sync step、Actor RNG
 
-したがってcheckpoint読込は旧Runの完全再開ではなく、新しいRunへNetworkとOptimizerを引き継ぐ操作である。Config文字列はarchiveから読み取ってlogへ出すが、現在のAgent Configを置換しない。Optimizer の moment と step は checkpoint から引き継ぎ、各 param group の options（lr、weight_decay、eps、betas、amsgrad）は現在の設定から生成した値で置き換える。checkpoint と異なる項目は group・対応する設定キー・保存値・設定値を WARN へ出し、適用後の lr・weight_decay・eps は group ごとに INFO へ出す。設定キーのない betas・amsgrad はキー表記を省く。同一設定なら差分 WARN は出ない。learner.enabled=false でも同じ規則を適用する。Network構成とOptimizer payloadが互換である必要がある。
+したがってcheckpoint読込は旧Runの完全再開ではなく、新しいRunへNetworkとOptimizerを引き継ぐ操作である。Config文字列はarchiveから読み取ってlogへ出すが、現在のAgent Configを置換しない。Optimizer の moment と step は checkpoint から引き継ぎ、各 param group の options（lr、weight_decay、eps、betas、amsgrad）は現在の設定から生成した値で置き換える。checkpoint と異なる項目は group・対応する設定キー・保存値・設定値をRunに1回INFOへ出し、適用後の lr・weight_decay・eps は group ごとに INFO へ出す。設定キーのない betas・amsgrad はキー表記を省く。同一設定なら差分の通知は出ない。learner.enabled=false でも同じ規則を適用する。Network構成とOptimizer payloadが互換である必要がある。
 
 `RainbowAgent`は現行コードで独自の`Save()` / `Load()`をoverrideせず、基底Agentのno-opを使う。DefaultDQNと同じcheckpoint対応があると仮定しない。
 
-Rainbowの初期化設定も `head.init.*` の6葉を入れ子DTOと `ANET_READ_CONFIG` で読み、設定記録のキーをメンバのパスと一致させる。構築前に `ValidateWeightInitConfig` で検証する。RainbowのDueling設定は従来の `use_dueling_net` を使う。
+Rainbowの初期化設定も `head.init.*` の6 件を入れ子DTOと `ANET_READ_CONFIG` で読み、設定記録のキーをメンバのパスと一致させる。構築前に `ValidateWeightInitConfig` で検証する。RainbowのDueling設定は従来の `use_dueling_net` を使う。
 
 ActorからReplayへ渡す判断のinfo鍵は `BatchActionInfo::kKeyDecision` で共有する。skip出力・行動入力・補助情報・GetScalarの鍵と分布modeはDQN側の所有型、optimizer role・Torch archive鍵・GraphViz tagは利用するcpp内の定数が持つ。書込・読込・比較・表示・診断で同じ定義を参照し、外部の文字列値と保存順は変えない。
 
@@ -630,7 +630,7 @@ NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target
 
 ### 9.1 metric
 
-内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max`・`bonus_min` はbeta倍と選択したmask後の値、`bonus_pos_ratio` は正のlaneの割合。`bonus_share` は `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)`（分母0はNaN）で、負のボーナスでも0〜1に収まる。`error_mean`・`error_std` は選択した方式の統計（stdは分散の平方根）、`error_step` は今回の誤差平均。`target_feature_var` は出力次元ごとの一生の母分散の平均（1件目は0）、`target_feature_max` は今回の出力の絶対値最大。`clip_ratio` は倍率上限に達したlaneの比率で、unclippedなら0。`predictor_loss` は直近の成功stepの損失を、学習しないintakeでも保持する（未学習・読込直後はNaN）。`learn_count` は実際にoptimizerが進んだ累計回数で、warm-upのfalseは数えない。無効時はキーが無くnullopt。構築時にキーを固定したatomicの診断値を読むため、UI読み出しで新たなロックを取らない。 whiten の error_mean/error_std は次の batch に使う累積か EMA の統計で、learn_predictor の warm-up 中は空なので NaN になる。learn_count はこの warm-up 中も増える。
+内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max`・`bonus_min` はbeta倍と選択したmask後の値、`bonus_pos_ratio` は正のlaneの割合。`bonus_share` は `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)`（分母0はNaN）で、負のボーナスでも0〜1に収まる。`error_mean`・`error_std` は選択した方式の統計（stdは分散の平方根）、`error_step` は今回の誤差平均。`target_feature_var` は出力次元ごとの一生の母分散の平均（1件目は0）、`target_feature_max` は今回の出力の絶対値最大。`clip_ratio` は倍率上限に達したlaneの比率で、unclippedなら0。`predictor_loss` は直近の成功stepの損失を、学習しないintakeでも保持する（未学習・読込直後はNaN）。`learn_count` は実際にoptimizerが進んだ累計回数で、warm-upのfalseは数えない。無効時とlearner停止による休止中も既知キーを保ち、NaNを返す。未知キーだけnullopt。構築時にキーを固定したatomicの診断値を読むため、UI読み出しで新たなロックを取らない。 whiten の error_mean/error_std は次の batch に使う累積か EMA の統計で、learn_predictor の warm-up 中は空なので NaN になる。learn_count はこの warm-up 中も増える。
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
 - `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力のQ系scoreを使い、TBO有効時もh空間のまま扱う。IQN+UQEでは両者が同じrisk-biased action scoreになり、full-distributionの`E[Z]`ではない。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。
@@ -688,6 +688,8 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 - `actor_approx`のhintは`float32[B,3]`を要求し、schema違反はfail-fastする。全列をfinite検証し、nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
 - DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
+- Rainbowは`use_qr=true`のとき`num_quantiles>1`を要求し、不正な件数を通常Qへ読み替えない。
+- `obs_norm.post_process_type`は0〜3を要求する。DefaultDQNの設定読み取りとObservationNormalizerFactoryの構築で共通の正規化設定の検証を行い、無効なmodeを実行時まで持ち越さない。
 - `model.soft_update_tau`は構成によらず全active値の有限性と`[0, 1]`を検証する。online/targetのどちらかにSNがあり、soft update構成（`model.hard_update_interval<=0`）の場合は、rootがconstantで値が1の例外を除き、全active端点の上限を0.1とする。hard updateではτを更新に使用しないが、profile宣言そのものは検証する。
 
 既知事項: ActorのObservation正規化はAgent mutexの外で行われ、normalizer統計更新は`DefaultDQNAgent::UpdateFromBatch`のunique lock内で行われる。dynamic scaling時の潜在競合は未対処である。現用のRunner設定はいずれも`obs_norm.pass_through=true`のため、この競合は顕在化しない。
@@ -696,7 +698,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 
 DQNは2チャネルを持つ。actualはonline/targetのTD計算で使ったtrain-mode/autocast forwardから`main_feature`等の指定branchを捕捉し、target更新前の特徴を同じ`BatchUpdateResult`へ載せる。probeはReplayBufferの一様・非復元sampleを既存obs正規化へ通し、NoGrad・eval mode・learnerと同じautocastで`ForwardOnlineUpTo`を実行してAgent最新値として公開する。
 
-online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`final_feature_branch_key`は購読時だけ必須・branch存在検証し、購読ゼロならNoCareでcapture/sample/statsを行わない。baseline設定は`main_feature`を指定するが、DTOは未指定を空文字で保持し、設定不在を暗黙に補完しない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド4.7節](030_user_guide_analysis.jp.md#47-可塑性メトリクスを読む)を参照する。
+online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`final_feature_branch_key`は購読時だけ必須・branch存在検証し、購読ゼロでも設定値は構築時に読んで局所の値域を検証する。capture/sample/statsは行わない。baseline設定は`main_feature`を指定するが、DTOは未指定を空文字で保持し、設定不在を暗黙に補完しない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド4.7節](030_user_guide_analysis.jp.md#47-可塑性メトリクスを読む)を参照する。
 
 parameter側は、online networkを`final_feature_branch_key`の依存閉包でfeature/readoutへ分け、生weight norm 2値、SN適用後の実効weight norm 2値、各群の最大sigma 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、online/targetのSN validity sentinelとともに固定長8要素packとして同じ`BatchUpdateResult`へ載せる。6公開値のいずれかを初めて読むときだけpack全体をCPUへ移し、同じevent内でcacheする。sentinelが異常を示した場合だけNetworkを再walkし、online/targetと完全layer名を含めてfail-fastする。SN layerがない群のsigmaは`NaN`、実効normは生normと同じである。購読が無ければparameter列挙もD2Hも行わない。
 
@@ -748,7 +750,7 @@ TD / QR / IQN は autocast 内で計算した長さ B の重み付き要素損�
 
 train scope の @learn / $update_result 購読をkey別IntervalGateで判定し、加算前learn_stepの発火点の和集合で1回測る。購読された版・群は測定点を共有し、成立した信号・分散のEMA対を1回更新する。有限の負の信号も取り込み、EMA信号が非正ならscale・ratioをNaNとする。未成立回はEMAを更新せず公開値を前回値で埋めない。空群はraw・scaleともNaNで、allへの寄与は0。各keyは自身の発火時だけ公開し、既知の未購読・未発火・未成立はNaN、未知だけnulloptとする。EMAはcheckpointに保存しない。
 
-公開は49_agent_gradnoiseの15指標で、metrics.scalar.@gradnoise（全行interval 503）で明示購読する。num_micro_batchesの既定8はBを割り切る2以上、ema_alphaの既定0.05は有限の(0,1]。購読時だけ検証し、FP16は学習前にfail-fastする。FP32 / BF16は対象で、BF16の丸めを測定に含める。群別購読時だけfinal_feature_branch_keyを検証する。異なるintervalは許容し起動時1回WARNする。共有Noisy epsilonに条件付けた値であり、BatchNorm等のサンプル間結合では独立抽出の解釈を保証しない。
+公開は49_agent_gradnoiseの15指標で、metrics.scalar.@gradnoise（全行interval 503）で明示購読する。num_micro_batchesの既定8はBを割り切る2以上、ema_alphaの既定0.05は有限の(0,1]。num_micro_batchesが2以上であることとema_alphaの値域は購読がなくても構築時に検証する。Bを割り切る条件は購読時に検証し、FP16は学習前にfail-fastする。FP32 / BF16は対象で、BF16の丸めを測定に含める。群別購読時だけfinal_feature_branch_keyを検証する。異なるintervalは許容し起動時1回WARNする。共有Noisy epsilonに条件付けた値であり、BatchNorm等のサンプル間結合では独立抽出の解釈を保証しない。
 
 ### 9.9 Attention エントロピー診断
 
@@ -764,9 +766,9 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 
 Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[PRD106検証資材](../../core/anet-core/testdata/prd106/README.md)を参照する。
 
-- [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、段0・段1の実行と集計。
+- [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、ステージ0・ステージ1の実行と集計。
 
-skipの更新方式・重み・session指標・構造の腕を変えるときは[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
+skipの更新方式・重み・session指標・構造の群を変えるときは[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
 
 PRD101の比較・実Run手順は[PRD101検証資材](../../core/anet-core/testdata/prd101/README.md)を参照する。
 

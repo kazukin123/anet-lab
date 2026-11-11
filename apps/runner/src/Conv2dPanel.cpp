@@ -14,31 +14,25 @@
 
 namespace LOG = anet::log;
 
-struct Conv2dPanel::Config : public anet::Config {
-    anet::rl::Conv2dVisualizerConfig conv2d;
-
-    Config(const anet::ConfigData& config_data) : anet::Config("Conv2dPanel")
-    {
-        ANET_READ_CONFIG(config_data, conv2d.margin_x);
-        ANET_READ_CONFIG(config_data, conv2d.margin_y);
-        ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
-        ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
-        ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
-        ANET_READ_CONFIG(config_data, conv2d.network_key);
-        ANET_READ_CONFIG(config_data, conv2d.colormap);
-        ANET_READ_CONFIG(config_data, conv2d.scale_factor);
-        ANET_READ_CONFIG(config_data, conv2d.min_block_size);
-    }
-};
+Conv2dPanel::Config::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "Conv2dPanel")
+{
+    ANET_READ_CONFIG(config_data, conv2d.margin_x);
+    ANET_READ_CONFIG(config_data, conv2d.margin_y);
+    ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
+    ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
+    ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
+    ANET_READ_CONFIG(config_data, conv2d.network_key);
+    ANET_READ_CONFIG(config_data, conv2d.colormap);
+    ANET_READ_CONFIG(config_data, conv2d.scale_factor);
+    ANET_READ_CONFIG(config_data, conv2d.min_block_size);
+    anet::rl::ValidateConv2dVisualizerConfig(conv2d, MakeDefaultConfigKey("conv2d"));
+}
 
 Conv2dPanel::Conv2dPanel(
     wxWindow* parent, const wxString& title, anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner,
-    const anet::ConfigData& config_data)
-    : anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition, wxSize(600, 600))
+    const Config& config)
+    : anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition, wxSize(600, 600)), config_(config)
 {
-    // Config
-    config_ = std::make_unique<Conv2dPanel::Config>(config_data);
-
     // メインのレイアウト
     wxBoxSizer* main_sizer = new wxBoxSizer(wxVERTICAL);
 
@@ -75,7 +69,7 @@ Conv2dPanel::Conv2dPanel(
 void Conv2dPanel::CreateVisualizer()
 {
     // Observer生成＆登録
-    this->visualizer_ = std::make_unique<anet::rl::Conv2dVisualizer>(config_->conv2d);
+    this->visualizer_ = std::make_unique<anet::rl::Conv2dVisualizer>(config_.conv2d);
 }
 
 void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner)

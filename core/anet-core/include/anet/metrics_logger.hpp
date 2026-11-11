@@ -116,6 +116,15 @@ namespace anet {
         bool IsNvencEligibleVideoSize(int width, int height);
         VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height, const std::string& path);
 
+        /// Run内のauto選択だけに、起動失敗によるCPUへの固定を共有する。
+        class VideoCodecSelection {
+        public:
+            VideoCodecDecision Resolve(const std::string& codec, int width, int height, const std::string& path) const;
+            void PinSoftwareFallback() { software_fallback_.store(true); }
+        private:
+            std::atomic<bool> software_fallback_{false};
+        };
+
     } // namespace detail
 
     //----------------------------------------------
@@ -123,7 +132,8 @@ namespace anet {
     //----------------------------------------------
     class VideoLogger {
     public:
-        VideoLogger(const std::string& path, int width, int height, const std::string& codec = "auto", int fps = 30);
+        VideoLogger(const std::string& path, int width, int height, detail::VideoCodecSelection& selection,
+            const std::string& codec = "auto", int fps = 30);
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img);
@@ -232,6 +242,7 @@ namespace anet {
 
         // 画像・動画用連番管理
         std::unordered_map<std::string, uint64_t> image_seq_;
+        detail::VideoCodecSelection video_codec_selection_;
         std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
     private:
         // --- Singleton管理 ---

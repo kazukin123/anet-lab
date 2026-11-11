@@ -300,6 +300,7 @@ namespace anet::rl {
         void Regist(std::shared_ptr<BatchEnvFactory> factory);
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleDiscreteEnvFactory(const std::string& id) const;
         std::shared_ptr<BatchEnvFactory> GetBatchEnvFactory(const std::string& id) const;
+        void MarkUnusedConfigInventory(const ConfigData& data, const std::string& active_class_id) const;
     private:
         EnvRepository() = default;
 

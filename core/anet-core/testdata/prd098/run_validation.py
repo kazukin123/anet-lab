@@ -181,7 +181,7 @@ def prepare_long(checkpoint):
                 path = OUT / "long-config" / f"stage{stage}_{arm}_seed{seed}.txt"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-                # 変種は設定ファイルへ埋め込まず、実行時の葉として記録する。
+                # 変種は設定ファイルへ埋め込まず、実行時の設定キーとして記録する。
                 overrides = ["DefaultDQNAgent.learner.skip.feature_gradient=merge"] if arm == "merge" else []
                 if arm == "action_in":
                     overrides += ["DefaultDQNAgent.skip.network_mode=action_in",

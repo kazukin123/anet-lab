@@ -18,6 +18,7 @@
 #include "EvalPanel.hpp"
 #include "QValuePanel.hpp"
 #include "EvalTracePanel.hpp"
+#include "Conv2dPanel.hpp"
 
 class RunnerFrame final : public anet::rl::gui::AuiLayoutFrame {
 public:
@@ -144,6 +145,7 @@ private:
     std::optional<LogPanel::UnviewedAlerts> shown_log_alerts_;
     AlwaysOnTopMode always_on_top_mode_ = AlwaysOnTopMode::Off;
 
+    const Conv2dPanel::Config conv2d_config_;
     const MainView main_view_;
     const float train_config_fps_;
     const float eval_config_fps_;

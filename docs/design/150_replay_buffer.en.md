@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:e3f070ebd634cdd8144b6be2490cbe3a13558440 date:2026-11-04 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:1b611609300e552f9508d27237deadbeb969082d date:2026-11-11 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -74,7 +74,7 @@ Prioritized Experience Replay samples indices according to priorities and comput
 Initial sources are `fixed_initial`, `max_initial`, or `actor_initial`; after learning, `learner_updated`; invalid slots use `none`. Sources distinguish zero priority from invalidation. Actor approximation mode carries the starting step's initial-priority hint as an opaque row until N-step finalization, then combines it with a bootstrap hint at the ready boundary. The shared layer does not interpret columns; an injected `InitialPriorityEstimator` validates the schema and estimates priority. True terminals use an empty bootstrap span. Truncation validates the starting hint before falling back to max initialization. Nonfinite hints or estimates fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds. See [DQN Agents](200_dqn_agents.en.md) for DQN's `K = 3` schema and formula.
 
 Learner computes new priorities from TD errors or similar values and calls `UpdatePriorities(item_keys, priorities)` with sampled keys. The entire update batch is preflighted: negative keys, generation 0/future generations, length mismatches, or negative/nonfinite priorities prevent partial application. Only past generations are rejected per element. `ReplayPriorityUpdateResult` returns applied/stale counts and comparison statistics between Actor initial and Learner-updated priorities. Duplicate keys use input-order last-wins semantics.
-Uniform samplers do not expose PER-specific metrics.
+Uniform samplers also expose known PER scalar keys, returning NaN when PER is disabled.
 
 ### 2.5 Applicability by Agent
 
@@ -312,7 +312,7 @@ As a `Module`, `ReplayBuffer` exposes storage/PER scalar and Tensor accessors; `
 | `replaybuffer.per.priority_update_stale_drop_count` | Cumulative updates rejected for overwritten generations |
 | `replaybuffer.per.last_evicted_never_sampled_ratio` | Fraction of ready slots evicted before sampling in the latest Push |
 
-Uniform sampling reports unsupported PER keys as `std::nullopt`, not fabricated zero values. See [Observability](140_observability.en.md) for metric definitions, Events, and step axes.
+Known PER scalar keys return `NaN` even when uniform sampling disables PER. Values are not replaced with zero; only unknown scalar keys return `std::nullopt`. See [Observability](140_observability.en.md) for metric definitions, Events, and step axes.
 
 Eviction statistics use ready ranges. Since evicted slots have already been unsampleable during the history-margin period, `last_evicted_never_sampled_ratio` approximately overcounts slots that had a sampling opportunity but were never selected by the margin amount. Using sampleable ranges would structurally produce zero post-wrap evictions, so this approximation is accepted for monitoring provided the margin is small relative to capacity.
 

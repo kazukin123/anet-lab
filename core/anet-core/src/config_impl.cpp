@@ -44,8 +44,8 @@ public:
         ValidateAndRecord();
         BuildValues();
 
-        // Runが直接指定した葉だけを外し、同じ依存グラフで適用前の最終値を求める。
-        // CLIが同じ葉を指定していてもtoはRun値、実効値はCLI値として区別する。
+        // Runが直接指定した設定キーだけを外し、同じ依存グラフで適用前の最終値を求める。
+        // CLIが同じ設定キーを指定していてもtoはRun値、実効値はCLI値として区別する。
         for (const auto& [key, value] : trunk_leaves_) {
             auto previous_input = input_map_;
             auto previous_defaults = default_keys_;
@@ -65,7 +65,7 @@ public:
             }
         }
         ExpandReferences();
-        // 葉の配置移行と独立した、参照元キー順の診断にする。
+        // 設定キーの配置移行と独立した、参照元キー順の診断にする。
         std::stable_sort(references_.begin(), references_.end(), [](const auto& left, const auto& right) {
             return left.at("source").template get<std::string>() < right.at("source").template get<std::string>();
         });
@@ -344,7 +344,7 @@ private:
             ANET_SYSTEM_ERROR("ConfigResolver: selection cycle detected. path=" << FormatPath(path, key));
         }
         path.push_back(key);
-        // 既定葉だけはベースの後へ回す。選択元は自身の最終値を返す。
+        // 既定キーだけはベースの後へ回す。選択元は自身の最終値を返す。
         const auto value = input.Has(key) && !defaults.contains(key) ? input.Get(key)
             : value_sources_.Has(key) ? Evaluate(value_sources_.Get(key), input, defaults, cache, path)
             : input.Has(key) ? input.Get(key) : std::string{};

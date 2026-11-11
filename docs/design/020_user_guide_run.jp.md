@@ -102,9 +102,9 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 ### 3.1 基本ポリシー
 
 1. 設定は「ベース + 差分」で組む。共通ファイルとプロファイルがベース、`>`でつないだ選択チェーンが差分、環境別ファイルに直接書いた値が最後の個別指定になる。
-2. `X.$ = …`はその設定Xのベースを指定する。`X.key = v`はベースより強い個別指定(個別葉)、`X.key ?= v`はベースに負ける既定値(既定葉)である。
+2. `X.$ = …`はその設定Xのベースを指定する。`X.key = v`はベースより強い個別指定、`X.key ?= v`はベースに負ける既定値(既定キー)である。
 3. 異なるキーの行順は結果を変えない。同じキーを2回書いたら後勝ちだが、`=`と`?=`が混在したら順序に関係なく`=`が勝つ。同じ`X.$`を書き直すとチェーンは丸ごと置き換わる。
-4. Runプロファイルとコマンドラインは通常の設定より強い。ただし効くのは指定したそのキーだけで、そのキーから継承される葉すべてに優先権が付くわけではない。
+4. Runプロファイルとコマンドラインは通常の設定より強い。ただし効くのは指定したそのキーだけで、そのキーから継承される設定キーすべてに優先権が付くわけではない。
 5. 演算子はファイルの役割で決める。共通ファイル(`common.txt`、`agent.txt`、`nn*.txt`、`metrics_*.txt`)のベース定義は`?=`、環境別ファイル(`<Env>.txt`)は「デフォルト設定」ブロックだけ`?=`、それ以外は`=`で書く。選択宣言`.$`、Runプロファイル、CLIは常に`=`である。
 
 ### 3.2 用語
@@ -113,19 +113,19 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 |---|---|---|
 | プロファイル | `@`で始まるセグメントを持つ名前付きの設定部品。選ばれるまで値に出ない | `backend.@deterministic`、`DefaultDQNAgent.@baseline` |
 | 選択チェーン | `X.$ = A > B`の形で、各項の最終値を左から右へ差分合成してXのベースを作る指定 | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` |
-| 選択の最終値 | 選択元自身のベース・部分指定・個別指定・Run・CLIまで反映した値とキーの集合。チェーンの各項はこれを持ち込む | `@iqn`の最終値は、`@iqn`が持つ葉と`@iqn`自身の`.$`の結果 |
+| 選択の最終値 | 選択元自身のベース・部分指定・個別指定・Run・CLIまで反映した値とキーの集合。チェーンの各項はこれを持ち込む | `@iqn`の最終値は、`@iqn`が持つ設定キーと`@iqn`自身の`.$`の結果 |
 | カタログ | `[key]`をidentityとして名前で参照される部品定義群 | `net.block.[Linear_120]`、`run.eval.[test1]`、`metrics.scalar.@baseline.[21_eval/01_target_reward]` |
 | 上書き層 | 環境別ファイルでチェーンの末尾に置く差分用の通常prefix。A1/A2/A3はAgent、E1はEnv、M1/M2はMetrics、P1はappで、番号が大きいほど一時的 | `A2.learner.per_alpha = 0.2` |
 | Runプロファイル | 1つのRunを特徴づける選択と値の組を`run.@<name>`で命名したもの。`run.$`で選ぶ | `run.@repro` |
-| 個別指定(個別葉) | `=`でその設定の葉に直接与える値。ベースより強い | `E1.obs_include_action = true` |
-| 既定葉 | `?=`で書く既定値。その設定のベースが同じキーを供給するときだけ負ける | `AtariEnv.game ?= pong` |
+| 個別指定 | `=`でその設定キーに直接与える値。ベースより強い | `E1.obs_include_action = true` |
+| 既定キー | `?=`で書く既定値。その設定のベースが同じキーを供給するときだけ負ける | `AtariEnv.game ?= pong` |
 
 ### 3.3 記法一覧
 
 | 記法 | 実例 | 意味 |
 |---|---|---|
-| `key = value` | `E1.obs_include_action = true` | 個別葉。ベースと既定葉より強い |
-| `key ?= value` | `AtariEnv.game ?= pong` | 既定葉。その設定の`.$`が同じキーを供給しなければ残る |
+| `key = value` | `E1.obs_include_action = true` | 個別指定。ベースと既定キーより強い |
+| `key ?= value` | `AtariEnv.game ?= pong` | 既定キー。その設定の`.$`が同じキーを供給しなければ残る |
 | `Owner.@name : key = v` | `LunarLanderEnv.@trunk : wind_power = 3.0`、`DefaultDQNAgent.@qr  : quantile_mode = qr` | プロファイルの定義。境界は`:`で区切り、`.`で続けない。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う |
 | `@vars : key = v` | `@vars : max_exp_step  = 100,000,000` | 値スロット。`${@vars.max_exp_step}`で参照する |
 | `Owner.$ = A > B > C` | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` | 選択チェーン。短い`@name`は`Owner.@name`を指す |
@@ -134,7 +134,7 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 | `[key].leaf`、`[key].$` | `net.block.[Linear_120].type ?= Linear`、`net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1` | カタログ項目の定義と、その項目のベース |
 | metrics定義と選択 | `metrics.scalar.@baseline : [21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`、`metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | tagが`[key]`のカタログ。選択はチェーン |
 | 上書き層 | `A2.learner.per_alpha = 0.2`、`app.$ = app.online > P1` | 環境別ファイルの差分。チェーンの末尾に置く |
-| `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Runプロファイルの葉 |
+| `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Runプロファイルの設定キー |
 | `run.@name : Owner.$ = …` | `run.@repro : backend.$ = backend.@deterministic` | Runプロファイルによるチェーンの置き換え |
 | `run.$ = …` | `#run.$ = run.@repro`(ファイル)、`run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base`(bat・CLI) | Runの選択 |
 | `$include <file>` | `$include <common.txt>` | 取り込み。`"path"`形も使える |
@@ -145,19 +145,19 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 
 ### 3.4 各記法の詳細
 
-#### 3.4.1 葉の代入`=`と`?=`
+#### 3.4.1 設定値の代入`=`と`?=`
 
-`key = value`は個別葉、`key ?= value`は既定葉である。
+`key = value`は個別指定、`key ?= value`は既定キーである。
 
-- 個別葉は、同じ設定の`.$`が供給する値より強い。プロファイルの中でも同じで、`X.@fast : $ = @baseline`と`X.@fast : lr = 0.01`を並べれば`@fast`は「`@baseline`の上に`lr`だけ変えたもの」になる。
-- 既定葉は、その設定の`.$`(全体・部分)が同じキーを供給すればその値に負け、供給しなければ残る。チェーンを置き換えても既定葉は消えない。
-- 同じキーを複数回書いたら、同じ演算子同士は後勝ちである。`$include`や追加ファイルをまたいでも同じ。`=`と`?=`が混在したら順序に関係なく`=`が勝ち、後から書いた既定葉が個別葉を取り消すことはない。
-- `?=`は葉にだけ書ける。`.$`、Runプロファイル(`run.@x : …`)、CLIに書くと読み込み時にエラーになる。
+- 個別指定は、同じ設定の`.$`が供給する値より強い。プロファイルの中でも同じで、`X.@fast : $ = @baseline`と`X.@fast : lr = 0.01`を並べれば`@fast`は「`@baseline`の上に`lr`だけ変えたもの」になる。
+- 既定キーは、その設定の`.$`(全体・部分)が同じキーを供給すればその値に負け、供給しなければ残る。チェーンを置き換えても既定キーは消えない。
+- 同じキーを複数回書いたら、同じ演算子同士は後勝ちである。`$include`や追加ファイルをまたいでも同じ。`=`と`?=`が混在したら順序に関係なく`=`が勝ち、後から書いた既定キーが個別指定を取り消すことはない。
+- `?=`は設定キーにだけ書ける。`.$`、Runプロファイル(`run.@x : …`)、CLIに書くと読み込み時にエラーになる。
 - 落とし穴: `key ? = v`のように`?`と`=`を離すとエラーになる。プロファイルの中の`?=`はそのプロファイル自身の`.$`にだけ負け、外側の設定へは普通のベース値として届く。
 
 ```properties
-backend.cudnn_benchmark ?= false                   # 既定葉
-backend.torch_num_threads ?= 1                     # 既定葉
+backend.cudnn_benchmark ?= false                   # 既定キー
+backend.torch_num_threads ?= 1                     # 既定キー
 backend.@non-deterministic : cudnn_benchmark = true
 backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmark を供給する → true
                                                    # torch_num_threads はベースに無い → 1 のまま
@@ -224,14 +224,14 @@ A2.learner.iqn.current_taus.num_taus = 32
 DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 ```
 
-落とし穴: 上書き層に書いた値も、その設定にrootで`=`と書いた個別葉には負ける。`DefaultDQNAgent.learner.iqn.current_taus.num_taus = 8`をrootに書けば、A2の32よりそちらが勝つ。
+落とし穴: 上書き層に書いた値も、その設定にrootで`=`と書いた個別指定には負ける。`DefaultDQNAgent.learner.iqn.current_taus.num_taus = 8`をrootに書けば、A2の32よりそちらが勝つ。
 
 #### 3.4.7 Runプロファイル`run.@name`と`run.$`
 
-`run.@name : Owner.key = v`で葉を、`run.@name : Owner.$ = …`でチェーンの置き換えを書き、`run.$ = run.@a > run.@b`で選ぶ。
+`run.@name : Owner.key = v`で設定キーを、`run.@name : Owner.$ = …`でチェーンの置き換えを書き、`run.$ = run.@a > run.@b`で選ぶ。
 
 - `run.$`は通常の選択より先に展開される。項は左から右へ後勝ちで、同じキーを複数の項が書けば右の項の値になる。
-- Runプロファイルの葉は通常設定の`=`より強い別の段にあり、CLIにだけ負ける。Runで`Owner.$`を書けばチェーンの置き換えになる。
+- Runプロファイルの設定キーは通常設定の`=`より強い別の段にあり、CLIにだけ負ける。Runで`Owner.$`を書けばチェーンの置き換えになる。
 - Runプロファイルの中に`?=`は書けない。別の`run.$`を供給する入れ子も禁止である。
 - ファイルでは`#run.$ = run.@repro`のようにコメントで切り替え、batやCLIでは`run.$=run.@a>run.@b`で選ぶ。seedはRunプロファイルに含めず`run.seed`で別に指定し、同じプロファイルの複数seedを比較できるようにする。
 
@@ -248,16 +248,16 @@ run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
 | 指定 | 効く対象と結果 |
 |---|---|
-| `AtariEnv.game=breakout` | 実効葉そのもの。ファイル、継承、Runプロファイルの値に必ず勝つ |
-| `E1.game=breakout` | 上書き層E1の葉。`AtariEnv.$ = … > E1`のチェーンを通ってbreakoutが届くが、rootに`AtariEnv.game = pong`と個別指定があればそちらが勝つ |
-| `AtariEnv.$=AtariEnv.@classic>E1` | 選択キーだけ。チェーンを丸ごと置き換える。個別葉と既定葉は残る |
+| `AtariEnv.game=breakout` | 実効設定キーそのもの。ファイル、継承、Runプロファイルの値に必ず勝つ |
+| `E1.game=breakout` | 上書き層E1の設定キー。`AtariEnv.$ = … > E1`のチェーンを通ってbreakoutが届くが、rootに`AtariEnv.game = pong`と個別指定があればそちらが勝つ |
+| `AtariEnv.$=AtariEnv.@classic>E1` | 選択キーだけ。チェーンを丸ごと置き換える。個別指定と既定キーは残る |
 | `run.$=run.@a>run.@b` | Runの選択そのものを置き換える |
 
 CLIに`?=`は書けない。
 
 #### 3.4.9 `$include`、`${full.key}`、コメント
 
-- `$include <name>`は、include元ファイルのディレクトリ、次にconfig search dirsの順に探す。`"path"`形も使える。深さは10まで。見つからない場合はWARNを出して続行するので、意図した設定が読まれているかは`config/config_data.txt`で確認する。
+- `$include <name>`は、include元ファイルのディレクトリ、次にconfig search dirsの順に探す。`"path"`形も使える。深さは10まで。見つからない場合、開けない場合、ファイル名が空か括弧が閉じていない場合は起動時に停止する。エラーにあるパスを直して再実行する。
 - 起動時の重ね順(共通main config、導出した`app.runs_dir`、workspaceの`config/_main.txt`、コマンドライン)は[4.1 標準起動](#41-標準起動)を参照する。
 - `${full.key}`は、解決後の最終値を1段だけ参照する。参照先が無い、または参照先がさらに`${}`を含む場合はエラーになる。
 - `#`と`//`以降はコメント。`=`の無い行は読み飛ばす。キー内の空白は除去され、`:`は1個だけ使える。`{t}`は起動時刻へ展開される。
@@ -265,15 +265,15 @@ CLIに`?=`は書けない。
 ### 3.5 優先順位のまとめ
 
 ```text
-X.key ?= v              既定葉。X.$ に負ける
+X.key ?= v              既定キー。X.$ に負ける
  < X.$ = A > B          全体のベース(チェーン。項同士は右勝ち)
  < X.sub.$ = C          部分のベース(全体より強い)
- < X.key = v            個別葉
- < run.@p : X.key = v   Run プロファイルの葉
+ < X.key = v            個別指定
+ < run.@p : X.key = v   Run プロファイルの設定キー
  < CLI X.key=v          そのキーだけ最優先
 ```
 
-- この順位は設定(owner)ごとに再帰する。チェーンの各項は自分の順位で最終値を確定してから合成されるので、A3の中に`=`で書いた葉も、外側の設定Xから見ればベースである。
+- この順位は設定(owner)ごとに再帰する。チェーンの各項は自分の順位で最終値を確定してから合成されるので、A3の中に`=`で書いた設定キーも、外側の設定Xから見ればベースである。
 - 同じキーの再指定は後勝ち、`=`と`?=`の混在は`=`、`X.$`の再指定はチェーン置換(3.1の3)。
 - RunプロファイルとCLIの最優先は指定したそのキーだけに効く(3.4.8の表)。
 
@@ -286,11 +286,11 @@ X.key ?= v              既定葉。X.$ に負ける
 | `agent.txt` | 各Agentの`@baseline`、切替用プロファイル(`@qr`、`@iqn`、`@bf16`等)、`<Agent>.$ = @baseline` | `@baseline`は`?=`。切替用プロファイルとチェーンは`=` |
 | `nn.txt`、`nn_cnx.txt` | 共有NN部品(`net.block.[…]`、`net.body.@…`) | `?=` |
 | `metrics_scalar.txt`、`metrics_image.txt` | metricsカタログ(`metrics.scalar.@baseline.[tag]`等) | `?=` |
-| `<Env>.txt` | Envとアルゴリズム構成: チェーン、プロファイル、上書き層、Runプロファイル、NN配線、metrics差分 | `=`。Envの「デフォルト設定」ブロックだけ`?=`。ブロック外で`?=`が必要な葉は理由をコメントに書く |
+| `<Env>.txt` | Envとアルゴリズム構成: チェーン、プロファイル、上書き層、Runプロファイル、NN配線、metrics差分 | `=`。Envの「デフォルト設定」ブロックだけ`?=`。ブロック外で`?=`が必要な設定キーは理由をコメントに書く |
 | workspaceの`config/_main.txt` | 有効にする`<Env>.txt`の`$include` | - |
-| bat、CLI | `run.$`の選択と葉の上書き | `=` |
+| bat、CLI | `run.$`の選択と設定キーの上書き | `=` |
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な葉だけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
@@ -300,7 +300,7 @@ X.key ?= v              既定葉。X.$ に負ける
 
 ### 3.7 例
 
-**backend の既定葉と切り替え**
+**backend の既定キーと切り替え**
 
 ```properties
 # common.txt
@@ -317,7 +317,7 @@ backend.$ = backend.@non-deterministic
 run.@repro : backend.$ = backend.@deterministic
 ```
 
-通常のRunでは`cudnn_benchmark`、`cudnn_deterministic`、`deterministic_algorithms`の3キーが`@non-deterministic`の値になり、`deterministic_warn_only`など残りの既定葉はそのまま残る。`run.$=run.@repro`で起動するとチェーンが`@deterministic`に置き換わるが、既定葉は影響を受けない。
+通常のRunでは`cudnn_benchmark`、`cudnn_deterministic`、`deterministic_algorithms`の3キーが`@non-deterministic`の値になり、`deterministic_warn_only`など残りの既定キーはそのまま残る。`run.$=run.@repro`で起動するとチェーンが`@deterministic`に置き換わるが、既定キーは影響を受けない。
 
 **DropMergeEnv のデフォルト設定とチェーン**
 
@@ -331,7 +331,7 @@ DropMergeEnv.grid_rows ?= 64              # グリッド行数（縦方向）
 DropMergeEnv.action_mode ?= move_fast     # move move_fast direct direct_noop
 ```
 
-`grid_cols`は、`@baseline`、`@G5846`、`@heavy`、E1のうち右端で供給している項の値になる(現行では`@G5846`が58を供給する)。どの項も供給しないキーは既定葉の値のままである。
+`grid_cols`は、`@baseline`、`@G5846`、`@heavy`、E1のうち右端で供給している項の値になる(現行では`@G5846`が58を供給する)。どの項も供給しないキーは既定キーの値のままである。
 
 **デフォルト設定ブロックの外にある`?=`**
 
@@ -342,7 +342,7 @@ DefaultDQNAgent.net.branch.[adv_stream].structure ?= AtariHeadFC512 > SiLU   # N
 DefaultDQNAgent.net.body.output.[features] ?= main_feature # NatureDQNのReLU選択とIQNの出力先を維持するために?=
 ```
 
-チェーンで`@nature`(ReLU)を選ぶ構成や、IQNの配線が`[features]`の出力先を変える構成でも既定を残すため、理由をコメントに書いて`?=`にしている。環境別ファイルで`?=`にするのはこのように理由がある葉だけである。
+チェーンで`@nature`(ReLU)を選ぶ構成や、IQNの配線が`[features]`の出力先を変える構成でも既定を残すため、理由をコメントに書いて`?=`にしている。環境別ファイルで`?=`にするのはこのように理由がある設定キーだけである。
 
 **この Run だけ値を変える**
 
@@ -351,7 +351,7 @@ apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 E1.game=breakout
 apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 AtariEnv.game=breakout
 ```
 
-`E1.game=breakout`は上書き層E1の葉を変え、`AtariEnv.$ = … > E1`のチェーンを通って届く。通常はこれで足りる。`AtariEnv.game=breakout`は実効葉そのものを指定するので、ファイルに`AtariEnv.game = pong`と個別指定があっても勝つ。繰り返し使う組み合わせはRunプロファイルにまとめて`run.$=run.@breakout`で選ぶ。
+`E1.game=breakout`は上書き層E1の設定キーを変え、`AtariEnv.$ = … > E1`のチェーンを通って届く。通常はこれで足りる。`AtariEnv.game=breakout`は実効設定キーそのものを指定するので、ファイルに`AtariEnv.game = pong`と個別指定があっても勝つ。繰り返し使う組み合わせはRunプロファイルにまとめて`run.$=run.@breakout`で選ぶ。
 
 ```properties
 run.@breakout : E1.game = breakout
@@ -361,7 +361,7 @@ run.@breakout : app.run_name = run_{t}_breakout
 ### 3.8 確認方法とよくあるエラー
 
 - `config/config_data.txt`は解決後の実効設定である。上書き層(`A1`〜`A3`、`E1`、`M1`/`M2`、`P1`)や選択元の通常prefix(`app.online`等)の定義も同居するが、`@`プロファイルと`.$`は含まれない。どのプロファイルが選ばれたかはこのfileからは分からない。
-- `json/config_resolution.json`は選択の記録(`selections`。`run.$`が先頭で、`key`は宣言した定義位置)、値参照(`references`)、Runプロファイルが変えた葉(`overrides`)を持つ。読み方は[分析ユーザーガイド](030_user_guide_analysis.jp.md)の§6.6と§6.7を参照する。
+- `json/config_resolution.json`は選択の記録(`selections`。`run.$`が先頭で、`key`は宣言した定義位置)、値参照(`references`)、Runプロファイルが変えた設定キー(`overrides`)を持つ。読み方は[分析ユーザーガイド](030_user_guide_analysis.jp.md)の§6.6と§6.7を参照する。
 - 演算子の書き忘れは3.6の静的検査で確認する。
 
 | メッセージの冒頭 | 原因 | 対処 |
@@ -376,7 +376,11 @@ run.@breakout : app.run_name = run_{t}_breakout
 | `ConfigResolver: value reference target not found`、`chained value reference is not supported` | `${}`の参照先が無い、または参照先がさらに`${}`を含む | 参照先を最終値のキーにする |
 | `ConfigResolver: named trunk must not select another trunk` | Runプロファイルの中で`run.$`を書いた | `run.$`は起動側で1回だけ書く |
 | `Workspace config changed app.runs_dir` | workspaceの設定やCLIで`app.runs_dir`を変えた | workspaceモードでは変更しない |
-| WARN `Properties: Failed to open include file` | `$include`先が無い(エラーにならず続行する) | パスとconfig search dirsを確認する |
+| ERROR `Properties: Failed to open include file` | `$include`先が無い、または開けない | パスとconfig search dirsを確認する |
+| `Unread config keys in` | 構築するカタログ項目に、その読み口が受け付けないキーがある | エラー内の項目名・キーと値・受け付けるキーを確認して直す。起動は停止する |
+| `Unread config keys: N. These keys were not read by any component.` | 実効設定に、どの部品も読まなかったキーがある | 続く`key = value`を確認し、綴りや設定先を直す。起動は継続する |
+
+読まれない設定キーの一覧は、画像の登録と各パネルの初期化まで終え、最初のstepを進める前に1回だけWARNで出る。0件なら出ない。未使用の共有カタログや、選択元として宣言された通常prefixなどの在庫は一覧から除かれる。意図して止めた機能は、その設定prefixと休止の理由をINFOで知らせる。通常のRunではWARN 0件を確認し、設定変更のあとに一覧が出た場合は内容を見直す。
 
 ## 4. Runを開始する
 
@@ -410,8 +414,8 @@ apps\runner\bin\Release\AnetRLRunner.exe `
 > 2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
 > 3. libtorch backendと登録済みEnvを初期化する。
 > 4. ウィンドウとLogsを表示し、そのあと背景で`RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
-> 5. 構築が正常に終わり、終了要求がなければ、メインスレッドでTrain、Eval、QValueの各パネルを接続する。
-> 6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+> 5. 構築が正常に終わり、終了要求がなければ、メインスレッドで画像を登録し、Train、Eval、QValueの各パネルを接続する。
+> 6. 読まれない設定キーがあれば一覧を1回出してから、`RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
 >
 > 詳細は[アプリケーションとツール](160_applications_and_tools.jp.md#51-runner起動)の「Runner起動」を参照する。
 
@@ -516,7 +520,7 @@ WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain
 
 close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから引き継ぎに使う。
 
-checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにWARNが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにINFOが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 `run.eval_schedule.[tag].offset`（既定 0）で、評価の発火列を learn step 単位でずらす。`warmup_count`（既定 1）で、先頭から評価を走らせない発火の回数を指定する。どちらも 0 以上の整数にする。学習直後の評価が必要な評価専用 Run では、組むタグごとに `warmup_count = 0` を書く。継承した offset が不要なら `offset = 0` も書く。
 
@@ -610,7 +614,6 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 ## 9. 関連文書
 
 - [CONTEXT.md](../../CONTEXT.md)(設定用語の正本)
-- [ADR 0042](../adr/0042-config-inheritance-as-differential-base.md)(設定契約の判断理由)
 - [実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）(演算子の運用規約)
 - [分析ユーザーガイド](030_user_guide_analysis.jp.md)
 - [開発環境](040_development_environment.jp.md)

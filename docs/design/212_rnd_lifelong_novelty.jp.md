@@ -193,7 +193,7 @@ RND には、目的が異なる2つの統計がある。
 
 この方式は正規化後の `p` を観測統計へ戻し、誤差の標準化にも更新後の値を使う。除数の平方根を取らないため、whitenと同じ式として読み替えない。2 lane以上でもlane順に統計を更新する。観測統計の更新と誤差統計の更新は独立なので、各laneの正規化済み入力を準備した後、Networkのforwardをbatchにまとめられる。`Learn` は更新後の観測統計で正規化し直し、これらの統計を更新しない。
 
-`variance_feedback` が使う正規化の葉は `obs_norm.clip_range` だけである。ほかの `obs_norm.*` も値域は検証し、RND内部の既定と異なる値を解決したときは、使われないことを構築時に葉ごと1回WARNする。指定した経路が既定・プロファイル・CLIのどれかによって扱いを変えない。
+`variance_feedback` が使う正規化の設定キーは `obs_norm.clip_range` だけである。ほかの `obs_norm.*` も値域は検証し、RND内部の既定と異なる値を解決したときは、使われないことを構築時に設定キーごと1回WARNする。指定した経路が既定・プロファイル・CLIのどれかによって扱いを変えない。
 
 ### 3.3 誤差を倍率へ、倍率をボーナスへ変える
 
@@ -263,7 +263,7 @@ whitenのαはbatchの採点前の件数で判定し、閾値未満なら全lane
 
 `warmup_mode=collect_errors` は、warm-up 中も観測と誤差の統計を更新する一方、採点後の件数が閾値以下なら `Learn` がfalseを返す。variance_feedback の warm-up はこの形のままで、warmup_mode を使わない。ただし採点はlaneごとの採点前の件数で判定し、閾値をまたぐ batch の途中から通常の倍率になる。`warmup_steps=0` はどちらの warmup_mode でも初回から学習し、初回から誤差を統計に入れる。使わない warmup_mode が既定と違うときだけ構築時に1回 INFO を出す。
 
-学習の刻みはfacadeが持つ。kを `min(learn_batch_size,N)` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。Nがbatch sizeより小さいときは構築時に1回警告し、N件に縮めるため、同じ回数になる保証の対象外である。
+学習の刻みはfacadeが持つ。kを `learn_batch_size` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。learnerが有効でNがbatch sizeより小さいときは構築時に停止し、件数を縮めない。learner無効のRunではこの比較を行わない。
 
 抽選は1 intakeにつき1つのlane順列を作り、k件ずつ切り出す。同じlaneを複数stepで使わず、step数は `floor(N/k)` が上限になる。Nがkで割り切れず上限に当たった場合は、整数部分を含む未消費creditも次へ残す。`Learn` を呼んだ分のcreditはfalseでも消費し、warm-up明けのまとめ学習は行わない。成功したtrueだけを `learn_count` に数える。
 
@@ -380,12 +380,12 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 | `intrinsic.rnd.error_norm.use_centering` | true | whiten の式で誤差から平均を引くか |
 | `intrinsic.rnd.multiplier_mode` | clipped | unclippedなら倍率を制限せず、負のボーナスも残す |
 | `intrinsic.rnd.statistics_mode` | whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う |
-| `intrinsic.rnd.head.init.*` | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの葉 |
+| `intrinsic.rnd.head.init.*` | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの設定キー |
 | `intrinsic.rnd.adam_eps` | 1e-8 | 私有AdamWのeps。有限で正の値。読込時も現在設定を使う |
 | `intrinsic.rnd.output_dim` | 128 | target / predictor が出すベクトルの次元。1以上 |
 | `intrinsic.rnd.multiplier_max` | 5 | α の上限 L。有限で1より大きい値 |
 | `intrinsic.learn_ratio` | 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下 |
-| `intrinsic.learn_batch_size` | 32 | 補助学習1 stepの件数。整数で1以上。N件への縮小は§3.5参照 |
+| `intrinsic.learn_batch_size` | 32 | 補助学習1 stepの件数。整数で1以上。learner有効時にlane数を超える値は構築時に停止。§3.5参照 |
 | `intrinsic.rnd.warmup_steps` | 12,800 | ボーナスを止める観測の件数。0以上。中身は warmup_mode による |
 | `intrinsic.rnd.learning_rate` | 0.0001 | predictor の学習率。有限で正の値 |
 | `intrinsic.rnd.weight_decay` | 0 | predictor の AdamW の重み減衰。有限で0以上 |
@@ -395,7 +395,7 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 
 `learn_ratio` と `learn_batch_size` はoptimizerの進む回数と1回の件数を変え、誤差が減る速度にも影響する。単なる高速化の設定として扱わない。βは同じαに対する報酬の大きさ、Lは大きな誤差の倍率上限を変える。作用する位置を分けて読む。
 
-新しい5キーは、RND有効時に型・列挙・値域を検証する。variance_feedback では warmup_mode と error_norm.* を使わず、cumulative では ema_steps を使わない。使わないキーも検証し、解決値が実装の既定と違うときだけキーごとに構築時1回 WARN する。whiten・warmup_steps=0 の warmup_mode だけは機能を止めた通知なので INFO とする。RND無効時には読まず、検証も通知もしない。
+新しい5キーは、RND有効時に型・列挙・値域を検証する。variance_feedback では warmup_mode と error_norm.* を使わず、cumulative では ema_steps を使わない。使わないキーも検証し、解決値が実装の既定と違うときだけキーごとに構築時1回 WARN する。whiten・warmup_steps=0 の warmup_mode だけは機能を止めた通知なので INFO とする。RND無効時にはこれらの個々の値を読まず、検証も個別の通知もしない。休止したprefixとintrinsic.enabled=falseの理由はINFOで1回知らせる。
 
 ### 4.3 `run.@rnd` が選ぶ構造
 
@@ -409,7 +409,7 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 
 AtariのCNNは `AtariRndConv1`（32 channels、kernel 8、stride 4）、`AtariRndConv2`（64、4、2）、`AtariRndConv3`（64、3、1）を順に通し、各Convの後に `AtariRndLeaky`（LeakyReLU、negative_slope 0.2）を置く。paddingはすべて0で、1×84×84からFlatten後は3,136次元になる。predictorだけに足すLinearは `AtariRndFC`。両Bodyの後ろに512次元のLinear Headが付く。Conv・FC・Headは直交初期値、gain √2、bias 0で、targetは1,677,984、predictorは2,203,296パラメータとなる。Q networkとは別のモデルである。
 
-GridMaze/LunarLanderは `net.branch.@RndMlp` を両Bodyから参照する。共通カタログの `MLP_FC1` / `MLP_FC2` を使い、Headは既定128次元。共通カタログの `Conv1d_S/M`・`Conv2d_S/M` は `conv.*` の葉を読み、2層Conv2dではFlatten 6,400、128次元Headを含め854,240パラメータになる。
+GridMaze/LunarLanderは `net.branch.@RndMlp` を両Bodyから参照する。共通カタログの `MLP_FC1` / `MLP_FC2` を使い、Headは既定128次元。共通カタログの `Conv1d_S/M`・`Conv2d_S/M` は `conv.*` の設定キーを読み、2層Conv2dではFlatten 6,400、128次元Headを含め854,240パラメータになる。
 
 Atariの `run.@rnd_taiga` は次の8値を選ぶ。β=0.00005、observation=state、learn_ratio=1、learn_batch_size=1、multiplier_mode=unclipped、statistics_mode=variance_feedback、warmup_steps=0、adam_eps=1e-5。Q側の `run.@rainbow_like` を既存の連鎖へ加え、さらに `run.@rnd > run.@rnd_taiga` を重ねる。num_envsは選ばない。解決したRun設定でQ側のnoop_max=0、main_featureのNature構造、Munchausen指標の不在も確認する。
 
@@ -450,7 +450,7 @@ $$
 - `clip_ratio` が高い状態が続くなら、多くの観測が同じ上限の倍率になっている。現在の誤差と累積統計、入力正規化を合わせて確認する。
 - `error_mean` / `error_std` は採点後の統計である。whitenのαは更新前の値を使い、variance_feedbackは更新後の平均と `err_v` を使う。後者も公開するstdは分散の平方根なので、ログのstdをそのまま除数にしない。
 
-RND無効時のキーは `nullopt`。有効時の `learn_count` は0から始まり、学習しないintakeでも直近lossを保持する。初回採点前の採点値や未学習のlossはNaNになる。NaNは意図された未成立値であり、計算結果の異常な非有限誤差とは区別する。後者は採点時と補助学習時に検出して処理を止める。Nがbatch size以上でintake上限が制約しなければ、warm-up後の `learn_count / exp_step` の増分比は `learn_ratio / learn_batch_size` になる。
+RND無効時とlearner停止による休止中も、既知キーは`NaN`を返す。未知キーだけを`nullopt`で表す。有効時の `learn_count` は0から始まり、学習しないintakeでも直近lossを保持する。初回採点前の採点値や未学習のlossはNaNになる。NaNは意図された未成立値であり、計算結果の異常な非有限誤差とは区別する。後者は採点時と補助学習時に検出して処理を止める。Nがbatch size以上でintake上限が制約しなければ、warm-up後の `learn_count / exp_step` の増分比は `learn_ratio / learn_batch_size` になる。
 
 ### 4.5 保存して再開するとき
 
@@ -462,7 +462,7 @@ Agentはその後ろにfacadeの未消費credit、lane抽選の乱数状態、�
 
 RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付けて区別する。保存側に RND があるのに読み込み側が無効、またはその逆の場合はエラーにする。無効時は従来の保存形式を使う。
 
-読込ではpredictorのoptimizerの学習状態を復元したうえで、学習率・重み減衰・adam_epsを現在の設定へ合わせ、差があればWARNする。それらを変更した再開は、同じ学習をそのまま継続する場合とは区別する。
+読込ではpredictorのoptimizerの学習状態を復元したうえで、学習率・重み減衰・adam_epsを現在の設定へ合わせ、差があればRunに1回INFOで知らせる。それらを変更した再開は、同じ学習をそのまま継続する場合とは区別する。
 
 ## 5. 現在の状態と限界
 
@@ -478,7 +478,7 @@ variance_feedbackの観測統計はCPUでlane順に更新し、その結果を�
 
 Q学習の回数とは別にbatchごとに採点・補助学習するため、Qの更新間隔を大きくしてもRNDの費用が同じ比率で減るとは限らない。計測区間は抽選、正規化、入力転送、target / predictorの順伝播、誤差転送、統計、backward、optimizerのstepを区別する。
 
-`learner.enabled=false` では一度警告して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。診断値の読み取りは値の受け渡し専用の仕組みを使い、画面表示のために新しい学習ロック待ちを追加しない。
+`learner.enabled=false` ではRunに1回INFOを出して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。診断値の読み取りは値の受け渡し専用の仕組みを使い、画面表示のために新しい学習ロック待ちを追加しない。
 
 ### 5.2 確認済みの範囲
 
@@ -491,8 +491,8 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 | Debug ビルド・関連テスト | 全体ビルド、50 tests /4,371 assertions成功。CNNのCPUテストはOMP_NUM_THREADS=1 |
 | 固定教師と predictor | 同一入力100回更新後の target 重み・出力の固定と、predictor の学習を確認 |
 | 統計・入力・保存再開 | variance_feedbackのN=1手計算3step、N=2逐次更新、カテゴリIDの保持（単独/連続値との混合、int64/uint8/float）、stateの採点と学習、負ボーナスの比率、両モードのCPU/CUDA入力、保存継続とモード不一致拒否を確認 |
-| 出荷設定 | Atariの両Networkのパラメータ数と約33.2MBのcheckpoint増分、Conv1d/2dの寸法、Taigaの8葉が一致 |
-| Runの設定解決 | 保存済みMontezuma基準Runと全キー比較。rainbowからtaigaへの差はRND設定18葉と診断13葉だけ。noop_max=0、Nature構造、Munchausen指標の不在を確認 |
+| 出荷設定 | Atariの両Networkのパラメータ数と約33.2MBのcheckpoint増分、Conv1d/2dの寸法、Taigaの8 件が一致 |
+| Runの設定解決 | 保存済みMontezuma基準Runと全キー比較。rainbowからtaigaへの差はRND設定18 件と診断13 件だけ。noop_max=0、Nature構造、Munchausen指標の不在を確認 |
 | 無効時の同一性 | GridMaze・LunarLander・Atari・DropMergeの105,682点と指標定義が変更前と一致 |
 | GridMazeのsmoke | 100k経験で完走、学習後5,448点、記録したlearn_countの最大値2,724、指標の不正な非有限値なしで、完走・有限性・補助学習の進行という改訂後の条件を満たす。観測が正規化した(x, y)の2値で盤面固定のため、限られた入力に慣れて新しさが尽きると既定のbonusは0になり、符号と減少は判定しない |
 | KFMのsmoke | 新しい3層CNNで100k経験を完走し、学習後5,448点のclip_ratioは最大0。ただし保存済みr1はbonus_shareが4,008点で欠測しており、NaN例外を厳密にした再判定では不合格。旧集計は保持し、新しいRunは起こしていない |

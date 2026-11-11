@@ -1,10 +1,30 @@
 #include "anet/catch_test.hpp"
 
 #include "anet/image.hpp"
+#include "anet/metrics_logger.hpp"
 
 #include <vector>
 
 namespace {
+
+class ImageTestMetricsBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void WriteJsonl(const anet::json&) override {}
+    void Flush() override {}
+};
+
+class ScopedImageMetricsLogger final {
+public:
+    ScopedImageMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+        anet::MetricsLoggerConfig config;
+        config.run_name_tmpl = "image_registry_test";
+        anet::MetricsLogger::Init(std::make_unique<ImageTestMetricsBackend>(), config, "out/test-tmp");
+    }
+    ~ScopedImageMetricsLogger() { anet::MetricsLogger::Reset(); }
+};
 
 anet::TensorDict MakeConv2dLayoutTrace()
 {
@@ -83,4 +103,88 @@ TEST_CASE("Conv2dVisualizer rejects invalid layer margin", "[image][conv2d]")
     anet::rl::Conv2dVisualizerConfig config = MakeConv2dLayoutConfig(/*layer_margin_y=*/-2);
     anet::rl::Conv2dVisualizer visualizer(config);
     CHECK_THROWS(visualizer.Visualize(/*step=*/1, MakeConv2dLayoutTrace()));
+}
+
+TEST_CASE("ImageProviderManager rejects duplicate tags without replacing the provider", "[prd117][image][image_registry]")
+{
+    ScopedImageMetricsLogger metrics_logger;
+    anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
+    anet::rl::ImageProviderConfig config;
+    config.type = anet::rl::kImageType_Conv2d;
+    manager.CreateAndRegister("layers", config, nullptr, nullptr);
+    const auto first = manager.List();
+    REQUIRE(first.size() == 1);
+    CHECK_THROWS_WITH(manager.CreateAndRegister("layers", config, nullptr, nullptr),
+        Catch::Matchers::ContainsSubstring("layers") && Catch::Matchers::ContainsSubstring("already exists"));
+    const auto after = manager.List();
+    REQUIRE(after.size() == 1);
+    CHECK(after[0].provider == first[0].provider);
+    manager.CreateAndRegister("other_layers", config, nullptr, nullptr);
+    CHECK(manager.List().size() == 2);
+}
+
+TEST_CASE("Image catalog rejects unknown fields even after another reader consumed them", "[prd117][image][image_catalog]")
+{
+    ScopedImageMetricsLogger metrics_logger;
+    anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
+    anet::ConfigData data;
+    data.Set("metrics.image.[layers].type", anet::rl::kImageType_Conv2d);
+    const std::string key = "metrics.image.[layers].conv2d.mergin_x";
+    data.Set(key, 9);
+    (void)data.Get(key);
+    CHECK_THROWS_WITH(manager.CreateAndRegister(data, nullptr, nullptr),
+        Catch::Matchers::ContainsSubstring("metrics.image.[layers]")
+        && Catch::Matchers::ContainsSubstring("conv2d.mergin_x")
+        && Catch::Matchers::ContainsSubstring("9"));
+}
+
+TEST_CASE("Image catalog reads known fields outside the selected image type", "[prd117][image][image_catalog]")
+{
+    ScopedImageMetricsLogger metrics_logger;
+    anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
+    anet::ConfigData data;
+    data.Set("metrics.image.[layers].type", anet::rl::kImageType_Conv2d);
+    const std::string key = "metrics.image.[layers].heatmap.width";
+    data.Set(key, "invalid");
+    CHECK_THROWS_WITH(manager.CreateAndRegister(data, nullptr, nullptr),
+        Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected"));
+}
+
+TEST_CASE("Image defaults are read without creating image providers", "[prd117][image][image_catalog]")
+{
+    ScopedImageMetricsLogger metrics_logger;
+    anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
+    anet::ConfigData data;
+    data.Set("metrics.image.histgram.frame_interval", 10);
+    data.Set("metrics.image.conv2d.margin_x", 4);
+    data.Set("some.setting", 9);
+    manager.CreateAndRegister(data, nullptr, nullptr);
+    CHECK(manager.List().empty());
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread[0].first == "some.setting");
+}
+
+TEST_CASE("Image catalog merges typed defaults and retains original read records", "[prd117][image][image_catalog]")
+{
+    ScopedImageMetricsLogger metrics_logger;
+    anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
+    anet::ConfigData data;
+    data.Set("metrics.image.interval", 77);
+    data.Set("metrics.image.histgram.frame_interval", 10);
+    data.Set("metrics.image.[layers].type", anet::rl::kImageType_Conv2d);
+    data.Set("metrics.image.[layers].interval", 5);
+    data.Set("metrics.image.[layers].heatmap.width", 512);
+    data.Set("metrics.image.[layers].histgram.alpha", 0.5f);
+    data.Set("some.setting", 9);
+    manager.CreateAndRegister(data, nullptr, nullptr);
+    const auto providers = manager.List();
+    REQUIRE(providers.size() == 1);
+    CHECK(providers[0].config.interval == 5);
+    CHECK(providers[0].config.heatmap.width == 512);
+    CHECK(providers[0].config.histgram.frame_interval == 10);
+    CHECK(providers[0].config.histgram.alpha == 0.5f);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread[0].first == "some.setting");
 }

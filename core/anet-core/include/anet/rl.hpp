@@ -664,6 +664,7 @@ namespace anet::rl {
 
     class SingleDiscreteEnvFactory {
     public:
+        virtual void ValidateConfig(const anet::ConfigData&, RunMode, const std::string&) const {}
         virtual std::shared_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
@@ -677,6 +678,7 @@ namespace anet::rl {
         {
             return GetTargetEnvClassId();
         }
+        virtual std::vector<std::string> GetConfigPrefixes() const { return {GetDefaultConfigPrefix()}; }
 
         virtual ~SingleDiscreteEnvFactory() = default;
     };
@@ -711,6 +713,7 @@ namespace anet::rl {
             RunMode run_mode = RunMode::Train,
             const std::string& config_prefix = "") = 0;
         virtual std::string GetTargetEnvClassId() const = 0;
+        virtual std::vector<std::string> GetConfigPrefixes() const { return {GetTargetEnvClassId()}; }
         virtual ~BatchEnvFactory() = default;
     };
 
@@ -1285,6 +1288,7 @@ namespace anet::rl {
             std::optional<anet::seed_t> seed = std::nullopt
         ) const = 0;
         virtual std::string GetTargetAgentClassId() const = 0;
+        virtual std::vector<std::string> GetConfigPrefixes() const { return {GetTargetAgentClassId()}; }
 
         virtual ~AgentFactory() = default;
     };

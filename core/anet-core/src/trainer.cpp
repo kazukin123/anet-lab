@@ -782,10 +782,19 @@ StepCounts PipelineTrainRunner::DoStep()
 // ------------------------------------------------------
 // RunnerFactory
 // ------------------------------------------------------
+static void ValidateMainRunnerType(const std::string& type)
+{
+    const auto normalized = anet::ToLower(type);
+    if (normalized != "serial" && normalized != "pipeline") {
+        ANET_SYSTEM_ERROR("Invalid run.train.runner_type='" << type << "'; expected serial or pipeline (case-insensitive).");
+    }
+}
+
 std::shared_ptr<TrainRunner> RunnerFactory::CreateMainRunner(
     const std::string& type, std::shared_ptr<anet::rl::BatchEnv> env,
     std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request)
 {
+    ValidateMainRunnerType(type);
     if (anet::ToLower(type) == "pipeline") {
         return std::make_shared<PipelineTrainRunner>(env, agent, notifier, request);
     } else {
@@ -814,6 +823,7 @@ struct RunManager::Config : public anet::Config
         ANET_READ_CONFIG(config_data, seed);
         ReadConfig(config_data, "train.num_envs", num_envs);
         ReadConfig(config_data, "train.runner_type", main_runner_type);
+        ValidateMainRunnerType(main_runner_type);
         ReadConfig(config_data, "train.actor", actor);
         ANET_READ_CONFIG(config_data, eval_device);
         effective_eval_device = anet::ParseDevice(eval_device);
@@ -862,11 +872,9 @@ private:
         auto it = eval_runners.find(eval_name);
         if (it == eval_runners.end()) {
             if (dormant_eval_tags.contains(eval_name)) {
-                if (warned_dormant_metric_tags_.insert(eval_name).second) {
-                    LOG::warn() << "Skipping metrics for unscheduled eval tag. tag='" << eval_name
-                        << "'. The tag is defined in run.eval but has no active "
-                        << "run.eval_schedule entry.";
-                }
+                LOG::info_once(eval_name) << "Skipping metrics for unscheduled eval tag. tag='" << eval_name
+                    << "'. The tag is defined in run.eval but has no active "
+                    << "run.eval_schedule entry.";
                 return nullptr;
             }
             ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics config.");
@@ -919,11 +927,13 @@ private:
         agent.ConfigureScalarMetricSubscriptions(subscriptions);
     }
 private:
-    std::unordered_set<std::string> warned_dormant_metric_tags_;
 };
 
-RunManager::RunManager(const ConfigData& config_data)
+RunManager::RunManager(const ConfigData& source_config_data)
 {
+    // 部品を複製しても通知は Run ごとに数え、次の Run では記録を持ち越さない。
+    LOG::ResetNotifications();
+    const auto config_data = source_config_data.CreateReadScope();
     // Config
     config_ = std::make_unique<Config>(config_data);
     LOG::info() << "RunManager effective_eval_device=" << config_->GetEvalDevice();
@@ -991,6 +1001,7 @@ RunManager::RunManager(const ConfigData& config_data)
         schedule_config.Read("use_background", use_background, use_background);
         bool wait_on_exit = true;
         schedule_config.Read("wait_on_exit", wait_on_exit, wait_on_exit);
+        schedule_config.RequireAllKeysRead("run.eval_schedule.[" + tag + "]");
         resolved_eval_schedules.emplace(tag, EvalScheduleConfig{
             .interval = interval,
             .offset = offset,
@@ -1061,6 +1072,8 @@ RunManager::RunManager(const ConfigData& config_data)
     }
 
     // TrainRunner生成
+    EnvRepository::Instance().MarkUnusedConfigInventory(config_data, env_config.class_id);
+    AgentRepository::Instance().MarkUnusedConfigInventory(config_data, agent_factory_config.class_id);
     const ActorRequest train_request{.batch_env_spec = batch_env_spec, .env_spec = env_spec,
         .device = agent_device, .seed = master_seed_->GetGroupSeed("actor/train"), .actor_key = config_->actor};
     train_runner_ = anet::rl::RunnerFactory::CreateMainRunner(config_->main_runner_type, env_, agent_, notifier_, train_request);
@@ -1107,6 +1120,7 @@ RunManager::RunManager(const ConfigData& config_data)
 
         // definition-only tagも宣言時schemaだけは検証し、Env/manifest/actorは生成しない。
         env_factory_->ValidateConfig(run_mode, config_prefix);
+        eval_config_data.RequireAllKeysRead("run.eval.[" + tag + "]");
         const auto schedule_it = resolved_eval_schedules.find(tag);
         if (schedule_it == resolved_eval_schedules.end()) {
             LOG::info() << "eval.[" << tag << "]: definition-only";
@@ -1167,7 +1181,7 @@ RunManager::RunManager(const ConfigData& config_data)
         const int64_t group_count = batch_spec.episode_scope == EpisodeScope::PER_LANE
             ? batch_spec.num_envs : 1;
         if (eval_episodes < group_count) {
-            LOG::warn() << "Eval session has fewer adopted episodes than episode groups. "
+            LOG::warn_once(tag) << "Eval session has fewer adopted episodes than episode groups. "
                 << "eval_tag='" << tag << "' eval_episodes=" << eval_episodes
                 << " group_count=" << group_count << ".";
         }
@@ -1230,10 +1244,8 @@ void RunManager::LogEnvConfig(const BatchEnv& env)
 {
     const auto config_data = env.GetConfigData();
     if (!config_data.has_value()) {
-        if (warned_unsupported_env_config_names_.insert(env.GetName()).second) {
-            LOG::warn() << "Skipping Env config dump because GetConfigData is unsupported. env_name='"
-                << env.GetName() << "'";
-        }
+        LOG::warn_once(env.GetName()) << "Skipping Env config dump because GetConfigData is unsupported. env_name='"
+            << env.GetName() << "'";
         return;
     }
 

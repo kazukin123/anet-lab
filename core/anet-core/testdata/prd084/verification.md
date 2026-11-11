@@ -18,7 +18,7 @@
 - 関連NN/DQN: `.scratch/prd084/final-related-test.log` 290cases /26890assertions /exit0。
 - RED/GREEN・fixture修正・coverageの履歴は `.scratch/prd084/progress.md`。既存挙動の追加coverageはREDを捏造しない。
 - σの符号、σ0=0、gradient一致、rank/bias/share、保持境界、SN/精度、6Headの同期・保存、通常/Fused AdamWのgroup/decay/moment、clip、診断gating/NaN、24target構成の非干渉を確認。
-- 既定葉監査: `.scratch/prd084/default-leaf-audit-final.log` errors0。
+- 既定キー監査: `.scratch/prd084/default-leaf-audit-final.log` errors0。
 
 ## Atari 結合
 

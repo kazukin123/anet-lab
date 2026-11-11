@@ -63,12 +63,13 @@ ImageCacheMode ParseCacheMode(const std::string& value)
 template <typename T>
 void ReadDatasetField(
     const anet::ConfigData& config_data,
+    const anet::ConfigData& item_data,
     const DatasetKey& key,
     const std::string& field,
     T& value)
 {
     config_data.Read("ImageDataset." + field, value, value);
-    config_data.Read("ImageDataset.[" + key + "]." + field, value, value);
+    item_data.Read("ImageDataset.[" + key + "]." + field, value, value);
 }
 
 void EnsureWxImageSupport()
@@ -165,19 +166,21 @@ ImageDatasetConfig ImageDatasetConfig::Resolve(const anet::ConfigData& config_da
     }
 
     ImageDatasetConfig config;
+    const auto item_data = config_data.CreateReadScope("ImageDataset.[" + key + "]");
     std::string root_dir;
     std::string list_txt_path;
     std::string classes_txt_path;
     std::string cache_mode = "auto";
     // catalog共通値の上へdataset-key固有値を重ね、1 dataset分の設定を確定する。
-    ReadDatasetField(config_data, key, "root_dir", root_dir);
-    ReadDatasetField(config_data, key, "list_txt_path", list_txt_path);
-    ReadDatasetField(config_data, key, "classes_txt_path", classes_txt_path);
-    ReadDatasetField(config_data, key, "suffix", config.suffix);
-    ReadDatasetField(config_data, key, "image_width", config.image_width);
-    ReadDatasetField(config_data, key, "image_height", config.image_height);
-    ReadDatasetField(config_data, key, "cache.mode", cache_mode);
-    ReadDatasetField(config_data, key, "cache.max_bytes", config.cache_max_bytes);
+    ReadDatasetField(config_data, item_data, key, "root_dir", root_dir);
+    ReadDatasetField(config_data, item_data, key, "list_txt_path", list_txt_path);
+    ReadDatasetField(config_data, item_data, key, "classes_txt_path", classes_txt_path);
+    ReadDatasetField(config_data, item_data, key, "suffix", config.suffix);
+    ReadDatasetField(config_data, item_data, key, "image_width", config.image_width);
+    ReadDatasetField(config_data, item_data, key, "image_height", config.image_height);
+    ReadDatasetField(config_data, item_data, key, "cache.mode", cache_mode);
+    ReadDatasetField(config_data, item_data, key, "cache.max_bytes", config.cache_max_bytes);
+    item_data.RequireAllKeysRead("ImageDataset.[" + key + "]");
 
     // I/O開始前にpath、shape、cache上限の構築時検証を完了する。
     if (root_dir.empty() || list_txt_path.empty() || classes_txt_path.empty()) {
@@ -324,7 +327,7 @@ void ImageDataset::PrepareCache()
             selected_mode = required_bytes <= config_.cache_max_bytes
                 ? ImageCacheMode::FullRam : ImageCacheMode::None;
             if (selected_mode == ImageCacheMode::None) {
-                LOG::warn() << "ImageDataset auto cache disabled because payload exceeds cap. dataset_key='"
+                LOG::warn_once(key_) << "ImageDataset auto cache disabled because payload exceeds cap. dataset_key='"
                     << key_ << "' required_bytes=" << required_bytes
                     << " max_bytes=" << config_.cache_max_bytes;
             }
@@ -347,7 +350,7 @@ void ImageDataset::PrepareCache()
                         << key_ << "' required_bytes=" << required_bytes
                         << " max_bytes=" << config_.cache_max_bytes << " reason='" << e.what() << "'");
                 }
-                LOG::warn() << "ImageDataset auto cache allocation failed; using none. dataset_key='"
+                LOG::warn_once(key_) << "ImageDataset auto cache allocation failed; using none. dataset_key='"
                     << key_ << "' required_bytes=" << required_bytes
                     << " max_bytes=" << config_.cache_max_bytes;
                 selected_mode = ImageCacheMode::None;
@@ -357,7 +360,7 @@ void ImageDataset::PrepareCache()
                         << key_ << "' required_bytes=" << required_bytes
                         << " max_bytes=" << config_.cache_max_bytes << " reason='<unknown>'");
                 }
-                LOG::warn() << "ImageDataset auto cache allocation failed; using none. dataset_key='"
+                LOG::warn_once(key_) << "ImageDataset auto cache allocation failed; using none. dataset_key='"
                     << key_ << "' required_bytes=" << required_bytes
                     << " max_bytes=" << config_.cache_max_bytes;
                 selected_mode = ImageCacheMode::None;

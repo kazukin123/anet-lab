@@ -33,12 +33,7 @@ namespace anet::nn {
 
     /// 同じ構造内の繰り返し位置に応じて設定値を補間する規則。
     struct ConfigProfileConfig {
-        std::string type = "linear"; ///< 補間方式。現行はlinear。
-        double start = 0.0; ///< 最初の位置の値。
-        double end = 0.0; ///< 最後の位置の値。
-        bool has_type = false; ///< 補間方式が明示されたか。
-        bool has_start = false; ///< 開始値が明示されたか。
-        bool has_end = false; ///< 終了値が明示されたか。
+        anet::ConfigData config_data; ///< 参照時に読み取る補間設定。出典と未参照の生値を保つ。
     };
 
     /// 入力の結合、構造、局所profileを表す1本のbranchの定義。

@@ -13,15 +13,20 @@
 #include "anet/trainer.hpp"
 #include "anet/gui.hpp"
 #include "anet/config.hpp"
+#include "anet/image.hpp"
 
 class Conv2dPanel final : public anet::rl::gui::Panel, public anet::rl::gui::TraceFollower
 {
 public:
+    struct Config : public anet::Config {
+        anet::rl::Conv2dVisualizerConfig conv2d;
+        explicit Config(const anet::ConfigData& config_data);
+    };
     // observer: ヒートマップ生成ロジックを持つクラスの所有権を受け取る
     Conv2dPanel(
         wxWindow* parent, const wxString& title,
         anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner,
-        const anet::ConfigData& config_data);
+        const Config& config);
 
     virtual ~Conv2dPanel();
 public:	// TraceFollower
@@ -44,10 +49,8 @@ private:
     void RenderActivations(anet::rl::step_t step, const anet::TensorDict& activations);
     void CreateObserver(anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner);
 private:
-    class Config;
-private:
     // 設定
-    std::unique_ptr<Config> config_;
+    const Config config_;
 
     // UIコンポーネント
     wxGLCanvas* canvas_ = nullptr;

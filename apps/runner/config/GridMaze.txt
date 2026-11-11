@@ -18,9 +18,7 @@ run.train.num_envs = 256
 DefaultDQNAgent.$ = @baseline > @fast > A1 > A2 > A3
 #DefaultDQNAgent.$ = @baseline > @fast > A1 > @bf16 > A2 > A3
 
-DefaultDQNAgent.net.body.$ = net.body.@MLP2
-
-# TempoRL を使うときは次の行を有効にする（変種は CLI の葉で上書き）。
+# TempoRL を使うときは次の行を有効にする（変種は CLI の設定キーで上書き）。
 #run.$ = run.@skip
 #run.$ = run.@rnd
 
@@ -51,7 +49,7 @@ run.@rnd : metrics.scalar.[56_agent_in/32_learn_count] = $agent intrinsic.learn_
 net.branch.@RndMlp : bind = vector
 net.branch.@RndMlp : structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 
-# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの設定キーで指定する。
 run.@skip : DefaultDQNAgent.skip.enabled = true
 run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > M1 > metrics.scalar.@skip
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
@@ -189,7 +187,6 @@ A1.reward_scaler.use_auto_post_scale = true
 A1.reward_scaler.use_clipping = false
 A1.reward_scaler.clip_range = 10.0
 
-A1.network.soft_update_tau = 0.005                 # 0.001 高め
 
 
 # Random Policy プロファイル(@random)は agent.txt の共通定義を参照。

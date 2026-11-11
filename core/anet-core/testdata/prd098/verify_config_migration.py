@@ -65,7 +65,7 @@ def freeze_runner(root, label, build_config):
 
 
 def check_profile(run, variant, width_j1=False, trace_q=False):
-    # CLIの変種が解決結果へ反映され、廃止した選択葉が無いことを確かめる。
+    # CLIの変種が解決結果へ反映され、廃止した選択設定キーが無いことを確かめる。
     data = json.loads((run / 'json/config_data.json').read_text(encoding='utf-8-sig'))['data']
     prefix = 'DefaultDQNAgent.'
     assert data[prefix + 'skip.enabled'] == 'true'

@@ -46,11 +46,9 @@ image.phm.@per-prio.heatmap.max_points ?= 2560000 # 100000
 image.phm.@per-prio.heatmap.probe.x.source ?= agent
 image.phm.@per-prio.heatmap.probe.x.key ?= replaybuffer.storage.next_state.vector
 image.phm.@per-prio.heatmap.probe.x.index ?= 0
-image.phm.@per-prio.heatmap.probe.x.auto_scale_mode ?= 0 # 0=none 1=PerStep 2=Global
 image.phm.@per-prio.heatmap.probe.y.source ?= agent
 image.phm.@per-prio.heatmap.probe.y.key ?= replaybuffer.storage.next_state.vector
 image.phm.@per-prio.heatmap.probe.y.index ?= 1
-image.phm.@per-prio.heatmap.probe.y.auto_scale_mode ?= 0 # 0=none 1=PerStep 2=Global
 image.phm.@per-prio.heatmap.probe.value.source ?= agent
 image.phm.@per-prio.heatmap.probe.value.key ?= replaybuffer.per.distribution
 image.phm.@per-prio.heatmap.probe.value.index ?= -1
@@ -93,22 +91,20 @@ image.@conv2d.interval ?= 100         # ★
 image.@conv2d.conv2d.channels_per_row ?= 16  # ★
 image.@conv2d.conv2d.network_key ?= policy-net.conv2d
 image.@conv2d.conv2d.flip_vertical ?= true
-image.@conv2d.conv2d.mergin_x ?= 4
-image.@conv2d.conv2d.mergin_y ?= 2
+image.@conv2d : conv2d.margin_x ?= 4
+image.@conv2d : conv2d.margin_y ?= 2
 image.@conv2d.conv2d.colormap ?= gray  # gray hot jet
 image.@conv2d.conv2d.scale_factor ?= 4
 image.@conv2d.conv2d.min_block_size ?= 40
 
 # ---- 
 
-metrics.image.histgram.interval ?= 50
 metrics.image.histgram.frame_interval ?= 10
 
 image.@test.interval ?= 1
 image.@test.histgram.frame_interval ?= 10
 
 
-metrics.image.histgram.interval ?= 50
 metrics.image.histgram.frame_interval ?= 10
 
 image.@test.interval ?= 1

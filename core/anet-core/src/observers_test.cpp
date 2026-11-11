@@ -1502,6 +1502,41 @@ TEST_CASE("ScalarMetricDefsToJson emits the metrics.scalar.defs payload", "[obse
     CHECK(learn_payload.at("learn_td_update").at("target").get<std::string>() == "update_result");
 }
 
+TEST_CASE("Image observers suppress repeated mismatch and unexpected episode starts", "[observers][prd117][notification_repetition]")
+{
+    // 同じ不一致を2回、未終了のepisode開始を続けて3回渡し、各対象の通知を数える。
+    const auto state = MakeState({false}, {false}, std::vector<bool>{true});
+    const auto next = MakeState({false}, {false});
+    const rl::BatchExperience experience(state, nullptr, torch::zeros({1}), next);
+    const rl::TrainEvent event{{.experience=experience, .counts={.train_step=1}}};
+    rl::HeatMapObserverConfig config;
+    config.log_interval = 1;
+    auto x = std::make_shared<rl::BatchExperienceVectorProbe>(rl::BatchExperience::STATE_OBS, -1);
+    auto y = std::make_shared<rl::BatchExperienceVectorProbe>(rl::BatchExperience::REWARD, -1);
+    // 観測を2列にしてrewardの1列とのサイズ差を作る。
+    auto heat_experience = experience;
+    heat_experience.state.obs.Set(kVectorKey, torch::zeros({1, 2}));
+    const rl::TrainEvent heat_event{{.experience=heat_experience, .counts={.train_step=1}}};
+    rl::HeatMapVectorObserver heat("test.mismatch", config, x, y, y);
+    rl::Conv2dVisualizationObserver conv("test.unexpected.conv", 1, {});
+    rl::GraphVizObserver graph("test.unexpected.graph", -1, 1, "unused", std::nullopt);
+    anet::test::LogCaptureGuard logs;
+    heat.OnTrain(heat_event);
+    heat.OnTrain(heat_event);
+    for (int i = 0; i < 3; ++i) {
+        conv.OnTrain(event);
+        graph.OnTrain(event);
+    }
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 3);
+    for (const auto* message : {"HeatMapVectorObserver: size mismatch", "Conv2dVisualizationObserver: force-ended",
+        "GraphVizObserver: force-ended"}) {
+        CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+            return record.level == wxLOG_Warning && ContainsText(record.message, message);
+        }) == 1);
+    }
+}
+
 TEST_CASE("SweepedHeatMapObserver passes configured output_key tensor to extractor", "[probe][sweep][observers]")
 {
     anet::MetricsLogger::Reset();
@@ -1709,7 +1744,7 @@ TEST_CASE("Scalar and trace enforce the scope event target matrix", "[trace][obs
 TEST_CASE("Shared metric token classification preserves scalar last assignment and defaults", "[observer_factory][trace]")
 {
     anet::ConfigData config;
-    config.Set("metrics.scalar.[legacy]", "first key:second third $agent target:env @learn event:train $learn_step step:exp step:unknown unknown:value");
+    config.Set("metrics.scalar.[legacy]", "first key:second third $agent target:env @learn event:train $learn_step step:exp");
     rl::ObserverFactory factory(config);
     const auto& def = factory.GetScalarMetricDefs().at(0);
     CHECK(def.source_key == "third");
@@ -1717,6 +1752,61 @@ TEST_CASE("Shared metric token classification preserves scalar last assignment a
     CHECK(def.event == "train");
     CHECK(def.step_axis == "exp_step");
     CHECK(def.interval == 1);
+}
+
+TEST_CASE("ObserverFactory rejects unknown controls and missing keys at construction", "[observer_factory][observers][prd117]")
+{
+    const auto input = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
+        {"scalar", "score $runner event:unknown"},
+        {"scalar", "score $runner @train step:unknown"},
+        {"scalar", "score @train target:unknown"},
+        {"scalar", "score $runner @train unknown:value"},
+        {"scalar", "@train $runner"},
+        {"graph", "key:network target:unknown interval:10"},
+        {"graph", "key:network target:action_info unknown:value"},
+        {"graph", "target:action_info interval:10"},
+    }));
+    const auto& [channel, expression] = input;
+    const auto key = "metrics." + channel + ".[test]";
+    CAPTURE(key, expression);
+    anet::ConfigData data;
+    data.Set(key, expression);
+    CHECK_THROWS_WITH(rl::ObserverFactory(data), Catch::Matchers::ContainsSubstring(key)
+        && Catch::Matchers::ContainsSubstring(expression));
+}
+
+TEST_CASE("Metric catalogs reject fields below a flat definition", "[prd117][observers][metric_catalog]")
+{
+    const auto input = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
+        {"scalar", "score $runner @train"},
+        {"trace", "score $runner @episode_end"},
+        {"graph", "key:network target:action_info interval:10"},
+    }));
+    const auto suffix = GENERATE(std::string(".typo"), std::string(".nested.[bad]"));
+    const auto key = "metrics." + input.first + ".[test]" + suffix;
+    CAPTURE(key);
+    anet::ConfigData data;
+    data.Set(key, input.second);
+    (void)data.Get(key);
+    CHECK_THROWS_WITH(rl::ObserverFactory(data),
+        Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected"));
+}
+
+TEST_CASE("Metric catalogs read complete nested tags and consume their declarations", "[prd117][observers][metric_catalog]")
+{
+    anet::ConfigData data;
+    data.Set("metrics.scalar.[rate.[01]]", "score $runner @train");
+    data.Set("metrics.trace.[episode.[01]]", "score $runner @episode_end");
+    data.Set("metrics.graph.[network.[01]]", "key:network target:action_info interval:10");
+    data.Set("some.setting", 9);
+    rl::ObserverFactory factory(data);
+    REQUIRE(factory.GetScalarMetricDefs().size() == 1);
+    CHECK(factory.GetScalarMetricDefs()[0].tag == "rate.[01]");
+    REQUIRE(factory.GetTraceMetricDefs().size() == 1);
+    CHECK(factory.GetTraceMetricDefs()[0].tag == "episode.[01]");
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread[0].first == "some.setting");
 }
 
 TEST_CASE("Train trace reads keys in declaration order and preserves nonfinite fields", "[trace][observers]")
@@ -1948,7 +2038,15 @@ TEST_CASE("Unknown non-DQN action scalar follows the standard missing-value warn
         rl::EventField::ACTION_INFO, 1, false, 0.01f, std::nullopt);
     // 非対応の特別扱いではなく、通常の未知キーとして既存WARNへ到達する。
     observer.OnTrain(event);
+    rl::MetricsLogTrainObserver same_tag("missing_action_scalar", "not_provided", rl::StepAxis::EXP,
+        rl::EventField::ACTION_INFO, 1, false, 0.01f, std::nullopt);
+    same_tag.OnTrain(event);
     logs.Flush();
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning
+            && ContainsText(record.message, "value not found")
+            && ContainsText(record.message, "tag=missing_action_scalar");
+    }) == 1);
     CHECK(std::ranges::any_of(logs.Records(), [](const auto& record) {
         return ContainsText(record.message, "value not found")
             && ContainsText(record.message, "tag=missing_action_scalar")

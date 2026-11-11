@@ -70,7 +70,7 @@ run.@repro : DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
 run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
 
 # TempoRL: 既定で有効（分離×合算）。2026-10-26 の評価（PRD098 §7 の段 2）で無効を 3 seed のブレ幅を超えて上回ったため。
-# 無効にするときは CLI で "run.$=run.@munch" を渡す。ほかの変種は CLI の葉で指定する。
+# 無効にするときは CLI で "run.$=run.@munch" を渡す。ほかの変種は CLI の設定キーで指定する。
 DefaultDQNAgent.skip.max_length ?= 4
 DefaultDQNAgent.net.body.output.[skip_context] = fusion
 DefaultDQNAgent.learner.skip.feature_gradient = merge   # 合算（agent.txt の既定は stop）。段 2 で最も速く 200 に届いた

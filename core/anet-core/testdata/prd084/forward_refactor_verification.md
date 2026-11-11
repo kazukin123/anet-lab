@@ -22,7 +22,7 @@
 | 最終 Debug 全体・Release 全体ビルド | 成功 |
 | 最終全 core | 668成功、既存1スキップ、34,885 assertions |
 | 公開 ConfigManager による6構成 | 全キー・文字列値・型付き設定が前後一致、44 assertions |
-| 設定既定葉監査 | 25,057 assignments、3,421 audited、errors 0 |
+| 設定既定キー監査 | 25,057 assignments、3,421 audited、errors 0 |
 | Noisy 指標を含める正規化契約 | RED→GREEN、Python 1件成功 |
 
 準備時だけの解釈、設定元の寿命・変更からの独立、Network の寿命、独自設定を読む Module／Head、同名・異内容の設定、複数 Actor の独立 State と同時 Forward、target/probe 共有、時計・snapshot・保存・行対応・TD/QR/IQN/Dueling/Double-DQN/Munchausen・精度・診断非干渉を確認した。新契約は RED→GREEN とし、既存の回帰テストを現行 API へ移行した。
@@ -149,7 +149,7 @@ Debug テスト PDB の増大による LNK1318 は生成物を scratch へ退避
 | CPU NoisyNet | 51成功、CUDA専用3スキップ、10667 assertions成功 |
 | CPU全core | 666成功、6スキップ、33444 assertions成功 |
 | 公開ConfigManagerの6構成全解決値・型付き設定 | 44 assertions、前後完全一致 |
-| 設定既定葉監査 | 25100 assignments、3421 audited、errors 0 |
+| 設定既定キー監査 | 25100 assignments、3421 audited、errors 0 |
 | Run資材 | PowerShell／Python構文と独立fixtureによる既存6 Run・今回単発の両集計モードを確認 |
 | Releaseコンパイル・各testリンク | 成功（並列数1の直列再試行） |
 | Runner Release通常出力リンク | 既存PID50872がEXEを使用中のLNK1104で保留 |
@@ -247,7 +247,7 @@ probe平均側は既存NoGrad/eval/FP32保護内の既定Forwardに変更した�
 | Release全体 | 全コンパイル・Core/環境テストのリンク成功。通常Runnerリンクは使用中EXEのLNK1104。別出力の最終Runnerリンク成功 |
 | Release NoisyNet（CUDAを含む） | 56成功、10,684 assertions成功 |
 | 設定6構成・全解決値/型付き値 | 44 assertions成功 |
-| 既定葉 | 3,421項目、エラー0件 |
+| 既定キー | 3,421項目、エラー0件 |
 | BOM/LF・対象diff check | HEADのBOMを維持、CRLF0件、diff check成功 |
 | 削除API・NN指定6ファイルのRL語 | 残存0件・一致0件 |
 | State/Context公開面 | 定義0件・前方宣言2件 |
@@ -327,7 +327,7 @@ Run資材に`-Cases`を追加し、既定のOFF3構成を維持した。CPU構�
 | 最終Noisy CUDA | 56成功、10,684 assertions成功 |
 | 最終全core CUDA | 673成功/1スキップ、34,867 assertions成功 |
 | 設定6構成 | 全解決文字列値/型付き値、44 assertions成功 |
-| 設定既定葉 | 3,420項目、エラー0件 |
+| 設定既定キー | 3,420項目、エラー0件 |
 | 公開コメント | 型概要欠落0、公開メンバ62件/列挙子15件の行末コメント欠落0 |
 | 旧API/Executer/公開移動対象定義 | 現用C++の残存0/0、公開ヘッダの定義0 |
 | NN指定6ファイルのRL語 | Actor/Learner/Probe/laneの一致0 |
@@ -425,7 +425,7 @@ Debugテスト実行体のSHA-256は `f31aca4e08e914d57cd3e2014097a5b3ee57728462
 
 実行器生成をCreateForwardExecutorへ統合した。既定設定ではStateと部品準備なしで、通常Forwardと同じ内部RunForwardを通る。公開nn.hppから内部4型とRunForward/MakeContextの署名、旧既定生成APIを削除した。BindNetworkを削除し、Learnerのtarget用途はNetworkごとの独立Stateへ変更した。target側は既存 `network_forward.target`、online側は新しい `network_forward.target_online` seedを使う。
 
-Learnerのtarget／診断用途をTargetForwardsの組にし、captureをTargetEvaluation作成時に決める。不要なNetworkModel::ForwardTarget/ForwardOnlineを削除し、ActionPolicyは実行器の参照を借りる。設定キーの組み立てを共通helperへ集約し、prefixはConfigの既存MakeDefaultConfigKeyを使用する。同関数のprotectedアクセスはDefaultDQNAgentConfigのusing宣言で公開した。6 Headの定型処理をDQN内部のProjectionHeadへ集約し、登録名・初期化・列挙・value→adv順を保持した。射影の設定葉は準備時に各1回だけ読み、通常Forwardに設定解釈・検索・設定用ロックを追加していない。
+Learnerのtarget／診断用途をTargetForwardsの組にし、captureをTargetEvaluation作成時に決める。不要なNetworkModel::ForwardTarget/ForwardOnlineを削除し、ActionPolicyは実行器の参照を借りる。設定キーの組み立てを共通helperへ集約し、prefixはConfigの既存MakeDefaultConfigKeyを使用する。同関数のprotectedアクセスはDefaultDQNAgentConfigのusing宣言で公開した。6 Headの定型処理をDQN内部のProjectionHeadへ集約し、登録名・初期化・列挙・value→adv順を保持した。射影の設定設定キーは準備時に各1回だけ読み、通常Forwardに設定解釈・検索・設定用ロックを追加していない。
 
 Double DQNのtarget行動選択、Munchausenのonline方式でNoisy sampleを使う場合は、online/target独立Stateへの変更により以前のRunと乱数列の割り当てが異なる。独立抽選の分布は同じで、これらのRunとの数値一致は要求しない。OFF3構成と代表ON（Munchausen target）はこの変更経路を使わないため、旧基準との完全一致を要求する。
 
@@ -441,9 +441,9 @@ Double DQNのtarget行動選択、Munchausenのonline方式でNoisy sampleを使
 | Noisy CUDA | 58成功/0スキップ、10,718 assertions成功 |
 | 全core CUDA | 675成功/1スキップ、34,897 assertions成功 |
 | 設定6構成 | 全解決済み文字列・型付き値が一致、44 assertions成功 |
-| 既定葉監査 | 3,420葉、エラー0件 |
+| 既定キー監査 | 3,420 件、エラー0件 |
 
-Debugテスト実行体SHA-256は `c8c52f857031ac1a2a32f7bf8122fea80ae4b999ea7a7af9766a9d94b8cc6120`。総代入抽出数は25,099→25,129だが、監査対象の既定葉は3,420のまま。差分30件は今回のC++代入行（dqn_based_agent.hpp +2、dqn_based_agent.cpp +1、dqn_based_heads.cpp -4、nn_impl.cpp +3、nn_modules.cpp +6、nn_test.cpp +22）で説明できる。設定ファイルは変更していない。
+Debugテスト実行体SHA-256は `c8c52f857031ac1a2a32f7bf8122fea80ae4b999ea7a7af9766a9d94b8cc6120`。総代入抽出数は25,099→25,129だが、監査対象の既定キーは3,420のまま。差分30件は今回のC++代入行（dqn_based_agent.hpp +2、dqn_based_agent.cpp +1、dqn_based_heads.cpp -4、nn_impl.cpp +3、nn_modules.cpp +6、nn_test.cpp +22）で説明できる。設定ファイルは変更していない。
 
 Release全体ではMunchausenテストobjectのLNK1163を検出し、不正objectを資材へ保存してその1本だけ同じソース・コンパイル条件で再生成した。以後のテスト・環境実行体はリンクできた。Runnerの通常出力は既存PID 51332が使用中でLNK1104となったため、既存プロセスを操作せず、最新Ninjaの同じobject・リンク条件からEXE/LIB/PDBの3出力先だけを変更して `bundle-20261011/release-link/` へリンクした。残る通常出力Runner以外のターゲットは全体ビルドで未処理がないことを確認した。
 

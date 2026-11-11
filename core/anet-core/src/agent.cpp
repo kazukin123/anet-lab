@@ -61,6 +61,20 @@ std::shared_ptr<AgentFactory> AgentRepository::GetAgentFactory(const std::string
     return it->second;
 }
 
+void AgentRepository::MarkUnusedConfigInventory(const ConfigData& data, const std::string& active_class_id) const
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto selected = factories_.find(active_class_id);
+    if (selected == factories_.end()) {
+        ANET_SYSTEM_ERROR("Unknown active Agent class_id='" << active_class_id << "'; expected a registered factory.");
+    }
+    const auto active_prefixes = selected->second->GetConfigPrefixes();
+    for (const auto& [id, factory] : factories_) {
+        if (id == active_class_id) continue;
+        for (const auto& prefix : factory->GetConfigPrefixes()) data.MarkInventory(prefix, active_prefixes);
+    }
+}
+
 
 // =============================================================
 // DefaultAgentFactory

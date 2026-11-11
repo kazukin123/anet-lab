@@ -12,6 +12,8 @@
 
 #include <wx/cmdline.h>
 
+#include "anet/test_util.hpp"
+
 static void WriteWorkspaceTestFile(const std::filesystem::path& path, const std::string& text)
 {
     std::filesystem::create_directories(path.parent_path());
@@ -348,11 +350,77 @@ TEST_CASE("WorkspaceService skips malformed history entries without discarding v
         "workspace.history.2 = \\\\server\\share\n");
     anet::WorkspaceService service(root / "runner", root / "appdata");
 
+    anet::test::LogCaptureGuard logs;
     std::vector<std::string> history;
     CHECK_NOTHROW(history = service.LoadHistory());
     CHECK(history == std::vector<std::string>{ "valid" });
+    CHECK(service.LoadHistory() == history);
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 2);
+    for (const auto* key : {"workspace.history.0", "workspace.history.2"}) {
+        CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+            return record.level == wxLOG_Warning && record.message.find(key) != std::string::npos;
+        }) == 1);
+    }
     std::filesystem::remove_all(root);
 }
+
+TEST_CASE("WorkspaceService reports an unreadable history once per path", "[workspace][history][prd117]")
+{
+    const auto root = std::filesystem::current_path() / "out/test-tmp/prd117-history-read";
+    WriteWorkspaceTestFile(root / "appdata/history.txt", "$include <missing-history.txt>\n");
+    anet::WorkspaceService service(root / "runner", root / "appdata");
+    anet::test::LogCaptureGuard logs;
+    CHECK(service.LoadHistory().empty());
+    CHECK(service.LoadHistory().empty());
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"Workspace history could not be read", "history.txt"}));
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("Unavailable last workspace can fall back through isolated public workspace operations", "[workspace][prd117]")
+{
+    // RunnerAppの起動分岐が使う同じ公開部品を、実workspaceから隔離して確認する。
+    const auto root = std::filesystem::current_path() / "out/test-tmp/prd117-workspace-fallback";
+    WriteWorkspaceTestFile(root / "runner/config/_workspace_template.txt", "env.class_id = CartPoleEnv\n");
+    WriteWorkspaceTestFile(root / "appdata/history.txt", "workspace.history.0 = missing-workspace\n");
+    const anet::WorkspaceService service(root / "runner", root / "appdata");
+    const auto history = service.LoadHistory();
+    REQUIRE(history.size() == 1);
+    CHECK_THROWS(service.Resolve(history.front(), false));
+    const auto fallback = service.Resolve("_default", true);
+    CHECK(fallback.input == "_default");
+    CHECK(std::filesystem::is_regular_file(fallback.config_file));
+    std::filesystem::remove_all(root);
+}
+
+#ifdef _WIN32
+TEST_CASE("Standard stream redirection failures warn once per path", "[workspace][prd117][stream_failure]")
+{
+    // 通常ファイルの代わりに同名directoryを置き、標準ハンドルを変更する前に失敗させる。
+    const auto root = std::filesystem::current_path() / "out/test-tmp/prd117-stream-failure";
+    std::filesystem::create_directories(root / "stdout.log");
+    std::filesystem::create_directories(root / "stderr.log");
+    anet::test::LogCaptureGuard logs;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        anet::StandardStreamLogger logger;
+        CHECK_NOTHROW(logger.Start(root));
+        logger.LogStatus();
+        logger.Stop();
+    }
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 2);
+    for (const auto* stream : {"stdout", "stderr"}) {
+        CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+            return record.level == wxLOG_Warning
+                && record.message.find(std::string("Failed to redirect ") + stream + " to ") != std::string::npos;
+        }) == 1);
+    }
+    std::filesystem::remove_all(root);
+}
+#endif
 
 TEST_CASE("Workspace config enforces derived runs directory after AutoMerge", "[workspace]")
 {
@@ -401,7 +469,7 @@ TEST_CASE("Workspace config preserves injected runs directory through selection"
     WriteWorkspaceTestFile(workspace_config,
         "app.$ = app.online\n"
         "app.online.runs_dir = indirect-override\n");
-    // ベースからの値は注入済みの個別葉に勝たず、最終出力先を変えない。
+    // ベースからの値は注入済みの個別指定に勝たず、最終出力先を変えない。
     const auto indirect = anet::CreateWorkspaceConfigManager(workspace, common_dir, nullptr);
     CHECK(indirect->GetConfigData().Get("app.runs_dir") == workspace.runs_config_value);
 

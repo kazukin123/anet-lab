@@ -430,7 +430,7 @@ AtariEnvConfig::AtariEnvConfig(
             }
             const std::string label = sub_key.substr(1, sub_key.size() - 2);
             const std::string definition_key = ram_prefix + "[" + game_name + "].[" + label + "]";
-            definitions.emplace(label, ParseRamMetricDefinition(definition_key, label, raw_value));
+            definitions.emplace(label, ParseRamMetricDefinition(definition_key, label, block.Get(sub_key)));
         }
         // 検証済みの宣言を Module Config にも収め、Run の実効設定へ反映する。
         for (const auto& [sub_key, raw_value] : block.Map()) {
@@ -468,7 +468,7 @@ AtariEnv::AtariEnv(
         }
     }
     // 設定とROMを先に確定し、不完全なEnvを公開しない。
-    ValidateConfig();
+    config_.Validate();
     resizer_ = std::make_unique<GrayscaleResizer>(
         kScreenHeight, kScreenWidth, config_.screen_size, config_.resize_mode);
     if (config_.sound) {
@@ -480,7 +480,7 @@ AtariEnv::AtariEnv(
     SelectActions();
 
     if (config_.display_screen) {
-        log.warn() << "AtariEnv.display_screen=true creates one SDL window per ALE instance and is unsupported with worker threads; use AtariView for Runner observation.";
+        log.warn_once() << "AtariEnv.display_screen=true creates one SDL window per ALE instance and is unsupported with worker threads; use AtariView for Runner observation.";
     }
 
     log.verbose() << "AtariEnv resize_mode=" << config_.resize_mode;
@@ -518,36 +518,36 @@ void AtariEnv::ResetAleGame()
 
 AtariEnv::~AtariEnv() = default;
 
-void AtariEnv::ValidateConfig() const
+void AtariEnvConfig::Validate() const
 {
     // 設定オブジェクトを直接組み立てた呼び出しも同じ方式契約を守る。
-    const auto mode_prefix = config_.GetOverridePrefix().empty() ? "AtariEnv" : config_.GetOverridePrefix();
-    ValidateResizeMode(mode_prefix + ".resize_mode", config_.resize_mode);
-    ValidateScreenSize(mode_prefix + ".screen_size", config_.screen_size, config_.resize_mode);
-    if (!std::regex_match(config_.game, std::regex("[a-z0-9]+(?:_[a-z0-9]+)*"))) {
-        ANET_SYSTEM_ERROR("AtariEnv.game must be a non-empty snake_case ROM stem, but was '" << config_.game << "'.");
+    const auto prefix = GetOverridePrefix().empty() ? "AtariEnv" : GetOverridePrefix();
+    ValidateResizeMode(prefix + ".resize_mode", resize_mode);
+    ValidateScreenSize(prefix + ".screen_size", screen_size, resize_mode);
+    if (!std::regex_match(game, std::regex("[a-z0-9]+(?:_[a-z0-9]+)*"))) {
+        ANET_SYSTEM_ERROR(prefix << ".game must be a non-empty snake_case ROM stem, but was '" << game << "'.");
     }
-    if (config_.frame_skip < 1) {
-        ANET_SYSTEM_ERROR("AtariEnv.frame_skip must be >= 1, but was " << config_.frame_skip << ".");
+    if (frame_skip < 1) {
+        ANET_SYSTEM_ERROR(prefix << ".frame_skip must be >= 1, but was " << frame_skip << ".");
     }
-    if (!std::isfinite(config_.repeat_action_probability)
-        || config_.repeat_action_probability < 0.0f
-        || config_.repeat_action_probability > 1.0f) {
-        ANET_SYSTEM_ERROR("AtariEnv.repeat_action_probability must be in [0,1], but was "
-            << config_.repeat_action_probability << ".");
+    if (!std::isfinite(repeat_action_probability)
+        || repeat_action_probability < 0.0f
+        || repeat_action_probability > 1.0f) {
+        ANET_SYSTEM_ERROR(prefix << ".repeat_action_probability must be in [0,1], but was "
+            << repeat_action_probability << ".");
     }
-    if (config_.noop_max < 0) {
-        ANET_SYSTEM_ERROR("AtariEnv.noop_max must be >= 0, but was " << config_.noop_max << ".");
+    if (noop_max < 0) {
+        ANET_SYSTEM_ERROR(prefix << ".noop_max must be >= 0, but was " << noop_max << ".");
     }
-    if (config_.mode < -1) {
-        ANET_SYSTEM_ERROR("AtariEnv.mode must be >= -1, but was " << config_.mode << ".");
+    if (mode < -1) {
+        ANET_SYSTEM_ERROR(prefix << ".mode must be >= -1, but was " << mode << ".");
     }
-    if (config_.difficulty < -1) {
-        ANET_SYSTEM_ERROR("AtariEnv.difficulty must be >= -1, but was " << config_.difficulty << ".");
+    if (difficulty < -1) {
+        ANET_SYSTEM_ERROR(prefix << ".difficulty must be >= -1, but was " << difficulty << ".");
     }
-    if (config_.max_episode_frames < 0) {
-        ANET_SYSTEM_ERROR("AtariEnv.max_episode_frames must be >= 0, but was "
-            << config_.max_episode_frames << ".");
+    if (max_episode_frames < 0) {
+        ANET_SYSTEM_ERROR(prefix << ".max_episode_frames must be >= 0, but was "
+            << max_episode_frames << ".");
     }
 }
 

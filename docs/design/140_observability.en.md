@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:e31365bcfaa8394a56da6eb01e762077343ca3b5 date:2026-11-10 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:8b43922988f29d3d8f45702ec1c1f40cf9643c41 date:2026-11-12 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -232,7 +232,7 @@ Eval schedules leave shared `IntervalGate` unchanged. `EpisodeEvalObserver` wait
 
 EMA state updates on every event independently of `interval`. Changing `interval` changes raw recording resolution, not `$ema` values.
 
-Unknown events, step axes, and targets have paths that warn and use defaults; unsupported Eval scope/field combinations fail fast. Scalar Eval scope is limited to `@session_end` or Eval `@train $action_info`. Eval scalar `@episode_end` fails fast with its replacement indicated; train scalar `@session_end` is also rejected.
+Unknown events, step axes, targets, and attributes stop construction with `ANET_SYSTEM_ERROR`; unsupported Eval scope/field combinations fail fast. Scalar Eval scope is limited to `@session_end` or Eval `@train $action_info`. Eval scalar `@episode_end` fails fast with its replacement indicated; train scalar `@session_end` is also rejected.
 
 Keys available through `$agent`, `$actor`, `$action_info`, and `$update_result` depend on the shared interface and concrete Agent's metrics. Unsupported keys are not made to appear equivalent across Agents; Observers handle `std::optional` and `NaN` according to metric definitions. See [DQN Agents](200_dqn_agents.en.md) for Agent-specific keys such as DefaultDQN Train Actor snapshot diagnostics.
 
@@ -244,6 +244,8 @@ QR/IQN quantile-tail diagnostics use the same synchronization boundary. Five Pol
 
 The current parser converts `interval`, `ema_alpha`, and `clip` with `stoi`/`stof`. After conversion, `EmaFilter` validates finite `0 < ema_alpha <= 1`. Observer construction validates `interval >= 1`, failing fast for zero or negative values. `clip` has no range/finiteness validation, so do not specify a negative value. Invalid numeric strings throw during construction.
 
+Scalar, trace, and graph catalogs read one value in the form `metrics.<channel>.[tag] = declaration`; fields cannot appear below `[tag]`. Indices inside tags, such as `.[01]`, are retained. Images have fields such as `metrics.image.[tag].type` and `conv2d.*`; each item's reader rejects unsupported fields at construction. Known fields are read with their types regardless of image type, and shared `metrics.image.*` defaults are read even with zero image items. Item validation is independent of other readers' read state, while actual reads update the original fully qualified keys.
+
 ### 6.x Trace Channel
 
 ```text
@@ -252,7 +254,7 @@ metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env_step game_sco
 
 Trace saves each completed adopted episode as one row without aggregation. Without declarations, neither Observers nor rows are created. Event and target are mandatory: only `@episode_end` / `event:episode_end` is supported; targets are `$env_step`, `$env`, `$runner`, `$agent`, or `$actor` (attribute forms are also accepted). Scope defaults to `$train`, and the step axis to `exp_step`.
 
-Bare tokens specify one or more keys. Retrieval and the definition's `keys` array follow declaration order. Duplicate keys, aggregate prefixes, EMA, clip, interval, `key:`, and unknown/invalid controls are rejected at load time. Duplicate event, target, scope, or step-axis controls are rejected regardless of equal/different values or notation; later assignments cannot conceal invalid earlier ones. Existing scalar later-wins, default, and WARN behavior remains unchanged.
+Bare tokens specify one or more keys. Retrieval and the definition's `keys` array follow declaration order. Duplicate keys, aggregate prefixes, EMA, clip, interval, `key:`, and unknown/invalid controls are rejected at load time. Duplicate event, target, scope, or step-axis controls are rejected regardless of equal/different values or notation; later assignments cannot conceal invalid earlier ones. Scalars also reject unknown events, step axes, targets, and attributes at construction.
 
 ```json
 {"type":"trace","tag":"51_eval1/episode","step":456,"lane":3,"data":{"game_score":422,"game_len":1242,"game_frames":4968,"hns57":31.2}}
@@ -286,7 +288,7 @@ Columns cannot use `$agent`, `$env`, `$exp`, or `$update_result`. Aggregation pr
 
 Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsProvider`. The Provider owns a sequence window per lane, and even pending keys return known NaN in current. Every pending key eventually resolves, including with NaN if a value could not be established. Delayed resolution uses `AgentStepDiagnosticsCompletion` with `lane`, `steps_back`, `resolved_keys`, and `values` owning the target row; read the value through `GetScalar(key, 0)`. `StepTrace.value_ready` marks resolution per column, becoming true even for a resolved NaN. All selected columns resolving makes the row `complete`. An update handler receives newly resolved zero-based column indices through a synchronous `span<const size_t>` valid only during notification. Multiple columns for the same key each resolve once.
 
-`BatchActionInfo` derives from ModuleBase and exposes lane-specific `action` and `action.[dimension]` through shared GetScalar. The entire dimension string and range are validated. Scalar queries with lane=-1 do not recognize these two keys; derived types provide Agent-specific scalars. DQNActionInfo delegates keys it does not own to the base. Unknown keys, including for non-DQN Agents, return nullopt, causing scalar Observers' ordinary value not found WARN. Requests whose notification lacks ActionInfo remain errors.
+`BatchActionInfo` derives from ModuleBase and exposes lane-specific `action` and `action.[dimension]` through shared GetScalar. The entire dimension string and range are validated. Scalar queries with lane=-1 do not recognize these two keys; derived types provide Agent-specific scalars. DQNActionInfo delegates keys it does not own to the base. Unknown keys, including for non-DQN Agents, return nullopt, causing scalar Observers' ordinary value not found WARN once per tag per Run. Requests whose notification lacks ActionInfo remain errors.
 
 The concrete DQN provider and recognition of its three keys stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Computation is independent of PER and adds no forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the initial std at Reset through an atomic; diagnostics read only this value, without accessing the Agent mutex or mutable Tensor statistics. Learning-side operation order is unchanged, and no restoration mechanism is added for reward statistics absent from current checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows.
 
@@ -314,7 +316,7 @@ Debug logs use `ANET_LOG_DEBUG_PREFIXED(expr)`, delegating to `ANET_LOG_DEBUG(lo
 
 ### 7.1 Sparse Scalars and Subscription Information
 
-Sparse known keys without current values return `NaN`; unknown keys return `nullopt`. Observers exclude nonfinite values before EMA updates and before averaging multiple UpdateResults. Later finite values resume normally from the last finite EMA state.
+Sparse known keys without current values return `NaN`; unknown keys return `nullopt`. Suspended or disabled features also retain their known keys and return `NaN`. Observers exclude nonfinite values before EMA updates and before averaging multiple UpdateResults. Later finite values resume normally from the last finite EMA state.
 
 Source key, event, target, interval, runner scope, and eval name are passed to Agent as typed subscriptions from actually attached scalar definitions. Where a metrics row's `interval` is authoritative for expensive measurement cadence, commenting out the definition must stop the computation itself.
 
@@ -352,7 +354,7 @@ The fixed-pixel and ownership regression tests are in `heat_map_test.cpp`. Succe
 
 ### TempoRL Scalars and Trace
 
-Read a variable Actor's limit through `$actor skip_max_length @learn $exp_step` and opt into `50_agent_skip/07_max_length` in the experiment's leaves. The default metric chain does not include it. Full/single/disabled skip return NaN for the recognized key. Single has decision rate and mean length 1, while trace skip_q.[j] still accepts 1..J. Existing 13_sample_k_mean, 14_kmax_mean and 11_loss describe auxiliary windows. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+Read a variable Actor's limit through `$actor skip_max_length @learn $exp_step` and opt into `50_agent_skip/07_max_length` using the group's configuration keys. The default metric chain does not include it. Full/single/disabled skip return NaN for the recognized key. Single has decision rate and mean length 1, while trace skip_q.[j] still accepts 1..J. Existing 13_sample_k_mean, 14_kmax_mean and 11_loss describe auxiliary windows. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
 
 DefaultDQN skip metrics use the `50_agent_skip` group. Selecting `metrics.scalar.@skip` in metrics_scalar.txt records Actor decision_rate, mean length over decision lanes, per-length proportions, and the Q difference between the selected length and j=1, together with Learner loss, mean absolute TD, mean k, mean k_max, and gradient norm before clipping. `skip_length_rate.[j]` uses 1-based indices; an index greater than the declared J fails fast.
 

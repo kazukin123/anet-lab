@@ -450,7 +450,7 @@ std::vector<std::string> WorkspaceService::LoadHistory() const
     try {
         data = Properties(path).ToConfigData();
     } catch (const std::exception& e) {
-        LOG::warn() << "Workspace history could not be read. path=" << PathToUtf8(path)
+        LOG::warn_once(PathToUtf8(path)) << "Workspace history could not be read. path=" << PathToUtf8(path)
             << " error=" << e.what() << ". Falling back to an empty history.";
         return history;
     }
@@ -464,7 +464,7 @@ std::vector<std::string> WorkspaceService::LoadHistory() const
         const auto raw_input = data.Get(key);
         const auto input = Trim(raw_input);
         if (const auto error = GetWorkspacePathError(input)) {
-            LOG::warn() << "Workspace history entry ignored. path=" << PathToUtf8(path)
+            LOG::warn_once(PathToUtf8(path) + ":" + key) << "Workspace history entry ignored. path=" << PathToUtf8(path)
                 << " key=" << key << " value=\"" << raw_input << "\" reason=" << *error;
             continue;
         }
@@ -578,13 +578,13 @@ struct StandardStreamLogger::Impl {
         if (stdout_redirected_) {
             LOG::info() << "stdout redirected to " << stdout_log_path_.string();
         } else {
-            LOG::warn() << "Failed to redirect stdout to " << stdout_log_path_.string();
+            LOG::warn_once(stdout_log_path_.string()) << "Failed to redirect stdout to " << stdout_log_path_.string();
         }
 
         if (stderr_redirected_) {
             LOG::info() << "stderr redirected to " << stderr_log_path_.string();
         } else {
-            LOG::warn() << "Failed to redirect stderr to " << stderr_log_path_.string();
+            LOG::warn_once(stderr_log_path_.string()) << "Failed to redirect stderr to " << stderr_log_path_.string();
         }
     }
 

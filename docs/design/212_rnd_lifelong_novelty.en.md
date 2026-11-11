@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:09b8abdd865ab3cd46e72d8f43178ccace0b446d date:2026-11-11 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:b4e341e3dd3f1af15dc16be7279cdc3c639fe6b2 date:2026-11-12 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -264,7 +264,7 @@ Whiten's α checks the count before scoring the batch and returns 1 for all lane
 
 `warmup_mode=collect_errors` updates both observation and error statistics during warm-up, while `Learn` returns false if the post-scoring count is at or below the threshold. variance_feedback warm-up keeps this form and does not use warmup_mode. However, its scoring checks the per-lane pre-scoring count, so normal multipliers begin partway through a batch that crosses the threshold. `warmup_steps=0` trains from the first call and adds errors to the statistics from the first call in either warmup_mode. An unused warmup_mode produces one construction-time INFO only when it differs from the default.
 
-The facade owns learning cadence. Let k be `min(learn_batch_size,N)`; add `N × learn_ratio / k` to credit per intake. Each full unit permits one step on k observations, retaining fractional credit. At default ratio 0.25 and batch size 32, N=128 gives one step per intake, while N=64 gives one every two intakes: both train on 32 observations once per 128 experiences. If N is below batch size, construction warns once and shrinks the batch to N; equal step counts are then not guaranteed.
+The facade owns learning cadence. Let k be `learn_batch_size`; add `N × learn_ratio / k` to credit per intake. Each full unit permits one step on k observations, retaining fractional credit. At default ratio 0.25 and batch size 32, N=128 gives one step per intake, while N=64 gives one every two intakes: both train on 32 observations once per 128 experiences. If the learner is enabled and N is below batch size, construction stops without shrinking the batch. Runs with the learner disabled do not perform this comparison.
 
 Sampling creates one lane permutation per intake and takes chunks of k. No lane repeats across steps, which are capped at `floor(N/k)`. If N is not divisible by k and the cap is reached, unspent credit, including its integer part, carries forward. Each `Learn` call consumes credit even if it returns false, preventing catch-up training after warm-up. Only successful true results increment `learn_count`.
 
@@ -386,7 +386,7 @@ Keys below omit `DefaultDQNAgent.`. Defaults correspond to [`agent.txt`](../../a
 | `intrinsic.rnd.output_dim` | 128 | Target/predictor vector dimension, at least 1 |
 | `intrinsic.rnd.multiplier_max` | 5 | Multiplier upper bound L; finite and greater than 1 |
 | `intrinsic.learn_ratio` | 0.25 | Auxiliary-learning observations per collected experience; finite, greater than 0 and at most 1 |
-| `intrinsic.learn_batch_size` | 32 | Observations per auxiliary-learning step; integer at least 1. See §3.5 for shrinking to N |
+| `intrinsic.learn_batch_size` | 32 | Observations per auxiliary-learning step; integer at least 1. Construction stops if it exceeds lane count with the learner enabled. See §3.5 |
 | `intrinsic.rnd.warmup_steps` | 12,800 | Observations without a bonus; nonnegative, with behavior selected by warmup_mode |
 | `intrinsic.rnd.learning_rate` | 0.0001 | Predictor learning rate; finite and positive |
 | `intrinsic.rnd.weight_decay` | 0 | Predictor AdamW weight decay; finite and nonnegative |
@@ -396,7 +396,7 @@ Keys below omit `DefaultDQNAgent.`. Defaults correspond to [`agent.txt`](../../a
 
 `learn_ratio` and `learn_batch_size` change optimizer-step counts and observations per step, affecting how quickly error falls. They are not merely speed settings. β changes reward magnitude for the same α; L changes the multiplier cap for large errors. Distinguish where each acts.
 
-All five new keys are type/range/enum checked when intrinsic reward is enabled, including unused values. Variance feedback ignores warmup_mode and error_norm.*; cumulative ignores ema_steps. A resolved unused value differing from its implementation default produces one construction-time WARN per key. Whiten with zero warm-up instead reports a nondefault warmup_mode once at INFO. Disabled intrinsic reward does not read, validate, or notify for these values.
+All five new keys are type/range/enum checked when intrinsic reward is enabled, including unused values. Variance feedback ignores warmup_mode and error_norm.*; cumulative ignores ema_steps. A resolved unused value differing from its implementation default produces one construction-time WARN per key. Whiten with zero warm-up instead reports a nondefault warmup_mode once at INFO. Disabled intrinsic reward does not read or validate these individual values or issue per-key notifications. The inactive prefix and the reason intrinsic.enabled=false are reported once at INFO.
 
 ### 4.3 Structure Selected by `run.@rnd`
 
@@ -451,7 +451,7 @@ Example interpretations:
 - Persistently high `clip_ratio` means many observations receive the same capped multiplier. Check current errors, cumulative statistics, and input normalization together.
 - `error_mean` / `error_std` are post-scoring statistics. Whiten's α uses the values before the update, while variance_feedback uses the updated mean and `err_v`. Even for the latter, the published std is the square root of the variance, so do not use the logged std directly as the divisor.
 
-Disabled RND keys return `nullopt`. When enabled, `learn_count` starts at 0, and intakes without learning retain the latest loss. Scores before first scoring and losses before learning are NaN. This intentional unavailability differs from abnormally nonfinite computed errors, which stop processing when detected during scoring or learning. With N at least batch size and no intake-cap constraint, the post-warm-up incremental ratio of `learn_count / exp_step` is `learn_ratio / learn_batch_size`.
+Known keys return `NaN` when RND is disabled or suspended because the learner is disabled. Only unknown keys return `nullopt`. When enabled, `learn_count` starts at 0, and intakes without learning retain the latest loss. Scores before first scoring and losses before learning are NaN. This intentional unavailability differs from abnormally nonfinite computed errors, which stop processing when detected during scoring or learning. With N at least batch size and no intake-cap constraint, the post-warm-up incremental ratio of `learn_count / exp_step` is `learn_ratio / learn_batch_size`.
 
 ### 4.5 Saving and Resuming
 
@@ -463,7 +463,7 @@ The Agent then saves the facade's unconsumed credit, lane-selection RNG state, a
 
 Agent checkpoints containing RND append `;intrinsic` to the existing identifier. Loading fails if the saved checkpoint has RND but the reader disables it, or vice versa. Disabled mode uses the previous format.
 
-Loading restores predictor optimizer training state, then applies the current learning rate, weight decay, and adam_eps, warning when they differ. Resuming with changed values therefore differs from continuing identical training.
+Loading restores predictor optimizer training state, then applies the current learning rate, weight decay, and adam_eps, reporting differences once per Run at INFO. Resuming with changed values therefore differs from continuing identical training.
 
 ## 5. Current Status and Limitations
 
@@ -479,7 +479,7 @@ variance_feedback updates observation statistics on CPU in lane order, then forw
 
 Scoring and auxiliary learning occur per batch independently of Q-learning step counts, so increasing the Q-update interval need not reduce RND cost proportionally. Profiling separates sampling, normalization, input transfer, target/predictor forward, error transfer, statistics, backward, and optimizer step.
 
-With `learner.enabled=false`, scoring and auxiliary learning pause with one warning. If intrinsic reward is enabled, components still exist for persistence. Diagnostics use a value-transfer mechanism without adding a new learning-lock wait for display.
+With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO per Run. If intrinsic reward is enabled, components still exist for persistence. Diagnostics use a value-transfer mechanism without adding a new learning-lock wait for display.
 
 ### 5.2 Verified Scope
 

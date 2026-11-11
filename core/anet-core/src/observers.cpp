@@ -4,6 +4,7 @@
 #include <chrono>
 #include <format>
 #include <limits>
+#include <string_view>
 #include <unordered_set>
 #include <wx/log.h>
 #include "anet/profile.hpp"
@@ -88,7 +89,7 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 
     // サイズチェック
     if (xv->size() != yv->size() || xv->size() != vv->size()) {
-        LOG::warn() << "HeatMapVectorObserver: size mismatch. x=" << x_probe_->GetName()
+        LOG::warn_once(tag_) << "HeatMapVectorObserver: size mismatch. x=" << x_probe_->GetName()
             << " y=" << y_probe_->GetName() << " v=" << value_probe_->GetName()
             << "x.size=" << xv->size() << " y.size=" << yv->size() << " v.size=" << vv->size();
         return;
@@ -716,7 +717,7 @@ void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
 
         // 事故対策: もし録画中なのに新しいエピソードが始まってしまったら強制クローズ
         if (is_recording_) {
-            anet::log::warn() << "Conv2dVisualizationObserver: force-ended due to unexpected episode_start. Previous episode may not have finished cleanly.";
+            anet::log::warn_once(tag_) << "Conv2dVisualizationObserver: force-ended due to unexpected episode_start. Previous episode may not have finished cleanly.";
             is_recording_ = false;
         }
 
@@ -1126,7 +1127,7 @@ void MetricsLogObserverBase::OnGenericUpdate(
             }
         } else {
             // メトリクス見つからない
-            LOG::warn() << "MetricsLogObserverBase::OnUpdate(): value not found. tag=" << tag_ << " key=" << key_ << " step=" << step;
+            LOG::warn_once(tag_) << "MetricsLogObserverBase::OnUpdate(): value not found. tag=" << tag_ << " key=" << key_ << " step=" << step;
             continue;
         }
 
@@ -1192,7 +1193,7 @@ void GraphVizObserver::OnTrain(const TrainEvent& event)
     if (episode_interval_ > 0) {
         if (state.IsEpisodeStart()) {
             if (is_recording_) {
-                LOG::warn() << "GraphVizObserver: force-ended due to unexpected episode_start.";
+                LOG::warn_once(tag_) << "GraphVizObserver: force-ended due to unexpected episode_start.";
                 is_recording_ = false;
             }
             if (local_episode_count_ % episode_interval_ == 0) {
@@ -1239,10 +1240,28 @@ void GraphVizObserver::OnTrain(const TrainEvent& event)
 // ===========================================================================
 
 static constexpr const char* CONFIG_KEY_METRICS_SCALAR_PREFIX = "metrics.scalar.[";
-static constexpr const char* CONFIG_KEY_METRICS_SCALAR_SUFFIX = "]";
 
 static constexpr const char* CONFIG_KEY_METRICS_GRAPH_PREFIX = "metrics.graph.[";
-static constexpr const char* CONFIG_KEY_METRICS_GRAPH_SUFFIX = "]";
+
+static std::string ReadFlatMetricTag(const std::string& key, std::string_view prefix)
+{
+    if (!key.starts_with(prefix)) return {};
+    const auto invalid = [&] {
+        ANET_SYSTEM_ERROR("Invalid metric catalog key=" << key << "; expected a flat "
+            << prefix << "tag] declaration without fields below the tag.");
+    };
+    // tag 内の添字の閉じ括弧と、カタログ項目を閉じる括弧を区別する。
+    size_t depth = 1;
+    for (size_t index = prefix.size(); index < key.size(); ++index) {
+        if (key[index] == '[') ++depth;
+        else if (key[index] == ']' && --depth == 0) {
+            if (index == prefix.size() || index + 1 != key.size()) invalid();
+            return key.substr(prefix.size(), index - prefix.size());
+        }
+    }
+    invalid();
+    return {};
+}
 
 namespace metrics_def_names {
 
@@ -1352,15 +1371,11 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
     for (const auto& kv : config_map) {
         const std::string& config_key = kv.first;
-        const std::string& config_value = kv.second;
-
-        // tag自身に添字を含められるため、最後の閉じ括弧までをtagとして保持する。
-        const auto scalar_begin = config_key.find(CONFIG_KEY_METRICS_SCALAR_PREFIX);
-        const auto scalar_end = config_key.rfind(CONFIG_KEY_METRICS_SCALAR_SUFFIX);
-        const auto scalar_content = scalar_begin == std::string::npos ? scalar_begin
-            : scalar_begin + std::char_traits<char>::length(CONFIG_KEY_METRICS_SCALAR_PREFIX);
-        const auto scalar_metrics_tag = scalar_content != std::string::npos && scalar_end != std::string::npos && scalar_end > scalar_content
-            ? config_key.substr(scalar_content, scalar_end - scalar_content) : std::string();
+        const auto scalar_metrics_tag = ReadFlatMetricTag(config_key, CONFIG_KEY_METRICS_SCALAR_PREFIX);
+        const auto trace_tag = ReadFlatMetricTag(config_key, "metrics.trace.[");
+        const auto graph_metrics_tag = ReadFlatMetricTag(config_key, CONFIG_KEY_METRICS_GRAPH_PREFIX);
+        if (scalar_metrics_tag.empty() && trace_tag.empty() && graph_metrics_tag.empty()) continue;
+        const auto config_value = config_data.Get(config_key);
 
 		if (!scalar_metrics_tag.empty())
         {
@@ -1379,24 +1394,27 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 			float ema_alpha = 0.01;
             std::optional<float> clip;
 
-            // scalar は既存の後勝ち・既定値・WARN 診断を保つ。
+            // 有効な指定の後勝ちと既定値を保ち、不正な制御指定は構築時に拒否する。
             for (const auto& token : tokens) {
                 using metric_tokens::Kind;
                 switch (token.kind) {
                 case Kind::EVENT:
                     if (token.event) event_opt = token.event;
-                    else LOG::warn() << "Unknown event value. config_key=" << config_key
-                        << " config_value=" << config_value << " attr_val=" << token.value;
+                    else ANET_SYSTEM_ERROR("Unknown event value. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_val=" << token.value
+                        << " expected=train, learn, episode_end or session_end");
                     break;
                 case Kind::STEP:
                     if (token.step) step_axis_opt = token.step;
-                    else LOG::warn() << "Unknown step value. config_key=" << config_key
-                        << " config_value=" << config_value << " attr_val=" << token.value;
+                    else ANET_SYSTEM_ERROR("Unknown step value. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_val=" << token.value
+                        << " expected=train, learn, episode, exp, update or sim step axis");
                     break;
                 case Kind::TARGET:
                     if (token.field) field_opt = token.field;
-                    else LOG::warn() << "Unknown target value. config_key=" << config_key
-                        << " config_value=" << config_value << " attr_val = " << token.value;
+                    else ANET_SYSTEM_ERROR("Unknown target value. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_val=" << token.value
+                        << " expected=actor, agent, env, env_step, runner, exp, update_result or action_info");
                     break;
                 case Kind::SCOPE:
                     if (token.raw == "$train") runner_scope_opt = RunnerScope::TRAIN;
@@ -1415,8 +1433,9 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     else if (token.attribute == "interval") interval = std::stoi(token.value);
                     else if (token.attribute == "ema_alpha") { is_ema = true; ema_alpha = std::stof(token.value); }
                     else if (token.attribute == "clip") clip = std::stof(token.value);
-                    else LOG::warn() << "Unknown attribute key. config_key=" << config_key
-                        << " config_value=" << config_value << " attr_key=" << token.attribute;
+                    else ANET_SYSTEM_ERROR("Unknown attribute key. config_key=" << config_key
+                        << " config_value=" << config_value << " attr_key=" << token.attribute
+                        << " expected=key, interval, ema_alpha or clip");
                     break;
                 case Kind::KEY: key_opt = token.raw; break;
                 }
@@ -1424,8 +1443,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             // 記法の正本は docs/design/140_observability.jp.md §6、受け付ける語は metrics.cpp の ParseMetricTokens。
 
             if (!key_opt.has_value()) {
-                LOG::error() << "ObserverFactory: key not found. config_key=" << config_key << " config_value=" << config_value;
-                continue;
+                ANET_SYSTEM_ERROR("ObserverFactory: key not found. config_key=" << config_key
+                    << " config_value=" << config_value << " expected=a metric key");
             }
 
             auto key = *key_opt;
@@ -1532,7 +1551,6 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             }
         }
  
-        const auto trace_tag = anet::ExtractBetween(config_key, "metrics.trace.[", "]");
         if (!trace_tag.empty()) {
             std::vector<std::string> keys;
             std::optional<EventField> field;
@@ -1613,9 +1631,6 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
         // ===================================================================
         // GraphVizObserver のパースと生成
         // ===================================================================
-        auto graph_metrics_tag = anet::ExtractBetween(
-            config_key, CONFIG_KEY_METRICS_GRAPH_PREFIX, CONFIG_KEY_METRICS_GRAPH_SUFFIX);
-
         if (!graph_metrics_tag.empty())
         {
             ANET_LOG_DEBUG("ObserverFactory: graph: key=" << graph_metrics_tag << " value=" << config_value);
@@ -1640,14 +1655,18 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                         } else if (attr_key == "target") {
                             if (attr_val == "action" || attr_val == "action_info") field_opt = EventField::ACTION_INFO;
                             else {
-                                LOG::warn() << "Unknown target value for graph. attr_val=" << attr_val;
+                                ANET_SYSTEM_ERROR("Unknown target value for graph. config_key=" << config_key
+                                    << " config_value=" << config_value << " attr_val=" << attr_val
+                                    << " expected=action or action_info");
                             }
                         } else if (attr_key == "interval" || attr_key == "step_interval") {
                             step_interval = std::stoi(attr_val);
                         } else if (attr_key == "episode_interval" || attr_key == "eps_interval") {
                             episode_interval = std::stoi(attr_val);
                         } else {
-                            LOG::warn() << "Unknown attribute key for graph. attr_key=" << attr_key;
+                            ANET_SYSTEM_ERROR("Unknown attribute key for graph. config_key=" << config_key
+                                << " config_value=" << config_value << " attr_key=" << attr_key
+                                << " expected=key, target, interval, step_interval, episode_interval or eps_interval");
                         }
                     } else {
                         if (v.rfind("@", 0) != 0 && v.rfind("$", 0) != 0) {
@@ -1658,8 +1677,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             }
 
             if (!key_opt.has_value()) {
-                LOG::error() << "ObserverFactory: graph key not found. config_key=" << config_key << " config_value=" << config_value;
-                continue;
+                ANET_SYSTEM_ERROR("ObserverFactory: graph key not found. config_key=" << config_key
+                    << " config_value=" << config_value << " expected=a graph key");
             }
 
             // 万が一どちらも指定されていなければ、安全のためstep_interval=1000にしておくなど適宜調整

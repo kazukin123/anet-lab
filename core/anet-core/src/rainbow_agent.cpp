@@ -32,6 +32,7 @@ RainbowAgent::RainbowAgent(
     : AgentBase(device, batch_env_spec, env_spec, seed)
     , config_(config)
 {
+    config_.ValidateQuantileConfig();
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
     // ログ：パラメータ記録
@@ -48,12 +49,7 @@ RainbowAgent::RainbowAgent(
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
 
-    // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
-    bool is_distributional = config_.use_qr;
-    if (is_distributional && config_.num_quantiles <= 1) {
-        LOG::warn() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
-        is_distributional = false;
-    }
+    const bool is_distributional = config_.use_qr;
 
     // ------------------------------------------------------------
 	// HeadFactory の準備

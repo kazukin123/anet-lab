@@ -81,7 +81,7 @@ def expected_resolution(config, item, baseline):
     for key in declarations:
         if not material(key):
             visit(key)
-    # 固定入力の宣言から当該葉を読む。実行結果を期待値の根拠にしない。
+    # 固定入力の宣言から当該設定キーを読む。実行結果を期待値の根拠にしない。
     def leaf(key, inputs, weak, path=()):
         if key in path:
             raise RuntimeError(f"Expected value dependency cycle: {path + (key,)}")

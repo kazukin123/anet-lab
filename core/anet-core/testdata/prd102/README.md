@@ -2,7 +2,7 @@
 
 ## 契約
 
-seedを指定すればその値で固定し、未指定時だけseed_modeのprocess（既定）・episodeを選ぶ。固定用のmodeやseedのsentinelはない。共通optional読み取りは未指定のDTO初期値を保持し、値がないとき設定記録へ葉を足さない。型変換・prefix順序・不正値の検証は通常の共通経路を使う。
+seedを指定すればその値で固定し、未指定時だけseed_modeのprocess（既定）・episodeを選ぶ。固定用のmodeやseedのsentinelはない。共通optional読み取りは未指定のDTO初期値を保持し、値がないとき設定記録へ設定キーを足さない。型変換・prefix順序・不正値の検証は通常の共通経路を使う。
 
 ## Debugと公開経路テスト
 
@@ -28,7 +28,7 @@ processの共有タグは独立プロセスで実行する。episodeは50回Rese
 
 [manifest.json](manifest.json)の現用17入力を、今回の編集前に保存した`.scratch/prd102/baseline-config`と現用設定でそれぞれ解決する。Run選択は実際のCLI parserから渡す。PRD072の17入力を基にし、既に定義のないAtariのnature_dqn/classic_iqn_impala_x2の2条件は、現用の既定/base条件へ置き換えた。過去のmanifestやbaselineは変更しない。全キー・文字列値を保存し、GridMazeの旧bool削除・process追加・MuZero用のseed既定削除以外に差分がないことを確認する。GridMaze.txtのユーザーの実験用seed指定は保持する。`config-before.json`・`config-after.json`・`config-comparison.json`へ記録する。PRD072の過去baselineを更新しない。
 
-既定葉の監査もリポジトリ規約どおり実行する。
+既定キーの監査もリポジトリ規約どおり実行する。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py

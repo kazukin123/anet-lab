@@ -104,8 +104,9 @@ std::vector<StepTraceColumnSpec> StepTraceColumnSpec::Parse(const anet::ConfigDa
     std::vector<StepTraceColumnSpec> columns;
     std::set<int> numbers;
     const std::string prefix = "app.eval_trace_panel.columns.[";
-    for (const auto& [name, definition] : config.Map()) {
+    for (const auto& [name, unused_value] : config.Map()) {
         if (!name.starts_with("app.eval_trace_panel.columns.")) continue;
+        const auto definition = config.Get(name);
         const auto invalid = [&](const std::string& detail) {
             ANET_SYSTEM_ERROR("Invalid step trace column. config_key='" << name
                 << "' value='" << definition << "' expected=" << detail);

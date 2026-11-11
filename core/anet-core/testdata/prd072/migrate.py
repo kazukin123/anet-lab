@@ -1,4 +1,4 @@
-"""共通・ベース・デフォルトは既定葉、実験・選択は個別指定として揃える。"""
+"""共通・ベース・デフォルトは既定キー、実験・選択は個別指定として揃える。"""
 
 import re
 
@@ -44,7 +44,7 @@ def assignment_role(filename, key):
         return "explicit experiment assignment"
     if filename in BASE_FILES:
         return "shared base definition"
-    # 名前を持つ選択肢のうち、ベースとして提供する定義だけを既定葉にする。
+    # 名前を持つ選択肢のうち、ベースとして提供する定義だけを既定キーにする。
     if re.search(r"\.(?:@?baseline|@eval_base)\.", key):
         return "base profile definition"
     if key.startswith("net.") or re.search(r"\.net\.@[^.]+\.", key):

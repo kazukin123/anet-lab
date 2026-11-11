@@ -73,7 +73,7 @@ void ApplyCudaLaunchBlockingConfig(const BackendConfig& backend_config)
 	const bool changed = previous_value != effective_value;
 
 	if (requested_env_value.has_value() && previous_value.has_value() && *previous_value != *requested_env_value) {
-		LOG::warn() << "CUDA_LAUNCH_BLOCKING overridden by backend.cuda_launch_blocking."
+		LOG::info_once() << "CUDA_LAUNCH_BLOCKING overridden by backend.cuda_launch_blocking."
 			<< " previous=" << *previous_value
 			<< " requested=" << backend_config.cuda_launch_blocking
 			<< " effective=" << EnvValueToString(effective_value);

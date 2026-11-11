@@ -15,6 +15,7 @@
 #include <iostream>
 #include <iterator>
 #include <wx/cmdline.h>
+#include <wx/utils.h>
 
 #include <torch/nn/functional/upsampling.h>
 
@@ -23,6 +24,50 @@
 #include "anet/env/Atari.hpp"
 #include "anet/test_util.hpp"
 #include "anet/thread.hpp"
+
+TEST_CASE("Atari factory validates local values without loading ROM resources", "[prd117][factory_config]")
+{
+    anet::test::LogCaptureGuard logs;
+    const auto entry = GENERATE(std::pair{"frame_skip", "0"},
+        std::pair{"repeat_action_probability", "1.1"}, std::pair{"noop_max", "-1"},
+        std::pair{"mode", "-2"}, std::pair{"difficulty", "-2"},
+        std::pair{"max_episode_frames", "-1"}, std::pair{"game", "Bad-Game"});
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", "missing-prd117-rom-directory");
+    const std::string prefix = "run.eval.[dormant].env";
+    const auto key = prefix + "." + entry.first;
+    data.Set(key, entry.second);
+    const anet::rl::env::AtariEnvFactory factory;
+    CHECK_THROWS_WITH(factory.ValidateConfig(data, anet::rl::RunMode::Eval, prefix),
+        Catch::Matchers::ContainsSubstring(key));
+}
+
+TEST_CASE("Atari factory accepts valid configuration without a ROM", "[prd117][factory_config]")
+{
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", "missing-prd117-rom-directory");
+    const anet::rl::env::AtariEnvFactory factory;
+    CHECK_NOTHROW(factory.ValidateConfig(data, anet::rl::RunMode::Eval, "run.eval.[dormant].env"));
+}
+
+TEST_CASE("Atari RAM catalog records reads for every game without creating an Env", "[prd117][ram_catalog]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.ram_metric.[pong].[score]", "0x80 max_seen");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:score");
+    data.Set("AtariEnv.ram_metric.[breakout].[score]", "0x81 max_seen");
+    data.Set("AtariEnv.ram_metric.[breakout].metrics", "2:score");
+    data.Set("unread.sentinel", "kept");
+    const anet::rl::env::AtariEnvConfig config(data);
+    CHECK(config.known_ram_metric_numbers.size() == 2);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.front().first == "unread.sentinel");
+}
 
 #ifdef _WIN32
 #include <windows.h>
@@ -458,6 +503,33 @@ TEST_CASE("InterleavedRgbToChw preserves adjacent RGB pixel channels", "[atari][
     CHECK(output[1][0][1].item<uint8_t>() == 50);
     CHECK(output[2][0][0].item<uint8_t>() == 30);
     CHECK(output[2][0][1].item<uint8_t>() == 60);
+}
+
+TEST_CASE("Atari display_screen warns once across ALE instances using a dummy display", "[.][atari][rom][prd117_display]")
+{
+    // SDLのdummy driverを子プロセスの環境で指定し、実際の窓を開かず表示経路を通す。
+    constexpr char kSdlVideoDriverEnv[] = "SDL_VIDEODRIVER";
+    wxString driver;
+    REQUIRE(wxGetEnv(kSdlVideoDriverEnv, &driver));
+    REQUIRE(driver == "dummy");
+    const auto rom = FindRom("pong");
+    REQUIRE(rom.has_value());
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", "pong");
+    data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+    data.Set("AtariEnv.display_screen", true);
+    data.Set("AtariEnv.noop_max", 0);
+    anet::rl::env::AtariEnvFactory factory;
+    anet::test::LogCaptureGuard logs;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const auto env = factory.CreateSingleEnv(data, torch::kCPU, "display-warning", 117,
+            anet::rl::RunMode::Eval);
+        REQUIRE(env);
+    }
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"AtariEnv.display_screen=true", "unsupported with worker threads"}));
 }
 
 TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public Env seam", "[atari][rom]")

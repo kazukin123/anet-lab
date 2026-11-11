@@ -45,7 +45,7 @@ def idle():
 
 
 def config(out, name, arm, window):
-    # 共通のQ・環境設定を複製し、RNDの選択と測定用の葉だけを末尾で確定する。
+    # 共通のQ・環境設定を複製し、RNDの選択と測定用の設定キーだけを末尾で確定する。
     root = out / "config"
     end = WARM + window + 2 * LANES
     overrides = ["app.$ = app.batchrun > P1", "app.show_error_dialog = false",

@@ -1051,6 +1051,7 @@ TEST_CASE("NetworkBodyBuilder warns once only for directly unused inputs", "[nn]
 
     anet::test::LogCaptureGuard logs;
     (void)anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
+    (void)anet::nn::NetworkBodyBuilder::Build(config, input_specs, MakeTestModuleRandomSource());
     logs.Flush();
 
     int unused_warning_count = 0;
@@ -1654,8 +1655,8 @@ TEST_CASE("Network config profile expands linear markers by branch order", "[nn]
     anet::nn::NetworkConfig config(config_data);
     const auto json = config.ToJson();
     CHECK(json.at("config_profiles").at("dp").at("type") == "linear");
-    CHECK(json.at("config_profiles").at("dp").at("start") == 0.0);
-    CHECK(json.at("config_profiles").at("dp").at("end") == 0.1);
+    CHECK(json.at("config_profiles").at("dp").at("start") == "0");
+    CHECK(json.at("config_profiles").at("dp").at("end") == "0.1");
 
     auto network_struct = anet::nn::NetworkStructBuilder::Build(
         config, config.branches.at("feature").structure_str, MakeTestModuleRandomSource());
@@ -1674,6 +1675,8 @@ TEST_CASE("Network config profile expands linear markers by branch order", "[nn]
 
 TEST_CASE("NetworkConfig merges global catalogs into an agent-owned net tree", "[nn][config][agent_net]")
 {
+    EnsureNNInitialized();
+    anet::test::LogCaptureGuard logs;
     anet::ConfigData config_data;
     config_data.Set("net.block.[Drop].type", "Dropout");
     config_data.Set("net.block.[Drop].dropout_rate", 0.25);
@@ -1692,10 +1695,16 @@ TEST_CASE("NetworkConfig merges global catalogs into an agent-owned net tree", "
     CHECK(config.block_configs.at("Drop").type == "Dropout");
     CHECK(config.block_configs.at("Drop").config_data.Get("dropout_rate") == "0.4");
     REQUIRE(config.config_profiles.contains("dp"));
-    CHECK(config.config_profiles.at("dp").start == Catch::Approx(0.0));
-    CHECK(config.config_profiles.at("dp").end == Catch::Approx(0.75));
+    CHECK(config.config_profiles.at("dp").config_data.Get<double>("start") == Catch::Approx(0.0));
+    CHECK(config.config_profiles.at("dp").config_data.Get<double>("end") == Catch::Approx(0.75));
     REQUIRE(config.branches.contains("feature"));
     CHECK(config.output_keys.at("features") == "feature");
+    CHECK_NOTHROW(anet::nn::NetworkBodyBuilder::Build(config,
+        {{"obs", MakeConfigProfileVectorSpec()}}, MakeTestModuleRandomSource()));
+    CHECK(config_data.GetUnreadKeys().empty());
+    anet::WarnUnreadConfigKeys(config_data);
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
 }
 
 TEST_CASE("Network config profile returns start for a single marker", "[nn][config_profile]")
@@ -1738,7 +1747,7 @@ TEST_CASE("Network config profile supports branch-local overrides", "[nn][config
 
     anet::nn::NetworkConfig config(config_data);
     const auto json = config.ToJson();
-    CHECK(json.at("branches").at("wide").at("config_profiles").at("dp").at("end") == 0.75);
+    CHECK(json.at("branches").at("wide").at("config_profiles").at("dp").at("end") == "0.75");
 
     anet::TensorSpecMap input_specs;
     input_specs["obs"] = MakeConfigProfileVectorSpec();
@@ -1754,6 +1763,84 @@ TEST_CASE("Network config profile supports branch-local overrides", "[nn][config
     REQUIRE(wide_rates.size() == 2);
     CHECK(wide_rates[0] == Catch::Approx(0.25).margin(1.0e-12));
     CHECK(wide_rates[1] == Catch::Approx(0.75).margin(1.0e-12));
+
+    // 実際に参照するbranch専用profileは、既読状態に関わらず未知キーを拒否する。
+    config_data.Set("net.branch.[wide].config_profile.[dp].typo", 9);
+    CHECK(config_data.Get<int>("net.branch.[wide].config_profile.[dp].typo") == 9);
+    const anet::nn::NetworkConfig invalid(config_data);
+    CHECK_THROWS_WITH(anet::nn::NetworkBodyBuilder::Build(invalid, input_specs, MakeTestModuleRandomSource()),
+        Catch::Matchers::ContainsSubstring("config_profile.[dp]")
+        && Catch::Matchers::ContainsSubstring("typo = 9"));
+}
+
+TEST_CASE("Unused shared NN definitions are validated only when referenced", "[nn][config][prd117]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.block.[Drop].type", "Dropout");
+    data.Set("net.block.[Drop].dropout_rate", 0.25);
+    data.Set("net.block.[unused].typo", "not a module setting");
+    data.Set("net.config_profile.[unused].type", "linear");
+    data.Set("net.config_profile.[unused].end", "not a number");
+    data.Set("net.config_profile.[unused].typo", "unknown field");
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "Drop");
+    REQUIRE_NOTHROW([&] {
+        const anet::nn::NetworkConfig config(data);
+        const auto network = anet::nn::NetworkStructBuilder::Build(config, "Drop", MakeTestModuleRandomSource());
+        CHECK(GetDropoutRates(network).at(0) == Catch::Approx(0.25));
+        CHECK_FALSE(config.ToJson().empty());
+    }());
+    data.Set("net.block.[Drop].dropout_rate", "@unused");
+    CHECK_THROWS([&] {
+        const anet::nn::NetworkConfig config(data);
+        return anet::nn::NetworkStructBuilder::Build(config, "Drop", MakeTestModuleRandomSource());
+    }());
+}
+
+TEST_CASE("NN catalog reads distinguish shared inventory from unused branch profiles", "[nn][config][prd117]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.block.[Drop].type", "Dropout");
+    data.Set("net.block.[Drop].dropout_rate", "@dp");
+    data.Set("net.block.[unused].typo", "unvalidated");
+    data.Set("net.config_profile.[dp].type", "linear");
+    data.Set("net.config_profile.[dp].start", 0.0);
+    data.Set("net.config_profile.[dp].end", 0.9);
+    data.Set("net.config_profile.[unused].end", "unvalidated");
+    data.Set("net.block.typo", "not-an-item");
+    data.Set("net.config_profile.typo", "not-an-item");
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "Drop(*2)");
+    data.Set("net.branch.[feature].auto_format", true);
+    data.Set("net.branch.[feature].config_profile.[dp].end", 0.5);
+    data.Set("net.branch.[feature].config_profile.[unused].end", "unvalidated");
+    data.Set("net.body.output.[features]", "feature");
+    anet::test::LogCaptureGuard logs;
+    const anet::nn::NetworkConfig config(data);
+    const auto before_dump = data.GetUnreadKeys();
+    CHECK_FALSE(config.ToJson().empty());
+    CHECK(data.GetUnreadKeys() == before_dump);
+    const auto body = anet::nn::NetworkBodyBuilder::Build(config,
+        {{"obs", MakeConfigProfileVectorSpec()}}, MakeTestModuleRandomSource());
+    REQUIRE(body);
+    const auto rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature"));
+    REQUIRE(rates.size() == 2);
+    CHECK(rates.at(1) == Catch::Approx(0.5));
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 3);
+    CHECK(unread.at(0).first == "net.block.typo");
+    CHECK(unread.at(1).first == "net.branch.[feature].config_profile.[unused].end");
+    CHECK(unread.at(2).first == "net.config_profile.typo");
+    logs.Flush();
+    CHECK(std::ranges::none_of(logs.Records(), [](const auto& record) { return record.level == wxLOG_Warning; }));
+    anet::WarnUnreadConfigKeys(data);
+    anet::WarnUnreadConfigKeys(data);
+    logs.Flush();
+    REQUIRE(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"Unread config keys: 3", "net.branch.[feature].config_profile.[unused].end = unvalidated"}));
 }
 
 TEST_CASE("Network config profile leaves marker-free branches on original config", "[nn][config_profile]")
@@ -1797,21 +1884,27 @@ TEST_CASE("Network config profile rejects invalid marker settings", "[nn][config
         undefined_config, undefined_config.branches.at("feature").structure_str,
         MakeTestModuleRandomSource()));
 
-    anet::ConfigData missing_end;
+    auto selected_group = undefined_group;
+    selected_group.Set("net.block.[Drop].dropout_rate", "@dp");
+    const auto build = [&](const anet::ConfigData& data) {
+        const anet::nn::NetworkConfig config(data);
+        return anet::nn::NetworkStructBuilder::Build(config, "Drop", MakeTestModuleRandomSource());
+    };
+    auto missing_end = selected_group;
     missing_end.Set("net.config_profile.[dp].type", std::string("linear"));
     missing_end.Set("net.config_profile.[dp].start", 0.0);
-    CHECK_THROWS(anet::nn::NetworkConfig(missing_end));
+    CHECK_THROWS_WITH(build(missing_end), Catch::Matchers::ContainsSubstring("net.config_profile.[dp].end"));
 
-    anet::ConfigData legacy_minmax;
+    auto legacy_minmax = selected_group;
     legacy_minmax.Set("net.config_profile.[dp].type", std::string("linear"));
     legacy_minmax.Set("net.config_profile.[dp].min", 0.0);
     legacy_minmax.Set("net.config_profile.[dp].max", 1.0);
-    CHECK_THROWS(anet::nn::NetworkConfig(legacy_minmax));
+    CHECK_THROWS_WITH(build(legacy_minmax), Catch::Matchers::ContainsSubstring("net.config_profile.[dp]"));
 
-    anet::ConfigData unknown_type;
+    auto unknown_type = selected_group;
     unknown_type.Set("net.config_profile.[dp].type", std::string("cosine"));
     unknown_type.Set("net.config_profile.[dp].end", 1.0);
-    CHECK_THROWS(anet::nn::NetworkConfig(unknown_type));
+    CHECK_THROWS_WITH(build(unknown_type), Catch::Matchers::ContainsSubstring("net.config_profile.[dp].type"));
 }
 
 TEST_CASE("Network config profile expands same group independently per branch", "[nn][config_profile]")
@@ -3495,13 +3588,16 @@ TEST_CASE("ResBlock exposes dropout config and validates rates", "[nn][resblock]
     CHECK_THROWS(MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/-0.1));
 
     anet::test::LogCaptureGuard logs;
-    auto warn_module = MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/0.1, "batch");
+    constexpr char kBatchNorm[] = "batch";
+    auto warn_module = MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/0.1, kBatchNorm);
+    CHECK_NOTHROW(MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/0.1, kBatchNorm));
     (void)warn_module;
     logs.Flush();
     CHECK(anet::test::HasRecordContaining(
         logs.Records(),
         wxLOG_Warning,
         { "ResBlock dropout_rate", "key=res.dropout_rate", "value=0.1", "BatchNorm", "droppath_rate" }));
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
 }
 
 TEST_CASE("ResBlock DropPath and Dropout2d affect training only", "[nn][resblock][dropout]")
@@ -4383,6 +4479,57 @@ TEST_CASE("Noisy spectral Linear normalizes only the mean and preserves spectral
     }
 }
 
+TEST_CASE("Named forward catalogs reject unknown fields independently of previous reads", "[prd117][nn][forward_catalog]")
+{
+    EnsureNNInitialized();
+    const bool noisy_enabled = GENERATE(false, true);
+    anet::ConfigData data;
+    data.Set("net.block.[Linear].type", "Linear");
+    data.Set("net.block.[Linear].linear.out_features", 3);
+    data.Set("net.block.[Linear].noisy.enabled", noisy_enabled);
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "Linear");
+    data.Set("net.body.output.[features]", "feature");
+    data.Set("nn_forward.[selected].noisy.mode", "mu_only");
+    data.Set("nn_forward.[selected].unknown_field", 7);
+    const anet::TensorSpec spec{.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kFloat32};
+    const auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{{"obs", spec}}, nullptr, 1093);
+    const auto selected = data.MakeSubConfigData("nn_forward").at("selected");
+    (void)selected.Get("unknown_field");
+    const anet::nn::NetworkForwardConfig config("nn_forward.[selected]", selected);
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 0),
+        Catch::Matchers::ContainsSubstring("nn_forward.[selected]")
+        && Catch::Matchers::ContainsSubstring("unknown_field") && Catch::Matchers::ContainsSubstring("7"));
+}
+
+TEST_CASE("Ordinary projections consume explicit forward fields without changing their computation", "[prd117][nn][forward_catalog]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.block.[Linear].type", "Linear");
+    data.Set("net.block.[Linear].linear.out_features", 3);
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "Linear");
+    data.Set("net.body.output.[features]", "feature");
+    data.Set("nn_forward.[selected].noisy.mode", "mu_only");
+    data.Set("nn_forward.[selected].noisy.hold", "call");
+    data.Set("nn_forward.[selected].noisy.share", "sample");
+    data.Set("nn_forward.[selected].noisy.count", 3);
+    data.Set("some.setting", 9);
+    const anet::TensorSpec spec{.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kFloat32};
+    const auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{{"obs", spec}}, nullptr, 1093);
+    const anet::nn::NetworkForwardConfig config("nn_forward.[selected]", data.MakeSubConfigData("nn_forward").at("selected"));
+    const auto executor = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 0);
+    const anet::TensorDict input("obs", torch::ones({2, 2}));
+    CHECK(torch::equal(executor->Forward(input, anet::nn::NetworkForwardCallInfo({.clock = 0})).At("features"),
+        network->Forward(input).At("features")));
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread[0].first == "some.setting");
+}
+
 TEST_CASE("Network validates local forward requirements before a configured computation", "[nn][noisynet][validation]")
 {
     EnsureNNInitialized();
@@ -4452,13 +4599,15 @@ TEST_CASE("Used forward values are validated by the concrete preparation", "[nn]
     CHECK_NOTHROW(validate(data));
     data.Set("noisy.hold", "count");
     CHECK_THROWS_WITH(validate(data), Catch::Matchers::ContainsSubstring("noisy.count"));
-    // 同じ項目も、その設定群を利用しない通常部品では休眠する。
+    // 通常部品でも明示した値は検証し、設定を省略した既定の計算は保つ。
     structural.Set("noisy.enabled", false);
     auto ordinary = anet::nn::NetworkModuleRepository::Instance().GetFactory("Linear")->CreateModule(
         structural, anet::nn::ModuleContext{.random_source=MakeTestModuleRandomSource()});
     anet::ConfigData unused;
     unused.Set("noisy.mode", "invalid");
-    CHECK_FALSE(ordinary->CreateExecutor(anet::nn::NetworkForwardConfig("unused", unused),
+    CHECK_THROWS_WITH(ordinary->CreateExecutor(anet::nn::NetworkForwardConfig("unused", unused),
+        anet::nn::NetworkForwardClock::kTransientRows), Catch::Matchers::ContainsSubstring("noisy.mode"));
+    CHECK_FALSE(ordinary->CreateExecutor(anet::nn::NetworkForwardConfig("empty", anet::EmptyConfigData),
         anet::nn::NetworkForwardClock::kTransientRows));
 }
 
@@ -5471,4 +5620,64 @@ TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noi
     data.Set("noisy.sigma0", -0.5);
     CHECK_THROWS_WITH(anet::nn::ValidateLinearProjectionConfig(data, "probe.projection"),
         Catch::Matchers::ContainsSubstring("probe.projection.noisy.sigma0"));
+}
+
+TEST_CASE("Instantiated network blocks reject unread config keys", "[nn][config][prd117]")
+{
+    EnsureNNInitialized();
+    // module が読まないキーを、実際の構築の入口で拒否する。
+    anet::ConfigData data;
+    data.Set("net.block.[BadConv].type", std::string("Conv2d"));
+    data.Set("net.block.[BadConv].out_channels", 32);
+    data.Set("net.branch.[feature].bind", std::string("obs"));
+    data.Set("net.branch.[feature].structure", std::string("BadConv"));
+    data.Set("net.body.output.[feature]", std::string("feature"));
+    const anet::nn::NetworkConfig config(data);
+    // 別の読み口で既に読まれていても、この module のスキーマ検証は省かない。
+    CHECK(config.block_configs.at("BadConv").config_data.Get<int>("out_channels") == 32);
+    CHECK_THROWS_WITH(
+        anet::nn::NetworkStructBuilder::Build(config, "BadConv", MakeTestModuleRandomSource()),
+        Catch::Matchers::ContainsSubstring("BadConv")
+        && Catch::Matchers::ContainsSubstring("Conv2d")
+        && Catch::Matchers::ContainsSubstring("out_channels = 32")
+        && Catch::Matchers::ContainsSubstring("conv.out_channels")
+        && !Catch::Matchers::ContainsSubstring(", out_channels"));
+}
+
+TEST_CASE("Block schema rejects file defaults and type-only Run overrides", "[nn][config][prd117][block_schema_file]")
+{
+    EnsureNNInitialized();
+    anet::test::LogCaptureGuard logs;
+    const std::string assignment = GENERATE("?=", "=");
+    const bool type_override = GENERATE(false, true);
+    const bool referenced = GENERATE(false, true);
+    CAPTURE(assignment, type_override, referenced);
+    const auto directory = std::filesystem::current_path() / "out/test-tmp/prd117-block-schema";
+    std::filesystem::create_directories(directory);
+    const auto path = directory / "input.txt";
+    {
+        std::ofstream file(path);
+        REQUIRE(file.good());
+        // 実際のPropertiesとRun選択を通し、代入方法に依存しないことを確認する。
+        file << "net.block.[Shared].type " << assignment << " Conv2d\n";
+        file << "net.block.[Shared]." << (type_override ? "conv.out_channels" : "out_channels")
+            << " " << assignment << " 32\n";
+        file << "net.block.[Used].type = Dropout\nnet.block.[Used].dropout_rate = 0.0\n";
+        file << "net.branch.[feature].bind = obs\nnet.branch.[feature].structure = "
+            << (referenced ? "Shared" : "Used") << "\nnet.body.output.[feature] = feature\n";
+        if (type_override) file << "run.@linear : net.block.[Shared].type = Linear\nrun.$ = run.@linear\n";
+    }
+    const anet::ConfigManager manager(path);
+    const anet::nn::NetworkConfig config(manager.GetConfigData());
+    if (referenced) {
+        CHECK_THROWS_WITH(
+            anet::nn::NetworkStructBuilder::Build(config, "Shared", MakeTestModuleRandomSource()),
+            Catch::Matchers::ContainsSubstring("Shared")
+            && Catch::Matchers::ContainsSubstring(type_override ? "Linear" : "Conv2d")
+            && Catch::Matchers::ContainsSubstring(type_override ? "conv.out_channels = 32" : "out_channels = 32"));
+    } else {
+        CHECK_NOTHROW(anet::nn::NetworkStructBuilder::Build(config, "Used", MakeTestModuleRandomSource()));
+        logs.Flush();
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+    }
 }

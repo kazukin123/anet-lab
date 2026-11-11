@@ -112,9 +112,6 @@ ImageClsAgent.learning_rate.phase.[warmup].type  = linear
 ImageClsAgent.learning_rate.phase.[warmup].start = 0
 ImageClsAgent.learning_rate.phase.[warmup].end   = 1e-3
 
-ImageClsAgent.learning_rate.phase.[main_const].type  = constant
-ImageClsAgent.learning_rate.phase.[main_const].value = 1e-3
-
 ImageClsAgent.learning_rate.phase.[main_cosine].type  = cosine
 ImageClsAgent.learning_rate.phase.[main_cosine].start = 1e-3
 ImageClsAgent.learning_rate.phase.[main_cosine].end   = 1e-5

@@ -206,7 +206,8 @@ struct StartupFixture {
         wxTheApp->argc = 3;
         wxTheApp->argv.Init(3, argv);
         wxTheApp->SetExitOnFrameDelete(false);
-        REQUIRE(wxTheApp->OnInit());
+        const bool initialized = wxTheApp->OnInit();
+        REQUIRE(initialized);
         frame = wxGetApp().GetMainFrame();
         REQUIRE(frame);
     }
@@ -246,6 +247,59 @@ void RegisterStartupTestAgents()
 {
     anet::rl::AgentRepository::Instance().Register(std::make_shared<SlowInitTestAgentFactory>());
     anet::rl::AgentRepository::Instance().Register(std::make_shared<CloseDrainTestAgentFactory>());
+}
+
+TEST_CASE("Runner validates values in an unused online mode", "[.][prd117_mode_online]")
+{
+    StartupFixture app;
+    CHECK_THROWS_WITH(app.Start("app.online.log_flush_interval_ms = -1\n"),
+        Catch::Matchers::ContainsSubstring("app.online.log_flush_interval_ms"));
+}
+
+TEST_CASE("Runner validates values in an unused batchrun mode", "[.][prd117_mode_batchrun]")
+{
+    StartupFixture app;
+    CHECK_THROWS_WITH(app.Start("app.batchrun.log_flush_interval_ms = -1\n"),
+        Catch::Matchers::ContainsSubstring("app.batchrun.log_flush_interval_ms"));
+}
+
+TEST_CASE("Runner reports unread config after app readers and before its first step", "[.][prd117_startup]")
+{
+    StartupFixture app;
+    app.Start("agent.construction_delay_ms = 0\napp.save_agent_on_close = false\n"
+        "Conv2dPanel.conv2d.margin_x = 3\napp.online.train_auto_start = false\n"
+        "app.batchrun.train_auto_start = true\nunread.typo = 17\n"
+        "app.metrics_logger.root_dir = ignored\n");
+    REQUIRE(app.Wait([] { return wxGetApp().IsRunInitialized(); }));
+    wxGetApp().FlushRunOutputs();
+    const auto text = app.Log();
+    const auto report = text.find("Unread config keys");
+    REQUIRE(report != std::string::npos);
+    CHECK(text.find("unread.typo = 17", report) != std::string::npos);
+    CHECK(text.find("app.metrics_logger.root_dir = ignored", report) != std::string::npos);
+    CHECK(text.find("Conv2dPanel.conv2d.margin_x = 3", report) == std::string::npos);
+    CHECK(text.find("app.online.train_auto_start = false", report) == std::string::npos);
+    CHECK(text.find("app.batchrun.train_auto_start = true", report) == std::string::npos);
+    CHECK(text.find("deprecated and ignored") == std::string::npos);
+    CHECK(wxGetApp().IsTrainingPaused());
+}
+
+TEST_CASE("Runner warns once when the same Agent save produces zero bytes twice", "[.][prd117_save_zero]")
+{
+    StartupFixture app;
+    app.Start("agent.construction_delay_ms = 0\napp.save_agent_on_close = false\n");
+    REQUIRE(app.Wait([] { return wxGetApp().IsRunInitialized(); }));
+    const auto path = app.output / "startup/zero.anet";
+    CHECK(wxGetApp().SaveAgent(path) == 0);
+    CHECK(wxGetApp().SaveAgent(path) == 0);
+    wxGetApp().FlushRunOutputs();
+    const auto log = app.Log();
+    constexpr char kWarning[] = "Agent save produced zero bytes";
+    const auto first = log.find(kWarning);
+    REQUIRE(first != std::string::npos);
+    CHECK(log.find(": [W]", log.rfind('\n', first)) < first);
+    CHECK(log.find(kWarning, first + sizeof(kWarning) - 1) == std::string::npos);
+    CHECK(std::filesystem::file_size(path) == 0);
 }
 
 TEST_CASE("Runner construction keeps the event loop and logs active", "[.][prd109_startup][prd109_ready]")

@@ -41,7 +41,7 @@ def current_chain(env):
 
 
 def arm_leaves(arm):
-    # 腕の差を明示的な葉に閉じ、ネットワークと既存の診断は共有する。
+    # 群の差を明示的な設定キーに閉じ、ネットワークと既存の診断は共有する。
     leaves = {PREFIX + "learner.skip.feature_gradient": "merge"}
     if arm in ("action_change", "episode_end", "control", "one_step", "episode_end_split"):
         leaves.update({PREFIX + "actor.[train].skip.max_length_mode": "single",
@@ -73,14 +73,14 @@ def prepare():
         case.mkdir()
         old = properties(run / "config/config_data.txt")
         leaves = batch_leaves(40)
-        # PRD103と同じCLI葉の集合を、当該Runの保存値から読み直す。
+        # PRD103と同じCLI設定キーの集合を、当該Runの保存値から読み直す。
         source_leaves = template.sample_efficiency()
         for key in source_leaves:
             canonical = PREFIX + key[3:] if key.startswith("A2.") else key
             if key not in old and canonical not in old:
                 raise RuntimeError(f"Missing source CLI leaf: {run_name} {key}")
             leaves[key] = old.get(key, old.get(canonical))
-        # 元CLIのrun.$が選んだ形状・前処理も葉に展開し、現在の連鎖で同じ重みを読む。
+        # 元CLIのrun.$が選んだ形状・前処理も設定キーに展開し、現在の連鎖で同じ重みを読む。
         source_profile_keys = ("AtariEnv.resize_mode", "net.block.[AtariHeadFC512].noisy.enabled",
             PREFIX + "head.projection.noisy.enabled", PREFIX + "net.branch.[main_feature].structure",
             PREFIX + "net.branch.[tau_embedding].structure")

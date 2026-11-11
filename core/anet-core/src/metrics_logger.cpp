@@ -20,6 +20,9 @@ namespace LOG = anet::log;
 
 wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
 
+static constexpr char kSoftwareH264Codec[] = "libx264";
+static constexpr char kNvencH264Codec[] = "h264_nvenc";
+
 namespace {
 
 constexpr size_t kMaxCapturedStderr = 4096;
@@ -37,16 +40,16 @@ std::string ToUtf8String(const wxString& value)
 
 wxString BuildVideoOutputOptions(const std::string& codec, int fps)
 {
-    if (codec == "libx264") {
+    if (codec == kSoftwareH264Codec) {
         // H.264用: 超高速(CPU最小)、色差間引きなし
         return wxString::Format(
-            "-c:v libx264 -preset ultrafast -crf 15 -pix_fmt yuv444p -g %d -keyint_min 30 -sc_threshold 0 -tune fastdecode ",
-            fps);
+            "-c:v %s -preset ultrafast -crf 15 -pix_fmt yuv444p -g %d -keyint_min 30 -sc_threshold 0 -tune fastdecode ",
+            wxString::FromUTF8(codec), fps);
     }
-    if (codec == "h264_nvenc") {
+    if (codec == kNvencH264Codec) {
         return wxString::Format(
-            "-c:v h264_nvenc -preset p1 -rc vbr -cq 15 -pix_fmt yuv444p -g %d  -forced-idr 1",
-            fps);
+            "-c:v %s -preset p1 -rc vbr -cq 15 -pix_fmt yuv444p -g %d  -forced-idr 1",
+            wxString::FromUTF8(codec), fps);
     }
 
     // MJPEG等: 従来の可変ビットレート品質指定 (2は最高品質クラス)
@@ -83,19 +86,19 @@ VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int wid
 
     if (requested_codec == "auto") {
         return VideoCodecDecision{
-            .codec = nvenc_eligible ? "h264_nvenc" : "libx264",
+            .codec = nvenc_eligible ? kNvencH264Codec : kSoftwareH264Codec,
             .requested_auto = true,
             .nvenc_eligible = nvenc_eligible,
         };
     }
 
-    if (requested_codec == "h264_nvenc" && !nvenc_eligible) {
+    if (requested_codec == kNvencH264Codec && !nvenc_eligible) {
         ANET_SYSTEM_ERROR(
-            "metrics_logger.video_codec=h264_nvenc is not supported for video size "
+            "metrics_logger.video_codec=" << kNvencH264Codec << " is not supported for video size "
             << width << "x" << height
             << ". Expected even width/height and at least "
             << kNvencMinWidth << "x" << kNvencMinHeight
-            << ". Use metrics_logger.video_codec=auto or libx264. path=" << path);
+            << ". Use metrics_logger.video_codec=auto or " << kSoftwareH264Codec << ". path=" << path);
     }
 
     return VideoCodecDecision{
@@ -103,6 +106,14 @@ VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int wid
         .requested_auto = false,
         .nvenc_eligible = nvenc_eligible,
     };
+}
+
+VideoCodecDecision VideoCodecSelection::Resolve(
+    const std::string& codec, int width, int height, const std::string& path) const
+{
+    auto decision = ResolveVideoCodec(codec, width, height, path);
+    if (decision.requested_auto && software_fallback_.load()) decision.codec = kSoftwareH264Codec;
+    return decision;
 }
 
 } // namespace anet::detail
@@ -299,7 +310,8 @@ void anet::detail::VideoLoggerProcess::DrainStderrLocked()
     }
 }
 
-VideoLogger::VideoLogger(const std::string& path, int width, int height, const std::string& codec, int fps)
+VideoLogger::VideoLogger(const std::string& path, int width, int height, detail::VideoCodecSelection& selection,
+    const std::string& codec, int fps)
     : width_(width), height_(height), path_(path), codec_(codec), fps_(fps)
 {
     ANET_CHECK_MSG(width <= 8192, "invalid Image size. width=" << width);
@@ -308,7 +320,7 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
     wxFileName fn(wxString::FromUTF8(path_));
     wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
-    const auto decision = detail::ResolveVideoCodec(codec, width_, height_, path_);
+    const auto decision = selection.Resolve(codec, width_, height_, path_);
     if (decision.requested_auto) {
         LOG::info() << "VideoLogger(auto): " << width_ << "x" << height_ << " -> " << decision.codec;
     }
@@ -318,15 +330,17 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
         return;
     }
 
-    if (decision.requested_auto && decision.codec == "h264_nvenc") {
+    if (decision.requested_auto && decision.codec == kNvencH264Codec) {
         std::string failure_message;
         {
             std::lock_guard<std::mutex> lock(write_mutex_);
-            failure_message = BuildFfmpegFailureMessageLocked("ffmpeg startup failed for auto-selected h264_nvenc");
+            failure_message = BuildFfmpegFailureMessageLocked(std::string("ffmpeg startup failed for auto-selected ") + kNvencH264Codec);
         }
-        LOG::warn() << failure_message << " Retrying with libx264. path=" << path_;
+        selection.PinSoftwareFallback();
+        LOG::warn_once() << failure_message << " Retrying with " << kSoftwareH264Codec
+            << "; auto will use " << kSoftwareH264Codec << " for this Run. path=" << path_;
 
-        LaunchFfmpeg("libx264");
+        LaunchFfmpeg(kSoftwareH264Codec);
         if (!DiedAtStartup()) {
             return;
         }
@@ -770,7 +784,8 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
     if (!target_logger) {
         // VideoLogger を作る
         auto vid_path = run_dir_ / "videos" / (safe_tag + ".mkv");
-        temp_vlog = std::make_unique<VideoLogger>(vid_path.string(), image.GetWidth(), image.GetHeight(), config_.video_codec, config_.video_fps);
+        temp_vlog = std::make_unique<VideoLogger>(vid_path.string(), image.GetWidth(), image.GetHeight(),
+            video_codec_selection_, config_.video_codec, config_.video_fps);
 
         // マップ登録用にロックを取る
         std::lock_guard<std::mutex> lock(video_mutex_);

@@ -356,10 +356,16 @@ TEST_CASE("Trace row retains its notification until eviction and dumps it on dou
     public:
         std::vector<std::pair<wxLogLevel, wxString>> dumps;
     protected:
+        void DoLogRecord(wxLogLevel level, const wxString& text, const wxLogRecordInfo& info) override
+        {
+            if (notification_filter_.Accept(info)) wxLog::DoLogRecord(level, text, info);
+        }
         void DoLogTextAtLevel(wxLogLevel level, const wxString& text) override
         {
             if (text.Contains("Trace dump step=")) dumps.emplace_back(level, text);
         }
+    private:
+        anet::log::NotificationFilter notification_filter_;
     } log;
     struct RestoreLog {
         wxLog* previous;
@@ -1368,6 +1374,9 @@ int main(int argc, char** argv)
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos
             || argument.find("[prd110_") != std::string_view::npos
+            || argument.find("[prd117_startup]") != std::string_view::npos
+            || argument.find("[prd117_mode_") != std::string_view::npos
+            || argument.find("[prd117_save_zero]") != std::string_view::npos
             || argument.find("[q_value_") != std::string_view::npos
             || argument.find("[toolbar_full_width]") != std::string_view::npos
             || argument.find("[fps_menu]") != std::string_view::npos;

@@ -121,11 +121,12 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             for (const auto& [key, sub] : config_data.MakeSubConfigData("MuZeroAgent.actor")) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
-                ReadConfig(config_data, prefix + ".temp_start", entry.temp_start);
-                ReadConfig(config_data, prefix + ".temp_end", entry.temp_end);
-                ReadConfig(config_data, prefix + ".temp_decay_steps", entry.temp_decay_steps);
-                ReadConfig(config_data, prefix + ".add_exploration_noise", entry.add_exploration_noise);
-                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                const auto data = MakeReadScope(config_data, prefix);
+                ReadConfig(data, prefix + ".temp_start", entry.temp_start);
+                ReadConfig(data, prefix + ".temp_end", entry.temp_end);
+                ReadConfig(data, prefix + ".temp_decay_steps", entry.temp_decay_steps);
+                ReadConfig(data, prefix + ".add_exploration_noise", entry.add_exploration_noise);
+                ReadConfig(data, prefix + ".clone_model", entry.clone_model);
                 if (entry.clone_model) {
                     ANET_SYSTEM_ERROR("MuZeroAgent." << prefix << ".clone_model=true is unsupported; expected false.");
                 }
@@ -135,6 +136,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
                         << entry.temp_start << " end=" << entry.temp_end << " decay=" << entry.temp_decay_steps
                         << "; expected finite nonnegative values.");
                 }
+                data.RequireAllKeysRead(MakeDefaultConfigKey(prefix));
             }
 
             // --- Replay ---

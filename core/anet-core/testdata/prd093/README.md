@@ -29,7 +29,7 @@ CPUの再現手順はGPUを不可視にして実行し、ユーザー許可に�
 1. AGENTS.mdのVsDevCmd経由でDebug全体をビルドし、`anet-core-test.exe "[prd093]"`、関連`[plasticity]`・`[nn]`・ImageCls/Munchausenテスト、既定スイートを実行する。CUDA無しのskipをGPU受入成功と扱わない。
 2. `run_validation.py rename-snapshot`で退避した現用設定を複製して改名だけを施し、現在のConfigManagerで7入力を解決し直して、変更前の全キー・文字列値と比較する。追加診断キーやprofileの差分を改名比較へ混ぜない。現在の設定と複製元の差分も別途点検する。
 3. `run_validation.py before-cpu`、続いて`run_validation.py cpu`を実行する。保存済み旧Runner、変更後OFF、変更後ONの順に比較する。LunarLander CPU、seed931、8 env、FP32、B16、RR1、capacity4096、warmup256、16640経験、4層の小型Transformer、probe16件、Dropout有効を固定する。学習由来の全scalarをtag・step・float.hex・点数で比較し、性能・資源群と48群だけを除外する（47群は含む）。checkpoint SHAは等価性に使わない。
-4. `validate_run_test.py`の合成artifact回帰テスト、PRD072のprepare/compare、既定葉検査を実行する。PRD072の固定入力・golden・manifestは変更せず、`prd072-hashes.json`とも比較する。
+4. `validate_run_test.py`の合成artifact回帰テスト、PRD072のprepare/compare、既定キー検査を実行する。PRD072の固定入力・golden・manifestは変更せず、`prd072-hashes.json`とも比較する。
 5. `run_validation.py smoke`でDropMerge本線とAtari既定チェーン＋`@vitva > @attention`をDebug実行する。保存した既定のB/RR/warmupから1006更新点を越える予算を計算し、既存学習スケジュールを縮めない。`inspect_run.py tags`の出力も保存し、4タグのsource key・learn event・learn_step軸・update_result source・interval503と503/1006両点の有限な0〜1を確認する。Atariではmunchausen・replay_fitの定義が残ることも検証する。
 6. Release全体をビルドし、`run_validation.py performance`で各環境をOFF/ONの順に測定する。503→1006の同一更新区間の実時間、process実時間、CPU peak working set・private usage最大観測値、GPU device全体memory.usedの1秒サンプリング最大値を保存する。GPU値はallocator単体や瞬間ピークではない。1対の差を統計的な性能保証と扱わず、必要なら同一条件で反復する。
 7. NVTX/Tracyで`Learner::CaptureAttentionEntropy`のinclusive range合計を採取し、同じRun区間の実時間に対する割合を報告する。`CustomTransformerEncoderLayer::MeasureAttentionEntropy`・`ComputeAttentionEntropy`で内訳も追える。GPU非同期処理・同期の影響を説明し、OFF/ON実時間差をrange合計の代用品にしない。自動レポートの`profile_capture_seconds`と`profile_capture_ratio`は採取まではnull（未測定）とする。1%は目標であり、超過だけで不合格にしない。
@@ -53,7 +53,7 @@ Pythonはリポジトリの `.venv/Scripts/python.exe` で実行する。GPU本�
 - MSVC初期化経由のDebug全体ビルド成功。`24-debug-build.log`。性能テスト・hiddenテストを除くCPU全体スイートは697件中688件成功・9件skip、91,715アサーション成功。`25-default-cpu-tests.log`。capture到達branchの追加REDもこのスイートでGREENを確認した。
 - 改名単独の現用7入力は、キー名の置換以外の差分0。`rename-comparison.json`、`18-rename-comparison.log`。
 - PRD072の固定17入力、156アサーションが成功。`19-prd072-comparison.log`。固定資料41ファイルのhashは保持する。
-- 既定葉検査は25,981代入、3,463監査、エラー0。検査器の回帰12件も成功。`16-default-leaves.log`、`17-default-leaves-tests.log`。
+- 既定キー検査は25,981代入、3,463監査、エラー0。検査器の回帰12件も成功。`16-default-leaves.log`、`17-default-leaves-tests.log`。
 - 合成artifactの検証器テスト3件成功。`14-validator-tests.log`。
 - PRD093 CPUテストは12件中10件成功・CUDA対象2件skip、46,232アサーション成功。`22-prd093-cpu-tests.log`。CUDAの成功をCPU skipから推定しない。
 - 変更前・変更後OFF・変更後ONのCPU Runは、既存Noisy診断を含む61タグ・31,694点が完全一致。性能/資源群と追加48群だけを除外し、tag・step・点数・float.hexを比較した。3本のSHA256は `cdfb115f6ae74a702c881d3527d76e33d48039ac0472e626d75b74a954216941`。`18-cpu-comparison.log`、`cpu-comparison.json`、各`*.normalized.summary.json`。

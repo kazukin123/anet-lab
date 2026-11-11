@@ -4,15 +4,9 @@
 
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261107-a9a0e3](issue-20261107-a9a0e3.md) | 調査中 | 8.0 | — | 成果物 | その他 | 318_rl_core, 317_metrics, 324_dqn | 学習基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | Atariの正常なRunで毎回出るWARN（eval_targetの未スケジュール、評価だけのRunのRND）で本物のWARNが埋もれる |
-| [issue-20261103-582880](issue-20261103-582880.md) | 調査中 | 6.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う |
-| [issue-20261103-2c9a07](issue-20261103-2c9a07.md) | 調査中 | 5.0 | — | 成果物 | 監査 | 110_runner_app | 基盤 | リファクタリング | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する |
-| [issue-20261103-66100f](issue-20261103-66100f.md) | 調査中 | 5.0 | — | 成果物 | 監査 | 316_config, 110_runner_app, 317_metrics | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない |
-| [issue-20261107-0c34dd](issue-20261107-0c34dd.md) | 調査中 | 3.6 | — | 成果物 | PRD | 316_config, 315_nn | 基盤 | 不整合 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 未確認 | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される |
 | [issue-20261111-77ac3c](issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 2.6 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
-| [issue-20261107-c17068](issue-20261107-c17068.md) | 調査中 | 2.6 | — | 成果物 | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 324_dqn, 110_runner_app | 基盤 | 機能改善 | [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) | 残件有り | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） |
 | [issue-20261103-ab98b7](issue-20261103-ab98b7.md) | 調査中 | 1.6 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md) | 残件有り | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
@@ -152,7 +146,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 133 / 待ち 14 / 保留 0 / 次版 0 / 解決 0
+着手できる 127 / 待ち 14 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

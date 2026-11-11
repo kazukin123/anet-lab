@@ -1,9 +1,11 @@
 ﻿#include "anet/catch_test.hpp"
 
 #include "anet/init.hpp"
+#include "anet/test_util.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/tensor_util.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -173,7 +175,18 @@ TEST_CASE("InitRL applies cuda_launch_blocking off and records the effective env
 
     anet::ConfigData config_data;
     config_data.Set("backend.cuda_launch_blocking", "off");
+    anet::test::LogCaptureGuard logs;
     anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+    // 1回目の上書き後に同じ不一致を作り直し、通知だけが重複しないことを確認する。
+    REQUIRE(SetEnvValue(kCudaLaunchBlockingEnv, std::string("1")) == 0);
+    anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {"CUDA_LAUNCH_BLOCKING overridden", "previous=1", "requested=off", "effective=0"}));
+    CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+        return record.level == wxLOG_Message && record.message.find("CUDA_LAUNCH_BLOCKING overridden") != std::string::npos;
+    }) == 1);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
 
     REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
     CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "0");

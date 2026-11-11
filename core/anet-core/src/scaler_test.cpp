@@ -3,6 +3,8 @@
 
 #include <cmath>
 
+#include "anet/test_util.hpp"
+
 TEST_CASE("Constant reward scaler exposes a defined clipping ratio", "[scaler][metrics]")
 {
     // factory の公開経路から、初回は未成立、非クリップの Scale 後はゼロとなる契約を確認する。
@@ -96,6 +98,7 @@ static std::shared_ptr<anet::rl::ObservationNormalizer> MakeScalerObservationNor
 
 TEST_CASE("Robust normalization admits warmup rows and rejects only outlier rows", "[prd122][scaler][robust_update]")
 {
+    anet::test::LogCaptureGuard logs;
     // 件数は行数で数える。境目の直前の外れ値は採用し、境目の直後は除外する。
     anet::rl::ObservationNormalizerConfig config;
     config.use_clipping = false;
@@ -126,6 +129,8 @@ TEST_CASE("Robust normalization admits warmup rows and rejects only outlier rows
     CHECK(*normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyCount) == 3.0f);
     CHECK(*normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyMeanMean) == expected_mean);
     CHECK(*normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyRobustOutlierRatio) == 0.25f);
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
 }
 
 TEST_CASE("Observation SymLog keeps its positive non-unit scale", "[prd122][scaler][symlog]")

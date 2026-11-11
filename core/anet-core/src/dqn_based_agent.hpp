@@ -941,7 +941,6 @@ namespace anet::rl::dqn {
             std::array<anet::GradientNoiseEstimator, 4> estimators;
             std::vector<anet::GradientNoiseParameter> parameters;
         } grad_noise_;
-        bool grad_noise_intervals_warned_ = false;
         struct NoisyDiagnosticState {
             struct DemandEntry {
                 size_t metric;
@@ -1050,7 +1049,6 @@ namespace anet::rl::dqn {
                 return request[4] || request[5];
             }
         } policy_churn_;
-        std::unordered_set<int> policy_churn_warned_intervals_;
         struct ReplayFitDemandEntry {
             size_t metric;
             anet::IntervalGate gate;

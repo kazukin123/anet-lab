@@ -27,6 +27,8 @@ Agent共通の所有権は[Agentと学習](110_agents_and_learning.jp.md)、DQN�
 Networkの入力と出力は、文字列キーからTensorへのmapである`TensorDict`で受け渡す。
 `TensorSpecMap`は各入力キーのshape、dtype、値域を表す。EnvSpecから引き継いだObservation specを基礎とし、Agentが所有する追加入力specもNetwork構築前に同じmapへ加えられる。DefaultDQNのIQNでは、EnvのObservationではない`taus`をAgentが追加し、Actor/Learnerがforward直前に入力TensorDictのcopyへ注入する。
 
+Agentは、そのNetworkへの入力として使うspecを選ぶ。ImageClsAgentでは、`vector`はLearnerが読む教師ラベルなのでNetworkの入力仕様から除き、画像の`grid`をNN入力にする。Envの観測と教師ラベルはそのまま保持する。
+
 `NetworkBoundaryPreprocessor`はNetwork Bodyの入口で、次を担当する。
 
 - 必要な入力キーの存在とspecを確認する。
@@ -80,6 +82,12 @@ NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不
 - `net.body.[name].structure`: blockを`>`で接続する直列構造
 - branchのbind term、`bind_concat_dim`、raw key、出力key
 - block/branch単位のconfig profile
+
+structureに現れたblockは、module factoryが読み終えたあとに閉じたスキーマを検証する。読まれない設定キーがあれば、block名・type・キーと値・そのfactoryが読むキーを含めて構築時に止める。`conv.out_channels`を`out_channels`と書いた場合も、`?=`か`=`かによらず止まる。複製や別の読み口の既読記録では、この検証を省かない。
+
+structureに現れないblockは実体化せず、Runではそのスキーマを検証しない。既存blockのtypeだけを別の種類へ書き換えると、元の種類の設定キーが残り、使ったときに未読キーとして止まる。別名のblockを定義し、structureの側で選び直す。
+
+config profileも参照されたときにだけ型・数値・必須項目・未読キーを検証する。構築情報は出典付きの生設定を保持し、ToJsonには他の生設定と同じ文字列値を記録するため、未参照の不正値をdumpで解析したり既読化したりしない。全体の未参照profileは在庫となり、そのbranchだけの未参照profileはRunの未読一覧へ残る。局所定義が上書きした元の設定キーは消費済みとする。
 
 `bind`は`,`区切りのtermを入力し、各termでは`*`区切りのfactorをfeature-last elementwise productする。`*`は`,`より優先し、rank差は低rank側のbatch直後へsingleton次元を挿入して揃える。複数termはbranch単位の`bind_concat_dim`（既定1、負値可）で連結する。各termはbatch軸とfeature軸を持つrank 2以上を要求する。軸は最大rankで正規化し、batch次元0への連結は禁止する。末尾feature軸で連結するときは、低rank項のbatch直後へ不足するsingleton軸を挿入し、中間軸だけをbroadcastする。たとえば[B,K,F]と[B,A]を-1で結ぶと[B,K,F+A]になる。既存軸やbatchは拡張しない。
 
@@ -284,7 +292,7 @@ sequenceDiagram
 ### 7.1 構築時の検証
 
 - 未登録のmodule type、存在しないblock、解決不能なbind key、循環branchは構築時に失敗させる。
-- input specのkeyが全bind factorにもdirect `net.body.output` mappingにも参照されない場合は、keyごとに1 build 1回だけWARNする。この診断は書き忘れの候補を示すだけで、最終出力への到達性や意味的寄与を保証しない。
+- input specのkeyが全bind factorにもdirect `net.body.output` mappingにも参照されない場合は、keyごとRunに1回だけWARNする。この診断は書き忘れの候補を示すだけで、最終出力への到達性や意味的寄与を保証しない。
 - bind積はfactor間のbatch sizeを検証する。複数termの連結は最大rankで`bind_concat_dim`を正規化し、範囲、batch次元でないこと、term間batch sizeを明示検証する。それ以外のbroadcast/concat shape不整合はlibtorchのエラーとして扱う。
 - input specと実入力TensorDictのshape/dtypeが一致しない場合はNetwork境界で検出する。
 - IQN Headはrank 3 `(B,K,D)`、IQN Dueling Headはvalue/advantageのB/K一致を局所入力契約としてdummy forward時に検証する。これは`taus`が最終出力へ意味的に寄与することの証明ではない。
@@ -345,7 +353,7 @@ TransformerEncoderは公開定数`kTransformerEncoderAttentionEntropyCaptureKey`
 
 Body の `Linear` は `noisy.enabled=false`、`noisy.sigma0=0.5`、`force_fp32=false` を既定とする。Noisy は既存の weight/bias を μ として保ち、有効時だけ `sigma_weight` / `sigma_bias` を登録する。σ は符号付きの学習 parameter であり、初期値は weight/bias とも `sigma0 / sqrt(fan_in)`。初期 μ の名前・初期化・乱数順を維持する。
 
-Body LinearとHeadが合成する具象LinearProjectionModuleは、そのprivateな設定型でnoisy.mode/hold/share/countを準備時に解釈する。利用する設定の型・列挙・値域・必要項目・episode/batch・時計種別の制約を準備時に検証する。未参照項目とNoisy OFFの設定群は休眠する。μ-onlyの未使用保持項目は必須にしないが、利用部品が認識する明示値は検証する。
+Body LinearとHeadが合成する具象LinearProjectionModuleは、そのprivateな設定型でnoisy.mode/hold/share/countを準備時に解釈する。利用する設定の型・列挙・値域・必要項目・episode/batch・時計種別の制約を準備時に検証する。未参照項目は検証しない。実体化した名前付き実行設定は新しい読み取り範囲を所有し、全具象部品の準備後に未読キーを拒否する。Noisy OFFでも明示された既知値は検証するが、利用しない実行方式の必須項目は要求しない。μ-onlyの未使用保持項目も必須にしない。
 
 名前付き実行オブジェクト内部の `NetworkForwardState` は module 実体毎の ε と専用 RNG を持つ不透明な箱。call は時計が変わると再抽選、count は Actor の N 回毎、episode は Actor の `episode_start` が立った lane のみ再抽選する。同じ時計の再 forward は同じ ε を使い、同じ episode 境界を二度反映しない。count は episode 境界でリセットしない。保持中の shape/device 不一致と時計の逆行は fail-fast する。row_mapping は不変な NetworkForwardRowMapping とし、CPU の int64 index と元行数を構築時に検証して使用 device へ一度だけ転送する。射影は内部 index を公開しない SelectRows を使い、実行時は行数・device だけを確認する。GetIndices は検査用の独立した複製を返す。
 
@@ -358,6 +366,8 @@ clone・hard/soft copy・保存読込は μ/σ を含む parameter と既存 buf
 `ComputeNoisyParameterStatistics(feature_key)` は feature の依存閉包と readout に分類し、weight/bias 別の σ mean-abs と L2 ratio を返す。ratio の μ 分母は σ を持つ射影だけを集計し、SN は実効 μ を使う。対象なしは NaN、分母ゼロは ratio だけ NaN。既存 weight norm は σ を除外する。
 
 ## 8. テストと拡張時の確認事項
+
+- [PRD117検証資材](../../core/anet-core/testdata/prd117/README.md): block/profileの参照時の閉じた検証、未参照の定義の扱い、出荷設定の検査。
 
 Networkを変更する場合は次を確認する。
 

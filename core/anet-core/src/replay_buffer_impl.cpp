@@ -1210,7 +1210,9 @@ public:
 
         // フェイルセーフ（滅多に起きないが、ツリーが空に近い極初期など）
         if (b < batch_size) {
-            LOG::warn() << "PER Rejection Sampling failed to fill batch. Falling back to uniform.";
+            LOG::warn_once() << "PER Rejection Sampling failed to fill batch. Falling back to uniform. filled=" << b
+                << " requested=" << batch_size << " valid_count=" << valid_count
+                << ". Further occurrences in this Run will not be reported.";
             auto rand_idx = torch::randint(0, valid_count, { batch_size - b }, gen_, opt_long_);
             auto rand_acc = rand_idx.accessor<int64_t, 1>();
             for (int64_t i = 0; i < batch_size - b; ++i) {

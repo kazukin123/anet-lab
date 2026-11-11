@@ -127,7 +127,7 @@ namespace anet::rl::dqn {
                 // state は終端の観測を採点しないので、この指定を使わない。
                 if (intrinsic.observation == kIntrinsicObservationState
                     && intrinsic.use_done_mask != kDefaultIntrinsicUseDoneMask)
-                    anet::log::warn() << "Ignored DefaultDQNAgent.intrinsic.use_done_mask=" << anet::json(intrinsic.use_done_mask).dump()
+                    anet::log::warn_once() << "Ignored DefaultDQNAgent.intrinsic.use_done_mask=" << anet::json(intrinsic.use_done_mask).dump()
                         << " with intrinsic.observation=" << intrinsic.observation
                         << "; default=" << anet::json(kDefaultIntrinsicUseDoneMask).dump() << ".";
                 ANET_READ_CONFIG(config_data, intrinsic.learn_ratio);
@@ -147,6 +147,8 @@ namespace anet::rl::dqn {
                     my_config_json_[relative] = value;
                 }
             } else {
+                config_data.MarkInventory(MakeDefaultConfigKey("intrinsic"));
+                anet::log::info_once() << "Inactive config prefix=DefaultDQNAgent.intrinsic; reason=DefaultDQNAgent.intrinsic.enabled=false.";
                 // 無効時の checkpoint 内の設定文字列を従来と同一にする。
                 my_config_json_.erase("intrinsic.enabled");
             }
@@ -154,7 +156,7 @@ namespace anet::rl::dqn {
             const auto projection_prefix = MakeDefaultConfigKey("head.projection") + ".";
             for (const auto& [key, value] : config_data.Map()) {
                 if (!key.starts_with(projection_prefix)) continue;
-                head.projection.Set(key.substr(projection_prefix.size()), value);
+                head.projection.CopyValueFrom(key.substr(projection_prefix.size()), config_data, key);
                 const auto relative = key.substr(GetConfigPrefix().size() + 1);
                 my_config_data_.Set(relative, value);
                 my_config_json_[relative] = value;
@@ -190,6 +192,7 @@ namespace anet::rl::dqn {
 
             // カタログの値はDTOへ保存し、使用する具象部品が実行準備で検証する。
             for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("nn_forward"))) {
+                config_data.MarkInventory(MakeDefaultConfigKey(MakeNetworkForwardConfigKey(key)));
                 nn_forward.emplace(key, sub);
                 // 記録も opaque な値のまま保存し、型付きの解釈はここで追加しない。
                 for (const auto& [leaf, value] : sub.Map()) {
@@ -200,16 +203,18 @@ namespace anet::rl::dqn {
             }
 
             // 全カタログ項目を構築時に型付き設定へ変換する。
+            std::map<std::string, ConfigData> actor_read_scopes;
             for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"))) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
+                const auto& actor_data = actor_read_scopes.emplace(key, MakeReadScope(config_data, prefix)).first->second;
                 for (const auto& [leaf, value] : sub.Map()) {
                     if (leaf.starts_with("skip.policy.")) entry.has_skip_policy = true;
                 }
-                ReadActionPolicyConfig(config_data, prefix + ".policy", entry.policy);
-                ReadConfig(config_data, prefix + ".network", entry.network);
-                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
-                ValidateForwardReference(config_data, prefix + ".nn_forward_key", entry.nn_forward_key);
+                ReadActionPolicyConfig(actor_data, prefix + ".policy", entry.policy);
+                ReadConfig(actor_data, prefix + ".network", entry.network);
+                ReadConfig(actor_data, prefix + ".clone_model", entry.clone_model);
+                ValidateForwardReference(actor_data, prefix + ".nn_forward_key", entry.nn_forward_key);
                 if (entry.network != "online" && entry.network != "target") {
                     ANET_SYSTEM_ERROR("Invalid " << MakeDefaultConfigKey(prefix + ".network")
                         << "='" << entry.network << "'; expected online or target.");
@@ -218,7 +223,7 @@ namespace anet::rl::dqn {
                     if (leaf == "sync_interval" || leaf.starts_with("sync_interval.")) {
                         entry.sync_interval.emplace(anet::ProfiledValueConfig<step_t>{
                             .type = "constant", .value = 400, .min_value = 1});
-                        ReadConfig(config_data, prefix + ".sync_interval", *entry.sync_interval);
+                        ReadConfig(actor_data, prefix + ".sync_interval", *entry.sync_interval);
                         break;
                     }
                 }
@@ -240,7 +245,7 @@ namespace anet::rl::dqn {
                     target_policy.policy_type = kActionPolicyTypeStr_Greedy;
                 }
                 if (!optimistic_source) {
-                    anet::log::warn() << "use_optimistic_target=true copies actor.[train].policy.policy_type='"
+                    anet::log::warn_once() << "use_optimistic_target=true copies actor.[train].policy.policy_type='"
                         << train->second.policy.policy_type << "' to target_policy.policy_type='"
                         << target_policy.policy_type
                         << "' without optimism. Select UQE/ThompsonSampling or use_optimistic_target=false.";
@@ -338,9 +343,10 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.noisy_probe.iqn.num_taus: value="
                     << learner.noisy_probe.iqn.num_taus << " expected integer >= 1");
             }
-            // 値域・組み合わせの検証は、購読が決まる学習開始前の境界で行う。
+            // 個々の値域は購読前に検証し、batchやAMPとの条件は購読の準備時に扱う。
             ANET_READ_CONFIG(config_data, learner.grad_noise.num_micro_batches);
             ANET_READ_CONFIG(config_data, learner.grad_noise.ema_alpha);
+            learner.grad_noise.Validate(MakeDefaultConfigKey("learner.grad_noise"));
             ANET_READ_CONFIG(config_data, learner.final_feature_branch_key);
             ANET_READ_CONFIG(config_data, learner.attention_entropy.probe.batch_size);
             if (learner.attention_entropy.probe.batch_size < 1) {
@@ -387,7 +393,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, reward_scaler.reference_q_std);
             ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
             if (learner.use_tbo && (reward_scaler.use_dynamic_scaling || reward_scaler.use_auto_post_scale)) {
-                anet::log::warn()
+                anet::log::warn_once()
                     << "learner.use_tbo is enabled together with reward_scaler.use_dynamic_scaling or "
                     << "reward_scaler.use_auto_post_scale; targets may be double-compressed.";
             }
@@ -405,6 +411,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.robust_std_threshold);
             ANET_READ_CONFIG(config_data, obs_norm.post_process_type);
             ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
+            ValidateObservationNormalizerConfig(obs_norm, MakeDefaultConfigKey("obs_norm"));
 
             ANET_READ_CONFIG(config_data, auto_load_file);
             ANET_READ_CONFIG(config_data, quantile_mode);
@@ -412,6 +419,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, head.use_dueling);
 
             ANET_READ_CONFIG(config_data, skip.enabled);
+            if (!skip.enabled) {
+                config_data.MarkInventory(MakeDefaultConfigKey("skip"));
+                config_data.MarkInventory(MakeDefaultConfigKey("learner.skip"));
+                anet::log::info_once() << "Inactive config prefixes=DefaultDQNAgent.skip,DefaultDQNAgent.learner.skip; reason=DefaultDQNAgent.skip.enabled=false.";
+            }
             const bool has_skip_limit = HasConfigValue(config_data, "skip.max_length");
             ANET_READ_CONFIG(config_data, skip.max_length);
             // 文字列の設定を境界で検証し、実行系へは構成を表すenumだけを渡す。
@@ -463,7 +475,7 @@ namespace anet::rl::dqn {
                     {"skip.net", &skip_net}, {"skip.head.projection", &skip.head.projection}}) {
                     const auto full_prefix = MakeDefaultConfigKey(prefix) + ".";
                     if (!key.starts_with(full_prefix)) continue;
-                    destination->Set(prefix == "skip.net" ? key : key.substr(full_prefix.size()), value);
+                    destination->CopyValueFrom(prefix == "skip.net" ? key : key.substr(full_prefix.size()), config_data, key);
                     const auto relative = key.substr(GetConfigPrefix().size() + 1);
                     my_config_data_.Set(relative, value);
                     my_config_json_[relative] = value;
@@ -473,7 +485,7 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("Missing DefaultDQNAgent.skip.net; expected a network definition when skip.enabled=true.");
             }
             for (const auto& [key, value] : config_data.Map()) {
-                if (key.starts_with("net.block.") || key.starts_with("net.config_profile.")) skip_net.Set(key, value);
+                if (key.starts_with("net.block.") || key.starts_with("net.config_profile.")) skip_net.CopyValueFrom(key, config_data, key);
             }
             skip.head.init = head.init;
             ANET_READ_CONFIG(config_data, skip.head.init.mode);
@@ -490,7 +502,7 @@ namespace anet::rl::dqn {
 
             // 学習も読み込みもしないRunは初期重みの評価になる。意図的な構成もあり得るので止めず、書き忘れ検出用に1度だけWARNする。
             if (!learner.enabled && auto_load_file.empty()) {
-                anet::log::warn()
+                anet::log::warn_once()
                     << "learner.enabled=false without DefaultDQNAgent.auto_load_file; "
                     << "the run evaluates freshly initialized weights.";
             }
@@ -498,6 +510,7 @@ namespace anet::rl::dqn {
             // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
             std::ostringstream missing_skip_forward;
             for (auto& [key, entry] : actor) {
+                const auto& config_data = actor_read_scopes.at(key);
                 entry.policy.quantile_mode = quantile_mode;
                 const auto skip_prefix = "actor.[" + key + "].skip";
                 ReadConfig(config_data, skip_prefix + ".nn_forward_mode", entry.skip.nn_forward_mode);
@@ -548,7 +561,7 @@ namespace anet::rl::dqn {
                 }
                 if (skip.enabled && entry.skip.max_length && entry.skip.max_length_mode != DQNActorConfig::kMaxLengthVariable) {
                     const auto [lower, upper] = anet::detail::GetProfiledValueActiveRange(*entry.skip.max_length, default_key);
-                    anet::log::warn() << default_key << " active_range=[" << lower << "," << upper
+                    anet::log::warn_once(default_key) << default_key << " active_range=[" << lower << "," << upper
                         << "] is unused with max_length_mode=" << entry.skip.max_length_mode
                         << "; expected max_length_mode=" << DQNActorConfig::kMaxLengthVariable << " to use this value.";
                 }
@@ -559,11 +572,14 @@ namespace anet::rl::dqn {
             if (!missing_skip_forward.str().empty()) {
                 ANET_SYSTEM_ERROR(missing_skip_forward.str());
             }
+            for (const auto& [key, data] : actor_read_scopes) {
+                data.RequireAllKeysRead(MakeDefaultConfigKey("actor.[" + key + "]"));
+            }
             // shared の値は使わないことを明示し、意図された無効状態は静かに保つ。
             for (const auto& [key, entry] : actor) {
                 if (skip.enabled && entry.skip.nn_forward_mode == DQNActorConfig::kForwardShared
                     && entry.skip.nn_forward_key) {
-                    anet::log::warn() << MakeDefaultConfigKey("actor.[" + key + "].skip.nn_forward_key")
+                    anet::log::warn_once(MakeDefaultConfigKey("actor.[" + key + "].skip.nn_forward_key")) << MakeDefaultConfigKey("actor.[" + key + "].skip.nn_forward_key")
                         << "='" << *entry.skip.nn_forward_key << "' is unused with skip.nn_forward_mode="
                         << DQNActorConfig::kForwardShared << "; expected skip.nn_forward_mode="
                         << DQNActorConfig::kForwardDedicated << " to use this value.";
@@ -596,7 +612,7 @@ namespace anet::rl::dqn {
                         << " with active_range=[1,1]; biased skip outputs must not hold actions.");
                 }
                 if (learner.skip.feature_gradient == LearnerConfig::kFeatureGradientStop) {
-                    anet::log::warn() << "DefaultDQNAgent.learner.skip.feature_gradient=" << LearnerConfig::kFeatureGradientStop
+                    anet::log::info_once() << "DefaultDQNAgent.learner.skip.feature_gradient=" << LearnerConfig::kFeatureGradientStop
                         << " with target_window=" << learner.skip.target_window
                         << ": skip loss gradients do not reach shared features, and outputs are not used for acting. "
                         << "priority_lambda=" << learner.skip.priority_lambda

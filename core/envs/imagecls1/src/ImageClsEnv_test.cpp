@@ -22,6 +22,40 @@
 #include <wx/image.h>
 #include <wx/init.h>
 
+TEST_CASE("Dataset catalog validates item keys independently of earlier reads", "[prd117][dataset_catalog]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("ImageDataset.root_dir", "images");
+    data.Set("ImageDataset.classes_txt_path", "classes.txt");
+    data.Set("ImageDataset.image_width", 2);
+    data.Set("ImageDataset.image_height", 2);
+    data.Set("ImageDataset.[train].list_txt_path", "train.txt");
+    data.Set("ImageDataset.[test].list_txt_path", "test.txt");
+    data.Set("ImageDataset.[test].image_wdith", "17");
+    CHECK(data.Get("ImageDataset.[test].image_wdith") == "17");
+    CHECK_THROWS_WITH(anet::img::ResolveImageDatasetCatalog(data),
+        Catch::Matchers::ContainsSubstring("ImageDataset.[test].image_wdith = 17"));
+}
+
+TEST_CASE("Dataset catalog reads common values and every declared item without image IO", "[prd117][dataset_catalog]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("ImageDataset.root_dir", "missing-images");
+    data.Set("ImageDataset.classes_txt_path", "missing-classes.txt");
+    data.Set("ImageDataset.image_width", 2);
+    data.Set("ImageDataset.image_height", 2);
+    data.Set("ImageDataset.[train].list_txt_path", "missing-train.txt");
+    data.Set("ImageDataset.[test].list_txt_path", "missing-test.txt");
+    data.Set("unread.sentinel", "kept");
+    const auto catalog = anet::img::ResolveImageDatasetCatalog(data);
+    CHECK(catalog.size() == 2);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.front().first == "unread.sentinel");
+}
+
 namespace {
 
 void SetupUtf8Console()
@@ -347,6 +381,7 @@ TEST_CASE("ImageDataset cache policies preserve explicit and auto failure semant
     anet::rl::env::ImageClsEnvFactory factory;
 
     SECTION("auto falls back when the payload exceeds its cap") {
+        anet::test::LogCaptureGuard logs;
         TinyImageClsDataset dataset;
         auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
         config.Set("ImageDataset.cache.mode", "auto");
@@ -356,6 +391,10 @@ TEST_CASE("ImageDataset cache policies preserve explicit and auto failure semant
             /*seed=*/1, /*num_envs=*/1, anet::rl::RunMode::Eval1, "");
         CHECK_NOTHROW(env->Reset());
         CHECK_NOTHROW(env->Reset());
+        logs.Flush();
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            {"cache", "max_bytes=1"}));
     }
 
     SECTION("full_ram succeeds within its declared cap") {

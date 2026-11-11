@@ -691,7 +691,7 @@ std::shared_ptr<MCTSTree> MCTSEngine::Search(
             search_path.push_back(edge);
 
             if (edge->child == nullptr) {
-                break; // 未展開のノード(葉)に到達
+                break; // 未展開の末端ノードに到達
             }
             current_node = edge->child;
         }

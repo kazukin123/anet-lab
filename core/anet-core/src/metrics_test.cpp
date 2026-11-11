@@ -217,6 +217,18 @@ TEST_CASE("Unsupported diagnostics leave arbitrary agent-step columns empty", "[
     CHECK(row->complete);
 }
 
+TEST_CASE("Step trace column parsing consumes original config definitions", "[prd117][columns]")
+{
+    anet::ConfigData data;
+    data.Set("app.eval_trace_panel.columns.[1]", "$runner episode_return");
+    data.Set("unread.sentinel", "kept");
+    const auto columns = StepTraceColumnSpec::Parse(data, EnvSpec{});
+    CHECK(columns.size() == 1);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.front().first == "unread.sentinel");
+}
+
 TEST_CASE("Step trace columns parse ordered declarations and reject invalid contracts", "[prd094][columns]")
 {
     EnvSpec spec;

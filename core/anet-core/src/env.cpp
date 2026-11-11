@@ -1116,6 +1116,8 @@ void BatchEnvBuilder::ValidateConfig(RunMode run_mode, const std::string& config
     auto batch_factory = EnvRepository::Instance().GetBatchEnvFactory(config_.class_id);
     if (batch_factory != nullptr) {
         batch_factory->ValidateConfig(config_data_, run_mode, config_prefix);
+    } else if (const auto single_factory = GetSingleFactory()) {
+        single_factory->ValidateConfig(config_data_, run_mode, config_prefix);
     }
 }
 
@@ -1168,4 +1170,19 @@ std::shared_ptr<BatchEnvFactory> EnvRepository::GetBatchEnvFactory(const std::st
     if (it == factories_.end()) return nullptr;
     const auto* factory = std::get_if<std::shared_ptr<BatchEnvFactory>>(&it->second);
     return factory == nullptr ? nullptr : *factory;
+}
+
+void EnvRepository::MarkUnusedConfigInventory(const ConfigData& data, const std::string& active_class_id) const
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto selected = factories_.find(active_class_id);
+    if (selected == factories_.end()) {
+        ANET_SYSTEM_ERROR("Unknown active Env class_id='" << active_class_id << "'; expected a registered factory.");
+    }
+    const auto prefixes = [](const auto& factory) { return factory->GetConfigPrefixes(); };
+    const auto active_prefixes = std::visit(prefixes, selected->second);
+    for (const auto& [id, factory] : factories_) {
+        if (id == active_class_id) continue;
+        for (const auto& prefix : std::visit(prefixes, factory)) data.MarkInventory(prefix, active_prefixes);
+    }
 }

@@ -1,5 +1,8 @@
 #include "anet/catch_test.hpp"
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <thread>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,6 +15,7 @@
 #include <wx/utils.h>
 #include "LogPanel.hpp"
 #include "anet/config.hpp"
+#include "anet/log.hpp"
 
 namespace {
     // 実際の wx の子ウィンドウを、利用者と同じツール操作で動かす。
@@ -540,6 +544,50 @@ TEST_CASE("Logs search older and newer matches without case and continue from th
     ui.search->SetValue("");
     CHECK_FALSE(ui.search->IsCancelButtonVisible());
     CHECK_FALSE(ui.SearchArrowsEnabled());
+}
+
+TEST_CASE("Logs and Run file count once notifications independently and hide resets", "[log_panel][prd117]")
+{
+    LogUiFixture ui;
+    const auto path = std::filesystem::temp_directory_path()
+        / ("anet-prd117-log-chain-" + std::to_string(wxGetProcessId()) + ".log");
+    FILE* file = nullptr;
+    REQUIRE(fopen_s(&file, path.string().c_str(), "w") == 0);
+    REQUIRE(file != nullptr);
+    {
+        wxLogChain chain(new anet::log::FileLogger(file));
+        anet::log::ResetNotifications();
+        const auto emit = [](const std::string& prefix, const std::string& target) {
+            anet::log::Logger(prefix).warn_once(target) << "prd117-once-" << target;
+        };
+        std::vector<std::thread> workers;
+        for (int i = 0; i < 8; ++i) {
+            workers.emplace_back([&emit, i] { emit("clone" + std::to_string(i) + ": ", "a"); });
+        }
+        for (auto& worker : workers) worker.join();
+        wxLog::FlushActive();
+        wxTheApp->Yield(true);
+        emit("main: ", "a");
+        emit("main: ", "b");
+        wxLog::FlushActive();
+        CHECK(ui.panel->GetUnviewedAlerts().warnings == 2);
+        CHECK(ui.text->GetNumberOfLines() == 2);
+        anet::log::ResetNotifications();
+        wxLog::FlushActive();
+        CHECK(ui.panel->GetUnviewedAlerts().warnings == 2);
+        CHECK(ui.text->GetNumberOfLines() == 2);
+        emit("next Run: ", "a");
+        wxLog::FlushActive();
+        CHECK(ui.panel->GetUnviewedAlerts().warnings == 3);
+        CHECK(ui.text->GetNumberOfLines() == 3);
+    }
+    std::ifstream input(path);
+    const std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    size_t count = 0;
+    for (size_t pos = 0; (pos = text.find("prd117-once-", pos)) != std::string::npos; ++pos) ++count;
+    CHECK(count == 3);
+    input.close();
+    std::filesystem::remove(path);
 }
 
 TEST_CASE("Logs count unviewed warnings and open the oldest first", "[log_panel]")

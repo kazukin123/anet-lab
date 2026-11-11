@@ -8,7 +8,7 @@
 - `short_run.py epsilon|learning_rate`: 512 exp_stepのphase切替を、εはAtari、学習率はGridMazeの短いRunで確認する。最終実行体を使い、結果名の既定は `short_epsilon_final` / `short_learning_rate_final`。既存の結果は上書きせず、再実行は `--label` で別名を指定する。
 - `check_resolved.py resolved-stage1-final`（段階2は `resolved-stage2-r1 --stage2`）: 変更前7環境の全キーと文字列表記を、PRD D15/D16の置換・bare保持・新指標の宣言と比較する。期待値へ実測値を採用する処理はない。
 - `check_contract.py`: 現用コード・設定・bat・testdata・jp設計文書・wikiカテゴリの廃止キーを検査する。C++のDTOメンバ.valueと、設定文字列のroot記法を区別する。
-- `../prd072/profiled_migration.py`: CHANGELOGの対応表を参照してPRD072固定入力の旧宣言を新キーへ移す。`../prd072/prepare.py compare` が17入力を比較する。`check_default_leaves.py` は既定葉と実験宣言の演算子を検査する。
+- `../prd072/profiled_migration.py`: CHANGELOGの対応表を参照してPRD072固定入力の旧宣言を新キーへ移す。`../prd072/prepare.py compare` が17入力を比較する。`check_default_leaves.py` は既定キーと実験宣言の演算子を検査する。
 
 C++の `[prd101]` が設定→Policy→schedule→指標、bare dump、指数、ラダー、Learner・optimizerの境界を通す。Replay・Actor・MuZeroの境界も同タグで検証する。Debug全体・testターゲットは `AGENTS.md` のMSVC初期化経由でビルドしてから実行する。
 

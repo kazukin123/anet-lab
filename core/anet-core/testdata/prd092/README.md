@@ -54,7 +54,7 @@ MSVCはAGENTS.mdのVsDevCmd経由で初期化し、Debug全体と対象テスト
 
 - MSVC初期化経由の全DebugビルドとRelease Runnerビルドが成功。対象 `[gradnoise]` は8 cases / 17,578 assertions成功。CPU FP32・CUDA BF16、通常/Fused AdamWを含む。
 - 既定C++スイートは685 cases中684 passed・1 skipped、55,539 assertions成功。skipはCUDA利用不可時の検査で、このPCではCUDA利用可能のため。Python比較・未成立率テスト各1件も成功。
-- 既定葉監査は25,595 assignments / 3,445 audited / errors=0。変更前と変更後OFFの既存設定値は差分なし（829→833 keys、追加はgrad_noiseの2キーと検証用progress/clockの2行）。
+- 既定キー監査は25,595 assignments / 3,445 audited / errors=0。変更前と変更後OFFの既存設定値は差分なし（829→833 keys、追加はgrad_noiseの2キーと検証用progress/clockの2行）。
 - LunarLander CPUの変更前・変更後OFF・15指標購読ONで、既存74 tags・35,951点が完全一致。既存Noisy指標を含む。正規化結果のSHA256は `c53a5f4cc820955b59eb912a2f8214f5f545d121162ac39b3a765b7e59364db0`。
 
 ### 本線smoke

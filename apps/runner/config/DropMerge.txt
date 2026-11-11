@@ -485,7 +485,7 @@ A2.learner.grad_clip_tau = 5
 # 既定はすべてOFF。run.$の1行またはCLIのrun.$=run.@<name>で選択する。
 
 
-# TempoRL: envの既定と有効化だけを持つ。変種はCLIの葉で指定する。
+# TempoRL: envの既定と有効化だけを持つ。変種はCLIの設定キーで指定する。
 DefaultDQNAgent.skip.max_length ?= 10
 DefaultDQNAgent.net.body.output.[skip_context] = iqn_fusion
 run.@skip : DefaultDQNAgent.skip.enabled = true

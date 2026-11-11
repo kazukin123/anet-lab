@@ -290,7 +290,6 @@ namespace anet::rl {
         std::unique_ptr<MetricsWiring> metrics_wiring_;
         std::unordered_map<std::string, RunMode> configured_eval_run_modes_;
         std::unordered_map<std::string, std::string> configured_actor_keys_;
-        std::unordered_set<std::string> warned_unsupported_env_config_names_;
         std::unordered_map<std::string, std::string> env_config_file_owners_;
 
         // インスタンス(共有)

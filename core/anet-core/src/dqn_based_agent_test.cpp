@@ -1782,7 +1782,7 @@ TEST_CASE("DQN initial priority estimator completes a one-step bootstrap", "[dqn
     CHECK(*priority == Catch::Approx(1.3f).margin(1.0e-6f));
 }
 
-TEST_CASE("DQN replay priority validation warns independently for each learner", "[dqn][config][per]")
+TEST_CASE("DQN replay priority validation warns once per Run", "[dqn][config][per]")
 {
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.use_per = true;
@@ -1805,7 +1805,7 @@ TEST_CASE("DQN replay priority validation warns independently for each learner",
         CHECK(record.message.find("zero-TD-error transitions") != std::string::npos);
         CHECK(record.message.find("Set learner.per_eps") != std::string::npos);
     }
-    CHECK(matching_warnings == 2);
+    CHECK(matching_warnings == 1);
 }
 
 TEST_CASE("DQN replay priority warnings identify keys values reasons and alternatives", "[dqn][config][per]")
@@ -1813,6 +1813,7 @@ TEST_CASE("DQN replay priority warnings identify keys values reasons and alterna
     auto require_warning = [](const dqn::LearnerConfig& config, const std::vector<std::string>& fragments) {
         anet::test::LogCaptureGuard logs;
         const auto mode = dqn::ParseReplayInitialPriorityMode(config);
+        dqn::ValidateReplayPriorityConfig(config, mode);
         dqn::ValidateReplayPriorityConfig(config, mode);
         logs.Flush();
 
@@ -2330,9 +2331,11 @@ TEST_CASE("DefaultDQNAgentConfig warns when learning is disabled without a check
 
     anet::test::LogCaptureGuard logs;
     const dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(config_data));
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)));
     logs.Flush();
 
     CHECK_FALSE(config.learner.enabled);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
     CHECK(anet::test::HasRecordContaining(
         logs.Records(), wxLOG_Warning, { "learner.enabled=false", "auto_load_file" }));
 
@@ -3309,6 +3312,7 @@ TEST_CASE("Shared skip warns once per explicit unused key only while enabled", "
     }
     anet::test::LogCaptureGuard logs;
     CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
     logs.Flush();
     // 宣言ごとに一度だけ診断し、無効状態と dedicated の明示参照には出さない。
     for (const auto* actor : {"train", "eval"}) {
@@ -3562,14 +3566,22 @@ TEST_CASE("Skip target windows validate the entire Actor catalog and warn for in
         for (const auto& record : logs.Records()) CHECK(record.message.find("ProfiledValue:") == std::string::npos);
     } else {
         REQUIRE_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+        REQUIRE_NOTHROW(dqn::DefaultDQNAgentConfig(data));
         logs.Flush();
         int unused_warnings = 0, control_warnings = 0;
         for (const auto& record : logs.Records()) {
-            if (record.level != wxLOG_Warning) continue;
-            unused_warnings += record.message.find(".skip.max_length") != std::string::npos;
-            control_warnings += record.message.find("learner.skip.feature_gradient=stop") != std::string::npos;
+            unused_warnings += record.level == wxLOG_Warning
+                && record.message.find(".skip.max_length") != std::string::npos;
+            control_warnings += record.level == wxLOG_Message
+                && record.message.find("learner.skip.feature_gradient=stop") != std::string::npos;
         }
         CHECK(unused_warnings == (enabled && unused ? 2 : 0));
+        for (const auto* actor : {"train", "eval"}) {
+            const auto key = std::string("DefaultDQNAgent.actor.[") + actor + "].skip.max_length";
+            CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+                return record.level == wxLOG_Warning && record.message.find(key) != std::string::npos;
+            }) == (enabled && unused ? 1 : 0));
+        }
         CHECK(control_warnings == (enabled && learning && window != "decision" && gradient == "stop" ? 1 : 0));
     }
 }
@@ -3832,12 +3844,22 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
         std::shared_ptr<dqn::DefaultDQNAgent> restored;
         CHECK_NOTHROW(restored = make_agent(config));
         REQUIRE(restored);
+        CHECK_NOTHROW(make_agent(config));
         logs.Flush();
         size_t initialized = 0;
+        size_t missing_network = 0;
         for (const auto& record : logs.Records()) {
-            if (record.message.find("checkpoint has no primary_skip optimizer role") != std::string::npos) ++initialized;
+            if (record.message.find("checkpoint has no primary_skip optimizer role") != std::string::npos) {
+                CHECK(record.level == wxLOG_Warning);
+                ++initialized;
+            }
+            if (record.message.find("Checkpoint has no skip networks") != std::string::npos) {
+                CHECK(record.level == wxLOG_Warning);
+                ++missing_network;
+            }
         }
         CHECK(initialized == (saved_mode != "split" && current_mode == "split" ? 1 : 0));
+        CHECK(missing_network == (saved_mode == "off" ? 1 : 0));
         if (current_mode == "split") {
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
                 {"group=4", "lr=0.0003", "weight_decay=0", "eps=0.0002"}));
@@ -3850,9 +3872,10 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
                 anet::OutputArchive archive(stream);
                 restored->Save(archive);
             }
+            anet::log::ResetNotifications();
             CHECK_NOTHROW(make_agent(config));
             logs.Flush();
-            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
                 {"role=primary_skip", "option=lr", "checkpoint=0.00015", "config=0.0003"}));
         }
     }
@@ -4753,7 +4776,7 @@ TEST_CASE("Rainbow rejects invalid initialization during config loading", "[dqn]
 
 TEST_CASE("Rainbow records all nested initialization settings", "[dqn][config][prd098][review-fix-rainbow]")
 {
-    // 外部の6葉と設定記録が、同じhead.init階層へ一致することを確かめる。
+    // 外部の6件の設定キーと設定記録が、同じhead.init階層へ一致することを確かめる。
     anet::ConfigData data;
     data.Set("RainbowAgent.head.init.mode", "constant");
     data.Set("RainbowAgent.head.init.manual_gain", 1.5);
@@ -5462,14 +5485,19 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
             env_spec,
             torch::Device(torch::kCPU),
             456);
+        std::ifstream reloaded_stream(checkpoint, std::ios::binary);
+        REQUIRE(reloaded_stream);
+        anet::InputArchive reloaded_archive(reloaded_stream, checkpoint.string());
+        loaded_agent->Load(reloaded_archive);
         logs.Flush();
         const auto differences = std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
-            return record.level == wxLOG_Warning
+            return record.level == wxLOG_Message
                 && record.message.find("Learner::Load: optimizer option differs") != std::string::npos;
         });
         CHECK(differences == (change_alpha ? 1 : 0));
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
         if (change_alpha) {
-            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
                 {"group=0", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
         }
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
@@ -7300,6 +7328,7 @@ TEST_CASE("DefaultDQNAgentConfig warns when TBO shares reward compression", "[dq
 
     anet::test::LogCaptureGuard logs;
     dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(config_data));
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)));
     logs.Flush();
 
     CHECK(config.learner.use_tbo);
@@ -7310,10 +7339,12 @@ TEST_CASE("DefaultDQNAgentConfig warns when TBO shares reward compression", "[dq
         if (record.message.find("learner.use_tbo") != std::string::npos
             && record.message.find("reward_scaler.use_dynamic_scaling") != std::string::npos
             && record.message.find("double-compressed") != std::string::npos) {
+            CHECK(record.level == wxLOG_Warning);
             found_warning = true;
         }
     }
     CHECK(found_warning);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
 }
 
 TEST_CASE("Spatial exploration reports scalar means across policy updates", "[dqn][action_policy][spatial]")
@@ -7337,8 +7368,13 @@ TEST_CASE("Spatial exploration reports scalar means across policy updates", "[dq
     config.uqe.tau.end = 1.0f;
     config.spatial.uqe.tau.last.value = 1.0f;
 
+    anet::test::LogCaptureGuard logs;
     dqn::EpsilonGreedyActionPolicy eps_policy(config, true, 2, torch::Device(torch::kCPU));
     dqn::UQEActionPolicy uqe_policy(config, true, 2, torch::Device(torch::kCPU));
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"spatial exploration is enabled with num_envs < 32", "num_envs=2"}));
 
     rl::StepCounts counts;
     counts.exp_step = 1000000;
@@ -8511,6 +8547,8 @@ TEST_CASE("TD Munchausen target adds one bonus and masks only bootstrap", "[dqn]
     data.Set("DefaultDQNAgent.learner.munchausen.clip_value_min", -10.0f);
     data.Set("DefaultDQNAgent.learner.use_double_dqn", false);
     auto config = dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)).learner;
+    config.current.nn_forward_key.clear();
+    config.target.nn_forward_key.clear();
     config.learning_rate.value = 0.0f;
     config.use_fused_optimizer = false;
     config.use_grad_clip = false;
@@ -8530,7 +8568,7 @@ TEST_CASE("TD Munchausen target adds one bonus and masks only bootstrap", "[dqn]
     dqn::RuntimeVars vars;
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
     dqn::TDLearner learner(config, model, vars, nullptr, rl::BatchEnvSpec{ 2, 2 }, spec,
-        torch::kCPU, 67002, policy, SelectLearnerForwardResources(WithDefaultForwardConfig(data)),
+        torch::kCPU, 67002, policy, dqn::LearnerForwardResources{},
         std::nullopt, 67003);
     auto samples = MakeAutocastProbeSamples(torch::kCPU);
     samples.n_steps = torch::tensor({ 3, 2 }, torch::kInt64);
@@ -8675,6 +8713,36 @@ TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)), Catch::Matchers::ContainsSubstring("requires actor.[train].policy"));
 }
 
+TEST_CASE("Rainbow rejects quantile counts that contradict QR mode", "[prd117][dqn][rainbow][qr_config]")
+{
+    const int count = GENERATE(-1, 0, 1, 2);
+    const bool use_qr = GENERATE(false, true);
+    CAPTURE(count, use_qr);
+    anet::ConfigData data;
+    data.Set("RainbowAgent.use_qr", use_qr);
+    data.Set("RainbowAgent.num_quantiles", count);
+    if (use_qr && count <= 1) {
+        CHECK_THROWS_WITH(dqn::RainbowAgentConfig(data),
+            Catch::Matchers::ContainsSubstring("RainbowAgent.num_quantiles")
+            && Catch::Matchers::ContainsSubstring("expected"));
+    } else {
+        CHECK_NOTHROW(dqn::RainbowAgentConfig(data));
+    }
+}
+
+TEST_CASE("Rainbow validates directly modified quantile configuration before building networks", "[prd117][dqn][rainbow][qr_config]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeDeviceForwardRainbowConfig();
+    config.use_qr = true;
+    config.num_quantiles = GENERATE(0, 1);
+    CAPTURE(config.num_quantiles);
+    CHECK_THROWS_WITH(dqn::RainbowAgent(config, MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{1, 1}, MakeLearnerEnvSpec(), torch::kCPU, 123),
+        Catch::Matchers::ContainsSubstring("RainbowAgent.num_quantiles")
+        && Catch::Matchers::ContainsSubstring("expected"));
+}
+
 TEST_CASE("Rainbow Actor catalog selects its own epsilon", "[dqn][prd061][rainbow]")
 {
     ScopedNoopMetricsLogger metrics_logger;
@@ -8697,8 +8765,10 @@ TEST_CASE("Optimistic target warns for a non optimistic Actor source and preserv
     {
         anet::test::LogCaptureGuard logs;
         const dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
+        CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)));
         logs.Flush();
         CHECK(config.target_policy.policy_type == "Greedy");
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
             {"use_optimistic_target=true", "actor.[train].policy.policy_type", "EpsilonGreedy", "UQE/ThompsonSampling"}));
     }
@@ -9127,15 +9197,15 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
     logs.Flush();
 
     // 差のある項目だけを通知し、適用後の値を必ず1行で示す。
-    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning)
-        == (same_options ? 0 : (noisy ? 6 : 3)) + (change_defaults ? 2 : 0));
-    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Message) == (noisy ? 2 : 1));
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Message)
+        == (noisy ? 2 : 1) + (same_options ? 0 : (noisy ? 6 : 3)) + (change_defaults ? 2 : 0));
     if (!same_options) {
-        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"Learner::Load:", "group=0", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
-        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"group=0", "option=weight_decay", "key=learner.weight_decay", "checkpoint=0.01", "config=0.02"}));
-        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"group=0", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
     }
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
@@ -9147,18 +9217,18 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"optimizer options applied from config.", "group=1", same_options ? "weight_decay=0" : "weight_decay=0.03"}));
         if (!same_options) {
-            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
                 {"group=1", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
-            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
                 {"group=1", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
-            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+            CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
                 {"group=1", "option=weight_decay", "key=learner.noisy_weight_decay", "checkpoint=0", "config=0.03"}));
         }
     }
     if (change_defaults) {
-        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"group=0", "option=betas", "checkpoint=(0.8,0.99)", "config=(0.9,0.999)"}));
-        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"group=0", "option=amsgrad", "checkpoint=1", "config=0"}));
         for (const auto& record : logs.Records()) {
             if (record.message.find("option=betas") != std::string::npos
@@ -10263,9 +10333,14 @@ TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed
     const auto parsed = dqn::DefaultDQNAgentConfig(data).learner;
     CHECK(parsed.grad_noise.num_micro_batches == 4);
     CHECK(parsed.grad_noise.ema_alpha == Catch::Approx(0.25));
-    const auto expect_invalid = [&](dqn::LearnerConfig config, const char* key) {
+    const auto expect_invalid = [&](dqn::LearnerConfig config, const char* key, bool local = true) {
         TestNetworkModel model;
         dqn::RuntimeVars vars;
+        if (local) {
+            CHECK_THROWS_WITH((TestLearner(config, model, vars, rl::BatchEnvSpec{ 1, 1 },
+                MakeLearnerEnvSpec(), dqn::LearnerForwardResources{})), Catch::Matchers::ContainsSubstring(key));
+            return;
+        }
         TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), dqn::LearnerForwardResources{});
         CHECK_NOTHROW(learner.ConfigureScalarMetricSubscriptions({}));
         CHECK_THROWS_WITH(
@@ -10277,7 +10352,7 @@ TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed
     config.grad_noise.num_micro_batches = 0;
     expect_invalid(config, "num_micro_batches=0");
     config.grad_noise.num_micro_batches = 3;
-    expect_invalid(config, "replay_batch_size=128");
+    expect_invalid(config, "replay_batch_size=128", false);
     config.grad_noise.num_micro_batches = 8;
     for (const auto alpha : { 0.0, -1.0, 1.1, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity() }) {
         config.grad_noise.ema_alpha = alpha;
@@ -10286,7 +10361,7 @@ TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed
     config.grad_noise.ema_alpha = 0.05;
     config.use_amp = true;
     config.use_amp_bf16 = false;
-    expect_invalid(config, "use_amp_bf16=false");
+    expect_invalid(config, "use_amp_bf16=false", false);
     config.use_amp = false;
     TestNetworkModel model;
     dqn::RuntimeVars vars;
@@ -11346,6 +11421,68 @@ TEST_CASE("PRD101 step diagnostics use the carried gamma at bootstrap completion
             CHECK(*result.completed[0].values->GetScalar("approx_priority", 0) == Catch::Approx(6.76f));
         }
     }
+}
+
+TEST_CASE("DQN classifies unused forward entries and inactive owned prefixes", "[prd117][dqn][config_inventory]")
+{
+    anet::test::LogCaptureGuard logs;
+    auto data = WithDefaultForwardConfig(anet::ConfigData{});
+    data.Set("DefaultDQNAgent.intrinsic.enabled", false);
+    data.Set("DefaultDQNAgent.intrinsic.unused", "unvalidated");
+    data.Set("DefaultDQNAgent.skip.enabled", false);
+    data.Set("DefaultDQNAgent.skip.unused", "unvalidated");
+    data.Set("DefaultDQNAgent.learner.skip.unused", "unvalidated");
+    data.Set("DefaultDQNAgent.nn_forward.[unused].unknown", "unvalidated");
+    data.Set("DefaultDQNAgent.nn_forward.typo", "kept");
+    const dqn::DefaultDQNAgentConfig config(data);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.front().first == "DefaultDQNAgent.nn_forward.typo");
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {"DefaultDQNAgent.intrinsic", "enabled=false"}));
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {"DefaultDQNAgent.skip", "enabled=false"}));
+}
+
+TEST_CASE("DQN reads opaque projection values from their original keys", "[prd117][dqn][config_inventory]")
+{
+    auto data = WithDefaultForwardConfig(anet::ConfigData{});
+    data.Set("DefaultDQNAgent.head.projection.noisy.sigma0", 0.7);
+    data.Set("unread.sentinel", "kept");
+    const dqn::DefaultDQNAgentConfig config(data);
+    const auto unread = data.GetUnreadKeys();
+    REQUIRE(unread.size() == 1);
+    CHECK(unread.front().first == "unread.sentinel");
+}
+
+TEST_CASE("Gradient noise local settings are validated without subscriptions", "[prd117][dqn][grad_noise_config]")
+{
+    anet::test::LogCaptureGuard logs;
+    const auto entry = GENERATE(std::pair{"num_micro_batches", "1"},
+        std::pair{"ema_alpha", "0"}, std::pair{"ema_alpha", "1.01"}, std::pair{"ema_alpha", "nan"});
+    auto data = WithDefaultForwardConfig(anet::ConfigData{});
+    const auto key = std::string("DefaultDQNAgent.learner.grad_noise.") + entry.first;
+    data.Set(key, entry.second);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(key));
+}
+
+TEST_CASE("Observation post process modes are rejected at construction", "[prd117][dqn][obs_config]")
+{
+    const int mode = GENERATE(-1, 4, 99);
+    const bool pass_through = GENERATE(false, true);
+    CAPTURE(mode, pass_through);
+    anet::ConfigData data;
+    const std::string key = "DefaultDQNAgent.obs_norm.post_process_type";
+    data.Set(key, mode);
+    data.Set("DefaultDQNAgent.obs_norm.pass_through", pass_through);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)),
+        Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("0..3"));
+    rl::ObservationNormalizerConfig config;
+    config.post_process_type = mode;
+    config.pass_through = pass_through;
+    CHECK_THROWS_WITH(rl::ObservationNormalizerFactory(config),
+        Catch::Matchers::ContainsSubstring("post_process_type") && Catch::Matchers::ContainsSubstring("0..3"));
 }
 
 TEST_CASE("PRD101 Agent publishes all learner schedule scalars", "[prd101][dqn]")

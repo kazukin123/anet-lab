@@ -41,13 +41,15 @@ namespace anet::rl::dqn {
             for (const auto& [key, sub] : config_data.MakeSubConfigData("RainbowAgent.actor")) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
-                ReadConfig(config_data, prefix + ".policy", entry.policy);
-                ReadConfig(config_data, prefix + ".network", entry.network);
-                ReadConfig(config_data, prefix + ".clone_model", entry.clone_model);
+                const auto data = MakeReadScope(config_data, prefix);
+                ReadConfig(data, prefix + ".policy", entry.policy);
+                ReadConfig(data, prefix + ".network", entry.network);
+                ReadConfig(data, prefix + ".clone_model", entry.clone_model);
                 if (entry.network != "online" && entry.network != "target") {
                     ANET_SYSTEM_ERROR("Invalid RainbowAgent." << prefix << ".network='" << entry.network
                         << "'; expected online or target.");
                 }
+                data.RequireAllKeysRead(MakeDefaultConfigKey(prefix));
             }
 
             ANET_READ_CONFIG(config_data, learner.learning_rate);
@@ -79,11 +81,20 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_qr);
+            ValidateQuantileConfig();
 
             learner.num_quantiles = num_quantiles;
             learner.use_rb_prefetch = false;
             learner.use_tbo = false;
             learner.use_fused_optimizer = false;
+        }
+
+        void ValidateQuantileConfig() const
+        {
+            if (use_qr && num_quantiles <= 1) {
+                ANET_SYSTEM_ERROR("Invalid RainbowAgent.num_quantiles=" << num_quantiles
+                    << " with RainbowAgent.use_qr=true; expected integer > 1.");
+            }
         }
     };
 

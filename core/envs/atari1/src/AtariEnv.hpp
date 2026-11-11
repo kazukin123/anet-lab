@@ -90,6 +90,7 @@ namespace anet::rl::env {
         explicit AtariEnvConfig(
             const anet::ConfigData& config_data = anet::EmptyConfigData,
             const std::string& config_prefix = "");
+        void Validate() const;
     };
 
     struct AtariScalarContext;
@@ -116,7 +117,6 @@ namespace anet::rl::env {
 
     private:
         friend class AtariEnvTestAccess;  // RAM fixtureの初期条件設定だけに使うテスト専用の入口。
-        void ValidateConfig() const;
         std::string ResolveRomPath() const;
         void ConfigureAle(const std::string& rom_path);
         void SelectActions();
@@ -153,6 +153,10 @@ namespace anet::rl::env {
 
     class AtariEnvFactory final : public SingleDiscreteEnvFactory {
     public:
+        void ValidateConfig(const anet::ConfigData& data, RunMode, const std::string& prefix) const override
+        {
+            AtariEnvConfig(data, prefix).Validate();
+        }
         std::shared_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,

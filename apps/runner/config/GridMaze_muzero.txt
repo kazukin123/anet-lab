@@ -4,6 +4,8 @@
 # ==============================================================================
 
 app.$ = app.online > P1
+# MuZeroの終了時保存は未対応のため要求しない。
+app.save_agent_on_close = false
 #app.$ = app.batchrun > P1
 
 run.seed = 1
