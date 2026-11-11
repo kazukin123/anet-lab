@@ -364,7 +364,7 @@ _Avoid_: slot（ReplayBuffer / eval の語）, channel（metrics チャネル）
 _Avoid_: RAM ウォッチ, プローブ（plasticity の probe チャネルと混同）, イベント定義（回数だけでなく到達値も含む）
 
 **畳み方**（reducer）:
-RAM 定義が毎フレーム列を 1 値に畳む規則。`max_seen` / `min_seen` は v0 を含む到達値、`inc_count` / `dec_count` / `reach_count:N` は遷移の回数（`reach_count` はレベルではなく N に入った回数）。時間方向（ゲーム内のフレーム列）の畳み込みであり、lane 方向の集約 prefix（`mean.` / `max.` / `min.` / `std.`）やキー側の演算（`.ge.[N]`）とは層が違う。
+RAM 定義が毎フレーム列を 1 値に畳む規則。`max_seen` / `min_seen` / `distinct_seen` は v0 を含む到達値（`distinct_seen` は見た値の種類数）、`inc_count` / `dec_count` / `reach_count:N` / `bit_rise_count:MASK` / `bit_fall_count:MASK` は遷移の回数（`reach_count` はレベルではなく N に入った回数、`bit_*_count` は MASK の中で立った・落ちたビットの数）。時間方向（ゲーム内のフレーム列）の畳み込みであり、lane 方向の集約 prefix（`mean.` / `max.` / `min.` / `std.`）やキー側の演算（`.ge.[N]`）とは層が違う。
 _Avoid_: 集約（lane 方向と混同）, min / max（集約 prefix の語）, 統計（回数を含まない印象）
 
 ### 実行系統

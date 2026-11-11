@@ -8,7 +8,9 @@
 
 ## 分かっていること
 
-- RAM の番号付き定義は `1:room_max`（0x83 の最大）と `4:x_min`（0xAA の最小）。面の区切りが無いので、1 には到達した最大の部屋番号を使い、開始の部屋は 1、開始の左の部屋は 0 である（出典: [220_atari_env.jp.md](../../design/220_atari_env.jp.md)、§4.9 RAM メトリクス）。
+- RAM の番号付き定義は `1:room_max`（0x83 の最大）、`2:sword_only`（0xC1 が剣だけの 32 に入った回数）、`3:inv_max`（0xC1 の最大）、`4:x_min`（0xAA の最小）。面の区切りもボスも無いので、1 には到達した最大の部屋番号を使い（開始の部屋は 1、開始の左の部屋は 0）、2 と 3 は剣を追うのに使う。0xC1 は持ち物のビットで、鍵は 2、部屋 6 の剣は 32（出典: [220_atari_env.jp.md](../../design/220_atari_env.jp.md)、§4.9 RAM メトリクス）。
+- 0xC1 の鍵と剣のビットは同時に 1 になりうる。部屋 7 で剣を持ったまま鍵を取ると 32 から 34 になった（ALE、sticky 0、1 フレームずつの探索で、Run ではない）。今の畳み方はバイト全体で比べるので、`sword_only` は鍵を持ったまま剣を拾った分を数えない（出典: [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md)、§2.2）。
+- 部屋番号の種類数だけでは左右の扉を見分けられない。左の扉から部屋 0 へ入ったゲームも、右の扉で部屋 2 へ入ったゲームも 2 になる（出典: [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md)、§8）。
 - サンプル効率優先＋RND の 30M（seed 1）で、Greedy（ε=0・τ 固定、16 ゲーム、約 5.05M ごと）は 0.2〜20.4M が全ゲーム 0 点、25.45M が 243.8（400 点 9、100 点 3、0 点 4）だった。同じ重みの別 session は 20.4M に 25.0（400 点 1/16）、25.45M に 231.2（9/16）。5.25M 以降の Greedy のゲームは、1 本を除いて 108,000 フレームの打ち切りで終わった（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ1・探索ブロック01。Run: run_20261108-003056_mz_se_rnd_k32_s1）。
 - 同じ Run の ε=0.01・τ 乱数の評価（10 ゲーム、約 2.0M ごと）は、14.21〜22.21M の 5 回が 400 点で揃い、24.21M は 360（400 点のゲームは部屋 7 に入って game over）、26.21M は 120、28.21M は 400 だった（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ2・探索ブロック01。Run: run_20261108-003056_mz_se_rnd_k32_s1）。
 - 同じ Run の学習側では、2M の窓で 500 点のゲームが 22〜24M の 0 本から 24〜26M の 87 本、26〜28M の 106 本へ増え、部屋 7 に入ったゲームは 24〜26M に 206 本だった（22〜24M は 0 本）（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ3・探索ブロック02。Run: run_20261108-003056_mz_se_rnd_k32_s1）。
@@ -45,5 +47,6 @@
 - [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)。
 - [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)。
 - [RND の内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)。
+- [RAM メトリクスに値の種類数とビットの変化を数える畳み方を足す PRD](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md)。
 - [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)。
 - [Montezuma's Revenge の RND（サンプル効率優先・30M）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)。

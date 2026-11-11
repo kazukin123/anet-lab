@@ -4,7 +4,9 @@
 
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261107-949e8a](issue-20261107-949e8a.md) | 調査中 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 未確認 | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
 | [issue-20261111-77ac3c](issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
+| [issue-20261111-9ff3b7](issue-20261111-9ff3b7.md) | 調査中 | 3.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 未確認 | AtariEnvConfig のコンストラクタに RAM メトリクスの記法の解析と検証が並び、縮小方式は文字列のまま 3 つの層で 3 回検証している |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 2.6 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
 | [issue-20261103-ab98b7](issue-20261103-ab98b7.md) | 調査中 | 1.6 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md) | 残件有り | TD・QR・IQNのUpdateFromSamplesが同じ骨格（正規化→損失→PER重み→PER更新→最適化）を丸写ししている |
@@ -15,7 +17,6 @@
 | [issue-20261103-b754ff](issue-20261103-b754ff.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | stucker.stack_keysに存在しないキー名を書いても検出されない |
 | [issue-20261103-80c355](issue-20261103-80c355.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | [issue-20261103-93f8a6](issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| [issue-20261107-949e8a](issue-20261107-949e8a.md) | 未着手 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
 | [issue-20261110-3f4e63](issue-20261110-3f4e63.md) | 未着手 | 4.5 | — | 成果物 | PRD | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
 | [issue-20261107-1226e5](issue-20261107-1226e5.md) | 未着手 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | — | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
@@ -34,7 +35,6 @@
 | [issue-20261111-4a6b6f](issue-20261111-4a6b6f.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | RunManager のコンストラクタが 277 行あり、評価の設定の解釈・名前の予約・構築・ログ・配線が 1 つの関数に並んでいる |
 | [issue-20261111-585e60](issue-20261111-585e60.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-7c926a](issue-20261111-7c926a.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 315_nn | アルゴリズム | リファクタリング | — | 未確認 | Network の CopyTo と SoftCopyTo が parameter と buffer を名前で対にする処理を別々に持ち、SoftCopyTo は learn step ごとに名前つきの一覧を 4 つ作る |
-| [issue-20261111-9ff3b7](issue-20261111-9ff3b7.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | AtariEnvConfig のコンストラクタに RAM メトリクスの記法の解析と検証が並び、縮小方式は文字列のまま 3 つの層で 3 回検証している |
 | [issue-20261111-be150a](issue-20261111-be150a.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | StepTraceColumnSpec の target と display を文字列で持ち、metrics.cpp・gui.cpp・EvalTracePanel.cpp の 3 ファイル 17 か所で文字列を比べている |
 | [issue-20261111-c68178](issue-20261111-c68178.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMerge のエピソード統計を 1 つ足すと、Env のメンバ・Reset・StepResult の初期化子とメンバ・GetScalar の 5 か所へ同じ形を足すことになる |
 | [issue-20261111-e33797](issue-20261111-e33797.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 324_dqn | アルゴリズム | リファクタリング | — | 未確認 | DefaultDQNAgentConfig のコンストラクタが 534 行あり、読み取り・検証・既定値の導出・記録が 1 つの関数に並び、接頭辞の下を写して記録する処理も 4 か所に手書きされている |
