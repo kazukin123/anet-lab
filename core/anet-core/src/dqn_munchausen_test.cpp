@@ -985,3 +985,65 @@ TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dq
     else run.operator()<IQNLearner>();
     REQUIRE(output.good());
 }
+
+TEST_CASE("PRD125 Bellman target preserves returns, discounts, and terminal bonuses", "[dqn][munchausen][prd125]")
+{
+    // 既存の構築経路を使い、共通の式の入出力だけをテスト側で公開する。
+    class BellmanTargetReader final : public anet::rl::dqn::Learner {
+    public:
+        using anet::rl::dqn::Learner::Learner;
+        using anet::rl::dqn::Learner::MakeBellmanTarget;
+    };
+    constexpr int kBatchSize = 2;
+    const bool quantiles = GENERATE(false, true);
+    const bool with_bonus = GENERATE(false, true);
+    const bool tbo = GENERATE(false, true);
+    const bool terminal = GENERATE(false, true);
+    CAPTURE(quantiles, with_bonus, tbo, terminal);
+
+    const std::string kind = quantiles ? "qr" : "none";
+    auto config = WithDefaultLearnerForwardConfig();
+    config.quantile_mode = kind;
+    config.replay_batch_size = kBatchSize;
+    config.use_per = false;
+    config.use_tbo = tbo;
+    config.tbo_epsilon = 0.001f;
+    config.gamma.value = 0.5f;
+    auto online = std::make_shared<std::vector<SoftForward>>();
+    auto target = std::make_shared<std::vector<SoftForward>>();
+    SoftOracleModel model(kind, tbo, torch::kCPU, online, target);
+    RuntimeVars vars;
+    ActionPolicyConfig policy_config;
+    policy_config.quantile_mode = kind;
+    const auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
+    const auto spec = SoftEnvSpec();
+    BellmanTargetReader learner(config, model, vars, nullptr,
+        BatchEnvSpec{ .num_envs = kBatchSize, .num_threads = 2 }, spec,
+        torch::kCPU, 12501, policy, LearnerForwardResources{}, std::nullopt, 12502);
+    auto samples = SoftSamples(torch::kCPU);
+    samples.target_returns = torch::tensor({ 1.25f, -2.0f });
+    samples.n_steps = torch::tensor({ 1, 3 }, torch::kInt64);
+    samples.next_state.terminals = torch::tensor({ terminal, !terminal }, torch::kBool);
+    auto bootstrap = quantiles
+        ? torch::tensor({ { 4.0f, 8.0f, 12.0f }, { 16.0f, 20.0f, 24.0f } })
+        : torch::tensor({ 4.0f, 16.0f });
+    bootstrap.set_requires_grad(true);
+    const auto bonus = with_bonus ? torch::tensor({ -0.5f, -0.75f }) : torch::Tensor();
+    const auto result = learner.MakeBellmanTarget(samples, bootstrap, bonus);
+    REQUIRE(result.sizes() == bootstrap.sizes());
+    CHECK(result.scalar_type() == torch::kFloat32);
+    CHECK_FALSE(result.requires_grad());
+    for (int64_t row = 0; row < kBatchSize; ++row) {
+        for (int64_t column = 0; column < (quantiles ? 3 : 1); ++column) {
+            const double next = (row == 0 ? 4.0 : 16.0) + 4.0 * column;
+            double expected = row == 0 ? 1.25 : -2.0;
+            if (with_bonus) expected += row == 0 ? -0.5 : -0.75;
+            const bool done = row == 0 ? terminal : !terminal;
+            if (!done) expected += (row == 0 ? 0.5 : 0.125) * next;
+            if (tbo) expected = OracleH(expected);
+            const float actual = quantiles ? result[row][column].item<float>() : result[row].item<float>();
+            CAPTURE(row, column, expected);
+            CHECK(actual == Catch::Approx(expected).margin(5e-6));
+        }
+    }
+}

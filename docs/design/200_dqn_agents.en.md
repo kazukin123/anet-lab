@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:e9bf1e82ac00396d5d9c946b998f3c17e2af455a date:2026-11-12 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:9621359eb8dd0d0e2ebadc8e806feccebb086b48 date:2026-11-12 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -285,7 +285,7 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 | `SpatialLadderSchedule` | Owns time-varying endpoints and spacing, retaining lane Tensors and statistics |
 | `ActionPolicy` | Base component selecting Actions from Network outputs |
 | `dqn::Actor` | Actor implementation combining the frame stacker, normalization, Policy, Network, RNG, and synchronization State |
-| `dqn::Learner` | Internal Learner combining ReplayBuffer, optimizer, update credit, target synchronization, and PER updates |
+| `dqn::Learner` | Internal Learner combining the single-batch update flow, scalar Q computation, ReplayBuffer, optimizer, update credit, target synchronization, and PER updates |
 | `TDLearner` | Computes scalar TD targets and losses |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | Compute target quantiles and method-specific quantile Huber losses |
 | `TauGenerator` | Stateless component generating five IQN tau placement modes on the specified device |
@@ -763,6 +763,8 @@ Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Ten
 Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
 
 ## 10. Tests and Extension Checklist
+
+When changing the TD/QR/IQN update flow, Munchausen evaluation, or Bellman target assembly, use the [PRD125 validation assets](../../core/anet-core/testdata/prd125/README.md) for baseline capture, comparisons across 31 configurations and BF16, numerical target checks, and Release performance comparisons.
 
 See [PRD116 validation](../../core/anet-core/testdata/prd116/README.md) for intrinsic scoring, training, checkpoint continuation, disabled equivalence, profiles, and smoke runs. Measure performance separately without competing runs.
 

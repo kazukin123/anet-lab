@@ -547,6 +547,23 @@ namespace anet::rl::dqn {
         torch::Tensor cancellation_ratio;
     };
 
+    struct MunchausenForwardResult {
+        torch::Tensor current_values;
+        torch::Tensor next_values;
+    };
+
+    struct CurrentForwardResult {
+        anet::TensorDict input;
+        anet::TensorDict output;
+        torch::Tensor all_values;
+        torch::Tensor action_values;
+        torch::Tensor taus;
+        torch::Tensor current_mean;
+        ElementErrorRequest error_request;
+        QuantileMetrics metrics;
+        torch::Tensor upper_tail_std;
+    };
+
     struct RiskScoreSpec {
         float tau;
         bool use_tail_mean;
@@ -828,11 +845,15 @@ namespace anet::rl::dqn {
         int64_t Save(OutputArchive& archive) const override;
         int64_t Load(InputArchive& archive) override;
         int64_t LoadCheckpoint(InputArchive& archive, bool has_skip);
-    protected:
-        // アルゴリズム固有の更新処理 (Loss計算, Backprop, Priority更新)
+    public:
+        // 1 batch の進行を共有し、既存のテスト用派生は全体を差し替えられる。
         virtual std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
-            const anet::rl::ExperienceSamples& samples) = 0;
+            const anet::rl::ExperienceSamples& samples);
     protected:
+        virtual CurrentForwardResult ForwardCurrent(const ExperienceSamples& samples,
+            const anet::TensorDict& obs, const anet::nn::NetworkForwardCallInfo& info);
+        virtual torch::Tensor MakeUpdateDiagnostics(const ExperienceSamples& samples,
+            const CurrentForwardResult& current, const torch::Tensor& target, const ElementError& error) const;
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
         anet::nn::NetworkForwardCapture* OnlineBranchCapture();
@@ -849,6 +870,10 @@ namespace anet::rl::dqn {
             const ExperienceSamples& samples, const anet::TensorDict& obs,
             const anet::TensorDict& next_obs, const torch::Tensor& current_all,
             const TargetEvaluation& evaluation);
+        MunchausenForwardResult ForwardMunchausenValues(const ExperienceSamples& samples,
+            const anet::TensorDict& obs, const anet::TensorDict& next_obs,
+            const torch::Tensor& current_all, const TargetEvaluation& evaluation,
+            const std::string& output_key, bool use_taus);
         virtual ElementError ComputeElementError(const torch::Tensor& current,
             const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
             const torch::Tensor& current_mean = {}) const;
@@ -867,6 +892,8 @@ namespace anet::rl::dqn {
     protected:
         torch::Tensor TransformH(const torch::Tensor& x) const;
         torch::Tensor TransformHInv(const torch::Tensor& x) const;
+        torch::Tensor MakeBellmanTarget(const ExperienceSamples& samples,
+            const torch::Tensor& bootstrap_real, const torch::Tensor& bonus = {}) const;
         std::shared_ptr<anet::rl::dqn::BatchUpdateResult> MakeBatchUpdateResult(
             const torch::Tensor& loss,
             const torch::Tensor& td_error,
@@ -1077,6 +1104,11 @@ namespace anet::rl::dqn {
 
         virtual ~QuantileLearnerBase() = default;
     protected:
+        CurrentForwardResult ForwardCurrent(const ExperienceSamples& samples,
+            const anet::TensorDict& obs, const anet::nn::NetworkForwardCallInfo& info) override;
+        CurrentForwardResult ForwardCurrentQuantiles(const ExperienceSamples& samples,
+            const anet::TensorDict& input, const anet::nn::NetworkForwardCallInfo& info,
+            const torch::Tensor& current_taus);
         torch::Tensor GatherActionQuantiles(const torch::Tensor& quantiles, const torch::Tensor& actions) const;
         torch::Tensor SelectTargetActions(const anet::TensorDict& next_obs,
             const TargetEvaluation& evaluation);
@@ -1087,9 +1119,6 @@ namespace anet::rl::dqn {
         ElementError ComputeElementError(const torch::Tensor& current,
             const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
             const torch::Tensor& current_mean = {}) const override;
-        torch::Tensor CalcTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const;
-        torch::Tensor CalcMunchausenTargetQuantiles(const anet::rl::ExperienceSamples& samples,
-            const torch::Tensor& soft_dist, const torch::Tensor& bonus) const;
         std::pair<torch::Tensor, torch::Tensor> MakeMunchausenTarget(
             const anet::rl::ExperienceSamples& samples, const anet::TensorDict& obs,
             const anet::TensorDict& next_obs, const torch::Tensor& current_dist_all,
@@ -1115,8 +1144,6 @@ namespace anet::rl::dqn {
             anet::RandomGenerator* plasticity_probe_random = nullptr,
             anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
-        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
-            const anet::rl::ExperienceSamples& samples) override;
     };
 
     class QRLearner final : public anet::rl::dqn::QuantileLearnerBase {
@@ -1130,8 +1157,6 @@ namespace anet::rl::dqn {
             anet::RandomGenerator* plasticity_probe_random = nullptr,
             anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
-        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
-            const anet::rl::ExperienceSamples& samples) override;
     private:
         ElementError ComputeElementError(const torch::Tensor& current,
             const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
@@ -1150,8 +1175,11 @@ namespace anet::rl::dqn {
             anet::RandomGenerator* plasticity_probe_random = nullptr,
             anet::RandomGenerator* policy_churn_probe_random = nullptr);
 
-        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> UpdateFromSamples(
-            const anet::rl::ExperienceSamples& samples) override;
+    private:
+        CurrentForwardResult ForwardCurrent(const ExperienceSamples& samples,
+            const anet::TensorDict& obs, const anet::nn::NetworkForwardCallInfo& info) override;
+        torch::Tensor MakeUpdateDiagnostics(const ExperienceSamples& samples,
+            const CurrentForwardResult& current, const torch::Tensor& target, const ElementError& error) const override;
     };
 
 

@@ -5,6 +5,8 @@
 > 題材: [issue-20261103-ab98b7](../management/issues/issue-20261103-ab98b7.md)。
 > 関連: [PRD122](122_small_refactor_and_test_gap_fixes_10prd.md)（短い Run の前後比較の前例）、[PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)・[PRD924](924_intrinsic_reward_novelty_10prd.md)（同じ場所へ変更を足す予定の PRD）、[PRD067](done/067_MunchausenRL_10prd.md)（Munchausen の target）、[PRD098](098_temporl_skip_policy_10prd.md)（skip の loss）、[PRD073](done/073_replay_fit_metrics_10prd.md)（target と要素誤差の切り出し）、[PRD103](done/103_temporl_reference_alignment_10prd.md)（性能の測り方の前例）、[PRD957](957_source_layout_10prd.md)（ソースの配置）、[ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)。
 
+> 2026-11-12 改訂: ステージ 0 の採取で、IQN の初回優先度の診断 04〜07 は PER 無効では未成立となり、現行の Observer が出力しないことを確認した。ユーザーの判断により、A1 は IQN の全群で 7 タグの定義を確かめ、PER 無効群では 01〜03 の実点を確かめる形へ変更する。学習とメトリクスの振る舞いは変えない。
+
 ## 1. 問題
 
 ### 1.1 1 回の更新の進行が、3 つの関数に写されている
@@ -341,7 +343,9 @@ target の式の関数は、次の形で計算する（D11）。4 か所の今�
 - 変種の 27 組は、比べる点の中に、診断の tag の点がある。組ごとに次を確かめる。
   - 27 組のすべて: `46_agent_replay_fit/` で始まる tag（replay fit の診断）に、NaN でない値の点が 1 つ以上ある。
   - Munchausen が有効の組: `36_agent_munchausen/` で始まる tag（Munchausen の診断）に、NaN でない値の点が 1 つ以上ある。
-  - `quantile_mode` が `iqn` の組: `36_agent_iqn/01`〜`36_agent_iqn/07` で始まる 7 つの tag（IQN の診断 7 値）のすべてに点があり、7 つのうち 1 つ以上が NaN でない値の点を持つ。
+  - `quantile_mode` が `iqn` のすべての組: Run の `json/metrics.scalar.defs.json` の `data` に、`36_agent_iqn/01`〜`36_agent_iqn/07` で始まる 7 つの tag（IQN の診断 7 値）の定義がある。
+  - IQN で `learner.use_per = true` の組: 上の 7 つの tag のすべてに点があり、7 つのうち 1 つ以上が NaN でない値の点を持つ。
+  - IQN で `learner.use_per = false` の組: `36_agent_iqn/01`〜`36_agent_iqn/03` のすべてに点があり、3 つのうち 1 つ以上が NaN でない値の点を持つ。初回優先度の経験だけを使う 04〜07 は、この組では未成立であり現行の Observer が出力しないため、実点の有無は受入にしない。
 - BF16 の 4 組を、保存した Debug の実行体で 2 回ずつ流した結果が、検証資材の出力にある。組ごとに、流した device と、2 回が一致したかが書かれている。LunarLander の組が CPU で一致しなかったときは、CUDA で流した結果もある。
 - BF16 の組は、Run の設定の dump で、`learner.use_amp` と `learner.use_amp_bf16` が true になっている。
 - 保存した Debug のビルドで既定のテストスイート（`anet-core-test`）を流し、落ちるテストケースの名前の一覧を控えてある。

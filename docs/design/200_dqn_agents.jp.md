@@ -284,7 +284,7 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 | `SpatialLadderSchedule` | 両端の時間の値と並べ方を所有し、laneのTensorと統計を保持する |
 | `ActionPolicy` | Network出力からActionを選択する基底component |
 | `dqn::Actor` | frame stacker、正規化、Policy、Network、RNG、同期StateをまとめるActor実装 |
-| `dqn::Learner` | ReplayBuffer、optimizer、更新credit、target同期、PER更新をまとめる内部Learner |
+| `dqn::Learner` | 1 batch の更新の進行、通常 Q の計算、ReplayBuffer、optimizer、更新credit、target同期、PER更新をまとめる内部Learner |
 | `TDLearner` | scalar TD targetとTD lossを計算するLearner |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | target quantileと方式別のquantile Huber lossを計算するLearner |
 | `TauGenerator` | IQNの5種のtau配置方式を指定device上で生成するstateless component |
@@ -761,6 +761,8 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
 ## 10. テストと拡張時の確認事項
+
+TD・QR・IQN の更新の進行、Munchausen の評価、Bellmanターゲットの組み立てを変えるときは、[PRD125 検証資材](../../core/anet-core/testdata/prd125/README.md)の基準保存、31 組と BF16 の前後比較、target の式の数値検査、Release の性能比較を確認する。
 
 内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [PRD116 検証資材](../../core/anet-core/testdata/prd116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
 

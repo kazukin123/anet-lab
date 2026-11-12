@@ -1,5 +1,7 @@
 # MunchausenターゲットはDQN Learnerに局所化し、実空間で計算し、3つのlog-policy modeを持つ
 
+注記（2026-11-12、PRD125）: target の式は `Learner::MakeBellmanTarget` に共通化した。通常の bootstrap の h の逆変換は呼ぶ側で済ませ、共通の式は実空間の値を受け取る。下記の `CalcTargetQuantiles` を通常の target 専用とする決まりは、この形に置き換えた。Munchausen を実空間で計算し、完成した target にだけ h を掛ける判断は維持する。本文は当時の記録として残す。
+
 Munchausen RL（Vieillard et al. 2020）は、Bellmanターゲットの報酬側へ実行行動のscaled log-policyを加え、次状態のbootstrapをsoft価値へ置き換える拡張である。[NeurIPS論文](https://proceedings.neurips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Paper.pdf)はM-DQNを1-step、M-IQNを3-stepで評価しており、[補遺](https://papers.nips.cc/paper_files/paper/2020/file/2c6a0bae0f071cbbf0bb3d5b11d90a82-Supplemental.pdf)は分位点ごとの方策混合を定義している。anet-labでは既存のN-step target returnへ整合させる必要がある。
 
 **Munchausenターゲットは `TDLearner` / `QRLearner` / `IQNLearner` のtarget計算へ局所化する**ことを決定する。bonusはReplayBufferが集約済みのN-step returnの先頭遷移へ一度だけ加え、終端でも残す。bootstrapだけを終端でmaskし、実際のstep数に対応する `gamma^n` を掛ける。これは論文の1-step表記をそのまま同一視したものではなく、BTR互換のN-step拡張として扱う。
