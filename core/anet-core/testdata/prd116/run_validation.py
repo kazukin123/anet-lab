@@ -73,7 +73,9 @@ def main():
                 overrides = ["app.exp_exit_step=100000", "app.batchrun.exp_exit_step=100000",
                              "app.save_agent_on_close=true"]
                 if env == "Atari":
-                    overrides += ["E1.game=kung_fu_master", "DefaultDQNAgent.intrinsic.rnd.warmup_steps=12800"]
+                    # 補助学習のバッチ（既定 32）は lane 数以下でないと構築時に止まるので、KFM だけ lane を 32 にする。
+                    overrides += ["E1.game=kung_fu_master", "DefaultDQNAgent.intrinsic.rnd.warmup_steps=12800",
+                                  "run.train.num_envs=32"]
                 if env == "Montezuma":
                     overrides.append("E1.game=montezuma_revenge")
                 run = driver.execute(args.label + "_tmp_smoke_" + env,
@@ -101,8 +103,9 @@ def main():
                     for tag in expected:
                         value = values.get(tag, float("nan"))
                         if not math.isfinite(value):
-                            # 欠測や±Infは例外にせず、記録されたNaNだけを許容する。
-                            if (tag == "03_bonus_share" and tag in values and math.isnan(value)
+                            # bonus_mean が 0 の点の bonus_share は 0/0 の NaN になり、メトリクスの出力は
+                            # 有限でない値を書かない。その欠け（と NaN）だけを許し、±Inf やほかの欠けは拒否する。
+                            if (tag == "03_bonus_share" and math.isnan(value)
                                     and values.get("01_bonus_mean") == 0):
                                 continue
                             raise RuntimeError(f"Nonfinite/missing intrinsic metric: {env} step={step} {tag}")

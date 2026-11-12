@@ -20,7 +20,7 @@ MSVCを初期化してDebugビルド後、`anet-core-test.exe "[prd116],[scaler]
 
 ## 性能測定
 
-GridMaze分は2026-11-07に実施し、[実験記録](../../../../docs/experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)へ3巡の中央値・Tracy内訳・全Runの実効設定を保存した。CPU・256 lane・Releaseで、RNDありの時間はなしの1.339倍だった。Atari B=64のRNDなし・既定RND・Taigaの3群は未実施のままである。合否の閾値は置かない。
+GridMaze分は2026-11-07に実施し、[実験記録](../../../../docs/experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)へ3巡の中央値・Tracy内訳・全Runの実効設定を保存した。CPU・256 lane・Releaseで、RNDありの時間はなしの1.339倍だった。Atari B=64のRNDなし・既定RND・Taigaの3群は、下の `run_performance_atari.py` で2026-11-12に測り、[実験記録](../../../../docs/experiments/default-dqn/atari/2026-11-12_rnd_performance.md)へ保存した。Montezuma・64 lane・CUDA・Releaseで、89,984経験の中央値は既定RNDがなしの1.661倍、Taigaが14.754倍だった。合否の閾値は置かない。
 
 `run_performance.py` は今回のGridMaze専用の採取器で、prepare（Release実行体・DLL・設定の複製と解決比較）、pilot（時間から同じ経験区間を選択）、measure（ABBA3巡）、profile（別Runでwarm-up後にTracy接続）、summarize（中央値・内訳の集計）を順に実行する。全段階で同じ `--out` を指定する。既存の出力へRunを追加し直すことは拒否する。profileには同じ通信版の `tracy-capture.exe`・`tracy-csvexport.exe` のフォルダを `--tracy-tools` で渡す。Tracyは通常比較へ接続しない。
 
@@ -32,6 +32,12 @@ GridMaze分は2026-11-07に実施し、[実験記録](../../../../docs/experimen
 .\.venv\Scripts\python.exe core/anet-core/testdata/prd116/run_performance_test.py
 ```
 
+`run_performance_atari.py` はAtari用の採取器で、段階と `--out`・`--tracy-tools` の使い方はGridMaze版と同じ。保存・Tracyの集計はGridMaze版の関数を使う。条件はMontezuma、64 lane、CUDA、Release、Atari.txtの既定のチェーン（replay・batch・BF16はそのまま）で、Qの学習のwarm-upだけ20,000に縮め、評価sessionはすべて止める。群はRNDなし・既定RND（`run.@rnd`）・Taiga（`run.@rnd > run.@rnd_taiga`）の3つで、ABC→CBAを3巡（18本）回す。32,768経験より後の同じ区間を測り、区間の長さは試走3本のうち最速の群が20秒になるようlane単位で切り上げる。prepareは3群の解決済み設定を比べ、RND・群56・Run名以外の差があれば止める。Tracyは既定RNDとTaigaを別Runで1本ずつ採る。
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd116/run_performance_atari_test.py
+```
+
 ## smoke
 
 次に起こすsmokeのRun名は `run_<t>_prd116_<label>_tmp_smoke_<env>` となる。既存のprd098名のRun・基準・記録は変更しない。
@@ -40,4 +46,4 @@ GridMazeは完走・群56の有限性・補助学習の進行を確認し、bonu
 
 `run_validation.py smoke --env GridMaze Atari Montezuma --label reference-smoke-r1` は各100k experienceを順に実行する。GridMazeとAtari KFMは既存の連鎖へ `run.@rnd`、MontezumaはAtariの連鎖へ `run.@rainbow_like > run.@rnd > run.@rnd_taiga` を加える。PRD098の短縮条件（8 lane、Q replay batch 16、capacity 4096、Q warm-up 256、RR1、評価休止など）は最後の検証用profileで選ぶ。RNDの8設定値は変更しない。
 
-実行体を保存し、13指標の件数・範囲・前後四分の一の平均と受入判定を記録する。`config/config_data.txt` の実効 `warmup_steps` より exp step が大きい点を対象にする。learn_predictor の warm-up 中は学習が進むが誤差統計が NaN なので、learn_count で区切らない。KFM は `warmup_steps=12,800` を明示し、100k 件の途中で warm-up を終える。`03_bonus_share` が記録され、その値がNaNで同じ点の `01_bonus_mean` が0の場合だけ例外として許す。欠測や±Infは許さない。GridMazeは対象点が1つ以上あり、群56の全指標が有限（前述のNaN例外を除く）であること、KFMはclip_ratioの全点が1未満、Montezumaはbonus_minが負の点が9割以上であることを確認する。機構のsmokeであり、成績・性能の比較ではない。再実行時に別の実行体なら新しいlabelを使い、記録済みRunを上書きしない。
+実行体を保存し、13指標の件数・範囲・前後四分の一の平均と受入判定を記録する。`config/config_data.txt` の実効 `warmup_steps` より exp step が大きい点を対象にする。learn_predictor の warm-up 中は学習が進むが誤差統計が NaN なので、learn_count で区切らない。KFM は `warmup_steps=12,800` を明示し、100k 件の途中で warm-up を終える。KFM の lane は 32 にする。補助学習のバッチ（既定 32）が lane 数を超えると構築時に止まる検査が 11/07 より後に入り、8 lane では起動できないため（2026-11-12 の reference-smoke-r5 から）。`03_bonus_share` が記録され、その値がNaNで同じ点の `01_bonus_mean` が0の場合だけ例外として許す。欠測や±Infは許さない。GridMazeは対象点が1つ以上あり、群56の全指標が有限（前述のNaN例外を除く）であること、KFMはclip_ratioの全点が1未満、Montezumaはbonus_minが負の点が9割以上であることを確認する。機構のsmokeであり、成績・性能の比較ではない。再実行時に別の実行体なら新しいlabelを使い、記録済みRunを上書きしない。

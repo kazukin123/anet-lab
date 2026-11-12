@@ -8,7 +8,6 @@
 | [issue-20261107-1226e5](issue-20261107-1226e5.md) | 調査中 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
 | [issue-20261111-77ac3c](issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
-| [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 2.6 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn, 317_metrics | アルゴリズム | 機能追加 | [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) | 残件無し | RND による一生の新しさだけの群（内的報酬の第一の群） |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 調査中 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
@@ -69,6 +68,7 @@
 | [issue-20261103-cdac7c](issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | 成果物 | PRD | 321_agent_core | アルゴリズム | 機能改善 | [PRD940](../../memo/940_target_update_step_axis_10prd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
 | [issue-20261111-4351bc](issue-20261111-4351bc.md) | 未着手 | 2.2 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
 | [issue-20261111-72d640](issue-20261111-72d640.md) | 未着手 | 2.2 | — | 成果物 | 監査 | 324_dqn | アルゴリズム | リファクタリング | — | 未確認 | DefaultDQNAgent のコンストラクタが 242 行あり、RainbowAgent が Head の選択・Actor の生成・値の振り分け・更新を写して既に 5 点で食い違っている |
+| [issue-20261112-f9790d](issue-20261112-f9790d.md) | 未着手 | 2.1 | — | 成果物 | 実装 | 324_dqn, 321_agent_core | アルゴリズム | 性能改善 | — | 未確認 | RNDの既定設定で、採点ごとの統計の更新がCPUの1スレッドで走り、RNDの時間の63%を占める |
 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-78c643](issue-20261103-78c643.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
 | [issue-20261103-39ddb2](issue-20261103-39ddb2.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 120_metrics_viewer | UI | 不具合 | — | 残件有り | 初期化中にScreenshotへ切り替えるとinit完了時にmodeが上書きされ、init失敗時はScreenshotから抜けられない |
@@ -150,9 +150,7 @@
 
 AI の判定が「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。
 
-| ID | 状態 | AIの判定 | 判定日 | 課題 |
-|---|---|---|---|---|
-| [issue-20261106-16b7af](issue-20261106-16b7af.md) | 対応中 | 残件無し | 2026-11-07 | RND による一生の新しさだけの群（内的報酬の第一の群） |
+該当する課題はありません。
 
 ## 再開候補
 

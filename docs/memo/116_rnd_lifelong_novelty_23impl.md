@@ -207,3 +207,25 @@ Release全体ビルドはテスト実行体の再ビルドも始めたため中�
 
 再レビューは計画・実装ともOKで、不足点・修正要求・範囲外の検出・開発者への確認事項は0件。原文は `.scratch/prd116/review-20261107-2341-grid-performance.md`。正規配置のrun_performance_test.pyも12 behavior成功・終了0（grid-performance-diagnostics-canonical-green.log）、最終の保存整合検査も終了0（grid-performance-final-static.log）。wikiの読み取りscanは終了0、リンク切れ0・目録漏れ0で今回の出典の未取り込みは無かった（grid-performance-wiki-scan.json）。無関係なpending資料は更新しない。GridMazeの§6.3測定と記録は完了し、Atariの3群比較は既存の残件として保持する。新しい起票候補・判断待ちは無い。PRD・本体・出荷設定・元Runを保持し、ステージ・commit・pushは行っていない。
 
+
+## 残件消化: AtariとKFM
+
+2026-11-12、開発者がRunの切れ目で、§6.3のAtari分と§6.4のKFMのsmokeを片づけるよう指示した。測定の採取器はこのセッションで作ると開発者が選んだ。本体のコードと設定は変更していない。
+
+### KFMのsmoke
+
+最初の再実行（reference-smoke-r4、8 lane）は構築時に止まった。11/07より後に入った検査で、`DefaultDQNAgent.intrinsic.learn_batch_size=32` が `run.train.num_envs=8` を超えると起動できない。開発者の選択で、KFMだけlaneを32にした（`run_validation.py` のAtariの上書き）。RNDの設定値は変えていない。
+
+reference-smoke-r5（32 lane、2026-11-12 19:08のDebug実行体）は100k経験を完走したが、判定はwarm-up直後の12,832経験で `03_bonus_share` の欠けを拒否した。欠けた点はすべて同じ点の `01_bonus_mean` が0だった。外的報酬も0のintakeでは、bonus_shareが0/0のNaNになり、スカラーのObserverは有限でない値を出力しない（`observers.cpp` の1120行）。11/07に厳しくした例外（記録されたNaNだけを許す）には当たらない。r1の4,008点の欠けも同じ形だった（`smoke-finite-inventory.json`）。
+
+開発者の選択で、判定の例外を「同じ点のbonus_meanが0なら、bonus_shareの欠けとNaNを許す。±Infとほかの指標の欠けは拒否する」に直した。bonus_meanが0なら分子が0なので、欠けは0/0の場合に限られる。
+
+確かめ: `.venv/Scripts/python.exe -X utf8 -B .scratch/prd116/smoke_share_gap_check.py` は、合成の点4件を受け入れ7件を拒否し、保存済みのr5を判定し直して合格した（`smoke-share-gap-reassessment.json`）。正式の経路 `run_validation.py smoke --env Atari --label reference-smoke-r5` もRunを再利用して判定し直し、合格した（`reference-smoke-r5_smoke_Atari.json`）。学習後2,723点、bonus_shareの欠け402点、clip_ratioの最大0.344。r1〜r3はPRD123より前の実行体で、今の判定（warm-upの件数で区切る）と前提が合わないので判定し直していない。今の判定に通すと、GridMaze r2はwarm-up直後のpredictor_lossの欠けで止まる。
+
+### Atariの性能測定
+
+採取器 `run_performance_atari.py` を新設した。保存とTracyの集計はGridMaze版の関数を使う。3群（RNDなし・既定RND・Taiga設定）の設定解決を全キーで比べ、差がRNDの設定・群56・Run名だけであることを確かめてから測る。確かめ: `run_performance_atari_test.py` の9件と、GridMaze版の `run_performance_test.py` の12件が成功。
+
+Montezuma・64 lane・CUDA・Release（基準HEAD `fcaa39b5`、未コミットの変更を含む）で、ABC→CBAを3巡（18本）、89,984経験の中央値はRNDなし19.019秒、既定RND 31.584秒（1.661倍）、Taiga設定280.616秒（14.754倍）だった。18本と試走3本・Tracy用2本はすべて終了0。正本は[実験記録](../experiments/default-dqn/atari/2026-11-12_rnd_performance.md)と同名JSONで、全Runの実効設定とTracyのCSVを保存した。
+
+二重正規化（`Estimate` の統計の区間で観測を正規化し直し、結果を捨てる処理。`@todo` の件）の費用は、統計の区間（RND全体の62.66%、1 intakeあたり8.206ms）に含まれる。今回の区間の切り方では、二重正規化の分だけを取り出せていない。統計の区間の内訳を測って直すことは、課題 [issue-20261112-f9790d](../management/issues/issue-20261112-f9790d.md) とした。これとは別に、`Learn` が入力を統計の更新後に正規化し直す処理（本家との差の表の「Learnの入力」）は、194回・約202msで、RND全体の約4.0%だった。

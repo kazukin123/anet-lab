@@ -1,0 +1,622 @@
+{
+  "medians_seconds": {
+    "off": 19.019499700516462,
+    "on": 31.58350232988596,
+    "taiga": 280.61600625514984
+  },
+  "ratios": {
+    "on_off": 1.660585337532739,
+    "taiga_off": 14.75412133198908
+  },
+  "experiences_per_second": {
+    "off": 4731.144426346637,
+    "on": 2849.0823804189836,
+    "taiga": 320.6659563039399
+  },
+  "ranges_seconds": {
+    "off": [
+      17.25199855864048,
+      19.81899831444025
+    ],
+    "on": [
+      28.275005891919136,
+      32.416001334786415
+    ],
+    "taiga": [
+      254.35300916433334,
+      307.21799433231354
+    ]
+  },
+  "cycle_ratios": [
+    {
+      "on_off": 1.664870268567737,
+      "taiga_off": 14.75412133198908
+    },
+    {
+      "on_off": 1.6978010510316475,
+      "taiga_off": 15.793077834618474
+    },
+    {
+      "on_off": 1.532653791125334,
+      "taiga_off": 13.773948660177389
+    }
+  ],
+  "window_experiences": 89984,
+  "acceptance": "No speed threshold; record timing and Tracy breakdown",
+  "tracy": {
+    "on": {
+      "intrinsic_intakes": 388,
+      "observation_count": 24832,
+      "intrinsic_total_ms": 5081.465848,
+      "intrinsic_ms_per_intake": 13.096561463917526,
+      "complete_zone_span_seconds": 8.120668762,
+      "intrinsic_percent_span": 62.57447504543345,
+      "functions": {
+        "RndNoveltyEstimator::Estimate": {
+          "count": 388,
+          "total_ns": 4201233423,
+          "mean_us": 10827.92119329897,
+          "total_ms": 4201.233423,
+          "percent_intrinsic": 82.67758848863565
+        },
+        "RndNoveltyEstimator::Learn": {
+          "count": 194,
+          "total_ns": 842400173,
+          "mean_us": 4342.26893298969,
+          "total_ms": 842.400173,
+          "percent_intrinsic": 16.577896973007462
+        }
+      },
+      "phases": {
+        "target_forward": {
+          "count": 582,
+          "total_ns": 309858522,
+          "mean_us": 532.4029587628866,
+          "total_ms": 309.858522,
+          "percent_intrinsic": 6.097817662632847
+        },
+        "result_transfer": {
+          "count": 388,
+          "total_ns": 199887,
+          "mean_us": 0.5151726804123712,
+          "total_ms": 0.199887,
+          "percent_intrinsic": 0.003933648399480496
+        },
+        "predictor_forward": {
+          "count": 582,
+          "total_ns": 298771200,
+          "mean_us": 513.3525773195877,
+          "total_ms": 298.7712,
+          "percent_intrinsic": 5.879626252286878
+        },
+        "input_transfer": {
+          "count": 582,
+          "total_ns": 94942684,
+          "mean_us": 163.1317594501718,
+          "total_ms": 94.942684,
+          "percent_intrinsic": 1.8684113372004305
+        },
+        "error_transfer": {
+          "count": 582,
+          "total_ns": 95576463,
+          "mean_us": 164.22072680412373,
+          "total_ms": 95.576463,
+          "percent_intrinsic": 1.880883702831884
+        },
+        "statistics": {
+          "count": 388,
+          "total_ns": 3184025614,
+          "mean_us": 8206.251582474228,
+          "total_ms": 3184.025614,
+          "percent_intrinsic": 62.65958896984798
+        },
+        "observation_transfer": {
+          "count": 582,
+          "total_ns": 863061,
+          "mean_us": 1.4829226804123712,
+          "total_ms": 0.863061,
+          "percent_intrinsic": 0.016984488842716316
+        },
+        "optimizer_step": {
+          "count": 194,
+          "total_ns": 208761450,
+          "mean_us": 1076.0899484536083,
+          "total_ms": 208.76145,
+          "percent_intrinsic": 4.108291903253977
+        },
+        "normalize": {
+          "count": 582,
+          "total_ns": 605704258,
+          "mean_us": 1040.7289656357389,
+          "total_ms": 605.704258,
+          "percent_intrinsic": 11.919872653250192
+        },
+        "backward": {
+          "count": 194,
+          "total_ns": 234077667,
+          "mean_us": 1206.5859123711339,
+          "total_ms": 234.077667,
+          "percent_intrinsic": 4.606498872606415
+        }
+      },
+      "unclassified_intrinsic_ms": 48.685042,
+      "excluded_events_outside_complete_intakes": 16,
+      "trace_sha256": "8f32f564ff77c3c600fa05d5addd93e297757a0051e1ca4af1a8226d1c4ba189",
+      "note": "CPU host inclusive ranges in a separate profiled Run; not substituted for unprofiled ON/OFF timing"
+    },
+    "taiga": {
+      "intrinsic_intakes": 45,
+      "observation_count": 2880,
+      "intrinsic_total_ms": 7658.107113,
+      "intrinsic_ms_per_intake": 170.18015806666665,
+      "complete_zone_span_seconds": 7.985093078,
+      "intrinsic_percent_span": 95.90504504072858,
+      "functions": {
+        "RndNoveltyEstimator::Estimate": {
+          "count": 45,
+          "total_ns": 462156465,
+          "mean_us": 10270.143666666667,
+          "total_ms": 462.156465,
+          "percent_intrinsic": 6.034865511550073
+        },
+        "RndNoveltyEstimator::Learn": {
+          "count": 2880,
+          "total_ns": 7137267195,
+          "mean_us": 2478.2177760416666,
+          "total_ms": 7137.267195,
+          "percent_intrinsic": 93.1988426080402
+        }
+      },
+      "phases": {
+        "target_forward": {
+          "count": 2925,
+          "total_ns": 647121765,
+          "mean_us": 221.23821025641027,
+          "total_ms": 647.121765,
+          "percent_intrinsic": 8.450152961447616
+        },
+        "optimizer_step": {
+          "count": 2880,
+          "total_ns": 2749157368,
+          "mean_us": 954.5685305555556,
+          "total_ms": 2749.157368,
+          "percent_intrinsic": 35.89865390277938
+        },
+        "predictor_forward": {
+          "count": 2925,
+          "total_ns": 894167715,
+          "mean_us": 305.6983641025641,
+          "total_ms": 894.167715,
+          "percent_intrinsic": 11.676093084178829
+        },
+        "normalize": {
+          "count": 2925,
+          "total_ns": 552174332,
+          "mean_us": 188.7775494017094,
+          "total_ms": 552.174332,
+          "percent_intrinsic": 7.21032395933269
+        },
+        "backward": {
+          "count": 2880,
+          "total_ns": 2199902231,
+          "mean_us": 763.8549413194445,
+          "total_ms": 2199.902231,
+          "percent_intrinsic": 28.726448958458178
+        },
+        "result_transfer": {
+          "count": 45,
+          "total_ns": 19337,
+          "mean_us": 0.4297111111111111,
+          "total_ms": 0.019337,
+          "percent_intrinsic": 0.00025250365024503935
+        },
+        "error_transfer": {
+          "count": 2925,
+          "total_ns": 348793532,
+          "mean_us": 119.24565196581196,
+          "total_ms": 348.793532,
+          "percent_intrinsic": 4.554565858812635
+        },
+        "input_transfer": {
+          "count": 2925,
+          "total_ns": 141444494,
+          "mean_us": 48.35709196581197,
+          "total_ms": 141.444494,
+          "percent_intrinsic": 1.84699027988119
+        },
+        "statistics": {
+          "count": 45,
+          "total_ns": 26049686,
+          "mean_us": 578.8819111111111,
+          "total_ms": 26.049686,
+          "percent_intrinsic": 0.34015828736293624
+        },
+        "observation_transfer": {
+          "count": 2925,
+          "total_ns": 3405479,
+          "mean_us": 1.1642663247863247,
+          "total_ms": 3.405479,
+          "percent_intrinsic": 0.04446893925287409
+        }
+      },
+      "unclassified_intrinsic_ms": 95.871174,
+      "excluded_events_outside_complete_intakes": 569,
+      "trace_sha256": "fbf2fdc2666e715588754f7065bf2687326233ecf5574285f2a1fe7ecf989160",
+      "note": "CPU host inclusive ranges in a separate profiled Run; not substituted for unprofiled ON/OFF timing"
+    }
+  },
+  "runs": [
+    {
+      "name": "r01_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 54.98635210003704,
+      "measurement_seconds": 19.447998516261578,
+      "experiences_per_second": 4626.902862253884,
+      "archived_config": "config/run_20261112-205944_prd116_ap_r01_off.txt",
+      "run_name": "run_20261112-205944_prd116_ap_r01_off"
+    },
+    {
+      "name": "r02_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 72.57009819988161,
+      "measurement_seconds": 32.058000192046165,
+      "experiences_per_second": 2806.912454331001,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-210039_prd116_ap_r02_on.txt",
+      "run_name": "run_20261112-210039_prd116_ap_r02_on"
+    },
+    {
+      "name": "r03_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 421.7093208997976,
+      "measurement_seconds": 289.7099956870079,
+      "experiences_per_second": 310.6002600518328,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-210153_prd116_ap_r03_taiga.txt",
+      "run_name": "run_20261112-210153_prd116_ap_r03_taiga"
+    },
+    {
+      "name": "r04_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 394.8771214999724,
+      "measurement_seconds": 271.5220168232918,
+      "experiences_per_second": 331.40590605793176,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-210855_prd116_ap_r04_taiga.txt",
+      "run_name": "run_20261112-210855_prd116_ap_r04_taiga"
+    },
+    {
+      "name": "r05_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 72.11542779998854,
+      "measurement_seconds": 31.271998956799507,
+      "experiences_per_second": 2877.4623625534073,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-211531_prd116_ap_r05_on.txt",
+      "run_name": "run_20261112-211531_prd116_ap_r05_on"
+    },
+    {
+      "name": "r06_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 53.57405050005764,
+      "measurement_seconds": 18.591000884771347,
+      "experiences_per_second": 4840.191260154777,
+      "archived_config": "config/run_20261112-211644_prd116_ap_r06_off.txt",
+      "run_name": "run_20261112-211644_prd116_ap_r06_off"
+    },
+    {
+      "name": "r07_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 50.538774699904025,
+      "measurement_seconds": 18.08400135487318,
+      "experiences_per_second": 4975.889916959754,
+      "archived_config": "config/run_20261112-211739_prd116_ap_r07_off.txt",
+      "run_name": "run_20261112-211739_prd116_ap_r07_off"
+    },
+    {
+      "name": "r08_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 72.61106600007042,
+      "measurement_seconds": 31.895005702972412,
+      "experiences_per_second": 2821.256745899063,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-211831_prd116_ap_r08_on.txt",
+      "run_name": "run_20261112-211831_prd116_ap_r08_on"
+    },
+    {
+      "name": "r09_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 453.72354039992206,
+      "measurement_seconds": 307.21799433231354,
+      "experiences_per_second": 292.8995099898528,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-211944_prd116_ap_r09_taiga.txt",
+      "run_name": "run_20261112-211944_prd116_ap_r09_taiga"
+    },
+    {
+      "name": "r10_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 427.67806540010497,
+      "measurement_seconds": 291.00801050662994,
+      "experiences_per_second": 309.2148557812635,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-212719_prd116_ap_r10_taiga.txt",
+      "run_name": "run_20261112-212719_prd116_ap_r10_taiga"
+    },
+    {
+      "name": "r11_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 75.456104000099,
+      "measurement_seconds": 32.416001334786415,
+      "experiences_per_second": 2775.9130150157025,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-213428_prd116_ap_r11_on.txt",
+      "run_name": "run_20261112-213428_prd116_ap_r11_on"
+    },
+    {
+      "name": "r12_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 54.49455439997837,
+      "measurement_seconds": 19.7949992492795,
+      "experiences_per_second": 4545.794564921504,
+      "archived_config": "config/run_20261112-213544_prd116_ap_r12_off.txt",
+      "run_name": "run_20261112-213544_prd116_ap_r12_off"
+    },
+    {
+      "name": "r13_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 55.556637699948624,
+      "measurement_seconds": 19.81899831444025,
+      "experiences_per_second": 4540.290007211771,
+      "archived_config": "config/run_20261112-213639_prd116_ap_r13_off.txt",
+      "run_name": "run_20261112-213639_prd116_ap_r13_off"
+    },
+    {
+      "name": "r14_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 66.28287189989351,
+      "measurement_seconds": 28.275005891919136,
+      "experiences_per_second": 3182.4573386107413,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-213736_prd116_ap_r14_on.txt",
+      "run_name": "run_20261112-213736_prd116_ap_r14_on"
+    },
+    {
+      "name": "r15_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 373.4455883000046,
+      "measurement_seconds": 256.2609985470772,
+      "experiences_per_second": 351.14200174892875,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-213842_prd116_ap_r15_taiga.txt",
+      "run_name": "run_20261112-213842_prd116_ap_r15_taiga"
+    },
+    {
+      "name": "r16_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 393.78196449996904,
+      "measurement_seconds": 254.35300916433334,
+      "experiences_per_second": 353.7760386465992,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-214457_prd116_ap_r16_taiga.txt",
+      "run_name": "run_20261112-214457_prd116_ap_r16_taiga"
+    },
+    {
+      "name": "r17_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 64.16864390019327,
+      "measurement_seconds": 28.541998006403446,
+      "experiences_per_second": 3152.687488094279,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-215131_prd116_ap_r17_on.txt",
+      "run_name": "run_20261112-215131_prd116_ap_r17_on"
+    },
+    {
+      "name": "r18_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": false,
+      "process_seconds": 51.668581099947914,
+      "measurement_seconds": 17.25199855864048,
+      "experiences_per_second": 5215.859466608434,
+      "archived_config": "config/run_20261112-215236_prd116_ap_r18_off.txt",
+      "run_name": "run_20261112-215236_prd116_ap_r18_off"
+    }
+  ],
+  "other_runs": [
+    {
+      "name": "pilot_off",
+      "arm": "off",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 8192,
+      "profiled": false,
+      "process_seconds": 44.209441100014374,
+      "measurement_seconds": 1.8219977617263794,
+      "experiences_per_second": 4496.1635914623275,
+      "archived_config": "config/run_20261112-205534_prd116_ap_pilot_off.txt",
+      "run_name": "run_20261112-205534_prd116_ap_pilot_off"
+    },
+    {
+      "name": "pilot_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 8192,
+      "profiled": false,
+      "process_seconds": 44.06219210010022,
+      "measurement_seconds": 2.9799995943903923,
+      "experiences_per_second": 2748.993662757799,
+      "learn_count_max": 318.0,
+      "archived_config": "config/run_20261112-205617_prd116_ap_pilot_on.txt",
+      "run_name": "run_20261112-205617_prd116_ap_pilot_on"
+    },
+    {
+      "name": "pilot_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 8192,
+      "profiled": false,
+      "process_seconds": 161.0268858000636,
+      "measurement_seconds": 25.804004073143005,
+      "experiences_per_second": 317.4701095527377,
+      "learn_count_max": 40768.0,
+      "archived_config": "config/run_20261112-205702_prd116_ap_pilot_taiga.txt",
+      "run_name": "run_20261112-205702_prd116_ap_pilot_taiga"
+    },
+    {
+      "name": "profile_on",
+      "arm": "on",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": true,
+      "process_seconds": 62.70086389989592,
+      "measurement_seconds": 28.72400265187025,
+      "experiences_per_second": 3132.7110323233815,
+      "learn_count_max": 958.0,
+      "archived_config": "config/run_20261112-215328_prd116_ap_profile_on.txt",
+      "run_name": "run_20261112-215328_prd116_ap_profile_on"
+    },
+    {
+      "name": "profile_taiga",
+      "arm": "taiga",
+      "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+      "window_experiences": 89984,
+      "profiled": true,
+      "process_seconds": 365.3010240001604,
+      "measurement_seconds": 246.9159945845604,
+      "experiences_per_second": 364.43163656286964,
+      "learn_count_max": 122688.0,
+      "archived_config": "config/run_20261112-215432_prd116_ap_profile_taiga.txt",
+      "run_name": "run_20261112-215432_prd116_ap_profile_taiga"
+    }
+  ],
+  "configuration": {
+    "head": "fcaa39b5b9c6cd23221a9e5c484049e3bff08304",
+    "binary_sha256": "7a01546f567c8f9677db42c56cb1714fdf0b127b164fade9d7a1dc9887ff11ba",
+    "build": "Release",
+    "device": "cuda",
+    "game": "montezuma_revenge",
+    "lanes": 64,
+    "q_update_warmup_steps": 20000,
+    "warm_experiences": 32768,
+    "order": [
+      "off",
+      "on",
+      "taiga",
+      "taiga",
+      "on",
+      "off",
+      "off",
+      "on",
+      "taiga",
+      "taiga",
+      "on",
+      "off",
+      "off",
+      "on",
+      "taiga",
+      "taiga",
+      "on",
+      "off"
+    ],
+    "eval_tags_disabled": [
+      "eval",
+      "eval_panel",
+      "eval_target",
+      "greedy",
+      "greedy_single"
+    ],
+    "note": "Uncommitted source changes (PRD125 and others) were present; source-diff.patch is retained with the local binary snapshot"
+  },
+  "host": {
+    "cpu": "AMD Ryzen 7 9700X",
+    "physical_cores": 8,
+    "logical_processors": 16,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "visible_memory_gib": 61.6,
+    "os": "Windows 11 Pro",
+    "version": "10.0.26300"
+  },
+  "manifest_sha256": {
+    "config/run_20261112-205944_prd116_ap_r01_off.txt": "c82086a74c44566140cbdda485cef2ee6d73db8120146a6ba1d5d78490f65c84",
+    "config/run_20261112-210039_prd116_ap_r02_on.txt": "03d3dba5419bfa92168027935acf6f38e9268f15b0c46aeaded20ed3185e1ac6",
+    "config/run_20261112-210153_prd116_ap_r03_taiga.txt": "c02069df0f3a9698a4d7c0db05a32eecbfc48ebc540b09e5158d4a5d6f461ae5",
+    "config/run_20261112-210855_prd116_ap_r04_taiga.txt": "525ede426b1f37b943aec5ee995daf681cfd5bd137a8f8ef58bf3cddff727c8f",
+    "config/run_20261112-211531_prd116_ap_r05_on.txt": "bc7f4b5946f07956b94dac16f6d4478fab45059964112ad32bc49cb26e5cd11a",
+    "config/run_20261112-211644_prd116_ap_r06_off.txt": "f175265b5c24e9e059d522cd1eaf8f3e3944ba963dc7442c5af03d5295dd7620",
+    "config/run_20261112-211739_prd116_ap_r07_off.txt": "a11fa9d91e772394622483488abf62e8b3b7f8cb89472ca4ad573b66f5f2185d",
+    "config/run_20261112-211831_prd116_ap_r08_on.txt": "efa297ae228ab8c0ed2bf5f5c2a629af611d22b3dc468c5689e73ab31fe3a8e8",
+    "config/run_20261112-211944_prd116_ap_r09_taiga.txt": "723939b21883264a2958df465ba29c1be632670bd1945b5481694c7240cd926d",
+    "config/run_20261112-212719_prd116_ap_r10_taiga.txt": "bbb431eae0fa37ba93c5651d70feb432e91cdc64e02ffa719b7681f01f875037",
+    "config/run_20261112-213428_prd116_ap_r11_on.txt": "b72640740b56bb3cbb66fc1eeb0ee8bf2875c7c5ab47f749ba200d014983f090",
+    "config/run_20261112-213544_prd116_ap_r12_off.txt": "c988d8ddd116f5558630f0119de3581c5c6b1c9cd651d2487dc1c5fbdf2222b6",
+    "config/run_20261112-213639_prd116_ap_r13_off.txt": "c3831706b4194bd3f3519180a1d88fcac47f7527915eb00ea47f0d5d48a8ff08",
+    "config/run_20261112-213736_prd116_ap_r14_on.txt": "458db43b412cf88530dd4c72e5758f5e37ead6ffc698af28a00b8538cf715154",
+    "config/run_20261112-213842_prd116_ap_r15_taiga.txt": "73539550f5934785df895217039b5a1f550fbd9776ee0c31f8930547bdc332e0",
+    "config/run_20261112-214457_prd116_ap_r16_taiga.txt": "51f76679797ebd050ce9c694f1e41849e6b2c2cbc88193fe97352c887343be8f",
+    "config/run_20261112-215131_prd116_ap_r17_on.txt": "de2c89bb97bdf6a2015770a91810b8afefdc4037ef44c0a1f16461643c3c5f8f",
+    "config/run_20261112-215236_prd116_ap_r18_off.txt": "e8265cc13797524deaaf415d871fd74039ea3cfe8487cf53f88ba70fcc4ad1b3",
+    "config/run_20261112-205534_prd116_ap_pilot_off.txt": "bb444fbf0990d9fcd6b600bd42fdd5b1fc1b6bb9f33a3d5b477a1c5640207065",
+    "config/run_20261112-205617_prd116_ap_pilot_on.txt": "d9bcec0458a5abfed941df8b04c38f7a1baabdd941272c3b93ba35fd2c0ae9f7",
+    "config/run_20261112-205702_prd116_ap_pilot_taiga.txt": "53978fc216f6685444426b6dde4de7676d02cff52ae4d020f7be78623b886ca0",
+    "config/run_20261112-215328_prd116_ap_profile_on.txt": "b23d86bc6dec35afcb239054eb69c5c07cc01a5a095222fa266288b121785bae",
+    "config/run_20261112-215432_prd116_ap_profile_taiga.txt": "67685e8f527a5ed74789d1647c7a60a952deb67352bbc23670b81c0d9a04acb4",
+    "data/2026-11-12_rnd_performance_on_zones.csv": "94ac40d3a117c0635ad5aa04dfa920c44a3a6dc8d89abe17d5c2b01b80781c05",
+    "data/2026-11-12_rnd_performance_on_events.csv": "883f2c2a6c374d06165f975c21b84469d3a460ad4df0756044092be86db14fed",
+    "data/2026-11-12_rnd_performance_on_facade_events.csv": "ac7540ea60c72f74a42aeab6c9a102212988108d01063a1c106897475cb52819",
+    "data/2026-11-12_rnd_performance_taiga_zones.csv": "d31461546c085b35e035a90947b5c9179ff27b3c450f27114038731497adf4c0",
+    "data/2026-11-12_rnd_performance_taiga_events.csv": "1da5ddef1200339f95582562a116f8f437fc153dbe34494253bce2ed65d86535",
+    "data/2026-11-12_rnd_performance_taiga_facade_events.csv": "3909f74f21af01eb3350d8a9516ec6317e1b52517cc0ff233a47e3d4a4046f08"
+  }
+}

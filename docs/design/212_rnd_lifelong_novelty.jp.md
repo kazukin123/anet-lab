@@ -495,9 +495,9 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 | Runの設定解決 | 保存済みMontezuma基準Runと全キー比較。rainbowからtaigaへの差はRND設定18 件と診断13 件だけ。noop_max=0、Nature構造、Munchausen指標の不在を確認 |
 | 無効時の同一性 | GridMaze・LunarLander・Atari・DropMergeの105,682点と指標定義が変更前と一致 |
 | GridMazeのsmoke | 100k経験で完走、学習後5,448点、記録したlearn_countの最大値2,724、指標の不正な非有限値なしで、完走・有限性・補助学習の進行という改訂後の条件を満たす。観測が正規化した(x, y)の2値で盤面固定のため、限られた入力に慣れて新しさが尽きると既定のbonusは0になり、符号と減少は判定しない |
-| KFMのsmoke | 新しい3層CNNで100k経験を完走し、学習後5,448点のclip_ratioは最大0。ただし保存済みr1はbonus_shareが4,008点で欠測しており、NaN例外を厳密にした再判定では不合格。旧集計は保持し、新しいRunは起こしていない |
+| KFMのsmoke | 新しい3層CNNで100k経験を完走（r5。補助学習のバッチ32がlane数を超えると構築時に止まる検査に合わせ、32 laneで回した）。学習後2,723点のclip_ratioは最大0.344。bonus_shareは402点で欠けたが、すべてbonus_meanが0の点で、0/0のNaNをメトリクスの出力が書かないためである。判定はこの欠けを許す形に直した。r1の4,008点の欠けも同じ形 |
 | Montezumaのsmoke | Taiga設定で100k経験を完走。記録6,233点すべてでbonus_minが負、指標の不正な非有限値なしで受入条件を満たす |
-| 性能測定 | GridMazeのCPU・256 lane・ReleaseでABBA3巡を実施。165,632経験の中央値はRNDなし23.261秒、あり31.148秒（1.339倍）。別RunのTracyではRND区間のforward56.47%、backward＋optimizer35.10%、統計4.72%。[実験記録](../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)に全Runの設定・ばらつき・内訳を保存。Atari B=64の3群は未実施 |
+| 性能測定 | GridMazeのCPU・256 lane・ReleaseでABBA3巡を実施。165,632経験の中央値はRNDなし23.261秒、あり31.148秒（1.339倍）。別RunのTracyではRND区間のforward56.47%、backward＋optimizer35.10%、統計4.72%。[実験記録](../experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md)に全Runの設定・ばらつき・内訳を保存。AtariはMontezuma・64 lane・CUDA・ReleaseでABC→CBAを3巡。89,984経験の中央値はRNDなし19.019秒、既定RND 31.584秒（1.661倍）、Taiga設定280.616秒（14.754倍）。別RunのTracyでは、既定RNDは統計が62.66%、Taiga設定はoptimizer stepとbackwardが64.63%。[実験記録](../experiments/default-dqn/atari/2026-11-12_rnd_performance.md)に全Runの設定・ばらつき・内訳を保存 |
 
 無効時 checkpoint のファイル全体のバイト列は、既存の libtorch が保存するパラメータのアドレス情報により、同じ旧実行体の再実行同士でも一致しない。検証では header・設定・Network のバイトと、アドレス等の付随情報を除いた optimizer の内容を比較した。「ファイル全体の完全一致」とは報告しない。
 
