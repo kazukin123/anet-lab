@@ -1403,11 +1403,15 @@ AtariEnv.ram_metric.[freeway].[car_hit] ?= 0xEA reach_count:91
 AtariEnv.ram_metric.[freeway].metrics ?= 4:car_hit
 
 AtariEnv.ram_metric.[montezuma_revenge].[room_max] ?= 0x83 max_seen  # 到達した最大の部屋番号（開始は 1）。面の区切りが無いので 1 に使う
-AtariEnv.ram_metric.[montezuma_revenge].[x_min] ?= 0xAA min_seen  # x の最小。鍵は部屋 1 の x=12 付近
+AtariEnv.ram_metric.[montezuma_revenge].[rooms_visited] ?= 0x83 distinct_seen  # 訪れた部屋の数（開始の部屋を含む）。ボスがいないので 2 に使う
+AtariEnv.ram_metric.[montezuma_revenge].[key_get] ?= 0xC1 bit_rise_count:30  # 鍵を拾った回数（持ち物のビット: 鍵 2・4・8・16、剣 32）。ボスがいないので 3 に使う
+AtariEnv.ram_metric.[montezuma_revenge].[sword_kill] ?= 0xC1 bit_fall_count:32  # 剣が持ち物から消えた回数。剣で敵を倒すと消える
+AtariEnv.ram_metric.[montezuma_revenge].[sword_get] ?= 0xC1 bit_rise_count:32  # 剣を拾った回数。trace とログ行だけ
+AtariEnv.ram_metric.[montezuma_revenge].[door_open] ?= 0xC1 bit_fall_count:30  # 鍵が持ち物から消えた回数。扉で鍵を使うと消える。trace とログ行だけ
+AtariEnv.ram_metric.[montezuma_revenge].[lives_lost] ?= 0xBA dec_count  # 残機が減った回数。trace とログ行だけ
+AtariEnv.ram_metric.[montezuma_revenge].[x_min] ?= 0xAA min_seen  # 番号なし。評価しない
 AtariEnv.ram_metric.[montezuma_revenge].[room_up] ?= 0x83 inc_count  # 番号なし。評価しない
-AtariEnv.ram_metric.[montezuma_revenge].[sword_only] ?= 0xC1 reach_count:32  # 持ち物（ビット: 鍵 2、剣 32）が剣だけになった回数。鍵を使い切ってから剣を拾うと増える。ボスがいないので 2 に使う
-AtariEnv.ram_metric.[montezuma_revenge].[inv_max] ?= 0xC1 max_seen  # 持ち物の最大値。剣を持ったことがあれば 32 以上。ボスがいないので 3 に使う
-AtariEnv.ram_metric.[montezuma_revenge].metrics ?= 1:room_max 2:sword_only 3:inv_max 4:x_min
+AtariEnv.ram_metric.[montezuma_revenge].metrics ?= 1:room_max 2:rooms_visited 3:key_get 4:sword_kill 5:sword_get 6:door_open 7:lives_lost
 
 
 # --- Eval設定 ---
@@ -1471,11 +1475,11 @@ metrics.scalar.$ = metrics.scalar.@baseline > M1 > M2
 
 # metrics.trace.[tag] = $target @episode_end key1 [key2 ...] [$step] [$train | $eval.[name]]
 metrics.trace.$ = metrics.trace.@atari
-metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
-metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
-metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
-metrics.trace.@atari : [54_evalgs/episode] = $eval.[greedy_single] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
-metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] done truncated
+metrics.trace.@atari : [51_eval1/episode] = $eval.[eval_target] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] ram_metric.[5] ram_metric.[6] ram_metric.[7] done truncated
+metrics.trace.@atari : [52_eval2/episode] = $eval.[eval] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] ram_metric.[5] ram_metric.[6] ram_metric.[7] done truncated
+metrics.trace.@atari : [53_evalg/episode] = $eval.[greedy] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] ram_metric.[5] ram_metric.[6] ram_metric.[7] done truncated
+metrics.trace.@atari : [54_evalgs/episode] = $eval.[greedy_single] @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] ram_metric.[5] ram_metric.[6] ram_metric.[7] done truncated
+metrics.trace.@atari : [42_env/episode]  = $train @episode_end $env_step game_score game_len game_frames hns57 ram_metric.[1] ram_metric.[2] ram_metric.[3] ram_metric.[4] ram_metric.[5] ram_metric.[6] ram_metric.[7] done truncated
 
 M1.[42_env/10_game_score_mean]      = $env_step mean.game_score  @episode_end $exp_step
 M1.[42_env/11_game_score_mean_ema]  = $env_step mean.game_score  @episode_end $exp_step $ema ema_alpha:0.001

@@ -20,7 +20,7 @@ ping -n 16 127.0.0.1 >nul
 tasklist /FI "IMAGENAME eq AnetRLRunner_ab.exe" 2>nul | find /I "AnetRLRunner_ab.exe" >nul
 if not errorlevel 1 goto :waitprev
 
-SET "SRC_EXE=%~dp0..\.scratch\r123-20261112\bin\AnetRLRunner_r123_20261112.exe"
+SET "SRC_EXE=%~dp0..\.scratch\r125-20261112\bin\AnetRLRunner_r125_20261112.exe"
 if not exist "%SRC_EXE%" goto :no_exe
 copy /Y "%SRC_EXE%" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
@@ -42,22 +42,19 @@ SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_updat
 SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
 SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
 SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
+SET "MZT2=E1.game=montezuma_revenge run.seed=2 run.eval.[greedy].eval_episodes=16"
 SET "NMDD=DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true"
 SET "R123=DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
 
 call :use_ws AtariRnd-01 Atari.txt
 
-echo === 20. montezuma_revenge 30m seed 1: b001 recipe (Munchausen off, Double DQN on) with the PRD123 RND default (warm-up 200k), beta 0.01 ===
-call :find_done mz_tg_r123_b001_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b001_s1"
+echo === 21. montezuma_revenge 30m seed 2: b001 recipe (Munchausen off, Double DQN on) with the PRD123 RND default (warm-up 200k), beta 0.01 ===
+call :find_done mz_tg_r123_b001_s2
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b001_s2"
 
-echo === 21. montezuma_revenge 30m seed 1: same as 20 but beta 0.003 ===
+echo === 22. montezuma_revenge 30m seed 1: same as 21 but seed 1 and beta 0.003 ===
 call :find_done mz_tg_r123_b0003_s1
 if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.003 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b0003_s1"
-
-echo === 22. montezuma_revenge 30m seed 1: same as 20 but beta 0.001 ===
-call :find_done mz_tg_r123_b0001_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.001 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b0001_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
