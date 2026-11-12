@@ -84,6 +84,7 @@
 | [issue-20261111-269a9f](issue-20261111-269a9f.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMergeEnv::Step が 267 行で行動の解釈・物理・裁定・統計・報酬を並べ、行動の解釈・DROP の位置・果物の走査・盤面の受け渡しにも写しがある |
 | [issue-20261111-54c7e1](issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261111-90fa5c](issue-20261111-90fa5c.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 110_runner_app | UI | リファクタリング | — | 未確認 | QValuePanel の ComputeQValueHeatMap が 218 行で値の変換・範囲の更新・投票・色の正規化を並べ、データの受け渡しにスレッド越し用の部品と保護の無いメンバが混ざっている |
+| [issue-20261112-983afe](issue-20261112-983afe.md) | 未着手 | 2.0 | — | 成果物 | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 未確認 | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD112](../../memo/112_claude_memory_tidy_10prd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261103-0ef7b8](issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD906](../../memo/906_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
@@ -144,7 +145,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 126 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
+着手できる 127 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

@@ -153,6 +153,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD945](../../memo/945_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-7f1789](../../management/issues/issue-20261103-7f1789.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 322_env_individual | アルゴリズム | 機能追加 | [PRD088](../../memo/088_nn_adaptive_max_pool_10prd.md) | 残件有り | 出力の大きさで指定する max pooling（AdaptiveMaxPool2d） |
 | [issue-20261111-269a9f](../../management/issues/issue-20261111-269a9f.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMergeEnv::Step が 267 行で行動の解釈・物理・裁定・統計・報酬を並べ、行動の解釈・DROP の位置・果物の走査・盤面の受け渡しにも写しがある |
+| [issue-20261112-983afe](../../management/issues/issue-20261112-983afe.md) | 未着手 | 2.0 | — | 成果物 | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 未確認 | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261110-adf548](../../management/issues/issue-20261110-adf548.md) | 未着手 | 1.6 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | GridMaze に MiniGrid 互換の課題が無く、難しい探索の検証と DI-engine との比較に使えない |
 | [issue-20261103-8c3c6d](../../management/issues/issue-20261103-8c3c6d.md) | 未着手 | 1.2 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 学習基盤 | 機能追加 | [PRD950](../../memo/950_replay_eviction_sample_count_10prd.md) | 残件有り | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る |
 | [issue-20261103-dbe666](../../management/issues/issue-20261103-dbe666.md) | 未着手 | 1.2 | — | 成果物 | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD915](../../memo/915_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
@@ -168,7 +169,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-13bc20](../../management/issues/issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 成果物 | PRD | 322_env_individual | Env | 機能追加 | [PRD086](../../memo/086_dropmerge_macro_actions_10prd.md) | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化） |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 19 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
+着手できる 20 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) — Evaluation Traceで内的報酬（RNDの新しさ）を見られない
 - 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）

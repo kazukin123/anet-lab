@@ -213,6 +213,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
 | [issue-20261111-07f4ed](../../management/issues/issue-20261111-07f4ed.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | 「N エピソードに 1 回だけ記録する」状態が Conv2dVisualizationObserver と GraphVizObserver に少し違う形で書かれ、記録を始める条件と終える条件が食い違っている |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
+| [issue-20261112-983afe](../../management/issues/issue-20261112-983afe.md) | 未着手 | 2.0 | — | 成果物 | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 未確認 | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 1.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD943](../../memo/943_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
 | [issue-20261103-182ca1](../../management/issues/issue-20261103-182ca1.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 学習基盤 | 性能改善 | [PRD909](../../memo/909_core_perf_candidates_202607_10prd.md) | 残件有り | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 |
@@ -243,7 +244,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 43 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
+着手できる 44 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) — Evaluation Traceで内的報酬（RNDの新しさ）を見られない
