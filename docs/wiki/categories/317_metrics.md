@@ -22,6 +22,7 @@
 - 2026-10-29: 評価sessionの採用episodeのstep traceを、Evaluation Traceと同じ列の書き方で`metrics.step_trace.[<tag>]`に宣言し、traceの行としてRunの記録に残す案を暫定で起票した（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、題・§4 D1・D2・D6）。
 
 - 2026-11-04: 画像メモリの所有権の不一致を、既存の寸法・画素値・画像種別を保って修正した（出典: [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md)、§1.2、[可観測性](../../design/140_observability.jp.md)、§7.3）。
+- 2026-11-12: Evaluation Traceの行を作る部品が、列の宣言から`$agent_step`の鍵を集め、RunnerのActorとあわせて、step診断の部品を作るときに渡す仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・§5.3）。
 
 ## 選ばなかった形
 
@@ -40,6 +41,8 @@
 - step traceの行の間引き — 先送り: 評価専用のRunなら行数が許容の範囲。再開条件: 行数が読み手やViewerの扱える量を超えたとき（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、§8）。
 - 学習側（`$train`）のstep trace — 範囲外: 行数が学習の長さに比例して増える。再開条件: 学習中の行動をstepごとに追う必要が出たとき（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、§8）。
 - 宣言した scalar の値が取れないことを INFO にする形 — 不採用: 鍵の綴り違いのような本物の誤りを INFO に埋める。休止した機能と、設定で無効にした機能は、鍵を保って NaN を返す（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D12・§8）。
+- step診断を呼ぶたびに列の鍵を渡す形 — 不採用: 列の宣言はRunの間変わらないので、部品を作るときの1回で足りる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§2.3・§4.1）。
+- 知らない`$agent_step`の鍵を、step診断の部品を作るときに検査して起動時に止める形 — 不採用: 知らない鍵の検査は5つのtargetに共通の1か所にあり、`$agent_step`だけを早めると止まる時機がtargetごとに分かれる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D10・§4.1）。
 
 ## 変えるときの条件
 
@@ -51,6 +54,7 @@
 - step traceの宣言が無い設定では、observerもstep部品も作らず、PRD103の検証資材の6構成のmetrics checksumを実装の前後で一致させる。既存の1行DSLのtraceの定義の記録（`json/metrics.trace.defs.json`）も前後で同一に保つ（出典: [919_eval_session_step_trace](../../memo/919_eval_session_step_trace_10prd.md)、§4 D2・D4・§7の受入1）。
 
 - 画像の所有権を直すときは寸法・全画素・画像種別を固定入力で比較し、生成・破棄の不一致を修正前に検出するメモリ検査を修正後にも通す。通常Debugの完走だけで代替せず、環境不足の項目は未達として記録する（出典: [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md)、§5 A1〜A3・A7）。
+- step診断へ列の鍵の一覧を渡しても、既存の3つの値（`q_sa`・`state_value`・`approx_priority`）の計算と、知らない鍵が最初の読み出しで止まる時機を変えない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D10・§5.3）。
 
 ## 関係
 

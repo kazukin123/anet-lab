@@ -36,6 +36,8 @@
 - 2026-11-02: manifestのgdiScalingを外してRunnerをPer-Monitor V2のDPI対応で動かし、画面の大きさを100%の大きさ（DIP）で書いて窓のDPIで直し、DPIの変更は画素で値を覚える部品が決め直し、Logsの字下げの幅をログ欄が描いた位置から測る案を暫定で起票した（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、題・§3のゴール・§4 D1〜D4）。
 - 2026-11-10: `QValuePanel::Update`を、Gridの更新、ヒートマップの加工、描画に分け、加工を画面の部品に依らない関数に切り出して単体テストを足す仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10・D11・§5.2）。
 - 2026-11-12: EvalPanelがConv2dのpaneが開いている間だけstepにnn_traceの要求を渡し、RunnerAppが録画する設定（intervalが1以上）のConv2dの画像記録を登録したRunで学習側のstepに渡す仕様をグリルで決めた。Traceのダンプは要求しない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D1・D13・D14・§5.4）。
+- 2026-11-12: RNDを選んだRun（Atari・GridMaze・LunarLanderの`run.@rnd`）のEvaluation Traceに、内的報酬の3列（`rnd_err`・`rnd_norm`・`rnd_bonus`）を600番台で足す仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D12・§5.5）。
+- 2026-11-12: Evaluation Traceのpaneを閉じている間はstep診断の部品を休ませ、開いたときに写しが無ければEvalPanelがその場でActorを同期する仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D20・§5.4）。
 
 ## 選ばなかった形
 
@@ -261,10 +263,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) | 調査中 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
 | [issue-20261111-61ad60](../../management/issues/issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261110-3f4e63](../../management/issues/issue-20261110-3f4e63.md) | 未着手 | 4.5 | — | 成果物 | PRD | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
-| [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) | 未着手 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | — | 未確認 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
 | [issue-20261111-9e6e27](../../management/issues/issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | 成果物 | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | 成果物 | PRD | 312_util, 110_runner_app | 基盤 | 機能改善 | [PRD071](../../memo/071_uncaught_fatal_visibility_10prd.md) | 残件有り | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |

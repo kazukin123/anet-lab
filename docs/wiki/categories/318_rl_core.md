@@ -65,6 +65,9 @@
 - 2026-11-09: 文書・コメント・設定の小さな食い違いを束ねたPRDを再グリルで決め、InitialPriorityCompleterの`@note`に`GetStats`を足し、ObserverFactoryの古いscalar記法のコメントを140 §6と`ParseMetricTokens`への参照の1行に置き換えることにした（出典: [PRD119](../../memo/119_small_doc_comment_config_fixes_10prd.md)、§4 D3・D9）。
 - 2026-11-10: PRD918 で eval schedule の `offset` と `warmup_count` を追加した。列の調整は EpisodeEvalObserver が持ち、RunManager が Env 生成前の値の検証と配線を行う（出典: [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md)、§4・§5.5；[Observability](../../design/140_observability.jp.md)、eval schedule の説明）。
 - 2026-11-12: 行動選択に添える入力をMakeActionOptionsにし、Runnerのstep（DoStep・DoUpdateFrame）とActorのMakeActionの引数で都度渡す仕様をグリルで決めた。nn_traceは要求したstepだけ作り、coreに要求の登録を持たない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D2・D3・D4・D6；[ADR 0072](../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）。
+- 2026-11-12: `Agent::CreateStepDiagnosticsProvider`の引数を、laneの数・Evaluation Traceの列の鍵の一覧・RunnerのActorを持つ入力（`AgentStepDiagnosticsRequest`）に替える仕様をグリルで決めた。鍵の一覧は計算するかどうかだけを決め、鍵の認識は変えない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・D9・§5.2・§6.1）。
+- 2026-11-12: Actorに、同期に従うもの（`ActorSyncFollower`）をつなぐ口（`AttachSyncFollower`）を足す仕様をグリルで決めた。Actorは、sourceから写し直すとき、sourceを守るロックの中でそれを呼び、相手を所有しない。基底の既定は、つながずに偽を返す（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§3・§4 D4・§6.1）。
+- 2026-11-12: step診断の部品（`AgentStepDiagnosticsProvider`）に、休ませる口（`Suspend`）と使い始める口（`Resume`。Actorの同期が要るかを返す）を足す仕様をグリルで決めた。基底の既定は、何もせず、偽を返す（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D20・§5.4・§6.1）。
 
 ## 選ばなかった形
 

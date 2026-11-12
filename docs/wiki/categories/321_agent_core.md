@@ -66,6 +66,7 @@
 - 2026-11-11: RNDのwhitenで、warm-up中の誤差を誤差の統計から外す既定と、誤差の統計の取り方（累積・直近重み）、平均を引くかの選択を足す仕様をグリルで決めた（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、題・§1・§4 D2・D4・D7）。
 - 2026-11-12: TD・QR・IQNの1回の更新の進行を基底の学習器の1か所へ寄せ、Munchausenの評価とtargetの式を共通の関数にする仕様をグリルで決めた（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、題・§1・§4 D1・D2・D10・D11）。
 - 2026-11-12: Actorがnn_traceを要求された呼び出しだけcaptureで取り出し、SelectAction系がcallbackの代わりにcaptureを受ける仕様をグリルで決めた（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D7・D9・D11・D12）。
+- 2026-11-12: 一生の新しさの推定器に、重みも統計も変えずに採点する口（`EstimateWithoutUpdate`）、写しを作る口（`Clone`）、laneごとの診断値の鍵の一覧を足し、DQNのstep診断の部品が、列の鍵に内的報酬の鍵があるときだけ採点する仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D1・D3・D4・§6.1）。
 
 ## 選ばなかった形
 
@@ -120,6 +121,9 @@
 - Actorがforwardを包み、SelectActionから引数を無くす形 — 不採用: 包むための新しい型が要る（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4.1）。
 - nn_traceを読む側が、通知に載った観測からforwardをやり直して途中の出力を得る形 — 不採用: 行動選択に使ったforwardそのものの値を出す方針で、やり直すとNoisyNetの雑音やIQNのτの抽選で値が食い違う（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4.1；[PRD006](../../memo/done/006_conv2d_visual_trace_10prd.md)、§2）。
 - nn_traceを作れないActorが要求を受けたときに、何も知らせずに黙って作らない形 — 不採用: Fail-Fast原則の表が「実装の欠けによる機能の一部の省略」をRunごとに1回のWARNと定めており、paneが空の理由が利用者に分からない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D12）。
+- step診断の内的報酬の鍵を、読まれたときに計算する形 — 不採用: 値を返すだけに見える読み出しがNetworkを通し、読む時機で計算の時点がずれる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・§4.1）。
+- RNDが有効なら、step診断が常に内的報酬を採点する形 — 不採用: 評価sessionの記録で`q_sa`だけを宣言したとき、全lane・全stepで使われない採点が走る（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4.1）。
+- RNDのNetworkに、forwardで乱数を引く層（dropout・droppath）や内部の統計を書き換える層（BatchNorm）がある構成を検出してWARNする形 — 不採用: 学習の採点も同じforwardで今も検出しておらず、出荷設定には無い（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D11・§4.1）。
 
 ## 変えるときの条件
 
@@ -147,6 +151,7 @@
 - targetの式の共通の関数は実空間の値だけを受け取り、hは完成したtargetに1回だけ掛ける（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、§4 D11・§5.3）。
 - 学習器の更新の速さは、Releaseで着手前に保存した実行体と直した後の実行体を交互に3巡以上流し、更新1回あたりの実時間の中央値が直す前のRunの最大値を超えないことで確かめる（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、§4 D16・§6 A9）。
 - DefaultDQN系とImageClsのnn_traceの鍵と値を、captureへの統合の前後で変えない。TempoRLのskip側のforwardと、Learnerがtargetの方策を呼ぶSelectActionからは取り出さない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§3.1 G2・§5.2）。
+- 推定器の読むだけの採点（`EstimateWithoutUpdate`）を挟んでも、`Estimate`・`Learn`の戻り値と`Diagnostics`の値が変わらないことを、whitenの累積・直近重みと`variance_feedback`の3構成で確かめる。どの方式でも、読むだけの採点の倍率が、直後にその観測1件を`Estimate`へ渡したときの倍率と一致する。写しを採点しても元の推定器は変わらない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§5.1・§7の1・2・4）。
 
 ## 関係
 

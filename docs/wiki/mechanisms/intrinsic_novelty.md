@@ -65,5 +65,6 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)（924 の第一の腕。一生の新しさの口と RND の実装）。
 - [外的と内的の価値の分解の暫定 PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)（Q を外的と内的の 2 つの Head で学ぶ形と、924 との関係）。
 - [RND の内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask）。
+- [Evaluation Trace で RND の内的報酬を見る PRD](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)（評価の step の値は可視化用で、統計を変えない採点で出す。採点の場所の問いは 924 に残す）。
 - 仕組み: [RND の解説](../../design/212_rnd_lifelong_novelty.jp.md) §3.2〜§3.5（誤差の統計と warm-up）。
 - [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)。
