@@ -14,7 +14,6 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
-#include <wx/cmdline.h>
 #include <wx/utils.h>
 
 #include <torch/nn/functional/upsampling.h>
@@ -472,7 +471,7 @@ TEST_CASE("GrayscaleResizer preserves adaptive average and uint8 rounding", "[at
         102, 103, 202, 204,
     };
 
-    const anet::rl::env::atari::GrayscaleResizer resizer(4, 4, 2, "adaptive_average");
+    const anet::rl::env::atari::GrayscaleResizer resizer(4, 4, 2, anet::rl::env::atari::ResizeMode::AdaptiveAverage);
     const auto output = resizer.Resize(source.data());
 
     CHECK(output.sizes().vec() == std::vector<int64_t>{ 1, 2, 2 });
@@ -616,6 +615,115 @@ TEST_CASE("AtariEnv reports a configured RAM metric at game completion", "[atari
         static_cast<float>(completed->GetAuxData().at("ram_metric.score_high").item<int64_t>()));
 }
 
+constexpr char kAtariTestGame[] = "pong";
+constexpr char kRamRoomsDefinition[] = "0x83 distinct_seen";
+constexpr char kRamKeyRiseDefinition[] = "0xC1 bit_rise_count:030";
+constexpr char kRamSwordUseDefinition[] = "0xC1 bit_fall_count:0x20";
+constexpr char kRamInventoryBindings[] = "1:keys 2:sword";
+
+TEST_CASE("RAM distinct values include the initial value and reset per game", "[atari][ram_metric][config][prd126]")
+{
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("AtariEnv.ram_metric.[pong].[rooms]", kRamRoomsDefinition);
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:rooms");
+    const anet::rl::env::AtariEnvConfig config(data);
+    anet::rl::env::RamMetricState state{.definition = config.ram_metrics.at(kAtariTestGame).at(1)};
+    state.Begin(1);
+    CHECK(state.Value() == 1);
+    for (const uint8_t value : {0, 1, 2, 6, 2}) state.Observe(value);
+    CHECK(state.Value() == 4);
+    state.Begin(0);
+    for (int value = 1; value <= 255; ++value) state.Observe(static_cast<uint8_t>(value));
+    CHECK(state.Value() == 256);
+    state.Begin(1);
+    CHECK(state.Value() == 1);
+    for (int repeat = 0; repeat < 20; ++repeat) {
+        state.Observe(2);
+        state.Observe(1);
+    }
+    CHECK(state.Value() == 2);
+}
+
+TEST_CASE("RAM rising bits count every masked transition but not initial inventory", "[atari][ram_metric][config][prd126]")
+{
+    const auto entry = GENERATE(std::array<int, 4>{0, 2, 1, 0},
+        std::array<int, 4>{2, 6, 1, 0}, std::array<int, 4>{2, 34, 0, 1},
+        std::array<int, 4>{34, 32, 0, 0}, std::array<int, 4>{32, 0, 0, 0},
+        std::array<int, 4>{0, 6, 2, 0}, std::array<int, 4>{2, 2, 0, 0});
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("AtariEnv.ram_metric.[pong].[keys]", "0xC1 bit_rise_count:30");
+    data.Set("AtariEnv.ram_metric.[pong].[sword]", "0xC1 bit_rise_count:32");
+    data.Set("AtariEnv.ram_metric.[pong].metrics", kRamInventoryBindings);
+    const anet::rl::env::AtariEnvConfig config(data);
+    for (int number = 1; number <= 2; ++number) {
+        CAPTURE(entry, number);
+        anet::rl::env::RamMetricState state{.definition = config.ram_metrics.at(kAtariTestGame).at(number)};
+        state.Begin(static_cast<uint8_t>(entry[0]));
+        CHECK(state.Value() == 0);
+        state.Observe(static_cast<uint8_t>(entry[1]));
+        CHECK(state.Value() == entry[number + 1]);
+    }
+}
+
+TEST_CASE("RAM falling bits count each masked removal", "[atari][ram_metric][config][prd126]")
+{
+    const auto entry = GENERATE(std::array<int, 4>{0, 2, 0, 0},
+        std::array<int, 4>{2, 6, 0, 0}, std::array<int, 4>{2, 34, 0, 0},
+        std::array<int, 4>{34, 32, 1, 0}, std::array<int, 4>{32, 0, 0, 1},
+        std::array<int, 4>{0, 6, 0, 0}, std::array<int, 4>{6, 0, 2, 0});
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("AtariEnv.ram_metric.[pong].[keys]", "0xC1 bit_fall_count:30");
+    data.Set("AtariEnv.ram_metric.[pong].[sword]", kRamSwordUseDefinition);
+    data.Set("AtariEnv.ram_metric.[pong].metrics", kRamInventoryBindings);
+    const anet::rl::env::AtariEnvConfig config(data);
+    for (int number = 1; number <= 2; ++number) {
+        CAPTURE(entry, number);
+        anet::rl::env::RamMetricState state{.definition = config.ram_metrics.at(kAtariTestGame).at(number)};
+        state.Begin(static_cast<uint8_t>(entry[0]));
+        CHECK(state.Value() == 0);
+        state.Observe(static_cast<uint8_t>(entry[1]));
+        CHECK(state.Value() == entry[number + 1]);
+        state.Begin(0);
+        CHECK(state.Value() == 0);
+    }
+}
+
+TEST_CASE("RAM reducer masks preserve accepted spellings and diagnose invalid values", "[atari][ram_metric][config][prd126]")
+{
+    const std::string reducer = GENERATE("bit_rise_count", "bit_fall_count");
+    const std::string key = "AtariEnv.ram_metric.[pong].[inventory]";
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("AtariEnv.ram_metric.[pong].metrics", "1:inventory");
+    for (const auto& [mask, expected] : std::vector<std::pair<std::string, int>>{
+            {"30", 30}, {"030", 30}, {"0x1E", 30}, {"0x1e", 30},
+            {"1", 1}, {"255", 255}, {"0xFF", 255}}) {
+        CAPTURE(reducer, mask);
+        const auto raw = "0xC1 " + reducer + ":" + mask;
+        data.Set(key, raw);
+        const anet::rl::env::AtariEnvConfig config(data);
+        CHECK(config.ram_metrics.at(kAtariTestGame).at(1).mask == expected);
+        CHECK(config.GetScopedConfigData().Get(key) == raw);
+    }
+    for (const std::string mask : {"0", "000", "0x00", "256", "0x100", "0x1", "0X1E",
+            "-1", "+30", "1E", "", "0x", "0xGG", "999999999999999999999999"}) {
+        CAPTURE(reducer, mask);
+        const auto raw = "0xC1 " + reducer + ":" + mask;
+        data.Set(key, raw);
+        CHECK_THROWS_WITH(anet::rl::env::AtariEnvConfig(data), Catch::Matchers::ContainsSubstring(
+            key + " has invalid reducer '" + reducer + ":" + mask + "' in '" + raw
+            + "'; expected " + reducer + ":MASK with MASK in 1..255 or 0x01..0xFF."));
+    }
+    data.Set(key, "0xC1 unknown");
+    CHECK_THROWS_WITH(anet::rl::env::AtariEnvConfig(data), Catch::Matchers::ContainsSubstring(
+        key + " has invalid reducer 'unknown' in '0xC1 unknown'; expected max_seen, min_seen, "
+        "distinct_seen, inc_count, dec_count, reach_count:N, bit_rise_count:MASK, or bit_fall_count:MASK."));
+}
+
 TEST_CASE("RAM metric reducers distinguish the initial value from transitions", "[atari][ram_metric]")
 {
     using anet::rl::env::RamMetricDefinition;
@@ -698,6 +806,43 @@ TEST_CASE("AtariEnvConfig reports accepted RAM declarations in its effective con
     CHECK(config.ToJson().at("ram_metric.[pong].metrics") == "1:score");
 }
 
+TEST_CASE("Atari RAM new reducers retain numbered definitions in effective config", "[atari][ram_metric][config][prd126]")
+{
+    constexpr char kProgressBindings[] = "1:rooms 2:keys 3:used";
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("AtariEnv.ram_metric.[pong].[rooms]", kRamRoomsDefinition);
+    data.Set("AtariEnv.ram_metric.[pong].[keys]", kRamKeyRiseDefinition);
+    data.Set("AtariEnv.ram_metric.[pong].[used]", kRamSwordUseDefinition);
+    data.Set("AtariEnv.ram_metric.[pong].metrics", kProgressBindings);
+    const anet::rl::env::AtariEnvConfig config(data, "run.eval.[eval_target].env");
+    CHECK(config.known_ram_metric_numbers == std::set<int64_t>{1, 2, 3});
+    REQUIRE(config.ram_metrics.at(kAtariTestGame).size() == 3);
+    const auto effective = config.GetScopedConfigData();
+    for (const auto& [suffix, raw] : std::vector<std::pair<std::string, std::string>>{
+            {"[rooms]", kRamRoomsDefinition}, {"[keys]", kRamKeyRiseDefinition},
+            {"[used]", kRamSwordUseDefinition}, {"metrics", kProgressBindings}}) {
+        CAPTURE(suffix);
+        CHECK(effective.Get("run.eval.[eval_target].env.ram_metric.[pong]." + suffix) == raw);
+        CHECK(config.ToJson().at("ram_metric.[pong]." + suffix) == raw);
+    }
+}
+
+TEST_CASE("Atari RAM evaluation overrides remain unread until the tag check", "[atari][ram_metric][config][prd126]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("run.eval.[evalg].env.ram_metric.[pong].[top]", "0x8D max_seen");
+    const auto tags = data.MakeSubConfigData("run.eval");
+    const anet::rl::env::AtariEnvFactory factory;
+    CHECK_NOTHROW(anet::rl::env::AtariEnvConfig(data));
+    REQUIRE_NOTHROW(factory.ValidateConfig(data, anet::rl::RunMode::Eval, "run.eval.[evalg].env"));
+    CHECK_THROWS_WITH(tags.at("evalg").RequireAllKeysRead("run.eval.[evalg]"),
+        Catch::Matchers::ContainsSubstring("Unread config keys in run.eval.[evalg]:")
+        && Catch::Matchers::ContainsSubstring("env.ram_metric.[pong].[top] = 0x8D max_seen"));
+}
+
 TEST_CASE("AtariEnvConfig rejects malformed RAM definitions before ROM loading", "[atari][ram_metric][config]")
 {
     anet::ConfigData base;
@@ -721,7 +866,6 @@ TEST_CASE("AtariEnvConfig rejects malformed RAM definitions before ROM loading",
         {"AtariEnv.ram_metric.[pong].[bad-label]", "0x8D max_seen"},
         {"AtariEnv.ram_metric.[BadGame].[top]", "0x8D max_seen"},
         {"AtariEnv.ram_metric.[pong].broken.[top]", "0x8D max_seen"},
-        {"run.eval.[eval_target].env.ram_metric.[pong].[top]", "0x8D max_seen"},
     };
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     for (const auto& [key, value] : invalid_values) {
@@ -1600,7 +1744,7 @@ TEST_CASE("GrayscaleResizer uses pixel overlap for fractional downsampling", "[a
 {
     // 3→2の境界をまたぐ画素で、等重みのadaptive平均との違いを固定する。
     const std::vector<uint8_t> source{0, 0, 90, 0, 0, 90, 90, 90, 90};
-    const anet::rl::env::atari::GrayscaleResizer resizer(3, 3, 2, "pixel_area");
+    const anet::rl::env::atari::GrayscaleResizer resizer(3, 3, 2, anet::rl::env::atari::ResizeMode::PixelArea);
     const auto output = resizer.Resize(source.data());
     CHECK(output.sizes().vec() == std::vector<int64_t>{1, 2, 2});
     CHECK(output.dtype() == torch::kUInt8);
@@ -1621,8 +1765,8 @@ TEST_CASE("Pixel area matches each fixed OpenCV reference image", "[atari][prd09
     const auto expected = read(directory / "expected_84x84.u8");
     REQUIRE(frames.size() == 24 * 210 * 160);
     REQUIRE(expected.size() == 24 * 84 * 84);
-    const anet::rl::env::atari::GrayscaleResizer area(210, 160, 84, "pixel_area");
-    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, "adaptive_average");
+    const anet::rl::env::atari::GrayscaleResizer area(210, 160, 84, anet::rl::env::atari::ResizeMode::PixelArea);
+    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, anet::rl::env::atari::ResizeMode::AdaptiveAverage);
     int maximum_error = 0;
     int total_mismatches = 0;
     bool differs_from_adaptive = false;
@@ -1691,29 +1835,23 @@ TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration k
     }
 }
 
-TEST_CASE("Atari Run profile selects pixel area while evaluation keeps explicit overrides", "[atari][prd099][resize-profile][shipped_config]")
+TEST_CASE("Atari resize configuration inherits common values and keeps explicit overrides", "[atari][prd099][resize-profile][config]")
 {
-    // 実際のAtari.txtを解決し、Runの共通値と評価個別の責務を確認する。
-    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "apps/runner/config";
-    const wxCmdLineEntryDesc description[] = {
-        {wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
-            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE}, {wxCMD_LINE_NONE},
-    };
-    wxCmdLineParser cli(description, wxString::FromUTF8(
-        "run.$=run.@v5_iqn_impala_x2>run.@pixel_area run.eval.[eval_panel].env.resize_mode=adaptive_average"));
-    REQUIRE(cli.Parse(false) == 0);
-    anet::ConfigManagerOptions options;
-    options.config_search_dirs = {directory};
-    options.overwrite_config_paths = {directory / "Atari.txt"};
-    const auto data = anet::ConfigManager(directory / "_main.txt", &cli, options).GetConfigData();
-    CHECK(data.Get("AtariEnv.resize_mode") == "pixel_area");
+    // 継承と評価個別の上書きを合成入力で確認し、出荷設定の実験値には依存しない。
+    constexpr char kCommonMode[] = "pixel_area";
+    constexpr char kPanelMode[] = "adaptive_average";
+    anet::ConfigData data;
+    data.Set("AtariEnv.game", kAtariTestGame);
+    data.Set("AtariEnv.resize_mode", kCommonMode);
+    data.Set("run.eval.[eval_panel].env.resize_mode", kPanelMode);
     const anet::rl::env::AtariEnvConfig common(data);
-    CHECK(common.resize_mode == "pixel_area");
+    CHECK(common.GetScopedConfigData().Get("AtariEnv.resize_mode") == kCommonMode);
+    CHECK(common.resize_mode == anet::rl::env::atari::ResizeMode::PixelArea);
     const anet::rl::env::AtariEnvConfig panel(data, "run.eval.[eval_panel].env");
-    CHECK(panel.resize_mode == "adaptive_average");
-    CHECK(panel.GetScopedConfigData().Get("run.eval.[eval_panel].env.resize_mode") == "adaptive_average");
+    CHECK(panel.resize_mode == anet::rl::env::atari::ResizeMode::AdaptiveAverage);
+    CHECK(panel.GetScopedConfigData().Get("run.eval.[eval_panel].env.resize_mode") == kPanelMode);
     const anet::rl::env::AtariEnvConfig inherited(data, "run.eval.[eval_target].env");
-    CHECK(inherited.resize_mode == "pixel_area");
+    CHECK(inherited.resize_mode == anet::rl::env::atari::ResizeMode::PixelArea);
 }
 
 TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari][prd099][resize-boundary]")
@@ -1722,7 +1860,7 @@ TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari]
     // 半整数と途中丸めを、二進で正確な重みになる入力で固定する。
     const std::vector<std::vector<uint8_t>> examples{{0, 1, 0, 1}, {1, 2, 1, 2}, {2, 3, 2, 3}, {0, 1, 0, 2}};
     const std::vector<int> rounded{0, 2, 2, 1};
-    const GrayscaleResizer half(2, 2, 1, "pixel_area");
+    const GrayscaleResizer half(2, 2, 1, anet::rl::env::atari::ResizeMode::PixelArea);
     for (size_t i = 0; i < examples.size(); ++i) {
         CAPTURE(i);
         CHECK(half.Resize(examples[i].data()).item<uint8_t>() == rounded[i]);
@@ -1730,7 +1868,7 @@ TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari]
 
     // 元画面の大きさでも半整数を保つ。浮動小数の逐次積算では128.5が129へ化けた。
     std::vector<uint8_t> native_half(210 * 160);
-    const GrayscaleResizer native_average(210, 160, 1, "pixel_area");
+    const GrayscaleResizer native_average(210, 160, 1, anet::rl::env::atari::ResizeMode::PixelArea);
     for (int base : {0, 1, 2, 126, 127, 128, 129, 254}) {
         CAPTURE(base);
         for (bool horizontal : {false, true}) {
@@ -1744,7 +1882,7 @@ TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari]
             CHECK(native_average.Resize(native_half.data()).item<uint8_t>() == base + base % 2);
         }
     }
-    const GrayscaleResizer native_fractional(210, 160, 84, "pixel_area");
+    const GrayscaleResizer native_fractional(210, 160, 84, anet::rl::env::atari::ResizeMode::PixelArea);
     for (int base : {126, 127, 128, 129}) {
         CAPTURE(base);
         std::fill(native_half.begin(), native_half.end(), static_cast<uint8_t>(base));
@@ -1758,7 +1896,7 @@ TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari]
     std::vector<uint8_t> source(5 * 7);
     for (size_t i = 0; i < source.size(); ++i) source[i] = static_cast<uint8_t>((17 * i) % 256);
     for (int size = 1; size <= 5; ++size) {
-        const GrayscaleResizer area(5, 7, size, "pixel_area");
+        const GrayscaleResizer area(5, 7, size, anet::rl::env::atari::ResizeMode::PixelArea);
         const auto actual = area.Resize(source.data());
         const auto* pixels = actual.data_ptr<uint8_t>();
         for (int y = 0; y < size; ++y) {
@@ -1782,26 +1920,26 @@ TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari]
     std::vector<uint8_t> constant(210 * 160, 17);
     for (int size = 1; size <= 160; ++size) {
         CAPTURE(size);
-        const GrayscaleResizer area(210, 160, size, "pixel_area");
+        const GrayscaleResizer area(210, 160, size, anet::rl::env::atari::ResizeMode::PixelArea);
         const auto image = area.Resize(constant.data());
         CHECK(image.sizes().vec() == std::vector<int64_t>{1, size, size});
         CHECK(image.min().item<uint8_t>() == 17);
         CHECK(image.max().item<uint8_t>() == 17);
     }
     for (int size : {1, 84, 160}) {
-        const GrayscaleResizer area(210, 160, size, "pixel_area");
+        const GrayscaleResizer area(210, 160, size, anet::rl::env::atari::ResizeMode::PixelArea);
         for (size_t i = 0; i < constant.size(); ++i) constant[i] = i % 2 ? 203 : 17;
         const auto image = area.Resize(constant.data());
         CHECK(image.min().item<uint8_t>() >= 17);
         CHECK(image.max().item<uint8_t>() <= 203);
     }
-    const GrayscaleResizer existing(210, 160, 161, "adaptive_average");
+    const GrayscaleResizer existing(210, 160, 161, anet::rl::env::atari::ResizeMode::AdaptiveAverage);
     CHECK(existing.Resize(constant.data()).sizes().vec() == std::vector<int64_t>{1, 161, 161});
 
     // 整数倍の箱平均は既存方式と一致し、入力は借用しても結果は独立して所有する。
     const std::vector<uint8_t> box{0, 1, 10, 11, 2, 2, 12, 12, 100, 101, 200, 201, 102, 103, 202, 204};
-    const GrayscaleResizer area_box(4, 4, 2, "pixel_area");
-    const GrayscaleResizer existing_box(4, 4, 2, "adaptive_average");
+    const GrayscaleResizer area_box(4, 4, 2, anet::rl::env::atari::ResizeMode::PixelArea);
+    const GrayscaleResizer existing_box(4, 4, 2, anet::rl::env::atari::ResizeMode::AdaptiveAverage);
     CHECK(torch::equal(area_box.Resize(box.data()), existing_box.Resize(box.data())));
     auto borrowed = std::vector<uint8_t>{7, 7, 7, 7};
     const auto owned = half.Resize(borrowed.data());
@@ -1871,7 +2009,7 @@ TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][
     actual.reserve(160);
     for (int size = 1; size <= 160; ++size) {
         reference.emplace_back(210, 160, size, "pixel_area");
-        actual.emplace_back(210, 160, size, "pixel_area");
+        actual.emplace_back(210, 160, size, anet::rl::env::atari::ResizeMode::PixelArea);
     }
     int comparisons = 0;
     int64_t pixels = 0;
@@ -1920,7 +2058,7 @@ TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][
     // 32bitに収まらない任意寸法も、従来の64bit積算で維持する。
     const std::vector<uint8_t> large(3000 * 3000, 255);
     const PixelAreaReferenceResizer wide_reference(3000, 3000, 1, "pixel_area");
-    const GrayscaleResizer wide_actual(3000, 3000, 1, "pixel_area");
+    const GrayscaleResizer wide_actual(3000, 3000, 1, anet::rl::env::atari::ResizeMode::PixelArea);
     REQUIRE(torch::equal(wide_reference.Resize(large.data()), wide_actual.Resize(large.data())));
     CHECK(wide_actual.Resize(large.data()).item<uint8_t>() == 255);
     std::cout << "PRD099 exact equivalence comparisons=" << comparisons << " pixels=" << pixels
@@ -1936,8 +2074,8 @@ TEST_CASE("PRD099 resize prototype timings", "[.][prd099-resize-probe]")
     const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
     REQUIRE(frames.size() == 24 * 210 * 160);
     const PixelAreaReferenceResizer baseline(210, 160, 84, "pixel_area");
-    const anet::rl::env::atari::GrayscaleResizer current(210, 160, 84, "pixel_area");
-    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, "adaptive_average");
+    const anet::rl::env::atari::GrayscaleResizer current(210, 160, 84, anet::rl::env::atari::ResizeMode::PixelArea);
+    const anet::rl::env::atari::GrayscaleResizer adaptive(210, 160, 84, anet::rl::env::atari::ResizeMode::AdaptiveAverage);
     int checksum = 0;
     const auto time = [&](const auto& resizer, int count) {
         const auto begin = std::chrono::steady_clock::now();

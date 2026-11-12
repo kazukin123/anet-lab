@@ -1,6 +1,6 @@
 # PRD082 RAM メトリクスの検証
 
-`AtariEnv-test` の `[ram_metric]` は、設定検証、5 種の畳み方、Pong の skip 窓内遷移、kung_fu_master の実値、episodic-life の soft / hard reset、AuxData、完了ログを検証する。ROM 依存ケースは `ATARI_ROM_DIR` に対象 ROM がない場合 SKIP する。全 `[atari]` は既存の `game_score`、報酬、reset の回帰も含む。
+`AtariEnv-test` の `[ram_metric]` は、設定検証、8 種の畳み方、Pong の skip 窓内遷移、kung_fu_master の実値、episodic-life の soft / hard reset、AuxData、完了ログを検証する。ROM 依存ケースは `ATARI_ROM_DIR` に対象 ROM がない場合 SKIP する。全 `[atari]` は既存の `game_score`、報酬、reset の回帰も含む。
 
 リポジトリルートの PowerShell から実行する:
 

@@ -1,12 +1,13 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <vector>
 
 #include <torch/torch.h>
 
 namespace anet::rl::env::atari {
+
+    enum class ResizeMode { AdaptiveAverage, PixelArea };
 
     class RollingMaxPool final {
     public:
@@ -31,7 +32,7 @@ namespace anet::rl::env::atari {
     class GrayscaleResizer final {
     public:
         GrayscaleResizer(int source_height, int source_width, int destination_size,
-            const std::string& mode);
+            ResizeMode mode);
         /// pixel_areaは作業領域を再利用するため、同一縮小器のResizeを同時実行しない。
         torch::Tensor Resize(const uint8_t* source) const;
 

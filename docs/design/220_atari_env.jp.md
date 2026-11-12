@@ -182,7 +182,7 @@ Step(action_index):
 前処理は `AtariPreprocess` の関数群と `GrayscaleResizer`（named namespace、ALE非依存）で行い、合成入力と固定画像のテストで数値を確認する。
 
 - `PixelwiseMax(a, b, out)` — 210×160グレー2枚の要素max。
-- `GrayscaleResizer(src_h, src_w, S, mode).Resize(src)` — 各Envが設定と重みを所有し、Reset/Stepの両方でCPU縮小してから観測をdeviceへ送る。
+- `GrayscaleResizer(src_h, src_w, S, mode).Resize(src)` — `mode` は設定読み取り時に文字列から変換した `atari::ResizeMode`（`AdaptiveAverage` / `PixelArea`）。各Envが設定と重みを所有し、Reset/Stepの両方でCPU縮小してから観測をdeviceへ送る。
 - `pixel_area`の作業領域は縮小器が構築時に確保し、各Resizeで再利用する。同一縮小器のResizeは同時に呼び出さない。各AtariEnvが独自の縮小器を持ち、同じEnvのReset/Stepは直列に実行する。出力Tensorは呼び出しごとに独立して所有する。
 - `adaptive_average`は既存のfloat32 `interpolate(mode=area)`→`round().clamp(0,255).to(kUInt8)`を維持する。非整数比では、整数窓の等重み平均でありOpenCV INTER_AREAと同じ値とは限らない。
 - `pixel_area`は出力領域と元画素の重なり面積で平均する。各軸の重みを構築時に準備し、横→縦を整数化せず計算した最後に偶数丸めしてuint8 `[1,S,S]`を返す。正方形のS=1〜160を認め、拡大はエラーとする。OpenCVの全分岐の丸めを再現する契約ではない。
@@ -278,12 +278,14 @@ CHNS（capped HNS、Agent57）と human gap（IQN Table 1、`gap = min(max(1 - H
 
 ### 4.9 RAM メトリクス
 
-`AtariEnv.ram_metric.[game].[label] = <0x80..0xFF> <畳み方>` で RAM バス番地と意味名を宣言し、同じゲームの `.metrics = 1:label 2:label ...` で汎用番号に結ぶ。全ゲームの宣言を ROM 読み込み前に検証する。番号のない定義は RAM 知識として保持するが評価しない。eval env の `run.eval.[tag].env.ram_metric.*` 上書きは受け付けず、設定読み込み時に fail-fast する。
+`AtariEnv.ram_metric.[game].[label] = <0x80..0xFF> <畳み方>` で RAM バス番地と意味名を宣言し、同じゲームの `.metrics = 1:label 2:label ...` で汎用番号に結ぶ。全ゲームの宣言を ROM 読み込み前に検証する。番号のない定義は RAM 知識として保持するが評価しない。eval env の `run.eval.[tag].env.ram_metric.*` 上書きは読まない。書いた行は Run の起動時に読まれない設定キーとして止まる。
 
 ゲーム名は小文字 snake_case に限定し、空の `.metrics` 行は fail-fast する。受理した定義と `.metrics` 行は、番号のない定義も含めて Module Config の実効設定へ記録する。
-eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[tag].env.ram_metric.*` の形で出る。これは実効値の記録であり、同じ形を入力に書くと fail-fast する。
+eval env の設定ダンプ（`config/env.eval.txt` など）には `run.eval.[tag].env.ram_metric.*` の形で出る。これは実効値の記録であり、同じ形を入力に書いても上書きは読まない。書いた行は Run の起動時に読まれない設定キーとして止まる。
 
-畳み方は `max_seen` / `min_seen`（`reset_game()` 直後の値を含む最大・最小）、`inc_count` / `dec_count`（前フレームからの増加・減少回数）、`reach_count:N`（0～255 の N へ入った回数）の 5 種。比較するのは生の 1 バイトで、毎 `act()` 後に観測する。集計は実ゲーム 1 回を単位とし、episodic-life の soft reset をまたいで継続、`reset_game()` ごとに仕切り直す。
+畳み方は `max_seen` / `min_seen`（`reset_game()` 直後の値を含む最大・最小）、`distinct_seen`（同じ初期値を含む、観測した値の種類数）、`inc_count` / `dec_count`（前フレームからの増加・減少回数）、`reach_count:N`（0～255 の N へ入った回数）、`bit_rise_count:MASK` / `bit_fall_count:MASK`（マスク内で 0→1 / 1→0 になったビットの数）の 8 種。比較するのは生の 1 バイトで、毎 `act()` 後に観測する。集計は実ゲーム 1 回を単位とし、episodic-life の soft reset をまたいで継続、`reset_game()` ごとに仕切り直す。
+
+`distinct_seen` は 1〜256 で、開始の値から動かなかったゲームは 1 になる。ビットの 2 語は 0 から始め、開始時にすでに 1 のビットは数えず、同じフレームで 2 つのビットが変われば 2 を足す。マスクは 1〜255 の数字だけの 10 進（先頭の 0 を許す）か、`0x` と 16 進 2 桁（`0x01`〜`0xFF`、英字の大小は問わない）で指定し、0・範囲外・それ以外の形は設定読み取り時に fail-fast する。ビットの意味は利用側の RAM 定義が持つ。Montezuma の部屋番号に `distinct_seen` を使う場合、レベルをまたぐと同じ部屋番号が重なるため、別のレベルの部屋を区別しない。
 
 Step結果の`ram_metric.[n]`は通常Stepのsnapshotまたは実ゲーム完了時の確定値を返し、life-only終端ではNaNとする。どこかのゲームが n を使えば既知キーなので、現在ゲームに n がない場合も NaN を返す。番号は全ゲーム共通の大まかな意味を保つ: 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数。当てはまらないゲームには番号を付けない。4 は共通の意味を持たず、ゲームごとに数えたいものへ使う（ゲームをまたいで 4 の列を並べて読まない）。trace は `@episode_end`、scalar の `mean.` は完了 lane だけから値を取る。番号を持たないゲームでは trace は `null`、scalar は行が出ない。番号の具体的なラベルは Run の `config/config_data.txt` で引く。
 

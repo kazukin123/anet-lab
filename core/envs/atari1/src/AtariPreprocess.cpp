@@ -64,21 +64,17 @@ torch::Tensor anet::rl::env::atari::InterleavedRgbToChw(
 }
 
 GrayscaleResizer::GrayscaleResizer(
-    int source_height, int source_width, int destination_size, const std::string& mode)
+    int source_height, int source_width, int destination_size, ResizeMode mode)
     : source_height_(source_height)
     , source_width_(source_width)
     , destination_size_(destination_size)
-    , pixel_area_(mode == "pixel_area")
+    , pixel_area_(mode == ResizeMode::PixelArea)
 {
     // 設定に依存する検証と重みの準備は構築時に完了させる。
     if (source_height <= 0 || source_width <= 0 || destination_size <= 0) {
         ANET_SYSTEM_ERROR("GrayscaleResizer requires positive dimensions. source_height="
             << source_height << ", source_width=" << source_width
             << ", destination_size=" << destination_size << ". Expected dimensions > 0.");
-    }
-    if (mode != "adaptive_average" && mode != "pixel_area") {
-        ANET_SYSTEM_ERROR("GrayscaleResizer mode='" << mode
-            << "'. Expected adaptive_average or pixel_area.");
     }
     if (pixel_area_) {
         if (destination_size > std::min(source_height, source_width)) {

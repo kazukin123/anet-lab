@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bitset>
 #include <cstdint>
 #include <memory>
 #include <map>
@@ -10,6 +11,7 @@
 
 #include <torch/torch.h>
 
+#include "AtariPreprocess.hpp"
 #include "anet/config.hpp"
 #include "anet/env.hpp"
 #include "anet/random.hpp"
@@ -19,8 +21,6 @@ namespace ale {
 }
 
 namespace anet::rl::env {
-
-    namespace atari { class GrayscaleResizer; }
 
     /**
      * @brief 人間正規化スコアの基準表。
@@ -46,19 +46,23 @@ namespace anet::rl::env {
     std::optional<float> HumanNormalizedScore(
         const std::string& game, float raw_score, HnsBaseline baseline);
 
-    enum class RamMetricReducer { MaxSeen, MinSeen, IncCount, DecCount, ReachCount };
+    enum class RamMetricReducer {
+        MaxSeen, MinSeen, DistinctSeen, IncCount, DecCount, ReachCount, BitRiseCount, BitFallCount
+    };
 
     struct RamMetricDefinition {
         std::string label;
         uint8_t address = 0;
         RamMetricReducer reducer = RamMetricReducer::MaxSeen;
         uint8_t target = 0;
+        uint8_t mask = 0;
     };
 
     struct RamMetricState {
         RamMetricDefinition definition;
         uint8_t previous = 0;
         int64_t value = 0;
+        std::bitset<256> seen;
 
         void Begin(uint8_t initial);
         void Observe(uint8_t current);
@@ -69,7 +73,7 @@ namespace anet::rl::env {
         std::string game;
         std::string rom_dir;
         int screen_size = 84;
-        std::string resize_mode = "adaptive_average";
+        atari::ResizeMode resize_mode = atari::ResizeMode::AdaptiveAverage;
         int frame_skip = 4;
         bool max_pool = true;
         float repeat_action_probability = 0.25f;
@@ -88,9 +92,11 @@ namespace anet::rl::env {
         std::set<int64_t> known_ram_metric_numbers;
 
         explicit AtariEnvConfig(
-            const anet::ConfigData& config_data = anet::EmptyConfigData,
+            const anet::ConfigData& config_data,
             const std::string& config_prefix = "");
         void Validate() const;
+    private:
+        void ReadRamMetrics(const anet::ConfigData& config_data);
     };
 
     struct AtariScalarContext;

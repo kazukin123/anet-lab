@@ -1,6 +1,8 @@
 #include "AtariEnv.hpp"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
@@ -31,21 +33,27 @@ struct anet::rl::env::AtariScalarContext {
 
 constexpr int kScreenHeight = 210;
 constexpr int kScreenWidth = 160;
+constexpr char kGameNamePattern[] = "[a-z0-9]+(?:_[a-z0-9]+)*";
+constexpr char kAdaptiveAverage[] = "adaptive_average";
+constexpr char kPixelArea[] = "pixel_area";
 
-static void ValidateResizeMode(const std::string& key, const std::string& value)
+static ResizeMode ParseResizeMode(const std::string& key, const std::string& value)
 {
-    if (value != "adaptive_average" && value != "pixel_area") {
+    // 文字列の検証と方式の確定を、設定読み取りの境界で済ませる。
+    if (value == kAdaptiveAverage) return ResizeMode::AdaptiveAverage;
+    if (value != kPixelArea) {
         ANET_SYSTEM_ERROR(key << "='" << value << "'. Expected adaptive_average or pixel_area.");
     }
+    return ResizeMode::PixelArea;
 }
 
-static void ValidateScreenSize(const std::string& key, int size, const std::string& resize_mode)
+static void ValidateScreenSize(const std::string& key, int size, ResizeMode resize_mode)
 {
-    // 設定読取と直接組み立てた設定の構築で、同じネイティブ解像度の条件を使う。
+    // 読み取った方式に対して、ネイティブ解像度の条件を確かめる。
     if (size <= 0) {
         ANET_SYSTEM_ERROR(key << " must be > 0, but was " << size << ".");
     }
-    if (resize_mode == "pixel_area" && size > std::min(kScreenHeight, kScreenWidth)) {
+    if (resize_mode == ResizeMode::PixelArea && size > std::min(kScreenHeight, kScreenWidth)) {
         ANET_SYSTEM_ERROR(key << "=" << size
             << " with resize_mode='pixel_area'. Expected an integer in [1,160].");
     }
@@ -245,6 +253,11 @@ void RamMetricState::Begin(uint8_t initial)
     previous = initial;
     value = (definition.reducer == RamMetricReducer::MaxSeen
         || definition.reducer == RamMetricReducer::MinSeen) ? initial : 0;
+    if (definition.reducer == RamMetricReducer::DistinctSeen) {
+        seen.reset();
+        seen.set(initial);
+        value = 1;
+    }
 }
 
 void RamMetricState::Observe(uint8_t current)
@@ -253,9 +266,19 @@ void RamMetricState::Observe(uint8_t current)
     switch (definition.reducer) {
     case RamMetricReducer::MaxSeen: value = std::max<int64_t>(value, current); break;
     case RamMetricReducer::MinSeen: value = std::min<int64_t>(value, current); break;
+    case RamMetricReducer::DistinctSeen:
+        value += !seen.test(current);
+        seen.set(current);
+        break;
     case RamMetricReducer::IncCount: value += current > previous; break;
     case RamMetricReducer::DecCount: value += current < previous; break;
     case RamMetricReducer::ReachCount: value += current == definition.target && previous != definition.target; break;
+    case RamMetricReducer::BitRiseCount:
+        value += std::popcount(static_cast<unsigned>(current & ~previous & definition.mask));
+        break;
+    case RamMetricReducer::BitFallCount:
+        value += std::popcount(static_cast<unsigned>(previous & ~current & definition.mask));
+        break;
     }
     previous = current;
 }
@@ -275,6 +298,41 @@ static void EnsureSdlAudioDriverDefault()
     });
 }
 
+namespace {
+
+    struct RamMetricReducerSpec {
+        std::string_view name;
+        RamMetricReducer reducer;
+        std::string_view argument;
+    };
+
+} // namespace
+
+constexpr std::string_view kMaskArgument = "MASK";
+constexpr std::array<RamMetricReducerSpec, 8> kRamMetricReducers{{
+    {.name = "max_seen", .reducer = RamMetricReducer::MaxSeen},
+    {.name = "min_seen", .reducer = RamMetricReducer::MinSeen},
+    {.name = "distinct_seen", .reducer = RamMetricReducer::DistinctSeen},
+    {.name = "inc_count", .reducer = RamMetricReducer::IncCount},
+    {.name = "dec_count", .reducer = RamMetricReducer::DecCount},
+    {.name = "reach_count", .reducer = RamMetricReducer::ReachCount, .argument = "N"},
+    {.name = "bit_rise_count", .reducer = RamMetricReducer::BitRiseCount, .argument = kMaskArgument},
+    {.name = "bit_fall_count", .reducer = RamMetricReducer::BitFallCount, .argument = kMaskArgument},
+}};
+
+static std::string RamMetricReducerChoices()
+{
+    // 未知語の診断も、解析で使う表と同じ順序・表記から組み立てる。
+    std::ostringstream choices;
+    for (size_t index = 0; index < kRamMetricReducers.size(); ++index) {
+        if (index > 0) choices << (index + 1 == kRamMetricReducers.size() ? ", or " : ", ");
+        const auto& spec = kRamMetricReducers[index];
+        choices << spec.name;
+        if (!spec.argument.empty()) choices << ':' << spec.argument;
+    }
+    return choices.str();
+}
+
 static RamMetricDefinition ParseRamMetricDefinition(
     const std::string& key, const std::string& label, const std::string& raw_value)
 {
@@ -289,47 +347,48 @@ static RamMetricDefinition ParseRamMetricDefinition(
         ANET_SYSTEM_ERROR(key << " must be '<0x80..0xFF> <reducer>', but was '"
             << raw_value << "'.");
     }
-    size_t parsed = 0;
-    unsigned long address = 0;
-    try {
-        address = std::stoul(address_text, &parsed, 16);
-    } catch (const std::exception&) {
+    // 0x と 16 進 2 桁への全体一致で、変換の成功と上限は保証されている。
+    const auto address = std::stoul(address_text, nullptr, 16);
+    if (address < 0x80) {
         ANET_SYSTEM_ERROR(key << " has invalid address '" << address_text
             << "' in '" << raw_value << "'; expected 0x80..0xFF.");
     }
-    if (parsed != address_text.size() || address < 0x80 || address > 0xFF) {
-        ANET_SYSTEM_ERROR(key << " has invalid address '" << address_text
-            << "' in '" << raw_value << "'; expected 0x80..0xFF.");
-    }
-    RamMetricReducer reducer;
-    uint8_t target = 0;
-    if (reducer_text == "max_seen") reducer = RamMetricReducer::MaxSeen;
-    else if (reducer_text == "min_seen") reducer = RamMetricReducer::MinSeen;
-    else if (reducer_text == "inc_count") reducer = RamMetricReducer::IncCount;
-    else if (reducer_text == "dec_count") reducer = RamMetricReducer::DecCount;
-    else if (reducer_text.starts_with("reach_count:")) {
-        reducer = RamMetricReducer::ReachCount;
-        const auto target_text = reducer_text.substr(std::string_view("reach_count:").size());
-        unsigned target_value = 0;
-        const auto [end, error] = std::from_chars(
-            target_text.data(), target_text.data() + target_text.size(), target_value);
-        if (error != std::errc{} || end != target_text.data() + target_text.size()
-            || target_text.empty() || target_value > 255) {
-            ANET_SYSTEM_ERROR(key << " has invalid reducer '" << reducer_text
-                << "' in '" << raw_value << "'; expected reach_count:N with N in 0..255.");
-        }
-        target = static_cast<uint8_t>(target_value);
-    } else {
+    const auto spec = std::find_if(kRamMetricReducers.begin(), kRamMetricReducers.end(),
+        [&reducer_text](const auto& candidate) {
+            if (candidate.argument.empty()) return reducer_text == candidate.name;
+            return reducer_text.starts_with(candidate.name) && reducer_text.size() > candidate.name.size()
+                && reducer_text[candidate.name.size()] == ':';
+        });
+    if (spec == kRamMetricReducers.end()) {
         ANET_SYSTEM_ERROR(key << " has invalid reducer '" << reducer_text
-            << "' in '" << raw_value
-            << "'; expected max_seen, min_seen, inc_count, dec_count, or reach_count:N.");
+            << "' in '" << raw_value << "'; expected " << RamMetricReducerChoices() << '.');
     }
-    return RamMetricDefinition{
+    RamMetricDefinition definition{
         .label = label,
         .address = static_cast<uint8_t>(address),
-        .reducer = reducer,
-        .target = target,
+        .reducer = spec->reducer,
     };
+    // 引数を持つ語だけを検証し、マスクと到達値の範囲・表記を区別する。
+    if (!spec->argument.empty()) {
+        const bool is_mask = spec->argument == kMaskArgument;
+        auto argument_text = std::string_view(reducer_text).substr(spec->name.size() + 1);
+        const bool hexadecimal = is_mask && argument_text.starts_with("0x");
+        if (hexadecimal) argument_text.remove_prefix(2);
+        unsigned argument_value = 0;
+        const auto [end, error] = std::from_chars(argument_text.data(),
+            argument_text.data() + argument_text.size(), argument_value, hexadecimal ? 16 : 10);
+        if (error != std::errc{} || end != argument_text.data() + argument_text.size()
+            || argument_text.empty() || (hexadecimal && argument_text.size() != 2)
+            || argument_value > 255 || (is_mask && argument_value == 0)) {
+            ANET_SYSTEM_ERROR(key << " has invalid reducer '" << reducer_text
+                << "' in '" << raw_value << "'; expected " << spec->name << ':' << spec->argument
+                << " with " << spec->argument
+                << (is_mask ? " in 1..255 or 0x01..0xFF." : " in 0..255."));
+        }
+        if (is_mask) definition.mask = static_cast<uint8_t>(argument_value);
+        else definition.target = static_cast<uint8_t>(argument_value);
+    }
+    return definition;
 }
 
 static std::map<int64_t, RamMetricDefinition> ParseRamMetricBindings(
@@ -382,10 +441,11 @@ AtariEnvConfig::AtariEnvConfig(
     ANET_READ_CONFIG(config_data, game);
     ANET_READ_CONFIG(config_data, rom_dir);
     ANET_READ_CONFIG(config_data, screen_size);
-    ANET_READ_CONFIG(config_data, resize_mode);
+    std::string resize_mode_text = kAdaptiveAverage;
+    ReadConfig(config_data, "resize_mode", resize_mode_text);
     // 読み取る宣言を両方検証し、個別上書きで不正な共通値を隠さない。
     for (const auto& key : {MakeDefaultConfigKey("resize_mode"), MakeOverrideConfigKey("resize_mode")}) {
-        if (config_data.Has(key)) ValidateResizeMode(key, config_data.Get(key));
+        if (config_data.Has(key)) resize_mode = ParseResizeMode(key, config_data.Get(key));
     }
     const auto override_size_key = MakeOverrideConfigKey("screen_size");
     const auto size_key = config_data.Has(override_size_key) ? override_size_key : MakeDefaultConfigKey("screen_size");
@@ -405,17 +465,17 @@ AtariEnvConfig::AtariEnvConfig(
     ANET_READ_CONFIG(config_data, display_screen);
     ANET_READ_CONFIG(config_data, sound);
 
+    ReadRamMetrics(config_data);
+}
+
+void AtariEnvConfig::ReadRamMetrics(const anet::ConfigData& config_data)
+{
     // RAM 定義はゲーム別に検証し、番号付きの定義だけを実行対象として保持する。
     const std::string ram_prefix = MakeDefaultConfigKey("ram_metric") + ".";
     const std::regex default_key_pattern(
         "^" + MakeDefaultConfigKey("ram_metric")
-        + R"(\.\[([a-z0-9]+(?:_[a-z0-9]+)*)\]\.(metrics|\[[A-Za-z0-9_]+\])$)");
-    const std::regex eval_override_pattern(R"(^run\.eval\.\[[^\]]+\]\.env\.ram_metric\..+$)");
+        + "\\.\\[(" + kGameNamePattern + R"()\]\.(metrics|\[[A-Za-z0-9_]+\])$)");
     for (const auto& [key, value] : config_data.Map()) {
-        if (key.starts_with("run.eval.") && key.find(".env.ram_metric.") != std::string::npos
-            && std::regex_match(key, eval_override_pattern)) {
-            ANET_SYSTEM_ERROR("Atari RAM metric override is unsupported: " << key << "='" << value << "'.");
-        }
         if (key.starts_with(ram_prefix) && !std::regex_match(key, default_key_pattern)) {
             ANET_SYSTEM_ERROR("Invalid Atari RAM metric key: " << key << "='" << value << "'.");
         }
@@ -424,10 +484,6 @@ AtariEnvConfig::AtariEnvConfig(
         std::map<std::string, RamMetricDefinition> definitions;
         for (const auto& [sub_key, raw_value] : block.Map()) {
             if (sub_key == "metrics") continue;
-            if (sub_key.size() < 3 || sub_key.front() != '[' || sub_key.back() != ']') {
-                ANET_SYSTEM_ERROR("AtariEnv.ram_metric.[" << game_name << "]." << sub_key
-                    << " is not a RAM definition label.");
-            }
             const std::string label = sub_key.substr(1, sub_key.size() - 2);
             const std::string definition_key = ram_prefix + "[" + game_name + "].[" + label + "]";
             definitions.emplace(label, ParseRamMetricDefinition(definition_key, label, block.Get(sub_key)));
@@ -435,8 +491,7 @@ AtariEnvConfig::AtariEnvConfig(
         // 検証済みの宣言を Module Config にも収め、Run の実効設定へ反映する。
         for (const auto& [sub_key, raw_value] : block.Map()) {
             const std::string relative_key = "ram_metric.[" + game_name + "]." + sub_key;
-            my_config_data_.Set(relative_key, raw_value);
-            my_config_json_[relative_key] = raw_value;
+            RecordConfigValue(relative_key, raw_value);
         }
         if (!block.Has("metrics")) continue;
         const std::string metrics_key = ram_prefix + "[" + game_name + "].metrics";
@@ -483,7 +538,8 @@ AtariEnv::AtariEnv(
         log.warn_once() << "AtariEnv.display_screen=true creates one SDL window per ALE instance and is unsupported with worker threads; use AtariView for Runner observation.";
     }
 
-    log.verbose() << "AtariEnv resize_mode=" << config_.resize_mode;
+    log.verbose() << "AtariEnv resize_mode="
+        << (config_.resize_mode == ResizeMode::PixelArea ? kPixelArea : kAdaptiveAverage);
     Reset();
 }
 
@@ -520,11 +576,10 @@ AtariEnv::~AtariEnv() = default;
 
 void AtariEnvConfig::Validate() const
 {
-    // 設定オブジェクトを直接組み立てた呼び出しも同じ方式契約を守る。
+    // 方式と画面寸法は読み取り済み。factory と env の構築で使う残りの局所条件を検証する。
     const auto prefix = GetOverridePrefix().empty() ? "AtariEnv" : GetOverridePrefix();
-    ValidateResizeMode(prefix + ".resize_mode", resize_mode);
-    ValidateScreenSize(prefix + ".screen_size", screen_size, resize_mode);
-    if (!std::regex_match(game, std::regex("[a-z0-9]+(?:_[a-z0-9]+)*"))) {
+    static const std::regex game_pattern(kGameNamePattern);
+    if (!std::regex_match(game, game_pattern)) {
         ANET_SYSTEM_ERROR(prefix << ".game must be a non-empty snake_case ROM stem, but was '" << game << "'.");
     }
     if (frame_skip < 1) {

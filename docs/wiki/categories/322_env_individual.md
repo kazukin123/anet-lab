@@ -142,8 +142,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | 調査中 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 未確認 | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
-| [issue-20261111-9ff3b7](../../management/issues/issue-20261111-9ff3b7.md) | 調査中 | 3.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 未確認 | AtariEnvConfig のコンストラクタに RAM メトリクスの記法の解析と検証が並び、縮小方式は文字列のまま 3 つの層で 3 回検証している |
+| [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | 対応中 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | 成果物 | PRD | 322_env_individual | Env | 機能追加 | [PRD085](../../memo/085_dropmerge_eval_score_axes_10prd.md) | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸） |
 | [issue-20261111-c68178](../../management/issues/issue-20261111-c68178.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMerge のエピソード統計を 1 つ足すと、Env のメンバ・Reset・StepResult の初期化子とメンバ・GetScalar の 5 か所へ同じ形を足すことになる |
 | [issue-20261107-16ffd8](../../management/issues/issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | 成果物 | PRD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 未確認 | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
@@ -169,7 +168,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-13bc20](../../management/issues/issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 成果物 | PRD | 322_env_individual | Env | 機能追加 | [PRD086](../../memo/086_dropmerge_macro_actions_10prd.md) | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化） |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 20 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
+着手できる 19 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) — Evaluation Traceで内的報酬（RNDの新しさ）を見られない
 - 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）
